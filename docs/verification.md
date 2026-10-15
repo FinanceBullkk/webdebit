@@ -1,5 +1,21 @@
 # Kiểm chứng thay đổi ngày 15/10/2026
 
+## Harness PostgreSQL schema ghi sổ — nhánh phụ thuộc PR #2
+
+Nhánh `test/pg18-schema-characterization` bắt đầu từ `315d2d150d17ac77cda31f0ef3b61f696cd20ea5`, cùng head PR #2 khi bắt đầu. SHA-256 schema `cong-no-web-handoff/tools/pg_ledger_schema.sql` theo nội dung LF chuẩn hóa: `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`. Runner chuẩn hóa CRLF/LF trước hash và nạp chính nội dung đó, để revision giống nhau có cùng hash trên Windows/Linux. PostgreSQL image được pin `postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`; registry trả HTTP 200 cho manifest digest này. Chưa có `version()` từ server trong lượt local vì daemon không khởi động.
+
+Runner: `python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report <path>`. Mỗi lượt dùng volume/container riêng có run-id label, `--network none`, không publish port; database đích duy nhất là `webdebit_ledger`. SQL gốc được truyền nguyên bản với `ON_ERROR_STOP`. Fixture toàn bộ là giả. Báo cáo JSON giữ expected/actual, SQLSTATE và số posting/status/audit sau mỗi case. Schema không có receipt entity/allocation ledger riêng; kiểm allocation cùng receipt được để lại cho task sau Q03–Q04.
+
+| Kiểm | Kết quả thực chạy |
+|---|---|
+| `py_compile` runner (Python 3.13.6) | Đạt. |
+| `git diff --check` | Đạt. |
+| `python -m unittest discover -s tests -v` trong `cong-no-web-handoff/` | 23/23 đạt. Đây là fixture suite hiện có, tách biệt PostgreSQL. |
+| Runner local trên Windows | Exit 1 đúng kỳ vọng fail-closed; report run `e176f428ad934d5a953b51811fd8473f`, không tạo container/volume và không chạy DDL. Docker Desktop process đã mở nhưng daemon named pipe không có; service `com.docker.service` không thể khởi động do quyền môi trường. PostgreSQL local chưa được kiểm. |
+| PostgreSQL 18.6 CI job | Chờ lượt CI của draft PR; chỉ ghi thành công sau khi runner hoàn tất và artifact chứa `version()`/case results. |
+
+**Kết luận hiện tại:** characterization/defect repro/rollback/locking trên PostgreSQL thật chưa có kết quả. Kết quả fail-closed local không được diễn giải thành test PostgreSQL đạt. Nếu PR #2 đổi trước hoặc trong lượt CI, so diff của schema/task và chạy lại CI trên head mới.
+
 ## Phạm vi và revision
 
 Mã cơ sở: `69a84a41382217265f745c1c9ae87cba9e557c16` (34 file). Thay đổi hiện tại: dependency/runner/CI, hồ sơ nghiệp vụ đã lọc, cảnh báo chuyến chờ duyệt trên fixture. Diff/commit của thay đổi là ranh giới revision; kết quả dưới đây chỉ cho môi trường được nêu, không chứng minh live.
