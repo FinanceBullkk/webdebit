@@ -6,17 +6,19 @@ Repository phát triển chung cho dev và AI của sổ công nợ phải thu H
 
 ## Cài và kiểm trên máy mới
 
-Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Test Python dùng thư viện chuẩn, không cần pip package hay PostgreSQL. Từ gốc repository:
+Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Python cần gói dữ liệu múi giờ `tzdata` đã khóa phiên bản/hash, đặc biệt trên Windows; không cần PostgreSQL. Từ gốc repository trên Windows:
 
 ```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements.txt
 npm ci --ignore-scripts
 npx playwright install chromium
 npm test
 cd cong-no-web-handoff
-py -3.13 -m unittest discover -s tests -v
+..\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Linux dùng `python3 -m unittest discover -s tests -v`; cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12`. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
+Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt`, rồi chạy test từ `cong-no-web-handoff/` bằng `../.venv/bin/python -m unittest discover -s tests -v`. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
 
 `npm run test:unit` chạy đủ bốn file JS không cần browser; `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless. `npm test` chạy cả hai. [Workflow](.github/workflows/test.yml) kiểm Windows/Linux, Python 3.12/3.13 và Node 24/Chromium. File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
 
