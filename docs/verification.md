@@ -11,7 +11,7 @@ Kiểm cục bộ trước commit trên branch `feature/p0-actor-revisions`, bas
 - File hash của nội dung được test: fixture `757052383b81c7533ab1b2a2b4ac10c1510b30075a9a1e2cd268b7b3c6c865de`; runner `620275d2a3b4efea280eca046d90d68b6e8d797dedfbd812cb35cacda811685f`; helper dùng chung `b77e8703c9143103944d29bcd0ee3e30d40b9db7295bab5b41ab49efe601ccdb`; `actor_assertion.py` `68e4bad0e3c99578855368575e4b820a1d0b1010b564d800096ec94b3b2c67f` (LF-normalized).
 - `pg_ledger_schema.sql` không đổi; SHA-256 LF-normalized vẫn `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`.
 - Nội dung kiểm: charge thiếu mã chuyến/đối chiếu opening hoặc dùng tham chiếu opaque vẫn ở `review_needed`, không có approval/posting; kỳ đóng/chưa xác nhận, giá thiếu/lệch và xác nhận cũ sau edit đều fail-closed. Generic Q01/Q02 coverage giữ nguyên.
-- Chưa có CI cho commit T3 tại thời điểm kiểm cục bộ. Lượt workflow và revision chính xác sẽ được ghi sau push.
+- CI `Tests`: [run 38722630386](https://github.com/FinanceBullkk/webdebit/actions/runs/38722630386), `8/8` job đạt trên commit `3599bc6ef7a2668eede1654f715860659a825ba2`. Job `pg18-versioned-approval-fixture` đạt `84/84`, report run-id `9129ebc93632420eb4611dd8e6974dc6`, SHA-256 `3967813175be0f0c045098ad8585c803950fe84677b33a84dd4550ae9e05abf5`; cleanup `verified_and_removed`. Đây kiểm code commit nêu trên; commit tài liệu ghi nhận kết quả không đổi code.
 
 Phạm vi kiểm trước commit: branch `feature/p0-actor-revisions`, HEAD nền `75d9ff994ab803b18932f8f306a507f181356c71`; nội dung code/fixture được nhận diện bằng hash dưới đây. Không áp dụng DDL lên `hao`, service, Sheet hoặc DB nào khác.
 
