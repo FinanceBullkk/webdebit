@@ -11,6 +11,15 @@ GRANT USAGE ON SCHEMA p0_fixture TO p0_fixture_api;
 
 SET ROLE p0_fixture_owner;
 
+-- Whitespace that must not survive in a trip key: ASCII/locale spaces plus the Unicode spaces and
+-- zero-width characters that commonly arrive when text is pasted from a Sheet (NBSP, ZWSP, BOM, ...).
+CREATE FUNCTION p0_fixture.strip_trip_whitespace(p_value text) RETURNS text
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT regexp_replace(coalesce(p_value, ''),
+        '[\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]', '', 'g')
+$$;
+
 CREATE TABLE p0_fixture.app_actor (
     actor_id uuid PRIMARY KEY,
     active boolean NOT NULL DEFAULT true
@@ -18,7 +27,7 @@ CREATE TABLE p0_fixture.app_actor (
 
 CREATE TABLE p0_fixture.app_actor_role (
     actor_id uuid NOT NULL REFERENCES p0_fixture.app_actor,
-    app_role text NOT NULL CHECK (app_role IN ('maker', 'checker', 'admin')),
+    app_role text NOT NULL CHECK (app_role IN ('maker', 'checker', 'price_owner', 'admin')),
     PRIMARY KEY (actor_id, app_role)
 );
 
@@ -30,7 +39,8 @@ CREATE TABLE p0_fixture.debt_period_state (
 -- Owner-only. Empty outside tests, so every charge stays blocked by default (CHỜ KIỂM).
 -- A row ABSENT_FROM_OPENING_APPROVED stands for an approved "trip is not in the opening" decision.
 CREATE TABLE p0_fixture.trip_opening_resolution (
-    trip_key text PRIMARY KEY CHECK (trip_key <> '' AND trip_key = upper(trip_key) AND trip_key !~ '\s'),
+    trip_key text PRIMARY KEY CHECK (trip_key <> '' AND trip_key = upper(trip_key)
+        AND trip_key = p0_fixture.strip_trip_whitespace(trip_key)),
     status text NOT NULL CHECK (status IN ('ABSENT_FROM_OPENING_APPROVED', 'IN_OPENING', 'UNRESOLVED')),
     evidence_ref text NOT NULL CHECK (btrim(evidence_ref) <> ''),
     approved_by text NOT NULL CHECK (btrim(approved_by) <> ''),
@@ -84,7 +94,8 @@ CREATE TABLE p0_fixture.period_confirmation (
     UNIQUE (revision_id)
 );
 
--- The price confirmer is any maker (PRICE-MAKER); it only may not be the checker of the same revision.
+-- The price confirmer holds the price_owner role (business owner). A maker may also hold it and confirm
+-- the price of their own charge (PRICE-MAKER); the confirmer may not be the checker of the same revision.
 CREATE TABLE p0_fixture.price_confirmation (
     confirmation_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     proposal_id bigint NOT NULL,
@@ -119,7 +130,10 @@ CREATE TABLE p0_fixture.posting (
     revision_id bigint NOT NULL UNIQUE,
     approval_id bigint NOT NULL REFERENCES p0_fixture.approval,
     content_sha256 text NOT NULL,
-    trip_key text NOT NULL,
+    -- Conservative rule until the business owner decides "per trip" vs "per trip + fee type": one posting
+    -- per key. Also the backstop for the advisory-lock check, which a REPEATABLE READ/SERIALIZABLE
+    -- snapshot can miss.
+    trip_key text NOT NULL UNIQUE,
     canonical_payload jsonb NOT NULL,
     maker_actor_id uuid NOT NULL REFERENCES p0_fixture.app_actor,
     checker_actor_id uuid NOT NULL REFERENCES p0_fixture.app_actor,
@@ -130,7 +144,6 @@ CREATE TABLE p0_fixture.posting (
         REFERENCES p0_fixture.business_revision (proposal_id, revision_id, content_sha256),
     CHECK (maker_actor_id <> checker_actor_id)
 );
-CREATE INDEX posting_trip_key_idx ON p0_fixture.posting (trip_key);
 
 CREATE VIEW p0_fixture.posted_balance AS
 SELECT x.line->>'customer_id' AS customer_id,
@@ -243,13 +256,13 @@ BEGIN
     RETURN p_value::text::numeric;
 END $$;
 
--- trip_key = upper(booking || container) with every whitespace removed; NULL when either part is blank.
+-- trip_key = upper(booking || container) with every (Unicode) whitespace removed; NULL when either part is blank.
 CREATE FUNCTION p0_fixture.compute_trip_key(p_booking text, p_container text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog AS $$
 DECLARE
-    v_booking text := upper(regexp_replace(coalesce(p_booking, ''), '\s', '', 'g'));
-    v_container text := upper(regexp_replace(coalesce(p_container, ''), '\s', '', 'g'));
+    v_booking text := upper(p0_fixture.strip_trip_whitespace(p_booking));
+    v_container text := upper(p0_fixture.strip_trip_whitespace(p_container));
 BEGIN
     IF v_booking = '' OR v_container = '' THEN
         RETURN NULL;
@@ -395,8 +408,8 @@ BEGIN
 END $$;
 
 -- Reasons computable from the canonical payload alone. Codes ending in _WARNING never block.
--- DUPLICATE_TRIP_KEY (needs DB state) is added by submit_revision; OPENING_RESOLUTION_MISSING is
--- computed by the projection because the resolution can change after submit.
+-- DUPLICATE_TRIP_KEY and OPENING_RESOLUTION_MISSING depend on other rows that change after submit, so
+-- the projection computes them live instead of freezing them in the snapshot.
 CREATE FUNCTION p0_fixture.charge_review_reason_codes(p_payload jsonb) RETURNS text[]
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog AS $$
@@ -458,7 +471,7 @@ BEGIN
     IF jsonb_typeof(p_payload->'trip_key') = 'null' THEN
         v_codes := array_append(v_codes, 'TRIP_KEY_MISSING');
     END IF;
-    IF upper(regexp_replace(coalesce(p_payload->>'booking_no', ''), '\s', '', 'g')) = '/' THEN
+    IF p0_fixture.strip_trip_whitespace(p_payload->>'booking_no') = '/' THEN
         v_codes := array_append(v_codes, 'BOOKING_PLACEHOLDER');
     END IF;
     SELECT array_agg(code ORDER BY code COLLATE "C") INTO v_codes FROM unnest(v_codes) AS x(code);
@@ -502,7 +515,24 @@ BEGIN
     END IF;
 END $$;
 
--- Serializes approve/post per trip key and refuses a key another proposal already posted.
+-- Approve: serializes per trip key and refuses a key another proposal already holds (approved or posted).
+CREATE FUNCTION p0_fixture.assert_trip_not_claimed(p_trip_key text, p_proposal_id bigint) RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, p0_fixture AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtextextended('p0_fixture.trip_key:' || p_trip_key, 0));
+    IF EXISTS (SELECT 1
+               FROM p0_fixture.proposal o
+               JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
+               WHERE orev.trip_key = p_trip_key AND o.proposal_id <> p_proposal_id
+                 AND o.state IN ('approved', 'posted')) THEN
+        RAISE EXCEPTION 'trip key already approved or posted by another proposal; charge remains CHỜ KIỂM'
+            USING ERRCODE = 'P0001';
+    END IF;
+END $$;
+
+-- Post: same serialization, refuses a key another proposal already posted. posting.trip_key UNIQUE is the
+-- backstop when a REPEATABLE READ/SERIALIZABLE snapshot cannot see the other posting.
 CREATE FUNCTION p0_fixture.assert_trip_not_posted(p_trip_key text, p_proposal_id bigint) RETURNS void
 LANGUAGE plpgsql
 SET search_path = pg_catalog, p0_fixture AS $$
@@ -544,9 +574,9 @@ BEGIN
     IF p_payload_text IS NULL OR length(p_payload_text) > 65536 THEN
         RAISE EXCEPTION 'invalid fixture payload length' USING ERRCODE = 'P0001';
     END IF;
-    -- jsonb normalizes 1e2 and keeps 100.0, so number spelling is checked on the raw text
+    -- jsonb normalizes 1e2 and -0 and keeps 100.0, so number spelling is checked on the raw text
     -- with string contents removed.
-    IF regexp_replace(p_payload_text, '"(?:[^"\\]|\\.)*"', '""', 'g') ~ '[0-9][.eE]' THEN
+    IF regexp_replace(p_payload_text, '"(?:[^"\\]|\\.)*"', '""', 'g') ~ '[0-9][.eE]|-0([^0-9]|$)' THEN
         RAISE EXCEPTION 'fixture numbers must be canonical JSON integers' USING ERRCODE = 'P0001';
     END IF;
     v_canonical := p0_fixture.canonicalize_payload(p_payload_text::jsonb);
@@ -560,18 +590,6 @@ BEGIN
         FROM p0_fixture.proposal p WHERE p.proposal_id = p_proposal_id FOR UPDATE;
         IF NOT FOUND OR v_proposal.maker_actor_id <> p_actor_id OR v_proposal.state = 'posted' THEN
             RAISE EXCEPTION 'proposal unavailable to this maker' USING ERRCODE = 'P0001';
-        END IF;
-    END IF;
-
-    IF v_trip_key IS NOT NULL AND NOT ('BOOKING_PLACEHOLDER' = ANY(v_codes)) THEN
-        PERFORM pg_advisory_xact_lock(hashtextextended('p0_fixture.trip_key:' || v_trip_key, 0));
-        IF EXISTS (SELECT 1
-                   FROM p0_fixture.proposal pr
-                   JOIN p0_fixture.business_revision br ON br.revision_id = pr.current_revision_id
-                   WHERE br.trip_key = v_trip_key
-                     AND pr.proposal_id IS DISTINCT FROM p_proposal_id) THEN
-            v_codes := array_append(v_codes, 'DUPLICATE_TRIP_KEY');
-            SELECT array_agg(code ORDER BY code COLLATE "C") INTO v_codes FROM unnest(v_codes) AS x(code);
         END IF;
     END IF;
 
@@ -628,8 +646,21 @@ SET search_path = pg_catalog, p0_fixture AS $$
                 'submit_time_reasons', to_jsonb(r.review_reason_codes),
                 'warnings', (
                     SELECT coalesce(to_jsonb(array_agg(w.code ORDER BY w.code COLLATE "C")), '[]'::jsonb)
-                    FROM unnest(r.review_reason_codes) AS w(code)
-                    WHERE w.code LIKE '%\_WARNING'
+                    FROM (
+                        SELECT c.code FROM unnest(r.review_reason_codes) AS c(code)
+                        WHERE c.code LIKE '%\_WARNING'
+                        UNION
+                        SELECT 'DUPLICATE_TRIP_KEY_PENDING_WARNING'
+                        WHERE r.revision_id = p.current_revision_id
+                          AND r.trip_key IS NOT NULL
+                          AND NOT ('BOOKING_PLACEHOLDER' = ANY(r.review_reason_codes))
+                          AND EXISTS (
+                            SELECT 1 FROM p0_fixture.proposal o
+                            JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
+                            WHERE orev.trip_key = r.trip_key AND o.proposal_id <> p.proposal_id
+                              AND o.state = 'review_needed'
+                          )
+                    ) AS w
                 ),
                 'current_blockers', CASE WHEN r.revision_id <> p.current_revision_id
                     THEN '[]'::jsonb
@@ -685,6 +716,7 @@ SET search_path = pg_catalog, p0_fixture AS $$
                                 SELECT 1 FROM p0_fixture.proposal o
                                 JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
                                 WHERE orev.trip_key = r.trip_key AND o.proposal_id <> p.proposal_id
+                                  AND o.state IN ('approved', 'posted')
                               )
                         ) AS b
                     ), '[]'::jsonb)
@@ -711,7 +743,10 @@ DECLARE
     v_proposal p0_fixture.proposal%ROWTYPE;
     v_revision p0_fixture.business_revision%ROWTYPE;
 BEGIN
-    PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'maker');
+    PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'price_owner');
+    IF p_proposal_id IS NULL OR p_revision_id IS NULL OR p_content_sha256 IS NULL THEN
+        RAISE EXCEPTION 'proposal, revision and content hash are required' USING ERRCODE = 'P0001';
+    END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
     IF v_proposal.proposal_id IS NULL THEN
@@ -720,7 +755,7 @@ BEGIN
     SELECT * INTO v_revision FROM p0_fixture.business_revision
     WHERE proposal_id = p_proposal_id AND revision_id = p_revision_id;
     IF v_proposal.state <> 'review_needed'
-       OR v_proposal.current_revision_id <> p_revision_id
+       OR v_proposal.current_revision_id IS DISTINCT FROM p_revision_id
        OR v_revision.content_sha256 IS DISTINCT FROM p_content_sha256 THEN
         RAISE EXCEPTION 'price confirmation requires the current charge revision' USING ERRCODE = 'P0001';
     END IF;
@@ -756,6 +791,9 @@ DECLARE
     v_revision p0_fixture.business_revision%ROWTYPE;
 BEGIN
     PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'maker');
+    IF p_proposal_id IS NULL OR p_revision_id IS NULL OR p_content_sha256 IS NULL THEN
+        RAISE EXCEPTION 'proposal, revision and content hash are required' USING ERRCODE = 'P0001';
+    END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
     IF v_proposal.proposal_id IS NULL THEN
@@ -765,7 +803,7 @@ BEGIN
     WHERE proposal_id = p_proposal_id AND revision_id = p_revision_id;
     IF v_proposal.state <> 'review_needed'
        OR v_proposal.maker_actor_id <> p_actor_id
-       OR v_proposal.current_revision_id <> p_revision_id
+       OR v_proposal.current_revision_id IS DISTINCT FROM p_revision_id
        OR v_revision.content_sha256 IS DISTINCT FROM p_content_sha256 THEN
         RAISE EXCEPTION 'period confirmation requires current charge revision from its maker'
             USING ERRCODE = 'P0001';
@@ -834,6 +872,9 @@ DECLARE
     v_revision p0_fixture.business_revision%ROWTYPE;
 BEGIN
     PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'checker');
+    IF p_proposal_id IS NULL OR p_revision_id IS NULL OR p_content_sha256 IS NULL THEN
+        RAISE EXCEPTION 'proposal, revision and content hash are required' USING ERRCODE = 'P0001';
+    END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
     IF v_proposal.proposal_id IS NULL THEN
@@ -843,8 +884,8 @@ BEGIN
     WHERE r.proposal_id = p_proposal_id AND r.revision_id = p_revision_id;
     IF NOT FOUND
        OR v_proposal.state <> 'review_needed'
-       OR v_proposal.current_revision_id <> p_revision_id
-       OR v_revision.content_sha256 <> p_content_sha256
+       OR v_proposal.current_revision_id IS DISTINCT FROM p_revision_id
+       OR v_revision.content_sha256 IS DISTINCT FROM p_content_sha256
        OR v_proposal.maker_actor_id = p_actor_id THEN
         RAISE EXCEPTION 'stale, unavailable, or self-approved revision' USING ERRCODE = 'P0001';
     END IF;
@@ -869,7 +910,7 @@ BEGIN
         RAISE EXCEPTION 'price confirmer cannot checker-approve the same revision' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'approval');
-    PERFORM p0_fixture.assert_trip_not_posted(v_revision.trip_key, p_proposal_id);
+    PERFORM p0_fixture.assert_trip_not_claimed(v_revision.trip_key, p_proposal_id);
     INSERT INTO p0_fixture.approval(proposal_id, revision_id, content_sha256,
         checker_actor_id, checker_session_id, database_session_user)
     VALUES (p_proposal_id, p_revision_id, p_content_sha256, p_actor_id, p_session_id, session_user);
@@ -896,6 +937,9 @@ DECLARE
     v_revision p0_fixture.business_revision%ROWTYPE;
 BEGIN
     PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'checker');
+    IF p_proposal_id IS NULL OR p_revision_id IS NULL OR p_content_sha256 IS NULL THEN
+        RAISE EXCEPTION 'proposal, revision and content hash are required' USING ERRCODE = 'P0001';
+    END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
     IF v_proposal.proposal_id IS NULL THEN
@@ -908,9 +952,9 @@ BEGIN
       AND content_sha256 = p_content_sha256;
     IF NOT FOUND
        OR v_proposal.state <> 'approved'
-       OR v_proposal.current_revision_id <> p_revision_id
-       OR v_revision.content_sha256 <> p_content_sha256
-       OR v_approval.checker_actor_id <> p_actor_id
+       OR v_proposal.current_revision_id IS DISTINCT FROM p_revision_id
+       OR v_revision.content_sha256 IS DISTINCT FROM p_content_sha256
+       OR v_approval.checker_actor_id IS DISTINCT FROM p_actor_id
        OR v_proposal.maker_actor_id = p_actor_id THEN
         RAISE EXCEPTION 'current approved revision required for posting' USING ERRCODE = 'P0001';
     END IF;
@@ -923,6 +967,11 @@ BEGIN
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
           AND c.content_sha256 = p_content_sha256) THEN
         RAISE EXCEPTION 'period and price confirmations are required at posting' USING ERRCODE = 'P0001';
+    END IF;
+    IF EXISTS (SELECT 1 FROM p0_fixture.price_confirmation c
+        WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
+          AND c.content_sha256 = p_content_sha256 AND c.confirmer_actor_id = p_actor_id) THEN
+        RAISE EXCEPTION 'price confirmer cannot post as checker of the same revision' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'posting');
     PERFORM p0_fixture.assert_trip_not_posted(v_revision.trip_key, p_proposal_id);
@@ -962,10 +1011,12 @@ INSERT INTO p0_fixture.app_actor(actor_id, active) VALUES
 INSERT INTO p0_fixture.app_actor_role(actor_id, app_role) VALUES
     ('11111111-1111-4111-8111-111111111111', 'maker'),
     ('11111111-1111-4111-8111-111111111111', 'checker'),
+    ('11111111-1111-4111-8111-111111111111', 'price_owner'),
     ('22222222-2222-4222-8222-222222222222', 'checker'),
     ('33333333-3333-4333-8333-333333333333', 'maker'),
+    ('33333333-3333-4333-8333-333333333333', 'price_owner'),
     ('44444444-4444-4444-8444-444444444444', 'maker'),
-    ('55555555-5555-4555-8555-555555555555', 'maker'),
+    ('55555555-5555-4555-8555-555555555555', 'price_owner'),
     ('55555555-5555-4555-8555-555555555555', 'checker');
 INSERT INTO p0_fixture.debt_period_state(debt_period, state) VALUES
     ('2026-08', 'closed'),

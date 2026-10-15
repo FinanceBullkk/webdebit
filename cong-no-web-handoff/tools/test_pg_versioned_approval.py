@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -36,11 +37,11 @@ DATABASE = "webdebit_ledger"
 API_LOGIN = "webdebit_app"
 NO_GRANT_LOGIN = "webdebit_no_grant"
 NOT_MEMBER_LOGIN = "webdebit_not_member"
-MAKER = uuid.UUID("11111111-1111-4111-8111-111111111111")       # maker + checker
+MAKER = uuid.UUID("11111111-1111-4111-8111-111111111111")       # maker + checker + price_owner
 CHECKER = uuid.UUID("22222222-2222-4222-8222-222222222222")     # checker only
-DISABLED = uuid.UUID("33333333-3333-4333-8333-333333333333")    # inactive maker
-MAKER_ONLY = uuid.UUID("44444444-4444-4444-8444-444444444444")  # maker only
-DUAL2 = uuid.UUID("55555555-5555-4555-8555-555555555555")       # maker + checker
+DISABLED = uuid.UUID("33333333-3333-4333-8333-333333333333")    # inactive maker + price_owner
+MAKER_ONLY = uuid.UUID("44444444-4444-4444-8444-444444444444")  # maker only (cannot confirm price)
+PRICE_OWNER = uuid.UUID("55555555-5555-4555-8555-555555555555")  # price_owner + checker
 UNKNOWN = uuid.UUID("99999999-9999-4999-8999-999999999999")
 ABSENT = "ABSENT_FROM_OPENING_APPROVED"
 
@@ -60,12 +61,15 @@ def dumps(payload: object) -> str:
 
 
 AUTO = object()
+# Same set as p0_fixture.strip_trip_whitespace: \s, NBSP, Ogham space, U+2000-200F (incl. ZWSP),
+# line/paragraph separators, narrow NBSP, medium math space, word joiner, ideographic space, BOM.
+TRIP_WS = re.compile("[\\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]")
 
 
 def trip_key(booking: str | None, container: str | None) -> str:
     """Mirror of p0_fixture.compute_trip_key; '' stands for NULL (booking or container blank)."""
-    b = re.sub(r"\s", "", booking or "").upper()
-    c = re.sub(r"\s", "", container or "").upper()
+    b = TRIP_WS.sub("", booking or "").upper()
+    c = TRIP_WS.sub("", container or "").upper()
     return b + c if b and c else ""
 
 
@@ -302,6 +306,16 @@ class Suite:
     def post(self, c: Charge, actor: uuid.UUID = CHECKER, *, check: bool = False):
         return self.call("post_revision", self.ids(c), actor, check=check)
 
+    def force_approve(self, c: Charge, checker: uuid.UUID = CHECKER) -> None:
+        """Owner-simulated approval row. Not reachable through the API once approve is exclusive per
+        trip key; used only to prove that post_revision defends itself independently of approve."""
+        self.f.psql(
+            "INSERT INTO p0_fixture.approval(proposal_id, revision_id, content_sha256, checker_actor_id, "
+            "checker_session_id, database_session_user) VALUES "
+            f"({c.proposal_id}, {c.revision_id}, {sql_literal(c.content_hash)}, '{checker}'::uuid, "
+            f"'{uuid.uuid4()}'::uuid, 'owner_simulated'); "
+            f"UPDATE p0_fixture.proposal SET state='approved' WHERE proposal_id={c.proposal_id}")
+
     def ready(self, c: Charge) -> Charge:
         self.confirm_both(c)
         return c
@@ -314,7 +328,7 @@ class Suite:
     # ---- contention ------------------------------------------------------------------------
     def run_contention(self, name: str, proposal_id: int, customer: str, debt_period: str,
                        holder_user: str, holder_sql: str, waiter_user: str, waiter_sql: str,
-                       waiter_error: str | None = None) -> dict[str, object]:
+                       waiter_error: str | None = None, check_balance: bool = True) -> dict[str, object]:
         short_name = name.replace("-", "")
         holder_app = f"m2:{self.run_id}:{short_name}:h"
         waiter_app = f"m2:{self.run_id}:{short_name}:w"
@@ -423,7 +437,8 @@ class Suite:
             evidence["after"] = after
             evidence["balance_after"] = balance_after
             evidence["balance_unchanged"] = balance_before == balance_after
-            self.case(f"{name}_leaves_posted_balance_unchanged", balance_before, balance_after)
+            if check_balance:
+                self.case(f"{name}_leaves_posted_balance_unchanged", balance_before, balance_after)
             return evidence
         except BaseException as exc:
             failure = exc
@@ -502,19 +517,29 @@ class Suite:
         not_member = self.f.psql(submit_sql(None, "{}", MAKER), user=NOT_MEMBER_LOGIN, check=False)
         self.rejected("login_outside_api_role_is_untrusted_even_with_execute", not_member,
                       "untrusted database principal")
-        bad_status = self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
-                                 "(trip_key, status, evidence_ref, approved_by) "
-                                 "VALUES ('BADSTATUS1', 'MAYBE', 'x', 'x')", check=False)
-        blank_evidence = self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
-                                     "(trip_key, status, evidence_ref, approved_by) "
-                                     "VALUES ('BLANKEVID1', 'IN_OPENING', '  ', 'x')", check=False)
-        lower_key = self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
-                                "(trip_key, status, evidence_ref, approved_by) "
-                                "VALUES ('lower1', 'IN_OPENING', 'x', 'x')", check=False)
-        self.case("resolution_table_rejects_bad_status_blank_evidence_and_unnormalized_key",
-                  [True, True, True],
-                  ["violates check constraint" in r.stderr and r.returncode != 0
-                   for r in (bad_status, blank_evidence, lower_key)])
+        def insert_resolution(key: str, status: str = "IN_OPENING", evidence: str = "x"):
+            return self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
+                               "(trip_key, status, evidence_ref, approved_by) VALUES "
+                               f"({sql_literal(key)}, {sql_literal(status)}, {sql_literal(evidence)}, 'x')",
+                               check=False)
+        bad_rows = {
+            "bad_status": insert_resolution("BADSTATUS1", "MAYBE"),
+            "blank_evidence": insert_resolution("BLANKEVID1", evidence="  "),
+            "lowercase_key": insert_resolution("lower1"),
+            "empty_key": insert_resolution(""),
+            "key_with_space": insert_resolution("AB CD"),
+            "key_with_tab": insert_resolution("AB\tCD"),
+            "key_with_nbsp": insert_resolution("AB\u00a0CD"),
+            "key_with_zero_width_space": insert_resolution("AB\u200bCD"),
+            "key_with_bom": insert_resolution("\ufeffABCD"),
+        }
+        self.case("resolution_table_rejects_bad_rows_including_whitespace_keys", {k: True for k in bad_rows}, {
+            k: "violates check constraint" in r.stderr and r.returncode != 0 for k, r in bad_rows.items()})
+        self.case("posting_trip_key_is_unique_and_not_null", (1, 1), tuple(int(self.query(
+            "SELECT count(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid "
+            "AND a.attnum = ANY(i.indkey) WHERE i.indrelid='p0_fixture.posting'::regclass "
+            f"AND i.indisunique AND a.attname='trip_key' AND {cond}")) for cond in (
+                "array_length(i.indkey::int2[], 1)=1", "a.attnotnull")))
 
     def g_success(self) -> None:
         customer, period, amount = "FAKE-CUSTOMER-OK", "2026-10", 2500
@@ -569,10 +594,10 @@ class Suite:
                    self.current_view(zero_component)["warnings"],
                    [b for b in self.current_view(zero_component)["current_blockers"]
                     if b.endswith("_WARNING")]))
-        self.confirm_both(zero_component, price_actor=MAKER_ONLY)
-        self.approve(zero_component, DUAL2, check=True)
-        self.post(zero_component, DUAL2, check=True)
-        self.case("success_zero_component_charge_posts_with_other_maker_and_checker",
+        self.confirm_both(zero_component, price_actor=PRICE_OWNER)
+        self.approve(zero_component, CHECKER, check=True)
+        self.post(zero_component, CHECKER, check=True)
+        self.case("success_zero_component_charge_posts_with_separate_price_owner_and_checker",
                   before + amount + 700 + 300, self.balance(customer))
         self.report["success_path"] = {
             "customer": customer, "debt_period": period, "amount_vnd": amount,
@@ -589,18 +614,21 @@ class Suite:
             self.confirm_both(c)
             before = self.snapshot(c.proposal_id)
             approval = self.approve(c)
-            post = self.post(c)
             self.case(f"{label}_projection_reports_missing_resolution", True,
                       "OPENING_RESOLUTION_MISSING" in self.current_view(c)["current_blockers"])
             self.rejected(f"{label}_approval_refused", approval, M_RES_APPROVAL)
-            self.rejected(f"{label}_post_refused", post, M_POST)
-            self.case(f"{label}_nothing_recorded_and_balance_unchanged", (before, 0),
+            self.case(f"{label}_refused_approval_recorded_nothing", before, self.snapshot(c.proposal_id))
+            # Post must refuse on the resolution itself, not merely because approve never ran: give it
+            # an owner-simulated approval so every other gate passes.
+            self.force_approve(c)
+            forced = self.snapshot(c.proposal_id)
+            self.rejected(f"{label}_post_refused_by_resolution", self.post(c), M_RES_POST)
+            self.case(f"{label}_refused_post_keeps_state_and_balance", (forced, 0),
                       (self.snapshot(c.proposal_id), self.balance(customer)))
             last = c
         self.set_resolution(last.key, ABSENT)
         self.case("unresolved_then_absent_clears_projection_blocker", [],
                   self.current_view(last)["current_blockers"])
-        self.approve(last, check=True)
         self.post(last, check=True)
         self.case("unresolved_then_absent_charge_posts", last.amount, self.balance(customer))
 
@@ -631,21 +659,42 @@ class Suite:
         self.case("spaced_payload_stores_normalized_key", ("ABC123CONT9", [], " abc 123 "),
                   (self.current_view(spaced)["payload"]["trip_key"], self.current_view(spaced)["submit_time_reasons"],
                    self.current_view(spaced)["payload"]["booking_no"]))
+        pending = "DUPLICATE_TRIP_KEY_PENDING_WARNING"
         same = self.charge(customer=customer, booking="ABC123", container="CONT9", seed=None)
-        self.case("same_key_second_proposal_gets_duplicate_reason_and_original_shows_blocker",
-                  (True, True), ("DUPLICATE_TRIP_KEY" in self.current_view(same)["submit_time_reasons"],
-                                 "DUPLICATE_TRIP_KEY" in self.current_view(spaced)["current_blockers"]))
+        self.case("same_key_pending_pair_warns_both_and_freezes_nothing", (True, True, [], []), (
+            pending in self.current_view(same)["warnings"], pending in self.current_view(spaced)["warnings"],
+            self.current_view(same)["submit_time_reasons"], self.current_view(spaced)["submit_time_reasons"]))
         lower = self.charge(customer=customer, booking="abc123", container="cont9", seed=None)
-        self.case("duplicate_detection_ignores_case", True,
-                  "DUPLICATE_TRIP_KEY" in self.current_view(lower)["submit_time_reasons"])
+        self.case("duplicate_detection_ignores_case", True, pending in self.current_view(lower)["warnings"])
         distinct = self.charge(customer=customer, seed=None)
-        self.case("distinct_key_has_no_duplicate_reason", ([], False), (
-            self.current_view(distinct)["submit_time_reasons"],
+        self.case("distinct_key_has_no_duplicate_signal", (False, False), (
+            pending in self.current_view(distinct)["warnings"],
             "DUPLICATE_TRIP_KEY" in self.current_view(distinct)["current_blockers"]))
         self.submit_raw(dumps({**distinct.payload, "reason": "edited"}), proposal_id=distinct.proposal_id)
-        self.case("editing_own_proposal_is_not_a_duplicate", [], json.loads(
-            self.query(f"SELECT to_jsonb(review_reason_codes)::text FROM p0_fixture.business_revision "
-                       f"WHERE proposal_id={distinct.proposal_id} AND revision_no=2")))
+        self.case("editing_own_proposal_is_not_a_duplicate", False,
+                  pending in self.current_view(distinct)["warnings"])
+        # The flag follows the other proposal: once it changes key, the warning disappears.
+        for other in (spaced, same, lower):
+            self.submit_raw(dumps({**other.payload, "booking_no": f"MOVED{other.proposal_id}"}),
+                            proposal_id=other.proposal_id)
+        self.case("duplicate_warning_clears_when_the_other_proposal_changes_key", False,
+                  any(pending in self.current_view(c)["warnings"] for c in (spaced, same, lower)))
+
+        # Unicode whitespace pasted from a Sheet must not produce a different key.
+        plain_key = "UNI77CTR77"
+        unicode_cases = {
+            "nbsp": ("UNI\u00a077", "CTR\u00a077"), "zwsp": ("UNI\u200b77", "CTR\u200b77"),
+            "bom": ("\ufeffUNI77", "CTR77\ufeff"), "ideographic": ("UNI\u300077", "CTR77"),
+            "narrow_nbsp": ("UNI77", "CTR\u202f77"), "word_joiner": ("UNI\u206077", "CTR77"),
+        }
+        keys = {}
+        for label, (booking, container) in unicode_cases.items():
+            c = self.charge(customer=customer, booking=booking, container=container, seed=None)
+            keys[label] = self.current_view(c)["payload"]["trip_key"]
+        self.case("unicode_whitespace_is_removed_from_trip_key", {k: plain_key for k in unicode_cases}, keys)
+        only_unicode = self.charge(customer=customer, booking="\u00a0\u200b", container="CTR1", seed=None)
+        self.case("booking_made_only_of_unicode_whitespace_is_missing", True,
+                  "TRIP_KEY_MISSING" in self.current_view(only_unicode)["submit_time_reasons"])
 
         missing_variants = {
             "null_booking": (None, "C1"), "empty_booking": ("", "C1"), "blank_booking": ("   ", "C1"),
@@ -682,24 +731,25 @@ class Suite:
                              container=first.payload["container_no"], seed=None)  # type: ignore[arg-type]
         self.confirm_both(first)
         self.confirm_both(second)
-        self.case("duplicate_pair_second_has_reason", True,
-                  "DUPLICATE_TRIP_KEY" in self.current_view(second)["submit_time_reasons"])
         before = self.balance(customer)
         self.approve(first, check=True)
-        self.approve(second, check=True)  # nothing posted yet: both can reach approved
+        self.case("second_proposal_is_blocked_live_once_the_first_is_approved", (True, False), (
+            "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"],
+            "DUPLICATE_TRIP_KEY" in self.current_view(first)["current_blockers"]))
+        self.rejected("second_approval_refused_while_first_is_approved", self.approve(second),
+                      "trip key already approved or posted by another proposal")
         self.post(first, check=True)
-        self.rejected("duplicate_second_post_refused_after_first_posted", self.post(second),
-                      "trip key already posted by another proposal")
-        self.case("duplicate_pair_only_first_amount_in_balance", (before + 120, "approved", 1),
+        self.rejected("second_approval_refused_after_first_is_posted", self.approve(second),
+                      "trip key already approved or posted by another proposal")
+        self.case("duplicate_pair_only_first_amount_is_posted", (before + 120, "review_needed", 1),
                   (self.balance(customer), self.snapshot(second.proposal_id)["state"],
                    self.count("posting", f"trip_key={sql_literal(first.key)}")))
-        third = self.charge(customer=customer, amount=140, booking=first.payload["booking_no"],  # type: ignore[arg-type]
-                            container=first.payload["container_no"], seed=None)  # type: ignore[arg-type]
-        self.confirm_both(third)
-        self.rejected("duplicate_of_posted_key_cannot_be_approved", self.approve(third),
-                      "trip key already posted by another proposal")
-        self.case("duplicate_of_posted_key_stays_review_needed_and_out_of_balance", ("review_needed", before + 120),
-                  (self.snapshot(third.proposal_id)["state"], self.balance(customer)))
+        # The flag is live: when the approved proposal is the only holder, changing the second proposal's
+        # key clears its blocker; the first (posted) proposal keeps its own state.
+        self.submit_raw(dumps({**second.payload, "booking_no": "FREED", "container_no": "KEY1"}),
+                        proposal_id=second.proposal_id)
+        self.case("changing_key_clears_the_live_duplicate_blocker", False,
+                  "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"])
 
     def g_date(self) -> None:
         customer = "FAKE-CUSTOMER-DATE"
@@ -740,6 +790,8 @@ class Suite:
             "total_string": ('"total_vnd":100', '"total_vnd":"100"'),
             "total_negative": ('"total_vnd":100', '"total_vnd":-5'),
             "total_fraction": ('"total_vnd":100', '"total_vnd":100.5'),
+            "total_negative_zero": ('"total_vnd":100', '"total_vnd":-0'),
+            "line_amount_negative_zero": ('"amount_vnd":100}', '"amount_vnd":-0}'),
             "total_boolean": ('"total_vnd":100', '"total_vnd":true'),
             "total_16_digits": ('"total_vnd":100', '"total_vnd":1000000000000000'),
             "line_amount_100.0": ('"amount_vnd":100}', '"amount_vnd":100.0}'),
@@ -871,26 +923,38 @@ class Suite:
 
         self_confirm = self.charge(customer=customer)
         other_confirm = self.charge(customer=customer)
-        a = self.call("confirm_price_revision", self.ids(self_confirm), MAKER)
-        b = self.call("confirm_price_revision", self.ids(other_confirm), MAKER_ONLY)
-        self.case("maker_may_confirm_own_price_and_another_maker_may_too", (0, 0), (a.returncode, b.returncode))
-        self.rejected("checker_only_actor_cannot_confirm_price",
-                      self.call("confirm_price_revision", self.ids(self_confirm), CHECKER), "actor role required")
+        a = self.call("confirm_price_revision", self.ids(self_confirm), MAKER)  # maker is also price_owner
+        b = self.call("confirm_price_revision", self.ids(other_confirm), PRICE_OWNER)
+        self.case("maker_who_is_price_owner_may_confirm_own_price_and_a_separate_price_owner_may_too", (0, 0),
+                  (a.returncode, b.returncode))
+        denied = {
+            "maker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), MAKER_ONLY),
+            "checker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), CHECKER),
+        }
+        self.case("only_price_owner_role_may_confirm_price", {k: True for k in denied}, {
+            k: v.returncode != 0 and "actor role required" in v.stderr for k, v in denied.items()})
         self.rejected("same_revision_price_cannot_be_confirmed_twice",
-                      self.call("confirm_price_revision", self.ids(self_confirm), MAKER_ONLY), "duplicate key")
+                      self.call("confirm_price_revision", self.ids(self_confirm), PRICE_OWNER), "duplicate key")
 
         c = self.charge(customer=customer, maker=MAKER_ONLY)
         self.call("confirm_period_revision", self.ids(c), MAKER_ONLY, check=True)
-        self.call("confirm_price_revision", self.ids(c), MAKER, check=True)
-        self.rejected("price_confirmer_cannot_checker_approve_same_revision", self.approve(c, MAKER),
+        self.call("confirm_price_revision", self.ids(c), PRICE_OWNER, check=True)
+        self.rejected("price_confirmer_cannot_checker_approve_same_revision", self.approve(c, PRICE_OWNER),
                       "price confirmer cannot checker-approve the same revision")
         self.case("refused_approval_left_charge_pending", ("review_needed", 0),
                   (self.snapshot(c.proposal_id)["state"], self.count("approval", f"proposal_id={c.proposal_id}")))
         approved = self.approve(c, CHECKER)
         self.case("a_different_checker_may_approve", 0, approved.returncode)
         self.post(c, CHECKER, check=True)
-        self.case("charge_with_separate_maker_price_confirmer_and_checker_posts", c.amount,
+        self.case("charge_with_separate_maker_price_owner_and_checker_posts", c.amount,
                   self.balance(customer))
+        # Post defends itself too: an owner-simulated approval by the price confirmer is refused.
+        d = self.charge(customer=customer, maker=MAKER_ONLY)
+        self.call("confirm_period_revision", self.ids(d), MAKER_ONLY, check=True)
+        self.call("confirm_price_revision", self.ids(d), PRICE_OWNER, check=True)
+        self.force_approve(d, checker=PRICE_OWNER)
+        self.rejected("post_refuses_when_the_checker_is_the_price_confirmer", self.post(d, PRICE_OWNER),
+                      "price confirmer cannot post as checker")
 
     def g_actors(self) -> None:
         customer = "FAKE-CUSTOMER-ACT"
@@ -932,13 +996,26 @@ class Suite:
         self.rejected("maker_with_checker_role_cannot_approve_own_charge", self.approve(c, MAKER), M_STALE)
         self.approve(c, CHECKER, check=True)
         self.rejected("maker_cannot_post_own_charge", self.post(c, MAKER), M_POST)
-        self.rejected("a_checker_who_did_not_approve_cannot_post", self.post(c, DUAL2), M_POST)
+        self.rejected("a_checker_who_did_not_approve_cannot_post", self.post(c, PRICE_OWNER), M_POST)
         self.case("refused_decisions_left_charge_approved_not_posted", ("approved", 0),
                   (self.snapshot(c.proposal_id)["state"], self.count("posting", f"proposal_id={c.proposal_id}")))
         self.post(c, CHECKER, check=True)
         self.case("posting_and_audit_use_one_api_login", [API_LOGIN], json.loads(self.query(
             "SELECT to_jsonb(array_agg(DISTINCT database_session_user::text))::text FROM p0_fixture.audit "
             f"WHERE proposal_id={c.proposal_id}")))
+
+        # NULL revision or hash must hit an explicit guard in every state-changing function.
+        guard = "proposal, revision and content hash are required"
+        null_calls = {}
+        for function, actor in (("confirm_price_revision", MAKER), ("confirm_period_revision", MAKER),
+                                ("approve_revision", CHECKER), ("post_revision", CHECKER)):
+            for label, revision, content in (("revision", "NULL::bigint", sql_literal(c.content_hash)),
+                                             ("hash", str(c.revision_id), "NULL::text")):
+                result = self.f.psql(
+                    f"SELECT p0_fixture.{function}({c.proposal_id}, {revision}, {content}, "
+                    f"'{actor}'::uuid, '{uuid.uuid4()}'::uuid)", user=API_LOGIN, check=False)
+                null_calls[f"{function}_null_{label}"] = result.returncode != 0 and guard in result.stderr
+        self.case("null_revision_or_hash_is_refused_by_an_explicit_guard", {k: True for k in null_calls}, null_calls)
 
     def g_revision(self) -> None:
         customer = "FAKE-CUSTOMER-REV"
@@ -1124,6 +1201,114 @@ class Suite:
                       "debt period is not open at approval")
         self.set_period("2026-11", "open")
 
+    def key_pair(self, customer: str, amount_a: int, amount_b: int, **kw: object) -> tuple[Charge, Charge]:
+        """Two charges with one trip key, both confirmed. A is approved through the API; B gets an
+        owner-simulated approval (approve itself now refuses a second holder of the key), so that the
+        post-time defenses can be tested on their own."""
+        a = self.charge(customer=customer, amount=amount_a, **kw)  # type: ignore[arg-type]
+        b = self.charge(customer=customer, amount=amount_b, seed=None,
+                        booking=a.payload["booking_no"], container=a.payload["container_no"], **kw)  # type: ignore[arg-type]
+        self.confirm_both(a)
+        self.confirm_both(b)
+        self.approve(a, check=True)
+        self.force_approve(b)
+        return a, b
+
+    def g_post_races(self) -> None:
+        customer, ids_state = "FAKE-CUSTOMER-RACE", {}
+        self.set_period("2026-11", "open")
+
+        # post vs post on one trip key: the advisory lock serializes; the loser sees the posting.
+        a, b = self.key_pair(customer, 910, 920)
+        before = self.balance(customer)
+        ev = self.run_contention("post-vs-post-same-key", b.proposal_id, customer, "2026-10", API_LOGIN,
+                                 decision_sql("post_revision", *self.ids(a), CHECKER), API_LOGIN,
+                                 decision_sql("post_revision", *self.ids(b), CHECKER),
+                                 "trip key already posted by another proposal", check_balance=False)
+        self.case("post_vs_post_only_the_first_poster_is_in_the_balance", (before + 910, "approved", 1), (
+            self.balance(customer), self.snapshot(b.proposal_id)["state"],
+            self.count("posting", f"trip_key={sql_literal(a.key)}")))
+        ids_state["post_vs_post"] = ev["waiter_pid"]
+
+        # period closes first: the waiting post is refused. Period closes second: the post wins.
+        p1 = self.charge(customer=customer, amount=931, period="2026-11", warehouse="2026-11-02")
+        self.run_to_approved(p1)
+        close_sql = ("UPDATE p0_fixture.debt_period_state SET state='closed' "
+                     "WHERE debt_period='2026-11' RETURNING debt_period || '|' || state")
+        self.run_contention("close-before-post", p1.proposal_id, customer, "2026-11", "postgres", close_sql,
+                            API_LOGIN, decision_sql("post_revision", *self.ids(p1), CHECKER),
+                            "debt period is not open at posting")
+        self.case("close_before_post_leaves_charge_approved_and_unposted", ("approved", 0), (
+            self.snapshot(p1.proposal_id)["state"], self.count("posting", f"proposal_id={p1.proposal_id}")))
+        self.set_period("2026-11", "open")
+        p2 = self.charge(customer=customer, amount=941, period="2026-11", warehouse="2026-11-02")
+        self.run_to_approved(p2)
+        before = self.balance(customer, "2026-11")
+        self.run_contention("post-before-close", p2.proposal_id, customer, "2026-11", API_LOGIN,
+                            decision_sql("post_revision", *self.ids(p2), CHECKER), "postgres", close_sql,
+                            check_balance=False)
+        self.case("post_before_close_posts_then_period_ends_closed", (before + 941, "posted", "closed"), (
+            self.balance(customer, "2026-11"), self.snapshot(p2.proposal_id)["state"],
+            self.query("SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-11'")))
+        self.set_period("2026-11", "open")
+
+        # resolution flips first: the waiting post is refused. Post first: the flip waits, then applies.
+        flip_sql = lambda key: ("UPDATE p0_fixture.trip_opening_resolution SET status='IN_OPENING' "  # noqa: E731
+                                f"WHERE trip_key={sql_literal(key)} RETURNING trip_key || '|' || status")
+        r1 = self.charge(customer=customer, amount=951)
+        self.run_to_approved(r1)
+        ev = self.run_contention("resolution-before-post", r1.proposal_id, customer, "2026-10", "postgres",
+                                 flip_sql(r1.key), API_LOGIN, decision_sql("post_revision", *self.ids(r1), CHECKER),
+                                 "opening resolution is not ABSENT_FROM_OPENING_APPROVED at posting")
+        self.case("resolution_before_post_leaves_charge_approved_and_unposted", ([f"{r1.key}|IN_OPENING"], "approved"),
+                  (ev["holder_action_output"], self.snapshot(r1.proposal_id)["state"]))
+        self.set_resolution(r1.key, ABSENT)
+        r2 = self.charge(customer=customer, amount=961)
+        self.run_to_approved(r2)
+        before = self.balance(customer)
+        self.run_contention("post-before-resolution", r2.proposal_id, customer, "2026-10", API_LOGIN,
+                            decision_sql("post_revision", *self.ids(r2), CHECKER), "postgres",
+                            "UPDATE p0_fixture.trip_opening_resolution SET status='IN_OPENING' "
+                            f"WHERE trip_key={sql_literal(r2.key)}", check_balance=False)
+        self.case("post_before_resolution_posts_then_resolution_changes", (before + 961, "posted", "IN_OPENING"), (
+            self.balance(customer), self.snapshot(r2.proposal_id)["state"],
+            self.query(f"SELECT status FROM p0_fixture.trip_opening_resolution WHERE trip_key={sql_literal(r2.key)}")))
+        self.set_resolution(r2.key, ABSENT)  # keep the final invariant: every posting has an ABSENT resolution
+        self.report["post_race_evidence"] = ids_state
+
+    def run_to_approved(self, c: Charge) -> None:
+        self.confirm_both(c)
+        self.approve(c, check=True)
+
+    def g_isolation(self) -> None:
+        """A second poster that cannot see the first posting (REPEATABLE READ snapshot) must still fail:
+        the advisory-lock EXISTS check misses it, so posting.trip_key UNIQUE is the backstop."""
+        customer = "FAKE-CUSTOMER-RR"
+        a, b = self.key_pair(customer, 970, 980)
+        app = f"m2:{self.run_id}:rr"
+        session = PsqlSession(self.docker, {"PGAPPNAME": app, "PGOPTIONS": "-c statement_timeout=20000"},
+                              container=self.container, user=API_LOGIN, database=DATABASE)
+        errors = ""
+        try:
+            assert session.proc.stdin
+            session.proc.stdin.write("\\set ON_ERROR_STOP off\n")
+            session.proc.stdin.flush()
+            session.send("BEGIN ISOLATION LEVEL REPEATABLE READ")
+            session.execute("SELECT 1", f"__RR_SNAPSHOT_{uuid.uuid4().hex}__", timeout=10)
+            self.post(a, check=True)  # commits outside the snapshot
+            session.execute(decision_sql("post_revision", *self.ids(b), CHECKER),
+                            f"__RR_POST_{uuid.uuid4().hex}__", timeout=15)
+        finally:
+            try:
+                session.close("ROLLBACK")
+            finally:
+                if session.proc.stderr:
+                    errors = session.proc.stderr.read()
+        self.case("repeatable_read_second_poster_is_stopped_by_unique_trip_key", (True, 970, "approved", 1), (
+            "duplicate key value violates unique constraint" in errors, self.balance(customer),
+            self.snapshot(b.proposal_id)["state"], self.count("posting", f"trip_key={sql_literal(a.key)}")))
+        self.report["isolation_evidence"] = {"isolation": "REPEATABLE READ", "error_tail": errors[-600:]}
+
     def g_final(self) -> None:
         self.case("every_posting_has_an_absent_resolution_and_distinct_key", (0, 0), (
             int(self.query("SELECT count(*) FROM p0_fixture.posting p WHERE NOT EXISTS (SELECT 1 FROM "
@@ -1195,6 +1380,13 @@ def main() -> int:
         "exit_code": 1,
     }
     report["tree"] = run(["git", "-C", str(ROOT), "rev-parse", "HEAD^{tree}"]).stdout.strip()
+    # On pull_request CI, HEAD is a merge commit; record the PR head sha next to it.
+    report["head_sha"], report["head_sha_source"] = report["revision"], "git_HEAD"
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        report["head_sha"], report["head_sha_source"] = event["pull_request"]["head"]["sha"], "github_pull_request_event"
+    except (KeyError, OSError, ValueError):
+        pass
     docker = ["docker"]
     container_id: str | None = None
     error: BaseException | None = None
@@ -1266,6 +1458,8 @@ def main() -> int:
             ("debt_period", suite.g_period),
             ("rollback", suite.g_rollback),
             ("contention", suite.g_contention),
+            ("post_races", suite.g_post_races),
+            ("isolation", suite.g_isolation),
             ("final_invariants", suite.g_final),
         ):
             suite.run_group(name, function)
@@ -1304,7 +1498,7 @@ def main() -> int:
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     summary = {key: report.get(key) for key in (
-        "run_id", "revision", "tree", "case_total", "case_pass", "case_fail", "groups",
+        "run_id", "revision", "head_sha", "head_sha_source", "tree", "case_total", "case_pass", "case_fail", "groups",
         "failed_cases", "group_errors", "success_path", "session_cleanup", "cleanup", "exit_code", "error")}
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if error:
