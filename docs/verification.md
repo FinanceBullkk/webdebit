@@ -38,6 +38,13 @@ Phạm vi kiểm trước commit: branch `feature/p0-actor-revisions`, HEAD nề
 
 Giới hạn: fixture chỉ dùng `charge_fixture` giả và chứng minh helper/SQL prototype tại revision/hash nêu trên. Login/session thật, CSRF, account lifecycle, Tailscale/proxy, kiểm tra từ ngoài tailnet, nguồn ngân hàng và service thật chưa được kiểm. Q09 vẫn mở; receipt path không có trong fixture. Đây không phải migration, đường ghi tiền hay production readiness.
 
+### T01 — hardening kind và actor fixture
+
+- Code/spec commit `3f5f245c4cafcc4ca6cb77baa45665cbac9a6dc8`; Python 3.13 trong venv sạch, requirements cài bằng hash: `32/32` unittest đạt; `py_compile` và `git diff --check` đạt. Regression epoch mới đỏ trên input SHA trước sửa.
+- CI [run 38750059028](https://github.com/FinanceBullkk/webdebit/actions/runs/38750059028) đạt `8/8` job trên head commit nêu trên. Job PostgreSQL fixture đạt `122/122`; baseline có 84 case, cả 62 tên check cũ còn nguyên. Artifact report SHA-256 `40a3632d88b9972590cecf565119f8c6e665caf8e70554e94160955772b1d24f`; fixture SHA-256 `42eb3d425ed49ccc06a75121333d46756492afb2fc007c5d0c6826f00c643605`.
+- Report revision merge commit `af6ebc5cf6330a60fe6def580801319d372d23b1`; tree `578772541dd1c21210d181803645828c96e8f57a` khớp tree của head commit. Image PostgreSQL 18.6 pin digest; runner dùng `--network none`, không port/mount; cleanup `verified_and_removed`. Assertion cuối cho 0 charge được approve/post.
+- PostgreSQL local: **NOT RUN** vì Docker daemon không có named pipe. Fixture được kiểm trong CI. Không sửa `pg_ledger_schema.sql`, viewer, DB/Sheet/service thật; source key/opening resolver vẫn chặn mọi charge.
+
 ## Harness PostgreSQL schema ghi sổ — nhánh phụ thuộc PR #2
 
 Nhánh `test/pg18-schema-characterization` bắt đầu từ `315d2d150d17ac77cda31f0ef3b61f696cd20ea5`, cùng head PR #2 khi bắt đầu. Commit nhánh: `2317553f3cadd40f87e754714fbd203ff1844ad5`; draft PR #3 phụ thuộc PR #2. PR #2 vẫn mở tại head `315d2d150d17ac77cda31f0ef3b61f696cd20ea5` ở lần đối chiếu cuối. SHA-256 schema `cong-no-web-handoff/tools/pg_ledger_schema.sql` theo nội dung LF chuẩn hóa: `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`. Runner chuẩn hóa CRLF/LF trước hash và nạp chính nội dung đó, để revision giống nhau có cùng hash trên Windows/Linux. PostgreSQL image được pin `postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`; registry trả HTTP 200 cho manifest digest này.
