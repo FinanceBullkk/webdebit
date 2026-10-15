@@ -1,6 +1,6 @@
 # Task tiếp theo — harness PostgreSQL cô lập và characterization P0
 
-**Trạng thái:** Harness và CI đã có trong draft PR #3, nhánh `test/pg18-schema-characterization`; head được xác minh mới nhất là `c954407734fbf937e7c797982b0650b47b40d41d`. CI run `38684269409` thành công với 7/7 jobs; artifact PostgreSQL 18.6 có 9 assertion, schema SHA-256 LF-normalized `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`, image digest `sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`, cleanup `verified_and_removed`. Stale-content case là `repro_success`, không phải acceptance. Máy local vẫn chưa chạy DB do Docker daemon không khởi động. Không DDL lên `hao`, production, Sheet hoặc service thật.
+**Trạng thái:** Harness và CI đã có trong draft PR #3, nhánh `test/pg18-schema-characterization`; head CI mới nhất được xác minh là `e50451a2f69f83e1d2e4f9058dc9be39e7a61cf8`. Run `38686910554` thành công với 7/7 jobs; artifact PostgreSQL 18.6 có 9 assertion, report revision `62e9da42059329508ba746174980fd60535343c7`, schema SHA-256 LF-normalized `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`, image digest `sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`, cleanup `verified_and_removed`. Stale-content case là `repro_success`, không phải acceptance. Máy local vẫn chưa chạy DB do Docker daemon không khởi động. Không DDL lên `hao`, production, Sheet hoặc service thật.
 
 ## Mục tiêu và giới hạn
 
@@ -34,7 +34,7 @@ CI/local runner phải có hai connection PostgreSQL độc lập cho concurrenc
 
 Lệnh chuẩn: `python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report <path>`. Runner tự tạo container/volume run-id, `--network none`, database `webdebit_ledger`, xác minh identity/marker, nạp SQL gốc với `ON_ERROR_STOP`, và chỉ teardown tài nguyên có tên chính xác, ID, label và run-id khớp. Cleanup luôn dò container kể cả khi `docker run --detach` lỗi/timeout sau khi Docker đã tạo container; test fault-injection mô phỏng timeout sau tạo và xác nhận chỉ container đúng run bị xóa, đồng thời xác nhận label run-id lệch thì từ chối xóa. Digest PostgreSQL 18.6 được pin trong runner và CI. Không ghi log bí mật.
 
-CI PostgreSQL run trước `38683750234` và run mới nhất `38684269409` được giữ trong [hồ sơ kiểm chứng](../../docs/verification.md); run mới nhất có artifact 9 assertion và 7/7 jobs thành công trên head `c954407`. Kết quả repro được gắn `repro_success`, không là acceptance. Còn chờ draft PR #3 review/merge; nếu PR #2 đổi schema thì đối chiếu diff và chạy lại trước khi dựa vào kết quả này. Các gate Q01–Q02 và Q03–Q08 vẫn nguyên.
+CI PostgreSQL run `38683750234`, `38684269409`, lần lỗi cleanup đã truy nguyên `38686717095`, và run mới nhất `38686910554` được giữ trong [hồ sơ kiểm chứng](../../docs/verification.md). Run mới nhất có artifact 9 assertion, cleanup verified và 7/7 jobs thành công trên head `e50451a`. Kết quả repro được gắn `repro_success`, không là acceptance. Còn chờ draft PR #3 review/merge; nếu PR #2 đổi schema thì đối chiếu diff và chạy lại trước khi dựa vào kết quả này. Các gate Q01–Q02 và Q03–Q08 vẫn nguyên.
 
 **Bước kế tiếp, chưa triển khai:** chủ nghiệp vụ và chủ vận hành/auth cần chốt Q01–Q02 trong [danh sách quyết định](decisions-needed.md), ghi người chốt, ngày/phạm vi và lựa chọn cụ thể:
 
