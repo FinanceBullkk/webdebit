@@ -154,6 +154,21 @@ td small { display: block; color: var(--muted); font-weight: 400; font-size: 12p
 .period-totals b { display: inline-block; margin-left: 5px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .replay-warning { padding: 10px 20px; background: #fff1d9; color: #80520d; font-size: 12px; font-weight: 700; }
 .source-link { font-size: 11px; font-weight: 600; }
+.source-warning, .period-source-warning { display: grid; gap: 4px; padding: 8px 11px; margin: 8px 0; border-left: 3px solid #b4771f; background: #fff8eb; color: #70480f; font-size: 12px; }
+.source-warning small, .period-source-warning small { color: #665d50; }
+.source-warning.unavailable { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+.source-warning a, .period-source-warning a { margin-left: 6px; font-weight: 700; }
+.row-source-warning { display: grid; gap: 2px; margin-top: 5px; font-size: 11px; color: var(--muted); }
+.row-source-warning .period-source-warning { padding: 0; margin: 2px 0; border: 0; background: transparent; color: var(--muted); }
+.row-source-warning .period-source-warning small { display: none; }
+.exception-filters { align-items: end; }
+.exception-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.exception-groups > h2 { grid-column: 1 / -1; margin: 0; }
+.exception-groups section { min-width: 0; padding: 10px 12px; background: #fff; border: 1px solid var(--line); }
+.exception-groups h3 { margin: 0 0 6px; font-size: 14px; }
+.exception-groups ul { margin: 0; padding-left: 18px; }
+.exception-groups li { margin: 5px 0; overflow-wrap: anywhere; }
+.exception-detail { min-width: 240px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Sổ khách: một số dư chính và hai danh sách ngắn, độc lập. */
 .customer-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 12px; margin: 0 0 10px; }
@@ -222,6 +237,7 @@ td small { display: block; color: var(--muted); font-weight: 400; font-size: 12p
   .overview-table tbody th { font-size: 15px; }
   .overview-table tbody td[data-label]::before { content: attr(data-label) ': '; color: var(--muted); }
   .overview-table .amount { white-space: normal; }
+  .exception-groups { grid-template-columns: 1fr; }
   .month-band { align-items: center; }
   .month-band > strong { margin-left: 0; }
   .balance-details { width: 100%; margin-left: 0; }

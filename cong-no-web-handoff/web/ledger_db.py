@@ -69,7 +69,9 @@ class LedgerDB:
         """, date=as_of.isoformat())[0]
 
     def customers(self, as_of: date, search: str = ""):
-        return self.rows("""SELECT c.customer, coalesce(sum(b.opening_vnd),0) AS opening_vnd,
+        return self.rows("""SELECT c.customer,
+            CASE WHEN count(b.debt_period)=0 OR count(b.opening_vnd) < count(b.debt_period)
+                 THEN NULL ELSE sum(b.opening_vnd) END AS opening_vnd,
             coalesce(sum(b.movement_vnd),0) AS movement_vnd,
             coalesce(sum(b.balance_vnd),0) AS balance_vnd,
             count(b.debt_period) AS periods,
@@ -78,7 +80,7 @@ class LedgerDB:
             LEFT JOIN ledger.balance_as_of(:'date'::date) b ON b.customer=c.customer
             LEFT JOIN ledger.opening o ON o.customer=b.customer AND o.debt_period=b.debt_period
             WHERE position(lower(:'search') in lower(c.customer)) > 0
-            GROUP BY c.customer ORDER BY c.customer LIMIT 250
+            GROUP BY c.customer ORDER BY c.customer
         """, date=as_of.isoformat(), search=search)
 
     def overview(self, as_of: date, period: str, search: str = ""):
@@ -92,7 +94,7 @@ class LedgerDB:
         ), grouped AS (
             SELECT customer,
                 coalesce(sum(balance_vnd) FILTER (WHERE debt_period < :'period'),0) AS carried_vnd,
-                coalesce(sum(opening_vnd) FILTER (WHERE debt_period = :'period'),0) AS period_opening_vnd,
+                sum(opening_vnd) FILTER (WHERE debt_period = :'period') AS period_opening_vnd,
                 coalesce(sum(movement_vnd) FILTER (WHERE debt_period = :'period'),0) AS period_movement_vnd,
                 coalesce(sum(balance_vnd) FILTER (WHERE debt_period = :'period'),0) AS period_balance_vnd,
                 coalesce(sum(balance_vnd),0) AS total_balance_vnd
@@ -109,7 +111,7 @@ class LedgerDB:
             GROUP BY customer
         )
         SELECT c.customer, coalesce(g.carried_vnd,0) AS carried_vnd,
-            coalesce(g.period_opening_vnd,0) AS period_opening_vnd,
+            g.period_opening_vnd,
             coalesce(g.period_movement_vnd,0) AS period_movement_vnd,
             coalesce(g.period_balance_vnd,0) AS period_balance_vnd,
             coalesce(g.total_balance_vnd,0) AS total_balance_vnd,
@@ -123,7 +125,7 @@ class LedgerDB:
         LEFT JOIN by_kind k ON k.customer=c.customer
         LEFT JOIN ledger.opening o ON o.customer=c.customer AND o.debt_period=:'period'
         WHERE position(lower(:'search') in lower(c.customer)) > 0
-        ORDER BY c.customer LIMIT 250
+        ORDER BY c.customer
         """, date=as_of.isoformat(), period=period, search=search)
 
     def periods(self, as_of: date, customer: str):
@@ -131,7 +133,7 @@ class LedgerDB:
             o.comparison_status,o.replay_event_count
             FROM ledger.balance_as_of(:'date'::date) b
             LEFT JOIN ledger.opening o ON o.customer=b.customer AND o.debt_period=b.debt_period
-            WHERE b.customer=:'customer' ORDER BY b.debt_period DESC LIMIT 250
+            WHERE b.customer=:'customer' ORDER BY b.debt_period DESC
         """, date=as_of.isoformat(), customer=customer)
 
     def period(self, as_of: date, customer: str, period: str):

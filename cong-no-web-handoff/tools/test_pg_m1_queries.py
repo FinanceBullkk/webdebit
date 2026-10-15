@@ -12,6 +12,7 @@ import sys
 import time
 import unittest
 import uuid
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,8 +24,10 @@ sys.path.insert(0, str(ROOT / "cong-no-web-handoff" / "web"))
 import ledger_db  # noqa: E402
 
 DATABASE = "webdebit_pilot_system"
+LEDGER_DATABASE = "webdebit_ledger"
 PILOT_SCHEMA = TOOLS / "pg_pilot_schema.sql"
 M1_SCHEMA = TOOLS / "pg_m1_schema.sql"
+LEDGER_SCHEMA = TOOLS / "pg_ledger_schema.sql"
 WORKBOOK_SHA = "a" * 64
 ENGINE_SHA = "b" * 64
 CAPTURE = "fake-m1-cutover"
@@ -244,6 +247,36 @@ class M1HistoryDBTests(unittest.TestCase):
             self.db.exception_summary()
 
 
+class LedgerProjectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = ledger_db.LedgerDB(dbname=LEDGER_DATABASE)
+
+    def test_01_customer_overview_and_period_queries_return_rows_after_250(self) -> None:
+        as_of = date(2026, 10, 15)
+        customers = self.db.customers(as_of)
+        overview = self.db.overview(as_of, "2026-10")
+        periods = self.db.periods(date.fromisoformat(AS_OF), "CUST-000")
+        self.assertEqual(len(customers), 251)
+        self.assertEqual(len(overview), 251)
+        self.assertEqual(customers[-1]["customer"], "CUST-250")
+        self.assertEqual(overview[-1]["customer"], "CUST-250")
+        self.assertEqual(len(periods), 251)
+
+    def test_02_unknown_opening_survives_real_posting_queries(self) -> None:
+        as_of = date(2026, 10, 15)
+        customer = next(row for row in self.db.customers(as_of) if row["customer"] == "CUST-250")
+        current_period = next(row for row in self.db.periods(as_of, "CUST-250")
+                              if row["debt_period"] == "2026-11")
+        overview = next(row for row in self.db.overview(as_of, "2026-11")
+                        if row["customer"] == "CUST-250")
+        self.assertIsNone(customer["opening_vnd"])
+        self.assertIsNone(current_period["opening_vnd"])
+        self.assertIsNone(overview["period_opening_vnd"])
+        self.assertEqual(current_period["movement_vnd"], 75)
+        self.assertEqual(current_period["balance_vnd"], 75)
+        self.assertEqual(overview["period_movement_vnd"], 75)
+
+
 CURRENT_DB_USER = "postgres"
 DOCKER: list[str] = ["docker"]
 CONTAINER_ID = ""
@@ -338,6 +371,46 @@ def initialize_fixture() -> None:
     docker_psql(statements)
 
 
+def initialize_ledger_fixture() -> None:
+    docker_psql(f"CREATE DATABASE {LEDGER_DATABASE};", database="postgres")
+    docker_psql(LEDGER_SCHEMA.read_text(encoding="utf-8"), database=LEDGER_DATABASE)
+    statements = f"""
+    INSERT INTO ledger.cutover(singleton,capture_id,as_of,captured_at_utc,
+        source_spreadsheet_id,source_workbook_sha256,engine_sha256,period_report_sha256,
+        opening_decision,first_posting_date)
+    VALUES (true,'fake-ledger-cutover',DATE '{AS_OF}',TIMESTAMPTZ '2026-10-13 16:44:00+00',
+        'fake-spreadsheet','{'a' * 64}','{'b' * 64}','{'c' * 64}',
+        'fake opening',DATE '2026-10-14');
+    INSERT INTO ledger.customer(customer)
+    SELECT 'CUST-' || lpad(n::text,3,'0') FROM generate_series(0,250) n;
+    INSERT INTO ledger.opening(customer,debt_period,balance_vnd,replay_event_count,comparison_status)
+    SELECT 'CUST-000',to_char(DATE '2000-01-01' + n * INTERVAL '1 month','YYYY-MM'),
+        0,1,'MATCH' FROM generate_series(0,249) n;
+    INSERT INTO ledger.opening(customer,debt_period,balance_vnd,replay_event_count,comparison_status)
+    SELECT 'CUST-' || lpad(n::text,3,'0'),'2026-10',
+        CASE WHEN n=0 THEN 0 ELSE 100 END,1,'MATCH'
+    FROM generate_series(0,250) n;
+    WITH proposal_row AS (
+        INSERT INTO ledger.proposal(request_key,kind,total_vnd,event_date,posting_date,
+            source_ref,evidence_ref,reason,maker,checker,status,decided_at)
+        VALUES ('fixture-new-period-0001','charge',75,DATE '2026-10-14',DATE '2026-10-14',
+            'fake-source-250','fake-proof-250','fixture posting for unknown opening',
+            'fixture_maker','fixture_checker','posted',TIMESTAMPTZ '2026-10-14 00:00:00+00')
+        RETURNING proposal_id
+    ), line_row AS (
+        INSERT INTO ledger.proposal_line(proposal_id,line_no,customer,debt_period,amount_vnd)
+        SELECT proposal_id,1,'CUST-250','2026-11',75 FROM proposal_row
+        RETURNING proposal_id
+    )
+    INSERT INTO ledger.posting(proposal_id,line_no,customer,debt_period,kind,signed_amount_vnd,
+        posting_date,event_date,source_ref,evidence_ref,reason,maker,checker)
+    SELECT proposal_id,1,'CUST-250','2026-11','charge',75,DATE '2026-10-14',DATE '2026-10-14',
+        'fake-source-250','fake-proof-250','fixture posting for unknown opening',
+        'fixture_maker','fixture_checker' FROM line_row;
+    """
+    docker_psql(statements, database=LEDGER_DATABASE)
+
+
 def main() -> int:
     global CONTAINER_ID, PG_ENV
     if shutil.which("docker") is None:
@@ -354,9 +427,10 @@ def main() -> int:
     head_tree = lifecycle.run(["git", "-C", str(ROOT), "rev-parse", f"{expected_head}^{{tree}}"]).stdout.strip()
     report: dict[str, object] = {
         "database": DATABASE,
+        "ledger_database": LEDGER_DATABASE,
         "image": lifecycle.IMAGE,
         "query_result_mocked": False,
-        "transport": "HistoryDB subprocess psql over docker exec",
+        "transport": "HistoryDB and LedgerDB subprocess psql over docker exec",
         "run_id": run_id,
         "head_sha": expected_head,
         "tested_revision": revision,
@@ -367,7 +441,7 @@ def main() -> int:
         "source_hashes_sha256_lf": {
             str(path.resolve().relative_to(ROOT)).replace("\\", "/"): source_hash(path)
             for path in (Path(__file__).resolve(), Path(ledger_db.__file__).resolve(), PILOT_SCHEMA,
-                         M1_SCHEMA, TOOLS / "test_pg_ledger_schema.py",
+                         M1_SCHEMA, LEDGER_SCHEMA, TOOLS / "test_pg_ledger_schema.py",
                          ROOT / ".github" / "workflows" / "test.yml")
         },
         "cases": [],
@@ -419,9 +493,15 @@ def main() -> int:
             raise M1QueryRunnerError("PostgreSQL initialization completion marker timed out")
         PG_ENV = {"PGAPPNAME": marker, "PGOPTIONS": "-c statement_timeout=20000 -c lock_timeout=12000"}
         initialize_fixture()
+        initialize_ledger_fixture()
         with patch.object(ledger_db.subprocess, "run", side_effect=docker_transport):
-            suite = unittest.defaultTestLoader.loadTestsFromTestCase(M1HistoryDBTests)
-            test_ids = [test.id() for test in suite]
+            test_cases = [
+                test
+                for case in (M1HistoryDBTests, LedgerProjectionTests)
+                for test in unittest.defaultTestLoader.loadTestsFromTestCase(case)
+            ]
+            suite = unittest.TestSuite(test_cases)
+            test_ids = [test.id() for test in test_cases]
             result = unittest.TextTestRunner(stream=sys.stdout, verbosity=2).run(suite)
         failed_names = {test.id() for test, _ in [*result.failures, *result.errors]}
         report["cases"] = [
