@@ -4,7 +4,7 @@
 
 Cập nhật: 16/10/2026. Nguồn: các handoff và bảng điều phối của đợt review khắc phục, lưu ngoài Git. Mọi dòng dưới đây trừ T07 là kết quả **CI fixture dữ liệu giả** trên đúng SHA nêu ở cột "Output SHA", **không phải kiểm live**; T07 là kiểm chỉ đọc trên máy chủ thật (15/10/2026). Với các dòng CI: không có DB, Sheet, service, ACL, ngân hàng hay người thật. Docker cục bộ không chạy, nên PostgreSQL chỉ chạy trong container cô lập của CI (image PostgreSQL 18.6 ghim digest, không mạng, dọn xong được xác minh). T01 (SHA `59413fd`, run 38751000719 8/8, fixture 122/122) đã ghi ở mục T01 phía dưới.
 
-PR #6 (T01–T06) và PR #7 (T08–T10) vẫn là draft, chưa merge. Quyết định 16/10/2026 ([SIMPLIFY](decisions.md)) thay một phần thiết kế mà các fixture dưới đây kiểm (HMAC từng lệnh, kind generic, canonical v2); số case sẽ đổi khi fixture được sửa, nên 565/565 chỉ mô tả fixture tại `87917ff`.
+PR #6 (T01–T06) và PR #7 (T08–T10) vẫn là draft, chưa merge. Quyết định 16/10/2026 ([SIMPLIFY](decisions.md)) thay một phần thiết kế mà các fixture dưới đây kiểm (HMAC từng lệnh, kind generic, canonical v2); 565/565 chỉ mô tả fixture tại `87917ff`. Kết quả sau khi sửa theo SIMPLIFY ở mục "Nền móng 16/10" ngay dưới bảng.
 
 | Mốc | Phạm vi | Output SHA | Run CI | Số case | Giới hạn |
 |---|---|---|---|---|---|
@@ -18,7 +18,21 @@ PR #6 (T01–T06) và PR #7 (T08–T10) vẫn là draft, chưa merge. Quyết đ
 | T09 | Viewer: trang `/exceptions`, cảnh báo, bỏ giới hạn 250 khách/kỳ, health kiểm provenance | `79deb8c` | [38785897368](https://github.com/FinanceBullkk/webdebit/actions/runs/38785897368), 9/9 | M1 PG 15/15; M2 565/565; Python 49/49; `npm test` 20/20 | Chỉ CI fixture; chưa test browser trên viewer thật. |
 | T10 | Exporter/verifier M1: NULL chỉ tính 0 khi nguồn và DB cùng chứng minh không có sự kiện | `0e1330b` | [38794658173](https://github.com/FinanceBullkk/webdebit/actions/runs/38794658173), 9/9 | M1 PG 16/16; Python 68/68; `npm test` 20/20 | Chỉ fake replay và PG cô lập; chưa review độc lập mã T10; không chạm capture, Sheet hay DB thật. |
 
-Đọc kết quả: tại `0e1330b` baseline nhánh nền là Python 68/68 và `npm test` 20/20 (chạy cục bộ), CI 9/9 (ĐÃ KIỂM CHỨNG bằng CI fixture; phiên điều phối ghi đã kiểm lại ngày 16/10). Ở mọi mốc có artifact PostgreSQL, `tested_tree` khớp tree của head và cleanup là `verified_and_removed`. T11 (browser), T12 (gói deploy) và T13 (review cuối) CHƯA chạy. M1 live và M2 vẫn CHƯA ĐẠT.
+Đọc kết quả: tại `0e1330b` baseline nhánh nền là Python 68/68 và `npm test` 20/20 (chạy cục bộ), CI 9/9 (ĐÃ KIỂM CHỨNG bằng CI fixture; phiên điều phối ghi đã kiểm lại ngày 16/10). Ở mọi mốc có artifact PostgreSQL, `tested_tree` khớp tree của head và cleanup là `verified_and_removed`. T11–T13 của đợt Codex không chạy; phần việc tương ứng được làm lại ở mục dưới. M1 live và M2 vẫn CHƯA ĐẠT.
+
+## Nền móng 16/10/2026 (PR #8, #9, #10 đã gộp vào `fix/m1-review-readiness`)
+
+Mỗi PR do một phiên Sonnet viết và một phiên Opus review chỉ đọc; review lần hai cho PASS cả ba, không còn P0/P1. Người dùng merge ngày 16/10/2026. Tất cả là **CI fixture dữ liệu giả**, không phải live.
+
+| PR | Phạm vi | Head đã review | Run CI | Kết quả |
+|---|---|---|---|---|
+| #8 | Ghi các quyết định 15–16/10 vào docs/spec | `e36a55c` | [38807114396](https://github.com/FinanceBullkk/webdebit/actions/runs/38807114396), 9/9 | Docs, không đổi mã. |
+| #10 | Fixture M2 theo SIMPLIFY: bỏ HMAC và kind generic, `trip_key` tính trong DB, bảng resolution, UNIQUE `posting.trip_key`, cấu phần 0đ cảnh báo, vai trò `price_owner` | `a15c7bf` | [38808180498](https://github.com/FinanceBullkk/webdebit/actions/runs/38808180498), 9/9 | Fixture PG 213/213, có đường charge thành công với resolution giả và case mặc định bị chặn; 7 kịch bản tranh chấp có PID/blocker thật. Review đã tái hiện và đóng lỗi ghi trùng posting dưới REPEATABLE READ. |
+| #9 | Viewer M1: review T10 (delta sổ cũ trống là lỗi), gọn bộ lọc `/exceptions`, invariant health dùng chung, test browser trên `LedgerHandler` thật (desktop và 390px), gói deploy có manifest/preflight/rollback, đề xuất ACL năm view | `c3e145c` | [38807717483](https://github.com/FinanceBullkk/webdebit/actions/runs/38807717483), 9/9 | M1 PG 16/16. Không deploy, không GRANT/REVOKE. |
+
+Sau khi gộp: head `eb32866`, [run 38810285870](https://github.com/FinanceBullkk/webdebit/actions/runs/38810285870) 9/9 job. Artifact có `tested_tree` `70cb999` khớp tree của head; fixture M2 213/213, M1 PG 16/16, characterization ledger 8 pass cộng 1 `repro_success` lịch sử; cleanup `verified_and_removed`. Python 79/79 chạy cục bộ trên cùng tree.
+
+CÒN MỞ: bảng nối opening ↔ mã chuyến chưa duyệt (mọi charge thật vẫn bị chặn); ACL viewer, preflight `--check-db` và deploy M1 cần phê duyệt riêng; login thật, receipt/FIFO, đảo bút toán thuộc M3.
 ## T5 — Tổng hợp M2 và kiểm live M1
 
 Cập nhật: 15/10/2026. Kết luận M2: **CHƯA ĐẠT cho charge đầu tiên**. Không có mã chuyến ổn định; chưa có source key và cách đối chiếu từng chuyến với opening replay `13/10/2026 16:44`. Theo quyết định chủ nghiệp vụ lúc đó, chuyến chưa phân giải phải ở `CHỜ KIỂM`, ngoài số dư (ghi chú 16/10/2026: đã được thay bằng [LEGACY-A và OPENING-FINAL](decisions.md); chỉ còn áp dụng cho chuyến có ngày xe từ 14/10, chuyến trước đó giữ nợ trong opening); không suy định danh từ container, ngày hoặc khách. Cấu phần và số tiền phải được chủ nghiệp vụ duyệt riêng theo từng chuyến, không áp công thức giá chung.

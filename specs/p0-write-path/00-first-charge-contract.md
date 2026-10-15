@@ -4,7 +4,7 @@ Ngày chốt: 15/10/2026; cập nhật 16/10/2026 theo [OPENING-FINAL, LEGACY-A,
 
 - **Chính sách trong phạm vi dưới đây: ĐÃ CHỐT**, trừ các mục ghi ĐỀ XUẤT hoặc CÒN MỞ.
 - **Thiết kế triển khai: ĐỀ XUẤT, chưa được duyệt.** Cách lưu bảng resolution, tên trường và reason code trong fixture là ĐỀ XUẤT.
-- **Triển khai/kiểm chứng: CHƯA THỰC HIỆN theo chính sách cập nhật 16/10.** Fixture tại `0e1330b` (CI, dữ liệu giả) kiểm một phiên bản cũ hơn của hợp đồng; xem điều 3–4 và [kiểm chứng](../../docs/verification.md). Tài liệu này không hoàn tất M2 và không mở đường ghi tiền.
+- **Triển khai/kiểm chứng: chỉ trên fixture CI dữ liệu giả.** Fixture (PR #10, [P0-02](07-identity-revision-implementation.md)) đã cài chính sách 16/10 và được review độc lập; xem [kiểm chứng](../../docs/verification.md). Chưa có app, DB thật hay bảng nối được duyệt. Tài liệu này không hoàn tất M2 và không mở đường ghi tiền.
 
 ## Phạm vi
 
