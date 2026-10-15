@@ -21,8 +21,8 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
    - ĐỀ XUẤT: resolution là bảng theo `trip_key`, chỉ người có thẩm quyền do chủ nghiệp vụ duyệt mới ghi; trạng thái `ABSENT_FROM_OPENING_APPROVED`, `IN_OPENING`, `UNRESOLVED`. Chỉ `ABSENT_FROM_OPENING_APPROVED` mới đủ điều kiện duyệt; mọi trạng thái khác và việc không có dòng đều là CHỜ KIỂM. Bảng rỗng mặc định chặn mọi charge. Bảng production chỉ thiết kế sau khi chủ nghiệp vụ duyệt bảng nối (CÒN MỞ).
    - Sổ opening không ghi booking: bảng nối dòng opening ↔ mã chuyến là ĐỀ XUẤT, lưu ngoài repo, chỉ có hiệu lực khi chủ nghiệp vụ duyệt từng dòng. Container/ngày chỉ dùng để lập bảng nối, không là khóa.
 2. **Kỳ nợ độc lập với ngày nghiệp vụ.** UI sau này gợi ý tháng xe nhập kho. Maker phải xác nhận `debt_period` theo nguồn. Nếu chọn kỳ khác tháng được gợi ý, phải có lý do và chứng cứ; checker duyệt đúng revision. Gợi ý không tự quyết kỳ.
-3. **Xác nhận giá theo chuyến.** Mỗi chuyến có danh sách cấu phần và số tiền riêng; không dùng công thức chung. Chủ nghiệp vụ duyệt danh sách và tổng tại đúng revision. Các cấu phần phải khớp nguồn và khớp chính xác tổng.
-   - **Maker được tự xác nhận giá** của chuyến mình nhập (PRICE-MAKER, ĐÃ CHỐT 16/10/2026).
+3. **Xác nhận giá theo chuyến.** Mỗi chuyến có danh sách cấu phần và số tiền riêng; không dùng công thức chung. Chủ nghiệp vụ (vai trò xác nhận giá) duyệt danh sách và tổng tại đúng revision. Các cấu phần phải khớp nguồn và khớp chính xác tổng.
+   - **Maker được phép đồng thời là người xác nhận giá** và tự xác nhận giá chuyến mình nhập, không cần xác nhận thứ hai (PRICE-MAKER, ĐÃ CHỐT 16/10/2026).
    - **Người xác nhận giá không được checker-approve cùng revision đó**, và maker ≠ checker theo D01. Xác nhận giá vẫn riêng với checker approval.
 4. **Giữ ngoại lệ chờ kiểm.** Thiếu hoặc lệch cấu phần, tổng trống hoặc 0, cấu phần trống (NULL), thiếu booking hoặc container để tạo mã chuyến, thiếu resolution theo mã chuyến hoặc resolution không phải `ABSENT_FROM_OPENING_APPROVED`, và thiếu xác nhận giá đều giữ CHỜ KIỂM và ngoài số dư. Không tự điền, làm tròn, suy định danh hay suy giá.
    - **Cấu phần 0đ chỉ là cảnh báo** (PRICE-ZERO, ĐÃ CHỐT 16/10/2026): khi tổng > 0 và các cấu phần khớp tổng, một cấu phần 0đ (ví dụ phí được miễn) không chặn xác nhận giá; hiển thị cảnh báo cho người xác nhận. Tổng 0 hoặc trống vẫn CHỜ KIỂM. Cấu phần trống/NULL không phải 0đ.
@@ -51,7 +51,7 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
 
 - Chủ nghiệp vụ duyệt bảng nối opening ↔ mã chuyến, gồm quy tắc chọn booking theo ngày khi một container có nhiều booking, và cách duyệt (ai, chứng cứ gì). Cho đến khi duyệt, không có charge nào đủ điều kiện ngoài fixture dữ liệu giả.
 - Dấu "/" trong ô booking: ĐỀ XUẤT coi là thiếu booking (CHỜ KIỂM); chưa chốt.
-- Chặn trùng theo chuyến hay theo chuyến + loại phí khi một chuyến có nhiều khoản; xử lý booking bị sửa sau khi ghi; định dạng lưu mã.
+- Chặn trùng theo chuyến hay theo chuyến + loại phí khi một chuyến có nhiều khoản; xử lý booking bị sửa sau khi ghi; định dạng lưu mã (ĐỀ XUẤT: `trip_key` do DB tính từ booking + container thô, chưa chốt).
 - Nhãn hiển thị "chuyến cũ, không truy vết được" và cách app báo chuyến trước 14/10 bị từ chối.
 - Danh sách cấu phần và giá được duyệt riêng cho từng chuyến; không dùng danh mục/công thức chung. Fixture đề xuất lưu danh sách trong revision và attestation bất biến theo revision/hash; đây chưa là thiết kế production được duyệt.
 - Cách kiểm chứng nguồn, tham chiếu opening, account/role chủ nghiệp vụ và trạng thái CHỜ KIỂM trong app.
