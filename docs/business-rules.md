@@ -9,6 +9,7 @@ Bản tóm tắt đã lọc các quy tắc người dùng xác nhận trong ngu�
 | Khách/kỳ | Số dư truy theo khách + kỳ nợ + ngày chốt. Container không là khóa duy nhất, không tự gộp chuyến trùng container. |
 | Ngày | Ngày nghiệp vụ chuyến là ngày xe nhập kho. Ngày nhập hệ thống, duyệt, ghi sổ và kỳ nợ giữ riêng. Backend đang lọc `posting_date`; chưa xác nhận đổi sang ngày nghiệp vụ. |
 | Phê duyệt | Người nhập khác người duyệt. Approval gắn với đúng revision nội dung; thay đổi trường nghiệp vụ tạo revision mới và cần duyệt lại, không sửa đè revision đã gửi/duyệt. Chỉ khoản đủ tiền/loại/kỳ/nguồn/chứng cứ/phê duyệt hợp lệ mới ghi sổ. Danh tính người thật/quyền vận hành vẫn chưa được triển khai xác minh. |
+| Charge chuyến mới | Phải đối chiếu định danh nguồn với opening 13/10/2026 16:44; ngày xe nhập kho từ 14/10 trở đi tự nó không chứng minh chuyến chưa nằm trong opening. Chủ nghiệp vụ xác nhận tổng và từng cấu phần giá tại revision; thiếu/lệch giá hoặc nguồn/đối chiếu không ổn định thì chờ ngoài số dư. `debt_period` xác nhận riêng theo nguồn; xem [hợp đồng T1](../specs/p0-write-path/00-first-charge-contract.md). |
 | Thu mới | Phân bổ kỳ nợ cũ trước. Không phân bổ lại lịch sử, không suy cùng receipt từ một hàng hoặc cùng số tiền. |
 | Receipt/allocation | Tiền thực nhận khác phân bổ theo kỳ; cấn trừ, điều chỉnh tăng/giảm là loại riêng. Chứng từ tiền không tự chứng minh thu đã xác minh. |
 | Pending | Nháp/chờ giá/chờ xác nhận/chờ duyệt nhìn thấy nhưng không đổi số dư đã ghi. |
