@@ -439,7 +439,7 @@ def main() -> int:
                 f"WHERE revision_id={dmy_revision['revision_id']}"))
         case("pure_canonical_functions_are_immutable",
             "canonical_vnd:i|canonicalize_payload:i|parse_iso_date:i", query(
-                "SELECT string_agg(p.proname || ':' || p.provolatile, '|' ORDER BY p.proname) "
+                "SELECT string_agg(p.proname || ':' || p.provolatile::text, '|' ORDER BY p.proname) "
                 "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
                 "WHERE n.nspname='p0_fixture' "
                 "AND p.proname IN ('canonical_vnd','canonicalize_payload','parse_iso_date')"))
