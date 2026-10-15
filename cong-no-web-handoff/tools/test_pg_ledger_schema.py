@@ -99,7 +99,7 @@ def env_args(env: dict[str, str]) -> list[str]:
 def owned_container_id(docker: list[str], name: str, run_id: str,
                        expected_id: str | None = None) -> str | None:
     """Find a container by this run's exact name and labels, then verify its identity."""
-    candidates = run(docker + ["ps", "--all", "--quiet", "--filter", f"name=^/{name}$",
+    candidates = run(docker + ["ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$",
                               "--filter", f"label={LABEL_TEST}={LABEL_VALUE}",
                               "--filter", f"label={LABEL_RUN}={run_id}"], check=False)
     if candidates.returncode:
