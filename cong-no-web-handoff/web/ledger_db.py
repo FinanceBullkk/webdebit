@@ -32,7 +32,18 @@ class LedgerDB:
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LedgerUnavailable("PostgreSQL unavailable") from exc
         if result.returncode:
-            raise LedgerUnavailable("PostgreSQL read failed")
+            stderr = result.stderr.lower()
+            if "permission denied" in stderr:
+                message = "PostgreSQL permission denied"
+            elif ("could not connect" in stderr or "connection refused" in stderr
+                  or "connection to server" in stderr or "server closed the connection" in stderr
+                  or "could not translate host name" in stderr or "timeout expired" in stderr
+                  or "no such file or directory" in stderr
+                  or "database " in stderr and "does not exist" in stderr):
+                message = "PostgreSQL unavailable"
+            else:
+                message = "PostgreSQL read failed"
+            raise LedgerUnavailable(message)
         try:
             data = json.loads(result.stdout.strip())
         except json.JSONDecodeError as exc:
@@ -179,8 +190,214 @@ class LedgerDB:
 class HistoryDB(LedgerDB):
     """Fixed replay snapshot, read separately from the current ledger."""
 
-    def __init__(self, dbname: str = "webdebit_pilot_system", psql: str = "psql"):
+    _M1_WHITESPACE = " \t\n\r\f\v"
+
+    def __init__(self, dbname: str = "webdebit_pilot_system", psql: str = "psql",
+                 cutover: dict | None = None):
         super().__init__(dbname, psql)
+        self.expected_cutover = cutover
+
+    def _m1_provenance(self) -> dict:
+        """Validate M1 identity and hashes against the independent ledger cutover row."""
+        cutover = self.expected_cutover
+        if not isinstance(cutover, dict):
+            raise LedgerUnavailable("M1 cutover metadata unavailable")
+        capture = cutover.get("capture_id")
+        as_of_value = cutover.get("as_of")
+        try:
+            as_of = as_of_value.isoformat() if isinstance(as_of_value, date) else date.fromisoformat(as_of_value).isoformat()
+        except (TypeError, ValueError):
+            raise LedgerUnavailable("M1 cutover snapshot date invalid") from None
+        hashes = (cutover.get("source_workbook_sha256"), cutover.get("engine_sha256"))
+        if not isinstance(capture, str) or not capture or "\x00" in capture:
+            raise LedgerUnavailable("M1 cutover capture missing")
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes):
+            raise LedgerUnavailable("M1 cutover source hash missing or invalid")
+
+        rows = self.rows("""SELECT capture_id, as_of, source_workbook_sha256,
+                engine_sha256, baseline_date
+            FROM pilot.m1_provenance
+            WHERE capture_id=:'capture' AND as_of=:'as_of'::date
+        """, capture=capture, as_of=as_of)
+        if len(rows) != 1:
+            state = "missing" if not rows else "duplicate"
+            raise LedgerUnavailable(f"M1 provenance {state} for cutover")
+        provenance = rows[0]
+        if (provenance.get("capture_id") != capture
+                or provenance.get("as_of") != as_of
+                or any(not isinstance(provenance.get(key), str)
+                       or not re.fullmatch(r"[0-9a-f]{64}", provenance[key])
+                       for key in ("source_workbook_sha256", "engine_sha256"))):
+            raise LedgerUnavailable("M1 provenance identity or source hash missing or invalid")
+        if (provenance["source_workbook_sha256"], provenance["engine_sha256"]) != hashes:
+            raise LedgerUnavailable("M1 provenance source hashes do not match cutover")
+        baseline_date = provenance.get("baseline_date")
+        return {
+            "capture_id": capture,
+            "as_of": as_of,
+            "source_workbook_sha256": provenance["source_workbook_sha256"],
+            "engine_sha256": provenance["engine_sha256"],
+            "baseline_date": baseline_date,
+            "baseline_status": "AVAILABLE" if baseline_date == as_of else "NO_BASELINE",
+        }
+
+    @staticmethod
+    def _m1_filter(value: str | None, name: str) -> tuple[str, str]:
+        if value is None:
+            return "all", ""
+        if not isinstance(value, str):
+            raise ValueError(f"{name} filter must be text or None")
+        if "\x00" in value:
+            raise ValueError(f"{name} filter contains NUL")
+        return ("unclassified", "") if not value.strip(HistoryDB._M1_WHITESPACE) else ("exact", value)
+
+    def exception_summary(self, customer: str | None = None, period: str | None = None,
+                          code: str | None = None) -> dict:
+        """Return filtered counts and customer/period/code groups for the cutover snapshot."""
+        customer_mode, customer_value = self._m1_filter(customer, "customer")
+        period_mode, period_value = self._m1_filter(period, "period")
+        code_mode, code_value = self._m1_filter(code, "code")
+        provenance = self._m1_provenance()
+        result = self.rows("""WITH scoped AS (
+                SELECT * FROM pilot.m1_exception_detail
+                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
+                  AND (:'customer_mode'='all'
+                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'customer_mode'='exact' AND customer=:'customer'))
+                  AND (:'period_mode'='all'
+                    OR (:'period_mode'='unclassified' AND NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'period_mode'='exact' AND debt_period=:'period'))
+                  AND (:'code_mode'='all'
+                    OR (:'code_mode'='unclassified' AND NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'code_mode'='exact' AND code=:'code'))
+            ), by_customer AS (
+                SELECT CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END AS customer,
+                    count(*) AS exception_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
+                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
+                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END
+            ), by_period AS (
+                SELECT CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END AS period,
+                    count(*) AS exception_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
+                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
+                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END
+            ), by_code AS (
+                SELECT CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END AS code,
+                    count(*) AS exception_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
+                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
+                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END
+            )
+            SELECT count(*) AS exception_count,
+                count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
+                count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
+                    FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count,
+                coalesce((SELECT jsonb_agg(jsonb_build_object(
+                    'customer', customer, 'group_status', CASE WHEN customer IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'exception_count', exception_count, 'source_row_count', source_row_count,
+                    'trip_source_row_count', trip_source_row_count) ORDER BY customer NULLS LAST) FROM by_customer), '[]'::jsonb) AS by_customer,
+                coalesce((SELECT jsonb_agg(jsonb_build_object(
+                    'period', period, 'group_status', CASE WHEN period IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'exception_count', exception_count, 'source_row_count', source_row_count,
+                    'trip_source_row_count', trip_source_row_count) ORDER BY period NULLS LAST) FROM by_period), '[]'::jsonb) AS by_period,
+                coalesce((SELECT jsonb_agg(jsonb_build_object(
+                    'code', code, 'group_status', CASE WHEN code IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'exception_count', exception_count, 'source_row_count', source_row_count,
+                    'trip_source_row_count', trip_source_row_count) ORDER BY code NULLS LAST) FROM by_code), '[]'::jsonb) AS by_code
+            FROM scoped
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
+            customer_mode=customer_mode, customer=customer_value,
+            period_mode=period_mode, period=period_value,
+            code_mode=code_mode, code=code_value, trip_tab="Chuyến hàng")[0]
+        return {**provenance, **result}
+
+    def exception_page(self, customer: str | None = None, period: str | None = None,
+                       code: str | None = None, page: int = 1, page_size: int = 50) -> dict:
+        """Return one stable page; empty-string filters select unclassified rows."""
+        if type(page) is not int or page < 1:
+            raise ValueError("page must be a positive integer")
+        if type(page_size) is not int or not 1 <= page_size <= 50:
+            raise ValueError("page_size must be between 1 and 50")
+        offset = (page - 1) * page_size
+        if offset > 2**63 - 1:
+            raise ValueError("page offset is too large")
+        customer_mode, customer_value = self._m1_filter(customer, "customer")
+        period_mode, period_value = self._m1_filter(period, "period")
+        code_mode, code_value = self._m1_filter(code, "code")
+        provenance = self._m1_provenance()
+        result = self.rows("""WITH filtered AS (
+                SELECT * FROM pilot.m1_exception_detail
+                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
+                  AND (:'customer_mode'='all'
+                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'customer_mode'='exact' AND customer=:'customer'))
+                  AND (:'period_mode'='all'
+                    OR (:'period_mode'='unclassified' AND NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'period_mode'='exact' AND debt_period=:'period'))
+                  AND (:'code_mode'='all'
+                    OR (:'code_mode'='unclassified' AND NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'code_mode'='exact' AND code=:'code'))
+            ), selected AS (
+                SELECT * FROM filtered
+                ORDER BY sheet_gid, source_row, code NULLS FIRST, exception_no
+                LIMIT :'limit'::integer OFFSET :'offset'::bigint
+            )
+            SELECT jsonb_build_object(
+                'total_results', (SELECT count(*) FROM filtered),
+                'items', coalesce((SELECT jsonb_agg(jsonb_build_object(
+                    'exception_no', exception_no, 'code', code, 'status', status,
+                    'resolution_status', resolution_status, 'customer', customer,
+                    'customer_group', CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END,
+                    'customer_group_status', CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'period', debt_period, 'period_group', CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END,
+                    'period_group_status', CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'code_group', CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END,
+                    'code_group_status', CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'detail', detail, 'tab_title', tab_title,
+                    'source_identity', jsonb_build_object('capture_id',capture_id,'as_of',as_of,
+                        'sheet_gid',sheet_gid,'source_row',source_row),
+                    'row_sha256', row_sha256, 'source_url', source_url)
+                    ORDER BY sheet_gid, source_row, code NULLS FIRST, exception_no) FROM selected), '[]'::jsonb)
+            ) AS response
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
+            customer_mode=customer_mode, customer=customer_value,
+            period_mode=period_mode, period=period_value,
+            code_mode=code_mode, code=code_value, limit=page_size, offset=offset)[0]["response"]
+        return {**provenance, "page": page, "page_size": page_size, **result}
+
+    def customer_reconciliations(self, customer: str | None = None) -> dict:
+        """Batch customer reconciliation; old-book delta is returned once per customer."""
+        customer_mode, customer_value = self._m1_filter(customer, "customer")
+        provenance = self._m1_provenance()
+        result = self.rows("""WITH scoped AS (
+                SELECT customer, result, old_book_delta_vnd
+                FROM pilot.m1_customer_diff
+                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
+                  AND (:'customer_mode'='all'
+                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
+                    OR (:'customer_mode'='exact' AND customer=:'customer'))
+            )
+            SELECT count(*) AS total_results,
+                coalesce(jsonb_agg(jsonb_build_object(
+                    'customer', customer, 'reconciliation_status', result,
+                    'old_book_delta_vnd', old_book_delta_vnd,
+                    'old_book_delta_status', CASE
+                        WHEN result='NO_BASELINE' THEN 'NO_BASELINE'
+                        WHEN old_book_delta_vnd IS NULL THEN 'MISSING'
+                        ELSE 'AVAILABLE' END)
+                    ORDER BY customer), '[]'::jsonb) AS items
+            FROM scoped
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
+            customer_mode=customer_mode, customer=customer_value)[0]
+        return {
+            **provenance,
+            **result,
+            "reconciliation_status": "AVAILABLE" if provenance["baseline_status"] == "AVAILABLE" else "NO_BASELINE",
+        }
 
     def events_for_customer(self, capture: str, customer: str, first_period: str = "", limit: int = 2001):
         return self.rows("""SELECT e.debt_period,e.event_no,e.posting_date,e.kind,e.amount_vnd,

@@ -48,6 +48,29 @@ jobs:
           path: pg-ledger-characterization.json
           if-no-files-found: warn
 
+  postgres-m1-history-queries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
+        run: python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
+      - name: Upload PostgreSQL M1 query report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-m1-history-queries
+          path: pg-m1-history-queries.json
+          if-no-files-found: error
+
   pg18-versioned-approval-fixture:
     runs-on: ubuntu-latest
     timeout-minutes: 10
