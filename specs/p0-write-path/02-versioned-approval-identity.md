@@ -1,6 +1,6 @@
 # P0-02 — Phê duyệt theo phiên bản và danh tính
 
-Trạng thái: **ĐỀ XUẤT**. Nguyên tắc maker/checker khác nhau đã chốt; danh tính chuẩn, quyền vận hành và hiệu lực approval còn mở.
+Trạng thái: **Quy tắc Q02 ĐÃ CHỐT ngày 15/10/2026; chưa triển khai.** Maker/checker khác nhau đã chốt; danh tính chuẩn và quyền vận hành theo Q01 còn mở. Chi tiết kỹ thuật dưới đây là thiết kế cần hoàn thiện trước implementation.
 
 ## Hiện trạng được xác nhận tĩnh
 
@@ -13,14 +13,14 @@ Tại revision `8365e8aa5ae2517959dedcc52ed8384232458b75`, `cong-no-web-handoff/
 
 ## Quy tắc đã chốt
 
-Theo `docs/business-rules.md` và D01 trong `docs/decisions.md` tại cùng revision: người nhập phải khác người duyệt; approval phải hợp lệ cho nội dung nghiệp vụ. Cách xác thực actor, ủy quyền/tài khoản chia sẻ và xử lý sửa nội dung sau submit chưa chốt.
+Theo `docs/business-rules.md` và D01 trong `docs/decisions.md`: người nhập phải khác người duyệt; approval phải hợp lệ cho nội dung nghiệp vụ. Người dùng chốt Q02 ngày 15/10/2026: approval gắn với revision bất biến; thay đổi nghiệp vụ cần revision và approval mới; sửa trình bày không đổi nghĩa thì không. Cách xác thực actor, ủy quyền/tài khoản chia sẻ và quyền vận hành Q01 còn mở.
 
 ## Đề xuất
 
-Mỗi lần submit tạo revision bất biến hoặc hash chuẩn hóa trên toàn bộ trường tác động quyết định và tiền, gồm lines, kỳ, nguồn, bằng chứng tham chiếu và scope phù hợp. Approval ghi revision/hash chính xác; mọi thay đổi tạo revision mới và vô hiệu approval cũ. Server/DB lấy actor từ principal đã xác thực ở boundary tin cậy; bỏ qua actor tự khai từ request payload. Phân biệt người thật, tài khoản ứng dụng/service và DB role trong audit.
+Mỗi lần submit tạo revision bất biến hoặc hash chuẩn hóa trên toàn bộ trường tác động quyết định và tiền: khách/kỳ/loại/tổng và các dòng, ngày nghiệp vụ/ngày ghi sổ, source/evidence reference và hash, lý do cùng metadata quyết định. Approval ghi revision/hash chính xác; thay đổi các trường này tạo revision mới và approval cũ không còn hiệu lực cho bản mới. Chỉ chỉnh sửa trình bày không đổi nội dung thì không cần duyệt lại. Server/DB lấy actor từ principal đã xác thực ở boundary tin cậy; bỏ qua actor tự khai từ request payload. Phân biệt người thật, tài khoản ứng dụng/service và DB role trong audit sau khi Q01 chốt.
 
 ## Câu hỏi và acceptance tương lai
 
 Ví dụ giả: checker xem receipt 100 cho kỳ 2026-01; maker đổi thành 101 trước khi post. Đề xuất yêu cầu submit/duyệt revision mới; giữ approval cũ có thể ghi nội dung checker chưa duyệt.
 
-Kiểm stale revision, không đổi revision, cùng actor, role sai, actor thiếu và actor payload giả. Test PostgreSQL chỉ chứng minh cơ chế DB/role fixture; xác thực người thật cần kiểm riêng ở ứng dụng/SSO. Xem [Q01](decisions-needed.md#q01--nguồn-danh-tính-makerchecker) và [Q02](decisions-needed.md#q02--approval-gắn-với-nội-dung-nào) trước task implementation.
+Acceptance cần kiểm: duyệt đúng revision; sửa trường nghiệp vụ tạo revision mới và approval cũ bị từ chối; nội dung không đổi giữ đúng approval; thay đổi trình bày không làm phát sinh approval mới; maker tự duyệt bị từ chối; role sai/actor thiếu/actor payload giả bị từ chối. Test PostgreSQL chỉ chứng minh cơ chế DB/role fixture; xác thực người thật cần kiểm riêng ở ứng dụng. Q02 đã chốt, nhưng implementation guard vẫn phụ thuộc Q01 về principal/quyền maker-checker và cần design/review trước khi viết DDL.
