@@ -516,6 +516,14 @@ class LedgerWebTest(unittest.TestCase):
         self.assertEqual(payload["components"]["history_provenance"], "unavailable")
         rows.assert_not_called()
 
+    def test_overview_shows_one_unavailable_box_when_history_is_unreadable(self):
+        FakeHistory.fail_summary = True
+        status, body = self.request("/?as_of=2026-10-13")
+        self.assertEqual(status, 200)
+        top = body.split('<table')[0]  # per-customer rows keep their own unknown marker
+        self.assertEqual(top.count('class="source-warning unavailable"'), 1)
+        self.assertIn("Chưa kiểm được ngoại lệ nguồn", body)
+
     def test_health_rejects_each_opening_invariant_from_one_constant(self):
         self.assertEqual(ledger_app.OPENING_INVARIANTS,
                          {"opening_periods": 496, "opening_vnd": 65051673578, "no_baseline": 46})

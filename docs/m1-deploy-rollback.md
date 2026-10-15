@@ -4,7 +4,7 @@ Trạng thái: **ĐỀ XUẤT**. Công cụ và test dùng thư mục tạm, rep
 
 ## Gate và thứ tự
 
-1. **ACL trước**: cấp `SELECT` trên ba view M1 cho role viewer ([đề xuất ACL](m1-acl-proposal.md)). Viewer live hiện thiếu quyền này; deploy trước khi cấp quyền thì `/health` trả 503 vì `exception_summary` và `customer_reconciliations` không đọc được.
+1. **ACL trước**: cấp quyền đọc năm view của DB pilot cho role viewer, cùng `CONNECT` và `USAGE` ([đề xuất ACL](m1-acl-proposal.md)). Theo T07, viewer live thiếu `SELECT` trên ba view M1 summary; deploy trước khi cấp quyền thì `/health` trả 503 vì `exception_summary` và `customer_reconciliations` không đọc được. Hai view `web_*`, `CONNECT` và `USAGE` chưa có bằng chứng live, nên cũng nằm trong gate.
 2. Build gói từ commit đã review.
 3. Preflight chỉ đọc, gồm kiểm ACL bằng tài khoản viewer.
 4. Người có quyền deploy cài gói; kiểm `/health` 200 và mở browser qua relay.
@@ -27,7 +27,7 @@ Không đóng gói fixture SQL, schema, test, preview, `captures/`, docs, app c�
 ```
 
 - Thư mục đích phải mới hoặc rỗng và nằm ngoài worktree (gói chứa mã chạy, không đưa vào Git).
-- Build từ chối khi ba file có thay đổi chưa commit, thiếu trong commit hoặc lỗi cú pháp Python (chỉ `ast.parse`, không import).
+- Build từ chối khi commit là HEAD mà ba file có thay đổi chưa commit (commit khác HEAD đọc thẳng từ git), thiếu trong commit hoặc lỗi cú pháp Python (chỉ `ast.parse`, không import).
 - `MANIFEST.json` ghi `commit`, `tree`, đường dẫn, kích thước và SHA-256 từng file. Cùng commit cho cùng manifest từng byte.
 
 Giữ `commit` và `tree` khớp với head PR đã qua CI: CI chỉ chứng minh test trên đúng tree đó.
@@ -43,7 +43,7 @@ Không ghi file, không import code trong gói, không DDL/DML. Kiểm:
 - manifest hợp lệ; danh sách file đúng allowlist; không file thừa, không symlink;
 - SHA-256 và kích thước từng file, cú pháp Python;
 - `--installed`: so từng file đang chạy với manifest (`identical`, `different`, `missing`) và in SHA-256 bản đang cài để làm hồ sơ rollback;
-- `--check-db`: một câu `SELECT` gọi `has_table_privilege` trên ba view. Chạy bằng thông tin kết nối của **role viewer** (biến môi trường libpq, không đưa mật khẩu vào lệnh).
+- `--check-db`: chạy thật `SELECT 1 FROM <view> LIMIT 0` trên từng view trong năm view mà viewer đọc (ba view M1 summary và `web_period_event`, `web_source_row`), cùng một `SELECT` kiểm `USAGE` trên schema `pilot`; kết nối được là bằng chứng `CONNECT`. Chạy bằng thông tin kết nối của **role viewer** (biến môi trường libpq, không đưa mật khẩu vào lệnh). Mỗi view báo `ok`, `denied` hoặc `error`.
 
 Mã thoát: `0` sẵn sàng; `1` chưa sẵn sàng (kể cả khi chưa chạy `--check-db`, thiếu quyền hoặc lỗi kết nối); `2` gói hỏng hoặc tham số sai. `ready_for_deploy` chỉ là `true` khi gói đúng và ACL đạt. Kết quả này chưa chứng minh service chạy; sau deploy vẫn phải kiểm `/health` và browser.
 
@@ -53,21 +53,21 @@ Viewer chỉ đọc nên rollback là đưa lại bản mã trước; không có
 
 Trước deploy (người deploy làm, ghi vào hồ sơ riêng ngoài Git):
 
-1. Chạy preflight với `--installed` để lưu SHA-256 ba file đang chạy.
-2. Sao ba file đang chạy sang thư mục sao lưu có tên theo thời điểm, kiểm SHA-256 của bản sao bằng giá trị bước 1.
+1. Chạy preflight với `--installed` để lưu SHA-256 các file đang chạy. Lần deploy đầu, bản đang chạy (13/10) chỉ có `release.sha256`, chưa có `MANIFEST.json`; dùng SHA-256 này làm mốc, không đợi manifest.
+2. Sao các file đang chạy sang thư mục sao lưu có tên theo thời điểm, tính SHA-256 từng file bản sao và so với SHA-256 bước 1 (và với `release.sha256` nếu có). Chưa khớp thì dừng, không deploy.
 3. Ghi cách khởi động lại service hiện có (đặt tên service bằng placeholder `<viewer-service>` trong ghi chú chia sẻ; tên thật nằm trong hồ sơ riêng).
 
 Khi cần quay lại (health 503, trang lỗi, số lạ):
 
-1. Dừng ghi nhận deploy mới. Chép ba file từ thư mục sao lưu về chỗ cài, khởi động lại `<viewer-service>`.
-2. Chạy lại preflight `--installed` với manifest của bản trước: cả ba file phải `identical`.
+1. Dừng ghi nhận deploy mới. Chép các file từ thư mục sao lưu về chỗ cài, khởi động lại `<viewer-service>`.
+2. Tính lại SHA-256 các file đã chép về và so với giá trị đã ghi trước deploy (lần đầu: SHA-256 bản 13/10 hoặc `release.sha256`). Từ lần deploy thứ hai trở đi, có thể chạy preflight `--installed` với gói trước, mọi file phải `identical`.
 3. Kiểm `/health` và một trang khách trên browser.
 
 Hai điểm cần biết:
 
-- **Rollback mã không hoàn tác ACL.** Bản mã trước vẫn chạy khi role viewer có thêm `SELECT` trên ba view; không cần thu hồi để rollback. Thu hồi quyền chỉ khi chủ quyết định riêng.
+- **Rollback mã không hoàn tác ACL.** Bản mã trước vẫn chạy khi role viewer có thêm `SELECT` trên các view; không cần thu hồi để rollback. Thu hồi quyền chỉ khi chủ quyết định riêng.
 - Nếu bản trước không có route `/exceptions` và `/health` mở rộng, `/health` của nó chỉ kiểm phần cũ. Dùng kiểm tay trang khách để xác nhận sau rollback.
 
 ## Giới hạn
 
-ĐÃ KIỂM CHỨNG: build/preflight bằng repo tạm và dữ liệu giả (`tests/test_m1_release.py`); câu kiểm ACL chỉ chứa `SELECT`. CHƯA KIỂM CHỨNG: chạy với PostgreSQL, role hoặc máy thật; quy trình cài và khởi động lại thật; tương thích với bản đang chạy ngoài ba file này. CÒN MỞ: hồ sơ riêng ngoài Git cho tên service, đường dẫn cài và thông tin kết nối.
+ĐÃ KIỂM CHỨNG: build/preflight bằng repo tạm và dữ liệu giả (`tests/test_m1_release.py`); các câu kiểm ACL chỉ chứa `SELECT` (có test). CHƯA KIỂM CHỨNG: chạy với PostgreSQL, role hoặc máy thật; quy trình cài và khởi động lại thật; tương thích với bản đang chạy ngoài ba file này. CÒN MỞ: hồ sơ riêng ngoài Git cho tên service, đường dẫn cài và thông tin kết nối.

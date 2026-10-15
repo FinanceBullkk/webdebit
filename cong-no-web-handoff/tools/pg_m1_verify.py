@@ -325,13 +325,18 @@ def verify(capture_dir: Path, replay_dir: Path, db_report_dir: Path) -> dict:
     expected_no_baseline = {(r["customer"], r["period"]) for r in csv_rows(replay_dir / "period_keys_without_baseline.csv")}
     if no_baseline != expected_no_baseline:
         raise ValueError("Unmatched period baseline keys differ")
-    # Blank old-book delta is unknown, not zero: it stays out of the sum and is reported by count.
+    customer_no_baseline = {r["customer"] for r in customer_recon if r["result"] == "NO_BASELINE"}
+    replay_customer_rows = strict_csv_rows(replay_dir / "customer_diffs.csv", ("customer", "baseline_row"))
+    replay_customer_no_baseline = {r["customer"] for r in replay_customer_rows if r["baseline_row"] == ""}
+    if customer_no_baseline != replay_customer_no_baseline:
+        raise ValueError("Unmatched customer baseline keys differ")
+    # A blank old-book delta is unknown, never 0: a baselined customer without it fails the check.
     old_book_delta = 0
-    old_book_missing = 0
     for row in customer_recon:
         value = integer(row["old_book_delta_vnd"], "old book delta", nullable=True)
         if value is None:
-            old_book_missing += row["result"] != "NO_BASELINE"
+            if row["result"] != "NO_BASELINE":
+                raise ValueError("Old book delta missing for a baselined customer; a blank delta is not zero")
             continue
         old_book_delta += value
     if old_book_delta != expected["reconciliation"]["old_book_new_minus_old_vnd"]:
@@ -360,8 +365,7 @@ def verify(capture_dir: Path, replay_dir: Path, db_report_dir: Path) -> dict:
     return {"periods_checked": len(old_periods), "customers_checked": len(old_customers),
             "exceptions_checked": len(db_exceptions), "period_keys_without_baseline": len(no_baseline),
             "old_book_delta_vnd": expected["reconciliation"]["old_book_new_minus_old_vnd"],
-            "event_count_rows_checked": len(db_counts), "events_checked": source_total,
-            "old_book_delta_missing_for_baselined_customers": old_book_missing}
+            "event_count_rows_checked": len(db_counts), "events_checked": source_total}
 
 
 def main() -> None:

@@ -66,6 +66,7 @@ class M1ExportVerifyTests(unittest.TestCase):
         write_csv(self.replay / "customer_balances.csv", ("customer", "balance_vnd"),
                   [{"customer": "FAKE", "balance_vnd": 125}])
         write_csv(self.replay / "period_keys_without_baseline.csv", ("customer", "period"), [])
+        write_csv(self.replay / "customer_diffs.csv", ("customer", "baseline_row"), [])
         (self.replay / "exceptions.jsonl").write_text("", encoding="utf-8")
 
         db_values = {kind: "" for kind in KINDS}
@@ -302,16 +303,33 @@ class M1ExportVerifyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate Period reconciliation key"):
             pg_m1_verify.verify(self.capture, self.replay, self.report)
 
-    def test_blank_old_book_delta_is_reported_not_silently_zero(self):
+    def test_blank_old_book_delta_fails_for_baselined_customer(self):
         row = {"customer": "FAKE", "result": "MATCH", "delta_vnd": 0, "old_book_delta_vnd": ""}
         self.write_reconciliation(customer=[row])
-        result = pg_m1_verify.verify(self.capture, self.replay, self.report)
-        self.assertEqual(result["old_book_delta_missing_for_baselined_customers"], 1)
+        with self.assertRaisesRegex(ValueError, "Old book delta missing for a baselined customer"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+        # No baseline: the delta is legitimately unknown and contributes nothing.
+        write_csv(self.replay / "customer_diffs.csv", ("customer", "baseline_row"),
+                  [{"customer": "FAKE", "baseline_row": ""}])
         self.write_reconciliation(customer=[{**row, "result": "NO_BASELINE", "delta_vnd": ""}])
-        result = pg_m1_verify.verify(self.capture, self.replay, self.report)
-        self.assertEqual(result["old_book_delta_missing_for_baselined_customers"], 0)
+        self.assertEqual(pg_m1_verify.verify(self.capture, self.replay, self.report)["old_book_delta_vnd"], 0)
+        write_csv(self.replay / "customer_diffs.csv", ("customer", "baseline_row"), [])
         self.write_reconciliation(customer=[{**row, "old_book_delta_vnd": 7}])
         with self.assertRaisesRegex(ValueError, "old-book difference changed"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+
+    def test_customer_no_baseline_must_match_replay(self):
+        row = {"customer": "FAKE", "result": "NO_BASELINE", "delta_vnd": "", "old_book_delta_vnd": ""}
+        self.write_reconciliation(customer=[row])  # DB says no baseline, replay says baselined
+        with self.assertRaisesRegex(ValueError, "Unmatched customer baseline keys differ"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+        write_csv(self.replay / "customer_diffs.csv", ("customer", "baseline_row"),
+                  [{"customer": "FAKE", "baseline_row": ""}])
+        self.write_reconciliation()  # replay says no baseline, DB says MATCH
+        with self.assertRaisesRegex(ValueError, "Unmatched customer baseline keys differ"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+        (self.replay / "customer_diffs.csv").unlink()
+        with self.assertRaisesRegex(ValueError, "missing customer_diffs.csv"):
             pg_m1_verify.verify(self.capture, self.replay, self.report)
 
     def test_old_period_export_without_event_count_column_requires_fresh_export(self):

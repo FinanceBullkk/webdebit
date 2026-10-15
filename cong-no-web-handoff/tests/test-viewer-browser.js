@@ -49,7 +49,7 @@ function startServer() {
 async function stopServer() {
   const child = server;
   server = null;
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise(resolve => child.once('exit', resolve));
   child.stdin.end();
   const timer = setTimeout(() => child.kill(), 5000);
@@ -207,6 +207,7 @@ for (const viewport of Object.keys(VIEWPORTS)) {
     assert.match(await page.locator('.overview-summary').innerText(), /100 ₫/);
     const warning = page.locator('.source-warning.unavailable').first();
     assert.match(await warning.innerText(), /Chưa kiểm được ngoại lệ nguồn/);
+    assert.equal(await page.locator('main > .source-warning.unavailable').count(), 1, 'one unavailable box above the table, not two');
     assert.doesNotMatch(await page.locator('main').innerText(), /\b0 ngoại lệ/);
     await page.screenshot({path: path.join(shots, `history-error-${viewport}.png`)});
   }));

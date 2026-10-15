@@ -20,7 +20,7 @@ STYLE = Path(__file__).with_name("style.css").read_bytes()
 CAPTURE = "2026-10-13-debit-2026-1791884418948"
 OPENING_DATE = date(2026, 10, 13)
 # Opening PostgreSQL 13/10/2026 16:44 is the user-approved base of the ledger (OPENING-FINAL, decided
-# 16/10/2026; audited on the isolated copy in T07). Startup and /health both reject any other value.
+# 16/10/2026; read-only live check 15/10, T07). Startup and /health both reject any other value.
 # 46 periods are NO_BASELINE (no matching old-book row); they keep their flag and are not repaired.
 OPENING_INVARIANTS = {"opening_periods": 496, "opening_vnd": 65_051_673_578, "no_baseline": 46}
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -268,7 +268,8 @@ def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-
                                     "period_mode": "exact", "period": period,
                                     "code_mode": "all", "code": None})
     if period_summary is None:
-        content += source_warning(None, None, period_target)
+        if summary is not None:  # history fully unreadable: one box is enough
+            content += source_warning(None, None, period_target)
     else:
         period_detail = (total_anomaly_text(period_summary) +
                          " Chênh sổ cũ chỉ thuộc khách, không phân bổ xuống kỳ.")

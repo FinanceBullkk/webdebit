@@ -3,8 +3,8 @@
 build      Copy the allowlisted runtime files from one git commit into a new directory outside
            the worktree and write MANIFEST.json (commit, tree, SHA-256 of every file).
 preflight  Read-only. Verify a package against its manifest, optionally compare an installed
-           directory, and optionally check (SELECT only) that the viewer role can read the three
-           M1 views. Without the database check the result is never "ready_for_deploy".
+           directory, and optionally check (SELECT only) that the viewer role can read every view the
+           viewer queries. Without the database check the result is never "ready_for_deploy".
 """
 
 from __future__ import annotations
@@ -27,8 +27,13 @@ RUNTIME_FILES = (
 PACKAGE_STRIP = "cong-no-web-handoff/"
 MANIFEST = "MANIFEST.json"
 FORMAT = 1
-# Views HistoryDB reads. Without SELECT on them /health answers 503 (see docs/m1-deploy-rollback.md).
+# Everything the viewer reads in the pilot database (HistoryDB). The three M1 summary views feed
+# /health and /exceptions: without SELECT on them /health answers 503. The two web views feed the
+# customer pages. See docs/m1-acl-proposal.md.
 M1_VIEWS = ("pilot.m1_provenance", "pilot.m1_exception_detail", "pilot.m1_customer_diff")
+WEB_VIEWS = ("pilot.web_period_event", "pilot.web_source_row")
+VIEWER_VIEWS = M1_VIEWS + WEB_VIEWS
+PILOT_SCHEMA = "pilot"
 HEX40 = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 
@@ -69,9 +74,10 @@ def build(repo: Path, out_dir: Path, commit: str = "HEAD") -> dict:
         raise ReleaseError("Package directory must be empty or new")
     commit_sha = git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}").decode().strip()
     tree_sha = git(repo, "rev-parse", f"{commit_sha}^{{tree}}").decode().strip()
-    dirty = git(repo, "status", "--porcelain", "--", *RUNTIME_FILES).decode().strip()
-    if dirty:
-        raise ReleaseError("Runtime files differ from the working tree; commit or revert them first")
+    # Only HEAD is compared with the working tree; another commit is read from git as it is.
+    if commit_sha == git(repo, "rev-parse", "HEAD").decode().strip():
+        if git(repo, "status", "--porcelain", "--", *RUNTIME_FILES).decode().strip():
+            raise ReleaseError("Runtime files differ from the working tree; commit or revert them first")
     files, contents = [], {}
     for source in RUNTIME_FILES:
         try:
@@ -160,17 +166,35 @@ def psql_rows(psql: str, dbname: str, sql: str) -> list[dict]:
     return json.loads(result.stdout.strip() or "[]")
 
 
-def check_view_acl(dbname: str, psql: str = "psql", rows=psql_rows) -> dict:
-    """Read-only: can the connecting role SELECT the M1 views? Run it as the viewer role."""
-    values = ", ".join(f"('{view}')" for view in M1_VIEWS)
-    sql = ("SELECT coalesce(json_agg(json_build_object('view', v, 'select', has_table_privilege(v, 'SELECT'))), "
-           f"'[]'::json) FROM (VALUES {values}) t(v)")
+def probe(rows, psql: str, dbname: str, sql: str) -> tuple[str, str, list]:
     try:
-        found = {row["view"]: row["select"] is True for row in rows(psql, dbname, sql)}
-    except (ReleaseError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError, TypeError) as exc:
-        return {"status": "error", "detail": str(exc) or exc.__class__.__name__, "views": {}}
-    views = {view: found.get(view, False) for view in M1_VIEWS}
-    return {"status": "ok" if all(views.values()) else "denied", "views": views}
+        found = rows(psql, dbname, sql)
+    except (ReleaseError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        text = str(exc) or exc.__class__.__name__
+        return ("denied" if "permission denied" in text.lower() else "error"), text, []
+    return "ok", "", found
+
+
+def check_viewer_access(dbname: str, psql: str = "psql", rows=psql_rows) -> dict:
+    """Read-only, run as the viewer role: connect, schema USAGE, then a real SELECT ... LIMIT 0
+    on every view the viewer reads (a catalog privilege flag alone is not enough)."""
+    state, detail, found = probe(rows, psql, dbname,
+                                 f"SELECT json_build_array(has_schema_privilege('{PILOT_SCHEMA}', 'USAGE'))")
+    if state != "ok" or found not in ([True], [False]):
+        return {"status": "error", "detail": detail or "unexpected schema check result",
+                "connect": False, "schema_usage": None, "views": {}}
+    views, details = {}, {}
+    for view in VIEWER_VIEWS:
+        views[view], detail, _ = probe(rows, psql, dbname, f"SELECT 1 FROM {view} LIMIT 0")
+        if detail:
+            details[view] = detail
+    states = set(views.values())
+    status = ("error" if "error" in states else
+              "denied" if "denied" in states or found == [False] else "ok")
+    result = {"status": status, "connect": True, "schema_usage": found == [True], "views": views}
+    if details:
+        result["detail"] = details
+    return result
 
 
 def preflight(package: Path, installed: Path | None = None, db: str | None = None,
@@ -179,10 +203,10 @@ def preflight(package: Path, installed: Path | None = None, db: str | None = Non
     result = {"package": "ok", "commit": manifest["commit"], "tree": manifest["tree"],
               "files": {entry["path"]: entry["sha256"] for entry in manifest["files"]},
               "installed": compare_installed(installed, manifest) if installed else "not_checked",
-              "acl": check_view_acl(db, psql, rows) if db else {"status": "not_checked", "views": {}}}
+              "acl": check_viewer_access(db, psql, rows) if db else {"status": "not_checked", "views": {}}}
     result["ready_for_deploy"] = result["acl"]["status"] == "ok"
     if result["acl"]["status"] in ("denied", "error"):
-        result["warning"] = "Do not deploy: the viewer cannot read the M1 views, so /health would return 503."
+        result["warning"] = "Do not deploy: the viewer cannot read every view it queries; with the M1 summary views missing /health would return 503."
     return result
 
 
@@ -196,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("preflight", help="read-only package, installed-copy and ACL check")
     p.add_argument("package", type=Path)
     p.add_argument("--installed", type=Path, help="directory of the currently installed viewer, compared read-only")
-    p.add_argument("--check-db", metavar="DBNAME", help="read-only SELECT-privilege check; run as the viewer role")
+    p.add_argument("--check-db", metavar="DBNAME", help="read-only SELECT ... LIMIT 0 on every viewer view; run as the viewer role")
     p.add_argument("--psql", default="psql")
     args = parser.parse_args(argv)
     try:

@@ -157,37 +157,77 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(m1_release.ReleaseError, "syntax error"):
             m1_release.preflight(self.out)
 
-    def test_acl_check_gates_readiness_and_reports_503_risk(self):
-        self.build()
+    def fake_db(self, denied=(), broken=(), schema_usage=True):
         queries = []
 
-        def granted(psql, dbname, sql):
+        def rows(psql, dbname, sql):
             queries.append(sql)
-            return [{"view": view, "select": True} for view in m1_release.M1_VIEWS]
+            if sql.startswith("SELECT json_build_array(has_schema_privilege"):
+                if "schema" in broken:
+                    raise m1_release.ReleaseError("database check failed: connection refused")
+                return [schema_usage]
+            view = sql.split()[3]
+            if view in denied:
+                raise m1_release.ReleaseError(f"database check failed: permission denied for view {view}")
+            if view in broken:
+                raise m1_release.ReleaseError("database check failed: syntax")
+            return []
 
-        result = m1_release.preflight(self.out, db="pilot_db", rows=granted)
+        return rows, queries
+
+    def test_acl_check_probes_every_viewer_view_with_a_real_select(self):
+        self.build()
+        self.assertEqual(len(m1_release.VIEWER_VIEWS), 5)
+        self.assertIn("pilot.web_period_event", m1_release.VIEWER_VIEWS)
+        self.assertIn("pilot.web_source_row", m1_release.VIEWER_VIEWS)
+        rows, queries = self.fake_db()
+        result = m1_release.preflight(self.out, db="pilot_db", rows=rows)
         self.assertTrue(result["ready_for_deploy"])
         self.assertEqual(result["acl"]["status"], "ok")
-        self.assertEqual(len(queries), 1)
-        self.assertRegex(queries[0], r"^SELECT .*has_table_privilege")
-        self.assertNotRegex(queries[0], r"(?i)\b(grant|revoke|insert|update|delete|alter|create|drop)\b")
+        self.assertTrue(result["acl"]["connect"])
+        self.assertEqual(set(result["acl"]["views"].values()), {"ok"})
+        probes = [q for q in queries if q.startswith("SELECT 1 FROM")]
+        self.assertEqual(sorted(q.split()[3] for q in probes), sorted(m1_release.VIEWER_VIEWS))
+        self.assertTrue(all(q.endswith("LIMIT 0") for q in probes))
+        for query in queries:
+            self.assertRegex(query, r"^SELECT ")
+            self.assertNotRegex(query, r"(?i)\b(grant|revoke|insert|update|delete|alter|create|drop)\b")
 
-        def denied(psql, dbname, sql):
-            return [{"view": "pilot.m1_provenance", "select": True},
-                    {"view": "pilot.m1_exception_detail", "select": False}]
-
-        result = m1_release.preflight(self.out, db="pilot_db", rows=denied)
-        self.assertFalse(result["ready_for_deploy"])
+    def test_acl_check_blocks_readiness_for_each_missing_piece(self):
+        self.build()
+        for view in m1_release.VIEWER_VIEWS:
+            with self.subTest(denied=view):
+                rows, _ = self.fake_db(denied=(view,))
+                result = m1_release.preflight(self.out, db="pilot_db", rows=rows)
+                self.assertFalse(result["ready_for_deploy"])
+                self.assertEqual(result["acl"]["status"], "denied")
+                self.assertEqual(result["acl"]["views"][view], "denied")
+                self.assertIn("/health would return 503", result["warning"])
+        rows, _ = self.fake_db(schema_usage=False)
+        result = m1_release.preflight(self.out, db="pilot_db", rows=rows)
         self.assertEqual(result["acl"]["status"], "denied")
-        self.assertFalse(result["acl"]["views"]["pilot.m1_customer_diff"])
-        self.assertIn("/health would return 503", result["warning"])
+        self.assertFalse(result["acl"]["schema_usage"])
+        rows, _ = self.fake_db(broken=("pilot.web_source_row",))
+        result = m1_release.preflight(self.out, db="pilot_db", rows=rows)
+        self.assertEqual((result["ready_for_deploy"], result["acl"]["status"]), (False, "error"))
+        rows, queries = self.fake_db(broken=("schema",))
+        result = m1_release.preflight(self.out, db="pilot_db", rows=rows)
+        self.assertEqual((result["ready_for_deploy"], result["acl"]["status"], result["acl"]["connect"]),
+                         (False, "error", False))
+        self.assertEqual(len(queries), 1)
 
-        def broken(psql, dbname, sql):
-            raise m1_release.ReleaseError("database check failed")
-
-        result = m1_release.preflight(self.out, db="pilot_db", rows=broken)
-        self.assertFalse(result["ready_for_deploy"])
-        self.assertEqual(result["acl"]["status"], "error")
+    def test_build_from_another_commit_ignores_working_tree_changes(self):
+        first = git(self.repo, "rev-parse", "HEAD")
+        app = self.repo / "cong-no-web-handoff/web/ledger_app.py"
+        app.write_bytes(b"VALUE = 3" + bytes([10]))
+        git(self.repo, "commit", "-qam", "second")
+        app.write_bytes(b"VALUE = dirty" + bytes([10]))
+        with self.assertRaisesRegex(m1_release.ReleaseError, "commit or revert"):
+            self.build()
+        manifest = m1_release.build(self.repo, self.out, first)
+        self.assertEqual(manifest["commit"], first)
+        self.assertEqual((self.out / "web/ledger_app.py").read_bytes(),
+                         RUNTIME["cong-no-web-handoff/web/ledger_app.py"])
 
     def test_cli_exit_codes(self):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
