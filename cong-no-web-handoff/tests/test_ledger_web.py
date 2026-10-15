@@ -516,6 +516,19 @@ class LedgerWebTest(unittest.TestCase):
         self.assertEqual(payload["components"]["history_provenance"], "unavailable")
         rows.assert_not_called()
 
+    def test_health_rejects_each_opening_invariant_from_one_constant(self):
+        self.assertEqual(ledger_app.OPENING_INVARIANTS,
+                         {"opening_periods": 496, "opening_vnd": 65051673578, "no_baseline": 46})
+        status, payload = ledger_app.health_payload(FakeLedger(), FakeHistory(), date(2026, 10, 16))
+        self.assertEqual(status, 200)
+        for key, expected in ledger_app.OPENING_INVARIANTS.items():
+            with self.subTest(invariant=key):
+                wrong = type("Wrong", (FakeLedger,), {key: expected + 1})()
+                status, payload = ledger_app.health_payload(wrong, FakeHistory(), date(2026, 10, 16))
+                self.assertEqual(status, 503)
+                self.assertEqual(payload["components"][key], "invalid")
+                self.assertFalse(ledger_app.opening_validation(wrong, date(2026, 10, 16))["ok"])
+
     def test_startup_and_health_share_opening_validation(self):
         calls = []
         original = ledger_app.opening_validation

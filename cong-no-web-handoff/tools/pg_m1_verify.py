@@ -26,8 +26,11 @@ def csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(stream))
 
 
+RECON_ACCEPTED = ("MATCH", "NO_BASELINE", "NO_DB_EVENTS")
+
+
 def strict_csv_rows(path: Path, required: tuple[str, ...], *, count_evidence: bool = False) -> list[dict]:
-    prefix = "Incomplete M1 count evidence; export again" if count_evidence else "Invalid M1 report"
+    prefix = "Incomplete M1 count evidence; export again" if count_evidence else "Invalid M1 report; export again"
     try:
         stream = path.open(encoding="utf-8-sig", newline="")
     except FileNotFoundError as exc:
@@ -184,6 +187,31 @@ def read_db_counts(path: Path, period_keys: set[tuple[str, str]], capture_id: st
     return result
 
 
+def check_reconciliation(path: Path, key_fields: tuple[str, ...], required_keys: set[tuple],
+                         label: str, extra: tuple[str, ...] = ()) -> list[dict]:
+    """Every replayed key needs a reconciliation row; blank delta or a failed result is not a pass."""
+    rows = strict_csv_rows(path, (*key_fields, "result", "delta_vnd", *extra))
+    seen = set()
+    for row in rows:
+        key = tuple(row[name] for name in key_fields)
+        if key in seen:
+            raise ValueError(f"Duplicate {label} reconciliation key")
+        seen.add(key)
+        result = row["result"]
+        if result not in RECON_ACCEPTED:
+            raise ValueError(f"{label} baseline result is not acceptable: {result or 'blank'}")
+        if result == "NO_BASELINE":
+            continue
+        delta = integer(row["delta_vnd"], f"{label} delta", nullable=True)
+        if delta is None:
+            raise ValueError(f"{label} baseline delta missing; a blank delta is not zero")
+        if delta != 0:
+            raise ValueError("Nonzero DB baseline difference")
+    if not required_keys <= seen:
+        raise ValueError(f"{label} reconciliation lacks rows for replayed keys; export again")
+    return rows
+
+
 def verify(capture_dir: Path, replay_dir: Path, db_report_dir: Path) -> dict:
     expected = json.loads((replay_dir / "summary.json").read_text(encoding="utf-8"))
     actual = json.loads((db_report_dir / "summary.json").read_text(encoding="utf-8"))
@@ -288,16 +316,25 @@ def verify(capture_dir: Path, replay_dir: Path, db_report_dir: Path) -> dict:
     if old_customers != db_customers:
         raise ValueError("DB customer balances differ from replay")
 
-    period_recon = csv_rows(db_report_dir / "period_reconciliation.csv")
-    customer_recon = csv_rows(db_report_dir / "customer_reconciliation.csv")
-    if any(r["delta_vnd"] and integer(r["delta_vnd"], "period/customer delta") != 0
-           for r in period_recon + customer_recon):
-        raise ValueError("Nonzero DB baseline difference")
+    period_recon = check_reconciliation(db_report_dir / "period_reconciliation.csv",
+                                        ("customer", "debt_period"), period_keys, "Period")
+    customer_recon = check_reconciliation(db_report_dir / "customer_reconciliation.csv",
+                                          ("customer",), {(customer,) for customer in db_customers},
+                                          "Customer", ("old_book_delta_vnd",))
     no_baseline = {(r["customer"], r["debt_period"]) for r in period_recon if r["result"] == "NO_BASELINE"}
     expected_no_baseline = {(r["customer"], r["period"]) for r in csv_rows(replay_dir / "period_keys_without_baseline.csv")}
     if no_baseline != expected_no_baseline:
         raise ValueError("Unmatched period baseline keys differ")
-    if sum(integer(r["old_book_delta_vnd"] or "0", "old book delta") for r in customer_recon) != expected["reconciliation"]["old_book_new_minus_old_vnd"]:
+    # Blank old-book delta is unknown, not zero: it stays out of the sum and is reported by count.
+    old_book_delta = 0
+    old_book_missing = 0
+    for row in customer_recon:
+        value = integer(row["old_book_delta_vnd"], "old book delta", nullable=True)
+        if value is None:
+            old_book_missing += row["result"] != "NO_BASELINE"
+            continue
+        old_book_delta += value
+    if old_book_delta != expected["reconciliation"]["old_book_new_minus_old_vnd"]:
         raise ValueError("Historical old-book difference changed")
 
     manifest = json.loads((capture_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -323,7 +360,8 @@ def verify(capture_dir: Path, replay_dir: Path, db_report_dir: Path) -> dict:
     return {"periods_checked": len(old_periods), "customers_checked": len(old_customers),
             "exceptions_checked": len(db_exceptions), "period_keys_without_baseline": len(no_baseline),
             "old_book_delta_vnd": expected["reconciliation"]["old_book_new_minus_old_vnd"],
-            "event_count_rows_checked": len(db_counts), "events_checked": source_total}
+            "event_count_rows_checked": len(db_counts), "events_checked": source_total,
+            "old_book_delta_missing_for_baselined_customers": old_book_missing}
 
 
 def main() -> None:

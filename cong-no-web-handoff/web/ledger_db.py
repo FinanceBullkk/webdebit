@@ -189,6 +189,53 @@ class LedgerDB:
         """, customer=customer)[0]
 
 
+# Blank text is unclassified, never a value of its own: btrim set matches
+# HistoryDB._M1_WHITESPACE (space, tab, LF, CR, FF, VT).
+_M1_TRIM_SQL = "' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)"
+
+
+def _m1_group(column: str, alias: str | None = None) -> str:
+    return f"CASE WHEN NULLIF(btrim({column}, {_M1_TRIM_SQL}),'') IS NULL THEN NULL ELSE {column} END AS {alias or column + '_group'}"
+
+
+def _m1_match(name: str, column: str, group: str) -> str:
+    """Filter predicate for one dimension: all / unclassified / exact (see HistoryDB._m1_filter)."""
+    return (f"(:'{name}_mode'='all'"
+            f" OR (:'{name}_mode'='unclassified' AND {group} IS NULL)"
+            f" OR (:'{name}_mode'='exact' AND {column}=:'{name}'))")
+
+
+_M1_CLASSIFIED_CTE = f"""classified AS (
+                SELECT d.*, {_m1_group("d.customer", "customer_group")},
+                    {_m1_group("d.debt_period", "period_group")}, {_m1_group("d.code", "code_group")}
+                FROM pilot.m1_exception_detail d
+                WHERE d.capture_id=:'capture' AND d.as_of=:'as_of'::date
+            ), filtered AS (
+                SELECT * FROM classified
+                WHERE {_m1_match("customer", "customer", "customer_group")}
+                  AND {_m1_match("period", "debt_period", "period_group")}
+                  AND {_m1_match("code", "code", "code_group")}
+            )"""
+
+
+def _m1_group_ctes() -> str:
+    return ", ".join(f"""by_{alias} AS (
+                SELECT {alias}_group AS {alias},
+                    count(*) AS exception_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
+                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
+                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
+                FROM filtered GROUP BY {alias}_group
+            )""" for alias in ("customer", "period", "code"))
+
+
+def _m1_group_json(alias: str) -> str:
+    return f"""coalesce((SELECT jsonb_agg(jsonb_build_object(
+                    '{alias}', {alias}, 'group_status', CASE WHEN {alias} IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'exception_count', exception_count, 'source_row_count', source_row_count,
+                    'trip_source_row_count', trip_source_row_count) ORDER BY {alias} NULLS LAST) FROM by_{alias}), '[]'::jsonb) AS by_{alias}"""
+
+
 class HistoryDB(LedgerDB):
     """Fixed replay snapshot, read separately from the current ledger."""
 
@@ -253,68 +300,25 @@ class HistoryDB(LedgerDB):
             raise ValueError(f"{name} filter contains NUL")
         return ("unclassified", "") if not value.strip(HistoryDB._M1_WHITESPACE) else ("exact", value)
 
+    def _m1_filter_args(self, customer, period, code) -> dict:
+        args = {}
+        for name, value in (("customer", customer), ("period", period), ("code", code)):
+            args[f"{name}_mode"], args[name] = self._m1_filter(value, name)
+        return args
+
     def exception_summary(self, customer: str | None = None, period: str | None = None,
                           code: str | None = None) -> dict:
         """Return filtered counts and customer/period/code groups for the cutover snapshot."""
-        customer_mode, customer_value = self._m1_filter(customer, "customer")
-        period_mode, period_value = self._m1_filter(period, "period")
-        code_mode, code_value = self._m1_filter(code, "code")
+        filters = self._m1_filter_args(customer, period, code)
         provenance = self._m1_provenance()
-        result = self.rows("""WITH scoped AS (
-                SELECT * FROM pilot.m1_exception_detail
-                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
-                  AND (:'customer_mode'='all'
-                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'customer_mode'='exact' AND customer=:'customer'))
-                  AND (:'period_mode'='all'
-                    OR (:'period_mode'='unclassified' AND NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'period_mode'='exact' AND debt_period=:'period'))
-                  AND (:'code_mode'='all'
-                    OR (:'code_mode'='unclassified' AND NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'code_mode'='exact' AND code=:'code'))
-            ), by_customer AS (
-                SELECT CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END AS customer,
-                    count(*) AS exception_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
-                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
-                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END
-            ), by_period AS (
-                SELECT CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END AS period,
-                    count(*) AS exception_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
-                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
-                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END
-            ), by_code AS (
-                SELECT CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END AS code,
-                    count(*) AS exception_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
-                    count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
-                        FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count
-                FROM scoped GROUP BY CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END
-            )
+        result = self.rows(f"""WITH {_M1_CLASSIFIED_CTE}, {_m1_group_ctes()}
             SELECT count(*) AS exception_count,
                 count(DISTINCT (capture_id,as_of,sheet_gid,source_row)) AS source_row_count,
                 count(DISTINCT (capture_id,as_of,sheet_gid,source_row))
                     FILTER (WHERE tab_title=:'trip_tab') AS trip_source_row_count,
-                coalesce((SELECT jsonb_agg(jsonb_build_object(
-                    'customer', customer, 'group_status', CASE WHEN customer IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
-                    'exception_count', exception_count, 'source_row_count', source_row_count,
-                    'trip_source_row_count', trip_source_row_count) ORDER BY customer NULLS LAST) FROM by_customer), '[]'::jsonb) AS by_customer,
-                coalesce((SELECT jsonb_agg(jsonb_build_object(
-                    'period', period, 'group_status', CASE WHEN period IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
-                    'exception_count', exception_count, 'source_row_count', source_row_count,
-                    'trip_source_row_count', trip_source_row_count) ORDER BY period NULLS LAST) FROM by_period), '[]'::jsonb) AS by_period,
-                coalesce((SELECT jsonb_agg(jsonb_build_object(
-                    'code', code, 'group_status', CASE WHEN code IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
-                    'exception_count', exception_count, 'source_row_count', source_row_count,
-                    'trip_source_row_count', trip_source_row_count) ORDER BY code NULLS LAST) FROM by_code), '[]'::jsonb) AS by_code
-            FROM scoped
-        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
-            customer_mode=customer_mode, customer=customer_value,
-            period_mode=period_mode, period=period_value,
-            code_mode=code_mode, code=code_value, trip_tab="Chuyến hàng")[0]
+                {", ".join(_m1_group_json(alias) for alias in ("customer", "period", "code"))}
+            FROM filtered
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"], **filters, trip_tab="Chuyến hàng")[0]
         return {**provenance, **result}
 
     def exception_page(self, customer: str | None = None, period: str | None = None,
@@ -327,23 +331,9 @@ class HistoryDB(LedgerDB):
         offset = (page - 1) * page_size
         if offset > 2**63 - 1:
             raise ValueError("page offset is too large")
-        customer_mode, customer_value = self._m1_filter(customer, "customer")
-        period_mode, period_value = self._m1_filter(period, "period")
-        code_mode, code_value = self._m1_filter(code, "code")
+        filters = self._m1_filter_args(customer, period, code)
         provenance = self._m1_provenance()
-        result = self.rows("""WITH filtered AS (
-                SELECT * FROM pilot.m1_exception_detail
-                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
-                  AND (:'customer_mode'='all'
-                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'customer_mode'='exact' AND customer=:'customer'))
-                  AND (:'period_mode'='all'
-                    OR (:'period_mode'='unclassified' AND NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'period_mode'='exact' AND debt_period=:'period'))
-                  AND (:'code_mode'='all'
-                    OR (:'code_mode'='unclassified' AND NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'code_mode'='exact' AND code=:'code'))
-            ), selected AS (
+        result = self.rows(f"""WITH {_M1_CLASSIFIED_CTE}, selected AS (
                 SELECT * FROM filtered
                 ORDER BY sheet_gid, source_row, code NULLS FIRST, exception_no
                 LIMIT :'limit'::integer OFFSET :'offset'::bigint
@@ -353,35 +343,33 @@ class HistoryDB(LedgerDB):
                 'items', coalesce((SELECT jsonb_agg(jsonb_build_object(
                     'exception_no', exception_no, 'code', code, 'status', status,
                     'resolution_status', resolution_status, 'customer', customer,
-                    'customer_group', CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE customer END,
-                    'customer_group_status', CASE WHEN NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
-                    'period', debt_period, 'period_group', CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE debt_period END,
-                    'period_group_status', CASE WHEN NULLIF(btrim(debt_period, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
-                    'code_group', CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN NULL ELSE code END,
-                    'code_group_status', CASE WHEN NULLIF(btrim(code, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'customer_group', customer_group,
+                    'customer_group_status', CASE WHEN customer_group IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'period', debt_period, 'period_group', period_group,
+                    'period_group_status', CASE WHEN period_group IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
+                    'code_group', code_group,
+                    'code_group_status', CASE WHEN code_group IS NULL THEN 'UNCLASSIFIED' ELSE 'CLASSIFIED' END,
                     'detail', detail, 'tab_title', tab_title,
                     'source_identity', jsonb_build_object('capture_id',capture_id,'as_of',as_of,
                         'sheet_gid',sheet_gid,'source_row',source_row),
                     'row_sha256', row_sha256, 'source_url', source_url)
                     ORDER BY sheet_gid, source_row, code NULLS FIRST, exception_no) FROM selected), '[]'::jsonb)
             ) AS response
-        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
-            customer_mode=customer_mode, customer=customer_value,
-            period_mode=period_mode, period=period_value,
-            code_mode=code_mode, code=code_value, limit=page_size, offset=offset)[0]["response"]
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"], **filters,
+            limit=page_size, offset=offset)[0]["response"]
         return {**provenance, "page": page, "page_size": page_size, **result}
 
     def customer_reconciliations(self, customer: str | None = None) -> dict:
         """Batch customer reconciliation; old-book delta is returned once per customer."""
-        customer_mode, customer_value = self._m1_filter(customer, "customer")
+        filters = self._m1_filter_args(customer, None, None)
         provenance = self._m1_provenance()
-        result = self.rows("""WITH scoped AS (
-                SELECT customer, result, old_book_delta_vnd
-                FROM pilot.m1_customer_diff
-                WHERE capture_id=:'capture' AND as_of=:'as_of'::date
-                  AND (:'customer_mode'='all'
-                    OR (:'customer_mode'='unclassified' AND NULLIF(btrim(customer, ' ' || chr(9) || chr(10) || chr(13) || chr(12) || chr(11)),'') IS NULL)
-                    OR (:'customer_mode'='exact' AND customer=:'customer'))
+        result = self.rows(f"""WITH classified AS (
+                SELECT d.*, {_m1_group("d.customer", "customer_group")}
+                FROM pilot.m1_customer_diff d
+                WHERE d.capture_id=:'capture' AND d.as_of=:'as_of'::date
+            ), scoped AS (
+                SELECT customer, result, old_book_delta_vnd FROM classified
+                WHERE {_m1_match("customer", "customer", "customer_group")}
             )
             SELECT count(*) AS total_results,
                 coalesce(jsonb_agg(jsonb_build_object(
@@ -393,8 +381,7 @@ class HistoryDB(LedgerDB):
                         ELSE 'AVAILABLE' END)
                     ORDER BY customer), '[]'::jsonb) AS items
             FROM scoped
-        """, capture=provenance["capture_id"], as_of=provenance["as_of"],
-            customer_mode=customer_mode, customer=customer_value)[0]
+        """, capture=provenance["capture_id"], as_of=provenance["as_of"], **filters)[0]
         return {
             **provenance,
             **result,

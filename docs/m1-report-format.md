@@ -19,4 +19,10 @@ Verifier tự đếm `events.jsonl`, kiểm `posting_date` không vượt ngày 
 
 Aggregate NULL chỉ được tính đóng góp 0 khi cả nguồn và DB cùng chứng minh `event_count=0` và `amount_nonnull_count=0`. Event có amount 0 vẫn có count dương và khác trường hợp không có event. Khi có event, amount và aggregate ở cả nguồn/DB đều bắt buộc. Balance theo kỳ luôn bắt buộc. Export cũ không có count file là chứng cứ không đủ; không sửa CSV cũ để lấp count.
 
+## Đối soát baseline
+
+`period_reconciliation.csv` và `customer_reconciliation.csv` phải có dòng cho mọi kỳ/khách của replay, không trùng khóa. Kết quả chỉ được là `MATCH`, `NO_BASELINE` hoặc `NO_DB_EVENTS`; `INVALID_BASELINE`, `DUPLICATE_BASELINE`, `MISMATCH` hoặc giá trị lạ bị từ chối. Với dòng có baseline, `delta_vnd` bắt buộc là số nguyên bằng 0; delta trống không còn được bỏ qua như 0 (chỉ `NO_BASELINE` được trống). Khóa `NO_BASELINE` theo kỳ vẫn phải khớp danh sách của replay.
+
+`old_book_delta_vnd` trống là chưa biết, không phải 0: verifier không cộng nó vào tổng nhưng báo số khách có baseline mà thiếu giá trị ở `old_book_delta_missing_for_baselined_customers`. Giá trị này khác 0 là điểm cần người duyệt xem trước khi dùng báo cáo làm bằng chứng. Export cũ thiếu cột `event_count` ở `period_balances.csv` bị từ chối với yêu cầu export mới.
+
 Báo cáo so replay lịch sử Sheet với snapshot PostgreSQL pilot cô lập. Báo cáo không xác minh tiền ngân hàng, phê duyệt, GL, ghi sổ production hoặc runtime live hiện tại.

@@ -81,8 +81,7 @@ class M1ExportVerifyTests(unittest.TestCase):
                     "accepted_rows": 0, "replayed_rows": 0, "quarantined_rows": 0, "excluded_as_of_rows": 0}])
         write_csv(self.report / "customer_balances.csv", ("customer", "balance_vnd"),
                   [{"customer": "FAKE", "balance_vnd": 125}])
-        write_csv(self.report / "period_reconciliation.csv", ("customer", "debt_period", "result", "delta_vnd"), [])
-        write_csv(self.report / "customer_reconciliation.csv", ("customer", "old_book_delta_vnd"), [])
+        self.write_reconciliation()
         write_csv(self.report / "exceptions.csv", ("code", "sheet_gid", "source_row", "detail", "row_sha256", "source_url"), [])
         (self.capture / "manifest.json").write_text(json.dumps({"tabs": []}), encoding="utf-8")
         self.actual_summary = {
@@ -108,6 +107,14 @@ class M1ExportVerifyTests(unittest.TestCase):
                     row.update(changes[row["kind"]])
         write_csv(self.report / "period_event_counts.csv",
                   headers or ("capture_id", "as_of", "customer", "debt_period", "kind", "event_count", "amount_nonnull_count"), rows)
+
+    def write_reconciliation(self, period=None, customer=None):
+        write_csv(self.report / "period_reconciliation.csv", ("customer", "debt_period", "result", "delta_vnd"),
+                  [{"customer": "FAKE", "debt_period": "2026-10", "result": "MATCH", "delta_vnd": 0}]
+                  if period is None else period)
+        write_csv(self.report / "customer_reconciliation.csv", ("customer", "result", "delta_vnd", "old_book_delta_vnd"),
+                  [{"customer": "FAKE", "result": "MATCH", "delta_vnd": 0, "old_book_delta_vnd": 0}]
+                  if customer is None else customer)
 
     def save_actual_summary(self):
         (self.report / "summary.json").write_text(json.dumps(self.actual_summary), encoding="utf-8")
@@ -267,6 +274,52 @@ class M1ExportVerifyTests(unittest.TestCase):
         rows[0]["charge_vnd"] = ""
         write_csv(path, headers, rows)
         with self.assertRaisesRegex(ValueError, "Source amount aggregate missing"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+
+    def test_blank_delta_or_failed_baseline_result_is_not_a_pass(self):
+        base = {"customer": "FAKE", "debt_period": "2026-10", "result": "MATCH", "delta_vnd": 0}
+        for changes, message in (
+            ({"result": "INVALID_BASELINE", "delta_vnd": ""}, "baseline result is not acceptable"),
+            ({"result": "DUPLICATE_BASELINE"}, "baseline result is not acceptable"),
+            ({"result": "MISMATCH", "delta_vnd": 5}, "baseline result is not acceptable"),
+            ({"delta_vnd": ""}, "baseline delta missing"),
+            ({"delta_vnd": 3}, "Nonzero DB baseline difference"),
+        ):
+            with self.subTest(changes=changes):
+                self.write_reconciliation(period=[{**base, **changes}])
+                with self.assertRaisesRegex(ValueError, message):
+                    pg_m1_verify.verify(self.capture, self.replay, self.report)
+
+    def test_reconciliation_must_cover_every_replayed_key(self):
+        self.write_reconciliation(period=[])
+        with self.assertRaisesRegex(ValueError, "Period reconciliation lacks rows"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+        self.write_reconciliation(customer=[])
+        with self.assertRaisesRegex(ValueError, "Customer reconciliation lacks rows"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+        duplicate = {"customer": "FAKE", "debt_period": "2026-10", "result": "MATCH", "delta_vnd": 0}
+        self.write_reconciliation(period=[duplicate, dict(duplicate)])
+        with self.assertRaisesRegex(ValueError, "Duplicate Period reconciliation key"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+
+    def test_blank_old_book_delta_is_reported_not_silently_zero(self):
+        row = {"customer": "FAKE", "result": "MATCH", "delta_vnd": 0, "old_book_delta_vnd": ""}
+        self.write_reconciliation(customer=[row])
+        result = pg_m1_verify.verify(self.capture, self.replay, self.report)
+        self.assertEqual(result["old_book_delta_missing_for_baselined_customers"], 1)
+        self.write_reconciliation(customer=[{**row, "result": "NO_BASELINE", "delta_vnd": ""}])
+        result = pg_m1_verify.verify(self.capture, self.replay, self.report)
+        self.assertEqual(result["old_book_delta_missing_for_baselined_customers"], 0)
+        self.write_reconciliation(customer=[{**row, "old_book_delta_vnd": 7}])
+        with self.assertRaisesRegex(ValueError, "old-book difference changed"):
+            pg_m1_verify.verify(self.capture, self.replay, self.report)
+
+    def test_old_period_export_without_event_count_column_requires_fresh_export(self):
+        path = self.report / "period_balances.csv"
+        rows = pg_m1_verify.csv_rows(path)
+        write_csv(path, [name for name in rows[0] if name != "event_count"],
+                  [{k: v for k, v in row.items() if k != "event_count"} for row in rows])
+        with self.assertRaisesRegex(ValueError, "export again.*missing columns.*event_count"):
             pg_m1_verify.verify(self.capture, self.replay, self.report)
 
     def test_export_query_and_csv_format_include_scoped_six_kind_counts(self):

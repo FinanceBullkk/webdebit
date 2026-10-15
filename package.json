@@ -4,9 +4,10 @@
   "private": true,
   "engines": { "node": ">=24 <25" },
   "scripts": {
-    "test": "npm run test:unit && npm run test:browser",
+    "test": "npm run test:unit && npm run test:browser && npm run test:viewer",
     "test:unit": "node --test cong-no-web-handoff/preview/test-so-cong-no-model.js cong-no-web-handoff/preview/test-monthly-ledger-model.js cong-no-web-handoff/preview/test-customer-ledger-workbench.js cong-no-web-handoff/preview/test-customer-ledger-requirements.js",
-    "test:browser": "node --test cong-no-web-handoff/preview/test-customer-ledger-browser.js"
+    "test:browser": "node --test cong-no-web-handoff/preview/test-customer-ledger-browser.js",
+    "test:viewer": "node --test cong-no-web-handoff/tests/test-viewer-browser.js"
   },
   "devDependencies": { "playwright": "1.64.1" }
 }

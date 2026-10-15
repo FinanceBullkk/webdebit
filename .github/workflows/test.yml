@@ -104,6 +104,40 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned timezone data (viewer fixture server)
+        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: npm test
+
+  browser-viewer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+      WEBDEBIT_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned timezone data
+        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Real viewer (LedgerHandler over HTTP, fake data) at 1280px and 390px
+        run: npm run test:viewer
+      - name: Upload fake-data screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-browser-screenshots
+          path: test-results/viewer
+          if-no-files-found: warn
