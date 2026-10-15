@@ -30,6 +30,7 @@ from test_pg_ledger_schema import (
     LABEL_TEST,
     LABEL_VALUE,
     HarnessError,
+    PsqlSession,
     cleanup_owned_container,
     owned_container_id,
     run,
@@ -133,10 +134,16 @@ class Fixture:
         self.db_user = db_user
 
     def psql(self, sql: str, *, user: str = "postgres", check: bool = True,
-             database: str = DATABASE) -> subprocess.CompletedProcess[str]:
-        return run(self.docker + ["exec", self.container, "psql", "-X", "-qAt",
+             database: str = DATABASE, appname: str | None = None,
+             pg_options: str | None = None, timeout: float = 30) -> subprocess.CompletedProcess[str]:
+        command = self.docker + ["exec"]
+        if appname is not None:
+            command += ["--env", f"PGAPPNAME={appname}"]
+        if pg_options is not None:
+            command += ["--env", f"PGOPTIONS={pg_options}"]
+        return run(command + [self.container, "psql", "-X", "-qAt",
             "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
-            "-d", database, "-c", sql], check=check, timeout=30)
+            "-d", database, "-c", sql], check=check, timeout=timeout)
 
     def assertion(self, actor: uuid.UUID, action: str, scope: str,
                    *, session_id: uuid.UUID | None = None,
@@ -155,11 +162,10 @@ class Fixture:
             sql_literal(assertion.key_id), sql_literal(assertion.signature),
         ))
 
-    def submit(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
-               *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
-               signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
-               issued_epoch: int | None = None, user: str | None = None,
-               check: bool = True, date_style: str | None = None):
+    def submit_sql(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
+                   *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
+                   signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
+                   issued_epoch: int | None = None, date_style: str | None = None):
         signed_for = signed_actor or actor
         scope = submit_scope(proposal_id, scope_payload if scope_payload is not None else payload)
         session, assertion = self.assertion(signed_for, "submit", scope,
@@ -174,6 +180,16 @@ class Fixture:
             if date_style not in {"SQL, DMY", "SQL, MDY"}:
                 raise ValueError("unsupported fixture DateStyle")
             query = f"SET DateStyle TO '{date_style}'; " + query
+        return query, assertion, session
+
+    def submit(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
+               *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
+               signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
+               issued_epoch: int | None = None, user: str | None = None,
+               check: bool = True, date_style: str | None = None):
+        query, assertion, session = self.submit_sql(proposal_id, payload, actor,
+            session_id=session_id, nonce=nonce, signed_actor=signed_actor,
+            scope_payload=scope_payload, issued_epoch=issued_epoch, date_style=date_style)
         return self.psql(query, user=user or self.db_user, check=check), assertion, session
 
     def present(self, proposal_id: int, title: str, actor: uuid.UUID = MAKER,
@@ -188,18 +204,24 @@ class Fixture:
             check=check,
         )
 
-    def confirm(self, action: str, function: str, proposal_id: int,
-                revision_id: int, content_hash: str, actor: uuid.UUID,
-                *, user: str | None = None, check: bool = True):
+    def confirm_sql(self, action: str, function: str, proposal_id: int,
+                    revision_id: int, content_hash: str, actor: uuid.UUID):
         scope = f"{action}:{proposal_id}:{revision_id}:{content_hash}"
         session, assertion = self.assertion(actor, action, scope)
         args = self.assertion_sql(session, assertion)
-        return self.psql(
+        return (
             f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
             f"{sql_literal(content_hash)}, {args})",
-            user=user or self.db_user,
-            check=check,
+            assertion,
+            session,
         )
+
+    def confirm(self, action: str, function: str, proposal_id: int,
+                revision_id: int, content_hash: str, actor: uuid.UUID,
+                *, user: str | None = None, check: bool = True):
+        query, _, _ = self.confirm_sql(action, function, proposal_id,
+            revision_id, content_hash, actor)
+        return self.psql(query, user=user or self.db_user, check=check)
 
     def confirm_price(self, proposal_id: int, revision_id: int, content_hash: str,
                       actor: uuid.UUID = PRICE_OWNER, *, user: str | None = None,
@@ -213,9 +235,8 @@ class Fixture:
         return self.confirm("confirm_period", "confirm_period_revision",
             proposal_id, revision_id, content_hash, actor, user=user, check=check)
 
-    def decide(self, action: str, proposal_id: int, revision_id: int,
-               content_hash: str, actor: uuid.UUID = CHECKER, *, check: bool = True,
-               fail_post: bool = False, user: str | None = None):
+    def decide_sql(self, action: str, proposal_id: int, revision_id: int,
+                   content_hash: str, actor: uuid.UUID = CHECKER):
         scope = revision_scope(action, proposal_id, revision_id, content_hash)
         session, assertion = self.assertion(actor, action, scope)
         args = self.assertion_sql(session, assertion)
@@ -224,6 +245,13 @@ class Fixture:
             f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
             f"{sql_literal(content_hash)}, {args})"
         )
+        return query, session, assertion
+
+    def decide(self, action: str, proposal_id: int, revision_id: int,
+               content_hash: str, actor: uuid.UUID = CHECKER, *, check: bool = True,
+               fail_post: bool = False, user: str | None = None):
+        query, session, assertion = self.decide_sql(
+            action, proposal_id, revision_id, content_hash, actor)
         if fail_post:
             query = ("BEGIN; SET LOCAL p0_fixture.fail_post = 'on'; "
                      + query + "; COMMIT")
@@ -259,6 +287,9 @@ def main() -> int:
         "volume_mounts": [],
         "cases": [],
         "draft_matrix": [],
+        "posted_balance_evidence": [],
+        "concurrency_evidence": [],
+        "session_cleanup": "not_started",
         "runtime_checks": {
             "app_login_session": "not_implemented",
             "tailscale_boundary": "not_run",
@@ -280,8 +311,33 @@ def main() -> int:
         if not passed:
             raise HarnessError(f"{name}: expected {expected!r}, got {actual!r}")
 
-    def query(sql: str) -> str:
-        return Fixture(docker, container, run_id).psql(sql).stdout.strip()
+    def query(sql: str, *, appname: str | None = None,
+              pg_options: str | None = None, timeout: float = 30) -> str:
+        return Fixture(docker, container, run_id).psql(
+            sql, appname=appname, pg_options=pg_options, timeout=timeout).stdout.strip()
+
+    def posted_balance_snapshot(customer_id: str | None = None,
+                                debt_period: str | None = None) -> list[dict[str, object]]:
+        filters = []
+        if customer_id is not None:
+            filters.append(f"customer_id={sql_literal(customer_id)}")
+        if debt_period is not None:
+            filters.append(f"debt_period={sql_literal(debt_period)}")
+        where = " WHERE " + " AND ".join(filters) if filters else ""
+        raw = query(
+            "SELECT coalesce(jsonb_agg(jsonb_build_object("
+            "'customer_id', customer_id, 'debt_period', debt_period, "
+            "'posted_balance_vnd', posted_balance_vnd) ORDER BY customer_id, debt_period), "
+            "'[]'::jsonb)::text FROM p0_fixture.posted_balance" + where)
+        return json.loads(raw)
+
+    def unchanged_balance(action: str, before: list[dict[str, object]],
+                          after: list[dict[str, object]]) -> None:
+        case(f"{action}_leaves_posted_balance_unchanged", before, after)
+        report["posted_balance_evidence"].append({
+            "action": action, "before": before, "after": after,
+            "unchanged": before == after,
+        })  # type: ignore[union-attr]
 
     def proposal_snapshot(proposal_id: int) -> str:
         return query(
@@ -319,6 +375,169 @@ def main() -> int:
         return json.loads(query(
             "SELECT p0_fixture.fixture_review_projection(" + str(proposal_id) + ")::text"
         ))
+
+    def run_contention(name: str, proposal_id: int, debt_period: str,
+                       holder_user: str, holder_sql: str,
+                       waiter_user: str, waiter_sql: str,
+                       waiter_error: str | None = None) -> dict[str, object]:
+        short_name = name.replace("-", "")
+        holder_app = f"m2:{run_id}:{short_name}:h"
+        waiter_app = f"m2:{run_id}:{short_name}:w"
+        observer_app = f"m2:{run_id}:{short_name}:o"
+        if any(len(value.encode("utf-8")) > 63
+               for value in (holder_app, waiter_app, observer_app)):
+            raise HarnessError("contention PGAPPNAME exceeds PostgreSQL limit")
+
+        before = json.loads(proposal_snapshot(proposal_id))
+        balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", debt_period)
+        evidence: dict[str, object] = {
+            "scenario": name,
+            "holder_appname": holder_app,
+            "waiter_appname": waiter_app,
+            "observer_appname": observer_app,
+            "holder_user": holder_user,
+            "waiter_user": waiter_user,
+            "proposal_id": proposal_id,
+            "before": before,
+            "balance_before": balance_before,
+            "waiter_expected_error": waiter_error,
+        }
+        report["concurrency_evidence"].append(evidence)  # type: ignore[union-attr]
+
+        pg_options = "-c statement_timeout=20000 -c lock_timeout=12000"
+        holder = PsqlSession(docker, {
+            "PGAPPNAME": holder_app,
+            "PGOPTIONS": pg_options,
+        }, container=container, user=holder_user, database=DATABASE)
+        waiter: subprocess.Popen[str] | None = None
+        failure: BaseException | None = None
+        try:
+            holder.send("BEGIN")
+            holder_action_lines = holder.execute(holder_sql,
+                f"__HOLDER_ACTION_{uuid.uuid4().hex}__", timeout=10)
+            holder_info_lines = holder.execute(
+                "SELECT pg_backend_pid()::text || '|' || session_user || '|' "
+                "|| current_setting('application_name')",
+                f"__HOLDER_INFO_{uuid.uuid4().hex}__", timeout=10)
+            holder_info = next((line for line in reversed(holder_info_lines) if line), "")
+            holder_parts = holder_info.split("|")
+            if len(holder_parts) != 3:
+                raise HarnessError(f"cannot identify contention holder session: {holder_info!r}")
+            holder_pid = int(holder_parts[0])
+            evidence["holder_pid"] = holder_pid
+            evidence["holder_session_user"] = holder_parts[1]
+            evidence["holder_action_output"] = holder_action_lines
+            case(f"{name}_holder_session_user", holder_user, holder_parts[1])
+            case(f"{name}_holder_application_name", holder_app, holder_parts[2])
+
+            waiter = subprocess.Popen(
+                docker + ["exec", "--env", f"PGAPPNAME={waiter_app}",
+                    "--env", f"PGOPTIONS={pg_options}", container,
+                    "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+                    "-v", "VERBOSITY=verbose", "-U", waiter_user,
+                    "-d", DATABASE, "-c", waiter_sql],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8")
+
+            deadline = time.monotonic() + 8
+            observation: dict[str, object] | None = None
+            last_activity = ""
+            while time.monotonic() < deadline:
+                if waiter.poll() is not None:
+                    stdout, stderr = waiter.communicate()
+                    raise HarnessError(
+                        f"{name} waiter exited before observed lock: "
+                        f"{waiter.returncode}; {stdout}{stderr}")
+                activity = query(
+                    "SELECT pid::text || '|' || usename || '|' || coalesce(state, '') || '|' "
+                    "|| coalesce(wait_event_type, '') || '|' || coalesce(wait_event, '') || '|' "
+                    "|| array_to_string(pg_blocking_pids(pid), ',') "
+                    "FROM pg_stat_activity "
+                    f"WHERE application_name={sql_literal(waiter_app)} "
+                    "AND datname=current_database()",
+                    appname=observer_app,
+                    pg_options="-c statement_timeout=5000",
+                    timeout=8)
+                if activity:
+                    last_activity = activity
+                    fields = activity.split("|")
+                    if len(fields) == 6:
+                        blockers = [int(value) for value in fields[5].split(",") if value]
+                        current = {
+                            "waiter_pid": int(fields[0]),
+                            "waiter_session_user": fields[1],
+                            "waiter_state": fields[2],
+                            "wait_event_type": fields[3],
+                            "wait_event": fields[4],
+                            "pg_blocking_pids": blockers,
+                        }
+                        if (current["waiter_state"] == "active"
+                                and current["wait_event_type"] == "Lock"
+                                and holder_pid in blockers):
+                            observation = current
+                            break
+                time.sleep(0.05)
+            if observation is None:
+                raise HarnessError(
+                    f"{name} waiter never showed holder in pg_blocking_pids; "
+                    f"last activity={last_activity!r}")
+
+            evidence.update(observation)
+            case(f"{name}_waiter_session_user", waiter_user,
+                 observation["waiter_session_user"])
+            case(f"{name}_waiter_blocked_by_holder_pid", True,
+                 holder_pid in observation["pg_blocking_pids"])
+            case(f"{name}_waiter_waits_on_lock", True,
+                 observation["wait_event_type"] == "Lock")
+
+            holder.close("COMMIT")
+            try:
+                waiter_stdout, waiter_stderr = waiter.communicate(timeout=25)
+            except subprocess.TimeoutExpired:
+                waiter.kill()
+                waiter_stdout, waiter_stderr = waiter.communicate(timeout=5)
+                raise HarnessError(f"{name} waiter exceeded bounded process timeout")
+            waiter_output = waiter_stdout + waiter_stderr
+            waiter_ok = ((waiter.returncode != 0 and waiter_error in waiter_output)
+                         if waiter_error is not None else waiter.returncode == 0)
+            evidence["waiter_returncode"] = waiter.returncode
+            evidence["waiter_output"] = waiter_output[-3000:]
+            case(f"{name}_waiter_outcome", True, waiter_ok)
+
+            after = json.loads(proposal_snapshot(proposal_id))
+            balance_after = posted_balance_snapshot("FAKE-CUSTOMER-1", debt_period)
+            evidence["after"] = after
+            evidence["balance_after"] = balance_after
+            evidence["balance_unchanged"] = balance_before == balance_after
+            case(f"{name}_leaves_posted_balance_unchanged", balance_before, balance_after)
+            return evidence
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            cleanup_errors: list[str] = []
+            try:
+                if holder.proc.poll() is None:
+                    holder.close()
+            except BaseException as exc:
+                cleanup_errors.append(f"holder: {type(exc).__name__}: {exc}")
+            try:
+                if waiter is not None and waiter.poll() is None:
+                    waiter.terminate()
+                if waiter is not None:
+                    try:
+                        waiter.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        waiter.kill()
+                        waiter.communicate(timeout=5)
+            except BaseException as exc:
+                cleanup_errors.append(f"waiter: {type(exc).__name__}: {exc}")
+            evidence["holder_process_exited"] = holder.proc.poll() is not None
+            evidence["waiter_process_exited"] = waiter is None or waiter.poll() is not None
+            if cleanup_errors:
+                evidence["cleanup_errors"] = cleanup_errors
+                if failure is None:
+                    raise HarnessError(f"{name} subprocess cleanup failed: {cleanup_errors}")
 
     def legacy_signature_matches(session: AuthenticatedSession, action: str | None,
                                  nonce: uuid.UUID, issued_epoch: int | None,
@@ -1581,8 +1800,11 @@ def main() -> int:
                 missing_opening_hash, check=False),
             "opening comparison evidence missing")
 
+        charge_submit_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
         candidate_result, _, _ = charge.submit(None, make_charge_payload(
             trip_code="fixture-only-trip-code", opening_refs=True))
+        unchanged_balance("charge_submit_draft", charge_submit_balance_before,
+            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
         candidate = json.loads(candidate_result.stdout.strip())
         charge_proposal = int(candidate["proposal_id"])
         charge_revision = int(candidate["revision_id"])
@@ -1625,7 +1847,10 @@ def main() -> int:
             "maker confirmation required")
         case("charge_without_period_confirmation_preserves_state",
              before_period_approval, proposal_snapshot(charge_proposal))
+        charge_period_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
         charge.confirm_period(charge_proposal, charge_revision, charge_hash)
+        unchanged_balance("charge_confirm_period", charge_period_balance_before,
+            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
         after_period_projection = review_projection(charge_proposal)["revisions"][0]
         case("period_confirmation_clears_only_period_blocker", True,
              "PERIOD_CONFIRMATION_MISSING" not in after_period_projection["current_blockers"]
@@ -1636,7 +1861,10 @@ def main() -> int:
             "per-trip price owner confirmation required")
         case("charge_without_price_confirmation_preserves_state",
              before_price_approval, proposal_snapshot(charge_proposal))
+        charge_price_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
         charge.confirm_price(charge_proposal, charge_revision, charge_hash)
+        unchanged_balance("charge_confirm_price", charge_price_balance_before,
+            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
         after_price_projection = review_projection(charge_proposal)["revisions"][0]
         case("price_confirmation_clears_only_price_confirmation_blocker", True,
              "PERIOD_CONFIRMATION_MISSING" not in after_price_projection["current_blockers"]
@@ -1672,8 +1900,11 @@ def main() -> int:
 
         changed_charge_payload = json.loads(make_charge_payload(
             trip_code="fixture-only-trip-code", opening_refs=True, amount=101))
+        charge_edit_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
         changed_charge_result, _, _ = charge.submit(charge_proposal,
             json.dumps(changed_charge_payload, separators=(",", ":")))
+        unchanged_balance("charge_edit", charge_edit_balance_before,
+            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
         changed_charge = json.loads(changed_charge_result.stdout.strip())
         changed_charge_revision = int(changed_charge["revision_id"])
         changed_charge_hash = changed_charge["content_sha256"]
@@ -1740,7 +1971,41 @@ def main() -> int:
             f"WHERE x.proposal_id=p.proposal_id) || '|' || (SELECT count(*) FROM p0_fixture.audit a "
             f"WHERE a.proposal_id=p.proposal_id AND a.action='post') FROM p0_fixture.proposal p WHERE p.proposal_id={proposal_id}")
         case("failed_post_leaves_approved_revision_unchanged", "approved|0|0", after_failed_post)
+        balance_before_generic_post = posted_balance_snapshot()
+        target_balance_before_generic_post = posted_balance_snapshot(
+            str(current_payload["customer_id"]), str(current_payload["debt_period"]))
+        expected_line_total = sum(int(line["amount_vnd"]) for line in current_payload["lines"])
+        case("generic_positive_control_lines_match_header_and_total", True,
+            all(line["customer_id"] == current_payload["customer_id"]
+                and line["debt_period"] == current_payload["debt_period"]
+                for line in current_payload["lines"])
+            and expected_line_total == int(current_payload["total_vnd"]))
         f.decide("post", proposal_id, revision_current, hash_current)
+        balance_after_generic_post = posted_balance_snapshot()
+        target_balance_after_generic_post = posted_balance_snapshot(
+            str(current_payload["customer_id"]), str(current_payload["debt_period"]))
+        expected_positive_balance = [{
+            "customer_id": current_payload["customer_id"],
+            "debt_period": current_payload["debt_period"],
+            "posted_balance_vnd": expected_line_total,
+        }]
+        case("generic_positive_control_changes_only_target_customer_period",
+            expected_positive_balance, balance_after_generic_post)
+        case("generic_positive_control_target_delta_matches_line_total",
+            expected_line_total,
+            sum(int(row["posted_balance_vnd"]) for row in target_balance_after_generic_post)
+            - sum(int(row["posted_balance_vnd"]) for row in target_balance_before_generic_post))
+        report["posted_balance_evidence"].append({
+            "action": "generic_valid_approve_and_post_positive_control",
+            "database_session_user": IDENTITY_LOGIN,
+            "before": balance_before_generic_post,
+            "after": balance_after_generic_post,
+            "target_before": target_balance_before_generic_post,
+            "target_after": target_balance_after_generic_post,
+            "line_total_vnd": expected_line_total,
+            "target_customer_id": current_payload["customer_id"],
+            "target_debt_period": current_payload["debt_period"],
+        })  # type: ignore[union-attr]
         posted = json.loads(query(
             "SELECT row_to_json(x)::text FROM p0_fixture.posting x "
             f"WHERE x.proposal_id={proposal_id}"))
@@ -1805,6 +2070,10 @@ def main() -> int:
         case("audit_separates_app_actor_from_database_service_login", True, int(audit_mapping) > 0)
         direct_read = f.psql("SELECT * FROM p0_fixture.business_revision", user=IDENTITY_LOGIN, check=False)
         rejected("api_role_cannot_read_revision_table_directly", direct_read, "permission denied")
+        direct_balance_read = f.psql("SELECT * FROM p0_fixture.posted_balance",
+            user=IDENTITY_LOGIN, check=False)
+        rejected("identity_test_api_cannot_read_posted_balance_view",
+            direct_balance_read, "permission denied")
         direct_update = f.psql(
             "UPDATE p0_fixture.proposal SET state='pending'", user=IDENTITY_LOGIN, check=False)
         rejected("api_role_cannot_update_proposal_table_directly", direct_update, "permission denied")
@@ -1821,6 +2090,10 @@ def main() -> int:
             user=CHARGE_LOGIN, check=False)
         rejected("charge_api_role_cannot_read_revision_table_directly",
             charge_direct_read, "permission denied")
+        charge_balance_read = f.psql("SELECT * FROM p0_fixture.posted_balance",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_role_cannot_read_posted_balance_view",
+            charge_balance_read, "permission denied")
         charge_direct_dml = f.psql("DELETE FROM p0_fixture.proposal",
             user=CHARGE_LOGIN, check=False)
         rejected("charge_api_role_cannot_delete_proposals_directly",
@@ -1880,17 +2153,195 @@ def main() -> int:
             check=False)
         rejected("period_confirmation_is_append_only", period_confirmation_mutation,
             "append-only fixture row")
+
+        edit_first_result, _, _ = f.submit(None,
+            make_payload(701, source="contention-edit-first"))
+        edit_first = json.loads(edit_first_result.stdout.strip())
+        edit_first_id = int(edit_first["proposal_id"])
+        edit_first_revision = int(edit_first["revision_id"])
+        edit_first_hash = str(edit_first["content_sha256"])
+        edit_next_sql, _, _ = f.submit_sql(edit_first_id,
+            make_payload(702, source="contention-edit-first-revised"))
+        stale_approval_sql, _, _ = f.decide_sql("approve", edit_first_id,
+            edit_first_revision, edit_first_hash)
+        edit_first_evidence = run_contention(
+            "edit-before-approve", edit_first_id, "2026-01", IDENTITY_LOGIN,
+            edit_next_sql, IDENTITY_LOGIN, stale_approval_sql,
+            "stale, unavailable, or self-approved revision")
+        edit_first_after = edit_first_evidence["after"]
+        case("edit_before_approve_commits_revision2_and_new_hash", True,
+            edit_first_after["revision_no"] == 2
+            and edit_first_after["current_revision_id"] != edit_first_revision
+            and edit_first_after["content_sha256"] != edit_first_hash)
+        case("edit_before_approve_leaves_old_revision_unapproved_unposted", "0|0", query(
+            f"SELECT (SELECT count(*) FROM p0_fixture.approval WHERE proposal_id={edit_first_id} "
+            f"AND revision_id={edit_first_revision}) || '|' || "
+            f"(SELECT count(*) FROM p0_fixture.posting WHERE proposal_id={edit_first_id} "
+            f"AND revision_id={edit_first_revision})"))
+        case("edit_before_approve_audit_uses_identity_test_login", 1, int(query(
+            "SELECT count(*) FROM p0_fixture.audit "
+            f"WHERE proposal_id={edit_first_id} AND action='submit' "
+            f"AND revision_id={edit_first_after['current_revision_id']} "
+            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
+
+        approve_first_result, _, _ = f.submit(None,
+            make_payload(711, source="contention-approve-first"))
+        approve_first = json.loads(approve_first_result.stdout.strip())
+        approve_first_id = int(approve_first["proposal_id"])
+        approve_first_revision = int(approve_first["revision_id"])
+        approve_first_hash = str(approve_first["content_sha256"])
+        held_approval_sql, _, _ = f.decide_sql("approve", approve_first_id,
+            approve_first_revision, approve_first_hash)
+        delayed_edit_sql, _, _ = f.submit_sql(approve_first_id,
+            make_payload(712, source="contention-approve-first-revised"))
+        approve_first_evidence = run_contention(
+            "approve-before-edit", approve_first_id, "2026-01", IDENTITY_LOGIN,
+            held_approval_sql, IDENTITY_LOGIN, delayed_edit_sql)
+        approve_first_after = approve_first_evidence["after"]
+        case("approve_before_edit_keeps_approval1_and_creates_revision2", True,
+            approve_first_after["revision_no"] == 2
+            and approve_first_after["current_revision_id"] != approve_first_revision
+            and approve_first_after["content_sha256"] != approve_first_hash
+            and any(row[1] == approve_first_revision and row[2] == approve_first_hash
+                    for row in approve_first_after["approval_history"]))
+        case("approve_before_edit_approval_audit_uses_identity_test_login", 1, int(query(
+            "SELECT count(*) FROM p0_fixture.approval "
+            f"WHERE proposal_id={approve_first_id} AND revision_id={approve_first_revision} "
+            f"AND content_sha256={sql_literal(approve_first_hash)} "
+            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
+        case("approve_before_edit_waiter_edit_audit_uses_identity_test_login", 1, int(query(
+            "SELECT count(*) FROM p0_fixture.audit "
+            f"WHERE proposal_id={approve_first_id} AND action='submit' "
+            f"AND revision_id={approve_first_after['current_revision_id']} "
+            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
+        old_approval_post, _, _ = f.decide("post", approve_first_id,
+            approve_first_revision, approve_first_hash, check=False)
+        rejected("approve_before_edit_old_approval_cannot_post", old_approval_post,
+            "current approved revision required for posting")
+        case("approve_before_edit_posts_no_stale_revision", 0, int(query(
+            "SELECT count(*) FROM p0_fixture.posting "
+            f"WHERE proposal_id={approve_first_id} AND revision_id={approve_first_revision}")))
+
+        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
+               "WHERE debt_period='2026-10'")
+        case("period_contention_fixture_month_starts_open", "open", query(
+            "SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-10'"))
+        close_first_result, _, _ = charge.submit(None, make_charge_payload(
+            trip_code="fixture-close-before-confirm", period="2026-10",
+            event_date="2026-10-14", opening_refs=True, amount=803))
+        close_first = json.loads(close_first_result.stdout.strip())
+        close_first_id = int(close_first["proposal_id"])
+        close_first_revision = int(close_first["revision_id"])
+        close_first_hash = str(close_first["content_sha256"])
+        charge.confirm_price(close_first_id, close_first_revision, close_first_hash)
+        close_sql = (
+            "UPDATE p0_fixture.debt_period_state SET state='closed' "
+            "WHERE debt_period='2026-10' RETURNING debt_period || '|' || state")
+        confirm_after_close_sql, _, _ = charge.confirm_sql(
+            "confirm_period", "confirm_period_revision", close_first_id,
+            close_first_revision, close_first_hash, MAKER)
+        close_before_confirm_evidence = run_contention(
+            "close-before-confirm-period", close_first_id, "2026-10", "postgres",
+            close_sql, CHARGE_LOGIN, confirm_after_close_sql,
+            "debt period is not open for maker confirmation")
+        case("close_before_confirm_holder_uses_owner_period_update",
+            ["2026-10|closed"], close_before_confirm_evidence["holder_action_output"])
+        close_first_after = close_before_confirm_evidence["after"]
+        case("close_before_confirm_records_no_confirmation_or_extra_audit", True,
+            close_first_after["period_confirmation_history"] == []
+            and close_first_after["audit_count"]
+                == close_before_confirm_evidence["before"]["audit_count"])
+        close_first_projection = review_projection(close_first_id)["revisions"][0]
+        close_before_confirm_evidence["review_projection_after"] = close_first_projection
+        case("close_before_confirm_current_projection_reports_closed_period", True,
+            close_first_projection["is_current_revision"]
+            and "DEBT_PERIOD_NOT_OPEN" in close_first_projection["current_blockers"])
+
+        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
+               "WHERE debt_period='2026-10'")
+        confirm_first_result, _, _ = charge.submit(None, make_charge_payload(
+            trip_code="fixture-confirm-before-close", period="2026-10",
+            event_date="2026-10-14", opening_refs=True, amount=809))
+        confirm_first = json.loads(confirm_first_result.stdout.strip())
+        confirm_first_id = int(confirm_first["proposal_id"])
+        confirm_first_revision = int(confirm_first["revision_id"])
+        confirm_first_hash = str(confirm_first["content_sha256"])
+        charge.confirm_price(confirm_first_id, confirm_first_revision, confirm_first_hash)
+        held_period_confirmation_sql, _, _ = charge.confirm_sql(
+            "confirm_period", "confirm_period_revision", confirm_first_id,
+            confirm_first_revision, confirm_first_hash, MAKER)
+        close_waiter_sql = (
+            "UPDATE p0_fixture.debt_period_state SET state='closed' "
+            "WHERE debt_period='2026-10' RETURNING debt_period || '|' || state")
+        confirm_before_close_evidence = run_contention(
+            "confirm-period-before-close", confirm_first_id, "2026-10", CHARGE_LOGIN,
+            held_period_confirmation_sql, "postgres", close_waiter_sql)
+        confirm_first_after = confirm_before_close_evidence["after"]
+        case("confirm_period_before_close_keeps_append_only_confirmation", True,
+            len(confirm_first_after["period_confirmation_history"]) == 1
+            and confirm_first_after["period_confirmation_history"][0][1]
+                == confirm_first_revision
+            and confirm_first_after["period_confirmation_history"][0][2]
+                == confirm_first_hash)
+        case("confirm_period_before_close_audit_uses_charge_login", 1, int(query(
+            "SELECT count(*) FROM p0_fixture.audit "
+            f"WHERE proposal_id={confirm_first_id} AND action='confirm_period' "
+            f"AND database_session_user={sql_literal(CHARGE_LOGIN)}")))
+        case("confirm_period_before_close_commits_closed_state", "closed", query(
+            "SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-10'"))
+        case("confirm_period_before_close_waiter_uses_owner_period_update",
+            "2026-10|closed", confirm_before_close_evidence["waiter_output"].strip())
+        confirm_first_projection = review_projection(confirm_first_id)["revisions"][0]
+        confirm_before_close_evidence["review_projection_after"] = confirm_first_projection
+        case("confirm_period_before_close_current_blocker_reports_closed_period", True,
+            confirm_first_projection["is_current_revision"]
+            and "DEBT_PERIOD_NOT_OPEN" in confirm_first_projection["current_blockers"])
+        before_closed_charge_decisions = proposal_snapshot(confirm_first_id)
+        closed_charge_approval, _, _ = charge.decide("approve", confirm_first_id,
+            confirm_first_revision, confirm_first_hash, check=False)
+        rejected("closed_charge_after_confirmation_cannot_be_approved",
+            closed_charge_approval, "debt period is not open at approval")
+        closed_charge_post, _, _ = charge.decide("post", confirm_first_id,
+            confirm_first_revision, confirm_first_hash, check=False)
+        rejected("closed_charge_after_confirmation_cannot_be_posted",
+            closed_charge_post, "current approved revision required for posting")
+        case("closed_charge_decisions_preserve_confirmation_and_state",
+            before_closed_charge_decisions, proposal_snapshot(confirm_first_id))
+
         charge_approval_or_post = query(
             "SELECT count(*) FROM p0_fixture.proposal p WHERE p.kind='charge_fixture' "
             "AND (p.state IN ('approved', 'posted') "
             "OR EXISTS (SELECT 1 FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id) "
             "OR EXISTS (SELECT 1 FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id))")
         case("no_charge_fixture_approved_or_posted", 0, int(charge_approval_or_post))
+        contention_rows = report["concurrency_evidence"]
+        contention_closed = all(
+            row.get("holder_process_exited") is True
+            and row.get("waiter_process_exited") is True
+            and not row.get("cleanup_errors")
+            for row in contention_rows)  # type: ignore[union-attr]
+        case("contention_sessions_and_processes_are_closed", True, contention_closed)
         report["exit_code"] = 0
     except BaseException as exc:
         error = exc
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
+        contention_rows = report["concurrency_evidence"]
+        report["session_cleanup"] = {
+            "holders_exited": all(row.get("holder_process_exited") is True
+                                   for row in contention_rows),
+            "waiters_exited": all(row.get("waiter_process_exited") is True
+                                   for row in contention_rows),
+            "verified": all(row.get("holder_process_exited") is True
+                            and row.get("waiter_process_exited") is True
+                            and not row.get("cleanup_errors")
+                            for row in contention_rows),
+        }  # type: ignore[union-attr]
+        if not report["session_cleanup"]["verified"]:
+            report["exit_code"] = 1
+            report["session_cleanup_error"] = "one or more contention processes did not exit cleanly"
+            if error is None:
+                error = HarnessError(str(report["session_cleanup_error"]))
         try:
             removed = cleanup_owned_container(docker, container, run_id, container_id)
             report["cleanup"] = "verified_and_removed" if removed else "nothing_created"

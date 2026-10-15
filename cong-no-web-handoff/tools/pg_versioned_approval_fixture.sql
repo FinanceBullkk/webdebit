@@ -132,6 +132,14 @@ CREATE TABLE p0_fixture.posting (
     CHECK (maker_actor_id <> checker_actor_id)
 );
 
+CREATE VIEW p0_fixture.posted_balance AS
+SELECT x.line->>'customer_id' AS customer_id,
+       x.line->>'debt_period' AS debt_period,
+       sum((x.line->>'amount_vnd')::numeric) AS posted_balance_vnd
+FROM p0_fixture.posting p
+CROSS JOIN LATERAL jsonb_array_elements(p.canonical_payload->'lines') AS x(line)
+GROUP BY x.line->>'customer_id', x.line->>'debt_period';
+
 CREATE TABLE p0_fixture.audit (
     audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     proposal_id bigint NOT NULL REFERENCES p0_fixture.proposal,
