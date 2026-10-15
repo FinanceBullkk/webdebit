@@ -20,6 +20,7 @@ TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parents[1]
 sys.path.insert(0, str(TOOLS))
 import test_pg_ledger_schema as lifecycle  # noqa: E402
+import pg_m1_report  # noqa: E402
 sys.path.insert(0, str(ROOT / "cong-no-web-handoff" / "web"))
 import ledger_db  # noqa: E402
 
@@ -232,6 +233,25 @@ class M1HistoryDBTests(unittest.TestCase):
             self.db.exception_summary()
         docker_psql(M1_SCHEMA.read_text(encoding="utf-8"), timeout=15)
 
+    def test_12_period_event_counts_are_complete_and_snapshot_scoped(self) -> None:
+        query = pg_m1_report.period_event_counts_query(CAPTURE, date.fromisoformat(AS_OF))
+        lines = docker_psql(f"""
+            SELECT customer || '|' || debt_period || '|' || kind || '|'
+                   || event_count::text || '|' || amount_nonnull_count::text
+            FROM ({query}) counts
+            ORDER BY customer, kind
+        """).stdout.splitlines()
+        rows = [line.split("|") for line in lines]
+        self.assertEqual(len(rows), 12)
+        counts = {(row[0], row[2]): (int(row[3]), int(row[4])) for row in rows}
+        self.assertEqual(set(counts), {(customer, kind) for customer in ("ACME", "NO-BASELINE")
+                                      for kind in pg_m1_report.EVENT_KINDS})
+        self.assertEqual(counts[("ACME", "charge")], (1, 1))
+        self.assertEqual(counts[("NO-BASELINE", "charge")], (1, 1))
+        for customer in ("ACME", "NO-BASELINE"):
+            for kind in set(pg_m1_report.EVENT_KINDS) - {"charge"}:
+                self.assertEqual(counts[(customer, kind)], (0, 0))
+
     def test_99_duplicate_provenance_fails_closed(self) -> None:
         duplicate_view = f"""CREATE OR REPLACE VIEW pilot.m1_provenance AS
             SELECT c.capture_id, r.as_of, c.source_spreadsheet_id, c.source_title,
@@ -342,7 +362,9 @@ def initialize_fixture() -> None:
     ) AS v(capture_id,sheet_gid,source_row,tab_title,row_values);
     INSERT INTO pilot.replay_event VALUES
       ('{CAPTURE}',DATE '{AS_OF}',1,'ACME','2026-10',DATE '2026-10-01','charge',1200,1200,10,7),
-      ('{CAPTURE}',DATE '{AS_OF}',2,'NO-BASELINE','2026-10',DATE '2026-10-02','charge',50,50,10,8);
+      ('{CAPTURE}',DATE '{AS_OF}',2,'NO-BASELINE','2026-10',DATE '2026-10-02','charge',50,50,10,8),
+      ('{CAPTURE}',DATE '{OTHER_AS_OF}',1,'ACME','2026-10',DATE '2026-10-01','charge',10,10,10,7),
+      ('{OTHER_CAPTURE}',DATE '{AS_OF}',1,'ACME','2026-10',DATE '2026-10-01','charge',20,20,40,7);
     INSERT INTO pilot.source_exception (capture_id,as_of,exception_no,sheet_gid,source_row,payload)
     VALUES
       ('{CAPTURE}',DATE '{AS_OF}',1,10,7,jsonb_build_object('code','A','status','open','customer','ACME','period','2026-10','detail','fake A1','sheet_gid',10,'source_row',7)),
@@ -441,7 +463,9 @@ def main() -> int:
         "source_hashes_sha256_lf": {
             str(path.resolve().relative_to(ROOT)).replace("\\", "/"): source_hash(path)
             for path in (Path(__file__).resolve(), Path(ledger_db.__file__).resolve(), PILOT_SCHEMA,
-                         M1_SCHEMA, LEDGER_SCHEMA, TOOLS / "test_pg_ledger_schema.py",
+                         M1_SCHEMA, LEDGER_SCHEMA, TOOLS / "pg_m1_report.py", TOOLS / "pg_m1_verify.py",
+                         TOOLS / "test_pg_m1_queries.py", ROOT / "cong-no-web-handoff" / "tests" / "test_m1_export_verify.py",
+                         TOOLS / "test_pg_ledger_schema.py",
                          ROOT / ".github" / "workflows" / "test.yml")
         },
         "cases": [],
