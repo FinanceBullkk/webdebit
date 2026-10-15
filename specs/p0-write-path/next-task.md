@@ -42,7 +42,7 @@ Các run lịch sử `38683750234`, `38684269409`, `38686717095`, `38686910554` 
 
 Q01/Q02 đã chốt về nghiệp vụ; [spec kỹ thuật](07-identity-revision-implementation.md) và fixture prototype nay có để review. Fixture chỉ áp dụng cho payload `charge_fixture` giả, actor assertion và immutable revision. Nó không được nối vào viewer, không là migration, và không mở đường ghi thật.
 
-- **Q01:** tài khoản cá nhân, server-side session, role/account lifecycle, loopback sau Tailscale Serve và HMAC assertion actor→DB được định nghĩa ở mức đề xuất. Login/session thật, bootstrap/offboarding, CSRF, tailnet ACL/proxy/firewall và audit vận hành vẫn chưa triển khai/kiểm.
+- **Q01:** tài khoản cá nhân, server-side session, role/account lifecycle, loopback sau Tailscale Serve và actor→DB (server-side session cấp actor/session cho hàm API, không dùng HMAC) được định nghĩa ở mức đề xuất. Login/session thật, bootstrap/offboarding, CSRF, tailnet ACL/proxy/firewall và audit vận hành vẫn chưa triển khai/kiểm.
 - **Q02:** canonicalization v1, revision append-only, approval/post gắn revision/hash, no-op presentation và stale approval được định nghĩa; PG18 fixture là bằng chứng riêng cho prototype.
 - **Q03–Q08 và Q09:** còn mở; không đưa quy tắc dư/FIFO ngoại lệ/reversal/close kỳ/receipt verification vào fixture hoặc tuyên bố acceptance.
 

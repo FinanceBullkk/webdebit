@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
-"""PostgreSQL 18 acceptance fixture for app actor assertions and business revisions."""
+"""PostgreSQL 18 acceptance fixture: charge-only versioned approval (schema v3).
+
+Fake data only, isolated container, no network. Not evidence about hao, the Sheet or real data.
+"""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import hmac
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "cong-no-web-handoff" / "web"))
-
-from actor_assertion import (
-    AuthenticatedSession,
-    revision_scope,
-    sign_actor_assertion,
-    submit_scope,
-)
 from test_pg_ledger_schema import (
     IMAGE,
     LABEL_RUN,
@@ -32,106 +27,107 @@ from test_pg_ledger_schema import (
     HarnessError,
     PsqlSession,
     cleanup_owned_container,
-    owned_container_id,
     run,
 )
 
 
+ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cong-no-web-handoff" / "tools" / "pg_versioned_approval_fixture.sql"
-ACTOR_ASSERTION = ROOT / "cong-no-web-handoff" / "web" / "actor_assertion.py"
 DATABASE = "webdebit_ledger"
-IDENTITY_LOGIN = "webdebit_identity_test_app"
-CHARGE_LOGIN = "webdebit_app"
-KEY_ID = "fixture-key-v1"
-KEY = bytes.fromhex("11" * 32)
-MAKER = uuid.UUID("11111111-1111-4111-8111-111111111111")
-CHECKER = uuid.UUID("22222222-2222-4222-8222-222222222222")
-DISABLED = uuid.UUID("33333333-3333-4333-8333-333333333333")
-MAKER_ONLY = uuid.UUID("44444444-4444-4444-8444-444444444444")
-PRICE_OWNER = uuid.UUID("55555555-5555-4555-8555-555555555555")
+API_LOGIN = "webdebit_app"
+NO_GRANT_LOGIN = "webdebit_no_grant"
+NOT_MEMBER_LOGIN = "webdebit_not_member"
+MAKER = uuid.UUID("11111111-1111-4111-8111-111111111111")       # maker + checker + price_owner
+CHECKER = uuid.UUID("22222222-2222-4222-8222-222222222222")     # checker only
+DISABLED = uuid.UUID("33333333-3333-4333-8333-333333333333")    # inactive maker + price_owner
+MAKER_ONLY = uuid.UUID("44444444-4444-4444-8444-444444444444")  # maker only (cannot confirm price)
+PRICE_OWNER = uuid.UUID("55555555-5555-4555-8555-555555555555")  # price_owner + checker
+UNKNOWN = uuid.UUID("99999999-9999-4999-8999-999999999999")
+ABSENT = "ABSENT_FROM_OPENING_APPROVED"
+
+M_STALE = "stale, unavailable, or self-approved revision"
+M_POST = "current approved revision required for posting"
+M_RES_APPROVAL = "opening resolution is not ABSENT_FROM_OPENING_APPROVED at approval"
+M_RES_POST = "opening resolution is not ABSENT_FROM_OPENING_APPROVED at posting"
+M_PRICE_BLOCK = "price confirmation requires complete positive matching price"
 
 
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def legacy_signature(session: AuthenticatedSession, action: str | None, nonce: uuid.UUID,
-                     issued_epoch: int | None, scope: str) -> str:
-    fields = (
-        "webdebit-actor-assertion-v1", str(session.actor_id), str(session.session_id),
-        action, str(nonce), None if issued_epoch is None else str(issued_epoch), scope,
-    )
-    message = "\n".join(field for field in fields if field is not None).encode("utf-8")
-    return hmac.new(KEY, message, hashlib.sha256).hexdigest()
-
-
-def make_payload(amount: int, *, source: str = "fixture-source-01",
-                 evidence: str = "fixture-evidence-01",
-                 kind: str = "revision_fixture") -> str:
-    first = amount // 2
-    second = amount - first
-    payload = {
-        "schema_version": 2,
-        "kind": kind,
-        "customer_id": "FAKE-CUSTOMER-1",
-        "debt_period": "2026-01",
-        "total_vnd": amount,
-        "event_date": "2026-01-31",
-        "posting_date": "2026-02-01",
-        "source_ref": source,
-        "evidence_ref": evidence,
-        "evidence_sha256": "a" * 64,
-        "reason": "fixture reason only",
-        "lines": [
-            {"line_no": 2, "customer_id": "FAKE-CUSTOMER-1",
-             "debt_period": "2026-01", "amount_vnd": second},
-            {"line_no": 1, "customer_id": "FAKE-CUSTOMER-1",
-             "debt_period": "2026-01", "amount_vnd": first},
-        ],
-    }
+def dumps(payload: object) -> str:
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
 
-def make_charge_payload(*, trip_code: str | None = None, period: str = "2026-09",
-                        event_date: str = "2026-10-14",
-                        opening_refs: bool = False, amount: int = 100) -> str:
-    payload = {
-        "schema_version": 2,
-        "kind": "charge_fixture",
-        "customer_id": "FAKE-CUSTOMER-1",
+AUTO = object()
+# Same set as p0_fixture.strip_trip_whitespace: \s, NBSP, Ogham space, U+2000-200F (incl. ZWSP),
+# line/paragraph separators, narrow NBSP, medium math space, word joiner, ideographic space, BOM.
+TRIP_WS = re.compile("[\\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]")
+
+
+def trip_key(booking: str | None, container: str | None) -> str:
+    """Mirror of p0_fixture.compute_trip_key; '' stands for NULL (booking or container blank)."""
+    b = TRIP_WS.sub("", booking or "").upper()
+    c = TRIP_WS.sub("", container or "").upper()
+    return b + c if b and c else ""
+
+
+def charge_payload(booking: str | None, container: str | None, *, customer: str, amount: int = 100,
+                   period: str = "2026-10", warehouse: str = "2026-10-14",
+                   drop: tuple[str, ...] = (), **overrides: object) -> dict[str, object]:
+    first = amount // 2
+    payload: dict[str, object] = {
+        "schema_version": 3,
+        "customer_id": customer,
         "debt_period": period,
         "total_vnd": amount,
-        "event_date": event_date,
+        "warehouse_in_date": warehouse,
         "posting_date": "2026-10-15",
         "source_ref": "fixture-source-reference-only",
         "evidence_ref": "fixture-evidence-reference-only",
         "evidence_sha256": "a" * 64,
         "reason": "fixture reason only",
-        "lines": [
-            {"line_no": 1, "customer_id": "FAKE-CUSTOMER-1",
-             "debt_period": period, "amount_vnd": amount},
-        ],
-        "trip_code": trip_code,
-        "opening_snapshot_ref": "fixture-opening-snapshot" if opening_refs else None,
-        "opening_absence_evidence_ref": "fixture-absence-check" if opening_refs else None,
-        "period_override_reason": "fixture period override reason",
-        "period_override_evidence_ref": "fixture period override evidence",
-        "period_override_evidence_sha256": "b" * 64,
-        "price_components": [
-            {"label": "per-trip component A", "amount_vnd": amount // 2},
-            {"label": "per-trip component B", "amount_vnd": amount - amount // 2},
-        ],
+        "lines": [{"line_no": 1, "customer_id": customer, "debt_period": period,
+                   "amount_vnd": amount}],
+        "booking_no": booking,
+        "container_no": container,
+        "price_components": [{"label": "A", "amount_vnd": first},
+                             {"label": "B", "amount_vnd": amount - first}],
+        "period_override_reason": None,
+        "period_override_evidence_ref": None,
+        "period_override_evidence_sha256": None,
     }
-    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+    payload.update(overrides)
+    for key in drop:
+        payload.pop(key, None)
+    return payload
+
+
+OVERRIDE = {
+    "period_override_reason": "fixture cross-month reason",
+    "period_override_evidence_ref": "fixture cross-month evidence",
+    "period_override_evidence_sha256": "b" * 64,
+}
+
+
+def submit_sql(proposal_id: int | None, payload_text: str, actor: uuid.UUID = MAKER,
+               session: uuid.UUID | None = None) -> str:
+    return ("SELECT row_to_json(x)::text FROM p0_fixture.submit_revision("
+            f"{'NULL' if proposal_id is None else proposal_id}::bigint,"
+            f"{sql_literal(payload_text)}::text,'{actor}'::uuid,'{session or uuid.uuid4()}'::uuid) x")
+
+
+def decision_sql(function: str, proposal_id: int, revision_id: int, content_hash: str,
+                 actor: uuid.UUID, session: uuid.UUID | None = None) -> str:
+    return (f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
+            f"{sql_literal(content_hash)}, '{actor}'::uuid, '{session or uuid.uuid4()}'::uuid)")
 
 
 class Fixture:
-    def __init__(self, docker: list[str], container: str, run_id: str,
-                 db_user: str = IDENTITY_LOGIN):
+    def __init__(self, docker: list[str], container: str):
         self.docker = docker
         self.container = container
-        self.run_id = run_id
-        self.db_user = db_user
 
     def psql(self, sql: str, *, user: str = "postgres", check: bool = True,
              database: str = DATABASE, appname: str | None = None,
@@ -145,276 +141,219 @@ class Fixture:
             "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
             "-d", database, "-c", sql], check=check, timeout=timeout)
 
-    def assertion(self, actor: uuid.UUID, action: str, scope: str,
-                   *, session_id: uuid.UUID | None = None,
-                   nonce: uuid.UUID | None = None,
-                   issued_epoch: int | None = None):
-        session = AuthenticatedSession(actor, session_id or uuid.uuid4())
-        return session, sign_actor_assertion(session, action, scope,
-            key_id=KEY_ID, key=KEY, nonce=nonce, issued_epoch=issued_epoch)
 
-    @staticmethod
-    def assertion_sql(session: AuthenticatedSession, assertion,
-                      claimed_actor: uuid.UUID | None = None) -> str:
-        return ", ".join((
-            f"'{claimed_actor or session.actor_id}'::uuid", f"'{session.session_id}'::uuid",
-            f"'{assertion.nonce}'::uuid", str(assertion.issued_epoch),
-            sql_literal(assertion.key_id), sql_literal(assertion.signature),
-        ))
-
-    def submit_sql(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
-                   *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
-                   signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
-                   issued_epoch: int | None = None, date_style: str | None = None):
-        signed_for = signed_actor or actor
-        scope = submit_scope(proposal_id, scope_payload if scope_payload is not None else payload)
-        session, assertion = self.assertion(signed_for, "submit", scope,
-            session_id=session_id, nonce=nonce, issued_epoch=issued_epoch)
-        args = self.assertion_sql(session, assertion, actor)
-        query = (
-            "SELECT row_to_json(x)::text FROM p0_fixture.submit_revision("
-            f"{proposal_id if proposal_id is not None else 'NULL'}::bigint,"
-            f"{sql_literal(payload)}::text,{args}) x"
-        )
-        if date_style is not None:
-            if date_style not in {"SQL, DMY", "SQL, MDY"}:
-                raise ValueError("unsupported fixture DateStyle")
-            query = f"SET DateStyle TO '{date_style}'; " + query
-        return query, assertion, session
-
-    def submit(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
-               *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
-               signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
-               issued_epoch: int | None = None, user: str | None = None,
-               check: bool = True, date_style: str | None = None):
-        query, assertion, session = self.submit_sql(proposal_id, payload, actor,
-            session_id=session_id, nonce=nonce, signed_actor=signed_actor,
-            scope_payload=scope_payload, issued_epoch=issued_epoch, date_style=date_style)
-        return self.psql(query, user=user or self.db_user, check=check), assertion, session
-
-    def present(self, proposal_id: int, title: str, actor: uuid.UUID = MAKER,
-                *, user: str | None = None, check: bool = True):
-        scope = f"presentation:{proposal_id}:{hashlib.sha256(title.encode()).hexdigest()}"
-        session, assertion = self.assertion(actor, "presentation", scope)
-        args = self.assertion_sql(session, assertion)
-        return self.psql(
-            "SELECT p0_fixture.set_presentation_title("
-            f"{proposal_id}, {sql_literal(title)}, {args})",
-            user=user or self.db_user,
-            check=check,
-        )
-
-    def confirm_sql(self, action: str, function: str, proposal_id: int,
-                    revision_id: int, content_hash: str, actor: uuid.UUID):
-        scope = f"{action}:{proposal_id}:{revision_id}:{content_hash}"
-        session, assertion = self.assertion(actor, action, scope)
-        args = self.assertion_sql(session, assertion)
-        return (
-            f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
-            f"{sql_literal(content_hash)}, {args})",
-            assertion,
-            session,
-        )
-
-    def confirm(self, action: str, function: str, proposal_id: int,
-                revision_id: int, content_hash: str, actor: uuid.UUID,
-                *, user: str | None = None, check: bool = True):
-        query, _, _ = self.confirm_sql(action, function, proposal_id,
-            revision_id, content_hash, actor)
-        return self.psql(query, user=user or self.db_user, check=check)
-
-    def confirm_price(self, proposal_id: int, revision_id: int, content_hash: str,
-                      actor: uuid.UUID = PRICE_OWNER, *, user: str | None = None,
-                      check: bool = True):
-        return self.confirm("confirm_price", "confirm_price_revision",
-            proposal_id, revision_id, content_hash, actor, user=user, check=check)
-
-    def confirm_period(self, proposal_id: int, revision_id: int, content_hash: str,
-                       actor: uuid.UUID = MAKER, *, user: str | None = None,
-                       check: bool = True):
-        return self.confirm("confirm_period", "confirm_period_revision",
-            proposal_id, revision_id, content_hash, actor, user=user, check=check)
-
-    def decide_sql(self, action: str, proposal_id: int, revision_id: int,
-                   content_hash: str, actor: uuid.UUID = CHECKER):
-        scope = revision_scope(action, proposal_id, revision_id, content_hash)
-        session, assertion = self.assertion(actor, action, scope)
-        args = self.assertion_sql(session, assertion)
-        function = "approve_revision" if action == "approve" else "post_revision"
-        query = (
-            f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
-            f"{sql_literal(content_hash)}, {args})"
-        )
-        return query, session, assertion
-
-    def decide(self, action: str, proposal_id: int, revision_id: int,
-               content_hash: str, actor: uuid.UUID = CHECKER, *, check: bool = True,
-               fail_post: bool = False, user: str | None = None):
-        query, session, assertion = self.decide_sql(
-            action, proposal_id, revision_id, content_hash, actor)
-        if fail_post:
-            query = ("BEGIN; SET LOCAL p0_fixture.fail_post = 'on'; "
-                     + query + "; COMMIT")
-        return self.psql(query, user=user or self.db_user, check=check), session, assertion
+@dataclass
+class Charge:
+    proposal_id: int
+    revision_id: int
+    content_hash: str
+    key: str
+    customer: str
+    amount: int
+    period: str
+    maker: uuid.UUID
+    payload: dict[str, object] = field(default_factory=dict)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--report", type=Path, default=Path("pg-versioned-approval.json"))
-    ap.add_argument("--timeout", type=int, default=90)
-    args = ap.parse_args()
-    if shutil.which("docker") is None:
-        raise HarnessError("docker CLI not found")
+class Suite:
+    def __init__(self, docker: list[str], container: str, run_id: str, report: dict[str, object]):
+        self.docker = docker
+        self.container = container
+        self.run_id = run_id
+        self.report = report
+        self.f = Fixture(docker, container)
+        self.trip_counter = 0
+        self.group_name = "setup"
 
-    run_id = uuid.uuid4().hex
-    container = f"webdebit-pg-versioned-{run_id}"
-    marker = f"codex_versioned_run={run_id}"
-    sql_bytes = SCHEMA.read_bytes().replace(b"\r\n", b"\n")
-    report: dict[str, object] = {
-        "run_id": run_id,
-        "database": DATABASE,
-        "image": IMAGE,
-        "fixture_sha256": hashlib.sha256(sql_bytes).hexdigest(),
-        "fixture_path": str(SCHEMA),
-        "runner_sha256": hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
-        "container_helper_sha256": hashlib.sha256(
-            (SCHEMA.parent / "test_pg_ledger_schema.py").read_bytes().replace(b"\r\n", b"\n")
-        ).hexdigest(),
-        "actor_assertion_sha256": hashlib.sha256(ACTOR_ASSERTION.read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
-        "revision": run(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).stdout.strip(),
-        "network": "none",
-        "published_ports": [],
-        "volume_mounts": [],
-        "cases": [],
-        "draft_matrix": [],
-        "posted_balance_evidence": [],
-        "concurrency_evidence": [],
-        "session_cleanup": "not_started",
-        "runtime_checks": {
-            "app_login_session": "not_implemented",
-            "tailscale_boundary": "not_run",
-            "receipt_verification_q09": "open_and_not_in_fixture",
-        },
-        "cleanup": "not_started",
-        "exit_code": 1,
-    }
-    report["tree"] = run(["git", "-C", str(ROOT), "rev-parse", "HEAD^{tree}"]).stdout.strip()
-    docker = ["docker"]
-    container_id: str | None = None
-    error: BaseException | None = None
-
-    def case(name: str, expected, actual) -> None:
+    # ---- recording -------------------------------------------------------------------------
+    def case(self, name: str, expected: object, actual: object) -> bool:
         passed = expected == actual
-        record = {"name": name, "expected": expected, "actual": actual,
-                  "result": "pass" if passed else "fail"}
-        report["cases"].append(record)  # type: ignore[union-attr]
+        self.report["cases"].append({  # type: ignore[union-attr]
+            "group": self.group_name, "name": name, "expected": expected, "actual": actual,
+            "result": "pass" if passed else "fail"})
         if not passed:
-            raise HarnessError(f"{name}: expected {expected!r}, got {actual!r}")
+            self.report["failed_cases"].append(f"{self.group_name}/{name}")  # type: ignore[union-attr]
+        return passed
 
-    def query(sql: str, *, appname: str | None = None,
-              pg_options: str | None = None, timeout: float = 30) -> str:
-        return Fixture(docker, container, run_id).psql(
-            sql, appname=appname, pg_options=pg_options, timeout=timeout).stdout.strip()
+    def rejected(self, name: str, result: subprocess.CompletedProcess[str], expected_text: str) -> bool:
+        combined = result.stdout + result.stderr
+        ok = result.returncode != 0 and expected_text in combined
+        return self.case(name, True, ok if ok else {"returncode": result.returncode,
+                                                      "output": combined[-400:]})
 
-    def posted_balance_snapshot(customer_id: str | None = None,
-                                debt_period: str | None = None) -> list[dict[str, object]]:
-        filters = []
-        if customer_id is not None:
-            filters.append(f"customer_id={sql_literal(customer_id)}")
-        if debt_period is not None:
-            filters.append(f"debt_period={sql_literal(debt_period)}")
-        where = " WHERE " + " AND ".join(filters) if filters else ""
-        raw = query(
-            "SELECT coalesce(jsonb_agg(jsonb_build_object("
-            "'customer_id', customer_id, 'debt_period', debt_period, "
-            "'posted_balance_vnd', posted_balance_vnd) ORDER BY customer_id, debt_period), "
-            "'[]'::jsonb)::text FROM p0_fixture.posted_balance" + where)
-        return json.loads(raw)
+    def run_group(self, name: str, function) -> None:
+        self.group_name = name
+        started = len(self.report["cases"])  # type: ignore[arg-type]
+        try:
+            function()
+        except BaseException as exc:  # keep running the other groups; report decides exit code
+            self.report["group_errors"].append(f"{name}: {type(exc).__name__}: {exc}"[:1500])  # type: ignore[union-attr]
+        finished = self.report["cases"][started:]  # type: ignore[index]
+        self.report["groups"][name] = {  # type: ignore[index]
+            "cases": len(finished),
+            "failed": sum(1 for item in finished if item["result"] == "fail")}
 
-    def unchanged_balance(action: str, before: list[dict[str, object]],
-                          after: list[dict[str, object]]) -> None:
-        case(f"{action}_leaves_posted_balance_unchanged", before, after)
-        report["posted_balance_evidence"].append({
-            "action": action, "before": before, "after": after,
-            "unchanged": before == after,
-        })  # type: ignore[union-attr]
+    # ---- queries ---------------------------------------------------------------------------
+    def query(self, sql: str, *, appname: str | None = None, pg_options: str | None = None,
+              timeout: float = 30) -> str:
+        return self.f.psql(sql, appname=appname, pg_options=pg_options, timeout=timeout).stdout.strip()
 
-    def proposal_snapshot(proposal_id: int) -> str:
-        return query(
-            "SELECT jsonb_build_object("
-            "'kind', p.kind, 'state', p.state, 'revision_no', p.revision_no, "
+    def balance(self, customer: str, period: str | None = None) -> int:
+        where = f"customer_id={sql_literal(customer)}"
+        if period is not None:
+            where += f" AND debt_period={sql_literal(period)}"
+        return int(self.query("SELECT coalesce(sum(posted_balance_vnd), 0)::bigint::text "
+                              f"FROM p0_fixture.posted_balance WHERE {where}"))
+
+    def balance_rows(self, customer: str, period: str) -> list[object]:
+        return json.loads(self.query(
+            "SELECT coalesce(jsonb_agg(jsonb_build_object('customer_id', customer_id, "
+            "'debt_period', debt_period, 'posted_balance_vnd', posted_balance_vnd) "
+            "ORDER BY customer_id, debt_period), '[]'::jsonb)::text FROM p0_fixture.posted_balance "
+            f"WHERE customer_id={sql_literal(customer)} AND debt_period={sql_literal(period)}"))
+
+    def snapshot(self, proposal_id: int) -> dict[str, object]:
+        return json.loads(self.query(
+            "SELECT jsonb_build_object('state', p.state, 'revision_no', p.revision_no, "
             "'current_revision_id', p.current_revision_id, 'content_sha256', r.content_sha256, "
             "'revision_count', (SELECT count(*) FROM p0_fixture.business_revision x "
             "WHERE x.proposal_id=p.proposal_id), "
-            "'revision_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
-            "x.revision_id, x.revision_no, x.canonical_payload, x.content_sha256, "
-            "x.review_reason_codes) ORDER BY x.revision_no), '[]'::jsonb) "
-            "FROM p0_fixture.business_revision x WHERE x.proposal_id=p.proposal_id), "
-            "'approval_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
-            "a.approval_id, a.revision_id, a.content_sha256, a.checker_actor_id, a.approved_at) "
-            "ORDER BY a.approval_id), '[]'::jsonb) FROM p0_fixture.approval a "
-            "WHERE a.proposal_id=p.proposal_id), "
-            "'posting_count', (SELECT count(*) FROM p0_fixture.posting x "
-            "WHERE x.proposal_id=p.proposal_id), "
+            "'approval_history', (SELECT coalesce(jsonb_agg(jsonb_build_array(a.approval_id, "
+            "a.revision_id, a.content_sha256) ORDER BY a.approval_id), '[]'::jsonb) "
+            "FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id), "
+            "'posting_count', (SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id), "
             "'period_confirmation_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
-            "x.confirmation_id, x.revision_id, x.content_sha256, x.maker_actor_id) "
-            "ORDER BY x.revision_id), '[]'::jsonb) FROM p0_fixture.period_confirmation x "
-            "WHERE x.proposal_id=p.proposal_id), "
+            "x.confirmation_id, x.revision_id, x.content_sha256) ORDER BY x.revision_id), '[]'::jsonb) "
+            "FROM p0_fixture.period_confirmation x WHERE x.proposal_id=p.proposal_id), "
             "'price_confirmation_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
-            "x.confirmation_id, x.revision_id, x.content_sha256, x.owner_actor_id) "
-            "ORDER BY x.revision_id), '[]'::jsonb) FROM p0_fixture.price_confirmation x "
-            "WHERE x.proposal_id=p.proposal_id), "
-            "'audit_count', (SELECT count(*) FROM p0_fixture.audit x "
-            "WHERE x.proposal_id=p.proposal_id))::text "
+            "x.confirmation_id, x.revision_id, x.content_sha256) ORDER BY x.revision_id), '[]'::jsonb) "
+            "FROM p0_fixture.price_confirmation x WHERE x.proposal_id=p.proposal_id), "
+            "'audit_count', (SELECT count(*) FROM p0_fixture.audit x WHERE x.proposal_id=p.proposal_id))::text "
             "FROM p0_fixture.proposal p JOIN p0_fixture.business_revision r "
-            "ON r.revision_id=p.current_revision_id "
-            f"WHERE p.proposal_id={proposal_id}"
-        )
+            f"ON r.revision_id=p.current_revision_id WHERE p.proposal_id={proposal_id}"))
 
-    def review_projection(proposal_id: int) -> dict[str, object]:
-        return json.loads(query(
-            "SELECT p0_fixture.fixture_review_projection(" + str(proposal_id) + ")::text"
-        ))
+    def projection(self, proposal_id: int) -> dict[str, object]:
+        return json.loads(self.query(
+            f"SELECT p0_fixture.fixture_review_projection({proposal_id})::text"))
 
-    def run_contention(name: str, proposal_id: int, debt_period: str,
-                       holder_user: str, holder_sql: str,
-                       waiter_user: str, waiter_sql: str,
-                       waiter_error: str | None = None) -> dict[str, object]:
+    def current_view(self, charge_or_id: Charge | int) -> dict[str, object]:
+        proposal_id = charge_or_id.proposal_id if isinstance(charge_or_id, Charge) else charge_or_id
+        return self.projection(proposal_id)["revisions"][-1]  # type: ignore[index]
+
+    def count(self, table: str, where: str = "true") -> int:
+        return int(self.query(f"SELECT count(*) FROM p0_fixture.{table} WHERE {where}"))
+
+    def audit_actions(self, proposal_id: int) -> list[str]:
+        raw = self.query("SELECT coalesce(string_agg(action, ',' ORDER BY audit_id), '') "
+                         f"FROM p0_fixture.audit WHERE proposal_id={proposal_id}")
+        return raw.split(",") if raw else []
+
+    # ---- scenario building blocks ----------------------------------------------------------
+    def seed(self, key: str, status: str = ABSENT) -> None:
+        self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
+                    "(trip_key, status, evidence_ref, approved_by) VALUES "
+                    f"({sql_literal(key)}, {sql_literal(status)}, 'fixture-evidence-only', 'fixture-owner') "
+                    "ON CONFLICT (trip_key) DO UPDATE SET status = EXCLUDED.status")
+
+    def set_resolution(self, key: str, status: str) -> None:
+        self.f.psql(f"UPDATE p0_fixture.trip_opening_resolution SET status={sql_literal(status)} "
+                    f"WHERE trip_key={sql_literal(key)}")
+
+    def set_period(self, period: str, state: str) -> None:
+        self.f.psql(f"UPDATE p0_fixture.debt_period_state SET state={sql_literal(state)} "
+                    f"WHERE debt_period={sql_literal(period)}")
+
+    def next_trip(self) -> tuple[str, str]:
+        self.trip_counter += 1
+        return f"BK{self.trip_counter:04d}", f"CT{self.trip_counter:04d}"
+
+    def submit_raw(self, payload_text: str, *, proposal_id: int | None = None,
+                   actor: uuid.UUID = MAKER, check: bool = True,
+                   session: uuid.UUID | None = None) -> subprocess.CompletedProcess[str]:
+        return self.f.psql(submit_sql(proposal_id, payload_text, actor, session),
+                           user=API_LOGIN, check=check)
+
+    def call(self, function: str, ids: tuple[int, int, str], actor: uuid.UUID, *,
+             check: bool = False, user: str = API_LOGIN) -> subprocess.CompletedProcess[str]:
+        return self.f.psql(decision_sql(function, ids[0], ids[1], ids[2], actor),
+                           user=user, check=check)
+
+    def charge(self, *, customer: str, amount: int = 100, period: str = "2026-10",
+               warehouse: str = "2026-10-14", seed: str | None = ABSENT,
+               maker: uuid.UUID = MAKER, booking: object = AUTO, container: object = AUTO,
+               drop: tuple[str, ...] = (), **overrides: object) -> Charge:
+        if booking is AUTO and container is AUTO:
+            booking, container = self.next_trip()
+        payload = charge_payload(booking, container, customer=customer, amount=amount,  # type: ignore[arg-type]
+                                 period=period, warehouse=warehouse, drop=drop, **overrides)
+        created = json.loads(self.submit_raw(dumps(payload), actor=maker).stdout.strip())
+        key = trip_key(booking, container)  # type: ignore[arg-type]
+        if seed is not None and key:
+            self.seed(key, seed)
+        return Charge(int(created["proposal_id"]), int(created["revision_id"]),
+                      str(created["content_sha256"]), key, customer, amount, period, maker, payload)
+
+    def ids(self, c: Charge) -> tuple[int, int, str]:
+        return c.proposal_id, c.revision_id, c.content_hash
+
+    def confirm_both(self, c: Charge, *, price_actor: uuid.UUID = MAKER) -> None:
+        self.call("confirm_period_revision", self.ids(c), c.maker, check=True)
+        self.call("confirm_price_revision", self.ids(c), price_actor, check=True)
+
+    def approve(self, c: Charge, actor: uuid.UUID = CHECKER, *, check: bool = False):
+        return self.call("approve_revision", self.ids(c), actor, check=check)
+
+    def post(self, c: Charge, actor: uuid.UUID = CHECKER, *, check: bool = False):
+        return self.call("post_revision", self.ids(c), actor, check=check)
+
+    def force_approve(self, c: Charge, checker: uuid.UUID = CHECKER) -> None:
+        """Owner-simulated approval row. Not reachable through the API once approve is exclusive per
+        trip key; used only to prove that post_revision defends itself independently of approve."""
+        self.f.psql(
+            "INSERT INTO p0_fixture.approval(proposal_id, revision_id, content_sha256, checker_actor_id, "
+            "checker_session_id, database_session_user) VALUES "
+            f"({c.proposal_id}, {c.revision_id}, {sql_literal(c.content_hash)}, '{checker}'::uuid, "
+            f"'{uuid.uuid4()}'::uuid, 'owner_simulated'); "
+            f"UPDATE p0_fixture.proposal SET state='approved' WHERE proposal_id={c.proposal_id}")
+
+    def ready(self, c: Charge) -> Charge:
+        self.confirm_both(c)
+        return c
+
+    def run_to_posted(self, c: Charge) -> None:
+        self.confirm_both(c)
+        self.approve(c, check=True)
+        self.post(c, check=True)
+
+    # ---- contention ------------------------------------------------------------------------
+    def run_contention(self, name: str, proposal_id: int, customer: str, debt_period: str,
+                       holder_user: str, holder_sql: str, waiter_user: str, waiter_sql: str,
+                       waiter_error: str | None = None, check_balance: bool = True) -> dict[str, object]:
         short_name = name.replace("-", "")
-        holder_app = f"m2:{run_id}:{short_name}:h"
-        waiter_app = f"m2:{run_id}:{short_name}:w"
-        observer_app = f"m2:{run_id}:{short_name}:o"
-        if any(len(value.encode("utf-8")) > 63
-               for value in (holder_app, waiter_app, observer_app)):
+        holder_app = f"m2:{self.run_id}:{short_name}:h"
+        waiter_app = f"m2:{self.run_id}:{short_name}:w"
+        observer_app = f"m2:{self.run_id}:{short_name}:o"
+        if any(len(value.encode("utf-8")) > 63 for value in (holder_app, waiter_app, observer_app)):
             raise HarnessError("contention PGAPPNAME exceeds PostgreSQL limit")
 
-        before = json.loads(proposal_snapshot(proposal_id))
-        balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", debt_period)
+        before = self.snapshot(proposal_id)
+        balance_before = self.balance_rows(customer, debt_period)
         evidence: dict[str, object] = {
-            "scenario": name,
-            "holder_appname": holder_app,
-            "waiter_appname": waiter_app,
-            "observer_appname": observer_app,
-            "holder_user": holder_user,
-            "waiter_user": waiter_user,
-            "proposal_id": proposal_id,
-            "before": before,
-            "balance_before": balance_before,
+            "scenario": name, "holder_appname": holder_app, "waiter_appname": waiter_app,
+            "observer_appname": observer_app, "holder_user": holder_user, "waiter_user": waiter_user,
+            "proposal_id": proposal_id, "before": before, "balance_before": balance_before,
             "waiter_expected_error": waiter_error,
         }
-        report["concurrency_evidence"].append(evidence)  # type: ignore[union-attr]
+        self.report["concurrency_evidence"].append(evidence)  # type: ignore[union-attr]
 
         pg_options = "-c statement_timeout=20000 -c lock_timeout=12000"
-        holder = PsqlSession(docker, {
-            "PGAPPNAME": holder_app,
-            "PGOPTIONS": pg_options,
-        }, container=container, user=holder_user, database=DATABASE)
+        holder = PsqlSession(self.docker, {"PGAPPNAME": holder_app, "PGOPTIONS": pg_options},
+                             container=self.container, user=holder_user, database=DATABASE)
         waiter: subprocess.Popen[str] | None = None
         failure: BaseException | None = None
         try:
             holder.send("BEGIN")
-            holder_action_lines = holder.execute(holder_sql,
-                f"__HOLDER_ACTION_{uuid.uuid4().hex}__", timeout=10)
+            holder_action_lines = holder.execute(holder_sql, f"__HOLDER_ACTION_{uuid.uuid4().hex}__", timeout=10)
             holder_info_lines = holder.execute(
                 "SELECT pg_backend_pid()::text || '|' || session_user || '|' "
                 "|| current_setting('application_name')",
@@ -427,17 +366,16 @@ def main() -> int:
             evidence["holder_pid"] = holder_pid
             evidence["holder_session_user"] = holder_parts[1]
             evidence["holder_action_output"] = holder_action_lines
-            case(f"{name}_holder_session_user", holder_user, holder_parts[1])
-            case(f"{name}_holder_application_name", holder_app, holder_parts[2])
+            self.case(f"{name}_holder_identity", (holder_user, holder_app),
+                      (holder_parts[1], holder_parts[2]))
 
             waiter = subprocess.Popen(
-                docker + ["exec", "--env", f"PGAPPNAME={waiter_app}",
-                    "--env", f"PGOPTIONS={pg_options}", container,
+                self.docker + ["exec", "--env", f"PGAPPNAME={waiter_app}",
+                    "--env", f"PGOPTIONS={pg_options}", self.container,
                     "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
                     "-v", "VERBOSITY=verbose", "-U", waiter_user,
                     "-d", DATABASE, "-c", waiter_sql],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding="utf-8")
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
 
             deadline = time.monotonic() + 8
             observation: dict[str, object] | None = None
@@ -445,31 +383,24 @@ def main() -> int:
             while time.monotonic() < deadline:
                 if waiter.poll() is not None:
                     stdout, stderr = waiter.communicate()
-                    raise HarnessError(
-                        f"{name} waiter exited before observed lock: "
-                        f"{waiter.returncode}; {stdout}{stderr}")
-                activity = query(
+                    raise HarnessError(f"{name} waiter exited before observed lock: "
+                                       f"{waiter.returncode}; {stdout}{stderr}")
+                activity = self.query(
                     "SELECT pid::text || '|' || usename || '|' || coalesce(state, '') || '|' "
                     "|| coalesce(wait_event_type, '') || '|' || coalesce(wait_event, '') || '|' "
                     "|| array_to_string(pg_blocking_pids(pid), ',') "
                     "FROM pg_stat_activity "
-                    f"WHERE application_name={sql_literal(waiter_app)} "
-                    "AND datname=current_database()",
-                    appname=observer_app,
-                    pg_options="-c statement_timeout=5000",
-                    timeout=8)
+                    f"WHERE application_name={sql_literal(waiter_app)} AND datname=current_database()",
+                    appname=observer_app, pg_options="-c statement_timeout=5000", timeout=8)
                 if activity:
                     last_activity = activity
                     fields = activity.split("|")
                     if len(fields) == 6:
                         blockers = [int(value) for value in fields[5].split(",") if value]
                         current = {
-                            "waiter_pid": int(fields[0]),
-                            "waiter_session_user": fields[1],
-                            "waiter_state": fields[2],
-                            "wait_event_type": fields[3],
-                            "wait_event": fields[4],
-                            "pg_blocking_pids": blockers,
+                            "waiter_pid": int(fields[0]), "waiter_session_user": fields[1],
+                            "waiter_state": fields[2], "wait_event_type": fields[3],
+                            "wait_event": fields[4], "pg_blocking_pids": blockers,
                         }
                         if (current["waiter_state"] == "active"
                                 and current["wait_event_type"] == "Lock"
@@ -478,17 +409,14 @@ def main() -> int:
                             break
                 time.sleep(0.05)
             if observation is None:
-                raise HarnessError(
-                    f"{name} waiter never showed holder in pg_blocking_pids; "
-                    f"last activity={last_activity!r}")
+                raise HarnessError(f"{name} waiter never showed holder in pg_blocking_pids; "
+                                   f"last activity={last_activity!r}")
 
             evidence.update(observation)
-            case(f"{name}_waiter_session_user", waiter_user,
-                 observation["waiter_session_user"])
-            case(f"{name}_waiter_blocked_by_holder_pid", True,
-                 holder_pid in observation["pg_blocking_pids"])
-            case(f"{name}_waiter_waits_on_lock", True,
-                 observation["wait_event_type"] == "Lock")
+            self.case(f"{name}_waiter_blocked_by_holder",
+                      (waiter_user, "Lock", True),
+                      (observation["waiter_session_user"], observation["wait_event_type"],
+                       holder_pid in observation["pg_blocking_pids"]))  # type: ignore[operator]
 
             holder.close("COMMIT")
             try:
@@ -502,14 +430,15 @@ def main() -> int:
                          if waiter_error is not None else waiter.returncode == 0)
             evidence["waiter_returncode"] = waiter.returncode
             evidence["waiter_output"] = waiter_output[-3000:]
-            case(f"{name}_waiter_outcome", True, waiter_ok)
+            self.case(f"{name}_waiter_outcome", True, waiter_ok)
 
-            after = json.loads(proposal_snapshot(proposal_id))
-            balance_after = posted_balance_snapshot("FAKE-CUSTOMER-1", debt_period)
+            after = self.snapshot(proposal_id)
+            balance_after = self.balance_rows(customer, debt_period)
             evidence["after"] = after
             evidence["balance_after"] = balance_after
             evidence["balance_unchanged"] = balance_before == balance_after
-            case(f"{name}_leaves_posted_balance_unchanged", balance_before, balance_after)
+            if check_balance:
+                self.case(f"{name}_leaves_posted_balance_unchanged", balance_before, balance_after)
             return evidence
         except BaseException as exc:
             failure = exc
@@ -539,32 +468,928 @@ def main() -> int:
                 if failure is None:
                     raise HarnessError(f"{name} subprocess cleanup failed: {cleanup_errors}")
 
-    def legacy_signature_matches(session: AuthenticatedSession, action: str | None,
-                                 nonce: uuid.UUID, issued_epoch: int | None,
-                                 scope: str, signature: str) -> bool:
-        fields = (
-            sql_literal("webdebit-actor-assertion-v1"),
-            f"{sql_literal(str(session.actor_id))}::text",
-            f"{sql_literal(str(session.session_id))}::text",
-            "NULL::text" if action is None else sql_literal(action),
-            f"{sql_literal(str(nonce))}::text",
-            "NULL::text" if issued_epoch is None else sql_literal(str(issued_epoch)),
-            sql_literal(scope),
-        )
-        sql = (
-            "SELECT (encode(public.hmac(convert_to(concat_ws(E'\\n', "
-            + ", ".join(fields)
-            + "), 'UTF8'), k.secret, 'sha256'), 'hex') = "
-            + sql_literal(signature)
-            + ")::text FROM p0_fixture.actor_signing_key k WHERE k.key_id='fixture-key-v1'"
-        )
-        return query(sql) in {"true", "t"}
+    # ======================================================================================
+    # Groups
+    # ======================================================================================
+    def g_schema(self) -> None:
+        q = self.query
+        self.case("single_api_role_and_no_identity_test_role", "p0_fixture_api,p0_fixture_owner",
+                  q("SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles "
+                    "WHERE rolname LIKE 'p0_fixture%'"))
+        self.case("hmac_machinery_is_gone", "0|0",
+                  q("SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                    "WHERE n.nspname='p0_fixture' AND c.relname IN ('actor_signing_key','used_assertion_nonce')) "
+                    "|| '|' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                    "WHERE n.nspname='p0_fixture' AND p.proname IN "
+                    "('verify_actor_assertion','assert_fixture_kind_access'))"))
+        self.case("audit_has_no_assertion_columns_but_keeps_actor_session_and_login", "0|3",
+                  q("SELECT (SELECT count(*) FROM information_schema.columns WHERE table_schema='p0_fixture' "
+                    "AND table_name='audit' AND column_name IN ('assertion_nonce','key_id','request_scope')) "
+                    "|| '|' || (SELECT count(*) FROM information_schema.columns WHERE table_schema='p0_fixture' "
+                    "AND table_name='audit' AND column_name IN ('app_actor_id','app_session_id','database_session_user'))"))
+        self.case("opening_resolution_table_is_empty_by_default", 0, self.count("trip_opening_resolution"))
+        self.case("period_seed_states", "closed|open|open|open", q(
+            "SELECT string_agg(state, '|' ORDER BY debt_period) FROM p0_fixture.debt_period_state"))
+        denied = {}
+        for table in ("proposal", "business_revision", "posting", "audit", "trip_opening_resolution",
+                      "app_actor", "posted_balance"):
+            result = self.f.psql(f"SELECT count(*) FROM p0_fixture.{table}", user=API_LOGIN, check=False)
+            denied[table] = result.returncode != 0 and "permission denied" in result.stderr
+        self.case("api_login_cannot_read_any_fixture_table", {k: True for k in denied}, denied)
+        direct = self.f.psql(
+            f"INSERT INTO p0_fixture.proposal(maker_actor_id) VALUES ('{MAKER}'::uuid)",
+            user=API_LOGIN, check=False)
+        self.rejected("api_login_cannot_insert_proposal_directly", direct, "permission denied")
+        resolution_write = self.f.psql(
+            "INSERT INTO p0_fixture.trip_opening_resolution(trip_key, status, evidence_ref, approved_by) "
+            "VALUES ('API1', 'ABSENT_FROM_OPENING_APPROVED', 'x', 'x')", user=API_LOGIN, check=False)
+        self.rejected("api_login_cannot_write_opening_resolution", resolution_write, "permission denied")
+        helper = self.f.psql(f"SELECT p0_fixture.require_actor('{MAKER}'::uuid, '{uuid.uuid4()}'::uuid, 'maker')",
+                             user=API_LOGIN, check=False)
+        self.rejected("api_login_cannot_call_require_actor_directly", helper, "permission denied")
+        projection = self.f.psql("SELECT p0_fixture.fixture_review_projection(1)", user=API_LOGIN, check=False)
+        self.rejected("api_login_cannot_call_review_projection", projection, "permission denied")
+        no_grant = self.f.psql(submit_sql(None, "{}", MAKER), user=NO_GRANT_LOGIN, check=False)
+        self.rejected("login_without_execute_grant_is_denied", no_grant, "permission denied")
+        self.f.psql("GRANT USAGE ON SCHEMA p0_fixture TO webdebit_not_member; "
+                    "GRANT EXECUTE ON FUNCTION p0_fixture.submit_revision(bigint,text,uuid,uuid) "
+                    "TO webdebit_not_member")
+        not_member = self.f.psql(submit_sql(None, "{}", MAKER), user=NOT_MEMBER_LOGIN, check=False)
+        self.rejected("login_outside_api_role_is_untrusted_even_with_execute", not_member,
+                      "untrusted database principal")
+        def insert_resolution(key: str, status: str = "IN_OPENING", evidence: str = "x"):
+            return self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
+                               "(trip_key, status, evidence_ref, approved_by) VALUES "
+                               f"({sql_literal(key)}, {sql_literal(status)}, {sql_literal(evidence)}, 'x')",
+                               check=False)
+        bad_rows = {
+            "bad_status": insert_resolution("BADSTATUS1", "MAYBE"),
+            "blank_evidence": insert_resolution("BLANKEVID1", evidence="  "),
+            "lowercase_key": insert_resolution("lower1"),
+            "empty_key": insert_resolution(""),
+            "key_with_space": insert_resolution("AB CD"),
+            "key_with_tab": insert_resolution("AB\tCD"),
+            "key_with_nbsp": insert_resolution("AB\u00a0CD"),
+            "key_with_zero_width_space": insert_resolution("AB\u200bCD"),
+            "key_with_bom": insert_resolution("\ufeffABCD"),
+        }
+        self.case("resolution_table_rejects_bad_rows_including_whitespace_keys", {k: True for k in bad_rows}, {
+            k: "violates check constraint" in r.stderr and r.returncode != 0 for k, r in bad_rows.items()})
+        self.case("posting_trip_key_is_unique_and_not_null", (1, 1), tuple(int(self.query(
+            "SELECT count(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid "
+            "AND a.attnum = ANY(i.indkey) WHERE i.indrelid='p0_fixture.posting'::regclass "
+            f"AND i.indisunique AND a.attname='trip_key' AND {cond}")) for cond in (
+                "array_length(i.indkey::int2[], 1)=1", "a.attnotnull")))
 
-    def rejected(name: str, result: subprocess.CompletedProcess[str], expected_text: str) -> None:
-        if isinstance(result, tuple):
-            result = result[0]
-        combined = result.stdout + result.stderr
-        case(name, True, result.returncode != 0 and expected_text in combined)
+    def g_success(self) -> None:
+        customer, period, amount = "FAKE-CUSTOMER-OK", "2026-10", 2500
+        before = self.balance(customer)
+        c = self.charge(customer=customer, amount=amount, booking=" bk 9001 ", container="ct\t9001")
+        self.case("success_trip_key_is_stored_normalized", ("BK9001CT9001", "review_needed", 1),
+                  (c.key, self.snapshot(c.proposal_id)["state"], self.snapshot(c.proposal_id)["revision_count"]))
+        view = self.current_view(c)
+        self.case("success_submit_time_reasons_and_blockers_before_confirmation",
+                  ([], ["PERIOD_CONFIRMATION_MISSING", "PRICE_CONFIRMATION_MISSING"]),
+                  (view["submit_time_reasons"], view["current_blockers"]))
+        self.case("success_submit_does_not_change_balance", before, self.balance(customer))
+        self.call("confirm_period_revision", self.ids(c), MAKER, check=True)
+        self.call("confirm_price_revision", self.ids(c), MAKER, check=True)  # PRICE-MAKER: maker self-confirms
+        self.case("success_no_blockers_after_both_confirmations", [], self.current_view(c)["current_blockers"])
+        self.approve(c, check=True)
+        self.case("success_approved_but_pending_stays_outside_balance", ("approved", before),
+                  (self.snapshot(c.proposal_id)["state"], self.balance(customer)))
+        self.post(c, check=True)
+        after = self.balance(customer)
+        self.case("success_path_posted_balance_increases_by_exact_amount", before + amount, after)
+        self.case("success_balance_row_is_per_customer_and_period", [{
+            "customer_id": customer, "debt_period": period, "posted_balance_vnd": amount}],
+            [{**row, "posted_balance_vnd": int(row["posted_balance_vnd"])}  # type: ignore[call-overload]
+             for row in self.balance_rows(customer, period)])
+        posting = self.query(
+            "SELECT state || '|' || (SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
+            "|| '|' || (SELECT x.trip_key || '|' || x.database_session_user || '|' || x.maker_actor_id "
+            f"|| '|' || x.checker_actor_id FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
+            f"FROM p0_fixture.proposal p WHERE p.proposal_id={c.proposal_id}")
+        self.case("success_posting_records_key_login_maker_and_checker",
+                  f"posted|1|BK9001CT9001|{API_LOGIN}|{MAKER}|{CHECKER}", posting)
+        self.case("success_audit_sequence",
+                  ["submit", "confirm_period", "confirm_price", "approve", "post"],
+                  self.audit_actions(c.proposal_id))
+        self.rejected("success_second_post_is_refused", self.post(c), M_POST)
+        edit = self.submit_raw(dumps({**c.payload, "reason": "after posted"}), proposal_id=c.proposal_id,
+                               check=False)
+        self.rejected("success_posted_proposal_cannot_be_edited", edit, "proposal unavailable to this maker")
+        self.case("success_refusals_keep_balance", before + amount, self.balance(customer))
+
+        second = self.charge(customer=customer, amount=700)
+        self.run_to_posted(second)
+        self.case("success_second_charge_adds_to_same_customer_period", before + amount + 700,
+                  self.balance(customer, period))
+        zero_component = self.charge(customer=customer, amount=300,
+                                     price_components=[{"label": "A", "amount_vnd": 300},
+                                                       {"label": "B", "amount_vnd": 0}])
+        self.case("success_zero_component_is_warning_only",
+                  (["COMPONENT_AMOUNT_ZERO_WARNING"], ["COMPONENT_AMOUNT_ZERO_WARNING"], []),
+                  (self.current_view(zero_component)["submit_time_reasons"],
+                   self.current_view(zero_component)["warnings"],
+                   [b for b in self.current_view(zero_component)["current_blockers"]
+                    if b.endswith("_WARNING")]))
+        self.confirm_both(zero_component, price_actor=PRICE_OWNER)
+        self.approve(zero_component, CHECKER, check=True)
+        self.post(zero_component, CHECKER, check=True)
+        self.case("success_zero_component_charge_posts_with_separate_price_owner_and_checker",
+                  before + amount + 700 + 300, self.balance(customer))
+        self.report["success_path"] = {
+            "customer": customer, "debt_period": period, "amount_vnd": amount,
+            "balance_before": before, "balance_after": after,
+            "balance_after_all_three_charges": self.balance(customer),
+            "proposal_id": c.proposal_id, "trip_key": c.key,
+            "resolution_status": ABSENT, "price_confirmed_by_maker": True,
+        }
+
+    def g_resolution(self) -> None:
+        customer = "FAKE-CUSTOMER-RES"
+        for label, status in (("no_row", None), ("in_opening", "IN_OPENING"), ("unresolved", "UNRESOLVED")):
+            c = self.charge(customer=customer, seed=status)
+            self.confirm_both(c)
+            before = self.snapshot(c.proposal_id)
+            approval = self.approve(c)
+            self.case(f"{label}_projection_reports_missing_resolution", True,
+                      "OPENING_RESOLUTION_MISSING" in self.current_view(c)["current_blockers"])
+            self.rejected(f"{label}_approval_refused", approval, M_RES_APPROVAL)
+            self.case(f"{label}_refused_approval_recorded_nothing", before, self.snapshot(c.proposal_id))
+            # Post must refuse on the resolution itself, not merely because approve never ran: give it
+            # an owner-simulated approval so every other gate passes.
+            self.force_approve(c)
+            forced = self.snapshot(c.proposal_id)
+            self.rejected(f"{label}_post_refused_by_resolution", self.post(c), M_RES_POST)
+            self.case(f"{label}_refused_post_keeps_state_and_balance", (forced, 0),
+                      (self.snapshot(c.proposal_id), self.balance(customer)))
+            last = c
+        self.set_resolution(last.key, ABSENT)
+        self.case("unresolved_then_absent_clears_projection_blocker", [],
+                  self.current_view(last)["current_blockers"])
+        self.post(last, check=True)
+        self.case("unresolved_then_absent_charge_posts", last.amount, self.balance(customer))
+
+        other = self.charge(customer=customer, seed=None)
+        self.seed("NOSUCHKEYXYZ")
+        self.confirm_both(other)
+        self.rejected("resolution_for_a_different_key_does_not_help", self.approve(other), M_RES_APPROVAL)
+
+        flip = self.charge(customer=customer, amount=410)
+        self.confirm_both(flip)
+        self.approve(flip, check=True)
+        balance_before = self.balance(customer)
+        self.set_resolution(flip.key, "IN_OPENING")
+        self.rejected("resolution_flipped_after_approval_blocks_post", self.post(flip), M_RES_POST)
+        self.case("blocked_post_keeps_approved_state_and_balance", ("approved", 0, balance_before),
+                  (self.snapshot(flip.proposal_id)["state"], self.count("posting", f"proposal_id={flip.proposal_id}"),
+                   self.balance(customer)))
+        self.set_resolution(flip.key, ABSENT)
+        self.post(flip, check=True)
+        self.case("restoring_absent_resolution_allows_post", balance_before + 410, self.balance(customer))
+
+    def g_trip_key(self) -> None:
+        customer = "FAKE-CUSTOMER-TRIP"
+        self.case("compute_trip_key_removes_all_whitespace_and_uppercases", ["ABC123CONT9"] * 2, [
+            self.query("SELECT p0_fixture.compute_trip_key(' abc 123 ', E'cont\\t9')"),
+            self.query("SELECT p0_fixture.compute_trip_key('ABC123', 'CONT9')")])
+        spaced = self.charge(customer=customer, booking=" abc 123 ", container="cont 9", seed=None)
+        self.case("spaced_payload_stores_normalized_key", ("ABC123CONT9", [], " abc 123 "),
+                  (self.current_view(spaced)["payload"]["trip_key"], self.current_view(spaced)["submit_time_reasons"],
+                   self.current_view(spaced)["payload"]["booking_no"]))
+        pending = "DUPLICATE_TRIP_KEY_PENDING_WARNING"
+        same = self.charge(customer=customer, booking="ABC123", container="CONT9", seed=None)
+        self.case("same_key_pending_pair_warns_both_and_freezes_nothing", (True, True, [], []), (
+            pending in self.current_view(same)["warnings"], pending in self.current_view(spaced)["warnings"],
+            self.current_view(same)["submit_time_reasons"], self.current_view(spaced)["submit_time_reasons"]))
+        lower = self.charge(customer=customer, booking="abc123", container="cont9", seed=None)
+        self.case("duplicate_detection_ignores_case", True, pending in self.current_view(lower)["warnings"])
+        distinct = self.charge(customer=customer, seed=None)
+        self.case("distinct_key_has_no_duplicate_signal", (False, False), (
+            pending in self.current_view(distinct)["warnings"],
+            "DUPLICATE_TRIP_KEY" in self.current_view(distinct)["current_blockers"]))
+        self.submit_raw(dumps({**distinct.payload, "reason": "edited"}), proposal_id=distinct.proposal_id)
+        self.case("editing_own_proposal_is_not_a_duplicate", False,
+                  pending in self.current_view(distinct)["warnings"])
+        # The flag follows the other proposal: once it changes key, the warning disappears.
+        for other in (spaced, same, lower):
+            self.submit_raw(dumps({**other.payload, "booking_no": f"MOVED{other.proposal_id}"}),
+                            proposal_id=other.proposal_id)
+        self.case("duplicate_warning_clears_when_the_other_proposal_changes_key", False,
+                  any(pending in self.current_view(c)["warnings"] for c in (spaced, same, lower)))
+
+        # Unicode whitespace pasted from a Sheet must not produce a different key.
+        plain_key = "UNI77CTR77"
+        unicode_cases = {
+            "nbsp": ("UNI\u00a077", "CTR\u00a077"), "zwsp": ("UNI\u200b77", "CTR\u200b77"),
+            "bom": ("\ufeffUNI77", "CTR77\ufeff"), "ideographic": ("UNI\u300077", "CTR77"),
+            "narrow_nbsp": ("UNI77", "CTR\u202f77"), "word_joiner": ("UNI\u206077", "CTR77"),
+        }
+        keys = {}
+        for label, (booking, container) in unicode_cases.items():
+            c = self.charge(customer=customer, booking=booking, container=container, seed=None)
+            keys[label] = self.current_view(c)["payload"]["trip_key"]
+        self.case("unicode_whitespace_is_removed_from_trip_key", {k: plain_key for k in unicode_cases}, keys)
+        only_unicode = self.charge(customer=customer, booking="\u00a0\u200b", container="CTR1", seed=None)
+        self.case("booking_made_only_of_unicode_whitespace_is_missing", True,
+                  "TRIP_KEY_MISSING" in self.current_view(only_unicode)["submit_time_reasons"])
+
+        missing_variants = {
+            "null_booking": (None, "C1"), "empty_booking": ("", "C1"), "blank_booking": ("   ", "C1"),
+            "null_container": ("B1", None), "tab_container": ("B1", " \t "),
+        }
+        for label, (booking, container) in missing_variants.items():
+            c = self.charge(customer=customer, booking=booking, container=container, seed=None)
+            self.confirm_both(c)
+            view = self.current_view(c)
+            self.case(f"{label}_is_trip_key_missing_and_stored_null",
+                      (True, None), ("TRIP_KEY_MISSING" in view["submit_time_reasons"], view["payload"]["trip_key"]))
+            self.rejected(f"{label}_approval_refused", self.approve(c), "trip key missing or placeholder")
+        omitted = self.charge(customer=customer, booking=None, container=None, seed=None,
+                              drop=("booking_no", "container_no"))
+        self.case("omitted_booking_and_container_are_trip_key_missing", True,
+                  "TRIP_KEY_MISSING" in self.current_view(omitted)["submit_time_reasons"])
+        number_booking = self.submit_raw(dumps(charge_payload(123, "C1", customer=customer)), check=False)
+        self.rejected("non_string_booking_is_rejected", number_booking, "invalid fixture optional field")
+
+        for label, booking, container in (("slash", "/", "PH1"), ("spaced_slash", " / ", "PH2")):
+            c = self.charge(customer=customer, booking=booking, container=container, seed=ABSENT)
+            self.confirm_both(c)
+            codes = self.current_view(c)["submit_time_reasons"]
+            self.case(f"{label}_booking_is_placeholder_not_missing", (True, False),
+                      ("BOOKING_PLACEHOLDER" in codes, "TRIP_KEY_MISSING" in codes))
+            self.rejected(f"{label}_booking_blocks_approval_even_with_resolution", self.approve(c),
+                          "trip key missing or placeholder")
+        both = self.charge(customer=customer, booking="/", container="", seed=None)
+        self.case("slash_with_blank_container_has_both_codes", ["BOOKING_PLACEHOLDER", "TRIP_KEY_MISSING"],
+                  self.current_view(both)["submit_time_reasons"])
+
+        first = self.charge(customer=customer, amount=120)
+        second = self.charge(customer=customer, amount=130, booking=first.payload["booking_no"],  # type: ignore[arg-type]
+                             container=first.payload["container_no"], seed=None)  # type: ignore[arg-type]
+        self.confirm_both(first)
+        self.confirm_both(second)
+        before = self.balance(customer)
+        self.approve(first, check=True)
+        self.case("second_proposal_is_blocked_live_once_the_first_is_approved", (True, False), (
+            "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"],
+            "DUPLICATE_TRIP_KEY" in self.current_view(first)["current_blockers"]))
+        self.rejected("second_approval_refused_while_first_is_approved", self.approve(second),
+                      "trip key already approved or posted by another proposal")
+        self.post(first, check=True)
+        self.rejected("second_approval_refused_after_first_is_posted", self.approve(second),
+                      "trip key already approved or posted by another proposal")
+        self.case("duplicate_pair_only_first_amount_is_posted", (before + 120, "review_needed", 1),
+                  (self.balance(customer), self.snapshot(second.proposal_id)["state"],
+                   self.count("posting", f"trip_key={sql_literal(first.key)}")))
+        # The flag is live: when the approved proposal is the only holder, changing the second proposal's
+        # key clears its blocker; the first (posted) proposal keeps its own state.
+        self.submit_raw(dumps({**second.payload, "booking_no": "FREED", "container_no": "KEY1"}),
+                        proposal_id=second.proposal_id)
+        self.case("changing_key_clears_the_live_duplicate_blocker", False,
+                  "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"])
+
+    def g_date(self) -> None:
+        customer = "FAKE-CUSTOMER-DATE"
+        proposals_before = self.count("proposal")
+        rejected_old = []
+        for value in ("2026-10-13", "2026-10-01", "2026-09-30"):
+            booking, container = self.next_trip()
+            payload = charge_payload(booking, container, customer=customer, warehouse=value)
+            result = self.submit_raw(dumps(payload), check=False)
+            rejected_old.append(result.returncode != 0 and "opening 13/10" in result.stderr)
+        self.case("warehouse_date_before_14_10_is_rejected_as_old_trip", [True] * 3, rejected_old)
+        invalid = []
+        for value in ("14/10/2026", "2026-10-14T00:00", "2026-02-30", "2026-13-01", ""):
+            booking, container = self.next_trip()
+            payload = charge_payload(booking, container, customer=customer, warehouse=value)
+            result = self.submit_raw(dumps(payload), check=False)
+            invalid.append(result.returncode != 0 and "invalid fixture date" in result.stderr)
+        self.case("malformed_or_impossible_warehouse_dates_are_rejected", [True] * 5, invalid)
+        self.case("rejected_dates_created_no_proposal", proposals_before, self.count("proposal"))
+        accepted = []
+        for value in ("2026-10-14", "2026-10-15"):
+            c = self.charge(customer=customer, warehouse=value)
+            accepted.append(self.current_view(c)["payload"]["warehouse_in_date"])
+        self.case("warehouse_date_14_10_and_later_is_accepted", ["2026-10-14", "2026-10-15"], accepted)
+        legacy_name = charge_payload("BKX", "CTX", customer=customer)
+        legacy_name["event_date"] = legacy_name.pop("warehouse_in_date")
+        self.rejected("event_date_name_is_no_longer_accepted",
+                      self.submit_raw(dumps(legacy_name), check=False), "missing or unknown business fields")
+
+    def g_canonical(self) -> None:
+        customer = "FAKE-CUSTOMER-CANON"
+        base = charge_payload("BKCAN", "CTCAN", customer=customer)
+        text = dumps(base)
+        replacements = {
+            "total_100.0": ('"total_vnd":100', '"total_vnd":100.0'),
+            "total_1e2": ('"total_vnd":100', '"total_vnd":1e2'),
+            "total_1E+2": ('"total_vnd":100', '"total_vnd":1E+2'),
+            "total_string": ('"total_vnd":100', '"total_vnd":"100"'),
+            "total_negative": ('"total_vnd":100', '"total_vnd":-5'),
+            "total_fraction": ('"total_vnd":100', '"total_vnd":100.5'),
+            "total_negative_zero": ('"total_vnd":100', '"total_vnd":-0'),
+            "line_amount_negative_zero": ('"amount_vnd":100}', '"amount_vnd":-0}'),
+            "total_boolean": ('"total_vnd":100', '"total_vnd":true'),
+            "total_16_digits": ('"total_vnd":100', '"total_vnd":1000000000000000'),
+            "line_amount_100.0": ('"amount_vnd":100}', '"amount_vnd":100.0}'),
+            "component_50.0": ('"amount_vnd":50}', '"amount_vnd":50.0}'),
+            "line_no_1.0": ('"line_no":1,', '"line_no":1.0,'),
+            "schema_version_3.0": ('"schema_version":3', '"schema_version":3.0'),
+        }
+        results = {}
+        for label, (old, new) in replacements.items():
+            mutated = text.replace(old, new, 1)
+            result = self.submit_raw(mutated, check=False)
+            results[label] = result.returncode != 0 and "canonical" in result.stderr
+        self.case("non_canonical_numbers_are_rejected_not_normalized", {k: True for k in results}, results)
+        string_ok = self.submit_raw(dumps({**base, "reason": 'ghi chu 1.5 va 1e2 va \\"2.5\\"'}), check=False)
+        self.case("number_like_text_inside_strings_is_accepted", 0, string_ok.returncode)
+
+        first = json.loads(self.submit_raw(text).stdout.strip())
+        pid = int(first["proposal_id"])
+        pretty = json.dumps(dict(reversed(list(base.items()))), indent=3, ensure_ascii=True)
+        again = json.loads(self.submit_raw(pretty, proposal_id=pid).stdout.strip())
+        self.case("key_order_and_whitespace_do_not_change_hash_or_create_revision",
+                  (first["content_sha256"], first["revision_id"], False, 1),
+                  (again["content_sha256"], again["revision_id"], again["revision_created"],
+                   self.snapshot(pid)["revision_count"]))
+        self.case("noop_submit_is_audited", ["submit", "submit_noop"], self.audit_actions(pid))
+        changed = json.loads(self.submit_raw(dumps({**base, "source_ref": "other"}), proposal_id=pid).stdout.strip())
+        self.case("changed_business_field_creates_new_revision_and_hash", (2, True, True),
+                  (changed["revision_no"], changed["content_sha256"] != first["content_sha256"],
+                   changed["revision_created"]))
+
+        def hash_of(**kw) -> tuple[str, list[str]]:
+            created = json.loads(self.submit_raw(dumps(charge_payload(
+                *self.next_trip(), customer=customer, **kw))).stdout.strip())
+            codes = json.loads(self.query(
+                "SELECT to_jsonb(review_reason_codes)::text FROM p0_fixture.business_revision "
+                f"WHERE revision_id={created['revision_id']}"))
+            return created["content_sha256"], codes
+        null_total = hash_of(total_vnd=None, lines=[{"line_no": 1, "customer_id": customer,
+                                                      "debt_period": "2026-10", "amount_vnd": None}])
+        zero_total = hash_of(total_vnd=0, lines=[{"line_no": 1, "customer_id": customer,
+                                                   "debt_period": "2026-10", "amount_vnd": 0}])
+        self.case("null_total_and_zero_total_have_different_reasons",
+                  (True, True, True),
+                  ("TOTAL_MISSING" in null_total[1] and "LINE_AMOUNT_MISSING" in null_total[1],
+                   "TOTAL_ZERO" in zero_total[1] and "LINE_AMOUNT_MISSING" not in zero_total[1],
+                   "TOTAL_ZERO" not in null_total[1]))
+        omitted = json.loads(self.submit_raw(dumps(charge_payload(
+            "BKOMIT", "CTOMIT", customer=customer, drop=("total_vnd", "source_ref")))).stdout.strip())
+        explicit = json.loads(self.submit_raw(dumps(charge_payload(
+            "BKOMIT", "CTOMIT", customer=customer, total_vnd=None, source_ref=None))).stdout.strip())
+        self.case("omitted_and_null_optional_fields_have_the_same_hash", True,
+                  omitted["content_sha256"] == explicit["content_sha256"])
+
+        bad = {
+            "schema_version_2": ({**base, "schema_version": 2}, "expected version 3"),
+            "schema_version_4": ({**base, "schema_version": 4}, "expected version 3"),
+            "schema_version_missing": ({k: v for k, v in base.items() if k != "schema_version"},
+                                       "missing or unknown business fields"),
+            "legacy_trip_code": ({**base, "trip_code": "X"}, "missing or unknown business fields"),
+            "legacy_kind": ({**base, "kind": "charge_fixture"}, "missing or unknown business fields"),
+            "legacy_opening_ref": ({**base, "opening_snapshot_ref": "x"}, "missing or unknown business fields"),
+            "customer_missing": ({k: v for k, v in base.items() if k != "customer_id"},
+                                 "missing or unknown business fields"),
+            "no_lines": ({**base, "lines": []}, "exactly one debt line"),
+            "two_lines": ({**base, "lines": base["lines"] * 2}, "exactly one debt line"),  # type: ignore[operator]
+            "line_customer_mismatch": ({**base, "lines": [{**base["lines"][0], "customer_id": "OTHER"}]},  # type: ignore[index]
+                                       "invalid fixture line"),
+            "line_period_mismatch": ({**base, "lines": [{**base["lines"][0], "debt_period": "2026-11"}]},  # type: ignore[index]
+                                     "invalid fixture line"),
+            "line_unknown_key": ({**base, "lines": [{**base["lines"][0], "memo": "x"}]},  # type: ignore[index]
+                                 "invalid fixture line"),
+            "bad_period_format": ({**base, "debt_period": "2026-13"}, "invalid fixture payload fields"),
+            "blank_reason": ({**base, "reason": "  "}, "invalid fixture payload fields"),
+            "malformed_evidence_hash": ({**base, "evidence_sha256": "zz"}, "invalid evidence hash"),
+            "malformed_override_hash": ({**base, "period_override_evidence_sha256": "zz"},
+                                        "invalid period override evidence hash"),
+            "component_unknown_key": ({**base, "price_components": [{"label": "A", "amount_vnd": 1, "x": 1}]},
+                                      "invalid per-trip price component"),
+            "component_blank_label": ({**base, "price_components": [{"label": " ", "amount_vnd": 1}]},
+                                      "invalid per-trip price component"),
+            "payload_too_long": ({**base, "reason": "x" * 70000}, "invalid fixture payload length"),
+        }
+        outcomes = {}
+        proposals_before_bad = self.count("proposal")
+        for label, (payload, expected) in bad.items():
+            result = self.submit_raw(dumps(payload), check=False)
+            outcomes[label] = result.returncode != 0 and expected in result.stderr
+        top_level = self.submit_raw("[]", check=False)
+        outcomes["top_level_array"] = top_level.returncode != 0
+        self.case("structural_violations_are_rejected_with_specific_reason", {k: True for k in outcomes}, outcomes)
+        self.case("rejected_payloads_created_no_proposal", proposals_before_bad, self.count("proposal"))
+
+    def g_price(self) -> None:
+        customer = "FAKE-CUSTOMER-PRICE"
+        zero_amount = {"total_vnd": 0, "lines": [{"line_no": 1, "customer_id": customer,
+                                                   "debt_period": "2026-10", "amount_vnd": 0}],
+                       "price_components": [{"label": "A", "amount_vnd": 0}]}
+        line = lambda amount: [{"line_no": 1, "customer_id": customer, "debt_period": "2026-10",  # noqa: E731
+                                "amount_vnd": amount}]
+        variants = {
+            "total_zero": ("TOTAL_ZERO", zero_amount),
+            "total_null": ("TOTAL_MISSING", {"total_vnd": None}),
+            "components_null": ("PRICE_COMPONENTS_MISSING", {"price_components": None}),
+            "components_empty": ("PRICE_COMPONENTS_MISSING", {"price_components": []}),
+            "component_amount_null": ("COMPONENT_AMOUNT_MISSING", {"price_components": [
+                {"label": "A", "amount_vnd": None}, {"label": "B", "amount_vnd": 50}]}),
+            "components_do_not_sum_to_total": ("COMPONENT_TOTAL_MISMATCH", {"price_components": [
+                {"label": "A", "amount_vnd": 40}, {"label": "B", "amount_vnd": 50}]}),
+            "line_amount_null": ("LINE_AMOUNT_MISSING", {"lines": line(None)}),
+            "line_differs_from_total": ("LINE_TOTAL_MISMATCH", {"lines": line(90)}),
+            "source_ref_null": ("SOURCE_EVIDENCE_MISSING", {"source_ref": None}),
+            "evidence_ref_blank": ("SOURCE_EVIDENCE_MISSING", {"evidence_ref": "   "}),
+        }
+        for label, (expected_code, override) in variants.items():
+            c = self.charge(customer=customer, **override)
+            before = self.snapshot(c.proposal_id)
+            result = self.call("confirm_price_revision", self.ids(c), MAKER)
+            codes = self.current_view(c)["submit_time_reasons"]
+            self.case(f"{label}_blocks_price_confirmation_and_leaves_no_record",
+                      (True, True, before),
+                      (expected_code in codes, M_PRICE_BLOCK in result.stderr and result.returncode != 0,
+                       self.snapshot(c.proposal_id)))
+
+        zero =self.charge(customer=customer, amount=200,
+                           price_components=[{"label": "A", "amount_vnd": 200}, {"label": "B", "amount_vnd": 0}])
+        confirmed = self.call("confirm_price_revision", self.ids(zero), MAKER)
+        self.case("zero_component_warns_and_price_confirmation_succeeds", (0, ["COMPONENT_AMOUNT_ZERO_WARNING"]),
+                  (confirmed.returncode, self.current_view(zero)["warnings"]))
+
+        self_confirm = self.charge(customer=customer)
+        other_confirm = self.charge(customer=customer)
+        a = self.call("confirm_price_revision", self.ids(self_confirm), MAKER)  # maker is also price_owner
+        b = self.call("confirm_price_revision", self.ids(other_confirm), PRICE_OWNER)
+        self.case("maker_who_is_price_owner_may_confirm_own_price_and_a_separate_price_owner_may_too", (0, 0),
+                  (a.returncode, b.returncode))
+        denied = {
+            "maker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), MAKER_ONLY),
+            "checker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), CHECKER),
+        }
+        self.case("only_price_owner_role_may_confirm_price", {k: True for k in denied}, {
+            k: v.returncode != 0 and "actor role required" in v.stderr for k, v in denied.items()})
+        self.rejected("same_revision_price_cannot_be_confirmed_twice",
+                      self.call("confirm_price_revision", self.ids(self_confirm), PRICE_OWNER), "duplicate key")
+
+        c = self.charge(customer=customer, maker=MAKER_ONLY)
+        self.call("confirm_period_revision", self.ids(c), MAKER_ONLY, check=True)
+        self.call("confirm_price_revision", self.ids(c), PRICE_OWNER, check=True)
+        self.rejected("price_confirmer_cannot_checker_approve_same_revision", self.approve(c, PRICE_OWNER),
+                      "price confirmer cannot checker-approve the same revision")
+        self.case("refused_approval_left_charge_pending", ("review_needed", 0),
+                  (self.snapshot(c.proposal_id)["state"], self.count("approval", f"proposal_id={c.proposal_id}")))
+        approved = self.approve(c, CHECKER)
+        self.case("a_different_checker_may_approve", 0, approved.returncode)
+        self.post(c, CHECKER, check=True)
+        self.case("charge_with_separate_maker_price_owner_and_checker_posts", c.amount,
+                  self.balance(customer))
+        # Post defends itself too: an owner-simulated approval by the price confirmer is refused.
+        d = self.charge(customer=customer, maker=MAKER_ONLY)
+        self.call("confirm_period_revision", self.ids(d), MAKER_ONLY, check=True)
+        self.call("confirm_price_revision", self.ids(d), PRICE_OWNER, check=True)
+        self.force_approve(d, checker=PRICE_OWNER)
+        self.rejected("post_refuses_when_the_checker_is_the_price_confirmer", self.post(d, PRICE_OWNER),
+                      "price confirmer cannot post as checker")
+
+    def g_actors(self) -> None:
+        customer = "FAKE-CUSTOMER-ACT"
+        payload = dumps(charge_payload("BKACT", "CTACT", customer=customer))
+        audits_before = self.count("audit")
+        proposals_before = self.count("proposal")
+        self.rejected("inactive_actor_cannot_submit", self.submit_raw(payload, actor=DISABLED, check=False),
+                      "inactive actor")
+        self.rejected("unknown_actor_cannot_submit", self.submit_raw(payload, actor=UNKNOWN, check=False),
+                      "inactive actor")
+        self.rejected("checker_only_actor_cannot_submit", self.submit_raw(payload, actor=CHECKER, check=False),
+                      "actor role required")
+        null_session = self.f.psql(
+            f"SELECT row_to_json(x)::text FROM p0_fixture.submit_revision(NULL::bigint, {sql_literal(payload)}::text, "
+            f"'{MAKER}'::uuid, NULL::uuid) x", user=API_LOGIN, check=False)
+        self.rejected("missing_session_is_rejected", null_session, "actor and session are required")
+        self.case("rejected_calls_wrote_no_proposal_or_audit", (proposals_before, audits_before),
+                  (self.count("proposal"), self.count("audit")))
+
+        session = uuid.uuid4()
+        created = json.loads(self.submit_raw(payload, session=session).stdout.strip())
+        c = Charge(int(created["proposal_id"]), int(created["revision_id"]), str(created["content_sha256"]),
+                   "BKACTCTACT", customer, 100, "2026-10", MAKER, {})
+        self.seed(c.key)
+        self.case("audit_stores_app_actor_session_and_api_login", (str(MAKER), str(session), API_LOGIN), tuple(
+            self.query("SELECT app_actor_id || '|' || app_session_id || '|' || database_session_user "
+                       f"FROM p0_fixture.audit WHERE proposal_id={c.proposal_id}").split("|")))
+        self.rejected("other_maker_cannot_edit_proposal",
+                      self.submit_raw(payload, proposal_id=c.proposal_id, actor=MAKER_ONLY, check=False),
+                      "proposal unavailable to this maker")
+        self.rejected("other_maker_cannot_set_presentation_title", self.f.psql(
+            f"SELECT p0_fixture.set_presentation_title({c.proposal_id}, 'x', '{MAKER_ONLY}'::uuid, '{uuid.uuid4()}'::uuid)",
+            user=API_LOGIN, check=False), "proposal unavailable to this maker")
+        self.rejected("only_the_proposal_maker_confirms_period",
+                      self.call("confirm_period_revision", self.ids(c), MAKER_ONLY),
+                      "period confirmation requires current charge revision from its maker")
+        self.confirm_both(c)
+        self.rejected("maker_only_actor_cannot_approve", self.approve(c, MAKER_ONLY), "actor role required")
+        self.rejected("maker_with_checker_role_cannot_approve_own_charge", self.approve(c, MAKER), M_STALE)
+        self.approve(c, CHECKER, check=True)
+        self.rejected("maker_cannot_post_own_charge", self.post(c, MAKER), M_POST)
+        self.rejected("a_checker_who_did_not_approve_cannot_post", self.post(c, PRICE_OWNER), M_POST)
+        self.case("refused_decisions_left_charge_approved_not_posted", ("approved", 0),
+                  (self.snapshot(c.proposal_id)["state"], self.count("posting", f"proposal_id={c.proposal_id}")))
+        self.post(c, CHECKER, check=True)
+        self.case("posting_and_audit_use_one_api_login", [API_LOGIN], json.loads(self.query(
+            "SELECT to_jsonb(array_agg(DISTINCT database_session_user::text))::text FROM p0_fixture.audit "
+            f"WHERE proposal_id={c.proposal_id}")))
+
+        # NULL revision or hash must hit an explicit guard in every state-changing function.
+        guard = "proposal, revision and content hash are required"
+        null_calls = {}
+        for function, actor in (("confirm_price_revision", MAKER), ("confirm_period_revision", MAKER),
+                                ("approve_revision", CHECKER), ("post_revision", CHECKER)):
+            for label, revision, content in (("revision", "NULL::bigint", sql_literal(c.content_hash)),
+                                             ("hash", str(c.revision_id), "NULL::text")):
+                result = self.f.psql(
+                    f"SELECT p0_fixture.{function}({c.proposal_id}, {revision}, {content}, "
+                    f"'{actor}'::uuid, '{uuid.uuid4()}'::uuid)", user=API_LOGIN, check=False)
+                null_calls[f"{function}_null_{label}"] = result.returncode != 0 and guard in result.stderr
+        self.case("null_revision_or_hash_is_refused_by_an_explicit_guard", {k: True for k in null_calls}, null_calls)
+
+    def g_revision(self) -> None:
+        customer = "FAKE-CUSTOMER-REV"
+        c = self.charge(customer=customer, amount=600)
+        self.confirm_both(c)
+        self.approve(c, check=True)
+        edit = json.loads(self.submit_raw(dumps({**c.payload, "reason": "revised"}), proposal_id=c.proposal_id)
+                          .stdout.strip())
+        rev2 = Charge(c.proposal_id, int(edit["revision_id"]), str(edit["content_sha256"]),
+                      c.key, customer, 600, "2026-10", MAKER, {**c.payload, "reason": "revised"})
+        snap = self.snapshot(c.proposal_id)
+        self.case("edit_after_approval_creates_revision_2_keeps_old_approval_and_returns_to_review",
+                  ("review_needed", 2, 1, True),
+                  (snap["state"], snap["revision_no"], len(snap["approval_history"]),  # type: ignore[arg-type]
+                   rev2.content_hash != c.content_hash))
+        self.rejected("stale_revision_cannot_be_posted", self.post(c), M_POST)
+        self.rejected("stale_revision_cannot_be_approved", self.approve(c), M_STALE)
+        self.rejected("stale_revision_cannot_take_price_confirmation",
+                      self.call("confirm_price_revision", self.ids(c), MAKER), "requires the current charge revision")
+        self.rejected("stale_revision_cannot_take_period_confirmation",
+                      self.call("confirm_period_revision", self.ids(c), MAKER),
+                      "period confirmation requires current charge revision")
+        projection = self.projection(c.proposal_id)["revisions"]
+        self.case("old_confirmations_do_not_carry_to_new_revision",
+                  (False, True, ["PERIOD_CONFIRMATION_MISSING", "PRICE_CONFIRMATION_MISSING"], []),
+                  (projection[0]["is_current_revision"], projection[1]["is_current_revision"],  # type: ignore[index]
+                   projection[1]["current_blockers"], projection[0]["current_blockers"]))  # type: ignore[index]
+        self.rejected("new_revision_cannot_be_approved_without_its_own_confirmations",
+                      self.approve(rev2), "maker confirmation required")
+        self.confirm_both(rev2)
+        wrong_hash = Charge(**{**rev2.__dict__, "content_hash": "0" * 64})
+        self.rejected("approval_with_wrong_hash_is_refused", self.approve(wrong_hash), M_STALE)
+        self.approve(rev2, check=True)
+        self.rejected("post_with_wrong_hash_is_refused", self.post(wrong_hash), M_POST)
+        self.post(rev2, check=True)
+        same_payload = self.query(
+            "SELECT (p.canonical_payload = r.canonical_payload AND p.content_sha256 = r.content_sha256 "
+            "AND p.revision_id = r.revision_id)::text FROM p0_fixture.posting p "
+            f"JOIN p0_fixture.business_revision r ON r.revision_id=p.revision_id WHERE p.proposal_id={c.proposal_id}")
+        self.case("posting_stores_exact_revision_2_payload_hash_and_id", ("true", rev2.revision_id, 600),
+                  (same_payload, int(self.query(f"SELECT revision_id FROM p0_fixture.posting WHERE proposal_id={c.proposal_id}")),
+                   self.balance(customer)))
+
+        p = self.charge(customer=customer)
+        self.confirm_both(p)
+        self.approve(p, check=True)
+        before = self.snapshot(p.proposal_id)
+        title = self.f.psql(f"SELECT p0_fixture.set_presentation_title({p.proposal_id}, 'Display only', "
+                            f"'{MAKER}'::uuid, '{uuid.uuid4()}'::uuid)", user=API_LOGIN, check=False)
+        after = self.snapshot(p.proposal_id)
+        self.case("presentation_change_keeps_revision_hash_and_approval", (0, before["content_sha256"], "approved",
+                                                                         before["approval_history"]),
+                  (title.returncode, after["content_sha256"], after["state"], after["approval_history"]))
+        self.case("presentation_is_audited", "presentation", self.audit_actions(p.proposal_id)[-1])
+
+        for table, column in (("business_revision", "content_sha256"), ("approval", "content_sha256"),
+                              ("price_confirmation", "content_sha256"), ("period_confirmation", "content_sha256"),
+                              ("posting", "content_sha256"), ("audit", "content_sha256")):
+            update = self.f.psql(f"UPDATE p0_fixture.{table} SET {column}={column}", check=False)
+            delete = self.f.psql(f"DELETE FROM p0_fixture.{table}", check=False)
+            self.case(f"{table}_is_append_only", [True, True],
+                      ["append-only fixture row" in update.stderr and update.returncode != 0,
+                       "append-only fixture row" in delete.stderr and delete.returncode != 0])
+
+    def g_period(self) -> None:
+        customer = "FAKE-CUSTOMER-PER"
+        closed = self.charge(customer=customer, period="2026-08", **OVERRIDE)
+        self.case("closed_period_blocks_period_confirmation_and_shows_in_projection", (True, 0),
+                  ("DEBT_PERIOD_NOT_OPEN" in self.current_view(closed)["current_blockers"],
+                   self.count("period_confirmation", f"proposal_id={closed.proposal_id}")))
+        self.rejected("closed_period_period_confirmation_refused",
+                      self.call("confirm_period_revision", self.ids(closed), MAKER),
+                      "debt period is not open for maker confirmation")
+        unknown = self.charge(customer=customer, period="2026-12", **OVERRIDE)
+        self.rejected("period_without_state_row_is_treated_as_not_open",
+                      self.call("confirm_period_revision", self.ids(unknown), MAKER),
+                      "debt period is not open for maker confirmation")
+
+        cross = {}
+        for label, drop in (("reason", "period_override_reason"), ("evidence_ref", "period_override_evidence_ref"),
+                            ("evidence_hash", "period_override_evidence_sha256")):
+            c = self.charge(customer=customer, period="2026-09", **{**OVERRIDE, drop: None})
+            result = self.call("confirm_period_revision", self.ids(c), MAKER)
+            cross[label] = ("PERIOD_OVERRIDE_EVIDENCE_MISSING" in self.current_view(c)["submit_time_reasons"]
+                            and result.returncode != 0 and "period override evidence is required" in result.stderr)
+        self.case("cross_month_charge_needs_all_three_override_fields", {k: True for k in cross}, cross)
+        full = self.charge(customer=customer, period="2026-09", **OVERRIDE)
+        self.case("full_override_has_no_missing_reason", [], self.current_view(full)["submit_time_reasons"])
+        self.run_to_posted(full)
+        self.case("cross_month_charge_posts_to_its_debt_period_not_the_trip_month", (full.amount, 0),
+                  (self.balance(customer, "2026-09"), self.balance(customer, "2026-10")))
+
+        self.set_period("2026-11", "open")
+        close_after_confirm = self.charge(customer=customer, period="2026-11", warehouse="2026-11-02")
+        self.confirm_both(close_after_confirm)
+        self.set_period("2026-11", "closed")
+        self.rejected("period_closed_after_confirmation_blocks_approval", self.approve(close_after_confirm),
+                      "debt period is not open at approval")
+        self.set_period("2026-11", "open")
+        self.approve(close_after_confirm, check=True)
+        self.set_period("2026-11", "closed")
+        before = self.balance(customer, "2026-11")
+        self.rejected("period_closed_after_approval_blocks_post", self.post(close_after_confirm),
+                      "debt period is not open at posting")
+        self.case("blocked_post_keeps_approved_state_and_balance", ("approved", before),
+                  (self.snapshot(close_after_confirm.proposal_id)["state"], self.balance(customer, "2026-11")))
+        self.set_period("2026-11", "open")
+        self.post(close_after_confirm, check=True)
+        self.case("reopened_period_allows_post", close_after_confirm.amount, self.balance(customer, "2026-11"))
+
+    def g_rollback(self) -> None:
+        customer = "FAKE-CUSTOMER-RB"
+        c = self.charge(customer=customer, amount=330)
+        self.confirm_both(c)
+        self.approve(c, check=True)
+        before = self.snapshot(c.proposal_id)
+        balance_before = self.balance(customer)
+        query = ("BEGIN; SET LOCAL p0_fixture.fail_post = 'on'; "
+                 + decision_sql("post_revision", *self.ids(c), CHECKER) + "; COMMIT")
+        failed = self.f.psql(query, user=API_LOGIN, check=False)
+        self.rejected("injected_deferred_failure_aborts_the_post", failed, "injected deferred fixture failure")
+        self.case("failed_post_rolls_back_state_posting_audit_and_balance", (before, balance_before, False),
+                  (self.snapshot(c.proposal_id), self.balance(customer),
+                   "post" in self.audit_actions(c.proposal_id)))
+        self.post(c, check=True)
+        self.case("retry_after_rollback_posts_once", (balance_before + 330, 1),
+                  (self.balance(customer), self.count("posting", f"proposal_id={c.proposal_id}")))
+
+    def g_contention(self) -> None:
+        customer = "FAKE-CUSTOMER-LOCK"
+        self.set_period("2026-11", "open")
+
+        # 1. edit commits first; the waiting approval of the old revision must become stale.
+        c = self.charge(customer=customer, amount=701)
+        self.confirm_both(c)
+        edit_sql = submit_sql(c.proposal_id, dumps({**c.payload, "reason": "edit first"}), MAKER)
+        ev = self.run_contention("edit-before-approve", c.proposal_id, customer, "2026-10", API_LOGIN, edit_sql,
+                                 API_LOGIN, decision_sql("approve_revision", *self.ids(c), CHECKER), M_STALE)
+        after = ev["after"]
+        self.case("edit_before_approve_creates_revision_2_and_leaves_old_unapproved", (2, True, 0, 0),
+                  (after["revision_no"], after["content_sha256"] != c.content_hash,  # type: ignore[index]
+                   self.count("approval", f"proposal_id={c.proposal_id}"),
+                   self.count("posting", f"proposal_id={c.proposal_id}")))
+
+        # 2. approval commits first; the waiting edit becomes revision 2 and the old approval cannot post.
+        c = self.charge(customer=customer, amount=711)
+        self.confirm_both(c)
+        edit_sql = submit_sql(c.proposal_id, dumps({**c.payload, "reason": "edit second"}), MAKER)
+        ev = self.run_contention("approve-before-edit", c.proposal_id, customer, "2026-10", API_LOGIN,
+                                 decision_sql("approve_revision", *self.ids(c), CHECKER), API_LOGIN, edit_sql)
+        after = ev["after"]
+        self.case("approve_before_edit_keeps_old_approval_and_adds_revision_2", (2, True, True),
+                  (after["revision_no"], after["current_revision_id"] != c.revision_id,  # type: ignore[index]
+                   any(row[1] == c.revision_id for row in after["approval_history"])))  # type: ignore[index]
+        self.rejected("approve_before_edit_old_approval_cannot_post", self.post(c), M_POST)
+
+        # 3. period close commits first; the waiting period confirmation must be refused.
+        self.set_period("2026-11", "open")
+        c = self.charge(customer=customer, amount=803, period="2026-11", warehouse="2026-11-02")
+        self.call("confirm_price_revision", self.ids(c), MAKER, check=True)
+        close_sql = ("UPDATE p0_fixture.debt_period_state SET state='closed' "
+                     "WHERE debt_period='2026-11' RETURNING debt_period || '|' || state")
+        ev = self.run_contention("close-before-confirm-period", c.proposal_id, customer, "2026-11", "postgres",
+                                 close_sql, API_LOGIN, decision_sql("confirm_period_revision", *self.ids(c), MAKER),
+                                 "debt period is not open for maker confirmation")
+        self.case("close_before_confirm_records_no_confirmation_or_audit", (["2026-11|closed"], [], True),
+                  (ev["holder_action_output"], ev["after"]["period_confirmation_history"],  # type: ignore[index]
+                   ev["after"]["audit_count"] == ev["before"]["audit_count"]))  # type: ignore[index]
+        self.case("close_before_confirm_projection_reports_closed_period", True,
+                  "DEBT_PERIOD_NOT_OPEN" in self.current_view(c)["current_blockers"])
+
+        # 4. period confirmation commits first; the waiting period close then wins, blocking approval.
+        self.set_period("2026-11", "open")
+        c = self.charge(customer=customer, amount=809, period="2026-11", warehouse="2026-11-02")
+        self.call("confirm_price_revision", self.ids(c), MAKER, check=True)
+        ev = self.run_contention("confirm-period-before-close", c.proposal_id, customer, "2026-11", API_LOGIN,
+                                 decision_sql("confirm_period_revision", *self.ids(c), MAKER), "postgres", close_sql)
+        self.case("confirm_before_close_keeps_confirmation_and_period_ends_closed", (1, "2026-11|closed", "closed"),
+                  (len(ev["after"]["period_confirmation_history"]),  # type: ignore[index]
+                   ev["waiter_output"].strip(),  # type: ignore[union-attr]
+                   self.query("SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-11'")))
+        self.rejected("closed_period_after_confirmation_cannot_be_approved", self.approve(c),
+                      "debt period is not open at approval")
+        self.set_period("2026-11", "open")
+
+    def key_pair(self, customer: str, amount_a: int, amount_b: int, **kw: object) -> tuple[Charge, Charge]:
+        """Two charges with one trip key, both confirmed. A is approved through the API; B gets an
+        owner-simulated approval (approve itself now refuses a second holder of the key), so that the
+        post-time defenses can be tested on their own."""
+        a = self.charge(customer=customer, amount=amount_a, **kw)  # type: ignore[arg-type]
+        b = self.charge(customer=customer, amount=amount_b, seed=None,
+                        booking=a.payload["booking_no"], container=a.payload["container_no"], **kw)  # type: ignore[arg-type]
+        self.confirm_both(a)
+        self.confirm_both(b)
+        self.approve(a, check=True)
+        self.force_approve(b)
+        return a, b
+
+    def g_post_races(self) -> None:
+        customer, ids_state = "FAKE-CUSTOMER-RACE", {}
+        self.set_period("2026-11", "open")
+
+        # post vs post on one trip key: the advisory lock serializes; the loser sees the posting.
+        a, b = self.key_pair(customer, 910, 920)
+        before = self.balance(customer)
+        ev = self.run_contention("post-vs-post-same-key", b.proposal_id, customer, "2026-10", API_LOGIN,
+                                 decision_sql("post_revision", *self.ids(a), CHECKER), API_LOGIN,
+                                 decision_sql("post_revision", *self.ids(b), CHECKER),
+                                 "trip key already posted by another proposal", check_balance=False)
+        self.case("post_vs_post_only_the_first_poster_is_in_the_balance", (before + 910, "approved", 1), (
+            self.balance(customer), self.snapshot(b.proposal_id)["state"],
+            self.count("posting", f"trip_key={sql_literal(a.key)}")))
+        ids_state["post_vs_post"] = ev["waiter_pid"]
+
+        # period closes first: the waiting post is refused. Period closes second: the post wins.
+        p1 = self.charge(customer=customer, amount=931, period="2026-11", warehouse="2026-11-02")
+        self.run_to_approved(p1)
+        close_sql = ("UPDATE p0_fixture.debt_period_state SET state='closed' "
+                     "WHERE debt_period='2026-11' RETURNING debt_period || '|' || state")
+        self.run_contention("close-before-post", p1.proposal_id, customer, "2026-11", "postgres", close_sql,
+                            API_LOGIN, decision_sql("post_revision", *self.ids(p1), CHECKER),
+                            "debt period is not open at posting")
+        self.case("close_before_post_leaves_charge_approved_and_unposted", ("approved", 0), (
+            self.snapshot(p1.proposal_id)["state"], self.count("posting", f"proposal_id={p1.proposal_id}")))
+        self.set_period("2026-11", "open")
+        p2 = self.charge(customer=customer, amount=941, period="2026-11", warehouse="2026-11-02")
+        self.run_to_approved(p2)
+        before = self.balance(customer, "2026-11")
+        self.run_contention("post-before-close", p2.proposal_id, customer, "2026-11", API_LOGIN,
+                            decision_sql("post_revision", *self.ids(p2), CHECKER), "postgres", close_sql,
+                            check_balance=False)
+        self.case("post_before_close_posts_then_period_ends_closed", (before + 941, "posted", "closed"), (
+            self.balance(customer, "2026-11"), self.snapshot(p2.proposal_id)["state"],
+            self.query("SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-11'")))
+        self.set_period("2026-11", "open")
+
+        # resolution flips first: the waiting post is refused. Post first: the flip waits, then applies.
+        flip_sql = lambda key: ("UPDATE p0_fixture.trip_opening_resolution SET status='IN_OPENING' "  # noqa: E731
+                                f"WHERE trip_key={sql_literal(key)} RETURNING trip_key || '|' || status")
+        r1 = self.charge(customer=customer, amount=951)
+        self.run_to_approved(r1)
+        ev = self.run_contention("resolution-before-post", r1.proposal_id, customer, "2026-10", "postgres",
+                                 flip_sql(r1.key), API_LOGIN, decision_sql("post_revision", *self.ids(r1), CHECKER),
+                                 "opening resolution is not ABSENT_FROM_OPENING_APPROVED at posting")
+        self.case("resolution_before_post_leaves_charge_approved_and_unposted", ([f"{r1.key}|IN_OPENING"], "approved"),
+                  (ev["holder_action_output"], self.snapshot(r1.proposal_id)["state"]))
+        self.set_resolution(r1.key, ABSENT)
+        r2 = self.charge(customer=customer, amount=961)
+        self.run_to_approved(r2)
+        before = self.balance(customer)
+        self.run_contention("post-before-resolution", r2.proposal_id, customer, "2026-10", API_LOGIN,
+                            decision_sql("post_revision", *self.ids(r2), CHECKER), "postgres",
+                            "UPDATE p0_fixture.trip_opening_resolution SET status='IN_OPENING' "
+                            f"WHERE trip_key={sql_literal(r2.key)}", check_balance=False)
+        self.case("post_before_resolution_posts_then_resolution_changes", (before + 961, "posted", "IN_OPENING"), (
+            self.balance(customer), self.snapshot(r2.proposal_id)["state"],
+            self.query(f"SELECT status FROM p0_fixture.trip_opening_resolution WHERE trip_key={sql_literal(r2.key)}")))
+        self.set_resolution(r2.key, ABSENT)  # keep the final invariant: every posting has an ABSENT resolution
+        self.report["post_race_evidence"] = ids_state
+
+    def run_to_approved(self, c: Charge) -> None:
+        self.confirm_both(c)
+        self.approve(c, check=True)
+
+    def g_isolation(self) -> None:
+        """A second poster that cannot see the first posting (REPEATABLE READ snapshot) must still fail:
+        the advisory-lock EXISTS check misses it, so posting.trip_key UNIQUE is the backstop."""
+        customer = "FAKE-CUSTOMER-RR"
+        a, b = self.key_pair(customer, 970, 980)
+        app = f"m2:{self.run_id}:rr"
+        session = PsqlSession(self.docker, {"PGAPPNAME": app, "PGOPTIONS": "-c statement_timeout=20000"},
+                              container=self.container, user=API_LOGIN, database=DATABASE)
+        errors = ""
+        try:
+            assert session.proc.stdin
+            session.proc.stdin.write("\\set ON_ERROR_STOP off\n")
+            session.proc.stdin.flush()
+            session.send("BEGIN ISOLATION LEVEL REPEATABLE READ")
+            session.execute("SELECT 1", f"__RR_SNAPSHOT_{uuid.uuid4().hex}__", timeout=10)
+            self.post(a, check=True)  # commits outside the snapshot
+            session.execute(decision_sql("post_revision", *self.ids(b), CHECKER),
+                            f"__RR_POST_{uuid.uuid4().hex}__", timeout=15)
+        finally:
+            try:
+                session.close("ROLLBACK")
+            finally:
+                if session.proc.stderr:
+                    errors = session.proc.stderr.read()
+        self.case("repeatable_read_second_poster_is_stopped_by_unique_trip_key", (True, 970, "approved", 1), (
+            "duplicate key value violates unique constraint" in errors, self.balance(customer),
+            self.snapshot(b.proposal_id)["state"], self.count("posting", f"trip_key={sql_literal(a.key)}")))
+        self.report["isolation_evidence"] = {"isolation": "REPEATABLE READ", "error_tail": errors[-600:]}
+
+    def g_final(self) -> None:
+        self.case("every_posting_has_an_absent_resolution_and_distinct_key", (0, 0), (
+            int(self.query("SELECT count(*) FROM p0_fixture.posting p WHERE NOT EXISTS (SELECT 1 FROM "
+                           "p0_fixture.trip_opening_resolution t WHERE t.trip_key=p.trip_key "
+                           "AND t.status='ABSENT_FROM_OPENING_APPROVED')")),
+            int(self.query("SELECT count(*) FROM (SELECT trip_key FROM p0_fixture.posting GROUP BY 1 "
+                           "HAVING count(*) > 1) d"))))
+        self.case("every_posting_is_from_an_approved_current_revision_with_maker_different_from_checker", 0,
+                  int(self.query(
+                      "SELECT count(*) FROM p0_fixture.posting p JOIN p0_fixture.approval a ON a.approval_id=p.approval_id "
+                      "JOIN p0_fixture.proposal pr ON pr.proposal_id=p.proposal_id "
+                      "WHERE a.revision_id<>p.revision_id OR a.content_sha256<>p.content_sha256 "
+                      "OR pr.current_revision_id<>p.revision_id OR p.maker_actor_id=p.checker_actor_id "
+                      "OR pr.state<>'posted'")))
+        self.case("posted_balance_equals_sum_of_posted_line_amounts", True, self.query(
+            "SELECT ((SELECT coalesce(sum(posted_balance_vnd), 0) FROM p0_fixture.posted_balance) = "
+            "(SELECT coalesce(sum((x.line->>'amount_vnd')::numeric), 0) FROM p0_fixture.posting p "
+            "CROSS JOIN LATERAL jsonb_array_elements(p.canonical_payload->'lines') x(line)))::text") == "true")
+        self.case("no_pending_or_unposted_revision_contributes_to_balance", 0, int(self.query(
+            "SELECT count(*) FROM p0_fixture.proposal pr WHERE pr.state<>'posted' AND EXISTS "
+            "(SELECT 1 FROM p0_fixture.posting p WHERE p.proposal_id=pr.proposal_id)")))
+        rows = self.report["concurrency_evidence"]
+        self.case("contention_sessions_and_processes_are_closed", True, all(
+            row.get("holder_process_exited") is True and row.get("waiter_process_exited") is True
+            and not row.get("cleanup_errors") for row in rows))  # type: ignore[union-attr]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--report", type=Path, default=Path("pg-versioned-approval.json"))
+    ap.add_argument("--timeout", type=int, default=90)
+    args = ap.parse_args()
+    if shutil.which("docker") is None:
+        raise HarnessError("docker CLI not found")
+
+    run_id = uuid.uuid4().hex
+    container = f"webdebit-pg-versioned-{run_id}"
+    marker = f"codex_versioned_run={run_id}"
+    sql_bytes = SCHEMA.read_bytes().replace(b"\r\n", b"\n")
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "database": DATABASE,
+        "image": IMAGE,
+        "payload_schema_version": 3,
+        "fixture_sha256": hashlib.sha256(sql_bytes).hexdigest(),
+        "fixture_path": str(SCHEMA),
+        "runner_sha256": hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+        "container_helper_sha256": hashlib.sha256(
+            (SCHEMA.parent / "test_pg_ledger_schema.py").read_bytes().replace(b"\r\n", b"\n")
+        ).hexdigest(),
+        "revision": run(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).stdout.strip(),
+        "network": "none",
+        "published_ports": [],
+        "volume_mounts": [],
+        "cases": [],
+        "groups": {},
+        "failed_cases": [],
+        "group_errors": [],
+        "success_path": {},
+        "concurrency_evidence": [],
+        "session_cleanup": "not_started",
+        "runtime_checks": {
+            "app_login_session": "not_implemented",
+            "tailscale_boundary": "not_run",
+            "receipt_verification_q09": "open_and_not_in_fixture",
+            "production_resolution_table": "not_designed_fixture_table_is_empty_by_default",
+        },
+        "cleanup": "not_started",
+        "exit_code": 1,
+    }
+    report["tree"] = run(["git", "-C", str(ROOT), "rev-parse", "HEAD^{tree}"]).stdout.strip()
+    # On pull_request CI, HEAD is a merge commit; record the PR head sha next to it.
+    report["head_sha"], report["head_sha_source"] = report["revision"], "git_HEAD"
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        report["head_sha"], report["head_sha_source"] = event["pull_request"]["head"]["sha"], "github_pull_request_event"
+    except (KeyError, OSError, ValueError):
+        pass
+    docker = ["docker"]
+    container_id: str | None = None
+    error: BaseException | None = None
 
     try:
         run(docker + ["run", "--detach", "--name", container,
@@ -613,1731 +1438,51 @@ def main() -> int:
             "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
             input_text=SCHEMA.read_text(encoding="utf-8"))
         run(docker + pg + ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE,
-            "-c", "CREATE ROLE webdebit_identity_test_app LOGIN; "
-                  "GRANT p0_fixture_identity_test_api TO webdebit_identity_test_app; "
-                  "CREATE ROLE webdebit_app LOGIN; GRANT p0_fixture_api TO webdebit_app"])
-        case("fixture_schema_loads_on_postgresql_18_6", True, True)
+            "-c", f"CREATE ROLE {API_LOGIN} LOGIN; GRANT p0_fixture_api TO {API_LOGIN}; "
+                  f"CREATE ROLE {NO_GRANT_LOGIN} LOGIN; CREATE ROLE {NOT_MEMBER_LOGIN} LOGIN; "
+                  f"GRANT CONNECT ON DATABASE {DATABASE} TO {NO_GRANT_LOGIN}, {NOT_MEMBER_LOGIN}"])
 
-        f = Fixture(docker, container, run_id)
-        charge = Fixture(docker, container, run_id, db_user=CHARGE_LOGIN)
-        case("generic_positive_control_periods_are_explicitly_open", "open|open", query(
-            "SELECT (SELECT state FROM p0_fixture.debt_period_state "
-            "WHERE debt_period='2026-01') || '|' || "
-            "(SELECT state FROM p0_fixture.debt_period_state "
-            "WHERE debt_period='2026-02')"))
-
-        def pending_charge(name: str, payload: dict[str, object], expected_codes: list[str],
-                           approval_gate: str) -> tuple[int, int, str]:
-            result, _, _ = charge.submit(None,
-                json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
-            created = json.loads(result.stdout.strip())
-            proposal_id = int(created["proposal_id"])
-            revision_id = int(created["revision_id"])
-            content_hash = str(created["content_sha256"])
-            saved = review_projection(proposal_id)
-            revision = saved["revisions"][-1]
-            case(f"{name}_visible_after_commit", (revision_id, content_hash, 1),
-                 (int(revision["revision_id"]), revision["content_sha256"],
-                  len(saved["revisions"])))
-            case(f"{name}_committed_review_needed", "review_needed", saved["state"])
-            case(f"{name}_submit_time_reasons", sorted(expected_codes),
-                 revision["submit_time_reasons"])
-
-            before_period_confirmation = proposal_snapshot(proposal_id)
-            period_confirmation = charge.confirm_period(
-                proposal_id, revision_id, content_hash, check=False)
-            period_blocked = "PERIOD_OVERRIDE_EVIDENCE_MISSING" in expected_codes
-            if period_blocked:
-                rejected(f"{name}_period_confirmation_requires_override_evidence",
-                    period_confirmation, "period override evidence is required")
-                case(f"{name}_rejected_period_confirmation_is_immutable",
-                     before_period_confirmation, proposal_snapshot(proposal_id))
-            else:
-                case(f"{name}_period_confirmation_recorded", True,
-                     period_confirmation.returncode == 0)
-
-            price_blocker_codes = {
-                "TOTAL_MISSING", "TOTAL_ZERO", "PRICE_COMPONENTS_MISSING",
-                "COMPONENT_AMOUNT_MISSING", "COMPONENT_AMOUNT_ZERO",
-                "COMPONENT_TOTAL_MISMATCH", "LINE_AMOUNT_MISSING",
-                "LINE_TOTAL_MISMATCH", "SOURCE_EVIDENCE_MISSING",
-            }
-            before_price_confirmation = proposal_snapshot(proposal_id)
-            price_confirmation = charge.confirm_price(
-                proposal_id, revision_id, content_hash, check=False)
-            price_blocked = any(code in price_blocker_codes for code in expected_codes)
-            if price_blocked:
-                rejected(f"{name}_price_confirmation_requires_complete_evidence",
-                    price_confirmation, "price confirmation requires complete positive matching price")
-                case(f"{name}_rejected_price_confirmation_is_immutable",
-                     before_price_confirmation, proposal_snapshot(proposal_id))
-            else:
-                case(f"{name}_price_confirmation_recorded", True,
-                     price_confirmation.returncode == 0)
-
-            projection_after_confirmations = review_projection(proposal_id)
-            current_revision = projection_after_confirmations["revisions"][-1]
-            case(f"{name}_current_confirmation_blockers",
-                 (period_blocked, price_blocked),
-                 ("PERIOD_CONFIRMATION_MISSING" in current_revision["current_blockers"],
-                  "PRICE_CONFIRMATION_MISSING" in current_revision["current_blockers"]))
-            before_refusal = proposal_snapshot(proposal_id)
-            approval, _, _ = charge.decide("approve", proposal_id, revision_id,
-                content_hash, check=False)
-            if period_blocked:
-                approval_gate = "maker confirmation required for this debt period revision"
-            elif "TRIP_CODE_MISSING" in expected_codes:
-                approval_gate = "stable trip code missing"
-            elif "OPENING_EVIDENCE_MISSING" in expected_codes:
-                approval_gate = "opening comparison evidence missing"
-            elif price_blocked:
-                approval_gate = "per-trip price owner confirmation required for this revision"
-            rejected(f"{name}_approval_refused", approval, approval_gate)
-            posting, _, _ = charge.decide("post", proposal_id, revision_id,
-                content_hash, check=False)
-            rejected(f"{name}_posting_refused", posting,
-                "current approved revision required for posting")
-            case(f"{name}_refusal_preserves_revision_history", before_refusal,
-                 proposal_snapshot(proposal_id))
-            report["draft_matrix"].append({
-                "case": name,
-                "revision_id": revision_id,
-                "content_sha256": content_hash,
-                "submit_time_reasons": revision["submit_time_reasons"],
-                "current_blockers": current_revision["current_blockers"],
-                "state": saved["state"],
-                "approval_refused": approval.returncode != 0,
-                "posting_refused": posting.returncode != 0,
-            })  # type: ignore[union-attr]
-            return proposal_id, revision_id, content_hash
-
-        case("fixture_logins_have_disjoint_kind_roles", "yes|yes", query(
-            "SELECT CASE WHEN pg_has_role('webdebit_app', 'p0_fixture_api', 'member') "
-            "AND NOT pg_has_role('webdebit_app', 'p0_fixture_identity_test_api', 'member') "
-            "THEN 'yes' ELSE 'no' END || '|' || "
-            "CASE WHEN pg_has_role('webdebit_identity_test_app', 'p0_fixture_identity_test_api', 'member') "
-            "AND NOT pg_has_role('webdebit_identity_test_app', 'p0_fixture_api', 'member') "
-            "THEN 'yes' ELSE 'no' END"))
-        case("fixture_api_roles_are_nologin", "p0_fixture_api:nologin|p0_fixture_identity_test_api:nologin",
-            query("SELECT string_agg(rolname || ':' || CASE WHEN rolcanlogin THEN 'login' ELSE 'nologin' END, '|' ORDER BY rolname) "
-                  "FROM pg_roles WHERE rolname IN ('p0_fixture_api', 'p0_fixture_identity_test_api')"))
-        case("fixture_logins_have_only_api_function_grants", "6|6", query(
-            "SELECT count(*) FILTER (WHERE has_function_privilege('webdebit_identity_test_app', p.oid, 'EXECUTE'))::text "
-            "|| '|' || count(*) FILTER (WHERE has_function_privilege('webdebit_app', p.oid, 'EXECUTE'))::text "
-            "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='p0_fixture'"))
-        case("fixture_logins_have_no_direct_table_privileges", "yes", query(
-            "SELECT CASE WHEN bool_and("
-            "NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'SELECT') "
-            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'INSERT') "
-            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'UPDATE') "
-            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'DELETE') "
-            "AND NOT has_table_privilege('webdebit_app', c.oid, 'SELECT') "
-            "AND NOT has_table_privilege('webdebit_app', c.oid, 'INSERT') "
-            "AND NOT has_table_privilege('webdebit_app', c.oid, 'UPDATE') "
-            "AND NOT has_table_privilege('webdebit_app', c.oid, 'DELETE')) "
-            "THEN 'yes' ELSE 'no' END FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-            "WHERE n.nspname='p0_fixture' AND c.relkind IN ('r','p','v','m','f')"))
-        case("fixture_logins_have_no_direct_sequence_privileges", "yes", query(
-            "SELECT CASE WHEN bool_and("
-            "NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'USAGE') "
-            "AND NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'SELECT') "
-            "AND NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'UPDATE') "
-            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'USAGE') "
-            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'SELECT') "
-            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'UPDATE')) "
-            "THEN 'yes' ELSE 'no' END FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
-            "WHERE n.nspname='p0_fixture' AND c.relkind='S'"))
-
-        # V2 canonicalization is independent of DateStyle and JSON numeric scale.
-        date_payload = make_payload(100, source="fixture-date-style-source")
-        dmy_result, _, _ = f.submit(None, date_payload, date_style="SQL, DMY")
-        mdy_result, _, _ = f.submit(None, date_payload, date_style="SQL, MDY")
-        dmy_revision = json.loads(dmy_result.stdout.strip())
-        mdy_revision = json.loads(mdy_result.stdout.strip())
-        case("date_style_dmy_and_mdy_have_same_v2_hash",
-            dmy_revision["content_sha256"], mdy_revision["content_sha256"])
-        case("date_style_dmy_and_mdy_have_same_canonical_payload",
-            query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-                f"WHERE revision_id={dmy_revision['revision_id']}"),
-            query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-                f"WHERE revision_id={mdy_revision['revision_id']}"))
-        case("canonical_payload_uses_schema_version_2", "2",
-            query("SELECT canonical_payload->>'schema_version' FROM p0_fixture.business_revision "
-                f"WHERE revision_id={dmy_revision['revision_id']}"))
-        case("stored_hash_uses_v2_domain_and_canonical_bytes",
-            dmy_revision["content_sha256"], query(
-                "SELECT encode(public.digest(convert_to('webdebit.business-payload.v2' || E'\\n' "
-                "|| canonical_payload::text, 'UTF8'), 'sha256'), 'hex') "
-                "FROM p0_fixture.business_revision "
-                f"WHERE revision_id={dmy_revision['revision_id']}"))
-        case("pure_canonical_functions_are_immutable",
-            "canonical_vnd:i|canonicalize_payload:i|parse_iso_date:i", query(
-                "SELECT string_agg(p.proname || ':' || p.provolatile::text, '|' ORDER BY p.proname) "
-                "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                "WHERE n.nspname='p0_fixture' "
-                "AND p.proname IN ('canonical_vnd','canonicalize_payload','parse_iso_date')"))
-
-        integer_payload = make_payload(100, source="fixture-numeric-scale-source")
-        decimal_one_payload = (integer_payload.replace('"total_vnd":100', '"total_vnd":100.0')
-            .replace('"amount_vnd":50', '"amount_vnd":50.00'))
-        decimal_payload = (integer_payload.replace('"total_vnd":100', '"total_vnd":100.00')
-            .replace('"amount_vnd":50', '"amount_vnd":50.0'))
-        integer_result, _, _ = f.submit(None, integer_payload)
-        decimal_one_result, _, _ = f.submit(None, decimal_one_payload)
-        decimal_result, _, _ = f.submit(None, decimal_payload)
-        integer_revision = json.loads(integer_result.stdout.strip())
-        decimal_one_revision = json.loads(decimal_one_result.stdout.strip())
-        decimal_revision = json.loads(decimal_result.stdout.strip())
-        integer_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={integer_revision['revision_id']}")
-        decimal_one_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={decimal_one_revision['revision_id']}")
-        decimal_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={decimal_revision['revision_id']}")
-        case("vnd_100_100_0_100_00_have_same_canonical_payload",
-            f"{integer_canonical}|{integer_canonical}",
-            f"{decimal_one_canonical}|{decimal_canonical}")
-        case("vnd_100_100_0_100_00_have_same_business_hash",
-            f"{integer_revision['content_sha256']}|{integer_revision['content_sha256']}",
-            f"{decimal_one_revision['content_sha256']}|{decimal_revision['content_sha256']}")
-
-        integer_charge = make_charge_payload(amount=100)
-        decimal_one_charge = (integer_charge.replace('"total_vnd":100', '"total_vnd":100.0')
-            .replace('"amount_vnd":100', '"amount_vnd":100.00')
-            .replace('"amount_vnd":50', '"amount_vnd":50.0'))
-        decimal_charge = (integer_charge.replace('"total_vnd":100', '"total_vnd":100.00')
-            .replace('"amount_vnd":100', '"amount_vnd":100.0')
-            .replace('"amount_vnd":50', '"amount_vnd":50.00'))
-        integer_charge_result, _, _ = charge.submit(None, integer_charge)
-        decimal_one_charge_result, _, _ = charge.submit(None, decimal_one_charge)
-        decimal_charge_result, _, _ = charge.submit(None, decimal_charge)
-        integer_charge_revision = json.loads(integer_charge_result.stdout.strip())
-        decimal_one_charge_revision = json.loads(decimal_one_charge_result.stdout.strip())
-        decimal_charge_revision = json.loads(decimal_charge_result.stdout.strip())
-        integer_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={integer_charge_revision['revision_id']}")
-        decimal_one_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={decimal_one_charge_revision['revision_id']}")
-        decimal_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
-            f"WHERE revision_id={decimal_charge_revision['revision_id']}")
-        case("charge_vnd_spellings_100_100_0_100_00_have_same_canonical_payload",
-            f"{integer_charge_canonical}|{integer_charge_canonical}",
-            f"{decimal_one_charge_canonical}|{decimal_charge_canonical}")
-        case("charge_vnd_spellings_100_100_0_100_00_have_same_business_hash",
-            f"{integer_charge_revision['content_sha256']}|{integer_charge_revision['content_sha256']}",
-            f"{decimal_one_charge_revision['content_sha256']}|{decimal_charge_revision['content_sha256']}")
-        case("canonical_price_component_has_v2_exact_integer",
-            "50", query("SELECT canonical_payload->'price_components'->0->>'amount_vnd' "
-                "FROM p0_fixture.business_revision "
-                f"WHERE revision_id={decimal_charge_revision['revision_id']}"))
-        large_amount = 18446744073709551617
-        large_result, _, _ = f.submit(None, make_payload(large_amount,
-            source="fixture-large-exact-vnd-source"))
-        large_revision = json.loads(large_result.stdout.strip())
-        large_values = query(
-            "SELECT canonical_payload->>'total_vnd' || '|' || "
-            "(SELECT string_agg(line->>'amount_vnd', '|' ORDER BY (line->>'line_no')::integer) "
-            "FROM jsonb_array_elements(canonical_payload->'lines') AS x(line)) "
-            "FROM p0_fixture.business_revision "
-            f"WHERE revision_id={large_revision['revision_id']}")
-        case("vnd_above_bigint_remains_exact_in_total_and_lines",
-            "18446744073709551617|9223372036854775808|9223372036854775809", large_values)
-        large_charge_amount = 36893488147419103234
-        large_charge_result, _, _ = charge.submit(None,
-            make_charge_payload(amount=large_charge_amount))
-        large_charge_revision = json.loads(large_charge_result.stdout.strip())
-        large_charge_values = query(
-            "SELECT canonical_payload->>'total_vnd' || '|' || "
-            "(canonical_payload->'lines'->0->>'amount_vnd') || '|' || "
-            "(SELECT string_agg(component->>'amount_vnd', '|' ORDER BY ordinality) "
-            "FROM jsonb_array_elements(canonical_payload->'price_components') "
-            "WITH ORDINALITY AS x(component, ordinality)) "
-            "FROM p0_fixture.business_revision "
-            f"WHERE revision_id={large_charge_revision['revision_id']}")
-        case("vnd_above_bigint_remains_exact_in_charge_total_line_and_components",
-            "36893488147419103234|36893488147419103234|18446744073709551617|18446744073709551617",
-            large_charge_values)
-
-        old_version_payload = integer_payload.replace('"schema_version":2', '"schema_version":1')
-        old_version, _, _ = f.submit(None, old_version_payload, check=False)
-        rejected("schema_version_1_is_explicitly_rejected", old_version,
-            "schema version 1 is unsupported; expected version 2")
-
-        null_money = integer_payload.replace('"total_vnd":100', '"total_vnd":null')
-        null_money_result, _, _ = f.submit(None, null_money, check=False)
-        rejected("null_money_is_rejected_as_non_numeric", null_money_result,
-            "fixture VND value must be a JSON number")
-        zero_money = integer_payload.replace('"total_vnd":100', '"total_vnd":0')
-        zero_money_result, _, _ = f.submit(None, zero_money, check=False)
-        rejected("zero_money_remains_rejected_by_strict_fixture", zero_money_result,
-            "fixture amount must be a positive integer")
-        case("null_money_is_not_coerced_to_zero", True,
-            "fixture VND value must be a JSON number" in null_money_result.stdout + null_money_result.stderr
-            and "fixture amount must be a positive integer" in zero_money_result.stdout + zero_money_result.stderr)
-        negative_money = integer_payload.replace('"total_vnd":100', '"total_vnd":-100')
-        negative_money_result, _, _ = f.submit(None, negative_money, check=False)
-        rejected("negative_money_is_rejected", negative_money_result,
-            "fixture amount must be a positive integer")
-        for field, bad_value, marker in (
-            ("line_zero", '"amount_vnd":0', '"amount_vnd":50'),
-            ("line_negative", '"amount_vnd":-50', '"amount_vnd":50'),
-            ("line_fractional", '"amount_vnd":50.5', '"amount_vnd":50'),
-            ("line_null", '"amount_vnd":null', '"amount_vnd":50'),
+        suite = Suite(docker, container, run_id, report)
+        suite.group_name = "setup"
+        suite.case("fixture_schema_loads_on_postgresql_18_6", True, True)
+        for name, function in (
+            ("schema_and_grants", suite.g_schema),
+            ("success_path", suite.g_success),
+            ("opening_resolution", suite.g_resolution),
+            ("trip_key", suite.g_trip_key),
+            ("warehouse_date", suite.g_date),
+            ("canonical_v3", suite.g_canonical),
+            ("price", suite.g_price),
+            ("actors_and_roles", suite.g_actors),
+            ("revisions_and_append_only", suite.g_revision),
+            ("debt_period", suite.g_period),
+            ("rollback", suite.g_rollback),
+            ("contention", suite.g_contention),
+            ("post_races", suite.g_post_races),
+            ("isolation", suite.g_isolation),
+            ("final_invariants", suite.g_final),
         ):
-            bad_line_payload = integer_payload.replace(marker, bad_value, 1)
-            bad_line_result, _, _ = f.submit(None, bad_line_payload, check=False)
-            rejected(f"{field}_money_is_rejected", bad_line_result,
-                "fixture VND value must be a JSON number" if field == "line_null"
-                else "fixture amount must be a positive integer")
-        for field, bad_value in (
-            ("component_negative", '"amount_vnd":-50'),
-            ("component_fractional", '"amount_vnd":50.5'),
-        ):
-            bad_component_payload = make_charge_payload().replace(
-                '"amount_vnd":50', bad_value, 1)
-            bad_component_result, _, _ = charge.submit(None, bad_component_payload, check=False)
-            rejected(f"{field}_money_is_rejected", bad_component_result,
-                "fixture amount must be a nonnegative integer")
-        zero_component = json.loads(make_charge_payload())
-        zero_component["price_components"][0]["amount_vnd"] = 0
-        zero_component["price_components"][1]["amount_vnd"] = 100
-        pending_charge("zero_component_persists_as_review_needed", zero_component,
-            ["COMPONENT_AMOUNT_ZERO", "OPENING_EVIDENCE_MISSING",
-             "SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
-            "stable trip code missing")
-        null_component = json.loads(make_charge_payload())
-        null_component["price_components"][0]["amount_vnd"] = None
-        null_component["price_components"][1]["amount_vnd"] = 100
-        pending_charge("null_component_amount_persists_as_review_needed", null_component,
-            ["COMPONENT_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
-             "SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
-            "stable trip code missing")
-        for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
-            nonfinite_money = integer_payload.replace('"total_vnd":100',
-                f'"total_vnd":{nonfinite_token}')
-            nonfinite_money_result, _, _ = f.submit(None, nonfinite_money, check=False)
-            case(f"nonfinite_json_money_{nonfinite_token}_is_rejected", True,
-                nonfinite_money_result.returncode != 0)
+            suite.run_group(name, function)
 
-        valid_dates = ("0001-01-01", "2024-02-29", "9999-12-31")
-        for valid_date in valid_dates:
-            date_case_payload = (integer_payload.replace('"event_date":"2026-01-31"',
-                f'"event_date":"{valid_date}"').replace('"posting_date":"2026-02-01"',
-                f'"posting_date":"{valid_date}"'))
-            valid_date_result, _, _ = f.submit(None, date_case_payload)
-            valid_date_revision = json.loads(valid_date_result.stdout.strip())
-            case(f"strict_iso_date_accepts_{valid_date}",
-                valid_date, query("SELECT canonical_payload->>'event_date' "
-                    "FROM p0_fixture.business_revision "
-                    f"WHERE revision_id={valid_date_revision['revision_id']}"))
-
-        invalid_dates = (
-            ("year_zero", "0000-01-01"),
-            ("year_ten_thousand", "10000-01-01"),
-            ("invalid_leap_day", "2025-02-29"),
-            ("invalid_month", "2026-13-01"),
-            ("invalid_day", "2026-01-32"),
-            ("slash_date", "01/02/2026"),
-            ("slash_iso_date", "2026/01/31"),
-            ("date_timestamp", "2026-01-01T00:00:00Z"),
-            ("date_timestamp_space", "2026-01-01 00:00:00"),
-            ("date_leading_whitespace", " 2026-01-01"),
-            ("date_trailing_whitespace", "2026-01-01 "),
-            ("date_unicode_digits", "２０２６-01-01"),
-            ("positive_infinity_date", "infinity"),
-            ("negative_infinity_date", "-infinity"),
-        )
-        for date_case, invalid_date in invalid_dates:
-            for date_field, default_value in (("event_date", "2026-01-31"),
-                                              ("posting_date", "2026-02-01")):
-                invalid_date_payload = integer_payload.replace(
-                    f'"{date_field}":"{default_value}"',
-                    f'"{date_field}":{json.dumps(invalid_date, ensure_ascii=True)}')
-                invalid_date_result, _, _ = f.submit(None, invalid_date_payload, check=False)
-                rejected(f"strict_iso_date_rejects_{date_field}_{date_case}",
-                    invalid_date_result, "invalid fixture date")
-
-        payload100 = make_payload(100, source="fixture-é-source", evidence="fixture-é-evidence")
-        created, first_assertion, maker_session = f.submit(None, payload100)
-        first = json.loads(created.stdout.strip())
-        proposal_id = int(first["proposal_id"])
-        revision1 = int(first["revision_id"])
-        hash1 = first["content_sha256"]
-        case("revision_kind_is_stored_at_proposal_creation", "revision_fixture",
-            query(f"SELECT kind FROM p0_fixture.proposal WHERE proposal_id={proposal_id}"))
-        generic_to_charge = f.submit(None, make_charge_payload(
-            trip_code="fixture-only-trip-code", opening_refs=True), check=False)
-        rejected("identity_login_cannot_submit_new_charge", generic_to_charge[0],
-            "database principal cannot use charge_fixture")
-        charge_to_generic = charge.submit(None, make_payload(107, source="charge-login-generic-01"),
-            check=False)
-        rejected("charge_login_cannot_submit_new_revision_fixture", charge_to_generic[0],
-            "database principal cannot use revision_fixture")
-        charge_to_existing_generic = charge.submit(proposal_id,
-            make_payload(100, source="fixture-é-source", evidence="fixture-é-evidence"), check=False)
-        rejected("charge_login_cannot_revise_generic_proposal", charge_to_existing_generic[0],
-            "database principal cannot use revision_fixture")
-        rejected("charge_login_cannot_present_generic_proposal",
-            charge.present(proposal_id, "Forbidden charge service presentation", check=False),
-            "database principal cannot use revision_fixture")
-        rejected("charge_login_cannot_confirm_price_for_generic_proposal",
-            charge.confirm_price(proposal_id, revision1, hash1, check=False),
-            "database principal cannot use revision_fixture")
-        rejected("charge_login_cannot_confirm_period_for_generic_proposal",
-            charge.confirm_period(proposal_id, revision1, hash1, check=False),
-            "database principal cannot use revision_fixture")
-        rejected("charge_login_cannot_approve_generic_proposal",
-            charge.decide("approve", proposal_id, revision1, hash1, check=False)[0],
-            "database principal cannot use revision_fixture")
-        rejected("charge_login_cannot_post_generic_proposal",
-            charge.decide("post", proposal_id, revision1, hash1, check=False)[0],
-            "database principal cannot use revision_fixture")
-        case("new_submit_creates_revision_1", (1, True),
-             (int(first["revision_no"]), first["revision_created"]))
-        case("revision_hash_has_sha256_shape", True, bool(re.fullmatch(r"[0-9a-f]{64}", hash1)))
-
-        forged_payload_call, _, _ = f.submit(None, make_payload(333, source="forged-source-01"),
-            actor=MAKER_ONLY, signed_actor=MAKER, check=False)
-        rejected("client_cannot_replace_session_actor", forged_payload_call, "signature or scope mismatch")
-        original_payload = make_payload(335, source="scope-source-01")
-        altered_payload = make_payload(336, source="scope-source-01")
-        changed_scope, _, _ = f.submit(None, altered_payload, scope_payload=original_payload, check=False)
-        rejected("actor_assertion_is_bound_to_exact_request_payload", changed_scope, "signature or scope mismatch")
-        old_epoch = int(time.time()) - 121
-        expired_assertion, _, _ = f.submit(None, make_payload(337, source="expired-source-01"),
-            issued_epoch=old_epoch, check=False)
-        rejected("expired_actor_assertion_is_rejected", expired_assertion, "invalid actor assertion")
-        future_epoch = int(time.time()) + 31
-        future_assertion, _, _ = f.submit(None, make_payload(338, source="future-source-01"),
-            issued_epoch=future_epoch, check=False)
-        rejected("future_actor_assertion_is_rejected", future_assertion, "invalid actor assertion")
-
-        null_epoch_payload = make_payload(339, source="null-epoch-source-01")
-        null_epoch_scope = submit_scope(None, null_epoch_payload)
-        null_epoch_session = AuthenticatedSession(MAKER, uuid.uuid4())
-        null_epoch_nonce = uuid.uuid4()
-        null_epoch_signature = legacy_signature(
-            null_epoch_session, "submit", null_epoch_nonce, None, null_epoch_scope)
-        case("null_epoch_legacy_hmac_matches_old_concat_protocol", True,
-            legacy_signature_matches(null_epoch_session, "submit", null_epoch_nonce,
-                None, null_epoch_scope, null_epoch_signature))
-        null_epoch_result = f.psql(
-            "SELECT row_to_json(x)::text FROM p0_fixture.submit_revision("
-            f"NULL::bigint, {sql_literal(null_epoch_payload)}::text, '{MAKER}'::uuid, "
-            f"'{null_epoch_session.session_id}'::uuid, '{null_epoch_nonce}'::uuid, "
-            f"NULL::bigint, 'fixture-key-v1', {sql_literal(null_epoch_signature)}) x",
-            user=IDENTITY_LOGIN, check=False)
-        rejected("null_issued_epoch_is_rejected_before_hmac", null_epoch_result,
-            "invalid actor assertion")
-
-        null_action_session = AuthenticatedSession(CHECKER, uuid.uuid4())
-        null_action_nonce = uuid.uuid4()
-        null_action_epoch = int(time.time())
-        null_action_scope = "fixture-null-action-scope"
-        null_action_signature = legacy_signature(
-            null_action_session, None, null_action_nonce, null_action_epoch, null_action_scope)
-        case("null_action_legacy_hmac_matches_old_concat_protocol", True,
-            legacy_signature_matches(null_action_session, None, null_action_nonce,
-                null_action_epoch, null_action_scope, null_action_signature))
-        null_action_result = f.psql(
-            "SELECT p0_fixture.verify_actor_assertion("
-            f"'{CHECKER}'::uuid, '{null_action_session.session_id}'::uuid, NULL::text, "
-            f"'{null_action_nonce}'::uuid, {null_action_epoch}, 'fixture-key-v1', "
-            f"{sql_literal(null_action_scope)}, {sql_literal(null_action_signature)})",
-            user="postgres", check=False)
-        rejected("null_actor_action_is_rejected_before_hmac", null_action_result,
-            "invalid actor assertion")
-
-        inactive, _, _ = f.submit(None, make_payload(334, source="inactive-source-01"), actor=DISABLED, check=False)
-        rejected("disabled_actor_is_rejected", inactive, "inactive actor")
-
-        wrong_role_session, wrong_role_assertion = f.assertion(MAKER_ONLY, "approve",
-            revision_scope("approve", proposal_id, revision1, hash1))
-        wrong_role_args = f.assertion_sql(wrong_role_session, wrong_role_assertion)
-        wrong_role = f.psql(
-            f"SELECT p0_fixture.approve_revision({proposal_id},{revision1},"
-            f"{sql_literal(hash1)},{wrong_role_args})", user=IDENTITY_LOGIN, check=False)
-        rejected("actor_without_checker_role_is_rejected", wrong_role, "actor role required")
-
-        # Canonical JSONB ignores object key order/whitespace; lines sort by line number, text stays exact.
-        payload_obj = json.loads(payload100)
-        payload_obj["lines"] = list(reversed(payload_obj["lines"]))
-        reordered = json.dumps(dict(reversed(list(payload_obj.items()))), ensure_ascii=True, indent=2)
-        noop, replayable_nonce_assertion, _ = f.submit(proposal_id, reordered, session_id=maker_session.session_id)
-        noop_record = json.loads(noop.stdout.strip())
-        case("equivalent_business_payload_is_noop", (revision1, hash1, False),
-             (int(noop_record["revision_id"]), noop_record["content_sha256"], noop_record["revision_created"]))
-        same_nonce_result, _, _ = f.submit(proposal_id, reordered,
-            session_id=maker_session.session_id, nonce=replayable_nonce_assertion.nonce, check=False)
-        rejected("successful_actor_assertion_nonce_cannot_be_replayed", same_nonce_result, "actor assertion replay")
-
-        self_approval, _, _ = f.decide("approve", proposal_id, revision1, hash1, actor=MAKER, check=False)
-        rejected("maker_cannot_approve_own_revision", self_approval, "self-approved revision")
-        f.decide("approve", proposal_id, revision1, hash1)
-        f.present(proposal_id, "Fixture presentation title")
-        presentation_state = query(
-            "SELECT p.state || '|' || p.current_revision_id || '|' || r.content_sha256 || '|' || "
-            "(SELECT count(*) FROM p0_fixture.approval a WHERE a.revision_id=r.revision_id) "
-            "FROM p0_fixture.proposal p JOIN p0_fixture.business_revision r "
-            "ON r.revision_id=p.current_revision_id WHERE p.proposal_id=" + str(proposal_id))
-        case("presentation_change_keeps_revision_and_approval", f"approved|{revision1}|{hash1}|1", presentation_state)
-
-        generic_kind_before = proposal_snapshot(proposal_id)
-        valid_charge_revision = make_charge_payload(
-            trip_code="fixture-only-trip-code", opening_refs=True)
-        kind_change_to_charge = f.submit(proposal_id, valid_charge_revision, check=False)
-        rejected("revision_kind_cannot_change_to_charge", kind_change_to_charge[0],
-            "proposal kind is immutable")
-        case("rejected_kind_change_to_charge_preserves_proposal_history",
-            generic_kind_before, proposal_snapshot(proposal_id))
-        proposal_kind_trigger = f.psql(
-            f"UPDATE p0_fixture.proposal SET kind='charge_fixture' WHERE proposal_id={proposal_id}",
-            check=False)
-        rejected("proposal_kind_column_is_immutable", proposal_kind_trigger,
-            "proposal kind is immutable")
-
-        changed_result, _, _ = f.submit(proposal_id, make_payload(101,
-            source="fixture-é-source", evidence="fixture-é-evidence"), session_id=maker_session.session_id)
-        changed = json.loads(changed_result.stdout.strip())
-        revision2 = int(changed["revision_id"])
-        hash2 = changed["content_sha256"]
-        revision_current = revision2
-        hash_current = hash2
-        previous_hash = hash2
-        case("business_change_creates_new_pending_revision", (2, True, "pending", 1),
-             (int(changed["revision_no"]), changed["revision_created"],
-              query(f"SELECT state FROM p0_fixture.proposal WHERE proposal_id={proposal_id}"),
-              int(query(f"SELECT count(*) FROM p0_fixture.approval WHERE proposal_id={proposal_id}"))))
-        stale, _, _ = f.decide("post", proposal_id, revision1, hash1, check=False)
-        rejected("stale_approval_cannot_post_after_business_edit", stale, "current approved revision required")
-
-        current_payload = json.loads(make_payload(101,
-            source="fixture-é-source", evidence="fixture-é-evidence"))
-        business_mutations = [
-            ("source_ref", lambda p: p.__setitem__("source_ref", "fixture-e\u0301-source")),
-            ("evidence_ref", lambda p: p.__setitem__("evidence_ref", "fixture-evidence-02")),
-            ("evidence_hash", lambda p: p.__setitem__("evidence_sha256", "b" * 64)),
-            ("customer_id", lambda p: (p.__setitem__("customer_id", "FAKE-CUSTOMER-2"),
-                [line.__setitem__("customer_id", "FAKE-CUSTOMER-2") for line in p["lines"]])),
-            ("debt_period", lambda p: (p.__setitem__("debt_period", "2026-02"),
-                [line.__setitem__("debt_period", "2026-02") for line in p["lines"]])),
-            ("event_date", lambda p: p.__setitem__("event_date", "2026-02-01")),
-            ("posting_date", lambda p: p.__setitem__("posting_date", "2026-02-02")),
-            ("reason", lambda p: p.__setitem__("reason", "fixture reason revised")),
-            ("line_amounts", lambda p: (p["lines"][0].__setitem__("amount_vnd", p["lines"][0]["amount_vnd"] + 1),
-                p["lines"][1].__setitem__("amount_vnd", p["lines"][1]["amount_vnd"] - 1))),
-            ("line_number", lambda p: next(line for line in p["lines"] if line["line_no"] == 1).__setitem__("line_no", 3)),
-            ("total_vnd", lambda p: (p.__setitem__("total_vnd", p["total_vnd"] + 1),
-                p["lines"][0].__setitem__("amount_vnd", p["lines"][0]["amount_vnd"] + 1))),
-        ]
-        for expected_no, (field_name, mutate) in enumerate(business_mutations, start=3):
-            mutate(current_payload)
-            current_text = json.dumps(current_payload, ensure_ascii=True, separators=(",", ":"))
-            updated_result, _, _ = f.submit(proposal_id, current_text,
-                session_id=maker_session.session_id)
-            updated = json.loads(updated_result.stdout.strip())
-            revision_current = int(updated["revision_id"])
-            hash_current = updated["content_sha256"]
-            case(f"business_field_{field_name}_creates_revision", (expected_no, True),
-                 (int(updated["revision_no"]), updated["revision_created"]))
-            case(f"business_field_{field_name}_changes_hash", True, hash_current != previous_hash)
-            previous_hash = hash_current
-
-        # Unknown and fractional business values are rejected instead of omitted or rounded.
-        unknown_obj = json.loads(make_payload(102, source="unknown-source-01"))
-        unknown_obj["unhashed_extra"] = "must not disappear"
-        unknown_payload = json.dumps(unknown_obj, separators=(",", ":"))
-        unknown, _, _ = f.submit(None, unknown_payload, check=False)
-        rejected("unknown_business_field_fails_closed", unknown, "missing or unknown business fields")
-        fractional_payload = (make_payload(103, source="fractional-source-01")
-            .replace('"total_vnd":103', '"total_vnd":103.5')
-            .replace('"amount_vnd":51', '"amount_vnd":51.5', 1))
-        fractional, _, _ = f.submit(None, fractional_payload, check=False)
-        rejected("fractional_vnd_is_rejected", fractional, "positive integer")
-
-        sum_obj = json.loads(make_payload(104, source="sum-source-01"))
-        sum_obj["lines"][0]["amount_vnd"] = 105
-        bad_sum, _, _ = f.submit(None, json.dumps(sum_obj, separators=(",", ":")), check=False)
-        rejected("line_total_must_match_document_total", bad_sum, "line sum differs from total")
-
-        generic_period_mismatch_obj = json.loads(make_payload(104,
-            source="generic-period-mismatch-01"))
-        generic_period_mismatch_obj["lines"][0]["debt_period"] = "2026-02"
-        before_generic_period_mismatch = proposal_snapshot(proposal_id)
-        generic_period_mismatch, _, _ = f.submit(proposal_id,
-            json.dumps(generic_period_mismatch_obj, separators=(",", ":")), check=False)
-        rejected("generic_line_period_must_match_header_period", generic_period_mismatch,
-            "fixture lines must match document customer and period")
-        case("generic_line_period_mismatch_leaves_revision_unchanged",
-             before_generic_period_mismatch, proposal_snapshot(proposal_id))
-
-        missing_evidence_obj = json.loads(make_payload(104, source="missing-evidence-01"))
-        del missing_evidence_obj["evidence_ref"]
-        missing_evidence, _, _ = f.submit(None,
-            json.dumps(missing_evidence_obj, separators=(",", ":")), check=False)
-        rejected("missing_evidence_reference_fails_closed", missing_evidence,
-            "missing or unknown business fields")
-        malformed_evidence_obj = json.loads(make_payload(104, source="malformed-evidence-01"))
-        malformed_evidence_obj["evidence_sha256"] = "not-a-sha256"
-        malformed_evidence, _, _ = f.submit(None,
-            json.dumps(malformed_evidence_obj, separators=(",", ":")), check=False)
-        rejected("malformed_evidence_hash_fails_closed", malformed_evidence,
-            "invalid fixture payload fields")
-
-        receipt_obj = json.loads(make_payload(105, source="receipt-not-enabled-01"))
-        receipt_obj["kind"] = "receipt"
-        receipt, _, _ = f.submit(None, json.dumps(receipt_obj, separators=(",", ":")), check=False)
-        rejected("receipt_path_is_not_enabled_while_q09_is_open", receipt,
-            "missing or unknown business fields")
-
-        # Malformed charge requests reject; only well-formed incomplete business evidence persists.
-        old_date, _, _ = charge.submit(None, make_charge_payload(event_date="2026-10-13"), check=False)
-        rejected("charge_before_2026_10_14_is_rejected", old_date, "before 2026-10-14")
-        multi_line_payload = json.loads(make_charge_payload())
-        multi_line_payload["lines"].append(
-            {"line_no": 2, "customer_id": "FAKE-CUSTOMER-1",
-             "debt_period": "2026-09", "amount_vnd": 1})
-        multi_line_payload["total_vnd"] = 101
-        multi_line_payload["price_components"][1]["amount_vnd"] += 1
-        multi_line, _, _ = charge.submit(None,
-            json.dumps(multi_line_payload, separators=(",", ":")), check=False)
-        rejected("charge_requires_exactly_one_debt_line", multi_line, "exactly one debt line")
-
-        missing_total_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        missing_total_obj["total_vnd"] = None
-        missing_total, missing_total_revision, missing_total_hash = pending_charge(
-            "total_missing", missing_total_obj,
-            ["TOTAL_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        zero_total_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        zero_total_obj["total_vnd"] = 0
-        zero_total_obj["lines"][0]["amount_vnd"] = 0
-        zero_total_obj["price_components"] = [
-            {"label": "zero fixture component", "amount_vnd": 0}]
-        zero_total, zero_total_revision, zero_total_hash = pending_charge(
-            "total_zero", zero_total_obj,
-            ["COMPONENT_AMOUNT_ZERO", "TOTAL_ZERO", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        missing_total_view = review_projection(missing_total)
-        zero_total_view = review_projection(zero_total)
-        case("charge_json_null_is_preserved", None,
-             missing_total_view["revisions"][0]["payload"]["total_vnd"])
-        case("charge_zero_is_preserved", 0,
-             zero_total_view["revisions"][0]["payload"]["total_vnd"])
-        case("charge_null_and_zero_hashes_are_distinct", True,
-             missing_total_hash != zero_total_hash
-             and missing_total_revision != zero_total_revision)
-
-        missing_components_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        missing_components_obj["price_components"] = None
-        pending_charge("price_components_null", missing_components_obj,
-            ["PRICE_COMPONENTS_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        empty_components_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        empty_components_obj["price_components"] = []
-        pending_charge("price_components_empty", empty_components_obj,
-            ["PRICE_COMPONENTS_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-
-        partial_component_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        partial_component_obj["price_components"] = [
-            {"label": "known component", "amount_vnd": 100},
-            {"label": "missing component amount", "amount_vnd": None},
-        ]
-        pending_charge("component_amount_missing", partial_component_obj,
-            ["COMPONENT_AMOUNT_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-
-        mismatched_components_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        mismatched_components_obj["price_components"] = [
-            {"label": "component A", "amount_vnd": 40},
-            {"label": "component B", "amount_vnd": 50},
-        ]
-        pending_charge("component_total_mismatch", mismatched_components_obj,
-            ["COMPONENT_TOTAL_MISMATCH", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-
-        missing_line_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        missing_line_obj["lines"][0]["amount_vnd"] = None
-        pending_charge("line_amount_missing", missing_line_obj,
-            ["LINE_AMOUNT_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        mismatch_line_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        mismatch_line_obj["lines"][0]["amount_vnd"] = 99
-        pending_charge("line_total_mismatch", mismatch_line_obj,
-            ["LINE_TOTAL_MISMATCH", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-
-        missing_source_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        missing_source_obj["source_ref"] = ""
-        missing_source_obj["evidence_ref"] = None
-        missing_source_obj["evidence_sha256"] = None
-        missing_source, _, _ = pending_charge("source_evidence_missing",
-            missing_source_obj,
-            ["SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        case("blank_source_reference_is_preserved_for_review", "",
-             review_projection(missing_source)["revisions"][0]["payload"]["source_ref"])
-
-        missing_trip_obj = json.loads(make_charge_payload(opening_refs=True))
-        missing_trip_obj["trip_code"] = "  "
-        pending_charge("trip_code_missing", missing_trip_obj,
-            ["SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
-            "stable trip code missing")
-        missing_opening_obj = json.loads(make_charge_payload(trip_code="opaque-fixture-trip"))
-        pending_charge("opening_evidence_missing", missing_opening_obj,
-            ["OPENING_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-            "opening comparison evidence missing")
-        resolver_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        resolver_proposal, _, _ = pending_charge("source_resolver_unavailable", resolver_obj,
-            ["SOURCE_RESOLVER_UNAVAILABLE"],
-            "source key and opening reconciliation are unresolved")
-        for field_name in (
-            "period_override_reason",
-            "period_override_evidence_ref",
-            "period_override_evidence_sha256",
-        ):
-            missing_override = json.loads(make_charge_payload(
-                trip_code="opaque-fixture-trip", opening_refs=True))
-            missing_override.pop(field_name)
-            override_proposal, _, _ = pending_charge(
-                f"period_override_{field_name}_missing", missing_override,
-                ["PERIOD_OVERRIDE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
-                "source key and opening reconciliation are unresolved")
-            if field_name == "period_override_reason":
-                override_revision = review_projection(override_proposal)["revisions"][0]
-                case("generic_reason_does_not_replace_period_override_reason",
-                     "fixture reason only", override_revision["payload"]["reason"])
-        case("review_projection_is_not_granted_to_api_logins", "false|false", query(
-            "SELECT has_function_privilege('webdebit_app', "
-            "'p0_fixture.fixture_review_projection(bigint)', 'EXECUTE')::text || '|' || "
-            "has_function_privilege('webdebit_identity_test_app', "
-            "'p0_fixture.fixture_review_projection(bigint)', 'EXECUTE')::text"))
-        projection_api_attempt = charge.psql(
-            f"SELECT p0_fixture.fixture_review_projection({resolver_proposal})",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_cannot_read_fixture_projection", projection_api_attempt,
-            "permission denied for function fixture_review_projection")
-
-        combined_missing_obj = json.loads(make_charge_payload())
-        combined_missing_obj["total_vnd"] = None
-        combined_missing_obj["source_ref"] = None
-        combined_missing_obj["evidence_ref"] = "  "
-        combined_missing_obj["evidence_sha256"] = None
-        combined_missing_obj["lines"][0]["amount_vnd"] = None
-        combined_missing_obj["price_components"] = [
-            {"label": "pending component", "amount_vnd": None}]
-        combined_missing, _, _ = pending_charge("combined_missing_evidence",
-            combined_missing_obj,
-            ["COMPONENT_AMOUNT_MISSING", "LINE_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
-             "SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE", "TOTAL_MISSING",
-             "TRIP_CODE_MISSING"], "stable trip code missing")
-
-        omitted_payload = json.loads(make_charge_payload())
-        omitted_fields = ["total_vnd", "source_ref", "evidence_ref", "evidence_sha256",
-                          "trip_code", "opening_snapshot_ref", "opening_absence_evidence_ref",
-                          "price_components", "period_override_reason",
-                          "period_override_evidence_ref", "period_override_evidence_sha256"]
-        for field_name in omitted_fields:
-            omitted_payload.pop(field_name)
-        omitted_payload["lines"][0].pop("amount_vnd")
-        omitted_text = json.dumps(omitted_payload, ensure_ascii=True, separators=(",", ":"))
-        omitted_result, _, _ = charge.submit(None, omitted_text)
-        omitted_revision = json.loads(omitted_result.stdout.strip())
-        explicit_null_payload = json.loads(make_charge_payload())
-        explicit_null_payload["total_vnd"] = None
-        for field_name in omitted_fields[1:]:
-            explicit_null_payload[field_name] = None
-        explicit_null_payload["lines"][0]["amount_vnd"] = None
-        explicit_null_text = json.dumps(explicit_null_payload, ensure_ascii=True,
-                                        separators=(",", ":"))
-        explicit_null_result, _, _ = charge.submit(int(omitted_revision["proposal_id"]),
-            explicit_null_text)
-        explicit_null_revision = json.loads(explicit_null_result.stdout.strip())
-        case("omitted_and_null_charge_fields_have_same_hash",
-            omitted_revision["content_sha256"], explicit_null_revision["content_sha256"])
-        case("omitted_null_equivalence_is_business_noop",
-            (1, int(omitted_revision["revision_id"]), False),
-            (int(explicit_null_revision["revision_no"]),
-             int(explicit_null_revision["revision_id"]),
-             explicit_null_revision["revision_created"]))
-        omitted_projection = review_projection(int(omitted_revision["proposal_id"]))
-        case("omitted_fields_are_saved_as_json_null", True,
-             all(omitted_projection["revisions"][0]["payload"][field_name] is None
-                 for field_name in omitted_fields)
-             and omitted_projection["revisions"][0]["payload"]["lines"][0]["amount_vnd"] is None)
-        case("omitted_override_fields_keep_submit_time_blocker", True,
-             "PERIOD_OVERRIDE_EVIDENCE_MISSING" in
-             omitted_projection["revisions"][0]["submit_time_reasons"])
-
-        same_month_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", period="2026-10", opening_refs=True))
-        for field_name in (
-            "period_override_reason",
-            "period_override_evidence_ref",
-            "period_override_evidence_sha256",
-        ):
-            same_month_obj[field_name] = None
-        same_month_result, _, _ = charge.submit(None,
-            json.dumps(same_month_obj, ensure_ascii=True, separators=(",", ":")))
-        same_month_record = json.loads(same_month_result.stdout.strip())
-        same_month_id = int(same_month_record["proposal_id"])
-        same_month_projection = review_projection(same_month_id)
-        same_month_revision = same_month_projection["revisions"][0]
-        case("same_month_null_override_fields_are_canonical_nulls", True,
-             all(same_month_revision["payload"][field_name] is None for field_name in (
-                 "period_override_reason", "period_override_evidence_ref",
-                 "period_override_evidence_sha256")))
-        case("same_month_null_override_does_not_block_period_confirmation", True,
-             "PERIOD_OVERRIDE_EVIDENCE_MISSING" not in
-             same_month_revision["submit_time_reasons"])
-        same_month_supplied = dict(same_month_obj)
-        same_month_supplied["period_override_reason"] = "same-month reason stays hashed"
-        same_month_supplied["period_override_evidence_ref"] = "same-month evidence stays hashed"
-        same_month_supplied["period_override_evidence_sha256"] = "d" * 64
-        same_month_supplied_result, _, _ = charge.submit(same_month_id,
-            json.dumps(same_month_supplied, ensure_ascii=True, separators=(",", ":")))
-        same_month_supplied_record = json.loads(same_month_supplied_result.stdout.strip())
-        same_month_supplied_revision = review_projection(same_month_id)["revisions"][1]
-        case("same_month_supplied_override_values_are_saved_and_hashed", True,
-             same_month_supplied_record["content_sha256"] != same_month_record["content_sha256"]
-             and same_month_supplied_revision["payload"]["period_override_reason"] ==
-                 "same-month reason stays hashed"
-             and same_month_supplied_revision["payload"]["period_override_evidence_ref"] ==
-                 "same-month evidence stays hashed"
-             and same_month_supplied_revision["payload"]["period_override_evidence_sha256"] ==
-                 "d" * 64
-             and "PERIOD_OVERRIDE_EVIDENCE_MISSING" not in
-                 same_month_supplied_revision["submit_time_reasons"])
-        charge.confirm_period(same_month_id, int(same_month_supplied_record["revision_id"]),
-                              same_month_supplied_record["content_sha256"])
-        charge.confirm_price(same_month_id, int(same_month_supplied_record["revision_id"]),
-                             same_month_supplied_record["content_sha256"])
-        same_month_after = review_projection(same_month_id)["revisions"][1]
-        case("current_confirmation_blockers_clear_after_both_confirmations", True,
-             "PERIOD_CONFIRMATION_MISSING" not in same_month_after["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" not in same_month_after["current_blockers"])
-
-        component_omitted = json.loads(make_charge_payload())
-        component_omitted["price_components"] = [{"label": "optional amount"}]
-        component_explicit_null = json.loads(make_charge_payload())
-        component_explicit_null["price_components"] = [
-            {"label": "optional amount", "amount_vnd": None}]
-        component_omitted_result, _, _ = charge.submit(None,
-            json.dumps(component_omitted, separators=(",", ":")))
-        component_null_result, _, _ = charge.submit(None,
-            json.dumps(component_explicit_null, separators=(",", ":")))
-        component_omitted_revision = json.loads(component_omitted_result.stdout.strip())
-        component_null_revision = json.loads(component_null_result.stdout.strip())
-        case("omitted_and_null_component_amounts_have_same_hash",
-             component_omitted_revision["content_sha256"],
-             component_null_revision["content_sha256"])
-        component_omitted_view = review_projection(
-            int(component_omitted_revision["proposal_id"]))
-        case("omitted_component_amount_is_saved_as_json_null", None,
-             component_omitted_view["revisions"][0]["payload"]
-             ["price_components"][0]["amount_vnd"])
-
-        override_payload = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        override_payload["period_override_reason"] = "  period reason kept verbatim  "
-        override_payload["period_override_evidence_ref"] = "  period evidence ref kept  "
-        override_payload["period_override_evidence_sha256"] = "c" * 64
-        override_first_result, _, _ = charge.submit(None,
-            json.dumps(override_payload, ensure_ascii=True, separators=(",", ":")))
-        override_first = json.loads(override_first_result.stdout.strip())
-        override_proposal_id = int(override_first["proposal_id"])
-        override_first_revision_id = int(override_first["revision_id"])
-        override_first_hash = str(override_first["content_sha256"])
-        override_first_projection = review_projection(override_proposal_id)
-        override_first_revision = override_first_projection["revisions"][0]
-        case("period_override_values_are_preserved_exactly", (
-                "  period reason kept verbatim  ",
-                "  period evidence ref kept  ", "c" * 64),
-             (override_first_revision["payload"]["period_override_reason"],
-              override_first_revision["payload"]["period_override_evidence_ref"],
-              override_first_revision["payload"]["period_override_evidence_sha256"]))
-        before_wrong_confirmation_hash = proposal_snapshot(override_proposal_id)
-        wrong_override_period = charge.confirm_period(
-            override_proposal_id, override_first_revision_id, "0" * 64, check=False)
-        rejected("period_confirmation_requires_current_hash", wrong_override_period,
-            "period confirmation requires current charge revision")
-        wrong_override_price = charge.confirm_price(
-            override_proposal_id, override_first_revision_id, "0" * 64, check=False)
-        rejected("price_confirmation_requires_current_hash", wrong_override_price,
-            "price confirmation requires the current charge revision")
-        case("wrong_confirmation_hashes_leave_charge_unchanged",
-             before_wrong_confirmation_hash, proposal_snapshot(override_proposal_id))
-        charge.confirm_period(override_proposal_id, override_first_revision_id, override_first_hash)
-        charge.confirm_price(override_proposal_id, override_first_revision_id, override_first_hash)
-        confirmed_override_projection = review_projection(override_proposal_id)
-        confirmed_override_revision = confirmed_override_projection["revisions"][0]
-        case("current_confirmations_clear_only_their_dynamic_blockers", True,
-             "PERIOD_CONFIRMATION_MISSING" not in confirmed_override_revision["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" not in confirmed_override_revision["current_blockers"])
-
-        changed_override_payload = dict(override_payload)
-        changed_override_payload["period_override_evidence_ref"] = "  replacement period evidence ref  "
-        override_second_result, _, _ = charge.submit(override_proposal_id,
-            json.dumps(changed_override_payload, ensure_ascii=True, separators=(",", ":")))
-        override_second = json.loads(override_second_result.stdout.strip())
-        override_second_revision_id = int(override_second["revision_id"])
-        override_second_hash = str(override_second["content_sha256"])
-        override_second_projection = review_projection(override_proposal_id)
-        case("changed_period_override_evidence_creates_new_hash", True,
-             override_second_hash != override_first_hash
-             and int(override_second["revision_no"]) == 2)
-        case("period_override_revision_payload_hash_and_submit_reasons_stay_immutable", True,
-             override_second_projection["revisions"][0]["payload"] ==
-                 override_first_revision["payload"]
-             and override_second_projection["revisions"][0]["content_sha256"] ==
-                 override_first_hash
-             and override_second_projection["revisions"][0]["submit_time_reasons"] ==
-                 override_first_revision["submit_time_reasons"]
-             and override_second_projection["revisions"][0]["current_blockers"] == [])
-        case("new_period_override_revision_reports_exact_current_blockers", True,
-             override_second_projection["revisions"][1]["is_current_revision"]
-             and "PERIOD_CONFIRMATION_MISSING" in
-                 override_second_projection["revisions"][1]["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" in
-                 override_second_projection["revisions"][1]["current_blockers"])
-        rejected("old_period_confirmation_cannot_confirm_edited_revision",
-            charge.confirm_period(override_proposal_id, override_first_revision_id,
-                override_first_hash, check=False),
-            "period confirmation requires current charge revision")
-        rejected("old_price_confirmation_cannot_confirm_edited_revision",
-            charge.confirm_price(override_proposal_id, override_first_revision_id,
-                override_first_hash, check=False),
-            "price confirmation requires the current charge revision")
-        rejected("old_period_override_revision_cannot_be_approved",
-            charge.decide("approve", override_proposal_id, override_first_revision_id,
-                override_first_hash, check=False)[0],
-            "stale, unavailable, or self-approved revision")
-        case("stale_override_confirmations_remain_audit_only", "1|1|review_needed|0|0", query(
-            "SELECT (SELECT count(*) FROM p0_fixture.period_confirmation c "
-            f"WHERE c.proposal_id={override_proposal_id}) || '|' || "
-            "(SELECT count(*) FROM p0_fixture.price_confirmation c "
-            f"WHERE c.proposal_id={override_proposal_id}) || '|' || "
-            "p.state || '|' || (SELECT count(*) FROM p0_fixture.approval a "
-            f"WHERE a.proposal_id={override_proposal_id}) || '|' || "
-            "(SELECT count(*) FROM p0_fixture.posting x "
-            f"WHERE x.proposal_id={override_proposal_id}) "
-            f"FROM p0_fixture.proposal p WHERE p.proposal_id={override_proposal_id}"))
-
-        combined_before_edit = review_projection(combined_missing)
-        old_revision = combined_before_edit["revisions"][0]
-        correction = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        correction_result, _, _ = charge.submit(combined_missing,
-            json.dumps(correction, ensure_ascii=True, separators=(",", ":")))
-        corrected_revision = json.loads(correction_result.stdout.strip())
-        corrected_view = review_projection(combined_missing)
-        case("correcting_charge_content_creates_revision_two", (2, True),
-             (int(corrected_revision["revision_no"]), corrected_revision["revision_created"]))
-        case("corrected_charge_reasons_are_resolver_only",
-             ["SOURCE_RESOLVER_UNAVAILABLE"],
-             corrected_view["revisions"][1]["submit_time_reasons"])
-        case("old_charge_revision_payload_hash_and_reasons_remain_immutable", True,
-             corrected_view["revisions"][0]["revision_id"] == old_revision["revision_id"]
-             and corrected_view["revisions"][0]["payload"] == old_revision["payload"]
-             and corrected_view["revisions"][0]["content_sha256"] == old_revision["content_sha256"]
-             and old_revision["submit_time_reasons"] == sorted([
-                 "COMPONENT_AMOUNT_MISSING", "LINE_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
-                 "SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE", "TOTAL_MISSING",
-                 "TRIP_CODE_MISSING"]))
-        case("old_charge_revision_is_marked_stale_without_rewriting_submit_reasons", True,
-             not corrected_view["revisions"][0]["is_current_revision"]
-             and corrected_view["revisions"][0]["current_blockers"] == []
-             and corrected_view["revisions"][0]["submit_time_reasons"] ==
-                 old_revision["submit_time_reasons"])
-        stale_old_approval, _, _ = charge.decide("approve", combined_missing,
-            int(old_revision["revision_id"]), old_revision["content_sha256"], check=False)
-        rejected("old_incomplete_revision_cannot_be_approved_after_correction",
-            stale_old_approval, "stale, unavailable, or self-approved revision")
-        charge.confirm_period(combined_missing, int(corrected_revision["revision_id"]),
-                              corrected_revision["content_sha256"])
-        charge.confirm_price(combined_missing, int(corrected_revision["revision_id"]),
-                             corrected_revision["content_sha256"])
-        rejected("corrected_opaque_trip_still_fails_source_resolver",
-            charge.decide("approve", combined_missing, int(corrected_revision["revision_id"]),
-                corrected_revision["content_sha256"], check=False)[0],
-            "source key and opening reconciliation are unresolved")
-        case("corrected_opaque_trip_has_no_approval_or_posting", "review_needed|0|0", query(
-            "SELECT p.state || '|' || (SELECT count(*) FROM p0_fixture.approval a "
-            "WHERE a.proposal_id=p.proposal_id) || '|' || "
-            "(SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
-            f"FROM p0_fixture.proposal p WHERE p.proposal_id={combined_missing}"))
-
-        malformed_target = resolver_proposal
-        malformed_cases: list[tuple[str, str]] = [("invalid_json", "{")]
-        malformed_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        malformed_obj["clientreasoncodes"] = ["TRIP_CODE_MISSING"]
-        malformed_cases.append(("client_reason_codes", json.dumps(malformed_obj)))
-        wrong_type_cases = [
-            ("customer_object", "customer_id", {"id": "FAKE-CUSTOMER-1"}),
-            ("period_boolean", "debt_period", True),
-            ("event_date_object", "event_date", {"date": "2026-10-14"}),
-            ("posting_date_boolean", "posting_date", False),
-            ("source_object", "source_ref", {"ref": "fixture"}),
-            ("evidence_boolean", "evidence_ref", True),
-            ("hash_boolean", "evidence_sha256", True),
-            ("reason_object", "reason", {"text": "fixture"}),
-            ("trip_boolean", "trip_code", True),
-            ("opening_object", "opening_snapshot_ref", {"ref": "fixture"}),
-            ("period_override_reason_boolean", "period_override_reason", True),
-            ("period_override_evidence_ref_object", "period_override_evidence_ref",
-             {"ref": "fixture"}),
-            ("period_override_hash_boolean", "period_override_evidence_sha256", True),
-        ]
-        for case_name, field_name, bad_value in wrong_type_cases:
-            bad_obj = json.loads(make_charge_payload(
-                trip_code="opaque-fixture-trip", opening_refs=True))
-            bad_obj[field_name] = bad_value
-            malformed_cases.append((case_name, json.dumps(bad_obj)))
-        for case_name, bad_value in (
-            ("money_string", "100"), ("money_boolean", True),
-            ("money_object", {"amount": 100}), ("money_negative", -100),
-            ("money_fractional", 100.5),
-        ):
-            bad_obj = json.loads(make_charge_payload(
-                trip_code="opaque-fixture-trip", opening_refs=True))
-            bad_obj["total_vnd"] = bad_value
-            malformed_cases.append((case_name, json.dumps(bad_obj)))
-        for case_name, bad_value in (
-            ("line_amount_string", "100"), ("line_amount_boolean", True),
-            ("line_amount_object", {"amount": 100}),
-            ("line_amount_negative", -100), ("line_amount_fractional", 100.5),
-        ):
-            bad_obj = json.loads(make_charge_payload(
-                trip_code="opaque-fixture-trip", opening_refs=True))
-            bad_obj["lines"][0]["amount_vnd"] = bad_value
-            malformed_cases.append((case_name, json.dumps(bad_obj)))
-        multi_line_invalid = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        multi_line_invalid["lines"].append({
-            "line_no": 2, "customer_id": "FAKE-CUSTOMER-1",
-            "debt_period": "2026-09", "amount_vnd": 1,
-        })
-        malformed_cases.append(("multiple_debt_lines", json.dumps(multi_line_invalid)))
-        bad_line_number = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_line_number["lines"][0]["line_no"] = 1.5
-        malformed_cases.append(("fractional_line_number", json.dumps(bad_line_number)))
-        bad_period_customer = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_customer["lines"][0]["customer_id"] = "FAKE-CUSTOMER-2"
-        malformed_cases.append(("line_customer_mismatch", json.dumps(bad_period_customer)))
-        bad_period_line = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_line["lines"][0]["debt_period"] = "2026-08"
-        malformed_cases.append(("line_period_mismatch", json.dumps(bad_period_line)))
-        bad_period_year = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_year["debt_period"] = "0000-01"
-        bad_period_year["lines"][0]["debt_period"] = "0000-01"
-        malformed_cases.append(("zero_year_period_header_and_line", json.dumps(bad_period_year)))
-        bad_period_header_year = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_header_year["debt_period"] = "0000-01"
-        malformed_cases.append(("zero_year_period_header", json.dumps(bad_period_header_year)))
-        bad_period_line_year = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_line_year["lines"][0]["debt_period"] = "0000-01"
-        malformed_cases.append(("zero_year_period_line", json.dumps(bad_period_line_year)))
-        bad_line_type = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_line_type["lines"][0]["customer_id"] = {"id": "FAKE-CUSTOMER-1"}
-        malformed_cases.append(("line_customer_object", json.dumps(bad_line_type)))
-        bad_line_period_type = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_line_period_type["lines"][0]["debt_period"] = {"period": "2026-09"}
-        malformed_cases.append(("line_period_object", json.dumps(bad_line_period_type)))
-        bad_opening_evidence_type = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_opening_evidence_type["opening_absence_evidence_ref"] = False
-        malformed_cases.append(("opening_evidence_boolean", json.dumps(bad_opening_evidence_type)))
-        bad_component_label = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_component_label["price_components"][0]["label"] = {"label": "fixture"}
-        malformed_cases.append(("component_label_object", json.dumps(bad_component_label)))
-        bad_component_money = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_component_money["price_components"][0]["amount_vnd"] = "50"
-        malformed_cases.append(("component_amount_string", json.dumps(bad_component_money)))
-        for date_index, date_value in enumerate(("2026-02-30", "2026/10/14",
-                "2026-10-14T00:00:00", "2026-10-13"), start=1):
-            bad_date_obj = json.loads(make_charge_payload(
-                trip_code="opaque-fixture-trip", opening_refs=True))
-            bad_date_obj["event_date"] = date_value
-            malformed_cases.append((f"bad_event_date_{date_index}", json.dumps(bad_date_obj)))
-        bad_hash_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_hash_obj["evidence_sha256"] = "not-a-hash"
-        malformed_cases.append(("malformed_supplied_hash", json.dumps(bad_hash_obj)))
-        bad_period_override_hash = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        bad_period_override_hash["period_override_evidence_sha256"] = "g" * 64
-        malformed_cases.append(("malformed_period_override_hash", json.dumps(bad_period_override_hash)))
-        bad_nonfinite_payload = make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True)
-        for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
-            malformed_cases.append((f"nonfinite_{nonfinite_token}",
-                bad_nonfinite_payload.replace('"total_vnd":100',
-                    f'"total_vnd":{nonfinite_token}')))
-        unknown_component_obj = json.loads(make_charge_payload(
-            trip_code="opaque-fixture-trip", opening_refs=True))
-        unknown_component_obj["price_components"][0]["client_reason"] = "invented"
-        malformed_cases.append(("unknown_component_key", json.dumps(unknown_component_obj)))
-
-        before_malformed = proposal_snapshot(malformed_target)
-        for case_name, raw_payload in malformed_cases:
-            malformed_result, _, _ = charge.submit(malformed_target, raw_payload, check=False)
-            case(f"malformed_{case_name}_is_rejected", True,
-                 malformed_result.returncode != 0)
-            case(f"malformed_{case_name}_leaves_state_unchanged", before_malformed,
-                 proposal_snapshot(malformed_target))
-
-        missing_trip_result, _, _ = charge.submit(None, make_charge_payload())
-        missing_trip = json.loads(missing_trip_result.stdout.strip())
-        missing_trip_proposal = int(missing_trip["proposal_id"])
-        missing_trip_revision = int(missing_trip["revision_id"])
-        missing_trip_hash = missing_trip["content_sha256"]
-        case("charge_starts_in_review_needed_state", "review_needed",
-            query(f"SELECT state FROM p0_fixture.proposal WHERE proposal_id={missing_trip_proposal}"))
-        case("charge_date_period_and_one_line_are_canonical",
-            ("2026-10-14", "2026-09", "1", "2"),
-            tuple(query(
-                "SELECT (r.canonical_payload->>'event_date') || '|' || "
-                "(r.canonical_payload->>'debt_period') || '|' || "
-                "jsonb_array_length(r.canonical_payload->'lines')::text || '|' || "
-                "jsonb_array_length(r.canonical_payload->'price_components')::text "
-                "FROM p0_fixture.business_revision r "
-                f"WHERE r.revision_id={missing_trip_revision}").split("|")))
-        closed_period, _, _ = charge.submit(None,
-            make_charge_payload(period="2026-08"), check=False)
-        closed_period_proposal = None
-        if closed_period.returncode == 0:
-            closed_record = json.loads(closed_period.stdout.strip())
-            closed_period_proposal = (int(closed_record["proposal_id"]),
-                                      int(closed_record["revision_id"]),
-                                      closed_record["content_sha256"])
-            closed_before_confirmation = proposal_snapshot(closed_period_proposal[0])
-            rejected("closed_period_cannot_be_confirmed_by_maker",
-                charge.confirm_period(*closed_period_proposal, check=False),
-                "not open for maker confirmation")
-            case("closed_period_confirmation_refusal_is_immutable",
-                 closed_before_confirmation, proposal_snapshot(closed_period_proposal[0]))
-            closed_approval, _, _ = charge.decide("approve", closed_period_proposal[0],
-                closed_period_proposal[1], closed_period_proposal[2], check=False)
-            rejected("closed_period_cannot_be_approved", closed_approval,
-                "debt period is not open at approval")
-            case("closed_period_approval_refusal_is_immutable", closed_before_confirmation,
-                 proposal_snapshot(closed_period_proposal[0]))
-            case("closed_charge_projection_reports_period_blocker", True,
-                 "DEBT_PERIOD_NOT_OPEN" in
-                 review_projection(closed_period_proposal[0])["revisions"][0]["current_blockers"])
-        else:
-            raise HarnessError("closed-period proposal should remain a draft for fail-closed approval test")
-
-        unknown_period, _, _ = charge.submit(None,
-            make_charge_payload(period="2026-07"), check=False)
-        if unknown_period.returncode == 0:
-            unknown_record = json.loads(unknown_period.stdout.strip())
-            unknown_proposal = (int(unknown_record["proposal_id"]),
-                                int(unknown_record["revision_id"]),
-                                unknown_record["content_sha256"])
-            unknown_before_confirmation = proposal_snapshot(unknown_proposal[0])
-            rejected("period_without_open_state_cannot_be_confirmed",
-                charge.confirm_period(*unknown_proposal, check=False),
-                "not open for maker confirmation")
-            case("missing_period_confirmation_refusal_is_immutable",
-                 unknown_before_confirmation, proposal_snapshot(unknown_proposal[0]))
-            unknown_approval, _, _ = charge.decide("approve", unknown_proposal[0],
-                unknown_proposal[1], unknown_proposal[2], check=False)
-            rejected("period_without_open_state_cannot_be_approved",
-                unknown_approval, "debt period is not open at approval")
-            case("missing_period_approval_refusal_is_immutable", unknown_before_confirmation,
-                 proposal_snapshot(unknown_proposal[0]))
-        else:
-            raise HarnessError("unknown-period proposal should remain a draft for fail-closed check")
-
-        charge.confirm_period(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
-        charge.confirm_price(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
-        rejected("charge_missing_stable_trip_code_stays_pending",
-            charge.decide("approve", missing_trip_proposal, missing_trip_revision,
-                missing_trip_hash, check=False),
-            "stable trip code missing")
-        missing_trip_state = query(
-            "SELECT p.state || '|' || "
-            f"(SELECT count(*) FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id) || '|' || "
-            f"(SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
-            f"FROM p0_fixture.proposal p WHERE p.proposal_id={missing_trip_proposal}")
-        case("missing_trip_code_charge_remains_outside_balance", "review_needed|0|0", missing_trip_state)
-
-        missing_opening_result, _, _ = charge.submit(None,
-            make_charge_payload(trip_code="fixture-only-trip-code"))
-        missing_opening = json.loads(missing_opening_result.stdout.strip())
-        missing_opening_proposal = int(missing_opening["proposal_id"])
-        missing_opening_revision = int(missing_opening["revision_id"])
-        missing_opening_hash = missing_opening["content_sha256"]
-        charge.confirm_period(missing_opening_proposal, missing_opening_revision,
-            missing_opening_hash)
-        charge.confirm_price(missing_opening_proposal, missing_opening_revision,
-            missing_opening_hash)
-        rejected("missing_opening_comparison_keeps_charge_pending",
-            charge.decide("approve", missing_opening_proposal, missing_opening_revision,
-                missing_opening_hash, check=False),
-            "opening comparison evidence missing")
-
-        charge_submit_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
-        candidate_result, _, _ = charge.submit(None, make_charge_payload(
-            trip_code="fixture-only-trip-code", opening_refs=True))
-        unchanged_balance("charge_submit_draft", charge_submit_balance_before,
-            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
-        candidate = json.loads(candidate_result.stdout.strip())
-        charge_proposal = int(candidate["proposal_id"])
-        charge_revision = int(candidate["revision_id"])
-        charge_hash = candidate["content_sha256"]
-        case("charge_kind_is_stored_at_proposal_creation", "charge_fixture",
-            query(f"SELECT kind FROM p0_fixture.proposal WHERE proposal_id={charge_proposal}"))
-        generic_to_charge_revision = f.submit(charge_proposal,
-            make_charge_payload(trip_code="fixture-only-trip-code", opening_refs=True), check=False)
-        rejected("identity_login_cannot_revise_charge_proposal",
-            generic_to_charge_revision[0], "database principal cannot use charge_fixture")
-        rejected("identity_login_cannot_present_charge_proposal",
-            f.present(charge_proposal, "Forbidden identity presentation", check=False),
-            "database principal cannot use charge_fixture")
-        rejected("identity_login_cannot_confirm_price_for_charge_proposal",
-            f.confirm_price(charge_proposal, charge_revision, charge_hash, check=False),
-            "database principal cannot use charge_fixture")
-        rejected("identity_login_cannot_confirm_period_for_charge_proposal",
-            f.confirm_period(charge_proposal, charge_revision, charge_hash, check=False),
-            "database principal cannot use charge_fixture")
-        rejected("identity_login_cannot_approve_charge_proposal",
-            f.decide("approve", charge_proposal, charge_revision, charge_hash, check=False)[0],
-            "database principal cannot use charge_fixture")
-        rejected("identity_login_cannot_post_charge_proposal",
-            f.decide("post", charge_proposal, charge_revision, charge_hash, check=False)[0],
-            "database principal cannot use charge_fixture")
-        charge_kind_before = proposal_snapshot(charge_proposal)
-        valid_generic_revision = make_payload(108, source="charge-to-generic-01")
-        kind_change_to_generic = charge.submit(charge_proposal, valid_generic_revision, check=False)
-        rejected("charge_kind_cannot_change_to_revision_fixture", kind_change_to_generic[0],
-            "proposal kind is immutable")
-        case("rejected_kind_change_to_generic_preserves_proposal_history",
-            charge_kind_before, proposal_snapshot(charge_proposal))
-        candidate_projection = review_projection(charge_proposal)["revisions"][0]
-        case("charge_current_projection_separates_missing_period_and_price_confirmations",
-             True, "PERIOD_CONFIRMATION_MISSING" in candidate_projection["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" in candidate_projection["current_blockers"])
-        before_period_approval = proposal_snapshot(charge_proposal)
-        rejected("charge_without_period_confirmation_stays_pending",
-            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
-            "maker confirmation required")
-        case("charge_without_period_confirmation_preserves_state",
-             before_period_approval, proposal_snapshot(charge_proposal))
-        charge_period_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
-        charge.confirm_period(charge_proposal, charge_revision, charge_hash)
-        unchanged_balance("charge_confirm_period", charge_period_balance_before,
-            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
-        after_period_projection = review_projection(charge_proposal)["revisions"][0]
-        case("period_confirmation_clears_only_period_blocker", True,
-             "PERIOD_CONFIRMATION_MISSING" not in after_period_projection["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" in after_period_projection["current_blockers"])
-        before_price_approval = proposal_snapshot(charge_proposal)
-        rejected("charge_without_price_confirmation_is_rejected",
-            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
-            "per-trip price owner confirmation required")
-        case("charge_without_price_confirmation_preserves_state",
-             before_price_approval, proposal_snapshot(charge_proposal))
-        charge_price_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
-        charge.confirm_price(charge_proposal, charge_revision, charge_hash)
-        unchanged_balance("charge_confirm_price", charge_price_balance_before,
-            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
-        after_price_projection = review_projection(charge_proposal)["revisions"][0]
-        case("price_confirmation_clears_only_price_confirmation_blocker", True,
-             "PERIOD_CONFIRMATION_MISSING" not in after_price_projection["current_blockers"]
-             and "PRICE_CONFIRMATION_MISSING" not in after_price_projection["current_blockers"])
-        owner_confirmation = query(
-            "SELECT c.owner_actor_id::text || '|' || c.revision_id::text || '|' || c.content_sha256 "
-            "FROM p0_fixture.price_confirmation c "
-            f"WHERE c.proposal_id={charge_proposal}")
-        case("owner_price_confirmation_binds_actor_revision_and_hash",
-            f"{PRICE_OWNER}|{charge_revision}|{charge_hash}", owner_confirmation)
-        period_confirmation = query(
-            "SELECT c.maker_actor_id::text || '|' || c.revision_id::text || '|' || c.content_sha256 "
-            "FROM p0_fixture.period_confirmation c "
-            f"WHERE c.proposal_id={charge_proposal}")
-        case("maker_period_confirmation_binds_actor_revision_and_hash",
-            f"{MAKER}|{charge_revision}|{charge_hash}", period_confirmation)
-        charge_audit_login = query(
-            "SELECT count(*) FROM p0_fixture.audit "
-            f"WHERE proposal_id={charge_proposal} AND database_session_user='{CHARGE_LOGIN}' "
-            "AND action IN ('submit', 'confirm_period', 'confirm_price')")
-        case("charge_fixture_audit_uses_charge_login", 3, int(charge_audit_login))
-        rejected("checker_cannot_attest_per_trip_price",
-            charge.confirm_price(charge_proposal, charge_revision, charge_hash,
-                actor=CHECKER, check=False),
-            "actor role required")
-        rejected("price_owner_cannot_checker_approve_same_revision",
-            charge.decide("approve", charge_proposal, charge_revision, charge_hash,
-                actor=PRICE_OWNER, check=False),
-            "price owner cannot checker-approve")
-        rejected("opaque_trip_code_and_opening_refs_do_not_prove_source_resolution",
-            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
-            "source key and opening reconciliation are unresolved")
-
-        changed_charge_payload = json.loads(make_charge_payload(
-            trip_code="fixture-only-trip-code", opening_refs=True, amount=101))
-        charge_edit_balance_before = posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09")
-        changed_charge_result, _, _ = charge.submit(charge_proposal,
-            json.dumps(changed_charge_payload, separators=(",", ":")))
-        unchanged_balance("charge_edit", charge_edit_balance_before,
-            posted_balance_snapshot("FAKE-CUSTOMER-1", "2026-09"))
-        changed_charge = json.loads(changed_charge_result.stdout.strip())
-        changed_charge_revision = int(changed_charge["revision_id"])
-        changed_charge_hash = changed_charge["content_sha256"]
-        rejected("old_period_confirmation_is_invalid_after_charge_edit",
-            charge.decide("approve", charge_proposal, changed_charge_revision,
-                changed_charge_hash, check=False),
-            "maker confirmation required")
-        charge.confirm_period(charge_proposal, changed_charge_revision, changed_charge_hash)
-        rejected("old_price_confirmation_is_invalid_after_charge_edit",
-            charge.decide("approve", charge_proposal, changed_charge_revision,
-                changed_charge_hash, check=False),
-            "per-trip price owner confirmation required")
-        charge.confirm_price(charge_proposal, changed_charge_revision, changed_charge_hash)
-        rejected("reconfirmed_charge_still_fails_closed_on_opening",
-            charge.decide("approve", charge_proposal, changed_charge_revision,
-                changed_charge_hash, check=False),
-            "source key and opening reconciliation are unresolved")
-        blocked_charge_state = query(
-            "SELECT p.state || '|' || "
-            f"(SELECT count(*) FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id) || '|' || "
-            f"(SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
-            f"FROM p0_fixture.proposal p WHERE p.proposal_id={charge_proposal}")
-        case("unresolved_opening_charge_remains_outside_balance", "review_needed|0|0", blocked_charge_state)
-
-        wrong_scope_session, wrong_scope_assertion = f.assertion(CHECKER, "approve",
-            revision_scope("approve", proposal_id, revision1, hash1))
-        wrong_scope_args = f.assertion_sql(wrong_scope_session, wrong_scope_assertion)
-        wrong_scope_result = f.psql(
-            f"SELECT p0_fixture.approve_revision({proposal_id},{revision_current},"
-            f"{sql_literal(hash_current)},{wrong_scope_args})", user=IDENTITY_LOGIN, check=False)
-        rejected("actor_assertion_cannot_be_reused_for_another_revision_scope",
-            wrong_scope_result, "signature or scope mismatch")
-
-        f.decide("approve", proposal_id, revision_current, hash_current)
-        f.present(proposal_id, "Presentation edit after approval")
-        f.psql("UPDATE p0_fixture.debt_period_state SET state='closed' "
-               "WHERE debt_period='2026-02'")
-        before_closed_period_post = proposal_snapshot(proposal_id)
-        closed_period_post, _, _ = f.decide("post", proposal_id, revision_current,
-            hash_current, check=False)
-        rejected("generic_post_rejects_closed_debt_period", closed_period_post,
-            "debt period is not open at posting")
-        case("closed_period_post_preserves_approval_and_posting_state",
-             before_closed_period_post, proposal_snapshot(proposal_id))
-        case("projection_reports_current_closed_period_blocker", True,
-             "DEBT_PERIOD_NOT_OPEN" in
-             review_projection(proposal_id)["revisions"][-1]["current_blockers"])
-        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
-               "WHERE debt_period='2026-02'")
-        f.psql("DELETE FROM p0_fixture.debt_period_state WHERE debt_period='2026-02'")
-        before_missing_period_post = proposal_snapshot(proposal_id)
-        missing_period_post, _, _ = f.decide("post", proposal_id, revision_current,
-            hash_current, check=False)
-        rejected("generic_post_rejects_missing_debt_period_state", missing_period_post,
-            "debt period is not open at posting")
-        case("missing_period_post_preserves_approval_and_posting_state",
-             before_missing_period_post, proposal_snapshot(proposal_id))
-        f.psql("INSERT INTO p0_fixture.debt_period_state(debt_period, state) "
-               "VALUES ('2026-02', 'open')")
-        failed_post, _, _ = f.decide("post", proposal_id, revision_current, hash_current, fail_post=True, check=False)
-        rejected("late_post_failure_rolls_back_statement", failed_post, "injected deferred fixture failure")
-        after_failed_post = query(
-            "SELECT p.state || '|' || (SELECT count(*) FROM p0_fixture.posting x "
-            f"WHERE x.proposal_id=p.proposal_id) || '|' || (SELECT count(*) FROM p0_fixture.audit a "
-            f"WHERE a.proposal_id=p.proposal_id AND a.action='post') FROM p0_fixture.proposal p WHERE p.proposal_id={proposal_id}")
-        case("failed_post_leaves_approved_revision_unchanged", "approved|0|0", after_failed_post)
-        balance_before_generic_post = posted_balance_snapshot()
-        target_balance_before_generic_post = posted_balance_snapshot(
-            str(current_payload["customer_id"]), str(current_payload["debt_period"]))
-        expected_line_total = sum(int(line["amount_vnd"]) for line in current_payload["lines"])
-        case("generic_positive_control_lines_match_header_and_total", True,
-            all(line["customer_id"] == current_payload["customer_id"]
-                and line["debt_period"] == current_payload["debt_period"]
-                for line in current_payload["lines"])
-            and expected_line_total == int(current_payload["total_vnd"]))
-        f.decide("post", proposal_id, revision_current, hash_current)
-        balance_after_generic_post = posted_balance_snapshot()
-        target_balance_after_generic_post = posted_balance_snapshot(
-            str(current_payload["customer_id"]), str(current_payload["debt_period"]))
-        expected_positive_balance = [{
-            "customer_id": current_payload["customer_id"],
-            "debt_period": current_payload["debt_period"],
-            "posted_balance_vnd": expected_line_total,
-        }]
-        case("generic_positive_control_changes_only_target_customer_period",
-            expected_positive_balance, balance_after_generic_post)
-        case("generic_positive_control_target_delta_matches_line_total",
-            expected_line_total,
-            sum(int(row["posted_balance_vnd"]) for row in target_balance_after_generic_post)
-            - sum(int(row["posted_balance_vnd"]) for row in target_balance_before_generic_post))
-        report["posted_balance_evidence"].append({
-            "action": "generic_valid_approve_and_post_positive_control",
-            "database_session_user": IDENTITY_LOGIN,
-            "before": balance_before_generic_post,
-            "after": balance_after_generic_post,
-            "target_before": target_balance_before_generic_post,
-            "target_after": target_balance_after_generic_post,
-            "line_total_vnd": expected_line_total,
-            "target_customer_id": current_payload["customer_id"],
-            "target_debt_period": current_payload["debt_period"],
-        })  # type: ignore[union-attr]
-        posted = json.loads(query(
-            "SELECT row_to_json(x)::text FROM p0_fixture.posting x "
-            f"WHERE x.proposal_id={proposal_id}"))
-        case("posting_uses_approved_revision_payload_and_hash", True,
-             posted["revision_id"] == revision_current and posted["content_sha256"] == hash_current
-             and posted["canonical_payload"]["total_vnd"] == current_payload["total_vnd"]
-             and posted["maker_actor_id"] == str(MAKER)
-             and posted["checker_actor_id"] == str(CHECKER)
-             and posted["database_session_user"] == IDENTITY_LOGIN)
-        approval_link = query(
-            "SELECT count(*) FROM p0_fixture.approval a "
-            f"WHERE a.approval_id={posted['approval_id']} AND a.revision_id={revision_current} "
-            f"AND a.content_sha256='{hash_current}' AND a.checker_actor_id='{CHECKER}'::uuid")
-        case("posting_references_its_exact_approval_event", 1, int(approval_link))
-        duplicate_post, _, _ = f.decide("post", proposal_id, revision_current, hash_current, check=False)
-        rejected("already_posted_revision_cannot_post_twice", duplicate_post, "current approved revision required")
-
-        closed_generic_payload = json.loads(make_payload(100,
-            source="generic-closed-period-01"))
-        closed_generic_payload["debt_period"] = "2026-08"
-        for line in closed_generic_payload["lines"]:
-            line["debt_period"] = "2026-08"
-        closed_generic_result, _, _ = f.submit(None,
-            json.dumps(closed_generic_payload, ensure_ascii=True, separators=(",", ":")))
-        closed_generic = json.loads(closed_generic_result.stdout.strip())
-        closed_generic_id = int(closed_generic["proposal_id"])
-        closed_generic_before = proposal_snapshot(closed_generic_id)
-        closed_generic_approval, _, _ = f.decide("approve", closed_generic_id,
-            int(closed_generic["revision_id"]), str(closed_generic["content_sha256"]),
-            check=False)
-        rejected("generic_closed_header_period_cannot_be_approved",
-            closed_generic_approval, "debt period is not open at approval")
-        case("generic_closed_header_projection_has_period_blocker", True,
-             "DEBT_PERIOD_NOT_OPEN" in
-             review_projection(closed_generic_id)["revisions"][0]["current_blockers"])
-        case("generic_closed_header_approval_keeps_state_and_hash",
-             closed_generic_before, proposal_snapshot(closed_generic_id))
-
-        missing_generic_payload = json.loads(make_payload(100,
-            source="generic-missing-period-01"))
-        missing_generic_payload["debt_period"] = "2026-07"
-        for line in missing_generic_payload["lines"]:
-            line["debt_period"] = "2026-07"
-        missing_generic_result, _, _ = f.submit(None,
-            json.dumps(missing_generic_payload, ensure_ascii=True, separators=(",", ":")))
-        missing_generic = json.loads(missing_generic_result.stdout.strip())
-        missing_generic_id = int(missing_generic["proposal_id"])
-        missing_generic_before = proposal_snapshot(missing_generic_id)
-        missing_generic_approval, _, _ = f.decide("approve", missing_generic_id,
-            int(missing_generic["revision_id"]), str(missing_generic["content_sha256"]),
-            check=False)
-        rejected("generic_missing_period_state_cannot_be_approved",
-            missing_generic_approval, "debt period is not open at approval")
-        case("generic_missing_period_approval_keeps_state_and_hash",
-             missing_generic_before, proposal_snapshot(missing_generic_id))
-
-        audit_mapping = query(
-            "SELECT count(*) FROM p0_fixture.audit a WHERE a.proposal_id=" + str(proposal_id)
-            + f" AND a.app_actor_id='{MAKER}'::uuid AND a.database_session_user='{IDENTITY_LOGIN}'"
-            + " AND a.key_id='fixture-key-v1' AND EXISTS (SELECT 1 FROM p0_fixture.used_assertion_nonce n"
-            + " WHERE n.nonce=a.assertion_nonce AND n.actor_id=a.app_actor_id AND n.session_id=a.app_session_id)")
-        case("audit_separates_app_actor_from_database_service_login", True, int(audit_mapping) > 0)
-        direct_read = f.psql("SELECT * FROM p0_fixture.business_revision", user=IDENTITY_LOGIN, check=False)
-        rejected("api_role_cannot_read_revision_table_directly", direct_read, "permission denied")
-        direct_balance_read = f.psql("SELECT * FROM p0_fixture.posted_balance",
-            user=IDENTITY_LOGIN, check=False)
-        rejected("identity_test_api_cannot_read_posted_balance_view",
-            direct_balance_read, "permission denied")
-        direct_update = f.psql(
-            "UPDATE p0_fixture.proposal SET state='pending'", user=IDENTITY_LOGIN, check=False)
-        rejected("api_role_cannot_update_proposal_table_directly", direct_update, "permission denied")
-        direct_key_read = f.psql("SELECT secret FROM p0_fixture.actor_signing_key",
-            user=IDENTITY_LOGIN, check=False)
-        rejected("api_role_cannot_read_actor_signing_key", direct_key_read, "permission denied")
-        direct_insert = f.psql(
-            f"INSERT INTO p0_fixture.proposal(maker_actor_id, kind) "
-            f"VALUES ('{MAKER}'::uuid, 'revision_fixture')",
-            user=IDENTITY_LOGIN, check=False)
-        rejected("identity_api_role_cannot_insert_proposals_directly",
-            direct_insert, "permission denied")
-        charge_direct_read = f.psql("SELECT * FROM p0_fixture.business_revision",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_role_cannot_read_revision_table_directly",
-            charge_direct_read, "permission denied")
-        charge_balance_read = f.psql("SELECT * FROM p0_fixture.posted_balance",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_role_cannot_read_posted_balance_view",
-            charge_balance_read, "permission denied")
-        charge_direct_dml = f.psql("DELETE FROM p0_fixture.proposal",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_role_cannot_delete_proposals_directly",
-            charge_direct_dml, "permission denied")
-        charge_direct_key_read = f.psql("SELECT secret FROM p0_fixture.actor_signing_key",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_role_cannot_read_actor_signing_key",
-            charge_direct_key_read, "permission denied")
-        charge_direct_insert = f.psql(
-            f"INSERT INTO p0_fixture.proposal(maker_actor_id, kind) "
-            f"VALUES ('{MAKER}'::uuid, 'charge_fixture')",
-            user=CHARGE_LOGIN, check=False)
-        rejected("charge_api_role_cannot_insert_proposals_directly",
-            charge_direct_insert, "permission denied")
-
-        final_state = query(
-            f"SELECT state || '|' || (SELECT count(*) FROM p0_fixture.posting WHERE proposal_id={proposal_id}) "
-            f"|| '|' || (SELECT count(*) FROM p0_fixture.business_revision WHERE proposal_id={proposal_id}) "
-            f"|| '|' || (SELECT count(*) FROM p0_fixture.approval WHERE proposal_id={proposal_id}) "
-            f"FROM p0_fixture.proposal WHERE proposal_id={proposal_id}")
-        case("revision_approval_posting_history_is_append_only", "posted|1|13|2", final_state)
-
-        # The PostgreSQL test admin verifies append-only triggers after the app-role checks.
-        immutability = f.psql(
-            f"UPDATE p0_fixture.business_revision SET content_sha256='{hash1}' WHERE revision_id={revision1}",
-            check=False)
-        rejected("revision_update_trigger_rejects_mutation", immutability, "append-only fixture row")
-        deletion = f.psql(
-            f"DELETE FROM p0_fixture.business_revision WHERE revision_id={revision1}", check=False)
-        rejected("revision_delete_trigger_rejects_mutation", deletion, "append-only fixture row")
-        approval_id = int(query(f"SELECT approval_id FROM p0_fixture.approval WHERE revision_id={revision_current}"))
-        approval_mutation = f.psql(
-            f"UPDATE p0_fixture.approval SET content_sha256='{hash1}' WHERE approval_id={approval_id}", check=False)
-        rejected("approval_update_trigger_rejects_mutation", approval_mutation, "append-only fixture row")
-        posting_id = int(query(f"SELECT posting_id FROM p0_fixture.posting WHERE proposal_id={proposal_id}"))
-        posting_mutation = f.psql(
-            f"UPDATE p0_fixture.posting SET content_sha256='{hash1}' WHERE posting_id={posting_id}", check=False)
-        rejected("posting_update_trigger_rejects_mutation", posting_mutation, "append-only fixture row")
-        audit_id = int(query(f"SELECT audit_id FROM p0_fixture.audit WHERE proposal_id={proposal_id} ORDER BY audit_id DESC LIMIT 1"))
-        audit_deletion = f.psql(f"DELETE FROM p0_fixture.audit WHERE audit_id={audit_id}", check=False)
-        rejected("audit_delete_trigger_rejects_mutation", audit_deletion, "append-only fixture row")
-        price_confirmation_id = int(query(
-            "SELECT confirmation_id FROM p0_fixture.price_confirmation "
-            f"WHERE proposal_id={charge_proposal} ORDER BY revision_id DESC LIMIT 1"))
-        price_confirmation_mutation = f.psql(
-            "UPDATE p0_fixture.price_confirmation "
-            f"SET content_sha256='{hash1}' WHERE confirmation_id={price_confirmation_id}",
-            check=False)
-        rejected("price_confirmation_is_append_only", price_confirmation_mutation,
-            "append-only fixture row")
-        period_confirmation_id = int(query(
-            "SELECT confirmation_id FROM p0_fixture.period_confirmation "
-            f"WHERE proposal_id={charge_proposal} ORDER BY revision_id DESC LIMIT 1"))
-        period_confirmation_mutation = f.psql(
-            "UPDATE p0_fixture.period_confirmation "
-            f"SET content_sha256='{hash1}' WHERE confirmation_id={period_confirmation_id}",
-            check=False)
-        rejected("period_confirmation_is_append_only", period_confirmation_mutation,
-            "append-only fixture row")
-
-        edit_first_result, _, _ = f.submit(None,
-            make_payload(701, source="contention-edit-first"))
-        edit_first = json.loads(edit_first_result.stdout.strip())
-        edit_first_id = int(edit_first["proposal_id"])
-        edit_first_revision = int(edit_first["revision_id"])
-        edit_first_hash = str(edit_first["content_sha256"])
-        edit_next_sql, _, _ = f.submit_sql(edit_first_id,
-            make_payload(702, source="contention-edit-first-revised"))
-        stale_approval_sql, _, _ = f.decide_sql("approve", edit_first_id,
-            edit_first_revision, edit_first_hash)
-        edit_first_evidence = run_contention(
-            "edit-before-approve", edit_first_id, "2026-01", IDENTITY_LOGIN,
-            edit_next_sql, IDENTITY_LOGIN, stale_approval_sql,
-            "stale, unavailable, or self-approved revision")
-        edit_first_after = edit_first_evidence["after"]
-        case("edit_before_approve_commits_revision2_and_new_hash", True,
-            edit_first_after["revision_no"] == 2
-            and edit_first_after["current_revision_id"] != edit_first_revision
-            and edit_first_after["content_sha256"] != edit_first_hash)
-        case("edit_before_approve_leaves_old_revision_unapproved_unposted", "0|0", query(
-            f"SELECT (SELECT count(*) FROM p0_fixture.approval WHERE proposal_id={edit_first_id} "
-            f"AND revision_id={edit_first_revision}) || '|' || "
-            f"(SELECT count(*) FROM p0_fixture.posting WHERE proposal_id={edit_first_id} "
-            f"AND revision_id={edit_first_revision})"))
-        case("edit_before_approve_audit_uses_identity_test_login", 1, int(query(
-            "SELECT count(*) FROM p0_fixture.audit "
-            f"WHERE proposal_id={edit_first_id} AND action='submit' "
-            f"AND revision_id={edit_first_after['current_revision_id']} "
-            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
-
-        approve_first_result, _, _ = f.submit(None,
-            make_payload(711, source="contention-approve-first"))
-        approve_first = json.loads(approve_first_result.stdout.strip())
-        approve_first_id = int(approve_first["proposal_id"])
-        approve_first_revision = int(approve_first["revision_id"])
-        approve_first_hash = str(approve_first["content_sha256"])
-        held_approval_sql, _, _ = f.decide_sql("approve", approve_first_id,
-            approve_first_revision, approve_first_hash)
-        delayed_edit_sql, _, _ = f.submit_sql(approve_first_id,
-            make_payload(712, source="contention-approve-first-revised"))
-        approve_first_evidence = run_contention(
-            "approve-before-edit", approve_first_id, "2026-01", IDENTITY_LOGIN,
-            held_approval_sql, IDENTITY_LOGIN, delayed_edit_sql)
-        approve_first_after = approve_first_evidence["after"]
-        case("approve_before_edit_keeps_approval1_and_creates_revision2", True,
-            approve_first_after["revision_no"] == 2
-            and approve_first_after["current_revision_id"] != approve_first_revision
-            and approve_first_after["content_sha256"] != approve_first_hash
-            and any(row[1] == approve_first_revision and row[2] == approve_first_hash
-                    for row in approve_first_after["approval_history"]))
-        case("approve_before_edit_approval_audit_uses_identity_test_login", 1, int(query(
-            "SELECT count(*) FROM p0_fixture.approval "
-            f"WHERE proposal_id={approve_first_id} AND revision_id={approve_first_revision} "
-            f"AND content_sha256={sql_literal(approve_first_hash)} "
-            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
-        case("approve_before_edit_waiter_edit_audit_uses_identity_test_login", 1, int(query(
-            "SELECT count(*) FROM p0_fixture.audit "
-            f"WHERE proposal_id={approve_first_id} AND action='submit' "
-            f"AND revision_id={approve_first_after['current_revision_id']} "
-            f"AND database_session_user={sql_literal(IDENTITY_LOGIN)}")))
-        old_approval_post, _, _ = f.decide("post", approve_first_id,
-            approve_first_revision, approve_first_hash, check=False)
-        rejected("approve_before_edit_old_approval_cannot_post", old_approval_post,
-            "current approved revision required for posting")
-        case("approve_before_edit_posts_no_stale_revision", 0, int(query(
-            "SELECT count(*) FROM p0_fixture.posting "
-            f"WHERE proposal_id={approve_first_id} AND revision_id={approve_first_revision}")))
-
-        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
-               "WHERE debt_period='2026-10'")
-        case("period_contention_fixture_month_starts_open", "open", query(
-            "SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-10'"))
-        close_first_result, _, _ = charge.submit(None, make_charge_payload(
-            trip_code="fixture-close-before-confirm", period="2026-10",
-            event_date="2026-10-14", opening_refs=True, amount=803))
-        close_first = json.loads(close_first_result.stdout.strip())
-        close_first_id = int(close_first["proposal_id"])
-        close_first_revision = int(close_first["revision_id"])
-        close_first_hash = str(close_first["content_sha256"])
-        charge.confirm_price(close_first_id, close_first_revision, close_first_hash)
-        close_sql = (
-            "UPDATE p0_fixture.debt_period_state SET state='closed' "
-            "WHERE debt_period='2026-10' RETURNING debt_period || '|' || state")
-        confirm_after_close_sql, _, _ = charge.confirm_sql(
-            "confirm_period", "confirm_period_revision", close_first_id,
-            close_first_revision, close_first_hash, MAKER)
-        close_before_confirm_evidence = run_contention(
-            "close-before-confirm-period", close_first_id, "2026-10", "postgres",
-            close_sql, CHARGE_LOGIN, confirm_after_close_sql,
-            "debt period is not open for maker confirmation")
-        case("close_before_confirm_holder_uses_owner_period_update",
-            ["2026-10|closed"], close_before_confirm_evidence["holder_action_output"])
-        close_first_after = close_before_confirm_evidence["after"]
-        case("close_before_confirm_records_no_confirmation_or_extra_audit", True,
-            close_first_after["period_confirmation_history"] == []
-            and close_first_after["audit_count"]
-                == close_before_confirm_evidence["before"]["audit_count"])
-        close_first_projection = review_projection(close_first_id)["revisions"][0]
-        close_before_confirm_evidence["review_projection_after"] = close_first_projection
-        case("close_before_confirm_current_projection_reports_closed_period", True,
-            close_first_projection["is_current_revision"]
-            and "DEBT_PERIOD_NOT_OPEN" in close_first_projection["current_blockers"])
-
-        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
-               "WHERE debt_period='2026-10'")
-        confirm_first_result, _, _ = charge.submit(None, make_charge_payload(
-            trip_code="fixture-confirm-before-close", period="2026-10",
-            event_date="2026-10-14", opening_refs=True, amount=809))
-        confirm_first = json.loads(confirm_first_result.stdout.strip())
-        confirm_first_id = int(confirm_first["proposal_id"])
-        confirm_first_revision = int(confirm_first["revision_id"])
-        confirm_first_hash = str(confirm_first["content_sha256"])
-        charge.confirm_price(confirm_first_id, confirm_first_revision, confirm_first_hash)
-        held_period_confirmation_sql, _, _ = charge.confirm_sql(
-            "confirm_period", "confirm_period_revision", confirm_first_id,
-            confirm_first_revision, confirm_first_hash, MAKER)
-        close_waiter_sql = (
-            "UPDATE p0_fixture.debt_period_state SET state='closed' "
-            "WHERE debt_period='2026-10' RETURNING debt_period || '|' || state")
-        confirm_before_close_evidence = run_contention(
-            "confirm-period-before-close", confirm_first_id, "2026-10", CHARGE_LOGIN,
-            held_period_confirmation_sql, "postgres", close_waiter_sql)
-        confirm_first_after = confirm_before_close_evidence["after"]
-        case("confirm_period_before_close_keeps_append_only_confirmation", True,
-            len(confirm_first_after["period_confirmation_history"]) == 1
-            and confirm_first_after["period_confirmation_history"][0][1]
-                == confirm_first_revision
-            and confirm_first_after["period_confirmation_history"][0][2]
-                == confirm_first_hash)
-        case("confirm_period_before_close_audit_uses_charge_login", 1, int(query(
-            "SELECT count(*) FROM p0_fixture.audit "
-            f"WHERE proposal_id={confirm_first_id} AND action='confirm_period' "
-            f"AND database_session_user={sql_literal(CHARGE_LOGIN)}")))
-        case("confirm_period_before_close_commits_closed_state", "closed", query(
-            "SELECT state FROM p0_fixture.debt_period_state WHERE debt_period='2026-10'"))
-        case("confirm_period_before_close_waiter_uses_owner_period_update",
-            "2026-10|closed", confirm_before_close_evidence["waiter_output"].strip())
-        confirm_first_projection = review_projection(confirm_first_id)["revisions"][0]
-        confirm_before_close_evidence["review_projection_after"] = confirm_first_projection
-        case("confirm_period_before_close_current_blocker_reports_closed_period", True,
-            confirm_first_projection["is_current_revision"]
-            and "DEBT_PERIOD_NOT_OPEN" in confirm_first_projection["current_blockers"])
-        before_closed_charge_decisions = proposal_snapshot(confirm_first_id)
-        closed_charge_approval, _, _ = charge.decide("approve", confirm_first_id,
-            confirm_first_revision, confirm_first_hash, check=False)
-        rejected("closed_charge_after_confirmation_cannot_be_approved",
-            closed_charge_approval, "debt period is not open at approval")
-        closed_charge_post, _, _ = charge.decide("post", confirm_first_id,
-            confirm_first_revision, confirm_first_hash, check=False)
-        rejected("closed_charge_after_confirmation_cannot_be_posted",
-            closed_charge_post, "current approved revision required for posting")
-        case("closed_charge_decisions_preserve_confirmation_and_state",
-            before_closed_charge_decisions, proposal_snapshot(confirm_first_id))
-
-        charge_approval_or_post = query(
-            "SELECT count(*) FROM p0_fixture.proposal p WHERE p.kind='charge_fixture' "
-            "AND (p.state IN ('approved', 'posted') "
-            "OR EXISTS (SELECT 1 FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id) "
-            "OR EXISTS (SELECT 1 FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id))")
-        case("no_charge_fixture_approved_or_posted", 0, int(charge_approval_or_post))
-        contention_rows = report["concurrency_evidence"]
-        contention_closed = all(
-            row.get("holder_process_exited") is True
-            and row.get("waiter_process_exited") is True
-            and not row.get("cleanup_errors")
-            for row in contention_rows)  # type: ignore[union-attr]
-        case("contention_sessions_and_processes_are_closed", True, contention_closed)
-        report["exit_code"] = 0
+        cases = report["cases"]
+        report["case_total"] = len(cases)  # type: ignore[arg-type]
+        report["case_pass"] = sum(1 for item in cases if item["result"] == "pass")  # type: ignore[union-attr]
+        report["case_fail"] = len(cases) - report["case_pass"]  # type: ignore[operator]
+        if report["case_fail"] == 0 and not report["group_errors"]:
+            report["exit_code"] = 0
     except BaseException as exc:
         error = exc
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         contention_rows = report["concurrency_evidence"]
         report["session_cleanup"] = {
-            "holders_exited": all(row.get("holder_process_exited") is True
-                                   for row in contention_rows),
-            "waiters_exited": all(row.get("waiter_process_exited") is True
-                                   for row in contention_rows),
+            "holders_exited": all(row.get("holder_process_exited") is True for row in contention_rows),
+            "waiters_exited": all(row.get("waiter_process_exited") is True for row in contention_rows),
             "verified": all(row.get("holder_process_exited") is True
                             and row.get("waiter_process_exited") is True
-                            and not row.get("cleanup_errors")
-                            for row in contention_rows),
+                            and not row.get("cleanup_errors") for row in contention_rows),
         }  # type: ignore[union-attr]
-        if not report["session_cleanup"]["verified"]:
+        if not report["session_cleanup"]["verified"]:  # type: ignore[index]
             report["exit_code"] = 1
             report["session_cleanup_error"] = "one or more contention processes did not exit cleanly"
             if error is None:
@@ -2352,7 +1497,10 @@ def main() -> int:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    summary = {key: report.get(key) for key in (
+        "run_id", "revision", "head_sha", "head_sha_source", "tree", "case_total", "case_pass", "case_fail", "groups",
+        "failed_cases", "group_errors", "success_path", "session_cleanup", "cleanup", "exit_code", "error")}
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
     if error:
         return 1
     return int(report["exit_code"])
