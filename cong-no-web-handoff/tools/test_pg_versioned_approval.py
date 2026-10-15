@@ -70,7 +70,7 @@ def make_payload(amount: int, *, source: str = "fixture-source-01",
     first = amount // 2
     second = amount - first
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": kind,
         "customer_id": "FAKE-CUSTOMER-1",
         "debt_period": "2026-01",
@@ -95,7 +95,7 @@ def make_charge_payload(*, trip_code: str | None = None, period: str = "2026-09"
                         event_date: str = "2026-10-14",
                         opening_refs: bool = False, amount: int = 100) -> str:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "charge_fixture",
         "customer_id": "FAKE-CUSTOMER-1",
         "debt_period": period,
@@ -156,7 +156,7 @@ class Fixture:
                *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
                signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
                issued_epoch: int | None = None, user: str | None = None,
-               check: bool = True):
+               check: bool = True, date_style: str | None = None):
         signed_for = signed_actor or actor
         scope = submit_scope(proposal_id, scope_payload if scope_payload is not None else payload)
         session, assertion = self.assertion(signed_for, "submit", scope,
@@ -167,6 +167,10 @@ class Fixture:
             f"{proposal_id if proposal_id is not None else 'NULL'}::bigint,"
             f"{sql_literal(payload)}::text,{args}) x"
         )
+        if date_style is not None:
+            if date_style not in {"SQL, DMY", "SQL, MDY"}:
+                raise ValueError("unsupported fixture DateStyle")
+            query = f"SET DateStyle TO '{date_style}'; " + query
         return self.psql(query, user=user or self.db_user, check=check), assertion, session
 
     def present(self, proposal_id: int, title: str, actor: uuid.UUID = MAKER,
@@ -410,6 +414,205 @@ def main() -> int:
             "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'UPDATE')) "
             "THEN 'yes' ELSE 'no' END FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
             "WHERE n.nspname='p0_fixture' AND c.relkind='S'"))
+
+        # V2 canonicalization is independent of DateStyle and JSON numeric scale.
+        date_payload = make_payload(100, source="fixture-date-style-source")
+        dmy_result, _, _ = f.submit(None, date_payload, date_style="SQL, DMY")
+        mdy_result, _, _ = f.submit(None, date_payload, date_style="SQL, MDY")
+        dmy_revision = json.loads(dmy_result.stdout.strip())
+        mdy_revision = json.loads(mdy_result.stdout.strip())
+        case("date_style_dmy_and_mdy_have_same_v2_hash",
+            dmy_revision["content_sha256"], mdy_revision["content_sha256"])
+        case("date_style_dmy_and_mdy_have_same_canonical_payload",
+            query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+                f"WHERE revision_id={dmy_revision['revision_id']}"),
+            query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+                f"WHERE revision_id={mdy_revision['revision_id']}"))
+        case("canonical_payload_uses_schema_version_2", "2",
+            query("SELECT canonical_payload->>'schema_version' FROM p0_fixture.business_revision "
+                f"WHERE revision_id={dmy_revision['revision_id']}"))
+        case("stored_hash_uses_v2_domain_and_canonical_bytes",
+            dmy_revision["content_sha256"], query(
+                "SELECT encode(public.digest(convert_to('webdebit.business-payload.v2' || E'\\n' "
+                "|| canonical_payload::text, 'UTF8'), 'sha256'), 'hex') "
+                "FROM p0_fixture.business_revision "
+                f"WHERE revision_id={dmy_revision['revision_id']}"))
+        case("pure_canonical_functions_are_immutable",
+            "canonical_vnd:i|canonicalize_payload:i|parse_iso_date:i", query(
+                "SELECT string_agg(p.proname || ':' || p.provolatile, '|' ORDER BY p.proname) "
+                "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                "WHERE n.nspname='p0_fixture' "
+                "AND p.proname IN ('canonical_vnd','canonicalize_payload','parse_iso_date')"))
+
+        integer_payload = make_payload(100, source="fixture-numeric-scale-source")
+        decimal_one_payload = (integer_payload.replace('"total_vnd":100', '"total_vnd":100.0')
+            .replace('"amount_vnd":50', '"amount_vnd":50.00'))
+        decimal_payload = (integer_payload.replace('"total_vnd":100', '"total_vnd":100.00')
+            .replace('"amount_vnd":50', '"amount_vnd":50.0'))
+        integer_result, _, _ = f.submit(None, integer_payload)
+        decimal_one_result, _, _ = f.submit(None, decimal_one_payload)
+        decimal_result, _, _ = f.submit(None, decimal_payload)
+        integer_revision = json.loads(integer_result.stdout.strip())
+        decimal_one_revision = json.loads(decimal_one_result.stdout.strip())
+        decimal_revision = json.loads(decimal_result.stdout.strip())
+        integer_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={integer_revision['revision_id']}")
+        decimal_one_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={decimal_one_revision['revision_id']}")
+        decimal_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={decimal_revision['revision_id']}")
+        case("vnd_100_100_0_100_00_have_same_canonical_payload",
+            f"{integer_canonical}|{integer_canonical}",
+            f"{decimal_one_canonical}|{decimal_canonical}")
+        case("vnd_100_100_0_100_00_have_same_business_hash",
+            f"{integer_revision['content_sha256']}|{integer_revision['content_sha256']}",
+            f"{decimal_one_revision['content_sha256']}|{decimal_revision['content_sha256']}")
+
+        integer_charge = make_charge_payload(amount=100)
+        decimal_one_charge = (integer_charge.replace('"total_vnd":100', '"total_vnd":100.0')
+            .replace('"amount_vnd":100', '"amount_vnd":100.00')
+            .replace('"amount_vnd":50', '"amount_vnd":50.0'))
+        decimal_charge = (integer_charge.replace('"total_vnd":100', '"total_vnd":100.00')
+            .replace('"amount_vnd":100', '"amount_vnd":100.0')
+            .replace('"amount_vnd":50', '"amount_vnd":50.00'))
+        integer_charge_result, _, _ = charge.submit(None, integer_charge)
+        decimal_one_charge_result, _, _ = charge.submit(None, decimal_one_charge)
+        decimal_charge_result, _, _ = charge.submit(None, decimal_charge)
+        integer_charge_revision = json.loads(integer_charge_result.stdout.strip())
+        decimal_one_charge_revision = json.loads(decimal_one_charge_result.stdout.strip())
+        decimal_charge_revision = json.loads(decimal_charge_result.stdout.strip())
+        integer_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={integer_charge_revision['revision_id']}")
+        decimal_one_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={decimal_one_charge_revision['revision_id']}")
+        decimal_charge_canonical = query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+            f"WHERE revision_id={decimal_charge_revision['revision_id']}")
+        case("charge_vnd_spellings_100_100_0_100_00_have_same_canonical_payload",
+            f"{integer_charge_canonical}|{integer_charge_canonical}",
+            f"{decimal_one_charge_canonical}|{decimal_charge_canonical}")
+        case("charge_vnd_spellings_100_100_0_100_00_have_same_business_hash",
+            f"{integer_charge_revision['content_sha256']}|{integer_charge_revision['content_sha256']}",
+            f"{decimal_one_charge_revision['content_sha256']}|{decimal_charge_revision['content_sha256']}")
+        case("canonical_price_component_has_v2_exact_integer",
+            "50", query("SELECT canonical_payload->'price_components'->0->>'amount_vnd' "
+                "FROM p0_fixture.business_revision "
+                f"WHERE revision_id={decimal_charge_revision['revision_id']}"))
+        large_amount = 18446744073709551617
+        large_result, _, _ = f.submit(None, make_payload(large_amount,
+            source="fixture-large-exact-vnd-source"))
+        large_revision = json.loads(large_result.stdout.strip())
+        large_values = query(
+            "SELECT canonical_payload->>'total_vnd' || '|' || "
+            "(SELECT string_agg(line->>'amount_vnd', '|' ORDER BY (line->>'line_no')::integer) "
+            "FROM jsonb_array_elements(canonical_payload->'lines') AS x(line)) "
+            "FROM p0_fixture.business_revision "
+            f"WHERE revision_id={large_revision['revision_id']}")
+        case("vnd_above_bigint_remains_exact_in_total_and_lines",
+            "18446744073709551617|9223372036854775808|9223372036854775809", large_values)
+        large_charge_amount = 36893488147419103234
+        large_charge_result, _, _ = charge.submit(None,
+            make_charge_payload(amount=large_charge_amount))
+        large_charge_revision = json.loads(large_charge_result.stdout.strip())
+        large_charge_values = query(
+            "SELECT canonical_payload->>'total_vnd' || '|' || "
+            "(canonical_payload->'lines'->0->>'amount_vnd') || '|' || "
+            "(SELECT string_agg(component->>'amount_vnd', '|' ORDER BY ordinality) "
+            "FROM jsonb_array_elements(canonical_payload->'price_components') "
+            "WITH ORDINALITY AS x(component, ordinality)) "
+            "FROM p0_fixture.business_revision "
+            f"WHERE revision_id={large_charge_revision['revision_id']}")
+        case("vnd_above_bigint_remains_exact_in_charge_total_line_and_components",
+            "36893488147419103234|36893488147419103234|18446744073709551617|18446744073709551617",
+            large_charge_values)
+
+        old_version_payload = integer_payload.replace('"schema_version":2', '"schema_version":1')
+        old_version, _, _ = f.submit(None, old_version_payload, check=False)
+        rejected("schema_version_1_is_explicitly_rejected", old_version,
+            "schema version 1 is unsupported; expected version 2")
+
+        null_money = integer_payload.replace('"total_vnd":100', '"total_vnd":null')
+        null_money_result, _, _ = f.submit(None, null_money, check=False)
+        rejected("null_money_is_rejected_as_non_numeric", null_money_result,
+            "fixture VND value must be a JSON number")
+        zero_money = integer_payload.replace('"total_vnd":100', '"total_vnd":0')
+        zero_money_result, _, _ = f.submit(None, zero_money, check=False)
+        rejected("zero_money_remains_rejected_by_strict_fixture", zero_money_result,
+            "fixture amount must be a positive integer")
+        case("null_money_is_not_coerced_to_zero", True,
+            "fixture VND value must be a JSON number" in null_money_result.stdout + null_money_result.stderr
+            and "fixture amount must be a positive integer" in zero_money_result.stdout + zero_money_result.stderr)
+        negative_money = integer_payload.replace('"total_vnd":100', '"total_vnd":-100')
+        negative_money_result, _, _ = f.submit(None, negative_money, check=False)
+        rejected("negative_money_is_rejected", negative_money_result,
+            "fixture amount must be a positive integer")
+        for field, bad_value, marker in (
+            ("line_zero", '"amount_vnd":0', '"amount_vnd":50'),
+            ("line_negative", '"amount_vnd":-50', '"amount_vnd":50'),
+            ("line_fractional", '"amount_vnd":50.5', '"amount_vnd":50'),
+            ("line_null", '"amount_vnd":null', '"amount_vnd":50'),
+        ):
+            bad_line_payload = integer_payload.replace(marker, bad_value, 1)
+            bad_line_result, _, _ = f.submit(None, bad_line_payload, check=False)
+            rejected(f"{field}_money_is_rejected", bad_line_result,
+                "fixture VND value must be a JSON number" if field == "line_null"
+                else "fixture amount must be a positive integer")
+        for field, bad_value in (
+            ("component_zero", '"amount_vnd":0'),
+            ("component_negative", '"amount_vnd":-50'),
+            ("component_fractional", '"amount_vnd":50.5'),
+            ("component_null", '"amount_vnd":null'),
+        ):
+            bad_component_payload = make_charge_payload().replace(
+                '"amount_vnd":50', bad_value, 1)
+            bad_component_result, _, _ = charge.submit(None, bad_component_payload, check=False)
+            rejected(f"{field}_money_is_rejected", bad_component_result,
+                "fixture VND value must be a JSON number" if field == "component_null"
+                else "fixture amount must be a positive integer")
+        for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
+            nonfinite_money = integer_payload.replace('"total_vnd":100',
+                f'"total_vnd":{nonfinite_token}')
+            nonfinite_money_result, _, _ = f.submit(None, nonfinite_money, check=False)
+            case(f"nonfinite_json_money_{nonfinite_token}_is_rejected", True,
+                nonfinite_money_result.returncode != 0)
+
+        valid_dates = ("0001-01-01", "2024-02-29", "9999-12-31")
+        for valid_date in valid_dates:
+            date_case_payload = (integer_payload.replace('"event_date":"2026-01-31"',
+                f'"event_date":"{valid_date}"').replace('"posting_date":"2026-02-01"',
+                f'"posting_date":"{valid_date}"'))
+            valid_date_result, _, _ = f.submit(None, date_case_payload)
+            valid_date_revision = json.loads(valid_date_result.stdout.strip())
+            case(f"strict_iso_date_accepts_{valid_date}",
+                valid_date, query("SELECT canonical_payload->>'event_date' "
+                    "FROM p0_fixture.business_revision "
+                    f"WHERE revision_id={valid_date_revision['revision_id']}"))
+
+        invalid_dates = (
+            ("year_zero", "0000-01-01"),
+            ("year_ten_thousand", "10000-01-01"),
+            ("invalid_leap_day", "2025-02-29"),
+            ("invalid_month", "2026-13-01"),
+            ("invalid_day", "2026-01-32"),
+            ("slash_date", "01/02/2026"),
+            ("slash_iso_date", "2026/01/31"),
+            ("date_timestamp", "2026-01-01T00:00:00Z"),
+            ("date_timestamp_space", "2026-01-01 00:00:00"),
+            ("date_leading_whitespace", " 2026-01-01"),
+            ("date_trailing_whitespace", "2026-01-01 "),
+            ("date_unicode_digits", "２０２６-01-01"),
+            ("positive_infinity_date", "infinity"),
+            ("negative_infinity_date", "-infinity"),
+        )
+        for date_case, invalid_date in invalid_dates:
+            for date_field, default_value in (("event_date", "2026-01-31"),
+                                              ("posting_date", "2026-02-01")):
+                invalid_date_payload = integer_payload.replace(
+                    f'"{date_field}":"{default_value}"',
+                    f'"{date_field}":{json.dumps(invalid_date, ensure_ascii=True)}')
+                invalid_date_result, _, _ = f.submit(None, invalid_date_payload, check=False)
+                rejected(f"strict_iso_date_rejects_{date_field}_{date_case}",
+                    invalid_date_result, "invalid fixture date")
+
         payload100 = make_payload(100, source="fixture-é-source", evidence="fixture-é-evidence")
         created, first_assertion, maker_session = f.submit(None, payload100)
         first = json.loads(created.stdout.strip())
@@ -602,10 +805,10 @@ def main() -> int:
         unknown_payload = json.dumps(unknown_obj, separators=(",", ":"))
         unknown, _, _ = f.submit(None, unknown_payload, check=False)
         rejected("unknown_business_field_fails_closed", unknown, "missing or unknown business fields")
-        fractional_obj = json.loads(make_payload(103, source="fractional-source-01"))
-        fractional_obj["total_vnd"] = 103.5
-        fractional_obj["lines"][0]["amount_vnd"] = 103.5
-        fractional, _, _ = f.submit(None, json.dumps(fractional_obj, separators=(",", ":")), check=False)
+        fractional_payload = (make_payload(103, source="fractional-source-01")
+            .replace('"total_vnd":103', '"total_vnd":103.5')
+            .replace('"amount_vnd":51', '"amount_vnd":51.5', 1))
+        fractional, _, _ = f.submit(None, fractional_payload, check=False)
         rejected("fractional_vnd_is_rejected", fractional, "positive integer")
 
         sum_obj = json.loads(make_payload(104, source="sum-source-01"))

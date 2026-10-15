@@ -54,9 +54,9 @@ HMAC bảo vệ khỏi client chỉ có DB service credential nhưng không có 
 
 ## Canonical business revision
 
-### Payload v1
+### Fixture payload v2
 
-Mỗi revision giữ một object payload với schema version rõ. Tập business field cần được version hóa và review trước khi thêm:
+Mỗi revision giữ một object payload với schema version rõ. Fixture PostgreSQL hiện chỉ nhận `schema_version=2`; payload v1 bị từ chối rõ ràng. Đây là fixture mới/cô lập: không migrate dữ liệu thật và không diễn giải lại hash v1 đã lưu. Tập business field cần được version hóa và review trước khi thêm:
 
 - kind, customer ID và debt period;
 - từng line có line number ổn định, customer/period, amount VND nguyên;
@@ -69,9 +69,13 @@ Payload `revision_fixture` giữ coverage Q01/Q02 tổng quát. `charge_fixture`
 
 ### Canonical bytes và hash
 
-Database tạo canonical JSONB từ allowlist field cố định; format/amount/date được kiểm trước khi đưa vào canonical object. V1 bytes là UTF-8 của `webdebit.business-payload.v1\n` + `canonical_jsonb::text` trên PostgreSQL đã pin. `SHA-256(bytes)` là `content_hash`. DB là nơi duy nhất tính authoritative hash; app nhận và lưu kết quả, không tự tạo hash khác.
+Database tạo canonical JSONB từ allowlist field cố định; format/amount/date được kiểm trước khi đưa vào canonical object. VND đi qua PostgreSQL `numeric` chính xác, bỏ scale thập phân thừa; `100`, `100.0` và `100.00` có cùng canonical JSON/hash ở total, lines và price components. Không dùng float hoặc thu hẹp sang bigint. Fractional/negative/nonfinite values bị từ chối; money `NULL` bị phân biệt với 0 và không tự chuyển đổi. Fixture hiện yêu cầu amount dương, nên cả NULL lẫn 0 đều bị từ chối riêng; lưu draft thiếu/0 sẽ thuộc T03.
 
-Không dùng float cho VND; NULL khác 0. Hash định danh nội dung, không xác minh actor hoặc nguồn tiền. Nâng chuẩn hóa tạo version mới; không tái diễn giải hash cũ bằng code mới. Presentation data (nhãn hiển thị, thứ tự sort UI, trạng thái mở/đóng) ở bảng/cột riêng, không nằm trong business payload và không được dùng để thay nghĩa dữ liệu.
+Ngày chỉ nhận ASCII `YYYY-MM-DD`, năm `0001` đến `9999`; PostgreSQL dựng ngày từ các thành phần đã kiểm bằng `make_date`, không dùng parser phụ thuộc `DateStyle`. Canonical ngày giữ dạng ISO đã kiểm.
+
+V2 bytes là UTF-8 của `webdebit.business-payload.v2\n` + `canonical_jsonb::text` trên PostgreSQL đã pin. `SHA-256(bytes)` là `content_hash`. DB là nơi duy nhất tính authoritative hash; app nhận và lưu kết quả, không tự tạo hash khác. HMAC assertion của actor vẫn dùng protocol `webdebit-actor-assertion-v1` và vẫn ký scope payload thô; T02 chỉ đổi business payload/hash version.
+
+Hash định danh nội dung, không xác minh actor hoặc nguồn tiền. Nâng chuẩn hóa tạo version mới; không tái diễn giải hash cũ bằng code mới. Presentation data (nhãn hiển thị, thứ tự sort UI, trạng thái mở/đóng) ở bảng/cột riêng, không nằm trong business payload và không được dùng để thay nghĩa dữ liệu.
 
 ### Storage, approval và posting
 

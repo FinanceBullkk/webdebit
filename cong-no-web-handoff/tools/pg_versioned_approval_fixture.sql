@@ -274,6 +274,50 @@ BEGIN
     END IF;
 END $$;
 
+CREATE FUNCTION p0_fixture.parse_iso_date(p_value text) RETURNS date
+LANGUAGE plpgsql IMMUTABLE STRICT
+SET search_path = pg_catalog AS $$
+DECLARE
+    v_year integer;
+    v_month integer;
+    v_day integer;
+BEGIN
+    IF octet_length(p_value) <> 10
+       OR (p_value COLLATE "C") !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
+        RAISE EXCEPTION 'invalid fixture date' USING ERRCODE = 'P0001';
+    END IF;
+    v_year := substr(p_value, 1, 4)::integer;
+    v_month := substr(p_value, 6, 2)::integer;
+    v_day := substr(p_value, 9, 2)::integer;
+    IF v_year < 1 OR v_year > 9999 THEN
+        RAISE EXCEPTION 'invalid fixture date' USING ERRCODE = 'P0001';
+    END IF;
+    BEGIN
+        RETURN make_date(v_year, v_month, v_day);
+    EXCEPTION WHEN datetime_field_overflow THEN
+        RAISE EXCEPTION 'invalid fixture date' USING ERRCODE = 'P0001';
+    END;
+END $$;
+
+CREATE FUNCTION p0_fixture.canonical_vnd(p_value jsonb) RETURNS numeric
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog AS $$
+DECLARE
+    v_amount numeric;
+BEGIN
+    IF jsonb_typeof(p_value) IS DISTINCT FROM 'number' THEN
+        RAISE EXCEPTION 'fixture VND value must be a JSON number' USING ERRCODE = 'P0001';
+    END IF;
+    v_amount := p_value::text::numeric;
+    IF v_amount::text IN ('NaN', 'Infinity', '-Infinity') THEN
+        RAISE EXCEPTION 'fixture VND value must be finite' USING ERRCODE = 'P0001';
+    END IF;
+    IF v_amount <= 0 OR v_amount <> trunc(v_amount) THEN
+        RAISE EXCEPTION 'fixture amount must be a positive integer' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN trim_scale(v_amount);
+END $$;
+
 CREATE FUNCTION p0_fixture.canonicalize_payload(p_payload jsonb) RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog AS $$
@@ -287,6 +331,8 @@ DECLARE
     v_unique_line_count integer;
     v_total numeric;
     v_kind text;
+    v_event_date date;
+    v_posting_date date;
 BEGIN
     IF jsonb_typeof(p_payload) IS DISTINCT FROM 'object'
        OR p_payload->>'kind' IS NULL
@@ -307,10 +353,16 @@ BEGIN
                 'opening_absence_evidence_ref','price_components'])) THEN
         RAISE EXCEPTION 'payload has missing or unknown business fields' USING ERRCODE = 'P0001';
     END IF;
-    IF jsonb_typeof(p_payload->'schema_version') IS DISTINCT FROM 'number'
-       OR (p_payload->>'schema_version')::numeric <> 1
-       OR jsonb_typeof(p_payload->'total_vnd') IS DISTINCT FROM 'number'
-       OR jsonb_typeof(p_payload->'lines') IS DISTINCT FROM 'array'
+    IF jsonb_typeof(p_payload->'schema_version') IS DISTINCT FROM 'number' THEN
+        RAISE EXCEPTION 'invalid fixture schema version' USING ERRCODE = 'P0001';
+    END IF;
+    IF (p_payload->>'schema_version')::numeric = 1 THEN
+        RAISE EXCEPTION 'schema version 1 is unsupported; expected version 2' USING ERRCODE = 'P0001';
+    END IF;
+    IF (p_payload->>'schema_version')::numeric <> 2 THEN
+        RAISE EXCEPTION 'unsupported fixture schema version; expected version 2' USING ERRCODE = 'P0001';
+    END IF;
+    IF jsonb_typeof(p_payload->'lines') IS DISTINCT FROM 'array'
        OR (p_payload->>'debt_period') IS NULL
        OR (p_payload->>'debt_period') !~ '^\d{4}-(0[1-9]|1[0-2])$'
        OR (p_payload->>'customer_id') IS NULL OR length(btrim(p_payload->>'customer_id')) = 0
@@ -321,15 +373,14 @@ BEGIN
        OR (p_payload->>'reason') IS NULL OR length(btrim(p_payload->>'reason')) = 0 THEN
         RAISE EXCEPTION 'invalid fixture payload fields' USING ERRCODE = 'P0001';
     END IF;
-    v_total := (p_payload->>'total_vnd')::numeric;
-    IF v_total <= 0 OR v_total <> trunc(v_total) THEN
-        RAISE EXCEPTION 'fixture amount must be a positive integer' USING ERRCODE = 'P0001';
-    END IF;
-    IF (p_payload->>'event_date') IS NULL OR (p_payload->>'posting_date') IS NULL
-       OR (p_payload->>'event_date')::date IS NULL OR (p_payload->>'posting_date')::date IS NULL THEN
+    v_total := p0_fixture.canonical_vnd(p_payload->'total_vnd');
+    IF jsonb_typeof(p_payload->'event_date') IS DISTINCT FROM 'string'
+       OR jsonb_typeof(p_payload->'posting_date') IS DISTINCT FROM 'string' THEN
         RAISE EXCEPTION 'invalid fixture date' USING ERRCODE = 'P0001';
     END IF;
-    IF v_kind = 'charge_fixture' AND (p_payload->>'event_date')::date < DATE '2026-10-14' THEN
+    v_event_date := p0_fixture.parse_iso_date(p_payload->>'event_date');
+    PERFORM p0_fixture.parse_iso_date(p_payload->>'posting_date');
+    IF v_kind = 'charge_fixture' AND v_event_date < DATE '2026-10-14' THEN
         RAISE EXCEPTION 'charge event date before 2026-10-14' USING ERRCODE = 'P0001';
     END IF;
 
@@ -347,22 +398,20 @@ BEGIN
            OR (SELECT count(*) FROM jsonb_object_keys(v_line)) <> 4
            OR NOT v_line ?& ARRAY['line_no','customer_id','debt_period','amount_vnd']
            OR jsonb_typeof(v_line->'line_no') IS DISTINCT FROM 'number'
-           OR jsonb_typeof(v_line->'amount_vnd') IS DISTINCT FROM 'number'
            OR (v_line->>'line_no')::integer < 1
            OR (v_line->>'line_no')::numeric <> trunc((v_line->>'line_no')::numeric)
-           OR (v_line->>'amount_vnd')::numeric <= 0
-           OR (v_line->>'amount_vnd')::numeric <> trunc((v_line->>'amount_vnd')::numeric)
            OR (v_line->>'customer_id') IS NULL OR length(btrim(v_line->>'customer_id')) = 0
            OR (v_line->>'debt_period') IS NULL
            OR (v_line->>'debt_period') !~ '^\d{4}-(0[1-9]|1[0-2])$' THEN
             RAISE EXCEPTION 'invalid fixture line' USING ERRCODE = 'P0001';
         END IF;
+        PERFORM p0_fixture.canonical_vnd(v_line->'amount_vnd');
     END LOOP;
     SELECT jsonb_agg(jsonb_build_object(
         'line_no', (x.line->>'line_no')::integer,
         'customer_id', x.line->>'customer_id',
         'debt_period', x.line->>'debt_period',
-        'amount_vnd', (x.line->>'amount_vnd')::numeric
+        'amount_vnd', p0_fixture.canonical_vnd(x.line->'amount_vnd')
     ) ORDER BY (x.line->>'line_no')::integer)
     INTO v_lines
     FROM jsonb_array_elements(p_payload->'lines') AS x(line);
@@ -377,13 +426,13 @@ BEGIN
     END IF;
 
     v_lines := jsonb_build_object(
-        'schema_version', 1,
+        'schema_version', 2,
         'kind', p_payload->>'kind',
         'customer_id', p_payload->>'customer_id',
         'debt_period', p_payload->>'debt_period',
         'total_vnd', v_total,
-        'event_date', to_char((p_payload->>'event_date')::date, 'YYYY-MM-DD'),
-        'posting_date', to_char((p_payload->>'posting_date')::date, 'YYYY-MM-DD'),
+        'event_date', p_payload->>'event_date',
+        'posting_date', p_payload->>'posting_date',
         'source_ref', p_payload->>'source_ref',
         'evidence_ref', p_payload->>'evidence_ref',
         'evidence_sha256', p_payload->>'evidence_sha256',
@@ -415,18 +464,16 @@ BEGIN
                OR (SELECT count(*) FROM jsonb_object_keys(v_component)) <> 2
                OR NOT v_component ?& ARRAY['label', 'amount_vnd']
                OR jsonb_typeof(v_component->'label') IS DISTINCT FROM 'string'
-               OR length(btrim(v_component->>'label')) = 0
-               OR jsonb_typeof(v_component->'amount_vnd') IS DISTINCT FROM 'number'
-               OR (v_component->>'amount_vnd')::numeric <= 0
-               OR (v_component->>'amount_vnd')::numeric <> trunc((v_component->>'amount_vnd')::numeric) THEN
+               OR length(btrim(v_component->>'label')) = 0 THEN
                 RAISE EXCEPTION 'invalid per-trip price component' USING ERRCODE = 'P0001';
             END IF;
+            PERFORM p0_fixture.canonical_vnd(v_component->'amount_vnd');
         END LOOP;
         SELECT jsonb_agg(jsonb_build_object(
             'label', x.component->>'label',
-            'amount_vnd', (x.component->>'amount_vnd')::numeric
+            'amount_vnd', p0_fixture.canonical_vnd(x.component->'amount_vnd')
         ) ORDER BY x.ordinality),
-        sum((x.component->>'amount_vnd')::numeric)
+        sum(p0_fixture.canonical_vnd(x.component->'amount_vnd'))
         INTO v_components, v_component_total
         FROM jsonb_array_elements(p_payload->'price_components')
             WITH ORDINALITY AS x(component, ordinality);
@@ -488,7 +535,7 @@ BEGIN
     v_payload := p_payload_text::jsonb;
     v_canonical := p0_fixture.canonicalize_payload(v_payload);
     v_hash := encode(public.digest(convert_to(
-        'webdebit.business-payload.v1' || E'\n' || v_canonical::text, 'UTF8'), 'sha256'), 'hex');
+        'webdebit.business-payload.v2' || E'\n' || v_canonical::text, 'UTF8'), 'sha256'), 'hex');
 
     IF p_proposal_id IS NULL THEN
         PERFORM p0_fixture.assert_fixture_kind_access(v_canonical->>'kind');
