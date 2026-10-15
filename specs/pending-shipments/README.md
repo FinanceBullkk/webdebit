@@ -19,3 +19,7 @@ Thêm liên kết `N chuyến chờ duyệt` trong cảnh báo đầu trang. Đ�
 | P05 | Trước/sau lưu nháp và đổi bộ lọc | Tổng đã ghi không đổi; không tạo payment/posting | Model + browser |
 
 Không sửa schema, opening, phân bổ, quyền duyệt hoặc backend. Không dùng trạng thái UI như chứng cứ đã thu tiền. Khôi phục bằng việc bỏ phần cảnh báo và test của thay đổi này; không có dữ liệu bền vững cần rollback. Các P0 ghi tiền trong [quyết định](../../docs/decisions.md) vẫn CÒN MỞ.
+
+## Kết quả triển khai
+
+ĐÃ TRIỂN KHAI trên fixture cục bộ; ĐÃ KIỂM CHỨNG P01–P05 bằng model và Chromium trên clone mới của `75b3ecc4ee023705473cb240841097adc42c48ac`. Regression thất bại trước sửa và đạt sau sửa; xem [bằng chứng](../../docs/verification.md). Chưa triển khai vào runtime hoặc DB thật.

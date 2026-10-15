@@ -19,7 +19,9 @@ Windows, Python 3.13, Node 24.16.0, npm 12.0.2, Playwright 1.64.1, Chromium 156 
 
 ## Checkout mới và CI
 
-Bổ sung kết quả checkout sạch sau khi đóng gói revision mã. Workflow định nghĩa Windows/Linux, Python 3.12/3.13 và Node 24/Chromium; trạng thái GitHub thực chạy phải đọc ở PR/commit checks. Thêm YAML không là một lượt CI đạt.
+ĐÃ KIỂM CHỨNG revision mã `75b3ecc4ee023705473cb240841097adc42c48ac` bằng clone Git mới (không hardlink), đường dẫn có dấu cách. Cài mới cả npm cache, `node_modules`, Chromium và headless shell bằng các lệnh README; `NODE_PATH` trống. Kết quả: 23/23 Python 3.13.6, 16/16 kiểm Node, 4/4 Chromium. Module Playwright resolve trong `node_modules` của clone mới; Git status trước và sau test sạch. Commit tài liệu bổ sung kết quả này không đổi code/dependency/workflow đã nghiệm thu.
+
+Workflow định nghĩa Windows/Linux, Python 3.12/3.13 và Node 24/Chromium; trạng thái GitHub thực chạy phải đọc ở PR/commit checks. Thêm YAML không là một lượt CI đạt. Kết quả CI cuối cùng và URL run được ghi trong mô tả PR.
 
 ## Giới hạn
 
