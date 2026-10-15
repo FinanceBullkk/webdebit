@@ -1,0 +1,22 @@
+schema: spec-driven
+
+context: |
+  Viết artifact bằng tiếng Việt; giữ heading cấu trúc và SHALL/MUST theo OpenSpec.
+  Đọc AGENTS.md, docs/README.md và docs/features/README.md; chỉ mở feature liên quan.
+  docs/business-rules.md và docs/decisions.md là nguồn quy tắc/quyết định chia sẻ.
+  specs/ hiện có tiếp tục quản lý các thay đổi đã mở; OpenSpec dùng cho thay đổi mới,
+  không tạo bản thứ hai của cùng một change. Chỉ sync/archive sau khi kiểm review.
+  Sheet là nguồn lịch sử; opening đã chứa replay, không cộng lại. Pending ngoài balance.
+  VND nguyên chính xác; NULL không phải 0. Thu mới theo nợ cũ trước. Maker khác checker.
+  Không suy fixture, mock, DDL hay CI thành bằng chứng dữ liệu/service thật.
+  Không ghi Sheet/DB, chạy DDL/import/deploy/submit hoặc công bố raw capture từ spec.
+
+rules:
+  proposal:
+    - Nêu đầu ra quan sát được, phạm vi, nguồn quyết định và những gì còn mở.
+    - Phân biệt đề xuất, đã chốt, đã triển khai và đã kiểm chứng.
+  design:
+    - Map thao tác người dùng đến entry point, module, kiểm và bằng chứng.
+    - Nêu ranh giới dữ liệu thật, fixture, DB test và live riêng.
+  tasks:
+    - Tách việc code, kiểm đúng tầng, review diff và ghi giới hạn bằng chứng.

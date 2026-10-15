@@ -5,6 +5,7 @@
 | [Nghiệp vụ](business-rules.md) | Quy tắc đã xác nhận và bất biến |
 | [Quyết định](decisions.md) | Phạm vi được chốt và gate còn mở |
 | [Kiến trúc](architecture.md) | Đường đọc/test hiện có, ranh giới thiết kế nháp |
+| [Bản đồ feature](features/README.md) | Chọn đúng entry point, test và giới hạn trước khi mở mã |
 | [Nguồn và phiên bản](source-register.md) | Truy nguyên bản tóm tắt tới hồ sơ gốc theo hash |
 | [Phát triển](development.md) | Checkout chính, thay đổi, review và đồng bộ |
 | [Kiểm chứng](verification.md) | Kết quả thực chạy và giới hạn |

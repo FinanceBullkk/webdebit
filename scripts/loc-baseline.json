@@ -1,0 +1,10 @@
+{
+  "limit": 300,
+  "grandfathered": {
+    "cong-no-web-handoff/web/ledger_app.py": { "maxLines": 577, "reason": "Mã xem sổ hiện có; tách khi sửa luồng này." },
+    "cong-no-web-handoff/web/app.py": { "maxLines": 434, "reason": "Mã xem replay hiện có; tách khi sửa luồng này." },
+    "cong-no-web-handoff/tools/test_pg_ledger_schema.py": { "maxLines": 414, "reason": "Harness PostgreSQL hiện có; không tăng thêm trước khi tách." },
+    "cong-no-web-handoff/pilot/reconcile.py": { "maxLines": 332, "reason": "Engine replay hiện có; tách khi sửa luồng này." },
+    "cong-no-web-handoff/tools/pg_ledger_schema.sql": { "maxLines": 321, "reason": "Schema baseline hiện có; không tăng thêm trước khi tách." }
+  }
+}

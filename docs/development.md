@@ -17,7 +17,15 @@ Mốc bàn giao `69a84a41382217265f745c1c9ae87cba9e557c16` có 34 file. Bản ch
 5. Review mọi diff định đưa lên, kiểm bí mật/nhạy cảm; không copy toàn docs/capture. Commit/PR chỉ gồm phần task khi được phép; review/CI đúng revision trước merge. Không tự push main hoặc mở ghi tiền vì test xanh.
 6. Ghi revision/hash, môi trường, kết quả và giới hạn ở `docs/verification.md` hoặc PR. Phân biệt thêm workflow với CI đã chạy; fixture với DB/live.
 
-Nghiệp vụ chia sẻ ở `docs/`, spec ở `specs/`. Hồ sơ ngoài repo là bằng chứng lịch sử theo hash trong [source register](source-register.md). Quyết định mới cập nhật repo, không duy trì hai bản sống. Nội dung nhạy cảm chỉ dẫn tới hồ sơ có quyền riêng, không dán vào issue/CI log/tài liệu.
+Nghiệp vụ chia sẻ ở `docs/`; spec hiện có ở `specs/`, thay đổi mới đáng kể ở `openspec/changes/`. Hồ sơ ngoài repo là bằng chứng lịch sử theo hash trong [source register](source-register.md). Quyết định mới cập nhật repo, không duy trì hai bản sống. Nội dung nhạy cảm chỉ dẫn tới hồ sơ có quyền riêng, không dán vào issue/CI log/tài liệu.
+
+## AI coding và OpenSpec
+
+Chọn [feature](features/README.md) trước khi đọc mã. Với thay đổi đáng kể mới, tạo một change trong `openspec/changes/` để ghi outcome, kịch bản, thiết kế và task; không di chuyển các spec đang mở ở `specs/`. Cấu hình OpenSpec chỉ dẫn tới quy tắc chung và giữ tiếng Việt, không sao chép tài liệu nghiệp vụ. Sau review và kiểm đúng tầng mới sync/archive. Việc nhỏ vẫn theo diff/PR, không cần tạo change.
+
+OpenSpec 1.14.2 được khóa trong `devDependencies` và lockfile; chạy `npm ci --ignore-scripts` rồi `npx --no-install openspec doctor --json`, `npm run spec:check`. Khi dùng CLI trên máy local có thể đặt `OPENSPEC_TELEMETRY=0`; CI tự tắt telemetry. `npm audit` tại lúc setup báo một chuỗi dev dependency `fast-glob → micromatch → braces` mức high, chưa có bản vá tương thích; không dùng CLI để duyệt dữ liệu/đường dẫn không tin cậy. Không chạy `audit fix --force` làm đổi major ngầm.
+
+`npm run check:loc` kiểm mã `.py/.js/.mjs/.css/.sql/.html` trong `cong-no-web-handoff/` và `scripts/`: file mới tối đa 300 dòng; file vượt ngưỡng đã có ở baseline chỉ được giữ hoặc giảm. Baseline có lý do trong `scripts/loc-baseline.json`; sửa ngưỡng là thay đổi policy cần review riêng. Gate này kiểm độ dài, không thay kiểm kiến trúc, test hoặc review. Mốc `<100k` context là mục tiêu cần đo trên mẫu task thực tế, không phải kết quả suy từ LOC.
 
 ## Hoàn tác và ranh giới
 

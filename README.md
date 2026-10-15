@@ -4,6 +4,8 @@ Repository phát triển chung cho dev và AI của sổ công nợ phải thu H
 
 Đọc [hướng dẫn](AGENTS.md), [hồ sơ nghiệp vụ](docs/README.md), [quyết định](docs/decisions.md), [quy trình phát triển](docs/development.md). Bản cơ sở `69a84a41382217265f745c1c9ae87cba9e557c16` là bản xuất mã có chọn lọc, không phải bản sao đầy đủ workspace hay runtime.
 
+Khi làm một feature, mở [bản đồ feature](docs/features/README.md) để chọn đúng mã và kiểm. OpenSpec đã được setup cho **thay đổi đáng kể mới**: `npm ci --ignore-scripts`, rồi `npx --no-install openspec doctor --json`; chọn `openspec-propose` trong Codex hoặc chạy CLI theo [quy trình](docs/development.md). Spec đang mở trong `specs/` tiếp tục ở đó, không tạo bản song song.
+
 ## Cài và kiểm trên máy mới
 
 Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Python cần gói dữ liệu múi giờ `tzdata` đã khóa phiên bản/hash, đặc biệt trên Windows; không cần PostgreSQL. Từ gốc repository trên Windows:
@@ -29,6 +31,6 @@ Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.
 - `cong-no-web-handoff/tools/`: schema/export/verify phục vụ phát triển. SQL hiện có không phải migration mới đã duyệt.
 - `cong-no-web-handoff/preview/`: prototype fixture giả trong bộ nhớ tab.
 - `cong-no-web-handoff/tests/`: unit và HTTP tests dùng fake DB.
-- `docs/`, `specs/`: yêu cầu, quyết định, kiểm chứng và thay đổi có phiên bản.
+- `docs/`, `specs/`, `openspec/`: yêu cầu, quyết định, kiểm chứng, spec hiện có và thay đổi mới có phiên bản.
 
 Tiện ích tách XLSX dùng `openpyxl` nằm ngoài cổng test cơ sở; chưa cung cấp môi trường import nguồn thật. Không kèm installer, SSH relay hoặc lệnh submit giao dịch thật. Test code/fixture không chứng minh số dư, quyền duyệt, service hay đường ghi tiền.

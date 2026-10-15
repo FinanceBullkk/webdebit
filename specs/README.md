@@ -5,3 +5,5 @@ Một spec cho một thay đổi: đầu ra, phạm vi, nguồn quyết định,
 - [Cảnh báo chuyến chờ duyệt](pending-shipments/README.md): thay đổi nhỏ trên fixture thử quy trình spec → test → browser → bằng chứng.
 
 Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng spec.
+
+Các spec đang mở ở đây giữ nguyên một nguồn. Thay đổi đáng kể **mới** dùng `openspec/changes/`; khi hoàn thành, review rồi mới sync/archive vào `openspec/specs/`. Không chuyển đổi hàng loạt hồ sơ cũ hoặc tạo hai spec sống cho cùng một thay đổi.
