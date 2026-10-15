@@ -96,6 +96,46 @@ def env_args(env: dict[str, str]) -> list[str]:
     return [part for k, v in env.items() for part in ("--env", f"{k}={v}")]
 
 
+def owned_container_id(docker: list[str], name: str, run_id: str,
+                       expected_id: str | None = None) -> str | None:
+    """Find a container by this run's exact name and labels, then verify its identity."""
+    candidates = run(docker + ["ps", "--all", "--quiet", "--filter", f"name=^/{name}$",
+                              "--filter", f"label={LABEL_TEST}={LABEL_VALUE}",
+                              "--filter", f"label={LABEL_RUN}={run_id}"], check=False)
+    if candidates.returncode:
+        raise HarnessError("could not discover run container for verified cleanup: " + candidates.stderr[-2000:])
+    ids = [line.strip() for line in candidates.stdout.splitlines() if line.strip()]
+    if not ids:
+        return None
+    if len(ids) != 1:
+        raise HarnessError("refusing container cleanup: exact name and run labels matched multiple IDs")
+    container_id = ids[0]
+    inspect_result = run(docker + ["inspect", container_id], check=False)
+    if inspect_result.returncode:
+        raise HarnessError("refusing container cleanup: discovered container could not be inspected")
+    inspected = json.loads(inspect_result.stdout)
+    if len(inspected) != 1:
+        raise HarnessError("refusing container cleanup: inspect did not return exactly one container")
+    current = inspected[0]
+    labels = current.get("Config", {}).get("Labels") or {}
+    if (current.get("Id") != container_id
+            or (expected_id is not None and current.get("Id") != expected_id)
+            or current.get("Name", "").lstrip("/") != name
+            or labels.get(LABEL_TEST) != LABEL_VALUE
+            or labels.get(LABEL_RUN) != run_id):
+        raise HarnessError("refusing container cleanup: identity/name/labels/run-id did not match")
+    return container_id
+
+
+def cleanup_owned_container(docker: list[str], name: str, run_id: str,
+                            expected_id: str | None = None) -> bool:
+    container_id = owned_container_id(docker, name, run_id, expected_id)
+    if container_id is None:
+        return False
+    run(docker + ["rm", "--force", container_id])
+    return True
+
+
 def main() -> int:
     global CONTAINER
     ap = argparse.ArgumentParser()
@@ -347,18 +387,15 @@ def main() -> int:
     finally:
         # Never remove a resource unless its unique name, exact label and run-id all verify.
         try:
-            if container_created:
-                current = json.loads(run(docker + ["inspect", CONTAINER]).stdout)[0]
-                labels = current["Config"]["Labels"]
-                if current["Id"] != report.get("container_id") or labels.get(LABEL_TEST) != LABEL_VALUE or labels.get(LABEL_RUN) != run_id or current["Name"].lstrip("/") != CONTAINER:
-                    raise HarnessError("refusing container cleanup: identity/labels/run-id changed")
-                run(docker + ["rm", "--force", CONTAINER])
+            cleanup_container_removed = cleanup_owned_container(
+                docker, CONTAINER, run_id,
+                str(report["container_id"]) if report.get("container_id") else None)
             if volume_created:
                 current_volume = json.loads(run(docker + ["volume", "inspect", volume]).stdout)[0]
                 if current_volume["Name"] != volume or current_volume["Labels"].get(LABEL_TEST) != LABEL_VALUE or current_volume["Labels"].get(LABEL_RUN) != run_id:
                     raise HarnessError("refusing volume cleanup: identity/labels/run-id changed")
                 run(docker + ["volume", "rm", volume])
-            report["cleanup"] = "verified_and_removed" if container_created or volume_created else "nothing_created"
+            report["cleanup"] = "verified_and_removed" if cleanup_container_removed or volume_created else "nothing_created"
         except BaseException as cleanup_error:
             report["cleanup"] = f"failed: {type(cleanup_error).__name__}: {cleanup_error}"
             error = cleanup_error
