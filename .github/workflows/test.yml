@@ -108,7 +108,8 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install pinned timezone data (viewer fixture server)
-        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: npm test
@@ -129,7 +130,8 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install pinned timezone data
-        run: python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - name: Real viewer (LedgerHandler over HTTP, fake data) at 1280px and 390px
