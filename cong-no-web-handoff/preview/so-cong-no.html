@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sổ công nợ theo tháng · Bản xem thử</title>
+  <style>
+    :root { font-family: "Segoe UI", Arial, sans-serif; color: #203243; background: #f1f4f7; --navy:#183d5d; --blue:#17558a; --line:#cedae4; --muted:#566a7a; }
+    * { box-sizing: border-box; } body { margin: 0; font-size: 14px; line-height: 1.45; }
+    button, input, select { font: inherit; } button { cursor: pointer; } :focus-visible { outline: 3px solid #e7a944; outline-offset: 2px; }
+    .topbar { background: var(--navy); color: white; } .topbar-inner { max-width: 1640px; margin: auto; min-height: 55px; padding: 0 22px; display:flex; align-items:center; gap:30px; }
+    .brand { font-size:17px; font-weight:750; white-space:nowrap; } .brand small { display:block; font-weight:400; font-size:11px; color:#bad0df; }
+    nav { display:flex; gap:4px; align-self:stretch; align-items:stretch; } nav span { display:grid; place-items:center; padding:0 11px; color:#bfceda; white-space:nowrap; } nav [aria-current="page"] { color:white; border-bottom:3px solid #80bfea; font-weight:700; }
+    .readonly { margin-left:auto; border:1px solid #8caabe; color:#d9ecf8; padding:5px 8px; font-size:12px; white-space:nowrap; }
+    main { max-width:1640px; margin:auto; padding:22px 22px 55px; }
+    .heading { display:flex; justify-content:space-between; align-items:start; gap:18px; } .eyebrow { color:var(--blue); text-transform:uppercase; font-size:11px; font-weight:800; letter-spacing:.08em; }
+    h1 { font-size:clamp(25px,2.2vw,32px); margin:3px 0 6px; line-height:1.2; } h2 { margin:0; font-size:18px; } h3 { margin:0; font-size:14px; }
+    .muted { color:var(--muted); } .heading p { margin:0; } .demo { margin:17px 0; background:#fff8e7; border:1px solid #e4c880; border-radius:7px; padding:10px 13px; color:#674b11; }
+    .button { border:1px solid #12466f; background:var(--blue); color:white; border-radius:5px; padding:9px 14px; font-weight:700; white-space:nowrap; }
+    .button:hover { background:#0d416d; } .button.subtle { background:#fff; color:var(--blue); border-color:#9eb9cf; }
+    .panel { background:white; border:1px solid var(--line); border-radius:8px; box-shadow:0 2px 8px #1d3b5008; }
+    .filters { display:grid; grid-template-columns:minmax(190px,1fr) minmax(160px,.7fr) minmax(160px,.7fr) auto; gap:12px; align-items:end; padding:15px; }
+    label { display:grid; gap:4px; font-weight:700; color:#3a5367; font-size:12px; } input, select { min-width:0; width:100%; padding:9px 10px; border:1px solid #a8bdce; border-radius:5px; color:#203243; background:white; }
+    .metrics { display:grid; grid-template-columns:1fr 1fr minmax(220px,.8fr); gap:12px; margin-top:14px; } .metric { padding:14px 17px; min-width:0; }
+    .metric span { display:block; color:var(--muted); font-size:12px; font-weight:700; } .metric strong { display:block; font-size:clamp(22px,2.1vw,29px); margin:3px 0; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; } .metric small { color:var(--muted); }
+    .metric.primary { border-color:#8fb6d4; background:#f3f9fd; } .pending-counts { display:flex; flex-direction:column; gap:5px; margin-top:9px; } .pending-counts b { color:#9b5810; }
+    .unallocated { margin:10px 1px 20px; color:var(--muted); font-size:12px; }
+    .months { display:grid; gap:15px; } .month { overflow:hidden; } .month > summary { list-style:none; display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; padding:13px 16px; background:#e5eef6; border-bottom:1px solid var(--line); cursor:pointer; }
+    .month > summary::-webkit-details-marker { display:none; } .month > summary::before { content:"▸"; color:var(--blue); font-size:18px; line-height:1; } .month[open] > summary::before { content:"▾"; }
+    .month-title { font-weight:800; font-size:16px; color:#153e60; } .month-count { color:#466174; font-size:12px; } .month-balance { margin-left:auto; font-weight:800; font-size:15px; font-variant-numeric:tabular-nums; }
+    .tag { display:inline-block; border:1px solid #d7aa59; background:#fff7e7; color:#80520c; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:750; white-space:nowrap; }
+    .tag.good { border-color:#92c4a6; background:#edf8f0; color:#226546; } .tag.neutral { border-color:#abc3d5; background:#f0f6fa; color:#315f7c; }
+    .month-body { padding:14px; } .two-sides { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1.15fr); gap:13px; align-items:start; }
+    .side { min-width:0; border:1px solid var(--line); border-radius:6px; overflow:hidden; } .side-title { padding:9px 11px; background:#e8f0f7; color:#1c4c72; border-bottom:1px solid var(--line); }
+    .side.payments .side-title { background:#eef5eb; color:#32604c; } .table-scroll { overflow-x:auto; max-width:100%; } table { width:100%; border-collapse:collapse; }
+    .shipment-table { min-width:920px; } .payment-table { min-width:380px; } th, td { border-bottom:1px solid #e4ebf1; padding:7px 9px; text-align:left; vertical-align:top; }
+    thead th { background:#f3f7fa; color:#4c6577; font-size:11px; white-space:nowrap; } .payments thead th { background:#f4f8f2; }
+    tbody tr:hover { background:#f7fbfe; } .amount { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; } .money-link { color:var(--blue); background:none; border:0; padding:0; text-align:left; font-weight:700; text-decoration:underline; }
+    .small { font-size:11px; color:var(--muted); } .opening-row { background:#f7f9fb; } .opening-row td { font-weight:650; }
+    tfoot td { background:#f4f7fa; font-weight:750; border-top:1px solid #b7c8d6; border-bottom:0; } .payments tfoot td { background:#f4f8f2; }
+    .month-footer { margin-top:13px; padding:12px 14px; border:1px solid #bdd1df; background:#f4f9fc; border-radius:6px; display:flex; flex-wrap:wrap; gap:8px 26px; }
+    .month-footer div { display:flex; flex-direction:column; gap:2px; min-width:145px; } .month-footer span { color:var(--muted); font-size:12px; } .month-footer strong { font-size:16px; font-variant-numeric:tabular-nums; }
+    .empty { padding:18px; color:var(--muted); } .no-months { padding:25px; }
+    dialog { width:min(560px,calc(100vw - 24px)); padding:0; border:1px solid #a8bfce; border-radius:9px; box-shadow:0 18px 55px #12283e66; } dialog::backdrop { background:#102a3d88; }
+    .dialog-head { display:flex; justify-content:space-between; align-items:center; padding:14px 17px; border-bottom:1px solid var(--line); } .dialog-head button { border:0; background:none; font-size:25px; line-height:1; }
+    .dialog-body { padding:17px; } .detail-list { display:grid; grid-template-columns:145px 1fr; gap:8px 13px; margin:0; } .detail-list dt { color:var(--muted); } .detail-list dd { margin:0; font-weight:650; overflow-wrap:anywhere; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } .form-grid .full { grid-column:1/-1; } .proposal { background:#eef5fa; border:1px solid #bdd0df; padding:12px; border-radius:5px; margin-top:15px; }
+    .proposal ul { margin:8px 0 0; padding-left:20px; } .proposal p { margin:5px 0 0; } .read-note { margin-top:18px; color:var(--muted); font-size:12px; }
+    [hidden] { display:none !important; }
+    @media (max-width:1100px) { .two-sides { grid-template-columns:1fr; } .shipment-table { min-width:850px; } .payment-table { min-width:400px; } }
+    @media (max-width:720px) { .topbar-inner { display:block; padding:8px 12px; } .brand { font-size:15px; } .brand small,.readonly { display:none; } nav { overflow-x:auto; } nav span { padding:7px 9px; } main { padding:16px 12px 40px; } .heading { display:block; } .heading .button { margin-top:12px; } .filters,.metrics { grid-template-columns:1fr; } .filters .button { width:100%; } .month-balance { margin-left:0; width:100%; } .month-body { padding:10px; } .month-footer { gap:12px; } .month-footer div { flex:1 1 130px; } }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="topbar-inner"><div class="brand">HTH · Công nợ<small>Bản xem thử theo khối tháng</small></div><nav aria-label="Điều hướng"><span>Tổng quan</span><span aria-current="page">Sổ khách hàng</span><span>Chuyến hàng</span><span>Thu &amp; cấn trừ</span><span>Đối soát</span></nav><span class="readonly">Dữ liệu giả · chỉ xem</span></div></header>
+  <main>
+    <div class="heading"><div><div class="eyebrow">Sổ phải thu · VND</div><h1>Sổ công nợ khách hàng</h1><p class="muted">KHACH_MAU · xem theo từng kỳ nợ</p></div><button class="button" id="record-payment" type="button">Ghi nhận thanh toán</button></div>
+    <p class="demo"><strong>Mô phỏng từ fixture của handoff 2.0.</strong> Các số tiền và container ở đây là ví dụ, không phải dữ liệu Sheet hoặc PostgreSQL. Nút ghi nhận chỉ xem phân bổ, không lưu. Thu mới được đề xuất trừ kỳ nợ cũ trước theo quyết định của bạn.</p>
+    <form id="filters" class="filters panel"><label>Khách hàng<select id="customer" required><option value="KH-DEMO">KHACH_MAU · KH-DEMO</option></select></label><label>Kỳ nợ hiển thị<select id="period"><option value="all">Tất cả các tháng</option><option value="2025-12">Tháng 12/2025</option><option value="2026-01">Tháng 01/2026</option><option value="2026-02">Tháng 02/2026</option></select></label><label>Đến ngày<input id="as-of" type="date" value="2026-10-14" min="2025-12-31" max="2026-10-14" required></label><button class="button" type="submit">Xem sổ</button></form>
+    <section class="metrics" aria-label="Tổng hợp"><div class="metric primary panel"><span>Tổng còn nợ mọi tháng</span><strong id="all-balance">—</strong><small>Không đổi khi lọc tháng</small></div><div class="metric panel"><span>Còn nợ các tháng đang hiển thị</span><strong id="visible-balance">—</strong><small id="visible-count">—</small></div><div class="metric panel"><span>Cần xử lý · mọi kỳ</span><div class="pending-counts"><div>Chuyến chờ giá: <b id="waiting-price">—</b></div><div>Thu chưa xác nhận: <b id="waiting-confirmation">—</b></div></div><small>Chưa cộng vào số dư</small></div></section>
+    <p class="unallocated" id="unallocated">Tiền thực nhận xác nhận chưa phân bổ: 0 VND trong fixture.</p>
+    <div id="months" class="months" aria-live="polite"></div>
+    <p class="read-note">Hai bảng trong mỗi tháng độc lập; một khoản thu nằm ngang với container không có nghĩa là trả cho container đó. Chi tiết và ngày ghi hệ thống của dữ liệu thật cần nguồn/duyệt riêng. Bản chạy trên <code>hao</code> chưa đổi.</p>
+  </main>
+  <dialog id="detail"><div class="dialog-head"><h2 id="detail-title">Chi tiết</h2><button type="button" id="close-detail" aria-label="Đóng">×</button></div><div class="dialog-body" id="detail-body"></div></dialog>
+  <dialog id="payment-dialog"><div class="dialog-head"><h2>Mô phỏng ghi nhận thanh toán</h2><button type="button" id="close-payment" aria-label="Đóng">×</button></div><div class="dialog-body"><p class="muted">Không gửi yêu cầu và không thay đổi số dư. Sổ thật còn cần chứng từ, quyền duyệt và kiểm tra đồng thời.</p><form id="payment-form" class="form-grid" style="margin-top:15px"><label>Khách hàng<input value="KHACH_MAU" disabled></label><label>Ngày thực nhận<input id="received-date" type="date" value="2026-10-14" max="2026-10-14" required></label><label>Số tiền VND<input id="receipt-amount" type="text" inputmode="numeric" pattern="[0-9]+" placeholder="Ví dụ 70000000" required></label><label>Loại nghiệp vụ<select id="payment-kind"><option value="receipt">Thu tiền</option><option value="offset" disabled>Cấn trừ · cần luồng duyệt riêng</option></select></label><label class="full">Tham chiếu/chứng từ<input id="evidence" placeholder="Chỉ nhập vào bản thật sau khi kiểm nguồn"></label><button class="button full" type="submit">Xem phân bổ nợ cũ trước</button></form><div class="proposal" id="proposal" hidden></div></div></dialog>
+  <script src="monthly-ledger-model.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const fmt = amount => new Intl.NumberFormat("en-US").format(amount);
+    const day = iso => iso.slice(8,10) + "/" + iso.slice(5,7) + "/" + iso.slice(0,4);
+    const labelPeriod = period => "THÁNG " + period.slice(5,7) + "/" + period.slice(0,4);
+    const safe = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+    const value = amount => amount === null || amount === undefined ? "—" : fmt(amount);
+    const paymentName = kind => ({receipt:"THU TIỀN",offset:"CẤN TRỪ",reduction:"GIẢM NỢ"})[kind] || kind;
+    let state = { asOf:"2026-10-14", period:"all" }, view;
+
+    function renderMonth(month, index) {
+      const pending = month.waitingPrice + month.waitingConfirmation;
+      const status = month.balance === 0n ? (pending ? `<span class="tag">Số dư đã ghi sổ: 0 · Còn hồ sơ chờ xử lý</span>` : `<span class="tag good">Đã thanh toán hết</span>`) : "";
+      const shipRows = month.shipments.map((ship, i) => `<tr><td>${i+1}</td><td><button class="money-link" type="button" data-shipment="${safe(ship.id)}">${safe(ship.container)}</button>${ship.status !== "posted" ? '<span class="tag">Chờ giá</span>' : ''}</td><td>${safe(ship.carrier) || "—"}</td><td>${day(ship.date)}</td><td>${safe(ship.origin) || "—"}</td><td>${safe(ship.destination) || "—"}</td><td class="amount">${ship.price === null ? "Chờ giá" : value(ship.price)}</td><td class="amount">${value(ship.fees)}</td><td class="amount">${ship.status === "posted" ? value(ship.total) : "—"}</td></tr>`).join("");
+      const openingRows = month.openings.map(opening => `<tr class="opening-row"><td>—</td><td colspan="7"><button class="money-link" type="button" data-opening="${safe(opening.id)}">Nợ cũ chuyển sang sổ mới · ${day(opening.date)}</button></td><td class="amount">${value(opening.amount)}</td></tr>`).join("");
+      const payRows = month.payments.map(pay => `<tr><td><button class="money-link" type="button" data-payment="${safe(pay.id)}">${day(pay.date)}</button></td><td>${paymentName(pay.kind)}${pay.status !== "posted" ? '<span class="tag">Chưa xác nhận</span>' : ''}</td><td class="amount">${value(pay.amount)}</td></tr>`).join("");
+      const foot = `<div class="month-footer"><div><span>Phải thu của tháng</span><strong>${value(month.opening + month.charge)}</strong></div><div><span>Đã thanh toán / cấn trừ</span><strong>${value(month.paid)}</strong></div><div><span>Còn nợ tháng</span><strong>${value(month.balance)}</strong></div></div>`;
+      return `<details class="month panel" id="month-${month.period}" ${index===view.months.length-1 ? "open" : ""}><summary><span class="month-title">${labelPeriod(month.period)}</span><span class="month-count">${month.shipments.length} chuyến · ${month.payments.length} khoản giảm/chờ</span>${status}<span class="month-balance">Còn nợ tháng: ${value(month.balance)}</span></summary><div class="month-body"><div class="two-sides"><section class="side shipments"><div class="side-title"><h3>Chuyến hàng &amp; dư đầu</h3></div><div class="table-scroll"><table class="shipment-table"><thead><tr><th>STT</th><th>Số container</th><th>Hãng tàu / số xe</th><th>Ngày xe nhập kho</th><th>Nơi đi</th><th>Nơi đến</th><th class="amount">Đơn giá</th><th class="amount">Phụ phí</th><th class="amount">Thành tiền</th></tr></thead><tbody>${openingRows + shipRows || '<tr><td colspan="9" class="empty">Không có chuyến hoặc dư đầu.</td></tr>'}</tbody><tfoot><tr><td colspan="8">Tổng phát sinh đã ghi sổ${month.opening ? ` · Dư đầu riêng ${value(month.opening)}` : ''}</td><td class="amount">${value(month.charge)}</td></tr></tfoot></table></div></section><section class="side payments"><div class="side-title"><h3>Thanh toán &amp; giảm nợ</h3></div><div class="table-scroll"><table class="payment-table"><thead><tr><th>Ngày trả</th><th>Hình thức</th><th class="amount">Số tiền trả</th></tr></thead><tbody>${payRows || '<tr><td colspan="3" class="empty">Không có khoản thanh toán.</td></tr>'}</tbody><tfoot><tr><td colspan="2">Thu &amp; cấn trừ đã ghi sổ</td><td class="amount">${value(month.paid)}</td></tr></tfoot></table></div></section></div>${foot}</div></details>`;
+    }
+    function render() {
+      view = MonthlyLedgerPreview.snapshot(state);
+      $("all-balance").textContent = fmt(view.allBalance);
+      $("visible-balance").textContent = fmt(view.visibleBalance);
+      $("visible-count").textContent = view.months.length + " khối tháng đến " + day(view.asOf);
+      $("waiting-price").textContent = String(view.waitingPrice);
+      $("waiting-confirmation").textContent = String(view.waitingConfirmation);
+      $("unallocated").textContent = "Tiền thực nhận xác nhận chưa phân bổ: " + fmt(view.confirmedUnallocated) + " VND trong fixture.";
+      $("months").innerHTML = view.months.length ? view.months.map(renderMonth).join("") : '<div class="panel no-months muted">Chưa có dữ liệu cho kỳ đã chọn đến ngày chốt này.</div>';
+    }
+    $("filters").addEventListener("submit", event => { event.preventDefault(); $("detail").close?.(); state = { asOf:$("as-of").value, period:$("period").value }; render(); });
+    $("record-payment").addEventListener("click", () => { $("proposal").hidden=true; $("payment-dialog").showModal(); });
+    $("close-payment").addEventListener("click", () => $("payment-dialog").close());
+    $("close-detail").addEventListener("click", () => $("detail").close());
+    $("payment-form").addEventListener("submit", event => {
+      event.preventDefault();
+      try {
+        const receivedDate = $("received-date").value;
+        if (receivedDate > state.asOf) { $("proposal").textContent = "Ngày thực nhận sau ngày chốt đang xem; khoản này chưa làm giảm số dư tại ngày chốt."; $("proposal").hidden = false; return; }
+        const plan = MonthlyLedgerPreview.planReceipt($("receipt-amount").value, receivedDate);
+        const list = plan.allocations.map(item => `<li>${labelPeriod(item.period)}: <strong>${fmt(item.amount)} VND</strong></li>`).join("") || "<li>Chưa có kỳ có dư phải thu dương.</li>";
+        $("proposal").innerHTML = `<strong>Phân bổ đề xuất · chưa lưu</strong><ul>${list}</ul><p>Chưa phân bổ: <strong>${fmt(plan.unallocated)} VND</strong>. Cần xác nhận tiền, chứng từ và người duyệt trên hệ thống thật.</p>`;
+      } catch (error) { $("proposal").textContent = "Số tiền/ngày chưa hợp lệ trong fixture."; }
+      $("proposal").hidden = false;
+    });
+    document.addEventListener("click", event => {
+      const target = event.target.closest("[data-shipment],[data-payment],[data-opening]");
+      if (!target) return;
+      let item, fields;
+      if (target.dataset.shipment) {
+        item = view.months.flatMap(month => month.shipments).find(row => row.id === target.dataset.shipment);
+        fields = [["Container",item.container],["Hãng tàu / số xe",item.carrier || "Chưa có trong fixture"],["Ngày xe nhập kho",day(item.date)],["Kỳ nợ",item.period],["Tuyến",[item.origin,item.destination].filter(Boolean).join(" → ") || "Chưa có trong fixture"],["Đơn giá",item.price===null?"Chờ giá":value(item.price)+" VND"],["Phụ phí",value(item.fees)+" VND"],["Thành tiền",item.total===null?"—":value(item.total)+" VND"],["Trạng thái",item.status==="posted"?"Đã ghi sổ trong fixture":"Chờ giá"]];
+      } else if (target.dataset.payment) {
+        item = view.months.flatMap(month => month.payments).find(row => row.id === target.dataset.payment);
+        fields = [["Loại",paymentName(item.kind)],["Ngày trả / hiệu lực",day(item.date)],["Kỳ nợ",item.period],["Số tiền phân bổ kỳ",value(item.amount)+" VND"],["Receipt gốc",item.receiptId || "Không phải tiền thực nhận"],["Tổng receipt gốc",item.receiptTotal===null?"—":value(item.receiptTotal)+" VND"],["Trạng thái",item.status==="posted"?"Đã ghi sổ trong fixture":"Chưa xác nhận"]];
+      } else {
+        item = view.months.flatMap(month => month.openings).find(row => row.id === target.dataset.opening);
+        fields = [["Loại","Dư đầu chuyển đổi"],["Ngày chuyển",day(item.date)],["Kỳ nợ",item.period],["Số tiền",value(item.amount)+" VND"]];
+      }
+      if (!item) return;
+      fields.push(["Chứng từ/người duyệt","Không có trong fixture; không suy là đã kiểm ngân hàng"]);
+      $("detail-title").textContent=item.id;
+      const dl=document.createElement("dl"); dl.className="detail-list";
+      for (const [key,val] of fields) { const dt=document.createElement("dt"); dt.textContent=key; const dd=document.createElement("dd"); dd.textContent=val; dl.append(dt,dd); }
+      $("detail-body").replaceChildren(dl); $("detail").showModal();
+    });
+    render();
+  </script>
+</body>
+</html>

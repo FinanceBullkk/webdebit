@@ -1,0 +1,15 @@
+# Financial captures and local credentials
+captures/
+.chrome-ux-audit/
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.db
+.env
+.env.*
+__pycache__/
+*.py[cod]
+node_modules/
+.pytest_cache/
+*.log

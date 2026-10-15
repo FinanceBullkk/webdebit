@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sổ công nợ · Bản xem thử</title>
+  <style>
+    :root { font-family: "Segoe UI", Arial, sans-serif; color: #21303e; background: #f2f5f8; --blue: #17558a; --line: #d8e1e9; --muted: #5a6a79; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-size: 14px; line-height: 1.45; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 3px solid #e7a12e; outline-offset: 2px; }
+    .app { display: grid; grid-template-columns: 220px minmax(0,1fr); min-height: 100vh; }
+    aside { background: #123958; color: #eaf2f8; padding: 22px 14px; }
+    .brand { font-size: 19px; font-weight: 750; padding: 0 12px 26px; }
+    .brand small { display: block; font-size: 11px; font-weight: 500; color: #bdd0de; }
+    nav a, nav span { display: block; padding: 10px 12px; border-radius: 7px; margin: 2px 0; color: #dce9f2; text-decoration: none; }
+    nav [aria-current="page"] { background: #e9f2fa; color: #113e63; font-weight: 700; }
+    nav .disabled { color: #9db7c9; }
+    main { min-width: 0; max-width: 1480px; width: 100%; margin: 0 auto; padding: 25px 30px 60px; }
+    .top { display: flex; justify-content: space-between; gap: 20px; align-items: start; }
+    .eyebrow { color: var(--blue); text-transform: uppercase; font-weight: 750; letter-spacing: .08em; font-size: 11px; }
+    h1 { font-size: clamp(25px,2.2vw,33px); line-height: 1.15; margin: 4px 0 6px; }
+    h2 { font-size: 17px; margin: 0; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .pill { display: inline-block; padding: 4px 9px; border: 1px solid #b9d2e4; border-radius: 20px; background: #eaf4fb; color: #184f77; font-size: 12px; font-weight: 700; }
+    .top-actions { display: flex; flex-direction: column; align-items: end; gap: 8px; }
+    .top-actions button { padding: 9px 13px; background: #e8edf1; color: #5c6871; border: 1px solid #c8d2da; border-radius: 6px; }
+    .demo-note { background: #fff8e9; border: 1px solid #e8c889; padding: 10px 13px; border-radius: 8px; margin: 18px 0; color: #65470d; }
+    .panel { background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 2px 10px #16314a08; }
+    .filter { display: grid; grid-template-columns: minmax(170px,1.3fr) minmax(140px,.8fr) minmax(150px,.8fr) minmax(130px,.8fr) auto; gap: 13px; align-items: end; padding: 16px; }
+    label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; color: #425466; }
+    input, select { min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid #aebdca; border-radius: 5px; background: #fff; color: #23384a; }
+    .primary { border: 1px solid #174c79; border-radius: 5px; color: white; background: var(--blue); padding: 9px 16px; font-weight: 700; }
+    .primary:hover { background: #0d416e; }
+    .balance-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 16px 0 0; }
+    .balance { padding: 16px 18px; }
+    .balance span { display: block; color: var(--muted); font-size: 12px; font-weight: 650; }
+    .balance strong { display: block; margin: 6px 0 4px; font-size: clamp(21px,2vw,29px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    .balance small { color: var(--muted); }
+    .balance.total { border-color: #9fbdd4; background: #f4f9fc; }
+    .explain { margin: 10px 0 18px; color: #506170; display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 12px; }
+    .tabs { display: flex; gap: 7px; border-bottom: 1px solid #bccbd7; margin: 18px 0 0; }
+    .tabs button { background: transparent; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; color: #526678; font-weight: 700; }
+    .tabs button[aria-selected="true"] { color: var(--blue); border-color: var(--blue); }
+    .tab-panel { margin-top: 14px; }
+    .section-head { display: flex; justify-content: space-between; gap: 15px; align-items: center; padding: 15px 16px; border-bottom: 1px solid var(--line); }
+    .section-head small { color: var(--muted); }
+    .table-scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; min-width: 780px; }
+    th, td { text-align: left; border-bottom: 1px solid #e5ebf0; padding: 11px 13px; vertical-align: top; }
+    thead th { background: #f3f7fa; color: #445b6d; font-size: 12px; white-space: nowrap; }
+    tbody tr:hover { background: #f5faff; }
+    .numeric { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .entry-button { border: 0; background: transparent; color: var(--blue); padding: 0; font-weight: 700; text-align: left; text-decoration: underline; }
+    .row-sub { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .opening-row { background: #f8fafc; font-weight: 700; }
+    .pager { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 11px 15px; }
+    .pager button { border: 1px solid #b7c8d6; background: white; padding: 6px 10px; border-radius: 5px; color: var(--blue); }
+    .pager button:disabled { color: #9ba8b2; cursor: default; }
+    .pending { margin-top: 15px; }
+    .pending-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 13px; }
+    .pending-card { border: 1px solid #e7c888; border-radius: 7px; padding: 12px; background: #fffaf0; }
+    .pending-card strong { display: block; margin-bottom: 4px; }
+    .pending-card small { color: #5d6770; display: block; }
+    .pending-card button { margin-top: 7px; color: var(--blue); border: 0; padding: 0; background: transparent; font-weight: 700; text-decoration: underline; }
+    .empty { padding: 22px 16px; color: var(--muted); }
+    dialog { border: 1px solid #b7c8d5; border-radius: 10px; width: min(520px,calc(100vw - 28px)); padding: 0; box-shadow: 0 15px 60px #0b263b66; }
+    dialog::backdrop { background: #0c253b88; }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+    .dialog-head button { border: 0; background: transparent; font-size: 25px; line-height: 1; }
+    .dialog-body { padding: 17px 18px 22px; }
+    .detail-list { display: grid; grid-template-columns: 140px 1fr; gap: 9px 14px; margin: 0; }
+    .detail-list dt { color: var(--muted); }
+    .detail-list dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+    .read-note { margin-top: 18px; color: var(--muted); font-size: 12px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 1050px) { .filter { grid-template-columns: repeat(2,minmax(0,1fr)); } .filter .primary { justify-self: start; } }
+    @media (max-width: 700px) { .app { display: block; } aside { padding: 8px 12px; } .brand { padding: 5px 0; font-size: 16px; } .brand small { display: none; } nav { display: flex; overflow-x: auto; white-space: nowrap; } nav a, nav span { padding: 6px 9px; } main { padding: 17px 14px 45px; } .top { display: block; } .top-actions { align-items: start; margin-top: 10px; } .filter, .balance-grid, .pending-list { grid-template-columns: 1fr; } .filter .primary { width: 100%; } .balance { padding: 12px 14px; } .balance strong { margin: 2px 0; } .tabs { overflow-x: auto; white-space: nowrap; } }
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand">HTH · Công nợ<small>Bản xem thử giao diện</small></div>
+    <nav aria-label="Điều hướng"><span class="disabled">Tổng quan</span><a href="#" aria-current="page">Sổ công nợ</a><span class="disabled">Chuyến hàng</span><span class="disabled">Thu &amp; cấn trừ</span><span class="disabled">Đối soát</span></nav>
+  </aside>
+  <main>
+    <div class="top"><div><div class="eyebrow">Sổ phải thu khách hàng · Đơn vị VND</div><h1>Sổ công nợ khách hàng</h1><p class="muted" id="customer-title">Công ty Minh An <span class="pill">Dữ liệu giả · đã ghi sổ</span></p></div><div class="top-actions"><button type="button" disabled title="Chưa có dữ liệu đối soát thật và quyết định mẫu">Lập đối soát</button><small class="muted">Chỉ xem, không ghi sổ</small></div></div>
+    <p class="demo-note"><strong>Bản mô phỏng theo handoff 14/10/2026.</strong> Toàn bộ tên, giao dịch và số tiền bên dưới là fixture giả định; không kết nối Google Sheet hay PostgreSQL. Theo quyết định trong chat, thu mới ưu tiên giảm kỳ nợ cũ trước.</p>
+    <form id="filters" class="filter panel">
+      <label>Khách hàng<select id="customer" required><option value="KH-001">Công ty Minh An · KH-001</option></select></label>
+      <label>Kỳ nợ<input id="period" type="month" value="2026-10" required></label>
+      <label>Đến ngày<input id="as-of" type="date" min="2025-12-31" max="2026-10-14" value="2026-10-14" required></label>
+      <label>Bộ dữ liệu mẫu<select id="fixture"><option value="A">Fixture A · cơ sở</option><option value="B">Fixture B · nhiều kỳ</option></select></label>
+      <button class="primary" type="submit">Xem sổ</button>
+    </form>
+    <section class="balance-grid" aria-label="Số dư"><div class="panel balance"><span>Nợ các kỳ trước</span><strong id="previous">—</strong><small id="previous-note"></small></div><div class="panel balance"><span>Còn nợ kỳ đang chọn</span><strong id="selected">—</strong><small id="selected-note"></small></div><div class="panel balance total"><span>Tổng còn nợ mọi kỳ</span><strong id="all">—</strong><small id="all-note"></small></div></section>
+    <div class="explain"><span id="later-note" hidden></span><span id="unallocated-note"></span><span>Ngày chốt áp dụng cho cả số dư và bảng giao dịch.</span></div>
+    <div class="tabs" role="tablist" aria-label="Nội dung sổ"><button id="tab-transactions" role="tab" aria-selected="true" aria-controls="transactions" type="button">Giao dịch</button><button id="tab-documents" role="tab" aria-selected="false" aria-controls="documents" type="button">Chứng từ</button><button id="tab-reconciliation" role="tab" aria-selected="false" aria-controls="reconciliation" type="button">Lịch sử đối soát</button></div>
+    <section id="transactions" class="tab-panel" role="tabpanel" aria-labelledby="tab-transactions">
+      <div class="panel"><div class="section-head"><div><h2>Giao dịch đã ghi sổ</h2><small id="range-label"></small></div><small>Thứ tự theo ngày nghiệp vụ → thứ tự ghi → ID</small></div><div class="table-scroll"><table><thead><tr><th>Ngày nghiệp vụ</th><th>Nghiệp vụ / chứng từ</th><th class="numeric">Tăng nợ</th><th class="numeric">Giảm nợ</th><th class="numeric">Dư kỳ cộng dồn</th></tr></thead><tbody id="entries"></tbody></table></div><div class="pager"><button id="prev-page" type="button">← Trước</button><span id="page-label"></span><button id="next-page" type="button">Sau →</button></div></div>
+      <div class="panel pending"><div class="section-head"><div><h2>Khoản chưa ghi sổ</h2><small>Không cộng vào các số dư trên</small></div></div><div id="pending-list" class="pending-list"></div></div>
+    </section>
+    <section id="documents" class="tab-panel panel" role="tabpanel" aria-labelledby="tab-documents" hidden><div class="section-head"><h2>Chứng từ</h2></div><p class="empty">Fixture không có tệp chứng từ. Khi nối dữ liệu thật, từng giao dịch cần trỏ về nguồn và kiểm tra quyền truy cập.</p></section>
+    <section id="reconciliation" class="tab-panel panel" role="tabpanel" aria-labelledby="tab-reconciliation" hidden><div class="section-head"><h2>Lịch sử đối soát</h2></div><p class="empty">Fixture chưa có biên bản hoặc snapshot đối soát. Không tạo trạng thái “đã đối soát” từ số liệu mẫu.</p></section>
+    <p class="read-note">Nguồn tính trong bản xem thử: <code>so-cong-no-model.js</code>. Số tiền dùng BigInt nguyên VND. Bản đang chạy trên hao chưa được thay đổi.</p>
+  </main>
+</div>
+<dialog id="detail"><div class="dialog-head"><h2 id="detail-title"></h2><button id="close-detail" type="button" aria-label="Đóng">×</button></div><div class="dialog-body" id="detail-body"></div></dialog>
+<script src="so-cong-no-model.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = value => new Intl.NumberFormat("en-US").format(value);
+  const day = iso => iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4);
+  const escapeHtml = text => String(text).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[char]);
+  let state = { fixture: "A", period: "2026-10", asOf: "2026-10-14", page: 1 };
+  let view;
+  function balance(id, noteId, value) {
+    $(id).textContent = fmt(value);
+    $(noteId).textContent = value < 0n ? "Số dư có / trả trước" : "VND · đã ghi sổ";
+  }
+  function render() {
+    view = LedgerPreview.snapshot(state);
+    state.page = view.page;
+    balance("previous", "previous-note", view.previous);
+    balance("selected", "selected-note", view.selected);
+    balance("all", "all-note", view.all);
+    $("later-note").hidden = view.later === 0n;
+    $("later-note").textContent = "Số dư các kỳ sau: " + fmt(view.later) + " VND";
+    $("unallocated-note").textContent = "Tiền thực nhận chưa phân bổ: " + fmt(view.unallocated) + " VND";
+    $("range-label").textContent = "Kỳ nợ " + view.period + " · phát sinh từ " + day(view.start) + " đến " + day(view.asOf);
+    const opening = `<tr class="opening-row"><td>${day(view.start)}</td><td>Dư đầu khoảng xem trước ${day(view.start)}<span class="row-sub">Toàn bộ sự kiện kỳ này trước ngày đầu tháng</span></td><td class="numeric">—</td><td class="numeric">—</td><td class="numeric">${fmt(view.opening)}</td></tr>`;
+    const rows = view.rows.map(row => `<tr><td>${day(row.date)}</td><td><button type="button" class="entry-button" data-entry="${escapeHtml(row.id)}">${escapeHtml(row.label)}</button><span class="row-sub">${escapeHtml(row.id)} · ${row.type === "receipt" ? "Phân bổ thu" : row.type === "opening" ? "Số dư đầu" : "Chuyến hàng"}</span></td><td class="numeric">${BigInt(row.signed) > 0n ? fmt(BigInt(row.signed)) : "—"}</td><td class="numeric">${BigInt(row.signed) < 0n ? fmt(-BigInt(row.signed)) : "—"}</td><td class="numeric">${fmt(row.running)}</td></tr>`).join("");
+    $("entries").innerHTML = opening + (rows || `<tr><td colspan="5" class="empty">Không có giao dịch trong khoảng xem. Số dư đầu kỳ vẫn được giữ ở trên.</td></tr>`);
+    $("page-label").textContent = `${view.page} / ${view.pageCount} · ${view.rowCount} giao dịch`;
+    $("prev-page").disabled = view.page === 1;
+    $("next-page").disabled = view.page === view.pageCount;
+    $("pending-list").innerHTML = view.pending.length ? view.pending.map(item => `<div class="pending-card"><strong>${escapeHtml(item.id)} · ${escapeHtml(item.status)}</strong><small>${day(item.date)} · ${escapeHtml(item.detail)}</small><button type="button" data-pending="${escapeHtml(item.id)}">Xem lý do</button></div>`).join("") : `<p class="muted">Không có khoản chờ trong dữ liệu mẫu đến ngày này.</p>`;
+  }
+  $("filters").addEventListener("submit", event => { event.preventDefault(); state = { fixture: $("fixture").value, period: $("period").value, asOf: $("as-of").value, page: 1 }; render(); });
+  $("prev-page").addEventListener("click", () => { state.page--; render(); });
+  $("next-page").addEventListener("click", () => { state.page++; render(); });
+  for (const name of ["transactions", "documents", "reconciliation"]) {
+    $("tab-" + name).addEventListener("click", () => {
+      for (const other of ["transactions", "documents", "reconciliation"]) { $(other).hidden = other !== name; $("tab-" + other).setAttribute("aria-selected", String(other === name)); }
+    });
+  }
+  document.addEventListener("click", event => {
+    const entryId = event.target.closest("[data-entry]")?.dataset.entry;
+    const pendingId = event.target.closest("[data-pending]")?.dataset.pending;
+    if (!entryId && !pendingId) return;
+    const item = entryId ? view.rows.find(row => row.id === entryId) : view.pending.find(row => row.id === pendingId);
+    if (!item) return;
+    $("detail-title").textContent = item.id;
+    const fields = entryId ? [["Trạng thái", "Đã ghi sổ trong fixture"], ["Nghiệp vụ", item.label], ["Kỳ nợ", item.period], [item.type === "shipment" ? "Ngày xe nhập kho" : item.type === "receipt" ? "Ngày thực nhận" : "Ngày chuyển số dư", day(item.date)], ["Thời điểm nhập hệ thống", "Không có trong fixture"], ["Số tiền có dấu", fmt(BigInt(item.signed)) + " VND"], ["Nguồn", item.source], ["Chứng từ thật", "Không có trong fixture"]] : [["Trạng thái", item.status], ["Ngày", day(item.date)], ["Lý do", item.detail], ["Ảnh hưởng số dư", "Không"], ["Chứng từ thật", "Không có trong fixture"]];
+    const dl = document.createElement("dl"); dl.className = "detail-list";
+    for (const [key, value] of fields) { const dt = document.createElement("dt"); dt.textContent = key; const dd = document.createElement("dd"); dd.textContent = value; dl.append(dt, dd); }
+    $("detail-body").replaceChildren(dl); $("detail").showModal();
+  });
+  $("close-detail").addEventListener("click", () => $("detail").close());
+  render();
+</script>
+</body>
+</html>
