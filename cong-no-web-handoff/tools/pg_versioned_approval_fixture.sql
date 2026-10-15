@@ -4,10 +4,11 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 CREATE ROLE p0_fixture_owner NOLOGIN;
 CREATE ROLE p0_fixture_api NOLOGIN;
-GRANT CONNECT ON DATABASE webdebit_ledger TO p0_fixture_api;
+CREATE ROLE p0_fixture_identity_test_api NOLOGIN;
+GRANT CONNECT ON DATABASE webdebit_ledger TO p0_fixture_api, p0_fixture_identity_test_api;
 CREATE SCHEMA p0_fixture AUTHORIZATION p0_fixture_owner;
 REVOKE ALL ON SCHEMA p0_fixture FROM PUBLIC;
-GRANT USAGE ON SCHEMA p0_fixture TO p0_fixture_api;
+GRANT USAGE ON SCHEMA p0_fixture TO p0_fixture_api, p0_fixture_identity_test_api;
 
 SET ROLE p0_fixture_owner;
 
@@ -43,6 +44,7 @@ CREATE TABLE p0_fixture.used_assertion_nonce (
 CREATE TABLE p0_fixture.proposal (
     proposal_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     maker_actor_id uuid NOT NULL REFERENCES p0_fixture.app_actor,
+    kind text NOT NULL CHECK (kind IN ('revision_fixture', 'charge_fixture')),
     current_revision_id bigint,
     revision_no integer NOT NULL DEFAULT 0 CHECK (revision_no >= 0),
     state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'review_needed', 'approved', 'posted')),
@@ -170,6 +172,36 @@ CREATE TRIGGER audit_append_only
     BEFORE UPDATE OR DELETE ON p0_fixture.audit
     FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_immutable_change();
 
+CREATE FUNCTION p0_fixture.reject_proposal_kind_change() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF NEW.kind IS DISTINCT FROM OLD.kind THEN
+        RAISE EXCEPTION 'proposal kind is immutable' USING ERRCODE = 'P0001';
+    END IF;
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER proposal_kind_immutable
+    BEFORE UPDATE OF kind ON p0_fixture.proposal
+    FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_proposal_kind_change();
+
+CREATE FUNCTION p0_fixture.assert_fixture_kind_access(p_kind text) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog AS $$
+BEGIN
+    IF p_kind = 'charge_fixture' THEN
+        IF NOT pg_has_role(session_user, 'p0_fixture_api', 'member') THEN
+            RAISE EXCEPTION 'database principal cannot use charge_fixture' USING ERRCODE = 'P0001';
+        END IF;
+    ELSIF p_kind = 'revision_fixture' THEN
+        IF NOT pg_has_role(session_user, 'p0_fixture_identity_test_api', 'member') THEN
+            RAISE EXCEPTION 'database principal cannot use revision_fixture' USING ERRCODE = 'P0001';
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'unknown fixture kind' USING ERRCODE = 'P0001';
+    END IF;
+END $$;
+
 CREATE FUNCTION p0_fixture.verify_actor_assertion(
     p_actor_id uuid,
     p_session_id uuid,
@@ -190,16 +222,19 @@ DECLARE
     v_role text;
     v_actor uuid;
 BEGIN
-    IF NOT pg_has_role(session_user, 'p0_fixture_api', 'member') THEN
-        RAISE EXCEPTION 'untrusted database principal' USING ERRCODE = 'P0001';
-    END IF;
-    IF p_action NOT IN ('submit', 'presentation', 'confirm_price', 'confirm_period', 'approve', 'post')
+    IF p_action IS NULL OR p_issued_epoch IS NULL
+       OR p_action NOT IN ('submit', 'presentation', 'confirm_price', 'confirm_period', 'approve', 'post')
        OR p_actor_id IS NULL OR p_session_id IS NULL OR p_nonce IS NULL
-       OR p_key_id IS NULL OR p_scope IS NULL OR length(p_scope) > 512
+       OR p_key_id IS NULL OR btrim(p_key_id) = '' OR p_scope IS NULL
+       OR btrim(p_scope) = '' OR length(p_scope) > 512
        OR p_issued_epoch < floor(extract(epoch FROM clock_timestamp()))::bigint - 120
        OR p_issued_epoch > floor(extract(epoch FROM clock_timestamp()))::bigint + 30
        OR p_signature IS NULL OR p_signature !~ '^[0-9a-f]{64}$' THEN
         RAISE EXCEPTION 'invalid actor assertion' USING ERRCODE = 'P0001';
+    END IF;
+    IF NOT (pg_has_role(session_user, 'p0_fixture_api', 'member')
+            OR pg_has_role(session_user, 'p0_fixture_identity_test_api', 'member')) THEN
+        RAISE EXCEPTION 'untrusted database principal' USING ERRCODE = 'P0001';
     END IF;
     SELECT a.actor_id INTO v_actor FROM p0_fixture.app_actor a
     WHERE a.actor_id = p_actor_id AND a.active FOR SHARE;
@@ -435,8 +470,7 @@ DECLARE
     v_revision_id bigint;
     v_revision_no integer;
     v_created boolean := false;
-    v_maker uuid;
-    v_state text;
+    v_proposal p0_fixture.proposal%ROWTYPE;
     v_current_hash text;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.app_actor_role
@@ -457,30 +491,37 @@ BEGIN
         'webdebit.business-payload.v1' || E'\n' || v_canonical::text, 'UTF8'), 'sha256'), 'hex');
 
     IF p_proposal_id IS NULL THEN
-        INSERT INTO p0_fixture.proposal(maker_actor_id)
-        VALUES (p_actor_id) RETURNING p0_fixture.proposal.proposal_id INTO v_proposal_id;
+        PERFORM p0_fixture.assert_fixture_kind_access(v_canonical->>'kind');
+        INSERT INTO p0_fixture.proposal(maker_actor_id, kind)
+        VALUES (p_actor_id, v_canonical->>'kind')
+        RETURNING p0_fixture.proposal.proposal_id INTO v_proposal_id;
         v_revision_no := 1;
         v_created := true;
     ELSE
-        SELECT p.maker_actor_id, p.state, p.revision_no, p.current_revision_id
-          INTO v_maker, v_state, v_revision_no, v_revision_id
+        SELECT p.* INTO v_proposal
         FROM p0_fixture.proposal p WHERE p.proposal_id = p_proposal_id FOR UPDATE;
-        IF NOT FOUND OR v_maker <> p_actor_id OR v_state = 'posted' THEN
+        IF NOT FOUND OR v_proposal.maker_actor_id <> p_actor_id OR v_proposal.state = 'posted' THEN
             RAISE EXCEPTION 'proposal unavailable to this maker' USING ERRCODE = 'P0001';
+        END IF;
+        PERFORM p0_fixture.assert_fixture_kind_access(v_proposal.kind);
+        IF v_proposal.kind <> v_canonical->>'kind' THEN
+            RAISE EXCEPTION 'proposal kind is immutable' USING ERRCODE = 'P0001';
         END IF;
         SELECT r.content_sha256 INTO v_current_hash
         FROM p0_fixture.business_revision r
-        WHERE r.proposal_id = p_proposal_id AND r.revision_id = v_revision_id;
+        WHERE r.proposal_id = p_proposal_id AND r.revision_id = v_proposal.current_revision_id;
         IF v_current_hash = v_hash THEN
             INSERT INTO p0_fixture.audit(proposal_id, revision_id, content_sha256,
                 app_actor_id, app_session_id, assertion_nonce, key_id, database_session_user,
                 action, request_scope)
-            VALUES (p_proposal_id, v_revision_id, v_current_hash, p_actor_id, p_session_id,
+            VALUES (p_proposal_id, v_proposal.current_revision_id, v_current_hash, p_actor_id, p_session_id,
                 p_nonce, p_key_id, session_user, 'submit_noop', v_scope);
-            RETURN QUERY SELECT p_proposal_id, v_revision_id, v_revision_no, v_current_hash, false;
+            RETURN QUERY SELECT p_proposal_id, v_proposal.current_revision_id,
+                v_proposal.revision_no, v_current_hash, false;
             RETURN;
         END IF;
-        v_revision_no := v_revision_no + 1;
+        v_revision_no := v_proposal.revision_no + 1;
+        v_revision_id := v_proposal.current_revision_id;
         v_proposal_id := p_proposal_id;
         v_created := true;
     END IF;
@@ -525,6 +566,10 @@ BEGIN
         p_nonce, p_issued_epoch, p_key_id, v_scope, p_signature);
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
+    IF v_proposal.proposal_id IS NULL THEN
+        RAISE EXCEPTION 'proposal unavailable to price confirmation' USING ERRCODE = 'P0001';
+    END IF;
+    PERFORM p0_fixture.assert_fixture_kind_access(v_proposal.kind);
     SELECT * INTO v_revision FROM p0_fixture.business_revision
     WHERE proposal_id = p_proposal_id AND revision_id = p_revision_id;
     IF v_proposal.proposal_id IS NULL OR v_proposal.state NOT IN ('pending', 'review_needed')
@@ -567,6 +612,10 @@ BEGIN
         p_nonce, p_issued_epoch, p_key_id, v_scope, p_signature);
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
+    IF v_proposal.proposal_id IS NULL THEN
+        RAISE EXCEPTION 'proposal unavailable to period confirmation' USING ERRCODE = 'P0001';
+    END IF;
+    PERFORM p0_fixture.assert_fixture_kind_access(v_proposal.kind);
     SELECT * INTO v_revision FROM p0_fixture.business_revision
     WHERE proposal_id = p_proposal_id AND revision_id = p_revision_id;
     IF v_proposal.proposal_id IS NULL OR v_proposal.state NOT IN ('pending', 'review_needed')
@@ -605,7 +654,7 @@ CREATE FUNCTION p0_fixture.set_presentation_title(
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, p0_fixture, public AS $$
-DECLARE v_scope text; v_maker uuid;
+DECLARE v_scope text; v_maker uuid; v_kind text;
 BEGIN
     IF p_title IS NULL OR length(p_title) > 160 THEN
         RAISE EXCEPTION 'invalid presentation title' USING ERRCODE = 'P0001';
@@ -618,11 +667,12 @@ BEGIN
                    WHERE actor_id = p_actor_id AND app_role = 'maker') THEN
         RAISE EXCEPTION 'maker role required' USING ERRCODE = 'P0001';
     END IF;
-    SELECT p.maker_actor_id INTO v_maker FROM p0_fixture.proposal p
+    SELECT p.maker_actor_id, p.kind INTO v_maker, v_kind FROM p0_fixture.proposal p
     WHERE p.proposal_id = p_proposal_id FOR UPDATE;
     IF NOT FOUND OR v_maker <> p_actor_id THEN
         RAISE EXCEPTION 'proposal unavailable to this maker' USING ERRCODE = 'P0001';
     END IF;
+    PERFORM p0_fixture.assert_fixture_kind_access(v_kind);
     UPDATE p0_fixture.proposal SET presentation_title = p_title
     WHERE p0_fixture.proposal.proposal_id = p_proposal_id;
     INSERT INTO p0_fixture.audit(proposal_id, revision_id, content_sha256,
@@ -661,6 +711,10 @@ BEGIN
     END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
+    IF v_proposal.proposal_id IS NULL THEN
+        RAISE EXCEPTION 'proposal unavailable for approval' USING ERRCODE = 'P0001';
+    END IF;
+    PERFORM p0_fixture.assert_fixture_kind_access(v_proposal.kind);
     SELECT r.* INTO v_revision FROM p0_fixture.business_revision r
     WHERE r.proposal_id = p_proposal_id AND r.revision_id = p_revision_id;
     IF NOT FOUND OR v_proposal.proposal_id IS NULL
@@ -740,6 +794,10 @@ BEGIN
     END IF;
     SELECT * INTO v_proposal FROM p0_fixture.proposal
     WHERE proposal_id = p_proposal_id FOR UPDATE;
+    IF v_proposal.proposal_id IS NULL THEN
+        RAISE EXCEPTION 'proposal unavailable for posting' USING ERRCODE = 'P0001';
+    END IF;
+    PERFORM p0_fixture.assert_fixture_kind_access(v_proposal.kind);
     SELECT * INTO v_revision FROM p0_fixture.business_revision
     WHERE proposal_id = p_proposal_id AND revision_id = p_revision_id;
     SELECT * INTO v_approval FROM p0_fixture.approval
@@ -810,8 +868,10 @@ INSERT INTO p0_fixture.debt_period_state(debt_period, state) VALUES
 
 RESET ROLE;
 
-REVOKE ALL ON ALL TABLES IN SCHEMA p0_fixture FROM PUBLIC, p0_fixture_api;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA p0_fixture FROM PUBLIC, p0_fixture_api;
+REVOKE ALL ON ALL TABLES IN SCHEMA p0_fixture FROM PUBLIC, p0_fixture_api,
+    p0_fixture_identity_test_api;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA p0_fixture FROM PUBLIC, p0_fixture_api,
+    p0_fixture_identity_test_api;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA p0_fixture FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION p0_fixture.submit_revision(bigint,text,uuid,uuid,uuid,bigint,text,text)
     TO p0_fixture_api;
@@ -825,3 +885,15 @@ GRANT EXECUTE ON FUNCTION p0_fixture.approve_revision(bigint,bigint,text,uuid,uu
     TO p0_fixture_api;
 GRANT EXECUTE ON FUNCTION p0_fixture.post_revision(bigint,bigint,text,uuid,uuid,uuid,bigint,text,text)
     TO p0_fixture_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.submit_revision(bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.set_presentation_title(bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.confirm_price_revision(bigint,bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.confirm_period_revision(bigint,bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.approve_revision(bigint,bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.post_revision(bigint,bigint,text,uuid,uuid,uuid,bigint,text,text)
+    TO p0_fixture_identity_test_api;

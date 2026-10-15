@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import re
 import shutil
@@ -38,7 +39,8 @@ from test_pg_ledger_schema import (
 SCHEMA = ROOT / "cong-no-web-handoff" / "tools" / "pg_versioned_approval_fixture.sql"
 ACTOR_ASSERTION = ROOT / "cong-no-web-handoff" / "web" / "actor_assertion.py"
 DATABASE = "webdebit_ledger"
-DB_LOGIN = "webdebit_app"
+IDENTITY_LOGIN = "webdebit_identity_test_app"
+CHARGE_LOGIN = "webdebit_app"
 KEY_ID = "fixture-key-v1"
 KEY = bytes.fromhex("11" * 32)
 MAKER = uuid.UUID("11111111-1111-4111-8111-111111111111")
@@ -50,6 +52,16 @@ PRICE_OWNER = uuid.UUID("55555555-5555-4555-8555-555555555555")
 
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def legacy_signature(session: AuthenticatedSession, action: str | None, nonce: uuid.UUID,
+                     issued_epoch: int | None, scope: str) -> str:
+    fields = (
+        "webdebit-actor-assertion-v1", str(session.actor_id), str(session.session_id),
+        action, str(nonce), None if issued_epoch is None else str(issued_epoch), scope,
+    )
+    message = "\n".join(field for field in fields if field is not None).encode("utf-8")
+    return hmac.new(KEY, message, hashlib.sha256).hexdigest()
 
 
 def make_payload(amount: int, *, source: str = "fixture-source-01",
@@ -110,10 +122,12 @@ def make_charge_payload(*, trip_code: str | None = None, period: str = "2026-09"
 
 
 class Fixture:
-    def __init__(self, docker: list[str], container: str, run_id: str):
+    def __init__(self, docker: list[str], container: str, run_id: str,
+                 db_user: str = IDENTITY_LOGIN):
         self.docker = docker
         self.container = container
         self.run_id = run_id
+        self.db_user = db_user
 
     def psql(self, sql: str, *, user: str = "postgres", check: bool = True,
              database: str = DATABASE) -> subprocess.CompletedProcess[str]:
@@ -141,7 +155,8 @@ class Fixture:
     def submit(self, proposal_id: int | None, payload: str, actor: uuid.UUID = MAKER,
                *, session_id: uuid.UUID | None = None, nonce: uuid.UUID | None = None,
                signed_actor: uuid.UUID | None = None, scope_payload: str | None = None,
-               issued_epoch: int | None = None, check: bool = True):
+               issued_epoch: int | None = None, user: str | None = None,
+               check: bool = True):
         signed_for = signed_actor or actor
         scope = submit_scope(proposal_id, scope_payload if scope_payload is not None else payload)
         session, assertion = self.assertion(signed_for, "submit", scope,
@@ -152,44 +167,48 @@ class Fixture:
             f"{proposal_id if proposal_id is not None else 'NULL'}::bigint,"
             f"{sql_literal(payload)}::text,{args}) x"
         )
-        return self.psql(query, user=DB_LOGIN, check=check), assertion, session
+        return self.psql(query, user=user or self.db_user, check=check), assertion, session
 
-    def present(self, proposal_id: int, title: str, actor: uuid.UUID = MAKER):
+    def present(self, proposal_id: int, title: str, actor: uuid.UUID = MAKER,
+                *, user: str | None = None, check: bool = True):
         scope = f"presentation:{proposal_id}:{hashlib.sha256(title.encode()).hexdigest()}"
         session, assertion = self.assertion(actor, "presentation", scope)
         args = self.assertion_sql(session, assertion)
         return self.psql(
             "SELECT p0_fixture.set_presentation_title("
             f"{proposal_id}, {sql_literal(title)}, {args})",
-            user=DB_LOGIN,
+            user=user or self.db_user,
+            check=check,
         )
 
     def confirm(self, action: str, function: str, proposal_id: int,
                 revision_id: int, content_hash: str, actor: uuid.UUID,
-                *, check: bool = True):
+                *, user: str | None = None, check: bool = True):
         scope = f"{action}:{proposal_id}:{revision_id}:{content_hash}"
         session, assertion = self.assertion(actor, action, scope)
         args = self.assertion_sql(session, assertion)
         return self.psql(
             f"SELECT p0_fixture.{function}({proposal_id}, {revision_id}, "
             f"{sql_literal(content_hash)}, {args})",
-            user=DB_LOGIN,
+            user=user or self.db_user,
             check=check,
         )
 
     def confirm_price(self, proposal_id: int, revision_id: int, content_hash: str,
-                      actor: uuid.UUID = PRICE_OWNER, *, check: bool = True):
+                      actor: uuid.UUID = PRICE_OWNER, *, user: str | None = None,
+                      check: bool = True):
         return self.confirm("confirm_price", "confirm_price_revision",
-            proposal_id, revision_id, content_hash, actor, check=check)
+            proposal_id, revision_id, content_hash, actor, user=user, check=check)
 
     def confirm_period(self, proposal_id: int, revision_id: int, content_hash: str,
-                       actor: uuid.UUID = MAKER, *, check: bool = True):
+                       actor: uuid.UUID = MAKER, *, user: str | None = None,
+                       check: bool = True):
         return self.confirm("confirm_period", "confirm_period_revision",
-            proposal_id, revision_id, content_hash, actor, check=check)
+            proposal_id, revision_id, content_hash, actor, user=user, check=check)
 
     def decide(self, action: str, proposal_id: int, revision_id: int,
                content_hash: str, actor: uuid.UUID = CHECKER, *, check: bool = True,
-               fail_post: bool = False):
+               fail_post: bool = False, user: str | None = None):
         scope = revision_scope(action, proposal_id, revision_id, content_hash)
         session, assertion = self.assertion(actor, action, scope)
         args = self.assertion_sql(session, assertion)
@@ -201,7 +220,7 @@ class Fixture:
         if fail_post:
             query = ("BEGIN; SET LOCAL p0_fixture.fail_post = 'on'; "
                      + query + "; COMMIT")
-        return self.psql(query, user=DB_LOGIN, check=check), session, assertion
+        return self.psql(query, user=user or self.db_user, check=check), session, assertion
 
 
 def main() -> int:
@@ -240,6 +259,7 @@ def main() -> int:
         "cleanup": "not_started",
         "exit_code": 1,
     }
+    report["tree"] = run(["git", "-C", str(ROOT), "rev-parse", "HEAD^{tree}"]).stdout.strip()
     docker = ["docker"]
     container_id: str | None = None
     error: BaseException | None = None
@@ -254,6 +274,45 @@ def main() -> int:
 
     def query(sql: str) -> str:
         return Fixture(docker, container, run_id).psql(sql).stdout.strip()
+
+    def proposal_snapshot(proposal_id: int) -> str:
+        return query(
+            "SELECT jsonb_build_object("
+            "'kind', p.kind, 'state', p.state, 'revision_no', p.revision_no, "
+            "'current_revision_id', p.current_revision_id, 'content_sha256', r.content_sha256, "
+            "'revision_count', (SELECT count(*) FROM p0_fixture.business_revision x "
+            "WHERE x.proposal_id=p.proposal_id), "
+            "'approval_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
+            "a.approval_id, a.revision_id, a.content_sha256, a.checker_actor_id, a.approved_at) "
+            "ORDER BY a.approval_id), '[]'::jsonb) FROM p0_fixture.approval a "
+            "WHERE a.proposal_id=p.proposal_id), "
+            "'posting_count', (SELECT count(*) FROM p0_fixture.posting x "
+            "WHERE x.proposal_id=p.proposal_id))::text "
+            "FROM p0_fixture.proposal p JOIN p0_fixture.business_revision r "
+            "ON r.revision_id=p.current_revision_id "
+            f"WHERE p.proposal_id={proposal_id}"
+        )
+
+    def legacy_signature_matches(session: AuthenticatedSession, action: str | None,
+                                 nonce: uuid.UUID, issued_epoch: int | None,
+                                 scope: str, signature: str) -> bool:
+        fields = (
+            sql_literal("webdebit-actor-assertion-v1"),
+            f"{sql_literal(str(session.actor_id))}::text",
+            f"{sql_literal(str(session.session_id))}::text",
+            "NULL::text" if action is None else sql_literal(action),
+            f"{sql_literal(str(nonce))}::text",
+            "NULL::text" if issued_epoch is None else sql_literal(str(issued_epoch)),
+            sql_literal(scope),
+        )
+        sql = (
+            "SELECT (encode(public.hmac(convert_to(concat_ws(E'\\n', "
+            + ", ".join(fields)
+            + "), 'UTF8'), k.secret, 'sha256'), 'hex') = "
+            + sql_literal(signature)
+            + ")::text FROM p0_fixture.actor_signing_key k WHERE k.key_id='fixture-key-v1'"
+        )
+        return query(sql) in {"true", "t"}
 
     def rejected(name: str, result: subprocess.CompletedProcess[str], expected_text: str) -> None:
         if isinstance(result, tuple):
@@ -308,16 +367,84 @@ def main() -> int:
             "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
             input_text=SCHEMA.read_text(encoding="utf-8"))
         run(docker + pg + ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE,
-            "-c", "CREATE ROLE webdebit_app LOGIN; GRANT p0_fixture_api TO webdebit_app"])
+            "-c", "CREATE ROLE webdebit_identity_test_app LOGIN; "
+                  "GRANT p0_fixture_identity_test_api TO webdebit_identity_test_app; "
+                  "CREATE ROLE webdebit_app LOGIN; GRANT p0_fixture_api TO webdebit_app"])
         case("fixture_schema_loads_on_postgresql_18_6", True, True)
 
         f = Fixture(docker, container, run_id)
+        charge = Fixture(docker, container, run_id, db_user=CHARGE_LOGIN)
+        case("fixture_logins_have_disjoint_kind_roles", "yes|yes", query(
+            "SELECT CASE WHEN pg_has_role('webdebit_app', 'p0_fixture_api', 'member') "
+            "AND NOT pg_has_role('webdebit_app', 'p0_fixture_identity_test_api', 'member') "
+            "THEN 'yes' ELSE 'no' END || '|' || "
+            "CASE WHEN pg_has_role('webdebit_identity_test_app', 'p0_fixture_identity_test_api', 'member') "
+            "AND NOT pg_has_role('webdebit_identity_test_app', 'p0_fixture_api', 'member') "
+            "THEN 'yes' ELSE 'no' END"))
+        case("fixture_api_roles_are_nologin", "p0_fixture_api:nologin|p0_fixture_identity_test_api:nologin",
+            query("SELECT string_agg(rolname || ':' || CASE WHEN rolcanlogin THEN 'login' ELSE 'nologin' END, '|' ORDER BY rolname) "
+                  "FROM pg_roles WHERE rolname IN ('p0_fixture_api', 'p0_fixture_identity_test_api')"))
+        case("fixture_logins_have_only_api_function_grants", "6|6", query(
+            "SELECT count(*) FILTER (WHERE has_function_privilege('webdebit_identity_test_app', p.oid, 'EXECUTE'))::text "
+            "|| '|' || count(*) FILTER (WHERE has_function_privilege('webdebit_app', p.oid, 'EXECUTE'))::text "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='p0_fixture'"))
+        case("fixture_logins_have_no_direct_table_privileges", "yes", query(
+            "SELECT CASE WHEN bool_and("
+            "NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'SELECT') "
+            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'INSERT') "
+            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'UPDATE') "
+            "AND NOT has_table_privilege('webdebit_identity_test_app', c.oid, 'DELETE') "
+            "AND NOT has_table_privilege('webdebit_app', c.oid, 'SELECT') "
+            "AND NOT has_table_privilege('webdebit_app', c.oid, 'INSERT') "
+            "AND NOT has_table_privilege('webdebit_app', c.oid, 'UPDATE') "
+            "AND NOT has_table_privilege('webdebit_app', c.oid, 'DELETE')) "
+            "THEN 'yes' ELSE 'no' END FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='p0_fixture' AND c.relkind IN ('r','p','v','m','f')"))
+        case("fixture_logins_have_no_direct_sequence_privileges", "yes", query(
+            "SELECT CASE WHEN bool_and("
+            "NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'USAGE') "
+            "AND NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'SELECT') "
+            "AND NOT has_sequence_privilege('webdebit_identity_test_app', c.oid, 'UPDATE') "
+            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'USAGE') "
+            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'SELECT') "
+            "AND NOT has_sequence_privilege('webdebit_app', c.oid, 'UPDATE')) "
+            "THEN 'yes' ELSE 'no' END FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='p0_fixture' AND c.relkind='S'"))
         payload100 = make_payload(100, source="fixture-é-source", evidence="fixture-é-evidence")
         created, first_assertion, maker_session = f.submit(None, payload100)
         first = json.loads(created.stdout.strip())
         proposal_id = int(first["proposal_id"])
         revision1 = int(first["revision_id"])
         hash1 = first["content_sha256"]
+        case("revision_kind_is_stored_at_proposal_creation", "revision_fixture",
+            query(f"SELECT kind FROM p0_fixture.proposal WHERE proposal_id={proposal_id}"))
+        generic_to_charge = f.submit(None, make_charge_payload(
+            trip_code="fixture-only-trip-code", opening_refs=True), check=False)
+        rejected("identity_login_cannot_submit_new_charge", generic_to_charge[0],
+            "database principal cannot use charge_fixture")
+        charge_to_generic = charge.submit(None, make_payload(107, source="charge-login-generic-01"),
+            check=False)
+        rejected("charge_login_cannot_submit_new_revision_fixture", charge_to_generic[0],
+            "database principal cannot use revision_fixture")
+        charge_to_existing_generic = charge.submit(proposal_id,
+            make_payload(100, source="fixture-é-source", evidence="fixture-é-evidence"), check=False)
+        rejected("charge_login_cannot_revise_generic_proposal", charge_to_existing_generic[0],
+            "database principal cannot use revision_fixture")
+        rejected("charge_login_cannot_present_generic_proposal",
+            charge.present(proposal_id, "Forbidden charge service presentation", check=False),
+            "database principal cannot use revision_fixture")
+        rejected("charge_login_cannot_confirm_price_for_generic_proposal",
+            charge.confirm_price(proposal_id, revision1, hash1, check=False),
+            "database principal cannot use revision_fixture")
+        rejected("charge_login_cannot_confirm_period_for_generic_proposal",
+            charge.confirm_period(proposal_id, revision1, hash1, check=False),
+            "database principal cannot use revision_fixture")
+        rejected("charge_login_cannot_approve_generic_proposal",
+            charge.decide("approve", proposal_id, revision1, hash1, check=False)[0],
+            "database principal cannot use revision_fixture")
+        rejected("charge_login_cannot_post_generic_proposal",
+            charge.decide("post", proposal_id, revision1, hash1, check=False)[0],
+            "database principal cannot use revision_fixture")
         case("new_submit_creates_revision_1", (1, True),
              (int(first["revision_no"]), first["revision_created"]))
         case("revision_hash_has_sha256_shape", True, bool(re.fullmatch(r"[0-9a-f]{64}", hash1)))
@@ -333,6 +460,46 @@ def main() -> int:
         expired_assertion, _, _ = f.submit(None, make_payload(337, source="expired-source-01"),
             issued_epoch=old_epoch, check=False)
         rejected("expired_actor_assertion_is_rejected", expired_assertion, "invalid actor assertion")
+        future_epoch = int(time.time()) + 31
+        future_assertion, _, _ = f.submit(None, make_payload(338, source="future-source-01"),
+            issued_epoch=future_epoch, check=False)
+        rejected("future_actor_assertion_is_rejected", future_assertion, "invalid actor assertion")
+
+        null_epoch_payload = make_payload(339, source="null-epoch-source-01")
+        null_epoch_scope = submit_scope(None, null_epoch_payload)
+        null_epoch_session = AuthenticatedSession(MAKER, uuid.uuid4())
+        null_epoch_nonce = uuid.uuid4()
+        null_epoch_signature = legacy_signature(
+            null_epoch_session, "submit", null_epoch_nonce, None, null_epoch_scope)
+        case("null_epoch_legacy_hmac_matches_old_concat_protocol", True,
+            legacy_signature_matches(null_epoch_session, "submit", null_epoch_nonce,
+                None, null_epoch_scope, null_epoch_signature))
+        null_epoch_result = f.psql(
+            "SELECT row_to_json(x)::text FROM p0_fixture.submit_revision("
+            f"NULL::bigint, {sql_literal(null_epoch_payload)}::text, '{MAKER}'::uuid, "
+            f"'{null_epoch_session.session_id}'::uuid, '{null_epoch_nonce}'::uuid, "
+            f"NULL::bigint, 'fixture-key-v1', {sql_literal(null_epoch_signature)}) x",
+            user=IDENTITY_LOGIN, check=False)
+        rejected("null_issued_epoch_is_rejected_before_hmac", null_epoch_result,
+            "invalid actor assertion")
+
+        null_action_session = AuthenticatedSession(CHECKER, uuid.uuid4())
+        null_action_nonce = uuid.uuid4()
+        null_action_epoch = int(time.time())
+        null_action_scope = "fixture-null-action-scope"
+        null_action_signature = legacy_signature(
+            null_action_session, None, null_action_nonce, null_action_epoch, null_action_scope)
+        case("null_action_legacy_hmac_matches_old_concat_protocol", True,
+            legacy_signature_matches(null_action_session, None, null_action_nonce,
+                null_action_epoch, null_action_scope, null_action_signature))
+        null_action_result = f.psql(
+            "SELECT p0_fixture.verify_actor_assertion("
+            f"'{CHECKER}'::uuid, '{null_action_session.session_id}'::uuid, NULL::text, "
+            f"'{null_action_nonce}'::uuid, {null_action_epoch}, 'fixture-key-v1', "
+            f"{sql_literal(null_action_scope)}, {sql_literal(null_action_signature)})",
+            user="postgres", check=False)
+        rejected("null_actor_action_is_rejected_before_hmac", null_action_result,
+            "invalid actor assertion")
 
         inactive, _, _ = f.submit(None, make_payload(334, source="inactive-source-01"), actor=DISABLED, check=False)
         rejected("disabled_actor_is_rejected", inactive, "inactive actor")
@@ -342,7 +509,7 @@ def main() -> int:
         wrong_role_args = f.assertion_sql(wrong_role_session, wrong_role_assertion)
         wrong_role = f.psql(
             f"SELECT p0_fixture.approve_revision({proposal_id},{revision1},"
-            f"{sql_literal(hash1)},{wrong_role_args})", user=DB_LOGIN, check=False)
+            f"{sql_literal(hash1)},{wrong_role_args})", user=IDENTITY_LOGIN, check=False)
         rejected("actor_without_checker_role_is_rejected", wrong_role, "actor role required")
 
         # Canonical JSONB ignores object key order/whitespace; lines sort by line number, text stays exact.
@@ -367,6 +534,20 @@ def main() -> int:
             "FROM p0_fixture.proposal p JOIN p0_fixture.business_revision r "
             "ON r.revision_id=p.current_revision_id WHERE p.proposal_id=" + str(proposal_id))
         case("presentation_change_keeps_revision_and_approval", f"approved|{revision1}|{hash1}|1", presentation_state)
+
+        generic_kind_before = proposal_snapshot(proposal_id)
+        valid_charge_revision = make_charge_payload(
+            trip_code="fixture-only-trip-code", opening_refs=True)
+        kind_change_to_charge = f.submit(proposal_id, valid_charge_revision, check=False)
+        rejected("revision_kind_cannot_change_to_charge", kind_change_to_charge[0],
+            "proposal kind is immutable")
+        case("rejected_kind_change_to_charge_preserves_proposal_history",
+            generic_kind_before, proposal_snapshot(proposal_id))
+        proposal_kind_trigger = f.psql(
+            f"UPDATE p0_fixture.proposal SET kind='charge_fixture' WHERE proposal_id={proposal_id}",
+            check=False)
+        rejected("proposal_kind_column_is_immutable", proposal_kind_trigger,
+            "proposal kind is immutable")
 
         changed_result, _, _ = f.submit(proposal_id, make_payload(101,
             source="fixture-é-source", evidence="fixture-é-evidence"), session_id=maker_session.session_id)
@@ -452,7 +633,7 @@ def main() -> int:
             "missing or unknown business fields")
 
         # Charge-specific checks: a valid draft stays pending until all confirmed gates pass.
-        old_date, _, _ = f.submit(None, make_charge_payload(event_date="2026-10-13"), check=False)
+        old_date, _, _ = charge.submit(None, make_charge_payload(event_date="2026-10-13"), check=False)
         rejected("charge_before_2026_10_14_is_rejected", old_date, "before 2026-10-14")
         multi_line_payload = json.loads(make_charge_payload())
         multi_line_payload["lines"].append(
@@ -460,24 +641,24 @@ def main() -> int:
              "debt_period": "2026-09", "amount_vnd": 1})
         multi_line_payload["total_vnd"] = 101
         multi_line_payload["price_components"][1]["amount_vnd"] += 1
-        multi_line, _, _ = f.submit(None,
+        multi_line, _, _ = charge.submit(None,
             json.dumps(multi_line_payload, separators=(",", ":")), check=False)
         rejected("charge_requires_exactly_one_debt_line", multi_line, "exactly one debt line")
 
         no_components_obj = json.loads(make_charge_payload())
         no_components_obj["price_components"] = []
-        no_components, _, _ = f.submit(None,
+        no_components, _, _ = charge.submit(None,
             json.dumps(no_components_obj, separators=(",", ":")), check=False)
         rejected("charge_without_per_trip_components_is_rejected", no_components,
             "per-trip price component list is required")
         bad_component_sum_obj = json.loads(make_charge_payload())
         bad_component_sum_obj["price_components"][0]["amount_vnd"] += 1
-        bad_component_sum, _, _ = f.submit(None,
+        bad_component_sum, _, _ = charge.submit(None,
             json.dumps(bad_component_sum_obj, separators=(",", ":")), check=False)
         rejected("per_trip_component_sum_must_match_exact_total", bad_component_sum,
             "component sum differs from total")
 
-        missing_trip_result, _, _ = f.submit(None, make_charge_payload())
+        missing_trip_result, _, _ = charge.submit(None, make_charge_payload())
         missing_trip = json.loads(missing_trip_result.stdout.strip())
         missing_trip_proposal = int(missing_trip["proposal_id"])
         missing_trip_revision = int(missing_trip["revision_id"])
@@ -493,7 +674,7 @@ def main() -> int:
                 "jsonb_array_length(r.canonical_payload->'price_components')::text "
                 "FROM p0_fixture.business_revision r "
                 f"WHERE r.revision_id={missing_trip_revision}").split("|")))
-        closed_period, _, _ = f.submit(None,
+        closed_period, _, _ = charge.submit(None,
             make_charge_payload(period="2026-08"), check=False)
         closed_period_proposal = None
         if closed_period.returncode == 0:
@@ -502,15 +683,15 @@ def main() -> int:
                                       int(closed_record["revision_id"]),
                                       closed_record["content_sha256"])
             rejected("closed_period_cannot_be_confirmed_by_maker",
-                f.confirm_period(*closed_period_proposal, check=False),
+                charge.confirm_period(*closed_period_proposal, check=False),
                 "not open for maker confirmation")
-            closed_approval, _, _ = f.decide("approve", closed_period_proposal[0],
+            closed_approval, _, _ = charge.decide("approve", closed_period_proposal[0],
                 closed_period_proposal[1], closed_period_proposal[2], check=False)
             rejected("closed_period_cannot_be_approved", closed_approval, "debt period is not open")
         else:
             raise HarnessError("closed-period proposal should remain a draft for fail-closed approval test")
 
-        unknown_period, _, _ = f.submit(None,
+        unknown_period, _, _ = charge.submit(None,
             make_charge_payload(period="2026-07"), check=False)
         if unknown_period.returncode == 0:
             unknown_record = json.loads(unknown_period.stdout.strip())
@@ -518,19 +699,19 @@ def main() -> int:
                                 int(unknown_record["revision_id"]),
                                 unknown_record["content_sha256"])
             rejected("period_without_open_state_cannot_be_confirmed",
-                f.confirm_period(*unknown_proposal, check=False),
+                charge.confirm_period(*unknown_proposal, check=False),
                 "not open for maker confirmation")
-            unknown_approval, _, _ = f.decide("approve", unknown_proposal[0],
+            unknown_approval, _, _ = charge.decide("approve", unknown_proposal[0],
                 unknown_proposal[1], unknown_proposal[2], check=False)
             rejected("period_without_open_state_cannot_be_approved",
                 unknown_approval, "debt period is not open")
         else:
             raise HarnessError("unknown-period proposal should remain a draft for fail-closed check")
 
-        f.confirm_period(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
-        f.confirm_price(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
+        charge.confirm_period(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
+        charge.confirm_price(missing_trip_proposal, missing_trip_revision, missing_trip_hash)
         rejected("charge_missing_stable_trip_code_stays_pending",
-            f.decide("approve", missing_trip_proposal, missing_trip_revision,
+            charge.decide("approve", missing_trip_proposal, missing_trip_revision,
                 missing_trip_hash, check=False),
             "stable trip code missing")
         missing_trip_state = query(
@@ -540,35 +721,63 @@ def main() -> int:
             f"FROM p0_fixture.proposal p WHERE p.proposal_id={missing_trip_proposal}")
         case("missing_trip_code_charge_remains_outside_balance", "review_needed|0|0", missing_trip_state)
 
-        missing_opening_result, _, _ = f.submit(None,
+        missing_opening_result, _, _ = charge.submit(None,
             make_charge_payload(trip_code="fixture-only-trip-code"))
         missing_opening = json.loads(missing_opening_result.stdout.strip())
         missing_opening_proposal = int(missing_opening["proposal_id"])
         missing_opening_revision = int(missing_opening["revision_id"])
         missing_opening_hash = missing_opening["content_sha256"]
-        f.confirm_period(missing_opening_proposal, missing_opening_revision,
+        charge.confirm_period(missing_opening_proposal, missing_opening_revision,
             missing_opening_hash)
-        f.confirm_price(missing_opening_proposal, missing_opening_revision,
+        charge.confirm_price(missing_opening_proposal, missing_opening_revision,
             missing_opening_hash)
         rejected("missing_opening_comparison_keeps_charge_pending",
-            f.decide("approve", missing_opening_proposal, missing_opening_revision,
+            charge.decide("approve", missing_opening_proposal, missing_opening_revision,
                 missing_opening_hash, check=False),
             "opening comparison evidence missing")
 
-        candidate_result, _, _ = f.submit(None, make_charge_payload(
+        candidate_result, _, _ = charge.submit(None, make_charge_payload(
             trip_code="fixture-only-trip-code", opening_refs=True))
         candidate = json.loads(candidate_result.stdout.strip())
         charge_proposal = int(candidate["proposal_id"])
         charge_revision = int(candidate["revision_id"])
         charge_hash = candidate["content_sha256"]
+        case("charge_kind_is_stored_at_proposal_creation", "charge_fixture",
+            query(f"SELECT kind FROM p0_fixture.proposal WHERE proposal_id={charge_proposal}"))
+        generic_to_charge_revision = f.submit(charge_proposal,
+            make_charge_payload(trip_code="fixture-only-trip-code", opening_refs=True), check=False)
+        rejected("identity_login_cannot_revise_charge_proposal",
+            generic_to_charge_revision[0], "database principal cannot use charge_fixture")
+        rejected("identity_login_cannot_present_charge_proposal",
+            f.present(charge_proposal, "Forbidden identity presentation", check=False),
+            "database principal cannot use charge_fixture")
+        rejected("identity_login_cannot_confirm_price_for_charge_proposal",
+            f.confirm_price(charge_proposal, charge_revision, charge_hash, check=False),
+            "database principal cannot use charge_fixture")
+        rejected("identity_login_cannot_confirm_period_for_charge_proposal",
+            f.confirm_period(charge_proposal, charge_revision, charge_hash, check=False),
+            "database principal cannot use charge_fixture")
+        rejected("identity_login_cannot_approve_charge_proposal",
+            f.decide("approve", charge_proposal, charge_revision, charge_hash, check=False)[0],
+            "database principal cannot use charge_fixture")
+        rejected("identity_login_cannot_post_charge_proposal",
+            f.decide("post", charge_proposal, charge_revision, charge_hash, check=False)[0],
+            "database principal cannot use charge_fixture")
+        charge_kind_before = proposal_snapshot(charge_proposal)
+        valid_generic_revision = make_payload(108, source="charge-to-generic-01")
+        kind_change_to_generic = charge.submit(charge_proposal, valid_generic_revision, check=False)
+        rejected("charge_kind_cannot_change_to_revision_fixture", kind_change_to_generic[0],
+            "proposal kind is immutable")
+        case("rejected_kind_change_to_generic_preserves_proposal_history",
+            charge_kind_before, proposal_snapshot(charge_proposal))
         rejected("charge_without_owner_price_confirmation_stays_pending",
-            f.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
+            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
             "maker confirmation required")
-        f.confirm_period(charge_proposal, charge_revision, charge_hash)
+        charge.confirm_period(charge_proposal, charge_revision, charge_hash)
         rejected("charge_without_owner_price_confirmation_is_rejected",
-            f.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
+            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
             "per-trip price owner confirmation required")
-        f.confirm_price(charge_proposal, charge_revision, charge_hash)
+        charge.confirm_price(charge_proposal, charge_revision, charge_hash)
         owner_confirmation = query(
             "SELECT c.owner_actor_id::text || '|' || c.revision_id::text || '|' || c.content_sha256 "
             "FROM p0_fixture.price_confirmation c "
@@ -581,37 +790,42 @@ def main() -> int:
             f"WHERE c.proposal_id={charge_proposal}")
         case("maker_period_confirmation_binds_actor_revision_and_hash",
             f"{MAKER}|{charge_revision}|{charge_hash}", period_confirmation)
+        charge_audit_login = query(
+            "SELECT count(*) FROM p0_fixture.audit "
+            f"WHERE proposal_id={charge_proposal} AND database_session_user='{CHARGE_LOGIN}' "
+            "AND action IN ('submit', 'confirm_period', 'confirm_price')")
+        case("charge_fixture_audit_uses_charge_login", 3, int(charge_audit_login))
         rejected("checker_cannot_attest_per_trip_price",
-            f.confirm_price(charge_proposal, charge_revision, charge_hash,
+            charge.confirm_price(charge_proposal, charge_revision, charge_hash,
                 actor=CHECKER, check=False),
             "actor role required")
         rejected("price_owner_cannot_checker_approve_same_revision",
-            f.decide("approve", charge_proposal, charge_revision, charge_hash,
+            charge.decide("approve", charge_proposal, charge_revision, charge_hash,
                 actor=PRICE_OWNER, check=False),
             "price owner cannot checker-approve")
         rejected("opaque_trip_code_and_opening_refs_do_not_prove_source_resolution",
-            f.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
+            charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
             "source key and opening reconciliation are unresolved")
 
         changed_charge_payload = json.loads(make_charge_payload(
             trip_code="fixture-only-trip-code", opening_refs=True, amount=101))
-        changed_charge_result, _, _ = f.submit(charge_proposal,
+        changed_charge_result, _, _ = charge.submit(charge_proposal,
             json.dumps(changed_charge_payload, separators=(",", ":")))
         changed_charge = json.loads(changed_charge_result.stdout.strip())
         changed_charge_revision = int(changed_charge["revision_id"])
         changed_charge_hash = changed_charge["content_sha256"]
         rejected("old_period_confirmation_is_invalid_after_charge_edit",
-            f.decide("approve", charge_proposal, changed_charge_revision,
+            charge.decide("approve", charge_proposal, changed_charge_revision,
                 changed_charge_hash, check=False),
             "maker confirmation required")
-        f.confirm_period(charge_proposal, changed_charge_revision, changed_charge_hash)
+        charge.confirm_period(charge_proposal, changed_charge_revision, changed_charge_hash)
         rejected("old_price_confirmation_is_invalid_after_charge_edit",
-            f.decide("approve", charge_proposal, changed_charge_revision,
+            charge.decide("approve", charge_proposal, changed_charge_revision,
                 changed_charge_hash, check=False),
             "per-trip price owner confirmation required")
-        f.confirm_price(charge_proposal, changed_charge_revision, changed_charge_hash)
+        charge.confirm_price(charge_proposal, changed_charge_revision, changed_charge_hash)
         rejected("reconfirmed_charge_still_fails_closed_on_opening",
-            f.decide("approve", charge_proposal, changed_charge_revision,
+            charge.decide("approve", charge_proposal, changed_charge_revision,
                 changed_charge_hash, check=False),
             "source key and opening reconciliation are unresolved")
         blocked_charge_state = query(
@@ -626,7 +840,7 @@ def main() -> int:
         wrong_scope_args = f.assertion_sql(wrong_scope_session, wrong_scope_assertion)
         wrong_scope_result = f.psql(
             f"SELECT p0_fixture.approve_revision({proposal_id},{revision_current},"
-            f"{sql_literal(hash_current)},{wrong_scope_args})", user=DB_LOGIN, check=False)
+            f"{sql_literal(hash_current)},{wrong_scope_args})", user=IDENTITY_LOGIN, check=False)
         rejected("actor_assertion_cannot_be_reused_for_another_revision_scope",
             wrong_scope_result, "signature or scope mismatch")
 
@@ -648,7 +862,7 @@ def main() -> int:
              and posted["canonical_payload"]["total_vnd"] == current_payload["total_vnd"]
              and posted["maker_actor_id"] == str(MAKER)
              and posted["checker_actor_id"] == str(CHECKER)
-             and posted["database_session_user"] == DB_LOGIN)
+             and posted["database_session_user"] == IDENTITY_LOGIN)
         approval_link = query(
             "SELECT count(*) FROM p0_fixture.approval a "
             f"WHERE a.approval_id={posted['approval_id']} AND a.revision_id={revision_current} "
@@ -659,18 +873,42 @@ def main() -> int:
 
         audit_mapping = query(
             "SELECT count(*) FROM p0_fixture.audit a WHERE a.proposal_id=" + str(proposal_id)
-            + f" AND a.app_actor_id='{MAKER}'::uuid AND a.database_session_user='{DB_LOGIN}'"
+            + f" AND a.app_actor_id='{MAKER}'::uuid AND a.database_session_user='{IDENTITY_LOGIN}'"
             + " AND a.key_id='fixture-key-v1' AND EXISTS (SELECT 1 FROM p0_fixture.used_assertion_nonce n"
             + " WHERE n.nonce=a.assertion_nonce AND n.actor_id=a.app_actor_id AND n.session_id=a.app_session_id)")
         case("audit_separates_app_actor_from_database_service_login", True, int(audit_mapping) > 0)
-        direct_read = f.psql("SELECT * FROM p0_fixture.business_revision", user=DB_LOGIN, check=False)
+        direct_read = f.psql("SELECT * FROM p0_fixture.business_revision", user=IDENTITY_LOGIN, check=False)
         rejected("api_role_cannot_read_revision_table_directly", direct_read, "permission denied")
         direct_update = f.psql(
-            "UPDATE p0_fixture.proposal SET state='pending'", user=DB_LOGIN, check=False)
+            "UPDATE p0_fixture.proposal SET state='pending'", user=IDENTITY_LOGIN, check=False)
         rejected("api_role_cannot_update_proposal_table_directly", direct_update, "permission denied")
         direct_key_read = f.psql("SELECT secret FROM p0_fixture.actor_signing_key",
-            user=DB_LOGIN, check=False)
+            user=IDENTITY_LOGIN, check=False)
         rejected("api_role_cannot_read_actor_signing_key", direct_key_read, "permission denied")
+        direct_insert = f.psql(
+            f"INSERT INTO p0_fixture.proposal(maker_actor_id, kind) "
+            f"VALUES ('{MAKER}'::uuid, 'revision_fixture')",
+            user=IDENTITY_LOGIN, check=False)
+        rejected("identity_api_role_cannot_insert_proposals_directly",
+            direct_insert, "permission denied")
+        charge_direct_read = f.psql("SELECT * FROM p0_fixture.business_revision",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_role_cannot_read_revision_table_directly",
+            charge_direct_read, "permission denied")
+        charge_direct_dml = f.psql("DELETE FROM p0_fixture.proposal",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_role_cannot_delete_proposals_directly",
+            charge_direct_dml, "permission denied")
+        charge_direct_key_read = f.psql("SELECT secret FROM p0_fixture.actor_signing_key",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_role_cannot_read_actor_signing_key",
+            charge_direct_key_read, "permission denied")
+        charge_direct_insert = f.psql(
+            f"INSERT INTO p0_fixture.proposal(maker_actor_id, kind) "
+            f"VALUES ('{MAKER}'::uuid, 'charge_fixture')",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_role_cannot_insert_proposals_directly",
+            charge_direct_insert, "permission denied")
 
         final_state = query(
             f"SELECT state || '|' || (SELECT count(*) FROM p0_fixture.posting WHERE proposal_id={proposal_id}) "
@@ -716,6 +954,12 @@ def main() -> int:
             check=False)
         rejected("period_confirmation_is_append_only", period_confirmation_mutation,
             "append-only fixture row")
+        charge_approval_or_post = query(
+            "SELECT count(*) FROM p0_fixture.proposal p WHERE p.kind='charge_fixture' "
+            "AND (p.state IN ('approved', 'posted') "
+            "OR EXISTS (SELECT 1 FROM p0_fixture.approval a WHERE a.proposal_id=p.proposal_id) "
+            "OR EXISTS (SELECT 1 FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id))")
+        case("no_charge_fixture_approved_or_posted", 0, int(charge_approval_or_post))
         report["exit_code"] = 0
     except BaseException as exc:
         error = exc
