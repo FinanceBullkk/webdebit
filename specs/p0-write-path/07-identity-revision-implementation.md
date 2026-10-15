@@ -65,11 +65,36 @@ Mỗi revision giữ một object payload với schema version rõ. Fixture Post
 - riêng `charge_fixture`: mã chuyến tường minh, tham chiếu opening và chứng cứ đối chiếu, cùng danh sách cấu phần/amount riêng cho chuyến;
 - các field quyết định được thêm hợp lệ cho operation tương ứng (ví dụ original posting khi reversal hoặc allocation khi receipt).
 
-Payload `revision_fixture` giữ coverage Q01/Q02 tổng quát. `charge_fixture` buộc đúng một debt line, event date từ 14/10/2026, một danh sách component label/amount riêng cho chuyến và tổng chính xác. Maker xác nhận kỳ đang mở; chủ nghiệp vụ attests danh sách giá riêng; hai dấu xác nhận gắn đúng revision/hash, append-only và không áp sang revision sau. Kỳ đóng bị từ chối. Các điều kiện này vẫn không đủ để approve charge: mã chuyến và tham chiếu opening giả/opaque không chứng minh đối chiếu, nên charge ở `review_needed` và fail-closed. Fixture không nhận receipt/reversal. Field lạ bị từ chối; line chuẩn hóa theo line number; object key order/whitespace không đổi nghĩa; reference opaque giữ nguyên codepoint.
+Payload `revision_fixture` giữ coverage Q01/Q02 tổng quát và vẫn yêu cầu tiền/chứng cứ đầy đủ. `charge_fixture` yêu cầu customer, debt period, ngày hợp lệ từ 14/10/2026, đúng một debt line có line number hợp lệ và cùng customer/period. Lỗi cấu trúc, kiểu JSON sai, field lạ, ngày sai, số âm/lẻ, hash không đúng dạng hoặc nhiều debt line bị từ chối.
+
+Charge có thể lưu revision bất biến ở `review_needed` khi trường tiền hoặc bằng chứng còn thiếu/chưa đủ: total thiếu/null/0; component list thiếu/null/rỗng; amount component thiếu/null/0; tổng component hoặc line lệch khi hai vế đã biết; source/evidence, trip code hoặc opening reference thiếu. Không điền tiền, làm tròn, đổi chuỗi thành số hoặc suy định danh. Field cho phép thiếu có cùng canonical JSON/hash khi bị lược hoặc đặt JSON null; số 0 giữ nguyên và khác null. Chuỗi source/evidence rỗng được giữ nguyên để review nhưng tính là thiếu; hash không-null sai dạng vẫn bị từ chối.
+
+Database tự tính reason codes và lưu snapshot bất biến cùng business revision; payload client không được cấp field reason codes. Mọi charge hiện có `SOURCE_RESOLVER_UNAVAILABLE`; `trip_code` trong fixture chỉ là placeholder opaque. TRIP-KEY policy đã chốt là booking + container, uppercase và bỏ whitespace; fixture chưa cài encoding, resolver, mapping opening hoặc bằng chứng vắng opening. Maker xác nhận kỳ đang mở; chủ nghiệp vụ attests giá riêng; hai xác nhận vẫn gắn revision/hash, append-only. Các xác nhận này không cho phép approve/post: charge luôn ở `review_needed` ngoài balance. Projection fixture hẹp cho owner/test runner đọc state, mọi payload/hash/reason snapshot; app API không có SELECT bảng hay EXECUTE projection. Fixture không nhận receipt/reversal. Line chuẩn hóa theo line number; object key order/whitespace không đổi nghĩa; reference opaque giữ nguyên codepoint.
+
+### Charge review reasons
+
+Các code được lưu trong `business_revision.review_reason_codes` và trả qua `fixture_review_projection`; danh sách là snapshot của payload tại lúc tạo revision. Kết quả luôn sắp theo tên code. Mapping:
+
+| Code | Điều kiện |
+|---|---|
+| `TOTAL_MISSING` | `total_vnd` là JSON null |
+| `TOTAL_ZERO` | `total_vnd` bằng 0 |
+| `PRICE_COMPONENTS_MISSING` | `price_components` null hoặc rỗng |
+| `COMPONENT_AMOUNT_MISSING` | Có component với `amount_vnd` null hoặc bị lược |
+| `COMPONENT_AMOUNT_ZERO` | Có component amount bằng 0 |
+| `COMPONENT_TOTAL_MISMATCH` | Total đã biết, mọi component amount đã biết, nhưng tổng khác total |
+| `LINE_AMOUNT_MISSING` | Debt line amount null hoặc bị lược |
+| `LINE_TOTAL_MISMATCH` | Line amount và total đều đã biết nhưng khác nhau |
+| `SOURCE_EVIDENCE_MISSING` | Source/evidence ref null/rỗng/trắng hoặc evidence hash null |
+| `TRIP_CODE_MISSING` | `trip_code` null/rỗng/trắng |
+| `OPENING_EVIDENCE_MISSING` | Snapshot ref hoặc absence evidence ref null/rỗng/trắng |
+| `SOURCE_RESOLVER_UNAVAILABLE` | Luôn có với charge vì fixture không có resolver |
+
+Không tính mismatch khi thiếu một trong hai vế hoặc component sum có amount null. Hash sai dạng khi được cung cấp là lỗi cấu trúc; hash thiếu là pending. Projection không được cấp quyền cho app API roles và không thay viewer/API production.
 
 ### Canonical bytes và hash
 
-Database tạo canonical JSONB từ allowlist field cố định; format/amount/date được kiểm trước khi đưa vào canonical object. VND đi qua PostgreSQL `numeric` chính xác, bỏ scale thập phân thừa; `100`, `100.0` và `100.00` có cùng canonical JSON/hash ở total, lines và price components. Không dùng float hoặc thu hẹp sang bigint. Fractional/negative/nonfinite values bị từ chối; money `NULL` bị phân biệt với 0 và không tự chuyển đổi. Fixture hiện yêu cầu amount dương, nên cả NULL lẫn 0 đều bị từ chối riêng; lưu draft thiếu/0 sẽ thuộc T03.
+Database tạo canonical JSONB từ allowlist field cố định; format/amount/date được kiểm trước khi đưa vào canonical object. VND đi qua PostgreSQL `numeric` chính xác, bỏ scale thập phân thừa; `100`, `100.0` và `100.00` có cùng canonical JSON/hash ở total, lines và price components. Không dùng float hoặc thu hẹp sang bigint. Fractional/negative/nonfinite values bị từ chối. `revision_fixture` vẫn yêu cầu amount dương; charge cho phép JSON null và 0 để giữ draft, giữ khác biệt hash giữa chúng. Field tùy chọn bị lược chuẩn hóa thành JSON null; chuỗi trắng không bị thay bằng bằng chứng giả. Source/evidence ref trắng vẫn được lưu nguyên văn nhưng tạo `SOURCE_EVIDENCE_MISSING`.
 
 Ngày chỉ nhận ASCII `YYYY-MM-DD`, năm `0001` đến `9999`; PostgreSQL dựng ngày từ các thành phần đã kiểm bằng `make_date`, không dùng parser phụ thuộc `DateStyle`. Canonical ngày giữ dạng ISO đã kiểm.
 
@@ -100,17 +125,17 @@ Prototype PostgreSQL cố tình là acceptance fixture có table riêng; không 
 | N01 | App chỉ loopback sau Tailscale Serve; không có Funnel/port-forward | host config + từ tailnet/ngoài tailnet | Chưa triển khai/kiểm live |
 | N02 | Direct DB/HTTP ngoài tailnet không tới được; spoof proxy headers không đặt actor | network smoke + HTTP integration | Chưa triển khai/kiểm live |
 | R01 | JSON key order/whitespace tương đương cùng hash; line array chuẩn theo line_no; source ref khác codepoint tạo revision | canonicalization PG18 | Prototype kiểm trên PG18 |
-| R02 | Business field được kiểm tạo revision/hash mới; input không hợp lệ bị từ chối | revision function PG18 | `revision_fixture` kiểm Q01/Q02 tổng quát; `charge_fixture` kiểm một debt line, ngày tối thiểu, component list/total và các xác nhận riêng |
+| R02 | Business field được kiểm tạo revision/hash mới; input sai cấu trúc bị từ chối; charge thiếu bằng chứng hợp lệ lưu revision `review_needed` | revision function PG18 | `revision_fixture` vẫn strict; charge có reason codes tính tại DB và snapshot append-only; omitted/null cùng hash, 0 giữ riêng |
 | R03 | Trình bày đổi nhưng business hash/revision không đổi, approval giữ hiệu lực | presentation API + PG query | Prototype kiểm trên PG18 |
 | R04 | Edit sau approval làm approval revision cũ stale; stale revision không post | approve/edit/post PG18 | Prototype kiểm trên PG18 |
 | R05 | Post lưu đúng payload/hash/actor của revision đã duyệt; duplicate post bị từ chối | transaction/constraints PG18 | Prototype kiểm trên PG18 |
 | R06 | Lỗi trễ khi post rollback status, posting và post audit | deferred trigger PG18 | Prototype kiểm trên PG18 |
 | R07 | App role không UPDATE/DELETE revision, approval, posting hay audit | PostgreSQL grants/triggers | Fixture kiểm direct read/update và các mutation append-only đại diện trên revision, approval, posting, audit. Owner/superuser nằm ngoài bảo đảm |
-| R08 | Thiếu evidence reference hoặc evidence hash sai định dạng bị từ chối | payload validation PG18 | Prototype kiểm cả hai trường hợp thiếu/sai |
-| C01 | Charge có một debt line, event date từ 14/10/2026, component list per-trip khớp tổng | payload validation PG18 | Thiếu component, lệch tổng, ngày cũ và nhiều debt line đều bị từ chối |
+| R08 | Generic thiếu evidence hoặc hash sai bị từ chối; charge thiếu evidence lưu pending, hash sai được cung cấp bị từ chối | payload validation PG18 | Quy tắc khác nhau theo kind; chuỗi source/evidence rỗng được giữ nhưng tính là thiếu |
+| C01 | Charge có customer/period/date hợp lệ, đúng một debt line; cấu trúc sai bị từ chối; giá thiếu/null/0/lệch được lưu pending | payload validation + revision projection PG18 | Reason code nêu từng thiếu/zero/mismatch; mismatch chỉ tính khi hai vế đã biết |
 | C02 | Maker xác nhận debt period đang mở, độc lập event date | period fixture + assertion | Kỳ 2026-09 khác tháng event date 2026-10-14 được giữ; kỳ đóng và xác nhận cũ sau edit bị từ chối |
 | C03 | Chủ nghiệp vụ xác nhận price components theo revision/hash, riêng checker approval | price attestation PG18 | Thiếu attestation, checker giả owner, cùng owner/checker và attestation cũ sau edit đều bị từ chối |
-| C04 | Thiếu trip code hoặc opening resolver thì giữ CHỜ KIỂM, ngoài balance | charge approval gate PG18 | `review_needed`, 0 approval, 0 posting; code/reference giả vẫn bị chặn vì source key/opening chưa chốt |
+| C04 | Trip/opening evidence thiếu hoặc resolver unavailable thì giữ CHỜ KIỂM, ngoài balance | charge approval gate + review projection PG18 | Reason snapshot bất biến; mã chuyến opaque/reference giả không chứng minh TRIP-KEY hay opening và vẫn bị chặn |
 | G01 | Receipt chỉ post khi được xác minh theo policy được duyệt | Q09, receipt workflow | CÒN MỞ; không có receipt path trong prototype |
 
 Đạt các hàng PG18 chỉ là bằng chứng fixture cho SQL prototype và revision cụ thể. Chúng không chứng minh app login, Tailscale boundary, account operations, người thật, nguồn ngân hàng, hoặc production readiness.

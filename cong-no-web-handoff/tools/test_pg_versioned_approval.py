@@ -255,6 +255,7 @@ def main() -> int:
         "published_ports": [],
         "volume_mounts": [],
         "cases": [],
+        "draft_matrix": [],
         "runtime_checks": {
             "app_login_session": "not_implemented",
             "tailscale_boundary": "not_run",
@@ -286,16 +287,35 @@ def main() -> int:
             "'current_revision_id', p.current_revision_id, 'content_sha256', r.content_sha256, "
             "'revision_count', (SELECT count(*) FROM p0_fixture.business_revision x "
             "WHERE x.proposal_id=p.proposal_id), "
+            "'revision_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
+            "x.revision_id, x.revision_no, x.canonical_payload, x.content_sha256, "
+            "x.review_reason_codes) ORDER BY x.revision_no), '[]'::jsonb) "
+            "FROM p0_fixture.business_revision x WHERE x.proposal_id=p.proposal_id), "
             "'approval_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
             "a.approval_id, a.revision_id, a.content_sha256, a.checker_actor_id, a.approved_at) "
             "ORDER BY a.approval_id), '[]'::jsonb) FROM p0_fixture.approval a "
             "WHERE a.proposal_id=p.proposal_id), "
             "'posting_count', (SELECT count(*) FROM p0_fixture.posting x "
+            "WHERE x.proposal_id=p.proposal_id), "
+            "'period_confirmation_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
+            "x.confirmation_id, x.revision_id, x.content_sha256, x.maker_actor_id) "
+            "ORDER BY x.revision_id), '[]'::jsonb) FROM p0_fixture.period_confirmation x "
+            "WHERE x.proposal_id=p.proposal_id), "
+            "'price_confirmation_history', (SELECT coalesce(jsonb_agg(jsonb_build_array("
+            "x.confirmation_id, x.revision_id, x.content_sha256, x.owner_actor_id) "
+            "ORDER BY x.revision_id), '[]'::jsonb) FROM p0_fixture.price_confirmation x "
+            "WHERE x.proposal_id=p.proposal_id), "
+            "'audit_count', (SELECT count(*) FROM p0_fixture.audit x "
             "WHERE x.proposal_id=p.proposal_id))::text "
             "FROM p0_fixture.proposal p JOIN p0_fixture.business_revision r "
             "ON r.revision_id=p.current_revision_id "
             f"WHERE p.proposal_id={proposal_id}"
         )
+
+    def review_projection(proposal_id: int) -> dict[str, object]:
+        return json.loads(query(
+            "SELECT p0_fixture.fixture_review_projection(" + str(proposal_id) + ")::text"
+        ))
 
     def legacy_signature_matches(session: AuthenticatedSession, action: str | None,
                                  nonce: uuid.UUID, issued_epoch: int | None,
@@ -378,6 +398,46 @@ def main() -> int:
 
         f = Fixture(docker, container, run_id)
         charge = Fixture(docker, container, run_id, db_user=CHARGE_LOGIN)
+
+        def pending_charge(name: str, payload: dict[str, object], expected_codes: list[str],
+                           approval_gate: str) -> tuple[int, int, str]:
+            result, _, _ = charge.submit(None,
+                json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+            created = json.loads(result.stdout.strip())
+            proposal_id = int(created["proposal_id"])
+            revision_id = int(created["revision_id"])
+            content_hash = str(created["content_sha256"])
+            saved = review_projection(proposal_id)
+            revision = saved["revisions"][-1]
+            case(f"{name}_visible_after_commit", (revision_id, content_hash, 1),
+                 (int(revision["revision_id"]), revision["content_sha256"],
+                  len(saved["revisions"])))
+            case(f"{name}_committed_review_needed", "review_needed", saved["state"])
+            case(f"{name}_reason_codes", sorted(expected_codes), revision["reason_codes"])
+
+            charge.confirm_period(proposal_id, revision_id, content_hash)
+            charge.confirm_price(proposal_id, revision_id, content_hash)
+            before_refusal = proposal_snapshot(proposal_id)
+            approval, _, _ = charge.decide("approve", proposal_id, revision_id,
+                content_hash, check=False)
+            rejected(f"{name}_approval_refused", approval, approval_gate)
+            posting, _, _ = charge.decide("post", proposal_id, revision_id,
+                content_hash, check=False)
+            rejected(f"{name}_posting_refused", posting,
+                "current approved revision required for posting")
+            case(f"{name}_refusal_preserves_revision_history", before_refusal,
+                 proposal_snapshot(proposal_id))
+            report["draft_matrix"].append({
+                "case": name,
+                "revision_id": revision_id,
+                "content_sha256": content_hash,
+                "reason_codes": revision["reason_codes"],
+                "state": saved["state"],
+                "approval_refused": approval.returncode != 0,
+                "posting_refused": posting.returncode != 0,
+            })  # type: ignore[union-attr]
+            return proposal_id, revision_id, content_hash
+
         case("fixture_logins_have_disjoint_kind_roles", "yes|yes", query(
             "SELECT CASE WHEN pg_has_role('webdebit_app', 'p0_fixture_api', 'member') "
             "AND NOT pg_has_role('webdebit_app', 'p0_fixture_identity_test_api', 'member') "
@@ -557,17 +617,28 @@ def main() -> int:
                 "fixture VND value must be a JSON number" if field == "line_null"
                 else "fixture amount must be a positive integer")
         for field, bad_value in (
-            ("component_zero", '"amount_vnd":0'),
             ("component_negative", '"amount_vnd":-50'),
             ("component_fractional", '"amount_vnd":50.5'),
-            ("component_null", '"amount_vnd":null'),
         ):
             bad_component_payload = make_charge_payload().replace(
                 '"amount_vnd":50', bad_value, 1)
             bad_component_result, _, _ = charge.submit(None, bad_component_payload, check=False)
             rejected(f"{field}_money_is_rejected", bad_component_result,
-                "fixture VND value must be a JSON number" if field == "component_null"
-                else "fixture amount must be a positive integer")
+                "fixture amount must be a nonnegative integer")
+        zero_component = json.loads(make_charge_payload())
+        zero_component["price_components"][0]["amount_vnd"] = 0
+        zero_component["price_components"][1]["amount_vnd"] = 100
+        pending_charge("zero_component_persists_as_review_needed", zero_component,
+            ["COMPONENT_AMOUNT_ZERO", "OPENING_EVIDENCE_MISSING",
+             "SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
+            "stable trip code missing")
+        null_component = json.loads(make_charge_payload())
+        null_component["price_components"][0]["amount_vnd"] = None
+        null_component["price_components"][1]["amount_vnd"] = 100
+        pending_charge("null_component_amount_persists_as_review_needed", null_component,
+            ["COMPONENT_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
+             "SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
+            "stable trip code missing")
         for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
             nonfinite_money = integer_payload.replace('"total_vnd":100',
                 f'"total_vnd":{nonfinite_token}')
@@ -835,7 +906,7 @@ def main() -> int:
         rejected("receipt_path_is_not_enabled_while_q09_is_open", receipt,
             "missing or unknown business fields")
 
-        # Charge-specific checks: a valid draft stays pending until all confirmed gates pass.
+        # Malformed charge requests reject; only well-formed incomplete business evidence persists.
         old_date, _, _ = charge.submit(None, make_charge_payload(event_date="2026-10-13"), check=False)
         rejected("charge_before_2026_10_14_is_rejected", old_date, "before 2026-10-14")
         multi_line_payload = json.loads(make_charge_payload())
@@ -848,18 +919,341 @@ def main() -> int:
             json.dumps(multi_line_payload, separators=(",", ":")), check=False)
         rejected("charge_requires_exactly_one_debt_line", multi_line, "exactly one debt line")
 
-        no_components_obj = json.loads(make_charge_payload())
-        no_components_obj["price_components"] = []
-        no_components, _, _ = charge.submit(None,
-            json.dumps(no_components_obj, separators=(",", ":")), check=False)
-        rejected("charge_without_per_trip_components_is_rejected", no_components,
-            "per-trip price component list is required")
-        bad_component_sum_obj = json.loads(make_charge_payload())
-        bad_component_sum_obj["price_components"][0]["amount_vnd"] += 1
-        bad_component_sum, _, _ = charge.submit(None,
-            json.dumps(bad_component_sum_obj, separators=(",", ":")), check=False)
-        rejected("per_trip_component_sum_must_match_exact_total", bad_component_sum,
-            "component sum differs from total")
+        missing_total_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        missing_total_obj["total_vnd"] = None
+        missing_total, missing_total_revision, missing_total_hash = pending_charge(
+            "total_missing", missing_total_obj,
+            ["TOTAL_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        zero_total_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        zero_total_obj["total_vnd"] = 0
+        zero_total_obj["lines"][0]["amount_vnd"] = 0
+        zero_total_obj["price_components"] = [
+            {"label": "zero fixture component", "amount_vnd": 0}]
+        zero_total, zero_total_revision, zero_total_hash = pending_charge(
+            "total_zero", zero_total_obj,
+            ["COMPONENT_AMOUNT_ZERO", "TOTAL_ZERO", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        missing_total_view = review_projection(missing_total)
+        zero_total_view = review_projection(zero_total)
+        case("charge_json_null_is_preserved", None,
+             missing_total_view["revisions"][0]["payload"]["total_vnd"])
+        case("charge_zero_is_preserved", 0,
+             zero_total_view["revisions"][0]["payload"]["total_vnd"])
+        case("charge_null_and_zero_hashes_are_distinct", True,
+             missing_total_hash != zero_total_hash
+             and missing_total_revision != zero_total_revision)
+
+        missing_components_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        missing_components_obj["price_components"] = None
+        pending_charge("price_components_null", missing_components_obj,
+            ["PRICE_COMPONENTS_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        empty_components_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        empty_components_obj["price_components"] = []
+        pending_charge("price_components_empty", empty_components_obj,
+            ["PRICE_COMPONENTS_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+
+        partial_component_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        partial_component_obj["price_components"] = [
+            {"label": "known component", "amount_vnd": 100},
+            {"label": "missing component amount", "amount_vnd": None},
+        ]
+        pending_charge("component_amount_missing", partial_component_obj,
+            ["COMPONENT_AMOUNT_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+
+        mismatched_components_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        mismatched_components_obj["price_components"] = [
+            {"label": "component A", "amount_vnd": 40},
+            {"label": "component B", "amount_vnd": 50},
+        ]
+        pending_charge("component_total_mismatch", mismatched_components_obj,
+            ["COMPONENT_TOTAL_MISMATCH", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+
+        missing_line_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        missing_line_obj["lines"][0]["amount_vnd"] = None
+        pending_charge("line_amount_missing", missing_line_obj,
+            ["LINE_AMOUNT_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        mismatch_line_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        mismatch_line_obj["lines"][0]["amount_vnd"] = 99
+        pending_charge("line_total_mismatch", mismatch_line_obj,
+            ["LINE_TOTAL_MISMATCH", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+
+        missing_source_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        missing_source_obj["source_ref"] = ""
+        missing_source_obj["evidence_ref"] = None
+        missing_source_obj["evidence_sha256"] = None
+        missing_source, _, _ = pending_charge("source_evidence_missing",
+            missing_source_obj,
+            ["SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        case("blank_source_reference_is_preserved_for_review", "",
+             review_projection(missing_source)["revisions"][0]["payload"]["source_ref"])
+
+        missing_trip_obj = json.loads(make_charge_payload(opening_refs=True))
+        missing_trip_obj["trip_code"] = "  "
+        pending_charge("trip_code_missing", missing_trip_obj,
+            ["SOURCE_RESOLVER_UNAVAILABLE", "TRIP_CODE_MISSING"],
+            "stable trip code missing")
+        missing_opening_obj = json.loads(make_charge_payload(trip_code="opaque-fixture-trip"))
+        pending_charge("opening_evidence_missing", missing_opening_obj,
+            ["OPENING_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+            "opening comparison evidence missing")
+        resolver_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        resolver_proposal, _, _ = pending_charge("source_resolver_unavailable", resolver_obj,
+            ["SOURCE_RESOLVER_UNAVAILABLE"],
+            "source key and opening reconciliation are unresolved")
+        case("review_projection_is_not_granted_to_api_logins", "false|false", query(
+            "SELECT has_function_privilege('webdebit_app', "
+            "'p0_fixture.fixture_review_projection(bigint)', 'EXECUTE')::text || '|' || "
+            "has_function_privilege('webdebit_identity_test_app', "
+            "'p0_fixture.fixture_review_projection(bigint)', 'EXECUTE')::text"))
+        projection_api_attempt = charge.psql(
+            f"SELECT p0_fixture.fixture_review_projection({resolver_proposal})",
+            user=CHARGE_LOGIN, check=False)
+        rejected("charge_api_cannot_read_fixture_projection", projection_api_attempt,
+            "permission denied for function fixture_review_projection")
+
+        combined_missing_obj = json.loads(make_charge_payload())
+        combined_missing_obj["total_vnd"] = None
+        combined_missing_obj["source_ref"] = None
+        combined_missing_obj["evidence_ref"] = "  "
+        combined_missing_obj["evidence_sha256"] = None
+        combined_missing_obj["lines"][0]["amount_vnd"] = None
+        combined_missing_obj["price_components"] = [
+            {"label": "pending component", "amount_vnd": None}]
+        combined_missing, _, _ = pending_charge("combined_missing_evidence",
+            combined_missing_obj,
+            ["COMPONENT_AMOUNT_MISSING", "LINE_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
+             "SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE", "TOTAL_MISSING",
+             "TRIP_CODE_MISSING"], "stable trip code missing")
+
+        omitted_payload = json.loads(make_charge_payload())
+        omitted_fields = ["total_vnd", "source_ref", "evidence_ref", "evidence_sha256",
+                          "trip_code", "opening_snapshot_ref", "opening_absence_evidence_ref",
+                          "price_components"]
+        for field_name in omitted_fields:
+            omitted_payload.pop(field_name)
+        omitted_payload["lines"][0].pop("amount_vnd")
+        omitted_text = json.dumps(omitted_payload, ensure_ascii=True, separators=(",", ":"))
+        omitted_result, _, _ = charge.submit(None, omitted_text)
+        omitted_revision = json.loads(omitted_result.stdout.strip())
+        explicit_null_payload = json.loads(make_charge_payload())
+        explicit_null_payload["total_vnd"] = None
+        for field_name in omitted_fields[1:]:
+            explicit_null_payload[field_name] = None
+        explicit_null_payload["lines"][0]["amount_vnd"] = None
+        explicit_null_text = json.dumps(explicit_null_payload, ensure_ascii=True,
+                                        separators=(",", ":"))
+        explicit_null_result, _, _ = charge.submit(int(omitted_revision["proposal_id"]),
+            explicit_null_text)
+        explicit_null_revision = json.loads(explicit_null_result.stdout.strip())
+        case("omitted_and_null_charge_fields_have_same_hash",
+            omitted_revision["content_sha256"], explicit_null_revision["content_sha256"])
+        case("omitted_null_equivalence_is_business_noop",
+            (1, int(omitted_revision["revision_id"]), False),
+            (int(explicit_null_revision["revision_no"]),
+             int(explicit_null_revision["revision_id"]),
+             explicit_null_revision["revision_created"]))
+        omitted_projection = review_projection(int(omitted_revision["proposal_id"]))
+        case("omitted_fields_are_saved_as_json_null", True,
+             all(omitted_projection["revisions"][0]["payload"][field_name] is None
+                 for field_name in omitted_fields)
+             and omitted_projection["revisions"][0]["payload"]["lines"][0]["amount_vnd"] is None)
+
+        component_omitted = json.loads(make_charge_payload())
+        component_omitted["price_components"] = [{"label": "optional amount"}]
+        component_explicit_null = json.loads(make_charge_payload())
+        component_explicit_null["price_components"] = [
+            {"label": "optional amount", "amount_vnd": None}]
+        component_omitted_result, _, _ = charge.submit(None,
+            json.dumps(component_omitted, separators=(",", ":")))
+        component_null_result, _, _ = charge.submit(None,
+            json.dumps(component_explicit_null, separators=(",", ":")))
+        component_omitted_revision = json.loads(component_omitted_result.stdout.strip())
+        component_null_revision = json.loads(component_null_result.stdout.strip())
+        case("omitted_and_null_component_amounts_have_same_hash",
+             component_omitted_revision["content_sha256"],
+             component_null_revision["content_sha256"])
+        component_omitted_view = review_projection(
+            int(component_omitted_revision["proposal_id"]))
+        case("omitted_component_amount_is_saved_as_json_null", None,
+             component_omitted_view["revisions"][0]["payload"]
+             ["price_components"][0]["amount_vnd"])
+
+        combined_before_edit = review_projection(combined_missing)
+        old_revision = combined_before_edit["revisions"][0]
+        correction = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        correction_result, _, _ = charge.submit(combined_missing,
+            json.dumps(correction, ensure_ascii=True, separators=(",", ":")))
+        corrected_revision = json.loads(correction_result.stdout.strip())
+        corrected_view = review_projection(combined_missing)
+        case("correcting_charge_content_creates_revision_two", (2, True),
+             (int(corrected_revision["revision_no"]), corrected_revision["revision_created"]))
+        case("corrected_charge_reasons_are_resolver_only",
+             ["SOURCE_RESOLVER_UNAVAILABLE"],
+             corrected_view["revisions"][1]["reason_codes"])
+        case("old_charge_revision_payload_hash_and_reasons_remain_immutable", True,
+             corrected_view["revisions"][0] == old_revision
+             and old_revision["reason_codes"] == sorted([
+                 "COMPONENT_AMOUNT_MISSING", "LINE_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
+                 "SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE", "TOTAL_MISSING",
+                 "TRIP_CODE_MISSING"]))
+        stale_old_approval, _, _ = charge.decide("approve", combined_missing,
+            int(old_revision["revision_id"]), old_revision["content_sha256"], check=False)
+        rejected("old_incomplete_revision_cannot_be_approved_after_correction",
+            stale_old_approval, "stale, unavailable, or self-approved revision")
+        charge.confirm_period(combined_missing, int(corrected_revision["revision_id"]),
+                              corrected_revision["content_sha256"])
+        charge.confirm_price(combined_missing, int(corrected_revision["revision_id"]),
+                             corrected_revision["content_sha256"])
+        rejected("corrected_opaque_trip_still_fails_source_resolver",
+            charge.decide("approve", combined_missing, int(corrected_revision["revision_id"]),
+                corrected_revision["content_sha256"], check=False)[0],
+            "source key and opening reconciliation are unresolved")
+        case("corrected_opaque_trip_has_no_approval_or_posting", "review_needed|0|0", query(
+            "SELECT p.state || '|' || (SELECT count(*) FROM p0_fixture.approval a "
+            "WHERE a.proposal_id=p.proposal_id) || '|' || "
+            "(SELECT count(*) FROM p0_fixture.posting x WHERE x.proposal_id=p.proposal_id) "
+            f"FROM p0_fixture.proposal p WHERE p.proposal_id={combined_missing}"))
+
+        malformed_target = resolver_proposal
+        malformed_cases: list[tuple[str, str]] = [("invalid_json", "{")]
+        malformed_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        malformed_obj["clientreasoncodes"] = ["TRIP_CODE_MISSING"]
+        malformed_cases.append(("client_reason_codes", json.dumps(malformed_obj)))
+        wrong_type_cases = [
+            ("customer_object", "customer_id", {"id": "FAKE-CUSTOMER-1"}),
+            ("period_boolean", "debt_period", True),
+            ("event_date_object", "event_date", {"date": "2026-10-14"}),
+            ("posting_date_boolean", "posting_date", False),
+            ("source_object", "source_ref", {"ref": "fixture"}),
+            ("evidence_boolean", "evidence_ref", True),
+            ("hash_boolean", "evidence_sha256", True),
+            ("reason_object", "reason", {"text": "fixture"}),
+            ("trip_boolean", "trip_code", True),
+            ("opening_object", "opening_snapshot_ref", {"ref": "fixture"}),
+        ]
+        for case_name, field_name, bad_value in wrong_type_cases:
+            bad_obj = json.loads(make_charge_payload(
+                trip_code="opaque-fixture-trip", opening_refs=True))
+            bad_obj[field_name] = bad_value
+            malformed_cases.append((case_name, json.dumps(bad_obj)))
+        for case_name, bad_value in (
+            ("money_string", "100"), ("money_boolean", True),
+            ("money_object", {"amount": 100}), ("money_negative", -100),
+            ("money_fractional", 100.5),
+        ):
+            bad_obj = json.loads(make_charge_payload(
+                trip_code="opaque-fixture-trip", opening_refs=True))
+            bad_obj["total_vnd"] = bad_value
+            malformed_cases.append((case_name, json.dumps(bad_obj)))
+        for case_name, bad_value in (
+            ("line_amount_string", "100"), ("line_amount_boolean", True),
+            ("line_amount_object", {"amount": 100}),
+            ("line_amount_negative", -100), ("line_amount_fractional", 100.5),
+        ):
+            bad_obj = json.loads(make_charge_payload(
+                trip_code="opaque-fixture-trip", opening_refs=True))
+            bad_obj["lines"][0]["amount_vnd"] = bad_value
+            malformed_cases.append((case_name, json.dumps(bad_obj)))
+        multi_line_invalid = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        multi_line_invalid["lines"].append({
+            "line_no": 2, "customer_id": "FAKE-CUSTOMER-1",
+            "debt_period": "2026-09", "amount_vnd": 1,
+        })
+        malformed_cases.append(("multiple_debt_lines", json.dumps(multi_line_invalid)))
+        bad_line_number = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_line_number["lines"][0]["line_no"] = 1.5
+        malformed_cases.append(("fractional_line_number", json.dumps(bad_line_number)))
+        bad_period_customer = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_customer["lines"][0]["customer_id"] = "FAKE-CUSTOMER-2"
+        malformed_cases.append(("line_customer_mismatch", json.dumps(bad_period_customer)))
+        bad_period_line = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_line["lines"][0]["debt_period"] = "2026-08"
+        malformed_cases.append(("line_period_mismatch", json.dumps(bad_period_line)))
+        bad_period_year = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_year["debt_period"] = "0000-01"
+        bad_period_year["lines"][0]["debt_period"] = "0000-01"
+        malformed_cases.append(("zero_year_period_header_and_line", json.dumps(bad_period_year)))
+        bad_period_header_year = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_header_year["debt_period"] = "0000-01"
+        malformed_cases.append(("zero_year_period_header", json.dumps(bad_period_header_year)))
+        bad_period_line_year = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_line_year["lines"][0]["debt_period"] = "0000-01"
+        malformed_cases.append(("zero_year_period_line", json.dumps(bad_period_line_year)))
+        bad_line_type = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_line_type["lines"][0]["customer_id"] = {"id": "FAKE-CUSTOMER-1"}
+        malformed_cases.append(("line_customer_object", json.dumps(bad_line_type)))
+        bad_line_period_type = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_line_period_type["lines"][0]["debt_period"] = {"period": "2026-09"}
+        malformed_cases.append(("line_period_object", json.dumps(bad_line_period_type)))
+        bad_opening_evidence_type = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_opening_evidence_type["opening_absence_evidence_ref"] = False
+        malformed_cases.append(("opening_evidence_boolean", json.dumps(bad_opening_evidence_type)))
+        bad_component_label = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_component_label["price_components"][0]["label"] = {"label": "fixture"}
+        malformed_cases.append(("component_label_object", json.dumps(bad_component_label)))
+        bad_component_money = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_component_money["price_components"][0]["amount_vnd"] = "50"
+        malformed_cases.append(("component_amount_string", json.dumps(bad_component_money)))
+        for date_index, date_value in enumerate(("2026-02-30", "2026/10/14",
+                "2026-10-14T00:00:00", "2026-10-13"), start=1):
+            bad_date_obj = json.loads(make_charge_payload(
+                trip_code="opaque-fixture-trip", opening_refs=True))
+            bad_date_obj["event_date"] = date_value
+            malformed_cases.append((f"bad_event_date_{date_index}", json.dumps(bad_date_obj)))
+        bad_hash_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_hash_obj["evidence_sha256"] = "not-a-hash"
+        malformed_cases.append(("malformed_supplied_hash", json.dumps(bad_hash_obj)))
+        bad_nonfinite_payload = make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True)
+        for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
+            malformed_cases.append((f"nonfinite_{nonfinite_token}",
+                bad_nonfinite_payload.replace('"total_vnd":100',
+                    f'"total_vnd":{nonfinite_token}')))
+        unknown_component_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        unknown_component_obj["price_components"][0]["client_reason"] = "invented"
+        malformed_cases.append(("unknown_component_key", json.dumps(unknown_component_obj)))
+
+        before_malformed = proposal_snapshot(malformed_target)
+        for case_name, raw_payload in malformed_cases:
+            malformed_result, _, _ = charge.submit(malformed_target, raw_payload, check=False)
+            case(f"malformed_{case_name}_is_rejected", True,
+                 malformed_result.returncode != 0)
+            case(f"malformed_{case_name}_leaves_state_unchanged", before_malformed,
+                 proposal_snapshot(malformed_target))
 
         missing_trip_result, _, _ = charge.submit(None, make_charge_payload())
         missing_trip = json.loads(missing_trip_result.stdout.strip())
