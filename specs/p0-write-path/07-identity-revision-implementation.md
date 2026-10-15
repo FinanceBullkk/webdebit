@@ -9,13 +9,13 @@ Ngày: 15/10/2026. Trạng thái: **ĐỀ XUẤT KỸ THUẬT để review**. Q0
 - Viewer hiện tại `cong-no-web-handoff/web/ledger_app.py` chỉ đọc và bind `127.0.0.1`; chưa có login/session hoặc route ghi. `tools/pg_ledger_schema.sql` lấy maker, checker và audit actor từ `session_user`; proposal lines có thể được đọc lúc duyệt sau khi owner sửa. Đây là kiểm tra mã tại checkout, không phải runtime.
 - PR #3 characterization đã chạy trên PostgreSQL 18.6; stale-content là `repro_success`, không phải acceptance của guard. Chi tiết revision/run nằm trong `docs/verification.md`.
 
-Q03–Q08 và Q09 vẫn mở. Fixture có `revision_fixture` để kiểm Q01/Q02 tổng quát và `charge_fixture` để kiểm các gate T1. Mọi `charge_fixture` được tạo ở trạng thái `review_needed`; fixture không thể approve/post vì chưa có mã chuyến ổn định, source key và đối chiếu opening được chốt. Receipt không được nhận; fixture không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
+Q03–Q08 và Q09 vẫn mở. Fixture có `revision_fixture` để kiểm Q01/Q02 tổng quát và `charge_fixture` để kiểm các gate T1. Mọi `charge_fixture` được tạo ở trạng thái `review_needed`; fixture không thể approve/post vì còn thiếu encoding TRIP-KEY, resolver và đối chiếu opening theo mapping được duyệt hoặc bằng chứng vắng khỏi opening. Policy TRIP-KEY đã chốt: booking + container, viết hoa và bỏ whitespace. Receipt không được nhận; fixture không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
 
 ## T01 — tiêu chí fixture cho kind và assertion
 
 Fixture ghi `kind` lên proposal lúc tạo và không cho revision đổi giữa `revision_fixture` với `charge_fixture`. Trong container fixture, login giả `webdebit_identity_test_app` chỉ vào role generic `p0_fixture_identity_test_api`; `webdebit_app` chỉ vào role charge `p0_fixture_api`. Guard ở submit, presentation, xác nhận kỳ/giá, approve và post đọc `session_user` qua `SECURITY DEFINER`; hai role không có quyền đọc bảng/key hoặc DML trực tiếp. Mọi API vẫn cần HMAC v1, actor active/role, maker-checker và revision/hash đúng.
 
-SQL từ chối action/epoch NULL và trường bắt buộc trước khi dựng HMAC message. Python chỉ nhận epoch tường minh kiểu `int` (bool không được nhận); `None` dùng clock. TTL `-120/+30` giây và protocol HMAC v1 giữ nguyên. Đây là acceptance của fixture cô lập; source key/opening resolver vẫn chưa chốt và mọi charge vẫn bị chặn trước approval/posting.
+SQL từ chối action/epoch NULL và trường bắt buộc trước khi dựng HMAC message. Python chỉ nhận epoch tường minh kiểu `int` (bool không được nhận); `None` dùng clock. TTL `-120/+30` giây và protocol HMAC v1 giữ nguyên. Đây là acceptance của fixture cô lập. Policy TRIP-KEY đã chốt: booking + container, viết hoa và bỏ whitespace. Encoding lưu trữ, mapping opening được duyệt, bằng chứng vắng khỏi opening, cách xử lý chuyến thiếu booking/duplicate/booking bị sửa, và resolver còn mở; mọi charge vẫn bị chặn trước approval/posting.
 
 ## Ranh giới tin cậy đề xuất
 
