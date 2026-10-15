@@ -1,6 +1,8 @@
-# Roadmap web công nợ HTH
+# Roadmap sản phẩm v1 — web công nợ phải thu HTH
 
-Cập nhật: 15/10/2026. Phạm vi: sổ công nợ phải thu; Google Sheet giữ nguồn lịch sử. Roadmap này theo **đầu ra có thể kiểm**, không dùng phần trăm hoàn thành hoặc ngày hẹn khi còn thiếu quyết định nghiệp vụ. Trạng thái service trên `hao` phải được kiểm lại trước khi báo là đang chạy.
+Cập nhật: 15/10/2026. Đây là **roadmap end-to-end đến bản v1 được phép dùng thật**, không phải roadmap riêng của prototype Q01/Q02. Phạm vi là web công nợ **phải thu** HTH: xem sổ theo khách/kỳ, nhập và kiểm chứng phát sinh/thu mới, hai người nhập–duyệt, ghi sổ có kiểm soát, đối soát và xử lý sai sót theo chính sách được chốt. Google Sheet giữ nguồn lịch sử; không bao gồm sổ phải trả, lợi nhuận chuyến hay kế toán tổng hợp.
+
+**Đích hoàn thành:** người dùng được phân quyền truy cập qua Tailscale, làm trọn quy trình v1 trên dữ liệu thật với hai actor khác nhau; số dư và phiếu theo khách/kỳ đối chiếu được; lỗi/retry/sửa sai và backup/restore được kiểm; chủ nghiệp vụ nghiệm thu và cho phép cutover. Phạm vi giao dịch v1 và những luồng chưa hỗ trợ phải được chốt rõ trước M3. M1 là bản xem chỉ đọc có thể bàn giao sớm hơn. M2–M3 là bước xây, chưa phải sản phẩm dùng thật. Roadmap theo **đầu ra có thể kiểm**, không dùng phần trăm hoặc ngày hẹn khi còn thiếu quyết định. Trạng thái service trên `hao` phải được kiểm lại trước khi báo là đang chạy.
 
 | Mốc | Đầu ra và điều kiện đạt | Trạng thái hiện tại | Bằng chứng / việc còn thiếu |
 | --- | --- | --- | --- |
@@ -8,7 +10,7 @@ Cập nhật: 15/10/2026. Phạm vi: sổ công nợ phải thu; Google Sheet gi
 | M1 · Web xem sổ | Mở sổ theo khách/kỳ, thấy opening, biến động, pending và cảnh báo nguồn; người dùng truy cập được bản chỉ đọc | **Có pilot lịch sử; live chưa tái kiểm** | [Kiến trúc](architecture.md), [kiểm chứng](verification.md). Cần kiểm đúng service, DB, dữ liệu/as-of và đường truy cập dự kiến trước khi bàn giao bản xem. |
 | M2 · Hợp đồng ghi an toàn | Quyết định cho loại giao dịch đầu tiên được chốt; spec/guard được review; fixture chứng minh từ chối sai revision, actor, tiền và rollback | **Đang review, chưa đủ hợp đồng ghi** | [Q01/Q02 prototype](../specs/p0-write-path/07-identity-revision-implementation.md) đạt [CI 8/8 trên `3925af1`](https://github.com/FinanceBullkk/webdebit/actions/runs/38710057538). [Q03–Q09](../specs/p0-write-path/decisions-needed.md) còn mở theo phạm vi; Q09 chặn receipt. Prototype chưa nối web/DB thật. |
 | M3 · Web giao dịch trên bản sao | Account/session cá nhân, maker khác checker, API/DB transaction, idempotency và các guard P0 liên quan; test lỗi, retry, đồng thời trên PostgreSQL; đối chiếu số dư | **Chưa triển khai** | Cần review M2, migration riêng trên DB test, kiểm HTTP/auth và chứng cứ cho từng loại giao dịch. [P0-01–06](../specs/p0-write-path/README.md) là yêu cầu, chưa là code chạy thật. |
-| M4 · Pilot vận hành và chuyển sổ | Truy cập Tailscale được kiểm, backup/restore, đối soát dữ liệu, hai người dùng thật thử quy trình; chủ nghiệp vụ duyệt phạm vi và thời điểm cutover | **Chưa triển khai** | Cần nghiệm thu M3 và gate vận hành riêng. Không tự freeze Sheet, deploy hay mở ghi tiền từ CI xanh. |
+| M4 · Nghiệm thu và đưa v1 vào dùng | Truy cập Tailscale được kiểm, backup/restore, đối soát dữ liệu; hai người dùng thật thử trọn quy trình v1; chủ nghiệp vụ duyệt phạm vi và thời điểm cutover | **Chưa triển khai** | Cần nghiệm thu M3 và gate vận hành riêng. Không tự freeze Sheet, deploy hay mở ghi tiền từ CI xanh. |
 
 ## Mốc gần nhất
 
