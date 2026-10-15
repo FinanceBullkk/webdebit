@@ -104,6 +104,19 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install pinned timezone data (viewer fixture server)
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: npm test
+      - name: Upload fake-data viewer screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-browser-screenshots-${{ matrix.os }}
+          path: test-results/viewer
+          if-no-files-found: warn
