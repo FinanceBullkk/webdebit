@@ -5,13 +5,13 @@ Các trạng thái dưới đây được cập nhật theo quyết định ngư
 ## Q01 — Nguồn danh tính maker/checker
 
 - **Đã chốt / nguồn:** Maker và checker khác nhau (D01, `docs/decisions.md`); chưa chốt danh tính vận hành.
-- **Đã chốt phạm vi:** Người dùng chấp nhận bản dựng hiện tại chỉ cần dùng trên máy này; chưa yêu cầu triển khai nhiều máy.
-- **Còn thiếu:** Principal/người dùng riêng để phân biệt maker với checker trên máy đó; có cấm tài khoản chia sẻ không; cấp/thu hồi quyền, ủy quyền, tài khoản service và ánh xạ danh tính ứng dụng → DB audit.
+- **Đã chốt phạm vi truy cập:** Self-host trên máy này; thiết bị/người dùng phải nối Tailscale trước khi truy cập màn hình login. Chưa yêu cầu triển khai nhiều máy.
+- **Còn thiếu:** Cách xác minh danh tính cá nhân từ Tailscale tại ranh giới tin cậy của ứng dụng; mỗi người có identity/account riêng hay không; map identity sang maker/checker; cấm tài khoản Tailscale/app dùng chung; cấp/thu hồi quyền, ủy quyền/tài khoản service và ánh xạ app actor → DB audit. Tailscale kết nối chỉ chứng minh đường mạng tới được, không tự chứng minh ai đã bấm duyệt.
 - **Ví dụ giả:** nhân viên An dùng tài khoản dùng chung `ke_toan` tạo phiếu; không xác định được An hay Bình đã thao tác.
-- **Lựa chọn / hệ quả:** (A) tài khoản cá nhân qua SSO + role được cấp có audit: quy trách nhiệm được nhưng cần vòng đời quyền; (B) DB login cá nhân: audit DB rõ nhưng kết nối ứng dụng cần quản lý; (C) tài khoản chia sẻ: vận hành đơn giản nhưng không xác định actor thật.
-- **Đề xuất:** principal cá nhân xác thực tập trung, quyền maker/checker tách biệt và audit ánh xạ principal → DB/service identity.
+- **Lựa chọn / hệ quả:** (A) dùng danh tính cá nhân Tailscale đã được ứng dụng/proxy xác thực rồi map role trong app: ít thêm mật khẩu, nhưng phải khóa direct bypass/header spoofing và quản lý ACL; (B) app local account riêng cho từng người sau Tailscale gate: dễ tách app-role nhưng phải quản lý mật khẩu/reset/offboarding; (C) tài khoản dùng chung: đơn giản nhưng không quy trách nhiệm được, không phù hợp maker/checker.
+- **Đề xuất:** dùng identity cá nhân Tailscale làm principal nếu có trusted integration; mỗi người một account, maker/checker role riêng, không tài khoản dùng chung; app chỉ nhận identity qua reverse proxy tin cậy và proxy ghi đè header, không tin client header tùy ý. Nếu không thể xác minh chắc identity qua proxy, dùng login app riêng cho từng người.
 - **Ảnh hưởng:** P0-02; kiểm DB role hiện tại không bị chặn, nhưng duyệt/auth người thật và implementation bị chặn.
-- **Người quyết định / trạng thái:** Người dùng chốt phạm vi một máy ngày 15/10/2026. Cơ chế danh tính và quyền maker/checker: **CÒN MỞ**, cần chủ nghiệp vụ + chủ vận hành/auth.
+- **Người quyết định / trạng thái:** Người dùng chốt self-host một máy và Tailscale là điều kiện mạng truy cập ngày 15/10/2026. Principal tin cậy, account model và role maker/checker: **CÒN MỞ**, cần chủ nghiệp vụ + chủ vận hành/auth.
 
 ## Q02 — Approval bao phủ revision/nội dung nào — ĐÃ CHỐT
 

@@ -1,6 +1,6 @@
 # P0-02 — Phê duyệt theo phiên bản và danh tính
 
-Trạng thái: **Quy tắc Q02 ĐÃ CHỐT ngày 15/10/2026; chưa triển khai.** Maker/checker khác nhau đã chốt; danh tính chuẩn và quyền vận hành theo Q01 còn mở. Chi tiết kỹ thuật dưới đây là thiết kế cần hoàn thiện trước implementation.
+Trạng thái: **Quy tắc Q02 ĐÃ CHỐT ngày 15/10/2026; chưa triển khai.** Máy đơn self-host và yêu cầu thiết bị nối Tailscale trước login cũng đã chốt. Maker/checker khác nhau đã chốt; cách ứng dụng xác minh principal cá nhân Tailscale, map quyền và ghi audit theo Q01 còn mở. Chi tiết kỹ thuật dưới đây là thiết kế cần hoàn thiện trước implementation.
 
 ## Hiện trạng được xác nhận tĩnh
 
@@ -13,7 +13,7 @@ Tại revision `8365e8aa5ae2517959dedcc52ed8384232458b75`, `cong-no-web-handoff/
 
 ## Quy tắc đã chốt
 
-Theo `docs/business-rules.md` và D01 trong `docs/decisions.md`: người nhập phải khác người duyệt; approval phải hợp lệ cho nội dung nghiệp vụ. Người dùng chốt Q02 ngày 15/10/2026: approval gắn với revision bất biến; thay đổi nghiệp vụ cần revision và approval mới; sửa trình bày không đổi nghĩa thì không. Cách xác thực actor, ủy quyền/tài khoản chia sẻ và quyền vận hành Q01 còn mở.
+Theo `docs/business-rules.md` và D01 trong `docs/decisions.md`: người nhập phải khác người duyệt; approval phải hợp lệ cho nội dung nghiệp vụ. Người dùng chốt Q02 ngày 15/10/2026: approval gắn với revision bất biến; thay đổi nghiệp vụ cần revision và approval mới; sửa trình bày không đổi nghĩa thì không. Người dùng cũng chốt self-host một máy, chỉ vào login khi nối Tailscale. Ứng dụng vẫn cần xác minh actor cá nhân từ nguồn tin cậy, không coi kết nối tailnet hay request header tự khai là maker/checker identity.
 
 ## Đề xuất
 
