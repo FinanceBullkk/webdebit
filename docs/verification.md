@@ -1,5 +1,20 @@
 # Kiểm chứng thay đổi ngày 15/10/2026
 
+## T5 — Tổng hợp M2 và kiểm live M1
+
+Cập nhật: 15/10/2026. Kết luận M2: **CHƯA ĐẠT cho charge đầu tiên**. Không có mã chuyến ổn định; chưa có source key và cách đối chiếu từng chuyến với opening replay `13/10/2026 16:44`. Theo quyết định chủ nghiệp vụ, chuyến chưa phân giải phải ở `CHỜ KIỂM`, ngoài số dư; không suy định danh từ container, ngày hoặc khách. Cấu phần và số tiền phải được chủ nghiệp vụ duyệt riêng theo từng chuyến, không áp công thức giá chung.
+
+- **T1** — hợp đồng tại commit `44d813ba93c0022eeab93469c5d00930cc286baa`; chính sách charge được chốt nhưng source key/opening resolver và triển khai chưa có. Xem [hợp đồng charge](../specs/p0-write-path/00-first-charge-contract.md).
+- **T2** — review độc lập đúng T1 SHA `44d813ba93c0022eeab93469c5d00930cc286baa`. P0 còn chặn nghiệm thu charge: định danh nguồn và đối chiếu opening, xác nhận cấu phần/tổng giá theo revision, kiểm kỳ đang mở. T2 cũng ghi blocker M3: schema tích hợp còn stale approval, fixture Q01/Q02 chưa nối app/DB; login/session người thật, quyền DB và rollback đầy đủ chưa được kiểm.
+- **T3** — code commit `3599bc6ef7a2668eede1654f715860659a825ba2`; fixture PostgreSQL 18.6 `84/84`, Python `30/30`. Charge thiếu mã/đối chiếu opening, dùng reference opaque, thiếu xác nhận kỳ/giá hoặc dùng xác nhận cũ sau edit đều fail-closed ở `review_needed`, không có approval/posting. Schema tích hợp giữ nguyên SHA-256 LF-normalized `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`.
+- **CI T3** — workflow `Tests`, [run 38722630386](https://github.com/FinanceBullkk/webdebit/actions/runs/38722630386), `8/8` job success trên đúng code SHA `3599bc6ef7a2668eede1654f715860659a825ba2`. Artifact PostgreSQL charge fixture `84/84`; report SHA-256 `3967813175be0f0c045098ad8585c803950fe84677b33a84dd4550ae9e05abf5`. T3 docs commit `0972eb007d1035e8e6545dc0c22e783d5581cd2f` chỉ ghi nhận CI, không đổi code.
+- **T4 — M1, chỉ đọc trên `hao`** — kiểm lúc `15/10/2026 16:55 Asia/Saigon`: `webdebit-ledger-view.service` active, health OK, DB `webdebit_ledger`, snapshot `13/10/2026`, 496 kỳ; opening/balance `65.051.673.578 VND`, 46 kỳ `NO_BASELINE`, 0 proposal và 0 posting. Viewer role có SELECT, không có quyền ghi hay maker/checker, `default_transaction_read_only=on`. Ba file runtime khớp release `ledger-two-sided-monthly-2026-10-13`: `ledger_app.py` SHA-256 `b3c6cf7f49991bccd0e9184e5873e043ca6490c15f83943b978720c288fb80c2`, `ledger_db.py` `e3ea1bce0cba40976892829876fae06a3087358e3aedc876d6abd27c8256c98c`, `style.css` `481648126722485ebfdfeb51ad9cfd03339a394b4422368db8204ca721b5efb7`. Đây là kết quả live của lần kiểm T4, không phải xác nhận trạng thái hiện tại sau thời điểm đó.
+- **Giới hạn M1** — Windows không có listener relay tại `127.0.0.1:8766`; browser chưa kiểm trang khách. Health/DB readback không thay kiểm UI trên browser.
+
+**M2 chưa đạt:** T3 chứng minh guard fixture từ chối thiếu căn cứ; không tạo source key, không chứng minh một chuyến thật vắng mặt trong opening, và không có charge eligible/post. T2 review bám T1, không phải review độc lập sau thay đổi T3. CI xanh chứng minh các job trên code SHA nêu trên; không là nghiệm thu nghiệp vụ, DB/runtime thật, người thật hay quyền ghi.
+
+**M3** là giai đoạn tích hợp app account/session, HTTP write API, migration và kiểm DB thật/bản sao, gồm quyền DB/rollback đầy đủ. Chưa triển khai. Receipt/Q09 và nhập muộn nằm ngoài charge đầu tiên.
+
 ## Prototype actor và revision Q01/Q02 — worktree riêng
 
 ### T3 — gate charge theo chuyến
