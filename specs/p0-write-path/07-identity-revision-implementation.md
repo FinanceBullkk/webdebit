@@ -9,7 +9,7 @@ Ngày: 15/10/2026. Trạng thái: **ĐỀ XUẤT KỸ THUẬT để review**. Q0
 - Viewer hiện tại `cong-no-web-handoff/web/ledger_app.py` chỉ đọc và bind `127.0.0.1`; chưa có login/session hoặc route ghi. `tools/pg_ledger_schema.sql` lấy maker, checker và audit actor từ `session_user`; proposal lines có thể được đọc lúc duyệt sau khi owner sửa. Đây là kiểm tra mã tại checkout, không phải runtime.
 - PR #3 characterization đã chạy trên PostgreSQL 18.6; stale-content là `repro_success`, không phải acceptance của guard. Chi tiết revision/run nằm trong `docs/verification.md`.
 
-Q03–Q08 và Q09 vẫn mở. Prototype chỉ dùng một operation fixture giả kiểu `charge_fixture`, không nhận receipt, không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
+Q03–Q08 và Q09 vẫn mở. Fixture có `revision_fixture` để kiểm Q01/Q02 tổng quát và `charge_fixture` để kiểm các gate T1. Mọi `charge_fixture` được tạo ở trạng thái `review_needed`; fixture không thể approve/post vì chưa có mã chuyến ổn định, source key và đối chiếu opening được chốt. Receipt không được nhận; fixture không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
 
 ## Ranh giới tin cậy đề xuất
 
@@ -56,9 +56,10 @@ Mỗi revision giữ một object payload với schema version rõ. Tập busine
 - từng line có line number ổn định, customer/period, amount VND nguyên;
 - total VND nguyên, event date và posting date;
 - source reference, evidence reference/hash, reason;
+- riêng `charge_fixture`: mã chuyến tường minh, tham chiếu opening và chứng cứ đối chiếu, cùng danh sách cấu phần/amount riêng cho chuyến;
 - các field quyết định được thêm hợp lệ cho operation tương ứng (ví dụ original posting khi reversal hoặc allocation khi receipt).
 
-Trong prototype `charge_fixture`, danh sách field hẹp được kiểm chặt; receipt/reversal không được nhận. Một field lạ bị từ chối, không bị bỏ khỏi hash. Line được chuẩn hóa theo line number; line number trùng bị từ chối. Object key order và whitespace không có nghĩa; array line order chỉ được chuẩn hóa khi line number tường minh. Chuỗi opaque như customer/source/evidence reference và reason giữ nguyên codepoint; prototype không NFC-normalize để hai reference khác byte không bị gộp.
+Payload `revision_fixture` giữ coverage Q01/Q02 tổng quát. `charge_fixture` buộc đúng một debt line, event date từ 14/10/2026, một danh sách component label/amount riêng cho chuyến và tổng chính xác. Maker xác nhận kỳ đang mở; chủ nghiệp vụ attests danh sách giá riêng; hai dấu xác nhận gắn đúng revision/hash, append-only và không áp sang revision sau. Kỳ đóng bị từ chối. Các điều kiện này vẫn không đủ để approve charge: mã chuyến và tham chiếu opening giả/opaque không chứng minh đối chiếu, nên charge ở `review_needed` và fail-closed. Fixture không nhận receipt/reversal. Field lạ bị từ chối; line chuẩn hóa theo line number; object key order/whitespace không đổi nghĩa; reference opaque giữ nguyên codepoint.
 
 ### Canonical bytes và hash
 
@@ -69,7 +70,7 @@ Không dùng float cho VND; NULL khác 0. Hash định danh nội dung, không x
 ### Storage, approval và posting
 
 1. `proposal_revision` append-only: `(proposal_id, revision_no)`, canonical payload, hash, maker app actor/session, timestamp. Không UPDATE/DELETE qua API role. Sửa nghiệp vụ chèn revision kế tiếp; proposal trỏ revision hiện hành. Cùng payload/hash là no-op, không tạo revision mới.
-2. Approval event là append-only và tham chiếu chính xác `(proposal_id, revision_id, content_hash, checker_actor_id, checker_session_id)`. Actor maker phải khác checker.
+2. Approval event là append-only và tham chiếu chính xác `(proposal_id, revision_id, content_hash, checker_actor_id, checker_session_id)`. Actor maker phải khác checker. Với charge, maker period-confirmation và owner price-confirmation được ghi thành event riêng, cũng theo revision/hash; owner không được checker-approve cùng revision.
 3. Chỉ revision hiện hành có approval khớp cả ID lẫn hash mới được post. Post đọc payload từ revision đã duyệt, không đọc lại bảng staging mutable; posting lưu revision ID/hash và actor maker/checker.
 4. Mỗi lần đổi nghiệp vụ khi chưa post đổi current revision và đưa trạng thái về pending; approval cũ còn để audit nhưng không cho post revision mới. Đổi presentation giữ nguyên revision/approval.
 5. Khi tích hợp thật, post + trạng thái + posting lines + audit phải nằm trong cùng transaction; lỗi bất kỳ rollback toàn bộ. Fixture hiện chỉ lưu một posting row chứa canonical payload, chưa có posting lines. Unique constraint chặn post lần hai cho cùng proposal. Posting và approval không sửa/xóa bởi API role.
@@ -89,13 +90,17 @@ Prototype PostgreSQL cố tình là acceptance fixture có table riêng; không 
 | N01 | App chỉ loopback sau Tailscale Serve; không có Funnel/port-forward | host config + từ tailnet/ngoài tailnet | Chưa triển khai/kiểm live |
 | N02 | Direct DB/HTTP ngoài tailnet không tới được; spoof proxy headers không đặt actor | network smoke + HTTP integration | Chưa triển khai/kiểm live |
 | R01 | JSON key order/whitespace tương đương cùng hash; line array chuẩn theo line_no; source ref khác codepoint tạo revision | canonicalization PG18 | Prototype kiểm trên PG18 |
-| R02 | Business field được kiểm tạo revision/hash mới; input không hợp lệ bị từ chối | revision function PG18 | Prototype kiểm tổng, khách, kỳ, ngày, source/evidence, reason và line; unknown field, VND lẻ và tổng lệch bị từ chối. Fixture chỉ nhận `charge_fixture` v1 |
+| R02 | Business field được kiểm tạo revision/hash mới; input không hợp lệ bị từ chối | revision function PG18 | `revision_fixture` kiểm Q01/Q02 tổng quát; `charge_fixture` kiểm một debt line, ngày tối thiểu, component list/total và các xác nhận riêng |
 | R03 | Trình bày đổi nhưng business hash/revision không đổi, approval giữ hiệu lực | presentation API + PG query | Prototype kiểm trên PG18 |
 | R04 | Edit sau approval làm approval revision cũ stale; stale revision không post | approve/edit/post PG18 | Prototype kiểm trên PG18 |
 | R05 | Post lưu đúng payload/hash/actor của revision đã duyệt; duplicate post bị từ chối | transaction/constraints PG18 | Prototype kiểm trên PG18 |
 | R06 | Lỗi trễ khi post rollback status, posting và post audit | deferred trigger PG18 | Prototype kiểm trên PG18 |
 | R07 | App role không UPDATE/DELETE revision, approval, posting hay audit | PostgreSQL grants/triggers | Fixture kiểm direct read/update và các mutation append-only đại diện trên revision, approval, posting, audit. Owner/superuser nằm ngoài bảo đảm |
 | R08 | Thiếu evidence reference hoặc evidence hash sai định dạng bị từ chối | payload validation PG18 | Prototype kiểm cả hai trường hợp thiếu/sai |
+| C01 | Charge có một debt line, event date từ 14/10/2026, component list per-trip khớp tổng | payload validation PG18 | Thiếu component, lệch tổng, ngày cũ và nhiều debt line đều bị từ chối |
+| C02 | Maker xác nhận debt period đang mở, độc lập event date | period fixture + assertion | Kỳ 2026-09 khác tháng event date 2026-10-14 được giữ; kỳ đóng và xác nhận cũ sau edit bị từ chối |
+| C03 | Chủ nghiệp vụ xác nhận price components theo revision/hash, riêng checker approval | price attestation PG18 | Thiếu attestation, checker giả owner, cùng owner/checker và attestation cũ sau edit đều bị từ chối |
+| C04 | Thiếu trip code hoặc opening resolver thì giữ CHỜ KIỂM, ngoài balance | charge approval gate PG18 | `review_needed`, 0 approval, 0 posting; code/reference giả vẫn bị chặn vì source key/opening chưa chốt |
 | G01 | Receipt chỉ post khi được xác minh theo policy được duyệt | Q09, receipt workflow | CÒN MỞ; không có receipt path trong prototype |
 
 Đạt các hàng PG18 chỉ là bằng chứng fixture cho SQL prototype và revision cụ thể. Chúng không chứng minh app login, Tailscale boundary, account operations, người thật, nguồn ngân hàng, hoặc production readiness.

@@ -2,6 +2,17 @@
 
 ## Prototype actor và revision Q01/Q02 — worktree riêng
 
+### T3 — gate charge theo chuyến
+
+Kiểm cục bộ trước commit trên branch `feature/p0-actor-revisions`, baseline HEAD `44d813ba93c0022eeab93469c5d00930cc286baa`; các file dưới đây có thay đổi chưa commit khi chạy. Sau commit, so lại SHA-256 với revision được push. Không dùng DB, Sheet, service hoặc `hao`; fixture chỉ chạy PostgreSQL cô lập.
+
+- Python 3.13 suite trong venv của worktree: `30/30` đạt. `git diff --check` và `py_compile` cho actor helper, actor test và PostgreSQL runner đều đạt.
+- Fixture PostgreSQL 18.6: run `0e20901efe3e40169f7a53ce2621df71`, `84/84` assertion đạt, image `postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`; `--network none`, không publish port/volume mount, cleanup `verified_and_removed`. Report SHA-256 `7225e12ea8284834d46c46892abf6153730eeabcb6323a120eff75212c6d881b` (report nằm trong thư mục temp cục bộ, không commit).
+- File hash của nội dung được test: fixture `757052383b81c7533ab1b2a2b4ac10c1510b30075a9a1e2cd268b7b3c6c865de`; runner `620275d2a3b4efea280eca046d90d68b6e8d797dedfbd812cb35cacda811685f`; helper dùng chung `b77e8703c9143103944d29bcd0ee3e30d40b9db7295bab5b41ab49efe601ccdb`; `actor_assertion.py` `68e4bad0e3c99578855368575e4b820a1d0b1010b564d800096ec94b3b2c67f` (LF-normalized).
+- `pg_ledger_schema.sql` không đổi; SHA-256 LF-normalized vẫn `bfc869c0afd2c7cf2bec161e5e90b01d0f3a97581e4ef58da957541f5471c156`.
+- Nội dung kiểm: charge thiếu mã chuyến/đối chiếu opening hoặc dùng tham chiếu opaque vẫn ở `review_needed`, không có approval/posting; kỳ đóng/chưa xác nhận, giá thiếu/lệch và xác nhận cũ sau edit đều fail-closed. Generic Q01/Q02 coverage giữ nguyên.
+- Chưa có CI cho commit T3 tại thời điểm kiểm cục bộ. Lượt workflow và revision chính xác sẽ được ghi sau push.
+
 Phạm vi kiểm trước commit: branch `feature/p0-actor-revisions`, HEAD nền `75d9ff994ab803b18932f8f306a507f181356c71`; nội dung code/fixture được nhận diện bằng hash dưới đây. Không áp dụng DDL lên `hao`, service, Sheet hoặc DB nào khác.
 
 - Python suite: `..\.venv\Scripts\python.exe -m unittest discover -s tests -v` từ `cong-no-web-handoff/`, Python 3.13.6 trong venv mới của worktree — **30/30 đạt**.

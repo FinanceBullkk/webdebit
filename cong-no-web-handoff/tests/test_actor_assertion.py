@@ -54,6 +54,10 @@ class ActorAssertionTests(unittest.TestCase):
         self.assertNotEqual(submit_scope(None, "payload-a"), submit_scope(None, "payload-b"))
         self.assertEqual(revision_scope("approve", 7, 9, "a" * 64),
                          "approve:7:9:" + "a" * 64)
+        self.assertEqual(revision_scope("confirm_price", 7, 9, "b" * 64),
+                         "confirm_price:7:9:" + "b" * 64)
+        self.assertEqual(revision_scope("confirm_period", 7, 9, "c" * 64),
+                         "confirm_period:7:9:" + "c" * 64)
         with self.assertRaises(ValueError):
             revision_scope("reject", 7, 9, "a" * 64)
 

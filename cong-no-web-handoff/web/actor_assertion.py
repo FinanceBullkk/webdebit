@@ -14,7 +14,9 @@ import time
 import uuid
 
 
-_ACTIONS = frozenset({"submit", "presentation", "approve", "post"})
+_ACTIONS = frozenset({
+    "submit", "presentation", "confirm_price", "confirm_period", "approve", "post",
+})
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,6 @@ def presentation_scope(proposal_id: int, title: str) -> str:
 
 
 def revision_scope(action: str, proposal_id: int, revision_id: int, content_sha256: str) -> str:
-    if action not in {"approve", "post"} or len(content_sha256) != 64:
+    if action not in {"confirm_price", "confirm_period", "approve", "post"} or len(content_sha256) != 64:
         raise ValueError("invalid revision scope")
     return f"{action}:{proposal_id}:{revision_id}:{content_sha256}"
