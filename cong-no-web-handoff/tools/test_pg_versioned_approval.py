@@ -113,6 +113,9 @@ def make_charge_payload(*, trip_code: str | None = None, period: str = "2026-09"
         "trip_code": trip_code,
         "opening_snapshot_ref": "fixture-opening-snapshot" if opening_refs else None,
         "opening_absence_evidence_ref": "fixture-absence-check" if opening_refs else None,
+        "period_override_reason": "fixture period override reason",
+        "period_override_evidence_ref": "fixture period override evidence",
+        "period_override_evidence_sha256": "b" * 64,
         "price_components": [
             {"label": "per-trip component A", "amount_vnd": amount // 2},
             {"label": "per-trip component B", "amount_vnd": amount - amount // 2},
@@ -398,6 +401,11 @@ def main() -> int:
 
         f = Fixture(docker, container, run_id)
         charge = Fixture(docker, container, run_id, db_user=CHARGE_LOGIN)
+        case("generic_positive_control_periods_are_explicitly_open", "open|open", query(
+            "SELECT (SELECT state FROM p0_fixture.debt_period_state "
+            "WHERE debt_period='2026-01') || '|' || "
+            "(SELECT state FROM p0_fixture.debt_period_state "
+            "WHERE debt_period='2026-02')"))
 
         def pending_charge(name: str, payload: dict[str, object], expected_codes: list[str],
                            approval_gate: str) -> tuple[int, int, str]:
@@ -413,13 +421,58 @@ def main() -> int:
                  (int(revision["revision_id"]), revision["content_sha256"],
                   len(saved["revisions"])))
             case(f"{name}_committed_review_needed", "review_needed", saved["state"])
-            case(f"{name}_reason_codes", sorted(expected_codes), revision["reason_codes"])
+            case(f"{name}_submit_time_reasons", sorted(expected_codes),
+                 revision["submit_time_reasons"])
 
-            charge.confirm_period(proposal_id, revision_id, content_hash)
-            charge.confirm_price(proposal_id, revision_id, content_hash)
+            before_period_confirmation = proposal_snapshot(proposal_id)
+            period_confirmation = charge.confirm_period(
+                proposal_id, revision_id, content_hash, check=False)
+            period_blocked = "PERIOD_OVERRIDE_EVIDENCE_MISSING" in expected_codes
+            if period_blocked:
+                rejected(f"{name}_period_confirmation_requires_override_evidence",
+                    period_confirmation, "period override evidence is required")
+                case(f"{name}_rejected_period_confirmation_is_immutable",
+                     before_period_confirmation, proposal_snapshot(proposal_id))
+            else:
+                case(f"{name}_period_confirmation_recorded", True,
+                     period_confirmation.returncode == 0)
+
+            price_blocker_codes = {
+                "TOTAL_MISSING", "TOTAL_ZERO", "PRICE_COMPONENTS_MISSING",
+                "COMPONENT_AMOUNT_MISSING", "COMPONENT_AMOUNT_ZERO",
+                "COMPONENT_TOTAL_MISMATCH", "LINE_AMOUNT_MISSING",
+                "LINE_TOTAL_MISMATCH", "SOURCE_EVIDENCE_MISSING",
+            }
+            before_price_confirmation = proposal_snapshot(proposal_id)
+            price_confirmation = charge.confirm_price(
+                proposal_id, revision_id, content_hash, check=False)
+            price_blocked = any(code in price_blocker_codes for code in expected_codes)
+            if price_blocked:
+                rejected(f"{name}_price_confirmation_requires_complete_evidence",
+                    price_confirmation, "price confirmation requires complete positive matching price")
+                case(f"{name}_rejected_price_confirmation_is_immutable",
+                     before_price_confirmation, proposal_snapshot(proposal_id))
+            else:
+                case(f"{name}_price_confirmation_recorded", True,
+                     price_confirmation.returncode == 0)
+
+            projection_after_confirmations = review_projection(proposal_id)
+            current_revision = projection_after_confirmations["revisions"][-1]
+            case(f"{name}_current_confirmation_blockers",
+                 (period_blocked, price_blocked),
+                 ("PERIOD_CONFIRMATION_MISSING" in current_revision["current_blockers"],
+                  "PRICE_CONFIRMATION_MISSING" in current_revision["current_blockers"]))
             before_refusal = proposal_snapshot(proposal_id)
             approval, _, _ = charge.decide("approve", proposal_id, revision_id,
                 content_hash, check=False)
+            if period_blocked:
+                approval_gate = "maker confirmation required for this debt period revision"
+            elif "TRIP_CODE_MISSING" in expected_codes:
+                approval_gate = "stable trip code missing"
+            elif "OPENING_EVIDENCE_MISSING" in expected_codes:
+                approval_gate = "opening comparison evidence missing"
+            elif price_blocked:
+                approval_gate = "per-trip price owner confirmation required for this revision"
             rejected(f"{name}_approval_refused", approval, approval_gate)
             posting, _, _ = charge.decide("post", proposal_id, revision_id,
                 content_hash, check=False)
@@ -431,7 +484,8 @@ def main() -> int:
                 "case": name,
                 "revision_id": revision_id,
                 "content_sha256": content_hash,
-                "reason_codes": revision["reason_codes"],
+                "submit_time_reasons": revision["submit_time_reasons"],
+                "current_blockers": current_revision["current_blockers"],
                 "state": saved["state"],
                 "approval_refused": approval.returncode != 0,
                 "posting_refused": posting.returncode != 0,
@@ -887,6 +941,17 @@ def main() -> int:
         bad_sum, _, _ = f.submit(None, json.dumps(sum_obj, separators=(",", ":")), check=False)
         rejected("line_total_must_match_document_total", bad_sum, "line sum differs from total")
 
+        generic_period_mismatch_obj = json.loads(make_payload(104,
+            source="generic-period-mismatch-01"))
+        generic_period_mismatch_obj["lines"][0]["debt_period"] = "2026-02"
+        before_generic_period_mismatch = proposal_snapshot(proposal_id)
+        generic_period_mismatch, _, _ = f.submit(proposal_id,
+            json.dumps(generic_period_mismatch_obj, separators=(",", ":")), check=False)
+        rejected("generic_line_period_must_match_header_period", generic_period_mismatch,
+            "fixture lines must match document customer and period")
+        case("generic_line_period_mismatch_leaves_revision_unchanged",
+             before_generic_period_mismatch, proposal_snapshot(proposal_id))
+
         missing_evidence_obj = json.loads(make_payload(104, source="missing-evidence-01"))
         del missing_evidence_obj["evidence_ref"]
         missing_evidence, _, _ = f.submit(None,
@@ -1018,6 +1083,22 @@ def main() -> int:
         resolver_proposal, _, _ = pending_charge("source_resolver_unavailable", resolver_obj,
             ["SOURCE_RESOLVER_UNAVAILABLE"],
             "source key and opening reconciliation are unresolved")
+        for field_name in (
+            "period_override_reason",
+            "period_override_evidence_ref",
+            "period_override_evidence_sha256",
+        ):
+            missing_override = json.loads(make_charge_payload(
+                trip_code="opaque-fixture-trip", opening_refs=True))
+            missing_override.pop(field_name)
+            override_proposal, _, _ = pending_charge(
+                f"period_override_{field_name}_missing", missing_override,
+                ["PERIOD_OVERRIDE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE"],
+                "source key and opening reconciliation are unresolved")
+            if field_name == "period_override_reason":
+                override_revision = review_projection(override_proposal)["revisions"][0]
+                case("generic_reason_does_not_replace_period_override_reason",
+                     "fixture reason only", override_revision["payload"]["reason"])
         case("review_projection_is_not_granted_to_api_logins", "false|false", query(
             "SELECT has_function_privilege('webdebit_app', "
             "'p0_fixture.fixture_review_projection(bigint)', 'EXECUTE')::text || '|' || "
@@ -1046,7 +1127,8 @@ def main() -> int:
         omitted_payload = json.loads(make_charge_payload())
         omitted_fields = ["total_vnd", "source_ref", "evidence_ref", "evidence_sha256",
                           "trip_code", "opening_snapshot_ref", "opening_absence_evidence_ref",
-                          "price_components"]
+                          "price_components", "period_override_reason",
+                          "period_override_evidence_ref", "period_override_evidence_sha256"]
         for field_name in omitted_fields:
             omitted_payload.pop(field_name)
         omitted_payload["lines"][0].pop("amount_vnd")
@@ -1075,6 +1157,57 @@ def main() -> int:
              all(omitted_projection["revisions"][0]["payload"][field_name] is None
                  for field_name in omitted_fields)
              and omitted_projection["revisions"][0]["payload"]["lines"][0]["amount_vnd"] is None)
+        case("omitted_override_fields_keep_submit_time_blocker", True,
+             "PERIOD_OVERRIDE_EVIDENCE_MISSING" in
+             omitted_projection["revisions"][0]["submit_time_reasons"])
+
+        same_month_obj = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", period="2026-10", opening_refs=True))
+        for field_name in (
+            "period_override_reason",
+            "period_override_evidence_ref",
+            "period_override_evidence_sha256",
+        ):
+            same_month_obj[field_name] = None
+        same_month_result, _, _ = charge.submit(None,
+            json.dumps(same_month_obj, ensure_ascii=True, separators=(",", ":")))
+        same_month_record = json.loads(same_month_result.stdout.strip())
+        same_month_id = int(same_month_record["proposal_id"])
+        same_month_projection = review_projection(same_month_id)
+        same_month_revision = same_month_projection["revisions"][0]
+        case("same_month_null_override_fields_are_canonical_nulls", True,
+             all(same_month_revision["payload"][field_name] is None for field_name in (
+                 "period_override_reason", "period_override_evidence_ref",
+                 "period_override_evidence_sha256")))
+        case("same_month_null_override_does_not_block_period_confirmation", True,
+             "PERIOD_OVERRIDE_EVIDENCE_MISSING" not in
+             same_month_revision["submit_time_reasons"])
+        same_month_supplied = dict(same_month_obj)
+        same_month_supplied["period_override_reason"] = "same-month reason stays hashed"
+        same_month_supplied["period_override_evidence_ref"] = "same-month evidence stays hashed"
+        same_month_supplied["period_override_evidence_sha256"] = "d" * 64
+        same_month_supplied_result, _, _ = charge.submit(same_month_id,
+            json.dumps(same_month_supplied, ensure_ascii=True, separators=(",", ":")))
+        same_month_supplied_record = json.loads(same_month_supplied_result.stdout.strip())
+        same_month_supplied_revision = review_projection(same_month_id)["revisions"][1]
+        case("same_month_supplied_override_values_are_saved_and_hashed", True,
+             same_month_supplied_record["content_sha256"] != same_month_record["content_sha256"]
+             and same_month_supplied_revision["payload"]["period_override_reason"] ==
+                 "same-month reason stays hashed"
+             and same_month_supplied_revision["payload"]["period_override_evidence_ref"] ==
+                 "same-month evidence stays hashed"
+             and same_month_supplied_revision["payload"]["period_override_evidence_sha256"] ==
+                 "d" * 64
+             and "PERIOD_OVERRIDE_EVIDENCE_MISSING" not in
+                 same_month_supplied_revision["submit_time_reasons"])
+        charge.confirm_period(same_month_id, int(same_month_supplied_record["revision_id"]),
+                              same_month_supplied_record["content_sha256"])
+        charge.confirm_price(same_month_id, int(same_month_supplied_record["revision_id"]),
+                             same_month_supplied_record["content_sha256"])
+        same_month_after = review_projection(same_month_id)["revisions"][1]
+        case("current_confirmation_blockers_clear_after_both_confirmations", True,
+             "PERIOD_CONFIRMATION_MISSING" not in same_month_after["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" not in same_month_after["current_blockers"])
 
         component_omitted = json.loads(make_charge_payload())
         component_omitted["price_components"] = [{"label": "optional amount"}]
@@ -1096,6 +1229,92 @@ def main() -> int:
              component_omitted_view["revisions"][0]["payload"]
              ["price_components"][0]["amount_vnd"])
 
+        override_payload = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        override_payload["period_override_reason"] = "  period reason kept verbatim  "
+        override_payload["period_override_evidence_ref"] = "  period evidence ref kept  "
+        override_payload["period_override_evidence_sha256"] = "c" * 64
+        override_first_result, _, _ = charge.submit(None,
+            json.dumps(override_payload, ensure_ascii=True, separators=(",", ":")))
+        override_first = json.loads(override_first_result.stdout.strip())
+        override_proposal_id = int(override_first["proposal_id"])
+        override_first_revision_id = int(override_first["revision_id"])
+        override_first_hash = str(override_first["content_sha256"])
+        override_first_projection = review_projection(override_proposal_id)
+        override_first_revision = override_first_projection["revisions"][0]
+        case("period_override_values_are_preserved_exactly", (
+                "  period reason kept verbatim  ",
+                "  period evidence ref kept  ", "c" * 64),
+             (override_first_revision["payload"]["period_override_reason"],
+              override_first_revision["payload"]["period_override_evidence_ref"],
+              override_first_revision["payload"]["period_override_evidence_sha256"]))
+        before_wrong_confirmation_hash = proposal_snapshot(override_proposal_id)
+        wrong_override_period = charge.confirm_period(
+            override_proposal_id, override_first_revision_id, "0" * 64, check=False)
+        rejected("period_confirmation_requires_current_hash", wrong_override_period,
+            "period confirmation requires current charge revision")
+        wrong_override_price = charge.confirm_price(
+            override_proposal_id, override_first_revision_id, "0" * 64, check=False)
+        rejected("price_confirmation_requires_current_hash", wrong_override_price,
+            "price confirmation requires the current charge revision")
+        case("wrong_confirmation_hashes_leave_charge_unchanged",
+             before_wrong_confirmation_hash, proposal_snapshot(override_proposal_id))
+        charge.confirm_period(override_proposal_id, override_first_revision_id, override_first_hash)
+        charge.confirm_price(override_proposal_id, override_first_revision_id, override_first_hash)
+        confirmed_override_projection = review_projection(override_proposal_id)
+        confirmed_override_revision = confirmed_override_projection["revisions"][0]
+        case("current_confirmations_clear_only_their_dynamic_blockers", True,
+             "PERIOD_CONFIRMATION_MISSING" not in confirmed_override_revision["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" not in confirmed_override_revision["current_blockers"])
+
+        changed_override_payload = dict(override_payload)
+        changed_override_payload["period_override_evidence_ref"] = "  replacement period evidence ref  "
+        override_second_result, _, _ = charge.submit(override_proposal_id,
+            json.dumps(changed_override_payload, ensure_ascii=True, separators=(",", ":")))
+        override_second = json.loads(override_second_result.stdout.strip())
+        override_second_revision_id = int(override_second["revision_id"])
+        override_second_hash = str(override_second["content_sha256"])
+        override_second_projection = review_projection(override_proposal_id)
+        case("changed_period_override_evidence_creates_new_hash", True,
+             override_second_hash != override_first_hash
+             and int(override_second["revision_no"]) == 2)
+        case("period_override_revision_payload_hash_and_submit_reasons_stay_immutable", True,
+             override_second_projection["revisions"][0]["payload"] ==
+                 override_first_revision["payload"]
+             and override_second_projection["revisions"][0]["content_sha256"] ==
+                 override_first_hash
+             and override_second_projection["revisions"][0]["submit_time_reasons"] ==
+                 override_first_revision["submit_time_reasons"]
+             and override_second_projection["revisions"][0]["current_blockers"] == [])
+        case("new_period_override_revision_reports_exact_current_blockers", True,
+             override_second_projection["revisions"][1]["is_current_revision"]
+             and "PERIOD_CONFIRMATION_MISSING" in
+                 override_second_projection["revisions"][1]["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" in
+                 override_second_projection["revisions"][1]["current_blockers"])
+        rejected("old_period_confirmation_cannot_confirm_edited_revision",
+            charge.confirm_period(override_proposal_id, override_first_revision_id,
+                override_first_hash, check=False),
+            "period confirmation requires current charge revision")
+        rejected("old_price_confirmation_cannot_confirm_edited_revision",
+            charge.confirm_price(override_proposal_id, override_first_revision_id,
+                override_first_hash, check=False),
+            "price confirmation requires the current charge revision")
+        rejected("old_period_override_revision_cannot_be_approved",
+            charge.decide("approve", override_proposal_id, override_first_revision_id,
+                override_first_hash, check=False)[0],
+            "stale, unavailable, or self-approved revision")
+        case("stale_override_confirmations_remain_audit_only", "1|1|review_needed|0|0", query(
+            "SELECT (SELECT count(*) FROM p0_fixture.period_confirmation c "
+            f"WHERE c.proposal_id={override_proposal_id}) || '|' || "
+            "(SELECT count(*) FROM p0_fixture.price_confirmation c "
+            f"WHERE c.proposal_id={override_proposal_id}) || '|' || "
+            "p.state || '|' || (SELECT count(*) FROM p0_fixture.approval a "
+            f"WHERE a.proposal_id={override_proposal_id}) || '|' || "
+            "(SELECT count(*) FROM p0_fixture.posting x "
+            f"WHERE x.proposal_id={override_proposal_id}) "
+            f"FROM p0_fixture.proposal p WHERE p.proposal_id={override_proposal_id}"))
+
         combined_before_edit = review_projection(combined_missing)
         old_revision = combined_before_edit["revisions"][0]
         correction = json.loads(make_charge_payload(
@@ -1108,13 +1327,20 @@ def main() -> int:
              (int(corrected_revision["revision_no"]), corrected_revision["revision_created"]))
         case("corrected_charge_reasons_are_resolver_only",
              ["SOURCE_RESOLVER_UNAVAILABLE"],
-             corrected_view["revisions"][1]["reason_codes"])
+             corrected_view["revisions"][1]["submit_time_reasons"])
         case("old_charge_revision_payload_hash_and_reasons_remain_immutable", True,
-             corrected_view["revisions"][0] == old_revision
-             and old_revision["reason_codes"] == sorted([
+             corrected_view["revisions"][0]["revision_id"] == old_revision["revision_id"]
+             and corrected_view["revisions"][0]["payload"] == old_revision["payload"]
+             and corrected_view["revisions"][0]["content_sha256"] == old_revision["content_sha256"]
+             and old_revision["submit_time_reasons"] == sorted([
                  "COMPONENT_AMOUNT_MISSING", "LINE_AMOUNT_MISSING", "OPENING_EVIDENCE_MISSING",
                  "SOURCE_EVIDENCE_MISSING", "SOURCE_RESOLVER_UNAVAILABLE", "TOTAL_MISSING",
                  "TRIP_CODE_MISSING"]))
+        case("old_charge_revision_is_marked_stale_without_rewriting_submit_reasons", True,
+             not corrected_view["revisions"][0]["is_current_revision"]
+             and corrected_view["revisions"][0]["current_blockers"] == []
+             and corrected_view["revisions"][0]["submit_time_reasons"] ==
+                 old_revision["submit_time_reasons"])
         stale_old_approval, _, _ = charge.decide("approve", combined_missing,
             int(old_revision["revision_id"]), old_revision["content_sha256"], check=False)
         rejected("old_incomplete_revision_cannot_be_approved_after_correction",
@@ -1150,6 +1376,10 @@ def main() -> int:
             ("reason_object", "reason", {"text": "fixture"}),
             ("trip_boolean", "trip_code", True),
             ("opening_object", "opening_snapshot_ref", {"ref": "fixture"}),
+            ("period_override_reason_boolean", "period_override_reason", True),
+            ("period_override_evidence_ref_object", "period_override_evidence_ref",
+             {"ref": "fixture"}),
+            ("period_override_hash_boolean", "period_override_evidence_sha256", True),
         ]
         for case_name, field_name, bad_value in wrong_type_cases:
             bad_obj = json.loads(make_charge_payload(
@@ -1236,6 +1466,10 @@ def main() -> int:
             trip_code="opaque-fixture-trip", opening_refs=True))
         bad_hash_obj["evidence_sha256"] = "not-a-hash"
         malformed_cases.append(("malformed_supplied_hash", json.dumps(bad_hash_obj)))
+        bad_period_override_hash = json.loads(make_charge_payload(
+            trip_code="opaque-fixture-trip", opening_refs=True))
+        bad_period_override_hash["period_override_evidence_sha256"] = "g" * 64
+        malformed_cases.append(("malformed_period_override_hash", json.dumps(bad_period_override_hash)))
         bad_nonfinite_payload = make_charge_payload(
             trip_code="opaque-fixture-trip", opening_refs=True)
         for nonfinite_token in ("NaN", "Infinity", "-Infinity"):
@@ -1279,12 +1513,21 @@ def main() -> int:
             closed_period_proposal = (int(closed_record["proposal_id"]),
                                       int(closed_record["revision_id"]),
                                       closed_record["content_sha256"])
+            closed_before_confirmation = proposal_snapshot(closed_period_proposal[0])
             rejected("closed_period_cannot_be_confirmed_by_maker",
                 charge.confirm_period(*closed_period_proposal, check=False),
                 "not open for maker confirmation")
+            case("closed_period_confirmation_refusal_is_immutable",
+                 closed_before_confirmation, proposal_snapshot(closed_period_proposal[0]))
             closed_approval, _, _ = charge.decide("approve", closed_period_proposal[0],
                 closed_period_proposal[1], closed_period_proposal[2], check=False)
-            rejected("closed_period_cannot_be_approved", closed_approval, "debt period is not open")
+            rejected("closed_period_cannot_be_approved", closed_approval,
+                "debt period is not open at approval")
+            case("closed_period_approval_refusal_is_immutable", closed_before_confirmation,
+                 proposal_snapshot(closed_period_proposal[0]))
+            case("closed_charge_projection_reports_period_blocker", True,
+                 "DEBT_PERIOD_NOT_OPEN" in
+                 review_projection(closed_period_proposal[0])["revisions"][0]["current_blockers"])
         else:
             raise HarnessError("closed-period proposal should remain a draft for fail-closed approval test")
 
@@ -1295,13 +1538,18 @@ def main() -> int:
             unknown_proposal = (int(unknown_record["proposal_id"]),
                                 int(unknown_record["revision_id"]),
                                 unknown_record["content_sha256"])
+            unknown_before_confirmation = proposal_snapshot(unknown_proposal[0])
             rejected("period_without_open_state_cannot_be_confirmed",
                 charge.confirm_period(*unknown_proposal, check=False),
                 "not open for maker confirmation")
+            case("missing_period_confirmation_refusal_is_immutable",
+                 unknown_before_confirmation, proposal_snapshot(unknown_proposal[0]))
             unknown_approval, _, _ = charge.decide("approve", unknown_proposal[0],
                 unknown_proposal[1], unknown_proposal[2], check=False)
             rejected("period_without_open_state_cannot_be_approved",
-                unknown_approval, "debt period is not open")
+                unknown_approval, "debt period is not open at approval")
+            case("missing_period_approval_refusal_is_immutable", unknown_before_confirmation,
+                 proposal_snapshot(unknown_proposal[0]))
         else:
             raise HarnessError("unknown-period proposal should remain a draft for fail-closed check")
 
@@ -1367,14 +1615,32 @@ def main() -> int:
             "proposal kind is immutable")
         case("rejected_kind_change_to_generic_preserves_proposal_history",
             charge_kind_before, proposal_snapshot(charge_proposal))
-        rejected("charge_without_owner_price_confirmation_stays_pending",
+        candidate_projection = review_projection(charge_proposal)["revisions"][0]
+        case("charge_current_projection_separates_missing_period_and_price_confirmations",
+             True, "PERIOD_CONFIRMATION_MISSING" in candidate_projection["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" in candidate_projection["current_blockers"])
+        before_period_approval = proposal_snapshot(charge_proposal)
+        rejected("charge_without_period_confirmation_stays_pending",
             charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
             "maker confirmation required")
+        case("charge_without_period_confirmation_preserves_state",
+             before_period_approval, proposal_snapshot(charge_proposal))
         charge.confirm_period(charge_proposal, charge_revision, charge_hash)
-        rejected("charge_without_owner_price_confirmation_is_rejected",
+        after_period_projection = review_projection(charge_proposal)["revisions"][0]
+        case("period_confirmation_clears_only_period_blocker", True,
+             "PERIOD_CONFIRMATION_MISSING" not in after_period_projection["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" in after_period_projection["current_blockers"])
+        before_price_approval = proposal_snapshot(charge_proposal)
+        rejected("charge_without_price_confirmation_is_rejected",
             charge.decide("approve", charge_proposal, charge_revision, charge_hash, check=False),
             "per-trip price owner confirmation required")
+        case("charge_without_price_confirmation_preserves_state",
+             before_price_approval, proposal_snapshot(charge_proposal))
         charge.confirm_price(charge_proposal, charge_revision, charge_hash)
+        after_price_projection = review_projection(charge_proposal)["revisions"][0]
+        case("price_confirmation_clears_only_price_confirmation_blocker", True,
+             "PERIOD_CONFIRMATION_MISSING" not in after_price_projection["current_blockers"]
+             and "PRICE_CONFIRMATION_MISSING" not in after_price_projection["current_blockers"])
         owner_confirmation = query(
             "SELECT c.owner_actor_id::text || '|' || c.revision_id::text || '|' || c.content_sha256 "
             "FROM p0_fixture.price_confirmation c "
@@ -1443,6 +1709,30 @@ def main() -> int:
 
         f.decide("approve", proposal_id, revision_current, hash_current)
         f.present(proposal_id, "Presentation edit after approval")
+        f.psql("UPDATE p0_fixture.debt_period_state SET state='closed' "
+               "WHERE debt_period='2026-02'")
+        before_closed_period_post = proposal_snapshot(proposal_id)
+        closed_period_post, _, _ = f.decide("post", proposal_id, revision_current,
+            hash_current, check=False)
+        rejected("generic_post_rejects_closed_debt_period", closed_period_post,
+            "debt period is not open at posting")
+        case("closed_period_post_preserves_approval_and_posting_state",
+             before_closed_period_post, proposal_snapshot(proposal_id))
+        case("projection_reports_current_closed_period_blocker", True,
+             "DEBT_PERIOD_NOT_OPEN" in
+             review_projection(proposal_id)["revisions"][-1]["current_blockers"])
+        f.psql("UPDATE p0_fixture.debt_period_state SET state='open' "
+               "WHERE debt_period='2026-02'")
+        f.psql("DELETE FROM p0_fixture.debt_period_state WHERE debt_period='2026-02'")
+        before_missing_period_post = proposal_snapshot(proposal_id)
+        missing_period_post, _, _ = f.decide("post", proposal_id, revision_current,
+            hash_current, check=False)
+        rejected("generic_post_rejects_missing_debt_period_state", missing_period_post,
+            "debt period is not open at posting")
+        case("missing_period_post_preserves_approval_and_posting_state",
+             before_missing_period_post, proposal_snapshot(proposal_id))
+        f.psql("INSERT INTO p0_fixture.debt_period_state(debt_period, state) "
+               "VALUES ('2026-02', 'open')")
         failed_post, _, _ = f.decide("post", proposal_id, revision_current, hash_current, fail_post=True, check=False)
         rejected("late_post_failure_rolls_back_statement", failed_post, "injected deferred fixture failure")
         after_failed_post = query(
@@ -1467,6 +1757,45 @@ def main() -> int:
         case("posting_references_its_exact_approval_event", 1, int(approval_link))
         duplicate_post, _, _ = f.decide("post", proposal_id, revision_current, hash_current, check=False)
         rejected("already_posted_revision_cannot_post_twice", duplicate_post, "current approved revision required")
+
+        closed_generic_payload = json.loads(make_payload(100,
+            source="generic-closed-period-01"))
+        closed_generic_payload["debt_period"] = "2026-08"
+        for line in closed_generic_payload["lines"]:
+            line["debt_period"] = "2026-08"
+        closed_generic_result, _, _ = f.submit(None,
+            json.dumps(closed_generic_payload, ensure_ascii=True, separators=(",", ":")))
+        closed_generic = json.loads(closed_generic_result.stdout.strip())
+        closed_generic_id = int(closed_generic["proposal_id"])
+        closed_generic_before = proposal_snapshot(closed_generic_id)
+        closed_generic_approval, _, _ = f.decide("approve", closed_generic_id,
+            int(closed_generic["revision_id"]), str(closed_generic["content_sha256"]),
+            check=False)
+        rejected("generic_closed_header_period_cannot_be_approved",
+            closed_generic_approval, "debt period is not open at approval")
+        case("generic_closed_header_projection_has_period_blocker", True,
+             "DEBT_PERIOD_NOT_OPEN" in
+             review_projection(closed_generic_id)["revisions"][0]["current_blockers"])
+        case("generic_closed_header_approval_keeps_state_and_hash",
+             closed_generic_before, proposal_snapshot(closed_generic_id))
+
+        missing_generic_payload = json.loads(make_payload(100,
+            source="generic-missing-period-01"))
+        missing_generic_payload["debt_period"] = "2026-07"
+        for line in missing_generic_payload["lines"]:
+            line["debt_period"] = "2026-07"
+        missing_generic_result, _, _ = f.submit(None,
+            json.dumps(missing_generic_payload, ensure_ascii=True, separators=(",", ":")))
+        missing_generic = json.loads(missing_generic_result.stdout.strip())
+        missing_generic_id = int(missing_generic["proposal_id"])
+        missing_generic_before = proposal_snapshot(missing_generic_id)
+        missing_generic_approval, _, _ = f.decide("approve", missing_generic_id,
+            int(missing_generic["revision_id"]), str(missing_generic["content_sha256"]),
+            check=False)
+        rejected("generic_missing_period_state_cannot_be_approved",
+            missing_generic_approval, "debt period is not open at approval")
+        case("generic_missing_period_approval_keeps_state_and_hash",
+             missing_generic_before, proposal_snapshot(missing_generic_id))
 
         audit_mapping = query(
             "SELECT count(*) FROM p0_fixture.audit a WHERE a.proposal_id=" + str(proposal_id)

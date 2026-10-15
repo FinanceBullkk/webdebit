@@ -358,7 +358,8 @@ BEGIN
                 WHERE k.key <> ALL (ARRAY['schema_version','kind','customer_id','debt_period',
                     'total_vnd','event_date','posting_date','source_ref','evidence_ref',
                     'evidence_sha256','reason','lines','trip_code','opening_snapshot_ref',
-                    'opening_absence_evidence_ref','price_components']))
+                    'opening_absence_evidence_ref','price_components','period_override_reason',
+                    'period_override_evidence_ref','period_override_evidence_sha256']))
             OR NOT p_payload ?& ARRAY['schema_version','kind','customer_id','debt_period',
                 'event_date','posting_date','reason','lines'])) THEN
         RAISE EXCEPTION 'payload has missing or unknown business fields' USING ERRCODE = 'P0001';
@@ -496,8 +497,18 @@ BEGIN
            OR (p_payload->'opening_snapshot_ref' IS NOT NULL
                 AND jsonb_typeof(p_payload->'opening_snapshot_ref') NOT IN ('null', 'string'))
            OR (p_payload->'opening_absence_evidence_ref' IS NOT NULL
-                AND jsonb_typeof(p_payload->'opening_absence_evidence_ref') NOT IN ('null', 'string')) THEN
+                AND jsonb_typeof(p_payload->'opening_absence_evidence_ref') NOT IN ('null', 'string'))
+           OR (p_payload ? 'period_override_reason'
+                AND jsonb_typeof(p_payload->'period_override_reason') NOT IN ('null', 'string'))
+           OR (p_payload ? 'period_override_evidence_ref'
+                AND jsonb_typeof(p_payload->'period_override_evidence_ref') NOT IN ('null', 'string'))
+           OR (p_payload ? 'period_override_evidence_sha256'
+                AND jsonb_typeof(p_payload->'period_override_evidence_sha256') NOT IN ('null', 'string')) THEN
             RAISE EXCEPTION 'invalid charge references' USING ERRCODE = 'P0001';
+        END IF;
+        IF jsonb_typeof(p_payload->'period_override_evidence_sha256') = 'string'
+           AND (p_payload->>'period_override_evidence_sha256' COLLATE "C") !~ '^[0-9a-f]{64}$' THEN
+            RAISE EXCEPTION 'invalid period override evidence hash' USING ERRCODE = 'P0001';
         END IF;
         IF p_payload->'price_components' IS NULL
            OR jsonb_typeof(p_payload->'price_components') = 'null' THEN
@@ -536,7 +547,10 @@ BEGIN
             'trip_code', p_payload->'trip_code',
             'opening_snapshot_ref', p_payload->'opening_snapshot_ref',
             'opening_absence_evidence_ref', p_payload->'opening_absence_evidence_ref',
-            'price_components', v_components);
+            'price_components', v_components,
+            'period_override_reason', p_payload->'period_override_reason',
+            'period_override_evidence_ref', p_payload->'period_override_evidence_ref',
+            'period_override_evidence_sha256', p_payload->'period_override_evidence_sha256');
     END IF;
     RETURN v_lines;
 END $$;
@@ -599,6 +613,12 @@ BEGIN
        OR nullif(btrim(p_payload->>'evidence_ref'), '') IS NULL
        OR jsonb_typeof(p_payload->'evidence_sha256') = 'null' THEN
         v_codes := array_append(v_codes, 'SOURCE_EVIDENCE_MISSING');
+    END IF;
+    IF left(p_payload->>'debt_period', 7) <> left(p_payload->>'event_date', 7)
+       AND (nullif(btrim(p_payload->>'period_override_reason'), '') IS NULL
+            OR nullif(btrim(p_payload->>'period_override_evidence_ref'), '') IS NULL
+            OR jsonb_typeof(p_payload->'period_override_evidence_sha256') = 'null') THEN
+        v_codes := array_append(v_codes, 'PERIOD_OVERRIDE_EVIDENCE_MISSING');
     END IF;
     IF nullif(btrim(p_payload->>'trip_code'), '') IS NULL THEN
         v_codes := array_append(v_codes, 'TRIP_CODE_MISSING');
@@ -731,7 +751,48 @@ SET search_path = pg_catalog, p0_fixture AS $$
                 'revision_no', r.revision_no,
                 'payload', r.canonical_payload,
                 'content_sha256', r.content_sha256,
-                'reason_codes', to_jsonb(r.review_reason_codes)
+                'is_current_revision', r.revision_id = p.current_revision_id,
+                'submit_time_reasons', to_jsonb(r.review_reason_codes),
+                'current_blockers', CASE WHEN r.revision_id <> p.current_revision_id
+                    THEN '[]'::jsonb
+                    ELSE coalesce((
+                        SELECT to_jsonb(array_agg(blocker ORDER BY blocker COLLATE "C"))
+                        FROM (
+                            SELECT unnest(r.review_reason_codes) AS blocker
+                            UNION
+                            SELECT 'DEBT_PERIOD_NOT_OPEN'
+                            WHERE EXISTS (
+                                SELECT 1
+                                FROM (
+                                    SELECT r.canonical_payload->>'debt_period' AS debt_period
+                                    UNION
+                                    SELECT x.line->>'debt_period'
+                                    FROM jsonb_array_elements(r.canonical_payload->'lines') AS x(line)
+                                ) AS required_periods
+                                LEFT JOIN p0_fixture.debt_period_state s
+                                  ON s.debt_period = required_periods.debt_period
+                                WHERE s.state IS DISTINCT FROM 'open'
+                            )
+                            UNION
+                            SELECT 'PERIOD_CONFIRMATION_MISSING'
+                            WHERE p.kind = 'charge_fixture' AND NOT EXISTS (
+                                SELECT 1 FROM p0_fixture.period_confirmation c
+                                WHERE c.proposal_id = p.proposal_id
+                                  AND c.revision_id = r.revision_id
+                                  AND c.content_sha256 = r.content_sha256
+                                  AND c.maker_actor_id = p.maker_actor_id
+                            )
+                            UNION
+                            SELECT 'PRICE_CONFIRMATION_MISSING'
+                            WHERE p.kind = 'charge_fixture' AND NOT EXISTS (
+                                SELECT 1 FROM p0_fixture.price_confirmation c
+                                WHERE c.proposal_id = p.proposal_id
+                                  AND c.revision_id = r.revision_id
+                                  AND c.content_sha256 = r.content_sha256
+                            )
+                        ) AS blockers
+                    ), '[]'::jsonb)
+                END
             ) ORDER BY r.revision_no)
             FROM p0_fixture.business_revision r
             WHERE r.proposal_id = p.proposal_id
@@ -757,6 +818,7 @@ SET search_path = pg_catalog, p0_fixture AS $$
 DECLARE
     v_proposal p0_fixture.proposal%ROWTYPE;
     v_revision p0_fixture.business_revision%ROWTYPE;
+    v_price_blockers text[];
     v_scope text := 'confirm_price:' || p_proposal_id::text || ':' ||
         p_revision_id::text || ':' || p_content_sha256;
 BEGIN
@@ -775,6 +837,15 @@ BEGIN
        OR v_revision.content_sha256 <> p_content_sha256
        OR v_revision.canonical_payload->>'kind' <> 'charge_fixture' THEN
         RAISE EXCEPTION 'price confirmation requires the current charge revision' USING ERRCODE = 'P0001';
+    END IF;
+    v_price_blockers := p0_fixture.charge_review_reason_codes(v_revision.canonical_payload);
+    IF v_price_blockers && ARRAY[
+        'TOTAL_MISSING', 'TOTAL_ZERO', 'PRICE_COMPONENTS_MISSING',
+        'COMPONENT_AMOUNT_MISSING', 'COMPONENT_AMOUNT_ZERO', 'COMPONENT_TOTAL_MISMATCH',
+        'LINE_AMOUNT_MISSING', 'LINE_TOTAL_MISMATCH', 'SOURCE_EVIDENCE_MISSING'
+    ] THEN
+        RAISE EXCEPTION 'price confirmation requires complete positive matching price and source evidence'
+            USING ERRCODE = 'P0001';
     END IF;
     INSERT INTO p0_fixture.price_confirmation(proposal_id, revision_id, content_sha256,
         owner_actor_id, owner_session_id, database_session_user)
@@ -822,6 +893,10 @@ BEGIN
        OR v_revision.content_sha256 <> p_content_sha256
        OR v_revision.canonical_payload->>'kind' <> 'charge_fixture' THEN
         RAISE EXCEPTION 'period confirmation requires current charge revision from its maker' USING ERRCODE = 'P0001';
+    END IF;
+    IF 'PERIOD_OVERRIDE_EVIDENCE_MISSING' = ANY(v_revision.review_reason_codes) THEN
+        RAISE EXCEPTION 'period override evidence is required for cross-month charge confirmation'
+            USING ERRCODE = 'P0001';
     END IF;
     PERFORM 1 FROM p0_fixture.debt_period_state s
         WHERE s.debt_period = v_revision.canonical_payload->>'debt_period'
@@ -921,13 +996,24 @@ BEGIN
        OR v_proposal.maker_actor_id = p_actor_id THEN
         RAISE EXCEPTION 'stale, unavailable, or self-approved revision' USING ERRCODE = 'P0001';
     END IF;
-    IF v_revision.canonical_payload->>'kind' = 'charge_fixture' THEN
-        v_open_period := v_revision.canonical_payload->>'debt_period';
+    FOR v_open_period IN
+        SELECT required_period.debt_period
+        FROM (
+            SELECT v_revision.canonical_payload->>'debt_period' AS debt_period
+            UNION
+            SELECT x.line->>'debt_period'
+            FROM jsonb_array_elements(v_revision.canonical_payload->'lines') AS x(line)
+        ) AS required_period
+        ORDER BY required_period.debt_period COLLATE "C"
+    LOOP
         PERFORM 1 FROM p0_fixture.debt_period_state s
         WHERE s.debt_period = v_open_period AND s.state = 'open' FOR SHARE;
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'debt period is not open' USING ERRCODE = 'P0001';
+            RAISE EXCEPTION 'debt period is not open at approval: %', v_open_period
+                USING ERRCODE = 'P0001';
         END IF;
+    END LOOP;
+    IF v_revision.canonical_payload->>'kind' = 'charge_fixture' THEN
         IF NOT EXISTS (SELECT 1 FROM p0_fixture.period_confirmation c
             WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
               AND c.content_sha256 = p_content_sha256
@@ -1009,14 +1095,23 @@ BEGIN
        OR v_proposal.maker_actor_id = p_actor_id THEN
         RAISE EXCEPTION 'current approved revision required for posting' USING ERRCODE = 'P0001';
     END IF;
-    IF v_revision.canonical_payload->>'kind' = 'charge_fixture' THEN
-        v_open_period := v_revision.canonical_payload->>'debt_period';
+    FOR v_open_period IN
+        SELECT required_period.debt_period
+        FROM (
+            SELECT v_revision.canonical_payload->>'debt_period' AS debt_period
+            UNION
+            SELECT x.line->>'debt_period'
+            FROM jsonb_array_elements(v_revision.canonical_payload->'lines') AS x(line)
+        ) AS required_period
+        ORDER BY required_period.debt_period COLLATE "C"
+    LOOP
         PERFORM 1 FROM p0_fixture.debt_period_state s
         WHERE s.debt_period = v_open_period AND s.state = 'open' FOR SHARE;
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'debt period is not open at posting' USING ERRCODE = 'P0001';
+            RAISE EXCEPTION 'debt period is not open at posting: %', v_open_period
+                USING ERRCODE = 'P0001';
         END IF;
-    END IF;
+    END LOOP;
     INSERT INTO p0_fixture.posting(proposal_id, revision_id, approval_id, content_sha256, canonical_payload,
         maker_actor_id, checker_actor_id, posted_in_session, database_session_user)
     VALUES (p_proposal_id, p_revision_id, v_approval.approval_id, p_content_sha256, v_revision.canonical_payload,
@@ -1061,6 +1156,8 @@ INSERT INTO p0_fixture.app_actor_role(actor_id, app_role) VALUES
 INSERT INTO p0_fixture.actor_signing_key(key_id, secret)
 VALUES ('fixture-key-v1', decode(repeat('11', 32), 'hex'));
 INSERT INTO p0_fixture.debt_period_state(debt_period, state) VALUES
+    ('2026-01', 'open'),
+    ('2026-02', 'open'),
     ('2026-08', 'closed'),
     ('2026-09', 'open'),
     ('2026-10', 'open');
