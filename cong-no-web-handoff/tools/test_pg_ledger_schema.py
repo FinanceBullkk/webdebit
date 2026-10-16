@@ -32,7 +32,7 @@ class HarnessError(RuntimeError):
 
 def run(args: list[str], *, input_text: str | None = None, env: dict[str, str] | None = None,
         check: bool = True, timeout: float = 30) -> subprocess.CompletedProcess[str]:
-    p = subprocess.run(args, input=input_text, text=True, capture_output=True,
+    p = subprocess.run(args, input=input_text, text=True, encoding="utf-8", capture_output=True,
                        env=env, timeout=timeout, check=False)
     if check and p.returncode:
         raise HarnessError(f"command failed ({p.returncode}): {args[0]} {args[1:3]}\n{p.stderr[-3000:]}")

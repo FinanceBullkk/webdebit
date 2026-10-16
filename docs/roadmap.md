@@ -1,0 +1,23 @@
+# Roadmap sản phẩm v1 — web công nợ phải thu HTH
+
+Cập nhật: 15/10/2026. Đây là **roadmap end-to-end đến bản v1 được phép dùng thật**, không phải roadmap riêng của prototype Q01/Q02. Phạm vi là web công nợ **phải thu** HTH: xem sổ theo khách/kỳ, nhập và kiểm chứng phát sinh/thu mới, hai người nhập–duyệt, ghi sổ có kiểm soát, đối soát và xử lý sai sót theo chính sách được chốt. Google Sheet giữ nguồn lịch sử; không bao gồm sổ phải trả, lợi nhuận chuyến hay kế toán tổng hợp.
+
+**Đích hoàn thành:** người dùng được phân quyền truy cập qua Tailscale, làm trọn quy trình v1 trên dữ liệu thật với hai actor khác nhau; số dư và phiếu theo khách/kỳ đối chiếu được; lỗi/retry/sửa sai và backup/restore được kiểm; chủ nghiệp vụ nghiệm thu và cho phép cutover. Phạm vi giao dịch v1 và những luồng chưa hỗ trợ phải được chốt rõ trước M3. M1 là bản xem chỉ đọc có thể bàn giao sớm hơn. M2–M3 là bước xây, chưa phải sản phẩm dùng thật. Roadmap theo **đầu ra có thể kiểm**, không dùng phần trăm hoặc ngày hẹn khi còn thiếu quyết định. Trạng thái service trên `hao` phải được kiểm lại trước khi báo là đang chạy.
+
+| Mốc | Đầu ra và điều kiện đạt | Trạng thái hiện tại | Bằng chứng / việc còn thiếu |
+| --- | --- | --- | --- |
+| M0 · Nền dữ liệu | Snapshot có provenance, replay đối chiếu theo khách + kỳ, opening không cộng lại lịch sử | **Đã kiểm trên snapshot 13/10** | [Quy tắc](business-rules.md), [nguồn](source-register.md); giữ `NO_BASELINE`, chênh 600đ và khoản thiếu giá. Không suy thành Sheet/live hiện tại đã khớp. |
+| M1 · Web xem sổ | Mở sổ theo khách/kỳ, thấy opening, biến động, pending và cảnh báo nguồn; người dùng truy cập được bản chỉ đọc | **Service và số liệu live đã kiểm; browser từ PC còn chặn** | Kiểm chỉ đọc `hao`, 15/10/2026 16:55 Asia/Saigon: service active, health OK, snapshot 13/10, 496 kỳ, opening/balance 65.051.673.578 VND, 46 `NO_BASELINE`, 0 proposal/posting. Viewer role chỉ đọc. Windows thiếu relay `127.0.0.1:8766`, nên chưa kiểm trang bằng browser; xem [kiểm chứng](verification.md). |
+| M2 · Hợp đồng ghi an toàn | Chốt nghiệp vụ charge đầu tiên, source/opening đối chiếu được, cấu phần và xác nhận giá theo revision, kỳ đang mở; review độc lập và guard được kiểm đúng revision | **CHƯA ĐẠT** | T1 chốt thiếu mã chuyến ổn định thì `CHỜ KIỂM`, ngoài số dư; không suy từ container/ngày/khách. T3 fixture fail-closed đạt 84/84 và CI 8/8 trên code `3599bc6`, nhưng không tạo source key hay chứng minh không trùng opening. T2 review độc lập đúng T1 SHA `44d813b`, không phải review code T3. Chi tiết/revision/run ở [kiểm chứng](verification.md). |
+| M3 · Tích hợp web giao dịch trên bản sao | Login/session cá nhân, maker khác checker, API ghi, migration và transaction DB; kiểm lỗi, retry, đồng thời và đối chiếu số dư trên PostgreSQL thử | **Chưa triển khai** | Đây là tiêu chí M3, không phải bằng chứng M2. Cần review M2, migration riêng trên DB test, kiểm HTTP/auth và rollback theo từng loại giao dịch. [P0-01–06](../specs/p0-write-path/README.md) là yêu cầu, chưa là code chạy thật. Không kết nối DB/Sheet thật. |
+| M4 · Nghiệm thu và đưa v1 vào dùng | Truy cập Tailscale được kiểm, backup/restore, đối soát dữ liệu; hai người dùng thật thử trọn quy trình v1; chủ nghiệp vụ duyệt phạm vi và thời điểm cutover | **Chưa triển khai** | Cần nghiệm thu M3 và gate vận hành riêng. Không tự freeze Sheet, deploy hay mở ghi tiền từ CI xanh. |
+
+## Mốc gần nhất
+
+1. Chủ nghiệp vụ chốt source key và cách đối chiếu từng chuyến với opening; giữ mọi chuyến chưa phân giải ở `CHỜ KIỂM`, ngoài số dư. Sau đó review độc lập lại contract và fixture đúng revision T3.
+2. Khôi phục relay Windows đã được phê duyệt rồi kiểm browser cho M1; giữ service/DB ở chế độ chỉ đọc.
+3. Chỉ sau khi M2 đạt mới chốt phạm vi M3. Login/session, API ghi, migration và DB thật thuộc gate M3/M4; chưa có ngày cam kết.
+
+## Cách cập nhật tiến độ
+
+Chỉ đổi trạng thái mốc khi có link đến quyết định hoặc kết quả kiểm **đúng revision và môi trường**. Mỗi cập nhật ghi ngày, đầu ra đã kiểm, việc chặn và người chịu trách nhiệm tiếp theo. [Verification](verification.md) giữ log kỹ thuật; [decisions](decisions.md) giữ chính sách; roadmap chỉ tổng hợp trạng thái. Draft PR T5 nhắm base `test/pg18-schema-characterization`, phụ thuộc PR #3; chưa merge. `main` chưa chứa prototype Q01/Q02.
