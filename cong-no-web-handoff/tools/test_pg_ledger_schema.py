@@ -157,7 +157,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", type=Path, default=Path("pg-ledger-characterization.json"))
     ap.add_argument("--timeout", type=int, default=90)
+    ap.add_argument("--base-schema", type=Path)
+    ap.add_argument("--migration", type=Path)
     args = ap.parse_args()
+    if bool(args.base_schema) != bool(args.migration):
+        ap.error("--base-schema and --migration must be provided together")
+    base_sql = args.base_schema.read_text(encoding="utf-8") if args.base_schema else None
+    migration_sql = args.migration.read_text(encoding="utf-8") if args.migration else None
     if shutil.which("docker") is None:
         raise HarnessError("docker CLI not found")
     run_id = uuid.uuid4().hex
@@ -174,6 +180,12 @@ def main() -> int:
         "command": f"python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report {args.report}",
         "cases": [], "cleanup": "not_started",
     }
+    if args.base_schema:
+        report.update({"base_schema_path": str(args.base_schema),
+                       "base_schema_sha256": hashlib.sha256(base_sql.encode("utf-8")).hexdigest(),
+                       "migration_path": str(args.migration),
+                       "migration_sha256": hashlib.sha256(migration_sql.encode("utf-8")).hexdigest()})
+        report["command"] += f" --base-schema {args.base_schema} --migration {args.migration}"
     docker = ["docker"]
     volume_created = False
     container_created = False
@@ -250,7 +262,7 @@ def main() -> int:
         if check_marker != f"{DATABASE}|{marker}|{marker}":
             raise HarnessError("database marker did not match before schema DDL")
 
-        def assert_target() -> None:
+        def assert_target(database: str = DATABASE) -> None:
             current = json.loads(run(docker + ["inspect", CONTAINER]).stdout)[0]
             current_labels = current["Config"]["Labels"]
             current_mounts = [m for m in current.get("Mounts", []) if m.get("Name") == volume and m.get("Destination") == "/var/lib/postgresql"]
@@ -258,9 +270,9 @@ def main() -> int:
                     or current_labels.get(LABEL_TEST) != LABEL_VALUE or current_labels.get(LABEL_RUN) != run_id
                     or len(current_mounts) != 1):
                 raise HarnessError("container identity/labels/volume changed before DDL")
-            marker_value = run(docker + ["exec", *env_args(pg_env), CONTAINER, "psql", "-X", "-qAt", "-U", "postgres", "-d", DATABASE,
+            marker_value = run(docker + ["exec", *env_args(pg_env), CONTAINER, "psql", "-X", "-qAt", "-U", "postgres", "-d", database,
                 "-c", "SELECT current_database() || '|' || shobj_description((SELECT oid FROM pg_database WHERE datname=current_database()), 'pg_database') || '|' || current_setting('application_name')"]).stdout.strip()
-            if marker_value != f"{DATABASE}|{marker}|{marker}":
+            if marker_value != f"{database}|{marker}|{marker}":
                 raise HarnessError("database/run marker changed before DDL")
 
         def ddl(sql: str) -> None:
@@ -272,7 +284,23 @@ def main() -> int:
         report["image_digest"] = IMAGE.split("@", 1)[1]
         # Pass the repository file verbatim; psql aborts on the first error.
         assert_target()
-        run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=SCHEMA.read_text(encoding="utf-8"))
+        run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=base_sql if base_sql is not None else SCHEMA.read_text(encoding="utf-8"))
+        if migration_sql is not None:
+            catalog_sql = """
+                SELECT json_agg(json_build_object(
+                    'name', proname, 'arguments', pg_get_function_identity_arguments(oid),
+                    'definition', pg_get_functiondef(oid), 'proacl', proacl)
+                    ORDER BY proname, pg_get_function_identity_arguments(oid))
+                FROM pg_proc WHERE pronamespace = 'ledger'::regnamespace
+            """
+            migrated_catalogs = []
+            for _ in range(2):
+                assert_target()
+                run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=migration_sql)
+                migrated_catalogs.append(json.loads(run(docker + ["exec", *env_args(pg_env), CONTAINER,
+                    "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE,
+                    "-c", catalog_sql]).stdout))
+            report["migration_applications"] = 2
 
         # Everything below uses fake fixture values and explicit isolated logins.
         ddl("CREATE ROLE maker_a LOGIN; CREATE ROLE checker_b LOGIN; CREATE ROLE maker_checker LOGIN; GRANT ledger_maker TO maker_a, maker_checker; GRANT ledger_checker TO checker_b, maker_checker")
@@ -311,6 +339,22 @@ def main() -> int:
         def global_counts() -> dict[str, object]:
             return json.loads(query("SELECT json_build_object('postings',(SELECT count(*) FROM ledger.posting),'proposal_statuses',(SELECT json_object_agg(status,n) FROM (SELECT status,count(*) n FROM ledger.proposal GROUP BY status) s),'audits',(SELECT count(*) FROM ledger.audit))"))
 
+        if migration_sql is not None:
+            reference = "webdebit_ledger_fresh"
+            ddl(f"CREATE DATABASE {reference}")
+            ddl(f"COMMENT ON DATABASE {reference} IS '{marker}'")
+            assert_target(reference)
+            # Roles are cluster-wide and already created by the base schema.
+            fresh_sql = re.sub(r"^CREATE ROLE ledger_(maker|checker|reader) NOLOGIN;\n", "",
+                               SCHEMA.read_text(encoding="utf-8"), flags=re.MULTILINE)
+            fresh_sql = fresh_sql.replace(f"ON DATABASE {DATABASE} ", f"ON DATABASE {reference} ")
+            run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", reference], input_text=fresh_sql)
+            fresh_catalog = json.loads(run(docker + ["exec", *env_args(pg_env), CONTAINER,
+                "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", reference,
+                "-c", catalog_sql]).stdout)
+            record("migration", "second_application_unchanged", migrated_catalogs[0], migrated_catalogs[1])
+            record("migration", "all_function_definitions_and_proacl_match_fresh", fresh_catalog, migrated_catalogs[1])
+
         def submit(key: str, kind: str = "charge", lines: str = '[{"customer":"FAKE CUSTOMER A","debt_period":"2026-01","amount_vnd":100}]', total: int = 100, source: str | None = None, user: str = "maker_a", pw: str = "") -> int:
             source = source or f"FAKE-SOURCE-{key[-8:]}"
             sql = ("SELECT ledger.submit_entry('" + key + "','" + kind + "'," + str(total) + ",DATE '2026-02-01',DATE '2026-02-02','" + source + "','FAKE-EVIDENCE','fake test reason','" + lines.replace("'", "''") + "'::jsonb)")
@@ -320,6 +364,14 @@ def main() -> int:
         multi = submit("fixture-request-multi-0001", "receipt", '[{"customer":"FAKE CUSTOMER A","debt_period":"2026-01","amount_vnd":60},{"customer":"FAKE CUSTOMER B","debt_period":"2026-01","amount_vnd":40}]', 100, "FAKE-SOURCE-MULTI", user="maker_a")
         approved = psql(f"SELECT ledger.approve_entry({multi})", "checker_b")
         record("characterization", "submit_and_approve_multiline", 2, int(approved.stdout.strip()), counts=counts(multi))
+        record("balance", "opening_unchanged_with_cutover", "0|-100|-100",
+               psql("SET ROLE ledger_reader; SELECT sum(opening_vnd), sum(movement_vnd), sum(balance_vnd) "
+                    "FROM ledger.balance_as_of(DATE '2026-02-02')").stdout.strip())
+        record("volatility", "read_functions_stable",
+               {"balance_as_of":"s","cutover_as_of":"s","first_posting_date":"s","business_today":"s"},
+               json.loads(query("SELECT json_object_agg(proname, provolatile) FROM pg_proc "
+                                "WHERE pronamespace='ledger'::regnamespace AND proname IN "
+                                "('balance_as_of','cutover_as_of','first_posting_date','business_today')")))
         bad_role = psql(f"SELECT ledger.approve_entry({multi})", "maker_a", check=False)
         sqlstate = re.search(r"ERROR:\s+([0-9A-Z]{5}):", bad_role.stderr)
         record("characterization", "wrong_role_rejected", "42501", sqlstate.group(1) if sqlstate else None, sqlstate=sqlstate.group(1) if sqlstate else None, counts=counts(multi))
@@ -390,6 +442,82 @@ def main() -> int:
         rejected_states = [s for rc, s in ((checker1_rc, state1.group(1) if state1 else None), (checker2_rc, state2.group(1) if state2 else None)) if rc != 0]
         record("contention", "two_checker_calls_post_once", {"successful_calls":1,"rejected_sqlstates":["P0001"],"postings":1}, {"successful_calls":len(successful),"rejected_sqlstates":rejected_states,"postings":final_counts["postings"]}, sqlstate=rejected_states[0] if rejected_states else None, counts=final_counts)
         report["concurrency_evidence"] = {"holder_pid":holder_pid,"blocking_pids":observed_actual["pg_blocking_pids"],"checker1_stdout":out.strip(),"checker2_stdout":out2.strip(),"checker1_exit":checker1_rc,"checker2_exit":checker2_rc,"checker1_error_sqlstate":state1.group(1) if state1 else None,"checker2_error_sqlstate":state2.group(1) if state2 else None}
+
+        def failure(result: subprocess.CompletedProcess[str]) -> dict[str, object]:
+            found = re.search(r"ERROR:\s+([0-9A-Z]{5}):\s*(.+)", result.stderr)
+            return {"exit": result.returncode, "sqlstate": found.group(1) if found else None,
+                    "message": found.group(2).strip() if found else None}
+
+        def submit_dated(key: str, posting_date: str) -> subprocess.CompletedProcess[str]:
+            return psql("SELECT ledger.submit_entry('" + key + "','charge',100,DATE '2026-02-01'," + posting_date
+                        + ",'FAKE-SOURCE-" + key[-8:] + "','FAKE-EVIDENCE','fake test reason',"
+                        + "'[{\"customer\":\"FAKE CUSTOMER A\",\"debt_period\":\"2026-01\",\"amount_vnd\":100}]'::jsonb)",
+                        "maker_a", check=False)
+
+        def proposal_count() -> int:
+            return int(query("SELECT count(*) FROM ledger.proposal"))
+
+        original_posting = int(query(f"SELECT min(posting_id) FROM ledger.posting WHERE proposal_id={multi}"))
+        # Compute the Vietnam business day independently of the schema helper and pass literals.
+        vn_today = "(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
+        today = "DATE '" + query(f"SELECT {vn_today}") + "'"
+        tomorrow = "DATE '" + query(f"SELECT {vn_today} + 1") + "'"
+
+        # Posting-date policy (16/10/2026): today in Asia/Ho_Chi_Minh is allowed, any later date is rejected.
+        today_result = submit_dated("fixture-request-today-0001", today)
+        today_id = int(today_result.stdout.strip()) if today_result.returncode == 0 else None
+        record("posting_date", "today_posting_date_accepted", {"exit":0,"status":"pending"},
+               {"exit":today_result.returncode,"status":counts(today_id)["status"] if today_id else None})
+        before = proposal_count()
+        record("posting_date", "future_posting_date_rejected_on_submit",
+               {"exit":1,"sqlstate":"P0001","message":"missing or invalid posting evidence/date/lines","new_proposals":0},
+               {**failure(submit_dated("fixture-request-future-0001", tomorrow)),"new_proposals":proposal_count() - before})
+        # Owner-inserted pending row simulates a proposal whose date passed submit under an older function.
+        future_id = int(query("INSERT INTO ledger.proposal(request_key,kind,total_vnd,event_date,posting_date,source_ref,evidence_ref,reason,maker) "
+                              "VALUES ('fixture-request-future-approve-0001','charge',100,DATE '2026-02-01'," + tomorrow + ","
+                              "'FAKE-SOURCE-FUTURE','FAKE-EVIDENCE','fake test reason','maker_a') RETURNING proposal_id"))
+        psql(f"INSERT INTO ledger.proposal_line(proposal_id,line_no,customer,debt_period,amount_vnd) VALUES ({future_id},1,'FAKE CUSTOMER A','2026-01',100)")
+        record("posting_date", "future_posting_date_rejected_on_approve",
+               {"exit":1,"sqlstate":"P0001","message":"posting date is in the future","status":"pending","postings":0},
+               {**failure(psql(f"SELECT ledger.approve_entry({future_id})", "checker_b", check=False)),
+                "status":counts(future_id)["status"],"postings":counts(future_id)["postings"]}, counts=counts(future_id))
+        before = proposal_count()
+        record("posting_date", "future_posting_date_rejected_on_reversal",
+               {"exit":1,"sqlstate":"P0001","message":"invalid reversal request","new_proposals":0},
+               {**failure(psql(f"SELECT ledger.request_reversal('fixture-request-future-rev-0001',{original_posting},{tomorrow},'FAKE-EVIDENCE','fake test reason')", "maker_a", check=False)),
+                "new_proposals":proposal_count() - before})
+
+        # Missing cutover must fail closed in every write function, then the fixture row is restored.
+        cutover_row = query("SELECT row_to_json(c)::text FROM ledger.cutover c")
+        psql("DELETE FROM ledger.cutover")
+        missing = {"exit":1,"sqlstate":"P0001","message":"ledger cutover missing"}
+        record("missing_cutover", "balance_as_of_rejected", missing,
+               failure(psql("SET ROLE ledger_reader; SELECT * FROM ledger.balance_as_of(DATE '2026-02-02')",
+                            check=False)))
+        before = proposal_count()
+        record("missing_cutover", "submit_rejected", {**missing,"new_proposals":0},
+               {**failure(submit_dated("fixture-request-nocut-0001", "DATE '2026-02-02'")),"new_proposals":proposal_count() - before})
+        record("missing_cutover", "approve_rejected", {**missing,"status":"pending","postings":0},
+               {**failure(psql(f"SELECT ledger.approve_entry({today_id})", "checker_b", check=False)),
+                "status":counts(today_id)["status"],"postings":counts(today_id)["postings"]}, counts=counts(today_id))
+        before = proposal_count()
+        record("missing_cutover", "reversal_rejected", {**missing,"new_proposals":0},
+               {**failure(psql(f"SELECT ledger.request_reversal('fixture-request-nocut-rev-0001',{original_posting},DATE '2026-02-02','FAKE-EVIDENCE','fake test reason')", "maker_a", check=False)),
+                "new_proposals":proposal_count() - before})
+        psql("INSERT INTO ledger.cutover SELECT * FROM json_populate_record(NULL::ledger.cutover, '" + cutover_row.replace("'", "''") + "'::json)")
+        approved_today = psql(f"SELECT ledger.approve_entry({today_id})", "checker_b", check=False)
+        record("missing_cutover", "restored_cutover_allows_today_approval", {"exit":0,"status":"posted"},
+               {"exit":approved_today.returncode,"status":counts(today_id)["status"]}, counts=counts(today_id))
+
+        # Force the session's calendar day to differ from Vietnam's to catch current_date.
+        reversal = psql(f"SELECT set_config('TimeZone', CASE WHEN "
+                        f"(now() AT TIME ZONE 'Etc/GMT+12')::date = {vn_today} "
+                        "THEN 'Etc/GMT-14' ELSE 'Etc/GMT+12' END, false); "
+                        f"SELECT ledger.request_reversal('fixture-request-vndate-rev-0001',{original_posting},"
+                        f"{today},'FAKE-EVIDENCE','fake test reason')", "maker_a")
+        reversal_id = int(reversal.stdout.strip().splitlines()[-1])
+        record("reversal", "event_date_is_vietnam_today", "t",
+               query(f"SELECT event_date = {vn_today} FROM ledger.proposal WHERE proposal_id={reversal_id}"))
 
         report["exit_code"] = 0
     except BaseException as exc:

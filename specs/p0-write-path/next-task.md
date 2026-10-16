@@ -1,8 +1,8 @@
 # PostgreSQL characterization hoàn tất và bước P0 tiếp theo
 
-**Trạng thái harness hiện tại (15/10/2026):** PR #3 `test/pg18-schema-characterization` vẫn OPEN/Draft, head `75d9ff994ab803b18932f8f306a507f181356c71`, base PR #2 `docs/p0-write-path-specs`. GitHub run [`38695774411`](https://github.com/FinanceBullkk/webdebit/actions/runs/38695774411) đạt 7/7 jobs trên đúng head này; artifact `pg-ledger-characterization` ghi 9 assertion và cleanup `verified_and_removed`. Stale-content vẫn mang nhãn `repro_success`, không phải acceptance. Run này **không gồm** bốn thay đổi tài liệu chưa commit trong checkout PR #3. PR #1/#2/#3 hiện đều OPEN/Draft.
+**Trạng thái harness hiện tại (16/10/2026):** PR #3 `test/pg18-schema-characterization` vẫn OPEN/Draft, head `75d9ff994ab803b18932f8f306a507f181356c71`, base PR #2 `docs/p0-write-path-specs`. GitHub run [`38695774411`](https://github.com/FinanceBullkk/webdebit/actions/runs/38695774411) đạt 7/7 jobs trên đúng head này; artifact `pg-ledger-characterization` ghi 9 assertion và cleanup `verified_and_removed`. Stale-content vẫn mang nhãn `repro_success`, không phải acceptance. Run này không gồm dirty docs ở checkout PR #3. PR #1/#2/#3 hiện đều OPEN/Draft; PR #8–#11 đã gộp vào nhánh tích hợp M1 `fix/m1-review-readiness` tại `c439d13`, không tự nhập vào PR #3.
 
-**Bước Q01/Q02 trong worktree riêng:** prototype acceptance fixture đã chạy cục bộ trên PostgreSQL 18.6 pinned digest `sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`, `--network none`, không port/volume mount; 58 assertion đạt và container được xác minh rồi xóa. Chi tiết hash/runner ở `docs/verification.md`. Kết quả là test fixture của thiết kế, không phải CI của diff hiện tại, login/session/Tailscale thật hay DB/service/Sheet thật. Bốn thay đổi tài liệu gốc được giữ nguyên ở checkout PR #3; bản làm tiếp nằm trong nhánh `feature/p0-actor-revisions`.
+**Bước Q01/Q02 trong worktree riêng:** prototype acceptance fixture đã chạy cục bộ trên PostgreSQL 18.6 pinned digest `sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336`, `--network none`, không port/volume mount; 58 assertion đạt và container được xác minh rồi xóa. Chi tiết hash/runner ở `docs/verification.md`. Kết quả là test fixture của thiết kế, không phải CI của diff hiện tại, login/session/Tailscale thật hay DB/service/Sheet thật. Các thay đổi tài liệu Q01/Q02 của checkout PR #3 vẫn là dirty work độc lập; nền tích hợp M1 tại `c439d13` không tự nhập vào PR #3.
 
 ## Mục tiêu và giới hạn
 
@@ -42,7 +42,7 @@ Các run lịch sử `38683750234`, `38684269409`, `38686717095`, `38686910554` 
 
 Q01/Q02 đã chốt về nghiệp vụ; [spec kỹ thuật](07-identity-revision-implementation.md) và fixture prototype nay có để review. Fixture chỉ áp dụng cho payload `charge_fixture` giả, actor assertion và immutable revision. Nó không được nối vào viewer, không là migration, và không mở đường ghi thật.
 
-- **Q01:** tài khoản cá nhân, server-side session, role/account lifecycle, loopback sau Tailscale Serve và HMAC assertion actor→DB được định nghĩa ở mức đề xuất. Login/session thật, bootstrap/offboarding, CSRF, tailnet ACL/proxy/firewall và audit vận hành vẫn chưa triển khai/kiểm.
+- **Q01:** mô hình tài khoản cá nhân, server-side session, role/account lifecycle, loopback sau Tailscale Serve và actor→DB đã chốt ở mức chính sách/spec; M1 viewer live đã có ACL/read-only và relay giới hạn, nhưng login/session maker-checker, bootstrap/offboarding, CSRF, tailnet boundary đầy đủ và audit vận hành vẫn chưa triển khai/kiểm.
 - **Q02:** canonicalization v1, revision append-only, approval/post gắn revision/hash, no-op presentation và stale approval được định nghĩa; PG18 fixture là bằng chứng riêng cho prototype.
 - **Q03–Q08 và Q09:** còn mở; không đưa quy tắc dư/FIFO ngoại lệ/reversal/close kỳ/receipt verification vào fixture hoặc tuyên bố acceptance.
 
