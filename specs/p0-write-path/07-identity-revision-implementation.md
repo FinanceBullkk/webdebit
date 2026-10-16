@@ -20,7 +20,9 @@ Q03–Q08 và Q09 vẫn mở. Fixture chỉ còn một loại proposal: **charge
 | PRICE-MAKER | Người xác nhận giá phải có role `price_owner` (chủ nghiệp vụ). Maker được phép đồng thời là `price_owner` và tự xác nhận giá chuyến mình nhập. Người xác nhận giá không được làm checker của cùng revision; maker khác checker (D01). | `confirm_price` yêu cầu role `price_owner` (role `maker` không đủ); `approve` và `post` từ chối nếu checker là người xác nhận giá của revision đó. |
 | SIMPLIFY | Đơn giản hóa fixture ngay, không chờ M3. | Mục "App actor → DB audit" và "Kind, role DB" bên dưới. |
 
-Dấu "/" trong ô booking, quy tắc trùng theo chuyến hay theo chuyến + loại phí, booking bị sửa sau khi ghi, và cách duyệt bảng nối opening ↔ mã chuyến vẫn **CÒN MỞ**; fixture chỉ biểu diễn ĐỀ XUẤT hiện tại (xem bảng reason code), không là chính sách đã duyệt.
+Chính sách v1 **ĐÃ CHỐT** theo [DUP-01, JOIN-01](../../docs/decisions.md): mỗi `trip_key` một charge và chính sách duyệt bảng nối opening ↔ mã chuyến; fixture CI đã có `UNIQUE(posting.trip_key)`.
+
+**CÒN MỞ**: dấu "/" trong ô booking, booking bị sửa sau khi ghi, ngưỡng ngày cụ thể của JOIN-01, nâng khóa lên chuyến + loại phí khi có danh mục loại phí được duyệt; bảng resolution production chưa triển khai.
 
 ## Kind và role DB
 

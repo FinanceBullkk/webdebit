@@ -1,6 +1,6 @@
 # Gói deploy và rollback viewer M1
 
-Trạng thái: **ĐỀ XUẤT**. Công cụ và test dùng thư mục tạm, repo git tạm và dữ liệu giả. **Chưa deploy**, chưa chạm máy chủ, DB hoặc Sheet nào. Gói không phải migration và không chứa DDL.
+Trạng thái: **ĐÃ TRIỂN KHAI** live (viewer M1) tại commit `c439d13`; chi tiết bằng chứng và CÒN MỞ ở [mục Giới hạn](#giới-hạn) cuối file. Các phần gate/thứ tự/gói bên dưới là kế hoạch lúc ĐỀ XUẤT (lịch sử). Công cụ và test dùng thư mục tạm, repo git tạm và dữ liệu giả. Gói không phải migration và không chứa DDL.
 
 ## Gate và thứ tự
 
