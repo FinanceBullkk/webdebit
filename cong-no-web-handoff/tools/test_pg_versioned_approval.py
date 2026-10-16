@@ -132,14 +132,15 @@ class Fixture:
     def psql(self, sql: str, *, user: str = "postgres", check: bool = True,
              database: str = DATABASE, appname: str | None = None,
              pg_options: str | None = None, timeout: float = 30) -> subprocess.CompletedProcess[str]:
-        command = self.docker + ["exec"]
+        command = self.docker + ["exec", "-i"]
         if appname is not None:
             command += ["--env", f"PGAPPNAME={appname}"]
         if pg_options is not None:
             command += ["--env", f"PGOPTIONS={pg_options}"]
+        # Keep -c's single transaction for multiple statements when reading stdin.
         return run(command + [self.container, "psql", "-X", "-qAt",
             "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
-            "-d", database, "-c", sql], check=check, timeout=timeout)
+            "-d", database, "-1", "-f", "-"], input_text=sql, check=check, timeout=timeout)
 
 
 @dataclass
