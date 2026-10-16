@@ -38,7 +38,7 @@ Mỗi PR do một phiên Sonnet viết và một phiên Opus review chỉ đọc
 
 Sau khi gộp #8–#10: head `eb32866`, [run 38810285870](https://github.com/FinanceBullkk/webdebit/actions/runs/38810285870) 9/9 job. Artifact có `tested_tree` `70cb999` khớp tree của head; fixture M2 213/213, M1 PG 16/16, characterization ledger 8 pass cộng 1 `repro_success` lịch sử; cleanup `verified_and_removed`. Python 79/79 chạy cục bộ trên cùng tree. PR #11 bổ sung hồ sơ ACL/five-view gate và được gộp thành head tích hợp `c439d13`; bằng chứng live nằm ở mục dưới.
 
-CÒN MỞ: bảng nối opening ↔ mã chuyến chưa duyệt (mọi charge thật vẫn bị chặn); M1 đã triển khai trên `hao` nhưng còn lỗi liên kết `8765`/`8766` cần xử lý và kiểm lại; login thật, receipt/FIFO, đảo bút toán thuộc M3.
+CÒN MỞ: bảng nối opening ↔ mã chuyến chưa duyệt (mọi charge thật vẫn bị chặn); M1 đã triển khai trên `hao`, forwarding lịch sử đã được duyệt/kiểm nhưng còn checklist người dùng; login thật, receipt/FIFO, đảo bút toán thuộc M3. Gộp nguồn/lịch sử qua một origin là cải tiến sau, chưa làm.
 
 ## M1 live — triển khai và kiểm sau triển khai, 16/10/2026
 
@@ -48,7 +48,9 @@ Hồ sơ ngoài Git tại `D:\webdebit\verification\m1-predeploy-2026-10-16\DEPL
 - Runtime ba file khớp manifest; health HTTP 200, bảy component đều `ok`; hai service active, `NRestarts=0` tại quan sát cuối.
 - Relay Windows `127.0.0.1:8766` đạt; HTTP bảy route đạt và Host sai trả 400; browser thật đã kiểm overview, exceptions, phân trang, bộ lọc, sổ khách và trang kỳ.
 - Số liệu trước/sau giữ nguyên: 155 khách, 496 kỳ, `65.051.673.578 VND`, 46 `NO_BASELINE`, opening NULL=0, 0 proposal/posting/audit.
-- Chưa nghiệm thu đầy đủ: `source_link` và liên kết ở `render_period` còn trỏ `127.0.0.1:8765`, ngoài đích relay đã duyệt. Chưa tự mở thêm forwarding hoặc sửa source trong lượt này.
+- Forwarding lịch sử **ĐÃ CHỐT + ĐÃ TRIỂN KHAI trên `hao`**: người dùng xác nhận đã duyệt khoảng 06:24 ngày 16/10/2026 (Asia/Saigon), tự áp khoảng 06:27. Phạm vi đúng hai đích loopback `127.0.0.1:8766` và `127.0.0.1:8765`, `PermitListen none`, không forwarding Unix socket. Hồ sơ chi tiết và biên bản kiểm khoảng 06:30 giữ ngoài Git, được dẫn từ `DEPLOYMENT.md` nêu trên; không đổi code dịch vụ.
+- Đối chiếu lại 08:07:39: file cấu hình khớp chính xác script đã áp và phạm vi hai đích; không thay server. Biên bản 06:30 ghi effective-policy/reload và probe ngoài phạm vi bị từ chối; lần này không tái chạy kiểm đặc quyền đó. Launcher Windows mở các cổng còn thiếu với `ExitOnForwardFailure`, giữ relay hợp lệ hiện hữu; chạy thử 08:08:39–08:08:40, GET `/` và `/health` cả hai cổng đều HTTP 200. Cold start được kiểm bằng fixture launcher, lần live tái sử dụng relay đang chạy. Bằng chứng readback/HTTP nằm trong hồ sơ ngoài Git.
+- **CHỜ NGHIỆM THU**: B05 còn phần người dùng tự đi đủ sáu mục, ghi kết quả/giờ/ghi chú; mục nguồn/lịch sử vẫn để trống. Chỉ đổi trạng thái sau xác nhận rõ “M1 đạt nghiệm thu” kèm phạm vi trong chat. Phương án A **CÒN MỞ** như cải tiến gộp nguồn/lịch sử qua một origin `8766`; chưa sửa code, build hoặc deploy.
 
 Kết luận: **ĐÃ TRIỂN KHAI M1, CHƯA NGHIỆM THU ĐẦY ĐỦ**. Bằng chứng này không mở M2, không chứng minh app login/session maker-checker, không chứng minh Sheet/nguồn ngân hàng hiện tại hay đường ghi tiền.
 
