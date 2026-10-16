@@ -157,7 +157,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--report", type=Path, default=Path("pg-ledger-characterization.json"))
     ap.add_argument("--timeout", type=int, default=90)
+    ap.add_argument("--base-schema", type=Path)
+    ap.add_argument("--migration", type=Path)
     args = ap.parse_args()
+    if bool(args.base_schema) != bool(args.migration):
+        ap.error("--base-schema and --migration must be provided together")
+    base_sql = args.base_schema.read_text(encoding="utf-8") if args.base_schema else None
+    migration_sql = args.migration.read_text(encoding="utf-8") if args.migration else None
     if shutil.which("docker") is None:
         raise HarnessError("docker CLI not found")
     run_id = uuid.uuid4().hex
@@ -174,6 +180,12 @@ def main() -> int:
         "command": f"python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report {args.report}",
         "cases": [], "cleanup": "not_started",
     }
+    if args.base_schema:
+        report.update({"base_schema_path": str(args.base_schema),
+                       "base_schema_sha256": hashlib.sha256(base_sql.encode("utf-8")).hexdigest(),
+                       "migration_path": str(args.migration),
+                       "migration_sha256": hashlib.sha256(migration_sql.encode("utf-8")).hexdigest()})
+        report["command"] += f" --base-schema {args.base_schema} --migration {args.migration}"
     docker = ["docker"]
     volume_created = False
     container_created = False
@@ -250,7 +262,7 @@ def main() -> int:
         if check_marker != f"{DATABASE}|{marker}|{marker}":
             raise HarnessError("database marker did not match before schema DDL")
 
-        def assert_target() -> None:
+        def assert_target(database: str = DATABASE) -> None:
             current = json.loads(run(docker + ["inspect", CONTAINER]).stdout)[0]
             current_labels = current["Config"]["Labels"]
             current_mounts = [m for m in current.get("Mounts", []) if m.get("Name") == volume and m.get("Destination") == "/var/lib/postgresql"]
@@ -258,9 +270,9 @@ def main() -> int:
                     or current_labels.get(LABEL_TEST) != LABEL_VALUE or current_labels.get(LABEL_RUN) != run_id
                     or len(current_mounts) != 1):
                 raise HarnessError("container identity/labels/volume changed before DDL")
-            marker_value = run(docker + ["exec", *env_args(pg_env), CONTAINER, "psql", "-X", "-qAt", "-U", "postgres", "-d", DATABASE,
+            marker_value = run(docker + ["exec", *env_args(pg_env), CONTAINER, "psql", "-X", "-qAt", "-U", "postgres", "-d", database,
                 "-c", "SELECT current_database() || '|' || shobj_description((SELECT oid FROM pg_database WHERE datname=current_database()), 'pg_database') || '|' || current_setting('application_name')"]).stdout.strip()
-            if marker_value != f"{DATABASE}|{marker}|{marker}":
+            if marker_value != f"{database}|{marker}|{marker}":
                 raise HarnessError("database/run marker changed before DDL")
 
         def ddl(sql: str) -> None:
@@ -272,7 +284,23 @@ def main() -> int:
         report["image_digest"] = IMAGE.split("@", 1)[1]
         # Pass the repository file verbatim; psql aborts on the first error.
         assert_target()
-        run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=SCHEMA.read_text(encoding="utf-8"))
+        run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=base_sql if base_sql is not None else SCHEMA.read_text(encoding="utf-8"))
+        if migration_sql is not None:
+            catalog_sql = """
+                SELECT json_agg(json_build_object(
+                    'name', proname, 'arguments', pg_get_function_identity_arguments(oid),
+                    'definition', pg_get_functiondef(oid), 'proacl', proacl)
+                    ORDER BY proname, pg_get_function_identity_arguments(oid))
+                FROM pg_proc WHERE pronamespace = 'ledger'::regnamespace
+            """
+            migrated_catalogs = []
+            for _ in range(2):
+                assert_target()
+                run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE], input_text=migration_sql)
+                migrated_catalogs.append(json.loads(run(docker + ["exec", *env_args(pg_env), CONTAINER,
+                    "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE,
+                    "-c", catalog_sql]).stdout))
+            report["migration_applications"] = 2
 
         # Everything below uses fake fixture values and explicit isolated logins.
         ddl("CREATE ROLE maker_a LOGIN; CREATE ROLE checker_b LOGIN; CREATE ROLE maker_checker LOGIN; GRANT ledger_maker TO maker_a, maker_checker; GRANT ledger_checker TO checker_b, maker_checker")
@@ -310,6 +338,22 @@ def main() -> int:
 
         def global_counts() -> dict[str, object]:
             return json.loads(query("SELECT json_build_object('postings',(SELECT count(*) FROM ledger.posting),'proposal_statuses',(SELECT json_object_agg(status,n) FROM (SELECT status,count(*) n FROM ledger.proposal GROUP BY status) s),'audits',(SELECT count(*) FROM ledger.audit))"))
+
+        if migration_sql is not None:
+            reference = "webdebit_ledger_fresh"
+            ddl(f"CREATE DATABASE {reference}")
+            ddl(f"COMMENT ON DATABASE {reference} IS '{marker}'")
+            assert_target(reference)
+            # Roles are cluster-wide and already created by the base schema.
+            fresh_sql = re.sub(r"^CREATE ROLE ledger_(maker|checker|reader) NOLOGIN;\n", "",
+                               SCHEMA.read_text(encoding="utf-8"), flags=re.MULTILINE)
+            fresh_sql = fresh_sql.replace(f"ON DATABASE {DATABASE} ", f"ON DATABASE {reference} ")
+            run(docker + ["exec", "-i", *env_args(pg_env), CONTAINER, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", reference], input_text=fresh_sql)
+            fresh_catalog = json.loads(run(docker + ["exec", *env_args(pg_env), CONTAINER,
+                "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", reference,
+                "-c", catalog_sql]).stdout)
+            record("migration", "second_application_unchanged", migrated_catalogs[0], migrated_catalogs[1])
+            record("migration", "all_function_definitions_and_proacl_match_fresh", fresh_catalog, migrated_catalogs[1])
 
         def submit(key: str, kind: str = "charge", lines: str = '[{"customer":"FAKE CUSTOMER A","debt_period":"2026-01","amount_vnd":100}]', total: int = 100, source: str | None = None, user: str = "maker_a", pw: str = "") -> int:
             source = source or f"FAKE-SOURCE-{key[-8:]}"
