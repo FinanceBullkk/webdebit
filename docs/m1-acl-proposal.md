@@ -1,6 +1,6 @@
-# Đề xuất ACL cho M1 (chưa chạy)
+# Đề xuất ACL cho M1 (đã áp dụng; SQL giữ làm hồ sơ)
 
-Trạng thái: **ĐỀ XUẤT, chưa chạy ở bất kỳ môi trường nào**. Không có tên host, role, DB hay đường dẫn thật trong tài liệu này; SQL chi tiết kèm tên thật nằm trong hồ sơ riêng ngoài Git. Mọi câu lệnh dưới đây cần người dùng có quyền chạy hoặc duyệt từng bước, trên bản sao trước nếu có.
+Trạng thái: **ĐÃ ÁP DỤNG trên `hao` ngày 16/10/2026 trong đợt M1**. Không có tên host, role, DB hay đường dẫn thật trong tài liệu này; SQL chi tiết và output live nằm trong hồ sơ riêng ngoài Git. Các câu lệnh dưới đây giữ nguyên dạng đề xuất/rollback để đối chiếu, không phải yêu cầu chạy lại.
 
 Placeholder: `<pilot_db>` là DB lịch sử (HistoryDB), `<viewer_role>` là role của service viewer, `<maker_role>` là role maker của fixture/ghi sổ, `<normal_login>` là login thường của người dùng.
 
@@ -15,9 +15,8 @@ Viewer bản mới đọc **năm view** trong `<pilot_db>` qua `HistoryDB`:
 
 Cùng với `CONNECT` trên `<pilot_db>` và `USAGE` trên schema `pilot`.
 
-- **Bằng chứng đã có (T07):** viewer live thiếu `SELECT` trên ba view M1 summary. Thiếu chúng thì `exception_summary` và `customer_reconciliations` lỗi, `/health` trả 503 và `/exceptions` hiện "Chưa kiểm được ngoại lệ nguồn".
-- **Chưa có bằng chứng live:** hai view `web_*`, `CONNECT` và `USAGE`. Bản viewer live (13/10) không đọc DB `pilot` nào, nên role live có thể thiếu cả những quyền này; nếu thiếu thì `/health` vẫn có thể 200 trong khi mọi trang khách báo "Chưa kiểm được". File `pg_web_views.sql` trong repo có sẵn các `GRANT` này cho role của fixture, nhưng **chưa kiểm được** trạng thái live đã áp dụng hay chưa. Vì vậy đề xuất cấp đủ năm view; `GRANT` lặp lại vô hại.
-- **Login thường đang là thành viên role maker (phát hiện M1-3 của T07).** Điều này cho phép một login thường đóng vai maker, trái với D01 (tách người nhập và người duyệt) và với việc định danh phải đến từ session phía server. Cần thu hồi membership đó trước khi có đường ghi tiền.
+- **Bằng chứng trước áp dụng (T07):** viewer live thiếu `SELECT` trên ba view M1 summary; login thường là thành viên role maker.
+- **Kết quả sau áp dụng:** viewer đọc đủ năm view, giữ `CONNECT`/`USAGE`; login thường bị gỡ membership maker và các đường `EXECUTE` ghi. Không gọi hàm ghi. Chi tiết hash, output và giới hạn ở [verification](verification.md) và hồ sơ live ngoài Git.
 
 ## Thứ tự bắt buộc: cấp quyền đi trước deploy
 
@@ -25,14 +24,14 @@ Cùng với `CONNECT` trên `<pilot_db>` và `USAGE` trên schema `pilot`.
 2. Kiểm bằng tài khoản viewer: `m1_release.py preflight <goi> --check-db <pilot_db>` trả `acl.status = ok`. Preflight chạy thật `SELECT 1 FROM <view> LIMIT 0` trên từng view trong năm view và kiểm `USAGE`; kết nối được là bằng chứng `CONNECT` ([gói và rollback](m1-deploy-rollback.md)).
 3. Chỉ sau đó mới deploy gói M1.
 
-**Nếu deploy trước khi cấp quyền, `/health` trả 503.** Service vẫn chạy nhưng báo lỗi thành phần `history_exception_summary`, `history_customer_reconciliation` và `history_provenance`. Cấp quyền sau đó tự khỏi, không cần khởi động lại.
+**Nếu deploy trước khi cấp quyền, `/health` trả 503.** Service vẫn chạy nhưng báo lỗi thành phần `history_exception_summary`, `history_customer_reconciliation` và `history_provenance`. Đây là cảnh báo thiết kế trước áp dụng; lần M1 đã cấp ACL trước khi cài runtime.
 
 ## A. Cấp quyền đọc cho viewer (đề xuất)
 
 Chạy trong `<pilot_db>` bằng role sở hữu schema `pilot`. Chỉ năm view, không cấp trên bảng gốc (`pilot.raw_row`, `pilot.source_exception`, `pilot.capture`):
 
 ```sql
--- ĐỀ XUẤT, chưa chạy. Placeholder, không phải tên thật.
+-- SQL mẫu; không chạy lại chỉ từ tài liệu này. Placeholder, không phải tên thật.
 BEGIN;
 GRANT CONNECT ON DATABASE <pilot_db> TO <viewer_role>;
 GRANT USAGE ON SCHEMA pilot TO <viewer_role>;
@@ -71,7 +70,7 @@ WHERE g.rolname = '<maker_role>';
 Nếu `<normal_login>` có mặt trong kết quả:
 
 ```sql
--- ĐỀ XUẤT, chưa chạy.
+-- SQL rollback mẫu; chỉ chạy theo quyết định vận hành riêng.
 REVOKE <maker_role> FROM <normal_login>;
 ```
 
@@ -82,6 +81,6 @@ Không thu hồi của role fixture/ứng dụng hợp lệ nếu chưa có quy�
 ## Phạm vi và còn mở
 
 - Không đề xuất tạo role, đổi mật khẩu, DDL schema hay migration. Quyền ghi tiền vẫn đóng cho tới M3/M4.
-- CHƯA KIỂM CHỨNG trên PostgreSQL nào; câu SQL ở đây dựa trên cách `HistoryDB` đọc view và trên phát hiện T07. Cần chạy thử trên bản sao và đọc lại bằng các câu kiểm trước khi áp dụng.
+- Trước M1, SQL chỉ được kiểm trên PostgreSQL fixture; sau M1, hồ sơ live ghi viewer/preflight đạt trên `hao`. Không chạy lại lệnh trên production chỉ vì đọc tài liệu này.
 - Phần đọc sổ chính (`webdebit_ledger`) của viewer đang chạy live nên không nằm trong đề xuất này.
-- CÒN MỞ: tên role/DB thật, người chạy và thời điểm; bản ghi kết quả đặt ở hồ sơ riêng ngoài Git.
+- CÒN MỞ: nghiệm thu đầy đủ source links `8765`/`8766`; ACL/membership đã áp dụng, rollback vẫn cần quyết định vận hành riêng.

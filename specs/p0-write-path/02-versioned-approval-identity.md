@@ -1,6 +1,6 @@
 # P0-02 — Phê duyệt theo phiên bản và danh tính
 
-Trạng thái: **Q01/Q02 đã chốt ở mức nghiệp vụ.** Actor assertion và PostgreSQL acceptance fixture có prototype riêng; login/session thật, tích hợp viewer, migration và đường ghi thật chưa triển khai. App self-host trên máy này, chỉ truy cập qua tailnet của chủ máy; mỗi người có tài khoản app riêng, session server-side xác định actor, maker/checker là hai người khác nhau. Chi tiết kỹ thuật vẫn cần review trước khi triển khai production.
+Trạng thái: **Q01/Q02 đã chốt ở mức nghiệp vụ.** Actor assertion và PostgreSQL acceptance fixture có prototype riêng; viewer M1 read-only đã triển khai/kiểm trên `hao` tại `c439d13`, còn login/session maker-checker thật, migration và đường ghi thật chưa triển khai. App self-host trên máy này, chỉ truy cập qua tailnet của chủ máy; mỗi người có tài khoản app riêng, session server-side xác định actor, maker/checker là hai người khác nhau. Chi tiết kỹ thuật vẫn cần review trước khi triển khai production.
 
 ## Hiện trạng được xác nhận tĩnh
 
@@ -23,4 +23,4 @@ Mỗi lần submit tạo revision bất biến hoặc hash chuẩn hóa trên to
 
 Ví dụ giả: checker duyệt phiếu 100 cho kỳ 2026-01; maker đổi thành 101 trước khi post. Approval cũ không được phép ghi nội dung checker chưa duyệt.
 
-Ma trận acceptance và prototype nằm ở [thiết kế kỹ thuật](07-identity-revision-implementation.md); Q01/Q02 generic fixture baseline có 58 assertion. T3 mở rộng suite lên 84 assertion để kiểm gate charge đã chốt; kết quả và revision ghi ở [verification](../../docs/verification.md). Bằng chứng chỉ áp dụng cho helper và schema fixture. Login/session thật, session revoke, CSRF, account lifecycle, proxy/header spoofing qua HTTP, Tailscale boundary và vận hành vẫn cần triển khai/kiểm riêng. Không dùng fixture làm nghiệm thu quyền người thật hoặc đường ghi production.
+Ma trận acceptance và prototype nằm ở [thiết kế kỹ thuật](07-identity-revision-implementation.md); Q01/Q02 generic fixture baseline có 58 assertion. T3 mở rộng suite lên 84 assertion để kiểm gate charge đã chốt; kết quả và revision ghi ở [verification](../../docs/verification.md). Bằng chứng fixture chỉ áp dụng cho helper/schema; M1 live chỉ chứng minh viewer read-only, ACL, relay và dữ liệu quan sát đúng hồ sơ, không chứng minh actor app. Login/session thật, session revoke, CSRF, account lifecycle, proxy/header spoofing qua HTTP, Tailscale boundary cho app giao dịch và vận hành vẫn cần triển khai/kiểm riêng. Không dùng fixture hoặc viewer deployment làm nghiệm thu đường ghi production.

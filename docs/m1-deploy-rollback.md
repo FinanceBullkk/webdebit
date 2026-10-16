@@ -70,4 +70,4 @@ Hai điểm cần biết:
 
 ## Giới hạn
 
-ĐÃ KIỂM CHỨNG: build/preflight bằng repo tạm và dữ liệu giả (`tests/test_m1_release.py`); các câu kiểm ACL chỉ chứa `SELECT` (có test). CHƯA KIỂM CHỨNG: chạy với PostgreSQL, role hoặc máy thật; quy trình cài và khởi động lại thật; tương thích với bản đang chạy ngoài ba file này. CÒN MỞ: hồ sơ riêng ngoài Git cho tên service, đường dẫn cài và thông tin kết nối.
+ĐÃ KIỂM CHỨNG: build/preflight bằng repo tạm và dữ liệu giả (`tests/test_m1_release.py`), sau đó triển khai live tại commit `c439d13c2794e7bda5f8567816bf80db8396f931`; hồ sơ runtime/ACL/health/browser nằm ngoài Git ở `D:\webdebit\verification\m1-predeploy-2026-10-16\DEPLOYMENT.md`. CÒN MỞ: nghiệm thu đầy đủ liên kết nguồn/lịch sử vì một số link còn trỏ `127.0.0.1:8765` trong khi relay đã giới hạn ở `8766`; rollback mã không hoàn tác ACL.
