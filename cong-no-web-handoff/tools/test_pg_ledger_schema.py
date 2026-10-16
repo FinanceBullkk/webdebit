@@ -320,6 +320,14 @@ def main() -> int:
         multi = submit("fixture-request-multi-0001", "receipt", '[{"customer":"FAKE CUSTOMER A","debt_period":"2026-01","amount_vnd":60},{"customer":"FAKE CUSTOMER B","debt_period":"2026-01","amount_vnd":40}]', 100, "FAKE-SOURCE-MULTI", user="maker_a")
         approved = psql(f"SELECT ledger.approve_entry({multi})", "checker_b")
         record("characterization", "submit_and_approve_multiline", 2, int(approved.stdout.strip()), counts=counts(multi))
+        record("balance", "opening_unchanged_with_cutover", "0|-100|-100",
+               psql("SET ROLE ledger_reader; SELECT sum(opening_vnd), sum(movement_vnd), sum(balance_vnd) "
+                    "FROM ledger.balance_as_of(DATE '2026-02-02')").stdout.strip())
+        record("volatility", "read_functions_stable",
+               {"balance_as_of":"s","cutover_as_of":"s","first_posting_date":"s","business_today":"s"},
+               json.loads(query("SELECT json_object_agg(proname, provolatile) FROM pg_proc "
+                                "WHERE pronamespace='ledger'::regnamespace AND proname IN "
+                                "('balance_as_of','cutover_as_of','first_posting_date','business_today')")))
         bad_role = psql(f"SELECT ledger.approve_entry({multi})", "maker_a", check=False)
         sqlstate = re.search(r"ERROR:\s+([0-9A-Z]{5}):", bad_role.stderr)
         record("characterization", "wrong_role_rejected", "42501", sqlstate.group(1) if sqlstate else None, sqlstate=sqlstate.group(1) if sqlstate else None, counts=counts(multi))
@@ -439,6 +447,9 @@ def main() -> int:
         cutover_row = query("SELECT row_to_json(c)::text FROM ledger.cutover c")
         psql("DELETE FROM ledger.cutover")
         missing = {"exit":1,"sqlstate":"P0001","message":"ledger cutover missing"}
+        record("missing_cutover", "balance_as_of_rejected", missing,
+               failure(psql("SET ROLE ledger_reader; SELECT * FROM ledger.balance_as_of(DATE '2026-02-02')",
+                            check=False)))
         before = proposal_count()
         record("missing_cutover", "submit_rejected", {**missing,"new_proposals":0},
                {**failure(submit_dated("fixture-request-nocut-0001", "DATE '2026-02-02'")),"new_proposals":proposal_count() - before})
@@ -453,6 +464,16 @@ def main() -> int:
         approved_today = psql(f"SELECT ledger.approve_entry({today_id})", "checker_b", check=False)
         record("missing_cutover", "restored_cutover_allows_today_approval", {"exit":0,"status":"posted"},
                {"exit":approved_today.returncode,"status":counts(today_id)["status"]}, counts=counts(today_id))
+
+        # Force the session's calendar day to differ from Vietnam's to catch current_date.
+        reversal = psql(f"SELECT set_config('TimeZone', CASE WHEN "
+                        f"(now() AT TIME ZONE 'Etc/GMT+12')::date = {vn_today} "
+                        "THEN 'Etc/GMT-14' ELSE 'Etc/GMT+12' END, false); "
+                        f"SELECT ledger.request_reversal('fixture-request-vndate-rev-0001',{original_posting},"
+                        f"{today},'FAKE-EVIDENCE','fake test reason')", "maker_a")
+        reversal_id = int(reversal.stdout.strip().splitlines()[-1])
+        record("reversal", "event_date_is_vietnam_today", "t",
+               query(f"SELECT event_date = {vn_today} FROM ledger.proposal WHERE proposal_id={reversal_id}"))
 
         report["exit_code"] = 0
     except BaseException as exc:
