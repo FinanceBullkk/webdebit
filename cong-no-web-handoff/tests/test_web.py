@@ -7,7 +7,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -103,6 +103,44 @@ class WebTest(unittest.TestCase):
         self.assertIn("Sổ PostgreSQL độc lập là sổ hiện hành", body)
         self.assertIn("http://127.0.0.1:8766/", body)
         self.assertNotIn("Google Sheet vẫn là sổ chính", body)
+
+
+class OverviewTest(unittest.TestCase):
+    def setUp(self):
+        self.db = Mock()
+        self.db.provenance.return_value = [{"baseline_date": "2099-01-02"}]
+        for method in ("coverage", "period_status_counts", "exception_counts"):
+            getattr(self.db, method).return_value = []
+        self.rows = [dict(customer=f"Khách giả {i}", db_balance_vnd=0,
+                          sheet_balance_vnd=None, result=result, old_book_delta_vnd=delta)
+                     for i, (result, delta) in enumerate((("MATCH", 1200), ("MISMATCH", -200)))]
+        self.db.customers.return_value = self.rows
+
+    def test_overview_does_not_sum_without_matching_baseline(self):
+        for provenance in ([{"baseline_date": "2099-01-01"}],
+                           [{"baseline_date": None}], self.db.provenance.return_value * 2):
+            with self.subTest(provenance=provenance):
+                self.db.provenance.return_value = provenance
+                body = app.render_overview(self.db, "", "2099-01-02")
+                self.assertNotIn(app.money(1000), body)
+                self.assertIn("Chưa có mốc đối soát khớp ngày xem nên chưa cộng chênh sổ cũ", body)
+        self.db.provenance.return_value = []
+        with self.assertRaises(app.DatabaseUnavailable):
+            app.render_overview(self.db, "", "2099-01-02")
+
+    def test_overview_sums_only_confirmed_non_null_deltas(self):
+        self.rows.extend(dict(self.rows[0], result=result, old_book_delta_vnd=delta)
+                         for result, delta in (("DUPLICATE_BASELINE", 9000), ("NO_BASELINE", 8000),
+                                               ("INVALID_BASELINE", 7000), ("NO_DB_EVENTS", 6000),
+                                               ("UNKNOWN", 5000), ("MATCH", None), ("MISMATCH", None)))
+        original = [row.copy() for row in self.rows]
+        body = app.render_overview(self.db, "", "2099-01-02")
+        self.assertIn(f"<b>{app.money(1000)}</b> chênh sổ cũ đã biết · 2 khách", body)
+        self.assertEqual(self.rows, original)
+
+    def test_overview_preserves_confirmed_total(self):
+        body = app.render_overview(self.db, "", "2099-01-02")
+        self.assertIn(f"<b>{app.money(1000)}</b> chênh sổ cũ đã biết · 2 khách", body)
 
 
 class QueryTest(unittest.TestCase):
