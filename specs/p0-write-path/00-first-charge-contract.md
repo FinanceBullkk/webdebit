@@ -4,7 +4,7 @@ Ngày chốt: 15/10/2026; cập nhật 16/10/2026 theo [OPENING-FINAL, LEGACY-A,
 
 - **Chính sách trong phạm vi dưới đây: ĐÃ CHỐT**, trừ các mục ghi ĐỀ XUẤT hoặc CÒN MỞ.
 - **Thiết kế triển khai: ĐỀ XUẤT, chưa được duyệt.** Cách lưu bảng resolution, tên trường và reason code trong fixture là ĐỀ XUẤT.
-- **Triển khai/kiểm chứng: chỉ trên fixture CI dữ liệu giả.** Fixture (PR #10, [P0-02](07-identity-revision-implementation.md)) đã cài chính sách 16/10 và được review độc lập; xem [kiểm chứng](../../docs/verification.md). Chưa có app, DB thật hay bảng nối được duyệt. Tài liệu này không hoàn tất M2 và không mở đường ghi tiền.
+- **Triển khai/kiểm chứng: chỉ trên fixture CI dữ liệu giả.** Fixture PR #10 ([P0-02](07-identity-revision-implementation.md)) đã cài chính sách 16/10 và được review độc lập; xem [kiểm chứng](../../docs/verification.md). Chưa có app giao dịch, DB production hay bảng nối được duyệt. Tài liệu này không hoàn tất M2 và không mở đường ghi tiền.
 
 ## Phạm vi
 
@@ -39,7 +39,7 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
 | Ngày xe nhập kho 14/10 trở đi nhưng không có resolution theo mã chuyến | **Chờ kiểm, ngoài số dư** | Ngày không chứng minh chuyến vắng mặt trong snapshot. |
 | Resolution là `IN_OPENING` hoặc `UNRESOLVED` | **Chờ kiểm, ngoài số dư** | Chuyến đã nằm trong opening hoặc chưa phân giải; không cộng lần nữa. |
 | Chuyến mới thiếu booking hoặc container để tạo mã | **Chờ kiểm, ngoài số dư** | Không xác định được chuyến; không dùng container/ngày/khách thay thế. |
-| Mã chuyến đã có chuyến/khoản khác (đã nhập hoặc có posting), thêm một khoản (ví dụ phí thêm) | **Chờ kiểm, ngoài số dư** | CÒN MỞ: chặn trùng theo chuyến hay theo chuyến + loại phí; không tự kết luận trùng hay khoản mới. |
+| Mã chuyến đã có chuyến/khoản khác (đã nhập hoặc có posting), thêm một khoản (ví dụ phí thêm) | **Chờ kiểm, ngoài số dư** | DUP-01: mỗi mã chuyến chỉ một charge ở v1; khoản thứ hai, kể cả phí bổ sung, chờ chính sách riêng. |
 | Thiếu/lệch cấu phần, tổng trống/0, hoặc tổng không khớp cấu phần | **Chờ kiểm, ngoài số dư** | Giá chưa được xác nhận đầy đủ và chính xác. |
 | Tổng > 0, cấu phần khớp tổng, có một cấu phần 0đ | **Cảnh báo; vẫn được xác nhận giá** | PRICE-ZERO. Các điều kiện khác vẫn áp dụng. |
 | Maker tự xác nhận giá chuyến mình nhập; checker khác duyệt | **Đủ điều kiện theo hợp đồng** | PRICE-MAKER; maker ≠ checker. |
@@ -49,9 +49,9 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
 
 ## Còn mở trước triển khai
 
-- Chủ nghiệp vụ duyệt bảng nối opening ↔ mã chuyến, gồm quy tắc chọn booking theo ngày khi một container có nhiều booking, và cách duyệt (ai, chứng cứ gì). Cho đến khi duyệt, không có charge nào đủ điều kiện ngoài fixture dữ liệu giả.
+- Cách duyệt bảng nối opening ↔ mã chuyến đã chốt ở [JOIN-01](../../docs/decisions.md) (gợi ý khi đúng một ứng viên, chủ nghiệp vụ duyệt từng dòng, chứng cứ tối thiểu, thu hồi chặn ngay). Còn mở ngưỡng ngày cụ thể. Cho đến khi có dòng nối được duyệt, không có charge nào đủ điều kiện ngoài fixture dữ liệu giả.
 - Dấu "/" trong ô booking: ĐỀ XUẤT coi là thiếu booking (CHỜ KIỂM); chưa chốt.
-- Chặn trùng theo chuyến hay theo chuyến + loại phí khi một chuyến có nhiều khoản; xử lý booking bị sửa sau khi ghi; định dạng lưu mã (ĐỀ XUẤT: `trip_key` do DB tính từ booking + container thô, chưa chốt).
+- Chặn trùng đã chốt theo chuyến ([DUP-01](../../docs/decisions.md)); chính sách phí bổ sung CÒN MỞ. Xử lý booking bị sửa sau khi ghi; định dạng lưu mã (ĐỀ XUẤT: `trip_key` do DB tính từ booking + container thô, chưa chốt).
 - Nhãn hiển thị "chuyến cũ, không truy vết được" và cách app báo chuyến trước 14/10 bị từ chối.
 - Danh sách cấu phần và giá được duyệt riêng cho từng chuyến; không dùng danh mục/công thức chung. Fixture đề xuất lưu danh sách trong revision và attestation bất biến theo revision/hash; đây chưa là thiết kế production được duyệt.
 - Cách kiểm chứng nguồn, tham chiếu opening, account/role chủ nghiệp vụ và trạng thái CHỜ KIỂM trong app.
@@ -59,4 +59,4 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
 
 ## Cách kiểm và giới hạn
 
-Review tài liệu theo từng điều kiện và ma trận trên; xác nhận mọi nhánh chờ kiểm ở ngoài số dư, chuyến cũ nằm trong opening (không bị đẩy ra), và phân biệt xác nhận kỳ/giá với checker approval. Fixture PostgreSQL chạy trong CI với dữ liệu giả; nó không chứng minh mã chuyến, nguồn hoặc opening thật. Tại `0e1330b` fixture chưa cài đúng hợp đồng cập nhật này (còn dùng `trip_code` mờ đục, resolver cố định chặn mọi charge, chặn cấu phần 0đ, xác nhận giá bằng vai trò riêng); việc sửa fixture theo SIMPLIFY thuộc PR code riêng và chưa chạy. Không có kiểm app, DB, Sheet hoặc nghiệp vụ live.
+Review tài liệu theo từng điều kiện và ma trận trên; xác nhận mọi nhánh chờ kiểm ở ngoài số dư, chuyến cũ nằm trong opening (không bị đẩy ra), và phân biệt xác nhận kỳ/giá với checker approval. Fixture PostgreSQL chạy trong CI với dữ liệu giả; nó không chứng minh mã chuyến, nguồn hoặc opening thật. Bản `0e1330b` là fixture cũ; PR #10 đã sửa theo SIMPLIFY và được kiểm riêng tại head `a15c7bf` ([38808180498](https://github.com/FinanceBullkk/webdebit/actions/runs/38808180498)). Không có kiểm app giao dịch, DB production, Sheet hoặc nghiệp vụ live.
