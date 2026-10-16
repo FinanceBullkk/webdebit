@@ -16,6 +16,7 @@ Theo `docs/business-rules.md` và `docs/decisions.md` tại revision trên: số
 
 ## Tài liệu con
 
+- [T1 — Hợp đồng nghiệp vụ cho charge chuyến đầu tiên](00-first-charge-contract.md)
 - [P0-01 Ghi sổ nguyên tử](01-atomic-posting.md)
 - [P0-02 Phê duyệt theo phiên bản và danh tính](02-versioned-approval-identity.md)
 - [P0-03 Phân bổ đồng thời](03-concurrent-allocation.md)

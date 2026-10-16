@@ -4,6 +4,8 @@ Repository phát triển chung cho dev và AI của sổ công nợ phải thu H
 
 Đọc [hướng dẫn](AGENTS.md), [hồ sơ nghiệp vụ](docs/README.md), [quyết định](docs/decisions.md), [quy trình phát triển](docs/development.md). Bản cơ sở `69a84a41382217265f745c1c9ae87cba9e557c16` là bản xuất mã có chọn lọc, không phải bản sao đầy đủ workspace hay runtime.
 
+Theo dõi mốc và việc còn chặn tại [roadmap](docs/roadmap.md).
+
 ## Cài và kiểm trên máy mới
 
 Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Python cần gói dữ liệu múi giờ `tzdata` đã khóa phiên bản/hash, đặc biệt trên Windows; không cần PostgreSQL. Từ gốc repository trên Windows:
