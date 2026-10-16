@@ -66,11 +66,24 @@ AUTO = object()
 TRIP_WS = re.compile("[\\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]")
 
 
-def trip_key(booking: str | None, container: str | None) -> str:
-    """Mirror of p0_fixture.compute_trip_key; '' stands for NULL (booking or container blank)."""
-    b = TRIP_WS.sub("", booking or "").upper()
+ALT_PREFIX = "NOBK:"  # ALT-KEY-01 prefix, ĐỀ XUẤT
+
+
+def booking_missing(booking: str | None) -> bool:
+    """Mirror of p0_fixture.booking_is_missing: no ASCII digit and no cased letter after whitespace removal."""
+    b = TRIP_WS.sub("", booking or "")
+    return not (re.search("[0-9]", b) or b.upper() != b.lower())
+
+
+def trip_key(booking: str | None, container: str | None, warehouse: str = "2026-10-14") -> str:
+    """Mirror of p0_fixture.compute_trip_key; '' stands for NULL (container blank).
+    A missing booking with a container gives the ALT-KEY-01 key."""
     c = TRIP_WS.sub("", container or "").upper()
-    return b + c if b and c else ""
+    if not c:
+        return ""
+    if booking_missing(booking):
+        return f"{ALT_PREFIX}{c}:{warehouse.replace('-', '')}"
+    return TRIP_WS.sub("", booking or "").upper() + c
 
 
 def charge_payload(booking: str | None, container: str | None, *, customer: str, amount: int = 100,
@@ -254,7 +267,9 @@ class Suite:
         self.f.psql("INSERT INTO p0_fixture.trip_opening_resolution"
                     "(trip_key, status, evidence_ref, approved_by) VALUES "
                     f"({sql_literal(key)}, {sql_literal(status)}, 'fixture-evidence-only', 'fixture-owner') "
-                    "ON CONFLICT (trip_key) DO UPDATE SET status = EXCLUDED.status")
+                    "ON CONFLICT (trip_key) DO UPDATE SET status = EXCLUDED.status, decided_by = 'owner', "
+                    "evidence_ref = EXCLUDED.evidence_ref, approved_by = EXCLUDED.approved_by, "
+                    "approved_at = EXCLUDED.approved_at")
 
     def set_resolution(self, key: str, status: str) -> None:
         self.f.psql(f"UPDATE p0_fixture.trip_opening_resolution SET status={sql_literal(status)} "
@@ -288,7 +303,7 @@ class Suite:
         payload = charge_payload(booking, container, customer=customer, amount=amount,  # type: ignore[arg-type]
                                  period=period, warehouse=warehouse, drop=drop, **overrides)
         created = json.loads(self.submit_raw(dumps(payload), actor=maker).stdout.strip())
-        key = trip_key(booking, container)  # type: ignore[arg-type]
+        key = trip_key(booking, container, warehouse)  # type: ignore[arg-type]
         if seed is not None and key:
             self.seed(key, seed)
         return Charge(int(created["proposal_id"]), int(created["revision_id"]),
@@ -489,11 +504,22 @@ class Suite:
                     "|| '|' || (SELECT count(*) FROM information_schema.columns WHERE table_schema='p0_fixture' "
                     "AND table_name='audit' AND column_name IN ('app_actor_id','app_session_id','database_session_user'))"))
         self.case("opening_resolution_table_is_empty_by_default", 0, self.count("trip_opening_resolution"))
+        self.case("opening_and_booking_references_are_empty_by_default", (0, 0, 0), (
+            self.count("opening_reference_set"), self.count("opening_reference_trip"),
+            self.count("booking_reference")))
+        self.case("trip_date_window_is_3_days", "3", q("SELECT p0_fixture.trip_date_window_days()::text"))
+        self.case("api_role_executes_exactly_the_business_functions",
+                  "approve_revision,confirm_period_revision,confirm_price_revision,post_revision,"
+                  "set_presentation_title,submit_revision,suggest_booking",
+                  q("SELECT string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='p0_fixture' "
+                    "AND has_function_privilege('p0_fixture_api', p.oid, 'EXECUTE')"))
         self.case("period_seed_states", "closed|open|open|open", q(
             "SELECT string_agg(state, '|' ORDER BY debt_period) FROM p0_fixture.debt_period_state"))
         denied = {}
         for table in ("proposal", "business_revision", "posting", "audit", "trip_opening_resolution",
-                      "app_actor", "posted_balance"):
+                      "app_actor", "posted_balance", "opening_reference_set", "opening_reference_trip",
+                      "booking_reference"):
             result = self.f.psql(f"SELECT count(*) FROM p0_fixture.{table}", user=API_LOGIN, check=False)
             denied[table] = result.returncode != 0 and "permission denied" in result.stderr
         self.case("api_login_cannot_read_any_fixture_table", {k: True for k in denied}, denied)
@@ -505,6 +531,10 @@ class Suite:
             "INSERT INTO p0_fixture.trip_opening_resolution(trip_key, status, evidence_ref, approved_by) "
             "VALUES ('API1', 'ABSENT_FROM_OPENING_APPROVED', 'x', 'x')", user=API_LOGIN, check=False)
         self.rejected("api_login_cannot_write_opening_resolution", resolution_write, "permission denied")
+        reference_write = self.f.psql(
+            "INSERT INTO p0_fixture.opening_reference_set(set_version, source_sha256, snapshot_at, active) "
+            f"VALUES ('api', {sql_literal('a' * 64)}, now(), true)", user=API_LOGIN, check=False)
+        self.rejected("api_login_cannot_write_opening_reference", reference_write, "permission denied")
         helper = self.f.psql(f"SELECT p0_fixture.require_actor('{MAKER}'::uuid, '{uuid.uuid4()}'::uuid, 'maker')",
                              user=API_LOGIN, check=False)
         self.rejected("api_login_cannot_call_require_actor_directly", helper, "permission denied")
@@ -654,8 +684,8 @@ class Suite:
     def g_trip_key(self) -> None:
         customer = "FAKE-CUSTOMER-TRIP"
         self.case("compute_trip_key_removes_all_whitespace_and_uppercases", ["ABC123CONT9"] * 2, [
-            self.query("SELECT p0_fixture.compute_trip_key(' abc 123 ', E'cont\\t9')"),
-            self.query("SELECT p0_fixture.compute_trip_key('ABC123', 'CONT9')")])
+            self.query("SELECT p0_fixture.compute_trip_key(' abc 123 ', E'cont\\t9', DATE '2026-10-14')"),
+            self.query("SELECT p0_fixture.compute_trip_key('ABC123', 'CONT9', DATE '2026-10-14')")])
         spaced = self.charge(customer=customer, booking=" abc 123 ", container="cont 9", seed=None)
         self.case("spaced_payload_stores_normalized_key", ("ABC123CONT9", [], " abc 123 "),
                   (self.current_view(spaced)["payload"]["trip_key"], self.current_view(spaced)["submit_time_reasons"],
@@ -694,38 +724,40 @@ class Suite:
             keys[label] = self.current_view(c)["payload"]["trip_key"]
         self.case("unicode_whitespace_is_removed_from_trip_key", {k: plain_key for k in unicode_cases}, keys)
         only_unicode = self.charge(customer=customer, booking="\u00a0\u200b", container="CTR1", seed=None)
-        self.case("booking_made_only_of_unicode_whitespace_is_missing", True,
-                  "TRIP_KEY_MISSING" in self.current_view(only_unicode)["submit_time_reasons"])
+        self.case("booking_made_only_of_unicode_whitespace_uses_alternative_key",
+                  (f"{ALT_PREFIX}CTR1:20261014", ["ALT_TRIP_KEY_WARNING"]),
+                  (self.current_view(only_unicode)["payload"]["trip_key"],
+                   self.current_view(only_unicode)["submit_time_reasons"]))
 
-        missing_variants = {
-            "null_booking": (None, "C1"), "empty_booking": ("", "C1"), "blank_booking": ("   ", "C1"),
-            "null_container": ("B1", None), "tab_container": ("B1", " \t "),
+        # ALT-KEY-01: blank or symbol-only booking -> alternative key; blank container -> TRIP_KEY_MISSING.
+        alt_variants = {
+            "null_booking": (None, "C1"), "empty_booking": ("", "C2"), "blank_booking": ("   ", "C3"),
+            "slash": ("/", "C4"), "spaced_slash": (" / ", "C5"), "dash_dot": ("-.", "C6"),
         }
+        for label, (booking, container) in alt_variants.items():
+            c = self.charge(customer=customer, booking=booking, container=container, seed=None)
+            view = self.current_view(c)
+            self.case(f"{label}_uses_alternative_trip_key",
+                      (f"{ALT_PREFIX}{container}:20261014", ["ALT_TRIP_KEY_WARNING"], booking),
+                      (view["payload"]["trip_key"], view["submit_time_reasons"], view["payload"]["booking_no"]))
+        missing_variants = {"null_container": ("B1", None), "tab_container": ("B1", " \t "),
+                            "slash_and_blank_container": ("/", "")}
         for label, (booking, container) in missing_variants.items():
             c = self.charge(customer=customer, booking=booking, container=container, seed=None)
             self.confirm_both(c)
             view = self.current_view(c)
             self.case(f"{label}_is_trip_key_missing_and_stored_null",
-                      (True, None), ("TRIP_KEY_MISSING" in view["submit_time_reasons"], view["payload"]["trip_key"]))
-            self.rejected(f"{label}_approval_refused", self.approve(c), "trip key missing or placeholder")
+                      (["TRIP_KEY_MISSING"], None), (view["submit_time_reasons"], view["payload"]["trip_key"]))
+            self.rejected(f"{label}_approval_refused", self.approve(c), "trip key missing")
         omitted = self.charge(customer=customer, booking=None, container=None, seed=None,
                               drop=("booking_no", "container_no"))
         self.case("omitted_booking_and_container_are_trip_key_missing", True,
                   "TRIP_KEY_MISSING" in self.current_view(omitted)["submit_time_reasons"])
         number_booking = self.submit_raw(dumps(charge_payload(123, "C1", customer=customer)), check=False)
         self.rejected("non_string_booking_is_rejected", number_booking, "invalid fixture optional field")
-
-        for label, booking, container in (("slash", "/", "PH1"), ("spaced_slash", " / ", "PH2")):
-            c = self.charge(customer=customer, booking=booking, container=container, seed=ABSENT)
-            self.confirm_both(c)
-            codes = self.current_view(c)["submit_time_reasons"]
-            self.case(f"{label}_booking_is_placeholder_not_missing", (True, False),
-                      ("BOOKING_PLACEHOLDER" in codes, "TRIP_KEY_MISSING" in codes))
-            self.rejected(f"{label}_booking_blocks_approval_even_with_resolution", self.approve(c),
-                          "trip key missing or placeholder")
-        both = self.charge(customer=customer, booking="/", container="", seed=None)
-        self.case("slash_with_blank_container_has_both_codes", ["BOOKING_PLACEHOLDER", "TRIP_KEY_MISSING"],
-                  self.current_view(both)["submit_time_reasons"])
+        prefix_booking = self.submit_raw(dumps(charge_payload("nobk:", "C1", customer=customer)), check=False)
+        self.rejected("real_booking_cannot_use_the_alternative_prefix", prefix_booking,
+                      "alternative trip key prefix")
 
         first = self.charge(customer=customer, amount=120)
         second = self.charge(customer=customer, amount=130, booking=first.payload["booking_no"],  # type: ignore[arg-type]
@@ -751,6 +783,263 @@ class Suite:
                         proposal_id=second.proposal_id)
         self.case("changing_key_clears_the_live_duplicate_blocker", False,
                   "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"])
+
+    # ---- NEWTRIP-01 / ALT-KEY-01 / JOIN-01 window (17/10/2026) ------------------------------
+    def resolution_view(self, c: Charge) -> dict[str, object] | None:
+        return self.current_view(c)["opening_resolution"]  # type: ignore[return-value]
+
+    def activate_reference(self, version: str, rows: list[tuple[str | None, str | None, str | None]]) -> None:
+        values = ", ".join(
+            f"({sql_literal(version)}, {n}, {'NULL' if k is None else sql_literal(k)}, "
+            f"{'NULL' if ct is None else sql_literal(ct)}, {'NULL' if d is None else sql_literal(d) + '::date'})"
+            for n, (k, ct, d) in enumerate(rows, start=1))
+        self.f.psql("INSERT INTO p0_fixture.opening_reference_set(set_version, source_sha256, snapshot_at, active) "
+                    f"VALUES ({sql_literal(version)}, {sql_literal('c' * 64)}, '2026-10-13 16:44+07', true); "
+                    "INSERT INTO p0_fixture.opening_reference_trip(set_version, ref_row_no, trip_key, container_no, "
+                    f"trip_date) VALUES {values}")
+
+    def deactivate_reference(self) -> None:
+        self.f.psql("UPDATE p0_fixture.opening_reference_set SET active = false WHERE active")
+
+    def g_newtrip(self) -> None:
+        customer = "FAKE-CUSTOMER-NEWTRIP"
+        version = "fixture-opening-ref-v1"
+        no_set = self.charge(customer=customer, booking="NOSET1", container="FAR4", seed=None)
+        self.case("without_active_reference_set_nothing_is_decided_automatically", (None, True), (
+            self.resolution_view(no_set), "OPENING_RESOLUTION_MISSING" in self.current_view(no_set)["current_blockers"]))
+        # Fake historical rows (trip_key, container, ngày xe nhập kho of the old line).
+        self.activate_reference(version, [
+            ("HISTBK1HSTU1000001", "HSTU1000001", "2026-10-10"),
+            (None, "NEAR3", "2026-10-11"),
+            (None, "FAR4", "2026-10-10"),
+            (None, "AFTER3", "2026-10-20"),
+            (None, "AFTER4", "2026-10-21"),
+            (None, "NODATE1", None),
+        ])
+        try:
+            self._newtrip_cases(customer, version)
+            self._alt_key_cases(version)
+        finally:
+            self.deactivate_reference()
+        self.case("reference_set_can_be_deactivated_and_then_decides_nothing", None, self.resolution_view(
+            self.charge(customer=customer, booking="AFTEROFF", container="FAR4", seed=None)))
+
+    def _newtrip_cases(self, customer: str, version: str) -> None:
+        auto = "tự động theo NEWTRIP-01"
+        before = self.balance(customer)
+        ok = self.charge(customer=customer, amount=1400, booking="NEWBK1", container="FAR4", seed=None)
+        res = self.resolution_view(ok) or {}
+        self.case("newtrip_no_signal_is_absent_automatically_with_reference_version_and_time",
+                  (ABSENT, "NEWTRIP-01", auto, version, [], True, True),
+                  (res.get("status"), res.get("decided_by"), res.get("decision_reason"),
+                   res.get("reference_set_version"), res.get("review_reason_codes"),
+                   bool(res.get("approved_at")), version in str(res.get("evidence_ref"))))
+        self.case("newtrip_auto_charge_still_needs_period_and_price_confirmation",
+                  ["PERIOD_CONFIRMATION_MISSING", "PRICE_CONFIRMATION_MISSING"],
+                  self.current_view(ok)["current_blockers"])
+        self.case("newtrip_auto_charge_is_outside_balance_until_posted", before, self.balance(customer))
+        self.confirm_both(ok)
+        self.rejected("newtrip_auto_charge_maker_cannot_self_approve", self.approve(ok, MAKER), M_STALE)
+        self.approve(ok, check=True)
+        self.post(ok, check=True)
+        self.case("newtrip_auto_charge_posts_exact_amount", before + 1400, self.balance(customer))
+
+        expectations = {
+            # label: (booking, container, warehouse, expected codes or [] for automatic ABSENT)
+            "trip_key_in_reference": ("HISTBK1", "HSTU1000001", "2026-10-14", ["OPENING_REF_TRIP_KEY_MATCH"]),
+            "container_3_days_after_history": ("NB3", "NEAR3", "2026-10-14", ["OPENING_REF_CONTAINER_NEAR_DATE"]),
+            "container_4_days_after_history": ("NB4", "FAR4", "2026-10-14", []),
+            "container_3_days_before_history": ("NB5", "AFTER3", "2026-10-17", ["OPENING_REF_CONTAINER_NEAR_DATE"]),
+            "container_4_days_before_history": ("NB6", "AFTER4", "2026-10-17", []),
+            "container_history_without_date": ("NB7", "NODATE1", "2026-10-20", ["OPENING_REF_CONTAINER_DATE_MISSING"]),
+            "container_matching_is_normalized": ("NB8", " near 3 ", "2026-10-14", ["OPENING_REF_CONTAINER_NEAR_DATE"]),
+        }
+        flagged: dict[str, Charge] = {}
+        for label, (booking, container, warehouse, codes) in expectations.items():
+            c = self.charge(customer=customer, booking=booking, container=container, warehouse=warehouse, seed=None)
+            res = self.resolution_view(c) or {}
+            if codes:
+                self.case(f"newtrip_{label}_is_review_needed_with_reason", ("UNRESOLVED", "NEWTRIP-01", codes, True),
+                          (res.get("status"), res.get("decided_by"), res.get("review_reason_codes"),
+                           set(codes + ["OPENING_RESOLUTION_MISSING"]) <= set(self.current_view(c)["current_blockers"])))
+                flagged[label] = c
+            else:
+                self.case(f"newtrip_{label}_is_absent_automatically", (ABSENT, "NEWTRIP-01", []),
+                          (res.get("status"), res.get("decided_by"), res.get("review_reason_codes")))
+
+        dup = flagged["trip_key_in_reference"]
+        self.confirm_both(dup)
+        state = self.snapshot(dup.proposal_id)
+        self.rejected("newtrip_flagged_charge_cannot_be_approved", self.approve(dup), M_RES_APPROVAL)
+        self.case("newtrip_flagged_refusal_records_nothing_and_keeps_balance", (state, before + 1400),
+                  (self.snapshot(dup.proposal_id), self.balance(customer)))
+        status_only = self.f.psql("UPDATE p0_fixture.trip_opening_resolution SET status = "
+                                  f"{sql_literal(ABSENT)} WHERE trip_key = {sql_literal(dup.key)}", check=False)
+        self.rejected("newtrip_flag_cannot_be_cleared_without_owner_decision", status_only,
+                      "violates check constraint")
+        self.f.psql("UPDATE p0_fixture.trip_opening_resolution SET status = 'IN_OPENING', decided_by = 'owner', "
+                    "decision_reason = 'fixture owner: same trip as history', approved_by = 'fixture-owner' "
+                    f"WHERE trip_key = {sql_literal(dup.key)}")
+        self.rejected("newtrip_owner_in_opening_keeps_charge_blocked", self.approve(dup), M_RES_APPROVAL)
+
+        near = flagged["container_3_days_after_history"]
+        self.confirm_both(near)
+        self.f.psql("UPDATE p0_fixture.trip_opening_resolution SET status = "
+                    f"{sql_literal(ABSENT)}, decided_by = 'owner', decision_reason = 'fixture owner: different trip', "
+                    f"approved_by = 'fixture-owner' WHERE trip_key = {sql_literal(near.key)}")
+        view = self.current_view(near)
+        self.case("newtrip_owner_absent_clears_blockers_and_keeps_signal_history",
+                  ([], ["OPENING_REF_CONTAINER_NEAR_DATE"], "owner"),
+                  (view["current_blockers"], view["opening_resolution"]["review_reason_codes"],  # type: ignore[index]
+                   view["opening_resolution"]["decided_by"]))  # type: ignore[index]
+        self.approve(near, check=True)
+        self.post(near, check=True)
+        self.case("newtrip_owner_cleared_charge_posts", before + 1400 + near.amount, self.balance(customer))
+
+        self.seed("MANUALBKFAR4", "IN_OPENING")
+        manual = self.charge(customer=customer, booking="MANUALBK", container="FAR4", seed=None)
+        self.case("newtrip_never_replaces_an_owner_decision", ("IN_OPENING", "owner"), (
+            (self.resolution_view(manual) or {}).get("status"), (self.resolution_view(manual) or {}).get("decided_by")))
+        first_at = self.query("SELECT approved_at::text FROM p0_fixture.trip_opening_resolution "
+                              f"WHERE trip_key = {sql_literal(ok.key)}")
+        again = self.charge(customer=customer, booking="NEWBK1", container="FAR4", seed=None)
+        self.confirm_both(again)
+        self.case("newtrip_same_key_keeps_the_first_automatic_decision", (first_at, 1, True), (
+            self.query("SELECT approved_at::text FROM p0_fixture.trip_opening_resolution "
+                       f"WHERE trip_key = {sql_literal(ok.key)}"),
+            self.count("trip_opening_resolution", f"trip_key = {sql_literal(ok.key)}"),
+            "DUPLICATE_TRIP_KEY" in self.current_view(again)["current_blockers"]))
+        self.rejected("newtrip_auto_absent_does_not_bypass_dup_01", self.approve(again),
+                      "trip key already approved or posted by another proposal")
+
+        append_only = {
+            "trip_row_update": self.f.psql("UPDATE p0_fixture.opening_reference_trip SET trip_date = trip_date + 1",
+                                           check=False),
+            "trip_row_delete": self.f.psql("DELETE FROM p0_fixture.opening_reference_trip", check=False),
+            "set_hash_update": self.f.psql("UPDATE p0_fixture.opening_reference_set SET source_sha256 = "
+                                           f"{sql_literal('d' * 64)}", check=False),
+            "set_delete": self.f.psql("DELETE FROM p0_fixture.opening_reference_set", check=False),
+        }
+        self.case("opening_reference_is_append_only_except_active_flag", {k: True for k in append_only}, {
+            k: r.returncode != 0 and "append-only fixture row" in r.stderr for k, r in append_only.items()})
+        second_active = self.f.psql(
+            "INSERT INTO p0_fixture.opening_reference_set(set_version, source_sha256, snapshot_at, active) "
+            f"VALUES ('fixture-opening-ref-v2', {sql_literal('e' * 64)}, now(), true)", check=False)
+        self.rejected("only_one_reference_set_can_be_active", second_active, "duplicate key value")
+
+    def _alt_key_cases(self, version: str) -> None:
+        customer = "FAKE-CUSTOMER-ALTKEY"
+        before = self.balance(customer)
+
+        def alt(container: str, warehouse: str = "2026-10-14", booking: str | None = "/", **kw: object) -> Charge:
+            return self.charge(customer=customer, booking=booking, container=container, warehouse=warehouse,
+                               seed=None, **kw)
+
+        def res_of(c: Charge) -> tuple[object, object]:
+            res = self.resolution_view(c) or {}
+            return res.get("status"), res.get("review_reason_codes")
+
+        first = alt(" altu 0000001 ", amount=800)
+        self.case("alt_key_is_prefix_container_and_warehouse_date",
+                  ("NOBK:ALTU0000001:20261014", ["ALT_TRIP_KEY_WARNING"], (ABSENT, [])),
+                  (self.current_view(first)["payload"]["trip_key"], self.current_view(first)["warnings"],
+                   res_of(first)))
+        self.run_to_posted(first)
+        self.case("alt_key_charge_posts_exact_amount", before + 800, self.balance(customer))
+        second = alt("ALTU0000001", booking="", amount=900)
+        self.confirm_both(second)
+        self.case("alt_key_same_container_and_date_is_the_same_key", (first.key, True),
+                  (second.key, "DUPLICATE_TRIP_KEY" in self.current_view(second)["current_blockers"]))
+        self.rejected("alt_key_duplicate_is_refused_by_dup_01", self.approve(second),
+                      "trip key already approved or posted by another proposal")
+        self.case("alt_key_duplicate_keeps_balance_and_single_posting", (before + 800, 1), (
+            self.balance(customer), self.count("posting", f"trip_key = {sql_literal(first.key)}")))
+
+        bad = alt("BAD1")
+        self.case("alt_key_with_malformed_container_is_review_needed",
+                  ("UNRESOLVED", ["ALT_KEY_CONTAINER_FORMAT_INVALID"]), res_of(bad))
+        self.confirm_both(bad)
+        self.rejected("alt_key_malformed_container_cannot_be_approved", self.approve(bad), M_RES_APPROVAL)
+
+        real = self.charge(customer=customer, booking="RBK2", container="ALTU0000002", seed=None)
+        near = alt("ALTU0000002", warehouse="2026-10-17")
+        self.case("alt_key_3_days_from_real_booking_same_container_is_review_needed",
+                  ((ABSENT, []), ("UNRESOLVED", ["ALT_KEY_CONTAINER_NEAR_OTHER_KEY"])), (res_of(real), res_of(near)))
+        self.charge(customer=customer, booking="RBK3", container="ALTU0000003", seed=None)
+        far = alt("ALTU0000003", warehouse="2026-10-18")
+        self.case("alt_key_4_days_from_real_booking_same_container_is_absent", (ABSENT, []), res_of(far))
+        early_alt = alt("ALTU0000004")
+        later_real = self.charge(customer=customer, booking="RBK4", container="ALTU0000004",
+                                 warehouse="2026-10-16", seed=None)
+        self.case("real_booking_near_an_existing_alt_key_is_review_needed",
+                  ((ABSENT, []), ("UNRESOLVED", ["ALT_KEY_CONTAINER_NEAR_OTHER_KEY"])),
+                  (res_of(early_alt), res_of(later_real)))
+        a = alt("ALTU0000005")
+        b = alt("ALTU0000005", warehouse="2026-10-16")
+        self.case("two_alt_keys_same_container_within_window_flag_the_second",
+                  ((ABSENT, []), ("UNRESOLVED", ["ALT_KEY_CONTAINER_NEAR_OTHER_KEY"])), (res_of(a), res_of(b)))
+        r1 = self.charge(customer=customer, booking="RBK6A", container="MULU0000006", seed=None)
+        r2 = self.charge(customer=customer, booking="RBK6B", container="MULU0000006", warehouse="2026-10-15", seed=None)
+        self.case("two_real_bookings_same_container_are_not_flagged", ((ABSENT, []), (ABSENT, [])),
+                  (res_of(r1), res_of(r2)))
+        own = alt("ALTU0000007")
+        moved = {**own.payload, "warehouse_in_date": "2026-10-15"}
+        self.submit_raw(dumps(moved), proposal_id=own.proposal_id)
+        self.case("editing_own_alt_key_date_is_not_flagged_against_itself",
+                  ("NOBK:ALTU0000007:20261015", ABSENT, []),
+                  (self.current_view(own)["payload"]["trip_key"], *res_of(own)))
+        hist = alt("NEAR3")
+        self.case("alt_key_is_also_checked_against_the_opening_reference",
+                  ("UNRESOLVED", ["ALT_KEY_CONTAINER_FORMAT_INVALID", "ALT_KEY_CONTAINER_NEAR_OTHER_KEY",
+                                  "OPENING_REF_CONTAINER_NEAR_DATE"]),
+                  res_of(hist))
+
+    def suggest(self, container: str | None, warehouse: str | None, actor: uuid.UUID = MAKER) -> dict[str, object]:
+        result = self.f.psql(
+            f"SELECT p0_fixture.suggest_booking({'NULL' if container is None else sql_literal(container)}, "
+            f"{'NULL' if warehouse is None else sql_literal(warehouse)}, '{actor}'::uuid, "
+            f"'{uuid.uuid4()}'::uuid)::text", user=API_LOGIN, check=False)
+        if result.returncode != 0:
+            return {"error": result.stderr.strip()}
+        return json.loads(result.stdout.strip())
+
+    def g_booking_suggestion(self) -> None:
+        self.f.psql("INSERT INTO p0_fixture.booking_reference(booking_no, container_no, booking_close_date) VALUES "
+                    "('SB1', 'SUGU0000001', '2026-10-11'), ('SB2', 'SUGU0000002', '2026-10-10'), "
+                    "('SB3A', 'SUGU0000003', '2026-10-13'), ('SB3B', 'SUGU0000003', '2026-10-16'), "
+                    "('SB4', 'SUGU0000004', NULL), ('SB5', 'SUGU0000005', '2026-10-17'), "
+                    "('SB6', 'SUGU0000006', '2026-10-18'), "
+                    "('SB7A', 'SUGU0000007', '2026-10-14'), ('SB7B', 'SUGU0000007', '2026-09-01')")
+        got = {
+            "3_days_before": self.suggest("SUGU0000001", "2026-10-14"),
+            "4_days_before": self.suggest("SUGU0000002", "2026-10-14"),
+            "two_in_window": self.suggest("SUGU0000003", "2026-10-14"),
+            "booking_date_missing": self.suggest("SUGU0000004", "2026-10-14"),
+            "3_days_after": self.suggest("SUGU0000005", "2026-10-14"),
+            "4_days_after": self.suggest("SUGU0000006", "2026-10-14"),
+            "one_in_one_out": self.suggest("SUGU0000007", "2026-10-14"),
+            "normalized_container": self.suggest(" sugu 0000001 ", "2026-10-14"),
+            "trip_date_missing": self.suggest("SUGU0000001", None),
+            "container_missing": self.suggest(" ", "2026-10-14"),
+            "unknown_container": self.suggest("SUGU0000099", "2026-10-14"),
+        }
+        sugg = lambda b: {"status": "SUGGESTED", "booking_no": b, "window_days": 3}  # noqa: E731
+        review = lambda code, n=None: {"status": "REVIEW_NEEDED", "reason_code": code, "window_days": 3,  # noqa: E731
+                                       **({} if n is None else {"candidate_count": n})}
+        self.case("booking_suggestion_window_is_3_days_both_ways", {
+            "3_days_before": sugg("SB1"), "4_days_before": review("BOOKING_SUGGESTION_NONE", 0),
+            "two_in_window": review("BOOKING_SUGGESTION_MULTIPLE", 2),
+            "booking_date_missing": review("BOOKING_SUGGESTION_DATE_MISSING"),
+            "3_days_after": sugg("SB5"), "4_days_after": review("BOOKING_SUGGESTION_NONE", 0),
+            "one_in_one_out": sugg("SB7A"), "normalized_container": sugg("SB1"),
+            "trip_date_missing": review("BOOKING_SUGGESTION_DATE_MISSING"),
+            "container_missing": review("BOOKING_SUGGESTION_CONTAINER_MISSING"),
+            "unknown_container": review("BOOKING_SUGGESTION_NONE", 0),
+        }, got)
+        self.case("booking_suggestion_requires_maker_role", True,
+                  "actor role required" in str(self.suggest("SUGU0000001", "2026-10-14", CHECKER).get("error")))
+        immutable = self.f.psql("UPDATE p0_fixture.booking_reference SET booking_close_date = NULL", check=False)
+        self.rejected("booking_reference_is_append_only", immutable, "append-only fixture row")
 
     def g_date(self) -> None:
         customer = "FAKE-CUSTOMER-DATE"
@@ -1486,6 +1775,7 @@ def main() -> int:
             "tailscale_boundary": "not_run",
             "receipt_verification_q09": "open_and_not_in_fixture",
             "production_resolution_table": "not_designed_fixture_table_is_empty_by_default",
+            "opening_reference_set": "fake_rows_in_test_only_empty_by_default",
         },
         "cleanup": "not_started",
         "exit_code": 1,
@@ -1561,6 +1851,8 @@ def main() -> int:
             ("success_path", suite.g_success),
             ("opening_resolution", suite.g_resolution),
             ("trip_key", suite.g_trip_key),
+            ("newtrip_and_alt_key", suite.g_newtrip),
+            ("booking_suggestion", suite.g_booking_suggestion),
             ("warehouse_date", suite.g_date),
             ("posting_date", suite.g_posting_date),
             ("canonical_v3", suite.g_canonical),

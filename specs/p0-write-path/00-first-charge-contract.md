@@ -49,9 +49,9 @@ Không gồm receipt/Q09, nhập muộn, đảo, login thật, API ghi, migratio
 
 ## Còn mở trước triển khai
 
-- Cách duyệt bảng nối opening ↔ mã chuyến đã chốt ở [JOIN-01](../../docs/decisions.md) (gợi ý khi đúng một ứng viên, chủ nghiệp vụ duyệt từng dòng, chứng cứ tối thiểu, thu hồi chặn ngay). Còn mở ngưỡng ngày cụ thể. Cho đến khi có dòng nối được duyệt, không có charge nào đủ điều kiện ngoài fixture dữ liệu giả.
-- Dấu "/" trong ô booking: ĐỀ XUẤT coi là thiếu booking (CHỜ KIỂM); chưa chốt.
-- Chặn trùng đã chốt theo chuyến ([DUP-01](../../docs/decisions.md)); chính sách phí bổ sung CÒN MỞ. Xử lý booking bị sửa sau khi ghi; định dạng lưu mã (ĐỀ XUẤT: `trip_key` do DB tính từ booking + container thô, chưa chốt).
+- Cách duyệt bảng nối opening ↔ mã chuyến đã chốt ở [JOIN-01](../../docs/decisions.md) (gợi ý khi đúng một ứng viên, chủ nghiệp vụ duyệt từng dòng, chứng cứ tối thiểu, thu hồi chặn ngay). Ngưỡng 3 ngày hai chiều đã chốt 17/10/2026; chuyến từ 14/10 không còn cần duyệt từng dòng nối mà theo [NEWTRIP-01](../../docs/decisions.md) (tự động khi không có dấu hiệu trùng, đã cài trong fixture P0-02). Ngoài fixture dữ liệu giả vẫn chưa có charge nào đủ điều kiện.
+- Booking trống hoặc chỉ ký hiệu ("/") dùng mã thay thế theo [ALT-KEY-01](../../docs/decisions.md) (17/10/2026); định dạng mã thay thế trong fixture P0-02 là ĐỀ XUẤT.
+- Chặn trùng đã chốt theo chuyến ([DUP-01](../../docs/decisions.md)); chính sách phí bổ sung CÒN MỞ. Booking bị sửa sau khi ghi theo BOOKING-EDIT-01 (giữ phiếu, điều chỉnh/đảo thuộc P0-05); định dạng lưu mã (ĐỀ XUẤT: `trip_key` do DB tính từ booking + container thô, chưa chốt).
 - Nhãn hiển thị "chuyến cũ, không truy vết được" và cách app báo chuyến trước 14/10 bị từ chối.
 - Danh sách cấu phần và giá được duyệt riêng cho từng chuyến; không dùng danh mục/công thức chung. Fixture đề xuất lưu danh sách trong revision và attestation bất biến theo revision/hash; đây chưa là thiết kế production được duyệt.
 - Cách kiểm chứng nguồn, tham chiếu opening, account/role chủ nghiệp vụ và trạng thái CHỜ KIỂM trong app.

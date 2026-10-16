@@ -40,6 +40,16 @@ Sau khi gộp #8–#10: head `eb32866`, [run 38810285870](https://github.com/Fin
 
 CÒN MỞ: bảng nối opening ↔ mã chuyến chưa duyệt (mọi charge thật vẫn bị chặn); M1 đã triển khai trên `hao`, forwarding lịch sử đã được duyệt/kiểm nhưng còn checklist người dùng; login thật, receipt/FIFO, đảo bút toán thuộc M3. Gộp nguồn/lịch sử qua một origin là cải tiến sau, chưa làm.
 
+## Fixture M2: NEWTRIP-01, ALT-KEY-01, ngưỡng JOIN-01 — 17/10/2026
+
+Phạm vi: **chỉ CI fixture dữ liệu giả**, không phải kiểm live. Không chạm DB, Sheet, `hao` hay dữ liệu khách; tập tham chiếu lịch sử và danh sách booking trong test là dòng giả do runner nạp. Quyết định nguồn: NEWTRIP-01, ALT-KEY-01, JOIN-01 (ngưỡng 3 ngày), BOOKING-EDIT-01 trong [decisions.md](decisions.md) (ĐÃ CHỐT 17/10/2026). Chi tiết cài đặt và phần ĐỀ XUẤT (định dạng mã thay thế `NOBK:<container>:<YYYYMMDD>`, định dạng container ISO 6346, bảng tham chiếu) ở [P0-02](../specs/p0-write-path/07-identity-revision-implementation.md).
+
+- Fixture/runner: `cong-no-web-handoff/tools/pg_versioned_approval_fixture.sql`, `test_pg_versioned_approval.py`; nhóm mới `newtrip_and_alt_key` (39 case) và `booking_suggestion` (3 case); nhóm `trip_key`, `schema_and_grants` cập nhật theo ALT-KEY-01.
+- Cục bộ (Windows, Docker, PostgreSQL 18.6 pinned digest, `--network none`): **448/448 đạt**, cleanup `verified_and_removed`. Report lưu thư mục tạm, không commit.
+- CI GitHub: ghi trong mô tả PR sau khi job `pg18-versioned-approval-fixture` chạy; không suy CI từ kết quả cục bộ.
+
+ĐÃ KIỂM CHỨNG chỉ ở mức fixture: charge từ 14/10 không có dấu hiệu trùng tự nhận `ABSENT_FROM_OPENING_APPROVED` kèm phiên bản tập tham chiếu/thời điểm và post được khi đủ kỳ, giá, maker ≠ checker; dấu hiệu trùng (mã chuyến trong lịch sử, container lệch 3 ngày hai chiều, lịch sử thiếu ngày) giữ CHỜ KIỂM, lệch 4 ngày thì không; mã thay thế chịu DUP-01; gợi ý booking 3 ngày hai chiều. CÒN MỞ: bảng resolution/tập tham chiếu production và cách nạp dữ liệu thật, UI, phiếu điều chỉnh BOOKING-EDIT-01 (P0-05). **M2 vẫn chưa đạt.**
+
 ## M1 live — triển khai và kiểm sau triển khai, 16/10/2026
 
 Hồ sơ ngoài Git tại `D:\webdebit\verification\m1-predeploy-2026-10-16\DEPLOYMENT.md` ghi triển khai đúng commit `c439d13c2794e7bda5f8567816bf80db8396f931`, tree `8c6bc5167b4871a42107d50a7553bcda858b7ade`. Đây là bằng chứng runtime/DB live đúng thời điểm, không phải fixture CI.
