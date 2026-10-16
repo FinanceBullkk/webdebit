@@ -779,6 +779,57 @@ class Suite:
         self.rejected("event_date_name_is_no_longer_accepted",
                       self.submit_raw(dumps(legacy_name), check=False), "missing or unknown business fields")
 
+    def g_posting_date(self) -> None:
+        today, tomorrow = self.query(
+            "SELECT d::text || '|' || (d + 1)::text FROM "
+            "(SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS d) x").split("|")
+        c = self.charge(customer="FAKE-CUSTOMER-POSTING-TODAY", posting_date=today)
+        self.case("posting_today_submits", today, self.current_view(c)["payload"]["posting_date"])
+        payload = dict(c.payload, posting_date=tomorrow)
+        before = self.snapshot(c.proposal_id)
+        counts = tuple(self.count(t) for t in ("proposal", "business_revision", "approval", "posting"))
+        for proposal_id in (None, c.proposal_id):
+            result = self.submit_raw(dumps(payload), proposal_id=proposal_id, check=False)
+            self.rejected(f"posting_tomorrow_submit_rejected_{proposal_id}", result,
+                          "posting date is in the future (submission)")
+            self.case(f"posting_tomorrow_submit_sqlstate_{proposal_id}", True, "P0001" in result.stderr)
+        self.case("future_submit_creates_no_rows", counts,
+                  tuple(self.count(t) for t in ("proposal", "business_revision", "approval", "posting")))
+        self.case("future_submit_preserves_proposal", before, self.snapshot(c.proposal_id))
+        self.run_to_posted(c)
+        self.case("posting_today_approves_and_posts", "posted", self.snapshot(c.proposal_id)["state"])
+
+        for stage in ("approval", "posting"):
+            c = self.ready(self.charge(customer=f"FAKE-CUSTOMER-FUTURE-{stage}", posting_date=today))
+            if stage == "posting":
+                self.approve(c, check=True)
+            # Superuser-only legacy simulation: keep payload, hash and dependent rows consistent.
+            # SET LOCAL restores trigger enforcement when this transaction ends.
+            self.f.psql(
+                "BEGIN; SET LOCAL session_replication_role = replica; "
+                "UPDATE p0_fixture.business_revision SET canonical_payload = jsonb_set("
+                "canonical_payload, '{posting_date}', "
+                f"to_jsonb({sql_literal(tomorrow)}::text)) WHERE revision_id={c.revision_id}; "
+                "UPDATE p0_fixture.business_revision SET content_sha256 = encode(sha256(convert_to("
+                "'webdebit.business-payload.v3' || E'\n' || canonical_payload::text, 'UTF8')), 'hex') "
+                f"WHERE revision_id={c.revision_id}; "
+                + " ".join(
+                    f"UPDATE p0_fixture.{table} x SET content_sha256=r.content_sha256 "
+                    "FROM p0_fixture.business_revision r WHERE x.revision_id=r.revision_id "
+                    f"AND r.revision_id={c.revision_id};"
+                    for table in ("period_confirmation", "price_confirmation", "approval", "audit"))
+                + " COMMIT")
+            c.content_hash = self.query("SELECT content_sha256 FROM p0_fixture.business_revision "
+                                        f"WHERE revision_id={c.revision_id}")
+            before = self.snapshot(c.proposal_id)
+            result = self.approve(c) if stage == "approval" else self.post(c)
+            self.rejected(f"future_{stage}_rejected", result,
+                          f"posting date is in the future ({stage})")
+            self.case(f"future_{stage}_sqlstate", True, "P0001" in result.stderr)
+            self.case(f"future_{stage}_preserves_proposal", before, self.snapshot(c.proposal_id))
+            self.case(f"future_{stage}_creates_no_posting", 0,
+                      self.count("posting", f"proposal_id={c.proposal_id}"))
+
     def g_canonical(self) -> None:
         customer = "FAKE-CUSTOMER-CANON"
         base = charge_payload("BKCAN", "CTCAN", customer=customer)
@@ -1451,6 +1502,7 @@ def main() -> int:
             ("opening_resolution", suite.g_resolution),
             ("trip_key", suite.g_trip_key),
             ("warehouse_date", suite.g_date),
+            ("posting_date", suite.g_posting_date),
             ("canonical_v3", suite.g_canonical),
             ("price", suite.g_price),
             ("actors_and_roles", suite.g_actors),

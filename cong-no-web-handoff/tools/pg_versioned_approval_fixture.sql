@@ -503,6 +503,15 @@ BEGIN
     END LOOP;
 END $$;
 
+CREATE FUNCTION p0_fixture.assert_posting_date_not_future(p_payload jsonb, p_stage text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, p0_fixture AS $$
+BEGIN
+    IF (p_payload->>'posting_date')::date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN
+        RAISE EXCEPTION 'posting date is in the future (%)', p_stage USING ERRCODE = 'P0001';
+    END IF;
+END $$;
+
 CREATE FUNCTION p0_fixture.assert_opening_resolution(p_trip_key text, p_stage text) RETURNS void
 LANGUAGE plpgsql
 SET search_path = pg_catalog, p0_fixture AS $$
@@ -580,6 +589,7 @@ BEGIN
         RAISE EXCEPTION 'fixture numbers must be canonical JSON integers' USING ERRCODE = 'P0001';
     END IF;
     v_canonical := p0_fixture.canonicalize_payload(p_payload_text::jsonb);
+    PERFORM p0_fixture.assert_posting_date_not_future(v_canonical, 'submission');
     v_codes := p0_fixture.charge_review_reason_codes(v_canonical);
     v_trip_key := v_canonical->>'trip_key';
     v_hash := encode(sha256(convert_to(
@@ -890,6 +900,7 @@ BEGIN
         RAISE EXCEPTION 'stale, unavailable, or self-approved revision' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_periods_open(v_revision.canonical_payload, 'approval');
+    PERFORM p0_fixture.assert_posting_date_not_future(v_revision.canonical_payload, 'approval');
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.period_confirmation c
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
           AND c.content_sha256 = p_content_sha256
@@ -959,6 +970,7 @@ BEGIN
         RAISE EXCEPTION 'current approved revision required for posting' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_periods_open(v_revision.canonical_payload, 'posting');
+    PERFORM p0_fixture.assert_posting_date_not_future(v_revision.canonical_payload, 'posting');
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.period_confirmation c
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
           AND c.content_sha256 = p_content_sha256
