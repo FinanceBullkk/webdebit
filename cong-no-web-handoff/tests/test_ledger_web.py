@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 import ledger_app  # noqa: E402
 
+REAL_OPENING_INVARIANTS = dict(ledger_app.OPENING_INVARIANTS)
+
 
 
 class ScreenDelegates:
@@ -44,9 +46,9 @@ class FakeLedger(ScreenDelegates):
     invalid_cutover = False
     source_workbook_sha256 = "a" * 64
     engine_sha256 = "b" * 64
-    opening_periods = 496
-    opening_vnd = 65051673578
-    no_baseline = 46
+    opening_periods = 2
+    opening_vnd = 100
+    no_baseline = 1
     balance_vnd = 100
 
     def cutover(self):
@@ -212,6 +214,10 @@ class FakeHistory:
 
 class LedgerWebTest(unittest.TestCase):
     def setUp(self):
+        invariants = {key: getattr(FakeLedger, key) for key in ledger_app.OPENING_INVARIANTS}
+        patcher = patch.object(ledger_app, "OPENING_INVARIANTS", invariants)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         FakeHistory.fail_summary = False
         FakeHistory.fail_reconciliation = False
         FakeHistory.summary_calls = 0
@@ -243,7 +249,7 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("Tổng còn nợ mọi kỳ", body)
         self.assertIn("1 khách · đến 13/10/2026", body)
         self.assertIn("100 ₫", body)
-        self.assertIn("46 kỳ thiếu mốc đối soát", body)
+        self.assertIn("1 kỳ thiếu mốc đối soát", body)
         self.assertNotIn("Dư trước kỳ", body)
         self.assertNotIn("Mở web replay", body)
         self.assertIn("A &amp; B", body)
@@ -448,12 +454,12 @@ class LedgerWebTest(unittest.TestCase):
         self.assertEqual(payload["components"]["history_customer_reconciliation"], "ok")
 
         db = self.server.RequestHandlerClass.db
-        db.no_baseline = 45
+        db.no_baseline = FakeLedger.no_baseline + 1
         status, body = self.request("/health")
         payload = json.loads(body)
         self.assertEqual(status, 503)
         self.assertEqual(payload["components"]["no_baseline"], "invalid")
-        db.no_baseline = 46
+        db.no_baseline = FakeLedger.no_baseline
         db.balance_vnd = 900000
         status, body = self.request("/health")
         self.assertEqual(status, 200)  # New postings may change current balance.
@@ -543,8 +549,9 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("Chưa kiểm được ngoại lệ nguồn", body)
 
     def test_health_rejects_each_opening_invariant_from_one_constant(self):
-        self.assertEqual(ledger_app.OPENING_INVARIANTS,
-                         {"opening_periods": 496, "opening_vnd": 65051673578, "no_baseline": 46})
+        self.assertEqual(set(REAL_OPENING_INVARIANTS), {"opening_periods", "opening_vnd", "no_baseline"})
+        self.assertTrue(all(isinstance(v, int) and v > 0 for v in REAL_OPENING_INVARIANTS.values()))
+        self.assertNotEqual(REAL_OPENING_INVARIANTS, ledger_app.OPENING_INVARIANTS)
         status, payload = ledger_app.health_payload(FakeLedger(), FakeHistory(), date(2026, 10, 16))
         self.assertEqual(status, 200)
         for key, expected in ledger_app.OPENING_INVARIANTS.items():

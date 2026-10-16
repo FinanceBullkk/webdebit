@@ -152,6 +152,30 @@ def cleanup_owned_container(docker: list[str], name: str, run_id: str,
     return True
 
 
+def cleanup_owned_volume(docker: list[str], name: str, run_id: str) -> bool:
+    candidates = run(docker + ["volume", "ls", "--quiet", "--filter", f"name=^{name}$"])
+    names = candidates.stdout.splitlines()
+    if not names:
+        return False
+    if names != [name]:
+        raise HarnessError("refusing volume cleanup: exact name/run labels did not match")
+    inspected = json.loads(run(docker + ["volume", "inspect", name]).stdout)
+    if len(inspected) != 1:
+        raise HarnessError("refusing volume cleanup: inspect did not return exactly one volume")
+    current = inspected[0]
+    labels = current.get("Labels") or {}
+    if (current.get("Name") != name or labels.get(LABEL_TEST) != LABEL_VALUE
+            or labels.get(LABEL_RUN) != run_id):
+        raise HarnessError("refusing volume cleanup: name/labels/run-id did not match")
+    run(docker + ["volume", "rm", name])
+    return True
+
+
+def blocking_pids(snapshot: str) -> set[int]:
+    return {int(pid) for group in re.findall(r":\{([0-9,]*)\}", snapshot)
+            for pid in group.split(",") if pid}
+
+
 def main() -> int:
     global CONTAINER
     ap = argparse.ArgumentParser()
@@ -187,13 +211,11 @@ def main() -> int:
                        "migration_sha256": hashlib.sha256(migration_sql.encode("utf-8")).hexdigest()})
         report["command"] += f" --base-schema {args.base_schema} --migration {args.migration}"
     docker = ["docker"]
-    volume_created = False
     container_created = False
     error: BaseException | None = None
     try:
         run(docker + ["volume", "create", "--label", f"{LABEL_TEST}={LABEL_VALUE}",
                       "--label", f"{LABEL_RUN}={run_id}", volume])
-        volume_created = True
         run(docker + ["run", "--detach", "--name", CONTAINER, "--label", f"{LABEL_TEST}={LABEL_VALUE}",
                       "--label", f"{LABEL_RUN}={run_id}", "--network", "none", "--volume", f"{volume}:/var/lib/postgresql",
                       "--env", "POSTGRES_HOST_AUTH_METHOD=trust", IMAGE], timeout=240)
@@ -431,7 +453,7 @@ def main() -> int:
         blocker_snapshot = observed[0] if observed else ""
         blocked_checker_count = int(blocker_snapshot.split("|", 1)[0]) if blocker_snapshot else 0
         observed_actual = {"checker_sessions_with_blockers":blocked_checker_count,
-                           "holder_pid_in_blocker_chain":str(holder_pid) in blocker_snapshot,
+                           "holder_pid_in_blocker_chain":holder_pid in blocking_pids(blocker_snapshot),
                            "pg_blocking_pids":blocker_snapshot.split("|", 1)[1] if "|" in blocker_snapshot else ""}
         record("contention", "both_checkers_wait_observed_with_pg_blocking_pids", {"checker_sessions_with_blockers":2,"holder_pid_in_blocker_chain":True},
                {"checker_sessions_with_blockers":blocked_checker_count,"holder_pid_in_blocker_chain":observed_actual["holder_pid_in_blocker_chain"]}, counts=counts(contested))
@@ -534,12 +556,8 @@ def main() -> int:
             cleanup_container_removed = cleanup_owned_container(
                 docker, CONTAINER, run_id,
                 str(report["container_id"]) if report.get("container_id") else None)
-            if volume_created:
-                current_volume = json.loads(run(docker + ["volume", "inspect", volume]).stdout)[0]
-                if current_volume["Name"] != volume or current_volume["Labels"].get(LABEL_TEST) != LABEL_VALUE or current_volume["Labels"].get(LABEL_RUN) != run_id:
-                    raise HarnessError("refusing volume cleanup: identity/labels/run-id changed")
-                run(docker + ["volume", "rm", volume])
-            report["cleanup"] = "verified_and_removed" if cleanup_container_removed or volume_created else "nothing_created"
+            cleanup_volume_removed = cleanup_owned_volume(docker, volume, run_id)
+            report["cleanup"] = "verified_and_removed" if cleanup_container_removed or cleanup_volume_removed else "nothing_created"
         except BaseException as cleanup_error:
             report["cleanup"] = f"failed: {type(cleanup_error).__name__}: {cleanup_error}"
             error = cleanup_error
