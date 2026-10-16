@@ -13,3 +13,7 @@ __pycache__/
 node_modules/
 .pytest_cache/
 *.log
+.playwright-browsers/
+test-results/
+playwright-report/
+.venv/

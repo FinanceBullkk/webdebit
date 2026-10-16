@@ -43,13 +43,17 @@
     $('visible-balance').textContent=fmt(view.visibleBalance);
     $('visible-label').textContent=state.period==='all'?'':label(state.period)+' · đến '+day(state.asOf);
     const price=view.months.reduce((n,m)=>n+m.shipments.filter(s=>s.status==='waiting_price').length,0);
+    const shipment=view.months.reduce((n,m)=>n+m.shipments.filter(s=>s.status==='draft').length,0);
     const receipt=view.months.reduce((n,m)=>n+m.payments.filter(p=>p.status!=='posted').length,0);
-    $('pending-line').hidden=price+receipt===0;
+    $('pending-line').hidden=price+shipment+receipt===0;
     $('pending-price').hidden=price===0;
+    $('pending-shipment').hidden=shipment===0;
     $('pending-receipt').hidden=receipt===0;
     $('pending-price').textContent=price+' chuyến chờ giá';
+    $('pending-shipment').textContent=shipment+' chuyến chờ duyệt';
     $('pending-receipt').textContent=receipt+' khoản thu chờ xác nhận';
     $('pending-price').href='#shipment-'+(view.months.flatMap(m=>m.shipments).find(s=>s.status==='waiting_price')?.id||'');
+    $('pending-shipment').href='#shipment-'+(view.months.flatMap(m=>m.shipments).find(s=>s.status==='draft')?.id||'');
     $('pending-receipt').href='#payment-'+(view.months.flatMap(m=>m.payments).find(p=>p.status!=='posted')?.id||'');
     $('months').innerHTML=view.months.length?view.months.map(month).join(''):'<div class="card notice">Chưa có dữ liệu tại ngày chốt này.</div>';
     for(const id of openMonths){const e=document.getElementById(id);if(e)e.open=true;}
@@ -60,7 +64,7 @@
     try{const next={period:$('period').value,asOf:$('as-of').value};workbench.snapshot(next);state=next;$('filter-error').textContent='';render();}
     catch(error){$('filter-error').textContent=error.message;}
   });
-  for(const id of ['pending-price','pending-receipt'])$(id).addEventListener('click',event=>{
+  for(const id of ['pending-price','pending-shipment','pending-receipt'])$(id).addEventListener('click',event=>{
     const target=document.getElementById(event.currentTarget.hash.slice(1));
     if(!target)return;
     target.closest('.month').open=true;

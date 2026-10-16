@@ -1,24 +1,34 @@
 # webdebit
 
-Bản chia sẻ mã nguồn và fixture giả cho sổ công nợ phải thu HTH. Đây không phải bản sao đầy đủ của workspace nội bộ, không chứa snapshot Google Sheet, dữ liệu khách, chứng từ, database dump hoặc công cụ triển khai/ghi sổ thật. Không dùng repo này như bằng chứng số dư production.
+Repository phát triển chung cho dev và AI của sổ công nợ phải thu HTH, theo lựa chọn người dùng ngày 15/10/2026. Code và tài liệu nghiệp vụ đã lọc được quản lý phiên bản ở đây. Test chỉ dùng fixture giả; dữ liệu khách, capture, chứng từ và DB nằm ngoài repo.
 
-## Cấu trúc
+Đọc [hướng dẫn](AGENTS.md), [hồ sơ nghiệp vụ](docs/README.md), [quyết định](docs/decisions.md), [quy trình phát triển](docs/development.md). Bản cơ sở `69a84a41382217265f745c1c9ae87cba9e557c16` là bản xuất mã có chọn lọc, không phải bản sao đầy đủ workspace hay runtime.
 
-- `cong-no-web-handoff/pilot/reconcile.py`: engine đọc snapshot và đối soát cục bộ; muốn dùng nguồn thật phải được cấp và xác minh riêng, không kèm trong repo.
-- `cong-no-web-handoff/web/`: giao diện đọc sổ và tầng truy vấn; web production không được cấu hình bằng repo này.
-- `cong-no-web-handoff/tools/`: một số SQL schema và mã export/verify phục vụ phát triển, không có script cài service, SSH hoặc submit giao dịch thật.
-- `cong-no-web-handoff/preview/`: giao diện prototype với fixture giả.
-- `cong-no-web-handoff/tests/`: unit tests fixture, không kết nối database thật.
+## Cài và kiểm trên máy mới
 
-## Kiểm tra tại máy Windows
+Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Python cần gói dữ liệu múi giờ `tzdata` đã khóa phiên bản/hash, đặc biệt trên Windows; không cần PostgreSQL. Từ gốc repository trên Windows:
 
-```text
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+npm ci --ignore-scripts
+npx playwright install chromium
+npm test
 cd cong-no-web-handoff
-py -3.13 -m unittest discover -s tests -v
-node preview/test-so-cong-no-model.js
-node preview/test-monthly-ledger-model.js
+..\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Các test này kiểm code/fixture cục bộ, không chứng minh số dư thực tế, quyền duyệt, tính sẵn sàng của service hoặc đường ghi tiền. Xem `AGENTS.md` trước khi sửa logic nghiệp vụ.
+Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt`, rồi chạy test từ `cong-no-web-handoff/` bằng `../.venv/bin/python -m unittest discover -s tests -v`. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
 
-Dữ liệu sống và hồ sơ quyết định nội bộ không được đưa vào repository. Nếu cần triển khai chức năng tài chính, phải có đặc tả đã duyệt, thử trên DB test và review riêng từng migration/quyền/API.
+`npm run test:unit` chạy đủ bốn file JS không cần browser; `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless. `npm test` chạy cả hai. [Workflow](.github/workflows/test.yml) kiểm Windows/Linux, Python 3.12/3.13 và Node 24/Chromium. File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
+
+## Phạm vi mã
+
+- `cong-no-web-handoff/pilot/`: engine nhập/đối soát chỉ đọc từ file nguồn được cấp riêng.
+- `cong-no-web-handoff/web/`: code đọc sổ và truy vấn; không cấu hình DB thật trong repo.
+- `cong-no-web-handoff/tools/`: schema/export/verify phục vụ phát triển. SQL hiện có không phải migration mới đã duyệt.
+- `cong-no-web-handoff/preview/`: prototype fixture giả trong bộ nhớ tab.
+- `cong-no-web-handoff/tests/`: unit và HTTP tests dùng fake DB.
+- `docs/`, `specs/`: yêu cầu, quyết định, kiểm chứng và thay đổi có phiên bản.
+
+Tiện ích tách XLSX dùng `openpyxl` nằm ngoài cổng test cơ sở; chưa cung cấp môi trường import nguồn thật. Không kèm installer, SSH relay hoặc lệnh submit giao dịch thật. Test code/fixture không chứng minh số dư, quyền duyệt, service hay đường ghi tiền.

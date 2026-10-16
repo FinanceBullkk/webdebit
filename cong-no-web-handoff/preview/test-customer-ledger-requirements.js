@@ -2,6 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createWorkbench } = require('./customer-ledger-workbench.js');
 
+test('saved shipment with price remains pending and missing price stays distinct', () => {
+  const w=createWorkbench();
+  const before=w.snapshot().allBalance;
+  const [priced]=w.paste('2026-03','2026-03-12\tDEMO-PENDING\t\t\t\t\t1000000\t0\t0\t0');
+  w.paste('2026-03','2026-03-13\tDEMO-UNKNOWN');
+  assert.equal(w.saveShipments('2026-03').ok,true);
+  const snapshot=w.snapshot();
+  const shipments=snapshot.months.flatMap(m=>m.shipments);
+  assert.equal(shipments.filter(s=>s.status==='draft').length,1);
+  assert.equal(shipments.find(s=>s.id===priced.id).approvedTotal,null);
+  assert.equal(shipments.filter(s=>s.status==='waiting_price').length,2);
+  assert.equal(snapshot.allBalance,before);
+  const [invalid]=w.paste('2026-03','2026-03-14\tDEMO-BAD\t\t\t\t\t1.5');
+  assert.equal(w.saveShipments('2026-03').ok,false);
+  assert.ok(invalid.errors.length>0);
+  assert.equal(w.snapshot().allBalance,before);
+});
+
 test('fee estimate sums price and all three fees, while blank fee is unknown', () => {
   const w=createWorkbench();
   const [r]=w.paste('2026-03','2026-03-04\tDEMO-X\tTàu A\tShipper A\tA\tB\t2000000\t100000\t200000\t300000');
