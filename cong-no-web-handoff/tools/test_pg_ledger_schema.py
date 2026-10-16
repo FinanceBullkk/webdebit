@@ -391,6 +391,69 @@ def main() -> int:
         record("contention", "two_checker_calls_post_once", {"successful_calls":1,"rejected_sqlstates":["P0001"],"postings":1}, {"successful_calls":len(successful),"rejected_sqlstates":rejected_states,"postings":final_counts["postings"]}, sqlstate=rejected_states[0] if rejected_states else None, counts=final_counts)
         report["concurrency_evidence"] = {"holder_pid":holder_pid,"blocking_pids":observed_actual["pg_blocking_pids"],"checker1_stdout":out.strip(),"checker2_stdout":out2.strip(),"checker1_exit":checker1_rc,"checker2_exit":checker2_rc,"checker1_error_sqlstate":state1.group(1) if state1 else None,"checker2_error_sqlstate":state2.group(1) if state2 else None}
 
+        def failure(result: subprocess.CompletedProcess[str]) -> dict[str, object]:
+            found = re.search(r"ERROR:\s+([0-9A-Z]{5}):\s*(.+)", result.stderr)
+            return {"exit": result.returncode, "sqlstate": found.group(1) if found else None,
+                    "message": found.group(2).strip() if found else None}
+
+        def submit_dated(key: str, posting_date: str) -> subprocess.CompletedProcess[str]:
+            return psql("SELECT ledger.submit_entry('" + key + "','charge',100,DATE '2026-02-01'," + posting_date
+                        + ",'FAKE-SOURCE-" + key[-8:] + "','FAKE-EVIDENCE','fake test reason',"
+                        + "'[{\"customer\":\"FAKE CUSTOMER A\",\"debt_period\":\"2026-01\",\"amount_vnd\":100}]'::jsonb)",
+                        "maker_a", check=False)
+
+        def proposal_count() -> int:
+            return int(query("SELECT count(*) FROM ledger.proposal"))
+
+        original_posting = int(query(f"SELECT min(posting_id) FROM ledger.posting WHERE proposal_id={multi}"))
+        # Compute the Vietnam business day independently of the schema helper and pass literals.
+        vn_today = "(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
+        today = "DATE '" + query(f"SELECT {vn_today}") + "'"
+        tomorrow = "DATE '" + query(f"SELECT {vn_today} + 1") + "'"
+
+        # Posting-date policy (16/10/2026): today in Asia/Ho_Chi_Minh is allowed, any later date is rejected.
+        today_result = submit_dated("fixture-request-today-0001", today)
+        today_id = int(today_result.stdout.strip()) if today_result.returncode == 0 else None
+        record("posting_date", "today_posting_date_accepted", {"exit":0,"status":"pending"},
+               {"exit":today_result.returncode,"status":counts(today_id)["status"] if today_id else None})
+        before = proposal_count()
+        record("posting_date", "future_posting_date_rejected_on_submit",
+               {"exit":1,"sqlstate":"P0001","message":"missing or invalid posting evidence/date/lines","new_proposals":0},
+               {**failure(submit_dated("fixture-request-future-0001", tomorrow)),"new_proposals":proposal_count() - before})
+        # Owner-inserted pending row simulates a proposal whose date passed submit under an older function.
+        future_id = int(query("INSERT INTO ledger.proposal(request_key,kind,total_vnd,event_date,posting_date,source_ref,evidence_ref,reason,maker) "
+                              "VALUES ('fixture-request-future-approve-0001','charge',100,DATE '2026-02-01'," + tomorrow + ","
+                              "'FAKE-SOURCE-FUTURE','FAKE-EVIDENCE','fake test reason','maker_a') RETURNING proposal_id"))
+        psql(f"INSERT INTO ledger.proposal_line(proposal_id,line_no,customer,debt_period,amount_vnd) VALUES ({future_id},1,'FAKE CUSTOMER A','2026-01',100)")
+        record("posting_date", "future_posting_date_rejected_on_approve",
+               {"exit":1,"sqlstate":"P0001","message":"posting date is in the future","status":"pending","postings":0},
+               {**failure(psql(f"SELECT ledger.approve_entry({future_id})", "checker_b", check=False)),
+                "status":counts(future_id)["status"],"postings":counts(future_id)["postings"]}, counts=counts(future_id))
+        before = proposal_count()
+        record("posting_date", "future_posting_date_rejected_on_reversal",
+               {"exit":1,"sqlstate":"P0001","message":"invalid reversal request","new_proposals":0},
+               {**failure(psql(f"SELECT ledger.request_reversal('fixture-request-future-rev-0001',{original_posting},{tomorrow},'FAKE-EVIDENCE','fake test reason')", "maker_a", check=False)),
+                "new_proposals":proposal_count() - before})
+
+        # Missing cutover must fail closed in every write function, then the fixture row is restored.
+        cutover_row = query("SELECT row_to_json(c)::text FROM ledger.cutover c")
+        psql("DELETE FROM ledger.cutover")
+        missing = {"exit":1,"sqlstate":"P0001","message":"ledger cutover missing"}
+        before = proposal_count()
+        record("missing_cutover", "submit_rejected", {**missing,"new_proposals":0},
+               {**failure(submit_dated("fixture-request-nocut-0001", "DATE '2026-02-02'")),"new_proposals":proposal_count() - before})
+        record("missing_cutover", "approve_rejected", {**missing,"status":"pending","postings":0},
+               {**failure(psql(f"SELECT ledger.approve_entry({today_id})", "checker_b", check=False)),
+                "status":counts(today_id)["status"],"postings":counts(today_id)["postings"]}, counts=counts(today_id))
+        before = proposal_count()
+        record("missing_cutover", "reversal_rejected", {**missing,"new_proposals":0},
+               {**failure(psql(f"SELECT ledger.request_reversal('fixture-request-nocut-rev-0001',{original_posting},DATE '2026-02-02','FAKE-EVIDENCE','fake test reason')", "maker_a", check=False)),
+                "new_proposals":proposal_count() - before})
+        psql("INSERT INTO ledger.cutover SELECT * FROM json_populate_record(NULL::ledger.cutover, '" + cutover_row.replace("'", "''") + "'::json)")
+        approved_today = psql(f"SELECT ledger.approve_entry({today_id})", "checker_b", check=False)
+        record("missing_cutover", "restored_cutover_allows_today_approval", {"exit":0,"status":"posted"},
+               {"exit":approved_today.returncode,"status":counts(today_id)["status"]}, counts=counts(today_id))
+
         report["exit_code"] = 0
     except BaseException as exc:
         error = exc

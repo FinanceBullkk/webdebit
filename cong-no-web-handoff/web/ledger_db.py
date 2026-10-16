@@ -19,6 +19,34 @@ class LedgerDB:
         self.dbname, self.psql = dbname, psql
 
     def rows(self, sql: str, **values) -> list[dict]:
+        data = self._json(f"SELECT coalesce(json_agg(item), '[]'::json) FROM ({sql}) item", values)
+        if not isinstance(data, list):
+            raise LedgerUnavailable("Invalid PostgreSQL rows")
+        return data
+
+    def snapshot(self, **queries: tuple[str, dict]) -> dict[str, list[dict]]:
+        """Read several row sets in one SQL statement, so one screen sees one database snapshot.
+
+        Each query is (sql, values); queries share psql variables, so a name must
+        carry the same value in every query that uses it.
+        """
+        values: dict = {}
+        parts = []
+        for name, (sql, query_values) in queries.items():
+            if not re.fullmatch(r"[a-z_]+", name):
+                raise ValueError("invalid snapshot name")
+            for key, value in query_values.items():
+                if key in values and values[key] != value:
+                    raise ValueError("conflicting SQL variable")
+                values[key] = value
+            parts.append(f"'{name}', (SELECT coalesce(json_agg(item), '[]'::json) FROM ({sql}) item)")
+        data = self._json(f"SELECT json_build_object({', '.join(parts)})", values)
+        if (not isinstance(data, dict) or set(data) != set(queries)
+                or not all(isinstance(rows, list) for rows in data.values())):
+            raise LedgerUnavailable("Invalid PostgreSQL rows")
+        return data
+
+    def _json(self, statement: str, values: dict):
         command = [self.psql, "-X", "-w", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1"]
         for key, value in values.items():
             if not re.fullmatch(r"[a-z_]+", key):
@@ -26,8 +54,7 @@ class LedgerDB:
             command += ["-v", f"{key}={value}"]
         command += ["-d", self.dbname, "-f", "-"]
         try:
-            result = subprocess.run(command,
-                input=f"SELECT coalesce(json_agg(item), '[]'::json) FROM ({sql}) item;\n",
+            result = subprocess.run(command, input=f"{statement};\n",
                 text=True, capture_output=True, encoding="utf-8", timeout=8)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LedgerUnavailable("PostgreSQL unavailable") from exc
@@ -45,12 +72,9 @@ class LedgerDB:
                 message = "PostgreSQL read failed"
             raise LedgerUnavailable(message)
         try:
-            data = json.loads(result.stdout.strip())
+            return json.loads(result.stdout.strip())
         except json.JSONDecodeError as exc:
             raise LedgerUnavailable("Invalid PostgreSQL result") from exc
-        if not isinstance(data, list):
-            raise LedgerUnavailable("Invalid PostgreSQL rows")
-        return data
 
     def cutover(self):
         return self.rows("SELECT capture_id, as_of, captured_at_utc, source_spreadsheet_id, "
@@ -58,7 +82,11 @@ class LedgerDB:
                          "opening_decision, first_posting_date FROM ledger.cutover LIMIT 1")
 
     def totals(self, as_of: date):
-        return self.rows("""SELECT (SELECT count(*) FROM ledger.customer) AS customers,
+        return self._rows(self.totals_query(as_of))[0]
+
+    @staticmethod
+    def totals_query(as_of: date) -> tuple[str, dict]:
+        return ("""SELECT (SELECT count(*) FROM ledger.customer) AS customers,
             (SELECT count(*) FROM ledger.opening) AS opening_periods,
             (SELECT count(*) FROM ledger.opening WHERE comparison_status='NO_BASELINE') AS no_baseline,
             (SELECT coalesce(sum(balance_vnd),0) FROM ledger.opening) AS opening_vnd,
@@ -66,10 +94,14 @@ class LedgerDB:
             (SELECT coalesce(sum(balance_vnd),0) FROM ledger.balance_as_of(:'date'::date)) AS balance_vnd,
             (SELECT count(*) FROM ledger.proposal WHERE status='pending') AS pending,
             (SELECT count(*) FROM ledger.posting WHERE posting_date <= :'date'::date) AS postings
-        """, date=as_of.isoformat())[0]
+        """, {"date": as_of.isoformat()})
 
     def customers(self, as_of: date, search: str = ""):
-        return self.rows("""SELECT c.customer,
+        return self._rows(self.customers_query(as_of, search))
+
+    @staticmethod
+    def customers_query(as_of: date, search: str = "") -> tuple[str, dict]:
+        return ("""SELECT c.customer,
             CASE WHEN count(b.debt_period)=0 OR count(b.opening_vnd) < count(b.debt_period)
                  THEN NULL ELSE sum(b.opening_vnd) END AS opening_vnd,
             coalesce(sum(b.movement_vnd),0) AS movement_vnd,
@@ -81,7 +113,7 @@ class LedgerDB:
             LEFT JOIN ledger.opening o ON o.customer=b.customer AND o.debt_period=b.debt_period
             WHERE position(lower(:'search') in lower(c.customer)) > 0
             GROUP BY c.customer ORDER BY c.customer
-        """, date=as_of.isoformat(), search=search)
+        """, {"date": as_of.isoformat(), "search": search})
 
     def overview(self, as_of: date, period: str, search: str = ""):
         """Current ledger balances, split around the selected debt period.
@@ -89,7 +121,11 @@ class LedgerDB:
         The opening amount of a period is already net of historical replay
         charges and receipts. It must never be labelled as a new charge.
         """
-        return self.rows("""WITH balances AS (
+        return self._rows(self.overview_query(as_of, period, search))
+
+    @staticmethod
+    def overview_query(as_of: date, period: str, search: str = "") -> tuple[str, dict]:
+        return ("""WITH balances AS (
             SELECT * FROM ledger.balance_as_of(:'date'::date)
         ), grouped AS (
             SELECT customer,
@@ -126,26 +162,38 @@ class LedgerDB:
         LEFT JOIN ledger.opening o ON o.customer=c.customer AND o.debt_period=:'period'
         WHERE position(lower(:'search') in lower(c.customer)) > 0
         ORDER BY c.customer
-        """, date=as_of.isoformat(), period=period, search=search)
+        """, {"date": as_of.isoformat(), "period": period, "search": search})
 
     def periods(self, as_of: date, customer: str):
-        return self.rows("""SELECT b.customer,b.debt_period,b.opening_vnd,b.movement_vnd,b.balance_vnd,
+        return self._rows(self.periods_query(as_of, customer))
+
+    @staticmethod
+    def periods_query(as_of: date, customer: str) -> tuple[str, dict]:
+        return ("""SELECT b.customer,b.debt_period,b.opening_vnd,b.movement_vnd,b.balance_vnd,
             o.comparison_status,o.replay_event_count
             FROM ledger.balance_as_of(:'date'::date) b
             LEFT JOIN ledger.opening o ON o.customer=b.customer AND o.debt_period=b.debt_period
             WHERE b.customer=:'customer' ORDER BY b.debt_period DESC
-        """, date=as_of.isoformat(), customer=customer)
+        """, {"date": as_of.isoformat(), "customer": customer})
 
     def period(self, as_of: date, customer: str, period: str):
-        return self.rows("""SELECT b.customer,b.debt_period,b.opening_vnd,b.movement_vnd,b.balance_vnd,
+        return self._rows(self.period_query(as_of, customer, period))
+
+    @staticmethod
+    def period_query(as_of: date, customer: str, period: str) -> tuple[str, dict]:
+        return ("""SELECT b.customer,b.debt_period,b.opening_vnd,b.movement_vnd,b.balance_vnd,
             o.comparison_status,o.replay_event_count
             FROM ledger.balance_as_of(:'date'::date) b
             LEFT JOIN ledger.opening o ON o.customer=b.customer AND o.debt_period=b.debt_period
             WHERE b.customer=:'customer' AND b.debt_period=:'period' LIMIT 1
-        """, date=as_of.isoformat(), customer=customer, period=period)
+        """, {"date": as_of.isoformat(), "customer": customer, "period": period})
 
     def postings(self, as_of: date, customer: str = "", period: str = "", limit: int = 100, offset: int = 0):
-        return self.rows("""SELECT posting_id,proposal_id,customer,debt_period,kind,
+        return self._rows(self.postings_query(as_of, customer, period, limit, offset))
+
+    @staticmethod
+    def postings_query(as_of: date, customer: str = "", period: str = "", limit: int = 100, offset: int = 0) -> tuple[str, dict]:
+        return ("""SELECT posting_id,proposal_id,customer,debt_period,kind,
             signed_amount_vnd,posting_date,event_date,source_ref,evidence_ref,reason,
             maker,checker,original_posting_id,posted_at
             FROM ledger.posting WHERE posting_date <= :'date'::date
@@ -153,7 +201,7 @@ class LedgerDB:
               AND (:'period'='' OR debt_period=:'period')
             ORDER BY posting_date DESC,posting_id DESC
             LIMIT :'limit'::integer OFFSET :'offset'::integer
-        """, date=as_of.isoformat(), customer=customer, period=period, limit=limit, offset=offset)
+        """, {"date": as_of.isoformat(), "customer": customer, "period": period, "limit": limit, "offset": offset})
 
     def proposals(self, status: str = "pending", limit: int = 100):
         return self.rows("""SELECT proposal_id,kind,total_vnd,event_date,posting_date,
@@ -164,29 +212,74 @@ class LedgerDB:
         """, status=status, limit=limit)
 
     def proposal(self, proposal_id: int):
-        return self.rows("""SELECT proposal_id,kind,total_vnd,event_date,posting_date,
+        return self._rows(self.proposal_query(proposal_id))
+
+    @staticmethod
+    def proposal_query(proposal_id: int) -> tuple[str, dict]:
+        return ("""SELECT proposal_id,kind,total_vnd,event_date,posting_date,
             source_ref,evidence_ref,reason,maker,checker,status,created_at,decided_at,
             original_posting_id FROM ledger.proposal WHERE proposal_id=:'id'::bigint
-        """, id=proposal_id)
+        """, {"id": proposal_id})
 
     def proposal_lines(self, proposal_id: int):
-        return self.rows("""SELECT line_no,customer,debt_period,amount_vnd
+        return self._rows(self.proposal_lines_query(proposal_id))
+
+    @staticmethod
+    def proposal_lines_query(proposal_id: int) -> tuple[str, dict]:
+        return ("""SELECT line_no,customer,debt_period,amount_vnd
             FROM ledger.proposal_line WHERE proposal_id=:'id'::bigint ORDER BY line_no
-        """, id=proposal_id)
+        """, {"id": proposal_id})
 
     def proposal_audit(self, proposal_id: int):
-        return self.rows("""SELECT actor,action,at,detail FROM ledger.audit
+        return self._rows(self.proposal_audit_query(proposal_id))
+
+    @staticmethod
+    def proposal_audit_query(proposal_id: int) -> tuple[str, dict]:
+        return ("""SELECT actor,action,at,detail FROM ledger.audit
             WHERE proposal_id=:'id'::bigint ORDER BY audit_id
-        """, id=proposal_id)
+        """, {"id": proposal_id})
 
     def pending_for_customer(self, customer: str):
-        return self.rows("""SELECT count(DISTINCT p.proposal_id) AS proposals,
+        return self._rows(self.pending_for_customer_query(customer))[0]
+
+    @staticmethod
+    def pending_for_customer_query(customer: str) -> tuple[str, dict]:
+        return ("""SELECT count(DISTINCT p.proposal_id) AS proposals,
             coalesce(sum(l.amount_vnd),0) AS amount_vnd,
             count(DISTINCT p.proposal_id) FILTER (WHERE p.kind='receipt') AS pending_receipts,
             count(DISTINCT p.proposal_id) FILTER (WHERE p.kind='charge') AS pending_charges
             FROM ledger.proposal p JOIN ledger.proposal_line l USING (proposal_id)
             WHERE p.status='pending' AND l.customer=:'customer'
-        """, customer=customer)[0]
+        """, {"customer": customer})
+
+    def _rows(self, query: tuple[str, dict]) -> list[dict]:
+        sql, values = query
+        return self.rows(sql, **values)
+
+    # Each screen reads every ledger row set it shows in one statement (one snapshot),
+    # so a concurrent approval cannot make its totals and details disagree.
+    def overview_screen(self, as_of: date, period: str, search: str = "") -> tuple[dict, list[dict]]:
+        data = self.snapshot(totals=self.totals_query(as_of),
+                             customers=self.overview_query(as_of, period, search))
+        return data["totals"][0], data["customers"]
+
+    def customer_screen(self, as_of: date, customer: str, postings_limit: int = 1001) -> dict:
+        data = self.snapshot(customers=self.customers_query(as_of, customer),
+                             periods=self.periods_query(as_of, customer),
+                             pending=self.pending_for_customer_query(customer),
+                             postings=self.postings_query(as_of, customer, limit=postings_limit))
+        return {**data, "pending": data["pending"][0]}
+
+    def period_screen(self, as_of: date, customer: str, period: str) -> tuple[list[dict], list[dict]]:
+        data = self.snapshot(period=self.period_query(as_of, customer, period),
+                             postings=self.postings_query(as_of, customer, period))
+        return data["period"], data["postings"]
+
+    def proposal_screen(self, proposal_id: int) -> tuple[list[dict], list[dict], list[dict]]:
+        data = self.snapshot(proposal=self.proposal_query(proposal_id),
+                             lines=self.proposal_lines_query(proposal_id),
+                             audits=self.proposal_audit_query(proposal_id))
+        return data["proposal"], data["lines"], data["audits"]
 
 
 # Blank text is unclassified, never a value of its own: btrim set matches

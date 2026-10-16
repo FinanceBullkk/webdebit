@@ -233,8 +233,7 @@ def status_badge(code: str | None) -> str:
 
 def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-10",
                     history: HistoryDB | None = None) -> str:
-    t = db.totals(as_of)
-    customers = db.overview(as_of, period, search)
+    t, customers = db.overview_screen(as_of, period, search)
     summary = period_summary = reconciliations = None
     if history:
         try:
@@ -419,11 +418,11 @@ def month_rows(events: list[dict], postings: list[dict], carried: int) -> tuple[
 
 def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = "",
                     history: HistoryDB | None = None) -> str | None:
-    customers = db.customers(as_of, name)
-    row = next((item for item in customers if item["customer"] == name), None)
+    screen = db.customer_screen(as_of, name)
+    row = next((item for item in screen["customers"] if item["customer"] == name), None)
     if row is None:
         return None
-    all_periods = db.periods(as_of, name)
+    all_periods = screen["periods"]
     ascending_periods = list(reversed(all_periods))
     carried_by_period = {}
     carried = 0
@@ -432,7 +431,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
         carried += int(item["balance_vnd"])
     periods = [item for item in reversed(ascending_periods)
                if not first_period or item["debt_period"] >= first_period]
-    pending = db.pending_for_customer(name)
+    pending = screen["pending"]
     history_error = history is None
     customer_summary = customer_reconciliation = None
     if history:
@@ -459,7 +458,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
     history_by_period = {}
     for event in replay_events:
         history_by_period.setdefault(event["debt_period"], []).append(event)
-    new_postings = db.postings(as_of, name, limit=1001)
+    new_postings = screen["postings"]
     postings_truncated = len(new_postings) > 1000
     postings_by_period = {}
     for item in new_postings[:1000]:
@@ -563,7 +562,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
 
 def render_period(db: LedgerDB, as_of: date, name: str, period: str,
                   history: HistoryDB | None = None) -> str | None:
-    rows = db.period(as_of, name, period)
+    rows, postings = db.period_screen(as_of, name, period)
     if not rows:
         return None
     row = rows[0]
@@ -606,7 +605,6 @@ def render_period(db: LedgerDB, as_of: date, name: str, period: str,
                 f'{money(row["opening_vnd"])} · Bút toán sau mở sổ '
                 f'{money(row["movement_vnd"] or 0)} · '
                 f'{count_text(row["replay_event_count"])} dòng lịch sử. {replay_link}</p></details>')
-    postings = db.postings(as_of, name, period)
     lines = []
     for item in postings:
         lines.append(f'<tr><td>{esc(item["posting_date"])}</td><td>{esc(KIND.get(item["kind"], item["kind"]))}</td>'
@@ -798,12 +796,10 @@ def render_postings(db: LedgerDB, as_of: date) -> str:
 
 
 def render_proposal(db: LedgerDB, proposal_id: int) -> str | None:
-    found = db.proposal(proposal_id)
+    found, lines, audits = db.proposal_screen(proposal_id)
     if not found:
         return None
     item = found[0]
-    lines = db.proposal_lines(proposal_id)
-    audits = db.proposal_audit(proposal_id)
     status = {"pending": "Chờ duyệt", "posted": "Đã ghi sổ", "rejected": "Đã từ chối"}.get(item["status"], item["status"])
     back = "/pending" if item["status"] == "pending" else "/postings"
     content = (f'<div class="customer-title">{anchor("← Danh sách", back)}'
