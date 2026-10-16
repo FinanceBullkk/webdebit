@@ -118,6 +118,24 @@ CREATE TRIGGER opening_immutable BEFORE UPDATE OR DELETE ON ledger.opening
 CREATE TRIGGER posting_immutable BEFORE UPDATE OR DELETE ON ledger.posting
     FOR EACH ROW EXECUTE FUNCTION ledger.no_change();
 
+-- Posting-date window for every write function: a missing cutover row is an error,
+-- never an absent bound; posting dates after today (Vietnam business day) are rejected.
+CREATE FUNCTION ledger.first_posting_date() RETURNS date
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, ledger AS $$
+DECLARE v_first date;
+BEGIN
+    SELECT first_posting_date INTO v_first FROM ledger.cutover WHERE singleton;
+    IF v_first IS NULL THEN
+        RAISE EXCEPTION 'ledger cutover missing';
+    END IF;
+    RETURN v_first;
+END $$;
+
+CREATE FUNCTION ledger.business_today() RETURNS date
+LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
+    SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+$$;
+
 CREATE FUNCTION ledger.submit_entry(
     p_request_key text, p_kind text, p_total_vnd numeric,
     p_event_date date, p_posting_date date, p_source_ref text,
@@ -139,7 +157,8 @@ BEGIN
     END IF;
     IF p_request_key IS NULL OR length(p_request_key) NOT BETWEEN 16 AND 128
        OR p_event_date IS NULL OR p_posting_date IS NULL
-       OR p_posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton)
+       OR p_posting_date < ledger.first_posting_date()
+       OR p_posting_date > ledger.business_today()
        OR p_source_ref IS NULL OR length(btrim(p_source_ref)) < 5
        OR p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) < 5
        OR p_reason IS NULL OR length(btrim(p_reason)) < 5
@@ -191,8 +210,11 @@ BEGIN
     IF NOT FOUND OR v.status <> 'pending' OR v.maker = session_user THEN
         RAISE EXCEPTION 'proposal absent, decided, or self approval';
     END IF;
-    IF v.posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton) THEN
+    IF v.posting_date < ledger.first_posting_date() THEN
         RAISE EXCEPTION 'posting date precedes cutover';
+    END IF;
+    IF v.posting_date > ledger.business_today() THEN
+        RAISE EXCEPTION 'posting date is in the future';
     END IF;
     IF v.kind = 'reversal' AND EXISTS (
         SELECT 1 FROM ledger.posting WHERE original_posting_id = v.original_posting_id) THEN
@@ -251,7 +273,8 @@ BEGIN
     IF NOT FOUND OR v.kind = 'reversal' OR EXISTS
        (SELECT 1 FROM ledger.posting WHERE original_posting_id = p_original_posting_id)
        OR p_request_key IS NULL OR length(p_request_key) NOT BETWEEN 16 AND 128
-       OR p_posting_date IS NULL OR p_posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton)
+       OR p_posting_date IS NULL OR p_posting_date < ledger.first_posting_date()
+       OR p_posting_date > ledger.business_today()
        OR p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) < 5
        OR p_reason IS NULL OR length(btrim(p_reason)) < 5 THEN
         RAISE EXCEPTION 'invalid reversal request';

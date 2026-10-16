@@ -19,6 +19,7 @@
 | FRONTEND | Người dùng xác nhận [quy trình frontend](development.md#quy-trình-frontend): mockup Penpot được duyệt trước khi code frontend mới hoặc đổi luồng đáng kể. | 16/10/2026, xác nhận trong chat | ĐÃ CHỐT quy trình; không tự cấp quyền triển khai hoặc ghi tiền. |
 | DATE | Người dùng làm rõ ngày xe nhập kho là ngày nghiệp vụ chuyến | 14/10/2026, S22/S23 | ĐÃ CHỐT; có ở preview, chưa kiểm backend/runtime đã đổi. |
 | D03 | Người dùng xác nhận thu mới giảm kỳ nợ cũ trước | 14/10/2026, S22/S23 | ĐÃ CHỐT nguyên tắc, có test fixture; đồng thời/ngoại lệ/backend thật chưa nghiệm thu. |
+| FUTURE-01 | Người dùng chốt cấm phiếu có ngày ghi sổ (`posting_date`) sau ngày hiện tại theo giờ Việt Nam (Asia/Ho_Chi_Minh), chặn ở cả bước nhập, đề nghị đảo và bước duyệt. Ngày ghi sổ bằng hôm nay vẫn hợp lệ. | 16/10/2026, xác nhận trong chat khi review audit ledger 16/10 (F2) | ĐÃ CHỐT chính sách. Nhánh `fix/ledger-audit-f1-f3` sửa `tools/pg_ledger_schema.sql` và kiểm bằng harness PostgreSQL 18.6 trên dữ liệu giả; chưa migration, chưa triển khai trên DB thật. Không đổi quy tắc ngày nghiệp vụ (`event_date`) hay chính sách nhập muộn/khóa kỳ D07. |
 
 ## Gate chưa đóng
 

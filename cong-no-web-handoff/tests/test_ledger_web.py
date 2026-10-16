@@ -21,7 +21,25 @@ import ledger_app  # noqa: E402
 
 
 
-class FakeLedger:
+class ScreenDelegates:
+    """Fake one-snapshot screen reads by combining the fake per-query methods."""
+
+    def overview_screen(self, as_of, period, search=""):
+        return self.totals(as_of), self.overview(as_of, period, search)
+
+    def customer_screen(self, as_of, customer, postings_limit=1001):
+        return {"customers": self.customers(as_of, customer), "periods": self.periods(as_of, customer),
+                "pending": self.pending_for_customer(customer),
+                "postings": self.postings(as_of, customer, limit=postings_limit)}
+
+    def period_screen(self, as_of, customer, period):
+        return self.period(as_of, customer, period), self.postings(as_of, customer, period)
+
+    def proposal_screen(self, proposal_id):
+        return self.proposal(proposal_id), self.proposal_lines(proposal_id), self.proposal_audit(proposal_id)
+
+
+class FakeLedger(ScreenDelegates):
     data_scope = "fake test fixture; no live customer data"
     invalid_cutover = False
     source_workbook_sha256 = "a" * 64
@@ -654,7 +672,7 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("Dòng nguồn", body)
 
     def test_proposal_keeps_evidence_in_a_separate_detail(self):
-        class ProposalLedger:
+        class ProposalLedger(ScreenDelegates):
             def proposal(self, proposal_id):
                 return [{"status": "pending", "kind": "receipt", "total_vnd": 100,
                          "event_date": "2026-10-14", "posting_date": "2026-10-14",
@@ -678,6 +696,66 @@ class LedgerWebTest(unittest.TestCase):
     def test_unknown_historical_price_is_not_zero(self):
         self.assertEqual(ledger_app.source_vnd(None), "—")
         self.assertEqual(ledger_app.source_vnd("chưa có giá"), "CẦN KT")
+
+
+class LedgerSnapshotTest(unittest.TestCase):
+    """Each screen must read its ledger row sets in one psql statement (one snapshot)."""
+
+    def run_screen(self, stdout, call):
+        import subprocess
+        import ledger_db
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs["input"]))
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        with patch.object(ledger_db.subprocess, "run", side_effect=fake_run):
+            result = call(ledger_db.LedgerDB())
+        return result, calls
+
+    def test_overview_screen_is_one_statement(self):
+        stdout = json.dumps({"totals": [{"customers": 1}], "customers": [{"customer": "A & B"}]})
+        (totals, customers), calls = self.run_screen(
+            stdout, lambda db: db.overview_screen(date(2026, 10, 16), "2026-10", "a"))
+        self.assertEqual(totals, {"customers": 1})
+        self.assertEqual(customers, [{"customer": "A & B"}])
+        self.assertEqual(len(calls), 1)
+        command, statement = calls[0]
+        self.assertEqual(statement.count(";"), 1)
+        self.assertTrue(statement.startswith("SELECT json_build_object('totals', "))
+        self.assertIn("date=2026-10-16", command)
+        self.assertIn("period=2026-10", command)
+        self.assertIn("search=a", command)
+
+    def test_customer_period_and_proposal_screens_are_one_statement(self):
+        cases = [
+            (json.dumps({"customers": [], "periods": [], "pending": [{"proposals": 0}], "postings": []}),
+             lambda db: db.customer_screen(date(2026, 10, 16), "A & B")),
+            (json.dumps({"period": [], "postings": []}),
+             lambda db: db.period_screen(date(2026, 10, 16), "A & B", "2026-10")),
+            (json.dumps({"proposal": [], "lines": [], "audits": []}),
+             lambda db: db.proposal_screen(7)),
+        ]
+        for stdout, call in cases:
+            with self.subTest(stdout=stdout):
+                _, calls = self.run_screen(stdout, call)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0][1].count(";"), 1)
+
+    def test_conflicting_variable_is_rejected_before_psql(self):
+        import ledger_db
+        db = ledger_db.LedgerDB()
+        with patch.object(ledger_db.subprocess, "run") as run:
+            with self.assertRaises(ValueError):
+                db.snapshot(a=("SELECT :'x'", {"x": "1"}), b=("SELECT :'x'", {"x": "2"}))
+            run.assert_not_called()
+
+    def test_snapshot_shape_mismatch_is_unavailable(self):
+        import ledger_db
+        with self.assertRaises(ledger_db.LedgerUnavailable):
+            self.run_screen(json.dumps({"totals": []}),
+                            lambda db: db.overview_screen(date(2026, 10, 16), "2026-10"))
 
 
 if __name__ == "__main__":
