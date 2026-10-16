@@ -936,6 +936,65 @@ class Suite:
         self.case("structural_violations_are_rejected_with_specific_reason", {k: True for k in outcomes}, outcomes)
         self.case("rejected_payloads_created_no_proposal", proposals_before_bad, self.count("proposal"))
 
+    def g_blank_text(self) -> None:
+        self.case("null_is_blank", "true", self.query("SELECT p0_fixture.is_blank(NULL)::text"))
+        tables = ("proposal", "business_revision", "period_confirmation", "price_confirmation", "approval", "posting")
+        for field in ("customer_id", "reason", "label", "source_ref", "evidence_ref",
+                      "period_override_reason", "period_override_evidence_ref", "resolution_evidence", "approved_by"):
+            for value in ("", "\t", "\n", " \t\r\n ", "\u00a0",
+                          "\v\f\u0085\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000", " A "):
+                name, valid = f"{field}_{value!r}", value == " A "
+                if field in ("resolution_evidence", "approved_by"):
+                    column = "evidence_ref" if field == "resolution_evidence" else field
+                    before = self.count("trip_opening_resolution")
+                    evidence, approver = (value, "x") if column == "evidence_ref" else ("x", value)
+                    result = self.f.psql("BEGIN; INSERT INTO p0_fixture.trip_opening_resolution "
+                        "(trip_key,status,evidence_ref,approved_by) VALUES "
+                        f"('BLANKTEXT','{ABSENT}',{sql_literal(evidence)},"
+                        f"{sql_literal(approver)}) "
+                        f"RETURNING ({column} = {sql_literal(value)})::text; ROLLBACK;", check=False)
+                    if valid:
+                        self.case(name, (0, "true"), (result.returncode, result.stdout.strip()))
+                    else:
+                        self.rejected(name, result, "violates check constraint")
+                    self.case(name + "_no_resolution_left", before, self.count("trip_opening_resolution"))
+                    continue
+                payload = charge_payload(*self.next_trip(), customer=value if field == "customer_id" else "FAKE-BLANK",
+                                         period="2026-09", **OVERRIDE)
+                if field == "label":
+                    payload["price_components"][0]["label"] = value
+                elif field != "customer_id":
+                    payload[field] = value
+                before = [self.count(t) for t in tables]
+                result = self.submit_raw(dumps(payload), check=False)
+                if not valid and field in ("customer_id", "reason", "label"):
+                    self.rejected(name, result, "invalid per-trip price component" if field == "label"
+                                  else "invalid fixture payload fields")
+                    self.case(name + "_no_records", before, [self.count(t) for t in tables])
+                    continue
+                created = json.loads(result.stdout.strip())
+                c = Charge(created["proposal_id"], created["revision_id"], created["content_sha256"],
+                           trip_key(payload["booking_no"], payload["container_no"]), payload["customer_id"],
+                           100, "2026-09", MAKER, payload)
+                self.seed(c.key)
+                if valid:
+                    stored = json.loads(self.query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
+                                                   f"WHERE revision_id={c.revision_id}"))
+                    self.case(name + "_unchanged", value, stored["price_components"][0]["label"] if field == "label"
+                              else stored[field])
+                    self.run_to_posted(c)
+                    self.case(name + "_posted", "posted", self.snapshot(c.proposal_id)["state"])
+                    continue
+                period = field.startswith("period_override_")
+                self.call("confirm_price_revision" if period else "confirm_period_revision", self.ids(c), MAKER, check=True)
+                before = self.snapshot(c.proposal_id)
+                self.rejected(name, self.call("confirm_period_revision" if period else "confirm_price_revision",
+                              self.ids(c), MAKER), "period override evidence is required" if period else M_PRICE_BLOCK)
+                self.rejected(name + "_approval", self.approve(c), "maker confirmation required" if period
+                              else "per-trip price confirmation required")
+                self.rejected(name + "_post", self.post(c), M_POST)
+                self.case(name + "_no_records", before, self.snapshot(c.proposal_id))
+
     def g_price(self) -> None:
         customer = "FAKE-CUSTOMER-PRICE"
         zero_amount = {"total_vnd": 0, "lines": [{"line_no": 1, "customer_id": customer,
@@ -1505,6 +1564,7 @@ def main() -> int:
             ("warehouse_date", suite.g_date),
             ("posting_date", suite.g_posting_date),
             ("canonical_v3", suite.g_canonical),
+            ("blank_text", suite.g_blank_text),
             ("price", suite.g_price),
             ("actors_and_roles", suite.g_actors),
             ("revisions_and_append_only", suite.g_revision),

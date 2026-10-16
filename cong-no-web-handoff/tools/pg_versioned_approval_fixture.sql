@@ -20,6 +20,14 @@ SET search_path = pg_catalog AS $$
         '[\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]', '', 'g')
 $$;
 
+CREATE FUNCTION p0_fixture.is_blank(p_value text) RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    -- Unicode White_Space, independent of the database locale; never changes the input.
+    SELECT coalesce(p_value, '') COLLATE "C" !~
+        '[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+$$;
+
 CREATE TABLE p0_fixture.app_actor (
     actor_id uuid PRIMARY KEY,
     active boolean NOT NULL DEFAULT true
@@ -42,8 +50,8 @@ CREATE TABLE p0_fixture.trip_opening_resolution (
     trip_key text PRIMARY KEY CHECK (trip_key <> '' AND trip_key = upper(trip_key)
         AND trip_key = p0_fixture.strip_trip_whitespace(trip_key)),
     status text NOT NULL CHECK (status IN ('ABSENT_FROM_OPENING_APPROVED', 'IN_OPENING', 'UNRESOLVED')),
-    evidence_ref text NOT NULL CHECK (btrim(evidence_ref) <> ''),
-    approved_by text NOT NULL CHECK (btrim(approved_by) <> ''),
+    evidence_ref text NOT NULL CHECK (NOT p0_fixture.is_blank(evidence_ref)),
+    approved_by text NOT NULL CHECK (NOT p0_fixture.is_blank(approved_by)),
     approved_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
@@ -305,9 +313,9 @@ BEGIN
        OR jsonb_typeof(p_payload->'lines') IS DISTINCT FROM 'array' THEN
         RAISE EXCEPTION 'invalid fixture payload fields' USING ERRCODE = 'P0001';
     END IF;
-    IF length(btrim(p_payload->>'customer_id')) = 0
+    IF p0_fixture.is_blank(p_payload->>'customer_id')
        OR (p_payload->>'debt_period') COLLATE "C" !~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
-       OR length(btrim(p_payload->>'reason')) = 0 THEN
+       OR p0_fixture.is_blank(p_payload->>'reason') THEN
         RAISE EXCEPTION 'invalid fixture payload fields' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.parse_iso_date((p_payload->>'debt_period') || '-01');
@@ -366,7 +374,7 @@ BEGIN
                OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_component) AS ck(key)
                     WHERE ck.key <> ALL (ARRAY['label', 'amount_vnd']))
                OR jsonb_typeof(v_component->'label') IS DISTINCT FROM 'string'
-               OR length(btrim(v_component->>'label')) = 0 THEN
+               OR p0_fixture.is_blank(v_component->>'label') THEN
                 RAISE EXCEPTION 'invalid per-trip price component' USING ERRCODE = 'P0001';
             END IF;
             PERFORM p0_fixture.canonical_vnd(v_component->'amount_vnd');
@@ -457,14 +465,14 @@ BEGIN
         v_codes := array_append(v_codes, 'LINE_TOTAL_MISMATCH');
     END IF;
 
-    IF nullif(btrim(p_payload->>'source_ref'), '') IS NULL
-       OR nullif(btrim(p_payload->>'evidence_ref'), '') IS NULL
+    IF p0_fixture.is_blank(p_payload->>'source_ref')
+       OR p0_fixture.is_blank(p_payload->>'evidence_ref')
        OR jsonb_typeof(p_payload->'evidence_sha256') = 'null' THEN
         v_codes := array_append(v_codes, 'SOURCE_EVIDENCE_MISSING');
     END IF;
     IF left(p_payload->>'debt_period', 7) <> left(p_payload->>'warehouse_in_date', 7)
-       AND (nullif(btrim(p_payload->>'period_override_reason'), '') IS NULL
-            OR nullif(btrim(p_payload->>'period_override_evidence_ref'), '') IS NULL
+       AND (p0_fixture.is_blank(p_payload->>'period_override_reason')
+            OR p0_fixture.is_blank(p_payload->>'period_override_evidence_ref')
             OR jsonb_typeof(p_payload->'period_override_evidence_sha256') = 'null') THEN
         v_codes := array_append(v_codes, 'PERIOD_OVERRIDE_EVIDENCE_MISSING');
     END IF;
