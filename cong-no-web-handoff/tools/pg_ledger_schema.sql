@@ -136,6 +136,17 @@ LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
     SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
 $$;
 
+CREATE FUNCTION ledger.cutover_as_of() RETURNS date
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, ledger AS $$
+DECLARE v_as_of date;
+BEGIN
+    SELECT as_of INTO v_as_of FROM ledger.cutover WHERE singleton;
+    IF v_as_of IS NULL THEN
+        RAISE EXCEPTION 'ledger cutover missing';
+    END IF;
+    RETURN v_as_of;
+END $$;
+
 CREATE FUNCTION ledger.submit_entry(
     p_request_key text, p_kind text, p_total_vnd numeric,
     p_event_date date, p_posting_date date, p_source_ref text,
@@ -281,7 +292,7 @@ BEGIN
     END IF;
     INSERT INTO ledger.proposal(request_key, kind, total_vnd, event_date, posting_date,
                                 source_ref, evidence_ref, reason, maker, original_posting_id)
-    VALUES (p_request_key, 'reversal', abs(v.signed_amount_vnd), current_date,
+    VALUES (p_request_key, 'reversal', abs(v.signed_amount_vnd), ledger.business_today(),
             p_posting_date, 'reversal:' || p_original_posting_id,
             p_evidence_ref, p_reason, session_user, p_original_posting_id)
     RETURNING proposal_id INTO v_id;
@@ -316,7 +327,7 @@ LANGUAGE sql STABLE AS $$
     WITH rows AS (
         SELECT o.customer, o.debt_period, o.balance_vnd AS amount, true AS opening
         FROM ledger.opening o
-        WHERE p_date >= (SELECT as_of FROM ledger.cutover WHERE singleton)
+        WHERE p_date >= ledger.cutover_as_of()
         UNION ALL
         SELECT p.customer, p.debt_period, p.signed_amount_vnd, false
         FROM ledger.posting p WHERE p.posting_date <= p_date
@@ -334,6 +345,7 @@ GRANT SELECT ON ledger.cutover, ledger.customer, ledger.opening,
     ledger.proposal, ledger.proposal_line, ledger.posting, ledger.audit,
     ledger.balance TO ledger_maker, ledger_checker, ledger_reader;
 GRANT EXECUTE ON FUNCTION ledger.balance_as_of(date) TO ledger_maker, ledger_checker, ledger_reader;
+GRANT EXECUTE ON FUNCTION ledger.cutover_as_of() TO ledger_maker, ledger_checker, ledger_reader;
 GRANT EXECUTE ON FUNCTION ledger.submit_entry(text,text,numeric,date,date,text,text,text,jsonb)
     TO ledger_maker;
 GRANT EXECUTE ON FUNCTION ledger.request_reversal(text,bigint,date,text,text)
