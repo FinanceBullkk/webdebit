@@ -475,10 +475,15 @@ class HistoryDB(LedgerDB):
                     ORDER BY customer), '[]'::jsonb) AS items
             FROM scoped
         """, capture=provenance["capture_id"], as_of=provenance["as_of"], **filters)[0]
+        available = provenance["baseline_status"] == "AVAILABLE"
+        if not available and isinstance(result.get("items"), list):
+            # Baseline missing or not on the view date: no row's delta is known; keep the raw amount for tracing.
+            result = {**result, "items": [{**item, "old_book_delta_status": "NO_BASELINE"}
+                                          for item in result["items"]]}
         return {
             **provenance,
             **result,
-            "reconciliation_status": "AVAILABLE" if provenance["baseline_status"] == "AVAILABLE" else "NO_BASELINE",
+            "reconciliation_status": "AVAILABLE" if available else "NO_BASELINE",
         }
 
     def events_for_customer(self, capture: str, customer: str, first_period: str = "", limit: int = 2001):

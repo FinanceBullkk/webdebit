@@ -96,6 +96,7 @@ class FakeLedger(ScreenDelegates):
 class FakeHistory:
     fail_summary = False
     fail_reconciliation = False
+    reconciliation_status = "AVAILABLE"
     summary_calls = 0
     reconciliation_calls = 0
 
@@ -207,13 +208,15 @@ class FakeHistory:
              "old_book_delta_vnd": None, "old_book_delta_status": "MISSING"},
         ]
         selected = items if customer is None else [item for item in items if item["customer"] == customer]
-        return {"items": selected, "total_results": len(selected)}
+        return {"items": selected, "total_results": len(selected),
+                "reconciliation_status": self.reconciliation_status}
 
 
 class LedgerWebTest(unittest.TestCase):
     def setUp(self):
         FakeHistory.fail_summary = False
         FakeHistory.fail_reconciliation = False
+        FakeHistory.reconciliation_status = "AVAILABLE"
         FakeHistory.summary_calls = 0
         FakeHistory.reconciliation_calls = 0
         handler = type("TestLedgerHandler", (ledger_app.LedgerHandler,),
@@ -291,6 +294,16 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("customer-251", body)
         self.assertEqual(FakeHistory.summary_calls, 2)
         self.assertEqual(FakeHistory.reconciliation_calls, 1)
+
+    def test_pages_do_not_sum_old_book_delta_without_baseline_on_view_date(self):
+        for status_value in ("NO_BASELINE", None):  # missing or unknown overall status fails closed
+            FakeHistory.reconciliation_status = status_value
+            for path in ("/?as_of=2026-10-13", "/exceptions"):
+                with self.subTest(status=status_value, path=path):
+                    status, body = self.request(path)
+                    self.assertEqual(status, 200)
+                    self.assertIn("Chưa có mốc đối soát khớp ngày xem", body)
+                    self.assertNotIn("1.472 ₫", body)
 
     def test_source_exceptions_filter_page_total_and_encoded_source_link(self):
         status, body = self.request("/exceptions")
@@ -750,6 +763,42 @@ class LedgerSnapshotTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 db.snapshot(a=("SELECT :'x'", {"x": "1"}), b=("SELECT :'x'", {"x": "2"}))
             run.assert_not_called()
+
+    def reconciliations_with_baseline(self, baseline_date):
+        import ledger_db
+        db = ledger_db.HistoryDB()
+        provenance = {"capture_id": "fake", "as_of": "2026-10-13", "baseline_date": baseline_date,
+                      "baseline_status": "AVAILABLE" if baseline_date == "2026-10-13" else "NO_BASELINE"}
+        row = {"total_results": 2, "items": [
+            {"customer": "KNOWN", "reconciliation_status": "MATCH",
+             "old_book_delta_vnd": 10, "old_book_delta_status": "AVAILABLE"},
+            {"customer": "OFF", "reconciliation_status": "MISMATCH",
+             "old_book_delta_vnd": 731, "old_book_delta_status": "AVAILABLE"}]}
+        with patch.object(db, "_m1_provenance", return_value=provenance), \
+             patch.object(db, "rows", return_value=[row]):
+            return db.customer_reconciliations()
+
+    def test_baseline_not_matching_view_date_is_not_summed_as_known(self):
+        for baseline_date in (None, "2026-10-12"):
+            with self.subTest(baseline_date=baseline_date):
+                result = self.reconciliations_with_baseline(baseline_date)
+                self.assertEqual(result["reconciliation_status"], "NO_BASELINE")
+                self.assertEqual([i["old_book_delta_status"] for i in result["items"]], ["NO_BASELINE"] * 2)
+                self.assertEqual([i["old_book_delta_vnd"] for i in result["items"]], [10, 731])
+                text = ledger_app.reconciliation_overview(result["items"], False)
+                self.assertTrue(text.startswith("Chưa có mốc đối soát khớp ngày xem, nên chưa cộng chênh lệch sổ cũ."))
+                self.assertIn("2 NO_BASELINE", text)
+                self.assertNotIn("741", text)
+        self.assertTrue(ledger_app.reconciliation_overview([], False).startswith(
+            "Chưa có mốc đối soát khớp ngày xem"))
+
+    def test_baseline_matching_view_date_is_summed_as_before(self):
+        result = self.reconciliations_with_baseline("2026-10-13")
+        self.assertEqual(result["reconciliation_status"], "AVAILABLE")
+        self.assertEqual([i["old_book_delta_status"] for i in result["items"]], ["AVAILABLE"] * 2)
+        text = ledger_app.reconciliation_overview(result["items"])
+        self.assertIn("Tổng chênh sổ cũ đã biết: 741 ₫ từ 2 khách.", text)
+        self.assertNotIn("Chưa có mốc đối soát", text)
 
     def test_snapshot_shape_mismatch_is_unavailable(self):
         import ledger_db

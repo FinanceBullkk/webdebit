@@ -113,7 +113,7 @@ def reconciliation_text(item: dict | None) -> str:
     return f"Sổ cũ: chưa thể xác nhận ({status or 'UNKNOWN'})."
 
 
-def reconciliation_overview(items: list[dict]) -> str:
+def reconciliation_overview(items: list[dict], baseline_available: bool = True) -> str:
     known = [(item, amount_integer(item.get("old_book_delta_vnd"))) for item in items
              if item.get("old_book_delta_status") == "AVAILABLE"
              and item.get("reconciliation_status") in {"MATCH", "MISMATCH"}]
@@ -125,13 +125,15 @@ def reconciliation_overview(items: list[dict]) -> str:
                   for item in items)
     no_events = sum(item.get("reconciliation_status") == "NO_DB_EVENTS" for item in items)
     pending = missing + no_baseline + invalid + no_events
-    if known:
+    if not baseline_available:
+        prefix = "Chưa có mốc đối soát khớp ngày xem, nên chưa cộng chênh lệch sổ cũ."
+    elif known:
         prefix = f"Tổng chênh sổ cũ đã biết: {money(sum(value for _, value in known))} từ {len(known)} khách."
     else:
         prefix = "Chưa có chênh lệch số đã biết để cộng."
     suffix = (f" Tổng phần đã biết; còn {missing} khách thiếu chênh lệch, {no_baseline} NO_BASELINE, "
               f"{invalid} mốc trùng/không hợp lệ và {no_events} khách chưa có sự kiện DB."
-              if pending else " Toàn bộ dòng có giá trị số đã được kiểm trạng thái.")
+              if pending else "" if not baseline_available else " Toàn bộ dòng có giá trị số đã được kiểm trạng thái.")
     return prefix + suffix + " Chênh lệch chỉ thuộc khách, không phân bổ xuống kỳ."
 
 
@@ -144,7 +146,8 @@ def total_anomaly_text(summary: dict) -> str:
 
 
 def source_warning(summary: dict | None, reconciliations: list[dict] | None,
-                   target: str = "/exceptions", detail: str | None = None) -> str:
+                   target: str = "/exceptions", detail: str | None = None,
+                   baseline_available: bool = True) -> str:
     if summary is None or reconciliations is None:
         return (f'<div class="source-warning unavailable" role="status">'
                 f'<strong>Chưa kiểm được ngoại lệ nguồn.</strong> '
@@ -152,7 +155,7 @@ def source_warning(summary: dict | None, reconciliations: list[dict] | None,
     counts = (f'{count_text(summary.get("exception_count"))} ngoại lệ · '
               f'{count_text(summary.get("source_row_count"))} dòng nguồn · '
               f'{count_text(summary.get("trip_source_row_count"))} chuyến có ngoại lệ.')
-    detail_text = detail or (total_anomaly_text(summary) + " " + reconciliation_overview(reconciliations))
+    detail_text = detail or (total_anomaly_text(summary) + " " + reconciliation_overview(reconciliations, baseline_available))
     return (f'<div class="source-warning" role="status"><span><strong>Ngoại lệ nguồn:</strong> '
             f'{esc(counts)} {anchor("Xem ngoại lệ", target)}</span>'
             f'<small>{esc(detail_text)}</small></div>')
@@ -262,7 +265,8 @@ def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-
     content += (f'<section class="overview-summary" aria-label="Tổng công nợ">'
                 f'<div><span>Tổng còn nợ mọi kỳ</span><strong>{money(t["balance_vnd"])}</strong></div>'
                 f'<small>{int(t["customers"])} khách · đến {as_of.strftime("%d/%m/%Y")}</small></section>')
-    content += source_warning(summary, reconciliation_items)
+    content += source_warning(summary, reconciliation_items, baseline_available=bool(reconciliations)
+                              and reconciliations.get("reconciliation_status") == "AVAILABLE")
     period_target = exception_href({"customer_mode": "all", "customer": None,
                                     "period_mode": "exact", "period": period,
                                     "code_mode": "all", "code": None})
@@ -749,7 +753,8 @@ def render_exceptions(history: HistoryDB | None, filters: dict, page_number: int
     table = ('<section class="panel"><div class="table-wrap"><table class="exception-table">'
              '<thead><tr><th>Mã</th><th>Trạng thái</th><th>Khách</th><th>Kỳ</th>'
              f'<th>Chi tiết</th><th>Nguồn</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>{pager}</section>')
-    detail_text = total_anomaly_text(summary) + " " + reconciliation_overview(reconciliation_items)
+    detail_text = total_anomaly_text(summary) + " " + reconciliation_overview(
+        reconciliation_items, reconciliation.get("reconciliation_status") == "AVAILABLE")
     warning = source_warning(summary, reconciliation_items, exception_href(filters), detail_text)
     groups = ('<section class="exception-groups"><h2>Nhóm trong bộ lọc</h2>'
               + "".join(f'<section><h3>{title}</h3><ul>{exception_group_list(summary, key, filters)}</ul></section>'
