@@ -40,10 +40,15 @@ def run(args: list[str], *, input_text: str | None = None, env: dict[str, str] |
 
 
 class PsqlSession:
-    def __init__(self, docker: list[str], env: dict[str, str]):
+    def __init__(self, docker: list[str], env: dict[str, str], *,
+                 container: str | None = None, user: str = "postgres",
+                 database: str = DATABASE):
+        self.container = container or CONTAINER
+        if not self.container:
+            raise HarnessError("psql session requires a container")
         self.proc = subprocess.Popen(docker + ["exec", "-i", *env_args(env),
-            CONTAINER, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", "postgres",
-            "-d", DATABASE], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            self.container, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
+            "-d", database], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1)
         self.lines: queue.Queue[str | None] = queue.Queue()
         self.thread = threading.Thread(target=self._pump, daemon=True)
@@ -59,6 +64,13 @@ class PsqlSession:
         assert self.proc.stdin
         self.proc.stdin.write(sql.rstrip(";") + ";\n")
         self.proc.stdin.flush()
+
+    def execute(self, sql: str, marker: str, timeout: float = 10) -> list[str]:
+        self.send(sql)
+        assert self.proc.stdin
+        self.proc.stdin.write(f"\\echo {marker}\n")
+        self.proc.stdin.flush()
+        return self.read_until(marker, timeout)
 
     def read_until(self, marker: str, timeout: float = 10) -> list[str]:
         found: list[str] = []
@@ -83,7 +95,11 @@ class PsqlSession:
         except Exception:
             self.proc.kill()
             self.proc.wait(timeout=5)
+            self.thread.join(timeout=5)
             raise
+        self.thread.join(timeout=5)
+        if self.thread.is_alive():
+            raise HarnessError("psql output reader did not exit")
         if self.proc.returncode:
             err = self.proc.stderr.read() if self.proc.stderr else ""
             raise HarnessError(f"psql session exit {self.proc.returncode}: {err[-2000:]}")

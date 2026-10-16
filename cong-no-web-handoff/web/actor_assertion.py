@@ -44,6 +44,8 @@ def assertion_message(
 ) -> bytes:
     if action not in _ACTIONS:
         raise ValueError("unsupported actor action")
+    if type(issued_epoch) is not int:
+        raise TypeError("issued_epoch must be an int")
     if not scope or len(scope) > 512:
         raise ValueError("invalid actor assertion scope")
     fields = (
@@ -73,7 +75,7 @@ def sign_actor_assertion(
         raise ValueError("actor signing key must be at least 32 bytes")
     if not key_id or len(key_id) > 64:
         raise ValueError("invalid signing key id")
-    issued = int(time.time()) if issued_epoch is None else int(issued_epoch)
+    issued = int(time.time()) if issued_epoch is None else issued_epoch
     action_nonce = uuid.uuid4() if nonce is None else nonce
     message = assertion_message(session, action, action_nonce, issued, scope)
     signature = hmac.new(key, message, hashlib.sha256).hexdigest()

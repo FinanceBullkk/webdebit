@@ -6,6 +6,7 @@ import sys
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 
@@ -73,6 +74,22 @@ class ActorAssertionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sign_actor_assertion(self.session, "approve", "approve:7:9:abc",
                 key_id="test-key", key=b"short", nonce=self.nonce, issued_epoch=1)
+
+    def test_explicit_epoch_requires_int_and_rejects_bool_float_and_string(self):
+        for epoch in (True, 1.5, "1800000000"):
+            with self.subTest(epoch=epoch), self.assertRaises(TypeError):
+                sign_actor_assertion(self.session, "approve", "approve:7:9:abc",
+                    key_id="test-key", key=self.key, issued_epoch=epoch)
+
+    def test_none_epoch_uses_clock_and_integer_epoch_is_preserved(self):
+        with patch("actor_assertion.time.time", return_value=1_800_000_000.75):
+            current = sign_actor_assertion(self.session, "approve", "approve:7:9:abc",
+                key_id="test-key", key=self.key, issued_epoch=None, nonce=self.nonce)
+        fixed = sign_actor_assertion(self.session, "approve", "approve:7:9:abc",
+            key_id="test-key", key=self.key, issued_epoch=1_800_000_000, nonce=self.nonce)
+        self.assertEqual(current.issued_epoch, 1_800_000_000)
+        self.assertEqual(fixed.issued_epoch, 1_800_000_000)
+        self.assertEqual(current.signature, fixed.signature)
 
 
 if __name__ == "__main__":
