@@ -291,6 +291,20 @@ class M1ExportVerifyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     pg_m1_verify.verify(self.capture, self.replay, self.report)
 
+    def test_no_db_events_rejects_replayed_keys_but_accepts_keys_without_events(self):
+        for fields, filename in ((("customer", "debt_period"), "period_reconciliation.csv"),
+                                 (("customer",), "customer_reconciliation.csv")):
+            with self.subTest(fields=fields):
+                row = {"customer": "FAKE", "debt_period": "2026-10",
+                       "result": "NO_DB_EVENTS", "delta_vnd": 0}
+                row = {key: row[key] for key in (*fields, "result", "delta_vnd")}
+                path = self.report / filename
+                write_csv(path, tuple(row), [row])
+                key = tuple(row[field] for field in fields)
+                with self.assertRaisesRegex(ValueError, "NO_DB_EVENTS contradicts replayed key"):
+                    pg_m1_verify.check_reconciliation(path, fields, {key}, "Fake")
+                self.assertEqual(len(pg_m1_verify.check_reconciliation(path, fields, set(), "Fake")), 1)
+
     def test_reconciliation_must_cover_every_replayed_key(self):
         self.write_reconciliation(period=[])
         with self.assertRaisesRegex(ValueError, "Period reconciliation lacks rows"):
