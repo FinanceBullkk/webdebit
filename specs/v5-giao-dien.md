@@ -155,15 +155,33 @@ Selector trên là **hợp đồng**: giữ đúng tên `data-action`/`data-pay`
 - [ ] Tìm trong mã giao diện không còn phép cộng/trừ nào trên tiền; mọi số đến từ năm hàm của model.
 - [ ] Người dùng tự đi hết ba luồng trên bản thử và xác nhận (bước 8, không agent nào thay được).
 
+## Việc còn lại — vòng sửa 1
+
+Vòng đầu do gemini dựng, commit `a8112a0` trên `gemini/v5-giao-dien`. Bằng chứng đạt: `npm run test:unit` 17/17 PASS, 11 trạng thái chụp chạy hết, không lỗi selector, số tiền trên các màn đã xem khớp spec. Review hai tầng kết luận **CẦN SỬA**; vòng này sửa đúng những điểm dưới, **giữ nguyên phần đã đạt**.
+
+**P1 — đường tiền:**
+
+1. **Chốt chỉ đổi nhãn, không chuyển số dư** (`so-cong-no-v5-ui.js:667`). Sau khi xác nhận chốt 105 triệu, sổ mang nhãn "Đã chốt" nhưng tiền vẫn nằm ở phần "Đang mở". Dựng lại đầu vào model theo trạng thái đã chốt; **không tự cộng tiền trong UI**.
+2. **Ghi đè khoản thu đã ghi nhận** (`so-cong-no-v5-ui.js:519`). Nhập 200 triệu sau khoản 120 triệu làm khoản cũ biến mất, phân bổ tính lại, không đảo, không lưu vết. Khóa sửa khoản đã ghi nhận; nếu đỡ nhiều khoản thu thì giữ từng khoản riêng và gọi `allocateReceipt` riêng cho từng khoản.
+3. **Chuẩn hóa đầu vào làm đổi nghĩa số tiền** (`so-cong-no-v5-ui.js:24`). Đang xóa mọi ký tự ngoài chữ số, nên `-5000000` thành `5000000` và `1e6` thành `16`, rồi đưa vào model như tiền hợp lệ. Kiểm định dạng **trước**; chỉ bỏ dấu phân nhóm hợp lệ; đầu vào sai thì báo lỗi và giữ nguyên nội dung người dùng đã gõ.
+
+**P2:**
+
+4. **Dán mất cột trống ở hai đầu** (`so-cong-no-v5-ui.js:449`). `.trim()` trước khi tách cột làm tab đầu/cuối biến mất, nên dòng đủ 11 cột có STT trống hoặc Thành tiền trống bị báo thiếu cột. Giữ tab, chỉ loại dòng cuối rỗng. Cần bằng chứng cho cả hai trường hợp.
+5. **Bốn sổ còn dùng số dư dựng sẵn** (`so-cong-no-v5-ui.js:330` và `baseClients`). KHACH_B/C/D/E hiển thị tiền thẳng từ fixture, chỉ KHACH_MAU đi qua model. Giữ fixture làm đầu vào, nhưng số hiển thị phải là kết quả từ model.
+6. **Bỏ giàn giáo của mockup.** Thanh "Khung đang xem" và link "Xem đủ 10 khung để chụp ảnh" vẫn còn ở đầu trang, lại hiển thị sai trạng thái; chính link đó là cảnh báo vùng bấm 21px. Mười trạng thái giờ tới được bằng thao tác thật nên không cần bộ chọn khung nữa.
+
+**Chưa có bằng chứng, phải bổ sung trong vòng này:** thao tác xác nhận chốt chạy hết, dán dữ liệu thật, và nhập tiền sai định dạng bị chặn đúng cách.
+
 ## Phạm vi agent
 
-- Agent: gemini
+- Agent: codex
 - Mockup: ĐÃ DUYỆT `cong-no-web-handoff/preview/mockups/ux-v5-vong-2.html` · phiên bản "commit a7ea67b" · người dùng · 17/10/2026
 - Review: opus
 - Được sửa:
   - `cong-no-web-handoff/preview/so-cong-no-v5.html`
   - `cong-no-web-handoff/preview/so-cong-no-v5-ui.js`
-- Ngân sách diff: 900
+- Ngân sách diff: 400
 - Lệnh kiểm:
   - `npm run test:unit`
 - Cấm:
