@@ -164,12 +164,20 @@ Trang thật, chụp bằng thao tác thật. Giữ các `data-action` sẵn có
      "shot": "", "fullPage": true, "steps": [
        {"paste": ["[data-action=\"inline-paste\"]", "\tDEMO-110\tWH\t27/04/2026\tPHAN THIET\tSHEKOU\t\t\t\t8000000\t"]}]},
     {"name": "tien-sai-dinh-dang", "board": "04 · Gõ tiền trên dòng", "note": "Nhap -5000000: phai chan va giu nguyen noi dung da go",
-     "shot": "", "fullPage": true, "steps": [
+     "shot": "", "steps": [
        {"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"},
        {"fill": ["[data-pay=\"date\"]", "20/04/2026"]},
        {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
        {"fill": ["[data-pay=\"ref\"]", "UNC-0420"]},
        {"fill": ["[data-pay=\"amount\"]", "-5000000"]},
+       {"press": "Enter"}]},
+    {"name": "tien-sai-dinh-dang-1e6", "board": "04 · Gõ tiền trên dòng", "note": "Nhap 1e6: phai chan, giu nguyen bon o, so du khong doi",
+     "shot": "", "steps": [
+       {"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"},
+       {"fill": ["[data-pay=\"date\"]", "20/04/2026"]},
+       {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
+       {"fill": ["[data-pay=\"ref\"]", "UNC-0420"]},
+       {"fill": ["[data-pay=\"amount\"]", "1e6"]},
        {"press": "Enter"}]},
     {"name": "khoa-khoan-thu-cu", "board": "05 · Thu 120 triệu", "note": "Sau khi ghi 120 trieu, dong DEMO-105 khong con nut mo lai khoan thu",
      "shot": "", "fullPage": true, "steps": [
@@ -235,6 +243,18 @@ Review sau khi có đủ bằng chứng còn **một lỗi giao diện** và m�
 2. **Lỗi kịch bản, đã sửa — không phải việc của agent.** Trạng thái `dan-tsv-that` dùng bước `paste`, mà bước đó chỉ phát một `ClipboardEvent` tổng hợp nên không đặt giá trị vào `textarea`; textarea rỗng và màn báo "Chưa có dữ liệu để dán". Đã đổi sang `fill` cho hộp thoại, và thêm trạng thái `dan-truc-tiep-cuoi-bang` dùng `paste` cho dòng trống cuối bảng — chỗ đó app có nghe sự kiện dán thật.
 
 **Còn thiếu bằng chứng:** thông báo chặn khi nhập `-5000000` (ảnh mới chứng minh giữ nguyên nội dung, chưa thấy câu báo lỗi), và trường hợp `1e6`.
+
+## Việc còn lại — vòng sửa 3
+
+Một việc duy nhất, kèm một sửa kịch bản của người viết spec.
+
+1. **Đặt khối báo lỗi tiền ngay cạnh dòng đang nhập, không phải dưới cả bảng** (`so-cong-no-v5-ui.js:313` đặt khối, `:505-508` focus và cuộn).
+
+   Hiện khối `validation` nằm dưới bảng chuyến. Vòng trước thêm `scrollIntoView` để kéo nó vào tầm nhìn, nhưng đó là sửa triệu chứng: bảng dài ra sau khi dán nhiều dòng thì cuộn xuống cuối bảng lại **đẩy chính ô đang focus ra khỏi màn hình**, vi phạm yêu cầu thấy viền focus và làm người dùng bàn phím mất dấu.
+
+   Việc cần làm: chuyển khối lỗi lên ngay dưới dòng đang nhập tiền — cùng chỗ với thanh `Ghi tại dòng DEMO-105 · khoản thu thuộc sổ…`, nơi mockup đã dành cho thông tin của dòng đó. Giữ focus tại ô `Đã thu`. **Bỏ `scrollIntoView`.** Không đổi câu chữ của thông báo.
+
+2. **Đã sửa trong kịch bản, không phải việc của agent:** hai trạng thái `tien-sai-dinh-dang` và `tien-sai-dinh-dang-1e6` trước đây chụp `fullPage`, nên ảnh luôn chứa khối lỗi dù người dùng thật có nhìn thấy hay không — reviewer phải suy từ toạ độ tài liệu. Hai trạng thái đó nay chụp đúng khung `1500×1000` để ảnh cho thấy **cái người dùng thật sự thấy**.
 
 ## Phạm vi agent
 
