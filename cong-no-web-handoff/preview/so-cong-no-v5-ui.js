@@ -288,7 +288,12 @@
 
     const menu = S.openMenu === r.id ? `<tr class="row-menu-tr"><td colspan="11"><div class="row-menu-actions"><strong style="margin-right:auto;color:#486580">${safe(r.id)} · Thao tác trên chuyến</strong><button class="btn" data-action="row-expand" data-value="${safe(r.id)}">Bung chi tiết</button><button class="btn" data-action="row-payment" data-value="${safe(r.id)}">Ghi tiền thu</button><button class="btn danger" data-action="row-remove" data-value="${safe(r.id)}">Bỏ dòng</button></div></td></tr>` : '';
 
-    return tr + details + menu;
+    const paymentInfo = S.editingPayment && r.id === 'DEMO-105' ? `<tr><td colspan="11" style="padding:0">
+      <div class="receipt-action"><span><strong>Ghi tại dòng DEMO-105</strong> · khoản thu thuộc sổ KHACH_MAU · thanh long, tháng 04.2026. Nhập đủ bốn trường ngay trên dòng.</span><button data-action="payment-cancel" class="btn">Hủy</button><button data-action="payment-preview" class="btn primary">Xem kết quả mô phỏng</button></div>
+      ${S.paymentError ? `<div class="validation" role="alert">${safe(S.paymentError)}</div>` : ''}
+    </td></tr>` : '';
+
+    return tr + paymentInfo + details + menu;
   }
 
   function renderMainLedger() {
@@ -309,8 +314,6 @@
       </tr></thead><tbody>${rowsNow().map(renderRow).join('')}
       <tr class="add-row"><td class="idx">${rowsNow().length + 1}</td><td colspan="10"><textarea class="inline-paste-area" data-action="inline-paste" rows="1" placeholder="Dán trực tiếp từ Sheet: 11 cột, tối đa 50 dòng. Click vào đây rồi Ctrl+V…" aria-label="Dán trực tiếp chuyến vào dòng trống">${safe(S.inlinePasteInput)}</textarea></td></tr>
       </tbody></table></div>${S.inlineFeedback ? `<div class="paste-feedback">${safe(S.inlineFeedback)}</div>` : ''}${S.importWarnings.length ? `<div class="notice">${S.importWarnings.map(safe).join('<br/>')}</div>` : ''}
-      ${S.editingPayment ? `<div class="receipt-action"><span><strong>Ghi tại dòng DEMO-105</strong> · khoản thu thuộc sổ KHACH_MAU · thanh long, tháng 04.2026. Nhập đủ bốn trường ngay trên dòng.</span><button data-action="payment-cancel" class="btn">Hủy</button><button data-action="payment-preview" class="btn primary">Xem kết quả mô phỏng</button></div>` : ''}
-      ${S.editingPayment && S.paymentError ? `<div class="validation" role="alert">${safe(S.paymentError)}</div>` : ''}
       <div class="totals">
         <div class="total-line"><span class="total-label">Số dư tháng chuyển sang</span><span class="total-value">${fmtVnd('95000000')}</span></div>
         <div class="total-line"><span class="total-label">Phát sinh tháng 04 · ${totals.pricedCount} chuyến có giá</span><span class="total-value">${fmtVnd(totals.pricedTotalVnd)}</span></div>
@@ -503,9 +506,6 @@
       S.paymentError = error.message;
       render();
       document.querySelector('[data-pay="amount"]')?.focus();
-      // render() thay ca innerHTML nen trang cuon ve dau; cau bao loi nam duoi bang,
-      // ngoai khung 1000px. Keo no vao tam nhin, neu khong nguoi dung bi chan ma khong biet vi sao.
-      document.querySelector('[role="alert"]')?.scrollIntoView({ block: 'center' });
       return;
     }
     if (!dateValid(p.date) || !p.method || !p.ref.trim() || amount === null || BigInt(amount) <= 0n) {
