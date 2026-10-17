@@ -15,6 +15,8 @@ Ba vai trên 40 tuổi, quen bảng tính, làm 10–50 container mỗi ngày, m
 
 Khoản thu nằm ở bảng thu của **tháng nhận tiền**, kể cả khi nó trừ nợ kỳ cũ; cột `Phân bổ` là chỗ nói ra điều đó. Không chuyển khoản thu sang tháng bị trừ, không sửa tháng đã chốt.
 
+**Ngày thực nhận phải thuộc tháng đang nhập.** Gõ ngày của tháng khác thì báo ngay tại ô (`Ngày phải thuộc tháng đang nhập (<mm/yyyy>)`) và không lưu — khoản thu nằm ở bảng thu của tháng nhận tiền, nên ghi vào tháng khác là ghi sai chỗ. Nhập muộn cho tháng đã chốt là gate `D07`, CÒN MỞ, không làm trong lần này.
+
 Khoản **chưa có ngày thực nhận**: cột `Ngày thực nhận` hiện `—`, `Trạng thái` ghi `Chờ ngày nhận`, cột `Phân bổ` ghi `Chưa ảnh hưởng số dư`; không vào tổng đã thu và không vào số dư.
 
 CÒN MỞ — không tự quyết, không vẽ nút: ai được xác nhận chứng từ và căn cứ gì; sửa hoặc xóa một khoản thu **đã lưu**; tiền dư của khách.
@@ -68,18 +70,30 @@ Không có backend. Trạng thái trong tab, không `fetch`, không lưu trữ.
      "shot": "#app", "steps": []},
     {"name": "2-go-khoan-thu", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Đang gõ bốn ô ở dòng trống đầu bảng thu",
      "shot": "#app", "steps": [
-       {"fill": ["[data-pay=\"date\"]", "05/02/2026"]},
+       {"fill": ["[data-pay=\"date\"]", "05/04/2026"]},
        {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
-       {"fill": ["[data-pay=\"ref\"]", "CK123456"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
        {"fill": ["[data-pay=\"amount\"]", "20000000"]}]},
     {"name": "3-da-luu-khoan-thu", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Sau khi bấm Lưu dòng",
      "shot": "#app", "steps": [
-       {"fill": ["[data-pay=\"date\"]", "05/02/2026"]},
-       {"fill": ["[data-pay=\"ref\"]", "CK123456"]},
+       {"fill": ["[data-pay=\"date\"]", "05/04/2026"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
        {"fill": ["[data-pay=\"amount\"]", "20000000"]},
        {"click": "[data-action=\"payment-preview\"]"}]},
     {"name": "4-bung-phan-bo", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Bấm Xem phân bổ, bung dưới dòng thu",
      "shot": "#app", "steps": [{"click": "[data-action=\"allocation\"]"}]},
+    {"name": "6-ngay-sai-thang", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Gõ ngày của tháng khác, bị chặn ngay tại ô",
+     "shot": "#app", "steps": [
+       {"fill": ["[data-pay=\"date\"]", "05/02/2026"]},
+       {"fill": ["[data-pay=\"amount\"]", "20000000"]},
+       {"click": "[data-action=\"payment-preview\"]"}]},
+    {"name": "7-luu-hai-lan", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Bấm Lưu dòng hai lần, chỉ một khoản thu được tạo",
+     "shot": "#app", "steps": [
+       {"fill": ["[data-pay=\"date\"]", "05/04/2026"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
+       {"fill": ["[data-pay=\"amount\"]", "20000000"]},
+       {"click": "[data-action=\"payment-preview\"]"},
+       {"click": "[data-action=\"payment-preview\"]"}]},
     {"name": "5-cho-ngay-nhan", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Khoản thu chưa có ngày thực nhận",
      "shot": "#app", "steps": [{"waitFor": "[data-state=\"pending-date\"]"}]}
   ]
@@ -105,6 +119,8 @@ Kịch bản này viết trước khi có giao diện mới; chạy `-Step captu
   - Tự tính tiền trong mã giao diện.
   - Đổi câu chữ, nhãn, cỡ chữ của những phần không nằm trong thay đổi này.
   - Thêm dependency, framework, build step; `fetch`, API, localStorage.
+  - **Nới, bỏ hoặc thêm ngoại lệ cho một kiểm tra nghiệp vụ (ngày thuộc tháng đang nhập, thiếu giá, người nhập tự chốt) để chạy qua kịch bản chụp hoặc để test xanh.** Kịch bản sai thì dừng và ghi vào "Câu hỏi mở".
+  - Gắn hành vi vào một mã chuyến, mã tham chiếu hay tên khách cụ thể trong fixture (hardcode theo dữ liệu mẫu).
   - Vẽ nút xác nhận chứng từ, sửa/xóa khoản thu đã lưu, xử lý tiền dư — các điểm CÒN MỞ.
 - Khi cần vượt phạm vi: dừng, ghi vào "Câu hỏi mở".
 
