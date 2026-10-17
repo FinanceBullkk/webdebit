@@ -76,6 +76,7 @@
       rows: clone(originalRows),
       unconfirmedReceipts: clone(originalReceipts),
       editingPayment: false,
+      paymentError: '',
       paymentDraft: { date: '20/04/2026', method: 'Chuyển khoản', ref: 'UNC-0420', amount: '120.000.000' },
       confirmedReceipt: null,
       pasteInput: '',
@@ -176,7 +177,7 @@
       <div class="customer-groups">${groups.length ? groups.map(g => `<div class="group-header">${safe(g)} (${clients.filter(c => c.category === g).length})</div>${clients.filter(c => c.category === g).map(c => `
         <button data-action="customer" data-value="${safe(c.id)}" class="customer ${S.selected === c.id ? 'active' : ''}">
           <div class="customer-top"><strong>${safe(c.id)}</strong>${tag(statusName(c.status), statusColor(c.status))}</div>
-          <div class="customer-money"><div><span>Đã chốt</span><strong>${fmtVnd(c.closed)}</strong></div><div><span>Đang mở</span><strong>${c.id === 'KHACH_MAU' && c.open === 0n ? '0 · đã thu đủ' : (c.open !== 0n ? fmtVnd(c.open) : '—')}</strong></div></div>
+          <div class="customer-money"><div><span>Đã chốt</span><strong>${fmtVnd(c.closed)}</strong></div><div><span>Đang mở</span><strong>${c.id === 'KHACH_MAU' ? `${fmtVnd(c.open)}${!S.simulatedClosed && totals.pricedTotalVnd > 0n && c.open === 0n ? ' · đã thu đủ' : ''}` : (c.open !== 0n ? fmtVnd(c.open) : '—')}</strong></div></div>
           ${c.id === 'KHACH_MAU' ? `<div class="customer-warning">${totals.missingPriceIds.length ? `⚠ ${totals.missingPriceIds.length} dòng thiếu giá · ` : ''}${S.unconfirmedReceipts.length ? `${S.unconfirmedReceipts.length} chứng từ chưa xác nhận (${fmtVnd(S.unconfirmedReceipts[0].amountVnd)})` : 'Không có chứng từ chưa xác nhận'}</div>` : ''}
         </button>`).join('')}`).join('') : '<div class="empty">Không tìm thấy sổ phù hợp.</div>'}</div>
       ${S.unconfirmedReceipts.length ? `<div class="aside-footer"><strong>Chứng từ chưa xác nhận</strong><br/>KHACH_MAU · ${fmtVnd(S.unconfirmedReceipts[0].amountVnd)}<br/>Chưa có ngày nhận tiền · ngoài số dư.</div>` : ''}
@@ -199,7 +200,7 @@
     const b = balance();
     return `<div class="summary">
       <div class="stat"><span>Đã chốt</span><strong>${fmtVnd(b.closedRemainingVnd)}</strong><small>${b.closedRemainingVnd === 0n ? 'đã thu đủ' : `Còn phải thu đã chốt đến hết tháng ${S.simulatedClosed ? '04' : '03'}.2026`}</small></div>
-      <div class="stat open"><span>Đang mở · chưa chốt</span><strong>${fmtVnd(b.openRemainingVnd)}</strong><small>${b.openRemainingVnd === 0n ? 'đã thu đủ' : 'Các chuyến tháng 04.2026'}</small></div>
+      <div class="stat open"><span>Đang mở · chưa chốt</span><strong>${fmtVnd(b.openRemainingVnd)}</strong><small>${!S.simulatedClosed && model.monthTotals(rowsNow()).pricedTotalVnd > 0n && b.openRemainingVnd === 0n ? 'đã thu đủ' : 'Các chuyến tháng 04.2026'}</small></div>
       <div class="view-month"><div>THÁNG ĐANG XEM<strong>04.2026</strong></div></div>
     </div>`;
   }
@@ -309,12 +310,13 @@
       <tr class="add-row"><td class="idx">${rowsNow().length + 1}</td><td colspan="10"><textarea class="inline-paste-area" data-action="inline-paste" rows="1" placeholder="Dán trực tiếp từ Sheet: 11 cột, tối đa 50 dòng. Click vào đây rồi Ctrl+V…" aria-label="Dán trực tiếp chuyến vào dòng trống">${safe(S.inlinePasteInput)}</textarea></td></tr>
       </tbody></table></div>${S.inlineFeedback ? `<div class="paste-feedback">${safe(S.inlineFeedback)}</div>` : ''}${S.importWarnings.length ? `<div class="notice">${S.importWarnings.map(safe).join('<br/>')}</div>` : ''}
       ${S.editingPayment ? `<div class="receipt-action"><span><strong>Ghi tại dòng DEMO-105</strong> · khoản thu thuộc sổ KHACH_MAU · thanh long, tháng 04.2026. Nhập đủ bốn trường ngay trên dòng.</span><button data-action="payment-cancel" class="btn">Hủy</button><button data-action="payment-preview" class="btn primary">Xem kết quả mô phỏng</button></div>` : ''}
+      ${S.editingPayment && S.paymentError ? `<div class="validation" role="alert">${safe(S.paymentError)}</div>` : ''}
       <div class="totals">
         <div class="total-line"><span class="total-label">Số dư tháng chuyển sang</span><span class="total-value">${fmtVnd('95000000')}</span></div>
         <div class="total-line"><span class="total-label">Phát sinh tháng 04 · ${totals.pricedCount} chuyến có giá</span><span class="total-value">${fmtVnd(totals.pricedTotalVnd)}</span></div>
         <div class="total-line"><span class="total-label">Đã thu trong tháng (đã ghi nhận)</span><span class="total-value">${b.receivedVnd > 0n ? fmtVnd(b.receivedVnd) : '—'}</span></div>
         <div class="total-line"><span class="total-label"><strong>Còn phải thu cuối tháng</strong>${b.overpaymentVnd > 0n ? ' · khách trả dư · phải trả lại' : ' (phần đã chốt)'}</span><span class="total-value ${b.overpaymentVnd > 0n ? 'overpaid-text' : ''}">${fmtVnd(b.endOfMonthVnd)}</span></div>
-        <div class="total-line highlight"><span class="total-label">Đang mở · chưa chốt</span><span class="total-value">${fmtVnd(b.openRemainingVnd)}${b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}</span></div>
+        <div class="total-line highlight"><span class="total-label">Đang mở · chưa chốt</span><span class="total-value">${fmtVnd(b.openRemainingVnd)}${!S.simulatedClosed && totals.pricedTotalVnd > 0n && b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}</span></div>
         ${b.receivedVnd > 0n ? `<div style="padding-top:12px;display:flex;justify-content:flex-end"><button data-action="allocation" class="allocation-link">Xem phân bổ khoản thu ${fmtVnd(b.receivedVnd)} theo từng tháng →</button></div>` : ''}
       </div><div class="notice">${S.unconfirmedReceipts.length ? `Chứng từ ${fmtVnd(S.unconfirmedReceipts[0].amountVnd)} · ${safe(S.unconfirmedReceipts[0].id)} ghi tại dòng DEMO-103 chưa có ngày nhận tiền: <strong>chưa xác nhận, không tính vào số dư</strong>.` : 'Không có chứng từ chưa xác nhận.'} ${totals.missingPriceIds.includes('DEMO-103') ? 'DEMO-103 còn thiếu giá, chưa được tính vào phát sinh.' : ''}</div>` : ''}</section>`;
   }
@@ -392,7 +394,7 @@
         ${S.simulatedClosed ? closedSubtotal : ''}
         ${overpaymentVnd > 0n ? `<tr class="sub"><td>Không còn nợ để trừ · trả dư</td><td>${fmtVnd(overpaymentVnd)}</td></tr>` : ''}
         <tr class="grand"><td>Tổng khoản thu</td><td>${fmtVnd(receipt.amountVnd)}</td></tr></tbody></table>
-      <div class="${overpaymentVnd > 0n ? 'validation' : 'validation good'}">Đã chốt: <strong>${fmtVnd(b.closedRemainingVnd)}</strong>${b.closedRemainingVnd === 0n ? ' · đã thu đủ' : ''}. Đang mở: <strong>${fmtVnd(b.openRemainingVnd)}</strong>${b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}.
+      <div class="${overpaymentVnd > 0n ? 'validation' : 'validation good'}">Đã chốt: <strong>${fmtVnd(b.closedRemainingVnd)}</strong>${b.closedRemainingVnd === 0n ? ' · đã thu đủ' : ''}. Đang mở: <strong>${fmtVnd(b.openRemainingVnd)}</strong>${!S.simulatedClosed && openVnd !== '0' && b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}.
         ${overpaymentVnd > 0n ? `<p class="overpaid-text">Còn phải thu cuối tháng: ${fmtVnd(b.endOfMonthVnd)} · khách trả dư · phải trả lại.</p><p>Khoản dư chỉ nằm trong sổ KHACH_MAU · thanh long; không tự chuyển sang sổ khác.</p>` : ''}</div>
       <p>Số dư lịch sử tháng 01 / 02 / 03 vẫn giữ nguyên ${historical.map(h => fmtVnd(h.balance)).join(' / ')}.</p>
     </div></aside>`;
@@ -497,7 +499,15 @@
     const p = S.paymentDraft;
     let amount;
     try { amount = parseDigits(p.amount); }
-    catch (error) { alert(error.message); return; }
+    catch (error) {
+      S.paymentError = error.message;
+      render();
+      document.querySelector('[data-pay="amount"]')?.focus();
+      // render() thay ca innerHTML nen trang cuon ve dau; cau bao loi nam duoi bang,
+      // ngoai khung 1000px. Keo no vao tam nhin, neu khong nguoi dung bi chan ma khong biet vi sao.
+      document.querySelector('[role="alert"]')?.scrollIntoView({ block: 'center' });
+      return;
+    }
     if (!dateValid(p.date) || !p.method || !p.ref.trim() || amount === null || BigInt(amount) <= 0n) {
       alert('Cần nhập đủ ngày nhận tiền, cách thu, tham chiếu và số tiền nguyên dương.');
       return;
@@ -721,6 +731,7 @@
         return;
       }
       S.editingPayment = true;
+      S.paymentError = '';
       S.expanded = null;
       render();
       return;
