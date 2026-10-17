@@ -1,6 +1,6 @@
 # Lớp 2 — giao diện sổ công nợ V5 nối vào model
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 17/10/2026).
+Trạng thái: **ĐÃ TRIỂN KHAI** ở mức bản thử chạy trong tab (merge `790fa1e`); giao diện **ĐÃ CHỐT** (người dùng, 18/10/2026 — mục `V5-GD` trong [docs/decisions.md](../docs/decisions.md)). Lớp 3 (backend thật) chưa tới; bốn điểm "Còn mở" bên dưới vẫn chưa chốt.
 
 Lớp 2 của ba lớp: **lấy mockup đã duyệt, bỏ fixture cứng, nối vào model lớp 1**. Lớp 1 đã xong và đã kiểm chứng ([v5-model-tien.md](v5-model-tien.md)); lớp 3 (backend thật) là spec riêng, chưa tới.
 
