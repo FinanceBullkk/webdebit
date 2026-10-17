@@ -47,6 +47,30 @@ const LedgerV5Model = (() => {
     return { allocations, overpaymentVnd: remaining };
   }
 
+  function allocateReceipts(receipts, buckets) {
+    const balances = buckets.map(bucket => ({ ...bucket, balanceVnd: vnd(bucket.balanceVnd, true) }));
+    allocateReceipt(0n, balances); // Validate all buckets even without confirmed receipts.
+    const perReceipt = [];
+    let overpaymentVnd = 0n;
+    for (const receipt of receipts) {
+      if (receipt.receivedOn === null) continue;
+      if (typeof receipt.receivedOn !== "string" || !receipt.receivedOn.trim()) {
+        throw new Error("Missing receivedOn; use null for an unconfirmed receipt");
+      }
+      const result = allocateReceipt(receipt.amountVnd, balances);
+      // Allocations follow positive buckets in the caller's order.
+      let index = 0;
+      for (const bucket of balances) {
+        if (bucket.balanceVnd > 0n && index < result.allocations.length) {
+          bucket.balanceVnd -= result.allocations[index++].amountVnd;
+        }
+      }
+      perReceipt.push({ id: receipt.id, ...result });
+      overpaymentVnd += result.overpaymentVnd;
+    }
+    return { perReceipt, overpaymentVnd };
+  }
+
   function ledgerBalance({ closedVnd, openVnd, receipts, buckets }) {
     const closed = vnd(closedVnd);
     const open = vnd(openVnd);
@@ -88,6 +112,6 @@ const LedgerV5Model = (() => {
     return { ok: reasons.length === 0, reasons };
   }
 
-  return { lineAmount, monthTotals, allocateReceipt, ledgerBalance, canClose };
+  return { lineAmount, monthTotals, allocateReceipt, allocateReceipts, ledgerBalance, canClose };
 })();
 if (typeof module !== "undefined") module.exports = LedgerV5Model;
