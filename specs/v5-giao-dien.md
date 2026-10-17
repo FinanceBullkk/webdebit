@@ -28,7 +28,7 @@ Trang là bản thử nội bộ nên giữ ô chọn vai đăng nhập (ngườ
 
 **Điểm xuất phát đã có sẵn trong repo:** `so-cong-no-v5.html` hiện là **bản sao nguyên văn của mockup đã duyệt** (commit `8a542fe`). Giữ nguyên HTML, CSS, câu chữ, cỡ chữ, bề rộng cột. Việc của lớp này là thay phần JavaScript dựng sẵn mười khung bằng một trạng thái thật chạy trên model.
 
-**Model đã có, chỉ gọi, không viết lại:** `cong-no-web-handoff/preview/so-cong-no-v5-model.js` xuất năm hàm — `lineAmount`, `monthTotals`, `allocateReceipt`, `ledgerBalance`, `canClose`. Chữ ký và hành vi mô tả tại [v5-model-tien.md](v5-model-tien.md). Tiền là `BigInt`; chuỗi chữ số vào, `BigInt` ra.
+**Model đã có, chỉ gọi, không viết lại:** `cong-no-web-handoff/preview/so-cong-no-v5-model.js` xuất năm hàm — `lineAmount`, `monthTotals`, `allocateReceipt`, `ledgerBalance`, `canClose`. (Từ 18/10/2026 model có thêm `allocateReceipts`; xem [v6-model-phan-bo-tung-khoan.md](v6-model-phan-bo-tung-khoan.md).) Chữ ký và hành vi mô tả tại [v5-model-tien.md](v5-model-tien.md). Tiền là `BigInt`; chuỗi chữ số vào, `BigInt` ra.
 
 **Mockup gốc để đối chiếu:** `cong-no-web-handoff/preview/mockups/ux-v5-vong-2.html` — **không được sửa**, nó là mốc đã duyệt.
 

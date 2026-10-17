@@ -28,6 +28,8 @@ CÒN MỞ — không tự quyết, không vẽ nút: ai được xác nhận ch�
 - Mốc hình đã duyệt: [`cong-no-web-handoff/preview/mockups/ux-v6-bang-thu-rieng-chatgpt.png`](../cong-no-web-handoff/preview/mockups/ux-v6-bang-thu-rieng-chatgpt.png). Lấy **bố cục, tên cột, thứ tự khối, cách báo lỗi dòng**. Không lấy: bảng chuyến 11 cột dàn ngang (giữ cách bung chi tiết theo dòng đang có), tên khách và mọi con số trong ảnh.
 - `so-cong-no-v5-ui.js` (757 dòng) đã có sẵn: `data-action="allocation"`, `data-action="row-payment"`, các ô `data-pay="date|method|ref|amount"`, `data-action="payment-preview"`, `data-action="payment-cancel"`. Dùng lại các tên này cho bảng thu; phần gắn vào dòng chuyến thì bỏ.
 - Model: `LedgerV5Model.allocateReceipts` (spec lớp 1b) cho cột `Phân bổ`; `ledgerBalance` vẫn là nguồn của `Tổng kết tháng`. **Không tự tính tiền trong mã giao diện.**
+- **`id` của khoản thu phải duy nhất** trước khi ghép cột `Phân bổ`: model khớp phân bổ với khoản thu theo `id` và không tự kiểm trùng, nên `id` trùng hoặc thiếu sẽ hiện phân bổ **sai dòng**. Giao diện tự sinh `id` duy nhất cho mỗi dòng thu.
+- Khi một khoản thu dư ra và rơi vào **kỳ chưa chốt**, cột `Phân bổ` gọi đúng tên là **trả trước cho kỳ chưa chốt**, không gọi là trả nợ cũ.
 - Câu chữ đang có phải giữ nguyên: `Chờ ngày nhận`, `Chưa ảnh hưởng số dư`, `Thiếu giá`, `Dán từ bảng tính`, `Chốt công nợ tháng <mm>`, các nhãn ở `Tổng kết tháng`.
 
 ## Giao tiếp frontend–backend (bước 5)

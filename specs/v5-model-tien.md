@@ -22,7 +22,7 @@ Sai ở lớp này thì cả ba vai đều thấy số sai mà không ai biết.
 
 ## Đầu ra
 
-Một module `cong-no-web-handoff/preview/so-cong-no-v5-model.js` xuất năm hàm thuần, kèm file test chạy bằng `node --test`. Không DOM, không trạng thái toàn cục, không đọc/ghi gì bên ngoài.
+Một module `cong-no-web-handoff/preview/so-cong-no-v5-model.js` xuất năm hàm thuần, kèm file test chạy bằng `node --test`. (Hàm thứ sáu `allocateReceipts` thêm ngày 18/10/2026 theo [v6-model-phan-bo-tung-khoan.md](v6-model-phan-bo-tung-khoan.md).) Không DOM, không trạng thái toàn cục, không đọc/ghi gì bên ngoài.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
