@@ -14,6 +14,7 @@
 
   function fmtVnd(value) {
     if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'string') value = model.lineAmount({ unitPriceVnd: value, otherFeeVnd: null, plugFeeVnd: null, escortFeeVnd: null });
     const s = typeof value === 'bigint' ? value.toString() : String(value).trim();
     const isNegative = s.startsWith('-');
     const digits = isNegative ? s.slice(1) : s;
@@ -22,8 +23,10 @@
   }
 
   const parseDigits = s => {
-    const d = String(s ?? '').replace(/\D/g, '');
-    return d ? d : null;
+    const d = String(s ?? '').trim();
+    if (!d) return null;
+    if (!/^(?:\d+|\d{1,3}(?:\.\d{3})+)$/.test(d)) throw new Error('Số tiền phải là số nguyên không âm; chỉ dùng dấu chấm để phân nhóm ba chữ số.');
+    return d.replace(/\./g, '');
   };
 
   const moneyCell = n => (n === null || n === undefined) ? '—' : fmtVnd(n);
@@ -35,25 +38,12 @@
     return d.getFullYear() === +m[3] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[1] && d <= new Date('2026-10-17T23:59:59');
   };
 
-  const sceneNames = {
-    1: '01 · Sổ mặc định, có dòng thiếu giá',
-    2: '02 · Bung chi tiết và công thức thành tiền',
-    3: '03 · Dán bảng tính · 11 cột',
-    4: '04 · Gõ tiền thu ngay trên dòng',
-    5: '05 · Thu 120.000.000 và phân bổ',
-    6: '06 · Chặn chốt với hai lý do',
-    7: '07 · Người chốt hợp lệ, chứng từ vẫn treo',
-    8: '08 · Lọc hai sổ đang mở',
-    9: '09 · Xác nhận bỏ chuyến có chứng từ treo',
-    10: '10 · Khách trả dư 15.000.000'
-  };
-
   const baseClients = [
     { id: 'KHACH_MAU', category: 'Thanh long', closed: '95000000', open: '90000000', status: 'open', warn: true },
-    { id: 'KHACH_B', category: 'Thanh long', closed: '100000000', open: '0', status: 'closed' },
-    { id: 'KHACH_C', category: 'Thanh long', closed: '0', open: '0', status: 'not-open' },
-    { id: 'KHACH_D', category: 'Mít', closed: '70000000', open: '0', status: 'closed' },
-    { id: 'KHACH_E', category: 'Mít', closed: '12000000', open: '45000000', status: 'open' }
+    { id: 'KHACH_B', category: 'Thanh long', brought: '18000000', origin: '122000000', paid: '40000000', open: '0', cont: 9, status: 'closed' },
+    { id: 'KHACH_C', category: 'Thanh long', brought: '0', origin: null, paid: null, open: '0', cont: null, status: 'not-open' },
+    { id: 'KHACH_D', category: 'Mít', brought: '30000000', origin: '60000000', paid: '20000000', open: '0', cont: 3, status: 'closed' },
+    { id: 'KHACH_E', category: 'Mít', brought: '12000000', origin: null, paid: null, open: '45000000', cont: 2, status: 'open' }
   ];
 
   const originalRows = [
@@ -70,43 +60,38 @@
   let S;
   const clone = o => JSON.parse(JSON.stringify(o));
 
-  const reset = (scene = 1) => {
+  const reset = () => {
     S = {
-      scene,
       tab: 'ledger',
-      filter: scene === 8 ? 'unclosed' : 'all',
+      filter: 'all',
       search: '',
       month: '04.2026',
       selected: 'KHACH_MAU',
-      expanded: scene === 2 ? 'DEMO-105' : null,
+      expanded: null,
       openMenu: null,
       expandedMonths: new Set(['04.2026']),
-      modal: [3, 6, 7].includes(scene) ? (scene === 3 ? 'paste' : 'close') : null,
-      drawer: [5, 10].includes(scene) ? 'allocation' : null,
-      actor: scene === 7 ? 'Lê Văn C' : ([4, 5, 10].includes(scene) ? 'Trần Thị B' : 'Nguyễn Văn A'),
+      modal: null,
+      drawer: null,
+      actor: 'Nguyễn Văn A',
       rows: clone(originalRows),
       unconfirmedReceipts: clone(originalReceipts),
-      editingPayment: scene === 4,
+      editingPayment: false,
       paymentDraft: { date: '20/04/2026', method: 'Chuyển khoản', ref: 'UNC-0420', amount: '120.000.000' },
-      confirmedReceipt: scene === 5 ? { date: '20/04/2026', method: 'Chuyển khoản', ref: 'UNC-0420', amountVnd: '120000000', receivedOn: '2026-04-20' } :
-        (scene === 10 ? { date: '22/04/2026', method: 'Chuyển khoản', ref: 'UNC-0422', amountVnd: '200000000', receivedOn: '2026-04-22' } : null),
+      confirmedReceipt: null,
       pasteInput: '',
       pasteMessage: '',
       pasteOk: false,
       inlineFeedback: '',
+      inlinePasteInput: '',
       modalNotice: '',
-      showDeleteBlock: scene === 9,
-      pendingDelete: scene === 9 ? 'DEMO-103' : null,
+      showDeleteBlock: false,
+      pendingDelete: null,
       customRows: [],
       simulatedClosed: false,
       audit: [],
       importWarnings: [],
       editingRow: null,
     };
-    if (scene === 7) {
-      const d103 = S.rows.find(r => r.id === 'DEMO-103');
-      if (d103) d103.unitPriceVnd = '15000000';
-    }
   };
 
   function rowsNow() {
@@ -115,19 +100,23 @@
 
   function balance() {
     const totals = model.monthTotals(rowsNow());
-    const openVnd = totals.pricedTotalVnd.toString();
+    const openVnd = model.monthTotals(S.simulatedClosed ? [] : rowsNow()).pricedTotalVnd;
+    const closedVnd = model.monthTotals([
+      { unitPriceVnd: '95000000', otherFeeVnd: null, plugFeeVnd: null, escortFeeVnd: null },
+      ...(S.simulatedClosed ? rowsNow() : []),
+    ]).pricedTotalVnd;
     const buckets = [
       { key: 'before-T01', kind: 'closed', balanceVnd: '20000000' },
       { key: 'T01', kind: 'closed', balanceVnd: '20000000' },
       { key: 'T02', kind: 'closed', balanceVnd: '30000000' },
       { key: 'T03', kind: 'closed', balanceVnd: '25000000' },
-      { key: 'T04', kind: 'open', balanceVnd: openVnd },
+      { key: 'T04', kind: S.simulatedClosed ? 'closed' : 'open', balanceVnd: totals.pricedTotalVnd },
     ];
     const receipts = [];
     if (S.confirmedReceipt) receipts.push(S.confirmedReceipt);
     for (const r of S.unconfirmedReceipts) receipts.push(r);
     return model.ledgerBalance({
-      closedVnd: '95000000',
+      closedVnd,
       openVnd,
       receipts,
       buckets,
@@ -147,7 +136,14 @@
           warn: !S.simulatedClosed && totals.missingPriceIds.length > 0,
         };
       }
-      return c;
+      const lines = [c.brought, c.origin].map(unitPriceVnd => ({ unitPriceVnd, otherFeeVnd: null, plugFeeVnd: null, escortFeeVnd: null }));
+      const closedVnd = model.monthTotals(lines).pricedTotalVnd;
+      const openVnd = model.lineAmount({ unitPriceVnd: c.open, otherFeeVnd: null, plugFeeVnd: null, escortFeeVnd: null });
+      const result = model.ledgerBalance({ closedVnd, openVnd,
+        receipts: c.paid === null ? [] : [{ amountVnd: c.paid, receivedOn: '2026-04-20' }],
+        buckets: [{ key: 'closed', kind: 'closed', balanceVnd: closedVnd }, { key: 'open', kind: 'open', balanceVnd: openVnd }],
+      });
+      return { ...c, closed: result.closedRemainingVnd, open: result.openRemainingVnd };
     });
   }
 
@@ -180,7 +176,7 @@
       <div class="customer-groups">${groups.length ? groups.map(g => `<div class="group-header">${safe(g)} (${clients.filter(c => c.category === g).length})</div>${clients.filter(c => c.category === g).map(c => `
         <button data-action="customer" data-value="${safe(c.id)}" class="customer ${S.selected === c.id ? 'active' : ''}">
           <div class="customer-top"><strong>${safe(c.id)}</strong>${tag(statusName(c.status), statusColor(c.status))}</div>
-          <div class="customer-money"><div><span>Đã chốt</span><strong>${fmtVnd(c.closed)}</strong></div><div><span>Đang mở</span><strong>${c.id === 'KHACH_MAU' && c.open === 0n ? '0 · đã thu đủ' : (c.open && c.open !== '0' ? fmtVnd(c.open) : '—')}</strong></div></div>
+          <div class="customer-money"><div><span>Đã chốt</span><strong>${fmtVnd(c.closed)}</strong></div><div><span>Đang mở</span><strong>${c.id === 'KHACH_MAU' && c.open === 0n ? '0 · đã thu đủ' : (c.open !== 0n ? fmtVnd(c.open) : '—')}</strong></div></div>
           ${c.id === 'KHACH_MAU' ? `<div class="customer-warning">${totals.missingPriceIds.length ? `⚠ ${totals.missingPriceIds.length} dòng thiếu giá · ` : ''}${S.unconfirmedReceipts.length ? `${S.unconfirmedReceipts.length} chứng từ chưa xác nhận (${fmtVnd(S.unconfirmedReceipts[0].amountVnd)})` : 'Không có chứng từ chưa xác nhận'}</div>` : ''}
         </button>`).join('')}`).join('') : '<div class="empty">Không tìm thấy sổ phù hợp.</div>'}</div>
       ${S.unconfirmedReceipts.length ? `<div class="aside-footer"><strong>Chứng từ chưa xác nhận</strong><br/>KHACH_MAU · ${fmtVnd(S.unconfirmedReceipts[0].amountVnd)}<br/>Chưa có ngày nhận tiền · ngoài số dư.</div>` : ''}
@@ -202,7 +198,7 @@
   function renderSummary() {
     const b = balance();
     return `<div class="summary">
-      <div class="stat"><span>Đã chốt</span><strong>${fmtVnd(b.closedRemainingVnd)}</strong><small>${b.closedRemainingVnd === 0n ? 'đã thu đủ' : 'Còn phải thu đã chốt đến hết tháng 03.2026'}</small></div>
+      <div class="stat"><span>Đã chốt</span><strong>${fmtVnd(b.closedRemainingVnd)}</strong><small>${b.closedRemainingVnd === 0n ? 'đã thu đủ' : `Còn phải thu đã chốt đến hết tháng ${S.simulatedClosed ? '04' : '03'}.2026`}</small></div>
       <div class="stat open"><span>Đang mở · chưa chốt</span><strong>${fmtVnd(b.openRemainingVnd)}</strong><small>${b.openRemainingVnd === 0n ? 'đã thu đủ' : 'Các chuyến tháng 04.2026'}</small></div>
       <div class="view-month"><div>THÁNG ĐANG XEM<strong>04.2026</strong></div></div>
     </div>`;
@@ -228,7 +224,7 @@
     }
     if (r.id === 'DEMO-105' && S.confirmedReceipt) {
       const x = S.confirmedReceipt;
-      return `<td><button class="container-link" data-action="row-payment" data-value="${safe(r.id)}" style="display:inline-block;width:100%;text-align:left;color:inherit;text-decoration:none;min-height:40px;padding:0">${safe(x.date)}</button></td><td>${safe(x.method)}</td><td>${safe(x.ref)}</td><td class="numeric">${fmtVnd(x.amountVnd)}</td>`;
+      return `<td>${safe(x.date)}</td><td>${safe(x.method)}</td><td>${safe(x.ref)}</td><td class="numeric">${fmtVnd(x.amountVnd)}</td>`;
     }
     const rec = S.unconfirmedReceipts.find(x => x.enteredAt === r.id);
     if (rec) {
@@ -287,7 +283,7 @@
     ];
     const details = S.expanded === r.id ? `<tr class="expanded-row"><td colspan="11"><div class="details">${detailItems.map(([name, key, val]) => `<div><label>${safe(name)}</label>${isDraft && key !== 'receipt' ? `<input data-edit-row="${safe(r.id)}" data-col="${key}" value="${safe(val === '—' ? '' : val)}" />` : `<strong>${safe(val || '—')}</strong>`}</div>`).join('')}
       <div class="formula-detail">Thành tiền = Đơn giá + Phí khác + Phí cắm điện cảng + Phí áp tải<br/>${moneyCell(r.unitPriceVnd)} + ${r.otherFeeVnd === null ? '—' : fmtVnd(r.otherFeeVnd)} + ${r.plugFeeVnd === null ? '—' : fmtVnd(r.plugFeeVnd)} + ${r.escortFeeVnd === null ? '—' : fmtVnd(r.escortFeeVnd)} = ${modelAmount === null ? 'Chưa có dữ liệu' : fmtVnd(modelAmount)}. Phí trống là không phát sinh phí.</div>
-      </div><div class="details-bottom"><span>${r.id === 'DEMO-103' ? '5.000.000 được ghi tại dòng DEMO-103, là khoản thu của sổ tháng 04; chưa có ngày nhận tiền nên chưa xác nhận.' : 'Bung chi tiết đầy đủ mà không cần bật cột cho cả bảng.'}</span><button data-action="expand-row" data-value="${safe(r.id)}" class="btn">Thu gọn</button></div></td></tr>` : '';
+      </div><div class="details-bottom"><span>${r.id === 'DEMO-103' ? `${fmtVnd('5000000')} được ghi tại dòng DEMO-103, là khoản thu của sổ tháng 04; chưa có ngày nhận tiền nên chưa xác nhận.` : 'Bung chi tiết đầy đủ mà không cần bật cột cho cả bảng.'}</span><button data-action="expand-row" data-value="${safe(r.id)}" class="btn">Thu gọn</button></div></td></tr>` : '';
 
     const menu = S.openMenu === r.id ? `<tr class="row-menu-tr"><td colspan="11"><div class="row-menu-actions"><strong style="margin-right:auto;color:#486580">${safe(r.id)} · Thao tác trên chuyến</strong><button class="btn" data-action="row-expand" data-value="${safe(r.id)}">Bung chi tiết</button><button class="btn" data-action="row-payment" data-value="${safe(r.id)}">Ghi tiền thu</button><button class="btn danger" data-action="row-remove" data-value="${safe(r.id)}">Bỏ dòng</button></div></td></tr>` : '';
 
@@ -310,11 +306,11 @@
         <th class="amount numeric">Thành tiền</th><th class="datepay">Ngày nhận tiền</th><th class="method">Cách thu</th>
         <th class="ref">Tham chiếu</th><th class="paid numeric">Đã thu</th><th class="state">Tình trạng</th><th class="extra"></th>
       </tr></thead><tbody>${rowsNow().map(renderRow).join('')}
-      <tr class="add-row"><td class="idx">${rowsNow().length + 1}</td><td colspan="10"><textarea class="inline-paste-area" data-action="inline-paste" rows="1" placeholder="Dán trực tiếp từ Sheet: 11 cột, tối đa 50 dòng. Click vào đây rồi Ctrl+V…" aria-label="Dán trực tiếp chuyến vào dòng trống"></textarea></td></tr>
+      <tr class="add-row"><td class="idx">${rowsNow().length + 1}</td><td colspan="10"><textarea class="inline-paste-area" data-action="inline-paste" rows="1" placeholder="Dán trực tiếp từ Sheet: 11 cột, tối đa 50 dòng. Click vào đây rồi Ctrl+V…" aria-label="Dán trực tiếp chuyến vào dòng trống">${safe(S.inlinePasteInput)}</textarea></td></tr>
       </tbody></table></div>${S.inlineFeedback ? `<div class="paste-feedback">${safe(S.inlineFeedback)}</div>` : ''}${S.importWarnings.length ? `<div class="notice">${S.importWarnings.map(safe).join('<br/>')}</div>` : ''}
       ${S.editingPayment ? `<div class="receipt-action"><span><strong>Ghi tại dòng DEMO-105</strong> · khoản thu thuộc sổ KHACH_MAU · thanh long, tháng 04.2026. Nhập đủ bốn trường ngay trên dòng.</span><button data-action="payment-cancel" class="btn">Hủy</button><button data-action="payment-preview" class="btn primary">Xem kết quả mô phỏng</button></div>` : ''}
       <div class="totals">
-        <div class="total-line"><span class="total-label">Số dư tháng chuyển sang</span><span class="total-value">95.000.000</span></div>
+        <div class="total-line"><span class="total-label">Số dư tháng chuyển sang</span><span class="total-value">${fmtVnd('95000000')}</span></div>
         <div class="total-line"><span class="total-label">Phát sinh tháng 04 · ${totals.pricedCount} chuyến có giá</span><span class="total-value">${fmtVnd(totals.pricedTotalVnd)}</span></div>
         <div class="total-line"><span class="total-label">Đã thu trong tháng (đã ghi nhận)</span><span class="total-value">${b.receivedVnd > 0n ? fmtVnd(b.receivedVnd) : '—'}</span></div>
         <div class="total-line"><span class="total-label"><strong>Còn phải thu cuối tháng</strong>${b.overpaymentVnd > 0n ? ' · khách trả dư · phải trả lại' : ' (phần đã chốt)'}</span><span class="total-value ${b.overpaymentVnd > 0n ? 'overpaid-text' : ''}">${fmtVnd(b.endOfMonthVnd)}</span></div>
@@ -326,14 +322,11 @@
   function renderTotal() {
     const b = balance();
     const data = [
-      { name: 'KHACH_MAU', cat: 'Thanh long', brought: '95000000', origin: null, paid: b.receivedVnd > 0n ? b.receivedVnd : null, closed: b.endOfMonthVnd, open: b.openRemainingVnd, cont: rowsNow().length, status: S.simulatedClosed ? 'closed' : 'open' },
-      { name: 'KHACH_B', cat: 'Thanh long', brought: '18000000', origin: '122000000', paid: '40000000', closed: '100000000', open: '0', cont: 9, status: 'closed' },
-      { name: 'KHACH_C', cat: 'Thanh long', brought: '0', origin: null, paid: null, closed: '0', open: '0', cont: null, status: 'not-open' },
-      { name: 'KHACH_D', cat: 'Mít', brought: '30000000', origin: '60000000', paid: '20000000', closed: '70000000', open: '0', cont: 3, status: 'closed' },
-      { name: 'KHACH_E', cat: 'Mít', brought: '12000000', origin: null, paid: null, closed: '12000000', open: '45000000', cont: 2, status: 'open' }
+      { name: 'KHACH_MAU', cat: 'Thanh long', brought: '95000000', origin: S.simulatedClosed ? model.monthTotals(rowsNow()).pricedTotalVnd : null, paid: b.receivedVnd > 0n ? b.receivedVnd : null, closed: b.endOfMonthVnd, open: b.openRemainingVnd, cont: rowsNow().length, status: S.simulatedClosed ? 'closed' : 'open' },
+      ...currentClients().filter(c => c.id !== 'KHACH_MAU').map(c => ({ ...c, name: c.id, cat: c.category })),
     ];
     return `<div class="demo-strip"><strong>TỔNG · THÁNG 04.2026</strong><span>Bấm một khách để mở sổ của khách đó.</span></div><div class="table-card"><table class="total-table"><thead><tr><th>Loại hàng</th><th>Khách</th><th>Số dư chuyển sang</th><th>Phát sinh đã chốt</th><th>Đã thu</th><th>Còn phải thu cuối tháng</th><th>Đang mở</th><th>Số cont</th><th>Trạng thái</th></tr></thead><tbody>
-    ${data.map(d => `<tr data-action="customer" data-value="${d.name}"><td>${d.cat}</td><td><strong>${d.name}</strong></td><td class="numeric">${fmtVnd(d.brought)}</td><td class="numeric">${moneyCell(d.origin)}</td><td class="numeric">${moneyCell(d.paid)}</td><td class="numeric">${fmtVnd(d.closed)}</td><td class="numeric">${d.open && d.open !== '0' ? fmtVnd(d.open) : '—'}</td><td>${d.cont ?? '—'}</td><td>${tag(statusName(d.status), statusColor(d.status))}</td></tr>`).join('')}</tbody></table></div>`;
+    ${data.map(d => `<tr data-action="customer" data-value="${d.name}"><td>${d.cat}</td><td><strong>${d.name}</strong></td><td class="numeric">${fmtVnd(d.brought)}</td><td class="numeric">${moneyCell(d.origin)}</td><td class="numeric">${moneyCell(d.paid)}</td><td class="numeric">${fmtVnd(d.closed)}</td><td class="numeric">${d.open !== 0n ? fmtVnd(d.open) : '—'}</td><td>${d.cont ?? '—'}</td><td>${tag(statusName(d.status), statusColor(d.status))}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   function renderModal() {
@@ -359,7 +352,7 @@
       return `<div class="overlay" role="dialog" aria-modal="true"><div class="dialog small"><div class="dialog-head"><h2>${errors.length ? 'Không thể chốt công nợ tháng 04' : 'Xem lại để chốt công nợ tháng 04'}</h2><button class="x-close" data-action="close-modal">×</button></div><div class="dialog-body">
       <p>Đăng nhập: <strong>${safe(roleName())}</strong> · ${safe(roleTitle())}</p><div class="review-stats"><div><small>Chuyến có giá</small><strong>${pr.pricedCount}</strong></div><div><small>Tổng phát sinh</small><strong>${fmtVnd(pr.pricedTotalVnd)}</strong></div><div><small>Dòng thiếu giá</small><strong>${pr.missingPriceIds.length}</strong></div></div>
       ${errors.length ? `<div class="validation"><strong>Không thể chốt vì ${errors.length} lý do:</strong><ol class="blockers">${errors.map(e => `<li>${safe(e)}</li>`).join('')}</ol></div>` : `<p>Người chốt: <strong>${safe(roleName())}</strong>. Chốt cả tháng, không chốt từng chuyến.</p>
-      <div class="box-note">DEMO-103 được bổ sung đơn giá giả định 15.000.000. <strong>Chốt tháng vẫn được phép khi chứng từ ${S.unconfirmedReceipts[0]?.id || 'CT-CHO-05'} · 5.000.000 chưa xác nhận.</strong> Sau chốt, chứng từ vẫn treo và vẫn ngoài số dư.</div>`}
+      <div class="box-note">DEMO-103 được bổ sung đơn giá giả định ${fmtVnd('15000000')}. <strong>Chốt tháng vẫn được phép khi chứng từ ${S.unconfirmedReceipts[0]?.id || 'CT-CHO-05'} · ${fmtVnd('5000000')} chưa xác nhận.</strong> Sau chốt, chứng từ vẫn treo và vẫn ngoài số dư.</div>`}
       ${S.modalNotice ? `<div class="validation">${safe(S.modalNotice)}</div>` : ''}
       </div><div class="dialog-footer"><button data-action="close-modal" class="btn">Quay lại sổ</button>${!errors.length ? '<button class="btn primary" data-action="close-sim">Chốt công nợ tháng 04</button>' : ''}</div></div></div>`;
     }
@@ -368,13 +361,8 @@
 
   function renderDrawer() {
     if (S.drawer !== 'allocation') return '';
-    const receipt = S.confirmedReceipt || {
-      date: '20/04/2026',
-      method: 'Chuyển khoản',
-      ref: 'UNC-0420',
-      amountVnd: '120000000',
-      receivedOn: '2026-04-20',
-    };
+    const receipt = S.confirmedReceipt;
+    if (!receipt) return '';
     const b = balance();
     const openVnd = model.monthTotals(rowsNow()).pricedTotalVnd.toString();
     const buckets = [
@@ -382,12 +370,15 @@
       { key: 'T01', kind: 'closed', balanceVnd: '20000000' },
       { key: 'T02', kind: 'closed', balanceVnd: '30000000' },
       { key: 'T03', kind: 'closed', balanceVnd: '25000000' },
-      { key: 'T04', kind: 'open', balanceVnd: openVnd },
+      { key: 'T04', kind: S.simulatedClosed ? 'closed' : 'open', balanceVnd: openVnd },
     ];
     const { allocations, overpaymentVnd } = model.allocateReceipt(receipt.amountVnd, buckets);
     const allocMap = {};
     for (const a of allocations) allocMap[a.key] = a.amountVnd;
-    const closedAllocatedVnd = model.allocateReceipt(receipt.amountVnd, [{ key: 'closed', kind: 'closed', balanceVnd: '95000000' }]).allocations[0]?.amountVnd ?? 0n;
+    const closedAllocatedVnd = model.monthTotals(allocations.filter(a => a.kind === 'closed').map(a => ({
+      unitPriceVnd: a.amountVnd, otherFeeVnd: null, plugFeeVnd: null, escortFeeVnd: null,
+    }))).pricedTotalVnd;
+    const closedSubtotal = `<tr class="sub"><td>${b.closedRemainingVnd === 0n ? 'Hết phần đã chốt' : 'Phần đã chốt'}</td><td>${fmtVnd(closedAllocatedVnd)}</td></tr>`;
 
     return `<div class="drawer-shade" data-action="drawer-close"></div><aside class="drawer"><div class="dialog-head"><h2>Phân bổ khoản thu ${fmtVnd(receipt.amountVnd)}</h2><button class="x-close" data-action="drawer-close">×</button></div><div class="dialog-body">
       <p><strong>Ngày nhận tiền:</strong> ${safe(receipt.date)}<br/><strong>Cách thu:</strong> ${safe(receipt.method)}<br/><strong>Tham chiếu:</strong> ${safe(receipt.ref)}<br/><strong>Ghi tại dòng:</strong> DEMO-105 · sổ KHACH_MAU · thanh long · tháng 04.2026<br/><strong>Phủ nhóm:</strong> DEMO-105, DEMO-106, DEMO-107</p>
@@ -396,38 +387,25 @@
         <tr><td>Tháng 01.2026</td><td>${fmtVnd(allocMap['T01'] ?? 0n)}</td></tr>
         <tr><td>Tháng 02.2026</td><td>${fmtVnd(allocMap['T02'] ?? 0n)}</td></tr>
         <tr><td>Tháng 03.2026</td><td>${fmtVnd(allocMap['T03'] ?? 0n)}</td></tr>
-        <tr class="sub"><td>Hết phần đã chốt</td><td>${fmtVnd(closedAllocatedVnd)}</td></tr>
-        <tr><td>Tháng 04.2026 · đang mở</td><td>${fmtVnd(allocMap['T04'] ?? 0n)}</td></tr>
+        ${S.simulatedClosed ? '' : closedSubtotal}
+        <tr><td>Tháng 04.2026 · ${S.simulatedClosed ? 'đã chốt' : 'đang mở'}</td><td>${fmtVnd(allocMap['T04'] ?? 0n)}</td></tr>
+        ${S.simulatedClosed ? closedSubtotal : ''}
         ${overpaymentVnd > 0n ? `<tr class="sub"><td>Không còn nợ để trừ · trả dư</td><td>${fmtVnd(overpaymentVnd)}</td></tr>` : ''}
         <tr class="grand"><td>Tổng khoản thu</td><td>${fmtVnd(receipt.amountVnd)}</td></tr></tbody></table>
-      <div class="${overpaymentVnd > 0n ? 'validation' : 'validation good'}">Đã chốt: <strong>${fmtVnd(b.closedRemainingVnd)}</strong> · đã thu đủ. Đang mở: <strong>${fmtVnd(b.openRemainingVnd)}</strong>${b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}.
-        ${overpaymentVnd > 0n ? `<p class="overpaid-text">Còn phải thu cuối tháng: −${fmtVnd(overpaymentVnd)} · khách trả dư · phải trả lại.</p><p>Khoản dư chỉ nằm trong sổ KHACH_MAU · thanh long; không tự chuyển sang sổ khác.</p>` : ''}</div>
-      <p>Số dư lịch sử tháng 01 / 02 / 03 vẫn giữ nguyên 40.000.000 / 70.000.000 / 95.000.000.</p>
+      <div class="${overpaymentVnd > 0n ? 'validation' : 'validation good'}">Đã chốt: <strong>${fmtVnd(b.closedRemainingVnd)}</strong>${b.closedRemainingVnd === 0n ? ' · đã thu đủ' : ''}. Đang mở: <strong>${fmtVnd(b.openRemainingVnd)}</strong>${b.openRemainingVnd === 0n ? ' · đã thu đủ' : ''}.
+        ${overpaymentVnd > 0n ? `<p class="overpaid-text">Còn phải thu cuối tháng: ${fmtVnd(b.endOfMonthVnd)} · khách trả dư · phải trả lại.</p><p>Khoản dư chỉ nằm trong sổ KHACH_MAU · thanh long; không tự chuyển sang sổ khác.</p>` : ''}</div>
+      <p>Số dư lịch sử tháng 01 / 02 / 03 vẫn giữ nguyên ${historical.map(h => fmtVnd(h.balance)).join(' / ')}.</p>
     </div></aside>`;
   }
-
-  const GALLERY = new URLSearchParams(location.search).get('gallery') === '1';
-  const initialScene = Number(new URLSearchParams(location.search).get('scene')) || 1;
 
   function renderScreen() {
     return `<div class="app">${renderSidebar()}<main class="main">${renderTop()}<div class="content"><div class="demo-strip"><strong>Chỉ mô phỏng · không kết nối dữ liệu thật</strong><span>THÁNG 04.2026</span></div>${S.tab === 'total' ? renderTotal() : renderMainLedger()}${S.audit.length ? `<div class="audit-box"><strong>Lịch sử thao tác trong trang:</strong>${S.audit.map(a => `<div>${safe(a)}</div>`).join('')}</div>` : ''}</div></main></div>${renderModal()}${renderDrawer()}`;
   }
 
   function render() {
-    if (GALLERY) {
-      let frames = '';
-      const previousScene = S.scene;
-      for (let i = 1; i <= 10; i++) {
-        reset(i);
-        frames += `<div class="gallery-block"><div class="scene-nav"><h2 class="frame-heading">${safe(sceneNames[i])}</h2><a href="?scene=${i}">Mở bản tương tác</a></div><section id="khung-${String(i).padStart(2, '0')}" class="scene-frame" aria-label="${safe(sceneNames[i])}">${renderScreen()}</section></div>`;
-      }
-      document.body.classList.add('gallery-mode');
-      document.getElementById('app').innerHTML = `<div class="gallery-top"><h1>V5 · 10 khung giao diện</h1><p>Chọn “Mở bản tương tác” ở từng khung để sử dụng nút bấm và thử thao tác.</p></div>${frames}${renderOutsideNotes()}`;
-      reset(previousScene);
-      return;
-    }
-    const id = `khung-${String(S.scene).padStart(2, '0')}`;
-    document.getElementById('app').innerHTML = `<div class="gallery-top"><div class="scene-nav"><label for="scene-select"><strong>Khung đang xem</strong></label><select id="scene-select" class="scene-picker" data-action="scene">${Object.entries(sceneNames).map(([i, name]) => `<option value="${i}" ${S.scene === +i ? 'selected' : ''}>${safe(name)}</option>`).join('')}</select><a href="?gallery=1">Xem đủ 10 khung để chụp ảnh</a></div></div><section id="${id}" class="scene-frame">${renderScreen()}</section>${renderOutsideNotes()}`;
+    const invalid = document.querySelector('[data-edit-row]:invalid');
+    if (invalid) { invalid.reportValidity(); return; }
+    document.getElementById('app').innerHTML = `<section id="khung-01" class="scene-frame">${renderScreen()}</section>${renderOutsideNotes()}`;
   }
 
   function renderOutsideNotes() {
@@ -446,13 +424,13 @@
   }
 
   function checkPaste(text = S.pasteInput) {
-    const txt = (text || '').trim();
-    if (!txt) {
+    const lines = (text || '').replace(/\r/g, '').split('\n');
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    if (!lines.length) {
       S.pasteMessage = 'Chưa có dữ liệu để dán.';
       S.pasteOk = false;
       return null;
     }
-    const lines = txt.replace(/\r/g, '').split('\n').filter(Boolean);
     if (lines.length > 50) {
       S.pasteMessage = 'Tối đa 50 dòng mỗi lần dán. Không nhận dòng nào.';
       S.pasteOk = false;
@@ -474,17 +452,24 @@
         S.pasteOk = false;
         return null;
       }
+      let amounts;
+      try { amounts = f.slice(6).map(parseDigits); }
+      catch (error) {
+        S.pasteMessage = `Dòng ${i + 1}: ${error.message} Không nhận dòng nào.`;
+        S.pasteOk = false;
+        return null;
+      }
       const row = {
         id,
         carrier: f[2].trim(),
         date,
         from: f[4].trim(),
         to: f[5].trim(),
-        otherFeeVnd: parseDigits(f[6]),
-        plugFeeVnd: parseDigits(f[7]),
-        escortFeeVnd: parseDigits(f[8]),
-        unitPriceVnd: parseDigits(f[9]),
-        pastedAmountVnd: parseDigits(f[10]),
+        otherFeeVnd: amounts[0],
+        plugFeeVnd: amounts[1],
+        escortFeeVnd: amounts[2],
+        unitPriceVnd: amounts[3],
+        pastedAmountVnd: amounts[4],
       };
       if (row.unitPriceVnd === null) {
         warnings.push(`Dòng ${i + 1} (${row.id}): chưa có giá.`);
@@ -507,9 +492,12 @@
   }
 
   function previewPayment() {
+    if (S.confirmedReceipt) return;
     setPayFromDOM();
     const p = S.paymentDraft;
-    const amount = parseDigits(p.amount);
+    let amount;
+    try { amount = parseDigits(p.amount); }
+    catch (error) { alert(error.message); return; }
     if (!dateValid(p.date) || !p.method || !p.ref.trim() || amount === null || BigInt(amount) <= 0n) {
       alert('Cần nhập đủ ngày nhận tiền, cách thu, tham chiếu và số tiền nguyên dương.');
       return;
@@ -555,10 +543,12 @@
 
   document.addEventListener('paste', ev => {
     if (ev.target.dataset.action !== 'inline-paste') return;
+    if (S.simulatedClosed) { ev.preventDefault(); return; }
     const content = ev.clipboardData?.getData('text/plain') || '';
     if (!content) return;
     ev.preventDefault();
     const incoming = checkPaste(content);
+    S.inlinePasteInput = incoming ? '' : content;
     if (incoming) {
       S.customRows.push(...incoming);
       S.inlineFeedback = `Đã thêm ${incoming.length} chuyến vào tháng 04 (chỉ trong bản mẫu).`;
@@ -570,15 +560,27 @@
 
   document.addEventListener('input', ev => {
     if (ev.target.dataset.editRow) {
+      if (S.simulatedClosed) return;
       const field = ev.target.dataset.col;
       const id = ev.target.dataset.editRow;
       const row = rowsNow().find(r => r.id === id);
       if (row) {
+        let amount;
+        if (['price', 'unitPriceVnd', 'other', 'plug', 'escort', 'otherFeeVnd', 'plugFeeVnd', 'escortFeeVnd'].includes(field)) {
+          try {
+            amount = parseDigits(ev.target.value);
+            ev.target.setCustomValidity('');
+          } catch (error) {
+            ev.target.setCustomValidity(error.message);
+            ev.target.reportValidity();
+            return;
+          }
+        }
         if (field === 'price' || field === 'unitPriceVnd') {
-          row.unitPriceVnd = parseDigits(ev.target.value);
+          row.unitPriceVnd = amount;
         } else if (['other', 'plug', 'escort', 'otherFeeVnd', 'plugFeeVnd', 'escortFeeVnd'].includes(field)) {
           const map = { other: 'otherFeeVnd', plug: 'plugFeeVnd', escort: 'escortFeeVnd', otherFeeVnd: 'otherFeeVnd', plugFeeVnd: 'plugFeeVnd', escortFeeVnd: 'escortFeeVnd' };
-          row[map[field]] = parseDigits(ev.target.value);
+          row[map[field]] = amount;
         } else if (field === 'id') {
           row.id = ev.target.value;
           ev.target.dataset.editRow = row.id;
@@ -608,10 +610,6 @@
   });
 
   document.addEventListener('change', ev => {
-    if (ev.target.dataset.action === 'scene') {
-      reset(+ev.target.value);
-      render();
-    }
     if (ev.target.dataset.action === 'actor') {
       S.actor = ev.target.value;
       render();
@@ -631,6 +629,8 @@
     }
     if (ev.key === 'Enter' && ev.target.dataset.editRow) {
       ev.preventDefault();
+      const invalid = document.querySelector('[data-edit-row]:invalid');
+      if (invalid) { invalid.reportValidity(); return; }
       S.editingRow = null;
       S.inlineFeedback = 'Đã cập nhật dòng trong bản mẫu (không có máy chủ lưu dữ liệu).';
       render();
@@ -642,6 +642,12 @@
     if (!btn) return;
     const act = btn.dataset.action;
     const v = btn.dataset.value;
+    if (S.simulatedClosed && ['open-paste', 'new-row', 'row-edit', 'row-remove', 'confirm-delete', 'paste-submit', 'open-close', 'close-sim'].includes(act)) {
+      alert('Tháng đã chốt, không sửa đè.');
+      return;
+    }
+    const invalid = document.querySelector('[data-edit-row]:invalid');
+    if (invalid) { invalid.reportValidity(); return; }
 
     if (act === 'tab') { S.tab = v; render(); return; }
     if (act === 'filter') { S.filter = v; render(); return; }
@@ -664,7 +670,10 @@
     if (act === 'payment-cancel') { S.editingPayment = false; render(); return; }
     if (act === 'payment-preview') { previewPayment(); return; }
     if (act === 'open-close') { S.modal = 'close'; render(); return; }
-    if (act === 'close-sim') { S.simulatedClosed = true; S.modal = null; render(); return; }
+    if (act === 'close-sim') {
+      if (!model.canClose({ lines: rowsNow(), enteredBy: 'Nguyễn Văn A', closedBy: S.actor }).ok) return;
+      S.simulatedClosed = true; S.editingRow = null; S.modal = null; render(); return;
+    }
     if (act === 'new-row') {
       const id = 'DEMO-' + (200 + S.customRows.length);
       S.customRows.push({
@@ -702,6 +711,10 @@
     }
     if (act === 'row-payment') {
       S.openMenu = null;
+      if (S.confirmedReceipt) {
+        alert('Khoản thu đã ghi nhận không được sửa đè, phải đảo riêng.');
+        return;
+      }
       if (v !== 'DEMO-105') {
         alert('Ví dụ thu 120 triệu được minh họa trên dòng đầu nhóm DEMO-105.');
         render();
@@ -728,6 +741,6 @@
     }
   });
 
-  reset(initialScene >= 1 && initialScene <= 10 ? initialScene : 1);
+  reset();
   render();
 })();
