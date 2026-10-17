@@ -1,8 +1,8 @@
 const assert = require("node:assert/strict");
 const model = require("./so-cong-no-v5-model.js");
-const { lineAmount, monthTotals, allocateReceipt, ledgerBalance, canClose } = model;
+const { lineAmount, monthTotals, allocateReceipt, allocateReceipts, ledgerBalance, canClose } = model;
 
-assert.deepEqual(Object.keys(model), ["lineAmount", "monthTotals", "allocateReceipt", "ledgerBalance", "canClose"]);
+assert.deepEqual(Object.keys(model), ["lineAmount", "monthTotals", "allocateReceipt", "allocateReceipts", "ledgerBalance", "canClose"]);
 const lines = Object.freeze([
   ["DEMO-105", "40000000"], ["DEMO-106", "30000000"],
   ["DEMO-107", "20000000"], ["DEMO-103", null],
@@ -78,6 +78,51 @@ for (const [receipts, expected] of cases) {
 // An unconfirmed receipt is ignored completely, including its unknown amount.
 assert.deepEqual(ledgerBalance({ ...ledger, receipts: [receipt120, { amountVnd: null, receivedOn: null }] }), result120);
 
+// Each tuple states one receipt's allocations in bucket order, then its surplus.
+for (const [amounts, expected] of [
+  [[], []],
+  [["20000000"], [[[20000000n], 0n]]],
+  [["25000000"], [[[20000000n, 5000000n], 0n]]],
+  [["25000000", null, "20000000"],
+    [[[20000000n, 5000000n], 0n], [[0n, 15000000n, 5000000n], 0n]]],
+  [["120000000", "80000000", "1"],
+    [[[20000000n, 20000000n, 30000000n, 25000000n, 25000000n], 0n],
+      [[0n, 0n, 0n, 0n, 65000000n], 15000000n], [[], 1n]]],
+  [["0"], [[[], 0n]]],
+]) {
+  const receipts = Object.freeze(amounts.map((amountVnd, id) => Object.freeze({
+    id, amountVnd, receivedOn: amountVnd === null ? null : "2026-04-20",
+  })));
+  const before = structuredClone({ receipts, buckets });
+  const result = allocateReceipts(receipts, buckets);
+  const confirmed = receipts.filter(receipt => receipt.receivedOn !== null);
+  assert.deepEqual(result.perReceipt, expected.map(([values, overpaymentVnd], i) => ({
+    id: confirmed[i].id, overpaymentVnd,
+    allocations: values.flatMap((amountVnd, j) => amountVnd === 0n ? [] :
+      [{ key: buckets[j].key, kind: buckets[j].kind, amountVnd }]),
+  })));
+  const balance = ledgerBalance({ ...ledger, receipts });
+  const aggregate = allocateReceipt(balance.receivedVnd, buckets);
+  const allocations = result.perReceipt.flatMap(receipt => receipt.allocations);
+  for (const bucket of buckets) {
+    assert.equal(allocations.filter(item => item.key === bucket.key).reduce((sum, item) => sum + item.amountVnd, 0n),
+      aggregate.allocations.find(item => item.key === bucket.key)?.amountVnd ?? 0n);
+  }
+  for (const kind of ["closed", "open"]) {
+    assert.equal(BigInt(ledger[`${kind}Vnd`]) - allocations.filter(item => item.kind === kind)
+      .reduce((sum, item) => sum + item.amountVnd, 0n), balance[`${kind}RemainingVnd`]);
+  }
+  assert.equal(result.overpaymentVnd, balance.overpaymentVnd);
+  assert.equal(result.overpaymentVnd, result.perReceipt.reduce((sum, item) => sum + item.overpaymentVnd, 0n));
+  assert.ok(allocations.every(item => item.amountVnd > 0n));
+  assert.deepEqual(allocateReceipts(receipts, buckets), result);
+  assert.deepEqual({ receipts, buckets }, before);
+}
+assert.deepEqual(allocateReceipts([{ ...receipt120, id: "no-debt" }], []), {
+  perReceipt: [{ id: "no-debt", allocations: [], overpaymentVnd: 120000000n }], overpaymentVnd: 120000000n,
+});
+assert.deepEqual(allocateReceipts([receipt120], [...skipped, ...buckets]), allocateReceipts([receipt120], buckets));
+
 const closeInput = Object.freeze({ lines, enteredBy: "Nguyễn Văn A", closedBy: "Nguyễn Văn A" });
 const blocked = canClose(closeInput);
 assert.equal(blocked.ok, false);
@@ -92,14 +137,18 @@ for (const invalid of ["40.000.000", "abc", "-1", -1n, 12.5, 12, "", " 12", "12\
     assert.throws(() => lineAmount({ ...lines[0], [field]: invalid }));
   }
   assert.throws(() => allocateReceipt(invalid, buckets));
+  assert.throws(() => allocateReceipts([{ ...receipt120, amountVnd: invalid }], buckets));
   assert.throws(() => ledgerBalance({ ...ledger, closedVnd: invalid, receipts: [] }));
   assert.throws(() => ledgerBalance({ ...ledger, openVnd: invalid, receipts: [] }));
   assert.throws(() => ledgerBalance({ ...ledger, receipts: [{ ...receipt120, amountVnd: invalid }] }));
 }
 for (const invalid of [null, "40.000.000", "abc", 12.5, undefined]) {
   assert.throws(() => allocateReceipt("0", [{ ...buckets[0], balanceVnd: invalid }]));
+  assert.throws(() => allocateReceipts([], [{ ...buckets[0], balanceVnd: invalid }]));
 }
 assert.throws(() => allocateReceipt(null, buckets));
+assert.throws(() => allocateReceipts([{ ...receipt120, amountVnd: null }], buckets));
+assert.throws(() => allocateReceipts([], [{ ...buckets[0], kind: "unknown" }]));
 assert.throws(() => ledgerBalance({ ...ledger, closedVnd: null, receipts: [] }));
 assert.throws(() => ledgerBalance({ ...ledger, openVnd: null, receipts: [] }));
 assert.throws(() => ledgerBalance({ ...ledger, receipts: [{ ...receipt120, amountVnd: null }] }));
@@ -107,11 +156,18 @@ assert.throws(() => allocateReceipt("0", [{ ...buckets[0], kind: "unknown" }]));
 assert.throws(() => ledgerBalance({ ...ledger, closedVnd: "0", receipts: [] }));
 for (const receivedOn of [undefined, "", " ", 0]) {
   assert.throws(() => ledgerBalance({ ...ledger, receipts: [{ ...receipt120, receivedOn }] }));
+  assert.throws(() => allocateReceipts([{ ...receipt120, receivedOn }], buckets));
 }
 assert.throws(() => canClose({ ...closeInput, enteredBy: null }));
 assert.throws(() => canClose({ ...closeInput, closedBy: "" }));
 
 const huge = "900719925474099312345";
+assert.deepEqual(allocateReceipts([{ id: "huge", receivedOn: "2026-04-20", amountVnd: huge },
+  { id: "next", receivedOn: "2026-04-21", amountVnd: 1n }],
+[{ key: "large", kind: "closed", balanceVnd: huge }]), {
+  perReceipt: [{ id: "huge", allocations: [{ key: "large", kind: "closed", amountVnd: BigInt(huge) }], overpaymentVnd: 0n },
+    { id: "next", allocations: [], overpaymentVnd: 1n }], overpaymentVnd: 1n,
+});
 assert.equal(lineAmount({ ...lines[0], unitPriceVnd: huge, otherFeeVnd: "1" }), BigInt(huge) + 1n);
 assert.deepEqual(allocateReceipt(huge, [{ key: "large", kind: "closed", balanceVnd: huge }]),
   { allocations: [{ key: "large", kind: "closed", amountVnd: BigInt(huge) }], overpaymentVnd: 0n });
