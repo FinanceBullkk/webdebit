@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>Công nợ · V5 — Bản mẫu tương tác</title>
+  <style>
+    /* ========== 1. DESIGN TOKENS ========== */
+    :root {
+      --navy:#152948; --primary:#1169dc; --primary-light:#eaf3ff;
+      --canvas:#f4f7fb; --white:#fff; --line:#dbe4f0; --line-light:#e9eef5;
+      --muted:#526781; --green:#167548; --green-bg:#e4f5eb;
+      --red:#bd3330; --red-bg:#fff0ef; --orange:#985b0d; --orange-bg:#fff6e6;
+      --shadow:0 14px 40px rgba(31,51,83,.12);
+      font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--canvas); color:var(--navy); font-size:16px; }
+    button,input,textarea,select { font:inherit; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.52; }
+    input,textarea,select { color:var(--navy); }
+    :focus-visible { outline:3px solid #91bdff; outline-offset:2px; }
+    .app { display:grid; grid-template-columns:332px minmax(0,1fr); min-height:100vh; }
+    .aside { background:#fff; border-right:1px solid var(--line); display:flex; flex-direction:column; min-width:0; }
+    .aside-sticky { position:sticky; top:0; max-height:100vh; overflow:auto; padding:21px 16px 20px; scrollbar-width:thin; }
+    .brand { display:flex; align-items:center; justify-content:space-between; padding:4px 5px 20px; }
+    .brand strong { display:flex; align-items:center; gap:9px; color:#064187; font-weight:800; letter-spacing:.3px; font-size:22px; }
+    .brand-mark { display:grid;place-items:center;width:28px;height:28px;border:2px solid #0a4d9f;border-radius:7px;font-size:18px; }
+    .small-muted {font-size:16px;color:var(--muted)}
+    .nav-tabs { display:grid;grid-template-columns:1fr 1fr;gap:5px;border-radius:9px;background:#f0f3f8;padding:4px;margin-bottom:19px; }
+    .nav-tabs button { background:transparent;border:0;padding:11px;border-radius:7px;color:var(--muted);font-weight:750; }
+    .nav-tabs button.active {background:#e2eeff;color:#0357bc}
+    .field-label { font-size:16px;font-weight:750;color:#4b6180;display:block;margin-bottom:7px; }
+    .field { width:100%;min-height:43px;border:1px solid #cdd9e7;border-radius:8px;background:#fff;padding:10px 12px; }
+    .field:focus {border-color:var(--primary)}
+    .search-wrap {position:relative;margin:10px 0 11px}
+    .search-wrap .field {padding-left:35px}
+    .search-glyph {position:absolute;left:12px;top:12px;font-size:18px;color:#445a79}
+    .filter-tabs {display:flex;gap:3px;flex-wrap:wrap;margin-bottom:12px}
+    .filter-tabs button {border:0;padding:8px 9px;background:#f5f7fb;color:#5c6d85;border-radius:6px;font-size:16px;font-weight:750}
+    .filter-tabs button.active {background:#e7f0ff;color:#005bbf}
+    .result-count {color:#28558d;font-size:16px;font-weight:800;margin:12px 2px 17px;}
+    .group-header {font-size:16px;font-weight:800;border-bottom:1px solid var(--line-light);padding:13px 4px 7px;margin:0 0 6px}
+    .customer { width:100%;text-align:left;border:1px solid #e1e8f1;background:#fff;border-radius:9px;padding:11px 10px;margin:0 0 7px; }
+    .customer.active {background:#eff5ff;border-color:#bfd6ff;border-left:4px solid #1472ed;padding-left:7px}
+    .customer:hover {border-color:#9bbce9}
+    .customer-top {display:flex;justify-content:space-between;gap:5px;align-items:center}
+    .customer-top strong {font-size:16px}
+    .customer-money {display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+    .customer-money span {font-size:16px;color:var(--muted);display:block;margin-bottom:2px}
+    .customer-money strong {font-size:16px;display:block;font-variant-numeric:tabular-nums}
+    .customer-warning {font-size:16px;line-height:1.4;color:var(--orange);margin-top:8px;font-weight:700}
+    .aside-footer {margin-top:22px;padding:12px;border:1px solid #f5d7a7;background:var(--orange-bg);border-radius:8px;color:var(--orange);font-size:16px;line-height:1.5}
+    .main {min-width:0}
+    .topbar { min-height:85px;background:#fff;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 26px; }
+    .topbar h1 {font-size:23px;margin:0 0 3px;font-weight:800;letter-spacing:-.4px}
+    .topbar p {color:var(--muted);font-size:16px;margin:0}
+    .top-right {display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:flex-end}
+    .scene-picker {max-width:290px;border:1px solid #cbd9e8;border-radius:8px;padding:10px;background:#fff;font-size:16px;cursor:pointer}
+    .profile {padding:9px 12px;border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;gap:8px;background:#fff;white-space:nowrap;font-size:16px;}
+    .avatar {width:30px;height:30px;display:grid;place-items:center;background:#e5e9ff;border-radius:50%;font-weight:800;color:#52438f}
+    .profile strong,.profile small {display:block}
+    .profile small {color:var(--muted);margin-top:2px}
+    .content {padding:23px 25px 50px;max-width:1680px;margin:0 auto}
+    .demo-strip {background:#ecf4ff;border:1px solid #cbdffd;border-radius:9px;padding:11px 13px;margin-bottom:17px;display:flex;justify-content:space-between;gap:12px;align-items:center;font-size:16px;color:#285585}
+    .demo-strip strong {color:#134e96}
+    .summary {display:grid;grid-template-columns:minmax(180px,290px) minmax(180px,290px) 1fr;gap:12px;margin-bottom:15px}
+    .stat {padding:17px 18px;border-radius:10px;border:1px solid #d8e6fa;background:#e9f2ff}
+    .stat.open {background:#fff7e9;border-color:#f7e0bd}
+    .stat span {font-size:16px;font-weight:750;color:#415e7c}
+    .stat strong {font-size:29px;line-height:1.35;display:block;margin-top:2px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+    .stat small {display:block;color:var(--muted);font-size:16px;margin-top:1px}
+    .view-month {display:flex;align-items:center;justify-content:flex-end;text-align:right;color:#47617f;font-size:16px}
+    .view-month strong {font-size:22px;display:block;color:#1d3d66;margin:4px 0}
+    .month {background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:9px}
+    .month.current {border-color:#b6d4ff;box-shadow:0 1px 0 rgba(0,86,185,.04)}
+    .month-head {border:0;display:flex;justify-content:space-between;align-items:center;gap:12px;background:#fff;width:100%;text-align:left;min-height:50px;padding:11px 16px;color:var(--navy)}
+    .month.current .month-head {background:#f0f6ff}
+    .month-head:hover {background:#f7faff}
+    .month-name {display:flex;align-items:center;gap:13px;white-space:nowrap}
+    .month-name strong {font-size:16px}
+    .triangle {display:inline-block;border-right:2px solid #647b97;border-bottom:2px solid #647b97;width:8px;height:8px;transform:rotate(-45deg);transition:transform .15s}
+    .triangle.down {transform:rotate(45deg)}
+    .month-number {display:flex;align-items:center;gap:15px;color:#58718e;font-size:16px;white-space:nowrap}
+    .month-number strong {font-size:16px;color:var(--navy);font-variant-numeric:tabular-nums}
+    .tag {display:inline-flex;align-items:center;gap:4px;border-radius:20px;padding:4px 9px;font-weight:750;font-size:16px;white-space:nowrap}
+    .tag.green {color:#167445;background:#e3f5e9}
+    .tag.blue {color:#035abe;background:#e5f0ff}
+    .tag.red {color:#b73937;background:#ffeceb}
+    .tag.orange {color:#925b11;background:#fff1d6}
+    .tag.gray {color:#485c75;background:#f0f2f5}
+    .actions {display:flex;align-items:center;gap:8px;padding:9px 12px;background:#fff;flex-wrap:wrap;border-bottom:1px solid var(--line-light)}
+    .btn {border:1px solid #cddcee;border-radius:7px;background:#fff;color:#28527e;font-weight:750;font-size:16px;padding:10px 14px;min-height:40px;white-space:nowrap}
+    .btn:hover {background:#f1f7ff}
+    .btn.primary {background:#0968de;border-color:#0968de;color:white}
+    .btn.primary:hover {background:#075dc5}
+    .btn.danger {border-color:#edb8b5;color:#b4342d;background:#fff}
+    .btn.ghost {background:transparent;border-color:transparent}
+    .action-hint {font-size:16px;color:#3b4f68;margin-left:5px}
+    .actions .action-last {margin-left:auto}
+    .table-scroll {overflow-x:auto;scrollbar-width:thin}
+    .ledger {width:100%;min-width:1040px;border-collapse:separate;border-spacing:0;font-size:16px;table-layout:fixed}
+    .ledger th {background:#e9f1fb;text-align:left;font-size:16px;color:#3a5270;font-weight:800;padding:12px 6px;border-bottom:1px solid #cdddea;border-right:1px solid #dee6ef;white-space:normal;line-height:1.3}
+    .ledger td {border-bottom:1px solid #e4eaf2;border-right:1px solid #edf1f6;padding:8px 6px;vertical-align:middle;height:46px;line-height:1.35}
+    .ledger th:last-child,.ledger td:last-child {border-right:0}
+    .ledger tbody tr:hover:not(.expanded-row):not(.add-row) {background:#f5faff}
+    .ledger .row-bad {background:#fff1ef}
+    .ledger .row-selected {background:#eff6ff}
+    .ledger .add-row {background:#f9fbff}
+    .inline-paste-area { display:block;width:100%;border:1px dashed #9ebce2;border-radius:5px;min-height:44px;max-height:120px;resize:vertical;padding:10px;background:#f8fbff;color:#285b92;font-size:16px; }
+    .paste-feedback { font-size:16px;color:#2c6a4d;padding:9px 16px;background:#eef9f2; }
+    .ledger .idx {width:36px;text-align:center;color:#455c76}
+    .ledger .con {width:100px}
+    .ledger .date {width:94px}
+    .ledger .price {width:104px}
+    .ledger .amount {width:116px}
+    .ledger .datepay {width:112px}
+    .ledger .method {width:104px}
+    .ledger .ref {width:100px}
+    .ledger .paid {width:126px}
+    .ledger .state {width:106px}
+    .ledger .extra {width:32px}
+    .numeric {text-align:right;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .muted {color:#526781}
+    .container-link {background:transparent;border:0;color:#0958ab;font-weight:800;padding:2px 0;text-align:left;font-size:16px}
+    .container-link:hover {text-decoration:underline}
+    .warning-text {color:var(--red);font-weight:800}
+    .small-info {font-size:16px;color:var(--orange);margin-top:3px}
+    .cell-input {border:1px solid #afc7e6;border-radius:5px;padding:6px 5px;width:100%;font-size:16px;min-height:40px;background:#fff}
+    .cell-input:focus {border-color:#2277ed}
+    .payment-edit {outline:2px solid #95c0ff;outline-offset:-2px;background:#edf5ff}
+    .dot-btn {border:1px solid transparent;background:transparent;border-radius:6px;min-height:40px;min-width:40px;color:#426282;font-size:18px}
+    .dot-btn:hover {border-color:#d7e4f3;background:#eef5ff}
+    .row-menu-tr td {background:#f8fbff;border-bottom:1px solid #dce8f6;padding:8px 14px;}
+    .row-menu-actions {display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+    .expanded-row td {background:#f0f6ff;border-bottom:1px solid #c9ddf8;padding:10px 14px}
+    .details {display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;align-items:start}
+    .details label {display:block;font-size:16px;color:#516e8d;font-weight:750;margin-bottom:5px}
+    .details strong {font-size:16px}
+    .details input {width:100%;padding:8px;border:1px solid #c9d7e9;border-radius:6px;background:#fff;font-size:16px}
+    .details-bottom {margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;color:#44597a;font-size:16px}
+    .totals {padding:12px 16px;background:#fff}
+    .total-line {display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:7px 0;border-bottom:1px solid #eef1f5}
+    .total-line .total-label {font-size:16px;color:#566f8e;text-align:right;flex:1}
+    .total-line .total-value {font-size:17px;font-weight:800;min-width:140px;text-align:right;font-variant-numeric:tabular-nums}
+    .total-line.highlight {background:#fff8ed;margin:0 -10px;padding:10px 10px;color:#9d6209}
+    .total-line.highlight .total-label {color:#86530b;font-weight:850}
+    .notice {background:#fff7e9;border-top:1px solid #f1dcb5;color:#915c0b;padding:11px 15px;font-size:16px;line-height:1.5}
+    .row-status {display:flex;gap:7px;align-items:center}
+    .empty {padding:25px;text-align:center;color:#5d718c}
+    .addhint {color:#526781}
+    .receipt-action {display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:10px 13px;background:#eff7ff;border-top:1px solid #cfdef4}
+    .receipt-action span {color:#4c6785;font-size:16px;margin-right:auto}
+    .receipt-action .error {color:var(--red);font-weight:700}
+    .payment-inline {border:2px solid #76adfa;border-radius:8px;background:#f0f6ff;margin:10px 12px;padding:13px}
+    .payment-inline-title {display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;gap:9px}
+    .payment-grid {display:grid;grid-template-columns:1.05fr 1.2fr 1.2fr 1.35fr;gap:10px}
+    .payment-grid label {font-size:16px;font-weight:700;color:#425d7a;display:block;margin-bottom:6px}
+    .payment-grid input,.payment-grid select {width:100%;min-height:42px;border:1px solid #bbd0e8;border-radius:6px;padding:8px 10px;background:#fff}
+    .payment-caption {font-size:16px;color:#527094;margin-top:9px}
+    .overlay {position:fixed;inset:0;z-index:10;background:rgba(12,28,51,.47);display:flex;align-items:center;justify-content:center;padding:20px}
+    .dialog {width:min(860px,97vw);max-height:90vh;overflow:auto;border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+    .dialog.small {width:min(565px,95vw)}
+    .dialog-head {display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:16px 21px}
+    .dialog-head h2 {font-size:20px;margin:0}
+    .dialog-body {padding:20px 22px;font-size:16px;line-height:1.6}
+    .dialog-footer {border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;padding:14px 20px}
+    .x-close {border:0;background:transparent;font-size:25px;color:#56718c;width:40px;height:40px}
+    .paste-layout {display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px}
+    .columns-list {counter-reset:column;list-style:none;margin:0;padding:0}
+    .columns-list li {display:flex;gap:10px;align-items:center;padding:5px 2px;font-size:16px;color:#405c7a}
+    .columns-list li span {display:grid;place-items:center;flex:0 0 23px;height:23px;background:#e6eef8;border-radius:5px;font-size:16px;color:#315f98;font-weight:850}
+    .paste-area {display:block;width:100%;min-height:275px;resize:vertical;padding:12px;border:1px solid #b9cfe8;border-radius:8px;font-size:16px;line-height:1.6;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    .box-note {border:1px solid #f3dbb4;background:#fff8ec;color:#915c0a;padding:10px;border-radius:7px;margin-top:12px;font-size:16px}
+    .validation {padding:10px 12px;border:1px solid #ffbbb6;background:var(--red-bg);color:var(--red);border-radius:8px;margin-top:10px;font-size:16px}
+    .validation.good {border-color:#b4e6c8;background:#effbf2;color:#116b3c}
+    .blockers {padding:0 0 0 20px;color:var(--red)}
+    .blockers li {margin:9px 0}
+    .review-stats {display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:14px 0}
+    .review-stats > div {padding:11px;border-radius:7px;background:#f4f7fb;border:1px solid #e6edf6}
+    .review-stats small {display:block;color:#44597a;font-size:16px}
+    .review-stats strong {display:block;font-size:18px;font-variant-numeric:tabular-nums;margin-top:3px}
+    .drawer {position:fixed;right:0;top:0;bottom:0;z-index:12;width:min(510px,100vw);background:#fff;box-shadow:-18px 0 50px rgba(22,45,79,.2);overflow:auto}
+    .drawer-shade {position:fixed;inset:0;background:rgba(7,22,41,.25);z-index:11}
+    .alloc-table {border-collapse:collapse;width:100%;font-size:16px;margin-top:15px}
+    .alloc-table th,.alloc-table td {padding:11px 8px;border-bottom:1px solid #e3ebf4;text-align:left}
+    .alloc-table th {background:#eaf2fc;color:#516a86;font-weight:800}
+    .alloc-table td:last-child,.alloc-table th:last-child {text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .alloc-table .sub {background:#f0f6ff;font-weight:850}
+    .alloc-table .grand {font-weight:900;font-size:16px;background:#e8f5ee}
+    .allocation-link {border:0;background:transparent;color:#0a5fc2;min-height:40px;display:inline-flex;align-items:center;padding:8px 2px;font-weight:850;text-decoration:underline;cursor:pointer}
+    .total-table {width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:9px;font-size:16px}
+    .total-table th {background:#eaf2fb;text-align:left;color:#47627f;font-size:16px;padding:14px 11px;white-space:nowrap}
+    .total-table td {padding:16px 11px;border-top:1px solid var(--line-light)}
+    .total-table .numeric {text-align:right}
+    .total-table tbody tr {cursor:pointer}
+    .total-table tbody tr:hover {background:#f4f8ff}
+    .table-card {border:1px solid var(--line);background:#fff;border-radius:10px;overflow:auto}
+    .scene-note {margin-top:15px;border:1px solid #d4dfec;border-radius:8px;background:white;padding:13px 15px;color:#536b88;font-size:16px;line-height:1.6}
+    @media(max-width:1150px){.app{grid-template-columns:258px minmax(0,1fr)}.summary{grid-template-columns:1fr 1fr}.view-month{display:none}.content{padding:17px}.topbar{padding:15px 17px}}
+    @media(max-width:760px){.app{display:block}.aside-sticky{position:relative;max-height:none}.aside{border-bottom:1px solid var(--line)}.customer-groups{max-height:240px;overflow:auto}.topbar{align-items:flex-start;flex-direction:column}.summary{grid-template-columns:1fr 1fr}.stat strong{font-size:22px}.month-number{gap:6px}.month-head{padding:12px 9px}.payment-grid,.paste-layout{grid-template-columns:1fr}.details{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+    /* V5 vòng 2 · accessibility and scene capture additions */
+    .aside .small-muted,.field-label,.filter-tabs button,.result-count,.group-header,
+    .customer-top strong,.customer-money span,.customer-money strong,.customer-warning,
+    .aside-footer,.topbar p,.scene-picker,.profile,.profile small,.stat small,.stat span,
+    .view-month,.month-number,.month-name strong,.tag,.action-hint,.inline-paste-area,
+    .paste-feedback,.cell-input,.small-info,.details label,.details strong,.details input,
+    .details-bottom,.total-line .total-label,.notice,.receipt-action span,.payment-caption,
+    .dialog-body,.columns-list li,.columns-list li span,.box-note,.validation,.review-stats small,
+    .alloc-table,.total-table,.total-table th,.scene-note,.demo-strip,.datepay,
+    .payment-grid label,.payment-grid input,.payment-grid select,.allocation-link {font-size:16px;}
+    .customer {padding:12px 11px;min-height:88px}
+    .customer-money{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+    .customer-money strong{font-size:16px;overflow-wrap:anywhere}
+    .customer-warning{line-height:1.45}
+    .group-header{padding-top:18px}
+    .nav-tabs button,.filter-tabs button{min-height:42px;font-size:16px}
+    .filter-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .search-glyph{top:12px}
+    .summary{grid-template-columns:minmax(210px,1fr) minmax(210px,1fr) auto}
+    .tag{white-space:normal}
+    .ledger td{height:54px}
+    .ledger .idx{width:40px}.ledger .con{width:104px}.ledger .date{width:100px}
+    .ledger .price{width:110px}.ledger .amount{width:122px}.ledger .datepay{width:116px}
+    .ledger .method{width:108px}.ledger .ref{width:104px}.ledger .paid{width:132px}
+    .ledger .state{width:110px}.ledger .extra{width:40px}
+    .ledger .numeric{overflow-wrap:anywhere;white-space:normal}
+    .details{grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}
+    .details .formula-detail{grid-column:1/-1;border-top:1px solid #cddbeb;padding-top:11px;font-weight:700;color:#345779}
+    .invalid-cell{background:#fff0ee;color:#b02e2b;border:1px solid #df9b98;border-radius:5px;padding:8px}
+    .receipt-pending{color:#8f510a;background:#fff4db;padding:5px 7px;border-radius:6px;display:inline-block}
+    .overpaid-text{color:#a52d2d;font-weight:850}
+    .audit-box{margin-top:12px;border:1px solid #e4d3bc;background:#fff8ed;padding:12px;border-radius:8px}
+    .receipt-where{font-size:16px;color:#4d647e;display:inline-block;margin-top:7px}
+    .screen-only-note{display:none}
+    .external-notes{max-width:1400px;margin:24px auto;padding:20px;border:1px solid #dbe4f0;background:white;border-radius:10px;font-size:16px}
+    .external-notes li{margin-bottom:9px}
+    .frame-heading{font-size:19px;margin:20px 0 12px}
+    .scene-frame{position:relative;isolation:isolate;background:#fff}
+    .scene-frame .overlay,.scene-frame .drawer-shade{position:absolute;inset:0}
+    .scene-frame .drawer{position:absolute;height:100%;top:0;bottom:0}
+    .gallery-top{max-width:1860px;margin:18px auto 8px;padding:0 20px}
+    .gallery-mode .scene-frame{width:100%;min-height:990px;overflow:hidden;border:1px solid #d9e3f0;border-radius:12px}
+    .gallery-mode .scene-frame .app{min-height:990px}
+    .gallery-mode .scene-frame .aside-sticky{position:relative;max-height:990px}
+    .gallery-block{max-width:1860px;margin:0 auto 32px;padding:0 18px}
+    .gallery-mode .scene-frame .scene-picker{display:none}
+    .gallery-mode .scene-frame .content{padding-bottom:25px}
+    .gallery-mode .scene-frame .topbar{min-height:75px}
+    .gallery-mode .scene-frame .aside-footer{display:none}
+    .scene-nav{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+    .scene-nav a{color:#0e5bb7;font-weight:750}
+    .confirm-action{border-top:1px solid #dde7f4;margin-top:15px;padding-top:13px}
+    .focus-field{background:#eff6ff}
+    @media(max-width:1150px){.app{grid-template-columns:280px minmax(0,1fr)}}
+    @media(max-width:760px){.app{display:block}.details{grid-template-columns:1fr 1fr}.summary{grid-template-columns:1fr 1fr}}
+    .month-number strong,.container-link{font-size:16px}
+    .container-link{min-height:40px;padding:8px 2px;display:inline-flex;align-items:center;text-align:left}
+    .invalid-cell{display:block;white-space:normal;text-align:left;line-height:1.3;font-size:16px;padding:5px}
+    .ledger .amount{width:171px}
+    input::placeholder,textarea::placeholder{color:#526781;opacity:1}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+  'use strict';
+  /* ========== 2. FIXTURE / DỮ LIỆU MẪU ==========
+     Đây là mockup tương tác, không kết nối máy chủ và không ghi tiền thật.
+     Dữ liệu gốc: 95 triệu đã chốt + 90 triệu đang mở.
+     Tiền thu 120 triệu: 95 triệu trừ đã chốt, 25 triệu trừ đang mở => 0 / 65.
+  */
+  const SAMPLE_DATE='17/10/2026';
+  const TODAY_ISO='2026-10-17';
+  const money=n=>Number(n).toLocaleString('vi-VN');
+  const parseMoney=s=>{const digits=String(s??'').replace(/[^0-9]/g,'');return digits?Number(digits):null};
+  const safe=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const moneyCell=n=>n===null||n===undefined?'—':money(n);
+  const dateValid=s=>{const m=String(s||'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(!m)return false;const d=new Date(+m[3],+m[2]-1,+m[1]);return d.getFullYear()===+m[3]&&d.getMonth()===+m[2]-1&&d.getDate()===+m[1]&&d<=new Date('2026-10-17T23:59:59')};
+  const sceneNames={
+    1:'01 · Sổ mặc định, có dòng thiếu giá',
+    2:'02 · Bung chi tiết và công thức thành tiền',
+    3:'03 · Dán bảng tính · 11 cột',
+    4:'04 · Gõ tiền thu ngay trên dòng',
+    5:'05 · Thu 120.000.000 và phân bổ',
+    6:'06 · Chặn chốt với hai lý do',
+    7:'07 · Người chốt hợp lệ, chứng từ vẫn treo',
+    8:'08 · Lọc hai sổ đang mở',
+    9:'09 · Xác nhận bỏ chuyến có chứng từ treo',
+    10:'10 · Khách trả dư 15.000.000'
+  };
+  const baseClients=[
+    {id:'KHACH_MAU',category:'Thanh long',closed:95000000,open:90000000,status:'open',warn:true},
+    {id:'KHACH_B',category:'Thanh long',closed:100000000,open:0,status:'closed'},
+    {id:'KHACH_C',category:'Thanh long',closed:0,open:0,status:'not-open'},
+    {id:'KHACH_D',category:'Mít',closed:70000000,open:0,status:'closed'},
+    {id:'KHACH_E',category:'Mít',closed:12000000,open:45000000,status:'open'}
+  ];
+  const originalRows=[
+    {id:'DEMO-105',carrier:'WH',date:'08/04/2026',from:'PHAN THIET',to:'SHEKOU',other:null,plug:null,escort:null,price:40000000},
+    {id:'DEMO-106',carrier:'WH',date:'12/04/2026',from:'PHAN THIET',to:'SHEKOU',other:null,plug:null,escort:null,price:30000000},
+    {id:'DEMO-107',carrier:'WH',date:'18/04/2026',from:'PHAN THIET',to:'SHEKOU',other:null,plug:null,escort:null,price:20000000},
+    {id:'DEMO-103',carrier:'WH',date:'22/04/2026',from:'PHAN THIET',to:'SHEKOU',other:null,plug:null,escort:null,price:null}
+  ];
+  // Khoản thu là dữ liệu của sổ + tháng; enteredAt chỉ xác định vị trí đang nhập trên màn.
+  const originalReceipts=[{id:'CT-CHO-05',ledger:'KHACH_MAU · thanh long',period:'04.2026',enteredAt:'DEMO-103',amount:5000000,date:null,method:null,confirmed:false}];
+  const amountOf=r=>r.price===null||r.price===undefined?null:r.price+(r.other||0)+(r.plug||0)+(r.escort||0);
+  let S;
+  const clone=o=>JSON.parse(JSON.stringify(o));
+  const reset=(scene=1)=>{
+    S={scene,tab:'ledger',filter:scene===8?'unclosed':'all',search:'',month:'04.2026',selected:'KHACH_MAU',expanded:scene===2?'DEMO-105':null,openMenu:null,
+      expandedMonths:new Set(['04.2026']),modal:[3,6,7].includes(scene)?(scene===3?'paste':'close'):null,drawer:[5,10].includes(scene)?'allocation':null,
+      role:([4,5,10].includes(scene)?'collector':(scene===7?'approver':'entry')),rows:clone(originalRows),unconfirmedReceipts:clone(originalReceipts),
+      editingPayment:scene===4,paymentDraft:scene===4?{date:'20/04/2026',method:'Chuyển khoản',ref:'UNC-0420',amount:'120.000.000'}:{date:'',method:'',ref:'',amount:''},
+      confirmedPayment:scene===5?120000000:(scene===10?200000000:0),
+      confirmedReceipt:scene===5?{date:'20/04/2026',method:'Chuyển khoản',ref:'UNC-0420'}:
+        scene===10?{date:'22/04/2026',method:'Chuyển khoản',ref:'UNC-0422'}:null,
+      pasteInput:'',pasteMessage:'',pasteOk:false,inlineFeedback:'',modalNotice:'',showDeleteBlock:scene===9,customRows:[],simulatedClosed:false,audit:[],
+      importWarnings:[]};
+    if(scene===7){S.rows.find(r=>r.id==='DEMO-103').price=15000000}
+  };
+  function totalOpen(){return rowsNow().reduce((t,r)=>t+(amountOf(r)??0),0)}
+  function balance(){const paid=S.confirmedPayment,baseClosed=95000000+(S.simulatedClosed?totalOpen():0),rawOpen=S.simulatedClosed?0:totalOpen(),usedClosed=Math.min(baseClosed,paid),usedOpen=Math.min(rawOpen,Math.max(0,paid-usedClosed));return {closed:baseClosed-usedClosed,open:rawOpen-usedOpen,usedClosed,usedOpen,overpayment:Math.max(0,paid-baseClosed-rawOpen)} }
+  function rowsNow(){return [...S.rows,...S.customRows]}
+  function currentClients(){const B=balance();return baseClients.map(c=>c.id==='KHACH_MAU'?{...c,closed:B.closed,open:B.open,status:S.simulatedClosed?'closed':'open',warn:!S.simulatedClosed&&rowsNow().some(r=>amountOf(r)===null),unconfirmed:S.unconfirmedReceipts.reduce((t,r)=>t+r.amount,0)}:c)}
+  function filteredClients(){return currentClients().filter(c=>{
+    const hit=!S.search||(c.id+' '+c.category).toLowerCase().includes(S.search.toLowerCase());
+    const match=S.filter==='all'||(S.filter==='unclosed'&&c.status==='open')||(S.filter==='open'&&c.status==='open')||(S.filter==='closed'&&c.status==='closed');
+    return hit&&match;
+  })}
+  const tag=(text,type)=>`<span class="tag ${type}">${safe(text)}</span>`;
+  const roleName=()=>S.role==='entry'?'Nguyễn Văn A':S.role==='approver'?'Lê Văn C':'Trần Thị B';
+  const roleTitle=()=>S.role==='entry'?'Người nhập':S.role==='approver'?'Người chốt':'Người thu tiền';
+  const statusName=s=>s==='open'?'Đang mở':s==='closed'?'Đã chốt':'Chưa mở';
+  const statusColor=s=>s==='open'?'blue':s==='closed'?'green':'gray';
+  function renderSidebar(){
+    const clients=filteredClients(),groups=[...new Set(clients.map(c=>c.category))];
+    return `<aside class="aside"><div class="aside-sticky">
+      <div class="brand"><strong><span class="brand-mark">▤</span> CÔNG NỢ</strong><span class="small-muted">${SAMPLE_DATE}</span></div>
+      <div class="nav-tabs"><button data-action="tab" data-value="total" class="${S.tab==='total'?'active':''}">Tổng</button><button data-action="tab" data-value="ledger" class="${S.tab==='ledger'?'active':''}">Sổ khách</button></div>
+      <label class="field-label" for="month-select">Tháng xem</label><select id="month-select" data-action="month" class="field"><option value="04.2026">04.2026</option></select>
+      <div class="search-wrap"><span class="search-glyph">⌕</span><input id="customer-search" data-action="search" class="field" placeholder="Tìm khách hoặc loại hàng..." value="${safe(S.search)}" aria-label="Tìm sổ" /></div>
+      <div class="filter-tabs">${[['all','Tất cả'],['unclosed','Chưa chốt'],['open','Đang mở'],['closed','Đã chốt']].map(([id,label])=>`<button data-action="filter" data-value="${id}" class="${S.filter===id?'active':''}">${label}</button>`).join('')}</div>
+      <div class="result-count">${S.filter==='unclosed'?`${clients.length} / 5 sổ mẫu chưa chốt`:`${clients.length} / 5 sổ mẫu`} <span class="small-muted">· khoảng 240 sổ thực tế</span></div>
+      <div class="customer-groups">${groups.length?groups.map(g=>`<div class="group-header">${safe(g)} (${clients.filter(c=>c.category===g).length})</div>${clients.filter(c=>c.category===g).map(c=>`
+        <button data-action="customer" data-value="${safe(c.id)}" class="customer ${S.selected===c.id?'active':''}">
+          <div class="customer-top"><strong>${safe(c.id)}</strong>${tag(statusName(c.status),statusColor(c.status))}</div>
+          <div class="customer-money"><div><span>Đã chốt</span><strong>${money(c.closed)}</strong></div><div><span>Đang mở</span><strong>${c.id==='KHACH_MAU'&&c.open===0?'0 · đã thu đủ':(c.open?money(c.open):'—')}</strong></div></div>
+          ${c.id==='KHACH_MAU'?`<div class="customer-warning">${rowsNow().filter(r=>amountOf(r)===null).length?`⚠ ${rowsNow().filter(r=>amountOf(r)===null).length} dòng thiếu giá · `:''}${S.unconfirmedReceipts.length?`${S.unconfirmedReceipts.length} chứng từ chưa xác nhận (${money(S.unconfirmedReceipts.reduce((n,r)=>n+r.amount,0))})`:'Không có chứng từ chưa xác nhận'}</div>`:''}
+        </button>`).join('')}`).join(''):'<div class="empty">Không tìm thấy sổ phù hợp.</div>'}</div>
+      ${S.unconfirmedReceipts.length?`<div class="aside-footer"><strong>Chứng từ chưa xác nhận</strong><br/>KHACH_MAU · ${money(S.unconfirmedReceipts.reduce((n,r)=>n+r.amount,0))}<br/>Chưa có ngày nhận tiền · ngoài số dư.</div>`:''}
+    </div></aside>`;
+  }
+  function renderTop(){return `<header class="topbar"><div><h1>${S.tab==='total'?'Tổng công nợ':`${safe(S.selected)} · ${S.selected==='KHACH_MAU'?'thanh long':(baseClients.find(c=>c.id===S.selected)?.category||'')}`}</h1><p>Ngày xem: ${SAMPLE_DATE} · Tuyến PHAN THIET → SHEKOU</p></div>
+    <div class="top-right"><div class="profile"><span class="avatar">${S.role==='entry'?'NA':S.role==='approver'?'LC':'TB'}</span><div><strong>${roleName()}</strong><small>${roleTitle()}</small></div></div></div></header>`}
+  function renderSummary(){const b=balance();return `<div class="summary">
+    <div class="stat"><span>Đã chốt</span><strong>${money(b.closed)}</strong><small>${b.closed===0?'đã thu đủ':'Còn phải thu đã chốt đến hết tháng 03.2026'}</small></div>
+    <div class="stat open"><span>Đang mở · chưa chốt</span><strong>${money(b.open)}</strong><small>${b.open===0?'đã thu đủ':'Các chuyến tháng 04.2026'}</small></div>
+    <div class="view-month"><div>THÁNG ĐANG XEM<strong>04.2026</strong></div></div>
+  </div>`}
+  const historical=[{month:'01.2026',date:'02/02/2026',balance:40000000},{month:'02.2026',date:'02/03/2026',balance:70000000},{month:'03.2026',date:'02/04/2026',balance:95000000}];
+  function renderHistorical(){return historical.map(h=>{
+    const opened=S.expandedMonths.has(h.month);
+    return `<section class="month"><button class="month-head" data-action="expand-month" data-value="${h.month}"><span class="month-name"><span class="triangle ${opened?'down':''}"></span><strong>THÁNG ${h.month}</strong>${tag('Đã chốt · '+h.date,'green')}</span><span class="month-number">Số dư cuối tháng <strong>${money(h.balance)}</strong></span></button>
+    ${opened?`<div class="totals"><p style="font-size:16px;color:#526985">Lịch sử tháng ${h.month} (chỉ xem; số dư không thay đổi khi ghi khoản thu tháng 04)</p><div class="total-line"><span class="total-label">Còn phải thu cuối tháng</span><span class="total-value">${money(h.balance)}</span></div></div>`:''}</section>`
+  }).join('')}
+  function payCells(r){
+    if(r.id==='DEMO-105' && S.editingPayment){return `<td><input data-pay="date" class="cell-input" placeholder="dd/mm/yyyy" value="${safe(S.paymentDraft.date)}" aria-label="Ngày nhận tiền" /></td><td><select data-pay="method" class="cell-input" aria-label="Cách thu">${['','Chuyển khoản','Cấn trừ','Ứng trước','Khác'].map(v=>`<option ${S.paymentDraft.method===v?'selected':''}>${safe(v)}</option>`).join('')}</select></td><td><input data-pay="ref" class="cell-input" value="${safe(S.paymentDraft.ref)}" placeholder="Tham chiếu" aria-label="Tham chiếu" /></td><td><input data-pay="amount" class="cell-input numeric" value="${safe(S.paymentDraft.amount)}" placeholder="Số tiền" aria-label="Đã thu" /></td>`}
+    if(r.id==='DEMO-105'&&S.confirmedPayment>0){const x=S.confirmedReceipt||{};return `<td>${safe(x.date)}</td><td>${safe(x.method)}</td><td>${safe(x.ref)}</td><td class="numeric">${money(S.confirmedPayment)}</td>`}
+    const rec=S.unconfirmedReceipts.find(x=>x.enteredAt===r.id);
+    if(rec)return `<td class="muted">—</td><td class="muted">—</td><td><span class="receipt-pending">${safe(rec.id)}</span></td><td class="numeric"><span class="receipt-pending">${money(rec.amount)} · Chưa xác nhận</span></td>`;
+    return `<td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="numeric muted">—</td>`
+  }
+  function renderRow(r,i){
+    const sum=amountOf(r),bad=sum===null,bg=bad?'row-bad':S.expanded===r.id?'row-selected':'';
+    const covered=S.confirmedPayment>0&&['DEMO-105','DEMO-106','DEMO-107'].includes(r.id);
+    const mismatch=Number.isFinite(r.pastedAmount)&&sum!==null&&sum!==r.pastedAmount;
+    const status=r.isNew?tag('Đang nhập','orange'):mismatch?tag('Lệch tiền · kiểm lại','red'):bad?tag('Thiếu giá','red'):covered?tag(r.id==='DEMO-105'?'Ghi khoản thu':'Trong nhóm đã thu','green'):tag(S.simulatedClosed?'Đã chốt':'Chưa chốt',S.simulatedClosed?'green':'blue');
+    const isDraft=!!r.isNew, editableCell=(key,placeholder)=>`<input class="cell-input numeric" data-edit-row="${safe(r.id)}" data-col="${key}" value="${r[key]===null?'':safe(money(r[key]))}" placeholder="${placeholder}" />`;
+    const tr=`<tr class="${bg} ${S.editingPayment&&r.id==='DEMO-105'?'payment-edit':''}"><td class="idx">${i+1}</td>
+      <td>${isDraft?`<input class="cell-input" data-edit-row="${safe(r.id)}" data-col="id" value="${safe(r.id)}" aria-label="Số container" />`:`<button class="container-link" data-action="expand-row" data-value="${safe(r.id)}">${safe(r.id)}</button>`}</td>
+      <td>${isDraft?`<input class="cell-input" data-edit-row="${safe(r.id)}" data-col="date" value="${safe(r.date)}" aria-label="Ngày chuyến" />`:safe(r.date)}</td>
+      <td class="numeric">${isDraft?editableCell('price','Đơn giá'):moneyCell(r.price)}</td>
+      <td class="numeric ${bad?'warning-text':''}">${bad?'<span class="invalid-cell">Chưa có dữ liệu</span>':money(sum)}${mismatch?`<div class="small-info">Bảng tính: ${money(r.pastedAmount)} · lệch ${money(Math.abs(sum-r.pastedAmount))}, kiểm lại</div>`:''}</td>
+      ${payCells(r)}<td>${status}</td><td><button class="dot-btn" aria-label="Thao tác dòng ${safe(r.id)}" data-action="row-menu" data-value="${safe(r.id)}">⋮</button></td></tr>`;
+    const detailItems=[['Hãng tàu','carrier',r.carrier],['Nơi đi','from',r.from],['Nơi đến','to',r.to],['Phí khác','other',moneyCell(r.other)],['Phí cắm điện cảng','plug',moneyCell(r.plug)],['Phí áp tải','escort',moneyCell(r.escort)],['Tham chiếu','receipt','—']];
+    const details=S.expanded===r.id?`<tr class="expanded-row"><td colspan="11"><div class="details">${detailItems.map(([name,key,val])=>`<div><label>${safe(name)}</label>${isDraft&&key!=='receipt'?`<input data-edit-row="${safe(r.id)}" data-col="${key}" value="${safe(val==='—'?'':val)}" />`:`<strong>${safe(val||'—')}</strong>`}</div>`).join('')}
+      <div class="formula-detail">Thành tiền = Đơn giá + Phí khác + Phí cắm điện cảng + Phí áp tải<br/>${moneyCell(r.price)} + ${r.other===null?'—':money(r.other)} + ${r.plug===null?'—':money(r.plug)} + ${r.escort===null?'—':money(r.escort)} = ${sum===null?'Chưa có dữ liệu':money(sum)}. Phí trống là không phát sinh phí.</div>
+      </div><div class="details-bottom"><span>${r.id==='DEMO-103'?'5.000.000 được ghi tại dòng DEMO-103, là khoản thu của sổ tháng 04; chưa có ngày nhận tiền nên chưa xác nhận.':'Bung chi tiết đầy đủ mà không cần bật cột cho cả bảng.'}</span><button data-action="expand-row" data-value="${safe(r.id)}" class="btn">Thu gọn</button></div></td></tr>`:'';
+    const menu=S.openMenu===r.id?`<tr class="row-menu-tr"><td colspan="11"><div class="row-menu-actions"><strong style="margin-right:auto;color:#486580">${safe(r.id)} · Thao tác trên chuyến</strong><button class="btn" data-action="row-expand" data-value="${safe(r.id)}">Bung chi tiết</button><button class="btn" data-action="row-payment" data-value="${safe(r.id)}">Ghi tiền thu</button><button class="btn danger" data-action="row-remove" data-value="${safe(r.id)}">Bỏ dòng</button></div></td></tr>`:'';
+    return tr+details+menu;
+  }
+  function renderMainLedger(){
+    if(S.selected!=='KHACH_MAU') return `<div class="scene-note"><strong>${safe(S.selected)}</strong> đang được chọn. Để xem dữ liệu chi tiết đã được cung cấp trong brief, chọn lại KHACH_MAU; các sổ khác chỉ có số tổng minh họa.</div>`;
+    const b=balance(), priced=rowsNow().filter(r=>amountOf(r)!==null), pending=priced.reduce((s,r)=>s+amountOf(r),0);
+    return `${renderSummary()}${renderHistorical()}<section class="month current"><button class="month-head" data-action="expand-month" data-value="04.2026">
+      <span class="month-name"><span class="triangle ${S.expandedMonths.has('04.2026')?'down':''}"></span><strong>THÁNG 04.2026</strong>${tag(S.simulatedClosed?'Đã chốt':'Đang mở · chưa chốt',S.simulatedClosed?'green':'blue')}</span>
+      <span class="month-number">${priced.length} chuyến có giá <strong>· ${money(pending)}</strong></span></button>
+      ${S.expandedMonths.has('04.2026')?`<div class="actions">
+        <button class="btn primary" data-action="open-paste">▤ Dán từ bảng tính</button>
+        <button class="btn" data-action="new-row">＋ Thêm dòng</button><span class="action-hint">Dán trực tiếp 11 cột vào dòng trống cuối bảng</span>
+        <button class="btn action-last" data-action="open-close">Chốt công nợ tháng 04</button>
+      </div><div class="table-scroll"><table class="ledger"><thead><tr>
+        <th class="idx">STT</th><th class="con">Số container</th><th class="date">Ngày</th><th class="price numeric">Đơn giá</th>
+        <th class="amount numeric">Thành tiền</th><th class="datepay">Ngày nhận tiền</th><th class="method">Cách thu</th>
+        <th class="ref">Tham chiếu</th><th class="paid numeric">Đã thu</th><th class="state">Tình trạng</th><th class="extra"></th>
+      </tr></thead><tbody>${rowsNow().map(renderRow).join('')}
+      <tr class="add-row"><td class="idx">${rowsNow().length+1}</td><td colspan="10"><textarea class="inline-paste-area" data-action="inline-paste" rows="1" placeholder="Dán trực tiếp từ Sheet: 11 cột, tối đa 50 dòng. Click vào đây rồi Ctrl+V…" aria-label="Dán trực tiếp chuyến vào dòng trống"></textarea></td></tr>
+      </tbody></table></div>${S.inlineFeedback?`<div class="paste-feedback">${safe(S.inlineFeedback)}</div>`:''}${S.importWarnings.length?`<div class="notice">${S.importWarnings.map(safe).join('<br/>')}</div>`:''}
+      ${S.editingPayment?`<div class="receipt-action"><span><strong>Ghi tại dòng DEMO-105</strong> · khoản thu thuộc sổ KHACH_MAU · thanh long, tháng 04.2026. Nhập đủ bốn trường ngay trên dòng.</span><button data-action="payment-cancel" class="btn">Hủy</button><button data-action="payment-preview" class="btn primary">Xem kết quả mô phỏng</button></div>`:''}
+      <div class="totals">
+        <div class="total-line"><span class="total-label">Số dư tháng chuyển sang</span><span class="total-value">95.000.000</span></div>
+        <div class="total-line"><span class="total-label">Phát sinh tháng 04 · ${priced.length} chuyến có giá</span><span class="total-value">${money(pending)}</span></div>
+        <div class="total-line"><span class="total-label">Đã thu trong tháng (đã ghi nhận)</span><span class="total-value">${S.confirmedPayment?money(S.confirmedPayment):'—'}</span></div>
+        <div class="total-line"><span class="total-label"><strong>Còn phải thu cuối tháng</strong>${b.overpayment?' · khách trả dư · phải trả lại':' (phần đã chốt)'}</span><span class="total-value ${b.overpayment?'overpaid-text':''}">${b.overpayment?'−'+money(b.overpayment):money(b.closed)}</span></div>
+        <div class="total-line highlight"><span class="total-label">Đang mở · chưa chốt</span><span class="total-value">${money(b.open)}${b.open===0?' · đã thu đủ':''}</span></div>
+        ${S.confirmedPayment?`<div style="padding-top:12px;display:flex;justify-content:flex-end"><button data-action="allocation" class="allocation-link">Xem phân bổ khoản thu ${money(S.confirmedPayment)} theo từng tháng →</button></div>`:''}
+      </div><div class="notice">${S.unconfirmedReceipts.length?`Chứng từ ${money(S.unconfirmedReceipts[0].amount)} · ${safe(S.unconfirmedReceipts[0].id)} ghi tại dòng DEMO-103 chưa có ngày nhận tiền: <strong>chưa xác nhận, không tính vào số dư</strong>.`:'Không có chứng từ chưa xác nhận.'} ${rowsNow().some(r=>r.id==='DEMO-103'&&amountOf(r)===null)?'DEMO-103 còn thiếu giá, chưa được tính vào phát sinh.':''}</div>`:''}</section>
+    `;
+  }
+  function renderTotal(){const clients=currentClients();const data=[
+    {name:'KHACH_MAU',cat:'Thanh long',brought:95000000,origin:null,paid:S.confirmedPayment||null,closed:balance().overpayment?-balance().overpayment:balance().closed,open:balance().open,cont:rowsNow().length,status:S.simulatedClosed?'closed':'open'},
+    {name:'KHACH_B',cat:'Thanh long',brought:18000000,origin:122000000,paid:40000000,closed:100000000,open:0,cont:9,status:'closed'},
+    {name:'KHACH_C',cat:'Thanh long',brought:0,origin:null,paid:null,closed:0,open:0,cont:null,status:'not-open'},
+    {name:'KHACH_D',cat:'Mít',brought:30000000,origin:60000000,paid:20000000,closed:70000000,open:0,cont:3,status:'closed'},
+    {name:'KHACH_E',cat:'Mít',brought:12000000,origin:null,paid:null,closed:12000000,open:45000000,cont:2,status:'open'}];
+    return `<div class="demo-strip"><strong>TỔNG · THÁNG 04.2026</strong><span>Bấm một khách để mở sổ của khách đó.</span></div><div class="table-card"><table class="total-table"><thead><tr><th>Loại hàng</th><th>Khách</th><th>Số dư chuyển sang</th><th>Phát sinh đã chốt</th><th>Đã thu</th><th>Còn phải thu cuối tháng</th><th>Đang mở</th><th>Số cont</th><th>Trạng thái</th></tr></thead><tbody>
+    ${data.map(d=>`<tr data-action="customer" data-value="${d.name}"><td>${d.cat}</td><td><strong>${d.name}</strong></td><td class="numeric">${money(d.brought)}</td><td class="numeric">${moneyCell(d.origin)}</td><td class="numeric">${moneyCell(d.paid)}</td><td class="numeric">${money(d.closed)}</td><td class="numeric">${d.open?money(d.open):'—'}</td><td>${d.cont??'—'}</td><td>${tag(statusName(d.status),statusColor(d.status))}</td></tr>`).join('')}</tbody></table></div>`
+  }
+  function blockers(){let arr=[];if(S.role==='entry')arr.push('Các chuyến trong tháng do bạn nhập. Người nhập không được tự chốt công nợ.');if(rowsNow().some(r=>amountOf(r)===null))arr.push('DEMO-103 chưa có giá; phải bổ sung đơn giá trước khi chốt.');if(rowsNow().some(r=>r.pastedAmount!==null&&r.pastedAmount!==undefined&&amountOf(r)!==null&&r.pastedAmount!==amountOf(r)))arr.push('Có chuyến lệch Thành tiền từ bảng tính; cần kiểm tra trước khi chốt.');return arr}
+  function renderModal(){
+    if(S.showDeleteBlock){const pending=S.unconfirmedReceipts.filter(r=>r.enteredAt===(S.pendingDelete||'DEMO-103'));return `<div class="overlay" role="dialog" aria-modal="true"><div class="dialog small"><div class="dialog-head"><h2>Xác nhận bỏ chuyến ${safe(S.pendingDelete||'DEMO-103')}</h2><button class="x-close" data-action="close-modal">×</button></div><div class="dialog-body">
+      <p>Bạn muốn bỏ dòng chuyến <strong>${safe(S.pendingDelete||'DEMO-103')}</strong> khỏi tháng 04.2026?</p>
+      ${pending.length?`<div class="validation"><strong>Đồng thời bỏ chứng từ chưa xác nhận ${safe(pending[0].id)} · ${money(pending[0].amount)}</strong>, được ghi tại dòng này. Khoản thu này thuộc sổ KHACH_MAU · thanh long và tháng 04.2026, không phải tiền thuộc riêng chuyến.</div>`:''}
+      <p>Việc bỏ chuyến và chứng từ chưa xác nhận sẽ được <strong>lưu vết</strong> trong bản mô phỏng. Khoản thu <strong>đã xác nhận</strong> không được bỏ theo cách này, phải đảo riêng.</p>
+      </div><div class="dialog-footer"><button class="btn" data-action="close-modal">Giữ lại</button><button class="btn danger" data-action="confirm-delete" data-value="${safe(S.pendingDelete||'DEMO-103')}">Bỏ dòng và chứng từ chưa xác nhận</button></div></div></div>`}
+    if(S.modal==='paste')return `<div class="overlay" role="dialog" aria-modal="true"><div class="dialog"><div class="dialog-head"><h2>Dán từ bảng tính</h2><button class="x-close" data-action="close-modal">×</button></div><div class="dialog-body">
+      <p><strong>KHACH_MAU · thanh long · THÁNG 04.2026</strong> — dữ liệu dán vào tháng này, không chọn kỳ riêng.</p><div class="paste-layout"><div><strong>11 cột theo thứ tự khi dán</strong><ol class="columns-list">${['STT (tự đánh, bỏ qua khi dán)','Số container','Hãng tàu','Ngày','Nơi đi','Nơi đến','Phí khác','Phí cắm điện cảng','Phí áp tải','Đơn giá','Thành tiền (chỉ để đối chiếu)'].map((v,i)=>`<li><span>${i+1}</span>${v}</li>`).join('')}</ol></div>
+      <div><label class="field-label" for="paste-data">Dán dữ liệu từ bảng tính vào đây…</label><textarea id="paste-data" class="paste-area" data-action="paste-text" placeholder="1[TAB]DEMO-109[TAB]WH[TAB]20/04/2026[TAB]...">${safe(S.pasteInput)}</textarea>
+      <div class="box-note">Tối đa 50 dòng mỗi lần dán · Không dán cột tiền thu. Thành tiền tự cộng; Thành tiền từ Sheet chỉ dùng đối chiếu, nếu lệch sẽ báo “lệch X, kiểm lại”, không tự sửa hoặc bỏ dòng.</div>
+      ${S.pasteMessage?`<div class="validation ${S.pasteOk?'good':''}">${safe(S.pasteMessage)}</div>`:''}</div></div></div><div class="dialog-footer"><button data-action="close-modal" class="btn">Hủy</button><button data-action="paste-submit" class="btn primary">Kiểm tra và thêm vào sổ</button></div></div></div>`;
+    if(S.modal==='close'){
+      const errors=blockers(),pr=rowsNow().filter(r=>amountOf(r)!==null),total=pr.reduce((t,r)=>t+amountOf(r),0);
+      return `<div class="overlay" role="dialog" aria-modal="true"><div class="dialog small"><div class="dialog-head"><h2>${errors.length?'Không thể chốt công nợ tháng 04':'Xem lại để chốt công nợ tháng 04'}</h2><button class="x-close" data-action="close-modal">×</button></div><div class="dialog-body">
+      <p>Đăng nhập: <strong>${roleName()}</strong> · ${roleTitle()}</p><div class="review-stats"><div><small>Chuyến có giá</small><strong>${pr.length}</strong></div><div><small>Tổng phát sinh</small><strong>${money(total)}</strong></div><div><small>Dòng thiếu giá</small><strong>${rowsNow().length-pr.length}</strong></div></div>
+      ${errors.length?`<div class="validation"><strong>Không thể chốt vì ${errors.length} lý do:</strong><ol class="blockers">${errors.map(e=>`<li>${safe(e)}</li>`).join('')}</ol></div>`:`<p>Người chốt: <strong>${roleName()}</strong>. Chốt cả tháng, không chốt từng chuyến.</p>
+      <div class="box-note">DEMO-103 được bổ sung đơn giá giả định 15.000.000. <strong>Chốt tháng vẫn được phép khi chứng từ ${S.unconfirmedReceipts[0]?.id||'CT-CHO-05'} · 5.000.000 chưa xác nhận.</strong> Sau chốt, chứng từ vẫn treo và vẫn ngoài số dư.</div>`}
+      ${S.modalNotice?`<div class="validation">${safe(S.modalNotice)}</div>`:''}
+      </div><div class="dialog-footer"><button data-action="close-modal" class="btn">Quay lại sổ</button>${!errors.length?'<button class="btn primary" data-action="close-sim">Chốt công nợ tháng 04</button>':''}</div></div></div>`;
+    }
+    return ''
+  }
+  function renderDrawer(){if(S.drawer!=='allocation')return '';
+    const P=S.confirmedPayment||120000000, b=balance();
+    const targets=[['Số dư trước tháng 01.2026',20000000],['Tháng 01.2026',20000000],['Tháng 02.2026',30000000],['Tháng 03.2026',25000000]];
+    let rest=P;const applied=targets.map(([name,num])=>{const val=Math.min(Math.max(0,rest),num);rest-=val;return [name,val]});
+    const closedSum=applied.reduce((n,e)=>n+e[1],0),opened=Math.min(totalOpen(),Math.max(0,rest));rest-=opened;
+    return `<div class="drawer-shade" data-action="drawer-close"></div><aside class="drawer"><div class="dialog-head"><h2>Phân bổ khoản thu ${money(P)}</h2><button class="x-close" data-action="drawer-close">×</button></div><div class="dialog-body">
+      <p><strong>Ngày nhận tiền:</strong> ${safe(S.confirmedReceipt?.date||'20/04/2026')}<br/><strong>Cách thu:</strong> ${safe(S.confirmedReceipt?.method||'Chuyển khoản')}<br/><strong>Tham chiếu:</strong> ${safe(S.confirmedReceipt?.ref||'UNC-0420')}<br/><strong>Ghi tại dòng:</strong> DEMO-105 · sổ KHACH_MAU · thanh long · tháng 04.2026<br/><strong>Phủ nhóm:</strong> DEMO-105, DEMO-106, DEMO-107</p>
+      <table class="alloc-table"><thead><tr><th>Phân bổ vào</th><th>Số tiền</th></tr></thead><tbody>
+       ${applied.map(([name,val])=>`<tr><td>${name}</td><td>${money(val)}</td></tr>`).join('')}
+       <tr class="sub"><td>Hết phần đã chốt</td><td>${money(closedSum)}</td></tr>
+       <tr><td>Tháng 04.2026 · đang mở</td><td>${money(opened)}</td></tr>
+       ${rest>0?`<tr class="sub"><td>Không còn nợ để trừ · trả dư</td><td>${money(rest)}</td></tr>`:''}
+       <tr class="grand"><td>Tổng khoản thu</td><td>${money(closedSum+opened+rest)}</td></tr></tbody></table>
+      <div class="${rest?'validation':'validation good'}">Đã chốt: <strong>${money(b.closed)}</strong> · đã thu đủ. Đang mở: <strong>${money(b.open)}</strong>${b.open===0?' · đã thu đủ':''}.
+        ${rest?`<p class="overpaid-text">Còn phải thu cuối tháng: −${money(rest)} · khách trả dư · phải trả lại.</p><p>Khoản dư chỉ nằm trong sổ KHACH_MAU · thanh long; không tự chuyển sang sổ khác.</p>`:''}</div>
+      <p>Số dư lịch sử tháng 01 / 02 / 03 vẫn giữ nguyên 40.000.000 / 70.000.000 / 95.000.000.</p>
+    </div></aside>`;
+  }
+  const GALLERY=new URLSearchParams(location.search).get('gallery')==='1';
+  const initialScene=Number(new URLSearchParams(location.search).get('scene'))||1;
+  function renderScreen(){return `<div class="app">${renderSidebar()}<main class="main">${renderTop()}<div class="content"><div class="demo-strip"><strong>Chỉ mô phỏng · không kết nối dữ liệu thật</strong><span>THÁNG 04.2026</span></div>${S.tab==='total'?renderTotal():renderMainLedger()}${S.audit.length?`<div class="audit-box"><strong>Lịch sử thao tác trong trang:</strong>${S.audit.map(a=>`<div>${safe(a)}</div>`).join('')}</div>`:''}</div></main></div>${renderModal()}${renderDrawer()}`}
+  function render(){
+    if(GALLERY){
+      let frames='';const previousScene=S.scene;
+      for(let i=1;i<=10;i++){
+        reset(i);frames+=`<div class="gallery-block"><div class="scene-nav"><h2 class="frame-heading">${safe(sceneNames[i])}</h2><a href="?scene=${i}">Mở bản tương tác</a></div><section id="khung-${String(i).padStart(2,'0')}" class="scene-frame" aria-label="${safe(sceneNames[i])}">${renderScreen()}</section></div>`
+      }
+      document.body.classList.add('gallery-mode');
+      document.getElementById('app').innerHTML=`<div class="gallery-top"><h1>V5 · 10 khung giao diện</h1><p>Chọn “Mở bản tương tác” ở từng khung để sử dụng nút bấm và thử thao tác.</p></div>${frames}${renderOutsideNotes()}`;
+      reset(previousScene);return;
+    }
+    const id=`khung-${String(S.scene).padStart(2,'0')}`;
+    document.getElementById('app').innerHTML=`<div class="gallery-top"><div class="scene-nav"><label for="scene-select"><strong>Khung đang xem</strong></label><select id="scene-select" class="scene-picker" data-action="scene">${Object.entries(sceneNames).map(([i,name])=>`<option value="${i}" ${S.scene===+i?'selected':''}>${safe(name)}</option>`).join('')}</select><a href="?gallery=1">Xem đủ 10 khung để chụp ảnh</a></div></div><section id="${id}" class="scene-frame">${renderScreen()}</section>${renderOutsideNotes()}`
+  }
+  function renderOutsideNotes(){return `<aside class="external-notes"><strong>Điểm còn mở (ghi chú ngoài màn hình)</strong><ol>
+    <li>Thứ tự 11 cột của bảng tính nguồn chưa được đối chiếu thực tế.</li>
+    <li>Ai được xác nhận chứng từ và cần căn cứ gì: hiện hoãn, chưa thiết kế nút xác nhận.</li>
+    <li>Tiền khách trả dư nằm ở sổ khách × loại hàng này, mặc định không tự dùng cho sổ khác.</li>
+    <li>Sổ “chưa mở” có tính là “chưa chốt” không: khung 08 tạm không tính.</li>
+    </ol><p>Trang mô phỏng dùng dữ liệu giả trong bộ nhớ, không lưu hoặc thay đổi công nợ thật.</p></aside>`}
+  function setPayFromDOM(){document.querySelectorAll('[data-pay]').forEach(el=>S.paymentDraft[el.dataset.pay]=el.value)}
+  function checkPaste(text=S.pasteInput){
+    const txt=text.trim();if(!txt){S.pasteMessage='Chưa có dữ liệu để dán.';S.pasteOk=false;return null}
+    const lines=txt.replace(/\r/g,'').split('\n').filter(Boolean);
+    if(lines.length>50){S.pasteMessage='Tối đa 50 dòng mỗi lần dán. Không nhận dòng nào.';S.pasteOk=false;return null}
+    const incoming=[];let warnings=[];
+    for(let i=0;i<lines.length;i++){
+      const f=lines[i].split('\t');if(f.length!==11){S.pasteMessage=`Dòng ${i+1}: cần đúng 11 cột, đang có ${f.length}. Không nhận dòng nào.`;S.pasteOk=false;return null}
+      if(!f[1].trim()||!dateValid(f[3])){S.pasteMessage=`Dòng ${i+1}: thiếu số container hoặc ngày không hợp lệ. Không nhận dòng nào.`;S.pasteOk=false;return null}
+      const row={id:f[1].trim(),carrier:f[2].trim(),date:f[3].trim(),from:f[4].trim(),to:f[5].trim(),other:parseMoney(f[6]),plug:parseMoney(f[7]),escort:parseMoney(f[8]),price:parseMoney(f[9]),pastedAmount:parseMoney(f[10]),rawPastedAmount:f[10],unconfirmed:0};
+      if(row.price===null)warnings.push(`Dòng ${i+1} (${row.id}): chưa có giá.`);
+      if(row.pastedAmount!==null&&amountOf(row)!==null&&row.pastedAmount!==amountOf(row))warnings.push(`Dòng ${i+1} (${row.id}): Thành tiền bảng tính ${money(row.pastedAmount)}, thành tiền tự cộng ${money(amountOf(row))}, lệch ${money(Math.abs(row.pastedAmount-amountOf(row)))}, kiểm lại.`);
+      incoming.push(row);
+    }
+    S.importWarnings=warnings;
+    S.pasteOk=true;
+    S.pasteMessage=`Đã đọc ${incoming.length} dòng. ${warnings.length?warnings.join(' '):'Thành tiền khớp với số tự cộng.'} ${warnings.length?'Giữ nguyên dữ liệu dán để kiểm tra, không tự sửa hoặc bỏ dòng.':''}`;
+    return incoming;
+  }
+  function previewPayment(){setPayFromDOM();const p=S.paymentDraft,amount=parseMoney(p.amount);
+    if(!dateValid(p.date)||!p.method||!p.ref.trim()||amount===null||amount<=0){alert('Cần nhập đủ ngày nhận tiền, cách thu, tham chiếu và số tiền nguyên dương.');return}
+    S.confirmedPayment=amount;S.confirmedReceipt={date:p.date,method:p.method,ref:p.ref};S.editingPayment=false;S.drawer='allocation';S.scene=amount>95000000+totalOpen()?10:5;render();
+  }
+  function openDelete(id){S.pendingDelete=id;S.showDeleteBlock=true;render()}
+  function confirmDelete(id){
+    const row=rowsNow().find(r=>r.id===id);
+    if(!row)return;
+    const pending=S.unconfirmedReceipts.filter(r=>r.enteredAt===id);
+    const approvedReceipt=!!(S.confirmedReceipt&&id==='DEMO-105');
+    if(approvedReceipt){alert('Khoản thu đã xác nhận không được bỏ theo thao tác này, phải đảo riêng.');return}
+    S.rows=S.rows.filter(r=>r.id!==id);S.customRows=S.customRows.filter(r=>r.id!==id);
+    S.unconfirmedReceipts=S.unconfirmedReceipts.filter(r=>r.enteredAt!==id);
+    S.audit.push(`17/10/2026 · ${roleName()} bỏ dòng ${id}${pending.length?` và bỏ ${pending.length} chứng từ chưa xác nhận (${pending.map(r=>r.id+' · '+money(r.amount)).join(', ')})`:''}.`);
+    S.showDeleteBlock=false;S.pendingDelete=null;S.modal=null;render();
+  }
+  document.addEventListener('paste',ev=>{
+    if(ev.target.dataset.action!=='inline-paste')return;
+    const content=ev.clipboardData?.getData('text/plain')||'';
+    if(!content)return;
+    ev.preventDefault();
+    const incoming=checkPaste(content);
+    if(incoming){S.customRows.push(...incoming);S.inlineFeedback=`Đã thêm ${incoming.length} chuyến vào tháng 04 (chỉ trong bản mẫu).`;}
+    else S.inlineFeedback=S.pasteMessage;
+    render();
+  });
+  document.addEventListener('input',ev=>{
+    if(ev.target.dataset.editRow){
+      const field=ev.target.dataset.col;
+      const id=ev.target.dataset.editRow;
+      const row=S.customRows.find(r=>r.id===id);
+      if(row){
+        if(['price','other','plug','escort'].includes(field))row[field]=parseMoney(ev.target.value);
+        else if(field==='id'){row.id=ev.target.value;ev.target.dataset.editRow=row.id;}
+        else row[field]=ev.target.value;
+      }
+    }
+    if(ev.target.dataset.pay) S.paymentDraft[ev.target.dataset.pay]=ev.target.value;
+    if(ev.target.dataset.action==='paste-text')S.pasteInput=ev.target.value;
+    if(ev.target.dataset.action==='search'){
+      S.search=ev.target.value;
+      const point=ev.target.selectionStart;
+      const aside=document.querySelector('.aside-sticky');const y=aside?.scrollTop??0;
+      render();const el=document.querySelector('[data-action="search"]');el?.focus();if(el)el.setSelectionRange(point,point);document.querySelector('.aside-sticky').scrollTop=y;
+    }
+  });
+  document.addEventListener('change',ev=>{if(ev.target.dataset.action==='scene'){reset(+ev.target.value);render()}});
+  document.addEventListener('keydown',ev=>{
+    if(ev.key==='Escape'&&(S.modal||S.showDeleteBlock||S.drawer)){S.modal=null;S.showDeleteBlock=false;S.drawer=null;render()}
+    if(ev.key==='Enter'&&ev.target.dataset.pay==='amount'){ev.preventDefault();previewPayment()}
+    if(ev.key==='Enter'&&ev.target.dataset.editRow){ev.preventDefault();S.inlineFeedback='Đã cập nhật dòng trong bản mẫu (không có máy chủ lưu dữ liệu).';render()}
+  });
+  document.addEventListener('click',ev=>{
+    const btn=ev.target.closest('[data-action]');if(!btn)return;
+    const act=btn.dataset.action,v=btn.dataset.value;
+    if(act==='tab'){S.tab=v;render();return}
+    if(act==='filter'){S.filter=v;render();return}
+    if(act==='customer'){S.selected=v;S.tab='ledger';render();return}
+    if(act==='expand-month'){S.expandedMonths.has(v)?S.expandedMonths.delete(v):S.expandedMonths.add(v);render();return}
+    if(act==='expand-row'){S.expanded=S.expanded===v?null:v;render();return}
+    if(act==='open-paste'){S.modal='paste';S.pasteMessage='';render();return}
+    if(act==='close-modal'){S.modal=null;S.showDeleteBlock=false;render();return}
+    if(act==='drawer-close'){S.drawer=null;render();return}
+    if(act==='allocation'){S.drawer='allocation';render();return}
+    if(act==='payment-cancel'){S.editingPayment=false;render();return}
+    if(act==='payment-preview'){previewPayment();return}
+    if(act==='open-close'){S.modal='close';render();return}
+    if(act==='close-sim'){S.simulatedClosed=true;S.modal=null;render();return}
+    if(act==='new-row'){const id='DEMO-'+(200+S.customRows.length);S.customRows.push({id,carrier:'',date:'22/04/2026',from:'',to:'',other:null,plug:null,escort:null,price:null,amount:null,isNew:true});S.expanded=id;render();return}
+    if(act==='paste-submit'){S.pasteInput=document.getElementById('paste-data')?.value||'';const incoming=checkPaste();if(incoming){S.customRows.push(...incoming);S.modal=null;S.expanded=null;render()}else render();return}
+    if(act==='row-menu'){S.openMenu=S.openMenu===v?null:v;render();return}
+    if(act==='row-expand'){S.expanded=v;S.openMenu=null;render();return}
+    if(act==='row-payment'){
+      S.openMenu=null;
+      if(v!=='DEMO-105'){alert('Ví dụ thu 120 triệu được minh họa trên dòng đầu nhóm DEMO-105.');render();return}
+      S.editingPayment=true;S.expanded=null;render();return;
+    }
+    if(act==='row-remove'){S.openMenu=null;openDelete(v);return}
+    if(act==='confirm-delete'){confirmDelete(v);return}
+
+  });
+  reset(initialScene>=1&&initialScene<=10?initialScene:1);render();
+  </script>
+</body>
+</html>
