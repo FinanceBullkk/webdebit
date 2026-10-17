@@ -83,15 +83,15 @@ Trang thật, chụp bằng thao tác thật. Giữ các `data-action` sẵn có
   "viewports": [[1500, 1000]],
   "states": [
     {"name": "mac-dinh", "board": "01 · Mặc định", "note": "So KHACH_MAU, thang 04 dang mo, DEMO-103 thieu gia",
-     "shot": "", "steps": []},
+     "shot": "", "fullPage": true, "steps": []},
     {"name": "bung-chi-tiet", "board": "02 · Bung chi tiết", "note": "Bung 7 truong cua DEMO-105",
-     "shot": "", "steps": [{"click": "[data-action=\"expand-row\"][data-value=\"DEMO-105\"]"}]},
+     "shot": "", "fullPage": true, "steps": [{"click": "[data-action=\"expand-row\"][data-value=\"DEMO-105\"]"}]},
     {"name": "dan-bang-tinh", "board": "03 · Dán 11 cột", "note": "Hop thoai dan, liet ke 11 cot",
-     "shot": "", "steps": [{"click": "[data-action=\"open-paste\"]"}]},
+     "shot": "", "fullPage": true, "steps": [{"click": "[data-action=\"open-paste\"]"}]},
     {"name": "go-tien-tren-dong", "board": "04 · Gõ tiền trên dòng", "note": "Bon o nhap ngay tai dong DEMO-105",
-     "shot": "", "steps": [{"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"}]},
+     "shot": "", "fullPage": true, "steps": [{"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"}]},
     {"name": "thu-120-trieu", "board": "05 · Thu 120 triệu", "note": "Da chot 0, dang mo 65 trieu",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"},
        {"fill": ["[data-pay=\"date\"]", "20/04/2026"]},
        {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
@@ -99,7 +99,7 @@ Trang thật, chụp bằng thao tác thật. Giữ các `data-action` sẵn có
        {"fill": ["[data-pay=\"amount\"]", "120000000"]},
        {"press": "Enter"}]},
     {"name": "phan-bo-120-trieu", "board": "05 · Thu 120 triệu", "note": "Bang phan bo theo tung ky",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"},
        {"fill": ["[data-pay=\"date\"]", "20/04/2026"]},
        {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
@@ -108,24 +108,24 @@ Trang thật, chụp bằng thao tác thật. Giữ các `data-action` sẵn có
        {"press": "Enter"},
        {"click": "[data-action=\"allocation\"]"}]},
     {"name": "chan-chot-hai-ly-do", "board": "06 · Chặn chốt", "note": "Dang nhap nguoi nhap, con dong thieu gia",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"select": ["[data-action=\"actor\"]", "Nguyễn Văn A"]},
        {"click": "[data-action=\"open-close\"]"}]},
     {"name": "chot-hop-le", "board": "07 · Chốt hợp lệ", "note": "Nguoi chot khac nguoi nhap, DEMO-103 da co gia",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"click": "[data-action=\"row-edit\"][data-value=\"DEMO-103\"]"},
        {"fill": ["[data-edit-row=\"DEMO-103\"][data-col=\"price\"]", "15000000"]},
        {"press": "Enter"},
        {"select": ["[data-action=\"actor\"]", "Lê Văn C"]},
        {"click": "[data-action=\"open-close\"]"}]},
     {"name": "loc-chua-chot", "board": "08 · Lọc chưa chốt", "note": "2 tren 5 so mau",
-     "shot": "", "steps": [{"click": "[data-action=\"filter\"][data-value=\"unclosed\"]"}]},
+     "shot": "", "fullPage": true, "steps": [{"click": "[data-action=\"filter\"][data-value=\"unclosed\"]"}]},
     {"name": "bo-dong-co-chung-tu", "board": "09 · Bỏ dòng có chứng từ", "note": "Xac nhan bo dong kem chung tu treo",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"click": "[data-action=\"row-menu\"][data-value=\"DEMO-103\"]"},
        {"click": "[data-action=\"row-remove\"][data-value=\"DEMO-103\"]"}]},
     {"name": "khach-tra-du", "board": "10 · Khách trả dư", "note": "Am 15 trieu kem chu phai tra lai",
-     "shot": "", "steps": [
+     "shot": "", "fullPage": true, "steps": [
        {"click": "[data-action=\"row-payment\"][data-value=\"DEMO-105\"]"},
        {"fill": ["[data-pay=\"date\"]", "22/04/2026"]},
        {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
