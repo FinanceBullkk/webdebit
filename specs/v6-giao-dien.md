@@ -40,6 +40,15 @@ Người dùng trên 40 tuổi, quen sheet công nợ hiện tại. Không còn 
 3. Dòng điều chỉnh đi qua `validateAdjustment`; nêu **đủ mọi lý do** một lần.
 4. Mỗi lần thêm chuyến, sửa ô, ghi khoản thu, ghi điều chỉnh: dựng lại `book` rồi gọi lại model — không vá số cũ.
 5. **Lịch sử sửa** (C6) là nhật ký trong bộ nhớ tab do giao diện ghi: ai · lúc nào · tháng · dòng · số cũ → số mới · lý do. Với điều chỉnh có làm đổi phân bổ, ghi cả phân bổ trước và sau (V6-3d). Nhật ký này là tiện ích bản thử, **không phải lưu vết thật** — lưu vết thật thuộc lớp 3.
+
+   **Hai bản ghi mẫu lúc mở trang**, không hơn — để thấy bộ lọc người và cột việc khi chưa thao tác gì:
+
+   | Lúc | Người | Việc | Nội dung |
+   | --- | --- | --- | --- |
+   | `12/04/2026 08:05` | Nguyễn Văn A | Dán lô | Tháng 04 · 4 dòng · DEMO-105, DEMO-106, DEMO-107, DEMO-103 |
+   | `18/04/2026 09:30` | Nguyễn Văn A | Sửa ô | Tháng 04 · DEMO-107 · UNIT PRICE 22.000.000 → 20.000.000 |
+
+   Hai bản ghi này **khớp trạng thái mở đầu** của sổ: bốn dòng đó có thật, đơn giá DEMO-107 đang là 20.000.000. **Không** gieo bản ghi khoản thu 120.000.000 hay điều chỉnh +5.000.000 như mockup C6 vẽ — sổ lúc mở là `Đã thu —`, `Còn phải thu 185.000.000`, gieo hai bản ghi đó là nhật ký nói sai trạng thái sổ. Mockup C6 tự mâu thuẫn ở chỗ này; hai việc đó do thao tác thật trong C2 và C4 sinh ra.
 6. **Ngày hôm nay** lấy từ tham số `?today=YYYY-MM-DD`, mặc định `2026-05-03`. Không dùng đồng hồ máy cho quy tắc khóa.
 
    Mặc định này nằm trong ngày đệm của tháng 04 — tháng làm việc của sổ mẫu — nên bản thử mở ra là sửa được ngay: dán chuyến, sửa ô, ghi thu đều đi được. Tháng 03 vẫn đã khóa (`isDirectEditable("2026-03", "2026-05-03")` là `false`), đúng như C3. Trạng thái khóa tháng 04 kiểm bằng `?today=2026-05-06`. (Sửa 18/10/2026: mặc định cũ `2026-10-18` làm mọi trạng thái rơi vào tháng đã khóa.)
@@ -94,8 +103,16 @@ Viewport `1280×720`. Selector dưới đây là **hợp đồng**; đổi thì 
     {"name": "ngay-dem", "board": "C5", "note": "today=2026-05-03 (mac dinh), thang 04 con sua thang duoc",
      "page": "cong-no-web-handoff/preview/so-cong-no-v6.html?today=2026-05-03",
      "steps": [{"click": "[data-action=\"open-book\"][data-value=\"KHACH_MAU\"]"}]},
-    {"name": "lich-su-sua", "board": "C6", "note": "Bang lich su sua mo ben phai",
+    {"name": "lich-su-sua", "board": "C6", "note": "Bon ban ghi: hai mau cua Nguyen Van A, hai do thao tac that sinh ra",
      "steps": [{"click": "[data-action=\"open-book\"][data-value=\"KHACH_MAU\"]"},
+       {"fill": ["[data-pay=\"date\"]", "20/04/2026"]}, {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
+       {"fill": ["[data-pay=\"ref\"]", "UNC-0420"]}, {"fill": ["[data-pay=\"amount\"]", "120000000"]},
+       {"click": "[data-action=\"pay-save\"]"},
+       {"click": "[data-action=\"expand-month\"][data-value=\"2026-03\"]"},
+       {"click": "[data-action=\"open-adjust\"]"},
+       {"select": ["[data-adj=\"line\"]", "DEMO-104"]},
+       {"fill": ["[data-adj=\"reason\"]", "Thiếu phí áp tải chuyến DEMO-104"]},
+       {"fill": ["[data-adj=\"amount\"]", "+5000000"]}, {"click": "[data-action=\"adjust-save\"]"},
        {"click": "[data-action=\"open-history\"]"}]},
     {"name": "dan-lech", "board": "C7", "note": "Dan 2 dong, DEMO-109 lech 89 trieu, con phai thu 207 trieu",
      "steps": [{"click": "[data-action=\"open-book\"][data-value=\"KHACH_MAU\"]"},
@@ -122,6 +139,8 @@ Viewport `1280×720`. Selector dưới đây là **hợp đồng**; đổi thì 
 - [ ] `thu-120-trieu`: phân bổ `20 / 20 / 30 / 25 / 25`; `Đã thu 120.000.000`, `Còn phải thu 65.000.000`.
 - [ ] `da-dieu-chinh`: tháng 03 `Còn phải thu 100.000.000` kèm `95.000.000` gạch ngang; thanh tháng 04 `100.000.000` / `190.000.000` kèm số cũ gạch ngang.
 - [ ] Sau `da-dieu-chinh` mà ghi thêm thu `120000000`: phân bổ `20 / 20 / 30 / 30 / 20`; Lịch sử sửa ghi phân bổ trước và sau.
+- [ ] `lich-su-sua`: đúng bốn bản ghi, đủ bốn loại việc (Dán lô, Sửa ô, Ghi khoản thu, Điều chỉnh) và hai người; hai bản ghi mẫu đứng cuối, hai bản ghi mới đứng đầu. Bộ lọc tháng và bộ lọc người đều lọc đúng. Số sổ trên nền là trạng thái đã thu và đã điều chỉnh, **khác mockup C6** — ghi rõ khác biệt này trong báo cáo.
+- [ ] Mở trang rồi mở ngay Lịch sử sửa mà không thao tác gì: đúng hai bản ghi mẫu, không có bản ghi khoản thu hay điều chỉnh.
 - [ ] `ngay-dem`: tháng 04 sửa thẳng được, nhãn `Sửa được đến 05/05`; `sua-gia-thang-khoa` (`?today=2026-05-06`): ô giá tháng 04 chỉ đọc, nhãn `Đã khóa ⓘ`, dòng dán không bấm được.
 - [ ] Ở `today` mặc định, tháng 04 sửa thẳng được và tháng 03 đã khóa — mọi trạng thái còn lại chụp ở mặc định đều thao tác được.
 - [ ] `dan-lech`: phát sinh `112.000.000`, `Còn phải thu 207.000.000`, chú thích DEMO-109 nêu `99.000.000` / `10.000.000` / `89.000.000`.
