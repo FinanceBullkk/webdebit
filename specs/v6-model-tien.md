@@ -123,14 +123,16 @@ Mọi tháng của sổ, theo thứ tự, mỗi tháng:
   adjustmentsVnd,      // Σ điều chỉnh của tháng
   receivedVnd,         // Σ khoản thu đã có receivedOn, cùng monthKey; tháng opening: null
   endOfMonthVnd,       // có dấu
-  pricedCount,         // số dòng có giá của tháng, cho nhãn "n cont"
+  lineCount,           // số dòng chuyến của tháng, cho nhãn "n cont"
+  pricedCount,         // số dòng có giá (lineCount trừ số dòng thiếu giá)
   monthTotalVnd,       // số ở dòng TỔNG: monthTotals(lines).pricedTotalVnd + adjustmentsVnd
   missingPriceIds, mismatches }   // tháng opening: [] (dòng opening không bị kiểm giá)
 ```
 
 - Tháng web: `endOfMonthVnd = carryVnd + chargesVnd + adjustmentsVnd − receivedVnd`.
 - Tháng opening: `endOfMonthVnd = opening.endOfMonthVnd + Σ điều chỉnh của mọi tháng opening từ tháng đầu tới tháng này`.
-- `pricedCount` và `monthTotalVnd` tính như nhau ở cả hai loại tháng, từ `lines` của tháng đó cộng `adjustmentsVnd`. Đây là **số của dòng TỔNG**, không phải số dư; giao diện không được dùng nó thay `endOfMonthVnd`.
+- Nhãn `n cont` dùng `lineCount`, **không** dùng `pricedCount`: người dùng đếm container đã chạy, dòng chưa có giá vẫn là một container. Fixture tháng 04: `4 cont` với `pricedCount 3`.
+- `lineCount`, `pricedCount` và `monthTotalVnd` tính như nhau ở cả hai loại tháng, từ `lines` của tháng đó cộng `adjustmentsVnd`. Đây là **số của dòng TỔNG**, không phải số dư; giao diện không được dùng nó thay `endOfMonthVnd`.
 - `monthTotalVnd` của tháng opening **không** làm đổi `endOfMonthVnd` của tháng đó hay của tháng sau.
 - `endOfMonthVnd` và `monthTotalVnd` là hai trường **duy nhất** được âm; `endOfMonthVnd` âm nghĩa là khách đã ứng trước (V6-5), `monthTotalVnd` âm nghĩa là điều chỉnh giảm lớn hơn phát sinh.
 - Bất biến nối tháng (brief quy tắc 12): `carryVnd` của tháng sau luôn bằng `endOfMonthVnd` của tháng trước.
@@ -180,7 +182,8 @@ Cách kiểm `lineId` **giống nhau ở cả hai loại tháng**: so với `id`
 - [ ] `validateAdjustment` với `monthKey "2026-03"`, `lineId "DEMO-104"`, số tiền và lý do hợp lệ → `ok true`, `reasons` rỗng (dòng opening tra được).
 - [ ] Cùng ca trên nhưng `lineId "DEMO-999"` → `ok false`, đúng một lý do về `lineId`; với `lineId null` → `ok true`.
 - [ ] `lineId "DEMO-105"` của tháng web `2026-04` → `ok true`; `monthKey "2026-09"` (không có trong sổ) → `ok false`, lý do chỉ nói về tháng.
-- [ ] Dòng TỔNG: tháng 03 `pricedCount 1`, `monthTotalVnd 25000000n`; tháng 04 `pricedCount 3`, `monthTotalVnd 90000000n`.
+- [ ] Dòng TỔNG: tháng 03 `lineCount 1`, `pricedCount 1`, `monthTotalVnd 25000000n`; tháng 04 `lineCount 4`, `pricedCount 3`, `monthTotalVnd 90000000n`.
+- [ ] Sau khi dán thêm `DEMO-108`, `DEMO-109`: tháng 04 `lineCount 6`, `pricedCount 5`.
 - [ ] Với điều chỉnh `+5000000` tháng 03: tháng 03 `monthTotalVnd 30000000n`, `pricedCount` vẫn `1`; `endOfMonthVnd` của tháng 01, 02 và `carryVnd` tháng 03 không đổi.
 - [ ] Thêm dòng vào `lines` của tháng opening làm đổi `pricedCount` và `monthTotalVnd` của tháng đó nhưng **không** đổi `endOfMonthVnd` của bất kỳ tháng nào, cũng không đổi kết quả `allocate`.
 - [ ] Hai bất biến của `allocate` đúng ở mọi ca trên.

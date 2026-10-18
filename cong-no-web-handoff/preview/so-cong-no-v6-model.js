@@ -136,7 +136,7 @@ const LedgerV6Model = (() => {
       openingAdjustmentsVnd += adjustmentsVnd;
       const endOfMonthVnd = vnd(month.endOfMonthVnd, true) + openingAdjustmentsVnd;
       chain.push({ key: month.key, source: "opening", carryVnd, chargesVnd: null,
-        adjustmentsVnd, receivedVnd: null, endOfMonthVnd, pricedCount,
+        adjustmentsVnd, receivedVnd: null, endOfMonthVnd, lineCount: month.lines.length, pricedCount,
         monthTotalVnd: pricedTotalVnd + adjustmentsVnd, missingPriceIds: [], mismatches: [] });
       carryVnd = endOfMonthVnd;
     }
@@ -147,7 +147,7 @@ const LedgerV6Model = (() => {
         sum + (receipt.monthKey === month.key && receipt.receivedOn !== null ? vnd(receipt.amountVnd) : 0n), 0n);
       const endOfMonthVnd = carryVnd + pricedTotalVnd + adjustmentsVnd - receivedVnd;
       chain.push({ key: month.key, source: "web", carryVnd, chargesVnd: pricedTotalVnd,
-        adjustmentsVnd, receivedVnd, endOfMonthVnd, pricedCount,
+        adjustmentsVnd, receivedVnd, endOfMonthVnd, lineCount: month.lines.length, pricedCount,
         monthTotalVnd: pricedTotalVnd + adjustmentsVnd, missingPriceIds, mismatches });
       carryVnd = endOfMonthVnd;
     }

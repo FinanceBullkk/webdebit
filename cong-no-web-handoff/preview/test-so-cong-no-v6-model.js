@@ -54,6 +54,7 @@ assert.equal(base[3].chargesVnd, 90000000n);
 assert.equal(base[3].receivedVnd, 0n);
 assert.equal(base[0].chargesVnd, null);
 assert.equal(base[0].receivedVnd, null);
+assert.deepEqual(base.map(row => row.lineCount), [1, 1, 1, 4]);
 assert.deepEqual(base.map(row => row.pricedCount), [1, 1, 1, 3]);
 assert.deepEqual(base.map(row => row.monthTotalVnd), [20000000n, 30000000n, 25000000n, 90000000n]);
 assert.deepEqual(monthChain({ ...book, receipts: [] }), base);
@@ -91,6 +92,8 @@ checkAllocation(adjustedPaid, [[20000000n, 20000000n, 30000000n, 30000000n, 2000
 const pasted = { ...book, months: [{ key: "2026-04", lines: [...lines,
   line("DEMO-108", "12000000"), line("DEMO-109", "10000000", "99000000")] }] };
 const pastedMonth = monthChain(pasted)[3];
+assert.equal(pastedMonth.lineCount, 6);
+assert.equal(pastedMonth.pricedCount, 5);
 assert.equal(pastedMonth.chargesVnd, 112000000n);
 assert.equal(pastedMonth.endOfMonthVnd, 207000000n);
 assert.deepEqual(pastedMonth.mismatches, [{ id: "DEMO-109", pastedVnd: 99000000n,
@@ -122,6 +125,7 @@ const extraOpeningLines = { ...book, opening: { ...book.opening,
   months: book.opening.months.map(month => ({ ...month,
     lines: [...month.lines, line(`${month.key}-X`, "1000000")] })) } };
 const extraChain = monthChain(extraOpeningLines);
+assert.deepEqual(extraChain.map(row => row.lineCount), [2, 2, 2, 4]);
 assert.deepEqual(extraChain.map(row => row.pricedCount), [2, 2, 2, 3]);
 assert.deepEqual(extraChain.map(row => row.monthTotalVnd),
   [21000000n, 31000000n, 26000000n, 90000000n]);
