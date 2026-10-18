@@ -27,6 +27,7 @@ Nguồn: chat 18/10/2026; sheet công nợ đang dùng, đọc **read-only** ng�
 | V6-1 | Có bước chốt công nợ tháng không? | **Không.** Nhập chuyến xong là tính vào nợ, giống sheet. Bỏ khái niệm đã chốt / đang mở, nút chốt, lý do chặn chốt |
 | V6-2 | Có tách người nhập và người duyệt không? | **Không.** Thay quyết định `D01`; `Q02` (duyệt theo revision) không còn áp dụng cho chuyến và khoản thu của sổ |
 | V6-3 | Sửa số của tháng trước thế nào? | **Không sửa đè.** Ghi một dòng điều chỉnh có lý do và lưu vết: ai, lúc nào, dòng nào, số cũ, số mới |
+| V6-3b | "Tháng trước" tính từ đâu? | **Theo tháng lịch, cộng ngày đệm đầu tháng.** Trong ngày đệm, tháng vừa qua vẫn sửa thẳng được; hết ngày đệm thì chỉ sửa bằng dòng điều chỉnh. Không thêm thao tác nào cho người dùng. Số ngày đệm: **ĐỀ XUẤT hết ngày 5** của tháng sau, chờ người dùng xác nhận |
 | V6-4 | Màn hiện mấy con số dư? | **Một số:** `Còn phải thu cuối tháng = chuyển sang + phát sinh − đã thu`, giống sheet. Bỏ tiêu chí "không chỗ nào in 185.000.000" |
 | V6-5 | Số âm hiện thế nào? | **Hiện số âm trần, không kèm chữ.** Âm nghĩa là khách đã ứng trước: tiền đưa trước, trừ dần vào khoản phải thu sau. Thay quyết định 8 của `V5-UX` ("khách trả dư · phải trả lại") |
 | V6-6 | Bố cục màn sổ? | **Khối tháng như sheet** (hướng C): các tháng trước gập thành nút; khối tháng gồm dòng chuyển sang → 11 cột đúng thứ tự sheet → dòng dán ở cuối → dòng `TỔNG`. Ô tiền bên phải gộp cả khối |
@@ -66,7 +67,7 @@ Mỗi mục dưới đây là việc riêng, cần spec riêng trước khi code
 
 ## 6. Còn mở — không chốt hộ
 
-1. **Ranh giới của V6-3:** "tháng trước" tính từ đâu khi không còn khóa tháng — theo tháng lịch hiện tại, hay sau khi đã gửi debit cho khách?
+1. **Số ngày đệm của V6-3b:** đang đề xuất hết ngày 5 của tháng sau. Ngày đệm tính theo ngày lịch hay ngày làm việc cũng chưa quyết.
 2. Tiền ứng trước ở một sổ có trừ được cho sổ khác của cùng khách không (`D04`) — đang mặc định là không.
 3. Dòng phí không có container trong sheet nhập vào web thế nào.
 4. Danh mục cách thu bốn giá trị đã đủ chưa.
