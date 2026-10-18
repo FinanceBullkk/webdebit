@@ -17,12 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         runner: [hao, windows-local]
-        python: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
       - name: Install pinned timezone data
         run: >-
           python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
@@ -37,9 +33,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - name: Characterize repository ledger schema on PostgreSQL 18.6
         run: python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
       - name: Verify F2/F3 migration from pre-fix schema on isolated PostgreSQL
@@ -66,9 +59,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
         run: python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
       - name: Upload PostgreSQL M1 query report
@@ -84,9 +74,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - name: Test immutable approval revisions and opening resolution on PostgreSQL 18.6
         run: python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
       - name: Upload versioned approval fixture report
@@ -112,14 +99,11 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - name: Install pinned timezone data (viewer fixture server)
         run: >-
           python -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install chromium
       - run: npm test
       - name: Upload fake-data viewer screenshots
         if: always()
