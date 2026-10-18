@@ -8,7 +8,7 @@ Bản tóm tắt đã lọc các quy tắc người dùng xác nhận trong ngu�
 | Lịch sử/opening | Dòng lịch sử đã nằm trong opening chỉ giải thích mở sổ, không cộng lần nữa vào biến động mới. |
 | Khách/kỳ | Số dư truy theo khách + kỳ nợ + ngày chốt. Container không là khóa duy nhất, không tự gộp chuyến trùng container. |
 | Ngày | Ngày nghiệp vụ chuyến là ngày xe nhập kho. Ngày nhập hệ thống, duyệt, ghi sổ và kỳ nợ giữ riêng. Backend đang lọc `posting_date`; chưa xác nhận đổi sang ngày nghiệp vụ. |
-| Phê duyệt | Người nhập khác người duyệt. Approval gắn với đúng revision nội dung; thay đổi trường nghiệp vụ tạo revision mới và cần duyệt lại, không sửa đè revision đã gửi/duyệt. Chỉ khoản đủ tiền/loại/kỳ/nguồn/chứng cứ/phê duyệt hợp lệ mới ghi sổ. Danh tính người thật/quyền vận hành vẫn chưa được triển khai xác minh. |
+| Phê duyệt | **Bãi bỏ theo V6 (18/10/2026):** không tách người nhập/duyệt; chuyến và khoản thu nhập xong là tính vào nợ, không có bước chốt tháng. Sửa số của tháng trước không sửa đè mà ghi dòng điều chỉnh có lý do và lưu vết. Xem [quyết định V6](../specs/ux-v6-quyet-dinh-2026-10-18.md). |
 | Thu mới | Phân bổ kỳ nợ cũ trước. Không phân bổ lại lịch sử, không suy cùng receipt từ một hàng hoặc cùng số tiền. |
 | Receipt/allocation | Tiền thực nhận khác phân bổ theo kỳ; cấn trừ, điều chỉnh tăng/giảm là loại riêng. Chứng từ tiền không tự chứng minh thu đã xác minh. |
 | Pending | Nháp/chờ giá/chờ xác nhận/chờ duyệt nhìn thấy nhưng không đổi số dư đã ghi. |
@@ -16,4 +16,4 @@ Bản tóm tắt đã lọc các quy tắc người dùng xác nhận trong ngu�
 | Sửa sai | Posting không sửa đè; đảo/điều chỉnh có lý do/audit, sau khi workflow được duyệt và kiểm. |
 | Ngoại lệ | Giữ NO_BASELINE, chênh lịch sử 600đ, khoản thiếu giá. Tổng khớp hay nhãn KHỚP không chứng minh đủ nguồn từng kỳ/tiền ngân hàng. |
 
-UI đặt chuyến và thu cạnh nhau để so sánh; chung hàng hiển thị không tạo quan hệ tất toán. Số fixture không là opening thật. Không áp dụng phương án trả dư/số âm chỉ vì prototype có lựa chọn đó.
+UI đặt chuyến và thu cạnh nhau để so sánh; chung hàng hiển thị không tạo quan hệ tất toán. Số fixture không là opening thật. Số âm ở còn phải thu cuối tháng nghĩa là khách ứng trước, hiện số âm trần (V6, 18/10/2026).
