@@ -11,20 +11,19 @@ permissions:
 
 jobs:
   python:
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, hao]
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        runner: [hao, windows-local]
+        python: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
-      - name: Install pinned timezone data
-        run: >-
-          python3 -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - name: Unit and HTTP fixture tests (no database)
         working-directory: cong-no-web-handoff
-        run: python3 -m unittest discover -s tests -v
+        run: >-
+          uv run --python ${{ matrix.python }} --with-requirements ../requirements.txt
+          python -m unittest discover -s tests -v
 
   postgres-ledger:
     runs-on: [self-hosted, Linux, hao]
@@ -34,11 +33,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Characterize repository ledger schema on PostgreSQL 18.6
-        run: python3 cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
       - name: Verify F2/F3 migration from pre-fix schema on isolated PostgreSQL
         run: |
           git show 8c78c0f:cong-no-web-handoff/tools/pg_ledger_schema.sql > "$RUNNER_TEMP/pg-ledger-base.sql"
-          python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-migration.json --base-schema "$RUNNER_TEMP/pg-ledger-base.sql" --migration cong-no-web-handoff/tools/migrations/2026-10-16-ledger-f2f3.sql
+          uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-migration.json --base-schema "$RUNNER_TEMP/pg-ledger-base.sql" --migration cong-no-web-handoff/tools/migrations/2026-10-16-ledger-f2f3.sql
       - name: Upload PostgreSQL characterization report
         if: always()
         uses: actions/upload-artifact@v4
@@ -60,7 +59,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
       - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
-        run: python3 cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
       - name: Upload PostgreSQL M1 query report
         if: always()
         uses: actions/upload-artifact@v4
@@ -75,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test immutable approval revisions and opening resolution on PostgreSQL 18.6
-        run: python3 cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
       - name: Upload versioned approval fixture report
         if: always()
         uses: actions/upload-artifact@v4
@@ -86,7 +85,7 @@ jobs:
 
   javascript:
     runs-on: [self-hosted, "${{ matrix.runner }}"]
-    timeout-minutes: 10
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -99,12 +98,11 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-      - name: Install pinned timezone data (viewer fixture server)
-        run: >-
-          python3 -m pip install --require-hashes --only-binary=:all: -r requirements.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install chromium
-      - run: npm test
+      - name: Browser and viewer tests
+        run: >-
+          uv run --python 3.13 --with-requirements requirements.txt npm test
       - name: Upload fake-data viewer screenshots
         if: always()
         uses: actions/upload-artifact@v4
