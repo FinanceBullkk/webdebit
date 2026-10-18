@@ -39,7 +39,7 @@
   const fieldMoney = value => value === null ? '—' : fmt(model.lineAmount({unitPriceVnd:value,otherFeeVnd:null,plugFeeVnd:null,escortFeeVnd:null}));
   state.logs.push(
     {customer:'KHACH_MAU',actor:'Nguyễn Văn A',at:'18/04/2026 09:30',type:'Sửa ô',monthKey:'2026-04',lineId:'DEMO-107 · UNIT PRICE',beforeText:fieldMoney('22000000'),afterText:fieldMoney('20000000')},
-    {customer:'KHACH_MAU',actor:'Nguyễn Văn A',at:'12/04/2026 08:05',type:'Dán lô',monthKey:'2026-04',lineId:'DEMO-105, DEMO-106, DEMO-107, DEMO-103',amount:'4 dòng'}
+    {customer:'KHACH_MAU',actor:'Nguyễn Văn A',at:'12/04/2026 08:05',type:'Dán lô',monthKey:'2026-04',lineId:'4 dòng',amount:'DEMO-105, DEMO-106, DEMO-107, DEMO-103'}
   );
   const stamp = () => `${dateLabel(today)} ${new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',hour12:false})}`;
   const log = item => state.logs.unshift({actor,at:stamp(),customer:state.customer,...item});
