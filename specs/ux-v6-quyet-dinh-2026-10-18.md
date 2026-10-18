@@ -27,7 +27,7 @@ Nguồn: chat 18/10/2026; sheet công nợ đang dùng, đọc **read-only** ng�
 | V6-1 | Có bước chốt công nợ tháng không? | **Không.** Nhập chuyến xong là tính vào nợ, giống sheet. Bỏ khái niệm đã chốt / đang mở, nút chốt, lý do chặn chốt |
 | V6-2 | Có tách người nhập và người duyệt không? | **Không.** Thay quyết định `D01`; `Q02` (duyệt theo revision) không còn áp dụng cho chuyến và khoản thu của sổ |
 | V6-3 | Sửa số của tháng trước thế nào? | **Không sửa đè.** Ghi một dòng điều chỉnh có lý do và lưu vết: ai, lúc nào, dòng nào, số cũ, số mới |
-| V6-3b | "Tháng trước" tính từ đâu? | **Theo tháng lịch, cộng ngày đệm đầu tháng.** Trong ngày đệm, tháng vừa qua vẫn sửa thẳng được; hết ngày đệm thì chỉ sửa bằng dòng điều chỉnh. Không thêm thao tác nào cho người dùng. Số ngày đệm: **ĐỀ XUẤT hết ngày 5** của tháng sau, chờ người dùng xác nhận |
+| V6-3b | "Tháng trước" tính từ đâu? | **Theo tháng lịch, cộng ngày đệm đầu tháng.** Trong ngày đệm, tháng vừa qua vẫn sửa thẳng được; hết ngày đệm thì chỉ sửa bằng dòng điều chỉnh. Không thêm thao tác nào cho người dùng. Ngày đệm: **hết ngày 5 của tháng sau, tính theo ngày lịch** (ĐÃ CHỐT 18/10/2026). Ví dụ tháng 04 sửa thẳng được đến hết 05/05; từ 06/05 chỉ ghi điều chỉnh |
 | V6-3c | Dòng điều chỉnh thuộc tháng nào? | **Thuộc đúng tháng gốc của chuyến.** Còn phải thu cuối tháng đó đổi, và số chuyển sang của mọi tháng sau tính lại theo. Màn hiện số cũ gạch ngang cạnh số mới. Số tiền điều chỉnh có thể dương hoặc âm; lý do bắt buộc |
 | V6-3d | Điều chỉnh một tháng đã được trả bởi khoản thu trước đó thì sao? | **Phân bổ lại các khoản thu theo nợ cũ trước.** Ví dụ: thu 120.000.000 đã trừ 25.000.000 vào tháng 03; tháng 03 điều chỉnh +5.000.000 → tháng 03 nhận 30.000.000, tháng 04 còn 20.000.000. Câu trả lời "tiền trừ vào tháng nào" vì vậy có thể đổi sau điều chỉnh; lịch sử sửa phải ghi lại phân bổ trước và sau. Không áp dụng cho dữ liệu opening chuyển từ Sheet |
 | V6-4 | Màn hiện mấy con số dư? | **Một số:** `Còn phải thu cuối tháng = chuyển sang + phát sinh − đã thu`, giống sheet. Bỏ tiêu chí "không chỗ nào in 185.000.000" |
@@ -69,12 +69,11 @@ Mỗi mục dưới đây là việc riêng, cần spec riêng trước khi code
 
 ## 6. Còn mở — không chốt hộ
 
-1. **Số ngày đệm của V6-3b:** đang đề xuất hết ngày 5 của tháng sau. Ngày đệm tính theo ngày lịch hay ngày làm việc cũng chưa quyết.
-2. Tiền ứng trước ở một sổ có trừ được cho sổ khác của cùng khách không (`D04`) — đang mặc định là không.
-3. Dòng phí không có container trong sheet nhập vào web thế nào.
-4. Danh mục cách thu bốn giá trị đã đủ chưa.
-5. Nhãn tiếng Anh tự đặt vì sheet không có: `CARRIER` (cột hãng tàu không có tiêu đề), `PLUG FEE`, `ESCORT FEE` (dịch từ nhãn tiếng Trung).
-6. Không còn duyệt thì "ai sửa gì" chỉ dựa vào lưu vết; ai được xem lưu vết chưa quyết.
+1. Tiền ứng trước ở một sổ có trừ được cho sổ khác của cùng khách không (`D04`) — đang mặc định là không.
+2. Dòng phí không có container trong sheet nhập vào web thế nào.
+3. Danh mục cách thu bốn giá trị đã đủ chưa.
+4. Nhãn tiếng Anh tự đặt vì sheet không có: `CARRIER` (cột hãng tàu không có tiêu đề), `PLUG FEE`, `ESCORT FEE` (dịch từ nhãn tiếng Trung).
+5. Không còn duyệt thì "ai sửa gì" chỉ dựa vào lưu vết; ai được xem lưu vết chưa quyết.
 
 ## 7. Hoàn tác
 
