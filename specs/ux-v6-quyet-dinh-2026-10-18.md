@@ -4,7 +4,7 @@ Trạng thái: **ĐÃ CHỐT** bởi người dùng trong chat ngày 18/10/2026,
 
 Phạm vi: **mô hình nghiệp vụ và bố cục màn sổ công nợ**. Không phải migration, không mở đường ghi tiền, không thay nghiệm thu backend.
 
-Nguồn: chat 18/10/2026; sheet công nợ đang dùng, đọc **read-only** ngày 18/10/2026 (chỉ lấy cấu trúc, không chép tên khách, số tiền hay mã sheet); mockup canvas "Sổ công nợ V6 — mockup", các board C1, C2, A0.
+Nguồn: chat 18/10/2026; sheet công nợ đang dùng, đọc **read-only** ngày 18/10/2026 (chỉ lấy cấu trúc, không chép tên khách, số tiền hay mã sheet); mockup tĩnh `cong-no-web-handoff/preview/mockups/ux-v6/` (A0, C1–C8). Spec triển khai: [model](v6-model-tien.md), [giao diện](v6-giao-dien.md).
 
 ## 1. Sheet đang dùng trông thế nào
 
