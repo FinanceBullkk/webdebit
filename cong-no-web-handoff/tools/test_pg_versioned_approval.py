@@ -994,6 +994,29 @@ class Suite:
                                   "OPENING_REF_CONTAINER_NEAR_DATE"]),
                   res_of(hist))
 
+        # Same real key, revised warehouse date: the first automatic decision must not bless new evidence.
+        self.charge(customer=customer, booking="DATECHECK", container="AFTER3", seed=None,
+                    warehouse="2026-10-14")
+        changed = self.charge(customer=customer, booking="DATECHECK", container="AFTER3", seed=None,
+                              warehouse="2026-10-17")
+        self.confirm_both(changed)
+        self.case("automatic_resolution_date_change_blocks_projection", True,
+                  "OPENING_RESOLUTION_MISSING" in self.current_view(changed)["current_blockers"])
+        approval = self.approve(changed)
+        self.rejected("automatic_resolution_date_change_blocks_approval", approval, M_RES_APPROVAL)
+        if approval.returncode:
+            self.force_approve(changed)
+        self.rejected("automatic_resolution_date_change_blocks_posting", self.post(changed), M_RES_POST)
+        self.case("automatic_resolution_date_change_never_posts", 0,
+                  self.count("posting", f"proposal_id = {changed.proposal_id}"))
+        self.rejected("automatic_resolution_requires_decision_date", self.f.psql(
+            "UPDATE p0_fixture.trip_opening_resolution SET decision_warehouse_in_date = NULL "
+            f"WHERE trip_key = {sql_literal(changed.key)}", check=False), "check constraint")
+        self.seed(changed.key)
+        self.post(changed, check=True)
+        self.case("owner_review_can_resolve_changed_date", 1,
+                  self.count("posting", f"proposal_id = {changed.proposal_id}"))
+
     def suggest(self, container: str | None, warehouse: str | None, actor: uuid.UUID = MAKER) -> dict[str, object]:
         result = self.f.psql(
             f"SELECT p0_fixture.suggest_booking({'NULL' if container is None else sql_literal(container)}, "

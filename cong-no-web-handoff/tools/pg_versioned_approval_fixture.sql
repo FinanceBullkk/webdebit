@@ -103,8 +103,10 @@ CREATE TABLE p0_fixture.trip_opening_resolution (
     decided_by text NOT NULL DEFAULT 'owner' CHECK (decided_by IN ('owner', 'NEWTRIP-01')),
     decision_reason text,
     reference_set_version text REFERENCES p0_fixture.opening_reference_set,
+    decision_warehouse_in_date date,
     review_reason_codes text[] NOT NULL DEFAULT ARRAY[]::text[],
-    CHECK (decided_by <> 'NEWTRIP-01' OR (reference_set_version IS NOT NULL AND (
+    CHECK (decided_by <> 'NEWTRIP-01' OR (reference_set_version IS NOT NULL
+        AND decision_warehouse_in_date IS NOT NULL AND (
         (status = 'ABSENT_FROM_OPENING_APPROVED' AND cardinality(review_reason_codes) = 0
             AND decision_reason = 'tự động theo NEWTRIP-01')
         OR (status = 'UNRESOLVED' AND cardinality(review_reason_codes) > 0))))
@@ -637,12 +639,13 @@ BEGIN
     END IF;
 END $$;
 
-CREATE FUNCTION p0_fixture.assert_opening_resolution(p_trip_key text, p_stage text) RETURNS void
+CREATE FUNCTION p0_fixture.assert_opening_resolution(p_trip_key text, p_stage text, p_warehouse_in date) RETURNS void
 LANGUAGE plpgsql
 SET search_path = pg_catalog, p0_fixture AS $$
 BEGIN
     PERFORM 1 FROM p0_fixture.trip_opening_resolution t
-    WHERE t.trip_key = p_trip_key AND t.status = 'ABSENT_FROM_OPENING_APPROVED' FOR SHARE;
+    WHERE t.trip_key = p_trip_key AND t.status = 'ABSENT_FROM_OPENING_APPROVED'
+      AND (t.decided_by = 'owner' OR t.decision_warehouse_in_date = p_warehouse_in) FOR SHARE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'opening resolution is not ABSENT_FROM_OPENING_APPROVED at %; charge remains CHỜ KIỂM',
             p_stage USING ERRCODE = 'P0001';
@@ -742,14 +745,14 @@ BEGIN
     SELECT coalesce(array_agg(code ORDER BY code COLLATE "C"), ARRAY[]::text[]) INTO v_codes
     FROM unnest(v_codes) AS x(code);
     INSERT INTO p0_fixture.trip_opening_resolution(trip_key, status, evidence_ref, approved_by,
-        decided_by, decision_reason, reference_set_version, review_reason_codes)
+        decided_by, decision_reason, reference_set_version, decision_warehouse_in_date, review_reason_codes)
     VALUES (v_trip_key,
         CASE WHEN cardinality(v_codes) = 0 THEN 'ABSENT_FROM_OPENING_APPROVED' ELSE 'UNRESOLVED' END,
         'opening-reference:' || v_set.set_version || ':sha256:' || v_set.source_sha256,
         'NEWTRIP-01', 'NEWTRIP-01',
         CASE WHEN cardinality(v_codes) = 0 THEN 'tự động theo NEWTRIP-01'
              ELSE 'CHỜ KIỂM theo NEWTRIP-01: có dấu hiệu trùng' END,
-        v_set.set_version, v_codes)
+        v_set.set_version, v_date, v_codes)
     ON CONFLICT (trip_key) DO NOTHING;
 END $$;
 
@@ -894,6 +897,7 @@ SET search_path = pg_catalog, p0_fixture AS $$
                 'opening_resolution', (
                     SELECT jsonb_build_object('status', t.status, 'decided_by', t.decided_by,
                         'decision_reason', t.decision_reason, 'reference_set_version', t.reference_set_version,
+                        'decision_warehouse_in_date', t.decision_warehouse_in_date,
                         'evidence_ref', t.evidence_ref, 'approved_at', t.approved_at,
                         'review_reason_codes', to_jsonb(t.review_reason_codes))
                     FROM p0_fixture.trip_opening_resolution t WHERE t.trip_key = r.trip_key),
@@ -960,6 +964,8 @@ SET search_path = pg_catalog, p0_fixture AS $$
                                 SELECT 1 FROM p0_fixture.trip_opening_resolution t
                                 WHERE t.trip_key = r.trip_key
                                   AND t.status = 'ABSENT_FROM_OPENING_APPROVED'
+                                  AND (t.decided_by = 'owner' OR t.decision_warehouse_in_date =
+                                       (r.canonical_payload->>'warehouse_in_date')::date)
                             )
                             UNION
                             -- NEWTRIP-01/ALT-KEY-01 signals stay visible until the owner resolves the key.
@@ -1169,7 +1175,8 @@ BEGIN
           AND c.content_sha256 = p_content_sha256 AND c.confirmer_actor_id = p_actor_id) THEN
         RAISE EXCEPTION 'price confirmer cannot checker-approve the same revision' USING ERRCODE = 'P0001';
     END IF;
-    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'approval');
+    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'approval',
+        (v_revision.canonical_payload->>'warehouse_in_date')::date);
     PERFORM p0_fixture.assert_trip_not_claimed(v_revision.trip_key, p_proposal_id);
     INSERT INTO p0_fixture.approval(proposal_id, revision_id, content_sha256,
         checker_actor_id, checker_session_id, database_session_user)
@@ -1234,7 +1241,8 @@ BEGIN
           AND c.content_sha256 = p_content_sha256 AND c.confirmer_actor_id = p_actor_id) THEN
         RAISE EXCEPTION 'price confirmer cannot post as checker of the same revision' USING ERRCODE = 'P0001';
     END IF;
-    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'posting');
+    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'posting',
+        (v_revision.canonical_payload->>'warehouse_in_date')::date);
     PERFORM p0_fixture.assert_trip_not_posted(v_revision.trip_key, p_proposal_id);
     INSERT INTO p0_fixture.posting(proposal_id, revision_id, approval_id, content_sha256, trip_key,
         canonical_payload, maker_actor_id, checker_actor_id, posted_in_session, database_session_user)

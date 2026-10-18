@@ -135,6 +135,8 @@ Approve tuần tự hóa theo `trip_key` bằng advisory lock theo giao dịch v
 
 ### NEWTRIP-01 và tập tham chiếu opening (fixture)
 
+Review 18/10/2026: kết luận tự động lưu thêm `decision_warehouse_in_date` bắt buộc. Projection, approval và posting chỉ nhận kết luận tự động khi ngày này khớp revision hiện hành; đổi ngày dù giữ nguyên mã chuyến phải CHỜ KIỂM, không dùng lại kết luận cũ. Giữ quyết định cũ để đối chiếu, owner có thể kết luận ngoại lệ. Quyết định owner vẫn theo mã chuyến; đây là guard fixture, không là migration production.
+
 1. `opening_reference_set(set_version, source_sha256, snapshot_at, loaded_at, active)` mô tả một bản tập lịch sử; tối đa một tập `active`. `opening_reference_trip(set_version, ref_row_no, trip_key, container_no, trip_date)` là các dòng mã chuyến/container lịch sử đã chuẩn hóa. Trong repo chỉ có dữ liệu giả do test nạp; bản thật nạp riêng ngoài repo, có hash/thời điểm.
 2. Khi submit tạo revision mới có `trip_key` và có tập `active`: nếu key chưa có dòng resolution, hàm khóa advisory theo container (submit đồng thời cùng container thấy nhau), kiểm năm dấu hiệu ở bảng reason codes, rồi chèn một dòng: không dấu hiệu → `ABSENT_FROM_OPENING_APPROVED`, `decided_by='NEWTRIP-01'`, `decision_reason='tự động theo NEWTRIP-01'`, `reference_set_version`, `approved_at`, `evidence_ref='opening-reference:<version>:sha256:<hash>'`; có dấu hiệu → `UNRESOLVED` với `review_reason_codes`.
 3. Không có tập `active` thì không quyết định tự động; charge vẫn `OPENING_RESOLUTION_MISSING` như trước. Dòng owner hoặc dòng tự động đã có không bị thay.
