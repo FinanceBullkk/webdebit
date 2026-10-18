@@ -94,6 +94,21 @@ Không có backend. Trạng thái trong tab, không `fetch`, không lưu trữ.
        {"fill": ["[data-pay=\"amount\"]", "20000000"]},
        {"click": "[data-action=\"payment-preview\"]"},
        {"click": "[data-action=\"payment-preview\"]"}]},
+    {"name": "8-ban-phim", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Tab từ ô đầu dòng thu đi tới nút Lưu dòng",
+     "shot": "#app", "steps": [
+       {"focus": "[data-pay=\"date\"]"},
+       {"press": "Tab", "times": 4}]},
+    {"name": "9-thieu-so-tien", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Bỏ trống số tiền, bấm Lưu dòng",
+     "shot": "#app", "steps": [
+       {"fill": ["[data-pay=\"date\"]", "05/04/2026"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
+       {"click": "[data-action=\"payment-preview\"]"}]},
+    {"name": "10-ngay-tuong-lai", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Ngày sau hôm nay, bị chặn tại ô",
+     "shot": "#app", "steps": [
+       {"fill": ["[data-pay=\"date\"]", "25/10/2026"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
+       {"fill": ["[data-pay=\"amount\"]", "20000000"]},
+       {"click": "[data-action=\"payment-preview\"]"}]},
     {"name": "5-cho-ngay-nhan", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Khoản thu chưa có ngày thực nhận",
      "shot": "#app", "steps": [{"waitFor": "[data-state=\"pending-date\"]"}]}
   ]
