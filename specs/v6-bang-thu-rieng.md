@@ -117,9 +117,18 @@ Không có backend. Trạng thái trong tab, không `fetch`, không lưu trữ.
     {"name": "10-ngay-tuong-lai", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Ngày sau hôm nay, bị chặn tại ô",
      "shot": "#app", "steps": [
        {"fill": ["[data-pay=\"date\"]", "25/10/2026"]},
+       {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
        {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
        {"fill": ["[data-pay=\"amount\"]", "20000000"]},
        {"click": "[data-action=\"payment-preview\"]"}]},
+    {"name": "11-enter-luu-dong", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Enter tại ô số tiền lưu đúng một khoản thu",
+     "shot": "#app", "steps": [
+       {"fill": ["[data-pay=\"date\"]", "05/04/2026"]},
+       {"select": ["[data-pay=\"method\"]", "Chuyển khoản"]},
+       {"fill": ["[data-pay=\"ref\"]", "CK654321"]},
+       {"fill": ["[data-pay=\"amount\"]", "20000000"]},
+       {"focus": "[data-pay=\"amount\"]"},
+       {"press": "Enter"}]},
     {"name": "5-cho-ngay-nhan", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Khoản thu chưa có ngày thực nhận",
      "shot": "#app", "steps": [{"waitFor": "[data-state=\"pending-date\"]"}]}
   ]
@@ -145,6 +154,7 @@ Kịch bản này viết trước khi có giao diện mới; chạy `-Step captu
   - Tự tính tiền trong mã giao diện.
   - Đổi câu chữ, nhãn, cỡ chữ của những phần không nằm trong thay đổi này.
   - Thêm dependency, framework, build step; `fetch`, API, localStorage.
+  - Cắt chữ để nén: `overflow: hidden` kèm `text-overflow: ellipsis`, `white-space: nowrap` hay cắt chuỗi trong JS. Dòng dài thì **cho xuống hàng**; tên khách, tuyến, ngày xem phải đọc được đủ.
   - Thu nhỏ chữ dưới 16px, thu vùng bấm dưới 40px, hoặc bỏ nhãn/câu thông báo để nhét vừa màn hình.
   - **Nới, bỏ hoặc thêm ngoại lệ cho một kiểm tra nghiệp vụ (ngày thuộc tháng đang nhập, thiếu giá, người nhập tự chốt) để chạy qua kịch bản chụp hoặc để test xanh.** Kịch bản sai thì dừng và ghi vào "Câu hỏi mở".
   - Gắn hành vi vào một mã chuyến, mã tham chiếu hay tên khách cụ thể trong fixture (hardcode theo dữ liệu mẫu).
