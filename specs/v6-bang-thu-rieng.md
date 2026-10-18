@@ -21,6 +21,16 @@ Khoản **chưa có ngày thực nhận**: cột `Ngày thực nhận` hiện `�
 
 CÒN MỞ — không tự quyết, không vẽ nút: ai được xác nhận chứng từ và căn cứ gì; sửa hoặc xóa một khoản thu **đã lưu**; tiền dư của khách.
 
+## Màn hình thật của người dùng
+
+Máy người dùng: màn **1280×720 ở mức logic** (1920×1080 vật lý, Windows để tỉ lệ 150%), Chrome toàn màn hình nên vùng nhìn thấy chỉ còn khoảng **1280×560**. Mọi khung chụp và mọi đánh giá dễ đọc lấy **1280×720**, không lấy 1500×1000 của mockup V5 nữa.
+
+Đo trên bản hiện tại (18/10/2026): bảng `Chuyến hàng` ở 493px, `Các khoản thu` ở 940px, **ô nhập khoản thu ở 1048px**, cả trang 2102px. Người nhập tiền phải cuộn hai lần mới tới ô mình gõ nhiều nhất.
+
+**Mục tiêu đo được: trên khung 1280×720, ô nhập khoản thu (`[data-pay="date"]`) phải nằm trong 720px đầu của trang.** Cách nén phần đầu: gộp banner `Chỉ mô phỏng` vào một dòng mảnh ở góc; hạ hai khối `Đã chốt` / `Đang mở` xuống **một dòng** thay vì hai khối cao; gộp tên khách với dòng `Ngày xem · Tuyến` thành một dòng. Không đụng nội dung của chúng, chỉ nén chiều cao.
+
+**Không được nén bằng cách thu nhỏ chữ.** Chữ thân giữ tối thiểu 16px, vùng bấm tối thiểu 40px — người dùng trên 40 tuổi.
+
 ## Đầu ra
 
 `cong-no-web-handoff/preview/so-cong-no-v5.html` mở trực tiếp trong trình duyệt: tháng đang mở hiện hai bảng tách rời, ghi được khoản thu ở bảng dưới, bung được phân bổ từng khoản, mọi con số do model tính.
@@ -57,6 +67,7 @@ Không có backend. Trạng thái trong tab, không `fetch`, không lưu trữ.
 - [ ] Nhập sai: thiếu số tiền, số tiền không phải số, ngày tương lai → báo ngay tại ô, giữ nguyên dữ liệu đã gõ.
 - [ ] Bấm `Lưu dòng` hai lần liên tiếp không tạo hai khoản thu.
 - [ ] Không còn ô nhập tiền nào trên dòng chuyến.
+- [ ] Trên khung 1280×720: ô nhập khoản thu nằm trong 720px đầu; không cuộn ngang; không có chữ thân nào dưới 16px.
 - [ ] Bước 8: người dùng tự đi hết ba luồng trên bản thử và xác nhận.
 
 ## Ảnh chụp giao diện
@@ -64,7 +75,7 @@ Không có backend. Trạng thái trong tab, không `fetch`, không lưu trữ.
 ```json
 {
   "page": "cong-no-web-handoff/preview/so-cong-no-v5.html",
-  "viewports": [[1500, 1000]],
+  "viewports": [[1280, 720]],
   "states": [
     {"name": "1-thang-dang-mo", "board": "ux-v6-bang-thu-rieng-chatgpt.png", "note": "Người dùng mở sổ, nhìn hai bảng tách rời",
      "shot": "#app", "steps": []},
@@ -125,7 +136,7 @@ Kịch bản này viết trước khi có giao diện mới; chạy `-Step captu
 - Được sửa:
   - `cong-no-web-handoff/preview/so-cong-no-v5.html`
   - `cong-no-web-handoff/preview/so-cong-no-v5-ui.js`
-- Ngân sách diff: 450 dòng
+- Ngân sách diff: 600 dòng
 - Lệnh kiểm:
   - `npm run test:unit`
 - Cấm:
@@ -134,6 +145,7 @@ Kịch bản này viết trước khi có giao diện mới; chạy `-Step captu
   - Tự tính tiền trong mã giao diện.
   - Đổi câu chữ, nhãn, cỡ chữ của những phần không nằm trong thay đổi này.
   - Thêm dependency, framework, build step; `fetch`, API, localStorage.
+  - Thu nhỏ chữ dưới 16px, thu vùng bấm dưới 40px, hoặc bỏ nhãn/câu thông báo để nhét vừa màn hình.
   - **Nới, bỏ hoặc thêm ngoại lệ cho một kiểm tra nghiệp vụ (ngày thuộc tháng đang nhập, thiếu giá, người nhập tự chốt) để chạy qua kịch bản chụp hoặc để test xanh.** Kịch bản sai thì dừng và ghi vào "Câu hỏi mở".
   - Gắn hành vi vào một mã chuyến, mã tham chiếu hay tên khách cụ thể trong fixture (hardcode theo dữ liệu mẫu).
   - Vẽ nút xác nhận chứng từ, sửa/xóa khoản thu đã lưu, xử lý tiền dư — các điểm CÒN MỞ.
