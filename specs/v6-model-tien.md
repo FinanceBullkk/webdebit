@@ -2,7 +2,7 @@
 
 Trạng thái: **ĐỀ XUẤT** (Claude, 18/10/2026). Chưa triển khai.
 
-Cập nhật 18/10/2026: bổ sung `lines` cho tháng opening để `validateAdjustment` kiểm được `lineId`. Danh sách này **chỉ để tra cứu**, không làm opening bị tính lại.
+Cập nhật 18/10/2026: bổ sung `lines` cho tháng opening (dòng chuyến đầy đủ, tiền **chỉ để hiển thị**) và `pricedCount` / `monthTotalVnd` cho mỗi tháng của `monthChain`. Opening vẫn **không** bị tính lại: số dư tháng opening vẫn lấy từ `endOfMonthVnd` và `remainingVnd`.
 
 Lớp 1 của ba lớp dựng sổ công nợ V6: **model tiền thuần JavaScript, có test, không giao diện**. Lớp 2 (giao diện, [v6-giao-dien.md](v6-giao-dien.md)) chỉ gọi các hàm ở đây; lớp 3 (backend thật) là spec riêng, chưa tới.
 
@@ -54,11 +54,11 @@ Vì vậy với fixture, khoản thu 120.000.000 ra `20 / 20 / 30 / 25` cho open
     beforeBalanceVnd: "20000000",           // còn nợ trước tháng opening đầu tiên
     months: [                                // tăng dần, liên tục
       { key: "2026-01", endOfMonthVnd: "40000000", remainingVnd: "20000000",
-        lines: [{ id: "DEMO-101" }] },
+        lines: [trip("DEMO-101", "20000000")] },
       { key: "2026-02", endOfMonthVnd: "70000000", remainingVnd: "30000000",
-        lines: [{ id: "DEMO-102" }] },
+        lines: [trip("DEMO-102", "30000000")] },
       { key: "2026-03", endOfMonthVnd: "95000000", remainingVnd: "25000000",
-        lines: [{ id: "DEMO-104" }] },
+        lines: [trip("DEMO-104", "25000000")] },
     ],
   },
   months: [                                  // tháng web, tăng dần, sau tháng opening cuối
@@ -74,22 +74,23 @@ Vì vậy với fixture, khoản thu 120.000.000 ra `20 / 20 / 30 / 25` cho open
 }
 ```
 
-Một dòng chuyến (tháng web): `{ id, unitPriceVnd, otherFeeVnd, plugFeeVnd, escortFeeVnd, pastedAmountVnd }`, mỗi tiền là chuỗi chữ số hoặc `null`. `pastedAmountVnd` là cột thành tiền dán từ sheet, **chỉ để đối chiếu**.
+Một dòng chuyến: `{ id, unitPriceVnd, otherFeeVnd, plugFeeVnd, escortFeeVnd, pastedAmountVnd }`, mỗi tiền là chuỗi chữ số hoặc `null`. `pastedAmountVnd` là cột thành tiền dán từ sheet, **chỉ để đối chiếu**. Trong khối trên, `trip(id, unitPriceVnd)` là lối viết tắt cho một dòng đủ trường với ba phí và `pastedAmountVnd` bằng `null`. Mọi trường đều bắt buộc có mặt — thiếu trường là ném lỗi, không coi là `null`.
 
 ### `lines` của tháng opening
 
-Tháng opening mang **danh sách dòng tra cứu**: `lines: [{ id }]` — chỉ một trường `id`, là mã chuyến đã chuyển từ Sheet sang. Không có tiền, vì tiền của tháng opening đã nằm trọn trong `endOfMonthVnd` và `remainingVnd`.
+Tháng opening mang **dòng chuyến đầy đủ**, cùng hình dạng với dòng tháng web (`trip(...)` ở trên là lối viết tắt cho một dòng đủ trường, phí `null`). Tiền trên dòng là **số đã chuyển từ Sheet sang, chỉ để hiển thị và để tra `lineId`**.
 
-- Dùng **duy nhất** cho `validateAdjustment` kiểm `lineId`. Không hàm nào khác đọc nó.
-- **Không** vào `chargesVnd`, không vào `monthTotals`, không gọi `lineAmount`. `chargesVnd` của tháng opening vẫn là `null`, `missingPriceIds` và `mismatches` vẫn là `[]`.
-- Bắt buộc có mặt ở mọi tháng opening; `[]` là hợp lệ và có nghĩa là tháng đó không còn mã dòng nào để tra — khi đó mọi `lineId !== null` trỏ vào tháng này đều bị từ chối.
+- Dùng cho hai việc: `validateAdjustment` kiểm `lineId`, và `monthChain` tính `pricedCount` / `monthTotalVnd` của dòng TỔNG.
+- **Không** đụng tới số dư: `chargesVnd` của tháng opening vẫn là `null`, và `endOfMonthVnd` vẫn lấy từ `opening.endOfMonthVnd` cộng điều chỉnh — **không** cộng lại từ `lines`. Đây là ranh giới giữ "opening không tính lại".
+- `missingPriceIds` và `mismatches` của tháng opening vẫn là `[]`: dòng opening không bị kiểm giá, không bị đối chiếu cột dán.
+- Bắt buộc có mặt ở mọi tháng opening; `[]` hợp lệ, khi đó `monthTotalVnd` của tháng chỉ còn phần điều chỉnh và mọi `lineId !== null` trỏ vào tháng này đều bị từ chối.
 
 Ràng buộc đầu vào, sai thì ném lỗi:
 
 - `beforeBalanceVnd + Σ opening.months[].remainingVnd` = `endOfMonthVnd` của tháng opening cuối. Fixture: `20 + 20 + 30 + 25 = 95`.
 - Khóa tháng dạng `YYYY-MM`, không trùng, tăng dần; tháng web đứng sau tháng opening cuối. Tháng web **được phép cách quãng** (sheet bỏ tháng không có hàng).
 - `adjustments[].amountVnd` có dấu (`/^-?\d+$/`); `reason` không rỗng sau khi bỏ khoảng trắng; `monthKey` phải là tháng có trong sổ.
-- `opening.months[].lines` là mảng (có thể rỗng), mỗi phần tử có `id` là chuỗi không rỗng, không trùng trong cùng một tháng. Trùng `id` giữa các tháng không ném lỗi (model chỉ tra trong đúng tháng của `monthKey`), nhưng fixture tránh trùng: opening dùng `DEMO-101`, `DEMO-102`, `DEMO-104`; tháng 04 dùng `DEMO-105`, `DEMO-106`, `DEMO-107`, `DEMO-103`.
+- `opening.months[].lines` là mảng (có thể rỗng) các dòng chuyến đủ trường, `id` là chuỗi không rỗng, không trùng trong cùng một tháng. Trùng `id` giữa các tháng không ném lỗi (model chỉ tra trong đúng tháng của `monthKey`), nhưng fixture tránh trùng: opening dùng `DEMO-101`, `DEMO-102`, `DEMO-104`; tháng 04 dùng `DEMO-105`, `DEMO-106`, `DEMO-107`, `DEMO-103`.
 - Mọi tiền khác không âm.
 
 ## Hợp đồng hàm
@@ -122,12 +123,16 @@ Mọi tháng của sổ, theo thứ tự, mỗi tháng:
   adjustmentsVnd,      // Σ điều chỉnh của tháng
   receivedVnd,         // Σ khoản thu đã có receivedOn, cùng monthKey; tháng opening: null
   endOfMonthVnd,       // có dấu
-  missingPriceIds, mismatches }   // tháng opening: [] (không đọc opening lines)
+  pricedCount,         // số dòng có giá của tháng, cho nhãn "n cont"
+  monthTotalVnd,       // số ở dòng TỔNG: monthTotals(lines).pricedTotalVnd + adjustmentsVnd
+  missingPriceIds, mismatches }   // tháng opening: [] (dòng opening không bị kiểm giá)
 ```
 
 - Tháng web: `endOfMonthVnd = carryVnd + chargesVnd + adjustmentsVnd − receivedVnd`.
 - Tháng opening: `endOfMonthVnd = opening.endOfMonthVnd + Σ điều chỉnh của mọi tháng opening từ tháng đầu tới tháng này`.
-- `endOfMonthVnd` là trường **duy nhất** được âm; âm nghĩa là khách đã ứng trước (V6-5).
+- `pricedCount` và `monthTotalVnd` tính như nhau ở cả hai loại tháng, từ `lines` của tháng đó cộng `adjustmentsVnd`. Đây là **số của dòng TỔNG**, không phải số dư; giao diện không được dùng nó thay `endOfMonthVnd`.
+- `monthTotalVnd` của tháng opening **không** làm đổi `endOfMonthVnd` của tháng đó hay của tháng sau.
+- `endOfMonthVnd` và `monthTotalVnd` là hai trường **duy nhất** được âm; `endOfMonthVnd` âm nghĩa là khách đã ứng trước (V6-5), `monthTotalVnd` âm nghĩa là điều chỉnh giảm lớn hơn phát sinh.
 - Bất biến nối tháng (brief quy tắc 12): `carryVnd` của tháng sau luôn bằng `endOfMonthVnd` của tháng trước.
 
 ### 5. `allocate(book) -> { receipts: [{ id, allocations: [{ key, amountVnd }], overpaymentVnd }], remaining: [{ key, balanceVnd }], overpaymentVnd }`
@@ -175,7 +180,9 @@ Cách kiểm `lineId` **giống nhau ở cả hai loại tháng**: so với `id`
 - [ ] `validateAdjustment` với `monthKey "2026-03"`, `lineId "DEMO-104"`, số tiền và lý do hợp lệ → `ok true`, `reasons` rỗng (dòng opening tra được).
 - [ ] Cùng ca trên nhưng `lineId "DEMO-999"` → `ok false`, đúng một lý do về `lineId`; với `lineId null` → `ok true`.
 - [ ] `lineId "DEMO-105"` của tháng web `2026-04` → `ok true`; `monthKey "2026-09"` (không có trong sổ) → `ok false`, lý do chỉ nói về tháng.
-- [ ] `lines` của tháng opening không làm đổi bất kỳ số nào của `monthChain` và `allocate` so với các ô trên.
+- [ ] Dòng TỔNG: tháng 03 `pricedCount 1`, `monthTotalVnd 25000000n`; tháng 04 `pricedCount 3`, `monthTotalVnd 90000000n`.
+- [ ] Với điều chỉnh `+5000000` tháng 03: tháng 03 `monthTotalVnd 30000000n`, `pricedCount` vẫn `1`; `endOfMonthVnd` của tháng 01, 02 và `carryVnd` tháng 03 không đổi.
+- [ ] Thêm dòng vào `lines` của tháng opening làm đổi `pricedCount` và `monthTotalVnd` của tháng đó nhưng **không** đổi `endOfMonthVnd` của bất kỳ tháng nào, cũng không đổi kết quả `allocate`.
 - [ ] Hai bất biến của `allocate` đúng ở mọi ca trên.
 - [ ] Đầu vào sai (`'40.000.000'`, `'abc'`, `12.5`, số âm ở chỗ không cho âm, opening không cộng khớp) → ném lỗi.
 - [ ] Gọi hai lần cùng đầu vào cho cùng kết quả; đầu vào đóng băng (`Object.freeze`) không gây lỗi.

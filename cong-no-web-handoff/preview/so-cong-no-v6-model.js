@@ -131,21 +131,24 @@ const LedgerV6Model = (() => {
     let carryVnd = beforeBalanceVnd;
     let openingAdjustmentsVnd = 0n;
     for (const month of book.opening.months) {
+      const { pricedCount, pricedTotalVnd } = monthTotals(month.lines);
       const adjustmentsVnd = adjusted.get(month.key) ?? 0n;
       openingAdjustmentsVnd += adjustmentsVnd;
       const endOfMonthVnd = vnd(month.endOfMonthVnd, true) + openingAdjustmentsVnd;
       chain.push({ key: month.key, source: "opening", carryVnd, chargesVnd: null,
-        adjustmentsVnd, receivedVnd: null, endOfMonthVnd, missingPriceIds: [], mismatches: [] });
+        adjustmentsVnd, receivedVnd: null, endOfMonthVnd, pricedCount,
+        monthTotalVnd: pricedTotalVnd + adjustmentsVnd, missingPriceIds: [], mismatches: [] });
       carryVnd = endOfMonthVnd;
     }
     for (const month of book.months) {
-      const { pricedTotalVnd, missingPriceIds, mismatches } = monthTotals(month.lines);
+      const { pricedCount, pricedTotalVnd, missingPriceIds, mismatches } = monthTotals(month.lines);
       const adjustmentsVnd = adjusted.get(month.key) ?? 0n;
       const receivedVnd = book.receipts.reduce((sum, receipt) =>
         sum + (receipt.monthKey === month.key && receipt.receivedOn !== null ? vnd(receipt.amountVnd) : 0n), 0n);
       const endOfMonthVnd = carryVnd + pricedTotalVnd + adjustmentsVnd - receivedVnd;
       chain.push({ key: month.key, source: "web", carryVnd, chargesVnd: pricedTotalVnd,
-        adjustmentsVnd, receivedVnd, endOfMonthVnd, missingPriceIds, mismatches });
+        adjustmentsVnd, receivedVnd, endOfMonthVnd, pricedCount,
+        monthTotalVnd: pricedTotalVnd + adjustmentsVnd, missingPriceIds, mismatches });
       carryVnd = endOfMonthVnd;
     }
     return chain;
