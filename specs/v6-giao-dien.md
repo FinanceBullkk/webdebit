@@ -40,7 +40,9 @@ Người dùng trên 40 tuổi, quen sheet công nợ hiện tại. Không còn 
 3. Dòng điều chỉnh đi qua `validateAdjustment`; nêu **đủ mọi lý do** một lần.
 4. Mỗi lần thêm chuyến, sửa ô, ghi khoản thu, ghi điều chỉnh: dựng lại `book` rồi gọi lại model — không vá số cũ.
 5. **Lịch sử sửa** (C6) là nhật ký trong bộ nhớ tab do giao diện ghi: ai · lúc nào · tháng · dòng · số cũ → số mới · lý do. Với điều chỉnh có làm đổi phân bổ, ghi cả phân bổ trước và sau (V6-3d). Nhật ký này là tiện ích bản thử, **không phải lưu vết thật** — lưu vết thật thuộc lớp 3.
-6. **Ngày hôm nay** lấy từ tham số `?today=YYYY-MM-DD`, mặc định `2026-10-18`. Đây là tiện ích bản thử để đi được trạng thái C5; không dùng đồng hồ máy cho quy tắc khóa.
+6. **Ngày hôm nay** lấy từ tham số `?today=YYYY-MM-DD`, mặc định `2026-05-03`. Không dùng đồng hồ máy cho quy tắc khóa.
+
+   Mặc định này nằm trong ngày đệm của tháng 04 — tháng làm việc của sổ mẫu — nên bản thử mở ra là sửa được ngay: dán chuyến, sửa ô, ghi thu đều đi được. Tháng 03 vẫn đã khóa (`isDirectEditable("2026-03", "2026-05-03")` là `false`), đúng như C3. Trạng thái khóa tháng 04 kiểm bằng `?today=2026-05-06`. (Sửa 18/10/2026: mặc định cũ `2026-10-18` làm mọi trạng thái rơi vào tháng đã khóa.)
 7. **Người đang dùng** cố định `Trần Thị B`; không có ô chọn vai.
 
 ## Hành vi và bất biến
@@ -89,7 +91,7 @@ Viewport `1280×720`. Selector dưới đây là **hợp đồng**; đổi thì 
        {"fill": ["[data-adj=\"reason\"]", "Thiếu phí áp tải chuyến DEMO-104"]},
        {"fill": ["[data-adj=\"amount\"]", "+5000000"]},
        {"click": "[data-action=\"adjust-save\"]"}]},
-    {"name": "ngay-dem", "board": "C5", "note": "today=2026-05-03, thang 04 con sua thang duoc",
+    {"name": "ngay-dem", "board": "C5", "note": "today=2026-05-03 (mac dinh), thang 04 con sua thang duoc",
      "page": "cong-no-web-handoff/preview/so-cong-no-v6.html?today=2026-05-03",
      "steps": [{"click": "[data-action=\"open-book\"][data-value=\"KHACH_MAU\"]"}]},
     {"name": "lich-su-sua", "board": "C6", "note": "Bang lich su sua mo ben phai",
@@ -120,7 +122,8 @@ Viewport `1280×720`. Selector dưới đây là **hợp đồng**; đổi thì 
 - [ ] `thu-120-trieu`: phân bổ `20 / 20 / 30 / 25 / 25`; `Đã thu 120.000.000`, `Còn phải thu 65.000.000`.
 - [ ] `da-dieu-chinh`: tháng 03 `Còn phải thu 100.000.000` kèm `95.000.000` gạch ngang; thanh tháng 04 `100.000.000` / `190.000.000` kèm số cũ gạch ngang.
 - [ ] Sau `da-dieu-chinh` mà ghi thêm thu `120000000`: phân bổ `20 / 20 / 30 / 30 / 20`; Lịch sử sửa ghi phân bổ trước và sau.
-- [ ] `ngay-dem`: tháng 04 sửa thẳng được, nhãn `Sửa được đến 05/05`; `sua-gia-thang-khoa`: ô giá tháng 04 chỉ đọc, nhãn `Đã khóa ⓘ`.
+- [ ] `ngay-dem`: tháng 04 sửa thẳng được, nhãn `Sửa được đến 05/05`; `sua-gia-thang-khoa` (`?today=2026-05-06`): ô giá tháng 04 chỉ đọc, nhãn `Đã khóa ⓘ`, dòng dán không bấm được.
+- [ ] Ở `today` mặc định, tháng 04 sửa thẳng được và tháng 03 đã khóa — mọi trạng thái còn lại chụp ở mặc định đều thao tác được.
 - [ ] `dan-lech`: phát sinh `112.000.000`, `Còn phải thu 207.000.000`, chú thích DEMO-109 nêu `99.000.000` / `10.000.000` / `89.000.000`.
 - [ ] `loi-so-tien`: các ô giữ nguyên, câu lỗi hiện, số dư không đổi.
 - [ ] Thu `200000000` thay cho 120: `Còn phải thu -15.000.000`, không kèm chữ.
