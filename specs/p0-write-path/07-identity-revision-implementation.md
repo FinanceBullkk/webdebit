@@ -1,6 +1,6 @@
 # P0-02 — Thiết kế danh tính và duyệt theo revision
 
-Ngày: 15/10/2026; cập nhật hợp đồng fixture 16/10/2026. Trạng thái: **ĐỀ XUẤT KỸ THUẬT để review**. Q01/Q02 đã chốt ở mức nguyên tắc; thiết kế này cụ thể hóa một phương án triển khai. Fixture PostgreSQL kèm theo là prototype cô lập, không phải migration, app login, hay đường ghi tiền được bật.
+Ngày: 15/10/2026; cập nhật hợp đồng fixture 16/10/2026; cài NEWTRIP-01, ALT-KEY-01 và ngưỡng JOIN-01 vào fixture 17/10/2026. Trạng thái: **ĐỀ XUẤT KỸ THUẬT để review**. Q01/Q02 đã chốt ở mức nguyên tắc; thiết kế này cụ thể hóa một phương án triển khai. Fixture PostgreSQL kèm theo là prototype cô lập, không phải migration, app login, hay đường ghi tiền được bật.
 
 ## Phạm vi và bằng chứng nền
 
@@ -9,7 +9,7 @@ Ngày: 15/10/2026; cập nhật hợp đồng fixture 16/10/2026. Trạng thái:
 - Viewer hiện tại `cong-no-web-handoff/web/ledger_app.py` chỉ đọc và bind `127.0.0.1`; chưa có login/session hoặc route ghi. `tools/pg_ledger_schema.sql` lấy maker, checker và audit actor từ `session_user`; proposal lines có thể được đọc lúc duyệt sau khi owner sửa. Đây là kiểm tra mã tại checkout, không phải runtime.
 - PR #3 characterization đã chạy trên PostgreSQL 18.6; stale-content là `repro_success`, không phải acceptance của guard. Chi tiết revision/run nằm trong `docs/verification.md`.
 
-Q03–Q08 và Q09 vẫn mở. Fixture chỉ còn một loại proposal: **charge** (`schema_version=3`). Mọi charge vào ở `review_needed` và chỉ post được khi có đủ: xác nhận kỳ của maker, xác nhận giá, checker khác maker và khác người xác nhận giá, kỳ còn mở, TRIP-KEY hợp lệ và một dòng `trip_opening_resolution` trạng thái `ABSENT_FROM_OPENING_APPROVED`. Bảng resolution **rỗng ngoài test** nên mặc định mọi charge bị chặn (CHỜ KIỂM). Receipt không được nhận; fixture không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
+Q03–Q08 và Q09 vẫn mở. Fixture chỉ còn một loại proposal: **charge** (`schema_version=3`). Mọi charge vào ở `review_needed` và chỉ post được khi có đủ: xác nhận kỳ của maker, xác nhận giá, checker khác maker và khác người xác nhận giá, kỳ còn mở, TRIP-KEY hợp lệ (kể cả mã thay thế ALT-KEY-01) và một dòng `trip_opening_resolution` trạng thái `ABSENT_FROM_OPENING_APPROVED`. Dòng này do owner ghi, hoặc do `submit_revision` tự ghi theo NEWTRIP-01 khi có tập tham chiếu opening đang hiệu lực. Bảng resolution và tập tham chiếu **rỗng ngoài test** nên mặc định mọi charge bị chặn (CHỜ KIỂM). Receipt không được nhận; fixture không chọn chính sách tiền dư/FIFO ngoại lệ/reversal/khóa kỳ/receipt verification và không được nối vào viewer.
 
 ### Quyết định áp dụng cho fixture (ĐÃ CHỐT 16/10/2026, người dùng, phạm vi fixture và hợp đồng charge đầu tiên)
 
@@ -20,13 +20,22 @@ Q03–Q08 và Q09 vẫn mở. Fixture chỉ còn một loại proposal: **charge
 | PRICE-MAKER | Người xác nhận giá phải có role `price_owner` (chủ nghiệp vụ). Maker được phép đồng thời là `price_owner` và tự xác nhận giá chuyến mình nhập. Người xác nhận giá không được làm checker của cùng revision; maker khác checker (D01). | `confirm_price` yêu cầu role `price_owner` (role `maker` không đủ); `approve` và `post` từ chối nếu checker là người xác nhận giá của revision đó. |
 | SIMPLIFY | Đơn giản hóa fixture ngay, không chờ M3. | Mục "App actor → DB audit" và "Kind, role DB" bên dưới. |
 
+### Quyết định 17/10/2026 cài vào fixture (người dùng chốt trong chat, ghi tại [decisions.md](../../docs/decisions.md))
+
+| ID | ĐÃ CHỐT | Cài trong fixture | ĐỀ XUẤT (chờ người dùng chốt) |
+|---|---|---|---|
+| NEWTRIP-01 | Chuyến có ngày xe nhập kho từ 14/10/2026 tự động coi là không nằm trong opening, trừ khi kiểm trùng thấy mã chuyến có trong tập lịch sử hoặc cùng container có dòng lịch sử lệch ≤ 3 ngày → CHỜ KIỂM. | `submit_revision` gọi `apply_newtrip_resolution`: ghi `ABSENT_FROM_OPENING_APPROVED`, lý do "tự động theo NEWTRIP-01", phiên bản tập tham chiếu và thời điểm; có dấu hiệu trùng → `UNRESOLVED` kèm reason code. | Cấu trúc bảng tham chiếu (`opening_reference_set`/`opening_reference_trip`) và cờ `active` một tập; dòng lịch sử thiếu ngày cũng là CHỜ KIỂM. |
+| ALT-KEY-01 | Booking trống hoặc chỉ ký hiệu dùng mã thay thế thay vì CHỜ KIỂM; vẫn chịu DUP-01 và NEWTRIP-01. | `compute_trip_key` sinh mã thay thế; container sai định dạng hoặc cùng container có mã khác lệch ≤ 3 ngày → `UNRESOLVED`. | **Định dạng** `NOBK:<container chuẩn hóa>:<YYYYMMDD ngày xe nhập kho>`; định dạng container ISO 6346 (4 chữ + 7 số, chưa kiểm số kiểm tra); kiểm "gần" áp dụng hai chiều khi một trong hai mã là mã thay thế. |
+| JOIN-01 (ngưỡng) | Gợi ý booking khi ngày đóng booking lệch ngày xe nhập kho tối đa 3 ngày, hai chiều; quá ngưỡng hoặc thiếu ngày là CHỜ KIỂM. | `trip_date_window_days()` = 3 dùng chung; hàm đọc `suggest_booking` trên `booking_reference`. | Mã trả về của hàm gợi ý; gợi ý chưa nối vào UI. |
+| BOOKING-EDIT-01 | Booking sửa sau khi ghi giữ nguyên phiếu và mã chuyến đã ghi. | Không cần code mới: posting append-only, mã chuyến lưu trong revision/posting. Phiếu điều chỉnh/đảo vẫn thuộc P0-05 (CÒN MỞ). | — |
+
 Chính sách v1 **ĐÃ CHỐT** theo [DUP-01, JOIN-01](../../docs/decisions.md): mỗi `trip_key` một charge và chính sách duyệt bảng nối opening ↔ mã chuyến; fixture CI đã có `UNIQUE(posting.trip_key)`.
 
-**CÒN MỞ**: dấu "/" trong ô booking, booking bị sửa sau khi ghi, ngưỡng ngày cụ thể của JOIN-01, nâng khóa lên chuyến + loại phí khi có danh mục loại phí được duyệt; bảng resolution production chưa triển khai.
+**CÒN MỞ**: định dạng mã thay thế và định dạng container (ĐỀ XUẤT ở bảng trên); nâng khóa lên chuyến + loại phí khi có danh mục loại phí được duyệt; phiếu điều chỉnh/đảo khi booking sửa sau posting (P0-05); bảng resolution production và cách nạp tập tham chiếu thật (hash, thời điểm, quyền) chưa triển khai.
 
 ## Kind và role DB
 
-Fixture không còn `kind`: không có `revision_fixture`, không có role `p0_fixture_identity_test_api`. Chỉ có một role API `p0_fixture_api` và một login giả `webdebit_app` thuộc role đó. Role API không có quyền đọc bảng hay DML trực tiếp, chỉ `EXECUTE` sáu hàm nghiệp vụ (`submit_revision`, `set_presentation_title`, `confirm_price_revision`, `confirm_period_revision`, `approve_revision`, `post_revision`). Hàm kiểm `pg_has_role(session_user, 'p0_fixture_api', 'member')` trước mọi thao tác; login ngoài role bị từ chối dù được cấp `EXECUTE`. Bảng `trip_opening_resolution` chỉ owner/superuser ghi; không có hàm API nào ghi bảng này. Role ứng dụng của actor: `maker`, `checker`, `price_owner`, `admin`.
+Fixture không còn `kind`: không có `revision_fixture`, không có role `p0_fixture_identity_test_api`. Chỉ có một role API `p0_fixture_api` và một login giả `webdebit_app` thuộc role đó. Role API không có quyền đọc bảng hay DML trực tiếp, chỉ `EXECUTE` sáu hàm nghiệp vụ (`submit_revision`, `set_presentation_title`, `confirm_price_revision`, `confirm_period_revision`, `approve_revision`, `post_revision`) và một hàm đọc gợi ý `suggest_booking` (yêu cầu role `maker`, không ghi gì). Hàm kiểm `pg_has_role(session_user, 'p0_fixture_api', 'member')` trước mọi thao tác; login ngoài role bị từ chối dù được cấp `EXECUTE`. Bảng `trip_opening_resolution` chỉ owner/superuser ghi trực tiếp; ngoại lệ duy nhất là `submit_revision` (SECURITY DEFINER) chèn dòng tự động theo NEWTRIP-01 với `ON CONFLICT DO NOTHING`, không bao giờ thay dòng đã có. Bảng tham chiếu `opening_reference_set`, `opening_reference_trip`, `booking_reference` chỉ owner ghi, append-only (tập tham chiếu chỉ được đổi cờ `active`). Role ứng dụng của actor: `maker`, `checker`, `price_owner`, `admin`.
 
 Ghi chú về giới hạn: `pg_has_role(..., 'member')` luôn đúng với superuser; fixture dùng login thường để kiểm ranh giới này.
 
@@ -79,7 +88,9 @@ Mỗi revision giữ một object payload với `schema_version` rõ. Fixture ch
 
 **Ngày** chỉ nhận ASCII `YYYY-MM-DD`; PostgreSQL dựng ngày bằng `make_date` từ thành phần đã kiểm, không phụ thuộc `DateStyle`. `warehouse_in_date` trước `2026-10-14` bị từ chối với thông báo "chuyến cũ, nợ thuộc opening 13/10" (OPENING-FINAL).
 
-**TRIP-KEY.** Payload mang `booking_no` và `container_no` thô (chuỗi hoặc null). DB tính `trip_key = upper(bỏ mọi khoảng trắng(booking || container))`, lưu vào revision, canonical payload (nên nằm trong hash) và posting. "Khoảng trắng" gồm khoảng trắng ASCII/locale và các ký tự Unicode hay lọt vào khi dán từ Sheet: NBSP U+00A0, U+1680, U+2000-U+200F (gồm ZWSP U+200B), U+2028/2029, U+202F, U+205F, U+2060, U+3000, BOM U+FEFF. Booking hoặc container trống sau khi bỏ khoảng trắng → `trip_key` NULL. Ví dụ `" abc 123 "` + `"cont 9"` và `"ABC123"` + `"CONT9"` cho cùng key `ABC123CONT9`. Bảng resolution từ chối key có khoảng trắng hoặc chữ thường.
+**TRIP-KEY.** Payload mang `booking_no` và `container_no` thô (chuỗi hoặc null). DB tính `trip_key = upper(bỏ mọi khoảng trắng(booking || container))`, lưu vào revision, canonical payload (nên nằm trong hash) và posting. "Khoảng trắng" gồm khoảng trắng ASCII/locale và các ký tự Unicode hay lọt vào khi dán từ Sheet: NBSP U+00A0, U+1680, U+2000-U+200F (gồm ZWSP U+200B), U+2028/2029, U+202F, U+205F, U+2060, U+3000, BOM U+FEFF. Container trống sau khi bỏ khoảng trắng → `trip_key` NULL (`TRIP_KEY_MISSING`). Ví dụ `" abc 123 "` + `"cont 9"` và `"ABC123"` + `"CONT9"` cho cùng key `ABC123CONT9`. Bảng resolution từ chối key có khoảng trắng hoặc chữ thường.
+
+**Mã thay thế (ALT-KEY-01, định dạng ĐỀ XUẤT).** Booking được coi là thiếu khi sau bỏ khoảng trắng không còn chữ số ASCII hay chữ cái có hoa/thường (trống, `/`, `-.`...). Khi đó, nếu có container, `trip_key = 'NOBK:' || container chuẩn hóa || ':' || YYYYMMDD(warehouse_in_date)`, ví dụ `NOBK:ALTU0000001:20261014`. Dấu `:` và tiền tố tách mã thay thế khỏi mã booking + container thật; booking thật bắt đầu bằng `NOBK:` bị từ chối khi submit. Revision có mã thay thế mang cảnh báo `ALT_TRIP_KEY_WARNING` (không chặn). Mã thay thế vẫn chịu `UNIQUE(posting.trip_key)` (DUP-01): cùng container và cùng ngày xe là cùng mã. Fixture giữ `schema_version=3` vì là dữ liệu giả cô lập, không có hash lưu trữ thật; khi đưa vào production cần version canonical mới cho cách tính `trip_key` này.
 
 Charge có thể lưu revision bất biến ở `review_needed` khi trường tiền hoặc bằng chứng còn thiếu: total thiếu/null/0; component list thiếu/null/rỗng; amount component thiếu/null; tổng component hoặc line lệch khi hai vế đã biết; source/evidence, period override hoặc TRIP-KEY thiếu. Khi tháng `debt_period` khác tháng `warehouse_in_date`, kỳ chỉ được maker xác nhận nếu có đủ lý do override, tham chiếu chứng cứ override và SHA-256 chứng cứ; `reason` chung không thay thế ba field này. Không điền tiền, làm tròn, đổi chuỗi thành số hoặc suy định danh. Reference rỗng được giữ nguyên để review nhưng tính là thiếu; hash không-null sai dạng bị từ chối.
 
@@ -99,12 +110,17 @@ Database tự tính reason codes và lưu snapshot bất biến cùng business r
 | `LINE_TOTAL_MISMATCH` | chặn xác nhận giá | Line amount và total đều đã biết nhưng khác nhau |
 | `SOURCE_EVIDENCE_MISSING` | chặn xác nhận giá | Source/evidence ref null/rỗng/trắng hoặc evidence hash null |
 | `PERIOD_OVERRIDE_EVIDENCE_MISSING` | chặn xác nhận kỳ | Tháng nợ khác tháng nhập kho nhưng thiếu reason, evidence ref hoặc hash của override |
-| `TRIP_KEY_MISSING` | chặn duyệt | Booking hoặc container trống |
-| `BOOKING_PLACEHOLDER` | chặn duyệt (ĐỀ XUẤT, CÒN MỞ) | Booking chỉ là dấu "/" |
-| `DUPLICATE_TRIP_KEY` | chặn duyệt, **tính động** trong projection (ĐỀ XUẤT, CÒN MỞ); không unique cứng ở proposal | Có proposal khác ở trạng thái `approved`/`posted` mà revision hiện hành cùng `trip_key` (trừ booking "/"). Không lưu vào snapshot; biến mất khi proposal kia đổi key |
+| `TRIP_KEY_MISSING` | chặn duyệt | Container trống |
+| `ALT_TRIP_KEY_WARNING` | **cảnh báo, không chặn** (ALT-KEY-01) | Booking trống/chỉ ký hiệu, dùng mã thay thế |
+| `DUPLICATE_TRIP_KEY` | chặn duyệt, **tính động** trong projection; không unique cứng ở proposal | Có proposal khác ở trạng thái `approved`/`posted` mà revision hiện hành cùng `trip_key` (kể cả mã thay thế). Không lưu vào snapshot; biến mất khi proposal kia đổi key |
 | `OPENING_RESOLUTION_MISSING` | chặn duyệt; chỉ tính trong projection | `trip_key` không có dòng `ABSENT_FROM_OPENING_APPROVED` (không có dòng, `IN_OPENING`, `UNRESOLVED`, hoặc key NULL) |
+| `OPENING_REF_TRIP_KEY_MATCH` | CHỜ KIỂM (NEWTRIP-01); lưu ở dòng resolution `UNRESOLVED`, hiện trong projection tới khi owner kết luận | `trip_key` có trong tập tham chiếu lịch sử đang hiệu lực |
+| `OPENING_REF_CONTAINER_NEAR_DATE` | như trên | Cùng container có dòng lịch sử với ngày lệch ngày xe nhập kho ≤ 3 ngày (hai chiều) |
+| `OPENING_REF_CONTAINER_DATE_MISSING` | như trên (ĐỀ XUẤT) | Cùng container có dòng lịch sử thiếu ngày |
+| `ALT_KEY_CONTAINER_FORMAT_INVALID` | như trên (ALT-KEY-01) | Mã thay thế mà container sai định dạng ISO 6346 (4 chữ + 7 số) |
+| `ALT_KEY_CONTAINER_NEAR_OTHER_KEY` | như trên (ALT-KEY-01) | Cùng container đã có proposal khác với mã khác, ngày xe lệch ≤ 3 ngày, và một trong hai mã là mã thay thế |
 
-Không tính mismatch khi thiếu một trong hai vế hoặc component sum có amount null. `OPENING_RESOLUTION_MISSING` và `DUPLICATE_TRIP_KEY` không được lưu vào snapshot vì dữ liệu liên quan đổi sau submit. Với hai proposal pending cùng key, projection chỉ hiện cảnh báo `DUPLICATE_TRIP_KEY_PENDING_WARNING` (không chặn); khi một proposal được duyệt, proposal còn lại bị chặn duyệt và hiện blocker `DUPLICATE_TRIP_KEY`. Thay cho `SOURCE_RESOLVER_UNAVAILABLE` cố định của bản trước (mọi charge luôn bị chặn bằng một câu `RAISE`).
+Năm code NEWTRIP-01/ALT-KEY-01 được tính một lần lúc submit cho key chưa có dòng resolution, rồi đóng băng trong dòng resolution; proposal nộp sau là bên bị gắn CHỜ KIỂM. Không tính mismatch khi thiếu một trong hai vế hoặc component sum có amount null. `OPENING_RESOLUTION_MISSING` và `DUPLICATE_TRIP_KEY` không được lưu vào snapshot vì dữ liệu liên quan đổi sau submit. Với hai proposal pending cùng key, projection chỉ hiện cảnh báo `DUPLICATE_TRIP_KEY_PENDING_WARNING` (không chặn); khi một proposal được duyệt, proposal còn lại bị chặn duyệt và hiện blocker `DUPLICATE_TRIP_KEY`. Thay cho `SOURCE_RESOLVER_UNAVAILABLE` cố định của bản trước (mọi charge luôn bị chặn bằng một câu `RAISE`).
 
 ### Gate theo bước
 
@@ -112,10 +128,22 @@ Không tính mismatch khi thiếu một trong hai vế hoặc component sum có 
 |---|---|
 | `confirm_price` | role `price_owner` (maker kiêm price_owner tự xác nhận được; price_owner khác cũng được; maker không có role này bị từ chối); revision hiện hành, đúng hash, không NULL; không có reason chặn giá |
 | `confirm_period` | đúng maker của proposal; revision hiện hành; đủ override nếu khác tháng; kỳ `open` (khóa `FOR SHARE`) |
-| `approve` | role `checker`; checker khác maker; revision hiện hành đúng hash; mọi kỳ `open`; có xác nhận kỳ; `trip_key` không NULL và booking không phải "/"; có xác nhận giá; checker không phải người xác nhận giá; resolution `ABSENT_FROM_OPENING_APPROVED`; chưa có proposal khác `approved`/`posted` cùng `trip_key` |
+| `approve` | role `checker`; checker khác maker; revision hiện hành đúng hash; mọi kỳ `open`; có xác nhận kỳ; `trip_key` không NULL; có xác nhận giá; checker không phải người xác nhận giá; resolution `ABSENT_FROM_OPENING_APPROVED`; chưa có proposal khác `approved`/`posted` cùng `trip_key` |
 | `post` | như approve cho approval/maker/checker; kiểm lại kỳ mở, xác nhận kỳ và giá đúng revision/hash, resolution vẫn `ABSENT_FROM_OPENING_APPROVED`, checker không phải người xác nhận giá của revision, chưa có posting khác cùng `trip_key` (và `UNIQUE(trip_key)` làm chốt chặn) |
 
 Approve tuần tự hóa theo `trip_key` bằng advisory lock theo giao dịch và từ chối khi proposal khác đã `approved`/`posted` cùng key. Post cũng lấy advisory lock và kiểm posting cùng key. Advisory lock + EXISTS chỉ đúng với READ COMMITTED; giao dịch REPEATABLE READ/SERIALIZABLE không thấy posting vừa commit nên `posting.trip_key` có ràng buộc `UNIQUE` làm chốt chặn cuối. Đây là **luật bảo thủ tạm thời**: một posting cho mỗi key, cho đến khi chủ nghiệp vụ chốt chặn trùng theo chuyến hay theo chuyến + loại phí (CÒN MỞ; khi có loại phí, khóa đổi thành `(trip_key, fee_type)`). Hàm nhận NULL revision/hash bị chặn bằng guard rõ ràng; so sánh revision/hash dùng `IS DISTINCT FROM`.
+
+### NEWTRIP-01 và tập tham chiếu opening (fixture)
+
+Review 18/10/2026: kết luận tự động lưu thêm `decision_warehouse_in_date` bắt buộc. Projection, approval và posting chỉ nhận kết luận tự động khi ngày này khớp revision hiện hành; đổi ngày dù giữ nguyên mã chuyến phải CHỜ KIỂM, không dùng lại kết luận cũ. Giữ quyết định cũ để đối chiếu, owner có thể kết luận ngoại lệ. Quyết định owner vẫn theo mã chuyến; đây là guard fixture, không là migration production.
+
+1. `opening_reference_set(set_version, source_sha256, snapshot_at, loaded_at, active)` mô tả một bản tập lịch sử; tối đa một tập `active`. `opening_reference_trip(set_version, ref_row_no, trip_key, container_no, trip_date)` là các dòng mã chuyến/container lịch sử đã chuẩn hóa. Trong repo chỉ có dữ liệu giả do test nạp; bản thật nạp riêng ngoài repo, có hash/thời điểm.
+2. Khi submit tạo revision mới có `trip_key` và có tập `active`: nếu key chưa có dòng resolution, hàm khóa advisory theo container (submit đồng thời cùng container thấy nhau), kiểm năm dấu hiệu ở bảng reason codes, rồi chèn một dòng: không dấu hiệu → `ABSENT_FROM_OPENING_APPROVED`, `decided_by='NEWTRIP-01'`, `decision_reason='tự động theo NEWTRIP-01'`, `reference_set_version`, `approved_at`, `evidence_ref='opening-reference:<version>:sha256:<hash>'`; có dấu hiệu → `UNRESOLVED` với `review_reason_codes`.
+3. Không có tập `active` thì không quyết định tự động; charge vẫn `OPENING_RESOLUTION_MISSING` như trước. Dòng owner hoặc dòng tự động đã có không bị thay.
+4. Owner kết luận dòng CHỜ KIỂM bằng cách ghi `status` mới **và** `decided_by='owner'` (CHECK chặn đổi riêng `status` của dòng tự động). `review_reason_codes` giữ lại làm lịch sử. JOIN-01 (2)–(4) (người duyệt, chứng cứ, thu hồi) vẫn áp dụng cho bước này và chưa có API trong fixture.
+5. Quyết định tự động chỉ là một điều kiện: charge vẫn cần xác nhận kỳ, xác nhận giá, checker khác maker và DUP-01.
+
+`suggest_booking(container, warehouse_in_date, actor, session)` đọc `booking_reference` và trả `SUGGESTED` khi đúng một booking cùng container có ngày đóng lệch ≤ 3 ngày; không ứng viên, nhiều ứng viên, thiếu ngày (của chuyến hoặc của booking cùng container) hoặc thiếu container → `REVIEW_NEEDED` kèm reason code. Gợi ý không ghi gì và không thay việc người nhập xác nhận booking.
 
 ### Canonical bytes và hash
 
@@ -156,13 +184,16 @@ Trạng thái "Fixture" nghĩa là runner `test_pg_versioned_approval.py` có nh
 | R07 | App role không đọc bảng, không UPDATE/DELETE; bảng lịch sử append-only | grants/triggers PG18 | Fixture; owner/superuser nằm ngoài bảo đảm |
 | C01 | Charge hợp lệ đi hết nhập → xác nhận → duyệt → post và `posted_balance` tăng đúng số tiền khi có resolution `ABSENT_FROM_OPENING_APPROVED` | success path PG18 | Fixture dữ liệu giả; không là bằng chứng dữ liệu thật |
 | C02 | Không có resolution, `IN_OPENING` hoặc `UNRESOLVED` thì không duyệt/post được; số dư không đổi | resolution gate PG18 | Fixture; mặc định chặn |
-| C03 | TRIP-KEY: chuẩn hóa khoảng trắng (cả Unicode)/hoa thường; thiếu key; booking "/"; trùng key động; cờ trùng hết khi proposal kia đổi key | trip-key PG18 | Fixture; "/" và quy tắc trùng còn CÒN MỞ |
+| C03 | TRIP-KEY: chuẩn hóa khoảng trắng (cả Unicode)/hoa thường; thiếu container; booking trống/ký hiệu dùng mã thay thế; trùng key động; cờ trùng hết khi proposal kia đổi key | trip-key PG18 | Fixture |
 | C04 | Ngày nhập kho < 14/10/2026 bị từ chối; từ 14/10/2026 được nhận | date PG18 | Fixture (OPENING-FINAL) |
 | C05 | Tiền chỉ nhận integer chuẩn; `100.0`/`1e2` bị từ chối; NULL khác 0 | canonical PG18 | Fixture |
 | C06 | Cấu phần 0đ chỉ cảnh báo; tổng 0/null và các lệch khác chặn xác nhận giá | price PG18 | Fixture (PRICE-ZERO) |
 | C07 | Chỉ role `price_owner` xác nhận giá, maker kiêm price_owner tự xác nhận được; người xác nhận giá không làm checker (approve và post) cùng revision | price/approve/post PG18 | Fixture (PRICE-MAKER) |
 | C08 | Maker xác nhận kỳ mở; khác tháng cần đủ ba field override; kỳ đóng ở xác nhận/duyệt/post bị từ chối | period PG18 | Fixture |
 | C09 | Tranh chấp có `pg_blocking_pids` và PID thật: sửa/duyệt, đóng kỳ/xác nhận kỳ, post song song cùng key (advisory lock), đóng kỳ trước/sau post, đổi resolution trước/sau post; REPEATABLE READ không qua được `UNIQUE(trip_key)` | concurrency PG18 | Fixture |
+| C10 | NEWTRIP-01: không dấu hiệu → tự `ABSENT` có phiên bản tập tham chiếu/thời điểm và post được; mã có trong lịch sử, container lệch 3 ngày (hai chiều), thiếu ngày → CHỜ KIỂM, lệch 4 ngày → tự `ABSENT`; không thay dòng owner; owner kết luận mới gỡ chặn; không có tập active thì không tự quyết; tập tham chiếu append-only | newtrip PG18 | Fixture dữ liệu giả |
+| C11 | ALT-KEY-01: mã thay thế; trùng mã bị DUP-01 chặn; container sai định dạng và cùng container mã khác lệch 3 ngày → CHỜ KIỂM, lệch 4 ngày → không; hai booking thật cùng container không bị gắn cờ | alt-key PG18 | Fixture; định dạng ĐỀ XUẤT |
+| C12 | JOIN-01: gợi ý booking khi đúng một ứng viên trong 3 ngày hai chiều; 4 ngày, nhiều ứng viên, thiếu ngày → CHỜ KIỂM; chỉ role `maker` | suggestion PG18 | Fixture |
 | G01 | Receipt chỉ post khi được xác minh theo policy được duyệt | Q09, receipt workflow | CÒN MỞ; không có receipt path trong prototype |
 
 Đạt các hàng trên chỉ là bằng chứng fixture cho SQL prototype và revision cụ thể. Chúng không chứng minh app login, Tailscale boundary, account operations, người thật, nguồn ngân hàng, bảng nối opening ↔ mã chuyến thật, hay production readiness.
