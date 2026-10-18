@@ -46,3 +46,13 @@ test('scrollable table regions in open month have tabindex, region role, and dis
   for(const item of items){assert.equal(item.tabindex,'0');assert.equal(item.role,'region');assert.ok(item.label?.trim());}
   assert.equal(new Set(items.map(i=>i.label)).size,3);
 }));
+test('Tab reaches shipment scroll region with visible focus and ArrowRight scrolls it',async()=>withPage(async page=>{
+  const region=page.locator('#month-2026-03 .table-scroll').first();
+  await page.locator('#month-2026-03 [data-action="open-editor"]').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await region.evaluate(el=>el===document.activeElement),true);
+  assert.equal(await region.evaluate(el=>{const s=getComputedStyle(el);return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>0;}),true);
+  assert.equal(await region.evaluate(el=>el.scrollWidth>el.clientWidth),true);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(()=>document.activeElement.scrollLeft>0);
+}));
