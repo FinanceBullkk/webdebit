@@ -29,6 +29,7 @@ Nguồn: chat 18/10/2026; sheet công nợ đang dùng, đọc **read-only** ng�
 | V6-3 | Sửa số của tháng trước thế nào? | **Không sửa đè.** Ghi một dòng điều chỉnh có lý do và lưu vết: ai, lúc nào, dòng nào, số cũ, số mới |
 | V6-3b | "Tháng trước" tính từ đâu? | **Theo tháng lịch, cộng ngày đệm đầu tháng.** Trong ngày đệm, tháng vừa qua vẫn sửa thẳng được; hết ngày đệm thì chỉ sửa bằng dòng điều chỉnh. Không thêm thao tác nào cho người dùng. Số ngày đệm: **ĐỀ XUẤT hết ngày 5** của tháng sau, chờ người dùng xác nhận |
 | V6-3c | Dòng điều chỉnh thuộc tháng nào? | **Thuộc đúng tháng gốc của chuyến.** Còn phải thu cuối tháng đó đổi, và số chuyển sang của mọi tháng sau tính lại theo. Màn hiện số cũ gạch ngang cạnh số mới. Số tiền điều chỉnh có thể dương hoặc âm; lý do bắt buộc |
+| V6-3d | Điều chỉnh một tháng đã được trả bởi khoản thu trước đó thì sao? | **Phân bổ lại các khoản thu theo nợ cũ trước.** Ví dụ: thu 120.000.000 đã trừ 25.000.000 vào tháng 03; tháng 03 điều chỉnh +5.000.000 → tháng 03 nhận 30.000.000, tháng 04 còn 20.000.000. Câu trả lời "tiền trừ vào tháng nào" vì vậy có thể đổi sau điều chỉnh; lịch sử sửa phải ghi lại phân bổ trước và sau. Không áp dụng cho dữ liệu opening chuyển từ Sheet |
 | V6-4 | Màn hiện mấy con số dư? | **Một số:** `Còn phải thu cuối tháng = chuyển sang + phát sinh − đã thu`, giống sheet. Bỏ tiêu chí "không chỗ nào in 185.000.000" |
 | V6-5 | Số âm hiện thế nào? | **Hiện số âm trần, không kèm chữ.** Âm nghĩa là khách đã ứng trước: tiền đưa trước, trừ dần vào khoản phải thu sau. Thay quyết định 8 của `V5-UX` ("khách trả dư · phải trả lại") |
 | V6-6 | Bố cục màn sổ? | **Khối tháng như sheet** (hướng C): các tháng trước gập thành nút; khối tháng gồm dòng chuyển sang → 11 cột đúng thứ tự sheet → dòng dán ở cuối → dòng `TỔNG`. Ô tiền bên phải gộp cả khối |
@@ -64,12 +65,11 @@ Mỗi mục dưới đây là việc riêng, cần spec riêng trước khi code
 3. **Brief** `ux-brief-so-cong-no.md`: §2 vai *người chốt*, §3.3, §3.6 ("khách nào chưa chốt"), §3.8, §5 quy tắc 3, 4b, 5, 6, ngưỡng thao tác chốt ở §8.
 4. **Bản thử V5** `so-cong-no-v5.html` + `so-cong-no-v5-ui.js`: mốc `V5-GD` không còn là giao diện đích.
 5. **Đường ghi tiền P0**: `02-versioned-approval-identity.md`, `06-period-posting-lock.md`, và `Q01`, `Q08` trong `decisions-needed.md`.
-6. **`AGENTS.md`**: câu "không ghi tiền thiếu … phê duyệt riêng" cần đọc lại theo V6-2.
+6. **`AGENTS.md`**: câu "không ghi tiền thiếu … phê duyệt riêng" cần đọc lại theo V6-2; câu "không phân bổ lại lịch sử" cần ghi rõ chỉ áp dụng cho opening, theo V6-3d.
 
 ## 6. Còn mở — không chốt hộ
 
 1. **Số ngày đệm của V6-3b:** đang đề xuất hết ngày 5 của tháng sau. Ngày đệm tính theo ngày lịch hay ngày làm việc cũng chưa quyết.
-2. **Phân bổ lại sau điều chỉnh (V6-3c):** khoản thu đã trừ hết một tháng, sau đó tháng đó được điều chỉnh tăng — phân bổ lại khoản thu theo nợ cũ trước, hay giữ nguyên phân bổ cũ? `AGENTS.md` đang ghi "không phân bổ lại lịch sử".
 2. Tiền ứng trước ở một sổ có trừ được cho sổ khác của cùng khách không (`D04`) — đang mặc định là không.
 3. Dòng phí không có container trong sheet nhập vào web thế nào.
 4. Danh mục cách thu bốn giá trị đã đủ chưa.
