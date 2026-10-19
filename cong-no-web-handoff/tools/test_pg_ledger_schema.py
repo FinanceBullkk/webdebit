@@ -375,23 +375,37 @@ def main() -> int:
         record("contention", "two_checker_calls_post_once", {"successful_calls":1,"rejected_sqlstates":["P0001"],"postings":1}, {"successful_calls":len(successful),"rejected_sqlstates":rejected_states,"postings":final_counts["postings"]}, sqlstate=rejected_states[0] if rejected_states else None, counts=final_counts)
         report["concurrency_evidence"] = {"holder_pid":holder_pid,"blocking_pids":observed_actual["pg_blocking_pids"],"checker1_stdout":out.strip(),"checker2_stdout":out2.strip(),"checker1_exit":checker1_rc,"checker2_exit":checker2_rc,"checker1_error_sqlstate":state1.group(1) if state1 else None,"checker2_error_sqlstate":state2.group(1) if state2 else None}
 
-        # Posting-date policy (16/10/2026): a posting date later than today in Asia/Ho_Chi_Minh is
-        # rejected on both the submit path and the approve path. Today is computed independently of
-        # the schema helper and passed as a literal, so the guard cannot be proved by its own clock.
+        # Posting-date policy (16/10/2026): today in Asia/Ho_Chi_Minh is allowed, any later date is
+        # rejected on the submit, approve and reversal paths. Today is computed independently of the
+        # schema helper and passed as a literal, so the guard cannot be proved by its own clock.
         def failure(result: subprocess.CompletedProcess[str]) -> dict[str, object]:
             found = re.search(r"ERROR:\s+([0-9A-Z]{5}):\s*(.+)", result.stderr)
             return {"exit": result.returncode, "sqlstate": found.group(1) if found else None,
                     "message": found.group(2).strip() if found else None}
 
+        def submit_dated(key: str, posting_date: str) -> subprocess.CompletedProcess[str]:
+            return psql("SELECT ledger.submit_entry('" + key + "','charge',100,DATE '2026-02-01'," + posting_date
+                        + ",'FAKE-SOURCE-" + key[-8:] + "','FAKE-EVIDENCE','fake test reason',"
+                        + "'[{\"customer\":\"FAKE CUSTOMER A\",\"debt_period\":\"2026-01\",\"amount_vnd\":100}]'::jsonb)",
+                        "maker_a", check=False)
+
         def proposal_count() -> int:
             return int(query("SELECT count(*) FROM ledger.proposal"))
 
-        tomorrow = "DATE '" + query("SELECT ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1)") + "'"
+        original_posting = int(query(f"SELECT min(posting_id) FROM ledger.posting WHERE proposal_id={multi}"))
+        vn_today = "(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
+        today = "DATE '" + query(f"SELECT {vn_today}") + "'"
+        tomorrow = "DATE '" + query(f"SELECT {vn_today} + 1") + "'"
+
+        # Today must still be accepted: a guard that rejects the ordinary case is not a passing guard.
+        today_result = submit_dated("fixture-request-today-0001", today)
+        today_id = int(today_result.stdout.strip()) if today_result.returncode == 0 else None
+        record("posting_date", "today_posting_date_accepted", {"exit":0,"status":"pending"},
+               {"exit":today_result.returncode,"status":counts(today_id)["status"] if today_id else None})
         before = proposal_count()
-        future_submit = psql("SELECT ledger.submit_entry('fixture-request-future-0001','charge',100,DATE '2026-02-01'," + tomorrow + ",'FAKE-SOURCE-FUTURE','FAKE-EVIDENCE','fake test reason','[{\"customer\":\"FAKE CUSTOMER A\",\"debt_period\":\"2026-01\",\"amount_vnd\":100}]'::jsonb)", "maker_a", check=False)
         record("posting_date", "future_posting_date_rejected_on_submit",
                {"exit":1,"sqlstate":"P0001","message":"missing or invalid posting evidence/date/lines","new_proposals":0},
-               {**failure(future_submit),"new_proposals":proposal_count() - before})
+               {**failure(submit_dated("fixture-request-future-0001", tomorrow)),"new_proposals":proposal_count() - before})
         # Owner-inserted pending row simulates a proposal whose date passed submit under an older function.
         future_id = int(query("INSERT INTO ledger.proposal(request_key,kind,total_vnd,event_date,posting_date,source_ref,evidence_ref,reason,maker) "
                               "VALUES ('fixture-request-future-approve-0001','charge',100,DATE '2026-02-01'," + tomorrow + ","
@@ -401,6 +415,11 @@ def main() -> int:
                {"exit":1,"sqlstate":"P0001","message":"posting date is in the future","status":"pending","postings":0},
                {**failure(psql(f"SELECT ledger.approve_entry({future_id})", "checker_b", check=False)),
                 "status":counts(future_id)["status"],"postings":counts(future_id)["postings"]}, counts=counts(future_id))
+        before = proposal_count()
+        record("posting_date", "future_posting_date_rejected_on_reversal",
+               {"exit":1,"sqlstate":"P0001","message":"invalid reversal request","new_proposals":0},
+               {**failure(psql(f"SELECT ledger.request_reversal('fixture-request-future-rev-0001',{original_posting},{tomorrow},'FAKE-EVIDENCE','fake test reason')", "maker_a", check=False)),
+                "new_proposals":proposal_count() - before})
 
         report["exit_code"] = 0
     except BaseException as exc:
