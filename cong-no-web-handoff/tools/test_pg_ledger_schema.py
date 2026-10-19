@@ -253,6 +253,12 @@ def main() -> int:
             time.sleep(0.25)
         else:
             raise HarnessError("PostgreSQL initialization completion marker timed out")
+        # The marker is logged before the final server starts; wait until it accepts connections.
+        while run(docker + ["exec", CONTAINER, "pg_isready", "-U", "postgres", "-d", "postgres"],
+                  check=False, timeout=10).returncode != 0:
+            if time.monotonic() >= deadline:
+                raise HarnessError("PostgreSQL final server readiness timed out")
+            time.sleep(0.25)
         initialized = run(docker + ["exec", *env_args(pg_env), CONTAINER, "psql", "-X", "-qAt", "-U", "postgres", "-d", "postgres",
             "-c", "SELECT current_database() || '|' || current_setting('application_name') || '|' || EXISTS (SELECT 1 FROM pg_database WHERE datname='webdebit_ledger')"], check=False)
         if initialized.returncode != 0 or initialized.stdout.strip() != f"postgres|{marker}|false":
