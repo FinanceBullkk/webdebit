@@ -17,12 +17,16 @@ from ledger_db import HistoryDB, LedgerDB, LedgerUnavailable
 
 
 STYLE = Path(__file__).with_name("style.css").read_bytes()
-CAPTURE = "2026-10-13-debit-2026-1791884418948"
-OPENING_DATE = date(2026, 10, 13)
-# Opening PostgreSQL 13/10/2026 16:44 is the user-approved base of the ledger (OPENING-FINAL, decided
-# 16/10/2026; read-only live check 15/10, T07). Startup and /health both reject any other value.
-# 46 periods are NO_BASELINE (no matching old-book row); they keep their flag and are not repaired.
-OPENING_INVARIANTS = {"opening_periods": 496, "opening_vnd": 65_051_673_578, "no_baseline": 46}
+CAPTURE = "2026-10-19-so-goc"
+OPENING_DATE = date(2026, 10, 19)
+# Opening re-built from the original old-book customer tabs on 19/10/2026 (owner chose the original
+# book as the standard; the 13/10 replay opening is kept only as a backup dump). Startup and /health
+# both reject any other value. Every period is NO_BASELINE: the original book has no independent
+# per-period baseline, only per-customer totals, which the opening matches.
+OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 65_099_410_165, "no_baseline": 132}
+# The M1 replay history (trip/receipt detail, source exceptions) belongs to the 13/10 opening and has
+# no provenance for the 19/10 opening, so it is not attached. Balances still come from PostgreSQL.
+HISTORY_ENABLED = False
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 KIND = {"opening": "Số mở kỳ lịch sử", "charge": "Phát sinh", "receipt": "Thực nhận", "offset": "Cấn trừ",
         "adjustment_plus": "Điều chỉnh +", "adjustment_minus": "Điều chỉnh −", "reversal": "Đảo bút toán"}
@@ -145,6 +149,8 @@ def total_anomaly_text(summary: dict) -> str:
 
 def source_warning(summary: dict | None, reconciliations: list[dict] | None,
                    target: str = "/exceptions", detail: str | None = None) -> str:
+    if not HISTORY_ENABLED:  # no replay source exceptions exist for this opening
+        return ""
     if summary is None or reconciliations is None:
         return (f'<div class="source-warning unavailable" role="status">'
                 f'<strong>Chưa kiểm được ngoại lệ nguồn.</strong> '
@@ -160,6 +166,8 @@ def source_warning(summary: dict | None, reconciliations: list[dict] | None,
 
 def customer_source_warning(summary: dict | None, reconciliation: dict | None,
                             target: str = "/exceptions") -> str:
+    if not HISTORY_ENABLED:
+        return ""
     if summary is None:
         return source_warning(None, None, target)
     detail = reconciliation_text(reconciliation)
@@ -175,6 +183,8 @@ def customer_source_warning(summary: dict | None, reconciliation: dict | None,
 
 
 def period_source_warning(group: dict | None, target: str) -> str:
+    if not HISTORY_ENABLED:
+        return ""
     if group is None:
         return source_warning(None, None, target)
     counts = (f'{count_text(group.get("exception_count"))} ngoại lệ · '
@@ -203,7 +213,7 @@ def page(title: str, body: str, selected_date: date, wide: bool = False) -> byte
 <header class="topbar"><div class="topbar-inner"><a class="brand" href="/">
 <span class="brand-mark">H</span><span>HTH <small>Sổ công nợ</small></span></a>
 <nav aria-label="Điều hướng chính"><a href="/">Công nợ</a><a href="/pending">Khoản chờ</a>
-<a href="/postings">Đã ghi sổ</a><a href="/exceptions">Ngoại lệ nguồn</a></nav>
+<a href="/postings">Đã ghi sổ</a>{'<a href="/exceptions">Ngoại lệ nguồn</a>' if HISTORY_ENABLED else ''}</nav>
 <span class="read-only">Xem đến {selected_date.strftime('%d/%m/%Y')}</span></div></header>
 <main id="main" class="container{' wide' if wide else ''}">{body}</main>
 <footer class="container"><details class="site-notes"><summary>Nguồn dữ liệu và giới hạn</summary>
@@ -497,7 +507,10 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
                 f'<button type="submit">Xem</button>'
                 f'{anchor("Bỏ lọc tháng", href("/customer", name=name, as_of=as_of.isoformat()), "text-link") if first_period else ""}'
                 f'</form></details>')
-    if history_error:
+    if history_error and not HISTORY_ENABLED:
+        content += ('<p class="attention-line"><b>Sổ mở lại từ sổ gốc ngày 19/10/2026.</b> '
+                    'Số dư theo kỳ đọc từ sổ PostgreSQL; chi tiết từng chuyến/khoản thu chưa nạp vào web.</p>')
+    elif history_error:
         content += ('<p class="attention-line"><b>Chưa kiểm được ngoại lệ nguồn.</b> '
                     'Số dư vẫn đọc được từ sổ PostgreSQL; chi tiết lịch sử chưa được xác nhận.</p>')
     if history_truncated:
@@ -533,7 +546,8 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
         current_end = month_carry + int(item["balance_vnd"])
         incomplete = not complete or detail_end != current_end
         period_badge = status_badge(item["comparison_status"]) if item["comparison_status"] != "MATCH" else ""
-        detail_badge = '<span class="badge alert">Thiếu chi tiết</span>' if incomplete else ''
+        detail_badge = ('<span class="badge alert">Thiếu chi tiết</span>'
+                        if incomplete and HISTORY_ENABLED else '')
         expanded = ' open' if item is periods[0] else ''
         content += (f'<details class="panel month-panel" id="period-{esc(period)}"{expanded}>'
                     f'<summary class="month-band"><span>Tháng {esc(period[5:7])}/{esc(period[:4])}</span>'
@@ -542,7 +556,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
                     f'{period_warning}'
                     f'<div class="period-totals"><span>Phát sinh nợ <b>{money(charge_total) if complete else "—"}</b></span>'
                     f'<span>Đã thu / giảm <b>{money(payment_total) if complete else "—"}</b></span></div>')
-        if incomplete:
+        if incomplete and HISTORY_ENABLED:
             if opening_known:
                 replay_detail = (f'({len(events)}/{expected_events_text} sự kiện replay; '
                                  f'{money(replay_sum)} / {money(item["opening_vnd"])} mở sổ kỳ). ')
@@ -946,8 +960,11 @@ def health_payload(db: LedgerDB, history: HistoryDB | None, as_of: date) -> tupl
     components["history_customer_reconciliation"] = reconciliation_status
     components["history_provenance"] = ("ok" if summary_status == reconciliation_status == "ok"
                                          else "unavailable")
+    if not HISTORY_ENABLED:
+        components["history_exception_summary"] = components["history_customer_reconciliation"] = \
+            components["history_provenance"] = "not_applicable"
     totals = opening["totals"] if isinstance(opening["totals"], dict) else {}
-    ok = opening["ok"] and summary_status == reconciliation_status == "ok"
+    ok = opening["ok"] and (not HISTORY_ENABLED or summary_status == reconciliation_status == "ok")
     payload = {"ok": ok, "components": components,
                "data_scope": getattr(db, "data_scope", "configured database contents; may be fixture data"),
                "capture_id": CAPTURE, "as_of": OPENING_DATE.isoformat(),
@@ -995,6 +1012,10 @@ class LedgerHandler(BaseHTTPRequestHandler):
                 self.send(status, json.dumps(payload).encode("utf-8"), "application/json; charset=utf-8", body)
                 return
             current_history = request_history(self.db, self.history)
+            if parsed.path == "/exceptions" and not HISTORY_ENABLED:
+                self.send(404, page("Ngoại lệ nguồn", heading(
+                    "404", "Không có ngoại lệ replay cho sổ mở ngày 19/10/2026", ""), today()), body=body)
+                return
             if parsed.path == "/exceptions":
                 filters = exception_filters(query)
                 page_number = exception_page_arg(query)
@@ -1065,7 +1086,7 @@ def main():
     opening = opening_validation(db, today())
     if not opening["ok"]:
         raise RuntimeError("unexpected ledger opening invariants")
-    history = HistoryDB(cutover=opening["cutover"])
+    history = HistoryDB(cutover=opening["cutover"]) if HISTORY_ENABLED else None
     LedgerHandler.db, LedgerHandler.history, LedgerHandler.port = db, history, port
     server = ThreadingHTTPServer(("127.0.0.1", port), LedgerHandler)
     server.daemon_threads = True
