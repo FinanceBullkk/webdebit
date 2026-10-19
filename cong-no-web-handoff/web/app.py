@@ -102,7 +102,7 @@ def paginate(path: str, page: int, total: int, size: int, **params) -> str:
     return f'<nav class="pager" aria-label="Phân trang">{previous}<span>Trang {page} / {max_page}</span>{following}</nav>'
 
 
-def render_overview(db: Database, q: str) -> str:
+def render_overview(db: Database, q: str, as_of: str) -> str:
     provenance = db.provenance()
     if not provenance:
         raise DatabaseUnavailable("capture missing")
@@ -112,7 +112,12 @@ def render_overview(db: Database, q: str) -> str:
     statuses = {row["result"]: int(row["n"]) for row in db.period_status_counts()}
     exception_counts = {row["code"]: int(row["n"]) for row in db.exception_counts()}
     total = sum(int(row["db_balance_vnd"]) for row in all_customers if row["db_balance_vnd"] is not None)
-    old_delta = sum(int(row["old_book_delta_vnd"]) for row in all_customers if row["old_book_delta_vnd"] is not None)
+    old_delta_notice = "Chưa có mốc đối soát khớp ngày xem nên chưa cộng chênh sổ cũ"
+    if len(provenance) == 1 and provenance[0]["baseline_date"] == as_of:
+        confirmed = [row for row in all_customers if row["result"] in ("MATCH", "MISMATCH")
+                     and row["old_book_delta_vnd"] is not None]
+        old_delta = sum(int(row["old_book_delta_vnd"]) for row in confirmed)
+        old_delta_notice = f"<b>{esc(money(old_delta))}</b> chênh sổ cũ đã biết · {len(confirmed)} khách"
     source_rows = sum(int(row["source_rows"]) for row in coverage)
     decided = sum(int(row["decided_rows"]) for row in coverage)
     periods = sum(statuses.values())
@@ -129,7 +134,7 @@ def render_overview(db: Database, q: str) -> str:
     )) + "</section>"
     warning = f"""<section class="notice" aria-label="Mục cần kiểm"><strong>Các điểm còn mở</strong>
       <div class="notice-grid"><span><b>{statuses.get('NO_BASELINE', 0)}</b> kỳ chưa có baseline 07</span>
-      <span><b>{esc(money(old_delta))}</b> chênh sổ cũ</span>
+      <span>{old_delta_notice}</span>
       <span>{anchor(str(exception_counts.get('ZERO_TOTAL', 0)) + ' chuyến tổng 0', link('/exceptions', code='ZERO_TOTAL'))}</span>
       <span>{anchor(str(exception_counts.get('MISSING_TOTAL', 0)) + ' chuyến thiếu tổng', link('/exceptions', code='MISSING_TOTAL'))}</span></div>
     </section>"""
@@ -344,7 +349,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/":
                 q = query_arg(query, "q", 120)
-                self._html(200, "Tổng quan", render_overview(self.db, q), "overview", send_body)
+                self._html(200, "Tổng quan", render_overview(self.db, q, self.as_of), "overview", send_body)
                 return
             if parsed.path == "/customer":
                 name = query_arg(query, "name")

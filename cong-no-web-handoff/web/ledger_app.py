@@ -117,7 +117,7 @@ def reconciliation_text(item: dict | None) -> str:
     return f"Sổ cũ: chưa thể xác nhận ({status or 'UNKNOWN'})."
 
 
-def reconciliation_overview(items: list[dict]) -> str:
+def reconciliation_overview(items: list[dict], baseline_available: bool = True) -> str:
     known = [(item, amount_integer(item.get("old_book_delta_vnd"))) for item in items
              if item.get("old_book_delta_status") == "AVAILABLE"
              and item.get("reconciliation_status") in {"MATCH", "MISMATCH"}]
@@ -129,13 +129,15 @@ def reconciliation_overview(items: list[dict]) -> str:
                   for item in items)
     no_events = sum(item.get("reconciliation_status") == "NO_DB_EVENTS" for item in items)
     pending = missing + no_baseline + invalid + no_events
-    if known:
+    if not baseline_available:
+        prefix = "Chưa có mốc đối soát khớp ngày xem, nên chưa cộng chênh lệch sổ cũ."
+    elif known:
         prefix = f"Tổng chênh sổ cũ đã biết: {money(sum(value for _, value in known))} từ {len(known)} khách."
     else:
         prefix = "Chưa có chênh lệch số đã biết để cộng."
     suffix = (f" Tổng phần đã biết; còn {missing} khách thiếu chênh lệch, {no_baseline} NO_BASELINE, "
               f"{invalid} mốc trùng/không hợp lệ và {no_events} khách chưa có sự kiện DB."
-              if pending else " Toàn bộ dòng có giá trị số đã được kiểm trạng thái.")
+              if pending else "" if not baseline_available else " Toàn bộ dòng có giá trị số đã được kiểm trạng thái.")
     return prefix + suffix + " Chênh lệch chỉ thuộc khách, không phân bổ xuống kỳ."
 
 
@@ -148,7 +150,8 @@ def total_anomaly_text(summary: dict) -> str:
 
 
 def source_warning(summary: dict | None, reconciliations: list[dict] | None,
-                   target: str = "/exceptions", detail: str | None = None) -> str:
+                   target: str = "/exceptions", detail: str | None = None,
+                   baseline_available: bool = True) -> str:
     if not HISTORY_ENABLED:  # no replay source exceptions exist for this opening
         return ""
     if summary is None or reconciliations is None:
@@ -158,7 +161,7 @@ def source_warning(summary: dict | None, reconciliations: list[dict] | None,
     counts = (f'{count_text(summary.get("exception_count"))} ngoại lệ · '
               f'{count_text(summary.get("source_row_count"))} dòng nguồn · '
               f'{count_text(summary.get("trip_source_row_count"))} chuyến có ngoại lệ.')
-    detail_text = detail or (total_anomaly_text(summary) + " " + reconciliation_overview(reconciliations))
+    detail_text = detail or (total_anomaly_text(summary) + " " + reconciliation_overview(reconciliations, baseline_available))
     return (f'<div class="source-warning" role="status"><span><strong>Ngoại lệ nguồn:</strong> '
             f'{esc(counts)} {anchor("Xem ngoại lệ", target)}</span>'
             f'<small>{esc(detail_text)}</small></div>')
@@ -243,8 +246,7 @@ def status_badge(code: str | None) -> str:
 
 def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-10",
                     history: HistoryDB | None = None) -> str:
-    t = db.totals(as_of)
-    customers = db.overview(as_of, period, search)
+    t, customers = db.overview_screen(as_of, period, search)
     summary = period_summary = reconciliations = None
     if history:
         try:
@@ -273,7 +275,8 @@ def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-
     content += (f'<section class="overview-summary" aria-label="Tổng công nợ">'
                 f'<div><span>Tổng còn nợ mọi kỳ</span><strong>{money(t["balance_vnd"])}</strong></div>'
                 f'<small>{int(t["customers"])} khách · đến {as_of.strftime("%d/%m/%Y")}</small></section>')
-    content += source_warning(summary, reconciliation_items)
+    content += source_warning(summary, reconciliation_items, baseline_available=bool(reconciliations)
+                              and reconciliations.get("reconciliation_status") == "AVAILABLE")
     period_target = exception_href({"customer_mode": "all", "customer": None,
                                     "period_mode": "exact", "period": period,
                                     "code_mode": "all", "code": None})
@@ -429,11 +432,11 @@ def month_rows(events: list[dict], postings: list[dict], carried: int) -> tuple[
 
 def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = "",
                     history: HistoryDB | None = None) -> str | None:
-    customers = db.customers(as_of, name)
-    row = next((item for item in customers if item["customer"] == name), None)
+    screen = db.customer_screen(as_of, name)
+    row = next((item for item in screen["customers"] if item["customer"] == name), None)
     if row is None:
         return None
-    all_periods = db.periods(as_of, name)
+    all_periods = screen["periods"]
     ascending_periods = list(reversed(all_periods))
     carried_by_period = {}
     carried = 0
@@ -442,7 +445,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
         carried += int(item["balance_vnd"])
     periods = [item for item in reversed(ascending_periods)
                if not first_period or item["debt_period"] >= first_period]
-    pending = db.pending_for_customer(name)
+    pending = screen["pending"]
     history_error = history is None
     customer_summary = customer_reconciliation = None
     if history:
@@ -469,7 +472,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
     history_by_period = {}
     for event in replay_events:
         history_by_period.setdefault(event["debt_period"], []).append(event)
-    new_postings = db.postings(as_of, name, limit=1001)
+    new_postings = screen["postings"]
     postings_truncated = len(new_postings) > 1000
     postings_by_period = {}
     for item in new_postings[:1000]:
@@ -577,7 +580,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
 
 def render_period(db: LedgerDB, as_of: date, name: str, period: str,
                   history: HistoryDB | None = None) -> str | None:
-    rows = db.period(as_of, name, period)
+    rows, postings = db.period_screen(as_of, name, period)
     if not rows:
         return None
     row = rows[0]
@@ -620,7 +623,6 @@ def render_period(db: LedgerDB, as_of: date, name: str, period: str,
                 f'{money(row["opening_vnd"])} · Bút toán sau mở sổ '
                 f'{money(row["movement_vnd"] or 0)} · '
                 f'{count_text(row["replay_event_count"])} dòng lịch sử. {replay_link}</p></details>')
-    postings = db.postings(as_of, name, period)
     lines = []
     for item in postings:
         lines.append(f'<tr><td>{esc(item["posting_date"])}</td><td>{esc(KIND.get(item["kind"], item["kind"]))}</td>'
@@ -765,7 +767,8 @@ def render_exceptions(history: HistoryDB | None, filters: dict, page_number: int
     table = ('<section class="panel"><div class="table-wrap"><table class="exception-table">'
              '<thead><tr><th>Mã</th><th>Trạng thái</th><th>Khách</th><th>Kỳ</th>'
              f'<th>Chi tiết</th><th>Nguồn</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>{pager}</section>')
-    detail_text = total_anomaly_text(summary) + " " + reconciliation_overview(reconciliation_items)
+    detail_text = total_anomaly_text(summary) + " " + reconciliation_overview(
+        reconciliation_items, reconciliation.get("reconciliation_status") == "AVAILABLE")
     warning = source_warning(summary, reconciliation_items, exception_href(filters), detail_text)
     groups = ('<section class="exception-groups"><h2>Nhóm trong bộ lọc</h2>'
               + "".join(f'<section><h3>{title}</h3><ul>{exception_group_list(summary, key, filters)}</ul></section>'
@@ -812,12 +815,10 @@ def render_postings(db: LedgerDB, as_of: date) -> str:
 
 
 def render_proposal(db: LedgerDB, proposal_id: int) -> str | None:
-    found = db.proposal(proposal_id)
+    found, lines, audits = db.proposal_screen(proposal_id)
     if not found:
         return None
     item = found[0]
-    lines = db.proposal_lines(proposal_id)
-    audits = db.proposal_audit(proposal_id)
     status = {"pending": "Chờ duyệt", "posted": "Đã ghi sổ", "rejected": "Đã từ chối"}.get(item["status"], item["status"])
     back = "/pending" if item["status"] == "pending" else "/postings"
     content = (f'<div class="customer-title">{anchor("← Danh sách", back)}'

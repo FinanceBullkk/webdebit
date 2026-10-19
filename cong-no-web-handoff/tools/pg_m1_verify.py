@@ -200,6 +200,8 @@ def check_reconciliation(path: Path, key_fields: tuple[str, ...], required_keys:
         result = row["result"]
         if result not in RECON_ACCEPTED:
             raise ValueError(f"{label} baseline result is not acceptable: {result or 'blank'}")
+        if result == "NO_DB_EVENTS" and key in required_keys:
+            raise ValueError(f"{label} NO_DB_EVENTS contradicts replayed key")
         if result == "NO_BASELINE":
             continue
         delta = integer(row["delta_vnd"], f"{label} delta", nullable=True)

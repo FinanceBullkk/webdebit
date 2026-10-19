@@ -20,6 +20,14 @@ SET search_path = pg_catalog AS $$
         '[\s\u00a0\u1680\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]', '', 'g')
 $$;
 
+CREATE FUNCTION p0_fixture.is_blank(p_value text) RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    -- Unicode White_Space, independent of the database locale; never changes the input.
+    SELECT coalesce(p_value, '') COLLATE "C" !~
+        '[^\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+$$;
+
 CREATE TABLE p0_fixture.app_actor (
     actor_id uuid PRIMARY KEY,
     active boolean NOT NULL DEFAULT true
@@ -36,15 +44,72 @@ CREATE TABLE p0_fixture.debt_period_state (
     state text NOT NULL CHECK (state IN ('open', 'closed'))
 );
 
--- Owner-only. Empty outside tests, so every charge stays blocked by default (CHỜ KIỂM).
+-- Day window shared by NEWTRIP-01 duplicate checks, ALT-KEY-01 near-key checks and JOIN-01 booking
+-- suggestions (ĐÃ CHỐT 17/10/2026: at most 3 days, both directions).
+CREATE FUNCTION p0_fixture.trip_date_window_days() RETURNS integer
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT 3
+$$;
+
+-- Read-only historical reference for NEWTRIP-01: trip keys and containers already in the opening of
+-- 13/10/2026 16:44. Owner-only and loaded outside the repo; fake rows in tests, empty otherwise. With no
+-- active set nothing is decided automatically, so charges stay CHỜ KIỂM by default.
+CREATE TABLE p0_fixture.opening_reference_set (
+    set_version text PRIMARY KEY CHECK (NOT p0_fixture.is_blank(set_version)),
+    source_sha256 text NOT NULL CHECK (source_sha256 ~ '^[0-9a-f]{64}$'),
+    snapshot_at timestamptz NOT NULL,
+    loaded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    active boolean NOT NULL DEFAULT false
+);
+CREATE UNIQUE INDEX opening_reference_set_one_active ON p0_fixture.opening_reference_set ((true)) WHERE active;
+
+CREATE TABLE p0_fixture.opening_reference_trip (
+    set_version text NOT NULL REFERENCES p0_fixture.opening_reference_set,
+    ref_row_no integer NOT NULL CHECK (ref_row_no > 0),
+    trip_key text CHECK (trip_key <> '' AND trip_key = upper(trip_key)
+        AND trip_key = p0_fixture.strip_trip_whitespace(trip_key)),
+    container_no text CHECK (container_no <> '' AND container_no = upper(container_no)
+        AND container_no = p0_fixture.strip_trip_whitespace(container_no)),
+    trip_date date,
+    PRIMARY KEY (set_version, ref_row_no),
+    CHECK (trip_key IS NOT NULL OR container_no IS NOT NULL)
+);
+CREATE INDEX opening_reference_trip_key_idx ON p0_fixture.opening_reference_trip (trip_key);
+CREATE INDEX opening_reference_trip_container_idx ON p0_fixture.opening_reference_trip (container_no);
+
+-- Read-only booking list (fake rows in tests) for JOIN-01 suggestions; never decides a charge by itself.
+CREATE TABLE p0_fixture.booking_reference (
+    booking_no text NOT NULL CHECK (NOT p0_fixture.is_blank(booking_no)),
+    container_no text NOT NULL CHECK (container_no <> '' AND container_no = upper(container_no)
+        AND container_no = p0_fixture.strip_trip_whitespace(container_no)),
+    booking_close_date date,
+    PRIMARY KEY (booking_no, container_no)
+);
+
+-- Owner decisions, plus the automatic NEWTRIP-01 decision written by submit_revision when an opening
+-- reference set is active and no row exists yet for the key. Without an active set this stays empty
+-- outside tests, so every charge stays blocked by default (CHỜ KIỂM).
 -- A row ABSENT_FROM_OPENING_APPROVED stands for an approved "trip is not in the opening" decision.
+-- Automatic rows are either ABSENT (no duplicate signal) or UNRESOLVED with the signals as reason codes;
+-- an owner who reviews an UNRESOLVED row must also set decided_by = 'owner'.
 CREATE TABLE p0_fixture.trip_opening_resolution (
     trip_key text PRIMARY KEY CHECK (trip_key <> '' AND trip_key = upper(trip_key)
         AND trip_key = p0_fixture.strip_trip_whitespace(trip_key)),
     status text NOT NULL CHECK (status IN ('ABSENT_FROM_OPENING_APPROVED', 'IN_OPENING', 'UNRESOLVED')),
-    evidence_ref text NOT NULL CHECK (btrim(evidence_ref) <> ''),
-    approved_by text NOT NULL CHECK (btrim(approved_by) <> ''),
-    approved_at timestamptz NOT NULL DEFAULT clock_timestamp()
+    evidence_ref text NOT NULL CHECK (NOT p0_fixture.is_blank(evidence_ref)),
+    approved_by text NOT NULL CHECK (NOT p0_fixture.is_blank(approved_by)),
+    approved_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    decided_by text NOT NULL DEFAULT 'owner' CHECK (decided_by IN ('owner', 'NEWTRIP-01')),
+    decision_reason text,
+    reference_set_version text REFERENCES p0_fixture.opening_reference_set,
+    decision_warehouse_in_date date,
+    review_reason_codes text[] NOT NULL DEFAULT ARRAY[]::text[],
+    CHECK (decided_by <> 'NEWTRIP-01' OR (reference_set_version IS NOT NULL
+        AND decision_warehouse_in_date IS NOT NULL AND (
+        (status = 'ABSENT_FROM_OPENING_APPROVED' AND cardinality(review_reason_codes) = 0
+            AND decision_reason = 'tự động theo NEWTRIP-01')
+        OR (status = 'UNRESOLVED' AND cardinality(review_reason_codes) > 0))))
 );
 
 CREATE TABLE p0_fixture.proposal (
@@ -190,6 +255,25 @@ CREATE TRIGGER posting_append_only
 CREATE TRIGGER audit_append_only
     BEFORE UPDATE OR DELETE ON p0_fixture.audit
     FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_immutable_change();
+CREATE TRIGGER opening_reference_trip_append_only
+    BEFORE UPDATE OR DELETE ON p0_fixture.opening_reference_trip
+    FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_immutable_change();
+CREATE TRIGGER booking_reference_append_only
+    BEFORE UPDATE OR DELETE ON p0_fixture.booking_reference
+    FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_immutable_change();
+
+-- A reference set is immutable except for its active flag.
+CREATE FUNCTION p0_fixture.reject_reference_set_change() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, p0_fixture AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR (to_jsonb(NEW) - 'active') IS DISTINCT FROM (to_jsonb(OLD) - 'active') THEN
+        RAISE EXCEPTION 'append-only fixture row';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER opening_reference_set_append_only
+    BEFORE UPDATE OR DELETE ON p0_fixture.opening_reference_set
+    FOR EACH ROW EXECUTE FUNCTION p0_fixture.reject_reference_set_change();
 
 -- Actor identity is supplied by the server-side session (Q01); the DB checks the actor is active,
 -- holds the role, and that the connecting login belongs to the single API role.
@@ -256,19 +340,57 @@ BEGIN
     RETURN p_value::text::numeric;
 END $$;
 
--- trip_key = upper(booking || container) with every (Unicode) whitespace removed; NULL when either part is blank.
-CREATE FUNCTION p0_fixture.compute_trip_key(p_booking text, p_container text) RETURNS text
+CREATE FUNCTION p0_fixture.normalize_container(p_container text) RETURNS text
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT nullif(upper(p0_fixture.strip_trip_whitespace(p_container)), '')
+$$;
+
+-- A booking cell counts as missing when, after whitespace removal, it has no ASCII digit and no cased
+-- letter (blank, "/", "-", ...). TRIP-KEY/ALT-KEY-01.
+CREATE FUNCTION p0_fixture.booking_is_missing(p_booking text) RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT NOT (p0_fixture.strip_trip_whitespace(p_booking) COLLATE "C" ~ '[0-9]'
+        OR upper(p0_fixture.strip_trip_whitespace(p_booking)) <> lower(p0_fixture.strip_trip_whitespace(p_booking)))
+$$;
+
+-- ALT-KEY-01 (format ĐỀ XUẤT): 'NOBK:' || container || ':' || YYYYMMDD of the warehouse-in date. The colon
+-- and prefix keep it apart from booking||container keys built from a real booking.
+CREATE FUNCTION p0_fixture.alt_trip_key_prefix() RETURNS text
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT 'NOBK:'
+$$;
+
+-- trip_key = upper(booking || container) with every (Unicode) whitespace removed. Missing booking with a
+-- container gives the ALT-KEY-01 key; a blank container (or a missing date for the alt key) gives NULL.
+CREATE FUNCTION p0_fixture.compute_trip_key(p_booking text, p_container text, p_warehouse_in date)
+RETURNS text
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog AS $$
 DECLARE
     v_booking text := upper(p0_fixture.strip_trip_whitespace(p_booking));
-    v_container text := upper(p0_fixture.strip_trip_whitespace(p_container));
+    v_container text := p0_fixture.normalize_container(p_container);
 BEGIN
-    IF v_booking = '' OR v_container = '' THEN
+    IF v_container IS NULL THEN
         RETURN NULL;
+    END IF;
+    IF p0_fixture.booking_is_missing(p_booking) THEN
+        IF p_warehouse_in IS NULL THEN
+            RETURN NULL;
+        END IF;
+        RETURN p0_fixture.alt_trip_key_prefix() || v_container || ':' || to_char(p_warehouse_in, 'YYYYMMDD');
     END IF;
     RETURN v_booking || v_container;
 END $$;
+
+-- ISO 6346 shape only (4 letters + 7 digits); the check digit is not verified (ĐỀ XUẤT).
+CREATE FUNCTION p0_fixture.container_format_ok(p_container text) RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog AS $$
+    SELECT coalesce(p0_fixture.normalize_container(p_container) COLLATE "C" ~ '^[A-Z]{4}[0-9]{7}$', false)
+$$;
 
 CREATE FUNCTION p0_fixture.canonicalize_payload(p_payload jsonb) RETURNS jsonb
 LANGUAGE plpgsql IMMUTABLE
@@ -305,9 +427,9 @@ BEGIN
        OR jsonb_typeof(p_payload->'lines') IS DISTINCT FROM 'array' THEN
         RAISE EXCEPTION 'invalid fixture payload fields' USING ERRCODE = 'P0001';
     END IF;
-    IF length(btrim(p_payload->>'customer_id')) = 0
+    IF p0_fixture.is_blank(p_payload->>'customer_id')
        OR (p_payload->>'debt_period') COLLATE "C" !~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
-       OR length(btrim(p_payload->>'reason')) = 0 THEN
+       OR p0_fixture.is_blank(p_payload->>'reason') THEN
         RAISE EXCEPTION 'invalid fixture payload fields' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.parse_iso_date((p_payload->>'debt_period') || '-01');
@@ -366,7 +488,7 @@ BEGIN
                OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_component) AS ck(key)
                     WHERE ck.key <> ALL (ARRAY['label', 'amount_vnd']))
                OR jsonb_typeof(v_component->'label') IS DISTINCT FROM 'string'
-               OR length(btrim(v_component->>'label')) = 0 THEN
+               OR p0_fixture.is_blank(v_component->>'label') THEN
                 RAISE EXCEPTION 'invalid per-trip price component' USING ERRCODE = 'P0001';
             END IF;
             PERFORM p0_fixture.canonical_vnd(v_component->'amount_vnd');
@@ -381,7 +503,13 @@ BEGIN
             WITH ORDINALITY AS x(component, ordinality);
     END IF;
 
-    v_trip_key := p0_fixture.compute_trip_key(p_payload->>'booking_no', p_payload->>'container_no');
+    IF NOT p0_fixture.booking_is_missing(p_payload->>'booking_no')
+       AND starts_with(upper(p0_fixture.strip_trip_whitespace(p_payload->>'booking_no')),
+                       p0_fixture.alt_trip_key_prefix()) THEN
+        RAISE EXCEPTION 'booking may not start with the alternative trip key prefix' USING ERRCODE = 'P0001';
+    END IF;
+    v_trip_key := p0_fixture.compute_trip_key(p_payload->>'booking_no', p_payload->>'container_no',
+        v_warehouse_in);
     RETURN jsonb_build_object(
         'schema_version', 3,
         'customer_id', p_payload->>'customer_id',
@@ -457,22 +585,21 @@ BEGIN
         v_codes := array_append(v_codes, 'LINE_TOTAL_MISMATCH');
     END IF;
 
-    IF nullif(btrim(p_payload->>'source_ref'), '') IS NULL
-       OR nullif(btrim(p_payload->>'evidence_ref'), '') IS NULL
+    IF p0_fixture.is_blank(p_payload->>'source_ref')
+       OR p0_fixture.is_blank(p_payload->>'evidence_ref')
        OR jsonb_typeof(p_payload->'evidence_sha256') = 'null' THEN
         v_codes := array_append(v_codes, 'SOURCE_EVIDENCE_MISSING');
     END IF;
     IF left(p_payload->>'debt_period', 7) <> left(p_payload->>'warehouse_in_date', 7)
-       AND (nullif(btrim(p_payload->>'period_override_reason'), '') IS NULL
-            OR nullif(btrim(p_payload->>'period_override_evidence_ref'), '') IS NULL
+       AND (p0_fixture.is_blank(p_payload->>'period_override_reason')
+            OR p0_fixture.is_blank(p_payload->>'period_override_evidence_ref')
             OR jsonb_typeof(p_payload->'period_override_evidence_sha256') = 'null') THEN
         v_codes := array_append(v_codes, 'PERIOD_OVERRIDE_EVIDENCE_MISSING');
     END IF;
     IF jsonb_typeof(p_payload->'trip_key') = 'null' THEN
         v_codes := array_append(v_codes, 'TRIP_KEY_MISSING');
-    END IF;
-    IF p0_fixture.strip_trip_whitespace(p_payload->>'booking_no') = '/' THEN
-        v_codes := array_append(v_codes, 'BOOKING_PLACEHOLDER');
+    ELSIF starts_with(p_payload->>'trip_key', p0_fixture.alt_trip_key_prefix()) THEN
+        v_codes := array_append(v_codes, 'ALT_TRIP_KEY_WARNING');
     END IF;
     SELECT array_agg(code ORDER BY code COLLATE "C") INTO v_codes FROM unnest(v_codes) AS x(code);
     RETURN coalesce(v_codes, ARRAY[]::text[]);
@@ -503,12 +630,22 @@ BEGIN
     END LOOP;
 END $$;
 
-CREATE FUNCTION p0_fixture.assert_opening_resolution(p_trip_key text, p_stage text) RETURNS void
+CREATE FUNCTION p0_fixture.assert_posting_date_not_future(p_payload jsonb, p_stage text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, p0_fixture AS $$
+BEGIN
+    IF (p_payload->>'posting_date')::date > (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date THEN
+        RAISE EXCEPTION 'posting date is in the future (%)', p_stage USING ERRCODE = 'P0001';
+    END IF;
+END $$;
+
+CREATE FUNCTION p0_fixture.assert_opening_resolution(p_trip_key text, p_stage text, p_warehouse_in date) RETURNS void
 LANGUAGE plpgsql
 SET search_path = pg_catalog, p0_fixture AS $$
 BEGIN
     PERFORM 1 FROM p0_fixture.trip_opening_resolution t
-    WHERE t.trip_key = p_trip_key AND t.status = 'ABSENT_FROM_OPENING_APPROVED' FOR SHARE;
+    WHERE t.trip_key = p_trip_key AND t.status = 'ABSENT_FROM_OPENING_APPROVED'
+      AND (t.decided_by = 'owner' OR t.decision_warehouse_in_date = p_warehouse_in) FOR SHARE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'opening resolution is not ABSENT_FROM_OPENING_APPROVED at %; charge remains CHỜ KIỂM',
             p_stage USING ERRCODE = 'P0001';
@@ -543,6 +680,118 @@ BEGIN
         RAISE EXCEPTION 'trip key already posted by another proposal; charge remains CHỜ KIỂM'
             USING ERRCODE = 'P0001';
     END IF;
+END $$;
+
+-- NEWTRIP-01 (ĐÃ CHỐT 17/10/2026) with the ALT-KEY-01 checks. Runs inside submit, only when an opening
+-- reference set is active and the key has no resolution row yet: an owner decision or an earlier
+-- automatic one is never replaced. No duplicate signal -> ABSENT_FROM_OPENING_APPROVED "tự động theo
+-- NEWTRIP-01" with the reference set version and time; any signal -> UNRESOLVED (CHỜ KIỂM) with codes.
+CREATE FUNCTION p0_fixture.apply_newtrip_resolution(p_canonical jsonb, p_proposal_id bigint) RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, p0_fixture AS $$
+DECLARE
+    v_trip_key text := p_canonical->>'trip_key';
+    v_container text := p0_fixture.normalize_container(p_canonical->>'container_no');
+    v_date date := (p_canonical->>'warehouse_in_date')::date;
+    v_window integer := p0_fixture.trip_date_window_days();
+    v_is_alt boolean;
+    v_set p0_fixture.opening_reference_set%ROWTYPE;
+    v_codes text[] := ARRAY[]::text[];
+BEGIN
+    IF v_trip_key IS NULL OR v_date < DATE '2026-10-14' THEN
+        RETURN;
+    END IF;
+    SELECT s.* INTO v_set FROM p0_fixture.opening_reference_set s WHERE s.active FOR SHARE;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    -- Serialize automatic decisions per container so concurrent submits see each other's revision.
+    PERFORM pg_advisory_xact_lock(hashtextextended('p0_fixture.container:' || v_container, 0));
+    PERFORM 1 FROM p0_fixture.trip_opening_resolution t WHERE t.trip_key = v_trip_key;
+    IF FOUND THEN
+        RETURN;
+    END IF;
+    v_is_alt := starts_with(v_trip_key, p0_fixture.alt_trip_key_prefix());
+
+    IF EXISTS (SELECT 1 FROM p0_fixture.opening_reference_trip x
+               WHERE x.set_version = v_set.set_version AND x.trip_key = v_trip_key) THEN
+        v_codes := array_append(v_codes, 'OPENING_REF_TRIP_KEY_MATCH');
+    END IF;
+    IF EXISTS (SELECT 1 FROM p0_fixture.opening_reference_trip x
+               WHERE x.set_version = v_set.set_version AND x.container_no = v_container
+                 AND abs(x.trip_date - v_date) <= v_window) THEN
+        v_codes := array_append(v_codes, 'OPENING_REF_CONTAINER_NEAR_DATE');
+    END IF;
+    IF EXISTS (SELECT 1 FROM p0_fixture.opening_reference_trip x
+               WHERE x.set_version = v_set.set_version AND x.container_no = v_container
+                 AND x.trip_date IS NULL) THEN
+        v_codes := array_append(v_codes, 'OPENING_REF_CONTAINER_DATE_MISSING');
+    END IF;
+    IF v_is_alt AND NOT p0_fixture.container_format_ok(v_container) THEN
+        v_codes := array_append(v_codes, 'ALT_KEY_CONTAINER_FORMAT_INVALID');
+    END IF;
+    -- Same container under a different key within the window, when either side is an alternative key.
+    IF EXISTS (SELECT 1
+               FROM p0_fixture.proposal o
+               JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
+               WHERE o.proposal_id IS DISTINCT FROM p_proposal_id
+                 AND orev.trip_key IS NOT NULL AND orev.trip_key <> v_trip_key
+                 AND (v_is_alt OR starts_with(orev.trip_key, p0_fixture.alt_trip_key_prefix()))
+                 AND p0_fixture.normalize_container(orev.canonical_payload->>'container_no') = v_container
+                 AND abs((orev.canonical_payload->>'warehouse_in_date')::date - v_date) <= v_window) THEN
+        v_codes := array_append(v_codes, 'ALT_KEY_CONTAINER_NEAR_OTHER_KEY');
+    END IF;
+
+    SELECT coalesce(array_agg(code ORDER BY code COLLATE "C"), ARRAY[]::text[]) INTO v_codes
+    FROM unnest(v_codes) AS x(code);
+    INSERT INTO p0_fixture.trip_opening_resolution(trip_key, status, evidence_ref, approved_by,
+        decided_by, decision_reason, reference_set_version, decision_warehouse_in_date, review_reason_codes)
+    VALUES (v_trip_key,
+        CASE WHEN cardinality(v_codes) = 0 THEN 'ABSENT_FROM_OPENING_APPROVED' ELSE 'UNRESOLVED' END,
+        'opening-reference:' || v_set.set_version || ':sha256:' || v_set.source_sha256,
+        'NEWTRIP-01', 'NEWTRIP-01',
+        CASE WHEN cardinality(v_codes) = 0 THEN 'tự động theo NEWTRIP-01'
+             ELSE 'CHỜ KIỂM theo NEWTRIP-01: có dấu hiệu trùng' END,
+        v_set.set_version, v_date, v_codes)
+    ON CONFLICT (trip_key) DO NOTHING;
+END $$;
+
+-- JOIN-01 booking suggestion (read-only): suggest only when exactly one booking for the container closes
+-- within the window of the warehouse-in date; none, several, or a missing date -> REVIEW_NEEDED.
+CREATE FUNCTION p0_fixture.suggest_booking(p_container text, p_warehouse_in_date text,
+    p_actor_id uuid, p_session_id uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, p0_fixture AS $$
+DECLARE
+    v_container text := p0_fixture.normalize_container(p_container);
+    v_date date;
+    v_window integer := p0_fixture.trip_date_window_days();
+    v_candidates text[];
+BEGIN
+    PERFORM p0_fixture.require_actor(p_actor_id, p_session_id, 'maker');
+    IF v_container IS NULL THEN
+        RETURN jsonb_build_object('status', 'REVIEW_NEEDED', 'reason_code', 'BOOKING_SUGGESTION_CONTAINER_MISSING',
+            'window_days', v_window);
+    END IF;
+    IF p0_fixture.is_blank(p_warehouse_in_date)
+       OR EXISTS (SELECT 1 FROM p0_fixture.booking_reference b
+                  WHERE b.container_no = v_container AND b.booking_close_date IS NULL) THEN
+        RETURN jsonb_build_object('status', 'REVIEW_NEEDED', 'reason_code', 'BOOKING_SUGGESTION_DATE_MISSING',
+            'window_days', v_window);
+    END IF;
+    v_date := p0_fixture.parse_iso_date(p_warehouse_in_date);
+    SELECT coalesce(array_agg(b.booking_no ORDER BY b.booking_no COLLATE "C"), ARRAY[]::text[])
+    INTO v_candidates
+    FROM p0_fixture.booking_reference b
+    WHERE b.container_no = v_container AND abs(b.booking_close_date - v_date) <= v_window;
+    IF cardinality(v_candidates) = 1 THEN
+        RETURN jsonb_build_object('status', 'SUGGESTED', 'booking_no', v_candidates[1],
+            'window_days', v_window);
+    END IF;
+    RETURN jsonb_build_object('status', 'REVIEW_NEEDED',
+        'reason_code', CASE WHEN cardinality(v_candidates) = 0 THEN 'BOOKING_SUGGESTION_NONE'
+                            ELSE 'BOOKING_SUGGESTION_MULTIPLE' END,
+        'candidate_count', cardinality(v_candidates), 'window_days', v_window);
 END $$;
 
 CREATE FUNCTION p0_fixture.submit_revision(
@@ -580,6 +829,7 @@ BEGIN
         RAISE EXCEPTION 'fixture numbers must be canonical JSON integers' USING ERRCODE = 'P0001';
     END IF;
     v_canonical := p0_fixture.canonicalize_payload(p_payload_text::jsonb);
+    PERFORM p0_fixture.assert_posting_date_not_future(v_canonical, 'submission');
     v_codes := p0_fixture.charge_review_reason_codes(v_canonical);
     v_trip_key := v_canonical->>'trip_key';
     v_hash := encode(sha256(convert_to(
@@ -625,6 +875,7 @@ BEGIN
     INSERT INTO p0_fixture.audit(proposal_id, revision_id, content_sha256,
         app_actor_id, app_session_id, database_session_user, action)
     VALUES (v_proposal_id, v_revision_id, v_hash, p_actor_id, p_session_id, session_user, 'submit');
+    PERFORM p0_fixture.apply_newtrip_resolution(v_canonical, v_proposal_id);
     RETURN QUERY SELECT v_proposal_id, v_revision_id, v_revision_no, v_hash, true;
 END $$;
 
@@ -643,6 +894,13 @@ SET search_path = pg_catalog, p0_fixture AS $$
                 'payload', r.canonical_payload,
                 'content_sha256', r.content_sha256,
                 'is_current_revision', r.revision_id = p.current_revision_id,
+                'opening_resolution', (
+                    SELECT jsonb_build_object('status', t.status, 'decided_by', t.decided_by,
+                        'decision_reason', t.decision_reason, 'reference_set_version', t.reference_set_version,
+                        'decision_warehouse_in_date', t.decision_warehouse_in_date,
+                        'evidence_ref', t.evidence_ref, 'approved_at', t.approved_at,
+                        'review_reason_codes', to_jsonb(t.review_reason_codes))
+                    FROM p0_fixture.trip_opening_resolution t WHERE t.trip_key = r.trip_key),
                 'submit_time_reasons', to_jsonb(r.review_reason_codes),
                 'warnings', (
                     SELECT coalesce(to_jsonb(array_agg(w.code ORDER BY w.code COLLATE "C")), '[]'::jsonb)
@@ -653,7 +911,6 @@ SET search_path = pg_catalog, p0_fixture AS $$
                         SELECT 'DUPLICATE_TRIP_KEY_PENDING_WARNING'
                         WHERE r.revision_id = p.current_revision_id
                           AND r.trip_key IS NOT NULL
-                          AND NOT ('BOOKING_PLACEHOLDER' = ANY(r.review_reason_codes))
                           AND EXISTS (
                             SELECT 1 FROM p0_fixture.proposal o
                             JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
@@ -707,11 +964,19 @@ SET search_path = pg_catalog, p0_fixture AS $$
                                 SELECT 1 FROM p0_fixture.trip_opening_resolution t
                                 WHERE t.trip_key = r.trip_key
                                   AND t.status = 'ABSENT_FROM_OPENING_APPROVED'
+                                  AND (t.decided_by = 'owner' OR t.decision_warehouse_in_date =
+                                       (r.canonical_payload->>'warehouse_in_date')::date)
                             )
+                            UNION
+                            -- NEWTRIP-01/ALT-KEY-01 signals stay visible until the owner resolves the key.
+                            SELECT t.code
+                            FROM p0_fixture.trip_opening_resolution res
+                            CROSS JOIN LATERAL unnest(res.review_reason_codes) AS t(code)
+                            WHERE res.trip_key = r.trip_key
+                              AND res.status <> 'ABSENT_FROM_OPENING_APPROVED'
                             UNION
                             SELECT 'DUPLICATE_TRIP_KEY'
                             WHERE r.trip_key IS NOT NULL
-                              AND NOT ('BOOKING_PLACEHOLDER' = ANY(r.review_reason_codes))
                               AND EXISTS (
                                 SELECT 1 FROM p0_fixture.proposal o
                                 JOIN p0_fixture.business_revision orev ON orev.revision_id = o.current_revision_id
@@ -890,14 +1155,15 @@ BEGIN
         RAISE EXCEPTION 'stale, unavailable, or self-approved revision' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_periods_open(v_revision.canonical_payload, 'approval');
+    PERFORM p0_fixture.assert_posting_date_not_future(v_revision.canonical_payload, 'approval');
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.period_confirmation c
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
           AND c.content_sha256 = p_content_sha256
           AND c.maker_actor_id = v_proposal.maker_actor_id) THEN
         RAISE EXCEPTION 'maker confirmation required for this debt period revision' USING ERRCODE = 'P0001';
     END IF;
-    IF v_revision.trip_key IS NULL OR 'BOOKING_PLACEHOLDER' = ANY(v_revision.review_reason_codes) THEN
-        RAISE EXCEPTION 'trip key missing or placeholder booking; charge remains CHỜ KIỂM' USING ERRCODE = 'P0001';
+    IF v_revision.trip_key IS NULL THEN
+        RAISE EXCEPTION 'trip key missing; charge remains CHỜ KIỂM' USING ERRCODE = 'P0001';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.price_confirmation c
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
@@ -909,7 +1175,8 @@ BEGIN
           AND c.content_sha256 = p_content_sha256 AND c.confirmer_actor_id = p_actor_id) THEN
         RAISE EXCEPTION 'price confirmer cannot checker-approve the same revision' USING ERRCODE = 'P0001';
     END IF;
-    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'approval');
+    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'approval',
+        (v_revision.canonical_payload->>'warehouse_in_date')::date);
     PERFORM p0_fixture.assert_trip_not_claimed(v_revision.trip_key, p_proposal_id);
     INSERT INTO p0_fixture.approval(proposal_id, revision_id, content_sha256,
         checker_actor_id, checker_session_id, database_session_user)
@@ -959,6 +1226,7 @@ BEGIN
         RAISE EXCEPTION 'current approved revision required for posting' USING ERRCODE = 'P0001';
     END IF;
     PERFORM p0_fixture.assert_periods_open(v_revision.canonical_payload, 'posting');
+    PERFORM p0_fixture.assert_posting_date_not_future(v_revision.canonical_payload, 'posting');
     IF NOT EXISTS (SELECT 1 FROM p0_fixture.period_confirmation c
         WHERE c.proposal_id = p_proposal_id AND c.revision_id = p_revision_id
           AND c.content_sha256 = p_content_sha256
@@ -973,7 +1241,8 @@ BEGIN
           AND c.content_sha256 = p_content_sha256 AND c.confirmer_actor_id = p_actor_id) THEN
         RAISE EXCEPTION 'price confirmer cannot post as checker of the same revision' USING ERRCODE = 'P0001';
     END IF;
-    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'posting');
+    PERFORM p0_fixture.assert_opening_resolution(v_revision.trip_key, 'posting',
+        (v_revision.canonical_payload->>'warehouse_in_date')::date);
     PERFORM p0_fixture.assert_trip_not_posted(v_revision.trip_key, p_proposal_id);
     INSERT INTO p0_fixture.posting(proposal_id, revision_id, approval_id, content_sha256, trip_key,
         canonical_payload, maker_actor_id, checker_actor_id, posted_in_session, database_session_user)
@@ -1035,3 +1304,4 @@ GRANT EXECUTE ON FUNCTION p0_fixture.confirm_price_revision(bigint,bigint,text,u
 GRANT EXECUTE ON FUNCTION p0_fixture.confirm_period_revision(bigint,bigint,text,uuid,uuid) TO p0_fixture_api;
 GRANT EXECUTE ON FUNCTION p0_fixture.approve_revision(bigint,bigint,text,uuid,uuid) TO p0_fixture_api;
 GRANT EXECUTE ON FUNCTION p0_fixture.post_revision(bigint,bigint,text,uuid,uuid) TO p0_fixture_api;
+GRANT EXECUTE ON FUNCTION p0_fixture.suggest_booking(text,text,uuid,uuid) TO p0_fixture_api;

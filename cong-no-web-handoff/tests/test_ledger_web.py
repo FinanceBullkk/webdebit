@@ -23,14 +23,32 @@ REAL_OPENING_INVARIANTS = dict(ledger_app.OPENING_INVARIANTS)
 
 
 
-class FakeLedger:
+class ScreenDelegates:
+    """Fake one-snapshot screen reads by combining the fake per-query methods."""
+
+    def overview_screen(self, as_of, period, search=""):
+        return self.totals(as_of), self.overview(as_of, period, search)
+
+    def customer_screen(self, as_of, customer, postings_limit=1001):
+        return {"customers": self.customers(as_of, customer), "periods": self.periods(as_of, customer),
+                "pending": self.pending_for_customer(customer),
+                "postings": self.postings(as_of, customer, limit=postings_limit)}
+
+    def period_screen(self, as_of, customer, period):
+        return self.period(as_of, customer, period), self.postings(as_of, customer, period)
+
+    def proposal_screen(self, proposal_id):
+        return self.proposal(proposal_id), self.proposal_lines(proposal_id), self.proposal_audit(proposal_id)
+
+
+class FakeLedger(ScreenDelegates):
     data_scope = "fake test fixture; no live customer data"
     invalid_cutover = False
     source_workbook_sha256 = "a" * 64
     engine_sha256 = "b" * 64
-    opening_periods = 496
-    opening_vnd = 65051673578
-    no_baseline = 46
+    opening_periods = 2
+    opening_vnd = 100
+    no_baseline = 1
     balance_vnd = 100
 
     def cutover(self):
@@ -80,6 +98,7 @@ class FakeLedger:
 class FakeHistory:
     fail_summary = False
     fail_reconciliation = False
+    reconciliation_status = "AVAILABLE"
     summary_calls = 0
     reconciliation_calls = 0
 
@@ -191,7 +210,8 @@ class FakeHistory:
              "old_book_delta_vnd": None, "old_book_delta_status": "MISSING"},
         ]
         selected = items if customer is None else [item for item in items if item["customer"] == customer]
-        return {"items": selected, "total_results": len(selected)}
+        return {"items": selected, "total_results": len(selected),
+                "reconciliation_status": self.reconciliation_status}
 
 
 class LedgerWebTest(unittest.TestCase):
@@ -207,6 +227,7 @@ class LedgerWebTest(unittest.TestCase):
             self.addCleanup(patcher.stop)
         FakeHistory.fail_summary = False
         FakeHistory.fail_reconciliation = False
+        FakeHistory.reconciliation_status = "AVAILABLE"
         FakeHistory.summary_calls = 0
         FakeHistory.reconciliation_calls = 0
         handler = type("TestLedgerHandler", (ledger_app.LedgerHandler,),
@@ -236,7 +257,7 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("Tổng còn nợ mọi kỳ", body)
         self.assertIn("1 khách · đến 13/10/2026", body)
         self.assertIn("100 ₫", body)
-        self.assertIn("46 kỳ thiếu mốc đối soát", body)
+        self.assertIn("1 kỳ thiếu mốc đối soát", body)
         self.assertNotIn("Dư trước kỳ", body)
         self.assertNotIn("Mở web replay", body)
         self.assertIn("A &amp; B", body)
@@ -284,6 +305,16 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("customer-251", body)
         self.assertEqual(FakeHistory.summary_calls, 2)
         self.assertEqual(FakeHistory.reconciliation_calls, 1)
+
+    def test_pages_do_not_sum_old_book_delta_without_baseline_on_view_date(self):
+        for status_value in ("NO_BASELINE", None):  # missing or unknown overall status fails closed
+            FakeHistory.reconciliation_status = status_value
+            for path in ("/?as_of=2026-10-13", "/exceptions"):
+                with self.subTest(status=status_value, path=path):
+                    status, body = self.request(path)
+                    self.assertEqual(status, 200)
+                    self.assertIn("Chưa có mốc đối soát khớp ngày xem", body)
+                    self.assertNotIn("1.472 ₫", body)
 
     def test_source_exceptions_filter_page_total_and_encoded_source_link(self):
         status, body = self.request("/exceptions")
@@ -441,12 +472,12 @@ class LedgerWebTest(unittest.TestCase):
         self.assertEqual(payload["components"]["history_customer_reconciliation"], "ok")
 
         db = self.server.RequestHandlerClass.db
-        db.no_baseline = 45
+        db.no_baseline = FakeLedger.no_baseline + 1
         status, body = self.request("/health")
         payload = json.loads(body)
         self.assertEqual(status, 503)
         self.assertEqual(payload["components"]["no_baseline"], "invalid")
-        db.no_baseline = 46
+        db.no_baseline = FakeLedger.no_baseline
         db.balance_vnd = 900000
         status, body = self.request("/health")
         self.assertEqual(status, 200)  # New postings may change current balance.
@@ -538,6 +569,9 @@ class LedgerWebTest(unittest.TestCase):
     def test_health_rejects_each_opening_invariant_from_one_constant(self):
         self.assertEqual(REAL_OPENING_INVARIANTS,
                          {"opening_periods": 132, "opening_vnd": 65099410165, "no_baseline": 132})
+        self.assertEqual(set(REAL_OPENING_INVARIANTS), {"opening_periods", "opening_vnd", "no_baseline"})
+        self.assertTrue(all(isinstance(v, int) and v > 0 for v in REAL_OPENING_INVARIANTS.values()))
+        self.assertNotEqual(REAL_OPENING_INVARIANTS, ledger_app.OPENING_INVARIANTS)
         status, payload = ledger_app.health_payload(FakeLedger(), FakeHistory(), date(2026, 10, 16))
         self.assertEqual(status, 200)
         for key, expected in ledger_app.OPENING_INVARIANTS.items():
@@ -665,7 +699,7 @@ class LedgerWebTest(unittest.TestCase):
         self.assertIn("Dòng nguồn", body)
 
     def test_proposal_keeps_evidence_in_a_separate_detail(self):
-        class ProposalLedger:
+        class ProposalLedger(ScreenDelegates):
             def proposal(self, proposal_id):
                 return [{"status": "pending", "kind": "receipt", "total_vnd": 100,
                          "event_date": "2026-10-14", "posting_date": "2026-10-14",
@@ -689,6 +723,102 @@ class LedgerWebTest(unittest.TestCase):
     def test_unknown_historical_price_is_not_zero(self):
         self.assertEqual(ledger_app.source_vnd(None), "—")
         self.assertEqual(ledger_app.source_vnd("chưa có giá"), "CẦN KT")
+
+
+class LedgerSnapshotTest(unittest.TestCase):
+    """Each screen must read its ledger row sets in one psql statement (one snapshot)."""
+
+    def run_screen(self, stdout, call):
+        import subprocess
+        import ledger_db
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs["input"]))
+            return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+        with patch.object(ledger_db.subprocess, "run", side_effect=fake_run):
+            result = call(ledger_db.LedgerDB())
+        return result, calls
+
+    def test_overview_screen_is_one_statement(self):
+        stdout = json.dumps({"totals": [{"customers": 1}], "customers": [{"customer": "A & B"}]})
+        (totals, customers), calls = self.run_screen(
+            stdout, lambda db: db.overview_screen(date(2026, 10, 16), "2026-10", "a"))
+        self.assertEqual(totals, {"customers": 1})
+        self.assertEqual(customers, [{"customer": "A & B"}])
+        self.assertEqual(len(calls), 1)
+        command, statement = calls[0]
+        self.assertEqual(statement.count(";"), 1)
+        self.assertTrue(statement.startswith("SELECT json_build_object('totals', "))
+        self.assertIn("date=2026-10-16", command)
+        self.assertIn("period=2026-10", command)
+        self.assertIn("search=a", command)
+
+    def test_customer_period_and_proposal_screens_are_one_statement(self):
+        cases = [
+            (json.dumps({"customers": [], "periods": [], "pending": [{"proposals": 0}], "postings": []}),
+             lambda db: db.customer_screen(date(2026, 10, 16), "A & B")),
+            (json.dumps({"period": [], "postings": []}),
+             lambda db: db.period_screen(date(2026, 10, 16), "A & B", "2026-10")),
+            (json.dumps({"proposal": [], "lines": [], "audits": []}),
+             lambda db: db.proposal_screen(7)),
+        ]
+        for stdout, call in cases:
+            with self.subTest(stdout=stdout):
+                _, calls = self.run_screen(stdout, call)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0][1].count(";"), 1)
+
+    def test_conflicting_variable_is_rejected_before_psql(self):
+        import ledger_db
+        db = ledger_db.LedgerDB()
+        with patch.object(ledger_db.subprocess, "run") as run:
+            with self.assertRaises(ValueError):
+                db.snapshot(a=("SELECT :'x'", {"x": "1"}), b=("SELECT :'x'", {"x": "2"}))
+            run.assert_not_called()
+
+    def reconciliations_with_baseline(self, baseline_date):
+        import ledger_db
+        db = ledger_db.HistoryDB()
+        provenance = {"capture_id": "fake", "as_of": "2026-10-13", "baseline_date": baseline_date,
+                      "baseline_status": "AVAILABLE" if baseline_date == "2026-10-13" else "NO_BASELINE"}
+        row = {"total_results": 2, "items": [
+            {"customer": "KNOWN", "reconciliation_status": "MATCH",
+             "old_book_delta_vnd": 10, "old_book_delta_status": "AVAILABLE"},
+            {"customer": "OFF", "reconciliation_status": "MISMATCH",
+             "old_book_delta_vnd": 731, "old_book_delta_status": "AVAILABLE"}]}
+        with patch.object(db, "_m1_provenance", return_value=provenance), \
+             patch.object(db, "rows", return_value=[row]):
+            return db.customer_reconciliations()
+
+    def test_baseline_not_matching_view_date_is_not_summed_as_known(self):
+        for baseline_date in (None, "2026-10-12"):
+            with self.subTest(baseline_date=baseline_date):
+                result = self.reconciliations_with_baseline(baseline_date)
+                self.assertEqual(result["reconciliation_status"], "NO_BASELINE")
+                self.assertEqual([i["old_book_delta_status"] for i in result["items"]], ["NO_BASELINE"] * 2)
+                self.assertEqual([i["old_book_delta_vnd"] for i in result["items"]], [10, 731])
+                text = ledger_app.reconciliation_overview(result["items"], False)
+                self.assertTrue(text.startswith("Chưa có mốc đối soát khớp ngày xem, nên chưa cộng chênh lệch sổ cũ."))
+                self.assertIn("2 NO_BASELINE", text)
+                self.assertNotIn("741", text)
+        self.assertTrue(ledger_app.reconciliation_overview([], False).startswith(
+            "Chưa có mốc đối soát khớp ngày xem"))
+
+    def test_baseline_matching_view_date_is_summed_as_before(self):
+        result = self.reconciliations_with_baseline("2026-10-13")
+        self.assertEqual(result["reconciliation_status"], "AVAILABLE")
+        self.assertEqual([i["old_book_delta_status"] for i in result["items"]], ["AVAILABLE"] * 2)
+        text = ledger_app.reconciliation_overview(result["items"])
+        self.assertIn("Tổng chênh sổ cũ đã biết: 741 ₫ từ 2 khách.", text)
+        self.assertNotIn("Chưa có mốc đối soát", text)
+
+    def test_snapshot_shape_mismatch_is_unavailable(self):
+        import ledger_db
+        with self.assertRaises(ledger_db.LedgerUnavailable):
+            self.run_screen(json.dumps({"totals": []}),
+                            lambda db: db.overview_screen(date(2026, 10, 16), "2026-10"))
 
 
 class SoGocOpening(FakeLedger):
