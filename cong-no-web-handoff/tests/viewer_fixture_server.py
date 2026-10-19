@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from datetime import date
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -65,8 +66,18 @@ def start(ledger_cls, history_cls) -> ThreadingHTTPServer:
     return server
 
 
+def use_history_fixture_mode() -> None:
+    """The fixtures model the history-attached (13/10 replay) mode, like LedgerWebTest."""
+    ledger_app.HISTORY_ENABLED = True
+    ledger_app.OPENING_DATE = date(2026, 10, 13)
+    ledger_app.OPENING_INVARIANTS = {"opening_periods": FakeLedger.opening_periods,
+                                     "opening_vnd": FakeLedger.opening_vnd,
+                                     "no_baseline": FakeLedger.no_baseline}
+
+
 def main() -> None:
-    servers = {name: start(*classes) for name, classes in SCENARIOS.items()}
+    use_history_fixture_mode()
+    servers ={name: start(*classes) for name, classes in SCENARIOS.items()}
     print(json.dumps({name: server.server_port for name, server in servers.items()}), flush=True)
     try:
         sys.stdin.read()  # parent closes the pipe (or dies) -> stop
