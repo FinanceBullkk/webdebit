@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280">
+<title>A0 · Màn Tổng tháng 04</title>
+<style>
+body{margin:0}
+.app{width:1280px;height:720px;overflow:hidden;box-sizing:border-box;padding:0 24px;background:#f4f7fb;color:#152948;font-family:"Segoe UI",system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.35}
+button,select,input{font:inherit}
+.muted{color:#526781}
+.top{height:64px;display:flex;align-items:center;gap:12px}
+.top h1{margin:0;font-size:22px}
+select,input{height:44px;box-sizing:border-box;border:1px solid #9fb6d3;border-radius:6px;padding:0 10px;background:#fff;color:#152948}
+input::placeholder{color:#5d708a}
+.sp{flex:1}
+.bar{height:48px;display:flex;align-items:center;gap:8px;margin-top:4px}
+.fb{height:40px;padding:0 16px;border:1px solid #dbe4f0;border-radius:6px;background:#fff;font-weight:600;color:#3d4f66}
+.fb.on{background:#eaf3ff;border-color:#1169dc;color:#0d5bc4}
+.sheet{background:#fff;border:1px solid #dbe4f0;border-radius:10px;overflow:hidden;margin-top:12px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:fixed}
+th{height:44px;box-sizing:border-box;background:#f0f5fb;color:#3d4f66;font-weight:600;text-align:left;padding:0 12px;border-bottom:1px solid #dbe4f0;white-space:normal;line-height:1.2}
+td{height:48px;box-sizing:border-box;padding:0 12px;border-bottom:1px solid #e9eef5;white-space:nowrap}
+.r{text-align:right}
+.b{font-weight:700}
+.grp td{height:36px;background:#f7f9fc;font-weight:700;color:#3d4f66}
+.lnk{border:0;background:none;color:#0d5bc4;font-weight:700;text-decoration:underline;text-underline-offset:3px;height:40px;padding:0;text-align:left}
+.badge{display:inline-block;padding:1px 10px;border-radius:999px;font-weight:600;white-space:nowrap}
+.b-open{background:#dfeeff;color:#0d4fa8}
+.b-closed{background:#e4f5eb;color:#145f3b}
+.b-none{background:#eef1f5;color:#3d4f66}
+.todo{color:#7a4808;font-weight:600}
+</style>
+</head>
+<body style="background:#f4f7fb">
+<div class="app">
+  <div class="top">
+    <h1>Công nợ phải thu</h1>
+    <select aria-label="Tháng"><option>Tháng 04.2026</option></select>
+    <span class="sp"></span>
+    <span class="muted">Trần Thị B</span>
+  </div>
+  <div class="bar">
+    <button class="fb on">Tất cả (5)</button>
+    <button class="fb">Còn nợ (4)</button>
+    <button class="fb">Ứng trước (0)</button>
+    <button class="fb">Thiếu giá (1)</button>
+    <span class="sp"></span>
+    <input type="search" placeholder="Tìm khách hoặc loại hàng…" aria-label="Tìm khách hoặc loại hàng" style="width: 340px">
+  </div>
+  <div class="sheet">
+    <table>
+      <thead><tr><th style="width: 200px">Khách</th><th class="r" style="width: 160px">Chuyển sang</th><th class="r" style="width: 160px">Phát sinh</th><th class="r" style="width: 150px">Đã ứng trước / đã thu</th><th class="r" style="width: 170px">Còn phải thu cuối tháng</th><th class="r" style="width: 70px">Cont</th><th>Cần xử lý</th></tr></thead>
+      <tbody>
+        <tr class="grp"><td colspan="7">Thanh long (3)</td></tr>
+        <tr><td><button class="lnk">KHACH_MAU</button></td><td class="r">95.000.000</td><td class="r">90.000.000</td><td class="r">—</td><td class="r b">185.000.000</td><td class="r">4</td><td><span class="todo">1 thiếu giá</span></td></tr>
+        <tr><td><button class="lnk">KHACH_B</button></td><td class="r">18.000.000</td><td class="r">122.000.000</td><td class="r">40.000.000</td><td class="r b">100.000.000</td><td class="r">9</td><td></td></tr>
+        <tr><td><button class="lnk">KHACH_C</button></td><td class="r">0</td><td class="r">—</td><td class="r">—</td><td class="r b">0</td><td class="r">—</td><td></td></tr>
+        <tr class="grp"><td colspan="7">Mít (2)</td></tr>
+        <tr><td><button class="lnk">KHACH_D</button></td><td class="r">30.000.000</td><td class="r">60.000.000</td><td class="r">20.000.000</td><td class="r b">70.000.000</td><td class="r">3</td><td></td></tr>
+        <tr><td><button class="lnk">KHACH_E</button></td><td class="r">12.000.000</td><td class="r">45.000.000</td><td class="r">—</td><td class="r b">57.000.000</td><td class="r">2</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>
