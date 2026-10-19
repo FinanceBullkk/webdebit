@@ -35,6 +35,7 @@
   const book = () => structuredClone(books[state.customer]);
   const computed = customer => { const b = structuredClone(books[customer]); return {book:b,chain:model.monthChain(b),allocation:model.allocate(b)}; };
   const last = rows => rows.at(-1);
+  const debtLeft = (allocation,key) => allocation.remaining.find(row=>row.key===key)?.balanceVnd;
   const money = value => value === null ? '—' : fmt(value);
   const fieldMoney = value => value === null ? '—' : fmt(model.lineAmount({unitPriceVnd:value,otherFeeVnd:null,plugFeeVnd:null,escortFeeVnd:null}));
   state.logs.push(
@@ -101,7 +102,7 @@
       ${state.adjForm?renderAdjustment(b,key):''}
       ${editable?`<tr class="paste"><td class="muted">${lines.length+1}</td><td colspan="10"><div class="pastebox" contenteditable="true" role="textbox" tabindex="0" aria-label="Dán từ Sheet" data-action="inline-paste"></div></td></tr>`:''}
       ${state.pasteError&&editable?`<tr><td colspan="12" class="error" role="alert">${escape(state.pasteError)}</td></tr>`:''}
-      <tr class="tot"><td colspan="4">TỔNG · ${row.lineCount} cont</td><td colspan="6"></td><td class="r">${fmt(row.monthTotalVnd)}</td><td class="mcol" style="white-space:normal;line-height:1.25;padding:4px 8px"><span class="kv"><span style="font-weight:600">Đã thu</span><span class="${row.receivedVnd===null||row.receivedVnd===0n?'muted':''}">${row.receivedVnd===null||row.receivedVnd===0n?'—':fmt(row.receivedVnd)}</span></span><span class="kv" style="font-size:17px"><span>Còn phải thu</span><span>${fmt(row.endOfMonthVnd)}</span></span>${old&&old.endOfMonthVnd!==row.endOfMonthVnd?`<span class="kv"><span></span><s>${fmt(old.endOfMonthVnd)}</s></span>`:''}</td></tr></tbody></table></section>`;
+      <tr class="tot"><td colspan="4">TỔNG · ${row.lineCount} cont</td><td colspan="6"></td><td class="r">${fmt(row.monthTotalVnd)}</td><td class="mcol" style="white-space:normal;line-height:1.25;padding:4px 6px">${row.source==='opening'?`<span class="kv" style="font-size:15px"><span>Nợ tháng này còn</span><span>${fmt(debtLeft(alloc,key))}</span></span><span class="kv muted"><span>Cuối tháng lúc đó</span><span>${fmt(row.endOfMonthVnd)}${old&&old.endOfMonthVnd!==row.endOfMonthVnd?` <s>${fmt(old.endOfMonthVnd)}</s>`:''}</span></span>`:`<span class="kv"><span style="font-weight:600">Đã thu</span><span class="${row.receivedVnd===null||row.receivedVnd===0n?'muted':''}">${row.receivedVnd===null||row.receivedVnd===0n?'—':fmt(row.receivedVnd)}</span></span><span class="kv" style="font-size:15px"><span>Còn phải thu</span><span>${fmt(row.endOfMonthVnd)}</span></span>${old&&old.endOfMonthVnd!==row.endOfMonthVnd?`<span class="kv"><span></span><s>${fmt(old.endOfMonthVnd)}</s></span>`:''}`}</td></tr></tbody></table></section>`;
   }
   function renderHistory() {
     if (!state.history) return '';
@@ -113,7 +114,9 @@
     const current=chain.find(x=>x.key===state.month)||last(chain);
     const previous=chain.filter(x=>x.key<current.key);
     const next=chain.find(x=>x.key>current.key);
-    root.innerHTML=`<div class="top"><button class="back" data-action="back">‹ Tổng</button><h1>${state.customer} · ${kinds[state.customer]}</h1><span class="sp"></span><span class="muted">${actor}</span><button class="btn" data-action="open-history" aria-expanded="${state.history}">Lịch sử sửa</button></div><div class="hist"><span class="muted" style="font-weight:600">Tháng trước</span>${previous.map(row=>`<button class="mb" data-action="expand-month" data-value="${row.key}" aria-expanded="false"><span aria-hidden="true">›</span><span>${monthLabel(row.key)}</span><b>${fmt(row.endOfMonthVnd)}</b>${state.before[row.key]&&state.before[row.key].endOfMonthVnd!==row.endOfMonthVnd?`<s>${fmt(state.before[row.key].endOfMonthVnd)}</s>`:''}</button>`).join('')}</div>${renderBlock(b,current,allocation)}${next?`<button class="next" data-action="expand-month" data-value="${next.key}" aria-expanded="false"><span aria-hidden="true">›</span><b>THÁNG ${monthLabel(next.key)}</b><span class="muted">chuyển sang</span><b>${fmt(next.carryVnd)}</b>${state.before[next.key]&&state.before[next.key].carryVnd!==next.carryVnd?`<s>${fmt(state.before[next.key].carryVnd)}</s>`:''}<span class="sp"></span><span class="muted">còn phải thu</span><b>${fmt(next.endOfMonthVnd)}</b>${state.before[next.key]&&state.before[next.key].endOfMonthVnd!==next.endOfMonthVnd?`<s>${fmt(state.before[next.key].endOfMonthVnd)}</s>`:''}</button>`:''}${renderHistory()}`;
+    const previousButtons=previous.map(row=>`<button class="mb" data-action="expand-month" data-value="${row.key}" aria-expanded="false" title="Số dư cuối tháng lúc đó: ${fmt(row.endOfMonthVnd)}"><span aria-hidden="true">›</span><span>${monthLabel(row.key)}</span><span class="muted">nợ còn</span><b>${fmt(debtLeft(allocation,row.key))}</b></button>`).join('');
+    const nextButton=next?.source==='opening'?`<button class="next" data-action="expand-month" data-value="${next.key}" aria-expanded="false" title="Số dư cuối tháng lúc đó: ${fmt(next.endOfMonthVnd)}"><span aria-hidden="true">›</span><b>THÁNG ${monthLabel(next.key)}</b><span class="sp"></span><span class="muted">nợ tháng này còn</span><b>${fmt(debtLeft(allocation,next.key))}</b></button>`:next?`<button class="next" data-action="expand-month" data-value="${next.key}" aria-expanded="false"><span aria-hidden="true">›</span><b>THÁNG ${monthLabel(next.key)}</b><span class="muted">chuyển sang</span><b>${fmt(next.carryVnd)}</b>${state.before[next.key]&&state.before[next.key].carryVnd!==next.carryVnd?`<s>${fmt(state.before[next.key].carryVnd)}</s>`:''}<span class="sp"></span><span class="muted">còn phải thu</span><b>${fmt(next.endOfMonthVnd)}</b>${state.before[next.key]&&state.before[next.key].endOfMonthVnd!==next.endOfMonthVnd?`<s>${fmt(state.before[next.key].endOfMonthVnd)}</s>`:''}</button>`:'';
+    root.innerHTML=`<div class="top"><button class="back" data-action="back">‹ Tổng</button><h1>${state.customer} · ${kinds[state.customer]}</h1><span class="sp"></span><span class="muted">${actor}</span><button class="btn" data-action="open-history" aria-expanded="${state.history}">Lịch sử sửa</button></div><div class="hist"><span class="muted" style="font-weight:600">Tháng trước</span>${previousButtons}</div>${renderBlock(b,current,allocation)}${nextButton}${renderHistory()}`;
   }
   function render() { if (state.customer) renderBook(); else renderTotal(); }
   root.addEventListener('click', event => {
@@ -184,7 +187,7 @@
     if(rows.length>50){state.pasteError='Chỉ dán tối đa 50 dòng.';render();return;}
     const next=book(),month=next.months.find(x=>x.key===state.month);
     const parsed=[];
-    for(const row of rows){const cells=row.split('\t');if(cells.length!==11){state.pasteError='Mỗi dòng cần đúng 11 cột.';render();return;}
+    for(const [index,row] of rows.entries()){const cells=row.split('\t');if(cells.length!==11){state.pasteError=`Dòng ${index+1} có ${cells.length} cột; cần chọn đủ 11 cột từ Marks & Nos đến TOTAL (VND), gồm cả ô trống.`;render();return;}
       const [mark,id,carrier,date,from,to,other,plug,escort,unit,pasted]=cells;
       if(!id.trim()||month.lines.some(x=>x.id===id.trim())||parsed.some(x=>x.id===id.trim())){state.pasteError='Mã chuyến trống hoặc đã có.';render();return;}
       const fields=[other,plug,escort,unit,pasted].map(x=>x.trim()===''?null:fromText(x.trim()));
