@@ -2,16 +2,15 @@
 
 Các trạng thái dưới đây được cập nhật theo quyết định người dùng ngày 15/10/2026. Quy tắc nền đã chốt dẫn từ `docs/business-rules.md` / `docs/decisions.md`; quyết định lịch sử tại revision `8365e8aa5ae2517959dedcc52ed8384232458b75`. Không cần hỏi lại các nguyên tắc đã chốt ở cuối tài liệu.
 
-## Q01 — Nguồn danh tính maker/checker
+## Q01 — Danh tính maker/checker — MÔ HÌNH ĐÃ CHỐT
 
-- **Đã chốt / nguồn:** Maker và checker khác nhau (D01, `docs/decisions.md`); chưa chốt danh tính vận hành.
-- **Đã chốt phạm vi truy cập:** Self-host trên máy này; thiết bị/người dùng phải nối Tailscale trước khi truy cập màn hình login. Chưa yêu cầu triển khai nhiều máy.
-- **Còn thiếu:** Cách xác minh danh tính cá nhân từ Tailscale tại ranh giới tin cậy của ứng dụng; mỗi người có identity/account riêng hay không; map identity sang maker/checker; cấm tài khoản Tailscale/app dùng chung; cấp/thu hồi quyền, ủy quyền/tài khoản service và ánh xạ app actor → DB audit. Tailscale kết nối chỉ chứng minh đường mạng tới được, không tự chứng minh ai đã bấm duyệt.
-- **Ví dụ giả:** nhân viên An dùng tài khoản dùng chung `ke_toan` tạo phiếu; không xác định được An hay Bình đã thao tác.
-- **Lựa chọn / hệ quả:** (A) dùng danh tính cá nhân Tailscale đã được ứng dụng/proxy xác thực rồi map role trong app: ít thêm mật khẩu, nhưng phải khóa direct bypass/header spoofing và quản lý ACL; (B) app local account riêng cho từng người sau Tailscale gate: dễ tách app-role nhưng phải quản lý mật khẩu/reset/offboarding; (C) tài khoản dùng chung: đơn giản nhưng không quy trách nhiệm được, không phù hợp maker/checker.
-- **Đề xuất:** Tailscale chỉ làm cổng mạng; sau đó mỗi người đăng nhập bằng account riêng trong app, role maker/checker gán riêng, không account dùng chung. App lấy actor từ session đăng nhập server-side, không từ field/header do client tự gửi. Chỉ chuyển sang dùng trực tiếp identity Tailscale làm principal nếu người vận hành muốn một lớp login ít mật khẩu hơn và đã kiểm được trusted identity integration.
-- **Ảnh hưởng:** P0-02; kiểm DB role hiện tại không bị chặn, nhưng duyệt/auth người thật và implementation bị chặn.
-- **Người quyết định / trạng thái:** Người dùng chốt self-host một máy và Tailscale là điều kiện mạng truy cập ngày 15/10/2026. Principal tin cậy, account model và role maker/checker: **CÒN MỞ**, cần chủ nghiệp vụ + chủ vận hành/auth.
+- **Đã chốt / nguồn:** Maker và checker khác nhau (D01). Người dùng chốt self-host trên máy này, phải nối vào tailnet của chủ máy mới vào được login, và giao chọn mô hình phù hợp nghiệp vụ; đã chọn tài khoản ứng dụng riêng theo từng người.
+- **Quyết định:** Tailscale là cổng mạng, không là danh tính phê duyệt. Sau khi vào app, mỗi người đăng nhập bằng tài khoản cá nhân; ứng dụng lấy actor từ session server-side đã xác thực, bỏ qua actor tự khai trong payload/header. Không dùng chung tài khoản. Maker và checker phải là hai người/tài khoản khác nhau. Chưa yêu cầu nhiều máy.
+- **Lý do:** Vẫn truy cập gọn trong tailnet nhưng audit ghi được người cụ thể; maker/checker tách được ngay cả khi app chỉ chạy trên một máy. Tài khoản dùng chung không thể quy trách nhiệm; dùng Tailscale làm identity principal sẽ buộc phải dựa vào cấu hình proxy/header đáng tin cậy và ánh xạ danh tính mạng sang quyền nghiệp vụ.
+- **Ví dụ giả:** An tạo phiếu bằng account của An; Bình duyệt bằng account của Bình. Nếu hiện chỉ có An, phiếu không được tự duyệt/post cho đến khi có checker khác.
+- **Còn làm rõ trước implementation:** bootstrap/admin đầu tiên, lưu và reset mật khẩu, hết hạn/thu hồi session, cấp-thu hồi account/role, offboarding, ánh xạ app actor → DB audit, trust proxy và chặn direct bypass ngoài Tailscale. Đây là chi tiết triển khai/vận hành, không còn là lựa chọn giữa account cá nhân và identity Tailscale.
+- **Ảnh hưởng:** Q01 không còn chặn thiết kế P0-02 ở mức quyết định mô hình. Write guard vẫn chưa được triển khai; cần thiết kế và kiểm chứng login/session/role/audit cùng quyền DB trước khi mở đường ghi thật.
+- **Người quyết định / trạng thái:** Phạm vi Tailscale do người dùng chốt ngày 15/10/2026; mô hình tài khoản riêng được chọn theo yêu cầu người dùng giao lựa chọn; **ĐÃ CHỐT mô hình**, chi tiết vận hành và kiểm chứng **CÒN LÀM**.
 
 ## Q02 — Approval bao phủ revision/nội dung nào — ĐÃ CHỐT
 
@@ -19,7 +18,7 @@ Các trạng thái dưới đây được cập nhật theo quyết định ngư
 - **Còn thiếu cho thiết kế kỹ thuật:** Cách mã hóa/hash canonical payload, append-only storage, thao tác withdraw/re-submit và chính xác metadata audit. Đây là chi tiết triển khai, không thay đổi quy tắc đã chốt.
 - **Ví dụ giả:** checker duyệt 100 VND cho kỳ 2026-01; maker đổi thành 101 hoặc đổi kỳ trước khi post.
 - **Quy tắc:** revision gồm khách, kỳ nợ, loại phiếu, tổng tiền và từng dòng/phân bổ, ngày nghiệp vụ/ngày ghi sổ, source reference, evidence reference/hash, lý do và mọi trường làm thay đổi nội dung được ghi/đối soát. Sửa một trường thuộc phạm vi này tạo revision mới; approval cũ không dùng cho bản mới. Lưu lịch sử cũ, không sửa đè. Không cần duyệt lại khi chỉ đổi cách trình bày không làm đổi nghĩa.
-- **Ảnh hưởng:** Quy tắc stale approval đã chốt; cần acceptance tests cho nội dung không đổi, nội dung đổi, approval revision cũ, và chỉnh sửa trình bày. Cách định danh/auth actor vẫn bị Q01 chặn.
+- **Ảnh hưởng:** Quy tắc stale approval đã chốt; cần acceptance tests cho nội dung không đổi, nội dung đổi, approval revision cũ, và chỉnh sửa trình bày. Mô hình app actor đã chọn tại Q01; kiểm chứng login/session/role và nối actor tới audit DB còn trước implementation.
 - **Người quyết định / trạng thái:** Người dùng/chủ nghiệp vụ; **ĐÃ CHỐT** ngày 15/10/2026. Thiết kế storage/hash cụ thể CÒN LÀM.
 
 ## Q03 — Tiền dư/chưa phân bổ/ứng trước (D04)
