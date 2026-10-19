@@ -32,7 +32,7 @@ class HarnessError(RuntimeError):
 
 def run(args: list[str], *, input_text: str | None = None, env: dict[str, str] | None = None,
         check: bool = True, timeout: float = 30) -> subprocess.CompletedProcess[str]:
-    p = subprocess.run(args, input=input_text, text=True, capture_output=True,
+    p = subprocess.run(args, input=input_text, text=True, encoding="utf-8", capture_output=True,
                        env=env, timeout=timeout, check=False)
     if check and p.returncode:
         raise HarnessError(f"command failed ({p.returncode}): {args[0]} {args[1:3]}\n{p.stderr[-3000:]}")
@@ -374,6 +374,33 @@ def main() -> int:
         rejected_states = [s for rc, s in ((checker1_rc, state1.group(1) if state1 else None), (checker2_rc, state2.group(1) if state2 else None)) if rc != 0]
         record("contention", "two_checker_calls_post_once", {"successful_calls":1,"rejected_sqlstates":["P0001"],"postings":1}, {"successful_calls":len(successful),"rejected_sqlstates":rejected_states,"postings":final_counts["postings"]}, sqlstate=rejected_states[0] if rejected_states else None, counts=final_counts)
         report["concurrency_evidence"] = {"holder_pid":holder_pid,"blocking_pids":observed_actual["pg_blocking_pids"],"checker1_stdout":out.strip(),"checker2_stdout":out2.strip(),"checker1_exit":checker1_rc,"checker2_exit":checker2_rc,"checker1_error_sqlstate":state1.group(1) if state1 else None,"checker2_error_sqlstate":state2.group(1) if state2 else None}
+
+        # Posting-date policy (16/10/2026): a posting date later than today in Asia/Ho_Chi_Minh is
+        # rejected on both the submit path and the approve path. Today is computed independently of
+        # the schema helper and passed as a literal, so the guard cannot be proved by its own clock.
+        def failure(result: subprocess.CompletedProcess[str]) -> dict[str, object]:
+            found = re.search(r"ERROR:\s+([0-9A-Z]{5}):\s*(.+)", result.stderr)
+            return {"exit": result.returncode, "sqlstate": found.group(1) if found else None,
+                    "message": found.group(2).strip() if found else None}
+
+        def proposal_count() -> int:
+            return int(query("SELECT count(*) FROM ledger.proposal"))
+
+        tomorrow = "DATE '" + query("SELECT ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1)") + "'"
+        before = proposal_count()
+        future_submit = psql("SELECT ledger.submit_entry('fixture-request-future-0001','charge',100,DATE '2026-02-01'," + tomorrow + ",'FAKE-SOURCE-FUTURE','FAKE-EVIDENCE','fake test reason','[{\"customer\":\"FAKE CUSTOMER A\",\"debt_period\":\"2026-01\",\"amount_vnd\":100}]'::jsonb)", "maker_a", check=False)
+        record("posting_date", "future_posting_date_rejected_on_submit",
+               {"exit":1,"sqlstate":"P0001","message":"missing or invalid posting evidence/date/lines","new_proposals":0},
+               {**failure(future_submit),"new_proposals":proposal_count() - before})
+        # Owner-inserted pending row simulates a proposal whose date passed submit under an older function.
+        future_id = int(query("INSERT INTO ledger.proposal(request_key,kind,total_vnd,event_date,posting_date,source_ref,evidence_ref,reason,maker) "
+                              "VALUES ('fixture-request-future-approve-0001','charge',100,DATE '2026-02-01'," + tomorrow + ","
+                              "'FAKE-SOURCE-FUTURE','FAKE-EVIDENCE','fake test reason','maker_a') RETURNING proposal_id"))
+        psql(f"INSERT INTO ledger.proposal_line(proposal_id,line_no,customer,debt_period,amount_vnd) VALUES ({future_id},1,'FAKE CUSTOMER A','2026-01',100)")
+        record("posting_date", "future_posting_date_rejected_on_approve",
+               {"exit":1,"sqlstate":"P0001","message":"posting date is in the future","status":"pending","postings":0},
+               {**failure(psql(f"SELECT ledger.approve_entry({future_id})", "checker_b", check=False)),
+                "status":counts(future_id)["status"],"postings":counts(future_id)["postings"]}, counts=counts(future_id))
 
         report["exit_code"] = 0
     except BaseException as exc:

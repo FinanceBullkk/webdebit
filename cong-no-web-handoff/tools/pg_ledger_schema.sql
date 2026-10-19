@@ -118,6 +118,13 @@ CREATE TRIGGER opening_immutable BEFORE UPDATE OR DELETE ON ledger.opening
 CREATE TRIGGER posting_immutable BEFORE UPDATE OR DELETE ON ledger.posting
     FOR EACH ROW EXECUTE FUNCTION ledger.no_change();
 
+-- "Hôm nay" theo giờ Việt Nam. Ngày nghiệp vụ không được lấy từ đồng hồ server:
+-- múi giờ khác làm lệch một ngày, và lệch đúng vào lúc giao ca cuối ngày.
+CREATE FUNCTION ledger.business_today() RETURNS date
+LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
+    SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+$$;
+
 CREATE FUNCTION ledger.submit_entry(
     p_request_key text, p_kind text, p_total_vnd numeric,
     p_event_date date, p_posting_date date, p_source_ref text,
@@ -140,6 +147,7 @@ BEGIN
     IF p_request_key IS NULL OR length(p_request_key) NOT BETWEEN 16 AND 128
        OR p_event_date IS NULL OR p_posting_date IS NULL
        OR p_posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton)
+       OR p_posting_date > ledger.business_today()
        OR p_source_ref IS NULL OR length(btrim(p_source_ref)) < 5
        OR p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) < 5
        OR p_reason IS NULL OR length(btrim(p_reason)) < 5
@@ -193,6 +201,9 @@ BEGIN
     END IF;
     IF v.posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton) THEN
         RAISE EXCEPTION 'posting date precedes cutover';
+    END IF;
+    IF v.posting_date > ledger.business_today() THEN
+        RAISE EXCEPTION 'posting date is in the future';
     END IF;
     IF v.kind = 'reversal' AND EXISTS (
         SELECT 1 FROM ledger.posting WHERE original_posting_id = v.original_posting_id) THEN
@@ -252,13 +263,14 @@ BEGIN
        (SELECT 1 FROM ledger.posting WHERE original_posting_id = p_original_posting_id)
        OR p_request_key IS NULL OR length(p_request_key) NOT BETWEEN 16 AND 128
        OR p_posting_date IS NULL OR p_posting_date < (SELECT first_posting_date FROM ledger.cutover WHERE singleton)
+       OR p_posting_date > ledger.business_today()
        OR p_evidence_ref IS NULL OR length(btrim(p_evidence_ref)) < 5
        OR p_reason IS NULL OR length(btrim(p_reason)) < 5 THEN
         RAISE EXCEPTION 'invalid reversal request';
     END IF;
     INSERT INTO ledger.proposal(request_key, kind, total_vnd, event_date, posting_date,
                                 source_ref, evidence_ref, reason, maker, original_posting_id)
-    VALUES (p_request_key, 'reversal', abs(v.signed_amount_vnd), current_date,
+    VALUES (p_request_key, 'reversal', abs(v.signed_amount_vnd), ledger.business_today(),
             p_posting_date, 'reversal:' || p_original_posting_id,
             p_evidence_ref, p_reason, session_user, p_original_posting_id)
     RETURNING proposal_id INTO v_id;
