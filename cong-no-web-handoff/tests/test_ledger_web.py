@@ -215,7 +215,7 @@ class FakeHistory:
 
 
 class LedgerWebTest(unittest.TestCase):
-    """History-attached mode (the 13/10 replay opening); the 19/10 mode is tested separately."""
+    """History-attached mode (the 13/10 replay opening); the 20/10 mode is tested separately."""
 
     def setUp(self):
         for name, value in (("HISTORY_ENABLED", True), ("OPENING_DATE", date(2026, 10, 13)),
@@ -568,7 +568,7 @@ class LedgerWebTest(unittest.TestCase):
 
     def test_health_rejects_each_opening_invariant_from_one_constant(self):
         self.assertEqual(REAL_OPENING_INVARIANTS,
-                         {"opening_periods": 132, "opening_vnd": 65099410165, "no_baseline": 132})
+                         {"opening_periods": 132, "opening_vnd": 64803729665, "no_baseline": 132})
         self.assertEqual(set(REAL_OPENING_INVARIANTS), {"opening_periods", "opening_vnd", "no_baseline"})
         self.assertTrue(all(isinstance(v, int) and v > 0 for v in REAL_OPENING_INVARIANTS.values()))
         self.assertNotEqual(REAL_OPENING_INVARIANTS, ledger_app.OPENING_INVARIANTS)
@@ -833,20 +833,20 @@ class SoGocOpening(FakeLedger):
 
 
 class SoGocOpeningTest(unittest.TestCase):
-    """19/10/2026 opening rebuilt from the original book: no M1 replay history is attached."""
+    """20/10/2026 opening rebuilt from the original book: no M1 replay history is attached."""
 
-    def test_constants_describe_the_19_10_opening_without_history(self):
+    def test_constants_describe_the_20_10_opening_without_history(self):
         self.assertFalse(ledger_app.HISTORY_ENABLED)
-        self.assertEqual(ledger_app.OPENING_DATE, date(2026, 10, 19))
+        self.assertEqual(ledger_app.OPENING_DATE, date(2026, 10, 20))
 
     def test_health_is_ok_without_history_and_marks_it_not_applicable(self):
-        status, payload = ledger_app.health_payload(SoGocOpening(), None, date(2026, 10, 19))
+        status, payload = ledger_app.health_payload(SoGocOpening(), None, date(2026, 10, 20))
         self.assertEqual(status, 200)
         self.assertTrue(payload["ok"])
         for key in ("history_exception_summary", "history_customer_reconciliation", "history_provenance"):
             self.assertEqual(payload["components"][key], "not_applicable")
         wrong = type("Wrong", (SoGocOpening,), {"opening_vnd": SoGocOpening.opening_vnd + 1})()
-        status, payload = ledger_app.health_payload(wrong, None, date(2026, 10, 19))
+        status, payload = ledger_app.health_payload(wrong, None, date(2026, 10, 20))
         self.assertEqual(status, 503)
 
     def test_startup_attaches_no_history(self):
@@ -859,19 +859,19 @@ class SoGocOpeningTest(unittest.TestCase):
 
         with patch.object(ledger_app, "LedgerDB", return_value=SoGocOpening()), \
              patch.object(ledger_app, "ThreadingHTTPServer", Server), \
-             patch.object(ledger_app, "today", return_value=date(2026, 10, 19)), \
+             patch.object(ledger_app, "today", return_value=date(2026, 10, 20)), \
              patch.dict("os.environ", {"WEBDEBIT_LEDGER_PORT": "8876"}), \
              redirect_stderr(io.StringIO()):
             ledger_app.main()
         self.assertIsNone(ledger_app.LedgerHandler.history)
 
     def test_customer_page_explains_missing_detail_without_replay_warnings(self):
-        body = ledger_app.render_customer(SoGocOpening(), date(2026, 10, 19), "A & B", "", None)
-        self.assertIn("Sổ mở lại từ sổ gốc ngày 19/10/2026", body)
+        body = ledger_app.render_customer(SoGocOpening(), date(2026, 10, 20), "A & B", "", None)
+        self.assertIn("Sổ mở lại từ sổ gốc ngày 20/10/2026", body)
         self.assertNotIn("sự kiện replay", body)
         self.assertNotIn("Thiếu chi tiết", body)
         self.assertNotIn("Chưa kiểm được ngoại lệ nguồn", body)
-        self.assertNotIn('href="/exceptions', ledger_app.page("x", body, date(2026, 10, 19)).decode("utf-8"))
+        self.assertNotIn('href="/exceptions', ledger_app.page("x", body, date(2026, 10, 20)).decode("utf-8"))
 
 
 if __name__ == "__main__":

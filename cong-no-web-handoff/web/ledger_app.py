@@ -17,15 +17,15 @@ from ledger_db import HistoryDB, LedgerDB, LedgerUnavailable
 
 
 STYLE = Path(__file__).with_name("style.css").read_bytes()
-CAPTURE = "2026-10-19-so-goc"
-OPENING_DATE = date(2026, 10, 19)
-# Opening re-built from the original old-book customer tabs on 19/10/2026 (owner chose the original
+CAPTURE = "2026-10-20-so-goc"
+OPENING_DATE = date(2026, 10, 20)
+# Opening re-built from the original old-book customer tabs on 20/10/2026 (owner chose the original
 # book as the standard; the 13/10 replay opening is kept only as a backup dump). Startup and /health
 # both reject any other value. Every period is NO_BASELINE: the original book has no independent
 # per-period baseline, only per-customer totals, which the opening matches.
-OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 65_099_410_165, "no_baseline": 132}
+OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 64_803_729_665, "no_baseline": 132}
 # The M1 replay history (trip/receipt detail, source exceptions) belongs to the 13/10 opening and has
-# no provenance for the 19/10 opening, so it is not attached. Balances still come from PostgreSQL.
+# no provenance for the 20/10 opening, so it is not attached. Balances still come from PostgreSQL.
 HISTORY_ENABLED = False
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 KIND = {"opening": "Số mở kỳ lịch sử", "charge": "Phát sinh", "receipt": "Thực nhận", "offset": "Cấn trừ",
@@ -511,7 +511,7 @@ def render_customer(db: LedgerDB, as_of: date, name: str, first_period: str = ""
                 f'{anchor("Bỏ lọc tháng", href("/customer", name=name, as_of=as_of.isoformat()), "text-link") if first_period else ""}'
                 f'</form></details>')
     if history_error and not HISTORY_ENABLED:
-        content += ('<p class="attention-line"><b>Sổ mở lại từ sổ gốc ngày 19/10/2026.</b> '
+        content += ('<p class="attention-line"><b>Sổ mở lại từ sổ gốc ngày 20/10/2026.</b> '
                     'Số dư theo kỳ đọc từ sổ PostgreSQL; chi tiết từng chuyến/khoản thu chưa nạp vào web.</p>')
     elif history_error:
         content += ('<p class="attention-line"><b>Chưa kiểm được ngoại lệ nguồn.</b> '
@@ -1015,7 +1015,7 @@ class LedgerHandler(BaseHTTPRequestHandler):
             current_history = request_history(self.db, self.history)
             if parsed.path == "/exceptions" and not HISTORY_ENABLED:
                 self.send(404, page("Ngoại lệ nguồn", heading(
-                    "404", "Không có ngoại lệ replay cho sổ mở ngày 19/10/2026", ""), today()), body=body)
+                    "404", "Không có ngoại lệ replay cho sổ mở ngày 20/10/2026", ""), today()), body=body)
                 return
             if parsed.path == "/exceptions":
                 filters = exception_filters(query)
