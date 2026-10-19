@@ -26,7 +26,7 @@ class LedgerDB:
             command += ["-v", f"{key}={value}"]
         command += ["-d", self.dbname, "-f", "-"]
         try:
-            result = subprocess.run(command,
+            result = subprocess.run(command, check=False,
                 input=f"SELECT coalesce(json_agg(item), '[]'::json) FROM ({sql}) item;\n",
                 text=True, capture_output=True, encoding="utf-8", timeout=8)
         except (OSError, subprocess.TimeoutExpired) as exc:

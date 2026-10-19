@@ -12,7 +12,6 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-
 REPORTS = {
     "provenance": ("pilot.m1_provenance", "capture_id"),
     "coverage": ("pilot.m1_coverage", "tab_title, sheet_gid"),

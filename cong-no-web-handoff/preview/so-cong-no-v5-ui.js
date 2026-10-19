@@ -6,7 +6,6 @@
     : (typeof require !== 'undefined' ? require('./so-cong-no-v5-model.js') : null);
 
   const SAMPLE_DATE = '17/10/2026';
-  const TODAY_ISO = '2026-10-17';
 
   const safe = s => String(s ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

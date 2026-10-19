@@ -16,7 +16,6 @@ sys.path.insert(0, str(ROOT / "web"))
 import ledger_app  # noqa: E402
 
 
-
 class FakeLedger:
     def cutover(self):
         return [{"capture_id": ledger_app.CAPTURE, "as_of": "2026-10-13"}]

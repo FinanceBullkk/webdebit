@@ -8,13 +8,13 @@ import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from ledger_db import HistoryDB, LedgerDB, LedgerUnavailable
-
 
 STYLE = Path(__file__).with_name("style.css").read_bytes()
 CAPTURE = "2026-10-13-debit-2026-1791884418948"
@@ -62,7 +62,7 @@ def page(title: str, body: str, selected_date: date, wide: bool = False) -> byte
 <footer class="container"><details class="site-notes"><summary>Nguồn dữ liệu và giới hạn</summary>
 <p>Sổ PostgreSQL độc lập. Số mở sổ từ snapshot {CAPTURE}. Kỳ thiếu mốc đối soát vẫn được gắn cờ.
 Web chỉ đọc; nguồn replay và dữ liệu ngân hàng chưa được xác minh thay cho chứng từ gốc.</p></details></footer>
-</body></html>""".encode("utf-8")
+</body></html>""".encode()
 
 
 def heading(kicker: str, title: str, detail: str) -> str:
@@ -157,13 +157,18 @@ def source_link(event: dict) -> str:
     return anchor("Dòng nguồn ↗", target, "source-link")
 
 
+def source_value(values: list, index: int):
+    """Ô thứ `index` của dòng nguồn, None nếu dòng ngắn hơn."""
+    return values[index] if index < len(values) else None
+
+
 def month_rows(events: list[dict], postings: list[dict], carried: int) -> tuple[str, int, int, int]:
     """Render independent debt and payment lists with no implied allocation."""
     charges, payments = [], []
     for event in events:
         signed = int(event["signed_amount_vnd"])
         values = event.get("source_values") or []
-        value = lambda index: values[index] if index < len(values) else None
+        value = partial(source_value, values)
         kind = event["kind"]
         if signed >= 0:
             if kind == "charge":

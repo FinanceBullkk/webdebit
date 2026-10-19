@@ -9,7 +9,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 RUNNER = Path(__file__).resolve().parents[1] / "tools" / "test_pg_ledger_schema.py"
 SPEC = importlib.util.spec_from_file_location("pg_ledger_schema_runner", RUNNER)
 assert SPEC and SPEC.loader
@@ -72,9 +71,11 @@ class ContainerCleanupTest(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, json.dumps(inspected), "")
             self.fail(f"unsafe cleanup command reached: {args}")
 
-        with patch.object(runner, "run", side_effect=fake_run):
-            with self.assertRaisesRegex(runner.HarnessError, "refusing container cleanup"):
-                runner.cleanup_owned_container(["docker"], name, run_id)
+        with (
+            patch.object(runner, "run", side_effect=fake_run),
+            self.assertRaisesRegex(runner.HarnessError, "refusing container cleanup"),
+        ):
+            runner.cleanup_owned_container(["docker"], name, run_id)
 
 
 if __name__ == "__main__":

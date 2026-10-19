@@ -9,11 +9,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import openpyxl
-
 
 ROLES = {
     "Khách hàng": ("input", 6),
@@ -68,7 +67,7 @@ def main() -> None:
     capture_id = args.output_dir.name
     manifest = {
         "capture_id": capture_id,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "created_at_utc": datetime.now(UTC).isoformat(),
         "source_spreadsheet_id": source["spreadsheet_id"],
         "source_title": source["title"],
         "source_url": source["url"],

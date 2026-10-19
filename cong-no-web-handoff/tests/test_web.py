@@ -12,8 +12,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
-import app  # noqa: E402
-from db import Database  # noqa: E402
+import app
+from db import Database
 
 
 class FakeDB:
