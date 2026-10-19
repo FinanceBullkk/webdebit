@@ -236,3 +236,111 @@ test("TRIP-DATE-01 cho qua khi guard nằm trong một điều kiện gộp", ()
   });
   assert.deepStrictEqual(found, []);
 });
+
+// ---------------------------------------------------------------------------
+// Ba luật ranh giới kiến trúc. Khác với luật tiền/ngày ở trên, ba luật này
+// không bắt mã sai về nghiệp vụ — chúng giữ một ranh giới đang đúng khỏi bị
+// lần refactor sau làm mất. Nên case âm ở đây quan trọng hơn case dương: mã
+// hiện tại vốn đã sạch, một luật không bắt gì cũng in OK y hệt.
+
+test("ARCH-01 bắt file ngoài tầng DB gọi psql", () => {
+  const found = check("ARCH-01", {
+    "cong-no-web-handoff/web/app.py":
+      "import subprocess\n\ndef rows():\n    return subprocess.run(['psql', '-c', 'SELECT 1'])\n",
+    // Đổi tên file không phải là cách ra khỏi luật: danh sách cho phép là tường minh.
+    "cong-no-web-handoff/web/db_extra.py": "CMD = ['psql', '-X']\n",
+    "cong-no-web-handoff/pilot/reconcile.py": "PSQL = 'psql'\n",
+  });
+  assert.strictEqual(found.length, 3, JSON.stringify(found, null, 2));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/app.py"));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/db_extra.py"));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/pilot/reconcile.py"));
+  assert.ok(found.every((v) => /ranh giới kiến trúc/.test(v.detail)), "detail phải nói rõ đây là ranh giới");
+  assert.match(found[0].detail, /web\/db\.py/, "detail phải chỉ ra tầng DB đi qua đâu");
+});
+
+test("ARCH-01 cho qua đúng năm file tầng DB, và không tính chữ trong chú thích", () => {
+  const found = check("ARCH-01", {
+    "cong-no-web-handoff/web/db.py": "import subprocess\nCMD = ['psql', '-X']\n",
+    "cong-no-web-handoff/web/ledger_db.py": "CMD = ['psql', '-X', '-w']\n",
+    "cong-no-web-handoff/tools/pg_m1_report.py": "command = [psql, '-X']\n",
+    "cong-no-web-handoff/tools/test_pg_ledger_schema.py": "run(['psql', '-qAt'])\n",
+    "cong-no-web-handoff/tests/test_web.py": "def test_psql_quoting(self):\n    pass\n",
+    "cong-no-web-handoff/web/ledger_app.py": "# Dữ liệu tới từ adapter, không gọi psql thẳng.\nfrom ledger_db import LedgerDB\n",
+  });
+  assert.deepStrictEqual(found, []);
+});
+
+// ---------------------------------------------------------------------------
+test("ARCH-02 bắt tầng web import ngược vào tools/ hay pilot/", () => {
+  const found = check("ARCH-02", {
+    "cong-no-web-handoff/web/app.py": "from tools.pg_m1_report import export\n",
+    "cong-no-web-handoff/web/ledger_app.py": "import pilot.reconcile\n",
+    "cong-no-web-handoff/web/report.py": [
+      "import sys",
+      "sys.path.insert(0, '../tools')",
+      "mod = importlib.import_module('pilot.reconcile')",
+    ].join("\n"),
+  });
+  assert.strictEqual(found.length, 4, JSON.stringify(found, null, 2));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/app.py" && v.line === 1));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/ledger_app.py" && v.line === 1));
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/report.py" && v.line === 2), "không bắt sys.path");
+  assert.ok(found.some((v) => v.file === "cong-no-web-handoff/web/report.py" && v.line === 3), "không bắt import_module");
+  assert.ok(found.every((v) => /ranh giới kiến trúc/.test(v.detail)));
+});
+
+test("ARCH-02 cho qua import trong tầng web và chiều ngược lại từ tools/", () => {
+  const found = check("ARCH-02", {
+    "cong-no-web-handoff/web/app.py": "from db import Database, DatabaseUnavailable\nimport json\n",
+    "cong-no-web-handoff/web/ledger_app.py": "from ledger_db import HistoryDB, LedgerDB\n",
+    // tools/ được phép dùng ngược lại: ranh giới chỉ một chiều.
+    "cong-no-web-handoff/tools/pg_m1_report.py": "from pilot.reconcile import compare\n",
+    // Tên biến có chữ tools không phải import.
+    "cong-no-web-handoff/web/util.py": "tools = []\nprint('tools/pilot')\n",
+  });
+  assert.deepStrictEqual(found, []);
+});
+
+// ---------------------------------------------------------------------------
+test("ARCH-03 bắt phép tính tiền trong file UI", () => {
+  const found = check("ARCH-03", {
+    "preview/so-cong-no-v5-ui.js": [
+      "const totalVnd = closedVnd + openVnd;",
+      "let remainingVnd = 0n;",
+      "remainingVnd -= paidVnd;",
+      "const twice = amountVnd * 2n;",
+      "const left = balance - BigInt(paid);",
+    ].join("\n"),
+  });
+  assert.strictEqual(found.length, 4, JSON.stringify(found, null, 2));
+  assert.ok(atLine(found, 1), "không bắt phép cộng tiền");
+  assert.ok(atLine(found, 3), "không bắt -= trên tiền");
+  assert.ok(atLine(found, 4), "không bắt nhân với BigInt literal");
+  assert.ok(atLine(found, 5), "không bắt trừ với BigInt()");
+  assert.ok(found.every((v) => /ranh giới kiến trúc/.test(v.detail)));
+  assert.match(found[0].detail, /-model\.js/, "detail phải chỉ ra chỗ đúng để tính tiền");
+});
+
+test("ARCH-03 cho qua so sánh, định dạng và phép tính nằm trong model", () => {
+  const found = check("ARCH-03", {
+    "preview/so-cong-no-v5-ui.js": [
+      "const b = model.ledgerBalance({ closedVnd, openVnd, receipts, buckets });",
+      "if (totals.pricedTotalVnd > 0n && b.openRemainingVnd === 0n) show('đã thu đủ');",
+      "const txt = b.overpaymentVnd > 0n ? 'trả dư' : 'đủ';",
+      "const cell = fmtVnd(r.unitPriceVnd);",
+      // Tên hàm cũng kết thúc bằng Vnd; nối chuỗi quanh nó không phải cộng tiền.
+      "const note = r.id + ' · ' + fmtVnd(r.amountVnd);",
+      "const label = 'Tháng ' + m.name;",
+      "const n = index + 1;",
+      "const d = new Date(+m[3], +m[2] - 1, +m[1]);",
+    ].join("\n"),
+    // Phép tính tiền ở model là đúng chỗ, luật không được đụng tới.
+    "preview/so-cong-no-v5-model.js": [
+      "let remainingVnd = vnd(receiptVnd);",
+      "remainingVnd -= amountVnd;",
+      "return price + fees;",
+    ].join("\n"),
+  });
+  assert.deepStrictEqual(found, []);
+});

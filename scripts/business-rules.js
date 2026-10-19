@@ -276,12 +276,171 @@ function ruleTripDateRequired(files) {
   return found;
 }
 
+// ---------------------------------------------------------------------------
+// Ba luật ARCH-* dưới đây giữ ranh giới kiến trúc, không phải luật nghiệp vụ.
+// Khác VND-*/DATE-*, chúng không truy về một dòng trong sổ quyết định: chúng
+// mô tả cách mã nguồn đang được chia tầng, và tầng đó hôm nay đang đúng.
+//
+// Lý do code hóa: một ranh giới đúng mà không có gì giữ thì lần refactor sau
+// làm mất, và mất êm — không test nào đỏ, chỉ có một `import` mới hoặc một
+// phép cộng đặt nhầm chỗ. Ba luật này chốt lại hiện trạng đã kiểm, để việc đổi
+// ranh giới phải là quyết định có chủ ý (sửa luật, ghi lý do) chứ không phải
+// một diff lọt qua review.
+//
+// Giới hạn chung: `collect()` chỉ đọc .sql/.py/.js, nên script nhúng thẳng
+// trong .html nằm ngoài tầm ba luật này.
+
+// ---------------------------------------------------------------------------
+// ARCH-01 — chỉ tầng DB được gọi psql
+//
+// Hiện trạng đã kiểm 19/10/2026 (`grep -rn psql`): đúng năm file dưới đây chạm
+// tới psql, mọi truy vấn khác đi qua adapter trong `web/`. Giữ được điều này
+// thì đổi cách nối DB (psql CLI → driver, đổi tham số kết nối, thêm timeout)
+// là sửa hai file adapter chứ không phải lùng khắp repo; và không có đường nào
+// gọi DB mà vòng qua chỗ trích dẫn/escape của adapter.
+//
+// Danh sách tường minh kèm lý do từng file — không dùng mẫu regex rộng rồi tự
+// miễn trừ, vì mẫu rộng ("file nào tên *_db.py") chính là cách luật bị lách
+// bằng cách đặt tên.
+const PSQL_ALLOWED = {
+  "cong-no-web-handoff/web/db.py":
+    "adapter đọc capture — nơi duy nhất dựng lệnh psql cho đường đọc lịch sử",
+  "cong-no-web-handoff/web/ledger_db.py":
+    "adapter sổ cái — nơi duy nhất dựng lệnh psql cho đường sổ cái và pilot",
+  "cong-no-web-handoff/tools/pg_m1_report.py":
+    "công cụ vận hành xuất báo cáo M1, chạy tay ngoài tiến trình web",
+  "cong-no-web-handoff/tools/test_pg_ledger_schema.py":
+    "harness kiểm schema trong Docker, phải nói chuyện với psql để kiểm chính psql",
+  "cong-no-web-handoff/tests/test_web.py":
+    "test của adapter, kiểm đúng phần dựng lệnh và trích dẫn biến",
+};
+
+// `scripts/` là mã của chính bộ kiểm: luật và fixture ở đây buộc phải chứa
+// chuỗi mẫu `psql` để chứng minh luật bắt được. Ngoại lệ duy nhất, và nó nằm
+// ngoài ứng dụng.
+const isCheckHarness = (f) => /^scripts\//.test(f.rel);
+
+function ruleDbLayerOnlyPsql(files) {
+  const found = [];
+  for (const f of files) {
+    if (![".py", ".js"].includes(f.ext)) continue;
+    if (isCheckHarness(f) || PSQL_ALLOWED[f.rel]) continue;
+    lines(f.text).forEach((line, i) => {
+      if (!/\bpsql\b/i.test(stripComment(line, f.ext))) return;
+      found.push({
+        file: f.rel, line: i + 1,
+        detail: "gọi `psql` ngoài tầng DB — đây là ranh giới kiến trúc, không phải sở thích: mọi truy vấn đi qua adapter `cong-no-web-handoff/web/db.py` hoặc `cong-no-web-handoff/web/ledger_db.py`. Thêm hàm vào adapter rồi gọi hàm đó; nếu thật sự cần một tầng DB mới thì mở rộng `PSQL_ALLOWED` kèm lý do",
+      });
+    });
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// ARCH-02 — tầng web không import ngược vào tools/ hay pilot/
+//
+// Hiện trạng đã kiểm 19/10/2026: `web/app.py` và `web/ledger_app.py` chỉ import
+// stdlib cộng adapter cùng thư mục (`from db import ...`,
+// `from ledger_db import ...`). Phụ thuộc chạy một chiều: `tools/` và `pilot/`
+// được phép dùng tầng web, không có chiều ngược lại.
+//
+// Giữ chiều này vì `tools/` là công cụ vận hành chạy tay (đối số dòng lệnh,
+// đường ghi file, `sudo`) và `pilot/` là đối soát một lần. Kéo chúng vào tiến
+// trình phục vụ HTTP là kéo theo cả bề mặt đó vào chỗ nhận request.
+//
+// Kiểm ba dạng: câu import thẳng, `importlib.import_module`, và vá `sys.path`
+// trỏ sang hai thư mục kia. Không kiểm được: import động dựng tên từ biến —
+// giới hạn đã biết, ghi ra đây thay vì giả vờ luật phủ hết.
+const WEB_LAYER = /(^|\/)web\/[^/]+\.py$/;
+const CROSS_IMPORT = [
+  { re: /^\s*(?:from|import)\s+(tools|pilot)\b/, how: "câu import" },
+  { re: /import_module\s*\(\s*["'](tools|pilot)\b/, how: "`importlib.import_module`" },
+  { re: /sys\.path\b.*\b(tools|pilot)\b/, how: "vá `sys.path`" },
+];
+
+function ruleWebNoToolsImport(files) {
+  const found = [];
+  for (const f of files) {
+    if (f.ext !== ".py" || !WEB_LAYER.test(f.rel)) continue;
+    lines(f.text).forEach((line, i) => {
+      const code = stripComment(line, f.ext);
+      for (const probe of CROSS_IMPORT) {
+        const m = code.match(probe.re);
+        if (!m) continue;
+        found.push({
+          file: f.rel, line: i + 1,
+          detail: `tầng web với tới \`${m[1]}/\` qua ${probe.how} — đây là ranh giới kiến trúc, không phải sở thích: phụ thuộc chạy một chiều, \`tools/\` và \`pilot/\` dùng tầng web chứ không ngược lại. Phần dùng chung thì chuyển vào adapter trong \`web/\`, đừng kéo công cụ vận hành vào tiến trình nhận request`,
+        });
+        return;
+      }
+    });
+  }
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// ARCH-03 — tính tiền chỉ ở model, không ở file UI
+//
+// Hiện trạng đã kiểm 19/10/2026: preview ghép từng cặp `X-model.js` +
+// `X-ui.js`, nạp đúng thứ tự đó trong .html. Model giữ toàn bộ số học BigInt
+// (`so-cong-no-v5-model.js`, `customer-ledger-workbench.js`); hai file UI
+// (`so-cong-no-v5-ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
+// dạng và gọi model — kể cả chỗ tính lệch giữa số dán và số model cũng gọi
+// `model.allocateReceipt` thay vì tự trừ.
+//
+// Giữ ranh giới này vì model là thứ có test (`test-*-model.js`). Một phép cộng
+// tiền đặt trong file render thì không test nào chạm tới, và nó sẽ lệch khỏi
+// model lúc nào không ai biết.
+//
+// Phạm vi: file `*-ui.js`, quy ước đặt tên repo đang dùng cho tầng render.
+// Dấu hiệu tiền: tên kết thúc bằng `_vnd`/`Vnd`/`VND`, hằng BigInt (`0n`), và
+// lời gọi `BigInt(...)`. Chỉ chặn số học `+ - *` và `+= -= *=`; so sánh với
+// định dạng vẫn được phép, vì UI phải đọc được số để hiển thị.
+//
+// Giới hạn đã biết, ghi ra thay vì bắt bừa: ô tiền đặt tên không theo `*Vnd`
+// (ví dụ `price`, `otherFee` ở workbench) nằm ngoài lưới này; và
+// `web/ledger_app.py` thì cộng trừ tiền ngay trong đường render — tầng Python
+// CHƯA tách model/UI như tầng JS. Luật chỉ khẳng định phần đang đúng và kiểm
+// được; tách tầng Python là việc riêng, cần quyết định trước khi code hóa.
+const UI_FILE = /-ui\.js$/;
+const MONEY_NAME = String.raw`(?:[A-Za-z_$][A-Za-z0-9_$]*(?:_vnd|Vnd|VND)|\d+n)`;
+// Tên kết thúc bằng Vnd mà đứng trước `(` là hàm, không phải giá trị tiền:
+// `fmtVnd(x)` là bộ định dạng, và `'...' + fmtVnd(x)` là nối chuỗi chứ không
+// phải cộng tiền. Lọc chỗ này ra, nếu không luật sẽ bắt nhầm đúng cái việc nó
+// muốn khuyến khích — UI gọi hàm thay vì tự tính.
+const MONEY_VALUE = MONEY_NAME + String.raw`(?!\s*\()`;
+// Toán tử số học, viết sao cho không nuốt `==`/`===`/`=>`/`++`/`--`.
+const MONEY_ARITHMETIC = [
+  new RegExp(MONEY_NAME + String.raw`\s*(?:[-+*](?![-+=])|[-+*]=(?!=))`),
+  new RegExp(String.raw`(?:[-+*](?![-+=*])|[-+*]=)\s*(?:` + MONEY_VALUE + String.raw`|BigInt\s*\()`),
+];
+
+function ruleMoneyMathInModel(files) {
+  const found = [];
+  for (const f of files) {
+    if (f.ext !== ".js" || !UI_FILE.test(f.rel)) continue;
+    const model = f.rel.replace(/-ui\.js$/, "-model.js");
+    lines(f.text).forEach((line, i) => {
+      const code = stripComment(line, f.ext);
+      if (!MONEY_ARITHMETIC.some((re) => re.test(code))) return;
+      found.push({
+        file: f.rel, line: i + 1,
+        detail: `cộng/trừ/nhân tiền trong file UI — đây là ranh giới kiến trúc, không phải sở thích: số học tiền nằm ở model (\`${model}\`), nơi có test riêng; file UI chỉ so sánh, định dạng và gọi model. Thêm hàm vào model rồi gọi hàm đó`,
+      });
+    });
+  }
+  return found;
+}
+
 const RULES = [
   { id: "VND-01", title: "cột tiền phải là số nguyên chính xác", run: ruleVndSqlColumns },
   { id: "VND-02", title: "không dùng số thực ở đường tính tiền", run: ruleNoFloatMoney },
   { id: "DATE-01", title: '"hôm nay" phải theo giờ Việt Nam', run: ruleVnBusinessToday },
   { id: "FUTURE-01", title: "không cho ngày ghi sổ ở tương lai", run: ruleFuturePostingDate },
   { id: "TRIP-DATE-01", title: "ngày nghiệp vụ chuyến là bắt buộc", run: ruleTripDateRequired },
+  { id: "ARCH-01", title: "chỉ tầng DB được gọi psql", run: ruleDbLayerOnlyPsql },
+  { id: "ARCH-02", title: "tầng web không import tools/ hay pilot/", run: ruleWebNoToolsImport },
+  { id: "ARCH-03", title: "tính tiền chỉ ở model, không ở file UI", run: ruleMoneyMathInModel },
 ];
 
 // Trả về [{ id, title, violations: [{ file, line, detail }] }] cho mọi luật, kể
