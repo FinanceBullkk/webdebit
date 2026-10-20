@@ -333,6 +333,10 @@ const PSQL_ALLOWED = {
     "harness kiểm backend V7 trong Docker, phải nói chuyện với psql để kiểm chính psql",
   "cong-no-web-handoff/tools/v7_load_real_copy.py":
     "công cụ nạp bản sao vào container cô lập, chạy tay ngoài tiến trình web",
+  "cong-no-web-handoff/tools/v7_backup.py":
+    "công cụ vận hành backup/restore lớp sokhach, phải gọi psql/pg_dump/pg_restore; chạy tay ngoài tiến trình web",
+  "cong-no-web-handoff/tools/test_v7_backup.py":
+    "harness kiểm backup/restore trong Docker, phải nói chuyện với psql để kiểm chính công cụ",
   "cong-no-web-handoff/tools/v7_live_demo.py":
     "công cụ dựng demo dữ liệu giả trong container cô lập, chạy tay ngoài tiến trình web",
   "cong-no-web-handoff/tests/test_v7_ledger_api.py":
