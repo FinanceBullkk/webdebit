@@ -1,7 +1,5 @@
 # V7 — chuyển và làm sạch dữ liệu từ Sheet `2026 DEBIT` (ĐỀ XUẤT)
 
-Ghi chú chuẩn bị gộp 21/10/2026: đã lọc tên/số liệu khách. Phần dưới giữ diễn biến từng vòng; các câu chưa chạy/chưa nối là trạng thái lúc ghi, không phải kiểm hiện tại. Quyết định mới ở [sổ quyết định](../docs/decisions.md) và V7-COPY được ưu tiên. Mã nháp đã có; chưa chạy PostgreSQL/nguồn thật trong task chuẩn bị này.
-
 Trạng thái: **ĐỀ XUẤT** (Claude, 19/10/2026). Là bước nối giữa [thiết kế backend](v7-backend/thiet-ke.md) và dữ liệu thật. **Không chạy gì lên `hao`, không ghi Google Sheet, không đưa dữ liệu thật vào repo.** Spec này không chứa tên khách, số tiền thật hay mã Sheet.
 
 ## 1. Đã chốt (người dùng, 19/10/2026)
@@ -15,9 +13,9 @@ Trạng thái: **ĐỀ XUẤT** (Claude, 19/10/2026). Là bước nối giữa [
 
 | Nguồn | Vai trò | Ghi chú |
 | --- | --- | --- |
-| `2026 DEBIT` | Nguồn duy nhất cho lần chuyển | Mỗi tab một khách (hoặc khách theo loại hàng, đường bộ, bán cước); bố cục cột KHÁC NHAU giữa các tab; ngày có thể bị đảo ngày/tháng; có ô công thức không có giá trị lưu sẵn trong bản xuất. |
+| `2026 DEBIT` (≈252 tab; 241 là sổ khách) | Nguồn duy nhất cho lần chuyển | Mỗi tab một khách (hoặc khách theo loại hàng, đường bộ, bán cước); bố cục cột KHÁC NHAU giữa các tab; ngày có thể bị đảo ngày/tháng; có ô công thức không có giá trị lưu sẵn trong bản xuất. |
 | `HAO_CHAU` | Tham chiếu: quy tắc đã dùng, danh sách ngoại lệ (tab `12`, `15`) | Không dùng làm dữ liệu. Phần đã làm sạch có thể dùng để **so** với kết quả mới. |
-| Hồ sơ 13/10 (`docs/02, 04, 05, 11`; capture 13/10; engine `pilot/reconcile.py`) | Kết quả đối soát lần trước: số liệu giữ ngoài Git, giữ cờ chênh lịch sử 600 VND | Tham chiếu lịch sử, không phải bằng chứng cho dữ liệu hôm nay. |
+| Hồ sơ 13/10 (`docs/02, 04, 05, 11`; capture 13/10; engine `pilot/reconcile.py`) | Kết quả đối soát lần trước: 155 khách, 65.051.673.578 VND, chênh 600 VND | Tham chiếu lịch sử, không phải bằng chứng cho dữ liệu hôm nay. |
 
 Dữ liệu thô, bản xuất và báo cáo chi tiết nằm **ngoài repo** (`D:\webdebit\captures\…`), không `git add`.
 
@@ -41,15 +39,15 @@ Cột "Trạng thái": ĐỀ XUẤT (tôi đề xuất, chưa ai chốt) hoặc 
 
 | Lỗi | Dấu hiệu đã thấy | Quy tắc | Trạng thái |
 | --- | --- | --- | --- |
-| Ngày đảo ngày/tháng | Ô ngày thật lưu `8/4` nhưng hiển thị `4/8` trong khối tháng 8 | Ngày = theo tháng của khối; giữ cả hai cách đọc; dòng không khớp cách nào chuyển vào danh sách cách ly | CÒN MỞ |
+| Ngày đảo ngày/tháng | Ô ngày thật lưu `8/4` nhưng hiển thị `4/8` trong khối tháng 8 (≈79% ô ngày thật cần đảo mới khớp tháng của khối) | Ngày = theo tháng của khối; giữ cả hai cách đọc; dòng không khớp cách nào chuyển vào danh sách cách ly | CÒN MỞ |
 | Số tiền sai định dạng | `46,000,000` / `46.000.000` / dạng chữ / ký tự thừa | Chuẩn hóa về số nguyên VND; không đoán khi không phân tích được → cách ly | ĐỀ XUẤT |
 | Trống thành 0 | Bản thử cũ ghi 0 cho đơn giá trống | Trống giữ là "chưa biết" (NULL), không ghi 0 | ĐỀ XUẤT (khớp quy tắc nền) |
-| Tổng ≠ đơn giá + phí | Có dòng lệch | Thành tiền = **ô tổng của sổ gốc**; đơn giá và phí chỉ là giải thích; lệch ghi cờ | ĐỀ XUẤT (khớp quyết định 13/10, xung đột công thức V7 — xem 5.2) |
+| Tổng ≠ đơn giá + phí | Hàng nghìn dòng | Thành tiền = **ô tổng của sổ gốc**; đơn giá và phí chỉ là giải thích; lệch ghi cờ | ĐỀ XUẤT (khớp quyết định 13/10, xung đột công thức V7 — xem 5.2) |
 | Giá nằm ở cột phí | Đơn giá trống, ba khoản ở ba cột phí, tổng có số | Giữ tổng của sổ gốc; không chuyển giá giữa các cột trừ khi bố cục tab đã được xác nhận | CÒN MỞ |
-| Chưa có giá / tổng 0 | Có dòng thiếu giá | Cách ly, cờ "thiếu giá" (cam trong V7); không tính vào nợ cho tới khi có giá | ĐỀ XUẤT (khớp 13/10) |
-| Dòng không container, không ngày, có số tiền (phí không ghi rõ gốc; dòng phí dưới chuyến cuối khối) | **Cộng vào phát sinh của tháng khối như dòng phí lẻ**, giữ nguyên ghi chú gốc nếu có. Không thêm cờ hay bước xử lý riêng | ĐÃ CHỐT (người dùng, 19/10/2026: "cộng vào phí phát sinh, không cần phức tạp hóa") |
+| Chưa có giá / tổng 0 | Hàng trăm dòng | Cách ly, cờ "thiếu giá" (cam trong V7); không tính vào nợ cho tới khi có giá | ĐỀ XUẤT (khớp 13/10) |
+| Dòng không container, không ngày, có số tiền (phí không ghi rõ gốc; ví dụ một dòng 1.500.000 dưới chuyến cuối của một khối) | **Cộng vào phát sinh của tháng khối như dòng phí lẻ**, giữ nguyên ghi chú gốc nếu có. Không thêm cờ hay bước xử lý riêng | ĐÃ CHỐT (người dùng, 19/10/2026: "cộng vào phí phát sinh, không cần phức tạp hóa") |
 | Phí lẻ không container | Rất ít dòng | Nhập như dòng phí lẻ của V7 (cộng vào phát sinh, không đếm là chuyến) | ĐỀ XUẤT |
-| Thu 2026 trong khối cũ | Có khoản ở khối cũ | Ghi theo ngày thu thật hay theo khối? | CÒN MỞ |
+| Thu 2026 trong khối cũ | ≈60 khoản | Ghi theo ngày thu thật hay theo khối? | CÒN MỞ |
 | Hình thức thu từ ghi chú tự do | `CAN TRU USD`, `TT`… | Ánh xạ về bốn hình thức; ghi chú gốc giữ nguyên; không tự nâng thành "thực nhận" | CÒN MỞ |
 | Một khách nhiều tab | Tab thường và tab đường bộ/bán cước của cùng khách | Một sổ = một tab, hay gộp theo khách? | CÒN MỞ |
 | Tên khách lệch | Khoảng trắng, hoa/thường, ký tự | Chuẩn hóa nhẹ; không gộp mờ (fuzzy) khi chưa được duyệt | ĐỀ XUẤT |
@@ -62,7 +60,7 @@ Giữ nguyên các cờ NO_BASELINE, chênh lịch sử 600 VND và khoản thi�
 ## 5. Điều kiện cho V7 và schema
 
 1. **Dòng lịch sử không cộng lại.** V7 hiện cộng mọi dòng đang hiển thị. Với dữ liệu thật cần dòng được đánh dấu "lịch sử" hiển thị nhưng không vào tổng, và số dư đầu theo khách × tháng. Hai việc này **chưa có** trong `schema-draft.sql` và model V7 (CÒN MỞ cho bước thiết kế).
-2. **Thành tiền:** V5 (17/10/2026) chốt "đơn giá + ba loại phí"; dữ liệu thật và quyết định 13/10 dùng ô tổng của sổ gốc, và có dòng lệch hai công thức. Đề xuất: dòng lịch sử giữ tổng gốc; dòng nhập mới trên web dùng đơn giá + phụ phí. Cần người dùng xác nhận.
+2. **Thành tiền:** V5 (17/10/2026) chốt "đơn giá + ba loại phí"; dữ liệu thật và quyết định 13/10 dùng ô tổng của sổ gốc, và 1.773/6.552 dòng lệch hai công thức. Đề xuất: dòng lịch sử giữ tổng gốc; dòng nhập mới trên web dùng đơn giá + phụ phí. Cần người dùng xác nhận.
 3. **Mã chuyến:** quyết định 15/10/2026 (booking + số container) chỉ áp cho chuyến có booking; phần còn lại CHỜ KIỂM; phải quyết trước khi dùng mã chuyến làm khóa.
 
 ## 6. Cổng nghiệm thu (gate)
@@ -89,8 +87,8 @@ Chưa đạt mục nào thì chưa chuyển thật.
 - Định nghĩa "tháng còn nợ" (mục CÒN MỞ 3): mọi tháng có số còn phải thu > 0 theo người giữ sổ, cộng tháng đang mở. **Phải kiểm tra thêm công thức bị thiếu hoặc bị ghi đè trong sổ gốc** (ô tổng, ô còn phải thu cuối tháng, ô tổng thu) trước khi tin các mỏ neo.
 - Quy tắc ngày bị đảo (CÒN MỞ 1): chấp nhận "ngày theo tháng của khối"; dòng không khớp cách nào vẫn vào danh sách cách ly để người xem.
 - Thành tiền (CÒN MỞ 2): dòng lịch sử giữ tổng của sổ gốc; dòng nhập mới trên web dùng đơn giá + phụ phí.
-- Người dùng xác nhận một số tab hết nợ; tên tab và số liệu giữ ngoài Git. Xác nhận bằng lời không thay đối chiếu nguồn khi chuyển.
-- Xác nhận số dư riêng từng khách giữ ngoài Git; không suy mất nợ từ ô công thức nghi vấn.
+- Người dùng xác nhận (19/10/2026) 12 tab đã hết nợ (số dư mỏ neo = 0): A HUNG- CHUỐI, KIM HY, FARMY LOG, TNC- DỪA, BÁN CƯỚC NEWAY, DUONG BO LIJIE 李姐 HTH257, DUONG BO -TNC, DUONG BO KIROS HTH194, DUONG BO ALEX HTH211, DUONG BO ALEX HTH223, DUONG BO ALEX HTH235, DUONG BO FENG ZONG 冯总 HTH215. Đây là xác nhận bằng lời của chủ nghiệp vụ, chưa phải bằng chứng từ dữ liệu; vẫn đối chiếu dữ liệu của các tab này khi chuyển.
+- Số còn phải thu `KK - DỪA` = 2.587.705.877 (ô P654) được người dùng xác nhận còn nợ (19/10/2026), dù tab có nhiều ô công thức nghi.
 - **Chia số cộng dồn thành nợ từng tháng (người dùng chọn phương án A, 19/10/2026):** mỏ neo "còn phải thu cuối tháng" của sổ gốc là số cộng dồn; số dư đầu theo tháng được tính bằng cách chạy lại quy tắc thu trừ nợ cũ trước trên các khối tháng của từng khách. Cách chia theo tháng là quy ước; **tổng các tháng phải bằng đúng mỏ neo của khách**, khách nào không khớp thì cách ly để người xem.
 - Phân vai: Codex làm bộ phân tích, Hermes kiểm chéo, Claude review.
 

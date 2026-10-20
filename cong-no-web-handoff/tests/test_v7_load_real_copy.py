@@ -874,12 +874,7 @@ class RealCopyTest(unittest.TestCase):
     def test_check_source_subprocess_on_fake_files(self):
         fixture(self.folder)
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        # Keep this subprocess's synthetic report in its fixture, not the workspace log directory.
-        bootstrap = ("import sys; from pathlib import Path; "
-                     "sys.path.insert(0,sys.argv.pop(1)); import v7_load_real_copy as loader; "
-                     "loader.LOG_DIR=Path(sys.argv.pop(1)); sys.argv[0]='v7_load_real_copy.py'; "
-                     "raise SystemExit(loader.main())")
-        process = subprocess.run([sys.executable, "-c", bootstrap, str(ROOT / "tools"), str(self.folder / "logs"),
+        process = subprocess.run([sys.executable, str(ROOT / "tools/v7_load_real_copy.py"),
                                   "--source-dir", str(self.folder), "--check-source"],
                                  capture_output=True, text=True, encoding="utf-8", env=env, timeout=20)
         self.assertEqual(process.returncode, 0, process.stderr)

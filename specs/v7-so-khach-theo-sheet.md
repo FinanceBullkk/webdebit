@@ -2,7 +2,7 @@
 
 Trạng thái: **ĐỀ XUẤT** (Claude, 19/10/2026). Bố cục đã được **người dùng chốt trong chat ngày 19/10/2026** sau khi xem bản thử chạy trên dữ liệu thật; mã chưa vào repo. Dữ liệu mẫu ẩn danh đã có: `cong-no-web-handoff/preview/so-khach-v7-fixture.js`.
 
-V7 **thay màn sổ khách của V6**, không thay model tiền. Nguồn bố cục: tab `Sổ khách` của Sheet đang dùng (đọc 19/10/2026). Nguồn luật tiền: [business-rules](../docs/business-rules.md), quyết định V6 (`ux-v6-quyet-dinh-2026-10-18.md`, hồ sơ nhánh nguồn, chưa nhập), lớp 1 V6 (`v6-model-tien.md`, hồ sơ nhánh nguồn, chưa nhập).
+V7 **thay màn sổ khách của V6**, không thay model tiền. Nguồn bố cục: tab `Sổ khách` của Sheet đang dùng (đọc 19/10/2026). Nguồn luật tiền: [business-rules](../docs/business-rules.md), [quyết định V6](ux-v6-quyet-dinh-2026-10-18.md), [lớp 1 V6](v6-model-tien.md).
 
 **Không mở đường ghi tiền.** Trang chạy hoàn toàn trong tab, fixture ẩn danh, không API, không lưu gì.
 
@@ -11,7 +11,7 @@ V7 **thay màn sổ khách của V6**, không thay model tiền. Nguồn bố c�
 So bản V6 (`so-cong-no-v6.html`) với tab `Sổ khách` ngày 19/10/2026, bốn điểm lệch có hậu quả thật:
 
 1. **Mất hai con số người dùng kiểm hằng ngày.** Sheet luôn hiện *Tổng còn nợ (mọi tháng)* và *Chờ xử lý* ở đầu sổ; V6 chỉ có chúng ở màn Tổng, vào sổ một khách là mất.
-2. **Dòng phí lẻ bị loại khỏi tiền.** Sheet có dòng không container, không đơn giá, chỉ phụ phí, **vẫn cộng vào phát sinh tháng**. `lineAmount` của V6 trả `null` khi thiếu đơn giá nên dòng này rơi vào nhóm "chưa có giá" và không được cộng. Đây là điểm CÒN MỞ số 2 của v6-giao-dien.md (`v6-giao-dien.md`, hồ sơ nhánh nguồn, chưa nhập), nay chốt.
+2. **Dòng phí lẻ bị loại khỏi tiền.** Sheet có dòng không container, không đơn giá, chỉ phụ phí, **vẫn cộng vào phát sinh tháng**. `lineAmount` của V6 trả `null` khi thiếu đơn giá nên dòng này rơi vào nhóm "chưa có giá" và không được cộng. Đây là điểm CÒN MỞ số 2 của [v6-giao-dien.md](v6-giao-dien.md), nay chốt.
 3. **Dán từ Sheet hỏng ở dấu phân nhóm.** Sheet hiện `46,000,000` (dấu phẩy); `fromText` của V6 chỉ nhận dấu chấm.
 4. **Không thấy khoản thu rơi vào tháng nào.** Một khách thật có ~11 tháng, tháng lớn 37–43 chuyến; màn một-tháng-một-khối giấu mất việc "thu mới trừ nợ cũ trước" đang trừ vào đâu.
 
