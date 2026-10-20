@@ -17,13 +17,13 @@ from ledger_db import HistoryDB, LedgerDB, LedgerUnavailable
 
 
 STYLE = Path(__file__).with_name("style.css").read_bytes()
-CAPTURE = "2026-10-20-so-goc"
+CAPTURE = "2026-10-20-so-goc-v2"
 OPENING_DATE = date(2026, 10, 20)
 # Opening re-built from the original old-book customer tabs on 20/10/2026 (owner chose the original
 # book as the standard; the 13/10 replay opening is kept only as a backup dump). Startup and /health
 # both reject any other value. Every period is NO_BASELINE: the original book has no independent
 # per-period baseline, only per-customer totals, which the opening matches.
-OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 64_803_729_665, "no_baseline": 132}
+OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 64_561_074_322, "no_baseline": 132}
 # The M1 replay history (trip/receipt detail, source exceptions) belongs to the 13/10 opening and has
 # no provenance for the 20/10 opening, so it is not attached. Balances still come from PostgreSQL.
 HISTORY_ENABLED = False

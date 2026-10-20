@@ -568,7 +568,7 @@ class LedgerWebTest(unittest.TestCase):
 
     def test_health_rejects_each_opening_invariant_from_one_constant(self):
         self.assertEqual(REAL_OPENING_INVARIANTS,
-                         {"opening_periods": 132, "opening_vnd": 64803729665, "no_baseline": 132})
+                         {"opening_periods": 132, "opening_vnd": 64561074322, "no_baseline": 132})
         self.assertEqual(set(REAL_OPENING_INVARIANTS), {"opening_periods", "opening_vnd", "no_baseline"})
         self.assertTrue(all(isinstance(v, int) and v > 0 for v in REAL_OPENING_INVARIANTS.values()))
         self.assertNotEqual(REAL_OPENING_INVARIANTS, ledger_app.OPENING_INVARIANTS)
