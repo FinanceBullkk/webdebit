@@ -34,14 +34,29 @@ NOTICE = ("Dữ liệu đã làm sạch từ bản xuất Sheet; không phải b
           "giữ ngoài Git như captures/.")
 
 
+def outside_repo(path: Path) -> Path:
+    path = path.resolve()
+    if path == REPO or REPO in path.parents or any((p / ".git").exists() for p in (path, *path.parents)):
+        raise loader.LoadError("output must be outside the repository")
+    return path
+
+
+def output_folder(path: Path) -> Path:
+    path = outside_repo(path)
+    if path.exists() and (not path.is_dir() or any(path.iterdir())):
+        raise loader.LoadError("output folder is not empty; nothing is overwritten")
+    return path
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def build_books(source_dir: Path, xlsx: Path, raw_tabs: tuple[str, ...]):
     """Clean books from `xlsx` with the CSV inputs of `source_dir`; flags make the Sheet the truth."""
-    with tempfile.TemporaryDirectory() as temp:
-        stage = Path(temp)
+    temp_root = outside_repo(Path(tempfile.gettempdir()))
+    with tempfile.TemporaryDirectory(dir=temp_root) as temp:
+        stage = outside_repo(Path(temp))
         for name in loader.FILES:
             source = xlsx if name == "source-google-export.xlsx" else source_dir / name
             if not source.is_file():
@@ -57,7 +72,7 @@ def build_books(source_dir: Path, xlsx: Path, raw_tabs: tuple[str, ...]):
 
 
 def write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
-    with path.open("w", encoding="utf-8-sig", newline="") as stream:
+    with outside_repo(path).open("x", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
@@ -73,6 +88,7 @@ def git_state() -> dict:
 
 
 def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tuple[str, ...]) -> dict:
+    out = output_folder(out)
     eligible = [b for b in books if b["in_summary"] and not b["reasons"]]
     customers, months, rows, flag_customers = [], [], [], Counter()
     for item in sorted(eligible, key=lambda b: b["name"]):
@@ -111,7 +127,8 @@ def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tu
                 "customers_per_cleaning_rule": dict(sorted(flag_customers.items())),
                 "files_sha256": {name: sha256(out / name) for name in
                                  ("clean_customers.csv", "clean_months.csv", "clean_rows.csv")}}
-    (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with outside_repo(out / "manifest.json").open("x", encoding="utf-8") as stream:
+        stream.write(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
     return manifest
 
 
@@ -122,11 +139,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="new or empty folder outside the repository")
     parser.add_argument("--raw-tab", action="append", default=[], metavar="EXACT_NAME")
     args = parser.parse_args(argv)
-    out = args.out.resolve()
-    if out == REPO or REPO in out.parents:
-        parser.error("output must be outside the repository")
-    if out.exists() and any(out.iterdir()):
-        parser.error("output folder is not empty; nothing is overwritten")
+    try:
+        out = output_folder(args.out)
+    except loader.LoadError as exc:
+        parser.error(str(exc))
     try:
         books, digests = build_books(args.source_dir, args.xlsx, tuple(args.raw_tab))
     except Exception as exc:

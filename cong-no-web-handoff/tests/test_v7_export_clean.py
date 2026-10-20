@@ -73,6 +73,43 @@ class ExportCleanTest(unittest.TestCase):
         self.assertEqual(list(self.out.iterdir()), [])
         self.assertNotIn(FAKE_NAME, printed)
 
+    def test_all_write_entries_and_temp_stage_reject_repository_paths(self):
+        blocked = exporter.REPO / "export-test"
+        with self.assertRaises(loader.LoadError):
+            exporter.export([], {}, blocked, Path("fake.xlsx"), ())
+        with self.assertRaises(loader.LoadError):
+            exporter.write_csv(blocked / "fake.csv", ["customer"], [])
+        with unittest.mock.patch.object(tempfile, "gettempdir", return_value=str(exporter.REPO)), \
+                unittest.mock.patch.object(exporter.shutil, "copyfile") as copy:
+            with self.assertRaises(loader.LoadError):
+                exporter.build_books(self.folder, self.folder / "fake.xlsx", ())
+            copy.assert_not_called()
+        other_repo = Path(self.temp.name) / "other-repo"
+        other_repo.mkdir()
+        (other_repo / ".git").write_text("gitdir: fake", encoding="utf-8")
+        with self.assertRaises(loader.LoadError):
+            exporter.export([], {}, other_repo / "clean", Path("fake.xlsx"), ())
+        with unittest.mock.patch.object(exporter.Path, "resolve", return_value=blocked):
+            with self.assertRaises(loader.LoadError):
+                exporter.outside_repo(self.out)  # resolved junction/symlink target is checked
+        self.assertFalse(blocked.exists())
+        self.out.mkdir()
+        keep = self.out / "keep.txt"
+        keep.write_text("keep", encoding="utf-8")
+        with self.assertRaises(loader.LoadError):
+            exporter.export([], {}, self.out, Path("fake.xlsx"), ())
+        self.assertEqual(keep.read_text(encoding="utf-8"), "keep")
+
+    def test_missing_required_paths_never_read_source(self):
+        for args in ([], ["--xlsx", "fake.xlsx"], ["--out", str(self.out)]):
+            with self.subTest(args=args), unittest.mock.patch.object(exporter, "build_books") as build, \
+                    unittest.mock.patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as raised:
+                    exporter.main(args)
+                self.assertEqual(raised.exception.code, 2)
+                build.assert_not_called()
+        self.assertFalse(self.out.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
