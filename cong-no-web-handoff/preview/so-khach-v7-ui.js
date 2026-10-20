@@ -78,7 +78,7 @@
     return `<tr>${cells.join('')}</tr>${adjustmentRows}`;
   }
 
-  function renderMonth(month, summary, balance) {
+  function renderMonth(month, summary, _balance) {
     const label = monthLabel(month.key);
     const open = month.key === openMonth;
     const editable = model.isMonthOpen(locks, month.key);

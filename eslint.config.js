@@ -51,6 +51,8 @@ module.exports = [
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",
         MonthlyLedgerPreview: "readonly",
+        SO_KHACH_V7_MAU: "readonly",
+        SoKhachV7Model: "readonly",
       },
     },
   },
