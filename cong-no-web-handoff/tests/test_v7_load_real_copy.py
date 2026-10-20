@@ -378,8 +378,7 @@ class LayoutVariantTest(unittest.TestCase):
 
     def test_unreadable_receipt_names_its_cause_and_still_holds(self):
         with tempfile.TemporaryDirectory() as temp:
-            item = self.build(Path(temp), [(5, {"M": "12.5"})])
-        self.assertIn("NON_INTEGER_AMOUNT", item["reasons"])
+            item = self.build(Path(temp), [(5, {"M": "not a number"})])
         self.assertIn("MISSING_RECEIPT_AMOUNT", item["reasons"])
         with tempfile.TemporaryDirectory() as temp:
             item = self.build(Path(temp), [(5, {"M": "="})])
@@ -455,6 +454,70 @@ class LayoutVariantTest(unittest.TestCase):
         self.assertNotIn("DUPLICATE_MONTH_BLOCK", item["reasons"])
         self.assertIn("2026-11-01", [c["debt_month"] for c in item["checks"]])
         self.assertEqual(item["flags"]["TITLE_MONTH_FROM_DATES"], 1)
+
+    def test_fractional_cells_are_cleaned_to_whole_dong_and_must_still_close_the_chain(self):
+        from decimal import Decimal
+        self.assertEqual(loader.money("2.5"), (3, Decimal("2.5")))
+        self.assertEqual(loader.money("2.5", half_up=False)[0], 2)
+        self.assertEqual(loader.money("-2.5")[0], -3)
+        self.assertEqual(loader.money("1.0E7"), (10000000, None))
+        self.assertEqual(loader.money("abc"), (None, None))
+        self.assertEqual(loader.money("NaN"), (None, None))
+        # Halves that add up to the Sheet's TOTAL (500): 300.5 + 199.5, largest remainder, tie to the first.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            self.build(folder, [(4, {"K": "300.5"}), (5, {"K": "199.5"})])
+            trips = loader.rows(folder, "trips_so_goc.csv")  # the older CSV could not read fractions
+            for trip, amount in zip(trips, ("", "")):
+                trip["total_cell"] = amount
+            csv_file(folder, "trips_so_goc.csv", list(trips[0]), trips)
+            item = loader.source_data(folder)[0][0]
+        self.assertFalse(item["reasons"])
+        self.assertEqual(item["flags"]["ROUNDING_APPORTIONED"], 1)
+        shown = sorted((r["source_row"], r["source_total_vnd"]) for r in item["legacy"]
+                       if r["kind"] == "trip" and r["source_row"] in (4, 5))
+        self.assertEqual(shown, [(4, 301), (5, 199)])
+        self.assertEqual(item["checks"][0]["source_charge_vnd"], 500)
+        # Halves that do not add up to the Sheet's TOTAL: plain rounding, the month-end chain holds.
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            self.build(folder, [(4, {"K": "300.5"})])
+            trips = loader.rows(folder, "trips_so_goc.csv")
+            trips[0]["total_cell"] = ""
+            csv_file(folder, "trips_so_goc.csv", list(trips[0]), trips)
+            item = loader.source_data(folder)[0][0]
+        self.assertIn("ANCHOR_CHAIN_MISMATCH", item["reasons"])
+        self.assertNotIn("NON_INTEGER_AMOUNT", item["reasons"])
+
+    def test_apportion_never_touches_whole_cells_or_unmatched_totals(self):
+        from decimal import Decimal
+        record = lambda amount, exact=None: {"kind": "trip", "amount": amount, "exact": exact, "flags": set()}
+        block = {"total_row_exact": Decimal(10),
+                 "records": [record(5), record(3, Decimal("2.5")), record(2, Decimal("2.5"))]}
+        loader.apportion_rounding(block)
+        self.assertEqual([r["amount"] for r in block["records"]], [5, 3, 2])
+        block = {"total_row_exact": Decimal(11),
+                 "records": [record(5), record(3, Decimal("2.5")), record(2, Decimal("2.5"))]}
+        loader.apportion_rounding(block)
+        self.assertEqual([r["amount"] for r in block["records"]], [5, 3, 2])  # exact sum is 10, not 11
+        block = {"total_row_exact": Decimal(10),
+                 "records": [record(5), record(4, Decimal("3.6")), record(1, Decimal("1.4"))]}
+        loader.apportion_rounding(block)
+        self.assertEqual([r["amount"] for r in block["records"]], [5, 4, 1])
+
+    def test_insurance_item_signed_negative_in_csv_matches_its_positive_xlsx_cell(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            real_layout_fixture(folder)
+            payments = loader.rows(folder, "payments_so_goc.csv")
+            payments[0].update(kind="INSURANCE_RECEIVABLE_added_to_debt", amount_vnd="-500")
+            csv_file(folder, "payments_so_goc.csv", list(payments[0]), payments)
+            item = loader.source_data(folder)[0][0]
+        self.assertNotIn("SOURCE_ROW_MISMATCH", item["reasons"])
+        # As a charge the chain breaks (the Sheet was edited since the CSV): the plain-receipt
+        # reading is tried and kept only because it closes the chain.
+        self.assertFalse(item["reasons"])
+        self.assertEqual(item["flags"]["INSURANCE_AS_RECEIPT"], 1)
 
     def test_csv_trip_row_equal_to_unlabeled_total_row_is_extractor_noise(self):
         row = {"tab": FAKE_NAME, "block": "2", "row": "14", "container": "", "date_iso": "",
@@ -687,6 +750,30 @@ class RealCopyTest(unittest.TestCase):
             with self.subTest(choice=choice), patch.object(loader, "PREFERRED_RAW_TABS", (choice,)):
                 self.assertFalse(loader.source_data(self.folder)[0][0]["reasons"])
 
+    def test_sheet_is_truth_turns_stale_csv_and_hao_opening_into_flags_but_chain_still_holds(self):
+        # hao opening total is 1 more than the Sheet's month-end balance: held by default.
+        item = self.load(bucket_delta=1)[0]
+        self.assertIn("OPENING_TOTAL_MISMATCH", item["reasons"])
+        with patch.object(loader, "SHEET_IS_TRUTH", True):
+            item = self.load(bucket_delta=1)[0]
+            self.assertFalse(item["reasons"])
+            self.assertEqual(item["flags"]["OPENING_TOTAL_DIFFERS_FROM_HAO"], 1)
+            self.assertEqual(item["openings"][0]["amount_vnd"], FAKE_AMOUNT)  # bucket from the Sheet
+            # A CSV row with another amount than the xlsx cell: flag only.
+            fixture(self.folder)
+            trips = loader.rows(self.folder, "trips_so_goc.csv")
+            trips[0]["total_cell"] = str(FAKE_AMOUNT + 5)
+            csv_file(self.folder, "trips_so_goc.csv", list(trips[0]), trips)
+            item = loader.source_data(self.folder)[0][0]
+            self.assertFalse(item["reasons"])
+            self.assertEqual(item["flags"]["CSV_STALE_ROWS"], 1)
+        item = loader.source_data(self.folder)[0][0]
+        self.assertIn("SOURCE_ROW_MISMATCH", item["reasons"])
+        # The month-end balance chain is not relaxed.
+        with patch.object(loader, "SHEET_IS_TRUTH", True):
+            months = [("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)]
+            self.assertIn("ANCHOR_CHAIN_MISMATCH", self.load(months=months)[0]["reasons"])
+
     def test_missing_csv_row_or_customer_is_not_partial_import(self):
         # CSV missing an xlsx row is the known extractor bug: flag, rows still face the chain.
         item = self.load(omit_csv=True)[0]
@@ -787,7 +874,12 @@ class RealCopyTest(unittest.TestCase):
     def test_check_source_subprocess_on_fake_files(self):
         fixture(self.folder)
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
-        process = subprocess.run([sys.executable, str(ROOT / "tools/v7_load_real_copy.py"),
+        # Keep this subprocess's synthetic report in its fixture, not the workspace log directory.
+        bootstrap = ("import sys; from pathlib import Path; "
+                     "sys.path.insert(0,sys.argv.pop(1)); import v7_load_real_copy as loader; "
+                     "loader.LOG_DIR=Path(sys.argv.pop(1)); sys.argv[0]='v7_load_real_copy.py'; "
+                     "raise SystemExit(loader.main())")
+        process = subprocess.run([sys.executable, "-c", bootstrap, str(ROOT / "tools"), str(self.folder / "logs"),
                                   "--source-dir", str(self.folder), "--check-source"],
                                  capture_output=True, text=True, encoding="utf-8", env=env, timeout=20)
         self.assertEqual(process.returncode, 0, process.stderr)

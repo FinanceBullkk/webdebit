@@ -17,7 +17,7 @@ import unicodedata
 import zipfile
 from collections import Counter, defaultdict
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -46,6 +46,10 @@ BLOCK_TITLE = "SO CHI TIET THEO DOI CONG NO"
 # surrounding spaces; the others with the same trimmed name are skipped. Set by --raw-tab, never
 # stored in Git (customer names stay on the command line).
 PREFERRED_RAW_TABS: tuple[str, ...] = ()
+# --sheet-is-truth (user 21/10/2026): the xlsx is newer than the CSV extracts and the opening on hao.
+# CSV row differences and a hao opening total that differs from the Sheet's month-end balance become
+# flags; buckets then come from the Sheet FIFO. The month-end balance chain still has to close.
+SHEET_IS_TRUTH = False
 SUMMARY_LABELS = {"TONG", "TOTAL", "TONG CONG", "CONG", "TONG THU"}
 
 
@@ -68,6 +72,32 @@ def integer(value: str) -> int | None:
         return int(number) if -(2**63) <= number < 2**63 else None
     except (InvalidOperation, ValueError):
         return None
+
+
+def money(value: str, half_up: bool = True) -> tuple[int | None, Decimal | None]:
+    """(whole VND, exact value when it had a fraction). Data cleaning (user 20/10/2026): a fractional
+    cell (half a dong from "/2", a third from "/3") reads as the nearest dong, half up; the exact
+    value is kept so that the month can be apportioned to the Sheet's own TOTAL (apportion_rounding).
+    Charges round half up and receipts half down, so the balance (charge - receipt) still rounds
+    half up, which is how the Sheet's month-end balance cell reads.
+    Text, formula without cache and anything not finite stay None."""
+    whole = integer(value)
+    if whole is not None:
+        return whole, None
+    if value is None or not re.fullmatch(r"-?[0-9]+(?:\.[0-9]*)?(?:E[+-]?[0-9]+)?", str(value).strip(), re.I):
+        return None, None
+    try:
+        exact = Decimal(str(value).strip())
+        if not exact.is_finite():
+            return None, None
+        nearest = int(exact.to_integral_value(rounding=ROUND_HALF_UP if half_up else ROUND_HALF_DOWN))
+    except (InvalidOperation, ValueError):
+        return None, None
+    return (nearest, exact) if -(2**63) <= nearest < 2**63 else (None, None)
+
+
+def rounded(value: str) -> int | None:
+    return money(value)[0]
 
 
 def normalized(value: str) -> str:
@@ -330,6 +360,33 @@ def spread_total_over_trips(block: dict) -> None:
     block.setdefault("flags", set()).add("TOTAL_SPREAD_OVER_TRIPS")
 
 
+def apportion_rounding(block: dict) -> None:
+    """Largest-remainder rounding so rounded cells add up to the Sheet's own TOTAL row.
+
+    Applies per kind (trips against TOTAL, receipts against the received sum) only when the
+    exact decimals add up exactly to that whole-dong total; otherwise the plain half-up values
+    stay and the month-end chain decides. Never changes a cell that was a whole number.
+    """
+    for kind, target_key in (("trip", "total_row_exact"), ("receipt", "total_row_receipt_exact")):
+        target = block.get(target_key)
+        records = [r for r in block["records"] if r["kind"] == kind and r["amount"] is not None]
+        fractional = [r for r in records if r.get("exact") is not None]
+        if not fractional or target is None or target != target.to_integral_value():
+            continue
+        if sum((r["exact"] if r.get("exact") is not None else Decimal(r["amount"])) for r in records) != target:
+            continue
+        fixed = sum(r["amount"] for r in records if r.get("exact") is None)
+        floors = [int(r["exact"].to_integral_value(rounding=ROUND_FLOOR)) for r in fractional]
+        missing = int(target) - fixed - sum(floors)
+        if not 0 <= missing <= len(fractional):
+            continue
+        order = sorted(range(len(fractional)), key=lambda i: (fractional[i]["exact"] - floors[i], -i), reverse=True)
+        bumped = set(order[:missing])
+        for i, record in enumerate(fractional):
+            record["amount"] = floors[i] + (1 if i in bumped else 0)
+        block.setdefault("flags", set()).add("ROUNDING_APPORTIONED")
+
+
 def block_signature(block: dict) -> tuple:
     return (block.get("anchor"), block.get("initial"),
             sorted((r["kind"], r["container"], r["raw_date"], r["amount"], r["price"])
@@ -444,7 +501,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                 key = label_key(normalized(value))
                 if key:
                     following = list(table.values())[list(table).index(col) + 1:]
-                    amounts = [integer(v) for v in following if integer(v) is not None]
+                    amounts = [rounded(v) for v in following if rounded(v) is not None]
                     if len(amounts) == 1:
                         current[key] = amounts[0]
                         current[key + "_row"] = row_no
@@ -468,20 +525,24 @@ def scan_workbook(path: Path) -> dict[str, dict]:
             def get(key):
                 return cells.get(columns.get(key), "")
             if get("initial") and normalized(get("initial")) not in HEADERS["initial"]:
-                current["initial"] = integer(get("initial"))
+                current["initial"] = rounded(get("initial"))
                 if current["initial"] is None:
                     issues["MISSING_OPENING_ANCHOR"] += 1
             if get("anchor") and header_key(normalized(get("anchor"))) != "anchor":
                 # Month-end balance comes from the TỔNG row when there is one; running
                 # values on trip rows never override it.
                 if totals_row or not summary and not current.get("anchor_from_totals"):
-                    current["anchor"] = integer(get("anchor"))
+                    current["anchor"] = rounded(get("anchor"))
                     current["anchor_row"] = row_no
                 if totals_row:
                     current["anchor_from_totals"] = True
             if totals_row:
                 current["closed"] = True
-                current["total_row_total"] = integer(get("total"))
+                current["total_row_total"] = rounded(get("total"))
+                current["total_row_exact"] = money(get("total"))[1] or (
+                    Decimal(rounded(get("total"))) if rounded(get("total")) is not None else None)
+                current["total_row_receipt_exact"] = money(get("receipt"))[1] or (
+                    Decimal(rounded(get("receipt"))) if rounded(get("receipt")) is not None else None)
             if summary:
                 continue
             # Headers can contain several OTHER FEE columns; all retain raw cells.
@@ -489,30 +550,35 @@ def scan_workbook(path: Path) -> dict[str, dict]:
             bare = not (get("container") or get("date") or get("price")
                         or any(cells.get(col) for col in fee_columns))
             if bare:
-                total_value, receipt_value = integer(get("total")), integer(get("receipt"))
+                total_value, receipt_value = rounded(get("total")), rounded(get("receipt"))
                 if (not current["records"] and current.get("initial") is None and get("anchor")
-                        and not get("total") and not get("receipt")
-                        and integer(get("anchor")) is not None):
+                        and (not get("total") or rounded(get("total")) == 0) and not get("receipt")
+                        and rounded(get("anchor")) is not None):
                     # Carry into the month typed in the balance column above the first trip,
                     # without the "SỐ DƯ THÁNG CHUYỂN SANG" label. Still checked by the chain.
-                    current["initial"] = integer(get("anchor"))
+                    current["initial"] = rounded(get("anchor"))
                     current["initial_row"] = row_no
                     current.setdefault("flags", set()).add("CARRY_ROW_UNLABELED")
                     continue
                 if not get("receipt") and (not get("total") or total_value == 0):
                     continue  # empty template row: only a TOTAL formula returning 0
                 trip_sum, receipt_sum = current.get("trip_sum", 0), current.get("receipt_sum", 0)
-                if trip_sum and total_value == trip_sum and (
-                        not get("receipt") or receipt_value == receipt_sum):
+                # Rounded cells (ROUNDED_VND) may sit up to 1 dong each away from the Sheet's exact sums.
+                slack = sum(1 for r in current["records"] if r.get("exact") is not None)
+                if trip_sum and total_value is not None and abs(total_value - trip_sum) <= slack and (
+                        not get("receipt") or receipt_value is not None and abs(receipt_value - receipt_sum) <= slack):
                     # Unlabeled totals row (count in A, sums in TOTAL/received, balance in
                     # the anchor column). Reading it as a fee + receipt would double both
                     # sides while the balance still matched, so the chain cannot catch it.
                     if get("anchor"):
-                        current["anchor"] = integer(get("anchor"))
+                        current["anchor"] = rounded(get("anchor"))
                         current["anchor_row"] = row_no
                         current["anchor_from_totals"] = True
                     current["closed"] = True
                     current["total_row_total"] = total_value
+                    current["total_row_exact"] = money(get("total"))[1] or Decimal(total_value)
+                    current["total_row_receipt_exact"] = (money(get("receipt"))[1] or Decimal(receipt_value)
+                                                          if receipt_value is not None else None)
                     issues_flags = current.setdefault("flags", set())
                     issues_flags.add("UNLABELED_TOTAL_ROW")
                     # The older CSV extract counts this row as a trip/receipt; remember it so that
@@ -563,7 +629,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                     flags.add("COLUMN_SHIFTED")
                 if "#MISSING_CACHE" in cells.values():
                     flags.add("MISSING_CACHE")
-                price = integer(get("price")) if kind == "trip" else None
+                price = rounded(get("price")) if kind == "trip" else None
                 fee_only = kind == "trip" and not get("container") and not get("price")
                 if kind == "trip" and not fee_only and not get("price"):
                     # Flag only: history keeps the Sheet's own TOTAL cell (V7-MIG), which the
@@ -572,26 +638,25 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                 if kind == "trip" and get("receipt_date") and not get("receipt"):
                     flags.add("PAYMENT_NOTE")
                 if kind == "trip" and get("price") and price is None:
-                    if integer(get("total")) is not None:
+                    if rounded(get("total")) is not None:
                         # Price cell is text ("CHƯA CÓ GIÁ") or a formula without a cached value,
                         # but the Sheet TOTAL is a number: history keeps that total, price unknown.
                         flags.add("MISSING_PRICE")
                     else:
                         issues["INVALID_TRIP_AMOUNT"] += 1
                 if kind == "trip" and price is not None and price < 0:
-                    if not get("container") and integer(get("total")) is not None and integer(get("total")) < 0:
+                    if not get("container") and rounded(get("total")) is not None and rounded(get("total")) < 0:
                         # Credit line (no container, negative price and TOTAL): the schema keeps
                         # trip charges signed and the Sheet balance already counts it.
                         flags.add("NEGATIVE_CREDIT_ROW")
                     else:
                         issues["INVALID_TRIP_AMOUNT"] += 1
-                amount = integer(raw_amount)
-                if amount is None and raw_amount:
+                amount, exact = money(raw_amount, half_up=kind == "trip")
+                if exact is not None:
+                    flags.add("ROUNDED_VND")
+                if amount is None and raw_amount == "#MISSING_CACHE":
                     # Same hold as an empty cell, with the cause named for whoever re-exports the Sheet.
-                    if raw_amount == "#MISSING_CACHE":
-                        issues["FORMULA_CACHE_MISSING"] += 1
-                    elif re.fullmatch(r"-?[0-9]+\.[0-9]*[1-9][0-9]*(?:E[+-]?[0-9]+)?", raw_amount, re.I):
-                        issues["NON_INTEGER_AMOUNT"] += 1
+                    issues["FORMULA_CACHE_MISSING"] += 1
                 if kind == "receipt" and amount is None:
                     issues["MISSING_RECEIPT_AMOUNT"] += 1
                 if kind == "receipt" and amount is not None and amount < 0:
@@ -599,7 +664,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                 if kind == "trip" and amount is None and "MISSING_PRICE" not in flags:
                     issues["MISSING_TRIP_AMOUNT"] += 1
                 record = {"kind": kind, "month": current["month"], "row": row_no,
-                          "amount": amount, "flags": flags, "date": dt,
+                          "amount": amount, "exact": exact, "flags": flags, "date": dt,
                           "container": get("container"), "price": get("price"),
                           "cells": cells, "raw_date": raw_date,
                           "details": details if kind == "trip" else {"stt": get("stt")}}
@@ -610,6 +675,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                     current[key] = current.get(key, 0) + amount
         settle(current)
         for block in blocks.values():
+            apportion_rounding(block)
             spread_total_over_trips(block)
         resolve_out_of_block_dates(records)
         if not blocks and any(any(cells.values()) for _, cells in data):
@@ -658,7 +724,7 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
             raise LoadError("INVALID_OPENING_PERIOD")
         opening[name][month] = (integer(row["balance_vnd"]), n)
     books, held = [], {}
-    for ordinal, name in enumerate(sorted(names), 1):
+    def build_item(name, ordinal, insurance_as_receipt):
         tab = scanned.get(name, {"blocks": {}, "records": [], "issues": Counter({"MISSING_SOURCE_TAB": 1})})
         reasons = tab["issues"].copy()
         flags = Counter({"NO_BASELINE": 1, "CHUA_PHAN_LOAI": 1})
@@ -680,8 +746,16 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
             extracted = [r for r in records if r["tab"].strip() == name]
             direct = [r for r in tab["records"] if r["kind"] == kind]
             amount_key = "total_cell" if kind == "trip" else "amount_vnd"
-            csv_signature = Counter((integer(r["row"]), integer(r[amount_key])) for r in extracted)
-            xml_signature = Counter((r["row"], r["amount"]) for r in direct)
+            def csv_amount(r):
+                value = integer(r[amount_key])
+                # The CSV signs insurance items "added to debt" negative; the xlsx cell is the
+                # positive magnitude that the chain below counts as a charge. Same magnitude only.
+                if (kind == "receipt" and value is not None and value < 0
+                        and r.get("kind") == "INSURANCE_RECEIVABLE_added_to_debt"):
+                    return -value
+                return value
+            csv_signature = Counter((integer(r["row"]), csv_amount(r)) for r in extracted)
+            xml_signature = Counter((r["row"], None if r.get("exact") is not None else r["amount"]) for r in direct)
             only_csv = csv_signature - xml_signature
             counted_totals = Counter((row, amount) for total_kind, row, amount in tab.get("total_rows", ())
                                      if total_kind == kind)
@@ -695,7 +769,10 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                                                              key=lambda pair: pair[0] or 0)[:8])
             if csv_signature - xml_signature:
                 # CSV row absent from the xlsx scan, or a different amount: hold.
-                reasons["SOURCE_ROW_MISMATCH"] += 1
+                if SHEET_IS_TRUTH:
+                    flags["CSV_STALE_ROWS"] += 1
+                else:
+                    reasons["SOURCE_ROW_MISMATCH"] += 1
             elif xml_signature - csv_signature:
                 # Known extractor bug (MOC-CHUYEN-MOI): CSV skips rows the xlsx has. The xlsx
                 # rows still go through the month-end anchor chain below.
@@ -724,12 +801,17 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
         if final and integer(final.get("target_balance_vnd", "")) != item["anchor"]:
             flags["SUMMARY_ANCHOR_DIFFERS"] += 1
         if item["anchor"] is not None and sum(a for a, _ in opening[name].values()) != item["anchor"]:
-            reasons["OPENING_TOTAL_MISMATCH"] += 1
+            if SHEET_IS_TRUTH:
+                flags["OPENING_TOTAL_DIFFERS_FROM_HAO"] += 1
+            else:
+                reasons["OPENING_TOTAL_MISMATCH"] += 1
         balances = []
-        cumulative = initial = None
+        cumulative = initial = exact_cum = None
         for month in months:
             block = blocks.get(month, {"records": [], "anchor": None})
             charge = receipt = 0
+            exact_charge = exact_receipt = Decimal(0)
+            adjusted = False
             charge_known = receipt_known = True
             month_flags = {"NO_BASELINE"}
             flags.update(block.get("flags", ()))
@@ -742,11 +824,17 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                         charge_known = False
                     if amount is not None:
                         charge += amount
+                        exact_charge += record["exact"] if record.get("exact") is not None else amount
                 elif amount is not None:
                     if record.get("source_kind") == "INSURANCE_RECEIVABLE_added_to_debt":
+                        item["has_insurance"] = True
+                    if (record.get("source_kind") == "INSURANCE_RECEIVABLE_added_to_debt"
+                            and not insurance_as_receipt):
                         charge += amount
+                        exact_charge += record["exact"] if record.get("exact") is not None else amount
                     else:
                         receipt += amount
+                        exact_receipt += record["exact"] if record.get("exact") is not None else amount
                 else:
                     receipt_known = False
                 details = record.get("details", {})
@@ -791,6 +879,7 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                         receipt -= delta
                     else:
                         charge += delta
+                    adjusted = True
                     flags["YEAR_END_CARRY_ADJUSTED"] += 1
                     month_flags.add("YEAR_END_CARRY_ADJUSTED")
                     item["legacy"].append({"debt_month": month + "-01",
@@ -807,6 +896,18 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                     reasons["ANCHOR_CHAIN_MISMATCH"] += 1
             if not charge_known or not receipt_known:
                 cumulative = None
+            if cumulative is not None and exact_cum is not None and not adjusted and any(
+                    r.get("exact") is not None for r in block["records"]):
+                # Data cleaning with fractions (user 20/10/2026): the month's whole-dong charge is its
+                # exact charge rounded, and the receipt is whatever makes the whole-dong balance equal
+                # the exact running balance rounded half up (how the Sheet's balance cell reads).
+                end = int((exact_cum + exact_charge - exact_receipt).to_integral_value(rounding=ROUND_HALF_UP))
+                charge = int(exact_charge.to_integral_value(rounding=ROUND_HALF_UP))
+                receipt = charge - (end - cumulative)
+                flags["ROUNDED_MONTH_TOTALS"] += 1
+            if cumulative is not None:
+                exact_cum = (Decimal(cumulative + charge - receipt) if exact_cum is None or adjusted
+                             else exact_cum + exact_charge - exact_receipt)
             if cumulative is not None:
                 cumulative += charge - receipt
                 if cumulative != block["anchor"]:
@@ -853,8 +954,20 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
             reasons["MISSING_OPENING_ANCHOR"] += 1
         if cumulative is not None and balances and sum(balances) != item["anchor"]:
             reasons["ANCHOR_CHAIN_MISMATCH"] += 1
+        return item
+
+    for ordinal, name in enumerate(sorted(names), 1):
+        item = build_item(name, ordinal, False)
+        if item["reasons"] and item.get("has_insurance"):
+            # Insurance items the older CSV calls "added to debt" count as charges. If the Sheet was
+            # edited since, the same cells may now reduce the debt; try that reading and keep it only
+            # when it leaves fewer holds (the month-end chain still has to close, cell for cell).
+            other = build_item(name, ordinal, True)
+            if sum(other["reasons"].values()) < sum(item["reasons"].values()):
+                other["flags"]["INSURANCE_AS_RECEIPT"] += 1
+                item = other
         books.append(item)
-        held[name] = reasons
+        held[name] = item["reasons"]
     if digests != {name: hashlib.sha256((source / name).read_bytes()).hexdigest() for name in FILES}:
         raise LoadError("SOURCE_CHANGED_DURING_READ")
     return books, digests, held
@@ -940,9 +1053,12 @@ def main() -> int:
     parser.add_argument("--rows", default="1:40", help="row range for --dump-tab, e.g. 1:40")
     parser.add_argument("--raw-tab", action="append", default=[], metavar="EXACT_NAME",
                         help="exact tab name incl. spaces to use when tabs differ only in spaces")
+    parser.add_argument("--sheet-is-truth", action="store_true",
+                        help="newer xlsx outranks older CSV extracts and the hao opening (flags, not holds)")
     args = parser.parse_args()
-    global PREFERRED_RAW_TABS
+    global PREFERRED_RAW_TABS, SHEET_IS_TRUTH
     PREFERRED_RAW_TABS = tuple(args.raw_tab)
+    SHEET_IS_TRUTH = args.sheet_is_truth
     if args.dump_tab:
         low, high = (int(part) for part in args.rows.split(":"))
         for tab, data in workbook_rows(args.source_dir / "source-google-export.xlsx"):

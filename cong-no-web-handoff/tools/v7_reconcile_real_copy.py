@@ -61,8 +61,10 @@ def main() -> int:
     parser.add_argument("--source-dir", type=Path, default=SOURCE)
     parser.add_argument("--raw-tab", action="append", default=[], metavar="EXACT_NAME",
                         help="same choice as the loader, so both read the same tabs")
+    parser.add_argument("--sheet-is-truth", action="store_true", help="same as the loader")
     args = parser.parse_args()
     loader.PREFERRED_RAW_TABS = tuple(args.raw_tab)
+    loader.SHEET_IS_TRUTH = args.sheet_is_truth
     match = re.fullmatch(r"webdebit-v7-real-([0-9a-f]{32})", args.container)
     if not match:
         parser.error("container must be this loader's real-copy name")
