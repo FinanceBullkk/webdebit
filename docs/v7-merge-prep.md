@@ -11,6 +11,7 @@ Gom từ `test/pg18-schema-characterization` (checkout `repo/`), các worktree c
 | `npm run check` (`scripts/check.js`, `business-rules.js`, `check-business-rules.js`, `test-business-rules.js`, `eslint.config.js`, `ruff.toml`, `requirements-dev.txt`, workflow, `package.json`/lock, `AGENTS.md`, `README.md`, `docs/development.md`) | `test/pg18-schema-characterization` | Ba-way với `main`; `test:unit` giữ hai test V7 của nhánh này, bỏ test V5 không nhập |
 | Sửa ruff cho 17 file cũ | cùng nhánh | Ba-way từng file, giữ thay đổi mới của `main` |
 | Khai báo global V7 cho eslint, `_balance` ở `renderMonth` | mới | Hai tên model/fixture V7 là global theo thẻ script |
+| Sửa lint V7, ARCH-01, ví dụ V5 → V7 trong `development.md` và fixture luật | mới | Xem đoạn dưới |
 | Spec cấn trừ hai sổ (3 file, dòng `CT-2SO`, mục trong `specs/README.md`) | `docs/can-tru-hai-so` (chưa commit) | Ghép tay vào `decisions.md`/README |
 | Tài liệu agent (`CLAUDE.md`, `GEMINI.md`, `docs/multi-agent.md`, `agent-environment.md`, `ux-guidelines.md`) và `scripts/agent-run.ps1`, `codex-detached.ps1`, `open-penpot.ps1`, `ui-capture.js` | `repo/` (chưa theo dõi) | Đã quét: thay địa chỉ proxy, cổng và đường dẫn thư mục người dùng trong `agent-environment.md` bằng chỗ giữ chỗ; không hostname/SSH/ID Sheet/tên khách/số tiền thật |
 | 12 spec của việc đã vào `main` | `repo/` (chưa theo dõi) | `_template`, `allocation-edge-tests`, `fu-*` (4), `harness-psql-stdin`, `ledger-migration-f1f3`, `remove-draft-rows`, `table-scroll-keyboard`, `workbench-readability` |
@@ -23,19 +24,23 @@ Gom từ `test/pg18-schema-characterization` (checkout `repo/`), các worktree c
 - `v7-isolated-read`, `m1w-p0`, V6-THU (hai worktree), `p0-actor-revisions`, `pg-ledger-characterization.json`, dòng V7-COPY thừa ở `decisions.md` của `repo/`: chỉ lưu patch.
 - Tài liệu V5/V6 và preview V5/V6 như mục trước.
 
-**Kết quả `npm run check` (Windows, Python 3.13 trong `.venv`, Node 24):**
+**Kết quả `npm run check` (Windows, Python 3.13 trong `.venv`, Node 24; sau vòng sửa lint):**
 
 | Bước | Kết quả |
 | --- | --- |
+| `lint:py` ruff | ĐẠT |
+| `lint:biz` luật nghiệp vụ | ĐẠT, 8/8 luật |
+| `lint:js` eslint | ĐẠT |
 | `test:py` unittest | ĐẠT, 161 test |
 | `test:js` node --test | ĐẠT, 75/75 |
 | `test:js` playwright | ĐẠT, 6/6 |
 | `test:js` viewer | ĐẠT, 11/11 |
-| `lint:js` eslint | ĐẠT |
-| `lint:py` ruff | **ĐỎ**, 74 lỗi, toàn bộ ở 10 file V7 chưa từng qua lint (`v7_load_real_copy.py` 33, `test_v7_load_real_copy.py` 9, `v7_ledger_api.py` 6, `test_pg_v7_backend.py` 5, `v7_export_clean.py` 5, `test_v7_ledger_api.py` 5, `test_v7_export_clean.py` 4, `v7_live_demo.py` 3, `v7_reconcile_real_copy.py` 2, `v7_profile_xlsx.py` 1); nhiều nhất B023, RUF021, BLE001, I001, E402 |
-| `lint:biz` luật nghiệp vụ | **ĐỎ**, 17 vi phạm trên code V7: VND-02 (`float()` ở `v7_load_real_copy.py:143`), DATE-01 (`so-khach-v7-ui.js:34`, lấy ngày không khai múi giờ), ARCH-01 (15 chỗ gọi `psql` ngoài tầng DB: `v7_ledger_api.py`, `v7_live_demo.py`, `v7_load_real_copy.py`, 2 test và `test_pg_v7_backend.py`) |
 
-Hai bước đỏ là code V7 gặp công cụ lint lần đầu, không do gộp (trước khi gộp tooling, nhánh này không có lint). Đỏ sẵn từ trước nên không sửa trong lượt này: sửa nghĩa là đổi code V7 hoặc đổi luật; luật nghiệp vụ không tắt theo `docs/development.md`. CI chạy `npm run check` sẽ đỏ tới khi V7 được sửa lint hoặc có quyết định ngoại lệ (ví dụ cho `web/v7_ledger_api.py` vào danh sách `PSQL_ALLOWED` nếu nó là tầng DB của V7).
+**Sửa lint cho code V7 (chưa từng qua lint trước khi gộp tooling):** ruff `--fix` cho import và so sánh, còn lại sửa tay không đổi hành vi (lambda → def, `zip(strict=)`, `check=False`, `raise … from None`, `contextlib.suppress`, tách câu lệnh `;`, bind biến vòng lặp bằng tham số mặc định). Giữ có chủ đích và ghi `noqa` kèm lý do: `sys.path` trước import (E402), bắt `Exception` để ra mã lý do (BLE001), `global` ở hàm `main` CLI (PLW0603), closure chỉ gọi trong lượt lặp định nghĩa nó (B023). VND-02: `looks_like_date` đọc serial 5 chữ số bằng `int` thay `float` (không phải tiền, nhưng bỏ `float`). DATE-01: nhật ký hoạt động của `so-khach-v7-ui.js` hiện giờ `Asia/Ho_Chi_Minh`. ARCH-01: danh sách tường minh có thêm `web/v7_ledger_api.py` (adapter), `tools/test_pg_v7_backend.py`, `tools/v7_load_real_copy.py`, `tools/v7_live_demo.py` và hai test của chúng, mỗi mục kèm lý do trong `scripts/business-rules.js`.
+
+**Kiểm V7 sau sửa lint:** Node `test-so-khach-v7-*` 39/39; unittest `test_v7_ledger_api`, `test_v7_load_real_copy`, `test_v7_export_clean` 62 đạt, 1 bỏ qua; `test_pg_v7_backend.py --list` liệt kê đủ case; harness Docker (PostgreSQL 18.6, container dùng một lần) SCHEMA 10/10, BEHAVIOR 25/25, 2 case `SKIPPED_OPEN`.
+
+**Về `f9fd099`:** logic xuất bản sạch giống `f9fd099`; bản trên nhánh này có thêm rào chặn ghi vào trong repo và nhật ký test ra thư mục tạm. Quyết định (21/10/2026, phiên điều phối): giữ bản nhánh này, không khớp từng byte.
 
 ## Vòng 2
 
