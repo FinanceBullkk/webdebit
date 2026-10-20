@@ -12,7 +12,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-
 MAX_BODY = 64 * 1024
 MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
@@ -77,7 +76,7 @@ def vnd(value: object, *, signed: bool = False, nullable: bool = False) -> bool:
         return False
     digits = value.lstrip("-")
     limit = str(MAX_BIGINT + (value.startswith("-")))
-    return len(digits) < len(limit) or len(digits) == len(limit) and digits <= limit
+    return len(digits) < len(limit) or (len(digits) == len(limit) and digits <= limit)
 
 
 def valid_date(value: object, *, month: bool = False, trip: bool = False) -> bool:
@@ -114,7 +113,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if not isinstance(body, dict):
         bad()
     function, fields = ROUTES[path]
-    if set(body) - (COMMON | fields) or not COMMON <= set(body):
+    if set(body) - (COMMON | fields) or not set(body) >= COMMON:
         bad()
     if not positive_int(body["customer_id"]) or type(body["expected_version"]) is not int or not 0 <= body["expected_version"] <= MAX_BIGINT:
         bad()
@@ -154,7 +153,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
             if any(type(value) is not str and value is not None for value in trip_row.values()):
                 bad()
     for name in ("date",):
-        if name in fields and (name not in body and function == "record_receipt" or name in body and body[name] is not None and not valid_date(body[name])):
+        if name in fields and ((name not in body and function == "record_receipt") or (name in body and body[name] is not None and not valid_date(body[name]))):
             bad()
     for name in ("method", "pid", "reason", "note"):
         if name in fields and name in body and body[name] is not None and (not isinstance(body[name], str) or len(body[name]) > 500):
@@ -274,7 +273,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             if set(query) != {"customer"} or len(query["customer"]) != 1 or not re.fullmatch(r"[1-9][0-9]*", query["customer"][0]):
                 bad()
             customer_text = query["customer"][0]
-            if len(customer_text) > 19 or len(customer_text) == 19 and customer_text > str(MAX_BIGINT):
+            if len(customer_text) > 19 or (len(customer_text) == 19 and customer_text > str(MAX_BIGINT)):
                 bad()
             customer = int(customer_text)
             function, payload = "get_ledger", {"customer_id": customer}
