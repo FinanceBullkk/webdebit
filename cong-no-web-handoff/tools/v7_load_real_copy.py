@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
 import json
@@ -12,18 +13,36 @@ import re
 import shutil
 import sys
 import time
-import uuid
 import unicodedata
+import uuid
 import zipfile
 from collections import Counter, defaultdict
 from datetime import date, timedelta
-from decimal import ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import (
+    ROUND_FLOOR,
+    ROUND_HALF_DOWN,
+    ROUND_HALF_UP,
+    Decimal,
+    InvalidOperation,
+)
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from test_pg_v7_backend import (DATABASE, FUNCTIONS, IMAGE, LABEL_RUN, LABEL_TEST,
-                                LABEL_VALUE, SCHEMA, Pg, call, inspect_owned,
-                                inspect_volume, run, version)
+from test_pg_v7_backend import (
+    DATABASE,
+    FUNCTIONS,
+    IMAGE,
+    LABEL_RUN,
+    LABEL_TEST,
+    LABEL_VALUE,
+    SCHEMA,
+    Pg,
+    call,
+    inspect_owned,
+    inspect_volume,
+    run,
+    version,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 import v7_ledger_api as api
@@ -148,7 +167,7 @@ PREFIX_HEADERS = ("receipt", "anchor", "price")
 
 def header_key(label: str) -> str | None:
     for key, aliases in HEADERS.items():
-        if label in aliases or key in PREFIX_HEADERS and any(label.startswith(a) for a in aliases):
+        if label in aliases or (key in PREFIX_HEADERS and any(label.startswith(a) for a in aliases)):
             return key
     # A note typed into the header cell ("TOTAL(VND) du ...") keeps it the TOTAL column.
     return "total" if label.startswith("TOTAL VND ") else None
@@ -202,11 +221,11 @@ def workbook_rows(path: Path):
                             text = shared[int(text)]
                         elif cell.attrib.get("t") == "inlineStr":
                             text = "".join(t.text or "" for t in cell.findall(".//m:t", NS))
-                        if cell.find("m:f", NS) is not None and not text:
+                        if (cell.find("m:f", NS) is not None and not text
+                                and not (value is not None and cell.attrib.get("t") == "str")):
                             # <v></v> on a string formula is a cached empty result (the formula
                             # returned blank); only a formula with no <v> at all lost its value.
-                            if not (value is not None and cell.attrib.get("t") == "str"):
-                                text = "#MISSING_CACHE"
+                            text = "#MISSING_CACHE"
                         cells[column] = text.strip()
                     data.append((int(row.attrib["r"]), cells))
                     row.clear()
@@ -270,10 +289,8 @@ def resolve_out_of_block_dates(records: list[dict]) -> None:
             continue
         choice = stored
         if swapped > straight:
-            try:
+            with contextlib.suppress(ValueError):
                 choice = date(stored.year, stored.day, stored.month)
-            except ValueError:
-                pass
         record["date"] = choice.isoformat()
         record["flags"].add("DATE_READING_FROM_TAB")
 
@@ -406,7 +423,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
         columns = {}
         rows_list = list(data)
 
-        def settle(block):
+        def settle(block, blocks=blocks, notes=notes, issues=issues):
             """A block outside `blocks` (repeated month, no title) is dropped only when provably empty/identical."""
             if block is None or not block.get("scratch"):
                 return
@@ -417,7 +434,8 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                     issues["DUPLICATE_MONTH_BLOCK"] += 1
             elif (block["records"] or block.get("anchor") not in (None, 0)
                   or block.get("initial") not in (None, 0)):
-                issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1; issues["LAYOUT_HEADER_MISSING_BLOCK"] += 1
+                issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1
+                issues["LAYOUT_HEADER_MISSING_BLOCK"] += 1
             else:
                 notes["UNTITLED_EMPTY_BLOCK"] += 1
 
@@ -452,7 +470,8 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                     if month:
                         notes["TITLE_MONTH_FROM_DATES"] += 1
                 if month is None:
-                    issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1; issues["LAYOUT_BAD_MONTH_TITLE"] += 1
+                    issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1
+                    issues["LAYOUT_BAD_MONTH_TITLE"] += 1
                     current = None
                     columns = {}
                     continue
@@ -506,7 +525,8 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                         current[key] = amounts[0]
                         current[key + "_row"] = row_no
                     elif len(amounts) > 1:
-                        issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1; issues["LAYOUT_LABEL_MANY_AMOUNTS"] += 1
+                        issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1
+                        issues["LAYOUT_LABEL_MANY_AMOUNTS"] += 1
                     elif key == "initial":
                         # Real carry row "SỐ DƯ THÁNG CHUYỂN SANG" is often left blank. Blank is
                         # not 0: mark it; source_data checks the assumption against the month anchor.
@@ -523,7 +543,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                     current.setdefault("flags", set()).add("NUMBERS_OUTSIDE_TABLE")
                 continue
             def get(key):
-                return cells.get(columns.get(key), "")
+                return cells.get(columns.get(key), "")  # noqa: B023  (defined and called within the same row iteration)
             if get("initial") and normalized(get("initial")) not in HEADERS["initial"]:
                 current["initial"] = rounded(get("initial"))
                 if current["initial"] is None:
@@ -531,7 +551,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
             if get("anchor") and header_key(normalized(get("anchor"))) != "anchor":
                 # Month-end balance comes from the TỔNG row when there is one; running
                 # values on trip rows never override it.
-                if totals_row or not summary and not current.get("anchor_from_totals"):
+                if totals_row or (not summary and not current.get("anchor_from_totals")):
                     current["anchor"] = rounded(get("anchor"))
                     current["anchor_row"] = row_no
                 if totals_row:
@@ -566,7 +586,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                 # Rounded cells (ROUNDED_VND) may sit up to 1 dong each away from the Sheet's exact sums.
                 slack = sum(1 for r in current["records"] if r.get("exact") is not None)
                 if trip_sum and total_value is not None and abs(total_value - trip_sum) <= slack and (
-                        not get("receipt") or receipt_value is not None and abs(receipt_value - receipt_sum) <= slack):
+                        not get("receipt") or (receipt_value is not None and abs(receipt_value - receipt_sum) <= slack)):
                     # Unlabeled totals row (count in A, sums in TOTAL/received, balance in
                     # the anchor column). Reading it as a fee + receipt would double both
                     # sides while the balance still matched, so the chain cannot catch it.
@@ -607,7 +627,7 @@ def scan_workbook(path: Path) -> dict[str, dict]:
                         break
 
             def shifted(key):
-                return cells.get(col_name(col_num(columns[key]) + shift), "") if columns.get(key) else ""
+                return cells.get(col_name(col_num(columns[key]) + shift), "") if columns.get(key) else ""  # noqa: B023  (defined and called within the same row iteration)
             carrier_col = col_name(col_num(columns["container"]) + 1) if columns.get("container") else None
             carrier = "" if not carrier_col or carrier_col in {
                 col_name(col_num(columns[k]) + shift) for k in ("date", "from", "to") if columns.get(k)
@@ -679,7 +699,8 @@ def scan_workbook(path: Path) -> dict[str, dict]:
             spread_total_over_trips(block)
         resolve_out_of_block_dates(records)
         if not blocks and any(any(cells.values()) for _, cells in data):
-            issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1; issues["LAYOUT_NO_MONTH_BLOCK"] += 1
+            issues["SOURCE_LAYOUT_UNSUPPORTED"] += 1
+            issues["LAYOUT_NO_MONTH_BLOCK"] += 1
         if blocks or issues:
             if not blocks:
                 issues["MISSING_MONTH"] += 1
@@ -746,7 +767,7 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
             extracted = [r for r in records if r["tab"].strip() == name]
             direct = [r for r in tab["records"] if r["kind"] == kind]
             amount_key = "total_cell" if kind == "trip" else "amount_vnd"
-            def csv_amount(r):
+            def csv_amount(r, amount_key=amount_key, kind=kind):
                 value = integer(r[amount_key])
                 # The CSV signs insurance items "added to debt" negative; the xlsx cell is the
                 # positive magnitude that the chain below counts as a charge. Same magnitude only.
@@ -838,7 +859,8 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                 else:
                     receipt_known = False
                 details = record.get("details", {})
-                money_text = lambda value: None if value is None else str(value)
+                def money_text(value):
+                    return None if value is None else str(value)
                 # Structured fields let the page place history in the same columns as the Sheet;
                 # VND as digit strings like every other money field.
                 display = {"tab": name, "row": record["row"], "date": record["date"],
@@ -1019,7 +1041,7 @@ def import_one(pg: Pg, item: dict, digest: str, index: int) -> str:
     try:
         call(pg, "verify_cutover_customer", customer, cutover, version(pg, customer),
              f"real-verify-customer-{index}", None, actor="isolated-loader")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  (any load failure becomes a coded reason)
         raise LoadError(reason(exc)) from None
     call(pg, "verify_cutover", cutover, f"real-verify-{index}", None, actor="isolated-loader")
     call(pg, "activate_cutover", cutover, f"real-activate-{index}", None, actor="isolated-loader")
@@ -1056,7 +1078,7 @@ def main() -> int:
     parser.add_argument("--sheet-is-truth", action="store_true",
                         help="newer xlsx outranks older CSV extracts and the hao opening (flags, not holds)")
     args = parser.parse_args()
-    global PREFERRED_RAW_TABS, SHEET_IS_TRUTH
+    global PREFERRED_RAW_TABS, SHEET_IS_TRUTH  # noqa: PLW0603  (CLI entry sets module options once)
     PREFERRED_RAW_TABS = tuple(args.raw_tab)
     SHEET_IS_TRUTH = args.sheet_is_truth
     if args.dump_tab:
@@ -1075,7 +1097,7 @@ def main() -> int:
         books, _, _ = source_data(args.source_dir)
         needles = [needle.upper() for needle in args.explain]
         for item in books:
-            if any(needle in item["name"].upper() or needle == "HELD" and item["reasons"] for needle in needles):
+            if any(needle in item["name"].upper() or (needle == "HELD" and item["reasons"]) for needle in needles):
                 print(json.dumps({"name": item["name"], "reasons": dict(item["reasons"]),
                                   "in_summary": item.get("in_summary"), "csv_only": item.get("csv_only", []),
                                   "anchor": item["anchor"],
@@ -1126,7 +1148,7 @@ def main() -> int:
         for index, item in enumerate(books, 1):
             try:
                 item["status"] = import_one(pg, item, digests["source-google-export.xlsx"], index)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001  (a held book is reported, not raised)
                 item["reasons"][reason(exc)] += 1
                 item["status"] = "held"
                 exit_code = 1
@@ -1143,7 +1165,7 @@ def main() -> int:
             server.serve_forever()
     except KeyboardInterrupt:
         pass
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  (failure is written to the report with a coded reason)
         result = report(books, digests, run_id)
         result["reason_counts"][reason(exc)] = result["reason_counts"].get(reason(exc), 0) + 1
         write_report(result, f"real-load-{run_id}.json")
@@ -1152,7 +1174,7 @@ def main() -> int:
         if server is not None:
             try:
                 server.server_close()
-            except Exception:
+            except Exception:  # noqa: BLE001  (best-effort close; failure sets the exit code)
                 exit_code = 1
         if made_volume and (not args.keep or exit_code):
             try:
@@ -1161,7 +1183,7 @@ def main() -> int:
                     run(["docker", "rm", "--force", owned])
                 inspect_volume(volume, run_id)
                 run(["docker", "volume", "rm", volume])
-            except Exception:
+            except Exception:  # noqa: BLE001  (teardown failure is reported, not raised)
                 exit_code = 1
                 result = report(books, digests, run_id, loaded=True)
                 result["reason_counts"]["TEARDOWN_FAILED"] = 1

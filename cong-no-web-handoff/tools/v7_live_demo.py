@@ -15,12 +15,27 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 
-from test_pg_v7_backend import (DATABASE, FUNCTIONS, IMAGE, LABEL_RUN, LABEL_TEST,
-                                LABEL_VALUE, SCHEMA, Pg, HarnessError, call, import_book,
-                                inspect_owned, inspect_volume, require, run, version)
+from test_pg_v7_backend import (  # noqa: E402  (stdout reconfigured above)
+    DATABASE,
+    FUNCTIONS,
+    IMAGE,
+    LABEL_RUN,
+    LABEL_TEST,
+    LABEL_VALUE,
+    SCHEMA,
+    HarnessError,
+    Pg,
+    call,
+    import_book,
+    inspect_owned,
+    inspect_volume,
+    require,
+    run,
+    version,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
-import v7_ledger_api as api
+import v7_ledger_api as api  # noqa: E402  (sys.path set above)
 
 
 def seed(pg: Pg) -> dict[str, int]:

@@ -58,8 +58,10 @@ def main() -> int:
                 signature = " | ".join(f"{col}:{value}" for col, value in sorted(
                     masked.items(), key=lambda item: (len(item[0]), item[0])))
                 signatures[signature].add(index)
-    common = lambda table: sorted(((k, len(v)) for k, v in table.items() if len(v) >= MIN_TABS),
-                                  key=lambda item: -item[1])
+    def common(table):
+        return sorted(((k, len(v)) for k, v in table.items() if len(v) >= MIN_TABS),
+                      key=lambda item: -item[1])
+
     result = {
         "tabs_profiled": tabs, "min_tabs_for_text": MIN_TABS,
         "month_title_forms": common(titles)[:40],

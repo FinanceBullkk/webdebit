@@ -13,13 +13,14 @@ from collections import Counter
 from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-import v7_load_real_copy as loader
-import v7_reconcile_real_copy as reconciler
+import v7_load_real_copy as loader  # noqa: E402  (sys.path set above)
+import v7_reconcile_real_copy as reconciler  # noqa: E402
 
 FAKE_NAME = "FAKE PRIVATE CUSTOMER ZXQ"
 FAKE_AMOUNT = 876543219
@@ -150,7 +151,9 @@ def real_layout_fixture(folder, name=FAKE_NAME):
                 cell.set("t", "inlineStr")
                 ET.SubElement(ET.SubElement(cell, f"{{{M}}}is"), f"{{{M}}}t").text = value
 
-    pad = lambda **cols: [cols.get(column(i), "") for i in range(1, 16)]
+    def pad(**cols):
+        return [cols.get(column(i), "") for i in range(1, 16)]
+
     row(1, ["SỔ CHI TIẾT THEO DÕI CÔNG NỢ  PHẢI THU THÁNG 9.2026"])
     row(2, [h.format(m="9.2026") for h in REAL_HEADERS])
     row(3, pad(A="SỐ DƯ THÁNG  CHUYỂN SANG", N=1000))
@@ -293,7 +296,7 @@ class LayoutVariantTest(unittest.TestCase):
         self.assertEqual(item["legacy"][0]["source_total_vnd"], 300)
 
     TITLE = "SỔ CHI TIẾT THEO DÕI CÔNG NỢ  PHẢI THU THÁNG "
-    FAKE_HEADER = {column(i): h.format(m="") for i, h in enumerate(REAL_HEADERS, 1) if h}
+    FAKE_HEADER: ClassVar[dict] = {column(i): h.format(m="") for i, h in enumerate(REAL_HEADERS, 1) if h}
 
     def test_stray_separators_in_month_title(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -369,7 +372,7 @@ class LayoutVariantTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             tab = self.build(Path(temp), [(13, {"K": -50, "L": -50})], scan=True)
         self.assertNotIn("INVALID_TRIP_AMOUNT", tab["issues"])
-        credit = [r for r in tab["records"] if r["row"] == 13][0]
+        credit = next(r for r in tab["records"] if r["row"] == 13)
         self.assertEqual(credit["amount"], -50)
         self.assertIn("NEGATIVE_CREDIT_ROW", credit["flags"])
         with tempfile.TemporaryDirectory() as temp:
@@ -468,7 +471,7 @@ class LayoutVariantTest(unittest.TestCase):
             folder = Path(temp)
             self.build(folder, [(4, {"K": "300.5"}), (5, {"K": "199.5"})])
             trips = loader.rows(folder, "trips_so_goc.csv")  # the older CSV could not read fractions
-            for trip, amount in zip(trips, ("", "")):
+            for trip, amount in zip(trips, ("", ""), strict=False):
                 trip["total_cell"] = amount
             csv_file(folder, "trips_so_goc.csv", list(trips[0]), trips)
             item = loader.source_data(folder)[0][0]
@@ -491,7 +494,8 @@ class LayoutVariantTest(unittest.TestCase):
 
     def test_apportion_never_touches_whole_cells_or_unmatched_totals(self):
         from decimal import Decimal
-        record = lambda amount, exact=None: {"kind": "trip", "amount": amount, "exact": exact, "flags": set()}
+        def record(amount, exact=None):
+            return {"kind": "trip", "amount": amount, "exact": exact, "flags": set()}
         block = {"total_row_exact": Decimal(10),
                  "records": [record(5), record(3, Decimal("2.5")), record(2, Decimal("2.5"))]}
         loader.apportion_rounding(block)
@@ -565,7 +569,8 @@ class LayoutVariantTest(unittest.TestCase):
 
 class OutOfBlockDateTest(unittest.TestCase):
     def test_out_of_block_serial_follows_tab_majority_single_reading(self):
-        serial = lambda d: str((d - date(1899, 12, 30)).days) + ".0"
+        def serial(d):
+            return str((d - date(1899, 12, 30)).days) + ".0"
         def rec(raw, dt=None, flags=()):
             return {"kind": "trip", "raw_date": raw, "date": dt, "flags": set(flags)}
         # Tab leans swapped: two in-block rows needed DATE_SWAPPED, one did not.
@@ -881,7 +886,7 @@ class RealCopyTest(unittest.TestCase):
                      "raise SystemExit(loader.main())")
         process = subprocess.run([sys.executable, "-c", bootstrap, str(ROOT / "tools"), str(self.folder / "logs"),
                                   "--source-dir", str(self.folder), "--check-source"],
-                                 capture_output=True, text=True, encoding="utf-8", env=env, timeout=20)
+                                 capture_output=True, text=True, encoding="utf-8", env=env, timeout=20, check=False)
         self.assertEqual(process.returncode, 0, process.stderr)
         result = json.loads(process.stdout)
         self.assertEqual(result["eligible_customers"], 1)

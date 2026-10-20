@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 import v7_ledger_api as api  # noqa: E402
@@ -160,11 +159,11 @@ class LedgerApiTest(unittest.TestCase):
         body = self.common | {"date": "2026-10-20", "method": "THU TIỀN", "amount_vnd": "10"}
         for field in ("actor", "allocation", "allocations", "total_vnd"):
             with self.subTest(field=field):
-                self.error(422, "INVALID_REQUEST", lambda: self.call(path, body | {field: "forged"}))
+                self.error(422, "INVALID_REQUEST", lambda field=field: self.call(path, body | {field: "forged"}))
         for amount in (10, 1.5, "1.5", "-0", "01", "9" * 5000, "9223372036854775808"):
             with self.subTest(amount=str(amount)[:24]):
                 code = "INVALID_REQUEST" if amount == 1.5 else "INVALID_VND"
-                self.error(422, code, lambda: self.call(path, body | {"amount_vnd": amount}))
+                self.error(422, code, lambda amount=amount: self.call(path, body | {"amount_vnd": amount}))
         self.error(422, "INVALID_REQUEST", lambda: self.call(path, body | {"idempotency_key": "x\nq"}))
         self.error(422, "INVALID_REQUEST", lambda: self.call(path, body | {"customer_id": True}))
         self.error(422, "INVALID_REQUEST", lambda: self.call(path, body | {"expected_version": -1}))
@@ -209,9 +208,8 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual(api.Psql("webdebit-v7-test-fake", "webdebit_v7_test", "v7_app").user, "v7_app")
         unsafe = subprocess.CompletedProcess([], 0, json.dumps([{"Id": "b" * 64, "Config": {"Labels": {}},
             "HostConfig": {"NetworkMode": "bridge"}}]), "")
-        with patch.object(api.subprocess, "run", return_value=unsafe):
-            with self.assertRaises(ValueError):
-                api.Psql("not-a-harness", "webdebit_v7_test", "v7_app")
+        with patch.object(api.subprocess, "run", return_value=unsafe), self.assertRaises(ValueError):
+            api.Psql("not-a-harness", "webdebit_v7_test", "v7_app")
         for code, (status, _) in api.ERRORS.items():
             with self.subTest(error=code):
                 error = subprocess.CompletedProcess([], 3, "", f"psql:<stdin>:3: ERROR:  P0001: {code}\n")
@@ -293,8 +291,19 @@ class LedgerDockerTest(unittest.TestCase):
     @contextmanager
     def fake_container(self):
         sys.path.insert(0, str(ROOT / "tools"))
-        from test_pg_v7_backend import (DATABASE, FUNCTIONS, IMAGE, LABEL_RUN, LABEL_TEST,
-                                        LABEL_VALUE, SCHEMA, Pg, inspect_owned, inspect_volume, run)
+        from test_pg_v7_backend import (
+            DATABASE,
+            FUNCTIONS,
+            IMAGE,
+            LABEL_RUN,
+            LABEL_TEST,
+            LABEL_VALUE,
+            SCHEMA,
+            Pg,
+            inspect_owned,
+            inspect_volume,
+            run,
+        )
 
         existing = os.getenv("V7_API_CONTAINER")
         if existing:

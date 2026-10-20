@@ -14,10 +14,9 @@ import hashlib
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import v7_load_real_copy as loader
@@ -80,10 +79,10 @@ def write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
 
 def git_state() -> dict:
     def run(*args):
-        return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=30).stdout.strip()
+        return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, timeout=30, check=False).stdout.strip()
     try:
         return {"commit": run("rev-parse", "HEAD"), "dirty": bool(run("status", "--porcelain", "--", "cong-no-web-handoff/tools"))}
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return {"commit": None, "dirty": None}
 
 
@@ -116,7 +115,7 @@ def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tu
                                          "month_end_vnd", "sheet_month_end_vnd", "bucket_vnd"], months)
     write_csv(out / "clean_rows.csv", ["customer", "debt_month", "kind", "source_tab", "source_row", "amount_vnd",
                                        "flags"], rows)
-    manifest = {"created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    manifest = {"created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
                 "notice": NOTICE, "tool": git_state(),
                 "options": {"sheet_is_truth": True, "raw_tabs_given": len(raw_tabs)},
                 "source": {"xlsx_file_name": xlsx.name, "xlsx_sha256": digests["source-google-export.xlsx"],
@@ -145,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(exc))
     try:
         books, digests = build_books(args.source_dir, args.xlsx, tuple(args.raw_tab))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  (any failure becomes a coded reason, never a traceback with data)
         print(json.dumps({"ok": False, "reason": loader.reason(exc)}))
         return 1
     held = [b for b in books if b["in_summary"] and b["reasons"]]

@@ -16,7 +16,6 @@ import time
 import uuid
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff" / "tools" / "v7_backend_functions.sql"
@@ -35,7 +34,7 @@ def run(args: list[str], *, input_text: str | None = None, check: bool = True,
         timeout: float = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     try:
         p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
-                           errors="replace", capture_output=True, timeout=timeout, cwd=cwd)
+                           errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise HarnessError(f"command unavailable/timed out: {args[:3]}: {exc}") from exc
     if check and p.returncode:
@@ -196,7 +195,7 @@ def import_data(amounts: list[int], *, buckets: list[int] | None = None,
     flags = [[] for _ in amounts] if flags is None else flags
     dates = [f"2026-{n:02d}-01" for n in range(1, len(amounts) + 1)]
     openings = [{"debt_month": month, "amount_vnd": amount, "source_tab": "FAKE",
-                 "source_row": n} for n, (month, amount) in enumerate(zip(dates, amounts), 1)]
+                 "source_row": n} for n, (month, amount) in enumerate(zip(dates, amounts, strict=True), 1)]
     checks = []
     charges = standards if charges is None else charges
     receipts = [0] * len(amounts) if receipts is None else receipts
@@ -1287,9 +1286,9 @@ COMMIT;
     for row in ledger["months"]:
         m = row["month"][:7]
         charges = sum(int(t["amount_vnd"] or 0) for t in ledger["trips"] if t["month"][:7] == m)
-        received = sum(int(l["amount_vnd"]) for r in ledger["receipts"] for l in r["allocations"]
-                       if r["voided_on"] is None and l["superseded_by_event"] is None
-                       and l["month"][:7] == m)
+        received = sum(int(a["amount_vnd"]) for r in ledger["receipts"] for a in r["allocations"]
+                       if r["voided_on"] is None and a["superseded_by_event"] is None
+                       and a["month"][:7] == m)
         trip_count = sum(t["month"][:7] == m and not t["is_fee_only"] for t in ledger["trips"])
         got.append([m, str(charges), str(received), row["end_of_month_vnd"], counts[m], trip_count])
     require(got == expected["months"] and ledger["total_outstanding_vnd"] == expected["total"]
@@ -1631,7 +1630,7 @@ def check_evidence(pg: Pg) -> str:
             except subprocess.TimeoutExpired:
                 worker.kill()
                 out, err = worker.communicate()
-                raise HarnessError("direct evidence worker timed out")
+                raise HarnessError("direct evidence worker timed out") from None
             require(worker.returncode != 0 and "cutover evidence frozen" in err,
                     f"worker must reject evidence after lock release: {out} {err[-500:]}")
     return f"trigger freeze and pg_blocking_pids observed: {observed}"

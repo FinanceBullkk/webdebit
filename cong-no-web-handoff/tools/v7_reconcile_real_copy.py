@@ -8,10 +8,17 @@ import json
 import re
 from pathlib import Path
 
-from test_pg_v7_backend import Pg, inspect_owned
 import v7_load_real_copy as loader
-from v7_load_real_copy import (SOURCE, LoadError, integer, reason, report,
-                               source_data, write_report)
+from test_pg_v7_backend import Pg, inspect_owned
+from v7_load_real_copy import (
+    SOURCE,
+    LoadError,
+    integer,
+    reason,
+    report,
+    source_data,
+    write_report,
+)
 
 
 def reconcile(pg: Pg, source: Path) -> dict:
@@ -73,7 +80,7 @@ def main() -> int:
         if inspect_owned(args.container, args.container, run_id) is None:
             raise LoadError("CONTAINER_MISSING")
         result = reconcile(Pg(args.container, run_id), args.source_dir)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  (any failure becomes a coded reason in the report)
         result = report([], {}, run_id)
         result["reason_counts"][reason(exc)] = 1
         write_report(result, f"real-reconcile-{run_id}.json")

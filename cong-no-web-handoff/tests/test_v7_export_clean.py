@@ -13,9 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
-import v7_export_clean as exporter
-import v7_load_real_copy as loader
-from test_v7_load_real_copy import FAKE_AMOUNT, FAKE_NAME, csv_file, fixture
+import v7_export_clean as exporter  # noqa: E402  (sys.path set above)
+import v7_load_real_copy as loader  # noqa: E402
+from test_v7_load_real_copy import FAKE_AMOUNT, FAKE_NAME, fixture  # noqa: E402
 
 
 class ExportCleanTest(unittest.TestCase):
@@ -89,9 +89,8 @@ class ExportCleanTest(unittest.TestCase):
         (other_repo / ".git").write_text("gitdir: fake", encoding="utf-8")
         with self.assertRaises(loader.LoadError):
             exporter.export([], {}, other_repo / "clean", Path("fake.xlsx"), ())
-        with unittest.mock.patch.object(exporter.Path, "resolve", return_value=blocked):
-            with self.assertRaises(loader.LoadError):
-                exporter.outside_repo(self.out)  # resolved junction/symlink target is checked
+        with unittest.mock.patch.object(exporter.Path, "resolve", return_value=blocked),                 self.assertRaises(loader.LoadError):
+            exporter.outside_repo(self.out)  # resolved junction/symlink target is checked
         self.assertFalse(blocked.exists())
         self.out.mkdir()
         keep = self.out / "keep.txt"
