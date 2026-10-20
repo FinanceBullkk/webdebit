@@ -140,7 +140,7 @@ chuẩn hóa LF (`4f434767…c048718a`).
 case âm (nạp đoạn mã vi phạm, đòi linter bắt được) lẫn case dương trong
 `scripts/test-business-rules.js`. Ngoài fixture, ba luật còn được kiểm đột biến trên **file thật**
 ngày 19/10/2026: chèn một dòng `psql` vào `web/ledger_app.py`, một `from tools.pg_m1_report import`
-vào cùng file, và một phép trừ tiền vào `so-cong-no-v5-ui.js` — cả ba đều bị bắt đúng một lần, và
+vào cùng file, và một phép trừ tiền vào `so-cong-no-v5-ui.js` (file V5, không có trên nhánh này; tương đương V7 là `so-khach-v7-ui.js`) — cả ba đều bị bắt đúng một lần, và
 ba luật đều sạch trên bản chưa sửa.
 
 Giới hạn đã biết, ghi ngay cạnh từng luật trong `business-rules.js`:
@@ -200,7 +200,7 @@ với luật đã triển khai):
 2. **Tầng trình bày không import tầng DDL/harness.** `web/` và `preview/` không được import
    `tools/`. Hiện đúng, và nếu vi phạm thì là lỗi thật (nạp harness Docker vào đường chạy app).
 3. **Tính tiền chỉ ở model.** Số học tiền nằm ở `preview/*-model.js` và `pilot/reconcile.py`, không
-   ở file `*-ui.js` hay `app.py`. Đây là ranh giới yếu nhất: `so-cong-no-v5-ui.js` hiện đã có định
+   ở file `*-ui.js` hay `app.py`. Đây là ranh giới yếu nhất: `so-khach-v7-ui.js` hiện đã có định
    dạng tiền, nên cần người dùng chốt "tính" khác "định dạng" ở đâu trước khi bật.
 
 ## Hoàn tác và ranh giới

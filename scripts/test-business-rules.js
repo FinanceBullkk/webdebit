@@ -331,7 +331,7 @@ test("ARCH-02 cho qua import trong tầng web và chiều ngược lại từ to
 // ---------------------------------------------------------------------------
 test("ARCH-03 bắt phép tính tiền trong file UI", () => {
   const found = check("ARCH-03", {
-    "preview/so-cong-no-v5-ui.js": [
+    "preview/so-khach-v7-ui.js": [
       "const totalVnd = closedVnd + openVnd;",
       "let remainingVnd = 0n;",
       "remainingVnd -= paidVnd;",
@@ -350,7 +350,7 @@ test("ARCH-03 bắt phép tính tiền trong file UI", () => {
 
 test("ARCH-03 cho qua so sánh, định dạng và phép tính nằm trong model", () => {
   const found = check("ARCH-03", {
-    "preview/so-cong-no-v5-ui.js": [
+    "preview/so-khach-v7-ui.js": [
       "const b = model.ledgerBalance({ closedVnd, openVnd, receipts, buckets });",
       "if (totals.pricedTotalVnd > 0n && b.openRemainingVnd === 0n) show('đã thu đủ');",
       "const txt = b.overpaymentVnd > 0n ? 'trả dư' : 'đủ';",
@@ -362,7 +362,7 @@ test("ARCH-03 cho qua so sánh, định dạng và phép tính nằm trong model
       "const d = new Date(+m[3], +m[2] - 1, +m[1]);",
     ].join("\n"),
     // Phép tính tiền ở model là đúng chỗ, luật không được đụng tới.
-    "preview/so-cong-no-v5-model.js": [
+    "preview/so-khach-v7-model.js": [
       "let remainingVnd = vnd(receiptVnd);",
       "remainingVnd -= amountVnd;",
       "return price + fees;",
