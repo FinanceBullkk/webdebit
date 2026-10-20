@@ -31,7 +31,7 @@
   let voidPrompt = null;
 
   function log(type, description, reason = '') {
-    history.unshift({ time: new Date().toLocaleString('vi-VN'), type, description, reason });
+    history.unshift({ time: new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }), type, description, reason });
   }
 
   function reallocate(plan = model.planReallocation(book)) {

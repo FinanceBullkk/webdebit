@@ -159,7 +159,7 @@ def col_name(number: int) -> str:
 def looks_like_date(value: str) -> bool:
     text = value.strip()
     if re.fullmatch(r"[0-9]{5}(?:\.0+)?", text):
-        return 30000 <= float(text) <= 80000  # Excel serial between 1982 and 2119
+        return 30000 <= int(text[:5]) <= 80000  # Excel serial between 1982 and 2119
     return bool(re.match(r"\d{1,2}[/.-]\d{1,2}[/.-]\d{4}|\d{4}-\d{1,2}-\d{1,2}", text))
 # Real headers append the month: "SỐ CÒN PHẢI THU CUỐI THÁNG 9.2026".
 PREFIX_HEADERS = ("receipt", "anchor", "price")
