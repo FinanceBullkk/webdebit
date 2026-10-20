@@ -1,5 +1,42 @@
 # Chuẩn bị PR V7 — 21/10/2026
 
+## Vòng 3 — gom về một nhánh, 21/10/2026
+
+Gom từ `test/pg18-schema-characterization` (checkout `repo/`), các worktree còn thay đổi chưa commit và tip V7 `codex/v7-opening-read`. Thay đổi chưa commit được lưu trước ở `patches/2026-10-21/` (ngoài Git, kèm SHA-256); các worktree đã gỡ có tag `archive/2026-10-21/<nhánh>` cho nhánh nào còn công việc riêng. Không push, không PR.
+
+**Đã gộp (commit trên nhánh này):**
+
+| Nhóm | Nguồn | Ghi chú |
+| --- | --- | --- |
+| `npm run check` (`scripts/check.js`, `business-rules.js`, `check-business-rules.js`, `test-business-rules.js`, `eslint.config.js`, `ruff.toml`, `requirements-dev.txt`, workflow, `package.json`/lock, `AGENTS.md`, `README.md`, `docs/development.md`) | `test/pg18-schema-characterization` | Ba-way với `main`; `test:unit` giữ hai test V7 của nhánh này, bỏ test V5 không nhập |
+| Sửa ruff cho 17 file cũ | cùng nhánh | Ba-way từng file, giữ thay đổi mới của `main` |
+| Khai báo global V7 cho eslint, `_balance` ở `renderMonth` | mới | Hai tên model/fixture V7 là global theo thẻ script |
+| Spec cấn trừ hai sổ (3 file, dòng `CT-2SO`, mục trong `specs/README.md`) | `docs/can-tru-hai-so` (chưa commit) | Ghép tay vào `decisions.md`/README |
+| Tài liệu agent (`CLAUDE.md`, `GEMINI.md`, `docs/multi-agent.md`, `agent-environment.md`, `ux-guidelines.md`) và `scripts/agent-run.ps1`, `codex-detached.ps1`, `open-penpot.ps1`, `ui-capture.js` | `repo/` (chưa theo dõi) | Đã quét: thay địa chỉ proxy, cổng và đường dẫn thư mục người dùng trong `agent-environment.md` bằng chỗ giữ chỗ; không hostname/SSH/ID Sheet/tên khách/số tiền thật |
+| 12 spec của việc đã vào `main` | `repo/` (chưa theo dõi) | `_template`, `allocation-edge-tests`, `fu-*` (4), `harness-psql-stdin`, `ledger-migration-f1f3`, `remove-draft-rows`, `table-scroll-keyboard`, `workbench-readability` |
+
+**Cố ý không gộp:**
+
+- **Code V7 `f9fd099`:** đã thử, rồi hoàn lại. Bản bốn spec V7 ở `f9fd099` là bản chưa lọc (tên tab khách, tổng tiền thật, số khách); không đưa vào Git. `v7_export_clean.py` và hai test V7 trên nhánh này cùng logic xuất với `f9fd099` nhưng đã có thêm chặn ghi vào trong repo và ghi nhật ký test ra thư mục tạm. Bản xuất sạch 21/10 do `f9fd099` xuất; logic nạp/xuất không đổi giữa hai bản. Cần quyết định có muốn khớp từng byte `f9fd099` không (mất rào chặn).
+- `v7_opening_app.py`, `test_v7_opening_app.py`, `so-khach-v7-opening.js` (viewer chỉ đọc 20/10): hiện cờ `NO_BASELINE` cho người dùng, trái `V7-COPY` (1); gọi thẳng `ssh hao ... psql` để đọc `hao`, trái lan can của việc gom; đọc lược đồ `ledger.opening` cũ. Chỉ lưu patch.
+- `ux-v3-so-cong-no`, `ux-v4-so-khach` (luồng gửi duyệt đã bị V6 thay), `backend-nhap-chuyen-chot-thang` (đi cùng `m1w-p0`): chỉ lưu patch.
+- `v7-isolated-read`, `m1w-p0`, V6-THU (hai worktree), `p0-actor-revisions`, `pg-ledger-characterization.json`, dòng V7-COPY thừa ở `decisions.md` của `repo/`: chỉ lưu patch.
+- Tài liệu V5/V6 và preview V5/V6 như mục trước.
+
+**Kết quả `npm run check` (Windows, Python 3.13 trong `.venv`, Node 24):**
+
+| Bước | Kết quả |
+| --- | --- |
+| `test:py` unittest | ĐẠT, 161 test |
+| `test:js` node --test | ĐẠT, 75/75 |
+| `test:js` playwright | ĐẠT, 6/6 |
+| `test:js` viewer | ĐẠT, 11/11 |
+| `lint:js` eslint | ĐẠT |
+| `lint:py` ruff | **ĐỎ**, 74 lỗi, toàn bộ ở 10 file V7 chưa từng qua lint (`v7_load_real_copy.py` 33, `test_v7_load_real_copy.py` 9, `v7_ledger_api.py` 6, `test_pg_v7_backend.py` 5, `v7_export_clean.py` 5, `test_v7_ledger_api.py` 5, `test_v7_export_clean.py` 4, `v7_live_demo.py` 3, `v7_reconcile_real_copy.py` 2, `v7_profile_xlsx.py` 1); nhiều nhất B023, RUF021, BLE001, I001, E402 |
+| `lint:biz` luật nghiệp vụ | **ĐỎ**, 17 vi phạm trên code V7: VND-02 (`float()` ở `v7_load_real_copy.py:143`), DATE-01 (`so-khach-v7-ui.js:34`, lấy ngày không khai múi giờ), ARCH-01 (15 chỗ gọi `psql` ngoài tầng DB: `v7_ledger_api.py`, `v7_live_demo.py`, `v7_load_real_copy.py`, 2 test và `test_pg_v7_backend.py`) |
+
+Hai bước đỏ là code V7 gặp công cụ lint lần đầu, không do gộp (trước khi gộp tooling, nhánh này không có lint). Đỏ sẵn từ trước nên không sửa trong lượt này: sửa nghĩa là đổi code V7 hoặc đổi luật; luật nghiệp vụ không tắt theo `docs/development.md`. CI chạy `npm run check` sẽ đỏ tới khi V7 được sửa lint hoặc có quyết định ngoại lệ (ví dụ cho `web/v7_ledger_api.py` vào danh sách `PSQL_ALLOWED` nếu nó là tầng DB của V7).
+
 ## Vòng 2
 
 Nền: `integration/v7-m1-m2-docs`, worktree `codex/v7-import-round2`. Chỉ đọc blob đã commit bằng `git show`; không merge nguyên lịch sử, không đọc file chưa commit ở worktree nguồn.
