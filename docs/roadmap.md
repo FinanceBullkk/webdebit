@@ -14,6 +14,8 @@ Cập nhật: 16/10/2026. Đây là **roadmap end-to-end đến bản v1 đượ
 
 ## Mốc gần nhất
 
+Đối chiếu mã M1 ngày 21/10/2026 tại baseline `ae8f8f7` (sau PR #30): [kiểm từng file gói v2 20/10](release-v2-source-audit.md) cho thấy `ledger_db.py`/`style.css` giống từng byte; `ledger_app.py` chỉ khác hai hằng opening (`CAPTURE`, `opening_vnd`), đã được cập nhật lên giá trị v2 theo người dùng chốt 21/10/2026, nên mã web trong Git nay khớp từng byte gói v2. **ĐÃ KIỂM CHỨNG cục bộ:** `test_ledger_web.py` 43/43 đạt. Không có nghĩa service trên `hao` đã kiểm lại, không thay trạng thái nghiệm thu M1 hoặc gate M2–M4; installer và manifest giữ ngoài Git. CÒN MỞ: kiểm browser/Python đầy đủ trong môi trường cho phép spawn/temp.
+
 1. Ngày 17/10/2026 người dùng chốt [NEWTRIP-01](decisions.md#newtrip-01) (chuyến từ 14/10 tự coi là ngoài opening, có kiểm trùng sổ cũ), ngưỡng gợi ý booking 3 ngày ([JOIN-01](decisions.md)), mã thay thế khi thiếu booking ([ALT-KEY-01](decisions.md#alt-key-01)) và giữ phiếu cũ khi booking sửa ([BOOKING-EDIT-01](decisions.md#booking-edit-01)). Bảng nối lịch sử 15/10 chỉ gồm chuyến trước 14/10 nên không cần duyệt từng dòng. PR #29 đã cài kiểm trùng NEWTRIP-01 và mã thay thế trong fixture; tiếp theo chốt chi tiết định dạng mã thay thế, tập tham chiếu production và nghiệm thu M2 theo đúng phạm vi. Còn mở: phí bổ sung (DUP-01 giữ CHỜ KIỂM).
 2. M1 ĐÃ NGHIỆM THU ngày 16/10/2026. Giữ service/DB chỉ đọc; tunnel `8765`/`8766` không tự khởi động, mở bằng launcher. Gộp nguồn qua một origin `8766` là cải tiến sau. Không mở đường ghi.
 3. Chỉ sau khi M2 đạt mới chốt phạm vi M3. Login/session, API ghi, migration và DB thật thuộc gate M3/M4; chưa có ngày cam kết.
