@@ -1,5 +1,51 @@
 # Chuẩn bị PR V7 — 21/10/2026
 
+## Vòng 2
+
+Nền: `integration/v7-m1-m2-docs`, worktree `codex/v7-import-round2`. Chỉ đọc blob đã commit bằng `git show`; không merge nguyên lịch sử, không đọc file chưa commit ở worktree nguồn.
+
+Đã kiểm `git show --stat` từng SHA: `dcb46a1` — 3 file, +183/-27; `d162c63` — 3 file, +23/-2; `451efa2` — 4 file, +44/-3; `f9fd099` — 3 file, +228/-0. Đây là diff commit nguồn, không phải thống kê bản nhập đã lọc.
+
+| SHA | File phân loại | Xử lý |
+| --- | --- | --- |
+| `dcb46a1` | `cong-no-web-handoff/tests/test_v7_load_real_copy.py` (test), `cong-no-web-handoff/tools/v7_load_real_copy.py` (mã) | Nhập logic làm sạch số lẻ đồng, chia lại theo tổng, bảo hiểm âm và carry TOTAL 0; fixture không chứa dữ liệu nguồn thật. |
+| `dcb46a1` | `specs/v7-backend/ket-noi-giao-dien.md` (tài liệu) | Nhập phần quy tắc đã lọc; bỏ tên khách, số tiền/số đếm nguồn, đường dẫn capture và kết quả quét thật. |
+| `d162c63` | Cùng test/mã/tài liệu | Nhập thử cách đọc bảo hiểm theo chuỗi mỏ neo; tài liệu chỉ giữ quy tắc và cờ, bỏ log nguồn thật. |
+| `451efa2` | Hai file test/mã, `tools/v7_reconcile_real_copy.py`, tài liệu | Nhập `--sheet-is-truth`, cờ lệch CSV/opening và FIFO theo Sheet; bỏ tên khách, số liệu, tên file xuất và kết luận quét nguồn. |
+| `f9fd099` | `cong-no-web-handoff/tests/test_v7_export_clean.py`, `tools/v7_export_clean.py` (test/mã), tài liệu | Nhập exporter/manifest/hash. Giữ đích bắt buộc ngoài repo; bổ sung chặn tại `export()`, `write_csv()` và thư mục staging sau resolve để không có đường ghi vào repo/worktree Git. Test chỉ fixture giả. |
+
+Phần loại: không nhập `captures/`, XLSX/CSV/DB/log chạy thật, tên khách, số tiền hoặc số đếm nguồn, Sheet URL/ID, SSH/Tailscale/DB credential. Tài liệu nguồn chỉ giữ hợp đồng mã, cờ và giới hạn; không coi fixture hay quét nguồn là opening/live/production.
+
+Kiểm trên nền `b24460a` cộng đúng bảy file vòng này, Windows, Python 3.13.6, Node v24.16.0. Dùng venv/dependency có sẵn theo đường dẫn người dùng cấp: `PATH` thêm `D:\webdebit\repo\.venv\Scripts`, `WEBDEBIT_PYTHON=D:\webdebit\repo\.venv\Scripts\python.exe`, `NODE_PATH=D:\webdebit\repo\node_modules`, `PYTHONIOENCODING=utf-8`. Không cài thêm dependency.
+
+| Lệnh thực chạy | Kết quả |
+| --- | --- |
+| Từ `cong-no-web-handoff/`: `python -m unittest discover -s tests` | Exit 0, 161 test: **160 pass, 1 Docker skipped**; lượt cuối 34.563s. Có `ResourceWarning` file đọc CSV chưa đóng trong test exporter nguồn; thông báo argparse loại trừ `--demo`/`--real-copy` là case từ chối chủ ý. Không có assertion failure. |
+| Từ gốc: `node --test cong-no-web-handoff/preview/test-*.js` | Exit 0, **61/61 pass**, gồm test browser preview và model/API fixture. |
+| Từ gốc: `node --test cong-no-web-handoff/tests/test-viewer-browser.js` | Exit 0, **11/11 pass**, viewer fixture desktop/mobile/bàn phím. Không phải nghiệm thu V7 live. |
+| `python -m unittest discover -s tests -p test_v7_export_clean.py` | Exit 0, **4/4 pass**: manifest/hash/stdout, giữ khách, đích hợp lệ/bị chặn/thiếu bằng chứng đầu vào. |
+| `git diff --check` | Đạt. |
+
+Logic loader/reconcile khớp byte blob `f9fd099`. Ngoại lệ có giới hạn: exporter kiểm mọi điểm ghi/staging sau resolve, mở file độc quyền để tránh ghi đè; test exporter thêm case đường ghi trực tiếp, TEMP trong repo, repo khác, đích resolve vào repo, thiếu tham số và bảo toàn file có sẵn. Một test subprocess loader gán `LOG_DIR` vào fixture tạm qua bootstrap thay vì ghi log ngoài phạm vi worktree; vẫn chạy `main()` trong tiến trình riêng, giữ toàn bộ assertions/guard nghiệp vụ. Không sửa test để né lỗi hay ép pass.
+
+SHA-256 bytes mã/test đã kiểm (đường dẫn dưới `cong-no-web-handoff/`):
+
+```text
+tools/v7_load_real_copy.py 643365ebadf1466a9f634035fcc4df74abab4436a395ae24a0b957f307bfaf3e
+tools/v7_reconcile_real_copy.py 023bd4079914e5cb61e8b6ee8ff3a38792f4ac1ecad0e506ebfc745f2cb03d8a
+tools/v7_export_clean.py 88d9bed6a09560516d43376476927ec4078ec40f3bfc228e5e498741b5d6147f
+tests/test_v7_load_real_copy.py ac4cd42a0e09d027e308f83b58676c00e95ee1795fb212499269739635413133
+tests/test_v7_export_clean.py c3e81e10c3c8d91b133c8d0bb2358ade39cf5ac38e8e3a395f821e9832746e08
+```
+
+Quét toàn bộ file đổi, kể cả file mới: không thấy token/private key/Sheet URL-ID/SSH-Tailscale/DB URL có mật khẩu/tên khách hoặc số liệu nguồn đã biết. Các đường dẫn mặc định nguồn/log của loader đã có từ nền, không thêm hay chạy nguồn thật; số lớn trong test là fixture đã đánh dấu giả. Review thủ công các vị trí đường dẫn, số dài và toàn diff bổ sung; không coi quét mẫu là bảo đảm phát hiện mọi bí mật.
+
+CÒN MỞ: các test vẫn là fixture/mock; chưa có DB PostgreSQL thật, tích hợp V7 live, nguồn Sheet/hao, import/deploy hay nghiệm thu tài chính. Quyết định opening tiếp theo và quyền áp dụng dữ liệu Sheet mới nhất là việc riêng. Không loại toàn bộ SHA nào trong bốn SHA được giao; chỉ loại nội dung nhạy cảm. Không nhập SHA mới hơn, không push/deploy/DDL/import thật.
+
+## Hồ sơ vòng trước — giữ nguyên làm lịch sử
+
+Các đoạn bên dưới mô tả vòng chuẩn bị trước khi đã có commit tích hợp; trạng thái quyền metadata và kết quả sandbox cũ không mô tả vòng 2.
+
 **Chưa hoàn tất gộp Git/commit:** metadata worktree nằm ngoài vùng được phép ghi. Nội dung review đã có trong worktree, chưa stage; không push/mở PR/deploy. Không chạy Docker, DDL/import/submit hay truy cập DB/Sheet/hao/captures/release.
 
 Diff chuẩn bị (gồm file mới chưa stage): **28 file, +9.932/-32**, gồm 4 file tracked sửa và 24 file mới. Đây là thống kê nội dung worktree so với HEAD, không phải commit diff.
