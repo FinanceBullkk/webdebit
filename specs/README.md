@@ -5,3 +5,6 @@ Một spec cho một thay đổi: đầu ra, phạm vi, nguồn quyết định,
 - [Cảnh báo chuyến chờ duyệt](pending-shipments/README.md): thay đổi nhỏ trên fixture thử quy trình spec → test → browser → bằng chứng.
 
 Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng spec.
+
+- [Sổ khách V7](v7-so-khach-theo-sheet.md): prototype fixture; [backend đề xuất](v7-backend-so-khach.md), [API thử](v7-backend/ket-noi-giao-dien.md).
+- [Chuẩn bị gộp V7](../docs/v7-merge-prep.md): nguồn commit, phân loại, phần loại, kiểm và giới hạn.
