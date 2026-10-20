@@ -12,7 +12,6 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from db import Database, DatabaseUnavailable
 
-
 STYLE = (Path(__file__).with_name("style.css")).read_bytes()
 PER_PAGE = 50
 EVENTS_PER_PAGE = 100
@@ -269,9 +268,8 @@ def render_source(db: Database, gid: int, row_number: int) -> str | None:
     values = row["source_values"] or []
     body = []
     for index, value in enumerate(values, 1):
-        if isinstance(value, (dict, list)):
-            value = json.dumps(value, ensure_ascii=False)
-        body.append(f"<tr><th scope=\"row\">{column_label(index)}</th><td>{esc(value) if value not in (None, '') else '<span class=\"muted\">Trống</span>'}</td></tr>")
+        text = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+        body.append(f"<tr><th scope=\"row\">{column_label(index)}</th><td>{esc(text) if text not in (None, '') else '<span class=\"muted\">Trống</span>'}</td></tr>")
     heading = page_heading("DÒNG NGUỒN", f"{row['tab_title']} · hàng {row_number}",
                            "Giá trị cached từ bản xuất đã kiểm hash; mở Sheet gốc để xem công thức, ảnh và chú thích còn lại.")
     detail = f"""<section class="panel source-meta"><div><small>GID / hàng</small>

@@ -11,7 +11,6 @@ from collections import Counter, defaultdict
 from datetime import date
 from pathlib import Path
 
-
 EVENT_KINDS = (
     "opening", "charge", "receipt", "offset", "adjustment_plus", "adjustment_minus",
 )

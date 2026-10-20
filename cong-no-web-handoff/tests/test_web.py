@@ -12,8 +12,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
-import app  # noqa: E402
-from db import Database  # noqa: E402
+import app
+from db import Database
 
 
 class FakeDB:
@@ -111,8 +111,8 @@ class OverviewTest(unittest.TestCase):
         self.db.provenance.return_value = [{"baseline_date": "2099-01-02"}]
         for method in ("coverage", "period_status_counts", "exception_counts"):
             getattr(self.db, method).return_value = []
-        self.rows = [dict(customer=f"Khách giả {i}", db_balance_vnd=0,
-                          sheet_balance_vnd=None, result=result, old_book_delta_vnd=delta)
+        self.rows = [{"customer": f"Khách giả {i}", "db_balance_vnd": 0,
+                          "sheet_balance_vnd": None, "result": result, "old_book_delta_vnd": delta}
                      for i, (result, delta) in enumerate((("MATCH", 1200), ("MISMATCH", -200)))]
         self.db.customers.return_value = self.rows
 

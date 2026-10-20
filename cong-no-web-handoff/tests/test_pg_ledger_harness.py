@@ -11,7 +11,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from tools import pg_ledger_verify, test_pg_ledger_schema as runner
+from tools import pg_ledger_verify
+from tools import test_pg_ledger_schema as runner
 
 
 class LedgerVerifyTest(unittest.TestCase):
@@ -44,18 +45,18 @@ class LedgerVerifyTest(unittest.TestCase):
             for name in ("period_balances.csv", "period_reconciliation.csv", "export.csv"):
                 (report / name).write_text("customer,debt_period\n", encoding="utf-8")
             for periods, total, no_baseline in ((0, 0, 0), (0, 125, 0), (1, 0, 0), (1, 125, -1), (1, 125, 2)):
-                with self.subTest(periods=periods, total=total, no_baseline=no_baseline):
-                    with self.assertRaisesRegex(ValueError, "expectations must be positive"):
-                        pg_ledger_verify.verify(report, export, expect_periods=periods,
-                                                expect_total_vnd=total, expect_no_baseline=no_baseline)
+                with (self.subTest(periods=periods, total=total, no_baseline=no_baseline),
+                        self.assertRaisesRegex(ValueError, "expectations must be positive")):
+                    pg_ledger_verify.verify(report, export, expect_periods=periods,
+                                            expect_total_vnd=total, expect_no_baseline=no_baseline)
             with patch.object(pg_ledger_verify, "verify", return_value={}) as verify:
                 argv = ["verify", str(report), str(report / "export.csv")]
                 for missing in expected:
                     options = [part for key, value in expected.items() if key != missing
                                for part in ("--" + key.replace("_", "-"), str(value))]
-                    with patch.object(sys, "argv", argv + options), redirect_stderr(io.StringIO()):
-                        with self.assertRaises(SystemExit) as exc:
-                            pg_ledger_verify.main()
+                    with (patch.object(sys, "argv", argv + options), redirect_stderr(io.StringIO()),
+                            self.assertRaises(SystemExit) as exc):
+                        pg_ledger_verify.main()
                     self.assertEqual(exc.exception.code, 2)
                 verify.assert_not_called()
                 options = [part for key, value in expected.items()
@@ -69,11 +70,13 @@ class HarnessTest(unittest.TestCase):
     def test_volume_create_failure_still_cleans_and_reports(self):
         for failure in (subprocess.TimeoutExpired("docker", 30), runner.HarnessError("CLI failed")):
             removed = []
-            def fake_run(args, **kwargs):
+            # `failure` và `removed` là biến vòng lặp; buộc vào tham số mặc định
+            # để closure luôn dùng đúng vòng đã tạo ra nó.
+            def fake_run(args, *, _failure=failure, _removed=removed, **kwargs):
                 if args[0] == "git":
                     return subprocess.CompletedProcess(args, 0, "fake-revision", "")
                 if args[1:3] == ["volume", "create"]:
-                    raise failure
+                    raise _failure
                 if args[1:3] == ["ps", "--all"]:
                     return subprocess.CompletedProcess(args, 0, "", "")
                 name = runner.CONTAINER
@@ -85,7 +88,7 @@ class HarnessTest(unittest.TestCase):
                               runner.LABEL_RUN: name.removeprefix("webdebit-pg-ledger-")}}]
                     return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
                 if args[1:3] == ["volume", "rm"]:
-                    removed.append(args[-1])
+                    _removed.append(args[-1])
                     return subprocess.CompletedProcess(args, 0, "", "")
                 self.fail(f"unexpected command: {args}")
             with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as tmp:
@@ -116,9 +119,9 @@ class HarnessTest(unittest.TestCase):
         with patch.object(runner, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
             self.assertFalse(runner.cleanup_owned_volume(["docker"], "volume", "run"))
             self.assertEqual(run.call_count, 1)
-        with patch.object(runner, "run", side_effect=runner.HarnessError("discovery failed")):
-            with self.assertRaises(runner.HarnessError):
-                runner.cleanup_owned_volume(["docker"], "volume", "run")
+        with (patch.object(runner, "run", side_effect=runner.HarnessError("discovery failed")),
+              self.assertRaises(runner.HarnessError)):
+            runner.cleanup_owned_volume(["docker"], "volume", "run")
 
     def test_blocking_pids_are_exact_integers(self):
         pids = runner.blocking_pids("2|12:{123},124:{123,456}")

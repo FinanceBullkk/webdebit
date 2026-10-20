@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import io
+import json
 import sys
 import threading
 import unittest
-import io
-import json
 from contextlib import redirect_stderr
 from datetime import date
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
@@ -172,7 +172,7 @@ class FakeHistory:
                 "by_code": groups("code")}
 
     def exception_page(self, customer=None, period=None, code=None, page=1, page_size=50):
-        summary = self.exception_summary(customer, period, code)
+        self.exception_summary(customer, period, code)
         items = [item for item in self.exception_items()
                  if self.matches(item, "customer", customer)
                  and self.matches(item, "period", period)
@@ -520,13 +520,17 @@ class LedgerWebTest(unittest.TestCase):
             with self.subTest(label=label):
                 observed = []
 
-                def patched_rows(history, sql, **values):
+                # Buộc ba biến vòng lặp vào tham số mặc định: closure chỉ được
+                # gọi trong chính vòng này, nhưng buộc tường minh thì lần sửa
+                # sau có hoãn lời gọi lại cũng không lặng lẽ đọc nhầm vòng cuối.
+                def patched_rows(history, sql, *, _observed=observed,
+                                 _workbook=workbook_hash, _engine=engine_hash, **values):
                     self.assertIn("FROM pilot.m1_provenance", sql)
-                    observed.append((history.expected_cutover.copy(), values))
+                    _observed.append((history.expected_cutover.copy(), values))
                     return [{"capture_id": ledger_app.CAPTURE,
                              "as_of": ledger_app.OPENING_DATE.isoformat(),
-                             "source_workbook_sha256": workbook_hash,
-                             "engine_sha256": engine_hash,
+                             "source_workbook_sha256": _workbook,
+                             "engine_sha256": _engine,
                              "baseline_date": ledger_app.OPENING_DATE.isoformat()}]
 
                 with patch.object(ledger_app.HistoryDB, "rows", patched_rows):
@@ -730,6 +734,7 @@ class LedgerSnapshotTest(unittest.TestCase):
 
     def run_screen(self, stdout, call):
         import subprocess
+
         import ledger_db
         calls = []
 

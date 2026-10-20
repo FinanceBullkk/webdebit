@@ -75,9 +75,9 @@ def build(repo: Path, out_dir: Path, commit: str = "HEAD") -> dict:
     commit_sha = git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}").decode().strip()
     tree_sha = git(repo, "rev-parse", f"{commit_sha}^{{tree}}").decode().strip()
     # Only HEAD is compared with the working tree; another commit is read from git as it is.
-    if commit_sha == git(repo, "rev-parse", "HEAD").decode().strip():
-        if git(repo, "status", "--porcelain", "--", *RUNTIME_FILES).decode().strip():
-            raise ReleaseError("Runtime files differ from the working tree; commit or revert them first")
+    if (commit_sha == git(repo, "rev-parse", "HEAD").decode().strip()
+            and git(repo, "status", "--porcelain", "--", *RUNTIME_FILES).decode().strip()):
+        raise ReleaseError("Runtime files differ from the working tree; commit or revert them first")
     files, contents = [], {}
     for source in RUNTIME_FILES:
         try:
