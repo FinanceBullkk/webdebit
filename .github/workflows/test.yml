@@ -84,6 +84,11 @@ jobs:
           if-no-files-found: warn
 
   javascript:
+    # Giữ nguyên tên job, runner self-hosted và bước chụp ảnh viewer của main.
+    # Đổi đúng một thứ: chạy `npm run check` thay cho `npm test` — một lệnh mà
+    # người và agent cùng chạy ở máy. Nếu CI gọi lệnh khác thì cái xanh ở máy
+    # không còn nói lên điều gì. `npm run check` đã gọi cả `test:viewer`, nên
+    # ảnh chụp viewer vẫn được sinh ra như trước.
     runs-on: [self-hosted, "${{ matrix.runner }}"]
     timeout-minutes: 20
     strategy:
@@ -100,9 +105,10 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npx playwright install chromium
-      - name: Browser and viewer tests
+      - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
         run: >-
-          uv run --python 3.13 --with-requirements requirements.txt npm test
+          uv run --python 3.13 --with-requirements requirements.txt
+          --with-requirements requirements-dev.txt npm run check
       - name: Upload fake-data viewer screenshots
         if: always()
         uses: actions/upload-artifact@v4
