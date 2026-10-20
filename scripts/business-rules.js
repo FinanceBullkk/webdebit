@@ -121,7 +121,7 @@ function ruleVndSqlColumns(files) {
 // `parseFloat`, `toFixed`, và hằng số có dấu thập phân gán cho tên tiền.
 const FLOAT_CALLS = [
   { ext: ".py", re: /\bfloat\s*\(/, what: "`float()`", fix: "dùng `Decimal` (xem `pilot/reconcile.py`)" },
-  { ext: ".js", re: /\b(?:Number\.)?parseFloat\s*\(/, what: "`parseFloat`", fix: "dùng `BigInt` (xem `preview/so-cong-no-v5-model.js`)" },
+  { ext: ".js", re: /\b(?:Number\.)?parseFloat\s*\(/, what: "`parseFloat`", fix: "dùng `BigInt` (xem `preview/so-khach-v7-model.js`)" },
   { ext: ".js", re: /\.toFixed\s*\(/, what: "`toFixed`", fix: "định dạng tiền từ BigInt, không qua số thực" },
 ];
 const MONEY_DECIMAL_LITERAL = /\b([a-zA-Z_][a-zA-Z0-9_]*(?:_vnd|Vnd|VND))\s*(?:[-+*/]?=)\s*-?\d+\.\d/;
@@ -295,7 +295,7 @@ function ruleTripDateRequired(files) {
 // ---------------------------------------------------------------------------
 // ARCH-01 — chỉ tầng DB được gọi psql
 //
-// Hiện trạng đã kiểm 19/10/2026 (`grep -rn psql`): đúng năm file dưới đây chạm
+// Hiện trạng đã kiểm 19/10/2026 (`grep -rn psql`): các file dưới đây chạm
 // tới psql, mọi truy vấn khác đi qua adapter trong `web/`. Giữ được điều này
 // thì đổi cách nối DB (psql CLI → driver, đổi tham số kết nối, thêm timeout)
 // là sửa hai file adapter chứ không phải lùng khắp repo; và không có đường nào
@@ -325,6 +325,20 @@ const PSQL_ALLOWED = {
     "công cụ vận hành phát hành M1, chạy tay ngoài tiến trình web như pg_m1_report.py",
   "cong-no-web-handoff/tests/test_m1_export_verify.py":
     "test của công cụ M1, truyền tên chương trình giả vào hàm đã được patch",
+  // Sáu mục dưới đây thêm 21/10/2026 khi gom V7: tầng DB và công cụ của V7 thật sự
+  // dựng lệnh psql (docker exec ... psql); cùng loại với adapter/harness ở trên.
+  "cong-no-web-handoff/web/v7_ledger_api.py":
+    "adapter DB của V7 — lớp Psql là nơi duy nhất dựng lệnh psql cho đường sổ khách V7",
+  "cong-no-web-handoff/tools/test_pg_v7_backend.py":
+    "harness kiểm backend V7 trong Docker, phải nói chuyện với psql để kiểm chính psql",
+  "cong-no-web-handoff/tools/v7_load_real_copy.py":
+    "công cụ nạp bản sao vào container cô lập, chạy tay ngoài tiến trình web",
+  "cong-no-web-handoff/tools/v7_live_demo.py":
+    "công cụ dựng demo dữ liệu giả trong container cô lập, chạy tay ngoài tiến trình web",
+  "cong-no-web-handoff/tests/test_v7_ledger_api.py":
+    "test của adapter V7, kiểm dựng lệnh và ánh xạ lỗi psql bằng runner giả",
+  "cong-no-web-handoff/tests/test_v7_load_real_copy.py":
+    "test của công cụ nạp V7, truyền lệnh psql giả vào hàm đã được patch",
 };
 
 // `scripts/` là mã của chính bộ kiểm: luật và fixture ở đây buộc phải chứa
@@ -407,8 +421,8 @@ function ruleWebNoToolsImport(files) {
 //
 // Hiện trạng đã kiểm 19/10/2026: preview ghép từng cặp `X-model.js` +
 // `X-ui.js`, nạp đúng thứ tự đó trong .html. Model giữ toàn bộ số học BigInt
-// (`so-cong-no-v5-model.js`, `customer-ledger-workbench.js`); hai file UI
-// (`so-cong-no-v5-ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
+// (`so-khach-v7-model.js`, `customer-ledger-workbench.js`); hai file UI
+// (`so-khach-v7-ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
 // dạng và gọi model — kể cả chỗ tính lệch giữa số dán và số model cũng gọi
 // `model.allocateReceipt` thay vì tự trừ.
 //
