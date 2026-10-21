@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer as HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+
+import v7_identity
 
 MAX_BODY = 64 * 1024
 MAX_BIGINT = 9223372036854775807
@@ -244,7 +249,8 @@ class Psql:
 
 
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
-           port: int, host: str, default_actor: str, trust_header: bool = False,
+           port: int, host: str, default_actor: str | None = None, actor: str | None = None,
+           source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
            demo: bool = False, real_copy: bool = False) -> tuple[int, dict]:
     headers = {name.lower(): value for name, value in headers.items()}
     allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"{host}:{port}"}
@@ -279,10 +285,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = "get_ledger", {"customer_id": customer}
     else:
         raise ApiError(405, "METHOD_NOT_ALLOWED", "Phương thức không được hỗ trợ.")
-    actor = headers.get("tailscale-user-login", "") if trust_header else ""
-    actor = actor.strip() or default_actor
-    if not actor or len(actor) > 256 or any(ord(c) < 32 for c in actor):
-        raise ApiError(503, "ACTOR_UNAVAILABLE", "Chưa xác định người thao tác.")
+    if actor is None:
+        actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                          behind_tailscale_serve=behind_tailscale_serve)
     result = runner.run(function, payload, actor)
     if demo and function in ("get_ledger", "list_customers"):
         result = {**result, "demo": True}
@@ -295,8 +300,10 @@ class Handler(BaseHTTPRequestHandler):
     runner: Psql
     bind_host = "127.0.0.1"
     port = 8780
-    default_actor = "v7-test"
-    trust_header = False
+    default_actor = None
+    dev_actor_mode = None
+    behind_tailscale_serve = False
+    localapi = None
     demo = False
     real_copy = False
 
@@ -337,6 +344,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
             if self.headers.get("Transfer-Encoding"):
                 raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
+            actor = self.server.dev_actor
+            if actor is None:
+                actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
+                                                  source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve)
             if self.asset():
                 return
             raw = b""
@@ -352,8 +363,10 @@ class Handler(BaseHTTPRequestHandler):
                     bad()
             status, value = handle(self.command, self.path, dict(self.headers), raw, self.runner,
                                    port=self.port, host=self.bind_host, default_actor=self.default_actor,
-                                   trust_header=self.trust_header, demo=self.demo, real_copy=self.real_copy)
+                                   actor=actor, demo=self.demo, real_copy=self.real_copy)
             self.reply(status, value)
+        except v7_identity.IdentityError as exc:
+            self.reply(403, {"error": exc.code})
         except TimeoutError:
             self.reply(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
         except ApiError as exc:
@@ -367,6 +380,34 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+class ThreadingHTTPServer(HTTPServer):
+    def __init__(self, server_address, handler, *, default_actor=None, dev_actor_mode=None,
+                 bind_and_activate=True):
+        name = handler.default_actor if default_actor is None else default_actor
+        mode = handler.dev_actor_mode if dev_actor_mode is None else dev_actor_mode
+        # ponytail: legacy local tools opt in by named actor; remove after callers pass explicit mode.
+        enabled = name is not None if mode is None else mode
+        if (enabled or handler.behind_tailscale_serve) and not loopback(server_address[0]):
+            raise ValueError("dev actor and Tailscale Serve require a loopback bind")
+        self.dev_actor = None
+        if enabled:
+            if not isinstance(name, str) or not name.strip() or len(name) > 252 or any(ord(c) < 32 for c in name):
+                raise ValueError("invalid dev actor")
+            self.dev_actor = "dev:" + name.strip()
+        super().__init__(server_address, handler, bind_and_activate=bind_and_activate)
+        if enabled:
+            print("WARNING: insecure dev actor enabled; identity verification bypassed (loopback only)", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=os.getenv("V7_API_HOST", "127.0.0.1"))
@@ -375,20 +416,24 @@ def main() -> None:
     parser.add_argument("--database", default=os.getenv("V7_API_DATABASE", "webdebit_v7_test"))
     # ponytail: fake harness has no app EXECUTE grants; switch to v7_app after grants exist.
     parser.add_argument("--db-user", default=os.getenv("V7_API_DB_USER", "postgres"))
-    parser.add_argument("--actor", default=os.getenv("V7_API_ACTOR", "v7-test"))
-    parser.add_argument("--trust-tailscale-header", action="store_true",
-                        help="Only behind a trusted proxy that replaces client identity headers")
+    parser.add_argument("--insecure-dev-actor", default=os.getenv("V7_API_INSECURE_DEV_ACTOR"))
+    parser.add_argument("--behind-tailscale-serve", action="store_true",
+                        default=os.getenv("V7_API_BEHIND_TAILSCALE_SERVE", "0") == "1",
+                        help="Trust identity supplied by Tailscale Serve on a loopback listener")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--demo", action="store_true", help="Mark GET snapshots as fake demo data")
     source.add_argument("--real-copy", action="store_true", help="Mark isolated real-data copy; not production")
     args = parser.parse_args()
     if args.port == 8777:
         parser.error("port 8777 belongs to the read-only opening app")
-    if args.host not in ("127.0.0.1", "localhost"):
-        parser.error("V7 trial API only binds localhost")
+    # Trial API (DB user postgres) stays loopback-only; real access goes through tailscale serve -> loopback.
+    if not loopback(args.host):
+        parser.error("V7 trial API only binds loopback; expose it with tailscale serve")
     Handler.runner = Psql(args.container, args.database, args.db_user)
     Handler.bind_host, Handler.port = args.host, args.port
-    Handler.default_actor, Handler.trust_header = args.actor, args.trust_tailscale_header
+    Handler.default_actor = args.insecure_dev_actor
+    Handler.dev_actor_mode = args.insecure_dev_actor is not None
+    Handler.behind_tailscale_serve = args.behind_tailscale_serve
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
