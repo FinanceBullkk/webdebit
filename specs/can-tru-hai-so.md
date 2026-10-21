@@ -1,6 +1,6 @@
 # Cấn trừ giữa hai sổ
 
-**Trạng thái:** sáu quyết định ĐÃ CHỐT (người dùng, 20/10/2026, chat). Các quy tắc còn lại là ĐỀ XUẤT, sẽ được duyệt cùng mockup. Mockup vòng 1 (ChatGPT, 20/10/2026) đã soát, **chưa duyệt**: người dùng yêu cầu làm vòng 2 theo [bản sửa vòng 2](can-tru-hai-so-mockup-vong-2.md). Chưa có code, chưa triển khai ở môi trường nào.
+**Trạng thái:** sáu quyết định ĐÃ CHỐT (người dùng, 20/10/2026, chat). Các quy tắc còn lại là ĐỀ XUẤT, sẽ được duyệt cùng mockup. Mockup vòng 1 (ChatGPT, 20/10/2026) đã soát, **chưa duyệt**: người dùng yêu cầu làm vòng 2 theo [bản sửa vòng 2](can-tru-hai-so-mockup-vong-2.md). Mockup vòng 3 đã duyệt (21/10/2026). Giao diện thật trong sổ khách V7 đã nối API (kiểm bằng test node và Playwright với máy chủ giả, dữ liệu giả); chưa kiểm với PostgreSQL thật, chưa triển khai ở môi trường nào. Sổ bên kia của cặp (version, mã phiếu) lấy bằng GET `/api/v7/ledger?customer=<id đối ứng>` vì chưa có route riêng.
 
 Spec này nối tiếp [V7 — sổ khách theo lối Sheet](v7-so-khach-theo-sheet.md) và [backend sổ khách V7](v7-backend-so-khach.md). Hai spec đó không đổi; spec này chỉ thêm một đường ghi.
 

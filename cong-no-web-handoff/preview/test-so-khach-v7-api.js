@@ -304,3 +304,87 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(noBaseline.innerHTML, /Thiếu mốc đối soát nguồn|NO_BASELINE/);
   assert.doesNotMatch(noBaseline.innerHTML, /class="receipt-amount"/);
 });
+
+test('offset commands send numeric ids/versions of both books and one idempotency key per command', async () => {
+  const calls = [];
+  const fetcher = async (path, init) => {
+    calls.push({ path, body: init?.body ? JSON.parse(init.body) : null });
+    return path.startsWith('/api/v7/ledger') ? reply(200, ledger(4)) : reply(200, { offset_pair_id: 9 });
+  };
+  let n = 0;
+  const api = create({ customerId: 7, fetcher, key: () => `k${++n}` });
+  await api.read();
+  const saved = await api.submitOffset('offset', { source_customer_id: '3', source_version: '12', date: '2026-10-20', amount_vnd: '50000000' });
+  assert.equal(saved.status, 'saved');
+  assert.deepEqual(calls.find(call => call.path === '/api/v7/offsets').body, { target_customer_id: 7, target_version: 4,
+    idempotency_key: 'k1', source_customer_id: 3, source_version: 12, date: '2026-10-20', amount_vnd: '50000000' });
+  await api.submitOffset('offsetVoid', { other_version: '2', offset_pair_id: '9', reason: 'nhập nhầm', customer_id: 99, amount_vnd: '1' });
+  assert.deepEqual(calls.find(call => call.path === '/api/v7/offsets/void').body, { customer_id: 7, expected_version: 4,
+    idempotency_key: 'k2', other_version: 2, offset_pair_id: 9, reason: 'nhập nhầm' });
+  await api.submitOffset('offsetDate', { other_version: 2, offset_pair_id: 9, date: '2026-10-21' });
+  assert.deepEqual(calls.find(call => call.path === '/api/v7/offsets/date').body, { customer_id: 7, expected_version: 4,
+    idempotency_key: 'k3', other_version: 2, offset_pair_id: 9, date: '2026-10-21' });
+});
+
+test('offset command rejects missing/unsafe fields and non-string money before any request', async () => {
+  const calls = [];
+  const api = create({ customerId: 7, fetcher: async path => { calls.push(path); return reply(200, ledger(1)); } });
+  await api.read();
+  await assert.rejects(api.submitOffset('offset', { source_customer_id: 3, source_version: 1, date: '2026-10-20' }), /Thiếu thông tin/);
+  await assert.rejects(api.submitOffset('offset', { source_customer_id: 3, source_version: 1, date: '2026-10-20', amount_vnd: 5 }), /chuỗi VND/);
+  await assert.rejects(api.submitOffset('offset', { source_customer_id: '9007199254740993', source_version: 1, date: '2026-10-20', amount_vnd: '5' }), /không hợp lệ/);
+  await assert.rejects(api.submitOffset('nope', {}), /không hợp lệ/);
+  assert.deepEqual(calls, ['/api/v7/ledger?customer=7']);
+});
+
+test('offset STALE_LEDGER reloads the book and reports stale; server errors keep code and detail for the message table', async () => {
+  const outcomes = [];
+  let mode = 'stale';
+  const fetcher = async path => {
+    if (path.startsWith('/api/v7/ledger')) return reply(200, ledger(mode === 'stale' ? 5 : 1));
+    return mode === 'stale' ? reply(409, { error: 'STALE_LEDGER' }) : reply(422, { error: 'OFFSET_EXCEEDS_CREDIT', message: 'x', available_credit_vnd: '4000' });
+  };
+  const notices = [];
+  const api = create({ customerId: 7, fetcher, onNotice: text => notices.push(text) });
+  await api.read();
+  outcomes.push(await api.submitOffset('offset', { source_customer_id: 3, source_version: 1, date: '2026-10-20', amount_vnd: '5' }));
+  assert.equal(outcomes[0].status, 'stale');
+  assert.ok(notices.includes(stale));
+  assert.equal(api.hasPending(), false);
+  mode = 'error';
+  outcomes.push(await api.submitOffset('offset', { source_customer_id: 3, source_version: 1, date: '2026-10-20', amount_vnd: '5' }));
+  assert.equal(outcomes[1].status, 'error');
+  assert.equal(outcomes[1].result.error, 'OFFSET_EXCEEDS_CREDIT');
+  assert.equal(outcomes[1].result.available_credit_vnd, '4000');
+});
+
+test('offset unknown result keeps the same key for retry', async () => {
+  const keys = [];
+  let fail = true;
+  const fetcher = async (path, init) => {
+    if (path.startsWith('/api/v7/ledger')) return reply(200, ledger(1));
+    keys.push(JSON.parse(init.body).idempotency_key);
+    if (fail) throw Error('network');
+    return reply(200, {});
+  };
+  let n = 0;
+  const api = create({ customerId: 7, fetcher, key: () => `k${++n}` });
+  await api.read();
+  const first = await api.submitOffset('offset', { source_customer_id: 3, source_version: 1, date: '2026-10-20', amount_vnd: '5' });
+  assert.equal(first.status, 'unknown');
+  assert.equal(api.hasPending(), true);
+  fail = false;
+  await api.retry();
+  assert.deepEqual(keys, ['k1', 'k1']);
+});
+
+test('loadOffsetSources and readOther read without touching the open book snapshot', async () => {
+  const fetcher = async path => path.startsWith('/api/v7/offset-sources') ? reply(200, { sources: [{ customer_id: 3 }] })
+    : path === '/api/v7/ledger?customer=3' ? reply(200, { ...ledger(8), customer_id: 3 }) : reply(200, ledger(2));
+  const api = create({ customerId: 7, fetcher });
+  await api.read();
+  assert.deepEqual(await api.loadOffsetSources(), [{ customer_id: 3 }]);
+  assert.equal((await api.readOther(3)).version, 8);
+  assert.equal(api.snapshot().version, 2);
+  await assert.rejects(api.readOther(4), /không hợp lệ/);
+});
