@@ -1503,7 +1503,7 @@ class PsqlSession:
             self.proc.wait(timeout=5)
 
 
-def seed(pg: Pg) -> None:
+def seed(pg: Pg, *, references=True) -> None:
     sha = "a" * 64
     pg.sql(f"""INSERT INTO sokhach.customer(name) VALUES ('FAKE V7') ;
 INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by)
@@ -1521,9 +1521,10 @@ VALUES (1,1,'2026-01-01',0,100,100,100,100,100,0,'fake-anchor-0-and-1','{sha}','
 INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,source_tab,source_row,created_by_event)
 VALUES (1,1,'2026-01-01',100,'FAKE',1,1),(1,1,'2026-02-01',200,'FAKE',2,1);
 INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event)
-VALUES (1,1,'2026-01-01','trip','{{"fake":true}}',999,'FAKE',3,1);
+VALUES (1,1,'2026-01-01','trip','{{"fake":true,"container":"FAKE","date":"2026-01-01"}}',999,'FAKE',3,1);
 """)
-    pg.sql("INSERT INTO sokhach.baseline_trip_ref VALUES (1,'FAKE-REF','FAKE-REF',NULL)")
+    if references:
+        pg.sql("INSERT INTO sokhach.baseline_trip_ref VALUES (1,'FAKE-REF','FAKE-REF',NULL)")
 
 
 def check_immutable(pg: Pg) -> None:
@@ -2293,15 +2294,95 @@ def inspect_volume(volume: str, run_id: str) -> None:
             and labels.get(LABEL_RUN) == run_id, "run volume identity/labels mismatch")
 
 
+def check_migration(pg: Pg) -> None:
+    from v7_load_baseline_refs import apply
+    from v7_load_real_copy import LoadError
+    old_ref = "460882d9d5d60c3fc8eeac5161a0058219dc09d4"
+    # Dedicated database; shared roles already exist in this disposable cluster.
+    old_schema = run(["git", "show", old_ref + ":specs/v7-backend/schema-draft.sql"], cwd=ROOT).stdout
+    old_functions = run(["git", "show", old_ref + ":cong-no-web-handoff/tools/v7_backend_functions.sql"], cwd=ROOT).stdout
+    old_schema = re.sub(r"^CREATE ROLE .*;\n", "", old_schema, flags=re.M)
+    db = "webdebit_v7_migration_test"
+    pg.sql(f"CREATE DATABASE {db}", database="postgres")
+    class CopyPg(Pg):
+        def sql(self, sql, **kwargs):
+            return super().sql(sql, **{**kwargs, "database": db})
+    copy = CopyPg(pg.name, pg.run_id)
+    copy.sql(old_schema)
+    copy.sql(old_functions)
+    # Real old fixture, with 236 fake customer identities; no financial source data.
+    seed(copy, references=False)
+    copy.sql("INSERT INTO sokhach.customer(name) SELECT 'FAKE '||g FROM generate_series(2,236) g")
+    copy.sql("UPDATE sokhach.cutover_customer SET status='verified' WHERE customer_id=1; "
+             "UPDATE sokhach.cutover SET status='verified' WHERE id=1; "
+             "UPDATE sokhach.cutover SET status='active' WHERE id=1; "
+             "UPDATE sokhach.cutover_customer SET status='active' WHERE customer_id=1")
+    snapshot = copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
+                          "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s")
+    migration = (ROOT / "specs/v7-backend/migrations/001-m2-11-dedup.sql").read_text(encoding="utf-8")
+    copy.rejects(migration.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'FAKE_MIGRATION_FAULT'; END $$; COMMIT;"),
+                 message="FAKE_MIGRATION_FAULT")
+    copy.true("NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema='sokhach' AND table_name='trip' AND column_name='status')",
+              "failed migration did not roll back")
+    copy.sql(migration)
+    copy.sql(migration)  # idempotent
+    require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
+                       "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
+            "migration changed fake 236-customer balances")
+    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
+    require(copy.value(catalog) == pg.value(catalog), "migration function definitions differ from fresh schema")
+    cols = "SELECT jsonb_agg(row_to_json(s)) FROM (SELECT table_name,column_name,data_type,is_nullable,column_default "
+    cols += "FROM information_schema.columns WHERE table_schema='sokhach' ORDER BY table_name,column_name) s"
+    require(copy.value(cols) == pg.value(cols), "migration columns differ")
+    views = "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"
+    require(copy.value(views) == pg.value(views), "migration views differ")
+    copy.sql("CREATE ROLE v7_loader LOGIN IN ROLE sokhach_owner; "
+             f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC; GRANT CONNECT ON DATABASE {db} TO v7_loader,v7_app")
+    checker = (ROOT / "cong-no-web-handoff/tools/v7_post_deploy_check.sql").read_text(encoding="utf-8")
+    copy.sql(f"\\set db_v7 {db}\n\\set loader_role v7_loader\n\\set expect_customers 236\n" + checker)
+    # Loader conflict/retry and balance checks use isolated reference-only cutover.
+    copy.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable; "
+             "DELETE FROM sokhach.baseline_trip_ref; "
+             "ALTER TABLE sokhach.baseline_trip_ref ENABLE TRIGGER baseline_trip_ref_immutable; "
+             "SELECT 1")
+    from v7_load_direct import DirectPg
+    refs = [("ALT:FAKE:20260101", "FAKE", "2026-01-01")]
+    direct = DirectPg("/var/run/postgresql", db, "v7_loader", psql_command=pg.psql_command())
+    try:
+        require(apply(direct, refs, "a" * 64, 1) == "LOADED", "loader failed")
+        # Temp table is per-call; drop before exercising idempotent retry in same transaction.
+        direct.sql("DROP TABLE incoming_refs")
+        require(apply(direct, refs, "a" * 64, 1) == "UNCHANGED", "loader retry duplicated")
+        direct.close(commit=True)
+    except Exception:
+        direct.close()
+        raise
+    rejected = DirectPg("/var/run/postgresql", db, "v7_loader", psql_command=pg.psql_command())
+    try:
+        try:
+            apply(rejected, refs, "b" * 64, 1)
+        except LoadError:
+            pass
+        else:
+            raise HarnessError("wrong manifest accepted")
+    finally:
+        rejected.close()
+    require(copy.value("SELECT count(*) FROM sokhach.baseline_trip_ref") == "1", "loader failure changed references")
+    check_dedup(copy)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="list cases without Docker")
     ap.add_argument("--report", type=Path, help="write JSON report")
+    ap.add_argument("--migration-test", action="store_true")
+    ap.add_argument("--m2-11-only", action="store_true", help="focused development checks")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--expect-red", action="store_true", default=True,
                       help="default: missing command functions may fail")
     mode.add_argument("--strict", action="store_true", help="require every case to pass")
     args = ap.parse_args()
+    selected = [c for c in CASES if not args.m2_11_only or c["id"] == "7.24"]
     if args.list:
         for c in CASES:
             print(f"{c['id']}\t{c['label']}\t{c['title']}")
@@ -2356,9 +2437,12 @@ def main() -> int:
              "-U", "postgres", "-d", DATABASE], input_text=FUNCTIONS.read_text(encoding="utf-8"))
         report["postgres_version"] = pg.value("SHOW server_version")
         pg.sql("CREATE ROLE v7_app LOGIN IN ROLE sokhach_app; CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
+        if args.migration_test:
+            check_migration(pg)
+            report["migration"] = "pass"
         seed(pg)
         # Existing schema checks share customer 1; run before isolated behavioral books.
-        ordered = sorted(CASES, key=lambda c: 0 if c["label"] == "SCHEMA" else 1)
+        ordered = sorted(selected, key=lambda c: 0 if c["label"] == "SCHEMA" else 1)
         for c in ordered:
             row = {"id": c["id"], "label": c["label"], "result": "fail", "reason": ""}
             try:
@@ -2398,9 +2482,9 @@ def main() -> int:
         except (HarnessError, OSError, ValueError) as exc:
             report["cleanup"] = "failed: " + str(exc)
             fatal = str(exc)
-        if len(report["cases"]) < len(CASES):
+        if len(report["cases"]) < len(selected):
             done = {c["id"] for c in report["cases"]}
-            for c in CASES:
+            for c in selected:
                 if c["id"] not in done:
                     report["cases"].append({
                         "id": c["id"], "label": c["label"],
@@ -2411,7 +2495,7 @@ def main() -> int:
                           for result in ("pass", "fail", "skipped")}
                   for label in ("SCHEMA", "BEHAVIOR", "NEEDS_FUNCTION", "SKIPPED_OPEN")}
         report["summary"] = counts
-        report["exit_code"] = int(bool(fatal) or len(report["cases"]) != len(CASES)
+        report["exit_code"] = int(bool(fatal) or len(report["cases"]) != len(selected)
                                   or any(c["result"] != "pass" for c in report["cases"]
                                          if args.strict or c["label"] in ("SCHEMA", "BEHAVIOR")
                                          or c.get("executed")))

@@ -94,5 +94,13 @@ Revision worktree tại thời điểm viết spec: `c7a572a` (sau `git fetch &&
 
 ## Câu hỏi mở
 
+## Phần B — triển khai trên bản sao DB đã có (tách khỏi phạm vi A)
+
+Đây là phần vận hành được phép riêng: migration một chiều, nạp tham chiếu và runbook; không chạy trong task này và không chứa dữ liệu thật.
+
+- `specs/v7-backend/migrations/001-m2-11-dedup.sql` chạy trong một transaction, sau backup; đổi schema, nạp lại functions, kiểm view/grant.
+- `cong-no-web-handoff/tools/v7_load_baseline_refs.py` mặc định PLAN, `--apply` mới ghi; role `v7_loader`, `clean_rows.csv`, `kind=trip`, mã thiếu booking theo `ALT-KEY-01`, kiểm manifest/count/hash.
+- Sau nạp: dán trùng `pending_review`, chuyến mới `confirmed`, tổng 236 khách giữ nguyên; rollback bằng restore backup.
+
 - Tên cột/bảng cụ thể (`baseline_trip_ref`, `status`, mã lý do CHỜ KIỂM) là đề xuất của spec này, Codex có thể đổi tên nếu có lý do kỹ thuật rõ, nhưng phải giữ đúng ngữ nghĩa bốn bước kiểm trùng và ghi lại tên cuối trong báo cáo để review chốt đối chiếu.
 - Việc chốt định dạng tập tham chiếu bản mốc *thật* (nạp từ `captures/2026-10-21-clean-v2/` hay bản mốc `SONG-SONG-01` sau này) là quyết định nghiệp vụ riêng, ngoài phạm vi spec này — spec này chỉ đóng gate kỹ thuật "có tập tham chiếu mới được dán, dán thì kiểm trùng đúng luật".
