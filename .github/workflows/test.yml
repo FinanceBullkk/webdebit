@@ -120,10 +120,12 @@ jobs:
           cache-dependency-glob: requirements*.txt
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
+      # Gọi thẳng `node scripts/check.js` (chính là `npm run check`): trên
+      # windows-latest, `uv run` không spawn được `npm` vì đó là file npm.cmd.
       - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
         run: >-
           uv run --python 3.13 --with-requirements requirements.txt
-          --with-requirements requirements-dev.txt npm run check
+          --with-requirements requirements-dev.txt node scripts/check.js
       - name: Upload fake-data viewer screenshots
         if: always()
         uses: actions/upload-artifact@v4
