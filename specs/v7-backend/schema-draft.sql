@@ -349,6 +349,40 @@ COMMENT ON TABLE sokhach.idempotency IS 'Cùng khách và khóa: cùng băm tr�
 COMMENT ON COLUMN sokhach.idempotency.request_hash IS 'SHA-256 của yêu cầu chuẩn hóa do hàm lệnh xác định.';
 COMMENT ON COLUMN sokhach.idempotency.result IS 'Kết quả tính sẵn để trả lại khi lặp lệnh.';
 
+-- CT-2SO: source entry is separate from positive receipts and trip charges.
+CREATE TABLE sokhach.offset_pair (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    source_customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    target_customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    target_receipt_id bigint NOT NULL UNIQUE,
+    source_pid text NOT NULL,
+    date date NOT NULL,
+    amount_vnd bigint NOT NULL CHECK (amount_vnd > 0),
+    created_by_event bigint NOT NULL,
+    changed_by_event bigint,
+    voided_by_event bigint,
+    void_reason text CHECK (btrim(void_reason) <> ''),
+    CHECK (source_customer_id <> target_customer_id),
+    CHECK ((void_reason IS NULL) = (voided_by_event IS NULL)),
+    UNIQUE (source_customer_id, source_pid),
+    FOREIGN KEY (target_receipt_id, target_customer_id) REFERENCES sokhach.receipt(id, customer_id),
+    FOREIGN KEY (created_by_event, source_customer_id) REFERENCES sokhach.event(id, customer_id),
+    FOREIGN KEY (changed_by_event, source_customer_id) REFERENCES sokhach.event(id, customer_id),
+    FOREIGN KEY (voided_by_event, source_customer_id) REFERENCES sokhach.event(id, customer_id)
+);
+CREATE TABLE sokhach.offset_command (
+    low_customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    high_customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    key text NOT NULL CHECK (btrim(key) <> ''),
+    payload jsonb NOT NULL,
+    result jsonb NOT NULL,
+    CHECK (low_customer_id < high_customer_id),
+    PRIMARY KEY (low_customer_id, high_customer_id, key)
+);
+CREATE VIEW sokhach.v_offset_outgoing AS
+SELECT id, source_customer_id AS customer_id, date_trunc('month',date)::date AS debt_month,
+       amount_vnd FROM sokhach.offset_pair WHERE voided_by_event IS NULL;
+
 CREATE FUNCTION sokhach.reject_immutable_change() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
 BEGIN
@@ -364,6 +398,76 @@ CREATE TRIGGER adjustment_immutable BEFORE UPDATE OR DELETE ON sokhach.adjustmen
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER idempotency_immutable BEFORE UPDATE OR DELETE ON sokhach.idempotency
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
+CREATE TRIGGER offset_command_immutable BEFORE UPDATE OR DELETE ON sokhach.offset_command
+    FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
+CREATE FUNCTION sokhach.guard_offset_pair() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF TG_OP='DELETE' THEN RAISE EXCEPTION 'OFFSET_PAIR_IMMUTABLE'; END IF;
+    IF ROW(NEW.id,NEW.source_customer_id,NEW.target_customer_id,NEW.target_receipt_id,
+        NEW.source_pid,NEW.amount_vnd,NEW.created_by_event)
+       IS DISTINCT FROM ROW(OLD.id,OLD.source_customer_id,OLD.target_customer_id,OLD.target_receipt_id,
+        OLD.source_pid,OLD.amount_vnd,OLD.created_by_event)
+       OR OLD.voided_by_event IS NOT NULL
+    THEN RAISE EXCEPTION 'OFFSET_PAIR_IMMUTABLE'; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER offset_pair_guard BEFORE UPDATE OR DELETE ON sokhach.offset_pair
+    FOR EACH ROW EXECUTE FUNCTION sokhach.guard_offset_pair();
+-- Enforce shared PH namespace even for privileged fixture inserts; normal commands
+-- already hold the same customer lock before choosing the next code.
+CREATE FUNCTION sokhach.check_offset_pid() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF TG_TABLE_NAME='receipt' THEN
+        IF EXISTS (SELECT 1 FROM sokhach.offset_pair
+            WHERE source_customer_id=NEW.customer_id AND source_pid=NEW.pid)
+        THEN RAISE EXCEPTION 'OFFSET_PID_CONFLICT'; END IF;
+    ELSE
+        IF EXISTS (SELECT 1 FROM sokhach.receipt
+            WHERE customer_id=NEW.source_customer_id AND pid=NEW.source_pid)
+        THEN RAISE EXCEPTION 'OFFSET_PID_CONFLICT'; END IF;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER receipt_offset_pid BEFORE INSERT ON sokhach.receipt
+    FOR EACH ROW EXECUTE FUNCTION sokhach.check_offset_pid();
+CREATE TRIGGER offset_pair_pid BEFORE INSERT ON sokhach.offset_pair
+    FOR EACH ROW EXECUTE FUNCTION sokhach.check_offset_pid();
+
+CREATE FUNCTION sokhach.check_offset_pair() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_pair sokhach.offset_pair%ROWTYPE; v_id bigint;
+BEGIN
+    IF TG_TABLE_NAME='receipt' THEN
+        SELECT id INTO v_id FROM sokhach.offset_pair WHERE target_receipt_id=NEW.id;
+    ELSE v_id:=NEW.id; END IF;
+    IF v_id IS NULL THEN RETURN NEW; END IF;
+    SELECT * INTO v_pair FROM sokhach.offset_pair WHERE id=v_id;
+    IF NOT EXISTS (SELECT 1 FROM sokhach.receipt r WHERE r.id=v_pair.target_receipt_id
+        AND r.customer_id=v_pair.target_customer_id AND r.date=v_pair.date
+        AND r.amount_vnd=v_pair.amount_vnd AND r.method='CẤN TRỪ'
+        AND (r.voided_by_event IS NULL)=(v_pair.voided_by_event IS NULL)
+        AND r.void_reason IS NOT DISTINCT FROM v_pair.void_reason)
+       OR NOT EXISTS (SELECT 1 FROM sokhach.event e WHERE e.id=v_pair.created_by_event
+        AND e.kind='receipt' AND e."after"->>'offset_pair_id'=v_pair.id::text
+        AND e."after"->>'receipt'=v_pair.source_pid
+        AND e."after"->>'amount_vnd'=(-v_pair.amount_vnd)::text)
+       OR (v_pair.changed_by_event IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM sokhach.event e WHERE e.id=v_pair.changed_by_event AND e.kind='receipt_edit'
+        AND e."after"->>'offset_pair_id'=v_pair.id::text AND (e."after"->>'date')::date=v_pair.date))
+       OR (v_pair.voided_by_event IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM sokhach.event e WHERE e.id=v_pair.voided_by_event AND e.kind='void'
+        AND e."after"->>'offset_pair_id'=v_pair.id::text
+        AND e."after"->>'void_reason'=v_pair.void_reason))
+    THEN RAISE EXCEPTION 'OFFSET_PAIR_INVARIANT'; END IF;
+    RETURN NEW;
+END $$;
+CREATE CONSTRAINT TRIGGER offset_pair_consistency_trigger AFTER INSERT OR UPDATE ON sokhach.offset_pair
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION sokhach.check_offset_pair();
+CREATE CONSTRAINT TRIGGER receipt_offset_pair_check AFTER INSERT OR UPDATE ON sokhach.receipt
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION sokhach.check_offset_pair();
+
 CREATE FUNCTION sokhach.guard_cutover_status() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
 BEGIN
