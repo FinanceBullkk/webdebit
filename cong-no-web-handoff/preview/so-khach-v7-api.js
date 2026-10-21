@@ -11,6 +11,13 @@
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],
     lock: ['/api/v7/months/lock', ['month', 'locked']],
   };
+  // Cấn trừ hai sổ (CT-2SO): một lệnh ghi cả hai sổ, cần version của cả hai. 'target' = sổ đang mở là sổ nhận.
+  const offsetRoutes = {
+    offset: ['/api/v7/offsets', ['source_customer_id', 'source_version', 'date', 'amount_vnd'], 'target'],
+    offsetVoid: ['/api/v7/offsets/void', ['other_version', 'offset_pair_id', 'reason'], 'self'],
+    offsetDate: ['/api/v7/offsets/date', ['other_version', 'offset_pair_id', 'date'], 'self'],
+  };
+  const idFields = ['source_customer_id', 'source_version', 'other_version', 'offset_pair_id'];
   const stale = 'Sổ vừa thay đổi. Kiểm tra dữ liệu mới rồi thực hiện lại.';
   const unknown = 'Chưa rõ lệnh đã lưu. Thử lại bằng cùng yêu cầu.';
   const tripFields = ['date', 'container', 'carrier', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
@@ -72,6 +79,7 @@
   function create({ customerId, fetcher = fetch, key = () => crypto.randomUUID(), onSnapshot = () => {}, onNotice = () => {} }) {
     let snapshot = null;
     let pending = null;
+    let outcome = null;
     async function read() {
       const response = await fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
       if (!response.ok) throw Error('Không đọc được sổ khách.');
@@ -95,21 +103,25 @@
         const result = await response.json();
         if (!response.ok) {
           if (result.error === 'STALE_LEDGER') {
+            outcome = { status: 'stale' };
             pending = null;
             snapshot = null;
             try { await read(); } catch { onNotice('Không tải được sổ mới. Tải lại trang rồi kiểm tra.'); return; }
             onNotice(stale);
             return;
           }
-          if (result.error === 'RESULT_UNKNOWN') { onNotice(unknown); return; }
+          if (result.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown' }; onNotice(unknown); return; }
+          outcome = { status: 'error', result };
           pending = null;
           onNotice(result.message || 'Không lưu được thao tác.');
           return result;
         }
+        outcome = { status: 'saved', result };
         await read();
         pending = null;
         onNotice('Đã lưu.');
       } catch {
+        outcome = { status: 'unknown' };
         onNotice(unknown);
       }
     }
@@ -131,8 +143,46 @@
         idempotency_key: key(), ...intent } };
       return await send();
     }
+    // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.
+    async function submitOffset(action, fields) {
+      if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
+      if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
+      const route = offsetRoutes[action];
+      if (!route) throw Error('Thao tác không hợp lệ.');
+      const intent = Object.fromEntries(route[1].filter(name => Object.hasOwn(fields, name)).map(name => [name, fields[name]]));
+      if (Object.keys(intent).length !== route[1].length) throw Error('Thiếu thông tin cấn trừ.');
+      for (const name of idFields) {
+        if (!Object.hasOwn(intent, name)) continue;
+        const number = Number(intent[name]);
+        if (!Number.isSafeInteger(number) || number < 0) throw Error('Mã sổ hoặc phiên bản không hợp lệ.');
+        intent[name] = number;
+      }
+      if (Object.hasOwn(intent, 'amount_vnd') && typeof intent.amount_vnd !== 'string') throw Error('Số tiền phải là chuỗi VND.');
+      const head = route[2] === 'target'
+        ? { target_customer_id: customerId, target_version: snapshot.version }
+        : { customer_id: customerId, expected_version: snapshot.version };
+      pending = { path: route[0], body: { ...head, idempotency_key: key(), ...intent } };
+      outcome = null;
+      await send();
+      return outcome ?? { status: 'unknown' };
+    }
+    // Đọc sổ khách khác chỉ để lấy version và mã phiếu phía bên kia của cặp; không đổi snapshot của sổ đang mở.
+    async function readOther(otherId) {
+      const response = await fetcher(`/api/v7/ledger?customer=${encodeURIComponent(otherId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được sổ bên kia của cấn trừ.');
+      const data = await response.json();
+      if (!data || Number(data.customer_id) !== Number(otherId) || !Number.isSafeInteger(data.version)) throw Error('Dữ liệu sổ bên kia không hợp lệ.');
+      return data;
+    }
+    async function loadOffsetSources() {
+      const response = await fetcher(`/api/v7/offset-sources?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được danh sách sổ đang dư tiền.');
+      const data = await response.json();
+      if (!data || !Array.isArray(data.sources)) throw Error('Danh sách sổ đang dư tiền không hợp lệ.');
+      return data.sources;
+    }
     redraw = () => { if (snapshot) onSnapshot(snapshot); };
-    return { read, submit, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
+    return { read, submit, submitOffset, readOther, loadOffsetSources, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, customerName: id => customerNames.get(id) };

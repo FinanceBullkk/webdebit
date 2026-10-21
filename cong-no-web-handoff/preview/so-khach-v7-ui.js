@@ -163,6 +163,7 @@
       delta_vnd: 'Điều chỉnh', unit_price_vnd: 'Đơn giá', other_fee_vnd: 'Phụ phí', new_value_vnd: 'Giá trị mới',
       date: 'Ngày trả', event_date: 'Ngày chuyến', month: 'Tháng', debt_month: 'Tháng', pid: 'Phiếu',
       method: 'Hình thức', container: 'Container', carrier: 'Hãng tàu / số xe', from: 'Nơi đi', to: 'Nơi đến',
+      counterparty_name: 'Sổ bên kia', void_reason: 'Lý do hủy',
       unitPriceVnd: 'Đơn giá', otherFeeVnd: 'Phụ phí', openings: 'Số kỳ số dư đầu', legacy: 'Số dòng lịch sử' };
     function describe(value, kind) {
       if (!value || typeof value !== 'object') return 'Chưa có';
@@ -217,6 +218,21 @@
         groups.push({ month: `${openKey}-01`, placeholder: true });
         groups.sort((a, b) => monthKey(a.month).localeCompare(monthKey(b.month)));
       }
+      // Khoản "cấn trừ đi" của sổ nguồn nằm ở tháng của ngày trả, trong khối TIỀN KHÁCH TRẢ (số âm).
+      const outgoingByMonth = new Map();
+      for (const item of data.outgoing_offsets ?? []) {
+        const key = monthKey(item.date);
+        if (!outgoingByMonth.has(key)) outgoingByMonth.set(key, []);
+        outgoingByMonth.get(key).push({ pid: item.pid, date: item.date, method: 'CẤN TRỪ', offset_pair_id: item.offset_pair_id,
+          counterparty_customer_id: item.counterparty_customer_id, counterparty_name: item.counterparty_name, outgoing: true,
+          void_reason: item.void_reason, voided_by_event: item.voided_by_event, line: { amount_vnd: item.amount_vnd, kind: 'offset' } });
+        if (!groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
+      }
+      groups.sort((a, b) => monthKey(a.month).localeCompare(monthKey(b.month)));
+      const offsetAttrs = receipt => receipt.offset_pair_id == null ? ''
+        : ` data-pair="${escape(receipt.offset_pair_id)}" data-other="${escape(receipt.counterparty_customer_id)}" data-other-name="${escape(receipt.counterparty_name)}"`;
+      const offsetLink = receipt => receipt.offset_pair_id == null || receipt.voided_by_event != null ? ''
+        : `<a class="offset-link" href="/so-khach-v7-live.html?customer=${encodeURIComponent(receipt.counterparty_customer_id)}">${receipt.outgoing ? 'sang' : 'từ'} ${escape(receipt.counterparty_name)}</a>`;
       const sourceFigures = new Map((data.source_exceptions ?? []).map(item => [monthKey(item.month), item]));
       const historical = new Map();
       for (const row of data.legacy_rows ?? []) {
@@ -227,10 +243,11 @@
       const section = item => {
         const key = monthKey(item.month);
         const trips = (data.trips ?? []).filter(row => monthKey(row.month) === key);
-        const receipts = (data.receipts ?? []).flatMap(row => (row.allocations ?? [])
+        const received = (data.receipts ?? []).flatMap(row => (row.allocations ?? [])
           .filter(line => monthKey(line.month) === key && (row.voided_by_event != null
             ? line.superseded_by_event === row.voided_by_event : line.superseded_by_event === null))
           .map(line => ({ ...row, line })));
+        const receipts = [...received, ...(outgoingByMonth.get(key) ?? [])];
         const opening = (data.opening ?? []).filter(row => monthKey(row.month) === key);
         const adjustments = (data.adjustments ?? []).filter(row => monthKey(row.month) === key);
         const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
@@ -243,15 +260,15 @@
             ${trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
             ${trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
             ${trip ? num(fmt(trip.amount_vnd)) : empty('num')}
-            ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date" tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
-            ${receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
-            ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric">' : ''}</td>`}
+            ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
+            ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
+            ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
             ${empty('num')}${cell(trip?.src ?? '', 'source')}</tr>`;
         }).join('');
         const openingRows = opening.map(row => `<tr class="adjustment"><td colspan="8">Nợ cũ chuyển sang sổ mới</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5">Số dư đầu đã nằm trong tổng, không cộng lần nữa</td></tr>`).join('');
         const adjustmentRows = adjustments.map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5"></td></tr>`).join('');
         const voidRows = receipts.filter(row => row.voided_by_event != null).map(row =>
-          `<tr class="void-trace"><td colspan="14">${fmt(row.line.amount_vnd)} · ${escape(dateText(row.date))} · ${escape(dateText(row.voided_on))} · ${escape(row.void_reason)}</td></tr>`).join('');
+          `<tr class="void-trace"><td colspan="14">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
         const history = historical.get(key) ?? [];
         // Option (b), 20/10/2026: Sheet figures beside the ledger subtotal, for comparison only.
         const source = sourceFigures.get(key);
@@ -290,6 +307,192 @@
       try { return await api.submit(action, fields); }
       catch (error) { showNotice(error.message); }
     }
+    // ---- Cấn trừ hai sổ (CT-2SO): server giữ số dư và chặn; trang chỉ chọn sổ, hiện số trước → sau và gửi lệnh ----
+    const OUTSIDE = model.OFFSET_OUTSIDE;
+    const offsetState = { sources: [], selected: null, open: false, query: '', error: '' };
+    const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const ownName = () => live.customerName(customerId) ?? `#${customerId}`;
+    const validDate = value => /^\d{4}-\d\d-\d\d$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+    async function refreshSources() {
+      try {
+        offsetState.sources = model.parseOffsetSources(await api.loadOffsetSources()).sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+        offsetState.error = '';
+      } catch { offsetState.sources = []; offsetState.error = 'Không đọc được danh sách sổ đang dư tiền.'; }
+      if (offsetState.selected && offsetState.selected !== OUTSIDE) {
+        offsetState.selected = offsetState.sources.find(item => item.customerId === offsetState.selected.customerId) ?? null;
+        if (!offsetState.selected) offsetState.error = 'Sổ đã chọn không còn dư tiền, chọn lại.';
+      }
+    }
+    function renderOptions() {
+      const holder = root.querySelector('.offset-options');
+      if (!holder) return;
+      const found = model.filterOffsetSources(offsetState.sources, offsetState.query);
+      holder.innerHTML = found.map(item => `<button type="button" role="option" class="offset-option" data-source="${escape(item.customerId)}"><span>${escape(item.label)}</span><strong>${model.formatVnd(item.outstandingVnd)}</strong></button>`).join('')
+        + (found.length ? '' : `<p class="offset-none">${offsetState.sources.length ? 'Không tìm thấy sổ phù hợp' : 'Không có sổ nào đang dư tiền'}</p>`);
+    }
+    function renderSourceCell() {
+      const holder = root.querySelector('.offset-source-cell');
+      if (!holder) return;
+      const chosen = offsetState.selected;
+      const text = chosen === OUTSIDE ? 'Ngoài sổ · chỉ trừ sổ này' : chosen ? `${chosen.label} · ${model.formatVnd(chosen.outstandingVnd)}` : 'Chọn sổ đang dư tiền…';
+      holder.innerHTML = `<div class="offset-caption">Lấy từ sổ</div><button type="button" class="offset-source-select" aria-haspopup="listbox" aria-expanded="${offsetState.open}">${escape(text)}</button><span class="cell-error offset-source-error" role="alert">${escape(offsetState.error)}</span>${offsetState.open
+        ? `<div class="offset-picker" role="listbox" aria-label="Chọn sổ lấy tiền"><input class="offset-search" aria-label="Lọc theo tên khách hoặc mặt hàng" placeholder="Gõ tên khách hoặc mặt hàng để lọc…" value="${escape(offsetState.query)}" autocomplete="off"><div class="offset-options"></div><button type="button" role="option" class="offset-option offset-outside" data-source="OUTSIDE">Ngoài sổ (khoản phải trả, USD…) · chỉ trừ sổ này</button></div>` : ''}`;
+      renderOptions();
+    }
+    async function showSourceRow(entryRow) {
+      if (entryRow.nextElementSibling?.classList.contains('offset-source-row')) return;
+      entryRow.insertAdjacentHTML('afterend', '<tr class="offset-source-row"><td colspan="9"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td><td class="source"></td></tr>');
+      Object.assign(offsetState, { selected: null, open: false, query: '', error: '' });
+      renderSourceCell();
+      await refreshSources();
+      renderSourceCell();
+    }
+    function hideSourceRow(entryRow) {
+      if (entryRow.nextElementSibling?.classList.contains('offset-source-row')) entryRow.nextElementSibling.remove();
+      Object.assign(offsetState, { selected: null, open: false, query: '', error: '' });
+    }
+    function closeDialog() { root.querySelector('.offset-backdrop')?.remove(); }
+    // Kết quả lệnh cấn trừ: thành công thì gọi done; lỗi thì ghi câu tiếng Việt từ bảng mã lỗi vào errorBox.
+    function afterOffset(outcome, errorBox, done) {
+      if (outcome.status === 'saved') { done(outcome.result); return; }
+      if (outcome.status === 'error') {
+        const code = outcome.result?.error;
+        errorBox.textContent = model.offsetErrorMessage(code, outcome.result);
+        if (code === 'OFFSET_EXCEEDS_CREDIT') refreshSources();
+      }
+    }
+    function showOffsetDialog(entryRow, source, amountVnd, date) {
+      const preview = model.planOffsetPreview({ source, targetOutstandingVnd: BigInt(snapshot.total_outstanding_vnd), amountVnd });
+      const f = model.formatVnd;
+      const card = (name, view) => `<div class="offset-card"><div class="offset-card-title">Sổ ${escape(name)}</div><div class="offset-card-values"><span>${f(view.beforeVnd)}</span><span aria-hidden="true">→</span><strong>${f(view.afterVnd)}</strong></div></div>`;
+      root.insertAdjacentHTML('beforeend', `<div class="offset-backdrop"><section class="offset-dialog" role="dialog" aria-modal="true" aria-labelledby="offset-dialog-title">
+        <h2 id="offset-dialog-title">Xác nhận cấn trừ giữa hai sổ</h2>
+        <p class="offset-sentence">Cấn trừ <strong>${f(amountVnd)}</strong> từ sổ <strong>${escape(source.label)}</strong> sang sổ <strong>${escape(ownName())}</strong>.</p>
+        <div class="offset-cards">${card(source.label, preview.source)}${card(ownName(), preview.target)}</div>
+        ${preview.targetNegativeVnd === null ? '' : `<p class="offset-over">Sổ ${escape(ownName())} sẽ còn ${f(preview.targetNegativeVnd)}.</p>`}
+        <p class="offset-date-note">Ngày phiếu: ${escape(dateText(date))} · Hai sổ được ghi cùng lúc.</p>
+        <p class="offset-dialog-error cell-error" role="alert"></p>
+        <div class="offset-actions"><button type="button" class="offset-back">Quay lại</button><button type="button" class="offset-confirm">Ghi cấn trừ</button></div></section></div>`);
+      const box = root.querySelector('.offset-backdrop');
+      // Giữ phím Enter không tự xác nhận khi vừa gõ số tiền xong.
+      box.addEventListener('keydown', keyEvent => { if (keyEvent.repeat) keyEvent.preventDefault(); });
+      box.querySelector('.offset-back').addEventListener('click', () => { closeDialog(); entryRow.querySelector('.receipt-amount')?.focus(); });
+      box.querySelector('.offset-confirm').addEventListener('click', async clickEvent => {
+        const button = clickEvent.currentTarget;
+        button.disabled = true;
+        try {
+          const outcome = await api.submitOffset('offset', { source_customer_id: source.customerId, source_version: source.version, date, amount_vnd: amountVnd.toString() });
+          afterOffset(outcome, box.querySelector('.offset-dialog-error'), result => {
+            let text = 'Đã ghi cấn trừ.';
+            try {
+              const done = model.parseOffsetResult(result);
+              text = `Đã ghi ${done.targetPid}: cấn trừ ${f(amountVnd)} từ sổ ${source.label} (phiếu ${done.sourcePid}). Sổ đó còn ${f(preview.source.afterVnd)}.`
+                + (done.overpaymentVnd > 0n ? ` Phần thừa ${f(done.overpaymentVnd)} thành ứng trước.` : '');
+            } catch { /* kết quả lạ: giữ câu chung, số liệu vẫn lấy từ sổ vừa tải */ }
+            closeDialog();
+            showNotice(text);
+          });
+          if (outcome.status === 'stale' || outcome.status === 'unknown') closeDialog();
+        } catch (error) { showNotice(error.message); closeDialog(); }
+        button.disabled = false;
+      });
+      box.querySelector('.offset-confirm').focus();
+    }
+    // Enter ở ô số tiền khi hình thức là CẤN TRỪ. Trả true nếu đã xử lý; false để ghi thu như thường (Ngoài sổ).
+    async function startOffset(row) {
+      const dateBox = row.querySelector('.receipt-date'), amountBox = row.querySelector('.receipt-amount');
+      const dateError = row.querySelector('.receipt-date-error'), amountError = row.querySelector('.receipt-amount-error');
+      const sourceRow = row.nextElementSibling?.classList.contains('offset-source-row') ? row.nextElementSibling : null;
+      dateError.textContent = ''; amountError.textContent = '';
+      const date = dateInput(dateBox.value.trim());
+      if (!validDate(date)) { dateError.textContent = model.offsetErrorMessage('INVALID_DATE'); dateBox.focus(); return true; }
+      if (date > todayIso()) { dateError.textContent = model.offsetErrorMessage('FUTURE_DATE'); dateBox.focus(); return true; }
+      const plan = model.planOffsetEntry({ source: offsetState.selected, amountText: amountBox.value });
+      if (!plan.ok) {
+        if (plan.code === 'SOURCE_REQUIRED') { offsetState.error = plan.message; renderSourceCell(); sourceRow?.querySelector('.offset-source-select')?.focus(); }
+        else { amountError.textContent = plan.message; amountBox.focus(); }
+        return true;
+      }
+      if (plan.outside) return false;
+      offsetState.error = ''; renderSourceCell();
+      showOffsetDialog(row, offsetState.selected, plan.amountVnd, date);
+      return true;
+    }
+    // Bấm ngày trả hoặc số tiền của dòng cấn trừ (ở bên nào cũng được): đổi ngày hoặc hủy cả cặp.
+    async function openOffsetReceipt(cellEl) {
+      const { pid, pair, other, otherName, field } = cellEl.dataset;
+      let otherLedger;
+      try { otherLedger = await api.readOther(other); } catch (error) { showNotice(error.message); return; }
+      const rowEl = cellEl.closest('tr');
+      if (field === 'date') {
+        const original = cellEl.innerHTML;
+        cellEl.innerHTML = `<input class="saved-receipt-input" aria-label="Sửa ngày trả cấn trừ ${escape(pid)}" value="${escape(cellEl.textContent)}" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>`;
+        const input = cellEl.querySelector('input'); input.focus(); input.select();
+        input.addEventListener('keydown', async keyEvent => {
+          if (keyEvent.key === 'Escape') { cellEl.innerHTML = original; return; }
+          if (keyEvent.key !== 'Enter') return;
+          keyEvent.preventDefault();
+          const box = cellEl.querySelector('.receipt-date-error');
+          const date = dateInput(input.value.trim());
+          if (!validDate(date)) { box.textContent = model.offsetErrorMessage('INVALID_DATE'); return; }
+          if (date > todayIso()) { box.textContent = model.offsetErrorMessage('FUTURE_DATE'); return; }
+          try {
+            const outcome = await api.submitOffset('offsetDate', { other_version: otherLedger.version, offset_pair_id: pair, date });
+            afterOffset(outcome, box, () => showNotice(`Đã đổi ngày cấn trừ ${pid} sang ${dateText(date)} ở cả hai sổ.`));
+          } catch (error) { box.textContent = error.message; }
+        });
+        return;
+      }
+      root.querySelector('.void-prompt')?.remove();
+      const theirs = [...(otherLedger.receipts ?? []), ...(otherLedger.outgoing_offsets ?? [])].find(item => String(item.offset_pair_id) === pair);
+      const both = `<strong>${escape(pid)}</strong> ở sổ <strong>${escape(ownName())}</strong> và <strong>${escape(theirs?.pid ?? '–')}</strong> ở sổ <strong>${escape(otherName)}</strong>`;
+      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="14"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
+      rowEl.nextElementSibling.querySelector('input').focus();
+    }
+    async function confirmOffsetVoid(promptRow) {
+      const reason = promptRow.querySelector('.offset-void-reason').value.trim();
+      const box = promptRow.querySelector('.offset-void-error');
+      if (!reason) { box.textContent = model.offsetErrorMessage('VOID_REASON_REQUIRED'); return; }
+      try {
+        const outcome = await api.submitOffset('offsetVoid', { other_version: promptRow.dataset.otherVersion, offset_pair_id: promptRow.dataset.pair, reason });
+        afterOffset(outcome, box, () => showNotice('Đã hủy cấn trừ ở cả hai sổ.'));
+      } catch (error) { box.textContent = error.message; }
+    }
+    root.addEventListener('change', event => {
+      if (!event.target.matches('.receipt-method')) return;
+      const row = event.target.closest('tr');
+      if (event.target.value === 'CẤN TRỪ') showSourceRow(row); else hideSourceRow(row);
+    });
+    root.addEventListener('input', event => {
+      if (!event.target.matches('.offset-search')) return;
+      offsetState.query = event.target.value;
+      renderOptions();
+    });
+    root.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && root.querySelector('.offset-backdrop')) { closeDialog(); root.querySelector('.receipt-amount')?.focus(); return; }
+      if (event.key === 'Escape' && offsetState.open) { offsetState.open = false; renderSourceCell(); root.querySelector('.offset-source-select')?.focus(); return; }
+      if (event.key === 'Enter' && event.target.matches('.offset-void-reason')) { event.preventDefault(); confirmOffsetVoid(event.target.closest('tr')); }
+    });
+    root.addEventListener('click', async event => {
+      if (offsetState.open && !event.target.closest('.offset-picker,.offset-source-select')) { offsetState.open = false; renderSourceCell(); }
+      if (event.target.closest('.offset-source-select')) {
+        if (offsetState.open) { offsetState.open = false; renderSourceCell(); return; }
+        await refreshSources();
+        Object.assign(offsetState, { open: true, query: '' });
+        renderSourceCell();
+        root.querySelector('.offset-search')?.focus();
+        return;
+      }
+      const option = event.target.closest('.offset-option');
+      if (option) {
+        offsetState.selected = option.dataset.source === 'OUTSIDE' ? OUTSIDE : offsetState.sources.find(item => item.customerId === option.dataset.source) ?? null;
+        Object.assign(offsetState, { open: false, error: '' });
+        renderSourceCell();
+        root.querySelector('.receipt-amount')?.focus();
+        return;
+      }
+      if (event.target.closest('.confirm-offset-void')) await confirmOffsetVoid(event.target.closest('tr'));
+    });
     root.addEventListener('click', async event => {
       if (event.target.closest('.history-toggle')) { historyOpen = !historyOpen; if (snapshot) renderSnapshot(snapshot); return; }
       if (event.target.closest('.history-close')) { historyOpen = false; if (snapshot) renderSnapshot(snapshot); return; }
@@ -332,6 +535,7 @@
       }
       const receipt = event.target.closest('td.receipt[data-pid]');
       if (receipt && !receipt.classList.contains('voided') && !receipt.classList.contains('voided-method') && !receipt.querySelector('input,select')) {
+        if (receipt.dataset.pair) { await openOffsetReceipt(receipt); return; }
         const original = receipt.innerHTML, field = receipt.dataset.field, pid = receipt.dataset.pid;
         if (!field) {
           const row = receipt.closest('tr');
@@ -381,6 +585,7 @@
         const row = event.target.closest('tr');
         try {
           row.querySelector('.receipt-date-error').textContent = '';
+          if (row.querySelector('.receipt-method').value === 'CẤN TRỪ' && await startOffset(row)) return;
           const result = await submit('receipt', { date: dateInput(row.querySelector('.receipt-date').value), method: row.querySelector('.receipt-method').value,
             amount_vnd: moneyText(event.target.value) });
           if (result?.error === 'FUTURE_RECEIPT_DATE') {
