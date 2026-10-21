@@ -67,6 +67,7 @@ def case(case_id: str, label: str, title: str, check=None, *, functions=(), open
 
 # IDs retain section 7 numbering; suffixes split schema checks from missing commands.
 CASES = [
+    case("7.24", "BEHAVIOR", "M2-11 duplicate quarantine and money guards", check="dedup", functions=("paste_trips",)),
     case("7.01", "BEHAVIOR", "Import 11 opening months and historical PH-101", check="opening_import", functions=("get_ledger", "import_cutover")),
     case("7.02", "BEHAVIOR", "JS model operation parity and monthly tuples", check="model", functions=("paste_trips", "record_receipt", "reallocate")),
     case("7.02b", "BEHAVIOR", "Advance, price edit, paste after receipt, missing price, adjustment after void", check="model_edges", functions=("paste_trips", "edit_trip_price", "adjust_month", "void_receipt")),
@@ -196,6 +197,7 @@ def new_book(pg: Pg, *amounts: tuple[str, int]) -> int:
     pg.sql(f"UPDATE sokhach.cutover SET status='verified' WHERE id={cutover}")
     pg.sql(f"UPDATE sokhach.cutover SET status='active' WHERE id={cutover}")
     pg.sql(f"UPDATE sokhach.cutover_customer SET status='active' WHERE customer_id={customer}")
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cutover},'FAKE-REF','FAKE-REF',NULL)")
     return customer
 
 
@@ -923,12 +925,12 @@ def check_locks(pg: Pg) -> str:
     reject_call(pg, "paste_trips", c, 0, "lock-old", old, trip_json(), error="MONTH_LOCKED")
     opened = call(pg, "set_month_lock", c, 0, "lock-open", old, "false")
     require(opened["locked"] is False, "month override did not open")
-    trip = call(pg, "paste_trips", c, 1, "lock-paste", old, trip_json())["trip_ids"][0]
+    trip = call(pg, "paste_trips", c, 1, "lock-paste", old, trip_json(container="LOCK-OLD"))["trip_ids"][0]
     call(pg, "set_month_lock", c, 2, "lock-close", old, "true")
     reject_call(pg, "edit_trip_price", c, 3, "lock-edit", trip, 101, None,
                 error="MONTH_LOCKED")
     # Current month has no row; it must be open by VN clock default.
-    current_trip = call(pg, "paste_trips", c, 3, "lock-current", current, trip_json())["trip_ids"][0]
+    current_trip = call(pg, "paste_trips", c, 3, "lock-current", current, trip_json(container="LOCK-CURRENT"))["trip_ids"][0]
     require(version(pg, c) == 4, "month lock rejected current-month default")
     a, b = PsqlSession(pg, f"v7_lock_a_{c}"), PsqlSession(pg, f"v7_lock_b_{c}")
     try:
@@ -1173,7 +1175,7 @@ console.log(JSON.stringify(out));
     c = new_book(pg)
     for month in ("2026-01-01", "2026-02-01"):
         call(pg, "set_month_lock", c, version(pg, c), "open-" + month, month, "false")
-        call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json())
+        call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json(container="FAKE-" + month))
     call(pg, "set_month_lock", c, version(pg, c), "lock-2026-01", "2026-01-01", "true")
     trip = int(pg.value(f"SELECT id FROM sokhach.trip WHERE customer_id={c} AND debt_month='2026-01-01'"))
     actions = [
@@ -1225,7 +1227,7 @@ def check_model_edges(pg: Pg) -> None:
             allocations(pg, c, "PH-001")[-1] == (current, "advance", "30"),
             "pricing pending trip did not move advance to last month")
     priced = call(pg, "paste_trips", c, 3, "edge-paste-after-receipt", current,
-                  trip_json("40"))["trip_ids"][0]
+                  trip_json("40", container="FAKE-NEW"))["trip_ids"][0]
     require(priced != missing and allocations(pg, c, "PH-001") ==
             [("2025-12-01", "debt", "100"), (current, "debt", "50")],
             "paste after receipt did not reallocate FIFO")
@@ -1519,7 +1521,9 @@ VALUES (1,1,'2026-01-01',0,100,100,100,100,100,0,'fake-anchor-0-and-1','{sha}','
 INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,source_tab,source_row,created_by_event)
 VALUES (1,1,'2026-01-01',100,'FAKE',1,1),(1,1,'2026-02-01',200,'FAKE',2,1);
 INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event)
-VALUES (1,1,'2026-01-01','trip','{{"fake":true}}',999,'FAKE',3,1);""")
+VALUES (1,1,'2026-01-01','trip','{{"fake":true}}',999,'FAKE',3,1);
+""")
+    pg.sql("INSERT INTO sokhach.baseline_trip_ref VALUES (1,'FAKE-REF','FAKE-REF',NULL)")
 
 
 def check_immutable(pg: Pg) -> None:
@@ -1727,8 +1731,8 @@ def check_monthly_identity(pg: Pg) -> None:
 def check_field_adjustment(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 0))
     call(pg, "set_month_lock", c, 0, "field-open", "2026-01-01", "false")
-    trip = call(pg, "paste_trips", c, 1, "field-paste", "2026-01-01", trip_json())["trip_ids"][0]
-    missing = call(pg, "paste_trips", c, 2, "field-missing", "2026-01-01", trip_json(None))["trip_ids"][0]
+    trip = call(pg, "paste_trips", c, 1, "field-paste", "2026-01-01", trip_json(container="FIELD-PRICED"))["trip_ids"][0]
+    missing = call(pg, "paste_trips", c, 2, "field-missing", "2026-01-01", trip_json(None, container="FIELD-MISSING"))["trip_ids"][0]
     call(pg, "set_month_lock", c, 3, "field-lock", "2026-01-01", "true")
     for expected_version, key, field, value, delta in (
             (4, "field-unit-1", "unit_price_vnd", 120, "20"),
@@ -2177,7 +2181,72 @@ def check_ct_15(pg: Pg) -> None:
     require(pair["target_receipt"]["overpayment_vnd"] == "20000000", "CT15 overpayment contract")
 
 
-CHECKS = {"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+def check_dedup(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cut},'BK1','BASE','2026-01-10')")
+
+    def paste(key, container, day="10/01/2026", booking=None, month=current):
+        row = json.loads(trip_json(container=container))[0]
+        row.update(date=day, booking=booking)
+        return call(pg, "paste_trips", c, version(pg, c), key, month, json.dumps([row]))
+
+    code = paste("code", " b a s e\u00a0", booking=" b\u202fk 1")
+    require(code["pending_review"][0]["reason"] == "BASELINE_CODE_MATCH", "Unicode code match")
+    for day, pending in (("07/01/2026", True), ("13/01/2026", True),
+                         ("06/01/2026", False), ("14/01/2026", False)):
+        result = paste(day, "BASE", day, "BK-" + day)
+        require(bool(result["pending_review"]) == pending, "date boundary")
+    first = paste("first", "NEW")
+    again = paste("again", " n e w", booking="/")
+    require(not first["pending_review"] and again["pending_review"][0]["reason"] == "WEB_DUPLICATE", "ALT duplicate")
+    row = json.loads(trip_json(container="BATCH"))[0]
+    result = call(pg, "paste_trips", c, version(pg, c), "batch", current, json.dumps([row, row]))
+    require(result["pending_review"][0]["reason"] == "BATCH_DUPLICATE", "batch duplicate")
+    pending_id = code["trip_ids"][0]
+    money_rows = pg.value(f"SELECT (SELECT count(*) FROM sokhach.trip_price_rev WHERE customer_id={c})||':'||"
+                                     f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c})")
+    before = pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}")
+    reject_call(pg, "edit_trip_price", c, version(pg, c), "edit-pending", pending_id, 20, None,
+                error="TRIP_PENDING_REVIEW")
+    reject_call(pg, "adjust_trip", c, version(pg, c), "adjust-pending", pending_id, 20, "fake",
+                error="TRIP_PENDING_REVIEW")
+    require(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}") == before, "pending mutation event")
+    require(pg.value(f"SELECT (SELECT count(*) FROM sokhach.trip_price_rev WHERE customer_id={c})||':'||"
+                     f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c})") == money_rows,
+            "pending edit wrote price or adjustment")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "400", "pending leaked into money")
+    # Only pending trip in a later month must not move overpayment there.
+    future_month = "2099-01-01"
+    call(pg, "set_month_lock", c, version(pg, c), "open-future", future_month, "false")
+    paste("future-pending", "BASE", booking="BK1", month=future_month)
+    call(pg, "record_receipt", c, version(pg, c), "advance", "2026-01-01", "THU TIỀN", 500)
+    require(allocations(pg, c, "PH-001")[-1] == (current, "advance", "100"), "pending advance month")
+    reject_call(pg, "adjust_month", c, version(pg, c), "pending-month", future_month, 1, "fake",
+                error="MONTH_NOT_FOUND")
+    assert_allocations(pg, c)
+    probe = new_book(pg, ("2026-01-01", 0))
+    call(pg, "paste_trips", probe, 0, "probe-first", current, trip_json())
+    second = call(pg, "paste_trips", probe, 1, "probe-again", current, trip_json())
+    require(second["pending_review"][0]["reason"] == "WEB_DUPLICATE"
+            and call(pg, "get_ledger", probe)["total_outstanding_vnd"] == "100", "C1 reproduced: must be 100, not 200")
+    fee = json.loads(trip_json(None, container=""))[0]
+    fee.update(date=None, otherFeeVnd="7")
+    for n in range(2):
+        require(not call(pg, "paste_trips", probe, version(pg, probe), f"fee-{n}", current,
+                         json.dumps([fee]))["pending_review"], "fee-only deduped")
+    require(call(pg, "get_ledger", probe)["total_outstanding_vnd"] == "114", "fee-only no longer counts")
+    empty = new_book(pg)
+    # Use separate empty cutover rather than bypass immutable reference rows.
+    pg.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable")
+    empty_cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={empty}")
+    pg.sql(f"DELETE FROM sokhach.baseline_trip_ref WHERE cutover_id={empty_cut}")
+    pg.sql("ALTER TABLE sokhach.baseline_trip_ref ENABLE TRIGGER baseline_trip_ref_immutable")
+    reject_call(pg, "paste_trips", empty, 0, "missing-ref", current, trip_json(), error="BASELINE_REF_MISSING")
+    require(version(pg, empty) == 0, "missing reference changed version")
+
+CHECKS = {"dedup": check_dedup,"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
           "immutable": check_immutable, "roles": check_roles, "numbers": check_numbers,
