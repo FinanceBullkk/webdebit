@@ -15,6 +15,7 @@ WITH active_customer AS (
     FROM sokhach.trip t JOIN active_customer ac ON ac.customer_id=t.customer_id
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
         WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
+    WHERE t.status='confirmed'
 ), movements AS (
     SELECT o.customer_id,o.debt_month,o.amount_vnd FROM sokhach.opening_balance o
     JOIN active_customer ac ON (ac.customer_id,ac.cutover_id)=(o.customer_id,o.cutover_id)
@@ -37,6 +38,19 @@ BEGIN
     RETURN v;
 END $$;
 
+-- Unicode White_Space, including NBSP and narrow NBSP, independent of DB locale.
+CREATE FUNCTION sokhach._normalize_key(p_value text) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+    SELECT upper(regexp_replace(coalesce(p_value,''),
+        U&'[\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]', '', 'g'))
+$$;
+CREATE FUNCTION sokhach._booking_key(p_booking text,p_container text,p_date date) RETURNS text
+LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+    SELECT CASE WHEN sokhach._normalize_key(p_booking) ~ '[[:alnum:]]'
+        THEN sokhach._normalize_key(p_booking)
+        ELSE 'ALT:' || sokhach._normalize_key(p_container) || ':' || coalesce(to_char(p_date,'YYYYMMDD'),'UNKNOWN') END
+$$;
+
 CREATE FUNCTION sokhach.paste_trips(customer_id bigint, expected_version bigint,
     idempotency_key text, debt_month date, trips jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
@@ -44,11 +58,17 @@ DECLARE v_payload jsonb := jsonb_build_object('command','paste_trips','month',de
         v_retry jsonb; v_actor text; v_now timestamptz; v_ids jsonb := '[]'::jsonb;
         v_item jsonb; v_id bigint; v_event bigint; v_rows jsonb := '[]'::jsonb;
         v_changes jsonb; v_date date; v_unit bigint; v_fee bigint; v_date_text text;
-        v_fee_only boolean;
+        v_fee_only boolean; v_cutover bigint; v_booking text; v_container text;
+        v_code text; v_seen text[] := '{}'; v_reason text; v_pending jsonb := '[]';
 BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
     PERFORM sokhach._baseline(customer_id);
+    SELECT cc.cutover_id INTO v_cutover FROM sokhach.cutover_customer cc
+        JOIN sokhach.cutover c ON c.id=cc.cutover_id
+        WHERE cc.customer_id=paste_trips.customer_id AND cc.status='active' AND c.status='active';
+    IF NOT EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref WHERE cutover_id=v_cutover)
+    THEN RAISE EXCEPTION 'BASELINE_REF_MISSING'; END IF;
     v_now := clock_timestamp();
     PERFORM sokhach._month_open(customer_id,debt_month,v_now);
     IF jsonb_typeof(trips) IS DISTINCT FROM 'array' OR jsonb_array_length(trips)=0
@@ -81,10 +101,32 @@ BEGIN
         IF v_unit < 0 OR v_fee < 0 OR
            coalesce(v_unit,0)::numeric+coalesce(v_fee,0)::numeric>9223372036854775807
         THEN RAISE EXCEPTION 'INVALID_VND'; END IF;
+        v_reason := NULL;
+        IF NOT v_fee_only THEN
+            v_container := sokhach._normalize_key(v_item->>'container');
+            v_booking := sokhach._booking_key(v_item->>'booking',v_container,v_date);
+            v_code := v_booking || '|' || v_container;
+            IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
+                AND r.booking_norm=v_booking AND r.container_norm=v_container)
+            THEN v_reason := 'BASELINE_CODE_MATCH';
+            ELSIF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
+                AND r.container_norm=v_container AND abs(r.event_date-v_date)<=3)
+            THEN v_reason := 'BASELINE_DATE_WINDOW';
+            ELSIF EXISTS (SELECT 1 FROM sokhach.trip t WHERE t.customer_id=paste_trips.customer_id
+                AND sokhach._normalize_key(t.container)=v_container
+                AND sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking)
+            THEN v_reason := 'WEB_DUPLICATE';
+            ELSIF v_code=ANY(v_seen) THEN v_reason := 'BATCH_DUPLICATE'; END IF;
+            v_seen := array_append(v_seen,v_code);
+        END IF;
         v_id := nextval(pg_get_serial_sequence('sokhach.trip','id'));
+        IF v_reason IS NOT NULL THEN
+            v_pending := v_pending || jsonb_build_array(jsonb_build_object('trip_id',v_id,'reason',v_reason));
+        END IF;
         v_ids := v_ids || jsonb_build_array(v_id);
         v_rows := v_rows || jsonb_build_array(v_item || jsonb_build_object(
-            'trip_id',v_id,'debt_month',debt_month,'event_date',v_date));
+            'trip_id',v_id,'debt_month',debt_month,'event_date',v_date,
+            'status',CASE WHEN v_reason IS NULL THEN 'confirmed' ELSE 'pending_review' END));
     END LOOP;
     v_actor := sokhach._actor();
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
@@ -92,17 +134,17 @@ BEGIN
     RETURNING id INTO v_event;
     FOR v_item IN SELECT value FROM jsonb_array_elements(v_rows) LOOP
         INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,carrier,
-            origin,destination,note,source_ref,created_by_event) OVERRIDING SYSTEM VALUE
+            origin,destination,note,source_ref,created_by_event,booking,status) OVERRIDING SYSTEM VALUE
         VALUES ((v_item->>'trip_id')::bigint,customer_id,debt_month,(v_item->>'event_date')::date,
             v_item->>'container',v_item->>'carrier',v_item->>'from',v_item->>'to',
-            v_item->>'note',v_item->>'src',v_event);
+            v_item->>'note',v_item->>'src',v_event,v_item->>'booking',v_item->>'status');
         INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
         VALUES ((v_item->>'trip_id')::bigint,customer_id,
             (v_item->>'unitPriceVnd')::bigint,(v_item->>'otherFeeVnd')::bigint,v_event);
     END LOOP;
     v_changes := sokhach.reallocate(customer_id,idempotency_key);
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
-        jsonb_build_object('trip_ids',v_ids,'reallocated',v_changes));
+        jsonb_build_object('trip_ids',v_ids,'reallocated',v_changes,'pending_review',v_pending));
 END $$;
 
 CREATE FUNCTION sokhach.edit_trip_price(customer_id bigint, expected_version bigint,
@@ -119,6 +161,7 @@ BEGIN
     PERFORM sokhach._baseline(customer_id);
     v_now := clock_timestamp();
     SELECT * INTO v_trip FROM sokhach.trip WHERE id=trip_id AND trip.customer_id=edit_trip_price.customer_id;
+    IF v_trip.status<>'confirmed' THEN RAISE EXCEPTION 'TRIP_PENDING_REVIEW'; END IF;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     PERFORM sokhach._month_open(customer_id,v_trip.debt_month,v_now);
     IF unit_price_vnd < 0 OR other_fee_vnd < 0 OR
@@ -160,6 +203,7 @@ BEGIN
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
     PERFORM sokhach._baseline(customer_id);
     SELECT * INTO v_trip FROM sokhach.trip WHERE id=trip_id AND trip.customer_id=adjust_trip.customer_id;
+    IF v_trip.status<>'confirmed' THEN RAISE EXCEPTION 'TRIP_PENDING_REVIEW'; END IF;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     SELECT * INTO v_price FROM sokhach.trip_price_rev p
     WHERE p.trip_id=adjust_trip.trip_id ORDER BY p.id DESC LIMIT 1;
@@ -224,7 +268,7 @@ BEGIN
         WHERE o.customer_id=adjust_month.customer_id AND o.debt_month=adjust_month.debt_month
           AND cc.status='active' AND c.status='active')
        AND NOT EXISTS (SELECT 1 FROM sokhach.trip t
-           WHERE t.customer_id=adjust_month.customer_id AND t.debt_month=adjust_month.debt_month)
+           WHERE t.customer_id=adjust_month.customer_id AND t.debt_month=adjust_month.debt_month AND t.status='confirmed')
        AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment a
            WHERE a.customer_id=adjust_month.customer_id AND a.debt_month=adjust_month.debt_month)
     THEN RAISE EXCEPTION 'MONTH_NOT_FOUND'; END IF;
@@ -327,7 +371,7 @@ BEGIN
           AND l.superseded_by_event IS NULL AND r.voided_on IS NULL
           AND l.debt_month <> (SELECT max(debt_month) FROM (
               SELECT debt_month FROM sokhach.opening_balance WHERE customer_id = p_customer
-              UNION ALL SELECT debt_month FROM sokhach.trip WHERE customer_id = p_customer
+              UNION ALL SELECT debt_month FROM sokhach.trip WHERE customer_id = p_customer AND status='confirmed'
               UNION ALL SELECT debt_month FROM sokhach.adjustment WHERE customer_id = p_customer
               UNION ALL SELECT debt_month FROM sokhach.v_offset_outgoing WHERE customer_id = p_customer
           ) m)
@@ -381,7 +425,7 @@ BEGIN
             FROM sokhach.trip t LEFT JOIN LATERAL (
                 SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
                 WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-            WHERE t.customer_id=p_customer
+            WHERE t.customer_id=p_customer AND t.status='confirmed'
             UNION ALL
             SELECT debt_month,amount_vnd FROM sokhach.adjustment WHERE customer_id=p_customer
             UNION ALL SELECT debt_month,amount_vnd FROM sokhach.v_offset_outgoing WHERE customer_id=p_customer
@@ -492,7 +536,7 @@ BEGIN
             FROM sokhach.trip t LEFT JOIN LATERAL
               (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
                WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-            WHERE t.customer_id=get_ledger.customer_id AND t.debt_month=visible_months.debt_month),0)
+            WHERE t.customer_id=get_ledger.customer_id AND t.debt_month=visible_months.debt_month AND t.status='confirmed'),0)
             +coalesce((SELECT sum(a.amount_vnd) FROM sokhach.adjustment a
                 WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=visible_months.debt_month),0)
             +coalesce((SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
@@ -507,20 +551,20 @@ BEGIN
         ORDER BY debt_month),'[]'::jsonb),coalesce(sum(outstanding_vnd),0)
     INTO v_months,v_total FROM visible_months;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,
-        'event_date',t.event_date,'container',t.container,'carrier',t.carrier,
+        'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'status',t.status,'booking',t.booking,
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
-        'amount_vnd',CASE WHEN p.unit_price_vnd IS NOT NULL
+        'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL WHEN p.unit_price_vnd IS NOT NULL
             THEN (p.unit_price_vnd+coalesce(p.other_fee_vnd,0))::text
             WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd::text END,
         'is_fee_only',p.unit_price_vnd IS NULL AND p.other_fee_vnd IS NOT NULL
             AND (t.container IS NULL OR t.container=''),
         'is_missing_price',p.unit_price_vnd IS NULL AND NOT
             (p.other_fee_vnd IS NOT NULL AND (t.container IS NULL OR t.container='')),
-        'editable',NOT coalesce(ms.locked,t.debt_month <>
+        'editable',t.status='confirmed' AND NOT coalesce(ms.locked,t.debt_month <>
             date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
         ORDER BY t.debt_month,t.id),'[]'::jsonb),
-        count(*) FILTER (WHERE p.unit_price_vnd IS NULL AND NOT
+        count(*) FILTER (WHERE t.status='pending_review' OR p.unit_price_vnd IS NULL AND NOT
             (p.other_fee_vnd IS NOT NULL AND (t.container IS NULL OR t.container='')))
     INTO v_trips,v_pending FROM sokhach.trip t
     LEFT JOIN LATERAL (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
@@ -616,7 +660,7 @@ BEGIN
        THEN RAISE EXCEPTION 'FUTURE_RECEIPT_DATE'; END IF;
     SELECT max(debt_month) INTO v_last FROM (
         SELECT debt_month FROM sokhach.opening_balance WHERE opening_balance.customer_id=record_receipt.customer_id
-        UNION ALL SELECT debt_month FROM sokhach.trip WHERE trip.customer_id=record_receipt.customer_id
+        UNION ALL SELECT debt_month FROM sokhach.trip WHERE trip.customer_id=record_receipt.customer_id AND status='confirmed'
         UNION ALL SELECT debt_month FROM sokhach.adjustment WHERE adjustment.customer_id=record_receipt.customer_id
         UNION ALL SELECT o.debt_month FROM sokhach.v_offset_outgoing o
             WHERE o.customer_id=record_receipt.customer_id

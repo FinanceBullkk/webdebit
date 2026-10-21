@@ -620,3 +620,56 @@ CÒN MỞ: kiểm hai actor khác nhau cần hai tài khoản tailnet (hiện ch
 systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. Tiến trình cục bộ trên
 hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
 Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.
+
+## M2-11 — nâng DB đang có (phần B, ĐỀ XUẤT, chưa chạy hao)
+
+Người dùng cho phép chuẩn bị; Claude review, người dùng merge, Claude triển khai sau gate riêng.
+Bước này nâng `webdebit_v7` đã có schema, không chạy lại schema-draft và không đụng `webdebit_ledger`.
+Chuẩn bị release mới từ commit được duyệt, gồm migration cùng toàn bộ tools; giữ release cũ và backup.
+Giá trị 236 khách / 877 kỳ / 10.165 chuyến là mốc người dùng cung cấp ngày 21/10, không phải kết quả task này.
+
+1. Dừng service V7 và chặn mọi writer/loader khác suốt backup → migration → nạp → kiểm. Nếu chưa dừng được, DỪNG.
+2. Backup **webdebit_v7**, hash và restore thử vào DB mới. Dừng khi backup/restore/count khác nhau.
+3. Lưu số dư từng khách trước; chạy migration trên bản sao trước rồi trên DB đích theo gate. Migration dùng một transaction, lock khách, tự đối chiếu tổng từng khách và đủ 14 hàm app. Chạy lại cùng migration không đổi kết quả.
+4. PLAN kiểm đủ ba CSV với manifest; chỉ dùng đúng clean-v2 đã nạp. APPLY chạy OS user/role `v7_loader`; cutover_id và SHA manifest phải khớp DB active. Chuyến không có container khiến loader dừng, không bỏ dòng âm thầm. Ngày chưa rõ giữ NULL, không đoán.
+5. So số dư từng khách trước/sau, checker và reconcile; chỉ restart khi tất cả đạt. Dán thử chuyến mốc/chuyến mới chỉ trên DB bản sao, không trên sổ thật.
+
+Lệnh khung Linux, thay placeholder theo quy ước ở đầu tài liệu, chạy từ gốc release mới:
+
+```bash
+sudo systemctl stop <unit>.service
+sudo -u postgres pg_dump -h /var/run/postgresql -Fc webdebit_v7 > <backup_dir>/v7-before-m211.dump
+sha256sum <backup_dir>/v7-before-m211.dump > <evidence_dir>/v7-before-m211.sha256
+sudo -u postgres createdb -h /var/run/postgresql <restore_db>
+sudo -u postgres pg_restore -h /var/run/postgresql --exit-on-error --single-transaction -d <restore_db> < <backup_dir>/v7-before-m211.dump
+```
+
+Lưu cùng truy vấn trước và sau; tệp nằm ngoài repo, quyền 600. Dùng LEFT JOIN để giữ khách chưa có số dư, NULL không đổi thành 0:
+
+```sql
+SELECT c.id, v.total FROM sokhach.customer c LEFT JOIN
+ (SELECT customer_id,sum(outstanding_vnd)::text total FROM sokhach.v_outstanding_month GROUP BY customer_id) v
+ ON v.customer_id=c.id ORDER BY c.id;
+```
+
+```bash
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -d webdebit_v7 -f specs/v7-backend/migrations/001-m2-11-dedup.sql
+sudo -u <loader_os_user> python3 cong-no-web-handoff/tools/v7_load_baseline_refs.py <clean_dir> --database webdebit_v7 --cutover-id <active_cutover_id>
+sudo -u <loader_os_user> python3 cong-no-web-handoff/tools/v7_load_baseline_refs.py <clean_dir> --database webdebit_v7 --cutover-id <active_cutover_id> --apply
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -d webdebit_v7 -v db_v7=webdebit_v7 -v loader_role=v7_loader -v expect_customers=236 -v expect_openings=877 -f cong-no-web-handoff/tools/v7_post_deploy_check.sql
+diff -u <evidence_dir>/v7-before.balances <evidence_dir>/v7-after.balances
+```
+
+Đạt: PLAN trips khớp manifest (mốc cung cấp: 10.165), số tham chiếu khớp multiset legacy cùng cutover, retry không nhân dòng; checker xanh, số dư từng khách không đổi, reconcile với clean-v2 đạt. DB thử phải chứng minh dán mốc `pending_review`, chuyến mới `confirmed`, chuyến chờ ngoài tiền và không sửa được. Không lấy test giả thay cho kết quả 236 khách thật. API hiện không nhận trường booking; đường hiện tại dùng ALT-KEY-01. Không đổi API/UI trong M2-11.
+
+Dừng: thiếu hash/bản mốc, container rỗng, khác cutover, khác số dòng, thiếu quyền, SQL lỗi, số dư lệch, checker/reconcile lỗi hoặc chưa có backup phục hồi thử. Giữ service dừng; không chạy tiếp để né lỗi. Migration lỗi tự rollback transaction; loader lỗi rollback toàn bộ lô.
+
+Rollback sau migration đã commit: giữ dump sự cố và DB nâng lỗi để điều tra; giữ service dừng, restore `v7-before-m211.dump` vào DB mới, đối chiếu counts/số dư/checker cũ. Sau gate phục hồi, chuyển cấu hình service sang DB phục hồi và release cũ, rồi mới start. Không drop/ghi đè DB nâng lỗi, không chạy SQL “down” xóa cột khi đã có chuyến pending. Giữ cả hai DB tới khi người dùng chốt phục hồi.
+
+Kiểm bản sao (chạy qua orchestrator, dữ liệu giả, Docker `--network none`):
+
+```text
+py -3.13 cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test --report <outside_repo_report>.json
+```
+
+Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view với khởi tạo mới; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.

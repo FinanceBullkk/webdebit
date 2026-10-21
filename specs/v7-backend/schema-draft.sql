@@ -155,6 +155,8 @@ CREATE TABLE sokhach.trip (
     debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month) = 1),
     event_date date,
     container text,
+    booking text,
+    status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','pending_review')),
     CONSTRAINT trip_missing_date_fee_only CHECK (event_date IS NOT NULL OR container IS NULL OR container = ''),
     carrier text,
     origin text,
@@ -168,6 +170,16 @@ COMMENT ON COLUMN sokhach.trip.container IS 'Phân loại phí lẻ theo JS trut
 COMMENT ON COLUMN sokhach.trip.debt_month IS 'Kỳ nợ là ngày mùng 1, độc lập ngày nghiệp vụ.';
 COMMENT ON COLUMN sokhach.trip.event_date IS 'Ngày xe nhập kho; không suy ra kỳ nợ từ cột này.';
 COMMENT ON COLUMN sokhach.trip.source_ref IS 'Tham chiếu nguồn nếu có; không chứa chứng từ thật trong bản nháp.';
+
+-- Read-only reference; no monetary amounts. Cutover identity freezes provenance.
+CREATE TABLE sokhach.baseline_trip_ref (
+    cutover_id bigint NOT NULL REFERENCES sokhach.cutover(id),
+    booking_norm text NOT NULL,
+    container_norm text NOT NULL,
+    event_date date
+);
+CREATE INDEX baseline_trip_ref_code ON sokhach.baseline_trip_ref(cutover_id,booking_norm,container_norm);
+CREATE INDEX baseline_trip_ref_date ON sokhach.baseline_trip_ref(cutover_id,container_norm,event_date);
 
 CREATE TABLE sokhach.trip_price_rev (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -388,6 +400,8 @@ LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
 BEGIN
     RAISE EXCEPTION 'immutable row: %.%', TG_TABLE_SCHEMA, TG_TABLE_NAME;
 END $$;
+CREATE TRIGGER baseline_trip_ref_immutable BEFORE UPDATE OR DELETE ON sokhach.baseline_trip_ref
+    FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER event_immutable BEFORE UPDATE OR DELETE ON sokhach.event
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER trip_immutable BEFORE UPDATE OR DELETE ON sokhach.trip
