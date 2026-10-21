@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -35,10 +36,51 @@ def git(repo, *args):
         capture_output=True, check=True).stdout.decode().strip()
 
 
+def cleanup_with_retry(temp, attempts=10, delay=0.3, sleep=time.sleep):
+    """Remove a TemporaryDirectory, retrying while Windows still holds a handle.
+
+    Right after git init/add/commit, a background scanner or indexer can keep a
+    handle on the new repo for a few hundred ms, so rmdir fails with
+    PermissionError (WinError 5/32). Only OSError is retried and the last
+    failure is re-raised, so a real leak still fails the test.
+    """
+    for attempt in range(attempts):
+        try:
+            temp.cleanup()
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            sleep(delay)
+
+
+class CleanupRetryTests(unittest.TestCase):
+    def test_cleanup_survives_a_handle_held_briefly(self):
+        temp = tempfile.TemporaryDirectory()
+        held = self.enterContext(open(Path(temp.name) / "held.txt", "wb"))
+        # Release the handle on the first retry pause: no wall-clock dependence.
+        cleanup_with_retry(temp, sleep=lambda _delay: held.close())
+        self.assertFalse(Path(temp.name).exists())
+
+    def test_cleanup_still_fails_when_the_handle_is_never_released(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.enterContext(open(Path(temp.name) / "held.txt", "wb"))
+        try:
+            (Path(temp.name) / "held.txt").unlink()
+        except OSError:
+            pass
+        else:
+            self.skipTest("this platform allows deleting open files")
+        with self.assertRaises(OSError):
+            cleanup_with_retry(temp, attempts=2, sleep=lambda _delay: None)
+
+
 @unittest.skipUnless(GIT, "git is required")
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(cleanup_with_retry, self.temp)
         base = Path(self.temp.name)
         self.repo = base / "repo"
         self.repo.mkdir()
@@ -51,9 +93,6 @@ class ReleaseTests(unittest.TestCase):
         git(self.repo, "commit", "-q", "-m", "fake runtime")
         self.out = base / "package"
         self.base = base
-
-    def tearDown(self):
-        self.temp.cleanup()
 
     def build(self):
         return m1_release.build(self.repo, self.out)
