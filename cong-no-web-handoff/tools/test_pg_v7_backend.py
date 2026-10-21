@@ -124,6 +124,10 @@ for _n, _title in [
 
 
 class Pg:
+    def psql_command(self) -> list[str]:
+        """Constructor-only direct adapter prefix for this disposable container."""
+        return ["docker", "exec", "-i", self.name, "psql"]
+
     def __init__(self, name: str, run_id: str):
         self.name = name
         self.run_id = run_id

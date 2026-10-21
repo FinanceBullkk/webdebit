@@ -236,43 +236,54 @@ for _name, _fields in ARGUMENTS.items():
     SQL[_name] = f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{_name}({', '.join(_args)}) FROM b;"
 
 
-class Psql:
-    def __init__(self, container: str, database: str, user: str):
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
-            raise ValueError("invalid container name")
-        if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in (database, user)):
-            raise ValueError("invalid database or user")
-        try:
-            inspected = subprocess.run(["docker", "inspect", "--type=container", container],
-                                       text=True, encoding="utf-8", capture_output=True, timeout=8, check=True)
-            info = json.loads(inspected.stdout)[0]
-        except (OSError, ValueError, IndexError, subprocess.SubprocessError) as exc:
-            raise ValueError("test container unavailable") from exc
-        labels = info.get("Config", {}).get("Labels") or {}
-        if (labels.get("codex.test") != "webdebit-v7-backend" or not labels.get("codex.run")
-                or info.get("HostConfig", {}).get("NetworkMode") != "none"
-                or not re.fullmatch(r"[0-9a-f]{64}", info.get("Id", ""))):
-            raise ValueError("target is not isolated V7 test container")
-        self.container, self.database, self.user = info["Id"], database, user
-
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        sql = "BEGIN;\nSET LOCAL sokhach.actor = :'actor';\n" + SQL[function] + "\nCOMMIT;\n"
+class _PsqlRunner:
+    def _run_psql(
+        self, argv: list[str], function: str, payload: dict, actor: str
+    ) -> dict:
+        sql = (
+            "BEGIN;\nSET LOCAL sokhach.actor = :'actor';\n"
+            + SQL[function]
+            + "\nCOMMIT;\n"
+        )
+        env = os.environ.copy()
+        env["PGOPTIONS"] = "-c statement_timeout=15000 -c lock_timeout=12000"
         try:
             result = subprocess.run(
-                ["docker", "exec", "-i", "--env", "PGOPTIONS=-c statement_timeout=15000 -c lock_timeout=12000",
-                 self.container, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose",
-                 "-v", "payload=" + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-                 "-v", "actor=" + actor, "-U", self.user, "-d", self.database, "-f", "-"],
-                input=sql, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=25,
-                check=False)
+                argv
+                + [
+                    "-v",
+                    "payload="
+                    + json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    "-v",
+                    "actor=" + actor,
+                ],
+                input=sql,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=25,
+                check=False,
+                env=env,
+            )
         except subprocess.TimeoutExpired as exc:
-            if function in ("get_ledger", "list_offset_sources"):
-                raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.") from exc
-            raise ApiError(503, "RESULT_UNKNOWN", "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.") from exc
+            raise ApiError(
+                503,
+                "DB_UNAVAILABLE"
+                if function in ("get_ledger", "list_offset_sources")
+                else "RESULT_UNKNOWN",
+                "Sổ tạm thời không truy cập được."
+                if function in ("get_ledger", "list_offset_sources")
+                else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
+            ) from exc
         except OSError as exc:
-            raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.") from exc
+            raise ApiError(
+                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
+            ) from exc
         if result.returncode:
-            match = re.search(r"(?m)^psql:.*: ERROR:  P0001: ([A-Z_]+)\s*$", result.stderr)
+            match = re.search(
+                r"(?m)^psql:.*: ERROR:  P0001: ([A-Z_]+)\s*$", result.stderr
+            )
             if match and match.group(1) in ERRORS:
                 status, message = ERRORS[match.group(1)]
                 extra = {}
@@ -280,10 +291,15 @@ class Psql:
                     detail = re.search(r"(?m)^DETAIL:\s+(.*)$", result.stderr)
                     if detail:
                         try:
-                            data = json.loads(detail.group(1), object_pairs_hook=no_duplicates)
-                            credit = data.get("available_credit_vnd") if isinstance(data, dict) else None
-                            if vnd(credit):
-                                extra["available_credit_vnd"] = credit
+                            data = json.loads(
+                                detail.group(1), object_pairs_hook=no_duplicates
+                            )
+                            if isinstance(data, dict) and vnd(
+                                data.get("available_credit_vnd")
+                            ):
+                                extra["available_credit_vnd"] = data[
+                                    "available_credit_vnd"
+                                ]
                         except (ValueError, ApiError):
                             pass
                 raise ApiError(status, match.group(1), message, extra)
@@ -291,7 +307,157 @@ class Psql:
         try:
             return json.loads(result.stdout.strip())
         except ValueError as exc:
-            raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.") from exc
+            raise ApiError(
+                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
+            ) from exc
+
+
+class Psql(_PsqlRunner):
+    def __init__(self, container: str, database: str, user: str):
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", container):
+            raise ValueError("invalid container name")
+        if not all(
+            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in (database, user)
+        ):
+            raise ValueError("invalid database or user")
+        try:
+            inspected = subprocess.run(
+                ["docker", "inspect", "--type=container", container],
+                text=True,
+                encoding="utf-8",
+                capture_output=True,
+                timeout=8,
+                check=True,
+            )
+            info = json.loads(inspected.stdout)[0]
+        except (OSError, ValueError, IndexError, subprocess.SubprocessError) as exc:
+            raise ValueError("test container unavailable") from exc
+        labels = info.get("Config", {}).get("Labels") or {}
+        if (
+            labels.get("codex.test") != "webdebit-v7-backend"
+            or not labels.get("codex.run")
+            or info.get("HostConfig", {}).get("NetworkMode") != "none"
+            or not re.fullmatch(r"[0-9a-f]{64}", info.get("Id", ""))
+        ):
+            raise ValueError("target is not isolated V7 test container")
+        self.container, self.database, self.user = info["Id"], database, user
+
+    def run(self, function: str, payload: dict, actor: str) -> dict:
+        return self._run_psql(
+            [
+                "docker",
+                "exec",
+                "-i",
+                "--env",
+                "PGOPTIONS=-c statement_timeout=15000 -c lock_timeout=12000",
+                self.container,
+                "psql",
+                "-X",
+                "-qAt",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-v",
+                "VERBOSITY=verbose",
+                "-U",
+                self.user,
+                "-d",
+                self.database,
+                "-f",
+                "-",
+            ],
+            function,
+            payload,
+            actor,
+        )
+
+
+class PsqlDirect(_PsqlRunner):
+    def __init__(
+        self,
+        socket_dir: str,
+        database: str,
+        role: str,
+        *,
+        psql_command: list[str] | None = None,
+    ):
+        if (
+            not isinstance(socket_dir, str)
+            or not socket_dir.startswith("/")
+            or ":" in socket_dir
+        ):
+            raise ValueError("invalid socket directory")
+        if role == "postgres" or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", role):
+            raise ValueError("invalid role")
+        if (
+            not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database)
+            or database == "webdebit_ledger"
+        ):
+            raise ValueError("invalid database")
+        if "PGPASSWORD" in os.environ:
+            raise ValueError("PGPASSWORD is forbidden")
+        if "PGPASSFILE" in os.environ:
+            p = Path(os.environ["PGPASSFILE"])
+            if (
+                p.is_symlink()
+                or not p.is_file()
+                or (os.name != "nt" and p.stat().st_mode & 0o177)
+            ):
+                raise ValueError("invalid PGPASSFILE")
+        self.socket_dir, self.database, self.user = socket_dir, database, role
+        self.psql_command = list(psql_command or ["psql"])
+        probe = self.psql_command + [
+            "-X",
+            "-qAt",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-h",
+            socket_dir,
+            "-U",
+            role,
+            "-d",
+            database,
+            "-c",
+            "SELECT current_user='"
+            + role
+            + "' AND current_user=(SELECT rolname FROM pg_roles WHERE rolname=current_user AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls), EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='get_ledger')",
+        ]
+        try:
+            check = subprocess.run(
+                probe,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                env={**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"},
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError("direct database unavailable") from exc
+        if check.returncode or check.stdout.strip() != "t|t":
+            raise ValueError("direct database preflight rejected")
+
+    def run(self, function: str, payload: dict, actor: str) -> dict:
+        return self._run_psql(
+            self.psql_command
+            + [
+                "-X",
+                "-qAt",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-v",
+                "VERBOSITY=verbose",
+                "-h",
+                self.socket_dir,
+                "-U",
+                self.user,
+                "-d",
+                self.database,
+                "-f",
+                "-",
+            ],
+            function,
+            payload,
+            actor,
+        )
 
 
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
@@ -462,25 +628,56 @@ class ThreadingHTTPServer(HTTPServer):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=os.getenv("V7_API_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("V7_API_PORT", "8780")))
-    parser.add_argument("--container", default=os.getenv("V7_API_CONTAINER"), required="V7_API_CONTAINER" not in os.environ)
-    parser.add_argument("--database", default=os.getenv("V7_API_DATABASE", "webdebit_v7_test"))
+    parser.add_argument(
+        "--port", type=int, default=int(os.getenv("V7_API_PORT", "8780"))
+    )
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("--container")
+    target.add_argument("--direct-socket-dir")
+    parser.add_argument("--database")
     # ponytail: fake harness has no app EXECUTE grants; switch to v7_app after grants exist.
-    parser.add_argument("--db-user", default=os.getenv("V7_API_DB_USER", "postgres"))
-    parser.add_argument("--insecure-dev-actor", default=os.getenv("V7_API_INSECURE_DEV_ACTOR"))
-    parser.add_argument("--behind-tailscale-serve", action="store_true",
-                        default=os.getenv("V7_API_BEHIND_TAILSCALE_SERVE", "0") == "1",
-                        help="Trust identity supplied by Tailscale Serve on a loopback listener")
+    parser.add_argument("--db-user")
+    parser.add_argument(
+        "--insecure-dev-actor", default=os.getenv("V7_API_INSECURE_DEV_ACTOR")
+    )
+    parser.add_argument(
+        "--behind-tailscale-serve",
+        action="store_true",
+        default=os.getenv("V7_API_BEHIND_TAILSCALE_SERVE", "0") == "1",
+        help="Trust identity supplied by Tailscale Serve on a loopback listener",
+    )
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--demo", action="store_true", help="Mark GET snapshots as fake demo data")
-    source.add_argument("--real-copy", action="store_true", help="Mark isolated real-data copy; not production")
+    source.add_argument(
+        "--demo", action="store_true", help="Mark GET snapshots as fake demo data"
+    )
+    source.add_argument(
+        "--real-copy",
+        action="store_true",
+        help="Mark isolated real-data copy; not production",
+    )
     args = parser.parse_args()
+    if args.direct_socket_dir:
+        if not args.database or args.database == "webdebit_ledger":
+            parser.error("direct mode requires explicit non-legacy database")
+        args.db_user = args.db_user or "v7_app"
+    else:
+        args.container = args.container or os.getenv("V7_API_CONTAINER")
+        if not args.container:
+            parser.error("one of --container or --direct-socket-dir is required")
+        args.database = args.database or os.getenv(
+            "V7_API_DATABASE", "webdebit_v7_test"
+        )
+        args.db_user = args.db_user or os.getenv("V7_API_DB_USER", "postgres")
     if args.port == 8777:
         parser.error("port 8777 belongs to the read-only opening app")
     # Trial API (DB user postgres) stays loopback-only; real access goes through tailscale serve -> loopback.
     if not loopback(args.host):
         parser.error("V7 trial API only binds loopback; expose it with tailscale serve")
-    Handler.runner = Psql(args.container, args.database, args.db_user)
+    Handler.runner = (
+        PsqlDirect(args.direct_socket_dir, args.database, args.db_user)
+        if args.direct_socket_dir
+        else Psql(args.container, args.database, args.db_user)
+    )
     Handler.bind_host, Handler.port = args.host, args.port
     Handler.default_actor = args.insecure_dev_actor
     Handler.dev_actor_mode = args.insecure_dev_actor is not None
