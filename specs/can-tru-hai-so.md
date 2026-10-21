@@ -73,6 +73,20 @@ Codex chọn cách lưu, miễn đạt mục 4 và tiêu chí ở mục 6. Gợi
 - `void_offset` và đổi ngày gọi được từ bất kỳ bên nào, luôn tác động cả cặp trong một giao dịch.
 - Đọc danh sách sổ nguồn: một hàm trả các sổ đang dư (trừ sổ đang ghi, sổ lưu trữ, sổ chưa có mốc mở), kèm số dư và version, nhóm cùng khách lên đầu.
 
+### Hợp đồng đã cài trong nhánh CT-2SO (chưa kiểm Docker)
+
+- `record_offset(target_customer_id bigint, target_version bigint, source_customer_id bigint, source_version bigint, idempotency_key text, date date, amount_vnd bigint) → jsonb`.
+- `void_offset(customer_id bigint, expected_version bigint, other_version bigint, idempotency_key text, offset_pair_id bigint, reason text) → jsonb`.
+- `edit_offset_date(customer_id bigint, expected_version bigint, other_version bigint, idempotency_key text, offset_pair_id bigint, date date) → jsonb`.
+- Hai lệnh sau gọi từ bất kỳ sổ trong cặp: `expected_version` của sổ gọi, `other_version` của sổ còn lại. Retry từ bên kia được phép; hai version không nằm trong payload idempotency. Khóa idempotency thuộc cặp ID không thứ tự; đổi hướng với cùng khóa là `IDEMPOTENCY_CONFLICT`.
+- Kết quả lệnh có `offset_pair_id`, `source_customer_id`, `target_customer_id`, `source_version`, `target_version`, `source_pid`, `target_pid`, `target_receipt`, `source_reallocated`. `target_receipt` giữ kết quả lệnh thu/hủy/sửa ngày V7; khi ghi có `overpayment_vnd` và `allocations` (`advance` là phần ứng trước).
+- `list_offset_sources(target_customer_id bigint) → jsonb`: mảng `{customer_id, name, commodity, version, outstanding_vnd, available_credit_vnd}`, tiền là chuỗi nguyên. Tạm xếp tên theo `COLLATE "C"`, rồi ID; chưa có khóa cùng khách nên không chia nhóm.
+- Lưu mới: `offset_pair` giữ nguồn/đích, FK phiếu nhận, mã nguồn, ngày, tiền, event nguồn tạo/sửa/hủy và lý do; `offset_command` giữ payload/kết quả theo cặp và khóa; `v_offset_outgoing` chỉ lấy khoản nguồn chưa hủy. Không đổi bảng/cột của công cụ nạp. Không tự nối phiếu cũ.
+- `get_ledger` giữ mọi trường cũ; thêm `outgoing_offsets` (mã, ngày, số tiền âm, cặp, sổ đối ứng, trạng thái hủy), liên kết đối ứng trong `receipts`, tên/ID đối ứng trong `events`. Khoản nguồn nằm ở tiền trả âm (`received_vnd`), không cộng `charges_vnd`. FIFO dùng khoản nguồn như nhu cầu phân bổ tại tháng ngày trả.
+- Lỗi chính: `OFFSET_SAME_BOOK`, `OFFSET_EXCEEDS_CREDIT` (JSON `DETAIL.available_credit_vnd`), `NO_BASELINE`, `FUTURE_DATE`, `INVALID_VND`, `STALE_LEDGER`, `IDEMPOTENCY_CONFLICT`. Lỗi bổ sung: `INVALID_COMMAND`, `CUSTOMER_NOT_FOUND`, `INVALID_DATE`, `OFFSET_SOURCE_ARCHIVED`, `OFFSET_NOT_FOUND`, `OFFSET_ALREADY_VOID`, `VOID_REASON_REQUIRED`, `NO_CHANGE`. Gọi lệnh sửa/hủy phiếu đơn với phiếu nhận đã nối cặp trả `OFFSET_PAIR_REQUIRED`.
+
+Lý do cụ thể hóa: hợp đồng đề xuất chưa có chữ ký hủy/đổi ngày, version bên đối ứng, namespace idempotency và JSON đọc khoản nguồn. Đây là hợp đồng backend để kiểm; không duyệt giao diện, không cấp quyền ghi thật. Tất cả hàm nội bộ vẫn bị thu hồi quyền `EXECUTE` như V7 hiện có.
+
 ## 6. Tiêu chí nghiệm thu
 
 DB test trên bản sao, không chạm `hao`:

@@ -11,7 +11,7 @@ import tempfile
 import threading
 import unittest
 import uuid
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -70,6 +70,12 @@ class ReconcileSheetTest(unittest.TestCase):
         with redirect_stderr(io.StringIO()):
             return tool.main(args)
 
+    def run_tool_stdout(self, *extra):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = self.run_tool("--ledger-json", str(self.web), *extra)
+        return code, output.getvalue()
+
     def report(self, filename):
         with (self.out / filename).open(encoding="utf-8-sig", newline="") as stream:
             return list(csv.DictReader(stream))
@@ -87,6 +93,62 @@ class ReconcileSheetTest(unittest.TestCase):
             for filename, digest in self.summary()["input_sha256"][group].items():
                 self.assertEqual(digest, hashlib.sha256((folder / filename).read_bytes()).hexdigest())
         self.assertEqual(set(self.summary()["counts"]), set(tool.STATUSES))
+
+    def test_brief_index_and_status_ranges(self):
+        self.sheet_books = {
+            "Alice": [100], "Bob": [200], "Carol": [300], "Dave": [400],
+            "Eve": [None], "Frank": [None], "Grace": [None],
+        }
+        self.web_books = {
+            "Alice": [100], "Bob": [201], "Carol": [300], "Dora": [987654321],
+            "Eve": [500], "Frank": [600], "Grace": [701],
+        }
+        self.inputs()
+        code, output = self.run_tool_stdout("--brief")
+        self.assertEqual(code, 1)
+        self.assertIn("DOI SOAT: KHONG DAT", output)
+        self.assertIn("LECH_TONG: #2", output)
+        self.assertIn("CHI_CO_WEB: #5", output)
+        self.assertIn("CHI_CO_SHEET: #4", output)
+        self.assertIn("THIEU_SO: #6-#8", output)
+        self.assertIn("KHOP: 2 | LECH_TONG: 1 | CHI_LECH_THANG: 0 | CHI_CO_SHEET: 1 | CHI_CO_WEB: 1 | THIEU_SO: 3 | TONG: 8", output)
+        for secret in (*self.sheet_books, *self.web_books, "987654321", "201", "http", "127.0.0.1"):
+            self.assertNotIn(secret, output)
+        self.assertNotIn(str(self.out), output)
+        index = self.report("reconcile_index.csv")
+        self.assertEqual(index[0], {"no": "1", "customer": "Alice", "status": "KHOP"})
+        customers = self.report("reconcile_customer.csv")
+        self.assertEqual(index, [{"no": str(no), "customer": row["customer"], "status": row["status"]}
+                                 for no, row in enumerate(customers, 1)])
+        self.assertEqual(list(self.report("reconcile_customer.csv")[0]),
+                         ["customer", "sheet_total_vnd", "web_total_vnd", "difference_vnd", "status"])
+        self.assertEqual(list(self.report("reconcile_month.csv")[0]),
+                         ["customer", "debt_month", "sheet_vnd", "web_vnd", "difference_vnd",
+                          "sheet_month_present", "web_month_present", "status"])
+
+    def test_number_ranges(self):
+        self.assertEqual(tool.number_ranges([3, 17, 40, 41, 42]), "#3,#17,#40-#42")
+        self.assertEqual(tool.number_ranges([]), "")
+
+    def test_default_stdout_empty_and_month_difference_passes_brief(self):
+        self.web_books["Khach gia A"] = [0, 300]
+        self.inputs()
+        self.assertEqual(self.run_tool_stdout(), (0, ""))
+        self.out = self.root / "brief-result"
+        code, output = self.run_tool_stdout("--brief")
+        self.assertEqual(code, 0)
+        self.assertIn("DOI SOAT: DAT", output)
+        self.assertIn("CHI_LECH_THANG: #1", output)
+
+    def test_brief_success_and_input_error_stdout_empty(self):
+        self.inputs()
+        code, output = self.run_tool_stdout("--brief")
+        self.assertEqual(code, 0)
+        self.assertIn("DOI SOAT: DAT", output)
+        self.out = self.root / "bad-result"
+        self.csv(self.sheet / "clean_customers.csv", ["customer"], [])
+        code, output = self.run_tool_stdout("--brief")
+        self.assertEqual((code, output), (2, ""))
 
     def test_one_vnd_total_difference(self):
         self.web_books["Khach gia A"] = [100, 201]
