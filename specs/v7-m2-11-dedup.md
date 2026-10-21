@@ -62,7 +62,7 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
   - `specs/v7-backend/schema-draft.sql`
   - `cong-no-web-handoff/tools/test_pg_v7_backend.py`
 - Ngân sách diff: 500 dòng
-- Lệnh kiểm (script chạy từ gốc worktree):
+- Lệnh kiểm:
   - `cd cong-no-web-handoff && py -3.13 -m unittest discover -s tests -v`
   - `py -3.13 tools/test_pg_v7_backend.py` (hoặc đúng lệnh Docker `--network none` đã dùng trong CI cho harness này — xem `.github/workflows/`; agent dùng đúng lệnh CI hiện có, không tự chế cách chạy container mới)
 - Cấm:
