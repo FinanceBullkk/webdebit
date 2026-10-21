@@ -2,6 +2,7 @@
 
 import csv
 import hashlib
+import http.client
 import io
 import json
 import shutil
@@ -295,6 +296,50 @@ class ReconcileSheetTest(unittest.TestCase):
                 self.assertEqual(self.run_tool("--api", address), 2)
                 network.assert_not_called()
         self.assertFalse(self.out.exists())
+
+    def test_https_serve_exact_allowlist_and_request_host(self):
+        self.inputs()
+        authority = "demo.tail-example.ts.net:8443"
+        base = "https://" + authority
+        for value in (base, base + ".evil", "http://" + authority, base + "/path",
+                      base + "?q=1", base + "#x", "https://user@" + authority):
+            with self.subTest(value=value), patch.object(tool, "build_opener") as network:
+                allowed = [] if value == base else [authority]
+                extra = [item for h in allowed for item in ("--serve-host", h)]
+                self.assertEqual(self.run_tool("--api", value, *extra), 2)
+                network.assert_not_called()
+        from urllib.request import Request
+        raw = (self.web / "Khach gia A.json").read_bytes()
+        captured = []
+        class Connection(http.client.HTTPConnection):
+            def __init__(self, host, *, context=None, timeout=10):
+                super().__init__(host, timeout=timeout)
+            def connect(self):
+                pass
+            def send(self, data):
+                captured.append(data)
+            def getresponse(self):
+                from email.message import Message
+                from urllib.response import addinfourl
+                content = json.dumps({"customers": [{"id": 1, "name": "Khach gia A"}]}).encode() if b"GET /api/v7/customers " in captured[-1] else raw
+                response = addinfourl(io.BytesIO(content), Message(), base, 200)
+                response.msg, response.reason = "OK", "OK"
+                return response
+        with patch("http.client.HTTPSConnection", Connection):
+            self.assertEqual(self.run_tool("--api", base, "--serve-host", authority,
+                                           "--serve-host", "second.example.test"), 0)
+        self.assertEqual(len(captured), 2)
+        for request in captured:
+            self.assertIn(("Host: " + authority + "\r\n").encode(), request)
+            self.assertNotIn(b"tailscale", request.lower())
+            self.assertNotIn(b"actor", request.lower())
+        self.assertEqual(tool.api_base("https://demo.example.test", ["demo.example.test"]), "https://demo.example.test")
+        for host in ("*.example.test", "demo.example.test/path", "user@demo.example.test", "demo.example.test:65536"):
+            with self.subTest(host=host), self.assertRaises(ValueError):
+                tool.api_base(base, [host])
+        for code in (301, 302, 303, 307, 308):
+            with self.subTest(code=code), self.assertRaises(tool.InputError):
+                tool.NoRedirect().redirect_request(Request(base), None, code, "redirect", {}, base)
 
     def test_output_must_be_new_and_outside_repo(self):
         self.inputs()

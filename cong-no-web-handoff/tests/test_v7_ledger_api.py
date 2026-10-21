@@ -29,6 +29,72 @@ class FakePsql:
 
 
 class LedgerApiTest(unittest.TestCase):
+    def test_serve_host_origin_assets_and_identity(self):
+        authority = "demo.tail-example.ts.net:8443"
+        class ServeHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority, "second.tail-example.ts.net")
+            default_actor = None
+            dev_actor_mode = False
+        ServeHandler.runner = self.runner
+        ServeHandler.localapi = self.localapi
+        self.localapi.whois.return_value = {}
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), ServeHandler) as server:
+            ServeHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def request(path, host=authority, method="GET", origin=None, payload=None, identity=True):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                headers = {"Host": host, "Content-Type": "application/json"}
+                if identity:
+                    headers["Tailscale-User-Login"] = "serve-user@example.test"
+                if origin is not None:
+                    headers["Origin"] = origin
+                conn.request(method, path, body=json.dumps(payload or {}).encode(), headers=headers)
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, data
+            try:
+                for route in ("/api/v7/customers", next(iter(api.ASSETS))):
+                    for host in ServeHandler.serve_hosts:
+                        self.assertEqual(request(route, host)[0], 200)
+                    for host in ("evil.example.test:8443", authority + ".evil", authority.upper()):
+                        self.assertEqual(request(route, host)[0], 400)
+                    ServeHandler.serve_hosts = ()
+                    self.assertEqual(request(route)[0], 400)
+                    ServeHandler.serve_hosts = (authority,)
+                    ServeHandler.behind_tailscale_serve = False
+                    self.localapi.whois.return_value = {"UserProfile": {"LoginName": "verified@example.test"}}
+                    self.assertEqual(request(route)[0], 400)
+                    ServeHandler.behind_tailscale_serve = True
+                    self.localapi.whois.return_value = {}
+                    self.assertEqual(request(route, identity=False)[0], 403)
+                payload = self.common | {"month": "2026-10-01", "locked": True}
+                self.assertEqual(request("/api/v7/months/lock", method="POST",
+                                         origin="https://" + authority, payload=payload)[0], 200)
+                self.assertEqual(self.runner.calls[-1][2], "serve-user@example.test")
+                for origin in (None, "http://" + authority, "https://evil.example.test", "https://" + authority + "/"):
+                    self.assertEqual(request("/api/v7/months/lock", method="POST", origin=origin, payload=payload)[0], 403)
+                self.assertEqual(request("/api/v7/months/lock", method="POST", origin="https://" + authority,
+                                         payload=payload | {"actor": "client-forged"})[0], 422)
+                self.assertEqual(request("/api/v7/customers?actor=client-forged")[0], 404)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
+
+    def test_serve_cli_requires_flag_and_valid_exact_host(self):
+        for value in ("*.example.test", "example.test/path", "user@example.test", "example.test:0",
+                      "example.test:65536", "https://example.test", "example.test?x=1", "EXAMPLE.test"):
+            with self.subTest(value=value), patch.object(sys, "argv", ["api", "--container", "fake",
+                    "--behind-tailscale-serve", "--serve-host", value]), patch.object(api, "Psql") as runner:
+                with self.assertRaises(SystemExit):
+                    api.main()
+                runner.assert_not_called()
+        with patch.object(sys, "argv", ["api", "--container", "fake", "--serve-host", "demo.example.test"]), \
+                patch.dict(os.environ, {"V7_API_BEHIND_TAILSCALE_SERVE": "0"}), self.assertRaises(SystemExit):
+            api.main()
+
     def test_get_opening_and_void_contract_sql(self):
         # Static contract only; money identities run in the PostgreSQL harness.
         sql = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
@@ -80,6 +146,18 @@ class LedgerApiTest(unittest.TestCase):
                 api.main()
             self.assertEqual(caught.exception.code, 2)
             runner.assert_not_called()
+
+    def test_serve_cli_wires_repeatable_hosts(self):
+        with patch.object(sys, "argv", ["api", "--container", "fake", "--behind-tailscale-serve",
+                "--serve-host", "demo.example.test:8443", "--serve-host", "second.example.test"]), \
+                patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer") as server, \
+                patch.object(api.Handler, "serve_hosts", ()), patch.object(api.Handler, "behind_tailscale_serve", False), \
+                patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None), \
+                patch.object(api.Handler, "demo", False), patch.object(api.Handler, "real_copy", False):
+            api.main()
+            self.assertEqual(api.Handler.serve_hosts, ("demo.example.test:8443", "second.example.test"))
+            self.assertTrue(api.Handler.behind_tailscale_serve)
+            server.return_value.serve_forever.assert_called_once()
 
     def setUp(self):
         self.localapi = Mock()

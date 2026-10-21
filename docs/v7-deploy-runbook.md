@@ -336,7 +336,7 @@ Requires=<postgres_unit>
 [Service]
 User=<os_user_app>
 WorkingDirectory=<release>
-ExecStart=<python> <release>/cong-no-web-handoff/web/v7_ledger_api.py --direct-socket-dir /var/run/postgresql --database <db_v7> --db-user v7_app --behind-tailscale-serve --port <port>
+ExecStart=<python> <release>/cong-no-web-handoff/web/v7_ledger_api.py --direct-socket-dir /var/run/postgresql --database <db_v7> --db-user v7_app --behind-tailscale-serve --serve-host <serve_fqdn>:<serve_port> --port <port>
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
@@ -347,6 +347,11 @@ ProtectHome=true
 WantedBy=multi-user.target
 ```
 
+`<serve_fqdn>` lấy từ cấu hình Serve được admin kiểm; giá trị chữ thường,
+khớp chính xác Host công khai gồm cổng HTTPS (bỏ `:443` nếu URL dùng cổng mặc định).
+`--serve-host` lặp được, chỉ dùng cùng `--behind-tailscale-serve`; mặc định rỗng giữ
+Host loopback cũ. Không wildcard/suffix, không suy allowlist từ header. API và asset
+cùng nhận Host đã cấu hình; POST chỉ nhận Origin `https://<serve-host>` tương ứng.
 `<port>` khác 8777, chỉ bind mặc định loopback. Không `--insecure-dev-actor`.
 Kiểm cổng trống và lưu `tailscale serve status --json` ngoài repo trước đổi. Dùng cổng HTTPS
 riêng chưa có route, không `tailscale serve reset` vì có thể ảnh hưởng viewer.
@@ -387,20 +392,22 @@ sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -
 ```
 
 ```bash
-curl --fail --silent --show-error http://127.0.0.1:<port>/api/v7/customers > <evidence_dir>/customers.json
+curl --fail --silent --show-error https://<serve_fqdn>:<serve_port>/api/v7/customers > <evidence_dir>/customers.json
 ```
 
 ```bash
-curl --fail --silent --show-error 'http://127.0.0.1:<port>/api/v7/ledger?customer=<customer_id>' > <evidence_dir>/ledger.json
+curl --fail --silent --show-error 'https://<serve_fqdn>:<serve_port>/api/v7/ledger?customer=<customer_id>' > <evidence_dir>/ledger.json
 ```
 
-**Gate hiện có:** API sau Serve yêu cầu danh tính; GET loopback trực tiếp không mặc nhiên có actor.
-Hai lệnh curl và reconcile `--api` dưới đây có thể bị 403 với cấu hình production.
-Không thêm header giả/dev actor để né. Nếu vậy dừng bước 6, rollback A và báo cần thay đổi riêng
-cho công cụ kiểm qua danh tính tin cậy; task này không được sửa API/reconcile. Chưa đóng gate này.
+Chạy GET và đối soát từ máy trong tailnet qua URL Serve ở trên, xác minh TLS bình thường;
+không dùng `-k`, header Host hay header danh tính tự gắn. Serve cung cấp danh tính.
+GET loopback trực tiếp không mặc nhiên có actor và có thể trả 403.
+Công cụ nhận HTTPS chỉ khi authority (FQDN và cổng như URL) khớp chính xác một
+`--serve-host`; lặp được. HTTP loopback có port vẫn dùng cho test/dev cũ.
+Mọi redirect bị từ chối, kể cả cùng host. Không thêm header giả/dev actor để né lỗi.
 
 ```bash
-python <release>/cong-no-web-handoff/tools/v7_reconcile_sheet.py --api http://127.0.0.1:<port> --sheet-dir <clean_dir> --out <new_outside_repo_dir> --brief
+python <release>/cong-no-web-handoff/tools/v7_reconcile_sheet.py --api https://<serve_fqdn>:<serve_port> --serve-host <serve_fqdn>:<serve_port> --sheet-dir <clean_dir> --out <new_outside_repo_dir> --brief
 ```
 
 ```bash
@@ -535,6 +542,12 @@ Chỉ start sau count/ACL/read đạt. Không xóa `<quarantine_db>` trong đợ
 
 ## 8. Tổng duyệt, lệnh khung và điểm dừng
 
+Chỉ tổng duyệt Docker với API loopback giả (không chứng minh Serve), template cũ giữ riêng:
+
+```bash
+python <release>/cong-no-web-handoff/tools/v7_reconcile_sheet.py --api http://127.0.0.1:<port> --sheet-dir <clean_dir> --out <new_outside_repo_dir> --brief
+```
+
 `rehearse_v7_deploy.py` dùng PostgreSQL 18.6 pin digest, volume có label/run-id, `--network none`,
 không host mount/port publish. Chỉ xóa tài nguyên trùng ID/name/labels/volume; không chạm container có sẵn.
 Giả lập legacy từ `pg_ledger_schema.sql` với vài dòng GIẢ; socket trong container; host API dùng
@@ -601,5 +614,9 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;
 backup định kỳ V7 (người giữ, retention, phục hồi định kỳ); quyền người chạy, route Serve và kiểm
 danh tính. Chính sách ai xem Lịch sử đã chốt V7-CSM, việc triển khai/quyền truy cập backup vẫn cần kiểm.
-Gate GET/reconcile loopback có identity ở mục 6 và gate V7-CSM chưa triển khai phải được điều phối xử lý;
-không báo sẵn sàng production từ CI xanh.
+Đường Host/Origin/asset và allowlist HTTPS đối soát có regression test dữ liệu giả
+(`test_v7_ledger_api.py`, `test_v7_reconcile_sheet.py`); không chứng minh Serve live.
+CÒN MỞ: kiểm hai actor khác nhau cần hai tài khoản tailnet (hiện chỉ một); kiểm
+systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. Tiến trình cục bộ trên
+hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
+Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.

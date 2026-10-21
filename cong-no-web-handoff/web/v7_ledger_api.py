@@ -460,17 +460,23 @@ class PsqlDirect(_PsqlRunner):
         )
 
 
+def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
+    if value.lower() in {f"127.0.0.1:{port}", f"localhost:{port}", f"{host}:{port}"}:
+        return value.lower()
+    if behind_tailscale_serve and value in serve_hosts:
+        return value
+    raise ApiError(400, "INVALID_HOST", "Địa chỉ truy cập không hợp lệ.")
+
+
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
-           demo: bool = False, real_copy: bool = False) -> tuple[int, dict]:
+           demo: bool = False, real_copy: bool = False, serve_hosts: tuple[str, ...] = ()) -> tuple[int, dict]:
     headers = {name.lower(): value for name, value in headers.items()}
-    allowed = {f"127.0.0.1:{port}", f"localhost:{port}", f"{host}:{port}"}
-    request_host = headers.get("host", "").lower()
-    if request_host not in allowed:
-        raise ApiError(400, "INVALID_HOST", "Địa chỉ truy cập không hợp lệ.")
+    request_host = checked_host(headers.get("host", ""), port, host, behind_tailscale_serve, serve_hosts)
     if method == "POST":
-        if headers.get("origin") != f"http://{request_host}":
+        expected_origin = f"https://{request_host}" if behind_tailscale_serve and request_host in serve_hosts else f"http://{request_host}"
+        if headers.get("origin") != expected_origin:
             raise ApiError(403, "INVALID_ORIGIN", "Nguồn yêu cầu không hợp lệ.")
         if headers.get("content-type", "").lower() != "application/json":
             raise ApiError(415, "INVALID_CONTENT_TYPE", "Cần gửi JSON.")
@@ -520,6 +526,7 @@ class Handler(BaseHTTPRequestHandler):
     default_actor = None
     dev_actor_mode = None
     behind_tailscale_serve = False
+    serve_hosts: tuple[str, ...] = ()
     localapi = None
     demo = False
     real_copy = False
@@ -528,9 +535,8 @@ class Handler(BaseHTTPRequestHandler):
         route = urlsplit(self.path).path
         if self.command != "GET" or route not in ASSETS:
             return False
-        allowed = {f"127.0.0.1:{self.port}", f"localhost:{self.port}"}
-        if self.headers.get("Host", "").lower() not in allowed:
-            raise ApiError(400, "INVALID_HOST", "Địa chỉ truy cập không hợp lệ.")
+        checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
+                     self.behind_tailscale_serve, self.serve_hosts)
         name, kind = ASSETS[route]
         data = (PREVIEW / name).read_bytes()
         self.send_response(200)
@@ -561,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
             if self.headers.get("Transfer-Encoding"):
                 raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
+            checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
+                         self.behind_tailscale_serve, self.serve_hosts)
             actor = self.server.dev_actor
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
@@ -580,7 +588,8 @@ class Handler(BaseHTTPRequestHandler):
                     bad()
             status, value = handle(self.command, self.path, dict(self.headers), raw, self.runner,
                                    port=self.port, host=self.bind_host, default_actor=self.default_actor,
-                                   actor=actor, demo=self.demo, real_copy=self.real_copy)
+                                   actor=actor, demo=self.demo, real_copy=self.real_copy,
+                                   serve_hosts=self.serve_hosts, behind_tailscale_serve=self.behind_tailscale_serve)
             self.reply(status, value)
         except v7_identity.IdentityError as exc:
             self.reply(403, {"error": exc.code})
@@ -646,6 +655,8 @@ def main() -> None:
         default=os.getenv("V7_API_BEHIND_TAILSCALE_SERVE", "0") == "1",
         help="Trust identity supplied by Tailscale Serve on a loopback listener",
     )
+    parser.add_argument("--serve-host", action="append", default=[],
+                        help="Exact Host value accepted from Tailscale Serve; requires --behind-tailscale-serve")
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
         "--demo", action="store_true", help="Mark GET snapshots as fake demo data"
@@ -656,6 +667,15 @@ def main() -> None:
         help="Mark isolated real-data copy; not production",
     )
     args = parser.parse_args()
+    if args.serve_host and not args.behind_tailscale_serve:
+        parser.error("--serve-host requires --behind-tailscale-serve")
+    for value in args.serve_host:
+        try:
+            port_value = urlsplit("//" + value).port or 443
+        except ValueError:
+            port_value = 0
+        if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*(?::[1-9][0-9]{0,4})?", value) or not 1 <= port_value <= 65535:
+            parser.error("--serve-host requires lowercase fqdn[:port]")
     if args.direct_socket_dir:
         if not args.database or args.database == "webdebit_ledger":
             parser.error("direct mode requires explicit non-legacy database")
@@ -682,6 +702,7 @@ def main() -> None:
     Handler.default_actor = args.insecure_dev_actor
     Handler.dev_actor_mode = args.insecure_dev_actor is not None
     Handler.behind_tailscale_serve = args.behind_tailscale_serve
+    Handler.serve_hosts = tuple(args.serve_host)
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()

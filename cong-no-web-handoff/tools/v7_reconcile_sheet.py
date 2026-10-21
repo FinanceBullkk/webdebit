@@ -141,17 +141,22 @@ def read_ledgers(folder):
         hashes[path.name] = hashlib.sha256(content).hexdigest()
     return (customers, hashes)
 
-def api_base(value):
+def api_base(value, serve_hosts=()):
     parsed = urlsplit(value)
+    for authority in serve_hosts:
+        if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*(?::[1-9][0-9]{0,4})?", authority) or not 1 <= (urlsplit('//'+authority).port or 443) <= 65535:
+            raise InputError('invalid Serve host')
     host = parsed.hostname
     try:
         loopback = host == 'localhost' or ipaddress.ip_address(host or '').is_loopback
     except ValueError:
         loopback = False
-    if (parsed.scheme != 'http' or not loopback or parsed.username is not None
+    local = parsed.scheme == 'http' and loopback and parsed.port
+    serve = parsed.scheme == 'https' and parsed.netloc in serve_hosts
+    if (not (local or serve) or parsed.username is not None
             or parsed.password is not None or parsed.path not in ('', '/')
-            or parsed.query or parsed.fragment or not parsed.port):
-        raise InputError('API requires http loopback with port')
+            or parsed.query or parsed.fragment):
+        raise InputError('API requires HTTP loopback with port or explicitly allowed HTTPS Serve host')
     return value.rstrip('/')
 
 class NoRedirect(HTTPRedirectHandler):
@@ -159,8 +164,8 @@ class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise InputError('API redirect forbidden')
 
-def read_api(value):
-    base = api_base(value)
+def read_api(value, serve_hosts=()):
+    base = api_base(value, serve_hosts)
     opener = build_opener(ProxyHandler({}), NoRedirect())
     hashes, customers, ids = ({}, {}, set())
 
@@ -263,16 +268,17 @@ def main(argv=None):
     parser.add_argument('--sheet-dir', type=Path, required=True, help='directory containing both clean CSV files')
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--ledger-json', type=Path, help='JSON directory; filename stems are customer names')
-    source.add_argument('--api', help='HTTP loopback base URL, with explicit port')
+    source.add_argument('--api', help='HTTP loopback with port or HTTPS Serve base URL')
+    parser.add_argument('--serve-host', action='append', default=[], help='Exact allowed HTTPS Serve fqdn[:port]; repeatable')
     parser.add_argument('--out', type=Path, required=True, help='new directory outside repositories')
     parser.add_argument('--brief', action='store_true', help='print counts, statuses and customer row numbers only')
     args = parser.parse_args(argv)
     try:
         out = output_path(args.out)
         if args.api:
-            api_base(args.api)
+            api_base(args.api, args.serve_host)
         sheet, sh = read_sheet(args.sheet_dir)
-        web, wh = read_ledgers(args.ledger_json) if args.ledger_json else read_api(args.api)
+        web, wh = read_ledgers(args.ledger_json) if args.ledger_json else read_api(args.api, args.serve_host)
         customers, months, summary = reconcile(sheet, web)
         summary['input_sha256'] = {'sheet': sh, 'web': wh}
         out.mkdir(parents=True)
