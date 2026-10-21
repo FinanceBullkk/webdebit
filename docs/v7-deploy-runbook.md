@@ -631,7 +631,7 @@ Giá trị 236 khách / 877 kỳ / 10.165 chuyến là mốc người dùng cung
 1. Dừng service V7 và chặn mọi writer/loader khác suốt backup → migration → nạp → kiểm. Nếu chưa dừng được, DỪNG.
 2. Backup **webdebit_v7**, hash và restore thử vào DB mới. Dừng khi backup/restore/count khác nhau.
 3. Lưu số dư từng khách trước; chạy migration trên bản sao trước rồi trên DB đích theo gate. Migration dùng một transaction, lock khách, tự đối chiếu tổng từng khách và đủ 14 hàm app. Chạy lại cùng migration không đổi kết quả.
-4. PLAN kiểm đủ ba CSV với manifest; chỉ dùng đúng clean-v2 đã nạp. APPLY chạy OS user/role `v7_loader`; cutover_id và SHA manifest phải khớp DB active. Chuyến không có container khiến loader dừng, không bỏ dòng âm thầm. Ngày chưa rõ giữ NULL, không đoán.
+4. PLAN kiểm đủ ba CSV với manifest; chỉ dùng đúng clean-v2 đã nạp. APPLY chạy OS user/role `v7_loader`; cutover_id và SHA manifest phải khớp DB active. Chuyến không có container (thường là phí lẻ) không thể so trùng theo container nên không có dòng tham chiếu: loader đếm và in `skipped_no_container`, PLAN kiểm `trips + skipped_no_container` = manifest, APPLY kiểm số dòng legacy khớp cả hai phần; không bỏ âm thầm (người dùng đồng ý 21/10/2026 sau khi bản mốc có 230 chuyến như vậy; các chuyến này không được chặn dán trùng). Ngày chưa rõ giữ NULL, không đoán.
 5. So số dư từng khách trước/sau, checker và reconcile; chỉ restart khi tất cả đạt. Dán thử chuyến mốc/chuyến mới chỉ trên DB bản sao, không trên sổ thật.
 
 Lệnh khung Linux, thay placeholder theo quy ước ở đầu tài liệu, chạy từ gốc release mới:
@@ -660,7 +660,7 @@ sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -d webdebit_v
 diff -u <evidence_dir>/v7-before.balances <evidence_dir>/v7-after.balances
 ```
 
-Đạt: PLAN trips khớp manifest (mốc cung cấp: 10.165), số tham chiếu khớp multiset legacy cùng cutover, retry không nhân dòng; checker xanh, số dư từng khách không đổi, reconcile với clean-v2 đạt. DB thử phải chứng minh dán mốc `pending_review`, chuyến mới `confirmed`, chuyến chờ ngoài tiền và không sửa được. Không lấy test giả thay cho kết quả 236 khách thật. API hiện không nhận trường booking; đường hiện tại dùng ALT-KEY-01. Không đổi API/UI trong M2-11.
+Đạt: PLAN trips + skipped_no_container khớp manifest (mốc cung cấp: 10.165), số tham chiếu khớp multiset legacy cùng cutover, retry không nhân dòng; checker xanh, số dư từng khách không đổi, reconcile với clean-v2 đạt. DB thử phải chứng minh dán mốc `pending_review`, chuyến mới `confirmed`, chuyến chờ ngoài tiền và không sửa được. Không lấy test giả thay cho kết quả 236 khách thật. API hiện không nhận trường booking; đường hiện tại dùng ALT-KEY-01. Không đổi API/UI trong M2-11.
 
 Dừng: thiếu hash/bản mốc, container rỗng, khác cutover, khác số dòng, thiếu quyền, SQL lỗi, số dư lệch, checker/reconcile lỗi hoặc chưa có backup phục hồi thử. Giữ service dừng; không chạy tiếp để né lỗi. Migration lỗi tự rollback transaction; loader lỗi rollback toàn bộ lô.
 
