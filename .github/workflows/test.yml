@@ -9,9 +9,16 @@ on:
 permissions:
   contents: read
 
+# Repo public từ 21/10/2026 nên chạy trên máy của GitHub (miễn phí, sạch mỗi lượt).
+# Không dùng runner tự host: với repo public, PR từ fork sẽ chạy mã lạ trên máy đó,
+# mà `hao` là máy của DB thật. Lượt cũ của cùng PR bị hủy khi có commit mới.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python:
-    runs-on: [self-hosted, Linux, hao]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -19,6 +26,10 @@ jobs:
         python: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
       - name: Unit and HTTP fixture tests (no database)
         working-directory: cong-no-web-handoff
         run: >-
@@ -26,12 +37,13 @@ jobs:
           python -m unittest discover -s tests -v
 
   postgres-ledger:
-    runs-on: [self-hosted, Linux, hao]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
       - name: Characterize repository ledger schema on PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
       - name: Verify F2/F3 migration from pre-fix schema on isolated PostgreSQL
@@ -49,7 +61,7 @@ jobs:
           if-no-files-found: warn
 
   postgres-m1-history-queries:
-    runs-on: [self-hosted, Linux, hao]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -58,6 +70,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
+      - uses: astral-sh/setup-uv@v6
       - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
       - name: Upload PostgreSQL M1 query report
@@ -69,10 +82,11 @@ jobs:
           if-no-files-found: error
 
   pg18-versioned-approval-fixture:
-    runs-on: [self-hosted, Linux, hao]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
       - name: Test immutable approval revisions and opening resolution on PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
       - name: Upload versioned approval fixture report
@@ -84,17 +98,14 @@ jobs:
           if-no-files-found: warn
 
   javascript:
-    # Giữ nguyên tên job, runner self-hosted và bước chụp ảnh viewer của main.
-    # Đổi đúng một thứ: chạy `npm run check` thay cho `npm test` — một lệnh mà
-    # người và agent cùng chạy ở máy. Nếu CI gọi lệnh khác thì cái xanh ở máy
-    # không còn nói lên điều gì. `npm run check` đã gọi cả `test:viewer`, nên
-    # ảnh chụp viewer vẫn được sinh ra như trước.
-    runs-on: [self-hosted, "${{ matrix.runner }}"]
+    # CI gọi đúng `npm run check` như ở máy; nó đã gồm cả `test:viewer` nên ảnh
+    # chụp viewer vẫn được sinh ra. Windows giữ lại vì người dùng chạy trên Windows.
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        runner: [hao, windows-local]
+        os: [ubuntu-latest, windows-latest]
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
@@ -103,8 +114,12 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
       - run: npm ci --ignore-scripts
-      - run: npx playwright install chromium
+      - run: npx playwright install --with-deps chromium
       - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
         run: >-
           uv run --python 3.13 --with-requirements requirements.txt
@@ -113,6 +128,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: viewer-browser-screenshots-${{ matrix.runner }}
+          name: viewer-browser-screenshots-${{ matrix.os }}
           path: test-results/viewer
           if-no-files-found: warn

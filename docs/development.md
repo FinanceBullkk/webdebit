@@ -50,27 +50,23 @@ CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
 không đổi riêng trong workflow.
 
-### CI trên runner tự host
+### CI trên runner GitHub
 
-**ĐÃ TRIỂN KHAI** (nguồn: `.github/workflows/test.yml`; chuyển sang runner tự host ở commit `98edf29`
-ngày 18/10/2026): không job nào chạy trên máy của GitHub.
+**ĐÃ TRIỂN KHAI** (nguồn: `.github/workflows/test.yml`): từ 21/10/2026 repo chuyển public và mọi job
+chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho runner tự host `hao` và
+`windows-local` dùng từ commit `98edf29` (18/10/2026).
 
 | Job | Runner | Chạy gì |
 |---|---|---|
-| `python` | Linux `hao` | unittest `cong-no-web-handoff/tests`, Python 3.12 và 3.13 qua `uv` |
-| `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | Linux `hao` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
-| `javascript` | `hao` và `windows-local` | `npm run check` với Python 3.13 qua `uv` |
+| `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12 và 3.13 qua `uv` |
+| `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
+| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 qua `uv` |
 
-**CÒN MỞ — chờ người dùng quyết:** `hao` cũng là máy chạy DB thật `webdebit_ledger` và web xem sổ.
-Như cấu hình hiện tại, mỗi PR (kể cả nhánh chưa review) và mỗi push lên `main` khiến mã trong nhánh đó
-chạy trên chính máy này, kèm Docker dựng container. Chưa tài liệu nào ghi nhận hay chấp nhận điều đó.
-Rủi ro cần cân nhắc: mã test lỗi hoặc có hại chạy cùng máy với DB thật và dịch vụ đang dùng; việc dựng
-container và chạy test ăn CPU/RAM/ổ đĩa của máy phục vụ; quyền của tài khoản runner (gồm quyền gọi
-Docker) có thể rộng hơn mức một bước test cần. Harness chỉ dùng container riêng và không trỏ tới DB
-thật — đó là thiết kế của mã test, không phải ranh giới do máy áp đặt. Các hướng có thể chọn
-(ĐỀ XUẤT, chưa chốt): chấp nhận và ghi lại rủi ro; tách runner sang máy không chạy dịch vụ thật; hoặc
-giữ `hao` nhưng giới hạn tài khoản runner, Docker và những ai được kích hoạt workflow. Không đổi
-workflow cho tới khi người dùng chọn.
+Lý do bỏ runner tự host: `hao` là máy chạy DB thật `webdebit_ledger` và web xem sổ; với repo public,
+PR từ fork có thể đưa mã lạ chạy trên chính máy đó. Máy GitHub sạch mỗi lượt, không chạm `hao`, nên
+rủi ro CÒN MỞ trước đây (chạy mã PR cạnh DB thật) không còn áp dụng cho CI. Lượt cũ của cùng PR bị hủy
+khi có commit mới (`concurrency`). Gỡ đăng ký runner tự host khỏi repo là việc trong Settings của
+người dùng, không nằm trong workflow.
 
 Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
 451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng
@@ -121,7 +117,7 @@ Case thứ tư, `today_posting_date_accepted`, giữ chiều ngược lại: `po
 
 Hai điều kiện phải nhớ: harness **cần Docker** và **không nằm trong `npm run check`** — nó dựng
 container nên không chạy được ở mọi máy và mọi CI step; ở máy phải gọi tay, còn CI chạy chúng ở các job
-PostgreSQL riêng (xem [CI trên runner tự host](#ci-trên-runner-tự-host)):
+PostgreSQL riêng (xem [CI trên runner GitHub](#ci-trên-runner-github)):
 
     py -3.13 cong-no-web-handoff/tools/test_pg_ledger_schema.py --report <đường-dẫn>.json
 
@@ -205,4 +201,4 @@ với luật đã triển khai):
 
 ## Hoàn tác và ranh giới
 
-Thay đổi hiện tại chỉ code/tài liệu/CI. Hoàn tác bằng diff/commit đã review, không xóa capture/release hay đụng DB. CI chỉ chạy fixture và DB thử dùng một lần, nhưng chạy trên runner tự host, trong đó có `hao` — máy của DB thật; rủi ro này CÒN MỞ, xem [CI trên runner tự host](#ci-trên-runner-tự-host). Ghi tiền/deploy cần scope, policy, DB test và quyền riêng theo gate nghiệp vụ.
+Thay đổi hiện tại chỉ code/tài liệu/CI. Hoàn tác bằng diff/commit đã review, không xóa capture/release hay đụng DB. CI chỉ chạy fixture và DB thử dùng một lần trên máy của GitHub, không chạm `hao`; xem [CI trên runner GitHub](#ci-trên-runner-github). Ghi tiền/deploy cần scope, policy, DB test và quyền riêng theo gate nghiệp vụ.
