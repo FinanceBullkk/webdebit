@@ -64,7 +64,7 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
 - Ngân sách diff: 500 dòng
 - Lệnh kiểm:
   - `cd cong-no-web-handoff && py -3.13 -m unittest discover -s tests -v`
-  - `py -3.13 tools/test_pg_v7_backend.py` (hoặc đúng lệnh Docker `--network none` đã dùng trong CI cho harness này — xem `.github/workflows/`; agent dùng đúng lệnh CI hiện có, không tự chế cách chạy container mới)
+  - `uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py` (đúng lệnh CI ở `.github/workflows/test.yml` job `postgres-v7-backend`; script tự dựng/hủy container Docker riêng, không chạm DB thật)
 - Cấm:
   - Sửa `cong-no-web-handoff/web/v7_ledger_api.py`, bất kỳ workflow CI, hay `preview/so-khach-v7-*.js` (đang có phiên khác sửa PR #44).
   - Viết script nạp `baseline_trip_ref` thật từ bản mốc (`v7_export_clean.py`/loader) — ngoài phạm vi; chỉ cần bảng và logic đọc nó, dữ liệu test là fixture giả insert trực tiếp.
