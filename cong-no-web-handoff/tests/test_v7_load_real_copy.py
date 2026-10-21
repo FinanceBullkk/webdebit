@@ -19,6 +19,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+import v7_export_clean as exporter  # noqa: E402
 import v7_load_real_copy as loader  # noqa: E402  (sys.path set above)
 import v7_reconcile_real_copy as reconciler  # noqa: E402
 
@@ -855,14 +856,21 @@ class RealCopyTest(unittest.TestCase):
         self.assertIsNone(loader.integer(str(2**63)))
         self.assertEqual(loader.integer(str(2**53 + 1)), 2**53 + 1)
 
+    def clean_fixture(self):
+        out = self.folder / "clean"
+        if not out.exists():
+            books, digests = exporter.build_books(self.folder, self.folder / "source-google-export.xlsx", ())
+            exporter.export(books, digests, out, Path("fake.xlsx"), ())
+        return out
+
     def test_report_privacy_and_check_source_without_docker(self):
         fixture(self.folder, bucket_delta=1)
+        out = self.clean_fixture()
         output = io.StringIO()
         logdir = self.folder / "logs"
-        with patch.object(sys, "argv", ["loader", "--source-dir", str(self.folder), "--check-source"]), \
-                patch.object(loader, "LOG_DIR", logdir), patch.object(loader, "run") as docker, \
+        with patch.object(loader, "LOG_DIR", logdir), patch.object(loader, "run") as docker, \
                 patch.object(loader.shutil, "which") as which, redirect_stdout(output):
-            self.assertEqual(loader.main(), 2)
+            self.assertEqual(loader.main(["--from-clean", str(out), "--check-source"]), 0)
             docker.assert_not_called()
             which.assert_not_called()
         result = json.loads(output.getvalue())
@@ -871,9 +879,8 @@ class RealCopyTest(unittest.TestCase):
         for text in (output.getvalue(), saved):
             for secret in (FAKE_NAME, str(FAKE_AMOUNT), "FAKE-CONT-XY", "FAKE PRIVATE NOTE"):
                 self.assertNotIn(secret, text)
-        self.assertEqual(result["held"][0]["ordinal"], 1)
-        self.assertEqual(len(result["source_sha256"]), len(loader.FILES))
-        self.assertEqual(result["source_notice"], loader.SOURCE_NOTICE)
+        self.assertEqual(result["counts"]["customers"], 1)
+        self.assertEqual(set(result["source_sha256"]), {"manifest.json"})
         self.assertEqual(result["loaded_customers"], 0)
 
     def test_check_source_subprocess_on_fake_files(self):
@@ -885,7 +892,7 @@ class RealCopyTest(unittest.TestCase):
                      "loader.LOG_DIR=Path(sys.argv.pop(1)); sys.argv[0]='v7_load_real_copy.py'; "
                      "raise SystemExit(loader.main())")
         process = subprocess.run([sys.executable, "-c", bootstrap, str(ROOT / "tools"), str(self.folder / "logs"),
-                                  "--source-dir", str(self.folder), "--check-source"],
+                                  "--from-clean", str(self.clean_fixture()), "--check-source"],
                                  capture_output=True, text=True, encoding="utf-8", env=env, timeout=20, check=False)
         self.assertEqual(process.returncode, 0, process.stderr)
         result = json.loads(process.stdout)
@@ -913,7 +920,7 @@ class RealCopyTest(unittest.TestCase):
                 raise RuntimeError(FAKE_NAME + " " + str(FAKE_AMOUNT))
             return Mock(stdout="", stderr="")
         output = io.StringIO()
-        with patch.object(sys, "argv", ["loader", "--source-dir", str(self.folder), "--keep"]), \
+        with patch.object(sys, "argv", ["loader", "--from-clean", str(self.clean_fixture()), "--keep"]), \
                 patch.object(loader, "run", side_effect=fake_run), \
                 patch.object(loader, "Pg"), patch.object(loader.shutil, "which", return_value="fake"), \
                 patch.object(loader, "inspect_volume") as volume, \
@@ -938,13 +945,14 @@ class RealCopyTest(unittest.TestCase):
         fixture(self.folder)
         for extra, expected_port in (([], 8782), (["--port", "8783"], 8783)):
             with self.subTest(port=expected_port), \
-                    patch.object(sys, "argv", ["loader", "--source-dir", str(self.folder)] + extra), \
+                    patch.object(sys, "argv", ["loader", "--from-clean", str(self.clean_fixture())] + extra), \
                     patch.object(loader, "run", return_value=Mock(stdout=
                         "PostgreSQL init process complete; ready for start up.", stderr="")), \
                     patch.object(loader.shutil, "which", return_value="fake"), \
                     patch.object(loader, "inspect_volume"), \
                     patch.object(loader, "inspect_owned", return_value="owned-full-id"), \
-                    patch.object(loader, "Pg"), patch.object(loader, "import_one", return_value="active"), \
+                    patch.object(loader, "Pg"), patch.object(loader, "call"), \
+                    patch.object(loader, "version", return_value=0), \
                     patch.object(loader.api, "Psql"), patch.object(loader, "write_report"), \
                     patch.object(loader.api, "ThreadingHTTPServer") as server:
                 server.return_value.serve_forever.side_effect = KeyboardInterrupt
@@ -955,7 +963,7 @@ class RealCopyTest(unittest.TestCase):
     def test_cleanup_refuses_unowned_resource(self):
         fixture(self.folder)
         commands = []
-        with patch.object(sys, "argv", ["loader", "--source-dir", str(self.folder)]), \
+        with patch.object(sys, "argv", ["loader", "--from-clean", str(self.clean_fixture())]), \
                 patch.object(loader, "run", side_effect=lambda args, **kw: commands.append(args)), \
                 patch.object(loader.shutil, "which", return_value="fake"), \
                 patch.object(loader, "inspect_volume"), \
