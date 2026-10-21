@@ -350,8 +350,113 @@ const SoKhachV7Model = (() => {
     return vnd(item.amountVnd, true);
   }
 
+  /* Cấn trừ hai sổ (CT-2SO). Số tiền do server trả (chuỗi nguyên) đọc bằng vnd(); số gõ tay đọc bằng parsePositiveVnd.
+     Hàm ở đây chỉ đọc/kiểm hợp đồng JSON và dựng dữ liệu hiển thị; server mới là nơi chặn và ghi. */
+  const OFFSET_OUTSIDE = "OUTSIDE";
+  const OFFSET_MESSAGES = {
+    SOURCE_REQUIRED: "Chọn sổ lấy tiền, hoặc chọn Ngoài sổ",
+    INVALID_VND: "Số tiền không hợp lệ",
+    OFFSET_SAME_BOOK: "Không cấn trừ trong cùng một sổ",
+    FUTURE_DATE: "Ngày trả không được sau hôm nay",
+    INVALID_DATE: "Ngày trả không hợp lệ",
+    STALE_LEDGER: "Số dư đã đổi, tải lại số rồi xác nhận lại",
+    NO_BASELINE: "Sổ chưa có số dư mở đầu",
+    OFFSET_SOURCE_ARCHIVED: "Sổ lấy tiền đã lưu trữ",
+    OFFSET_NOT_FOUND: "Không tìm thấy cặp cấn trừ",
+    OFFSET_ALREADY_VOID: "Cặp cấn trừ này đã hủy",
+    VOID_REASON_REQUIRED: "Nhập lý do hủy",
+    OFFSET_PAIR_REQUIRED: "Phiếu này thuộc cặp cấn trừ, hủy hoặc đổi ngày ở cả cặp",
+    IDEMPOTENCY_CONFLICT: "Lệnh trùng khóa nhưng khác nội dung",
+    NO_CHANGE: "Không có gì thay đổi",
+  };
+
+  function idText(value) {
+    if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return String(value);
+    if (typeof value === "string" && /^[1-9]\d*$/.test(value)) return value;
+    throw new Error("Invalid id");
+  }
+
+  function parseOffsetSources(list) {
+    if (!Array.isArray(list)) throw new Error("Invalid offset sources");
+    return list.map(item => {
+      const outstandingVnd = vnd(item.outstanding_vnd, true);
+      const availableCreditVnd = vnd(item.available_credit_vnd);
+      if (outstandingVnd >= 0n || availableCreditVnd !== -outstandingVnd) throw new Error("Invalid offset source");
+      if (typeof item.name !== "string" || !item.name.trim()) throw new Error("Invalid offset source");
+      const commodity = typeof item.commodity === "string" && item.commodity.trim() ? item.commodity.trim() : null;
+      return { customerId: idText(item.customer_id), name: item.name.trim(), commodity, version: idText(item.version),
+        outstandingVnd, availableCreditVnd, label: commodity ? `${item.name.trim()} · ${commodity}` : item.name.trim() };
+    });
+  }
+
+  function filterOffsetSources(sources, query) {
+    const norm = text => String(text).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+    const needle = norm(query ?? "").trim();
+    return sources.filter(source => norm(source.label).includes(needle));
+  }
+
+  function planOffsetEntry({ source, amountText }) {
+    if (source === null || source === undefined) return { ok: false, code: "SOURCE_REQUIRED", message: OFFSET_MESSAGES.SOURCE_REQUIRED };
+    let amountVnd;
+    try { amountVnd = parsePositiveVnd(amountText); }
+    catch { return { ok: false, code: "INVALID_VND", message: OFFSET_MESSAGES.INVALID_VND }; }
+    if (source === OFFSET_OUTSIDE) return { ok: true, outside: true, amountVnd };
+    if (amountVnd > source.availableCreditVnd) {
+      return { ok: false, code: "OFFSET_EXCEEDS_CREDIT", amountVnd,
+        message: `Sổ ${source.label} chỉ còn dư ${formatVnd(source.availableCreditVnd)}` };
+    }
+    return { ok: true, outside: false, amountVnd };
+  }
+
+  /* Chỉ để hiện khung xác nhận; server kiểm lại dưới khóa với version đã xem. */
+  function planOffsetPreview({ source, targetOutstandingVnd, amountVnd }) {
+    if (typeof targetOutstandingVnd !== "bigint" || typeof amountVnd !== "bigint" || amountVnd <= 0n) throw new Error("Invalid offset preview");
+    const targetAfterVnd = targetOutstandingVnd - amountVnd;
+    return {
+      source: { beforeVnd: source.outstandingVnd, afterVnd: source.outstandingVnd + amountVnd },
+      target: { beforeVnd: targetOutstandingVnd, afterVnd: targetAfterVnd },
+      targetNegativeVnd: targetAfterVnd < 0n ? targetAfterVnd : null,
+    };
+  }
+
+  function offsetErrorMessage(code, detail) {
+    if (code === "OFFSET_EXCEEDS_CREDIT") {
+      const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
+      return credit === null ? "Sổ lấy tiền không đủ dư" : `Sổ lấy tiền chỉ còn dư ${formatVnd(credit)}`;
+    }
+    return OFFSET_MESSAGES[code] ?? "Không ghi được cấn trừ";
+  }
+
+  function parseOffsetResult(result) {
+    if (!result || typeof result !== "object") throw new Error("Invalid offset result");
+    const receipt = result.target_receipt ?? {};
+    return { pairId: idText(result.offset_pair_id), sourceCustomerId: idText(result.source_customer_id),
+      targetCustomerId: idText(result.target_customer_id), sourceVersion: idText(result.source_version),
+      targetVersion: idText(result.target_version), sourcePid: String(result.source_pid), targetPid: String(result.target_pid),
+      overpaymentVnd: receipt.overpayment_vnd === undefined ? 0n : vnd(receipt.overpayment_vnd) };
+  }
+
+  function parseOffsetLink(receipt) {
+    if (receipt.offset_pair_id === null || receipt.offset_pair_id === undefined) return null;
+    return { pairId: idText(receipt.offset_pair_id), counterpartyCustomerId: idText(receipt.counterparty_customer_id),
+      counterpartyName: String(receipt.counterparty_name) };
+  }
+
+  function parseOutgoingOffsets(list) {
+    if (!Array.isArray(list)) throw new Error("Invalid outgoing offsets");
+    return list.map(item => {
+      const amountVnd = vnd(item.amount_vnd, true);
+      if (amountVnd >= 0n) throw new Error("Outgoing offset must be negative");
+      return { pairId: idText(item.offset_pair_id), pid: String(item.pid), date: item.date, amountVnd,
+        voided: item.void_reason !== null && item.void_reason !== undefined, voidReason: item.void_reason ?? null,
+        counterpartyCustomerId: idText(item.counterparty_customer_id), counterpartyName: String(item.counterparty_name) };
+    });
+  }
+
   return { tripAmount, amountWith, parsePastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
-    parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts };
+    parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts,
+    OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
+    parseOffsetResult, parseOffsetLink, parseOutgoingOffsets };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;
