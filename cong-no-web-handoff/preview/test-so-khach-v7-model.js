@@ -366,3 +366,63 @@ test("paste accepts three VND forms, blanks, and rejects whole invalid batch", (
   assert.deepEqual(model.parsePastedTrips(`${row("46000000")}\n\nBOX\tHTA\t31/02/2026\tKHO\tCANG\t1\t`),
     { errors: ["Dòng 3: ngày chuyến không hợp lệ"] });
 });
+
+const offsetSources = () => model.parseOffsetSources([
+  { customer_id: 11, name: "Khách A", commodity: "sầu riêng", version: 3, outstanding_vnd: "-100000000", available_credit_vnd: "100000000" },
+  { customer_id: "12", name: "Khách C", commodity: null, version: "1", outstanding_vnd: "-8500000", available_credit_vnd: "8500000" },
+]);
+
+test("offset sources keep server order, read money as BigInt, and filter without diacritics", () => {
+  const sources = offsetSources();
+  assert.deepEqual(sources.map(source => [source.customerId, source.label, source.availableCreditVnd, source.version]),
+    [["11", "Khách A · sầu riêng", 100000000n, "3"], ["12", "Khách C", 8500000n, "1"]]);
+  assert.deepEqual(model.filterOffsetSources(sources, "khach a").map(source => source.customerId), ["11"]);
+  assert.equal(model.filterOffsetSources(sources, "").length, 2);
+  const bad = patch => [{ customer_id: 1, name: "X", commodity: null, version: 1, outstanding_vnd: "-5", available_credit_vnd: "5", ...patch }];
+  for (const patch of [{ outstanding_vnd: "5" }, { available_credit_vnd: "4" }, { outstanding_vnd: -5 }, { name: " " }, { version: 0 }])
+    assert.throws(() => model.parseOffsetSources(bad(patch)));
+  assert.throws(() => model.parseOffsetSources({}));
+});
+
+test("offset entry: missing source, bad amount, over credit, outside, and typed money forms", () => {
+  const [a] = offsetSources();
+  assert.equal(model.planOffsetEntry({ source: null, amountText: "1" }).message, "Chọn sổ lấy tiền, hoặc chọn Ngoài sổ");
+  for (const text of ["", "0", "-5.000.000", "−5.000.000", "5.000.000đ", "1,00"])
+    assert.equal(model.planOffsetEntry({ source: a, amountText: text }).code, "INVALID_VND", text);
+  const over = model.planOffsetEntry({ source: a, amountText: "120.000.000" });
+  assert.equal(over.code, "OFFSET_EXCEEDS_CREDIT");
+  assert.equal(over.message, "Sổ Khách A · sầu riêng chỉ còn dư 100.000.000");
+  for (const text of ["50.000.000", "50,000,000", "50000000"])
+    assert.deepEqual(model.planOffsetEntry({ source: a, amountText: text }), { ok: true, outside: false, amountVnd: 50000000n });
+  assert.equal(model.planOffsetEntry({ source: a, amountText: "100.000.000" }).ok, true);
+  assert.deepEqual(model.planOffsetEntry({ source: model.OFFSET_OUTSIDE, amountText: "50.000.000" }),
+    { ok: true, outside: true, amountVnd: 50000000n });
+});
+
+test("offset preview shows both balances and flags a negative receiving book", () => {
+  const [a] = offsetSources();
+  const same = model.planOffsetPreview({ source: a, targetOutstandingVnd: 50000000n, amountVnd: 50000000n });
+  assert.deepEqual([same.source.afterVnd, same.target.afterVnd, same.targetNegativeVnd], [-50000000n, 0n, null]);
+  const over = model.planOffsetPreview({ source: a, targetOutstandingVnd: 50000000n, amountVnd: 70000000n });
+  assert.deepEqual([over.source.afterVnd, over.target.afterVnd, over.targetNegativeVnd], [-30000000n, -20000000n, -20000000n]);
+  assert.throws(() => model.planOffsetPreview({ source: a, targetOutstandingVnd: 1, amountVnd: 1n }));
+});
+
+test("offset errors, command result, and ledger links parse the backend contract", () => {
+  assert.equal(model.offsetErrorMessage("OFFSET_EXCEEDS_CREDIT", { available_credit_vnd: "30000000" }), "Sổ lấy tiền chỉ còn dư 30.000.000");
+  assert.equal(model.offsetErrorMessage("STALE_LEDGER"), "Số dư đã đổi, tải lại số rồi xác nhận lại");
+  assert.equal(model.offsetErrorMessage("SOMETHING_ELSE"), "Không ghi được cấn trừ");
+  const result = model.parseOffsetResult({ offset_pair_id: 5, source_customer_id: 11, target_customer_id: 12, source_version: 4,
+    target_version: 7, source_pid: "PH-013", target_pid: "PH-021", target_receipt: { overpayment_vnd: "20000000" } });
+  assert.deepEqual(result, { pairId: "5", sourceCustomerId: "11", targetCustomerId: "12", sourceVersion: "4", targetVersion: "7",
+    sourcePid: "PH-013", targetPid: "PH-021", overpaymentVnd: 20000000n });
+  assert.equal(model.parseOffsetLink({ offset_pair_id: null, counterparty_customer_id: null, counterparty_name: null }), null);
+  assert.deepEqual(model.parseOffsetLink({ offset_pair_id: 5, counterparty_customer_id: 11, counterparty_name: "Khách A" }),
+    { pairId: "5", counterpartyCustomerId: "11", counterpartyName: "Khách A" });
+  const row = patch => ({ offset_pair_id: 5, pid: "PH-013", date: "2026-10-20", amount_vnd: "-50000000", void_reason: null,
+    voided_by_event: null, counterparty_customer_id: 12, counterparty_name: "Khách B", ...patch });
+  const [out] = model.parseOutgoingOffsets([row({})]);
+  assert.deepEqual([out.pid, out.amountVnd, out.voided, out.counterpartyName], ["PH-013", -50000000n, false, "Khách B"]);
+  assert.equal(model.parseOutgoingOffsets([row({ void_reason: "sai" })])[0].voided, true);
+  assert.throws(() => model.parseOutgoingOffsets([row({ amount_vnd: "50000000" })]));
+});
