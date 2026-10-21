@@ -152,6 +152,7 @@ test('chọn CẤN TRỪ hiện ô Lấy từ sổ; danh sách xếp A→Z, có 
   await page.locator('.offset-source-select').waitFor();
   assert.match(await page.locator('.offset-source-select').innerText(), /Chọn sổ đang dư tiền/);
   await page.locator('.offset-source-select').click();
+  await page.locator('.offset-outside').waitFor();
   const names = await page.locator('.offset-option:not(.offset-outside) span').allInnerTexts();
   assert.deepEqual(names, ['Khách Thử Ba · chuối', 'Khách Thử Hai · sầu riêng']);
   assert.deepEqual(await page.locator('.offset-option:not(.offset-outside) strong').allInnerTexts(), ['-30.000.000', '-100.000.000']);
