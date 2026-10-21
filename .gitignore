@@ -17,3 +17,12 @@ node_modules/
 test-results/
 playwright-report/
 .venv/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
