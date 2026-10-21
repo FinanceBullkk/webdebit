@@ -1,6 +1,6 @@
 # Chính sách V7 còn mở — phương án để chủ nghiệp vụ chọn
 
-Trạng thái: Claude soạn 21/10/2026 (ĐỀ XUẤT). **Người dùng trả lời trong chat 21/10/2026:** đồng ý khuyến nghị điểm 2, 3, 4, 5; điểm 1 xác nhận 1a (dư hiện số âm, tự trừ vào chuyến sau), còn 1b–1e chưa trả lời — xem [Câu hỏi mở](#câu-hỏi-mở). Các lựa chọn này **chưa ghi vào `docs/decisions.md`**, chưa triển khai. Chủ nghiệp vụ chọn xong thì quyết định mới ghi vào [`docs/decisions.md`](../docs/decisions.md) bằng một PR riêng, kèm người chốt, ngày, phạm vi. Không sửa code trong PR này.
+Trạng thái: Claude soạn 21/10/2026 (ĐỀ XUẤT). **Người dùng trả lời trong chat 21/10/2026:** đồng ý khuyến nghị điểm 2, 3, 4, 5; điểm 1 trả lời từng ý (1a, 1e theo khuyến nghị; 1b, 1c, 1d: không phát sinh trong nghiệp vụ) — xem [Câu hỏi mở](#câu-hỏi-mở). Quyết định ghi ở `V7-CSM` trong `docs/decisions.md` (PR riêng); chưa triển khai. Chủ nghiệp vụ chọn xong thì quyết định mới ghi vào [`docs/decisions.md`](../docs/decisions.md) bằng một PR riêng, kèm người chốt, ngày, phạm vi. Không sửa code trong PR này.
 
 ## Người dùng và luồng
 
@@ -320,7 +320,7 @@ Soạn trên `main` tại `af2091a`. Đối chiếu bằng cách đọc `v7_back
 
 Mỗi điểm một câu. Trả lời "đồng ý" là chọn phương án khuyến nghị; muốn khác thì ghi chữ cái phương án.
 
-**Trả lời của người dùng, 21/10/2026, trong chat:** điểm 1 — "tiền dư thì vẫn phải hiện số âm cho team biết", hỏi lại việc trừ tự động: khớp 1a-A (dư hiện số âm; chuyến mới tự trừ vào dư; thu thêm khi đang dư thì dư tăng). **1b–1e chưa trả lời, CÒN MỞ.** Điểm 2, 3, 4, 5 — "đồng ý": chọn 2a-B + 2b-A, 3-B, 4-A, 5-B.
+**Trả lời của người dùng, 21/10/2026, trong chat:** điểm 1 — "tiền dư thì vẫn phải hiện số âm cho team biết", hỏi lại việc trừ tự động: khớp 1a-A (dư hiện số âm; chuyến mới tự trừ vào dư; thu thêm khi đang dư thì dư tăng). Lượt sau cùng ngày: 1b — "sẽ k có trường hợp trả lại khách", dư cấn trừ vào chuyến hàng sau: **không làm hoàn tiền**, dư luôn trừ vào chuyến sau (1a-A). 1c — chỉ ghi lên web khi khách đã chuyển khoản, biết của ai: **không có tiền chưa rõ chủ trên web** (khớp 1c-A). 1d — không có tranh chấp giá; chưa chốt giá thì chưa đưa dữ liệu lên: **không làm trạng thái tranh chấp** (khớp 1d-A; chuyến thiếu giá vẫn ngoài số dư như cũ). 1e — "đồng ý": 1e-A. Điểm 2, 3, 4, 5 — "đồng ý": chọn 2a-B + 2b-A, 3-B, 4-A, 5-B.
 
 1. **Tiền dư, hoàn tiền (D04):** Dư tự trừ vào chuyến sau như hiện nay; hoàn tiền ghi bằng dòng "Trả lại khách" bị chặn khi vượt số dư; tiền chưa rõ của ai thì chưa ghi lên web; chuyến tranh chấp vẫn tính nợ kèm ghi chú; chuyển nợ giữa hai sổ bằng hai dòng điều chỉnh — đồng ý không? *(Khuyến nghị: 1a-A, 1b-A, 1c-A, 1d-A, 1e-A.)*
 2. **Chứng từ, tỷ giá (D05/D06):** Phiếu thu có thêm ô "Tham chiếu" không bắt buộc, trùng thì cảnh báo, không lưu ảnh; mọi số tiền chỉ ghi VND thực nhận, ngoại tệ và tỷ giá ghi vào ô tham chiếu — đồng ý không? *(Khuyến nghị: 2a-B, 2b-A.)*
