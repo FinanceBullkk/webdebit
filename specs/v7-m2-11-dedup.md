@@ -38,7 +38,14 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
   5. Không khớp điều kiện nào → trạng thái bình thường (`confirmed`), tính nợ ngay như hiện tại.
 - **Cột trạng thái:** thêm `sokhach.trip.status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','pending_review'))`. Chuyến CHỜ KIỂM lưu `status='pending_review'`, vẫn insert đủ `trip`/`trip_price_rev` (giữ vết), nhưng **ngoài số dư**: sửa `sokhach.v_outstanding_month` (CTE `latest_price`) thêm điều kiện `t.status='confirmed'`. Không ảnh hưởng chuyến `legacy_row`/opening — bảng đó không có cột này.
 - **Trả về:** `paste_trips` phải trả thêm trong kết quả (bên cạnh `trip_ids`, `reallocated`) danh sách chuyến bị đánh CHỜ KIỂM kèm lý do (ví dụ `pending_review: [{"trip_id":…, "reason":"BASELINE_CODE_MATCH"|"BASELINE_DATE_WINDOW"|"WEB_DUPLICATE"|"BATCH_DUPLICATE"}]`), để không phải suy ngược từ `status`.
-- **Đã xác nhận cần sửa thêm hai điểm, được phép, trong cùng file `v7_backend_functions.sql`:** `reallocate` (CTE `charges`, nhánh đọc `sokhach.trip`/`trip_price_rev` trực tiếp, không qua `v_outstanding_month`) và `get_ledger` (phần tính `charges_vnd`) đều đọc `trip` trực tiếp, không qua view đã lọc. **Phải thêm điều kiện `t.status='confirmed'`** (hoặc tương đương) vào đúng hai nhánh đọc `trip` đó, giữ nguyên mọi điều kiện/cột khác — nếu không sửa, chuyến CHỜ KIỂM vẫn bị `reallocate` phân bổ thu vào và vẫn cộng vào `charges_vnd` của `get_ledger`, phá đúng mục đích "ngoài số dư". Đây **không phải** vượt phạm vi: cả hai hàm nằm trong file đã cho phép sửa, và việc lọc trạng thái là điều kiện cần của tiêu chí nghiệm thu, không phải dọn dẹp/refactor. Không đổi gì khác trong hai hàm này ngoài thêm điều kiện lọc đó. Không đổi `DUP-01`/`BOOKING-EDIT-01` cho chuyến đã `confirmed`. Không thêm bước duyệt CHỜ KIỂM thành `confirmed` trong spec này (đó là thao tác khác, CÒN MỞ — chỉ cần trạng thái tồn tại và ngoài số dư, giống các trạng thái "chờ" khác đã có trong hệ thống).
+- **Nguyên tắc chung bắt buộc, áp cho MỌI nơi đọc `sokhach.trip` trực tiếp (không qua `v_outstanding_month`) trong `v7_backend_functions.sql`, không chỉ các điểm liệt kê dưới đây:** nơi nào dùng `trip`/`debt_month` của nó để **tính hoặc quyết định số tiền** (tổng nợ, phân bổ thu, tháng đặt khoản dư) thì phải thêm điều kiện `status='confirmed'` (hoặc join qua `v_outstanding_month`/view tương đương đã lọc); nơi nào **sửa/điều chỉnh một chuyến cụ thể theo `trip_id`** (giá, hiệu số) thì phải chặn khi `status<>'confirmed'`, raise `TRIP_PENDING_REVIEW` — một chuyến CHỜ KIỂM chưa được xác nhận là chuyến thật, sửa giá/điều chỉnh nó trước khi xác nhận là vô nghĩa và có thể làm tiền rò vào số dư qua `sokhach.adjustment` (bảng này không có cột `status`, không tự lọc được).
+  Đã xác định cần sửa theo đúng hai luật trên tại các điểm sau (đọc code hiện tại trước khi sửa, dòng có thể lệch sau khi thêm cột/bảng khác):
+  1. `reallocate`, CTE `charges` (nhánh `UNION ALL ... FROM sokhach.trip t ...`, không qua view) → thêm `t.status='confirmed'`.
+  2. `get_ledger`, phần tính `charges_vnd` đọc `trip`/`trip_price_rev` trực tiếp → thêm `status='confirmed'`.
+  3. `record_receipt`, khối tính `v_last` (`SELECT max(debt_month) ... UNION ALL SELECT debt_month FROM sokhach.trip ...`, dùng để đặt dòng `advance` khi thu dư) → thêm `status='confirmed'` vào nhánh `trip` của UNION đó, để tháng đặt khoản dư nhất quán với các tháng `reallocate` thấy được.
+  4. `_check_allocations`, nhánh `ADVANCE_MONTH_INVARIANT` (UNION tính tháng cuối cùng `max(debt_month)`, có `SELECT debt_month FROM sokhach.trip WHERE customer_id = p_customer`) → thêm cùng điều kiện lọc, vì nó phải khớp với tháng `record_receipt`/`reallocate` dùng.
+  5. `edit_trip_price` và `adjust_trip`: sau khi `SELECT * INTO v_trip FROM sokhach.trip WHERE id=trip_id ...`, nếu `v_trip.status<>'confirmed'` thì `RAISE EXCEPTION 'TRIP_PENDING_REVIEW'` trước khi đọc giá/tính hiệu số hay ghi `event`/`adjustment`/`trip_price_rev` — không cho sửa giá hay điều chỉnh một chuyến còn CHỜ KIỂM.
+  Nếu trong lúc sửa phát hiện thêm một điểm đọc `trip` trực tiếp chưa nêu ở trên (ví dụ hàm khác cũng UNION `debt_month` từ `trip`), áp đúng hai luật chung ở đầu mục này cho điểm đó luôn — không dừng hỏi lại, chỉ ghi rõ trong báo cáo cuối điểm đó nằm ở đâu và áp luật nào, để review chốt đối chiếu. Không đổi `DUP-01`/`BOOKING-EDIT-01` cho chuyến đã `confirmed`. Không thêm bước duyệt CHỜ KIỂM thành `confirmed` trong spec này (đó là thao tác khác, CÒN MỞ — chỉ cần trạng thái tồn tại, ngoài số dư và không sửa được, giống các trạng thái "chờ" khác đã có trong hệ thống).
 
 ## Tiêu chí nghiệm thu
 
@@ -52,6 +59,9 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
 - [ ] Chuyến không trùng gì (`booking`/`container` mới hoàn toàn) → `status='confirmed'`, tính nợ ngay như hiện tại; không có regression trên các case `paste_trips` hiện có của `test_pg_v7_backend.py` (7.10b, 7.16b, các case `opening_fifo`…).
 - [ ] `tools/test_pg_v7_backend.py`: case mới cho M2-11 gắn nhãn `BEHAVIOR` (không phải `SKIPPED_OPEN`/`NEEDS_FUNCTION`), chạy qua `py -3.13 -m unittest` và script Docker `--network none` hiện có của repo, không cần DB thật.
 - [ ] `npm run check` xanh (không đổi code JS/preview, nhưng lệnh này vẫn phải chạy sạch sau khi sửa SQL/test Python).
+- [ ] `edit_trip_price`/`adjust_trip` gọi trên chuyến `status='pending_review'` → `TRIP_PENDING_REVIEW`, không ghi `event`/`trip_price_rev`/`adjustment` nào (rollback).
+- [ ] Fixture: một tháng chỉ có một chuyến `pending_review` (không có chuyến/opening/adjustment `confirmed` nào khác trong tháng đó) → tháng đó không xuất hiện trong danh sách tháng của `reallocate`/`record_receipt`/`_check_allocations` (không bị tính là tháng có nợ hay làm nơi đặt khoản dư `advance`); thu dư trong trường hợp này rơi đúng vào tháng cuối cùng có hoạt động `confirmed`, khớp giữa `record_receipt` và `_check_allocations` (không bị `ADVANCE_MONTH_INVARIANT`).
+- [ ] Regression đủ cho `record_receipt`/`_check_allocations`/`adjust_month` ở các case hiện có của `test_pg_v7_backend.py` (7.11b `cutover_gate`, 7.12 `opening_fifo`, 7.15b `negative_receipt`…) không đổi kết quả khi không có chuyến `pending_review` nào (status mặc định `confirmed`).
 
 ## Phạm vi agent
 
@@ -61,7 +71,7 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
   - `cong-no-web-handoff/tools/v7_backend_functions.sql`
   - `specs/v7-backend/schema-draft.sql`
   - `cong-no-web-handoff/tools/test_pg_v7_backend.py`
-- Ngân sách diff: 500 dòng
+- Ngân sách diff: 650 dòng
 - Lệnh kiểm:
   - `cd cong-no-web-handoff && py -3.13 -m unittest discover -s tests -v`
   - `uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py` (đúng lệnh CI ở `.github/workflows/test.yml` job `postgres-v7-backend`; script tự dựng/hủy container Docker riêng, không chạm DB thật)
@@ -71,8 +81,8 @@ Trạng thái: ĐỀ XUẤT (Claude, 21/10/2026, đóng tiêu chí M2-11 của `
   - Thêm bước duyệt CHỜ KIỂM → `confirmed` (hàm `resolve_pending`/tương tự) — không có trong tiêu chí M2-11, để spec khác.
   - Đổi `DUP-01`/`ALT-KEY-01`/`NEWTRIP-01` quá phạm vi đã nêu ở trên; đổi schema khác ngoài bảng/cột đã liệt kê; đổi quyền GRANT ngoài việc cấp EXECUTE cho hàm đã sửa nếu ký hiệu hàm đổi.
   - Chạy DDL/import/deploy, chạm `hao`/Sheet/dữ liệu thật; thêm tên khách/số tiền thật vào test hay commit.
-- Đã chốt trước (không cần dừng hỏi lại): sửa `reallocate` và `get_ledger.charges_vnd` trong `v7_backend_functions.sql` để thêm điều kiện lọc `status='confirmed'` khi đọc `trip` trực tiếp là **trong phạm vi**, bắt buộc theo mục "Hành vi và bất biến" — đây là một trong ba file được phép, và là điều kiện cần của tiêu chí nghiệm thu, không phải mở rộng tự ý.
-- Khi cần vượt phạm vi thật (đổi file ngoài ba file trên, đổi quyền GRANT ngoài hàm đã sửa, đổi API/CI, hoặc phát hiện một điểm đọc `trip` trực tiếp thứ ba chưa nêu ở trên): dừng, ghi vào "Câu hỏi mở" bên dưới, không tự mở rộng ngân sách diff hay danh sách file.
+- Đã chốt trước (không cần dừng hỏi lại): mọi sửa đổi `reallocate`, `get_ledger`, `record_receipt`, `_check_allocations`, `edit_trip_price`, `adjust_trip` trong `v7_backend_functions.sql` theo đúng hai luật chung và năm điểm cụ thể ở mục "Hành vi và bất biến" là **trong phạm vi**, kể cả khi review vòng trước (`review.md` cũ trong log) từng gọi đây là "điểm đọc trực tiếp thứ ba/thứ tư" cần hỏi — spec này đã chốt rõ cho tất cả các điểm đó cùng lúc, không cần hỏi lại từng điểm. Phát hiện thêm điểm tương tự thì áp cùng luật, ghi vào báo cáo, không dừng.
+- Khi cần vượt phạm vi thật (đổi file ngoài ba file đã liệt kê ở "Được sửa", đổi quyền GRANT ngoài hàm đã sửa, đổi API/CI, đổi ngữ nghĩa tiền của `DUP-01`/`ALT-KEY-01`/`NEWTRIP-01`/`V6`/`V7-SO` ngoài những gì mục "Hành vi và bất biến" đã nêu, hoặc vượt ngân sách diff): dừng, ghi vào "Câu hỏi mở" bên dưới.
 
 ## Hoàn tác
 
