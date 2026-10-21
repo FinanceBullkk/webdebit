@@ -1,6 +1,8 @@
 """Read-only V7/Sheet reconciliation; totals govern SONG-SONG-01.
 
 Usage: --sheet-dir CLEAN --ledger-json JSON --out NEW
+Add --brief for a count/status-only stdout summary and customer row numbers.
+reconcile_index.csv maps those numbers to names; existing CSV columns stay fixed.
 Or replace --ledger-json JSON with --api http://127.0.0.1:8780.
 
 JSON contains unwrapped get_ledger responses. get_ledger has no customer name:
@@ -237,6 +239,25 @@ def write_csv(path, fields, rows):
         writer.writeheader()
         writer.writerows(rows)
 
+def number_ranges(numbers):
+    ranges = []
+    for number in numbers:
+        if ranges and number == ranges[-1][1] + 1:
+            ranges[-1][1] = number
+        else:
+            ranges.append([number, number])
+    return ','.join(f'#{start}' if start == end else f'#{start}-#{end}' for start, end in ranges)
+
+def print_brief(customers, summary, failed):
+    print('DOI SOAT: ' + ('KHONG DAT' if failed else 'DAT'))
+    print(' | '.join(f'{status}: {summary["counts"][status]}' for status in STATUSES)
+          + f' | TONG: {len(customers)}')
+    for status in STATUSES[1:]:
+        numbers = [no for no, row in enumerate(customers, 1) if row['status'] == status]
+        if numbers:
+            print(f'{status}: {number_ranges(numbers)}')
+    print('So thu tu -> ten: xem reconcile_customer.csv hoac reconcile_index.csv trong thu muc ket qua.')
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--sheet-dir', type=Path, required=True, help='directory containing both clean CSV files')
@@ -244,6 +265,7 @@ def main(argv=None):
     source.add_argument('--ledger-json', type=Path, help='JSON directory; filename stems are customer names')
     source.add_argument('--api', help='HTTP loopback base URL, with explicit port')
     parser.add_argument('--out', type=Path, required=True, help='new directory outside repositories')
+    parser.add_argument('--brief', action='store_true', help='print counts, statuses and customer row numbers only')
     args = parser.parse_args(argv)
     try:
         out = output_path(args.out)
@@ -258,7 +280,13 @@ def main(argv=None):
         write_csv(out / 'reconcile_month.csv', ['customer', 'debt_month', 'sheet_vnd', 'web_vnd', 'difference_vnd', 'sheet_month_present', 'web_month_present', 'status'], months)
         with (out / 'summary.json').open('x', encoding='utf-8') as stream:
             stream.write(json.dumps(summary, ensure_ascii=False, indent=2) + '\n')
-        return int(any(row['status'] in FAILURES for row in customers))
+        write_csv(out / 'reconcile_index.csv', ['no', 'customer', 'status'],
+                  ({'no': no, 'customer': row['customer'], 'status': row['status']}
+                   for no, row in enumerate(customers, 1)))
+        failed = int(any(row['status'] in FAILURES for row in customers))
+        if args.brief:
+            print_brief(customers, summary, failed)
+        return failed
     except (OSError, ValueError, csv.Error, HTTPException, RecursionError):
         print('reconciliation input/output error; no result accepted', file=sys.stderr)
         return 2
