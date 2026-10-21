@@ -60,6 +60,19 @@ jobs:
             pg-ledger-migration.json
           if-no-files-found: warn
 
+  postgres-v7-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: V7 backend contract
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py
+      - name: V7 P0 write paths
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_p0_harness.py --strict
+      - name: V7 least privilege grants
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
+
   postgres-m1-history-queries:
     runs-on: ubuntu-latest
     timeout-minutes: 10

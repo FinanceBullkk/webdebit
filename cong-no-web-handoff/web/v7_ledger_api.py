@@ -207,7 +207,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
 SQL = {
     "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
-    "list_customers": "SELECT jsonb_build_object('customers',coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'status',status) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) FROM (SELECT c.id,c.name,CASE WHEN cc.status='active' AND co.status='active' THEN 'active' ELSE 'NO_BASELINE' END AS status FROM sokhach.customer c LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q;",
+    "list_customers": "SELECT sokhach.list_customers();",
 }
 ARGUMENTS = {
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"),

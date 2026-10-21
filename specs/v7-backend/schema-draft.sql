@@ -718,7 +718,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE sokhach_owner IN SCHEMA sokhach REVOKE ALL ON 
 ALTER DEFAULT PRIVILEGES FOR ROLE sokhach_owner IN SCHEMA sokhach REVOKE ALL ON SEQUENCES FROM PUBLIC;
 GRANT USAGE ON SCHEMA sokhach TO sokhach_app, sokhach_reader;
 RESET ROLE;
--- Bản thử ai vào app cũng thao tác; chưa GRANT EXECUTE vì chưa nối app server.
+-- Bản thử ai vào app cũng thao tác; allowlist EXECUTE ở cuối tools/v7_backend_functions.sql.
 -- Từng hàm lệnh tương lai: SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp;
 -- object đủ schema, actor chỉ do app server đặt qua SET LOCAL trên kết nối riêng.
 -- PostgreSQL không xác minh custom setting; client không được kết nối DB/SQL tùy ý.
@@ -761,7 +761,7 @@ RESET ROLE;
 -- FUNCTION sokhach.activate_cutover(cutover_id bigint, idempotency_key text, signoff_ref text) RETURNS jsonb
 -- FUNCTION sokhach.activate_cutover_customer(customer_id bigint, cutover_id bigint, expected_version bigint, idempotency_key text, signoff_ref text) RETURNS jsonb
 -- Thân hàm nháp đã có; idempotency toàn mốc dùng namespace tạm theo khách nhỏ nhất.
--- Chưa cấp EXECUTE cho app/reader; chưa có phiên HTTP kết nối lược đồ này.
+-- App/reader chỉ có EXECUTE theo allowlist cuối tools/v7_backend_functions.sql.
 
 -- Thân hàm lệnh (kể cả import_cutover), reallocate, get_ledger và harness fixture
 -- có trong tools/v7_backend_functions.sql, tools/test_pg_v7_backend.py; chỉ dữ liệu giả.
