@@ -1,6 +1,7 @@
 """V7 HTTP boundary checks; Docker case runs only on an isolated fake harness."""
 
 import http.client
+import io
 import json
 import os
 import subprocess
@@ -11,7 +12,7 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
@@ -67,7 +68,9 @@ class LedgerApiTest(unittest.TestCase):
     def test_real_copy_cli_and_demo_exclusion(self):
         with patch.object(sys, "argv", ["v7_ledger_api.py", "--container", "fake", "--real-copy"]), \
              patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer") as server, \
-             patch.object(api.Handler, "real_copy", False), patch.object(api.Handler, "demo", False):
+             patch.object(api.Handler, "real_copy", False), patch.object(api.Handler, "demo", False), \
+             patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None), \
+             patch.object(api.Handler, "behind_tailscale_serve", False):
             api.main()
             self.assertTrue(api.Handler.real_copy)
             server.return_value.serve_forever.assert_called_once()
@@ -79,6 +82,11 @@ class LedgerApiTest(unittest.TestCase):
             runner.assert_not_called()
 
     def setUp(self):
+        self.localapi = Mock()
+        self.localapi.whois.return_value = {"UserProfile": {"LoginName": "configured"}}
+        patcher = patch.object(api.v7_identity, "TailscaleLocalAPI", return_value=self.localapi)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.runner = FakePsql()
         self.headers = {"Host": "127.0.0.1:8780", "Origin": "http://127.0.0.1:8780",
                         "Content-Type": "application/json"}
@@ -86,7 +94,7 @@ class LedgerApiTest(unittest.TestCase):
 
     def call(self, path, body, headers=None):
         return api.handle("POST", path, headers or self.headers, json.dumps(body).encode(), self.runner,
-                          port=8780, host="127.0.0.1", default_actor="configured")
+                          port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
 
     def error(self, status, code, action):
         with self.assertRaises(api.ApiError) as caught:
@@ -117,26 +125,26 @@ class LedgerApiTest(unittest.TestCase):
                 status, _ = api.handle("POST", path,
                     self.headers | {"Tailscale-User-Login": "trusted@example.test"},
                     json.dumps(self.common | fields).encode(), self.runner, port=8780,
-                    host="127.0.0.1", default_actor="configured", trust_header=True)
+                    host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210, behind_tailscale_serve=True)
                 self.assertEqual(status, 200)
                 self.assertEqual(self.runner.calls[-1][2], "trusted@example.test")
 
     def test_get_and_host_origin(self):
         status, data = api.handle("GET", "/api/v7/customers", self.headers, b"", self.runner,
-                                  port=8780, host="127.0.0.1", default_actor="configured")
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
         self.assertEqual((status, data["function"]), (200, "list_customers"))
         self.assertEqual(self.runner.calls[-1], ("list_customers", {}, "configured"))
         self.runner.calls.clear()
         self.error(404, "NOT_FOUND", lambda: api.handle("GET", "/api/v7/customers?all=1",
-                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="configured"))
+                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
         status, data = api.handle("GET", "/api/v7/ledger?customer=1", self.headers, b"", self.runner,
-                                  port=8780, host="127.0.0.1", default_actor="configured")
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
         self.assertEqual((status, data["function"]), (200, "get_ledger"))
         status, data = api.handle("GET", "/api/v7/ledger?customer=1", self.headers, b"", self.runner,
-                                  port=8780, host="127.0.0.1", default_actor="configured", demo=True)
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210, demo=True)
         self.assertEqual((status, data["demo"]), (200, True))
         status, data = api.handle("GET", "/api/v7/ledger?customer=1", self.headers, b"", self.runner,
-                                  port=8780, host="127.0.0.1", default_actor="configured", real_copy=True)
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210, real_copy=True)
         self.assertEqual((status, data["real_copy"]), (200, True))
         self.assertEqual(self.runner.calls[-1], ("get_ledger", {"customer_id": 1}, "configured"))
         self.runner.calls.clear()
@@ -148,9 +156,9 @@ class LedgerApiTest(unittest.TestCase):
         self.error(403, "INVALID_ORIGIN", lambda: self.call("/api/v7/receipts", body,
                    {key: val for key, val in self.headers.items() if key != "Origin"}))
         self.error(422, "INVALID_REQUEST", lambda: api.handle("GET", "/api/v7/ledger?customer=1&customer=2",
-                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="configured"))
+                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
         self.error(422, "INVALID_REQUEST", lambda: api.handle("GET", "/api/v7/ledger?customer=" + "9" * 5000,
-                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="configured"))
+                   self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
 
     def test_rejects_client_calculation_actor_and_bad_money(self):
         self.assertTrue(api.vnd("-9223372036854775808", signed=True))
@@ -170,16 +178,16 @@ class LedgerApiTest(unittest.TestCase):
         self.error(422, "INVALID_REQUEST", lambda: self.call(path, body | {"date": "2026-02-30"}))
         self.error(422, "INVALID_REQUEST", lambda: api.handle("POST", path, self.headers,
                    b'{"customer_id":1,"customer_id":2}', self.runner, port=8780,
-                   host="127.0.0.1", default_actor="configured"))
+                   host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
 
     def test_content_type_and_body_size(self):
         path = "/api/v7/receipts"
         self.error(415, "INVALID_CONTENT_TYPE", lambda: api.handle("POST", path,
                    self.headers | {"Content-Type": "text/plain"}, b"{}", self.runner,
-                   port=8780, host="127.0.0.1", default_actor="configured"))
+                   port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
         self.error(413, "BODY_TOO_LARGE", lambda: api.handle("POST", path, self.headers,
                    b"x" * (api.MAX_BODY + 1), self.runner, port=8780,
-                   host="127.0.0.1", default_actor="configured"))
+                   host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
 
     def test_psql_error_mapping_and_fixed_sql(self):
         self.assertIn("(j->'trips')::jsonb", api.SQL["paste_trips"])
@@ -234,10 +242,102 @@ class LedgerApiTest(unittest.TestCase):
 
 
 class LedgerHttpTest(unittest.TestCase):
+    def test_identity_http_contract(self):
+        for method in ("GET", "POST"):
+            for error in (None, TimeoutError(), OSError(), api.v7_identity.IdentityError("NOT_TAILNET")):
+                with self.subTest(method=method, error=error):
+                    class TrialHandler(api.Handler):
+                        runner = FakePsql()
+                        default_actor = "must-not-fallback"
+                        dev_actor_mode = False
+                        localapi = Mock()
+                    TrialHandler.localapi.whois.return_value = {"UserProfile": {"LoginName": "Real@EXAMPLE.TEST"}}
+                    TrialHandler.localapi.whois.side_effect = error
+                    with api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler) as server:
+                        TrialHandler.port = server.server_port
+                        worker = threading.Thread(target=server.serve_forever, daemon=True)
+                        worker.start()
+                        try:
+                            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                            conn.connect()
+                            peer_port = conn.sock.getsockname()[1]
+                            headers = {"Origin": f"http://127.0.0.1:{server.server_port}",
+                                       "Content-Type": "application/json", "Tailscale-User-Login": "forged",
+                                       "X-Forwarded-For": "100.100.100.100"}
+                            body = json.dumps({"customer_id": 1, "expected_version": 0, "idempotency_key": "identity",
+                                               "date": "2026-10-20", "method": "THU TI\u1ec0N", "amount_vnd": "10"})
+                            conn.request(method, "/api/v7/ledger?customer=1" if method == "GET" else "/api/v7/receipts",
+                                         body=body if method == "POST" else None, headers=headers)
+                            response = conn.getresponse()
+                            data = json.loads(response.read())
+                            conn.close()
+                            TrialHandler.localapi.whois.assert_called_once_with(f"127.0.0.1:{peer_port}")
+                            if error is None:
+                                self.assertEqual(response.status, 200)
+                                self.assertEqual(TrialHandler.runner.calls[-1][2], "Real@example.test")
+                            else:
+                                code = "LOCALAPI_TIMEOUT" if isinstance(error, TimeoutError) else (
+                                    "LOCALAPI_ERROR" if isinstance(error, OSError) else error.code)
+                                self.assertEqual((response.status, data), (403, {"error": code}))
+                                self.assertEqual(TrialHandler.runner.calls, [])
+                        finally:
+                            server.shutdown()
+                            worker.join(timeout=3)
+
+    def test_dev_and_serve_startup_contract(self):
+        for mode in (True, None, False):
+            class TrialHandler(api.Handler):
+                default_actor = "demo"
+            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                with api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler, dev_actor_mode=mode) as server:
+                    self.assertEqual(server.dev_actor, None if mode is False else "dev:demo")
+                self.assertEqual(stderr.getvalue().count("WARNING:"), 0 if mode is False else 1)
+        for host in ("0.0.0.0", "192.0.2.1"):
+            for mode in (True, None):
+                with self.assertRaises(ValueError):
+                    api.ThreadingHTTPServer((host, 0), TrialHandler, dev_actor_mode=mode)
+            class ServeHandler(api.Handler):
+                behind_tailscale_serve = True
+            with self.assertRaises(ValueError):
+                api.ThreadingHTTPServer((host, 0), ServeHandler)
+
+    def test_cli_identity_environment(self):
+        with patch.dict(os.environ, {"V7_API_BEHIND_TAILSCALE_SERVE": "1",
+                                    "V7_API_INSECURE_DEV_ACTOR": "env-demo"}), \
+             patch.object(sys, "argv", ["api", "--container", "fake"]), patch.object(api, "Psql"), \
+             patch.object(api, "ThreadingHTTPServer"), patch.object(api.Handler, "default_actor"), \
+             patch.object(api.Handler, "dev_actor_mode"), patch.object(api.Handler, "behind_tailscale_serve"):
+            api.main()
+            self.assertTrue(api.Handler.behind_tailscale_serve)
+            self.assertTrue(api.Handler.dev_actor_mode)
+            self.assertEqual(api.Handler.default_actor, "env-demo")
+
+    def test_cli_identity_modes(self):
+        for flags, actor, serve in (([], None, False), (["--insecure-dev-actor", "demo"], "demo", False),
+                                    (["--behind-tailscale-serve"], None, True)):
+            with patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", ["api", "--container", "fake", *flags]), \
+                 patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"), \
+                 patch.object(api.Handler, "default_actor"), patch.object(api.Handler, "dev_actor_mode"), \
+                 patch.object(api.Handler, "behind_tailscale_serve"):
+                api.main()
+                self.assertEqual(api.Handler.default_actor, actor)
+                self.assertEqual(api.Handler.dev_actor_mode, actor is not None)
+                self.assertEqual(api.Handler.behind_tailscale_serve, serve)
+        for flag in (["--insecure-dev-actor", "demo"], ["--behind-tailscale-serve"]):
+            with patch.object(sys, "argv", ["api", "--container", "fake", "--host", "0.0.0.0", *flag]), \
+                 patch.object(api, "Psql") as runner, self.assertRaises(SystemExit):
+                api.main()
+            runner.assert_not_called()
+
     def test_bounded_http_with_fake_psql(self):
         class TrialHandler(api.Handler):
             runner = FakePsql()
             demo = True
+            default_actor = "fake-demo"
+            dev_actor_mode = True
+            localapi = Mock()
+
+        TrialHandler.localapi.whois.return_value = {"UserProfile": {"LoginName": "whois@example.test"}}
 
         server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
         TrialHandler.port = server.server_port
@@ -258,7 +358,8 @@ class LedgerHttpTest(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             self.assertEqual(json.loads(response.read())["function"], "record_receipt")
-            self.assertEqual(TrialHandler.runner.calls[-1][2], "v7-test")
+            self.assertEqual(TrialHandler.runner.calls[-1][2], "dev:fake-demo")
+            TrialHandler.localapi.whois.assert_not_called()
             conn.close()
             conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
             conn.request("POST", "/api/v7/receipts", body=b"", headers=base | {"Content-Length": str(api.MAX_BODY + 1)})
@@ -428,7 +529,7 @@ class LedgerDockerTest(unittest.TestCase):
                 self.assertEqual(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={customer} "
                                           "AND kind IN ('paste','receipt')"), "2")
                 self.assertEqual(pg.value(f"SELECT string_agg(DISTINCT actor, ',') FROM sokhach.event "
-                                          f"WHERE customer_id={customer} AND kind IN ('paste','receipt')"), "api-harness")
+                                          f"WHERE customer_id={customer} AND kind IN ('paste','receipt')"), "dev:api-harness")
             finally:
                 server.shutdown()
                 server.server_close()
