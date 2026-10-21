@@ -106,3 +106,43 @@ Chưa đạt mục nào thì chưa chuyển thật.
 ## Câu hỏi mở
 
 - <Agent hoặc reviewer ghi vào đây.>
+
+
+## Clean load bundle - format_version 2 (2026-10-21)
+
+CLI: `v7_export_clean.py --xlsx ... --out ...`, then
+`v7_load_real_copy.py --from-clean ...`. Loader CLI reads only the bundle.
+`source_data` remains for export and legacy fixtures. User decision 2026-10-21:
+tabs absent from TONG are excluded as NOT_ON_TONG, including nonzero books
+(OPENING-SO-GOC supersedes the old V7-MH counting rule).
+
+CSV uses UTF-8 BOM and standard CSV quoting. Months use YYYY-MM. VND values are
+whole integers; NULL remains blank. Structured cells use compact JSON, sorted
+object keys and preserved list order. Display money retains digit strings;
+null_fields preserves NULL versus empty strings. source_flags retains the
+original source CSV string without reinterpreting it as a list.
+
+- clean_customers.csv: customer, ordinal, anchor_vnd, months, rows, cleaning,
+  flags, csv_only, row_counts, metadata. metadata only preserves has_insurance.
+- clean_months.csv: customer, debt_month, opening_anchor_vnd, charge_vnd,
+  receipt_vnd, month_end_vnd, sheet_month_end_vnd, bucket_vnd, exception_codes,
+  source_evidence_sha256, standard_bucket_vnd, standard_source_ref,
+  standard_source_sha256, source_tab, source_row. Last two fields identify opening.
+- clean_rows.csv: customer, debt_month, kind, source_tab, source_row, amount_vnd,
+  date, raw_date, container, unit_price, fee_vnd, carrier, from, to, note, stt, row,
+  tab, cells, source_kind, source_flags, flags, null_fields.
+- JSON cells: cells, flags, exception_codes, csv_only, row_counts, metadata,
+  null_fields. Customer flags are counts; display flags are lists.
+- manifest.json: format_version=2, frozen_at in UTC, control_total_vnd,
+  counts (customers/months/rows/trips/receipts), excluded_counts, files_sha256,
+  source hashes and tool metadata. Reports omit real money and customer names.
+
+Export validates row totals, anchor chain, buckets and control total before
+writing files. Month rounding is apportioned to fractional rows flagged
+ROUNDED_VND; original cells remain untouched, ROUNDING_APPORTIONED records the
+change. No receipt is invented. Missing prices and historical TOTAL follow V7-COPY.
+Reader hashes all bytes before parsing CSV, rejects old versions, rebuilds books
+and repeats mechanical gates/counts before DB access. One shared cutover uses
+SHA-256 of manifest.json bytes as source_sha256, frozen_at and control_total_vnd
+from manifest. Whole-cutover verify/activate follows all customer verifications.
+This describes copy code and format, not evidence of a database load.
