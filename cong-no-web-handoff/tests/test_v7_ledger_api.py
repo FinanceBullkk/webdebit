@@ -240,6 +240,118 @@ class LedgerApiTest(unittest.TestCase):
             self.assertEqual((caught.exception.status, caught.exception.code), (503, "DB_UNAVAILABLE"))
             self.assertNotIn("secret", caught.exception.message)
 
+    def offset_samples(self):
+        return {
+            "/api/v7/offsets": ("record_offset", {
+                "target_customer_id": 1, "target_version": 0, "source_customer_id": 2,
+                "source_version": 3, "idempotency_key": "offset", "date": "2026-10-20", "amount_vnd": "100"}),
+            "/api/v7/offsets/void": ("void_offset", self.common | {
+                "other_version": 3, "offset_pair_id": 4, "reason": "nhập trùng"}),
+            "/api/v7/offsets/date": ("edit_offset_date", self.common | {
+                "other_version": 3, "offset_pair_id": 4, "date": "2026-10-20"}),
+        }
+
+    def test_offset_routes_actor_and_sql_arguments(self):
+        for path, (function, body) in self.offset_samples().items():
+            with self.subTest(path=path):
+                self.assertEqual(self.call(path, body)[0], 200)
+                self.assertEqual(self.runner.calls[-1], (function, body, "configured"))
+                args = {
+                    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"),
+                    "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
+                    "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),
+                }[function]
+                expected = ", ".join(f"(j->>'{key}')::{api.CAST[key]}" if key in api.CAST
+                                     else f"j->>'{key}'" for key in args)
+                self.assertEqual(api.SQL[function],
+                    f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{function}({expected}) FROM b;")
+                self.runner.calls.clear()
+                self.error(422, "INVALID_REQUEST", lambda path=path, body=body: self.call(path, body | {"actor": "forged"}))
+                for header, value, status, code in (("Origin", "http://bad.test", 403, "INVALID_ORIGIN"),
+                                                   ("Content-Type", "text/plain", 415, "INVALID_CONTENT_TYPE")):
+                    self.error(status, code, lambda path=path, body=body, header=header, value=value: self.call(path, body, self.headers | {header: value}))
+                for key in body:
+                    with self.subTest(missing=key), self.assertRaises(api.ApiError):
+                        self.call(path, {k: v for k, v in body.items() if k != key})
+                raw = json.dumps(body)[:-1] + ',"idempotency_key":"duplicate"}'
+                self.error(422, "INVALID_REQUEST", lambda path=path, raw=raw: api.validate(path, raw.encode()))
+
+    def test_offset_invalid_fields(self):
+        for path, (_, body) in self.offset_samples().items():
+            invalid = {"idempotency_key": [None, "", "x\n"], "actor": ["forged"]}
+            for key in body:
+                if key.endswith("version"):
+                    invalid[key] = [-1, True, "0", api.MAX_BIGINT + 1]
+                elif key.endswith("_id"):
+                    invalid[key] = [-1, 0, "1", True, api.MAX_BIGINT + 1]
+            if "amount_vnd" in body:
+                invalid["amount_vnd"] = ["-1", "0", "-0", "1.5", 1, 1.5, None, "01", "9223372036854775808"]
+            if "date" in body:
+                invalid["date"] = [None, "", "2026-02-30", "20/10/2026", "2026-1-01", 123]
+            if "reason" in body:
+                invalid["reason"] = [None, 1, "", "   ", "x" * 501]
+            for key, values in invalid.items():
+                for value in values:
+                    with self.subTest(path=path, key=key, value=value), self.assertRaises(api.ApiError) as caught:
+                        self.call(path, body | {key: value})
+                    self.assertEqual(caught.exception.status, 422)
+            self.assertEqual(self.runner.calls, [])
+
+    def test_offset_sources_query_flags_and_timeout(self):
+        self.assertEqual(api.SQL["list_offset_sources"],
+                         "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);")
+        for flags in ({}, {"demo": True}, {"real_copy": True}):
+            runner = Mock()
+            runner.run.return_value = [{"customer_id": 2, "available_credit_vnd": "100"}]
+            status, data = api.handle("GET", "/api/v7/offset-sources?customer=1", self.headers,
+                b"", runner, port=8780, host="127.0.0.1", actor="server", **flags)
+            self.assertEqual(status, 200)
+            self.assertEqual(data, {"sources": runner.run.return_value, **flags})
+            runner.run.assert_called_once_with("list_offset_sources", {"target_customer_id": 1}, "server")
+        for query in ("", "customer=", "customer=0", "customer=-1", "customer=01", "customer=1&x=2",
+                      "customer=1&customer=2", "customer=9223372036854775808", "customer=" + "9" * 5000):
+            self.error(422, "INVALID_REQUEST", lambda query=query: api.handle("GET", "/api/v7/offset-sources?" + query,
+                self.headers, b"", self.runner, port=8780, host="127.0.0.1", actor="server"))
+        runner = object.__new__(api.Psql)
+        runner.container, runner.database, runner.user = "fake", "fake", "fake"
+        with patch.object(api.subprocess, "run", side_effect=subprocess.TimeoutExpired([], 25)):
+            with self.assertRaises(api.ApiError) as caught:
+                runner.run("list_offset_sources", {"target_customer_id": 1}, "server")
+            self.assertEqual(caught.exception.code, "DB_UNAVAILABLE")
+
+    def test_offset_psql_payload_and_credit_detail(self):
+        for code, status in {"OFFSET_SAME_BOOK": 422, "OFFSET_EXCEEDS_CREDIT": 422,
+                             "OFFSET_SOURCE_ARCHIVED": 409, "OFFSET_NOT_FOUND": 422,
+                             "OFFSET_ALREADY_VOID": 409, "OFFSET_PAIR_REQUIRED": 409,
+                             "FUTURE_DATE": 422, "INVALID_DATE": 422}.items():
+            self.assertEqual(api.ERRORS[code][0], status)
+        runner = object.__new__(api.Psql)
+        runner.container, runner.database, runner.user = "fake", "fake", "fake"
+        for _, (function, body) in self.offset_samples().items():
+            with patch.object(api.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{}', '')) as command:
+                runner.run(function, body, "server-actor")
+                self.assertIn(api.SQL[function], command.call_args.kwargs["input"])
+                args = command.call_args.args[0]
+                payload = next(arg[len("payload="):] for arg in args if arg.startswith("payload="))
+                self.assertEqual(json.loads(payload), body)
+                self.assertIn("actor=server-actor", args)
+                self.assertNotIn("server-actor", command.call_args.kwargs["input"])
+        for detail, expected in ((None, {}), ('{"available_credit_vnd":"123"}', {"available_credit_vnd": "123"}),
+                ('{"available_credit_vnd":"0"}', {"available_credit_vnd": "0"}),
+                ('{"available_credit_vnd":123}', {}), ('{"available_credit_vnd":null}', {}),
+                ('{"available_credit_vnd":"-1"}', {}), ('{"available_credit_vnd":"01"}', {}),
+                ('{"available_credit_vnd":"9223372036854775808"}', {}), ('invalid secret', {}),
+                ('{"available_credit_vnd":"1","available_credit_vnd":"2"}', {})):
+            stderr = "psql:<stdin>:3: ERROR:  P0001: OFFSET_EXCEEDS_CREDIT\n"
+            if detail is not None:
+                stderr += "DETAIL:  " + detail + "\nCONTEXT: secret SQL\n"
+            with patch.object(api.subprocess, "run", return_value=subprocess.CompletedProcess([], 3, '', stderr)):
+                with self.assertRaises(api.ApiError) as caught:
+                    runner.run("record_offset", {}, "server")
+                self.assertEqual((caught.exception.status, caught.exception.code), (422, "OFFSET_EXCEEDS_CREDIT"))
+                self.assertEqual(caught.exception.extra, expected)
+                self.assertNotIn("secret", caught.exception.message)
+
 
 class LedgerHttpTest(unittest.TestCase):
     def test_identity_http_contract(self):
@@ -328,6 +440,42 @@ class LedgerHttpTest(unittest.TestCase):
                  patch.object(api, "Psql") as runner, self.assertRaises(SystemExit):
                 api.main()
             runner.assert_not_called()
+
+    def test_offset_http_with_fake_psql(self):
+        class TrialHandler(api.Handler):
+            runner = FakePsql()
+            default_actor = "offset-test"
+            dev_actor_mode = True
+
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler) as server:
+            TrialHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                def request(method, path, body=None):
+                    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                    headers = {"Origin": f"http://127.0.0.1:{server.server_port}", "Content-Type": "application/json"}
+                    conn.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
+                    response = conn.getresponse()
+                    result = response.status, json.loads(response.read())
+                    conn.close()
+                    return result
+
+                self.common = {"customer_id": 1, "expected_version": 0, "idempotency_key": "http-offset"}
+                for path, (function, body) in LedgerApiTest.offset_samples(self).items():
+                    self.assertEqual(request("POST", path, body), (200, {"function": function,
+                                     "version": body.get("expected_version", 0)}))
+                    self.assertEqual(TrialHandler.runner.calls[-1], (function, body, "dev:offset-test"))
+                self.assertEqual(request("GET", "/api/v7/offset-sources?customer=1")[0], 200)
+                error = api.ApiError(422, "OFFSET_EXCEEDS_CREDIT", api.ERRORS["OFFSET_EXCEEDS_CREDIT"][1],
+                                     {"available_credit_vnd": "123"})
+                with patch.object(TrialHandler.runner, "run", side_effect=error):
+                    path, (_, body) = next(iter(LedgerApiTest.offset_samples(self).items()))
+                    self.assertEqual(request("POST", path, body), (422, {"error": error.code,
+                        "message": error.message, "available_credit_vnd": "123"}))
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
 
     def test_bounded_http_with_fake_psql(self):
         class TrialHandler(api.Handler):
