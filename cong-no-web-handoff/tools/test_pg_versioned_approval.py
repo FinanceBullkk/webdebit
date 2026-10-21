@@ -30,7 +30,6 @@ from test_pg_ledger_schema import (
     run,
 )
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cong-no-web-handoff" / "tools" / "pg_versioned_approval_fixture.sql"
 DATABASE = "webdebit_ledger"
@@ -440,7 +439,7 @@ class Suite:
             except subprocess.TimeoutExpired:
                 waiter.kill()
                 waiter_stdout, waiter_stderr = waiter.communicate(timeout=5)
-                raise HarnessError(f"{name} waiter exceeded bounded process timeout")
+                raise HarnessError(f"{name} waiter exceeded bounded process timeout") from None
             waiter_output = waiter_stdout + waiter_stderr
             waiter_ok = ((waiter.returncode != 0 and waiter_error in waiter_output)
                          if waiter_error is not None else waiter.returncode == 0)
@@ -522,7 +521,7 @@ class Suite:
                       "booking_reference"):
             result = self.f.psql(f"SELECT count(*) FROM p0_fixture.{table}", user=API_LOGIN, check=False)
             denied[table] = result.returncode != 0 and "permission denied" in result.stderr
-        self.case("api_login_cannot_read_any_fixture_table", {k: True for k in denied}, denied)
+        self.case("api_login_cannot_read_any_fixture_table", dict.fromkeys(denied, True), denied)
         direct = self.f.psql(
             f"INSERT INTO p0_fixture.proposal(maker_actor_id) VALUES ('{MAKER}'::uuid)",
             user=API_LOGIN, check=False)
@@ -564,7 +563,7 @@ class Suite:
             "key_with_zero_width_space": insert_resolution("AB\u200bCD"),
             "key_with_bom": insert_resolution("\ufeffABCD"),
         }
-        self.case("resolution_table_rejects_bad_rows_including_whitespace_keys", {k: True for k in bad_rows}, {
+        self.case("resolution_table_rejects_bad_rows_including_whitespace_keys", dict.fromkeys(bad_rows, True), {
             k: "violates check constraint" in r.stderr and r.returncode != 0 for k, r in bad_rows.items()})
         self.case("posting_trip_key_is_unique_and_not_null", (1, 1), tuple(int(self.query(
             "SELECT count(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid=i.indrelid "
@@ -722,7 +721,7 @@ class Suite:
         for label, (booking, container) in unicode_cases.items():
             c = self.charge(customer=customer, booking=booking, container=container, seed=None)
             keys[label] = self.current_view(c)["payload"]["trip_key"]
-        self.case("unicode_whitespace_is_removed_from_trip_key", {k: plain_key for k in unicode_cases}, keys)
+        self.case("unicode_whitespace_is_removed_from_trip_key", dict.fromkeys(unicode_cases, plain_key), keys)
         only_unicode = self.charge(customer=customer, booking="\u00a0\u200b", container="CTR1", seed=None)
         self.case("booking_made_only_of_unicode_whitespace_uses_alternative_key",
                   (f"{ALT_PREFIX}CTR1:20261014", ["ALT_TRIP_KEY_WARNING"]),
@@ -920,7 +919,7 @@ class Suite:
                                            f"{sql_literal('d' * 64)}", check=False),
             "set_delete": self.f.psql("DELETE FROM p0_fixture.opening_reference_set", check=False),
         }
-        self.case("opening_reference_is_append_only_except_active_flag", {k: True for k in append_only}, {
+        self.case("opening_reference_is_append_only_except_active_flag", dict.fromkeys(append_only, True), {
             k: r.returncode != 0 and "append-only fixture row" in r.stderr for k, r in append_only.items()})
         second_active = self.f.psql(
             "INSERT INTO p0_fixture.opening_reference_set(set_version, source_sha256, snapshot_at, active) "
@@ -1168,7 +1167,7 @@ class Suite:
             mutated = text.replace(old, new, 1)
             result = self.submit_raw(mutated, check=False)
             results[label] = result.returncode != 0 and "canonical" in result.stderr
-        self.case("non_canonical_numbers_are_rejected_not_normalized", {k: True for k in results}, results)
+        self.case("non_canonical_numbers_are_rejected_not_normalized", dict.fromkeys(results, True), results)
         string_ok = self.submit_raw(dumps({**base, "reason": 'ghi chu 1.5 va 1e2 va \\"2.5\\"'}), check=False)
         self.case("number_like_text_inside_strings_is_accepted", 0, string_ok.returncode)
 
@@ -1245,19 +1244,19 @@ class Suite:
             outcomes[label] = result.returncode != 0 and expected in result.stderr
         top_level = self.submit_raw("[]", check=False)
         outcomes["top_level_array"] = top_level.returncode != 0
-        self.case("structural_violations_are_rejected_with_specific_reason", {k: True for k in outcomes}, outcomes)
+        self.case("structural_violations_are_rejected_with_specific_reason", dict.fromkeys(outcomes, True), outcomes)
         self.case("rejected_payloads_created_no_proposal", proposals_before_bad, self.count("proposal"))
 
     def g_blank_text(self) -> None:
         self.case("null_is_blank", "true", self.query("SELECT p0_fixture.is_blank(NULL)::text"))
         tables = ("proposal", "business_revision", "period_confirmation", "price_confirmation", "approval", "posting")
-        for field in ("customer_id", "reason", "label", "source_ref", "evidence_ref",
+        for field_name in ("customer_id", "reason", "label", "source_ref", "evidence_ref",
                       "period_override_reason", "period_override_evidence_ref", "resolution_evidence", "approved_by"):
             for value in ("", "\t", "\n", " \t\r\n ", "\u00a0",
                           "\v\f\u0085\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000", " A "):
-                name, valid = f"{field}_{value!r}", value == " A "
-                if field in ("resolution_evidence", "approved_by"):
-                    column = "evidence_ref" if field == "resolution_evidence" else field
+                name, valid = f"{field_name}_{value!r}", value == " A "
+                if field_name in ("resolution_evidence", "approved_by"):
+                    column = "evidence_ref" if field_name == "resolution_evidence" else field_name
                     before = self.count("trip_opening_resolution")
                     evidence, approver = (value, "x") if column == "evidence_ref" else ("x", value)
                     result = self.f.psql("BEGIN; INSERT INTO p0_fixture.trip_opening_resolution "
@@ -1271,16 +1270,16 @@ class Suite:
                         self.rejected(name, result, "violates check constraint")
                     self.case(name + "_no_resolution_left", before, self.count("trip_opening_resolution"))
                     continue
-                payload = charge_payload(*self.next_trip(), customer=value if field == "customer_id" else "FAKE-BLANK",
+                payload = charge_payload(*self.next_trip(), customer=value if field_name == "customer_id" else "FAKE-BLANK",
                                          period="2026-09", **OVERRIDE)
-                if field == "label":
+                if field_name == "label":
                     payload["price_components"][0]["label"] = value
-                elif field != "customer_id":
-                    payload[field] = value
+                elif field_name != "customer_id":
+                    payload[field_name] = value
                 before = [self.count(t) for t in tables]
                 result = self.submit_raw(dumps(payload), check=False)
-                if not valid and field in ("customer_id", "reason", "label"):
-                    self.rejected(name, result, "invalid per-trip price component" if field == "label"
+                if not valid and field_name in ("customer_id", "reason", "label"):
+                    self.rejected(name, result, "invalid per-trip price component" if field_name == "label"
                                   else "invalid fixture payload fields")
                     self.case(name + "_no_records", before, [self.count(t) for t in tables])
                     continue
@@ -1292,12 +1291,12 @@ class Suite:
                 if valid:
                     stored = json.loads(self.query("SELECT canonical_payload::text FROM p0_fixture.business_revision "
                                                    f"WHERE revision_id={c.revision_id}"))
-                    self.case(name + "_unchanged", value, stored["price_components"][0]["label"] if field == "label"
-                              else stored[field])
+                    self.case(name + "_unchanged", value, stored["price_components"][0]["label"] if field_name == "label"
+                              else stored[field_name])
                     self.run_to_posted(c)
                     self.case(name + "_posted", "posted", self.snapshot(c.proposal_id)["state"])
                     continue
-                period = field.startswith("period_override_")
+                period = field_name.startswith("period_override_")
                 self.call("confirm_price_revision" if period else "confirm_period_revision", self.ids(c), MAKER, check=True)
                 before = self.snapshot(c.proposal_id)
                 self.rejected(name, self.call("confirm_period_revision" if period else "confirm_price_revision",
@@ -1354,7 +1353,7 @@ class Suite:
             "maker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), MAKER_ONLY),
             "checker_without_price_owner_role": self.call("confirm_price_revision", self.ids(self_confirm), CHECKER),
         }
-        self.case("only_price_owner_role_may_confirm_price", {k: True for k in denied}, {
+        self.case("only_price_owner_role_may_confirm_price", dict.fromkeys(denied, True), {
             k: v.returncode != 0 and "actor role required" in v.stderr for k, v in denied.items()})
         self.rejected("same_revision_price_cannot_be_confirmed_twice",
                       self.call("confirm_price_revision", self.ids(self_confirm), PRICE_OWNER), "duplicate key")
@@ -1438,7 +1437,7 @@ class Suite:
                     f"SELECT p0_fixture.{function}({c.proposal_id}, {revision}, {content}, "
                     f"'{actor}'::uuid, '{uuid.uuid4()}'::uuid)", user=API_LOGIN, check=False)
                 null_calls[f"{function}_null_{label}"] = result.returncode != 0 and guard in result.stderr
-        self.case("null_revision_or_hash_is_refused_by_an_explicit_guard", {k: True for k in null_calls}, null_calls)
+        self.case("null_revision_or_hash_is_refused_by_an_explicit_guard", dict.fromkeys(null_calls, True), null_calls)
 
     def g_revision(self) -> None:
         customer = "FAKE-CUSTOMER-REV"
@@ -1524,7 +1523,7 @@ class Suite:
             result = self.call("confirm_period_revision", self.ids(c), MAKER)
             cross[label] = ("PERIOD_OVERRIDE_EVIDENCE_MISSING" in self.current_view(c)["submit_time_reasons"]
                             and result.returncode != 0 and "period override evidence is required" in result.stderr)
-        self.case("cross_month_charge_needs_all_three_override_fields", {k: True for k in cross}, cross)
+        self.case("cross_month_charge_needs_all_three_override_fields", dict.fromkeys(cross, True), cross)
         full = self.charge(customer=customer, period="2026-09", **OVERRIDE)
         self.case("full_override_has_no_missing_reason", [], self.current_view(full)["submit_time_reasons"])
         self.run_to_posted(full)
@@ -1939,4 +1938,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except HarnessError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

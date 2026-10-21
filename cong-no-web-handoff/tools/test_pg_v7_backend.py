@@ -1,0 +1,1990 @@
+#!/usr/bin/env python3
+"""V7 contract checks in one disposable PostgreSQL container with fake rows."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import queue
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import uuid
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
+FUNCTIONS = ROOT / "cong-no-web-handoff" / "tools" / "v7_backend_functions.sql"
+IMAGE = "postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336"
+DATABASE = "webdebit_v7_test"
+LABEL_TEST = "codex.test"
+LABEL_RUN = "codex.run"
+LABEL_VALUE = "webdebit-v7-backend"
+
+
+class HarnessError(RuntimeError):
+    pass
+
+
+def run(args: list[str], *, input_text: str | None = None, check: bool = True,
+        timeout: float = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
+                           errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HarnessError(f"command unavailable/timed out: {args[:3]}: {exc}") from exc
+    if check and p.returncode:
+        raise HarnessError(f"command failed ({p.returncode}): {args[:3]}: {p.stderr[-1500:]}")
+    return p
+
+
+def require(condition: bool, reason: str) -> None:
+    if not condition:
+        raise HarnessError(reason)
+
+
+def parse_blocker_row(row: str) -> tuple[int, set[int]]:
+    """Parse one pg_stat_activity row, including PostgreSQL soft blockers.
+
+    >>> parse_blocker_row('2402|2401,2399')
+    (2402, {2401, 2399})
+    >>> parse_blocker_row('2402|')
+    (2402, set())
+    """
+    pid, blocked_by = row.split("|", 1)
+    return int(pid), {int(value) for value in blocked_by.split(",") if value}
+
+
+def case(case_id: str, label: str, title: str, check=None, *, functions=(), open_reason="") -> dict:
+    return {"id": case_id, "label": label, "title": title, "check": check,
+            "functions": functions, "open_reason": open_reason}
+
+
+# IDs retain section 7 numbering; suffixes split schema checks from missing commands.
+CASES = [
+    case("7.01", "BEHAVIOR", "Import 11 opening months and historical PH-101", check="opening_import", functions=("get_ledger", "import_cutover")),
+    case("7.02", "BEHAVIOR", "JS model operation parity and monthly tuples", check="model", functions=("paste_trips", "record_receipt", "reallocate")),
+    case("7.02b", "BEHAVIOR", "Advance, price edit, paste after receipt, missing price, adjustment after void", check="model_edges", functions=("paste_trips", "edit_trip_price", "adjust_month", "void_receipt")),
+    case("7.03", "BEHAVIOR", "Atomic failure after allocation write", check="atomic", functions=("record_receipt",)),
+    case("7.03b", "BEHAVIOR", "Reject allocation, advance and event invariant corruption", check="invariant_rejections", functions=("record_receipt", "_check_allocations")),
+    case("7.04", "BEHAVIOR", "Idempotency before stale version", check="idempotency", functions=("record_receipt",)),
+    case("7.05", "BEHAVIOR", "Concurrent receipts and stale version", check="concurrent", functions=("record_receipt",)),
+    case("7.05b", "BEHAVIOR", "Same-date mixed-case pid uses JS/C order", check="pid_order", functions=("reallocate",)),
+    case("7.06", "SCHEMA", "Immutable money rows and role DML denial", check="immutable"),
+    case("7.07", "BEHAVIOR", "Void every original line, snapshots, rollback", check="void", functions=("void_receipt",)),
+    case("7.08", "BEHAVIOR", "VN month lock after customer lock", check="locks", functions=("set_month_lock", "edit_trip_price", "paste_trips")),
+    case("7.09a", "SCHEMA", "App and reader DB role boundaries", check="roles"),
+    case("7.09b", "BEHAVIOR", "Actor, hostile search_path, allowed EXECUTE", check="actor", functions=("get_ledger", "record_receipt")),
+    case("7.09c", "BEHAVIOR", "Trial actor comes from session; no per-person ACL", check="actor", functions=("get_ledger",)),
+    case("7.10a", "SCHEMA", "Bigint, NULL and integer constraints", check="numbers"),
+    case("7.10b", "BEHAVIOR", "Reject -0 and oversized user input", check="input", functions=("paste_trips",)),
+    case("7.11a", "SCHEMA", "Draft/one-sided active view gate, monthly buckets", check="gate_view"),
+    case("7.11b", "BEHAVIOR", "FIFO monthly gate and nonzero opening anchor", check="cutover_gate", functions=("import_cutover", "verify_cutover_customer", "verify_cutover", "activate_cutover", "activate_cutover_customer")),
+    case("7.11c", "SKIPPED_OPEN", "Complete source population evidence", open_reason="frozen source row and customer completeness cannot be proven by submitted aggregates and hashes"),
+    case("7.12", "BEHAVIOR", "FIFO through opening and adjustment", check="opening_fifo", functions=("record_receipt", "adjust_month", "reallocate")),
+    case("7.13", "SCHEMA", "Legacy rows excluded and immutable", check="legacy"),
+    case("7.14a", "SCHEMA", "Import-once indexes and customer uniqueness", check="import_guard"),
+    case("7.14b", "BEHAVIOR", "Retry import, totals, NO_BASELINE, concurrent import/verify", check="import_behavior", functions=("import_cutover", "verify_cutover_customer")),
+    case("7.15a", "SCHEMA", "Negative opening remains signed in active view", check="negative"),
+    case("7.15b", "BEHAVIOR", "Receipt skips negative bucket; void preserves other receipts", check="negative_receipt", functions=("record_receipt", "void_receipt")),
+    case("7.15c", "SKIPPED_OPEN", "Cross-ledger negative transfer and refund", open_reason="cross-ledger transfer and refund policy remain open"),
+    case("7.16a", "SCHEMA", "Event snapshot and same-customer FK checks", check="events"),
+    case("7.16b", "BEHAVIOR", "Reallocation snapshots and rollback of seven commands", check="snapshots", functions=("record_receipt", "edit_receipt_meta", "void_receipt", "adjust_trip", "adjust_month", "edit_trip_price", "paste_trips")),
+    case("7.17", "SCHEMA", "Evidence freeze by trigger and concurrent direct DML", check="evidence"),
+    case("7.18a", "SCHEMA", "NULL fee storage and three SQL view amount cases", check="fee"),
+    case("7.18b", "BEHAVIOR", "get_ledger missing-price flag and JS tripAmount parity", check="ledger_fee", functions=("get_ledger",)),
+    case("7.xx", "BEHAVIOR", "Golden anonymous V7 fixture", check="golden", functions=("get_ledger",)),
+    case("7.19", "BEHAVIOR", "Monthly identity includes active signed opening and adjustments", check="monthly_identity", functions=("get_ledger",)),
+    case("7.20", "BEHAVIOR", "Locked field edits use current price; NULL fee; legacy amount; retry", check="field_adjustment", functions=("adjust_trip",)),
+    case("7.21", "BEHAVIOR", "VN receipt today accepted; tomorrow rejected without version change", check="future_receipt", functions=("record_receipt", "edit_receipt_meta")),
+    case("7.22", "BEHAVIOR", "Void GET identifies only allocations current at void time", check="void_get", functions=("get_ledger", "void_receipt", "reallocate")),
+    case("7.23", "BEHAVIOR", "Typed adjustment values survive audit tampering and latest price revision", check="adjustment_source", functions=("adjust_trip",)),
+]
+
+
+class Pg:
+    def __init__(self, name: str, run_id: str):
+        self.name = name
+        self.run_id = run_id
+        self.env = ["--env", f"PGAPPNAME=codex_v7_{run_id}", "--env", "PGOPTIONS=-c statement_timeout=15000 -c lock_timeout=12000"]
+
+    def sql(self, sql: str, *, user: str = "postgres", check: bool = True,
+            database: str = DATABASE) -> subprocess.CompletedProcess[str]:
+        return run(["docker", "exec", "-i", *self.env, self.name, "psql", "-X", "-qAt",
+                    "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
+                    "-d", database], input_text=sql.rstrip().rstrip(";") + ";\n", check=check)
+
+    def value(self, sql: str, *, user: str = "postgres") -> str:
+        return self.sql(sql, user=user).stdout.strip()
+
+    def true(self, sql: str, reason: str) -> None:
+        require(self.value("SELECT CASE WHEN (" + sql + ") THEN 'ok' ELSE 'bad' END") == "ok", reason)
+
+    def rejects(self, sql: str, *, user: str = "postgres", message: str = "") -> None:
+        p = self.sql(sql, user=user, check=False)
+        require(p.returncode != 0 and (not message or message in p.stderr),
+                f"statement unexpectedly accepted or wrong error: {p.stdout} {p.stderr[-700:]}")
+
+
+def lit(value) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def actor_sql(sql: str, actor: str = "harness", *, search_path: str = "") -> str:
+    return "BEGIN; SET LOCAL sokhach.actor = " + lit(actor) + "; " + search_path + sql + "; COMMIT"
+
+
+def call(pg: Pg, name: str, *args, actor: str = "harness") -> dict:
+    values = ",".join("NULL" if x is None else lit(x) for x in args)
+    result = json.loads(pg.value(actor_sql(f"SELECT sokhach.{name}({values})", actor)))
+    if name == "get_ledger":
+        for month in result.get("months", []):
+            require(int(month["prior_months_vnd"]) + int(month["charges_vnd"]) - int(month["received_vnd"])
+                    == int(month["end_of_month_vnd"]), f"monthly identity failed: {month}")
+    return result
+
+
+def reject_call(pg: Pg, name: str, *args, error: str, actor: str = "harness") -> None:
+    values = ",".join("NULL" if x is None else lit(x) for x in args)
+    pg.rejects(actor_sql(f"SELECT sokhach.{name}({values})", actor), message=error)
+
+
+def version(pg: Pg, customer: int) -> int:
+    return int(pg.value(f"SELECT version FROM sokhach.customer WHERE id={customer}"))
+
+
+def new_book(pg: Pg, *amounts: tuple[str, int]) -> int:
+    """Harness-only opening: no import/verification acceptance claim."""
+    customer = int(pg.value("INSERT INTO sokhach.customer(name) VALUES ('FAKE CONTRACT') RETURNING id"))
+    total = sum(amount for _, amount in amounts)
+    cutover = int(pg.value("INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by) "
+        f"VALUES ('FAKE CONTRACT','anonymous',repeat('a',64),now(),{total},'harness') RETURNING id"))
+    pg.sql("INSERT INTO sokhach.cutover_customer(customer_id,cutover_id,expected_control_total_vnd,report_sha256,"
+        "source_rows,imported_rows,quarantined_rows,skipped_with_reason_rows,unresolved_exceptions) "
+        f"VALUES ({customer},{cutover},{total},repeat('a',64),{len(amounts)},{len(amounts)},0,0,0)")
+    event = int(pg.value("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\",cutover_id) "
+        f"VALUES ({customer},'import','harness','{{}}',jsonb_build_object('cutover',{cutover}),{cutover}) RETURNING id"))
+    for n, (month, amount) in enumerate(amounts, 1):
+        pg.sql("INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,"
+            f"source_tab,source_row,created_by_event) VALUES ({customer},{cutover},{lit(month)},{amount},'FAKE',{n},{event})")
+    pg.sql(f"UPDATE sokhach.cutover_customer SET status='verified' WHERE customer_id={customer}")
+    pg.sql(f"UPDATE sokhach.cutover SET status='verified' WHERE id={cutover}")
+    pg.sql(f"UPDATE sokhach.cutover SET status='active' WHERE id={cutover}")
+    pg.sql(f"UPDATE sokhach.cutover_customer SET status='active' WHERE customer_id={customer}")
+    return customer
+
+
+def cutover_book(pg: Pg, total: int, *, cutover: int | None = None) -> tuple[int, int]:
+    customer = int(pg.value("INSERT INTO sokhach.customer(name) VALUES ('FAKE IMPORT') RETURNING id"))
+    if cutover is None:
+        cutover = int(pg.value("INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by) "
+            f"VALUES ('FAKE IMPORT','anonymous',repeat('a',64),now(),{total},'harness') RETURNING id"))
+    return customer, cutover
+
+
+def import_data(amounts: list[int], *, buckets: list[int] | None = None,
+                standards: list[int] | None = None, charges: list[int] | None = None,
+                receipts: list[int] | None = None, opening_anchor: int = 0,
+                flags: list[list[str]] | None = None) -> tuple[str, str, str]:
+    buckets = amounts if buckets is None else buckets
+    standards = buckets if standards is None else standards
+    flags = [[] for _ in amounts] if flags is None else flags
+    dates = [f"2026-{n:02d}-01" for n in range(1, len(amounts) + 1)]
+    openings = [{"debt_month": month, "amount_vnd": amount, "source_tab": "FAKE",
+                 "source_row": n} for n, (month, amount) in enumerate(zip(dates, amounts, strict=True), 1)]
+    checks = []
+    charges = standards if charges is None else charges
+    receipts = [0] * len(amounts) if receipts is None else receipts
+    cumulative = opening_anchor
+    replay = 0
+    for month, bucket, standard, charge, receipt, codes in zip(
+            dates, buckets, standards, charges, receipts, flags, strict=True):
+        cumulative += charge - receipt
+        replay += bucket
+        checks.append({"debt_month": month, "source_cumulative_vnd": cumulative,
+                       "opening_anchor_vnd": opening_anchor,
+                       "source_charge_vnd": charge, "source_receipt_vnd": receipt,
+                       "replay_cumulative_vnd": replay, "bucket_vnd": bucket,
+                       "standard_bucket_vnd": standard,
+                       "standard_source_ref": f"FAKE anchors before/after {month}",
+                       "standard_source_sha256": "a" * 64,
+                       "source_evidence_sha256": "b" * 64,
+                       "exception_codes": codes})
+    return tuple(json.dumps(value) for value in (openings, [], checks))
+
+
+def import_book(pg: Pg, customer: int, cutover: int, amounts: list[int], key: str,
+                *, buckets: list[int] | None = None,
+                flags: list[list[str]] | None = None, total: int | None = None) -> dict:
+    openings, legacy, checks = import_data(amounts, buckets=buckets, flags=flags)
+    return call(pg, "import_cutover", customer, version(pg, customer), key, cutover,
+                openings, legacy, checks, sum(amounts) if total is None else total, "a" * 64)
+
+
+def check_opening_import(pg: Pg) -> None:
+    amounts = [100, 0, -20, 30, 40, 50, 60, 70, 80, 90, 100]
+    customer, cutover = cutover_book(pg, sum(amounts))
+    openings, _, checks = import_data(amounts)
+    legacy = json.dumps([{"debt_month": "2026-06-01", "kind": "receipt",
+                          "display": {"pid": "PH-101"}, "source_total_vnd": 600694000,
+                          "source_tab": "FAKE", "source_row": 101}])
+    result = call(pg, "import_cutover", customer, 0, "eleven-month-import", cutover,
+                  openings, legacy, checks, sum(amounts), "a" * 64)
+    require(result["status"] == "draft" and result["version"] == 1, "import did not make draft")
+    require(pg.value(f"SELECT count(*) FROM sokhach.opening_balance WHERE customer_id={customer}") == "11",
+            "11 opening rows missing")
+    require(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={customer} AND kind='import'") == "1",
+            "import event missing")
+    require(pg.value(f"SELECT display->>'pid' FROM sokhach.legacy_row WHERE customer_id={customer}") == "PH-101",
+            "historical PH-101 missing")
+    require(call(pg, "get_ledger", customer)["status"] == "NO_BASELINE", "draft ledger leaked")
+    require(pg.value(f"SELECT count(*) FROM sokhach.v_outstanding_month WHERE customer_id={customer}") == "0",
+            "draft opening entered balance")
+
+
+def check_cutover_gate(pg: Pg) -> None:
+    wrong, wrong_cutover = cutover_book(pg, 300)
+    wrong_openings, wrong_legacy, wrong_checks = import_data(
+        [90, 210], buckets=[90, 210], standards=[100, 200])
+    call(pg, "import_cutover", wrong, 0, "wrong-month-import", wrong_cutover,
+         wrong_openings, wrong_legacy, wrong_checks, 300, "a" * 64)
+    reject_call(pg, "verify_cutover_customer", wrong, wrong_cutover, version(pg, wrong),
+                "wrong-month-verify", "FAKE-SIGNOFF", error="CUTOVER_MONTH_MISMATCH")
+    require(pg.value(f"SELECT status FROM sokhach.cutover_customer WHERE customer_id={wrong}") == "draft",
+            "[90,210] passed independent [100,200] monthly gate")
+    customer, cutover = cutover_book(pg, 300)
+    openings, legacy, checks = import_data([100, 200], buckets=[90, 210],
+                                          charges=[100, 200])
+    call(pg, "import_cutover", customer, 0, "gate-import", cutover,
+         openings, legacy, checks, 300, "a" * 64)
+    reject_call(pg, "verify_cutover_customer", customer, cutover, version(pg, customer),
+                "gate-bad-bucket", "FAKE-SIGNOFF", error="CUTOVER_MONTH_MISMATCH")
+    require(pg.value(f"SELECT status FROM sokhach.cutover_customer WHERE customer_id={customer}") == "draft",
+            "bad monthly bucket verified")
+    # Source charges stay [100,200]; repair only imported monthly buckets.
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET standard_bucket_vnd=100, bucket_vnd=100 "
+           f"WHERE customer_id={customer} "
+           "AND debt_month='2026-01-01'")
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET standard_bucket_vnd=200, bucket_vnd=200 "
+           f"WHERE customer_id={customer} "
+           "AND debt_month='2026-02-01'")
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET replay_cumulative_vnd=-1 WHERE customer_id={customer}")
+    # Client replay is diagnostic only; anchored bucket and source checks decide gate.
+    no_anchor, no_anchor_cutover = cutover_book(pg, 0)
+    anchor_openings, anchor_legacy, anchor_checks = import_data([0])
+    broken_checks = json.loads(anchor_checks)
+    broken_checks[0]["standard_source_ref"] = None
+    call(pg, "import_cutover", no_anchor, 0, "missing-anchor-import", no_anchor_cutover,
+         anchor_openings, anchor_legacy, json.dumps(broken_checks), 0, "a" * 64)
+    reject_call(pg, "verify_cutover_customer", no_anchor, no_anchor_cutover,
+                version(pg, no_anchor), "missing-anchor-verify", "FAKE-SIGNOFF",
+                error="CUTOVER_MONTH_MISMATCH")
+    missing_flow, missing_flow_cutover = cutover_book(pg, 100)
+    import_book(pg, missing_flow, missing_flow_cutover, [100], "missing-flow-import")
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET source_receipt_vnd=NULL "
+           f"WHERE customer_id={missing_flow}")
+    reject_call(pg, "verify_cutover_customer", missing_flow, missing_flow_cutover,
+                version(pg, missing_flow), "missing-flow-verify", None,
+                error="CUTOVER_MONTH_MISMATCH")
+    # Real automatic policy; no fake signoff function in harness.
+    contradictory, contradictory_cutover = cutover_book(pg, 300)
+    import_book(pg, contradictory, contradictory_cutover, [100, 200], "anchor-import")
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET opening_anchor_vnd=0, "
+           f"source_cumulative_vnd=CASE WHEN debt_month='2026-01-01' THEN 110 ELSE 310 END, "
+           f"replay_cumulative_vnd=CASE WHEN debt_month='2026-01-01' THEN 110 ELSE 310 END "
+           f"WHERE customer_id={contradictory}")
+    reject_call(pg, "verify_cutover_customer", contradictory, contradictory_cutover,
+                version(pg, contradictory), "anchor-contradiction", "FAKE-SIGNOFF",
+                error="CUTOVER_ANCHOR_MISMATCH")
+    require(pg.value(f"SELECT status FROM sokhach.cutover_customer WHERE customer_id={contradictory}") == "draft",
+            "self-contradictory first source anchor verified")
+    absent, absent_cutover = cutover_book(pg, 100)
+    import_book(pg, absent, absent_cutover, [100], "no-first-anchor")
+    pg.sql(f"UPDATE sokhach.cutover_month_check SET opening_anchor_vnd=NULL "
+           f"WHERE customer_id={absent}")
+    reject_call(pg, "verify_cutover_customer", absent, absent_cutover,
+                version(pg, absent), "no-first-anchor-verify", "FAKE-SIGNOFF",
+                error="CUTOVER_MONTH_MISMATCH")
+    # Initial 50 belongs in oldest monthly bucket; final anchor is 350.
+    nonzero, nonzero_cutover = cutover_book(pg, 350)
+    opening, legacy, checks = import_data([150, 200], charges=[100, 200], opening_anchor=50)
+    call(pg, "import_cutover", nonzero, 0, "nonzero-anchor-import", nonzero_cutover,
+         opening, legacy, checks, 350, "a" * 64)
+    require(call(pg, "verify_cutover_customer", nonzero, nonzero_cutover,
+                 version(pg, nonzero), "nonzero-anchor-verify", None)["status"] ==
+             "verified", "initial 50 was not included in oldest FIFO bucket")
+    lost, lost_cutover = cutover_book(pg, 300)
+    opening, legacy, checks = import_data([100, 200], charges=[100, 200], opening_anchor=50)
+    call(pg, "import_cutover", lost, 0, "lost-anchor-import", lost_cutover,
+         opening, legacy, checks, 300, "a" * 64)
+    reject_call(pg, "verify_cutover_customer", lost, lost_cutover, version(pg, lost),
+                "lost-anchor-verify", None, error="CUTOVER_FIFO_MISMATCH")
+    fifo, fifo_cutover = cutover_book(pg, 150)
+    opening, legacy, checks = import_data([0, 150], charges=[100, 200], receipts=[0, 150])
+    call(pg, "import_cutover", fifo, 0, "fifo-import", fifo_cutover,
+         opening, legacy, checks, 150, "a" * 64)
+    require(call(pg, "verify_cutover_customer", fifo, fifo_cutover, version(pg, fifo),
+                 "fifo-verify", None)["status"] == "verified", "FIFO [0,150] rejected")
+    wrong_fifo, wrong_fifo_cutover = cutover_book(pg, 150)
+    opening, legacy, checks = import_data([100, 50], charges=[100, 200],
+                                         receipts=[0, 150])
+    call(pg, "import_cutover", wrong_fifo, 0, "wrong-fifo-import", wrong_fifo_cutover,
+         opening, legacy, checks, 150, "a" * 64)
+    reject_call(pg, "verify_cutover_customer", wrong_fifo, wrong_fifo_cutover,
+                version(pg, wrong_fifo), "wrong-fifo-verify", None,
+                error="CUTOVER_FIFO_MISMATCH")
+    reject_call(pg, "activate_cutover_customer", customer, cutover, version(pg, customer),
+                "early-customer", "FAKE-SIGNOFF", error="CUTOVER_TRANSITION_ORDER")
+    reject_call(pg, "verify_cutover", cutover, "early-cutover", "FAKE-SIGNOFF",
+                error="CUTOVER_CUSTOMERS_NOT_VERIFIED")
+    verified = call(pg, "verify_cutover_customer", customer, cutover, version(pg, customer),
+                    "gate-verify-customer", "FAKE-SIGNOFF")
+    require(verified["status"] == "verified", "customer verification missing")
+    require(pg.value(f"SELECT count(*) FROM sokhach.cutover_customer "
+                     f"WHERE customer_id={customer} AND cutover_id={cutover} AND status='verified'") == "1"
+            and pg.value(f"SELECT count(*) FROM sokhach.idempotency "
+                         f"WHERE customer_id={customer} AND key='gate-verify-customer'") == "1"
+            and call(pg, "verify_cutover_customer", customer, cutover, 0,
+                     "gate-verify-customer", "FAKE-SIGNOFF") == verified,
+            "automatic verification yielded more than one result")
+    require(call(pg, "get_ledger", customer)["status"] == "NO_BASELINE", "verified leaked")
+    reject_call(pg, "activate_cutover_customer", customer, cutover, version(pg, customer),
+                "early-activate", "FAKE-SIGNOFF", error="CUTOVER_TRANSITION_ORDER")
+    # Other cutover has a draft customer; whole-cutover gate must ignore it.
+    other_customer, other_cutover = cutover_book(pg, 1)
+    import_book(pg, other_customer, other_cutover, [1], "other-cutover-import")
+    all_verified = call(pg, "verify_cutover", cutover, "gate-verify-all", "FAKE-SIGNOFF")
+    require(all_verified["status"] == "verified", "cutover verification missing")
+    require(pg.value(f"SELECT status FROM sokhach.cutover_customer WHERE customer_id={other_customer}")
+            == "draft", "whole-cutover gate changed other cutover")
+    reject_call(pg, "verify_cutover", other_cutover, "other-verify-all", "FAKE-SIGNOFF",
+                error="CUTOVER_CUSTOMERS_NOT_VERIFIED")
+    require(call(pg, "get_ledger", customer)["status"] == "NO_BASELINE", "verified cutover leaked")
+    active = call(pg, "activate_cutover", cutover, "gate-activate-all", "FAKE-SIGNOFF")
+    require(active["status"] == "active", "cutover activation missing")
+    require(call(pg, "get_ledger", customer)["status"] == "NO_BASELINE", "one-sided active leaked")
+    customer_active = call(pg, "activate_cutover_customer", customer, cutover,
+                           version(pg, customer), "gate-activate-customer", "FAKE-SIGNOFF")
+    require(customer_active["status"] == "active", "customer activation missing")
+    ledger = call(pg, "get_ledger", customer)
+    require(ledger["total_outstanding_vnd"] == "300" and len(ledger["months"]) == 2,
+            "active opening wrong or legacy doubled")
+    require(call(pg, "verify_cutover", cutover, "gate-verify-all", "FAKE-SIGNOFF") == all_verified,
+            "whole-cutover retry changed result")
+    reject_call(pg, "verify_cutover", cutover, "gate-verify-all", "changed-ref",
+                error="IDEMPOTENCY_CONFLICT")
+    zero, zero_cutover = cutover_book(pg, 0)
+    import_book(pg, zero, zero_cutover, [0], "zero-import")
+    call(pg, "verify_cutover_customer", zero, zero_cutover, version(pg, zero),
+         "zero-verify", "FAKE-SIGNOFF")
+    call(pg, "verify_cutover", zero_cutover, "zero-verify-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover", zero_cutover, "zero-activate-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover_customer", zero, zero_cutover, version(pg, zero),
+         "zero-activate-customer", "FAKE-SIGNOFF")
+    require(call(pg, "get_ledger", zero)["total_outstanding_vnd"] == "0",
+            "explicit zero baseline failed")
+    mismatch, mismatch_cutover = cutover_book(pg, 301)
+    import_book(pg, mismatch, mismatch_cutover, [100, 200], "total-import")
+    call(pg, "verify_cutover_customer", mismatch, mismatch_cutover, version(pg, mismatch),
+         "total-verify-customer", "FAKE-SIGNOFF")
+    reject_call(pg, "verify_cutover", mismatch_cutover, "total-verify-all", "FAKE-SIGNOFF",
+                error="CUTOVER_TOTAL_MISMATCH")
+    require(pg.value(f"SELECT status FROM sokhach.cutover WHERE id={mismatch_cutover}") == "draft",
+            "wrong whole-cutover total verified")
+
+
+def check_import_behavior(pg: Pg) -> str:
+    customer, cutover = cutover_book(pg, 100)
+    args = (customer, 0, "import-retry", cutover, *import_data([100]), 100, "a" * 64)
+    first = call(pg, "import_cutover", *args)
+    require(call(pg, "import_cutover", *args) == first, "same-key import retry changed result")
+    reject_call(pg, "import_cutover", customer, 0, "import-retry", cutover,
+                *import_data([101]), 100, "a" * 64, error="IDEMPOTENCY_CONFLICT")
+    reject_call(pg, "import_cutover", customer, 0, "import-stale", cutover,
+                *import_data([100]), 100, "a" * 64, error="STALE_LEDGER")
+    reject_call(pg, "import_cutover", customer, version(pg, customer), "import-duplicate", cutover,
+                *import_data([100]), 100, "a" * 64, error="CUTOVER_IMPORT_CONFLICT")
+    empty_customer, empty_cutover = cutover_book(pg, 0)
+    empty_args = (empty_customer, 0, "empty-import", empty_cutover,
+                  *import_data([]), 0, "a" * 64)
+    empty_result = call(pg, "import_cutover", *empty_args)
+    require(call(pg, "import_cutover", *empty_args) == empty_result,
+            "empty opening retry changed result")
+    reject_call(pg, "import_cutover", empty_customer, version(pg, empty_customer),
+                "empty-duplicate", empty_cutover, *import_data([]), 0, "a" * 64,
+                error="CUTOVER_IMPORT_CONFLICT")
+    bad_customer, bad_cutover = cutover_book(pg, 100)
+    reject_call(pg, "import_cutover", bad_customer, 0, "one-dong", bad_cutover,
+                *import_data([100]), 101, "a" * 64, error="CUTOVER_CUSTOMER_TOTAL_MISMATCH")
+    pg.true(f"NOT EXISTS(SELECT 1 FROM sokhach.cutover_customer WHERE customer_id={bad_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.event WHERE customer_id={bad_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.opening_balance WHERE customer_id={bad_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.idempotency WHERE customer_id={bad_customer})",
+            "one-dong rejection left partial rows")
+    late_customer, late_cutover = cutover_book(pg, 200)
+    late_openings, _, late_checks = import_data([100, 100])
+    duplicate_legacy = json.dumps([{"debt_month": "2026-01-01", "kind": "trip",
+        "display": {}, "source_tab": "FAKE", "source_row": 77},
+        {"debt_month": "2026-02-01", "kind": "trip", "display": {},
+         "source_tab": "FAKE", "source_row": 77}])
+    reject_call(pg, "import_cutover", late_customer, 0, "late-fail", late_cutover,
+                late_openings, duplicate_legacy, late_checks, 200, "a" * 64,
+                error="duplicate key")
+    pg.true(f"NOT EXISTS(SELECT 1 FROM sokhach.cutover_customer WHERE customer_id={late_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.event WHERE customer_id={late_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.opening_balance WHERE customer_id={late_customer}) "
+            f"AND NOT EXISTS(SELECT 1 FROM sokhach.legacy_row WHERE customer_id={late_customer})",
+            "late failure left partial rows")
+    flagged, flagged_cutover = cutover_book(pg, 600)
+    import_book(pg, flagged, flagged_cutover, [600], "flagged-import",
+                flags=[["NO_BASELINE", "MISSING_PRICE", "MISSING_CACHE",
+                        "HISTORICAL_DELTA_600"]])
+    pg.true(f"EXISTS(SELECT 1 FROM sokhach.cutover_month_check WHERE customer_id={flagged} "
+            "AND exception_codes @> ARRAY['NO_BASELINE','MISSING_PRICE','MISSING_CACHE',"
+            "'HISTORICAL_DELTA_600']::text[])",
+            "source exception flags lost")
+    draft_ledger = call(pg, "get_ledger", flagged)
+    require(draft_ledger["status"] == "NO_BASELINE"
+            and len(draft_ledger["source_exceptions"][0]["exception_codes"]) == 4,
+            "draft flags hidden or draft amount leaked")
+    require(call(pg, "verify_cutover_customer", flagged, flagged_cutover, version(pg, flagged),
+                 "flagged-verify", None)["status"] == "verified", "flags blocked mechanical gate")
+    call(pg, "verify_cutover", flagged_cutover, "flagged-all", None)
+    call(pg, "activate_cutover", flagged_cutover, "flagged-active", None)
+    call(pg, "activate_cutover_customer", flagged, flagged_cutover, version(pg, flagged),
+         "flagged-customer-active", None)
+    require(set(call(pg, "get_ledger", flagged)["source_exceptions"][0]["exception_codes"])
+            == {"NO_BASELINE", "MISSING_PRICE", "MISSING_CACHE", "HISTORICAL_DELTA_600"},
+            "source flags missing from active ledger")
+    live, live_cutover = cutover_book(pg, 0)
+    reject_call(pg, "record_receipt", live, version(pg, live), "unbased-receipt",
+                "2026-01-01", "THU TIỀN", 1, error="NO_BASELINE")
+    pg.sql(f"INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+           f"VALUES({live},'paste','harness','{{}}','{{\"trips\":[]}}')")
+    reject_call(pg, "import_cutover", live, 0, "late-import", live_cutover,
+                *import_data([]), 0, "a" * 64, error="CUTOVER_IMPORT_CONFLICT")
+    observed = check_import_verify_locks(pg)
+    single = check_single_verification_result(pg)
+    return ("retry, one-dong rollback, source flags, NO_BASELINE, live-event guard; "
+            + observed + "; " + single)
+
+
+def check_single_verification_result(pg: Pg) -> str:
+    customer, cutover = cutover_book(pg, 100)
+    import_book(pg, customer, cutover, [100], "race-import")
+    a, b = PsqlSession(pg, f"v7_verify_a_{customer}"), PsqlSession(pg, f"v7_verify_b_{customer}")
+    try:
+        a.send("BEGIN; SET LOCAL sokhach.actor='race-a'; SELECT pg_backend_pid()")
+        pid_a = int(a.line())
+        a.send(f"SELECT sokhach.verify_cutover_customer({customer},{cutover},1,'race-a','FAKE-SIGNOFF')")
+        result = json.loads(a.line())
+        b.send("BEGIN; SET LOCAL sokhach.actor='race-b'; SELECT pg_backend_pid()")
+        pid_b = int(b.line())
+        b.send(f"SELECT sokhach.verify_cutover_customer({customer},{cutover},1,'race-b','FAKE-SIGNOFF')")
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and pg.value(
+                f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") != "t":
+            time.sleep(0.05)
+        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t",
+                "second verify did not wait for first")
+        a.send("COMMIT; SELECT 'committed'")
+        require(a.line() == "committed", "first verification did not commit")
+        b.proc.wait(timeout=10)
+        stderr = b.proc.stderr.read() if b.proc.stderr else ""
+        require("STALE_LEDGER" in stderr and result["status"] == "verified",
+                f"second verification did not reject stale version: {stderr[-500:]}")
+        require(version(pg, customer) == 2 and pg.value(
+            f"SELECT count(*) FROM sokhach.idempotency WHERE customer_id={customer} "
+            "AND key IN ('race-a','race-b')") == "1",
+            "automatic-policy race produced more than one result")
+    finally:
+        a.close()
+        b.close()
+    return "one verified result and one stale rejection under fake policy"
+
+
+def check_import_verify_locks(pg: Pg) -> str:
+    """Cutover lock must block command before its customer lock, in both orders."""
+
+    def worker(name: str, command: str) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            ["docker", "exec", "--env", f"PGAPPNAME={name}", "--env",
+             "PGOPTIONS=-c statement_timeout=20000 -c lock_timeout=18000",
+             pg.name, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1",
+             "-U", "postgres", "-d", DATABASE, "-c", actor_sql(command)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace")
+
+    def blockers(name: str) -> tuple[int | None, set[int]]:
+        rows = pg.value("SELECT pid::text || '|' || array_to_string(pg_blocking_pids(pid), ',') "
+            "FROM pg_stat_activity WHERE datname=current_database() "
+            "AND state='active' AND wait_event_type='Lock' "
+            f"AND application_name={lit(name)}").splitlines()
+        require(len(rows) <= 1, f"multiple PostgreSQL sessions for {name}: {rows}")
+        if not rows:
+            return None, set()
+        return parse_blocker_row(rows[0])
+
+    def wait_blocked(name: str, expected: set[int], process: subprocess.Popen[str]) -> int:
+        deadline = time.monotonic() + 8
+        observed: tuple[int | None, set[int]] = (None, set())
+        while time.monotonic() < deadline:
+            observed = blockers(name)
+            if observed[1] & expected:
+                return observed[0]
+            if process.poll() is not None:
+                break
+            time.sleep(0.05)  # polling only; pg_blocking_pids is lock evidence
+        raise HarnessError(f"{name} did not block on cutover queue: "
+                           f"pid/blockers={observed}, exit={process.poll()}")
+
+    def finish(process: subprocess.Popen[str], error: str | None,
+               status: str | None = None) -> None:
+        try:
+            out, err = process.communicate(timeout=22)
+        except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.communicate()
+            raise HarnessError("import/verify worker timed out") from exc
+        require("40P01" not in err and "deadlock detected" not in err,
+                f"import/verify deadlock: {err[-600:]}")
+        if error is None:
+            require(process.returncode == 0, f"import worker failed: {out} {err[-600:]}")
+            require(json.loads(out.strip())["status"] == status,
+                    f"worker returned wrong status: {out} {err[-600:]}")
+        else:
+            require(process.returncode != 0 and error in err,
+                    f"verify worker had unexpected outcome: {out} {err[-600:]}")
+
+    def import_sql(c: int, key: str) -> str:
+        args = (c, 0, key, cutover, *import_data([100]), 100, "a" * 64)
+        return "SELECT sokhach.import_cutover(" + ",".join(lit(x) for x in args) + ")"
+
+    def verify_sql(c: int, key: str) -> str:
+        args = (c, cutover, version(pg, c), key, "FAKE-SIGNOFF")
+        return "SELECT sokhach.verify_cutover_customer(" + ",".join(lit(x) for x in args) + ")"
+
+    for direction in ("import-first", "verify-first"):
+        customer, cutover = cutover_book(pg, 100)
+        holder_name = f"v7_cutover_holder_{pg.run_id}"
+        holder = PsqlSession(pg, holder_name)
+        first = second = None
+        try:
+            holder.send("BEGIN")
+            holder.send(f"SELECT pg_backend_pid() FROM sokhach.cutover WHERE id={cutover} FOR UPDATE")
+            holder_pid = int(holder.line())
+            require(pg.value(f"SELECT application_name FROM pg_stat_activity WHERE pid={holder_pid}")
+                    == holder_name, "cutover holder PID/application_name mismatch")
+            if direction == "import-first":
+                first_name = f"v7_import_{pg.run_id}"
+                first = worker(first_name, import_sql(customer, "lock-import"))
+                first_error = None
+                second_name = f"v7_verify_{pg.run_id}"
+                second_command = verify_sql(customer, "lock-verify")
+            else:
+                first_name = f"v7_verify2_{pg.run_id}"
+                first = worker(first_name, verify_sql(customer, "lock-verify2"))
+                first_error = "CUTOVER_TRANSITION_ORDER"
+                second_name = f"v7_import2_{pg.run_id}"
+                second_command = import_sql(customer, "lock-import2")
+            first_pid = wait_blocked(first_name, {holder_pid}, first)
+            pg.value(f"BEGIN; SELECT id FROM sokhach.customer WHERE id={customer} FOR UPDATE NOWAIT; COMMIT")
+            second = worker(second_name, second_command)
+            # pg_blocking_pids may name first waiter as soft blocker of second.
+            wait_blocked(second_name, {holder_pid, first_pid}, second)
+            require(holder_pid in blockers(first_name)[1],
+                    "first worker no longer blocked by cutover holder")
+        finally:
+            holder.close()
+        if first is not None:
+            finish(first, first_error, "draft" if direction == "import-first" else None)
+        if second is not None:
+            finish(second, "STALE_LEDGER" if direction == "import-first" else None,
+                   "draft" if direction == "verify-first" else None)
+        require(pg.value(f"SELECT status FROM sokhach.cutover_customer WHERE customer_id={customer}")
+                == "draft" and version(pg, customer) == 1,
+                f"{direction} did not leave exactly one draft import")
+    return ("pg_blocking_pids: import then stale verify; "
+            "transition-order verify then successful draft import")
+
+
+def months(pg: Pg, customer: int) -> list[tuple[str, str, str]]:
+    ledger = call(pg, "get_ledger", customer)
+    require(ledger["status"] == "active", "active fixture returned no baseline")
+    return [(row["month"][:7], row["outstanding_vnd"], row["end_of_month_vnd"])
+            for row in ledger["months"]]
+
+
+def allocations(pg: Pg, customer: int, pid: str) -> list[tuple[str, str, str]]:
+    rows = pg.value("SELECT coalesce(json_agg(json_build_array(l.debt_month::text,l.kind,l.amount_vnd::text) "
+        "ORDER BY l.debt_month,CASE l.kind WHEN 'debt' THEN 0 ELSE 1 END,l.id),'[]'::json)::text FROM sokhach.receipt_line l "
+        "JOIN sokhach.receipt r ON r.id=l.receipt_id WHERE "
+        f"r.customer_id={customer} AND r.pid={lit(pid)} AND l.superseded_by_event IS NULL")
+    return [tuple(row) for row in json.loads(rows)]
+
+
+def assert_allocations(pg: Pg, customer: int) -> None:
+    pg.true("NOT EXISTS (SELECT 1 FROM sokhach.receipt r LEFT JOIN sokhach.receipt_line l "
+        "ON l.receipt_id=r.id AND l.superseded_by_event IS NULL "
+        f"WHERE r.customer_id={customer} GROUP BY r.id,r.amount_vnd,r.voided_on "
+        "HAVING (r.voided_on IS NULL AND (count(l.id)=0 OR sum(l.amount_vnd)<>r.amount_vnd)) "
+        "OR (r.voided_on IS NOT NULL AND count(l.id)<>0))", "receipt allocation sum/current rows wrong")
+
+
+def trip_json(amount: str | None = "100", *, container: str = "FAKE-C") -> str:
+    return json.dumps([{"container": container, "carrier": "FAKE", "date": "01/01/2026",
+                        "from": "FAKE-A", "to": "FAKE-B", "unitPriceVnd": amount,
+                        "otherFeeVnd": None, "note": "", "src": "FAKE"}], ensure_ascii=False)
+
+
+def run_node(code: str) -> dict:
+    require(shutil.which("node") is not None, "Node unavailable for model parity")
+    return json.loads(run(["node", "-e", code], timeout=30, cwd=ROOT).stdout)
+
+
+def check_idempotency(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100))
+    first = call(pg, "record_receipt", c, 0, "idem-1", "2026-02-01", "THU TIỀN", 60)
+    require(first["version"] == 1 and first["pid"] == "PH-001", "first receipt result wrong")
+    require(call(pg, "record_receipt", c, 0, "idem-1", "2026-02-01", "THU TIỀN", 60) == first,
+            "same-key retry changed result")
+    require(version(pg, c) == 1 and pg.value(f"SELECT count(*) FROM sokhach.receipt WHERE customer_id={c}") == "1",
+            "same-key retry wrote again")
+    reject_call(pg, "record_receipt", c, 0, "idem-1", "2026-02-01", "THU TIỀN", 61,
+                error="IDEMPOTENCY_CONFLICT")
+    reject_call(pg, "record_receipt", c, 0, "idem-2", "2026-02-01", "THU TIỀN", 1,
+                error="STALE_LEDGER")
+    require(months(pg, c)[0][1] == "40", "idempotency changed balance")
+
+
+def check_atomic(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
+    pg.sql("""CREATE FUNCTION public.fail_second_allocation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.debt_month='2026-02-01' THEN RAISE EXCEPTION 'HARNESS_FAIL_SECOND_LINE'; END IF;
+RETURN NEW; END $$;
+CREATE TRIGGER harness_fail_second_allocation BEFORE INSERT ON sokhach.receipt_line
+FOR EACH ROW EXECUTE FUNCTION public.fail_second_allocation()""")
+    try:
+        reject_call(pg, "record_receipt", c, 0, "atomic-1", "2026-03-01", "THU TIỀN", 100,
+                    error="HARNESS_FAIL_SECOND_LINE")
+        for table in ("receipt", "receipt_line", "idempotency"):
+            require(pg.value(f"SELECT count(*) FROM sokhach.{table} WHERE customer_id={c}") == "0",
+                    f"atomic failure left {table}")
+        require(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c} AND kind='receipt'") == "0"
+                and version(pg, c) == 0 and [r[1] for r in months(pg, c)] == ["60", "60"],
+                "atomic failure left event/version/balance")
+    finally:
+        pg.sql("DROP TRIGGER harness_fail_second_allocation ON sokhach.receipt_line; "
+               "DROP FUNCTION public.fail_second_allocation()")
+    call(pg, "record_receipt", c, 0, "atomic-base", "2026-03-01", "THU TIỀN", 100)
+    before = (version(pg, c), months(pg, c), allocations(pg, c, "PH-001"),
+              pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}"))
+    pg.sql("CREATE FUNCTION public.fail_reallocation() RETURNS trigger LANGUAGE plpgsql AS $$ "
+           "BEGIN RAISE EXCEPTION 'HARNESS_REALLOCATE_ABORT'; END $$; "
+           "CREATE TRIGGER harness_fail_reallocation BEFORE INSERT ON sokhach.receipt_line "
+           "FOR EACH ROW EXECUTE FUNCTION public.fail_reallocation()")
+    try:
+        reject_call(pg, "adjust_month", c, 1, "atomic-reallocate", "2026-01-01", 20,
+                    "sửa", error="HARNESS_REALLOCATE_ABORT")
+        require((version(pg, c), months(pg, c), allocations(pg, c, "PH-001"),
+                 pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}")) == before,
+                "reallocate insert failure left partial state")
+    finally:
+        pg.sql("DROP TRIGGER harness_fail_reallocation ON sokhach.receipt_line; "
+               "DROP FUNCTION public.fail_reallocation()")
+    pg.sql("CREATE FUNCTION public.fail_finish() RETURNS trigger LANGUAGE plpgsql AS $$ "
+           "BEGIN RAISE EXCEPTION 'HARNESS_FINISH_ABORT'; END $$; "
+           "CREATE TRIGGER harness_fail_finish BEFORE INSERT ON sokhach.idempotency "
+           "FOR EACH ROW EXECUTE FUNCTION public.fail_finish()")
+    try:
+        reject_call(pg, "adjust_month", c, 1, "atomic-finish", "2026-01-01", 20,
+                    "sửa", error="HARNESS_FINISH_ABORT")
+        require((version(pg, c), months(pg, c), allocations(pg, c, "PH-001"),
+                 pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}")) == before,
+                "finish failure left partial state")
+    finally:
+        pg.sql("DROP TRIGGER harness_fail_finish ON sokhach.idempotency; "
+               "DROP FUNCTION public.fail_finish()")
+
+
+def check_invariant_rejections(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 0))
+    call(pg, "record_receipt", c, 0, "invariant-receipt", "2026-03-01", "THU TIỀN", 120)
+    line = pg.value(f"SELECT id FROM sokhach.receipt_line WHERE customer_id={c} AND kind='debt'")
+    advance = pg.value(f"SELECT id FROM sokhach.receipt_line WHERE customer_id={c} AND kind='advance'")
+    def reject_corruption(change: str, error: str) -> None:
+        pg.rejects("BEGIN; ALTER TABLE sokhach.receipt_line DISABLE TRIGGER receipt_line_guard; "
+                   + change + f"; SELECT sokhach._check_allocations({c})", message=error)
+        assert_allocations(pg, c)
+    reject_corruption(f"UPDATE sokhach.receipt_line SET amount_vnd=99 WHERE id={line}",
+                      "ALLOCATION_INVARIANT")
+    reject_corruption(f"UPDATE sokhach.receipt_line SET debt_month='2026-01-01' WHERE id={advance}",
+                      "ADVANCE_MONTH_INVARIANT")
+    bad_event = pg.value(f"INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+                         f"VALUES ({c},'paste','harness','{{}}','{{\"trips\":[]}}') RETURNING id")
+    reject_corruption(f"UPDATE sokhach.receipt_line SET created_by_event={bad_event} WHERE id={line}",
+                      "ALLOCATION_EVENT_INVARIANT")
+
+
+def check_void(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
+    first = call(pg, "record_receipt", c, 0, "void-r1", "2026-03-01", "THU TIỀN", 100)
+    call(pg, "record_receipt", c, 1, "void-r2", "2026-03-02", "THU TIỀN", 10)
+    before = allocations(pg, c, first["pid"])
+    other = allocations(pg, c, "PH-002")
+    require(before == [("2026-01-01", "debt", "60"), ("2026-02-01", "debt", "40")],
+            "void setup lacks two months")
+    reject_call(pg, "void_receipt", c, 2, "void-blank", first["pid"], " ", error="VOID_REASON_REQUIRED")
+    pg.sql("""CREATE FUNCTION public.fail_second_void() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF OLD.debt_month='2026-02-01' THEN RAISE EXCEPTION 'HARNESS_FAIL_SECOND_VOID'; END IF;
+RETURN NEW; END $$;
+CREATE TRIGGER harness_fail_second_void BEFORE UPDATE ON sokhach.receipt_line
+FOR EACH ROW EXECUTE FUNCTION public.fail_second_void()""")
+    try:
+        reject_call(pg, "void_receipt", c, 2, "void-fault", first["pid"], "sai",
+                    error="HARNESS_FAIL_SECOND_VOID")
+        require(allocations(pg, c, first["pid"]) == before and version(pg, c) == 2
+                and pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c} AND kind='void'") == "0",
+                "void failure left first closed line or event")
+    finally:
+        pg.sql("DROP TRIGGER harness_fail_second_void ON sokhach.receipt_line; "
+               "DROP FUNCTION public.fail_second_void()")
+    result = call(pg, "void_receipt", c, 2, "void-ok", first["pid"], "sai phiếu")
+    require(result["voided_lines"] == 2 and allocations(pg, c, first["pid"]) == []
+            and allocations(pg, c, "PH-002") == other, "void touched wrong lines")
+    pg.true("(SELECT count(*)=2 AND count(DISTINCT l.superseded_by_event)=1 "
+        "AND bool_and(e.kind='void' AND e.\"before\"->'allocations' @> "
+        "jsonb_build_array(jsonb_build_object('id',l.id,'month',l.debt_month,'kind',l.kind,"
+        "'amount_vnd',l.amount_vnd::text))) FROM sokhach.receipt_line l "
+        "JOIN sokhach.receipt r ON r.id=l.receipt_id "
+        "JOIN sokhach.event e ON e.id=l.superseded_by_event "
+        f"WHERE r.customer_id={c} AND r.pid='PH-001')", "void event/snapshot misses original ID")
+    pg.true("(SELECT e.\"after\"->'allocations'='[]'::jsonb "
+        "AND e.\"after\"->>'void_reason'='sai phiếu' "
+        "AND r.voided_on IS NOT NULL AND r.voided_by_event=e.id "
+        "FROM sokhach.receipt r JOIN sokhach.event e ON e.id=r.voided_by_event "
+        f"WHERE r.customer_id={c} AND r.pid='PH-001')", "void after snapshot or receipt state wrong")
+    require([r[1] for r in months(pg, c)] == ["60", "50"], "void balance wrong")
+    reject_call(pg, "void_receipt", c, 3, "void-again", first["pid"], "lại", error="RECEIPT_ALREADY_VOID")
+
+
+def check_opening_fifo(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 200))
+    opening = pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}")
+    call(pg, "record_receipt", c, 0, "fifo-r", "2026-03-01", "THU TIỀN", 150)
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "100"),
+             ("2026-02-01", "debt", "50")], "receipt did not use old opening first")
+    call(pg, "adjust_month", c, 1, "fifo-a", "2026-01-01", 60, "giá mới")
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "150")]
+            and [r[1] for r in months(pg, c)] == ["10", "200"], "adjustment did not reallocate FIFO")
+    require(pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}") == opening,
+            "opening changed after reallocation")
+    assert_allocations(pg, c)
+
+
+def check_negative_receipt(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", -50), ("2026-02-01", 100), ("2026-03-01", 20))
+    call(pg, "record_receipt", c, 0, "negative-r1", "2026-04-01", "THU TIỀN", 130)
+    require(allocations(pg, c, "PH-001") == [("2026-02-01", "debt", "100"),
+             ("2026-03-01", "debt", "20"), ("2026-03-01", "advance", "10")],
+            "negative opening consumed receipt or advance wrong")
+    before = allocations(pg, c, "PH-001")
+    reject_call(pg, "adjust_month", c, 1, "unknown-month", "2099-01-01", 5, "sai kỳ",
+                error="MONTH_NOT_FOUND")
+    require(version(pg, c) == 1 and allocations(pg, c, "PH-001") == before
+            and pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c}") == "0"
+            and pg.value(f"SELECT count(*) FROM sokhach.v_outstanding_month "
+                         f"WHERE customer_id={c} AND debt_month='2099-01-01'") == "0",
+            "unknown month changed advance or created a new last month")
+    call(pg, "record_receipt", c, 1, "negative-r2", "2026-04-02", "THU TIỀN", 5)
+    other = allocations(pg, c, "PH-002")
+    call(pg, "void_receipt", c, 2, "negative-void", "PH-001", "sai")
+    require([r[1] for r in months(pg, c)] == ["-50", "100", "15"]
+            and allocations(pg, c, "PH-002") == other, "void altered negative opening or other receipt")
+
+
+def check_input(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 1))
+    month = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    for key, amount, error in (("neg-zero", "-0", "INVALID_VND"),
+                               ("overflow", "9223372036854775808", "INVALID_VND"),
+                               ("decimal", "1.5", "INVALID_TRIP_INPUT")):
+        reject_call(pg, "paste_trips", c, 0, key, month,
+                    trip_json(amount), error=error)
+    both = json.loads(trip_json("9223372036854775807"))
+    both[0]["otherFeeVnd"] = "1"
+    reject_call(pg, "paste_trips", c, 0, "sum-overflow", month, json.dumps(both),
+                error="INVALID_VND")
+    reject_call(pg, "paste_trips", c, 0, "null-trip", month, "null", error="INVALID_TRIPS")
+    require(version(pg, c) == 0 and pg.value(f"SELECT count(*) FROM sokhach.trip WHERE customer_id={c}") == "0",
+            "invalid amount inserted a trip")
+    trip = call(pg, "paste_trips", c, 0, "missing-price", month, trip_json(None))["trip_ids"][0]
+    reject_call(pg, "edit_trip_price", c, 1, "price-sum-overflow", trip,
+                9223372036854775807, 1, error="INVALID_VND")
+    row = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == trip)
+    require(row["unit_price_vnd"] is None and row["amount_vnd"] is None
+            and row["is_missing_price"] is True and call(pg, "get_ledger", c)["pending_count"] == 1,
+            "NULL price became zero or entered balance")
+    event = int(pg.value(f"INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+        f"VALUES ({c},'price_edit','harness','{{\"price\":{{}}}}','{{\"price\":{{}}}}') RETURNING id"))
+    pg.sql("INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event) "
+           f"VALUES ({trip},{c},9223372036854775807,1,{event})")
+    reject_call(pg, "adjust_trip", c, 1, "adjust-overflow", trip, 1, "sửa",
+                error="INVALID_VND")
+    overflow = new_book(pg, ("2026-01-01", 9223372036854775807))
+    reject_call(pg, "adjust_month", overflow, 0, "month-overflow", "2026-01-01", 1,
+                "sửa", error="INVALID_VND")
+    require(version(pg, overflow) == 0 and pg.value(
+        f"SELECT count(*) FROM sokhach.adjustment WHERE customer_id={overflow}") == "0",
+        "overflow adjustment left partial money rows")
+    event = int(pg.value("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+        f"VALUES ({overflow},'adjust_month','harness','{{\"month\":\"2026-01-01\"}}',"
+        "'{\"adjustment\":1}') RETURNING id"))
+    pg.sql("INSERT INTO sokhach.adjustment(customer_id,debt_month,amount_vnd,actor,created_by_event) "
+           f"VALUES ({overflow},'2026-01-01',1,'harness',{event})")
+    pg.rejects(actor_sql(f"SELECT sokhach.reallocate({overflow},'direct-overflow')"),
+               message="INVALID_VND")
+
+
+def check_actor(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 10))
+    pg.rejects(f"SELECT sokhach.get_ledger({c})", message="ACTOR_REQUIRED")
+    pg.rejects(f"SELECT sokhach.record_receipt({c},0,'actor-empty','2026-02-01','THU TIỀN',1)",
+               message="ACTOR_REQUIRED")
+    pg.rejects(actor_sql(f"SELECT sokhach.get_ledger({c})", " "), message="ACTOR_REQUIRED")
+    pg.rejects(actor_sql(f"SELECT sokhach.get_ledger({c})", "harness"), user="v7_app",
+               message="permission denied")
+    pg.rejects(actor_sql(f"SELECT sokhach.record_receipt({c},0,'actor-role','2026-02-01','THU TIỀN',1)"),
+               user="v7_app", message="permission denied")
+    result = pg.value(actor_sql(f"SELECT sokhach.get_ledger({c})", "actor-a",
+        search_path="CREATE TEMP TABLE customer(version bigint); INSERT INTO customer VALUES (999); "
+                    "SET LOCAL search_path = pg_temp, public; "))
+    require(json.loads(result)["total_outstanding_vnd"] == "10", "hostile search_path changed ledger")
+    require(call(pg, "get_ledger", c, actor="actor-a")["status"] == "active"
+            and call(pg, "get_ledger", c, actor="actor-b")["status"] == "active",
+            "trial reader applied unexpected per-person ACL")
+    pg.true("NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.pronamespace='sokhach'::regnamespace "
+            "AND p.proname IN ('record_receipt','get_ledger') AND "
+            "pg_get_function_arguments(p.oid) ~ '(^|, )actor ')",
+            "public command accepts actor parameter")
+    call(pg, "record_receipt", c, 0, "actor-ok", "2026-02-01", "THU TIỀN", 1,
+         actor="actor-b")
+    require(pg.value(f"SELECT actor FROM sokhach.event WHERE customer_id={c} AND kind='receipt'") == "actor-b",
+            "event actor differs from SET LOCAL")
+
+
+def check_locks(pg: Pg) -> str:
+    c = new_book(pg, ("2026-01-01", 1))
+    for name in ("paste_trips", "edit_trip_price"):
+        definition = pg.value(f"SELECT pg_get_functiondef(oid) FROM pg_proc "
+            f"WHERE pronamespace='sokhach'::regnamespace AND proname='{name}'")
+        require("clock_timestamp()" in definition and
+                definition.index("_begin_command") < definition.index("clock_timestamp()") <
+                definition.index("_month_open"),
+                f"{name} must read wall clock after customer lock")
+    pg.value(f"SELECT sokhach._month_open({c},'2026-10-01','2026-10-31 16:59:59+00')")
+    pg.rejects(f"SELECT sokhach._month_open({c},'2026-10-01',"
+               "'2026-10-31 17:00:00+00')", message="MONTH_LOCKED")
+    pg.value(f"SELECT sokhach._month_open({c},'2026-11-01','2026-10-31 17:00:00+00')")
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    old = pg.value(f"SELECT ({lit(current)}::date - interval '1 month')::date")
+    reject_call(pg, "paste_trips", c, 0, "lock-old", old, trip_json(), error="MONTH_LOCKED")
+    opened = call(pg, "set_month_lock", c, 0, "lock-open", old, "false")
+    require(opened["locked"] is False, "month override did not open")
+    trip = call(pg, "paste_trips", c, 1, "lock-paste", old, trip_json())["trip_ids"][0]
+    call(pg, "set_month_lock", c, 2, "lock-close", old, "true")
+    reject_call(pg, "edit_trip_price", c, 3, "lock-edit", trip, 101, None,
+                error="MONTH_LOCKED")
+    # Current month has no row; it must be open by VN clock default.
+    current_trip = call(pg, "paste_trips", c, 3, "lock-current", current, trip_json())["trip_ids"][0]
+    require(version(pg, c) == 4, "month lock rejected current-month default")
+    a, b = PsqlSession(pg, f"v7_lock_a_{c}"), PsqlSession(pg, f"v7_lock_b_{c}")
+    try:
+        a.send("BEGIN; SET LOCAL sokhach.actor='locker'; SELECT pg_backend_pid()")
+        pid_a = int(a.line())
+        a.send(f"SELECT sokhach.set_month_lock({c},4,'lock-concurrent','{old}',true)")
+        require(json.loads(a.line())["version"] == 5, "lock change did not stage")
+        b.send("BEGIN; SET LOCAL sokhach.actor='writer'; SELECT pg_backend_pid()")
+        pid_b = int(b.line())
+        b.send(f"SELECT sokhach.paste_trips({c},5,'paste-after-lock','{old}',{lit(trip_json())}::jsonb)")
+        deadline = time.monotonic() + 8
+        observed = False
+        while time.monotonic() < deadline:
+            observed = pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t"
+            if observed:
+                break
+        require(observed, "paste did not wait for month lock customer row")
+        a.send("COMMIT; SELECT 'committed'")
+        require(a.line() == "committed", "month lock did not commit")
+        b.proc.wait(timeout=10)
+        stderr = b.proc.stderr.read() if b.proc.stderr else ""
+        require("MONTH_LOCKED" in stderr, f"paste crossed committed lock: {stderr[-500:]}")
+        require(version(pg, c) == 5 and pg.value(f"SELECT count(*) FROM sokhach.trip WHERE customer_id={c}") == "2",
+                "blocked paste created a trip")
+    finally:
+        a.close()
+        b.close()
+    a, b = PsqlSession(pg, f"v7_edit_a_{c}"), PsqlSession(pg, f"v7_edit_b_{c}")
+    try:
+        a.send("BEGIN; SET LOCAL sokhach.actor='locker'; SELECT pg_backend_pid()")
+        pid_a = int(a.line())
+        a.send(f"SELECT sokhach.set_month_lock({c},5,'close-current','{current}',true)")
+        require(json.loads(a.line())["version"] == 6, "current-month close did not stage")
+        b.send("BEGIN; SET LOCAL sokhach.actor='editor'; SELECT pg_backend_pid()")
+        pid_b = int(b.line())
+        b.send(f"SELECT sokhach.edit_trip_price({c},6,'edit-after-close',{current_trip},101,NULL)")
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and pg.value(
+                f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") != "t":
+            time.sleep(0.05)
+        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t",
+                "edit_trip_price did not wait for customer lock")
+        a.send("COMMIT; SELECT 'committed'")
+        require(a.line() == "committed", "current-month close did not commit")
+        b.proc.wait(timeout=10)
+        stderr = b.proc.stderr.read() if b.proc.stderr else ""
+        require("MONTH_LOCKED" in stderr and version(pg, c) == 6,
+                f"concurrent edit crossed locked month: {stderr[-500:]}")
+    finally:
+        a.close()
+        b.close()
+    # get_ledger exposes server month and lock overrides, including a month with no trips,
+    # so the UI never guesses lock state from the browser clock.
+    empty = pg.value(f"SELECT ({lit(current)}::date - interval '3 month')::date")
+    call(pg, "set_month_lock", c, version(pg, c), "lock-empty-open", empty, "false")
+    ledger = call(pg, "get_ledger", c)
+    locks = {row["month"]: row["locked"] for row in ledger.get("month_locks", [])}
+    require(ledger.get("today_month") == current and locks.get(old) is True
+            and locks.get(empty) is False and not any(m["month"] == empty for m in ledger["months"]),
+            f"get_ledger month/lock flags wrong: {ledger.get('today_month')} {locks}")
+    return "clock boundary, paste and price edit wait for customer lock; GET lock flags"
+
+
+def check_concurrent(pg: Pg) -> str:
+    c = new_book(pg, ("2026-01-01", 100))
+    a, b = PsqlSession(pg, f"v7_a_{c}"), PsqlSession(pg, f"v7_b_{c}")
+    try:
+        a.send("BEGIN; SET LOCAL sokhach.actor='actor-a'; SELECT pg_backend_pid()")
+        pid_a = int(a.line())
+        a.send(f"SELECT sokhach.record_receipt({c},0,'concurrent-a','2026-02-01','THU TIỀN',70)")
+        first = json.loads(a.line())
+        b.send("BEGIN; SET LOCAL sokhach.actor='actor-b'; SELECT pg_backend_pid()")
+        pid_b = int(b.line())
+        b.send(f"SELECT sokhach.record_receipt({c},0,'concurrent-b','2026-02-02','THU TIỀN',70)")
+        deadline = time.monotonic() + 8
+        blocked = False
+        while time.monotonic() < deadline:
+            blocked = pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t"
+            if blocked:
+                break
+        require(blocked, "second receipt never blocked behind customer lock")
+        a.send("COMMIT; SELECT 'committed'")
+        require(a.line() == "committed", "first receipt did not commit")
+        # ON_ERROR_STOP ends B on expected STALE_LEDGER; stderr is checked after exit.
+        b.proc.wait(timeout=10)
+        stderr = b.proc.stderr.read() if b.proc.stderr else ""
+        require("STALE_LEDGER" in stderr, f"blocked stale command did not reject: {stderr[-500:]}")
+        require(first["version"] == 1 and version(pg, c) == 1 and months(pg, c)[0][1] == "30"
+                and pg.value(f"SELECT count(*) FROM sokhach.receipt WHERE customer_id={c}") == "1",
+                "concurrent receipts overapplied debt")
+        evidence = f"pg_blocking_pids observed: {pid_b} blocked by {pid_a}; stale rejected"
+    finally:
+        a.close()
+        b.close()
+    same = new_book(pg, ("2026-01-01", 100))
+    a, b = PsqlSession(pg, f"v7_same_a_{same}"), PsqlSession(pg, f"v7_same_b_{same}")
+    try:
+        a.send("BEGIN; SET LOCAL sokhach.actor='same-a'; SELECT pg_backend_pid()")
+        pid_a = int(a.line())
+        sql = (f"SELECT sokhach.record_receipt({same},0,'same-key-concurrent',"
+               "'2026-02-01','THU TIỀN',70)")
+        a.send(sql)
+        first = json.loads(a.line())
+        b.send("BEGIN; SET LOCAL sokhach.actor='same-b'; SELECT pg_backend_pid()")
+        pid_b = int(b.line())
+        b.send(sql)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and pg.value(
+                f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") != "t":
+            time.sleep(0.05)
+        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t",
+                "same-key command did not wait for first transaction")
+        a.send("COMMIT; SELECT 'committed'")
+        require(a.line() == "committed", "first same-key command did not commit")
+        require(json.loads(b.line()) == first, "concurrent same-key retry changed result")
+        b.send("COMMIT; SELECT 'committed'")
+        require(b.line() == "committed", "second same-key command did not commit")
+        require(version(pg, same) == 1 and pg.value(
+            f"SELECT count(*) FROM sokhach.receipt WHERE customer_id={same}") == "1",
+            "same-key concurrent command wrote twice")
+    finally:
+        a.close()
+        b.close()
+    return evidence + "; same-key returned stored result"
+
+
+def check_pid_order(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100))
+    call(pg, "record_receipt", c, 0, "pid-first", "2026-02-01", "THU TIỀN", 60)
+    call(pg, "record_receipt", c, 1, "pid-second", "2026-02-01", "THU TIỀN", 60)
+    pg.true("'PH-B' COLLATE \"C\" < 'PH-a' COLLATE \"C\" AND "
+            "'PH-a' COLLATE \"en-US-x-icu\" < 'PH-B' COLLATE \"en-US-x-icu\"",
+            "test pid pair does not distinguish C from en-US ICU")
+    expected = run_node("const m=require('./cong-no-web-handoff/preview/so-khach-v7-model.js');"
+        "const d='01/02/2026',method='THU TIỀN';"
+        "const r=(pid,amountVnd,kind)=>({pid,date:d,method,amountVnd,kind,voided:null});"
+        "const book={months:[{key:'2026-01',trips:[{container:'C',unitPriceVnd:'100',"
+        "otherFeeVnd:null}],adjustments:[],receipts:[r('PH-a','60','debt'),"
+        "r('PH-B','40','debt'),r('PH-B','20','advance')]}]};"
+        "console.log(JSON.stringify(m.planReallocation(book).lines.map(x=>"
+        "[x.receipt.pid,x.receipt.kind,x.receipt.amountVnd]).sort((a,b)=>"
+        "a[0]<b[0]?-1:a[0]>b[0]?1:a[1]<b[1]?-1:a[1]>b[1]?1:0)))")
+    require(expected == [["PH-B", "debt", "60"], ["PH-a", "advance", "20"],
+                         ["PH-a", "debt", "40"]], "JS mixed-case fixture changed")
+    sql = ("BEGIN; ALTER TABLE sokhach.receipt DISABLE TRIGGER receipt_guard; "
+           f"UPDATE sokhach.receipt SET pid=CASE pid WHEN 'PH-001' THEN 'PH-a' "
+           f"ELSE 'PH-B' END WHERE customer_id={c}; "
+           "ALTER TABLE sokhach.receipt ENABLE TRIGGER receipt_guard; "
+           "SET LOCAL sokhach.actor='harness'; "
+           f"SELECT sokhach.reallocate({c},'pid-order'); "
+           f"SELECT coalesce(jsonb_agg(jsonb_build_array(r.pid,l.kind,l.amount_vnd::text) "
+           "ORDER BY r.pid COLLATE \"C\",l.kind),'[]'::jsonb) "
+           "FROM sokhach.receipt_line l JOIN sokhach.receipt r ON r.id=l.receipt_id "
+           f"WHERE r.customer_id={c} AND l.superseded_by_event IS NULL; ROLLBACK")
+    result = json.loads(pg.value(sql).splitlines()[-1])
+    require(result == expected,
+            f"same-day pid order differs from JS: {result}")
+
+
+def check_ledger_fee(pg: Pg) -> None:
+    # check_fee seeded these three shapes on active fake customer 1.
+    rows = {r["id"]: r for r in call(pg, "get_ledger", 1)["trips"]}
+    require({101, 102, 103} <= rows.keys(),
+            "7.18a fee fixture missing; cannot check get_ledger parity")
+    expected = run_node("const m=require('./cong-no-web-handoff/preview/so-khach-v7-model.js'); "
+        "const x=[{container:'X',unitPriceVnd:'120',otherFeeVnd:null},"
+        "{container:'X',unitPriceVnd:null,otherFeeVnd:'7'},"
+        "{container:null,unitPriceVnd:null,otherFeeVnd:'7'}]; "
+        "console.log(JSON.stringify(x.map(t=>{const r=m.tripAmount(t);return {amount:r.amountVnd?.toString()??null,missing:r.isMissingPrice,fee:r.isFeeOnly}})))")
+    for trip_id, model in zip((101, 102, 103), expected, strict=True):
+        row = rows[trip_id]
+        require((row["amount_vnd"], row["is_missing_price"], row["is_fee_only"]) ==
+                (model["amount"], model["missing"], model["fee"]),
+                f"tripAmount parity failed for {trip_id}")
+    require(rows[101]["other_fee_vnd"] is None and rows[102]["amount_vnd"] is None
+            and rows[103]["event_date"] is None
+            and call(pg, "get_ledger", 1)["pending_count"] == 1,
+            "NULL storage or pending count wrong")
+    c = new_book(pg, ("2026-01-01", 0))
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    ids = call(pg, "paste_trips", c, 0, "space-container", current,
+               trip_json(None, container="   "))["trip_ids"]
+    call(pg, "edit_trip_price", c, 1, "space-fee", ids[0], None, 7)
+    row = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == ids[0])
+    require(row["is_fee_only"] is False and row["is_missing_price"] is True,
+            "whitespace container differs from JS truthiness")
+    require(any(m["month"] == current and m["outstanding_vnd"] == "0"
+                for m in call(pg, "get_ledger", c)["months"]),
+            "month with only missing-price trip absent")
+    fee_only = json.dumps([{"container": None, "carrier": None, "date": None,
+        "from": None, "to": None, "unitPriceVnd": None, "otherFeeVnd": "7",
+        "note": "fee only", "src": "FAKE"}])
+    fee_id = call(pg, "paste_trips", c, version(pg, c), "fee-no-date", current,
+                  fee_only)["trip_ids"][0]
+    fee_row = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == fee_id)
+    require(fee_row["event_date"] is None and fee_row["amount_vnd"] == "7"
+            and fee_row["is_fee_only"] is True, "undated fee was not entered and counted")
+    require(any(m["month"] == current and m["outstanding_vnd"] == "7"
+                for m in call(pg, "get_ledger", c)["months"]),
+            "undated fee missing from month balance")
+    normal = json.loads(trip_json())[0]
+    normal["date"] = None
+    reject_call(pg, "paste_trips", c, version(pg, c), "trip-no-date", current,
+                json.dumps([normal]), error="INVALID_TRIP_INPUT")
+
+
+def check_model(pg: Pg) -> None:
+    # Identical two-month fixture and operation order in Node and PostgreSQL.
+    js = r"""
+const m=require('./cong-no-web-handoff/preview/so-khach-v7-model.js');
+const book={months:['2026-01','2026-02'].map((key,i)=>({key,
+  trips:[{container:'FAKE-C',unitPriceVnd:'100',otherFeeVnd:null}],receipts:[],adjustments:[]}))};
+const month=k=>book.months.find(x=>x.key===k);
+const apply=()=>{const p=m.planReallocation(book);for(const x of book.months)x.receipts=x.receipts.filter(r=>r.voided!==null);
+  for(const x of p.lines)month(x.monthKey).receipts.push(x.receipt)};
+const add=(pid,date,amount)=>{const p=m.planReceipt(book,{pid,date,method:'THU TIỀN',amountVnd:amount});
+  for(const x of p.lines)month(x.monthKey).receipts.push({pid,date,method:'THU TIỀN',amountVnd:x.amountVnd,kind:x.kind,voided:null})};
+const snap=()=>({months:m.outstandingByMonth(book).map(x=>[x.monthKey,x.outstandingVnd.toString()]),
+  total:m.monthChain(book).totalOutstandingVnd.toString(),
+  receipts:Object.fromEntries(['PH-001','PH-002','PH-003'].map(pid=>[pid,book.months.flatMap(x=>
+    x.receipts.filter(r=>r.pid===pid&&r.voided===null).map(r=>[x.key,r.kind,r.amountVnd]))]))});
+const out=[];add('PH-001','03/01/2026','120');out.push(snap());
+const t=month('2026-01').trips[0];
+for(const [target,note] of [['80','lần một'],['110','lần hai']]){
+  month('2026-01').adjustments.push(m.planAdjustment(book,{'2026-01':true},
+    {monthKey:'2026-01',lineId:'2026-01#0',newAmountVnd:target,reason:note}));apply();out.push(snap())}
+for(const amount of ['+20','-10']){month('2026-01').adjustments.push(
+  m.planMonthAdjustment(book,{monthKey:'2026-01',amount,reason:'tháng'}));apply();out.push(snap())}
+add('PH-002','02/01/2026','20');out.push(snap());
+for(const date of ['04/01/2026','02/01/2026']){
+  const edit=m.planReceiptEdit(book,'PH-001',{date});
+  for(const x of edit.lines)month(x.monthKey).receipts[x.index]=x.receipt;
+  apply();out.push(snap());
+}
+const voided=m.planVoid(book,'PH-001','sai','20/10/2026');
+for(const x of voided.lines)month(x.monthKey).receipts[x.index]=x.receipt;out.push(snap());
+add('PH-003','04/01/2026','30');out.push(snap());
+console.log(JSON.stringify(out));
+"""
+    expected = run_node(js)
+    c = new_book(pg)
+    for month in ("2026-01-01", "2026-02-01"):
+        call(pg, "set_month_lock", c, version(pg, c), "open-" + month, month, "false")
+        call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json())
+    call(pg, "set_month_lock", c, version(pg, c), "lock-2026-01", "2026-01-01", "true")
+    trip = int(pg.value(f"SELECT id FROM sokhach.trip WHERE customer_id={c} AND debt_month='2026-01-01'"))
+    actions = [
+        ("record_receipt", ("2026-01-03", "THU TIỀN", 120)),
+        ("adjust_trip", (trip, 80, "lần một")),
+        ("adjust_trip", (trip, 110, "lần hai")),
+        ("adjust_month", ("2026-01-01", 20, "tháng")),
+        ("adjust_month", ("2026-01-01", -10, "tháng")),
+        ("record_receipt", ("2026-01-02", "THU TIỀN", 20)),
+        ("edit_receipt_meta", ("PH-001", "2026-01-04", None)),
+        ("edit_receipt_meta", ("PH-001", "2026-01-02", None)),
+        ("void_receipt", ("PH-001", "sai")),
+        ("record_receipt", ("2026-01-04", "THU TIỀN", 30)),
+    ]
+    for index, ((name, args), want) in enumerate(zip(actions, expected, strict=True), 1):
+        result = call(pg, name, c, version(pg, c), f"model-{index}", *args)
+        got_rows = months(pg, c)
+        got = {"months": [[m, amount] for m, amount, _ in got_rows],
+               "total": call(pg, "get_ledger", c)["total_outstanding_vnd"],
+               "receipts": {pid: [[m[:7], kind, amount] for m, kind, amount in allocations(pg, c, pid)]
+                            for pid in ("PH-001", "PH-002", "PH-003")}}
+        require(got == want, f"JS/SQL operation {index} {name} differs: {got} != {want}")
+        if name in ("adjust_trip", "adjust_month", "edit_receipt_meta"):
+            prior = expected[index - 2]["receipts"]
+            changed = sorted(pid for pid in want["receipts"]
+                             if {r[0] for r in prior[pid]} !=
+                                {r[0] for r in want["receipts"][pid]})
+            returned = sorted(item["pid"] for item in result["reallocated"]
+                              if {line["month"][:7] for line in item["before"]} !=
+                                 {line["month"][:7] for line in item["after"]})
+            require(returned == changed,
+                    f"operation {index} changed receipt-month list differs: {returned} != {changed}")
+        assert_allocations(pg, c)
+
+
+def check_model_edges(pg: Pg) -> None:
+    c = new_book(pg, ("2025-12-01", 100))
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    first = call(pg, "record_receipt", c, 0, "edge-advance", "2026-02-01", "THU TIỀN", 150)
+    require(first["overpayment_vnd"] == "50" and allocations(pg, c, "PH-001") ==
+            [("2025-12-01", "debt", "100"), ("2025-12-01", "advance", "50")],
+            "receipt over debt did not create advance")
+    missing = call(pg, "paste_trips", c, 1, "edge-missing", current,
+                   trip_json(None))["trip_ids"][0]
+    require(call(pg, "get_ledger", c)["pending_count"] == 1,
+            "missing price did not remain pending after receipt")
+    call(pg, "edit_trip_price", c, 2, "edge-price", missing, 20, None)
+    require(call(pg, "get_ledger", c)["pending_count"] == 0 and
+            allocations(pg, c, "PH-001")[-1] == (current, "advance", "30"),
+            "pricing pending trip did not move advance to last month")
+    priced = call(pg, "paste_trips", c, 3, "edge-paste-after-receipt", current,
+                  trip_json("40"))["trip_ids"][0]
+    require(priced != missing and allocations(pg, c, "PH-001") ==
+            [("2025-12-01", "debt", "100"), (current, "debt", "50")],
+            "paste after receipt did not reallocate FIFO")
+    call(pg, "void_receipt", c, 4, "edge-void", "PH-001", "sai")
+    before = months(pg, c)
+    call(pg, "adjust_month", c, 5, "edge-adjust-after-void", current, 10, "sửa")
+    require(allocations(pg, c, "PH-001") == [] and
+            [int(row[1]) for row in months(pg, c)] == [int(row[1]) for row in before[:-1]] +
+            [int(before[-1][1]) + 10], "adjustment after void moved canceled receipt")
+    assert_allocations(pg, c)
+
+
+def check_golden(pg: Pg) -> None:
+    fixture = run_node("console.log(JSON.stringify(require('./cong-no-web-handoff/preview/so-khach-v7-fixture.js')))")
+    c = new_book(pg)
+    trips = [{"month": m["key"] + "-01", "trip": t} for m in fixture["months"] for t in m["trips"]]
+    receipts: dict[str, dict] = {}
+    for month in fixture["months"]:
+        for line in month["receipts"]:
+            require(line["voided"] is None, "golden fixture contains unsupported voided line")
+            item = receipts.setdefault(line["pid"], {"pid": line["pid"], "date": line["date"],
+                "method": line["method"], "amount": 0, "lines": []})
+            item["amount"] += int(line["amountVnd"])
+            item["lines"].append({"month": month["key"] + "-01", "kind": line.get("kind", "debt"),
+                                  "amount": line["amountVnd"]})
+    # One psql transaction; large fixture travels on stdin, never command line.
+    script = """BEGIN;
+DO $fixture$ DECLARE t jsonb; r jsonb; l jsonb; v_event bigint; v_trip bigint;
+ v_receipt bigint; v_lines jsonb; v_line jsonb;
+BEGIN
+INSERT INTO sokhach.event(customer_id,kind,actor,"before","after")
+VALUES (CUSTOMER,'paste','harness','{}','{"trips":[]}') RETURNING id INTO v_event;
+FOR t IN SELECT value FROM jsonb_array_elements(TRIPS::jsonb) LOOP
+ INSERT INTO sokhach.trip(customer_id,debt_month,event_date,container,carrier,origin,destination,
+ note,source_ref,created_by_event) VALUES (CUSTOMER,(t->>'month')::date,
+  CASE WHEN t->'trip'->>'date' IS NULL THEN NULL
+      ELSE to_date(t->'trip'->>'date','DD/MM/YYYY') END,
+ t->'trip'->>'container',t->'trip'->>'carrier',
+ t->'trip'->>'from',t->'trip'->>'to',t->'trip'->>'note',t->'trip'->>'src',v_event)
+ RETURNING id INTO v_trip;
+ INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
+ VALUES(v_trip,CUSTOMER,(t->'trip'->>'unitPriceVnd')::bigint,
+ (t->'trip'->>'otherFeeVnd')::bigint,v_event);
+END LOOP;
+FOR r IN SELECT value FROM jsonb_array_elements(RECEIPTS::jsonb) LOOP
+ v_receipt:=nextval(pg_get_serial_sequence('sokhach.receipt','id'));
+ v_lines:='[]'::jsonb;
+ FOR l IN SELECT value FROM jsonb_array_elements(r->'lines') LOOP
+  v_line:=jsonb_build_object('id',nextval(pg_get_serial_sequence('sokhach.receipt_line','id')),
+   'month',l->>'month','kind',l->>'kind','amount_vnd',l->>'amount');
+  v_lines:=v_lines||jsonb_build_array(v_line);
+ END LOOP;
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after") VALUES
+ (CUSTOMER,'receipt','harness','{}',jsonb_build_object('receipt',v_receipt,'pid',r->>'pid',
+  'allocations',v_lines)) RETURNING id INTO v_event;
+ INSERT INTO sokhach.receipt(id,customer_id,pid,date,method,amount_vnd,created_by_event)
+ OVERRIDING SYSTEM VALUE VALUES(v_receipt,CUSTOMER,r->>'pid',to_date(r->>'date','DD/MM/YYYY'),
+ r->>'method',(r->>'amount')::bigint,v_event);
+ FOR l IN SELECT value FROM jsonb_array_elements(v_lines) LOOP
+  INSERT INTO sokhach.receipt_line(id,receipt_id,customer_id,debt_month,kind,amount_vnd,created_by_event)
+  OVERRIDING SYSTEM VALUE VALUES((l->>'id')::bigint,v_receipt,CUSTOMER,(l->>'month')::date,
+  l->>'kind',(l->>'amount_vnd')::bigint,v_event);
+ END LOOP;
+END LOOP;
+END $fixture$;
+COMMIT;
+"""
+    script = script.replace("CUSTOMER", str(c)).replace("TRIPS", lit(json.dumps(trips, ensure_ascii=False)))
+    script = script.replace("RECEIPTS", lit(json.dumps(list(receipts.values()), ensure_ascii=False)))
+    p = run(["docker", "exec", "-i", *pg.env, pg.name, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+             "-U", "postgres", "-d", DATABASE], input_text=script, timeout=120)
+    require(p.returncode == 0, "golden fixture load failed")
+    ledger = call(pg, "get_ledger", c)
+    expected = run_node("const m=require('./cong-no-web-handoff/preview/so-khach-v7-model.js');"
+        "const f=require('./cong-no-web-handoff/preview/so-khach-v7-fixture.js');"
+        "const x=m.monthChain(f);console.log(JSON.stringify({months:x.months.map(r=>"
+        "[r.key,r.chargesVnd.toString(),r.receivedVnd.toString(),r.endOfMonthVnd.toString(),"
+        "r.lineCount,r.tripCount]),total:x.totalOutstandingVnd.toString(),"
+        "ph101:m.planReallocation(f).lines.filter(x=>x.receipt.pid==='PH-101').map(x=>"
+        "[x.monthKey+'-01',x.receipt.kind,x.receipt.amountVnd]),"
+        "plan:m.planReallocation(f).lines.map(x=>"
+        "[x.receipt.pid,x.monthKey,x.receipt.kind,x.receipt.amountVnd]),"
+        "changed:m.planReallocation(f).changedPids}))")
+    got = []
+    counts = {month: sum(t["month"][:7] == month for t in ledger["trips"])
+              for month in (row["month"][:7] for row in ledger["months"])}
+    for row in ledger["months"]:
+        m = row["month"][:7]
+        charges = sum(int(t["amount_vnd"] or 0) for t in ledger["trips"] if t["month"][:7] == m)
+        received = sum(int(a["amount_vnd"]) for r in ledger["receipts"] for a in r["allocations"]
+                       if r["voided_on"] is None and a["superseded_by_event"] is None
+                       and a["month"][:7] == m)
+        trip_count = sum(t["month"][:7] == m and not t["is_fee_only"] for t in ledger["trips"])
+        got.append([m, str(charges), str(received), row["end_of_month_vnd"], counts[m], trip_count])
+    require(got == expected["months"] and ledger["total_outstanding_vnd"] == expected["total"]
+            and len(ledger["months"]) == 11, f"golden monthly totals differ: {got}")
+    ph101 = [[line["month"], line["kind"], line["amount_vnd"]]
+             for receipt in ledger["receipts"] if receipt["pid"] == "PH-101"
+             for line in receipt["allocations"] if line["superseded_by_event"] is None]
+    require(ph101 == expected["ph101"] and len(ph101) == 2,
+            "PH-101 two-month allocation differs from JS plan")
+    require(ledger["pending_count"] == run_node(
+        "const m=require('./cong-no-web-handoff/preview/so-khach-v7-model.js');"
+        "const f=require('./cong-no-web-handoff/preview/so-khach-v7-fixture.js');"
+        "console.log(JSON.stringify(m.pendingCounts(f).missingPrice))"), "golden pending_count differs")
+    fee = next(t for t in ledger["trips"] if t["id"] == int(pg.value(
+        f"SELECT id FROM sokhach.trip WHERE customer_id={c} AND source_ref='CH:900'")))
+    require(fee["is_fee_only"] is True and fee["event_date"] is None
+            and fee["amount_vnd"] == "1310000"
+            and fee["is_missing_price"] is False, "CH:900 fee-only classification differs")
+    replay = pg.value("BEGIN; SET LOCAL sokhach.actor='golden'; "
+        f"SELECT sokhach.reallocate({c},'golden-rollback'); "
+        "SELECT coalesce(jsonb_agg(jsonb_build_array(r.pid,to_char(l.debt_month,'YYYY-MM'),"
+        "l.kind,l.amount_vnd::text) ORDER BY r.pid COLLATE \"C\",l.debt_month,l.kind), '[]'::jsonb) "
+        f"FROM sokhach.receipt_line l JOIN sokhach.receipt r ON r.id=l.receipt_id "
+        f"WHERE r.customer_id={c} AND l.superseded_by_event IS NULL; ROLLBACK")
+    changes, got_plan = map(json.loads, replay.splitlines()[-2:])
+    require(expected["changed"] and set(expected["changed"]).issubset(
+        {change["pid"] for change in changes}), "golden reallocate made no expected changes")
+    require(sorted(got_plan) == sorted(expected["plan"]),
+            "golden reallocate differs from independent JS plan")
+    require(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c} AND "
+                     "idempotency_key='golden-rollback'") == "0", "golden replay did not rollback")
+
+
+def check_snapshots(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
+    call(pg, "record_receipt", c, 0, "snap-receipt", "2026-03-01", "THU TIỀN", 100)
+    old = pg.value("SELECT jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,"
+        "'kind',l.kind,'amount_vnd',l.amount_vnd::text) ORDER BY l.id)::text "
+        f"FROM sokhach.receipt_line l WHERE l.customer_id={c}")
+    result = call(pg, "adjust_month", c, 1, "snap-adjust", "2026-01-01", 10, "sửa")
+    require(len(result["reallocated"]) == 1, "changed allocation lacks reallocation result")
+    event_id = result["reallocated"][0]["event_id"]
+    event = json.loads(pg.value(f"SELECT jsonb_build_object('before',\"before\",'after',\"after\") "
+                                   f"FROM sokhach.event WHERE id={event_id}"))
+    require(event["before"]["allocations"] == json.loads(old)
+            and event["after"]["allocations"] == result["reallocated"][0]["after"],
+            "reallocation snapshot mismatches row IDs and amounts")
+    pg.true(f"(SELECT count(*)=2 AND bool_and(superseded_by_event={event_id}) "
+        f"FROM sokhach.receipt_line WHERE customer_id={c} AND id IN "
+        f"(SELECT (x->>'id')::bigint FROM jsonb_array_elements({lit(old)}::jsonb) x))",
+        "original allocations not superseded by snapshot event")
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "70"),
+            ("2026-02-01", "debt", "30")], "same-month-set reallocation tuple wrong")
+    assert_allocations(pg, c)
+    receipt_id = int(pg.value(f"SELECT id FROM sokhach.receipt WHERE customer_id={c} AND pid='PH-001'"))
+    pg.rejects("INSERT INTO sokhach.receipt_line(receipt_id,customer_id,debt_month,kind,amount_vnd,created_by_event) "
+               f"VALUES ({receipt_id},{c},'2026-01-01','debt',1,999999999)", message="foreign key")
+    pg.rejects("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+               f"VALUES ({c},'reallocation','harness','{{}}','{{\"allocations\":[]}}')",
+               message="check constraint")
+    pg.rejects("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+               f"VALUES ({c},'reallocation','harness','{{\"allocations\":[]}}','{{}}')",
+               message="check constraint")
+
+    fault = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 100))
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    trip = call(pg, "paste_trips", fault, 0, "fault-base-trip", current, trip_json())["trip_ids"][0]
+    call(pg, "record_receipt", fault, 1, "fault-base-receipt", "2026-03-01", "THU TIỀN", 150)
+    pg.sql("CREATE FUNCTION public.harness_abort() RETURNS trigger LANGUAGE plpgsql AS $$ "
+           "BEGIN RAISE EXCEPTION 'HARNESS_ABORT'; END $$")
+    try:
+        operations = [
+            ("record_receipt", ("2026-03-02", "THU TIỀN", 10), "receipt_line", "INSERT"),
+            ("edit_receipt_meta", ("PH-001", "2026-03-03", None), "receipt", "UPDATE"),
+            ("void_receipt", ("PH-001", "sai"), "receipt_line", "UPDATE"),
+            ("adjust_trip", (trip, 101, "sửa"), "adjustment", "INSERT"),
+            ("adjust_month", ("2026-01-01", 5, "sửa"), "adjustment", "INSERT"),
+            ("edit_trip_price", (trip, 110, None), "trip_price_rev", "INSERT"),
+            ("paste_trips", (current, trip_json()), "trip", "INSERT"),
+        ]
+        tables = ("event", "trip", "trip_price_rev", "adjustment", "receipt",
+                  "receipt_line", "idempotency")
+        def state() -> tuple:
+            return (version(pg, fault), tuple(pg.value("SELECT coalesce(jsonb_agg(to_jsonb(x) "
+                    "ORDER BY to_jsonb(x)::text),'[]'::jsonb) FROM "
+                    f"(SELECT * FROM sokhach.{t} WHERE customer_id={fault}) x") for t in tables),
+                    tuple(months(pg, fault)),
+                    tuple(allocations(pg, fault, "PH-001")))
+        for i, (name, args, table, timing) in enumerate(operations, 1):
+            before = state()
+            pg.sql(f"CREATE TRIGGER harness_abort_{i} BEFORE {timing} ON sokhach.{table} "
+                   "FOR EACH ROW EXECUTE FUNCTION public.harness_abort()")
+            try:
+                reject_call(pg, name, fault, version(pg, fault), f"fault-{i}", *args,
+                            error="HARNESS_ABORT")
+                require(state() == before, f"{name} left partial rows/version/balance after abort")
+            finally:
+                pg.sql(f"DROP TRIGGER harness_abort_{i} ON sokhach.{table}")
+    finally:
+        pg.sql("DROP FUNCTION public.harness_abort()")
+    success = [
+        ("paste_trips", (current, trip_json("20")), "paste"),
+        ("edit_trip_price", (trip, 110, None), "price_edit"),
+        ("adjust_trip", (trip, 115, "sửa"), "adjust_trip"),
+        ("adjust_month", ("2026-01-01", 5, "sửa"), "adjust_month"),
+        ("record_receipt", ("2026-03-02", "THU TIỀN", 10), "receipt"),
+        ("edit_receipt_meta", ("PH-002", "2026-03-04", None), "receipt_edit"),
+        ("void_receipt", ("PH-002", "sai"), "void"),
+    ]
+    for i, (name, args, kind) in enumerate(success, 1):
+        key = f"snap-success-{i}"
+        call(pg, name, fault, version(pg, fault), key, *args)
+        assert_allocations(pg, fault)
+        events = json.loads(pg.value("SELECT coalesce(json_agg(json_build_object('kind',kind,"
+            "'before',\"before\",'after',\"after\")),'[]'::json)::text FROM sokhach.event "
+            f"WHERE customer_id={fault} AND idempotency_key={lit(key)} AND kind={lit(kind)}"))
+        require(len(events) == 1 and isinstance(events[0]["before"], dict)
+                and isinstance(events[0]["after"], dict) and bool(events[0]["after"]),
+                f"{name} missing main event snapshot")
+        if kind not in ("paste", "receipt"):
+            require(bool(events[0]["before"]), f"{name} missing before snapshot")
+
+
+class PsqlSession:
+    """One persistent docker exec / psql connection for lock observations."""
+
+    def __init__(self, pg: Pg, app_name: str):
+        self.proc = subprocess.Popen(
+            ["docker", "exec", "-i", "--env", f"PGAPPNAME={app_name}", pg.name,
+             "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", bufsize=1)
+        self.lines: queue.Queue[str | None] = queue.Queue()
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self) -> None:
+        assert self.proc.stdout is not None
+        for line in self.proc.stdout:
+            self.lines.put(line.strip())
+        self.lines.put(None)
+
+    def send(self, sql: str) -> None:
+        assert self.proc.stdin is not None
+        self.proc.stdin.write(sql.rstrip(";") + ";\n")
+        self.proc.stdin.flush()
+
+    def line(self, timeout: float = 10) -> str:
+        try:
+            value = self.lines.get(timeout=timeout)
+        except queue.Empty as exc:
+            raise HarnessError("psql session response timeout") from exc
+        require(value is not None, "psql session ended while lock held")
+        return value
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.send("ROLLBACK")
+            assert self.proc.stdin is not None
+            self.proc.stdin.close()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=5)
+
+
+def seed(pg: Pg) -> None:
+    sha = "a" * 64
+    pg.sql(f"""INSERT INTO sokhach.customer(name) VALUES ('FAKE V7') ;
+INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by)
+VALUES ('FAKE CUTOVER','anonymous fixture','{sha}',now(),300,'test');
+INSERT INTO sokhach.cutover_customer(customer_id,cutover_id,expected_control_total_vnd,report_sha256,
+ source_rows,imported_rows,quarantined_rows,skipped_with_reason_rows,unresolved_exceptions)
+VALUES (1,1,300,'{sha}',2,2,0,0,0);
+INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key,cutover_id)
+VALUES (1,'import','test','{{}}','{{"cutover":1}}','fake-import',1);
+INSERT INTO sokhach.cutover_month_check(customer_id,cutover_id,debt_month,opening_anchor_vnd,source_cumulative_vnd,
+ replay_cumulative_vnd,bucket_vnd,standard_bucket_vnd,source_charge_vnd,source_receipt_vnd,
+ standard_source_ref,standard_source_sha256,source_evidence_sha256)
+VALUES (1,1,'2026-01-01',0,100,100,100,100,100,0,'fake-anchor-0-and-1','{sha}','{sha}'),
+       (1,1,'2026-02-01',0,300,300,200,200,200,0,'fake-anchor-1-and-2','{sha}','{sha}');
+INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,source_tab,source_row,created_by_event)
+VALUES (1,1,'2026-01-01',100,'FAKE',1,1),(1,1,'2026-02-01',200,'FAKE',2,1);
+INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event)
+VALUES (1,1,'2026-01-01','trip','{{"fake":true}}',999,'FAKE',3,1);""")
+
+
+def check_immutable(pg: Pg) -> None:
+    for table, column in [("event", "actor"), ("trip", "container"), ("trip_price_rev", "unit_price_vnd"),
+                          ("adjustment", "amount_vnd"), ("idempotency", "request_hash"),
+                          ("opening_balance", "amount_vnd"), ("legacy_row", "source_total_vnd")]:
+        pg.true(f"EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.{table}'::regclass AND NOT tgisinternal AND tgname LIKE '%immutable%')",
+                f"missing immutable trigger on {table}")
+        pg.rejects(f"UPDATE sokhach.{table} SET {column}={column} WHERE false", user="v7_app")
+        pg.rejects(f"DELETE FROM sokhach.{table} WHERE false", user="v7_app")
+    pg.rejects("UPDATE sokhach.opening_balance SET amount_vnd=101 WHERE id=1", message="immutable row")
+    pg.rejects("DELETE FROM sokhach.legacy_row WHERE id=1", message="immutable row")
+
+
+def check_roles(pg: Pg) -> None:
+    pg.true("NOT EXISTS (SELECT 1 FROM pg_namespace n CROSS JOIN LATERAL "
+            "aclexplode(coalesce(n.nspacl, acldefault('n',n.nspowner))) a "
+            "WHERE n.nspname='sokhach' AND a.grantee=0 AND a.privilege_type='USAGE')",
+            "PUBLIC has schema usage")
+    for role in ("v7_app", "v7_reader"):
+        pg.true(f"has_schema_privilege('{role}','sokhach','USAGE')", f"{role} lacks schema usage")
+        for relation in ("customer", "cutover", "opening_balance", "trip", "receipt", "event",
+                         "v_outstanding_month", "v_month_chain"):
+            pg.true(f"NOT has_table_privilege('{role}','sokhach.{relation}','SELECT') AND "
+                    f"NOT has_table_privilege('{role}','sokhach.{relation}','INSERT') AND "
+                    f"NOT has_table_privilege('{role}','sokhach.{relation}','UPDATE') AND "
+                    f"NOT has_table_privilege('{role}','sokhach.{relation}','DELETE')",
+                    f"{role} can read/write {relation}")
+        pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
+    public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
+                       "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock",
+                       "get_ledger", "import_cutover", "verify_cutover_customer",
+                       "verify_cutover", "activate_cutover", "activate_cutover_customer")
+    allowed = ",".join(lit(name) for name in public_commands)
+    pg.true("(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+            f"WHERE n.nspname='sokhach' AND p.proname IN ({allowed})) = {len(public_commands)}",
+            "public command missing or overloaded")
+    for role in ("v7_app", "v7_reader"):
+        forbidden = pg.value("SELECT coalesce(string_agg(p.oid::regprocedure::text,','), '') "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+            f"WHERE n.nspname='sokhach' AND p.proname NOT IN ({allowed}) "
+            f"AND has_function_privilege({lit(role)},p.oid,'EXECUTE')")
+        require(not forbidden, f"{role} may execute private helper: {forbidden}")
+    pg.true("(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+            f"WHERE n.nspname='sokhach' AND p.proname NOT IN ({allowed})) >= 18",
+            "private helper inventory unexpectedly incomplete")
+
+
+def check_numbers(pg: Pg) -> None:
+    pg.true("(SELECT data_type='bigint' FROM information_schema.columns WHERE table_schema='sokhach' AND table_name='opening_balance' AND column_name='amount_vnd')",
+            "opening money not bigint")
+    pg.true("(SELECT is_nullable='YES' AND data_type='bigint' FROM information_schema.columns WHERE table_schema='sokhach' AND table_name='trip_price_rev' AND column_name='other_fee_vnd')",
+            "source fee NULL/bigint lost")
+    pg.rejects("INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,source_tab,source_row,created_by_event) VALUES (1,1,'2026-03-01',NULL,'FAKE',4,1)")
+    pg.rejects("SELECT 9223372036854775808::bigint", message="out of range")
+    pg.true("(SELECT standard_bucket_vnd IS NOT NULL FROM sokhach.cutover_month_check WHERE debt_month='2026-01-01')",
+            "seed standard bucket missing")
+    pg.true("(SELECT data_type='bigint' AND is_nullable='YES' FROM information_schema.columns "
+            "WHERE table_schema='sokhach' AND table_name='cutover_month_check' "
+            "AND column_name='opening_anchor_vnd')", "first source anchor column missing")
+
+
+def check_gate_view(pg: Pg) -> None:
+    require(pg.value("SELECT count(*) FROM sokhach.v_outstanding_month") == "0", "draft leaked into balance")
+    # Direct status moves characterize trigger/view only; they do not prove command reconciliation.
+    pg.sql("UPDATE sokhach.cutover_customer SET status='verified' WHERE customer_id=1")
+    require(pg.value("SELECT count(*) FROM sokhach.v_outstanding_month") == "0", "verified customer leaked")
+    pg.sql("UPDATE sokhach.cutover SET status='verified' WHERE id=1")
+    require(pg.value("SELECT count(*) FROM sokhach.v_outstanding_month") == "0", "verified cutover leaked")
+    pg.sql("UPDATE sokhach.cutover SET status='active' WHERE id=1")
+    require(pg.value("SELECT count(*) FROM sokhach.v_outstanding_month") == "0", "one-sided active leaked")
+    pg.sql("UPDATE sokhach.cutover_customer SET status='active' WHERE customer_id=1")
+    require(pg.value("SELECT string_agg(debt_month::text || ':' || outstanding_vnd::text, ',' ORDER BY debt_month) FROM sokhach.v_outstanding_month") ==
+            "2026-01-01:100,2026-02-01:200", "active monthly amounts wrong")
+    require(pg.value("SELECT string_agg(end_of_month_vnd::text, ',' ORDER BY debt_month) FROM sokhach.v_month_chain") == "100,300",
+            "monthly cumulative view wrong")
+
+
+def check_legacy(pg: Pg) -> None:
+    require(pg.value("SELECT coalesce(sum(outstanding_vnd),0) FROM sokhach.v_outstanding_month") == "300",
+            "legacy total added to balance")
+    pg.rejects("UPDATE sokhach.legacy_row SET source_total_vnd=123 WHERE id=1", message="immutable row")
+    pg.rejects("DELETE FROM sokhach.legacy_row WHERE id=1", message="immutable row")
+
+
+def check_import_guard(pg: Pg) -> None:
+    for index in ("event_import_once", "event_one_cutover_per_customer"):
+        pg.true(f"EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='sokhach' AND indexname='{index}' AND indexdef LIKE '%UNIQUE%')",
+                f"missing unique {index}")
+    pg.rejects("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\",cutover_id) VALUES (1,'import','test','{}','{\"cutover\":1}',1)")
+    pg.rejects("INSERT INTO sokhach.cutover_customer(customer_id,cutover_id,expected_control_total_vnd,report_sha256,source_rows,imported_rows,quarantined_rows,skipped_with_reason_rows,unresolved_exceptions) SELECT customer_id,cutover_id,300,report_sha256,0,0,0,0,0 FROM sokhach.cutover_customer WHERE customer_id=1")
+
+
+def check_negative(pg: Pg) -> None:
+    customer = new_book(pg, ("2026-01-01", -50))
+    require(pg.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={customer}") == "-50",
+            "negative opening clamped or omitted")
+
+
+def check_events(pg: Pg) -> None:
+    pg.rejects("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") VALUES (1,'receipt','test',NULL,'{\"receipt\":1}')")
+    pg.rejects("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") VALUES (1,'receipt','test','{}','{}')")
+    pg.true("EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='sokhach.receipt_line'::regclass AND conname='receipt_line_created_by_event_customer_id_fkey') OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='sokhach.receipt_line'::regclass AND contype='f' AND pg_get_constraintdef(oid) LIKE '%created_by_event, customer_id%')",
+            "receipt line event/customer FK missing")
+
+
+def check_evidence(pg: Pg) -> str:
+    for table in ("cutover_month_check", "opening_balance", "legacy_row"):
+        pg.true(f"EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.{table}'::regclass AND NOT tgisinternal AND tgfoid='sokhach.guard_cutover_evidence()'::regprocedure)",
+                f"evidence guard absent on {table}")
+    # check_gate_view moved customer and cutover through draft -> verified -> active.
+    pg.true("EXISTS (SELECT 1 FROM sokhach.cutover AS c JOIN sokhach.cutover_customer AS cc "
+            "ON cc.cutover_id=c.id WHERE c.id=1 AND cc.customer_id=1 "
+            "AND c.status='active' AND cc.status='active')", "evidence fixture not active")
+    pg.rejects("UPDATE sokhach.cutover_month_check SET bucket_vnd=91 WHERE customer_id=1 AND debt_month='2026-01-01'", message="cutover evidence frozen")
+    pg.rejects("INSERT INTO sokhach.cutover_month_check(customer_id,cutover_id,debt_month) VALUES (1,1,'2026-03-01')", message="cutover evidence frozen")
+    pg.rejects("DELETE FROM sokhach.cutover_month_check WHERE customer_id=1 AND debt_month='2026-01-01'", message="cutover evidence frozen")
+    pg.rejects("INSERT INTO sokhach.opening_balance(customer_id,cutover_id,debt_month,amount_vnd,source_tab,source_row,created_by_event) VALUES (1,1,'2026-03-01',1,'FAKE',4,1)", message="cutover evidence frozen")
+    pg.rejects("INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_tab,source_row,created_by_event) VALUES (1,1,'2026-03-01','trip','{}','FAKE',4,1)", message="cutover evidence frozen")
+    pg.rejects("UPDATE sokhach.cutover SET control_total_vnd=301 WHERE id=1", message="cutover status transition forbidden")
+    pg.rejects("UPDATE sokhach.cutover_customer SET report_sha256=repeat('c',64) WHERE customer_id=1", message="cutover customer transition order forbidden")
+    holder = PsqlSession(pg, f"v7_holder_{pg.run_id}")
+    worker = None
+    observed = None
+    try:
+        holder.send("BEGIN")
+        holder.send("SELECT pg_backend_pid() FROM sokhach.cutover WHERE id=1 FOR UPDATE")
+        holder_pid = int(holder.line())
+        worker_name = f"v7_worker_{pg.run_id}"
+        worker = subprocess.Popen(
+            ["docker", "exec", "--env", f"PGAPPNAME={worker_name}", "--env",
+             "PGOPTIONS=-c statement_timeout=10000", pg.name, "psql", "-X", "-qAt",
+             "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE, "-c",
+             "INSERT INTO sokhach.cutover_month_check(customer_id,cutover_id,debt_month) VALUES (1,1,'2026-03-01')"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            encoding="utf-8", errors="replace")
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            snapshot = pg.value(
+                "SELECT coalesce(string_agg(pid::text || ':' || pg_blocking_pids(pid)::text,','), '') "
+                f"FROM pg_stat_activity WHERE application_name='{worker_name}'")
+            if re.search(rf"\b{holder_pid}\b", snapshot):
+                observed = snapshot
+                break
+            if worker.poll() is not None:
+                break
+            time.sleep(0.05)  # polling; only pg_blocking_pids counts as evidence
+        require(observed is not None, "direct evidence DML did not block on cutover holder via pg_blocking_pids")
+    finally:
+        holder.close()
+        if worker is not None:
+            try:
+                out, err = worker.communicate(timeout=12)
+            except subprocess.TimeoutExpired:
+                worker.kill()
+                out, err = worker.communicate()
+                raise HarnessError("direct evidence worker timed out") from None
+            require(worker.returncode != 0 and "cutover evidence frozen" in err,
+                    f"worker must reject evidence after lock release: {out} {err[-500:]}")
+    return f"trigger freeze and pg_blocking_pids observed: {observed}"
+
+
+def check_fee(pg: Pg) -> None:
+    # Two event-linked fake trips plus fee-only row under active fake customer.
+    event = int(pg.value("INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+        "VALUES (1,'paste','test','{}','{\"trips\":[]}') RETURNING id"))
+    pg.sql(f"""BEGIN;
+INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,created_by_event)
+OVERRIDING SYSTEM VALUE VALUES (101,1,'2026-03-01','2026-03-04','FAKE-1',{event}),
+       (102,1,'2026-04-01','2026-04-04','FAKE-2',{event}),
+       (103,1,'2026-05-01',NULL,NULL,{event});
+INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
+VALUES (101,1,120,NULL,{event}),(102,1,NULL,7,{event}),(103,1,NULL,7,{event});
+COMMIT;""")
+    pg.rejects(f"""BEGIN;
+INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,created_by_event)
+OVERRIDING SYSTEM VALUE VALUES (104,1,'2026-06-01',NULL,NULL,{event});
+INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
+VALUES (104,1,120,NULL,{event});
+COMMIT;""", message="INVALID_FEE_ONLY_DATE")
+    pg.rejects(f"INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,created_by_event) "
+               f"OVERRIDING SYSTEM VALUE VALUES (104,1,'2026-06-01',NULL,'FAKE-4',{event})",
+               message="trip_missing_date_fee_only")
+    pg.sql("SELECT setval(pg_get_serial_sequence('sokhach.trip','id'),103,true)")
+    require(pg.value("SELECT other_fee_vnd IS NULL FROM sokhach.trip_price_rev WHERE trip_id=101") == "t",
+            "stored NULL fee changed")
+    require(pg.value("SELECT string_agg(debt_month::text || ':' || outstanding_vnd::text, ',' ORDER BY debt_month) FROM sokhach.v_outstanding_month WHERE customer_id=1") ==
+            "2026-01-01:100,2026-02-01:200,2026-03-01:120,2026-05-01:7",
+            "NULL fee/missing price/fee-only SQL view differs")
+
+
+def check_monthly_identity(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 500), ("2026-02-01", -50), ("2026-03-01", 0))
+    call(pg, "record_receipt", c, 0, "identity-r", "2026-04-01", "THU TIỀN", 100)
+    rows = call(pg, "get_ledger", c)["months"]
+    require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "400",
+            "opening absent from charges or counted twice")
+    call(pg, "adjust_month", c, 1, "identity-a", "2026-02-01", -25, "giảm")
+    rows = call(pg, "get_ledger", c)["months"]
+    require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "-75",
+            "signed opening/adjustment missing from charges")
+
+
+def check_field_adjustment(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    call(pg, "set_month_lock", c, 0, "field-open", "2026-01-01", "false")
+    trip = call(pg, "paste_trips", c, 1, "field-paste", "2026-01-01", trip_json())["trip_ids"][0]
+    missing = call(pg, "paste_trips", c, 2, "field-missing", "2026-01-01", trip_json(None))["trip_ids"][0]
+    call(pg, "set_month_lock", c, 3, "field-lock", "2026-01-01", "true")
+    for expected_version, key, field, value, delta in (
+            (4, "field-unit-1", "unit_price_vnd", 120, "20"),
+            (5, "field-unit-2", "unit_price_vnd", 130, "10"),
+            (6, "field-fee-1", "other_fee_vnd", 7, "7"),
+            (7, "field-fee-2", "other_fee_vnd", 9, "2"),
+            (8, "field-unit-3", "unit_price_vnd", 140, "10")):
+        result = call(pg, "adjust_trip", c, expected_version, key, trip, None, "ghi chú", field, value)
+        require(result["delta_vnd"] == delta, f"field current value double-counted: {key}")
+        require(call(pg, "adjust_trip", c, expected_version, key, trip, None, "ghi chú", field, value) == result,
+                "field retry not idempotent")
+    reject_call(pg, "adjust_trip", c, 4, "field-unit-1", trip, None, "ghi chú", "unit_price_vnd", 121,
+                error="IDEMPOTENCY_CONFLICT")
+    rows = call(pg, "get_ledger", c)
+    require([a["amount_vnd"] for a in rows["adjustments"]] == ["20", "10", "7", "2", "10"]
+            and rows["total_outstanding_vnd"] == "149", "field deltas or final balance wrong")
+    original = next(t for t in rows["trips"] if t["id"] == trip)
+    require(original["unit_price_vnd"] == "100" and original["other_fee_vnd"] is None,
+            "locked edit changed original price or NULL storage")
+    require(all(a["note"] == "ghi chú" for a in rows["adjustments"]), "field note lost")
+    edits = [e for e in reversed(rows["events"]) if e["kind"] == "adjust_trip"]
+    require(edits[1]["before"]["new_value_vnd"] == "120" and edits[1]["after"]["new_value_vnd"] == "130"
+            and edits[2]["before"]["new_value_vnd"] == "0", "field snapshots lost current value/NULL-fee semantics")
+    reject_call(pg, "adjust_trip", c, 9, "field-no-price", missing, None, "", "other_fee_vnd", 5,
+                error="TRIP_HAS_NO_PRICE")
+    reject_call(pg, "adjust_trip", c, 9, "field-invalid", trip, None, "", "invalid", 5,
+                error="INVALID_ADJUSTMENT")
+    reject_call(pg, "adjust_trip", c, 9, "field-negative", trip, None, "", "unit_price_vnd", -1,
+                error="INVALID_ADJUSTMENT")
+    reject_call(pg, "adjust_trip", c, 9, "field-overflow", trip, None, "", "unit_price_vnd", 9223372036854775807,
+                error="INVALID_VND")
+    require(version(pg, c) == 9, "rejected field adjustment changed version")
+    require(call(pg, "adjust_trip", c, 9, "field-legacy", trip, 159, "legacy")["delta_vnd"] == "10",
+            "legacy total amount route broke")
+    require(call(pg, "adjust_trip", c, 10, "field-after-legacy", trip, None, "", "unit_price_vnd", 155)["delta_vnd"] == "5",
+            "field edit ignored current total after legacy adjustment")
+    # GET audit money must be strings before JavaScript parses JSON, including old numeric price snapshots.
+    call(pg, "set_month_lock", c, 11, "field-reopen", "2026-01-01", "false")
+    call(pg, "edit_trip_price", c, 12, "field-big-price", missing, 9007199254740993, None)
+    event = next(e for e in call(pg, "get_ledger", c)["events"] if e["kind"] == "price_edit")
+    require(event["after"]["price"]["unit_price_vnd"] == "9007199254740993"
+            and event["before"]["price"]["unit_price_vnd"] is None,
+            "GET price history loses integer precision or turns NULL into zero")
+
+
+def check_adjustment_source(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    call(pg, "set_month_lock", c, 0, "source-open", "2026-01-01", "false")
+    trip = call(pg, "paste_trips", c, 1, "source-paste", "2026-01-01", trip_json())["trip_ids"][0]
+    call(pg, "set_month_lock", c, 2, "source-lock", "2026-01-01", "true")
+    first = call(pg, "adjust_trip", c, 3, "source-unit", trip, None, "", "unit_price_vnd", 120)
+    fee = call(pg, "adjust_trip", c, 4, "source-fee", trip, None, "", "other_fee_vnd", 7)
+    require(first["delta_vnd"] == "20" and fee["delta_vnd"] == "7", "unit/fee deltas wrong")
+    pg.true(f"(SELECT field='other_fee_vnd' AND new_value_vnd=7 FROM sokhach.adjustment "
+            f"WHERE id={fee['adjustment_id']})", "fee intent not stored in adjustment")
+    event = pg.value(f"SELECT created_by_event FROM sokhach.adjustment WHERE id={fee['adjustment_id']}")
+    # Disposable fake DB only: owner deliberately corrupts one audit value, restores trigger in same transaction.
+    pg.sql("BEGIN; SET LOCAL ROLE sokhach_owner; "
+           "ALTER TABLE sokhach.event DISABLE TRIGGER event_immutable; "
+           f"UPDATE sokhach.event SET \"after\"=jsonb_set(\"after\",'{{new_value_vnd}}','\"999\"'::jsonb) WHERE id={event}; "
+           "ALTER TABLE sokhach.event ENABLE TRIGGER event_immutable; COMMIT")
+    pg.true(f"(SELECT \"after\"->>'new_value_vnd'='999' FROM sokhach.event WHERE id={event})",
+            "audit tampering experiment did not change audit")
+    last = call(pg, "adjust_trip", c, 5, "source-unit-after-audit", trip, None, "", "unit_price_vnd", 130)
+    require(last["delta_vnd"] == "10", "money still depends on corrupted audit fee")
+    pg.true(f"(SELECT string_agg(field || ':' || new_value_vnd::text,',' ORDER BY created_by_event) "
+            f"FROM sokhach.adjustment WHERE customer_id={c})='unit_price_vnd:120,other_fee_vnd:7,unit_price_vnd:130'",
+            "typed unit/fee values not stored in event order")
+    rows = call(pg, "get_ledger", c)
+    require(rows["total_outstanding_vnd"] == "137"
+            and [a["amount_vnd"] for a in rows["adjustments"]] == ["20", "7", "10"],
+            "locked unit/fee/unit sequence double-counted")
+    require(rows["trips"][0]["unit_price_vnd"] == "100" and rows["trips"][0]["other_fee_vnd"] is None,
+            "typed adjustments changed original price/NULL fee")
+    call(pg, "adjust_trip", c, 6, "source-total", trip, 147, "direct total")
+    call(pg, "adjust_month", c, 7, "source-month", "2026-01-01", 3, "month")
+    pg.true(f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c} "
+            "AND field IS NULL AND new_value_vnd IS NULL)=2", "direct total/month intent must stay NULL")
+    for field, value in (("'unit_price_vnd'", "NULL"), ("NULL", "1"), ("'invalid'", "1"), ("'other_fee_vnd'", "-1")):
+        pg.rejects("INSERT INTO sokhach.adjustment(customer_id,debt_month,trip_id,amount_vnd,actor,created_by_event,field,new_value_vnd) "
+                   f"SELECT customer_id,debt_month,trip_id,amount_vnd,actor,created_by_event,{field},{value} "
+                   f"FROM sokhach.adjustment WHERE id={first['adjustment_id']}", message="check constraint")
+    zero = call(pg, "adjust_trip", c, 8, "source-zero", trip, None, "", "other_fee_vnd", 0)
+    pg.true(f"(SELECT field='other_fee_vnd' AND new_value_vnd=0 FROM sokhach.adjustment "
+            f"WHERE id={zero['adjustment_id']})", "zero fee rejected or stored as NULL")
+    require(zero["delta_vnd"] == "-7", "zero fee ignored stored fee")
+    call(pg, "set_month_lock", c, 9, "source-reopen", "2026-01-01", "false")
+    call(pg, "edit_trip_price", c, 10, "source-price-revision", trip, 200, 30)
+    call(pg, "set_month_lock", c, 11, "source-relock", "2026-01-01", "true")
+    revised = call(pg, "adjust_trip", c, 12, "source-after-revision", trip, None, "", "unit_price_vnd", 220)
+    require(revised["delta_vnd"] == "-20" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "253",
+            "fee adjustment before latest price revision leaked into current fee")
+
+
+def check_future_receipt(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 500))
+    today = pg.value("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    tomorrow = pg.value(f"SELECT ({lit(today)}::date+1)::text")
+    first = call(pg, "record_receipt", c, 0, "date-today", today, "THU TIỀN", 100)
+    require(version(pg, c) == 1, "today receipt rejected")
+    before = call(pg, "get_ledger", c)
+    reject_call(pg, "record_receipt", c, 1, "date-tomorrow", tomorrow, "THU TIỀN", 10,
+                error="FUTURE_RECEIPT_DATE")
+    reject_call(pg, "edit_receipt_meta", c, 1, "date-edit-tomorrow", first["pid"], tomorrow, None,
+                error="FUTURE_RECEIPT_DATE")
+    require(call(pg, "get_ledger", c) == before and version(pg, c) == 1,
+            "future receipt changed version, events, allocations or receipt")
+    call(pg, "edit_receipt_meta", c, 1, "date-edit-today", first["pid"], today, "KHÁC")
+    require(version(pg, c) == 2, "today metadata edit rejected")
+    for name in ("record_receipt", "edit_receipt_meta"):
+        definition = pg.value("SELECT pg_get_functiondef(oid) FROM pg_proc "
+            f"WHERE pronamespace='sokhach'::regnamespace AND proname='{name}'")
+        require(definition.index("_begin_command") < definition.index("clock_timestamp()"),
+                f"{name} reads receipt clock before customer lock")
+
+
+def check_void_get(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
+    first = call(pg, "record_receipt", c, 0, "void-get-r", "2026-03-01", "THU TIỀN", 100)
+    call(pg, "adjust_month", c, 1, "void-get-a", "2026-01-01", -30, "đổi phân bổ")
+    at_void = allocations(pg, c, first["pid"])
+    call(pg, "void_receipt", c, 2, "void-get-v", first["pid"], "nhập trùng")
+    receipt = call(pg, "get_ledger", c)["receipts"][0]
+    require(receipt["voided_by_event"] is not None, "GET lacks void event")
+    shown = [(line["month"], line["kind"], line["amount_vnd"]) for line in receipt["allocations"]
+             if line["superseded_by_event"] == receipt["voided_by_event"]]
+    require(shown == at_void and len(receipt["allocations"]) > len(shown),
+            "void shows reallocation history or loses current allocation")
+
+
+CHECKS = {"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+          "adjustment_source": check_adjustment_source,
+          "future_receipt": check_future_receipt, "void_get": check_void_get,
+          "immutable": check_immutable, "roles": check_roles, "numbers": check_numbers,
+          "gate_view": check_gate_view, "legacy": check_legacy, "import_guard": check_import_guard,
+          "negative": check_negative, "events": check_events, "evidence": check_evidence,
+           "fee": check_fee, "model": check_model, "model_edges": check_model_edges,
+           "atomic": check_atomic,
+           "invariant_rejections": check_invariant_rejections,
+           "idempotency": check_idempotency, "concurrent": check_concurrent,
+           "pid_order": check_pid_order,
+          "void": check_void, "locks": check_locks, "actor": check_actor,
+          "input": check_input, "opening_fifo": check_opening_fifo,
+          "negative_receipt": check_negative_receipt, "snapshots": check_snapshots,
+          "ledger_fee": check_ledger_fee, "golden": check_golden,
+          "opening_import": check_opening_import, "cutover_gate": check_cutover_gate,
+          "import_behavior": check_import_behavior}
+
+
+def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
+    p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)
+    require(p.returncode == 0, "cannot inspect run container")
+    ids = p.stdout.split()
+    if not ids:
+        return None
+    require(len(ids) == 1, "multiple containers with exact run name")
+    info = json.loads(run(["docker", "inspect", ids[0]]).stdout)[0]
+    labels = info.get("Config", {}).get("Labels") or {}
+    mounts = [m for m in info.get("Mounts", []) if m.get("Name") == volume and m.get("Destination") == "/var/lib/postgresql"]
+    require(info.get("Id") == ids[0] and (expected_id is None or ids[0] == expected_id)
+            and info.get("Name") == "/" + name and labels.get(LABEL_TEST) == LABEL_VALUE
+            and labels.get(LABEL_RUN) == run_id and len(mounts) == 1
+            and info.get("HostConfig", {}).get("NetworkMode") == "none"
+            and not info.get("HostConfig", {}).get("PortBindings"),
+            "run container ID/name/labels/volume mismatch")
+    return ids[0]
+
+
+def inspect_volume(volume: str, run_id: str) -> None:
+    info = json.loads(run(["docker", "volume", "inspect", volume]).stdout)[0]
+    labels = info.get("Labels") or {}
+    require(info.get("Name") == volume and labels.get(LABEL_TEST) == LABEL_VALUE
+            and labels.get(LABEL_RUN) == run_id, "run volume identity/labels mismatch")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--list", action="store_true", help="list cases without Docker")
+    ap.add_argument("--report", type=Path, help="write JSON report")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--expect-red", action="store_true", default=True,
+                      help="default: missing command functions may fail")
+    mode.add_argument("--strict", action="store_true", help="require every case to pass")
+    args = ap.parse_args()
+    if args.list:
+        for c in CASES:
+            print(f"{c['id']}\t{c['label']}\t{c['title']}")
+        return 0
+    run_id = uuid.uuid4().hex
+    name = f"webdebit-v7-test-{run_id}"
+    volume = name
+    report = {"run_id": run_id, "image": IMAGE, "schema": str(SCHEMA),
+              "schema_sha256": hashlib.sha256(SCHEMA.read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+              "functions": str(FUNCTIONS),
+              "functions_sha256": hashlib.sha256(FUNCTIONS.read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+              "sql_hash_normalization": "CRLF to LF",
+              "cases": [], "cleanup": "not_started"}
+    volume_created = False
+    container_id = None
+    fatal = None
+    try:
+        require(shutil.which("docker") is not None, "Docker CLI unavailable")
+        run(["docker", "volume", "create", "--label", f"{LABEL_TEST}={LABEL_VALUE}",
+             "--label", f"{LABEL_RUN}={run_id}", volume])
+        volume_created = True
+        inspect_volume(volume, run_id)
+        run(["docker", "run", "--detach", "--name", name, "--label", f"{LABEL_TEST}={LABEL_VALUE}",
+             "--label", f"{LABEL_RUN}={run_id}", "--network", "none", "--volume",
+             f"{volume}:/var/lib/postgresql", "--env", "POSTGRES_HOST_AUTH_METHOD=trust", IMAGE], timeout=240)
+        container_id = inspect_owned(name, volume, run_id)
+        require(container_id is not None, "container absent after Docker run")
+        report["container_id"] = container_id
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            logs = run(["docker", "logs", name], check=False, timeout=10)
+            if "PostgreSQL init process complete; ready for start up." in logs.stdout + logs.stderr:
+                break
+            time.sleep(0.25)  # readiness polling only; never contention evidence
+        else:
+            raise HarnessError("PostgreSQL init marker timed out")
+        pg = Pg(name, run_id)
+        require(pg.sql("SELECT current_database()", database="postgres").stdout.strip() == "postgres",
+                "unexpected initial database")
+        inspect_owned(name, volume, run_id, container_id)
+        inspect_volume(volume, run_id)
+        pg.sql(f"CREATE DATABASE {DATABASE}", database="postgres")
+        marker = f"codex_v7_run_id={run_id}"
+        pg.sql(f"COMMENT ON DATABASE {DATABASE} IS '{marker}'")
+        require(pg.value("SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=current_database()") == marker,
+                "database marker mismatch")
+        inspect_owned(name, volume, run_id, container_id)
+        inspect_volume(volume, run_id)
+        run(["docker", "exec", "-i", *pg.env, name, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+             "-U", "postgres", "-d", DATABASE], input_text=SCHEMA.read_text(encoding="utf-8"))
+        run(["docker", "exec", "-i", *pg.env, name, "psql", "-X", "-v", "ON_ERROR_STOP=1",
+             "-U", "postgres", "-d", DATABASE], input_text=FUNCTIONS.read_text(encoding="utf-8"))
+        report["postgres_version"] = pg.value("SHOW server_version")
+        pg.sql("CREATE ROLE v7_app LOGIN IN ROLE sokhach_app; CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
+        seed(pg)
+        # Existing schema checks share customer 1; run before isolated behavioral books.
+        ordered = sorted(CASES, key=lambda c: 0 if c["label"] == "SCHEMA" else 1)
+        for c in ordered:
+            row = {"id": c["id"], "label": c["label"], "result": "fail", "reason": ""}
+            try:
+                if c["label"] == "SKIPPED_OPEN":
+                    row.update(result="skipped", reason=c["open_reason"])
+                elif c["label"] in ("NEEDS_FUNCTION", "BEHAVIOR"):
+                    missing = [f for f in c["functions"] if pg.value(
+                        f"SELECT count(*) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='{f}'") == "0"]
+                    if missing:
+                        row["reason"] = "function does not exist: " + ", ".join(missing)
+                    else:
+                        require(c["check"] in CHECKS, "function present but no behavioral assertion")
+                        row["executed"] = True
+                        evidence = CHECKS[c["check"]](pg)
+                        row.update(result="pass", reason=evidence or "PostgreSQL behavioral assertion passed")
+                else:
+                    evidence = CHECKS[c["check"]](pg)
+                    row.update(result="pass", reason=evidence or "PostgreSQL schema assertion passed")
+            except (HarnessError, ValueError, KeyError, TypeError, AssertionError,
+                    subprocess.TimeoutExpired) as exc:
+                row["reason"] = str(exc)
+            report["cases"].append(row)
+        position = {c["id"]: i for i, c in enumerate(CASES)}
+        report["cases"].sort(key=lambda row: position[row["id"]])
+    except (HarnessError, OSError, ValueError) as exc:
+        fatal = str(exc)
+        report["error"] = fatal
+    finally:
+        try:
+            owned = inspect_owned(name, volume, run_id, container_id) if volume_created else None
+            if owned:
+                run(["docker", "rm", "--force", owned])
+            if volume_created:
+                inspect_volume(volume, run_id)
+                run(["docker", "volume", "rm", volume])
+            report["cleanup"] = "verified_and_removed" if volume_created else "nothing_created"
+        except (HarnessError, OSError, ValueError) as exc:
+            report["cleanup"] = "failed: " + str(exc)
+            fatal = str(exc)
+        if len(report["cases"]) < len(CASES):
+            done = {c["id"] for c in report["cases"]}
+            for c in CASES:
+                if c["id"] not in done:
+                    report["cases"].append({
+                        "id": c["id"], "label": c["label"],
+                        "result": "skipped" if c["label"] == "SKIPPED_OPEN" else "fail",
+                        "reason": c["open_reason"] if c["label"] == "SKIPPED_OPEN"
+                        else "harness did not reach case: " + (fatal or "unknown setup failure")})
+        counts = {label: {result: sum(c["label"] == label and c["result"] == result for c in report["cases"])
+                          for result in ("pass", "fail", "skipped")}
+                  for label in ("SCHEMA", "BEHAVIOR", "NEEDS_FUNCTION", "SKIPPED_OPEN")}
+        report["summary"] = counts
+        report["exit_code"] = int(bool(fatal) or len(report["cases"]) != len(CASES)
+                                  or any(c["result"] != "pass" for c in report["cases"]
+                                         if args.strict or c["label"] in ("SCHEMA", "BEHAVIOR")
+                                         or c.get("executed")))
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return report["exit_code"]
+
+
+if __name__ == "__main__":
+    sys.exit(main())

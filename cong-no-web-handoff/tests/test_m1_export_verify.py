@@ -1,5 +1,5 @@
-import csv
 import copy
+import csv
 import json
 import tempfile
 import unittest
@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools import pg_m1_report, pg_m1_verify
-
 
 CAPTURE = "fake-capture"
 AS_OF = "2026-10-15"
@@ -58,7 +57,7 @@ class M1ExportVerifyTests(unittest.TestCase):
             "coverage": {"Fake": {"accepted": 0, "replayed": 0, "quarantined": 0, "excluded_as_of": 0}},
         }
         (self.replay / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
-        source_values = {kind: 0 for kind in KINDS}
+        source_values = dict.fromkeys(KINDS, 0)
         source_values.update(charge=125, receipt=0)
         write_csv(self.replay / "period_balances.csv",
                   ("customer", "period", *(kind + "_vnd" for kind in KINDS), "balance_vnd"),
@@ -69,7 +68,7 @@ class M1ExportVerifyTests(unittest.TestCase):
         write_csv(self.replay / "customer_diffs.csv", ("customer", "baseline_row"), [])
         (self.replay / "exceptions.jsonl").write_text("", encoding="utf-8")
 
-        db_values = {kind: "" for kind in KINDS}
+        db_values = dict.fromkeys(KINDS, "")
         db_values.update(charge=125, receipt=0)
         write_csv(self.report / "period_balances.csv",
                   ("customer", "debt_period", "event_count", *(kind + "_vnd" for kind in KINDS), "balance_vnd"),
@@ -396,9 +395,9 @@ class M1ExportVerifyTests(unittest.TestCase):
     def test_export_rejects_worktree_output_before_creating_it_or_querying(self):
         root = Path(pg_m1_report.__file__).resolve().parents[2]
         output = root / f".t10-output-guard-{uuid.uuid4().hex}"
-        with patch.object(pg_m1_report, "run_psql") as run_psql:
-            with self.assertRaisesRegex(ValueError, "outside the source repository"):
-                pg_m1_report.export("psql", "fake-db", CAPTURE, date.fromisoformat(AS_OF), output)
+        with (patch.object(pg_m1_report, "run_psql") as run_psql,
+              self.assertRaisesRegex(ValueError, "outside the source repository")):
+            pg_m1_report.export("psql", "fake-db", CAPTURE, date.fromisoformat(AS_OF), output)
         run_psql.assert_not_called()
         self.assertFalse(output.exists())
 

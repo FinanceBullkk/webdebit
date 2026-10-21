@@ -16,7 +16,6 @@ import time
 import uuid
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "cong-no-web-handoff" / "tools" / "pg_ledger_schema.sql"
 DATABASE = "webdebit_ledger"
@@ -212,7 +211,6 @@ def main() -> int:
         report["command"] += f" --base-schema {args.base_schema} --migration {args.migration}"
     docker = ["docker"]
     container_created = False
-    error: BaseException | None = None
     try:
         run(docker + ["volume", "create", "--label", f"{LABEL_TEST}={LABEL_VALUE}",
                       "--label", f"{LABEL_RUN}={run_id}", volume])
@@ -549,7 +547,6 @@ def main() -> int:
 
         report["exit_code"] = 0
     except BaseException as exc:
-        error = exc
         report["error"] = f"{type(exc).__name__}: {exc}"
         if container_created:
             diagnostic = run(docker + ["logs", "--tail", "40", CONTAINER], check=False, timeout=10)
@@ -566,7 +563,6 @@ def main() -> int:
             report["cleanup"] = "verified_and_removed" if cleanup_container_removed or cleanup_volume_removed else "nothing_created"
         except BaseException as cleanup_error:
             report["cleanup"] = f"failed: {type(cleanup_error).__name__}: {cleanup_error}"
-            error = cleanup_error
             report["exit_code"] = 1
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -579,4 +575,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except HarnessError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

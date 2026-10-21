@@ -7,15 +7,15 @@ posting system. It never connects to or writes to Google Sheets.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
 import json
 import re
 from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-
 
 SHEET_NAMES = ("Khách hàng", "Số dư đầu", "Chuyến hàng", "Thu & cấn trừ")
 PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -113,7 +113,7 @@ def build(root: Path, as_of: date):
     decisions = []
     events = []
     exceptions = []
-    balances = defaultdict(lambda: Counter())
+    balances = defaultdict(Counter)
 
     def exception(code, title, row, detail, customer=None, debt_period=None):
         exceptions.append({
@@ -249,10 +249,8 @@ def build(root: Path, as_of: date):
     for record in data_rows(tabs, "17 Đối soát theo khách"):
         v = record["values"]
         if isinstance(v[0], str):
-            try:
+            with contextlib.suppress(ValueError):
                 expected_customers[v[0]] = (money(v[5]), record["source_row"], money(v[7]))
-            except ValueError:
-                pass
     customer_diffs = []
     if compare_historical:
         for customer in sorted(set(expected_customers) | set(customer_totals)):
@@ -277,7 +275,7 @@ def build(root: Path, as_of: date):
     }
 
     return {
-        "run": {"capture_id": manifest["capture_id"], "source_spreadsheet_id": manifest["source_spreadsheet_id"], "source_workbook_sha256": manifest["source_workbook_sha256"], "as_of": as_of.isoformat(), "generated_at_utc": datetime.now(timezone.utc).isoformat(), "engine_sha256": file_hash(Path(__file__))},
+        "run": {"capture_id": manifest["capture_id"], "source_spreadsheet_id": manifest["source_spreadsheet_id"], "source_workbook_sha256": manifest["source_workbook_sha256"], "as_of": as_of.isoformat(), "generated_at_utc": datetime.now(UTC).isoformat(), "engine_sha256": file_hash(Path(__file__))},
         "coverage": {title: dict(counts) for title, counts in coverage.items()},
         "totals": {"customers": len(customers), "periods": len(period_results), "events_replayed": len(events), "balance_vnd": sum(customer_totals.values())},
         "reconciliation": {"baseline_date": baseline_date.isoformat(), "comparison_status": "compared" if compare_historical else "skipped_as_of_mismatch", "period_baseline_rows": len(expected_periods), "period_diffs": period_diffs, "period_keys_without_baseline": [{"customer": customer, "period": p, "replayed_balance_vnd": actual_periods[(customer, p)]} for customer, p in period_keys_without_baseline], "customer_baseline_rows": len(expected_customers), "customer_diffs": customer_diffs, "old_book_new_minus_old_vnd": old_book_delta, "old_book_nonzero_customers": old_book_nonzero_customers, "legacy_period_label_conflicts": legacy_period_label_conflicts, "derived_view_checks": derived_checks},

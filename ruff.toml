@@ -1,0 +1,58 @@
+# Lint Python cho workspace công nợ.
+#
+# Nguyên tắc chọn luật: chỉ bật thứ bắt được lỗi thật, không bật luật định dạng.
+# E501 (line-too-long) bị bỏ có chủ ý: mã hiện có 451 dòng vượt 88 ký tự và dòng
+# dài nhất là 699 ký tự; ép xuống dòng sẽ là một thay đổi lớn không liên quan
+# nghiệp vụ, làm nhiễu diff và che mất phát hiện thật. Định dạng là việc của
+# `ruff format`, nếu sau này muốn thì bật riêng.
+
+target-version = "py313"
+extend-exclude = [".venv", "node_modules", ".playwright-browsers", "test-results"]
+
+[lint]
+select = [
+  "E4", # import sai chỗ / gộp dòng (E401, E402) — không gồm E501
+  "E7", # so sánh và khai báo sai (E711 == None, E722 except trần...)
+  "E9", # lỗi cú pháp, không parse được
+  "F",  # pyflakes: tên không tồn tại, import/biến thừa, f-string thiếu placeholder
+  "I",  # thứ tự và nhóm import
+  "UP", # cú pháp lỗi thời so với target-version
+  "B",  # bugbear: bẫy logic thật, gồm B023 dùng biến vòng lặp trong closure
+  "C4", # comprehension thừa
+  "SIM", # rút gọn an toàn
+  "BLE", # except trần nuốt lỗi — nguy hiểm ở đường ghi tiền
+  "PLE", # pylint error
+  "PLW", # pylint warning, gồm PLW1510 subprocess.run thiếu check=
+  "RUF",
+]
+
+ignore = [
+  # Mã và chuỗi hiển thị của dự án là tiếng Việt có dấu; luật ký tự Unicode
+  # "nhập nhằng" báo nhầm trên mọi chuỗi tiếng Việt.
+  "RUF001", "RUF002", "RUF003",
+  # Sở thích viết `[*a, b]` thay cho `a + [b]`: không bắt lỗi nào, 31 chỗ.
+  "RUF005",
+]
+
+[lint.per-file-ignores]
+# Harness dựng/dỡ container Docker để đặc tả schema PostgreSQL. Hai ngoại lệ ở
+# đây là cố ý, không phải sơ suất:
+#   BLE001  bắt BaseException để container và volume luôn được dọn, kể cả khi
+#           người chạy bấm Ctrl+C giữa chừng.
+#   PLW0603 `global CONTAINER` để tên container sinh theo run-id đến được hàm
+#           dọn dẹp ở nhánh finally.
+"cong-no-web-handoff/tools/test_pg_ledger_schema.py" = ["BLE001", "PLW0603"]
+
+# Hai harness Docker còn lại, thêm 19/10/2026 khi nhập `main`. Cùng một lý do
+# với harness schema ở trên: dọn container và volume phải chạy được kể cả khi
+# bị ngắt giữa chừng, và tên container sinh theo run-id phải tới được nhánh
+# finally. Ghi riêng từng file chứ không dùng mẫu `test_pg_*.py`, để lần sau
+# thêm harness thì phải nêu lý do chứ không tự rơi vào ngoại lệ.
+"cong-no-web-handoff/tools/test_pg_versioned_approval.py" = ["BLE001"]
+"cong-no-web-handoff/tools/test_pg_m1_queries.py" = ["BLE001", "PLW0603"]
+
+# Trang health của sổ cái. Bắt `Exception` ở đây là cố ý: health phải báo
+# "thành phần này hỏng" thay vì ném 500 ra cả trang, nên một thành phần lỗi
+# không được làm mất phần còn lại của báo cáo. Giới hạn đúng file này; mọi chỗ
+# khác trong `web/` vẫn phải bắt lỗi cụ thể.
+"cong-no-web-handoff/web/ledger_app.py" = ["BLE001"]

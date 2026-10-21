@@ -7,7 +7,6 @@ from pathlib import Path
 
 from pilot.reconcile import build, money
 
-
 SOURCE_ID = "synthetic-source"
 CAPTURE_ID = "synthetic-capture"
 
@@ -51,8 +50,8 @@ def make_capture(root):
         path = root / f"gid-{gid}.jsonl"
         with path.open("w", encoding="utf-8") as stream:
             for row_number, values in records.items():
-                values = values + [None] * (width - len(values))
-                stream.write(json.dumps({"capture_id": CAPTURE_ID, "source_file_id": SOURCE_ID, "sheet_gid": gid, "source_row": row_number, "values": values}, ensure_ascii=False) + "\n")
+                padded = values + [None] * (width - len(values))
+                stream.write(json.dumps({"capture_id": CAPTURE_ID, "source_file_id": SOURCE_ID, "sheet_gid": gid, "source_row": row_number, "values": padded}, ensure_ascii=False) + "\n")
         tabs.append({"title": title, "gid": gid, "header_row": header_row, "grid_column_count": width, "nonempty_export_rows": len(records), "jsonl_file": path.name, "jsonl_sha256": digest(path)})
     (root / "manifest.json").write_text(json.dumps({"capture_id": CAPTURE_ID, "source_spreadsheet_id": SOURCE_ID, "source_workbook": workbook.name, "source_workbook_sha256": digest(workbook), "tabs": tabs}), encoding="utf-8")
 

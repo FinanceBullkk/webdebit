@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import html
 import json
 import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -15,15 +17,14 @@ from zoneinfo import ZoneInfo
 
 from ledger_db import HistoryDB, LedgerDB, LedgerUnavailable
 
-
 STYLE = Path(__file__).with_name("style.css").read_bytes()
-CAPTURE = "2026-10-20-so-goc"
+CAPTURE = "2026-10-20-so-goc-v2"
 OPENING_DATE = date(2026, 10, 20)
 # Opening re-built from the original old-book customer tabs on 20/10/2026 (owner chose the original
 # book as the standard; the 13/10 replay opening is kept only as a backup dump). Startup and /health
 # both reject any other value. Every period is NO_BASELINE: the original book has no independent
 # per-period baseline, only per-customer totals, which the opening matches.
-OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 64_803_729_665, "no_baseline": 132}
+OPENING_INVARIANTS = {"opening_periods": 132, "opening_vnd": 64_561_074_322, "no_baseline": 132}
 # The M1 replay history (trip/receipt detail, source exceptions) belongs to the 13/10 opening and has
 # no provenance for the 20/10 opening, so it is not attached. Balances still come from PostgreSQL.
 HISTORY_ENABLED = False
@@ -222,7 +223,7 @@ def page(title: str, body: str, selected_date: date, wide: bool = False) -> byte
 <footer class="container"><details class="site-notes"><summary>Nguồn dữ liệu và giới hạn</summary>
 <p>Sổ PostgreSQL độc lập. Số mở sổ từ snapshot {CAPTURE}. Kỳ thiếu mốc đối soát vẫn được gắn cờ.
 Web chỉ đọc; nguồn replay và dữ liệu ngân hàng chưa được xác minh thay cho chứng từ gốc.</p></details></footer>
-</body></html>""".encode("utf-8")
+</body></html>""".encode()
 
 
 def heading(kicker: str, title: str, detail: str) -> str:
@@ -249,18 +250,12 @@ def render_overview(db: LedgerDB, as_of: date, search: str, period: str = "2026-
     t, customers = db.overview_screen(as_of, period, search)
     summary = period_summary = reconciliations = None
     if history:
-        try:
+        with contextlib.suppress(LedgerUnavailable):
             summary = history.exception_summary()
-        except LedgerUnavailable:
-            pass
-        try:
+        with contextlib.suppress(LedgerUnavailable):
             period_summary = history.exception_summary(period=period)
-        except LedgerUnavailable:
-            pass
-        try:
+        with contextlib.suppress(LedgerUnavailable):
             reconciliations = history.customer_reconciliations()
-        except LedgerUnavailable:
-            pass
     reconciliation_items = reconciliations.get("items", []) if reconciliations else None
     content = heading("", "Công nợ", "")
     content += (f'<form class="filterbar" action="/" method="get">'
@@ -362,13 +357,18 @@ def source_link(event: dict) -> str:
     return anchor("Dòng nguồn ↗", target, "source-link")
 
 
+def source_value(values: list, index: int):
+    """Ô thứ `index` của dòng nguồn, None nếu dòng ngắn hơn."""
+    return values[index] if index < len(values) else None
+
+
 def month_rows(events: list[dict], postings: list[dict], carried: int) -> tuple[str, int, int, int]:
     """Render independent debt and payment lists with no implied allocation."""
     charges, payments = [], []
     for event in events:
         signed = int(event["signed_amount_vnd"])
         values = event.get("source_values") or []
-        value = lambda index: values[index] if index < len(values) else None
+        value = partial(source_value, values)
         kind = event["kind"]
         if signed >= 0:
             if kind == "charge":

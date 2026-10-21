@@ -54,7 +54,7 @@ class LedgerDB:
             command += ["-v", f"{key}={value}"]
         command += ["-d", self.dbname, "-f", "-"]
         try:
-            result = subprocess.run(command, input=f"{statement};\n",
+            result = subprocess.run(command, check=False, input=f"{statement};\n",
                 text=True, capture_output=True, encoding="utf-8", timeout=8)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LedgerUnavailable("PostgreSQL unavailable") from exc
@@ -66,7 +66,7 @@ class LedgerDB:
                   or "connection to server" in stderr or "server closed the connection" in stderr
                   or "could not translate host name" in stderr or "timeout expired" in stderr
                   or "no such file or directory" in stderr
-                  or "database " in stderr and "does not exist" in stderr):
+                  or ("database " in stderr and "does not exist" in stderr)):
                 message = "PostgreSQL unavailable"
             else:
                 message = "PostgreSQL read failed"

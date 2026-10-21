@@ -2,12 +2,21 @@
   "name": "webdebit",
   "version": "0.0.0",
   "private": true,
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
+    "check": "node scripts/check.js",
+    "lint": "node scripts/check.js --lint",
     "test": "npm run test:unit && npm run test:browser && npm run test:viewer",
-    "test:unit": "node --test cong-no-web-handoff/preview/test-so-cong-no-model.js cong-no-web-handoff/preview/test-monthly-ledger-model.js cong-no-web-handoff/preview/test-customer-ledger-workbench.js cong-no-web-handoff/preview/test-customer-ledger-requirements.js",
+    "test:unit": "node --test scripts/test-business-rules.js cong-no-web-handoff/preview/test-so-cong-no-model.js cong-no-web-handoff/preview/test-monthly-ledger-model.js cong-no-web-handoff/preview/test-customer-ledger-workbench.js cong-no-web-handoff/preview/test-customer-ledger-requirements.js cong-no-web-handoff/preview/test-so-khach-v7-model.js cong-no-web-handoff/preview/test-so-khach-v7-api.js",
     "test:browser": "node --test cong-no-web-handoff/preview/test-customer-ledger-browser.js",
     "test:viewer": "node --test cong-no-web-handoff/tests/test-viewer-browser.js"
   },
-  "devDependencies": { "playwright": "1.64.1" }
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "playwright": "1.64.1"
+  }
 }

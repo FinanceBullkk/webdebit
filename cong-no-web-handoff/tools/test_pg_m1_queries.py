@@ -19,8 +19,9 @@ from unittest.mock import patch
 TOOLS = Path(__file__).resolve().parent
 ROOT = TOOLS.parents[1]
 sys.path.insert(0, str(TOOLS))
-import test_pg_ledger_schema as lifecycle  # noqa: E402
 import pg_m1_report  # noqa: E402
+import test_pg_ledger_schema as lifecycle  # noqa: E402
+
 sys.path.insert(0, str(ROOT / "cong-no-web-handoff" / "web"))
 import ledger_db  # noqa: E402
 
@@ -130,8 +131,8 @@ class M1HistoryDBTests(unittest.TestCase):
         self.assertEqual(len(acme), 1)
         self.assertEqual(acme[0]["old_book_delta_vnd"], 731)
         self.assertEqual(acme[0]["old_book_delta_status"], "AVAILABLE")
-        no_baseline = [row for row in batch["items"] if row["customer"] == "NO-BASELINE"][0]
-        missing_delta = [row for row in batch["items"] if row["customer"] == "NO-DELTA"][0]
+        no_baseline = next(row for row in batch["items"] if row["customer"] == "NO-BASELINE")
+        missing_delta = next(row for row in batch["items"] if row["customer"] == "NO-DELTA")
         self.assertIsNone(no_baseline["old_book_delta_vnd"])
         self.assertEqual(no_baseline["old_book_delta_status"], "NO_BASELINE")
         self.assertIsNone(missing_delta["old_book_delta_vnd"])
@@ -253,7 +254,7 @@ class M1HistoryDBTests(unittest.TestCase):
                 self.assertEqual(counts[(customer, kind)], (0, 0))
 
     def test_99_duplicate_provenance_fails_closed(self) -> None:
-        duplicate_view = f"""CREATE OR REPLACE VIEW pilot.m1_provenance AS
+        duplicate_view = """CREATE OR REPLACE VIEW pilot.m1_provenance AS
             SELECT c.capture_id, r.as_of, c.source_spreadsheet_id, c.source_title,
                    c.source_workbook_sha256, c.captured_at_utc, r.engine_sha256,
                    (SELECT left(x.record -> 'values' ->> 1, 10)
@@ -568,4 +569,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except M1QueryRunnerError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

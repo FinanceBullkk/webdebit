@@ -13,16 +13,19 @@ Yêu cầu Node.js 24, npm (kèm Node), Python 3.12 hoặc 3.13. Python cần g�
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 npm ci --ignore-scripts
 npx playwright install chromium
-npm test
-cd cong-no-web-handoff
-..\.venv\Scripts\python.exe -m unittest discover -s tests -v
+npm run check
 ```
 
-Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt`, rồi chạy test từ `cong-no-web-handoff/` bằng `../.venv/bin/python -m unittest discover -s tests -v`. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
+`requirements-dev.txt` chỉ có công cụ lint (ruff, ghim phiên bản, không ghim hash), không phải phụ thuộc chạy thật. `npm run check` ([scripts/check.js](scripts/check.js)) tự tìm Python và ruff trong `.venv`, rồi chạy bảy bước: ruff, luật nghiệp vụ, eslint, unittest của `cong-no-web-handoff/tests`, `test:unit`, `test:browser`, `test:viewer`; bước nào hỏng thì lệnh thoát khác 0. `npm run lint` chỉ chạy ba bước lint.
 
-`npm run test:unit` chạy đủ bốn file JS không cần browser; `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless. `npm test` chạy cả hai. [Workflow](.github/workflows/test.yml) kiểm Windows/Linux, Python 3.12/3.13 và Node 24/Chromium. File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
+Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt` và `.venv/bin/python -m pip install -r requirements-dev.txt`, rồi chạy `npm run check` từ gốc repo. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
+
+`npm run test:unit` chạy sáu file JS không cần browser (gồm `scripts/test-business-rules.js`); `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless; `npm run test:viewer` chạy test trình duyệt viewer dữ liệu giả. `npm test` chạy cả ba bộ JS nhưng không chạy lint hay unittest Python, nên lệnh chuẩn là `npm run check`. Chưa tải Chromium thì hai bước trình duyệt báo SKIP.
+
+[Workflow](.github/workflows/test.yml) (ĐÃ TRIỂN KHAI theo file workflow, commit `98edf29`) chạy mọi job trên runner tự host, không dùng máy GitHub: unittest Python 3.12/3.13 và các harness PostgreSQL 18.6 dùng một lần trên runner Linux `hao`; job `javascript` chạy `npm run check` (Python 3.13 qua `uv`, Node theo `.node-version`) trên hai runner `hao` và `windows-local`. **CÒN MỞ:** `hao` cũng là máy chạy DB thật và web xem sổ, nên mã của PR và container Docker của CI chạy ngay trên máy đó; rủi ro này chưa được người dùng chấp nhận, xem [Quy trình phát triển](docs/development.md#ci-trên-runner-tự-host). File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
 
 ## Phạm vi mã
 
