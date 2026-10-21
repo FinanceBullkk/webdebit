@@ -1,4 +1,4 @@
-"""Trial-only V7 JSON API for a disposable PostgreSQL Docker container."""
+"""Trial-only V7 JSON API for an isolated test container, including CT-2SO."""
 
 from __future__ import annotations
 
@@ -27,6 +27,9 @@ ASSETS = {
     "/so-khach-v7-api.js": ("so-khach-v7-api.js", "text/javascript; charset=utf-8"),
 }
 ROUTES = {
+    "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"}),
+    "/api/v7/offsets/void": ("void_offset", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"}),
+    "/api/v7/offsets/date": ("edit_offset_date", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"}),
     "/api/v7/trips/paste": ("paste_trips", {"debt_month", "trips"}),
     "/api/v7/trips/price": ("edit_trip_price", {"trip_id", "unit_price_vnd", "other_fee_vnd"}),
     "/api/v7/trips/adjust": ("adjust_trip", {"trip_id", "new_amount_vnd", "field", "new_value_vnd", "note"}),
@@ -53,6 +56,14 @@ ERRORS = {
     "NO_MONTH_FOR_RECEIPT": (422, "Chưa có tháng để ghi phiếu."),
     "VOID_REASON_REQUIRED": (422, "Cần ghi lý do hủy phiếu."),
     "FUTURE_RECEIPT_DATE": (422, "Ngày trả không được sau hôm nay."),
+    "OFFSET_SAME_BOOK": (422, "Không thể cấn trừ cùng sổ."),
+    "OFFSET_EXCEEDS_CREDIT": (422, "Số tiền vượt số dư được cấn trừ."),
+    "OFFSET_SOURCE_ARCHIVED": (409, "Sổ nguồn đã lưu trữ."),
+    "OFFSET_NOT_FOUND": (422, "Không tìm thấy cặp cấn trừ."),
+    "OFFSET_PAIR_REQUIRED": (409, "Cần thao tác cả cặp cấn trừ."),
+    "OFFSET_ALREADY_VOID": (409, "Cặp cấn trừ đã hủy."),
+    "FUTURE_DATE": (422, "Ngày không được sau hôm nay."),
+    "INVALID_DATE": (422, "Ngày không hợp lệ."),
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
@@ -61,9 +72,9 @@ for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_M
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, extra: dict | None = None):
         super().__init__(message)
-        self.status, self.code, self.message = status, code, message
+        self.status, self.code, self.message, self.extra = status, code, message, extra or {}
 
 
 def bad(code: str = "INVALID_REQUEST", message: str = "Dữ liệu gửi không hợp lệ.") -> None:
@@ -118,10 +129,17 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if not isinstance(body, dict):
         bad()
     function, fields = ROUTES[path]
-    if set(body) - (COMMON | fields) or not set(body) >= COMMON:
+    offset = function in ("record_offset", "void_offset", "edit_offset_date")
+    common = set() if offset else COMMON
+    if set(body) - (common | fields) or not set(body) >= (fields if offset else COMMON):
         bad()
-    if not positive_int(body["customer_id"]) or type(body["expected_version"]) is not int or not 0 <= body["expected_version"] <= MAX_BIGINT:
+    fields = fields | common
+    required_numeric = ("customer_id", "target_customer_id", "source_customer_id")
+    if any(name in fields and (not positive_int(body.get(name))) for name in required_numeric):
         bad()
+    for name in ("expected_version", "target_version", "source_version", "other_version"):
+        if name in fields and (type(body.get(name)) is not int or not 0 <= body[name] <= MAX_BIGINT):
+            bad()
     key = body["idempotency_key"]
     if not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key):
         bad()
@@ -143,6 +161,11 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         if name in fields and (name not in body or not vnd(body[name], signed=name == "amount_vnd" and function == "adjust_month",
                                                       nullable=name in ("unit_price_vnd", "other_fee_vnd"))):
             bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
+    if function == "record_offset" and body["amount_vnd"] == "0":
+        bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
+    for name in ("offset_pair_id",):
+        if name in fields and not positive_int(body.get(name)):
+            bad()
     if function == "paste_trips":
         trips = body.get("trips")
         if not isinstance(trips, list) or not trips or len(trips) > 200:
@@ -158,8 +181,12 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
             if any(type(value) is not str and value is not None for value in trip_row.values()):
                 bad()
     for name in ("date",):
-        if name in fields and ((name not in body and function == "record_receipt") or (name in body and body[name] is not None and not valid_date(body[name]))):
+        if not offset and name in fields and ((name not in body and function == "record_receipt") or (name in body and body[name] is not None and not valid_date(body[name]))):
             bad()
+    if function in ("record_offset", "edit_offset_date") and not valid_date(body.get("date")):
+        bad("INVALID_DATE", "Ngày không hợp lệ.")
+    if function == "void_offset" and (not isinstance(body.get("reason"), str) or not body["reason"].strip() or len(body["reason"]) > 500):
+        bad("VOID_REASON_REQUIRED", "Cần ghi lý do hủy cấn trừ.")
     for name in ("method", "pid", "reason", "note"):
         if name in fields and name in body and body[name] is not None and (not isinstance(body[name], str) or len(body[name]) > 500):
             bad()
@@ -178,10 +205,14 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
 
 # Fixed SQL; psql :'payload' and :'actor' quote variable values as SQL literals.
 SQL = {
+    "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT jsonb_build_object('customers',coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'status',status) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) FROM (SELECT c.id,c.name,CASE WHEN cc.status='active' AND co.status='active' THEN 'active' ELSE 'NO_BASELINE' END AS status FROM sokhach.customer c LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q;",
 }
 ARGUMENTS = {
+    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"),
+    "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
+    "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),
     "paste_trips": ("debt_month", "trips"),
     "edit_trip_price": ("trip_id", "unit_price_vnd", "other_fee_vnd"),
     "adjust_trip": ("trip_id", "new_amount_vnd", "note", "field", "new_value_vnd"),
@@ -192,10 +223,14 @@ ARGUMENTS = {
     "set_month_lock": ("month", "locked"),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
+        "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",
+        "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
         "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean"}
 for _name, _fields in ARGUMENTS.items():
     _args = ["(j->>'customer_id')::bigint", "(j->>'expected_version')::bigint", "j->>'idempotency_key'"]
+    if _name in ("record_offset", "void_offset", "edit_offset_date"):
+        _args = []
     _args += [f"(j{'->' if field == 'trips' else '->>'}'{field}')::{CAST[field]}" if field in CAST
               else f"j->>'{field}'" for field in _fields]
     SQL[_name] = f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{_name}({', '.join(_args)}) FROM b;"
@@ -231,7 +266,7 @@ class Psql:
                 input=sql, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=25,
                 check=False)
         except subprocess.TimeoutExpired as exc:
-            if function == "get_ledger":
+            if function in ("get_ledger", "list_offset_sources"):
                 raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.") from exc
             raise ApiError(503, "RESULT_UNKNOWN", "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.") from exc
         except OSError as exc:
@@ -240,7 +275,18 @@ class Psql:
             match = re.search(r"(?m)^psql:.*: ERROR:  P0001: ([A-Z_]+)\s*$", result.stderr)
             if match and match.group(1) in ERRORS:
                 status, message = ERRORS[match.group(1)]
-                raise ApiError(status, match.group(1), message)
+                extra = {}
+                if match.group(1) == "OFFSET_EXCEEDS_CREDIT":
+                    detail = re.search(r"(?m)^DETAIL:\s+(.*)$", result.stderr)
+                    if detail:
+                        try:
+                            data = json.loads(detail.group(1), object_pairs_hook=no_duplicates)
+                            credit = data.get("available_credit_vnd") if isinstance(data, dict) else None
+                            if vnd(credit):
+                                extra["available_credit_vnd"] = credit
+                        except (ValueError, ApiError):
+                            pass
+                raise ApiError(status, match.group(1), message, extra)
             raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
         try:
             return json.loads(result.stdout.strip())
@@ -272,7 +318,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         parts = urlsplit(target)
         if parts.path == "/api/v7/customers" and not parts.query:
             function, payload = "list_customers", {}
-        elif parts.path != "/api/v7/ledger":
+        elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources"):
             raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
         else:
             query = parse_qs(parts.query, keep_blank_values=True)
@@ -282,16 +328,21 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             if len(customer_text) > 19 or (len(customer_text) == 19 and customer_text > str(MAX_BIGINT)):
                 bad()
             customer = int(customer_text)
-            function, payload = "get_ledger", {"customer_id": customer}
+            if parts.path == "/api/v7/offset-sources":
+                function, payload = "list_offset_sources", {"target_customer_id": customer}
+            else:
+                function, payload = "get_ledger", {"customer_id": customer}
     else:
         raise ApiError(405, "METHOD_NOT_ALLOWED", "Phương thức không được hỗ trợ.")
     if actor is None:
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve)
     result = runner.run(function, payload, actor)
-    if demo and function in ("get_ledger", "list_customers"):
+    if function == "list_offset_sources":
+        result = {"sources": result}
+    if demo and function in ("get_ledger", "list_customers", "list_offset_sources"):
         result = {**result, "demo": True}
-    if real_copy and function in ("get_ledger", "list_customers"):
+    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources"):
         result = {**result, "real_copy": True}
     return 200, result
 
@@ -370,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
         except TimeoutError:
             self.reply(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
         except ApiError as exc:
-            self.reply(exc.status, {"error": exc.code, "message": exc.message})
+            self.reply(exc.status, {"error": exc.code, "message": exc.message, **exc.extra})
         except OSError:
             self.reply(503, {"error": "ASSET_UNAVAILABLE", "message": "Không đọc được trang thử."})
 

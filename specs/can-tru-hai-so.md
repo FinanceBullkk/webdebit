@@ -89,6 +89,23 @@ Lý do cụ thể hóa: hợp đồng đề xuất chưa có chữ ký hủy/đ�
 
 ## 6. Tiêu chí nghiệm thu
 
+### API HTTP thử nghiệm CT-2SO
+
+`web/v7_ledger_api.py` nối hợp đồng đã cài; chưa là quyền ghi thật.
+
+| Route | JSON bắt buộc / tham số |
+| --- | --- |
+| `POST /api/v7/offsets` | `target_customer_id`, `target_version`, `source_customer_id`, `source_version`, `idempotency_key`, `date`, `amount_vnd` |
+| `POST /api/v7/offsets/void` | `customer_id`, `expected_version`, `other_version`, `idempotency_key`, `offset_pair_id`, `reason` |
+| `POST /api/v7/offsets/date` | `customer_id`, `expected_version`, `other_version`, `idempotency_key`, `offset_pair_id`, `date` |
+| `GET /api/v7/offset-sources?customer=<id>` | Chỉ một `customer`; gọi `list_offset_sources` |
+
+ID là số JSON nguyên dương bigint; version là số JSON nguyên không âm bigint. Tiền là chuỗi nguyên dương bigint; ngày `YYYY-MM-DD` hợp lệ, bắt buộc; lý do không trắng, tối đa 500 ký tự. Không nhận trường thừa hoặc key JSON trùng. Actor lấy từ danh tính server như route V7 cũ. POST giữ kiểm Origin/Content-Type hiện có. Thành công trả nguyên JSON của hàm SQL; GET luôn trả `{sources: [...]}`, cộng cờ `demo` hoặc `real_copy` khi có.
+
+Lỗi trả `{error, message}`; `OFFSET_ALREADY_VOID`, `OFFSET_SOURCE_ARCHIVED`, `OFFSET_PAIR_REQUIRED` là 409; `OFFSET_SAME_BOOK`, `OFFSET_EXCEEDS_CREDIT`, `OFFSET_NOT_FOUND`, `FUTURE_DATE`, `INVALID_DATE` là 422. Các mã chung giữ ánh xạ V7 hiện có. Riêng `OFFSET_EXCEEDS_CREDIT` thêm `available_credit_vnd` khi DETAIL JSON chứa chuỗi VND không âm hợp lệ; thiếu/sai DETAIL thì bỏ khóa này, không lộ stderr.
+
+Kiểm biên bằng `test_offset_routes_actor_and_sql_arguments`, `test_offset_invalid_fields`, `test_offset_sources_query_flags_and_timeout`, `test_offset_psql_payload_and_credit_detail`, `test_offset_http_with_fake_psql`; ánh xạ từng mã dùng `test_psql_error_mapping_and_fixed_sql`. HTTP và psql giả không thay kiểm PostgreSQL/Docker.
+
 DB test trên bản sao, không chạm `hao`:
 
 1. A −100.000.000, B 50.000.000, cấn 50.000.000 → A −50.000.000, B 0, tổng không đổi; mỗi sổ một mục Lịch sử.
