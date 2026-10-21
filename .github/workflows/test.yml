@@ -74,6 +74,8 @@ jobs:
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
       - name: V7 direct socket API and loader
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_direct.py --strict
+      - name: V7 deployment rehearsal
+        run: uv run --python 3.13 python cong-no-web-handoff/tools/rehearse_v7_deploy.py --strict
 
   postgres-m1-history-queries:
     runs-on: ubuntu-latest
