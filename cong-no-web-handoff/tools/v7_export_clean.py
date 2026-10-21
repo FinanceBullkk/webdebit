@@ -89,40 +89,61 @@ def git_state() -> dict:
 def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tuple[str, ...]) -> dict:
     out = output_folder(out)
     eligible = [b for b in books if b["in_summary"] and not b["reasons"]]
+    control_total = sum(b["anchor"] for b in eligible)
+    loader.validate_books(eligible, control_total)
     customers, months, rows, flag_customers = [], [], [], Counter()
-    for item in sorted(eligible, key=lambda b: b["name"]):
+    def structured(value):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    for item in eligible:
         name = item["name"]
         used = {flag: count for flag, count in item["flags"].items() if flag in CLEANING_FLAGS and count}
         flag_customers.update(used.keys())
-        customers.append({"customer": name, "anchor_vnd": item["anchor"], "months": len(item["checks"]),
-                          "rows": len(item["legacy"]),
-                          "cleaning": ";".join(f"{flag}:{count}" for flag, count in sorted(used.items()))})
+        customers.append({"customer": name, "ordinal": item["ordinal"], "anchor_vnd": item["anchor"],
+                          "months": len(item["checks"]), "rows": len(item["legacy"]),
+                          "cleaning": ";".join(f"{flag}:{count}" for flag, count in sorted(used.items())),
+                          "flags": structured(item["flags"]), "csv_only": structured(item.get("csv_only", [])),
+                          "row_counts": structured(item["row_counts"]),
+                          "metadata": structured({k: item[k] for k in ("has_insurance",) if k in item})})
         for check, opening in zip(item["checks"], item["openings"], strict=True):
             months.append({"customer": name, "debt_month": check["debt_month"][:7],
                            "opening_anchor_vnd": check["opening_anchor_vnd"],
                            "charge_vnd": check["source_charge_vnd"], "receipt_vnd": check["source_receipt_vnd"],
                            "month_end_vnd": check["replay_cumulative_vnd"],
                            "sheet_month_end_vnd": check["source_cumulative_vnd"],
-                           "bucket_vnd": opening["amount_vnd"]})
+                           "bucket_vnd": opening["amount_vnd"],
+                           **{k: check[k] for k in ("source_evidence_sha256", "standard_bucket_vnd",
+                                                   "standard_source_ref", "standard_source_sha256")},
+                           "exception_codes": structured(check["exception_codes"]),
+                           "source_tab": opening["source_tab"], "source_row": opening["source_row"]})
         for legacy in item["legacy"]:
+            display = legacy["display"]
             rows.append({"customer": name, "debt_month": legacy["debt_month"][:7], "kind": legacy["kind"],
                          "source_tab": legacy["source_tab"], "source_row": legacy["source_row"],
                          "amount_vnd": legacy["source_total_vnd"],
-                         "flags": ";".join(legacy["display"].get("flags", []))})
+                         **{k: structured(display[k]) if k in ("cells", "flags") else display[k]
+                            for k in loader.DISPLAY_FIELDS},
+                         "null_fields": structured([k for k in loader.DISPLAY_FIELDS if display[k] is None])})
     out.mkdir(parents=True, exist_ok=True)
-    write_csv(out / "clean_customers.csv", ["customer", "anchor_vnd", "months", "rows", "cleaning"], customers)
+    write_csv(out / "clean_customers.csv", ["customer", "ordinal", "anchor_vnd", "months", "rows", "cleaning",
+                                          "flags", "csv_only", "row_counts", "metadata"], customers)
     write_csv(out / "clean_months.csv", ["customer", "debt_month", "opening_anchor_vnd", "charge_vnd", "receipt_vnd",
-                                         "month_end_vnd", "sheet_month_end_vnd", "bucket_vnd"], months)
+                                       "month_end_vnd", "sheet_month_end_vnd", "bucket_vnd", "exception_codes",
+                                       "source_evidence_sha256", "standard_bucket_vnd", "standard_source_ref",
+                                       "standard_source_sha256", "source_tab", "source_row"], months)
     write_csv(out / "clean_rows.csv", ["customer", "debt_month", "kind", "source_tab", "source_row", "amount_vnd",
-                                       "flags"], rows)
+                                     *loader.DISPLAY_FIELDS, "null_fields"], rows)
     manifest = {"created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
                 "notice": NOTICE, "tool": git_state(),
                 "options": {"sheet_is_truth": True, "raw_tabs_given": len(raw_tabs)},
                 "source": {"xlsx_file_name": xlsx.name, "xlsx_sha256": digests["source-google-export.xlsx"],
                            "csv_inputs_sha256": {k: v for k, v in digests.items() if k.endswith(".csv")}},
-                "counts": {"customers": len(customers), "months": len(months), "rows": len(rows),
-                           "anchor_total_vnd": sum(c["anchor_vnd"] or 0 for c in customers),
-                           "not_on_tong_tabs_skipped": sum(1 for b in books if not b["in_summary"])},
+                "format_version": loader.CLEAN_FORMAT_VERSION,
+                "frozen_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "control_total_vnd": control_total,
+                "excluded_counts": dict(Counter(reason for b in books if b not in eligible
+                                                for reason in (["NOT_ON_TONG"] if not b["in_summary"]
+                                                               else b["reasons"].keys()))),
+                "counts": loader.clean_counts(eligible),
                 "customers_per_cleaning_rule": dict(sorted(flag_customers.items())),
                 "files_sha256": {name: sha256(out / name) for name in
                                  ("clean_customers.csv", "clean_months.csv", "clean_rows.csv")}}
@@ -152,7 +173,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "held_customers": len(held),
                           "reason_counts": dict(sum((b["reasons"] for b in held), Counter()))}))
         return 2
-    manifest = export(books, digests, out, args.xlsx, tuple(args.raw_tab))
+    try:
+        manifest = export(books, digests, out, args.xlsx, tuple(args.raw_tab))
+    except loader.LoadError as exc:
+        print(json.dumps({"ok": False, "reason": loader.reason(exc)}))
+        return 2
     counts = {k: v for k, v in manifest["counts"].items() if k != "anchor_total_vnd"}  # no money on stdout
     print(json.dumps({"ok": True, "counts": counts,
                       "customers_per_cleaning_rule": manifest["customers_per_cleaning_rule"]}))

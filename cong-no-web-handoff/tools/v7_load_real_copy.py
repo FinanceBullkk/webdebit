@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import csv
 import hashlib
+import io
 import json
 import posixpath
 import re
@@ -918,6 +919,7 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                     reasons["ANCHOR_CHAIN_MISMATCH"] += 1
             if not charge_known or not receipt_known:
                 cumulative = None
+            month_rounded = False
             if cumulative is not None and exact_cum is not None and not adjusted and any(
                     r.get("exact") is not None for r in block["records"]):
                 # Data cleaning with fractions (user 20/10/2026): the month's whole-dong charge is its
@@ -927,6 +929,25 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
                 charge = int(exact_charge.to_integral_value(rounding=ROUND_HALF_UP))
                 receipt = charge - (end - cumulative)
                 flags["ROUNDED_MONTH_TOTALS"] += 1
+                month_rounded = True
+            if month_rounded:
+                # Month rounding already defines charge/receipt above. Apportion its remainder
+                # to fractional source rows so the frozen rows and month checks tell one story.
+                month_rows = [r for r in item["legacy"] if r["debt_month"] == month + "-01"]
+                for kind, target in (("trip", charge), ("receipt", receipt)):
+                    kind_rows = [r for r in month_rows if (r["kind"] == "trip" or
+                        (r["display"]["source_kind"] == "INSURANCE_RECEIVABLE_added_to_debt"
+                         and not insurance_as_receipt)) == (kind == "trip")]
+                    delta = target - sum(r["source_total_vnd"] or 0 for r in kind_rows)
+                    fractional_rows = [r for r in kind_rows if "ROUNDED_VND" in r["display"]["flags"]]
+                    if delta and fractional_rows:
+                        if abs(delta) > len(fractional_rows):
+                            reasons["ROUNDING_REMAINDER_UNSUPPORTED"] += 1
+                            continue
+                        share, extra = divmod(abs(delta), len(fractional_rows))
+                        for index, row in enumerate(fractional_rows):
+                            row["source_total_vnd"] += (1 if delta > 0 else -1) * (share + (index < extra))
+                            row["display"]["flags"].append("ROUNDING_APPORTIONED")
             if cumulative is not None:
                 exact_cum = (Decimal(cumulative + charge - receipt) if exact_cum is None or adjusted
                              else exact_cum + exact_charge - exact_receipt)
@@ -995,23 +1016,144 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
     return books, digests, held
 
 
+CLEAN_FORMAT_VERSION = 2
+CLEAN_FILES = ("clean_customers.csv", "clean_months.csv", "clean_rows.csv")
+DISPLAY_FIELDS = ("date", "raw_date", "container", "unit_price", "fee_vnd", "carrier",
+                  "from", "to", "note", "stt", "row", "tab", "cells", "source_kind", "source_flags", "flags")
+
+
+def validate_books(books: list[dict], control_total: int) -> None:
+    """Mechanical gates shared by export and clean reader; never substitute NULL with zero."""
+    for item in books:
+        months = [c["debt_month"] for c in item["checks"]]
+        if months != sorted(set(months)) or any(r["debt_month"] not in months for r in item["legacy"]):
+            raise LoadError("CLEAN_MONTHS")
+        if not item["in_summary"] or item["reasons"]:
+            raise LoadError("CLEAN_INELIGIBLE_CUSTOMER")
+        checks = item["checks"]
+        if not checks or len(checks) != len(item["openings"]):
+            raise LoadError("CLEAN_MONTHS")
+        cumulative = checks[0]["opening_anchor_vnd"]
+        for check, opening in zip(checks, item["openings"], strict=True):
+            charge = receipt = 0
+            for row in item["legacy"]:
+                if row["debt_month"] != check["debt_month"]:
+                    continue
+                amount = row["source_total_vnd"]
+                if amount is None:
+                    if row["kind"] == "trip" and "MISSING_PRICE" in row["display"]["flags"]:
+                        continue
+                    raise LoadError("CLEAN_MONTH_TOTAL")
+                insurance_charge = (row["display"].get("source_kind") == "INSURANCE_RECEIVABLE_added_to_debt"
+                                    and not item["flags"].get("INSURANCE_AS_RECEIPT"))
+                if row["kind"] == "trip" or insurance_charge:
+                    charge += amount
+                else:
+                    receipt += amount
+            if (charge, receipt) != (check["source_charge_vnd"], check["source_receipt_vnd"]):
+                raise LoadError("CLEAN_MONTH_TOTAL")
+            if cumulative is None or check["opening_anchor_vnd"] != checks[0]["opening_anchor_vnd"]:
+                raise LoadError("CLEAN_ANCHOR_CHAIN")
+            cumulative += charge - receipt
+            if cumulative != check["source_cumulative_vnd"] or cumulative != check["replay_cumulative_vnd"]:
+                raise LoadError("CLEAN_ANCHOR_CHAIN")
+            if (opening["debt_month"] != check["debt_month"] or
+                    opening["amount_vnd"] != check["bucket_vnd"] or
+                    opening["amount_vnd"] != check["standard_bucket_vnd"]):
+                raise LoadError("CLEAN_BUCKET_TOTAL")
+        if sum(o["amount_vnd"] for o in item["openings"]) != item["anchor"]:
+            raise LoadError("CLEAN_BUCKET_TOTAL")
+        if cumulative != item["anchor"]:
+            raise LoadError("CLEAN_ANCHOR_CHAIN")
+    if sum(b["anchor"] for b in books) != control_total:
+        raise LoadError("CLEAN_CONTROL_TOTAL")
+
+
+def clean_data(folder: Path) -> tuple[list[dict], dict, dict]:
+    """Read only the frozen bundle. Hash all bytes before parsing any CSV or touching DB."""
+    manifest_bytes = (folder / "manifest.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    if manifest.get("format_version") != CLEAN_FORMAT_VERSION:
+        raise LoadError("CLEAN_FORMAT_VERSION")
+    payload = {name: (folder / name).read_bytes() for name in CLEAN_FILES}
+    if set(manifest.get("files_sha256", {})) != set(CLEAN_FILES) or any(
+            hashlib.sha256(data).hexdigest() != manifest["files_sha256"][name]
+            for name, data in payload.items()):
+        raise LoadError("CLEAN_HASH_MISMATCH")
+    tables = {name: list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
+              for name, data in payload.items()}
+    def number(value):
+        result = integer(value)
+        if value != "" and result is None:
+            raise LoadError("CLEAN_INTEGER")
+        return result
+    books = []
+    by_name = {}
+    for row in tables[CLEAN_FILES[0]]:
+        item = {"name": row["customer"], "ordinal": number(row["ordinal"]), "in_summary": True,
+                "anchor": number(row["anchor_vnd"]), "flags": Counter(json.loads(row["flags"])),
+                "reasons": Counter(), "csv_only": json.loads(row["csv_only"]),
+                "row_counts": Counter(json.loads(row["row_counts"])),
+                "checks": [], "openings": [], "legacy": []}
+        metadata = json.loads(row["metadata"])
+        if set(metadata) - {"has_insurance"}:
+            raise LoadError("CLEAN_METADATA")
+        item.update(metadata)
+        if item["name"] in by_name:
+            raise LoadError("CLEAN_DUPLICATE_CUSTOMER")
+        books.append(item)
+        by_name[item["name"]] = item
+    for row in tables[CLEAN_FILES[1]]:
+        item = by_name[row["customer"]]
+        check = {key: number(row[key]) if key.endswith("_vnd") else row[key] for key in
+                 ("opening_anchor_vnd", "standard_bucket_vnd", "standard_source_ref", "standard_source_sha256",
+                  "source_evidence_sha256")}
+        check.update(debt_month=row["debt_month"] + "-01", source_charge_vnd=number(row["charge_vnd"]),
+                     source_receipt_vnd=number(row["receipt_vnd"]), replay_cumulative_vnd=number(row["month_end_vnd"]),
+                     source_cumulative_vnd=number(row["sheet_month_end_vnd"]), bucket_vnd=number(row["bucket_vnd"]),
+                     exception_codes=json.loads(row["exception_codes"]))
+        item["checks"].append(check)
+        item["openings"].append({"debt_month": check["debt_month"], "amount_vnd": check["bucket_vnd"],
+                                 "source_tab": row["source_tab"], "source_row": number(row["source_row"])})
+    for row in tables[CLEAN_FILES[2]]:
+        display = {key: json.loads(row[key]) if key in ("cells", "flags") else
+                   number(row[key]) if key == "row" else row[key] for key in DISPLAY_FIELDS}
+        for key in json.loads(row["null_fields"]):
+            display[key] = None
+        by_name[row["customer"]]["legacy"].append({"debt_month": row["debt_month"] + "-01", "kind": row["kind"],
+            "source_tab": row["source_tab"], "source_row": number(row["source_row"]),
+            "source_total_vnd": number(row["amount_vnd"]), "display": display})
+    validate_books(books, manifest["control_total_vnd"])
+    if clean_counts(books) != manifest["counts"]:
+        raise LoadError("CLEAN_COUNTS")
+    return books, {"manifest.json": hashlib.sha256(manifest_bytes).hexdigest()}, manifest
+
+
+def clean_counts(books: list[dict]) -> dict:
+    return {"customers": len(books), "months": sum(len(b["checks"]) for b in books),
+            "rows": sum(len(b["legacy"]) for b in books),
+            "trips": sum(r["kind"] == "trip" for b in books for r in b["legacy"]),
+            "receipts": sum(r["kind"] == "receipt" for b in books for r in b["legacy"])}
+
+
 def report(books: list[dict], digests: dict[str, str], run_id: str, *, loaded: bool = False) -> dict:
     reasons, flags, counts = Counter(), Counter(), Counter()
     held = []
     for item in books:
         reasons.update(item["reasons"])
-        flags.update(item["flags"])
-        counts.update(item["row_counts"])
+        if not item["reasons"]:
+            flags.update(item["flags"])
+            counts.update(r["kind"] for r in item["legacy"])
         if item["reasons"]:
             held.append({"ordinal": item["ordinal"], "reason_counts": dict(sorted(item["reasons"].items()))})
     eligible = sum(not item["reasons"] for item in books)
-    return {"run_id": run_id, "customers": len(books),
+    return {"run_id": run_id, "customers": eligible,
             "loaded_customers": sum(item.get("status") == "active" for item in books) if loaded else 0,
             "eligible_customers": eligible, "held_customers": len(held),
-            "months": sum(len(item["checks"]) for item in books),
+            "months": sum(len(item["checks"]) for item in books if not item["reasons"]),
             "row_counts": dict(sorted(counts.items())), "reason_counts": dict(sorted(reasons.items())),
             "flag_counts": dict(sorted(flags.items())), "held": held,
-            "source_sha256": digests, "source_notice": SOURCE_NOTICE}
+            "source_sha256": digests, "source_notice": "Clean manifest-bound bundle"}
 
 
 def write_report(result: dict, filename: str) -> None:
@@ -1025,14 +1167,17 @@ def write_report(result: dict, filename: str) -> None:
     print(json.dumps(result, ensure_ascii=True), flush=True)
 
 
-def import_one(pg: Pg, item: dict, digest: str, index: int) -> str:
+def import_one(pg: Pg, item: dict, digest: str, index: int, *, cutover: int | None = None) -> str:
     if item["reasons"]:
         return "held"
     customer = int(pg.value("INSERT INTO sokhach.customer(name) VALUES (" +
                             "convert_from(decode('" + item["name"].encode().hex() + "','hex'),'UTF8')) RETURNING id"))
     item["id"] = customer
-    cutover = int(pg.value("INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by) "
-        f"VALUES ('20/10 isolated copy','20/10 export','{digest}',now(),{item['anchor']},'isolated-loader') RETURNING id"))
+    shared_cutover = cutover is not None
+    if cutover is None:
+        # ponytail: legacy fixture helper only; CLI always supplies one manifest-bound cutover.
+        cutover = int(pg.value("INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by) "
+            f"VALUES ('20/10 isolated copy','20/10 export','{digest}',now(),{item['anchor']},'isolated-loader') RETURNING id"))
     item["cutover_id"] = cutover
     call(pg, "import_cutover", customer, version(pg, customer), f"real-import-{index}", cutover,
          json.dumps(item["openings"], ensure_ascii=False), json.dumps(item["legacy"], ensure_ascii=False),
@@ -1043,6 +1188,8 @@ def import_one(pg: Pg, item: dict, digest: str, index: int) -> str:
              f"real-verify-customer-{index}", None, actor="isolated-loader")
     except Exception as exc:  # noqa: BLE001  (any load failure becomes a coded reason)
         raise LoadError(reason(exc)) from None
+    if shared_cutover:
+        return "verified"
     call(pg, "verify_cutover", cutover, f"real-verify-{index}", None, actor="isolated-loader")
     call(pg, "activate_cutover", cutover, f"real-activate-{index}", None, actor="isolated-loader")
     call(pg, "activate_cutover_customer", customer, cutover, version(pg, customer),
@@ -1062,50 +1209,14 @@ def reason(exc: Exception) -> str:
     return match.group() if match and match.group() in known else "IMPORT_ERROR"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-dir", type=Path, default=SOURCE)
+    parser.add_argument("--from-clean", type=Path, required=True)
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--check-source", action="store_true")
     parser.add_argument("--port", type=int, default=8782)
     parser.add_argument("--seed-only", action="store_true")
-    parser.add_argument("--explain", action="append", default=[], metavar="NAME",
-                        help="print hold reasons and month checks for customers whose name contains NAME")
-    parser.add_argument("--dump-tab", metavar="NAME", help="print layout rows (numbers as N) of one exact tab")
-    parser.add_argument("--rows", default="1:40", help="row range for --dump-tab, e.g. 1:40")
-    parser.add_argument("--raw-tab", action="append", default=[], metavar="EXACT_NAME",
-                        help="exact tab name incl. spaces to use when tabs differ only in spaces")
-    parser.add_argument("--sheet-is-truth", action="store_true",
-                        help="newer xlsx outranks older CSV extracts and the hao opening (flags, not holds)")
-    args = parser.parse_args()
-    global PREFERRED_RAW_TABS, SHEET_IS_TRUTH  # noqa: PLW0603  (CLI entry sets module options once)
-    PREFERRED_RAW_TABS = tuple(args.raw_tab)
-    SHEET_IS_TRUTH = args.sheet_is_truth
-    if args.dump_tab:
-        low, high = (int(part) for part in args.rows.split(":"))
-        for tab, data in workbook_rows(args.source_dir / "source-google-export.xlsx"):
-            if normalized(args.dump_tab) not in normalized(tab):
-                continue
-            for row_no, cells in data:
-                if low <= row_no <= high and any(cells.values()):
-                    shown = {col: ("N" if integer(value) is not None else value[:90])
-                             for col, value in cells.items() if value}
-                    print(row_no, json.dumps(shown, ensure_ascii=True))
-        return 0
-    if args.explain:
-        # Asked-for customers only; source-only, no Docker. ASCII output for the Windows console.
-        books, _, _ = source_data(args.source_dir)
-        needles = [needle.upper() for needle in args.explain]
-        for item in books:
-            if any(needle in item["name"].upper() or (needle == "HELD" and item["reasons"]) for needle in needles):
-                print(json.dumps({"name": item["name"], "reasons": dict(item["reasons"]),
-                                  "in_summary": item.get("in_summary"), "csv_only": item.get("csv_only", []),
-                                  "anchor": item["anchor"],
-                                  "months": [[c["debt_month"][:7], c["source_charge_vnd"], c["source_receipt_vnd"],
-                                              c["replay_cumulative_vnd"], c["source_cumulative_vnd"],
-                                              c["bucket_vnd"], c["standard_bucket_vnd"]] for c in item["checks"]]},
-                                 ensure_ascii=True))
-        return 0
+    args = parser.parse_args(argv)
     if args.port == 8777 or not 1 <= args.port <= 65535:
         parser.error("port must be 1..65535 and cannot be 8777")
     run_id = uuid.uuid4().hex
@@ -1113,12 +1224,17 @@ def main() -> int:
     made_volume = False
     container_id = None
     server = None
-    books, digests = [], {}
+    books, digests, manifest = [], {}, None
     exit_code = 0
     try:
-        books, digests, _ = source_data(args.source_dir)
+        books, digests, manifest = clean_data(args.from_clean)
+        def bundle_report(*, loaded=False):
+            result = report(books, digests, run_id, loaded=loaded)
+            result["counts"] = manifest["counts"]
+            result["excluded_counts"] = manifest["excluded_counts"]
+            return result
         if args.check_source:
-            write_report(report(books, digests, run_id), f"source-check-{run_id}.json")
+            write_report(bundle_report(), f"source-check-{run_id}.json")
             return 2 if any(item["reasons"] for item in books) else 0
         if shutil.which("docker") is None:
             raise LoadError("DOCKER_UNAVAILABLE")
@@ -1145,14 +1261,26 @@ def main() -> int:
             run(["docker", "exec", "-i", *pg.env, name, "psql", "-X", "-v",
                  "ON_ERROR_STOP=1", "-U", "postgres", "-d", DATABASE],
                 input_text=source.read_text(encoding="utf-8"))
+        frozen_hex = manifest["frozen_at"].encode().hex()
+        cutover = int(pg.value("INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by) "
+            f"VALUES ('clean isolated copy','clean manifest','{digests['manifest.json']}',"
+            f"convert_from(decode('{frozen_hex}','hex'),'UTF8')::timestamptz,"
+            f"{manifest['control_total_vnd']},'isolated-loader') RETURNING id"))
         for index, item in enumerate(books, 1):
             try:
-                item["status"] = import_one(pg, item, digests["source-google-export.xlsx"], index)
+                item["status"] = import_one(pg, item, digests["manifest.json"], index, cutover=cutover)
             except Exception as exc:  # noqa: BLE001  (a held book is reported, not raised)
                 item["reasons"][reason(exc)] += 1
                 item["status"] = "held"
                 exit_code = 1
-        write_report(report(books, digests, run_id, loaded=True), f"real-load-{run_id}.json")
+        if not exit_code:
+            call(pg, "verify_cutover", cutover, "clean-verify", None, actor="isolated-loader")
+            call(pg, "activate_cutover", cutover, "clean-activate", None, actor="isolated-loader")
+            for index, item in enumerate(books, 1):
+                call(pg, "activate_cutover_customer", item["id"], cutover, version(pg, item["id"]),
+                     f"clean-activate-{index}", None, actor="isolated-loader")
+                item["status"] = "active"
+        write_report(bundle_report(loaded=True), f"real-load-{run_id}.json")
         if not args.seed_only:
             class RealHandler(api.Handler):
                 runner = api.Psql(name, DATABASE, "postgres")
@@ -1167,6 +1295,9 @@ def main() -> int:
         pass
     except Exception as exc:  # noqa: BLE001  (failure is written to the report with a coded reason)
         result = report(books, digests, run_id)
+        if manifest is not None:
+            result["counts"] = manifest["counts"]
+            result["excluded_counts"] = manifest["excluded_counts"]
         result["reason_counts"][reason(exc)] = result["reason_counts"].get(reason(exc), 0) + 1
         write_report(result, f"real-load-{run_id}.json")
         exit_code = 1
