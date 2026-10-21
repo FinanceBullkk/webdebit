@@ -2368,6 +2368,22 @@ def check_migration(pg: Pg) -> None:
     finally:
         rejected.close()
     require(copy.value("SELECT count(*) FROM sokhach.baseline_trip_ref") == "1", "loader failure changed references")
+    # A legacy trip without container gets no reference: counted via skipped, never silently dropped.
+    copy.sql("ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard; "
+             "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_tab,source_row,created_by_event) "
+             "VALUES (1,1,'2026-01-01','trip','{\"fake\":true,\"container\":\"\",\"date\":null}','FAKE',9,1); "
+             "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard")
+    for skipped, expect in ((0, None), (1, "UNCHANGED")):
+        nocontainer = DirectPg("/var/run/postgresql", db, "v7_loader", psql_command=pg.psql_command())
+        try:
+            try:
+                got = apply(nocontainer, refs, "a" * 64, 1, skipped)
+            except LoadError:
+                got = None
+        finally:
+            nocontainer.close()
+        require(got == expect, f"no-container legacy trip handling wrong for skipped={skipped}")
+    require(copy.value("SELECT count(*) FROM sokhach.baseline_trip_ref") == "1", "no-container trip got a reference")
     check_dedup(copy)
 
 

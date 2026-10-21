@@ -16,8 +16,11 @@ def normalize(value):
     return re.sub(r"[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]", "", value or "").upper()
 
 
-def references(books):
+def split_trips(books):
+    """Return (refs, skipped). A trip without a container cannot be matched by container,
+    so it is counted and reported, never silently dropped and never given a reference."""
     result = []
+    skipped = 0
     for book in books:
         for row in book["legacy"]:
             if row["kind"] != "trip":
@@ -25,14 +28,19 @@ def references(books):
             display = row["display"]
             container = normalize(display["container"])
             if not container:
-                raise LoadError("BASELINE_CONTAINER_MISSING")
+                skipped += 1
+                continue
             day = date.fromisoformat(display["date"]) if display["date"] else None
             booking = f"ALT:{container}:{day.strftime('%Y%m%d') if day else 'UNKNOWN'}"
             result.append((booking, container, day.isoformat() if day else None))
-    return result
+    return result, skipped
 
 
-def apply(pg, refs, digest, cutover):
+def references(books):
+    return split_trips(books)[0]
+
+
+def apply(pg, refs, digest, cutover, skipped=0):
     """Caller owns transaction. Serialize against application customer locks and other loaders."""
     pg.sql("SET LOCAL ROLE sokhach_owner; SET LOCAL statement_timeout='120s'; "
            "LOCK TABLE sokhach.customer IN ACCESS EXCLUSIVE MODE; "
@@ -45,11 +53,12 @@ def apply(pg, refs, digest, cutover):
                   for r in refs[start:start + 500]]
         pg.sql("INSERT INTO incoming_refs VALUES " + ",".join(values))
     # Verify multiset against immutable legacy already imported; wrong bundle cannot populate references.
-    pg.true(f"(SELECT count(*) FROM sokhach.legacy_row WHERE cutover_id={cutover} AND kind='trip')={len(refs)}",
+    pg.true(f"(SELECT count(*) FROM sokhach.legacy_row WHERE cutover_id={cutover} AND kind='trip')={len(refs) + skipped}",
             "BASELINE_LEGACY_COUNT_MISMATCH")
     legacy = ("SELECT sokhach._booking_key(NULL,display->>'container',nullif(display->>'date','')::date),"
               "sokhach._normalize_key(display->>'container'),nullif(display->>'date','')::date "
-              f"FROM sokhach.legacy_row WHERE cutover_id={cutover} AND kind='trip'")
+              f"FROM sokhach.legacy_row WHERE cutover_id={cutover} AND kind='trip' "
+              "AND sokhach._normalize_key(display->>'container')<>''")
     pg.true("NOT EXISTS ((SELECT * FROM incoming_refs EXCEPT ALL " + legacy + ") UNION ALL (" +
             legacy + " EXCEPT ALL SELECT * FROM incoming_refs))", "BASELINE_LEGACY_MISMATCH")
     count = int(pg.value(f"SELECT count(*) FROM sokhach.baseline_trip_ref WHERE cutover_id={cutover}"))
@@ -81,16 +90,17 @@ def main():
         if args.cutover_id <= 0:
             raise LoadError("INVALID_CUTOVER")
         books, digests, manifest = clean_data(args.clean_dir)
-        refs = references(books)
-        if not refs or len(refs) != manifest["counts"]["trips"]:
+        refs, skipped = split_trips(books)
+        if not refs or len(refs) + skipped != manifest["counts"]["trips"]:
             raise LoadError("BASELINE_TRIP_COUNT_MISMATCH")
         result = {"mode": "APPLY" if args.apply else "PLAN", "trips": len(refs),
+                  "skipped_no_container": skipped,
                   "manifest_sha256": digests["manifest.json"]}
         if args.apply:
             from v7_load_direct import DirectPg
             pg = DirectPg(args.socket_dir, args.database, "v7_loader")
             try:
-                result["result"] = apply(pg, refs, digests["manifest.json"], args.cutover_id)
+                result["result"] = apply(pg, refs, digests["manifest.json"], args.cutover_id, skipped)
                 pg.close(commit=True)
             except Exception:
                 pg.close()

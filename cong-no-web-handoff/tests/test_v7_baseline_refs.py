@@ -35,9 +35,13 @@ class BaselineRefsTest(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(refs.main(), 1)
 
-    def test_unknown_date_stays_null_and_missing_container_stops(self):
-        books = [{"legacy": [{"kind": "trip", "display": {"container": " a\u00a0b ", "date": None}}]}]
+    def test_unknown_date_stays_null_and_missing_container_is_counted_not_referenced(self):
+        books = [{"legacy": [{"kind": "trip", "display": {"container": " a b ", "date": None}}]}]
         self.assertEqual(refs.references(books), [("ALT:AB:UNKNOWN", "AB", None)])
-        books[0]["legacy"][0]["display"]["container"] = ""
-        with self.assertRaises(refs.LoadError):
-            refs.references(books)
+        books[0]["legacy"].append({"kind": "trip", "display": {"container": " ", "date": "2026-01-02"}})
+        books[0]["legacy"].append({"kind": "trip", "display": {"container": "", "date": None}})
+        books[0]["legacy"].append({"kind": "receipt", "display": {"container": "", "date": None}})
+        result, skipped = refs.split_trips(books)
+        self.assertEqual(result, [("ALT:AB:UNKNOWN", "AB", None)])
+        self.assertEqual(skipped, 2)
+        self.assertEqual(refs.references(books), result)
