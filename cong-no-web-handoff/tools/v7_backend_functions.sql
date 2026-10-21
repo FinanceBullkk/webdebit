@@ -1352,7 +1352,36 @@ BEGIN
       WHERE c.id<>target_customer_id AND NOT c.archived),'[]'::jsonb);
 END $$;
 
+CREATE FUNCTION sokhach.list_customers() RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    PERFORM sokhach._actor();
+    RETURN (SELECT jsonb_build_object('customers',coalesce(jsonb_agg(
+        jsonb_build_object('id',id,'name',name,'status',status)
+        ORDER BY name COLLATE "C",id),'[]'::jsonb))
+      FROM (SELECT c.id,c.name,
+                   CASE WHEN cc.status='active' AND co.status='active'
+                        THEN 'active' ELSE 'NO_BASELINE' END AS status
+              FROM sokhach.customer c
+              LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id
+              LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q);
+END $$;
+
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA sokhach FROM PUBLIC, sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.paste_trips(bigint,bigint,text,date,jsonb) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.edit_trip_price(bigint,bigint,text,bigint,bigint,bigint) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.adjust_month(bigint,bigint,text,date,bigint,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.record_receipt(bigint,bigint,text,date,text,bigint) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.set_month_lock(bigint,bigint,text,date,boolean) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.list_offset_sources(bigint) TO sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.list_customers() TO sokhach_app, sokhach_reader;
 RESET ROLE;
 -- Access for trial remains scoped to app server; actor comes from server session.
 

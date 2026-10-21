@@ -879,10 +879,11 @@ def check_actor(pg: Pg) -> None:
     pg.rejects(f"SELECT sokhach.record_receipt({c},0,'actor-empty','2026-02-01','THU TIỀN',1)",
                message="ACTOR_REQUIRED")
     pg.rejects(actor_sql(f"SELECT sokhach.get_ledger({c})", " "), message="ACTOR_REQUIRED")
-    pg.rejects(actor_sql(f"SELECT sokhach.get_ledger({c})", "harness"), user="v7_app",
-               message="permission denied")
-    pg.rejects(actor_sql(f"SELECT sokhach.record_receipt({c},0,'actor-role','2026-02-01','THU TIỀN',1)"),
-               user="v7_app", message="permission denied")
+    require(json.loads(pg.value(actor_sql(f"SELECT sokhach.get_ledger({c})", "harness"),
+                                user="v7_app"))["total_outstanding_vnd"] == "10",
+            "app cannot read through allowed function")
+    pg.rejects(f"SELECT sokhach.record_receipt({c},0,'actor-role','2026-02-01','THU TIỀN',1)",
+               user="v7_app", message="ACTOR_REQUIRED")
     result = pg.value(actor_sql(f"SELECT sokhach.get_ledger({c})", "actor-a",
         search_path="CREATE TEMP TABLE customer(version bigint); INSERT INTO customer VALUES (999); "
                     "SET LOCAL search_path = pg_temp, public; "))
@@ -1546,7 +1547,8 @@ def check_roles(pg: Pg) -> None:
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock",
-                       "get_ledger", "import_cutover", "verify_cutover_customer",
+                       "get_ledger", "list_customers", "record_offset", "void_offset",
+                       "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
     allowed = ",".join(lit(name) for name in public_commands)
     pg.true("(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
