@@ -40,6 +40,16 @@ function pythonCommand() {
   ];
   for (const c of venv) if (fs.existsSync(c)) return { cmd: c, args: [] };
 
+  // Môi trường đang kích hoạt (CI chạy qua `uv run`, nó đặt VIRTUAL_ENV). Phải
+  // đứng trước `python3`: venv trên Windows không có python3.exe, nên `python3`
+  // sẽ rơi vào Python của máy, thiếu tzdata.
+  const active = process.env.VIRTUAL_ENV;
+  if (active) {
+    for (const c of [path.join(active, "Scripts", "python.exe"), path.join(active, "bin", "python")]) {
+      if (fs.existsSync(c)) return { cmd: c, args: [] };
+    }
+  }
+
   const fallbacks = [
     { cmd: "python3", args: [] },
     { cmd: "python", args: [] },
