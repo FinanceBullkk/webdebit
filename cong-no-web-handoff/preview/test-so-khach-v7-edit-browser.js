@@ -71,6 +71,14 @@ function apply(world, url, body) {
     if (delta !== 0n) world.adjustments.push({ id: world.adjustments.length + 1, month: old.month, trip_id: null, legacy_row_id: row.id, amount_vnd: delta.toString(), note: null });
     row.current = next;
     event(url.endsWith('delete') ? 'legacy_delete' : 'legacy_edit', { legacy: { ...old, field: body.field, value: old[body.field] } }, { legacy: { ...next, field: body.field, value: next[body.field] } });
+  } else if (url === '/api/v7/trips/paste') {
+    for (const trip of body.trips) {
+      const [d, m, y] = trip.date.split('/');
+      world.trips.push({ id: 100 + world.trips.length, month: `${y}-${m}-01`, container: trip.container, carrier: trip.carrier, event_date: `${y}-${m}-${d}`,
+        origin: trip.from, destination: trip.to, unit_price_vnd: trip.unitPriceVnd, other_fee_vnd: trip.otherFeeVnd, amount_vnd: trip.unitPriceVnd,
+        status: 'confirmed', is_missing_price: trip.unitPriceVnd === null, is_fee_only: false, editable: true, info_editable: true, deleted: false });
+    }
+    event('paste', {}, { trips: body.trips });
   } else return [404, { error: 'NOT_FOUND' }];
   world.version += 1;
   return [200, { ok: true }];
@@ -105,7 +113,7 @@ async function withPage(fn) {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1`);
-    await page.waitForSelector('.book-head h1');
+    await page.waitForSelector('.book-head .history-toggle');
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
     await fn({ page, world, shot });
     assert.deepEqual(errors, []);
@@ -126,7 +134,7 @@ test('chuyến web tháng khóa: sửa ô bằng Enter, Esc trả lại, Tab lư
   await tripCell(page, 'carrier').click();
   await page.locator('.info-input').fill('Tàu đổi');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-field="carrier"]')?.textContent === 'Tàu đổi');
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-field="carrier"]')?.textContent === 'Tàu đổi');
   const sent = world.requests.at(-1);
   assert.equal(sent.path, '/api/v7/trips/info');
   assert.deepEqual({ ...sent.body, idempotency_key: 'k' }, { customer_id: 1, expected_version: 1, idempotency_key: 'k', trip_id: 11, field: 'carrier', value: 'Tàu đổi' });
@@ -134,33 +142,55 @@ test('chuyến web tháng khóa: sửa ô bằng Enter, Esc trả lại, Tab lư
   await tripCell(page, 'destination').click();
   await page.locator('.info-input').fill('Nơi mới');
   await page.keyboard.press('Tab');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-field="destination"]')?.textContent === 'Nơi mới');
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-field="destination"]')?.textContent === 'Nơi mới');
   assert.equal(world.requests.length, 2);
 
   // Bấm vào rồi rời ô không đổi gì: không gửi lệnh.
   await tripCell(page, 'origin').click();
-  await page.locator('h1').click();
+  await page.locator('.book-head .head-item.total').click();
   assert.equal(world.requests.length, 2);
 
   await page.locator('.history-toggle').click();
-  assert.match(await page.locator('#history-panel').innerText(), /Sửa ô chuyến[\s\S]*Chuyến DEMU1234567 · Hãng tàu \/ số xe: Tàu thử → Tàu đổi/);
+  assert.match(await page.locator('#history-panel').innerText(), /Sửa ô chuyến[\s\S]*Chuyến DEMU1234567 · Hãng tàu: Tàu thử → Tàu đổi/);
   await shot('sua-o-chuyen-web');
 }));
 
-test('đổi ngày sang tháng khác: chuyến sang bảng tháng đó, bảng tự hiện; ngày sai báo tại ô, không gửi', async () => withPage(async ({ page, world }) => {
+test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyển → dòng vàng ở tháng mới, dòng mờ Hoàn tác ở tháng cũ', async () => withPage(async ({ page, world, shot }) => {
   await tripCell(page, 'event_date').click();
   await page.locator('.info-input').fill('31/02/2026');
   await page.keyboard.press('Enter');
   assert.match(await tripCell(page, 'event_date').locator('.cell-error').innerText(), /dd\/mm\/yyyy/);
   assert.equal(world.requests.length, 0);
 
+  // Ngày thuộc tháng khác: chưa gửi, hỏi lại ngay dưới dòng; Giữ ngày cũ trả lại ô.
   await page.locator('.info-input').fill('5/8/2026');
   await page.keyboard.press('Enter');
-  await page.locator('#thang-2026-08 td.info-edit[data-field="event_date"]').waitFor();
+  const ask = page.locator('.move-ask');
+  assert.match(await ask.innerText(), /Ngày 05\/08\/2026 thuộc tháng 8\/2026 \(đã khóa\)\. Chuyển chuyến DEMU1234567 sang tháng 8\/2026\?/);
+  assert.equal(world.requests.length, 0);
+  await ask.locator('.move-no').click();
+  assert.equal(await page.locator('.move-ask').count(), 0);
+  assert.equal(await tripCell(page, 'event_date').innerText(), '15/09/2026');
+  assert.equal(world.requests.length, 0);
+
+  await tripCell(page, 'event_date').click();
+  await page.locator('.info-input').fill('5/8/2026');
+  await page.keyboard.press('Enter');
+  await page.locator('.move-ask .move-yes').click();
+  await page.locator('#thang-2026-08 tr.moved').waitFor();
   assert.equal(world.requests.at(-1).body.value, '2026-08-05');
   assert.equal(await page.locator('#thang-2026-08 td.info-edit[data-field="event_date"]').innerText(), '05/08/2026');
+  assert.match(await page.locator('#thang-2026-08 tr.moved .moved-tag').innerText(), /Vừa chuyển từ T9/);
   assert.equal(await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"]').count(), 0);
-  assert.match(await page.locator('.live-notice').innerText(), /Đã chuyển sang tháng 8\/2026/);
+  assert.match(await page.locator('#thang-2026-09 .ghost').innerText(), /DEMU1234567 \(ngày cũ 15\/09\/2026\) đã chuyển sang tháng 8\/2026/);
+  assert.equal(await page.locator('.live-notice').isVisible(), false);
+  await shot('chuyen-thang');
+
+  // Hoàn tác: gửi lại ngày cũ, dòng về tháng 9, hết dòng mờ và màu vàng.
+  await page.locator('#thang-2026-09 .ghost-undo').click();
+  await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"][data-field="event_date"]').waitFor();
+  assert.equal(world.requests.at(-1).body.value, '2026-09-15');
+  assert.equal(await page.locator('.ghost, tr.moved').count(), 0);
 }));
 
 test('lỗi server hiện tại ô và giữ ô nhập', async () => withPage(async ({ page, world }) => {
@@ -168,12 +198,13 @@ test('lỗi server hiện tại ô và giữ ô nhập', async () => withPage(as
   await tripCell(page, 'container').click();
   await page.locator('.info-input').fill('');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-field="container"] .cell-error')?.textContent === 'Thiếu thông tin chuyến.');
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-field="container"] .cell-error')?.textContent === 'Thiếu thông tin chuyến.');
   assert.equal(await page.locator('.info-input').count(), 1);
 }));
 
 test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng điều chỉnh sổ gốc cộng phần chênh của tháng', async () => withPage(async ({ page, world, shot }) => {
-  assert.match(await page.locator('.legacy-caption').first().innerText(), /bấm ô để sửa, bấm STT để xóa/);
+  // 23/10/2026: không còn chú thích "Từ sổ gốc" và dòng chênh; dòng cũ trông và sửa như chuyến web.
+  assert.equal(await page.locator('.legacy-caption, .source-total').count(), 0);
   const price = legacyCell(page, 21, 'unit_price_vnd');
   assert.equal(await price.innerText(), 'chưa có giá');
   assert.match(await price.getAttribute('class'), /missing/);
@@ -181,7 +212,7 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
   assert.equal(await page.locator('.info-input').inputValue(), '');
   await page.locator('.info-input').fill('70.000.000');
   await page.keyboard.press('Enter');
-  await page.locator('.legacy-adjustment').waitFor();
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="legacy"][data-id="21"][data-field="unit_price_vnd"]')?.textContent === '70.000.000');
   assert.deepEqual(posts(world).at(-1), ['/api/v7/legacy/edit', { customer_id: 1, expected_version: 1, idempotency_key: world.requests.at(-1).body.idempotency_key,
     legacy_row_id: 21, field: 'unit_price_vnd', value: '70000000' }]);
   assert.equal(await legacyCell(page, 21, 'unit_price_vnd').innerText(), '70.000.000');
@@ -190,8 +221,8 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
   assert.equal(await page.locator('.info-input').inputValue(), '90.000.000');
   await page.locator('.info-input').fill('85.000.000');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('.legacy-adjustment td.num')?.textContent === '65.000.000');
-  assert.match(await page.locator('.legacy-adjustment').innerText(), /Điều chỉnh do sửa\/xóa dòng sổ gốc tháng này/);
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="legacy"][data-id="22"][data-field="unit_price_vnd"]')?.textContent === '85.000.000');
+  assert.equal(await page.locator('.legacy-adjustment').count(), 0);
 
   await page.locator('.history-toggle').click();
   assert.match(await page.locator('#history-panel').innerText(), /Sửa dòng sổ gốc[\s\S]*Dòng sổ gốc OLDU0000002 · Đơn giá: 90\.000\.000 → 85\.000\.000 · Số tính: 93\.000\.000 → 88\.000\.000/);
@@ -218,7 +249,42 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
   await page.locator('.confirm-delete').click();
   await page.waitForFunction(() => !document.querySelector('td.row-delete[data-id="22"]'));
   assert.equal(world.requests.at(-1).path, '/api/v7/legacy/delete');
-  assert.equal(await page.locator('.legacy-adjustment td.num').innerText(), '-93.000.000');
+  assert.equal(await page.locator('.legacy-adjustment').count(), 0);
+}));
+
+test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống, ô lỗi chặn Lưu, Lưu gửi một lệnh dán lô', async () => withPage(async ({ page, world, shot }) => {
+  assert.equal(await page.locator('.paste-input').count(), 0);
+  const blank = page.locator(`#thang-${todayMonth.slice(0, 7)} .draft-input[data-draft="0"][data-field="carrier"]`);
+  await blank.click();
+  const day = `${clock.slice(8)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
+  const rows = [['1', 'NEWU0000001', 'Tàu mới', day, 'Nơi A', 'Nơi B', '1,000,000', '', '', '90,000,000', '91,000,000', day, 'ck', '5,000,000'],
+    ['2', 'NEWU0000002', 'Tàu mới', day, 'Nơi A', '', '', '', '', '', '0']].map(row => row.join('\t')).join('\n');
+  await page.evaluate(text => {
+    const data = new DataTransfer();
+    data.setData('text/plain', text);
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, rows);
+  await page.locator('.draft-row.draft').nth(1).waitFor();
+  assert.equal(await page.locator('.draft-input[data-draft="0"][data-field="container"]').inputValue(), 'NEWU0000001');
+  assert.equal(await page.locator('.draft-input[data-draft="0"][data-field="fee"]').inputValue(), '1.000.000');
+  assert.match(await page.locator('.draft-note').innerText(), /Phần tiền khách trả trong vùng dán đã bỏ qua/);
+  // Hàng 2 thiếu nơi đến: ô đỏ, nút Lưu tắt; thiếu giá chỉ tô cam, không chặn.
+  assert.match(await page.locator('.draft-input[data-draft="1"][data-field="to"]').locator('..').getAttribute('class'), /bad/);
+  assert.equal(await page.locator('.draft-save').isDisabled(), true);
+  await page.locator('.draft-input[data-draft="1"][data-field="to"]').fill('Nơi C');
+  await page.locator('.draft-input[data-draft="1"][data-field="from"]').click();
+  await page.waitForFunction(() => !document.querySelector('.draft-save').disabled);
+  assert.equal(world.requests.length, 0);
+  await shot('bang-nhap-nhap');
+  await page.locator('.draft-save').click();
+  await page.waitForFunction(() => /Đã lưu 2 chuyến/.test(document.querySelector('.draft-note')?.textContent ?? ''));
+  const sent = world.requests.at(-1);
+  assert.equal(sent.path, '/api/v7/trips/paste');
+  assert.deepEqual(sent.body.trips, [
+    { container: 'NEWU0000001', carrier: 'Tàu mới', date: day, from: 'Nơi A', to: 'Nơi B', unitPriceVnd: '90000000', otherFeeVnd: '1000000', note: '', src: '' },
+    { container: 'NEWU0000002', carrier: 'Tàu mới', date: day, from: 'Nơi A', to: 'Nơi C', unitPriceVnd: null, otherFeeVnd: null, note: '', src: '' }]);
+  assert.equal(await page.locator('.draft-row.draft').count(), 0);
+  assert.equal(await page.locator('td.info-edit[data-kind="trip"][data-field="container"]').filter({ hasText: 'NEWU0000002' }).count(), 1);
 }));
 
 test('bàn phím: Enter trên ô mở sửa; 1280×720 không cuộn ngang', async () => withPage(async ({ page }) => {

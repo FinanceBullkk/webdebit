@@ -202,7 +202,7 @@ async function withPage(fn) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    const open = async id => { await page.goto(`${base}/so-khach-v7-live.html?customer=${id}`); await page.waitForSelector('.book-head h1'); };
+    const open = async id => { await page.goto(`${base}/so-khach-v7-live.html?customer=${id}`); await page.waitForSelector('.book-head .history-toggle'); };
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`) }); } };
     await fn({ page, world, open, shot, base });
     assert.deepEqual(errors, []);
@@ -418,7 +418,7 @@ test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không g�
   world.books[1].review = [{ id: 11, container: 'DEMO-HELD-1', status: 'pending_review', reason: 'BASELINE_CODE_MATCH' },
     { id: 12, container: 'DEMO-HELD-2', status: 'pending_review', reason: null }];
   await open(1);
-  assert.match(await page.locator('.book-head').innerText(), /2 chuyến CHỜ KIỂM/);
+  assert.equal(await page.locator('.review-open').count(), 2);
   await page.locator('.review-open[data-trip="11"]').click();
   assert.match(await page.locator('.review-prompt').innerText(), /Trùng mã với dòng sổ gốc/);
   await shot('11-cho-kiem');
@@ -432,7 +432,7 @@ test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không g�
     { customer_id: 1, expected_version: 1, idempotency_key: 'string', trip_id: 11, decision: 'reject', reason: 'trùng dòng sổ gốc' });
   assert.equal(await page.locator('.trip-rejected').innerText(), 'ĐÃ LOẠI');
   assert.match(await page.locator('.trip-rejected').evaluate(el => getComputedStyle(el).textDecorationLine), /line-through/);
-  assert.match(await page.locator('.book-head').innerText(), /1 chuyến CHỜ KIỂM/);
+  assert.equal(await page.locator('.review-open').count(), 1);
   await page.locator('.review-open[data-trip="12"]').click();
   assert.match(await page.locator('.review-prompt').innerText(), /Nghi trùng/);
   await page.locator('.review-reason').fill('chuyến mới thật');
