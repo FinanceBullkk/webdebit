@@ -53,6 +53,19 @@
     return `<td class="num editable ${classes}" tabindex="0" role="button" aria-label="Sửa ${field === 'unitPriceVnd' ? 'đơn giá' : 'phụ phí'} dòng ${index + 1} tháng ${monthLabel(month.key)}" data-month="${month.key}" data-index="${index}" data-field="${field}">${escape(value)}</td>`;
   }
 
+  function referenceFields() {
+    const reference = root.querySelector('.receipt-reference')?.value.trim();
+    return reference ? { reference } : {};
+  }
+
+  function referenceLine(receipt, entry = false) {
+    if (!receipt && !entry) return '';
+    const voided = receipt && (receipt.voided != null || receipt.voided_by_event != null);
+    return `<tr class="reference-row"><td colspan="9"></td>${receipt
+      ? `<td colspan="3" class="pay receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">Tham chiếu: ${escape(receipt.reference || '–')}</td>`
+      : '<td colspan="3" class="pay"><label>Tham chiếu <input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn: số giao dịch, ngoại tệ/tỷ giá…"></label></td>'}<td colspan="2"></td></tr>`;
+  }
+
   function renderLine(trip, receipt, index, month) {
     const result = trip ? model.tripAmount(trip) : null;
     const feeOnly = result?.isFeeOnly;
@@ -75,7 +88,7 @@
     ];
     const adjustmentRows = (month.adjustments ?? []).filter(item => trip && item.lineId === (trip.id ?? `${month.key}#${index}`)).map(adjustment =>
       `<tr class="adjustment"><td colspan="8">Điều chỉnh chuyến ${index + 1} · <label>Ghi chú <input class="adjustment-note" data-month="${month.key}" data-adj="${escape(adjustment.adjId)}" aria-label="Ghi chú điều chỉnh chuyến ${index + 1}" value="${escape(adjustment.reason ?? '')}" placeholder="Tùy chọn, Enter lưu"></label></td>${num(money(model.adjustmentAmount(adjustment)))}<td class="pay pay-start" colspan="4"></td><td></td></tr>`).join('');
-    return `<tr>${cells.join('')}</tr>${adjustmentRows}`;
+    return `<tr>${cells.join('')}</tr>${referenceLine(receipt, open && index === month.receipts.length)}${adjustmentRows}`;
   }
 
   function renderMonth(month, summary, _balance) {
@@ -157,12 +170,12 @@
       }).join('');
     };
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
-      adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa ngày/hình thức phiếu',
+      adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu' };
     const valueLabels = { amount_vnd: 'Số tiền', old_amount_vnd: 'Thành tiền trước', new_amount_vnd: 'Thành tiền sau',
       delta_vnd: 'Điều chỉnh', unit_price_vnd: 'Đơn giá', other_fee_vnd: 'Phụ phí', new_value_vnd: 'Giá trị mới',
       date: 'Ngày trả', event_date: 'Ngày chuyến', month: 'Tháng', debt_month: 'Tháng', pid: 'Phiếu',
-      method: 'Hình thức', container: 'Container', carrier: 'Hãng tàu / số xe', from: 'Nơi đi', to: 'Nơi đến',
+      reference: 'Tham chiếu', method: 'Hình thức', container: 'Container', carrier: 'Hãng tàu / số xe', from: 'Nơi đi', to: 'Nơi đến',
       counterparty_name: 'Sổ bên kia', void_reason: 'Lý do hủy',
       unitPriceVnd: 'Đơn giá', otherFeeVnd: 'Phụ phí', openings: 'Số kỳ số dư đầu', legacy: 'Số dòng lịch sử' };
     function describe(value, kind) {
@@ -187,6 +200,7 @@
       return parts.join(' · ') || 'Chưa có';
     }
     function describeEvent(event) {
+      if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind !== 'adjust_trip') return `${describe(event.before, event.kind)} → ${describe(event.after, event.kind)}`;
       const before = event.before ?? {}, after = event.after ?? {};
       const field = after.field ?? before.field;
@@ -263,7 +277,7 @@
             ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
             ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
             ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
-            ${empty('num')}${cell(trip?.src ?? '', 'source')}</tr>`;
+            ${empty('num')}${cell(trip?.src ?? '', 'source')}</tr>${receipt?.outgoing ? '' : referenceLine(receipt, active && key === openKey && index === receipts.length)}`;
         }).join('');
         const openingRows = opening.map(row => `<tr class="adjustment"><td colspan="8">Nợ cũ chuyển sang sổ mới</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5">Số dư đầu đã nằm trong tổng, không cộng lần nữa</td></tr>`).join('');
         const adjustmentRows = adjustments.map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5"></td></tr>`).join('');
@@ -381,7 +395,7 @@
         const button = clickEvent.currentTarget;
         button.disabled = true;
         try {
-          const outcome = await api.submitOffset('offset', { source_customer_id: source.customerId, source_version: source.version, date, amount_vnd: amountVnd.toString() });
+          const outcome = await api.submitOffset('offset', { source_customer_id: source.customerId, source_version: source.version, date, amount_vnd: amountVnd.toString(), ...referenceFields() });
           afterOffset(outcome, box.querySelector('.offset-dialog-error'), result => {
             let text = 'Đã ghi cấn trừ.';
             try {
@@ -390,7 +404,7 @@
                 + (done.overpaymentVnd > 0n ? ` Phần thừa ${f(done.overpaymentVnd)} thành ứng trước.` : '');
             } catch { /* kết quả lạ: giữ câu chung, số liệu vẫn lấy từ sổ vừa tải */ }
             closeDialog();
-            showNotice(text);
+            showNotice(text + (result.target_receipt?.duplicate_reference ? ' Tham chiếu trùng với phiếu khác trong sổ.' : ''));
           });
           if (outcome.status === 'stale' || outcome.status === 'unknown') closeDialog();
         } catch (error) { showNotice(error.message); closeDialog(); }
@@ -535,7 +549,7 @@
       }
       const receipt = event.target.closest('td.receipt[data-pid]');
       if (receipt && !receipt.classList.contains('voided') && !receipt.classList.contains('voided-method') && !receipt.querySelector('input,select')) {
-        if (receipt.dataset.pair) { await openOffsetReceipt(receipt); return; }
+        if (receipt.dataset.pair && receipt.dataset.field !== 'reference') { await openOffsetReceipt(receipt); return; }
         const original = receipt.innerHTML, field = receipt.dataset.field, pid = receipt.dataset.pid;
         if (!field) {
           const row = receipt.closest('tr');
@@ -544,7 +558,7 @@
           row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="14">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
-        receipt.innerHTML = field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
+        receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
           `<select class="saved-receipt-input" aria-label="Sửa hình thức">${methods.map(method => `<option${method === receipt.textContent ? ' selected' : ''}>${method}</option>`).join('')}</select>`;
         const input = receipt.querySelector('.saved-receipt-input'); input.focus();
         input.addEventListener('keydown', async keyEvent => {
@@ -580,14 +594,14 @@
         }
         catch (error) { showNotice(error.message); }
       }
-      if (event.target.matches('.receipt-amount')) {
+      if (event.target.matches('.receipt-amount') || event.target.matches('.receipt-reference')) {
         event.preventDefault();
-        const row = event.target.closest('tr');
+        const row = event.target.matches('.receipt-reference') ? root.querySelector('.receipt-amount').closest('tr') : event.target.closest('tr');
         try {
           row.querySelector('.receipt-date-error').textContent = '';
           if (row.querySelector('.receipt-method').value === 'CẤN TRỪ' && await startOffset(row)) return;
           const result = await submit('receipt', { date: dateInput(row.querySelector('.receipt-date').value), method: row.querySelector('.receipt-method').value,
-            amount_vnd: moneyText(event.target.value) });
+            amount_vnd: moneyText(event.target.matches('.receipt-reference') ? row.querySelector('.receipt-amount').value : event.target.value), ...referenceFields() });
           if (result?.error === 'FUTURE_RECEIPT_DATE') {
             row.querySelector('.receipt-date-error').textContent = result.message;
             row.querySelector('.receipt-date').focus();
@@ -658,6 +672,7 @@
     const date = row.querySelector('.receipt-date');
     const amount = row.querySelector('.receipt-amount');
     const method = row.querySelector('.receipt-method').value;
+    const reference = referenceFields().reference ?? null;
     row.querySelectorAll('.receipt-date-error,.receipt-amount-error').forEach(error => { error.textContent = ''; });
     let amountVnd;
     try { amountVnd = model.parsePositiveVnd(amount.value); }
@@ -667,10 +682,10 @@
     try { plan = model.planReceipt(book, { pid, date: date.value, method, amountVnd: amountVnd.toString() }); }
     catch { row.querySelector('.receipt-date-error').textContent = 'Ngày trả không hợp lệ'; date.focus(); return; }
     for (const line of plan.lines) months.find(month => month.key === line.monthKey).receipts.push({
-      pid, date: date.value, method: line.kind === 'advance' ? 'ỨNG TRƯỚC' : method,
+      pid, reference, date: date.value, method: line.kind === 'advance' ? 'ỨNG TRƯỚC' : method,
       amountVnd: line.amountVnd, kind: line.kind, ...(line.kind === 'advance' ? { receiptMethod: method } : {}), voided: null,
     });
-    notice = model.receiptNotice(pid, plan);
+    notice = model.receiptNotice(pid, plan) + (reference && months.some(month => month.receipts.some(item => item.pid !== pid && item.reference === reference)) ? ' Tham chiếu trùng với phiếu khác trong sổ.' : '');
     log('Ghi thu', `${pid}: 0 → ${money(amountVnd)}. ${notice}`);
     voidPrompt = null;
     render();
@@ -680,8 +695,8 @@
     if (cell.querySelector('input,select')) return;
     const { pid, field } = cell.dataset;
     const original = cell.innerHTML;
-    const value = cell.textContent;
-    cell.innerHTML = field === 'date'
+    const value = field === 'reference' ? months.flatMap(month => month.receipts).find(item => item.pid === pid)?.reference ?? '' : cell.textContent;
+    cell.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu ${escape(pid)}" maxlength="500" value="${escape(value)}"><span class="cell-error" role="status"></span>` : field === 'date'
       ? `<input class="saved-receipt-input receipt-date" aria-label="Sửa ngày trả ${escape(pid)}" value="${escape(value)}" inputmode="numeric"><span class="cell-error" role="status"></span>`
       : `<select class="saved-receipt-input receipt-method" aria-label="Sửa hình thức ${escape(pid)}">${methods.map(method => `<option${method === value ? ' selected' : ''}>${method}</option>`).join('')}</select><span class="cell-error" role="status"></span>`;
     const input = cell.querySelector('.saved-receipt-input');
@@ -694,9 +709,10 @@
       let plan;
       try { plan = model.planReceiptEdit(book, pid, { [field]: input.value }); }
       catch { cell.querySelector('.cell-error').textContent = field === 'date' ? 'Ngày trả không hợp lệ' : 'Hình thức không hợp lệ'; return; }
-      log(field === 'date' ? 'Sửa ngày phiếu' : 'Sửa hình thức phiếu', `${pid}: ${value} → ${input.value}`);
+      log(field === 'reference' ? 'Sửa tham chiếu phiếu' : field === 'date' ? 'Sửa ngày phiếu' : 'Sửa hình thức phiếu', `${pid}: ${value} → ${input.value}`);
       for (const line of plan.lines) months.find(month => month.key === line.monthKey).receipts[line.index] = line.receipt;
       if (plan.reallocation) reallocate(plan.reallocation);
+      notice = field === 'reference' && input.value.trim() && months.some(month => month.receipts.some(item => item.pid !== pid && item.reference === input.value.trim())) ? 'Tham chiếu trùng với phiếu khác trong sổ.' : '';
       render();
     });
   }
@@ -705,7 +721,7 @@
     if (event.target.closest('.history-toggle')) { historyOpen = !historyOpen; render(); return; }
     if (event.target.closest('.history-close')) { historyOpen = false; render(); root.querySelector('.history-toggle').focus(); return; }
     const lock = event.target.closest('.month-lock');
-    if (lock) { locks[lock.dataset.month] = !locks[lock.dataset.month]; render(); return; }
+    if (lock) { locks[lock.dataset.month] = !locks[lock.dataset.month]; log(locks[lock.dataset.month] ? 'Khóa tháng' : 'Mở tháng', `Tháng ${monthLabel(lock.dataset.month)}`); render(); return; }
     const addMonth = event.target.closest('.add-month-adjustment');
     if (addMonth) { monthPrompt = addMonth.dataset.month; render(); root.querySelector(`#thang-${monthPrompt} .month-amount`).focus(); return; }
     const cell = event.target.closest('td.editable');
@@ -754,7 +770,7 @@
     if (event.target.matches('td.editable') && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); startEdit(event.target); }
     if (event.target.matches('td.receipt[data-pid]') && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); event.target.click(); }
     if (event.target.matches('.receipt-date') && event.key === 'Enter') { event.preventDefault(); event.target.closest('tr').querySelector('.receipt-amount').focus(); }
-    if (event.target.matches('.receipt-amount') && event.key === 'Enter') { event.preventDefault(); saveReceipt(event.target); }
+    if ((event.target.matches('.receipt-amount') || event.target.matches('.receipt-reference')) && event.key === 'Enter') { event.preventDefault(); saveReceipt(root.querySelector('.receipt-amount')); }
     if (event.target.matches('.adjustment-note') && event.key === 'Enter') {
       event.preventDefault();
       const { month, adj } = event.target.dataset;

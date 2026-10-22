@@ -8,6 +8,35 @@ const reply = (status, body) => ({ ok: status === 200, json: async () => body })
 const ledger = version => ({ status: 'active', customer_id: 7, version, months: [], total_outstanding_vnd: '10' });
 const receipt = { date: '2026-10-20', method: 'THU TIỀN', amount_vnd: '10', actor: 'forged', total_vnd: '999' };
 
+test('reference remains text; duplicate warning follows successful save and refresh', async () => {
+  const sent = [], notices = [];
+  const api = create({ customerId: 7, key: () => 'ref-key', onNotice: value => notices.push(value),
+    fetcher: async (_url, options) => {
+      if (options?.method === 'POST') { sent.push(JSON.parse(options.body)); return reply(200, { duplicate_reference: true }); }
+      return reply(200, ledger(sent.length));
+    } });
+  await api.read();
+  await api.submit('receipt', { ...receipt, reference: 'FAKE USD/rate text' });
+  assert.equal(sent[0].reference, 'FAKE USD/rate text');
+  assert.equal(sent[0].amount_vnd, '10');
+  assert.match(notices.at(-1), /Đã lưu.*Tham chiếu trùng/);
+  assert.equal(api.hasPending(), false);
+  await api.submit('receiptMeta', { pid: 'PH-001', reference: '' });
+  assert.equal(sent[1].reference, '');
+});
+
+test('month history shows separate open and close with actor, VN time and month', async () => {
+  const { root } = await livePage({ ...ledger(1), events: [
+    { kind: 'month_lock', actor: 'fake-opener', at: '2026-01-02T03:00:00Z', before: { month: '2026-01-01', locked: true }, after: { month: '2026-01-01', locked: false } },
+    { kind: 'month_lock', actor: 'fake-closer', at: '2026-01-02T04:00:00Z', before: { month: '2026-01-01', locked: false }, after: { month: '2026-01-01', locked: true } },
+  ] });
+  assert.match(root.innerHTML, /fake-opener/);
+  assert.match(root.innerHTML, /02\/01\/2026 10:00/);
+  assert.match(root.innerHTML, /Mở tháng 1\/2026/);
+  assert.match(root.innerHTML, /fake-closer/);
+  assert.match(root.innerHTML, /Khóa tháng 1\/2026/);
+});
+
 async function livePage(data) {
   const listeners = {};
   const root = { innerHTML: '', addEventListener(name, handler) { listeners[name] = handler; }, querySelector() { return null; } };
@@ -87,7 +116,7 @@ test('void keeps only allocations superseded by void event, with struck date/mon
 
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
-    adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa ngày/hình thức phiếu',
+    adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
@@ -264,7 +293,10 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     return root;
   }
   const fixture = page(false);
-  assert.equal(require('node:crypto').createHash('sha256').update(fixture.innerHTML).digest('hex'),
+  // Keep approved layout baseline; CSM adds only reference subrows, checked separately.
+  assert.match(fixture.innerHTML, /class="reference-row"/);
+  assert.match(fixture.innerHTML, /aria-label="Tham chiếu"/);
+  assert.equal(require('node:crypto').createHash('sha256').update(fixture.innerHTML.replace(/<tr class="reference-row">.*?<\/tr>/gs, '')).digest('hex'),
     '58265f6d23ad38c4bc7654d8ff9295e5d35bbf78e0318b7c153e362b053e19c4', 'fixture HTML must match round-2 baseline');
   assert.match(fixture.innerHTML, /THÁNG 10\/2026/);
   assert.match(fixture.innerHTML, /Dán các dòng từ Sheet vào đây/);

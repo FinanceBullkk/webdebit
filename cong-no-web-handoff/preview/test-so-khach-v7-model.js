@@ -13,6 +13,22 @@ function applyReallocation(book) {
   return plan;
 }
 
+test("reference edit keeps money, survives reallocation, clears to null", () => {
+  const book = copy();
+  const pid = book.months.flatMap(item => item.receipts).find(item => item.voided === null).pid;
+  const total = model.monthChain(book).totalOutstandingVnd;
+  const edited = model.planReceiptEdit(book, pid, { reference: " FAKE USD/rate text " });
+  assert.equal(edited.reallocation, null);
+  for (const line of edited.lines) month(book, line.monthKey).receipts[line.index] = line.receipt;
+  assert.ok(edited.lines.every(line => line.receipt.reference === "FAKE USD/rate text"));
+  const plan = applyReallocation(book);
+  assert.ok(plan.lines.filter(line => line.receipt.pid === pid).every(line => line.receipt.reference === "FAKE USD/rate text"));
+  assert.equal(model.monthChain(book).totalOutstandingVnd, total);
+  assert.ok(model.planReceiptEdit(book, pid, { reference: " " }).lines.every(line => line.receipt.reference === null));
+  assert.throws(() => model.planReceiptEdit(book, pid, { reference: 10 }));
+  assert.throws(() => model.planReceiptEdit(book, pid, { reference: "x".repeat(501) }));
+});
+
 test("monthly adjustment reallocates one receipt to oldest debt", () => {
   const small = delta => ({ months: [
     { key: "2026-01", trips: [{ container: "A", unitPriceVnd: "100000000", otherFeeVnd: null }],

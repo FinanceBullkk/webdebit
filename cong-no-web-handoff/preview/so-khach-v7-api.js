@@ -6,14 +6,14 @@
     price: ['/api/v7/trips/price', ['trip_id', 'unit_price_vnd', 'other_fee_vnd']],
     tripAdjust: ['/api/v7/trips/adjust', ['trip_id', 'new_amount_vnd', 'field', 'new_value_vnd', 'note']],
     monthAdjust: ['/api/v7/months/adjust', ['debt_month', 'amount_vnd', 'note']],
-    receipt: ['/api/v7/receipts', ['date', 'method', 'amount_vnd']],
-    receiptMeta: ['/api/v7/receipts/meta', ['pid', 'date', 'method']],
+    receipt: ['/api/v7/receipts', ['date', 'method', 'amount_vnd', 'reference']],
+    receiptMeta: ['/api/v7/receipts/meta', ['pid', 'date', 'method', 'reference']],
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],
     lock: ['/api/v7/months/lock', ['month', 'locked']],
   };
   // Cấn trừ hai sổ (CT-2SO): một lệnh ghi cả hai sổ, cần version của cả hai. 'target' = sổ đang mở là sổ nhận.
   const offsetRoutes = {
-    offset: ['/api/v7/offsets', ['source_customer_id', 'source_version', 'date', 'amount_vnd'], 'target'],
+    offset: ['/api/v7/offsets', ['source_customer_id', 'source_version', 'date', 'amount_vnd', 'reference'], 'target'],
     offsetVoid: ['/api/v7/offsets/void', ['other_version', 'offset_pair_id', 'reason'], 'self'],
     offsetDate: ['/api/v7/offsets/date', ['other_version', 'offset_pair_id', 'date'], 'self'],
   };
@@ -119,7 +119,7 @@
         outcome = { status: 'saved', result };
         await read();
         pending = null;
-        onNotice('Đã lưu.');
+        onNotice(result.duplicate_reference ? 'Đã lưu. Tham chiếu trùng với phiếu khác trong sổ.' : 'Đã lưu.');
       } catch {
         outcome = { status: 'unknown' };
         onNotice(unknown);
@@ -150,7 +150,7 @@
       const route = offsetRoutes[action];
       if (!route) throw Error('Thao tác không hợp lệ.');
       const intent = Object.fromEntries(route[1].filter(name => Object.hasOwn(fields, name)).map(name => [name, fields[name]]));
-      if (Object.keys(intent).length !== route[1].length) throw Error('Thiếu thông tin cấn trừ.');
+      if (route[1].some(name => name !== 'reference' && !Object.hasOwn(intent, name))) throw Error('Thiếu thông tin cấn trừ.');
       for (const name of idFields) {
         if (!Object.hasOwn(intent, name)) continue;
         const number = Number(intent[name]);

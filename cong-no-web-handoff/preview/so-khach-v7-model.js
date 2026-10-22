@@ -178,7 +178,7 @@ const SoKhachV7Model = (() => {
       const amount = receiptInput(item);
       let receipt = receipts.get(item.pid);
       if (!receipt) {
-        receipt = { pid: item.pid, date: item.date, method: item.kind === "advance" ? item.receiptMethod ?? item.method : item.method, totalVnd: 0n, oldKeys: new Set() };
+        receipt = { pid: item.pid, date: item.date, method: item.kind === "advance" ? item.receiptMethod ?? item.method : item.method, reference: item.reference ?? null, totalVnd: 0n, oldKeys: new Set() };
         receipts.set(item.pid, receipt);
       } else if (receipt.date !== item.date || (item.kind !== "advance" && receipt.method !== item.method)) {
         throw new Error("Conflicting receipt lines");
@@ -201,7 +201,7 @@ const SoKhachV7Model = (() => {
         if (left === 0n) break;
         const applied = debt.left > 0n ? (left < debt.left ? left : debt.left) : 0n;
         if (applied === 0n) continue;
-        lines.push({ monthKey: debt.key, receipt: { pid: receipt.pid, date: receipt.date, method: receipt.method,
+        lines.push({ monthKey: debt.key, receipt: { pid: receipt.pid, reference: receipt.reference, date: receipt.date, method: receipt.method,
           amountVnd: applied.toString(), kind: "debt", voided: null } });
         newKeys.add(debt.key);
         debt.left -= applied;
@@ -209,7 +209,7 @@ const SoKhachV7Model = (() => {
       }
       if (left > 0n) {
         const key = months.at(-1).key;
-        lines.push({ monthKey: key, receipt: { pid: receipt.pid, date: receipt.date, method: "ỨNG TRƯỚC",
+        lines.push({ monthKey: key, receipt: { pid: receipt.pid, reference: receipt.reference, date: receipt.date, method: "ỨNG TRƯỚC",
           amountVnd: left.toString(), kind: "advance", receiptMethod: receipt.method, voided: null } });
         newKeys.add(key);
       }
@@ -267,13 +267,14 @@ const SoKhachV7Model = (() => {
   }
 
   function planReceiptEdit(book, pid, changes) {
-    if (!changes || !Object.keys(changes).length || Object.keys(changes).some(key => !["date", "method"].includes(key))) throw new Error("Invalid receipt edit");
+    if (!changes || !Object.keys(changes).length || Object.keys(changes).some(key => !["date", "method", "reference"].includes(key))) throw new Error("Invalid receipt edit");
+    if (changes.reference != null && (typeof changes.reference !== "string" || changes.reference.length > 500)) throw new Error("Invalid reference");
     const draft = structuredClone(book);
     const lines = [];
     for (const month of monthsOf(draft)) month.receipts.forEach((receipt, index) => {
       if (receipt.pid !== pid) return;
       if (receipt.voided !== null) throw new Error("Receipt already voided");
-      const updated = { ...receipt, date: changes.date ?? receipt.date,
+      const updated = { ...receipt, reference: changes.reference == null ? receipt.reference ?? null : changes.reference.trim() || null, date: changes.date ?? receipt.date,
         method: receipt.kind === "advance" ? "ỨNG TRƯỚC" : changes.method ?? receipt.method };
       if (receipt.kind === "advance") updated.receiptMethod = changes.method ?? receipt.receiptMethod ?? receipt.method;
       receiptInput(updated);

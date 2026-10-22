@@ -67,6 +67,9 @@ def case(case_id: str, label: str, title: str, check=None, *, functions=(), open
 
 # IDs retain section 7 numbering; suffixes split schema checks from missing commands.
 CASES = [
+    case("CSM.01", "BEHAVIOR", "Optional reference, edit, duplicate warning and idempotency", check="csm_reference", functions=("record_receipt", "edit_receipt_meta")),
+    case("CSM.02", "BEHAVIOR", "Every month lock command has one atomic audit event", check="csm_locks", functions=("set_month_lock", "get_ledger")),
+    case("CSM.03", "BEHAVIOR", "Atomic CSM migration preserves old rows and retries", check="csm_migration", functions=("record_receipt", "set_month_lock")),
     case("7.24", "BEHAVIOR", "M2-11 duplicate quarantine and money guards", check="dedup", functions=("paste_trips",)),
     case("7.01", "BEHAVIOR", "Import 11 opening months and historical PH-101", check="opening_import", functions=("get_ledger", "import_cutover")),
     case("7.02", "BEHAVIOR", "JS model operation parity and monthly tuples", check="model", functions=("paste_trips", "record_receipt", "reallocate")),
@@ -905,6 +908,123 @@ def check_actor(pg: Pg) -> None:
          actor="actor-b")
     require(pg.value(f"SELECT actor FROM sokhach.event WHERE customer_id={c} AND kind='receipt'") == "actor-b",
             "event actor differs from SET LOCAL")
+
+
+def check_csm_migration(pg: Pg) -> None:
+    old_ref = "b49a752156bbc57e418fbf1a48838711b0ec4ee5"
+    old_schema = run(["git", "show", old_ref + ":specs/v7-backend/schema-draft.sql"], cwd=ROOT).stdout
+    old_functions = run(["git", "show", old_ref + ":cong-no-web-handoff/tools/v7_backend_functions.sql"], cwd=ROOT).stdout
+    db = "webdebit_v7_csm_migration_test"
+    pg.sql(f"CREATE DATABASE {db}", database="postgres")
+    class CopyPg(Pg):
+        def sql(self, sql, **kwargs):
+            return super().sql(sql, **{**kwargs, "database": db})
+    copy = CopyPg(pg.name, pg.run_id)
+    copy.sql(re.sub(r"^CREATE ROLE .*;\n", "", old_schema, flags=re.M))
+    copy.sql(old_functions)
+    c = new_book(copy, ("2026-01-01", 100))
+    old_result = call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10)
+    snapshot = copy.value(f"SELECT row_to_json(x) FROM sokhach.receipt x WHERE customer_id={c}")
+    migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-21-v7-csm.sql").read_text(encoding="utf-8")
+    copy.rejects(migration.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'CSM_MIGRATION_FAULT'; END $$; COMMIT;"),
+                 message="CSM_MIGRATION_FAULT")
+    copy.true("NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema='sokhach' "
+              "AND table_name='receipt' AND column_name='reference')", "migration rollback left column")
+    copy.sql(migration)
+    copy.sql(migration)  # repeat is safe; no new events or financial writes
+    require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
+            == json.loads(snapshot),
+            "migration changed receipt row")
+    require(call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10) == old_result,
+            "old idempotency key broken by migration")
+    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
+    require(json.loads(copy.value(catalog)) == json.loads(pg.value(catalog)), "migrated functions differ")
+    check_csm_reference(copy)
+    check_csm_locks(copy)
+    from test_pg_v7_grants import check_catalog
+    check_catalog(copy)
+
+
+def check_csm_reference(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100))
+    other = new_book(pg, ("2026-01-01", 100))
+    def write(key, reference=None):
+        return call(pg, "record_receipt", c, version(pg, c), key,
+                    "2026-01-02", "THU TIỀN", 10, reference)
+    require(not write("no-ref")["duplicate_reference"], "optional reference warned")
+    require(not write("blank-ref", "  ")["duplicate_reference"], "blank reference warned")
+    require(not write("first-ref", " FAKE-TXN USD/rate text ")["duplicate_reference"], "first reference warned")
+    duplicate = write("duplicate-ref", "FAKE-TXN USD/rate text")
+    require(duplicate["duplicate_reference"] and version(pg, c) == 4, "duplicate blocked or not warned")
+    require(call(pg, "record_receipt", c, 3, "duplicate-ref", "2026-01-02", "THU TIỀN", 10,
+                 "FAKE-TXN USD/rate text") == duplicate and version(pg, c) == 4, "retry wrote twice")
+    reject_call(pg, "record_receipt", c, 4, "duplicate-ref", "2026-01-02", "THU TIỀN", 10,
+                "different", error="IDEMPOTENCY_CONFLICT")
+    require(not call(pg, "record_receipt", other, 0, "other-ref", "2026-01-02", "THU TIỀN", 1,
+                     "FAKE-TXN USD/rate text")["duplicate_reference"], "cross-ledger warning")
+    old_lines = allocations(pg, c, "PH-001")
+    edited = call(pg, "edit_receipt_meta", c, 4, "edit-ref", "PH-001", None, None, "FAKE-TXN USD/rate text")
+    require(edited["duplicate_reference"] and allocations(pg, c, "PH-001") == old_lines,
+            "reference edit blocked or changed allocations")
+    ledger = call(pg, "get_ledger", c)
+    receipt = next(r for r in ledger["receipts"] if r["pid"] == "PH-001")
+    require(receipt["reference"] == "FAKE-TXN USD/rate text", "GET lost reference")
+    event = next(e for e in ledger["events"] if e["kind"] == "receipt_edit")
+    require(event["before"]["reference"] is None and event["after"]["reference"] == receipt["reference"],
+            "reference edit audit missing")
+    call(pg, "edit_receipt_meta", c, 5, "clear-ref", "PH-001", None, None, " ")
+    pg.true(f"(SELECT reference IS NULL FROM sokhach.receipt WHERE customer_id={c} AND pid='PH-001')",
+            "clear reference did not store NULL")
+    pg.rejects(f"UPDATE sokhach.receipt SET reference='unaudited' WHERE customer_id={c} AND pid='PH-001'",
+               message="receipt change forbidden")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "60", "text changed VND")
+    call(pg, "void_receipt", c, 6, "void-ref", "PH-004", "fake reason")
+    require(write("voided-ref", "FAKE-TXN USD/rate text")["duplicate_reference"], "voided reference ignored")
+    unique = call(pg, "edit_receipt_meta", c, version(pg, c), "unique-ref", "PH-005", None, None, "FAKE-UNIQUE")
+    require(not unique["duplicate_reference"], "receipt warned against itself")
+    call(pg, "edit_receipt_meta", c, version(pg, c), "preserve-ref", "PH-005", None, "KHÁC")
+    pg.true(f"(SELECT reference='FAKE-UNIQUE' FROM sokhach.receipt WHERE customer_id={c} AND pid='PH-005')",
+            "omitted reference erased existing text")
+
+
+def check_csm_locks(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 100))
+    before = pg.value("SELECT clock_timestamp()")
+    opened = call(pg, "set_month_lock", c, 0, "csm-open", "2026-01-01", "false", actor="fake-opener")
+    call(pg, "paste_trips", c, 1, "csm-late-paste", "2026-01-01", trip_json(container="FAKE-LATE"))
+    call(pg, "set_month_lock", c, 2, "csm-close", "2026-01-01", "true", actor="fake-closer")
+    require(call(pg, "set_month_lock", c, 0, "csm-open", "2026-01-01", "false") == opened,
+            "lock retry not stable")
+    call(pg, "set_month_lock", c, 3, "csm-close-again", "2026-01-01", "true")
+    reject_call(pg, "set_month_lock", c, 3, "csm-stale", "2026-01-01", "false", error="STALE_LEDGER")
+    reject_call(pg, "set_month_lock", c, 4, "csm-invalid", "2026-01-02", "false", error="INVALID_MONTH_LOCK")
+    events = [e for e in call(pg, "get_ledger", c)["events"] if e["kind"] == "month_lock"]
+    require(len(events) == 3 and events[-1]["actor"] == "fake-opener"
+            and events[-2]["actor"] == "fake-closer", "lock event count/actor")
+    require(events[-1]["before"]["locked"] is True and events[-2]["before"]["locked"] is False,
+            "default/explicit lock before snapshot wrong")
+    require([e["after"] for e in events] == [
+        {"month": "2026-01-01", "locked": True}, {"month": "2026-01-01", "locked": True},
+        {"month": "2026-01-01", "locked": False}], "open/close events merged")
+    pg.true(f"(SELECT bool_and(at>={lit(before)}::timestamptz AND at<=clock_timestamp()) "
+            f"FROM sokhach.event WHERE customer_id={c} AND kind='month_lock')", "event timestamp")
+    for snapshot in ({}, {"month": "2026-01-01"}, {"month": "2026-01-01", "locked": "false"},
+                     {"month": "2026-02-01", "locked": False}):
+        pg.rejects('INSERT INTO sokhach.event(customer_id,kind,actor,"before","after") '
+                   f"VALUES ({c},'month_lock','fake',"
+                   f"'{json.dumps({'month': '2026-01-01', 'locked': True})}',{lit(json.dumps(snapshot))})",
+                   message="check constraint")
+    pg.sql("CREATE FUNCTION public.csm_abort_lock() RETURNS trigger LANGUAGE plpgsql AS $$ "
+           "BEGIN RAISE EXCEPTION 'CSM_ABORT'; END $$; "
+           "CREATE TRIGGER csm_abort_lock BEFORE UPDATE ON sokhach.month_state "
+           "FOR EACH ROW EXECUTE FUNCTION public.csm_abort_lock()")
+    try:
+        reject_call(pg, "set_month_lock", c, 4, "csm-rollback", "2026-01-01", "false", error="CSM_ABORT")
+        pg.true(f"(SELECT count(*)=3 FROM sokhach.event WHERE customer_id={c} AND kind='month_lock')",
+                "rollback left event")
+        require(version(pg, c) == 4, "rollback changed version")
+    finally:
+        pg.sql("DROP TRIGGER csm_abort_lock ON sokhach.month_state; DROP FUNCTION public.csm_abort_lock()")
 
 
 def check_locks(pg: Pg) -> str:
@@ -2247,7 +2367,8 @@ def check_dedup(pg: Pg) -> None:
     reject_call(pg, "paste_trips", empty, 0, "missing-ref", current, trip_json(), error="BASELINE_REF_MISSING")
     require(version(pg, empty) == 0, "missing reference changed version")
 
-CHECKS = {"dedup": check_dedup,"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+CHECKS = {"csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+          "dedup": check_dedup,"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
           "immutable": check_immutable, "roles": check_roles, "numbers": check_numbers,
@@ -2326,6 +2447,7 @@ def check_migration(pg: Pg) -> None:
               "failed migration did not roll back")
     copy.sql(migration)
     copy.sql(migration)  # idempotent
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-21-v7-csm.sql").read_text(encoding="utf-8"))
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
