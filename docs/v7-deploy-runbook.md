@@ -661,6 +661,15 @@ systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. 
 hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
 Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.
 
+## Kết luận CHỜ KIỂM — nâng DB đang có (ĐỀ XUẤT, chưa chạy trên hao)
+
+Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,
+theo đúng trình tự đợt nâng 22/10: backup và restore thử, chạy trên bản sao, rồi DB thật khi
+người dùng xác nhận; nâng service API lên cùng commit (route `/api/v7/trips/review`). Đạt:
+checker sau triển khai OK (danh sách hàm có `review_trip`), số dư từng khách không đổi,
+`DOI SOAT: DAT`. Migration không đổi dòng tiền; chuyến đang CHỜ KIỂM giữ nguyên trạng thái.
+Rollback: restore backup trước nâng. Spec: [`specs/v7-trip-review.md`](../specs/v7-trip-review.md).
+
 ## M2-11 — nâng DB đang có (phần B, đã chạy trên hao trước đợt nâng 22/10/2026)
 
 Người dùng cho phép chuẩn bị; Claude review, người dùng merge, Claude triển khai sau gate riêng.

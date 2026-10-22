@@ -117,7 +117,7 @@ test('void keeps only allocations superseded by void event, with struck date/mon
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
-    void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu' };
+    void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
     after: { amount_vnd: '9007199254740994', note: 'giá đúng', allocations: [{ month: '2026-02-01', kind: 'debt', amount_vnd: '100' }] } }));
@@ -130,6 +130,10 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   assert.match(root.innerHTML, /tháng 2\/2026/);
   assert.match(root.innerHTML, /Ghi chú\/lý do: giá đúng/);
   assert.match(root.innerHTML, /Thao tác khác/);
+  const review = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'trip_review', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { trip: 3, container: 'FAKE<1>', status: 'pending_review' },
+    after: { trip: 3, container: 'FAKE<1>', status: 'rejected', review_reason: 'trùng <sổ gốc>' } }] });
+  assert.match(review.root.innerHTML, /Chuyến FAKE&lt;1&gt;: loại, không tính<\/p><small>Ghi chú\/lý do: trùng &lt;sổ gốc&gt;/);
   assert.doesNotMatch(root.innerHTML, /private_new_code|unknown_key|private_value|\[object Object\]|"amount_vnd"/);
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);

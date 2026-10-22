@@ -55,6 +55,22 @@ class LedgerApiTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"status": "confirmed"}]}).encode())
 
+    def test_review_trip_boundary(self):
+        body = self.common | {"trip_id": 7, "decision": "confirm", "reason": "đã đối chiếu sổ gốc"}
+        for decision in ("confirm", "reject"):
+            function, payload = api.validate("/api/v7/trips/review", json.dumps(body | {"decision": decision}).encode())
+            self.assertEqual((function, payload["decision"]), ("review_trip", decision))
+        for change in ({"decision": "approve"}, {"decision": None}, {"trip_id": 0}, {"reason": 1},
+                       {"reason": "x" * 501}, {"status": "confirmed"}):
+            with self.subTest(change=change), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/trips/review", json.dumps(body | change).encode())
+        for reason in (None, "", "   "):
+            with self.assertRaises(api.ApiError) as caught:
+                api.validate("/api/v7/trips/review", json.dumps(body | {"reason": reason}).encode())
+            self.assertEqual(caught.exception.code, "REVIEW_REASON_REQUIRED")
+        self.assertIn("sokhach.review_trip(", api.SQL["review_trip"])
+        self.assertIn("(j->>'trip_id')::bigint, j->>'decision', j->>'reason'", api.SQL["review_trip"])
+
     def test_serve_host_origin_assets_and_identity(self):
         authority = "demo.tail-example.ts.net:8443"
         class ServeHandler(api.Handler):
@@ -218,6 +234,7 @@ class LedgerApiTest(unittest.TestCase):
             "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid": "PH-001", "date": "2026-10-21"}),
             "/api/v7/receipts/void": ("void_receipt", {"pid": "PH-001", "reason": "nhập trùng"}),
             "/api/v7/months/lock": ("set_month_lock", {"month": "2026-10-01", "locked": True}),
+            "/api/v7/trips/review": ("review_trip", {"trip_id": 1, "decision": "reject", "reason": "trùng sổ gốc"}),
         }
         for path, (function, fields) in samples.items():
             with self.subTest(path=path):

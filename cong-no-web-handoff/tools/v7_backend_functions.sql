@@ -129,7 +129,8 @@ BEGIN
         v_ids := v_ids || jsonb_build_array(v_id);
         v_rows := v_rows || jsonb_build_array(v_item || jsonb_build_object(
             'trip_id',v_id,'debt_month',debt_month,'event_date',v_date,
-            'status',CASE WHEN v_reason IS NULL THEN 'confirmed' ELSE 'pending_review' END));
+            'status',CASE WHEN v_reason IS NULL THEN 'confirmed' ELSE 'pending_review' END)
+            || CASE WHEN v_reason IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('review_reason',v_reason) END);
     END LOOP;
     v_actor := sokhach._actor();
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
@@ -555,6 +556,9 @@ BEGIN
     INTO v_months,v_total FROM visible_months;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'status',t.status,'booking',t.booking,
+        'review_reason',(SELECT x->>'review_reason' FROM sokhach.event e
+            CROSS JOIN LATERAL jsonb_array_elements(e."after"->'trips') x
+            WHERE (e.id,e.customer_id)=(t.created_by_event,t.customer_id) AND x->>'trip_id'=t.id::text),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
         'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL WHEN p.unit_price_vnd IS NOT NULL
@@ -828,6 +832,41 @@ BEGIN
         changed_by=excluded.changed_by,changed_at=excluded.changed_at;
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
         jsonb_build_object('month',month,'locked',locked));
+END $$;
+
+-- NEWTRIP-01: kết luận một chuyến CHỜ KIỂM, bắt buộc lý do. Tính vào sổ cần tháng
+-- của chuyến đang mở (như dán lô); loại không đổi tiền nên không cần mở tháng.
+CREATE FUNCTION sokhach.review_trip(customer_id bigint, expected_version bigint,
+    idempotency_key text, trip_id bigint, decision text, reason text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_payload jsonb := jsonb_build_object('command','review_trip','trip_id',trip_id,
+        'decision',decision,'reason',reason);
+        v_retry jsonb; v_trip sokhach.trip%ROWTYPE; v_status text; v_event bigint;
+        v_changes jsonb := '[]'::jsonb;
+BEGIN
+    v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+    IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+    PERFORM sokhach._baseline(customer_id);
+    v_status := CASE decision WHEN 'confirm' THEN 'confirmed' WHEN 'reject' THEN 'rejected' END;
+    IF v_status IS NULL THEN RAISE EXCEPTION 'INVALID_REVIEW'; END IF;
+    IF reason IS NULL OR btrim(reason)='' THEN RAISE EXCEPTION 'REVIEW_REASON_REQUIRED'; END IF;
+    SELECT * INTO v_trip FROM sokhach.trip WHERE id=trip_id AND trip.customer_id=review_trip.customer_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+    IF v_trip.status<>'pending_review' THEN RAISE EXCEPTION 'TRIP_NOT_PENDING'; END IF;
+    IF v_status='confirmed' THEN
+        PERFORM sokhach._month_open(customer_id,v_trip.debt_month,clock_timestamp());
+    END IF;
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+    VALUES (customer_id,'trip_review',sokhach._actor(),
+        jsonb_build_object('trip',trip_id,'container',v_trip.container,'status','pending_review'),
+        jsonb_build_object('trip',trip_id,'container',v_trip.container,'status',v_status,
+            'review_reason',btrim(reason)),idempotency_key)
+    RETURNING id INTO v_event;
+    UPDATE sokhach.trip SET status=v_status,reviewed_by_event=v_event WHERE id=v_trip.id;
+    IF v_status='confirmed' THEN v_changes := sokhach.reallocate(customer_id,idempotency_key); END IF;
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
+        jsonb_build_object('trip_id',trip_id,'status',v_status,'reallocated',v_changes));
 END $$;
 
 -- Same customer lock is held by caller. This checks source evidence, never
@@ -1443,6 +1482,7 @@ GRANT EXECUTE ON FUNCTION sokhach.record_receipt(bigint,bigint,text,date,text,bi
 GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.set_month_lock(bigint,bigint,text,date,boolean) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.review_trip(bigint,bigint,text,bigint,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;

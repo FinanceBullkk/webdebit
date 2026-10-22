@@ -38,6 +38,7 @@ ROUTES = {
     "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid", "date", "method", "reference"}),
     "/api/v7/receipts/void": ("void_receipt", {"pid", "reason"}),
     "/api/v7/months/lock": ("set_month_lock", {"month", "locked"}),
+    "/api/v7/trips/review": ("review_trip", {"trip_id", "decision", "reason"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
@@ -51,6 +52,9 @@ ERRORS = {
     "CUSTOMER_NOT_FOUND": (422, "Không tìm thấy khách."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
+    "TRIP_PENDING_REVIEW": (409, "Chuyến chưa được tính vào sổ (CHỜ KIỂM hoặc đã loại)."),
+    "TRIP_NOT_PENDING": (409, "Chuyến không còn CHỜ KIỂM."),
+    "REVIEW_REASON_REQUIRED": (422, "Cần ghi lý do kết luận chuyến CHỜ KIỂM."),
     "RECEIPT_NOT_FOUND": (422, "Không tìm thấy phiếu."),
     "MONTH_NOT_FOUND": (422, "Không tìm thấy tháng."),
     "NO_MONTH_FOR_RECEIPT": (422, "Chưa có tháng để ghi phiếu."),
@@ -67,7 +71,7 @@ ERRORS = {
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
-              "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS"):
+              "INVALID_TRIP_DATE", "INVALID_TRIP_INPUT", "INVALID_TRIPS", "INVALID_REVIEW"):
     ERRORS[_code] = (422, "Dữ liệu nhập không hợp lệ.")
 
 
@@ -200,6 +204,10 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         bad()
     if function == "set_month_lock" and type(body.get("locked")) is not bool:
         bad()
+    if function == "review_trip" and body.get("decision") not in ("confirm", "reject"):
+        bad()
+    if function == "review_trip" and (not isinstance(body.get("reason"), str) or not body["reason"].strip()):
+        bad("REVIEW_REASON_REQUIRED", "Cần ghi lý do kết luận chuyến CHỜ KIỂM.")
     return function, body
 
 
@@ -221,6 +229,7 @@ ARGUMENTS = {
     "edit_receipt_meta": ("pid", "date", "method", "reference"),
     "void_receipt": ("pid", "reason"),
     "set_month_lock": ("month", "locked"),
+    "review_trip": ("trip_id", "decision", "reason"),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
         "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",

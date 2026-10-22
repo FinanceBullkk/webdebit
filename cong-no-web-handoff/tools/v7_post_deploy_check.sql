@@ -40,6 +40,7 @@ DECLARE
       'edit_receipt_meta(bigint,bigint,text,text,date,text,text)',
       'void_receipt(bigint,bigint,text,text,text)',
       'set_month_lock(bigint,bigint,text,date,boolean)',
+      'review_trip(bigint,bigint,text,bigint,text,text)',
       'record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text)',
       'void_offset(bigint,bigint,bigint,text,bigint,text)',
       'edit_offset_date(bigint,bigint,bigint,text,bigint,date)'];
