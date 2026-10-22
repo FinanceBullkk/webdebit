@@ -38,6 +38,15 @@ button,input,textarea{font:inherit}
 .grid td.stt{padding:4px 5px;color:#5d6f82;font-size:12px}
 .grid td.off{background:#eceff3}
 .grid.draft td:not(.off){background:#fffbe8}
+.saved-row td{padding:0}.saved-row td.stt,.saved-row td.amount{padding:4px 5px}
+.saved-row td:focus-within{outline:2px solid #145fa9;outline-offset:-2px}
+.saved-row td.bad{box-shadow:inset 0 0 0 2px #c62828;background:#fff1f1!important}
+.saved-row.pending td:not(.pay){background:#fff8e1}
+.saved-row td.just-saved{background:#e2f5e8!important}
+.saved-row input{display:block;width:100%;height:35px;border:0;padding:4px 5px;background:transparent;color:#162d48;font-size:13px;outline:none}
+.saved-row input.money{text-align:right}
+.history{width:1258px;margin:10px auto 30px;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.history h2{margin:0 0 4px;font-size:15px}.history ol{margin:0;padding-left:20px}.history li{padding:3px 0}
 .grid input{display:block;width:100%;height:35px;border:0;padding:4px 5px;background:transparent;color:#162d48;font-size:13px;outline:none}
 .grid input.money{text-align:right}
 .grid td:focus-within{outline:2px solid #145fa9;outline-offset:-2px}
@@ -78,6 +87,7 @@ button,input,textarea{font:inherit}
   </thead>
   <tbody id="month"></tbody>
 </table>
+<section class="history" aria-labelledby="history-title"><h2 id="history-title">Lịch sử (bản xem)</h2><ol id="history"><li>Chưa có thay đổi nào</li></ol></section>
 <script src="../../so-khach-v7-model.js"></script>
 <script>
 (() => {
@@ -116,6 +126,11 @@ button,input,textarea{font:inherit}
 
   // ---- Bảng nhập ----
   const FIELDS = ['container', 'carrier', 'date', 'from', 'to', 'price', 'fee'];   // cột 1..7 của sổ
+  const LABELS = { container: 'Số container', carrier: 'Hãng tàu / số xe', date: 'Ngày chuyến', from: 'Nơi đi', to: 'Nơi đến', price: 'Đơn giá', fee: 'Phụ phí' };
+  const savedEdits = {}, savedErrors = {};
+  const history = [];
+  let justSaved = '';
+  const savedText = (trip, name) => ['price', 'fee'].includes(name) ? fmt(trip[name]) : trip[name];
   const blank = () => ({ container: '', carrier: '', date: '', from: '', to: '', price: '', fee: '', sheetTotal: '' });
   let drafts = [];
   let note = '';
@@ -202,16 +217,25 @@ button,input,textarea{font:inherit}
   }
   function draw(focus) {
     // Hàng nháp bị xóa trắng thì bỏ, trừ hàng đang gõ; giữ con trỏ đúng hàng sau khi bỏ.
-    if (focus) focus = { ...focus, row: focus.row - drafts.slice(0, focus.row).filter(isEmpty).length };
-    drafts = drafts.filter((row, index) => !isEmpty(row) || index === focus?.row);
+    const draftFocus = focus?.kind === 'saved' ? null : focus;
+    if (draftFocus) focus = { ...focus, row: focus.row - drafts.slice(0, focus.row).filter(isEmpty).length };
+    drafts = drafts.filter((row, index) => !isEmpty(row) || (draftFocus && index === focus.row));
     const checked = drafts.map(check);
     const badCount = checked.reduce((sum, item) => sum + Object.keys(item.errors).length, 0);
     const legacyRows = legacy.map(([stt, container, carrier, date, from, to, price, fee]) => `<tr class="legacy"><td>${stt}</td><td>${container}</td><td>${carrier}</td><td>${date}</td><td>${from}</td><td>${to}</td>${price === null ? '<td class="num missing">chưa có giá</td>' : `<td class="num">${fmt(price)}</td>`}<td class="num">${fmt(fee)}</td><td class="num">${price === null ? '0' : fmt(price + (fee ?? 0n))}</td><td class="pay pay-start"></td><td class="pay"></td><td class="pay"></td><td></td></tr>`).join('');
-    const savedRows = saved.map((trip, index) => `<tr class="${trip.pending ? 'pending' : ''}"><td>${index + 1}</td><td>${esc(trip.container)}</td><td>${esc(trip.carrier)}</td><td>${esc(trip.date)}</td><td>${esc(trip.from)}</td><td>${esc(trip.to)}</td>${trip.price === null ? '<td class="num missing">chưa có giá</td>' : `<td class="num">${fmt(trip.price)}</td>`}<td class="num">${fmt(trip.fee)}</td><td class="num">${trip.pending ? 'CHỜ KIỂM' : trip.price === null ? '–' : fmt(trip.price + (trip.fee ?? 0n))}</td>${index === 0 ? '<td class="pay pay-start"><input class="receipt-date" placeholder="dd/mm/yyyy" aria-label="Ngày trả"></td><td class="pay"><select class="receipt-method" aria-label="Hình thức"><option>THU TIỀN</option></select></td><td class="pay"><input class="receipt-amount" aria-label="Số tiền trả"></td>' : '<td class="pay pay-start"></td><td class="pay"></td><td class="pay"></td>'}<td></td></tr>`).join('');
+    // Chuyến đã lưu trên web: mọi ô chuyến sửa được tại chỗ như Sheet; rời ô hoặc Enter là lưu ngay, ghi Lịch sử.
+    const savedCell = (trip, index, name) => {
+      const typed = savedEdits[index]?.[name];
+      const bad = savedErrors[index]?.[name];
+      const value = typed ?? savedText(trip, name);
+      const missing = name === 'price' && typed === undefined && trip.price === null;
+      return `<td class="${bad ? 'bad' : ''}${missing ? ' missing' : ''}${justSaved === `${index}/${name}` ? ' just-saved' : ''}"${bad ? ` data-tip="${esc(bad)}"` : ''}><input class="${['price', 'fee'].includes(name) ? 'money' : ''}" data-kind="saved" data-row="${index}" data-field="${name}" value="${esc(value)}"${missing ? ' placeholder="chưa có giá"' : ''} aria-label="${esc(LABELS[name])} chuyến ${index + 1}"${bad ? ' aria-invalid="true"' : ''} autocomplete="off"></td>`;
+    };
+    const savedRows = saved.map((trip, index) => `<tr class="saved-row${trip.pending ? ' pending' : ''}"><td class="stt">${index + 1}</td>${FIELDS.map(name => savedCell(trip, index, name)).join('')}<td class="num amount">${trip.pending ? 'CHỜ KIỂM' : trip.price === null ? '–' : fmt(trip.price + (trip.fee ?? 0n))}</td>${index === 0 ? '<td class="pay pay-start"><input class="receipt-date" placeholder="dd/mm/yyyy" aria-label="Ngày trả"></td><td class="pay"><select class="receipt-method" aria-label="Hình thức"><option>THU TIỀN</option></select></td><td class="pay"><input class="receipt-amount" aria-label="Số tiền trả"></td>' : '<td class="pay pay-start"></td><td class="pay"></td><td class="pay"></td>'}<td></td></tr>`).join('');
     const cellHtml = (row, rowIndex, name, result) => {
       const bad = result?.errors[name];
       const missing = name === 'price' && result?.missing && rowIndex < drafts.length;
-      return `<td class="${bad ? 'bad' : ''}${missing ? ' missing-cell missing' : ''}"${bad ? ` data-tip="${esc(bad)}"` : ''}><input class="${['price', 'fee'].includes(name) ? 'money' : ''}" data-row="${rowIndex}" data-field="${name}" value="${esc(row[name])}" aria-label="${esc({ container: 'Số container', carrier: 'Hãng tàu / số xe', date: 'Ngày chuyến', from: 'Nơi đi', to: 'Nơi đến', price: 'Đơn giá', fee: 'Phụ phí' }[name])} hàng nhập ${rowIndex + 1}"${bad ? ' aria-invalid="true"' : ''}${missing ? ' placeholder="chưa có giá"' : ''} autocomplete="off"></td>`;
+      return `<td class="${bad ? 'bad' : ''}${missing ? ' missing-cell missing' : ''}"${bad ? ` data-tip="${esc(bad)}"` : ''}><input class="${['price', 'fee'].includes(name) ? 'money' : ''}" data-row="${rowIndex}" data-field="${name}" value="${esc(row[name])}" aria-label="${esc(LABELS[name])} hàng nhập ${rowIndex + 1}"${bad ? ' aria-invalid="true"' : ''}${missing ? ' placeholder="chưa có giá"' : ''} autocomplete="off"></td>`;
     };
     const gridRows = [...drafts, blank()].map((row, rowIndex) => {
       const result = rowIndex < drafts.length ? checked[rowIndex] : null;
@@ -232,8 +256,10 @@ button,input,textarea{font:inherit}
       <tr class="grid-bar"><td colspan="13"><div class="bar"><strong>${drafts.length} chuyến nháp</strong>${badCount ? `<span class="errors">· ${badCount} ô cần sửa</span>` : ''}<button type="button" class="save" ${drafts.length && !badCount ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="discard" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="grid-note">${esc(note)}</span>` : ''}</div></td></tr>
       ${status ? `<tr class="status"><td colspan="13" role="status">${esc(status)}</td></tr>` : ''}
       <tr class="subtotal"><td colspan="8">Cộng tháng 10/2026 (${saved.length} chuyến) · Phát sinh</td><td class="num">${fmt(charges)}</td><td class="pay pay-start" colspan="2">Đã thu</td><td class="num pay">0</td><td class="num">${fmt(charges)}</td></tr>`;
+    justSaved = '';
+    document.querySelector('#history').innerHTML = history.length ? history.map(item => `<li>${esc(item)}</li>`).join('') : '<li>Chưa có thay đổi nào</li>';
     if (focus) {
-      const input = document.querySelector(`.grid input[data-row="${focus.row}"][data-field="${focus.field}"]`);
+      const input = document.querySelector(`${focus.kind === 'saved' ? '.saved-row' : '.grid'} input[data-row="${focus.row}"][data-field="${focus.field}"]`);
       if (input) { input.focus(); const end = focus.caret ?? input.value.length; input.setSelectionRange(end, end); }
     }
   }
@@ -273,6 +299,7 @@ button,input,textarea{font:inherit}
     // Như Sheet: gõ một hàng bằng Tab rồi Enter thì xuống hàng dưới, về đúng cột bắt đầu.
     if (event.key === 'Enter') move(1, entryField);
     if (event.key === 'ArrowDown') move(1);
+    if (event.key === 'ArrowUp' && row === 0 && saved.length) { event.preventDefault(); render({ kind: 'saved', row: saved.length - 1, field }); return; }
     if (event.key === 'ArrowUp') move(-1);
   });
   let tabbing = false, entryField = 'container';
@@ -287,7 +314,59 @@ button,input,textarea{font:inherit}
     // Rời một ô: hiện lại theo dạng của sổ, rồi kiểm lại cả bảng, giữ con trỏ ở ô vừa sang.
     if (drafts[left.row]) tidy(drafts[left.row]);
     requestAnimationFrame(() => {
-      const next = focusOf(document.activeElement);
+      const next = focusOf(document.activeElement) ?? savedFocus(document.activeElement);
+      if (next || !months.contains(document.activeElement)) render(next ?? undefined);
+    });
+  });
+  // ---- Sửa chuyến đã lưu ----
+  // Một ô sửa xong = một lệnh lưu (bản thật: gọi API sửa chuyến, ghi Lịch sử trước → sau, phân bổ lại phiếu thu).
+  function commitSaved(index, field, text) {
+    const trip = saved[index];
+    if (!trip || text === savedText(trip, field)) { delete savedEdits[index]?.[field]; delete savedErrors[index]?.[field]; return; }
+    let value = text.trim(), error = '';
+    if (['container', 'carrier', 'from', 'to'].includes(field) && !value) error = `Thiếu ${LABELS[field].toLowerCase()}`;
+    if (field === 'container') value = containerKey(value);
+    if (field === 'date') {
+      const read = readDate(value);
+      if (read.error) error = read.error;
+      else if (!read.text.endsWith('/10/2026')) error = 'Ngày phải trong tháng 10/2026 (chuyến thuộc khối tháng này)';
+      else value = read.text;
+    }
+    if (['price', 'fee'].includes(field)) { const read = money(value); if (read.error) error = read.error; else value = read.value; }
+    if (error) { (savedErrors[index] ??= {})[field] = error; (savedEdits[index] ??= {})[field] = text; return; }
+    const before = savedText(trip, field) || (field === 'price' ? 'chưa có giá' : '–');
+    trip[field] = value;
+    if (field === 'container' && [...legacy.map(row => row[1]), ...saved.filter(other => other !== trip).map(other => other.container)].includes(value)) trip.pending = true;
+    delete savedEdits[index]?.[field]; delete savedErrors[index]?.[field];
+    const after = savedText(trip, field) || (field === 'price' ? 'chưa có giá' : '–');
+    const time = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    history.unshift(`${time} · Sửa chuyến ${index + 1} (${trip.container}) · ${LABELS[field]}: ${before} → ${after}${trip.pending ? ' · CHỜ KIỂM, chưa tính nợ' : ''}`);
+    status = `Đã lưu: chuyến ${index + 1} · ${LABELS[field]} ${before} → ${after}. Bản xem: không gửi lên máy chủ.`;
+    justSaved = `${index}/${field}`;
+  }
+  const savedFocus = element => element?.matches?.('.saved-row input') ? { kind: 'saved', row: Number(element.dataset.row), field: element.dataset.field } : null;
+  months.addEventListener('input', event => {
+    const focus = savedFocus(event.target);
+    if (focus) (savedEdits[focus.row] ??= {})[focus.field] = event.target.value;
+  });
+  months.addEventListener('keydown', event => {
+    const focus = savedFocus(event.target);
+    if (!focus) return;
+    if (event.key === 'Escape') { delete savedEdits[focus.row]?.[focus.field]; delete savedErrors[focus.row]?.[focus.field]; render(focus); return; }
+    const step = event.key === 'Enter' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    commitSaved(focus.row, focus.field, event.target.value);
+    const row = focus.row + step;
+    // Xuống quá chuyến cuối thì vào hàng nhập đầu tiên, như một bảng liền.
+    render(savedErrors[focus.row]?.[focus.field] ? focus : row < 0 ? focus : row < saved.length ? { ...focus, row } : { row: 0, field: focus.field });
+  });
+  months.addEventListener('focusout', event => {
+    const focus = savedFocus(event.target);
+    if (!focus || rendering) return;
+    commitSaved(focus.row, focus.field, event.target.value);
+    requestAnimationFrame(() => {
+      const next = savedFocus(document.activeElement) ?? focusOf(document.activeElement);
       if (next || !months.contains(document.activeElement)) render(next ?? undefined);
     });
   });

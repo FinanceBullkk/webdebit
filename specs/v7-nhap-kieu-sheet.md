@@ -50,6 +50,8 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 
 **Lưu.** Thanh dưới bảng nhập: "n chuyến nháp · m ô cần sửa" + nút **Lưu n chuyến** (tắt khi còn ô đỏ) + **Bỏ nháp**. Lưu gửi **một lệnh dán lô** như hiện nay (`paste_trips`, một idempotency key, kiểm trùng `NEWTRIP-01`): cả lô vào hoặc không dòng nào vào. Sau khi lưu, chuyến có dấu hiệu trùng hiện CHỜ KIỂM như hiện tại; trang báo "Đã lưu n chuyến (k chuyến CHỜ KIỂM)".
 
+**Sửa chuyến đã lưu tại chỗ** (người dùng duyệt bản xem 22/10/2026: dán đúng, nhưng lưu xong vẫn phải sửa được). Chuyến đã ghi trên web trong **tháng đang mở** hiện như hàng của bảng: mọi ô chuyến (container, hãng tàu, ngày, nơi đi, nơi đến, đơn giá, phụ phí) bấm vào là gõ đè được, như Sheet. Rời ô hoặc Enter là **lưu ngay ô đó** (không qua nháp): một ô = một lệnh, ghi Lịch sử "trước → sau" và người làm, phân bổ lại phiếu thu theo nợ cũ trước như sửa giá hiện nay (`V7-SO`). Esc trả lại giá trị cũ. Giá trị sai thì ô đỏ, không lưu. Ngày phải trong tháng của khối. Đổi container thành container đã có trong sổ thì chuyến thành CHỜ KIỂM, ngoài số dư (`NEWTRIP-01`). Enter xuống chuyến dưới; quá chuyến cuối thì vào hàng nhập.
+
 **Nháp chưa lưu.** Chỉ sống trong tab: tải lại trang hoặc đổi khách thì hỏi "Còn n chuyến nháp chưa lưu, bỏ đi?". Không lưu nháp lên server.
 
 ## Ngoài phạm vi
@@ -63,6 +65,9 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 
 1. Ngày chuyến khác tháng của khối (ví dụ dán chuyến 30/09 vào khối tháng 10): hiện server ghi theo tháng của khối. Có cần nhắc vàng tại ô ngày không?
 2. Tab có bố cục khác hẳn (không theo thứ tự `B..K` ở trên): đọc thử từng tab trên bản xem trước khi code; tab lệch thì cần một cách chọn bố cục hay chỉ báo lỗi?
+3. Tháng đã khóa: đơn giá/phụ phí vẫn sửa bằng dòng điều chỉnh như hiện nay (`V7-SO`); các ô chữ (container, hãng tàu, nơi đi/đến) và ngày của tháng khóa có cho sửa đè không? Bản xem chỉ có tháng đang mở.
+4. Đổi ngày sang tháng khác (chuyển chuyến sang khối khác) và xóa hẳn một chuyến đã lưu: chưa có trong bản xem; cần quyết định trước khi code.
+5. Dòng từ sổ gốc vẫn chỉ đọc cho tới khi chốt `MOC-CHUYEN-MOI` (b).
 
 ## Tiêu chí duyệt bản xem
 
@@ -73,6 +78,7 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 - [ ] Ô ngày sai và ô thiếu nơi đến tô đỏ, nút Lưu tắt; sửa xong nút bật.
 - [ ] Thành tiền Sheet lệch: ô vàng, không chặn Lưu.
 - [ ] Lưu: hàng nháp thành chuyến đã ghi, tổng tháng đổi; chuyến trùng container với dòng sổ gốc thành CHỜ KIỂM, không cộng nợ.
+- [ ] Chuyến đã lưu: bấm ô, gõ đè, Enter → lưu ngay, Lịch sử có trước → sau; điền giá cho chuyến chưa có giá thì tổng tháng tăng; ngày khác tháng → ô đỏ, Esc trả lại.
 - [ ] 1280×720: không cuộn ngang.
 
 ## Khi code vào trang live (sau khi duyệt)
@@ -84,3 +90,4 @@ Map thao tác → module → kiểm:
 | Đọc vùng dán theo bố cục tab khách | `so-khach-v7-model.js` (hàm thay `parsePastedTrips`) | unit: 7/10/11 cột, cột nhãn đầu, phí cộng, phí trống, thành tiền lệch, hàng tổng, ngày 1 chữ số |
 | Bảng nhập, bàn phím, ô lỗi | `so-khach-v7-ui.js`, `so-khach-v7-live.html` | browser (Playwright): dán, Tab/Enter, Lưu tắt/bật, 1280×720 không cuộn ngang |
 | Lưu | `so-khach-v7-api.js` → `/api/v7/trips/paste` (không đổi API) | unit: một lệnh, một key; dán trùng → CHỜ KIỂM |
+| Sửa ô chuyến đã lưu | đơn giá/phụ phí: `/api/v7/trips/price` (đã có). Container, hãng tàu, ngày, nơi đi/đến: **cần lệnh mới** (backend, `v7_backend_functions.sql` + `v7_ledger_api.py`) ghi event trước → sau, kiểm trùng lại khi đổi container/ngày | DB test: sửa từng trường, Lịch sử đúng, đổi container trùng → CHỜ KIỂM, tháng khóa bị chặn theo quyết định câu 3 |
