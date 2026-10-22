@@ -418,6 +418,46 @@ sudo -u postgres psql -X -qAt -v ON_ERROR_STOP=1 -h /var/run/postgresql -d webde
 diff -u <evidence_dir>/baseline.counts <evidence_dir>/after.counts
 ```
 
+## Đối soát tổng khách cuối ngày — SONG-SONG-02
+
+Người nhập chạy cuối ngày; chủ nghiệp vụ xem tổng kết cuối tuần/cuối tháng.
+Dùng **bản xuất Sheet mới nhất** qua `v7_export_clean.py`, không dùng lại bản mốc
+`clean-v2` để kết luận phát sinh sau mốc đã khớp. Công cụ chỉ đọc hai CSV
+`clean_customers.csv` (`anchor_vnd`) và `clean_months.csv`; không tự xuất Sheet,
+không nạp DB, không sửa Sheet hay web. Manifest của exporter có `format_version`;
+đối soát đọc theo tên cột và ghi hash hai CSV, không xác minh toàn bộ manifest
+hay khách bị loại/giữ ở khâu xuất. Phải xem báo cáo xuất riêng.
+
+```text
+python cong-no-web-handoff/tools/v7_reconcile_sheet.py --sheet-dir <latest_clean_dir> --ledger-json <ledger_json_dir> --out <new_outside_repo_dir> --totals-only --brief
+```
+
+Hoặc thay `--ledger-json <ledger_json_dir>` bằng
+`--api https://<serve_fqdn>:<serve_port> --serve-host <serve_fqdn>:<serve_port>`.
+Chỉ GET `/api/v7/customers` rồi `/api/v7/ledger?customer=<id>`; không ghi DB.
+JSON offline là phản hồi ledger chưa bọc, tên file (bỏ `.json`) là tên khách.
+Ghép tên chỉ chuẩn hóa khoảng trắng, không đoán/gộp khách gần giống.
+
+Hợp đồng: `--totals-only` so tổng từng khách, bỏ qua khác biệt/ô trống ở bucket
+tháng khi tổng đã rõ; cấu trúc đầu vào vẫn phải hợp lệ. Không đổi chế độ kiểm
+tháng mặc định phục vụ nạp. `NO_BASELINE` hoặc tổng trống/NULL là `THIEU_SO`,
+không đổi thành 0. Tổng lệch là `LECH_TONG`; thiếu một phía là `CHI_CO_SHEET`
+hoặc `CHI_CO_WEB`; còn lại `KHOP`. Chênh lệch = web trừ Sheet, VND nguyên chính xác.
+Mã thoát 0 = khớp, 1 = lệch/thiếu, 2 = lỗi đầu vào/đầu ra; lỗi không được coi là đạt.
+
+`reconcile_customer.csv` ghi tên, tổng hai phía, chênh lệch và trạng thái;
+`reconcile_index.csv` nối số thứ tự với tên; `summary.json` ghi đếm/hash và
+`comparison_scope=customer_totals`; `reconcile_month.csv` chỉ có header trong
+chế độ này. Thư mục kết quả bắt buộc mới và ngoài mọi repo. Console mặc định
+im lặng; `--brief` chỉ in trạng thái/đếm/số thứ tự, không tên hay tiền.
+Không đưa báo cáo thật vào Git. Không tự sửa lệch hay tạo lịch chạy.
+
+Map kiểm: lệnh trên → `v7_reconcile_sheet.main/read_sheet/read_api/reconcile`
+→ `tests/test_v7_reconcile_sheet.py` → `npm run check` (dữ liệu giả, không kiểm
+Sheet/API/DB thật). GET nhiều lần không tạo snapshot đồng thời: chạy lúc hai
+bên đã ngừng nhập, nếu còn thay đổi thì đối soát lại; chưa có bằng chứng snapshot
+liên hệ thống hay kiểm thay đổi từng dòng sau mốc.
+
 ## 7. Rollback theo mức
 
 ### A — dừng đường truy cập
