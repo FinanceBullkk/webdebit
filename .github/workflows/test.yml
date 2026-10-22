@@ -17,6 +17,33 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Lọc theo file đổi bằng git diff (không dùng action ngoài). Push lên main và chạy tay luôn chạy đủ.
+  # PR chỉ đổi tài liệu bỏ qua các job Postgres; ba job sổ cũ trước V7 chỉ chạy khi đổi file của chúng.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pg_v7: ${{ steps.f.outputs.pg_v7 }}
+      pg_old: ${{ steps.f.outputs.pg_old }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "pg_v7=true" >> "$GITHUB_OUTPUT"; echo "pg_old=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git diff --name-only "$BASE...$HEAD" > changed.txt
+          cat changed.txt
+          if grep -qvE '\.md$|^docs/|^contexte/|^livrables/' changed.txt; then v7=true; else v7=false; fi
+          if grep -qP '^(cong-no-web-handoff/tools/(pg_|migrations/|test_pg_(ledger|versioned|m1))|cong-no-web-handoff/web/(?!v7_)|cong-no-web-handoff/tests/test_m1_export_verify|\.github/workflows/test\.yml|requirements)' changed.txt; then old=true; else old=false; fi
+          echo "pg_v7=$v7" >> "$GITHUB_OUTPUT"; echo "pg_old=$old" >> "$GITHUB_OUTPUT"
+
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -37,6 +64,8 @@ jobs:
           python -m unittest discover -s tests -v
 
   postgres-ledger:
+    needs: changes
+    if: needs.changes.outputs.pg_old == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -61,6 +90,8 @@ jobs:
           if-no-files-found: warn
 
   postgres-v7-backend:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -70,8 +101,30 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: V7 backend contract
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py
+
+  postgres-v7-p0:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
       - name: V7 P0 write paths
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_p0_harness.py --strict
+
+  postgres-v7-grants-direct:
+    needs: changes
+    if: needs.changes.outputs.pg_v7 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
       - name: V7 least privilege grants
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
       - name: V7 direct socket API and loader
@@ -80,6 +133,8 @@ jobs:
         run: uv run --python 3.13 python cong-no-web-handoff/tools/rehearse_v7_deploy.py --strict
 
   postgres-m1-history-queries:
+    needs: changes
+    if: needs.changes.outputs.pg_old == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -101,6 +156,8 @@ jobs:
           if-no-files-found: error
 
   pg18-versioned-approval-fixture:
+    needs: changes
+    if: needs.changes.outputs.pg_old == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
