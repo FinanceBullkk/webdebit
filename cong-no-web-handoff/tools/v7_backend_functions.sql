@@ -1659,12 +1659,15 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 BEGIN
     PERFORM sokhach._actor();
     RETURN (SELECT jsonb_build_object('customers',coalesce(jsonb_agg(
-        jsonb_build_object('id',id,'name',name,'status',status)
+        jsonb_build_object('id',id,'name',name,'status',status,
+                           'commodity',commodity,'transport_mode',transport_mode)
         ORDER BY name COLLATE "C",id),'[]'::jsonb))
       FROM (SELECT c.id,c.name,
                    CASE WHEN cc.status='active' AND co.status='active'
-                        THEN 'active' ELSE 'NO_BASELINE' END AS status
+                        THEN 'active' ELSE 'NO_BASELINE' END AS status,
+                   m.name AS commodity,c.transport_mode
               FROM sokhach.customer c
+              LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id
               LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id
               LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q);
 END $$;

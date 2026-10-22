@@ -68,6 +68,8 @@ def check_loader(pg):
         folder = Path(tmp)
         fixture(folder)
         books, digests = exporter.build_books(folder, folder / "source-google-export.xlsx", ())
+        # MH-01: TONG parsing is unit-tested; here the bundle carries a commodity into the DB.
+        books[0]["commodity"], books[0]["transport_mode"] = "Sầu riêng", "CANG"
         out = folder / "clean"
         exporter.export(books, digests, out, Path("fake.xlsx"), ())
         args = ["--from-clean", str(out), "--database", "v7_direct_load", "--loader-role", "v7_loader"]
@@ -79,6 +81,9 @@ def check_loader(pg):
         require(before != "0", "apply loaded nothing")
         ledger = direct(pg, "v7_direct_load").run("get_ledger", {"customer_id": 1}, "fake")
         require(ledger["total_outstanding_vnd"] == str(books[0]["anchor"]), "loaded ledger differs")
+        listed = direct(pg, "v7_direct_load").run("list_customers", {}, "fake")["customers"]
+        require([(r["commodity"], r["transport_mode"]) for r in listed] == [("Sầu riêng", "CANG")],
+                "loaded commodity differs")
         require(load_main(args + ["--apply"], pg_factory=factory) == 1, "nonempty accepted")
         require(load_main(args + ["--apply", "--allow-nonempty"], pg_factory=factory) == 0 and count() == before, "repeat duplicated data")
         pg.sql("CREATE DATABASE v7_direct_empty", database="postgres")

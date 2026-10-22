@@ -13,9 +13,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
+import v7_commodity_sql as commodity_sql  # noqa: E402
 import v7_export_clean as exporter  # noqa: E402  (sys.path set above)
 import v7_load_real_copy as loader  # noqa: E402
-from test_v7_load_real_copy import FAKE_AMOUNT, FAKE_NAME, fixture  # noqa: E402
+from test_v7_load_real_copy import FAKE_AMOUNT, FAKE_NAME, TONG_HEAD, fixture  # noqa: E402
 
 
 class ExportCleanTest(unittest.TestCase):
@@ -129,6 +130,71 @@ class ExportCleanTest(unittest.TestCase):
         self.assertIn("ROUNDING_APPORTIONED", receipts[2]["display"]["flags"])
         exporter.export(books, digests, self.out, Path("fake.xlsx"), ())
         self.assertEqual(loader.clean_data(self.out)[0], books)
+
+    def test_commodity_round_trips_and_is_counted_without_names(self):
+        fixture(self.folder, tong={6: TONG_HEAD, 8: {"D": "SAU RIENG CANG", "E": FAKE_NAME}})
+        code, output = self.run_export()
+        self.assertEqual(code, 0)
+        self.assertNotIn(FAKE_NAME, output)
+        self.assertEqual(json.loads(output)["commodity_counts"], {"NHAN_LA": 0, "Sầu riêng CANG": 1})
+        book = loader.clean_data(self.out)[0][0]
+        self.assertEqual((book["commodity"], book["transport_mode"]), ("Sầu riêng", "CANG"))
+
+    def test_bad_commodity_metadata_rejected(self):
+        fixture(self.folder)
+        self.run_export()
+        bad_values = ({"commodity": ""}, {"commodity": "Xoài", "transport_mode": "TAU"},
+                      {"transport_mode": "BO"}, {"commodity": 1}, {"other": True})
+        for index, bad in enumerate(bad_values):
+            out = Path(self.temp.name) / f"bad-{index}"
+            out.mkdir()
+            for name in (*loader.CLEAN_FILES, "manifest.json"):
+                (out / name).write_bytes((self.out / name).read_bytes())
+            path = out / "clean_customers.csv"
+            rows = list(csv.DictReader(io.StringIO(path.read_text(encoding="utf-8-sig"))))
+            rows[0]["metadata"] = json.dumps(bad)
+            with path.open("w", encoding="utf-8", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+            manifest["files_sha256"]["clean_customers.csv"] = exporter.sha256(path)
+            (out / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(loader.LoadError, "CLEAN_METADATA"):
+                loader.clean_data(out)
+
+    def test_commodity_sql_fills_only_unset_books_and_hides_names(self):
+        sql, counts = commodity_sql.statements(
+            [FAKE_NAME, "FAKE OTHER", "FAKE UNKNOWN"],
+            {FAKE_NAME: "TLONG- BỘ", "FAKE UNKNOWN": "FAKE NEW FRUIT"})
+        self.assertNotIn(FAKE_NAME, sql)
+        self.assertIn(FAKE_NAME.encode().hex(), sql)
+        self.assertIn(b"Thanh long".hex(), sql)
+        self.assertEqual(sql.count("UPDATE sokhach.customer"), 1)
+        self.assertIn("AND commodity_id IS NULL AND transport_mode IS NULL", sql)
+        self.assertIn("transport_mode='BO'", sql)
+        self.assertEqual(sql.splitlines()[2], "BEGIN;")
+        self.assertTrue(sql.rstrip().endswith("COMMIT;"))
+        self.assertEqual(counts, {"Thanh long BO": 1, "CHUA_PHAN_LOAI": 1, "NHAN_LA": 1})
+
+    def test_commodity_sql_cli_refuses_repo_and_existing_output(self):
+        fixture(self.folder, tong={6: TONG_HEAD, 8: {"D": "CHUOI", "E": FAKE_NAME}})
+        self.run_export()
+        xlsx = self.folder / "source-google-export.xlsx"
+        inside = ROOT / "mh01-should-not-exist.sql"
+        for out in (inside, self.folder / "trips_so_goc.csv"):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(commodity_sql.main(["--xlsx", str(xlsx), "--clean", str(self.out),
+                                                     "--out", str(out)]), 1)
+        self.assertFalse(inside.exists())
+        target = Path(self.temp.name) / "mh01.sql"
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(commodity_sql.main(["--xlsx", str(xlsx), "--clean", str(self.out),
+                                                 "--out", str(target)]), 0)
+        self.assertNotIn(FAKE_NAME, output.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["commodity_counts"], {"Chuối": 1})
+        self.assertIn(FAKE_NAME.encode().hex(), target.read_text(encoding="utf-8"))
 
     def test_hash_and_old_format_rejected_before_db(self):
         fixture(self.folder)

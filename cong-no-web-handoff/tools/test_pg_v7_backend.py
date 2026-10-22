@@ -938,6 +938,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(REVIEW_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(NHAP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(NHAP_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(MH_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(MH_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -2380,6 +2382,7 @@ def check_dedup(pg: Pg) -> None:
 NHAP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap-sheet.sql"
 
 REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql"
+MH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-23-v7-mat-hang.sql"
 
 
 def check_trip_review(pg: Pg) -> None:
@@ -2740,6 +2743,12 @@ def check_migration(pg: Pg) -> None:
     copy.true("to_regclass('sokhach.trip_info_rev') IS NULL", "balance mismatch did not rollback schema")
     copy.sql(nhap)
     copy.sql(nhap)
+    mh = MH_MIGRATION.read_text(encoding="utf-8")
+    copy.rejects(mh.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'MH_FAULT'; END $$; COMMIT;"), message="MH_FAULT")
+    copy.true("position('commodity' in pg_get_functiondef('sokhach.list_customers()'::regprocedure))=0",
+              "failed MH migration left new list_customers")
+    copy.sql(mh)
+    copy.sql(mh)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")

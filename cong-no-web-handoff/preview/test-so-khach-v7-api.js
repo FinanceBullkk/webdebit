@@ -546,3 +546,27 @@ test('CHỜ KIỂM: mở/đóng dòng kết luận, lý do trống không gửi,
   assert.equal(error.textContent, 'Lý do tối đa 500 ký tự');
   assert.equal(sent.length, 2);
 });
+
+test('MH-01: nhóm khách theo mặt hàng + phương thức, Chưa phân loại cuối, tìm không dấu theo tên hoặc nhóm', () => {
+  const { groupCustomers } = require('./so-khach-v7-api.js');
+  const rows = [
+    { id: 1, name: 'Khách A', commodity: 'Sầu riêng', transport_mode: 'CANG' },
+    { id: 2, name: 'Khách B', commodity: null, transport_mode: null },
+    { id: 3, name: 'Khách C', commodity: 'Chuối', transport_mode: null },
+    { id: 4, name: 'Khách Đ', commodity: 'Sầu riêng', transport_mode: 'BO' },
+    { id: 5, name: 'Khách E', commodity: 'Sầu riêng', transport_mode: 'CANG' },
+  ];
+  const all = groupCustomers(rows);
+  assert.deepEqual(all.groups.map(g => [g.label, g.rows.map(r => r.id)]),
+    [['Chuối', [3]], ['Sầu riêng · bộ', [4]], ['Sầu riêng · cảng', [1, 5]], ['Chưa phân loại', [2]]]);
+  assert.deepEqual(all.found.map(r => r.id), [3, 4, 1, 5, 2]);
+  assert.equal(all.labelled, true);
+  assert.deepEqual(groupCustomers(rows, 'sau rieng').found.map(r => r.id), [4, 1, 5]);
+  assert.deepEqual(groupCustomers(rows, 'SAU RIENG BO').found.map(r => r.id), [4]);
+  assert.deepEqual(groupCustomers(rows, 'khach d').found.map(r => r.id), [4]);
+  assert.deepEqual(groupCustomers(rows, 'chua phan').found.map(r => r.id), [2]);
+  // DB chưa gán mặt hàng nào: danh sách phẳng, không có tiêu đề nhóm.
+  const flat = groupCustomers(rows.map(r => ({ ...r, commodity: null })), '');
+  assert.equal(flat.labelled, false);
+  assert.deepEqual(flat.found.map(r => r.id), [1, 2, 3, 4, 5]);
+});

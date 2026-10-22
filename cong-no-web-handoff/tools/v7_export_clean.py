@@ -86,6 +86,15 @@ def git_state() -> dict:
         return {"commit": None, "dirty": None}
 
 
+def commodity_counts(books: list[dict]) -> dict:
+    """Books per commodity/mode (MH-01); no customer names, safe for stdout."""
+    counts = Counter("CHUA_PHAN_LOAI" if not b.get("commodity") else
+                     b["commodity"] + (f" {b['transport_mode']}" if b.get("transport_mode") else "")
+                     for b in books)
+    counts["NHAN_LA"] = sum(bool(b.get("commodity_label_unknown")) for b in books)
+    return dict(sorted(counts.items()))
+
+
 def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tuple[str, ...]) -> dict:
     out = output_folder(out)
     eligible = [b for b in books if b["in_summary"] and not b["reasons"]]
@@ -103,7 +112,8 @@ def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tu
                           "cleaning": ";".join(f"{flag}:{count}" for flag, count in sorted(used.items())),
                           "flags": structured(item["flags"]), "csv_only": structured(item.get("csv_only", [])),
                           "row_counts": structured(item["row_counts"]),
-                          "metadata": structured({k: item[k] for k in ("has_insurance",) if k in item})})
+                          "metadata": structured({k: item[k] for k in ("has_insurance", "commodity", "transport_mode")
+                                                  if k in item})})
         for check, opening in zip(item["checks"], item["openings"], strict=True):
             months.append({"customer": name, "debt_month": check["debt_month"][:7],
                            "opening_anchor_vnd": check["opening_anchor_vnd"],
@@ -145,6 +155,7 @@ def export(books: list[dict], digests: dict, out: Path, xlsx: Path, raw_tabs: tu
                                                                else b["reasons"].keys()))),
                 "counts": loader.clean_counts(eligible),
                 "customers_per_cleaning_rule": dict(sorted(flag_customers.items())),
+                "commodity_counts": commodity_counts(eligible),
                 "files_sha256": {name: sha256(out / name) for name in
                                  ("clean_customers.csv", "clean_months.csv", "clean_rows.csv")}}
     with outside_repo(out / "manifest.json").open("x", encoding="utf-8") as stream:
@@ -180,7 +191,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     counts = {k: v for k, v in manifest["counts"].items() if k != "anchor_total_vnd"}  # no money on stdout
     print(json.dumps({"ok": True, "counts": counts,
-                      "customers_per_cleaning_rule": manifest["customers_per_cleaning_rule"]}))
+                      "customers_per_cleaning_rule": manifest["customers_per_cleaning_rule"],
+                      "commodity_counts": manifest["commodity_counts"]}, ensure_ascii=True))
     return 0
 
 

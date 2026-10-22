@@ -35,6 +35,33 @@
   let showCustomers = () => document.querySelector('#customer-search')?.focus();
   const realCopyText = 'Dữ liệu thật · bản sao cô lập, chưa phải prod';
 
+  // MH-01: chữ thường, bỏ dấu, gộp ký tự lạ thành khoảng trắng — gõ "sau rieng bo" khớp "Sầu riêng · bộ".
+  const fold = text => String(text ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const modeText = { CANG: 'cảng', BO: 'bộ' };
+  const unclassified = 'Chưa phân loại';
+  const groupLabel = row => row.commodity
+    ? (modeText[row.transport_mode] ? `${row.commodity} · ${modeText[row.transport_mode]}` : row.commodity)
+    : unclassified;
+
+  // Nhóm theo mặt hàng + phương thức, nhóm xếp theo tên, "Chưa phân loại" cuối; trong nhóm giữ thứ tự server.
+  // found theo đúng thứ tự hiển thị để Enter mở dòng đầu tiên người dùng thấy.
+  function groupCustomers(customers, query = '') {
+    const wanted = fold(query);
+    const groups = new Map();
+    for (const row of customers) {
+      const label = groupLabel(row);
+      if (wanted && !fold(row.name).includes(wanted) && !fold(label).includes(wanted)) continue;
+      if (!groups.has(label)) groups.set(label, { label, rows: [] });
+      groups.get(label).rows.push(row);
+    }
+    const ordered = [...groups.values()].sort((a, b) =>
+      (a.label === unclassified) - (b.label === unclassified) || a.label.localeCompare(b.label, 'vi'));
+    // Chưa khách nào có mặt hàng (DB chưa gán): danh sách phẳng như cũ, không hiện một nhóm "Chưa phân loại" thừa.
+    return { groups: ordered, found: ordered.flatMap(group => group.rows),
+      labelled: customers.some(row => row.commodity) };
+  }
+
   async function loadCustomers(fetcher = fetch) {
     const search = document.querySelector('#customer-search');
     const list = document.querySelector('#customer-list');
@@ -58,17 +85,30 @@
       let found = [];
       let listAll = !current;
       const render = () => {
-        const query = search.value.trim().toLocaleLowerCase();
-        found = customers.filter(row => row.name.toLocaleLowerCase().includes(query));
+        const query = search.value.trim();
+        const grouped = groupCustomers(customers, query);
+        found = grouped.found;
         // Before typing, list everyone only when no customer is open yet or the search box is in use.
-        const shown = query || listAll ? found.slice(0, 50) : [];
-        list.replaceChildren(...shown.map(row => {
-          const link = document.createElement('a');
-          link.href = href(row);
-          link.textContent = row.status === 'active' ? row.name : `${row.name} (chưa có số dư đầu)`;
-          if (String(row.id) === current) link.setAttribute('aria-current', 'page');
-          return link;
-        }));
+        const shown = new Set(query || listAll ? found.slice(0, 50) : []);
+        const items = [];
+        for (const group of grouped.groups) {
+          const rows = group.rows.filter(row => shown.has(row));
+          if (!rows.length) continue;
+          if (grouped.labelled) {
+            const head = document.createElement('div');
+            head.className = 'customer-group';
+            head.textContent = `${group.label} (${group.rows.length})`;
+            items.push(head);
+          }
+          for (const row of rows) {
+            const link = document.createElement('a');
+            link.href = href(row);
+            link.textContent = row.status === 'active' ? row.name : `${row.name} (chưa có số dư đầu)`;
+            if (String(row.id) === current) link.setAttribute('aria-current', 'page');
+            items.push(link);
+          }
+        }
+        list.replaceChildren(...items);
         document.querySelector('#customer-count').textContent = query || listAll
           ? `${found.length} khách${found.length > shown.length ? ` · hiện ${shown.length}, gõ thêm để lọc` : ''}`
           : `${customers.length} khách · gõ tên để đổi khách`;
@@ -198,7 +238,7 @@
     return { read, submit, submitOffset, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
-  const api = { create, stale, unknown, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
+  const api = { create, stale, unknown, groupCustomers, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();

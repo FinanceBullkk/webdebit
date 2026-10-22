@@ -127,7 +127,10 @@ def check_api(pg):
     source = new_book(pg, ('2026-01-01', -500))
     pg.sql(f"UPDATE sokhach.customer SET name='fake z' WHERE id={c}; "
            f"UPDATE sokhach.customer SET name='FAKE A',archived=true WHERE id={source}; "
-           "INSERT INTO sokhach.customer(name) VALUES ('fake a')")
+           "INSERT INTO sokhach.customer(name) VALUES ('fake a'); "
+           "INSERT INTO sokhach.commodity(name) VALUES ('Sầu riêng'); "
+           f"UPDATE sokhach.customer SET commodity_id=(SELECT id FROM sokhach.commodity), transport_mode='BO' "
+           f"WHERE id={c}")
     runner = Psql(pg.name, DATABASE, 'v7_app')
     reader = Psql(pg.name, DATABASE, 'v7_reader')
     actor = 'fake-grants-actor'
@@ -148,11 +151,17 @@ def check_api(pg):
         require(ledger()['version'] == before + 1, f'{name}: version did not increment')
         return result
     expected = json.loads(pg.value("SELECT jsonb_build_object('customers',coalesce(jsonb_agg("
-        "jsonb_build_object('id',id,'name',name,'status',status) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
+        "jsonb_build_object('id',id,'name',name,'status',status,'commodity',commodity,"
+        "'transport_mode',transport_mode) ORDER BY name COLLATE \"C\",id),'[]'::jsonb)) "
         "FROM (SELECT c.id,c.name,CASE WHEN cc.status='active' AND co.status='active' THEN 'active' "
-        "ELSE 'NO_BASELINE' END AS status FROM sokhach.customer c LEFT JOIN sokhach.cutover_customer cc "
+        "ELSE 'NO_BASELINE' END AS status,m.name AS commodity,c.transport_mode FROM sokhach.customer c "
+        "LEFT JOIN sokhach.commodity m ON m.id=c.commodity_id LEFT JOIN sokhach.cutover_customer cc "
         "ON cc.customer_id=c.id LEFT JOIN sokhach.cutover co ON co.id=cc.cutover_id) q"))
     require(invoke('list_customers') == expected, 'customer JSON differs from original query')
+    listed = {row['id']: row for row in expected['customers']}
+    require((listed[c]['commodity'], listed[c]['transport_mode']) == ('Sầu riêng', 'BO')
+            and (listed[source]['commodity'], listed[source]['transport_mode']) == (None, None),
+            'commodity/transport_mode not listed')
     for name, payload in [('list_customers', {}), ('get_ledger', {'customer_id': c}),
                           ('list_offset_sources', {'target_customer_id': c})]:
         require(reader.run(name, payload, actor) == runner.run(name, payload, actor), 'reader result differs')
