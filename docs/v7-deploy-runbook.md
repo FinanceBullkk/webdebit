@@ -661,7 +661,7 @@ systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. 
 hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
 Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.
 
-## Kết luận CHỜ KIỂM — nâng DB đang có (ĐỀ XUẤT, chưa chạy trên hao)
+## Kết luận CHỜ KIỂM — nâng DB đang có (ĐÃ CHẠY trên hao 22/10/2026)
 
 Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,
 theo đúng trình tự đợt nâng 22/10: backup và restore thử, chạy trên bản sao, rồi DB thật khi
@@ -723,6 +723,12 @@ py -3.13 cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test --repo
 
 Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view với khởi tạo mới; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
 # Migration NHAP-SHEET-01 — sửa/xóa chuyến (22/10/2026)
+
+**Đã triển khai 22/10/2026** (commit `723d1ac`, CI xanh đúng SHA): trip-review rồi nhap-sheet chạy trên `webdebit_v7` thật
+trong cửa sổ dừng ghi, sau backup, restore thử và chạy thử hai lượt trên bản sao. Cả hai migration mã thoát 0,
+checker sau triển khai OK (236 khách, 877 kỳ), số dư 0/236 khách lệch, `DOI SOAT: DAT` 236/236.
+Chưa đo thời gian khóa bảng trên dữ liệu thật; chưa kiểm nhập/sửa/xóa chuyến qua giao diện.
+Lưu ý khi dựng DB restore thử: `createdb` để PUBLIC có CONNECT, cần thu hồi trước khi chạy checker.
 
 Phạm vi mã: `cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap-sheet.sql`;
 chạy sau M2-11, CSM và trip-review. Mục này là hướng dẫn cho gate triển khai riêng,
