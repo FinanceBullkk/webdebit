@@ -170,6 +170,34 @@ const SoKhachV7Model = (() => {
     return parsed.getUTCFullYear() === +year && parsed.getUTCMonth() + 1 === +month && parsed.getUTCDate() === +day;
   }
 
+  // NHAP-SHEET-01: one typed cell → the string the server takes. Throws a Vietnamese message.
+  // Dates accept d/m/yyyy like the Sheet; money "" means unknown (NULL), never 0.
+  // Blank text goes to the server as-is: only it knows whether the row needs the cell (fee-only rows do not).
+  const CELL_FIELDS = ["container", "carrier", "event_date", "origin", "destination", "unit_price_vnd", "other_fee_vnd"];
+  function parseCellEdit(field, text, todayIso) {
+    if (!CELL_FIELDS.includes(field)) throw new Error("Ô không được sửa.");
+    const value = String(text ?? "").trim();
+    if (field === "event_date") {
+      const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+      const padded = match ? `${match[1].padStart(2, "0")}/${match[2].padStart(2, "0")}/${match[3]}` : "";
+      if (!validDate(padded)) throw new Error("Ngày phải dạng dd/mm/yyyy.");
+      const iso = `${match[3]}-${padded.slice(3, 5)}-${padded.slice(0, 2)}`;
+      if (todayIso && iso > todayIso) throw new Error("Ngày không được sau hôm nay.");
+      return iso;
+    }
+    if (field === "unit_price_vnd" || field === "other_fee_vnd") {
+      if (!value) return "";
+      try { return parseVnd(value).toString(); } catch { throw new Error("Số tiền không hợp lệ."); }
+    }
+    return field === "container" ? value.replace(/\s+/g, "").toUpperCase() : value;
+  }
+
+  // Total of server adjustment rows (digit strings, signed) shown as one line per month; null when none.
+  function sumAdjustments(rows) {
+    if (!rows.length) return null;
+    return rows.reduce((sum, row) => sum + vnd(row.amount_vnd, true), 0n);
+  }
+
   function receiptInput({ pid, date, method, amountVnd }) {
     if (typeof pid !== "string" || !pid.trim() || !["THU TIỀN", "CẤN TRỪ", "ỨNG TRƯỚC", "KHÁC"].includes(method) || !validDate(date)) throw new Error("Invalid receipt");
     const amount = vnd(amountVnd);
@@ -489,7 +517,7 @@ const SoKhachV7Model = (() => {
 
   return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
-    parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts,
+    parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets };
 })();

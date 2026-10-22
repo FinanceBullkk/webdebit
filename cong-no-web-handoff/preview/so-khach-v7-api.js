@@ -11,6 +11,11 @@
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],
     lock: ['/api/v7/months/lock', ['month', 'locked']],
     tripReview: ['/api/v7/trips/review', ['trip_id', 'decision', 'reason']],
+    // NHAP-SHEET-01: sửa một ô / xóa hẳn, mọi tháng kể cả tháng khóa; value luôn là chuỗi.
+    tripInfo: ['/api/v7/trips/info', ['trip_id', 'field', 'value']],
+    tripDelete: ['/api/v7/trips/delete', ['trip_id']],
+    legacyEdit: ['/api/v7/legacy/edit', ['legacy_row_id', 'field', 'value']],
+    legacyDelete: ['/api/v7/legacy/delete', ['legacy_row_id']],
   };
   // Cấn trừ hai sổ (CT-2SO): một lệnh ghi cả hai sổ, cần version của cả hai. 'target' = sổ đang mở là sổ nhận.
   const offsetRoutes = {
@@ -142,6 +147,7 @@
       for (const name of ['amount_vnd', 'new_amount_vnd', 'new_value_vnd', 'unit_price_vnd', 'other_fee_vnd']) {
         if (Object.hasOwn(intent, name) && intent[name] !== null && typeof intent[name] !== 'string') throw Error('Số tiền phải là chuỗi VND.');
       }
+      if (Object.hasOwn(intent, 'value') && typeof intent.value !== 'string') throw Error('Giá trị ô phải là chuỗi.');
       for (const trip of intent.trips ?? []) {
         if (['unitPriceVnd', 'otherFeeVnd'].some(name => trip[name] !== null && trip[name] !== undefined && typeof trip[name] !== 'string')) throw Error('Số tiền phải là chuỗi VND.');
       }
