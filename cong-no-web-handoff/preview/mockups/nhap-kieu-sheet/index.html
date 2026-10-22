@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nhập kiểu Sheet · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem cho specs/v7-nhap-kieu-sheet.md: chạy trong tab, không gọi API, không lưu gì. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button,input,textarea{font:inherit}
+.demo{margin:0;padding:10px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:16px}
+.guide{max-width:1258px;margin:10px auto;padding:10px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.guide h2{margin:0 0 6px;font-size:15px}.guide ol{margin:0 0 8px;padding-left:20px}
+.guide textarea{width:100%;height:92px;font:12px/1.4 Consolas,monospace;white-space:pre}
+.guide button{min-height:30px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer}
+.book-head{max-width:1258px;margin:0 auto;height:64px;display:flex;align-items:center;gap:20px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.book-head h1{font-size:16px;margin:0}.head-item{display:flex;flex-direction:column}.head-item span{color:#3e5871;font-size:13px}.head-item.total{margin-left:auto}.head-item.total strong{font-size:18px;color:#123f79}
+.ledger{width:1258px;margin:0 auto;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere;font-size:13px}
+.ledger td{height:36px}.ledger th{text-align:left}
+.group th{height:28px;background:#dbe8f7;color:#16385f}.group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
+.columns th{height:36px;background:#eaf1fa;line-height:1.12}.columns .pay{background:#dfeeff}
+.month th{height:40px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px}
+.month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
+.badge{padding:2px 8px;border-radius:10px;background:#dbf5e4;color:#145b32;font-size:12px}
+.num{text-align:right;white-space:nowrap}
+.pay{background:#f2f8ff}.pay-start{border-left:3px solid #3269a4!important}
+.missing{background:#ffddb0!important;color:#72410a;font-weight:700}
+.adjustment td{background:#fff2f2}
+.legacy td{background:#f6f7f9;color:#3a4652}.legacy-caption td{background:#eef1f5;color:#3a4652;font-style:italic}
+.pending td{background:#fff8e1}
+.subtotal td{height:42px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+.receipt-date,.receipt-amount,.receipt-method{width:100%;min-height:26px}
+/* Bảng nhập kiểu Sheet */
+.grid-caption td{background:#e9f5ec;color:#1f5130;font-weight:700;border-top:2px solid #6aa57b}
+.grid td{padding:0;background:#fff}
+.grid td.stt{padding:4px 5px;color:#5d6f82;font-size:12px}
+.grid td.off{background:#eceff3}
+.grid.draft td:not(.off){background:#fffbe8}
+.grid input{display:block;width:100%;height:35px;border:0;padding:4px 5px;background:transparent;color:#162d48;font-size:13px;outline:none}
+.grid input.money{text-align:right}
+.grid td:focus-within{outline:2px solid #145fa9;outline-offset:-2px}
+.grid td.bad{box-shadow:inset 0 0 0 2px #c62828;background:#fff1f1!important}
+.grid td.warn{background:#fff3c4!important}
+.grid td.amount{padding:4px 5px;text-align:right;white-space:nowrap}
+.grid td.missing-cell input::placeholder{color:#72410a;font-weight:700}
+.grid-bar td{background:#e9f5ec;padding:6px 10px;height:auto}
+.grid-bar .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.grid-bar strong{font-size:14px}
+.grid-bar .errors{color:#a01616;font-weight:700}
+.grid-bar button{min-height:36px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font-size:14px}
+.grid-bar .save{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.grid-bar button:disabled{opacity:.45;cursor:not-allowed}
+.grid-note{color:#6b4a00}
+.status td{background:#e2f5e8;color:#145b32;font-weight:700}
+.tip{position:fixed;z-index:20;max-width:320px;padding:6px 9px;background:#7a1010;color:#fff;border-radius:4px;font-size:13px;pointer-events:none}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì</p>
+<section class="guide" aria-labelledby="guide-title">
+  <h2 id="guide-title">Thử thế nào</h2>
+  <ol>
+    <li>Copy vài hàng từ tab khách trên Sheet thật (từ cột STT hoặc cột container, kéo sang phải tới đâu cũng được) — hoặc copy khối mẫu dưới đây (đã xếp cột như Sheet, có cả phần tiền khách trả).</li>
+    <li>Bấm vào <strong>ô bất kỳ</strong> của hàng trống màu trắng trong tháng 10/2026, rồi Ctrl+V.</li>
+    <li>Sửa ô đỏ nếu có, rồi bấm <strong>Lưu</strong>. Muốn gõ tay: bấm ô Số container, gõ, Tab sang ô kế, Enter xuống hàng.</li>
+  </ol>
+  <textarea id="sample" aria-label="Khối mẫu xếp cột như Sheet" readonly></textarea>
+  <button type="button" id="copy-sample">Copy khối mẫu</button> <span id="copy-status" role="status"></span>
+</section>
+<header class="book-head"><h1>Sổ khách · KHÁCH GIẢ A</h1><div class="head-item"><span>Chờ xử lý</span><strong id="pending-head"></strong></div><div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong id="total-head"></strong></div></header>
+<table class="ledger" aria-label="Sổ khách tháng 10/2026">
+  <colgroup><col style="width:38px"><col style="width:110px"><col style="width:78px"><col style="width:80px"><col style="width:86px"><col style="width:86px"><col style="width:98px"><col style="width:90px"><col style="width:120px"><col style="width:90px"><col style="width:90px"><col style="width:128px"><col style="width:164px"></colgroup>
+  <thead>
+    <tr class="group"><th colspan="9">CHUYẾN HÀNG · ô cam: chưa có giá, ngoài số dư</th><th colspan="3" class="group-pay">TIỀN KHÁCH TRẢ</th><th>NỢ</th></tr>
+    <tr class="columns"><th>STT</th><th>Số container</th><th>Hãng tàu / số xe</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th>Đơn giá</th><th>Phụ phí</th><th>Thành tiền</th><th class="pay pay-start">Ngày trả</th><th class="pay">Hình thức</th><th class="pay">Số tiền trả</th><th>Còn nợ cộng dồn</th></tr>
+  </thead>
+  <tbody id="month"></tbody>
+</table>
+<script src="../../so-khach-v7-model.js"></script>
+<script>
+(() => {
+  'use strict';
+  const { parseVnd, formatVnd } = SoKhachV7Model;
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const fmt = amount => amount === null ? '' : formatVnd(amount);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+  // ---- Sổ giả: tháng 10/2026 đang mở ----
+  const opening = 500000000n;
+  const legacy = [
+    ['1', 'FAKU1000001', 'GIẢ', '01/10/2026', 'DAK LAK', 'XIAMEN', 75000000n, null],
+    ['2', 'FAKU1000002', 'GIẢ', '02/10/2026', 'DAK LAK', 'QINGDAO', 90000000n, 3000000n],
+    ['3', 'FAKU1000003', 'GIẢ', '03/10/2026', 'TIEN GIANG', 'XIAMEN', null, null],
+  ];
+  const saved = [
+    { container: 'FAKU2000001', carrier: 'GIẢ', date: '15/10/2026', from: 'DAK LAK', to: 'XIAMEN', price: 75000000n, fee: null, pending: false },
+  ];
+  // Khối mẫu xếp cột như tab khách: A STT · B container · C hãng tàu · D ngày · E nơi đi · F nơi đến · G H I phí · J đơn giá · K thành tiền · L.. tiền khách trả.
+  const sample = [
+    ['33', 'FAKU3000001', 'GIẢ', '20/10/2026', 'DAK LAK', 'XIAMEN', '', '', '', '75,000,000', '75,000,000'],
+    ['34', 'FAKU3000002', 'GIẢ', '20/10/2026', 'DAK LAK', 'QINGDAO', '2,000,000', '', '1,000,000', '90,000,000', '93,000,000'],
+    ['35', 'FAKU3000003', 'GIẢ', '21/10/2026', 'BAO LOC', 'XIAMEN', '', '', '', '', '0'],
+    ['36', 'FAKU1000002', 'GIẢ', '02/10/2026', 'DAK LAK', 'QINGDAO', '', '', '3,000,000', '90,000,000', '93,000,000', '21/10/2026', 'ck', '200,000,000'],
+    ['37', 'FAKU3000005', 'GIẢ', '22/10/2026', 'DAK LAK', '', '', '', '', '85,000,000', '86,000,000'],
+  ].map(row => row.join('\t')).join('\n');
+  document.querySelector('#sample').value = sample;
+  document.querySelector('#copy-sample').addEventListener('click', async () => {
+    const box = document.querySelector('#sample');
+    box.select();
+    let ok = false;
+    try { await navigator.clipboard.writeText(sample); ok = true; } catch { ok = document.execCommand('copy'); }
+    document.querySelector('#copy-status').textContent = ok ? 'Đã copy. Bấm vào hàng trống rồi Ctrl+V.' : 'Không copy tự động được: khối mẫu đang được chọn, bấm Ctrl+C.';
+  });
+
+  // ---- Bảng nhập ----
+  const FIELDS = ['container', 'carrier', 'date', 'from', 'to', 'price', 'fee'];   // cột 1..7 của sổ
+  const blank = () => ({ container: '', carrier: '', date: '', from: '', to: '', price: '', fee: '', sheetTotal: '' });
+  let drafts = [];
+  let note = '';
+  let status = '';
+  const isEmpty = row => FIELDS.every(name => !row[name].trim());
+  const containerKey = text => text.toUpperCase().replace(/\s+/g, '');
+  const looksLikeContainer = text => /^[A-Z]{4}\d{7}$/.test(containerKey(text));
+  const money = text => {
+    const value = text.trim();
+    if (!value || /[a-zà-ỹ]/i.test(value)) return { value: null };   // trống hoặc chữ ("chưa có giá") = chưa có
+    try { return { value: parseVnd(value) }; } catch { return { error: 'Số tiền không đọc được' }; }
+  };
+  const readDate = text => {
+    const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
+    if (!match) return { error: 'Ngày cần dạng ngày/tháng/năm, ví dụ 20/10/2026' };
+    const [d, m, y] = [+match[1], +match[2], +match[3]];
+    const date = new Date(Date.UTC(y, m - 1, d));
+    if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return { error: 'Ngày không có thật' };
+    const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (iso > today) return { error: 'Ngày ở tương lai' };
+    return { text: `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}` };
+  };
+  function check(row) {
+    const errors = {};
+    for (const [name, label] of [['container', 'Thiếu số container'], ['carrier', 'Thiếu hãng tàu / số xe'], ['from', 'Thiếu nơi đi'], ['to', 'Thiếu nơi đến']]) {
+      if (!row[name].trim()) errors[name] = label;
+    }
+    if (!row.date.trim()) errors.date = 'Thiếu ngày chuyến'; else if (readDate(row.date).error) errors.date = readDate(row.date).error;
+    const price = money(row.price), fee = money(row.fee);
+    if (price.error) errors.price = price.error;
+    if (fee.error) errors.fee = fee.error;
+    const amount = price.value === null || price.value === undefined ? null : price.value + (fee.value ?? 0n);
+    let warn = '';
+    if (row.sheetTotal && amount !== null) {
+      const sheet = money(row.sheetTotal);
+      if (sheet.value !== undefined && sheet.value !== null && sheet.value !== amount) warn = `Sheet ghi ${formatVnd(sheet.value)}`;
+    }
+    return { errors, amount, missing: price.value === null && !price.error, warn };
+  }
+
+  // Dán: tìm cột container rồi đọc theo bố cục tab khách; không thấy container thì dán theo cột web từ ô đang bấm.
+  function spread(text, startRow, startField) {
+    const lines = text.replace(/\r/g, '').split('\n').map(line => line.split('\t'));
+    while (lines.length && lines[lines.length - 1].every(cell => !cell.trim())) lines.pop();
+    const anchor = lines.map(cells => cells.slice(0, 3).findIndex(looksLikeContainer)).find(index => index >= 0);
+    let rowIndex = startRow, skipped = 0, payments = false;
+    for (const cells of lines) {
+      const text = cells.join(' ').trim();
+      if (!text || (/c[ộo]ng|t[ổo]ng/i.test(text) && !cells.some(looksLikeContainer))) { skipped++; continue; }
+      const row = blank();
+      if (anchor !== undefined) {
+        const at = offset => (cells[anchor + offset] ?? '').trim();
+        Object.assign(row, { container: containerKey(at(0)), carrier: at(1), date: at(2), from: at(3), to: at(4), price: at(8), sheetTotal: at(9) });
+        const fees = [at(5), at(6), at(7)].filter(Boolean);
+        const parsed = fees.map(money);
+        row.fee = !fees.length ? '' : parsed.some(item => item.error || item.value === null) ? fees.join(' + ')
+          : formatVnd(parsed.reduce((sum, item) => sum + item.value, 0n));
+        if (cells.slice(anchor + 10).some(cell => cell.trim())) payments = true;
+      } else {
+        const from = FIELDS.indexOf(startField);
+        const base = drafts[rowIndex] ? { ...drafts[rowIndex] } : row;
+        cells.forEach((cell, offset) => { if (FIELDS[from + offset]) base[FIELDS[from + offset]] = cell.trim(); });
+        Object.assign(row, base);
+      }
+      tidy(row);
+      drafts[rowIndex++] = row;
+    }
+    note = [payments ? 'Phần tiền khách trả trong vùng dán đã bỏ qua — khoản thu ghi ở ô Ngày trả / Số tiền trả.' : '',
+      skipped ? `Bỏ qua ${skipped} hàng trống hoặc hàng cộng.` : ''].filter(Boolean).join(' ');
+    status = '';
+    return { row: Math.min(rowIndex, drafts.length), field: 'container' };
+  }
+
+  // Hiện lại ô theo dạng của sổ khi đọc được: ngày dd/mm/yyyy, tiền 75.000.000.
+  function tidy(row) {
+    row.container = containerKey(row.container);
+    if (readDate(row.date).text) row.date = readDate(row.date).text;
+    for (const name of ['price', 'fee']) { const read = money(row[name]); if (read.value !== null && read.value !== undefined) row[name] = formatVnd(read.value); }
+  }
+  let rendering = false;
+  function render(focus) {
+    rendering = true;
+    try { draw(focus); } finally { rendering = false; }
+  }
+  function draw(focus) {
+    // Hàng nháp bị xóa trắng thì bỏ, trừ hàng đang gõ; giữ con trỏ đúng hàng sau khi bỏ.
+    if (focus) focus = { ...focus, row: focus.row - drafts.slice(0, focus.row).filter(isEmpty).length };
+    drafts = drafts.filter((row, index) => !isEmpty(row) || index === focus?.row);
+    const checked = drafts.map(check);
+    const badCount = checked.reduce((sum, item) => sum + Object.keys(item.errors).length, 0);
+    const legacyRows = legacy.map(([stt, container, carrier, date, from, to, price, fee]) => `<tr class="legacy"><td>${stt}</td><td>${container}</td><td>${carrier}</td><td>${date}</td><td>${from}</td><td>${to}</td>${price === null ? '<td class="num missing">chưa có giá</td>' : `<td class="num">${fmt(price)}</td>`}<td class="num">${fmt(fee)}</td><td class="num">${price === null ? '0' : fmt(price + (fee ?? 0n))}</td><td class="pay pay-start"></td><td class="pay"></td><td class="pay"></td><td></td></tr>`).join('');
+    const savedRows = saved.map((trip, index) => `<tr class="${trip.pending ? 'pending' : ''}"><td>${index + 1}</td><td>${esc(trip.container)}</td><td>${esc(trip.carrier)}</td><td>${esc(trip.date)}</td><td>${esc(trip.from)}</td><td>${esc(trip.to)}</td>${trip.price === null ? '<td class="num missing">chưa có giá</td>' : `<td class="num">${fmt(trip.price)}</td>`}<td class="num">${fmt(trip.fee)}</td><td class="num">${trip.pending ? 'CHỜ KIỂM' : trip.price === null ? '–' : fmt(trip.price + (trip.fee ?? 0n))}</td>${index === 0 ? '<td class="pay pay-start"><input class="receipt-date" placeholder="dd/mm/yyyy" aria-label="Ngày trả"></td><td class="pay"><select class="receipt-method" aria-label="Hình thức"><option>THU TIỀN</option></select></td><td class="pay"><input class="receipt-amount" aria-label="Số tiền trả"></td>' : '<td class="pay pay-start"></td><td class="pay"></td><td class="pay"></td>'}<td></td></tr>`).join('');
+    const cellHtml = (row, rowIndex, name, result) => {
+      const bad = result?.errors[name];
+      const missing = name === 'price' && result?.missing && rowIndex < drafts.length;
+      return `<td class="${bad ? 'bad' : ''}${missing ? ' missing-cell missing' : ''}"${bad ? ` data-tip="${esc(bad)}"` : ''}><input class="${['price', 'fee'].includes(name) ? 'money' : ''}" data-row="${rowIndex}" data-field="${name}" value="${esc(row[name])}" aria-label="${esc({ container: 'Số container', carrier: 'Hãng tàu / số xe', date: 'Ngày chuyến', from: 'Nơi đi', to: 'Nơi đến', price: 'Đơn giá', fee: 'Phụ phí' }[name])} hàng nhập ${rowIndex + 1}"${bad ? ' aria-invalid="true"' : ''}${missing ? ' placeholder="chưa có giá"' : ''} autocomplete="off"></td>`;
+    };
+    const gridRows = [...drafts, blank()].map((row, rowIndex) => {
+      const result = rowIndex < drafts.length ? checked[rowIndex] : null;
+      const total = result ? (result.amount === null ? '–' : formatVnd(result.amount)) : '';
+      return `<tr class="grid${result ? ' draft' : ''}"><td class="stt">${result ? 'nháp' : ''}</td>${FIELDS.map(name => cellHtml(row, rowIndex, name, result)).join('')}<td class="amount${result?.warn ? ' warn' : ''}"${result?.warn ? ` title="${esc(result.warn)}"` : ''}>${esc(total)}${result?.warn ? `<br><small>${esc(result.warn)}</small>` : ''}</td><td class="off pay-start"></td><td class="off"></td><td class="off"></td><td class="off"></td></tr>`;
+    }).join('');
+    const charges = opening + saved.filter(trip => !trip.pending && trip.price !== null).reduce((sum, trip) => sum + trip.price + (trip.fee ?? 0n), 0n);
+    const missingCount = saved.filter(trip => trip.price === null).length + legacy.filter(row => row[6] === null).length;
+    document.querySelector('#pending-head').textContent = `${saved.filter(trip => trip.pending).length} chuyến CHỜ KIỂM · ${missingCount} chuyến chưa có giá`;
+    document.querySelector('#total-head').textContent = formatVnd(charges);
+    document.querySelector('#month').innerHTML = `
+      <tr class="month"><th colspan="13"><span class="month-title">THÁNG 10/2026 🔓<span class="badge">Đang mở</span><em>Nợ các tháng trước: 0</em></span></th></tr>
+      <tr class="adjustment"><td colspan="8">Nợ tháng này còn lại khi chuyển sang web</td><td class="num">${fmt(opening)}</td><td class="pay pay-start" colspan="4">Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước</td></tr>
+      <tr class="legacy-caption"><td colspan="13">Từ sổ gốc · đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại</td></tr>${legacyRows}
+      ${savedRows}
+      <tr class="grid-caption"><td colspan="13">Nhập chuyến · dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay (Tab sang ô kế, Enter xuống hàng)</td></tr>
+      ${gridRows}
+      <tr class="grid-bar"><td colspan="13"><div class="bar"><strong>${drafts.length} chuyến nháp</strong>${badCount ? `<span class="errors">· ${badCount} ô cần sửa</span>` : ''}<button type="button" class="save" ${drafts.length && !badCount ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="discard" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="grid-note">${esc(note)}</span>` : ''}</div></td></tr>
+      ${status ? `<tr class="status"><td colspan="13" role="status">${esc(status)}</td></tr>` : ''}
+      <tr class="subtotal"><td colspan="8">Cộng tháng 10/2026 (${saved.length} chuyến) · Phát sinh</td><td class="num">${fmt(charges)}</td><td class="pay pay-start" colspan="2">Đã thu</td><td class="num pay">0</td><td class="num">${fmt(charges)}</td></tr>`;
+    if (focus) {
+      const input = document.querySelector(`.grid input[data-row="${focus.row}"][data-field="${focus.field}"]`);
+      if (input) { input.focus(); const end = focus.caret ?? input.value.length; input.setSelectionRange(end, end); }
+    }
+  }
+
+  const months = document.querySelector('#month');
+  // Gõ chỉ ghi vào nháp; bảng vẽ lại khi rời ô (không phá bộ gõ tiếng Việt giữa chừng),
+  // trừ lần đầu gõ vào hàng trống: cần mọc ngay một hàng trống mới bên dưới.
+  const focusOf = element => element?.matches?.('.grid input') ? { row: Number(element.dataset.row), field: element.dataset.field } : null;
+  months.addEventListener('input', event => {
+    const input = event.target.closest('.grid input');
+    if (!input) return;
+    const row = Number(input.dataset.row);
+    const fresh = row === drafts.length;
+    drafts[row] ??= blank();
+    drafts[row][input.dataset.field] = input.value;
+    status = '';
+    if (fresh && !event.isComposing) render({ row, field: input.dataset.field, caret: input.selectionStart });
+  });
+  months.addEventListener('compositionend', event => {
+    const focus = focusOf(event.target);
+    if (focus && focus.row === drafts.length - 1 && !document.querySelector(`.grid input[data-row="${drafts.length}"]`)) render({ ...focus, caret: event.target.selectionStart });
+  });
+  months.addEventListener('paste', event => {
+    const input = event.target.closest('.grid input');
+    if (!input) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!/[\t\n]/.test(text.replace(/\r?\n$/, ''))) return;   // một ô: dán như thường
+    event.preventDefault();
+    render(spread(text, Number(input.dataset.row), input.dataset.field));
+  });
+  months.addEventListener('keydown', event => {
+    const input = event.target.closest('.grid input');
+    if (!input) return;
+    const row = Number(input.dataset.row), field = input.dataset.field;
+    const move = (step, to = field) => { event.preventDefault(); render({ row: Math.max(0, Math.min(drafts.length, row + step)), field: to }); };
+    tabbing = event.key === 'Tab';
+    // Như Sheet: gõ một hàng bằng Tab rồi Enter thì xuống hàng dưới, về đúng cột bắt đầu.
+    if (event.key === 'Enter') move(1, entryField);
+    if (event.key === 'ArrowDown') move(1);
+    if (event.key === 'ArrowUp') move(-1);
+  });
+  let tabbing = false, entryField = 'container';
+  months.addEventListener('focusin', event => {
+    const focus = focusOf(event.target);
+    if (focus && !tabbing && !rendering) entryField = focus.field;
+    if (focus && !rendering) tabbing = false;
+  });
+  months.addEventListener('focusout', event => {
+    const left = focusOf(event.target);
+    if (!left || rendering) return;
+    // Rời một ô: hiện lại theo dạng của sổ, rồi kiểm lại cả bảng, giữ con trỏ ở ô vừa sang.
+    if (drafts[left.row]) tidy(drafts[left.row]);
+    requestAnimationFrame(() => {
+      const next = focusOf(document.activeElement);
+      if (next || !months.contains(document.activeElement)) render(next ?? undefined);
+    });
+  });
+  months.addEventListener('click', event => {
+    if (event.target.closest('.discard') && confirm(`Bỏ ${drafts.length} chuyến nháp?`)) { drafts = []; note = ''; render(); }
+    if (event.target.closest('.save')) {
+      const known = new Set([...legacy.map(row => row[1]), ...saved.map(trip => trip.container)]);
+      let held = 0;
+      for (const row of drafts) {
+        const result = check(row);
+        const pending = known.has(containerKey(row.container));
+        if (pending) held++;
+        known.add(containerKey(row.container));
+        const fee = money(row.fee).value;
+        saved.push({ container: containerKey(row.container), carrier: row.carrier.trim(), date: readDate(row.date).text, from: row.from.trim(), to: row.to.trim(),
+          price: result.missing ? null : money(row.price).value, fee, pending });
+      }
+      status = `Đã lưu ${drafts.length} chuyến${held ? ` (${held} chuyến CHỜ KIỂM: trùng container đã có trong sổ, chưa tính nợ)` : ''}. Bản xem: không gửi lên máy chủ.`;
+      drafts = []; note = '';
+      render({ row: 0, field: 'container' });
+    }
+  });
+  document.addEventListener('mouseover', event => {
+    document.querySelector('.tip')?.remove();
+    const cell = event.target.closest('[data-tip]');
+    if (!cell) return;
+    const box = cell.getBoundingClientRect();
+    document.body.insertAdjacentHTML('beforeend', `<div class="tip" style="left:${box.left}px;top:${box.bottom + 4}px">${esc(cell.dataset.tip)}</div>`);
+  });
+  window.addEventListener('beforeunload', event => { if (drafts.length) event.preventDefault(); });
+  render();
+})();
+</script>
+</body>
+</html>
