@@ -295,10 +295,12 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   }
   const fixture = page(false);
   // Keep approved layout baseline; CSM adds only reference subrows, checked separately.
+  // Baseline 22/10/2026: round-2 layout minus the Vết column (user test feedback), nothing else changed.
   assert.match(fixture.innerHTML, /class="reference-row"/);
   assert.match(fixture.innerHTML, /aria-label="Tham chiếu"/);
+  assert.doesNotMatch(fixture.innerHTML, /Vết|NGUỒN|class="source"|colspan="14"|change-customer/);
   assert.equal(require('node:crypto').createHash('sha256').update(fixture.innerHTML.replace(/<tr class="reference-row">.*?<\/tr>/gs, '')).digest('hex'),
-    '58265f6d23ad38c4bc7654d8ff9295e5d35bbf78e0318b7c153e362b053e19c4', 'fixture HTML must match round-2 baseline');
+    '1566c913a83953bb51a86e892906e9ce768ba9655c73d5a16971efcd839872c7', 'fixture HTML must match round-2 baseline without Vết');
   assert.match(fixture.innerHTML, /THÁNG 10\/2026/);
   assert.match(fixture.innerHTML, /Dán các dòng từ Sheet vào đây/);
   const paste = text => fixture.listeners.paste({ preventDefault() {},
@@ -342,6 +344,24 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(newMonth.innerHTML, /data-month="2026-09" rows="2"/);
   assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">1\.234\.067<\/td>/);
   assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*Nợ các tháng trước: 0<\/em>/);
+  assert.match(newMonth.innerHTML, /<button class="change-customer">Đổi khách<\/button>/);
+  // Tháng chỉ có số dư đầu từ sổ gốc: một dòng "nợ còn lại", không dòng trống, không "Phát sinh 0 · Đã thu 0".
+  const carried = page(true, { ...ledger(5), today_month: '2026-10-01',
+    months: [
+      { month: '2026-02-01', prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' },
+      { month: '2026-10-01', prior_months_vnd: '0', charges_vnd: '700', received_vnd: '0', end_of_month_vnd: '700', outstanding_vnd: '700' }],
+    opening: [{ month: '2026-02-01', amount_vnd: '0' }, { month: '2026-10-01', amount_vnd: '700' }],
+    legacy_rows: [{ month: '2026-02-01', kind: 'trip', display: { row: 3, container: 'FAKE-OLD' }, source_total_vnd: '307' }],
+    source_exceptions: [{ month: '2026-02-01', source_charge_vnd: '307', source_receipt_vnd: '484', source_cumulative_vnd: '232' }],
+    trips: [], receipts: [], adjustments: [], events: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
+  assert.doesNotMatch(february, /Cộng tháng|Đã thu<\/td><td class="num pay">0|<tr>\s*<td class=""><\/td>/);
+  assert.match(february, /<tr class="subtotal"><td colspan="8">Nợ tháng này còn lại khi chuyển sang web · Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">0<\/td><td class="pay pay-start" colspan="3"><\/td><td class="num ">0<\/td><\/tr><tr class="source-total">/);
+  const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
+  assert.match(october, /<tr class="adjustment"><td colspan="8">Nợ tháng này còn lại khi chuyển sang web<\/td><td class="num ">700<\/td><td class="pay pay-start" colspan="4">Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước<\/td><\/tr>/);
+  assert.match(october, /Cộng tháng 10\/2026 \(0 chuyến\) · Phát sinh/);
+  assert.match(october, /class="empty-entry receipt-amount"/);
   const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],
     trips: [{ id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
