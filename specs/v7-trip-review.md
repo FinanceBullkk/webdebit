@@ -39,9 +39,9 @@ Từ M2-11 ([spec](v7-m2-11-dedup.md)), dán lô có dấu hiệu trùng thì ch
 
 Không chạy trên `hao`, Sheet hay dữ liệu thật. Triển khai theo runbook: backup, restore thử, chạy migration trên bản sao, rồi DB thật khi người dùng xác nhận; checker và đối soát tổng khách sau đó.
 
-## Giao diện (ĐỀ XUẤT, chờ duyệt luồng trước khi code)
+## Giao diện (ĐÃ DUYỆT LUỒNG 22/10/2026; ĐÃ CODE trên nhánh claude/v7-cho-kiem-ui, chưa triển khai lên hao)
 
-Theo quy trình frontend, luồng mới cần người dùng duyệt trước. Đề xuất dùng lại khuôn "hủy phiếu hỏi lý do ngay trong bảng":
+Theo quy trình frontend, luồng mới cần người dùng duyệt trước; người dùng đã duyệt nguyên văn đề xuất dưới đây. Giao diện đã code ở sổ live (`so-khach-v7-ui.js`, test node và Playwright 1280×720); bản xem tĩnh không có API nên giữ chữ CHỜ KIỂM. Dùng lại khuôn "hủy phiếu hỏi lý do ngay trong bảng":
 
 1. Ô thành tiền của chuyến CHỜ KIỂM hiện nút **CHỜ KIỂM** (như hiện nay, thêm bấm được).
 2. Bấm vào thì mở một dòng ngay dưới chuyến: lý do bị giữ bằng chữ dễ hiểu ("Trùng mã với dòng sổ gốc", "Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc", "Trùng chuyến đã nhập trên web", "Trùng trong cùng lô dán"), ô **Lý do kết luận**, hai nút **Tính vào sổ** và **Loại, không tính**, nút **Thôi**.

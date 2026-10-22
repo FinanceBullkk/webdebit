@@ -26,6 +26,14 @@ const outgoing = book => book.outgoing.filter(item => item.voided_by_event == nu
 const outstanding = book => book.base + book.charges - received(book) + outgoing(book);
 
 function ledger(world, id) {
+  const out = ledgerBase(world, id);
+  out.trips.push(...(world.books[id].review ?? []).map(item => ({ id: item.id, month: monthStart, container: item.container, carrier: '', event_date: dayInMonth, origin: '', destination: '',
+    unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: item.status === 'confirmed' ? '100' : null, status: item.status, review_reason: item.reason ?? null,
+    is_missing_price: false, is_fee_only: false, editable: false, src: '' })));
+  return out;
+}
+
+function ledgerBase(world, id) {
   const book = world.books[id];
   const total = outstanding(book);
   return { status: 'active', customer_id: id, version: book.version, demo: true, today_month: monthStart, month_locks: book.locks,
@@ -134,6 +142,14 @@ function handleApi(world, req, res, url, body) {
     world.nextEvent += 1;
     bump(self, other);
     return reply(res, 200, { offset_pair_id: body.offset_pair_id });
+  }
+  if (url.pathname === '/api/v7/trips/review') {
+    const self = world.books[body.customer_id];
+    const held = self.review.find(item => item.id === body.trip_id && item.status === 'pending_review');
+    if (!held) return reply(res, 422, { error: 'TRIP_NOT_PENDING', message: 'Chuyến không còn chờ kiểm.' });
+    held.status = body.decision === 'confirm' ? 'confirmed' : 'rejected';
+    bump(self);
+    return reply(res, 200, { status: held.status });
   }
   if (url.pathname === '/api/v7/receipts') {
     const self = world.books[body.customer_id];
@@ -396,4 +412,32 @@ test('không có sổ nào đang dư: báo rõ và vẫn còn Ngoài sổ', asyn
   await page.locator('.offset-source-select').click();
   assert.match(await page.locator('.offset-none').innerText(), /Không có sổ nào đang dư tiền/);
   assert.equal(await page.locator('.offset-outside').count(), 1);
+}));
+
+test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không gửi, Loại → ĐÃ LOẠI gạch ngang, Tính vào sổ gửi đúng lệnh', async () => withPage(async ({ page, world, open, shot }) => {
+  world.books[1].review = [{ id: 11, container: 'DEMO-HELD-1', status: 'pending_review', reason: 'BASELINE_CODE_MATCH' },
+    { id: 12, container: 'DEMO-HELD-2', status: 'pending_review', reason: null }];
+  await open(1);
+  assert.match(await page.locator('.book-head').innerText(), /2 chuyến CHỜ KIỂM/);
+  await page.locator('.review-open[data-trip="11"]').click();
+  assert.match(await page.locator('.review-prompt').innerText(), /Trùng mã với dòng sổ gốc/);
+  await shot('11-cho-kiem');
+  await page.locator('.review-reject').click();
+  assert.equal(await page.locator('.review-error').innerText(), 'Cần nhập lý do kết luận');
+  assert.equal(world.requests.length, 0);
+  await page.locator('.review-reason').fill('trùng dòng sổ gốc');
+  await page.locator('.review-reject').click();
+  await page.waitForFunction(() => document.querySelectorAll('.trip-rejected').length === 1);
+  assert.deepEqual({ ...world.requests[0].body, idempotency_key: typeof world.requests[0].body.idempotency_key },
+    { customer_id: 1, expected_version: 1, idempotency_key: 'string', trip_id: 11, decision: 'reject', reason: 'trùng dòng sổ gốc' });
+  assert.equal(await page.locator('.trip-rejected').innerText(), 'ĐÃ LOẠI');
+  assert.match(await page.locator('.trip-rejected').evaluate(el => getComputedStyle(el).textDecorationLine), /line-through/);
+  assert.match(await page.locator('.book-head').innerText(), /1 chuyến CHỜ KIỂM/);
+  await page.locator('.review-open[data-trip="12"]').click();
+  assert.match(await page.locator('.review-prompt').innerText(), /Nghi trùng/);
+  await page.locator('.review-reason').fill('chuyến mới thật');
+  await page.locator('.review-confirm').click();
+  await page.waitForFunction(() => document.querySelectorAll('.review-open').length === 0);
+  assert.equal(world.requests[1].body.decision, 'confirm');
+  assert.equal(world.requests[1].body.trip_id, 12);
 }));
