@@ -31,6 +31,10 @@ DECLARE
     x record;
     privilege text;
     expected text[] := ARRAY[
+      'edit_trip_info(bigint,bigint,text,bigint,text,text)',
+      'delete_trip(bigint,bigint,text,bigint)',
+      'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
+      'delete_legacy_trip(bigint,bigint,text,bigint)',
       'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
@@ -56,6 +60,22 @@ BEGIN
         RAISE EXCEPTION 'schema missing';
     END IF;
     RAISE NOTICE 'OK database_schema';
+    IF NOT EXISTS(SELECT FROM pg_constraint WHERE conrelid='sokhach.adjustment'::regclass
+        AND conname='adjustment_one_target' AND convalidated)
+       OR EXISTS(SELECT FROM sokhach.adjustment WHERE trip_id IS NOT NULL AND legacy_row_id IS NOT NULL)
+    THEN RAISE EXCEPTION 'adjustment_one_target missing or violated'; END IF;
+    IF EXISTS(SELECT FROM sokhach.legacy_row l JOIN LATERAL
+        (SELECT * FROM sokhach.legacy_trip_rev r WHERE r.legacy_row_id=l.id ORDER BY r.id DESC LIMIT 1) r ON true
+        WHERE r.counted_vnd<>coalesce(l.source_total_vnd,0)+coalesce(
+            (SELECT sum(a.amount_vnd) FROM sokhach.adjustment a WHERE a.legacy_row_id=l.id),0))
+    THEN RAISE EXCEPTION 'legacy counted amount mismatch'; END IF;
+    IF EXISTS(SELECT FROM sokhach.trip_info_rev r LEFT JOIN sokhach.event e
+        ON (e.id,e.customer_id)=(r.created_by_event,r.customer_id) WHERE e.id IS NULL)
+       OR EXISTS(SELECT FROM sokhach.legacy_trip_rev r LEFT JOIN sokhach.event e
+        ON (e.id,e.customer_id)=(r.created_by_event,r.customer_id) WHERE e.id IS NULL)
+    THEN RAISE EXCEPTION 'revision event missing'; END IF;
+    RAISE NOTICE 'OK nhap_sheet_revisions';
+
     FOREACH r IN ARRAY ARRAY['v7_app',current_setting('v7check.loader')] LOOP
         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname=r AND rolcanlogin
             AND NOT (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)) THEN

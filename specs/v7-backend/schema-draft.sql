@@ -167,8 +167,8 @@ CREATE TABLE sokhach.trip (
 );
 COMMENT ON TABLE sokhach.trip IS 'Danh tính chuyến chỉ thêm; container không phải khóa duy nhất.';
 COMMENT ON COLUMN sokhach.trip.container IS 'Phân loại phí lẻ theo JS truthiness: chỉ NULL hoặc chuỗi rỗng là không có container; chuỗi toàn khoảng trắng vẫn là giá trị có mặt.';
-COMMENT ON COLUMN sokhach.trip.debt_month IS 'Kỳ nợ là ngày mùng 1, độc lập ngày nghiệp vụ.';
-COMMENT ON COLUMN sokhach.trip.event_date IS 'Ngày xe nhập kho; không suy ra kỳ nợ từ cột này.';
+COMMENT ON COLUMN sokhach.trip.debt_month IS 'Tháng gốc giữ FK; kỳ nợ hiện tại ở v_trip_current theo NHAP-SHEET-01.';
+COMMENT ON COLUMN sokhach.trip.event_date IS 'Ngày xe nhập kho gốc; sửa ngày qua trip_info_rev, kỳ nợ hiện tại theo tháng ngày chuyến.';
 COMMENT ON COLUMN sokhach.trip.source_ref IS 'Tham chiếu nguồn nếu có; không chứa chứng từ thật trong bản nháp.';
 
 -- Read-only reference; no monetary amounts. Cutover identity freezes provenance.
@@ -195,11 +195,11 @@ DECLARE v_trip bigint;
 BEGIN
     IF TG_TABLE_NAME = 'trip' THEN v_trip := NEW.id;
     ELSE v_trip := NEW.trip_id; END IF;
-    IF EXISTS (SELECT 1 FROM sokhach.trip t WHERE t.id=v_trip AND t.event_date IS NULL
+    IF EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE t.id=v_trip AND t.event_date IS NULL
         AND NOT (t.container IS NULL OR t.container=''))
-       OR EXISTS (SELECT 1 FROM sokhach.trip t WHERE t.id=v_trip AND t.event_date IS NULL
+       OR EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE t.id=v_trip AND t.event_date IS NULL
          AND NOT EXISTS (SELECT 1 FROM sokhach.trip_price_rev p WHERE p.trip_id=t.id))
-       OR EXISTS (SELECT 1 FROM sokhach.trip t JOIN LATERAL
+       OR EXISTS (SELECT 1 FROM sokhach.v_trip_current t JOIN LATERAL
            (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
             WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
            WHERE t.id=v_trip AND t.event_date IS NULL
@@ -266,7 +266,7 @@ CREATE TABLE sokhach.event (
     customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
     kind text NOT NULL CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
-        'customer_attr', 'trip_review')),
+        'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -288,6 +288,10 @@ CREATE TABLE sokhach.event (
         WHEN 'void' THEN "before" ? 'receipt' AND "after" ? 'receipt'
         WHEN 'reallocation' THEN "before" ? 'allocations' AND "after" ? 'allocations'
         WHEN 'customer_attr' THEN "before" ? 'customer' AND "after" ? 'customer'
+        WHEN 'trip_edit' THEN "before" ? 'trip' AND "after" ? 'trip'
+        WHEN 'legacy_edit' THEN "before" ? 'legacy' AND "after" ? 'legacy'
+        WHEN 'trip_delete' THEN "before" ? 'trip' AND coalesce("after"->'trip'->'deleted'='true'::jsonb,false)
+        WHEN 'legacy_delete' THEN "before" ? 'legacy' AND coalesce("after"->'legacy'->'deleted'='true'::jsonb,false)
         WHEN 'trip_review' THEN "before"->>'status' = 'pending_review' AND "after" ? 'trip'
             AND "after"->>'status' IN ('confirmed','rejected') AND btrim(coalesce("after"->>'review_reason','')) <> ''
         ELSE false END),
@@ -328,6 +332,47 @@ ALTER TABLE sokhach.receipt ADD CONSTRAINT receipt_meta_event_fk
 ALTER TABLE sokhach.receipt ADD CONSTRAINT receipt_void_event_fk
     FOREIGN KEY (voided_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
 COMMENT ON COLUMN sokhach.receipt.created_by_event IS 'Event tạo phiếu; đổi ngày/hình thức/hủy phải có event tương ứng trước khi commit.';
+
+-- V7 NHAP-SHEET-01: immutable identity with append-only information revisions.
+CREATE TABLE sokhach.trip_info_rev (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    trip_id bigint NOT NULL,
+    customer_id bigint NOT NULL,
+    debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month)=1),
+    event_date date, container text, carrier text, origin text, destination text,
+    status text NOT NULL CHECK (status IN ('confirmed','pending_review','rejected')),
+    deleted boolean NOT NULL DEFAULT false,
+    created_by_event bigint NOT NULL,
+    FOREIGN KEY (trip_id,customer_id) REFERENCES sokhach.trip(id,customer_id),
+    FOREIGN KEY (created_by_event,customer_id) REFERENCES sokhach.event(id,customer_id)
+);
+CREATE INDEX trip_info_rev_latest ON sokhach.trip_info_rev(trip_id,id DESC);
+CREATE TABLE sokhach.legacy_trip_rev (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    legacy_row_id bigint NOT NULL REFERENCES sokhach.legacy_row(id),
+    customer_id bigint NOT NULL,
+    debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month)=1),
+    event_date date, container text, carrier text, origin text, destination text,
+    unit_price_vnd bigint CHECK (unit_price_vnd>=0), other_fee_vnd bigint CHECK (other_fee_vnd>=0),
+    deleted boolean NOT NULL DEFAULT false, counted_vnd bigint NOT NULL,
+    created_by_event bigint NOT NULL,
+    FOREIGN KEY (created_by_event,customer_id) REFERENCES sokhach.event(id,customer_id)
+);
+CREATE INDEX legacy_trip_rev_latest ON sokhach.legacy_trip_rev(legacy_row_id,id DESC);
+ALTER TABLE sokhach.adjustment ADD COLUMN legacy_row_id bigint REFERENCES sokhach.legacy_row(id);
+ALTER TABLE sokhach.adjustment ADD CONSTRAINT adjustment_one_target CHECK (trip_id IS NULL OR legacy_row_id IS NULL);
+CREATE OR REPLACE VIEW sokhach.v_trip_current AS
+SELECT t.id,t.customer_id,t.debt_month AS origin_month,
+       coalesce(r.debt_month,t.debt_month) AS debt_month,
+       CASE WHEN r.id IS NULL THEN t.event_date ELSE r.event_date END AS event_date,
+       CASE WHEN r.id IS NULL THEN t.container ELSE r.container END AS container, CASE WHEN r.id IS NULL THEN t.carrier ELSE r.carrier END AS carrier,
+       CASE WHEN r.id IS NULL THEN t.origin ELSE r.origin END AS origin, CASE WHEN r.id IS NULL THEN t.destination ELSE r.destination END AS destination,
+       t.booking AS booking, t.note AS note,
+       t.source_ref AS source_ref, coalesce(r.status,t.status) AS status,
+       coalesce(r.deleted,false) AS deleted
+FROM sokhach.trip t LEFT JOIN LATERAL (SELECT * FROM sokhach.trip_info_rev x
+  WHERE x.trip_id=t.id AND x.customer_id=t.customer_id ORDER BY x.id DESC LIMIT 1) r ON true;
+
 ALTER TABLE sokhach.opening_balance ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.opening_balance ADD CONSTRAINT opening_event_fk
     FOREIGN KEY (created_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
@@ -429,8 +474,12 @@ BEGIN
     END IF;
     RAISE EXCEPTION 'immutable row: %.%', TG_TABLE_SCHEMA, TG_TABLE_NAME;
 END $$;
+DROP TRIGGER IF EXISTS trip_info_rev_immutable ON sokhach.trip_info_rev;
+CREATE TRIGGER trip_info_rev_immutable BEFORE UPDATE OR DELETE ON sokhach.trip_info_rev FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
+DROP TRIGGER IF EXISTS legacy_trip_rev_immutable ON sokhach.legacy_trip_rev;
+CREATE TRIGGER legacy_trip_rev_immutable BEFORE UPDATE OR DELETE ON sokhach.legacy_trip_rev FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER trip_immutable BEFORE UPDATE OR DELETE ON sokhach.trip
-    FOR EACH ROW EXECUTE FUNCTION sokhach.guard_trip_change();
+    FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER trip_price_rev_immutable BEFORE UPDATE OR DELETE ON sokhach.trip_price_rev
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER adjustment_immutable BEFORE UPDATE OR DELETE ON sokhach.adjustment

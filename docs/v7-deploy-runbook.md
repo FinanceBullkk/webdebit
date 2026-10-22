@@ -722,3 +722,61 @@ py -3.13 cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test --repo
 ```
 
 Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view với khởi tạo mới; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
+# Migration NHAP-SHEET-01 — sửa/xóa chuyến (22/10/2026)
+
+Phạm vi mã: `cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap-sheet.sql`;
+chạy sau M2-11, CSM và trip-review. Mục này là hướng dẫn cho gate triển khai riêng,
+không cho phép chạy trên `hao` trong task backend.
+
+1. Backup trước; restore vào PostgreSQL dùng một lần và chạy migration hai lượt.
+   Kiểm `test_pg_v7_backend.py`, `test_pg_v7_grants.py --strict`,
+   `rehearse_v7_deploy.py --strict` và `npm run check` qua bộ điều phối.
+2. Dừng ghi trong cửa sổ triển khai đã được duyệt. Chạy bằng `psql -X -v ON_ERROR_STOP=1`.
+   Migration giữ khóa bảng trong một transaction (`NOWAIT`: còn giao dịch đang dùng
+   bảng thì dừng ngay), chụp tổng nợ **từng khách** trước/sau;
+   lỗi `NHAP_SHEET_BALANCE_CHANGED` làm transaction thất bại, phải ROLLBACK.
+   Không sửa `opening_balance`, `legacy_row`, `trip` hay các dòng `adjustment` cũ.
+3. Chạy `v7_post_deploy_check.sql`: kiểm quyền, `adjustment_one_target`, số góp dòng
+   sổ gốc và event của revision. Đối soát Sheet–web theo tổng từng khách:
+   yêu cầu `DOI SOAT: DAT` đủ 236 khách của mốc đang dùng, giữ báo cáo ngoài Git.
+4. Chỉ mở ghi sau khi kiểm và đối soát đạt, theo gate triển khai riêng. Nếu lỗi,
+   giữ dừng ghi; dùng backup và quy trình rollback hiện có. Không xóa revision hoặc
+   sửa opening để ép tổng khớp. Giao diện nhập kiểu Sheet triển khai riêng.
+
+Chuẩn bị kiểm tại gốc worktree: kích hoạt venv đã cài requirements theo README,
+chạy `npm ci --ignore-scripts` để cài đúng dependency trong lockfile, rồi
+`npx playwright install chromium` nếu chưa có browser. Sau đó chạy `npm run check`
+qua bộ điều phối; runner này tự chạy unittest từ `cong-no-web-handoff`.
+Không thêm dependency hoặc sửa test để bù môi trường thiếu package.
+
+Nếu dùng venv ngoài worktree trên Windows, đặt đủ biến môi trường trong tiến trình
+bộ điều phối trước khi gọi kiểm (thay `<venv>` bằng đường dẫn venv đã cài requirements):
+
+```powershell
+$env:VIRTUAL_ENV = '<venv>'
+$env:WEBDEBIT_PYTHON = Join-Path $env:VIRTUAL_ENV 'Scripts\python.exe'
+$env:PATH = (Join-Path $env:VIRTUAL_ENV 'Scripts') + ';' + $env:PATH
+$handoffPath = Join-Path (Get-Location).Path 'cong-no-web-handoff'
+$env:PYTHONPATH = $handoffPath + [IO.Path]::PathSeparator + $env:PYTHONPATH
+& $env:WEBDEBIT_PYTHON -c "import tools, pilot; print('imports OK')"
+ruff --version
+& $env:WEBDEBIT_PYTHON -m unittest discover -s cong-no-web-handoff/tests
+npm run check
+```
+
+`VIRTUAL_ENV` phục vụ runner chính; viewer dùng `WEBDEBIT_PYTHON`, còn ruff cần
+thư mục `Scripts` trên `PATH`. Chỉ đặt `VIRTUAL_ENV` không đủ cho hai bước này.
+`PYTHONPATH` cho phép giữ nguyên lệnh unittest từ gốc worktree trong spec.
+Kiểm import và phiên bản trên là kiểm setup, không thay kết quả test.
+
+Cách khác cho unittest riêng: đặt thư mục làm việc là
+`<worktree>/cong-no-web-handoff`, dùng Python của venv và chạy:
+
+```text
+<venv_python> -m unittest discover -s tests
+```
+
+Nếu không đặt `PYTHONPATH`, lệnh `-m unittest discover -s cong-no-web-handoff/tests`
+từ gốc worktree thiếu `cong-no-web-handoff` trên đường import, gây `No module named 'tools'`
+và `No module named 'pilot'`. Đây là yêu cầu thư mục chạy của bộ test hiện có;
+không thay đổi backend hoặc bốn test ngoài phạm vi để né lỗi import.

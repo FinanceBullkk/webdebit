@@ -36,6 +36,11 @@ from v7_ledger_api import ROUTES, Psql, validate
 
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()'}
 WRITE = {
+    'edit_trip_info(bigint,bigint,text,bigint,text,text)',
+    'delete_trip(bigint,bigint,text,bigint)',
+    'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
+    'delete_legacy_trip(bigint,bigint,text,bigint)',
+
     'paste_trips(bigint,bigint,text,date,jsonb)',
     'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
     'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
@@ -57,7 +62,7 @@ def functions(pg):
         "'args',p.pronargs,'trigger',p.prorettype='trigger'::regtype)), '[]') FROM pg_proc p WHERE pronamespace='sokhach'::regnamespace"))
 
 
-KNOWN_FUNCTIONS = {'import_cutover', 'check_offset_pid', 'guard_cutover_evidence', 'record_offset', 'adjust_month', 'list_customers', 'guard_offset_pair', 'guard_cutover_status', '_lines', '_finish_cutover', '_next_pid', '_begin_offset', 'verify_cutover_customer', 'edit_receipt_meta', 'verify_cutover', '_actor', 'check_trip_missing_date', 'paste_trips', 'record_receipt', '_void_receipt', '_finish_offset', '_change_offset', 'guard_receipt_line_change', 'void_receipt', '_check_allocations', 'activate_cutover_customer', 'list_offset_sources', '_finish_command', 'check_offset_pair', 'reject_immutable_change', 'guard_receipt_change', '_check_cutover_customer', 'activate_cutover', 'adjust_trip', '_begin_cutover', 'edit_offset_date', '_baseline', '_begin_command', 'edit_trip_price', 'set_month_lock', 'guard_cutover_customer_status', '_month_open', 'reallocate', 'get_ledger', '_check_cutover', '_edit_receipt_meta', 'void_offset', '_normalize_key', '_booking_key', 'review_trip', 'guard_trip_change'}
+KNOWN_FUNCTIONS = {'_trip_date', '_legacy_current', '_change_legacy', 'edit_trip_info', 'delete_trip', 'edit_legacy_trip', 'delete_legacy_trip', 'import_cutover', 'check_offset_pid', 'guard_cutover_evidence', 'record_offset', 'adjust_month', 'list_customers', 'guard_offset_pair', 'guard_cutover_status', '_lines', '_finish_cutover', '_next_pid', '_begin_offset', 'verify_cutover_customer', 'edit_receipt_meta', 'verify_cutover', '_actor', 'check_trip_missing_date', 'paste_trips', 'record_receipt', '_void_receipt', '_finish_offset', '_change_offset', 'guard_receipt_line_change', 'void_receipt', '_check_allocations', 'activate_cutover_customer', 'list_offset_sources', '_finish_command', 'check_offset_pair', 'reject_immutable_change', 'guard_receipt_change', '_check_cutover_customer', 'activate_cutover', 'adjust_trip', '_begin_cutover', 'edit_offset_date', '_baseline', '_begin_command', 'edit_trip_price', 'set_month_lock', 'guard_cutover_customer_status', '_month_open', 'reallocate', 'get_ledger', '_check_cutover', '_edit_receipt_meta', 'void_offset', '_normalize_key', '_booking_key', 'review_trip', 'guard_trip_change'}
 
 
 def check_catalog(pg):
@@ -199,6 +204,23 @@ def check_api(pg):
     offset('void_offset', offset_pair_id=pair['offset_pair_id'], reason='fake')
     balance(1150)
     balance(-500, source)
+    write('edit_trip_info', trip_id=trip, field='carrier', value='FAKE EDIT')
+    balance(1150)
+    write('delete_trip', trip_id=trip)
+    balance(1020)
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    event = pg.value(f"SELECT id FROM sokhach.event WHERE customer_id={c} AND kind='import'")
+    pg.sql("ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard")
+    try:
+        legacy = int(pg.value("INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,"
+            "source_total_vnd,source_tab,source_row,created_by_event) "
+            f"VALUES({c},{cut},'2026-01-01','trip','{{}}',0,'FAKE',100,{event}) RETURNING id"))
+    finally:
+        pg.sql("ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard")
+    write('edit_legacy_trip', legacy_row_id=legacy, field='unit_price_vnd', value='70')
+    balance(1090)
+    write('delete_legacy_trip', legacy_row_id=legacy)
+    balance(1020)
     pg.true(f"NOT EXISTS (SELECT 1 FROM sokhach.event WHERE customer_id IN ({c},{source}) "
             f"AND kind <> 'import' AND actor <> {lit(actor)})", 'wrong event actor')
 
@@ -208,7 +230,7 @@ CASES = [{'id': 'grants.' + name, 'label': 'BEHAVIOR', 'title': title, 'check': 
           'functions': (), 'open_reason': ''} for name, title in [
     ('catalog', 'Exact function allowlists, PUBLIC and all relation privileges'),
     ('denials', 'Direct DML/read and private, cutover, reader write calls denied'),
-    ('api', 'All 14 API operations, actor, versions and exact fake balances')]]
+    ('api', 'All API operations, actor, versions and exact fake balances')]]
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)

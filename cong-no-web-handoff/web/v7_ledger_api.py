@@ -39,10 +39,17 @@ ROUTES = {
     "/api/v7/receipts/void": ("void_receipt", {"pid", "reason"}),
     "/api/v7/months/lock": ("set_month_lock", {"month", "locked"}),
     "/api/v7/trips/review": ("review_trip", {"trip_id", "decision", "reason"}),
+    "/api/v7/trips/info": ("edit_trip_info", {"trip_id", "field", "value"}),
+    "/api/v7/trips/delete": ("delete_trip", {"trip_id"}),
+    "/api/v7/legacy/edit": ("edit_legacy_trip", {"legacy_row_id", "field", "value"}),
+    "/api/v7/legacy/delete": ("delete_legacy_trip", {"legacy_row_id"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
 ERRORS = {
+    "INVALID_FIELD": (422, "Ô không được sửa."),
+    "LEGACY_NOT_FOUND": (422, "Không tìm thấy dòng sổ gốc."),
+    "LEGACY_NOT_TRIP": (422, "Dòng sổ gốc này là khoản thu, không sửa ở đây."),
     "STALE_LEDGER": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),
     "MONTH_LOCKED": (409, "Tháng đang khóa."),
     "IDEMPOTENCY_CONFLICT": (409, "Mã yêu cầu đã dùng cho nội dung khác."),
@@ -147,12 +154,24 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     key = body["idempotency_key"]
     if not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key):
         bad()
-    for name in ("trip_id",):
+    for name in ("trip_id", "legacy_row_id"):
         if name in fields and (name not in body or not positive_int(body[name])):
             bad()
     for name in ("debt_month", "month"):
         if name in fields and (name not in body or not valid_date(body[name], month=True)):
             bad()
+    if function in ("edit_trip_info", "edit_legacy_trip"):
+        allowed = {"container", "carrier", "origin", "destination", "event_date", "unit_price_vnd", "other_fee_vnd"}
+        if function == "edit_trip_info":
+            allowed -= {"unit_price_vnd", "other_fee_vnd"}
+        if not isinstance(body.get("field"), str) or body["field"] not in allowed:
+            bad("INVALID_FIELD", ERRORS["INVALID_FIELD"][1])
+        if "value" not in body or not isinstance(body["value"], str):
+            bad()
+        if body["field"] == "event_date" and not valid_date(body["value"]):
+            bad("INVALID_DATE", ERRORS["INVALID_DATE"][1])
+        if body["field"] in ("unit_price_vnd", "other_fee_vnd") and body["value"].strip() and not vnd(body["value"]):
+            bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
     if function == "adjust_trip":
         by_field = "field" in body or "new_value_vnd" in body
         if by_field:
@@ -230,8 +249,13 @@ ARGUMENTS = {
     "void_receipt": ("pid", "reason"),
     "set_month_lock": ("month", "locked"),
     "review_trip": ("trip_id", "decision", "reason"),
+    "edit_trip_info": ("trip_id", "field", "value"),
+    "delete_trip": ("trip_id",),
+    "edit_legacy_trip": ("legacy_row_id", "field", "value"),
+    "delete_legacy_trip": ("legacy_row_id",),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
+        "legacy_row_id": "bigint",
         "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",
         "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",

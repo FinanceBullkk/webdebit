@@ -29,6 +29,61 @@ class FakePsql:
 
 
 class LedgerApiTest(unittest.TestCase):
+    def test_nhap_sheet_routes_and_validation(self):
+        routes = [
+            ("/api/v7/trips/info", "edit_trip_info", {"trip_id": 7, "field": "container", "value": "FAKE"}),
+            ("/api/v7/trips/delete", "delete_trip", {"trip_id": 7}),
+            ("/api/v7/legacy/edit", "edit_legacy_trip", {"legacy_row_id": 8, "field": "unit_price_vnd", "value": "70000000"}),
+            ("/api/v7/legacy/delete", "delete_legacy_trip", {"legacy_row_id": 8}),
+        ]
+        for route, function, fields in routes:
+            body = self.common | fields
+            self.assertEqual(self.call(route, body)[0], 200)
+            self.assertEqual(self.runner.calls[-1], (function, body, "configured"))
+            for extra in ({"actor": "forged"}, {"status": "confirmed"}, {"deleted": True}, {"amount_vnd": "0"}):
+                with self.subTest(route=route, extra=extra), self.assertRaises(api.ApiError):
+                    self.call(route, body | extra)
+            id_field = "trip_id" if "trip_id" in fields else "legacy_row_id"
+            for invalid in (None, 0, -1, True, "7", 9223372036854775808):
+                with self.subTest(route=route, invalid=invalid), self.assertRaises(api.ApiError):
+                    self.call(route, body | {id_field: invalid})
+            self.assertIn(f"sokhach.{function}(", api.SQL[function])
+        for route, id_field in [("/api/v7/trips/info", "trip_id"), ("/api/v7/legacy/edit", "legacy_row_id")]:
+            for field in ("container", "carrier", "origin", "destination", "event_date"):
+                self.call(route, self.common | {id_field: 1, "field": field,
+                                               "value": "2026-01-01" if field == "event_date" else "FAKE"})
+            for invalid in ("unknown", [], {}, None, "status"):
+                with self.assertRaises(api.ApiError) as caught:
+                    self.call(route, self.common | {id_field: 1, "field": invalid, "value": "X"})
+                self.assertEqual(caught.exception.code, "INVALID_FIELD")
+            for change in ({"value": 1}, {"value": None}, {"value": []}):
+                with self.assertRaises(api.ApiError):
+                    self.call(route, self.common | {id_field: 1, "field": "carrier"} | change)
+            with self.assertRaises(api.ApiError):
+                self.call(route, self.common | {id_field: 1, "field": "carrier"})
+            with self.assertRaises(api.ApiError) as caught:
+                self.call(route, self.common | {id_field: 1, "field": "event_date", "value": "2026-02-30"})
+            self.assertEqual(caught.exception.code, "INVALID_DATE")
+        for value in ("", "0", "65000000"):
+            self.call("/api/v7/legacy/edit", self.common | {"legacy_row_id": 1, "field": "unit_price_vnd", "value": value})
+        for value in ("-0", "1.5", "-1", "9223372036854775808"):
+            with self.assertRaises(api.ApiError) as caught:
+                self.call("/api/v7/legacy/edit", self.common | {"legacy_row_id": 1, "field": "unit_price_vnd", "value": value})
+            self.assertEqual(caught.exception.code, "INVALID_VND")
+        with self.assertRaises(api.ApiError) as caught:
+            self.call("/api/v7/trips/info", self.common | {"trip_id": 1, "field": "unit_price_vnd", "value": "1"})
+        self.assertEqual(caught.exception.code, "INVALID_FIELD")
+
+    def test_nhap_sheet_error_mapping(self):
+        for code in ("INVALID_FIELD", "LEGACY_NOT_FOUND", "LEGACY_NOT_TRIP"):
+            with self.subTest(code=code), patch.object(api.subprocess, "run") as run:
+                run.return_value = Mock(returncode=1, stdout="", stderr=f"psql:<stdin>:1: ERROR:  P0001: {code}\n")
+                with self.assertRaises(api.ApiError) as caught:
+                    api._PsqlRunner()._run_psql([], "delete_legacy_trip", self.common | {"legacy_row_id": 1}, "fake")
+                self.assertEqual((caught.exception.status, caught.exception.code), (422, code))
+        self.assertEqual(api.ERRORS["LEGACY_NOT_FOUND"][1], "Không tìm thấy dòng sổ gốc.")
+        self.assertEqual(api.ERRORS["LEGACY_NOT_TRIP"][1], "Dòng sổ gốc này là khoản thu, không sửa ở đây.")
+
     def test_optional_receipt_reference_and_reference_only_edit(self):
         receipt = self.common | {"date": "2026-01-02", "method": "THU TIỀN", "amount_vnd": "10"}
         for reference in (None, "", "FAKE-TXN USD/rate text", "x" * 500):

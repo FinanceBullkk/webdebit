@@ -663,8 +663,8 @@ def assert_allocations(pg: Pg, customer: int) -> None:
         "OR (r.voided_on IS NOT NULL AND count(l.id)<>0))", "receipt allocation sum/current rows wrong")
 
 
-def trip_json(amount: str | None = "100", *, container: str = "FAKE-C") -> str:
-    return json.dumps([{"container": container, "carrier": "FAKE", "date": "01/01/2026",
+def trip_json(amount: str | None = "100", *, container: str = "FAKE-C", month: str = "2026-01-01") -> str:
+    return json.dumps([{"container": container, "carrier": "FAKE", "date": f"01/{month[5:7]}/{month[:4]}",
                         "from": "FAKE-A", "to": "FAKE-B", "unitPriceVnd": amount,
                         "otherFeeVnd": None, "note": "", "src": "FAKE"}], ensure_ascii=False)
 
@@ -850,7 +850,7 @@ def check_input(pg: Pg) -> None:
     reject_call(pg, "paste_trips", c, 0, "null-trip", month, "null", error="INVALID_TRIPS")
     require(version(pg, c) == 0 and pg.value(f"SELECT count(*) FROM sokhach.trip WHERE customer_id={c}") == "0",
             "invalid amount inserted a trip")
-    trip = call(pg, "paste_trips", c, 0, "missing-price", month, trip_json(None))["trip_ids"][0]
+    trip = call(pg, "paste_trips", c, 0, "missing-price", month, trip_json(None, month=month))["trip_ids"][0]
     reject_call(pg, "edit_trip_price", c, 1, "price-sum-overflow", trip,
                 9223372036854775807, 1, error="INVALID_VND")
     row = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == trip)
@@ -936,6 +936,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(migration)  # repeat is safe; no new events or financial writes
     copy.sql(REVIEW_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(REVIEW_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(NHAP_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(NHAP_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1033,89 +1035,71 @@ def check_csm_locks(pg: Pg) -> None:
 
 def check_locks(pg: Pg) -> str:
     c = new_book(pg, ("2026-01-01", 1))
-    for name in ("paste_trips", "edit_trip_price"):
-        definition = pg.value(f"SELECT pg_get_functiondef(oid) FROM pg_proc "
-            f"WHERE pronamespace='sokhach'::regnamespace AND proname='{name}'")
-        require("clock_timestamp()" in definition and
-                definition.index("_begin_command") < definition.index("clock_timestamp()") <
-                definition.index("_month_open"),
-                f"{name} must read wall clock after customer lock")
+    definition = pg.value("SELECT pg_get_functiondef(oid) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='edit_trip_price'")
+    require(definition.index("_begin_command") < definition.index("clock_timestamp()") < definition.index("_month_open"),
+            "price edit must read wall clock after customer lock")
+    paste = pg.value("SELECT pg_get_functiondef(oid) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='paste_trips'")
+    require("_month_open" not in paste, "paste still blocks locked months")
     pg.value(f"SELECT sokhach._month_open({c},'2026-10-01','2026-10-31 16:59:59+00')")
-    pg.rejects(f"SELECT sokhach._month_open({c},'2026-10-01',"
-               "'2026-10-31 17:00:00+00')", message="MONTH_LOCKED")
+    pg.rejects(f"SELECT sokhach._month_open({c},'2026-10-01','2026-10-31 17:00:00+00')", message="MONTH_LOCKED")
     pg.value(f"SELECT sokhach._month_open({c},'2026-11-01','2026-10-31 17:00:00+00')")
     current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
-    old = pg.value(f"SELECT ({lit(current)}::date - interval '1 month')::date")
-    reject_call(pg, "paste_trips", c, 0, "lock-old", old, trip_json(), error="MONTH_LOCKED")
-    opened = call(pg, "set_month_lock", c, 0, "lock-open", old, "false")
-    require(opened["locked"] is False, "month override did not open")
-    trip = call(pg, "paste_trips", c, 1, "lock-paste", old, trip_json(container="LOCK-OLD"))["trip_ids"][0]
-    call(pg, "set_month_lock", c, 2, "lock-close", old, "true")
-    reject_call(pg, "edit_trip_price", c, 3, "lock-edit", trip, 101, None,
-                error="MONTH_LOCKED")
-    # Current month has no row; it must be open by VN clock default.
-    current_trip = call(pg, "paste_trips", c, 3, "lock-current", current, trip_json(container="LOCK-CURRENT"))["trip_ids"][0]
-    require(version(pg, c) == 4, "month lock rejected current-month default")
+    old = pg.value(f"SELECT ({lit(current)}::date-interval '1 month')::date")
+    trip = call(pg, "paste_trips", c, 0, "lock-old", old, trip_json(month=old))["trip_ids"][0]
+    reject_call(pg, "edit_trip_price", c, 1, "lock-price", trip, 101, None, error="MONTH_LOCKED")
+    current_trip = call(pg, "paste_trips", c, 1, "lock-current", current,
+                        trip_json(container="LOCK-CURRENT", month=current))["trip_ids"][0]
     a, b = PsqlSession(pg, f"v7_lock_a_{c}"), PsqlSession(pg, f"v7_lock_b_{c}")
     try:
         a.send("BEGIN; SET LOCAL sokhach.actor='locker'; SELECT pg_backend_pid()")
         pid_a = int(a.line())
-        a.send(f"SELECT sokhach.set_month_lock({c},4,'lock-concurrent','{old}',true)")
-        require(json.loads(a.line())["version"] == 5, "lock change did not stage")
+        a.send(f"SELECT sokhach.set_month_lock({c},2,'close-current','{current}',true)")
+        require(json.loads(a.line())["version"] == 3, "lock did not stage")
         b.send("BEGIN; SET LOCAL sokhach.actor='writer'; SELECT pg_backend_pid()")
         pid_b = int(b.line())
-        b.send(f"SELECT sokhach.paste_trips({c},5,'paste-after-lock','{old}',{lit(trip_json())}::jsonb)")
-        deadline = time.monotonic() + 8
-        observed = False
-        while time.monotonic() < deadline:
-            observed = pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t"
-            if observed:
-                break
-        require(observed, "paste did not wait for month lock customer row")
-        a.send("COMMIT; SELECT 'committed'")
-        require(a.line() == "committed", "month lock did not commit")
-        b.proc.wait(timeout=10)
-        stderr = b.proc.stderr.read() if b.proc.stderr else ""
-        require("MONTH_LOCKED" in stderr, f"paste crossed committed lock: {stderr[-500:]}")
-        require(version(pg, c) == 5 and pg.value(f"SELECT count(*) FROM sokhach.trip WHERE customer_id={c}") == "2",
-                "blocked paste created a trip")
+        b.send(f"SELECT sokhach.paste_trips({c},3,'paste-after-lock','{current}',{lit(trip_json(container='LOCK-LATE',month=current))}::jsonb)")
+        deadline = time.monotonic()+8
+        while time.monotonic()<deadline and pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))")!='t':
+            time.sleep(0.05)
+        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))")=='t', "paste did not wait for customer lock")
+        a.send("COMMIT; SELECT 'done'")
+        require(a.line()=="done", "lock commit")
+        require(json.loads(b.line())["version"]==4, "locked-month paste did not proceed after customer lock")
+        b.send("COMMIT; SELECT 'done'")
+        require(b.line()=="done", "paste commit")
     finally:
         a.close()
         b.close()
+    reject_call(pg, "edit_trip_price", c, 4, "price-locked-current", current_trip, 101, None, error="MONTH_LOCKED")
+    call(pg, "set_month_lock", c, 4, "reopen-current", current, "false")
     a, b = PsqlSession(pg, f"v7_edit_a_{c}"), PsqlSession(pg, f"v7_edit_b_{c}")
     try:
         a.send("BEGIN; SET LOCAL sokhach.actor='locker'; SELECT pg_backend_pid()")
         pid_a = int(a.line())
-        a.send(f"SELECT sokhach.set_month_lock({c},5,'close-current','{current}',true)")
+        a.send(f"SELECT sokhach.set_month_lock({c},5,'close-current-again','{current}',true)")
         require(json.loads(a.line())["version"] == 6, "current-month close did not stage")
         b.send("BEGIN; SET LOCAL sokhach.actor='editor'; SELECT pg_backend_pid()")
         pid_b = int(b.line())
         b.send(f"SELECT sokhach.edit_trip_price({c},6,'edit-after-close',{current_trip},101,NULL)")
         deadline = time.monotonic() + 8
-        while time.monotonic() < deadline and pg.value(
-                f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") != "t":
+        while time.monotonic() < deadline and pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") != "t":
             time.sleep(0.05)
-        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t",
-                "edit_trip_price did not wait for customer lock")
-        a.send("COMMIT; SELECT 'committed'")
-        require(a.line() == "committed", "current-month close did not commit")
+        require(pg.value(f"SELECT {pid_a}=ANY(pg_blocking_pids({pid_b}))") == "t", "price edit did not wait for customer lock")
+        a.send("COMMIT; SELECT 'done'")
+        require(a.line() == "done", "close commit")
         b.proc.wait(timeout=10)
         stderr = b.proc.stderr.read() if b.proc.stderr else ""
-        require("MONTH_LOCKED" in stderr and version(pg, c) == 6,
-                f"concurrent edit crossed locked month: {stderr[-500:]}")
+        require("MONTH_LOCKED" in stderr and version(pg, c) == 6, "price edit crossed concurrent lock")
     finally:
         a.close()
         b.close()
-    # get_ledger exposes server month and lock overrides, including a month with no trips,
-    # so the UI never guesses lock state from the browser clock.
-    empty = pg.value(f"SELECT ({lit(current)}::date - interval '3 month')::date")
-    call(pg, "set_month_lock", c, version(pg, c), "lock-empty-open", empty, "false")
+    empty = pg.value(f"SELECT ({lit(current)}::date-interval '3 month')::date")
+    call(pg, "set_month_lock", c, 6, "open-empty", empty, "false")
     ledger = call(pg, "get_ledger", c)
-    locks = {row["month"]: row["locked"] for row in ledger.get("month_locks", [])}
-    require(ledger.get("today_month") == current and locks.get(old) is True
-            and locks.get(empty) is False and not any(m["month"] == empty for m in ledger["months"]),
-            f"get_ledger month/lock flags wrong: {ledger.get('today_month')} {locks}")
-    return "clock boundary, paste and price edit wait for customer lock; GET lock flags"
+    locks = {r["month"]: r["locked"] for r in ledger["month_locks"]}
+    require(ledger["today_month"]==current and locks[current] and not locks[empty]
+            and not any(m["month"]==empty for m in ledger["months"]), "GET month lock flags")
+    return "VN clock boundary; price uses current month; paste serializes without month gate"
 
 
 def check_concurrent(pg: Pg) -> str:
@@ -1237,7 +1221,7 @@ def check_ledger_fee(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 0))
     current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
     ids = call(pg, "paste_trips", c, 0, "space-container", current,
-               trip_json(None, container="   "))["trip_ids"]
+               trip_json(None, container="   ", month=current))["trip_ids"]
     call(pg, "edit_trip_price", c, 1, "space-fee", ids[0], None, 7)
     row = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == ids[0])
     require(row["is_fee_only"] is False and row["is_missing_price"] is True,
@@ -1299,7 +1283,7 @@ console.log(JSON.stringify(out));
     c = new_book(pg)
     for month in ("2026-01-01", "2026-02-01"):
         call(pg, "set_month_lock", c, version(pg, c), "open-" + month, month, "false")
-        call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json(container="FAKE-" + month))
+        call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json(container="FAKE-" + month, month=month))
     call(pg, "set_month_lock", c, version(pg, c), "lock-2026-01", "2026-01-01", "true")
     trip = int(pg.value(f"SELECT id FROM sokhach.trip WHERE customer_id={c} AND debt_month='2026-01-01'"))
     actions = [
@@ -1343,7 +1327,7 @@ def check_model_edges(pg: Pg) -> None:
             [("2025-12-01", "debt", "100"), ("2025-12-01", "advance", "50")],
             "receipt over debt did not create advance")
     missing = call(pg, "paste_trips", c, 1, "edge-missing", current,
-                   trip_json(None))["trip_ids"][0]
+                   trip_json(None, month=current))["trip_ids"][0]
     require(call(pg, "get_ledger", c)["pending_count"] == 1,
             "missing price did not remain pending after receipt")
     call(pg, "edit_trip_price", c, 2, "edge-price", missing, 20, None)
@@ -1351,7 +1335,7 @@ def check_model_edges(pg: Pg) -> None:
             allocations(pg, c, "PH-001")[-1] == (current, "advance", "30"),
             "pricing pending trip did not move advance to last month")
     priced = call(pg, "paste_trips", c, 3, "edge-paste-after-receipt", current,
-                  trip_json("40", container="FAKE-NEW"))["trip_ids"][0]
+                  trip_json("40", container="FAKE-NEW", month=current))["trip_ids"][0]
     require(priced != missing and allocations(pg, c, "PH-001") ==
             [("2025-12-01", "debt", "100"), (current, "debt", "50")],
             "paste after receipt did not reallocate FIFO")
@@ -1510,7 +1494,7 @@ def check_snapshots(pg: Pg) -> None:
 
     fault = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 100))
     current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
-    trip = call(pg, "paste_trips", fault, 0, "fault-base-trip", current, trip_json())["trip_ids"][0]
+    trip = call(pg, "paste_trips", fault, 0, "fault-base-trip", current, trip_json(month=current))["trip_ids"][0]
     call(pg, "record_receipt", fault, 1, "fault-base-receipt", "2026-03-01", "THU TIỀN", 150)
     pg.sql("CREATE FUNCTION public.harness_abort() RETURNS trigger LANGUAGE plpgsql AS $$ "
            "BEGIN RAISE EXCEPTION 'HARNESS_ABORT'; END $$")
@@ -1522,7 +1506,7 @@ def check_snapshots(pg: Pg) -> None:
             ("adjust_trip", (trip, 101, "sửa"), "adjustment", "INSERT"),
             ("adjust_month", ("2026-01-01", 5, "sửa"), "adjustment", "INSERT"),
             ("edit_trip_price", (trip, 110, None), "trip_price_rev", "INSERT"),
-            ("paste_trips", (current, trip_json()), "trip", "INSERT"),
+            ("paste_trips", (current, trip_json(month=current)), "trip", "INSERT"),
         ]
         tables = ("event", "trip", "trip_price_rev", "adjustment", "receipt",
                   "receipt_line", "idempotency")
@@ -1545,7 +1529,7 @@ def check_snapshots(pg: Pg) -> None:
     finally:
         pg.sql("DROP FUNCTION public.harness_abort()")
     success = [
-        ("paste_trips", (current, trip_json("20")), "paste"),
+        ("paste_trips", (current, trip_json("20", month=current)), "paste"),
         ("edit_trip_price", (trip, 110, None), "price_edit"),
         ("adjust_trip", (trip, 115, "sửa"), "adjust_trip"),
         ("adjust_month", ("2026-01-01", 5, "sửa"), "adjust_month"),
@@ -1679,7 +1663,7 @@ def check_roles(pg: Pg) -> None:
                     f"{role} can read/write {relation}")
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
-                       "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip",
+                       "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
                        "get_ledger", "list_customers", "record_offset", "void_offset",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
@@ -2346,15 +2330,15 @@ def check_dedup(pg: Pg) -> None:
     # Only pending trip in a later month must not move overpayment there.
     future_month = "2099-01-01"
     call(pg, "set_month_lock", c, version(pg, c), "open-future", future_month, "false")
-    paste("future-pending", "BASE", booking="BK1", month=future_month)
+    paste("future-pending", "BASE", day="01/01/2099", booking="BK1", month=future_month)
     call(pg, "record_receipt", c, version(pg, c), "advance", "2026-01-01", "THU TIỀN", 500)
-    require(allocations(pg, c, "PH-001")[-1] == (current, "advance", "100"), "pending advance month")
+    require(allocations(pg, c, "PH-001")[-1] == ("2026-01-01", "advance", "100"), "pending advance month")
     reject_call(pg, "adjust_month", c, version(pg, c), "pending-month", future_month, 1, "fake",
                 error="MONTH_NOT_FOUND")
     assert_allocations(pg, c)
     probe = new_book(pg, ("2026-01-01", 0))
-    call(pg, "paste_trips", probe, 0, "probe-first", current, trip_json())
-    second = call(pg, "paste_trips", probe, 1, "probe-again", current, trip_json())
+    call(pg, "paste_trips", probe, 0, "probe-first", current, trip_json(month=current))
+    second = call(pg, "paste_trips", probe, 1, "probe-again", current, trip_json(month=current))
     require(second["pending_review"][0]["reason"] == "WEB_DUPLICATE"
             and call(pg, "get_ledger", probe)["total_outstanding_vnd"] == "100", "C1 reproduced: must be 100, not 200")
     fee = json.loads(trip_json(None, container=""))[0]
@@ -2393,6 +2377,8 @@ def check_dedup(pg: Pg) -> None:
     reject_call(pg, "paste_trips", empty, 0, "missing-ref", current, trip_json(), error="BASELINE_REF_MISSING")
     require(version(pg, empty) == 0, "missing reference changed version")
 
+NHAP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap-sheet.sql"
+
 REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql"
 
 
@@ -2421,6 +2407,8 @@ def check_trip_review(pg: Pg) -> None:
                         ((999999, "confirm", "fake"), "TRIP_NOT_FOUND")):
         reject_call(pg, "review_trip", c, before, "bad-" + error, *args, error=error)
     require(version(pg, c) == before, "rejected review changed version")
+    call(pg, "set_month_lock", c, version(pg, c), "review-open-jan", "2026-01-01", "false")
+    before = version(pg, c)
     confirmed = call(pg, "review_trip", c, before, "confirm", held, "confirm", " đã đối chiếu sổ gốc ", actor="fake-a")
     require(confirmed["status"] == "confirmed" and confirmed["reallocated"], "confirm did not reallocate")
     require(call(pg, "review_trip", c, before, "confirm", held, "confirm", " đã đối chiếu sổ gốc ") == confirmed,
@@ -2429,7 +2417,7 @@ def check_trip_review(pg: Pg) -> None:
     ledger = call(pg, "get_ledger", c)
     require(ledger["total_outstanding_vnd"] == "70" and trip(held)["amount_vnd"] == "100"
             and trip(held)["editable"], "confirmed trip not in balance")
-    require(allocations(pg, c, "PH-001") == [(current, "debt", "30")], "receipt not moved onto confirmed trip")
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "30")], "receipt not moved onto confirmed trip")
     event = next(e for e in ledger["events"] if e["kind"] == "trip_review")
     require(event["actor"] == "fake-a" and event["before"]["status"] == "pending_review"
             and event["after"] == {"trip": held, "container": "BASE", "status": "confirmed",
@@ -2437,14 +2425,14 @@ def check_trip_review(pg: Pg) -> None:
     reject_call(pg, "review_trip", c, version(pg, c), "again", held, "reject", "fake", error="TRIP_NOT_PENDING")
     call(pg, "edit_trip_price", c, version(pg, c), "price-after", held, 120, None)
     # Reject leaves money untouched and works in a locked month; confirm there needs the month open.
-    call(pg, "set_month_lock", c, version(pg, c), "lock", current, "true")
+    call(pg, "set_month_lock", c, version(pg, c), "lock", "2026-01-01", "true")
     reject_call(pg, "review_trip", c, version(pg, c), "locked", other, "confirm", "fake", error="MONTH_LOCKED")
     total = call(pg, "get_ledger", c)["total_outstanding_vnd"]
     rejected = call(pg, "review_trip", c, version(pg, c), "reject", other, "reject", "trùng dòng sổ gốc")
     require(rejected == rejected | {"status": "rejected", "reallocated": []}, "reject result wrong")
     require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == total and trip(other)["status"] == "rejected"
             and trip(other)["amount_vnd"] is None and not trip(other)["editable"], "rejected trip leaked into money")
-    call(pg, "set_month_lock", c, version(pg, c), "unlock", current, "false")
+    call(pg, "set_month_lock", c, version(pg, c), "unlock", "2026-01-01", "false")
     reject_call(pg, "edit_trip_price", c, version(pg, c), "price-rejected", other, 5, None, error="TRIP_PENDING_REVIEW")
     require(paste("again", "BASE", "BK2")["pending_review"][0]["reason"] == "BASELINE_DATE_WINDOW",
             "rejected trip no longer blocks duplicate")
@@ -2457,7 +2445,195 @@ def check_trip_review(pg: Pg) -> None:
                message="immutable row")
 
 
-CHECKS = {"csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+def check_nhap_sheet(pg: Pg) -> None:
+    c = new_book(pg, ("2026-09-01", 60000000), ("2026-10-01", 93000000))
+    opening = pg.value(f"SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM sokhach.opening_balance o WHERE customer_id={c}")
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    event = pg.value(f"SELECT id FROM sokhach.event WHERE customer_id={c} AND kind='import'")
+    # Harness-only source rows; bypass import freeze, never monetary immutability.
+    pg.sql("ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard")
+    ids = []
+    try:
+        for n, (month, amount, unit, kind) in enumerate([
+            ("2026-09-01", 60000000, "60000000", "trip"),
+            ("2026-10-01", 0, None, "trip"),
+            ("2026-10-01", 93000000, "93000000", "trip"),
+            ("2026-10-01", 0, None, "receipt"),
+        ], 100):
+            display = json.dumps({"container": f"FAKE-{n}", "carrier": "FAKE", "from": "A", "to": "B",
+                                  "date": month, "unit_price": unit, "fee_vnd": None})
+            ids.append(int(pg.value("INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,"
+                "source_total_vnd,source_tab,source_row,created_by_event) "
+                f"VALUES({c},{cut},{lit(month)},{lit(kind)},{lit(display)}, {amount},'FAKE',{n},{event}) RETURNING id")))
+    finally:
+        pg.sql("ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard")
+    legacy = pg.value(f"SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM sokhach.legacy_row l WHERE customer_id={c}")
+
+    def write(name, *args, key=None, actor="fake-editor"):
+        before = version(pg, c)
+        key = key or f"nhap-{before}-{name}"
+        result = call(pg, name, c, before, key, *args, actor=actor)
+        require(version(pg, c) == before + 1, f"{name}: version")
+        require(call(pg, name, c, before, key, *args, actor=actor) == result, f"{name}: retry")
+        reject_call(pg, name, c, before, key+"-stale", *args, error="STALE_LEDGER")
+        if name in ("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip"):
+            reject_call(pg, name, c, before, key, args[0]+100000, *args[1:], error="IDEMPOTENCY_CONFLICT")
+        return result
+
+    def total():
+        return int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
+
+    def deltas(row):
+        return int(pg.value(f"SELECT coalesce(sum(amount_vnd),0) FROM sokhach.adjustment WHERE legacy_row_id={row}"))
+
+    start = total()
+    write("edit_legacy_trip", ids[0], "unit_price_vnd", "65000000", key="legacy-60-to-65")
+    require(total() == start+5000000 and deltas(ids[0]) == 5000000, "60M to 65M")
+    audit = json.loads(pg.value(f"SELECT jsonb_build_array(\"before\"->'legacy'->>'counted_vnd',\"after\"->'legacy'->>'counted_vnd') FROM sokhach.event WHERE customer_id={c} AND idempotency_key='legacy-60-to-65' AND kind='legacy_edit'"))
+    require(audit == ["60000000", "65000000"], "legacy source/current amount audit")
+    write("delete_legacy_trip", ids[0])
+    require(total() == start-60000000 and deltas(ids[0]) == -60000000, "delete revised 65M")
+    write("edit_legacy_trip", ids[1], "unit_price_vnd", "70000000")
+    require(total() == start+10000000 and deltas(ids[1]) == 70000000, "missing price to 70M")
+    write("edit_legacy_trip", ids[2], "event_date", "2026-09-28")
+    require(total() == start+10000000 and deltas(ids[2]) == 0, "93M move preserves total")
+    got = json.loads(pg.value(f"SELECT jsonb_object_agg(debt_month,amount_vnd::text) FROM sokhach.adjustment WHERE legacy_row_id={ids[2]}"))
+    require(got == {"2026-10-01": "-93000000", "2026-09-01": "93000000"}, "93M wrong month deltas")
+    write("edit_legacy_trip", ids[1], "unit_price_vnd", "69000000")
+    require(deltas(ids[1]) == 69000000, "legacy negative price delta")
+    for field, value in [("container", " fake changed "), ("carrier", "FAKE TWO"),
+                         ("origin", "C"), ("destination", "D")]:
+        count = pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE legacy_row_id={ids[1]}")
+        write("edit_legacy_trip", ids[1], field, value)
+        require(pg.value(f"SELECT count(*) FROM sokhach.adjustment WHERE legacy_row_id={ids[1]}") == count, "text edit wrote money")
+    ledger = call(pg, "get_ledger", c)
+    require(not any(row["id"] == ids[0] for row in ledger["legacy_rows"]), "deleted legacy visible")
+    moved = next(row for row in ledger["legacy_rows"] if row["id"] == ids[2])
+    require(moved["month"] == "2026-09-01" and moved["current"]["counted_vnd"] == "93000000"
+            and moved["display"]["date"] == "2026-10-01" and moved["editable"], "legacy current/source separation")
+    require(any(a["legacy_row_id"] == ids[2] for a in ledger["adjustments"]), "GET lost legacy target")
+    for name, args, error in [
+        ("edit_legacy_trip", (ids[3], "carrier", "X"), "LEGACY_NOT_TRIP"),
+        ("delete_legacy_trip", (ids[0],), "LEGACY_NOT_FOUND"),
+        ("edit_legacy_trip", (ids[1], "unknown", "X"), "INVALID_FIELD"),
+        ("edit_legacy_trip", (ids[1], "unit_price_vnd", "-0"), "INVALID_VND"),
+        ("edit_legacy_trip", (ids[1], "unit_price_vnd", "9223372036854775808"), "INVALID_VND"),
+        ("edit_legacy_trip", (ids[1], "event_date", "2026-02-30"), "INVALID_DATE"),
+    ]:
+        reject_call(pg, name, c, version(pg, c), "bad-"+error, *args, error=error)
+    other = new_book(pg, ("2026-09-01", 0))
+    reject_call(pg, "edit_legacy_trip", other, 0, "wrong-cut", ids[1], "carrier", "X", error="LEGACY_NOT_FOUND")
+    write("edit_legacy_trip", ids[1], "unit_price_vnd", "")
+    require(deltas(ids[1]) == 0, "blank price did not restore zero contribution")
+    write("edit_legacy_trip", ids[1], "other_fee_vnd", "7")
+    require(deltas(ids[1]) == 0, "fee without unit price entered balance")
+    write("edit_legacy_trip", ids[1], "unit_price_vnd", "1")
+    require(deltas(ids[1]) == 8, "legacy unit plus fee")
+    write("edit_legacy_trip", ids[1], "other_fee_vnd", "")
+    require(deltas(ids[1]) == 1, "NULL fee with known price is not zero in calculation")
+    write("edit_legacy_trip", ids[1], "unit_price_vnd", "")
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    row = json.loads(trip_json("100", container="FAKE-WEB", month=current))[0]
+    mixed = [row, row | {"container": "FAKE-LOCKED", "date": "10/09/2026"}]
+    pasted = write("paste_trips", current, json.dumps(mixed))
+    t, locked_trip = pasted["trip_ids"]
+    require(pg.value(f"SELECT debt_month FROM sokhach.trip WHERE id={locked_trip}") == "2026-09-01", "paste into locked month")
+    require(pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c} AND kind='paste'") == "1", "mixed batch multiple events")
+    write("adjust_trip", t, 125, "fake")
+    write("record_receipt", "2026-09-01", "THU TIỀN", 100)
+    before_move = total()
+    write("edit_trip_info", t, "event_date", "2026-08-10")
+    require(total() == before_move, "web move changed customer total")
+    require(pg.value(f"SELECT debt_month FROM sokhach.adjustment WHERE trip_id={t}") == current, "rewrote adjustment FK month")
+    require(pg.value(f"SELECT debt_month FROM sokhach.v_adjustment_current WHERE trip_id={t}") == "2026-08-01", "adjustment did not follow trip")
+    require(allocations(pg, c, "PH-001") == [("2026-08-01", "debt", "100")], "move did not reallocate FIFO")
+    require(any(m["month"] == "2026-08-01" for m in call(pg, "get_ledger", c)["months"]), "moved month missing")
+    reject_call(pg, "edit_trip_price", c, version(pg, c), "current-lock", t, 101, None, error="MONTH_LOCKED")
+    write("set_month_lock", "2026-08-01", "false")
+    write("edit_trip_info", t, "event_date", "2026-08-11")
+    write("edit_trip_price", t, 110, None)
+    for locked in (False, True):
+        write("set_month_lock", "2026-08-01", str(locked).lower())
+        for field, value in [("container", f" FAKE {locked} "), ("carrier", f"FAKE {locked}"),
+                             ("origin", f"A {locked}"), ("destination", f"B {locked}")]:
+            before = version(pg, c)
+            old = pg.value(f"SELECT {field} FROM sokhach.v_trip_current WHERE id={t}")
+            key = f"cell-{before}"
+            write("edit_trip_info", t, field, value, key=key)
+            audit = json.loads(pg.value(f"SELECT jsonb_build_object('before',\"before\",'after',\"after\",'actor',actor) FROM sokhach.event WHERE customer_id={c} AND idempotency_key={lit(key)} AND kind='trip_edit'"))
+            require(audit["before"]["trip"]["value"] == old and audit["actor"] == "fake-editor", "edit audit before/actor")
+            require(audit["after"]["trip"]["value"] == (value.replace(" ", "").upper() if field == "container" else value.strip()), "edit audit after")
+            reject_call(pg, "edit_trip_info", c, before, key, t, field, "different", error="IDEMPOTENCY_CONFLICT")
+    write("edit_trip_info", t, "event_date", "2026-08-10")
+    for args, error in [((t, "carrier", "FAKE True"), "NO_CHANGE"), ((t, "price", "1"), "INVALID_FIELD"),
+                        ((t, "event_date", "9999-01-01"), "FUTURE_DATE"), ((t, "carrier", " "), "INVALID_TRIP_INPUT")]:
+        reject_call(pg, "edit_trip_info", c, version(pg, c), "info-"+error, *args, error=error)
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES({cut},'BASE','BASE','2026-08-10')")
+    held = write("edit_trip_info", t, "container", "BASE")
+    require(held["pending_review"] and pg.value(f"SELECT status FROM sokhach.v_trip_current WHERE id={t}") == "pending_review", "duplicate edit not quarantined")
+    write("edit_trip_info", t, "container", "FAKE-CLEAN")
+    require(pg.value(f"SELECT status FROM sokhach.v_trip_current WHERE id={t}") == "pending_review", "edit auto-confirmed")
+    balance = total()
+    write("delete_trip", t)
+    require(total() == balance, "pending deletion changed total")
+    write("delete_trip", locked_trip)
+    require(total() == balance-100, "locked deletion amount")
+    again = write("paste_trips", current, json.dumps([mixed[1]]))["trip_ids"][0]
+    require(pg.value(f"SELECT status FROM sokhach.v_trip_current WHERE id={again}") == "confirmed", "deleted web duplicate blocked paste")
+    write("adjust_trip", again, 150, "fake")
+    balance = total()
+    write("delete_trip", again, key="delete-adjusted")
+    require(total() == balance-150, "delete did not remove adjusted amount")
+    audit = json.loads(pg.value(f"SELECT \"before\"->'trip' FROM sokhach.event WHERE customer_id={c} AND idempotency_key='delete-adjusted' AND kind='trip_delete'"))
+    require(audit["amount_vnd"] == "150" and audit["unit_price_vnd"] == "150"
+            and audit["other_fee_vnd"] is None and audit["debt_month"] == "2026-09-01", "delete current amount snapshot")
+    open_id = write("paste_trips", current, trip_json("20", container="FAKE-OPEN", month=current))["trip_ids"][0]
+    balance = total()
+    write("delete_trip", open_id)
+    require(total() == balance-20, "open deletion")
+    reject_call(pg, "delete_trip", c, version(pg, c), "deleted-again", t, error="TRIP_NOT_FOUND")
+    atomic_trip = write("paste_trips", current, trip_json("20", container="FAKE-ATOMIC", month=current))["trip_ids"][0]
+    pg.sql("CREATE FUNCTION public.nhap_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'NHAP_ABORT'; END $$")
+    try:
+        for name, args, table in [
+            ("edit_trip_info", (atomic_trip, "carrier", "FAKE CHANGE"), "trip_info_rev"),
+            ("delete_trip", (atomic_trip,), "trip_info_rev"),
+            ("edit_legacy_trip", (ids[2], "unit_price_vnd", "94000000"), "legacy_trip_rev"),
+            ("delete_legacy_trip", (ids[2],), "legacy_trip_rev"),
+        ]:
+            def state():
+                return (version(pg, c), total(), pg.value(f"SELECT jsonb_build_array("
+                    f"(SELECT count(*) FROM sokhach.event WHERE customer_id={c}),"
+                    f"(SELECT count(*) FROM sokhach.trip_info_rev WHERE customer_id={c}),"
+                    f"(SELECT count(*) FROM sokhach.legacy_trip_rev WHERE customer_id={c}),"
+                    f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c}))"))
+            before = state()
+            pg.sql(f"CREATE TRIGGER nhap_abort BEFORE INSERT ON sokhach.{table} FOR EACH ROW EXECUTE FUNCTION public.nhap_abort()")
+            try:
+                reject_call(pg, name, c, version(pg, c), "fault-"+name, *args, error="NHAP_ABORT")
+                require(state() == before, f"{name} left partial changes")
+            finally:
+                pg.sql(f"DROP TRIGGER nhap_abort ON sokhach.{table}")
+    finally:
+        pg.sql("DROP FUNCTION public.nhap_abort()")
+    fee = write("paste_trips", current, json.dumps([{"container": None, "date": None,
+        "unitPriceVnd": None, "otherFeeVnd": "5"}]))["trip_ids"][0]
+    for field, value in [("carrier", "FAKE"), ("origin", "A"), ("destination", "B"),
+                         ("event_date", current), ("container", "FAKE-FEE-CONVERTED")]:
+        write("edit_trip_info", fee, field, value)
+    write("edit_trip_price", fee, 7, None)
+    require(pg.value(f"SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM sokhach.opening_balance o WHERE customer_id={c}") == opening, "opening changed")
+    require(pg.value(f"SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM sokhach.legacy_row l WHERE customer_id={c}") == legacy, "legacy source changed")
+    for table in ("trip", "adjustment", "legacy_row", "opening_balance", "trip_info_rev", "legacy_trip_rev"):
+        pg.rejects(f"UPDATE sokhach.{table} SET customer_id=customer_id WHERE customer_id={c}", message="immutable row")
+        pg.rejects(f"DELETE FROM sokhach.{table} WHERE customer_id={c}", message="immutable row")
+    assert_allocations(pg, c)
+
+
+CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
+                  check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
+
+CHECKS = {"nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
@@ -2544,6 +2720,20 @@ def check_migration(pg: Pg) -> None:
     copy.true("NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema='sokhach' "
               "AND table_name='trip' AND column_name='reviewed_by_event')", "failed review migration did not roll back")
     copy.sql(review)
+    nhap = NHAP_MIGRATION.read_text(encoding="utf-8")
+    copy.rejects(nhap.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'NHAP_FAULT'; END $$; COMMIT;"), message="NHAP_FAULT")
+    copy.true("to_regclass('sokhach.trip_info_rev') IS NULL", "failed NHAP migration left revision table")
+    drift = """WITH e AS (INSERT INTO sokhach.event(customer_id,kind,actor,"before","after")
+        VALUES(1,'adjust_month','fake','{"month":"2026-01-01"}','{"adjustment":1}') RETURNING id)
+        INSERT INTO sokhach.adjustment(customer_id,debt_month,amount_vnd,actor,created_by_event)
+        SELECT 1,'2026-01-01',1,'fake',id FROM e;
+"""
+    balance_check = "DO $$ BEGIN\n IF EXISTS(SELECT 1 FROM nhap_sheet_before"
+    require(balance_check in nhap, "migration balance checker marker missing")
+    copy.rejects(nhap.replace(balance_check, drift+balance_check), message="NHAP_SHEET_BALANCE_CHANGED")
+    copy.true("to_regclass('sokhach.trip_info_rev') IS NULL", "balance mismatch did not rollback schema")
+    copy.sql(nhap)
+    copy.sql(nhap)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
