@@ -195,6 +195,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: requirements*.txt
       - run: npm ci --ignore-scripts
+      # Trình duyệt Playwright tải ~3 phút trên Windows (đo 22/10/2026); khóa cache theo phiên bản trong package-lock.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.playwright-browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
       # Gọi thẳng `node scripts/check.js` (chính là `npm run check`): trên
       # windows-latest, `uv run` không spawn được `npm` vì đó là file npm.cmd.
