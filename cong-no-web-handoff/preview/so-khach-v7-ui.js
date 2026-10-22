@@ -20,8 +20,8 @@
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
   const outstanding = model?.formatOutstanding;
-  const labels = ['STT', 'Số container', 'Hãng tàu / số xe', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Phụ phí', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả', 'Còn nợ cộng dồn', 'Vết'];
-  const wide = [52, 148, 104, 104, 118, 118, 128, 116, 148, 112, 112, 150, 158, 96];
+  const labels = ['STT', 'Số container', 'Hãng tàu / số xe', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Phụ phí', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả', 'Còn nợ cộng dồn'];
+  const wide = [52, 148, 104, 104, 118, 118, 128, 116, 148, 112, 112, 150, 158];
   const widths = wide.map((width, index) => `<col style="width:${width}px" class="col-${index}">`).join('');
   const cell = (value, classes = '') => `<td class="${classes}">${escape(value)}</td>`;
   const num = (value, classes = '') => cell(value, `num ${classes}`);
@@ -63,7 +63,7 @@
     const voided = receipt && (receipt.voided != null || receipt.voided_by_event != null);
     return `<tr class="reference-row"><td colspan="9"></td>${receipt
       ? `<td colspan="3" class="pay receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">Tham chiếu: ${escape(receipt.reference || '–')}</td>`
-      : '<td colspan="3" class="pay"><label>Tham chiếu <input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn: số giao dịch, ngoại tệ/tỷ giá…"></label></td>'}<td colspan="2"></td></tr>`;
+      : '<td colspan="3" class="pay"><label>Tham chiếu <input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn: số giao dịch, ngoại tệ/tỷ giá…"></label></td>'}<td></td></tr>`;
   }
 
   function renderLine(trip, receipt, index, month) {
@@ -85,10 +85,10 @@
         : `<td class="pay">${open && index === month.receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`,
       receipt ? `<td class="pay num receipt ${receipt.voided !== null ? 'voided' : ''}" data-pid="${escape(receipt.pid)}" tabindex="${receipt.voided === null ? '0' : '-1'}">${escape(fieldMoney(receipt.amountVnd))}</td>`
         : `<td class="pay num">${open && index === month.receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`,
-      empty('num'), trip ? cell(trip.src ?? '', 'source') : empty('source'),
+      empty('num'),
     ];
     const adjustmentRows = (month.adjustments ?? []).filter(item => trip && item.lineId === (trip.id ?? `${month.key}#${index}`)).map(adjustment =>
-      `<tr class="adjustment"><td colspan="8">Điều chỉnh chuyến ${index + 1} · <label>Ghi chú <input class="adjustment-note" data-month="${month.key}" data-adj="${escape(adjustment.adjId)}" aria-label="Ghi chú điều chỉnh chuyến ${index + 1}" value="${escape(adjustment.reason ?? '')}" placeholder="Tùy chọn, Enter lưu"></label></td>${num(money(model.adjustmentAmount(adjustment)))}<td class="pay pay-start" colspan="4"></td><td></td></tr>`).join('');
+      `<tr class="adjustment"><td colspan="8">Điều chỉnh chuyến ${index + 1} · <label>Ghi chú <input class="adjustment-note" data-month="${month.key}" data-adj="${escape(adjustment.adjId)}" aria-label="Ghi chú điều chỉnh chuyến ${index + 1}" value="${escape(adjustment.reason ?? '')}" placeholder="Tùy chọn, Enter lưu"></label></td>${num(money(model.adjustmentAmount(adjustment)))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
     return `<tr>${cells.join('')}</tr>${referenceLine(receipt, open && index === month.receipts.length)}${adjustmentRows}`;
   }
 
@@ -99,19 +99,19 @@
     const badge = editable ? 'Đang mở' : 'Đã khóa';
     const lineCount = Math.max(month.trips.length, month.receipts.length + (open ? 1 : 0));
     const lines = Array.from({ length: lineCount }, (_, index) => renderLine(month.trips[index], month.receipts[index], index, month)).join('');
-    const prompt = voidPrompt?.monthKey === month.key ? `<tr class="void-prompt"><td colspan="14">Hủy phiếu ${escape(voidPrompt.pid)} — ${money(voidPrompt.totalVnd)} (${voidPrompt.monthCount} tháng) <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error void-error" role="status"></span></td></tr>` : '';
-    const traces = model.voidedLines(book, month.key).map(line => `<tr class="void-trace"><td colspan="14">${money(line.amountVnd)} · ${escape(line.date)} · ${escape(line.voidedOn)} · ${escape(line.reason)}</td></tr>`).join('');
-    const status = open && notice ? `<tr class="receipt-status"><td colspan="14" role="status">${escape(notice)}</td></tr>` : '';
-    const paste = editable ? `<tr class="paste-row"><td colspan="9"><label>Dán các dòng từ Sheet vào đây <textarea class="paste-input" data-month="${month.key}" rows="2" aria-label="Dán các dòng từ Sheet vào đây"></textarea></label><span class="paste-error" role="status"></span></td><td class="pay pay-start" colspan="5"></td></tr>` : '';
-    const monthAdjustments = (month.adjustments ?? []).filter(item => !item.lineId).map(item => `<tr class="adjustment month-adjustment"><td colspan="8">Điều chỉnh cả tháng${item.reason ? ` · ${escape(item.reason)}` : ''}</td>${num(money(model.adjustmentAmount(item)))}<td class="pay pay-start" colspan="5"></td></tr>`).join('');
-    const input = monthPrompt === month.key ? `<tr class="month-adjustment-input"><td colspan="8">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng ${label}"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng ${label}" inputmode="decimal" placeholder="+5.000.000"><span class="cell-error month-error" role="status"></span></td><td class="pay pay-start" colspan="5"></td></tr>` : '';
-    return `<section id="thang-${escape(month.key)}"><table class="ledger" aria-label="Sổ khách tháng ${label}"><colgroup>${widths}</colgroup><tbody><tr class="month"><th colspan="14" scope="rowgroup"><span class="month-title">THÁNG ${label}<button class="month-lock" data-month="${month.key}" aria-label="${editable ? 'Khóa' : 'Mở khóa'} tháng ${label}" aria-pressed="${editable}">${editable ? '🔓' : '🔒'}</button><span class="badge ${editable ? 'open' : ''}">${badge}</span><em>Nợ các tháng trước: ${outstanding(summary.carryVnd)}</em></span></th></tr>${lines}${monthAdjustments}${input}${prompt}${traces}${status}${paste}<tr class="subtotal"><td colspan="8">Cộng tháng ${label} (${summary.tripCount} chuyến) · Phát sinh <button class="add-month-adjustment" data-month="${month.key}">+ Điều chỉnh cả tháng</button></td>${num(money(summary.totalChargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(outstanding(summary.receivedVnd), 'pay')}${num(outstanding(summary.endOfMonthVnd))}${empty('source')}</tr><tr class="spacer"><td colspan="14"></td></tr></tbody></table></section>`;
+    const prompt = voidPrompt?.monthKey === month.key ? `<tr class="void-prompt"><td colspan="13">Hủy phiếu ${escape(voidPrompt.pid)} — ${money(voidPrompt.totalVnd)} (${voidPrompt.monthCount} tháng) <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error void-error" role="status"></span></td></tr>` : '';
+    const traces = model.voidedLines(book, month.key).map(line => `<tr class="void-trace"><td colspan="13">${money(line.amountVnd)} · ${escape(line.date)} · ${escape(line.voidedOn)} · ${escape(line.reason)}</td></tr>`).join('');
+    const status = open && notice ? `<tr class="receipt-status"><td colspan="13" role="status">${escape(notice)}</td></tr>` : '';
+    const paste = editable ? `<tr class="paste-row"><td colspan="9"><label>Dán các dòng từ Sheet vào đây <textarea class="paste-input" data-month="${month.key}" rows="2" aria-label="Dán các dòng từ Sheet vào đây"></textarea></label><span class="paste-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>` : '';
+    const monthAdjustments = (month.adjustments ?? []).filter(item => !item.lineId).map(item => `<tr class="adjustment month-adjustment"><td colspan="8">Điều chỉnh cả tháng${item.reason ? ` · ${escape(item.reason)}` : ''}</td>${num(money(model.adjustmentAmount(item)))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
+    const input = monthPrompt === month.key ? `<tr class="month-adjustment-input"><td colspan="8">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng ${label}"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng ${label}" inputmode="decimal" placeholder="+5.000.000"><span class="cell-error month-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>` : '';
+    return `<section id="thang-${escape(month.key)}"><table class="ledger" aria-label="Sổ khách tháng ${label}"><colgroup>${widths}</colgroup><tbody><tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${label}<button class="month-lock" data-month="${month.key}" aria-label="${editable ? 'Khóa' : 'Mở khóa'} tháng ${label}" aria-pressed="${editable}">${editable ? '🔓' : '🔒'}</button><span class="badge ${editable ? 'open' : ''}">${badge}</span><em>Nợ các tháng trước: ${outstanding(summary.carryVnd)}</em></span></th></tr>${lines}${monthAdjustments}${input}${prompt}${traces}${status}${paste}<tr class="subtotal"><td colspan="8">Cộng tháng ${label} (${summary.tripCount} chuyến) · Phát sinh <button class="add-month-adjustment" data-month="${month.key}">+ Điều chỉnh cả tháng</button></td>${num(money(summary.totalChargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(outstanding(summary.receivedVnd), 'pay')}${num(outstanding(summary.endOfMonthVnd))}</tr><tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
   }
 
   function renderShell(view) {
     const scrollY = window.scrollY;
-    root.innerHTML = `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1><button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button><div class="head-item"><span>Từ tháng</span><strong>${view.firstMonth}</strong></div><div class="head-item"><span>Chờ xử lý</span><strong>${view.pending}</strong></div><div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
-    ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="group"><th colspan="9">CHUYẾN HÀNG · ô cam: chưa có giá, ngoài số dư</th><th colspan="3" class="group-pay">TIỀN KHÁCH TRẢ</th><th>NỢ</th><th class="source">NGUỒN</th></tr><tr class="columns">${labels.map((label, index) => `<th scope="col" class="${index >= 9 && index <= 11 ? 'pay ' : ''}${index === 9 ? 'pay-start ' : ''}${index === 13 ? 'source' : ''}">${escape(label)}</th>`).join('')}</tr></thead></table>${view.sections}</div>
+    root.innerHTML = `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1>${live ? '<button class="change-customer">Đổi khách</button>' : ''}<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button><div class="head-item"><span>Từ tháng</span><strong>${view.firstMonth}</strong></div><div class="head-item"><span>Chờ xử lý</span><strong>${view.pending}</strong></div><div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
+    ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="group"><th colspan="9">CHUYẾN HÀNG · ô cam: chưa có giá, ngoài số dư</th><th colspan="3" class="group-pay">TIỀN KHÁCH TRẢ</th><th>NỢ</th></tr><tr class="columns">${labels.map((label, index) => `<th scope="col" class="${index >= 9 && index <= 11 ? 'pay ' : ''}${index === 9 ? 'pay-start' : ''}">${escape(label)}</th>`).join('')}</tr></thead></table>${view.sections}</div>
     <nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div><aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2><button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
     window.scrollTo(0, scrollY);
   }
@@ -145,7 +145,7 @@
     const dateInput = value => /^\d\d\/\d\d\/\d{4}$/.test(value) ? value.slice(6) + '-' + value.slice(3, 5) + '-' + value.slice(0, 2) : value;
     const monthKey = value => typeof value === 'string' ? value.slice(0, 7) : '';
     // Source row from the Sheet copy: show what a reader needs, never raw objects or codes.
-    // Sheet history in the same 14 columns as the Sheet: a trip and a payment typed on the
+    // Sheet history in the ledger columns: a trip and a payment typed on the
     // same Sheet row share one line. Amounts come from the copy as digit strings; no maths here.
     // The loader resolves every serial date to one reading (dd/mm/yyyy); anything left here
     // is text typed in the Sheet ("da tt") and is shown as typed.
@@ -168,12 +168,12 @@
           // Payment form is not inferred from the note (V7-MIG still open); show the note once.
           ? `${cell(r.raw_date ?? '', 'pay pay-start')}${cell(r.note && r.note !== r.raw_date ? r.note : '', 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
           : `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`;
-        return `<tr class="legacy" title="Từ sổ gốc, đã nằm trong số dư đầu">${tripCells}${payCells}${empty('num')}${empty('source')}</tr>`;
+        return `<tr class="legacy" title="Từ sổ gốc, đã nằm trong số dư đầu">${tripCells}${payCells}${empty('num')}</tr>`;
       }).join('');
     };
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
-      void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu' };
+      void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM' };
     const valueLabels = { amount_vnd: 'Số tiền', old_amount_vnd: 'Thành tiền trước', new_amount_vnd: 'Thành tiền sau',
       delta_vnd: 'Điều chỉnh', unit_price_vnd: 'Đơn giá', other_fee_vnd: 'Phụ phí', new_value_vnd: 'Giá trị mới',
       date: 'Ngày trả', event_date: 'Ngày chuyến', month: 'Tháng', debt_month: 'Tháng', pid: 'Phiếu',
@@ -203,6 +203,8 @@
     }
     function describeEvent(event) {
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
+      if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
+        ? 'tính vào sổ' : 'loại, không tính'}`;
       if (event.kind !== 'adjust_trip') return `${describe(event.before, event.kind)} → ${describe(event.after, event.kind)}`;
       const before = event.before ?? {}, after = event.after ?? {};
       const field = after.field ?? before.field;
@@ -267,7 +269,10 @@
         const opening = (data.opening ?? []).filter(row => monthKey(row.month) === key);
         const adjustments = (data.adjustments ?? []).filter(row => monthKey(row.month) === key);
         const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
-        const n = Math.max(trips.length, receipts.length + (active && key === openKey ? 1 : 0), 1);
+        // Tháng chỉ có số dư đầu từ sổ gốc, chưa có gì nhập trên web: gói vào một dòng "nợ còn lại",
+        // không vẽ dòng trống và "Phát sinh 0 · Đã thu 0" cạnh số của sổ gốc (góp ý người dùng 22/10/2026).
+        const historyOnly = opening.length > 0 && !trips.length && !receipts.length && !adjustments.length && !(active && key === openKey);
+        const n = Math.max(trips.length, receipts.length + (active && key === openKey ? 1 : 0), historyOnly ? 0 : 1);
         const lines = Array.from({ length: n }, (_, index) => {
           const trip = trips[index], receipt = receipts[index];
           const pending = trip?.status === 'pending_review';
@@ -280,30 +285,32 @@
             ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
             ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
             ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
-            ${empty('num')}${cell(trip?.src ?? '', 'source')}</tr>${receipt?.outgoing ? '' : referenceLine(receipt, active && key === openKey && index === receipts.length)}`;
+            ${empty('num')}</tr>${receipt?.outgoing ? '' : referenceLine(receipt, active && key === openKey && index === receipts.length)}`;
         }).join('');
-        const openingRows = opening.map(row => `<tr class="adjustment"><td colspan="8">Nợ cũ chuyển sang sổ mới</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5">Số dư đầu đã nằm trong tổng, không cộng lần nữa</td></tr>`).join('');
-        const adjustmentRows = adjustments.map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="5"></td></tr>`).join('');
+        const carried = 'Nợ tháng này còn lại khi chuyển sang web';
+        const carriedNote = 'Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước';
+        const openingRows = historyOnly ? '' : opening.map(row => `<tr class="adjustment"><td colspan="8">${carried}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4">${carriedNote}</td></tr>`).join('');
+        const adjustmentRows = adjustments.map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
         const voidRows = receipts.filter(row => row.voided_by_event != null).map(row =>
-          `<tr class="void-trace"><td colspan="14">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
+          `<tr class="void-trace"><td colspan="13">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
         const history = historical.get(key) ?? [];
         // Option (b), 20/10/2026: Sheet figures beside the ledger subtotal, for comparison only.
         const source = sourceFigures.get(key);
         const sourceRow = history.length && source && (source.source_charge_vnd != null || source.source_cumulative_vnd != null)
-          ? `<tr class="source-total"><td colspan="8">Theo sổ gốc (để đối chiếu, đã nằm trong số dư đầu) · Phát sinh</td>${num(fmt(source.source_charge_vnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(source.source_receipt_vnd), 'pay')}${num(fmt(source.source_cumulative_vnd))}${empty('source')}</tr>`
+          ? `<tr class="source-total"><td colspan="8">Theo sổ gốc (để đối chiếu, đã nằm trong số dư đầu) · Phát sinh</td>${num(fmt(source.source_charge_vnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(source.source_receipt_vnd), 'pay')}${num(fmt(source.source_cumulative_vnd))}</tr>`
           : '';
-        const legacyRows = history.length ? `<tr class="legacy-caption"><td colspan="14">Từ sổ gốc · đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại</td></tr>${legacyLines(history)}` : '';
-        const paste = active && !locked ? `<tr class="paste-row"><td colspan="9"><label>Dán các dòng từ Sheet vào đây <textarea class="paste-input" data-month="${key}" rows="2" aria-label="Dán các dòng từ Sheet vào đây"></textarea></label><span class="paste-error" role="status"></span></td><td class="pay pay-start" colspan="5"></td></tr>` : '';
+        const legacyRows = history.length ? `<tr class="legacy-caption"><td colspan="13">Từ sổ gốc · đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại</td></tr>${legacyLines(history)}` : '';
+        const paste = active && !locked ? `<tr class="paste-row"><td colspan="9"><label>Dán các dòng từ Sheet vào đây <textarea class="paste-input" data-month="${key}" rows="2" aria-label="Dán các dòng từ Sheet vào đây"></textarea></label><span class="paste-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>` : '';
         return `<section id="thang-${escape(key)}"><table class="ledger" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
-          <tr class="month"><th colspan="14" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><span class="badge ${locked ? '' : 'open'}">${locked ? 'Đã khóa' : 'Đang mở'}</span><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
+          <tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><span class="badge ${locked ? '' : 'open'}">${locked ? 'Đã khóa' : 'Đang mở'}</span><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
           ${openingRows}${lines}${adjustmentRows}${voidRows}${legacyRows}${paste}
-          <tr class="subtotal"><td colspan="8">Cộng tháng ${monthLabel(key)} (${trips.length} chuyến) · Phát sinh <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(item.charges_vnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(item.received_vnd), 'pay')}${num(fmt(item.end_of_month_vnd))}${empty('source')}</tr>${sourceRow}<tr class="spacer"><td colspan="14"></td></tr></tbody></table></section>`;
+          <tr class="subtotal"><td colspan="8">${historyOnly ? `${carried} · ${carriedNote}` : `Cộng tháng ${monthLabel(key)} (${trips.length} chuyến) · Phát sinh`} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(item.charges_vnd))}${historyOnly ? '<td class="pay pay-start" colspan="3"></td>' : `<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(item.received_vnd), 'pay')}`}${num(fmt(item.end_of_month_vnd))}</tr>${sourceRow}<tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
       };
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${message || !active ? '' : 'hidden'}>${escape(message || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, firstMonth: groups.length ? monthLabel(monthKey(groups[0].month)) : '–',
         pending: `${(data.trips ?? []).filter(trip => trip.status === 'pending_review').length} chuyến CHỜ KIỂM · ${(data.trips ?? []).filter(trip => trip.is_missing_price).length} chuyến chưa có giá`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
         sections: groups.map(section).join(''), navigation: groups.map(item => `<a href="#thang-${escape(monthKey(item.month))}"><span>${monthLabel(monthKey(item.month))}</span><small>${fmt(item.outstanding_vnd)}</small></a>`).join(''),
-        history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
+        history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.review_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
     }
     function showNotice(value) {
       message = value;
@@ -358,7 +365,7 @@
     }
     async function showSourceRow(entryRow) {
       if (entryRow.nextElementSibling?.classList.contains('offset-source-row')) return;
-      entryRow.insertAdjacentHTML('afterend', '<tr class="offset-source-row"><td colspan="9"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td><td class="source"></td></tr>');
+      entryRow.insertAdjacentHTML('afterend', '<tr class="offset-source-row"><td colspan="9"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td></tr>');
       Object.assign(offsetState, { selected: null, open: false, query: '', error: '' });
       renderSourceCell();
       await refreshSources();
@@ -463,7 +470,7 @@
       root.querySelector('.void-prompt')?.remove();
       const theirs = [...(otherLedger.receipts ?? []), ...(otherLedger.outgoing_offsets ?? [])].find(item => String(item.offset_pair_id) === pair);
       const both = `<strong>${escape(pid)}</strong> ở sổ <strong>${escape(ownName())}</strong> và <strong>${escape(theirs?.pid ?? '–')}</strong> ở sổ <strong>${escape(otherName)}</strong>`;
-      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="14"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
+      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="13"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
       rowEl.nextElementSibling.querySelector('input').focus();
     }
     async function confirmOffsetVoid(promptRow) {
@@ -514,13 +521,15 @@
       if (event.target.closest('.history-toggle')) { historyOpen = !historyOpen; if (snapshot) renderSnapshot(snapshot); return; }
       if (event.target.closest('.history-close')) { historyOpen = false; if (snapshot) renderSnapshot(snapshot); return; }
       if (event.target.closest('.retry-command')) { await api.retry(); return; }
+      // Ô tìm khách nằm trên đầu trang, trôi mất khi cuộn: nút ở thanh tiêu đề đưa về đó và mở danh sách.
+      if (event.target.closest('.change-customer')) { window.scrollTo(0, 0); live.showCustomers(); return; }
       const lock = event.target.closest('.month-lock');
       if (lock) { await submit('lock', { month: lock.dataset.month, locked: lock.getAttribute('aria-pressed') === 'true' }); return; }
       const add = event.target.closest('.add-month-adjustment');
       if (add) {
         const row = add.closest('tr');
         if (!row.previousElementSibling?.classList.contains('month-adjustment-input')) row.insertAdjacentHTML('beforebegin',
-          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="8">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="5"></td></tr>`);
+          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="8">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>`);
         row.previousElementSibling.querySelector('.month-amount').focus(); return;
       }
       const editable = event.target.closest('td.editable');
@@ -558,7 +567,7 @@
           const row = receipt.closest('tr');
           root.querySelector('.void-prompt')?.remove();
           const saved = snapshot.receipts.find(item => item.pid === pid);
-          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="14">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
+          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="13">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
         receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :

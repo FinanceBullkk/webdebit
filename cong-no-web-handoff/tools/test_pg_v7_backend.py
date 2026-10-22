@@ -71,6 +71,8 @@ CASES = [
     case("CSM.02", "BEHAVIOR", "Every month lock command has one atomic audit event", check="csm_locks", functions=("set_month_lock", "get_ledger")),
     case("CSM.03", "BEHAVIOR", "Atomic CSM migration preserves old rows and retries", check="csm_migration", functions=("record_receipt", "set_month_lock")),
     case("7.24", "BEHAVIOR", "M2-11 duplicate quarantine and money guards", check="dedup", functions=("paste_trips",)),
+    case("7.25", "BEHAVIOR", "NEWTRIP-01 review: confirm/reject pending trip with reason", check="trip_review",
+         functions=("review_trip", "get_ledger", "paste_trips")),
     case("7.01", "BEHAVIOR", "Import 11 opening months and historical PH-101", check="opening_import", functions=("get_ledger", "import_cutover")),
     case("7.02", "BEHAVIOR", "JS model operation parity and monthly tuples", check="model", functions=("paste_trips", "record_receipt", "reallocate")),
     case("7.02b", "BEHAVIOR", "Advance, price edit, paste after receipt, missing price, adjustment after void", check="model_edges", functions=("paste_trips", "edit_trip_price", "adjust_month", "void_receipt")),
@@ -932,6 +934,8 @@ def check_csm_migration(pg: Pg) -> None:
               "AND table_name='receipt' AND column_name='reference')", "migration rollback left column")
     copy.sql(migration)
     copy.sql(migration)  # repeat is safe; no new events or financial writes
+    copy.sql(REVIEW_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(REVIEW_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1675,7 +1679,7 @@ def check_roles(pg: Pg) -> None:
                     f"{role} can read/write {relation}")
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
-                       "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock",
+                       "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip",
                        "get_ledger", "list_customers", "record_offset", "void_offset",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
@@ -2389,8 +2393,78 @@ def check_dedup(pg: Pg) -> None:
     reject_call(pg, "paste_trips", empty, 0, "missing-ref", current, trip_json(), error="BASELINE_REF_MISSING")
     require(version(pg, empty) == 0, "missing reference changed version")
 
+REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql"
+
+
+def check_trip_review(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cut},'BK1','BASE','2026-01-10')")
+
+    def paste(key, container, booking):
+        row = json.loads(trip_json(container=container))[0] | {"date": "10/01/2026", "booking": booking}
+        return call(pg, "paste_trips", c, version(pg, c), key, current, json.dumps([row]))
+
+    def trip(trip_id):
+        return next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == trip_id)
+
+    held = paste("held", "BASE", "BK1")["trip_ids"][0]
+    other = paste("other", "BASE", "BK2")["trip_ids"][0]
+    require(trip(held)["review_reason"] == "BASELINE_CODE_MATCH"
+            and trip(other)["review_reason"] == "BASELINE_DATE_WINDOW", "GET lost pending reason")
+    call(pg, "record_receipt", c, version(pg, c), "pay", "2026-01-02", "THU TIỀN", 30)
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "advance", "30")], "receipt not advance before review")
+    before = version(pg, c)
+    for args, error in (((held, "confirm", " "), "REVIEW_REASON_REQUIRED"),
+                        ((held, "approve", "fake"), "INVALID_REVIEW"),
+                        ((999999, "confirm", "fake"), "TRIP_NOT_FOUND")):
+        reject_call(pg, "review_trip", c, before, "bad-" + error, *args, error=error)
+    require(version(pg, c) == before, "rejected review changed version")
+    confirmed = call(pg, "review_trip", c, before, "confirm", held, "confirm", " đã đối chiếu sổ gốc ", actor="fake-a")
+    require(confirmed["status"] == "confirmed" and confirmed["reallocated"], "confirm did not reallocate")
+    require(call(pg, "review_trip", c, before, "confirm", held, "confirm", " đã đối chiếu sổ gốc ") == confirmed,
+            "review retry wrote twice")
+    reject_call(pg, "review_trip", c, before, "confirm", held, "reject", "khác", error="IDEMPOTENCY_CONFLICT")
+    ledger = call(pg, "get_ledger", c)
+    require(ledger["total_outstanding_vnd"] == "70" and trip(held)["amount_vnd"] == "100"
+            and trip(held)["editable"], "confirmed trip not in balance")
+    require(allocations(pg, c, "PH-001") == [(current, "debt", "30")], "receipt not moved onto confirmed trip")
+    event = next(e for e in ledger["events"] if e["kind"] == "trip_review")
+    require(event["actor"] == "fake-a" and event["before"]["status"] == "pending_review"
+            and event["after"] == {"trip": held, "container": "BASE", "status": "confirmed",
+                                   "review_reason": "đã đối chiếu sổ gốc"}, "review audit wrong")
+    reject_call(pg, "review_trip", c, version(pg, c), "again", held, "reject", "fake", error="TRIP_NOT_PENDING")
+    call(pg, "edit_trip_price", c, version(pg, c), "price-after", held, 120, None)
+    # Locked month never blocks a conclusion (NHAP-SHEET-01 (7)); reject leaves money untouched.
+    call(pg, "set_month_lock", c, version(pg, c), "lock", current, "true")
+    total = call(pg, "get_ledger", c)["total_outstanding_vnd"]
+    rejected = call(pg, "review_trip", c, version(pg, c), "reject", other, "reject", "trùng dòng sổ gốc")
+    require(rejected == rejected | {"status": "rejected", "reallocated": []}, "reject result wrong")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == total and trip(other)["status"] == "rejected"
+            and trip(other)["amount_vnd"] is None and not trip(other)["editable"], "rejected trip leaked into money")
+    call(pg, "set_month_lock", c, version(pg, c), "unlock", current, "false")
+    reject_call(pg, "edit_trip_price", c, version(pg, c), "price-rejected", other, 5, None, error="TRIP_PENDING_REVIEW")
+    require(paste("again", "BASE", "BK2")["pending_review"][0]["reason"] == "BASELINE_DATE_WINDOW",
+            "rejected trip no longer blocks duplicate")
+    assert_allocations(pg, c)
+    pg.rejects(f"UPDATE sokhach.trip SET note='x' WHERE id={held}", message="immutable row")
+    pg.rejects(f"DELETE FROM sokhach.trip WHERE id={other}", message="immutable row")
+    pending = paste("direct", "BASE", "BK3")["trip_ids"][0]
+    late = paste("late", "BASE", "BK4")["trip_ids"][0]
+    call(pg, "set_month_lock", c, version(pg, c), "lock-late", current, "true")
+    total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
+    call(pg, "review_trip", c, version(pg, c), "locked-confirm", late, "confirm", "đối chiếu xong")
+    require(int(call(pg, "get_ledger", c)["total_outstanding_vnd"]) == total + 100, "locked-month confirm not counted")
+    assert_allocations(pg, c)
+    call(pg, "set_month_lock", c, version(pg, c), "unlock-late", current, "false")
+    pg.rejects(f"UPDATE sokhach.trip SET status='confirmed' WHERE id={pending}", message="immutable row")
+    pg.rejects(f"UPDATE sokhach.trip SET status='confirmed',reviewed_by_event=1,note='x' WHERE id={pending}",
+               message="immutable row")
+
+
 CHECKS = {"csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
-          "dedup": check_dedup,"monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
           "immutable": check_immutable, "roles": check_roles, "numbers": check_numbers,
@@ -2470,6 +2544,12 @@ def check_migration(pg: Pg) -> None:
     copy.sql(migration)
     copy.sql(migration)  # idempotent
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-21-v7-csm.sql").read_text(encoding="utf-8"))
+    review = REVIEW_MIGRATION.read_text(encoding="utf-8")
+    copy.rejects(review.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'REVIEW_MIGRATION_FAULT'; END $$; COMMIT;"),
+                 message="REVIEW_MIGRATION_FAULT")
+    copy.true("NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema='sokhach' "
+              "AND table_name='trip' AND column_name='reviewed_by_event')", "failed review migration did not roll back")
+    copy.sql(review)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")

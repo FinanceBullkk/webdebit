@@ -25,6 +25,8 @@
 
   // Danh sách khách tải sau sổ: vẽ lại qua renderer để tên khách vào đúng tiêu đề, không chép đè DOM.
   let redraw = null;
+  // Nút "Đổi khách" ở đầu sổ: mở danh sách khách và đặt con trỏ vào ô tìm.
+  let showCustomers = () => document.querySelector('#customer-search')?.focus();
   const realCopyText = 'Dữ liệu thật · bản sao cô lập, chưa phải prod';
 
   async function loadCustomers(fetcher = fetch) {
@@ -48,11 +50,12 @@
       const current = new URLSearchParams(location.search).get('customer');
       const href = row => `/so-khach-v7-live.html?customer=${encodeURIComponent(row.id)}`;
       let found = [];
+      let listAll = !current;
       const render = () => {
         const query = search.value.trim().toLocaleLowerCase();
         found = customers.filter(row => row.name.toLocaleLowerCase().includes(query));
-        // Before typing, list everyone only when no customer is open yet.
-        const shown = query || !current ? found.slice(0, 50) : [];
+        // Before typing, list everyone only when no customer is open yet or the search box is in use.
+        const shown = query || listAll ? found.slice(0, 50) : [];
         list.replaceChildren(...shown.map(row => {
           const link = document.createElement('a');
           link.href = href(row);
@@ -60,11 +63,13 @@
           if (String(row.id) === current) link.setAttribute('aria-current', 'page');
           return link;
         }));
-        document.querySelector('#customer-count').textContent = query || !current
+        document.querySelector('#customer-count').textContent = query || listAll
           ? `${found.length} khách${found.length > shown.length ? ` · hiện ${shown.length}, gõ thêm để lọc` : ''}`
           : `${customers.length} khách · gõ tên để đổi khách`;
       };
       search.addEventListener('input', render);
+      search.addEventListener('focus', () => { listAll = true; render(); });
+      showCustomers = () => { listAll = true; render(); search.focus(); };
       search.addEventListener('keydown', event => {
         if (event.key === 'Enter' && found.length) location.href = href(found[0]);
       });
@@ -185,7 +190,7 @@
     return { read, submit, submitOffset, readOther, loadOffsetSources, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
-  const api = { create, stale, unknown, customerName: id => customerNames.get(id) };
+  const api = { create, stale, unknown, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();
