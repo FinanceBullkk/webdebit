@@ -213,8 +213,9 @@ test('paste strips nested actor and computed totals', async () => {
   } });
   await api.read();
   await api.submit('paste', { debt_month: '2026-10-01', trips: [{ date: '20/10/2026', container: 'FAKE',
+    booking: 'BK-FAKE', status: 'confirmed', trip_key: 'forged',
     unitPriceVnd: '10', actor: 'forged', total_vnd: '999', allocation: 'forged' }] });
-  assert.deepEqual(posted.trips, [{ date: '20/10/2026', container: 'FAKE', unitPriceVnd: '10' }]);
+  assert.deepEqual(posted.trips, [{ date: '20/10/2026', booking: 'BK-FAKE', container: 'FAKE', unitPriceVnd: '10' }]);
 });
 
 for (const failure of ['network', 'unknown']) test(`${failure} keeps same payload and key on retry`, async () => {
@@ -252,7 +253,7 @@ test('NO_BASELINE blocks writes and money must be string', async () => {
 
 test('fixture renderer stays in tab; live renderer uses GET values and flags', async () => {
   function page(live, data) {
-    const root = { innerHTML: '', addEventListener() {}, querySelector() { return null; } };
+    const root = { innerHTML: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelector() { return null; } };
     const context = vm.createContext({ document: { querySelector: () => root, addEventListener() {} },
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
       URLSearchParams, structuredClone, Date, BigInt, crypto: { randomUUID: () => 'key' },
@@ -268,6 +269,18 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     '58265f6d23ad38c4bc7654d8ff9295e5d35bbf78e0318b7c153e362b053e19c4', 'fixture HTML must match round-2 baseline');
   assert.match(fixture.innerHTML, /THÁNG 10\/2026/);
   assert.match(fixture.innerHTML, /Dán các dòng từ Sheet vào đây/);
+  const paste = text => fixture.listeners.paste({ preventDefault() {},
+    clipboardData: { getData: () => text }, target: { matches: selector => selector === '.paste-input',
+      dataset: { month: '2026-10' }, closest: () => ({ querySelector: () => ({ textContent: '' }) }) } });
+  paste('FAKE-NEW\tSHIP\t21/10/2026\tA\tB\t100\t\nFAKE-NEW\tSHIP\t24/10/2026\tA\tB\t100\t\nFAKE-SAFE\tSHIP\t21/10/2026\tA\tB\t200\t');
+  const held = fixture.innerHTML.split('<tr>').find(row => row.includes('FAKE-NEW') && row.includes('24/10/2026'))?.split('</tr>')[0];
+  assert.ok(held, 'duplicate row retained');
+  assert.match(held, /CHỜ KIỂM/);
+  assert.doesNotMatch(held, /class="num editable/);
+  assert.match(fixture.innerHTML, /FAKE-SAFE/);
+  assert.match(fixture.innerHTML, /1 chuyến CHỜ KIỂM/);
+  paste('FAKE-NEW\tSHIP\t21/10/2026\tA\tB\t100\t');
+  assert.match(fixture.innerHTML, /2 chuyến CHỜ KIỂM/);
   const live = page(true, { ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '600', end_of_month_vnd: '600' }],
     opening: [{ month: '2026-10-01', amount_vnd: '600' }], trips: [], receipts: [], adjustments: [],
     legacy_rows: [{ month: '2026-10-01', display: 'old', source_total_vnd: '600' }],
@@ -297,6 +310,18 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(newMonth.innerHTML, /data-month="2026-09" rows="2"/);
   assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">1\.234\.067<\/td>/);
   assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*Nợ các tháng trước: 0<\/em>/);
+  const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
+    months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],
+    trips: [{ id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
+      { id: 2, month: '2026-10-01', container: 'FAKE-CLEAN', status: 'confirmed', unit_price_vnd: '200', other_fee_vnd: null, amount_vnd: '200' }],
+    receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  const heldLive = pending.innerHTML.match(/<tr><td[^>]*>1<\/td>\s*<td[^>]*>FAKE-HELD<\/td>.*?<\/tr>/s)?.[0];
+  assert.ok(heldLive);
+  assert.match(heldLive, /CHỜ KIỂM/);
+  assert.doesNotMatch(heldLive, /class="num editable/);
+  assert.match(pending.innerHTML, /data-trip="2"/);
+  assert.match(pending.innerHTML, /1 chuyến CHỜ KIỂM · 0 chuyến chưa có giá/);
   const noBaseline = page(true, { ...ledger(0), status: 'NO_BASELINE', total_outstanding_vnd: null,
     source_exceptions: [{ month: '2026-10-01', exception_codes: ['NO_BASELINE'] }] });
   await new Promise(resolve => setImmediate(resolve));

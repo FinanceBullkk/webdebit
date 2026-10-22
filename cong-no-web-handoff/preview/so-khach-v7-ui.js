@@ -57,14 +57,15 @@
     const result = trip ? model.tripAmount(trip) : null;
     const feeOnly = result?.isFeeOnly;
     const missing = result?.isMissingPrice;
+    const pending = trip?.status === 'pending_review';
     const open = month.key === openMonth;
     const cells = [
       trip && !feeOnly ? cell(index + 1) : empty(),
       cell(trip?.container ?? (month.opening ? 'Nợ cũ chuyển sang sổ mới' : feeOnly ? 'Phí lẻ' : '')),
       cell(trip?.carrier ?? ''), cell(trip?.date ?? ''), cell(trip?.from ?? ''), cell(trip?.to ?? ''),
-      trip ? editCell(missing ? 'chưa có giá' : fieldMoney(trip.unitPriceVnd), 'unitPriceVnd', index, month, missing ? 'missing' : '') : empty('num'),
-      trip ? editCell(fieldMoney(trip.otherFeeVnd), 'otherFeeVnd', index, month) : empty('num'),
-      trip ? num(missing ? '–' : money(result.amountVnd)) : empty('num'),
+      pending ? num(fieldMoney(trip.unitPriceVnd)) : trip ? editCell(missing ? 'chưa có giá' : fieldMoney(trip.unitPriceVnd), 'unitPriceVnd', index, month, missing ? 'missing' : '') : empty('num'),
+      pending ? num(fieldMoney(trip.otherFeeVnd)) : trip ? editCell(fieldMoney(trip.otherFeeVnd), 'otherFeeVnd', index, month) : empty('num'),
+      trip ? num(pending ? 'CHỜ KIỂM' : missing ? '–' : money(result.amountVnd)) : empty('num'),
       receipt ? `<td class="pay pay-start receipt receipt-edit ${receipt.voided !== null ? 'voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date" tabindex="${receipt.voided === null ? '0' : '-1'}">${escape(receipt.date)}</td>`
         : `<td class="pay pay-start">${open && index === month.receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`,
       receipt ? `<td class="pay receipt receipt-edit ${receipt.voided !== null ? 'voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${receipt.voided === null ? '0' : '-1'}">${escape(receipt.voided !== null ? 'ĐÃ HỦY' : receipt.method)}</td>`
@@ -106,8 +107,9 @@
     const chain = model.monthChain(book);
     const remaining = model.outstandingByMonth(book);
     const pending = model.pendingCounts(book);
+    const reviewCount = months.flatMap(month => month.trips).filter(trip => trip.status === 'pending_review').length;
     renderShell({ customer: book.customer, firstMonth: monthLabel(months[0].key),
-      pending: `${pending.missingPrice} chuyến chưa có giá · ${pending.uncertainReceipts} khoản thu chưa chắc`,
+      pending: `${reviewCount ? `${reviewCount} chuyến CHỜ KIỂM · ` : ''}${pending.missingPrice} chuyến chưa có giá · ${pending.uncertainReceipts} khoản thu chưa chắc`,
       total: money(chain.totalOutstandingVnd),
       sections: months.map((month, index) => renderMonth(month, chain.months[index], remaining[index])).join(''),
       navigation: months.map((month, index) => `<a href="#thang-${escape(month.key)}"><span>${monthLabel(month.key)}</span><small>${outstanding(remaining[index].outstandingVnd)}</small></a>`).join(''),
@@ -254,12 +256,13 @@
         const n = Math.max(trips.length, receipts.length + (active && key === openKey ? 1 : 0), 1);
         const lines = Array.from({ length: n }, (_, index) => {
           const trip = trips[index], receipt = receipts[index];
+          const pending = trip?.status === 'pending_review';
           const voided = receipt?.voided_by_event != null;
           return `<tr>${trip && !trip.is_fee_only ? cell(index + 1) : empty()}
             ${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}
-            ${trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
-            ${trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
-            ${trip ? num(fmt(trip.amount_vnd)) : empty('num')}
+            ${pending ? num(fmt(trip.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
+            ${pending ? num(fmt(trip.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
+            ${trip ? num(pending ? 'CHỜ KIỂM' : fmt(trip.amount_vnd)) : empty('num')}
             ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
             ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
             ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
@@ -284,7 +287,7 @@
       };
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${message || !active ? '' : 'hidden'}>${escape(message || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, firstMonth: groups.length ? monthLabel(monthKey(groups[0].month)) : '–',
-        pending: `${data.pending_count ?? '–'} chuyến chưa có giá`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
+        pending: `${(data.trips ?? []).filter(trip => trip.status === 'pending_review').length} chuyến CHỜ KIỂM · ${(data.trips ?? []).filter(trip => trip.is_missing_price).length} chuyến chưa có giá`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
         sections: groups.map(section).join(''), navigation: groups.map(item => `<a href="#thang-${escape(monthKey(item.month))}"><span>${monthLabel(monthKey(item.month))}</span><small>${fmt(item.outstanding_vnd)}</small></a>`).join(''),
         history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
     }
@@ -772,7 +775,8 @@
     const result = model.parsePastedTrips(event.clipboardData.getData('text/plain'));
     const error = event.target.closest('tr').querySelector('.paste-error');
     if (result.errors) { error.textContent = result.errors.join(' · '); return; }
-    months.find(item => item.key === event.target.dataset.month).trips.push(...result.trips);
+    const classified = model.classifyPastedTrips(result.trips, months.flatMap(month => month.trips));
+    months.find(item => item.key === event.target.dataset.month).trips.push(...classified);
     log('Dán lô', `Tháng ${monthLabel(event.target.dataset.month)}: 0 → ${result.trips.length} dòng`);
     reallocate();
     render();
