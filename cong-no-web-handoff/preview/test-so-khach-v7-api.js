@@ -171,8 +171,12 @@ test('future receipt error appears beside date and releases pending command', as
   const { root, listeners } = await livePage(ledger(1));
   root.fetcher = async () => reply(422, { error: 'FUTURE_RECEIPT_DATE', message: 'Ngày trả không được sau hôm nay.' });
   const error = { textContent: '' }, date = { value: '21/10/2026', focus() {} };
-  const row = { querySelector: selector => selector === '.receipt-date' ? date : selector === '.receipt-method' ? { value: 'THU TIỀN' } : error };
-  const target = { value: '10', matches: selector => selector === '.receipt-amount', closest: () => row };
+  const amount = { value: '10' };
+  const row = { querySelector: selector => selector === '.receipt-date' ? date : selector === '.receipt-method' ? { value: 'THU TIỀN' } : selector === '.receipt-amount' ? amount : error };
+  // Ô thu nằm ở hàng đầu khối nhập (.entry-row) của tháng; Enter ở ô số tiền hay ô tham chiếu đều ghi hàng đó.
+  const tbody = { querySelector: selector => selector === '.entry-row' ? row : null };
+  row.closest = () => tbody;
+  const target = { value: '10', matches: selector => selector === '.receipt-amount', closest: selector => selector === 'tbody' ? tbody : row };
   await listeners.keydown({ key: 'Enter', target, preventDefault() {} });
   assert.equal(error.textContent, 'Ngày trả không được sau hôm nay.');
   assert.match(root.innerHTML, /receipt-date-error/);
@@ -352,9 +356,14 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
   assert.match(newMonth.innerHTML, /class="empty-entry receipt-amount"/);
-  // Bảng nhập kiểu Sheet chỉ ở tháng hiện tại; không còn ô "Dán các dòng từ Sheet".
-  assert.match(newMonth.innerHTML.match(/<section id="thang-2026-11">.*?<\/section>/s)[0], /class="draft-input/);
-  assert.doesNotMatch(newMonth.innerHTML.match(/<section id="thang-2026-08">.*?<\/section>/s)[0], /class="draft-input/);
+  // Khối nhập (chuyến nháp + ô thu cùng hàng) ở mọi tháng đang mở: tháng hiện tại và tháng cũ đã mở khóa (8/2026);
+  // tháng khóa (9/2026) không có. Không còn ô "Dán các dòng từ Sheet".
+  const block = key => newMonth.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
+  for (const key of ['2026-11', '2026-08']) {
+    assert.match(block(key), /class="draft-row entry-row">(?:(?!<\/tr>).)*class="draft-input(?:(?!<\/tr>).)*class="empty-entry receipt-date/s);
+    assert.match(block(key), /class="draft-bar">.*class="receipt-reference"/s);
+  }
+  assert.doesNotMatch(block('2026-09'), /class="draft-input|receipt-amount|receipt-reference/);
   assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây/);
   assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
   assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);

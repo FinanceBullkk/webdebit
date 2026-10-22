@@ -93,6 +93,10 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .draft-row td.bad{box-shadow:inset 0 0 0 2px #c62828;background:#fff1f1}
 .draft-row td.warn{background:#fff3c4}
 .draft-bar td{height:auto;padding:6px 10px;background:#e9f5ec}.draft-bar div{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+/* Khối nhập: phần bên phải (tiền khách trả) cùng màu cột trả tiền, cùng hàng với chuyến nháp đầu. */
+.draft-caption td.pay{background:#e2efff;color:#173d65;border-top-color:#8daac9}
+.draft-row td.pay{padding:3px 4px;background:#f3f8ff}.draft-row td.pay :is(input,select){width:100%;box-sizing:border-box;min-height:30px;font:inherit}
+.draft-bar td.pay{background:#e2efff}.draft-bar td.pay label{display:flex;align-items:center;gap:6px;white-space:nowrap}.draft-bar td.pay input{flex:1;min-width:0;min-height:28px;font:inherit}
 .draft-note{margin-left:8px;color:#6b4a00}
 /* Cấn trừ hai sổ (CT-2SO) */
 .offset-source-row td{height:auto;background:#eaf4ff}
