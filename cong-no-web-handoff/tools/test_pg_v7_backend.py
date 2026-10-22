@@ -2424,9 +2424,8 @@ def check_trip_review(pg: Pg) -> None:
                                    "review_reason": "đã đối chiếu sổ gốc"}, "review audit wrong")
     reject_call(pg, "review_trip", c, version(pg, c), "again", held, "reject", "fake", error="TRIP_NOT_PENDING")
     call(pg, "edit_trip_price", c, version(pg, c), "price-after", held, 120, None)
-    # Reject leaves money untouched and works in a locked month; confirm there needs the month open.
-    call(pg, "set_month_lock", c, version(pg, c), "lock", "2026-01-01", "true")
-    reject_call(pg, "review_trip", c, version(pg, c), "locked", other, "confirm", "fake", error="MONTH_LOCKED")
+    # Locked month never blocks a conclusion (NHAP-SHEET-01 (7)); reject leaves money untouched.
+    call(pg, "set_month_lock", c, version(pg, c), "lock", current, "true")
     total = call(pg, "get_ledger", c)["total_outstanding_vnd"]
     rejected = call(pg, "review_trip", c, version(pg, c), "reject", other, "reject", "trùng dòng sổ gốc")
     require(rejected == rejected | {"status": "rejected", "reallocated": []}, "reject result wrong")
@@ -2440,6 +2439,13 @@ def check_trip_review(pg: Pg) -> None:
     pg.rejects(f"UPDATE sokhach.trip SET note='x' WHERE id={held}", message="immutable row")
     pg.rejects(f"DELETE FROM sokhach.trip WHERE id={other}", message="immutable row")
     pending = paste("direct", "BASE", "BK3")["trip_ids"][0]
+    late = paste("late", "BASE", "BK4")["trip_ids"][0]
+    call(pg, "set_month_lock", c, version(pg, c), "lock-late", current, "true")
+    total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
+    call(pg, "review_trip", c, version(pg, c), "locked-confirm", late, "confirm", "đối chiếu xong")
+    require(int(call(pg, "get_ledger", c)["total_outstanding_vnd"]) == total + 100, "locked-month confirm not counted")
+    assert_allocations(pg, c)
+    call(pg, "set_month_lock", c, version(pg, c), "unlock-late", current, "false")
     pg.rejects(f"UPDATE sokhach.trip SET status='confirmed' WHERE id={pending}", message="immutable row")
     pg.rejects(f"UPDATE sokhach.trip SET status='confirmed',reviewed_by_event=1,note='x' WHERE id={pending}",
                message="immutable row")

@@ -21,4 +21,4 @@ Nguồn sống là `docs/decisions.md` và `docs/business-rules.md`; khi lệch 
 - PR xếp chồng: retarget PR con sang nhánh đích trước khi merge cha, rồi kiểm `git merge-base --is-ancestor`.
 - Mockup/UX: spec phải có "Người dùng và luồng" và "Đối chiếu dữ liệu" trước mockup.
 
-**Trạng thái:** V7 backend vẫn là ĐỀ XUẤT, chưa triển khai lên `hao`. Không suy trạng thái live từ tài liệu cũ.
+**Trạng thái (22/10/2026):** V7 đã triển khai lên `hao` (mốc `clean-v2` 21/10, nâng 22/10), chưa bắt đầu chạy song song chính thức; điều kiện còn thiếu ở `docs/song-song-checklist.md`. Không suy trạng thái live từ tài liệu cũ.

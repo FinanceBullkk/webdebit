@@ -13,7 +13,7 @@ Từ M2-11 ([spec](v7-m2-11-dedup.md)), dán lô có dấu hiệu trùng thì ch
   - `confirm` → chuyến thành `confirmed`, tính vào sổ như chuyến dán bình thường, rồi phân bổ lại các phiếu thu chưa hủy theo nợ cũ trước.
   - `reject` → chuyến thành `rejected`: giữ nguyên dòng để có vết, **không** tính tiền, không sửa được, không phân bổ lại.
 - Lý do bắt buộc cho cả hai (`REVIEW_REASON_REQUIRED`), lưu đã trim; giới hạn 500 ký tự như các ô ghi chú khác.
-- `confirm` cần tháng nợ của chuyến đang mở (`MONTH_LOCKED`), giống dán lô: nhập muộn = mở tháng → kết luận → khóa lại. `reject` không đổi tiền nên làm được cả khi tháng khóa.
+- Tháng khóa không chặn kết luận: chuyến tính vào sổ vào thẳng tháng của nó, cùng tinh thần [`NHAP-SHEET-01`](../docs/decisions.md#nhap-sheet-01) (7) (chuyến tháng khóa khi Lưu vào thẳng tháng đó, không cần mở khóa).
 - Chỉ kết luận một lần: chuyến không còn `pending_review` thì `TRIP_NOT_PENDING`. Muốn đổi ý sau khi đã tính vào sổ thì dùng công cụ sẵn có (điều chỉnh chuyến về 0).
 - Chuyến `rejected` vẫn được coi là "chuyến web đã ghi" khi kiểm trùng lần dán sau, nên dán lại cùng container vẫn vào CHỜ KIỂM.
 - Ai mở được sổ thì kết luận được ([`V7-ID`](../docs/decisions.md#v7-id), không người duyệt thứ hai theo `V6-DB`); người làm lấy từ phiên máy chủ.
@@ -32,7 +32,7 @@ Từ M2-11 ([spec](v7-m2-11-dedup.md)), dán lô có dấu hiệu trùng thì ch
 
 | Thao tác | Module | Kiểm |
 | --- | --- | --- |
-| Kết luận tính vào sổ / loại | `review_trip`, `reallocate`, `get_ledger` | Harness PostgreSQL case `7.25`: số dư, phân bổ lại phiếu, lý do bắt buộc, quyết định sai, chuyến không tồn tại, retry cùng key, khóa khác payload, kết luận lần hai, tháng khóa, chuyến loại không sửa giá và vẫn chặn trùng, UPDATE/DELETE trực tiếp bị chặn |
+| Kết luận tính vào sổ / loại | `review_trip`, `reallocate`, `get_ledger` | Harness PostgreSQL case `7.25`: số dư, phân bổ lại phiếu, lý do bắt buộc, quyết định sai, chuyến không tồn tại, retry cùng key, khóa khác payload, kết luận lần hai, tính vào sổ và loại khi tháng khóa, chuyến loại không sửa giá và vẫn chặn trùng, UPDATE/DELETE trực tiếp bị chặn |
 | Nâng DB đang có | migration | Harness: chuỗi `001-m2-11` → CSM → bản này cho ra cùng catalog hàm, cột, view như schema mới; lỗi giữa chừng rollback; chạy lại an toàn |
 | Quyền | grants | `review_trip` chỉ cấp cho `sokhach_app`, reader bị từ chối; checker sau triển khai đòi có hàm |
 | API | `v7_ledger_api.py` | unittest: route, quyết định hợp lệ, lý do trống, mã lỗi |
@@ -45,7 +45,6 @@ Theo quy trình frontend, luồng mới cần người dùng duyệt trước. �
 
 1. Ô thành tiền của chuyến CHỜ KIỂM hiện nút **CHỜ KIỂM** (như hiện nay, thêm bấm được).
 2. Bấm vào thì mở một dòng ngay dưới chuyến: lý do bị giữ bằng chữ dễ hiểu ("Trùng mã với dòng sổ gốc", "Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc", "Trùng chuyến đã nhập trên web", "Trùng trong cùng lô dán"), ô **Lý do kết luận**, hai nút **Tính vào sổ** và **Loại, không tính**, nút **Thôi**.
-3. Tính vào sổ khi tháng khóa: báo "Tháng đang khóa" như các thao tác khác.
-4. Chuyến đã loại: ô thành tiền ghi **ĐÃ LOẠI**, chữ gạch ngang, không sửa được.
+3. Chuyến đã loại: ô thành tiền ghi **ĐÃ LOẠI**, chữ gạch ngang, không sửa được.
 
 Đã làm sẵn trong nhánh này (chỉ hiển thị, không đổi luồng): Lịch sử hiện dòng "Kết luận CHỜ KIỂM", nội dung "Chuyến <container>: tính vào sổ/loại, không tính" và lý do ở ô "Ghi chú/lý do".
