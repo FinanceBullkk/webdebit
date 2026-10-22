@@ -834,8 +834,8 @@ BEGIN
         jsonb_build_object('month',month,'locked',locked));
 END $$;
 
--- NEWTRIP-01: kết luận một chuyến CHỜ KIỂM, bắt buộc lý do. Tính vào sổ cần tháng
--- của chuyến đang mở (như dán lô); loại không đổi tiền nên không cần mở tháng.
+-- NEWTRIP-01: kết luận một chuyến CHỜ KIỂM, bắt buộc lý do. Tháng khóa không chặn:
+-- chuyến tháng khóa vào thẳng tháng đó như dán lô (NHAP-SHEET-01 (7)).
 CREATE FUNCTION sokhach.review_trip(customer_id bigint, expected_version bigint,
     idempotency_key text, trip_id bigint, decision text, reason text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
@@ -854,9 +854,6 @@ BEGIN
     SELECT * INTO v_trip FROM sokhach.trip WHERE id=trip_id AND trip.customer_id=review_trip.customer_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     IF v_trip.status<>'pending_review' THEN RAISE EXCEPTION 'TRIP_NOT_PENDING'; END IF;
-    IF v_status='confirmed' THEN
-        PERFORM sokhach._month_open(customer_id,v_trip.debt_month,clock_timestamp());
-    END IF;
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'trip_review',sokhach._actor(),
         jsonb_build_object('trip',trip_id,'container',v_trip.container,'status','pending_review'),
