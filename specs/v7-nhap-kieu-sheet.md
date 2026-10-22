@@ -1,6 +1,6 @@
 # V7 — nhập chuyến kiểu Sheet: hàng trống, dán tự trải vào ô
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 22/10/2026). Ba hướng đã **người dùng chốt trong chat ngày 22/10/2026**: (1) dữ liệu vào hàng nháp, bấm **Lưu** một lần mới ghi sổ; (2) bảng nhập **chỉ nhận chuyến**, không tạo khoản thu; (3) duyệt bằng bản xem HTML dữ liệu giả trước khi code vào trang live. Chưa code vào trang live, chưa đổi API.
+Trạng thái: **ĐỀ XUẤT** (Claude, 22/10/2026), chính sách **ĐÃ CHỐT** ở [`NHAP-SHEET-01`](../docs/decisions.md#nhap-sheet-01) (người dùng, chat 22/10/2026): nháp + **Lưu**; chỉ nhận chuyến; chuyến đã lưu sửa đè tại ô, kể cả tháng khóa; xóa hẳn được; đổi ngày sang tháng khác thì chuyến tự sang bảng tháng đó; dòng sổ gốc sửa/xóa được. Duyệt bằng bản xem HTML dữ liệu giả trước khi code. Chưa code vào trang live, chưa đổi API.
 
 Bản xem: [`cong-no-web-handoff/preview/mockups/nhap-kieu-sheet/index.html`](../cong-no-web-handoff/preview/mockups/nhap-kieu-sheet/index.html) (DỮ LIỆU GIẢ, chạy trong tab, không gọi API).
 
@@ -50,24 +50,27 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 
 **Lưu.** Thanh dưới bảng nhập: "n chuyến nháp · m ô cần sửa" + nút **Lưu n chuyến** (tắt khi còn ô đỏ) + **Bỏ nháp**. Lưu gửi **một lệnh dán lô** như hiện nay (`paste_trips`, một idempotency key, kiểm trùng `NEWTRIP-01`): cả lô vào hoặc không dòng nào vào. Sau khi lưu, chuyến có dấu hiệu trùng hiện CHỜ KIỂM như hiện tại; trang báo "Đã lưu n chuyến (k chuyến CHỜ KIỂM)".
 
-**Sửa chuyến đã lưu tại chỗ** (người dùng duyệt bản xem 22/10/2026: dán đúng, nhưng lưu xong vẫn phải sửa được). Chuyến đã ghi trên web trong **tháng đang mở** hiện như hàng của bảng: mọi ô chuyến (container, hãng tàu, ngày, nơi đi, nơi đến, đơn giá, phụ phí) bấm vào là gõ đè được, như Sheet. Rời ô hoặc Enter là **lưu ngay ô đó** (không qua nháp): một ô = một lệnh, ghi Lịch sử "trước → sau" và người làm, phân bổ lại phiếu thu theo nợ cũ trước như sửa giá hiện nay (`V7-SO`). Esc trả lại giá trị cũ. Giá trị sai thì ô đỏ, không lưu. Ngày phải trong tháng của khối. Đổi container thành container đã có trong sổ thì chuyến thành CHỜ KIỂM, ngoài số dư (`NEWTRIP-01`). Enter xuống chuyến dưới; quá chuyến cuối thì vào hàng nhập.
+**Sửa tại ô mọi chuyến đã có** (`NHAP-SHEET-01`). Mọi dòng chuyến trong sổ — chuyến web và **dòng từ sổ gốc**, ở **tháng mở lẫn tháng khóa** — bấm ô (container, hãng tàu, ngày, nơi đi, nơi đến, đơn giá, phụ phí) là gõ đè được, như Sheet. Rời ô hoặc Enter là **lưu ngay ô đó**: một ô = một lệnh, ghi Lịch sử trước → sau và người làm, phân bổ lại phiếu thu theo nợ cũ trước (`V7-SO`). Esc trả lại giá trị cũ; giá trị sai thì ô đỏ, không lưu. Enter/mũi tên đi theo cột qua mọi dòng (sổ gốc → web → nháp) như một bảng liền.
+
+- **Tiền ở tháng khóa** (đơn giá/phụ phí): người dùng vẫn gõ đè số mới; hệ thống ghi thành dòng điều chỉnh tính tiền ngay (`V7-SO`), Lịch sử ghi "+/− phần chênh".
+- **Dòng sổ gốc**: số dư đầu **không bị viết lại**. Mỗi dòng mang số lúc nạp mốc; sửa tiền ghi phần chênh (số mới − số trong bản mốc) thành điều chỉnh; xóa dòng thì ghi trừ hết số trong bản mốc. Mỗi tháng có dòng **"Điều chỉnh do sửa/xóa dòng sổ gốc tháng này"** hiện tổng phần chênh, để phép cộng tháng nhìn thấy được: số dư đầu + điều chỉnh sổ gốc + chuyến web = Phát sinh. Điền giá cho dòng sổ gốc thiếu giá (chưa nằm trong số dư đầu) là cộng nguyên số mới.
+- **Đổi ngày sang tháng khác**: chuyến **tự chuyển sang bảng của tháng đó** (kỳ nợ = tháng của ngày chuyến), chưa có bảng thì bảng tháng đó tự hiện. Với dòng sổ gốc, phần trong bản mốc vẫn trừ ở tháng cũ, số hiện tại cộng ở tháng mới.
+- **Xóa hẳn**: bấm số STT của chuyến → xác nhận "Xóa hẳn chuyến … (ngày, thành tiền)?" → dòng biến mất, Lịch sử ghi lại đủ thông tin chuyến.
+- **Đổi container** của chuyến web thành container đã có trong sổ → CHỜ KIỂM, ngoài số dư (`NEWTRIP-01`).
+- Hàng nháp lưu cũng vào bảng của tháng theo ngày chuyến của từng hàng.
 
 **Nháp chưa lưu.** Chỉ sống trong tab: tải lại trang hoặc đổi khách thì hỏi "Còn n chuyến nháp chưa lưu, bỏ đi?". Không lưu nháp lên server.
 
 ## Ngoài phạm vi
 
 - Nhập khoản thu từ bảng nhập (đã chốt chỉ nhận chuyến). Thu vẫn ghi ở ô Ngày trả / Hình thức / Số tiền trả.
-- Sửa dòng từ sổ gốc (điền giá chuyến cũ thiếu giá) — CÒN MỞ ở `MOC-CHUYEN-MOI` (b) / `SONG-SONG-01`.
 - Cột booking: Sheet tab khách không có cột booking; chuyến web dùng mã thay thế theo `ALT-KEY-01`, giữ như hiện nay.
 - Ctrl+Z, kéo chọn nhiều ô, kéo điền (fill handle).
 
 ## Câu hỏi còn mở
 
-1. Ngày chuyến khác tháng của khối (ví dụ dán chuyến 30/09 vào khối tháng 10): hiện server ghi theo tháng của khối. Có cần nhắc vàng tại ô ngày không?
-2. Tab có bố cục khác hẳn (không theo thứ tự `B..K` ở trên): đọc thử từng tab trên bản xem trước khi code; tab lệch thì cần một cách chọn bố cục hay chỉ báo lỗi?
-3. Tháng đã khóa: đơn giá/phụ phí vẫn sửa bằng dòng điều chỉnh như hiện nay (`V7-SO`); các ô chữ (container, hãng tàu, nơi đi/đến) và ngày của tháng khóa có cho sửa đè không? Bản xem chỉ có tháng đang mở.
-4. Đổi ngày sang tháng khác (chuyển chuyến sang khối khác) và xóa hẳn một chuyến đã lưu: chưa có trong bản xem; cần quyết định trước khi code.
-5. Dòng từ sổ gốc vẫn chỉ đọc cho tới khi chốt `MOC-CHUYEN-MOI` (b).
+1. Tab có bố cục khác hẳn (không theo thứ tự `B..K` ở trên): đọc thử từng tab trên bản xem trước khi code; tab lệch thì cần một cách chọn bố cục hay chỉ báo lỗi?
+2. Backend: cách ghi kỹ thuật điều chỉnh gắn dòng sổ gốc (bảng/sự kiện mới, gắn `legacy_row`), và phân bổ lại phiếu khi chuyến đổi tháng hoặc bị xóa — cần spec backend riêng trước khi code.
 
 ## Tiêu chí duyệt bản xem
 
@@ -78,7 +81,11 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 - [ ] Ô ngày sai và ô thiếu nơi đến tô đỏ, nút Lưu tắt; sửa xong nút bật.
 - [ ] Thành tiền Sheet lệch: ô vàng, không chặn Lưu.
 - [ ] Lưu: hàng nháp thành chuyến đã ghi, tổng tháng đổi; chuyến trùng container với dòng sổ gốc thành CHỜ KIỂM, không cộng nợ.
-- [ ] Chuyến đã lưu: bấm ô, gõ đè, Enter → lưu ngay, Lịch sử có trước → sau; điền giá cho chuyến chưa có giá thì tổng tháng tăng; ngày khác tháng → ô đỏ, Esc trả lại.
+- [ ] Chuyến đã lưu: bấm ô, gõ đè, Enter → lưu ngay, Lịch sử có trước → sau; Esc trả lại.
+- [ ] Tháng khóa: sửa nơi đến và đơn giá dòng sổ gốc → lưu được, Lịch sử ghi điều chỉnh, dòng "Điều chỉnh do sửa/xóa dòng sổ gốc" đúng phần chênh.
+- [ ] Điền giá dòng sổ gốc thiếu giá → tổng tháng tăng đúng số đó.
+- [ ] Đổi ngày chuyến sang tháng khác → chuyến sang bảng tháng đó, tổng cả sổ không đổi; tháng chưa có bảng thì bảng tự hiện.
+- [ ] Bấm STT → xác nhận → chuyến biến mất, tổng giảm đúng, Lịch sử ghi lại.
 - [ ] 1280×720: không cuộn ngang.
 
 ## Khi code vào trang live (sau khi duyệt)
@@ -90,4 +97,6 @@ Map thao tác → module → kiểm:
 | Đọc vùng dán theo bố cục tab khách | `so-khach-v7-model.js` (hàm thay `parsePastedTrips`) | unit: 7/10/11 cột, cột nhãn đầu, phí cộng, phí trống, thành tiền lệch, hàng tổng, ngày 1 chữ số |
 | Bảng nhập, bàn phím, ô lỗi | `so-khach-v7-ui.js`, `so-khach-v7-live.html` | browser (Playwright): dán, Tab/Enter, Lưu tắt/bật, 1280×720 không cuộn ngang |
 | Lưu | `so-khach-v7-api.js` → `/api/v7/trips/paste` (không đổi API) | unit: một lệnh, một key; dán trùng → CHỜ KIỂM |
-| Sửa ô chuyến đã lưu | đơn giá/phụ phí: `/api/v7/trips/price` (đã có). Container, hãng tàu, ngày, nơi đi/đến: **cần lệnh mới** (backend, `v7_backend_functions.sql` + `v7_ledger_api.py`) ghi event trước → sau, kiểm trùng lại khi đổi container/ngày | DB test: sửa từng trường, Lịch sử đúng, đổi container trùng → CHỜ KIỂM, tháng khóa bị chặn theo quyết định câu 3 |
+| Sửa ô chuyến web | đơn giá/phụ phí: `/api/v7/trips/price` và `/api/v7/trips/adjust` (đã có). Container, hãng tàu, ngày, nơi đi/đến: **cần lệnh mới** (`v7_backend_functions.sql` + `v7_ledger_api.py`), cả tháng khóa; đổi ngày khác tháng thì đổi kỳ nợ và phân bổ lại | DB test: sửa từng trường ở tháng mở và khóa, Lịch sử đúng, đổi container trùng → CHỜ KIỂM, đổi tháng giữ tổng khách |
+| Xóa chuyến | **cần lệnh mới**; tháng khóa ghi điều chỉnh | DB test: xóa ở tháng mở/khóa, tổng giảm đúng, Lịch sử đủ thông tin |
+| Sửa/xóa dòng sổ gốc | **cần bảng/lệnh mới** gắn `legacy_row`, không sửa `opening_balance` | DB test: phần chênh, xóa, đổi tháng; đối soát với bản mốc vẫn đọc được |
