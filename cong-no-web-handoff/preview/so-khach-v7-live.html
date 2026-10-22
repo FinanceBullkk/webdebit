@@ -20,7 +20,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 #customer-list a[aria-current=page]{font-weight:700}
 body:has(#demo-banner:not([hidden])) .book-head{top:48px}
 body:has(#demo-banner:not([hidden])) .ledger-head{top:118px}
-body:has(#demo-banner:not([hidden])) .ledger .month th{top:186px}
+body:has(#demo-banner:not([hidden])) .ledger .month th{top:156px}
 .book-head h1{font-size:18px;margin:0;white-space:nowrap}.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:13px}.head-item strong{font-size:16px}.head-item.total{margin-left:auto}.head-item.total strong{font-size:22px;color:#123f79}
 .layout{display:flex;gap:12px;align-items:flex-start;max-width:1780px;margin:0 auto}
 .ledger-book{width:1604px;flex:0 0 1604px}
@@ -33,7 +33,7 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:186px}
 .ledger .group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
 .ledger .columns th{height:38px;padding:3px 5px;background:#eaf1fa;font-size:13px;line-height:1.12}
 .ledger .columns .pay{background:#dfeeff}
-.ledger .month th{position:sticky;top:138px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.ledger .month th{position:sticky;top:108px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
 .badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
@@ -54,13 +54,10 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:186px}
 .void-prompt td,.void-trace td{background:#fff1e5;font-size:13px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
 .receipt-status td{background:#e2f5e8;color:#145b32;font-size:14px;font-weight:700;min-height:38px}
 .adjustment td{background:#fff2f2}
-.legacy td{background:#f6f7f9;color:#3a4652}
 .ledger .info-edit{cursor:text}.ledger .info-edit:hover,.ledger .info-edit:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .info-input{width:100%;min-width:0;font:inherit}.ledger .row-delete{cursor:pointer}.ledger .row-delete:hover,.ledger .row-delete:focus-visible{outline:2px solid #a01616;outline-offset:-2px;color:#a01616}
 .delete-prompt td{font-size:16px}.delete-prompt button{min-height:32px;font:inherit;cursor:pointer}.delete-prompt .confirm-delete{color:#fff;background:#a01616;border:1px solid #a01616;font-weight:700}
-.legacy-caption td{background:#eef1f5;color:#3a4652;font-style:italic}
-.source-total td{background:#eef1f5;color:#3a4652;font-weight:600;border-top:1px dashed #9eb4ca}.adjustment-note{min-width:250px;min-height:28px;font:inherit}
-.paste-row td{background:#f2f8ff}.paste-input{display:block;width:100%;min-height:48px;font:inherit}
+.adjustment-note{min-width:250px;min-height:28px;font:inherit}
 .ledger .subtotal td{height:44px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
 .ledger .subtotal td.pay{background:#e2efff}
 .ledger .spacer td{height:16px;padding:0;background:#eef3f8;border:0}
@@ -72,6 +69,31 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:186px}
 .months-nav a:hover,.months-nav a:focus-visible{background:#e4f0ff;text-decoration:underline}
 .months-nav small{font-size:11px;color:#37536f;text-align:right}
 a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* Góp ý 23/10/2026: một thanh đầu sổ, tháng khóa tô xám, chuyển tháng, bảng nhập kiểu Sheet (NHAP-SHEET-01) */
+#customer-picker.in-head{position:relative;display:flex;align-items:center;gap:8px;padding:0;border:0;background:none}
+#customer-picker.in-head label{font-size:16px;color:#3e5871}
+#customer-picker.in-head #customer-search{width:280px;min-height:38px;margin:0;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;font-size:16px;font-weight:700;color:#162d48}
+#customer-picker.in-head #customer-count{display:none}
+#customer-picker.in-head #customer-list{position:absolute;top:100%;left:0;z-index:70;width:420px;margin:0;background:#fff;border:1px solid #8daac9;box-shadow:0 8px 20px #162d4833}
+.ledger.locked .month th{background:#5f7184}
+.ledger.locked tr:is([data-row],.legacy) td:not(.pay):not(.missing){background:#eceff2}
+.ledger.locked tr:is([data-row],.legacy) td.pay{background:#e6eaef}
+.ledger tr.moved td:not(.pay){background:#fff3c4!important}
+.moved-tag{color:#6b4a00;font-size:12px;font-weight:700}
+.ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
+.move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}
+.ghost button,.move-ask button,.draft-bar button{min-height:30px;margin-left:8px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-style:normal;cursor:pointer}
+.move-ask .move-yes,.draft-bar .draft-save{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.draft-bar button:disabled{opacity:.45;cursor:not-allowed}
+.draft-caption td{background:#e9f5ec;color:#1f5130;font-weight:700;border-top:2px solid #6aa57b}
+.draft-row td{padding:0;background:#fff}.draft-row.draft td:not(.off){background:#fffbe8}.draft-row td.off{background:#eceff3}
+.draft-row td.num,.draft-row td.muted{padding:4px 3px}.draft-row td.muted{font-size:11px;white-space:nowrap}.draft-row td small{display:block;font-size:11px}
+.draft-input{display:block;width:100%;height:37px;border:0;padding:4px 5px;background:transparent;color:#162d48;font:inherit;outline:none}
+.draft-row td:focus-within{outline:2px solid #145fa9;outline-offset:-2px}
+.draft-row td.bad{box-shadow:inset 0 0 0 2px #c62828;background:#fff1f1}
+.draft-row td.warn{background:#fff3c4}
+.draft-bar td{height:auto;padding:6px 10px;background:#e9f5ec}.draft-bar div{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.draft-note{margin-left:8px;color:#6b4a00}
 /* Cấn trừ hai sổ (CT-2SO) */
 .offset-source-row td{height:auto;background:#eaf4ff}
 .offset-source-cell{position:relative;overflow:visible;padding:6px 8px;font-size:16px}

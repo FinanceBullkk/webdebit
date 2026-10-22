@@ -39,7 +39,9 @@ test('month history shows separate open and close with actor, VN time and month'
 
 async function livePage(data) {
   const listeners = {};
-  const root = { innerHTML: '', addEventListener(name, handler) { listeners[name] = handler; }, querySelector() { return null; } };
+  const handlers = {};
+  // Trang đăng ký nhiều trình nghe cùng loại: gọi lần lượt như trình duyệt.
+  const root = { innerHTML: '', addEventListener(name, handler) { (handlers[name] ??= []).push(handler); listeners[name] = async event => { for (const item of handlers[name]) await item(event); }; }, querySelector() { return null; }, contains: () => false };
   const context = vm.createContext({ document: { querySelector: () => root, addEventListener() {} },
     window: { scrollY: 0, scrollTo() {} }, location: { search: '?customer=7' },
     URLSearchParams, structuredClone, Date, BigInt, Intl, crypto: { randomUUID: () => 'key' },
@@ -289,7 +291,7 @@ test('NO_BASELINE blocks writes and money must be string', async () => {
 test('fixture renderer stays in tab; live renderer uses GET values and flags', async () => {
   function page(live, data) {
     const root = { innerHTML: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelector() { return null; } };
-    const context = vm.createContext({ document: { querySelector: () => root, addEventListener() {} },
+    const context = vm.createContext({ document: { querySelector: selector => selector === '#app' ? root : null, addEventListener() {} },
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
       URLSearchParams, structuredClone, Date, BigInt, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
@@ -301,12 +303,13 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   }
   const fixture = page(false);
   // Keep approved layout baseline; CSM adds only reference subrows, checked separately.
-  // Baseline 22/10/2026: round-2 layout minus the Vết column (user test feedback), nothing else changed.
+  // Baseline 22/10/2026: round-2 layout minus the Vết column (user test feedback).
+  // 23/10/2026 (góp ý người dùng): bỏ hàng nhóm cột, "Từ tháng", "Chờ xử lý", nhãn Đã khóa/Đang mở; "Tổng tháng"; cột "Hãng tàu".
   assert.match(fixture.innerHTML, /class="reference-row"/);
   assert.match(fixture.innerHTML, /aria-label="Tham chiếu"/);
   assert.doesNotMatch(fixture.innerHTML, /Vết|NGUỒN|class="source"|colspan="14"|change-customer/);
   assert.equal(require('node:crypto').createHash('sha256').update(fixture.innerHTML.replace(/<tr class="reference-row">.*?<\/tr>/gs, '')).digest('hex'),
-    '1566c913a83953bb51a86e892906e9ce768ba9655c73d5a16971efcd839872c7', 'fixture HTML must match round-2 baseline without Vết');
+    '67d95ceb00e7bf1cf7cac022a8c6b00bfdac3150511586c4db9964dedd309408', 'fixture HTML must match the 23/10/2026 baseline');
   assert.match(fixture.innerHTML, /THÁNG 10\/2026/);
   assert.match(fixture.innerHTML, /Dán các dòng từ Sheet vào đây/);
   const paste = text => fixture.listeners.paste({ preventDefault() {},
@@ -318,23 +321,27 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(held, /CHỜ KIỂM/);
   assert.doesNotMatch(held, /class="num editable/);
   assert.match(fixture.innerHTML, /FAKE-SAFE/);
-  assert.match(fixture.innerHTML, /1 chuyến CHỜ KIỂM/);
+  const heldCount = () => fixture.innerHTML.split('<tr>').filter(row => row.split('</tr>')[0].includes('CHỜ KIỂM')).length;
+  assert.equal(heldCount(), 1);
   paste('FAKE-NEW\tSHIP\t21/10/2026\tA\tB\t100\t');
-  assert.match(fixture.innerHTML, /2 chuyến CHỜ KIỂM/);
-  const live = page(true, { ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '600', end_of_month_vnd: '600' }],
+  assert.equal(heldCount(), 2);
+  assert.doesNotMatch(fixture.innerHTML, /Chờ xử lý|Từ tháng|class="badge|CHUYẾN HÀNG|Hãng tàu \/ số xe|Cộng tháng/);
+  assert.match(fixture.innerHTML, /Tổng tháng 10\/2026/);
+  const live = page(true, { ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '600', end_of_month_vnd: '600', charges_vnd: '600', received_vnd: '0' }],
     opening: [{ month: '2026-10-01', amount_vnd: '600' }], trips: [], receipts: [], adjustments: [],
     legacy_rows: [{ month: '2026-10-01', display: 'old', source_total_vnd: '600' }],
     source_exceptions: [{ month: '2026-10-01', exception_codes: ['HISTORICAL_DELTA_600'], source_charge_vnd: '1234567', source_receipt_vnd: '634567', source_cumulative_vnd: '600000' }], events: [] });
   await new Promise(resolve => setImmediate(resolve));
   // Import-quality flags stay in the DB/report, not on the ledger (user 20/10/2026).
   assert.doesNotMatch(live.innerHTML, /Chênh lịch sử 600đ|Cần kiểm tra nguồn|Thiếu mốc đối soát/);
-  assert.match(live.innerHTML, /đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại/);
   assert.match(live.innerHTML, /<tr class="legacy"/);
-  // Option (b): Sheet figures shown beside the subtotal, straight from GET.
-  assert.match(live.innerHTML, /<tr class="source-total"><td colspan="8">Theo sổ gốc[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">634\.567<\/td><td class="num ">600\.000<\/td>/);
+  // 23/10/2026: không còn chú thích "Từ sổ gốc", dòng "Theo sổ gốc" hay dòng số dư đầu; dòng Tổng tháng tính như Sheet
+  // (phát sinh gồm dòng Sheet, đã thu gồm tiền thu Sheet), còn nợ vẫn là số server.
+  assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
+  assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10<\/strong>/);
-  // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu và ô dán; tổng tháng vẽ thẳng từ GET;
+  // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu và bảng nhập; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
   const newMonth = page(true, { ...ledger(4), today_month: '2026-11-01',
     months: [
@@ -345,13 +352,17 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
   assert.match(newMonth.innerHTML, /class="empty-entry receipt-amount"/);
-  assert.match(newMonth.innerHTML, /data-month="2026-11" rows="2"/);
-  assert.match(newMonth.innerHTML, /data-month="2026-08" rows="2"/);
-  assert.doesNotMatch(newMonth.innerHTML, /data-month="2026-09" rows="2"/);
+  // Bảng nhập kiểu Sheet chỉ ở tháng hiện tại; không còn ô "Dán các dòng từ Sheet".
+  assert.match(newMonth.innerHTML.match(/<section id="thang-2026-11">.*?<\/section>/s)[0], /class="draft-input/);
+  assert.doesNotMatch(newMonth.innerHTML.match(/<section id="thang-2026-08">.*?<\/section>/s)[0], /class="draft-input/);
+  assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây/);
+  assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
+  assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
   assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">1\.234\.067<\/td>/);
   assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*Nợ các tháng trước: 0<\/em>/);
-  assert.match(newMonth.innerHTML, /<button class="change-customer">Đổi khách<\/button>/);
-  // Tháng chỉ có số dư đầu từ sổ gốc: một dòng "nợ còn lại", không dòng trống, không "Phát sinh 0 · Đã thu 0".
+  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"/);
+  assert.doesNotMatch(newMonth.innerHTML, /change-customer|Chờ xử lý|Từ tháng|class="badge/);
+  // Tháng chỉ có dòng Sheet: một dòng Tổng tháng như Sheet, không dòng trống, không dòng "nợ còn lại".
   const carried = page(true, { ...ledger(5), today_month: '2026-10-01',
     months: [
       { month: '2026-02-01', prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' },
@@ -362,11 +373,11 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     trips: [], receipts: [], adjustments: [], events: [] });
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
-  assert.doesNotMatch(february, /Cộng tháng|Đã thu<\/td><td class="num pay">0|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="8">Nợ tháng này còn lại khi chuyển sang web · Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">0<\/td><td class="pay pay-start" colspan="3"><\/td><td class="num ">0<\/td><\/tr><tr class="source-total">/);
+  assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
+  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">307<\/td><td class="num ">0<\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
-  assert.match(october, /<tr class="adjustment"><td colspan="8">Nợ tháng này còn lại khi chuyển sang web<\/td><td class="num ">700<\/td><td class="pay pay-start" colspan="4">Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước<\/td><\/tr>/);
-  assert.match(october, /Cộng tháng 10\/2026 \(0 chuyến\) · Phát sinh/);
+  assert.doesNotMatch(october, /Nợ tháng này còn lại/);
+  assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">700<\/td>/);
   assert.match(october, /class="empty-entry receipt-amount"/);
   const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],
@@ -374,12 +385,12 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
       { id: 2, month: '2026-10-01', container: 'FAKE-CLEAN', status: 'confirmed', unit_price_vnd: '200', other_fee_vnd: null, amount_vnd: '200' }],
     receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] });
   await new Promise(resolve => setImmediate(resolve));
-  const heldLive = pending.innerHTML.match(/<tr><td[^>]*>1<\/td>\s*<td[^>]*>FAKE-HELD<\/td>.*?<\/tr>/s)?.[0];
+  const heldLive = pending.innerHTML.match(/<tr data-row="trip-1"><td[^>]*>1<\/td>\s*<td[^>]*>FAKE-HELD<\/td>.*?<\/tr>/s)?.[0];
   assert.ok(heldLive);
   assert.match(heldLive, /CHỜ KIỂM/);
   assert.doesNotMatch(heldLive, /class="num editable/);
   assert.match(pending.innerHTML, /data-trip="2"/);
-  assert.match(pending.innerHTML, /1 chuyến CHỜ KIỂM · 0 chuyến chưa có giá/);
+  assert.doesNotMatch(pending.innerHTML, /chuyến chưa có giá/);
   const noBaseline = page(true, { ...ledger(0), status: 'NO_BASELINE', total_outstanding_vnd: null,
     source_exceptions: [{ month: '2026-10-01', exception_codes: ['NO_BASELINE'] }] });
   await new Promise(resolve => setImmediate(resolve));
@@ -482,7 +493,8 @@ test('CHỜ KIỂM: nút bấm được, rejected ghi ĐÃ LOẠI và không s�
   assert.doesNotMatch(root.innerHTML, /review-open" data-trip="[23]"/);
   assert.match(root.innerHTML, /<td class="num trip-rejected">ĐÃ LOẠI<\/td>/);
   assert.doesNotMatch(root.innerHTML, /data-trip="2"/);
-  assert.match(root.innerHTML, /1 chuyến CHỜ KIỂM/);
+  // 23/10/2026: bỏ bộ đếm "Chờ xử lý" ở đầu sổ; chữ CHỜ KIỂM ngay trên dòng là đủ.
+  assert.doesNotMatch(root.innerHTML, /chuyến CHỜ KIỂM|Chờ xử lý/);
 });
 
 test('CHỜ KIỂM: mở/đóng dòng kết luận, lý do trống không gửi, gửi đúng payload hai quyết định', async () => {

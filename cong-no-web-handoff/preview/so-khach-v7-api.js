@@ -137,6 +137,7 @@
       }
     }
     async function submit(action, fields) {
+      outcome = null;
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
       const route = routes[action];
@@ -194,7 +195,7 @@
       return data.sources;
     }
     redraw = () => { if (snapshot) onSnapshot(snapshot); };
-    return { read, submit, submitOffset, readOther, loadOffsetSources, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
+    return { read, submit, submitOffset, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };

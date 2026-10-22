@@ -75,6 +75,96 @@ const SoKhachV7Model = (() => {
     return errors.length ? { errors } : { trips };
   }
 
+  // NHAP-SHEET-01: bảng nhập kiểu Sheet. Vùng dán theo bố cục tab khách (specs/v7-nhap-kieu-sheet.md):
+  // container ở cột c, rồi hãng tàu, ngày, nơi đi, nơi đến, ba cột phí, đơn giá, thành tiền; từ c+10 là tiền khách trả.
+  const DRAFT_FIELDS = ["container", "carrier", "date", "from", "to", "price", "fee"];
+  const containerKey = text => String(text ?? "").toUpperCase().replace(/\s+/g, "");
+  const looksLikeContainer = text => /^[A-Z]{4}\d{7}$/.test(containerKey(text));
+  const draftMoney = text => {
+    const value = String(text ?? "").trim();
+    if (!value || /[a-zà-ỹ]/i.test(value)) return { value: null };   // trống hoặc chữ ("chưa có giá") = chưa có
+    try { return { value: parseVnd(value) }; } catch { return { error: "Số tiền không đọc được" }; }
+  };
+  function draftDate(text, todayIso) {
+    const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(String(text ?? "").trim());
+    if (!match) return { error: "Ngày cần dạng ngày/tháng/năm, ví dụ 20/10/2026" };
+    const padded = `${match[1].padStart(2, "0")}/${match[2].padStart(2, "0")}/${match[3]}`;
+    if (!validDate(padded)) return { error: "Ngày không có thật" };
+    if (todayIso && `${match[3]}-${padded.slice(3, 5)}-${padded.slice(0, 2)}` > todayIso) return { error: "Ngày ở tương lai" };
+    return { text: padded };
+  }
+  const blankDraft = () => ({ container: "", carrier: "", date: "", from: "", to: "", price: "", fee: "", sheetTotal: "" });
+
+  // Chuẩn hóa hàng nháp để hiện lại: container viết hoa, ngày dd/mm/yyyy, số có dấu chấm.
+  function tidyDraft(row) {
+    const out = { ...row, container: containerKey(row.container) };
+    const date = draftDate(row.date);
+    if (date.text) out.date = date.text;
+    for (const name of ["price", "fee"]) {
+      const read = draftMoney(row[name]);
+      if (read.value !== null && read.value !== undefined) out[name] = formatVnd(read.value);
+    }
+    return out;
+  }
+
+  // Đọc vùng dán thành hàng nháp. Không thấy container: trải theo thứ tự cột web từ ô đang bấm (startField), như Excel.
+  function spreadPaste(text, startField = "container") {
+    const lines = String(text ?? "").replace(/\r/g, "").split("\n").map(line => line.split("\t"));
+    while (lines.length && lines[lines.length - 1].every(cell => !cell.trim())) lines.pop();
+    const anchor = lines.map(cells => cells.slice(0, 3).findIndex(looksLikeContainer)).find(index => index >= 0);
+    const rows = [];
+    let skipped = 0, payments = false;
+    for (const cells of lines) {
+      const joined = cells.join(" ").trim();
+      if (!joined || (/c[ộo]ng|t[ổo]ng/i.test(joined) && !cells.some(looksLikeContainer))) { skipped++; continue; }
+      const row = blankDraft();
+      if (anchor !== undefined) {
+        const at = offset => (cells[anchor + offset] ?? "").trim();
+        Object.assign(row, { container: at(0), carrier: at(1), date: at(2), from: at(3), to: at(4), price: at(8), sheetTotal: at(9) });
+        const fees = [at(5), at(6), at(7)].filter(Boolean);
+        const parsed = fees.map(draftMoney);
+        row.fee = !fees.length ? "" : parsed.some(item => item.error || item.value === null) ? fees.join(" + ")
+          : formatVnd(parsed.reduce((sum, item) => sum + item.value, 0n));
+        if (cells.slice(anchor + 10).some(cell => cell.trim())) payments = true;
+      } else {
+        const from = Math.max(0, DRAFT_FIELDS.indexOf(startField));
+        cells.forEach((cell, offset) => { if (DRAFT_FIELDS[from + offset]) row[DRAFT_FIELDS[from + offset]] = cell.trim(); });
+      }
+      rows.push(tidyDraft(row));
+    }
+    return { rows, skipped, payments, byColumn: anchor === undefined };
+  }
+
+  // Kiểm một hàng nháp: lỗi theo ô, thành tiền, cờ chưa có giá, cảnh báo Sheet lệch; trip là payload paste_trips khi không lỗi.
+  function checkDraft(row, todayIso) {
+    const errors = {};
+    const labels = { container: "số container", carrier: "hãng tàu", from: "nơi đi", to: "nơi đến" };
+    for (const name of ["container", "carrier", "from", "to"]) if (!String(row[name] ?? "").trim()) errors[name] = `Thiếu ${labels[name]}`;
+    const date = String(row.date ?? "").trim() ? draftDate(row.date, todayIso) : { error: "Thiếu ngày chuyến" };
+    if (date.error) errors.date = date.error;
+    const price = draftMoney(row.price), fee = draftMoney(row.fee);
+    if (price.error) errors.price = price.error;
+    if (fee.error) errors.fee = fee.error;
+    const missing = !price.error && price.value === null;
+    const amountVnd = price.value === null || price.value === undefined || fee.error ? null : price.value + (fee.value ?? 0n);
+    const sheet = draftMoney(row.sheetTotal);
+    const warn = amountVnd !== null && sheet.value !== undefined && sheet.value !== null && sheet.value !== amountVnd
+      ? `Sheet ghi ${formatVnd(sheet.value)}` : "";
+    const trip = Object.keys(errors).length ? null : {
+      container: containerKey(row.container), carrier: row.carrier.trim(), date: date.text, from: row.from.trim(), to: row.to.trim(),
+      unitPriceVnd: missing ? null : price.value.toString(), otherFeeVnd: fee.value === null ? null : fee.value.toString(), note: "", src: "" };
+    return { errors, amountVnd, missing, warn, trip };
+  }
+
+  // Dòng "Tổng tháng" của tháng có dòng từ Sheet: phát sinh gồm cả các dòng Sheet, đã thu gồm tiền thu trên Sheet.
+  // Server tính phát sinh = số dư đầu (đã trừ tiền thu Sheet) + web; dời cùng một khoản ở cả hai cột nên còn nợ cuối tháng
+  // không đổi. Thiếu số Sheet hoặc tháng không có số dư đầu: giữ nguyên số server.
+  function sheetMonthTotals({ chargesVnd, receivedVnd, openingVnds = [], sourceChargeVnd = null }) {
+    if (!openingVnds.length || sourceChargeVnd === null || sourceChargeVnd === undefined) return { chargesVnd, receivedVnd };
+    const shift = vnd(sourceChargeVnd, true) - openingVnds.reduce((sum, value) => sum + vnd(value, true), 0n);
+    return { chargesVnd: (vnd(chargesVnd, true) + shift).toString(), receivedVnd: (vnd(receivedVnd, true) + shift).toString() };
+  }
+
   function monthsOf(book) {
     if (!book || !Array.isArray(book.months)) throw new Error("Invalid book");
     const keys = new Set();
@@ -515,7 +605,7 @@ const SoKhachV7Model = (() => {
     });
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { tripAmount, amountWith, parsePastedTrips, spreadPaste, checkDraft, tidyDraft, blankDraft, sheetMonthTotals, DRAFT_FIELDS, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
