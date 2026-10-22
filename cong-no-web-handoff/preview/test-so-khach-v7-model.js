@@ -6,6 +6,36 @@ const fixture = require("./so-khach-v7-fixture.js");
 const copy = () => structuredClone(fixture);
 const month = (book, key) => book.months.find(item => item.key === key);
 
+test("NEWTRIP-01 keys normalize Unicode whitespace, booking symbols and ALT dates", () => {
+  const row = { container: " a\u0085b\u00a0c ", date: "10/01/2026", booking: " b\u202fk 1" };
+  assert.equal(model.tripKey(row), "BK1|ABC");
+  assert.equal(model.tripKey({ ...row, booking: "/" }), "ALT:ABC:20260110|ABC");
+  assert.equal(model.tripKey({ ...row, booking: null, date: null }), "ALT:ABC:UNKNOWN|ABC");
+  assert.equal(model.tripKey({ ...row, container: " " }), null);
+  assert.equal(model.sameTrip(row, { ...row, date: "20/01/2026" }), true);
+  for (const [date, expected] of [["07/01/2026", true], ["13/01/2026", true], ["06/01/2026", false], ["14/01/2026", false]]) {
+    assert.equal(model.sameTrip(row, { ...row, booking: "other", date }), expected);
+  }
+  assert.equal(model.sameTrip(row, { ...row, container: "different" }), false);
+  assert.equal(model.sameTrip({ ...row, booking: null, date: null }, { ...row, booking: "/" }), false);
+});
+
+test("NEWTRIP-01 mixed paste keeps pending rows outside money and allocation", () => {
+  const row = (container, date = "10/01/2026") => `${container}\tSHIP\t${date}\tA\tB\t100\t`;
+  const parsed = model.parsePastedTrips([row("WEB"), row("BASE"), row("NEW"), row(" n e w", "13/01/2026"), row("SAFE")].join("\n"));
+  const trips = model.classifyPastedTrips(parsed.trips, [{ container: "WEB", date: "07/01/2026" }], [{ container: "BASE", date: "10/01/2026" }]);
+  assert.deepEqual(trips.map(t => t.reviewReason), ["WEB_DUPLICATE", "BASELINE_DUPLICATE", null, "BATCH_DUPLICATE", null]);
+  assert.equal(trips[0].otherFeeVnd, null);
+  const book = { months: [{ key: "2026-01", trips, receipts: [] }] };
+  assert.equal(model.monthChain(book).totalOutstandingVnd, 200n);
+  assert.equal(model.outstandingByMonth(book)[0].outstandingVnd, 200n);
+  assert.equal(model.planReceipt(book, { pid: "PH-FAKE", date: "10/01/2026", method: "THU TIỀN", amountVnd: "250" }).overpaymentVnd, 50n);
+  assert.equal(model.tripAmount(trips[0]).amountVnd, null);
+  assert.throws(() => model.amountWith(trips[0], { unitPriceVnd: "200" }));
+  assert.equal(model.classifyPastedTrips([parsed.trips[0]], [trips[0]])[0].status, "pending_review");
+  assert.equal(model.classifyPastedTrips([parsed.trips[2]])[0].status, "confirmed");
+});
+
 function applyReallocation(book) {
   const plan = model.planReallocation(book);
   for (const item of book.months) item.receipts = item.receipts.filter(receipt => receipt.voided !== null);
