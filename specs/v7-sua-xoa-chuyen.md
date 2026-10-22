@@ -122,7 +122,7 @@ Thêm `trip_edit`, `trip_delete`, `legacy_edit`, `legacy_delete` vào CHECK, m�
 
 ### 7. `paste_trips`: kỳ nợ theo ngày chuyến
 
-`NHAP-SHEET-01` (5): mỗi chuyến dán vào kỳ nợ = tháng của ngày chuyến; phí lẻ không ngày dùng `debt_month` của lệnh. Tham số `debt_month` giữ cho phí lẻ và tương thích. Kiểm khóa: **ĐỀ XUẤT** không chặn khi tháng của ngày chuyến đã khóa (cùng tinh thần (3), (5)); cần người dùng xác nhận (câu hỏi 1).
+`NHAP-SHEET-01` (5): mỗi chuyến dán vào kỳ nợ = tháng của ngày chuyến; phí lẻ không ngày dùng `debt_month` của lệnh. Tham số `debt_month` giữ cho phí lẻ và tương thích. Kiểm khóa: **ĐÃ CHỐT** (người dùng, chat 22/10/2026, `NHAP-SHEET-01` (7)): chuyến có ngày thuộc **tháng đã khóa vẫn vào thẳng tháng đó**, không chặn, không cần mở khóa. Bỏ `_month_open` khỏi `paste_trips`; kiểm thêm: dán lô có chuyến tháng khóa và tháng mở trong cùng lệnh → mỗi chuyến vào đúng tháng của nó, một event `paste`.
 
 ### 8. API (`cong-no-web-handoff/web/v7_ledger_api.py`)
 
@@ -153,6 +153,7 @@ Lỗi mới: `INVALID_FIELD` (422), `LEGACY_NOT_FOUND` (422, "Không tìm thấy
 - [ ] `opening_balance`, `legacy_row`, `trip`, `adjustment` không có UPDATE/DELETE nào (trigger vẫn chặn).
 - [ ] Ví dụ ở mục 4 cho đúng từng đồng.
 - [ ] Migration: chạy trên DB có dữ liệu giả M2-11 + trip-review, tổng từng khách trước = sau; chạy lần hai không đổi gì.
+- [ ] `paste_trips` có chuyến ngày thuộc tháng khóa: ghi vào tháng đó, không lỗi `MONTH_LOCKED`; lô trộn tháng mở/khóa ghi đúng từng tháng.
 - [ ] API unit (`test_v7_ledger_api.py`): 4 route, chỉ nhận đúng trường, lỗi map đúng.
 
 ## Rủi ro
@@ -163,6 +164,5 @@ Lỗi mới: `INVALID_FIELD` (422), `LEGACY_NOT_FOUND` (422, "Không tìm thấy
 
 ## Câu hỏi còn mở
 
-1. Lưu chuyến nháp có ngày thuộc **tháng đã khóa**: cho vào thẳng (đề xuất) hay chặn?
-2. Gộp với `review_trip`: trạng thái ghi qua revision (đề xuất) hay giữ guard UPDATE một lần.
-3. Hoàn tác xóa (khôi phục chuyến/dòng sổ gốc đã xóa) — chưa làm ở vòng này.
+1. Gộp với `review_trip`: trạng thái ghi qua revision (đề xuất) hay giữ guard UPDATE một lần.
+2. Hoàn tác xóa (khôi phục chuyến/dòng sổ gốc đã xóa) — chưa làm ở vòng này.

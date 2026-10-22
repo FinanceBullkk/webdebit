@@ -57,7 +57,7 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 - **Đổi ngày sang tháng khác**: chuyến **tự chuyển sang bảng của tháng đó** (kỳ nợ = tháng của ngày chuyến), chưa có bảng thì bảng tháng đó tự hiện. Với dòng sổ gốc, phần trong bản mốc vẫn trừ ở tháng cũ, số hiện tại cộng ở tháng mới.
 - **Xóa hẳn**: bấm số STT của chuyến → xác nhận "Xóa hẳn chuyến … (ngày, thành tiền)?" → dòng biến mất, Lịch sử ghi lại đủ thông tin chuyến.
 - **Đổi container** của chuyến web thành container đã có trong sổ → CHỜ KIỂM, ngoài số dư (`NEWTRIP-01`).
-- Hàng nháp lưu cũng vào bảng của tháng theo ngày chuyến của từng hàng.
+- Hàng nháp lưu cũng vào bảng của tháng theo ngày chuyến của từng hàng, **kể cả tháng đã khóa** (vào thẳng, không cần mở khóa — `NHAP-SHEET-01` (7)).
 
 **Nháp chưa lưu.** Chỉ sống trong tab: tải lại trang hoặc đổi khách thì hỏi "Còn n chuyến nháp chưa lưu, bỏ đi?". Không lưu nháp lên server.
 
