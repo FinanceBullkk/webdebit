@@ -56,6 +56,7 @@ Ba job sổ cũ: từ khi chuyển sang runner của GitHub (21/10) chưa đỏ 
 
 ## 4. Đề xuất (ĐỀ XUẤT, xếp theo tiết kiệm / rủi ro)
 
+0. **Nguyên tắc chung: CI GitHub là nơi chạy đủ bộ, cục bộ chỉ chạy lệnh nhanh và lệnh đang đỏ** (người dùng gợi ý 22/10/2026). CI nhanh hơn máy dev khoảng 3,5 lần (V7: 8 phút so với 28 phút) và là lần chạy sạch trước merge. Cục bộ giữ lint, unittest (59 giây), `npm run check` (82 giây) và đúng một bộ Postgres liên quan. Lưu ý: mỗi lần biết kết quả phải push (vẫn quét bí mật/tên khách trước push); CI không thay bước quét đó.
 1. **Vòng sửa của Codex chỉ chạy lệnh đang đỏ** (`codex-check-loop.ps1`: vòng ≥ 2 chỉ chạy lại lệnh vòng trước đỏ; chạy đủ bộ một lần ở vòng cuối). Tiết kiệm lớn nhất: cục bộ mỗi vòng đủ bộ khoảng 28 phút, 4 vòng ≈ 1,9 giờ; nếu chỉ chạy lệnh đỏ thường là vài phút. Rủi ro thấp nếu giữ lần chạy sạch đủ bộ trước merge.
 2. **Phạm vi file Codex phải gồm cả test liên quan** (trong spec "Phạm vi agent": file hàm SQL cộng test tương ứng). Tránh vòng sửa đỏ vì Codex không được sửa test. Không tốn thời gian chạy, rủi ro thấp.
 3. **Tách `postgres-v7-backend` thành các job song song** (backend / p0 / grants+direct+rehearse): CI chờ 480 → khoảng 250 giây, tiết kiệm khoảng 4 phút mỗi lượt. Không mất độ chắc, tổng phút runner không đổi.
