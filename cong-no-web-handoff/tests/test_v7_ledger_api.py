@@ -92,7 +92,9 @@ class LedgerApiTest(unittest.TestCase):
                     headers["Tailscale-User-Login"] = "serve-user@example.test"
                 if origin is not None:
                     headers["Origin"] = origin
-                conn.request(method, path, body=json.dumps(payload or {}).encode(), headers=headers)
+                # No GET body: server leaves it unread, and Windows resets the socket on close (WinError 10053).
+                body = None if method == "GET" else json.dumps(payload or {}).encode()
+                conn.request(method, path, body=body, headers=headers)
                 response = conn.getresponse()
                 data = response.read()
                 conn.close()
