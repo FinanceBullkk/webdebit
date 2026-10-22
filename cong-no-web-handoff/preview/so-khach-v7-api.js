@@ -10,6 +10,7 @@
     receiptMeta: ['/api/v7/receipts/meta', ['pid', 'date', 'method', 'reference']],
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],
     lock: ['/api/v7/months/lock', ['month', 'locked']],
+    tripReview: ['/api/v7/trips/review', ['trip_id', 'decision', 'reason']],
   };
   // Cấn trừ hai sổ (CT-2SO): một lệnh ghi cả hai sổ, cần version của cả hai. 'target' = sổ đang mở là sổ nhận.
   const offsetRoutes = {

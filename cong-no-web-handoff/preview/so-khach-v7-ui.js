@@ -279,9 +279,9 @@
           const voided = receipt?.voided_by_event != null;
           return `<tr>${trip && !trip.is_fee_only ? cell(index + 1) : empty()}
             ${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}
-            ${pending ? num(fmt(trip.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
-            ${pending ? num(fmt(trip.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
-            ${trip ? num(pending ? 'CHỜ KIỂM' : fmt(trip.amount_vnd)) : empty('num')}
+            ${pending || trip?.status === 'rejected' ? num(fmt(trip.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
+            ${pending || trip?.status === 'rejected' ? num(fmt(trip.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
+            ${!trip ? empty('num') : pending ? `<td class="num review-cell"><button type="button" class="review-open" data-trip="${trip.id}" aria-expanded="false" aria-label="Kết luận chuyến ${escape(trip.container)} đang CHỜ KIỂM">CHỜ KIỂM</button></td>` : trip.status === 'rejected' ? '<td class="num trip-rejected">ĐÃ LOẠI</td>' : num(fmt(trip.amount_vnd))}
             ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
             ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
             ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
@@ -517,7 +517,41 @@
       }
       if (event.target.closest('.confirm-offset-void')) await confirmOffsetVoid(event.target.closest('tr'));
     });
+    // CHỜ KIỂM (NEWTRIP-01): mở dòng kết luận ngay dưới chuyến, khuôn như hỏi lý do hủy phiếu.
+    const reviewReasons = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
+      WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
+    const closeReview = () => {
+      root.querySelectorAll('.review-prompt').forEach(item => item.remove());
+      root.querySelectorAll('.review-open').forEach(item => item.setAttribute('aria-expanded', 'false'));
+    };
+    function openReview(button) {
+      const row = button.closest('tr');
+      const wasOpen = row.nextElementSibling?.classList.contains('review-prompt');
+      closeReview();
+      if (wasOpen) return;
+      const trip = (snapshot?.trips ?? []).find(item => String(item.id) === button.dataset.trip);
+      const why = Object.hasOwn(reviewReasons, trip?.review_reason) ? reviewReasons[trip.review_reason] : 'Nghi trùng';
+      button.setAttribute('aria-expanded', 'true');
+      row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="13"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
+      row.nextElementSibling.querySelector('.review-reason').focus();
+    }
+    async function concludeReview(promptRow, decision) {
+      const box = promptRow.querySelector('.review-error');
+      const reason = promptRow.querySelector('.review-reason').value.trim();
+      if (!reason) { box.textContent = 'Cần nhập lý do kết luận'; return; }
+      if (reason.length > 500) { box.textContent = 'Lý do tối đa 500 ký tự'; return; }
+      const result = await submit('tripReview', { trip_id: Number(promptRow.dataset.trip), decision, reason });
+      if (result?.message) box.textContent = result.message;
+    }
     root.addEventListener('click', async event => {
+      const reviewOpen = event.target.closest('.review-open');
+      if (reviewOpen) { openReview(reviewOpen); return; }
+      const reviewRow = event.target.closest('.review-prompt');
+      if (reviewRow) {
+        if (event.target.closest('.review-cancel')) { closeReview(); return; }
+        if (event.target.closest('.review-confirm')) { await concludeReview(reviewRow, 'confirm'); return; }
+        if (event.target.closest('.review-reject')) { await concludeReview(reviewRow, 'reject'); return; }
+      }
       if (event.target.closest('.history-toggle')) { historyOpen = !historyOpen; if (snapshot) renderSnapshot(snapshot); return; }
       if (event.target.closest('.history-close')) { historyOpen = false; if (snapshot) renderSnapshot(snapshot); return; }
       if (event.target.closest('.retry-command')) { await api.retry(); return; }
