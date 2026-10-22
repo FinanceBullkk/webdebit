@@ -57,23 +57,25 @@ Một bảng duy nhất, một khách, cuộn liên tục từ tháng cũ nhất
 | Tầng | `top` | Nội dung |
 | --- | --- | --- |
 | Đầu sổ | `0` | Khách · Từ tháng · **Chờ xử lý** · **Tổng còn nợ (mọi tháng)** |
-| Băng nhóm cột | `70px` | `CHUYẾN HÀNG · ô cam: chưa có giá, chưa tính vào nợ` \| `TIỀN KHÁCH TRẢ` \| `NỢ` \| `NGUỒN` |
-| Header cột | `100px` | 14 cột dưới đây |
+| Băng nhóm cột | `70px` | `CHUYẾN HÀNG · ô cam: chưa có giá, chưa tính vào nợ` \| `TIỀN KHÁCH TRẢ` \| `NỢ` |
+| Header cột | `100px` | 13 cột dưới đây |
 | Dòng `THÁNG x/yyyy` | `138px` | kèm nhãn khóa và *Nợ các tháng trước* |
 
 **Cột, theo đúng thứ tự và tên tiếng Việt của Sheet** (bề rộng ở 1920):
 
-`STT 52` · `Số container 148` · `Hãng tàu / số xe 104` · `Ngày chuyến 104` · `Nơi đi 118` · `Nơi đến 118` · `Đơn giá 128` · `Phụ phí 116` · `Thành tiền 148` ‖ `Ngày trả 112` · `Hình thức 112` · `Số tiền trả 150` ‖ `Còn nợ cộng dồn 158` · `Vết 96`. Tổng 1.700px.
+`STT 52` · `Số container 148` · `Hãng tàu / số xe 104` · `Ngày chuyến 104` · `Nơi đi 118` · `Nơi đến 118` · `Đơn giá 128` · `Phụ phí 116` · `Thành tiền 148` ‖ `Ngày trả 112` · `Hình thức 112` · `Số tiền trả 150` ‖ `Còn nợ cộng dồn 158`. Tổng 1.604px.
 
 - **Phụ phí là một cột**, không tách `OTHER / PLUG / ESCORT FEE` như V6.
 - **Nhãn tiếng Việt**, không dùng `CONTAINER NO`, `UNIT PRICE`, `TOTAL (VND)`.
-- Cột `Vết` giữ `CH:` / `TC:` / `SD:` như Sheet.
-- **Dưới 1600px** (màn 1920 ở Windows 150% = 1280 CSS): ẩn cột `Vết`, bóp các cột còn lại xuống tổng **1.258px** — vẫn **không cuộn ngang**. Dải tháng bên phải ẩn theo.
+- **Bỏ cột `Vết`** (người dùng thử 22/10/2026: cột không có tác dụng — dòng sổ gốc luôn trống, ở 1280 cột đã ẩn). Vết thao tác xem ở nút **Lịch sử**.
+- **Dưới 1600px** (màn 1920 ở Windows 150% = 1280 CSS): bóp các cột còn lại xuống tổng **1.258px** — vẫn **không cuộn ngang**. Dải tháng bên phải ẩn theo.
 - **Dải "DANH SÁCH THÁNG"** bên phải (150px, dính): mỗi tháng một dòng kèm nợ còn lại, bấm là nhảy tới tháng.
 
 **Khối `TIỀN KHÁCH TRẢ` phải tách bạch về thị giác.** Trong Sheet, khoản thu nằm cùng hàng với một chuyến hoàn toàn không liên quan, rất dễ đọc nhầm thành "chuyến này đã trả". Giữ bố cục cột nhưng: nền riêng (`#f2f8ff`), viền trái đậm ở cột `Ngày trả`, và **không đánh số theo STT chuyến**.
 
 **Mỗi tháng** có: dòng `THÁNG x/yyyy` → các dòng chuyến (xen dòng điều chỉnh nếu có) → dòng hỏi lý do hủy (khi đang hủy) → dòng vết phiếu đã hủy → ô dán (chỉ tháng đang mở) → dòng `Cộng tháng x/yyyy (n chuyến)` → một dòng trống.
+
+**Sổ live, tháng từ sổ gốc** (người dùng thử 22/10/2026): số dư đầu của một tháng là *nợ tháng đó còn lại khi chuyển sang web*, đã trừ tiền thu trên sổ gốc theo nợ cũ trước — khác số cộng dồn cuối tháng của Sheet. Tháng chỉ có số dư đầu, chưa có chuyến/thu/điều chỉnh nào trên web và không phải tháng hiện tại: không vẽ dòng trống, thay `Cộng tháng … Phát sinh · Đã thu` bằng một dòng `Nợ tháng này còn lại khi chuyển sang web · Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước` (số lấy thẳng từ GET), ngay trên dòng `Theo sổ gốc`. Tháng có thêm thao tác web giữ dòng số dư đầu cùng nhãn đó và dòng `Cộng tháng` như cũ. Thanh đầu sổ có nút **Đổi khách**: cuộn lên ô `Tìm khách` và hiện danh sách khách.
 
 ## Quy tắc tiền (hợp đồng giữa giao diện và model)
 
@@ -122,7 +124,7 @@ Fixture cố ý chứa: **dòng nợ cũ chuyển sang sổ mới** (12.2025, kh
 - [ ] Hủy phiếu `PH-101`: dải hỏi lý do nêu **600.694.000**; bỏ trống lý do thì không hủy được; hủy xong nợ trả lại **cả hai** tháng 06 và 07, hai dòng cũ gạch ngang mang nhãn `ĐÃ HỦY`, hai dòng vết hiện lý do.
 - [ ] Ghi lại phiếu mới sau khi hủy: tổng nợ về đúng số trước khi hủy.
 - [ ] Dán 7 cột từ Sheet với số kiểu `46,000,000`: vào đúng, không báo lỗi định dạng.
-- [ ] 1920×1080: không cuộn ngang, dải tháng hiện. 1280×720: cột `Vết` ẩn, vẫn **không cuộn ngang**.
+- [ ] 1920×1080: không cuộn ngang, dải tháng hiện. 1280×720: vẫn **không cuộn ngang**.
 - [ ] Cuộn giữa sổ: đầu sổ, băng nhóm, header cột và dòng `THÁNG x` đều còn dính, không chồng nhau.
 - [ ] Không phát hiện đo được nào: chữ ≥ 13px ở ô số, vùng bấm ≥ 28px, tương phản ≥ 4.5:1, không ô bị cắt chữ, không lỗi JS.
 - [ ] Tìm trong `so-khach-v7-ui.js` không còn phép cộng/trừ nào trên tiền.
