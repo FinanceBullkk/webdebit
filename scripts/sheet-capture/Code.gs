@@ -48,7 +48,8 @@ function captureAppend(c, kind, sheet, range, actor, payload) {
     throw new Error('EVENTS header missing or changed');
   }
   const end = tab.getLastRow() + rows.length;
-  if (end * CAPTURE_HEADERS.length > 8000000) throw new Error('Log near capacity: archive to another private workbook');
+  // The workbook limit counts every allocated column, not just the headers.
+  if (end * Math.max(CAPTURE_HEADERS.length, tab.getMaxColumns()) > 8000000) throw new Error('Log near capacity: archive to another private workbook');
   if (end > tab.getMaxRows()) tab.insertRowsAfter(tab.getMaxRows(), end - tab.getMaxRows());
   tab.getRange(end - rows.length + 1, 1, rows.length, CAPTURE_HEADERS.length).setValues(rows);
   SpreadsheetApp.flush();
@@ -71,7 +72,7 @@ function captureEdit(e) {
     c.p.setProperty('urgent_' + tab.getSheetId(), '1');
     const actor = e.user ? e.user.getEmail() : '';
     // Read at handler time, not guaranteed to be the exact edit-time state.
-    // ponytail: huge pastes store a range marker; full-tab scan captures surviving state.
+    // Huge pastes store only the range; the full-tab snapshot captures the surviving state.
     const cells = e.range.getNumRows() * e.range.getNumColumns();
     const payload = { schema: 1, observation: 'HANDLER_TIME',
       old_value_available: Object.prototype.hasOwnProperty.call(e, 'oldValue'),
@@ -114,29 +115,37 @@ function captureDrain() {
     const c = captureConfig();
     const pending = Object.keys(c.p.getProperties()).filter(function(key) { return key.indexOf('dirty_') === 0; });
     if (!pending.length) return;
-    const key = pending.find(function(item) { return c.p.getProperty(item.replace('dirty_', 'urgent_')); }) || pending[0];
+    // A tab that failed last time goes behind the others so it cannot stall the queue;
+    // it is retried once nothing else is pending.
+    const ready = pending.filter(function(item) { return !c.p.getProperty(item.replace('dirty_', 'fail_')); });
+    const pool = ready.length ? ready : pending;
+    const key = pool.find(function(item) { return c.p.getProperty(item.replace('dirty_', 'urgent_')); }) || pool[0];
     const id = Number(key.slice(6));
-    const tab = SpreadsheetApp.openById(c.source).getSheetById(id);
-    if (!tab) {
-      captureAppend(c, 'TAB_MISSING', null, '', '', { sheet_id: id });
-      c.p.deleteProperty(key);
-      c.p.deleteProperty('urgent_' + id);
-      return;
-    }
-    const rows = tab.getLastRow();
-    const columns = tab.getLastColumn();
-    if (rows * columns > 250000) throw new Error('Tab exceeds scan ceiling; pending retained');
-    const range = rows && columns ? tab.getRange(1, 1, rows, columns) : null;
-    const snapshot = { schema: 1, sheet_id: id, name: tab.getName(), rows: rows, columns: columns,
-      values: range ? range.getValues() : [], formulas: range ? range.getFormulas() : [] };
-    const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
-      JSON.stringify(snapshot), Utilities.Charset.UTF_8));
-    if (c.p.getProperty('hash_' + id) !== hash) {
-      captureAppend(c, 'SNAPSHOT', tab, range ? range.getA1Notation() : '', '', snapshot);
-      c.p.setProperty('hash_' + id, hash);
+    try {
+      const tab = SpreadsheetApp.openById(c.source).getSheetById(id);
+      if (!tab) {
+        captureAppend(c, 'TAB_MISSING', null, '', '', { sheet_id: id });
+      } else {
+        const rows = tab.getLastRow();
+        const columns = tab.getLastColumn();
+        if (rows * columns > 250000) throw new Error('Tab exceeds scan ceiling; pending retained');
+        const range = rows && columns ? tab.getRange(1, 1, rows, columns) : null;
+        const snapshot = { schema: 1, sheet_id: id, name: tab.getName(), rows: rows, columns: columns,
+          values: range ? range.getValues() : [], formulas: range ? range.getFormulas() : [] };
+        const hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+          JSON.stringify(snapshot), Utilities.Charset.UTF_8));
+        if (c.p.getProperty('hash_' + id) !== hash) {
+          captureAppend(c, 'SNAPSHOT', tab, range ? range.getA1Notation() : '', '', snapshot);
+          c.p.setProperty('hash_' + id, hash);
+        }
+      }
+    } catch (err) {
+      c.p.setProperty('fail_' + id, new Date().toISOString());
+      throw err;
     }
     c.p.deleteProperty(key); // Only after durable log write (or identical snapshot).
     c.p.deleteProperty('urgent_' + id);
+    c.p.deleteProperty('fail_' + id);
     c.p.setProperty('LAST_DRAIN_OK_UTC', new Date().toISOString());
   });
 }
@@ -160,7 +169,7 @@ function captureInstall() {
     ScriptApp.newTrigger('captureFullSweep').timeBased().everyDays(1).atHour(1).inTimezone('Asia/Ho_Chi_Minh').create();
     // A new destination needs a fresh baseline, even if prior hashes match.
     Object.keys(c.p.getProperties()).forEach(function(key) {
-      if (/^(hash_|dirty_|urgent_)/.test(key) || key === 'LAST_DRAIN_OK_UTC') c.p.deleteProperty(key);
+      if (/^(hash_|dirty_|urgent_|fail_)/.test(key) || key === 'LAST_DRAIN_OK_UTC') c.p.deleteProperty(key);
     });
     captureQueueAll(c, source);
   });

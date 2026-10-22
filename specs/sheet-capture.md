@@ -18,6 +18,10 @@ không tự ghi sổ, không replay giao dịch vào opening/Webdebit.
   không hứa phục hồi mọi trạng thái trung gian hoặc every edit.
 - Khi lỗi quota, quyền, khóa hoặc dung lượng: fail, giữ pending nếu đã đánh dấu;
   xem Executions/trigger failure email. Không đổi lỗi đọc thành xóa dữ liệu.
+  Tab lỗi được đánh dấu `fail_<id>` và xếp sau các tab khác, nên một tab lỗi mãi
+  (ví dụ vượt 250.000 ô) không chặn cả hàng đợi; chỉ thử lại khi hết tab khác.
+- Ngưỡng dung lượng log tính theo số cột đã cấp của tab EVENTS (tab mới mặc định
+  26 cột), không chỉ 11 cột header.
 - Test: `node scripts/sheet-capture/test.js` (fake Google services); không chứng minh
   trigger Google thật. Phải thử bản sao trước: sửa một ô, dán lô, xóa/chèn hàng,
   xóa tab, ghi bằng API rồi quét bù, lỗi log và retry.
@@ -77,3 +81,28 @@ khiến quét chậm hơn. Theo dõi lỗi và dung lượng, không tự xóa b
 - Baseline đang quét dần, chưa chứng minh đủ 252 tab; event thật của người dùng
   chưa được xác nhận trong lượt này. Có trigger không chứng minh bắt đủ mọi sửa.
 - Chưa đồng bộ Webdebit, chưa tạo Hermes cron. Không dùng snapshot để tự replay tiền.
+
+## Review ngày 22/10/2026 (Claude)
+
+Bản cài trên Google ngày 21/10 là bản trước review. Sửa trong PR này:
+
+- `captureDrain`: tab đọc lỗi trước đây luôn được chọn lại (nếu là tab ưu tiên
+  hoặc đứng đầu danh sách), khiến mọi tab khác ngừng được chụp. Nay tab lỗi xếp
+  sau, `fail_<id>` xóa khi chụp thành công, `captureInstall` xóa cả `fail_`.
+- `captureAppend`: ngưỡng dung lượng tính theo `getMaxColumns()` của tab EVENTS.
+
+Kiểm: `node scripts/sheet-capture/test.js` (case mới fail trên bản 21/10, pass trên
+bản này) và `npm run check`. Chưa thử trên Google thật. Muốn bản sửa có hiệu lực:
+dán `Code.gs` mới vào project, chạy lại các ca thử trên bản sao như mục Hợp đồng,
+rồi mới thay cho bản đang chạy trên nguồn thật. Dán code không cần cài lại trigger;
+`captureInstall` lại sẽ xóa hash và lấy baseline mới.
+
+Còn mở, chưa sửa:
+
+- Edit trigger chờ khóa tối đa 25 giây; nếu `captureDrain` đang giữ khóa lâu hơn
+  (tab lớn), EDIT đó lỗi và tab không được đánh dấu, chỉ được quét bù ở lượt quét
+  hằng ngày. Hiện ra ở Executions/trigger failure email.
+- `setValues` để Sheets tự đổi chuỗi trông như số/ngày ở cột thường (ví dụ tên tab
+  chỉ gồm chữ số); `sheet_id` và payload JSON vẫn giữ đúng giá trị.
+- Snapshot chỉ là bản chụp thô. Chưa có công cụ so snapshot với bản mốc để tìm
+  dòng cũ bị sửa (CÒN MỞ của `SONG-SONG-02`).

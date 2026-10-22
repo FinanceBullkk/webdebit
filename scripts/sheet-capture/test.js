@@ -25,10 +25,18 @@ const tab = {
   getSheetId: () => 42, getName: () => '=untrusted',
   getLastRow: () => 1, getLastColumn: () => 4, getRange: () => sourceRange,
 };
-const source = { getId: () => 'fake-source', getSheetById: () => available ? tab : null,
+const bigTab = {
+  getSheetId: () => 7, getName: () => 'big', getLastRow: () => 1000, getLastColumn: () => 300,
+  getRange: () => { throw Error('oversize tab must not be read'); },
+};
+const source = { getId: () => 'fake-source',
+  getSheetById: id => id === 7 ? bigTab : (available ? tab : null),
   getSheets: () => [tab] };
+let logRowsBefore = 0;
+let logColumns = 11;
 const log = { getSheetByName: () => ({
-  getLastRow: () => 1 + written.length, getMaxRows: () => 100000,
+  getLastRow: () => 1 + logRowsBefore + written.length, getMaxRows: () => 1000000,
+  getMaxColumns: () => logColumns,
   getRange: (row) => ({ getValues: () => [headers], setValues: rows => {
     if (failWrite) throw Error('fake outage');
     assert.ok(row > 1);
@@ -92,6 +100,25 @@ assert.equal(properties.hash_42, previousHash);
 failWrite = false;
 context.captureDrain();
 assert.notEqual(properties.hash_42, previousHash);
+properties.dirty_7 = '1';
+properties.urgent_7 = '1';
+properties.dirty_42 = '1';
+values = [['after-stall']];
+assert.throws(() => context.captureDrain(), /scan ceiling/);
+assert.equal(properties.dirty_7, '1', 'oversize tab keeps its pending flag');
+assert.ok(properties.fail_7);
+context.captureDrain();
+assert.equal(properties.dirty_42, undefined, 'a failing tab must not block other tabs');
+assert.throws(() => context.captureDrain(), /scan ceiling/, 'failed tab is retried when nothing else is pending');
+delete properties.dirty_7;
+delete properties.urgent_7;
+delete properties.fail_7;
+logRowsBefore = 310000;
+logColumns = 26;
+assert.throws(() => context.captureAppend(context.captureConfig(), 'TEST', null, '', '', {}), /capacity/,
+  'capacity counts allocated columns of the log tab');
+logRowsBefore = 0;
+logColumns = 11;
 context.captureChange({ source, changeType: 'REMOVE_ROW' });
 assert.equal(properties.dirty_42, '1');
 assert.equal(JSON.parse(written.at(-2)[10]).affected_tab, null);
@@ -109,9 +136,11 @@ assert.equal(JSON.parse(parts.map(row => row[10]).join('')).text, '😀'.repeat(
 properties.hash_42 = 'previous-log';
 properties.dirty_99 = '1';
 properties.urgent_99 = '1';
+properties.fail_99 = 'x';
 context.captureInstall();
+assert.equal(properties.fail_99, undefined);
 assert.equal(properties.hash_42, undefined, 'new log must receive baseline');
 assert.equal(properties.dirty_99, undefined, 'old source queue cleared');
 assert.equal(properties.urgent_99, undefined);
 assert.equal(properties.dirty_42, '1');
-console.log('PASS: source validation, edit evidence, blank/zero, formula safety, snapshots, retry, structure, deleted tab, chunk completeness');
+console.log('PASS: source validation, edit evidence, blank/zero, formula safety, snapshots, retry, failing tab does not stall queue, log capacity, structure, deleted tab, chunk completeness');
