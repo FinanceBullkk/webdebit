@@ -46,4 +46,6 @@ Theo quy trình frontend, luồng mới cần người dùng duyệt trước. �
 1. Ô thành tiền của chuyến CHỜ KIỂM hiện nút **CHỜ KIỂM** (như hiện nay, thêm bấm được).
 2. Bấm vào thì mở một dòng ngay dưới chuyến: lý do bị giữ bằng chữ dễ hiểu ("Trùng mã với dòng sổ gốc", "Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc", "Trùng chuyến đã nhập trên web", "Trùng trong cùng lô dán"), ô **Lý do kết luận**, hai nút **Tính vào sổ** và **Loại, không tính**, nút **Thôi**.
 3. Tính vào sổ khi tháng khóa: báo "Tháng đang khóa" như các thao tác khác.
-4. Chuyến đã loại: ô thành tiền ghi **ĐÃ LOẠI**, chữ gạch ngang, không sửa được. Lịch sử hiện "Kết luận CHỜ KIỂM: tính vào sổ/loại · lý do".
+4. Chuyến đã loại: ô thành tiền ghi **ĐÃ LOẠI**, chữ gạch ngang, không sửa được.
+
+Đã làm sẵn trong nhánh này (chỉ hiển thị, không đổi luồng): Lịch sử hiện dòng "Kết luận CHỜ KIỂM", nội dung "Chuyến <container>: tính vào sổ/loại, không tính" và lý do ở ô "Ghi chú/lý do".
