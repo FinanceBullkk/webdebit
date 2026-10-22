@@ -1,6 +1,6 @@
 # V7 backend — sửa trường chữ/ngày, xóa chuyến, sửa/xóa dòng sổ gốc (NHAP-SHEET-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 22/10/2026). Chính sách **ĐÃ CHỐT** ở [`NHAP-SHEET-01`](../docs/decisions.md#nhap-sheet-01); giao diện ở [`v7-nhap-kieu-sheet.md`](v7-nhap-kieu-sheet.md). Chưa code, chưa migration, chưa chạy gì trên `hao`. Người code: Codex (backend) theo [phân vai](../docs/multi-agent.md); Claude review.
+Trạng thái: **ĐỀ XUẤT** (Claude, 22/10/2026); câu mở 1 **ĐÃ CHỐT** 22/10/2026 (Claude, theo quyền người dùng trao): trạng thái đi qua `trip_info_rev`. Chính sách **ĐÃ CHỐT** ở [`NHAP-SHEET-01`](../docs/decisions.md#nhap-sheet-01); giao diện ở [`v7-nhap-kieu-sheet.md`](v7-nhap-kieu-sheet.md). Chưa code, chưa migration, chưa chạy gì trên `hao`. Người code: Codex (backend) theo [phân vai](../docs/multi-agent.md); Claude review.
 
 ## Mục tiêu
 
@@ -22,7 +22,7 @@ Sửa **tiền** của chuyến web giữ nguyên hai lệnh đang có: tháng m
 - `adjustment` có FK `(trip_id, customer_id, debt_month)` → `trip(id, customer_id, debt_month)`.
 - `legacy_row` bất biến, "không cột nào tham gia công thức tiền" (`schema-draft.sql` dòng 123–138, trigger dòng 591–596). `get_ledger` trả `editable:false`.
 - Các chỗ đọc tiền chuyến trực tiếp từ `trip`: `v_outstanding_month` (`v7_backend_functions.sql` đầu file), CTE `charges` trong `reallocate`, tổng tháng và danh sách chuyến trong `get_ledger`, kiểm tháng có dữ liệu trong `adjust_month`, kiểm trùng trong `paste_trips`.
-- Nhánh `claude/v7-pending-review` (chưa merge lúc viết) thêm `review_trip`, trạng thái `rejected`, cột `reviewed_by_event` và guard chỉ cho đổi `trip.status` một lần. Spec này **xây trên nhánh đó** sau khi nó vào `main`.
+- Nhánh `claude/v7-pending-review` (đã vào `main` qua PR #63, 22/10/2026) thêm `review_trip`, trạng thái `rejected`, cột `reviewed_by_event` và guard chỉ cho đổi `trip.status` một lần. Spec này **xây trên nhánh đó** sau khi nó vào `main`.
 
 ## Thiết kế
 
@@ -164,5 +164,23 @@ Lỗi mới: `INVALID_FIELD` (422), `LEGACY_NOT_FOUND` (422, "Không tìm thấy
 
 ## Câu hỏi còn mở
 
-1. Gộp với `review_trip`: trạng thái ghi qua revision (đề xuất) hay giữ guard UPDATE một lần.
+1. ~~Gộp với `review_trip`~~ **ĐÃ CHỐT**: `review_trip` ghi một `trip_info_rev` mới mang status kết luận (một nguồn sự thật); `v_trip_current.status` luôn lấy từ revision mới nhất. Guard UPDATE `trip.status`/`reviewed_by_event` được bỏ khỏi đường ghi mới; migration giữ cột cũ để dòng đã có không mất, và `v_trip_current` khi chưa có revision thì lấy `trip.status` (đã gồm `rejected`/`confirmed` từ `review_trip` cũ).
 2. Hoàn tác xóa (khôi phục chuyến/dòng sổ gốc đã xóa) — chưa làm ở vòng này.
+
+## Phạm vi agent
+
+- Agent: codex
+- Review (model Claude review chốt): opus — đường ghi tiền, phân bổ, số dư đầu.
+- Được sửa:
+  - `cong-no-web-handoff/tools/v7_backend_functions.sql`
+  - `cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap-sheet.sql` (mới)
+  - `specs/v7-backend/schema-draft.sql`
+  - `cong-no-web-handoff/tools/test_pg_v7_backend.py`
+  - `cong-no-web-handoff/tools/test_pg_v7_grants.py`
+  - `cong-no-web-handoff/tools/v7_post_deploy_check.sql`
+  - `cong-no-web-handoff/web/v7_ledger_api.py`
+  - `cong-no-web-handoff/tests/test_v7_ledger_api.py`
+  - `docs/v7-deploy-runbook.md` (chỉ thêm mục migration mới)
+- Ngân sách diff: 2500 dòng
+- Lệnh kiểm: `py -3.13 -m unittest discover -s cong-no-web-handoff/tests`, `test_pg_v7_backend.py`, `test_pg_v7_grants.py --strict`, `rehearse_v7_deploy.py --strict`, `npm run check` (Docker một lần, `--network none`).
+- Cấm: sửa `preview/so-khach-v7-*.js` (giao diện làm sau), UPDATE/DELETE bảng bất biến, chạm `hao`/DB thật, `captures/`, thêm dependency.
