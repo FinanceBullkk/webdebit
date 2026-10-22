@@ -36,11 +36,11 @@ DECLARE
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
       'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
       'adjust_month(bigint,bigint,text,date,bigint,text)',
-      'record_receipt(bigint,bigint,text,date,text,bigint)',
-      'edit_receipt_meta(bigint,bigint,text,text,date,text)',
+      'record_receipt(bigint,bigint,text,date,text,bigint,text)',
+      'edit_receipt_meta(bigint,bigint,text,text,date,text,text)',
       'void_receipt(bigint,bigint,text,text,text)',
       'set_month_lock(bigint,bigint,text,date,boolean)',
-      'record_offset(bigint,bigint,bigint,bigint,text,date,bigint)',
+      'record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text)',
       'void_offset(bigint,bigint,bigint,text,bigint,text)',
       'edit_offset_date(bigint,bigint,bigint,text,bigint,date)'];
     actual text[];

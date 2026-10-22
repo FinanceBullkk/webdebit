@@ -40,11 +40,11 @@ WRITE = {
     'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
     'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
     'adjust_month(bigint,bigint,text,date,bigint,text)',
-    'record_receipt(bigint,bigint,text,date,text,bigint)',
-    'edit_receipt_meta(bigint,bigint,text,text,date,text)',
+    'record_receipt(bigint,bigint,text,date,text,bigint,text)',
+    'edit_receipt_meta(bigint,bigint,text,text,date,text,text)',
     'void_receipt(bigint,bigint,text,text,text)',
     'set_month_lock(bigint,bigint,text,date,boolean)',
-    'record_offset(bigint,bigint,bigint,bigint,text,date,bigint)',
+    'record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text)',
     'void_offset(bigint,bigint,bigint,text,bigint,text)',
     'edit_offset_date(bigint,bigint,bigint,text,bigint,date)',
 }
@@ -165,9 +165,11 @@ def check_api(pg):
     balance(1130)
     write('adjust_month', debt_month='2026-01-01', amount_vnd='20', note='fake')
     balance(1150)
-    receipt = write('record_receipt', date='2026-01-02', method='THU TIỀN', amount_vnd='50')
+    receipt = write('record_receipt', date='2026-01-02', method='THU TIỀN', amount_vnd='50', reference='FAKE TXN')
+    require(ledger()['receipts'][0]['reference'] == 'FAKE TXN', 'app API lost receipt reference')
     balance(1100)
-    write('edit_receipt_meta', pid=receipt['pid'], date='2026-01-03', method='THU TIỀN')
+    write('edit_receipt_meta', pid=receipt['pid'], date='2026-01-03', method='THU TIỀN', reference='FAKE EDIT')
+    require(ledger()['receipts'][0]['reference'] == 'FAKE EDIT', 'app API lost edited reference')
     balance(1100)
     write('void_receipt', pid=receipt['pid'], reason='fake')
     balance(1150)
@@ -181,7 +183,13 @@ def check_api(pg):
         require((ledger()['version'], ledger(source)['version']) == (before+1, other+1), f'{name} pair versions')
         return result
     require(any(r['customer_id'] == source for r in invoke('list_offset_sources', target_customer_id=c)), 'source missing')
-    pair = offset('record_offset', date='2026-01-02', amount_vnd='100')
+    pair = offset('record_offset', date='2026-01-02', amount_vnd='100', reference='FAKE OFFSET')
+    require(next(r for r in ledger()['receipts'] if r['pid'] == pair['target_pid'])['reference'] == 'FAKE OFFSET',
+            'offset target lost reference')
+    other_version = ledger(source)['version']
+    invoke('edit_receipt_meta', customer_id=c, expected_version=ledger()['version'],
+           idempotency_key='fake-offset-reference', pid=pair['target_pid'], reference='FAKE OFFSET EDIT')
+    require(ledger(source)['version'] == other_version, 'reference edit changed source book')
     balance(1050)
     balance(-400, source)
     offset('edit_offset_date', offset_pair_id=pair['offset_pair_id'], date='2026-01-03')

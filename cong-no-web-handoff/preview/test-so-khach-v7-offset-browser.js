@@ -13,7 +13,7 @@ const viDate = iso => `${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const dayInMonth = '2026-10-20' <= clock && clock.startsWith('2026-10') ? '2026-10-20' : `${clock.slice(0, 7)}-01`;
 
 function makeWorld() {
-  const book = (id, name, commodity, base, charges) => ({ id, name, commodity, version: 1, base, charges, receipts: [], outgoing: [], nextPid: 1 });
+  const book = (id, name, commodity, base, charges) => ({ id, name, commodity, version: 1, base, charges, receipts: [], outgoing: [], events: [], locks: [], nextPid: 1 });
   const world = {
     books: { 1: book(1, 'Khách Thử Một', 'sầu riêng', 0n, 50000000n), 2: book(2, 'Khách Thử Hai', 'sầu riêng', -100000000n, 0n), 3: book(3, 'Khách Thử Ba', 'chuối', -30000000n, 0n) },
     pairs: [], nextPair: 1, requests: [], failNext: null, nextEvent: 10,
@@ -28,14 +28,14 @@ const outstanding = book => book.base + book.charges - received(book) + outgoing
 function ledger(world, id) {
   const book = world.books[id];
   const total = outstanding(book);
-  return { status: 'active', customer_id: id, version: book.version, demo: true, today_month: monthStart, month_locks: [],
+  return { status: 'active', customer_id: id, version: book.version, demo: true, today_month: monthStart, month_locks: book.locks,
     months: [{ month: monthStart, prior_months_vnd: book.base.toString(), charges_vnd: book.charges.toString(), received_vnd: received(book).toString(),
       end_of_month_vnd: total.toString(), outstanding_vnd: total.toString() }],
     total_outstanding_vnd: total.toString(), pending_count: 0,
     trips: book.charges > 0n ? [{ id: 1, month: monthStart, container: 'DEMO-001', carrier: 'Tàu thử', event_date: dayInMonth, origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: book.charges.toString(), other_fee_vnd: '0', amount_vnd: book.charges.toString(), is_missing_price: false, is_fee_only: false, editable: true, src: '' }] : [],
-    adjustments: [], opening: [], source_exceptions: [], legacy_rows: [], events: [],
-    receipts: book.receipts.map(item => ({ id: item.pid, pid: item.pid, date: item.date, method: item.method, amount_vnd: item.amount.toString(),
+    adjustments: [], opening: [], source_exceptions: [], legacy_rows: [], events: book.events,
+    receipts: book.receipts.map(item => ({ id: item.pid, pid: item.pid, reference: item.reference ?? null, date: item.date, method: item.method, amount_vnd: item.amount.toString(),
       void_reason: item.void_reason ?? null, offset_pair_id: item.pair ?? null, counterparty_customer_id: item.other ?? null,
       counterparty_name: item.other ? world.books[item.other].name : null, voided_on: item.voided_on ?? null, voided_by_event: item.voided_by_event ?? null,
       allocations: [{ month: monthStart, amount_vnd: item.amount.toString(), kind: 'debt', superseded_by_event: item.voided_by_event == null ? null : item.voided_by_event }] })),
@@ -47,6 +47,51 @@ function reply(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
+
+test('CSM: optional reference, inline edit/clear, duplicate warns but saves, lock history has both actions', async () => withPage(async ({ page, world, open }) => {
+  await open(1);
+  assert.equal(await page.getByLabel('Tham chiếu', { exact: true }).count(), 1);
+  async function pay(reference) {
+    const expected = world.books[1].receipts.length + 1;
+    await page.locator('.receipt-date:not(.saved-receipt-input)').fill(viDate(dayInMonth));
+    await page.locator('.receipt-reference').fill(reference);
+    await page.locator('.receipt-amount').fill('10');
+    await page.locator('.receipt-amount').press('Enter');
+    await page.waitForFunction(count => document.querySelectorAll('td[data-field="reference"]').length === count, expected);
+    await page.waitForFunction(() => /Đã lưu/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  }
+  await pay('');
+  assert.equal(world.books[1].receipts[0].reference, null);
+  await pay('FAKE USD/rate text');
+  const reference = page.locator('td.receipt[data-pid="PH-021"][data-field="reference"]');
+  await reference.click();
+  await reference.locator('input').fill('FAKE USD/rate text');
+  await reference.locator('input').press('Enter');
+  await page.waitForFunction(() => /Tham chiếu trùng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  assert.equal(world.books[1].receipts.length, 2);
+  assert.equal(world.books[1].receipts[0].reference, 'FAKE USD/rate text');
+  await reference.click();
+  await reference.locator('input').fill('');
+  await reference.locator('input').press('Enter');
+  await page.waitForFunction(() => document.querySelector('td[data-pid="PH-021"][data-field="reference"]')?.textContent === 'Tham chiếu: –');
+  await pay('FAKE USD/rate text');
+  assert.equal(world.books[1].receipts.length, 3);
+  await page.waitForFunction(() => /Tham chiếu trùng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  assert.match(await page.locator('.live-notice').innerText(), /Tham chiếu trùng/);
+  const lock = page.locator('.month-lock');
+  await lock.click();
+  await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'false');
+  await lock.click();
+  await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'true');
+  await page.locator('.history-toggle').click();
+  const history = await page.locator('#history-panel').innerText();
+  assert.match(history, /Khóa tháng/);
+  assert.match(history, /Mở tháng/);
+  assert.match(history, /fake-browser-actor/);
+  assert.match(history, /02\/01\/2026 10:00/);
+  assert.equal(await page.locator('#history-panel li').count(), 2);
+  assert.equal(world.requests.at(-1).path, '/api/v7/months/lock');
+}));
 
 function handleApi(world, req, res, url, body) {
   if (req.method === 'GET' && url.pathname === '/api/v7/customers') {
@@ -92,9 +137,25 @@ function handleApi(world, req, res, url, body) {
   }
   if (url.pathname === '/api/v7/receipts') {
     const self = world.books[body.customer_id];
-    self.receipts.push({ pid: `PH-${String(21 + self.receipts.length).padStart(3, '0')}`, date: body.date, method: body.method, amount: BigInt(body.amount_vnd) });
+    const reference = body.reference?.trim() || null;
+    const duplicate = reference !== null && self.receipts.some(item => item.reference === reference);
+    self.receipts.push({ pid: `PH-${String(21 + self.receipts.length).padStart(3, '0')}`, reference, date: body.date, method: body.method, amount: BigInt(body.amount_vnd) });
     bump(self);
-    return reply(res, 200, { receipt: 'ok' });
+    return reply(res, 200, { receipt: 'ok', duplicate_reference: duplicate });
+  }
+  if (url.pathname === '/api/v7/receipts/meta') {
+    const self = world.books[body.customer_id], receipt = self.receipts.find(item => item.pid === body.pid);
+    if (body.reference !== undefined) receipt.reference = body.reference.trim() || null;
+    const duplicate = receipt.reference !== null && self.receipts.some(item => item !== receipt && item.reference === receipt.reference);
+    bump(self);
+    return reply(res, 200, { duplicate_reference: duplicate });
+  }
+  if (url.pathname === '/api/v7/months/lock') {
+    const self = world.books[body.customer_id];
+    self.events.unshift({ kind: 'month_lock', actor: 'fake-browser-actor', at: '2026-01-02T03:00:00Z', before: { month: body.month, locked: !body.locked }, after: { month: body.month, locked: body.locked } });
+    self.locks = [{ month: body.month, locked: body.locked }];
+    bump(self);
+    return reply(res, 200, { locked: body.locked });
   }
   return reply(res, 404, { error: 'NOT_FOUND', message: 'Không có.' });
 }

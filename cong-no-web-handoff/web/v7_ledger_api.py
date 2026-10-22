@@ -27,15 +27,15 @@ ASSETS = {
     "/so-khach-v7-api.js": ("so-khach-v7-api.js", "text/javascript; charset=utf-8"),
 }
 ROUTES = {
-    "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"}),
+    "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"}),
     "/api/v7/offsets/void": ("void_offset", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"}),
     "/api/v7/offsets/date": ("edit_offset_date", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"}),
     "/api/v7/trips/paste": ("paste_trips", {"debt_month", "trips"}),
     "/api/v7/trips/price": ("edit_trip_price", {"trip_id", "unit_price_vnd", "other_fee_vnd"}),
     "/api/v7/trips/adjust": ("adjust_trip", {"trip_id", "new_amount_vnd", "field", "new_value_vnd", "note"}),
     "/api/v7/months/adjust": ("adjust_month", {"debt_month", "amount_vnd", "note"}),
-    "/api/v7/receipts": ("record_receipt", {"date", "method", "amount_vnd"}),
-    "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid", "date", "method"}),
+    "/api/v7/receipts": ("record_receipt", {"date", "method", "amount_vnd", "reference"}),
+    "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid", "date", "method", "reference"}),
     "/api/v7/receipts/void": ("void_receipt", {"pid", "reason"}),
     "/api/v7/months/lock": ("set_month_lock", {"month", "locked"}),
 }
@@ -131,7 +131,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     function, fields = ROUTES[path]
     offset = function in ("record_offset", "void_offset", "edit_offset_date")
     common = set() if offset else COMMON
-    if set(body) - (common | fields) or not set(body) >= (fields if offset else COMMON):
+    if set(body) - (common | fields) or not set(body) >= ((fields - {"reference"}) if offset else COMMON):
         bad()
     fields = fields | common
     required_numeric = ("customer_id", "target_customer_id", "source_customer_id")
@@ -187,12 +187,12 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         bad("INVALID_DATE", "Ngày không hợp lệ.")
     if function == "void_offset" and (not isinstance(body.get("reason"), str) or not body["reason"].strip() or len(body["reason"]) > 500):
         bad("VOID_REASON_REQUIRED", "Cần ghi lý do hủy cấn trừ.")
-    for name in ("method", "pid", "reason", "note"):
+    for name in ("method", "pid", "reason", "note", "reference"):
         if name in fields and name in body and body[name] is not None and (not isinstance(body[name], str) or len(body[name]) > 500):
             bad()
     if function == "record_receipt" and (not isinstance(body.get("method"), str) or not body["method"] or body["amount_vnd"] == "0"):
         bad()
-    if function == "edit_receipt_meta" and not any(body.get(name) is not None for name in ("date", "method")):
+    if function == "edit_receipt_meta" and not any(body.get(name) is not None for name in ("date", "method", "reference")):
         bad()
     if function in ("edit_receipt_meta", "void_receipt") and not isinstance(body.get("pid"), str):
         bad()
@@ -210,15 +210,15 @@ SQL = {
     "list_customers": "SELECT sokhach.list_customers();",
 }
 ARGUMENTS = {
-    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"),
+    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
     "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
     "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),
     "paste_trips": ("debt_month", "trips"),
     "edit_trip_price": ("trip_id", "unit_price_vnd", "other_fee_vnd"),
     "adjust_trip": ("trip_id", "new_amount_vnd", "note", "field", "new_value_vnd"),
     "adjust_month": ("debt_month", "amount_vnd", "note"),
-    "record_receipt": ("date", "method", "amount_vnd"),
-    "edit_receipt_meta": ("pid", "date", "method"),
+    "record_receipt": ("date", "method", "amount_vnd", "reference"),
+    "edit_receipt_meta": ("pid", "date", "method", "reference"),
     "void_receipt": ("pid", "reason"),
     "set_month_lock": ("month", "locked"),
 }

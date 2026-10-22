@@ -145,7 +145,7 @@ CREATE TABLE sokhach.month_state (
     changed_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (customer_id, month)
 );
-COMMENT ON TABLE sokhach.month_state IS 'Cờ ghi đè; thiếu hàng thì chỉ tháng hiện tại theo Asia/Ho_Chi_Minh mở. Mở/khóa không ghi event.';
+COMMENT ON TABLE sokhach.month_state IS 'Cờ ghi đè; thiếu hàng thì chỉ tháng hiện tại theo Asia/Ho_Chi_Minh mở. Mở/khóa ghi event theo V7-CSM.';
 COMMENT ON COLUMN sokhach.month_state.locked IS 'Không DEFAULT: thiếu hàng dùng mặc định động theo giờ VN; hàng có sẵn ghi đè mặc định.';
 COMMENT ON COLUMN sokhach.month_state.changed_by IS 'Danh tính phiên máy chủ đã xác minh, không lấy từ body.';
 
@@ -240,6 +240,7 @@ CREATE TABLE sokhach.receipt (
     pid text NOT NULL CHECK (btrim(pid) <> ''),
     date date NOT NULL,
     method text NOT NULL CHECK (method IN ('THU TIỀN', 'CẤN TRỪ', 'ỨNG TRƯỚC', 'KHÁC')),
+    reference text CHECK (reference IS NULL OR btrim(reference) <> ''),
     amount_vnd bigint NOT NULL CHECK (amount_vnd > 0),
     void_reason text CHECK (void_reason IS NULL OR btrim(void_reason) <> ''),
     voided_on date,
@@ -255,6 +256,7 @@ CREATE TABLE sokhach.receipt (
 );
 COMMENT ON TABLE sokhach.receipt IS 'Một phiếu của một khách; hủy không phân bổ lại phiếu khác.';
 COMMENT ON COLUMN sokhach.receipt.pid IS 'Mã phiếu do server cấp, duy nhất trong khách kể cả đã hủy.';
+COMMENT ON COLUMN sokhach.receipt.reference IS 'V7-CSM: optional text; duplicate warns only; blank stored as NULL.';
 COMMENT ON COLUMN sokhach.receipt.date IS 'Ngày phiếu; FIFO xếp theo ngày rồi pid.';
 COMMENT ON COLUMN sokhach.receipt.amount_vnd IS 'Tổng phiếu bất biến; phải bằng tổng dòng hiệu lực khi phiếu còn sống.';
 COMMENT ON COLUMN sokhach.receipt.void_reason IS 'Hủy bắt buộc lý do không rỗng.';
@@ -263,7 +265,7 @@ CREATE TABLE sokhach.event (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
     kind text NOT NULL CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
-        'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'import',
+        'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
@@ -280,13 +282,16 @@ CREATE TABLE sokhach.event (
         WHEN 'adjust_trip' THEN "before" ? 'trip' AND "after" ? 'adjustment'
         WHEN 'adjust_month' THEN "before" ? 'month' AND "after" ? 'adjustment'
         WHEN 'receipt_edit' THEN "before" ? 'receipt' AND "after" ? 'receipt'
+        WHEN 'month_lock' THEN coalesce("before"->>'month' = "after"->>'month'
+            AND jsonb_typeof("before"->'locked')='boolean'
+            AND jsonb_typeof("after"->'locked')='boolean',false)
         WHEN 'void' THEN "before" ? 'receipt' AND "after" ? 'receipt'
         WHEN 'reallocation' THEN "before" ? 'allocations' AND "after" ? 'allocations'
         WHEN 'customer_attr' THEN "before" ? 'customer' AND "after" ? 'customer'
         ELSE false END),
     UNIQUE (id, customer_id)
 );
-COMMENT ON TABLE sokhach.event IS 'Vết chỉ thêm trước/sau; không ghi sự kiện mở/khóa tháng.';
+COMMENT ON TABLE sokhach.event IS 'Vết chỉ thêm trước/sau; gồm mở/khóa tháng.';
 COMMENT ON COLUMN sokhach.event.actor IS 'Đọc từ current_setting(''sokhach.actor'', false), từ chối rỗng trong hàm lệnh.';
 COMMENT ON COLUMN sokhach.event.idempotency_key IS 'Khóa lệnh nguồn, có thể lặp giữa các event của cùng lệnh.';
 COMMENT ON COLUMN sokhach.event.cutover_id IS 'Chỉ event import có mốc chuyển; chỉ mục duy nhất chặn nhập lại kể cả khi không có dòng opening.';
@@ -600,16 +605,16 @@ BEGIN
         IS DISTINCT FROM ROW(NEW.id, NEW.customer_id, NEW.pid, NEW.amount_vnd, NEW.created_by_event)
         OR OLD.voided_on IS NOT NULL
         OR (OLD.voided_on IS NULL AND NEW.voided_on IS NOT NULL
-            AND (OLD.date IS DISTINCT FROM NEW.date OR OLD.method IS DISTINCT FROM NEW.method
+            AND (OLD.date IS DISTINCT FROM NEW.date OR OLD.method IS DISTINCT FROM NEW.method OR OLD.reference IS DISTINCT FROM NEW.reference
                  OR OLD.meta_changed_by_event IS DISTINCT FROM NEW.meta_changed_by_event))
         OR (OLD.voided_on IS NULL AND NEW.voided_on IS NULL
             AND ROW(OLD.void_reason, OLD.voided_by, OLD.voided_by_event)
                 IS DISTINCT FROM ROW(NEW.void_reason, NEW.voided_by, NEW.voided_by_event))
         OR (OLD.voided_on IS NULL AND NEW.voided_on IS NULL
-            AND ROW(OLD.date, OLD.method) IS DISTINCT FROM ROW(NEW.date, NEW.method)
+            AND ROW(OLD.date, OLD.method, OLD.reference) IS DISTINCT FROM ROW(NEW.date, NEW.method, NEW.reference)
             AND NEW.meta_changed_by_event IS NOT DISTINCT FROM OLD.meta_changed_by_event)
         OR (OLD.voided_on IS NULL AND NEW.voided_on IS NULL
-            AND ROW(OLD.date, OLD.method) IS NOT DISTINCT FROM ROW(NEW.date, NEW.method)
+            AND ROW(OLD.date, OLD.method, OLD.reference) IS NOT DISTINCT FROM ROW(NEW.date, NEW.method, NEW.reference)
             AND NEW.meta_changed_by_event IS DISTINCT FROM OLD.meta_changed_by_event)
         OR (OLD.voided_on IS NULL AND NEW.voided_on IS NOT NULL
             AND NEW.voided_by_event IS NULL) THEN
@@ -745,8 +750,8 @@ RESET ROLE;
 -- FUNCTION sokhach.edit_trip_price(customer_id bigint, expected_version bigint, idempotency_key text, trip_id bigint, unit_price_vnd bigint, other_fee_vnd bigint) RETURNS jsonb
 -- FUNCTION sokhach.adjust_trip(customer_id bigint, expected_version bigint, idempotency_key text, trip_id bigint, new_amount_vnd bigint, note text) RETURNS jsonb
 -- FUNCTION sokhach.adjust_month(customer_id bigint, expected_version bigint, idempotency_key text, debt_month date, amount_vnd bigint, note text) RETURNS jsonb
--- FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint, idempotency_key text, date date, method text, amount_vnd bigint) RETURNS jsonb
--- FUNCTION sokhach.edit_receipt_meta(customer_id bigint, expected_version bigint, idempotency_key text, pid text, date date, method text) RETURNS jsonb
+-- FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint, idempotency_key text, date date, method text, amount_vnd bigint, reference text DEFAULT NULL) RETURNS jsonb
+-- FUNCTION sokhach.edit_receipt_meta(customer_id bigint, expected_version bigint, idempotency_key text, pid text, date date, method text, reference text DEFAULT NULL) RETURNS jsonb
 -- FUNCTION sokhach.void_receipt(customer_id bigint, expected_version bigint, idempotency_key text, pid text, reason text) RETURNS jsonb
 -- FUNCTION sokhach.set_month_lock(customer_id bigint, expected_version bigint, idempotency_key text, month date, locked boolean) RETURNS jsonb
 -- FUNCTION sokhach.set_customer_attributes(customer_id bigint, expected_version bigint, idempotency_key text, commodity_id bigint, transport_mode text, archived boolean) RETURNS jsonb

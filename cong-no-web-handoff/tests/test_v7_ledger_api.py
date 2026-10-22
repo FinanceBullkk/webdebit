@@ -29,6 +29,21 @@ class FakePsql:
 
 
 class LedgerApiTest(unittest.TestCase):
+    def test_optional_receipt_reference_and_reference_only_edit(self):
+        receipt = self.common | {"date": "2026-01-02", "method": "THU TIỀN", "amount_vnd": "10"}
+        for reference in (None, "", "FAKE-TXN USD/rate text", "x" * 500):
+            for route, fields in (("/api/v7/receipts", receipt),
+                                  ("/api/v7/receipts/meta", self.common | {"pid": "PH-001"})):
+                if route.endswith("/meta") and reference is None:
+                    continue
+                self.call(route, fields | {"reference": reference})
+                self.assertEqual(self.runner.calls[-1][1]["reference"], reference)
+        for invalid in (0, False, [], {}, "x" * 501):
+            with self.assertRaises(api.ApiError):
+                self.call("/api/v7/receipts", receipt | {"reference": invalid})
+        self.assertIn("j->>'reference'", api.SQL["record_receipt"])
+        self.assertIn("j->>'reference'", api.SQL["edit_receipt_meta"])
+
     def test_paste_booking_passes_boundary_but_client_status_does_not(self):
         row = {"booking": " b k 1 ", "container": "FAKE", "date": "10/01/2026",
                "carrier": "SHIP", "from": "A", "to": "B", "unitPriceVnd": "100", "otherFeeVnd": None}
@@ -347,7 +362,7 @@ class LedgerApiTest(unittest.TestCase):
                 self.assertEqual(self.call(path, body)[0], 200)
                 self.assertEqual(self.runner.calls[-1], (function, body, "configured"))
                 args = {
-                    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd"),
+                    "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
                     "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
                     "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),
                 }[function]

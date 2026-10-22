@@ -579,7 +579,7 @@ BEGIN
         ORDER BY debt_month,id),'[]'::jsonb) INTO v_adjustments
     FROM sokhach.adjustment WHERE adjustment.customer_id=get_ledger.customer_id;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'pid',r.pid,'date',r.date,
-        'method',r.method,'amount_vnd',r.amount_vnd::text,'void_reason',r.void_reason,
+        'method',r.method,'reference',r.reference,'amount_vnd',r.amount_vnd::text,'void_reason',r.void_reason,
         'offset_pair_id',(SELECT id FROM sokhach.offset_pair WHERE target_receipt_id=r.id),
         'counterparty_customer_id',(SELECT source_customer_id FROM sokhach.offset_pair WHERE target_receipt_id=r.id),
         'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
@@ -645,11 +645,12 @@ BEGIN
 END $$;
 
 CREATE FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint,
-    idempotency_key text, date date, method text, amount_vnd bigint)
+    idempotency_key text, date date, method text, amount_vnd bigint, reference text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_payload jsonb := jsonb_build_object('command','record_receipt','date',date,
-        'method',method,'amount_vnd',amount_vnd);
+        'method',method,'amount_vnd',amount_vnd)
+        || CASE WHEN reference IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('reference',reference) END;
         v_retry jsonb; v_id bigint; v_pid text; v_event bigint; v_left bigint;
         v_last date; v_month date; v_due bigint; v_take bigint; v_plan jsonb := '[]'::jsonb;
         v_line jsonb; v_result jsonb; v_plan_ids jsonb := '[]'::jsonb;
@@ -694,10 +695,10 @@ BEGIN
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'receipt',sokhach._actor(),'{}',
         jsonb_build_object('receipt',v_id,'pid',v_pid,'date',date,'method',method,
-                           'amount_vnd',amount_vnd::text,'allocations',v_plan_ids),idempotency_key)
+                           'amount_vnd',amount_vnd::text,'reference',nullif(btrim(reference),''),'allocations',v_plan_ids),idempotency_key)
     RETURNING id INTO v_event;
-    INSERT INTO sokhach.receipt(id,customer_id,pid,date,method,amount_vnd,created_by_event)
-    OVERRIDING SYSTEM VALUE VALUES (v_id,customer_id,v_pid,date,method,amount_vnd,v_event);
+    INSERT INTO sokhach.receipt(id,customer_id,pid,date,method,amount_vnd,reference,created_by_event)
+    OVERRIDING SYSTEM VALUE VALUES (v_id,customer_id,v_pid,date,method,amount_vnd,nullif(btrim(reference),''),v_event);
     FOR v_line IN SELECT value FROM jsonb_array_elements(v_plan_ids) LOOP
         INSERT INTO sokhach.receipt_line(id,receipt_id,customer_id,debt_month,kind,amount_vnd,created_by_event)
         OVERRIDING SYSTEM VALUE VALUES ((v_line->>'id')::bigint,v_id,customer_id,(v_line->>'month')::date,v_line->>'kind',
@@ -705,20 +706,25 @@ BEGIN
     END LOOP;
     PERFORM sokhach._check_allocations(customer_id);
     v_result := jsonb_build_object('receipt_id',v_id,'pid',v_pid,'allocations',v_plan_ids,
-                                  'overpayment_vnd',v_left::text);
+                                  'overpayment_vnd',v_left::text,
+        'duplicate_reference',EXISTS (SELECT 1 FROM sokhach.receipt r
+            WHERE r.customer_id=record_receipt.customer_id AND r.id<>v_id
+              AND r.reference=nullif(btrim(record_receipt.reference),'')));
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,v_result);
 END $$;
 
 CREATE FUNCTION sokhach.edit_receipt_meta(customer_id bigint, expected_version bigint,
-    idempotency_key text, pid text, date date, method text)
+    idempotency_key text, pid text, date date, method text, reference text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_payload jsonb := jsonb_build_object('command','edit_receipt_meta','pid',pid,
-        'date',date,'method',method);
-        v_retry jsonb; v_receipt sokhach.receipt%ROWTYPE; v_date date; v_method text;
+        'date',date,'method',method)
+        || CASE WHEN reference IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('reference',reference) END;
+        v_retry jsonb; v_receipt sokhach.receipt%ROWTYPE; v_date date; v_method text; v_reference text;
         v_event bigint; v_changes jsonb := '[]'::jsonb; v_before jsonb;
 BEGIN
-    IF EXISTS (SELECT 1 FROM sokhach.offset_pair p JOIN sokhach.receipt r ON r.id=p.target_receipt_id
+    IF (date IS NOT NULL OR method IS NOT NULL OR reference IS NULL) AND EXISTS (
+        SELECT 1 FROM sokhach.offset_pair p JOIN sokhach.receipt r ON r.id=p.target_receipt_id
         WHERE r.customer_id=edit_receipt_meta.customer_id AND r.pid=edit_receipt_meta.pid)
     THEN RAISE EXCEPTION 'OFFSET_PAIR_REQUIRED'; END IF;
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
@@ -733,17 +739,18 @@ BEGIN
     v_method := coalesce(method,v_receipt.method);
     IF v_method NOT IN ('THU TIỀN','CẤN TRỪ','ỨNG TRƯỚC','KHÁC')
        THEN RAISE EXCEPTION 'INVALID_METHOD'; END IF;
-    IF (v_date,v_method) IS NOT DISTINCT FROM (v_receipt.date,v_receipt.method)
+    v_reference := CASE WHEN reference IS NULL THEN v_receipt.reference ELSE nullif(btrim(reference),'') END;
+    IF (v_date,v_method,v_reference) IS NOT DISTINCT FROM (v_receipt.date,v_receipt.method,v_receipt.reference)
        THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
     v_before := sokhach._lines(v_receipt.id);
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'receipt_edit',sokhach._actor(),
         jsonb_build_object('receipt',v_receipt.id,'pid',pid,'date',v_receipt.date,
-            'method',v_receipt.method,'allocations',v_before),
+            'method',v_receipt.method,'reference',v_receipt.reference,'allocations',v_before),
         jsonb_build_object('receipt',v_receipt.id,'pid',pid,'date',v_date,
-            'method',v_method,'allocations',v_before),idempotency_key)
+            'method',v_method,'reference',v_reference,'allocations',v_before),idempotency_key)
     RETURNING id INTO v_event;
-    UPDATE sokhach.receipt SET date=v_date,method=v_method,meta_changed_by_event=v_event
+    UPDATE sokhach.receipt SET date=v_date,method=v_method,reference=v_reference,meta_changed_by_event=v_event
     WHERE id=v_receipt.id;
     IF v_date IS DISTINCT FROM v_receipt.date THEN
         v_changes := sokhach.reallocate(customer_id,idempotency_key);
@@ -751,7 +758,10 @@ BEGIN
         PERFORM sokhach._check_allocations(customer_id);
     END IF;
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
-        jsonb_build_object('receipt_id',v_receipt.id,'pid',pid,'reallocated',v_changes));
+        jsonb_build_object('receipt_id',v_receipt.id,'pid',pid,'reallocated',v_changes,
+            'duplicate_reference',EXISTS (SELECT 1 FROM sokhach.receipt r
+                WHERE r.customer_id=edit_receipt_meta.customer_id AND r.id<>v_receipt.id
+                  AND r.reference=v_reference)));
 END $$;
 
 CREATE FUNCTION sokhach.void_receipt(customer_id bigint, expected_version bigint,
@@ -798,12 +808,20 @@ CREATE FUNCTION sokhach.set_month_lock(customer_id bigint, expected_version bigi
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_payload jsonb := jsonb_build_object('command','set_month_lock','month',month,'locked',locked);
-        v_retry jsonb;
+        v_retry jsonb; v_before boolean;
 BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
     IF month IS NULL OR extract(day FROM month) <> 1 OR locked IS NULL
        THEN RAISE EXCEPTION 'INVALID_MONTH_LOCK'; END IF;
+    SELECT coalesce((SELECT ms.locked FROM sokhach.month_state ms
+        WHERE ms.customer_id=set_month_lock.customer_id AND ms.month=set_month_lock.month),
+        month<>date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+    INTO v_before;
+    INSERT INTO sokhach.event(customer_id,kind,actor,at,"before","after",idempotency_key)
+    VALUES (customer_id,'month_lock',sokhach._actor(),clock_timestamp(),
+        jsonb_build_object('month',month,'locked',v_before),
+        jsonb_build_object('month',month,'locked',locked),idempotency_key);
     INSERT INTO sokhach.month_state(customer_id,month,locked,changed_by,changed_at)
     VALUES (customer_id,month,locked,sokhach._actor(),clock_timestamp())
     ON CONFLICT ON CONSTRAINT month_state_pkey DO UPDATE SET locked=excluded.locked,
@@ -1270,10 +1288,12 @@ BEGIN
 END $$;
 
 CREATE FUNCTION sokhach.record_offset(target_customer_id bigint,target_version bigint,
-    source_customer_id bigint,source_version bigint,idempotency_key text,date date,amount_vnd bigint)
+    source_customer_id bigint,source_version bigint,idempotency_key text,date date,amount_vnd bigint,
+    reference text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_payload jsonb:=jsonb_build_object('command','record_offset','target',target_customer_id,
-        'source',source_customer_id,'date',date,'amount_vnd',amount_vnd);
+        'source',source_customer_id,'date',date,'amount_vnd',amount_vnd)
+        || CASE WHEN reference IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('reference',reference) END;
     v_retry jsonb; v_credit numeric; v_receipt jsonb; v_pair sokhach.offset_pair%ROWTYPE;
     v_event bigint; v_id bigint; v_pid text; v_changes jsonb;
 BEGIN
@@ -1295,7 +1315,7 @@ BEGIN
     v_id:=nextval(pg_get_serial_sequence('sokhach.offset_pair','id'));
     v_pid:=sokhach._next_pid(source_customer_id);
     v_receipt:=sokhach.record_receipt(target_customer_id,target_version,
-        chr(31)||'offset:'||v_id||':record',date,'CẤN TRỪ',amount_vnd);
+        chr(31)||'offset:'||v_id||':record',date,'CẤN TRỪ',amount_vnd,reference);
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (source_customer_id,'receipt',sokhach._actor(),'{}',jsonb_build_object(
         'receipt',v_pid,'offset_pair_id',v_id,'pid',v_pid,'date',date,
@@ -1419,11 +1439,11 @@ GRANT EXECUTE ON FUNCTION sokhach.paste_trips(bigint,bigint,text,date,jsonb) TO 
 GRANT EXECUTE ON FUNCTION sokhach.edit_trip_price(bigint,bigint,text,bigint,bigint,bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.adjust_month(bigint,bigint,text,date,bigint,text) TO sokhach_app;
-GRANT EXECUTE ON FUNCTION sokhach.record_receipt(bigint,bigint,text,date,text,bigint) TO sokhach_app;
-GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.record_receipt(bigint,bigint,text,date,text,bigint,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.set_month_lock(bigint,bigint,text,date,boolean) TO sokhach_app;
-GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_app, sokhach_reader;
