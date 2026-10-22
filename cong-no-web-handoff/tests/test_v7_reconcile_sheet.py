@@ -141,6 +141,60 @@ class ReconcileSheetTest(unittest.TestCase):
         self.assertIn("DOI SOAT: DAT", output)
         self.assertIn("CHI_LECH_THANG: #1", output)
 
+    def test_totals_only_ignores_month_distribution(self):
+        self.web_books["Khach gia A"] = [0, 300]
+        self.inputs()
+        self.assertEqual(self.run_tool_stdout("--totals-only"), (0, ""))
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "KHOP")
+        self.assertEqual(self.report("reconcile_month.csv"), [])
+        self.assertEqual(self.summary()["comparison_scope"], "customer_totals")
+
+    def test_totals_only_still_rejects_unknown_total(self):
+        self.inputs()
+        raw = json.loads((self.web / "Khach gia A.json").read_text())
+        raw["total_outstanding_vnd"] = None
+        self.write_ledger("Khach gia A", raw)
+        self.assertEqual(self.run_tool_stdout("--totals-only"), (1, ""))
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "THIEU_SO")
+
+    def test_totals_only_reports_match_difference_and_both_missing_sides(self):
+        self.sheet_books = {"Khach gia A": [100, 200], "Khach gia B": [400], "Khach gia C": [500]}
+        self.web_books = {"Khach gia A": [300], "Khach gia B": [401], "Khach gia D": [600]}
+        self.inputs()
+        code, output = self.run_tool_stdout("--totals-only", "--brief")
+        self.assertEqual(code, 1)
+        rows = {r["customer"]: (r["status"], r["difference_vnd"]) for r in self.report("reconcile_customer.csv")}
+        self.assertEqual(rows, {"Khach gia A": ("KHOP", "0"), "Khach gia B": ("LECH_TONG", "1"),
+                                "Khach gia C": ("CHI_CO_SHEET", ""), "Khach gia D": ("CHI_CO_WEB", "")})
+        self.assertIn("DOI SOAT: KHONG DAT", output)
+        for secret in (*self.sheet_books, *self.web_books, "300", "400", "401", "500", "600"):
+            self.assertNotIn(secret, output)
+        self.assertEqual(self.report("reconcile_month.csv"), [])
+
+    def test_totals_only_blank_month_does_not_override_known_total(self):
+        self.inputs()
+        raw = json.loads((self.web / "Khach gia A.json").read_text())
+        raw["months"][0]["outstanding_vnd"] = None
+        self.write_ledger("Khach gia A", raw)
+        self.assertEqual(self.run_tool_stdout("--totals-only"), (0, ""))
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "KHOP")
+
+    def test_totals_only_no_baseline_and_blank_sheet_are_unknown(self):
+        self.inputs()
+        for side in ("sheet", "web"):
+            with self.subTest(side=side):
+                self.out = self.root / ("unknown-" + side)
+                self.csv(self.sheet / "clean_customers.csv", ["customer", "anchor_vnd"],
+                         [{"customer": "Khach gia A", "anchor_vnd": "" if side == "sheet" else "300"}])
+                if side == "web":
+                    self.write_ledger("Khach gia A", {"customer_id": 1, "status": "NO_BASELINE",
+                                                    "months": [], "total_outstanding_vnd": "0"})
+                self.assertEqual(self.run_tool_stdout("--totals-only"), (1, ""))
+                row = self.report("reconcile_customer.csv")[0]
+                expected = ("", "300") if side == "sheet" else ("300", "")
+                self.assertEqual((row["status"], row["difference_vnd"]), ("THIEU_SO", ""))
+                self.assertEqual((row["sheet_total_vnd"], row["web_total_vnd"]), expected)
+
     def test_brief_success_and_input_error_stdout_empty(self):
         self.inputs()
         code, output = self.run_tool_stdout("--brief")
@@ -383,9 +437,10 @@ class ReconcileSheetTest(unittest.TestCase):
             thread.start()
             try:
                 address = f"http://127.0.0.1:{server.server_port}"
-                self.assertEqual(self.run_tool("--api", address), 0)
+                self.assertEqual(self.run_tool("--api", address, "--totals-only"), 0)
                 self.assertEqual(requests, list(responses))
                 self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "KHOP")
+                self.assertEqual(self.summary()["comparison_scope"], "customer_totals")
                 self.assertEqual(len(self.summary()["input_sha256"]["web"]), 2)
                 server.redirect = True
                 self.out = self.root / "redirect-output"
