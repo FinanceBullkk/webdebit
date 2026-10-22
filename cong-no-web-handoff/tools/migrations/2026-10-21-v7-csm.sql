@@ -1,4 +1,7 @@
--- V7-CSM (2), (3), 2026-10-21. Review/test only; never auto-deploy.
+-- V7-CSM (2), (3), 2026-10-21. Also folds in NEWTRIP-01 (#55, merged separately
+-- into main after this migration was drafted): paste_trips body replaced below
+-- so a DB upgraded with this file reaches the same function catalog as main.
+-- Review/test only; never auto-deploy.
 -- Run with psql -X -v ON_ERROR_STOP=1 -f this-file as schema administrator.
 -- Atomic upgrade of existing V7; no source import, no financial row rewrite.
 BEGIN;
@@ -404,6 +407,105 @@ BEGIN
         'target_receipt',v_receipt,'source_reallocated',v_changes));
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
 END $$;
+CREATE OR REPLACE FUNCTION sokhach.paste_trips(customer_id bigint, expected_version bigint,
+    idempotency_key text, debt_month date, trips jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_payload jsonb := jsonb_build_object('command','paste_trips','month',debt_month,'trips',trips);
+        v_retry jsonb; v_actor text; v_now timestamptz; v_ids jsonb := '[]'::jsonb;
+        v_item jsonb; v_id bigint; v_event bigint; v_rows jsonb := '[]'::jsonb;
+        v_changes jsonb; v_date date; v_unit bigint; v_fee bigint; v_date_text text;
+        v_fee_only boolean; v_cutover bigint; v_booking text; v_container text;
+        v_reason text; v_pending jsonb := '[]';
+BEGIN
+    v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+    IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+    PERFORM sokhach._baseline(customer_id);
+    SELECT cc.cutover_id INTO v_cutover FROM sokhach.cutover_customer cc
+        JOIN sokhach.cutover c ON c.id=cc.cutover_id
+        WHERE cc.customer_id=paste_trips.customer_id AND cc.status='active' AND c.status='active';
+    IF NOT EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref WHERE cutover_id=v_cutover)
+    THEN RAISE EXCEPTION 'BASELINE_REF_MISSING'; END IF;
+    v_now := clock_timestamp();
+    PERFORM sokhach._month_open(customer_id,debt_month,v_now);
+    IF jsonb_typeof(trips) IS DISTINCT FROM 'array' OR jsonb_array_length(trips)=0
+    THEN RAISE EXCEPTION 'INVALID_TRIPS'; END IF;
+    FOR v_item IN SELECT value FROM jsonb_array_elements(trips) LOOP
+        v_fee_only := nullif(v_item->>'container','') IS NULL
+            AND v_item->>'unitPriceVnd' IS NULL AND v_item->>'otherFeeVnd' IS NOT NULL;
+        IF jsonb_typeof(v_item) <> 'object'
+           OR (NOT v_fee_only AND (v_item->>'container' IS NULL
+             OR nullif(btrim(v_item->>'carrier'),'') IS NULL
+             OR nullif(btrim(v_item->>'from'),'') IS NULL
+             OR nullif(btrim(v_item->>'to'),'') IS NULL))
+        THEN RAISE EXCEPTION 'INVALID_TRIP'; END IF;
+        v_date_text := v_item->>'date';
+        IF v_item->>'unitPriceVnd'='-0' OR v_item->>'otherFeeVnd'='-0'
+        THEN RAISE EXCEPTION 'INVALID_VND'; END IF;
+        IF (v_date_text IS NULL AND NOT v_fee_only)
+           OR (v_date_text IS NOT NULL AND v_date_text !~ '^[0-9]{2}/[0-9]{2}/[0-9]{4}$')
+           OR (v_item->>'unitPriceVnd' IS NOT NULL AND (v_item->>'unitPriceVnd') !~ '^[0-9]+$')
+           OR (v_item->>'otherFeeVnd' IS NOT NULL AND (v_item->>'otherFeeVnd') !~ '^[0-9]+$')
+        THEN RAISE EXCEPTION 'INVALID_TRIP_INPUT'; END IF;
+        v_date := CASE WHEN v_date_text IS NULL THEN NULL ELSE to_date(v_date_text,'DD/MM/YYYY') END;
+        IF v_date_text IS NOT NULL AND to_char(v_date,'DD/MM/YYYY') <> v_date_text
+        THEN RAISE EXCEPTION 'INVALID_TRIP_DATE'; END IF;
+        BEGIN
+            v_unit := (v_item->>'unitPriceVnd')::bigint;
+            v_fee := (v_item->>'otherFeeVnd')::bigint;
+        EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND'; END;
+        -- ponytail: cap is signed bigint until business VND limit is decided.
+        IF v_unit < 0 OR v_fee < 0 OR
+           coalesce(v_unit,0)::numeric+coalesce(v_fee,0)::numeric>9223372036854775807
+        THEN RAISE EXCEPTION 'INVALID_VND'; END IF;
+        v_reason := NULL;
+        IF NOT v_fee_only THEN
+            v_container := sokhach._normalize_key(v_item->>'container');
+            v_booking := sokhach._booking_key(v_item->>'booking',v_container,v_date);
+            IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
+                AND r.booking_norm=v_booking AND r.container_norm=v_container)
+            THEN v_reason := 'BASELINE_CODE_MATCH';
+            ELSIF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
+                AND r.container_norm=v_container AND abs(r.event_date-v_date)<=3)
+            THEN v_reason := 'BASELINE_DATE_WINDOW';
+            ELSIF EXISTS (SELECT 1 FROM sokhach.trip t WHERE t.customer_id=paste_trips.customer_id
+                AND sokhach._normalize_key(t.container)=v_container
+                AND (sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking
+                    OR abs(t.event_date-v_date)<=3))
+            THEN v_reason := 'WEB_DUPLICATE';
+            ELSIF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) r
+                WHERE sokhach._normalize_key(r->>'container')=v_container
+                AND (sokhach._booking_key(r->>'booking',r->>'container',(r->>'event_date')::date)=v_booking
+                    OR abs((r->>'event_date')::date-v_date)<=3))
+            THEN v_reason := 'BATCH_DUPLICATE'; END IF;
+        END IF;
+        v_id := nextval(pg_get_serial_sequence('sokhach.trip','id'));
+        IF v_reason IS NOT NULL THEN
+            v_pending := v_pending || jsonb_build_array(jsonb_build_object('trip_id',v_id,'reason',v_reason));
+        END IF;
+        v_ids := v_ids || jsonb_build_array(v_id);
+        v_rows := v_rows || jsonb_build_array(v_item || jsonb_build_object(
+            'trip_id',v_id,'debt_month',debt_month,'event_date',v_date,
+            'status',CASE WHEN v_reason IS NULL THEN 'confirmed' ELSE 'pending_review' END));
+    END LOOP;
+    v_actor := sokhach._actor();
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+    VALUES (customer_id,'paste',v_actor,'{}',jsonb_build_object('trips',v_rows),idempotency_key)
+    RETURNING id INTO v_event;
+    FOR v_item IN SELECT value FROM jsonb_array_elements(v_rows) LOOP
+        INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,carrier,
+            origin,destination,note,source_ref,created_by_event,booking,status) OVERRIDING SYSTEM VALUE
+        VALUES ((v_item->>'trip_id')::bigint,customer_id,debt_month,(v_item->>'event_date')::date,
+            v_item->>'container',v_item->>'carrier',v_item->>'from',v_item->>'to',
+            v_item->>'note',v_item->>'src',v_event,v_item->>'booking',v_item->>'status');
+        INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
+        VALUES ((v_item->>'trip_id')::bigint,customer_id,
+            (v_item->>'unitPriceVnd')::bigint,(v_item->>'otherFeeVnd')::bigint,v_event);
+    END LOOP;
+    v_changes := sokhach.reallocate(customer_id,idempotency_key);
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
+        jsonb_build_object('trip_ids',v_ids,'reallocated',v_changes,'pending_review',v_pending));
+END $$;
+
 COMMENT ON TABLE sokhach.month_state IS 'Cờ ghi đè; thiếu hàng thì chỉ tháng hiện tại theo Asia/Ho_Chi_Minh mở. Mở/khóa ghi event theo V7-CSM.';
 COMMENT ON COLUMN sokhach.receipt.reference IS 'V7-CSM: optional text; duplicate warns only; blank stored as NULL.';
 COMMENT ON TABLE sokhach.event IS 'Vết chỉ thêm trước/sau; gồm mở/khóa tháng.';
