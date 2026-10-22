@@ -200,7 +200,24 @@ jobs:
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
+      - name: Install Playwright Chromium
+        timeout-minutes: 10
+        run: npx playwright install chromium
+      # ubuntu-latest đã có sẵn thư viện Chromium cần; `--with-deps` chỉ tải thêm font và nâng
+      # gói qua mirror apt, có lần treo quá 20 phút (run 39806153709, 22/10/2026). Nên chỉ gọi
+      # apt khi Chromium không mở được: mỗi lượt tối đa 4 phút, thử lại một lần.
+      - name: Playwright system deps (only if Chromium cannot launch)
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: |
+          if node -e "require('playwright').chromium.launch().then(b => b.close())"; then
+            echo "Chromium mở được, bỏ qua apt."; exit 0
+          fi
+          for i in 1 2; do
+            timeout -k 30 240 npx playwright install-deps chromium && exit 0
+            echo "::warning::playwright install-deps lượt $i lỗi hoặc quá 4 phút"
+          done
+          exit 1
       # Gọi thẳng `node scripts/check.js` (chính là `npm run check`): trên
       # windows-latest, `uv run` không spawn được `npm` vì đó là file npm.cmd.
       - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
