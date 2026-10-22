@@ -156,7 +156,7 @@ CREATE TABLE sokhach.trip (
     event_date date,
     container text,
     booking text,
-    status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','pending_review')),
+    status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','pending_review','rejected')),
     CONSTRAINT trip_missing_date_fee_only CHECK (event_date IS NOT NULL OR container IS NULL OR container = ''),
     carrier text,
     origin text,
@@ -266,7 +266,7 @@ CREATE TABLE sokhach.event (
     customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
     kind text NOT NULL CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
-        'customer_attr')),
+        'customer_attr', 'trip_review')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -288,6 +288,8 @@ CREATE TABLE sokhach.event (
         WHEN 'void' THEN "before" ? 'receipt' AND "after" ? 'receipt'
         WHEN 'reallocation' THEN "before" ? 'allocations' AND "after" ? 'allocations'
         WHEN 'customer_attr' THEN "before" ? 'customer' AND "after" ? 'customer'
+        WHEN 'trip_review' THEN "before"->>'status' = 'pending_review' AND "after" ? 'trip'
+            AND "after"->>'status' IN ('confirmed','rejected') AND btrim(coalesce("after"->>'review_reason','')) <> ''
         ELSE false END),
     UNIQUE (id, customer_id)
 );
@@ -302,6 +304,13 @@ ALTER TABLE sokhach.trip ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_created_event_fk
     FOREIGN KEY (created_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_event_customer_unique UNIQUE (id, customer_id);
+ALTER TABLE sokhach.trip ADD COLUMN reviewed_by_event bigint;
+ALTER TABLE sokhach.trip ADD CONSTRAINT trip_review_event_fk
+    FOREIGN KEY (reviewed_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
+ALTER TABLE sokhach.trip ADD CONSTRAINT trip_review_state
+    CHECK ((status <> 'pending_review' OR reviewed_by_event IS NULL)
+       AND (status <> 'rejected' OR reviewed_by_event IS NOT NULL));
+COMMENT ON COLUMN sokhach.trip.reviewed_by_event IS 'Event kết luận CHỜ KIỂM (NEWTRIP-01); chỉ đổi một lần từ pending_review sang confirmed/rejected.';
 ALTER TABLE sokhach.trip_price_rev ADD COLUMN customer_id bigint NOT NULL;
 ALTER TABLE sokhach.trip_price_rev ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.trip_price_rev ADD CONSTRAINT price_trip_customer_fk
@@ -409,8 +418,19 @@ CREATE TRIGGER baseline_trip_ref_immutable BEFORE UPDATE OR DELETE ON sokhach.ba
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER event_immutable BEFORE UPDATE OR DELETE ON sokhach.event
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
+-- Chuyến chỉ thêm; ngoại lệ duy nhất là kết luận CHỜ KIỂM một lần (NEWTRIP-01).
+CREATE FUNCTION sokhach.guard_trip_change() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND OLD.status = 'pending_review' AND OLD.reviewed_by_event IS NULL
+       AND NEW.status IN ('confirmed', 'rejected') AND NEW.reviewed_by_event IS NOT NULL
+       AND to_jsonb(OLD) - 'status' - 'reviewed_by_event' = to_jsonb(NEW) - 'status' - 'reviewed_by_event' THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'immutable row: %.%', TG_TABLE_SCHEMA, TG_TABLE_NAME;
+END $$;
 CREATE TRIGGER trip_immutable BEFORE UPDATE OR DELETE ON sokhach.trip
-    FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
+    FOR EACH ROW EXECUTE FUNCTION sokhach.guard_trip_change();
 CREATE TRIGGER trip_price_rev_immutable BEFORE UPDATE OR DELETE ON sokhach.trip_price_rev
     FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change();
 CREATE TRIGGER adjustment_immutable BEFORE UPDATE OR DELETE ON sokhach.adjustment
