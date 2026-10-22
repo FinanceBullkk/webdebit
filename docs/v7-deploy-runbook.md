@@ -661,7 +661,7 @@ systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. 
 hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
 Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.
 
-## M2-11 — nâng DB đang có (phần B, ĐỀ XUẤT, chưa chạy hao)
+## M2-11 — nâng DB đang có (phần B, đã chạy trên hao trước đợt nâng 22/10/2026)
 
 Người dùng cho phép chuẩn bị; Claude review, người dùng merge, Claude triển khai sau gate riêng.
 Bước này nâng `webdebit_v7` đã có schema, không chạy lại schema-draft và không đụng `webdebit_ledger`.
