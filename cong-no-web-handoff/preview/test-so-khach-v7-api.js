@@ -471,3 +471,66 @@ test('loadOffsetSources and readOther read without touching the open book snapsh
   assert.equal(api.snapshot().version, 2);
   await assert.rejects(api.readOther(4), /không hợp lệ/);
 });
+
+test('CHỜ KIỂM: nút bấm được, rejected ghi ĐÃ LOẠI và không sửa được', async () => {
+  const trips = [
+    { id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', review_reason: 'WEB_DUPLICATE', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
+    { id: 2, month: '2026-10-01', container: 'FAKE-GONE', status: 'rejected', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
+    { id: 3, month: '2026-10-01', container: 'FAKE-OK', status: 'confirmed', unit_price_vnd: '100', other_fee_vnd: '5', amount_vnd: '105' }];
+  const { root } = await livePage({ ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '105' }], trips });
+  assert.match(root.innerHTML, /<button type="button" class="review-open" data-trip="1"[^>]*>CHỜ KIỂM<\/button>/);
+  assert.doesNotMatch(root.innerHTML, /review-open" data-trip="[23]"/);
+  assert.match(root.innerHTML, /<td class="num trip-rejected">ĐÃ LOẠI<\/td>/);
+  assert.doesNotMatch(root.innerHTML, /data-trip="2"/);
+  assert.match(root.innerHTML, /1 chuyến CHỜ KIỂM/);
+});
+
+test('CHỜ KIỂM: mở/đóng dòng kết luận, lý do trống không gửi, gửi đúng payload hai quyết định', async () => {
+  const trips = [{ id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', review_reason: 'BASELINE_DATE_WINDOW', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null }];
+  const { root, listeners } = await livePage({ ...ledger(4), months: [{ month: '2026-10-01', outstanding_vnd: '0' }], trips });
+  const sent = [];
+  root.fetcher = async (path, options) => {
+    if (options?.method === 'POST') { sent.push({ path, body: JSON.parse(options.body) }); return reply(200, {}); }
+    return reply(200, { ...ledger(5), trips });
+  };
+  let prompts = [];const opens = [];
+  const tripRow = { nextElementSibling: null, insertAdjacentHTML(_where, html) { this.nextElementSibling = promptRow(html); prompts = [this.nextElementSibling]; } };
+  const input = { value: '', focus() {} };
+  const error = { textContent: '' };
+  const promptRow = html => ({ html, dataset: { trip: '1' }, classList: { contains: name => name === 'review-prompt' }, remove() { prompts = []; tripRow.nextElementSibling = null; },
+    querySelector: selector => selector === '.review-reason' ? input : selector === '.review-error' ? error : null });
+  const button = { dataset: { trip: '1' }, closest: () => tripRow, setAttribute(_n, value) { opens.push(value); } };
+  root.querySelectorAll = selector => selector === '.review-prompt' ? prompts.slice() : [button];
+  const click = target => listeners.click({ target: { closest: selector => target === selector ? (selector === '.review-open' ? button : prompts[0] ?? null) : (selector === '.review-prompt' && prompts[0] && target !== '.review-open' ? prompts[0] : null) } });
+
+  await click('.review-open');
+  assert.equal(prompts.length, 1);
+  for (const text of ['Chuyến FAKE-HELD đang CHỜ KIỂM', 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc', 'Lý do kết luận', 'Tính vào sổ', 'Loại, không tính', 'Thôi']) assert.ok(prompts[0].html.includes(text), text);
+  assert.match(prompts[0].html, /maxlength="500"/);
+  await click('.review-open');
+  assert.equal(prompts.length, 0, 'bấm lần nữa thì đóng');
+  await click('.review-open');
+  await click('.review-cancel');
+  assert.equal(prompts.length, 0, 'Thôi đóng dòng');
+  await click('.review-open');
+
+  await click('.review-confirm');
+  assert.equal(error.textContent, 'Cần nhập lý do kết luận');
+  assert.equal(sent.length, 0);
+  input.value = '   ';
+  await click('.review-reject');
+  assert.equal(sent.length, 0);
+
+  input.value = '  đúng là chuyến mới  ';
+  await click('.review-confirm');
+  input.value = 'trùng sổ gốc';
+  await click('.review-reject');
+  assert.deepEqual(sent.map(item => item.path), ['/api/v7/trips/review', '/api/v7/trips/review']);
+  assert.deepEqual(sent.map(({ body }) => Object.fromEntries(Object.entries(body).filter(([name]) => name !== 'idempotency_key'))), [
+    { customer_id: 7, expected_version: 4, trip_id: 1, decision: 'confirm', reason: 'đúng là chuyến mới' },
+    { customer_id: 7, expected_version: 5, trip_id: 1, decision: 'reject', reason: 'trùng sổ gốc' }]);
+  input.value = 'x'.repeat(501);
+  await click('.review-confirm');
+  assert.equal(error.textContent, 'Lý do tối đa 500 ký tự');
+  assert.equal(sent.length, 2);
+});
