@@ -90,6 +90,8 @@ Dán **một ô** (không có Tab, không xuống dòng) thì chỉ vào đúng 
 
 ## Khi code vào trang live (sau khi duyệt)
 
+Backend cho sửa trường chữ/ngày, xóa chuyến và sửa/xóa dòng sổ gốc: [`v7-sua-xoa-chuyen.md`](v7-sua-xoa-chuyen.md).
+
 Map thao tác → module → kiểm:
 
 | Thao tác | Module | Kiểm |
