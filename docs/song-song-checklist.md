@@ -50,7 +50,7 @@ Runbook cấm ghi phiếu thử trên dữ liệu thật, nên mục D nghiệm 
 
 | # | Việc | Mức | Ai | Bằng chứng cần có | Trạng thái 22/10 |
 | --- | --- | --- | --- | --- | --- |
-| E1 | Hàm kết luận CHỜ KIỂM → `confirmed` (hoặc loại bỏ) có lý do ([`NEWTRIP-01`](decisions.md#newtrip-01)) | Chặn | Claude spec, Codex code, Admin triển khai | Test PostgreSQL xanh trên CI, đợt nâng theo runbook | CHƯA có hàm. Không có nó, chuyến nghi trùng nằm ngoài số dư mãi và đối soát tổng khách lệch không sửa được |
+| E1 | Kết luận chuyến CHỜ KIỂM: tính vào sổ hoặc loại, có lý do ([`NEWTRIP-01`](decisions.md#newtrip-01), [spec](../specs/v7-trip-review.md)) | Chặn | Claude spec + code, Người dùng duyệt luồng giao diện, Admin triển khai | Test PostgreSQL xanh trên CI; đợt nâng theo runbook (migration `2026-10-22-v7-trip-review.sql`); một lần kết luận thật trên `hao` có dòng Lịch sử | **Backend/API ĐÃ CODE** trên `main` (PR #63, #64, CI xanh). CHƯA: nút trên giao diện (chờ duyệt luồng), triển khai `hao`. Chưa xong thì chuyến nghi trùng vẫn nằm ngoài số dư và đối soát tổng khách lệch không sửa được |
 
 ## F. Chốt và khởi động
 
