@@ -661,6 +661,19 @@ systemd/Serve/GET/đối soát thực tế ở bước 5–6 sau deploy riêng. 
 hao vẫn gọi được loopback và nằm trong ranh giới tin cậy Serve của V7-ID bản thử.
 Gate V7-CSM chưa triển khai vẫn cần điều phối; không báo sẵn sàng production từ CI xanh.
 
+## Giao diện sửa/xóa tại ô — chỉ đổi release app (ĐÃ CHẠY trên hao 22/10/2026)
+
+**Đã triển khai 22/10/2026** (commit `a72712b`, PR #71, CI xanh đúng SHA sau khi chạy lại job
+`postgres-v7-grants-direct` lỗi hạ tầng "database system is starting up"). Chỉ đổi 4 file
+`cong-no-web-handoff/preview/so-khach-v7-*` (giao diện nối 4 route NHAP-SHEET-01 đã có từ đợt trước);
+không migration, không đổi API/SQL. Trình tự: backup `webdebit_v7` và restore thử vào DB mới
+(số dư từng khách khớp); gói release mới từ `git archive` đúng commit, kiểm hash; diff với release
+đang chạy chỉ có các file preview dự kiến; đổi đường dẫn release trong unit, `daemon-reload`, restart.
+Đạt: service active chạy từ release mới, checker OK (236 khách, 877 kỳ), số dư 236/236 khách không đổi,
+không có event/chuyến/phiếu mới, trang live tải giao diện mới. Không ghi thử trên sổ thật nên
+**chưa kiểm** sửa/xóa qua giao diện với dữ liệu thật. Rollback: trả đường dẫn release cũ trong unit
+(bản unit trước lưu ở thư mục evidence), `daemon-reload`, restart; DB không cần restore.
+
 ## Kết luận CHỜ KIỂM — nâng DB đang có (ĐÃ CHẠY trên hao 22/10/2026)
 
 Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,
