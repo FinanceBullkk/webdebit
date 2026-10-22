@@ -151,6 +151,13 @@
     // is text typed in the Sheet ("da tt") and is shown as typed.
     const rawDay = value => value ?? '';
     const moneyCell = value => /^-?\d+$/.test(value ?? '') ? fmt(value) : (value ?? '');
+    // NHAP-SHEET-01: mọi ô chuyến (web và sổ gốc) sửa đè tại ô, kể cả tháng khóa; bấm STT để xóa hẳn.
+    const fieldNames = { container: 'số container', carrier: 'hãng tàu / số xe', event_date: 'ngày chuyến', origin: 'nơi đi',
+      destination: 'nơi đến', unit_price_vnd: 'đơn giá', other_fee_vnd: 'phụ phí' };
+    const infoCell = (kind, id, field, text, classes = '') =>
+      `<td class="info-edit ${classes}" data-kind="${kind}" data-id="${escape(id)}" data-field="${field}" tabindex="0" role="button" aria-label="Sửa ${fieldNames[field]}">${escape(text)}</td>`;
+    const deleteCell = (kind, id, text, what) =>
+      `<td class="row-delete" data-kind="${kind}" data-id="${escape(id)}" tabindex="0" role="button" aria-label="Xóa hẳn ${escape(what)}" title="Bấm để xóa hẳn dòng này">${escape(text)}</td>`;
     const legacyLines = rows => {
       const byRow = new Map();
       for (const row of rows) {
@@ -161,19 +168,51 @@
       }
       return [...byRow.values()].map(({ trip, receipt }) => {
         const t = trip?.d ?? {}, r = receipt?.d ?? {};
-        const tripCells = trip
+        const cur = trip?.editable && trip.current ? trip.current : null;
+        const stt = String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1');
+        // Ô trống trong `current` nghĩa là bản gốc không đọc được thành số/ngày: hiện chữ Sheet, trừ khi đã bị xóa giá.
+        const unitText = cur?.unit_price_vnd != null ? [fmt(cur.unit_price_vnd), '']
+          : /^\d+$/.test(t.unit_price ?? '') || !t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? ['chưa có giá', 'missing'] : [moneyCell(t.unit_price), ''];
+        const tripCells = cur
+          ? `${deleteCell('legacy', trip.id, stt || '–', `dòng sổ gốc ${cur.container || 'phí lẻ'}`)}${infoCell('legacy', trip.id, 'container', cur.container || 'Phí lẻ')}${infoCell('legacy', trip.id, 'carrier', cur.carrier ?? '')}${infoCell('legacy', trip.id, 'event_date', cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${infoCell('legacy', trip.id, 'origin', cur.origin ?? '')}${infoCell('legacy', trip.id, 'destination', cur.destination ?? '')}${infoCell('legacy', trip.id, 'unit_price_vnd', unitText[0], `num ${unitText[1]}`)}${infoCell('legacy', trip.id, 'other_fee_vnd', cur.other_fee_vnd != null ? fmt(cur.other_fee_vnd) : /^\d+$/.test(t.fee_vnd ?? '') ? '' : moneyCell(t.fee_vnd), 'num')}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
+          : trip
           ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${num(moneyCell(t.fee_vnd))}${num(fmt(trip.source_total_vnd))}`
           : `${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty('num')}${empty('num')}${empty('num')}`;
         const payCells = receipt
           // Payment form is not inferred from the note (V7-MIG still open); show the note once.
           ? `${cell(r.raw_date ?? '', 'pay pay-start')}${cell(r.note && r.note !== r.raw_date ? r.note : '', 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
           : `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`;
-        return `<tr class="legacy" title="Từ sổ gốc, đã nằm trong số dư đầu">${tripCells}${payCells}${empty('num')}</tr>`;
+        return `<tr class="legacy" title="Từ sổ gốc, đã nằm trong số dư đầu${cur ? '; sửa/xóa thì phần chênh ghi ở dòng điều chỉnh' : ''}">${tripCells}${payCells}${empty('num')}</tr>`;
       }).join('');
     };
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
-      void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM' };
+      void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
+      trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc' };
+    const reviewReasonText = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
+      WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
+    const cellText = (field, value) => value === null || value === undefined || value === '' ? '–'
+      : field === 'event_date' ? dateText(value) : field.endsWith('_vnd') ? fmt(value) : String(value);
+    // Một ô trước → sau, kèm chuyển tháng và số tính của dòng sổ gốc nếu đổi.
+    function describeCellEvent(event) {
+      const legacy = event.kind.startsWith('legacy');
+      const before = (legacy ? event.before?.legacy : event.before?.trip) ?? {};
+      const after = (legacy ? event.after?.legacy : event.after?.trip) ?? {};
+      // Sự kiện sửa ô chuyến web chỉ mang id: lấy container từ sổ đang xem (chuyến đã xóa có ảnh đủ ở `before`).
+      const known = legacy ? null : (snapshot?.trips ?? []).find(row => String(row.id) === String(before.id ?? after.id));
+      const who = `${legacy ? 'Dòng sổ gốc' : 'Chuyến'} ${before.container || after.container || known?.container || '–'}`;
+      if (event.kind.endsWith('_delete')) {
+        const amount = legacy ? before.counted_vnd : before.amount_vnd;
+        return `${who} · ${cellText('event_date', before.event_date)} · tháng ${monthLabel(monthKey(before.month ?? before.debt_month))} · ${legacy ? 'Số đang tính' : 'Thành tiền'}: ${fmt(amount)}`;
+      }
+      const field = after.field ?? before.field;
+      const parts = [`${who} · ${{ origin: 'Nơi đi', destination: 'Nơi đến' }[field] ?? valueLabels[field] ?? 'Ô'}: ${cellText(field, before.value)} → ${cellText(field, after.value)}`];
+      const from = legacy ? before.month : event.after?.moved_from_month, to = legacy ? after.month : event.after?.moved_to_month;
+      if (from && to && monthKey(from) !== monthKey(to)) parts.push(`Chuyển tháng ${monthLabel(monthKey(from))} → ${monthLabel(monthKey(to))}`);
+      if (legacy && before.counted_vnd !== after.counted_vnd) parts.push(`Số tính: ${fmt(before.counted_vnd)} → ${fmt(after.counted_vnd)}`);
+      if (event.after?.review_reason) parts.push(`CHỜ KIỂM: ${reviewReasonText[event.after.review_reason] ?? 'Nghi trùng'}`);
+      return parts.join(' · ');
+    }
     const valueLabels = { amount_vnd: 'Số tiền', old_amount_vnd: 'Thành tiền trước', new_amount_vnd: 'Thành tiền sau',
       delta_vnd: 'Điều chỉnh', unit_price_vnd: 'Đơn giá', other_fee_vnd: 'Phụ phí', new_value_vnd: 'Giá trị mới',
       date: 'Ngày trả', event_date: 'Ngày chuyến', month: 'Tháng', debt_month: 'Tháng', pid: 'Phiếu',
@@ -205,6 +244,7 @@
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
         ? 'tính vào sổ' : 'loại, không tính'}`;
+      if (['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete'].includes(event.kind)) return describeCellEvent(event);
       if (event.kind !== 'adjust_trip') return `${describe(event.before, event.kind)} → ${describe(event.after, event.kind)}`;
       const before = event.before ?? {}, after = event.after ?? {};
       const field = after.field ?? before.field;
@@ -246,6 +286,11 @@
           void_reason: item.void_reason, voided_by_event: item.voided_by_event, line: { amount_vnd: item.amount_vnd, kind: 'offset' } });
         if (!groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
       }
+      // Đổi ngày sang tháng khác: chuyến/dòng sổ gốc tự sang bảng tháng đó, chưa có bảng thì bảng tự hiện.
+      for (const row of [...(data.trips ?? []), ...(data.legacy_rows ?? [])]) {
+        const key = monthKey(row.month);
+        if (key && !groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
+      }
       groups.sort((a, b) => monthKey(a.month).localeCompare(monthKey(b.month)));
       const offsetAttrs = receipt => receipt.offset_pair_id == null ? ''
         : ` data-pair="${escape(receipt.offset_pair_id)}" data-other="${escape(receipt.counterparty_customer_id)}" data-other-name="${escape(receipt.counterparty_name)}"`;
@@ -277,8 +322,13 @@
           const trip = trips[index], receipt = receipts[index];
           const pending = trip?.status === 'pending_review';
           const voided = receipt?.voided_by_event != null;
-          return `<tr>${trip && !trip.is_fee_only ? cell(index + 1) : empty()}
-            ${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}
+          const info = trip?.info_editable === true;
+          const infoCells = info
+            ? ['container', 'carrier', 'event_date', 'origin', 'destination'].map(field =>
+              infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('')
+            : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
+          return `<tr>${info ? deleteCell('trip', trip.id, trip.is_fee_only ? '–' : index + 1, `chuyến ${trip.container || 'phí lẻ'}`) : trip && !trip.is_fee_only ? cell(index + 1) : empty()}
+            ${infoCells}
             ${pending || trip?.status === 'rejected' ? num(fmt(trip.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
             ${pending || trip?.status === 'rejected' ? num(fmt(trip.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
             ${!trip ? empty('num') : pending ? `<td class="num review-cell"><button type="button" class="review-open" data-trip="${trip.id}" aria-expanded="false" aria-label="Kết luận chuyến ${escape(trip.container)} đang CHỜ KIỂM">CHỜ KIỂM</button></td>` : trip.status === 'rejected' ? '<td class="num trip-rejected">ĐÃ LOẠI</td>' : num(fmt(trip.amount_vnd))}
@@ -290,7 +340,12 @@
         const carried = 'Nợ tháng này còn lại khi chuyển sang web';
         const carriedNote = 'Đã trừ tiền thu trên sổ gốc, theo nợ cũ trước';
         const openingRows = historyOnly ? '' : opening.map(row => `<tr class="adjustment"><td colspan="8">${carried}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4">${carriedNote}</td></tr>`).join('');
-        const adjustmentRows = adjustments.map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
+        // Phần chênh do sửa/xóa dòng sổ gốc: một dòng mỗi tháng để phép cộng tháng nhìn thấy được.
+        const legacyAdjustments = adjustments.filter(row => row.legacy_row_id != null);
+        const legacyTotal = model.sumAdjustments(legacyAdjustments);
+        const legacyAdjustmentRow = legacyTotal === null ? ''
+          : `<tr class="adjustment legacy-adjustment"><td colspan="8">Điều chỉnh do sửa/xóa dòng sổ gốc tháng này</td>${num(model.formatVnd(legacyTotal))}<td class="pay pay-start" colspan="4"></td></tr>`;
+        const adjustmentRows = adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
         const voidRows = receipts.filter(row => row.voided_by_event != null).map(row =>
           `<tr class="void-trace"><td colspan="13">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
         const history = historical.get(key) ?? [];
@@ -299,11 +354,12 @@
         const sourceRow = history.length && source && (source.source_charge_vnd != null || source.source_cumulative_vnd != null)
           ? `<tr class="source-total"><td colspan="8">Theo sổ gốc (để đối chiếu, đã nằm trong số dư đầu) · Phát sinh</td>${num(fmt(source.source_charge_vnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(source.source_receipt_vnd), 'pay')}${num(fmt(source.source_cumulative_vnd))}</tr>`
           : '';
-        const legacyRows = history.length ? `<tr class="legacy-caption"><td colspan="13">Từ sổ gốc · đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại</td></tr>${legacyLines(history)}` : '';
+        const legacyEditable = history.some(row => row.editable && row.current);
+        const legacyRows = history.length ? `<tr class="legacy-caption"><td colspan="13">${legacyEditable ? 'Từ sổ gốc · đã nằm trong số dư đầu, không cộng lại · bấm ô để sửa, bấm STT để xóa; phần chênh ghi ở dòng điều chỉnh' : 'Từ sổ gốc · đã nằm trong số dư đầu, chỉ để đối chiếu, không cộng lại'}</td></tr>${legacyLines(history)}` : '';
         const paste = active && !locked ? `<tr class="paste-row"><td colspan="9"><label>Dán các dòng từ Sheet vào đây <textarea class="paste-input" data-month="${key}" rows="2" aria-label="Dán các dòng từ Sheet vào đây"></textarea></label><span class="paste-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>` : '';
         return `<section id="thang-${escape(key)}"><table class="ledger" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
           <tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><span class="badge ${locked ? '' : 'open'}">${locked ? 'Đã khóa' : 'Đang mở'}</span><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
-          ${openingRows}${lines}${adjustmentRows}${voidRows}${legacyRows}${paste}
+          ${openingRows}${lines}${adjustmentRows}${voidRows}${legacyRows}${legacyAdjustmentRow}${paste}
           <tr class="subtotal"><td colspan="8">${historyOnly ? `${carried} · ${carriedNote}` : `Cộng tháng ${monthLabel(key)} (${trips.length} chuyến) · Phát sinh`} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(item.charges_vnd))}${historyOnly ? '<td class="pay pay-start" colspan="3"></td>' : `<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(item.received_vnd), 'pay')}`}${num(fmt(item.end_of_month_vnd))}</tr>${sourceRow}<tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
       };
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${message || !active ? '' : 'hidden'}>${escape(message || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
@@ -518,8 +574,6 @@
       if (event.target.closest('.confirm-offset-void')) await confirmOffsetVoid(event.target.closest('tr'));
     });
     // CHỜ KIỂM (NEWTRIP-01): mở dòng kết luận ngay dưới chuyến, khuôn như hỏi lý do hủy phiếu.
-    const reviewReasons = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
-      WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
     const closeReview = () => {
       root.querySelectorAll('.review-prompt').forEach(item => item.remove());
       root.querySelectorAll('.review-open').forEach(item => item.setAttribute('aria-expanded', 'false'));
@@ -530,7 +584,7 @@
       closeReview();
       if (wasOpen) return;
       const trip = (snapshot?.trips ?? []).find(item => String(item.id) === button.dataset.trip);
-      const why = Object.hasOwn(reviewReasons, trip?.review_reason) ? reviewReasons[trip.review_reason] : 'Nghi trùng';
+      const why = Object.hasOwn(reviewReasonText, trip?.review_reason) ? reviewReasonText[trip.review_reason] : 'Nghi trùng';
       button.setAttribute('aria-expanded', 'true');
       row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="13"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.review-reason').focus();
@@ -543,7 +597,90 @@
       const result = await submit('tripReview', { trip_id: Number(promptRow.dataset.trip), decision, reason });
       if (result?.message) box.textContent = result.message;
     }
+    // ---- NHAP-SHEET-01: một ô = một lệnh; Enter/Tab/rời ô là lưu, Esc trả lại. Server chọn kỳ nợ và phân bổ lại. ----
+    const findRow = (kind, id) => kind === 'trip'
+      ? (snapshot?.trips ?? []).find(row => String(row.id) === id)
+      : (snapshot?.legacy_rows ?? []).find(row => String(row.id) === id);
+    const rowValues = (kind, row) => kind === 'trip' ? row : row?.current ?? {};
+    function startValue(kind, id, field) {
+      const value = rowValues(kind, findRow(kind, id))[field];
+      if (value === null || value === undefined) return '';
+      return field === 'event_date' ? dateText(value) : field.endsWith('_vnd') ? fmt(value) : String(value);
+    }
+    function openInfoEdit(td) {
+      if (td.querySelector('input')) return;
+      const { kind, id, field } = td.dataset;
+      const original = td.innerHTML;
+      const start = startValue(kind, id, field);
+      const hint = field === 'event_date' ? ' placeholder="dd/mm/yyyy" inputmode="numeric"' : field.endsWith('_vnd') ? ' inputmode="numeric"' : '';
+      td.innerHTML = `<input class="info-input${field.endsWith('_vnd') ? ' money-input' : ''}" aria-label="${escape(fieldNames[field][0].toUpperCase() + fieldNames[field].slice(1))} mới" value="${escape(start)}"${hint}><span class="cell-error" role="status"></span>`;
+      const input = td.querySelector('input');
+      input.focus(); input.select();
+      let state = 'editing';
+      const restore = () => { state = 'done'; td.innerHTML = original; };
+      const save = async () => {
+        if (state !== 'editing') return;
+        if (input.value.trim() === start.trim()) { restore(); return; }
+        const box = td.querySelector('.cell-error');
+        let value;
+        try { value = model.parseCellEdit(field, input.value, todayIso()); } catch (error) { box.textContent = error.message; return; }
+        const before = findRow(kind, id);
+        state = 'saving';
+        const result = kind === 'trip'
+          ? await submit('tripInfo', { trip_id: Number(id), field, value })
+          : await submit('legacyEdit', { legacy_row_id: Number(id), field, value });
+        if (result?.error === 'NO_CHANGE') { if (td.isConnected) restore(); return; }
+        if (result?.message) { state = 'editing'; if (td.isConnected) { box.textContent = result.message; input.focus(); } return; }
+        state = 'done';
+        // Sau khi lưu, sổ đã tải lại: báo những gì người dùng không thấy ngay trên dòng đang sửa.
+        const after = findRow(kind, id);
+        const notes = [];
+        if (before && after && monthKey(before.month) !== monthKey(after.month)) notes.push(`Đã chuyển sang tháng ${monthLabel(monthKey(after.month))}.`);
+        if (kind === 'trip' && after?.status === 'pending_review' && before?.status !== 'pending_review')
+          notes.push(`Chuyến thành CHỜ KIỂM, chưa tính vào số dư — ${reviewReasonText[after.review_reason] ?? 'nghi trùng'}.`);
+        if (notes.length) showNotice(`Đã lưu. ${notes.join(' ')}`);
+      };
+      input.addEventListener('keydown', keyEvent => {
+        if (keyEvent.key === 'Escape') { keyEvent.stopPropagation(); restore(); td.focus(); return; }
+        if (keyEvent.key === 'Enter') { keyEvent.preventDefault(); keyEvent.stopPropagation(); save(); }
+      });
+      // Tab hoặc bấm ra ngoài: lưu như Sheet; ô lỗi giữ nguyên ô nhập kèm lý do.
+      input.addEventListener('blur', () => { save(); });
+    }
+    function openDelete(td) {
+      const row = td.closest('tr');
+      const wasOpen = row.nextElementSibling?.classList.contains('delete-prompt');
+      root.querySelectorAll('.delete-prompt').forEach(item => item.remove());
+      if (wasOpen) return;
+      const { kind, id } = td.dataset;
+      const data = findRow(kind, id);
+      const values = rowValues(kind, data);
+      const amount = kind === 'trip'
+        ? data?.status === 'confirmed' || data?.status === undefined ? `thành tiền ${fmt(data?.amount_vnd)}` : 'chưa tính vào số dư'
+        : `đang tính ${fmt(values.counted_vnd)}`;
+      const what = `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
+      const extra = kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="13">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.nextElementSibling.querySelector('.cancel-delete').focus();
+    }
+    async function confirmDelete(promptRow) {
+      const { kind, id } = promptRow.dataset;
+      const result = kind === 'trip'
+        ? await submit('tripDelete', { trip_id: Number(id) })
+        : await submit('legacyDelete', { legacy_row_id: Number(id) });
+      if (result?.message && promptRow.isConnected) promptRow.querySelector('.delete-error').textContent = result.message;
+    }
     root.addEventListener('click', async event => {
+      const infoEdit = event.target.closest('td.info-edit');
+      if (infoEdit) { openInfoEdit(infoEdit); return; }
+      const rowDelete = event.target.closest('td.row-delete');
+      if (rowDelete) { openDelete(rowDelete); return; }
+      const deleteRow = event.target.closest('.delete-prompt');
+      if (deleteRow) {
+        if (event.target.closest('.cancel-delete')) { deleteRow.remove(); return; }
+        if (event.target.closest('.confirm-delete')) { event.target.disabled = true; await confirmDelete(deleteRow); event.target.disabled = false; return; }
+        return;
+      }
       const reviewOpen = event.target.closest('.review-open');
       if (reviewOpen) { openReview(reviewOpen); return; }
       const reviewRow = event.target.closest('.review-prompt');
@@ -626,7 +763,7 @@
     });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
-      if (event.target.matches('td.editable,td.receipt')) { event.preventDefault(); event.target.click(); return; }
+      if (event.target.matches('td.editable,td.receipt,td.info-edit,td.row-delete')) { event.preventDefault(); event.target.click(); return; }
       if (event.target.matches('.month-amount,.month-note')) {
         event.preventDefault();
         const row = event.target.closest('tr');

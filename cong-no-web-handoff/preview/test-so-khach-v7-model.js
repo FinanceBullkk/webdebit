@@ -472,3 +472,28 @@ test("offset errors, command result, and ledger links parse the backend contract
   assert.equal(model.parseOutgoingOffsets([row({ void_reason: "sai" })])[0].voided, true);
   assert.throws(() => model.parseOutgoingOffsets([row({ amount_vnd: "50000000" })]));
 });
+
+test("NHAP-SHEET-01 cell edit: Sheet dates, money blank is unknown, container normalized, bad input named", () => {
+  const today = "2026-10-22";
+  assert.equal(model.parseCellEdit("event_date", " 5/9/2026 ", today), "2026-09-05");
+  assert.equal(model.parseCellEdit("event_date", "22/10/2026", today), "2026-10-22");
+  assert.throws(() => model.parseCellEdit("event_date", "23/10/2026", today), /sau hôm nay/);
+  for (const bad of ["31/02/2026", "2026-09-05", "", "5/9/26"]) assert.throws(() => model.parseCellEdit("event_date", bad, today), /dd\/mm\/yyyy/);
+  assert.equal(model.parseCellEdit("unit_price_vnd", "75.000.000"), "75000000");
+  assert.equal(model.parseCellEdit("other_fee_vnd", "4,500,000"), "4500000");
+  assert.equal(model.parseCellEdit("unit_price_vnd", "  "), "");
+  assert.equal(model.parseCellEdit("other_fee_vnd", "0"), "0");
+  assert.throws(() => model.parseCellEdit("unit_price_vnd", "chưa có giá"), /Số tiền không hợp lệ/);
+  assert.throws(() => model.parseCellEdit("unit_price_vnd", "-5"), /Số tiền không hợp lệ/);
+  assert.equal(model.parseCellEdit("container", " abcu 123 4567 "), "ABCU1234567");
+  assert.equal(model.parseCellEdit("origin", "  Tiền Giang "), "Tiền Giang");
+  assert.equal(model.parseCellEdit("carrier", ""), "");
+  assert.throws(() => model.parseCellEdit("amount_vnd", "1"), /không được sửa/);
+});
+
+test("legacy edit adjustments sum signed digit strings exactly; none is null, not 0", () => {
+  assert.equal(model.sumAdjustments([]), null);
+  assert.equal(model.sumAdjustments([{ amount_vnd: "5000000" }, { amount_vnd: "-65000000" }]), -60000000n);
+  assert.equal(model.sumAdjustments([{ amount_vnd: "9007199254740993" }, { amount_vnd: "1" }]), 9007199254740994n);
+  assert.throws(() => model.sumAdjustments([{ amount_vnd: "1.5" }]));
+});
