@@ -38,7 +38,7 @@ const SoKhachV7Model = (() => {
     const fee = trip.otherFeeVnd === null ? null : vnd(trip.otherFeeVnd);
     const isFeeOnly = price === null && fee !== null && !trip.container;
     const isMissingPrice = price === null && !isFeeOnly;
-    return { amountVnd: isMissingPrice ? null : (price ?? 0n) + (fee ?? 0n), isFeeOnly, isMissingPrice };
+    return { amountVnd: isMissingPrice || trip.status === "pending_review" ? null : (price ?? 0n) + (fee ?? 0n), isFeeOnly, isMissingPrice };
   }
 
   function amountWith(trip, values) {
@@ -86,6 +86,39 @@ const SoKhachV7Model = (() => {
     return [...book.months].sort((a, b) => a.key.localeCompare(b.key));
   }
 
+  // Same Unicode White_Space set and ALT key as sokhach._normalize_key/_booking_key.
+  function normalizeTripKey(value) {
+    // eslint-disable-next-line no-control-regex -- matches SQL Unicode White_Space, including tabs/newlines.
+    return (value ?? "").replace(/[\u0009-\u000D\u0020\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g, "").toUpperCase();
+  }
+
+  function tripKey(trip) {
+    const container = normalizeTripKey(trip.container);
+    const booking = normalizeTripKey(trip.booking);
+    if (!container) return null;
+    const day = validDate(trip.date) ? trip.date.slice(6) + trip.date.slice(3, 5) + trip.date.slice(0, 2) : "UNKNOWN";
+    return `${/[\p{L}\p{N}]/u.test(booking) ? booking : `ALT:${container}:${day}`}|${container}`;
+  }
+
+  function sameTrip(left, right) {
+    const key = tripKey(left);
+    if (!key || normalizeTripKey(left.container) !== normalizeTripKey(right.container)) return false;
+    if (key === tripKey(right)) return true;
+    const day = trip => validDate(trip.date) ? Date.UTC(+trip.date.slice(6), +trip.date.slice(3, 5) - 1, +trip.date.slice(0, 2)) : NaN;
+    return Math.abs(day(left) - day(right)) <= 3 * 86400000;
+  }
+
+  function classifyPastedTrips(trips, existing = [], references = []) {
+    const seen = [];
+    return trips.map(trip => {
+      const reason = references.some(row => sameTrip(trip, row)) ? "BASELINE_DUPLICATE"
+        : existing.some(row => sameTrip(trip, row)) ? "WEB_DUPLICATE"
+        : seen.some(row => sameTrip(trip, row)) ? "BATCH_DUPLICATE" : null;
+      seen.push(trip);
+      return { ...trip, trip_key: tripKey(trip), status: reason ? "pending_review" : "confirmed", reviewReason: reason };
+    });
+  }
+
   function lineId(month, index) {
     return month.trips[index].id ?? `${month.key}#${index}`;
   }
@@ -101,7 +134,7 @@ const SoKhachV7Model = (() => {
       month.trips.forEach((trip, index) => {
         const result = tripAmount(trip);
         if (result.isMissingPrice) missingPriceIds.push(lineId(month, index));
-        else chargesVnd += result.amountVnd;
+        if (result.amountVnd !== null) chargesVnd += result.amountVnd;
         if (!result.isFeeOnly) tripCount++;
       });
       for (const adjustment of month.adjustments ?? []) {
@@ -454,7 +487,7 @@ const SoKhachV7Model = (() => {
     });
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,

@@ -40,7 +40,7 @@ ROUTES = {
     "/api/v7/months/lock": ("set_month_lock", {"month", "locked"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
-TRIP_FIELDS = {"date", "container", "carrier", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
+TRIP_FIELDS = {"date", "booking", "container", "carrier", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
 ERRORS = {
     "STALE_LEDGER": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),
     "MONTH_LOCKED": (409, "Tháng đang khóa."),

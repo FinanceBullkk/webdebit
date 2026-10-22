@@ -2315,8 +2315,9 @@ def check_dedup(pg: Pg) -> None:
 
     code = paste("code", " b a s e\u00a0", booking=" b\u202fk 1")
     require(code["pending_review"][0]["reason"] == "BASELINE_CODE_MATCH", "Unicode code match")
-    for day, pending in (("07/01/2026", True), ("13/01/2026", True),
-                         ("06/01/2026", False), ("14/01/2026", False)):
+    # Test outside days before nearby pending rows are saved into this same book.
+    for day, pending in (("06/01/2026", False), ("14/01/2026", False),
+                         ("07/01/2026", True), ("13/01/2026", True)):
         result = paste(day, "BASE", day, "BK-" + day)
         require(bool(result["pending_review"]) == pending, "date boundary")
     first = paste("first", "NEW")
@@ -2358,6 +2359,27 @@ def check_dedup(pg: Pg) -> None:
         require(not call(pg, "paste_trips", probe, version(pg, probe), f"fee-{n}", current,
                          json.dumps([fee]))["pending_review"], "fee-only deduped")
     require(call(pg, "get_ledger", probe)["total_outstanding_vnd"] == "114", "fee-only no longer counts")
+    # NEWTRIP-01: web and within-batch matches include the inclusive +/-3 day window.
+    for delta, pending in ((-4, False), (-3, True), (3, True), (4, False)):
+        for scope in ("web", "batch"):
+            target = new_book(pg, ("2026-01-01", 0))
+            first_row = json.loads(trip_json(container="WINDOW"))[0]
+            first_row.update(date="10/01/2026", booking="BK-FIRST")
+            next_row = first_row | {"date": f"{10 + delta:02d}/01/2026", "booking": "BK-NEXT"}
+            safe = first_row | {"container": "SAFE"}
+            if scope == "web":
+                call(pg, "paste_trips", target, 0, "window-first", current, json.dumps([first_row]))
+            rows = [next_row, safe] if scope == "web" else [first_row, next_row, safe]
+            result = call(pg, "paste_trips", target, version(pg, target), "window-mixed", current, json.dumps(rows))
+            require(bool(result["pending_review"]) == pending, f"{scope} window {delta}")
+            ledger = call(pg, "get_ledger", target)
+            require(ledger["total_outstanding_vnd"] == ("200" if pending else "300"), "mixed batch balance")
+            held = [t for t in ledger["trips"] if t["status"] == "pending_review"]
+            require(len(held) == int(pending) and all(t["amount_vnd"] is None and not t["editable"] for t in held),
+                    "pending row contract")
+            if pending:
+                require(result["pending_review"][0]["trip_id"] == result["trip_ids"][0 if scope == "web" else 1],
+                        "wrong row quarantined")
     empty = new_book(pg)
     # Use separate empty cutover rather than bypass immutable reference rows.
     pg.sql("ALTER TABLE sokhach.baseline_trip_ref DISABLE TRIGGER baseline_trip_ref_immutable")

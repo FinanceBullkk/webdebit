@@ -20,7 +20,7 @@
   const idFields = ['source_customer_id', 'source_version', 'other_version', 'offset_pair_id'];
   const stale = 'Sổ vừa thay đổi. Kiểm tra dữ liệu mới rồi thực hiện lại.';
   const unknown = 'Chưa rõ lệnh đã lưu. Thử lại bằng cùng yêu cầu.';
-  const tripFields = ['date', 'container', 'carrier', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
+  const tripFields = ['date', 'booking', 'container', 'carrier', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
   const customerNames = new Map();
 
   // Danh sách khách tải sau sổ: vẽ lại qua renderer để tên khách vào đúng tiêu đề, không chép đè DOM.

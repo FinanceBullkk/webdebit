@@ -59,7 +59,7 @@ DECLARE v_payload jsonb := jsonb_build_object('command','paste_trips','month',de
         v_item jsonb; v_id bigint; v_event bigint; v_rows jsonb := '[]'::jsonb;
         v_changes jsonb; v_date date; v_unit bigint; v_fee bigint; v_date_text text;
         v_fee_only boolean; v_cutover bigint; v_booking text; v_container text;
-        v_code text; v_seen text[] := '{}'; v_reason text; v_pending jsonb := '[]';
+        v_reason text; v_pending jsonb := '[]';
 BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -105,7 +105,6 @@ BEGIN
         IF NOT v_fee_only THEN
             v_container := sokhach._normalize_key(v_item->>'container');
             v_booking := sokhach._booking_key(v_item->>'booking',v_container,v_date);
-            v_code := v_booking || '|' || v_container;
             IF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
                 AND r.booking_norm=v_booking AND r.container_norm=v_container)
             THEN v_reason := 'BASELINE_CODE_MATCH';
@@ -114,10 +113,14 @@ BEGIN
             THEN v_reason := 'BASELINE_DATE_WINDOW';
             ELSIF EXISTS (SELECT 1 FROM sokhach.trip t WHERE t.customer_id=paste_trips.customer_id
                 AND sokhach._normalize_key(t.container)=v_container
-                AND sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking)
+                AND (sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking
+                    OR abs(t.event_date-v_date)<=3))
             THEN v_reason := 'WEB_DUPLICATE';
-            ELSIF v_code=ANY(v_seen) THEN v_reason := 'BATCH_DUPLICATE'; END IF;
-            v_seen := array_append(v_seen,v_code);
+            ELSIF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) r
+                WHERE sokhach._normalize_key(r->>'container')=v_container
+                AND (sokhach._booking_key(r->>'booking',r->>'container',(r->>'event_date')::date)=v_booking
+                    OR abs((r->>'event_date')::date-v_date)<=3))
+            THEN v_reason := 'BATCH_DUPLICATE'; END IF;
         END IF;
         v_id := nextval(pg_get_serial_sequence('sokhach.trip','id'));
         IF v_reason IS NOT NULL THEN

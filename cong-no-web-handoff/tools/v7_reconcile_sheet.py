@@ -2,6 +2,7 @@
 
 Usage: --sheet-dir CLEAN --ledger-json JSON --out NEW
 Add --brief for a count/status-only stdout summary and customer row numbers.
+Add --totals-only for SONG-SONG-01/02 daily checks; month buckets are ignored.
 reconcile_index.csv maps those numbers to names; existing CSV columns stay fixed.
 Or replace --ledger-json JSON with --api http://127.0.0.1:8780.
 
@@ -194,7 +195,7 @@ def read_api(value, serve_hosts=()):
 def diff(sheet, web):
     return None if sheet is None or web is None else web - sheet
 
-def reconcile(sheet, web):
+def reconcile(sheet, web, compare_months=True):
     customers, months = ([], [])
     for key in sorted(sheet.keys() | web.keys()):
         left, right = (sheet.get(key), web.get(key))
@@ -208,14 +209,14 @@ def reconcile(sheet, web):
             status = 'THIEU_SO'
         elif st != wt:
             status = 'LECH_TONG'
-        elif left['missing'] or right['missing']:
+        elif (left['missing'] or right['missing']) and compare_months:
             status = 'THIEU_SO'
-        elif sm != wm:
+        elif compare_months and sm != wm:
             status = 'CHI_LECH_THANG'
         else:
             status = 'KHOP'
         customers.append({'customer': key, 'sheet_total_vnd': st, 'web_total_vnd': wt, 'difference_vnd': diff(st, wt), 'status': status})
-        if status != 'KHOP':
+        if status != 'KHOP' and compare_months:
             for mon in sorted(sm.keys() | wm.keys()):
                 sv, wv = (sm.get(mon), wm.get(mon))
                 months.append({'customer': key, 'debt_month': mon, 'sheet_vnd': sv, 'web_vnd': wv, 'difference_vnd': diff(sv, wv), 'sheet_month_present': mon in sm, 'web_month_present': mon in wm, 'status': status})
@@ -272,6 +273,8 @@ def main(argv=None):
     parser.add_argument('--serve-host', action='append', default=[], help='Exact allowed HTTPS Serve fqdn[:port]; repeatable')
     parser.add_argument('--out', type=Path, required=True, help='new directory outside repositories')
     parser.add_argument('--brief', action='store_true', help='print counts, statuses and customer row numbers only')
+    parser.add_argument('--totals-only', action='store_true',
+                        help='compare customer totals only; month differences do not affect status')
     args = parser.parse_args(argv)
     try:
         out = output_path(args.out)
@@ -279,7 +282,8 @@ def main(argv=None):
             api_base(args.api, args.serve_host)
         sheet, sh = read_sheet(args.sheet_dir)
         web, wh = read_ledgers(args.ledger_json) if args.ledger_json else read_api(args.api, args.serve_host)
-        customers, months, summary = reconcile(sheet, web)
+        customers, months, summary = reconcile(sheet, web, compare_months=not args.totals_only)
+        summary['comparison_scope'] = 'customer_totals' if args.totals_only else 'customer_totals_and_months'
         summary['input_sha256'] = {'sheet': sh, 'web': wh}
         out.mkdir(parents=True)
         write_csv(out / 'reconcile_customer.csv', ['customer', 'sheet_total_vnd', 'web_total_vnd', 'difference_vnd', 'status'], customers)

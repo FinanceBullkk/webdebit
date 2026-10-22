@@ -44,6 +44,17 @@ class LedgerApiTest(unittest.TestCase):
         self.assertIn("j->>'reference'", api.SQL["record_receipt"])
         self.assertIn("j->>'reference'", api.SQL["edit_receipt_meta"])
 
+    def test_paste_booking_passes_boundary_but_client_status_does_not(self):
+        row = {"booking": " b k 1 ", "container": "FAKE", "date": "10/01/2026",
+               "carrier": "SHIP", "from": "A", "to": "B", "unitPriceVnd": "100", "otherFeeVnd": None}
+        body = {"customer_id": 1, "expected_version": 0, "idempotency_key": "fake-paste-booking",
+                "debt_month": "2026-01-01", "trips": [row]}
+        function, payload = api.validate("/api/v7/trips/paste", json.dumps(body).encode())
+        self.assertEqual(function, "paste_trips")
+        self.assertEqual(payload["trips"][0], row)
+        with self.assertRaises(api.ApiError):
+            api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"status": "confirmed"}]}).encode())
+
     def test_serve_host_origin_assets_and_identity(self):
         authority = "demo.tail-example.ts.net:8443"
         class ServeHandler(api.Handler):
