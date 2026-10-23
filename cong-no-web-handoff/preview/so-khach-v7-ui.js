@@ -158,7 +158,18 @@
     // same Sheet row share one line. Amounts come from the copy as digit strings; no maths here.
     // The loader resolves every serial date to one reading (dd/mm/yyyy); anything left here
     // is text typed in the Sheet ("da tt") and is shown as typed.
-    const rawDay = value => value ?? '';
+    // Ngày trong ô thu của Sheet: số ngày Excel ("46032.0", hệ 1900) hoặc chuỗi ISO có giờ → dd/mm/yyyy; chữ khác giữ nguyên.
+    const sheetDay = value => {
+      const text = String(value ?? '').trim();
+      const serial = /^(\d{5})(\.0+)?$/.exec(text);
+      if (serial && Number(serial[1]) >= 20000 && Number(serial[1]) <= 80000) {
+        const date = new Date(Date.UTC(1899, 11, 30) + Number(serial[1]) * 86400000);
+        return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
+      }
+      const iso = /^(\d{4})-(\d\d)-(\d\d)(?:[ T]\d\d:\d\d(?::\d\d(?:\.\d+)?)?)?$/.exec(text);
+      return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : text;
+    };
+    const rawDay = sheetDay;
     const moneyCell = value => /^-?\d+$/.test(value ?? '') ? fmt(value) : (value ?? '');
     // NHAP-SHEET-01: mọi ô chuyến (web và sổ gốc) sửa đè tại ô, kể cả tháng khóa; bấm STT để xóa hẳn.
     // Đổi ngày sang tháng khác (góp ý 23/10/2026): dòng vừa chuyển tô vàng ở tháng mới, tháng cũ giữ một dòng mờ
@@ -192,13 +203,16 @@
           : trip
           ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${num(moneyCell(t.fee_vnd))}${num(fmt(trip.source_total_vnd))}`
           : `${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty('num')}${empty('num')}${empty('num')}`;
-        const payCells = receipt
-          // Payment form is not inferred from the note (V7-MIG still open); show the note once.
-          ? `${cell(r.raw_date ?? '', 'pay pay-start')}${cell(r.note && r.note !== r.raw_date ? r.note : '', 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
-          : `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`;
+        // Hình thức thu không suy từ ghi chú (V7-MIG còn mở); ghi chú chỉ hiện khi không lặp lại cùng ngày.
+        const day = sheetDay(r.raw_date);
+        const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
+        const sheetPay = receipt
+          ? `${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
+          : '';
         const rowKey = trip?.id != null ? `legacy-${trip.id}` : '';
-        return `<tr class="legacy${moved.has(rowKey) ? ' moved' : ''}"${rowKey ? ` data-row="${escape(rowKey)}"` : ''}>${tripCells}${payCells}${movedTag(rowKey)}</tr>`;
-      }).join('');
+        // `pay`: ba ô thu của phiếu web đặt vào hàng này khi hàng chưa có phiếu Sheet.
+        return { hasReceipt: Boolean(receipt), html: pay => `<tr class="legacy${moved.has(rowKey) ? ' moved' : ''}"${rowKey ? ` data-row="${escape(rowKey)}"` : ''}>${tripCells}${sheetPay || pay || `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`}${movedTag(rowKey)}</tr>` };
+      });
     };
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
@@ -364,14 +378,28 @@
         const opening = (data.opening ?? []).filter(row => monthKey(row.month) === key);
         const adjustments = (data.adjustments ?? []).filter(row => monthKey(row.month) === key);
         const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
-        // Không vẽ hàng trống thừa: chỉ tháng hiện tại có hàng ghi thu (góp ý người dùng 22–23/10/2026).
-        const n = Math.max(trips.length, receipts.length + (active && key === openKey ? 1 : 0));
+        // Góp ý 23/10/2026: phiếu thu web nằm ở hàng kế tiếp sau phiếu thu cuối cùng của tháng (như trên Sheet), không dồn xuống cuối.
+        // Hàng của tháng theo thứ tự hiển thị: dòng Sheet, rồi chuyến web; hết hàng thì thêm hàng chỉ có cột thu.
+        const legacy = legacyLines(historical.get(key) ?? []);
+        const entryHere = active && key === openKey;
+        const firstFree = legacy.map(line => line.hasReceipt).lastIndexOf(true) + 1;
+        const rowCount = Math.max(legacy.length + trips.length, firstFree + receipts.length + (entryHere ? 1 : 0));
         // STT chuyến web nối tiếp các dòng chuyến từ Sheet của tháng (dòng Sheet vẽ trước, như thứ tự trên Sheet).
         const sttBase = new Set((historical.get(key) ?? []).filter(row => row.kind !== 'receipt').map(row => row.display?.row)).size;
-        const lines = Array.from({ length: n }, (_, index) => {
-          const trip = trips[index], receipt = receipts[index];
-          const pending = trip?.status === 'pending_review';
+        const referenceInline = receipt => {
+          const voided = receipt.voided_by_event != null;
+          return `<small class="receipt receipt-edit receipt-ref${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">Tham chiếu: ${escape(receipt.reference || '–')}</small>`;
+        };
+        const payCells = (receipt, entry) => {
           const voided = receipt?.voided_by_event != null;
+          const dateCell = receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${entry ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`;
+          const methodCell = receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${entry ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`;
+          const amountCell = receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}${receipt.outgoing ? '' : referenceInline(receipt)}</td>` : `<td class="pay num">${entry ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span><input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tham chiếu (tùy chọn)">' : ''}</td>`;
+          return dateCell + methodCell + amountCell;
+        };
+        const noPay = '<td class="pay pay-start"></td><td class="pay"></td><td class="pay num"></td>';
+        const webRow = (trip, index, pay) => {
+          const pending = trip?.status === 'pending_review';
           const info = trip?.info_editable === true;
           const infoCells = info
             ? ['container', 'carrier', 'event_date', 'origin', 'destination'].map(field =>
@@ -383,10 +411,15 @@
             ${pending || trip?.status === 'rejected' ? num(fmt(trip.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
             ${pending || trip?.status === 'rejected' ? num(fmt(trip.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
             ${!trip ? empty('num') : pending ? `<td class="num review-cell"><button type="button" class="review-open" data-trip="${trip.id}" aria-expanded="false" aria-label="Kết luận chuyến ${escape(trip.container)} đang CHỜ KIỂM">CHỜ KIỂM</button></td>` : trip.status === 'rejected' ? '<td class="num trip-rejected">ĐÃ LOẠI</td>' : num(fmt(trip.amount_vnd))}
-            ${receipt ? `<td class="pay pay-start receipt receipt-edit${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="date"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${escape(dateText(receipt.date))}</td>` : `<td class="pay pay-start">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric"><span class="cell-error receipt-date-error" role="status"></span>' : ''}</td>`}
-            ${receipt?.offset_pair_id != null ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : 'CẤN TRỪ')}${offsetLink(receipt)}</td>` : receipt ? `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${voided ? '-1' : '0'}">${escape(voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : receipt.method)}</td>` : `<td class="pay">${active && key === openKey && index === receipts.length ? `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>` : ''}</td>`}
-            ${receipt ? `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${voided ? '-1' : '0'}">${fmt(receipt.line.amount_vnd)}</td>` : `<td class="pay num">${active && key === openKey && index === receipts.length ? '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric"><span class="cell-error receipt-amount-error" role="status"></span>' : ''}</td>`}
-            ${movedTag(rowKey)}</tr>${receipt?.outgoing ? '' : referenceLine(receipt, active && key === openKey && index === receipts.length)}`;
+            ${pay}
+            ${movedTag(rowKey)}</tr>`;
+        };
+        const lines = Array.from({ length: rowCount }, (_, position) => {
+          const slot = position - firstFree;
+          const receipt = slot >= 0 ? receipts[slot] : undefined;
+          const pay = receipt || (entryHere && slot === receipts.length) ? payCells(receipt, !receipt) : null;
+          if (position < legacy.length) return legacy[position].html(pay);
+          return webRow(trips[position - legacy.length], position - legacy.length, pay ?? noPay);
         }).join('');
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
         // Các dòng đó vẫn nằm trong số tiền: dòng Tổng tháng tính như Sheet (model.sheetMonthTotals), chênh ghi ở Lịch sử.
@@ -394,7 +427,6 @@
         const voidRows = receipts.filter(row => row.voided_by_event != null).map(row =>
           `<tr class="void-trace"><td colspan="13">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
         const history = historical.get(key) ?? [];
-        const legacyRows = history.length ? legacyLines(history) : '';
         let totals = { chargesVnd: item.charges_vnd ?? '0', receivedVnd: item.received_vnd ?? '0' };
         try {
           totals = model.sheetMonthTotals({ ...totals, openingVnds: opening.map(row => row.amount_vnd),
@@ -403,7 +435,7 @@
         const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="13">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
           <tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
-          ${legacyRows}${lines}${adjustmentRows}${voidRows}${ghostRows}${active && key === openKey ? draftGrid(key) : ''}
+          ${lines}${adjustmentRows}${voidRows}${ghostRows}${active && key === openKey ? draftGrid(key) : ''}
           <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(totals.chargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(totals.receivedVnd), 'pay')}${num(fmt(item.end_of_month_vnd))}</tr><tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
       };
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active ? '' : 'hidden'}>${escape(message || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
@@ -799,7 +831,7 @@
         editable.querySelector('.adjustment-note')?.addEventListener('keydown', save);
         return;
       }
-      const receipt = event.target.closest('td.receipt[data-pid]');
+      const receipt = event.target.closest('small.receipt-ref') ?? event.target.closest('td.receipt[data-pid]');
       if (receipt && !receipt.classList.contains('voided') && !receipt.classList.contains('voided-method') && !receipt.querySelector('input,select')) {
         if (receipt.dataset.pair && receipt.dataset.field !== 'reference') { await openOffsetReceipt(receipt); return; }
         const original = receipt.innerHTML, field = receipt.dataset.field, pid = receipt.dataset.pid;
@@ -832,7 +864,7 @@
     });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
-      if (event.target.matches('td.editable,td.receipt,td.info-edit,td.row-delete')) { event.preventDefault(); event.target.click(); return; }
+      if (event.target.matches('td.editable,td.receipt,td.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
       if (event.target.matches('.month-amount,.month-note')) {
         event.preventDefault();
         const row = event.target.closest('tr');
