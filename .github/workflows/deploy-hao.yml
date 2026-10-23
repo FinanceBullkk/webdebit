@@ -1,0 +1,78 @@
+name: Deploy hao
+
+# ĐỀ XUẤT (chưa bật): sau khi Tests xanh trên đúng SHA của main, đẩy gói mã app lên hao qua Tailscale.
+# Chỉ đổi release của app. Migration/SQL/loader bị chặn ở bước kiểm diff và phải theo gate thủ công
+# (docs/v7-deploy-runbook.md). Environment `hao` phải đặt người duyệt bắt buộc. Cài đặt: docs/hao-auto-deploy.md.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: SHA đầy đủ trên main cần triển khai lại
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hao
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: hao
+    env:
+      SHA: ${{ github.event.inputs.sha || github.event.workflow_run.head_sha }}
+      SSH_TARGET: ${{ secrets.HAO_SSH_USER }}@${{ vars.HAO_SSH_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: SHA phải nằm trên main
+        run: |
+          [[ $SHA =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$SHA" origin/main
+
+      - uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.HAO_TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.HAO_TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Chuẩn bị SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.HAO_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "${{ vars.HAO_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Kiểm diff so với bản đang chạy
+        id: diff
+        run: |
+          ssh_hao() { ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "$@"; }
+          prev=$(ssh_hao current)
+          echo "đang chạy: $prev"
+          [[ $prev == "$SHA" ]] && { echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          [[ $prev =~ ^[0-9a-f]{40}$ ]] || { echo "hao chưa có release dạng SHA: cần chuyển thủ công lần đầu"; exit 1; }
+          git cat-file -e "$prev^{commit}" || { echo "không thấy $prev trong lịch sử"; exit 1; }
+          changed=$(git diff --name-only "$prev" "$SHA")
+          if grep -E '^specs/v7-backend/|^cong-no-web-handoff/tools/migrations/|\.sql$|^cong-no-web-handoff/tools/v7_load|^\.github/workflows/deploy-hao\.yml$|^scripts/deploy/' <<< "$changed"; then
+            echo "::error::Diff có migration/SQL/loader/deploy: cần gate thủ công, không tự động"; exit 1
+          fi
+          if ! grep -E '^cong-no-web-handoff/(web|preview|tools)/' <<< "$changed" >/dev/null; then
+            echo "Không đổi mã app, bỏ qua"; echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Đẩy gói và chạy deploy trên hao
+        if: steps.diff.outputs.skip != '1'
+        run: |
+          git archive "$SHA" specs/v7-backend/schema-draft.sql cong-no-web-handoff/tools cong-no-web-handoff/web cong-no-web-handoff/preview \
+            | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "deploy $SHA"
