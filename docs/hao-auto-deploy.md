@@ -11,8 +11,8 @@ trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm s�
 
 - Chỉ đổi release của app (`cong-no-web-handoff/{web,preview,tools}`), như mục "Giao diện sửa/xóa tại ô" trong
   [runbook](v7-deploy-runbook.md#giao-diện-sửaxóa-tại-ô--chỉ-đổi-release-app-đã-chạy-trên-hao-22102026).
-- Diff so với bản đang chạy có `specs/v7-backend/`, `tools/migrations/`, file `.sql`, loader `v7_load*`, hoặc chính
-  workflow/script deploy → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Không DDL, không nạp dữ liệu.
+- Diff so với bản đang chạy có `specs/v7-backend/`, `tools/migrations/`, file `.sql` hoặc loader `v7_load*`
+  → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Không DDL, không nạp dữ liệu.
 - Không backup DB mỗi lượt vì không đụng DB. Đổi sang mã cần migration thì không đi đường này.
 - Đạt (kỳ vọng): service active và cổng loopback trả 200/403 trong 30 giây; không thì quay lại release cũ, job đỏ.
   Chưa kiểm trên `hao` thật; kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng.
@@ -21,7 +21,7 @@ trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm s�
 
 1. **Hao:** tạo OS user `webdebit-deploy` không sudo chung; thư mục `RELEASES_DIR` thuộc user này.
    Chép `scripts/deploy/hao-release.sh` từ commit đã review vào đường dẫn root-owned, không sửa được bởi user deploy.
-   `/etc/webdebit-deploy.conf` (root-owned): `RELEASES_DIR`, `CURRENT_LINK`, `UNIT`, `HEALTH_URL` (loopback, cổng API).
+   `/etc/webdebit-deploy.conf` (root-owned): `RELEASES_DIR`, `CURRENT_LINK`, `UNIT`, `HEALTH_URL` (loopback, cổng API, một route thật như `/api/v7/customers`: trả 200 hoặc 403 là sống, 404 bị coi là lỗi).
 2. **Unit hiện tại:** đổi một lần `WorkingDirectory`/`ExecStart` sang `CURRENT_LINK` (symlink) thay đường dẫn release
    cố định; `daemon-reload`. Tạo `.release-sha` trong release đang chạy bằng SHA thật của nó để lượt đầu có mốc diff.
    Làm tay theo quy trình runbook (lưu bản unit cũ để rollback).
