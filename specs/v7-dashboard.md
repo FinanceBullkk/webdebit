@@ -99,14 +99,16 @@ Lược đồ `sokhach` ([schema](v7-backend/schema-draft.sql), [hàm](../cong-n
   - `cong-no-web-handoff/tools/v7_backend_functions.sql` (thêm hàm `get_dashboard` và GRANT, không sửa hàm khác)
   - `cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql` (mới)
   - `cong-no-web-handoff/web/v7_ledger_api.py` (route GET mới)
-  - `cong-no-web-handoff/tools/test_pg_v7_backend.py`, `cong-no-web-handoff/tools/test_pg_v7_grants.py`, `cong-no-web-handoff/tools/v7_post_deploy_check.sql`
+  - `cong-no-web-handoff/tools/test_pg_v7_backend.py`
+  - `cong-no-web-handoff/tools/test_pg_v7_grants.py`
+  - `cong-no-web-handoff/tools/v7_post_deploy_check.sql`
   - `cong-no-web-handoff/tests/test_v7_ledger_api.py`
   - `specs/v7-dashboard.md` (chỉ mục "Bằng chứng" và "Câu hỏi mở")
 - Ngân sách diff: 600 dòng
-- Lệnh kiểm (script chạy từ gốc worktree bằng cmd.exe; `{python}` là venv của checkout chính):
+- Lệnh kiểm:
   - `npm run check`
-  - `{python} cong-no-web-handoff/tools/test_pg_v7_grants.py --strict`
-  - `{python} cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test`
+  - `python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict`
+  - `python cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test`
 - Cấm:
   - Sửa bảng, view, hàm ghi tiền hoặc cách phân bổ; GRANT SELECT bảng/view; thêm dependency.
   - Code giao diện (chờ mockup Penpot được duyệt).
