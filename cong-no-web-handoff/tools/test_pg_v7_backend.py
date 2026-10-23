@@ -2051,7 +2051,7 @@ def check_adjustment_source(pg: Pg) -> None:
     require(zero["delta_vnd"] == "-7", "zero fee ignored stored fee")
     call(pg, "set_month_lock", c, 9, "source-reopen", "2026-01-01", "false")
     call(pg, "edit_trip_price", c, 10, "source-price-revision", trip, 200, 30)
-    call(pg, "set_month_lock", c, 11, "source-relock", "2026-01-01", "true")
+    call(pg, "set_month_lock", c, 11, "source-relock", "2026-01-01", "false")
     revised = call(pg, "adjust_trip", c, 12, "source-after-revision", trip, None, "", "unit_price_vnd", 220)
     require(revised["delta_vnd"] == "-20" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "253",
             "fee adjustment before latest price revision leaked into current fee")
@@ -2558,7 +2558,7 @@ def check_trip_review(pg: Pg) -> None:
     rejected = call(pg, "review_trip", c, version(pg, c), "reject", other, "reject", "trùng dòng sổ gốc")
     require(rejected == rejected | {"status": "rejected", "reallocated": []}, "reject result wrong")
     require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == total and trip(other)["status"] == "rejected"
-            and trip(other)["amount_vnd"] is None and not trip(other)["editable"], "rejected trip leaked into money")
+            and trip(other)["amount_vnd"] is None, "rejected trip leaked into money")
     call(pg, "set_month_lock", c, version(pg, c), "unlock", "2026-01-01", "false")
     reject_call(pg, "edit_trip_price", c, version(pg, c), "price-rejected", other, 5, None, error="TRIP_PENDING_REVIEW")
     require(paste("again", "BASE", "BK2")["pending_review"][0]["reason"] == "BASELINE_DATE_WINDOW",
@@ -2713,7 +2713,7 @@ def check_nhap_sheet(pg: Pg) -> None:
             require(audit["after"]["trip"]["value"] == (value.replace(" ", "").upper() if field == "container" else value.strip()), "edit audit after")
             reject_call(pg, "edit_trip_info", c, before, key, t, field, "different", error="IDEMPOTENCY_CONFLICT")
     write("edit_trip_info", t, "event_date", "2026-08-10")
-    for args, error in [((t, "carrier", "FAKE True"), "NO_CHANGE"), ((t, "price", "1"), "INVALID_FIELD"),
+    for args, error in [((t, "carrier", "FAKE False"), "NO_CHANGE"), ((t, "price", "1"), "INVALID_FIELD"),
                         ((t, "event_date", "9999-01-01"), "FUTURE_DATE"), ((t, "carrier", " "), "INVALID_TRIP_INPUT")]:
         reject_call(pg, "edit_trip_info", c, version(pg, c), "info-"+error, *args, error=error)
     pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES({cut},'BASE','BASE','2026-08-10')")

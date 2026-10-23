@@ -771,7 +771,7 @@ BEGIN
             AND (t.container IS NULL OR t.container=''),
         'is_missing_price',p.unit_price_vnd IS NULL AND NOT
             (p.other_fee_vnd IS NOT NULL AND (t.container IS NULL OR t.container='')),
-        'editable',NOT coalesce(ms.locked,t.debt_month <>
+        'editable',t.status='confirmed' AND NOT coalesce(ms.locked,t.debt_month <>
             date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),
         'info_editable',NOT coalesce(ms.locked,t.debt_month <>
             date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
