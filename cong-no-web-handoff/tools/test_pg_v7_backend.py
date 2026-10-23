@@ -2606,6 +2606,11 @@ def check_nhap_sheet(pg: Pg) -> None:
     finally:
         pg.sql("ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard")
     legacy = pg.value(f"SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM sokhach.legacy_row l WHERE customer_id={c}")
+    pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-09-01'")
+    reject_call(pg, "edit_legacy_trip", c, 0, "locked-legacy-edit", ids[0], "carrier", "FAKE NEW", error="MONTH_LOCKED")
+    reject_call(pg, "delete_legacy_trip", c, 0, "locked-legacy-delete", ids[0], error="MONTH_LOCKED")
+    require(version(pg, c) == 0, "locked legacy mutation changed version")
+    fixture_open_month(pg, c, "2026-09-01")
 
     def write(name, *args, key=None, actor="fake-editor"):
         before = version(pg, c)
@@ -2680,6 +2685,10 @@ def check_nhap_sheet(pg: Pg) -> None:
     write("adjust_trip", t, 125, "fake")
     write("record_receipt", "2026-09-01", "THU TIỀN", 100)
     before_move = total()
+    pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-08-01'")
+    reject_call(pg, "edit_trip_info", c, version(pg, c), "locked-destination", t,
+                "event_date", "2026-08-10", error="MONTH_LOCKED")
+    fixture_open_month(pg, c, "2026-08-01")
     write("edit_trip_info", t, "event_date", "2026-08-10")
     require(total() == before_move, "web move changed customer total")
     require(pg.value(f"SELECT debt_month FROM sokhach.adjustment WHERE trip_id={t}") == current, "rewrote adjustment FK month")
