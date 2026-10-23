@@ -859,8 +859,12 @@
         return;
       }
       const receipt = event.target.closest('small.receipt-ref') ?? event.target.closest('td.receipt[data-pid]');
-      if (receipt && !receipt.classList.contains('voided') && !receipt.classList.contains('voided-method') && !receipt.querySelector('input,select')) {
+      // Ô số tiền (không có data-field) chứa cả ô sửa tham chiếu: ô tham chiếu đang mở không được chặn việc hủy phiếu.
+      const editorOpen = () => (receipt.dataset?.field ? receipt.querySelector('input,select') : event.target.closest?.('input,select'));
+      if (receipt && !receipt.classList.contains('voided') && !receipt.classList.contains('voided-method') && !editorOpen()) {
         if (receipt.dataset.pair && receipt.dataset.field !== 'reference') { await openOffsetReceipt(receipt); return; }
+        // Mỗi lần chỉ một ô sửa: đóng các ô sửa phiếu đang mở dở trước khi mở ô mới.
+        root.querySelectorAll?.('.receipt-cancel-edit').forEach(open => open.dispatchEvent(new Event('cancel-edit')));
         const original = receipt.innerHTML, field = receipt.dataset.field, pid = receipt.dataset.pid;
         if (!field) {
           const row = receipt.closest('tr');
@@ -872,8 +876,10 @@
         receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
           `<select class="saved-receipt-input" aria-label="Sửa hình thức">${methods.map(method => `<option${method === receipt.textContent ? ' selected' : ''}>${method}</option>`).join('')}</select>`;
         const input = receipt.querySelector('.saved-receipt-input'); input.focus();
+        receipt.classList.add?.('receipt-cancel-edit');
+        receipt.addEventListener?.('cancel-edit', () => { receipt.innerHTML = original; receipt.classList.remove('receipt-cancel-edit'); }, { once: true });
         input.addEventListener('keydown', async keyEvent => {
-          if (keyEvent.key === 'Escape') { receipt.innerHTML = original; return; }
+          if (keyEvent.key === 'Escape') { receipt.innerHTML = original; receipt.classList.remove?.('receipt-cancel-edit'); return; }
           if (keyEvent.key === 'Enter') {
             keyEvent.preventDefault();
             const result = await submit('receiptMeta', { pid, [field]: field === 'date' ? dateInput(input.value) : input.value });
