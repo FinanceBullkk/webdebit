@@ -75,8 +75,9 @@ def verify(pg, c):
 def setup(pg):
     c = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 200))
     call(pg, "set_month_lock", c, 0, "setup-open", "2026-01-01", "false")
-    trip = call(pg, "paste_trips", c, 1, "setup-trip", "2026-01-01", trip_json())["trip_ids"][0]
-    receipt = call(pg, "record_receipt", c, 2, "setup-receipt", "2026-03-01", "THU TIỀN", 40)
+    call(pg, "set_month_lock", c, 1, "setup-open-feb", "2026-02-01", "false")
+    trip = call(pg, "paste_trips", c, 2, "setup-trip", "2026-01-01", trip_json())["trip_ids"][0]
+    receipt = call(pg, "record_receipt", c, 3, "setup-receipt", "2026-03-01", "THU TIỀN", 40)
     return c, trip, receipt["pid"]
 
 

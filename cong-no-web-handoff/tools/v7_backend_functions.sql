@@ -184,6 +184,7 @@ BEGIN
     IF field IS NULL OR field NOT IN ('container','carrier','origin','destination','event_date') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
     SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=edit_trip_info.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
     v_value := nullif(btrim(value),'');
     IF field='container' THEN v_value := nullif(sokhach._normalize_key(value),''); END IF;
     IF field='event_date' THEN v_date := sokhach._trip_date(value); v_value := v_date::text;
@@ -194,6 +195,8 @@ BEGIN
     CASE field WHEN 'container' THEN t.container:=v_value; WHEN 'carrier' THEN t.carrier:=v_value;
       WHEN 'origin' THEN t.origin:=v_value; WHEN 'destination' THEN t.destination:=v_value;
       WHEN 'event_date' THEN t.event_date:=v_date; t.debt_month:=date_trunc('month',v_date)::date; END CASE;
+    IF t.debt_month<>(v_before->>'debt_month')::date THEN
+      PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp()); END IF;
     -- Converting a fee-only row to a container trip must satisfy normal trip inputs.
     IF coalesce(t.container,'')<>'' AND (t.event_date IS NULL OR nullif(btrim(t.carrier),'') IS NULL
        OR nullif(btrim(t.origin),'') IS NULL OR nullif(btrim(t.destination),'') IS NULL)
@@ -234,6 +237,7 @@ BEGIN
     PERFORM sokhach._baseline(customer_id);
     SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=delete_trip.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
     SELECT jsonb_build_object('unit_price_vnd',CASE WHEN p.unit_price_vnd IS NOT NULL
           THEN (a.amount_vnd-coalesce(f.fee,p.other_fee_vnd,0))::text END,
       'other_fee_vnd',coalesce(f.fee,p.other_fee_vnd)::text,
@@ -297,6 +301,7 @@ BEGIN
     v_old:=sokhach._legacy_current(l.id); v_new:=v_old;
     IF (v_old->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
     v_old_month:=(v_old->>'month')::date; v_month:=v_old_month; v_old_count:=(v_old->>'counted_vnd')::bigint;
+    PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
     IF p_delete THEN v_count:=0; v_new:=v_new||jsonb_build_object('deleted',true);
     ELSE
       IF field IS NULL OR field NOT IN ('container','carrier','origin','destination','event_date','unit_price_vnd','other_fee_vnd') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
@@ -315,6 +320,7 @@ BEGIN
           (v_new->>'unit_price_vnd')::bigint+coalesce((v_new->>'other_fee_vnd')::bigint,0) END;
       END IF;
     END IF;
+    IF v_month<>v_old_month THEN PERFORM sokhach._month_open(customer_id,v_month,clock_timestamp()); END IF;
     v_new:=v_new||jsonb_build_object('month',v_month,'debt_month',v_month,'counted_vnd',v_count::text,'field',field,'value',v_new->field);
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,CASE WHEN p_delete THEN 'legacy_delete' ELSE 'legacy_edit' END,sokhach._actor(),
@@ -397,6 +403,7 @@ BEGIN
     SELECT * INTO v_trip FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=adjust_trip.customer_id AND NOT v.deleted;
     IF v_trip.status<>'confirmed' THEN RAISE EXCEPTION 'TRIP_PENDING_REVIEW'; END IF;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,v_trip.debt_month,clock_timestamp());
     SELECT * INTO v_price FROM sokhach.trip_price_rev p
     WHERE p.trip_id=adjust_trip.trip_id ORDER BY p.id DESC LIMIT 1;
     v_base := CASE WHEN v_price.unit_price_vnd IS NOT NULL
@@ -464,6 +471,7 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM sokhach.v_adjustment_current a
            WHERE a.customer_id=adjust_month.customer_id AND a.debt_month=adjust_month.debt_month)
     THEN RAISE EXCEPTION 'MONTH_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,debt_month,clock_timestamp());
     v_id := nextval(pg_get_serial_sequence('sokhach.adjustment','id'));
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'adjust_month',sokhach._actor(),
@@ -763,7 +771,9 @@ BEGIN
             AND (t.container IS NULL OR t.container=''),
         'is_missing_price',p.unit_price_vnd IS NULL AND NOT
             (p.other_fee_vnd IS NOT NULL AND (t.container IS NULL OR t.container='')),
-        'info_editable',true,'editable',t.status='confirmed' AND NOT coalesce(ms.locked,t.debt_month <>
+        'editable',t.status='confirmed' AND NOT coalesce(ms.locked,t.debt_month <>
+            date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),
+        'info_editable',NOT coalesce(ms.locked,t.debt_month <>
             date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
         ORDER BY t.debt_month,t.id),'[]'::jsonb),
         count(*) FILTER (WHERE t.status='pending_review' OR p.unit_price_vnd IS NULL AND NOT
@@ -1052,6 +1062,7 @@ BEGIN
     SELECT * INTO v_trip FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=review_trip.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     IF v_trip.status<>'pending_review' THEN RAISE EXCEPTION 'TRIP_NOT_PENDING'; END IF;
+    PERFORM sokhach._month_open(customer_id,v_trip.debt_month,clock_timestamp());
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'trip_review',sokhach._actor(),
         jsonb_build_object('trip',trip_id,'container',v_trip.container,'status','pending_review'),

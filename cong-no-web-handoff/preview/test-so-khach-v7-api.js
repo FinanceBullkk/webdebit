@@ -144,27 +144,18 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind)).sort(), Object.keys(kinds).sort());
 });
 
-test('locked edit asks clicked field, sends note and field intent only', async () => {
-  const { root, listeners } = await livePage({ ...ledger(1), trips: [{ id: 1, editable: false,
-    month: '2026-01-01', unit_price_vnd: '100', other_fee_vnd: null }] });
-  const sent = [];
-  root.fetcher = async (path, options) => { if (options?.method === 'POST') sent.push(JSON.parse(options.body)); return reply(422, { message: 'Chuyến chưa có giá.' }); };
-  for (const [field, label] of [['unit_price_vnd', 'Đơn giá mới'], ['other_fee_vnd', 'Phụ phí mới']]) {
-    let onKey;
-    const input = { value: '200', focus() {}, select() {}, addEventListener(name, fn) { onKey = fn; } };
-    const note = { value: 'ghi chú thử', addEventListener() {} };
-    const error = { textContent: '' };
-    const cell = { dataset: { trip: '1', field }, innerHTML: '', querySelector(selector) {
-      if (selector === 'input' && !this.innerHTML) return null;
-      return selector === '.adjustment-note' ? note : selector === '.cell-error' ? error : input;
-    } };
-    await listeners.click({ target: { closest: selector => selector === 'td.editable' ? cell : null } });
-    assert.ok(cell.innerHTML.includes(`aria-label="${label}"`));
-    assert.match(cell.innerHTML, /Ghi chú/);
-    await onKey({ key: 'Enter', preventDefault() {} });
-    assert.deepEqual(sent.at(-1), { customer_id: 7, expected_version: 1, idempotency_key: 'key',
-      trip_id: 1, field, new_value_vnd: '200', note: 'ghi chú thử' });
-  }
+test('locked month keeps trip cells read only and receipt entry usable', async () => {
+  const { root } = await livePage({ ...ledger(1), today_month: '2026-10-01',
+    months: [{ month: '2026-01-01', charges_vnd: '100', received_vnd: '0', outstanding_vnd: '100', end_of_month_vnd: '100' }],
+    month_locks: [{ month: '2026-01-01', locked: true }],
+    trips: [{ id: 1, month: '2026-01-01', status: 'confirmed', editable: false, info_editable: false,
+      container: 'FAKE-LOCK', carrier: 'FAKE', event_date: '2026-01-10', origin: 'A', destination: 'B',
+      unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: '100' }], receipts: [], legacy_rows: [],
+    adjustments: [], opening: [], source_exceptions: [], events: [] });
+  const block = root.innerHTML.match(/<section id="thang-2026-01">.*?<\/section>/s)[0];
+  assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"|class="draft-input/);
+  assert.match(block, /class="empty-entry receipt-amount"/);
+  assert.match(block, /class="add-month-adjustment"[^>]*disabled/);
 });
 
 test('future receipt error appears beside date and releases pending command', async () => {
@@ -361,7 +352,8 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     assert.match(block(key), new RegExp(`class="draft-input[^"]*" data-month="${key}"`));
     assert.match(block(key), /class="empty-entry receipt-date".*class="receipt-reference"/s);
   }
-  assert.doesNotMatch(block('2026-09'), /class="draft-input|receipt-amount|receipt-reference/);
+  assert.doesNotMatch(block('2026-09'), /class="draft-input/);
+  assert.match(block('2026-09'), /class="empty-entry receipt-amount"/);
   assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây/);
   assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
   assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
