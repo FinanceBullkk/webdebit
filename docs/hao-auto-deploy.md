@@ -1,11 +1,16 @@
-# Tự động đưa bản sửa lên hao — ĐỀ XUẤT
+# Tự động đưa bản sửa lên hao
 
-**ĐỀ XUẤT (người dùng chọn cách 2 ngày 23/10/2026), chưa cài, chưa bật, chưa chạy trên `hao`.**
-Workflow và script chỉ nằm trong repo; không có gì chạy cho tới khi người dùng làm phần cài đặt dưới đây.
+| Trạng thái | Phạm vi |
+| --- | --- |
+| ĐÃ CHỐT | Người dùng chọn cách 2 (GitHub Action đẩy qua Tailscale), 23/10/2026 |
+| ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt |
+| ĐÃ KIỂM CHỨNG | Lượt `Deploy hao` xanh trên GitHub cho commit `3608c9d` (từ đầu tới cuối: Tailscale, SSH, đẩy gói, restart, kiểm sống). Script thử trong Docker với `systemctl`/`curl` giả: deploy, tự quay lại khi kiểm sống lỗi, bỏ qua cùng SHA, từ chối SHA sai |
+| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; action dùng tag (`@v4`, `@v3`), nên ghim SHA |
 
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` chờ người duyệt (Environment `hao`)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
+Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run workflow, nhập SHA đầy đủ.
 
 ## Phạm vi và những gì bị chặn
 
@@ -13,36 +18,52 @@ trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm s�
   [runbook](v7-deploy-runbook.md#giao-diện-sửaxóa-tại-ô--chỉ-đổi-release-app-đã-chạy-trên-hao-22102026).
 - Diff so với bản đang chạy có `specs/v7-backend/`, `tools/migrations/`, file `.sql` hoặc loader `v7_load*`
   → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Không DDL, không nạp dữ liệu.
-- Không backup DB mỗi lượt vì không đụng DB. Đổi sang mã cần migration thì không đi đường này.
-- Đạt (kỳ vọng): service active và cổng loopback trả 200/403 trong 30 giây; không thì quay lại release cũ, job đỏ.
-  Chưa kiểm trên `hao` thật; kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng.
+  Sau khi nâng DB tay, đặt `.release-sha` của release đang chạy bằng SHA `main` vừa triển khai để lượt sau có mốc diff đúng.
+- Không backup DB mỗi lượt vì không đụng DB.
+- Đạt: service active và cổng loopback trả 200/403 trong 30 giây; không thì quay lại release cũ, job đỏ.
 
 ## Cài đặt một lần (người dùng/admin, ngoài repo)
 
-1. **Hao:** tạo OS user `webdebit-deploy` không sudo chung; thư mục `RELEASES_DIR` thuộc user này.
-   Chép `scripts/deploy/hao-release.sh` từ commit đã review vào đường dẫn root-owned, không sửa được bởi user deploy.
-   `/etc/webdebit-deploy.conf` (root-owned): `RELEASES_DIR`, `CURRENT_LINK`, `UNIT`, `HEALTH_URL` (loopback, cổng API, một route thật như `/api/v7/customers`: trả 200 hoặc 403 là sống, 404 bị coi là lỗi).
-2. **Unit hiện tại:** đổi một lần `WorkingDirectory`/`ExecStart` sang `CURRENT_LINK` (symlink) thay đường dẫn release
-   cố định; `daemon-reload`. Tạo `.release-sha` trong release đang chạy bằng SHA thật của nó để lượt đầu có mốc diff.
-   Làm tay theo quy trình runbook (lưu bản unit cũ để rollback).
-3. **sudoers:** cho `webdebit-deploy` đúng một lệnh không mật khẩu: `systemctl restart <unit>`.
-4. **Khóa SSH:** tạo cặp khóa riêng cho deploy; trong `authorized_keys` đặt
-   `command="/đường/dẫn/hao-release.sh",restrict` trước khóa công khai. Khóa này không mở được shell.
-5. **Tailscale:** tạo OAuth client giới hạn tag `tag:ci`; ACL chỉ cho `tag:ci` tới `hao` cổng SSH.
-6. **GitHub:** Settings → Environments → `hao`, bật *Required reviewers* (người dùng). Đặt:
-   secrets `HAO_SSH_USER`, `HAO_SSH_KEY_B64` (private key mã base64 một dòng: `sudo base64 -w0 /tmp/<khóa>`), `HAO_TS_OAUTH_CLIENT_ID`, `HAO_TS_OAUTH_SECRET`;
-   variables `HAO_SSH_HOST` (tên Tailscale), `HAO_SSH_KNOWN_HOSTS` (host key đã ghim). Không ghi giá trị vào repo.
+1. **Hao:** tạo OS user `webdebit-deploy`; thư mục release riêng thuộc user này (khác thư mục release cũ để
+   script dọn dẹp không đụng bản cũ). Chép `scripts/deploy/hao-release.sh` từ commit đã review, **kiểm SHA-256**,
+   rồi cài vào đường dẫn root-owned. `/etc/webdebit-deploy.conf` (root-owned): `RELEASES_DIR`, `CURRENT_LINK`,
+   `UNIT`, `HEALTH_URL` (loopback, một route thật như `/api/v7/customers`: 200 hoặc 403 là sống, 404 bị coi là lỗi).
+2. **Unit hiện tại:** đổi một lần `WorkingDirectory`/`ExecStart` sang `CURRENT_LINK` (symlink); chép release đang chạy
+   làm bản đầu, ghi `.release-sha` bằng SHA thật của nó; lưu bản unit cũ để rollback; `daemon-reload`, restart.
+3. **sudoers:** cho `webdebit-deploy` đúng một lệnh không mật khẩu: `systemctl restart <unit>`; kiểm `visudo -c`.
+4. **Khóa SSH:** cặp khóa riêng cho deploy; trong `authorized_keys` đặt
+   `command="/đường/dẫn/script",restrict` trước khóa công khai. Khóa này không mở được shell.
+   Private key chỉ đi vào secret GitHub, không dán vào chat/ticket, rồi `shred` trên `hao`.
+5. **sshd:** nếu `sshd -T` có `allowusers` thì user deploy bị từ chối ("not listed in AllowUsers"). Thêm bằng file riêng,
+   chỉ cho đăng nhập từ dải Tailscale: `AllowUsers webdebit-deploy@100.64.0.0/10` trong
+   `/etc/ssh/sshd_config.d/`; chạy `sshd -t` trước khi `reload`, giữ một phiên SSH đang mở phòng lỡ cấu hình sai.
+6. **Tailscale:** `tagOwners` cho `tag:ci`; OAuth client scope Auth Keys → Write, tag `tag:ci`. Nếu chính sách mặc định
+   "mọi thiết bị vào mọi thiết bị" (`"src": ["*"]`) thì quy tắc hẹp cho `tag:ci` vô tác dụng: thu hẹp quy tắc cũ về
+   `autogroup:member` và thêm grant `tag:ci` → `hao` chỉ `tcp:22` (dùng `hosts` map cho `hao`).
+   Máy nào gắn tag sẽ mất quyền ra ngoài sau khi thu hẹp: kiểm trước.
+7. **GitHub:** Settings → Environments → `hao`, bật *Required reviewers*. Secrets: `HAO_SSH_USER`,
+   `HAO_SSH_KEY_B64` (private key base64 một dòng: `sudo base64 -w0 /tmp/<khóa>`; dán nhiều dòng từ terminal làm hỏng
+   định dạng, lỗi `libcrypto`), `HAO_TS_OAUTH_CLIENT_ID`, `HAO_TS_OAUTH_SECRET`. Variables: `HAO_SSH_HOST` (tên Tailscale),
+   `HAO_SSH_KNOWN_HOSTS` (một dòng `<tên> ssh-ed25519 <khóa>` lấy từ `/etc/ssh/ssh_host_ed25519_key.pub` trên `hao`;
+   tên phải trùng `HAO_SSH_HOST`). Không ghi giá trị vào repo.
+
+## Lỗi đã gặp khi cài (23/10/2026)
+
+| Triệu chứng | Nguyên nhân | Cách sửa |
+| --- | --- | --- |
+| `Load key ... error in libcrypto` | Private key dán nhiều dòng bị sai định dạng | Dùng `HAO_SSH_KEY_B64` |
+| `Permission denied (publickey)` dù khóa đúng | `AllowUsers` của sshd chỉ liệt kê tài khoản khác | Bước 5; xem `journalctl -u ssh` |
+| Test Postgres lỗi `the database system is starting up` | Container CI chưa sẵn sàng | Chạy lại job lỗi |
+| `ssh-keyscan` Windows báo `unsupported KEX` | Bản OpenSSH Windows cũ | Lấy host key trực tiếp trên `hao` (bước 7) |
 
 ## Rủi ro còn lại
 
-- GitHub giữ khóa SSH và OAuth Tailscale. Giảm bằng: khóa chỉ chạy một lệnh, ACL tag hẹp, bắt buộc người duyệt,
-  workflow chỉ chạy từ `main` (PR từ fork không đọc được secret của Environment).
+- GitHub giữ khóa SSH và OAuth Tailscale. Giảm bằng: khóa chỉ chạy một lệnh, ACL tag hẹp, `AllowUsers` giới hạn dải
+  Tailscale, bắt buộc người duyệt, workflow chỉ chạy từ `main`.
 - Ai sửa được `main` thì sửa được thứ được deploy: giữ nhánh `main` bảo vệ (PR + CI xanh).
-- Action dùng tag (`@v4`, `@v3`) như `test.yml`; nên ghim SHA khi bật thật.
-- Script và workflow **chưa chạy thử** end-to-end. Lần bật đầu nên thử ở một thư mục release giả trên `hao`
-  (HEALTH_URL trỏ service thử) trước khi trỏ vào unit thật.
 
 ## Rollback
 
 Job tự quay lại bản trước khi kiểm sống lỗi. Quay tay: trỏ `CURRENT_LINK` về release cũ trong `RELEASES_DIR`
-(giữ 5 bản gần nhất), `systemctl restart <unit>`. DB không cần restore.
+(giữ 5 bản gần nhất), `systemctl restart <unit>`. Gỡ hẳn auto-deploy: tắt/xóa workflow, trả unit về bản đã lưu ở bước 2.
+DB không cần restore.
