@@ -715,6 +715,53 @@ def scan_workbook(path: Path) -> dict[str, dict]:
     return result
 
 
+# MH-01 (specs/v7-mat-hang-chon-khach.md): LOAI HANG label on TONG -> (commodity, transport mode).
+# Labels not listed stay NULL ("Chưa phân loại"); never guessed.
+COMMODITY_LABELS = {
+    "SAU RIENG CANG": ("Sầu riêng", "CANG"), "SAU RIENG BO": ("Sầu riêng", "BO"),
+    "SAU RIENG": ("Sầu riêng", None), "THANH LONG": ("Thanh long", None),
+    "TLONG BO": ("Thanh long", "BO"), "XOAI": ("Xoài", None), "XOAI BO": ("Xoài", "BO"),
+    "CHUOI": ("Chuối", None), "DUA COCONUT": ("Dừa", None), "DUA": ("Dừa", None),
+    "DUA BO": ("Dừa", "BO"),
+    "BUOI": ("Bưởi", None), "MIT": ("Mít", None), "NHAN": ("Nhãn", None),
+    "GUNG TUOI": ("Gừng tươi", None), "KHOAI LANG": ("Khoai lang", None),
+    "BAN CUOC": ("Bán cước", None), "HANG NHAP": ("Hàng nhập", None),
+}
+
+
+def tong_commodities(path: Path) -> dict[str, str | None]:
+    """Normalized customer name -> LOAI HANG label of its rightmost (latest) TONG block.
+
+    Two different labels at the same rightmost position (names that normalize alike) map to None.
+    """
+    found: dict[str, tuple[tuple[int, int], str | None]] = {}
+    for tab, data in workbook_rows(path):
+        if normalized(tab) != "TONG":
+            continue
+        pairs: list[tuple[str, str]] = []
+        for number, cells in data:
+            heads = {col: normalized(v) for col, v in cells.items()}
+            labels = [col for col, v in heads.items() if v == "LOAI HANG"]
+            if labels:
+                pairs = [(col, col_name(col_num(col) + 1)) for col in labels
+                         if heads.get(col_name(col_num(col) + 1)) == "TEN KHACH HANG"]
+                continue
+            for label_col, name_col in pairs:
+                name, label = normalized(cells.get(name_col, "")), cells.get(label_col, "").strip()
+                if not name or not label:
+                    continue
+                key = (col_num(label_col), number)
+                if name not in found or key > found[name][0]:
+                    found[name] = (key, label)
+                elif key == found[name][0] and found[name][1] != label:
+                    found[name] = (key, None)
+    return {name: label for name, (_, label) in found.items()}
+
+
+def commodity_of(label: str | None) -> tuple[str, str | None] | None:
+    return COMMODITY_LABELS.get(normalized(label)) if label else None
+
+
 def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Counter]]:
     if any(not (source / name).is_file() for name in FILES):
         raise LoadError("SOURCE_FILE_MISSING")
@@ -724,6 +771,7 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
     csv_rows = {kind: rows(source, filename) for kind, filename in
                 (("trip", "trips_so_goc.csv"), ("receipt", "payments_so_goc.csv"))}
     scanned = scan_workbook(source / "source-google-export.xlsx")
+    tong_labels = tong_commodities(source / "source-google-export.xlsx")
     names = set(scanned)
     for filename in ("v7-reconcile-customer.csv", "v7-reconcile-period.csv"):
         names.update(r["customer"].strip() for r in rows(source, filename))
@@ -763,6 +811,11 @@ def source_data(source: Path) -> tuple[list[dict], dict[str, str], dict[str, Cou
         item = {"name": name, "ordinal": ordinal, "reasons": reasons, "flags": flags,
                 "openings": [], "checks": [], "legacy": [], "anchor": None,
                 "row_counts": Counter(r["kind"] for r in tab["records"]), "in_summary": in_summary}
+        label = tong_labels.get(normalized(name))
+        if (commodity := commodity_of(label)) is not None:
+            item["commodity"], item["transport_mode"] = commodity
+        elif label:
+            item["commodity_label_unknown"] = True
         # Match physical row identity and raw amounts as well as per-tab counts/totals.
         for kind, records in csv_rows.items():
             extracted = [r for r in records if r["tab"].strip() == name]
@@ -1096,7 +1149,11 @@ def clean_data(folder: Path) -> tuple[list[dict], dict, dict]:
                 "row_counts": Counter(json.loads(row["row_counts"])),
                 "checks": [], "openings": [], "legacy": []}
         metadata = json.loads(row["metadata"])
-        if set(metadata) - {"has_insurance"}:
+        if (set(metadata) - {"has_insurance", "commodity", "transport_mode"}
+                or ("commodity" in metadata and (not isinstance(metadata["commodity"], str)
+                                                 or not metadata["commodity"].strip()))
+                or metadata.get("transport_mode") not in (None, "CANG", "BO")
+                or ("transport_mode" in metadata and "commodity" not in metadata)):
             raise LoadError("CLEAN_METADATA")
         item.update(metadata)
         if item["name"] in by_name:
@@ -1167,11 +1224,22 @@ def write_report(result: dict, filename: str) -> None:
     print(json.dumps(result, ensure_ascii=True), flush=True)
 
 
+def text_sql(value: str) -> str:
+    """UTF-8 text as a hex literal: customer names never pass through SQL quoting."""
+    return "convert_from(decode('" + value.encode().hex() + "','hex'),'UTF8')"
+
+
 def import_one(pg: Pg, item: dict, digest: str, index: int, *, cutover: int | None = None) -> str:
     if item["reasons"]:
         return "held"
-    customer = int(pg.value("INSERT INTO sokhach.customer(name) VALUES (" +
-                            "convert_from(decode('" + item["name"].encode().hex() + "','hex'),'UTF8')) RETURNING id"))
+    commodity = "NULL"
+    if item.get("commodity"):
+        commodity = text_sql(item["commodity"])
+        pg.sql(f"INSERT INTO sokhach.commodity(name) VALUES ({commodity}) ON CONFLICT (name) DO NOTHING")
+        commodity = f"(SELECT id FROM sokhach.commodity WHERE name={commodity})"
+    mode = f"'{item['transport_mode']}'" if item.get("transport_mode") in ("CANG", "BO") else "NULL"
+    customer = int(pg.value("INSERT INTO sokhach.customer(name,commodity_id,transport_mode) VALUES (" +
+                            text_sql(item["name"]) + f",{commodity},{mode}) RETURNING id"))
     item["id"] = customer
     shared_cutover = cutover is not None
     if cutover is None:

@@ -103,7 +103,8 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
 
 function handleApi(world, req, res, url, body) {
   if (req.method === 'GET' && url.pathname === '/api/v7/customers') {
-    return reply(res, 200, { demo: true, customers: Object.values(world.books).map(item => ({ id: item.id, name: item.name, status: 'active' })) });
+    return reply(res, 200, { demo: true, customers: Object.values(world.books).map(item => ({ id: item.id, name: item.name, status: 'active',
+      commodity: item.commodity, transport_mode: item.mode ?? null })) });
   }
   if (req.method === 'GET' && url.pathname === '/api/v7/ledger') return reply(res, 200, ledger(world, Number(url.searchParams.get('customer'))));
   if (req.method === 'GET' && url.pathname === '/api/v7/offset-sources') {
@@ -221,6 +222,24 @@ async function pickSource(page, name) {
   await page.locator('.offset-source-select').click();
   await page.locator('.offset-option', { hasText: name }).click();
 }
+
+test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo mặt hàng, Enter mở khách đầu của kết quả', async () => withPage(async ({ page, world, open, shot }) => {
+  world.books[1].mode = 'BO';
+  await open(3);
+  const search = page.locator('#customer-search');
+  await search.click();
+  await search.fill('');
+  await page.locator('#customer-list .customer-group').first().waitFor();
+  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['chuối (1)', 'sầu riêng (1)', 'sầu riêng · bộ (1)']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Ba', 'Khách Thử Hai', 'Khách Thử Một']);
+  await shot('0-chon-khach-theo-mat-hang');
+  await search.fill('sau rieng bo');
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Một']);
+  await search.fill('SẦU RIÊNG');
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Hai', 'Khách Thử Một']);
+  await search.press('Enter');
+  await page.waitForURL(/customer=2$/);
+}));
 
 test('chọn CẤN TRỪ hiện ô Lấy từ sổ; danh sách xếp A→Z, có Ngoài sổ, lọc theo tên', async () => withPage(async ({ page, open, shot }) => {
   await open(1);

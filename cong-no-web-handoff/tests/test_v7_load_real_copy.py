@@ -46,7 +46,7 @@ def column(n):
 
 def fixture(folder, *, shift=0, months=None, missing_price=False, receipt="",
             receipt_date="", omit_csv=False, bucket_delta=0, shared=False,
-            name=FAKE_NAME, extra_tab=False, opening_anchor=True):
+            name=FAKE_NAME, extra_tab=False, opening_anchor=True, tong=None):
     months = months or [("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT)]
     headers = ["Marks & Nos", "CONTAINER NO", "DATE", "UNIT PRICE", "OTHER FEE",
                "TOTAL(VND)", "NGAY TT(STK)", "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG",
@@ -117,17 +117,38 @@ def fixture(folder, *, shift=0, months=None, missing_price=False, receipt="",
     ET.SubElement(rels, "Relationship", Id="rId1", Target="worksheets/sheet1.xml")
     if extra_tab:
         ET.SubElement(rels, "Relationship", Id="rId2", Target="/xl/worksheets/sheet2.xml")
+    if tong is not None:
+        ET.SubElement(sheets, f"{{{M}}}sheet", name="TONG", attrib={f"{{{R}}}id": "rId3"})
+        ET.SubElement(rels, "Relationship", Id="rId3", Target="worksheets/sheet3.xml")
     with zipfile.ZipFile(folder / "source-google-export.xlsx", "w") as book:
         book.writestr("xl/workbook.xml", ET.tostring(workbook))
         book.writestr("xl/_rels/workbook.xml.rels", ET.tostring(rels))
         book.writestr("xl/worksheets/sheet1.xml", ET.tostring(sheet))
         if extra_tab:
             book.writestr("xl/worksheets/sheet2.xml", ET.tostring(sheet))
+        if tong is not None:
+            book.writestr("xl/worksheets/sheet3.xml", tong_sheet(tong))
         if shared:
             root = ET.Element(f"{{{M}}}sst")
             for value in strings:
                 ET.SubElement(ET.SubElement(root, f"{{{M}}}si"), f"{{{M}}}t").text = value
             book.writestr("xl/sharedStrings.xml", ET.tostring(root))
+
+
+def tong_sheet(rows):
+    """TONG tab from {row number: {column: text}}; inline strings only."""
+    sheet = ET.Element(f"{{{M}}}worksheet")
+    data = ET.SubElement(sheet, f"{{{M}}}sheetData")
+    for number, cells in sorted(rows.items()):
+        element = ET.SubElement(data, f"{{{M}}}row", r=str(number))
+        for col, value in cells.items():
+            cell = ET.SubElement(element, f"{{{M}}}c", r=f"{col}{number}", t="inlineStr")
+            ET.SubElement(ET.SubElement(cell, f"{{{M}}}is"), f"{{{M}}}t").text = value
+    return ET.tostring(sheet)
+
+
+TONG_HEAD = {"C": "STT", "D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG",
+             "M": "STT", "N": "LOAI HANG", "O": "TÊN KHÁCH HÀNG"}
 
 
 REAL_HEADERS = ["Marks \n& Nos", "CONTAINER NO", "", "DATE", "FROM", "TO", "OTHER FEE",
@@ -224,6 +245,50 @@ class RealLayoutTest(unittest.TestCase):
         self.assertEqual((shifted["date"], shifted["carrier"], shifted["from"], shifted["to"]),
                          ("2026-09-07", "", "FAKE-FROM-2", "FAKE-TO-2"))
         self.assertIn("COLUMN_SHIFTED", shifted["flags"])
+
+
+class TongCommodityTest(unittest.TestCase):
+    """MH-01: LOAI HANG of the rightmost TONG block, normalized; unknown stays NULL."""
+
+    def labels(self, rows):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            fixture(folder, tong=rows)
+            return loader.tong_commodities(folder / "source-google-export.xlsx")
+
+    def test_rightmost_block_wins_and_names_are_normalized(self):
+        found = self.labels({6: TONG_HEAD,
+                             8: {"D": "THANH LONG", "E": "fake  one", "N": "SAU RIENG BO", "O": "FAKE ONE"},
+                             9: {"D": "CHUOI", "E": "FAKE TWO"},
+                             10: {"N": "", "O": "FAKE THREE"}})
+        self.assertEqual(found, {"FAKE ONE": "SAU RIENG BO", "FAKE TWO": "CHUOI"})
+
+    def test_label_without_name_column_is_ignored(self):
+        self.assertEqual(self.labels({6: {"D": "LOAI HANG", "E": "KHAC"}, 8: {"D": "CHUOI", "E": "FAKE"}}), {})
+
+    def test_labels_map_to_commodity_and_mode(self):
+        cases = {"SAU RIENG CANG": ("Sầu riêng", "CANG"), " sầu riêng bộ ": ("Sầu riêng", "BO"),
+                 "XOAI- BỘ": ("Xoài", "BO"), "TLONG- BỘ": ("Thanh long", "BO"),
+                 "DỪA-COCONUT": ("Dừa", None), "DỪA- BỘ": ("Dừa", "BO"), "HÀNG NHẬP": ("Hàng nhập", None),
+                 # Rail is not a transport_mode the schema allows (CANG/BO): left unclassified.
+                 "CHUOI- DUONG SAT": None,
+                 "GỪNG TƯƠI": ("Gừng tươi", None), "FAKE NEW FRUIT": None, "": None, None: None}
+        for label, expected in cases.items():
+            self.assertEqual(loader.commodity_of(label), expected, label)
+
+    def test_source_data_sets_commodity_or_leaves_null(self):
+        for rows, expected in [({6: TONG_HEAD, 8: {"D": "XOAI- BỘ", "E": FAKE_NAME}}, ("Xoài", "BO")),
+                               ({6: TONG_HEAD, 8: {"D": "FAKE NEW FRUIT", "E": FAKE_NAME}}, None),
+                               ({6: TONG_HEAD}, None)]:
+            with tempfile.TemporaryDirectory() as temp:
+                folder = Path(temp)
+                fixture(folder, tong=rows)
+                item = loader.source_data(folder)[0][0]
+            self.assertEqual(dict(item["reasons"]), {})
+            got = (item["commodity"], item["transport_mode"]) if "commodity" in item else None
+            self.assertEqual(got, expected)
+            unknown = rows.get(8, {}).get("D") == "FAKE NEW FRUIT"
+            self.assertEqual(item.get("commodity_label_unknown", False), unknown)
 
 
 class LayoutVariantTest(unittest.TestCase):
