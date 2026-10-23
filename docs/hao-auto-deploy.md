@@ -30,7 +30,7 @@ trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm s�
    `command="/đường/dẫn/hao-release.sh",restrict` trước khóa công khai. Khóa này không mở được shell.
 5. **Tailscale:** tạo OAuth client giới hạn tag `tag:ci`; ACL chỉ cho `tag:ci` tới `hao` cổng SSH.
 6. **GitHub:** Settings → Environments → `hao`, bật *Required reviewers* (người dùng). Đặt:
-   secrets `HAO_SSH_USER`, `HAO_SSH_KEY`, `HAO_TS_OAUTH_CLIENT_ID`, `HAO_TS_OAUTH_SECRET`;
+   secrets `HAO_SSH_USER`, `HAO_SSH_KEY_B64` (private key mã base64 một dòng: `sudo base64 -w0 /tmp/<khóa>`), `HAO_TS_OAUTH_CLIENT_ID`, `HAO_TS_OAUTH_SECRET`;
    variables `HAO_SSH_HOST` (tên Tailscale), `HAO_SSH_KNOWN_HOSTS` (host key đã ghim). Không ghi giá trị vào repo.
 
 ## Rủi ro còn lại
