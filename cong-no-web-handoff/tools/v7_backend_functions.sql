@@ -461,7 +461,6 @@ BEGIN
     PERFORM sokhach._baseline(customer_id);
     IF debt_month IS NULL OR extract(day FROM debt_month) <> 1 OR amount_vnd IS NULL OR amount_vnd=0
     THEN RAISE EXCEPTION 'INVALID_ADJUSTMENT'; END IF;
-    PERFORM sokhach._month_open(customer_id,debt_month,clock_timestamp());
     IF NOT EXISTS (SELECT 1 FROM sokhach.opening_balance o
         JOIN sokhach.cutover_customer cc USING (customer_id,cutover_id)
         JOIN sokhach.cutover c ON c.id=cc.cutover_id
@@ -472,6 +471,7 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM sokhach.v_adjustment_current a
            WHERE a.customer_id=adjust_month.customer_id AND a.debt_month=adjust_month.debt_month)
     THEN RAISE EXCEPTION 'MONTH_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,debt_month,clock_timestamp());
     v_id := nextval(pg_get_serial_sequence('sokhach.adjustment','id'));
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
     VALUES (customer_id,'adjust_month',sokhach._actor(),
@@ -771,6 +771,8 @@ BEGIN
             AND (t.container IS NULL OR t.container=''),
         'is_missing_price',p.unit_price_vnd IS NULL AND NOT
             (p.other_fee_vnd IS NOT NULL AND (t.container IS NULL OR t.container='')),
+        'editable',NOT coalesce(ms.locked,t.debt_month <>
+            date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date),
         'info_editable',NOT coalesce(ms.locked,t.debt_month <>
             date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date))
         ORDER BY t.debt_month,t.id),'[]'::jsonb),

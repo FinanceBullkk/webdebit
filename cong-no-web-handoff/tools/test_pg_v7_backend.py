@@ -185,6 +185,13 @@ def version(pg: Pg, customer: int) -> int:
     return int(pg.value(f"SELECT version FROM sokhach.customer WHERE id={customer}"))
 
 
+def fixture_open_month(pg: Pg, customer: int, month: str) -> None:
+    # Disposable contract fixture; lock-command audit is tested separately.
+    pg.sql("INSERT INTO sokhach.month_state(customer_id,month,locked,changed_by) "
+           f"VALUES ({customer},{lit(month)},false,'harness') "
+           "ON CONFLICT (customer_id,month) DO UPDATE SET locked=false,changed_by='harness'")
+
+
 def new_book(pg: Pg, *amounts: tuple[str, int]) -> int:
     """Harness-only opening: no import/verification acceptance claim."""
     customer = int(pg.value("INSERT INTO sokhach.customer(name) VALUES ('FAKE CONTRACT') RETURNING id"))
@@ -710,6 +717,7 @@ FOR EACH ROW EXECUTE FUNCTION public.fail_second_allocation()""")
         pg.sql("DROP TRIGGER harness_fail_second_allocation ON sokhach.receipt_line; "
                "DROP FUNCTION public.fail_second_allocation()")
     call(pg, "record_receipt", c, 0, "atomic-base", "2026-03-01", "THU TIỀN", 100)
+    fixture_open_month(pg, c, "2026-01-01")
     before = (version(pg, c), months(pg, c), allocations(pg, c, "PH-001"),
               pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}"))
     pg.sql("CREATE FUNCTION public.fail_reallocation() RETURNS trigger LANGUAGE plpgsql AS $$ "
@@ -803,11 +811,12 @@ FOR EACH ROW EXECUTE FUNCTION public.fail_second_void()""")
 
 def check_opening_fifo(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 200))
+    call(pg, "set_month_lock", c, 0, "fifo-open", "2026-01-01", "false")
     opening = pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}")
-    call(pg, "record_receipt", c, 0, "fifo-r", "2026-03-01", "THU TIỀN", 150)
+    call(pg, "record_receipt", c, 1, "fifo-r", "2026-03-01", "THU TIỀN", 150)
     require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "100"),
              ("2026-02-01", "debt", "50")], "receipt did not use old opening first")
-    call(pg, "adjust_month", c, 1, "fifo-a", "2026-01-01", 60, "giá mới")
+    call(pg, "adjust_month", c, 2, "fifo-a", "2026-01-01", 60, "giá mới")
     require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "150")]
             and [r[1] for r in months(pg, c)] == ["10", "200"], "adjustment did not reallocate FIFO")
     require(pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}") == opening,
@@ -869,6 +878,7 @@ def check_input(pg: Pg) -> None:
     pg.true(f"NOT EXISTS (SELECT 1 FROM sokhach.trip_price_rev WHERE trip_id={trip} "
             "AND unit_price_vnd=9223372036854775807)", "overflow price fixture leaked")
     overflow = new_book(pg, ("2026-01-01", 9223372036854775807))
+    fixture_open_month(pg, overflow, "2026-01-01")
     reject_call(pg, "adjust_month", overflow, 0, "month-overflow", "2026-01-01", 1,
                 "sửa", error="INVALID_VND")
     require(version(pg, overflow) == 0 and pg.value(
@@ -1036,6 +1046,7 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(MH_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1169,6 +1180,15 @@ def check_locks(pg: Pg) -> str:
         a.close()
         b.close()
     reject_call(pg, "edit_trip_price", c, 4, "price-locked-current", current_trip, 101, None, error="MONTH_LOCKED")
+    before = (version(pg, c), pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}"))
+    for name, args in (
+            ("edit_trip_info", (current_trip, "carrier", "FAKE NEW")),
+            ("delete_trip", (current_trip,)),
+            ("adjust_trip", (current_trip, 120, "fake")),
+            ("adjust_month", (current, 5, "fake"))):
+        reject_call(pg, name, c, 4, "locked-" + name, *args, error="MONTH_LOCKED")
+    require((version(pg, c), pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}")) == before,
+            "locked trip edit wrote audit or version")
     call(pg, "set_month_lock", c, 4, "reopen-current", current, "false")
     a, b = PsqlSession(pg, f"v7_edit_a_{c}"), PsqlSession(pg, f"v7_edit_b_{c}")
     try:
@@ -1197,6 +1217,7 @@ def check_locks(pg: Pg) -> str:
     locks = {r["month"]: r["locked"] for r in ledger["month_locks"]}
     require(ledger["today_month"]==current and locks[current] and not locks[empty]
             and not any(m["month"]==empty for m in ledger["months"]), "GET month lock flags")
+    call(pg, "record_receipt", c, version(pg, c), "receipt-while-locked", current, "THU TIỀN", 1)
     return "VN clock boundary; price uses current month; paste serializes without month gate"
 
 
@@ -1382,7 +1403,6 @@ console.log(JSON.stringify(out));
     for month in ("2026-01-01", "2026-02-01"):
         call(pg, "set_month_lock", c, version(pg, c), "open-" + month, month, "false")
         call(pg, "paste_trips", c, version(pg, c), "paste-" + month, month, trip_json(container="FAKE-" + month, month=month))
-    call(pg, "set_month_lock", c, version(pg, c), "lock-2026-01", "2026-01-01", "true")
     trip = int(pg.value(f"SELECT id FROM sokhach.trip WHERE customer_id={c} AND debt_month='2026-01-01'"))
     actions = [
         ("record_receipt", ("2026-01-03", "THU TIỀN", 120)),
@@ -1562,10 +1582,11 @@ COMMIT;
 def check_snapshots(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
     call(pg, "record_receipt", c, 0, "snap-receipt", "2026-03-01", "THU TIỀN", 100)
+    call(pg, "set_month_lock", c, 1, "snap-open", "2026-01-01", "false")
     old = pg.value("SELECT jsonb_agg(jsonb_build_object('id',l.id,'month',l.debt_month,"
         "'kind',l.kind,'amount_vnd',l.amount_vnd::text) ORDER BY l.id)::text "
         f"FROM sokhach.receipt_line l WHERE l.customer_id={c}")
-    result = call(pg, "adjust_month", c, 1, "snap-adjust", "2026-01-01", 10, "sửa")
+    result = call(pg, "adjust_month", c, 2, "snap-adjust", "2026-01-01", 10, "sửa")
     require(len(result["reallocated"]) == 1, "changed allocation lacks reallocation result")
     event_id = result["reallocated"][0]["event_id"]
     event = json.loads(pg.value(f"SELECT jsonb_build_object('before',\"before\",'after',\"after\") "
@@ -1591,9 +1612,10 @@ def check_snapshots(pg: Pg) -> None:
                message="check constraint")
 
     fault = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 100))
+    call(pg, "set_month_lock", fault, 0, "fault-open", "2026-01-01", "false")
     current = pg.value("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
-    trip = call(pg, "paste_trips", fault, 0, "fault-base-trip", current, trip_json(month=current))["trip_ids"][0]
-    call(pg, "record_receipt", fault, 1, "fault-base-receipt", "2026-03-01", "THU TIỀN", 150)
+    trip = call(pg, "paste_trips", fault, 1, "fault-base-trip", current, trip_json(month=current))["trip_ids"][0]
+    call(pg, "record_receipt", fault, 2, "fault-base-receipt", "2026-03-01", "THU TIỀN", 150)
     pg.sql("CREATE FUNCTION public.harness_abort() RETURNS trigger LANGUAGE plpgsql AS $$ "
            "BEGIN RAISE EXCEPTION 'HARNESS_ABORT'; END $$")
     try:
@@ -1925,11 +1947,12 @@ COMMIT;""", message="INVALID_FEE_ONLY_DATE")
 
 def check_monthly_identity(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 500), ("2026-02-01", -50), ("2026-03-01", 0))
-    call(pg, "record_receipt", c, 0, "identity-r", "2026-04-01", "THU TIỀN", 100)
+    call(pg, "set_month_lock", c, 0, "identity-open", "2026-02-01", "false")
+    call(pg, "record_receipt", c, 1, "identity-r", "2026-04-01", "THU TIỀN", 100)
     rows = call(pg, "get_ledger", c)["months"]
     require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "400",
             "opening absent from charges or counted twice")
-    call(pg, "adjust_month", c, 1, "identity-a", "2026-02-01", -25, "giảm")
+    call(pg, "adjust_month", c, 2, "identity-a", "2026-02-01", -25, "giảm")
     rows = call(pg, "get_ledger", c)["months"]
     require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "-75",
             "signed opening/adjustment missing from charges")
@@ -2059,6 +2082,7 @@ def check_future_receipt(pg: Pg) -> None:
 def check_void_get(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 60), ("2026-02-01", 60))
     first = call(pg, "record_receipt", c, 0, "void-get-r", "2026-03-01", "THU TIỀN", 100)
+    fixture_open_month(pg, c, "2026-01-01")
     call(pg, "adjust_month", c, 1, "void-get-a", "2026-01-01", -30, "đổi phân bổ")
     at_void = allocations(pg, c, first["pid"])
     call(pg, "void_receipt", c, 2, "void-get-v", first["pid"], "nhập trùng")
@@ -2461,7 +2485,7 @@ def check_dedup(pg: Pg) -> None:
             ledger = call(pg, "get_ledger", target)
             require(ledger["total_outstanding_vnd"] == ("200" if pending else "300"), "mixed batch balance")
             held = [t for t in ledger["trips"] if t["status"] == "pending_review"]
-            require(len(held) == int(pending) and all(t["amount_vnd"] is None and not t["editable"] for t in held),
+            require(len(held) == int(pending) and all(t["amount_vnd"] is None for t in held),
                     "pending row contract")
             if pending:
                 require(result["pending_review"][0]["trip_id"] == result["trip_ids"][0 if scope == "web" else 1],
@@ -2481,6 +2505,7 @@ REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-tr
 MH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-23-v7-mat-hang.sql"
 
 DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql"
+LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-locked-trip-edit.sql"
 
 
 def check_trip_review(pg: Pg) -> None:
@@ -2526,8 +2551,10 @@ def check_trip_review(pg: Pg) -> None:
     reject_call(pg, "review_trip", c, version(pg, c), "again", held, "reject", "fake", error="TRIP_NOT_PENDING")
     call(pg, "edit_trip_price", c, version(pg, c), "price-after", held, 120, None)
     # Locked month never blocks a conclusion (NHAP-SHEET-01 (7)); reject leaves money untouched.
-    call(pg, "set_month_lock", c, version(pg, c), "lock", current, "true")
+    call(pg, "set_month_lock", c, version(pg, c), "lock", "2026-01-01", "true")
     total = call(pg, "get_ledger", c)["total_outstanding_vnd"]
+    reject_call(pg, "review_trip", c, version(pg, c), "locked-reject", other, "reject", "trùng dòng sổ gốc", error="MONTH_LOCKED")
+    call(pg, "set_month_lock", c, version(pg, c), "unlock-review", "2026-01-01", "false")
     rejected = call(pg, "review_trip", c, version(pg, c), "reject", other, "reject", "trùng dòng sổ gốc")
     require(rejected == rejected | {"status": "rejected", "reallocated": []}, "reject result wrong")
     require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == total and trip(other)["status"] == "rejected"
@@ -2541,9 +2568,11 @@ def check_trip_review(pg: Pg) -> None:
     pg.rejects(f"DELETE FROM sokhach.trip WHERE id={other}", message="immutable row")
     pending = paste("direct", "BASE", "BK3")["trip_ids"][0]
     late = paste("late", "BASE", "BK4")["trip_ids"][0]
-    call(pg, "set_month_lock", c, version(pg, c), "lock-late", current, "true")
+    call(pg, "set_month_lock", c, version(pg, c), "lock-late", "2026-01-01", "true")
     total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
-    call(pg, "review_trip", c, version(pg, c), "locked-confirm", late, "confirm", "đối chiếu xong")
+    reject_call(pg, "review_trip", c, version(pg, c), "locked-confirm", late, "confirm", "đối chiếu xong", error="MONTH_LOCKED")
+    call(pg, "set_month_lock", c, version(pg, c), "unlock-late-review", "2026-01-01", "false")
+    call(pg, "review_trip", c, version(pg, c), "confirmed-late", late, "confirm", "đối chiếu xong")
     require(int(call(pg, "get_ledger", c)["total_outstanding_vnd"]) == total + 100, "locked-month confirm not counted")
     assert_allocations(pg, c)
     call(pg, "set_month_lock", c, version(pg, c), "unlock-late", current, "false")
@@ -2554,6 +2583,8 @@ def check_trip_review(pg: Pg) -> None:
 
 def check_nhap_sheet(pg: Pg) -> None:
     c = new_book(pg, ("2026-09-01", 60000000), ("2026-10-01", 93000000))
+    for month in ("2026-08-01", "2026-09-01", "2026-10-01"):
+        fixture_open_month(pg, c, month)
     opening = pg.value(f"SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM sokhach.opening_balance o WHERE customer_id={c}")
     cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
     event = pg.value(f"SELECT id FROM sokhach.event WHERE customer_id={c} AND kind='import'")
@@ -2655,6 +2686,7 @@ def check_nhap_sheet(pg: Pg) -> None:
     require(pg.value(f"SELECT debt_month FROM sokhach.v_adjustment_current WHERE trip_id={t}") == "2026-08-01", "adjustment did not follow trip")
     require(allocations(pg, c, "PH-001") == [("2026-08-01", "debt", "100")], "move did not reallocate FIFO")
     require(any(m["month"] == "2026-08-01" for m in call(pg, "get_ledger", c)["months"]), "moved month missing")
+    pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-08-01'")
     reject_call(pg, "edit_trip_price", c, version(pg, c), "current-lock", t, 101, None, error="MONTH_LOCKED")
     write("set_month_lock", "2026-08-01", "false")
     write("edit_trip_info", t, "event_date", "2026-08-11")
@@ -2852,6 +2884,8 @@ def check_migration(pg: Pg) -> None:
                  message="DASHBOARD_FAULT")
     copy.sql(dashboard)
     copy.sql(dashboard)
+    copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
