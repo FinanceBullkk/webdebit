@@ -34,4 +34,3 @@ END $$;
 REVOKE ALL ON FUNCTION sokhach.get_dashboard() FROM PUBLIC, sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.get_dashboard() TO sokhach_app, sokhach_reader;
 COMMIT;
-

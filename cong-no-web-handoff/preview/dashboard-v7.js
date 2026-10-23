@@ -51,8 +51,12 @@
         banner.textContent = data.real_copy ? 'Dữ liệu thật · bản sao cô lập, chưa phải prod' : 'Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật';
       }
       render(data);
-      const customerResponse = await fetch('/api/v7/customers', { cache: 'no-store' });
-      if (customerResponse.ok) setupSearch((await customerResponse.json()).customers ?? []);
+      try {
+        const customerResponse = await fetch('/api/v7/customers', { cache: 'no-store' });
+        if (customerResponse.ok) setupSearch((await customerResponse.json()).customers ?? []);
+      } catch {
+        // Summary remains usable when optional customer search is unavailable.
+      }
     } catch (error) {
       const alert = document.querySelector('#error');
       alert.hidden = false;
