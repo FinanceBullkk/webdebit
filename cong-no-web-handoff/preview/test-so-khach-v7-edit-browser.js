@@ -14,7 +14,7 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 // Sổ giả: một chuyến web tháng 9 (khóa), một dòng sổ gốc thiếu giá và một dòng có giá tháng 9.
 function makeWorld() {
   return {
-    version: 1, receipts: [], requests: [], failNext: null, nextEvent: 1, events: [], adjustments: [],
+    version: 1, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: true }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
       editable: false, info_editable: true, deleted: false }],
@@ -34,7 +34,7 @@ function ledger(world) {
   const legacy = world.legacy.filter(row => !row.current.deleted);
   const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(todayMonth))].sort();
   return { status: 'active', customer_id: 1, version: world.version, demo: true, today_month: todayMonth,
-    month_locks: [{ month: '2026-09-01', locked: true }],
+    month_locks: world.locks,
     months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' })),
     total_outstanding_vnd: '0', trips, adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events };
@@ -84,8 +84,9 @@ function apply(world, url, body) {
   return [200, { ok: true }];
 }
 
-async function withPage(fn) {
+async function withPage(fn, setup = () => {}) {
   const world = makeWorld();
+  setup(world);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
@@ -286,6 +287,24 @@ test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống,
   assert.equal(await page.locator('.draft-row.draft').count(), 0);
   assert.equal(await page.locator('td.info-edit[data-kind="trip"][data-field="container"]').filter({ hasText: 'NEWU0000002' }).count(), 1);
 }));
+
+test('tháng cũ đã mở khóa có hàng nhập phiếu và bảng nhập chuyến riêng; nháp không lẫn tháng, ô thu gõ dở không mất', async () => withPage(async ({ page, world, shot }) => {
+  const sept = page.locator('#thang-2026-09');
+  const current = page.locator(`#thang-${todayMonth.slice(0, 7)}`);
+  await sept.locator('.draft-input[data-field="container"]').first().waitFor();
+  for (const selector of ['.receipt-date:not(.saved-receipt-input)', '.receipt-method', '.receipt-amount', '.receipt-reference']) assert.equal(await sept.locator(selector).count(), 1);
+  // Gõ nháp ở tháng 9 không làm hiện nháp ở tháng hiện tại.
+  const entry = sept.locator('.draft-row').first();
+  await entry.locator('.draft-input[data-field="container"]').fill('NEWU7654321');
+  await sept.locator('.receipt-amount').fill('1.000.000');
+  await entry.locator('.draft-input[data-field="carrier"]').click();
+  await page.waitForFunction(() => document.querySelector('#thang-2026-09 .draft-bar strong')?.textContent === '1 chuyến nháp');
+  assert.equal(await current.locator('.draft-bar strong').innerText(), '0 chuyến nháp');
+  // Bảng nháp vẽ lại không làm mất ô thu đang gõ.
+  assert.equal(await sept.locator('.receipt-amount').inputValue(), '1.000.000');
+  await shot('nhap-thang-cu-mo-khoa');
+  assert.equal(world.requests.length, 0);
+}, world => { world.locks = [{ month: '2026-09-01', locked: false }]; }));
 
 test('bàn phím: Enter trên ô mở sửa; 1280×720 không cuộn ngang', async () => withPage(async ({ page }) => {
   await tripCell(page, 'origin').focus();
