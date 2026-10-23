@@ -1940,7 +1940,7 @@ def check_field_adjustment(pg: Pg) -> None:
     call(pg, "set_month_lock", c, 0, "field-open", "2026-01-01", "false")
     trip = call(pg, "paste_trips", c, 1, "field-paste", "2026-01-01", trip_json(container="FIELD-PRICED"))["trip_ids"][0]
     missing = call(pg, "paste_trips", c, 2, "field-missing", "2026-01-01", trip_json(None, container="FIELD-MISSING"))["trip_ids"][0]
-    call(pg, "set_month_lock", c, 3, "field-lock", "2026-01-01", "true")
+    call(pg, "set_month_lock", c, 3, "field-open-again", "2026-01-01", "false")
     for expected_version, key, field, value, delta in (
             (4, "field-unit-1", "unit_price_vnd", 120, "20"),
             (5, "field-unit-2", "unit_price_vnd", 130, "10"),
@@ -1989,7 +1989,7 @@ def check_adjustment_source(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 0))
     call(pg, "set_month_lock", c, 0, "source-open", "2026-01-01", "false")
     trip = call(pg, "paste_trips", c, 1, "source-paste", "2026-01-01", trip_json())["trip_ids"][0]
-    call(pg, "set_month_lock", c, 2, "source-lock", "2026-01-01", "true")
+    call(pg, "set_month_lock", c, 2, "source-open-again", "2026-01-01", "false")
     first = call(pg, "adjust_trip", c, 3, "source-unit", trip, None, "", "unit_price_vnd", 120)
     fee = call(pg, "adjust_trip", c, 4, "source-fee", trip, None, "", "other_fee_vnd", 7)
     require(first["delta_vnd"] == "20" and fee["delta_vnd"] == "7", "unit/fee deltas wrong")
@@ -2659,7 +2659,7 @@ def check_nhap_sheet(pg: Pg) -> None:
     write("set_month_lock", "2026-08-01", "false")
     write("edit_trip_info", t, "event_date", "2026-08-11")
     write("edit_trip_price", t, 110, None)
-    for locked in (False, True):
+    for locked in (False,):
         write("set_month_lock", "2026-08-01", str(locked).lower())
         for field, value in [("container", f" FAKE {locked} "), ("carrier", f"FAKE {locked}"),
                              ("origin", f"A {locked}"), ("destination", f"B {locked}")]:

@@ -11,13 +11,13 @@ const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', y
 const todayMonth = `${clock.slice(0, 7)}-01`;
 const monthOf = iso => `${iso.slice(0, 7)}-01`;
 
-// Sổ giả: một chuyến web tháng 9 (khóa), một dòng sổ gốc thiếu giá và một dòng có giá tháng 9.
+// Sổ giả: chuyến web và dòng sổ gốc tháng 9 đang mở; mỗi test có thể khóa riêng.
 function makeWorld() {
   return {
-    version: 1, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: true }], nextEvent: 1, events: [], adjustments: [],
+    version: 1, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
-      editable: false, info_editable: true, deleted: false }],
+      editable: true, info_editable: true, deleted: false }],
     legacy: [
       { id: 21, month: '2026-09-01', kind: 'trip', source_total_vnd: null, editable: true,
         display: { row: 5, stt: '1', container: 'OLDU0000001', carrier: 'Xe 1', date: '2026-09-02', from: 'Nơi C', to: 'Nơi D', unit_price: '', fee_vnd: '', flags: ['MISSING_PRICE'] },
@@ -125,7 +125,15 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-test('chuyến web tháng khóa: sửa ô bằng Enter, Esc trả lại, Tab lưu; ghi Lịch sử trước → sau', async () => withPage(async ({ page, world, shot }) => {
+test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
+  const sept = page.locator('#thang-2026-09');
+  assert.equal(await sept.locator('td.info-edit,td.row-delete,td.editable,.draft-input').count(), 0);
+  assert.equal(await sept.locator('.add-month-adjustment').isDisabled(), true);
+  assert.equal(await sept.locator('.receipt-amount').count(), 1);
+  assert.equal(world.requests.length, 0);
+}, world => { world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
+
+test('chuyến web tháng mở: sửa ô bằng Enter, Esc trả lại, Tab lưu; ghi Lịch sử trước → sau', async () => withPage(async ({ page, world, shot }) => {
   await tripCell(page, 'carrier').click();
   await page.locator('.info-input').fill('Tàu đổi');
   await page.keyboard.press('Escape');
@@ -167,7 +175,7 @@ test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyể
   await page.locator('.info-input').fill('5/8/2026');
   await page.keyboard.press('Enter');
   const ask = page.locator('.move-ask');
-  assert.match(await ask.innerText(), /Ngày 05\/08\/2026 thuộc tháng 8\/2026 \(đã khóa\)\. Chuyển chuyến DEMU1234567 sang tháng 8\/2026\?/);
+  assert.match(await ask.innerText(), /Ngày 05\/08\/2026 thuộc tháng 8\/2026\. Chuyển chuyến DEMU1234567 sang tháng 8\/2026\?/);
   assert.equal(world.requests.length, 0);
   await ask.locator('.move-no').click();
   assert.equal(await page.locator('.move-ask').count(), 0);
@@ -192,7 +200,7 @@ test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyể
   await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"][data-field="event_date"]').waitFor();
   assert.equal(world.requests.at(-1).body.value, '2026-09-15');
   assert.equal(await page.locator('.ghost, tr.moved').count(), 0);
-}));
+}, world => { world.locks.push({ month: '2026-08-01', locked: false }); }));
 
 test('lỗi server hiện tại ô và giữ ô nhập', async () => withPage(async ({ page, world }) => {
   world.failNext = { error: 'INVALID_TRIP_INPUT', message: 'Thiếu thông tin chuyến.' };
@@ -286,7 +294,7 @@ test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống,
     { container: 'NEWU0000002', carrier: 'Tàu mới', date: day, from: 'Nơi A', to: 'Nơi C', unitPriceVnd: null, otherFeeVnd: null, note: '', src: '' }]);
   assert.equal(await page.locator('.draft-row.draft').count(), 0);
   assert.equal(await page.locator('td.info-edit[data-kind="trip"][data-field="container"]').filter({ hasText: 'NEWU0000002' }).count(), 1);
-}));
+}, world => { world.locks = [{ month: '2026-09-01', locked: true }]; }));
 
 test('tháng cũ đã mở khóa có hàng nhập phiếu và bảng nhập chuyến riêng; nháp không lẫn tháng, ô thu gõ dở không mất', async () => withPage(async ({ page, world, shot }) => {
   const sept = page.locator('#thang-2026-09');
@@ -333,10 +341,11 @@ test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng
   await page.waitForSelector('#thang-2026-09');
   // Tháng 9: dòng Sheet 1 (phiếu Sheet), dòng Sheet 2, chuyến web, rồi hàng thêm.
   const sept = await payRows(page, '2026-09');
-  assert.equal(sept.length, 4);
+  assert.equal(sept.length, 5);
   assert.equal(sept[0].date, '10/01/2026');   // 46032 = 10/01/2026, ghi chú lặp cùng ngày bị bỏ
   assert.equal(sept[0].method, '');
-  assert.deepEqual(sept.slice(1).map(row => row.date), ['01/10/2026', '02/10/2026', '03/10/2026']);
+  assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['01/10/2026', '02/10/2026', '03/10/2026']);
+  assert.equal(sept[4].entry, true);
   assert.equal(sept[3].first, '');            // hàng thêm chỉ có cột thu
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);
   // Tháng hiện tại: một phiếu ở hàng 1, ô nhập ở hàng 2 (cuối), tham chiếu nằm trong ô số tiền.
@@ -344,7 +353,7 @@ test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng
   assert.equal(now.length, 2);
   assert.equal(now[0].entry, false);
   assert.equal(now[1].entry, true);
-  assert.equal(await page.locator('.receipt-amount').locator('xpath=ancestor::td').locator('.receipt-reference').count(), 1);
+  assert.equal(await page.locator(`#thang-${todayMonth.slice(0, 7)} .receipt-amount`).locator('xpath=ancestor::td').locator('.receipt-reference').count(), 1);
   // Tham chiếu là chữ nhỏ trong ô Số tiền trả, bấm để sửa; không còn hàng Tham chiếu riêng.
   assert.equal(await page.locator('tr.reference-row').count(), 0);
   const reference = page.locator('.receipt-ref[data-pid="PH-001"][data-field="reference"]');
