@@ -65,13 +65,13 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
     await page.locator('.receipt-reference').fill(reference);
     await page.locator('.receipt-amount').fill('10');
     await page.locator('.receipt-amount').press('Enter');
-    await page.waitForFunction(count => document.querySelectorAll('td[data-field="reference"]').length === count, expected);
+    await page.waitForFunction(count => document.querySelectorAll('[data-field="reference"]').length === count, expected);
     await page.waitForFunction(() => /Đã lưu/.test(document.querySelector('.live-notice')?.textContent ?? ''));
   }
   await pay('');
   assert.equal(world.books[1].receipts[0].reference, null);
   await pay('FAKE USD/rate text');
-  const reference = page.locator('td.receipt[data-pid="PH-021"][data-field="reference"]');
+  const reference = page.locator('.receipt[data-pid="PH-021"][data-field="reference"]');
   await reference.click();
   await reference.locator('input').fill('FAKE USD/rate text');
   await reference.locator('input').press('Enter');
@@ -81,7 +81,7 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
   await reference.click();
   await reference.locator('input').fill('');
   await reference.locator('input').press('Enter');
-  await page.waitForFunction(() => document.querySelector('td[data-pid="PH-021"][data-field="reference"]')?.textContent === 'Tham chiếu: –');
+  await page.waitForFunction(() => document.querySelector('[data-pid="PH-021"][data-field="reference"]')?.textContent === 'Tham chiếu: –');
   await pay('FAKE USD/rate text');
   assert.equal(world.books[1].receipts.length, 3);
   await page.waitForFunction(() => /Tham chiếu trùng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
