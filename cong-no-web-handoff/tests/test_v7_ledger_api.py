@@ -313,6 +313,10 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual((status, data["function"]), (200, "list_customers"))
         self.assertEqual(self.runner.calls[-1], ("list_customers", {}, "configured"))
         self.assertEqual(api.SQL["list_customers"], "SELECT sokhach.list_customers();")
+        status, data = api.handle("GET", "/api/v7/dashboard", self.headers, b"", self.runner,
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
+        self.assertEqual((status, data["function"]), (200, "get_dashboard"))
+        self.assertEqual(self.runner.calls[-1], ("get_dashboard", {}, "configured"))
         self.runner.calls.clear()
         self.error(404, "NOT_FOUND", lambda: api.handle("GET", "/api/v7/customers?all=1",
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
@@ -693,7 +697,8 @@ class LedgerHttpTest(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual((response.status, json.loads(response.read())["error"]), (413, "BODY_TOO_LARGE"))
             conn.close()
-            for path in ("/so-khach-v7-live.html", "/so-khach-v7-ui.js",
+            for path in ("/", "/dashboard-v7.html", "/dashboard-v7.css", "/dashboard-v7.js",
+                         "/so-khach-v7-live.html", "/so-khach-v7-ui.js",
                          "/so-khach-v7-model.js", "/so-khach-v7-api.js"):
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
                 conn.request("GET", path)

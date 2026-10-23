@@ -67,6 +67,7 @@ def case(case_id: str, label: str, title: str, check=None, *, functions=(), open
 
 # IDs retain section 7 numbering; suffixes split schema checks from missing commands.
 CASES = [
+    case("DASH.01", "BEHAVIOR", "Dashboard returns stable empty contract", check="dashboard", functions=("get_dashboard",)),
     case("CSM.01", "BEHAVIOR", "Optional reference, edit, duplicate warning and idempotency", check="csm_reference", functions=("record_receipt", "edit_receipt_meta")),
     case("CSM.02", "BEHAVIOR", "Every month lock command has one atomic audit event", check="csm_locks", functions=("set_month_lock", "get_ledger")),
     case("CSM.03", "BEHAVIOR", "Atomic CSM migration preserves old rows and retries", check="csm_migration", functions=("record_receipt", "set_month_lock")),
@@ -884,6 +885,99 @@ def check_input(pg: Pg) -> None:
             "overflow adjustment fixture leaked")
 
 
+def check_dashboard(pg: Pg) -> None:
+    before = call(pg, "get_dashboard")
+    current = pg.value("SELECT date_trunc('month',now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    recent = pg.value("SELECT (date_trunc('month',now() AT TIME ZONE 'Asia/Ho_Chi_Minh')-interval '2 months')::date")
+    old = pg.value("SELECT (date_trunc('month',now() AT TIME ZONE 'Asia/Ho_Chi_Minh')-interval '7 months')::date")
+    today = pg.value("SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    positive = new_book(pg, (old, 100), (recent, 200))
+    credit = new_book(pg, ("2026-01-01", -50))
+    zero = new_book(pg, ("2026-01-01", 0))
+    classified = new_book(pg, (current, 25))
+    commodity = int(pg.value("INSERT INTO sokhach.commodity(name) VALUES ('FAKE COMMODITY') RETURNING id"))
+    pg.sql(f"UPDATE sokhach.customer SET commodity_id={commodity},transport_mode='CANG' WHERE id={classified}")
+    no_base = int(pg.value("INSERT INTO sokhach.customer(name) VALUES ('FAKE NO BASELINE') RETURNING id"))
+    batch = json.dumps([json.loads(trip_json(month=current))[0],
+                        json.loads(trip_json(container="FAKE-D", month=current))[0]])
+    call(pg, "paste_trips", positive, version(pg, positive), "dash-paste", current, batch)
+    call(pg, "paste_trips", positive, version(pg, positive), "dash-missing", current,
+         trip_json(None, container="FAKE-M", month=current))
+    call(pg, "paste_trips", positive, version(pg, positive), "dash-pending", current,
+         trip_json(container="FAKE-C", month=current))
+    call(pg, "record_receipt", positive, version(pg, positive), "dash-receipt", today, "THU TIỀN", 25)
+    call(pg, "void_receipt", positive, version(pg, positive), "dash-void", "PH-001", "dash void")
+    result = call(pg, "get_dashboard")
+    customers = call(pg, "list_customers")["customers"]
+    active = [(c, call(pg, "get_ledger", c["id"])) for c in customers if c["status"] == "active"]
+    positive_ledgers = [(c, ledger, int(ledger["total_outstanding_vnd"]))
+                        for c, ledger in active if int(ledger["total_outstanding_vnd"]) > 0]
+    negative_ledgers = [(c, ledger, int(ledger["total_outstanding_vnd"]))
+                        for c, ledger in active if int(ledger["total_outstanding_vnd"]) < 0]
+    require(int(result["receivable"]["total_vnd"]) - int(before["receivable"]["total_vnd"]) == 525
+            and result["receivable"]["customers"] - before["receivable"]["customers"] == 2,
+            f"dashboard receivable delta: {before['receivable']} -> {result['receivable']}")
+    require(int(result["credit"]["total_vnd"]) - int(before["credit"]["total_vnd"]) == -50
+            and result["credit"]["customers"] - before["credit"]["customers"] == 1,
+            f"dashboard credit delta: {before['credit']} -> {result['credit']}")
+    require(result["receivable"] == {"total_vnd": str(sum(x[2] for x in positive_ledgers)),
+                                     "customers": len(positive_ledgers)},
+            "dashboard positive get_ledger reconciliation")
+    require(result["credit"] == {"total_vnd": str(sum(x[2] for x in negative_ledgers)),
+                                 "customers": len(negative_ledgers)},
+            "dashboard credit get_ledger reconciliation")
+    receivable = int(result["receivable"]["total_vnd"])
+    require(sum(int(x["receivable_vnd"]) for x in result["aging"]) == receivable,
+            "dashboard aging total")
+    require(sum(int(x["receivable_vnd"]) for x in result["by_commodity"]) == receivable,
+            "dashboard commodity total")
+    require([x["bucket"] for x in result["aging"]] == ["current", "1-2", "3-6", "over-6"],
+            "dashboard aging buckets")
+    require(any(x["commodity"] == "FAKE COMMODITY" and x["transport_mode"] == "CANG"
+                and x["customers"] == 1 for x in result["by_commodity"]),
+            "dashboard commodity grouping")
+    expected_top = [x[0]["id"] for x in sorted(positive_ledgers,
+                    key=lambda x: (-x[2], x[0]["name"], x[0]["id"]))[:10]]
+    require([x["customer_id"] for x in result["top_debtors"]] == expected_top,
+            "dashboard top debtor order")
+    positive_top = next((x for x in result["top_debtors"] if x["customer_id"] == positive), None)
+    require(positive_top is not None and positive_top["oldest_open_month"] == old,
+            "dashboard oldest open month")
+    aging = {x["bucket"]: int(x["receivable_vnd"]) for x in result["aging"]}
+    before_aging = {x["bucket"]: int(x["receivable_vnd"]) for x in before["aging"]}
+    require({key: aging[key] - before_aging[key] for key in aging}
+            == {"current": 225, "1-2": 200, "3-6": 0, "over-6": 100},
+            "dashboard aging month boundaries")
+    require(result["today"]["trips"] - before["today"]["trips"] == 4
+            and result["today"]["receipts"] - before["today"]["receipts"] == 1
+            and int(result["today"]["received_vnd"]) - int(before["today"]["received_vnd"]) == 25
+            and result["today"]["voids"] - before["today"]["voids"] == 1,
+            "dashboard today event counts")
+    actor = next(x for x in result["today"]["by_actor"] if x["actor"] == "harness")
+    before_actor = next((x for x in before["today"]["by_actor"] if x["actor"] == "harness"),
+                        {"trips": 0, "receipts": 0, "received_vnd": "0", "voids": 0})
+    require(actor["trips"] - before_actor["trips"] == 4
+            and actor["receipts"] - before_actor["receipts"] == 1
+            and int(actor["received_vnd"]) - int(before_actor["received_vnd"]) == 25
+            and actor["voids"] - before_actor["voids"] == 1, "dashboard actor counts")
+    require(any(x["customer_id"] == no_base for x in result["todo"]["no_baseline"])
+            and any(x["customer_id"] == positive for x in result["todo"]["missing_price"])
+            and any(x["customer_id"] == positive for x in result["todo"]["pending_review"])
+            and any(x["customer_id"] == credit for x in result["todo"]["credit"])
+            and zero not in [x["customer_id"] for x in result["todo"]["credit"]], "dashboard todo boundaries")
+    pg.sql("INSERT INTO sokhach.event(customer_id,kind,actor,at,\"before\",\"after\") "
+           f"VALUES ({positive},'paste','late',(((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date "
+           "+ time '23:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),'{}','{\"trips\":[{}]}')")
+    pg.sql("INSERT INTO sokhach.event(customer_id,kind,actor,at,\"before\",\"after\") "
+           f"VALUES ({positive},'paste','tomorrow',((((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + 1) "
+           "+ time '00:30') AT TIME ZONE 'Asia/Ho_Chi_Minh'),'{}','{\"trips\":[{}]}')")
+    boundary = call(pg, "get_dashboard")
+    require(boundary["today"]["trips"] == result["today"]["trips"] + 1
+            and any(x["actor"] == "late" and x["trips"] == 1 for x in boundary["today"]["by_actor"])
+            and not any(x["actor"] == "tomorrow" for x in boundary["today"]["by_actor"]),
+            "dashboard Asia/Ho_Chi_Minh event boundary")
+
+
 def check_actor(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 10))
     pg.rejects(f"SELECT sokhach.get_ledger({c})", message="ACTOR_REQUIRED")
@@ -940,6 +1034,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(NHAP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(MH_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(MH_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1666,7 +1762,7 @@ def check_roles(pg: Pg) -> None:
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
-                       "get_ledger", "list_customers", "record_offset", "void_offset",
+                       "get_ledger", "list_customers", "get_dashboard", "record_offset", "void_offset",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
     allowed = ",".join(lit(name) for name in public_commands)
@@ -2384,6 +2480,8 @@ NHAP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap
 REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql"
 MH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-23-v7-mat-hang.sql"
 
+DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql"
+
 
 def check_trip_review(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 0))
@@ -2642,7 +2740,7 @@ def check_nhap_sheet(pg: Pg) -> None:
 CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
-CHECKS = {"nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
@@ -2749,6 +2847,11 @@ def check_migration(pg: Pg) -> None:
               "failed MH migration left new list_customers")
     copy.sql(mh)
     copy.sql(mh)
+    dashboard = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql").read_text(encoding="utf-8")
+    copy.rejects(dashboard.replace("COMMIT;", "DO $$ BEGIN RAISE EXCEPTION 'DASHBOARD_FAULT'; END $$; COMMIT;"),
+                 message="DASHBOARD_FAULT")
+    copy.sql(dashboard)
+    copy.sql(dashboard)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")

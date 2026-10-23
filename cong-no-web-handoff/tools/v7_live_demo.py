@@ -61,6 +61,7 @@ def seed(pg: Pg) -> dict[str, int]:
                      f"demo-activate-customer-{customer}", None)["status"] == "active",
                 "customer activate failed")
         require(call(pg, "get_ledger", customer)["status"] == "active", "opening not active")
+        pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cutover},'FAKE-REF','FAKE-REF',NULL)")
         return customer
 
     normal = book("GIẢ - nhiều kỳ và phiếu thu", [1_200_000, 800_000, 600_000])

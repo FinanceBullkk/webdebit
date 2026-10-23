@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tổng quan công nợ HTH, ưu tiên theo dõi tổng nợ và việc cần làm.">
+  <title>Công nợ HTH · Tổng quan</title>
+  <link rel="stylesheet" href="dashboard-v7.css">
+  <style>.topbar nav a.active{color:#0069bd;border-color:#0069bd}</style>
+</head>
+<body>
+  <div id="demo-banner" hidden role="status"></div>
+  <header class="topbar">
+    <a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a>
+    <nav aria-label="Điều hướng chính"><a class="active" href="/dashboard-v7.html">Tổng quan</a><a href="#customer-search">Sổ khách</a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
+    <span class="readonly">Chỉ xem</span><time id="as-of"></time>
+  </header>
+  <main class="page">
+    <h1>Tổng quan công nợ</h1>
+    <div id="error" role="alert" hidden></div>
+    <div id="dashboard" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
+  </main>
+  <script src="dashboard-v7.js"></script>
+</body>
+</html>

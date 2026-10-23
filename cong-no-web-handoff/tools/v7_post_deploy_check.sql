@@ -35,7 +35,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
+      'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
       'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
