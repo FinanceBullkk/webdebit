@@ -235,6 +235,7 @@ SQL = {
     "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
+    "get_dashboard": "SELECT sokhach.get_dashboard();",
 }
 ARGUMENTS = {
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
@@ -521,7 +522,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
-        if parts.path == "/api/v7/customers" and not parts.query:
+        if parts.path == "/api/v7/dashboard" and not parts.query:
+            function, payload = "get_dashboard", {}
+        elif parts.path == "/api/v7/customers" and not parts.query:
             function, payload = "list_customers", {}
         elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources"):
             raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
@@ -545,9 +548,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     result = runner.run(function, payload, actor)
     if function == "list_offset_sources":
         result = {"sources": result}
-    if demo and function in ("get_ledger", "list_customers", "list_offset_sources"):
+    if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard"):
         result = {**result, "demo": True}
-    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources"):
+    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard"):
         result = {**result, "real_copy": True}
     return 200, result
 

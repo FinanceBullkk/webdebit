@@ -313,6 +313,10 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual((status, data["function"]), (200, "list_customers"))
         self.assertEqual(self.runner.calls[-1], ("list_customers", {}, "configured"))
         self.assertEqual(api.SQL["list_customers"], "SELECT sokhach.list_customers();")
+        status, data = api.handle("GET", "/api/v7/dashboard", self.headers, b"", self.runner,
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
+        self.assertEqual((status, data["function"]), (200, "get_dashboard"))
+        self.assertEqual(self.runner.calls[-1], ("get_dashboard", {}, "configured"))
         self.runner.calls.clear()
         self.error(404, "NOT_FOUND", lambda: api.handle("GET", "/api/v7/customers?all=1",
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
