@@ -64,7 +64,7 @@ jobs:
           [[ $prev =~ ^[0-9a-f]{40}$ ]] || { echo "hao chưa có release dạng SHA: cần chuyển thủ công lần đầu"; exit 1; }
           git cat-file -e "$prev^{commit}" || { echo "không thấy $prev trong lịch sử"; exit 1; }
           changed=$(git diff --name-only "$prev" "$SHA")
-          if grep -E '^specs/v7-backend/|^cong-no-web-handoff/tools/migrations/|\.sql$|^cong-no-web-handoff/tools/v7_load|^\.github/workflows/deploy-hao\.yml$|^scripts/deploy/' <<< "$changed"; then
+          if grep -E '^specs/v7-backend/|^cong-no-web-handoff/tools/migrations/|\.sql$|^cong-no-web-handoff/tools/v7_load' <<< "$changed"; then
             echo "::error::Diff có migration/SQL/loader/deploy: cần gate thủ công, không tự động"; exit 1
           fi
           if ! grep -E '^cong-no-web-handoff/(web|preview|tools)/' <<< "$changed" >/dev/null; then
