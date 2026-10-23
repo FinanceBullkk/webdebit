@@ -1,6 +1,6 @@
 # V7 — Trang tổng quan công nợ (DASH-01)
 
-Trạng thái: **ĐÃ CHỐT nội dung** bởi người dùng 23/10/2026 (chọn trong chat); spec do Claude soạn. Đây là bước 1–2 của [quy trình frontend](../docs/development.md#quy-trình-frontend). Backend giao Codex theo mục "Phạm vi agent"; giao diện **chờ mockup Penpot** (Gemini) được người dùng duyệt, chưa code.
+Trạng thái: **ĐÃ CHỐT nội dung** bởi người dùng 23/10/2026. Người dùng duyệt mockup **phương án B — ưu tiên theo dõi tổng nợ** trong chat ngày 23/10/2026 và yêu cầu code UI. Đây là bước 1–6 của [quy trình frontend](../docs/development.md#quy-trình-frontend).
 
 ## Người dùng và luồng (bước 1)
 
@@ -103,6 +103,11 @@ Lược đồ `sokhach` ([schema](v7-backend/schema-draft.sql), [hàm](../cong-n
   - `cong-no-web-handoff/tools/test_pg_v7_grants.py`
   - `cong-no-web-handoff/tools/v7_post_deploy_check.sql`
   - `cong-no-web-handoff/tests/test_v7_ledger_api.py`
+  - `cong-no-web-handoff/preview/dashboard-v7.html`
+  - `cong-no-web-handoff/preview/dashboard-v7.css`
+  - `cong-no-web-handoff/preview/dashboard-v7.js`
+  - `cong-no-web-handoff/preview/test-v7-dashboard-browser.js`
+  - `package.json` (chỉ thêm test browser dashboard)
   - `specs/v7-dashboard.md` (chỉ mục "Bằng chứng" và "Câu hỏi mở")
 - Ngân sách diff: 600 dòng
 - Lệnh kiểm:
@@ -111,7 +116,6 @@ Lược đồ `sokhach` ([schema](v7-backend/schema-draft.sql), [hàm](../cong-n
   - `python cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test`
 - Cấm:
   - Sửa bảng, view, hàm ghi tiền hoặc cách phân bổ; GRANT SELECT bảng/view; thêm dependency.
-  - Code giao diện (chờ mockup Penpot được duyệt).
   - Chạy trên `hao`, Sheet hay dữ liệu thật; đưa tên khách/số tiền thật vào code, test, log.
 - Ghi chú phối hợp: PR FinanceBullkk/webdebit#77 (mặt hàng) sửa `list_customers`, `test_pg_v7_backend.py` (chuỗi migration) và thêm migration `2026-10-23-v7-mat-hang.sql`. Migration của bản này chạy **sau** file đó; nếu #77 đã merge thì rebase lên `main` trước khi mở PR, nếu chưa thì chỉ thêm hàm mới, không đụng các chỗ #77 sửa.
 - Khi cần vượt phạm vi: dừng, ghi câu hỏi ở "Câu hỏi mở".
@@ -122,8 +126,10 @@ Revert PR; migration chỉ thêm một hàm chỉ đọc, gỡ bằng `DROP FUNC
 
 ## Bằng chứng
 
-Chưa có.
+- `npm run check`: đạt ngày 23/10/2026; gồm 256 unittest Python (1 skip), 97 unit JS, 25 browser tests và 11 viewer tests.
+- Browser fixture 1280×720: route `/` và `/dashboard-v7.html`, sáu khối đúng phương án B, tìm khách và link mở Sổ khách.
+- Lighthouse desktop trên fixture: Accessibility 100, Best Practices 100, SEO 100; không có lỗi audit.
 
 ## Câu hỏi mở
 
-- Bố cục trang, thứ tự khối, cách hiện đường quay lại từ sổ khách: chốt ở mockup Penpot (Gemini), chưa vẽ.
+- Đường quay lại từ Sổ khách lên Tổng quan cần thêm khi tích hợp hai trang; không đổi nội dung hay thứ tự sáu khối đã duyệt.

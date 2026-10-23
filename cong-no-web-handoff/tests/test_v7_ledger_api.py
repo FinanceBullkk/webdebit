@@ -697,7 +697,8 @@ class LedgerHttpTest(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual((response.status, json.loads(response.read())["error"]), (413, "BODY_TOO_LARGE"))
             conn.close()
-            for path in ("/so-khach-v7-live.html", "/so-khach-v7-ui.js",
+            for path in ("/", "/dashboard-v7.html", "/dashboard-v7.css", "/dashboard-v7.js",
+                         "/so-khach-v7-live.html", "/so-khach-v7-ui.js",
                          "/so-khach-v7-model.js", "/so-khach-v7-api.js"):
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
                 conn.request("GET", path)
