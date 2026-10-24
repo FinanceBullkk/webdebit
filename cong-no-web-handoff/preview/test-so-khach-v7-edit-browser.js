@@ -21,7 +21,7 @@ function makeWorld() {
     legacy: [
       { id: 21, month: '2026-09-01', kind: 'trip', source_total_vnd: null, editable: true,
         display: { row: 5, stt: '1', container: 'OLDU0000001', carrier: 'Xe 1', date: '2026-09-02', from: 'Nơi C', to: 'Nơi D', unit_price: '', fee_vnd: '', flags: ['MISSING_PRICE'] },
-        current: { container: 'OLDU0000001', carrier: 'Xe 1', event_date: '2026-09-02', origin: 'Nơi C', destination: 'Nơi D', unit_price_vnd: null, other_fee_vnd: null, counted_vnd: '0', month: '2026-09-01', deleted: false } },
+        current: { container: 'OLDU0000001', carrier: 'Xe 1', shipper: 'Chủ hàng thử', event_date: '2026-09-02', origin: 'Nơi C', destination: 'Nơi D', unit_price_vnd: null, other_fee_vnd: null, counted_vnd: '0', month: '2026-09-01', deleted: false } },
       { id: 22, month: '2026-09-01', kind: 'trip', source_total_vnd: '93000000', editable: true,
         display: { row: 6, stt: '2', container: 'OLDU0000002', carrier: 'Xe 2', date: '2026-09-03', from: 'Nơi C', to: 'Nơi D', unit_price: '90000000', fee_vnd: '3000000', flags: [] },
         current: { container: 'OLDU0000002', carrier: 'Xe 2', event_date: '2026-09-03', origin: 'Nơi C', destination: 'Nơi D', unit_price_vnd: '90000000', other_fee_vnd: '3000000', counted_vnd: '93000000', month: '2026-09-01', deleted: false } },
@@ -252,6 +252,10 @@ test('lỗi server hiện tại ô và giữ ô nhập', async () => withPage(as
 test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng điều chỉnh sổ gốc cộng phần chênh của tháng', async () => withPage(async ({ page, world, shot }) => {
   // 23/10/2026: không còn chú thích "Từ sổ gốc" và dòng chênh; dòng cũ trông và sửa như chuyến web.
   assert.equal(await page.locator('.legacy-caption, .source-total').count(), 0);
+  const cells = page.locator('[data-row="legacy-21"] > td');
+  assert.equal(await cells.count(), 14);
+  assert.equal(await cells.nth(3).innerText(), 'Chủ hàng thử');
+  assert.equal(await cells.nth(4).innerText(), '02/09/2026');
   const price = legacyCell(page, 21, 'unit_price_vnd');
   assert.equal(await price.innerText(), 'chưa có giá');
   assert.match(await price.getAttribute('class'), /missing/);
