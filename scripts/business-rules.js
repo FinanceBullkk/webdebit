@@ -331,6 +331,8 @@ const PSQL_ALLOWED = {
     "adapter DB của V7 — lớp Psql là nơi duy nhất dựng lệnh psql cho đường sổ khách V7",
   "cong-no-web-handoff/tools/test_pg_v7_backend.py":
     "harness kiểm backend V7 trong Docker, phải nói chuyện với psql để kiểm chính psql",
+  "cong-no-web-handoff/tools/test_pg_v7_matrix.py":
+    "harness review SQL get_receivables_matrix trong Docker dùng một lần, cùng loại harness V7 ở trên (thêm 24/10/2026, spec v7-cong-no-theo-thang)",
   "cong-no-web-handoff/tools/v7_load_real_copy.py":
     "công cụ nạp bản sao vào container cô lập, chạy tay ngoài tiến trình web",
   "cong-no-web-handoff/tools/v7_backup.py":
