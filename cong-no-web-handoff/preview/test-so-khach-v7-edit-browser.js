@@ -14,7 +14,7 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 // Sổ giả: chuyến web và dòng sổ gốc tháng 9 đang mở; mỗi test có thể khóa riêng.
 function makeWorld() {
   return {
-    version: 1, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
+    version: 1, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
       editable: true, info_editable: true, deleted: false }],
@@ -37,13 +37,24 @@ function ledger(world) {
     month_locks: world.locks,
     months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' })),
     total_outstanding_vnd: '0', trips, adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
-    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events };
+    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events, sheet_sync: world.sheetSync };
 }
 
 function apply(world, url, body) {
   const fail = world.failNext;
   if (fail) { world.failNext = null; return [422, fail]; }
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
+  if (url === '/api/v7/sheet/approve') {
+    if (body.snapshot_sha256 !== world.sheetSync.snapshot_sha256) return [409, { error: 'STALE_SHEET' }];
+    const row = world.sheetSync.items.find(item => item.sync_state === 'NEW');
+    world.trips.push({ id: 200, month: monthOf(row.event_date), container: row.container, carrier: row.carrier,
+      event_date: row.event_date, origin: row.origin, destination: row.destination, unit_price_vnd: null,
+      other_fee_vnd: null, amount_vnd: null, note: 'Chuyến đồng bộ', status: 'confirmed', is_missing_price: true,
+      is_fee_only: false, editable: true, info_editable: true, deleted: false });
+    world.sheetSync = { ...world.sheetSync, items: [], new_count: 0, conflict_count: 0 };
+    world.version += 1;
+    return [200, { approved: 1, remaining: 0, complete: true }];
+  }
   const event = (kind, before, after) => world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before, after });
   if (url === '/api/v7/trips/info') {
     const trip = world.trips.find(row => row.id === body.trip_id && !row.deleted);
@@ -124,6 +135,33 @@ async function withPage(fn, setup = () => {}) {
 const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
+
+test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world }) => {
+  assert.equal(await page.locator('tr.sheet-new').count(), 1);
+  assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
+  await page.locator('[data-row="legacy-21"] .sheet-diff').click();
+  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', '']);
+  assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
+  await page.locator('[data-row="legacy-21"] .sheet-diff').click();
+  assert.equal(await page.locator('.sheet-detail').count(), 0);
+  assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Xem');
+  assert.equal(await page.locator('.info-input').count(), 0);
+  assert.match(await page.locator('.sheet-approve').innerText(), /Duyệt 1 chuyến mới/);
+  await page.locator('.sheet-approve').click();
+  await page.waitForFunction(() => !document.querySelector('.sheet-approve'));
+  assert.equal(world.requests.at(-1).path, '/api/v7/sheet/approve');
+  assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
+  assert.equal(world.trips.at(-1).unit_price_vnd, null);
+  assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
+  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0');
+}, world => {
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
+    { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
+    { sync_state: 'CONFLICT', event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
+      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper'], existing_values: { shipper: 'Xe 1' } },
+  ] };
+}));
+
 
 test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');

@@ -44,7 +44,7 @@ async function livePage(data) {
   const root = { innerHTML: '', addEventListener(name, handler) { (handlers[name] ??= []).push(handler); listeners[name] = async event => { for (const item of handlers[name]) await item(event); }; }, querySelector() { return null; }, contains: () => false };
   const context = vm.createContext({ document: { querySelector: () => root, addEventListener() {} },
     window: { scrollY: 0, scrollTo() {} }, location: { search: '?customer=7' },
-    URLSearchParams, structuredClone, Date, BigInt, Intl, crypto: { randomUUID: () => 'key' },
+    URLSearchParams, structuredClone, Date, BigInt, Intl, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
     fetch: async (...args) => root.fetcher ? root.fetcher(...args) : reply(200, data) });
   for (const name of ['model', 'api', 'ui']) vm.runInContext(fs.readFileSync(require.resolve(`./so-khach-v7-${name}.js`), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
@@ -286,7 +286,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     const root = { innerHTML: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelector() { return null; } };
     const context = vm.createContext({ document: { querySelector: selector => selector === '#app' ? root : null, addEventListener() {} },
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
-      URLSearchParams, structuredClone, Date, BigInt, crypto: { randomUUID: () => 'key' },
+      URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
     for (const name of [...(live ? [] : ['so-khach-v7-fixture.js']), 'so-khach-v7-model.js',
       ...(live ? ['so-khach-v7-api.js'] : []), 'so-khach-v7-ui.js']) {
@@ -373,7 +373,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">307<\/td><td class="num ">0<\/td><\/tr><tr class="spacer">/);
+  assert.match(february, /<tr class="subtotal"><td colspan="9">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">307<\/td><td class="num ">0<\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
   assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">700<\/td>/);

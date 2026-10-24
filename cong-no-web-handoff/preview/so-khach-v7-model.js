@@ -77,7 +77,7 @@ const SoKhachV7Model = (() => {
 
   // NHAP-SHEET-01: bảng nhập kiểu Sheet. Vùng dán theo bố cục tab khách (specs/v7-nhap-kieu-sheet.md):
   // container ở cột c, rồi hãng tàu, ngày, nơi đi, nơi đến, ba cột phí, đơn giá, thành tiền; từ c+10 là tiền khách trả.
-  const DRAFT_FIELDS = ["container", "carrier", "date", "from", "to", "price", "fee"];
+  const DRAFT_FIELDS = ["container", "carrier", "shipper", "date", "from", "to", "price", "fee"];
   const containerKey = text => String(text ?? "").toUpperCase().replace(/\s+/g, "");
   const looksLikeContainer = text => /^[A-Z]{4}\d{7}$/.test(containerKey(text));
   const draftMoney = text => {
@@ -153,6 +153,7 @@ const SoKhachV7Model = (() => {
     const trip = Object.keys(errors).length ? null : {
       container: containerKey(row.container), carrier: row.carrier.trim(), date: date.text, from: row.from.trim(), to: row.to.trim(),
       unitPriceVnd: missing ? null : price.value.toString(), otherFeeVnd: fee.value === null ? null : fee.value.toString(), note: "", src: "" };
+    if (trip && String(row.shipper ?? '').trim()) trip.shipper = String(row.shipper).trim();
     return { errors, amountVnd, missing, warn, trip };
   }
 
