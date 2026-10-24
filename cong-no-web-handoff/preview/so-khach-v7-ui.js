@@ -25,8 +25,8 @@
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
   const outstanding = model?.formatOutstanding;
-  const labels = ['STT', 'Số container', 'Hãng tàu', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Phụ phí', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả', 'Còn nợ cộng dồn'];
-  const wide = [52, 148, 104, 104, 118, 118, 128, 116, 148, 112, 112, 150, 158];
+  const labels = live ? ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Phụ phí', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả', 'Còn nợ cộng dồn'] : ['STT', 'Số container', 'Hãng tàu', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Phụ phí', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả', 'Còn nợ cộng dồn'];
+  const wide = live ? [52, 148, 104, 128, 104, 118, 118, 128, 116, 148, 112, 112, 150, 158] : [52, 148, 104, 104, 118, 118, 128, 116, 148, 112, 112, 150, 158];
   const widths = wide.map((width, index) => `<col style="width:${width}px" class="col-${index}">`).join('');
   const cell = (value, classes = '') => `<td class="${classes}">${escape(value)}</td>`;
   const num = (value, classes = '') => cell(value, `num ${classes}`);
@@ -117,7 +117,7 @@
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách (bản live: chính ô tìm khách, gõ để đổi), Lịch sử, tổng còn nợ.
     const picker = live && document.querySelector('#customer-picker');
     root.innerHTML = `<div class="book-head">${live ? '<div class="picker-slot"></div>' : `<h1>Sổ khách · ${escape(view.customer)}</h1>`}<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>${view.sheetButton ?? ''}<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
-    ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="columns">${labels.map((label, index) => `<th scope="col" class="${index >= 9 && index <= 11 ? 'pay ' : ''}${index === 9 ? 'pay-start' : ''}">${escape(label)}</th>`).join('')}</tr></thead></table>${view.sections}</div>
+    ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="columns">${labels.map((label, index) => `<th scope="col" class="${index >= (live ? 10 : 9) && index <= (live ? 12 : 11) ? 'pay ' : ''}${index === (live ? 10 : 9) ? 'pay-start' : ''}">${escape(label)}</th>`).join('')}</tr></thead></table>${view.sections}</div>
     <nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div><aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2><button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
     const slot = root.querySelector('.picker-slot');
     if (picker && slot) {
@@ -182,7 +182,7 @@
     const moved = new Map();   // `${kind}-${id}` → tháng cũ (yyyy-mm)
     const ghosts = [];         // { kind, id, month, to, container, oldIso }
     const movedTag = rowKey => moved.has(rowKey) ? `<td class="moved-tag">Vừa chuyển từ T${Number(moved.get(rowKey).slice(5))}</td>` : empty('num');
-    const fieldNames = { container: 'số container', carrier: 'hãng tàu', event_date: 'ngày chuyến', origin: 'nơi đi',
+    const fieldNames = { container: 'số container', carrier: 'hãng tàu', shipper: 'shipper', event_date: 'ngày chuyến', origin: 'nơi đi',
       destination: 'nơi đến', unit_price_vnd: 'đơn giá', other_fee_vnd: 'phụ phí' };
     const infoCell = (kind, id, field, text, classes = '') =>
       `<td class="info-edit ${classes}" data-kind="${kind}" data-id="${escape(id)}" data-field="${field}" tabindex="0" role="button" aria-label="Sửa ${fieldNames[field]}">${escape(text)}</td>`;
@@ -204,12 +204,12 @@
         const unitText = cur?.unit_price_vnd != null ? [fmt(cur.unit_price_vnd), '']
           : /^\d+$/.test(t.unit_price ?? '') || !t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? ['chưa có giá', 'missing'] : [moneyCell(t.unit_price), ''];
         const tripCells = cur && locked
-          ? `${cell(stt || '–')}${cell(cur.container || 'Phí lẻ')}${cell(cur.carrier ?? '')}${cell(cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${cell(cur.origin ?? '')}${cell(cur.destination ?? '')}${num(unitText[0])}${num(cur.other_fee_vnd != null ? fmt(cur.other_fee_vnd) : moneyCell(t.fee_vnd))}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
+          ? `${cell(stt || '–')}${cell(cur.container || 'Phí lẻ')}${cell(cur.carrier ?? '')}${cell(cur.shipper ?? '')}${cell(cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${cell(cur.origin ?? '')}${cell(cur.destination ?? '')}${num(unitText[0])}${num(cur.other_fee_vnd != null ? fmt(cur.other_fee_vnd) : moneyCell(t.fee_vnd))}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
           : cur
           ? `${deleteCell('legacy', trip.id, stt || '–', `dòng sổ gốc ${cur.container || 'phí lẻ'}`)}${infoCell('legacy', trip.id, 'container', cur.container || 'Phí lẻ')}${infoCell('legacy', trip.id, 'carrier', cur.carrier ?? '')}${infoCell('legacy', trip.id, 'event_date', cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${infoCell('legacy', trip.id, 'origin', cur.origin ?? '')}${infoCell('legacy', trip.id, 'destination', cur.destination ?? '')}${infoCell('legacy', trip.id, 'unit_price_vnd', unitText[0], `num ${unitText[1]}`)}${infoCell('legacy', trip.id, 'other_fee_vnd', cur.other_fee_vnd != null ? fmt(cur.other_fee_vnd) : /^\d+$/.test(t.fee_vnd ?? '') ? '' : moneyCell(t.fee_vnd), 'num')}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
           : trip
-          ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${num(moneyCell(t.fee_vnd))}${num(fmt(trip.source_total_vnd))}`
-          : `${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty('num')}${empty('num')}${empty('num')}`;
+          ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${cell(t.shipper ?? '')}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${num(moneyCell(t.fee_vnd))}${num(fmt(trip.source_total_vnd))}`
+          : `${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty('num')}${empty('num')}${empty('num')}`;
         // Hình thức thu không suy từ ghi chú (V7-MIG còn mở); ghi chú chỉ hiện khi không lặp lại cùng ngày.
         const day = sheetDay(r.raw_date);
         const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
@@ -302,7 +302,7 @@
     // ---- NHAP-SHEET-01 (1): bảng nhập kiểu Sheet thay ô "Dán các dòng từ Sheet". Nháp chỉ sống trong tab;
     // Lưu gửi một lệnh dán lô (paste_trips), server tự xếp từng chuyến vào tháng của ngày chuyến. ----
     const DRAFT_FIELDS = model.DRAFT_FIELDS;
-    const draftLabels = { container: 'Số container', carrier: 'Hãng tàu', date: 'Ngày chuyến', from: 'Nơi đi', to: 'Nơi đến', price: 'Đơn giá', fee: 'Phụ phí' };
+    const draftLabels = { container: 'Số container', carrier: 'Hãng tàu', shipper: 'Shipper', date: 'Ngày chuyến', from: 'Nơi đi', to: 'Nơi đến', price: 'Đơn giá', fee: 'Phụ phí' };
     // Nháp chuyến theo từng tháng đang mở (mỗi tháng mở có bảng nhập riêng); lưu xong chuyến vào tháng của ngày chuyến.
     const draftsBy = new Map();
     const draftsOf = key => draftsBy.get(key) ?? [];
@@ -324,8 +324,8 @@
         return `<tr class="draft-row${result ? ' draft' : ''}"><td class="muted">${result ? 'nháp' : ''}</td>${cells}<td class="num${result?.warn ? ' warn' : ''}">${escape(total)}${result?.warn ? `<small>${escape(result.warn)}</small>` : ''}</td><td class="off pay-start"></td><td class="off"></td><td class="off"></td><td class="off"></td></tr>`;
       }).join('');
       const note = draftNote.key === key ? draftNote.text : '';
-      return `<tr class="draft-caption"><td colspan="13">Nhập chuyến · dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay (Tab sang ô kế, Enter xuống hàng)</td></tr>${rows}
-        <tr class="draft-bar"><td colspan="13"><div><strong>${drafts.length} chuyến nháp</strong>${bad ? `<span class="cell-error">· ${bad} ô cần sửa</span>` : ''}<button type="button" class="draft-save" data-month="${escape(key)}" ${drafts.length && !bad ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="draft-discard" data-month="${escape(key)}" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="draft-note" role="status">${escape(note)}</span>` : ''}</div></td></tr>`;
+      return `<tr class="draft-caption"><td colspan="14">Nhập chuyến · dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay (Tab sang ô kế, Enter xuống hàng)</td></tr>${rows}
+        <tr class="draft-bar"><td colspan="14"><div><strong>${drafts.length} chuyến nháp</strong>${bad ? `<span class="cell-error">· ${bad} ô cần sửa</span>` : ''}<button type="button" class="draft-save" data-month="${escape(key)}" ${drafts.length && !bad ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="draft-discard" data-month="${escape(key)}" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="draft-note" role="status">${escape(note)}</span>` : ''}</div></td></tr>`;
     }
     // Vẽ lại sổ từ bản đang có (không tải lại), giữ con trỏ ở ô nháp/nút đang đứng.
     // Cờ rendering: thay DOM làm ô đang đứng mất focus; không coi đó là người dùng rời ô (tránh vẽ lại vòng tròn).
@@ -433,9 +433,9 @@
           const pending = trip?.status === 'pending_review';
           const info = !locked && trip?.info_editable === true;
           const infoCells = info
-            ? ['container', 'carrier', 'event_date', 'origin', 'destination'].map(field =>
+            ? ['container', 'carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field =>
               infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('')
-            : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
+            : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(trip?.shipper ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
           const rowKey = trip ? `trip-${trip.id}` : '';
           return `<tr${rowKey ? ` data-row="${rowKey}"` : ''}${moved.has(rowKey) ? ' class="moved"' : ''}>${info ? deleteCell('trip', trip.id, trip.is_fee_only ? '–' : sttBase + index + 1, `chuyến ${trip.container || 'phí lẻ'}`) : trip && !trip.is_fee_only ? cell(sttBase + index + 1) : empty()}
             ${infoCells}
@@ -453,25 +453,25 @@
           return webRow(trips[position - legacy.length], position - legacy.length, pay ?? noPay);
         }).join('');
         const sheetLines = sheetPending.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
-          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>${cell(row.carrier)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
+          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>${cell(row.carrier)}${cell(row.shipper)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
           ${empty('num')}${empty('num')}${num('–')}${empty('pay pay-start')}${empty('pay')}${empty('pay num')}${empty('num')}
           </tr>`).join('');
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
         // Các dòng đó vẫn nằm trong số tiền: dòng Tổng tháng tính như Sheet (model.sheetMonthTotals), chênh ghi ở Lịch sử.
-        const adjustmentRows = adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
+        const adjustmentRows = adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="9">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
         const voidRows = receipts.filter(row => row.voided_by_event != null).map(row =>
-          `<tr class="void-trace"><td colspan="13">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
+          `<tr class="void-trace"><td colspan="14">${[fmt(row.line.amount_vnd), escape(dateText(row.date)), row.outgoing ? '' : escape(dateText(row.voided_on)), escape(row.void_reason)].filter(Boolean).join(' · ')}</td></tr>`).join('');
         const history = historical.get(key) ?? [];
         let totals = { chargesVnd: item.charges_vnd ?? '0', receivedVnd: item.received_vnd ?? '0' };
         try {
           totals = model.sheetMonthTotals({ ...totals, openingVnds: opening.map(row => row.amount_vnd),
             sourceChargeVnd: history.length ? sourceFigures.get(key)?.source_charge_vnd ?? null : null });
         } catch { /* số lạ từ server: giữ số server */ }
-        const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="13">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
+        const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="14">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
-          <tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
+          <tr class="month"><th colspan="14" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
           ${lines}${sheetLines}${adjustmentRows}${voidRows}${ghostRows}${draftHere ? draftGrid(key) : ''}
-          <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(totals.chargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(totals.receivedVnd), 'pay')}${num(fmt(item.end_of_month_vnd))}</tr><tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
+          <tr class="subtotal"><td colspan="9">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(totals.chargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(totals.receivedVnd), 'pay')}${num(fmt(item.end_of_month_vnd))}</tr><tr class="spacer"><td colspan="14"></td></tr></tbody></table></section>`;
       };
       const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active || sheetNotice ? '' : 'hidden'}>${escape(message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
@@ -516,7 +516,7 @@
         return;
       }
       const sheetSource = trip.existing_kind === 'legacy' ? `Shipper: ${trip.shipper || '–'} · Hãng tàu: ${trip.carrier || '–'}` : trip.carrier;
-      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
+      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td></td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
@@ -556,7 +556,7 @@
     // ---- Cấn trừ hai sổ (CT-2SO): server giữ số dư và chặn; trang chỉ chọn sổ, hiện số trước → sau và gửi lệnh ----
     const OUTSIDE = model.OFFSET_OUTSIDE;
     const offsetState = { sources: [], selected: null, open: false, query: '', error: '', row: null };
-    const sourceRowHtml = '<tr class="offset-source-row"><td colspan="9"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td></tr>';
+    const sourceRowHtml = '<tr class="offset-source-row"><td colspan="10"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td></tr>';
     const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const ownName = () => live.customerName(customerId) ?? `#${customerId}`;
     const validDate = value => /^\d{4}-\d\d-\d\d$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -699,7 +699,7 @@
       root.querySelector('.void-prompt')?.remove();
       const theirs = [...(otherLedger.receipts ?? []), ...(otherLedger.outgoing_offsets ?? [])].find(item => String(item.offset_pair_id) === pair);
       const both = `<strong>${escape(pid)}</strong> ở sổ <strong>${escape(ownName())}</strong> và <strong>${escape(theirs?.pid ?? '–')}</strong> ở sổ <strong>${escape(otherName)}</strong>`;
-      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="13"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
+      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="14"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
       rowEl.nextElementSibling.querySelector('input').focus();
     }
     async function confirmOffsetVoid(promptRow) {
@@ -759,7 +759,7 @@
       const trip = (snapshot?.trips ?? []).find(item => String(item.id) === button.dataset.trip);
       const why = Object.hasOwn(reviewReasonText, trip?.review_reason) ? reviewReasonText[trip.review_reason] : 'Nghi trùng';
       button.setAttribute('aria-expanded', 'true');
-      row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="13"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="14"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.review-reason').focus();
     }
     async function concludeReview(promptRow, decision) {
@@ -799,7 +799,7 @@
         const lock = (snapshot?.month_locks ?? []).find(row => monthKey(row.month) === to);
         const locked = lock ? lock.locked : to !== (monthKey(snapshot?.today_month) || liveOpenMonth);
         const what = `${kind === 'trip' ? 'chuyến' : 'dòng'} ${rowValues(kind, before).container || 'phí lẻ'}`;
-        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="13">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button> <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button></td></tr>`);
+        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="14">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button> <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button></td></tr>`);
         const row = askRow();
         row.querySelector('.move-yes').addEventListener('click', () => { row.remove(); state = 'editing'; save(true); });
         row.querySelector('.move-no').addEventListener('click', () => { restore(); td.focus(); });
@@ -858,7 +858,7 @@
         : `đang tính ${fmt(values.counted_vnd)}`;
       const what = `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
       const extra = kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
-      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="13">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="14">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }
     async function confirmDelete(promptRow) {
@@ -898,7 +898,7 @@
       if (add) {
         const row = add.closest('tr');
         if (!row.previousElementSibling?.classList.contains('month-adjustment-input')) row.insertAdjacentHTML('beforebegin',
-          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="8">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>`);
+          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="9">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="4"></td></tr>`);
         row.previousElementSibling.querySelector('.month-amount').focus(); return;
       }
       const editable = event.target.closest('td.editable');
@@ -940,7 +940,7 @@
           const row = receipt.closest('tr');
           root.querySelector('.void-prompt')?.remove();
           const saved = snapshot.receipts.find(item => item.pid === pid);
-          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="13">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
+          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="14">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
         receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :

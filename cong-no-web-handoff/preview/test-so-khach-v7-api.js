@@ -373,7 +373,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">307<\/td><td class="num ">0<\/td><\/tr><tr class="spacer">/);
+  assert.match(february, /<tr class="subtotal"><td colspan="9">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start" colspan="2">Đã thu<\/td><td class="num pay">307<\/td><td class="num ">0<\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
   assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">700<\/td>/);

@@ -140,7 +140,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
-  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', '']);
+  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', '']);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.equal(await page.locator('.sheet-detail').count(), 0);

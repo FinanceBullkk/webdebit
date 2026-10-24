@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
-from v7_sheet_queue import build_queue, load_snapshot, project_customer
+from v7_sheet_queue import (
+    build_queue,
+    load_snapshot,
+    plan_shipper_backfill,
+    project_customer,
+)
 
 BASELINE = {"cutover_id": 1, "count": 1, "refs": [{
     "container_norm": "OLD123", "booking_norm": "ALT:OLD123:20261001", "event_date": "2026-10-01"
@@ -91,6 +96,17 @@ class SheetQueueTests(unittest.TestCase):
         result = project_customer(queue, ledger, {"CROSS1"})
         self.assertEqual((result["new_count"], result["conflict_count"]), (0, 1))
         self.assertEqual(result["items"][0]["sync_reason"], "OTHER_CUSTOMER")
+
+    def test_shipper_backfill_only_proposes_unique_exact_matches(self):
+        queue = {"items": [{"customer_id": 7, "status": "READY", "source_row": 8,
+                            "container": "ABC1", "event_date": "2026-10-01",
+                            "carrier": "COSCO", "shipper": "TAY NGUYEN"}]}
+        ledger = {"customer_id": 7, "trips": [], "legacy_rows": [{"id": 3, "kind": "trip",
+                  "current": {"container": "ABC1", "event_date": "2026-10-01", "carrier": "TAY NGUYEN"}}]}
+        proposals = plan_shipper_backfill(queue, ledger)
+        self.assertEqual(proposals[0]["after"], {"carrier": "COSCO", "shipper": "TAY NGUYEN"})
+        queue["items"].append(queue["items"][0] | {"source_row": 9})
+        self.assertEqual(plan_shipper_backfill(queue, ledger), [])
 
 
 if __name__ == "__main__":

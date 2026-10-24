@@ -97,7 +97,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
     existing = []
     for trip in ledger.get("trips", []):
         existing.append({"kind": "trip", "id": trip.get("id"), "container": trip.get("container"),
-                         "event_date": trip.get("event_date"), "carrier": trip.get("carrier"),
+                         "event_date": trip.get("event_date"), "carrier": trip.get("carrier"), "shipper": trip.get("shipper"),
                          "origin": trip.get("origin"), "destination": trip.get("destination"),
                          "booking": trip.get("booking")})
     for legacy in ledger.get("legacy_rows", []):
@@ -109,6 +109,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                          "container": current.get("container") or display.get("container"),
                          "event_date": current.get("event_date") or display.get("date"),
                          "carrier": current.get("carrier") or display.get("carrier"),
+                         "shipper": current.get("shipper") or display.get("shipper"),
                          "origin": current.get("origin") or display.get("from"),
                          "destination": current.get("destination") or display.get("to")})
     visible = []
@@ -142,13 +143,13 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             old = matches[0]
             changed = [field for field in ("event_date", "origin", "destination")
                        if _name(row.get(field)) != _name(old.get(field))]
-            if old["kind"] == "legacy":
-                if not row.get("shipper"):
-                    changed.append("shipper_unavailable")
-                elif _name(row["shipper"]) != _name(old.get("carrier")):
-                    changed.append("shipper")
-            elif _name(row.get("carrier")) != _name(old.get("carrier")):
+            if old["kind"] != "legacy" and _name(row.get("carrier")) != _name(old.get("carrier")):
                 changed.append("carrier")
+            old_shipper = old.get("shipper") or (old.get("carrier") if old["kind"] == "legacy" else None)
+            if row.get("shipper") and _name(row["shipper"]) != _name(old_shipper):
+                changed.append("shipper")
+            elif old["kind"] == "legacy" and not row.get("shipper"):
+                changed.append("shipper_unavailable")
             if old.get("booking") and booking != _container(old["booking"]):
                 changed.append("booking")
             if not changed:
@@ -167,8 +168,49 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: old.get("carrier") if field in ("shipper", "shipper_unavailable") else old.get(field)
+                        "existing_values": {field: (old.get("shipper") or old.get("carrier")) if field in ("shipper", "shipper_unavailable") else old.get(field)
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
             "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible)}
+
+
+def plan_shipper_backfill(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read-only proposals; only unique customer, container and exact date matches."""
+    customer_id = ledger.get("customer_id")
+    sources: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in queue["items"]:
+        if row.get("customer_id") != customer_id or row.get("status") != "READY":
+            continue
+        if not row.get("carrier") or not row.get("shipper") or not row.get("event_date"):
+            continue
+        key = (_container(row.get("container")), str(row["event_date"])[:10])
+        sources.setdefault(key, []).append(row)
+    targets: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in ledger.get("trips", []):
+        key = (_container(row.get("container")), str(row.get("event_date") or "")[:10])
+        targets.setdefault(key, []).append({"kind": "trip", "id": row.get("id"), "data": row})
+    for row in ledger.get("legacy_rows", []):
+        if row.get("kind") != "trip":
+            continue
+        current = row.get("current") or {}
+        display = row.get("display") or {}
+        key = (_container(current.get("container") or display.get("container")),
+               str(current.get("event_date") or display.get("date") or "")[:10])
+        targets.setdefault(key, []).append({"kind": "legacy", "id": row.get("id"), "data": current or display})
+    result = []
+    for key, matches in sources.items():
+        if not key[0] or len(matches) != 1 or len(targets.get(key, [])) != 1:
+            continue
+        source, target = matches[0], targets[key][0]
+        old = target["data"]
+        if old.get("shipper"):
+            continue
+        old_carrier = _name(old.get("carrier"))
+        if old_carrier not in ("", _name(source["shipper"]), _name(source["carrier"])):
+            continue
+        result.append({"kind": target["kind"], "id": target["id"],
+                       "source_row": source["source_row"],
+                       "before": {"carrier": old.get("carrier"), "shipper": old.get("shipper")},
+                       "after": {"carrier": source["carrier"], "shipper": source["shipper"]}})
+    return result

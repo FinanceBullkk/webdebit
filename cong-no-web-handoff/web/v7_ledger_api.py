@@ -55,7 +55,7 @@ ROUTES = {
     "/api/v7/legacy/delete": ("delete_legacy_trip", {"legacy_row_id"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
-TRIP_FIELDS = {"date", "booking", "container", "carrier", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
+TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
 ERRORS = {
     "INVALID_FIELD": (422, "Ô không được sửa."),
     "LEGACY_NOT_FOUND": (422, "Không tìm thấy dòng sổ gốc."),
@@ -574,7 +574,7 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             batch = values[start:start + 200]
             trips = [{"date": row["event_date"][8:10] + "/" + row["event_date"][5:7] + "/" + row["event_date"][:4],
                       "booking": row.get("booking") or "", "container": row["container"], "carrier": row["carrier"],
-                      "from": row["origin"], "to": row["destination"], "unitPriceVnd": None,
+                      "from": row["origin"], "to": row["destination"], "shipper": row.get("shipper"), "unitPriceVnd": None,
                       "otherFeeVnd": None, "note": "Chuyến đồng bộ",
                       "src": f"sheet:{digest}:{row['source_row']}"} for row in batch]
             command_key = hashlib.sha256(f"{key}:{digest}:{month}:{batch[0]['source_row']}".encode()).hexdigest()
