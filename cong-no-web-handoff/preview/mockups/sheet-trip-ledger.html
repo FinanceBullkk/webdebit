@@ -23,11 +23,21 @@ table{width:100%;min-width:1250px;border-collapse:collapse;background:white}th,t
 <tr class="month"><th colspan="10">THÁNG 10/2026</th></tr>
 <tr class="existing"><td>17</td><td>ABCU1234567<small>Đã có trong sổ</small></td><td>WH</td><td>21/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td class="num">90.000.000</td><td></td><td class="num">90.000.000</td><td>Giữ nguyên</td></tr>
 <tr class="sheet-new"><td>18</td><td>BCDU2345678</td><td>WH</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td><input inputmode="numeric" aria-label="Đơn giá chuyến BCDU2345678" placeholder=""></td><td></td><td class="num">Chưa tính</td><td>CHỜ DUYỆT</td></tr>
-<tr class="sheet-conflict"><td>19</td><td>CDEU3456789</td><td>COSCO</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td class="num">80.000.000</td><td></td><td class="num">80.000.000</td><td>CÓ KHÁC BIỆT<br><button type="button" disabled title="Mockup, chưa ghi sổ">Kiểm tra</button></td></tr>
+<tr class="sheet-conflict"><td>19</td><td>CDEU3456789<small>KHÁC: hãng tàu</small></td><td>WH</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td class="num">80.000.000</td><td></td><td class="num">80.000.000</td><td>CÓ KHÁC BIỆT<br><button type="button" id="toggle-sheet" aria-expanded="true">Đóng</button></td></tr>
+<tr class="detail" id="sheet-detail"><td>↳ Sheet</td><td>CDEU3456789</td><td>COSCO</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td></td><td></td><td></td><td></td></tr>
 <tr class="total"><td colspan="8">Tổng tháng — chỉ gồm chuyến đã duyệt và đã có giá</td><td class="num">170.000.000</td><td></td></tr>
 </tbody>
 </table>
 <p class="note">Backend tự lưu trạng thái từng chuyến, khóa chống ghi trùng và bản dữ liệu đã nhận. Nút duyệt hàng loạt chỉ chấp nhận dữ liệu chuyến mới; giá vẫn có thể bổ sung sau. Dòng đỏ không tự sửa.</p>
 </main>
+<script>
+document.querySelector('#toggle-sheet').addEventListener('click', event => {
+  const detail = document.querySelector('#sheet-detail');
+  const open = detail.hidden;
+  detail.hidden = !open;
+  event.currentTarget.textContent = open ? 'Đóng' : 'Xem';
+  event.currentTarget.setAttribute('aria-expanded', String(open));
+});
+</script>
 </body>
 </html>

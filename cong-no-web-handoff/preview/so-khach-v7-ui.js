@@ -16,6 +16,10 @@
   let historyOpen = false;
   let monthPrompt = null;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const conflictFields = row => row.changed_fields?.length
+    ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
+    : ({ OTHER_CUSTOMER: 'khách khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
+      CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
   const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
@@ -448,7 +452,7 @@
           return webRow(trips[position - legacy.length], position - legacy.length, pay ?? noPay);
         }).join('');
         const sheetLines = sheetPending.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
-          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : 'CÓ KHÁC BIỆT'}</small>${row.sync_state === 'CONFLICT' ? `<button type="button" class="sheet-diff" data-index="${sheetRows.indexOf(row)}">Xem</button>` : ''}</td>${cell(row.carrier)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
+          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>${cell(row.carrier)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
           ${empty('num')}${empty('num')}${num('–')}${empty('pay pay-start')}${empty('pay')}${empty('pay num')}${empty('num')}
           </tr>`).join('');
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
@@ -480,10 +484,11 @@
         if (target) {
           target.classList.add('sheet-conflict');
           target.title = 'Chuyến Sheet có dữ liệu khác. Giữ nguyên sổ hiện có.';
-          const label = document.createElement('small'); label.textContent = 'CÓ KHÁC BIỆT';
+          const label = document.createElement('small'); label.textContent = `KHÁC: ${conflictFields(row)}`;
           target.children[1]?.append(label);
           const button = document.createElement('button'); button.type = 'button'; button.className = 'sheet-diff';
           button.dataset.index = String(sheetRows.indexOf(row)); button.textContent = 'Xem';
+          button.setAttribute('aria-expanded', 'false');
           target.children[1]?.append(button);
         }
       }
@@ -503,13 +508,16 @@
       event.stopImmediatePropagation();
       const trip = snapshot.sheet_sync.items[Number(button.dataset.index)];
       const tableRow = button.closest('tr');
-      if (tableRow.nextElementSibling?.classList.contains('sheet-detail')) { tableRow.nextElementSibling.remove(); return; }
-      const fields = { event_date: 'Ngày chuyến', carrier: 'Hãng tàu', origin: 'Nơi đi', destination: 'Nơi đến', booking: 'Booking' };
-      const detail = trip.changed_fields.length
-        ? trip.changed_fields.map(field => `${fields[field]}: sổ ${trip.existing_values?.[field] ?? '–'} · Sheet ${trip[field] ?? '–'}`).join(' · ')
-        : trip.sync_reason === 'OTHER_CUSTOMER' ? 'Container đã có ở sổ khách khác; kiểm tra khách trước khi nhập.'
-          : 'Chưa xác định được chuyến tương ứng; giữ nguyên sổ để kiểm tra.';
-      tableRow.insertAdjacentHTML('afterend', `<tr class="sheet-detail"><td colspan="13">${escape(detail)}</td></tr>`);
+      if (tableRow.nextElementSibling?.classList.contains('sheet-detail')) {
+        tableRow.nextElementSibling.remove();
+        button.textContent = 'Xem';
+        button.setAttribute('aria-expanded', 'false');
+        return;
+      }
+      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(trip.carrier)}</td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
+      tableRow.insertAdjacentHTML('afterend', detailRow);
+      button.textContent = 'Đóng';
+      button.setAttribute('aria-expanded', 'true');
     });
     let sheetApproval = null;
     root.addEventListener('click', async event => {
