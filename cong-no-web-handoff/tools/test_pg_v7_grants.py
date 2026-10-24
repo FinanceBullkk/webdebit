@@ -19,6 +19,7 @@ from test_pg_v7_backend import (
     LABEL_TEST,
     LABEL_VALUE,
     SCHEMA,
+    SHEET_MIGRATION,
     HarnessError,
     Pg,
     actor_sql,
@@ -117,7 +118,7 @@ def check_denials(pg):
     for f in functions(pg):
         name = f['signature'].split('(')[0]
         statement = f"SELECT sokhach.{name}({','.join(['NULL'] * f['args'])})"
-        if f['signature'] not in READ | WRITE and not f['trigger']:
+        if f['signature'] not in READ | APP_READ | WRITE and not f['trigger']:
             pg.rejects(actor_sql(statement), user='v7_app', message='permission denied')
         if f['signature'] in WRITE:
             pg.rejects(actor_sql(statement), user='v7_reader', message='permission denied')
@@ -305,6 +306,7 @@ def main() -> int:
         inspect_volume(volume, run_id)
         pg.sql(SCHEMA.read_text(encoding="utf-8"))
         pg.sql(FUNCTIONS.read_text(encoding="utf-8"))
+        pg.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
         report["postgres_version"] = pg.value("SHOW server_version")
         pg.sql("CREATE ROLE v7_app LOGIN IN ROLE sokhach_app; CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
         # Existing schema checks share customer 1; run before isolated behavioral books.
