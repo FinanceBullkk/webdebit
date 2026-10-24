@@ -564,9 +564,6 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     for row in rows:
         month = row["event_date"][:7] + "-01"
         months.setdefault(month, []).append(row)
-    locked = {item["month"][:10]: item["locked"] for item in ledger.get("month_locks", [])}
-    if any(locked.get(month, month != ledger.get("today_month", "")[:10]) for month in months):
-        raise ApiError(409, "MONTH_LOCKED", ERRORS["MONTH_LOCKED"][1])
     approved = 0
     processed = 0
     pending = []

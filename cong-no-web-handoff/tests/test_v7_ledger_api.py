@@ -159,11 +159,18 @@ class LedgerApiTest(unittest.TestCase):
                 value["month_locks"] = [{"month": "2026-09-01", "locked": True}]
             return value
         runner.run = locked_run
-        with patch.object(api, "sheet_projection", return_value=projection), \
-                self.assertRaises(api.ApiError) as caught:
-            api.approve_sheet(json.dumps(body).encode(), runner, "tester")
-        self.assertEqual(caught.exception.code, "MONTH_LOCKED")
-        self.assertFalse(any(call[0] == "paste_trips" for call in runner.calls))
+        with patch.object(api, "sheet_projection", return_value=projection):
+            status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
+        self.assertEqual((status, result["approved"], result["remaining"]), (200, 2, 0))
+        self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
+                         ["2026-09-01", "2026-10-01"])
+        runner.calls.clear()
+        runner.version = 3
+        with patch.object(api, "sheet_projection", return_value=projection | {"items": [projection["items"][2]]}):
+            status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
+        self.assertEqual((status, result["approved"]), (200, 1))
+        self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
+                         ["2026-09-01"])
 
     def test_review_trip_boundary(self):
         body = self.common | {"trip_id": 7, "decision": "confirm", "reason": "đã đối chiếu sổ gốc"}
