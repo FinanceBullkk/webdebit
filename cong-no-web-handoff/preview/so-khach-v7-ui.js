@@ -111,7 +111,7 @@
     const scrollY = window.scrollY;
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách (bản live: chính ô tìm khách, gõ để đổi), Lịch sử, tổng còn nợ.
     const picker = live && document.querySelector('#customer-picker');
-    root.innerHTML = `<div class="book-head">${live ? '<div class="picker-slot"></div>' : `<h1>Sổ khách · ${escape(view.customer)}</h1>`}<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button><div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
+    root.innerHTML = `<div class="book-head">${live ? '<div class="picker-slot"></div>' : `<h1>Sổ khách · ${escape(view.customer)}</h1>`}<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>${view.sheetButton ?? ''}<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
     ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="columns">${labels.map((label, index) => `<th scope="col" class="${index >= 9 && index <= 11 ? 'pay ' : ''}${index === 9 ? 'pay-start' : ''}">${escape(label)}</th>`).join('')}</tr></thead></table>${view.sections}</div>
     <nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div><aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2><button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
     const slot = root.querySelector('.picker-slot');
@@ -351,6 +351,7 @@
     function renderSnapshot(data) {
       snapshot = data;
       const active = data.status === 'active';
+      const sheetRows = data.sheet_sync?.items ?? [];
       // Tháng hiện tại và cờ khóa theo server (giờ VN); đồng hồ máy chỉ dùng khi server cũ chưa trả.
       const openKey = monthKey(data.today_month) || liveOpenMonth;
       const lockFlags = new Map((data.month_locks ?? []).map(row => [monthKey(row.month), row.locked]));
@@ -371,7 +372,8 @@
         if (!groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
       }
       // Đổi ngày sang tháng khác: chuyến/dòng sổ gốc tự sang bảng tháng đó, chưa có bảng thì bảng tự hiện.
-      for (const row of [...(data.trips ?? []), ...(data.legacy_rows ?? []), ...ghosts]) {
+      for (const row of [...(data.trips ?? []), ...(data.legacy_rows ?? []), ...ghosts,
+        ...sheetRows.filter(item => item.sync_state === 'NEW' || !item.existing_id).map(item => ({ month: item.event_date }))]) {
         const key = monthKey(row.month);
         if (key && !groups.some(group => monthKey(group.month) === key)) groups.push({ month: `${key}-01`, placeholder: true });
       }
@@ -390,6 +392,8 @@
       const section = item => {
         const key = monthKey(item.month);
         const trips = (data.trips ?? []).filter(row => monthKey(row.month) === key);
+        const sheetPending = sheetRows.filter(row => monthKey(row.event_date) === key
+          && (row.sync_state === 'NEW' || !row.existing_id));
         const received = (data.receipts ?? []).flatMap(row => (row.allocations ?? [])
           .filter(line => monthKey(line.month) === key && (row.voided_by_event != null
             ? line.superseded_by_event === row.voided_by_event : line.superseded_by_event === null))
@@ -430,7 +434,7 @@
           const rowKey = trip ? `trip-${trip.id}` : '';
           return `<tr${rowKey ? ` data-row="${rowKey}"` : ''}${moved.has(rowKey) ? ' class="moved"' : ''}>${info ? deleteCell('trip', trip.id, trip.is_fee_only ? '–' : sttBase + index + 1, `chuyến ${trip.container || 'phí lẻ'}`) : trip && !trip.is_fee_only ? cell(sttBase + index + 1) : empty()}
             ${infoCells}
-            ${pending || trip?.status === 'rejected' || locked ? num(trip?.is_missing_price ? 'chưa có giá' : fmt(trip?.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
+            ${pending || trip?.status === 'rejected' || locked ? num(trip?.is_missing_price ? trip.note === 'Chuyến đồng bộ' ? '' : 'chưa có giá' : fmt(trip?.unit_price_vnd)) : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${trip.is_missing_price ? trip.note === 'Chuyến đồng bộ' ? '' : 'chưa có giá' : fmt(trip.unit_price_vnd)}</td>` : empty('num')}
             ${pending || trip?.status === 'rejected' || locked ? num(fmt(trip?.other_fee_vnd)) : trip ? `<td class="num editable" data-trip="${trip.id}" data-field="other_fee_vnd" tabindex="0" role="button" aria-label="Sửa phụ phí chuyến ${index + 1}">${fmt(trip.other_fee_vnd)}</td>` : empty('num')}
             ${!trip ? empty('num') : pending && locked ? num('CHỜ KIỂM') : pending ? `<td class="num review-cell"><button type="button" class="review-open" data-trip="${trip.id}" aria-expanded="false" aria-label="Kết luận chuyến ${escape(trip.container)} đang CHỜ KIỂM">CHỜ KIỂM</button></td>` : trip.status === 'rejected' ? '<td class="num trip-rejected">ĐÃ LOẠI</td>' : num(fmt(trip.amount_vnd))}
             ${pay}
@@ -443,6 +447,10 @@
           if (position < legacy.length) return legacy[position].html(pay);
           return webRow(trips[position - legacy.length], position - legacy.length, pay ?? noPay);
         }).join('');
+        const sheetLines = sheetPending.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
+          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : 'CÓ KHÁC BIỆT'}</small>${row.sync_state === 'CONFLICT' ? `<button type="button" class="sheet-diff" data-index="${sheetRows.indexOf(row)}">Xem</button>` : ''}</td>${cell(row.carrier)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
+          ${empty('num')}${empty('num')}${num('–')}${empty('pay pay-start')}${empty('pay')}${empty('pay num')}${empty('num')}
+          </tr>`).join('');
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
         // Các dòng đó vẫn nằm trong số tiền: dòng Tổng tháng tính như Sheet (model.sheetMonthTotals), chênh ghi ở Lịch sử.
         const adjustmentRows = adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="8">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${num(fmt(row.amount_vnd))}<td class="pay pay-start" colspan="4"></td></tr>`).join('');
@@ -457,13 +465,28 @@
         const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="13">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
           <tr class="month"><th colspan="13" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><em>Nợ các tháng trước: ${fmt(item.prior_months_vnd)}</em></span></th></tr>
-          ${lines}${adjustmentRows}${voidRows}${ghostRows}${draftHere ? draftGrid(key) : ''}
+          ${lines}${sheetLines}${adjustmentRows}${voidRows}${ghostRows}${draftHere ? draftGrid(key) : ''}
           <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${num(fmt(totals.chargesVnd))}<td class="pay pay-start" colspan="2">Đã thu</td>${num(fmt(totals.receivedVnd), 'pay')}${num(fmt(item.end_of_month_vnd))}</tr><tr class="spacer"><td colspan="13"></td></tr></tbody></table></section>`;
       };
-      const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active ? '' : 'hidden'}>${escape(message || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
+      const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
+      const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active || sheetNotice ? '' : 'hidden'}>${escape(message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
+      const newCount = data.sheet_sync?.new_count ?? 0;
       renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
+        sheetButton: newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '',
         sections: groups.map(section).join(''), navigation: groups.map(item => `<a href="#thang-${escape(monthKey(item.month))}"><span>${monthLabel(monthKey(item.month))}</span><small>${fmt(item.outstanding_vnd)}</small></a>`).join(''),
         history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.review_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
+      for (const row of sheetRows.filter(item => item.sync_state === 'CONFLICT' && item.existing_id)) {
+        const target = root.querySelector(`[data-row="${row.existing_kind}-${row.existing_id}"]`);
+        if (target) {
+          target.classList.add('sheet-conflict');
+          target.title = 'Chuyến Sheet có dữ liệu khác. Giữ nguyên sổ hiện có.';
+          const label = document.createElement('small'); label.textContent = 'CÓ KHÁC BIỆT';
+          target.children[1]?.append(label);
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'sheet-diff';
+          button.dataset.index = String(sheetRows.indexOf(row)); button.textContent = 'Xem';
+          target.children[1]?.append(button);
+        }
+      }
     }
     function showNotice(value) {
       message = value;
@@ -474,6 +497,41 @@
       if (retry) retry.hidden = !api.hasPending();
     }
     const api = live.create({ customerId, onSnapshot: renderSnapshot, onNotice: showNotice });
+    root.addEventListener('click', event => {
+      const button = event.target.closest('.sheet-diff');
+      if (!button) return;
+      event.stopImmediatePropagation();
+      const trip = snapshot.sheet_sync.items[Number(button.dataset.index)];
+      const tableRow = button.closest('tr');
+      if (tableRow.nextElementSibling?.classList.contains('sheet-detail')) { tableRow.nextElementSibling.remove(); return; }
+      const fields = { event_date: 'Ngày chuyến', carrier: 'Hãng tàu', origin: 'Nơi đi', destination: 'Nơi đến', booking: 'Booking' };
+      const detail = trip.changed_fields.length
+        ? trip.changed_fields.map(field => `${fields[field]}: sổ ${trip.existing_values?.[field] ?? '–'} · Sheet ${trip[field] ?? '–'}`).join(' · ')
+        : trip.sync_reason === 'OTHER_CUSTOMER' ? 'Container đã có ở sổ khách khác; kiểm tra khách trước khi nhập.'
+          : 'Chưa xác định được chuyến tương ứng; giữ nguyên sổ để kiểm tra.';
+      tableRow.insertAdjacentHTML('afterend', `<tr class="sheet-detail"><td colspan="13">${escape(detail)}</td></tr>`);
+    });
+    let sheetApproval = null;
+    root.addEventListener('click', async event => {
+      const button = event.target.closest('.sheet-approve');
+      if (!button || button.disabled) return;
+      if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+      sheetApproval ??= { customer_id: customerId, expected_version: snapshot.version,
+        snapshot_sha256: snapshot.sheet_sync.snapshot_sha256, idempotency_key: crypto.randomUUID() };
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/v7/sheet/approve', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sheetApproval) });
+        const result = await response.json();
+        sheetApproval = null;
+        try { await api.read(); } catch { showNotice('Đã xử lý lô duyệt; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+        showNotice(response.ok
+          ? result.complete === false ? `Đã duyệt ${result.approved} chuyến; còn ${result.remaining} chuyến chưa duyệt (${result.error}).`
+            : `Đã duyệt ${result.approved} chuyến${result.review_count ? `; ${result.review_count} chuyến nghi trùng cần kiểm` : ''}. Chuyến thiếu giá vẫn chưa tính tiền.`
+          : result.message || 'Không duyệt được chuyến mới.');
+      } catch { showNotice('Chưa rõ kết quả duyệt. Tải lại sổ để kiểm tra trước khi thử lại.'); }
+      button.disabled = false;
+    });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
@@ -1044,6 +1102,12 @@
     });
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
     api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; });
+    setInterval(() => {
+      if (document.hidden || api.hasPending() || root.querySelector('input:focus,textarea:focus,select:focus')
+        || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')]
+          .some(input => input.value.trim())) return;
+      api.read().catch(() => showNotice('Không tải được chuyến mới. Thử tải lại trang.'));
+    }, 60_000);
   }
 
   function startEdit(cell) {

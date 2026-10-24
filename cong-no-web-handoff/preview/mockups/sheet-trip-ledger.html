@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sổ khách · Chuyến Sheet đồng bộ · Mockup</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:20px;padding:12px 18px;background:white;border-bottom:2px solid #6584a5}h1{font-size:18px;margin:0}header strong{margin-left:auto}.demo{font-size:12px;color:#694600;background:#fff0c4;padding:4px 8px}
+main{padding:18px;overflow-x:auto}p{margin:0 0 12px}.legend{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 14px}.legend span{display:inline-flex;align-items:center;gap:6px}.swatch{width:16px;height:16px;border:1px solid #738ba5}.yellow{background:#fff1ad}.red{background:#ffd6d6}
+table{width:100%;min-width:1250px;border-collapse:collapse;background:white}th,td{border:1px solid #d8e1ec;padding:8px 7px;text-align:left}th{background:#eaf1fa}td.num{text-align:right}tr.month th{background:#24496e;color:white;font-size:16px}tr.sheet-new td{background:#fff1ad}tr.sheet-conflict td{background:#ffd6d6}tr.sheet-new td:last-child,tr.sheet-conflict td:last-child{font-weight:700}tr.existing td{color:#344b64}small{display:block;color:#475d73}button,input{font:inherit}button{padding:5px 9px;min-height:34px}input{width:115px;min-height:34px;padding:4px}button:focus-visible,input:focus-visible{outline:3px solid #155da8;outline-offset:2px}.detail td{background:#fff0f0;color:#772323}.detail strong{display:block}.total td{background:#e8f1fc;font-weight:700}.note{margin-top:14px;max-width:900px;color:#38516d}
+</style>
+</head>
+<body>
+<header><h1>Sổ khách</h1><span>KHÁCH MẪU A</span><span class="demo">MOCKUP · DỮ LIỆU GIẢ</span><strong>Tổng còn nợ: 170.000.000 ₫</strong></header>
+<main>
+<p>Chuyến mới tự cập nhật liên tục. Chưa duyệt thì chưa tính vào công nợ; thiếu giá vẫn để trống.</p>
+<p><button type="button" title="Mockup, chưa ghi sổ">Duyệt tất cả chuyến mới</button></p>
+<div class="legend"><span><i class="swatch yellow"></i> Vàng: chuyến mới, chờ duyệt</span><span><i class="swatch red"></i> Đỏ: cùng chuyến, dữ liệu khác</span><span>Không tô: chuyến đã có, giữ nguyên</span></div>
+<table aria-label="Sổ khách mẫu với chuyến đồng bộ từ Sheet">
+<thead><tr><th>STT</th><th>Số container</th><th>Hãng tàu</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th>Đơn giá</th><th>Phụ phí</th><th>Thành tiền</th><th>Trạng thái / thao tác</th></tr></thead>
+<tbody>
+<tr class="month"><th colspan="10">THÁNG 10/2026</th></tr>
+<tr class="existing"><td>17</td><td>ABCU1234567<small>Đã có trong sổ</small></td><td>WH</td><td>21/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td class="num">90.000.000</td><td></td><td class="num">90.000.000</td><td>Giữ nguyên</td></tr>
+<tr class="sheet-new"><td>18</td><td>BCDU2345678</td><td>WH</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td><input inputmode="numeric" aria-label="Đơn giá chuyến BCDU2345678" placeholder=""></td><td></td><td class="num">Chưa tính</td><td>CHỜ DUYỆT</td></tr>
+<tr class="sheet-conflict"><td>19</td><td>CDEU3456789</td><td>COSCO</td><td>23/10/2026</td><td>ĐẮK LẮK</td><td>HẠ MÔN</td><td class="num">80.000.000</td><td></td><td class="num">80.000.000</td><td>CÓ KHÁC BIỆT<br><button type="button" disabled title="Mockup, chưa ghi sổ">Kiểm tra</button></td></tr>
+<tr class="total"><td colspan="8">Tổng tháng — chỉ gồm chuyến đã duyệt và đã có giá</td><td class="num">170.000.000</td><td></td></tr>
+</tbody>
+</table>
+<p class="note">Backend tự lưu trạng thái từng chuyến, khóa chống ghi trùng và bản dữ liệu đã nhận. Nút duyệt hàng loạt chỉ chấp nhận dữ liệu chuyến mới; giá vẫn có thể bổ sung sau. Dòng đỏ không tự sửa.</p>
+</main>
+</body>
+</html>

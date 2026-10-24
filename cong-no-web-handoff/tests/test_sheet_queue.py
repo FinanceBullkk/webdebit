@@ -1,0 +1,81 @@
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
+from v7_sheet_queue import build_queue, load_snapshot, project_customer
+
+BASELINE = {"cutover_id": 1, "count": 1, "refs": [{
+    "container_norm": "OLD123", "booking_norm": "ALT:OLD123:20261001", "event_date": "2026-10-01"
+}]}
+
+
+class SheetQueueTests(unittest.TestCase):
+    def test_baseline_match_and_customer_mapping_stay_review_only(self):
+        snapshot = {"sha256": "a" * 64, "row_count": 2, "rows": [
+            {"source_row": 2, "container": "OLD123", "event_date": "2026-10-01", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 3, "container": "NEW123", "event_date": "2026-10-02", "status": "READY", "customer_name": "Unknown"},
+        ]}
+        queue = build_queue(snapshot, [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
+        self.assertEqual(queue["items"][0]["review_status"], "BASELINE_REVIEW")
+        self.assertEqual(queue["items"][0]["customer_id"], 7)
+        self.assertEqual(queue["items"][1]["review_status"], "NEEDS_CUSTOMER")
+        self.assertEqual(queue["ready_count"], 0)
+
+    def test_invalid_rows_remain_visible(self):
+        snapshot = {"sha256": "b" * 64, "row_count": 1, "rows": [{"source_row": 2, "status": "INVALID"}]}
+        queue = build_queue(snapshot, [], BASELINE)
+        self.assertEqual(queue["items"][0]["review_status"], "INVALID")
+
+    def test_load_snapshot_rejects_missing_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "snapshot.json"
+            path.write_text('{"rows":[],"row_count":0}', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "hash"):
+                load_snapshot(path)
+
+    def test_customer_projection_new_same_and_changed(self):
+        rows = [
+            {"source_row": 2, "container": "NEW1", "event_date": "2026-10-24", "carrier": "WH",
+             "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 3, "container": "OLD123", "event_date": "2026-10-01", "carrier": "WH",
+             "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 4, "container": "WEB1", "booking": "BK-NEW", "event_date": "2026-10-24", "carrier": "COSCO",
+             "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
+        ]
+        queue = build_queue({"sha256": "a" * 64, "row_count": 3, "rows": rows},
+                            [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
+        ledger = {"customer_id": 7, "legacy_rows": [{"id": 1, "kind": "trip", "current": {
+            "container": "OLD123", "event_date": "2026-10-01", "carrier": "WH", "origin": "A", "destination": "B"}}],
+            "trips": [{"id": 9, "container": "WEB1", "booking": "BK-OLD", "event_date": "2026-10-24", "carrier": "WH",
+                       "origin": "A", "destination": "B"}]}
+        result = project_customer(queue, ledger)
+        self.assertEqual([item["sync_state"] for item in result["items"]], ["NEW", "CONFLICT"])
+        self.assertEqual(result["items"][1]["existing_id"], 9)
+        self.assertEqual(result["items"][1]["changed_fields"], ["carrier", "booking"])
+        self.assertEqual((result["new_count"], result["conflict_count"]), (1, 1))
+
+    def test_container_reuse_is_reviewed_not_auto_approved(self):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7,
+            "container": "SAME1", "event_date": "2026-10-24", "carrier": "WH", "origin": "A",
+            "destination": "B", "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "legacy_rows": [], "trips": [{"id": 8, "container": "SAME1",
+            "event_date": "2026-01-01", "carrier": "WH", "origin": "A", "destination": "B"}]}
+        result = project_customer(queue, ledger)
+        self.assertEqual(result["items"][0]["sync_reason"], "CONTAINER_REUSED_OR_CHANGED")
+        self.assertEqual(result["new_count"], 0)
+        ledger["trips"][0]["event_date"] = None
+        self.assertEqual(project_customer(queue, ledger)["new_count"], 0)
+
+    def test_other_customer_trip_is_red_even_when_current_ledger_is_empty(self):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7,
+            "container": "CROSS1", "event_date": "2026-10-24", "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "legacy_rows": [], "trips": []}
+        result = project_customer(queue, ledger, {"CROSS1"})
+        self.assertEqual((result["new_count"], result["conflict_count"]), (0, 1))
+        self.assertEqual(result["items"][0]["sync_reason"], "OTHER_CUSTOMER")
+
+
+if __name__ == "__main__":
+    unittest.main()

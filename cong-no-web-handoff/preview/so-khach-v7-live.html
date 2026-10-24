@@ -81,6 +81,13 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .ledger.locked tr:is([data-row],.legacy) td:not(.pay):not(.missing){background:#eceff2}
 .ledger.locked tr:is([data-row],.legacy) td.pay{background:#e6eaef}
 .ledger tr.moved td:not(.pay){background:#fff3c4!important}
+.ledger tr.sheet-new td:not(.pay){background:#fff1ad!important}
+.ledger tr.sheet-conflict td:not(.pay){background:#ffd6d6!important}
+.sheet-diff{margin-left:5px;border:0;background:transparent;color:#7f1616;text-decoration:underline;cursor:pointer;font:inherit}
+.sheet-detail td{background:#fff0f0;color:#732020}
+.sheet-approve{min-height:34px;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:700;cursor:pointer}
+.sheet-approve:disabled{opacity:.55;cursor:default}
+.sheet-approve:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .moved-tag{color:#6b4a00;font-size:12px;font-weight:700}
 .ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
 .move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}

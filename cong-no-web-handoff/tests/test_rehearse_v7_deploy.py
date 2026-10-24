@@ -26,7 +26,7 @@ class RehearsalTests(unittest.TestCase):
             spec.loader.exec_module(grants)
         sql = rehearsal.CHECK.read_text(encoding='utf-8')
         allowlist = sql.split('expected text[] := ARRAY[', 1)[1].split('];', 1)[0]
-        self.assertEqual(set(re.findall(r"'([^']+)'", allowlist)), grants.READ | grants.WRITE)
+        self.assertEqual(set(re.findall(r"'([^']+)'", allowlist)), grants.READ | grants.APP_READ | grants.WRITE)
         self.assertIn('BEGIN READ ONLY;', sql)
         self.assertIn('ROLLBACK;', sql)
 

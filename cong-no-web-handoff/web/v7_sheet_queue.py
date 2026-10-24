@@ -1,0 +1,164 @@
+"""Read-only projection of Sheet trips; every row stays outside ledger balance."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import re
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+
+def _name(value: Any) -> str:
+    return " ".join(unicodedata.normalize("NFC", str(value or "")).strip().upper().split())
+
+
+def _container(value: Any) -> str:
+    return "".join(str(value or "").upper().split())
+
+
+def load_snapshot(path: str | Path) -> dict[str, Any]:
+    try:
+        with open(path, encoding="utf-8") as stream:
+            snapshot = json.load(stream)
+    except (OSError, ValueError) as exc:
+        raise ValueError("Sheet snapshot unavailable") from exc
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
+        raise ValueError("Sheet snapshot invalid")
+    if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
+        raise ValueError("Sheet snapshot hash missing")
+    if snapshot.get("row_count") != len(snapshot["rows"]):
+        raise ValueError("Sheet snapshot row count mismatch")
+    return snapshot
+
+
+def load_baseline(path: str | Path) -> dict[str, Any]:
+    try:
+        with open(path, encoding="utf-8") as stream:
+            baseline = json.load(stream)
+    except (OSError, ValueError) as exc:
+        raise ValueError("baseline references unavailable") from exc
+    if not isinstance(baseline, dict) or type(baseline.get("cutover_id")) is not int:
+        raise ValueError("baseline references invalid")
+    if not isinstance(baseline.get("refs"), list) or not baseline["refs"] or baseline.get("count") != len(baseline["refs"]):
+        raise ValueError("baseline reference count mismatch")
+    return baseline
+
+
+def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], baseline: dict[str, Any]) -> dict[str, Any]:
+    names: dict[str, list[dict[str, Any]]] = {}
+    for customer in customers:
+        if isinstance(customer, dict) and type(customer.get("id")) is int and isinstance(customer.get("name"), str):
+            names.setdefault(_name(customer["name"]), []).append(customer)
+    aliases = snapshot.get("customer_aliases") or {}
+    baseline_containers = {_container(ref.get("container_norm")) for ref in baseline["refs"]}
+    items = []
+    for source in snapshot["rows"]:
+        if not isinstance(source, dict):
+            raise ValueError("Sheet row invalid")
+        if source.get("status") == "READY" and "2026" not in str(source.get("event_date") or source.get("source_date") or ""):
+            continue
+        item = {key: source.get(key) for key in (
+            "source_row", "container", "carrier", "event_date", "origin", "destination",
+            "booking", "customer_name", "source_date", "status")}
+        status = source.get("status") or "INVALID"
+        reasons: list[str] = []
+        matches = names.get(_name(aliases.get(_name(source.get("customer_name")), source.get("customer_name"))), [])
+        match = matches[0] if len(matches) == 1 and matches[0].get("status") == "active" else None
+        if status != "READY":
+            review_status = status
+            reasons.append(status)
+        else:
+            container = _container(source.get("container"))
+            baseline_hit = container in baseline_containers
+            if baseline_hit:
+                review_status = "BASELINE_REVIEW"
+                reasons.append("BASELINE_MATCH")
+            elif match is None:
+                review_status = "NEEDS_CUSTOMER"
+                reasons.append("CUSTOMER_MAPPING")
+            else:
+                review_status = "NEEDS_PRICE"
+                reasons.extend(("PRICE_REQUIRED", "NEW_TRIP_REVIEW"))
+        item.update({"customer_id": match["id"] if match else None,
+                     "review_status": review_status, "review_reasons": reasons})
+        items.append(item)
+    return {"source": snapshot.get("source"), "snapshot_sha256": snapshot["sha256"],
+            "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
+            "baseline_cutover_id": baseline["cutover_id"], "items": items,
+            "row_count": len(items), "ready_count": 0, "review_count": len(items)}
+
+
+def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None) -> dict[str, Any]:
+    """Show only new or changed Sheet rows inside one customer ledger."""
+    existing = []
+    for trip in ledger.get("trips", []):
+        existing.append({"kind": "trip", "id": trip.get("id"), "container": trip.get("container"),
+                         "event_date": trip.get("event_date"), "carrier": trip.get("carrier"),
+                         "origin": trip.get("origin"), "destination": trip.get("destination"),
+                         "booking": trip.get("booking")})
+    for legacy in ledger.get("legacy_rows", []):
+        if legacy.get("kind") != "trip":
+            continue
+        current = legacy.get("current") or {}
+        display = legacy.get("display") or {}
+        existing.append({"kind": "legacy", "id": legacy.get("id"),
+                         "container": current.get("container") or display.get("container"),
+                         "event_date": current.get("event_date") or display.get("date"),
+                         "carrier": current.get("carrier") or display.get("carrier"),
+                         "origin": current.get("origin") or display.get("from"),
+                         "destination": current.get("destination") or display.get("to")})
+    visible = []
+    for row in queue["items"]:
+        if row.get("customer_id") != ledger.get("customer_id"):
+            continue
+        if row.get("review_status") not in ("BASELINE_REVIEW", "NEEDS_PRICE"):
+            continue
+        container = _container(row.get("container"))
+        date = dt.date.fromisoformat(row["event_date"])
+        booking = _container(row.get("booking"))
+        matches = []
+        same_container = []
+        for old in existing:
+            if _container(old.get("container")) != container:
+                continue
+            same_container.append(old)
+            if not old.get("event_date"):
+                continue
+            try:
+                old_date = dt.date.fromisoformat(str(old["event_date"])[:10])
+            except ValueError:
+                continue
+            if (booking and old.get("booking") and booking == _container(old["booking"])) or abs((date - old_date).days) <= 3:
+                matches.append(old)
+        if container in (other_customer_containers or set()):
+            state = "CONFLICT"
+            reason = "OTHER_CUSTOMER"
+            changed = []
+        elif len(matches) == 1:
+            old = matches[0]
+            changed = [field for field in ("event_date", "carrier", "origin", "destination")
+                       if _name(row.get(field)) != _name(old.get(field))]
+            if old.get("booking") and booking != _container(old["booking"]):
+                changed.append("booking")
+            if not changed:
+                continue
+            state = "CONFLICT"
+            reason = "DIFFERENT_FIELDS"
+        elif matches or same_container or row["review_status"] == "BASELINE_REVIEW":
+            state = "CONFLICT"
+            reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED" if same_container else "BASELINE_MATCH_UNRESOLVED"
+            changed = []
+        else:
+            state = "NEW"
+            reason = ""
+            changed = []
+        visible.append({**row, "sync_state": state, "sync_reason": reason,
+                        "changed_fields": changed,
+                        "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
+                        "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
+                        "existing_values": {field: old.get(field) for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
+    return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
+            "new_count": sum(row["sync_state"] == "NEW" for row in visible),
+            "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible)}

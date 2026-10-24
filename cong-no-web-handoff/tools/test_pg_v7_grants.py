@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'web'))
 from v7_ledger_api import ROUTES, Psql, validate
 
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()'}
+APP_READ = {'list_sheet_trip_refs()'}
 WRITE = {
     'edit_trip_info(bigint,bigint,text,bigint,text,text)',
     'delete_trip(bigint,bigint,text,bigint)',
@@ -62,7 +63,7 @@ def functions(pg):
         "'args',p.pronargs,'trigger',p.prorettype='trigger'::regtype)), '[]') FROM pg_proc p WHERE pronamespace='sokhach'::regnamespace"))
 
 
-KNOWN_FUNCTIONS = {'_trip_date', '_legacy_current', '_change_legacy', 'edit_trip_info', 'delete_trip', 'edit_legacy_trip', 'delete_legacy_trip', 'import_cutover', 'check_offset_pid', 'guard_cutover_evidence', 'record_offset', 'adjust_month', 'list_customers', 'guard_offset_pair', 'guard_cutover_status', '_lines', '_finish_cutover', '_next_pid', '_begin_offset', 'verify_cutover_customer', 'edit_receipt_meta', 'verify_cutover', '_actor', 'check_trip_missing_date', 'paste_trips', 'record_receipt', '_void_receipt', '_finish_offset', '_change_offset', 'guard_receipt_line_change', 'void_receipt', '_check_allocations', 'activate_cutover_customer', 'list_offset_sources', '_finish_command', 'check_offset_pair', 'reject_immutable_change', 'guard_receipt_change', '_check_cutover_customer', 'activate_cutover', 'adjust_trip', '_begin_cutover', 'edit_offset_date', '_baseline', '_begin_command', 'edit_trip_price', 'set_month_lock', 'guard_cutover_customer_status', '_month_open', 'reallocate', 'get_ledger', '_check_cutover', '_edit_receipt_meta', 'void_offset', '_normalize_key', '_booking_key', 'review_trip', 'guard_trip_change'}
+KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_date', '_legacy_current', '_change_legacy', 'edit_trip_info', 'delete_trip', 'edit_legacy_trip', 'delete_legacy_trip', 'import_cutover', 'check_offset_pid', 'guard_cutover_evidence', 'record_offset', 'adjust_month', 'list_customers', 'guard_offset_pair', 'guard_cutover_status', '_lines', '_finish_cutover', '_next_pid', '_begin_offset', 'verify_cutover_customer', 'edit_receipt_meta', 'verify_cutover', '_actor', 'check_trip_missing_date', 'paste_trips', 'record_receipt', '_void_receipt', '_finish_offset', '_change_offset', 'guard_receipt_line_change', 'void_receipt', '_check_allocations', 'activate_cutover_customer', 'list_offset_sources', '_finish_command', 'check_offset_pair', 'reject_immutable_change', 'guard_receipt_change', '_check_cutover_customer', 'activate_cutover', 'adjust_trip', '_begin_cutover', 'edit_offset_date', '_baseline', '_begin_command', 'edit_trip_price', 'set_month_lock', 'guard_cutover_customer_status', '_month_open', 'reallocate', 'get_ledger', '_check_cutover', '_edit_receipt_meta', 'void_offset', '_normalize_key', '_booking_key', 'review_trip', 'guard_trip_change'}
 
 
 KNOWN_FUNCTIONS.add('get_dashboard')
@@ -72,7 +73,7 @@ def check_catalog(pg):
     require({f['signature'].split('(')[0] for f in inventory} == KNOWN_FUNCTIONS,
             'function inventory changed; classify new functions explicitly before granting')
     require(len(inventory) == len(KNOWN_FUNCTIONS), 'unexpected function overload')
-    for role, expected in [('v7_app', READ | WRITE), ('v7_reader', READ)]:
+    for role, expected in [('v7_app', READ | APP_READ | WRITE), ('v7_reader', READ)]:
         actual = {f['signature'] for f in inventory if pg.value(
             f"SELECT has_function_privilege('{role}',{f['oid']},'EXECUTE')") == 't'}
         require(actual == expected, f'{role}: missing={expected-actual}, extra={actual-expected}')
