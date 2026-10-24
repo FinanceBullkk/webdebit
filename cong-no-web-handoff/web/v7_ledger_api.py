@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
@@ -16,16 +17,21 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import v7_identity
+from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
 MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
+SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
+SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 ASSETS = {
     "/": ("dashboard-v7.html", "text/html; charset=utf-8"),
     "/dashboard-v7.html": ("dashboard-v7.html", "text/html; charset=utf-8"),
     "/dashboard-v7.css": ("dashboard-v7.css", "text/css; charset=utf-8"),
     "/dashboard-v7.js": ("dashboard-v7.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-live.html": ("so-khach-v7-live.html", "text/html; charset=utf-8"),
+    "/sheet-trip-queue.html": ("sheet-trip-queue-live.html", "text/html; charset=utf-8"),
+    "/sheet-trip-queue-live.js": ("sheet-trip-queue-live.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-ui.js": ("so-khach-v7-ui.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-model.js": ("so-khach-v7-model.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-api.js": ("so-khach-v7-api.js", "text/javascript; charset=utf-8"),
@@ -65,6 +71,7 @@ ERRORS = {
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
     "TRIP_PENDING_REVIEW": (409, "Chuyến chưa được tính vào sổ (CHỜ KIỂM hoặc đã loại)."),
     "TRIP_NOT_PENDING": (409, "Chuyến không còn CHỜ KIỂM."),
+    "SHEET_CROSS_CUSTOMER_MATCH": (409, "Chuyến đã có ở khách khác. Tải lại để kiểm tra."),
     "REVIEW_REASON_REQUIRED": (422, "Cần ghi lý do kết luận chuyến CHỜ KIỂM."),
     "RECEIPT_NOT_FOUND": (422, "Không tìm thấy phiếu."),
     "MONTH_NOT_FOUND": (422, "Không tìm thấy tháng."),
@@ -240,6 +247,7 @@ SQL = {
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
+    "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
 }
 ARGUMENTS = {
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
@@ -506,6 +514,88 @@ def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()
     raise ApiError(400, "INVALID_HOST", "Địa chỉ truy cập không hợp lệ.")
 
 
+def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    snapshot = load_snapshot(SHEET_SNAPSHOT_PATH)
+    baseline = load_baseline(SHEET_BASELINE_PATH)
+    customers = runner.run("list_customers", {}, actor).get("customers", [])
+    refs = runner.run("list_sheet_trip_refs", {}, actor).get("items")
+    if not isinstance(refs, list):
+        raise ValueError("web trip references unavailable")
+    other_containers = set()
+    for ref in refs:
+        if not isinstance(ref, dict) or type(ref.get("customer_id")) is not int or not isinstance(ref.get("container"), str):
+            raise ValueError("web trip references invalid")
+        if ref["customer_id"] != ledger.get("customer_id"):
+            other_containers.add("".join(ref["container"].upper().split()))
+    return project_customer(build_queue(snapshot, customers, baseline), ledger, other_containers)
+
+
+def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}:
+        bad()
+    customer = request["customer_id"]
+    version = request["expected_version"]
+    digest = request["snapshot_sha256"]
+    key = request["idempotency_key"]
+    if (not positive_int(customer) or type(version) is not int or not 0 <= version <= MAX_BIGINT
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip()
+            or any(ord(char) < 32 for char in key)):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
+    if ledger.get("status") != "active":
+        raise ApiError(409, "NO_BASELINE", "Khách chưa có số dư đầu hiệu lực.")
+    if ledger.get("version") != version:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = sheet_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi duyệt.")
+    rows = [item for item in projection["items"] if item["sync_state"] == "NEW"]
+    if not rows:
+        return 200, {"approved": 0, "remaining": 0}
+    months: dict[str, list[dict]] = {}
+    for row in rows:
+        month = row["event_date"][:7] + "-01"
+        months.setdefault(month, []).append(row)
+    approved = 0
+    processed = 0
+    pending = []
+    # ponytail: commands are atomic per 200 rows/month; add one DB bulk function if cross-month atomicity becomes required.
+    for month in sorted(months):
+        values = sorted(months[month], key=lambda row: row["source_row"])
+        for start in range(0, len(values), 200):
+            batch = values[start:start + 200]
+            trips = [{"date": row["event_date"][8:10] + "/" + row["event_date"][5:7] + "/" + row["event_date"][:4],
+                      "booking": row.get("booking") or "", "container": row["container"], "carrier": row["carrier"],
+                      "from": row["origin"], "to": row["destination"], "unitPriceVnd": None,
+                      "otherFeeVnd": None, "note": "Chuyến đồng bộ",
+                      "src": f"sheet:{digest}:{row['source_row']}"} for row in batch]
+            command_key = hashlib.sha256(f"{key}:{digest}:{month}:{batch[0]['source_row']}".encode()).hexdigest()
+            try:
+                result = runner.run("paste_trips", {"customer_id": customer, "expected_version": version,
+                                    "idempotency_key": command_key, "debt_month": month, "trips": trips}, actor)
+            except ApiError as exc:
+                if not processed:
+                    raise
+                return 200, {"approved": approved, "remaining": len(rows) - processed,
+                             "review_count": len(pending), "complete": False, "error": exc.code}
+            processed += len(batch)
+            newly_pending = result.get("pending_review", [])
+            pending.extend(newly_pending)
+            approved += len(batch) - len(newly_pending)
+            if processed < len(rows):
+                version = runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+    return 200, {"approved": approved, "remaining": 0, "complete": True,
+                 "review_count": len(pending), "pending_review": pending}
+
+
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
@@ -523,11 +613,23 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         parts = urlsplit(target)
         if parts.query:
             bad()
+        if parts.path == "/api/v7/sheet/approve":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return approve_sheet(raw, runner, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
         if parts.path == "/api/v7/dashboard" and not parts.query:
             function, payload = "get_dashboard", {}
+        elif parts.path == "/api/v7/sheet-queue":
+            query = parse_qs(parts.query, keep_blank_values=True)
+            if query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
+                          not re.fullmatch(r"[1-9][0-9]*", query["customer"][0]) or
+                          len(query["customer"][0]) > 19 or int(query["customer"][0]) > MAX_BIGINT):
+                bad()
+            function, payload = "list_customers", {}
         elif parts.path == "/api/v7/customers" and not parts.query:
             function, payload = "list_customers", {}
         elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources"):
@@ -550,6 +652,24 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve)
     result = runner.run(function, payload, actor)
+    if parts.path == "/api/v7/sheet-queue":
+        try:
+            snapshot = load_snapshot(SHEET_SNAPSHOT_PATH)
+            baseline = load_baseline(SHEET_BASELINE_PATH)
+        except ValueError as exc:
+            raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
+        queue = build_queue(snapshot, result.get("customers", []), baseline)
+        if parts.query:
+            customer = int(query["customer"][0])
+            queue["items"] = [item for item in queue["items"] if item["customer_id"] == customer]
+            queue["row_count"] = len(queue["items"])
+            queue["review_count"] = queue["row_count"]
+        return 200, queue
+    if function == "get_ledger":
+        try:
+            result = {**result, "sheet_sync": sheet_projection(runner, result, actor)}
+        except (ValueError, ApiError):
+            result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}}
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard"):

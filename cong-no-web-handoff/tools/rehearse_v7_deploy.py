@@ -22,6 +22,7 @@ from test_pg_v7_backend import (
     LABEL_VALUE,
     ROOT,
     SCHEMA,
+    SHEET_MIGRATION,
     HarnessError,
     Pg,
     inspect_owned,
@@ -241,6 +242,7 @@ class Rehearsal:
             self.sql('CREATE DATABASE ' + DB, 'postgres')
             self.sql(SCHEMA.read_text(encoding='utf-8'))
             self.sql(FUNCTIONS.read_text(encoding='utf-8'))
+            self.sql(SHEET_MIGRATION.read_text(encoding='utf-8'))
             self.sql('CREATE ROLE v7_app LOGIN IN ROLE sokhach_app; CREATE ROLE ' + LOADER +
                      ' LOGIN IN ROLE sokhach_owner; REVOKE CONNECT ON DATABASE ' + DB +
                      ' FROM PUBLIC; GRANT CONNECT ON DATABASE ' + DB + ' TO v7_app,' + LOADER)

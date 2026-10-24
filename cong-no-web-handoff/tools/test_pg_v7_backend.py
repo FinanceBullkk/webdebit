@@ -77,6 +77,7 @@ CASES = [
     case("7.01", "BEHAVIOR", "Import 11 opening months and historical PH-101", check="opening_import", functions=("get_ledger", "import_cutover")),
     case("7.02", "BEHAVIOR", "JS model operation parity and monthly tuples", check="model", functions=("paste_trips", "record_receipt", "reallocate")),
     case("7.02b", "BEHAVIOR", "Advance, price edit, paste after receipt, missing price, adjustment after void", check="model_edges", functions=("paste_trips", "edit_trip_price", "adjust_month", "void_receipt")),
+    case("7.sheet", "BEHAVIOR", "Sheet cross-customer duplicate and NULL price", check="sheet_cross_customer", functions=("paste_trips", "list_sheet_trip_refs")),
     case("7.03", "BEHAVIOR", "Atomic failure after allocation write", check="atomic", functions=("record_receipt",)),
     case("7.03b", "BEHAVIOR", "Reject allocation, advance and event invariant corruption", check="invariant_rejections", functions=("record_receipt", "_check_allocations")),
     case("7.04", "BEHAVIOR", "Idempotency before stale version", check="idempotency", functions=("record_receipt",)),
@@ -1047,6 +1048,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(DASHBOARD_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1784,7 +1787,7 @@ def check_roles(pg: Pg) -> None:
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
-                       "get_ledger", "list_customers", "get_dashboard", "record_offset", "void_offset",
+                       "get_ledger", "list_customers", "get_dashboard", "list_sheet_trip_refs", "record_offset", "void_offset",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
     allowed = ",".join(lit(name) for name in public_commands)
@@ -2503,6 +2506,36 @@ NHAP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-nhap
 
 REVIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql"
 MH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-23-v7-mat-hang.sql"
+SHEET_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-sheet-cross-customer.sql"
+
+
+def check_sheet_cross_customer(pg: Pg) -> None:
+    first = new_book(pg, ("2026-01-01", 100))
+    second = new_book(pg, ("2026-01-01", 200))
+    untagged = new_book(pg, ("2026-01-01", 300))
+    today = pg.value("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+    month = today[:7] + "-01"
+    row = json.loads(trip_json(None, container="FAKE-CROSS-CUSTOMER"))[0]
+    row.update(date=today[8:10] + "/" + today[5:7] + "/" + today[:4],
+               src="sheet:" + "a" * 64 + ":2", unitPriceVnd=None, otherFeeVnd=None)
+    before = call(pg, "get_ledger", first)["total_outstanding_vnd"]
+    trip_id = call(pg, "paste_trips", first, version(pg, first), "sheet-first", month,
+                   json.dumps([row]))["trip_ids"][0]
+    ledger = call(pg, "get_ledger", first)
+    saved = next(trip for trip in ledger["trips"] if trip["id"] == trip_id)
+    require(ledger["total_outstanding_vnd"] == before and saved["unit_price_vnd"] is None
+            and saved["amount_vnd"] is None, "NULL price changed balance")
+    refs = json.loads(pg.value(actor_sql("SELECT sokhach.list_sheet_trip_refs()")))["items"]
+    require(any(ref["customer_id"] == first and ref["container"] == "FAKE-CROSS-CUSTOMER"
+                for ref in refs), "cross-customer reference missing")
+    # Non-Sheet fixture rows may share a container; guard owns only Sheet imports.
+    call(pg, "paste_trips", untagged, version(pg, untagged), "fixture-untagged", month,
+         json.dumps([row | {"src": None}]))
+    before_second = call(pg, "get_ledger", second)["total_outstanding_vnd"]
+    reject_call(pg, "paste_trips", second, version(pg, second), "sheet-second", month,
+                json.dumps([row | {"src": "sheet:" + "a" * 64 + ":3"}]), error="SHEET_CROSS_CUSTOMER_MATCH")
+    require(call(pg, "get_ledger", second)["total_outstanding_vnd"] == before_second,
+            "rejected cross-customer row changed balance")
 
 DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql"
 LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-locked-trip-edit.sql"
@@ -2789,6 +2822,7 @@ CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_ref
           "gate_view": check_gate_view, "legacy": check_legacy, "import_guard": check_import_guard,
           "negative": check_negative, "events": check_events, "evidence": check_evidence,
            "fee": check_fee, "model": check_model, "model_edges": check_model_edges,
+           "sheet_cross_customer": check_sheet_cross_customer,
            "atomic": check_atomic,
            "invariant_rejections": check_invariant_rejections,
            "idempotency": check_idempotency, "concurrent": check_concurrent,
@@ -2895,6 +2929,9 @@ def check_migration(pg: Pg) -> None:
     copy.sql(dashboard)
     copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
+    sheet = SHEET_MIGRATION.read_text(encoding="utf-8")
+    copy.sql(sheet)
+    copy.sql(sheet)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
@@ -3020,6 +3057,7 @@ def main() -> int:
              "-U", "postgres", "-d", DATABASE], input_text=SCHEMA.read_text(encoding="utf-8"))
         run(["docker", "exec", "-i", *pg.env, name, "psql", "-X", "-v", "ON_ERROR_STOP=1",
              "-U", "postgres", "-d", DATABASE], input_text=FUNCTIONS.read_text(encoding="utf-8"))
+        pg.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
         report["postgres_version"] = pg.value("SHOW server_version")
         pg.sql("CREATE ROLE v7_app LOGIN IN ROLE sokhach_app; CREATE ROLE v7_reader LOGIN IN ROLE sokhach_reader")
         if args.migration_test:

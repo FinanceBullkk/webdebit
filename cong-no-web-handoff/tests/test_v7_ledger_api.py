@@ -110,6 +110,68 @@ class LedgerApiTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"status": "confirmed"}]}).encode())
 
+    def test_sheet_bulk_approval_freezes_snapshot_and_keeps_price_null(self):
+        class SheetRunner:
+            def __init__(self):
+                self.version = 3
+                self.calls = []
+
+            def run(self, function, payload, actor):
+                self.calls.append((function, payload, actor))
+                if function == "get_ledger":
+                    return {"status": "active", "version": self.version, "today_month": "2026-10-01",
+                            "month_locks": [{"month": "2026-09-01", "locked": False}]}
+                if function == "paste_trips":
+                    self.version += 1
+                    return {"pending_review": []}
+                raise AssertionError(function)
+
+        runner = SheetRunner()
+        row = {"sync_state": "NEW", "source_row": 2, "event_date": "2026-10-24", "booking": "BK1",
+               "container": "FAKE1", "carrier": "WH", "origin": "A", "destination": "B"}
+        projection = {"snapshot_sha256": "a" * 64, "items": [row, row | {"sync_state": "CONFLICT", "source_row": 3},
+            row | {"source_row": 4, "event_date": "2026-09-24", "container": "FAKE2"}]}
+        body = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64,
+                "idempotency_key": "test-bulk"}
+        with patch.object(api, "sheet_projection", return_value=projection):
+            status, result = api.handle("POST", "/api/v7/sheet/approve", self.headers,
+                json.dumps(body).encode(), runner, port=8780, host="127.0.0.1", actor="tester")
+        self.assertEqual((status, result["approved"], result["complete"]), (200, 2, True))
+        writes = [call for call in runner.calls if call[0] == "paste_trips"]
+        self.assertEqual(len(writes), 2)
+        self.assertEqual([call[1]["expected_version"] for call in writes], [3, 4])
+        self.assertTrue(all(call[1]["trips"][0]["unitPriceVnd"] is None for call in writes))
+        self.assertTrue(all(call[1]["trips"][0]["note"] == "Chuyến đồng bộ" for call in writes))
+        self.assertTrue(all(call[2] == "tester" for call in writes))
+        runner.calls.clear()
+        runner.version = 3
+        with patch.object(api, "sheet_projection", return_value=projection | {"snapshot_sha256": "b" * 64}), \
+                self.assertRaises(api.ApiError) as caught:
+            api.approve_sheet(json.dumps(body).encode(), runner, "tester")
+        self.assertEqual(caught.exception.code, "STALE_SHEET")
+        self.assertFalse(any(call[0] == "paste_trips" for call in runner.calls))
+        runner.calls.clear()
+        runner.version = 3
+        original_run = runner.run
+        def locked_run(function, payload, actor):
+            value = original_run(function, payload, actor)
+            if function == "get_ledger":
+                value["month_locks"] = [{"month": "2026-09-01", "locked": True}]
+            return value
+        runner.run = locked_run
+        with patch.object(api, "sheet_projection", return_value=projection):
+            status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
+        self.assertEqual((status, result["approved"], result["remaining"]), (200, 2, 0))
+        self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
+                         ["2026-09-01", "2026-10-01"])
+        runner.calls.clear()
+        runner.version = 3
+        with patch.object(api, "sheet_projection", return_value=projection | {"items": [projection["items"][2]]}):
+            status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
+        self.assertEqual((status, result["approved"]), (200, 1))
+        self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
+                         ["2026-09-01"])
+
     def test_review_trip_boundary(self):
         body = self.common | {"trip_id": 7, "decision": "confirm", "reason": "đã đối chiếu sổ gốc"}
         for decision in ("confirm", "reject"):
@@ -317,6 +379,13 @@ class LedgerApiTest(unittest.TestCase):
                                   port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
         self.assertEqual((status, data["function"]), (200, "get_dashboard"))
         self.assertEqual(self.runner.calls[-1], ("get_dashboard", {}, "configured"))
+        with patch.object(api, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
+             patch.object(api, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
+             patch.object(api, "build_queue", return_value={"items": [], "row_count": 0, "ready_count": 0, "review_count": 0}) as queue:
+            status, data = api.handle("GET", "/api/v7/sheet-queue", self.headers, b"", self.runner,
+                                      port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
+            self.assertEqual((status, data["row_count"]), (200, 0))
+            queue.assert_called_once()
         self.runner.calls.clear()
         self.error(404, "NOT_FOUND", lambda: api.handle("GET", "/api/v7/customers?all=1",
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
