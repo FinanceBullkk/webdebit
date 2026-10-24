@@ -62,6 +62,8 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
         item = {key: source.get(key) for key in (
             "source_row", "container", "carrier", "event_date", "origin", "destination",
             "booking", "customer_name", "source_date", "status")}
+        if "shipper" in source:
+            item["shipper"] = source.get("shipper")
         status = source.get("status") or "INVALID"
         reasons: list[str] = []
         matches = names.get(_name(aliases.get(_name(source.get("customer_name")), source.get("customer_name"))), [])
@@ -138,8 +140,15 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             changed = []
         elif len(matches) == 1:
             old = matches[0]
-            changed = [field for field in ("event_date", "carrier", "origin", "destination")
+            changed = [field for field in ("event_date", "origin", "destination")
                        if _name(row.get(field)) != _name(old.get(field))]
+            if old["kind"] == "legacy":
+                if not row.get("shipper"):
+                    changed.append("shipper_unavailable")
+                elif _name(row["shipper"]) != _name(old.get("carrier")):
+                    changed.append("shipper")
+            elif _name(row.get("carrier")) != _name(old.get("carrier")):
+                changed.append("carrier")
             if old.get("booking") and booking != _container(old["booking"]):
                 changed.append("booking")
             if not changed:
@@ -158,7 +167,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: old.get(field) for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
+                        "existing_values": {field: old.get("carrier") if field in ("shipper", "shipper_unavailable") else old.get(field)
+                                            for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
             "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible)}

@@ -39,7 +39,7 @@ class SheetQueueTests(unittest.TestCase):
         rows = [
             {"source_row": 2, "container": "NEW1", "event_date": "2026-10-24", "carrier": "WH",
              "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
-            {"source_row": 3, "container": "OLD123", "event_date": "2026-10-01", "carrier": "WH",
+            {"source_row": 3, "container": "OLD123", "event_date": "2026-10-01", "carrier": "WH", "shipper": "WH",
              "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
             {"source_row": 4, "container": "WEB1", "booking": "BK-NEW", "event_date": "2026-10-24", "carrier": "COSCO",
              "origin": "A", "destination": "B", "status": "READY", "customer_name": "Khách A"},
@@ -67,6 +67,22 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(result["new_count"], 0)
         ledger["trips"][0]["event_date"] = None
         self.assertEqual(project_customer(queue, ledger)["new_count"], 0)
+
+    def test_legacy_shipper_compares_with_booking_shipper_not_shipping_line(self):
+        ledger = {"customer_id": 7, "legacy_rows": [{"id": 1, "kind": "trip", "current": {
+            "container": "ABC1", "event_date": "2026-10-01", "carrier": "TAY NGUYEN",
+            "origin": "A", "destination": "B"}}], "trips": []}
+        source = {"source_row": 2, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-01",
+                  "carrier": "COSCO", "shipper": "TAY NGUYEN", "origin": "A", "destination": "B",
+                  "review_status": "BASELINE_REVIEW"}
+        queue = {"snapshot_sha256": "a" * 64, "items": [source]}
+        self.assertEqual(project_customer(queue, ledger)["conflict_count"], 0)
+        queue["items"][0] = source | {"shipper": "KHOI PHONG"}
+        conflict = project_customer(queue, ledger)["items"][0]
+        self.assertEqual(conflict["changed_fields"], ["shipper"])
+        self.assertEqual(conflict["existing_values"], {"shipper": "TAY NGUYEN"})
+        queue["items"][0] = {key: value for key, value in source.items() if key != "shipper"}
+        self.assertEqual(project_customer(queue, ledger)["items"][0]["changed_fields"], ["shipper_unavailable"])
 
     def test_other_customer_trip_is_red_even_when_current_ledger_is_empty(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7,

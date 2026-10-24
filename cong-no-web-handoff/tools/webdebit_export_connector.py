@@ -93,6 +93,7 @@ def parse_booking_values(values: list[list[Any]]) -> list[dict[str, Any]]:
             "customer_name": str(cells[1] or "").strip(),
             "booking_date": parse_date(cells[2]),
             "booking": _SPACE_RE.sub("", str(cells[3] or "").strip().upper()),
+            "shipper": str(cells[7] or "").strip(),
             "carrier": str(cells[8] or "").strip(),
             "origin": str(cells[9] or "").strip(),
             "destination": str(cells[10] or "").strip(),
@@ -111,7 +112,8 @@ def merge_booking_rows(export_rows: list[dict[str, Any]], booking_rows: list[dic
         matches = index.get(key, []) if row["status"] == "READY" else []
         item = dict(row)
         if len(matches) == 1:
-            item.update({"booking": matches[0]["booking"], "customer_name": matches[0]["customer_name"], "booking_source_row": matches[0]["source_row"]})
+            item.update({"booking": matches[0]["booking"], "shipper": matches[0]["shipper"],
+                         "customer_name": matches[0]["customer_name"], "booking_source_row": matches[0]["source_row"]})
             if not matches[0]["customer_name"]:
                 item["status"] = "NO_CUSTOMER"
         elif len(matches) > 1:

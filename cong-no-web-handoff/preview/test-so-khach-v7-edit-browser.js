@@ -140,7 +140,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
-  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'WH', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', '']);
+  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', '']);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.equal(await page.locator('.sheet-detail').count(), 0);
@@ -157,8 +157,8 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
-    { sync_state: 'CONFLICT', event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', origin: 'Nơi C',
-      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['carrier'], existing_values: { carrier: 'Xe 1' } },
+    { sync_state: 'CONFLICT', event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
+      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper'], existing_values: { shipper: 'Xe 1' } },
   ] };
 }));
 

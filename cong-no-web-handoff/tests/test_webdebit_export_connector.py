@@ -101,6 +101,7 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         ])
         rows = connector.merge_booking_rows(exports, bookings)
         self.assertEqual((rows[0]["status"], rows[0]["booking"], rows[0]["customer_name"]), ("READY", "BK001", "Khách A"))
+        self.assertEqual(rows[0]["shipper"], "Ship")
         self.assertEqual(connector.to_paste_trip(rows[0])["booking"], "BK001")
         self.assertEqual(rows[1]["status"], "NO_BOOKING_MATCH")
         with self.assertRaisesRegex(ValueError, "READY"):

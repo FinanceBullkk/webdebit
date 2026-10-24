@@ -17,7 +17,8 @@
   let monthPrompt = null;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const conflictFields = row => row.changed_fields?.length
-    ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
+    ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
+      shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
   const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
@@ -514,7 +515,8 @@
         button.setAttribute('aria-expanded', 'false');
         return;
       }
-      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(trip.carrier)}</td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
+      const sheetSource = trip.existing_kind === 'legacy' ? `Shipper: ${trip.shipper || '–'} · Hãng tàu: ${trip.carrier || '–'}` : trip.carrier;
+      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
