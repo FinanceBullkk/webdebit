@@ -155,8 +155,9 @@
       const trips = (ledger.trips || []).filter(trip => String(trip.month).slice(0, 7) === date);
       const opening = (ledger.opening || []).some(row => String(row.month).slice(0, 7) === date);
       let html = '<div class="kv big"><span>Còn lại tháng này</span><b class="money">' + signed(monthValue(customer, month)) + '</b></div>';
+      if (!monthRow || vnd(monthRow.outstanding_vnd) !== monthValue(customer, month)) html += '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>';
       if (opening) html += '<div class="warnbox">Tháng số dư đầu: khoản mục lịch sử, không có chi tiết theo container.</div>';
-      if (monthRow) html += '<div class="kv"><span>Phát sinh trong tháng</span><b class="money">' + signed(monthRow.charges_vnd) + '</b></div><div class="kv"><span>Thu đã phân bổ vào tháng</span><b class="money">' + signed(monthRow.received_vnd) + '</b></div>';
+      if (monthRow) html += '<div class="kv"><span>' + (opening ? 'Nợ ghi vào kỳ (gồm số dư đầu)' : 'Phát sinh trong tháng') + '</span><b class="money">' + signed(monthRow.charges_vnd) + '</b></div><div class="kv"><span>Thu đã phân bổ vào tháng</span><b class="money">' + signed(monthRow.received_vnd) + '</b></div>';
       if (trips.length) html += '<h3>Chuyến / container trong tháng</h3><table class="mini-table"><thead><tr><th>Container</th><th>Ngày</th><th class="money">Đơn giá</th><th class="money">Phụ phí</th><th class="money">Thành tiền</th></tr></thead><tbody>' + trips.map(trip => '<tr><td>' + esc(trip.container || '—') + '</td><td>' + esc(trip.event_date || '—') + '</td><td class="money">' + signed(trip.unit_price_vnd) + '</td><td class="money">' + signed(trip.other_fee_vnd) + '</td><td class="money">' + signed(trip.amount_vnd) + '</td></tr>').join('') + '</tbody></table>';
       html += '<p class="note">Thu phân bổ theo tháng, theo nợ cũ trước; không phân bổ theo container.</p><p class="note"><a href="/so-khach-v7-live.html?customer=' + customerId + '">Mở sổ khách</a></p>';
       $('#drawer-body').innerHTML = html;

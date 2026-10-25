@@ -17,7 +17,7 @@ const matrix = year => ({
     total_year_vnd: '0', total_all_vnd: '0', oldest_open_month: currentYear + '-01-01' }],
   grand_total_year_vnd: year === currentYear ? '80000' : '0', grand_total_all_vnd: '80000'
 });
-const ledger = { status: 'active', months: [{ month: currentYear + '-01-01', charges_vnd: '100000', received_vnd: '0' }], trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000' }], opening: [] };
+const ledger = { status: 'active', months: [{ month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '100000', received_vnd: '0' }], trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000' }], opening: [] };
 
 function server({ matrixStatus = 200, matrixPayload = matrix } = {}) {
   return http.createServer((req, res) => {
