@@ -35,7 +35,8 @@ from test_pg_v7_backend import (
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'web'))
 from v7_ledger_api import ROUTES, Psql, validate
 
-READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()'}
+READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
+        'get_dashboard()', 'get_receivables_matrix(integer)'}
 APP_READ = {'list_sheet_trip_refs()'}
 WRITE = {
     'edit_trip_info(bigint,bigint,text,bigint,text,text)',
@@ -68,6 +69,7 @@ KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_
 
 
 KNOWN_FUNCTIONS.add('get_dashboard')
+KNOWN_FUNCTIONS.add('get_receivables_matrix')
 
 def check_catalog(pg):
     inventory = functions(pg)
