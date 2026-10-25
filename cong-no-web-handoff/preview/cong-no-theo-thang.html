@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Công nợ theo tháng · HTH</title>
+
+<link rel="stylesheet" href="cong-no-theo-thang.css">
+</head>
+<body>
+<div class="demo" id="demo-banner" hidden></div>
+<header class="topbar">
+  <a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a>
+  <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a class="active" href="/cong-no-theo-thang.html">Công nợ theo tháng</a></nav>
+  <span class="pill">Chỉ xem</span>
+  <time id="as-of"></time>
+</header>
+<main class="page">
+  <div class="page-head"><h1>Công nợ theo tháng</h1><span style="color:var(--muted);font-size:13px">bấm ô bất kỳ để xem chi tiết tháng đó</span></div>
+
+  <section class="scopes" aria-label="Hai phạm vi tổng">
+    <div class="scope"><div class="label">Dư nợ còn lại của năm <span id="scope-year-label">—</span></div><div class="value money" id="scope-year"></div><div class="sub" id="scope-year-sub"></div></div>
+    <div class="scope all"><div class="label">Tổng dư nợ còn lại mọi năm</div><div class="value money" id="scope-all"></div><div class="sub">Chênh với năm đang chọn: <span id="scope-old"></span> đ</div></div>
+  </section>
+
+  <div id="error" role="alert" hidden></div>
+  <div class="card">
+    <div class="toolbar">
+      <div class="years" role="group" aria-label="Chọn năm">
+        <button id="year-prev" aria-label="Năm trước">‹</button>
+        <span class="cur" id="year-cur">—</span>
+        <button id="year-next" aria-label="Năm sau">›</button>
+      </div>
+      <label class="find"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="find" type="search" placeholder="Tìm khách" aria-label="Tìm khách"></label>
+      <select id="commodity" aria-label="Lọc mặt hàng"><option value="">Mặt hàng: tất cả</option></select>
+    </div>
+    <div class="legend-bar" aria-hidden="true"><span><span class="grad"></span>đậm = tiền nhiều (lớp phụ)</span><span>số hiển thị ngay trong ô</span><span>ô trống = không phát sinh hoặc đã trả hết</span></div>
+    <div class="table-wrap">
+      <table class="heat" aria-label="Ma trận công nợ còn lại: khách theo 12 tháng của năm đang chọn">
+        <thead><tr id="heat-head">
+          <th class="khach">Khách</th>
+          <th>T1</th><th>T2</th><th>T3</th><th>T4</th><th>T5</th><th>T6</th><th>T7</th><th>T8</th><th>T9</th><th>T10</th><th>T11</th><th>T12</th>
+          <th class="total-head">Năm <span id="th-year">—</span></th>
+          <th class="all-head">Mọi năm</th>
+        </tr></thead>
+        <tbody id="heat-body"></tbody>
+        <tfoot><tr id="heat-sum">
+          <td class="khach">Tổng đang hiển thị</td>
+          <td colspan="12" style="text-align:right;color:var(--muted);font-weight:600">(12 tháng)</td>
+          <td class="total-col money" id="sum-year"></td>
+          <td class="all-col money" id="sum-all"></td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <p class="recon" id="recon" role="status">Đang tải số liệu…</p>
+    <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng ròng bằng 0. Ô âm giữ nguyên dấu; thu phân bổ theo tháng, không theo container.</p>
+  </div>
+</main>
+
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <header><h2 id="drawer-title"></h2><button class="close" id="drawer-close" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <p class="meta" id="drawer-meta"></p>
+  <div id="drawer-body"></div>
+</aside>
+
+<script src="cong-no-theo-thang.js"></script>
+</body>
+</html>

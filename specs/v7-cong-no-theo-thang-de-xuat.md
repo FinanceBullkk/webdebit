@@ -270,4 +270,11 @@ Số đo thực tế (Playwright):
 - **ĐÃ KIỂM CHỨNG:** `PYTHONIOENCODING=utf-8 py -3.13 cong-no-web-handoff/tools/test_pg_v7_matrix.py` — **21/21 PASS**, benchmark payload 94KB, SQL 54.893ms, container dùng một lần và đã xả; route test 31 test (1 skip có điều kiện). HTTP PostgreSQL disposable đã đo ở §8.4; benchmark `hao` còn mở.
 - **CI trên commit `0fd32fa`:** 11/11 job PASS, gồm `npm run check` trên Ubuntu/Windows và harness PostgreSQL. Bằng chứng 21/21 cùng phép đo HTTP đã đăng trong PR #93.
 - **Owner DBA sign-off:** người dùng xác nhận cả hai điểm §8.2 trong task; đã ghi nhận tại PR #93, comment `6404075124`. Chưa chạy DDL/triển khai trên `hao`.
-- **CÒN MỞ:** merge backend, rồi mới mở gate Phase 5 frontend.
+- **ĐÃ MERGE:** backend PR #93 vào `main` tại `ed18f09` (26/10/2026, giờ Việt Nam). Gate Phase 5 frontend đã mở theo xác nhận của người dùng.
+
+### Phase 5 — nối dashboard thật (đang triển khai)
+
+- **ĐÃ TRIỂN KHAI (worktree `codex/phase5-receivables-matrix`):** thêm trang `/cong-no-theo-thang.html`, CSS/JS riêng; trang gọi `/api/v7/receivables/matrix?year=YYYY`, lọc khách/mặt hàng, đổi năm, hiển thị heatmap 12 tháng + 2 cột tổng, và drawer gọi `/api/v7/ledger?customer=...`.
+- **Ranh giới:** không fixture, không benchmark giả trong trang thật; tiền định dạng từ chuỗi VND bằng `BigInt`; ô âm giữ dấu; khách tổng ròng 0 vẫn hiện; thu hiển thị theo tháng, không theo container.
+- **ĐÃ KIỂM CHỨNG:** `node --test cong-no-web-handoff/preview/test-v7-receivables-matrix-browser.js` **2/2 PASS**; `npm run test:browser` **34/34 PASS**; `npm run check` **7/7 PASS**; screenshot 1280×800 và 390×844 đã kiểm tra.
+- **CÒN MỞ:** review diff/PR Phase 5, chạy CI đầy đủ, kiểm tra tích hợp PostgreSQL disposable; chưa deploy `hao`.
