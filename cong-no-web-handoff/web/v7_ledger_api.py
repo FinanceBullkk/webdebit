@@ -57,6 +57,7 @@ ROUTES = {
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
 ERRORS = {
+    "INVALID_SHEET_RESOLUTION": (422, "Không thể xử lý ô này."),
     "INVALID_FIELD": (422, "Ô không được sửa."),
     "LEGACY_NOT_FOUND": (422, "Không tìm thấy dòng sổ gốc."),
     "LEGACY_NOT_TRIP": (422, "Dòng sổ gốc này là khoản thu, không sửa ở đây."),
@@ -248,6 +249,7 @@ SQL = {
     "list_customers": "SELECT sokhach.list_customers();",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
+    "resolve_sheet_conflict": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.resolve_sheet_conflict((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'snapshot_sha256',(p->>'source_row')::bigint,p->>'target_kind',(p->>'target_id')::bigint,p->>'field',p->>'target_value',p->>'sheet_value',p->>'decision') FROM j;",
 }
 ARGUMENTS = {
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
@@ -596,6 +598,58 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
                  "review_count": len(pending), "pending_review": pending}
 
 
+def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    required = {"customer_id", "expected_version", "snapshot_sha256", "source_row",
+                "target_kind", "target_id", "field", "decision", "idempotency_key"}
+    if not isinstance(request, dict) or set(request) != required:
+        bad("INVALID_SHEET_RESOLUTION")
+    if (not positive_int(request["customer_id"]) or type(request["expected_version"]) is not int
+            or not 0 <= request["expected_version"] <= MAX_BIGINT
+            or not re.fullmatch(r"[0-9a-f]{64}", str(request["snapshot_sha256"]))
+            or not positive_int(request["source_row"]) or not positive_int(request["target_id"])
+            or request["target_kind"] not in ("trip", "legacy")
+            or request["field"] not in ("carrier", "shipper", "origin", "destination")
+            or request["decision"] not in ("keep_web", "use_sheet")
+            or not isinstance(request["idempotency_key"], str)
+            or not 1 <= len(request["idempotency_key"]) <= 128
+            or not request["idempotency_key"].strip()
+            or any(ord(char) < 32 for char in request["idempotency_key"])):
+        bad("INVALID_SHEET_RESOLUTION")
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = sheet_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
+    if projection["snapshot_sha256"] != request["snapshot_sha256"]:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi thử lại.")
+    rows = [row for row in projection["items"] if row.get("sync_state") == "CONFLICT"
+            and row.get("source_row") == request["source_row"]
+            and row.get("existing_kind") == request["target_kind"]
+            and row.get("existing_id") == request["target_id"]]
+    if len(rows) != 1 or request["field"] not in rows[0].get("changed_fields", []):
+        raise ApiError(409, "STALE_SHEET", "Dòng đối chiếu đã đổi. Tải lại rồi thử lại.")
+    row = rows[0]
+    sheet_value = row.get(request["field"])
+    target_value = (row.get("existing_values") or {}).get(request["field"])
+    if not isinstance(sheet_value, str) or (target_value is not None and not isinstance(target_value, str)):
+        bad("INVALID_SHEET_RESOLUTION")
+    try:
+        if load_snapshot(SHEET_SNAPSHOT_PATH)["sha256"] != request["snapshot_sha256"]:
+            raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi thử lại.")
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
+    result = runner.run("resolve_sheet_conflict", {**request,
+        "target_value": target_value, "sheet_value": sheet_value}, actor)
+    return 200, {"resolved": True, "decision": request["decision"], "field": request["field"],
+                 "version": result["version"]}
+
+
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
@@ -618,6 +672,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return approve_sheet(raw, runner, actor)
+        if parts.path == "/api/v7/sheet/resolve":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return resolve_sheet_conflict(raw, runner, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)

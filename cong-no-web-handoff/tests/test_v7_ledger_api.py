@@ -29,6 +29,39 @@ class FakePsql:
 
 
 class LedgerApiTest(unittest.TestCase):
+    def test_sheet_conflict_resolution_uses_server_values_and_rejects_stale(self):
+        class Runner:
+            def __init__(self):
+                self.calls = []
+            def run(self, function, payload, actor):
+                self.calls.append((function, payload, actor))
+                if function == "get_ledger":
+                    return {"customer_id": 7, "version": 3, "status": "active"}
+                return {"version": 4}
+        runner = Runner()
+        body = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64,
+                "source_row": 8, "target_kind": "trip", "target_id": 9, "field": "carrier",
+                "decision": "keep_web", "idempotency_key": "fake-resolution"}
+        projection = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 8,
+            "sync_state": "CONFLICT", "existing_kind": "trip", "existing_id": 9,
+            "changed_fields": ["carrier"], "carrier": "COSCO", "existing_values": {"carrier": "WH"}}]}
+        with patch.object(api, "sheet_projection", return_value=projection), \
+                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+            status, result = api.resolve_sheet_conflict(json.dumps(body).encode(), runner, "fake-actor")
+        self.assertEqual((status, result["version"]), (200, 4))
+        self.assertEqual(runner.calls[-1][0], "resolve_sheet_conflict")
+        self.assertEqual(runner.calls[-1][1]["sheet_value"], "COSCO")
+        self.assertEqual(runner.calls[-1][1]["target_value"], "WH")
+        self.assertEqual(runner.calls[-1][2], "fake-actor")
+        for change in ({"sheet_value": "FORGED"}, {"field": "unit_price_vnd"}, {"target_id": 10},
+                       {"snapshot_sha256": "b" * 64}, {"expected_version": 2}):
+            runner.calls.clear()
+            with self.subTest(change=change), patch.object(api, "sheet_projection", return_value=projection), \
+                    patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}), \
+                    self.assertRaises(api.ApiError):
+                api.resolve_sheet_conflict(json.dumps(body | change).encode(), runner, "fake-actor")
+            self.assertFalse(any(call[0] == "resolve_sheet_conflict" for call in runner.calls))
+
     def test_nhap_sheet_routes_and_validation(self):
         routes = [
             ("/api/v7/trips/info", "edit_trip_info", {"trip_id": 7, "field": "container", "value": "FAKE"}),

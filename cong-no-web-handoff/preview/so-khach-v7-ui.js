@@ -224,7 +224,8 @@
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
-      trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc' };
+      trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
+      sheet_conflict_resolved: 'Đối chiếu Sheet' };
     const reviewReasonText = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
       WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
     const cellText = (field, value) => value === null || value === undefined || value === '' ? '–'
@@ -277,6 +278,11 @@
       return parts.join(' · ') || 'Chưa có';
     }
     function describeEvent(event) {
+      if (event.kind === 'sheet_conflict_resolved') {
+        const before = event.before ?? {}, after = event.after ?? {};
+        const label = { carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[after.field] ?? 'Ô';
+        return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;
+      }
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
         ? 'tính vào sổ' : 'loại, không tính'}`;
@@ -516,10 +522,33 @@
         return;
       }
       const sheetSource = trip.existing_kind === 'legacy' ? `Shipper: ${trip.shipper || '–'} · Hãng tàu: ${trip.carrier || '–'}` : trip.carrier;
-      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td></td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"></td></tr>`;
+      const conflictActions = (trip.changed_fields || []).filter(field => ['carrier', 'shipper', 'origin', 'destination'].includes(field)).map(field =>
+        `<span class="sheet-choice"><b>${escape(field === 'carrier' ? 'Hãng tàu' : field === 'shipper' ? 'Shipper' : field === 'origin' ? 'Điểm đi' : 'Điểm đến')}</b> <button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button> <button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></span>`).join('');
+      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td></td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"><div class="sheet-choices">${conflictActions}</div></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
+    });
+    root.addEventListener('click', async event => {
+      const action = event.target.closest('[data-sheet-decision]');
+      if (!action) return;
+      const detail = action.closest('.sheet-detail');
+      const row = detail?.previousElementSibling;
+      const index = Number(row?.querySelector('.sheet-diff')?.dataset.index);
+      const trip = snapshot.sheet_sync.items[index];
+      if (!trip || action.disabled) return;
+      action.disabled = true;
+      try {
+        const response = await fetch('/api/v7/sheet/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customer_id: customerId, expected_version: snapshot.version,
+            snapshot_sha256: snapshot.sheet_sync.snapshot_sha256, source_row: trip.source_row,
+            target_kind: trip.existing_kind, target_id: trip.existing_id, field: action.dataset.sheetField,
+            decision: action.dataset.sheetDecision, idempotency_key: crypto.randomUUID() }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || 'Không xử lý được dòng đối chiếu.');
+        await api.read();
+        showNotice('Đã xử lý đối chiếu.');
+      } catch (error) { showNotice(error.message); action.disabled = false; }
     });
     let sheetApproval = null;
     root.addEventListener('click', async event => {
