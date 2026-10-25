@@ -71,7 +71,6 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     app.close();
   }
 });
-
 test('matrix rejects missing money evidence from API', async () => {
   const app = server({ matrixPayload: year => ({ ...matrix(year), customers: [{ ...matrix(year).customers[0], months: {} }] }) });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
@@ -84,4 +83,3 @@ test('matrix rejects missing money evidence from API', async () => {
     assert.equal(await page.locator('#heat-body tr').count(), 0);
   } finally { await browser.close(); app.close(); }
 });
-
