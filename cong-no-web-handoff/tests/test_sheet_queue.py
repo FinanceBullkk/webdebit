@@ -17,16 +17,35 @@ BASELINE = {"cutover_id": 1, "count": 1, "refs": [{
 
 
 class SheetQueueTests(unittest.TestCase):
-    def test_baseline_match_and_customer_mapping_stay_review_only(self):
+    def test_reconciled_baseline_rows_join_realtime_queue_by_source_row(self):
         snapshot = {"sha256": "a" * 64, "row_count": 2, "rows": [
             {"source_row": 2, "container": "OLD123", "event_date": "2026-10-01", "status": "READY", "customer_name": "Khách A"},
             {"source_row": 3, "container": "NEW123", "event_date": "2026-10-02", "status": "READY", "customer_name": "Unknown"},
         ]}
         queue = build_queue(snapshot, [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
-        self.assertEqual(queue["items"][0]["review_status"], "BASELINE_REVIEW")
+        self.assertEqual(queue["items"][0]["review_status"], "NEEDS_PRICE")
         self.assertEqual(queue["items"][0]["customer_id"], 7)
         self.assertEqual(queue["items"][1]["review_status"], "NEEDS_CUSTOMER")
         self.assertEqual(queue["ready_count"], 0)
+
+    def test_baseline_container_without_current_row_is_new_after_reconciliation(self):
+        snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [
+            {"source_row": 2, "container": "OLD123", "event_date": "2026-10-01", "status": "READY", "customer_name": "Khách A"}
+        ]}
+        queue = build_queue(snapshot, [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
+        result = project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": []})
+        self.assertEqual(result["items"][0]["sync_state"], "NEW")
+        self.assertEqual(result["items"][0]["sync_reason"], "")
+
+    def test_realtime_row_uses_source_mapping_when_sheet_date_changes(self):
+        row = {"source_row": 8, "customer_id": 7, "container": "NEWNAME", "event_date": "2026-10-24",
+               "carrier": "WH", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
+        queue = {"snapshot_sha256": "b" * 64, "items": [row]}
+        ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "OLDNAME", "source_ref": f"sheet:{'a' * 64}:8",
+            "event_date": "2026-10-01", "carrier": "WH", "origin": "A", "destination": "B"}], "legacy_rows": []}
+        result = project_customer(queue, ledger)
+        self.assertEqual(result["items"][0]["existing_id"], 9)
+        self.assertIn("event_date", result["items"][0]["changed_fields"])
 
     def test_invalid_rows_remain_visible(self):
         snapshot = {"sha256": "b" * 64, "row_count": 1, "rows": [{"source_row": 2, "status": "INVALID"}]}
@@ -97,7 +116,7 @@ class SheetQueueTests(unittest.TestCase):
             "origin": "A", "destination": "B"}}], "trips": []}
         source = {"source_row": 2, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-01",
                   "carrier": "COSCO", "shipper": "TAY NGUYEN", "origin": "A", "destination": "B",
-                  "review_status": "BASELINE_REVIEW"}
+                  "review_status": "NEEDS_PRICE"}
         queue = {"snapshot_sha256": "a" * 64, "items": [source]}
         self.assertEqual(project_customer(queue, ledger)["conflict_count"], 0)
         queue["items"][0] = source | {"shipper": "KHOI PHONG"}

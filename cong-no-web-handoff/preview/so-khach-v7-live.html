@@ -85,6 +85,12 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .ledger tr.sheet-conflict td:not(.pay){background:#ffd6d6!important}
 .sheet-diff{margin-left:5px;border:0;background:transparent;color:#7f1616;text-decoration:underline;cursor:pointer;font:inherit}
 .sheet-detail td{background:#fff0f0;color:#732020}
+.sheet-detail td.sheet-value-conflict{vertical-align:top;font-weight:700}
+.sheet-detail td small{display:block;margin-top:2px;color:#7f1616;font-size:11px;font-weight:400}
+.sheet-choice-actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.sheet-choice-actions button{min-height:28px;padding:2px 7px;border:1px solid #b47c7c;border-radius:4px;background:#fff;color:#732020;font:inherit;font-size:12px;cursor:pointer}
+.sheet-choice-actions button[data-sheet-decision="use_sheet"]{background:#732020;color:#fff}
+.sheet-choice-actions button:disabled{opacity:.55;cursor:wait}
 .sheet-approve{min-height:34px;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:700;cursor:pointer}
 .sheet-approve:disabled{opacity:.55;cursor:default}
 .sheet-approve:focus-visible{outline:3px solid #145fa9;outline-offset:2px}

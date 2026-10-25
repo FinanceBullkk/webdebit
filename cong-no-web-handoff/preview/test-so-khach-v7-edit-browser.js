@@ -60,6 +60,13 @@ function apply(world, url, body) {
     world.sheetSync.conflict_count -= 1;
     world.version += 1;
     return [200, { resolved: true, version: world.version }];
+    const item = world.sheetSync.items.find(row => row.existing_id === body.target_id);
+    if (!item || !item.changed_fields.includes(body.field)) return [404, { message: 'Không còn trường lệch.' }];
+    item.changed_fields = item.changed_fields.filter(field => field !== body.field);
+    if (!item.changed_fields.length) world.sheetSync = { ...world.sheetSync, items: world.sheetSync.items.filter(row => row !== item), conflict_count: 0 };
+    world.version += 1;
+    return [200, { ok: true }];
+
   }
   const event = (kind, before, after) => world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before, after });
   if (url === '/api/v7/trips/info') {
@@ -146,7 +153,12 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
-  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', 'Shipper Giữ web Lấy Sheet']);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Xe 2/);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Giữ web/);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Lấy Sheet/);
+  await page.locator('.sheet-choice-actions button[data-sheet-decision="use_sheet"]').first().click();
+  await page.waitForFunction(() => document.querySelector('.sheet-detail')?.textContent.includes('Điểm đi'));
+  assert.equal(await page.locator('.sheet-detail').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.equal(await page.locator('.sheet-detail').count(), 0);
@@ -173,6 +185,9 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
     { sync_state: 'CONFLICT', source_row: 8, event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
       destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper'], existing_values: { shipper: 'Xe 1' } },
+    { sync_state: 'CONFLICT', event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
+      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper', 'origin'], existing_values: { shipper: 'Xe 1' } },
+
   ] };
 }));
 
