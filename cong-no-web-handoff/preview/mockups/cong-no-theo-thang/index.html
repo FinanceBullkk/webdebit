@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Công nợ theo tháng · Visual Proof hướng A (1280/1440)</title>
+<!-- FIXTURE GIẢ LẬM — CHƯA ĐỐI CHIẾU DB. Visual Proof hướng A ngày 24/10/2026 theo duyệt có điều kiện:
+     (1) 12 cột tháng lịch + 2 cột tổng ghim phải + tên khách ghim trái + header ghim trên;
+     (2) số đầy đủ trong ô, nền đậm chỉ là lớp phụ; ô âm hiện số âm không tô nền, không tự gán nghĩa;
+     (3) năm 2027 trống chứng minh P0 "khách còn nợ năm cũ vẫn hiện khi xem năm mới";
+     (4) dải đối chiếu nội bộ: Σ ô 2026 = 1.815.000.000 đ, Σ mọi năm = 2.480.000.000 đ (tự tính từ fixture,
+     minh họa tình huống có nợ năm cũ 665.000.000 đ — KHÔNG phải số đã đối chiếu sổ thật);
+     (5) nút sinh 250 khách để kiểm tra mật độ/sticky; drawer drill-down theo BR-06 (thu phân bổ theo tháng,
+     phụ phí theo chuyến có sẵn trong get_ledger: unitPriceVnd/otherFeeVnd). -->
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--ink:#111827;--ink2:#374151;--muted:#6b7280;
+  --line:#e5e7eb;--line2:#d1d5db;--brand:#1e4e8c;--link:#1d4ed8;--accent:#1e4e8c;
+  --heat:#1e4e8c;--ok:#15803d;--ok-bg:#e7f0e9;--bad:#b91c1c;--info-bg:#eef2f6;
+  --radius:8px;--shadow:0 1px 2px #1118270d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+body.drawer-open{overflow:hidden}
+button,input,select{font:inherit}
+button{touch-action:manipulation}
+a{color:var(--link)}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.money{font-variant-numeric:tabular-nums;white-space:nowrap}
+a,button{transition:background-color .12s ease,color .12s ease,border-color .12s ease}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+.demo{padding:8px;background:#fde68a;color:#452600;text-align:center;font-weight:700;font-size:13px}
+.topbar{position:sticky;top:0;z-index:40;min-height:60px;display:flex;align-items:center;gap:22px;padding:8px 20px;background:#fff;border-bottom:1px solid var(--line2)}
+.brand{color:var(--brand);font-size:18px;font-weight:800;text-decoration:none;white-space:nowrap}
+.topbar nav{display:flex;align-self:stretch;gap:18px}
+.topbar nav a{display:flex;align-items:center;color:var(--ink2);font-weight:600;text-decoration:none;border-bottom:3px solid transparent;font-size:13.5px}
+.topbar nav a.active{color:var(--accent);border-color:var(--accent)}
+.pill{padding:5px 12px;border:1px solid var(--line2);border-radius:999px;color:var(--muted);white-space:nowrap;font-size:12px}
+.topbar time{margin-left:auto;color:var(--muted);white-space:nowrap;font-size:13px}
+.page{max-width:1440px;margin:0 auto;padding:0 16px 32px}
+.page-head{display:flex;align-items:baseline;gap:12px;margin:16px 0 12px;flex-wrap:wrap}
+.page-head h1{margin:0;font-size:20px;font-weight:700;color:var(--ink)}
+/* Dải 2 phạm vi tổng (BR-07) */
+.scopes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.scope{padding:12px 16px;background:#fff;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--radius);box-shadow:var(--shadow)}
+.scope.all{border-left-color:var(--brand)}
+.scope .label{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.scope .value{margin-top:2px;font-size:22px;font-weight:800;color:var(--ink)}
+.scope .sub{font-size:12px;color:var(--muted)}
+/* Toolbar năm */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.years{display:flex;align-items:center;gap:0;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.years button{min-width:34px;height:34px;border:0;background:#fff;color:var(--ink2);font-size:15px;cursor:pointer}
+.years button:hover{background:var(--info-bg)}
+.years .cur{min-width:64px;text-align:center;font-weight:800;color:var(--brand);border-left:1px solid var(--line2);border-right:1px solid var(--line2)}
+.toolbar .find{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:#fff;border:1px solid var(--line2);border-radius:6px;min-width:180px}
+.toolbar .find input{border:0;outline:0;width:100%;background:none;color:var(--ink)}
+.toolbar select{height:34px;padding:0 8px;border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--ink2);font-weight:600;font-size:12.5px;cursor:pointer}
+.toolbar .gen{min-height:34px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--ink2);font-weight:600;font-size:12.5px;cursor:pointer}
+.toolbar .gen:hover{border-color:var(--accent);color:var(--accent)}
+.legend-bar{margin:2px 0 8px;font-size:12px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap}
+.legend-bar .grad{display:inline-block;width:90px;height:10px;border-radius:5px;background:linear-gradient(to right,#1e4e8c1a,#1e4e8cd9);vertical-align:-1px;margin-right:6px}
+/* Ma trận */
+.card{padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:12px}
+.table-wrap{overflow:auto;overscroll-behavior:contain;max-height:70vh}
+.heat{border-collapse:separate;border-spacing:0;font-size:12.5px}
+.heat th,.heat td{border-bottom:1px solid var(--line);padding:0;text-align:right;font-variant-numeric:tabular-nums}
+.heat thead th{position:sticky;top:0;background:#fff;color:var(--muted);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--line2);z-index:3;padding:8px 6px;min-width:92px}
+.heat thead th.khach{position:sticky;left:0;z-index:5;text-align:left;min-width:180px}
+.heat thead th.total-head{position:sticky;right:112px;z-index:4;background:#fafbfc;border-left:2px solid var(--line2)}
+.heat thead th.all-head{position:sticky;right:0;z-index:4;background:#f0f3f7;border-left:2px solid var(--line2)}
+.heat td.khach{position:sticky;left:0;background:#fff;z-index:1;text-align:left;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:7px 8px;min-width:180px}
+.heat tbody tr:hover td.khach{background:#fbfcfe}
+.heat .cell-btn{display:block;width:100%;min-height:34px;padding:7px 8px;border:0;background:none;text-align:right;cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+.heat .cell-btn:hover{box-shadow:inset 0 0 0 2px var(--accent);border-radius:3px}
+.heat td.total-col{position:sticky;right:112px;background:#fafbfc;border-left:2px solid var(--line2);font-weight:700;padding:7px 8px;min-width:92px;z-index:1}
+.heat td.all-col{position:sticky;right:0;background:#f0f3f7;border-left:2px solid var(--line2);font-weight:800;padding:7px 8px;min-width:112px;z-index:1}
+.heat tbody tr:hover td.total-col{background:#f2f5f9}
+.heat tbody tr:hover td.all-col{background:#e6ecf4}
+.heat td.empty-cell{color:transparent;cursor:default}
+.heat td.empty-cell .cell-btn{cursor:default}
+.heat td.empty-cell .cell-btn:hover{box-shadow:none}
+.heat tr.group th{position:sticky;left:0;background:#f0f3f7;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);padding:7px 10px;font-size:11.5px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:.05em;text-align:left;z-index:2;min-width:180px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.heat tr.group th .n{font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0;margin-left:8px}
+/* Tổng nhóm nằm ĐÚNG vị trí 2 cột tổng ghim phải — luôn đọc được khi cuộn */
+.heat tr.group th.gspacer{position:static;min-width:0;max-width:none;padding:0;border-left:0}
+.heat tr.group th.gcol-year{position:sticky;right:112px;min-width:92px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink2);border-left:2px solid var(--line2);text-transform:none;letter-spacing:0;font-size:12px}
+.heat tr.group th.gcol-all{position:sticky;right:0;min-width:112px;text-align:right;font-variant-numeric:tabular-nums;color:var(--brand);border-left:2px solid var(--line2);text-transform:none;letter-spacing:0;font-size:12px}
+.heat tr.gsum td{background:#fafbfc;border-top:1px solid var(--line2);font-weight:700;color:var(--ink2);padding:6px 8px}
+.heat tr.gsum td.khach{background:#fafbfc;color:var(--muted);font-weight:600}
+.heat tfoot td{position:sticky;bottom:0;background:#fff;border-top:2px solid var(--line2);font-weight:800;padding:8px;white-space:nowrap}
+.heat tfoot td.khach{position:sticky;left:0;z-index:2}
+.heat tfoot td.total-col{position:sticky;right:112px}
+.heat tfoot td.all-col{position:sticky;right:0;z-index:2}
+.neg{color:var(--ink);font-weight:700}
+.recon{margin:10px 0 0;padding:9px 12px;background:var(--ok-bg);border:1px solid #cfe6d6;border-radius:6px;font-size:12.5px;color:#14532d}
+.recon b{font-variant-numeric:tabular-nums}
+.rule-note{margin:8px 0 0;color:var(--muted);font-size:12px}
+/* Drawer BR-06 */
+.drawer-scrim{position:fixed;inset:0;z-index:60;background:#11182766}
+.drawer[hidden]{display:none}
+.drawer{position:fixed;z-index:61;top:0;right:0;bottom:0;width:min(480px,100vw);overflow:auto;overscroll-behavior:contain;padding:16px;background:#fff;border-left:1px solid var(--line2);box-shadow:-8px 0 24px #11182740;animation:drawer-in .18s ease-out}
+@keyframes drawer-in{from{transform:translateX(20px);opacity:.5}to{transform:none;opacity:1}}
+.drawer header{display:flex;align-items:center;gap:10px}
+.drawer h2{margin:0;font-size:17px;font-weight:700;color:var(--ink);flex:1;min-width:0}
+.drawer .close{display:grid;place-items:center;min-height:34px;min-width:34px;border:1px solid var(--line2);border-radius:6px;background:#fff;cursor:pointer;color:var(--ink2)}
+.drawer .close:hover{background:var(--info-bg)}
+.drawer .meta{color:var(--muted);margin:2px 0 10px;font-size:13px}
+.drawer .kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.drawer .kv b{font-variant-numeric:tabular-nums}
+.drawer .kv.big b{font-size:16px}
+.drawer h3{margin:14px 0 6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.drawer .mini-table{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.drawer .mini-table th,.drawer .mini-table td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}
+.drawer .mini-table td.money,.drawer .mini-table th.money{text-align:right;white-space:nowrap}
+.drawer .note{margin:8px 0 0;color:var(--muted);font-size:12px}
+.drawer .warnbox{margin:8px 0;padding:9px 10px;border-radius:6px;background:#f7f0d8;color:#6b5410;font-weight:600;font-size:12.5px}
+@media(max-width:900px){.scopes{grid-template-columns:minmax(0,1fr)}.table-wrap{max-height:60vh}}
+</style>
+</head>
+<body>
+<div class="demo">FIXTURE GIẢ LẬM — CHƯA ĐỐI CHIẾU DB · VISUAL PROOF HƯỚNG A · Không phải sổ thật</div>
+<header class="topbar">
+  <a class="brand" href="#">CÔNG NỢ HTH</a>
+  <nav aria-label="Điều hướng chính"><a href="/dashboard-tong-quan-v4/index.html">Nhìn nhanh</a><a href="/dashboard-tong-quan-v3/index.html">Chi tiết</a><a class="active" href="#">Công nợ theo tháng</a><a href="/danh-sach-doi-no/index.html">Đòi nợ</a></nav>
+  <span class="pill">Chỉ xem</span>
+  <time datetime="2026-10-24">Tính đến 24/10/2026</time>
+</header>
+<main class="page">
+  <div class="page-head"><h1>Công nợ theo tháng</h1><span style="color:var(--muted);font-size:13px">bấm ô bất kỳ để xem chi tiết tháng đó</span></div>
+
+  <section class="scopes" aria-label="Hai phạm vi tổng">
+    <div class="scope"><div class="label">Dư nợ còn lại của năm <span id="scope-year-label">2026</span></div><div class="value money" id="scope-year"></div><div class="sub" id="scope-year-sub"></div></div>
+    <div class="scope all"><div class="label">Tổng dư nợ còn lại mọi năm</div><div class="value money" id="scope-all"></div><div class="sub">gồm <span id="scope-old"></span> đ thuộc các năm trước năm đang chọn</div></div>
+  </section>
+
+  <div class="card">
+    <div class="toolbar">
+      <div class="years" role="group" aria-label="Chọn năm">
+        <button id="year-prev" aria-label="Năm trước">‹</button>
+        <span class="cur" id="year-cur">2026</span>
+        <button id="year-next" aria-label="Năm sau">›</button>
+      </div>
+      <label class="find"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="find" type="search" placeholder="Tìm khách" aria-label="Tìm khách"></label>
+      <select id="commodity" aria-label="Lọc mặt hàng"><option value="">Mặt hàng: tất cả</option></select>
+      <button class="gen" id="gen250">⤢ Benchmark 250 khách (số giả, riêng biệt)</button>
+    </div>
+    <div class="legend-bar" aria-hidden="true"><span><span class="grad"></span>đậm = tiền nhiều (lớp phụ)</span><span>số hiển thị ngay trong ô</span><span>ô trống = không phát sinh hoặc đã trả hết</span></div>
+    <div class="table-wrap">
+      <table class="heat" aria-label="Ma trận công nợ còn lại: khách theo 12 tháng của năm đang chọn">
+        <thead><tr id="heat-head">
+          <th class="khach">Khách</th>
+          <th>T1</th><th>T2</th><th>T3</th><th>T4</th><th>T5</th><th>T6</th><th>T7</th><th>T8</th><th>T9</th><th>T10</th><th>T11</th><th>T12</th>
+          <th class="total-head">Năm <span id="th-year">2026</span></th>
+          <th class="all-head">Mọi năm</th>
+        </tr></thead>
+        <tbody id="heat-body"></tbody>
+        <tfoot><tr id="heat-sum">
+          <td class="khach">Tổng cộng</td>
+          <td colspan="12" style="text-align:right;color:var(--muted);font-weight:600">(12 tháng)</td>
+          <td class="total-col money" id="sum-year"></td>
+          <td class="all-col money" id="sum-all"></td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <p class="recon" id="recon" role="status"></p>
+    <p class="rule-note">Tiêu chí hiện hàng: mọi khách còn dư nợ ở <b>bất kỳ năm nào</b> đều luôn hiện (không mất khi đổi năm) — xem năm không phát sinh vẫn thấy khách với cột "Mọi năm". Ô âm hiển thị nguyên giá trị nguồn, không tô heat; ý nghĩa kế toán của ô âm đang chờ xác nhận. Số liệu: fixture giả lập minh họa tình huống nợ năm cũ — chưa đối chiếu sổ thật.</p>
+  </div>
+</main>
+
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
+  <header><h2 id="drawer-title"></h2><button class="close" id="drawer-close" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <p class="meta" id="drawer-meta"></p>
+  <div id="drawer-body"></div>
+</aside>
+
+<script>
+(() => {
+  'use strict';
+  // ---- FIXTURE (giả lập, tự nhất quán) ----
+  // months: 'YYYY-MM' -> outstanding_vnd (đúng nghĩa v_outstanding_month, không phải lũy kế).
+  // detail: phát sinh/thu phân bổ minh họa cho drawer (charges - received = outstanding).
+  const CUSTOMERS = [
+    { id: 1, name: 'Khách A', commodity: 'Sầu riêng', months: { '2026-03': 180000000, '2026-05': 120000000, '2026-06': 80000000 },
+      detail: { '2026-03': { charges: 180000000, received: 0 }, '2026-05': { charges: 180000000, received: 60000000 }, '2026-06': { charges: 80000000, received: 0 } },
+      trips: { '2026-03': [['MAUU1000280', '18/03/2026', 45000000, 3000000], ['MAUU1000283', '24/03/2026', 57000000, 8000000], ['MAUU1000286', '29/03/2026', 42000000, 25000000]],
+               '2026-05': [['MAUU1000295', '09/05/2026', 58000000, 0], ['MAUU1000298', '19/05/2026', 62000000, 16000000], ['MAUU1000301', '26/05/2026', 40000000, 4000000]],
+               '2026-06': [['MAUU1000306', '05/06/2026', 80000000, 0]] } },
+    { id: 2, name: 'Khách B', commodity: 'Sầu riêng', months: { '2026-05': 130000000, '2026-09': 190000000 },
+      detail: { '2026-05': { charges: 130000000, received: 0 }, '2026-09': { charges: 190000000, received: 0 } },
+      trips: { '2026-05': [['MAUU1000297', '14/05/2026', 70000000, 20000000], ['MAUU1000299', '22/05/2026', 40000000, 0]],
+               '2026-09': [['MAUU1000315', '04/09/2026', 95000000, 8000000], ['MAUU1000318', '15/09/2026', 87000000, 0]] } },
+    { id: 11, name: 'Khách R', commodity: 'Sầu riêng', months: { '2025-11': 120000000, '2026-04': 110000000 },
+      detail: { '2025-11': { opening: true }, '2026-04': { charges: 110000000, received: 0 } },
+      trips: { '2026-04': [['MAUU1000290', '11/04/2026', 60000000, 5000000], ['MAUU1000292', '21/04/2026', 45000000, 0]] } },
+    { id: 6, name: 'Khách G', commodity: 'Sầu riêng', months: { '2026-07': 160000000 },
+      detail: { '2026-07': { charges: 160000000, received: 0 } },
+      trips: { '2026-07': [['MAUU1000305', '09/07/2026', 80000000, 0], ['MAUU1000308', '19/07/2026', 80000000, 0]] } },
+    { id: 10, name: 'Khách Q', commodity: 'Sầu riêng', months: { '2025-12': 415000000 },
+      detail: { '2025-12': { opening: true } }, trips: {} },
+    { id: 3, name: 'Khách D', commodity: 'Thanh long', months: { '2026-06': 90000000, '2026-09': 195000000 },
+      detail: { '2026-06': { charges: 90000000, received: 0 }, '2026-09': { charges: 195000000, received: 0 } },
+      trips: { '2026-06': [['MAUU1000302', '08/06/2026', 50000000, 5000000], ['MAUU1000304', '17/06/2026', 35000000, 0]],
+               '2026-09': [['MAUU1000316', '07/09/2026', 100000000, 10000000], ['MAUU1000319', '18/09/2026', 85000000, 0]] } },
+    { id: 5, name: 'Khách E', commodity: 'Thanh long', months: { '2026-09': 150000000, '2026-10': -20000000 },
+      detail: { '2026-09': { charges: 150000000, received: 0 }, '2026-10': { charges: 0, received: 20000000 } },
+      trips: { '2026-09': [['MAUU1000317', '11/09/2026', 80000000, 0], ['MAUU1000320', '23/09/2026', 70000000, 0]] } },
+    { id: 4, name: 'Khách H', commodity: 'Mít', months: { '2026-08': 60000000, '2026-10': 90000000 },
+      detail: { '2026-08': { charges: 60000000, received: 0 }, '2026-10': { charges: 90000000, received: 0 } },
+      trips: { '2026-08': [['MAUU1000312', '06/08/2026', 60000000, 0]], '2026-10': [['MAUU1000321', '03/10/2026', 50000000, 0], ['MAUU1000324', '13/10/2026', 40000000, 0]] } },
+    { id: 7, name: 'Khách I', commodity: 'Mít', months: { '2026-07': 100000000 },
+      detail: { '2026-07': { charges: 100000000, received: 0 } },
+      trips: { '2026-07': [['MAUU1000307', '14/07/2026', 100000000, 0]] } },
+    { id: 12, name: 'Khách S', commodity: 'Mít', months: { '2026-07': 30000000 },
+      detail: { '2026-07': { charges: 30000000, received: 0 } },
+      trips: { '2026-07': [['MAUU1000309', '21/07/2026', 30000000, 0]] } },
+    { id: 8, name: 'Khách N', commodity: 'Rau củ', months: { '2026-10': 150000000 },
+      detail: { '2026-10': { charges: 150000000, received: 0 } },
+      trips: { '2026-10': [['MAUU1000322', '08/10/2026', 80000000, 0], ['MAUU1000323', '12/10/2026', 70000000, 0]] } },
+    { id: 13, name: 'Khách T', commodity: null, months: { '2025-12': 130000000 },
+      detail: { '2025-12': { opening: true } }, trips: {} },
+  ];
+  const YEARS = [2025, 2026, 2027]; // từ data (2025 có số dư đầu) + năm hiện tại 2027 dù chưa phát sinh
+  let year = 2026;
+
+  const fmt = v => `${v.toLocaleString('vi-VN')} đ`;
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const allTotal = c => Object.values(c.months).reduce((a, b) => a + b, 0);
+  const yearTotal = (c, y) => Object.entries(c.months).reduce((a, [m, v]) => a + (Number(m.slice(0, 4)) === y ? v : 0), 0);
+  const oldTotal = (c, y) => allTotal(c) - yearTotal(c, y);
+  const GRAND_ALL = () => customers().reduce((a, c) => a + allTotal(c), 0);
+
+  let generated = [];
+  const customers = () => [...CUSTOMERS, ...generated];
+
+  // ---- Bộ lọc mặt hàng ----
+  const commoditySelect = document.querySelector('#commodity');
+  for (const name of [...new Set(customers().map(c => c.commodity).filter(Boolean))].sort())
+    commoditySelect.add(new Option(`Mặt hàng: ${name}`, name));
+  commoditySelect.add(new Option('Mặt hàng: chưa phân loại', '__none'));
+
+  const monthKey = y => m => `${y}-${String(m).padStart(2, '0')}`;
+  const maxCell = () => Math.max(...customers().flatMap(c => Object.values(c.months).filter(v => v > 0)), 1);
+
+  const heatCell = (c, y, m) => {
+    const v = c.months[monthKey(y)(m)] || 0;
+    if (!v) return `<td class="empty-cell"><span class="cell-btn" tabindex="-1" aria-hidden="true"></span></td>`;
+    if (v < 0) return `<td><button class="cell-btn neg money" data-id="${c.id}" data-month="${monthKey(y)(m)}">−${Math.abs(v).toLocaleString('vi-VN')}</button></td>`;
+    const a = 0.12 + 0.72 * (v / maxCell());
+    const dark = a > 0.55;
+    return `<td><button class="cell-btn money" data-id="${c.id}" data-month="${monthKey(y)(m)}" style="background:#1e4e8c${Math.round(a * 255).toString(16).padStart(2, '0')};color:${dark ? '#fff' : '#1e293b'}">${v.toLocaleString('vi-VN')}</button></td>`;
+  };
+
+  let query = '';
+  const render = () => {
+    document.querySelector('#year-cur').textContent = year;
+    document.querySelector('#th-year').textContent = year;
+    document.querySelector('#scope-year-label').textContent = year;
+    let rows = customers();
+    const cv = commoditySelect.value;
+    if (cv) rows = rows.filter(c => (cv === '__none' ? !c.commodity : c.commodity === cv));
+    if (query) rows = rows.filter(c => (c.name + ' ' + (c.commodity ?? '')).toLocaleLowerCase().includes(query));
+    // Nhóm mặt hàng (BR-03): mỗi khách 1 nhóm; NULL → "Chưa phân loại" cuối
+    const groups = new Map();
+    for (const c of rows) {
+      const k = c.commodity ?? 'zz__none';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+    const ordered = [...groups.entries()].sort((a, b) => b[0] === 'zz__none' ? -1 : a[0] === 'zz__none' ? 1 : b[1].reduce((x, c) => x + allTotal(c), 0) - a[1].reduce((x, c) => x + allTotal(c), 0));
+    const body = document.querySelector('#heat-body');
+    const parts = [];
+    let sumY = 0, sumAll = 0;
+    for (const [key, members] of ordered) {
+      const label = key === 'zz__none' ? 'Chưa phân loại' : key;
+      const gY = members.reduce((a, c) => a + yearTotal(c, year), 0);
+      const gAll = members.reduce((a, c) => a + allTotal(c), 0);
+      sumY += gY; sumAll += gAll;
+      parts.push(`<tr class="group"><th class="glabel">${esc(label)}<span class="n">${members.length} khách</span></th><th class="gspacer" colspan="12"></th><th class="gcol-year money" title="Dư nợ còn lại năm ${year} của nhóm">${gY ? gY.toLocaleString('vi-VN') : '—'}</th><th class="gcol-all money" title="Dư nợ còn lại mọi năm của nhóm">${gAll.toLocaleString('vi-VN')}</th></tr>`);
+      members.sort((a, b) => allTotal(b) - allTotal(a));
+      for (const c of members)
+        parts.push(`<tr><td class="khach">${esc(c.name)}</td>${Array.from({ length: 12 }, (_, i) => heatCell(c, year, i + 1)).join('')}<td class="total-col money">${yearTotal(c, year) ? yearTotal(c, year).toLocaleString('vi-VN') : '—'}</td><td class="all-col money">${allTotal(c).toLocaleString('vi-VN')}</td></tr>`);
+    }
+    body.innerHTML = parts.join('');
+    for (const b of body.querySelectorAll('.cell-btn[data-id]'))
+      b.addEventListener('click', () => openDetail(Number(b.dataset.id), b.dataset.month));
+    document.querySelector('#sum-year').textContent = fmt(sumY);
+    document.querySelector('#sum-all').textContent = fmt(sumAll);
+    // Dải 2 phạm vi
+    document.querySelector('#scope-year').textContent = fmt(sumY);
+    document.querySelector('#scope-year-sub').textContent = `tổng 12 cột tháng của ${year}`;
+    document.querySelector('#scope-all').textContent = fmt(sumAll);
+    document.querySelector('#scope-old').textContent = Math.max(0, sumAll - sumY).toLocaleString('vi-VN');
+    // Đối chiếu nội bộ fixture — tách rõ khỏi benchmark: khi có khách sinh tự động, dải này đổi nghĩa
+    const byMonths = customers().reduce((a, c) => { for (const [m, v] of Object.entries(c.months)) a[m] = (a[m] || 0) + v; return a; }, {});
+    const sumByMonthCols = Object.entries(byMonths).filter(([m]) => Number(m.slice(0, 4)) === year).reduce((a, [, v]) => a + v, 0);
+    const ok1 = sumByMonthCols === sumY, ok2 = sumAll === GRAND_ALL();
+    document.querySelector('#recon').innerHTML = generated.length
+      ? `<b>CHẾ ĐỘ BENCHMARK MẬT ĐỘ</b> — ${generated.length} khách sinh tự động (dư nợ năm ${year}, nhất quán nội bộ: Σ năm = Σ mọi năm của phần sinh) + 12 khách fixture. Không dùng để đối chiếu tài chính. Bấm lại nút benchmark để trở về fixture đối chiếu.`
+      : `Đối chiếu nội bộ (fixture): Σ các ô tháng ${year} = <b>${fmt(sumByMonthCols)}</b> ${ok1 ? '✓ khớp' : '✗ LỆCH'} cột "Năm ${year}" · Σ cột "Mọi năm" = <b>${fmt(sumAll)}</b> ${ok2 ? '✓ khớp' : '✗ LỆCH'} tổng mọi khách. Đây là kiểm tra tự động sẽ thành test Playwright khi nối API thật.`;
+  };
+
+  document.querySelector('#year-prev').addEventListener('click', () => { const i = YEARS.indexOf(year); if (i > 0) { year = YEARS[i - 1]; render(); } });
+  document.querySelector('#year-next').addEventListener('click', () => { const i = YEARS.indexOf(year); if (i < YEARS.length - 1) { year = YEARS[i + 1]; render(); } });
+  document.querySelector('#find').addEventListener('input', e => { query = e.target.value.trim().toLocaleLowerCase(); render(); });
+  commoditySelect.addEventListener('change', render);
+
+  // Sinh 250 khách (chỉ để thử mật độ/sticky/perf render)
+  document.querySelector('#gen250').addEventListener('click', () => {
+    if (generated.length) { generated = []; document.querySelector('#gen250').textContent = '⤢ Benchmark 250 khách (số giả, riêng biệt)'; render(); return; }
+    const coms = ['Sầu riêng', 'Thanh long', 'Mít', 'Rau củ'];
+    const t0 = performance.now();
+    generated = Array.from({ length: 238 }, (_, i) => {
+      const months = {};
+      for (let m = 1; m <= 12; m++) if ((i * 7 + m * 3) % 5 === 0) months[`2026-${String(m).padStart(2, '0')}`] = ((i * 13 + m * 29) % 40 + 5) * 1000000;
+      return { id: 1000 + i, name: `Khách giả ${String(i + 1).padStart(3, '0')}`, commodity: coms[i % 4], months, detail: {}, trips: {} };
+    });
+    render();
+    document.querySelector('#gen250').textContent = `✕ Thoát benchmark (${customers().length} khách · render ${Math.round(performance.now() - t0)}ms)`;
+  });
+
+  // ---- Drawer BR-06: chi tiết khách × tháng ----
+  const drawer = document.querySelector('#drawer'), scrim = document.querySelector('#drawer-scrim');
+  const closeDrawer = () => { drawer.hidden = true; scrim.hidden = true; document.body.classList.remove('drawer-open'); };
+  const openDetail = (id, monthKey) => {
+    const c = customers().find(x => x.id === id);
+    const v = c.months[monthKey] ?? 0;
+    const d = (c.detail || {})[monthKey] || {};
+    const trips = (c.trips || {})[monthKey] || [];
+    document.querySelector('#drawer-title').textContent = c.name;
+    document.querySelector('#drawer-meta').textContent = `Tháng ${Number(monthKey.slice(5, 7))}/${monthKey.slice(0, 4)} · ${c.commodity ?? 'Chưa phân loại'}`;
+    let html = `<div class="kv big"><span>Còn lại tháng này</span><b class="money">${fmt(v)}</b></div>`;
+    if (d.opening) {
+      html += `<div class="warnbox">Tháng số dư đầu (chuyển từ sổ cũ): không có chi tiết theo container — đây là khoản mục lịch sử.</div>`;
+    } else {
+      html += `<div class="kv"><span>Phát sinh trong tháng</span><b class="money">${fmt(d.charges ?? 0)}</b></div>
+        <div class="kv"><span>Thu đã phân bổ vào tháng</span><b class="money">${fmt(d.received ?? 0)}</b></div>`;
+    }
+    if (v < 0) html += `<div class="warnbox">Ô âm (−${fmt(Math.abs(v))}): hiển thị nguyên giá trị nguồn, không tự gán nghĩa "trả trước" — ý nghĩa kế toán đang chờ xác nhận backend.</div>`;
+    if (trips.length) {
+      const tot = trips.reduce((a, t) => a + t[2] + t[3], 0);
+      html += `<h3>Chuyến / container trong tháng</h3><table class="mini-table"><thead><tr><th>Container</th><th>Ngày</th><th class="money">Đơn giá</th><th class="money">Phụ phí</th><th class="money">Thành tiền</th></tr></thead><tbody>
+        ${trips.map(t => `<tr><td>${esc(t[0])}</td><td>${esc(t[1])}</td><td class="money">${t[2].toLocaleString('vi-VN')}</td><td class="money">${t[3] ? t[3].toLocaleString('vi-VN') : '—'}</td><td class="money"><b>${(t[2] + t[3]).toLocaleString('vi-VN')}</b></td></tr>`).join('')}
+        </tbody></table><p class="note">Tổng phát sinh theo chuyến: ${fmt(tot)}${d.charges != null && tot !== d.charges ? ' (lệch fixture minh họa — thật lấy từ get_ledger)' : ''}</p>`;
+    }
+    html += `<p class="note">Thu được phân bổ theo tháng kế toán (nợ cũ trước), không phân bổ theo container — không hiển thị thu theo từng chuyến.</p>`;
+    document.querySelector('#drawer-body').innerHTML = html;
+    drawer.hidden = false; scrim.hidden = false;
+    document.body.classList.add('drawer-open');
+    drawer.querySelector('.close').focus();
+  };
+  drawer.querySelector('.close').addEventListener('click', closeDrawer);
+  scrim.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !drawer.hidden) closeDrawer(); });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
 import v7_identity
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
@@ -87,6 +88,7 @@ ERRORS = {
     "OFFSET_ALREADY_VOID": (409, "Cặp cấn trừ đã hủy."),
     "FUTURE_DATE": (422, "Ngày không được sau hôm nay."),
     "INVALID_DATE": (422, "Ngày không hợp lệ."),
+    "INVALID_YEAR": (422, "Năm không hợp lệ."),
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
@@ -248,6 +250,7 @@ SQL = {
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
+    "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
     "resolve_sheet_conflict": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.resolve_sheet_conflict((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'snapshot_sha256',(p->>'source_row')::bigint,p->>'target_kind',(p->>'target_id')::bigint,p->>'field',p->>'target_value',p->>'sheet_value',p->>'decision') FROM j;",
 }
@@ -682,6 +685,15 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         parts = urlsplit(target)
         if parts.path == "/api/v7/dashboard" and not parts.query:
             function, payload = "get_dashboard", {}
+        elif parts.path == "/api/v7/receivables/matrix":
+            query = parse_qs(parts.query, keep_blank_values=True)
+            values = query.get("year")
+            current_year = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).year
+            if (set(query) != {"year"} or len(values or []) != 1
+                    or not re.fullmatch(r"[0-9]{4}", values[0] if values else "")
+                    or not 2000 <= int(values[0]) <= current_year + 1):
+                bad("INVALID_YEAR", ERRORS["INVALID_YEAR"][1])
+            function, payload = "get_receivables_matrix", {"year": int(values[0])}
         elif parts.path == "/api/v7/sheet-queue":
             query = parse_qs(parts.query, keep_blank_values=True)
             if query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
@@ -731,9 +743,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}}
     if function == "list_offset_sources":
         result = {"sources": result}
-    if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard"):
+    if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):
         result = {**result, "demo": True}
-    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard"):
+    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):
         result = {**result, "real_copy": True}
     return 200, result
 
