@@ -1,6 +1,6 @@
 # V7 — Công nợ theo tháng (ma trận khách × tháng) — hồ sơ thiết kế ĐỀ XUẤT
 
-Trạng thái: **DUYỆT CÓ ĐIỀU KIỂN hướng A** (người dùng, 24/10/2026). Đã duyệt: hướng A, quy ước hiển thị ("Chưa phân loại" cuối, ô âm có dấu không tô heat, hai phạm vi tổng). Có điều kiện: API tổng hợp (xem §8). Chưa duyệt: triển khai Phase 5 — chờ 3 deliverable §8–§10.
+Trạng thái: **DUYỆT CÓ ĐIỀU KIỂN hướng A** (người dùng, 24/10/2026). Đã duyệt: hướng A, quy ước hiển thị ("Chưa phân loại" cuối, ô âm có dấu không tô heat, hai phạm vi tổng). API tổng hợp đã thêm vào SQL/API cục bộ và đã kiểm chứng harness + route test. Chưa duyệt: triển khai Phase 5 frontend.
 
 > Nguồn duyệt: phản hồi người dùng 24/10/2026 — "Approve Design Direction A · Approve quy ước hiển thị · Conditional Backend API · Pending Phase 5".
 Theo yêu cầu redesign "Customer Receivables Dashboard" v0.3 ngày 24/10/2026 của người dùng.
@@ -125,7 +125,7 @@ Chi tiết ô (cell treatment): chữ 12px tabular phải-căn; nền `#1e4e8c` 
 
 ## 8. Deliverable 1 — Hợp đồng API `get_receivables_matrix` (v0.1, chờ review backend)
 
-> **Cập nhật 24/10 (SQL Review xong, 18/18 pass)**: bản SQL draft cuối cùng + bằng chứng đối chiếu/quyền/benchmark chạy thật trong container PostgreSQL 18.6 dùng một lần (`tools/test_pg_v7_matrix.py`, image pin như CI, network none, xả container sau chạy; **không đụng DB vận hành, chưa merge**). Kết quả: `specs/v7-cong-no-theo-thang-matrix-review.json`.
+> **Cập nhật 24/10 (SQL Review xong, 21/21 pass)**: bản SQL draft cuối cùng + bằng chứng đối chiếu/quyền/benchmark chạy thật trong container PostgreSQL 18.6 dùng một lần (`tools/test_pg_v7_matrix.py`, image pin như CI, network none, xả container sau chạy; **không đụng DB vận hành, chưa merge**). Kết quả: `specs/v7-cong-no-theo-thang-matrix-review.json`.
 
 ### 8.1. SQL đã kiểm chứng (nguyên văn, chạy thật 21/21 — `tools/test_pg_v7_matrix.py`)
 
@@ -198,9 +198,11 @@ T1 `total_all` từng khách = `get_ledger.total_outstanding_vnd` (4/4 sách, g�
 
 Seed 250 khách active × ~9 tháng có số dư (2.250 dòng view): **payload 94KB (< 200KB), execution 37–47ms qua 2 lần chạy (< 500ms)**, tổng từng khách benchmark khớp view 0 lệch (B2). Container xả sạch sau đo.
 
-**Route**: `GET /api/v7/receivables/matrix?year=YYYY` (không query khác; year bắt buộc, hợp lệ theo danh sách năm trả về).
+**HTTP đo qua PostgreSQL disposable (26/10/2026):** API process gọi route thật, route gọi `docker exec psql` vào PostgreSQL 18.6 container dùng một lần. Cold request **379.88ms**, HTTP 200, payload 415 bytes; 10 warm requests trung bình **294.92ms** (min 274.04ms, max 309.66ms), tất cả HTTP 200. Không đụng DB vận hành; chưa phải benchmark `hao`.
 
-**Phạm vi khách** (trả lời P0 "khách nợ năm cũ khi chuyển năm"): trả về **mọi khách có `total_all_vnd ≠ 0`** đến thời điểm truy vấn (từ `v_outstanding_month`, chỉ khách/cutover active) — không lọc theo năm đang chọn. Khách không phát sinh gì trong năm chọn vẫn nằm trong response với 12 ô rỗng/0 và `total_year_vnd = "0"`.
+**Route**: `GET /api/v7/receivables/matrix?year=YYYY` (không query khác; year bắt buộc, hợp lệ trong [2000, năm hiện tại + 1]).
+
+**Phạm vi khách** (trả lời P0 "khách nợ năm cũ khi chuyển năm"): trả về **mọi khách có ít nhất một tháng `outstanding_vnd ≠ 0`** đến thời điểm truy vấn (từ `v_outstanding_month`, chỉ khách/cutover active) — không lọc theo năm đang chọn. Khách không phát sinh gì trong năm chọn vẫn nằm trong response với 12 ô rỗng/0 và `total_year_vnd = "0"`.
 
 **Response** (tiền = chuỗi số nguyên VND, tháng key `"1".."12"`):
 
@@ -229,7 +231,7 @@ Seed 250 khách active × ~9 tháng có số dư (2.250 dòng view): **payload 9
 
 **Phân quyền**: theo pattern sẵn có của `get_dashboard`/`list_customers` — hàm đọc `SECURITY DEFINER`, REVOKE SELECT trực tiếp bảng/view khỏi role app/reader (schema đã cấm grant bảng toàn khách). **Lưu ý reviewer**: SECURITY DEFINER không tự động an toàn — hàm mới chỉ được đọc đúng các view/hàm tổng hợp mà app đã được phép thấy qua các route hiện có, không thêm chiều dữ liệu khách mới; sẽ review cùng DBA trên PR. Hiện schema V7 **không dùng RLS** (kiểm soát bằng grant), nên không có nguy cơ bypass RLS; ghi nhận để xác nhận lại khi review.
 
-**Test cases (bắt buộc trước khi merge)**: (1) fixture 250 khách × 12 tháng — payload < ~200KB, thời gian hàm < 500ms trên harness; (2) `total_year + các năm khác = total_all` cho từng khách và tổng toàn bảng; (3) khách chỉ nợ năm cũ: 12 ô = "0", `total_all` ≠ 0; (4) tháng âm truyền nguyên dấu; (5) `year` ngoài `years_available` → 422; (6) so khớp chéo 10 khách ngẫu nhiên với `get_ledger` (Σ months theo năm và total_outstanding_vnd).
+**Test cases (bắt buộc trước khi merge)**: (1) fixture 250 khách × 12 tháng — payload < ~200KB, thời gian hàm < 500ms trên harness; (2) `total_year + các năm khác = total_all` cho từng khách và tổng toàn bảng; (3) khách chỉ nợ năm cũ: 12 ô = "0", `total_all` ≠ 0; (4) tháng âm truyền nguyên dấu; (5) `year` ngoài `years_available` nhưng trong khoảng hợp lệ → 200; năm ngoài khoảng → 422; (6) so khớp chéo 10 khách ngẫu nhiên với `get_ledger` (Σ months theo năm và total_outstanding_vnd).
 
 ## 9. Deliverable 2 — Đối chiếu số liệu (quy tắc + bằng chứng fixture)
 
@@ -259,3 +261,12 @@ Số đo thực tế (Playwright):
 1. **P0 tổng nhóm bị che**: bỏ dòng tổng chạy dài sau cột sticky; tổng nhóm giờ nằm **đúng vị trí 2 cột tổng ghim phải** (ô riêng `gcol-year`/`gcol-all`, sticky, nền đặc) — test đo tọa độ khi cuộn giữa bảng: thẳng hàng cột Năm/Mọi-năm ±2px, luôn thấy được ở 1280 và 1440.
 2. **P0 benchmark lệch**: dải "mọi năm" chuyển thành số **động** (trước hardcode 2,48 tỷ); benchmark 250 khách nay nhất quán — năm 15.945 tỷ ≤ mọi năm 16.610 tỷ = tổng cột; nút đổi tên "Benchmark 250 khách (số giả, riêng biệt)", dải đối chiếu tự chuyển **CHẾ ĐỘ BENCHMARK** ghi rõ không dùng đối chiếu tài chính; thoát benchmark về đúng 2,48 tỷ.
 3. **Nhãn KPI**: "Còn nợ phát sinh 2026" → **"Dư nợ còn lại của năm 2026"**; kèm "Tổng dư nợ còn lại mọi năm".
+
+
+## Phạm vi agent và bằng chứng triển khai
+
+- **ĐÃ CHỐT:** hướng A, `HAVING bool_or(outstanding_vnd <> 0)`, giữ dấu tháng âm, `years_available` chỉ gợi ý; mọi năm hợp lệ trong `[2000, năm hiện tại + 1]` truy vấn được.
+- **ĐÃ TRIỂN KHAI (checkout cục bộ):** `cong-no-web-handoff/tools/v7_backend_functions.sql` thêm `sokhach.get_receivables_matrix`; `web/v7_ledger_api.py` thêm `GET /api/v7/receivables/matrix?year=` và lỗi `INVALID_YEAR`; `tests/test_v7_ledger_api.py` thêm kiểm tra route. Không đổi view, schema hay logic phân bổ.
+- **ĐÃ KIỂM CHỨNG:** `PYTHONIOENCODING=utf-8 py -3.13 cong-no-web-handoff/tools/test_pg_v7_matrix.py` — **21/21 PASS**, benchmark payload 94KB, SQL 54.893ms, container dùng một lần và đã xả; route test 31 test (1 skip có điều kiện). HTTP PostgreSQL disposable đã đo ở §8.4; benchmark `hao` còn mở.
+- **DBA sign-off cần ghi nhận khi merge:** P1–P4 quyền `SECURITY DEFINER` và hiển thị khách có tháng khác 0 dù tổng ròng 0 đã PASS trong harness; chưa chạy DDL/triển khai trên `hao`.
+- **CÒN MỞ:** `npm run check` đã đạt 7/7 cục bộ; còn DBA sign-off độc lập, paste output vào PR, merge backend, rồi mới mở gate Phase 5 frontend.

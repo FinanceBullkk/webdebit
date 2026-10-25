@@ -402,6 +402,25 @@ class LedgerApiTest(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(self.runner.calls[-1][2], "trusted@example.test")
 
+    def test_receivables_matrix_route_year_validation(self):
+        current = api.datetime.now().year
+        for year in (2000, current + 1):
+            self.runner.calls.clear()
+            status, data = api.handle("GET", f"/api/v7/receivables/matrix?year={year}", self.headers, b"", self.runner,
+                                      port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual((status, data["function"]), (200, "get_receivables_matrix"))
+            self.assertEqual(self.runner.calls[-1], ("get_receivables_matrix", {"year": year}, "server"))
+        for query in ("", "year=", "year=1999", f"year={current + 2}", "year=20a6", "year=20260",
+                      "year=2026&year=2027", "year=2026&x=1"):
+            self.runner.calls.clear()
+            with self.assertRaises(api.ApiError) as caught:
+                api.handle("GET", "/api/v7/receivables/matrix?" + query, self.headers, b"", self.runner,
+                           port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual((caught.exception.status, caught.exception.code), (422, "INVALID_YEAR"))
+            self.assertEqual(self.runner.calls, [])
+        self.assertEqual(api.SQL["get_receivables_matrix"],
+                         "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);")
+
     def test_get_and_host_origin(self):
         status, data = api.handle("GET", "/api/v7/customers", self.headers, b"", self.runner,
                                   port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
