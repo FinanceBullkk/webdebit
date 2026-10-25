@@ -55,6 +55,12 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { approved: 1, remaining: 0, complete: true }];
   }
+  if (url === '/api/v7/sheet/resolve') {
+    world.sheetSync.items = world.sheetSync.items.filter(item => item.source_row !== body.source_row);
+    world.sheetSync.conflict_count -= 1;
+    world.version += 1;
+    return [200, { resolved: true, version: world.version }];
+  }
   const event = (kind, before, after) => world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before, after });
   if (url === '/api/v7/trips/info') {
     const trip = world.trips.find(row => row.id === body.trip_id && !row.deleted);
@@ -145,6 +151,14 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.equal(await page.locator('.sheet-detail').count(), 0);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Xem');
+  await page.locator('[data-row="legacy-21"] .sheet-diff').click();
+  await page.locator('.sheet-detail [data-sheet-decision="keep_web"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-row="legacy-21"].sheet-conflict'));
+  assert.equal(world.requests.at(-1).path, '/api/v7/sheet/resolve');
+  assert.equal(world.requests.at(-1).body.field, 'shipper');
+  assert.equal(world.requests.at(-1).body.source_row, 8);
+  assert.equal(world.requests.at(-1).body.target_id, 21);
+  assert.equal(world.requests.at(-1).body.decision, 'keep_web');
   assert.equal(await page.locator('.info-input').count(), 0);
   assert.match(await page.locator('.sheet-approve').innerText(), /Duyệt 1 chuyến mới/);
   await page.locator('.sheet-approve').click();
@@ -157,7 +171,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
-    { sync_state: 'CONFLICT', event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
+    { sync_state: 'CONFLICT', source_row: 8, event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
       destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper'], existing_values: { shipper: 'Xe 1' } },
   ] };
 }));
