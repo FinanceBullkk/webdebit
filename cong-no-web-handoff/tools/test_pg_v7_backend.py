@@ -1050,6 +1050,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(MATRIX_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(MATRIX_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1788,6 +1790,7 @@ def check_roles(pg: Pg) -> None:
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
                        "get_ledger", "list_customers", "get_dashboard", "list_sheet_trip_refs", "record_offset", "void_offset",
+                       "get_receivables_matrix",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
     allowed = ",".join(lit(name) for name in public_commands)
@@ -2539,6 +2542,7 @@ def check_sheet_cross_customer(pg: Pg) -> None:
 
 DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql"
 LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-locked-trip-edit.sql"
+MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
 
 
 def check_trip_review(pg: Pg) -> None:
@@ -2932,6 +2936,9 @@ def check_migration(pg: Pg) -> None:
     sheet = SHEET_MIGRATION.read_text(encoding="utf-8")
     copy.sql(sheet)
     copy.sql(sheet)
+    matrix = MATRIX_MIGRATION.read_text(encoding="utf-8")
+    copy.sql(matrix)
+    copy.sql(matrix)
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
