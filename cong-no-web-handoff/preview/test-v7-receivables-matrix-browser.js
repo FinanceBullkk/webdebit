@@ -48,9 +48,10 @@ test('real matrix page loads API data, validates totals, changes year, filters a
       await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-matrix-1280.png'), fullPage: true });
     }
     await page.locator('#year-next').click();
-    await page.locator('#year-cur').waitFor({ state: 'visible' });
+    await page.waitForFunction(y => document.querySelector('#year-cur').textContent === String(y), currentYear + 1);
     assert.equal(await page.locator('#year-cur').innerText(), String(currentYear + 1));
     await page.locator('#year-prev').click();
+    await page.waitForFunction(y => document.querySelector('#year-cur').textContent === String(y), currentYear);
     await page.locator('#find').fill('Không tồn tại');
     assert.match(await page.locator('#heat-body').innerText(), /Không có khách phù hợp/);
     await page.locator('#find').fill('Khách A');
