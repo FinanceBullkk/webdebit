@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chuyến chờ nhập · Mockup</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.4 "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit}button{min-height:36px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #155da8;outline-offset:2px}
+.top{background:#fff;border-bottom:2px solid #6584a5;padding:14px 24px;display:flex;align-items:center;gap:18px}
+h1{font-size:20px;margin:0}.top p{margin:2px 0 0;color:#49627d}.mock{margin-left:auto;background:#fff0c4;color:#573e00;border:1px solid #c9a950;border-radius:4px;padding:6px 10px;font-weight:700}
+main{max-width:1500px;margin:auto;padding:20px 24px 36px}
+.intro{display:flex;justify-content:space-between;gap:20px;align-items:end}.intro h2{margin:0;font-size:22px}.intro p{margin:5px 0 0;color:#49627d}
+.button{border:1px solid #225e9b;background:#fff;color:#164a80;border-radius:4px;padding:7px 12px}.button.primary{background:#225e9b;color:#fff}.button[disabled]{background:#e6eaf0;border-color:#c2cbd6;color:#526579;cursor:not-allowed}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0}
+.card{background:#fff;border:1px solid #c8d4e1;border-radius:6px;padding:14px}.card strong{display:block;font-size:27px}.card span{color:#49627d}
+.notice{background:#fff7df;border-left:4px solid #b87d00;padding:12px 14px;margin-bottom:14px}
+.panel{background:#fff;border:1px solid #bccddd;border-radius:6px;overflow:hidden}
+.toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid #d8e1ec;flex-wrap:wrap}
+.toolbar strong{font-size:16px}.filters{display:flex;gap:6px;flex-wrap:wrap}.filters button{border:1px solid #9bb5d0;border-radius:4px;background:#fff;color:#174b82;padding:5px 10px}.filters button[aria-pressed=true]{background:#dfeeff;font-weight:700;border-color:#225e9b}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:1120px}caption{text-align:left;padding:10px 14px;color:#49627d}
+th,td{padding:10px 8px;border-top:1px solid #d8e1ec;text-align:left;vertical-align:middle}th{background:#eaf1fa;white-space:nowrap}
+td small{display:block;color:#526579}td input,td select{width:100%;min-height:34px;border:1px solid #9eb4ca;border-radius:3px;padding:5px;background:#fff}
+td.money{width:140px}td.customer{width:220px}.status{display:inline-block;border-radius:12px;padding:3px 8px;font-weight:700;white-space:nowrap}
+.ready{background:#def3e4;color:#15542f}.needs{background:#fff0c4;color:#684500}.hold{background:#ece8f8;color:#49387d}.duplicate{background:#fce4e2;color:#8a2724}
+.actions{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px;border-top:1px solid #d8e1ec;flex-wrap:wrap}.actions p{margin:0;color:#49627d}
+details{background:#fff;border:1px solid #bccddd;border-radius:6px;margin-top:18px;padding:13px 16px}summary{cursor:pointer;font-weight:700;font-size:16px}details dl{display:grid;grid-template-columns:190px 1fr;gap:6px 12px;margin-bottom:4px}dd{margin:0}
+@media(max-width:750px){.top{padding:12px}.intro{align-items:start;flex-direction:column}main{padding:14px 10px}.cards{grid-template-columns:repeat(2,1fr)}.card strong{font-size:22px}details dl{grid-template-columns:1fr}dt{font-weight:700}}
+</style>
+</head>
+<body>
+<header class="top"><div><h1>Chuyến từ Sheet</h1><p>Chuẩn bị nhập vào sổ công nợ V7</p></div><span class="mock">MOCKUP · DỮ LIỆU GIẢ</span></header>
+<main>
+  <div class="intro"><div><h2>Chuyến chờ nhập</h2><p>Nguồn CHAU_HAO · lần đọc 24/10/2026 09:15 · snapshot 8c3e…42f1</p></div><button class="button" disabled>Đọc lại Sheet</button></div>
+  <div class="cards" aria-label="Tổng quan hàng chờ">
+    <div class="card"><strong>1</strong><span>Đủ điều kiện xem trước</span></div>
+    <div class="card"><strong>2</strong><span>Cần bổ sung khách hoặc giá</span></div>
+    <div class="card"><strong>2</strong><span>Trùng mốc hoặc trùng chuyến</span></div>
+    <div class="card"><strong>176</strong><span>Chưa có trong mốc · tạm giữ</span></div>
+  </div>
+  <div class="notice"><strong>Chưa ghi công nợ.</strong> Dòng trong mốc không cộng lại. Dòng thiếu khách, thiếu giá, trùng hoặc đang tạm giữ không được gửi đi.</div>
+  <section class="panel" aria-labelledby="queue-title">
+    <div class="toolbar"><strong id="queue-title">Danh sách chuyến</strong><div class="filters" aria-label="Bộ lọc trạng thái"><button aria-pressed="true" data-filter="all">Tất cả</button><button aria-pressed="false" data-filter="needs">Cần bổ sung</button><button aria-pressed="false" data-filter="hold">Chờ soát</button><button aria-pressed="false" data-filter="ready">Đủ điều kiện</button></div></div>
+    <div class="scroll"><table><caption>Ví dụ 6 dòng giả, thể hiện cách hệ thống phân loại</caption><thead><tr><th scope="col">Chọn</th><th scope="col">Nguồn</th><th scope="col">Container / ngày</th><th scope="col">Khách trên Hao</th><th scope="col">Giá nhập tay (₫)</th><th scope="col">Trạng thái</th><th scope="col">Lý do</th></tr></thead><tbody>
+      <tr data-state="ready"><td><input type="checkbox" aria-label="Chọn chuyến giả ABCU1234567" checked></td><td>Sheet dòng 214</td><td>ABCU1234567<small>21/10/2026 · WH</small></td><td class="customer">KHÁCH MẪU A</td><td class="money"><input aria-label="Giá chuyến giả ABCU1234567" inputmode="numeric" value="1.500.000"></td><td><span class="status ready">Đủ điều kiện</span></td><td>Chuyến mới đã soát</td></tr>
+      <tr data-state="needs"><td><input type="checkbox" aria-label="Chọn chuyến giả BXYZ7654321" disabled></td><td>Sheet dòng 215</td><td>BXYZ7654321<small>22/10/2026 · WH</small></td><td class="customer">KHÁCH MẪU B</td><td class="money"><input aria-label="Giá chuyến giả BXYZ7654321" inputmode="numeric" placeholder="Nhập giá"></td><td><span class="status needs">Thiếu giá</span></td><td>Chưa tính tiền</td></tr>
+      <tr data-state="needs"><td><input type="checkbox" aria-label="Chọn chuyến giả CDEF1122334" disabled></td><td>Sheet dòng 216</td><td>CDEF1122334<small>22/10/2026 · SITC</small></td><td class="customer"><select aria-label="Khách Hao cho chuyến giả CDEF1122334"><option>Chọn khách Hao</option><option>KHÁCH MẪU C</option></select></td><td class="money"><input aria-label="Giá chuyến giả CDEF1122334" inputmode="numeric" value="1.200.000"></td><td><span class="status needs">Thiếu khách</span></td><td>Tên Sheet chưa khớp</td></tr>
+      <tr data-state="hold"><td><input type="checkbox" aria-label="Chọn chuyến giả DFGH9988776" disabled></td><td>Sheet dòng 217</td><td>DFGH9988776<small>20/10/2026 · WH</small></td><td class="customer">KHÁCH MẪU D</td><td class="money">—</td><td><span class="status duplicate">Có trong mốc</span></td><td>Đã thuộc số dư đầu</td></tr>
+      <tr data-state="hold"><td><input type="checkbox" aria-label="Chọn chuyến giả EFGH4433221" disabled></td><td>Sheet dòng 218</td><td>EFGH4433221<small>23/10/2026 · WH</small></td><td class="customer">KHÁCH MẪU E</td><td class="money">—</td><td><span class="status hold">Tạm giữ</span></td><td>Chưa có trong mốc · chờ bạn soát</td></tr>
+      <tr data-state="hold"><td><input type="checkbox" aria-label="Chọn chuyến giả FGHJ6677889" disabled></td><td>Sheet dòng 219</td><td>FGHJ6677889<small>23/10/2026 · WH</small></td><td class="customer">KHÁCH MẪU F</td><td class="money">—</td><td><span class="status duplicate">Trùng chuyến</span></td><td>Cùng container/ngày đã có trên web</td></tr>
+    </tbody></table></div>
+    <div class="actions"><p>Đã chọn <strong>1</strong> chuyến · giá dự kiến <strong>1.500.000 ₫</strong></p><button class="button primary" disabled>Ghi vào công nợ · mockup</button></div>
+  </section>
+  <details><summary>Xem trước trước khi ghi</summary><dl><dt>Khách</dt><dd>KHÁCH MẪU A</dd><dt>Chuyến</dt><dd>ABCU1234567 · 21/10/2026 · WH</dd><dt>Giá</dt><dd>1.500.000 ₫</dd><dt>Nguồn</dt><dd>CHAU_HAO, dòng 214 · snapshot 8c3e…42f1</dd><dt>Kết quả dự kiến</dt><dd>Thêm một chuyến vào sổ khách; web tính lại công nợ sau khi ghi thành công.</dd></dl></details>
+</main>
+<script>
+document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-filter]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+  document.querySelectorAll('tbody tr').forEach(row => { row.hidden = button.dataset.filter !== 'all' && row.dataset.state !== button.dataset.filter; });
+}));
+</script>
+</body>
+</html>

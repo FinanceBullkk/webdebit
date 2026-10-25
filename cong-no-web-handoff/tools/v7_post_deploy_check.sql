@@ -4,12 +4,12 @@
 \if :{?db_v7}
 \else
 \echo ERROR missing db_v7
-\quit 3
+SELECT 1/0;
 \endif
 \if :{?loader_role}
 \else
 \echo ERROR missing loader_role
-\quit 3
+SELECT 1/0;
 \endif
 \if :{?expect_customers}
 \else
@@ -35,7 +35,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()',
+      'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'list_sheet_trip_refs()',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
       'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
@@ -92,13 +92,17 @@ BEGIN
         RAISE EXCEPTION 'required membership missing';
     END IF;
     RAISE NOTICE 'OK login_roles';
+    IF to_regprocedure('sokhach.resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)') IS NOT NULL THEN
+        expected := array_append(expected,
+            'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)');
+    END IF;
     SELECT array_agg(s ORDER BY s) INTO expected FROM unnest(expected) s;
     SELECT array_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')'
       ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')')
       INTO actual FROM pg_proc p WHERE p.pronamespace='sokhach'::regnamespace
       AND has_function_privilege('v7_app',p.oid,'EXECUTE');
     IF actual IS DISTINCT FROM expected THEN RAISE EXCEPTION 'function allowlist mismatch'; END IF;
-    RAISE NOTICE 'OK app_execute_allowlist_14';
+    RAISE NOTICE 'OK app_execute_allowlist';
     FOREACH r IN ARRAY ARRAY['sokhach_app','sokhach_reader','v7_app'] LOOP
         FOR x IN SELECT oid,relkind FROM pg_class WHERE relnamespace='sokhach'::regnamespace
             AND relkind IN ('r','p','v','m','f','S') LOOP

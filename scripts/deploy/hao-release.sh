@@ -44,6 +44,7 @@ case $action in
     if find "$new.tmp" \( -type l -o -name '..' \) | grep -q .; then
       rm -rf "$new.tmp"; echo "gói có liên kết, từ chối" >&2; exit 4
     fi
+    chmod -R o+rX "$new.tmp"
     printf '%s\n' "$sha" > "$new.tmp/.release-sha"
     rm -rf "$new"; mv "$new.tmp" "$new"
 
