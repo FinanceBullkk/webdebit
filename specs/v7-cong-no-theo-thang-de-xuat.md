@@ -266,7 +266,8 @@ Số đo thực tế (Playwright):
 ## Phạm vi agent và bằng chứng triển khai
 
 - **ĐÃ CHỐT:** hướng A, `HAVING bool_or(outstanding_vnd <> 0)`, giữ dấu tháng âm, `years_available` chỉ gợi ý; mọi năm hợp lệ trong `[2000, năm hiện tại + 1]` truy vấn được.
-- **ĐÃ TRIỂN KHAI (checkout cục bộ):** `cong-no-web-handoff/tools/v7_backend_functions.sql` thêm `sokhach.get_receivables_matrix`; `web/v7_ledger_api.py` thêm `GET /api/v7/receivables/matrix?year=` và lỗi `INVALID_YEAR`; `tests/test_v7_ledger_api.py` thêm kiểm tra route. Không đổi view, schema hay logic phân bổ.
+- **ĐÃ TRIỂN KHAI (PR #93, commit `0fd32fa`):** `cong-no-web-handoff/tools/v7_backend_functions.sql` và migration thêm `sokhach.get_receivables_matrix`; `web/v7_ledger_api.py` thêm `GET /api/v7/receivables/matrix?year=` và lỗi `INVALID_YEAR`; `tests/test_v7_ledger_api.py` thêm kiểm tra route. Không đổi view, schema hay logic phân bổ.
 - **ĐÃ KIỂM CHỨNG:** `PYTHONIOENCODING=utf-8 py -3.13 cong-no-web-handoff/tools/test_pg_v7_matrix.py` — **21/21 PASS**, benchmark payload 94KB, SQL 54.893ms, container dùng một lần và đã xả; route test 31 test (1 skip có điều kiện). HTTP PostgreSQL disposable đã đo ở §8.4; benchmark `hao` còn mở.
+- **CI trên commit `0fd32fa`:** 11/11 job PASS, gồm `npm run check` trên Ubuntu/Windows và harness PostgreSQL. Bằng chứng 21/21 cùng phép đo HTTP đã đăng trong PR #93.
 - **DBA sign-off cần ghi nhận khi merge:** P1–P4 quyền `SECURITY DEFINER` và hiển thị khách có tháng khác 0 dù tổng ròng 0 đã PASS trong harness; chưa chạy DDL/triển khai trên `hao`.
-- **CÒN MỞ:** `npm run check` đã đạt 7/7 cục bộ; còn DBA sign-off độc lập, paste output vào PR, merge backend, rồi mới mở gate Phase 5 frontend.
+- **CÒN MỞ:** owner sign-off rõ hai điểm, merge backend, rồi mới mở gate Phase 5 frontend.
