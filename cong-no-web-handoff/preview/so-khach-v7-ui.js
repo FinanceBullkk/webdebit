@@ -21,6 +21,8 @@
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
+  const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[field] || field);
+  const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination']);
   const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
@@ -509,10 +511,7 @@
       if (retry) retry.hidden = !api.hasPending();
     }
     const api = live.create({ customerId, onSnapshot: renderSnapshot, onNotice: showNotice });
-    root.addEventListener('click', event => {
-      const button = event.target.closest('.sheet-diff');
-      if (!button) return;
-      event.stopImmediatePropagation();
+    const openSheetDetail = button => {
       const trip = snapshot.sheet_sync.items[Number(button.dataset.index)];
       const tableRow = button.closest('tr');
       if (tableRow.nextElementSibling?.classList.contains('sheet-detail')) {
@@ -521,13 +520,24 @@
         button.setAttribute('aria-expanded', 'false');
         return;
       }
-      const sheetSource = trip.existing_kind === 'legacy' ? `Shipper: ${trip.shipper || '–'} · Hãng tàu: ${trip.carrier || '–'}` : trip.carrier;
-      const conflictActions = (trip.changed_fields || []).filter(field => ['carrier', 'shipper', 'origin', 'destination'].includes(field)).map(field =>
-        `<span class="sheet-choice"><b>${escape(field === 'carrier' ? 'Hãng tàu' : field === 'shipper' ? 'Shipper' : field === 'origin' ? 'Điểm đi' : 'Điểm đến')}</b> <button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button> <button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></span>`).join('');
-      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td><td>${escape(sheetSource)}</td><td></td><td>${escape(dateText(trip.event_date))}</td><td>${escape(trip.origin)}</td><td>${escape(trip.destination)}</td><td></td><td></td><td></td><td colspan="4"><div class="sheet-choices">${conflictActions}</div></td></tr>`;
+      const sheetCells = ['carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field => {
+        const value = field === 'event_date' ? dateText(trip.event_date) : trip[field] || '–';
+        const changed = resolvableSheetFields.has(field) && (trip.changed_fields || []).includes(field);
+        const actions = changed
+          ? `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`
+          : '';
+        return `<td class="${changed ? 'sheet-value-conflict' : ''}">${escape(value)}${changed ? `<small>Sheet · ${escape(sheetFieldLabel(field))}</small>${actions}` : ''}</td>`;
+      }).join('');
+      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td>${sheetCells}<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
+    };
+    root.addEventListener('click', event => {
+      const button = event.target.closest('.sheet-diff');
+      if (!button) return;
+      event.stopImmediatePropagation();
+      openSheetDetail(button);
     });
     root.addEventListener('click', async event => {
       const action = event.target.closest('[data-sheet-decision]');
@@ -537,6 +547,7 @@
       const index = Number(row?.querySelector('.sheet-diff')?.dataset.index);
       const trip = snapshot.sheet_sync.items[index];
       if (!trip || action.disabled) return;
+      const rowKey = `${trip.existing_kind}-${trip.existing_id}`;
       action.disabled = true;
       try {
         const response = await fetch('/api/v7/sheet/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -547,6 +558,8 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'Không xử lý được dòng đối chiếu.');
         await api.read();
+        const nextButton = root.querySelector(`[data-row="${CSS.escape(rowKey)}"] .sheet-diff`);
+        if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
       } catch (error) { showNotice(error.message); action.disabled = false; }
     });

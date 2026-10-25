@@ -56,8 +56,10 @@ function apply(world, url, body) {
     return [200, { approved: 1, remaining: 0, complete: true }];
   }
   if (url === '/api/v7/sheet/resolve') {
-    world.sheetSync.items = world.sheetSync.items.filter(item => item.source_row !== body.source_row);
-    world.sheetSync.conflict_count -= 1;
+    const item = world.sheetSync.items.find(row => row.source_row === body.source_row || row.existing_id === body.target_id);
+    if (!item || !item.changed_fields.includes(body.field)) return [404, { message: 'Không còn trường lệch.' }];
+    item.changed_fields = item.changed_fields.filter(field => field !== body.field);
+    if (!item.changed_fields.length) world.sheetSync = { ...world.sheetSync, items: world.sheetSync.items.filter(row => row !== item), conflict_count: Math.max(0, world.sheetSync.conflict_count - 1) };
     world.version += 1;
     return [200, { resolved: true, version: world.version }];
   }
@@ -146,7 +148,12 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
-  assert.deepEqual(await page.locator('.sheet-detail td').allInnerTexts(), ['↳ Sheet', 'OLDU0000001', 'Shipper: Xe 2 · Hãng tàu: WH', '', '02/09/2026', 'Nơi C', 'Nơi D', '', '', '', 'Shipper Giữ web Lấy Sheet']);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Xe 2/);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Giữ web/);
+  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Lấy Sheet/);
+  await page.locator('.sheet-choice-actions button[data-sheet-decision="use_sheet"]').first().click();
+  await page.waitForFunction(() => document.querySelector('.sheet-detail')?.textContent.includes('Điểm đi'));
+  assert.equal(await page.locator('.sheet-detail').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"] .sheet-diff').innerText(), 'Đóng');
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.equal(await page.locator('.sheet-detail').count(), 0);
@@ -155,7 +162,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   await page.locator('.sheet-detail [data-sheet-decision="keep_web"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-row="legacy-21"].sheet-conflict'));
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/resolve');
-  assert.equal(world.requests.at(-1).body.field, 'shipper');
+  assert.equal(world.requests.at(-1).body.field, 'origin');
   assert.equal(world.requests.at(-1).body.source_row, 8);
   assert.equal(world.requests.at(-1).body.target_id, 21);
   assert.equal(world.requests.at(-1).body.decision, 'keep_web');
@@ -172,7 +179,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
     { sync_state: 'CONFLICT', source_row: 8, event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
-      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper'], existing_values: { shipper: 'Xe 1' } },
+      destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper', 'origin'], existing_values: { shipper: 'Xe 1', origin: 'Nơi Cũ' } },
   ] };
 }));
 

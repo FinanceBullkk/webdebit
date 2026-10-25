@@ -18,6 +18,11 @@ def _container(value: Any) -> str:
     return "".join(str(value or "").upper().split())
 
 
+def _source_row(value: Any) -> int | None:
+    match = re.fullmatch(r"sheet:[0-9a-f]{64}:(\d+)", str(value or ""))
+    return int(match.group(1)) if match else None
+
+
 def load_snapshot(path: str | Path) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -52,7 +57,6 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
         if isinstance(customer, dict) and type(customer.get("id")) is int and isinstance(customer.get("name"), str):
             names.setdefault(_name(customer["name"]), []).append(customer)
     aliases = snapshot.get("customer_aliases") or {}
-    baseline_containers = {_container(ref.get("container_norm")) for ref in baseline["refs"]}
     items = []
     for source in snapshot["rows"]:
         if not isinstance(source, dict):
@@ -72,17 +76,14 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             review_status = status
             reasons.append(status)
         else:
-            container = _container(source.get("container"))
-            baseline_hit = container in baseline_containers
-            if baseline_hit:
-                review_status = "BASELINE_REVIEW"
-                reasons.append("BASELINE_MATCH")
-            elif match is None:
+            if match is None:
                 review_status = "NEEDS_CUSTOMER"
                 reasons.append("CUSTOMER_MAPPING")
             else:
                 review_status = "NEEDS_PRICE"
                 reasons.extend(("PRICE_REQUIRED", "NEW_TRIP_REVIEW"))
+            # Baseline was reconciled once at cutover. It remains provenance, not
+            # a per-row realtime gate; source-row matching below handles changes.
         item.update({"customer_id": match["id"] if match else None,
                      "review_status": review_status, "review_reasons": reasons})
         items.append(item)
@@ -99,7 +100,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         existing.append({"kind": "trip", "id": trip.get("id"), "container": trip.get("container"),
                          "event_date": trip.get("event_date"), "carrier": trip.get("carrier"), "shipper": trip.get("shipper"),
                          "origin": trip.get("origin"), "destination": trip.get("destination"),
-                         "booking": trip.get("booking")})
+                         "booking": trip.get("booking"), "source_row": _source_row(trip.get("source_ref"))})
     for legacy in ledger.get("legacy_rows", []):
         if legacy.get("kind") != "trip":
             continue
@@ -126,14 +127,15 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
     for row in queue["items"]:
         if row.get("customer_id") != ledger.get("customer_id"):
             continue
-        if row.get("review_status") not in ("BASELINE_REVIEW", "NEEDS_PRICE"):
+        if row.get("review_status") not in ("NEEDS_PRICE",):
             continue
         container = _container(row.get("container"))
         date = dt.date.fromisoformat(row["event_date"])
         booking = _container(row.get("booking"))
-        matches = []
+        direct_matches = [old for old in existing if old.get("source_row") == row.get("source_row")]
+        matches = direct_matches if len(direct_matches) == 1 else []
         same_container = []
-        for old in existing:
+        for old in matches or existing:
             if _container(old.get("container")) != container:
                 continue
             same_container.append(old)
@@ -170,9 +172,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 continue
             state = "CONFLICT"
             reason = "DIFFERENT_FIELDS"
-        elif matches or same_container or row["review_status"] == "BASELINE_REVIEW":
+        elif matches or same_container:
             state = "CONFLICT"
-            reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED" if same_container else "BASELINE_MATCH_UNRESOLVED"
+            reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
             changed = []
         else:
             state = "NEW"

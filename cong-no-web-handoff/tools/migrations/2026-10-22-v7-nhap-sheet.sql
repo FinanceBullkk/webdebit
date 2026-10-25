@@ -766,6 +766,7 @@ BEGIN
     INTO v_months,v_total FROM visible_months;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'status',t.status,'booking',t.booking,
+        'source_ref',t.source_ref,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
             (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
