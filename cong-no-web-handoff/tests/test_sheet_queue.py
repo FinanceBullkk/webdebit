@@ -61,6 +61,24 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(result["items"][1]["changed_fields"], ["carrier", "booking"])
         self.assertEqual((result["new_count"], result["conflict_count"]), (1, 1))
 
+    def test_kept_web_field_stays_resolved_until_either_value_changes(self):
+        row = {"source_row": 4, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-01",
+               "carrier": "COSCO", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
+        queue = {"snapshot_sha256": "a" * 64, "items": [row]}
+        ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "ABC1", "event_date": "2026-10-01",
+            "carrier": "WH", "origin": "A", "destination": "B"}], "legacy_rows": [], "events": []}
+        self.assertEqual(project_customer(queue, ledger)["items"][0]["changed_fields"], ["carrier"])
+        ledger["events"] = [{"kind": "sheet_conflict_resolved", "after": {"source_row": 4,
+            "target": {"kind": "trip", "id": 9}, "field": "carrier", "target_value": "WH", "sheet_value": "COSCO"}}]
+        self.assertEqual(project_customer(queue, ledger)["items"], [])
+        queue["snapshot_sha256"] = "b" * 64
+        self.assertEqual(project_customer(queue, ledger)["items"], [])
+        row["carrier"] = "MAERSK"
+        self.assertEqual(project_customer(queue, ledger)["conflict_count"], 1)
+        row["carrier"] = "COSCO"
+        ledger["trips"][0]["carrier"] = "ONE"
+        self.assertEqual(project_customer(queue, ledger)["conflict_count"], 1)
+
     def test_container_reuse_is_reviewed_not_auto_approved(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7,
             "container": "SAME1", "event_date": "2026-10-24", "carrier": "WH", "origin": "A",

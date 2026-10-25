@@ -112,6 +112,16 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                          "shipper": current.get("shipper") or display.get("shipper"),
                          "origin": current.get("origin") or display.get("from"),
                          "destination": current.get("destination") or display.get("to")})
+    resolved = {}
+    for event in ledger.get("events", []):
+        if event.get("kind") != "sheet_conflict_resolved":
+            continue
+        after = event.get("after") or {}
+        target = after.get("target") or {}
+        field = after.get("field")
+        if field and target.get("kind") in ("trip", "legacy") and type(target.get("id")) is int:
+            resolved[(after.get("source_row"), target["kind"], target["id"], field)] = (
+                after.get("target_value"), after.get("sheet_value"))
     visible = []
     for row in queue["items"]:
         if row.get("customer_id") != ledger.get("customer_id"):
@@ -152,6 +162,10 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 changed.append("shipper_unavailable")
             if old.get("booking") and booking != _container(old["booking"]):
                 changed.append("booking")
+            changed = [field for field in changed if not (
+                (key := (row.get("source_row"), old["kind"], old["id"], field)) in resolved
+                and _name(old.get(field)) == _name(resolved[key][0])
+                and _name(row.get(field)) == _name(resolved[key][1]))]
             if not changed:
                 continue
             state = "CONFLICT"
@@ -168,7 +182,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: (old.get("shipper") or old.get("carrier")) if field in ("shipper", "shipper_unavailable") else old.get(field)
+                        "existing_values": {field: (old.get("shipper") or old.get("carrier"))
+                                            if field == "shipper" else old.get(field)
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
