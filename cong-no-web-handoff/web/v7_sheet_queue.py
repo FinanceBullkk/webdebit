@@ -185,7 +185,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: (old.get("shipper") or old.get("carrier"))
+                        "existing_values": {field: (old.get("shipper") or
+                                                    (old.get("carrier") if old["kind"] == "legacy" else None))
                                             if field == "shipper" else old.get(field)
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,

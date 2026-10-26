@@ -72,6 +72,18 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["existing_id"], 9)
         self.assertEqual(result["items"][0]["changed_fields"], ["carrier"])
 
+    def test_trip_shipper_conflict_keeps_null_web_value(self):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{
+            "source_row": 8, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-24",
+            "carrier": "COSCO", "shipper": "KHOI PHONG", "origin": "A", "destination": "B",
+            "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "ABC1", "source_ref": f"sheet:{'a' * 64}:8",
+            "event_date": "2026-10-24", "carrier": "COSCO", "shipper": None, "origin": "A", "destination": "B"}],
+            "legacy_rows": []}
+        conflict = project_customer(queue, ledger)["items"][0]
+        self.assertEqual(conflict["changed_fields"], ["shipper"])
+        self.assertEqual(conflict["existing_values"], {"shipper": None})
+
     def test_invalid_rows_remain_visible(self):
         snapshot = {"sha256": "b" * 64, "row_count": 1, "rows": [{"source_row": 2, "status": "INVALID"}]}
         queue = build_queue(snapshot, [], BASELINE)

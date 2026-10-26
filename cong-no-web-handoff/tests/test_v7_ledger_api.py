@@ -53,6 +53,13 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual(runner.calls[-1][1]["sheet_value"], "COSCO")
         self.assertEqual(runner.calls[-1][1]["target_value"], "WH")
         self.assertEqual(runner.calls[-1][2], "fake-actor")
+        shipper = body | {"field": "shipper", "decision": "use_sheet"}
+        projection["items"][0].update(changed_fields=["shipper"], shipper="KHOI PHONG",
+                                      existing_values={"shipper": None})
+        with patch.object(api, "sheet_projection", return_value=projection), \
+                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+            api.resolve_sheet_conflict(json.dumps(shipper).encode(), runner, "fake-actor")
+        self.assertIsNone(runner.calls[-1][1]["target_value"])
         for change in ({"sheet_value": "FORGED"}, {"field": "unit_price_vnd"}, {"target_id": 10},
                        {"snapshot_sha256": "b" * 64}, {"expected_version": 2}):
             runner.calls.clear()
