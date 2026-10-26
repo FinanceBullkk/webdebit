@@ -9,9 +9,10 @@ on:
 permissions:
   contents: read
 
-# Repo public từ 21/10/2026 nên chạy trên máy của GitHub (miễn phí, sạch mỗi lượt).
-# Không dùng runner tự host: với repo public, PR từ fork sẽ chạy mã lạ trên máy đó,
-# mà `hao` là máy của DB thật. Lượt cũ của cùng PR bị hủy khi có commit mới.
+# Repo chuyển PRIVATE 26/10/2026: hosted minutes đã cạn → chuyển sang self-hosted.
+# - job Linux chạy trên runner `hao` (systemd gh-runner-webdebit, luôn online)
+# - job Windows (matrix) chạy trên runner `anhhao-pc`
+# Vẫn giữ concurrency + path-filter như cũ.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -20,7 +21,7 @@ jobs:
   # Lọc theo file đổi bằng git diff (không dùng action ngoài). Push lên main và chạy tay luôn chạy đủ.
   # PR chỉ đổi tài liệu bỏ qua các job Postgres; ba job sổ cũ trước V7 chỉ chạy khi đổi file của chúng.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 5
     outputs:
       pg_v7: ${{ steps.f.outputs.pg_v7 }}
@@ -45,7 +46,7 @@ jobs:
           echo "pg_v7=$v7" >> "$GITHUB_OUTPUT"; echo "pg_old=$old" >> "$GITHUB_OUTPUT"
 
   python:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -66,7 +67,7 @@ jobs:
   postgres-ledger:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +93,7 @@ jobs:
   postgres-v7-backend:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +106,7 @@ jobs:
   postgres-v7-p0:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +119,7 @@ jobs:
   postgres-v7-grants-direct:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +136,7 @@ jobs:
   postgres-m1-history-queries:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 10
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -158,7 +159,7 @@ jobs:
   pg18-versioned-approval-fixture:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -181,7 +182,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [[self-hosted, linux], [self-hosted, windows]]
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
