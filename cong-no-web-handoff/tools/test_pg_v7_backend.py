@@ -1052,6 +1052,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(SHEET_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(MATRIX_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(MATRIX_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -2543,6 +2545,7 @@ def check_sheet_cross_customer(pg: Pg) -> None:
 DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-dashboard.sql"
 LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-locked-trip-edit.sql"
 MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
+DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
 
 
 def check_trip_review(pg: Pg) -> None:
