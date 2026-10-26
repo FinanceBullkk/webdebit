@@ -12,6 +12,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .book-head{position:sticky;top:0;z-index:40;height:70px;display:flex;align-items:center;gap:24px;padding:8px 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
 #demo-banner:not([hidden]){position:sticky;top:0;z-index:60}
 #customer-picker{padding:8px 14px;background:#fff;border-bottom:1px solid #9eb4ca}
+.dashboard-link{display:inline-flex;align-items:center;min-height:38px;margin-right:8px;color:#174b82;font-weight:700;white-space:nowrap}
 #customer-picker label{font-weight:700}#customer-search{min-width:260px;min-height:32px;margin-left:8px;font:inherit}
 #customer-list{max-height:240px;overflow-y:auto;margin-top:6px;max-width:min(600px,90vw)}
 #customer-list:empty{display:none}
@@ -162,7 +163,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 </head>
 <body>
 <p id="demo-banner" hidden role="status" style="margin:0;padding:12px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:18px">Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật</p>
-<div id="customer-picker"><label for="customer-search">Tìm khách</label><input id="customer-search" type="search" autocomplete="off" aria-controls="customer-list" placeholder="Gõ tên khách hoặc mặt hàng"><span id="customer-count" role="status"></span><nav id="customer-list" aria-label="Danh sách khách tìm được"></nav></div>
+<div id="customer-picker"><a class="dashboard-link" href="/dashboard-v7.html">← Tổng quan</a><label for="customer-search">Tìm khách</label><input id="customer-search" type="search" autocomplete="off" aria-controls="customer-list" placeholder="Gõ tên khách hoặc mặt hàng"><span id="customer-count" role="status"></span><nav id="customer-list" aria-label="Danh sách khách tìm được"></nav></div>
 <main id="app"></main>
 <script src="so-khach-v7-model.js"></script>
 <script src="so-khach-v7-api.js"></script>
