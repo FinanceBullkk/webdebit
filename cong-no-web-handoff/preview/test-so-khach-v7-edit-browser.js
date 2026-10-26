@@ -144,13 +144,15 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world }) => {
+test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
-  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Xe 2/);
-  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Giữ web/);
-  assert.match(await page.locator('.sheet-detail td').nth(3).innerText(), /Lấy Sheet/);
+  assert.match(await page.locator('.sheet-detail').innerText(), /Xe 2/);
+  assert.match(await page.locator('.sheet-detail').innerText(), /Web: Xe 1/);
+  assert.match(await page.locator('.sheet-detail').innerText(), /Giữ web/);
+  assert.match(await page.locator('.sheet-detail').innerText(), /Lấy Sheet/);
+  await shot('doi-chieu-sheet');
   await page.locator('.sheet-choice-actions button[data-sheet-decision="use_sheet"]').first().click();
   await page.waitForFunction(() => document.querySelector('.sheet-detail')?.textContent.includes('Điểm đi'));
   assert.equal(await page.locator('.sheet-detail').count(), 1);
