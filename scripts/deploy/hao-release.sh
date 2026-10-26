@@ -58,8 +58,9 @@ case $action in
       exit 5
     fi
     echo "đã chạy $sha (trước đó: $(basename "${prev:-none}"))"
-    # Giữ $KEEP release mới nhất và release đang chạy.
+    # ponytail: release cũ thuộc root giữ lại; admin dọn riêng nếu cần giới hạn dung lượng.
     ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
+      [[ $(stat -c %u "${old%/}") == "$UID" ]] || continue
       [[ $(readlink -f "$old") == $(readlink -f "$CURRENT_LINK") ]] || rm -rf "$old"
     done
     ;;
