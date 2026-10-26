@@ -55,9 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: requirements*.txt
       - name: Unit and HTTP fixture tests (no database)
         working-directory: cong-no-web-handoff
         run: >-
@@ -183,24 +180,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [[self-hosted, webdebit-linux], [self-hosted, windows]]
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-          cache: npm
       - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: requirements*.txt
       - run: npm ci --ignore-scripts
       # Trình duyệt Playwright tải ~3 phút trên Windows (đo 22/10/2026); khóa cache theo phiên bản trong package-lock.
-      - uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/.playwright-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - name: Install Playwright Chromium
         timeout-minutes: 10
         run: npx playwright install chromium
