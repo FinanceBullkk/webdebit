@@ -2998,6 +2998,21 @@ def check_migration(pg: Pg) -> None:
         require(got == expect, f"no-container legacy trip handling wrong for skipped={skipped}")
     require(copy.value("SELECT count(*) FROM sokhach.baseline_trip_ref") == "1", "no-container trip got a reference")
     check_dedup(copy)
+    # Reproduce deployment order: the locked-trip migration replaced the earlier shipper reader.
+    shipper = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-shipper.sql").read_text(encoding="utf-8")
+    ledger_shipper = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-ledger-shipper-read.sql").read_text(encoding="utf-8")
+    reader = "pg_get_functiondef('sokhach.get_ledger(bigint)'::regprocedure)"
+    balances = "SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
+    balances += "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s"
+    before_repair = copy.value(balances)
+    copy.sql(shipper)
+    copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
+    copy.true(f"position('shipper' in {reader})=0", "locked-trip migration did not reproduce missing shipper")
+    copy.sql(ledger_shipper)
+    copy.sql(ledger_shipper)  # read-only function repair is idempotent
+    copy.true(f"position('shipper' in {reader})>0", "ledger reader still omits shipper")
+    require(copy.value(balances) == before_repair,
+            "shipper reader repair changed fake balances")
 
 
 def main() -> int:
