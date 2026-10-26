@@ -134,8 +134,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         booking = _container(row.get("booking"))
         direct_matches = [old for old in existing if old.get("source_row") == row.get("source_row")]
         matches = direct_matches if len(direct_matches) == 1 else []
+        candidates = [] if matches else existing
         same_container = []
-        for old in matches or existing:
+        for old in candidates:
             if _container(old.get("container")) != container:
                 continue
             same_container.append(old)

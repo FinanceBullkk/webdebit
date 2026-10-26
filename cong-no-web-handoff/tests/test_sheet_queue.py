@@ -2,8 +2,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
+import v7_sheet_queue as sheet_queue
 from v7_sheet_queue import (
     build_queue,
     load_snapshot,
@@ -46,6 +48,29 @@ class SheetQueueTests(unittest.TestCase):
         result = project_customer(queue, ledger)
         self.assertEqual(result["items"][0]["existing_id"], 9)
         self.assertIn("event_date", result["items"][0]["changed_fields"])
+
+    def test_direct_source_match_does_not_grow_matches_while_scanning(self):
+        row = {"source_row": 8, "customer_id": 7, "container": "ABC1", "event_date": "2026-10-24",
+               "carrier": "COSCO", "origin": "A", "destination": "B", "review_status": "NEEDS_PRICE"}
+        queue = {"snapshot_sha256": "b" * 64, "items": [row]}
+        ledger = {"customer_id": 7, "trips": [{"id": 9, "container": "ABC1", "source_ref": f"sheet:{'a' * 64}:8",
+            "event_date": "2026-10-24", "carrier": "WH", "origin": "A", "destination": "B"}], "legacy_rows": []}
+        original_container = sheet_queue._container
+        calls = 0
+
+        def bounded_container(value):
+            nonlocal calls
+            calls += 1
+            if calls > 4:
+                raise AssertionError("container matcher looped")
+            return original_container(value)
+
+        with patch.object(sheet_queue, "_container", side_effect=bounded_container):
+            result = project_customer(queue, ledger)
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(result["items"][0]["existing_id"], 9)
+        self.assertEqual(result["items"][0]["changed_fields"], ["carrier"])
 
     def test_invalid_rows_remain_visible(self):
         snapshot = {"sha256": "b" * 64, "row_count": 1, "rows": [{"source_row": 2, "status": "INVALID"}]}
