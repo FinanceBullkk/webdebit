@@ -24,7 +24,7 @@ concurrency:
 jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     environment: hao
     env:
@@ -41,11 +41,7 @@ jobs:
           [[ $SHA =~ ^[0-9a-f]{40}$ ]]
           git merge-base --is-ancestor "$SHA" origin/main
 
-      - uses: tailscale/github-action@v3
-        with:
-          oauth-client-id: ${{ secrets.HAO_TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.HAO_TS_OAUTH_SECRET }}
-          tags: tag:ci
+      # Runner self-hosted đã nằm sẵn trong tailnet — không cần join
 
       # Khóa lưu dạng base64 MỘT DÒNG (secret HAO_SSH_KEY_B64) để không hỏng vì xuống dòng/CRLF khi dán.
       - name: Chuẩn bị SSH
