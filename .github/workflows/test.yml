@@ -9,9 +9,8 @@ on:
 permissions:
   contents: read
 
-# Repo chuyển PRIVATE 26/10/2026: hosted minutes đã cạn → chuyển sang self-hosted.
-# - job Linux chạy trên runner `hao` (systemd gh-runner-webdebit, luôn online)
-# - job Windows (matrix) chạy trên runner `anhhao-pc`
+# CI chạy trên GitHub-hosted runners; production `hao` không chạy test.
+# Linux/DB dùng ubuntu-latest; Windows compatibility dùng windows-latest.
 # Vẫn giữ concurrency + path-filter như cũ.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -21,7 +20,7 @@ jobs:
   # Lọc theo file đổi bằng git diff (không dùng action ngoài). Push lên main và chạy tay luôn chạy đủ.
   # PR chỉ đổi tài liệu bỏ qua các job Postgres; ba job sổ cũ trước V7 chỉ chạy khi đổi file của chúng.
   changes:
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       pg_v7: ${{ steps.f.outputs.pg_v7 }}
@@ -46,7 +45,7 @@ jobs:
           echo "pg_v7=$v7" >> "$GITHUB_OUTPUT"; echo "pg_old=$old" >> "$GITHUB_OUTPUT"
 
   python:
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -55,6 +54,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
       - name: Unit and HTTP fixture tests (no database)
         working-directory: cong-no-web-handoff
         run: >-
@@ -64,7 +66,7 @@ jobs:
   postgres-ledger:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +92,7 @@ jobs:
   postgres-v7-backend:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -106,7 +108,7 @@ jobs:
   postgres-v7-p0:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +121,7 @@ jobs:
   postgres-v7-grants-direct:
     needs: changes
     if: needs.changes.outputs.pg_v7 == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -136,7 +138,7 @@ jobs:
   postgres-m1-history-queries:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -159,7 +161,7 @@ jobs:
   pg18-versioned-approval-fixture:
     needs: changes
     if: needs.changes.outputs.pg_old == 'true'
-    runs-on: [self-hosted, webdebit-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -182,13 +184,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [[self-hosted, webdebit-linux], [self-hosted, windows]]
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
+          cache: npm
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.playwright-browsers
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci --ignore-scripts
       # Trình duyệt Playwright tải ~3 phút trên Windows (đo 22/10/2026); khóa cache theo phiên bản trong package-lock.
       - name: Install Playwright Chromium
