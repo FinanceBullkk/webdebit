@@ -24,7 +24,7 @@ concurrency:
 jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted, webdebit-linux]
     timeout-minutes: 15
     environment: hao
     env:
