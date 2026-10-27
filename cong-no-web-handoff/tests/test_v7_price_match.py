@@ -63,6 +63,33 @@ class PriceMatchTest(unittest.TestCase):
         rows = pm.match([sheet()], {"Khach gia A": book(legacy=[legacy])})
         self.assertEqual((rows[0]["status"], rows[0]["target_kind"], rows[0]["target_id"]), ("READY", "legacy", 21))
 
+    def test_alias_names_find_the_book_unless_shared(self):
+        named = book([trip()]) | {"_display_name": "Khach gia A tren Sheet", "_aliases": ["KHACH A CU"]}
+        rows = pm.match([sheet(tab="KHACH A CU")], {"Khach V7": named})
+        self.assertEqual((rows[0]["status"], rows[0]["customer_basis"]), ("READY", "alias"))
+        other = book([trip(21)]) | {"_aliases": ["KHACH A CU"]}
+        self.assertEqual(status([sheet(tab="KHACH A CU")], {"Khach V7": named, "Khach khac": other}), ["NO_CUSTOMER"])
+        self.assertEqual(status([sheet(tab="Khach V7")], {"Khach V7": named, "Khach khac": other}), ["READY"])
+
+    def test_undated_sheet_row_uses_container_only_when_unique(self):
+        rows = pm.match([sheet(date=None)], {"Khach gia A": book([trip(date="2026-10-03")])})
+        self.assertEqual((rows[0]["status"], rows[0]["match_basis"]), ("READY", "container_only"))
+        self.assertEqual(status([sheet(date=None)], {"Khach gia A": book([trip(), trip(12, date="2026-07-01")])}),
+                         ["AMBIGUOUS"])
+        # A dated Sheet row never falls back to container alone.
+        self.assertEqual(status([sheet(date="2026-01-01")], {"Khach gia A": book([trip()])}), ["NOT_FOUND"])
+
+    def test_original_book_row_compares_charged_total_not_fee(self):
+        legacy = {"id": 21, "kind": "trip", "month": "2026-10-01", "current": {
+            "container": "FAKEU0000001", "event_date": "2026-10-03", "unit_price_vnd": "50000000",
+            "other_fee_vnd": None, "counted_vnd": "49500000", "month": "2026-10-01", "deleted": False}}
+        discounted = sheet(fee=-500000) | {"sheet_total_vnd": 49500000}
+        self.assertEqual(status([discounted], {"Khach gia A": book(legacy=[legacy])}), ["PRICE_UNCHANGED"])
+        self.assertEqual(status([discounted | {"sheet_total_vnd": 49000000}], {"Khach gia A": book(legacy=[legacy])}),
+                         ["CONFLICT"])
+        # Web trips still compare the fee itself.
+        self.assertEqual(status([discounted], {"Khach gia A": book([trip(price="50000000")])}), ["CONFLICT"])
+
     def test_cli_reads_xlsx_and_writes_outside_repo_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -8,8 +8,11 @@ Trước khi làm hàng chờ "Ghi N giá", đo trên dữ liệu thật bao nhi
 
 ## Khóa ghép
 
-- Tab khách **không có cột booking**, nên khóa là container + ngày, so trong cùng khách (tên tab = tên khách web, chỉ chuẩn hóa khoảng trắng).
-- Ngày khớp đúng trước (`exact_date`). Không có thì xét lệch tối đa 3 ngày (`near_date`), giống ngưỡng JOIN-01. Báo cáo ghi rõ dòng nào ghép theo cách nào.
+- Tab khách **không có cột booking**, nên khóa là container + ngày, so trong cùng khách.
+- Khách: tên tab khớp tên sổ web (chỉ chuẩn hóa khoảng trắng). Nếu không khớp thì xét tên hiển thị theo Sheet và tên phụ (`display_name`, `aliases` của `/api/v7/customers`). Tên phụ trùng ở hai sổ thì bỏ, không đoán. Cột `customer_basis` ghi `name` hoặc `alias`.
+- Ngày khớp đúng trước (`exact_date`). Không có thì xét lệch tối đa 3 ngày (`near_date`), giống ngưỡng JOIN-01.
+- Dòng Sheet **không có ngày** (chủ yếu lịch sử cũ): ghép theo container trong cùng khách (`container_only`), chỉ khi container đó có đúng một dòng web. Dòng Sheet có ngày không bao giờ rơi về cách này.
+- Báo cáo ghi rõ dòng nào ghép theo cách nào.
 - Không dùng số dòng Sheet làm khóa.
 - Không xét chuyến web đã xóa hoặc đã loại (`rejected`).
 
@@ -19,7 +22,7 @@ Trước khi làm hàng chờ "Ghi N giá", đo trên dữ liệu thật bao nhi
 | --- | --- |
 | `READY` | Đúng 1 dòng web, web chưa có giá, tháng mở |
 | `MONTH_LOCKED` | Như `READY` nhưng tháng đang khóa (24/10: cột giá chỉ đọc) |
-| `PRICE_UNCHANGED` | Giá và phụ phí đã giống (phụ phí trống = 0 khi có giá, theo `V7-BE`) |
+| `PRICE_UNCHANGED` | Đơn giá giống; chuyến web: phụ phí giống (trống = 0 khi có giá, theo `V7-BE`); dòng sổ gốc: tổng tính tiền (`counted_vnd`) bằng ô TOTAL của Sheet, vì sổ gốc không lưu riêng phụ phí như giảm trừ âm |
 | `CONFLICT` | Web đã có giá khác Sheet |
 | `PENDING_REVIEW` | Chuyến web đang CHỜ KIỂM |
 | `AMBIGUOUS` | Khớp nhiều dòng web, hoặc nhiều dòng Sheet cùng trỏ một dòng web |

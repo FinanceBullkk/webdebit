@@ -33,8 +33,8 @@ LABELS = {"READY": "Ghi được (web chưa có giá)", "PRICE_UNCHANGED": "Giá
           "NOT_FOUND": "Không tìm thấy trên web", "NO_CUSTOMER": "Không có khách trên web",
           "SHEET_NO_PRICE": "Sheet chưa có giá", "NO_CONTAINER": "Dòng không container"}
 FIELDS = ["customer_tab", "source_row", "debt_month", "container", "date", "sheet_unit_price_vnd",
-          "sheet_other_fee_vnd", "status", "match_basis", "target_kind", "target_id",
-          "web_unit_price_vnd", "web_other_fee_vnd"]
+          "sheet_other_fee_vnd", "sheet_total_vnd", "customer_basis", "status", "match_basis", "target_kind",
+          "target_id", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd"]
 
 
 def container_key(value) -> str:
@@ -65,7 +65,7 @@ def sheet_rows(xlsx: Path) -> list[dict]:
             rows.append({"customer_tab": tab, "source_row": record["row"], "debt_month": record["month"],
                          "container": container_key(record.get("container")), "date": record.get("date"),
                          "sheet_unit_price_vnd": details.get("unit_price"),
-                         "sheet_other_fee_vnd": details.get("fee")})
+                         "sheet_other_fee_vnd": details.get("fee"), "sheet_total_vnd": record.get("amount")})
     return rows
 
 
@@ -84,7 +84,7 @@ def targets(ledger: dict) -> list[dict]:
         out.append({"kind": "trip", "id": trip.get("id"), "container": container_key(trip.get("container")),
                     "date": iso(trip.get("event_date")), "price": money(trip.get("unit_price_vnd")),
                     "fee": money(trip.get("other_fee_vnd")), "locked": locked(trip.get("month")),
-                    "pending": trip.get("status") == "pending_review"})
+                    "total": None, "pending": trip.get("status") == "pending_review"})
     for row in ledger.get("legacy_rows", []):
         current = row.get("current") or {}
         if row.get("kind") != "trip" or current.get("deleted"):
@@ -92,23 +92,45 @@ def targets(ledger: dict) -> list[dict]:
         out.append({"kind": "legacy", "id": row.get("id"), "container": container_key(current.get("container")),
                     "date": iso(current.get("event_date")), "price": money(current.get("unit_price_vnd")),
                     "fee": money(current.get("other_fee_vnd")), "locked": locked(current.get("month") or row.get("month")),
-                    "pending": False})
+                    "total": money(current.get("counted_vnd")), "pending": False})
     return [target for target in out if target["container"]]
 
 
-def same_fee(sheet_fee, web_fee) -> bool:
+def unchanged(row: dict, target: dict) -> bool:
+    if target["price"] != row["sheet_unit_price_vnd"]:
+        return False
+    if target["kind"] == "legacy":
+        # Original-book rows keep the Sheet TOTAL (counted_vnd); fee columns such as negative
+        # discounts are not stored separately, so the charged total is what must agree.
+        return target["total"] is not None and target["total"] == row["sheet_total_vnd"]
     # V7-BE: with a known price a blank fee counts as 0, so blank and 0 are the same charge.
-    return (sheet_fee or 0) == (web_fee or 0)
+    return (row["sheet_other_fee_vnd"] or 0) == (target["fee"] or 0)
+
+
+def customer_pools(ledgers: dict[str, dict]) -> tuple[dict, dict]:
+    """Ledger name first, then Sheet display name and aliases; a name shared by two books is dropped."""
+    primary = {rec.name(key): key for key in ledgers}
+    extra: dict[str, set] = {}
+    for key, ledger in ledgers.items():
+        for alias in [ledger.get("_display_name"), *(ledger.get("_aliases") or [])]:
+            if isinstance(alias, str) and alias.strip() and rec.name(alias) not in primary:
+                extra.setdefault(rec.name(alias), set()).add(key)
+    by_alias = {alias: next(iter(keys)) for alias, keys in extra.items() if len(keys) == 1}
+    return primary, by_alias
 
 
 def match(rows: list[dict], ledgers: dict[str, dict]) -> list[dict]:
-    pools = {rec.name(key): targets(ledger) for key, ledger in ledgers.items()}
+    pools = {key: targets(ledger) for key, ledger in ledgers.items()}
+    primary, by_alias = customer_pools(ledgers)
     out = []
     for row in rows:
-        result = {**row, "status": None, "match_basis": "", "target_kind": "", "target_id": "",
-                  "web_unit_price_vnd": None, "web_other_fee_vnd": None}
+        result = {**row, "status": None, "customer_basis": "", "match_basis": "", "target_kind": "",
+                  "target_id": "", "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
         out.append(result)
-        pool = pools.get(rec.name(row["customer_tab"]) if str(row["customer_tab"]).strip() else "")
+        tab = rec.name(row["customer_tab"]) if str(row["customer_tab"]).strip() else ""
+        key = primary.get(tab) or by_alias.get(tab)
+        result["customer_basis"] = "" if key is None else "name" if tab in primary else "alias"
+        pool = pools.get(key)
         sheet_date = iso(row["date"])
         if not row["container"]:
             result["status"] = "NO_CONTAINER"
@@ -122,6 +144,11 @@ def match(rows: list[dict], ledgers: dict[str, dict]) -> list[dict]:
         if not found and sheet_date:
             found = [t for t in same if t["date"] and abs((t["date"] - sheet_date).days) <= DATE_WINDOW_DAYS]
             result["match_basis"] = "near_date" if found else ""
+        if not found and not sheet_date:
+            # Undated Sheet rows (mostly old history): container alone, only within this customer;
+            # several rows with that container stay AMBIGUOUS below.
+            found = same
+            result["match_basis"] = "container_only" if found else ""
         if not found:
             result["status"] = "NOT_FOUND"
             continue
@@ -130,10 +157,10 @@ def match(rows: list[dict], ledgers: dict[str, dict]) -> list[dict]:
             continue
         target = found[0]
         result.update(target_kind=target["kind"], target_id=target["id"],
-                      web_unit_price_vnd=target["price"], web_other_fee_vnd=target["fee"])
+                      web_unit_price_vnd=target["price"], web_other_fee_vnd=target["fee"], web_total_vnd=target["total"])
         if row["sheet_unit_price_vnd"] is None:
             result["status"] = "SHEET_NO_PRICE"   # blank stays NULL; nothing to write
-        elif target["price"] == row["sheet_unit_price_vnd"] and same_fee(row["sheet_other_fee_vnd"], target["fee"]):
+        elif unchanged(row, target):
             result["status"] = "PRICE_UNCHANGED"
         elif target["pending"]:
             result["status"] = "PENDING_REVIEW"
@@ -182,7 +209,8 @@ def read_ledger_api(value: str, serve_hosts=()) -> tuple[dict, dict]:
         key = rec.name(row.get("name"))
         if key in ledgers:
             raise rec.InputError("duplicate API customer")
-        ledgers[key] = get(f"/api/v7/ledger?customer={row['id']}")
+        ledgers[key] = {**get(f"/api/v7/ledger?customer={row['id']}"),
+                        "_display_name": row.get("display_name"), "_aliases": row.get("aliases") or []}
     return ledgers, hashes
 
 
@@ -224,6 +252,7 @@ def main(argv=None) -> int:
         return 2
     counts = Counter(r["status"] for r in results)
     basis = Counter(r["match_basis"] for r in results if r["match_basis"])
+    basis.update(f"customer_{r['customer_basis']}" for r in results if r["customer_basis"] == "alias")
     out.mkdir(parents=True)
     rec.write_csv(out / "price_match_rows.csv", FIELDS, results)
     summary = {"counts": {s: counts[s] for s in STATUSES}, "match_basis": dict(basis), "rows": len(results),
