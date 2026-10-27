@@ -109,6 +109,37 @@ class LedgerApiTest(unittest.TestCase):
                 api.resolve_sheet_conflict(json.dumps(body | change).encode(), runner, "fake-actor")
             self.assertFalse(any(call[0] == "resolve_sheet_conflict" for call in runner.calls))
 
+    def test_sheet_date_and_booking_conflicts_only_keep_web(self):
+        class Runner:
+            def __init__(self):
+                self.calls = []
+            def run(self, function, payload, actor):
+                self.calls.append((function, payload, actor))
+                if function == "get_ledger":
+                    return {"customer_id": 7, "version": 3, "status": "active"}
+                return {"version": 4}
+        runner = Runner()
+        body = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64,
+                "source_row": 8, "target_kind": "trip", "target_id": 9, "field": "event_date",
+                "decision": "keep_web", "idempotency_key": "fake-date"}
+        projection = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 8,
+            "sync_state": "CONFLICT", "existing_kind": "trip", "existing_id": 9,
+            "changed_fields": ["event_date", "booking"], "event_date": "2026-10-20", "booking": None,
+            "existing_values": {"event_date": "2026-10-18", "booking": "BK-OLD"}}]}
+        with patch.object(api, "sheet_projection", return_value=projection), \
+                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+            api.resolve_sheet_conflict(json.dumps(body).encode(), runner, "fake-actor")
+            self.assertEqual((runner.calls[-1][1]["sheet_value"], runner.calls[-1][1]["target_value"]),
+                             ("2026-10-20", "2026-10-18"))
+            api.resolve_sheet_conflict(json.dumps(body | {"field": "booking"}).encode(), runner, "fake-actor")
+            self.assertEqual((runner.calls[-1][1]["sheet_value"], runner.calls[-1][1]["target_value"]), ("", "BK-OLD"))
+            for change in ({"decision": "use_sheet"}, {"field": "booking", "decision": "use_sheet"},
+                           {"field": "booking", "target_kind": "legacy"}):
+                runner.calls.clear()
+                with self.subTest(change=change), self.assertRaises(api.ApiError):
+                    api.resolve_sheet_conflict(json.dumps(body | change).encode(), runner, "fake-actor")
+                self.assertFalse(any(call[0] == "resolve_sheet_conflict" for call in runner.calls))
+
     def test_nhap_sheet_routes_and_validation(self):
         routes = [
             ("/api/v7/trips/info", "edit_trip_info", {"trip_id": 7, "field": "container", "value": "FAKE"}),

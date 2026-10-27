@@ -21,8 +21,8 @@
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
-  const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Điểm đi', destination: 'Điểm đến' }[field] || field);
-  const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination']);
+  const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Điểm đi', destination: 'Điểm đến', booking: 'Booking' }[field] || field);
+  const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination', 'event_date', 'booking']);
   const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
@@ -520,13 +520,14 @@
         button.setAttribute('aria-expanded', 'false');
         return;
       }
-      const sheetFields = ['carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field => {
+      const sheetFields = ['carrier', 'shipper', 'event_date', 'origin', 'destination', 'booking'].map(field => {
         const value = field === 'event_date' ? dateText(trip.event_date) : trip[field] || '–';
         const changed = resolvableSheetFields.has(field) && (trip.changed_fields || []).includes(field);
-        const webValue = trip.existing_values?.[field] || '–';
-        const actions = changed
-          ? `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`
-          : '';
+        const webValue = field === 'event_date' ? dateText(trip.existing_values?.[field]) : trip.existing_values?.[field] || '–';
+        // BOOKING-EDIT-01: booking đã ghi giữ nguyên, chỉ ghi nhận đã xem.
+        const actions = !changed ? '' : field === 'booking'
+          ? `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="booking">Giữ booking đã ghi</button></div>`
+          : `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`;
         return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
       const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div></div></td></tr>`;
@@ -549,6 +550,19 @@
       const trip = snapshot.sheet_sync.items[index];
       if (!trip || action.disabled) return;
       const rowKey = `${trip.existing_kind}-${trip.existing_id}`;
+      if (action.dataset.sheetField === 'event_date' && action.dataset.sheetDecision === 'use_sheet') {
+        // Lấy ngày Sheet = sửa ô ngày như gõ tay: hỏi khi sang tháng khác, tháng khóa thì không sửa được.
+        const dateCell = root.querySelector(`td.info-edit[data-kind="${CSS.escape(trip.existing_kind)}"][data-id="${CSS.escape(String(trip.existing_id))}"][data-field="event_date"]`);
+        if (!dateCell) { showNotice('Tháng đang khóa. Mở khóa tháng rồi lấy ngày từ Sheet.'); return; }
+        detail.remove();
+        const diffButton = row.querySelector('.sheet-diff');
+        if (diffButton) { diffButton.textContent = 'Xem'; diffButton.setAttribute('aria-expanded', 'false'); }
+        openInfoEdit(dateCell);
+        const input = dateCell.querySelector('input');
+        input.value = dateText(trip.event_date);
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        return;
+      }
       action.disabled = true;
       try {
         const response = await fetch('/api/v7/sheet/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },

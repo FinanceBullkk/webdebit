@@ -84,6 +84,14 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(conflict["changed_fields"], ["shipper"])
         self.assertEqual(conflict["existing_values"], {"shipper": None})
 
+    def test_later_years_stay_in_queue_and_older_rows_are_counted(self):
+        rows = [{"source_row": n, "container": f"Y{n}", "event_date": date, "status": "READY", "customer_name": "Khách A"}
+                for n, date in ((2, "2025-12-31"), (3, "2026-12-31"), (4, "2027-01-02"), (5, "2030-06-01"))]
+        queue = build_queue({"sha256": "a" * 64, "row_count": 4, "rows": rows},
+                            [{"id": 7, "name": "KHÁCH A", "status": "active"}], BASELINE)
+        self.assertEqual([item["source_row"] for item in queue["items"]], [3, 4, 5])
+        self.assertEqual(queue["skipped_out_of_scope"], 1)
+
     def test_invalid_rows_remain_visible(self):
         snapshot = {"sha256": "b" * 64, "row_count": 1, "rows": [{"source_row": 2, "status": "INVALID"}]}
         queue = build_queue(snapshot, [], BASELINE)
