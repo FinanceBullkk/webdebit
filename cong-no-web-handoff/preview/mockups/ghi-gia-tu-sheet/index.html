@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghi giá từ Sheet · mockup</title>
+<!-- DỮ LIỆU GIẢ. Mockup cho specs/v7-price-queue.md, CHỜ DUYỆT. Dựa trên khung sổ khách gọn (SO-GON-01).
+     Chạy trong tab, không gọi API, không lưu gì. Thanh trạng thái phía trên là ghi chú cho người duyệt, không thuộc màn hình. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #155da8;outline-offset:2px}
+.review{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:1280px;margin:0 auto;padding:8px 10px;background:#ffe08a;color:#452600}
+.review strong{margin-right:6px}.review button{min-height:30px;border:1px solid #b08a2a;border-radius:4px;background:#fff8dc;color:#452600;padding:0 10px}
+.review button[aria-pressed=true]{background:#452600;color:#fff}
+.frame{width:1280px;margin:0 auto;background:#eef3f8}
+.book-head{height:64px;display:flex;align-items:center;gap:16px;padding:6px 12px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:18px;font-weight:700}
+.head-btn{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65}
+.head-btn.primary{background:#1e4e8c;border-color:#1e4e8c;color:#fff;font-weight:700}
+.total{margin-left:auto;display:flex;flex-direction:column;text-align:right}.total span{color:#3e5871;font-size:13px}.total strong{font-size:22px;color:#123f79}
+.strip{display:flex;align-items:center;gap:12px;padding:8px 12px;background:#fff;border-bottom:1px solid #c9d6e3;font-size:15px}
+.strip .link{border:0;background:none;color:#1d4ed8;text-decoration:underline;padding:0;min-height:32px}
+.panel{margin:8px 12px;padding:12px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:15px}
+.panel.confirm{border-left:4px solid #1e4e8c}.panel.ok{border-left:4px solid #15803d;background:#f1faf3}.panel.err{border-left:4px solid #b91c1c;background:#fff4f4}
+.panel p{margin:0 0 10px}.panel .actions{display:flex;gap:10px}
+.panel ul{list-style:none;margin:0;padding:0}.panel li{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid #e3eaf2}
+.panel li:first-child{border-top:0}.panel li .what{flex:1}.panel li small{display:block;color:#475d73;font-size:13px}
+.ledger{width:1256px;margin:8px 12px 24px;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 6px;font-size:14px;height:40px;overflow-wrap:anywhere}
+.columns th{background:#eaf1fa;text-align:left;font-size:13px;line-height:1.15}.columns .pay{background:#dfeeff}
+.month th{height:40px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.month.locked th{background:#5f6f80}.month em{float:right;font-style:normal;font-weight:400;font-size:13px}
+.num{text-align:right;white-space:nowrap}.pay{background:#f2f8ff}
+.missing{background:#ffddb0;color:#72410a;font-weight:700}
+.from-sheet td{background:#fff6d6}.from-sheet .sheet{color:#6b4a00;font-style:italic}.from-sheet .sheet small{display:block;font-size:11px;font-style:normal}
+.saved td{background:#e2f5e8}
+.conflict td{background:#fff1f1}
+.locked-row td{color:#475d73;background:#f1f3f6}
+.subtotal td{background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+</style>
+</head>
+<body>
+<div class="review" role="group" aria-label="Trạng thái mockup (ghi chú cho người duyệt)">
+  <strong>MOCKUP · DỮ LIỆU GIẢ ·</strong>
+  <button data-state="ready" aria-pressed="true">1. Có giá chờ ghi</button>
+  <button data-state="confirm">2. Khung xác nhận</button>
+  <button data-state="done">3. Đã ghi</button>
+  <button data-state="review">4. Cần xem</button>
+  <button data-state="empty">5. Không có giá chờ</button>
+  <button data-state="error">6. Lỗi khi ghi</button>
+</div>
+<div class="frame" id="app"></div>
+<script>
+'use strict';
+const fmt = n => n === null ? '' : n.toLocaleString('vi-VN');
+// Sổ giả: tháng 9 khóa, tháng 10 mở. sheet = giá Sheet chờ ghi; kind = loại trên hàng chờ.
+const months = [
+  { label: 'THÁNG 9/2026', locked: true, prior: 9000000, received: 0, rows: [
+    { c: 'DEMU0900006', d: '12/09/2026', price: 11000000, fee: null },
+    { c: 'DEMU0900007', d: '25/09/2026', price: null, fee: null, sheet: [12000000, null], kind: 'locked' } ] },
+  { label: 'THÁNG 10/2026', locked: false, prior: 20000000, received: 10000000, rows: [
+    { c: 'DEMU1000001', d: '03/10/2026', price: 12500000, fee: null, pay: ['15/10/2026', 'THU TIỀN', 10000000] },
+    { c: 'DEMU1000002', d: '08/10/2026', price: null, fee: null, sheet: [12500000, 300000], kind: 'ready' },
+    { c: 'DEMU1000003', d: '10/10/2026', price: null, fee: null, sheet: [13000000, null], kind: 'ready' },
+    { c: 'DEMU1000004', d: '14/10/2026', price: null, fee: null, sheet: [12500000, null], kind: 'ready' },
+    { c: 'DEMU1000005', d: '18/10/2026', price: null, fee: null },
+    { c: 'DEMU1000006', d: '20/10/2026', price: 12000000, fee: null, sheet: [12500000, null], kind: 'conflict' },
+    { c: 'DEMU1000008', d: '21/10/2026', price: null, fee: null, kind: 'ambiguous' },
+    { c: 'DEMU1000008', d: '21/10/2026', price: null, fee: null, kind: 'ambiguous' } ] } ];
+const ready = months[1].rows.filter(r => r.kind === 'ready');
+const added = ready.reduce((s, r) => s + r.sheet[0] + (r.sheet[1] ?? 0), 0);
+const baseTotal = 34500000;
+
+function rows(state) {
+  let html = '';
+  for (const m of months) {
+    html += `<tr class="month${m.locked ? ' locked' : ''}"><th colspan="13">${m.label} ${m.locked ? '🔒' : '🔓'}<em>Nợ các tháng trước: ${fmt(m.prior)}</em></th></tr>`;
+    let charges = 0;
+    m.rows.forEach((r, i) => {
+      const written = state === 'done' && r.kind === 'ready';
+      const pending = ['ready', 'confirm', 'error', 'review'].includes(state) && r.kind === 'ready';
+      const price = written ? r.sheet[0] : r.price;
+      const fee = written ? r.sheet[1] : r.fee;
+      const amount = price === null ? null : price + (fee ?? 0);
+      charges += amount ?? 0;
+      const cls = pending ? 'from-sheet' : written ? 'saved' : state === 'review' && r.kind === 'conflict' ? 'conflict'
+        : m.locked && state === 'review' && r.kind === 'locked' ? 'locked-row' : '';
+      const sheetCell = (v, label) => `<td class="num sheet">${v === null ? '' : fmt(v)}${label ? '<small>giá Sheet</small>' : ''}</td>`;
+      const priceCells = pending
+        ? sheetCell(r.sheet[0], true) + sheetCell(r.sheet[1], false) + `<td class="num sheet">${fmt(r.sheet[0] + (r.sheet[1] ?? 0))}<small>chưa tính</small></td>`
+        : `<td class="num${price === null ? ' missing' : ''}">${price === null ? 'chưa có giá' : fmt(price)}</td><td class="num">${fmt(fee)}</td><td class="num">${fmt(amount)}</td>`;
+      const pay = r.pay ? `<td class="pay">${r.pay[0]}</td><td class="pay">${r.pay[1]}</td><td class="pay num">${fmt(r.pay[2])}</td>` : '<td class="pay"></td><td class="pay"></td><td class="pay"></td>';
+      html += `<tr class="${cls}"><td>${i + 1}</td><td>${r.c}</td><td>WH</td><td>${r.d}</td><td>Nơi A</td><td>Nơi B</td>${priceCells}${pay}<td></td></tr>`;
+    });
+    html += `<tr class="subtotal"><td colspan="8">Tổng tháng ${m.label.slice(6)}</td><td class="num">${fmt(charges)}</td><td class="pay" colspan="2">Đã thu</td><td class="pay num">${fmt(m.received)}</td><td class="num">${fmt(m.prior + charges - m.received)}</td></tr>`;
+  }
+  return html;
+}
+
+function render(state) {
+  const total = state === 'done' ? baseTotal + added : baseTotal;
+  const showButton = ['ready', 'review'].includes(state);
+  const review = state !== 'empty';
+  let panel = '';
+  if (state === 'confirm') panel = `<div class="panel confirm" role="region" aria-label="Xác nhận ghi giá"><p><strong>Ghi giá Sheet cho 3 chuyến tháng 10/2026?</strong> Tổng còn nợ tăng <strong>${fmt(added)} đ</strong> (từ ${fmt(baseTotal)} lên ${fmt(baseTotal + added)}). Phiếu thu tự phân bổ lại theo nợ cũ trước.</p><div class="actions"><button class="head-btn primary">Ghi 3 giá</button><button class="head-btn">Thôi</button></div></div>`;
+  if (state === 'done') panel = `<div class="panel ok" role="status">Đã ghi 3 giá từ Sheet. Lịch sử có 3 dòng sửa giá, ghi tên người bấm.</div>`;
+  if (state === 'error') panel = `<div class="panel err" role="alert"><p><strong>Chưa ghi giá nào.</strong> Sheet đã đổi sau khi mở sổ.</p><div class="actions"><button class="head-btn primary">Tải lại sổ</button></div></div>`;
+  if (state === 'review') panel = `<div class="panel" role="region" aria-label="Giá Sheet cần xem"><ul>
+    <li><div class="what">DEMU0900007 · 25/09/2026 · giá Sheet ${fmt(12000000)} đ<small>Tháng 9/2026 đang khóa nên chưa ghi được.</small></div><button class="head-btn">Mở khóa tháng 9</button></li>
+    <li><div class="what">DEMU1000006 · 20/10/2026 · Web ${fmt(12000000)} đ · Sheet ${fmt(12500000)} đ<small>Web đã có giá khác Sheet.</small></div><button class="head-btn">Giữ web</button><button class="head-btn">Lấy Sheet</button></li>
+    <li><div class="what">Dòng Sheet 218 · DEMU1000008 · 21/10/2026 · giá Sheet ${fmt(12500000)} đ<small>Khớp 2 chuyến cùng container, cùng ngày. Điền giá tay tại ô của đúng chuyến.</small></div></li></ul></div>`;
+  document.querySelector('#app').innerHTML = `
+    <div class="book-head"><span class="cust">KHÁCH MẪU A</span><button class="head-btn">Lịch sử</button>
+      ${showButton ? '<button class="head-btn primary">Ghi 3 giá từ Sheet</button>' : ''}
+      <div class="total"><span>Tổng còn nợ (mọi tháng)</span><strong>${fmt(total)}</strong></div></div>
+    ${review ? `<div class="strip">Giá từ Sheet cần xem: <strong>3</strong> <button class="link" aria-expanded="${state === 'review'}">${state === 'review' ? 'Đóng' : 'Xem'}</button></div>` : ''}
+    ${panel}
+    <table class="ledger" aria-label="Sổ khách"><colgroup><col style="width:44px"><col style="width:130px"><col style="width:70px"><col style="width:100px"><col style="width:80px"><col style="width:80px"><col style="width:112px"><col style="width:92px"><col style="width:112px"><col style="width:100px"><col style="width:96px"><col style="width:112px"><col style="width:128px"></colgroup>
+      <thead><tr class="columns"><th>STT</th><th>Số container</th><th>Hãng tàu</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th>Đơn giá</th><th>Phụ phí</th><th>Thành tiền</th><th class="pay">Ngày trả</th><th class="pay">Hình thức</th><th class="pay">Số tiền trả</th><th>Còn nợ cộng dồn</th></tr></thead>
+      <tbody>${rows(state)}</tbody></table>`;
+}
+document.querySelectorAll('[data-state]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-state]').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+  render(button.dataset.state);
+}));
+render(new URLSearchParams(location.search).get('state') || 'ready');
+document.querySelector(`[data-state="${new URLSearchParams(location.search).get('state') || 'ready'}"]`)?.click();
+</script>
+</body>
+</html>
