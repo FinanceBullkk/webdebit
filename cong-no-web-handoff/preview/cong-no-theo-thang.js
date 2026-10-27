@@ -147,13 +147,13 @@
     $('#drawer-body').innerHTML = '<div class="kv big"><span>Còn lại tháng này</span><b class="money">' + signed(monthValue(customer, month)) + '</b></div><p class="note">Đang tải chi tiết sổ…</p>';
     $('#drawer').hidden = false; $('#drawer-scrim').hidden = false; document.body.classList.add('drawer-open'); $('#drawer-close').focus();
     try {
-      const response = await fetch('/api/v7/ledger?customer=' + customerId, { cache: 'no-store' });
+      const response = await fetch('/api/v7/receivables/detail?customer=' + customerId + '&month=' + date + '-01', { cache: 'no-store' });
       const ledger = await response.json();
-      if (!response.ok || ledger.status !== 'active') throw Error('Không tải được sổ khách.');
+      if (!response.ok || ledger.status !== 'active') throw Error('Không tải được chi tiết tháng.');
       if (detail !== state.detail || $('#drawer').hidden) return;
-      const monthRow = (ledger.months || []).find(row => String(row.month).slice(0, 7) === date);
-      const trips = (ledger.trips || []).filter(trip => String(trip.month).slice(0, 7) === date);
-      const opening = (ledger.opening || []).some(row => String(row.month).slice(0, 7) === date);
+      const monthRow = ledger;
+      const trips = ledger.trips || [];
+      const opening = ledger.opening;
       let html = '<div class="kv big"><span>Còn lại tháng này</span><b class="money">' + signed(monthValue(customer, month)) + '</b></div>';
       if (!monthRow || vnd(monthRow.outstanding_vnd) !== monthValue(customer, month)) html += '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>';
       if (opening) html += '<div class="warnbox">Tháng số dư đầu: khoản mục lịch sử, không có chi tiết theo container.</div>';

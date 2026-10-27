@@ -17,14 +17,14 @@ const matrix = year => ({
     total_year_vnd: '0', total_all_vnd: '0', oldest_open_month: currentYear + '-01-01' }],
   grand_total_year_vnd: year === currentYear ? '80000' : '0', grand_total_all_vnd: '80000'
 });
-const ledger = { status: 'active', months: [{ month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '100000', received_vnd: '0' }], trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000' }], opening: [] };
+const ledger = { status: 'active', month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '100000', received_vnd: '0', trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000' }], opening: false };
 
 function server({ matrixStatus = 200, matrixPayload = matrix } = {}) {
   return http.createServer((req, res) => {
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/api/v7/receivables/matrix') return send(matrixStatus, 'application/json', JSON.stringify(matrixPayload(Number(url.searchParams.get('year')))));
-    if (url.pathname === '/api/v7/ledger') return send(200, 'application/json', JSON.stringify(ledger));
+    if (url.pathname === '/api/v7/receivables/detail') return send(200, 'application/json', JSON.stringify(ledger));
     const file = path.join(root, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(root) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     send(200, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript', fs.readFileSync(file));

@@ -468,6 +468,21 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual(api.SQL["get_receivables_matrix"],
                          "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);")
 
+    def test_receivables_detail_route_month_validation(self):
+        path = "/api/v7/receivables/detail?customer=7&month=2026-10-01"
+        status, data = api.handle("GET", path, self.headers, b"", self.runner,
+                                  port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual((status, data["function"]), (200, "get_receivables_detail"))
+        self.assertEqual(self.runner.calls[-1], ("get_receivables_detail", {"customer_id": 7, "month": "2026-10-01"}, "server"))
+        for query, code in (("customer=7&month=2026-10-02", "INVALID_MONTH"),
+                            ("customer=7&month=2026-13-01", "INVALID_MONTH"),
+                            ("customer=7&month=2026-10-01&x=1", "INVALID_REQUEST"),
+                            ("customer=0&month=2026-10-01", "INVALID_REQUEST")):
+            with self.assertRaises(api.ApiError) as caught:
+                api.handle("GET", "/api/v7/receivables/detail?" + query, self.headers, b"", self.runner,
+                           port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual((caught.exception.status, caught.exception.code), (422, code))
+
     def test_get_and_host_origin(self):
         status, data = api.handle("GET", "/api/v7/customers", self.headers, b"", self.runner,
                                   port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)

@@ -180,6 +180,21 @@ def main() -> int:
         ok("P4 reader gọi được hàm qua SET ROLE (role NOLOGIN đúng chính sách)",
            pg.sql("BEGIN; SET LOCAL sokhach.actor = 'reader'; SET ROLE sokhach_reader; SELECT sokhach.get_receivables_matrix(2026) IS NOT NULL; COMMIT").returncode == 0)
 
+        detail = json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-03-01')")))
+        ledger = json.loads(pg.value(actor(f"SELECT sokhach.get_ledger({a})")))
+        ledger_month = next(row for row in ledger["months"] if row["month"] == "2026-03-01")
+        ok("D1 chi tiết tháng khớp sổ và ô ma trận",
+           all(detail[key] == ledger_month[key] for key in ("outstanding_vnd", "charges_vnd", "received_vnd"))
+           and detail["outstanding_vnd"] == by_id(m2026)[a]["months"]["3"]
+           and detail["opening"] is True and detail["trips"] == [])
+        empty = json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-07-01')")))
+        ok("D2 tháng trống giữ 0 và không bịa chuyến", empty["outstanding_vnd"] == empty["charges_vnd"] == empty["received_vnd"] == "0"
+           and empty["opening"] is False and empty["trips"] == [])
+        ok("D3 quyền detail và tháng sai bị từ chối",
+           pg.value("SELECT has_function_privilege('sokhach_reader','sokhach.get_receivables_detail(bigint,date)','EXECUTE')") == "t"
+           and pg.value("SELECT count(*)=0 FROM aclexplode((SELECT proacl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='sokhach' AND p.proname='get_receivables_detail')) a WHERE a.grantee=0") == "t"
+           and pg.sql(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-03-02')"), check=False).returncode != 0)
+
         # ---- Benchmark 250 khách (tổng control tính trước bằng SELECT, không UPDATE cutover) ----
         pg.sql("""
         CREATE UNLOGGED TABLE bench_c AS
