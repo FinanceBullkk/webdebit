@@ -3163,6 +3163,13 @@ def main() -> int:
             time.sleep(0.25)  # readiness polling only; never contention evidence
         else:
             raise HarnessError("PostgreSQL init marker timed out")
+        # The init marker precedes the final restart; wait until the server accepts connections.
+        while time.monotonic() < deadline:
+            if run(["docker", "exec", name, "pg_isready", "-U", "postgres"], check=False, timeout=10).returncode == 0:
+                break
+            time.sleep(0.25)  # readiness polling only; never contention evidence
+        else:
+            raise HarnessError("PostgreSQL readiness timed out")
         pg = Pg(name, run_id)
         require(pg.sql("SELECT current_database()", database="postgres").stdout.strip() == "postgres",
                 "unexpected initial database")
