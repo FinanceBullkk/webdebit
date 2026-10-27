@@ -1073,6 +1073,11 @@ def check_csm_migration(pg: Pg) -> None:
     check_csm_locks(copy)
     from test_pg_v7_grants import check_catalog
     check_catalog(copy)
+    # Sheet conflict commands exist only as migrations (hao order); standard files do not carry them yet.
+    for migration in (SHEET_CONFLICT_MIGRATION, SHEET_CONFLICT_DATE_MIGRATION):
+        copy.sql(migration.read_text(encoding="utf-8"))
+        copy.sql(migration.read_text(encoding="utf-8"))
+    check_sheet_conflict_resolution(copy)
 
 
 def check_csm_reference(pg: Pg) -> None:
@@ -2597,6 +2602,43 @@ LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-
 MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
 DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
 SYNC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-shipper-write-sync.sql"
+SHEET_CONFLICT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-sheet-conflict.sql"
+SHEET_CONFLICT_DATE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-sheet-conflict-date-booking.sql"
+
+
+def check_sheet_conflict_resolution(pg: Pg) -> None:
+    c = new_book(pg, ("2026-09-01", 0))
+    fixture_open_month(pg, c, "2026-09-01")
+    row = json.loads(trip_json(container="FAKE-SHEET-DATE"))[0] | {"date": "15/09/2026", "booking": "BK-OLD"}
+    trip_id = call(pg, "paste_trips", c, version(pg, c), "sheet-date-paste", "2026-09-01",
+                   json.dumps([row]))["trip_ids"][0]
+    before = call(pg, "get_ledger", c)
+    sha = "a" * 64
+
+    def resolve(key, field, target, sheet, decision, kind="trip", target_id=trip_id):
+        return (c, version(pg, c), key, sha, 9, kind, target_id, field, target, sheet, decision)
+
+    # Date and booking differences close as "keep web" only, without touching the trip or money.
+    call(pg, "resolve_sheet_conflict", *resolve("keep-date", "event_date", "2026-09-15", "2026-09-20", "keep_web"))
+    call(pg, "resolve_sheet_conflict", *resolve("keep-booking", "booking", "BK-OLD", "", "keep_web"))
+    after = call(pg, "get_ledger", c)
+    trip = next(t for t in after["trips"] if t["id"] == trip_id)
+    require(trip["event_date"] == "2026-09-15" and trip["booking"] == "BK-OLD", "keep_web changed the trip")
+    require(after["total_outstanding_vnd"] == before["total_outstanding_vnd"], "keep_web changed balance")
+    events = [e for e in after["events"] if e["kind"] == "sheet_conflict_resolved"]
+    require(sorted(e["after"]["field"] for e in events) == ["booking", "event_date"]
+            and all(e["after"]["decision"] == "keep_web" for e in events), "resolution events missing")
+    for key, args in [("date-sheet", resolve("x", "event_date", "2026-09-15", "2026-09-20", "use_sheet")),
+                      ("booking-sheet", resolve("x", "booking", "BK-OLD", "BK-NEW", "use_sheet")),
+                      ("booking-legacy", resolve("x", "booking", None, "BK-NEW", "keep_web", "legacy", 1))]:
+        reject_call(pg, "resolve_sheet_conflict", *args[:2], key, *args[3:], error="INVALID_SHEET_RESOLUTION")
+    # Taking the Sheet value now honours the month lock; keeping web stays allowed.
+    pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-09-01'")
+    reject_call(pg, "resolve_sheet_conflict", *resolve("locked-carrier", "carrier", "FAKE", "FAKE NEW", "use_sheet"),
+                error="MONTH_LOCKED")
+    call(pg, "resolve_sheet_conflict", *resolve("locked-keep", "carrier", "FAKE", "FAKE NEW", "keep_web"))
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == before["total_outstanding_vnd"],
+            "locked resolution changed balance")
 
 
 def check_trip_review(pg: Pg) -> None:
@@ -3121,6 +3163,13 @@ def main() -> int:
             time.sleep(0.25)  # readiness polling only; never contention evidence
         else:
             raise HarnessError("PostgreSQL init marker timed out")
+        # The init marker precedes the final restart; wait until the server accepts connections.
+        while time.monotonic() < deadline:
+            if run(["docker", "exec", name, "pg_isready", "-U", "postgres"], check=False, timeout=10).returncode == 0:
+                break
+            time.sleep(0.25)  # readiness polling only; never contention evidence
+        else:
+            raise HarnessError("PostgreSQL readiness timed out")
         pg = Pg(name, run_id)
         require(pg.sql("SELECT current_database()", database="postgres").stdout.strip() == "postgres",
                 "unexpected initial database")
