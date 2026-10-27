@@ -91,8 +91,8 @@ test('adjust_trip SQL stores field intent in adjustment; fee source is table not
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
   const adjust = sql.split('CREATE FUNCTION sokhach.adjust_trip(')[1].split('CREATE FUNCTION sokhach.adjust_month(')[0];
   assert.doesNotMatch(adjust, /FROM sokhach\.event/);
-  assert.match(adjust, /SELECT a\.new_value_vnd INTO v_fee\s+FROM sokhach\.v_adjustment_current a/);
-  assert.match(adjust, /a\.field='other_fee_vnd' AND a\.created_by_event>v_price\.created_by_event\s+ORDER BY a\.created_by_event DESC LIMIT 1/);
+  assert.match(adjust, /SELECT coalesce\(v_price\.other_fee_vnd,0\)\s*\+\s*coalesce\(sum\(a\.amount_vnd\) FILTER \(WHERE a\.field='other_fee_vnd'\),0\)\s*INTO v_fee\s+FROM sokhach\.v_adjustment_current a/);
+  assert.doesNotMatch(adjust, /a\.created_by_event>v_price\.created_by_event/);
   assert.match(adjust, /INSERT INTO sokhach\.adjustment\([^)]*field,new_value_vnd\)[\s\S]*sokhach\._actor\(\),v_event,field,new_value_vnd\)/);
   const schema = fs.readFileSync(require.resolve('../../specs/v7-backend/schema-draft.sql'), 'utf8');
   const table = schema.split('CREATE TABLE sokhach.adjustment (')[1].split('COMMENT ON TABLE')[0];
@@ -568,4 +568,23 @@ test('MH-01: nhóm khách theo mặt hàng + phương thức, Chưa phân loại
   const flat = groupCustomers(rows.map(r => ({ ...r, commodity: null })), '');
   assert.equal(flat.labelled, false);
   assert.deepEqual(flat.found.map(r => r.id), [1, 2, 3, 4, 5]);
+});
+
+test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm được', () => {
+  const { groupCustomers, customerLabel, customerLabels } = require('./so-khach-v7-api.js');
+  const rows = [
+    { id: 7, name: 'OLD A', display_name: 'SHEET', aliases: ['TÊN PHỤ'], commodity: 'Chuối' },
+    { id: 8, name: 'OLD B', display_name: 'SHEET', aliases: [], commodity: 'Dừa' },
+    { id: 9, name: 'UNMAPPED', commodity: null },
+  ];
+  assert.equal(customerLabel(rows[0]), 'SHEET · Chuối');
+  assert.equal(customerLabel(rows[1]), 'SHEET · Dừa');
+  assert.equal(customerLabel(rows[2]), 'UNMAPPED');
+  assert.deepEqual(groupCustomers(rows, 'ten phu').found.map(row => row.id), [7]);
+  assert.deepEqual(groupCustomers(rows, 'old b').found.map(row => row.id), [8]);
+  assert.deepEqual(groupCustomers(rows, 'sheet').found.map(row => row.id), [7, 8]);
+  assert.deepEqual([...customerLabels([
+    { id: 10, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
+    { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
+  ])], [[10, 'SHEET · Chuối · sổ 10'], [11, 'SHEET · Chuối · sổ 11']]);
 });

@@ -1,8 +1,9 @@
 name: Deploy hao
 
-# ĐỀ XUẤT (chưa bật): sau khi Tests xanh trên đúng SHA của main, đẩy gói mã app lên hao qua Tailscale.
-# Chỉ đổi release của app. Migration/SQL/loader bị chặn ở bước kiểm diff và phải theo gate thủ công
-# (docs/v7-deploy-runbook.md). Environment `hao` phải đặt người duyệt bắt buộc. Cài đặt: docs/hao-auto-deploy.md.
+# Deploy chỉ chạy sau Tests xanh trên đúng SHA của main.
+# GitHub-hosted runner vào tailnet bằng Tailscale; production `hao` chỉ nhận release qua forced-command SSH.
+# Chỉ đổi release app. Migration/SQL/loader bị chặn ở bước kiểm diff và phải theo gate thủ công.
+# Environment `hao` phải đặt người duyệt bắt buộc. Cài đặt: docs/hao-auto-deploy.md.
 on:
   workflow_run:
     workflows: [Tests]
@@ -23,7 +24,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: hao
@@ -41,7 +42,7 @@ jobs:
           [[ $SHA =~ ^[0-9a-f]{40}$ ]]
           git merge-base --is-ancestor "$SHA" origin/main
 
-      - uses: tailscale/github-action@v3
+      - uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade
         with:
           oauth-client-id: ${{ secrets.HAO_TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.HAO_TS_OAUTH_SECRET }}

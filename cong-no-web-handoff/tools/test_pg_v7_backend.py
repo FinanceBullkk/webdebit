@@ -112,6 +112,8 @@ CASES = [
     case("7.21", "BEHAVIOR", "VN receipt today accepted; tomorrow rejected without version change", check="future_receipt", functions=("record_receipt", "edit_receipt_meta")),
     case("7.22", "BEHAVIOR", "Void GET identifies only allocations current at void time", check="void_get", functions=("get_ledger", "void_receipt", "reallocate")),
     case("7.23", "BEHAVIOR", "Typed adjustment values survive audit tampering and latest price revision", check="adjustment_source", functions=("adjust_trip",)),
+    case("7.26", "BEHAVIOR", "Shipper survives paste, review and edits in the ledger reader", check="shipper_write_sync", functions=("paste_trips", "edit_trip_info", "review_trip")),
+    case("7.27", "BEHAVIOR", "Typed fee intent lands on the effective fee after a price revision", check="fee_intent_after_price", functions=("adjust_trip", "edit_trip_price")),
 ]
 
 
@@ -672,10 +674,14 @@ def assert_allocations(pg: Pg, customer: int) -> None:
         "OR (r.voided_on IS NOT NULL AND count(l.id)<>0))", "receipt allocation sum/current rows wrong")
 
 
-def trip_json(amount: str | None = "100", *, container: str = "FAKE-C", month: str = "2026-01-01") -> str:
-    return json.dumps([{"container": container, "carrier": "FAKE", "date": f"01/{month[5:7]}/{month[:4]}",
-                        "from": "FAKE-A", "to": "FAKE-B", "unitPriceVnd": amount,
-                        "otherFeeVnd": None, "note": "", "src": "FAKE"}], ensure_ascii=False)
+def trip_json(amount: str | None = "100", *, container: str = "FAKE-C", month: str = "2026-01-01",
+              shipper: str | None = None) -> str:
+    row = {"container": container, "carrier": "FAKE", "date": f"01/{month[5:7]}/{month[:4]}",
+           "from": "FAKE-A", "to": "FAKE-B", "unitPriceVnd": amount,
+           "otherFeeVnd": None, "note": "", "src": "FAKE"}
+    if shipper is not None:
+        row["shipper"] = shipper
+    return json.dumps([row], ensure_ascii=False)
 
 
 def run_node(code: str) -> dict:
@@ -1054,6 +1060,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(MATRIX_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -2065,6 +2073,48 @@ def check_adjustment_source(pg: Pg) -> None:
             "fee adjustment before latest price revision leaked into current fee")
 
 
+def check_shipper_write_sync(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cut},'BK1','SHIP-BASE','2026-01-10')")
+    call(pg, "set_month_lock", c, 0, "ship-open", "2026-01-01", "false")
+    row = json.loads(trip_json(container="SHIP-C", shipper="SAIGON A"))[0] | {"date": "10/01/2026"}
+    first = call(pg, "paste_trips", c, version(pg, c), "ship-first", "2026-01-01", json.dumps([row]))["trip_ids"][0]
+    second = call(pg, "paste_trips", c, version(pg, c), "ship-second", "2026-01-01",
+                  json.dumps([row]))["trip_ids"][0]
+
+    def trip(trip_id):
+        return next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == trip_id)
+
+    require(trip(first)["shipper"] == "SAIGON A", "paste lost shipper")
+    require(trip(second)["status"] == "pending_review" and trip(second)["shipper"] == "SAIGON A",
+            "pending paste lost shipper")
+    call(pg, "review_trip", c, version(pg, c), "ship-confirm", second, "confirm", "đối chiếu xong")
+    require(trip(second)["shipper"] == "SAIGON A", "review lost shipper")
+    call(pg, "edit_trip_info", c, version(pg, c), "ship-origin", first, "origin", "DIEN BIEN")
+    require(trip(first)["shipper"] == "SAIGON A", "info edit lost shipper")
+    call(pg, "edit_trip_info", c, version(pg, c), "ship-edit", first, "shipper", "HA NOI B")
+    require(trip(first)["shipper"] == "HA NOI B", "shipper field rejected")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "200", "shipper edits changed money")
+
+
+def check_fee_intent_after_price(pg: Pg) -> None:
+    c = new_book(pg, ("2026-01-01", 0))
+    cut = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={c}")
+    pg.sql(f"INSERT INTO sokhach.baseline_trip_ref VALUES ({cut},'BK1','FEE-BASE','2026-01-10')")
+    call(pg, "set_month_lock", c, 0, "fee-open", "2026-01-01", "false")
+    row = json.loads(trip_json(container="FEE-C"))[0] | {"date": "10/01/2026"}
+    trip = call(pg, "paste_trips", c, version(pg, c), "fee-paste", "2026-01-01", json.dumps([row]))["trip_ids"][0]
+    plus = call(pg, "adjust_trip", c, version(pg, c), "fee-plus", trip, None, "", "other_fee_vnd", 7)
+    require(plus["delta_vnd"] == "7", "fee +7 delta wrong")
+    call(pg, "edit_trip_price", c, version(pg, c), "fee-price", trip, 100, 30)
+    # 100 unit + (30 fee + 7 stale delta) = 137: a price edit never absorbs older deltas.
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "137", "stale fee delta lost")
+    ten = call(pg, "adjust_trip", c, version(pg, c), "fee-ten", trip, None, "", "other_fee_vnd", 10)
+    require(ten["delta_vnd"] == "-27" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "110",
+            "fee intent must land on the effective fee after a price revision")
+
+
 def check_future_receipt(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 500))
     today = pg.value("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
@@ -2546,6 +2596,7 @@ DASHBOARD_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7
 LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-locked-trip-edit.sql"
 MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
 DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
+SYNC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-shipper-write-sync.sql"
 
 
 def check_trip_review(pg: Pg) -> None:
@@ -2590,7 +2641,8 @@ def check_trip_review(pg: Pg) -> None:
                                    "review_reason": "đã đối chiếu sổ gốc"}, "review audit wrong")
     reject_call(pg, "review_trip", c, version(pg, c), "again", held, "reject", "fake", error="TRIP_NOT_PENDING")
     call(pg, "edit_trip_price", c, version(pg, c), "price-after", held, 120, None)
-    # Locked month never blocks a conclusion (NHAP-SHEET-01 (7)); reject leaves money untouched.
+    # Locked month blocks conclusions since the 24/10 update (decisions.md);
+    # reject leaves money untouched.
     call(pg, "set_month_lock", c, version(pg, c), "lock", "2026-01-01", "true")
     total = call(pg, "get_ledger", c)["total_outstanding_vnd"]
     reject_call(pg, "review_trip", c, version(pg, c), "locked-reject", other, "reject", "trùng dòng sổ gốc", error="MONTH_LOCKED")
@@ -2823,7 +2875,8 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
 
 CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
-          "adjustment_source": check_adjustment_source,
+          "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
+          "fee_intent_after_price": check_fee_intent_after_price,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
           "immutable": check_immutable, "roles": check_roles, "numbers": check_numbers,
           "gate_view": check_gate_view, "legacy": check_legacy, "import_guard": check_import_guard,
@@ -3001,6 +3054,23 @@ def check_migration(pg: Pg) -> None:
         require(got == expect, f"no-container legacy trip handling wrong for skipped={skipped}")
     require(copy.value("SELECT count(*) FROM sokhach.baseline_trip_ref") == "1", "no-container trip got a reference")
     check_dedup(copy)
+    # Reproduce deployment order: the locked-trip migration replaced the earlier shipper reader.
+    shipper = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-shipper.sql").read_text(encoding="utf-8")
+    ledger_shipper = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-ledger-shipper-read.sql").read_text(encoding="utf-8")
+    reader = "pg_get_functiondef('sokhach.get_ledger(bigint)'::regprocedure)"
+    balances = "SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
+    balances += "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s"
+    before_repair = copy.value(balances)
+    copy.sql(shipper)
+    copy.sql(LOCKED_TRIP_MIGRATION.read_text(encoding="utf-8"))
+    copy.true(f"position('shipper' in {reader})=0", "locked-trip migration did not reproduce missing shipper")
+    copy.sql(ledger_shipper)
+    copy.sql(ledger_shipper)  # read-only function repair is idempotent
+    copy.true(f"position('shipper' in {reader})>0", "ledger reader still omits shipper")
+    copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
+    copy.true(f"position('shipper' in {reader})>0", "write sync migration lost shipper reader")
+    require(copy.value(balances) == before_repair,
+            "shipper reader repair changed fake balances")
 
 
 def main() -> int:

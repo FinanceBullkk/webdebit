@@ -9,9 +9,9 @@ on:
 permissions:
   contents: read
 
-# Repo public từ 21/10/2026 nên chạy trên máy của GitHub (miễn phí, sạch mỗi lượt).
-# Không dùng runner tự host: với repo public, PR từ fork sẽ chạy mã lạ trên máy đó,
-# mà `hao` là máy của DB thật. Lượt cũ của cùng PR bị hủy khi có commit mới.
+# CI chạy trên GitHub-hosted runners; production `hao` không chạy test.
+# Linux/DB dùng ubuntu-latest; Windows compatibility dùng windows-latest.
+# Vẫn giữ concurrency + path-filter như cũ.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -98,6 +98,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - uses: astral-sh/setup-uv@v6
       - name: V7 backend contract
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py
@@ -194,12 +197,12 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: requirements*.txt
-      - run: npm ci --ignore-scripts
-      # Trình duyệt Playwright tải ~3 phút trên Windows (đo 22/10/2026); khóa cache theo phiên bản trong package-lock.
       - uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci --ignore-scripts
+      # Trình duyệt Playwright tải ~3 phút trên Windows (đo 22/10/2026); khóa cache theo phiên bản trong package-lock.
       - name: Install Playwright Chromium
         timeout-minutes: 10
         run: npx playwright install chromium

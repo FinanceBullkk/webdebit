@@ -39,6 +39,16 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
     await page.locator('#heat-body .khach').first().waitFor();
+    await page.setViewportSize({ width: 1920, height: 800 });
+    const layout = await page.evaluate(() => {
+      const page = document.querySelector('.page').getBoundingClientRect();
+      const year = document.querySelector('#heat-head .total-head').getBoundingClientRect();
+      const all = document.querySelector('#heat-head .all-head').getBoundingClientRect();
+      return { pageWidth: page.width, yearWidth: year.width, allWidth: all.width, separated: year.right <= all.left + 1 };
+    });
+    assert.equal(layout.pageWidth, 1920);
+    assert.equal(layout.yearWidth >= 160 && layout.allWidth >= 160 && layout.separated, true, JSON.stringify(layout));
+    await page.setViewportSize({ width: 1280, height: 800 });
     assert.match(await page.locator('#scope-year').innerText(), /80\.000 đ/);
     assert.match(await page.locator('#recon').innerText(), /KHỚP/);
     assert.equal(await page.locator('.neg[data-id="1"]').innerText(), '−20.000 đ');
@@ -67,6 +77,14 @@ test('real matrix page loads API data, validates totals, changes year, filters a
       nodes: [...document.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).position !== 'sticky').slice(0, 8).map(el => [el.tagName, el.className, Math.round(el.getBoundingClientRect().right)]) }));
     assert.equal(overflow.scrollWidth <= overflow.width, true, JSON.stringify(overflow));
     if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-matrix-390.png'), fullPage: true });
+    await page.locator('.table-wrap').evaluate(el => { el.scrollLeft = el.scrollWidth; });
+    const mobileTotals = await page.evaluate(() => {
+      const wrap = document.querySelector('.table-wrap').getBoundingClientRect();
+      const year = document.querySelector('#heat-head .total-head').getBoundingClientRect();
+      const all = document.querySelector('#heat-head .all-head').getBoundingClientRect();
+      return { visible: year.left >= wrap.left && all.right <= wrap.right, separated: year.right <= all.left + 1 };
+    });
+    assert.equal(mobileTotals.visible && mobileTotals.separated, true, JSON.stringify(mobileTotals));
   } finally {
     await browser.close();
     app.close();

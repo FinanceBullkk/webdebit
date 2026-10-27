@@ -72,3 +72,21 @@ test('customer search failure does not erase loaded dashboard', async () => with
   assert.match(await page.locator('.receivable').innerText(), /2\.480\.000\.000/);
   assert.equal(await page.locator('#error').isHidden(), true);
 }));
+
+test('dashboard uses Sheet labels and commodity while links and money stay on original books', async () => withDashboard({
+  customers: [
+    { id: 1, name: 'AG -DỪA', display_name: 'AG LOGISTIC', commodity: 'Dừa', aliases: ['AG DU A'] },
+    { id: 2, name: 'Khách C', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
+    { id: 3, name: 'Khách K', display_name: 'CHAU HAI THINH', commodity: 'Chuối', aliases: [] },
+  ],
+}, async page => {
+  await page.locator('.top-debtors a').getByText('AG LOGISTIC · Dừa').waitFor();
+  assert.equal(await page.locator('.top-debtors td').nth(2).innerText(), 'Dừa');
+  assert.equal(await page.locator('.top-debtors a').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+  assert.match(await page.locator('.top-debtors').innerText(), /380\.000\.000/);
+  assert.match(await page.locator('.todo').innerText(), /CHAU HAI THINH · Chuối · sổ 2/);
+  await page.locator('#customer-search').fill('AG DU A');
+  assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
+  await page.locator('#customer-search').fill('dua');
+  assert.equal(await page.locator('#customer-results a').count(), 1);
+}));

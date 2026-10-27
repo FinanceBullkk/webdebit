@@ -21,7 +21,7 @@
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
-  const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[field] || field);
+  const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Điểm đi', destination: 'Điểm đến' }[field] || field);
   const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination']);
   const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
@@ -520,15 +520,16 @@
         button.setAttribute('aria-expanded', 'false');
         return;
       }
-      const sheetCells = ['carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field => {
+      const sheetFields = ['carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field => {
         const value = field === 'event_date' ? dateText(trip.event_date) : trip[field] || '–';
         const changed = resolvableSheetFields.has(field) && (trip.changed_fields || []).includes(field);
+        const webValue = trip.existing_values?.[field] || '–';
         const actions = changed
           ? `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`
           : '';
-        return `<td class="${changed ? 'sheet-value-conflict' : ''}">${escape(value)}${changed ? `<small>Sheet · ${escape(sheetFieldLabel(field))}</small>${actions}` : ''}</td>`;
+        return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
-      const detailRow = `<tr class="sheet-detail"><td>↳ Sheet</td><td>${escape(trip.container)}</td>${sheetCells}<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div></div></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');

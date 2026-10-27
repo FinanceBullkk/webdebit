@@ -23,6 +23,14 @@ def _source_row(value: Any) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _row_year(value: Any) -> int | None:
+    text = str(value or "").strip()[:10]
+    try:
+        return dt.date.fromisoformat(text).year
+    except ValueError:
+        return None
+
+
 def load_snapshot(path: str | Path) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -58,10 +66,14 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             names.setdefault(_name(customer["name"]), []).append(customer)
     aliases = snapshot.get("customer_aliases") or {}
     items = []
+    skipped_out_of_scope = 0
     for source in snapshot["rows"]:
         if not isinstance(source, dict):
             raise ValueError("Sheet row invalid")
-        if source.get("status") == "READY" and "2026" not in str(source.get("event_date") or source.get("source_date") or ""):
+        if source.get("status") == "READY" and _row_year(source.get("event_date") or source.get("source_date")) != 2026:
+            # Out of scope by year, but never silently: the API reports the count so
+            # new years stay visible instead of disappearing from the queue.
+            skipped_out_of_scope += 1
             continue
         item = {key: source.get(key) for key in (
             "source_row", "container", "carrier", "event_date", "origin", "destination",
@@ -90,7 +102,8 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
     return {"source": snapshot.get("source"), "snapshot_sha256": snapshot["sha256"],
             "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "baseline_cutover_id": baseline["cutover_id"], "items": items,
-            "row_count": len(items), "ready_count": 0, "review_count": len(items)}
+            "row_count": len(items), "ready_count": 0, "review_count": len(items),
+            "skipped_out_of_scope": skipped_out_of_scope}
 
 
 def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None) -> dict[str, Any]:
@@ -134,8 +147,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         booking = _container(row.get("booking"))
         direct_matches = [old for old in existing if old.get("source_row") == row.get("source_row")]
         matches = direct_matches if len(direct_matches) == 1 else []
+        candidates = [] if matches else existing
         same_container = []
-        for old in matches or existing:
+        for old in candidates:
             if _container(old.get("container")) != container:
                 continue
             same_container.append(old)
@@ -184,7 +198,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
-                        "existing_values": {field: (old.get("shipper") or old.get("carrier"))
+                        "existing_values": {field: (old.get("shipper") or
+                                                    (old.get("carrier") if old["kind"] == "legacy" else None))
                                             if field == "shipper" else old.get(field)
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
