@@ -217,6 +217,43 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   ] };
 }));
 
+const dateBookingConflict = world => {
+  world.trips[0].booking = 'BK-OLD';
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 1, items: [
+    { sync_state: 'CONFLICT', source_row: 9, event_date: '2026-09-20', container: 'DEMU1234567', carrier: 'Tàu thử', origin: 'Nơi A',
+      destination: 'Nơi B', booking: 'BK-NEW', existing_kind: 'trip', existing_id: 11, changed_fields: ['event_date', 'booking'],
+      existing_values: { event_date: '2026-09-15', booking: 'BK-OLD' } },
+  ] };
+};
+
+test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đổi ngày qua ô ngày', async () => withPage(async ({ page, world }) => {
+  await page.locator('[data-row="trip-11"] .sheet-diff').click();
+  const detail = page.locator('.sheet-detail');
+  assert.match(await detail.innerText(), /Web: 15\/09\/2026/);
+  assert.match(await detail.innerText(), /Sheet: BK-NEW/);
+  assert.equal(await detail.locator('[data-sheet-field="booking"][data-sheet-decision="use_sheet"]').count(), 0);
+  await detail.locator('[data-sheet-field="booking"][data-sheet-decision="keep_web"]').click();
+  await page.waitForFunction(() => document.querySelector('.sheet-detail [data-sheet-field="event_date"]')
+    && !document.querySelector('.sheet-detail [data-sheet-field="booking"]'));
+  const resolved = world.requests.at(-1);
+  assert.equal(resolved.path, '/api/v7/sheet/resolve');
+  assert.deepEqual([resolved.body.field, resolved.body.decision, resolved.body.target_kind, resolved.body.target_id], ['booking', 'keep_web', 'trip', 11]);
+  await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
+  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
+  const [route, body] = posts(world).at(-1);
+  assert.equal(route, '/api/v7/trips/info');
+  assert.equal(body.field, 'event_date');
+  assert.equal(body.trip_id, 11);
+  assert.equal(world.requests.filter(item => item.path === '/api/v7/sheet/resolve' && item.body.field === 'event_date').length, 0);
+}, dateBookingConflict));
+
+test('lệch ngày ở tháng khóa: Lấy Sheet không gửi lệnh, báo mở khóa', async () => withPage(async ({ page, world }) => {
+  await page.locator('[data-row="trip-11"] .sheet-diff').click();
+  await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
+  assert.match(await page.locator('.live-notice').innerText(), /Mở khóa tháng/);
+  assert.equal(world.requests.length, 0);
+}, world => { dateBookingConflict(world); world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
+
 
 test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');

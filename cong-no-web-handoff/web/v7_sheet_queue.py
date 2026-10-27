@@ -9,6 +9,9 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+# Rows before this year sit in the opening balance; later years stay in scope with no upper bound.
+QUEUE_FIRST_YEAR = 2026
+
 
 def _name(value: Any) -> str:
     return " ".join(unicodedata.normalize("NFC", str(value or "")).strip().upper().split())
@@ -70,9 +73,9 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
     for source in snapshot["rows"]:
         if not isinstance(source, dict):
             raise ValueError("Sheet row invalid")
-        if source.get("status") == "READY" and _row_year(source.get("event_date") or source.get("source_date")) != 2026:
-            # Out of scope by year, but never silently: the API reports the count so
-            # new years stay visible instead of disappearing from the queue.
+        year = _row_year(source.get("event_date") or source.get("source_date"))
+        if source.get("status") == "READY" and (year is None or year < QUEUE_FIRST_YEAR):
+            # Out of scope by year, but never silently: the API reports the count.
             skipped_out_of_scope += 1
             continue
         item = {key: source.get(key) for key in (
