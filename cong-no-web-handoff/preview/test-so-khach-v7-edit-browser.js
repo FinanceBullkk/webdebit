@@ -14,7 +14,7 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 // Sổ giả: chuyến web và dòng sổ gốc tháng 9 đang mở; mỗi test có thể khóa riêng.
 function makeWorld() {
   return {
-    version: 1, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
+    version: 1, reads: 0, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
       editable: true, info_editable: true, deleted: false }],
@@ -110,7 +110,7 @@ async function withPage(fn, setup = () => {}) {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (url.pathname === '/api/v7/customers') { send(200, { customers: [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
-    if (url.pathname === '/api/v7/ledger') { send(200, ledger(world)); return; }
+    if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     if (url.pathname.startsWith('/api/')) {
       const chunks = [];
       req.on('data', chunk => chunks.push(chunk));
@@ -143,6 +143,19 @@ async function withPage(fn, setup = () => {}) {
 const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
+
+test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ', async () => withPage(async ({ page, world }) => {
+  const amount = page.locator('.receipt-amount').first();
+  await amount.fill('123');
+  const before = world.reads;
+  await page.locator('#refresh-data').click();
+  assert.equal(world.reads, before);
+  assert.equal(await amount.inputValue(), '123');
+  await amount.fill('');
+  await page.locator('#refresh-data').click();
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Cập nhật'));
+  assert.equal(world.reads, before + 1);
+}));
 
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('tr.sheet-new').count(), 1);

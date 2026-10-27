@@ -7,17 +7,19 @@
   <title>Công nợ HTH · Tổng quan</title>
   <link rel="stylesheet" href="dashboard-v7.css">
   <style>.topbar nav a.active{color:#0069bd;border-color:#0069bd}</style>
+  <style>.live-controls{display:flex;align-items:center;gap:6px;margin:-4px 0 12px;white-space:nowrap}.live-controls button{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}.live-controls time{font-size:12px;color:#536d86;margin:0}</style>
 </head>
 <body>
   <div id="demo-banner" hidden role="status"></div>
   <header class="topbar">
     <a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a>
-    <nav aria-label="Điều hướng chính"><a class="active" href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#customer-search">Sổ khách</a></nav>
+    <nav aria-label="Điều hướng chính"><a class="active" href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a></nav>
     <label class="search"><span aria-hidden="true">⌕</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
     <span class="readonly">Chỉ xem</span><time id="as-of"></time>
   </header>
   <main class="page">
     <h1>Tổng quan công nợ</h1>
+    <div class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></div>
     <div id="error" role="alert" hidden></div>
     <div id="dashboard" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>

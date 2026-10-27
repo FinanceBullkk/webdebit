@@ -6,17 +6,19 @@
 <title>Công nợ theo tháng · HTH</title>
 
 <link rel="stylesheet" href="cong-no-theo-thang.css">
+<style>.live-controls{display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}.live-controls button{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}.live-controls time{font-size:12px;color:#536d86}</style>
 </head>
 <body>
 <div class="demo" id="demo-banner" hidden></div>
 <header class="topbar">
   <a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a>
-  <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a class="active" href="/cong-no-theo-thang.html">Công nợ theo tháng</a></nav>
+  <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a class="active" href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a></nav>
+  <label class="search"><span aria-hidden="true">⌕</span><input id="find" type="search" placeholder="Tìm khách" aria-label="Tìm khách"></label>
   <span class="pill">Chỉ xem</span>
   <time id="as-of"></time>
 </header>
 <main class="page">
-  <div class="page-head"><h1>Công nợ theo tháng</h1><span style="color:var(--muted);font-size:13px">bấm ô bất kỳ để xem chi tiết tháng đó</span></div>
+  <div class="page-head"><h1>Công nợ theo tháng</h1><span style="color:var(--muted);font-size:13px">bấm ô bất kỳ để xem chi tiết tháng đó</span><span class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></span></div>
 
   <section class="scopes" aria-label="Hai phạm vi tổng">
     <div class="scope"><div class="label">Dư nợ còn lại của năm <span id="scope-year-label">—</span></div><div class="value money" id="scope-year"></div><div class="sub" id="scope-year-sub"></div></div>
@@ -31,7 +33,6 @@
         <span class="cur" id="year-cur">—</span>
         <button id="year-next" aria-label="Năm sau">›</button>
       </div>
-      <label class="find"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="find" type="search" placeholder="Tìm khách" aria-label="Tìm khách"></label>
       <select id="commodity" aria-label="Lọc mặt hàng"><option value="">Mặt hàng: tất cả</option></select>
     </div>
     <div class="legend-bar" aria-hidden="true"><span><span class="grad"></span>đậm = tiền nhiều (lớp phụ)</span><span>số hiển thị ngay trong ô</span><span>ô trống = không phát sinh hoặc đã trả hết</span></div>

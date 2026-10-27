@@ -9,7 +9,14 @@
 html{scroll-behavior:smooth}
 body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
 #app{padding:0 10px 24px}
-.book-head{position:sticky;top:0;z-index:40;height:70px;display:flex;align-items:center;gap:24px;padding:8px 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
+.topbar{position:sticky;top:0;z-index:45;min-height:66px;display:flex;align-items:center;gap:28px;padding:0 22px;background:#f8fbff;border:1px solid #a8c6e1;box-shadow:0 2px 8px #244d7620}
+.topbar .brand{color:#0c3974;font-size:22px;font-weight:800;text-decoration:none;white-space:nowrap}
+.topbar nav{display:flex;align-self:stretch;gap:24px}
+.topbar nav a{display:flex;align-items:center;color:#123965;text-decoration:none;font-weight:700;border-bottom:4px solid transparent;white-space:nowrap}
+.topbar nav a.active{color:#0877d1;border-color:#0877d1}
+.topbar .live-controls{display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}.topbar .live-controls button{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}.topbar .live-controls time{font-size:12px;color:#536d86}
+.topbar .readonly{margin-left:auto;padding:8px 14px;border:1px solid #9ebbd7;border-radius:6px;color:#174d82;white-space:nowrap}
+.book-head{position:sticky;top:66px;z-index:40;height:70px;display:flex;align-items:center;gap:24px;padding:8px 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
 #demo-banner:not([hidden]){position:sticky;top:0;z-index:60}
 #customer-picker{padding:8px 14px;background:#fff;border-bottom:1px solid #9eb4ca}
 .dashboard-link{display:inline-flex;align-items:center;min-height:38px;margin-right:8px;color:#174b82;font-weight:700;white-space:nowrap}
@@ -20,22 +27,23 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 #customer-list a:hover,#customer-list a:focus{background:#eaf2fb;outline:2px solid #2d6cb5;outline-offset:-2px}
 #customer-list a[aria-current=page]{font-weight:700}
 #customer-list .customer-group{position:sticky;top:0;padding:4px 10px;background:#e3ecf5;color:#28496b;font-size:14px;font-weight:700;border-bottom:1px solid #b9cbdd}
-body:has(#demo-banner:not([hidden])) .book-head{top:48px}
-body:has(#demo-banner:not([hidden])) .ledger-head{top:118px}
-body:has(#demo-banner:not([hidden])) .ledger .month th{top:156px}
+body:has(#demo-banner:not([hidden])) .topbar{top:48px}
+body:has(#demo-banner:not([hidden])) .book-head{top:114px}
+body:has(#demo-banner:not([hidden])) .ledger-head{top:184px}
+body:has(#demo-banner:not([hidden])) .ledger .month th{top:222px}
 .book-head h1{font-size:18px;margin:0;white-space:nowrap}.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:13px}.head-item strong{font-size:16px}.head-item.total{margin-left:auto}.head-item.total strong{font-size:22px;color:#123f79}
 .layout{display:flex;gap:12px;align-items:flex-start;max-width:1858px;margin:0 auto}
 .ledger-book{width:1696px;flex:0 0 1696px}
 .ledger-book section{scroll-margin-top:180px}
 .ledger{width:100%;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
-.ledger-head{position:sticky;top:70px;z-index:30}
+.ledger-head{position:sticky;top:136px;z-index:30}
 .ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere}
 .ledger th{font-weight:700;text-align:left}.ledger td{min-height:38px;height:38px;font-size:13px}
 .ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:13px}
 .ledger .group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
 .ledger .columns th{height:38px;padding:3px 5px;background:#eaf1fa;font-size:13px;line-height:1.12}
 .ledger .columns .pay{background:#dfeeff}
-.ledger .month th{position:sticky;top:108px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.ledger .month th{position:sticky;top:174px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
 .badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
@@ -66,7 +74,7 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:156px}
 .ledger-book section:last-child .spacer td{height:calc(100vh - 180px)}
 .receipt-ref{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#425b73;text-align:right;cursor:pointer}.receipt-ref.voided{text-decoration:line-through}.receipt-reference{display:block;width:100%;min-width:0;min-height:26px;margin-top:2px;font:inherit;font-size:13px;color:#162d48}
 .muted{color:#475d73}.empty-entry{display:block;min-height:28px}
-.months-nav{position:sticky;top:148px;flex:0 0 150px;width:150px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;padding:8px}
+.months-nav{position:sticky;top:214px;flex:0 0 150px;width:150px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;padding:8px}
 .months-nav h2{font-size:13px;margin:0 0 6px;color:#183c63}
 .months-nav a{display:flex;min-height:32px;align-items:center;justify-content:space-between;gap:4px;color:#174b82;text-decoration:none;border-top:1px solid #e3eaf2;font-size:12px}
 .months-nav a:hover,.months-nav a:focus-visible{background:#e4f0ff;text-decoration:underline}
@@ -159,10 +167,12 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
   .book-head{gap:12px;padding:6px 8px}.book-head h1{font-size:16px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
 }
 @media(max-width:1439px){.layout{max-width:1258px}.months-nav{display:none}}
+@media(max-width:700px){.topbar{position:static;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar nav{order:3;width:100%;gap:14px;min-height:42px}.book-head{top:0}body:has(#demo-banner:not([hidden])) .book-head{top:48px}}
 </style>
 </head>
 <body>
 <p id="demo-banner" hidden role="status" style="margin:0;padding:12px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:18px">Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật</p>
+<header class="topbar"><a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a><nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a class="active" href="/so-khach-v7-live.html">Sổ khách</a></nav><span class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></span></header>
 <div id="customer-picker"><a class="dashboard-link" href="/dashboard-v7.html">← Tổng quan</a><label for="customer-search">Tìm khách</label><input id="customer-search" type="search" autocomplete="off" aria-controls="customer-list" placeholder="Gõ tên khách hoặc mặt hàng"><span id="customer-count" role="status"></span><nav id="customer-list" aria-label="Danh sách khách tìm được"></nav></div>
 <main id="app"></main>
 <script src="so-khach-v7-model.js"></script>
