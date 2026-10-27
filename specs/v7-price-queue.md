@@ -133,7 +133,8 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - `CONFLICT` "Giữ web" cần lưu sự kiện (mở rộng `resolve_sheet_conflict` hoặc sự kiện riêng); "Lấy Sheet" dùng được ngay bằng lệnh ghi giá một chuyến.
 - Ghi nguồn tab/dòng Sheet vào Lịch sử `price_edit`.
 - Đếm "N giá từ Sheet chờ ghi" ở Tổng quan (cần tính trên mọi khách).
-- Harness PostgreSQL cho lô giá; triển khai `hao` (đặt bản chụp, biến môi trường, lịch runner) cần người dùng cho phép.
+- Harness PostgreSQL cho lô giá.
+- Triển khai `hao`: các bước đã soạn ở [runbook, mục Ghi giá từ Sheet](../docs/v7-deploy-runbook.md#ghi-giá-từ-sheet--đổi-release-app-và-thêm-runner-bản-chụp-giá-đề-xuất-chưa-chạy). **CHƯA CHẠY**; cần người dùng cho phép.
 
 ## Tiến độ giao diện (27/10/2026)
 
