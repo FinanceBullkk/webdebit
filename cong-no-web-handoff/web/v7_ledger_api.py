@@ -667,8 +667,11 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
             or not re.fullmatch(r"[0-9a-f]{64}", str(request["snapshot_sha256"]))
             or not positive_int(request["source_row"]) or not positive_int(request["target_id"])
             or request["target_kind"] not in ("trip", "legacy")
-            or request["field"] not in ("carrier", "shipper", "origin", "destination")
+            or request["field"] not in ("carrier", "shipper", "origin", "destination", "event_date", "booking")
             or request["decision"] not in ("keep_web", "use_sheet")
+            # Sheet date goes through the normal date edit; posted booking is kept (BOOKING-EDIT-01).
+            or (request["field"] in ("event_date", "booking") and request["decision"] != "keep_web")
+            or (request["field"] == "booking" and request["target_kind"] != "trip")
             or not isinstance(request["idempotency_key"], str)
             or not 1 <= len(request["idempotency_key"]) <= 128
             or not request["idempotency_key"].strip()
@@ -691,6 +694,8 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
         raise ApiError(409, "STALE_SHEET", "Dòng đối chiếu đã đổi. Tải lại rồi thử lại.")
     row = rows[0]
     sheet_value = row.get(request["field"])
+    if request["field"] == "booking" and sheet_value is None:
+        sheet_value = ""  # Sheet booking left blank still differs from the posted booking.
     target_value = (row.get("existing_values") or {}).get(request["field"])
     if not isinstance(sheet_value, str) or (target_value is not None and not isinstance(target_value, str)):
         bad("INVALID_SHEET_RESOLUTION")
