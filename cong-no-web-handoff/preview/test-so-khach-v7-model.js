@@ -542,3 +542,12 @@ test('Tổng tháng like the Sheet: shift charges and received by Sheet charge �
   assert.deepEqual(model.sheetMonthTotals({ chargesVnd: '700', receivedVnd: '0', openingVnds: [], sourceChargeVnd: '9' }), { chargesVnd: '700', receivedVnd: '0' });
   assert.throws(() => model.sheetMonthTotals({ chargesVnd: '1.5', receivedVnd: '0', openingVnds: ['1'], sourceChargeVnd: '2' }));
 });
+
+test('Ghi giá từ Sheet: tổng tăng tính bằng BigInt, phụ phí null là 0, tổng âm vẫn đọc được', () => {
+  const ready = [{ sheet_unit_price_vnd: '12500000', sheet_other_fee_vnd: '300000' }, { sheet_unit_price_vnd: '13000000', sheet_other_fee_vnd: null }];
+  assert.equal(model.sheetPriceAmount(ready[0]), 12800000n);
+  assert.deepEqual(model.planSheetPrices(ready, '-1000000'), { count: 2, increaseVnd: 25800000n, beforeVnd: -1000000n, afterVnd: 24800000n });
+  assert.equal(model.sheetVnd('-500000'), -500000n);
+  assert.equal(model.sheetVnd(null), null);
+  assert.throws(() => model.planSheetPrices([{ sheet_unit_price_vnd: 12500000 }], '0'));   // tiền phải là chuỗi
+});

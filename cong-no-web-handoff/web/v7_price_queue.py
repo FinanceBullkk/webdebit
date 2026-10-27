@@ -163,7 +163,12 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
     results = mark_shared([classify(row, pool) for row in rows])
     keep = ("customer_tab", "source_row", "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd",
             "status", "target_kind", "target_id", "web_unit_price_vnd", "web_other_fee_vnd")
-    ready = [{k: r[k] for k in keep} for r in results if r["status"] == "READY"]
-    review = [{k: r[k] for k in keep} for r in results if r["status"] in REVIEW]
+    money_fields = ("sheet_unit_price_vnd", "sheet_other_fee_vnd", "web_unit_price_vnd", "web_other_fee_vnd")
+
+    def public(result: dict) -> dict:
+        # Money leaves the API as exact decimal strings, NULL stays null (same contract as get_ledger).
+        return {k: (None if result[k] is None else str(result[k])) if k in money_fields else result[k] for k in keep}
+    ready = [public(r) for r in results if r["status"] == "READY"]
+    review = [public(r) for r in results if r["status"] in REVIEW]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}

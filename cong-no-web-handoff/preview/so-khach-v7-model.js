@@ -572,6 +572,22 @@ const SoKhachV7Model = (() => {
     };
   }
 
+  // Ghi giá từ Sheet (specs/v7-price-queue.md): tiền là chuỗi số nguyên từ server; phụ phí null = 0 khi có đơn giá (V7-BE).
+  function sheetPriceAmount(item) {
+    return vnd(item.sheet_unit_price_vnd) + (item.sheet_other_fee_vnd == null ? 0n : vnd(item.sheet_other_fee_vnd));
+  }
+
+  // Giá Sheet ở mục "Cần xem" có thể âm (giảm trừ): đọc có dấu, chỉ để hiển thị.
+  function sheetVnd(value) {
+    return value == null ? null : vnd(value, true);
+  }
+
+  function planSheetPrices(ready, totalOutstandingVnd) {
+    const increaseVnd = ready.reduce((sum, item) => sum + sheetPriceAmount(item), 0n);
+    const beforeVnd = vnd(totalOutstandingVnd, true);   // khách đang dư thì tổng còn nợ âm
+    return { count: ready.length, increaseVnd, beforeVnd, afterVnd: beforeVnd + increaseVnd };
+  }
+
   function offsetErrorMessage(code, detail) {
     if (code === "OFFSET_EXCEEDS_CREDIT") {
       const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
@@ -610,6 +626,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
+    sheetPriceAmount, sheetVnd, planSheetPrices,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;

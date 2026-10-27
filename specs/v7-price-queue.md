@@ -1,6 +1,6 @@
 # V7: điền giá từ Sheet ("Ghi N giá")
 
-Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong chat 27/10/2026: "Mockup được, chọn nguồn giá B"). Backend **ĐÃ CODE** phần đọc và ghi lô (xem Tiến độ), **chưa triển khai** `hao`, chưa có giao diện thật. Không đổi luật tiền.
+Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong chat 27/10/2026: "Mockup được, chọn nguồn giá B"). Backend và giao diện sổ khách **ĐÃ CODE** (xem Tiến độ), kiểm bằng máy chủ giả; **chưa triển khai** `hao`. Không đổi luật tiền.
 
 ## Người dùng và luồng (bước 1)
 
@@ -133,4 +133,26 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - `CONFLICT` "Giữ web" cần lưu sự kiện (mở rộng `resolve_sheet_conflict` hoặc sự kiện riêng); "Lấy Sheet" dùng được ngay bằng lệnh ghi giá một chuyến.
 - Ghi nguồn tab/dòng Sheet vào Lịch sử `price_edit`.
 - Đếm "N giá từ Sheet chờ ghi" ở Tổng quan (cần tính trên mọi khách).
-- Giao diện thật theo mockup đã duyệt; harness PostgreSQL cho lô giá; triển khai `hao` (đặt bản chụp, biến môi trường) cần người dùng cho phép.
+- Harness PostgreSQL cho lô giá; triển khai `hao` (đặt bản chụp, biến môi trường, lịch runner) cần người dùng cho phép.
+
+## Tiến độ giao diện (27/10/2026)
+
+**ĐÃ CODE** trong `so-khach-v7-ui.js`, `so-khach-v7-model.js`, `so-khach-v7-live.html` theo mockup đã duyệt:
+- Nút "Ghi N giá từ Sheet" ở đầu sổ.
+- Dòng chờ tô vàng: ô giá in nghiêng kèm "giá Sheet", thành tiền kèm "chưa tính". Tổng còn nợ không đổi trước khi ghi.
+- Khung xác nhận ghi số chuyến, tháng, tổng tăng và từ … lên …; tiền tính bằng BigInt trong model (`planSheetPrices`, ARCH-03).
+- Bấm "Ghi" gửi một lệnh `POST /api/v7/sheet/prices`; khóa lệnh giữ nguyên khi chưa rõ kết quả. Sheet đổi thì hiện "Chưa ghi giá nào. Sheet đã đổi sau khi mở sổ." kèm nút "Tải lại sổ".
+- "Giá từ Sheet cần xem: K" mở danh sách, mỗi loại một cách xử lý:
+  - Tháng khóa: nút "Mở khóa tháng N".
+  - Lệch giá: nút "Lấy Sheet", ghi bằng lệnh sửa giá có sẵn.
+  - Khớp nhiều chuyến: chỉ báo, không ghi.
+  - Số âm: chỉ báo, nhập tay.
+- Tự tải lại 60 giây tạm dừng khi khung đang mở.
+
+**Khác mockup:** dòng lệch giá chưa có nút "Giữ web", vì backend chưa lưu lựa chọn này (CÒN MỞ ở trên). Bấm "Lấy Sheet" hoặc sửa tay đều làm dòng đó biến mất.
+
+**Kiểm:**
+- Playwright 1280×720, máy chủ giả, 3 test: ghi cả lô, Sheet đổi giữa chừng, mục "Cần xem".
+- Test model cho tổng tăng, phụ phí null và số âm.
+- `npm run check` xanh.
+- Chưa kiểm trên `hao`, chưa có người dùng đi hết luồng (bước 8).
