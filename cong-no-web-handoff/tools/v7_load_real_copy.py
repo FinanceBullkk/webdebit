@@ -412,9 +412,14 @@ def block_signature(block: dict) -> tuple:
 
 
 def scan_workbook(path: Path) -> dict[str, dict]:
+    return scan_tabs(workbook_rows(path))
+
+
+def scan_tabs(tabs) -> dict[str, dict]:
+    """Parse (tab name, [(row number, {column: raw cell text})]) from any reader (XLSX or Sheets API)."""
     result = {}
     seen = Counter()
-    for tab, data in workbook_rows(path):
+    for tab, data in tabs:
         if normalized(tab) == "TONG":
             continue
         seen[tab] += 1

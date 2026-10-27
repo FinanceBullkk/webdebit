@@ -37,7 +37,8 @@ function ledger(world) {
     month_locks: world.locks,
     months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' })),
     total_outstanding_vnd: '0', trips, adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
-    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events, sheet_sync: world.sheetSync };
+    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events, sheet_sync: world.sheetSync,
+    sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 } };
 }
 
 function apply(world, url, body) {
@@ -55,6 +56,18 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { approved: 1, remaining: 0, complete: true }];
   }
+  if (url === '/api/v7/sheet/prices') {
+    if (world.priceStale || body.snapshot_sha256 !== world.sheetPrices.snapshot_sha256) return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi. Tải lại rồi ghi.' }];
+    const written = world.sheetPrices.ready.length;
+    for (const item of world.sheetPrices.ready) {
+      const row = item.target_kind === 'trip' ? world.trips.find(trip => trip.id === item.target_id)
+        : world.legacy.find(line => line.id === item.target_id).current;
+      Object.assign(row, { unit_price_vnd: item.sheet_unit_price_vnd, other_fee_vnd: item.sheet_other_fee_vnd, is_missing_price: false });
+    }
+    world.sheetPrices = { ...world.sheetPrices, ready: [], ready_count: 0 };
+    world.version += 1;
+    return [200, { written, remaining: 0, complete: true, version: world.version }];
+  }
   if (url === '/api/v7/sheet/resolve') {
     const item = world.sheetSync.items.find(row => row.source_row === body.source_row || row.existing_id === body.target_id);
     if (!item || !item.changed_fields.includes(body.field)) return [404, { message: 'Không còn trường lệch.' }];
@@ -64,7 +77,13 @@ function apply(world, url, body) {
     return [200, { resolved: true, version: world.version }];
   }
   const event = (kind, before, after) => world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before, after });
-  if (url === '/api/v7/trips/info') {
+  if (url === '/api/v7/trips/price') {
+    const trip = world.trips.find(row => row.id === body.trip_id);
+    Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false });
+    event('price_edit', { price: {} }, { price: {} });
+  } else if (url === '/api/v7/months/lock') {
+    world.locks = world.locks.map(row => row.month === body.month ? { ...row, locked: body.locked } : row);
+  } else if (url === '/api/v7/trips/info') {
     const trip = world.trips.find(row => row.id === body.trip_id && !row.deleted);
     const before = { id: trip.id, field: body.field, value: trip[body.field], debt_month: trip.month, status: trip.status };
     trip[body.field] = body.value;
@@ -490,4 +509,90 @@ test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng
   const empty = await payRows(page, todayMonth.slice(0, 7));
   assert.equal(empty.length, 1);
   assert.equal(empty[0].entry, true);
+}));
+
+// ---- Ghi giá từ Sheet (specs/v7-price-queue.md, mockup ghi-gia-tu-sheet đã duyệt 27/10/2026) ----
+const priceItem = (kind, id, price, fee, extra = {}) => ({ target_kind: kind, target_id: id, sheet_unit_price_vnd: price,
+  sheet_other_fee_vnd: fee, web_unit_price_vnd: null, web_other_fee_vnd: null, status: 'READY', container: 'FAKEU0000000',
+  date: '2026-09-16', source_tab: 'Khách Thử Sửa', source_row: 40, ...extra });
+const withPrices = world => {
+  world.trips.push({ ...world.trips[0], id: 12, container: 'DEMU7654321', event_date: '2026-09-16', unit_price_vnd: null,
+    other_fee_vnd: null, amount_vnd: null, is_missing_price: true });
+  world.sheetPrices = { snapshot_sha256: 'c'.repeat(64), ready: [priceItem('trip', 12, '12500000', '300000'),
+    priceItem('legacy', 21, '13000000', null)], review: [], ready_count: 2, review_count: 0 };
+};
+
+test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số tăng, ghi một lệnh cho cả lô', async () => withPage(async ({ page, world, shot }) => {
+  const button = page.locator('.price-approve');
+  assert.equal(await button.innerText(), 'Ghi 2 giá từ Sheet');
+  assert.equal(await page.locator('tr.from-sheet').count(), 2);
+  const tripRow = page.locator('[data-row="trip-12"]');
+  assert.match(await tripRow.locator('[data-field="unit_price_vnd"]').innerText(), /12\.500\.000\s*giá Sheet/);
+  assert.match(await tripRow.innerText(), /12\.800\.000\s*chưa tính/);
+  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0');
+  await shot('gia-sheet-1-cho-ghi');
+  await button.click();
+  const confirm = page.locator('.price-panel.confirm');
+  assert.match(await confirm.innerText(), /Ghi giá Sheet cho 2 chuyến tháng 9\/2026\?/);
+  assert.match(await confirm.innerText(), /tăng 25\.800\.000 đ/);
+  assert.equal(await page.evaluate(() => document.activeElement.className), 'price-write primary');
+  await shot('gia-sheet-2-xac-nhan');
+  await page.locator('.price-cancel').click();
+  assert.equal(await page.locator('.price-panel').count(), 0);
+  assert.equal(world.requests.length, 0);
+  await button.click();
+  await page.locator('.price-write').click();
+  await page.waitForFunction(() => !document.querySelector('tr.from-sheet'));
+  const [path, body] = posts(world).at(-1);
+  assert.equal(path, '/api/v7/sheet/prices');
+  assert.deepEqual(Object.keys(body).sort(), ['customer_id', 'expected_version', 'idempotency_key', 'snapshot_sha256']);
+  assert.equal(body.snapshot_sha256, 'c'.repeat(64));
+  assert.equal(world.requests.length, 1);
+  assert.match(await page.locator('.live-notice').innerText(), /Đã ghi 2 giá từ Sheet\./);
+  assert.equal(await page.locator('.price-approve').count(), 0);
+  assert.equal(await tripRow.locator('[data-field="unit_price_vnd"]').innerText(), '12.500.000');
+}, withPrices));
+
+test('Ghi giá từ Sheet: Sheet đổi giữa chừng thì không ghi gì và mời tải lại', async () => withPage(async ({ page, world }) => {
+  await page.locator('.price-approve').click();
+  await page.locator('.price-write').click();
+  const error = page.locator('.price-panel.err');
+  await error.waitFor();
+  assert.match(await error.innerText(), /Chưa ghi giá nào\. Sheet đã đổi sau khi mở sổ\./);
+  assert.equal(await page.locator('tr.from-sheet').count(), 2);
+  world.priceStale = false;
+  await page.locator('.price-reload').click();
+  await page.waitForFunction(() => !document.querySelector('.price-panel'));
+}, world => { withPrices(world); world.priceStale = true; }));
+
+test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Sheet, khớp nhiều chuyến chỉ báo', async () => withPage(async ({ page, world, shot }) => {
+  assert.equal(await page.locator('.price-approve').count(), 0);
+  assert.match(await page.locator('.price-strip').innerText(), /Giá từ Sheet cần xem:\s*4/);
+  await page.locator('.price-review-toggle').click();
+  const items = page.locator('.price-panel li');
+  assert.equal(await items.count(), 4);
+  assert.match(await items.nth(0).innerText(), /Tháng 8\/2026 đang khóa/);
+  assert.match(await items.nth(1).innerText(), /Web 50\.000\.000 đ · Sheet 52\.000\.000 đ/);
+  assert.match(await items.nth(2).innerText(), /Khớp nhiều chuyến/);
+  assert.match(await items.nth(3).innerText(), /số âm/);
+  assert.equal(await items.nth(2).locator('button').count(), 0);
+  await shot('gia-sheet-3-can-xem');
+  await items.nth(1).locator('.price-use-sheet').click();
+  await page.waitForFunction(() => document.querySelector('[data-row="trip-11"] [data-field="unit_price_vnd"]')?.textContent.includes('52.000.000'));
+  assert.deepEqual(posts(world).at(-1)[1].unit_price_vnd, '52000000');
+  assert.equal(posts(world).at(-1)[0], '/api/v7/trips/price');
+  // Khung "Cần xem" vẫn mở sau khi ghi một dòng, để xử lý tiếp dòng khác.
+  await page.locator('.price-unlock').click();
+  for (let i = 0; i < 100 && posts(world).at(-1)[0] !== '/api/v7/months/lock'; i++) await page.waitForTimeout(50);
+  const [lockPath, lockBody] = posts(world).at(-1);
+  assert.deepEqual([lockPath, lockBody.month, lockBody.locked], ['/api/v7/months/lock', '2026-08-01', false]);
+}, world => {
+  world.locks.push({ month: '2026-08-01', locked: true });
+  world.trips.push({ ...world.trips[0], id: 13, month: '2026-08-01', container: 'DEMU0800001', event_date: '2026-08-20',
+    unit_price_vnd: null, amount_vnd: null, is_missing_price: true, editable: false, info_editable: false });
+  world.sheetPrices = { snapshot_sha256: 'd'.repeat(64), ready: [], ready_count: 0, review_count: 4, review: [
+    priceItem('trip', 13, '11000000', null, { status: 'MONTH_LOCKED', container: 'DEMU0800001', date: '2026-08-20' }),
+    priceItem('trip', 11, '52000000', null, { status: 'CONFLICT', web_unit_price_vnd: '50000000', container: 'DEMU1234567' }),
+    priceItem('', '', '12500000', null, { status: 'AMBIGUOUS', container: 'DEMU0000009' }),
+    priceItem('trip', 11, '50000000', '-500000', { status: 'MANUAL' })] };
 }));

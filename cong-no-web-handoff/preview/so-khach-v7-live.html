@@ -111,6 +111,20 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .sheet-approve{min-height:34px;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:700;cursor:pointer}
 .sheet-approve:disabled{opacity:.55;cursor:default}
 .sheet-approve:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* Ghi giá từ Sheet (mockup ghi-gia-tu-sheet, duyệt 27/10/2026) */
+.price-approve,.price-panel .primary{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.price-panel button{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
+.price-approve:focus-visible,.price-panel button:focus-visible,.price-strip button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.price-panel button:disabled,.price-approve:disabled{opacity:.55;cursor:default}
+.price-strip{display:flex;align-items:center;gap:10px;padding:8px 14px;background:#fff;border-bottom:1px solid #c9d6e3;font-size:15px}
+.price-strip button{min-height:32px;border:0;background:none;color:#1d4ed8;text-decoration:underline;font:inherit;cursor:pointer}
+.price-panel{margin:8px 0;padding:12px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:15px}
+.price-panel.confirm{border-left:4px solid #1e4e8c}.price-panel.err{border-left:4px solid #b91c1c;background:#fff4f4}
+.price-panel p{margin:0 0 10px}.price-actions{display:flex;gap:10px}
+.price-panel ul{list-style:none;margin:0;padding:0}.price-panel li{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid #e3eaf2}
+.price-panel li:first-child{border-top:0}.price-panel .what{flex:1}.price-panel small{display:block;color:#475d73;font-size:13px}
+.ledger tr.from-sheet td{background:#fff6d6}
+.sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:11px;font-style:normal}
 .moved-tag{color:#6b4a00;font-size:12px;font-weight:700}
 .ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
 .move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}

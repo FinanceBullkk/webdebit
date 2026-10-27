@@ -674,6 +674,170 @@ không có event/chuyến/phiếu mới, trang live tải giao diện mới. Kh�
 **chưa kiểm** sửa/xóa qua giao diện với dữ liệu thật. Rollback: trả đường dẫn release cũ trong unit
 (bản unit trước lưu ở thư mục evidence), `daemon-reload`, restart; DB không cần restore.
 
+## Ghi giá từ Sheet — đổi release app và thêm runner bản chụp giá (ĐỀ XUẤT, CHƯA CHẠY)
+
+Phạm vi: PR FinanceBullkk/webdebit#109, spec [`specs/v7-price-queue.md`](../specs/v7-price-queue.md). Soạn 27/10/2026, chưa chạy bước nào trên `hao`.
+- **Không migration, không đổi schema hay hàm SQL.** Ghi giá đi qua `edit_trip_price` và `edit_legacy_trip` đã có trên `hao`.
+- Thêm route `GET /api/v7/ledger` → `sheet_prices` và `POST /api/v7/sheet/prices`.
+- Thêm một runner chỉ đọc Sheet, ghi file `prices.json`.
+
+Ai làm: admin trên `hao`; chủ nghiệp vụ cho phép từng mốc (P1–P5).
+
+**Vì sao không dùng luồng tự triển khai:** diff có `cong-no-web-handoff/tools/v7_load_real_copy.py`. Bộ lọc của `deploy-hao.yml` gặp `tools/v7_load*` thì **dừng** ([hao-auto-deploy](hao-auto-deploy.md#phạm-vi-và-những-gì-bị-chặn)), nên làm tay như mục "Giao diện sửa/xóa tại ô". Thay đổi trong loader chỉ tách `scan_tabs` khỏi `scan_workbook`, hành vi giữ nguyên: test nạp thật vẫn xanh. Không chạy lại nạp mốc.
+
+**Thứ tự với PR #107:** hai PR ghép không xung đột (kiểm 27/10 bằng `git merge-tree`). #107 có migration `2026-10-27-v7-sheet-conflict-date-booking.sql`, nên đi theo trình tự nâng DB (backup, chạy trên bản sao, rồi DB thật). Nếu triển khai cùng đợt thì chạy #107 trước, rồi đổi release lên SHA `main` chứa cả hai.
+
+### P1. Gate trước khi đụng `hao`
+
+- #109 đã merge; `Tests` xanh trên đúng SHA `main` sẽ triển khai.
+- Đã có quyết định chủ nghiệp vụ cho mở đường ghi mới (nút "Ghi N giá").
+- Ghi SHA, giờ bắt đầu và người chạy vào thư mục bằng chứng `<evidence_dir>` (ngoài Git).
+
+### P2. Backup trước, dù release không đổi DB
+
+Lý do: từ lúc nút xuất hiện, người dùng có thể ghi giá thật. Dùng đúng lệnh backup và restore thử ở [mục 2](#2-backup-toàn-phần-trước-mọi-ghi-dbcấu-hình). Đạt khi số dư 236 khách của bản restore khớp bản đang chạy.
+
+### P3. Đổi release app
+
+Như mục "Giao diện sửa/xóa tại ô":
+1. Gói `git archive <sha>`, kiểm hash.
+2. Diff với release đang chạy chỉ được có các file dưới đây. Có file khác thì **dừng**.
+   - `cong-no-web-handoff/web/v7_ledger_api.py`, `web/v7_price_queue.py`
+   - `cong-no-web-handoff/preview/so-khach-v7-{ui,model}.js`, `so-khach-v7-live.html`
+   - `cong-no-web-handoff/tools/v7_{price_match,price_snapshot,sheets_api_reader,load_real_copy}.py`
+   - test, spec, mockup
+3. Đặt symlink `CURRENT_LINK` sang release mới, ghi `.release-sha` = SHA.
+4. `sudo systemctl restart <unit>`.
+
+Chưa có `prices.json` thì sổ vẫn đọc bình thường: `sheet_prices.unavailable = true`, không hiện nút.
+
+Kiểm chỉ đọc qua URL Serve, **không bấm ghi**:
+- `GET /api/v7/customers` trả 200.
+- `GET /api/v7/ledger?customer=<id>` có khóa `sheet_prices` với `unavailable: true`.
+- Checker sau triển khai OK; số dư từng khách không đổi so với P2.
+
+### P4. Runner bản chụp giá
+
+Chạy cùng OS user, cùng file biến môi trường và cùng tài khoản dịch vụ với runner đồng bộ chuyến hiện có (`sheet_sync_runner.py`, chỉ `spreadsheets.readonly`). Không xin thêm quyền Google.
+
+File do runner ghi có mode 600, nên API phải đọc được bằng chính user đó. Dùng đúng cách đã làm cho `snapshot.json`: cùng thư mục `/var/lib/webdebit-sheet-sync/`.
+
+| Biến | Giá trị | Ghi chú |
+| --- | --- | --- |
+| `WEBDEBIT_SHEET_ID` | ID Sheet sổ chính | đã có trong env của runner đồng bộ; không ghi vào repo |
+| `WEBDEBIT_GOOGLE_CREDENTIALS` | đường dẫn JSON tài khoản dịch vụ | đã có; mode 600 |
+| `WEBDEBIT_PRICE_SNAPSHOT_PATH` | `/var/lib/webdebit-sheet-sync/prices.json` | runner và API cùng mặc định này; chỉ đặt nếu đổi chỗ, khi đó đặt ở **cả hai** unit |
+
+Mẫu `webdebit-sheet-prices.service`:
+
+```ini
+[Unit]
+Description=V7 Sheet price snapshot (read-only Sheets API)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=<os_user_sheet_sync>
+EnvironmentFile=<env_file_sheet_sync>
+WorkingDirectory=<current_link>
+ExecStart=<python> <current_link>/cong-no-web-handoff/tools/v7_price_snapshot.py --output /var/lib/webdebit-sheet-sync/prices.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/webdebit-sheet-sync
+TimeoutStartSec=300
+```
+
+Mẫu `webdebit-sheet-prices.timer`:
+
+```ini
+[Unit]
+Description=V7 Sheet price snapshot schedule
+
+[Timer]
+OnCalendar=<cùng nhịp với timer đồng bộ chuyến>
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+- Nhịp chạy lấy theo timer đồng bộ chuyến hiện có, để giá và chuyến cùng độ mới. Mỗi lượt khoảng 11 yêu cầu Sheets API (1 lấy danh sách tab, 25 tab mỗi `batchGet`), không chạm hạn mức.
+- Ghi file nguyên tử: người đọc không thấy file dở.
+- `ProtectHome=true`: nếu file JSON tài khoản dịch vụ nằm trong `/home` thì làm như unit đồng bộ chuyến (cùng tùy chọn bảo vệ), không nới riêng unit này.
+
+Chạy lần đầu **bằng tay**, chưa bật timer:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+```bash
+sudo systemctl start webdebit-sheet-prices.service
+```
+
+```bash
+sudo journalctl -u webdebit-sheet-prices.service -n 20 --no-pager
+```
+
+Đạt khi:
+- Log có `{"ok": true, "row_count": N, "sha256": …}`, với N cùng cỡ bản tải gần nhất (27/10: 10.358).
+- `prices.json` mode 600, chủ là user runner.
+- Log không có tên khách hay số tiền.
+
+Có `"ok": false` thì **dừng**, đọc `reason`:
+- `HTTPError` hoặc `URLError`: quyền chia sẻ Sheet hoặc mạng.
+- `ValueError`: phản hồi khác dạng mong đợi.
+
+**So với bản tải `.xlsx` cùng thời điểm** (lần đầu là bước bắt buộc). Hai đường đã được kiểm tương đương bằng dữ liệu mô phỏng, chưa kiểm bằng Sheets API thật:
+1. Tải `.xlsx` ngay sau khi runner chạy.
+2. Tạo bản chụp ra thư mục tạm ngoài repo: `v7_price_snapshot.py --xlsx <file> --output <tmp>/prices-xlsx.json`.
+3. So hai bản bằng lệnh dưới. Lệnh chỉ in số đếm, không in tên hay tiền.
+
+```bash
+<python> -c "import json,sys; a,b=(json.load(open(p, encoding='utf-8')) for p in sys.argv[1:]); k=lambda r:(r['customer_tab'],r['source_row']); A={k(r):r for r in a['rows']}; B={k(r):r for r in b['rows']}; f=('sheet_unit_price_vnd','sheet_other_fee_vnd','sheet_total_vnd','date'); print(len(A),len(B),len(A.keys()^B.keys()),sum(1 for x in A.keys()&B.keys() if any(A[x][g]!=B[x][g] for g in f)))" /var/lib/webdebit-sheet-sync/prices.json <tmp>/prices-xlsx.json
+```
+
+Đạt khi in ra `N N 0 0`: cùng số dòng, không lệch khóa, không lệch giá, phụ phí, tổng hay ngày. Ô container có thể khác ở dòng gõ số (đã gặp `4.2E7` và `42000000`); lệnh không so container. Lệch thì **dừng**, giữ timer tắt, báo Claude kèm 4 con số.
+
+Đạt rồi mới bật timer:
+
+```bash
+sudo systemctl enable --now webdebit-sheet-prices.timer
+```
+
+### P5. Kiểm sau khi có bản chụp, vẫn không ghi
+
+- `GET /api/v7/ledger?customer=<id>` của một khách có giá chờ: `sheet_prices.ready_count` lớn hơn 0, `snapshot_sha256` khớp log.
+- Số lần đo 27/10 để đối chiếu: 36 dòng ghi được ở 3 khách; "Cần xem" 43 dòng ở 10 khách. Số thật đổi theo Sheet.
+- Mở sổ khách đó trên máy người dùng (1280×720): có nút "Ghi N giá từ Sheet", dòng vàng có "giá Sheet / chưa tính", tổng còn nợ **không đổi**.
+- Số dư từng khách vẫn bằng P2; không có event mới.
+
+**Lần ghi thật đầu tiên:**
+- Do người nhập bấm, chủ nghiệp vụ chứng kiến, chọn khách ít dòng.
+- Sau đó kiểm:
+  - Lịch sử có một dòng sửa giá cho mỗi chuyến, ghi đúng tên người bấm.
+  - Tổng còn nợ tăng đúng số trong khung xác nhận.
+  - Đối soát tổng khách của khách đó không lệch thêm.
+
+### Rollback
+
+- **Runner:**
+  - `sudo systemctl disable --now webdebit-sheet-prices.timer`.
+  - Đổi tên `prices.json` thành `prices.json.disabled` (giữ làm bằng chứng). API tự về `unavailable`, nút biến mất.
+- **App:** trỏ `CURRENT_LINK` về release trước (giữ 5 bản), restart unit. DB không cần restore.
+- **Giá đã ghi sai:** sửa lại bằng chính ô giá trên sổ; mọi lần sửa có Lịch sử. Chỉ restore backup P2 khi ghi sai hàng loạt và chủ nghiệp vụ quyết định; sau restore phải đối soát lại.
+
+### Còn mở sau triển khai
+
+- Nút "Giữ web" cho dòng lệch giá chưa có.
+- Ghi nguồn tab/dòng Sheet vào Lịch sử chưa có.
+- Số đếm ở trang Tổng quan chưa có.
+- Harness PostgreSQL cho lệnh ghi lô chưa có: lệnh ghi lô chỉ gọi hai hàm SQL đã có test.
+
 ## Kết luận CHỜ KIỂM — nâng DB đang có (ĐÃ CHẠY trên hao 22/10/2026)
 
 Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,

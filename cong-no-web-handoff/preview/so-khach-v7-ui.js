@@ -156,6 +156,9 @@
       return;
     }
     let snapshot = null;
+    // Ghi giá từ Sheet (specs/v7-price-queue.md): null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
+    let priceView = null;
+    let priceApproval = null;
     let message = '';
     const clockParts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
     const liveOpenMonth = clockParts.find(part => part.type === 'year').value + '-' + clockParts.find(part => part.type === 'month').value;
@@ -491,7 +494,8 @@
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active || sheetNotice ? '' : 'hidden'}>${escape(message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       const newCount = data.sheet_sync?.new_count ?? 0;
       renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
-        sheetButton: newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '',
+        sheetButton: (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
+          + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : ''),
         sections: groups.map(section).join(''), navigation: groups.map(item => `<a href="#thang-${escape(monthKey(item.month))}"><span>${monthLabel(monthKey(item.month))}</span><small>${fmt(item.outstanding_vnd)}</small></a>`).join(''),
         history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.review_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
       for (const row of sheetRows.filter(item => item.sync_state === 'CONFLICT' && item.existing_id)) {
@@ -507,6 +511,53 @@
           target.children[1]?.append(button);
         }
       }
+      decoratePrices(data, active);
+    }
+    // ---- Ghi giá từ Sheet: server chọn dòng chắc chắn (READY), trang chỉ hiện và gửi một lệnh cho cả lô ----
+    const priceRows = data => new Map([...(data.trips ?? []).map(row => [`trip-${row.id}`, row]),
+      ...(data.legacy_rows ?? []).map(row => [`legacy-${row.id}`, row])]);
+    const vndText = value => value == null ? '' : model.formatVnd(model.sheetVnd(value));
+    function priceMonths(data, items) {
+      const rows = priceRows(data);
+      const keys = [...new Set(items.map(item => monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month)).filter(Boolean))].sort();
+      return keys.map(key => `tháng ${monthLabel(key)}`).join(', ');
+    }
+    function pricePanel(data) {
+      const ready = data.sheet_prices?.ready ?? [];
+      if (priceView === 'confirm' && ready.length) {
+        const plan = model.planSheetPrices(ready, data.total_outstanding_vnd);
+        return `<div class="price-panel confirm" role="region" aria-label="Xác nhận ghi giá từ Sheet"><p><strong>Ghi giá Sheet cho ${plan.count} chuyến ${escape(priceMonths(data, ready))}?</strong> Tổng còn nợ tăng <strong>${model.formatVnd(plan.increaseVnd)} đ</strong> (từ ${model.formatVnd(plan.beforeVnd)} lên ${model.formatVnd(plan.afterVnd)}). Phiếu thu tự phân bổ lại theo nợ cũ trước.</p><div class="price-actions"><button type="button" class="price-write primary">Ghi ${plan.count} giá</button><button type="button" class="price-cancel">Thôi</button></div></div>`;
+      }
+      if (priceView?.error) return `<div class="price-panel err" role="alert"><p><strong>Chưa ghi giá nào.</strong> ${escape(priceView.error)}</p><div class="price-actions"><button type="button" class="price-reload primary">Tải lại sổ</button></div></div>`;
+      if (priceView !== 'review') return '';
+      const rows = priceRows(data);
+      const line = item => {
+        const what = `${escape(item.container)} · ${escape(dateText(item.date))}`;
+        const month = monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month);
+        if (item.status === 'MONTH_LOCKED') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Tháng ${monthLabel(month)} đang khóa nên chưa ghi được.</small></div><button type="button" class="price-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button></li>`;
+        if (item.status === 'CONFLICT') return `<li><div class="what">${what} · Web ${vndText(item.web_unit_price_vnd)} đ · Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Web đã có giá khác Sheet.</small></div><button type="button" class="price-use-sheet" data-kind="${escape(item.target_kind)}" data-id="${escape(item.target_id)}" data-price="${escape(item.sheet_unit_price_vnd)}" data-fee="${escape(item.sheet_other_fee_vnd ?? '')}">Lấy Sheet</button></li>`;
+        if (item.status === 'MANUAL') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd)} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
+        return `<li><div class="what">Dòng Sheet ${escape(item.source_row)} · ${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Khớp nhiều chuyến cùng container. Điền giá tay tại ô của đúng chuyến.</small></div></li>`;
+      };
+      return `<div class="price-panel" role="region" aria-label="Giá từ Sheet cần xem"><ul>${(data.sheet_prices?.review ?? []).map(line).join('')}</ul></div>`;
+    }
+    function decoratePrices(data, active) {
+      const prices = active ? data.sheet_prices ?? {} : {};
+      for (const item of prices.ready ?? []) {
+        const row = root.querySelector(`[data-row="${CSS.escape(`${item.target_kind}-${item.target_id}`)}"]`);
+        if (!row) continue;
+        row.classList.add('from-sheet');
+        const price = row.querySelector('[data-field="unit_price_vnd"]');
+        const fee = row.querySelector('[data-field="other_fee_vnd"]');
+        if (price) price.innerHTML = `<span class="sheet-price">${vndText(item.sheet_unit_price_vnd)}<small>giá Sheet</small></span>`;
+        if (fee && item.sheet_other_fee_vnd != null) fee.innerHTML = `<span class="sheet-price">${vndText(item.sheet_other_fee_vnd)}</span>`;
+        if (fee?.nextElementSibling) fee.nextElementSibling.innerHTML = `<span class="sheet-price">${model.formatVnd(model.sheetPriceAmount(item))}<small>chưa tính</small></span>`;
+      }
+      if (!prices.ready_count && priceView === 'confirm') priceView = null;
+      const review = prices.review ?? [];
+      if (!review.length && priceView === 'review') priceView = null;
+      const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
+      root.querySelector('.book-head')?.insertAdjacentHTML('afterend', strip + pricePanel(data));
     }
     function showNotice(value) {
       message = value;
@@ -583,6 +634,59 @@
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
       } catch (error) { showNotice(error.message); action.disabled = false; }
+    });
+    root.addEventListener('click', async event => {
+      const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet');
+      if (!target || target.disabled || !snapshot) return;
+      if (target.matches('.price-approve,.price-cancel,.price-review-toggle')) {
+        priceView = target.matches('.price-approve') ? 'confirm'
+          : target.matches('.price-review-toggle') && priceView !== 'review' ? 'review' : null;
+        renderSnapshot(snapshot);
+        root.querySelector(priceView === 'confirm' ? '.price-write' : '.price-review-toggle')?.focus();
+        return;
+      }
+      if (target.matches('.price-reload')) {
+        priceView = null;
+        priceApproval = null;
+        await api.read().catch(() => showNotice('Không tải được sổ mới. Thử lại.'));
+        return;
+      }
+      if (target.matches('.price-unlock')) { await submit('lock', { month: target.dataset.month, locked: false }); return; }
+      if (target.matches('.price-use-sheet')) {
+        const { kind, id, price, fee } = target.dataset;
+        target.disabled = true;
+        if (kind === 'trip') await submit('price', { trip_id: Number(id), unit_price_vnd: price, other_fee_vnd: fee || null });
+        else if (await submit('legacyEdit', { legacy_row_id: Number(id), field: 'unit_price_vnd', value: price }) && fee)
+          await submit('legacyEdit', { legacy_row_id: Number(id), field: 'other_fee_vnd', value: fee });
+        return;
+      }
+      // Ghi cả lô: giữ nguyên khóa khi chưa rõ kết quả để bấm lại không ghi trùng.
+      if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+      priceApproval ??= { customer_id: customerId, expected_version: snapshot.version,
+        snapshot_sha256: snapshot.sheet_prices.snapshot_sha256, idempotency_key: crypto.randomUUID() };
+      target.disabled = true;
+      let response, result;
+      try {
+        response = await fetch('/api/v7/sheet/prices', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(priceApproval) });
+        result = await response.json();
+      } catch {
+        target.disabled = false;
+        showNotice('Chưa rõ kết quả ghi giá. Tải lại sổ để kiểm tra trước khi thử lại.');
+        return;
+      }
+      priceApproval = null;
+      if (!response.ok) {
+        priceView = { error: result.error === 'STALE_SHEET' ? 'Sheet đã đổi sau khi mở sổ.'
+          : result.error === 'STALE_LEDGER' ? 'Sổ vừa thay đổi.' : result.message || 'Không ghi được giá từ Sheet.' };
+        renderSnapshot(snapshot);
+        return;
+      }
+      priceView = null;
+      try { await api.read(); } catch { showNotice('Đã ghi giá; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+      showNotice(result.complete === false
+        ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi. Bấm "Ghi … giá từ Sheet" để ghi tiếp.`
+        : `Đã ghi ${result.written} giá từ Sheet.`);
     });
     let sheetApproval = null;
     root.addEventListener('click', async event => {
@@ -1176,7 +1280,7 @@
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
     let refreshing = true;
     api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
-    const busy = () => api.hasPending() || draftsBy.size || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.history-panel:not([hidden])')
+    const busy = () => api.hasPending() || draftsBy.size || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
       || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
       || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {
