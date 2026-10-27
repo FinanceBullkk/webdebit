@@ -15,8 +15,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from collections import Counter
-from datetime import date
 from html import escape
 from pathlib import Path
 from urllib.request import ProxyHandler, build_opener
@@ -24,35 +24,22 @@ from urllib.request import ProxyHandler, build_opener
 import v7_load_real_copy as loader
 import v7_reconcile_sheet as rec
 
-DATE_WINDOW_DAYS = 3
-STATUSES = ("READY", "PRICE_UNCHANGED", "CONFLICT", "MONTH_LOCKED", "PENDING_REVIEW",
-            "AMBIGUOUS", "NOT_FOUND", "NO_CUSTOMER", "SHEET_NO_PRICE", "NO_CONTAINER")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+import v7_price_queue as queue  # tools may use the web layer; never the reverse
+
+DATE_WINDOW_DAYS = queue.DATE_WINDOW_DAYS
+STATUSES = ("READY", "PRICE_UNCHANGED", "CONFLICT", "MONTH_LOCKED", "MANUAL", "PENDING_REVIEW",
+            "AMBIGUOUS", "AMBIGUOUS_PRICED", "NOT_FOUND", "NO_CUSTOMER", "SHEET_NO_PRICE", "NO_CONTAINER")
 LABELS = {"READY": "Ghi được (web chưa có giá)", "PRICE_UNCHANGED": "Giá đã giống",
           "CONFLICT": "Web có giá khác Sheet", "MONTH_LOCKED": "Ghi được nhưng tháng khóa",
+          "MANUAL": "Giá/phụ phí âm: nhập tay",
           "PENDING_REVIEW": "Chuyến đang CHỜ KIỂM", "AMBIGUOUS": "Khớp nhiều dòng",
+          "AMBIGUOUS_PRICED": "Khớp nhiều dòng, đều đã có giá",
           "NOT_FOUND": "Không tìm thấy trên web", "NO_CUSTOMER": "Không có khách trên web",
           "SHEET_NO_PRICE": "Sheet chưa có giá", "NO_CONTAINER": "Dòng không container"}
 FIELDS = ["customer_tab", "source_row", "debt_month", "container", "date", "sheet_unit_price_vnd",
           "sheet_other_fee_vnd", "sheet_total_vnd", "customer_basis", "status", "match_basis", "target_kind",
           "target_id", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd"]
-
-
-def container_key(value) -> str:
-    return "".join(str(value or "").upper().split())
-
-
-def iso(value) -> date | None:
-    try:
-        return date.fromisoformat(str(value or "")[:10])
-    except ValueError:
-        return None
-
-
-def money(value) -> int | None:
-    try:
-        return rec.vnd(value)
-    except (rec.InputError, ValueError):
-        return None
 
 
 def sheet_rows(xlsx: Path) -> list[dict]:
@@ -63,117 +50,22 @@ def sheet_rows(xlsx: Path) -> list[dict]:
                 continue
             details = record.get("details", {})
             rows.append({"customer_tab": tab, "source_row": record["row"], "debt_month": record["month"],
-                         "container": container_key(record.get("container")), "date": record.get("date"),
+                         "container": queue.container_key(record.get("container")), "date": record.get("date"),
                          "sheet_unit_price_vnd": details.get("unit_price"),
                          "sheet_other_fee_vnd": details.get("fee"), "sheet_total_vnd": record.get("amount")})
     return rows
 
 
-def targets(ledger: dict) -> list[dict]:
-    locks = {str(row.get("month"))[:7]: row.get("locked") for row in ledger.get("month_locks", [])}
-    today = str(ledger.get("today_month") or "")[:7]
-
-    def locked(month):
-        key = str(month or "")[:7]
-        return locks.get(key, key != today)
-
-    out = []
-    for trip in ledger.get("trips", []):
-        if trip.get("deleted") or trip.get("status") == "rejected":
-            continue
-        out.append({"kind": "trip", "id": trip.get("id"), "container": container_key(trip.get("container")),
-                    "date": iso(trip.get("event_date")), "price": money(trip.get("unit_price_vnd")),
-                    "fee": money(trip.get("other_fee_vnd")), "locked": locked(trip.get("month")),
-                    "total": None, "pending": trip.get("status") == "pending_review"})
-    for row in ledger.get("legacy_rows", []):
-        current = row.get("current") or {}
-        if row.get("kind") != "trip" or current.get("deleted"):
-            continue
-        out.append({"kind": "legacy", "id": row.get("id"), "container": container_key(current.get("container")),
-                    "date": iso(current.get("event_date")), "price": money(current.get("unit_price_vnd")),
-                    "fee": money(current.get("other_fee_vnd")), "locked": locked(current.get("month") or row.get("month")),
-                    "total": money(current.get("counted_vnd")), "pending": False})
-    return [target for target in out if target["container"]]
-
-
-def unchanged(row: dict, target: dict) -> bool:
-    if target["price"] != row["sheet_unit_price_vnd"]:
-        return False
-    if target["kind"] == "legacy":
-        # Original-book rows keep the Sheet TOTAL (counted_vnd); fee columns such as negative
-        # discounts are not stored separately, so the charged total is what must agree.
-        return target["total"] is not None and target["total"] == row["sheet_total_vnd"]
-    # V7-BE: with a known price a blank fee counts as 0, so blank and 0 are the same charge.
-    return (row["sheet_other_fee_vnd"] or 0) == (target["fee"] or 0)
-
-
-def customer_pools(ledgers: dict[str, dict]) -> tuple[dict, dict]:
-    """Ledger name first, then Sheet display name and aliases; a name shared by two books is dropped."""
-    primary = {rec.name(key): key for key in ledgers}
-    extra: dict[str, set] = {}
-    for key, ledger in ledgers.items():
-        for alias in [ledger.get("_display_name"), *(ledger.get("_aliases") or [])]:
-            if isinstance(alias, str) and alias.strip() and rec.name(alias) not in primary:
-                extra.setdefault(rec.name(alias), set()).add(key)
-    by_alias = {alias: next(iter(keys)) for alias, keys in extra.items() if len(keys) == 1}
-    return primary, by_alias
-
-
 def match(rows: list[dict], ledgers: dict[str, dict]) -> list[dict]:
-    pools = {key: targets(ledger) for key, ledger in ledgers.items()}
-    primary, by_alias = customer_pools(ledgers)
-    out = []
+    """Ledgers keyed by web customer name; `_display_name`/`_aliases` come from /api/v7/customers."""
+    owned = queue.owners([{"key": key, "name": key, "display_name": ledger.get("_display_name"),
+                           "aliases": ledger.get("_aliases")} for key, ledger in ledgers.items()])
+    pools = {key: queue.targets(ledger) for key, ledger in ledgers.items()}
+    results = []
     for row in rows:
-        result = {**row, "status": None, "customer_basis": "", "match_basis": "", "target_kind": "",
-                  "target_id": "", "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
-        out.append(result)
-        tab = rec.name(row["customer_tab"]) if str(row["customer_tab"]).strip() else ""
-        key = primary.get(tab) or by_alias.get(tab)
-        result["customer_basis"] = "" if key is None else "name" if tab in primary else "alias"
-        pool = pools.get(key)
-        sheet_date = iso(row["date"])
-        if not row["container"]:
-            result["status"] = "NO_CONTAINER"
-            continue
-        if pool is None:
-            result["status"] = "NO_CUSTOMER"
-            continue
-        same = [t for t in pool if t["container"] == row["container"]]
-        found = [t for t in same if sheet_date and t["date"] == sheet_date]
-        result["match_basis"] = "exact_date" if found else ""
-        if not found and sheet_date:
-            found = [t for t in same if t["date"] and abs((t["date"] - sheet_date).days) <= DATE_WINDOW_DAYS]
-            result["match_basis"] = "near_date" if found else ""
-        if not found and not sheet_date:
-            # Undated Sheet rows (mostly old history): container alone, only within this customer;
-            # several rows with that container stay AMBIGUOUS below.
-            found = same
-            result["match_basis"] = "container_only" if found else ""
-        if not found:
-            result["status"] = "NOT_FOUND"
-            continue
-        if len(found) > 1:
-            result["status"] = "AMBIGUOUS"
-            continue
-        target = found[0]
-        result.update(target_kind=target["kind"], target_id=target["id"],
-                      web_unit_price_vnd=target["price"], web_other_fee_vnd=target["fee"], web_total_vnd=target["total"])
-        if row["sheet_unit_price_vnd"] is None:
-            result["status"] = "SHEET_NO_PRICE"   # blank stays NULL; nothing to write
-        elif unchanged(row, target):
-            result["status"] = "PRICE_UNCHANGED"
-        elif target["pending"]:
-            result["status"] = "PENDING_REVIEW"
-        elif target["price"] is not None:
-            result["status"] = "CONFLICT"
-        else:
-            result["status"] = "MONTH_LOCKED" if target["locked"] else "READY"
-    # Two Sheet rows pointing at one web row cannot both be written.
-    used = Counter((r["target_kind"], r["target_id"]) for r in out if r["target_id"] != "")
-    for result in out:
-        if result["target_id"] != "" and used[(result["target_kind"], result["target_id"])] > 1:
-            result["status"] = "AMBIGUOUS"
-    return out
+        key, basis = owned.get(queue.name_key(row["customer_tab"]), (None, ""))
+        results.append(queue.classify(row, pools.get(key)) | {"customer_basis": basis})
+    return queue.mark_shared(results)
 
 
 def read_ledger_dir(folder: Path) -> tuple[dict, dict]:
@@ -217,7 +109,7 @@ def read_ledger_api(value: str, serve_hosts=()) -> tuple[dict, dict]:
 def write_html(path: Path, results: list[dict], counts: Counter) -> None:
     def vnd(value):
         return "—" if value is None else f"{value:,}".replace(",", ".")
-    shown = [r for r in results if r["status"] not in ("PRICE_UNCHANGED", "NO_CONTAINER")]
+    shown = [r for r in results if r["status"] not in ("PRICE_UNCHANGED", "NO_CONTAINER", "AMBIGUOUS_PRICED")]
     rows = "".join(
         f"<tr><td>{escape(str(r['customer_tab']))}</td><td>{r['source_row']}</td><td>{escape(str(r['container']))}</td>"
         f"<td>{escape(str(r['date'] or '—'))}</td><td>{vnd(r['sheet_unit_price_vnd'])}</td><td>{vnd(r['web_unit_price_vnd'])}</td>"

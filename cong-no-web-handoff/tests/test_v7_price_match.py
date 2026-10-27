@@ -76,6 +76,8 @@ class PriceMatchTest(unittest.TestCase):
         self.assertEqual((rows[0]["status"], rows[0]["match_basis"]), ("READY", "container_only"))
         self.assertEqual(status([sheet(date=None)], {"Khach gia A": book([trip(), trip(12, date="2026-07-01")])}),
                          ["AMBIGUOUS"])
+        priced = [trip(price="1"), trip(12, date="2026-07-01", price="2")]
+        self.assertEqual(status([sheet(date=None)], {"Khach gia A": book(priced)}), ["AMBIGUOUS_PRICED"])
         # A dated Sheet row never falls back to container alone.
         self.assertEqual(status([sheet(date="2026-01-01")], {"Khach gia A": book([trip()])}), ["NOT_FOUND"])
 

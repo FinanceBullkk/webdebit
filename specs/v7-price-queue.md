@@ -1,6 +1,6 @@
 # V7: điền giá từ Sheet ("Ghi N giá")
 
-Trạng thái: ĐỀ XUẤT (Claude, 27/10/2026, theo yêu cầu người dùng trong chat). Mockup HTML dữ liệu giả **CHỜ DUYỆT**. Chưa code, chưa có đường ghi mới. Không đổi luật tiền.
+Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong chat 27/10/2026: "Mockup được, chọn nguồn giá B"). Backend **ĐÃ CODE** phần đọc và ghi lô (xem Tiến độ), **chưa triển khai** `hao`, chưa có giao diện thật. Không đổi luật tiền.
 
 ## Người dùng và luồng (bước 1)
 
@@ -51,7 +51,7 @@ Sổ khách có nút "Ghi N giá từ Sheet" khi Sheet có giá cho chuyến web
 - **Nguồn giá trên server (CÒN MỞ, cần người dùng chọn):**
   - **A.** Thêm cột "Đơn giá" và "Phụ phí" vào tab `WEBDEBIT_EXPORT` của Sheet. Bản chụp đồng bộ có sẵn giá, ít code nhất. Nhưng chỉ phủ chuyến có trong tab export, không phủ dòng sổ gốc (14/36 dòng `READY` lần đo này).
   - **B.** Runner đồng bộ đọc thêm các tab khách (như công cụ đo). Phủ cả dòng sổ gốc, khớp đúng cách đã đo. Nhưng nặng hơn: 247 tab, cần quyền đọc cả workbook.
-  - Khuyến nghị: **B**, vì đã đo trên đúng nguồn này và phủ cả sổ gốc.
+  - **ĐÃ CHỐT B** (người dùng, 27/10/2026).
 - API mới: `GET` kèm danh sách giá chờ trong `get_ledger` (như `sheet_sync`), và `POST /api/v7/sheet/prices` ghi cả lô cho một khách.
 - Nguồn trong Lịch sử: `price_edit` hiện không có trường tab/dòng Sheet. Cần thêm vào ghi chú sự kiện hoặc mở rộng snapshot (bước 5).
 
@@ -69,7 +69,7 @@ Sổ khách có nút "Ghi N giá từ Sheet" khi Sheet có giá cho chuyến web
 - Phụ phí trống = 0 khi có đơn giá: [`V7-BE`](../docs/decisions.md#v7-be). NULL khác 0.
 - Người làm từ phiên server: [`V7-ID`](../docs/decisions.md#v7-id).
 - Booking đã ghi giữ nguyên: [`BOOKING-EDIT-01`](../docs/decisions.md#booking-edit-01) (công cụ không đổi booking, container hay ngày).
-- CÒN MỞ: nguồn giá A/B; ai thấy nút (mặc định ai mở được sổ là ghi được, như mọi thao tác V7).
+- Nguồn giá: B, runner đọc tab khách (người dùng chốt 27/10/2026). CÒN MỞ: ai thấy nút (mặc định ai mở được sổ là ghi được, như mọi thao tác V7).
 
 ## Hành vi và bất biến
 
@@ -98,9 +98,31 @@ Sổ khách có nút "Ghi N giá từ Sheet" khi Sheet có giá cho chuyến web
 5. Không có giá chờ
 6. Lỗi khi ghi
 
-Mockup **CHỜ DUYỆT**. Theo `docs/development.md`, Penpot là nơi duyệt chuẩn; các mockup gần đây (sổ khách gọn, cấn trừ hai sổ) đã được duyệt bằng HTML.
+Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b5de96d`). Theo `docs/development.md`, Penpot là nơi duyệt chuẩn; các mockup gần đây (sổ khách gọn, cấn trừ hai sổ) đã được duyệt bằng HTML.
 
 ## Câu hỏi mở
 
-- Nguồn giá trên server: A (thêm cột vào `WEBDEBIT_EXPORT`) hay B (runner đọc tab khách)?
 - Có cần nút "Ghi giá cho mọi khách" ở Tổng quan không, hay ghi từng khách là đủ (36 dòng lần đo này rải trên nhiều khách)?
+
+## Tiến độ backend (27/10/2026)
+
+**ĐÃ CODE và kiểm bằng dữ liệu giả** (`npm run check`):
+- `web/v7_price_queue.py`: lõi ghép (chuyển từ công cụ đo sang tầng web theo ARCH-02; `tools/v7_price_match.py` gọi lại lõi này). Thêm hai trạng thái:
+  - `MANUAL`: giá hoặc phụ phí âm trên Sheet. Lệnh ghi giá chỉ nhận số không âm, nên dòng này phải nhập tay.
+  - `AMBIGUOUS_PRICED`: khớp nhiều chuyến nhưng mọi chuyến đã có giá, nên không có gì để ghi và không hiện trong "Cần xem".
+- `tools/v7_price_snapshot.py`: biến một bản tải `.xlsx` thành bản chụp giá (`WEBDEBIT_PRICE_SNAPSHOT_PATH`, mặc định `/var/lib/webdebit-sheet-sync/prices.json`). Hash tính trên các dòng, nên tải lại Sheet không đổi thì hash không đổi. Ghi nguyên tử, mode 600.
+- `GET /api/v7/ledger` trả thêm `sheet_prices {snapshot_sha256, ready, review, ready_count, review_count}`. Thiếu bản chụp thì trả `unavailable: true`, sổ vẫn đọc được.
+- `POST /api/v7/sheet/prices {customer_id, expected_version, snapshot_sha256, idempotency_key}`:
+  - Server tính lại `READY` từ bản chụp đúng hash; lệch hash thì `STALE_SHEET`.
+  - Chuyến web ghi bằng `edit_trip_price`; dòng sổ gốc ghi bằng `edit_legacy_trip`, mỗi trường một lệnh.
+  - Mỗi lệnh có khóa cố định theo lô, hash, đích và trường, nên bấm lại không ghi trùng.
+  - Hỏng giữa lô thì trả `complete: false` với số đã ghi; lần sau các dòng đã ghi thành `PRICE_UNCHANGED`.
+
+**Kiểm chỉ đọc trên dữ liệu thật** (bản tải 27/10, sổ `hao` qua API GET, kết quả ngoài Git): bản chụp 10.358 dòng; hàng chờ từng khách cho tổng `READY` 36 ở 3 khách (khớp số đo); "Cần xem" 43 dòng ở 10 khách (40 khớp nhiều chuyến có chuyến chưa giá, 3 lệch giá).
+
+**CÒN MỞ:**
+- **Runner tự lấy file Sheet:** bản tải đầy đủ nặng khoảng 32MB, vượt giới hạn 10MB của API xuất file Google Drive. Cần chọn: đọc từng tab qua Sheets API rồi viết thêm bộ chuyển sang dạng loader đọc được (đường chính thức, nhiều code hơn); hoặc dùng địa chỉ tải `.xlsx` của Google Docs bằng token quyền `drive.readonly` (ít code, nhưng không phải API được cam kết). Trong lúc chờ, bản chụp tạo được từ file `.xlsx` tải tay (cùng file dùng cho đối soát cuối ngày).
+- `CONFLICT` "Giữ web" cần lưu sự kiện (mở rộng `resolve_sheet_conflict` hoặc sự kiện riêng); "Lấy Sheet" dùng được ngay bằng lệnh ghi giá một chuyến.
+- Ghi nguồn tab/dòng Sheet vào Lịch sử `price_edit`.
+- Đếm "N giá từ Sheet chờ ghi" ở Tổng quan (cần tính trên mọi khách).
+- Giao diện thật theo mockup đã duyệt; harness PostgreSQL cho lô giá; triển khai `hao` (đặt bản chụp, biến môi trường) cần người dùng cho phép.

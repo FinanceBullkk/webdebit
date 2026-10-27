@@ -18,12 +18,14 @@ from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import v7_identity
+from v7_price_queue import load_price_snapshot, project_prices
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
 MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
+PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
 ASSETS = {
@@ -653,6 +655,68 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
                  "review_count": len(pending), "pending_review": pending}
 
 
+def price_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    snapshot = load_price_snapshot(PRICE_SNAPSHOT_PATH)
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    return project_prices(snapshot, ledger, customers)
+
+
+def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Write every READY Sheet price of one customer through the existing price commands."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}:
+        bad()
+    customer, version = request["customer_id"], request["expected_version"]
+    digest, key = request["snapshot_sha256"], request["idempotency_key"]
+    if (not positive_int(customer) or type(version) is not int or not 0 <= version <= MAX_BIGINT
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip()
+            or any(ord(char) < 32 for char in key)):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
+    if ledger.get("status") != "active":
+        raise ApiError(409, "NO_BASELINE", "Khách chưa có số dư đầu hiệu lực.")
+    if ledger.get("version") != version:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = price_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+    written = commands_done = 0
+    for item in projection["ready"]:
+        price, fee = str(item["sheet_unit_price_vnd"]), item["sheet_other_fee_vnd"]
+        if item["target_kind"] == "trip":
+            commands = [("edit_trip_price", {"trip_id": item["target_id"], "unit_price_vnd": price,
+                                             "other_fee_vnd": None if fee is None else str(fee)})]
+        else:
+            commands = [("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "unit_price_vnd", "value": price})]
+            if fee is not None:
+                commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "other_fee_vnd",
+                                                      "value": str(fee)}))
+        for function, fields in commands:
+            # One key per target and field: a repeated click replays the stored result, never a second write.
+            command_key = hashlib.sha256(
+                f"{key}:{digest}:{item['target_kind']}:{item['target_id']}:{fields.get('field', 'price')}".encode()).hexdigest()
+            try:
+                result = runner.run(function, {"customer_id": customer, "expected_version": version,
+                                               "idempotency_key": command_key, **fields}, actor)
+            except ApiError as exc:
+                if not commands_done:
+                    raise   # nothing written yet: a plain error, same as one price edit
+                return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                             "complete": False, "error": exc.code}
+            version = result["version"] if type(result.get("version")) is int else                 runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+            commands_done += 1
+        written += 1
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+
+
 def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     try:
         request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
@@ -732,6 +796,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return resolve_sheet_conflict(raw, runner, actor)
+        if parts.path == "/api/v7/sheet/prices":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return approve_prices(raw, runner, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
@@ -807,6 +876,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             result = {**result, "sheet_sync": sheet_projection(runner, result, actor)}
         except (ValueError, ApiError):
             result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}}
+        try:
+            result = {**result, "sheet_prices": price_projection(runner, result, actor)}
+        except (ValueError, ApiError):
+            result = {**result, "sheet_prices": {"unavailable": True, "ready": [], "review": [],
+                                                 "ready_count": 0, "review_count": 0}}
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):
