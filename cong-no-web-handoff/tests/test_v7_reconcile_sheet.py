@@ -94,6 +94,9 @@ class ReconcileSheetTest(unittest.TestCase):
             for filename, digest in self.summary()["input_sha256"][group].items():
                 self.assertEqual(digest, hashlib.sha256((folder / filename).read_bytes()).hexdigest())
         self.assertEqual(set(self.summary()["counts"]), set(tool.STATUSES))
+        report = (self.out / "reconcile_report.html").read_text(encoding="utf-8")
+        self.assertIn("ĐỐI SOÁT: ĐẠT", report)
+        self.assertIn("Khach gia A", report)
 
     def test_brief_index_and_status_ranges(self):
         self.sheet_books = {
@@ -126,6 +129,9 @@ class ReconcileSheetTest(unittest.TestCase):
         self.assertEqual(list(self.report("reconcile_month.csv")[0]),
                          ["customer", "debt_month", "sheet_vnd", "web_vnd", "difference_vnd",
                           "sheet_month_present", "web_month_present", "status"])
+        report = (self.out / "reconcile_report.html").read_text(encoding="utf-8")
+        self.assertIn("ĐỐI SOÁT: KHÔNG ĐẠT", report)
+        self.assertIn("Lệch tổng", report)
 
     def test_number_ranges(self):
         self.assertEqual(tool.number_ranges([3, 17, 40, 41, 42]), "#3,#17,#40-#42")

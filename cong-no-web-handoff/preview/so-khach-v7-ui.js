@@ -149,6 +149,10 @@
     const customerId = Number(new URLSearchParams(location.search).get('customer'));
     if (!Number.isSafeInteger(customerId) || customerId < 1) {
       root.innerHTML = '<p role="status" style="padding:16px;font-size:18px">Gõ tên khách vào ô “Tìm khách” phía trên rồi bấm vào tên để mở sổ.</p>';
+      const button = document.querySelector('#refresh-data');
+      if (button?.id === 'refresh-data') button.disabled = true;
+      const updated = document.querySelector('#updated-at');
+      if (updated?.id === 'updated-at') updated.textContent = 'Chọn khách để xem dữ liệu';
       return;
     }
     let snapshot = null;
@@ -363,6 +367,8 @@
     // Mọi số tiền lấy nguyên từ GET; trang không cộng trừ tiền (trừ dòng Tổng tháng, tính trong model).
     function renderSnapshot(data) {
       snapshot = data;
+      const updated = document.querySelector('#updated-at');
+      if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`;
       const active = data.status === 'active';
       const sheetRows = data.sheet_sync?.items ?? [];
       // Tháng hiện tại và cờ khóa theo server (giờ VN); đồng hồ máy chỉ dùng khi server cũ chưa trả.
@@ -1168,13 +1174,27 @@
       showRow(`${ghost.kind}-${ghost.id}`);
     });
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
-    api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; });
-    setInterval(() => {
-      if (document.hidden || api.hasPending() || root.querySelector('input:focus,textarea:focus,select:focus')
-        || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')]
-          .some(input => input.value.trim())) return;
-      api.read().catch(() => showNotice('Không tải được chuyến mới. Thử tải lại trang.'));
-    }, 60_000);
+    let refreshing = true;
+    api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
+    const busy = () => api.hasPending() || draftsBy.size || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.history-panel:not([hidden])')
+      || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
+      || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
+    async function refresh(manual = false) {
+      if (refreshing) return;
+      if (busy()) {
+        const updated = document.querySelector('#updated-at');
+        if (updated?.id === 'updated-at') updated.textContent = 'Tạm dừng tự cập nhật khi đang nhập hoặc xem chi tiết';
+        if (manual) showNotice('Đóng chi tiết hoặc lưu/bỏ nháp trước khi làm mới.');
+        return;
+      }
+      refreshing = true;
+      try { await api.read(); } catch { showNotice('Không tải được sổ mới. Thử lại.'); }
+      finally { refreshing = false; }
+    }
+    const refreshButton = document.querySelector('#refresh-data');
+    if (refreshButton?.id === 'refresh-data') refreshButton.addEventListener('click', () => refresh(true));
+    setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   }
 
   function startEdit(cell) {

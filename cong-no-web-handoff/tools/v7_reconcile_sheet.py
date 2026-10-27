@@ -30,6 +30,7 @@ import re
 import sys
 from collections import Counter
 from datetime import date
+from html import escape
 from http.client import HTTPException
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -245,6 +246,32 @@ def write_csv(path, fields, rows):
         writer.writeheader()
         writer.writerows(rows)
 
+def money_html(value):
+    return '—' if value is None else f'{value:,}'.replace(',', '.') + ' đ'
+
+def write_html(path, customers, summary):
+    labels = {'KHOP': 'Khớp', 'LECH_TONG': 'Lệch tổng', 'CHI_CO_SHEET': 'Chỉ có Sheet',
+              'CHI_CO_WEB': 'Chỉ có web', 'THIEU_SO': 'Thiếu số', 'CHI_LECH_THANG': 'Lệch tháng'}
+    rows = []
+    for row in customers:
+        status = row['status']
+        cls = 'ok' if status == 'KHOP' else 'bad'
+        rows.append(f'<tr class="{cls}"><td>{escape(row["customer"])}</td>'
+                    f'<td>{money_html(row["sheet_total_vnd"])}</td>'
+                    f'<td>{money_html(row["web_total_vnd"])}</td>'
+                    f'<td>{money_html(row["difference_vnd"])}</td>'
+                    f'<td>{escape(labels.get(status, status))}</td></tr>')
+    counts = ' · '.join(f'{escape(labels[s])}: {summary["counts"][s]}' for s in STATUSES)
+    html = '''<!doctype html><meta charset="utf-8"><title>Đối soát Sheet–web</title>
+<style>body{{font:14px/1.4 Segoe UI,system-ui,sans-serif;margin:24px;color:#17324d}}h1{{margin-bottom:4px}}.meta{{color:#536d86}}.ok{{background:#eef8f0}}.bad{{background:#fff1f1}}table{{border-collapse:collapse;width:100%;margin-top:18px}}th,td{{border:1px solid #cbd8e5;padding:7px 9px;text-align:right}}th:first-child,td:first-child,th:last-child,td:last-child{{text-align:left}}th{{background:#e8f1fa}}.status{{padding:10px 12px;border:1px solid #9ebbd7;background:#f4f8fc;font-weight:700}}.status.bad{{border-color:#d99;background:#fff1f1}}</style>
+<h1>Đối soát Sheet–web cuối ngày</h1><p class="meta">Chỉ đọc · chênh lệch = web − Sheet · không tự sửa dữ liệu</p>
+<p class="status {}">{}</p><p class="meta">{}</p>
+<table><thead><tr><th>Khách</th><th>Sheet</th><th>Web</th><th>Chênh lệch</th><th>Trạng thái</th></tr></thead><tbody>{}</tbody></table>'''.format(
+        '' if not any(summary['counts'][s] for s in FAILURES) else 'bad',
+        'ĐỐI SOÁT: ĐẠT' if not any(summary['counts'][s] for s in FAILURES) else 'ĐỐI SOÁT: KHÔNG ĐẠT',
+        counts, ''.join(rows))
+    path.write_text(html, encoding='utf-8')
+
 def number_ranges(numbers):
     ranges = []
     for number in numbers:
@@ -293,6 +320,7 @@ def main(argv=None):
         write_csv(out / 'reconcile_index.csv', ['no', 'customer', 'status'],
                   ({'no': no, 'customer': row['customer'], 'status': row['status']}
                    for no, row in enumerate(customers, 1)))
+        write_html(out / 'reconcile_report.html', customers, summary)
         failed = int(any(row['status'] in FAILURES for row in customers))
         if args.brief:
             print_brief(customers, summary, failed)
