@@ -2,6 +2,8 @@
 
 Lập 22/10/2026 (Claude, phiên điều phối). Trạng thái từng mục lấy từ [`decisions.md`](decisions.md) trên `main` tại `71090b4`; không kiểm lại live trong lần lập này. Bằng chứng thật (báo cáo, hash, log) giữ ngoài Git như runbook quy định; ô "Bằng chứng" chỉ ghi loại bằng chứng cần có.
 
+**Cập nhật 27/10/2026** (Claude, đọc code trên `main` tại `b58f470` và chạy `npm run check` cục bộ; không kiểm live): ghi chú 27/10 ở A2, A3, C4, E1. Người dùng báo trong chat 27/10 rằng `hao` đã nhận code mới và đang chạy; chưa có bằng chứng revision trong repo.
+
 Ngày bắt đầu song song chính thức là ngày mọi mục **Chặn** dưới đây ĐẠT và chủ nghiệp vụ chốt ngày ([`SONG-SONG-02`](decisions.md#song-song-02) còn mở). Mục **Không chặn** làm trong lúc chạy song song, nhưng phải xong trước ngày chuyển hẳn.
 
 Vai trò: **Chủ NV** = chủ nghiệp vụ (người dùng); **Admin** = người chạy lệnh trên `hao` (hiện cũng là người dùng); **Người nhập**; **Claude** = điều phối, spec, review; **Codex** = code backend ([vai trò](multi-agent.md)).
@@ -11,8 +13,8 @@ Vai trò: **Chủ NV** = chủ nghiệp vụ (người dùng); **Admin** = ngư�
 | # | Điều kiện | Mức | Ai | Bằng chứng cần có | Trạng thái 22/10 |
 | --- | --- | --- | --- | --- | --- |
 | A1 | Mốc `clean-v2` nạp vào `webdebit_v7`, checker và đối soát với mốc đạt | Chặn | Admin | Checker OK, `DOI SOAT: DAT` 236 khách | **ĐẠT** 21/10, đọc lại sau đợt nâng 22/10 |
-| A2 | Mọi thay đổi trên Sheet sau mốc (khoảng 9 giờ 21/10) đã dán bù lên web: chuyến mới, thu, sửa dòng cũ | Chặn | Người nhập | Đối soát `--totals-only` với bản xuất Sheet mới nhất ngày bắt đầu: mã thoát 0, tất cả `KHOP` | CHƯA |
-| A3 | Hai khách bị giữ ở các bản xuất sau `clean-v2` (một tab trùng tên, một thiếu số dư đầu) có cách xử lý đã chốt | Chặn | Chủ NV quyết, Claude ghi `decisions.md` | Dòng quyết định; khách đó `KHOP` hoặc được ghi rõ là ngoài phạm vi đối soát | CHƯA chốt |
+| A2 | Mọi thay đổi trên Sheet sau mốc (khoảng 9 giờ 21/10) đã dán bù lên web: chuyến mới, thu, sửa dòng cũ | Chặn | Người nhập | Đối soát `--totals-only` với bản xuất Sheet mới nhất ngày bắt đầu: mã thoát 0, tất cả `KHOP` | CHƯA. **27/10:** đã có đồng bộ chuyến Sheet → web (`sheet_sync_runner.py`, hàng chờ trong sổ khách, nút "Duyệt … chuyến mới", đối chiếu lệch từng trường), nên chuyến mới không phải dán tay. Đồng bộ **không** mang đơn giá/phụ phí và **không** có phiếu thu: hai phần này vẫn nhập tay |
+| A3 | Hai khách bị giữ ở các bản xuất sau `clean-v2` (một tab trùng tên, một thiếu số dư đầu) có cách xử lý đã chốt | Chặn | Chủ NV quyết, Claude ghi `decisions.md` | Dòng quyết định; khách đó `KHOP` hoặc được ghi rõ là ngoài phạm vi đối soát | CHƯA chốt. **27/10:** chặn luôn C4: `v7_export_clean.py` thoát mã 2, không tạo file khi bản xuất có khách bị giữ, nên chưa chạy được đối soát cuối ngày |
 | A4 | Cách tìm dòng cũ trong mốc bị sửa trên Sheet | Không chặn | Claude chốt, Codex code nếu cần | Capture-only đã chạy trên Sheet thật từ 21/10 16:26 ([spec](../specs/sheet-capture.md)); còn thiếu bước đọc log ra danh sách dòng cần dán | ĐỀ XUẤT: đối soát tổng khách bắt lệch tiền, log capture dùng để truy dòng |
 | A5 | Đóng băng nguồn bằng hash xlsx ([`V7-CSM`](decisions.md#v7-csm) (5), case `7.11c`) | Không chặn | Claude spec, Codex code | Spec riêng, test `7.11c` thành BEHAVIOR | CHƯA cài; chỉ cần nếu nạp lại mốc |
 
@@ -33,7 +35,7 @@ B2 dùng mở/khóa tháng vì thao tác này ghi Lịch sử mà không đổi 
 | C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Codex viết mẫu timer vào runbook, Admin cài | `MANIFEST.json` của hai ngày liên tiếp | CHƯA: chỉ có backup trước mỗi đợt nâng |
 | C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Admin | Báo cáo restore khớp exact counts | CHƯA cho bản định kỳ (đã làm trước đợt nâng 22/10) |
 | C3 | Rollback A/B/C có trong runbook | Chặn | — | [Runbook mục 7](v7-deploy-runbook.md), tổng duyệt Docker 21/10 | **ĐẠT** về tài liệu |
-| C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | CHƯA |
+| C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | **27/10:** hướng dẫn đã viết ([đối soát cuối ngày](doi-soat-cuoi-ngay.md)). CHƯA chạy thử; phụ thuộc A3 |
 
 ## D. Hành vi ghi trên `hao`
 
@@ -50,7 +52,7 @@ Runbook cấm ghi phiếu thử trên dữ liệu thật, nên mục D nghiệm 
 
 | # | Việc | Mức | Ai | Bằng chứng cần có | Trạng thái 22/10 |
 | --- | --- | --- | --- | --- | --- |
-| E1 | Kết luận chuyến CHỜ KIỂM: tính vào sổ hoặc loại, có lý do ([`NEWTRIP-01`](decisions.md#newtrip-01), [spec](../specs/v7-trip-review.md)) | Chặn | Claude spec + code, Người dùng duyệt luồng giao diện, Admin triển khai | Test PostgreSQL xanh trên CI; đợt nâng theo runbook (migration `2026-10-22-v7-trip-review.sql`); một lần kết luận thật trên `hao` có dòng Lịch sử | **Backend/API ĐÃ CODE** trên `main` (PR #63, #64, CI xanh). CHƯA: nút trên giao diện (chờ duyệt luồng), triển khai `hao`. Chưa xong thì chuyến nghi trùng vẫn nằm ngoài số dư và đối soát tổng khách lệch không sửa được |
+| E1 | Kết luận chuyến CHỜ KIỂM: tính vào sổ hoặc loại, có lý do ([`NEWTRIP-01`](decisions.md#newtrip-01), [spec](../specs/v7-trip-review.md)) | Chặn | Claude spec + code, Người dùng duyệt luồng giao diện, Admin triển khai | Test PostgreSQL xanh trên CI; đợt nâng theo runbook (migration `2026-10-22-v7-trip-review.sql`); một lần kết luận thật trên `hao` có dòng Lịch sử | **Backend/API ĐÃ CODE** trên `main` (PR #63, #64, CI xanh). CHƯA: nút trên giao diện (chờ duyệt luồng), triển khai `hao`. **27/10:** nút "Tính vào sổ"/"Loại" đã có trên `main` (Playwright xanh với máy chủ giả); chưa có lần kết luận thật trên `hao`. Chưa xong thì chuyến nghi trùng vẫn nằm ngoài số dư và đối soát tổng khách lệch không sửa được |
 
 ## F. Chốt và khởi động
 
