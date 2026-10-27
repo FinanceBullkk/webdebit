@@ -14,5 +14,6 @@
 | [Đề xuất ACL M1](m1-acl-proposal.md) | Cấp quyền đọc năm view cho viewer, thu hồi membership maker; đã áp dụng trong đợt M1, giữ hồ sơ ngoài Git |
 | [Runbook triển khai V7](v7-deploy-runbook.md) | Đề xuất deploy DB riêng, backup/rollback và tổng duyệt Docker |
 | [Checklist chạy song song](song-song-checklist.md) | Điều kiện bắt đầu chạy song song Sheet–web: ai làm, bằng chứng gì, trạng thái |
+| [Đối soát cuối ngày](doi-soat-cuoi-ngay.md) | Các bước người nhập chạy mỗi cuối ngày khi chạy song song |
 
 Ưu tiên quyết định người dùng có phạm vi rõ hơn đề xuất cũ; code/fixture không tự duyệt chính sách. Hồ sơ này tóm tắt phần được phép chia sẻ từ bằng chứng gốc giữ ngoài repo. Không sao chép bảng khách, số dư từng khách, ID Sheet hoặc chứng từ. Từ mốc chuyển quy trình, thay đổi mới ghi ở repo; hồ sơ gốc là chứng cứ lịch sử, không là bản tài liệu sống thứ hai.
