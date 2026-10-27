@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -29,6 +30,45 @@ class FakePsql:
 
 
 class LedgerApiTest(unittest.TestCase):
+    def test_customer_name_mapping_enriches_picker_without_changing_id(self):
+        mapping = {"version": 1, "customers": {"7": {
+            "v7_name": "V7 NAME", "display_name": "SHEET NAME", "aliases": ["OLD NAME"],
+            "commodity": "Chuối", "commodity_review": "OK", "label": "SHEET NAME · Chuối"}}}
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
+            json.dump(mapping, handle)
+            path = handle.name
+        try:
+            rows = {"customers": [{"id": 7, "name": "V7 NAME", "status": "active",
+                                   "commodity": None, "transport_mode": None}]}
+            with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", path), \
+                    patch.object(self.runner, "run", return_value=rows):
+                status, result = api.handle("GET", "/api/v7/customers", self.headers, b"", self.runner,
+                                            port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual(status, 200)
+            self.assertEqual(result["customers"][0]["id"], 7)
+            self.assertEqual(result["customers"][0]["name"], "V7 NAME")
+            self.assertEqual(result["customers"][0]["display_name"], "SHEET NAME")
+            self.assertEqual(result["customers"][0]["aliases"], ["OLD NAME"])
+            self.assertEqual(result["customers"][0]["commodity"], "Chuối")
+        finally:
+            os.unlink(path)
+
+    def test_customer_name_mapping_rejects_stale_and_bad_config(self):
+        stale = {"id": 7, "name": "RENAMED"}
+        self.assertEqual(api.named_customer(stale, {"7": {
+            "v7_name": "OLD", "display_name": "SHEET"}}), stale)
+        with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", None):
+            self.assertEqual(api.customer_name_mapping(), {})
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
+            json.dump({"version": 1, "customers": {"7": {
+                "v7_name": "V7", "display_name": " ", "aliases": []}}}, handle)
+            path = handle.name
+        try:
+            with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", path):
+                self.assertEqual(api.customer_name_mapping(), {})
+        finally:
+            os.unlink(path)
+
     def test_sheet_conflict_resolution_uses_server_values_and_rejects_stale(self):
         class Runner:
             def __init__(self):
@@ -999,3 +1039,4 @@ class LedgerDockerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -25,6 +25,7 @@ MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
+CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
 ASSETS = {
     "/": ("dashboard-v7.html", "text/html; charset=utf-8"),
     "/dashboard-v7.html": ("dashboard-v7.html", "text/html; charset=utf-8"),
@@ -111,6 +112,52 @@ def bad(code: str = "INVALID_REQUEST", message: str = "Dữ liệu gửi không 
 
 def positive_int(value: object) -> bool:
     return type(value) is int and 0 < value <= MAX_BIGINT
+
+
+def customer_name_mapping() -> dict[str, dict]:
+    if not CUSTOMER_NAME_MAPPING_PATH:
+        return {}
+    try:
+        data = json.loads(Path(CUSTOMER_NAME_MAPPING_PATH).read_text(encoding="utf-8"))
+        if type(data) is not dict or data.get("version") != 1 or type(data.get("customers")) is not dict:
+            raise ValueError("invalid mapping format")
+        for key, entry in data["customers"].items():
+            if not re.fullmatch(r"[1-9][0-9]*", key) or int(key) > MAX_BIGINT or type(entry) is not dict:
+                raise ValueError("invalid customer id")
+            if any(type(entry.get(field)) is not str or not entry[field].strip() or len(entry[field]) > 200
+                   for field in ("v7_name",)) or ("display_name" in entry and
+                   (type(entry["display_name"]) is not str or not entry["display_name"].strip() or
+                    len(entry["display_name"]) > 200)):
+                raise ValueError("invalid customer name")
+            aliases = entry.get("aliases", [])
+            if type(aliases) is not list or any(type(alias) is not str or not alias.strip() or len(alias) > 200
+                                               for alias in aliases):
+                raise ValueError("invalid aliases")
+            if "commodity" in entry and (type(entry["commodity"]) is not str or
+                                         not entry["commodity"].strip() or len(entry["commodity"]) > 80):
+                raise ValueError("invalid commodity")
+            if "transport_mode" in entry and entry["transport_mode"] not in ("CANG", "BO"):
+                raise ValueError("invalid transport mode")
+        return data["customers"]
+    except (OSError, UnicodeError, ValueError, TypeError):
+        # Display metadata must never block reading a ledger.
+        return {}
+
+
+def named_customer(row: dict, mapping: dict[str, dict]) -> dict:
+    entry = mapping.get(str(row["id"]))
+    if not entry:
+        return row
+    if row["name"] != entry["v7_name"]:
+        return row
+    result = {**row, "aliases": entry.get("aliases", [])}
+    if entry.get("display_name"):
+        result["display_name"] = entry["display_name"]
+    if row.get("commodity") is None and entry.get("commodity_review") == "OK" and entry.get("commodity"):
+        result["commodity"] = entry["commodity"]
+        if row.get("transport_mode") is None and entry.get("transport_mode"):
+            result["transport_mode"] = entry["transport_mode"]
+    return result
 
 
 def vnd(value: object, *, signed: bool = False, nullable: bool = False) -> bool:
@@ -726,6 +773,10 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve)
     result = runner.run(function, payload, actor)
+    if function == "list_customers" and parts.path == "/api/v7/customers":
+        mapping = customer_name_mapping()
+        result = {**result, "customers": [named_customer(row, mapping)
+                                            for row in result.get("customers", [])]}
     if parts.path == "/api/v7/sheet-queue":
         try:
             snapshot = load_snapshot(SHEET_SNAPSHOT_PATH)

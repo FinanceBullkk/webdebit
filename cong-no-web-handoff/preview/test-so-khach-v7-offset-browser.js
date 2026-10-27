@@ -231,12 +231,12 @@ test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo m�
   await search.fill('');
   await page.locator('#customer-list .customer-group').first().waitFor();
   assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['chuối (1)', 'sầu riêng (1)', 'sầu riêng · bộ (1)']);
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Ba', 'Khách Thử Hai', 'Khách Thử Một']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Ba · chuối', 'Khách Thử Hai · sầu riêng', 'Khách Thử Một · sầu riêng · bộ']);
   await shot('0-chon-khach-theo-mat-hang');
   await search.fill('sau rieng bo');
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Một']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Một · sầu riêng · bộ']);
   await search.fill('SẦU RIÊNG');
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Hai', 'Khách Thử Một']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Hai · sầu riêng', 'Khách Thử Một · sầu riêng · bộ']);
   await search.press('Enter');
   await page.waitForURL(/customer=2$/);
 }));
@@ -304,7 +304,7 @@ test('cấn quá nợ của sổ nhận: khung báo trước số âm, vẫn cho
   await pickSource(page, 'Khách Thử Hai');
   await page.locator('.receipt-amount').press('Enter');
   const text = await page.locator('.offset-dialog').innerText();
-  assert.match(text, /Sổ Khách Thử Một sẽ còn -20\.000\.000\./);
+  assert.match(text, /Sổ Khách Thử Một · sầu riêng sẽ còn -20\.000\.000\./);
   assert.equal(await page.locator('.offset-confirm').isEnabled(), true);
 }));
 
@@ -378,7 +378,7 @@ test('hủy cấn trừ từ sổ nguồn: bắt buộc lý do, hủy cả hai s
   const prompt = page.locator('.offset-void-prompt');
   await prompt.waitFor();
   const head = await prompt.locator('.offset-void-head').innerText();
-  assert.match(head, /PH-013 ở sổ Khách Thử Hai và PH-021 ở sổ Khách Thử Một/);
+  assert.match(head, /PH-013 ở sổ Khách Thử Hai · sầu riêng và PH-021 ở sổ Khách Thử Một/);
   await prompt.locator('.confirm-offset-void').click();
   assert.match(await prompt.locator('.offset-void-error').innerText(), /Nhập lý do hủy/);
   assert.equal(world.requests.length, 1, 'chưa lý do thì không gửi');
