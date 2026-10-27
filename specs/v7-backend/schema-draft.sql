@@ -159,6 +159,7 @@ CREATE TABLE sokhach.trip (
     status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed','pending_review','rejected')),
     CONSTRAINT trip_missing_date_fee_only CHECK (event_date IS NOT NULL OR container IS NULL OR container = ''),
     carrier text,
+    shipper text,
     origin text,
     destination text,
     note text,
@@ -339,7 +340,7 @@ CREATE TABLE sokhach.trip_info_rev (
     trip_id bigint NOT NULL,
     customer_id bigint NOT NULL,
     debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month)=1),
-    event_date date, container text, carrier text, origin text, destination text,
+    event_date date, container text, carrier text, shipper text, origin text, destination text,
     status text NOT NULL CHECK (status IN ('confirmed','pending_review','rejected')),
     deleted boolean NOT NULL DEFAULT false,
     created_by_event bigint NOT NULL,
@@ -352,7 +353,7 @@ CREATE TABLE sokhach.legacy_trip_rev (
     legacy_row_id bigint NOT NULL REFERENCES sokhach.legacy_row(id),
     customer_id bigint NOT NULL,
     debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month)=1),
-    event_date date, container text, carrier text, origin text, destination text,
+    event_date date, container text, carrier text, shipper text, origin text, destination text,
     unit_price_vnd bigint CHECK (unit_price_vnd>=0), other_fee_vnd bigint CHECK (other_fee_vnd>=0),
     deleted boolean NOT NULL DEFAULT false, counted_vnd bigint NOT NULL,
     created_by_event bigint NOT NULL,
@@ -369,7 +370,8 @@ SELECT t.id,t.customer_id,t.debt_month AS origin_month,
        CASE WHEN r.id IS NULL THEN t.origin ELSE r.origin END AS origin, CASE WHEN r.id IS NULL THEN t.destination ELSE r.destination END AS destination,
        t.booking AS booking, t.note AS note,
        t.source_ref AS source_ref, coalesce(r.status,t.status) AS status,
-       coalesce(r.deleted,false) AS deleted
+       coalesce(r.deleted,false) AS deleted,
+       CASE WHEN r.id IS NULL THEN t.shipper ELSE r.shipper END AS shipper
 FROM sokhach.trip t LEFT JOIN LATERAL (SELECT * FROM sokhach.trip_info_rev x
   WHERE x.trip_id=t.id AND x.customer_id=t.customer_id ORDER BY x.id DESC LIMIT 1) r ON true;
 

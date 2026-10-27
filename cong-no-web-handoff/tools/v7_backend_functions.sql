@@ -143,10 +143,10 @@ BEGIN
     VALUES (customer_id,'paste',v_actor,'{}',jsonb_build_object('trips',v_rows),idempotency_key)
     RETURNING id INTO v_event;
     FOR v_item IN SELECT value FROM jsonb_array_elements(v_rows) LOOP
-        INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,carrier,
+        INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,carrier,shipper,
             origin,destination,note,source_ref,created_by_event,booking,status) OVERRIDING SYSTEM VALUE
         VALUES ((v_item->>'trip_id')::bigint,customer_id,(v_item->>'debt_month')::date,(v_item->>'event_date')::date,
-            v_item->>'container',v_item->>'carrier',v_item->>'from',v_item->>'to',
+            v_item->>'container',v_item->>'carrier',v_item->>'shipper',v_item->>'from',v_item->>'to',
             v_item->>'note',v_item->>'src',v_event,v_item->>'booking',v_item->>'status');
         INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
         VALUES ((v_item->>'trip_id')::bigint,customer_id,
@@ -181,18 +181,18 @@ BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
     PERFORM sokhach._baseline(customer_id);
-    IF field IS NULL OR field NOT IN ('container','carrier','origin','destination','event_date') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
+    IF field IS NULL OR field NOT IN ('container','carrier','shipper','origin','destination','event_date') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
     SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=edit_trip_info.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
     v_value := nullif(btrim(value),'');
     IF field='container' THEN v_value := nullif(sokhach._normalize_key(value),''); END IF;
     IF field='event_date' THEN v_date := sokhach._trip_date(value); v_value := v_date::text;
-    ELSIF v_value IS NULL AND (coalesce(t.container,'')<>'' OR field='container' AND t.container IS NOT NULL)
+    ELSIF v_value IS NULL AND field<>'shipper' AND (coalesce(t.container,'')<>'' OR field='container' AND t.container IS NOT NULL)
     THEN RAISE EXCEPTION 'INVALID_TRIP_INPUT'; END IF;
     IF to_jsonb(t)->>field IS NOT DISTINCT FROM v_value THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
     v_before := jsonb_build_object('id',t.id,'field',field,'value',to_jsonb(t)->field,'debt_month',t.debt_month,'status',t.status);
-    CASE field WHEN 'container' THEN t.container:=v_value; WHEN 'carrier' THEN t.carrier:=v_value;
+    CASE field WHEN 'container' THEN t.container:=v_value; WHEN 'carrier' THEN t.carrier:=v_value; WHEN 'shipper' THEN t.shipper:=v_value;
       WHEN 'origin' THEN t.origin:=v_value; WHEN 'destination' THEN t.destination:=v_value;
       WHEN 'event_date' THEN t.event_date:=v_date; t.debt_month:=date_trunc('month',v_date)::date; END CASE;
     IF t.debt_month<>(v_before->>'debt_month')::date THEN
@@ -221,8 +221,8 @@ BEGIN
     IF v_reason IS NOT NULL THEN v_after:=v_after||jsonb_build_object('review_reason',v_reason); END IF;
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,'trip_edit',sokhach._actor(),jsonb_build_object('trip',v_before),v_after,idempotency_key) RETURNING id INTO v_event;
-    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,origin,destination,status,created_by_event)
-      VALUES(t.id,customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.origin,t.destination,t.status,v_event);
+    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,status,created_by_event)
+      VALUES(t.id,customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.shipper,t.origin,t.destination,t.status,v_event);
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('trip_id',t.id,'pending_review',t.status='pending_review','reason',v_reason,'reallocated',v_changes));
 END $$;
@@ -238,22 +238,27 @@ BEGIN
     SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=delete_trip.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
     PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
+    -- Snapshot shows the effective fee: latest price revision plus every fee delta,
+    -- including deltas older than the revision (a price edit never absorbs them).
     SELECT jsonb_build_object('unit_price_vnd',CASE WHEN p.unit_price_vnd IS NOT NULL
-          THEN (a.amount_vnd-coalesce(f.fee,p.other_fee_vnd,0))::text END,
-      'other_fee_vnd',coalesce(f.fee,p.other_fee_vnd)::text,
+          THEN (a.amount_vnd-f.fee)::text END,
+      'other_fee_vnd',f.fee_display::text,
       'amount_vnd',CASE WHEN t.status='confirmed' THEN a.amount_vnd::text END)
     INTO v_price FROM (SELECT * FROM sokhach.trip_price_rev WHERE trip_price_rev.trip_id=t.id ORDER BY id DESC LIMIT 1) p
-    LEFT JOIN LATERAL (SELECT x.new_value_vnd AS fee FROM sokhach.adjustment x
-        WHERE x.trip_id=t.id AND x.field='other_fee_vnd' AND x.created_by_event>p.created_by_event
-        ORDER BY x.created_by_event DESC LIMIT 1) f ON true
+    LEFT JOIN LATERAL (SELECT coalesce(p.other_fee_vnd,0)
+        +coalesce((SELECT sum(x.amount_vnd) FROM sokhach.adjustment x WHERE x.trip_id=t.id AND x.field='other_fee_vnd'),0) AS fee,
+        CASE WHEN p.other_fee_vnd IS NULL
+          AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment x WHERE x.trip_id=t.id AND x.field='other_fee_vnd')
+        THEN NULL ELSE coalesce(p.other_fee_vnd,0)
+          +coalesce((SELECT sum(x.amount_vnd) FROM sokhach.adjustment x WHERE x.trip_id=t.id AND x.field='other_fee_vnd'),0) END AS fee_display) f ON true
     CROSS JOIN LATERAL (SELECT (CASE WHEN p.unit_price_vnd IS NOT NULL THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
         WHEN coalesce(t.container,'')='' THEN p.other_fee_vnd END)
         +coalesce((SELECT sum(x.amount_vnd) FROM sokhach.adjustment x WHERE x.trip_id=t.id),0) AS amount_vnd) a;
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,'trip_delete',sokhach._actor(),jsonb_build_object('trip',to_jsonb(t)||coalesce(v_price,'{}')),
         jsonb_build_object('trip',jsonb_build_object('id',t.id,'deleted',true)),idempotency_key) RETURNING id INTO v_event;
-    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,origin,destination,status,deleted,created_by_event)
-      VALUES(t.id,customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.origin,t.destination,t.status,true,v_event);
+    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,status,deleted,created_by_event)
+      VALUES(t.id,customer_id,t.debt_month,t.event_date,t.container,t.carrier,t.shipper,t.origin,t.destination,t.status,true,v_event);
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('trip_id',t.id,'deleted',true,'reallocated',v_changes));
 END $$;
@@ -279,7 +284,7 @@ BEGIN
     BEGIN IF l.display->>'fee_vnd' ~ '^[0-9]+$' THEN v_fee:=(l.display->>'fee_vnd')::bigint; END IF;
     EXCEPTION WHEN numeric_value_out_of_range THEN v_fee:=NULL; END;
     RETURN jsonb_build_object('legacy_row_id',l.id,'customer_id',l.customer_id,'month',l.debt_month,'debt_month',l.debt_month,
-      'event_date',v_date,'container',l.display->>'container','carrier',l.display->>'carrier','origin',l.display->>'from','destination',l.display->>'to',
+      'event_date',v_date,'container',l.display->>'container','carrier',l.display->>'carrier','shipper',l.display->>'shipper','origin',l.display->>'from','destination',l.display->>'to',
       'unit_price_vnd',v_unit::text,'other_fee_vnd',v_fee::text,'counted_vnd',coalesce(l.source_total_vnd,0)::text,'deleted',false);
 END $$;
 
@@ -304,7 +309,7 @@ BEGIN
     PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
     IF p_delete THEN v_count:=0; v_new:=v_new||jsonb_build_object('deleted',true);
     ELSE
-      IF field IS NULL OR field NOT IN ('container','carrier','origin','destination','event_date','unit_price_vnd','other_fee_vnd') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
+      IF field IS NULL OR field NOT IN ('container','carrier','shipper','origin','destination','event_date','unit_price_vnd','other_fee_vnd') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
       v_value:=nullif(btrim(value),'');
       IF field IN ('unit_price_vnd','other_fee_vnd') THEN
         IF v_value IS NOT NULL AND v_value !~ '^[0-9]+$' THEN RAISE EXCEPTION 'INVALID_VND'; END IF;
@@ -325,8 +330,8 @@ BEGIN
     INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
       VALUES(customer_id,CASE WHEN p_delete THEN 'legacy_delete' ELSE 'legacy_edit' END,sokhach._actor(),
         jsonb_build_object('legacy',v_old||jsonb_build_object('field',field,'value',v_old->field)),jsonb_build_object('legacy',v_new),idempotency_key) RETURNING id INTO v_event;
-    INSERT INTO sokhach.legacy_trip_rev(legacy_row_id,customer_id,debt_month,event_date,container,carrier,origin,destination,unit_price_vnd,other_fee_vnd,deleted,counted_vnd,created_by_event)
-      VALUES(l.id,customer_id,v_month,(v_new->>'event_date')::date,v_new->>'container',v_new->>'carrier',v_new->>'origin',v_new->>'destination',
+    INSERT INTO sokhach.legacy_trip_rev(legacy_row_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,unit_price_vnd,other_fee_vnd,deleted,counted_vnd,created_by_event)
+      VALUES(l.id,customer_id,v_month,(v_new->>'event_date')::date,v_new->>'container',v_new->>'carrier',v_new->>'shipper',v_new->>'origin',v_new->>'destination',
         (v_new->>'unit_price_vnd')::bigint,(v_new->>'other_fee_vnd')::bigint,p_delete,v_count,v_event);
     INSERT INTO sokhach.adjustment(customer_id,debt_month,legacy_row_id,amount_vnd,actor,created_by_event)
       SELECT customer_id,m,l.id,delta,sokhach._actor(),v_event FROM (
@@ -417,13 +422,13 @@ BEGIN
         IF field IS NULL OR field NOT IN ('unit_price_vnd','other_fee_vnd')
            OR new_value_vnd IS NULL OR new_value_vnd<0 OR new_amount_vnd IS NOT NULL
         THEN RAISE EXCEPTION 'INVALID_ADJUSTMENT'; END IF;
-        -- Current field values come from adjustments; original price cells stay intact.
-        SELECT a.new_value_vnd INTO v_fee
+        -- Effective fee = latest price revision fee plus every fee delta. A price edit
+        -- never absorbs older deltas, so a typed intent lands on the displayed value.
+        SELECT coalesce(v_price.other_fee_vnd,0)
+            +coalesce(sum(a.amount_vnd) FILTER (WHERE a.field='other_fee_vnd'),0)
+        INTO v_fee
         FROM sokhach.v_adjustment_current a WHERE a.customer_id=adjust_trip.customer_id
-          AND a.trip_id=adjust_trip.trip_id
-          AND a.field='other_fee_vnd' AND a.created_by_event>v_price.created_by_event
-        ORDER BY a.created_by_event DESC LIMIT 1;
-        v_fee := coalesce(v_fee,v_price.other_fee_vnd,0);
+          AND a.trip_id=adjust_trip.trip_id;
         v_field_old := CASE field WHEN 'unit_price_vnd' THEN v_old-v_fee ELSE v_fee END;
         new_amount_vnd := CASE field WHEN 'unit_price_vnd' THEN new_value_vnd+v_fee
             ELSE v_old-v_fee+new_value_vnd END;
@@ -756,7 +761,7 @@ BEGIN
         ORDER BY debt_month),'[]'::jsonb),coalesce(sum(outstanding_vnd),0)
     INTO v_months,v_total FROM visible_months;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,
-        'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'status',t.status,'booking',t.booking,
+        'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r
             JOIN sokhach.event e ON e.id=r.created_by_event WHERE r.trip_id=t.id ORDER BY r.id DESC LIMIT 1),
             (SELECT x->>'review_reason' FROM sokhach.trip tr JOIN sokhach.event e ON e.id=tr.created_by_event
@@ -1042,8 +1047,10 @@ BEGIN
         jsonb_build_object('month',month,'locked',locked));
 END $$;
 
--- NEWTRIP-01: kết luận một chuyến CHỜ KIỂM, bắt buộc lý do. Tháng khóa không chặn:
--- chuyến tháng khóa vào thẳng tháng đó như dán lô (NHAP-SHEET-01 (7)).
+-- NEWTRIP-01: kết luận một chuyến CHỜ KIỂM, bắt buộc lý do, chỉ kết luận một lần.
+-- Tháng khóa chặn kết luận theo mục "Cập nhật khóa tháng 24/10/2026" của
+-- docs/decisions.md: muốn sửa, xóa chuyến hoặc kết luận CHỜ KIỂM thì mở khóa trước
+-- (vế "tháng khóa không chặn" trong dòng NEWTRIP-01 đã hết hiệu lực).
 CREATE FUNCTION sokhach.review_trip(customer_id bigint, expected_version bigint,
     idempotency_key text, trip_id bigint, decision text, reason text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
@@ -1069,8 +1076,8 @@ BEGIN
         jsonb_build_object('trip',trip_id,'container',v_trip.container,'status',v_status,
             'review_reason',btrim(reason)),idempotency_key)
     RETURNING id INTO v_event;
-    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,origin,destination,status,created_by_event)
-    VALUES (v_trip.id,customer_id,v_trip.debt_month,v_trip.event_date,v_trip.container,v_trip.carrier,v_trip.origin,v_trip.destination,v_status,v_event);
+    INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,status,created_by_event)
+    VALUES (v_trip.id,customer_id,v_trip.debt_month,v_trip.event_date,v_trip.container,v_trip.carrier,v_trip.shipper,v_trip.origin,v_trip.destination,v_status,v_event);
     IF v_status='confirmed' THEN v_changes := sokhach.reallocate(customer_id,idempotency_key); END IF;
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
         jsonb_build_object('trip_id',trip_id,'status',v_status,'reallocated',v_changes));
