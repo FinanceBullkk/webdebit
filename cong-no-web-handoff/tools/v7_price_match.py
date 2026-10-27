@@ -43,8 +43,13 @@ FIELDS = ["customer_tab", "source_row", "debt_month", "container", "date", "shee
 
 
 def sheet_rows(xlsx: Path) -> list[dict]:
+    return rows_from_scan(loader.scan_workbook(xlsx))
+
+
+def rows_from_scan(scan: dict[str, dict]) -> list[dict]:
+    """Trip rows of customer tabs from `scan_tabs` output, whichever reader produced the cells."""
     rows = []
-    for tab, data in loader.scan_workbook(xlsx).items():
+    for tab, data in scan.items():
         for record in data.get("records", []):
             if record["kind"] != "trip":
                 continue

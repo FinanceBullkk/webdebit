@@ -118,10 +118,18 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
   - Mỗi lệnh có khóa cố định theo lô, hash, đích và trường, nên bấm lại không ghi trùng.
   - Hỏng giữa lô thì trả `complete: false` với số đã ghi; lần sau các dòng đã ghi thành `PRICE_UNCHANGED`.
 
+**Runner đọc tab qua Sheets API** (người dùng chọn 27/10/2026: đường chính thức, thay vì tải `.xlsx` qua Docs):
+- Bản tải `.xlsx` đầy đủ khoảng 32MB, vượt giới hạn 10MB của API xuất file Drive, nên runner không tải file.
+- `tools/v7_sheets_api_reader.py` liệt kê tab (`spreadsheets.get`, chỉ lấy tên) rồi đọc 25 tab mỗi lần `values:batchGet` với `UNFORMATTED_VALUE` và `SERIAL_NUMBER`. Cách này trả đúng giá trị thô như ô xlsx: số như lưu, ngày là số sê-ri, công thức là kết quả đã tính.
+- `v7_load_real_copy` tách thành `workbook_rows` (đọc xlsx) và `scan_tabs` (phân tích tab, dùng chung cho cả hai đường).
+- Chạy `v7_price_snapshot.py --spreadsheet-id … --credentials …`: cùng tài khoản dịch vụ và quyền `spreadsheets.readonly` như `sheet_sync_runner.py`, không xin thêm quyền.
+- Kiểm tương đương trên bản tải 27/10 (chỉ đọc, ngoài Git): dựng phản hồi dạng API từ ô thô của chính file đó rồi cho qua bộ chuyển. Kết quả 247/247 tab và 11.609 dòng giống đường xlsx, trừ 1 ô container gõ nhầm thành số: xlsx lưu `4.2E7`, đường API ra `42000000`; giá và tiền không đổi.
+- **Chưa kiểm** với Sheets API thật: cần tài khoản dịch vụ trên `hao`. Lần chạy đầu trên `hao` phải so hash/số dòng với bản tạo từ `.xlsx` cùng thời điểm.
+- Lịch chạy: đặt cạnh lịch của `sheet_sync_runner.py` (ngoài repo, khi triển khai). Mỗi lần chạy khoảng 11 yêu cầu API.
+
 **Kiểm chỉ đọc trên dữ liệu thật** (bản tải 27/10, sổ `hao` qua API GET, kết quả ngoài Git): bản chụp 10.358 dòng; hàng chờ từng khách cho tổng `READY` 36 ở 3 khách (khớp số đo); "Cần xem" 43 dòng ở 10 khách (40 khớp nhiều chuyến có chuyến chưa giá, 3 lệch giá).
 
 **CÒN MỞ:**
-- **Runner tự lấy file Sheet:** bản tải đầy đủ nặng khoảng 32MB, vượt giới hạn 10MB của API xuất file Google Drive. Cần chọn: đọc từng tab qua Sheets API rồi viết thêm bộ chuyển sang dạng loader đọc được (đường chính thức, nhiều code hơn); hoặc dùng địa chỉ tải `.xlsx` của Google Docs bằng token quyền `drive.readonly` (ít code, nhưng không phải API được cam kết). Trong lúc chờ, bản chụp tạo được từ file `.xlsx` tải tay (cùng file dùng cho đối soát cuối ngày).
 - `CONFLICT` "Giữ web" cần lưu sự kiện (mở rộng `resolve_sheet_conflict` hoặc sự kiện riêng); "Lấy Sheet" dùng được ngay bằng lệnh ghi giá một chuyến.
 - Ghi nguồn tab/dòng Sheet vào Lịch sử `price_edit`.
 - Đếm "N giá từ Sheet chờ ghi" ở Tổng quan (cần tính trên mọi khách).
