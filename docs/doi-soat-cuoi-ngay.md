@@ -45,27 +45,26 @@ Công cụ chỉ **đọc** web, không ghi gì. Thư mục `ket-qua` phải ch�
 
 ## Bước 4. Đọc kết quả
 
-Dòng đầu là kết luận:
+Màn hình PowerShell in một dòng kết luận:
 
-- `DOI SOAT: DAT` — mọi khách khớp. Xong, sang bước 6.
-- `DOI SOAT: KHONG DAT` — có khách lệch. Sang bước 5.
-
-Dòng thứ hai đếm số khách theo trạng thái. Các dòng sau liệt kê **số thứ tự** khách theo từng trạng thái (không in tên):
-
-| Trạng thái | Nghĩa |
-| --- | --- |
-| `KHOP` | Tổng web bằng tổng Sheet |
-| `LECH_TONG` | Hai tổng khác nhau |
-| `CHI_CO_SHEET` | Khách có trên Sheet, không có trên web |
-| `CHI_CO_WEB` | Khách có trên web, không có trên Sheet |
-| `THIEU_SO` | Một bên chưa có tổng (ví dụ khách chưa có số dư đầu). Không coi là 0 |
-| `CHI_LECH_THANG` | Không dùng khi chạy `--totals-only` |
+- `DOI SOAT: DAT`: mọi khách khớp. Xong, sang bước 6.
+- `DOI SOAT: KHONG DAT`: có khách lệch. Sang bước 5.
 
 Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output error`, đó là lỗi đọc/ghi, **không** phải kết quả. Báo lại.
 
+Để xem chi tiết, mở file `ket-quaeconcile_report.html` (bấm đúp, mở bằng trình duyệt). Đầu trang ghi **ĐỐI SOÁT: ĐẠT** hoặc **ĐỐI SOÁT: KHÔNG ĐẠT**. Bên dưới là bảng từng khách gồm tổng Sheet, tổng web, chênh lệch và trạng thái. Dòng xanh là khớp, dòng đỏ là cần xem.
+
+| Trạng thái | Nghĩa |
+| --- | --- |
+| Khớp | Tổng web bằng tổng Sheet |
+| Lệch tổng | Hai tổng khác nhau |
+| Chỉ có Sheet | Khách có trên Sheet, không có trên web |
+| Chỉ có web | Khách có trên web, không có trên Sheet |
+| Thiếu số | Một bên chưa có tổng (ví dụ khách chưa có số dư đầu). Không coi là 0 |
+
 ## Bước 5. Khi lệch
 
-Mở `ket-qua\reconcile_customer.csv` bằng Excel. Mỗi dòng là một khách: tên, tổng Sheet, tổng web, chênh lệch, trạng thái. **Chênh lệch = web − Sheet**.
+Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web − Sheet**. Nếu cần lọc hay sắp xếp, mở `ket-quaeconcile_customer.csv` bằng Excel; file này có cùng số liệu.
 
 | Chênh lệch | Hay gặp do | Sửa trên web |
 | --- | --- | --- |
