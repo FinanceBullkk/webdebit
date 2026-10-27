@@ -102,3 +102,28 @@ test('matrix rejects missing money evidence from API', async () => {
     assert.equal(await page.locator('#heat-body tr').count(), 0);
   } finally { await browser.close(); app.close(); }
 });
+test('matrix refresh reads new data while preserving selected year', async () => {
+  let total = '80000';
+  const app = server({ matrixPayload: year => {
+    const data = matrix(year);
+    if (year !== currentYear) return data;
+    data.customers[0].months['1'] = String(Number(total) + 20000);
+    data.customers[0].total_year_vnd = total;
+    data.customers[0].total_all_vnd = total;
+    data.grand_total_year_vnd = total;
+    data.grand_total_all_vnd = total;
+    return data;
+  } });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
+    await page.locator('#scope-all').getByText('80.000 đ').waitFor();
+    total = '80001';
+    await page.locator('#refresh-data').click();
+    await page.locator('#scope-all').getByText('80.001 đ').waitFor();
+    assert.equal(await page.locator('#year-cur').innerText(), String(currentYear));
+    assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
+  } finally { await browser.close(); app.close(); }
+});

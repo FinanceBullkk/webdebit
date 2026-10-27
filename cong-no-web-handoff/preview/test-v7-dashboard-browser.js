@@ -12,7 +12,7 @@ function makeServer({ payload = dashboard, dashboardStatus = 200, customerStatus
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
-    if (route === '/api/v7/dashboard') return send(dashboardStatus, 'application/json', JSON.stringify(payload));
+    if (route === '/api/v7/dashboard') return send(dashboardStatus, 'application/json', JSON.stringify(typeof payload === 'function' ? payload() : payload));
     if (route === '/api/v7/customers') return send(customerStatus, 'application/json', JSON.stringify({ customers }));
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
@@ -60,6 +60,17 @@ test('dashboard handles empty data without fake values', async () => withDashboa
   assert.equal(await page.locator('.top-debtors tbody tr').count(), 0);
   assert.equal(await page.locator('.commodity tbody tr').count(), 0);
 }));
+
+test('dashboard refresh reads new data and shows update time', async () => {
+  let amount = '2480000000';
+  await withDashboard({ payload: () => ({ ...dashboard, receivable: { ...dashboard.receivable, total_vnd: amount } }) }, async page => {
+    await page.locator('.receivable .big-money').waitFor();
+    amount = '2480000001';
+    await page.locator('#refresh-data').click();
+    await page.getByText('2.480.000.001 đ').waitFor();
+    assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
+  });
+});
 
 test('dashboard shows API failure and does not leave loading content', async () => withDashboard({ dashboardStatus: 503 }, async page => {
   await page.locator('#error').waitFor({ state: 'visible' });
