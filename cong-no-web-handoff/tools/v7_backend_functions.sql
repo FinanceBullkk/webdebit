@@ -1797,7 +1797,7 @@ BEGIN
         WHERE o.customer_id=p_customer AND o.debt_month=p_month AND cc.status='active' AND c.status='active') INTO v_opening;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,'event_date',t.event_date,
         'container',t.container,'carrier',t.carrier,'status',t.status,'unit_price_vnd',p.unit_price_vnd::text,
-        'other_fee_vnd',p.other_fee_vnd::text,'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL
+         'other_fee_vnd',p.other_fee_vnd::text,'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL
           WHEN p.unit_price_vnd IS NOT NULL THEN (p.unit_price_vnd+coalesce(p.other_fee_vnd,0))::text
           WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd::text END) ORDER BY t.id),'[]'::jsonb) INTO v_trips
       FROM sokhach.v_trip_current t LEFT JOIN LATERAL

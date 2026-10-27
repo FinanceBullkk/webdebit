@@ -1800,7 +1800,7 @@ def check_roles(pg: Pg) -> None:
     public_commands = ("paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
                        "get_ledger", "list_customers", "get_dashboard", "list_sheet_trip_refs", "record_offset", "void_offset",
-                       "get_receivables_matrix",
+                       "get_receivables_matrix", "get_receivables_detail",
                        "edit_offset_date", "list_offset_sources", "import_cutover", "verify_cutover_customer",
                        "verify_cutover", "activate_cutover", "activate_cutover_customer")
     allowed = ",".join(lit(name) for name in public_commands)
