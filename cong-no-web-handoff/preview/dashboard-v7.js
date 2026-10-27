@@ -15,6 +15,10 @@
     return new Map(customers.map(row => [String(row.id), counts.get(customerLabel(row)) > 1 ? `${customerLabel(row)} · sổ ${row.id}` : customerLabel(row)]));
   };
   const agingLabels = { current: 'Tháng này', '1-2': '1–2 tháng trước', '3-6': '3–6 tháng trước', 'over-6': 'Trên 6 tháng' };
+  let loading = false;
+  let searchReady = false;
+  let currentCustomers = [];
+  const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
 
   function todoGroup(items, title, row) {
     return items.length ? `<section class="todo-group"><div class="todo-head"><span>${title}</span><span>${items.length} việc</span></div>${items.map(row).join('')}</section>` : '';
@@ -36,12 +40,15 @@
   }
 
   function setupSearch(customers) {
+    currentCustomers = customers;
+    if (searchReady) return;
+    searchReady = true;
     const input = document.querySelector('#customer-search');
     const results = document.querySelector('#customer-results');
-    const labels = customerLabels(customers);
     const draw = () => {
       const query = fold(input.value);
-      const found = customers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
+      const labels = customerLabels(currentCustomers);
+      const found = currentCustomers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
         .some(value => fold(value).includes(query))).slice(0, 20);
       results.innerHTML = found.map(item => `<a role="option" href="/so-khach-v7-live.html?customer=${encodeURIComponent(item.id)}">${esc(labels.get(String(item.id)))}</a>`).join('');
       results.hidden = !query || !found.length;
@@ -52,6 +59,8 @@
   }
 
   async function load() {
+    if (loading) return;
+    loading = true;
     try {
       const response = await fetch('/api/v7/dashboard', { cache: 'no-store' });
       if (!response.ok) throw Error('Không tải được tổng quan công nợ.');
@@ -71,14 +80,20 @@
         // Dashboard vẫn đọc được khi danh sách khách tạm lỗi.
       }
       render(data, customers);
-      if (customers.length) setupSearch(customers);
+      setupSearch(customers);
+      document.querySelector('#error').hidden = true;
+      markUpdated();
     } catch (error) {
       const alert = document.querySelector('#error');
       alert.hidden = false;
       alert.textContent = error.message;
-      root.replaceChildren();
-    }
+      if (!root.querySelector('.grid')) root.replaceChildren();
+    } finally { loading = false; }
   }
 
   load();
+  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); };
+  document.querySelector('#refresh-data')?.addEventListener('click', refresh);
+  setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

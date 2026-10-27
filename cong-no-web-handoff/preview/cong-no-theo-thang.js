@@ -2,6 +2,7 @@
   'use strict';
   const currentYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
   const state = { year: currentYear, data: null, query: '', commodity: '', request: 0, detail: 0, detailFocus: null };
+  const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[ch]);
   const vnd = value => {
@@ -129,6 +130,7 @@
       select.value = state.commodity;
       state.commodity = select.value;
       render();
+      markUpdated();
     } catch (error) {
       if (request !== state.request) return;
       showError(error.message);
@@ -174,6 +176,10 @@
   }
   $('#year-prev').addEventListener('click', () => load(state.year - 1));
   $('#year-next').addEventListener('click', () => load(state.year + 1));
+  const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };
+  $('#refresh-data').addEventListener('click', refresh);
+  setInterval(() => { if (!document.hidden && $('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); }, 60_000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   $('#find').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase(); render(); });
   $('#commodity').addEventListener('change', event => { state.commodity = event.target.value; render(); });
   $('#drawer-close').addEventListener('click', closeDrawer);
