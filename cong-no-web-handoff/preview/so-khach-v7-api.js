@@ -43,6 +43,19 @@
   const groupLabel = row => row.commodity
     ? (modeText[row.transport_mode] ? `${row.commodity} · ${modeText[row.transport_mode]}` : row.commodity)
     : unclassified;
+  const customerLabel = row => {
+    if (row.label) return row.label;
+    const name = row.display_name ?? row.name;
+    return row.commodity ? `${name} · ${groupLabel(row)}` : name;
+  };
+  const customerLabels = rows => {
+    const counts = new Map();
+    for (const row of rows) counts.set(customerLabel(row), (counts.get(customerLabel(row)) ?? 0) + 1);
+    return new Map(rows.map(row => {
+      const label = customerLabel(row);
+      return [row.id, counts.get(label) > 1 ? `${label} · sổ ${row.id}` : label];
+    }));
+  };
 
   // Nhóm theo mặt hàng + phương thức, nhóm xếp theo tên, "Chưa phân loại" cuối; trong nhóm giữ thứ tự server.
   // found theo đúng thứ tự hiển thị để Enter mở dòng đầu tiên người dùng thấy.
@@ -51,7 +64,8 @@
     const groups = new Map();
     for (const row of customers) {
       const label = groupLabel(row);
-      if (wanted && !fold(row.name).includes(wanted) && !fold(label).includes(wanted)) continue;
+      const names = [row.name, row.display_name, row.label, ...(row.aliases ?? [])];
+      if (wanted && !names.some(name => fold(name).includes(wanted)) && !fold(label).includes(wanted)) continue;
       if (!groups.has(label)) groups.set(label, { label, rows: [] });
       groups.get(label).rows.push(row);
     }
@@ -78,7 +92,7 @@
         banner.hidden = false;
       }
       customerNames.clear();
-      for (const row of customers) customerNames.set(row.id, row.name);
+      for (const [id, label] of customerLabels(customers)) customerNames.set(id, label);
       // Plain links, not a <select>: the embedded app browser does not open native select popups.
       const current = new URLSearchParams(location.search).get('customer');
       const href = row => `/so-khach-v7-live.html?customer=${encodeURIComponent(row.id)}`;
@@ -103,7 +117,8 @@
           for (const row of rows) {
             const link = document.createElement('a');
             link.href = href(row);
-            link.textContent = row.status === 'active' ? row.name : `${row.name} (chưa có số dư đầu)`;
+            const display = customerNames.get(row.id);
+            link.textContent = row.status === 'active' ? display : `${display} (chưa có số dư đầu)`;
             if (String(row.id) === current) link.setAttribute('aria-current', 'page');
             items.push(link);
           }
@@ -238,7 +253,7 @@
     return { read, submit, submitOffset, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
-  const api = { create, stale, unknown, groupCustomers, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
+  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();

@@ -569,3 +569,22 @@ test('MH-01: nhóm khách theo mặt hàng + phương thức, Chưa phân loại
   assert.equal(flat.labelled, false);
   assert.deepEqual(flat.found.map(r => r.id), [1, 2, 3, 4, 5]);
 });
+
+test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm được', () => {
+  const { groupCustomers, customerLabel, customerLabels } = require('./so-khach-v7-api.js');
+  const rows = [
+    { id: 7, name: 'OLD A', display_name: 'SHEET', aliases: ['TÊN PHỤ'], commodity: 'Chuối' },
+    { id: 8, name: 'OLD B', display_name: 'SHEET', aliases: [], commodity: 'Dừa' },
+    { id: 9, name: 'UNMAPPED', commodity: null },
+  ];
+  assert.equal(customerLabel(rows[0]), 'SHEET · Chuối');
+  assert.equal(customerLabel(rows[1]), 'SHEET · Dừa');
+  assert.equal(customerLabel(rows[2]), 'UNMAPPED');
+  assert.deepEqual(groupCustomers(rows, 'ten phu').found.map(row => row.id), [7]);
+  assert.deepEqual(groupCustomers(rows, 'old b').found.map(row => row.id), [8]);
+  assert.deepEqual(groupCustomers(rows, 'sheet').found.map(row => row.id), [7, 8]);
+  assert.deepEqual([...customerLabels([
+    { id: 10, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
+    { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
+  ])], [[10, 'SHEET · Chuối · sổ 10'], [11, 'SHEET · Chuối · sổ 11']]);
+});
