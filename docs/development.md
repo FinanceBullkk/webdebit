@@ -46,7 +46,7 @@ Giữ hồ sơ gọn trong spec/PR hiện có: thao tác → module/API → chec
 Playwright cùng báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
 `npm run lint` chạy riêng ba bước lint khi đang sửa dở.
 
-CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — tên job giữ nguyên của main để không làm hỏng required check). Nếu CI gọi một lệnh
+CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
 không đổi riêng trong workflow.
 
@@ -61,6 +61,12 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 | `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12 và 3.13 qua `uv` |
 | `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
 | `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 qua `uv` |
+| `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
+
+**Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
+trước khi merge (`strict`), bật nút Update branch, chỉ cho squash merge và lịch sử thẳng. Thêm job mới vào
+workflow thì thêm vào `needs` của `ci-ok`; không cần sửa luật nhánh. PR lỗi thời bấm Update branch hoặc chạy
+`gh pr update-branch <số>` (dùng `--rebase` nếu muốn rebase).
 
 Lý do bỏ runner tự host: `hao` là máy chạy DB thật `webdebit_ledger` và web xem sổ; với repo public,
 PR từ fork có thể đưa mã lạ chạy trên chính máy đó. Máy GitHub sạch mỗi lượt, không chạm `hao`, nên

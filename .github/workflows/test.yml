@@ -234,3 +234,29 @@ jobs:
           name: viewer-browser-screenshots-${{ matrix.os }}
           path: test-results/viewer
           if-no-files-found: warn
+
+  # Required check duy nhất của main. Job bị path-filter bỏ qua (skipped) vẫn tính là qua;
+  # chỉ failure/cancelled mới chặn. Thêm job mới thì thêm vào `needs`, không phải sửa luật nhánh.
+  ci-ok:
+    if: always()
+    needs:
+      - changes
+      - python
+      - postgres-ledger
+      - postgres-v7-backend
+      - postgres-v7-p0
+      - postgres-v7-grants-direct
+      - postgres-m1-history-queries
+      - pg18-versioned-approval-fixture
+      - javascript
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Mọi job phải success hoặc skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for r in $RESULTS; do
+            [[ $r == success || $r == skipped ]] || { echo "::error::Có job $r"; exit 1; }
+          done
