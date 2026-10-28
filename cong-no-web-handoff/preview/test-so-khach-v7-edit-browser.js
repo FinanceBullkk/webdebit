@@ -168,7 +168,18 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ', async () => withPage(async ({ page, world }) => {
+test('Ô thu của hàng nhập phiếu dính ngay dưới dòng tháng khi cuộn', async () => withPage(async ({ page }) => {
+  const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
+    const cell = input.closest('td'), head = cell.closest('table').querySelector('tr.month th');
+    return { sticky: getComputedStyle(cell).position, top: Number.parseInt(cell.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
+      cells: cell.closest('tr').querySelectorAll('td.pay-pin').length };
+  });
+  assert.equal(pinned.sticky, 'sticky');
+  assert.equal(pinned.cells, 3);
+  assert.equal(pinned.top, pinned.below);
+}));
+
+test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',async () => withPage(async ({ page, world }) => {
   const amount = page.locator('.receipt-amount').first();
   await amount.fill('123');
   const before = world.reads;
@@ -507,8 +518,8 @@ const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll
 test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng 2; nhiều phiếu hơn hàng thì thêm hàng; ô nhập ở hàng kế tiếp; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
   world.legacy.push({ id: 23, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false, current: { month: '2026-09-01', deleted: false },
     display: { row: 5, raw_date: '46032.0', note: '2026-01-10 00:00:00' } });
-  world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-10-01', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-10-02', '3000000'),
-    webReceipt('PH-003', '2026-09-01', '2026-10-03', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
+  world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-09-11', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-09-12', '3000000'),
+    webReceipt('PH-003', '2026-09-01', '2026-09-13', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
   await page.reload();
   await page.waitForSelector('#thang-2026-09');
   // Tháng 9: dòng Sheet 1 (phiếu Sheet), dòng Sheet 2, chuyến web, rồi hàng thêm.
@@ -516,7 +527,7 @@ test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng
   assert.equal(sept.length, 5);
   assert.equal(sept[0].date, '10/01/2026');   // 46032 = 10/01/2026, ghi chú lặp cùng ngày bị bỏ
   assert.equal(sept[0].method, '');
-  assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['01/10/2026', '02/10/2026', '03/10/2026']);
+  assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['11/09/2026', '12/09/2026', '13/09/2026']);
   assert.equal(sept[4].entry, true);
   assert.equal(sept[3].first, '');            // hàng thêm chỉ có cột thu
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);

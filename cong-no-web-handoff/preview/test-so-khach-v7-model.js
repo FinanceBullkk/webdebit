@@ -532,17 +532,6 @@ test('NHAP-SHEET-01 draft check: errors per cell, missing price is not an error,
   assert.equal(bad.trip, null);
 });
 
-test('Tổng tháng like the Sheet: shift charges and received by Sheet charge − opening; month-end unchanged', () => {
-  // Server: phát sinh 600 = số dư đầu 600 (đã trừ tiền thu Sheet); Sheet: phát sinh 1.234.567.
-  assert.deepEqual(model.sheetMonthTotals({ chargesVnd: '700', receivedVnd: '50', openingVnds: ['600'], sourceChargeVnd: '1234567' }),
-    { chargesVnd: '1234667', receivedVnd: '1234017' });
-  assert.equal(1234667n - 1234017n, 700n - 50n);
-  // Thiếu số Sheet hoặc không có số dư đầu: giữ số server.
-  assert.deepEqual(model.sheetMonthTotals({ chargesVnd: '700', receivedVnd: '0', openingVnds: ['600'], sourceChargeVnd: null }), { chargesVnd: '700', receivedVnd: '0' });
-  assert.deepEqual(model.sheetMonthTotals({ chargesVnd: '700', receivedVnd: '0', openingVnds: [], sourceChargeVnd: '9' }), { chargesVnd: '700', receivedVnd: '0' });
-  assert.throws(() => model.sheetMonthTotals({ chargesVnd: '1.5', receivedVnd: '0', openingVnds: ['1'], sourceChargeVnd: '2' }));
-});
-
 test('Ghi giá từ Sheet: tổng tăng tính bằng BigInt, phụ phí null là 0, tổng âm vẫn đọc được', () => {
   const ready = [{ sheet_unit_price_vnd: '12500000', sheet_other_fee_vnd: '300000' }, { sheet_unit_price_vnd: '13000000', sheet_other_fee_vnd: null }];
   assert.equal(model.sheetPriceAmount(ready[0]), 12800000n);

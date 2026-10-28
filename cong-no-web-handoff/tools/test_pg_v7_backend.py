@@ -17,6 +17,8 @@ import time
 import uuid
 from pathlib import Path
 
+from docker_exec_channel import run_docker_exec
+
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff" / "tools" / "v7_backend_functions.sql"
@@ -34,8 +36,10 @@ class HarnessError(RuntimeError):
 def run(args: list[str], *, input_text: str | None = None, check: bool = True,
         timeout: float = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     try:
-        p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
-                           errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
+        p = run_docker_exec(args, input_text=input_text, timeout=timeout)
+        if p is None:
+            p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
+                               errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise HarnessError(f"command unavailable/timed out: {args[:3]}: {exc}") from exc
     if check and p.returncode:
@@ -114,6 +118,8 @@ CASES = [
     case("7.23", "BEHAVIOR", "Typed adjustment values survive audit tampering and latest price revision", check="adjustment_source", functions=("adjust_trip",)),
     case("7.26", "BEHAVIOR", "Shipper survives paste, review and edits in the ledger reader", check="shipper_write_sync", functions=("paste_trips", "edit_trip_info", "review_trip")),
     case("7.27", "BEHAVIOR", "Typed fee intent lands on the effective fee after a price revision", check="fee_intent_after_price", functions=("adjust_trip", "edit_trip_price")),
+    case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
+         functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
 
 
@@ -812,7 +818,8 @@ FOR EACH ROW EXECUTE FUNCTION public.fail_second_void()""")
         "AND r.voided_on IS NOT NULL AND r.voided_by_event=e.id "
         "FROM sokhach.receipt r JOIN sokhach.event e ON e.id=r.voided_by_event "
         f"WHERE r.customer_id={c} AND r.pid='PH-001')", "void after snapshot or receipt state wrong")
-    require([r[1] for r in months(pg, c)] == ["60", "50"], "void balance wrong")
+    # DA-THU-01: tháng 3 (ngày thu PH-002) có dòng tháng riêng, nợ kỳ 0.
+    require([r[1] for r in months(pg, c)] == ["60", "50", "0"], "void balance wrong")
     reject_call(pg, "void_receipt", c, 3, "void-again", first["pid"], "lại", error="RECEIPT_ALREADY_VOID")
 
 
@@ -825,7 +832,7 @@ def check_opening_fifo(pg: Pg) -> None:
              ("2026-02-01", "debt", "50")], "receipt did not use old opening first")
     call(pg, "adjust_month", c, 2, "fifo-a", "2026-01-01", 60, "giá mới")
     require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "150")]
-            and [r[1] for r in months(pg, c)] == ["10", "200"], "adjustment did not reallocate FIFO")
+            and [r[1] for r in months(pg, c)] == ["10", "200", "0"], "adjustment did not reallocate FIFO")
     require(pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}") == opening,
             "opening changed after reallocation")
     assert_allocations(pg, c)
@@ -848,7 +855,7 @@ def check_negative_receipt(pg: Pg) -> None:
     call(pg, "record_receipt", c, 1, "negative-r2", "2026-04-02", "THU TIỀN", 5)
     other = allocations(pg, c, "PH-002")
     call(pg, "void_receipt", c, 2, "negative-void", "PH-001", "sai")
-    require([r[1] for r in months(pg, c)] == ["-50", "100", "15"]
+    require([r[1] for r in months(pg, c)] == ["-50", "100", "15", "0"]
             and allocations(pg, c, "PH-002") == other, "void altered negative opening or other receipt")
 
 
@@ -1064,21 +1071,173 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
+    for migration in (SHEET_CONFLICT_MIGRATION, SHEET_CONFLICT_DATE_MIGRATION):
+        copy.sql(migration.read_text(encoding="utf-8"))
+        copy.sql(migration.read_text(encoding="utf-8"))
+    fee_book = new_book(copy, ("2026-01-01", 0))
+    fixture_open_month(copy, fee_book, "2026-01-01")
+    row = json.loads(trip_json())[0]
+    row["otherFeeVnd"] = "5"
+    fee_trip = call(copy, "paste_trips", fee_book, version(copy, fee_book), "fee-old-paste",
+                    "2026-01-01", json.dumps([row]))["trip_ids"][0]
+    call(copy, "adjust_trip", fee_book, version(copy, fee_book), "fee-old-adjust",
+         fee_trip, None, "", "other_fee_vnd", 7)
+    zero_book = new_book(copy, ("2026-01-01", 0))
+    fixture_open_month(copy, zero_book, "2026-01-01")
+    zero_row = json.loads(trip_json(container="ZERO-FEE"))[0]
+    zero_row["otherFeeVnd"] = "0"
+    zero_trip = call(copy, "paste_trips", zero_book, version(copy, zero_book), "zero-old-paste",
+                     "2026-01-01", json.dumps([zero_row]))["trip_ids"][0]
+    legacy_book = new_book(copy, ("2026-01-01", 999))
+    fixture_open_month(copy, legacy_book, "2026-01-01")
+    cutover = copy.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={legacy_book}")
+    import_event = copy.value(f"SELECT id FROM sokhach.event WHERE customer_id={legacy_book} AND kind='import'")
+    legacy_id = copy.value("BEGIN; SET LOCAL ROLE sokhach_owner; "
+        "ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard; "
+        "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
+        f"VALUES({legacy_book},{cutover},'2026-01-01','trip','{{\"container\":\"LEGACY\",\"unit_price\":\"100\",\"fee_vnd\":\"5\"}}',999,'FAKE',99,{import_event}) RETURNING id; "
+        "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard; COMMIT").splitlines()[0]
+    before_fee = copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}")
+    fee_migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql").read_text(encoding="utf-8")
+    dry_gate = "DO $$ DECLARE r record; BEGIN SELECT * INTO r FROM sokhach.v7_fee_migration_dry_run();"
+    require(dry_gate in fee_migration, "fee dry-run gate missing")
+    for container, event_date, old_fee, adjustment in (("NULL", "NULL", "0", ""),
+                                                        ("'DRY-C'", "'2026-01-01'", "NULL",
+                                                         "INSERT INTO sokhach.adjustment(customer_id,debt_month,trip_id,amount_vnd,actor,created_by_event,field,new_value_vnd) "
+                                                         "SELECT customer_id,debt_month,id,5,'harness',created_by_event,'other_fee_vnd',5 FROM fee_dry_trip;")):
+        fixture = ("WITH e AS (INSERT INTO sokhach.event(customer_id,kind,actor,\"before\",\"after\") "
+                   f"VALUES({fee_book},'paste','harness','{{}}','{{\"trips\":[]}}') RETURNING id), "
+                   "t AS (INSERT INTO sokhach.trip(customer_id,debt_month,event_date,container,created_by_event) "
+                   f"SELECT {fee_book},'2026-01-01',{event_date},{container},id FROM e RETURNING id,customer_id,debt_month,created_by_event) "
+                   "INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event) "
+                   f"SELECT id,customer_id,NULL,{old_fee},created_by_event FROM t; "
+                   "CREATE TEMP TABLE fee_dry_trip ON COMMIT DROP AS SELECT * FROM sokhach.trip ORDER BY id DESC LIMIT 1; "
+                   + adjustment)
+        copy.rejects(fee_migration.replace(dry_gate, fixture + dry_gate), message="FEE_MIGRATION_REVIEW_REQUIRED")
+        copy.true("to_regclass('sokhach.trip_fee_line') IS NULL", "rejected fee dry-run left schema")
+    copy.sql(fee_migration)
+    copy.true(f"(SELECT other_fee_vnd IS NULL FROM sokhach.trip_price_rev WHERE trip_id={zero_trip} ORDER BY id DESC LIMIT 1)",
+              "zero fee not normalized to NULL")
+    copy.true(f"(SELECT count(*)=1 FROM sokhach.event WHERE customer_id={fee_book} AND kind='fee_migration')",
+              "migration did not create one fee event per customer")
+    copy.true(f"(SELECT bool_and(e.kind='fee_migration') FROM sokhach.trip_fee_line l "
+              f"JOIN sokhach.event e ON e.id=l.created_by_event WHERE l.trip_id={fee_trip})",
+              "fee line reused an old event")
+    require(any(e["kind"] == "fee_migration" and e["label"] == "Tách phụ phí"
+                for e in call(copy, "get_ledger", fee_book)["events"]), "migration history label missing")
+    copy.true(f"(SELECT amount_vnd=5 FROM sokhach.trip_fee_line WHERE legacy_row_id={legacy_id})",
+              "legacy fee line missing")
+    require(next(r for r in call(copy, "get_ledger", legacy_book)["legacy_rows"] if r["id"] == int(legacy_id))["current"]["counted_vnd"] == "999",
+            "legacy TOTAL changed during migration")
+    fee_counts = copy.value("SELECT jsonb_build_array((SELECT count(*) FROM sokhach.trip_price_rev),"
+                            "(SELECT count(*) FROM sokhach.trip_fee_line),"
+                            "(SELECT count(*) FROM sokhach.event))")
+    copy.sql(fee_migration)
+    require(copy.value("SELECT jsonb_build_array((SELECT count(*) FROM sokhach.trip_price_rev),"
+                       "(SELECT count(*) FROM sokhach.trip_fee_line),"
+                       "(SELECT count(*) FROM sokhach.event))") == fee_counts,
+            "fee migration second run changed rows")
+    copy.true(f"(SELECT fee_absorbed FROM sokhach.adjustment WHERE trip_id={fee_trip} AND field='other_fee_vnd')",
+              "old fee adjustment not absorbed")
+    require(copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}") == before_fee,
+            "fee migration changed old adjusted trip")
+    rollback = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.rollback.sql").read_text(encoding="utf-8")
+    rollback_check = "DO $$ BEGIN\n IF EXISTS(SELECT * FROM fee_rollback_month"
+    require(rollback_check in rollback, "fee rollback balance checker marker missing")
+    drift = ("INSERT INTO sokhach.adjustment(customer_id,debt_month,amount_vnd,actor,created_by_event) "
+             f"VALUES({legacy_book},'2026-01-01',1,'harness',{import_event});\n")
+    copy.rejects(rollback.replace(rollback_check, drift + rollback_check),
+                 message="FEE_ROLLBACK_TOTAL_MISMATCH")
+    copy.sql(rollback)
+    copy.true("to_regclass('sokhach.trip_fee_line') IS NULL AND "
+              "NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='sokhach' "
+              "AND table_name='adjustment' AND column_name='fee_absorbed') AND "
+              "(SELECT count(*)=2 FROM pg_constraint WHERE conname IN "
+              "('trip_price_rev_other_fee_vnd_check','legacy_trip_rev_other_fee_vnd_check'))",
+              "fee rollback did not restore old schema")
+    copy.true(f"(SELECT other_fee_vnd=0 FROM sokhach.trip_price_rev WHERE trip_id={zero_trip} ORDER BY id DESC LIMIT 1)",
+              "rollback lost source zero fee")
+    copy.true("NOT EXISTS(SELECT 1 FROM sokhach.event WHERE kind='fee_migration')",
+              "rollback left fee migration events")
+    require(copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}") == before_fee,
+            "fee rollback changed old adjusted trip")
+    copy.sql(fee_migration)
+    copy.sql(DA_THU_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DA_THU_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
     require(call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10) == old_result,
             "old idempotency key broken by migration")
     catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
-    require(json.loads(copy.value(catalog)) == json.loads(pg.value(catalog)), "migrated functions differ")
+    migrated = json.loads(copy.value(catalog))
+    fresh = json.loads(pg.value(catalog))
+    migrated.pop("resolve_sheet_conflict", None)  # Existing migration, absent from canonical function file.
+    require(migrated == fresh, f"migrated functions differ: {[k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k)]}")
+    call(copy, "edit_trip_price", fee_book, version(copy, fee_book), "fee-after-migration",
+         fee_trip, 110, 7)
+    require(copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}") == "117",
+            "old fee adjustment counted twice after unit edit")
+    call(copy, "edit_legacy_trip", legacy_book, version(copy, legacy_book), "legacy-fee-total",
+         int(legacy_id), "other_fee_vnd", "7")
+    copy.true(f"(SELECT counted_vnd=107 FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1)",
+              "legacy fee edit ignored source TOTAL difference")
+    copy.true(f"(SELECT amount_vnd=-892 FROM sokhach.adjustment WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1)",
+              "legacy fee adjustment delta wrong")
+    legacy_flag = copy.value("BEGIN; SET LOCAL ROLE sokhach_owner; SET LOCAL sokhach.actor='harness'; "
+        "INSERT INTO sokhach.trip_fee_line(customer_id,legacy_row_id,fee_type_id,amount_vnd,created_by_event) "
+        f"SELECT {legacy_book},{legacy_id},id,3,{import_event} FROM sokhach.fee_type WHERE name='Neo'; "
+        f"SELECT sokhach.get_ledger({legacy_book})->'legacy_rows'->0->>'has_typed_fee'; ROLLBACK")
+    require(legacy_flag == "true", "legacy has_typed_fee missing")
+    typed_book = new_book(copy, ("2026-01-01", 0))
+    fixture_open_month(copy, typed_book, "2026-01-01")
+    fee_rows = []
+    for n, fee in enumerate((None, "5", "-5", None)):
+        item = json.loads(trip_json(container=f"TYPED-{n}"))[0]
+        item["otherFeeVnd"] = fee
+        fee_rows.append(item)
+    typed_ids = call(copy, "paste_trips", typed_book, version(copy, typed_book), "typed-flags",
+                     "2026-01-01", json.dumps(fee_rows))["trip_ids"]
+    copy.rejects(f"BEGIN; SET LOCAL ROLE sokhach_owner; INSERT INTO sokhach.trip_fee_line"
+                 f"(customer_id,trip_id,fee_type_id,amount_vnd,created_by_event) "
+                 f"SELECT {typed_book},{typed_ids[0]},id,3,(SELECT created_by_event FROM sokhach.trip WHERE id={typed_ids[0]}) "
+                 "FROM sokhach.fee_type WHERE system_key='other'; COMMIT", message="FEE_CACHE_MISMATCH")
+    copy.rejects(f"INSERT INTO sokhach.trip_fee_line(customer_id,trip_id,fee_type_id,amount_vnd,created_by_event) "
+                 f"SELECT {c},{typed_ids[0]},id,3,(SELECT created_by_event FROM sokhach.trip WHERE id={typed_ids[0]}) "
+                 "FROM sokhach.fee_type WHERE system_key='other'", message="foreign key")
+    copy.sql(f"BEGIN; SET LOCAL ROLE sokhach_owner; INSERT INTO sokhach.trip_fee_line"
+             f"(customer_id,trip_id,fee_type_id,amount_vnd,created_by_event) "
+             f"SELECT {typed_book},{typed_ids[3]},id,3,(SELECT created_by_event FROM sokhach.trip WHERE id={typed_ids[3]}) "
+             "FROM sokhach.fee_type WHERE name='Neo'; "
+             f"SELECT sokhach._sync_trip_fee({typed_ids[3]},(SELECT created_by_event FROM sokhach.trip WHERE id={typed_ids[3]})); COMMIT")
+    flags = [row["has_typed_fee"] for row in call(copy, "get_ledger", typed_book)["trips"]]
+    require(flags == [False, False, False, True], f"typed fee flags wrong: {flags}")
+    line_before = copy.value(f"SELECT id::text FROM sokhach.trip_fee_line WHERE trip_id={typed_ids[3]} AND voided_by_event IS NULL")
+    call(copy, "edit_trip_price", typed_book, version(copy, typed_book), "typed-price-only",
+         typed_ids[3], 101, 3)
+    require(copy.value(f"SELECT id::text FROM sokhach.trip_fee_line WHERE trip_id={typed_ids[3]} AND voided_by_event IS NULL")
+            == line_before, "price-only edit replaced typed fee line")
+    for n, fee in enumerate((-7, -9)):
+        call(copy, "edit_trip_price", typed_book, version(copy, typed_book), f"negative-fee-{n}",
+             typed_ids[2], 100, fee)
+    copy.true(f"(SELECT count(*)=1 AND min(amount_vnd)=-9 FROM sokhach.trip_fee_line "
+              f"WHERE trip_id={typed_ids[2]} AND voided_by_event IS NULL)",
+              "second negative fee did not replace first")
+    reject_call(copy, "edit_trip_price", typed_book, version(copy, typed_book), "typed-reject",
+                typed_ids[3], 100, 4, error="FEE_LINES_TYPED")
+    copy.rejects(rollback, message="ROLLBACK_CLASSIFIED_LINES")
+    writers = json.loads(copy.value("SELECT coalesce(jsonb_agg(proname ORDER BY proname),'[]'::jsonb) "
+        "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND "
+        "(prosrc ~* 'INSERT[[:space:]]+INTO[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd' "
+        "OR prosrc ~* 'UPDATE[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd')"))
+    # Historical sheet conflict command copies unchanged legacy fee for an information edit.
+    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict"],
+            f"unexpected fee cache writers: {writers}")
     check_csm_reference(copy)
     check_csm_locks(copy)
     from test_pg_v7_grants import check_catalog
-    check_catalog(copy)
-    # Sheet conflict commands exist only as migrations (hao order); standard files do not carry them yet.
-    for migration in (SHEET_CONFLICT_MIGRATION, SHEET_CONFLICT_DATE_MIGRATION):
-        copy.sql(migration.read_text(encoding="utf-8"))
-        copy.sql(migration.read_text(encoding="utf-8"))
+    check_catalog(copy, extra_functions={"resolve_sheet_conflict"}, extra_app={
+        "resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)"})
     check_sheet_conflict_resolution(copy)
 
 
@@ -1519,6 +1678,11 @@ FOR t IN SELECT value FROM jsonb_array_elements(TRIPS::jsonb) LOOP
  INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
  VALUES(v_trip,CUSTOMER,(t->'trip'->>'unitPriceVnd')::bigint,
  (t->'trip'->>'otherFeeVnd')::bigint,v_event);
+ IF t->'trip'->>'otherFeeVnd' IS NOT NULL AND (t->'trip'->>'otherFeeVnd')::bigint<>0 THEN
+  INSERT INTO sokhach.trip_fee_line(customer_id,trip_id,fee_type_id,amount_vnd,created_by_event)
+  SELECT CUSTOMER,v_trip,f.id,(t->'trip'->>'otherFeeVnd')::bigint,v_event
+    FROM sokhach.fee_type f WHERE f.system_key=CASE WHEN (t->'trip'->>'otherFeeVnd')::bigint<0 THEN 'discount' ELSE 'other' END;
+ END IF;
 END LOOP;
 FOR r IN SELECT value FROM jsonb_array_elements(RECEIPTS::jsonb) LOOP
  v_receipt:=nextval(pg_get_serial_sequence('sokhach.receipt','id'));
@@ -1560,6 +1724,7 @@ COMMIT;
         "[x.receipt.pid,x.monthKey,x.receipt.kind,x.receipt.amountVnd]),"
         "changed:m.planReallocation(f).changedPids}))")
     got = []
+    bucket_cum = date_cum = 0
     counts = {month: sum(t["month"][:7] == month for t in ledger["trips"])
               for month in (row["month"][:7] for row in ledger["months"])}
     for row in ledger["months"]:
@@ -1569,7 +1734,12 @@ COMMIT;
                        if r["voided_on"] is None and a["superseded_by_event"] is None
                        and a["month"][:7] == m)
         trip_count = sum(t["month"][:7] == m and not t["is_fee_only"] for t in ledger["trips"])
-        got.append([m, str(charges), str(received), row["end_of_month_vnd"], counts[m], trip_count])
+        # DA-THU-01: cộng dồn của sổ trừ tiền theo ngày thu; đổi về cộng dồn theo kỳ trừ nợ để so với model JS.
+        bucket_cum += received
+        date_cum += sum(int(r["amount_vnd"]) for r in ledger["receipts"]
+                        if r["voided_on"] is None and r["date"][:7] == m)
+        by_bucket = int(row["end_of_month_vnd"]) + date_cum - bucket_cum
+        got.append([m, str(charges), str(received), str(by_bucket), counts[m], trip_count])
     require(got == expected["months"] and ledger["total_outstanding_vnd"] == expected["total"]
             and len(ledger["months"]) == 11, f"golden monthly totals differ: {got}")
     ph101 = [[line["month"], line["kind"], line["amount_vnd"]]
@@ -1950,6 +2120,9 @@ OVERRIDING SYSTEM VALUE VALUES (101,1,'2026-03-01','2026-03-04','FAKE-1',{event}
        (103,1,'2026-05-01',NULL,NULL,{event});
 INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
 VALUES (101,1,120,NULL,{event}),(102,1,NULL,7,{event}),(103,1,NULL,7,{event});
+INSERT INTO sokhach.trip_fee_line(customer_id,trip_id,fee_type_id,amount_vnd,created_by_event)
+SELECT 1,t.id,f.id,7,{event} FROM sokhach.trip t CROSS JOIN sokhach.fee_type f
+WHERE t.id IN (102,103) AND f.system_key='other';
 COMMIT;""")
     pg.rejects(f"""BEGIN;
 INSERT INTO sokhach.trip(id,customer_id,debt_month,event_date,container,created_by_event)
@@ -1973,12 +2146,65 @@ def check_monthly_identity(pg: Pg) -> None:
     call(pg, "set_month_lock", c, 0, "identity-open", "2026-02-01", "false")
     call(pg, "record_receipt", c, 1, "identity-r", "2026-04-01", "THU TIỀN", 100)
     rows = call(pg, "get_ledger", c)["months"]
-    require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "400",
-            "opening absent from charges or counted twice")
+    # DA-THU-01: phiếu 01/04 trừ nợ tháng 1 nhưng thuộc tháng 4; còn nợ cuối tháng 1 không bị sửa lùi.
+    require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "500"
+            and rows[0]["outstanding_vnd"] == "400" and rows[-1]["month"] == "2026-04-01"
+            and rows[-1]["received_vnd"] == "100" and rows[-1]["end_of_month_vnd"] == "350",
+            "opening absent from charges, counted twice, or receipt not in its date month")
     call(pg, "adjust_month", c, 2, "identity-a", "2026-02-01", -25, "giảm")
     rows = call(pg, "get_ledger", c)["months"]
     require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "-75",
             "signed opening/adjustment missing from charges")
+
+
+def check_da_thu(pg: Pg) -> None:
+    """DA-THU-01: Tổng tháng như Sheet; phân bổ nợ cũ trước và nợ từng kỳ giữ nguyên."""
+    customer, cutover = cutover_book(pg, 150)
+    # Sheet: phát sinh 100/50/30, thu 30 trong tháng 2 (trừ nợ tháng 1) → bucket 70/50/30, cộng dồn 100/120/150.
+    openings, legacy, checks = import_data([70, 50, 30], charges=[100, 50, 30], receipts=[0, 30, 0])
+    call(pg, "import_cutover", customer, 0, "da-thu-import", cutover, openings, legacy, checks, 150, "a" * 64)
+    call(pg, "verify_cutover_customer", customer, cutover, version(pg, customer), "da-thu-verify", "FAKE-SIGNOFF")
+    call(pg, "verify_cutover", cutover, "da-thu-verify-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover", cutover, "da-thu-activate-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover_customer", customer, cutover, version(pg, customer), "da-thu-activate", "FAKE-SIGNOFF")
+
+    def rows() -> list[tuple[str, str, str, str, str, str]]:
+        return [(m["month"][:7], m["prior_months_vnd"], m["charges_vnd"], m["received_vnd"], m["end_of_month_vnd"],
+                 m["outstanding_vnd"]) for m in call(pg, "get_ledger", customer)["months"]]
+    require(rows() == [("2026-01", "0", "100", "0", "100", "70"), ("2026-02", "100", "50", "30", "120", "50"),
+                       ("2026-03", "120", "30", "0", "150", "30")], f"Sheet figures not used for month totals: {rows()}")
+    # Thu 100 ngày 15/03: trừ nợ tháng 1 (70) và tháng 2 (30) nhưng nằm ở tháng 3; tháng 1, 2 giữ số như Sheet.
+    call(pg, "record_receipt", customer, version(pg, customer), "da-thu-r1", "2026-03-15", "THU TIỀN", 100)
+    first = call(pg, "get_ledger", customer)["receipts"][0]["pid"]
+    require(allocations(pg, customer, first) == [("2026-01-01", "debt", "70"), ("2026-02-01", "debt", "30")],
+            "old-debt-first allocation changed")
+    # Thu 10 ngày 02/04: tháng chưa có chuyến vẫn hiện để đặt phiếu.
+    call(pg, "record_receipt", customer, version(pg, customer), "da-thu-r2", "2026-04-02", "THU TIỀN", 10)
+    # Phiếu 02/04 cũng trừ nợ tháng 2 trước (còn 10); nợ từng kỳ theo phân bổ, cộng dồn theo ngày thu.
+    expected = [("2026-01", "0", "100", "0", "100", "0"), ("2026-02", "100", "50", "30", "120", "10"),
+                ("2026-03", "120", "30", "100", "50", "30"), ("2026-04", "50", "0", "10", "40", "0")]
+    require(rows() == expected, f"received not by receipt date or cumulative rewritten: {rows()}")
+    require(call(pg, "get_ledger", customer)["total_outstanding_vnd"] == "40", "total outstanding changed")
+    pid = call(pg, "get_ledger", customer)["receipts"][-1]["pid"]
+    call(pg, "void_receipt", customer, version(pg, customer), "da-thu-void", pid, "nhập trùng")
+    require(rows()[1:] == [("2026-02", "100", "50", "30", "120", "20"), ("2026-03", "120", "30", "100", "50", "30")],
+            f"voided receipt still counted: {rows()}")
+    # Xóa khoản thu sổ gốc (XOA-THU-GOC-01): Đã thu của tháng giảm, phát sinh không đổi, nợ tăng lại đúng số đó.
+    book, book_cutover = cutover_book(pg, 70)
+    openings, _, checks = import_data([70], charges=[100], receipts=[30])
+    legacy = json.dumps([{"debt_month": "2026-01-01", "kind": "receipt", "display": {"row": 9},
+                          "source_total_vnd": 30, "source_tab": "FAKE", "source_row": 9}])
+    call(pg, "import_cutover", book, 0, "da-thu-legacy-import", book_cutover, openings, legacy, checks, 70, "a" * 64)
+    call(pg, "verify_cutover_customer", book, book_cutover, version(pg, book), "da-thu-legacy-verify", "FAKE-SIGNOFF")
+    call(pg, "verify_cutover", book_cutover, "da-thu-legacy-verify-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover", book_cutover, "da-thu-legacy-activate-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover_customer", book, book_cutover, version(pg, book), "da-thu-legacy-activate", "FAKE-SIGNOFF")
+    fixture_open_month(pg, book, "2026-01-01")
+    legacy_id = call(pg, "get_ledger", book)["legacy_rows"][0]["id"]
+    call(pg, "delete_legacy_trip", book, version(pg, book), "da-thu-legacy-delete", legacy_id)
+    month = call(pg, "get_ledger", book)["months"][0]
+    require((month["charges_vnd"], month["received_vnd"], month["end_of_month_vnd"], month["outstanding_vnd"])
+            == ("100", "0", "100", "100"), f"deleted Sheet receipt not removed from received: {month}")
 
 
 def check_field_adjustment(pg: Pg) -> None:
@@ -2000,10 +2226,10 @@ def check_field_adjustment(pg: Pg) -> None:
     reject_call(pg, "adjust_trip", c, 4, "field-unit-1", trip, None, "ghi chú", "unit_price_vnd", 121,
                 error="IDEMPOTENCY_CONFLICT")
     rows = call(pg, "get_ledger", c)
-    require([a["amount_vnd"] for a in rows["adjustments"]] == ["20", "10", "7", "2", "10"]
+    require([a["amount_vnd"] for a in rows["adjustments"]] == ["20", "10", "10"]
             and rows["total_outstanding_vnd"] == "149", "field deltas or final balance wrong")
     original = next(t for t in rows["trips"] if t["id"] == trip)
-    require(original["unit_price_vnd"] == "100" and original["other_fee_vnd"] is None,
+    require(original["unit_price_vnd"] == "100" and original["other_fee_vnd"] == "9",
             "locked edit changed original price or NULL storage")
     require(all(a["note"] == "ghi chú" for a in rows["adjustments"]), "field note lost")
     edits = [e for e in reversed(rows["events"]) if e["kind"] == "adjust_trip"]
@@ -2033,51 +2259,25 @@ def check_field_adjustment(pg: Pg) -> None:
 
 def check_adjustment_source(pg: Pg) -> None:
     c = new_book(pg, ("2026-01-01", 0))
-    call(pg, "set_month_lock", c, 0, "source-open", "2026-01-01", "false")
-    trip = call(pg, "paste_trips", c, 1, "source-paste", "2026-01-01", trip_json())["trip_ids"][0]
-    call(pg, "set_month_lock", c, 2, "source-open-again", "2026-01-01", "false")
-    first = call(pg, "adjust_trip", c, 3, "source-unit", trip, None, "", "unit_price_vnd", 120)
-    fee = call(pg, "adjust_trip", c, 4, "source-fee", trip, None, "", "other_fee_vnd", 7)
-    require(first["delta_vnd"] == "20" and fee["delta_vnd"] == "7", "unit/fee deltas wrong")
-    pg.true(f"(SELECT field='other_fee_vnd' AND new_value_vnd=7 FROM sokhach.adjustment "
-            f"WHERE id={fee['adjustment_id']})", "fee intent not stored in adjustment")
-    event = pg.value(f"SELECT created_by_event FROM sokhach.adjustment WHERE id={fee['adjustment_id']}")
-    # Disposable fake DB only: owner deliberately corrupts one audit value, restores trigger in same transaction.
+    fixture_open_month(pg, c, "2026-01-01")
+    trip = call(pg, "paste_trips", c, 0, "source-paste", "2026-01-01", trip_json())["trip_ids"][0]
+    call(pg, "adjust_trip", c, 1, "source-unit", trip, None, "", "unit_price_vnd", 120)
+    fee = call(pg, "adjust_trip", c, 2, "source-fee", trip, None, "", "other_fee_vnd", 7)
+    require(fee["delta_vnd"] == "7" and "adjustment_id" not in fee, "fee must use lines, not adjustment")
+    pg.true(f"(SELECT count(*)=0 FROM sokhach.adjustment WHERE trip_id={trip} AND field='other_fee_vnd')",
+            "fee adjustment was inserted")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "127", "fee line not counted")
+    event = pg.value(f"SELECT created_by_event FROM sokhach.trip_fee_line WHERE trip_id={trip} AND voided_by_event IS NULL")
     pg.sql("BEGIN; SET LOCAL ROLE sokhach_owner; "
            "ALTER TABLE sokhach.event DISABLE TRIGGER event_immutable; "
            f"UPDATE sokhach.event SET \"after\"=jsonb_set(\"after\",'{{new_value_vnd}}','\"999\"'::jsonb) WHERE id={event}; "
            "ALTER TABLE sokhach.event ENABLE TRIGGER event_immutable; COMMIT")
-    pg.true(f"(SELECT \"after\"->>'new_value_vnd'='999' FROM sokhach.event WHERE id={event})",
-            "audit tampering experiment did not change audit")
-    last = call(pg, "adjust_trip", c, 5, "source-unit-after-audit", trip, None, "", "unit_price_vnd", 130)
-    require(last["delta_vnd"] == "10", "money still depends on corrupted audit fee")
-    pg.true(f"(SELECT string_agg(field || ':' || new_value_vnd::text,',' ORDER BY created_by_event) "
-            f"FROM sokhach.adjustment WHERE customer_id={c})='unit_price_vnd:120,other_fee_vnd:7,unit_price_vnd:130'",
-            "typed unit/fee values not stored in event order")
-    rows = call(pg, "get_ledger", c)
-    require(rows["total_outstanding_vnd"] == "137"
-            and [a["amount_vnd"] for a in rows["adjustments"]] == ["20", "7", "10"],
-            "locked unit/fee/unit sequence double-counted")
-    require(rows["trips"][0]["unit_price_vnd"] == "100" and rows["trips"][0]["other_fee_vnd"] is None,
-            "typed adjustments changed original price/NULL fee")
-    call(pg, "adjust_trip", c, 6, "source-total", trip, 147, "direct total")
-    call(pg, "adjust_month", c, 7, "source-month", "2026-01-01", 3, "month")
-    pg.true(f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c} "
-            "AND field IS NULL AND new_value_vnd IS NULL)=2", "direct total/month intent must stay NULL")
-    for field, value in (("'unit_price_vnd'", "NULL"), ("NULL", "1"), ("'invalid'", "1"), ("'other_fee_vnd'", "-1")):
-        pg.rejects("INSERT INTO sokhach.adjustment(customer_id,debt_month,trip_id,amount_vnd,actor,created_by_event,field,new_value_vnd) "
-                   f"SELECT customer_id,debt_month,trip_id,amount_vnd,actor,created_by_event,{field},{value} "
-                   f"FROM sokhach.adjustment WHERE id={first['adjustment_id']}", message="check constraint")
-    zero = call(pg, "adjust_trip", c, 8, "source-zero", trip, None, "", "other_fee_vnd", 0)
-    pg.true(f"(SELECT field='other_fee_vnd' AND new_value_vnd=0 FROM sokhach.adjustment "
-            f"WHERE id={zero['adjustment_id']})", "zero fee rejected or stored as NULL")
-    require(zero["delta_vnd"] == "-7", "zero fee ignored stored fee")
-    call(pg, "set_month_lock", c, 9, "source-reopen", "2026-01-01", "false")
-    call(pg, "edit_trip_price", c, 10, "source-price-revision", trip, 200, 30)
-    call(pg, "set_month_lock", c, 11, "source-relock", "2026-01-01", "false")
-    revised = call(pg, "adjust_trip", c, 12, "source-after-revision", trip, None, "", "unit_price_vnd", 220)
-    require(revised["delta_vnd"] == "-20" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "253",
-            "fee adjustment before latest price revision leaked into current fee")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "127", "money depends on audit payload")
+    call(pg, "adjust_trip", c, 3, "source-unit-after-audit", trip, None, "", "unit_price_vnd", 130)
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "137", "unit edit double-counted fee")
+    zero = call(pg, "adjust_trip", c, 4, "source-zero", trip, None, "", "other_fee_vnd", 0)
+    require(zero["delta_vnd"] == "-7" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "130",
+            "zero fee did not clear source lines")
 
 
 def check_shipper_write_sync(pg: Pg) -> None:
@@ -2115,10 +2315,9 @@ def check_fee_intent_after_price(pg: Pg) -> None:
     plus = call(pg, "adjust_trip", c, version(pg, c), "fee-plus", trip, None, "", "other_fee_vnd", 7)
     require(plus["delta_vnd"] == "7", "fee +7 delta wrong")
     call(pg, "edit_trip_price", c, version(pg, c), "fee-price", trip, 100, 30)
-    # 100 unit + (30 fee + 7 stale delta) = 137: a price edit never absorbs older deltas.
-    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "137", "stale fee delta lost")
+    require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "130", "price edit did not replace fee total")
     ten = call(pg, "adjust_trip", c, version(pg, c), "fee-ten", trip, None, "", "other_fee_vnd", 10)
-    require(ten["delta_vnd"] == "-27" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "110",
+    require(ten["delta_vnd"] == "-20" and call(pg, "get_ledger", c)["total_outstanding_vnd"] == "110",
             "fee intent must land on the effective fee after a price revision")
 
 
@@ -2605,6 +2804,7 @@ MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-re
 DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
 SYNC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-shipper-write-sync.sql"
 LEGACY_RECEIPT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-legacy-receipt-delete.sql"
+DA_THU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql"
 SHEET_CONFLICT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-sheet-conflict.sql"
 SHEET_CONFLICT_DATE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-sheet-conflict-date-booking.sql"
 
@@ -2930,7 +3130,7 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
 CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
-          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,
           "future_receipt": check_future_receipt, "void_get": check_void_get,
@@ -3135,12 +3335,14 @@ def main() -> int:
     ap.add_argument("--report", type=Path, help="write JSON report")
     ap.add_argument("--migration-test", action="store_true")
     ap.add_argument("--m2-11-only", action="store_true", help="focused development checks")
+    ap.add_argument("--fee-migration-only", action="store_true", help="focused PR-A migration checks")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--expect-red", action="store_true", default=True,
                       help="default: missing command functions may fail")
     mode.add_argument("--strict", action="store_true", help="require every case to pass")
     args = ap.parse_args()
-    selected = [c for c in CASES if not args.m2_11_only or c["id"] == "7.24"]
+    selected = [c for c in CASES if (not args.m2_11_only or c["id"] == "7.24")
+                and (not args.fee_migration_only or c["id"] == "CSM.03")]
     if args.list:
         for c in CASES:
             print(f"{c['id']}\t{c['label']}\t{c['title']}")

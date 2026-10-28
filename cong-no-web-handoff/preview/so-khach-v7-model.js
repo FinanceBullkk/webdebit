@@ -157,15 +157,6 @@ const SoKhachV7Model = (() => {
     return { errors, amountVnd, missing, warn, trip };
   }
 
-  // Dòng "Tổng tháng" của tháng có dòng từ Sheet: phát sinh gồm cả các dòng Sheet, đã thu gồm tiền thu trên Sheet.
-  // Server tính phát sinh = số dư đầu (đã trừ tiền thu Sheet) + web; dời cùng một khoản ở cả hai cột nên còn nợ cuối tháng
-  // không đổi. Thiếu số Sheet hoặc tháng không có số dư đầu: giữ nguyên số server.
-  function sheetMonthTotals({ chargesVnd, receivedVnd, openingVnds = [], sourceChargeVnd = null }) {
-    if (!openingVnds.length || sourceChargeVnd === null || sourceChargeVnd === undefined) return { chargesVnd, receivedVnd };
-    const shift = vnd(sourceChargeVnd, true) - openingVnds.reduce((sum, value) => sum + vnd(value, true), 0n);
-    return { chargesVnd: (vnd(chargesVnd, true) + shift).toString(), receivedVnd: (vnd(receivedVnd, true) + shift).toString() };
-  }
-
   function monthsOf(book) {
     if (!book || !Array.isArray(book.months)) throw new Error("Invalid book");
     const keys = new Set();
@@ -622,7 +613,7 @@ const SoKhachV7Model = (() => {
     });
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, spreadPaste, checkDraft, tidyDraft, blankDraft, sheetMonthTotals, DRAFT_FIELDS, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  return { tripAmount, amountWith, parsePastedTrips, spreadPaste, checkDraft, tidyDraft, blankDraft, DRAFT_FIELDS, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,

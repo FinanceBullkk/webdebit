@@ -3,7 +3,8 @@
 Matching rules are measured in specs/v7-price-match.md; the queue is specs/v7-price-queue.md.
 A Sheet trip row (customer tab) points at one web trip or original-book row of the
 same customer: same container, exact date first, then within 3 days; undated rows by
-container alone. Only a unique, unpriced, open-month, non-negative match is READY.
+container alone. A unique, unpriced, open-month match is READY; a changed negative
+fee with the same unit price can also replace its existing discount.
 """
 
 from __future__ import annotations
@@ -82,7 +83,7 @@ def targets(ledger: dict) -> list[dict]:
             continue
         out.append({"kind": "trip", "id": trip.get("id"), "container": container_key(trip.get("container")),
                     "date": iso(trip.get("event_date")), "price": money(trip.get("unit_price_vnd")),
-                    "fee": money(trip.get("other_fee_vnd")), "locked": locked(trip.get("month")),
+                    "fee": money(trip.get("other_fee_vnd")), "typed_fee": bool(trip.get("has_typed_fee")), "locked": locked(trip.get("month")),
                     "total": None, "pending": trip.get("status") == "pending_review"})
     for row in ledger.get("legacy_rows", []):
         current = row.get("current") or {}
@@ -90,7 +91,7 @@ def targets(ledger: dict) -> list[dict]:
             continue
         out.append({"kind": "legacy", "id": row.get("id"), "container": container_key(current.get("container")),
                     "date": iso(current.get("event_date")), "price": money(current.get("unit_price_vnd")),
-                    "fee": money(current.get("other_fee_vnd")), "locked": locked(current.get("month") or row.get("month")),
+                    "fee": money(current.get("other_fee_vnd")), "typed_fee": bool(current.get("has_typed_fee", row.get("has_typed_fee"))), "locked": locked(current.get("month") or row.get("month")),
                     "total": money(current.get("counted_vnd")), "pending": False})
     return [target for target in out if target["container"]]
 
@@ -131,17 +132,24 @@ def classify(row: dict, pool: list[dict] | None) -> dict:
     target = found[0]
     result.update(target_kind=target["kind"], target_id=target["id"], web_unit_price_vnd=target["price"],
                   web_other_fee_vnd=target["fee"], web_total_vnd=target["total"])
-    price, fee = row["sheet_unit_price_vnd"], row["sheet_other_fee_vnd"]
+    price = row["sheet_unit_price_vnd"]
     if price is None:
         status = "SHEET_NO_PRICE"   # blank stays NULL; nothing to write
     elif unchanged(row, target):
         status = "PRICE_UNCHANGED"
+    elif target.get("typed_fee"):
+        status = "MANUAL"
     elif target["pending"]:
         status = "PENDING_REVIEW"
     elif target["price"] is not None:
-        status = "CONFLICT"
-    elif price < 0 or (fee is not None and fee < 0):
-        status = "MANUAL"           # the price commands accept non-negative amounts only
+        # ponytail: requeue only changed negative totals at the same unit price;
+        # widen after conflict decisions gain a price-write route.
+        discount_update = (target["price"] == price and target["fee"] is not None
+                           and target["fee"] < 0 and row["sheet_other_fee_vnd"] is not None
+                           and row["sheet_other_fee_vnd"] < 0)
+        status = ("MONTH_LOCKED" if target["locked"] else "READY") if discount_update else "CONFLICT"
+    elif price < 0:
+        status = "MANUAL"
     else:
         status = "MONTH_LOCKED" if target["locked"] else "READY"
     return result | {"status": status}
