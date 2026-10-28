@@ -259,6 +259,22 @@ test('lệch ngày ở tháng khóa: Lấy Sheet không gửi lệnh, báo mở 
   assert.equal(world.requests.length, 0);
 }, world => { dateBookingConflict(world); world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
 
+test('lệch shipper ở tháng khóa: Lấy Sheet báo ngay trong khung, Giữ web vẫn gửi', async () => withPage(async ({ page, world }) => {
+  await page.locator('[data-row="trip-11"] .sheet-diff').click();
+  await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="use_sheet"]').click();
+  assert.match(await page.locator('.sheet-detail .sheet-detail-status').innerText(), /Mở khóa tháng/);
+  assert.equal(world.requests.length, 0);
+  await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="keep_web"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"].sheet-conflict'));
+  assert.deepEqual([world.requests.at(-1).path, world.requests.at(-1).body.decision], ['/api/v7/sheet/resolve', 'keep_web']);
+}, world => {
+  world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false;
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 1, items: [
+    { sync_state: 'CONFLICT', source_row: 9, event_date: '2026-09-15', container: 'DEMU1234567', carrier: 'Tàu thử', shipper: 'Xe Sheet',
+      origin: 'Nơi A', destination: 'Nơi B', existing_kind: 'trip', existing_id: 11, changed_fields: ['shipper'], existing_values: { shipper: null } },
+  ] };
+}));
+
 
 test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');
