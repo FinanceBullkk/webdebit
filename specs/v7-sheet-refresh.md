@@ -1,6 +1,6 @@
 # V7: nút "Làm mới" lấy ngay dữ liệu từ Sheet
 
-Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng yêu cầu và duyệt trong chat 28/10/2026: lấy ngay khi không muốn chờ lượt 15 phút, gắn vào nút "↻ Làm mới" đang có; "Duyệt, code tiếp"). **ĐÃ CODE** backend và giao diện, kiểm bằng máy chủ giả; **chưa cài** unit trên `hao` ([runbook](../docs/v7-deploy-runbook.md#nút-làm-mới-đọc-sheet-ngay--cài-unit-path-đề-xuất-chưa-chạy)). Không đổi luật tiền.
+Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng yêu cầu và duyệt trong chat 28/10/2026: lấy ngay khi không muốn chờ lượt 15 phút, gắn vào nút "↻ Làm mới" đang có; "Duyệt, code tiếp"). **ĐÃ CODE** backend và giao diện, kiểm bằng máy chủ giả; **ĐÃ TRIỂN KHAI trên `hao` 28/10/2026** (release `5e0b184`, unit `.path`; bằng chứng ở [runbook](../docs/v7-deploy-runbook.md#nút-làm-mới-đọc-sheet-ngay--cài-unit-path-đã-chạy-trên-hao-28102026)). Không đổi luật tiền.
 
 ## Người dùng và luồng (bước 1)
 
@@ -67,7 +67,7 @@ API **không** chạy runner và **không** cần quyền `sudo`/`systemctl`:
 - [x] Test API: `POST` ghi tín hiệu một lần; bấm lặp khi đang chạy hoặc vừa lấy dưới 60 giây không ghi thêm; trạng thái `running` → `idle` khi hai file mới hơn tín hiệu; quá 3 phút → `failed`; thiếu cấu hình → `unavailable`.
 - [x] Playwright 1280×720, máy chủ giả: bấm "Làm mới" hiện "Đang lấy từ Sheet…", xong thì sổ tải lại và hiện "Sheet lúc …"; lỗi hiện câu báo, sổ vẫn dùng được; đang nhập thì không gửi. Tự tải 60 giây không gửi `POST`: chưa có test chờ 60 giây, kiểm bằng đọc code (nhánh tự động chỉ gọi `load()`).
 - [ ] `npm run check` xanh.
-- [ ] Trên `hao` (cần người dùng cho phép riêng): cài unit `.path`, drop-in thứ tự, đổi release; bấm thử một lần, log hai runner có lượt ngoài lịch, số dư khách không đổi.
+- [x] Trên `hao` (người dùng cho phép 28/10/2026): cài unit `.path`, drop-in thứ tự, đổi release; bấm thử một lần, log hai runner có lượt ngoài lịch, số dư khách không đổi.
 - [ ] Người dùng bấm thử và xác nhận.
 
 ## CÒN MỞ
