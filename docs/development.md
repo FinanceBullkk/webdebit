@@ -68,6 +68,24 @@ rủi ro CÒN MỞ trước đây (chạy mã PR cạnh DB thật) không còn �
 khi có commit mới (`concurrency`). Gỡ đăng ký runner tự host khỏi repo là việc trong Settings của
 người dùng, không nằm trong workflow.
 
+### Khi nào chạy harness PostgreSQL ở máy
+
+Harness `tools/test_pg_*.py` không nằm trong `npm run check`; CI chạy chúng ở các job `postgres-*`
+cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
+
+| Sửa gì | Chạy ở máy |
+|---|---|
+| UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
+| Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
+| `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
+
+Trên Windows mỗi `docker exec` tốn ~0,4–0,5 giây qua Docker Desktop/WSL (Linux ~0,1 giây), nên harness
+chậm chủ yếu vì số lần gọi exec chứ không phải PostgreSQL. Từ 28/10/2026 `run()` của
+`test_pg_v7_backend.py` (cũng là đường của p0, grants, direct, rehearse) gửi lệnh `docker exec … psql`
+qua `tools/docker_exec_channel.py`: một `docker exec` sống suốt lượt chạy, mỗi lệnh vẫn là một tiến
+trình psql mới trong container với cùng argv, env, stdin, mã thoát — tức vẫn một kết nối, một phạm vi
+transaction như trước. Đo 28/10/2026 trên máy Windows của người dùng: `test_pg_v7_backend.py` từ 1195 giây xuống 238 giây, cùng 60 case xanh, 2 case CÒN MỞ bỏ qua. Lệnh chạy đồng thời (case lock/tranh chấp) và argv lạ vẫn đi `docker exec` riêng.
+
 Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
 451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng
 lồ không liên quan nghiệp vụ và che mất phát hiện thật. Lý do của từng lựa chọn nằm ngay trong
