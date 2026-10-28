@@ -132,8 +132,32 @@
       // Bấm vào tên là chọn hết chữ: gõ đè để tìm khách khác.
       if (!search.dataset.selectOnFocus) { search.dataset.selectOnFocus = '1'; search.addEventListener('focus', () => search.select()); }
     }
+    pinReceipts();
     window.scrollTo(0, scrollY);
   }
+
+  // Góp ý 28/10/2026: cuộn xuống trong tháng vẫn thấy các khoản đã thu. Ô thu của hàng có phiếu (và hàng nhập phiếu)
+  // dính ngay dưới dòng tháng, xếp chồng theo thứ tự; tối đa 40% chiều cao màn để còn chỗ xem chuyến.
+  function pinReceipts() {
+    if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
+    for (const table of root.querySelectorAll('section > table.ledger')) {
+      const head = table.querySelector('tr.month th');
+      if (!head) continue;
+      table.querySelectorAll('td.pay-pin').forEach(cell => { cell.classList.remove('pay-pin', 'pay-pin-last'); cell.style.top = ''; });
+      const top = (Number.parseInt(getComputedStyle(head).top, 10) || 0) + head.offsetHeight;
+      let used = 0, last = null;
+      for (const row of table.querySelectorAll(':scope > tbody > tr:not(.subtotal)')) {
+        const cells = [...row.querySelectorAll(':scope > td.pay')];
+        if (cells.length !== 3 || !cells.some(cell => cell.textContent.trim() || cell.querySelector('input'))) continue;
+        if (used + row.offsetHeight > window.innerHeight * 0.4) break;
+        for (const cell of cells) { cell.classList.add('pay-pin'); cell.style.top = `${top + used}px`; }
+        used += row.offsetHeight;
+        last = cells;
+      }
+      last?.forEach(cell => cell.classList.add('pay-pin-last'));
+    }
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', pinReceipts);
 
   function render() {
     const chain = model.monthChain(book);

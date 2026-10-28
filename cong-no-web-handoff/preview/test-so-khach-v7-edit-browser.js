@@ -168,7 +168,18 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ', async () => withPage(async ({ page, world }) => {
+test('Ô thu của hàng nhập phiếu dính ngay dưới dòng tháng khi cuộn', async () => withPage(async ({ page }) => {
+  const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
+    const cell = input.closest('td'), head = cell.closest('table').querySelector('tr.month th');
+    return { sticky: getComputedStyle(cell).position, top: Number.parseInt(cell.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
+      cells: cell.closest('tr').querySelectorAll('td.pay-pin').length };
+  });
+  assert.equal(pinned.sticky, 'sticky');
+  assert.equal(pinned.cells, 3);
+  assert.equal(pinned.top, pinned.below);
+}));
+
+test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',async () => withPage(async ({ page, world }) => {
   const amount = page.locator('.receipt-amount').first();
   await amount.fill('123');
   const before = world.reads;
