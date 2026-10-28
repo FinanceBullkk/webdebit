@@ -436,7 +436,7 @@ function ruleWebNoToolsImport(files) {
 // Hiện trạng đã kiểm 19/10/2026: preview ghép từng cặp `X-model.js` +
 // `X-ui.js`, nạp đúng thứ tự đó trong .html. Model giữ toàn bộ số học BigInt
 // (`so-khach-v7-model.js`, `customer-ledger-workbench.js`); hai file UI
-// (`so-khach-v7-ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
+// (`so-khach-v7-*ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
 // dạng và gọi model — kể cả chỗ tính lệch giữa số dán và số model cũng gọi
 // `model.allocateReceipt` thay vì tự trừ.
 //

@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { create, stale, unknown } = require('./so-khach-v7-api.js');
+// File sổ khách nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
+const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="(so-khach-v7-[a-z0-9-]+\.js)"><\/script>/g)].map(match => match[1]);
 
 const reply = (status, body) => ({ ok: status === 200, json: async () => body });
 const ledger = version => ({ status: 'active', customer_id: 7, version, months: [], total_outstanding_vnd: '10' });
@@ -46,7 +48,7 @@ async function livePage(data) {
     window: { scrollY: 0, scrollTo() {} }, location: { search: '?customer=7' },
     URLSearchParams, structuredClone, Date, BigInt, Intl, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
     fetch: async (...args) => root.fetcher ? root.fetcher(...args) : reply(200, data) });
-  for (const name of ['model', 'api', 'history-ui', 'sheet-ui', 'offset-ui', 'edit-ui', 'draft-ui', 'ui']) vm.runInContext(fs.readFileSync(require.resolve(`./so-khach-v7-${name}.js`), 'utf8'), context);
+  for (const name of liveScripts) vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   return { root, listeners, context };
 }
@@ -313,8 +315,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
       URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
-    for (const name of [...(live ? [] : ['so-khach-v7-fixture.js']), 'so-khach-v7-model.js',
-      ...(live ? ['so-khach-v7-api.js', 'so-khach-v7-history-ui.js', 'so-khach-v7-sheet-ui.js', 'so-khach-v7-offset-ui.js', 'so-khach-v7-edit-ui.js', 'so-khach-v7-draft-ui.js'] : []), 'so-khach-v7-ui.js']) {
+    for (const name of live ? liveScripts : ['so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
       vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context, { filename: name });
     }
     return root;
