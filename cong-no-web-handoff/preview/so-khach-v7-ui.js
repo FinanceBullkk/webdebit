@@ -590,7 +590,7 @@
           : `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`;
         return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
-      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div></div></td></tr>`;
+      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div><p class="sheet-detail-status" role="status" hidden></p></div></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
@@ -610,10 +610,22 @@
       const trip = snapshot.sheet_sync.items[index];
       if (!trip || action.disabled) return;
       const rowKey = `${trip.existing_kind}-${trip.existing_id}`;
+      // Báo ngay trong khung: băng thông báo đầu trang thường nằm ngoài màn hình khi đang ở dòng dưới.
+      const detailNotice = text => {
+        showNotice(text);
+        const status = detail.isConnected && detail.querySelector('.sheet-detail-status');
+        if (status) { status.textContent = text; status.hidden = false; }
+      };
+      const lockedText = 'Tháng đang khóa. Mở khóa tháng (nút 🔒 ở đầu tháng) rồi bấm Lấy Sheet.';
+      // Lấy Sheet đi qua ổ khóa tháng (24/10/2026); chặn trước khi gửi để khỏi nhận lỗi muộn.
+      if (action.dataset.sheetDecision === 'use_sheet' && detail.closest('table.ledger')?.classList.contains('locked')) {
+        detailNotice(lockedText);
+        return;
+      }
       if (action.dataset.sheetField === 'event_date' && action.dataset.sheetDecision === 'use_sheet') {
         // Lấy ngày Sheet = sửa ô ngày như gõ tay: hỏi khi sang tháng khác, tháng khóa thì không sửa được.
         const dateCell = root.querySelector(`td.info-edit[data-kind="${CSS.escape(trip.existing_kind)}"][data-id="${CSS.escape(String(trip.existing_id))}"][data-field="event_date"]`);
-        if (!dateCell) { showNotice('Tháng đang khóa. Mở khóa tháng rồi lấy ngày từ Sheet.'); return; }
+        if (!dateCell) { detailNotice(lockedText); return; }
         detail.remove();
         const diffButton = row.querySelector('.sheet-diff');
         if (diffButton) { diffButton.textContent = 'Xem'; diffButton.setAttribute('aria-expanded', 'false'); }
@@ -636,7 +648,7 @@
         const nextButton = root.querySelector(`[data-row="${CSS.escape(rowKey)}"] .sheet-diff`);
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
-      } catch (error) { showNotice(error.message); action.disabled = false; }
+      } catch (error) { detailNotice(error.message); action.disabled = false; }
     });
     root.addEventListener('click', async event => {
       const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet');
