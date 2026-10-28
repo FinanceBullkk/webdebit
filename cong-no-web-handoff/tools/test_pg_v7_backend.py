@@ -114,6 +114,8 @@ CASES = [
     case("7.23", "BEHAVIOR", "Typed adjustment values survive audit tampering and latest price revision", check="adjustment_source", functions=("adjust_trip",)),
     case("7.26", "BEHAVIOR", "Shipper survives paste, review and edits in the ledger reader", check="shipper_write_sync", functions=("paste_trips", "edit_trip_info", "review_trip")),
     case("7.27", "BEHAVIOR", "Typed fee intent lands on the effective fee after a price revision", check="fee_intent_after_price", functions=("adjust_trip", "edit_trip_price")),
+    case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
+         functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
 
 
@@ -812,7 +814,8 @@ FOR EACH ROW EXECUTE FUNCTION public.fail_second_void()""")
         "AND r.voided_on IS NOT NULL AND r.voided_by_event=e.id "
         "FROM sokhach.receipt r JOIN sokhach.event e ON e.id=r.voided_by_event "
         f"WHERE r.customer_id={c} AND r.pid='PH-001')", "void after snapshot or receipt state wrong")
-    require([r[1] for r in months(pg, c)] == ["60", "50"], "void balance wrong")
+    # DA-THU-01: tháng 3 (ngày thu PH-002) có dòng tháng riêng, nợ kỳ 0.
+    require([r[1] for r in months(pg, c)] == ["60", "50", "0"], "void balance wrong")
     reject_call(pg, "void_receipt", c, 3, "void-again", first["pid"], "lại", error="RECEIPT_ALREADY_VOID")
 
 
@@ -825,7 +828,7 @@ def check_opening_fifo(pg: Pg) -> None:
              ("2026-02-01", "debt", "50")], "receipt did not use old opening first")
     call(pg, "adjust_month", c, 2, "fifo-a", "2026-01-01", 60, "giá mới")
     require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "150")]
-            and [r[1] for r in months(pg, c)] == ["10", "200"], "adjustment did not reallocate FIFO")
+            and [r[1] for r in months(pg, c)] == ["10", "200", "0"], "adjustment did not reallocate FIFO")
     require(pg.value(f"SELECT string_agg(amount_vnd::text,',' ORDER BY debt_month) FROM sokhach.opening_balance WHERE customer_id={c}") == opening,
             "opening changed after reallocation")
     assert_allocations(pg, c)
@@ -848,7 +851,7 @@ def check_negative_receipt(pg: Pg) -> None:
     call(pg, "record_receipt", c, 1, "negative-r2", "2026-04-02", "THU TIỀN", 5)
     other = allocations(pg, c, "PH-002")
     call(pg, "void_receipt", c, 2, "negative-void", "PH-001", "sai")
-    require([r[1] for r in months(pg, c)] == ["-50", "100", "15"]
+    require([r[1] for r in months(pg, c)] == ["-50", "100", "15", "0"]
             and allocations(pg, c, "PH-002") == other, "void altered negative opening or other receipt")
 
 
@@ -1062,6 +1065,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DA_THU_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(DA_THU_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -1558,6 +1563,7 @@ COMMIT;
         "[x.receipt.pid,x.monthKey,x.receipt.kind,x.receipt.amountVnd]),"
         "changed:m.planReallocation(f).changedPids}))")
     got = []
+    bucket_cum = date_cum = 0
     counts = {month: sum(t["month"][:7] == month for t in ledger["trips"])
               for month in (row["month"][:7] for row in ledger["months"])}
     for row in ledger["months"]:
@@ -1567,7 +1573,12 @@ COMMIT;
                        if r["voided_on"] is None and a["superseded_by_event"] is None
                        and a["month"][:7] == m)
         trip_count = sum(t["month"][:7] == m and not t["is_fee_only"] for t in ledger["trips"])
-        got.append([m, str(charges), str(received), row["end_of_month_vnd"], counts[m], trip_count])
+        # DA-THU-01: cộng dồn của sổ trừ tiền theo ngày thu; đổi về cộng dồn theo kỳ trừ nợ để so với model JS.
+        bucket_cum += received
+        date_cum += sum(int(r["amount_vnd"]) for r in ledger["receipts"]
+                        if r["voided_on"] is None and r["date"][:7] == m)
+        by_bucket = int(row["end_of_month_vnd"]) + date_cum - bucket_cum
+        got.append([m, str(charges), str(received), str(by_bucket), counts[m], trip_count])
     require(got == expected["months"] and ledger["total_outstanding_vnd"] == expected["total"]
             and len(ledger["months"]) == 11, f"golden monthly totals differ: {got}")
     ph101 = [[line["month"], line["kind"], line["amount_vnd"]]
@@ -1971,12 +1982,49 @@ def check_monthly_identity(pg: Pg) -> None:
     call(pg, "set_month_lock", c, 0, "identity-open", "2026-02-01", "false")
     call(pg, "record_receipt", c, 1, "identity-r", "2026-04-01", "THU TIỀN", 100)
     rows = call(pg, "get_ledger", c)["months"]
-    require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "400",
-            "opening absent from charges or counted twice")
+    # DA-THU-01: phiếu 01/04 trừ nợ tháng 1 nhưng thuộc tháng 4; còn nợ cuối tháng 1 không bị sửa lùi.
+    require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "500"
+            and rows[0]["outstanding_vnd"] == "400" and rows[-1]["month"] == "2026-04-01"
+            and rows[-1]["received_vnd"] == "100" and rows[-1]["end_of_month_vnd"] == "350",
+            "opening absent from charges, counted twice, or receipt not in its date month")
     call(pg, "adjust_month", c, 2, "identity-a", "2026-02-01", -25, "giảm")
     rows = call(pg, "get_ledger", c)["months"]
     require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "-75",
             "signed opening/adjustment missing from charges")
+
+
+def check_da_thu(pg: Pg) -> None:
+    """DA-THU-01: Tổng tháng như Sheet; phân bổ nợ cũ trước và nợ từng kỳ giữ nguyên."""
+    customer, cutover = cutover_book(pg, 150)
+    # Sheet: phát sinh 100/50/30, thu 30 trong tháng 2 (trừ nợ tháng 1) → bucket 70/50/30, cộng dồn 100/120/150.
+    openings, legacy, checks = import_data([70, 50, 30], charges=[100, 50, 30], receipts=[0, 30, 0])
+    call(pg, "import_cutover", customer, 0, "da-thu-import", cutover, openings, legacy, checks, 150, "a" * 64)
+    call(pg, "verify_cutover_customer", customer, cutover, version(pg, customer), "da-thu-verify", "FAKE-SIGNOFF")
+    call(pg, "verify_cutover", cutover, "da-thu-verify-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover", cutover, "da-thu-activate-all", "FAKE-SIGNOFF")
+    call(pg, "activate_cutover_customer", customer, cutover, version(pg, customer), "da-thu-activate", "FAKE-SIGNOFF")
+
+    def rows() -> list[tuple[str, str, str, str, str, str]]:
+        return [(m["month"][:7], m["prior_months_vnd"], m["charges_vnd"], m["received_vnd"], m["end_of_month_vnd"],
+                 m["outstanding_vnd"]) for m in call(pg, "get_ledger", customer)["months"]]
+    require(rows() == [("2026-01", "0", "100", "0", "100", "70"), ("2026-02", "100", "50", "30", "120", "50"),
+                       ("2026-03", "120", "30", "0", "150", "30")], f"Sheet figures not used for month totals: {rows()}")
+    # Thu 100 ngày 15/03: trừ nợ tháng 1 (70) và tháng 2 (30) nhưng nằm ở tháng 3; tháng 1, 2 giữ số như Sheet.
+    call(pg, "record_receipt", customer, version(pg, customer), "da-thu-r1", "2026-03-15", "THU TIỀN", 100)
+    first = call(pg, "get_ledger", customer)["receipts"][0]["pid"]
+    require(allocations(pg, customer, first) == [("2026-01-01", "debt", "70"), ("2026-02-01", "debt", "30")],
+            "old-debt-first allocation changed")
+    # Thu 10 ngày 02/04: tháng chưa có chuyến vẫn hiện để đặt phiếu.
+    call(pg, "record_receipt", customer, version(pg, customer), "da-thu-r2", "2026-04-02", "THU TIỀN", 10)
+    # Phiếu 02/04 cũng trừ nợ tháng 2 trước (còn 10); nợ từng kỳ theo phân bổ, cộng dồn theo ngày thu.
+    expected = [("2026-01", "0", "100", "0", "100", "0"), ("2026-02", "100", "50", "30", "120", "10"),
+                ("2026-03", "120", "30", "100", "50", "30"), ("2026-04", "50", "0", "10", "40", "0")]
+    require(rows() == expected, f"received not by receipt date or cumulative rewritten: {rows()}")
+    require(call(pg, "get_ledger", customer)["total_outstanding_vnd"] == "40", "total outstanding changed")
+    pid = call(pg, "get_ledger", customer)["receipts"][-1]["pid"]
+    call(pg, "void_receipt", customer, version(pg, customer), "da-thu-void", pid, "nhập trùng")
+    require(rows()[1:] == [("2026-02", "100", "50", "30", "120", "20"), ("2026-03", "120", "30", "100", "50", "30")],
+            f"voided receipt still counted: {rows()}")
 
 
 def check_field_adjustment(pg: Pg) -> None:
@@ -2602,6 +2650,7 @@ LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-
 MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
 DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
 SYNC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-shipper-write-sync.sql"
+DA_THU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql"
 SHEET_CONFLICT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-sheet-conflict.sql"
 SHEET_CONFLICT_DATE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-sheet-conflict-date-booking.sql"
 
@@ -2916,7 +2965,7 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
 CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
-          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "field_adjustment": check_field_adjustment,
+          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,
           "future_receipt": check_future_receipt, "void_get": check_void_get,

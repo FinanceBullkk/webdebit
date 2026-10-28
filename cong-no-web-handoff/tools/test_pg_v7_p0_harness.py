@@ -223,8 +223,9 @@ def check_inverse(pg, later=False):
         require((months(pg, c), current_lines(pg, c)) == before, "not exact pre-receipt state")
     else:
         restored = {month[:7]: int(amount) for month, _, amount in original}
+        # DA-THU-01: cộng dồn tính theo ngày thu (04/2026), nên chỉ tháng ngày thu trở đi tăng lại 150.
         require(months(pg, c) == [(m, str(int(out)+restored.get(m, 0)),
-                str(int(end)+sum(a for key, a in restored.items() if key <= m)))
+                str(int(end)+(sum(restored.values()) if m[:7] >= "2026-04" else 0)))
                 for m, out, end in pre_void], "void not exact inverse per month")
     verify(pg, c)
     if not later:

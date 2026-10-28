@@ -370,9 +370,17 @@ class LedgerApiTest(unittest.TestCase):
     def test_get_opening_and_void_contract_sql(self):
         # Static contract only; money identities run in the PostgreSQL harness.
         sql = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
-        charges = sql.split("'charges_vnd',", 1)[1].split("'received_vnd'", 1)[0]
+        ledger = sql.split("CREATE FUNCTION sokhach.get_ledger(", 1)[1].split("END $$;", 1)[0]
+        active = ledger.split("active_cutover AS (", 1)[1].split("), month_keys", 1)[0]
+        charges = ledger.split("figures AS (", 1)[1].split("AS charges_vnd", 1)[0]
+        received = ledger.split("AS charges_vnd", 1)[1].split("AS received_vnd", 1)[0]
+        self.assertIn("cc.status='active' AND c.status='active'", active)
         self.assertIn("sokhach.opening_balance", charges)
-        self.assertIn("cc.status='active' AND c.status='active'", charges)
+        self.assertIn("JOIN active_cutover", charges)
+        # DA-THU-01: đã thu theo ngày thu của phiếu chưa hủy, không theo kỳ được trừ nợ.
+        self.assertIn("date_trunc('month',r.date)::date=k.debt_month", received)
+        self.assertIn("r.voided_on IS NULL", received)
+        self.assertNotIn("v_receipt_line_active", received)
         self.assertIn("'voided_by_event',r.voided_by_event", sql)
 
     def test_field_adjustment_boundary(self):

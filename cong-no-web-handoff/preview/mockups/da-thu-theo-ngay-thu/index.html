@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đã thu theo ngày thu · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem 28/10/2026: so cách hiện tại (phiếu thu và "Đã thu" nằm ở tháng được trừ nợ)
+     với đề xuất (như Sheet: phiếu nằm ở tháng có ngày thu, còn nợ cộng dồn = tháng trước + phát sinh − đã thu).
+     Trừ nợ cũ trước vẫn giữ phía sau. Chạy trong tab, không gọi API, không lưu gì. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button{font:inherit}
+.demo{margin:0;padding:10px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:16px}
+.guide{max-width:1258px;margin:10px auto;padding:10px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.guide h2{margin:0 0 6px;font-size:15px}.guide p{margin:4px 0}
+.switch{display:flex;gap:8px;margin-top:8px}
+.switch button{min-height:38px;padding:0 18px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font-size:15px}
+.switch button[aria-pressed="true"]{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.book-head{max-width:1258px;margin:0 auto;height:56px;display:flex;align-items:center;gap:20px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:16px;font-weight:700}.cust span{color:#3e5871;font-weight:400;margin-right:8px}
+.head-item{display:flex;flex-direction:column;margin-left:auto}.head-item span{color:#3e5871;font-size:13px}.head-item strong{font-size:18px;color:#123f79}
+.ledger{width:1258px;margin:0 auto;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere;font-size:13px}
+.ledger td{height:36px}.ledger th{text-align:left}
+.columns th{height:36px;background:#eaf1fa;line-height:1.12}.columns .pay{background:#dfeeff}
+.month th{height:40px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px}
+.month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
+.num{text-align:right;white-space:nowrap}
+.pay{background:#f2f8ff}.pay-start{border-left:3px solid #3269a4!important}
+.pay small{display:block;color:#5d6f82;font-size:11.5px;white-space:normal}
+.odd td.pay{background:#fff3c4}
+.subtotal td{height:42px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+.spacer td{height:14px;padding:0;background:#eef3f8;border:0}
+.changed{outline:2px solid #c77700;outline-offset:-2px}
+.sheet{max-width:1258px;margin:16px auto 30px;padding:10px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.sheet h2{margin:0 0 6px;font-size:15px}
+.sheet table{border-collapse:collapse;font-variant-numeric:tabular-nums}
+.sheet th,.sheet td{border:1px solid #d8e1ec;padding:4px 10px}.sheet td{text-align:right}.sheet td:first-child{text-align:left}
+.match{color:#145b32;font-weight:700}.nomatch{color:#a01616;font-weight:700}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì</p>
+<section class="guide" aria-labelledby="guide-title">
+  <h2 id="guide-title">Xem gì</h2>
+  <p>Khách giả: tháng 8 chở 100tr, tháng 9 chở 50tr, tháng 10 chở 30tr. Khách trả <strong>30tr ngày 10/09</strong> và <strong>100tr ngày 15/10</strong>.</p>
+  <p>Bấm hai nút để so. Ô viền cam là chỗ khác nhau. Bảng cuối trang so dòng Tổng tháng với Sheet.</p>
+  <div class="switch" role="group" aria-label="Cách hiện">
+    <button type="button" data-mode="now" aria-pressed="false">Hiện tại</button>
+    <button type="button" data-mode="new" aria-pressed="true">Đề xuất (như Sheet)</button>
+  </div>
+  <p id="mode-note" role="status"></p>
+</section>
+<header class="book-head"><div class="cust"><span>Sổ khách</span>KHÁCH GIẢ A</div>
+  <div class="head-item"><span>Tổng còn nợ</span><strong id="total"></strong></div></header>
+<div id="book"></div>
+<section class="sheet" aria-labelledby="sheet-title"><h2 id="sheet-title">So dòng Tổng tháng với Sheet</h2><div id="compare"></div></section>
+<script>
+const M = 1000000;
+const months = [
+  { key: '2026-08', trips: [['FAKU1000001', '02/08/2026', 60], ['FAKU1000002', '20/08/2026', 40]] },
+  { key: '2026-09', trips: [['FAKU1000003', '05/09/2026', 30], ['FAKU1000004', '25/09/2026', 20]] },
+  { key: '2026-10', trips: [['FAKU1000005', '08/10/2026', 30]] },
+];
+// Phiếu thu: ngày thu, số tiền, phần trừ vào nợ từng tháng (trừ nợ cũ trước, tính phía sau).
+const receipts = [
+  { date: '10/09/2026', month: '2026-09', amount: 30, alloc: { '2026-08': 30 } },
+  { date: '15/10/2026', month: '2026-10', amount: 100, alloc: { '2026-08': 70, '2026-09': 30 } },
+];
+const label = key => `${+key.slice(5)}/${key.slice(0, 4)}`;
+const fmt = n => n === 0 ? '0' : (n * M).toLocaleString('vi-VN');
+const charge = m => m.trips.reduce((s, t) => s + t[2], 0);
+
+function figures(mode) {
+  let carry = 0;
+  return months.map(m => {
+    const rows = mode === 'new'
+      ? receipts.filter(r => r.month === m.key).map(r => ({ r, amount: r.amount }))
+      : receipts.filter(r => r.alloc[m.key]).map(r => ({ r, amount: r.alloc[m.key] }));
+    const received = rows.reduce((s, x) => s + x.amount, 0);
+    const prior = carry;
+    // Hiện tại: còn nợ cộng dồn = tổng nợ còn lại của các tháng ≤ tháng này sau khi trừ mọi phiếu (cả phiếu tháng sau).
+    // Đề xuất: tháng trước + phát sinh − đã thu trong tháng, như Sheet.
+    const end = prior + charge(m) - received;
+    carry = end;
+    return { m, rows, received, prior, end };
+  });
+}
+
+function render(mode) {
+  document.querySelectorAll('.switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  document.getElementById('mode-note').textContent = mode === 'new'
+    ? 'Đề xuất: phiếu nằm ở tháng có ngày thu, hiện đủ số tiền một lần; dòng chữ nhỏ ghi phiếu đã trừ vào nợ tháng nào.'
+    : 'Hiện tại: phiếu nằm ở tháng được trừ nợ. Phiếu 15/10 bị tách làm hai, hiện ở tháng 8 và tháng 9; tháng 10 không có phiếu nào.';
+  const now = figures('now'), next = figures('new'), data = mode === 'new' ? next : now;
+  const diff = (i, f) => now[i][f] !== next[i][f] ? ' changed' : '';
+  const widths = [40, 120, 80, 110, 90, 110, 110, 90, 80, 100, 90, 70, 160, 108].map(w => `<col style="width:${w}px">`).join('');
+  document.getElementById('book').innerHTML = data.map((x, i) => {
+    const n = Math.max(x.m.trips.length, x.rows.length);
+    const lines = Array.from({ length: n }, (_, k) => {
+      const t = x.m.trips[k], p = x.rows[k];
+      const trip = t ? `<td>${k + 1}</td><td>${t[0]}</td><td>HTA</td><td>CHỦ HÀNG A</td><td>${t[1]}</td><td>KHO TINH A</td><td>CANG BAC 1</td><td class="num">${fmt(t[2])}</td><td class="num"></td><td class="num">${fmt(t[2])}</td>`
+        : '<td></td>'.repeat(7) + '<td class="num"></td>'.repeat(3);
+      let pay = '<td class="pay pay-start"></td><td class="pay"></td><td class="pay num"></td>';
+      if (p) {
+        const odd = mode === 'now' && p.r.month !== x.m.key;
+        const note = mode === 'new'
+          ? `<small>Trừ nợ ${Object.entries(p.r.alloc).map(([k, v]) => `T${label(k)}: ${fmt(v)}`).join(' · ')}</small>`
+          : odd ? `<small>Phần của phiếu ${fmt(p.r.amount)} thu ngày ${p.r.date}</small>` : '';
+        pay = `<td class="pay pay-start${odd ? ' changed' : ''}">${p.r.date}</td><td class="pay">CK</td><td class="pay num${odd ? ' changed' : ''}">${fmt(p.amount)}${note}</td>`;
+      }
+      return `<tr>${trip}${pay}<td class="num"></td></tr>`;
+    }).join('');
+    return `<table class="ledger" aria-label="Tháng ${label(x.m.key)}"><colgroup>${widths}</colgroup><tbody>
+      ${i === 0 ? '<tr class="columns"><th>STT</th><th>Container</th><th>Hãng tàu</th><th>Chủ hàng</th><th>Ngày</th><th>Nơi đi</th><th>Nơi đến</th><th class="num">Đơn giá</th><th class="num">Phụ phí</th><th class="num">Thành tiền</th><th class="pay pay-start">Ngày trả</th><th class="pay">Hình thức</th><th class="pay num">Số tiền trả</th><th class="num">Còn nợ cộng dồn</th></tr>' : ''}
+      <tr class="month"><th colspan="14"><span class="month-title">THÁNG ${label(x.m.key)}<em class="${diff(i, 'prior')}">Nợ các tháng trước: ${fmt(x.prior)}</em></span></th></tr>
+      ${lines}
+      <tr class="subtotal"><td colspan="9">Tổng tháng ${label(x.m.key)}</td><td class="num">${fmt(charge(x.m))}</td><td class="pay pay-start" colspan="2">Đã thu</td><td class="num pay${diff(i, 'received')}">${fmt(x.received)}</td><td class="num${diff(i, 'end')}">${fmt(x.end)}</td></tr>
+      <tr class="spacer"><td colspan="14"></td></tr></tbody></table>`;
+  }).join('');
+  document.getElementById('total').textContent = fmt(data[data.length - 1].end);
+  // Sheet cộng như đề xuất: đã thu theo ngày thu.
+  document.getElementById('compare').innerHTML = `<table><thead><tr><th>Tháng</th><th>Sheet: Đã thu</th><th>Web: Đã thu</th><th>Sheet: Còn nợ</th><th>Web: Còn nợ</th><th>Khớp?</th></tr></thead><tbody>${
+    data.map((x, i) => { const ok = x.received === next[i].received && x.end === next[i].end;
+      return `<tr><td>${label(x.m.key)}</td><td>${fmt(next[i].received)}</td><td>${fmt(x.received)}</td><td>${fmt(next[i].end)}</td><td>${fmt(x.end)}</td><td class="${ok ? 'match' : 'nomatch'}">${ok ? 'Khớp' : 'Lệch'}</td></tr>`; }).join('')
+  }</tbody></table>`;
+}
+document.querySelectorAll('.switch button').forEach(b => b.addEventListener('click', () => render(b.dataset.mode)));
+render('new');
+</script>
+</body>
+</html>
