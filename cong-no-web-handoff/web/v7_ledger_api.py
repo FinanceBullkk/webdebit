@@ -66,7 +66,7 @@ ROUTES = {
     "/api/v7/legacy/delete": ("delete_legacy_trip", {"legacy_row_id"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
-TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd"}
+TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd", "fees"}
 ERRORS = {
     "INVALID_SHEET_RESOLUTION": (422, "Không thể xử lý ô này."),
     "INVALID_FIELD": (422, "Ô không được sửa."),
@@ -82,6 +82,7 @@ ERRORS = {
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
     "TRIP_PENDING_REVIEW": (409, "Chuyến chưa được tính vào sổ (CHỜ KIỂM hoặc đã loại)."),
+    "FEE_LINES_TYPED": (409, "Chuyến có phụ phí đã phân loại. Sửa trong khung chi tiết."),
     "TRIP_NOT_PENDING": (409, "Chuyến không còn CHỜ KIỂM."),
     "SHEET_CROSS_CUSTOMER_MATCH": (409, "Chuyến đã có ở khách khác. Tải lại để kiểm tra."),
     "REVIEW_REASON_REQUIRED": (422, "Cần ghi lý do kết luận chuyến CHỜ KIỂM."),
@@ -241,18 +242,18 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
             bad()
         if body["field"] == "event_date" and not valid_date(body["value"]):
             bad("INVALID_DATE", ERRORS["INVALID_DATE"][1])
-        if body["field"] in ("unit_price_vnd", "other_fee_vnd") and body["value"].strip() and not vnd(body["value"]):
+        if body["field"] in ("unit_price_vnd", "other_fee_vnd") and body["value"].strip() and not vnd(body["value"], signed=body["field"] == "other_fee_vnd"):
             bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
     if function == "adjust_trip":
         by_field = "field" in body or "new_value_vnd" in body
         if by_field:
             if (body.get("field") not in ("unit_price_vnd", "other_fee_vnd")
-                    or not vnd(body.get("new_value_vnd")) or "new_amount_vnd" in body):
+                    or not vnd(body.get("new_value_vnd"), signed=body.get("field") == "other_fee_vnd") or "new_amount_vnd" in body):
                 bad()
         elif not vnd(body.get("new_amount_vnd")):
             bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
     for name in ("amount_vnd", "unit_price_vnd", "other_fee_vnd"):
-        if name in fields and (name not in body or not vnd(body[name], signed=name == "amount_vnd" and function == "adjust_month",
+        if name in fields and (name not in body or not vnd(body[name], signed=(name == "amount_vnd" and function == "adjust_month") or name == "other_fee_vnd",
                                                       nullable=name in ("unit_price_vnd", "other_fee_vnd"))):
             bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
     if function == "record_offset" and body["amount_vnd"] == "0":
@@ -270,9 +271,13 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
             if "date" in trip_row and trip_row["date"] is not None and not valid_date(trip_row["date"], trip=True):
                 bad()
             for name in ("unitPriceVnd", "otherFeeVnd"):
-                if name in trip_row and not vnd(trip_row[name], nullable=True):
+                if name in trip_row and not vnd(trip_row[name], signed=name == "otherFeeVnd", nullable=True):
                     bad("INVALID_VND", "Số tiền phải là chuỗi số nguyên VND.")
-            if any(type(value) is not str and value is not None for value in trip_row.values()):
+            if "fees" in trip_row and (not isinstance(trip_row["fees"], list)
+                                       or trip_row.get("otherFeeVnd") is not None
+                                       or any(not vnd(fee, signed=True) or fee in ("0", "-0") for fee in trip_row["fees"])):
+                bad("INVALID_VND", "Phụ phí phải là mảng chuỗi số nguyên VND khác 0.")
+            if any(type(value) is not str and value is not None for name, value in trip_row.items() if name != "fees"):
                 bad()
     for name in ("date",):
         if not offset and name in fields and ((name not in body and function == "record_receipt") or (name in body and body[name] is not None and not valid_date(body[name]))):
@@ -699,7 +704,10 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             commands = [("edit_trip_price", {"trip_id": item["target_id"], "unit_price_vnd": price,
                                              "other_fee_vnd": None if fee is None else str(fee)})]
         else:
-            commands = [("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "unit_price_vnd", "value": price})]
+            commands = []
+            if item.get("web_unit_price_vnd") is None or str(item["web_unit_price_vnd"]) != price:
+                commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"],
+                                                     "field": "unit_price_vnd", "value": price}))
             if fee is not None:
                 commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "other_fee_vnd",
                                                       "value": str(fee)}))
@@ -711,6 +719,10 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
                 result = runner.run(function, {"customer_id": customer, "expected_version": version,
                                                "idempotency_key": command_key, **fields}, actor)
             except ApiError as exc:
+                if exc.code == "FEE_LINES_TYPED":
+                    return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                                 "complete": False, "error": exc.code,
+                                 "review": [{**item, "status": "MANUAL"}]}
                 if not commands_done:
                     raise   # nothing written yet: a plain error, same as one price edit
                 return 200, {"written": written, "remaining": len(projection["ready"]) - written,
