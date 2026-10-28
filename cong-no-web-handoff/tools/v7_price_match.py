@@ -32,7 +32,7 @@ STATUSES = ("READY", "PRICE_UNCHANGED", "CONFLICT", "MONTH_LOCKED", "MANUAL", "P
             "AMBIGUOUS", "AMBIGUOUS_PRICED", "NOT_FOUND", "NO_CUSTOMER", "SHEET_NO_PRICE", "NO_CONTAINER")
 LABELS = {"READY": "Ghi được (web chưa có giá)", "PRICE_UNCHANGED": "Giá đã giống",
           "CONFLICT": "Web có giá khác Sheet", "MONTH_LOCKED": "Ghi được nhưng tháng khóa",
-          "MANUAL": "Giá/phụ phí âm: nhập tay",
+          "MANUAL": "Phụ phí đã phân loại hoặc giá âm: nhập trong sổ",
           "PENDING_REVIEW": "Chuyến đang CHỜ KIỂM", "AMBIGUOUS": "Khớp nhiều dòng",
           "AMBIGUOUS_PRICED": "Khớp nhiều dòng, đều đã có giá",
           "NOT_FOUND": "Không tìm thấy trên web", "NO_CUSTOMER": "Không có khách trên web",

@@ -1,6 +1,6 @@
 # V7 — phụ phí nhiều loại: backend và migration
 
-Trạng thái: ĐỀ XUẤT — chờ Claude (opus) review. Chưa code hoặc triển khai.
+Trạng thái: ĐÃ DUYỆT (Claude opus, 28/10/2026); PR-A đang code.
 
 ## Đầu ra
 
@@ -35,32 +35,24 @@ Danh mục khởi tạo theo thứ tự Neo, Điện, Ghép, Bảo hiểm, Kiể
 - Cờ `trip_fee_flag` và `clear_trip_fee_flag` dời sang spec nhập bảng PS; giai đoạn 1 chưa có nguồn tạo cờ.
 - Danh mục: `add_fee_type(idempotency_key, name, kind)`, `rename_fee_type(idempotency_key, fee_type_id, name)`, `set_fee_type_kind(idempotency_key, fee_type_id, kind)`, `set_fee_type_active(idempotency_key, fee_type_id, active)`; dùng khóa và vết toàn cục, không `customer_id`/`expected_version` của sổ.
 - `set_book_fee_columns(customer_id, expected_version, idempotency_key, fee_type_ids jsonb)`: 0..3 ID có thứ tự, không đổi tiền nhưng ghi event.
-- `v_trip_current.fee` = tổng dòng còn hiệu lực, NULL nếu không có dòng. Có đơn giá + fee NULL tính 0 theo V7-BE; thiếu đơn giá ngoài số dư; dòng phí lẻ không container lấy tổng dòng.
+- `trip_price_rev.other_fee_vnd` là cache tổng dòng phí còn hiệu lực, NULL nếu không có dòng; `_sync_trip_fee` là đường ghi cache duy nhất. Có đơn giá + fee NULL tính 0 theo V7-BE; thiếu đơn giá ngoài số dư; dòng phí lẻ không container lấy tổng dòng.
 - `paste_trips`: mỗi hàng `fees: [amount_vnd,...]`; dương → Khác, âm → Giảm trừ; `other_fee_vnd` cũ coi như một ô. Chuyến mới dán tháng khóa là ngoại lệ duy nhất.
 - `get_ledger`: thêm `fee_lines`, `fee_columns`; route danh mục riêng. `delete_trip`/`delete_legacy_trip` chụp dòng phí trong event trước khi xóa.
 
 HTTP: POST `/api/v7/trips/fees/add`, `/fees/set`, `/fees/replace`, `/fees/void`; GET/POST `/api/v7/fee-types`; POST `/api/v7/fee-types/update`, `/api/v7/books/fee-columns`. Lỗi: `MONTH_LOCKED`, `FEE_AMOUNT_INVALID`, `FEE_SIGN_INVALID`, `FEE_TYPE_INACTIVE`, `FEE_TYPE_SYSTEM`, `FEE_TYPE_DUPLICATE`, `FEE_LINES_TYPED`, `FEE_COLUMNS_MAX`, `VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT`, `TRIP_NOT_FOUND`, `LEGACY_NOT_FOUND`, `TRIP_PENDING_REVIEW`. Tiền trả dạng chuỗi hoặc NULL.
 
-## Ba quyết định kỹ thuật
+## Quyết định kỹ thuật
 
 1. **Sổ gốc:** tiền hiện tại là `counted_vnd` của ô TOTAL, không phải đơn giá + phí. Migration chỉ tạo dòng Phụ phí ban đầu để xem; không ghi `legacy_trip_rev`, không ghi adjustment, không đổi `counted_vnd`. Mỗi lệnh fee trên legacy đi qua `_change_legacy`: tính lại `counted_vnd` theo đơn giá + tổng dòng, ghi revision và adjustment phần chênh, event có counted trước/sau. `display.fee_vnd` chỉ parse số dương; phí âm thành NULL, không tạo dòng. Báo cáo migration chỉ ghi ID và số đếm, lưu ngoài repo; phải đọc trước gate deploy.
-2. **Lệnh cũ:** giữ chữ ký để không phá caller, nhưng tham số là **tổng phí chuyến**. Nếu target chỉ có dòng Khác/Giảm trừ/Phụ phí ban đầu hoặc không có dòng, bỏ hết các dòng đó rồi ghi một dòng theo dấu (`X>0` Khác, `X<0` Giảm trừ, `X=0/NULL` không dòng). Chỉ khi có dòng loại khác ngoài ba loại này mới từ chối `FEE_LINES_TYPED` với thông báo sửa trong khung chi tiết; price queue xếp `MANUAL`. Đường tương thích nhận số âm. Không tiếp tục ghi phí mới vào revision/adjustment một số. Snapshot Sheet giai đoạn 1 chỉ có tổng: ghi đúng một dòng theo dấu tổng, không giả tách các ô.
-3. **Nguồn phí dùng chung:** tạo `v_trip_fee(trip_id, fee_vnd)` (NULL khi không có dòng) và nguồn legacy tương ứng. `v_outstanding_month`, `adjust_trip`, `delete_trip`, `get_ledger`, `get_dashboard`, `get_receivables_*`, các định nghĩa hàm từng đến từ migration dashboard/receivables, `web/v7_price_queue.py` và `tools/v7_price_match.py` đều đọc nguồn này; không đọc trực tiếp `other_fee_vnd` để tính tiền sau migration. Migration mới thay định nghĩa hàm cuối, không sửa migration lịch sử. Adjustment phí đã gộp có `fee_absorbed=true` và bị loại khỏi `v_adjustment_current`; adjustment không có field giữ nguyên.
+2. **Lệnh cũ:** giữ chữ ký để không phá caller, nhưng tham số là **tổng phí chuyến**. Nếu target chỉ có dòng Khác/Giảm trừ/Phụ phí ban đầu hoặc không có dòng, bỏ hết các dòng đó rồi ghi một dòng theo dấu (`X>0` Khác, `X<0` Giảm trừ, `X=0/NULL` không dòng). Chỉ khi có dòng loại khác ngoài ba loại này mới từ chối `FEE_LINES_TYPED` với thông báo sửa trong khung chi tiết; price queue xếp `MANUAL`. Đường tương thích nhận số âm. Không ghi adjustment phí một số; cache revision chỉ do `_sync_trip_fee` ghi. Snapshot Sheet giai đoạn 1 chỉ có tổng: ghi đúng một dòng theo dấu tổng, không giả tách các ô.
+3. **Nguồn phí và cache:** `trip_fee_line` là nguồn gốc. `trip_price_rev.other_fee_vnd` là tổng cache, không ai ghi tay. Hàm nội bộ duy nhất `_sync_trip_fee(trip_id,event_id)` ghi thêm revision, giữ đơn giá mới nhất và đặt phí bằng tổng dòng hiệu lực (NULL nếu không dòng); tổng không đổi thì không ghi. Mọi lệnh đổi dòng phí chuyến web gọi đúng một lần mỗi chuyến trước `reallocate`. Constraint trigger `DEFERRABLE INITIALLY DEFERRED` trên `trip_fee_line` và `trip_price_rev` kiểm cache cuối giao dịch; lệch trả `FEE_CACHE_MISMATCH`. Dòng sổ gốc đi qua `_change_legacy` với tổng dòng, tính lại `counted_vnd` và adjustment phần chênh. Giữ nguyên phép tính và trường cũ của các hàm/view đọc tiền; chỉ `v_adjustment_current` lọc `NOT fee_absorbed`. `get_ledger` thêm đúng cờ `has_typed_fee` cho mỗi chuyến web/dòng sổ gốc để queue nhận biết phí đã phân loại; queue vẫn bắt `FEE_LINES_TYPED` lúc ghi. PR-B thêm `fee_lines` đầy đủ và giữ cờ này.
 4. **Lịch sử:** một `event` cho cả lệnh áp lô, before/after chứa từng target, loại, số, ghi chú và `batch_count`; lịch sử mở được danh sách chuyến. Lệnh đơn một event.
 
 ## Migration và hoàn tác
 
-Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + adjustment phí; tạo dòng Phụ phí ban đầu nếu khác 0 rồi đánh dấu adjustment phí bằng `fee_absorbed=true`, để không cộng hai lần. Legacy chỉ tạo dòng để xem, không đổi tiền. Phí hiệu quả bằng 0 không tạo dòng; chuyến có đơn giá giữ tổng như NULL theo V7-BE. Dry-run đếm (a) dòng phí lẻ không container/không đơn giá có phí 0 và (b) chuyến có container, đơn giá hiện tại NULL nhưng có adjustment phí. Nếu có dòng ở một trong hai nhóm thì dừng hỏi trước khi hấp thụ adjustment hoặc áp migration; không tự đổi tổng. Kiểm trước/sau trên `v_outstanding_month` và tổng `get_ledger` theo khách/tháng tới từng đồng, thêm kiểm từng target; chạy lần hai không đổi. Rollback chỉ sau khi gộp dòng và kiểm tổng từng target/tháng/khách; không rollback nếu đã phân loại sau migration.
+Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + adjustment phí chưa hấp thụ. Phí khác 0 tạo dòng Phụ phí ban đầu và revision cache mới bằng số đó; phí bằng 0 không tạo dòng và revision cache mới có phí NULL. Sau đó đặt `fee_absorbed=true` cho mọi adjustment phí của chuyến. Legacy chỉ tạo dòng để xem, không ghi `legacy_trip_rev`/adjustment và không đổi tổng ô TOTAL. Dry-run đếm (a) dòng phí lẻ không container/không đơn giá có phí 0 và (b) chuyến có container, đơn giá hiện tại NULL nhưng có adjustment phí. Nếu có một trong hai nhóm thì dừng hỏi trước khi áp migration. Kiểm trước/sau trên `v_outstanding_month` và tổng `get_ledger` theo khách/tháng tới từng đồng, thêm kiểm từng target; chạy lần hai không đổi. Rollback bằng file `.rollback.sql` cùng tên, trong một transaction và kiểm tổng; dừng nếu dòng đã phân loại hoặc giá đã sửa sau migration.
 
-## Bảng chuyển đổi nguồn đọc
-
-| Nơi đọc cũ | Sau migration |
-| --- | --- |
-| `v_trip_current`, `v_outstanding_month` | `v_trip_fee` + adjustment chưa hấp thụ; fee NULL vẫn theo V7-BE |
-| `adjust_trip`, `delete_trip` | tổng `v_trip_fee`; snapshot ghi các dòng và counted trước/sau |
-| `get_ledger`, `get_dashboard`, `get_receivables_*` | view/hàm phí dùng chung, không `other_fee_vnd` |
-| định nghĩa hàm dashboard/receivables từ migration cũ | migration mới thay định nghĩa cuối để gọi nguồn phí chung |
-| `web/v7_price_queue.py`, `tools/v7_price_match.py` | tổng dòng phí; snapshot chỉ có tổng thì ghi một dòng theo dấu |
+Mỗi khách có dữ liệu chuyển nhận một event `fee_migration`, actor `fee-migration`, Lịch sử hiển thị “Tách phụ phí”; `after` ghi số chuyến web và dòng sổ gốc đã chuyển. Dòng phí và revision cache mới tham chiếu event này. Rollback xóa các event migration sau khi kiểm và xóa revision/dòng liên quan.
 
 Chuyến `pending_review` bị chặn như lệnh sửa giá hiện hành (`TRIP_PENDING_REVIEW`), trừ dòng fee đi kèm `paste_trips`. `replace_trip_fee` được giữ loại Phụ phí ban đầu khi chỉ sửa số/ghi chú; không chọn loại này cho dòng mới hoặc đổi loại khác sang nó. `add_trip_fees` có thể gồm legacy; mỗi legacy vẫn ghi revision/adjustment riêng cùng event.
 
@@ -74,7 +66,7 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 
 ## Tách PR
 
-- PR-A: schema, migration, nguồn phí dùng chung, loại adjustment đã hấp thụ, mọi chỗ đọc tiền, lệnh cũ, price queue/match.
+- PR-A: schema, migration, `_sync_trip_fee`, trigger cache, lọc adjustment đã hấp thụ, bốn lệnh tương thích và price queue. Giữ nguyên các định nghĩa đọc tiền khác.
 - PR-B: lệnh add/set/replace/void, danh mục, cột riêng, HTTP và test tương ứng.
 - PR-B chờ PR-A pass harness và review. Mỗi PR có diff/nghiệm thu riêng.
 
@@ -84,11 +76,14 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 - [ ] `v_outstanding_month` và tổng `get_ledger` từng khách/tháng bằng nhau trước/sau tới từng đồng; adjustment phí đã hấp thụ không còn trong `v_adjustment_current`.
 - [ ] Chuyến có adjustment phí cũ + sửa đơn giá sau migration không cộng trùng.
 - [ ] Legacy TOTAL khác đơn giá + phí: migration không đổi tổng; thêm phí tạo `counted_vnd` mới và adjustment chênh đúng.
-- [ ] Lệnh cũ trên chuyến đã tách loại trả `FEE_LINES_TYPED`; price queue xếp `MANUAL`; số âm ghi Giảm trừ.
+- [ ] Lệnh cũ trên chuyến đã tách loại cho sửa đơn giá khi tổng phí gửi lên không đổi và giữ nguyên dòng đã phân loại; đổi tổng phí trả `FEE_LINES_TYPED`; số âm ghi Giảm trừ.
+- [ ] `get_ledger.has_typed_fee` đúng khi không dòng, chỉ Khác, chỉ Giảm trừ, có Neo; queue `MANUAL` cả khi cờ bật lẫn khi lệnh ghi trả `FEE_LINES_TYPED`.
 - [ ] Price queue ghi hai tổng phí âm khác nhau liên tiếp trên cùng chuyến: lần hai thay dòng Giảm trừ, không trả `FEE_LINES_TYPED` hoặc `MANUAL`.
+- [ ] Price queue bỏ qua chuyến đã phân loại nếu đơn giá và tổng phí khớp Sheet; chỉ xếp `MANUAL` khi cần ghi.
 - [ ] Dry-run đếm dòng phí lẻ 0; nếu có dòng thì dừng trước áp dụng.
 - [ ] Dry-run đếm chuyến có adjustment phí nhưng đơn giá hiện tại NULL và có container; nếu có thì dừng trước hấp thụ.
-- [ ] Harness quét `pg_proc.prosrc` và định nghĩa view sau migration: ngoài đường tương thích/migration, không hàm/view nào tính tiền từ `other_fee_vnd` cũ.
+- [ ] Harness quét `pg_proc.prosrc`: ngoài `_sync_trip_fee`, `_change_legacy` và `resolve_sheet_conflict` cũ (sao chép phí legacy không đổi khi sửa thông tin), không hàm nào INSERT/UPDATE `other_fee_vnd`.
+- [ ] Ghi `trip_fee_line` không sync làm giao dịch lỗi `FEE_CACHE_MISMATCH` ở constraint trigger deferred.
 - [ ] Danh mục: replay cùng `idempotency_key` trả kết quả cũ; cùng key khác payload bị từ chối. Dòng phí có `customer_id` lệch target bị từ chối.
 - [ ] Ba ca V7-BE so với `tripAmount` trong `so-khach-v7-model.js`.
 - [ ] Áp 20 chuyến một lệnh, một lần phân bổ; một tháng khóa → không dòng nào vào.
@@ -100,13 +95,13 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 
 - Agent: codex. Mockup: miễn vì không sửa UI. Review: opus.
 - Được sửa sau review: `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql`, một migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/tools/v7_price_match.py`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, test Python liên quan, runbook nếu migration cần. Migration lịch sử chỉ đọc. Spec này là file duy nhất sửa trong PR spec.
-- Ngân sách diff: spec ≤ 250 dòng; PR-A và PR-B mỗi PR ≤ 1000 dòng, vượt thì review scope trước.
+- Ngân sách diff: PR-A ≤ 1000 dòng logic mới, không tính phần chép nguyên văn giữa migration và SQL chuẩn. Chia commit schema/migration, logic, test, spec. PR-B ≤ 1000 dòng.
 - Lệnh kiểm: `npm run check`; `node scripts/check-secrets.js`; DB harness PostgreSQL dùng một lần theo runner/harness trong repo và CI, không chạy Docker trực tiếp từ agent.
 - Cấm: UI, PS, dependency/framework mới, DB thật/`hao`, thay opening/lock/FIFO/NEWTRIP-01, dữ liệu thật trong repo.
 
 ## Bằng chứng
 
-Chưa code; chưa chạy harness.
+PR-A đã code trên nhánh riêng. `npm run check`, SQL sync test và harness PostgreSQL 18.6 dùng một lần cho migration/rollback đã đạt ở bản cục bộ. Chưa triển khai `hao`/DB thật; CI PR và review opus còn chờ.
 
 ## Câu hỏi mở
 
