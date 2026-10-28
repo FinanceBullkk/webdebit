@@ -408,12 +408,16 @@ CREATE OR REPLACE FUNCTION sokhach._compat_trip_fee(p_customer bigint,p_trip big
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
 DECLARE v_type bigint; v_old bigint; v_count bigint; v_existing_type bigint;
 BEGIN
+    SELECT sum(amount_vnd)::bigint,count(*),min(fee_type_id) INTO v_old,v_count,v_existing_type FROM sokhach.trip_fee_line
+      WHERE trip_id=p_trip AND voided_by_event IS NULL;
+    IF v_old IS NOT DISTINCT FROM nullif(p_fee,0) THEN
+        PERFORM sokhach._sync_trip_fee(p_trip,p_event);
+        RETURN;
+    END IF;
     IF EXISTS (SELECT 1 FROM sokhach.trip_fee_line l JOIN sokhach.fee_type f ON f.id=l.fee_type_id
         WHERE l.trip_id=p_trip AND l.voided_by_event IS NULL
           AND coalesce(f.system_key,'') NOT IN ('other','discount','initial'))
     THEN RAISE EXCEPTION 'FEE_LINES_TYPED'; END IF;
-    SELECT sum(amount_vnd)::bigint,count(*),min(fee_type_id) INTO v_old,v_count,v_existing_type FROM sokhach.trip_fee_line
-      WHERE trip_id=p_trip AND voided_by_event IS NULL;
     IF p_fee IS NOT NULL AND p_fee<>0 THEN
       SELECT id INTO v_type FROM sokhach.fee_type
         WHERE system_key=CASE WHEN p_fee<0 THEN 'discount' ELSE 'other' END;
@@ -920,7 +924,7 @@ BEGIN
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
     WHERE l.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active' AND NOT (cur.data->>'deleted')::boolean;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
-        'label',CASE kind WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
+        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
         'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p

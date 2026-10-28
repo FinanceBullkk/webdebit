@@ -1064,6 +1064,9 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
+    for migration in (SHEET_CONFLICT_MIGRATION, SHEET_CONFLICT_DATE_MIGRATION):
+        copy.sql(migration.read_text(encoding="utf-8"))
+        copy.sql(migration.read_text(encoding="utf-8"))
     fee_book = new_book(copy, ("2026-01-01", 0))
     fixture_open_month(copy, fee_book, "2026-01-01")
     row = json.loads(trip_json())[0]
@@ -1108,6 +1111,13 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(fee_migration)
     copy.true(f"(SELECT other_fee_vnd IS NULL FROM sokhach.trip_price_rev WHERE trip_id={zero_trip} ORDER BY id DESC LIMIT 1)",
               "zero fee not normalized to NULL")
+    copy.true(f"(SELECT count(*)=1 FROM sokhach.event WHERE customer_id={fee_book} AND kind='fee_migration')",
+              "migration did not create one fee event per customer")
+    copy.true(f"(SELECT bool_and(e.kind='fee_migration') FROM sokhach.trip_fee_line l "
+              f"JOIN sokhach.event e ON e.id=l.created_by_event WHERE l.trip_id={fee_trip})",
+              "fee line reused an old event")
+    require(any(e["kind"] == "fee_migration" and e["label"] == "Tách phụ phí"
+                for e in call(copy, "get_ledger", fee_book)["events"]), "migration history label missing")
     copy.true(f"(SELECT amount_vnd=5 FROM sokhach.trip_fee_line WHERE legacy_row_id={legacy_id})",
               "legacy fee line missing")
     require(next(r for r in call(copy, "get_ledger", legacy_book)["legacy_rows"] if r["id"] == int(legacy_id))["current"]["counted_vnd"] == "999",
@@ -1140,6 +1150,8 @@ def check_csm_migration(pg: Pg) -> None:
               "fee rollback did not restore old schema")
     copy.true(f"(SELECT other_fee_vnd=0 FROM sokhach.trip_price_rev WHERE trip_id={zero_trip} ORDER BY id DESC LIMIT 1)",
               "rollback lost source zero fee")
+    copy.true("NOT EXISTS(SELECT 1 FROM sokhach.event WHERE kind='fee_migration')",
+              "rollback left fee migration events")
     require(copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}") == before_fee,
             "fee rollback changed old adjusted trip")
     copy.sql(fee_migration)
@@ -1151,6 +1163,7 @@ def check_csm_migration(pg: Pg) -> None:
     catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
+    migrated.pop("resolve_sheet_conflict", None)  # Existing migration, absent from canonical function file.
     require(migrated == fresh, f"migrated functions differ: {[k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k)]}")
     call(copy, "edit_trip_price", fee_book, version(copy, fee_book), "fee-after-migration",
          fee_trip, 110, 7)
@@ -1190,6 +1203,11 @@ def check_csm_migration(pg: Pg) -> None:
              f"SELECT sokhach._sync_trip_fee({typed_ids[3]},(SELECT created_by_event FROM sokhach.trip WHERE id={typed_ids[3]})); COMMIT")
     flags = [row["has_typed_fee"] for row in call(copy, "get_ledger", typed_book)["trips"]]
     require(flags == [False, False, False, True], f"typed fee flags wrong: {flags}")
+    line_before = copy.value(f"SELECT id::text FROM sokhach.trip_fee_line WHERE trip_id={typed_ids[3]} AND voided_by_event IS NULL")
+    call(copy, "edit_trip_price", typed_book, version(copy, typed_book), "typed-price-only",
+         typed_ids[3], 101, 3)
+    require(copy.value(f"SELECT id::text FROM sokhach.trip_fee_line WHERE trip_id={typed_ids[3]} AND voided_by_event IS NULL")
+            == line_before, "price-only edit replaced typed fee line")
     for n, fee in enumerate((-7, -9)):
         call(copy, "edit_trip_price", typed_book, version(copy, typed_book), f"negative-fee-{n}",
              typed_ids[2], 100, fee)
@@ -1203,15 +1221,14 @@ def check_csm_migration(pg: Pg) -> None:
         "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND "
         "(prosrc ~* 'INSERT[[:space:]]+INTO[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd' "
         "OR prosrc ~* 'UPDATE[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd')"))
-    require(writers == ["_change_legacy", "_sync_trip_fee"], f"unexpected fee cache writers: {writers}")
+    # Historical sheet conflict command copies unchanged legacy fee for an information edit.
+    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict"],
+            f"unexpected fee cache writers: {writers}")
     check_csm_reference(copy)
     check_csm_locks(copy)
     from test_pg_v7_grants import check_catalog
-    check_catalog(copy)
-    # Sheet conflict commands exist only as migrations (hao order); standard files do not carry them yet.
-    for migration in (SHEET_CONFLICT_MIGRATION, SHEET_CONFLICT_DATE_MIGRATION):
-        copy.sql(migration.read_text(encoding="utf-8"))
-        copy.sql(migration.read_text(encoding="utf-8"))
+    check_catalog(copy, extra_functions={"resolve_sheet_conflict"}, extra_app={
+        "resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)"})
     check_sheet_conflict_resolution(copy)
 
 

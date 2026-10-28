@@ -2,6 +2,41 @@
 BEGIN;
 SET LOCAL ROLE sokhach_owner;
 SET LOCAL sokhach.actor='fee-migration';
+-- Migration provenance: one auditable event per customer, separate from old paste/import events.
+DO $$ DECLARE c record; BEGIN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='sokhach.event'::regclass AND contype='c'
+    AND (pg_get_constraintdef(oid) LIKE '%kind = ANY%' OR pg_get_constraintdef(oid) LIKE '%CASE kind%')
+  LOOP EXECUTE format('ALTER TABLE sokhach.event DROP CONSTRAINT %I',c.conname); END LOOP;
+END $$;
+ALTER TABLE sokhach.event ADD CONSTRAINT event_kind_check CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
+    'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
+    'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
+    'sheet_conflict_resolved', 'fee_migration'));
+ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
+    WHEN 'paste' THEN "before" = '{}'::jsonb AND "after" ? 'trips'
+    WHEN 'receipt' THEN "before" = '{}'::jsonb AND "after" ? 'receipt'
+    WHEN 'import' THEN "before" = '{}'::jsonb AND "after" ? 'cutover'
+    WHEN 'price_edit' THEN "before" ? 'price' AND "after" ? 'price'
+    WHEN 'adjust_trip' THEN "before" ? 'trip' AND "after" ? 'adjustment'
+    WHEN 'adjust_month' THEN "before" ? 'month' AND "after" ? 'adjustment'
+    WHEN 'receipt_edit' THEN "before" ? 'receipt' AND "after" ? 'receipt'
+    WHEN 'month_lock' THEN coalesce("before"->>'month' = "after"->>'month'
+        AND jsonb_typeof("before"->'locked')='boolean'
+        AND jsonb_typeof("after"->'locked')='boolean',false)
+    WHEN 'void' THEN "before" ? 'receipt' AND "after" ? 'receipt'
+    WHEN 'reallocation' THEN "before" ? 'allocations' AND "after" ? 'allocations'
+    WHEN 'customer_attr' THEN "before" ? 'customer' AND "after" ? 'customer'
+    WHEN 'trip_edit' THEN "before" ? 'trip' AND "after" ? 'trip'
+    WHEN 'legacy_edit' THEN "before" ? 'legacy' AND "after" ? 'legacy'
+    WHEN 'trip_delete' THEN "before" ? 'trip' AND coalesce("after"->'trip'->'deleted'='true'::jsonb,false)
+    WHEN 'legacy_delete' THEN "before" ? 'legacy' AND coalesce("after"->'legacy'->'deleted'='true'::jsonb,false)
+    WHEN 'trip_review' THEN "before"->>'status' = 'pending_review' AND "after" ? 'trip'
+        AND "after"->>'status' IN ('confirmed','rejected') AND btrim(coalesce("after"->>'review_reason','')) <> ''
+    WHEN 'sheet_conflict_resolved' THEN "before" ? 'target' AND "before" ? 'field'
+        AND "after" ? 'target' AND "after" ? 'field' AND "after" ? 'source_row'
+        AND "after" ? 'sheet_value' AND "after" ? 'decision'
+    WHEN 'fee_migration' THEN "before" = '{}'::jsonb AND "after" ? 'trip_count' AND "after" ? 'legacy_count'
+    ELSE false END);
 CREATE TEMP TABLE fee_before_month ON COMMIT DROP AS SELECT customer_id,debt_month,outstanding_vnd FROM sokhach.v_outstanding_month;
 CREATE TEMP TABLE fee_before_ledger ON COMMIT DROP AS
  SELECT c.id customer_id,sokhach.get_ledger(c.id)->>'total_outstanding_vnd' total_vnd,
@@ -83,19 +118,40 @@ CREATE TEMP TABLE fee_targets ON COMMIT DROP AS
  WHERE NOT EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.trip_id=p.trip_id)
    AND (p.other_fee_vnd IS NOT NULL OR EXISTS(SELECT 1 FROM sokhach.adjustment a
        WHERE a.trip_id=p.trip_id AND a.field='other_fee_vnd' AND NOT a.fee_absorbed));
+CREATE TEMP TABLE fee_migration_events(customer_id bigint PRIMARY KEY,event_id bigint NOT NULL) ON COMMIT DROP;
+DO $$ DECLARE rec record; v_event bigint; BEGIN
+  FOR rec IN SELECT customer_id,
+      count(*) FILTER (WHERE source_kind='trip') AS trip_count,
+      count(*) FILTER (WHERE source_kind='legacy') AS legacy_count
+    FROM (
+      SELECT customer_id,'trip' source_kind FROM fee_targets
+      UNION ALL
+      SELECT lr.customer_id,'legacy' FROM sokhach.legacy_row lr
+      CROSS JOIN LATERAL(SELECT (sokhach._legacy_current(lr.id)->>'other_fee_vnd')::bigint fee)x
+      WHERE lr.kind='trip' AND x.fee IS NOT NULL AND x.fee<>0
+        AND NOT EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.legacy_row_id=lr.id)
+    ) s GROUP BY customer_id
+  LOOP
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+      VALUES(rec.customer_id,'fee_migration','fee-migration','{}'::jsonb,
+        jsonb_build_object('trip_count',rec.trip_count,'legacy_count',rec.legacy_count),
+        'fee-migration:'||rec.customer_id) RETURNING id INTO v_event;
+    INSERT INTO fee_migration_events VALUES(rec.customer_id,v_event);
+  END LOOP;
+END $$;
 -- Web conversion: create source line, then cache revision, then absorb old fee adjustments.
 INSERT INTO sokhach.trip_fee_line(customer_id,trip_id,fee_type_id,amount_vnd,note,created_by_event)
 SELECT q.customer_id,q.trip_id,(SELECT id FROM sokhach.fee_type WHERE system_key='initial'),q.fee_vnd,
- 'migration: initial fee',q.created_by_event FROM fee_targets q WHERE q.fee_vnd<>0;
+ 'migration: initial fee',e.event_id FROM fee_targets q JOIN fee_migration_events e USING(customer_id) WHERE q.fee_vnd<>0;
 INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,other_fee_vnd,created_by_event)
-SELECT q.trip_id,q.customer_id,q.unit_price_vnd,NULLIF(q.fee_vnd,0),q.created_by_event FROM fee_targets q;
+SELECT q.trip_id,q.customer_id,q.unit_price_vnd,NULLIF(q.fee_vnd,0),e.event_id FROM fee_targets q JOIN fee_migration_events e USING(customer_id);
 ALTER TABLE sokhach.adjustment DISABLE TRIGGER adjustment_immutable;
 UPDATE sokhach.adjustment a SET fee_absorbed=true
  WHERE a.field='other_fee_vnd' AND NOT a.fee_absorbed AND EXISTS(SELECT 1 FROM fee_targets q WHERE q.trip_id=a.trip_id);
 ALTER TABLE sokhach.adjustment ENABLE TRIGGER adjustment_immutable;
 -- Legacy conversion is display-only; source TOTAL and current revisions remain untouched.
 INSERT INTO sokhach.trip_fee_line(customer_id,legacy_row_id,fee_type_id,amount_vnd,note,created_by_event)
-SELECT r.customer_id,r.id,(SELECT id FROM sokhach.fee_type WHERE system_key='initial'),x.fee,'migration: legacy fee',r.created_by_event FROM sokhach.legacy_row r CROSS JOIN LATERAL(SELECT (sokhach._legacy_current(r.id)->>'other_fee_vnd')::bigint fee)x WHERE r.kind='trip' AND x.fee IS NOT NULL AND x.fee<>0 AND NOT EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.legacy_row_id=r.id);
+SELECT r.customer_id,r.id,(SELECT id FROM sokhach.fee_type WHERE system_key='initial'),x.fee,'migration: legacy fee',e.event_id FROM sokhach.legacy_row r JOIN fee_migration_events e USING(customer_id) CROSS JOIN LATERAL(SELECT (sokhach._legacy_current(r.id)->>'other_fee_vnd')::bigint fee)x WHERE r.kind='trip' AND x.fee IS NOT NULL AND x.fee<>0 AND NOT EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.legacy_row_id=r.id);
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM fee_targets q JOIN LATERAL
    (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev p WHERE p.trip_id=q.trip_id ORDER BY p.id DESC LIMIT 1)p ON true
@@ -341,12 +397,16 @@ CREATE OR REPLACE FUNCTION sokhach._compat_trip_fee(p_customer bigint,p_trip big
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
 DECLARE v_type bigint; v_old bigint; v_count bigint; v_existing_type bigint;
 BEGIN
+    SELECT sum(amount_vnd)::bigint,count(*),min(fee_type_id) INTO v_old,v_count,v_existing_type FROM sokhach.trip_fee_line
+      WHERE trip_id=p_trip AND voided_by_event IS NULL;
+    IF v_old IS NOT DISTINCT FROM nullif(p_fee,0) THEN
+        PERFORM sokhach._sync_trip_fee(p_trip,p_event);
+        RETURN;
+    END IF;
     IF EXISTS (SELECT 1 FROM sokhach.trip_fee_line l JOIN sokhach.fee_type f ON f.id=l.fee_type_id
         WHERE l.trip_id=p_trip AND l.voided_by_event IS NULL
           AND coalesce(f.system_key,'') NOT IN ('other','discount','initial'))
     THEN RAISE EXCEPTION 'FEE_LINES_TYPED'; END IF;
-    SELECT sum(amount_vnd)::bigint,count(*),min(fee_type_id) INTO v_old,v_count,v_existing_type FROM sokhach.trip_fee_line
-      WHERE trip_id=p_trip AND voided_by_event IS NULL;
     IF p_fee IS NOT NULL AND p_fee<>0 THEN
       SELECT id INTO v_type FROM sokhach.fee_type
         WHERE system_key=CASE WHEN p_fee<0 THEN 'discount' ELSE 'other' END;
@@ -607,7 +667,7 @@ BEGIN
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
     WHERE l.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active' AND NOT (cur.data->>'deleted')::boolean;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
-        'label',CASE kind WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
+        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
         'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p

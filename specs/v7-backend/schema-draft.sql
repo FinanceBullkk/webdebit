@@ -286,9 +286,10 @@ COMMENT ON COLUMN sokhach.receipt.void_reason IS 'Hủy bắt buộc lý do khô
 CREATE TABLE sokhach.event (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
-    kind text NOT NULL CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
+    kind text NOT NULL CONSTRAINT event_kind_check CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
-        'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete')),
+        'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
+        'sheet_conflict_resolved', 'fee_migration')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -296,7 +297,7 @@ CREATE TABLE sokhach.event (
     idempotency_key text,
     cutover_id bigint REFERENCES sokhach.cutover(id),
     CHECK ((kind = 'import') = (cutover_id IS NOT NULL)),
-    CHECK (CASE kind
+    CONSTRAINT event_snapshot_check CHECK (CASE kind
         WHEN 'paste' THEN "before" = '{}'::jsonb AND "after" ? 'trips'
         WHEN 'receipt' THEN "before" = '{}'::jsonb AND "after" ? 'receipt'
         WHEN 'import' THEN "before" = '{}'::jsonb AND "after" ? 'cutover'
@@ -316,6 +317,10 @@ CREATE TABLE sokhach.event (
         WHEN 'legacy_delete' THEN "before" ? 'legacy' AND coalesce("after"->'legacy'->'deleted'='true'::jsonb,false)
         WHEN 'trip_review' THEN "before"->>'status' = 'pending_review' AND "after" ? 'trip'
             AND "after"->>'status' IN ('confirmed','rejected') AND btrim(coalesce("after"->>'review_reason','')) <> ''
+        WHEN 'sheet_conflict_resolved' THEN "before" ? 'target' AND "before" ? 'field'
+            AND "after" ? 'target' AND "after" ? 'field' AND "after" ? 'source_row'
+            AND "after" ? 'sheet_value' AND "after" ? 'decision'
+        WHEN 'fee_migration' THEN "before" = '{}'::jsonb AND "after" ? 'trip_count' AND "after" ? 'legacy_count'
         ELSE false END),
     UNIQUE (id, customer_id)
 );

@@ -135,10 +135,10 @@ def classify(row: dict, pool: list[dict] | None) -> dict:
     price = row["sheet_unit_price_vnd"]
     if price is None:
         status = "SHEET_NO_PRICE"   # blank stays NULL; nothing to write
-    elif target.get("typed_fee"):
-        status = "MANUAL"
     elif unchanged(row, target):
         status = "PRICE_UNCHANGED"
+    elif target.get("typed_fee"):
+        status = "MANUAL"
     elif target["pending"]:
         status = "PENDING_REVIEW"
     elif target["price"] is not None:

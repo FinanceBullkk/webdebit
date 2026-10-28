@@ -18,7 +18,7 @@ CREATE TEMP TABLE fee_rollback_target ON COMMIT DROP AS
  WHERE EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.trip_id=t.id)
     OR EXISTS(SELECT 1 FROM sokhach.adjustment a WHERE a.trip_id=t.id AND a.fee_absorbed)
     OR (p.other_fee_vnd IS NULL AND prior.other_fee_vnd=0
-        AND p.created_by_event=prior.created_by_event
+        AND EXISTS(SELECT 1 FROM sokhach.event e WHERE e.id=p.created_by_event AND e.kind='fee_migration')
         AND p.unit_price_vnd IS NOT DISTINCT FROM prior.unit_price_vnd);
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM sokhach.trip_fee_line l WHERE l.note NOT IN ('migration: initial fee','migration: legacy fee')
@@ -26,7 +26,7 @@ DO $$ BEGIN
  THEN RAISE EXCEPTION 'ROLLBACK_CLASSIFIED_LINES'; END IF;
  IF EXISTS(SELECT 1 FROM fee_rollback_target q JOIN sokhach.trip_price_rev p ON p.id=q.latest_rev
      JOIN sokhach.trip_price_rev prior ON prior.id=q.prior_rev
-     WHERE p.created_by_event<>prior.created_by_event
+     WHERE NOT EXISTS(SELECT 1 FROM sokhach.event e WHERE e.id=p.created_by_event AND e.kind='fee_migration')
         OR p.unit_price_vnd IS DISTINCT FROM prior.unit_price_vnd
         OR p.other_fee_vnd IS DISTINCT FROM q.line_total)
     OR EXISTS(SELECT 1 FROM fee_rollback_target WHERE prior_rev IS NULL)
@@ -47,6 +47,42 @@ DROP FUNCTION sokhach._guard_fee_line();
 DROP FUNCTION sokhach._fee_cache_check();
 DROP FUNCTION sokhach.v7_fee_migration_dry_run();
 DROP TABLE sokhach.trip_fee_line,sokhach.book_fee_column,sokhach.fee_type_audit,sokhach.fee_type;
+ALTER TABLE sokhach.event DISABLE TRIGGER event_immutable;
+DELETE FROM sokhach.event WHERE kind='fee_migration';
+ALTER TABLE sokhach.event ENABLE TRIGGER event_immutable;
+DO $$ DECLARE c record; BEGIN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='sokhach.event'::regclass AND contype='c'
+    AND (pg_get_constraintdef(oid) LIKE '%kind = ANY%' OR pg_get_constraintdef(oid) LIKE '%CASE kind%')
+  LOOP EXECUTE format('ALTER TABLE sokhach.event DROP CONSTRAINT %I',c.conname); END LOOP;
+END $$;
+ALTER TABLE sokhach.event ADD CONSTRAINT event_kind_check CHECK (kind IN ('paste', 'price_edit', 'adjust_trip',
+    'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
+    'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
+    'sheet_conflict_resolved'));
+ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
+    WHEN 'paste' THEN "before" = '{}'::jsonb AND "after" ? 'trips'
+    WHEN 'receipt' THEN "before" = '{}'::jsonb AND "after" ? 'receipt'
+    WHEN 'import' THEN "before" = '{}'::jsonb AND "after" ? 'cutover'
+    WHEN 'price_edit' THEN "before" ? 'price' AND "after" ? 'price'
+    WHEN 'adjust_trip' THEN "before" ? 'trip' AND "after" ? 'adjustment'
+    WHEN 'adjust_month' THEN "before" ? 'month' AND "after" ? 'adjustment'
+    WHEN 'receipt_edit' THEN "before" ? 'receipt' AND "after" ? 'receipt'
+    WHEN 'month_lock' THEN coalesce("before"->>'month' = "after"->>'month'
+        AND jsonb_typeof("before"->'locked')='boolean'
+        AND jsonb_typeof("after"->'locked')='boolean',false)
+    WHEN 'void' THEN "before" ? 'receipt' AND "after" ? 'receipt'
+    WHEN 'reallocation' THEN "before" ? 'allocations' AND "after" ? 'allocations'
+    WHEN 'customer_attr' THEN "before" ? 'customer' AND "after" ? 'customer'
+    WHEN 'trip_edit' THEN "before" ? 'trip' AND "after" ? 'trip'
+    WHEN 'legacy_edit' THEN "before" ? 'legacy' AND "after" ? 'legacy'
+    WHEN 'trip_delete' THEN "before" ? 'trip' AND coalesce("after"->'trip'->'deleted'='true'::jsonb,false)
+    WHEN 'legacy_delete' THEN "before" ? 'legacy' AND coalesce("after"->'legacy'->'deleted'='true'::jsonb,false)
+    WHEN 'trip_review' THEN "before"->>'status' = 'pending_review' AND "after" ? 'trip'
+        AND "after"->>'status' IN ('confirmed','rejected') AND btrim(coalesce("after"->>'review_reason','')) <> ''
+    WHEN 'sheet_conflict_resolved' THEN "before" ? 'target' AND "before" ? 'field'
+        AND "after" ? 'target' AND "after" ? 'field' AND "after" ? 'source_row'
+        AND "after" ? 'sheet_value' AND "after" ? 'decision'
+    ELSE false END);
 -- Original definitions from 7f2dcb9.
 CREATE OR REPLACE VIEW sokhach.v_adjustment_current AS
 SELECT a.id,a.customer_id,coalesce(t.debt_month,a.debt_month) AS debt_month,

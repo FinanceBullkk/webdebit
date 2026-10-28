@@ -52,6 +52,8 @@ HTTP: POST `/api/v7/trips/fees/add`, `/fees/set`, `/fees/replace`, `/fees/void`;
 
 Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + adjustment phí chưa hấp thụ. Phí khác 0 tạo dòng Phụ phí ban đầu và revision cache mới bằng số đó; phí bằng 0 không tạo dòng và revision cache mới có phí NULL. Sau đó đặt `fee_absorbed=true` cho mọi adjustment phí của chuyến. Legacy chỉ tạo dòng để xem, không ghi `legacy_trip_rev`/adjustment và không đổi tổng ô TOTAL. Dry-run đếm (a) dòng phí lẻ không container/không đơn giá có phí 0 và (b) chuyến có container, đơn giá hiện tại NULL nhưng có adjustment phí. Nếu có một trong hai nhóm thì dừng hỏi trước khi áp migration. Kiểm trước/sau trên `v_outstanding_month` và tổng `get_ledger` theo khách/tháng tới từng đồng, thêm kiểm từng target; chạy lần hai không đổi. Rollback bằng file `.rollback.sql` cùng tên, trong một transaction và kiểm tổng; dừng nếu dòng đã phân loại hoặc giá đã sửa sau migration.
 
+Mỗi khách có dữ liệu chuyển nhận một event `fee_migration`, actor `fee-migration`, Lịch sử hiển thị “Tách phụ phí”; `after` ghi số chuyến web và dòng sổ gốc đã chuyển. Dòng phí và revision cache mới tham chiếu event này. Rollback xóa các event migration sau khi kiểm và xóa revision/dòng liên quan.
+
 Chuyến `pending_review` bị chặn như lệnh sửa giá hiện hành (`TRIP_PENDING_REVIEW`), trừ dòng fee đi kèm `paste_trips`. `replace_trip_fee` được giữ loại Phụ phí ban đầu khi chỉ sửa số/ghi chú; không chọn loại này cho dòng mới hoặc đổi loại khác sang nó. `add_trip_fees` có thể gồm legacy; mỗi legacy vẫn ghi revision/adjustment riêng cùng event.
 
 ## Nguồn quyết định
@@ -74,12 +76,13 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 - [ ] `v_outstanding_month` và tổng `get_ledger` từng khách/tháng bằng nhau trước/sau tới từng đồng; adjustment phí đã hấp thụ không còn trong `v_adjustment_current`.
 - [ ] Chuyến có adjustment phí cũ + sửa đơn giá sau migration không cộng trùng.
 - [ ] Legacy TOTAL khác đơn giá + phí: migration không đổi tổng; thêm phí tạo `counted_vnd` mới và adjustment chênh đúng.
-- [ ] Lệnh cũ trên chuyến đã tách loại trả `FEE_LINES_TYPED`; price queue xếp `MANUAL`; số âm ghi Giảm trừ.
+- [ ] Lệnh cũ trên chuyến đã tách loại cho sửa đơn giá khi tổng phí gửi lên không đổi và giữ nguyên dòng đã phân loại; đổi tổng phí trả `FEE_LINES_TYPED`; số âm ghi Giảm trừ.
 - [ ] `get_ledger.has_typed_fee` đúng khi không dòng, chỉ Khác, chỉ Giảm trừ, có Neo; queue `MANUAL` cả khi cờ bật lẫn khi lệnh ghi trả `FEE_LINES_TYPED`.
 - [ ] Price queue ghi hai tổng phí âm khác nhau liên tiếp trên cùng chuyến: lần hai thay dòng Giảm trừ, không trả `FEE_LINES_TYPED` hoặc `MANUAL`.
+- [ ] Price queue bỏ qua chuyến đã phân loại nếu đơn giá và tổng phí khớp Sheet; chỉ xếp `MANUAL` khi cần ghi.
 - [ ] Dry-run đếm dòng phí lẻ 0; nếu có dòng thì dừng trước áp dụng.
 - [ ] Dry-run đếm chuyến có adjustment phí nhưng đơn giá hiện tại NULL và có container; nếu có thì dừng trước hấp thụ.
-- [ ] Harness quét `pg_proc.prosrc`: ngoài `_sync_trip_fee`, `_change_legacy` và migration, không hàm nào INSERT/UPDATE `other_fee_vnd`.
+- [ ] Harness quét `pg_proc.prosrc`: ngoài `_sync_trip_fee`, `_change_legacy` và `resolve_sheet_conflict` cũ (sao chép phí legacy không đổi khi sửa thông tin), không hàm nào INSERT/UPDATE `other_fee_vnd`.
 - [ ] Ghi `trip_fee_line` không sync làm giao dịch lỗi `FEE_CACHE_MISMATCH` ở constraint trigger deferred.
 - [ ] Danh mục: replay cùng `idempotency_key` trả kết quả cũ; cùng key khác payload bị từ chối. Dòng phí có `customer_id` lệch target bị từ chối.
 - [ ] Ba ca V7-BE so với `tripAmount` trong `so-khach-v7-model.js`.

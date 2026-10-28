@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import v7_ledger_api as api  # noqa: E402
 import v7_price_snapshot as snapshot_tool  # noqa: E402
 from test_v7_load_real_copy import fixture  # noqa: E402
-from v7_price_queue import load_price_snapshot, project_prices  # noqa: E402
+from v7_price_queue import classify, load_price_snapshot, project_prices, targets  # noqa: E402
 
 
 def row(tab="KHACH A", source_row=5, container="FAKEU0000001", date="2026-10-03", price=50000000, fee=None, total=None):
@@ -60,6 +60,14 @@ class ProjectionTest(unittest.TestCase):
         book = ledger(trips=[trip() | {"has_typed_fee": True}])
         result = project_prices(SNAPSHOT | {"rows": [row()], "row_count": 1}, book, CUSTOMERS)
         self.assertEqual(result["review"][0]["status"], "MANUAL")
+
+    def test_typed_fee_matching_total_is_unchanged(self):
+        current = trip(price="50000000") | {"other_fee_vnd": "300000", "has_typed_fee": True}
+        result = project_prices(SNAPSHOT | {"rows": [row(fee=300000, total=50300000)], "row_count": 1},
+                                ledger(trips=[current]), CUSTOMERS)
+        self.assertEqual((result["ready_count"], result["review_count"]), (0, 0))
+        self.assertEqual(classify(row(fee=300000, total=50300000), targets(ledger(trips=[current])))["status"],
+                         "PRICE_UNCHANGED")
 
     def test_negative_fee_update_requeues_only_same_price(self):
         first = trip(price="50000000") | {"other_fee_vnd": "-300000"}
