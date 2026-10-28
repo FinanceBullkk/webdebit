@@ -17,4 +17,4 @@ allowed-tools: Bash(npm run check), Bash(node scripts/check-secrets.js*), Bash(g
 
 **Hoàn thành khi:** có báo cáo gồm lệnh đã chạy, kết quả thật, các SKIP và việc còn lại.
 
-**Điều cấm:** commit, push, mở hay merge PR (hỏi người dùng); sửa code để cho kiểm xanh nếu không nằm trong nhiệm vụ; in giá trị secret ra báo cáo.
+**Điều cấm:** commit, push, mở hay merge PR trong skill này (skill chỉ kiểm; quyền merge của phiên chính theo `CLAUDE.md`); sửa code để cho kiểm xanh nếu không nằm trong nhiệm vụ; in giá trị secret ra báo cáo.

@@ -1,6 +1,7 @@
 -- DA-THU-01 (28/10/2026): dòng Tổng tháng của sổ khách cộng như Sheet: đã thu theo ngày thu,
 -- còn nợ cộng dồn = tháng trước + phát sinh − đã thu. Chỉ đổi hàm đọc get_ledger; không đổi bảng,
--- phân bổ, outstanding_vnd hay tổng còn nợ. Chạy lại an toàn.
+-- phân bổ, outstanding_vnd hay tổng còn nợ. Chạy lại an toàn. Chạy SAU 2026-10-28-v7-phu-phi-core-a.sql
+-- và 2026-10-28-v7-legacy-receipt-delete.sql (định nghĩa này đã gồm phần get_ledger của các file đó).
 BEGIN;
 SET LOCAL ROLE sokhach_owner;
 
@@ -32,7 +33,8 @@ BEGIN
             'total_outstanding_vnd',NULL);
     END IF;
     -- DA-THU-01 (28/10/2026): dòng Tổng tháng cộng như Sheet. Đã thu = phiếu chưa hủy có ngày thu trong
-    -- tháng (đủ số tiền) trừ cấn trừ đi; tháng có số Sheet lấy phát sinh/đã thu của Sheet thay số dư đầu.
+    -- tháng (đủ số tiền) trừ cấn trừ đi và khoản thu sổ gốc đã xóa; tháng có số Sheet lấy phát sinh/đã thu
+    -- của Sheet thay số dư đầu.
     -- Còn nợ cộng dồn tính lùi từ tổng còn nợ nên tháng cuối luôn bằng tổng; outstanding_vnd vẫn là
     -- nợ còn lại của kỳ sau phân bổ nợ cũ trước (tuổi nợ, đối soát), không đổi.
     WITH active_cutover AS (
@@ -59,13 +61,19 @@ BEGIN
                WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
             WHERE t.customer_id=get_ledger.customer_id AND t.debt_month=k.debt_month AND NOT t.deleted AND t.status='confirmed'),0)
         +coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
-            WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=k.debt_month),0) AS charges_vnd,
+            LEFT JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id
+            WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=k.debt_month
+              AND lr.kind IS DISTINCT FROM 'receipt'),0) AS charges_vnd,
         coalesce(s.source_receipt_vnd,0)
         +coalesce((SELECT sum(r.amount_vnd) FROM sokhach.receipt r
             WHERE r.customer_id=get_ledger.customer_id AND r.voided_on IS NULL
               AND date_trunc('month',r.date)::date=k.debt_month),0)
         -coalesce((SELECT sum(o.amount_vnd) FROM sokhach.v_offset_outgoing o
-            WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=k.debt_month),0) AS received_vnd
+            WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=k.debt_month),0)
+        -- Sửa/xóa khoản thu sổ gốc (XOA-THU-GOC-01) đổi tiền thu của tháng đó, không phải phát sinh.
+        -coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
+            JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id AND lr.kind='receipt'
+            WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=k.debt_month),0) AS received_vnd
       FROM month_keys k LEFT JOIN LATERAL (SELECT m.source_charge_vnd,m.source_receipt_vnd
           FROM sokhach.cutover_month_check m JOIN active_cutover a ON a.cutover_id=m.cutover_id
           WHERE m.customer_id=get_ledger.customer_id AND m.debt_month=k.debt_month
@@ -90,6 +98,9 @@ BEGIN
             WHERE tr.id=t.id AND x->>'trip_id'=t.id::text)),
         'origin',t.origin,'destination',t.destination,'note',t.note,
         'unit_price_vnd',p.unit_price_vnd::text,'other_fee_vnd',p.other_fee_vnd::text,
+        'has_typed_fee',EXISTS (SELECT 1 FROM sokhach.trip_fee_line fl JOIN sokhach.fee_type ft ON ft.id=fl.fee_type_id
+            WHERE fl.trip_id=t.id AND fl.voided_by_event IS NULL
+              AND coalesce(ft.system_key,'') NOT IN ('other','discount','initial')),
         'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL WHEN p.unit_price_vnd IS NOT NULL
             THEN (p.unit_price_vnd+coalesce(p.other_fee_vnd,0))::text
             WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd::text END,
@@ -133,6 +144,9 @@ BEGIN
     WHERE o.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active';
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'month',CASE WHEN l.kind='trip' THEN (cur.data->>'month')::date ELSE l.debt_month END,
         'kind',l.kind,'display',l.display,'source_total_vnd',l.source_total_vnd::text,
+        'has_typed_fee',EXISTS (SELECT 1 FROM sokhach.trip_fee_line fl JOIN sokhach.fee_type ft ON ft.id=fl.fee_type_id
+            WHERE fl.legacy_row_id=l.id AND fl.voided_by_event IS NULL
+              AND coalesce(ft.system_key,'') NOT IN ('other','discount','initial')),
         'historical',true,'editable',l.kind='trip','current',CASE WHEN l.kind='trip' THEN cur.data END) ORDER BY l.debt_month,l.id),'[]'::jsonb)
     INTO v_legacy FROM sokhach.legacy_row l
     CROSS JOIN LATERAL (SELECT sokhach._legacy_current(l.id) AS data) cur
@@ -140,7 +154,7 @@ BEGIN
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
     WHERE l.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active' AND NOT (cur.data->>'deleted')::boolean;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
-        'label',CASE kind WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
+        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
             WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
         'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
             THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p

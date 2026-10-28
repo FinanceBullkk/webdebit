@@ -87,11 +87,11 @@ test('trip adjustment history pairs field and amount before to after with signed
   }
 });
 
-test('adjust_trip SQL stores field intent in adjustment; fee source is table not audit', () => {
+test('adjust_trip keeps unit intent in adjustment and syncs fee intent through lines', () => {
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
-  const adjust = sql.split('CREATE FUNCTION sokhach.adjust_trip(')[1].split('CREATE FUNCTION sokhach.adjust_month(')[0];
+  const adjust = sql.split('CREATE OR REPLACE FUNCTION sokhach.adjust_trip(')[1].split('CREATE FUNCTION sokhach.adjust_month(')[0];
   assert.doesNotMatch(adjust, /FROM sokhach\.event/);
-  assert.match(adjust, /SELECT coalesce\(v_price\.other_fee_vnd,0\)\s*\+\s*coalesce\(sum\(a\.amount_vnd\) FILTER \(WHERE a\.field='other_fee_vnd'\),0\)\s*INTO v_fee\s+FROM sokhach\.v_adjustment_current a/);
+  assert.match(adjust, /PERFORM sokhach\._compat_trip_fee\(customer_id,trip_id,new_value_vnd,v_event\)/);
   assert.doesNotMatch(adjust, /a\.created_by_event>v_price\.created_by_event/);
   assert.match(adjust, /INSERT INTO sokhach\.adjustment\([^)]*field,new_value_vnd\)[\s\S]*sokhach\._actor\(\),v_event,field,new_value_vnd\)/);
   const schema = fs.readFileSync(require.resolve('../../specs/v7-backend/schema-draft.sql'), 'utf8');

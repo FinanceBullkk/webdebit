@@ -71,13 +71,15 @@ KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_
 KNOWN_FUNCTIONS.add('get_dashboard')
 KNOWN_FUNCTIONS.add('get_receivables_matrix')
 KNOWN_FUNCTIONS.add('get_receivables_detail')
+KNOWN_FUNCTIONS.update({'_compat_trip_fee', '_sync_trip_fee', '_guard_fee_line',
+                        '_fee_cache_check', 'v7_fee_migration_dry_run'})
 
-def check_catalog(pg):
+def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):
     inventory = functions(pg)
-    require({f['signature'].split('(')[0] for f in inventory} == KNOWN_FUNCTIONS,
+    require({f['signature'].split('(')[0] for f in inventory} == KNOWN_FUNCTIONS | extra_functions,
             'function inventory changed; classify new functions explicitly before granting')
-    require(len(inventory) == len(KNOWN_FUNCTIONS), 'unexpected function overload')
-    for role, expected in [('v7_app', READ | APP_READ | WRITE), ('v7_reader', READ)]:
+    require(len(inventory) == len(KNOWN_FUNCTIONS | extra_functions), 'unexpected function overload')
+    for role, expected in [('v7_app', READ | APP_READ | WRITE | extra_app), ('v7_reader', READ)]:
         actual = {f['signature'] for f in inventory if pg.value(
             f"SELECT has_function_privilege('{role}',{f['oid']},'EXECUTE')") == 't'}
         require(actual == expected, f'{role}: missing={expected-actual}, extra={actual-expected}')

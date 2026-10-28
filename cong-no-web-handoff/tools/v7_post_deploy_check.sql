@@ -64,9 +64,10 @@ BEGIN
         AND conname='adjustment_one_target' AND convalidated)
        OR EXISTS(SELECT FROM sokhach.adjustment WHERE trip_id IS NOT NULL AND legacy_row_id IS NOT NULL)
     THEN RAISE EXCEPTION 'adjustment_one_target missing or violated'; END IF;
+    -- Dòng thu sổ gốc ghi điều chỉnh đảo dấu (XOA-THU-GOC-01): xóa thu 100 -> counted 0, điều chỉnh +100.
     IF EXISTS(SELECT FROM sokhach.legacy_row l JOIN LATERAL
         (SELECT * FROM sokhach.legacy_trip_rev r WHERE r.legacy_row_id=l.id ORDER BY r.id DESC LIMIT 1) r ON true
-        WHERE r.counted_vnd<>coalesce(l.source_total_vnd,0)+coalesce(
+        WHERE r.counted_vnd<>coalesce(l.source_total_vnd,0)+CASE WHEN l.kind='receipt' THEN -1 ELSE 1 END*coalesce(
             (SELECT sum(a.amount_vnd) FROM sokhach.adjustment a WHERE a.legacy_row_id=l.id),0))
     THEN RAISE EXCEPTION 'legacy counted amount mismatch'; END IF;
     IF EXISTS(SELECT FROM sokhach.trip_info_rev r LEFT JOIN sokhach.event e

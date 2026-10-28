@@ -221,6 +221,16 @@ class LedgerApiTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"status": "confirmed"}]}).encode())
 
+    def test_paste_signed_fee_cells(self):
+        row = {"container": "FAKE", "date": "10/01/2026", "carrier": "SHIP",
+               "from": "A", "to": "B", "unitPriceVnd": "100", "fees": ["7", "-3"]}
+        body = {"customer_id": 1, "expected_version": 0, "idempotency_key": "fake-fees",
+                "debt_month": "2026-01-01", "trips": [row]}
+        self.assertEqual(api.validate("/api/v7/trips/paste", json.dumps(body).encode())[1]["trips"], [row])
+        for fees in (["0"], ["-0"], [0], ["1.5"], "7", ["7", None]):
+            with self.subTest(fees=fees), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"fees": fees}]}).encode())
+
     def test_sheet_bulk_approval_freezes_snapshot_and_keeps_price_null(self):
         class SheetRunner:
             def __init__(self):
@@ -370,7 +380,7 @@ class LedgerApiTest(unittest.TestCase):
     def test_get_opening_and_void_contract_sql(self):
         # Static contract only; money identities run in the PostgreSQL harness.
         sql = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
-        ledger = sql.split("CREATE FUNCTION sokhach.get_ledger(", 1)[1].split("END $$;", 1)[0]
+        ledger = sql.split("FUNCTION sokhach.get_ledger(", 1)[1].split("END $$;", 1)[0]
         active = ledger.split("active_cutover AS (", 1)[1].split("), month_keys", 1)[0]
         charges = ledger.split("figures AS (", 1)[1].split("AS charges_vnd", 1)[0]
         received = ledger.split("AS charges_vnd", 1)[1].split("AS received_vnd", 1)[0]

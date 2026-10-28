@@ -9,7 +9,7 @@ Sổ khách đặt phiếu thu và ô "Đã thu" ở **kỳ được trừ nợ*
 ## Đầu ra
 
 - `get_ledger` (file chuẩn `v7_backend_functions.sql` + migration `2026-10-28-v7-da-thu-theo-ngay-thu.sql`, `CREATE OR REPLACE`, chạy lại an toàn): mỗi tháng trả
-  - `received_vnd` = tổng `receipt.amount_vnd` chưa hủy có `date` trong tháng − cấn trừ đi trong tháng, cộng `source_receipt_vnd` nếu tháng có số Sheet trong mốc đang hiệu lực;
+  - `received_vnd` = tổng `receipt.amount_vnd` chưa hủy có `date` trong tháng − cấn trừ đi trong tháng − điều chỉnh do sửa/xóa khoản thu sổ gốc (`XOA-THU-GOC-01`), cộng `source_receipt_vnd` nếu tháng có số Sheet trong mốc đang hiệu lực;
   - `charges_vnd` = `source_charge_vnd` (tháng có số Sheet) hoặc số dư đầu của tháng, cộng chuyến đã xác nhận và điều chỉnh;
   - `end_of_month_vnd` = tổng còn nợ − Σ(phát sinh − đã thu) của các tháng sau; `prior_months_vnd` = `end_of_month_vnd` − phát sinh + đã thu;
   - danh sách tháng thêm tháng của ngày thu phiếu chưa hủy.

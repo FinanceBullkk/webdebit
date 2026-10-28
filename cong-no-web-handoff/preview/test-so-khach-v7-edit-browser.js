@@ -168,7 +168,18 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ', async () => withPage(async ({ page, world }) => {
+test('Ô thu của hàng nhập phiếu dính ngay dưới dòng tháng khi cuộn', async () => withPage(async ({ page }) => {
+  const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
+    const cell = input.closest('td'), head = cell.closest('table').querySelector('tr.month th');
+    return { sticky: getComputedStyle(cell).position, top: Number.parseInt(cell.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
+      cells: cell.closest('tr').querySelectorAll('td.pay-pin').length };
+  });
+  assert.equal(pinned.sticky, 'sticky');
+  assert.equal(pinned.cells, 3);
+  assert.equal(pinned.top, pinned.below);
+}));
+
+test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',async () => withPage(async ({ page, world }) => {
   const amount = page.locator('.receipt-amount').first();
   await amount.fill('123');
   const before = world.reads;
@@ -258,6 +269,22 @@ test('lệch ngày ở tháng khóa: Lấy Sheet không gửi lệnh, báo mở 
   assert.match(await page.locator('.live-notice').innerText(), /Mở khóa tháng/);
   assert.equal(world.requests.length, 0);
 }, world => { dateBookingConflict(world); world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
+
+test('lệch shipper ở tháng khóa: Lấy Sheet báo ngay trong khung, Giữ web vẫn gửi', async () => withPage(async ({ page, world }) => {
+  await page.locator('[data-row="trip-11"] .sheet-diff').click();
+  await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="use_sheet"]').click();
+  assert.match(await page.locator('.sheet-detail .sheet-detail-status').innerText(), /Mở khóa tháng/);
+  assert.equal(world.requests.length, 0);
+  await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="keep_web"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"].sheet-conflict'));
+  assert.deepEqual([world.requests.at(-1).path, world.requests.at(-1).body.decision], ['/api/v7/sheet/resolve', 'keep_web']);
+}, world => {
+  world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false;
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 1, items: [
+    { sync_state: 'CONFLICT', source_row: 9, event_date: '2026-09-15', container: 'DEMU1234567', carrier: 'Tàu thử', shipper: 'Xe Sheet',
+      origin: 'Nơi A', destination: 'Nơi B', existing_kind: 'trip', existing_id: 11, changed_fields: ['shipper'], existing_values: { shipper: null } },
+  ] };
+}));
 
 
 test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
@@ -398,6 +425,23 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
   await page.waitForFunction(() => !document.querySelector('td.row-delete[data-id="22"]'));
   assert.equal(world.requests.at(-1).path, '/api/v7/legacy/delete');
   assert.equal(await page.locator('.legacy-adjustment').count(), 0);
+}));
+
+test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
+  assert.equal(await page.locator('td.row-delete[data-kind="legacy"][data-id="25"]').count(), 0);
+  const amount = page.locator('td.row-delete[data-kind="legacy"][data-id="24"]');
+  assert.equal(await amount.innerText(), '1.234.567');
+  await amount.click();
+  assert.match(await page.locator('.delete-prompt').innerText(), /Xóa hẳn khoản thu sổ gốc 1\.234\.567 \(TTNU0000009\)\? Nợ tăng lại 1\.234\.567/);
+  await page.locator('.confirm-delete').click();
+  await page.waitForFunction(() => !document.querySelector('td.row-delete[data-id="24"]'));
+  assert.deepEqual(posts(world).map(([url, body]) => [url, body.legacy_row_id]), [['/api/v7/legacy/delete', 24]]);
+}, world => {
+  world.locks = [{ month: '2026-09-01', locked: true }];
+  world.legacy.push({ id: 24, month: todayMonth, kind: 'receipt', source_total_vnd: '1234567', editable: false,
+    current: { month: todayMonth, deleted: false, counted_vnd: '1234567' }, display: { row: 9, container: 'TTNU0000009', raw_date: '', note: '' } },
+  { id: 25, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false,
+    current: { month: '2026-09-01', deleted: false, counted_vnd: '1000000' }, display: { row: 8, raw_date: '', note: '' } });
 }));
 
 test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống, ô lỗi chặn Lưu, Lưu gửi một lệnh dán lô', async () => withPage(async ({ page, world, shot }) => {

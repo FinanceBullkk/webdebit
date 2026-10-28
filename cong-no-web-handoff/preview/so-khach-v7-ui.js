@@ -132,8 +132,32 @@
       // Bấm vào tên là chọn hết chữ: gõ đè để tìm khách khác.
       if (!search.dataset.selectOnFocus) { search.dataset.selectOnFocus = '1'; search.addEventListener('focus', () => search.select()); }
     }
+    pinReceipts();
     window.scrollTo(0, scrollY);
   }
+
+  // Góp ý 28/10/2026: cuộn xuống trong tháng vẫn thấy các khoản đã thu. Ô thu của hàng có phiếu (và hàng nhập phiếu)
+  // dính ngay dưới dòng tháng, xếp chồng theo thứ tự; tối đa 40% chiều cao màn để còn chỗ xem chuyến.
+  function pinReceipts() {
+    if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
+    for (const table of root.querySelectorAll('section > table.ledger')) {
+      const head = table.querySelector('tr.month th');
+      if (!head) continue;
+      table.querySelectorAll('td.pay-pin').forEach(cell => { cell.classList.remove('pay-pin', 'pay-pin-last'); cell.style.top = ''; });
+      const top = (Number.parseInt(getComputedStyle(head).top, 10) || 0) + head.offsetHeight;
+      let used = 0, last = null;
+      for (const row of table.querySelectorAll(':scope > tbody > tr:not(.subtotal)')) {
+        const cells = [...row.querySelectorAll(':scope > td.pay')];
+        if (cells.length !== 3 || !cells.some(cell => cell.textContent.trim() || cell.querySelector('input'))) continue;
+        if (used + row.offsetHeight > window.innerHeight * 0.4) break;
+        for (const cell of cells) { cell.classList.add('pay-pin'); cell.style.top = `${top + used}px`; }
+        used += row.offsetHeight;
+        last = cells;
+      }
+      last?.forEach(cell => cell.classList.add('pay-pin-last'));
+    }
+  }
+  if (typeof window.addEventListener === 'function') window.addEventListener('resize', pinReceipts);
 
   function render() {
     const chain = model.monthChain(book);
@@ -224,9 +248,11 @@
         // Hình thức thu không suy từ ghi chú (V7-MIG còn mở); ghi chú chỉ hiện khi không lặp lại cùng ngày.
         const day = sheetDay(r.raw_date);
         const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
-        const sheetPay = receipt
-          ? `${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
-          : '';
+        // XOA-THU-GOC-01: tháng mở thì bấm số tiền khoản thu sổ gốc để xóa hẳn.
+        const payAmount = receipt && !locked
+          ? `<td class="pay num row-delete" data-kind="legacy" data-id="${escape(receipt.id)}" tabindex="0" role="button" aria-label="Xóa hẳn khoản thu sổ gốc ${escape(fmt(receipt.source_total_vnd))}" title="Bấm để xóa hẳn khoản thu này">${fmt(receipt.source_total_vnd)}</td>`
+          : num(fmt(receipt?.source_total_vnd), 'pay');
+        const sheetPay = receipt ? `${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${payAmount}` : '';
         const rowKey = trip?.id != null ? `legacy-${trip.id}` : '';
         // `pay`: ba ô thu của phiếu web đặt vào hàng này khi hàng chưa có phiếu Sheet.
         return { hasReceipt: Boolean(receipt), html: pay => `<tr class="legacy${moved.has(rowKey) ? ' moved' : ''}"${rowKey ? ` data-row="${escape(rowKey)}"` : ''}>${tripCells}${sheetPay || pay || `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`}${movedTag(rowKey)}</tr>` };
@@ -248,9 +274,11 @@
       const after = (legacy ? event.after?.legacy : event.after?.trip) ?? {};
       // Sự kiện sửa ô chuyến web chỉ mang id: lấy container từ sổ đang xem (chuyến đã xóa có ảnh đủ ở `before`).
       const known = legacy ? null : (snapshot?.trips ?? []).find(row => String(row.id) === String(before.id ?? after.id));
-      const who = `${legacy ? 'Dòng sổ gốc' : 'Chuyến'} ${before.container || after.container || known?.container || '–'}`;
+      const paid = before.kind === 'receipt';
+      const who = `${paid ? 'Khoản thu sổ gốc' : legacy ? 'Dòng sổ gốc' : 'Chuyến'} ${before.container || after.container || known?.container || '–'}`;
       if (event.kind.endsWith('_delete')) {
         const amount = legacy ? before.counted_vnd : before.amount_vnd;
+        if (paid) return `${who} · tháng ${monthLabel(monthKey(before.month ?? before.debt_month))} · Số đã trừ nợ: ${fmt(amount)}`;
         return `${who} · ${cellText('event_date', before.event_date)} · tháng ${monthLabel(monthKey(before.month ?? before.debt_month))} · ${legacy ? 'Số đang tính' : 'Thành tiền'}: ${fmt(amount)}`;
       }
       const field = after.field ?? before.field;
@@ -593,7 +621,7 @@
           : `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`;
         return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
-      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div></div></td></tr>`;
+      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div><p class="sheet-detail-status" role="status" hidden></p></div></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');
@@ -613,10 +641,22 @@
       const trip = snapshot.sheet_sync.items[index];
       if (!trip || action.disabled) return;
       const rowKey = `${trip.existing_kind}-${trip.existing_id}`;
+      // Báo ngay trong khung: băng thông báo đầu trang thường nằm ngoài màn hình khi đang ở dòng dưới.
+      const detailNotice = text => {
+        showNotice(text);
+        const status = detail.isConnected && detail.querySelector('.sheet-detail-status');
+        if (status) { status.textContent = text; status.hidden = false; }
+      };
+      const lockedText = 'Tháng đang khóa. Mở khóa tháng (nút 🔒 ở đầu tháng) rồi bấm Lấy Sheet.';
+      // Lấy Sheet đi qua ổ khóa tháng (24/10/2026); chặn trước khi gửi để khỏi nhận lỗi muộn.
+      if (action.dataset.sheetDecision === 'use_sheet' && detail.closest('table.ledger')?.classList.contains('locked')) {
+        detailNotice(lockedText);
+        return;
+      }
       if (action.dataset.sheetField === 'event_date' && action.dataset.sheetDecision === 'use_sheet') {
         // Lấy ngày Sheet = sửa ô ngày như gõ tay: hỏi khi sang tháng khác, tháng khóa thì không sửa được.
         const dateCell = root.querySelector(`td.info-edit[data-kind="${CSS.escape(trip.existing_kind)}"][data-id="${CSS.escape(String(trip.existing_id))}"][data-field="event_date"]`);
-        if (!dateCell) { showNotice('Tháng đang khóa. Mở khóa tháng rồi lấy ngày từ Sheet.'); return; }
+        if (!dateCell) { detailNotice(lockedText); return; }
         detail.remove();
         const diffButton = row.querySelector('.sheet-diff');
         if (diffButton) { diffButton.textContent = 'Xem'; diffButton.setAttribute('aria-expanded', 'false'); }
@@ -639,7 +679,7 @@
         const nextButton = root.querySelector(`[data-row="${CSS.escape(rowKey)}"] .sheet-diff`);
         if (nextButton) openSheetDetail(nextButton);
         showNotice('Đã xử lý đối chiếu.');
-      } catch (error) { showNotice(error.message); action.disabled = false; }
+      } catch (error) { detailNotice(error.message); action.disabled = false; }
     });
     root.addEventListener('click', async event => {
       const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet');
@@ -1026,11 +1066,15 @@
       const { kind, id } = td.dataset;
       const data = findRow(kind, id);
       const values = rowValues(kind, data);
+      const paid = kind === 'legacy' && data?.kind === 'receipt';
       const amount = kind === 'trip'
         ? data?.status === 'confirmed' || data?.status === undefined ? `thành tiền ${fmt(data?.amount_vnd)}` : 'chưa tính vào số dư'
         : `đang tính ${fmt(values.counted_vnd)}`;
-      const what = `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
-      const extra = kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
+      const what = paid
+        ? `khoản thu sổ gốc ${fmt(data.source_total_vnd)}${data.display?.container ? ` (${data.display.container})` : ''}`
+        : `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
+      const extra = paid ? ` Nợ tăng lại ${fmt(data.source_total_vnd)}; số dư đầu không đổi, phần cộng ghi ở dòng điều chỉnh sổ gốc của tháng.`
+        : kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
       row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="14">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }
