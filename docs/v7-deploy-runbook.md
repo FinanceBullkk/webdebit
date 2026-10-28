@@ -847,6 +847,83 @@ sudo systemctl enable --now webdebit-sheet-prices.timer
 - Số đếm ở trang Tổng quan chưa có.
 - Harness PostgreSQL cho lệnh ghi lô chưa có: lệnh ghi lô chỉ gọi hai hàm SQL đã có test.
 
+## Nút "Làm mới" đọc Sheet ngay — cài unit `.path` (ĐỀ XUẤT, CHƯA CHẠY)
+
+Phạm vi: spec [`specs/v7-sheet-refresh.md`](../specs/v7-sheet-refresh.md). Không migration, không đổi DB, không thêm quyền đọc Sheet.
+
+**Đổi release:** code chỉ nằm trong `cong-no-web-handoff/{web,preview}`, nên luồng [tự triển khai](hao-auto-deploy.md) đưa lên sau khi merge. Chưa đặt biến môi trường thì API trả `unavailable`, nút "Làm mới" giữ cách cũ. Các bước dưới cần người dùng cho phép riêng.
+
+### R1. Unit nhận tín hiệu
+
+`/etc/systemd/system/webdebit-sheet-refresh.path`:
+
+```ini
+[Unit]
+Description=V7 manual Sheet refresh signal
+
+[Path]
+PathChanged=/var/lib/webdebit-sheet-sync/refresh.request
+Unit=webdebit-sheet-refresh.service
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/webdebit-sheet-refresh.service`:
+
+```ini
+[Unit]
+Description=V7 manual Sheet refresh (starts the two read-only runners)
+Wants=webdebit-sheet-sync.service webdebit-sheet-prices.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+```
+
+Drop-in `/etc/systemd/system/webdebit-sheet-prices.service.d/after-sync.conf`, để chụp giá sau chuyến:
+
+```ini
+[Unit]
+After=webdebit-sheet-sync.service
+```
+
+- `PathChanged` bắt sự kiện đóng file sau khi ghi; API ghi thẳng, không đổi tên file.
+- Hai runner giữ nguyên unit, user `v7app`, quyền chỉ đọc. Đang chạy thì systemd gộp yêu cầu vào lượt đang chạy.
+
+### R2. Bật cho API
+
+Drop-in cho `v7-ledger-api.service` (cùng thư mục với `customer-name-mapping.conf`):
+
+```ini
+[Service]
+Environment=WEBDEBIT_SHEET_REFRESH_PATH=/var/lib/webdebit-sheet-sync/refresh.request
+```
+
+API chạy bằng `v7app` nên ghi được file trong thư mục đó. Sau đó:
+
+```bash
+sudo systemctl daemon-reload
+```
+
+```bash
+sudo systemctl enable --now webdebit-sheet-refresh.path
+```
+
+```bash
+sudo systemctl restart v7-ledger-api.service
+```
+
+### R3. Kiểm
+
+- `GET /api/v7/sheet/refresh` trả `state: idle` và `sheet_at` bằng giờ lượt 15 phút gần nhất.
+- Bấm "↻ Làm mới" trên sổ khách: chữ đổi "Đang lấy từ Sheet…"; `journalctl -u webdebit-sheet-sync.service -u webdebit-sheet-prices.service` có một lượt ngoài phút 00/15/30/45, chuyến chạy trước giá; khoảng 1 phút sau chữ đổi "Sheet vừa lấy lúc …".
+- Số dư từng khách không đổi, không có event mới (nút không ghi sổ).
+
+### Rollback
+
+- `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
+
 ## Kết luận CHỜ KIỂM — nâng DB đang có (ĐÃ CHẠY trên hao 22/10/2026)
 
 Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,

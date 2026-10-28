@@ -16,9 +16,11 @@
   };
   const agingLabels = { current: 'Tháng này', '1-2': '1–2 tháng trước', '3-6': '3–6 tháng trước', 'over-6': 'Trên 6 tháng' };
   let loading = false;
+  // Nút "Làm mới" đọc Sheet ngay (specs/v7-sheet-refresh.md); server chưa bật thì giữ chữ "Cập nhật …".
+  let sheetRefresh = null;
   let searchReady = false;
   let currentCustomers = [];
-  const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
+  const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
 
   function todoGroup(items, title, row) {
     return items.length ? `<section class="todo-group"><div class="todo-head"><span>${title}</span><span>${items.length} việc</span></div>${items.map(row).join('')}</section>` : '';
@@ -92,8 +94,13 @@
   }
 
   load();
-  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); };
-  document.querySelector('#refresh-data')?.addEventListener('click', refresh);
+  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); sheetRefresh?.load(); };
+  const button = document.querySelector('#refresh-data');
+  if (globalThis.SheetRefresh) {
+    sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });
+    sheetRefresh.load();
+  }
+  button?.addEventListener('click', () => { load(); sheetRefresh?.trigger(); });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

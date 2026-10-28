@@ -156,6 +156,8 @@
       return;
     }
     let snapshot = null;
+    // Nút "Làm mới" đọc Sheet ngay (specs/v7-sheet-refresh.md); server chưa bật thì giữ chữ "Cập nhật …".
+    let sheetRefresh = null;
     // Ghi giá từ Sheet (specs/v7-price-queue.md): null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
     let priceView = null;
     let priceApproval = null;
@@ -372,6 +374,7 @@
       snapshot = data;
       const updated = document.querySelector('#updated-at');
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`;
+      sheetRefresh?.paint();
       const active = data.status === 'active';
       const sheetRows = data.sheet_sync?.items ?? [];
       // Tháng hiện tại và cờ khóa theo server (giờ VN); đồng hồ máy chỉ dùng khi server cũ chưa trả.
@@ -1294,8 +1297,15 @@
       refreshing = true;
       try { await api.read(); } catch { showNotice('Không tải được sổ mới. Thử lại.'); }
       finally { refreshing = false; }
+      if (manual) await sheetRefresh?.trigger();
+      else await sheetRefresh?.load();
     }
     const refreshButton = document.querySelector('#refresh-data');
+    if (globalThis.SheetRefresh) {
+      sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button: refreshButton,
+        onDone: () => (busy() || refreshing ? undefined : refresh()) });
+      sheetRefresh.load();
+    }
     if (refreshButton?.id === 'refresh-data') refreshButton.addEventListener('click', () => refresh(true));
     setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });

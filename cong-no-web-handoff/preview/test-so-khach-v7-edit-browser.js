@@ -14,7 +14,7 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 // Sổ giả: chuyến web và dòng sổ gốc tháng 9 đang mở; mỗi test có thể khóa riêng.
 function makeWorld() {
   return {
-    version: 1, reads: 0, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
+    version: 1, reads: 0, refreshCalls: [], sheetRefresh: null, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
       editable: true, info_editable: true, deleted: false }],
@@ -130,6 +130,11 @@ async function withPage(fn, setup = () => {}) {
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (url.pathname === '/api/v7/customers') { send(200, { customers: [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
+    if (url.pathname === '/api/v7/sheet/refresh') {   // nút Làm mới: mặc định server chưa bật
+      world.refreshCalls.push(req.method);
+      if (world.sheetRefresh) send(200, world.sheetRefresh(req.method)); else send(404, { error: 'NOT_FOUND' });
+      return;
+    }
     if (url.pathname.startsWith('/api/')) {
       const chunks = [];
       req.on('data', chunk => chunks.push(chunk));
@@ -595,4 +600,39 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
     priceItem('trip', 11, '52000000', null, { status: 'CONFLICT', web_unit_price_vnd: '50000000', container: 'DEMU1234567' }),
     priceItem('', '', '12500000', null, { status: 'AMBIGUOUS', container: 'DEMU0000009' }),
     priceItem('trip', 11, '50000000', '-500000', { status: 'MANUAL' })] };
+}));
+
+test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; đang nhập thì không gửi; lỗi báo chưa lấy được', async () => withPage(async ({ page, world, shot }) => {
+  const old = '2026-10-28T04:45:00Z', fresh = '2026-10-28T04:52:00Z';
+  let state = 'idle';
+  world.sheetRefresh = method => {
+    if (method === 'POST') state = state === 'broken' ? 'failed' : 'running';
+    else if (state === 'running') state = 'done';
+    if (state === 'done') return { state: 'idle', sheet_at: fresh, requested_at: old, recent: true };
+    return { state, sheet_at: old, requested_at: state === 'idle' ? null : old, recent: false };
+  };
+  await page.locator('#refresh-data').click();   // lần đầu: chưa bật lúc mở trang, giờ bật
+  const status = page.locator('#updated-at');
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Đang lấy từ Sheet'));
+  assert.equal(await page.locator('#refresh-data').getAttribute('aria-busy'), 'true');
+  await shot('lam-moi-dang-lay');
+  const reads = world.reads;
+  await page.locator('#refresh-data').click();   // bấm lặp khi đang chạy: không gửi thêm
+  assert.deepEqual(world.refreshCalls.filter(method => method === 'POST').length, 1);
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Sheet vừa lấy lúc 11:52'), null, { timeout: 15000 });
+  assert.ok(world.reads > reads, 'lấy xong thì tải lại sổ');
+  assert.equal(await page.locator('#refresh-data').getAttribute('aria-busy'), 'false');
+  await shot('lam-moi-xong');
+
+  const amount = page.locator('.receipt-amount').first();
+  await amount.fill('123');
+  const posts = world.refreshCalls.length;
+  await page.locator('#refresh-data').click();
+  assert.equal(world.refreshCalls.slice(posts).includes('POST'), false);
+  await amount.fill('');
+
+  state = 'broken';
+  await page.locator('#refresh-data').click();
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Chưa lấy được từ Sheet, đang dùng bản lúc 11:45'));
+  assert.equal(await status.evaluate(node => node.classList.contains('sheet-error')), true);
 }));
