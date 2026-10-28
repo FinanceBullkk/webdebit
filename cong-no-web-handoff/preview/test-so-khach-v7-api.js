@@ -46,7 +46,7 @@ async function livePage(data) {
     window: { scrollY: 0, scrollTo() {} }, location: { search: '?customer=7' },
     URLSearchParams, structuredClone, Date, BigInt, Intl, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
     fetch: async (...args) => root.fetcher ? root.fetcher(...args) : reply(200, data) });
-  for (const name of ['model', 'api', 'ui']) vm.runInContext(fs.readFileSync(require.resolve(`./so-khach-v7-${name}.js`), 'utf8'), context);
+  for (const name of ['model', 'api', 'history-ui', 'sheet-ui', 'offset-ui', 'edit-ui', 'draft-ui', 'ui']) vm.runInContext(fs.readFileSync(require.resolve(`./so-khach-v7-${name}.js`), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
   return { root, listeners, context };
 }
@@ -314,7 +314,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
       URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
     for (const name of [...(live ? [] : ['so-khach-v7-fixture.js']), 'so-khach-v7-model.js',
-      ...(live ? ['so-khach-v7-api.js'] : []), 'so-khach-v7-ui.js']) {
+      ...(live ? ['so-khach-v7-api.js', 'so-khach-v7-history-ui.js', 'so-khach-v7-sheet-ui.js', 'so-khach-v7-offset-ui.js', 'so-khach-v7-edit-ui.js', 'so-khach-v7-draft-ui.js'] : []), 'so-khach-v7-ui.js']) {
       vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context, { filename: name });
     }
     return root;
