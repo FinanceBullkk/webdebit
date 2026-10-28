@@ -925,6 +925,23 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
+## Đã thu theo ngày thu — nâng DB đang có (ĐÃ CHẠY trên hao 28/10/2026)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql` (PR #125, [`DA-THU-01`](decisions.md#da-thu-01)),
+chỉ thay hàm đọc `get_ledger`, chạy sau hai migration phụ phí và xóa khoản thu sổ gốc. Auto-deploy dừng ở gate SQL như
+thiết kế; người dùng cho chạy tay 28/10/2026 ("Chạy triển khai thật"). Trình tự như đợt phụ phí:
+
+1. **Bản sao trước:** dump `webdebit_v7` đang chạy, restore vào DB thử (thu hồi CONNECT của PUBLIC), chạy migration hai lượt;
+   số dư 236/236 khách không đổi; 0/236 sổ lệch đẳng thức `nợ tháng trước + phát sinh − đã thu = cộng dồn` và
+   tháng cuối = tổng còn nợ; checker 9/9 OK trước và sau migration; xóa DB thử.
+2. **Cửa sổ dừng ghi** (API dừng khoảng 12 giây): dừng `v7-ledger-api.service`, dump + hash, restore thử khớp số dư và số dòng,
+   chạy migration (một transaction), kiểm số dư/số dòng không đổi và đẳng thức từng sổ, rồi `webdebit-release.sh deploy c407664`.
+3. **Kết quả:** release `c407664`, service active, cổng loopback 403 (sống); số dư không đổi sau release; checker 9/9 OK.
+   Script, dump và log ở thư mục evidence/backup ngày 28/10 (`-da-thu`) trên `hao`, ngoài Git.
+
+Rollback: áp lại `get_ledger` của `2026-10-28-v7-phu-phi-core-a.sql` (hàm đọc, không đụng dữ liệu) và trỏ release về `b846240`;
+hoặc restore dump trước nâng vào DB mới theo quy trình M2-11. CÒN MỞ: chưa thử tay trên web sau nâng.
+
 ## Phụ phí PR-A — nâng DB đang có (ĐÃ CHẠY trên hao 28/10/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql` (PR #117), spec
