@@ -3,7 +3,8 @@ name: Deploy hao
 # Deploy chỉ chạy sau Tests xanh trên đúng SHA của main.
 # GitHub-hosted runner vào tailnet bằng Tailscale; production `hao` chỉ nhận release qua forced-command SSH.
 # Chỉ đổi release app. Migration/SQL/loader bị chặn ở bước kiểm diff và phải theo gate thủ công.
-# Environment `hao` phải đặt người duyệt bắt buộc. Cài đặt: docs/hao-auto-deploy.md.
+# Environment `hao` không có người duyệt (người dùng bỏ 28/10/2026, dự án một người làm); chỉ giữ luật nhánh main.
+# Cài đặt: docs/hao-auto-deploy.md.
 on:
   workflow_run:
     workflows: [Tests]
