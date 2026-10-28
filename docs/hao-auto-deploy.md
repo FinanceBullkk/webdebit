@@ -11,6 +11,7 @@ Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
 Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run workflow, nhập SHA đầy đủ.
+Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sau, commit trong đợt); đây là nhật ký triển khai app, không cần PR tài liệu riêng.
 
 ## Phạm vi và những gì bị chặn
 
