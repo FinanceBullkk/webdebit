@@ -52,7 +52,7 @@ Màn hình PowerShell in một dòng kết luận:
 
 Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output error`, đó là lỗi đọc/ghi, **không** phải kết quả. Báo lại.
 
-Để xem chi tiết, mở file `ket-quaeconcile_report.html` (bấm đúp, mở bằng trình duyệt). Đầu trang ghi **ĐỐI SOÁT: ĐẠT** hoặc **ĐỐI SOÁT: KHÔNG ĐẠT**. Bên dưới là bảng từng khách gồm tổng Sheet, tổng web, chênh lệch và trạng thái. Dòng xanh là khớp, dòng đỏ là cần xem.
+Để xem chi tiết, mở file `ket-qua\reconcile_report.html` (bấm đúp, mở bằng trình duyệt). Đầu trang ghi **ĐỐI SOÁT: ĐẠT** hoặc **ĐỐI SOÁT: KHÔNG ĐẠT**. Bên dưới là bảng từng khách gồm tổng Sheet, tổng web, chênh lệch và trạng thái. Dòng xanh là khớp, dòng đỏ là cần xem.
 
 | Trạng thái | Nghĩa |
 | --- | --- |
@@ -64,7 +64,7 @@ Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output err
 
 ## Bước 5. Khi lệch
 
-Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web − Sheet**. Nếu cần lọc hay sắp xếp, mở `ket-quaeconcile_customer.csv` bằng Excel; file này có cùng số liệu.
+Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web − Sheet**. Nếu cần lọc hay sắp xếp, mở `ket-qua\reconcile_customer.csv` bằng Excel; file này có cùng số liệu.
 
 | Chênh lệch | Hay gặp do | Sửa trên web |
 | --- | --- | --- |
