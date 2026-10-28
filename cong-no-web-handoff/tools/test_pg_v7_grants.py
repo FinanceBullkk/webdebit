@@ -71,6 +71,8 @@ KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_
 KNOWN_FUNCTIONS.add('get_dashboard')
 KNOWN_FUNCTIONS.add('get_receivables_matrix')
 KNOWN_FUNCTIONS.add('get_receivables_detail')
+KNOWN_FUNCTIONS.update({'_compat_trip_fee', '_sync_trip_fee', '_guard_fee_line',
+                        '_fee_cache_check', 'v7_fee_migration_dry_run'})
 
 def check_catalog(pg):
     inventory = functions(pg)

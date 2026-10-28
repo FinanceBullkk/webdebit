@@ -52,9 +52,24 @@ class ProjectionTest(unittest.TestCase):
         book = ledger(trips=[trip(), trip(13, "FAKEU0000003", "2026-09-20", month="2026-09-01"),
                              trip(14, "FAKEU0000004")], legacy=[legacy_row()])
         result = project_prices(SNAPSHOT | {"rows": rows, "row_count": 5}, book, CUSTOMERS)
-        self.assertEqual([(r["target_kind"], r["target_id"]) for r in result["ready"]], [("trip", 11), ("legacy", 21)])
-        self.assertEqual([r["status"] for r in result["review"]], ["MONTH_LOCKED", "MANUAL"])
-        self.assertEqual((result["ready_count"], result["review_count"]), (2, 2))
+        self.assertEqual([(r["target_kind"], r["target_id"]) for r in result["ready"]], [("trip", 11), ("legacy", 21), ("trip", 14)])
+        self.assertEqual([r["status"] for r in result["review"]], ["MONTH_LOCKED"])
+        self.assertEqual((result["ready_count"], result["review_count"]), (3, 1))
+
+    def test_typed_fee_is_manual_even_when_price_missing(self):
+        book = ledger(trips=[trip() | {"has_typed_fee": True}])
+        result = project_prices(SNAPSHOT | {"rows": [row()], "row_count": 1}, book, CUSTOMERS)
+        self.assertEqual(result["review"][0]["status"], "MANUAL")
+
+    def test_negative_fee_update_requeues_only_same_price(self):
+        first = trip(price="50000000") | {"other_fee_vnd": "-300000"}
+        rows = [row(fee=-500000)]
+        result = project_prices(SNAPSHOT | {"rows": rows, "row_count": 1}, ledger(trips=[first]), CUSTOMERS)
+        self.assertEqual(result["ready"][0]["sheet_other_fee_vnd"], "-500000")
+        typed = ledger(trips=[first | {"has_typed_fee": True}])
+        self.assertEqual(project_prices(SNAPSHOT | {"rows": rows, "row_count": 1}, typed, CUSTOMERS)["review"][0]["status"], "MANUAL")
+        different_price = ledger(trips=[first | {"unit_price_vnd": "49000000"}])
+        self.assertEqual(project_prices(SNAPSHOT | {"rows": rows, "row_count": 1}, different_price, CUSTOMERS)["review"][0]["status"], "CONFLICT")
 
     def test_alias_tab_belongs_to_its_book_only(self):
         rows = [row(tab="KHACH B CU")]
@@ -128,6 +143,38 @@ class ApproveTest(unittest.TestCase):
         self.assertEqual(keys[0], keys[1])
         self.assertEqual(len(set(keys[0])), 3)
         self.assertEqual(keys[0][0], hashlib.sha256(f"fake-batch:{'a' * 64}:trip:11:price".encode()).hexdigest())
+
+    def test_two_negative_totals_replace_discount(self):
+        runner = Runner()
+        first = READY | {"ready": [READY["ready"][0] | {"sheet_other_fee_vnd": "-300000"}]}
+        self.assertEqual(self.approve(runner, projection=first)[1]["written"], 1)
+        second_row = row(fee=-500000)
+        current = trip(price="50000000") | {"other_fee_vnd": "-300000"}
+        second = project_prices(SNAPSHOT | {"sha256": "b" * 64, "rows": [second_row], "row_count": 1},
+                                ledger(trips=[current]), CUSTOMERS)
+        self.assertEqual(second["ready_count"], 1)
+        body = BODY | {"expected_version": 4, "snapshot_sha256": "b" * 64}
+        self.assertEqual(self.approve(runner, body=body, projection=second)[1]["written"], 1)
+        writes = [payload for function, payload, _ in runner.calls if function == "edit_trip_price"]
+        self.assertEqual([payload["other_fee_vnd"] for payload in writes], ["-300000", "-500000"])
+
+    def test_legacy_fee_update_skips_unchanged_unit_price(self):
+        runner = Runner()
+        ready = READY | {"ready": [{"target_kind": "legacy", "target_id": 21,
+                                     "sheet_unit_price_vnd": "12000000", "sheet_other_fee_vnd": "-500000",
+                                     "web_unit_price_vnd": "12000000"}]}
+        self.assertEqual(self.approve(runner, projection=ready)[1]["written"], 1)
+        self.assertEqual([function for function, _, _ in runner.calls if function != "get_ledger"], ["edit_legacy_trip"])
+        self.assertEqual(runner.calls[-1][1]["field"], "other_fee_vnd")
+
+    def test_runtime_typed_fee_becomes_manual(self):
+        class TypedRunner(Runner):
+            def run(self, function, payload, actor):
+                if function == "edit_trip_price":
+                    raise api.ApiError(409, "FEE_LINES_TYPED", "Đã phân loại")
+                return super().run(function, payload, actor)
+        status, result = self.approve(TypedRunner(), projection=READY | {"ready": [READY["ready"][0]]})
+        self.assertEqual((status, result["error"], result["review"][0]["status"]), (200, "FEE_LINES_TYPED", "MANUAL"))
 
     def test_stale_sheet_version_or_bad_body_writes_nothing(self):
         for body, projection in ((BODY | {"snapshot_sha256": "b" * 64}, READY), (BODY | {"expected_version": 2}, READY),

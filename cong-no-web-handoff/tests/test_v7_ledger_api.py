@@ -221,6 +221,16 @@ class LedgerApiTest(unittest.TestCase):
         with self.assertRaises(api.ApiError):
             api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"status": "confirmed"}]}).encode())
 
+    def test_paste_signed_fee_cells(self):
+        row = {"container": "FAKE", "date": "10/01/2026", "carrier": "SHIP",
+               "from": "A", "to": "B", "unitPriceVnd": "100", "fees": ["7", "-3"]}
+        body = {"customer_id": 1, "expected_version": 0, "idempotency_key": "fake-fees",
+                "debt_month": "2026-01-01", "trips": [row]}
+        self.assertEqual(api.validate("/api/v7/trips/paste", json.dumps(body).encode())[1]["trips"], [row])
+        for fees in (["0"], ["-0"], [0], ["1.5"], "7", ["7", None]):
+            with self.subTest(fees=fees), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/trips/paste", json.dumps(body | {"trips": [row | {"fees": fees}]}).encode())
+
     def test_sheet_bulk_approval_freezes_snapshot_and_keeps_price_null(self):
         class SheetRunner:
             def __init__(self):

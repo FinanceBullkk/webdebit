@@ -41,6 +41,8 @@ class PriceMatchTest(unittest.TestCase):
         self.assertEqual(status([sheet()], {"Khach gia A": book([trip(price="49000000")])}), ["CONFLICT"])
         self.assertEqual(status([sheet()], {"Khach gia A": book([trip(status="pending_review")])}), ["PENDING_REVIEW"])
         self.assertEqual(status([sheet(price=None)], {"Khach gia A": book([trip()])}), ["SHEET_NO_PRICE"])
+        self.assertEqual(status([sheet(fee=-500000)], {"Khach gia A": book([trip()])}), ["READY"])
+        self.assertEqual(status([sheet(fee=-500000)], {"Khach gia A": book([trip() | {"has_typed_fee": True}])}), ["MANUAL"])
 
     def test_unmatched_and_ambiguous_rows_are_never_ready(self):
         self.assertEqual(status([sheet(container="")], {"Khach gia A": book([trip()])}), ["NO_CONTAINER"])
