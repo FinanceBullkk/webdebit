@@ -105,6 +105,15 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
 
+Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
+và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và
+fixture chung (`Pg`, `PsqlSession`, `seed`, `new_book`, đường dẫn migration…) ở `tools/pg_v7_harness.py`;
+thân case ở `tools/test_pg_v7_backend_<nhóm>.py`: `opening` (opening/cutover, model, golden, dashboard),
+`receipts` (thu/hủy phiếu), `locks` (khóa tháng, migration CSM), `trips` (nhập/sửa ô/xóa chuyến, kiểm trùng,
+duyệt chuyến), `offset` (cấn trừ CT-2SO), `sheet_fee` (Sheet, giá, phụ phí), `schema` (case SCHEMA). Case mới:
+viết hàm trong file nhóm, thêm `case(...)` vào `CASES` và tên vào `CHECKS`. Công cụ khác vẫn import helper từ
+`test_pg_v7_backend` (tên liệt kê ở `__all__`).
+
 Trên Windows mỗi `docker exec` tốn ~0,4–0,5 giây qua Docker Desktop/WSL (Linux ~0,1 giây), nên harness
 chậm chủ yếu vì số lần gọi exec chứ không phải PostgreSQL. Từ 28/10/2026 `run()` của
 `test_pg_v7_backend.py` (cũng là đường của p0, grants, direct, rehearse) gửi lệnh `docker exec … psql`
