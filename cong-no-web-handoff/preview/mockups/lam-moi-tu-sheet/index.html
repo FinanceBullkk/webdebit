@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Làm mới từ Sheet · mockup</title>
+<!-- DỮ LIỆU GIẢ. Mockup cho specs/v7-sheet-refresh.md, CHỜ DUYỆT. Thanh trên cùng giống so-khach-v7-live.html.
+     Chạy trong tab, không gọi API. Thanh vàng phía trên là ghi chú cho người duyệt, không thuộc màn hình. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #155da8;outline-offset:2px}
+.review{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:1280px;margin:0 auto;padding:8px 10px;background:#ffe08a;color:#452600}
+.review strong{margin-right:6px}.review button{min-height:30px;border:1px solid #b08a2a;border-radius:4px;background:#fff8dc;color:#452600;padding:0 10px}
+.review button[aria-pressed=true]{background:#452600;color:#fff}
+.review p{flex-basis:100%;margin:2px 0 0;font-size:13px}
+.frame{width:1280px;margin:0 auto;background:#eef3f8}
+.topbar{min-height:66px;display:flex;align-items:center;gap:28px;padding:0 22px;background:#f8fbff;border:1px solid #a8c6e1;box-shadow:0 2px 8px #244d7620}
+.brand{color:#0c3974;font-size:22px;font-weight:800;white-space:nowrap}
+.topbar nav{display:flex;align-self:stretch;gap:24px}
+.topbar nav a{display:flex;align-items:center;color:#123965;text-decoration:none;font-weight:700;border-bottom:4px solid transparent}
+.topbar nav a.active{color:#0877d1;border-color:#0877d1}
+.live-controls{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.live-controls button{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82}
+.live-controls button[aria-busy=true]{color:#536d86}
+.live-controls time{font-size:13px;color:#536d86}
+.live-controls time.busy{color:#174d82;font-weight:600}
+.live-controls time.err{color:#b91c1c;font-weight:600}
+.spin{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid #9ebbd7;border-top-color:#174d82;border-radius:50%;vertical-align:-2px;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.book-head{height:64px;display:flex;align-items:center;gap:16px;padding:6px 12px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:18px;font-weight:700}
+.head-btn{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65}
+.head-btn.primary{background:#1e4e8c;border-color:#1e4e8c;color:#fff;font-weight:700}
+.total{margin-left:auto;display:flex;flex-direction:column;text-align:right}.total span{color:#3e5871;font-size:13px}.total strong{font-size:22px;color:#123f79}
+.ledger{width:1256px;margin:8px 12px 24px;table-layout:fixed;border-spacing:0;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 6px;height:40px}
+.columns th{background:#eaf1fa;text-align:left;font-size:13px}
+.month th{background:#24496e;color:#fff;font-size:15px;text-align:left;padding:4px 10px}
+.num{text-align:right;white-space:nowrap}
+.missing{background:#ffddb0}
+.from-sheet td{background:#fff6d6}.from-sheet .sheet{color:#6b4a00;font-style:italic}.from-sheet .sheet small{display:block;font-size:11px;font-style:normal}
+.new td{animation:hl 2s ease-out}
+@keyframes hl{from{box-shadow:inset 0 0 0 2px #1e4e8c}}
+</style>
+</head>
+<body>
+<div class="review" role="region" aria-label="Ghi chú cho người duyệt">
+  <strong>MOCKUP · dữ liệu giả</strong>
+  <span>Trạng thái:</span>
+  <button type="button" data-state="idle" aria-pressed="true">1. Bình thường</button>
+  <button type="button" data-state="running" aria-pressed="false">2. Đang lấy</button>
+  <button type="button" data-state="done" aria-pressed="false">3. Lấy xong</button>
+  <button type="button" data-state="recent" aria-pressed="false">4. Vừa lấy</button>
+  <button type="button" data-state="failed" aria-pressed="false">5. Không lấy được</button>
+  <p>Bấm "↻ Làm mới" trên thanh xanh để thử luồng 1 → 2 → 3. Chỉ chữ cạnh nút thay đổi, nút giữ nguyên chỗ cũ.</p>
+</div>
+<div class="frame">
+  <header class="topbar">
+    <span class="brand">CÔNG NỢ HTH</span>
+    <nav aria-label="Điều hướng chính"><a href="#">Tổng quan</a><a href="#">Công nợ theo tháng</a><a class="active" href="#">Sổ khách</a></nav>
+    <span class="live-controls"><button id="refresh" type="button">↻ Làm mới</button><time id="status" aria-live="polite"></time></span>
+  </header>
+  <div class="book-head">
+    <span class="cust">KHÁCH MẪU A · Sầu riêng</span>
+    <button class="head-btn" type="button">Lịch sử</button>
+    <button class="head-btn" type="button">Duyệt 1 chuyến mới</button>
+    <button class="head-btn primary" type="button" id="price-btn">Ghi 2 giá từ Sheet</button>
+    <div class="total"><span>Còn phải thu</span><strong>1.250.000.000 đ</strong></div>
+  </div>
+  <table class="ledger" aria-label="Sổ khách tháng 10/2026">
+    <colgroup><col style="width:48px"><col style="width:150px"><col style="width:90px"><col style="width:150px"><col style="width:110px"><col style="width:120px"><col style="width:120px"><col style="width:150px"><col style="width:110px"><col style="width:208px"></colgroup>
+    <tbody>
+      <tr class="columns"><th>STT</th><th>Số container</th><th>Hãng tàu</th><th>Shipper</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th class="num">Đơn giá</th><th class="num">Phụ phí</th><th class="num">Thành tiền</th></tr>
+      <tr class="month"><th colspan="10">THÁNG 10/2026</th></tr>
+      <tr class="from-sheet"><td>16</td><td>DEMU1000016</td><td>WH</td><td>SHIPPER MẪU</td><td>15/10/2026</td><td>ĐIỂM A</td><td>CẢNG B</td><td class="num sheet">85.000.000<small>giá Sheet</small></td><td class="num">–</td><td class="num sheet">85.000.000<small>chưa tính</small></td></tr>
+      <tr class="from-sheet"><td>17</td><td>DEMU1000017</td><td>CMA</td><td>SHIPPER MẪU</td><td>17/10/2026</td><td>ĐIỂM A</td><td>CẢNG B</td><td class="num sheet">85.000.000<small>giá Sheet</small></td><td class="num">–</td><td class="num sheet">85.000.000<small>chưa tính</small></td></tr>
+      <tr id="row18"><td>18</td><td>DEMU1000018</td><td>COSCO</td><td>SHIPPER MẪU</td><td>21/10/2026</td><td>ĐIỂM A</td><td>CẢNG B</td><td class="num missing"></td><td class="num">–</td><td class="num">–</td></tr>
+    </tbody>
+  </table>
+</div>
+<script>
+const status = document.querySelector('#status');
+const btn = document.querySelector('#refresh');
+const row18 = document.querySelector('#row18');
+const priceBtn = document.querySelector('#price-btn');
+const states = {
+  idle: { text: 'Sheet lúc 11:45 · tự tải mỗi 60 giây', cls: '' },
+  running: { text: '<span class="spin" aria-hidden="true"></span>Đang lấy từ Sheet… (khoảng 1 phút)', cls: 'busy', busy: true },
+  done: { text: 'Sheet lúc 11:52 · tự tải mỗi 60 giây', cls: '', newRow: true },
+  recent: { text: 'Sheet vừa lấy lúc 11:52', cls: '', newRow: true },
+  failed: { text: 'Chưa lấy được từ Sheet, đang dùng bản lúc 11:45', cls: 'err' },
+};
+let timer;
+function show(name) {
+  const s = states[name];
+  status.innerHTML = s.text;
+  status.className = s.cls;
+  btn.setAttribute('aria-busy', s.busy ? 'true' : 'false');
+  if (s.newRow) {
+    row18.className = 'from-sheet new';
+    row18.children[7].className = 'num sheet'; row18.children[7].innerHTML = '75.000.000<small>giá Sheet</small>';
+    row18.children[9].className = 'num sheet'; row18.children[9].innerHTML = '75.000.000<small>chưa tính</small>';
+    priceBtn.textContent = 'Ghi 3 giá từ Sheet';
+  } else {
+    row18.className = '';
+    row18.children[7].className = 'num missing'; row18.children[7].textContent = '';
+    row18.children[9].className = 'num'; row18.children[9].textContent = '–';
+    priceBtn.textContent = 'Ghi 2 giá từ Sheet';
+  }
+  for (const b of document.querySelectorAll('.review button')) b.setAttribute('aria-pressed', String(b.dataset.state === name));
+}
+document.querySelector('.review').addEventListener('click', e => { const b = e.target.closest('button[data-state]'); if (b) { clearTimeout(timer); show(b.dataset.state); } });
+btn.addEventListener('click', () => {
+  if (btn.getAttribute('aria-busy') === 'true') return;
+  show('running');
+  clearTimeout(timer);
+  timer = setTimeout(() => show('done'), 3000);
+});
+show('idle');
+</script>
+</body>
+</html>
