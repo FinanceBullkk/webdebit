@@ -914,7 +914,7 @@ class LedgerHttpTest(unittest.TestCase):
             for path in ("/", "/dashboard-v7.html", "/dashboard-v7.css", "/dashboard-v7.js",
                          "/cong-no-theo-thang.html", "/cong-no-theo-thang.css", "/cong-no-theo-thang.js",
                          "/so-khach-v7-live.html", "/so-khach-v7-ui.js",
-                         "/so-khach-v7-model.js", "/so-khach-v7-api.js"):
+                         "/so-khach-v7-model.js", "/so-khach-v7-api.js", "/sheet-refresh.js"):
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
                 conn.request("GET", path)
                 response = conn.getresponse()

@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
@@ -18,6 +19,7 @@ from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import v7_identity
+import v7_sheet_refresh
 from v7_price_queue import load_price_snapshot, project_prices
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
@@ -26,6 +28,7 @@ MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
+SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
 ASSETS = {
@@ -42,6 +45,7 @@ ASSETS = {
     "/so-khach-v7-ui.js": ("so-khach-v7-ui.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-model.js": ("so-khach-v7-model.js", "text/javascript; charset=utf-8"),
     "/so-khach-v7-api.js": ("so-khach-v7-api.js", "text/javascript; charset=utf-8"),
+    "/sheet-refresh.js": ("sheet-refresh.js", "text/javascript; charset=utf-8"),
 }
 ROUTES = {
     "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"}),
@@ -717,6 +721,23 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
 
 
+def refresh_sheet(method: str, raw: bytes, actor: str) -> tuple[int, dict]:
+    """Status of, or a request for, an immediate read-only Sheet run (specs/v7-sheet-refresh.md)."""
+    paths = (SHEET_SNAPSHOT_PATH, PRICE_SNAPSHOT_PATH)
+    if method == "GET":
+        return 200, v7_sheet_refresh.status(SHEET_REFRESH_PATH, paths, time.time())
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if request != {}:
+        bad()
+    try:
+        return 200, v7_sheet_refresh.request(SHEET_REFRESH_PATH, paths, actor, time.time())
+    except OSError as exc:
+        raise ApiError(503, "SHEET_REFRESH_UNAVAILABLE", "Chưa gửi được yêu cầu lấy từ Sheet.") from exc
+
+
 def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     try:
         request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
@@ -806,9 +827,21 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return approve_prices(raw, runner, actor)
+        if parts.path == "/api/v7/sheet/refresh":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return refresh_sheet("POST", raw, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
+        if parts.path == "/api/v7/sheet/refresh":
+            if parts.query:
+                bad()
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return refresh_sheet("GET", raw, actor)
         if parts.path == "/api/v7/dashboard" and not parts.query:
             function, payload = "get_dashboard", {}
         elif parts.path == "/api/v7/receivables/matrix":
