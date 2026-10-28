@@ -68,6 +68,16 @@ rủi ro CÒN MỞ trước đây (chạy mã PR cạnh DB thật) không còn �
 khi có commit mới (`concurrency`). Gỡ đăng ký runner tự host khỏi repo là việc trong Settings của
 người dùng, không nằm trong workflow.
 
+Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
+451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng
+lồ không liên quan nghiệp vụ và che mất phát hiện thật. Lý do của từng lựa chọn nằm ngay trong
+`ruff.toml` và `eslint.config.js`, gồm cả các luật bị tắt (luật Unicode "nhập nhằng" báo nhầm trên
+mọi chuỗi tiếng Việt) và các ngoại lệ theo file.
+
+Thêm luật mới: ưu tiên biến một quy tắc nghiệp vụ đã chốt thành thứ máy kiểm được — luật ruff/eslint
+có sẵn, ràng buộc SQL, hoặc một bước mới trong `scripts/check.js`. Luật chỉ nằm trong tài liệu thì
+mỗi lần review lại phải soi bằng mắt.
+
 ### Khi nào chạy harness PostgreSQL ở máy
 
 Harness `tools/test_pg_*.py` không nằm trong `npm run check`; CI chạy chúng ở các job `postgres-*`
@@ -85,16 +95,6 @@ chậm chủ yếu vì số lần gọi exec chứ không phải PostgreSQL. T�
 qua `tools/docker_exec_channel.py`: một `docker exec` sống suốt lượt chạy, mỗi lệnh vẫn là một tiến
 trình psql mới trong container với cùng argv, env, stdin, mã thoát — tức vẫn một kết nối, một phạm vi
 transaction như trước. Đo 28/10/2026 trên máy Windows của người dùng: `test_pg_v7_backend.py` từ 1195 giây xuống 238 giây, cùng 60 case xanh, 2 case CÒN MỞ bỏ qua. Lệnh chạy đồng thời (case lock/tranh chấp) và argv lạ vẫn đi `docker exec` riêng.
-
-Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
-451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng
-lồ không liên quan nghiệp vụ và che mất phát hiện thật. Lý do của từng lựa chọn nằm ngay trong
-`ruff.toml` và `eslint.config.js`, gồm cả các luật bị tắt (luật Unicode "nhập nhằng" báo nhầm trên
-mọi chuỗi tiếng Việt) và các ngoại lệ theo file.
-
-Thêm luật mới: ưu tiên biến một quy tắc nghiệp vụ đã chốt thành thứ máy kiểm được — luật ruff/eslint
-có sẵn, ràng buộc SQL, hoặc một bước mới trong `scripts/check.js`. Luật chỉ nằm trong tài liệu thì
-mỗi lần review lại phải soi bằng mắt.
 
 ### Luật nghiệp vụ máy đã kiểm
 

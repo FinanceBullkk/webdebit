@@ -19,7 +19,7 @@ from pathlib import Path
 
 from docker_exec_channel import run_docker_exec
 
-ROOT =Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff" / "tools" / "v7_backend_functions.sql"
 IMAGE = "postgres:18.6@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336"
