@@ -335,12 +335,14 @@ BEGIN
     SELECT l0.* INTO l FROM sokhach.legacy_row l0 JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id)
       JOIN sokhach.cutover c ON c.id=cc.cutover_id WHERE l0.id=legacy_row_id AND l0.customer_id=_change_legacy.customer_id AND cc.status='active' AND c.status='active';
     IF NOT FOUND THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
-    IF l.kind<>'trip' THEN RAISE EXCEPTION 'LEGACY_NOT_TRIP'; END IF;
-    v_old:=sokhach._legacy_current(l.id);
-    SELECT sum(amount_vnd)::bigint INTO v_fee FROM sokhach.trip_fee_line
-      WHERE trip_fee_line.legacy_row_id=l.id AND voided_by_event IS NULL;
-    v_old:=v_old||jsonb_build_object('other_fee_vnd',v_fee::text);
-    v_new:=v_old;
+    -- Khoản thu sổ gốc chỉ xóa được, không sửa ô (XOA-THU-GOC-01).
+    IF l.kind<>'trip' AND NOT p_delete THEN RAISE EXCEPTION 'LEGACY_NOT_TRIP'; END IF;
+    v_old:=sokhach._legacy_current(l.id)||jsonb_build_object('kind',l.kind); v_new:=v_old;
+    IF l.kind='trip' THEN
+      SELECT sum(amount_vnd)::bigint INTO v_fee FROM sokhach.trip_fee_line
+        WHERE trip_fee_line.legacy_row_id=l.id AND voided_by_event IS NULL;
+      v_old:=v_old||jsonb_build_object('other_fee_vnd',v_fee::text); v_new:=v_old;
+    END IF;
     IF (v_old->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
     v_old_month:=(v_old->>'month')::date; v_month:=v_old_month; v_old_count:=(v_old->>'counted_vnd')::bigint;
     PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
@@ -384,8 +386,9 @@ BEGIN
     INSERT INTO sokhach.legacy_trip_rev(legacy_row_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,unit_price_vnd,other_fee_vnd,deleted,counted_vnd,created_by_event)
       VALUES(l.id,customer_id,v_month,(v_new->>'event_date')::date,v_new->>'container',v_new->>'carrier',v_new->>'shipper',v_new->>'origin',v_new->>'destination',
         (v_new->>'unit_price_vnd')::bigint,(v_new->>'other_fee_vnd')::bigint,p_delete,v_count,v_event);
+    -- Khoản thu đã trừ nợ: xóa thì cộng lại đúng số đó vào tháng của dòng.
     INSERT INTO sokhach.adjustment(customer_id,debt_month,legacy_row_id,amount_vnd,actor,created_by_event)
-      SELECT customer_id,m,l.id,delta,sokhach._actor(),v_event FROM (
+      SELECT customer_id,m,l.id,CASE WHEN l.kind='receipt' THEN -delta ELSE delta END,sokhach._actor(),v_event FROM (
         SELECT v_old_month AS m,CASE WHEN v_month=v_old_month THEN v_count-v_old_count ELSE -v_old_count END AS delta
         UNION ALL SELECT v_month,v_count WHERE v_month<>v_old_month) d WHERE delta<>0;
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
