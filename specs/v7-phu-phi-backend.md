@@ -45,7 +45,7 @@ HTTP: POST `/api/v7/trips/fees/add`, `/fees/set`, `/fees/replace`, `/fees/void`;
 
 1. **Sổ gốc:** tiền hiện tại là `counted_vnd` của ô TOTAL, không phải đơn giá + phí. Migration chỉ tạo dòng Phụ phí ban đầu để xem; không ghi `legacy_trip_rev`, không ghi adjustment, không đổi `counted_vnd`. Mỗi lệnh fee trên legacy đi qua `_change_legacy`: tính lại `counted_vnd` theo đơn giá + tổng dòng, ghi revision và adjustment phần chênh, event có counted trước/sau. `display.fee_vnd` chỉ parse số dương; phí âm thành NULL, không tạo dòng. Báo cáo migration chỉ ghi ID và số đếm, lưu ngoài repo; phải đọc trước gate deploy.
 2. **Lệnh cũ:** giữ chữ ký để không phá caller, nhưng tham số là **tổng phí chuyến**. Nếu target chỉ có dòng Khác/Phụ phí ban đầu hoặc không có dòng, bỏ các dòng đó rồi ghi một dòng theo dấu (`X>0` Khác, `X<0` Giảm trừ, `X=0/NULL` không dòng). Nếu có dòng loại khác ngoài Khác/Phụ phí ban đầu (gồm Giảm trừ), từ chối `FEE_LINES_TYPED` với thông báo sửa trong khung chi tiết; price queue xếp `MANUAL`. Đường tương thích nhận số âm. Không tiếp tục ghi phí mới vào revision/adjustment một số. Snapshot Sheet giai đoạn 1 chỉ có tổng: ghi đúng một dòng theo dấu tổng, không giả tách các ô.
-3. **Nguồn phí dùng chung:** tạo `v_trip_fee(trip_id, fee_vnd)` (NULL khi không có dòng) và nguồn legacy tương ứng. `v_outstanding_month`, `adjust_trip`, `delete_trip`, `get_ledger`, `get_dashboard`, `get_receivables_*`, các migration dashboard/receivables, `v7_price_queue.py` và `v7_price_match.py` đều đọc nguồn này; không đọc trực tiếp `other_fee_vnd` để tính tiền sau migration. Adjustment phí đã gộp có `fee_absorbed=true` và bị loại khỏi `v_adjustment_current`; adjustment không có field giữ nguyên.
+3. **Nguồn phí dùng chung:** tạo `v_trip_fee(trip_id, fee_vnd)` (NULL khi không có dòng) và nguồn legacy tương ứng. `v_outstanding_month`, `adjust_trip`, `delete_trip`, `get_ledger`, `get_dashboard`, `get_receivables_*`, các định nghĩa hàm từng đến từ migration dashboard/receivables, `web/v7_price_queue.py` và `tools/v7_price_match.py` đều đọc nguồn này; không đọc trực tiếp `other_fee_vnd` để tính tiền sau migration. Migration mới thay định nghĩa hàm cuối, không sửa migration lịch sử. Adjustment phí đã gộp có `fee_absorbed=true` và bị loại khỏi `v_adjustment_current`; adjustment không có field giữ nguyên.
 4. **Lịch sử:** một `event` cho cả lệnh áp lô, before/after chứa từng target, loại, số, ghi chú và `batch_count`; lịch sử mở được danh sách chuyến. Lệnh đơn một event.
 
 ## Migration và hoàn tác
@@ -59,8 +59,8 @@ Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + a
 | `v_trip_current`, `v_outstanding_month` | `v_trip_fee` + adjustment chưa hấp thụ; fee NULL vẫn theo V7-BE |
 | `adjust_trip`, `delete_trip` | tổng `v_trip_fee`; snapshot ghi các dòng và counted trước/sau |
 | `get_ledger`, `get_dashboard`, `get_receivables_*` | view/hàm phí dùng chung, không `other_fee_vnd` |
-| migrations dashboard/receivables | gọi view/hàm phí dùng chung |
-| `v7_price_queue.py`, `v7_price_match.py` | tổng dòng phí; snapshot chỉ có tổng thì ghi một dòng theo dấu |
+| định nghĩa hàm dashboard/receivables từ migration cũ | migration mới thay định nghĩa cuối để gọi nguồn phí chung |
+| `web/v7_price_queue.py`, `tools/v7_price_match.py` | tổng dòng phí; snapshot chỉ có tổng thì ghi một dòng theo dấu |
 
 Chuyến `pending_review` bị chặn như lệnh sửa giá hiện hành (`TRIP_PENDING_REVIEW`), trừ dòng fee đi kèm `paste_trips`. `replace_trip_fee` được giữ loại Phụ phí ban đầu khi chỉ sửa số/ghi chú; không chọn loại này cho dòng mới hoặc đổi loại khác sang nó. `add_trip_fees` có thể gồm legacy; mỗi legacy vẫn ghi revision/adjustment riêng cùng event.
 
@@ -95,7 +95,7 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 ## Phạm vi agent
 
 - Agent: codex. Mockup: miễn vì không sửa UI. Review: opus.
-- Được sửa sau review: `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql`, một migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, test Python liên quan, runbook nếu migration cần. Spec này là file duy nhất sửa trong PR spec.
+- Được sửa sau review: `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql`, một migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/tools/v7_price_match.py`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, test Python liên quan, runbook nếu migration cần. Migration lịch sử chỉ đọc. Spec này là file duy nhất sửa trong PR spec.
 - Ngân sách diff: spec ≤ 250 dòng; PR-A và PR-B mỗi PR ≤ 1000 dòng, vượt thì review scope trước.
 - Lệnh kiểm: `npm run check`; `node scripts/check-secrets.js`; DB harness PostgreSQL dùng một lần theo runner/harness trong repo và CI, không chạy Docker trực tiếp từ agent.
 - Cấm: UI, PS, dependency/framework mới, DB thật/`hao`, thay opening/lock/FIFO/NEWTRIP-01, dữ liệu thật trong repo.
