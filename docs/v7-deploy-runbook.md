@@ -674,9 +674,18 @@ không có event/chuyến/phiếu mới, trang live tải giao diện mới. Kh�
 **chưa kiểm** sửa/xóa qua giao diện với dữ liệu thật. Rollback: trả đường dẫn release cũ trong unit
 (bản unit trước lưu ở thư mục evidence), `daemon-reload`, restart; DB không cần restore.
 
-## Ghi giá từ Sheet — đổi release app và thêm runner bản chụp giá (ĐỀ XUẤT, CHƯA CHẠY)
+## Ghi giá từ Sheet — đổi release app và thêm runner bản chụp giá
 
-Phạm vi: PR FinanceBullkk/webdebit#109, spec [`specs/v7-price-queue.md`](../specs/v7-price-queue.md). Soạn 27/10/2026, chưa chạy bước nào trên `hao`.
+Phạm vi: PR FinanceBullkk/webdebit#109, spec [`specs/v7-price-queue.md`](../specs/v7-price-queue.md). Soạn 27/10/2026.
+
+**ĐÃ TRIỂN KHAI trên `hao` tối 27/10/2026.** Kiểm chỉ đọc lúc 11:41 ngày 28/10/2026 (giờ VN), bằng `systemctl`, `journalctl` và `ls` trên `hao`:
+- Release V7 `current` trỏ tới `522556f` (commit merge #109), đổi lúc 23:54 ngày 27/10 (giờ VN). `v7-ledger-api.service` đang chạy.
+- `webdebit-sheet-prices.timer` bật, `OnCalendar=*:0/15`, `RandomizedDelaySec=60`, `Persistent=true`: cùng nhịp 15 phút với `webdebit-sheet-sync.timer`. Runner chạy từ `current`, chỉ đọc Sheet qua Sheets API.
+- `prices.json` mode 600, chủ `v7app`, cùng thư mục với `snapshot.json`; cập nhật mỗi lượt.
+- Log runner: lúc cài có vài lượt lỗi và một lượt `row_count` 0, sau đó 40 lượt liên tiếp `"ok": true` từ 00:28 ngày 28/10 (giờ VN), mỗi lượt 10.358 dòng, khoảng 21 giây.
+- Người dùng thấy trên sổ khách nút "Ghi N giá từ Sheet" và dòng vàng "giá Sheet / chưa tính" (ảnh chụp trong chat 28/10/2026).
+
+**Chưa kiểm trong lần đối chiếu này:** bằng chứng P2 (backup), P4 (so bản chụp API với `.xlsx` cùng thời điểm) và lần ghi thật đầu tiên ở P5 không có trong repo; kiểm ở thư mục bằng chứng ngoài Git. Các bước dưới giữ làm hồ sơ và để làm lại khi cần.
 - **Không migration, không đổi schema hay hàm SQL.** Ghi giá đi qua `edit_trip_price` và `edit_legacy_trip` đã có trên `hao`.
 - Thêm route `GET /api/v7/ledger` → `sheet_prices` và `POST /api/v7/sheet/prices`.
 - Thêm một runner chỉ đọc Sheet, ghi file `prices.json`.
@@ -757,7 +766,7 @@ Mẫu `webdebit-sheet-prices.timer`:
 Description=V7 Sheet price snapshot schedule
 
 [Timer]
-OnCalendar=<cùng nhịp với timer đồng bộ chuyến>
+OnCalendar=*:0/15
 RandomizedDelaySec=60
 Persistent=true
 
@@ -765,7 +774,7 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-- Nhịp chạy lấy theo timer đồng bộ chuyến hiện có, để giá và chuyến cùng độ mới. Mỗi lượt khoảng 11 yêu cầu Sheets API (1 lấy danh sách tab, 25 tab mỗi `batchGet`), không chạm hạn mức.
+- Nhịp chạy lấy theo timer đồng bộ chuyến hiện có (15 phút trên `hao`), để giá và chuyến cùng độ mới. Giá gõ trên Sheet hiện lên web chậm nhất khoảng 15 phút cộng thời gian chạy, sau khi tải lại sổ; không phải thời gian thực. Mỗi lượt khoảng 11 yêu cầu Sheets API (1 lấy danh sách tab, 25 tab mỗi `batchGet`), không chạm hạn mức.
 - Ghi file nguyên tử: người đọc không thấy file dở.
 - `ProtectHome=true`: nếu file JSON tài khoản dịch vụ nằm trong `/home` thì làm như unit đồng bộ chuyến (cùng tùy chọn bảo vệ), không nới riêng unit này.
 
