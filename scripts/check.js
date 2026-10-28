@@ -104,6 +104,14 @@ const steps = [
     cwd: ROOT,
   },
   {
+    // Link tương đối trong mọi file .md phải trỏ tới file và mục có thật.
+    // Sổ quyết định tách thành từng file nên link `decisions.md#<id>` dễ gãy.
+    name: "lint:doc  doc links",
+    cmd: process.execPath,
+    args: [path.join(__dirname, "check-doc-links.js")],
+    cwd: ROOT,
+  },
+  {
     // Gọi thẳng điểm vào của eslint bằng node: trên Windows, spawn một file
     // .cmd (npx.cmd) không qua shell bị Node chặn, nên bước này sẽ luôn hỏng
     // mà không in ra lỗi nào.

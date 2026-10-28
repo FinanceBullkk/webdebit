@@ -1,0 +1,15 @@
+# V7-CSM
+
+[← Sổ quyết định](../decisions.md)
+
+## Quyết định
+
+Người dùng/chủ nghiệp vụ chốt các chính sách V7 còn mở theo [phương án](../../specs/v7-chinh-sach-mo.md): (1) **D04:** tiền dư hiện số âm cho cả nhóm thấy và tự trừ vào chuyến sau (như mã hiện có); **không có hoàn tiền** — dư luôn cấn vào chuyến hàng sau, không làm đường ghi trả lại khách; **không có tiền chưa rõ chủ trên web** — chỉ ghi phiếu thu khi khách đã chuyển khoản và biết của ai; **không có trạng thái tranh chấp** — chưa chốt giá thì chưa đưa dữ liệu lên (chuyến thiếu giá vẫn ngoài số dư); chuyển nợ hoặc sửa ghi nhầm giữa hai sổ (không phải cấn trừ) dùng công cụ sẵn có: hủy phiếu rồi ghi lại đúng sổ, hoặc hai dòng điều chỉnh ghi chú tên sổ bên kia. (2) **D05/D06:** phiếu thu thêm ô "Tham chiếu" (số giao dịch…) không bắt buộc, sửa tại chỗ được như ngày và hình thức, trùng trong cùng sổ thì cảnh báo, không chặn; không lưu ảnh chứng từ; chỉ ghi VND thực nhận, ngoại tệ và tỷ giá ghi vào ô tham chiếu, không tính. (3) **D07:** ai cũng mở/khóa tháng như `V7-SO`, nhưng **mỗi lần mở/khóa ghi một dòng Lịch sử** (người, lúc, tháng, mở hay khóa); nhập muộn = mở tháng → dán → khóa lại. (4) **Ai xem lưu vết:** ai mở được sổ thì xem được toàn bộ Lịch sử của sổ đó; xét lại khi có người dùng chỉ xem. (5) **Nguồn đóng băng (case 7.11c):** giờ mốc người dùng tải file xlsx và đặt tên phiên bản trên Google Sheet; manifest ghi SHA-256 của file xlsx; một bộ đếm thứ hai quét mọi ô cho danh mục khách trên `TONG` và số dòng từng tab; web nhận danh mục trước, thiếu/thừa khách hoặc lệch số dòng thì không verify/kích hoạt mốc.
+
+## Ngày / nguồn
+
+21/10/2026, người dùng trả lời trong chat từng điểm của `specs/v7-chinh-sach-mo.md` (PR #43); điểm 2–5 "đồng ý" khuyến nghị, điểm 1 trả lời từng ý
+
+## Hiệu lực và giới hạn
+
+ĐÃ CHỐT chính sách. **ĐÃ TRIỂN KHAI (2) D05/D06 và (3) D07 trên `hao` ngày 22/10/2026** (sửa ghi chú "chưa triển khai" ngày 21/10): DB `webdebit_v7` và service API nâng lên `main` tại `ada72cc` ([PR #56](https://github.com/FinanceBullkk/webdebit/pull/56), CI xanh). Trình tự: backup và restore thử, chạy migration CSM trên bản sao, rồi chạy trên DB thật khi người dùng xác nhận; số dư không đổi, checker sau triển khai OK, đối soát tổng khách `DOI SOAT: DAT` đủ 236 khách; không cần rollback. API nhận ô `reference` cho phiếu thu/cấn trừ và có đường mở/khóa tháng. Bằng chứng ngoài Git. **Chưa kiểm chứng trên `hao`:** ghi phiếu có tham chiếu, cảnh báo trùng tham chiếu, dòng Lịch sử khi mở/khóa — đợt nâng không ghi thử. (1) và (4) không có mã riêng trong đợt này; (5) **chưa cài** (case `7.11c` còn `SKIPPED_OPEN`). Thay vế "mở/khóa không ghi Lịch sử" của [`V7-SO`](v7-so.md). Đóng các gate D04, D05/D06, D07 và "ai xem lưu vết" ở mục [Gate chưa đóng](../decisions.md#gate-chưa-đóng) trong phạm vi nêu. Hệ quả test: `policy.refund_transfer` và phần hoàn tiền của `7.15c` hết đối tượng; phần chuyển âm giữa sổ phủ bởi `CT-2SO` và công cụ sẵn có; `7.11c` chuyển sang BEHAVIOR khi cài (5). (2), (3) cài theo [`specs/v7-csm-code.md`](../../specs/v7-csm-code.md); (5) cần spec triển khai riêng trước khi sửa schema/hàm.

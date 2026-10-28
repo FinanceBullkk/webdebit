@@ -19,6 +19,16 @@ Mốc bàn giao `69a84a41382217265f745c1c9ae87cba9e557c16` có 34 file. Bản ch
 
 Nghiệp vụ chia sẻ ở `docs/`, spec ở `specs/`. Hồ sơ ngoài repo là bằng chứng lịch sử theo hash trong [source register](source-register.md). Quyết định mới cập nhật repo, không duy trì hai bản sống. Nội dung nhạy cảm chỉ dẫn tới hồ sơ có quyền riêng, không dán vào issue/CI log/tài liệu.
 
+## Quy trình PR và triển khai
+
+Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/agent làm cùng lúc:
+
+1. **Mỗi việc một worktree mới từ `origin/main`**, PR nhỏ, merge trong ngày. Một nhóm file chỉ một người/agent giữ tại một thời điểm.
+2. **PR lỗi thời** (main đã có commit mới): bấm *Update branch* trên GitHub hoặc `gh pr update-branch <số>`; conflict thì rebase ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
+3. **Quyết định** ghi trong đúng file `docs/decisions/<id>.md` của nó; quyết định mới tạo file mới và thêm một dòng vào bảng của [`decisions.md`](decisions.md). Hai PR sửa hai quyết định khác nhau không còn đụng nhau.
+4. **Triển khai app không cần PR tài liệu riêng.** Merge vào `main` là tự triển khai lên `hao`; bằng chứng là lượt `Deploy hao` (bảng *Tóm tắt triển khai*: kết quả, SHA trước/sau, commit trong đợt) và tab *Environments → hao* trên GitHub. Trong PR của tính năng, file quyết định ghi "triển khai tự động khi merge qua `Deploy hao`", không ghi trước "ĐÃ TRIỂN KHAI". Lượt đỏ thì sửa và báo lại, không ghi là đã triển khai.
+5. **Triển khai tay** (gate SQL/migration/loader dừng `Deploy hao`): nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](deploys/README.md), không chèn thêm mục vào [runbook](v7-deploy-runbook.md); runbook chỉ giữ quy trình. Đợt đó cập nhật trạng thái trong file quyết định liên quan ở cùng PR.
+
 ## Quy trình frontend
 
 ĐÃ CHỐT bởi người dùng/chủ nghiệp vụ ngày 16/10/2026 trong chat: áp dụng đủ các bước dưới đây cho luồng frontend mới hoặc thay đổi đáng kể trong repo. Penpot là nơi duyệt mockup trước khi code frontend. Quy trình không tự cấp quyền triển khai hoặc ghi tiền.
@@ -40,11 +50,11 @@ Giữ hồ sơ gọn trong spec/PR hiện có: thao tác → module/API → chec
 
 ## Lint và lệnh check
 
-`npm run check` ở gốc repo chạy bảy bước theo thứ tự: `ruff check`, luật nghiệp vụ
-(`scripts/check-business-rules.js`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
+`npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
+(`scripts/check-business-rules.js`), link tài liệu (`scripts/check-doc-links.js`), `eslint`, `unittest` của `cong-no-web-handoff/tests`,
 `node --test` cho model JS, rồi hai bộ test trình duyệt Playwright (`test:browser` và `test:viewer`). Chưa tải Chromium thì cả hai bước
 Playwright cùng báo SKIP chứ không FAIL, để một thiếu sót môi trường không làm người sửa bỏ luôn thói quen chạy check.
-`npm run lint` chạy riêng ba bước lint khi đang sửa dở.
+`npm run lint` chạy riêng bốn bước lint khi đang sửa dở.
 
 CI gọi đúng `npm run check` (job `javascript` trong `.github/workflows/test.yml` — kết quả gom vào job `ci-ok`, required check duy nhất). Nếu CI gọi một lệnh
 khác thì màu xanh ở máy không còn nói lên điều gì — đổi bước kiểm thì đổi ở `scripts/check.js`,
