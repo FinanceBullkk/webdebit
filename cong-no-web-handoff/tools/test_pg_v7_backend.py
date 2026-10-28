@@ -17,6 +17,8 @@ import time
 import uuid
 from pathlib import Path
 
+from docker_exec_channel import run_docker_exec
+
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff" / "tools" / "v7_backend_functions.sql"
@@ -34,8 +36,10 @@ class HarnessError(RuntimeError):
 def run(args: list[str], *, input_text: str | None = None, check: bool = True,
         timeout: float = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     try:
-        p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
-                           errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
+        p = run_docker_exec(args, input_text=input_text, timeout=timeout)
+        if p is None:
+            p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
+                               errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise HarnessError(f"command unavailable/timed out: {args[:3]}: {exc}") from exc
     if check and p.returncode:
