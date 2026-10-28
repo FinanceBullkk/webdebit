@@ -1062,6 +1062,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(DETAIL_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(SYNC_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(LEGACY_RECEIPT_MIGRATION.read_text(encoding="utf-8"))
     require(json.loads(copy.value(f"SELECT (to_jsonb(x)-'reference')::text FROM sokhach.receipt x WHERE customer_id={c}"))
             == json.loads(snapshot),
             "migration changed receipt row")
@@ -2602,6 +2604,7 @@ LOCKED_TRIP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-
 MATRIX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-receivables-matrix.sql"
 DETAIL_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-26-v7-receivables-detail.sql"
 SYNC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-shipper-write-sync.sql"
+LEGACY_RECEIPT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-legacy-receipt-delete.sql"
 SHEET_CONFLICT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-sheet-conflict.sql"
 SHEET_CONFLICT_DATE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-sheet-conflict-date-booking.sql"
 
@@ -2730,7 +2733,7 @@ def check_nhap_sheet(pg: Pg) -> None:
             ("2026-09-01", 60000000, "60000000", "trip"),
             ("2026-10-01", 0, None, "trip"),
             ("2026-10-01", 93000000, "93000000", "trip"),
-            ("2026-10-01", 0, None, "receipt"),
+            ("2026-10-01", 4000000, None, "receipt"),
         ], 100):
             display = json.dumps({"container": f"FAKE-{n}", "carrier": "FAKE", "from": "A", "to": "B",
                                   "date": month, "unit_price": unit, "fee_vnd": None})
@@ -2798,6 +2801,17 @@ def check_nhap_sheet(pg: Pg) -> None:
         ("edit_legacy_trip", (ids[1], "event_date", "2026-02-30"), "INVALID_DATE"),
     ]:
         reject_call(pg, name, c, version(pg, c), "bad-"+error, *args, error=error)
+    # XOA-THU-GOC-01: xóa khoản thu sổ gốc cộng lại đúng số đã trừ, ở tháng của dòng.
+    before_receipt = total()
+    write("delete_legacy_trip", ids[3], key="legacy-receipt-delete")
+    require(total() == before_receipt+4000000 and deltas(ids[3]) == 4000000, "receipt delete adds debt back")
+    got = json.loads(pg.value(f"SELECT jsonb_object_agg(debt_month,amount_vnd::text) FROM sokhach.adjustment WHERE legacy_row_id={ids[3]}"))
+    require(got == {"2026-10-01": "4000000"}, "receipt delete month")
+    audit = json.loads(pg.value(f"SELECT \"before\"->'legacy' FROM sokhach.event WHERE customer_id={c} AND idempotency_key='legacy-receipt-delete'"))
+    require(audit["kind"] == "receipt" and audit["counted_vnd"] == "4000000", "receipt delete audit")
+    require(not any(row["id"] == ids[3] for row in call(pg, "get_ledger", c)["legacy_rows"]), "deleted receipt visible")
+    reject_call(pg, "delete_legacy_trip", c, version(pg, c), "receipt-again", ids[3], error="LEGACY_NOT_FOUND")
+    assert_allocations(pg, c)
     other = new_book(pg, ("2026-09-01", 0))
     reject_call(pg, "edit_legacy_trip", other, 0, "wrong-cut", ids[1], "carrier", "X", error="LEGACY_NOT_FOUND")
     write("edit_legacy_trip", ids[1], "unit_price_vnd", "")

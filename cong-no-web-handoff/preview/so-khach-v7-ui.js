@@ -224,9 +224,11 @@
         // Hình thức thu không suy từ ghi chú (V7-MIG còn mở); ghi chú chỉ hiện khi không lặp lại cùng ngày.
         const day = sheetDay(r.raw_date);
         const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
-        const sheetPay = receipt
-          ? `${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${num(fmt(receipt.source_total_vnd), 'pay')}`
-          : '';
+        // XOA-THU-GOC-01: tháng mở thì bấm số tiền khoản thu sổ gốc để xóa hẳn.
+        const payAmount = receipt && !locked
+          ? `<td class="pay num row-delete" data-kind="legacy" data-id="${escape(receipt.id)}" tabindex="0" role="button" aria-label="Xóa hẳn khoản thu sổ gốc ${escape(fmt(receipt.source_total_vnd))}" title="Bấm để xóa hẳn khoản thu này">${fmt(receipt.source_total_vnd)}</td>`
+          : num(fmt(receipt?.source_total_vnd), 'pay');
+        const sheetPay = receipt ? `${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${payAmount}` : '';
         const rowKey = trip?.id != null ? `legacy-${trip.id}` : '';
         // `pay`: ba ô thu của phiếu web đặt vào hàng này khi hàng chưa có phiếu Sheet.
         return { hasReceipt: Boolean(receipt), html: pay => `<tr class="legacy${moved.has(rowKey) ? ' moved' : ''}"${rowKey ? ` data-row="${escape(rowKey)}"` : ''}>${tripCells}${sheetPay || pay || `${empty('pay pay-start')}${empty('pay')}${empty('pay num')}`}${movedTag(rowKey)}</tr>` };
@@ -248,9 +250,11 @@
       const after = (legacy ? event.after?.legacy : event.after?.trip) ?? {};
       // Sự kiện sửa ô chuyến web chỉ mang id: lấy container từ sổ đang xem (chuyến đã xóa có ảnh đủ ở `before`).
       const known = legacy ? null : (snapshot?.trips ?? []).find(row => String(row.id) === String(before.id ?? after.id));
-      const who = `${legacy ? 'Dòng sổ gốc' : 'Chuyến'} ${before.container || after.container || known?.container || '–'}`;
+      const paid = before.kind === 'receipt';
+      const who = `${paid ? 'Khoản thu sổ gốc' : legacy ? 'Dòng sổ gốc' : 'Chuyến'} ${before.container || after.container || known?.container || '–'}`;
       if (event.kind.endsWith('_delete')) {
         const amount = legacy ? before.counted_vnd : before.amount_vnd;
+        if (paid) return `${who} · tháng ${monthLabel(monthKey(before.month ?? before.debt_month))} · Số đã trừ nợ: ${fmt(amount)}`;
         return `${who} · ${cellText('event_date', before.event_date)} · tháng ${monthLabel(monthKey(before.month ?? before.debt_month))} · ${legacy ? 'Số đang tính' : 'Thành tiền'}: ${fmt(amount)}`;
       }
       const field = after.field ?? before.field;
@@ -1023,11 +1027,15 @@
       const { kind, id } = td.dataset;
       const data = findRow(kind, id);
       const values = rowValues(kind, data);
+      const paid = kind === 'legacy' && data?.kind === 'receipt';
       const amount = kind === 'trip'
         ? data?.status === 'confirmed' || data?.status === undefined ? `thành tiền ${fmt(data?.amount_vnd)}` : 'chưa tính vào số dư'
         : `đang tính ${fmt(values.counted_vnd)}`;
-      const what = `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
-      const extra = kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
+      const what = paid
+        ? `khoản thu sổ gốc ${fmt(data.source_total_vnd)}${data.display?.container ? ` (${data.display.container})` : ''}`
+        : `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
+      const extra = paid ? ` Nợ tăng lại ${fmt(data.source_total_vnd)}; số dư đầu không đổi, phần cộng ghi ở dòng điều chỉnh sổ gốc của tháng.`
+        : kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
       row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="14">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }

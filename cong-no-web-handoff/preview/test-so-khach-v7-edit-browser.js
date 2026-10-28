@@ -400,6 +400,23 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
   assert.equal(await page.locator('.legacy-adjustment').count(), 0);
 }));
 
+test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
+  assert.equal(await page.locator('td.row-delete[data-kind="legacy"][data-id="25"]').count(), 0);
+  const amount = page.locator('td.row-delete[data-kind="legacy"][data-id="24"]');
+  assert.equal(await amount.innerText(), '1.234.567');
+  await amount.click();
+  assert.match(await page.locator('.delete-prompt').innerText(), /Xóa hẳn khoản thu sổ gốc 1\.234\.567 \(TTNU0000009\)\? Nợ tăng lại 1\.234\.567/);
+  await page.locator('.confirm-delete').click();
+  await page.waitForFunction(() => !document.querySelector('td.row-delete[data-id="24"]'));
+  assert.deepEqual(posts(world).map(([url, body]) => [url, body.legacy_row_id]), [['/api/v7/legacy/delete', 24]]);
+}, world => {
+  world.locks = [{ month: '2026-09-01', locked: true }];
+  world.legacy.push({ id: 24, month: todayMonth, kind: 'receipt', source_total_vnd: '1234567', editable: false,
+    current: { month: todayMonth, deleted: false, counted_vnd: '1234567' }, display: { row: 9, container: 'TTNU0000009', raw_date: '', note: '' } },
+  { id: 25, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false,
+    current: { month: '2026-09-01', deleted: false, counted_vnd: '1000000' }, display: { row: 8, raw_date: '', note: '' } });
+}));
+
 test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống, ô lỗi chặn Lưu, Lưu gửi một lệnh dán lô', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.paste-input').count(), 0);
   const blank = page.locator(`#thang-${todayMonth.slice(0, 7)} .draft-input[data-draft="0"][data-field="carrier"]`);
