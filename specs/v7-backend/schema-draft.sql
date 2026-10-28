@@ -186,7 +186,7 @@ CREATE TABLE sokhach.trip_price_rev (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     trip_id bigint NOT NULL REFERENCES sokhach.trip(id),
     unit_price_vnd bigint CHECK (unit_price_vnd >= 0),
-    other_fee_vnd bigint CHECK (other_fee_vnd >= 0),
+    other_fee_vnd bigint,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 -- ĐỀ XUẤT: CHECK liên bảng cho ngày NULL; deferred để paste chèn trip rồi giá.
@@ -223,6 +223,7 @@ CREATE TABLE sokhach.adjustment (
     trip_id bigint,
     amount_vnd bigint NOT NULL CHECK (amount_vnd <> 0),
     field text CHECK (field IN ('unit_price_vnd','other_fee_vnd')),
+    fee_absorbed boolean NOT NULL DEFAULT false,
     new_value_vnd bigint CHECK (new_value_vnd >= 0),
     CHECK ((field IS NULL) = (new_value_vnd IS NULL)),
     note text,
@@ -234,6 +235,26 @@ CREATE TABLE sokhach.adjustment (
 COMMENT ON TABLE sokhach.adjustment IS 'Hiệu số có dấu, tính ngay; trip_id NULL là điều chỉnh cả tháng.';
 COMMENT ON COLUMN sokhach.adjustment.amount_vnd IS 'Khác 0; số đúng theo chuyến do hàm lệnh đổi thành hiệu số.';
 COMMENT ON COLUMN sokhach.adjustment.note IS 'Ghi chú tùy chọn, không phải điều kiện ghi tiền V7.';
+
+CREATE TABLE IF NOT EXISTS sokhach.fee_type(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,name text NOT NULL,
+ kind text NOT NULL CHECK(kind IN('service','pass_through')),sign text NOT NULL CHECK(sign IN('positive','negative','any')),
+ system_key text UNIQUE,active boolean NOT NULL DEFAULT true,sort integer NOT NULL CHECK(sort>0),
+ name_key text GENERATED ALWAYS AS(lower(btrim(name))) STORED,UNIQUE(name_key));
+CREATE TABLE IF NOT EXISTS sokhach.book_fee_column(
+ customer_id bigint NOT NULL REFERENCES sokhach.customer(id),fee_type_id bigint NOT NULL REFERENCES sokhach.fee_type(id),
+ position integer NOT NULL CHECK(position BETWEEN 1 AND 3),PRIMARY KEY(customer_id,fee_type_id),UNIQUE(customer_id,position));
+CREATE TABLE IF NOT EXISTS sokhach.trip_fee_line(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,customer_id bigint NOT NULL REFERENCES sokhach.customer(id),trip_id bigint,legacy_row_id bigint,
+ fee_type_id bigint NOT NULL REFERENCES sokhach.fee_type(id),amount_vnd bigint NOT NULL CHECK(amount_vnd<>0),note text,created_by_event bigint NOT NULL,voided_by_event bigint,
+ CHECK((trip_id IS NOT NULL)<>(legacy_row_id IS NOT NULL)));
+CREATE TABLE IF NOT EXISTS sokhach.fee_type_audit(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,fee_type_id bigint REFERENCES sokhach.fee_type(id),actor text NOT NULL,payload jsonb NOT NULL,before_value jsonb NOT NULL,after_value jsonb NOT NULL,idempotency_key text NOT NULL UNIQUE,at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS trip_fee_line_trip_active ON sokhach.trip_fee_line(trip_id) WHERE voided_by_event IS NULL;
+CREATE INDEX IF NOT EXISTS trip_fee_line_legacy_active ON sokhach.trip_fee_line(legacy_row_id) WHERE voided_by_event IS NULL;
+CREATE INDEX IF NOT EXISTS trip_fee_line_customer ON sokhach.trip_fee_line(customer_id,id);
+INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
+ ('Neo','service','positive',NULL,1),('Điện','service','positive',NULL,2),('Ghép','service','positive',NULL,3),('Bảo hiểm','service','positive',NULL,4),('Kiểm định','service','positive',NULL,5),('Health cert','service','positive',NULL,6),('Khác','service','positive','other',100),('Giảm trừ','service','negative','discount',101),('Phụ phí ban đầu','service','any','initial',102) ON CONFLICT(name_key) DO NOTHING;
 
 CREATE TABLE sokhach.receipt (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -298,6 +319,8 @@ CREATE TABLE sokhach.event (
         ELSE false END),
     UNIQUE (id, customer_id)
 );
+DO $$ BEGIN ALTER TABLE sokhach.trip_fee_line ADD CONSTRAINT fee_line_created_event_fk FOREIGN KEY(created_by_event,customer_id) REFERENCES sokhach.event(id,customer_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE sokhach.trip_fee_line ADD CONSTRAINT fee_line_voided_event_fk FOREIGN KEY(voided_by_event,customer_id) REFERENCES sokhach.event(id,customer_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 COMMENT ON TABLE sokhach.event IS 'Vết chỉ thêm trước/sau; gồm mở/khóa tháng.';
 COMMENT ON COLUMN sokhach.event.actor IS 'Đọc từ current_setting(''sokhach.actor'', false), từ chối rỗng trong hàm lệnh.';
 COMMENT ON COLUMN sokhach.event.idempotency_key IS 'Khóa lệnh nguồn, có thể lặp giữa các event của cùng lệnh.';
@@ -309,6 +332,7 @@ ALTER TABLE sokhach.trip ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_created_event_fk
     FOREIGN KEY (created_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_event_customer_unique UNIQUE (id, customer_id);
+DO $$ BEGIN ALTER TABLE sokhach.trip_fee_line ADD CONSTRAINT fee_line_trip_customer_fk FOREIGN KEY(trip_id,customer_id) REFERENCES sokhach.trip(id,customer_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE sokhach.trip ADD COLUMN reviewed_by_event bigint;
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_review_event_fk
     FOREIGN KEY (reviewed_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
@@ -354,7 +378,7 @@ CREATE TABLE sokhach.legacy_trip_rev (
     customer_id bigint NOT NULL,
     debt_month date NOT NULL CHECK (EXTRACT(DAY FROM debt_month)=1),
     event_date date, container text, carrier text, shipper text, origin text, destination text,
-    unit_price_vnd bigint CHECK (unit_price_vnd>=0), other_fee_vnd bigint CHECK (other_fee_vnd>=0),
+    unit_price_vnd bigint CHECK (unit_price_vnd>=0), other_fee_vnd bigint,
     deleted boolean NOT NULL DEFAULT false, counted_vnd bigint NOT NULL,
     created_by_event bigint NOT NULL,
     FOREIGN KEY (created_by_event,customer_id) REFERENCES sokhach.event(id,customer_id)
@@ -379,6 +403,8 @@ ALTER TABLE sokhach.opening_balance ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.opening_balance ADD CONSTRAINT opening_event_fk
     FOREIGN KEY (created_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
 ALTER TABLE sokhach.legacy_row ADD COLUMN created_by_event bigint NOT NULL;
+ALTER TABLE sokhach.legacy_row ADD CONSTRAINT legacy_row_customer_unique UNIQUE(id,customer_id);
+DO $$ BEGIN ALTER TABLE sokhach.trip_fee_line ADD CONSTRAINT fee_line_legacy_customer_fk FOREIGN KEY(legacy_row_id,customer_id) REFERENCES sokhach.legacy_row(id,customer_id); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ALTER TABLE sokhach.legacy_row ADD CONSTRAINT legacy_event_fk
     FOREIGN KEY (created_by_event, customer_id) REFERENCES sokhach.event(id, customer_id);
 -- Hàm import kiểm event.kind = import và event.cutover_id trùng cutover của dòng.
