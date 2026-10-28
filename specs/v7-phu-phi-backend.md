@@ -101,7 +101,9 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 
 ## Bằng chứng
 
-PR-A đã code trên nhánh riêng. `npm run check`, SQL sync test và harness PostgreSQL 18.6 dùng một lần cho migration/rollback đã đạt ở bản cục bộ. Chưa triển khai `hao`/DB thật; CI PR và review opus còn chờ.
+PR-A đã code trên nhánh riêng. `npm run check`, SQL sync test và harness PostgreSQL 18.6 dùng một lần cho migration/rollback đã đạt ở bản cục bộ.
+
+**ĐÃ TRIỂN KHAI trên `hao` 28/10/2026** (PR #117, release `30b3199`): xem [runbook](../docs/v7-deploy-runbook.md#phụ-phí-pr-a--nâng-db-đang-có-đã-chạy-trên-hao-28102026). Báo cáo đọc trước gate: 92 dòng sổ gốc có phí âm không tạo dòng Phụ phí ban đầu (đúng quy tắc phí âm thành NULL), không đổi tổng.
 
 ## Câu hỏi mở
 
