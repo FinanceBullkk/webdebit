@@ -8,20 +8,23 @@ Lõi PostgreSQL/API lưu nhiều dòng phụ phí theo chuyến hoặc dòng s�
 
 ## Đối chiếu dữ liệu và code hiện có
 
-- Chuyến web: phí nằm ở revision mới nhất của `trip_price_rev.other_fee_vnd` cộng `adjustment(field='other_fee_vnd')`. `delete_trip` đang chụp phí hiệu quả theo công thức đó.
+- Chuyến web: phí nằm ở revision mới nhất của `trip_price_rev.other_fee_vnd` cộng `adjustment(field='other_fee_vnd')`. `v_outstanding_month` cộng adjustment riêng vào dư nợ; nếu chuyển cả adjustment phí thành dòng mới mà không loại phần cũ, nợ bị cộng hai lần.
 - Dòng sổ gốc: `_legacy_current` đọc `legacy_trip_rev.other_fee_vnd` nếu có revision, nếu không parse `legacy_row.display.fee_vnd`. `source_total_vnd` là ô tổng, không chứng minh phần phí. `_change_legacy` ghi chênh lệch vào `adjustment`; opening không đổi.
 - `v7_price_queue.py` hiện so phí một số, coi phí âm là `MANUAL`. `v7_ledger_api.py` và test gọi chữ ký cũ của `edit_trip_price`, `adjust_trip`, `edit_legacy_trip`.
 
 ## Giao tiếp frontend–backend
 
-Mọi hàm ghi dùng `customer_id`, `expected_version`, `idempotency_key`, khóa hàng khách, actor từ `_actor()`, event trước → sau và phân bổ lại tối đa một lần.
+Lệnh ghi trên sổ dùng `customer_id`, `expected_version`, `idempotency_key`, khóa hàng khách, actor từ `_actor()`, event trước → sau và phân bổ lại tối đa một lần khi đổi tiền. Lệnh danh mục toàn cục khóa hàng danh mục và ghi `fee_type_audit`, không giả gắn vào khách.
 
 | Bảng | Hợp đồng |
 | --- | --- |
 | `fee_type` | `id`, `name` unique theo `lower(btrim(name))`, `kind` service/pass_through, `sign` positive/negative/any, `system_key`, `active`, `sort` |
 | `book_fee_column` | `customer_id`, `fee_type_id`, `position` 1..3; unique cả hai chiều |
 | `trip_fee_line` | `id`, `customer_id`, đúng một `trip_id`/`legacy_row_id`, `fee_type_id`, `amount_vnd bigint` khác 0, `note`, `created_by_event`, `voided_by_event` NULL; chỉ thêm |
-| `trip_fee_flag` | đúng một target, `fee_type_id`, `source`, `created_by_event`, `cleared_by_event`, `clear_reason`; không phải tiền |
+| `fee_type_audit` | vết danh mục toàn cục: actor từ phiên, trước → sau, thời điểm; không thuộc event của khách |
+| `adjustment.fee_absorbed` | boolean mặc định false; chỉ migration chuyển true một lần cho adjustment phí đã gộp, kể cả tổng phí hiệu quả bằng 0 nên không có dòng mới; adjustment giữ làm chứng cứ nhưng bị loại khỏi `v_adjustment_current` và mọi phép cộng tiền |
+
+`trip_fee_line` có partial index `(trip_id) WHERE voided_by_event IS NULL` và `(legacy_row_id) WHERE voided_by_event IS NULL`. Danh mục sửa bằng khóa `FOR UPDATE` trên `fee_type`; thêm loại dùng một advisory lock cố định. `set_book_fee_columns` vẫn ghi event của khách.
 
 Danh mục khởi tạo theo thứ tự Neo, Điện, Ghép, Bảo hiểm, Kiểm định, Health cert (dương, service). Loại hệ thống Khác nhận dương; Giảm trừ chỉ nhận âm; Phụ phí ban đầu nhận khác 0 nhưng chỉ migration được tạo mới. Loại inactive không nhận dòng mới.
 
@@ -29,24 +32,37 @@ Danh mục khởi tạo theo thứ tự Neo, Điện, Ghép, Bảo hiểm, Kiể
 - `set_trip_fee_type(customer_id, expected_version, idempotency_key, target jsonb, fee_type_id, amount_vnd bigint NULL)`: void mọi dòng hiệu lực cùng loại, thêm tối đa một dòng; NULL là xóa trắng ô.
 - `replace_trip_fee(customer_id, expected_version, idempotency_key, fee_line_id, fee_type_id, amount_vnd, note)`: void cũ, thêm mới trong cùng lệnh/event.
 - `void_trip_fee(customer_id, expected_version, idempotency_key, fee_line_id)`: void một dòng.
-- `clear_trip_fee_flag(customer_id, expected_version, idempotency_key, flag_id)`: clear cờ và ghi event; ghi dòng đúng loại tự clear cờ.
-- Danh mục: `add_fee_type(name, kind)`, `rename_fee_type(fee_type_id, name)`, `set_fee_type_kind(fee_type_id, kind)`, `set_fee_type_active(fee_type_id, active)`.
+- Cờ `trip_fee_flag` và `clear_trip_fee_flag` dời sang spec nhập bảng PS; giai đoạn 1 chưa có nguồn tạo cờ.
+- Danh mục: `add_fee_type(idempotency_key, name, kind)`, `rename_fee_type(idempotency_key, fee_type_id, name)`, `set_fee_type_kind(idempotency_key, fee_type_id, kind)`, `set_fee_type_active(idempotency_key, fee_type_id, active)`; dùng khóa và vết toàn cục, không `customer_id`/`expected_version` của sổ.
 - `set_book_fee_columns(customer_id, expected_version, idempotency_key, fee_type_ids jsonb)`: 0..3 ID có thứ tự, không đổi tiền nhưng ghi event.
 - `v_trip_current.fee` = tổng dòng còn hiệu lực, NULL nếu không có dòng. Có đơn giá + fee NULL tính 0 theo V7-BE; thiếu đơn giá ngoài số dư; dòng phí lẻ không container lấy tổng dòng.
 - `paste_trips`: mỗi hàng `fees: [amount_vnd,...]`; dương → Khác, âm → Giảm trừ; `other_fee_vnd` cũ coi như một ô. Chuyến mới dán tháng khóa là ngoại lệ duy nhất.
-- `get_ledger`: thêm `fee_lines`, `fee_flags`, `fee_columns`; route danh mục riêng. `delete_trip`/`delete_legacy_trip` chụp dòng phí trong event trước khi xóa.
+- `get_ledger`: thêm `fee_lines`, `fee_columns`; route danh mục riêng. `delete_trip`/`delete_legacy_trip` chụp dòng phí trong event trước khi xóa.
 
-HTTP: POST `/api/v7/trips/fees/add`, `/fees/set`, `/fees/replace`, `/fees/void`, `/fees/flags/clear`; GET/POST `/api/v7/fee-types`; POST `/api/v7/fee-types/update`, `/api/v7/books/fee-columns`. Lỗi: `MONTH_LOCKED`, `FEE_AMOUNT_INVALID`, `FEE_SIGN_INVALID`, `FEE_TYPE_INACTIVE`, `FEE_TYPE_SYSTEM`, `FEE_TYPE_DUPLICATE`, `FEE_COLUMNS_MAX`, `VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT`, `TRIP_NOT_FOUND`, `LEGACY_NOT_FOUND`. Tiền trả dạng chuỗi hoặc NULL.
+HTTP: POST `/api/v7/trips/fees/add`, `/fees/set`, `/fees/replace`, `/fees/void`; GET/POST `/api/v7/fee-types`; POST `/api/v7/fee-types/update`, `/api/v7/books/fee-columns`. Lỗi: `MONTH_LOCKED`, `FEE_AMOUNT_INVALID`, `FEE_SIGN_INVALID`, `FEE_TYPE_INACTIVE`, `FEE_TYPE_SYSTEM`, `FEE_TYPE_DUPLICATE`, `FEE_LINES_TYPED`, `FEE_COLUMNS_MAX`, `VERSION_CONFLICT`, `IDEMPOTENCY_CONFLICT`, `TRIP_NOT_FOUND`, `LEGACY_NOT_FOUND`, `TRIP_PENDING_REVIEW`. Tiền trả dạng chuỗi hoặc NULL.
 
 ## Ba quyết định kỹ thuật
 
-1. **Sổ gốc:** phí ở `legacy_trip_rev.other_fee_vnd` hoặc `legacy_row.display.fee_vnd`. Dòng không tách được giữ NULL, không tạo dòng phí, không đoán từ `source_total_vnd`, ghi ID vào báo cáo migration để kiểm thủ công. Migration fail nếu tổng tiền thay đổi. Không viết lại opening.
-2. **Lệnh cũ:** giữ chữ ký để không phá `v7_price_queue` và test, nhưng dịch phí sang đặt dòng Khác trong cùng command/event; không tiếp tục ghi phí mới vào revision/adjustment một số. `edit_trip_price` vẫn sửa đơn giá; `adjust_trip(field='other_fee_vnd')` và `edit_legacy_trip(field='other_fee_vnd')` đặt Khác. Queue so tổng dòng: bằng nhau → không ghi; web chưa có dòng → ghi theo dấu; lệch và web đã có dòng → `MANUAL`; phí âm không tự MANUAL.
-3. **Lịch sử:** một `event` cho cả lệnh áp lô, before/after chứa từng target, loại, số, ghi chú và `batch_count`; lịch sử mở được danh sách chuyến. Lệnh đơn một event.
+1. **Sổ gốc:** tiền hiện tại là `counted_vnd` của ô TOTAL, không phải đơn giá + phí. Migration chỉ tạo dòng Phụ phí ban đầu để xem; không ghi `legacy_trip_rev`, không ghi adjustment, không đổi `counted_vnd`. Mỗi lệnh fee trên legacy đi qua `_change_legacy`: tính lại `counted_vnd` theo đơn giá + tổng dòng, ghi revision và adjustment phần chênh, event có counted trước/sau. `display.fee_vnd` chỉ parse số dương; phí âm thành NULL, không tạo dòng. Báo cáo migration chỉ ghi ID và số đếm, lưu ngoài repo; phải đọc trước gate deploy.
+2. **Lệnh cũ:** giữ chữ ký để không phá caller, nhưng tham số là **tổng phí chuyến**. Nếu target chỉ có dòng Khác/Phụ phí ban đầu hoặc không có dòng, bỏ các dòng đó rồi ghi một dòng theo dấu (`X>0` Khác, `X<0` Giảm trừ, `X=0/NULL` không dòng). Nếu có dòng loại khác ngoài Khác/Phụ phí ban đầu (gồm Giảm trừ), từ chối `FEE_LINES_TYPED` với thông báo sửa trong khung chi tiết; price queue xếp `MANUAL`. Đường tương thích nhận số âm. Không tiếp tục ghi phí mới vào revision/adjustment một số. Snapshot Sheet giai đoạn 1 chỉ có tổng: ghi đúng một dòng theo dấu tổng, không giả tách các ô.
+3. **Nguồn phí dùng chung:** tạo `v_trip_fee(trip_id, fee_vnd)` (NULL khi không có dòng) và nguồn legacy tương ứng. `v_outstanding_month`, `adjust_trip`, `delete_trip`, `get_ledger`, `get_dashboard`, `get_receivables_*`, các migration dashboard/receivables, `v7_price_queue.py` và `v7_price_match.py` đều đọc nguồn này; không đọc trực tiếp `other_fee_vnd` để tính tiền sau migration. Adjustment phí đã gộp có `fee_absorbed=true` và bị loại khỏi `v_adjustment_current`; adjustment không có field giữ nguyên.
+4. **Lịch sử:** một `event` cho cả lệnh áp lô, before/after chứa từng target, loại, số, ghi chú và `batch_count`; lịch sử mở được danh sách chuyến. Lệnh đơn một event.
 
 ## Migration và hoàn tác
 
-Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + adjustment phí theo công thức hàm hiện hành. Legacy dùng `_legacy_current.other_fee_vnd`. Khác NULL tạo đúng một dòng Phụ phí ban đầu; NULL không tạo. Kiểm tổng từng trip, legacy row, tháng, khách trước/sau tới từng đồng; chạy lần hai không đổi. Nếu phí hiệu quả bằng 0 thì dừng migration vì `amount_vnd <> 0`, không tự tạo 0. Rollback chỉ sau khi gộp dòng và kiểm tổng từng target/tháng/khách; không rollback nếu đã phân loại sau migration.
+Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + adjustment phí; tạo dòng Phụ phí ban đầu nếu khác 0 rồi đánh dấu adjustment phí bằng `fee_absorbed=true`, để không cộng hai lần. Legacy chỉ tạo dòng để xem, không đổi tiền. Phí hiệu quả bằng 0 không tạo dòng; chuyến có đơn giá giữ tổng như NULL theo V7-BE. Dòng phí lẻ (không container, không đơn giá) có phí 0 được đếm ở dry-run; nếu có dòng thì dừng hỏi trước áp dụng. Kiểm trước/sau trên `v_outstanding_month` và tổng `get_ledger` theo khách/tháng tới từng đồng, thêm kiểm từng target; chạy lần hai không đổi. Rollback chỉ sau khi gộp dòng và kiểm tổng từng target/tháng/khách; không rollback nếu đã phân loại sau migration.
+
+## Bảng chuyển đổi nguồn đọc
+
+| Nơi đọc cũ | Sau migration |
+| --- | --- |
+| `v_trip_current`, `v_outstanding_month` | `v_trip_fee` + adjustment chưa hấp thụ; fee NULL vẫn theo V7-BE |
+| `adjust_trip`, `delete_trip` | tổng `v_trip_fee`; snapshot ghi các dòng và counted trước/sau |
+| `get_ledger`, `get_dashboard`, `get_receivables_*` | view/hàm phí dùng chung, không `other_fee_vnd` |
+| migrations dashboard/receivables | gọi view/hàm phí dùng chung |
+| `v7_price_queue.py`, `v7_price_match.py` | tổng dòng phí; snapshot chỉ có tổng thì ghi một dòng theo dấu |
+
+Chuyến `pending_review` bị chặn như lệnh sửa giá hiện hành (`TRIP_PENDING_REVIEW`), trừ dòng fee đi kèm `paste_trips`. `replace_trip_fee` được giữ loại Phụ phí ban đầu khi chỉ sửa số/ghi chú; không chọn loại này cho dòng mới hoặc đổi loại khác sang nó. `add_trip_fees` có thể gồm legacy; mỗi legacy vẫn ghi revision/adjustment riêng cùng event.
 
 ## Nguồn quyết định
 
@@ -56,9 +72,20 @@ Transaction, idempotent. Web dùng phí hiệu quả = revision mới nhất + a
 
 VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiểu không phải số, loại hệ thống cấm chọn bị từ chối. Dòng chỉ thêm/void. Không đổi opening, khóa tháng, FIFO, NEWTRIP-01. Role app chỉ EXECUTE hàm, không DML bảng mới. Không chạy DDL trên DB thật.
 
+## Tách PR
+
+- PR-A: schema, migration, nguồn phí dùng chung, loại adjustment đã hấp thụ, mọi chỗ đọc tiền, lệnh cũ, price queue/match.
+- PR-B: lệnh add/set/replace/void, danh mục, cột riêng, HTTP và test tương ứng.
+- PR-B chờ PR-A pass harness và review. Mỗi PR có diff/nghiệm thu riêng.
+
 ## Tiêu chí nghiệm thu
 
 - [ ] Harness PostgreSQL dùng một lần: migration giữ tổng từng target/tháng/khách; NULL không thành 0; lần hai bất biến; rollback có kiểm tổng.
+- [ ] `v_outstanding_month` và tổng `get_ledger` từng khách/tháng bằng nhau trước/sau tới từng đồng; adjustment phí đã hấp thụ không còn trong `v_adjustment_current`.
+- [ ] Chuyến có adjustment phí cũ + sửa đơn giá sau migration không cộng trùng.
+- [ ] Legacy TOTAL khác đơn giá + phí: migration không đổi tổng; thêm phí tạo `counted_vnd` mới và adjustment chênh đúng.
+- [ ] Lệnh cũ trên chuyến đã tách loại trả `FEE_LINES_TYPED`; price queue xếp `MANUAL`; số âm ghi Giảm trừ.
+- [ ] Dry-run đếm dòng phí lẻ 0; nếu có dòng thì dừng trước áp dụng.
 - [ ] Ba ca V7-BE so với `tripAmount` trong `so-khach-v7-model.js`.
 - [ ] Áp 20 chuyến một lệnh, một lần phân bổ; một tháng khóa → không dòng nào vào.
 - [ ] Từ chối 0, sai dấu, overflow, loại hệ thống, replay cùng key khác payload; khóa/version/actor.
@@ -69,8 +96,8 @@ VND bigint nguyên; NULL khác 0 trừ V7-BE. Số 0, sai dấu, overflow, kiể
 
 - Agent: codex. Mockup: miễn vì không sửa UI. Review: opus.
 - Được sửa sau review: `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql`, một migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, test Python liên quan, runbook nếu migration cần. Spec này là file duy nhất sửa trong PR spec.
-- Ngân sách diff: spec ≤ 250 dòng; code/migration ≤ 1800 dòng.
-- Lệnh kiểm: `npm run check`; `node scripts/check-secrets.js`; DB harness qua `D:\webdebit\worktrees\_logs\tools\codex-check-loop.ps1` hoặc orchestrator ngoài, không chạy Docker trực tiếp.
+- Ngân sách diff: spec ≤ 250 dòng; PR-A và PR-B mỗi PR ≤ 1000 dòng, vượt thì review scope trước.
+- Lệnh kiểm: `npm run check`; `node scripts/check-secrets.js`; DB harness PostgreSQL dùng một lần theo runner/harness trong repo và CI, không chạy Docker trực tiếp từ agent.
 - Cấm: UI, PS, dependency/framework mới, DB thật/`hao`, thay opening/lock/FIFO/NEWTRIP-01, dữ liệu thật trong repo.
 
 ## Bằng chứng
@@ -79,7 +106,4 @@ Chưa code; chưa chạy harness.
 
 ## Câu hỏi mở
 
-- Danh mục dùng chung nhưng event cần `customer_id`: chọn sổ khóa và nơi hiển thị Lịch sử danh mục?
-- Phí hiệu quả bằng 0 dù nguồn có số: chính sách trước migration vì dòng mới cấm 0.
-- Legacy có `source_total_vnd` nhưng không tách `fee_vnd`: báo cáo/flag và gate deploy cụ thể.
-- Price snapshot hiện chỉ có tổng phí, không từng ô: mở rộng reader hay dùng một dòng tổng theo dấu giai đoạn 1?
+- Không còn câu hỏi chặn PR-A theo review opus. Báo cáo ID legacy không tách được phí lưu ngoài repo; người chạy phải đọc báo cáo trước gate deploy trên `hao`.
