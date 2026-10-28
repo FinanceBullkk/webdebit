@@ -1,6 +1,6 @@
 # V7: điền giá từ Sheet ("Ghi N giá")
 
-Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong chat 27/10/2026: "Mockup được, chọn nguồn giá B"). Backend và giao diện sổ khách **ĐÃ CODE** (xem Tiến độ), kiểm bằng máy chủ giả; **chưa triển khai** `hao`. Không đổi luật tiền.
+Trạng thái: **ĐÃ CHỐT** luồng và mockup (người dùng duyệt trong chat 27/10/2026: "Mockup được, chọn nguồn giá B"). Backend và giao diện sổ khách **ĐÃ CODE** (xem Tiến độ), kiểm bằng máy chủ giả. **ĐÃ TRIỂN KHAI trên `hao` tối 27/10/2026** (release `522556f`, runner giá 15 phút một lần; bằng chứng ở [runbook](../docs/v7-deploy-runbook.md#ghi-giá-từ-sheet--đổi-release-app-và-thêm-runner-bản-chụp-giá)). Không đổi luật tiền.
 
 ## Người dùng và luồng (bước 1)
 
@@ -124,8 +124,8 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - `v7_load_real_copy` tách thành `workbook_rows` (đọc xlsx) và `scan_tabs` (phân tích tab, dùng chung cho cả hai đường).
 - Chạy `v7_price_snapshot.py --spreadsheet-id … --credentials …`: cùng tài khoản dịch vụ và quyền `spreadsheets.readonly` như `sheet_sync_runner.py`, không xin thêm quyền.
 - Kiểm tương đương trên bản tải 27/10 (chỉ đọc, ngoài Git): dựng phản hồi dạng API từ ô thô của chính file đó rồi cho qua bộ chuyển. Kết quả 247/247 tab và 11.609 dòng giống đường xlsx, trừ 1 ô container gõ nhầm thành số: xlsx lưu `4.2E7`, đường API ra `42000000`; giá và tiền không đổi.
-- **Chưa kiểm** với Sheets API thật: cần tài khoản dịch vụ trên `hao`. Lần chạy đầu trên `hao` phải so hash/số dòng với bản tạo từ `.xlsx` cùng thời điểm.
-- Lịch chạy: đặt cạnh lịch của `sheet_sync_runner.py` (ngoài repo, khi triển khai). Mỗi lần chạy khoảng 11 yêu cầu API.
+- **Đã chạy với Sheets API thật trên `hao`** từ tối 27/10/2026: 40 lượt liên tiếp thành công tới 11:30 ngày 28/10 (giờ VN), mỗi lượt 10.358 dòng. Bằng chứng so với `.xlsx` cùng thời điểm (runbook P4) không có trong repo.
+- Lịch chạy: `webdebit-sheet-prices.timer` 15 phút một lần, cùng nhịp `webdebit-sheet-sync.timer`. Mỗi lần chạy khoảng 11 yêu cầu API. Giá trên Sheet hiện lên web sau lượt chụp kế tiếp và khi tải lại sổ, không phải thời gian thực.
 
 **Kiểm chỉ đọc trên dữ liệu thật** (bản tải 27/10, sổ `hao` qua API GET, kết quả ngoài Git): bản chụp 10.358 dòng; hàng chờ từng khách cho tổng `READY` 36 ở 3 khách (khớp số đo); "Cần xem" 43 dòng ở 10 khách (40 khớp nhiều chuyến có chuyến chưa giá, 3 lệch giá).
 
@@ -134,7 +134,7 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - Ghi nguồn tab/dòng Sheet vào Lịch sử `price_edit`.
 - Đếm "N giá từ Sheet chờ ghi" ở Tổng quan (cần tính trên mọi khách).
 - Harness PostgreSQL cho lô giá.
-- Triển khai `hao`: các bước đã soạn ở [runbook, mục Ghi giá từ Sheet](../docs/v7-deploy-runbook.md#ghi-giá-từ-sheet--đổi-release-app-và-thêm-runner-bản-chụp-giá-đề-xuất-chưa-chạy). **CHƯA CHẠY**; cần người dùng cho phép.
+- Triển khai `hao`: **ĐÃ TRIỂN KHAI** 27/10/2026 theo [runbook, mục Ghi giá từ Sheet](../docs/v7-deploy-runbook.md#ghi-giá-từ-sheet--đổi-release-app-và-thêm-runner-bản-chụp-giá). Chưa có bằng chứng trong repo cho lần ghi thật đầu tiên.
 
 ## Tiến độ giao diện (27/10/2026)
 
@@ -156,4 +156,4 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - Playwright 1280×720, máy chủ giả, 3 test: ghi cả lô, Sheet đổi giữa chừng, mục "Cần xem".
 - Test model cho tổng tăng, phụ phí null và số âm.
 - `npm run check` xanh.
-- Chưa kiểm trên `hao`, chưa có người dùng đi hết luồng (bước 8).
+- Trên `hao` (28/10/2026): người dùng thấy nút "Ghi N giá từ Sheet" và dòng vàng "giá Sheet / chưa tính" trên sổ khách thật. Chưa có người dùng đi hết luồng ghi (bước 8).

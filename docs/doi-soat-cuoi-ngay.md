@@ -52,7 +52,7 @@ Màn hình PowerShell in một dòng kết luận:
 
 Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output error`, đó là lỗi đọc/ghi, **không** phải kết quả. Báo lại.
 
-Để xem chi tiết, mở file `ket-quaeconcile_report.html` (bấm đúp, mở bằng trình duyệt). Đầu trang ghi **ĐỐI SOÁT: ĐẠT** hoặc **ĐỐI SOÁT: KHÔNG ĐẠT**. Bên dưới là bảng từng khách gồm tổng Sheet, tổng web, chênh lệch và trạng thái. Dòng xanh là khớp, dòng đỏ là cần xem.
+Để xem chi tiết, mở file `ket-qua\reconcile_report.html` (bấm đúp, mở bằng trình duyệt). Đầu trang ghi **ĐỐI SOÁT: ĐẠT** hoặc **ĐỐI SOÁT: KHÔNG ĐẠT**. Bên dưới là bảng từng khách gồm tổng Sheet, tổng web, chênh lệch và trạng thái. Dòng xanh là khớp, dòng đỏ là cần xem.
 
 | Trạng thái | Nghĩa |
 | --- | --- |
@@ -64,11 +64,11 @@ Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output err
 
 ## Bước 5. Khi lệch
 
-Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web − Sheet**. Nếu cần lọc hay sắp xếp, mở `ket-quaeconcile_customer.csv` bằng Excel; file này có cùng số liệu.
+Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web − Sheet**. Nếu cần lọc hay sắp xếp, mở `ket-qua\reconcile_customer.csv` bằng Excel; file này có cùng số liệu.
 
 | Chênh lệch | Hay gặp do | Sửa trên web |
 | --- | --- | --- |
-| Âm (web ít hơn) | Chuyến đồng bộ từ Sheet còn **chưa điền giá**; chuyến mới chưa bấm duyệt; chuyến đang CHỜ KIỂM | Điền giá; bấm "Duyệt … chuyến mới"; kết luận CHỜ KIỂM |
+| Âm (web ít hơn) | Chuyến đồng bộ từ Sheet còn **chưa điền giá**; chuyến mới chưa bấm duyệt; chuyến đang CHỜ KIỂM | Bấm "Ghi N giá từ Sheet" (giá Sheet cập nhật 15 phút một lần) hoặc điền giá tay; bấm "Duyệt … chuyến mới"; kết luận CHỜ KIỂM |
 | Dương (web nhiều hơn) | **Phiếu thu** trên Sheet chưa nhập lên web; Sheet đã sửa giá/xóa dòng mà web chưa theo | Nhập phiếu thu; sửa ô cho giống Sheet |
 
 Tháng đã khóa thì mở khóa trước khi sửa chuyến (phiếu thu vẫn nhập được). Sửa xong, chạy lại **bước 3** với thư mục kết quả mới. Không sửa được hoặc không hiểu vì sao lệch: ghi lại tên khách và số chênh, báo chủ nghiệp vụ.
