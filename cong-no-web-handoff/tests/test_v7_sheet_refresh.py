@@ -42,7 +42,6 @@ class SheetRefreshTest(unittest.TestCase):
         self.touch(self.prices, 590)
         before = refresh.status(self.signal, self.paths, self.now)
         self.assertEqual(before["state"], "idle")
-        self.assertFalse(before["recent"])
         result = refresh.request(self.signal, self.paths, "nguoi@nhap", time.time())
         self.assertEqual(result["state"], "running")
         self.assertEqual(json.loads(Path(self.signal).read_text(encoding="utf-8"))["actor"], "nguoi@nhap")
@@ -61,13 +60,14 @@ class SheetRefreshTest(unittest.TestCase):
         self.assertEqual(result["state"], "idle")
         self.assertEqual(result["sheet_at"], refresh._iso(self.now - 100))   # bản cũ hơn trong hai file
 
-    def test_recent_snapshot_is_not_read_again(self):
+    def test_can_refresh_again_right_after_a_run(self):
+        self.touch(self.signal, 30)
         self.touch(self.trips, 20)
-        self.touch(self.prices, 10)
-        result = refresh.request(self.signal, self.paths, "a@b", self.now)
-        self.assertEqual(result["state"], "idle")
-        self.assertTrue(result["recent"])
-        self.assertFalse(Path(self.signal).exists())
+        self.touch(self.prices, 10)   # lượt trước vừa xong 10 giây trước
+        self.assertEqual(refresh.status(self.signal, self.paths, self.now)["state"], "idle")
+        result = refresh.request(self.signal, self.paths, "a@b", time.time())
+        self.assertEqual(result["state"], "running")
+        self.assertEqual(json.loads(Path(self.signal).read_text(encoding="utf-8"))["actor"], "a@b")
 
     def test_failed_after_three_minutes_and_can_retry(self):
         self.touch(self.trips, 900)

@@ -608,8 +608,8 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
   world.sheetRefresh = method => {
     if (method === 'POST') state = state === 'broken' ? 'failed' : 'running';
     else if (state === 'running') state = 'done';
-    if (state === 'done') return { state: 'idle', sheet_at: fresh, requested_at: old, recent: true };
-    return { state, sheet_at: old, requested_at: state === 'idle' ? null : old, recent: false };
+    if (state === 'done') return { state: 'idle', sheet_at: fresh, requested_at: old };
+    return { state, sheet_at: old, requested_at: state === 'idle' ? null : old };
   };
   await page.locator('#refresh-data').click();   // lần đầu: chưa bật lúc mở trang, giờ bật
   const status = page.locator('#updated-at');
@@ -623,6 +623,10 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
   assert.ok(world.reads > reads, 'lấy xong thì tải lại sổ');
   assert.equal(await page.locator('#refresh-data').getAttribute('aria-busy'), 'false');
   await shot('lam-moi-xong');
+  await page.locator('#refresh-data').click();   // bấm lại ngay sau khi xong: chạy lượt mới
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Đang lấy từ Sheet'));
+  assert.equal(world.refreshCalls.filter(method => method === 'POST').length, 2);
+  await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Sheet vừa lấy lúc 11:52'), null, { timeout: 15000 });
 
   const amount = page.locator('.receipt-amount').first();
   await amount.fill('123');

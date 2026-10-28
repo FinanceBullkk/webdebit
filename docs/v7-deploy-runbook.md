@@ -885,12 +885,7 @@ Type=oneshot
 ExecStart=/bin/true
 ```
 
-Drop-in `/etc/systemd/system/webdebit-sheet-prices.service.d/after-sync.conf`, để chụp giá sau chuyến:
-
-```ini
-[Unit]
-After=webdebit-sheet-sync.service
-```
+Hai runner chạy song song, không đặt thứ tự: hàng chờ giá ghép với sổ web trong DB, không đọc bản chụp chuyến. (Bản đầu có drop-in `webdebit-sheet-prices.service.d/after-sync.conf` với `After=webdebit-sheet-sync.service`; bỏ ngày 28/10/2026 để nút nhanh hơn. Gỡ: xóa file đó rồi `sudo systemctl daemon-reload`.)
 
 - `PathChanged` bắt sự kiện đóng file sau khi ghi; API ghi thẳng, không đổi tên file.
 - Hai runner giữ nguyên unit, user `v7app`, quyền chỉ đọc. Đang chạy thì systemd gộp yêu cầu vào lượt đang chạy.
@@ -923,7 +918,7 @@ sudo systemctl restart v7-ledger-api.service
 ### R3. Kiểm
 
 - `GET /api/v7/sheet/refresh` trả `state: idle` và `sheet_at` bằng giờ lượt 15 phút gần nhất.
-- Bấm "↻ Làm mới" trên sổ khách: chữ đổi "Đang lấy từ Sheet…"; `journalctl -u webdebit-sheet-sync.service -u webdebit-sheet-prices.service` có một lượt ngoài phút 00/15/30/45, chuyến chạy trước giá; khoảng 1 phút sau chữ đổi "Sheet vừa lấy lúc …".
+- Bấm "↻ Làm mới" trên sổ khách: chữ đổi "Đang lấy từ Sheet…"; `journalctl -u webdebit-sheet-sync.service -u webdebit-sheet-prices.service` có một lượt ngoài phút 00/15/30/45, hai runner bắt đầu cùng lúc; xong cả hai thì chữ đổi "Sheet vừa lấy lúc …". Bấm lại ngay sau đó phải chạy được lượt mới.
 - Số dư từng khách không đổi, không có event mới (nút không ghi sổ).
 
 ### Rollback

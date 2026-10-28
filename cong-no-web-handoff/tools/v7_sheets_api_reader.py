@@ -13,12 +13,14 @@ import re
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import v7_load_real_copy as loader
 
 API = "https://sheets.googleapis.com/v4/spreadsheets/"
 BATCH = 25   # ranges per batchGet; keeps the URL short with long Vietnamese tab names
+WORKERS = 4  # batchGet calls in flight; about 11 requests a run stays far below the per-minute quota
 
 
 def cell_text(value: Any) -> str:
@@ -68,12 +70,18 @@ def fetch_tabs(spreadsheet_id: str, token: str,
     titles = [sheet["properties"]["title"] for sheet in meta.get("sheets", [])]
     chosen = {name.strip() for name in loader.PREFERRED_RAW_TABS}
     titles = [t for t in titles if not (t.strip() in chosen and t not in loader.PREFERRED_RAW_TABS)]
-    for start in range(0, len(titles), BATCH):
-        batch = titles[start:start + BATCH]
+    batches = [titles[start:start + BATCH] for start in range(0, len(titles), BATCH)]
+
+    def fetch(batch: list[str]) -> dict:
         query = [("ranges", quote(title)) for title in batch] + [
             ("valueRenderOption", "UNFORMATTED_VALUE"), ("dateTimeRenderOption", "SERIAL_NUMBER"),
             ("majorDimension", "ROWS")]
-        payload = get(base + "/values:batchGet?" + urllib.parse.urlencode(query))
+        return get(base + "/values:batchGet?" + urllib.parse.urlencode(query))
+
+    # Tải các lô song song (nút "Làm mới" cần nhanh); map giữ đúng thứ tự tab như đọc tuần tự.
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        payloads = list(pool.map(fetch, batches))
+    for batch, payload in zip(batches, payloads, strict=True):
         ranges = payload.get("valueRanges", [])
         if len(ranges) != len(batch):
             raise ValueError("Sheets API returned a different number of tabs")
