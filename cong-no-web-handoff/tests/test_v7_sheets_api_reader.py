@@ -83,10 +83,11 @@ class ReaderTest(unittest.TestCase):
             self.assertTrue(via_api)
 
     def test_quotes_tab_names_batches_and_rejects_short_answers(self):
-        tabs = {f"KHÁCH '{n}'": [["x"]] for n in range(reader.BATCH + 2)}
+        tabs = {f"KHÁCH '{n}'": [["x"]] for n in range(reader.BATCH * 5 + 2)}
         opener = FakeOpener(tabs)
+        # Các lô tải song song nhưng thứ tự tab trả ra vẫn đúng như trên Sheet.
         self.assertEqual([t for t, _ in reader.fetch_tabs(SHEET_ID, "fake-token", opener)], list(tabs))
-        self.assertEqual(sum("batchGet" in u for u in opener.urls), 2)
+        self.assertEqual(sum("batchGet" in u for u in opener.urls), 6)
 
         class Short(FakeOpener):
             def __call__(self, request, timeout):

@@ -3,11 +3,11 @@
 | Trạng thái | Phạm vi |
 | --- | --- |
 | ĐÃ CHỐT | Người dùng chọn cách 2 (GitHub Action đẩy qua Tailscale), 23/10/2026 |
-| ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt |
+| ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt. **28/10/2026:** người dùng bỏ *Required reviewers* (dự án chỉ một người làm), Environment chỉ còn luật nhánh `main`; kiểm bằng GitHub API cùng ngày |
 | ĐÃ KIỂM CHỨNG | Lượt `Deploy hao` xanh trên GitHub cho commit `3608c9d` (từ đầu tới cuối: Tailscale, SSH, đẩy gói, restart, kiểm sống). Script thử trong Docker với `systemctl`/`curl` giả: deploy, tự quay lại khi kiểm sống lỗi, bỏ qua cùng SHA, từ chối SHA sai |
 | CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; action dùng tag (`@v4`, `@v3`), nên ghim SHA |
 
-Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` chờ người duyệt (Environment `hao`)
+Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
 trên `hao` nhận gói mã, đổi symlink release, restart service, kiểm sống, lỗi thì tự quay lại bản trước.
 Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run workflow, nhập SHA đầy đủ.
@@ -41,7 +41,7 @@ Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run w
    "mọi thiết bị vào mọi thiết bị" (`"src": ["*"]`) thì quy tắc hẹp cho `tag:ci` vô tác dụng: thu hẹp quy tắc cũ về
    `autogroup:member` và thêm grant `tag:ci` → `hao` chỉ `tcp:22` (dùng `hosts` map cho `hao`).
    Máy nào gắn tag sẽ mất quyền ra ngoài sau khi thu hẹp: kiểm trước.
-7. **GitHub:** Settings → Environments → `hao`, bật *Required reviewers*. Secrets: `HAO_SSH_USER`,
+7. **GitHub:** Settings → Environments → `hao`, giới hạn *Deployment branches* về `main` (không bật *Required reviewers*: người dùng bỏ 28/10/2026). Secrets: `HAO_SSH_USER`,
    `HAO_SSH_KEY_B64` (private key base64 một dòng: `sudo base64 -w0 /tmp/<khóa>`; dán nhiều dòng từ terminal làm hỏng
    định dạng, lỗi `libcrypto`), `HAO_TS_OAUTH_CLIENT_ID`, `HAO_TS_OAUTH_SECRET`. Variables: `HAO_SSH_HOST` (tên Tailscale),
    `HAO_SSH_KNOWN_HOSTS` (một dòng `<tên> ssh-ed25519 <khóa>` lấy từ `/etc/ssh/ssh_host_ed25519_key.pub` trên `hao`;
@@ -59,7 +59,8 @@ Chạy lại một SHA bất kỳ trên `main`: Actions → Deploy hao → Run w
 ## Rủi ro còn lại
 
 - GitHub giữ khóa SSH và OAuth Tailscale. Giảm bằng: khóa chỉ chạy một lệnh, ACL tag hẹp, `AllowUsers` giới hạn dải
-  Tailscale, bắt buộc người duyệt, workflow chỉ chạy từ `main`.
+  Tailscale, workflow chỉ chạy từ `main` sau `Tests` xanh. Không còn người duyệt (bỏ 28/10/2026): merge vào `main` là lên `hao`,
+  trừ diff có migration/SQL/loader vẫn bị chặn và làm tay.
 - Ai sửa được `main` thì sửa được thứ được deploy: giữ nhánh `main` bảo vệ (PR + CI xanh).
 
 ## Rollback

@@ -5,27 +5,27 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.SheetRefresh = api;
 }(typeof self !== 'undefined' ? self : this, function () {
-  const POLL_MS = 5000;
+  const POLL_MS = 2000;
   const clock = iso => new Date(iso).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' });
 
   // Chữ cạnh nút cho từng trạng thái; null nghĩa là để trang tự ghi như cũ.
-  function label(status, asked) {
+  function label(status, justDone = false) {
     if (!status || status.state === 'unavailable') return null;
     const at = status.sheet_at ? clock(status.sheet_at) : null;
     if (status.state === 'running') return { text: 'Đang lấy từ Sheet… (khoảng 1 phút)', busy: true };
     if (status.state === 'failed') return { text: at ? `Chưa lấy được từ Sheet, đang dùng bản lúc ${at}` : 'Chưa lấy được từ Sheet', error: true };
     if (!at) return null;
-    if (asked && status.recent) return { text: `Sheet vừa lấy lúc ${at}` };
+    if (justDone) return { text: `Sheet vừa lấy lúc ${at}` };
     return { text: `Sheet lúc ${at} · tự tải mỗi 60 giây` };
   }
 
   function create({ node, button, onDone = () => {}, fetcher = fetch, timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: id => clearTimeout(id) } }) {
     let status = null;
-    let asked = false;
     let timer = null;
+    let doneAt = null;   // giờ bản chụp của lượt bấm tay vừa xong: báo "vừa lấy" tới khi có bản khác
 
     function paint() {
-      const view = label(status, asked);
+      const view = label(status, !!doneAt && status?.state === 'idle' && status.sheet_at === doneAt);
       if (!view || !node) return;
       node.replaceChildren();
       if (view.busy) {
@@ -51,8 +51,9 @@
 
     async function apply(next) {
       const wasRunning = status?.state === 'running';
+      if (wasRunning && next?.state === 'idle') doneAt = next.sheet_at;
       if (next) status = next;
-      else if (asked && wasRunning) status = { ...status, state: 'failed' };
+      else if (wasRunning) status = { ...status, state: 'failed' };
       timers.clearTimeout(timer);
       timer = null;
       if (status?.state === 'running') timer = timers.setTimeout(() => { load(); }, POLL_MS);
@@ -62,10 +63,9 @@
 
     async function load() { await apply(await call('GET')); }
 
-    // Bấm tay: gửi yêu cầu, rồi hỏi lại 5 giây một lần tới khi xong.
+    // Bấm tay: gửi yêu cầu, rồi hỏi lại 2 giây một lần tới khi xong.
     async function trigger() {
       if (status?.state === 'running') { paint(); return; }
-      asked = true;
       const next = await call('POST');
       if (!next && status && status.state !== 'unavailable') status = { ...status, state: 'failed' };
       await apply(next);

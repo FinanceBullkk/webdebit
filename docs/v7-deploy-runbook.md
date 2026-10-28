@@ -847,9 +847,13 @@ sudo systemctl enable --now webdebit-sheet-prices.timer
 - Số đếm ở trang Tổng quan chưa có.
 - Harness PostgreSQL cho lệnh ghi lô chưa có: lệnh ghi lô chỉ gọi hai hàm SQL đã có test.
 
-## Nút "Làm mới" đọc Sheet ngay — cài unit `.path` (ĐỀ XUẤT, CHƯA CHẠY)
+## Nút "Làm mới" đọc Sheet ngay — cài unit `.path` (ĐÃ CHẠY trên hao 28/10/2026)
 
 Phạm vi: spec [`specs/v7-sheet-refresh.md`](../specs/v7-sheet-refresh.md). Không migration, không đổi DB, không thêm quyền đọc Sheet.
+
+**Đã chạy 28/10/2026** (người dùng cho phép trong chat): cài R1–R2 lúc 12:41 (giờ VN), release `5e0b184` lên lúc 12:54. Bấm thật lúc 12:56 trên sổ khách: chữ "Đang lấy từ Sheet…" rồi "Sheet vừa lấy lúc 12:56"; log có lượt ngoài lịch, chuyến 12 giây rồi giá 25 giây, `"ok": true`; file tín hiệu ghi đúng người bấm; dữ liệu `/api/v7/dashboard` trước và sau giống hệt. Trạng thái unit trước khi sửa lưu ở thư mục bằng chứng ngoài Git.
+
+**Lỗi gặp khi triển khai:** `v7-ledger-api.service` chạy với `ProtectSystem=strict`, nên lần bấm đầu API trả 503 `SHEET_REFRESH_UNAVAILABLE` (không ghi được file tín hiệu). Đã sửa bằng `ReadWritePaths` cho đúng một file ở R2. File tín hiệu phải có sẵn trước khi khởi động API (systemd bind đúng file đó).
 
 **Đổi release:** code chỉ nằm trong `cong-no-web-handoff/{web,preview}`, nên luồng [tự triển khai](hao-auto-deploy.md) đưa lên sau khi merge. Chưa đặt biến môi trường thì API trả `unavailable`, nút "Làm mới" giữ cách cũ. Các bước dưới cần người dùng cho phép riêng.
 
@@ -881,12 +885,7 @@ Type=oneshot
 ExecStart=/bin/true
 ```
 
-Drop-in `/etc/systemd/system/webdebit-sheet-prices.service.d/after-sync.conf`, để chụp giá sau chuyến:
-
-```ini
-[Unit]
-After=webdebit-sheet-sync.service
-```
+Hai runner chạy song song, không đặt thứ tự: hàng chờ giá ghép với sổ web trong DB, không đọc bản chụp chuyến. (Bản đầu có drop-in `webdebit-sheet-prices.service.d/after-sync.conf` với `After=webdebit-sheet-sync.service`; bỏ ngày 28/10/2026 để nút nhanh hơn. Gỡ: xóa file đó rồi `sudo systemctl daemon-reload`.)
 
 - `PathChanged` bắt sự kiện đóng file sau khi ghi; API ghi thẳng, không đổi tên file.
 - Hai runner giữ nguyên unit, user `v7app`, quyền chỉ đọc. Đang chạy thì systemd gộp yêu cầu vào lượt đang chạy.
@@ -898,9 +897,11 @@ Drop-in cho `v7-ledger-api.service` (cùng thư mục với `customer-name-mappi
 ```ini
 [Service]
 Environment=WEBDEBIT_SHEET_REFRESH_PATH=/var/lib/webdebit-sheet-sync/refresh.request
+# ProtectSystem=strict: chỉ mở ghi đúng file tín hiệu, không mở cả thư mục bản chụp.
+ReadWritePaths=/var/lib/webdebit-sheet-sync/refresh.request
 ```
 
-API chạy bằng `v7app` nên ghi được file trong thư mục đó. Sau đó:
+API chạy bằng `v7app`. Tạo sẵn file tín hiệu (chủ `v7app`) trước khi restart API, ví dụ `sudo -u v7app touch /var/lib/webdebit-sheet-sync/refresh.request`; lệnh này cũng làm runner chạy một lượt. Sau đó:
 
 ```bash
 sudo systemctl daemon-reload
@@ -917,7 +918,7 @@ sudo systemctl restart v7-ledger-api.service
 ### R3. Kiểm
 
 - `GET /api/v7/sheet/refresh` trả `state: idle` và `sheet_at` bằng giờ lượt 15 phút gần nhất.
-- Bấm "↻ Làm mới" trên sổ khách: chữ đổi "Đang lấy từ Sheet…"; `journalctl -u webdebit-sheet-sync.service -u webdebit-sheet-prices.service` có một lượt ngoài phút 00/15/30/45, chuyến chạy trước giá; khoảng 1 phút sau chữ đổi "Sheet vừa lấy lúc …".
+- Bấm "↻ Làm mới" trên sổ khách: chữ đổi "Đang lấy từ Sheet…"; `journalctl -u webdebit-sheet-sync.service -u webdebit-sheet-prices.service` có một lượt ngoài phút 00/15/30/45, hai runner bắt đầu cùng lúc; xong cả hai thì chữ đổi "Sheet vừa lấy lúc …". Bấm lại ngay sau đó phải chạy được lượt mới.
 - Số dư từng khách không đổi, không có event mới (nút không ghi sổ).
 
 ### Rollback

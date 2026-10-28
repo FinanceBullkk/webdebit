@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 RUNNING_LIMIT_SECONDS = 180   # quá 3 phút chưa có bản chụp mới thì báo chưa lấy được
-RECENT_SECONDS = 60           # bản chụp mới hơn 1 phút thì không đọc lại
 
 
 def _mtime(path: str | os.PathLike[str]) -> float | None:
@@ -28,9 +27,9 @@ def _iso(seconds: float | None) -> str | None:
 
 
 def status(signal_path: str | None, snapshot_paths: tuple[str, ...], now: float) -> dict:
-    """Return {state, sheet_at, requested_at, recent} for the refresh button."""
+    """Return {state, sheet_at, requested_at} for the refresh button."""
     if not signal_path:
-        return {"state": "unavailable", "sheet_at": None, "requested_at": None, "recent": False}
+        return {"state": "unavailable", "sheet_at": None, "requested_at": None}
     times = [_mtime(path) for path in snapshot_paths]
     # Giờ của bản đang dùng là bản cũ hơn trong hai file: chuyến và giá phải cùng mới.
     sheet_at = None if any(value is None for value in times) else min(times)
@@ -39,14 +38,17 @@ def status(signal_path: str | None, snapshot_paths: tuple[str, ...], now: float)
         state = "running" if now - requested_at <= RUNNING_LIMIT_SECONDS else "failed"
     else:
         state = "idle"
-    recent = state == "idle" and sheet_at is not None and now - sheet_at < RECENT_SECONDS
-    return {"state": state, "sheet_at": _iso(sheet_at), "requested_at": _iso(requested_at), "recent": recent}
+    return {"state": state, "sheet_at": _iso(sheet_at), "requested_at": _iso(requested_at)}
 
 
 def request(signal_path: str | None, snapshot_paths: tuple[str, ...], actor: str, now: float) -> dict:
-    """Write the signal unless a run is pending or the snapshot is fresh; return the new status."""
+    """Write the signal unless a run is pending; return the new status.
+
+    No minimum gap between runs: a run takes at least ~10 seconds and a click while running is
+    merged into it, so even repeated clicks stay far below the Sheets API per-minute quota.
+    """
     current = status(signal_path, snapshot_paths, now)
-    if current["state"] in ("unavailable", "running") or current["recent"]:
+    if current["state"] in ("unavailable", "running"):
         return current
     # Ghi thẳng (không đổi tên file) để unit .path thấy sự kiện đóng file sau khi ghi.
     with open(signal_path, "w", encoding="utf-8") as stream:
