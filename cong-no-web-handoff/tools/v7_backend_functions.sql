@@ -825,40 +825,63 @@ BEGIN
             'version',v_version,'months','[]'::jsonb,'source_exceptions',v_flags,
             'total_outstanding_vnd',NULL);
     END IF;
-    WITH visible_months AS (
-      SELECT debt_month,outstanding_vnd,end_of_month_vnd FROM sokhach.v_month_chain
-      WHERE v_month_chain.customer_id=get_ledger.customer_id
-      UNION ALL
-      SELECT DISTINCT t.debt_month,0::bigint,
-          coalesce((SELECT sum(v.outstanding_vnd)::bigint FROM sokhach.v_outstanding_month v
-              WHERE v.customer_id=t.customer_id AND v.debt_month<=t.debt_month),0)
-      FROM sokhach.v_trip_current t WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id
-        AND NOT EXISTS (SELECT 1 FROM sokhach.v_month_chain v
-            WHERE v.customer_id=t.customer_id AND v.debt_month=t.debt_month)
-    )
-    SELECT coalesce(jsonb_agg(jsonb_build_object('month',debt_month,
-        'outstanding_vnd',outstanding_vnd::text,'end_of_month_vnd',end_of_month_vnd::text,
-        'prior_months_vnd',(end_of_month_vnd-outstanding_vnd)::text,
-        'charges_vnd',(coalesce((SELECT sum(CASE WHEN p.unit_price_vnd IS NOT NULL
+    -- DA-THU-01 (28/10/2026): dòng Tổng tháng cộng như Sheet. Đã thu = phiếu chưa hủy có ngày thu trong
+    -- tháng (đủ số tiền) trừ cấn trừ đi và khoản thu sổ gốc đã xóa; tháng có số Sheet lấy phát sinh/đã thu
+    -- của Sheet thay số dư đầu.
+    -- Còn nợ cộng dồn tính lùi từ tổng còn nợ nên tháng cuối luôn bằng tổng; outstanding_vnd vẫn là
+    -- nợ còn lại của kỳ sau phân bổ nợ cũ trước (tuổi nợ, đối soát), không đổi.
+    WITH active_cutover AS (
+      SELECT cc.cutover_id FROM sokhach.cutover_customer cc JOIN sokhach.cutover c ON c.id=cc.cutover_id
+      WHERE cc.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active'
+    ), month_keys AS (
+      SELECT v.debt_month FROM sokhach.v_outstanding_month v WHERE v.customer_id=get_ledger.customer_id
+      UNION SELECT t.debt_month FROM sokhach.v_trip_current t
+        WHERE NOT t.deleted AND t.customer_id=get_ledger.customer_id
+      UNION SELECT date_trunc('month',r.date)::date FROM sokhach.receipt r
+        WHERE r.customer_id=get_ledger.customer_id AND r.voided_on IS NULL
+    ), figures AS (
+      SELECT k.debt_month,
+        coalesce((SELECT v.outstanding_vnd FROM sokhach.v_outstanding_month v
+            WHERE v.customer_id=get_ledger.customer_id AND v.debt_month=k.debt_month),0)::bigint AS outstanding_vnd,
+        coalesce(s.source_charge_vnd,(SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
+            JOIN active_cutover a ON a.cutover_id=o.cutover_id
+            WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=k.debt_month),0)
+        +coalesce((SELECT sum(CASE WHEN p.unit_price_vnd IS NOT NULL
             THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
             WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END)
             FROM sokhach.v_trip_current t LEFT JOIN LATERAL
               (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev
                WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-            WHERE t.customer_id=get_ledger.customer_id AND t.debt_month=visible_months.debt_month AND NOT t.deleted AND t.status='confirmed'),0)
-            +coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
-                WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=visible_months.debt_month),0)
-            +coalesce((SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
-                JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(o.customer_id,o.cutover_id)
-                JOIN sokhach.cutover c ON c.id=cc.cutover_id
-                WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=visible_months.debt_month
-                  AND cc.status='active' AND c.status='active'),0))::text,
-        'received_vnd',(coalesce((SELECT sum(l.amount_vnd) FROM sokhach.v_receipt_line_active l
-            WHERE l.customer_id=get_ledger.customer_id AND l.debt_month=visible_months.debt_month),0)
-            -coalesce((SELECT sum(o.amount_vnd) FROM sokhach.v_offset_outgoing o
-                WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=visible_months.debt_month),0))::text)
+            WHERE t.customer_id=get_ledger.customer_id AND t.debt_month=k.debt_month AND NOT t.deleted AND t.status='confirmed'),0)
+        +coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
+            LEFT JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id
+            WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=k.debt_month
+              AND lr.kind IS DISTINCT FROM 'receipt'),0) AS charges_vnd,
+        coalesce(s.source_receipt_vnd,0)
+        +coalesce((SELECT sum(r.amount_vnd) FROM sokhach.receipt r
+            WHERE r.customer_id=get_ledger.customer_id AND r.voided_on IS NULL
+              AND date_trunc('month',r.date)::date=k.debt_month),0)
+        -coalesce((SELECT sum(o.amount_vnd) FROM sokhach.v_offset_outgoing o
+            WHERE o.customer_id=get_ledger.customer_id AND o.debt_month=k.debt_month),0)
+        -- Sửa/xóa khoản thu sổ gốc (XOA-THU-GOC-01) đổi tiền thu của tháng đó, không phải phát sinh.
+        -coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
+            JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id AND lr.kind='receipt'
+            WHERE a.customer_id=get_ledger.customer_id AND a.debt_month=k.debt_month),0) AS received_vnd
+      FROM month_keys k LEFT JOIN LATERAL (SELECT m.source_charge_vnd,m.source_receipt_vnd
+          FROM sokhach.cutover_month_check m JOIN active_cutover a ON a.cutover_id=m.cutover_id
+          WHERE m.customer_id=get_ledger.customer_id AND m.debt_month=k.debt_month
+            AND m.source_charge_vnd IS NOT NULL AND m.source_receipt_vnd IS NOT NULL) s ON true
+    ), chain AS (
+      SELECT f.*,(sum(f.outstanding_vnd) OVER () - coalesce(sum(f.charges_vnd-f.received_vnd) OVER
+          (ORDER BY f.debt_month ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING),0))::bigint AS end_of_month_vnd
+      FROM figures f
+    )
+    SELECT coalesce(jsonb_agg(jsonb_build_object('month',debt_month,
+        'outstanding_vnd',outstanding_vnd::text,'end_of_month_vnd',end_of_month_vnd::text,
+        'prior_months_vnd',(end_of_month_vnd-charges_vnd+received_vnd)::text,
+        'charges_vnd',charges_vnd::text,'received_vnd',received_vnd::text)
         ORDER BY debt_month),'[]'::jsonb),coalesce(sum(outstanding_vnd),0)
-    INTO v_months,v_total FROM visible_months;
+    INTO v_months,v_total FROM chain;
     SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,
         'event_date',t.event_date,'container',t.container,'carrier',t.carrier,'shipper',t.shipper,'status',t.status,'booking',t.booking,
         'review_reason',coalesce((SELECT e."after"->>'review_reason' FROM sokhach.trip_info_rev r

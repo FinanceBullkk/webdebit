@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql"
+# DA-THU-01 chạy sau và thay get_ledger; bản chuẩn phải bằng migration mới nhất.
+LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -24,10 +26,13 @@ class FeeSqlSync(unittest.TestCase):
         canonical = FUNCTIONS.read_text(encoding="utf-8")
         for name in ("_fee_cache_check", "_sync_trip_fee", "_guard_fee_line", "v7_fee_migration_dry_run",
                      "paste_trips", "_change_legacy", "_compat_trip_fee",
-                     "edit_trip_price", "adjust_trip", "get_ledger"):
+                     "edit_trip_price", "adjust_trip"):
             with self.subTest(name=name):
                 self.assertEqual(definition(migration, "FUNCTION", name),
                                  definition(canonical, "FUNCTION", name))
+        with self.subTest(name="get_ledger"):
+            self.assertEqual(definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
+                             definition(canonical, "FUNCTION", "get_ledger"))
         self.assertEqual(definition(migration, "VIEW", "v_adjustment_current"),
                          definition(canonical, "VIEW", "v_adjustment_current"))
         schema = SCHEMA.read_text(encoding="utf-8")
