@@ -925,6 +925,28 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
+## Phụ phí PR-A — nâng DB đang có (ĐÃ CHẠY trên hao 28/10/2026)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql` (PR #117), spec
+[`specs/v7-phu-phi-backend.md`](../specs/v7-phu-phi-backend.md). Auto-deploy dừng ở gate SQL như thiết kế;
+người dùng cho chạy tay 28/10/2026 ("ok xử lý đi"), Claude chạy theo trình tự các đợt trước.
+
+1. **Bản sao trước:** dump `webdebit_v7` đang chạy, restore vào DB thử (thu hồi CONNECT của PUBLIC), chạy migration
+   hai lượt (~18 s, ~15 s): số dư từng khách không đổi, lượt hai không đổi số dòng, dry-run sau là `0|0`.
+2. **Cửa sổ dừng ghi** (API tắt 23 giây): dừng `v7-ledger-api.service`, dump + hash, restore thử khớp số dư và số dòng
+   với DB thật, chạy migration (một transaction, tự đối chiếu `v_outstanding_month` và `get_ledger` từng khách/tháng),
+   rồi đổi release app bằng `webdebit-release.sh deploy <sha>` (chạy dưới user deploy; script tự restart và kiểm sống).
+3. **Kết quả:** số dư 236/236 khách không đổi sau migration và sau đổi release; 122 event `fee_migration`;
+   2117 dòng phí sổ gốc chỉ để xem, 0 dòng phí chuyến web; checker 9/9 OK. Bằng chứng, dump và báo cáo ID ở thư mục
+   evidence/backup ngày 28/10 trên `hao`, ngoài Git.
+4. **Checker:** bản trên `main` lúc đó báo nhầm `legacy counted amount mismatch` cho dòng thu sổ gốc đã xóa
+   (điều chỉnh của dòng thu đảo dấu theo XOA-THU-GOC-01; nợ khách đúng, chỉ phép kiểm thiếu dấu). Lỗi có trước migration.
+   Đợt này dùng bản checker đã vá dấu; bản vá vào `main` cùng PR ghi mục này.
+
+Rollback: file `.rollback.sql` cùng tên (một transaction, kiểm tổng; dừng nếu dòng phí đã phân loại hoặc giá đã sửa sau
+migration), hoặc restore dump trước nâng vào DB mới theo quy trình M2-11. Release cũ còn trong `RELEASES_DIR`.
+CÒN MỞ: giao diện phụ phí (PR-B) chưa có; chưa thử tay trên web sau nâng.
+
 ## Kết luận CHỜ KIỂM — nâng DB đang có (ĐÃ CHẠY trên hao 22/10/2026)
 
 Chạy `cong-no-web-handoff/tools/migrations/2026-10-22-v7-trip-review.sql` sau migration CSM,
