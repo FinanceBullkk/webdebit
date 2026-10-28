@@ -108,6 +108,25 @@ class WebdebitExportConnectorTests(unittest.TestCase):
             connector.to_paste_trip(rows[1])
         self.assertEqual(connector.merge_booking_rows(exports, bookings + bookings)[0]["status"], "AMBIGUOUS_BOOKING")
 
+    def test_durian_type_comes_only_from_unique_booking_match(self):
+        exports = connector.parse_values([
+            list(connector.HEADERS),
+            ["ABCU1234567", "WH", "01/10/2026", "Kho", "Port"],
+            ["WXYZ7654321", "WH", "02/10/2026", "Kho", "Port"],
+        ])
+        header = list(connector.BOOKING_HEADERS + connector.BOOKING_PRODUCT_HEADERS)
+        def booking(container, day, name, commodity):
+            return [container, "Khách A", day, "BK001", "TAB", "7", "Gốc", "Ship", "WH", "Kho", "Port", "", name, commodity, ""]
+        bookings = connector.parse_booking_values([
+            header,
+            booking("ABCU1234567", "01/10/2026", "FROZEN DURIAN MEAT", "SẦU RIÊNG"),
+            booking("WXYZ7654321", "02/10/2026", "FRESH DURIAN", "SẦU RIÊNG"),
+        ])
+        self.assertEqual([row["durian_type"] for row in connector.merge_booking_rows(exports, bookings)], ["frozen", "fresh"])
+        self.assertNotIn("durian_type", connector.merge_booking_rows(exports, bookings + bookings)[0])
+        self.assertIsNone(connector.durian_type("FRESH DURIAN", "THANH LONG"))
+        self.assertIsNone(connector.durian_type("FRESH + FROZEN DURIAN", "SẦU RIÊNG"))
+
     def test_read_export_with_booking_hashes_both_tabs(self):
         export = [list(connector.HEADERS), ["ABCU1234567", "WH", "01/10/2026", "Kho", "Port"]]
         booking = [list(connector.BOOKING_HEADERS),
