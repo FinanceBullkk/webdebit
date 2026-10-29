@@ -25,28 +25,38 @@
     .legend{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}
     .legend i{display:inline-block;width:22px;height:14px;border-radius:3px}
 
-    .wrap{overflow:auto;max-height:calc(100vh - 290px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
-    table{border-collapse:separate;border-spacing:0;width:100%;min-width:1180px;font-size:14px}
+    .wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 3px #1f29371a}
+    table{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;font-size:14px}
+    col.c-khach{width:168px}col.c-m{width:auto}col.c-t{width:96px}
     th,td{padding:0;border-bottom:1px solid var(--line-soft)}
-    thead th{position:sticky;top:0;z-index:3;background:var(--surface);padding:10px 8px;font-size:13px;font-weight:600;color:var(--ink-3);text-align:right;border-bottom:1px solid var(--line)}
-    thead th.cur{color:var(--accent-ink)}
-    .khach{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;width:190px;min-width:190px;padding:0 12px;box-shadow:1px 0 0 var(--line-soft)}
+    thead th{position:sticky;top:56px;z-index:3;background:var(--head);padding:10px 8px;font-size:13.5px;font-weight:700;color:var(--ink-2);text-align:center;border-bottom:1px solid var(--line)}
+    thead th:first-child{border-top-left-radius:var(--radius)}thead th:last-child{border-top-right-radius:var(--radius)}
+    thead th.t{text-align:right;padding-right:10px}
+    thead th.mh{padding:10px 2px;white-space:nowrap;font-size:13px}
+    th.mh,td.m{border-left:1px solid var(--line-soft)}
+    th.mh.even,td.m.even{background-color:#f6f8fb}
+    tr.alt td.m.even{background-color:#eef2f7}
+    thead th.mh.cur{color:#fff;background:var(--accent)}
+    .khach{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;padding:0 12px;box-shadow:1px 0 0 var(--line)}
+    tr.alt td,tr.alt td.khach{background-color:var(--zebra)}
     thead th.khach{z-index:4;text-align:left}
-    td.khach a{display:block;padding:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+    td.khach a{display:block;padding:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     td.khach a:hover{color:var(--accent-ink)}
-    tr.group td{background:var(--page);padding:8px 8px;font-weight:600;text-align:right;color:var(--ink-2)}
-    tr.group td.khach{background:var(--page);color:var(--ink);padding:8px 12px;text-align:left}
-    tr.group td.khach span{font-weight:400;color:var(--ink-3);margin-left:6px;font-size:13px}
+    tr.group td{background:#dfe7f1;padding:8px 10px;font-weight:700;text-align:right;color:var(--ink);border-top:1px solid #c5d3e3}
+    tr.group td.khach{background:#dfe7f1;color:var(--ink);padding:8px 12px;text-align:left}
+    tr.group td.khach{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    tr.group td.khach span{font-weight:400;color:var(--ink-2);margin-left:6px;font-size:13px}
     td.m{padding:3px}
-    td.m button{display:block;width:100%;height:32px;padding:0 6px;border:0;border-radius:4px;background:none;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
+    td.m button{display:block;width:100%;height:30px;padding:0 6px;border:0;border-radius:4px;background:none;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
     td.m button:hover{outline:2px solid var(--ink);outline-offset:-2px}
     td.m button.credit{background:var(--credit-soft);color:var(--credit);font-weight:600}
     td.t{padding:0 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
     td.t.yr{padding-left:18px}
     td.t.credit{color:var(--credit)}
-    tfoot td{position:sticky;bottom:0;z-index:3;background:var(--surface);padding:10px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;border-top:1px solid var(--line);border-bottom:0}
-    tfoot td.khach{z-index:4;font-weight:700;text-align:left;padding:8px 12px}
-    tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:var(--ink-3)}
+    tfoot td{position:sticky;bottom:0;z-index:3;background:#16324f;color:#fff;padding:10px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;border-top:1px solid var(--line);border-bottom:0}
+    tfoot td.khach{z-index:4;font-weight:700;text-align:left;padding:8px 12px;background:#16324f;color:#fff}
+    tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:#b9c8d9}
+    tfoot td:first-child{border-bottom-left-radius:var(--radius)}tfoot td:last-child{border-bottom-right-radius:var(--radius)}
     .check{margin:10px 2px 0;font-size:13.5px;color:var(--ink-3)}
     .check b{color:var(--credit);font-weight:600}
   </style>
@@ -82,6 +92,7 @@
 
     <div class="wrap">
       <table>
+        <colgroup><col class="c-khach"><col class="c-m" span="12"><col class="c-t" span="2"></colgroup>
         <thead><tr id="head"></tr></thead>
         <tbody id="body"></tbody>
         <tfoot id="foot"></tfoot>
@@ -119,12 +130,13 @@
       };
       const state = { filter: null, onlyOpen: false };
 
-      const cell = v => {
-        if (!v) return '<td class="m"></td>';
+      const cell = (v, m) => {
+        const cls = `m${m % 2 ? '' : ' even'}`;
+        if (!v) return `<td class="${cls}"></td>`;
         const title = `title="${D.fmtFull(Math.abs(v))}${v < 0 ? ' (khách dư)' : ''}"`;
         return v < 0
-          ? `<td class="m"><button type="button" class="credit" ${title}>dư ${words(-v)}</button></td>`
-          : `<td class="m"><button type="button" style="${heat(v)}" ${title}>${words(v)}</button></td>`;
+          ? `<td class="${cls}"><button type="button" class="credit" ${title}>dư ${words(-v)}</button></td>`
+          : `<td class="${cls}"><button type="button" style="${heat(v)}" ${title}>${words(v)}</button></td>`;
       };
       const total = (v, cls) => !v ? `<td class="t ${cls} muted">—</td>`
         : `<td class="t ${cls}${v < 0 ? ' credit' : ''}" title="${D.fmtFull(Math.abs(v))}">${v < 0 ? 'dư ' + words(-v) : words(v)}</td>`;
@@ -142,16 +154,16 @@
         const ordered = [...groups.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || sum(b[1], D.allOf) - sum(a[1], D.allOf));
 
         $('head').innerHTML = '<th class="khach">Khách</th>' +
-          MONTHS.map(m => `<th class="${m === D.AS_OF.month ? 'cur' : ''}">T${m}</th>`).join('') +
-          `<th>Năm ${D.AS_OF.year}</th><th>Mọi năm</th>`;
+          MONTHS.map(m => `<th class="mh${m % 2 ? '' : ' even'}${m === D.AS_OF.month ? ' cur' : ''}">Tháng ${m}</th>`).join('') +
+          `<th class="t">Năm ${D.AS_OF.year}</th><th class="t">Mọi năm</th>`;
         const body = [];
         for (const [key, members] of ordered) {
-          body.push(`<tr class="group"><td class="khach">${D.esc(D.groupLabel(key))}<span>${members.length} khách</span></td>` +
+          body.push(`<tr class="group"><td class="khach">${D.esc(D.groupLabel(key))}<span>(${members.length})</span></td>` +
             '<td colspan="12"></td>' + total(sum(members, D.yearOf), 'yr') + total(sum(members, D.allOf), '') + '</tr>');
-          for (const r of members) {
-            body.push(`<tr><td class="khach"><a href="#" title="Mở sổ ${D.esc(r.name)}">${D.esc(r.name)}</a></td>` +
-              MONTHS.map(m => cell(r.months[m] ?? 0)).join('') + total(D.yearOf(r), 'yr') + total(D.allOf(r), '') + '</tr>');
-          }
+          members.forEach((r, i) => {
+            body.push(`<tr class="${i % 2 ? 'alt' : ''}"><td class="khach"><a href="#" title="Mở sổ ${D.esc(r.name)}">${D.esc(r.name)}</a></td>` +
+              MONTHS.map(m => cell(r.months[m] ?? 0, m)).join('') + total(D.yearOf(r), 'yr') + total(D.allOf(r), '') + '</tr>');
+          });
         }
         $('body').innerHTML = body.length ? body.join('') : '<tr><td class="khach" colspan="15" style="padding:16px">Không có khách phù hợp.</td></tr>';
         $('foot').innerHTML = `<tr><td class="khach">Tổng ${rows.length} khách<span>đã trừ tiền khách dư</span></td>` +
