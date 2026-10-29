@@ -5,5 +5,5 @@
 - **Đầu ra và tiêu chí xong:** chính xác là ưu tiên số một; web chạy đúng logic nợ và giữ đúng mối liên hệ giữa toàn bộ dữ liệu công nợ; thao tác dễ, gọn, hiệu quả. Nghiệm thu chi tiết ở `SPEC.md`.
 - **Công nghệ:** Node 24 (web preview, test, Playwright), Python 3.13 (backend, tools, ruff), PostgreSQL trên máy `hao`.
 - **Kiểm tra chính:** `npm run check` (ruff, luật nghiệp vụ, eslint, unittest, test JS và trình duyệt). CI gọi đúng lệnh này.
-- **Vai trò agent:** Claude điều phối và review cuối; Codex backend/test theo spec hẹp; Gemini (`agy`) Penpot và frontend. Chi tiết `docs/multi-agent.md`.
-- **Luồng frontend:** mockup Penpot người dùng duyệt trước khi code (`docs/development.md#quy-trình-frontend`).
+- **Vai trò agent:** từ 29/10/2026 Claude làm hết (spec, backend, frontend, test, review) theo `CLAUDE-ALL-01`; Codex/Gemini không còn được giao việc.
+- **Luồng frontend:** spec có luồng người dùng + đối chiếu dữ liệu, code, kiểm trình duyệt, người dùng nghiệm thu trên bản thử; không bắt buộc mockup Penpot (`docs/development.md#quy-trình-frontend`).
