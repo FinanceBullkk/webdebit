@@ -193,6 +193,9 @@ def check_csm_migration(pg: Pg) -> None:
             "old idempotency key broken by migration")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8"))
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql").read_text(encoding="utf-8"))
+    drawer_migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-so-goc.sql").read_text(encoding="utf-8")
+    copy.sql(drawer_migration)
+    copy.sql(drawer_migration)
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
