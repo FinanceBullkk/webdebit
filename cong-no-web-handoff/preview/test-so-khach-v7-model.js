@@ -488,6 +488,8 @@ test("NHAP-SHEET-01 cell edit: Sheet dates, money blank is unknown, container no
   assert.equal(model.parseCellEdit("container", " abcu 123 4567 "), "ABCU1234567");
   assert.equal(model.parseCellEdit("origin", "  Tiền Giang "), "Tiền Giang");
   assert.equal(model.parseCellEdit("carrier", ""), "");
+  assert.equal(model.parseCellEdit("shipper", "  TRUONG THINH PHAT "), "TRUONG THINH PHAT");
+  assert.equal(model.parseCellEdit("shipper", ""), "");
   assert.throws(() => model.parseCellEdit("amount_vnd", "1"), /không được sửa/);
 });
 

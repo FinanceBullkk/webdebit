@@ -357,7 +357,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         if name in fields and (name not in body or not valid_date(body[name], month=True)):
             bad()
     if function in ("edit_trip_info", "edit_legacy_trip"):
-        allowed = {"container", "carrier", "origin", "destination", "event_date", "unit_price_vnd", "other_fee_vnd"}
+        allowed = {"container", "carrier", "shipper", "origin", "destination", "event_date", "unit_price_vnd", "other_fee_vnd"}
         if function == "edit_trip_info":
             allowed -= {"unit_price_vnd", "other_fee_vnd"}
         if not isinstance(body.get("field"), str) or body["field"] not in allowed:
