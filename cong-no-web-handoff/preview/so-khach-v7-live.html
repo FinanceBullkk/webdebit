@@ -267,6 +267,34 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 }
 @media(max-width:1439px){.layout{max-width:1258px}.months-nav{display:none}}
 @media(max-width:700px){.topbar{position:static;height:auto;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar nav{order:3;width:100%;gap:14px;min-height:42px}.book-head{top:0}body:has(#demo-banner:not([hidden])) .book-head{top:48px}}
+/* CHUNG-TU-01: ảnh chứng từ phiếu thu */
+.image-clip{margin-left:6px;min-width:40px;min-height:26px;padding:0 4px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:12px;cursor:pointer}
+.image-clip.none{border-color:transparent;background:none;color:#5d6f82}
+.image-entry td{padding:4px 6px;background:#f2f8ff}
+.image-drop{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:6px 8px;border:2px dashed #8daac9;border-radius:6px;background:#fff}
+.image-drop.over{border-color:#1e4e8c;background:#e8f1fc}
+.image-hint{color:#3e5871;font-size:13px;line-height:1.4}.image-hint b{color:#162d48}
+.image-pick{min-height:30px;padding:0 10px;border:1px solid #1e4e8c;border-radius:4px;background:#fff;color:#1e4e8c;font:inherit;font-weight:600;cursor:pointer}
+.image-thumb{position:relative;display:inline-flex}.image-thumb.on .image-thumb-open{outline:2px solid #1e4e8c}
+.image-thumb-open{width:48px;height:48px;padding:0;border:1px solid #8daac9;border-radius:4px;background:#fff;overflow:hidden;cursor:pointer}
+.image-thumb-open img{width:100%;height:100%;object-fit:cover;object-position:top}
+.image-thumb-drop{position:absolute;top:0;right:0;width:18px;height:18px;padding:0;border:0;border-radius:0 0 0 4px;background:#24496ecc;color:#fff;font-size:12px;line-height:18px;cursor:pointer}
+.image-warn,.image-error{margin:6px 0 0;padding:6px 8px;border-radius:4px;font-size:13px;line-height:1.4}
+.image-warn{background:#fff3c4;color:#5a3a00;border:1px solid #e3c766}.image-error{background:#fdecec;color:#8a1414;border:1px solid #efb4b4}
+.image-viewer{position:fixed;z-index:55;top:132px;bottom:12px;left:12px;width:470px;max-width:calc(100vw - 24px);display:flex;flex-direction:column;background:#fff;border:2px solid #1e4e8c;border-radius:8px;box-shadow:0 8px 28px #11182740}
+.image-viewer[hidden]{display:none}body:has(#demo-banner:not([hidden])) .image-viewer{top:180px}
+.image-viewer-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #d1d5db;background:#eef2f6}
+.image-viewer-bar strong{margin-right:auto;font-size:14px}
+.image-viewer button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:13px;cursor:pointer}
+.image-viewer button.danger{border-color:#c98585;color:#8a1414}.image-viewer button:disabled{opacity:.45;cursor:default}
+.image-viewer-body{flex:1;min-height:0;overflow:auto;display:flex;justify-content:center;align-items:flex-start;background:#5b6675}
+.image-viewer-body img{display:block;max-width:100%;max-height:100%}.image-viewer-body.zoom img{width:100%;max-height:none}
+.image-viewer-body p{margin:16px;color:#fff}
+.image-remove{display:grid;gap:6px;padding:8px 10px;border-top:1px solid #d1d5db;background:#fdf6f6;font-size:13px}
+.image-remove input{width:100%;height:32px;border:1px solid #c98585;border-radius:4px;padding:0 6px;font:inherit}
+.image-reason-error{color:#8a1414}.image-remove-actions{display:flex;gap:8px;justify-content:flex-end}
+.image-remove-actions .danger{background:#b91c1c;border-color:#b91c1c;color:#fff;font-weight:700}
+.image-viewer-foot{margin:0;padding:6px 10px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;line-height:1.4}
 </style>
 <link rel="stylesheet" href="presence.css">
 </head>
@@ -287,6 +315,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="so-khach-v7-fee-ui.js"></script>
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
+<script src="so-khach-v7-images-ui.js"></script>
 <script src="debit-note-xlsx.js"></script>
 <script src="so-khach-v7-debit-ui.js"></script>
 <script src="so-khach-v7-ui.js"></script>

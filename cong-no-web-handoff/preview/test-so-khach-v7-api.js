@@ -141,7 +141,7 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
   assert.doesNotMatch(block('2026-09'), /PH-002/);
   assert.match(block('2026-10'), /data-pid="PH-002"[^>]*>100<small[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
   // Phiếu trừ đúng nợ tháng của mình: không ghi thêm chữ.
-  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*>5<small[^>]*>\+<\/small><\/td>/);
+  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*>5<small[^>]*>\+<\/small><button type="button" class="image-clip none" data-pid="PH-003"[^>]*>＋📎<\/button><\/td>/);
   // SO-GON-02: không còn cột "Còn nợ cộng dồn"; còn nợ cuối tháng ở dòng Tổng tháng (vùng phiếu thu) và thanh tháng.
   assert.match(block('2026-10'), /Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">100<br><span class="month-end-amount">50<\/span><\/td>/);
   assert.match(block('2026-10'), /Nợ các tháng trước: <b>120<\/b><\/span><span>Phát sinh: <b>30<\/b><\/span><span>Đã thu: <b>100<\/b><\/span><span class="month-end">Còn nợ cuối tháng: <b>50<\/b>/);
