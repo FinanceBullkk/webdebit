@@ -661,6 +661,15 @@ class LedgerApiTest(unittest.TestCase):
                                   port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
         self.assertEqual((status, data["function"]), (200, "get_dashboard"))
         self.assertEqual(self.runner.calls[-1], ("get_dashboard", {}, "configured"))
+        status, data = api.handle("GET", "/api/v7/dashboard/debt", self.headers, b"", self.runner,
+                                  port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
+        self.assertEqual((status, data["function"]), (200, "get_dashboard_debt"))
+        self.assertEqual(self.runner.calls[-1], ("get_dashboard_debt", {}, "configured"))
+        self.assertEqual(api.SQL["get_dashboard_debt"], "SELECT sokhach.get_dashboard_debt();")
+        with self.assertRaises(api.ApiError) as caught:
+            api.handle("GET", "/api/v7/dashboard/debt?x=1", self.headers, b"", self.runner,
+                       port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
+        self.assertEqual(caught.exception.status, 404)
         with patch.object(api, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
              patch.object(api, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
              patch.object(api, "build_queue", return_value={"items": [], "row_count": 0, "ready_count": 0, "review_count": 0}) as queue:

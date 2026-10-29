@@ -206,6 +206,9 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(xoa_dc)
     copy.sql(xoa_dc)
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
+    tong_quan = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-tong-quan-quan-ly-no.sql").read_text(encoding="utf-8")
+    copy.sql(tong_quan)
+    copy.sql(tong_quan)  # DASH-03 chỉ thêm hàm đọc, chạy lại được
     ra_ghi_tien = RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8")
     copy.sql(ra_ghi_tien)
     copy.sql(ra_ghi_tien)  # chạy lại được

@@ -4,11 +4,10 @@
   const M = DashboardModel;
   const root = document.querySelector('#dashboard');
   const $ = id => document.getElementById(id);
-  const monthText = value => /^\d{4}-\d{2}/.test(value ?? '') ? `${value.slice(5, 7)}/${value.slice(0, 4)}` : '—';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   // Số rút gọn, rê chuột thấy số đồng chính xác.
-  const amount = (value, unit) => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value, unit))}</span>`;
+  const amount = value => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value))}</span>`;
   const positive = value => String(value).replace(/^-/, '');
   const fold = value => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -20,7 +19,7 @@
     for (const row of customers) counts.set(customerLabel(row), (counts.get(customerLabel(row)) ?? 0) + 1);
     return new Map(customers.map(row => [String(row.id), counts.get(customerLabel(row)) > 1 ? `${customerLabel(row)} · sổ ${row.id}` : customerLabel(row)]));
   };
-  // Tên ngắn cho danh sách thanh: tên Sheet; trùng tên thì thêm mặt hàng, vẫn trùng thì thêm số sổ.
+  // Tên ngắn cho danh sách: tên Sheet; trùng tên thì thêm mặt hàng, vẫn trùng thì thêm số sổ.
   const shortLabels = customers => {
     const base = row => row.display_name ?? row.name;
     const withCommodity = row => `${base(row)} · ${commodityText(row.commodity, row.transport_mode)}`;
@@ -30,179 +29,181 @@
       return [String(row.id), `${withCommodity(row)} · sổ ${row.id}`];
     }));
   };
-  const AGING = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
+  // Câu kết luận đầu khối Phân loại: chuỗi thường hoặc ['b', chữ đậm].
+  const leadHtml = parts => parts.map(part => (Array.isArray(part) ? `<b>${esc(part[1])}</b>` : esc(part))).join('');
+  const RISK_TAG = { high: '<span class="tag critical">Rủi ro cao</span>', watch: '<span class="tag warning">Theo dõi</span>', ok: '' };
   let loading = false;
   // Nút "Làm mới" đọc Sheet ngay (specs/v7-sheet-refresh.md); server chưa bật thì giữ chữ "Cập nhật …".
   let sheetRefresh = null;
   let searchReady = false;
   let currentCustomers = [];
-  // Trạng thái lọc (ghi lên địa chỉ trang): nhóm tuổi, dòng mặt hàng, khách đang mở ngăn kéo.
-  const state = { age: null, com: null, data: null, debtors: null, ageReady: false, groups: [], labels: new Map(), names: new Map() };
+  // tier: nhóm hạn trả đang lọc (0–4); cls: {dim, key} nhóm phân loại đang lọc; dim: tiêu chí đang xem; sort: cột xếp.
+  const state = { tier: null, cls: null, dim: 'risk', sort: 'overdue', data: null, debt: null, rows: null, ready: false,
+    dims: [], tiers: [], names: new Map() };
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
+  const nameOf = id => state.names.get(String(id)) ?? state.rows?.find(row => row.id === id)?.name ?? `Sổ ${id}`;
+  const dimOf = key => state.dims.find(dim => dim.key === key);
+  const classOf = cls => dimOf(cls.dim)?.groups.find(item => item.key === cls.key) ?? null;
+  const filtered = () => state.tier != null || state.cls != null;
 
-  function receivableCard(data) {
+  function receivableCard(data, debt) {
     const [, figure, unit] = /^(.*) (tỷ|triệu|đ)$/.exec(F.short(data.receivable.total_vnd)) ?? [null, F.short(data.receivable.total_vnd), ''];
+    const missing = data.todo.missing_price.reduce((count, item) => count + item.count, 0);
+    const notes = [missing ? `Chưa tính ${missing} chuyến thiếu đơn giá` : '',
+      data.credit.customers ? `${data.credit.customers} khách đang dư ${F.short(positive(data.credit.total_vnd))}, tính riêng` : ''].filter(Boolean);
+    const month = Number((debt?.month ?? data.as_of).slice(5, 7));
+    const minis = debt ? `<div class="minis">
+        <div class="mini"><div class="k">Đã thu tháng ${month}</div><div class="v">${amount(debt.this_month.received_vnd)}</div><div class="s">phát sinh ${amount(debt.this_month.charges_vnd)}</div></div>
+        <button type="button" class="mini risk" data-cls="risk:high" aria-pressed="false"${state.ready ? '' : ' disabled'}><div class="k">Khách rủi ro cao</div><div class="v">${debt.summary.high_customers} khách</div><div class="s">quá hạn ${amount(debt.summary.high_overdue_vnd)}</div></button>
+      </div>` : '';
     return `<section class="card receivable" aria-labelledby="h-receivable"><h2 id="h-receivable">Còn phải thu</h2>
       <div class="big-money" title="${esc(F.full(data.receivable.total_vnd))}">${esc(figure)}<small>${esc(unit)}</small></div>
       <div class="substat"><span class="money">${esc(F.full(data.receivable.total_vnd))}</span> · ${data.receivable.customers} khách đang nợ</div>
-      <div class="minis">
-        <div class="mini"><div class="k">Khách đang dư</div><div class="v credit">${amount(positive(data.credit.total_vnd))}</div><div class="s">${data.credit.customers} khách · tính riêng</div></div>
-        <div class="mini"><div class="k">Đã thu hôm nay</div><div class="v">${amount(data.today.received_vnd)}</div><div class="s">${data.today.receipts} phiếu thu</div></div>
-      </div></section>`;
+      ${minis}${notes.length ? `<p class="hero-foot">${esc(notes.join(' · '))}</p>` : ''}</section>`;
   }
 
-  function agingCard(data) {
-    const total = data.receivable.total_vnd;
-    const byBucket = new Map(data.aging.map(item => [item.bucket, item.receivable_vnd]));
-    const value = i => byBucket.get(M.BUCKETS[i]) ?? '0';
-    const old = F.sum([value(2), value(3)]);
-    const bar = F.toBig(total) > 0n
-      ? M.BUCKETS.map((_, i) => F.toBig(value(i)) > 0n ? `<span data-i="${i}" data-tip="age:${i}" style="flex:${F.barWidth(value(i), total)};background:var(--age-${i})"></span>` : '').join('')
-      : '';
-    return `<section class="card aging" id="age-card" aria-labelledby="h-aging"><div class="card-head"><h2 id="h-aging">Nợ theo tháng phát sinh</h2></div>
-      ${F.toBig(total) > 0n ? `<p class="age-note"><b>${esc(F.short(old))} (${esc(F.percent(old, total))})</b> là nợ phát sinh từ 3 tháng trước trở về trước.</p>` : ''}
-      <div class="age-bar" role="img" aria-label="${esc(M.BUCKETS.map((_, i) => `${AGING[i]} ${F.short(value(i))}`).join(', '))}">${bar}</div>
-      <div class="age-legend">${M.BUCKETS.map((_, i) => `<button type="button" data-tuoi="${i}" data-tip="age:${i}" aria-pressed="false"><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGING[i]}</div><div class="v">${amount(value(i))}</div><div class="p">${esc(F.percent(value(i), total))}</div></button>`).join('')}</div></section>`;
+  function dueCard(debt) {
+    const head = '<div class="card-head"><h2 id="h-due">Nợ theo hạn trả</h2><span class="aside">hạn trả: cuối tháng sau tháng phát sinh</span></div>';
+    if (!debt) return `<section class="card due" id="due-card" aria-labelledby="h-due">${head}<p class="empty">Chưa tải được phần quá hạn. Bấm Làm mới để thử lại.</p></section>`;
+    const total = debt.receivable_vnd;
+    const values = M.TIERS.map(tier => debt.due_tiers.find(item => item.tier === tier)?.receivable_vnd ?? '0');
+    const inTerm = F.sum(values.slice(0, 2));
+    const segments = values.map((value, i) => F.toBig(value) > 0n ? `<span data-tier="${i}" data-tip="tier:${i}" style="flex:${F.barWidth(value, total)};background:var(--due-${i})"></span>` : '').join('');
+    const legend = state.tiers.map((tier, i) => `<button type="button" class="${i >= 2 ? 'late' : ''}" data-tier="${i}" data-tip="tier:${i}" aria-pressed="false">
+        <div class="k"><span class="sw" style="background:var(--due-${i})"></span>${esc(tier.label)}</div>
+        <div class="v">${amount(values[i])}<span class="p">${esc(F.percent(values[i], total))}</span></div><div class="m">${esc(tier.span)}</div></button>`).join('');
+    const lead = F.toBig(total) > 0n
+      ? `<p class="age-note"><b>${esc(F.short(debt.summary.overdue_vnd))} (${esc(F.percent(debt.summary.overdue_vnd, total))})</b> đã quá hạn, trong đó <b>${esc(F.short(debt.summary.long_overdue_vnd))}</b> quá hạn từ 3 tháng trở lên.</p>`
+      : '<p class="age-note">Chưa có khách đang nợ.</p>';
+    return `<section class="card due" id="due-card" aria-labelledby="h-due">${head}${lead}
+      <div class="due-wrap"><div class="age-bar" role="img" aria-label="${esc(state.tiers.map((tier, i) => `${tier.label} ${F.short(values[i])}`).join(', '))}">${segments}</div>
+        ${F.toBig(total) > 0n ? `<div class="due-mark" style="left:${F.barWidth(inTerm, total)}%"><span class="l">trong hạn</span><span class="r">quá hạn</span></div>` : ''}</div>
+      <div class="age-legend">${legend}</div></section>`;
   }
 
-  function todoCard(data, label) {
-    const todo = data.todo;
-    const sumCount = items => items.reduce((count, item) => count + item.count, 0);
-    // Khách thiếu mặt hàng / sầu riêng chưa ghi cảng-bộ (cần ma trận để biết đủ khách đang nợ).
-    const unsorted = (state.debtors ?? []).filter(row => row.key === M.UNSORTED).map(row => ({ customer_id: row.id, name: row.name, commodity: row.commodity }));
-    const groups = [
-      ['Chuyến thiếu đơn giá', 'critical', todo.missing_price, `${sumCount(todo.missing_price)} chuyến`, item => `${item.count} chuyến`, 'thieu-gia'],
-      ['Chuyến chờ kiểm', 'warning', todo.pending_review, `${sumCount(todo.pending_review)} chuyến`, item => `${item.count} chuyến`, 'cho-kiem'],
-      ['Chưa có số dư đầu', 'neutral', todo.no_baseline, `${todo.no_baseline.length} khách`, () => 'mở sổ', null],
-      ['Cần gán mặt hàng / cảng-bộ', 'neutral', unsorted, `${unsorted.length} khách`, item => item.commodity ? 'chưa rõ cảng/bộ' : 'chưa có mặt hàng', null],
-      ['Sổ đang dư tiền', 'credit', todo.credit, `${todo.credit.length} khách`, item => `dư ${esc(F.short(positive(item.credit_vnd)))}`, null],
-    ].filter(group => group[2].length);
-    const customers = groups.reduce((count, group) => count + group[2].length, 0);
-    return `<section class="card todo" aria-labelledby="h-todo"><div class="card-head"><h2 id="h-todo">Việc cần làm</h2>${customers ? `<span class="aside">${customers} khách cần xem</span>` : ''}</div>
-      ${groups.map(([title, tone, items, count, what, loc]) => `<div class="todo-group"><div class="todo-title"><span>${title}</span><span class="tag ${tone}">${count}</span></div><ul class="rows">${items.map(item =>
-        `<li><a href="${ledgerHref(item.customer_id)}${loc ? `&amp;loc=${loc}` : ''}"${loc ? ' title="Mở sổ, đánh dấu các dòng cần xử lý"' : ''}><span class="who">${esc(label(item))}</span><span class="what">${what(item)}</span><span class="chev" aria-hidden="true">›</span></a></li>`).join('')}</ul></div>`).join('')}
-      ${groups.length ? '' : '<p class="empty">Không có việc cần làm.</p>'}</section>`;
+  const listCard = () => `<section class="card debtors" aria-labelledby="h-list"><div class="card-head"><h2 id="h-list">Khách cần đòi trước</h2><span class="aside" id="list-aside"></span></div>
+      <div class="dhead"><span>Khách</span><span class="mb-h">Cơ cấu nợ</span><button type="button" data-sort="overdue" id="col-first">Quá hạn</button><button type="button" data-sort="total">Còn nợ</button></div>
+      <div id="list"></div><div class="tbl-foot"><a id="list-all" href="/cong-no-theo-thang.html?con-no=1"></a></div></section>`;
+
+  const classifyCard = () => `<section class="card classify" id="cls-card" aria-labelledby="h-cls"><div class="card-head"><h2 id="h-cls">Phân loại khách đang nợ</h2><span class="aside">còn nợ · tỷ đồng</span></div>
+      ${state.dims.length ? `<div class="seg" role="tablist" aria-label="Phân loại theo">${state.dims.map(dim => `<button type="button" role="tab" data-dim="${dim.key}">${esc(dim.tab)}</button>`).join('')}</div>
+      <p class="age-note" id="cls-lead"></p><div class="bars" id="cls-bars"></div>` : '<p class="empty">Chưa tải được phân loại khách. Bấm Làm mới để thử lại.</p>'}</section>`;
+
+  function paintList() {
+    if (!state.rows) {
+      $('list').innerHTML = '<p class="empty">Chưa tải được danh sách khách quá hạn. Bấm Làm mới để thử lại.</p>';
+      $('list-aside').textContent = '';
+      $('list-all').textContent = 'Xem ở Công nợ theo tháng ›';
+      return;
+    }
+    const rows = M.filterRows(state.rows, { tier: state.tier, cls: state.cls, sort: state.sort });
+    const shown = rows.slice(0, 10);
+    const max = shown.reduce((top, item) => (item.row.total > top ? item.row.total : top), 0n);
+    $('h-list').textContent = filtered() ? `${rows.length} khách theo lọc` : 'Khách cần đòi trước';
+    $('list-aside').textContent = filtered()
+      ? `tổng ${F.short(F.sum(rows.map(item => item.first)))} · tỷ đồng`
+      : `${state.debt.summary.overdue_customers}/${state.rows.length} khách có nợ quá hạn · tỷ đồng`;
+    $('col-first').textContent = state.tier != null ? 'Nợ nhóm này' : 'Quá hạn';
+    document.querySelectorAll('[data-sort]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.sort === state.sort)));
+    $('list').innerHTML = shown.length ? shown.map(({ row, first }) => `<button type="button" class="drow" data-khach="${row.id}" data-tip="khach:${row.id}" aria-haspopup="dialog">
+        <span class="who"><span class="nm">${esc(nameOf(row.id))}</span>${RISK_TAG[row.risk] ?? ''}<span class="why">${esc(row.why)}</span></span>
+        <span class="mbar" aria-hidden="true"><span style="width:${F.barWidth(row.total, max)}%">${row.tiers.map((value, i) => value > 0n ? `<i style="flex:${F.barWidth(value, row.total)};background:var(--due-${i})"></i>` : '').join('')}</span></span>
+        <span class="num od${first > 0n ? '' : ' zero'}" title="${esc(F.full(first))}">${esc(F.billions(first))}</span>
+        <span class="num" title="${esc(F.full(row.total))}">${esc(F.billions(row.total))}</span></button>`).join('')
+      : `<p class="empty">${filtered() ? 'Không có khách nào khớp lọc này.' : 'Không có khách đang nợ.'}</p>`;
+    $('list-all').textContent = rows.length > shown.length ? `Xem cả ${rows.length} khách ở Công nợ theo tháng ›` : 'Xem ở Công nợ theo tháng ›';
   }
 
-  function todayCard(data) {
-    const today = data.today;
-    const body = today.trips + today.receipts + today.voids === 0
-      ? '<p class="empty">Chưa có giao dịch nào hôm nay.</p>'
-      : `<div class="today-stats"><div class="today-stat"><b>${today.trips}</b><span>chuyến nhập</span></div><div class="today-stat"><b>${today.receipts}</b><span>phiếu thu</span></div><div class="today-stat"><b>${amount(today.received_vnd)}</b><span>đã thu</span></div><div class="today-stat"><b>${today.voids}</b><span>phiếu hủy</span></div></div>
-        <div class="actors">${today.by_actor.map(item => `<div><span>${esc(item.actor)}</span><span>${item.trips} chuyến · ${item.receipts} phiếu · ${amount(item.received_vnd)}${item.voids ? ` · ${item.voids} hủy` : ''}</span></div>`).join('')}</div>`;
-    return `<section class="card today" aria-labelledby="h-today"><div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi</span></div>${body}</section>`;
-  }
-
-  // Một dòng thanh: tên + số (tỷ, 2 số lẻ) + thanh. `major` to và dày hơn; `grey` cho Khác / Chưa phân loại.
-  const barRow = ({ cls = '', attrs, name, value, width }) =>
-    `<button type="button" class="bar-row${cls}" ${attrs}><span class="line"><span class="nm">${esc(name)}</span><span class="val money">${esc(F.billions(value))}</span></span><span class="track"><i style="width:${width}%"></i></span></button>`;
-
-  function commodityCard() {
-    const groups = state.groups;
-    const max = groups.reduce((top, item) => (item.total > top ? item.total : top), 0n).toString();
-    const ranked = groups.filter(item => !item.grey);
-    const major = M.majorCount(ranked.map(item => item.total));
-    const firstGrey = groups.find(item => item.grey);
-    const rows = groups.map(item => barRow({
-      cls: item.grey ? ` grey${item === firstGrey ? ' first' : ''}` : ranked.indexOf(item) < major ? ' major' : '',
-      attrs: `data-mh="${esc(item.key)}" data-tip="com:${esc(item.key)}" aria-pressed="${item.key === state.com}"${state.debtors ? '' : ' disabled'}`,
-      name: item.key, value: item.total, width: F.barWidth(item.total, max) }));
-    return `<section class="card commodity" id="com-card" aria-labelledby="h-commodity"><div class="card-head"><h2 id="h-commodity">Theo mặt hàng</h2><span class="aside">tỷ đồng</span></div>
-      ${groups.length ? `<div class="bars" id="com">${rows.join('')}</div>` : '<p class="empty">Chưa có khách đang nợ.</p>'}</section>`;
-  }
-
-  function topCard() {
-    return `<section class="card top-debtors" aria-labelledby="h-top"><div class="card-head"><h2 id="h-top"></h2><span class="aside" id="top-aside"></span></div>
-      <div class="bars" id="top"></div><div class="tbl-foot"><a id="top-all" href="/cong-no-theo-thang.html"></a></div></section>`;
-  }
-
-  const filtered = () => state.age != null || state.com != null;
-  const groupByKey = key => state.groups.find(item => item.key === key) ?? null;
-
-  // Danh sách khách bên phải: không lọc thì 10 khách nợ nhiều nhất của get_dashboard; có lọc thì từ ma trận.
-  function topRows() {
-    if (!filtered()) return state.data.top_debtors.map(item => ({ id: item.customer_id, value: F.toBig(item.outstanding_vnd), oldest: item.oldest_open_month }));
-    return M.filterDebtors(state.debtors ?? [], { age: state.age, group: groupByKey(state.com) })
-      .map(item => ({ id: item.row.id, value: item.value, oldest: item.row.oldest }));
+  function paintClassify() {
+    if (!state.dims.length) return;
+    const dim = dimOf(state.dim) ?? state.dims[0];
+    document.querySelectorAll('[data-dim]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.dim === dim.key)));
+    $('cls-lead').innerHTML = state.ready ? leadHtml(dim.lead(dim.groups)) : 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.';
+    const max = dim.groups.reduce((top, item) => (item.total > top ? item.total : top), 0n);
+    const firstGrey = dim.groups.find(item => item.tone === 'grey');
+    $('cls-bars').innerHTML = dim.groups.length ? dim.groups.map(item => {
+      const on = state.cls?.dim === dim.key && state.cls.key === item.key;
+      return `<button type="button" class="bar-row${item.tone ? ` ${item.tone}` : ''}${item === firstGrey && dim.key === 'com' ? ' first' : ''}" data-cls="${dim.key}:${esc(item.key)}" data-tip="cls:${dim.key}:${esc(item.key)}" aria-pressed="${on}"${state.ready ? '' : ' disabled'}>
+        <span class="line"><span class="nm">${esc(item.label)}</span><span class="cnt">${item.count} khách</span><span class="val money">${esc(F.billions(item.total))}</span></span>
+        <span class="track"><i style="width:${F.barWidth(item.total, max)}%"></i></span></button>`;
+    }).join('') : '<p class="empty">Chưa có khách đang nợ.</p>';
+    $('cls-card').classList.toggle('picking', state.cls?.dim === dim.key);
   }
 
   function paintFilters() {
-    const data = state.data;
-    $('age-card').classList.toggle('picking', state.age != null);
-    document.querySelectorAll('[data-tuoi]').forEach(button => button.setAttribute('aria-pressed', String(Number(button.dataset.tuoi) === state.age)));
-    document.querySelectorAll('.age-bar [data-i]').forEach(span => span.classList.toggle('on', Number(span.dataset.i) === state.age));
-    $('com-card').classList.toggle('picking', state.com != null);
-    document.querySelectorAll('[data-mh]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mh === state.com)));
+    $('due-card').classList.toggle('picking', state.tier != null);
+    document.querySelectorAll('#due-card [data-tier]').forEach(el => {
+      const on = Number(el.dataset.tier) === state.tier;
+      if (el.tagName === 'BUTTON') el.setAttribute('aria-pressed', String(on)); else el.classList.toggle('on', on);
+    });
+    document.querySelector('.mini.risk')?.setAttribute('aria-pressed', String(state.cls?.dim === 'risk' && state.cls.key === 'high'));
     $('filterbar').hidden = !filtered();
-    $('chips').innerHTML = (state.age != null ? `<span class="chip">Phần nợ ${esc(AGING[state.age].toLowerCase())}<button type="button" data-clear="age" aria-label="Bỏ lọc ${esc(AGING[state.age])}">✕</button></span>` : '')
-      + (state.com != null ? `<span class="chip">${esc(state.com)}<button type="button" data-clear="com" aria-label="Bỏ lọc ${esc(state.com)}">✕</button></span>` : '');
-    const rows = topRows();
-    const shown = rows.slice(0, 10);
-    const total = F.sum(rows.map(item => item.value));
-    $('h-top').textContent = filtered() ? `${rows.length} khách theo lọc` : 'Khách nợ nhiều nhất';
-    $('top-aside').textContent = filtered() && rows.length ? `tổng ${F.short(total)} · tỷ đồng` : 'tỷ đồng';
-    const major = M.majorCount(rows.map(item => item.value));
-    const max = shown.length ? shown[0].value.toString() : '1';
-    $('top').innerHTML = shown.length ? shown.map((item, index) => barRow({
-      cls: index < major ? ' major' : '', attrs: `data-khach="${item.id}" data-tip="khach:${item.id}" aria-haspopup="dialog"`,
-      name: state.names.get(String(item.id)) ?? data.top_debtors.find(row => row.customer_id === item.id)?.name ?? (state.debtors ?? []).find(row => row.id === item.id)?.name ?? `Sổ ${item.id}`,
-      value: item.value, width: F.barWidth(item.value, max) })).join('')
-      : `<p class="empty">${filtered() ? 'Không có khách nào khớp lọc này.' : 'Không có khách đang nợ.'}</p>`;
-    const query = new URLSearchParams({ 'con-no': '1' });
-    if (state.age != null) query.set('tuoi', String(state.age));
-    $('top-all').href = `/cong-no-theo-thang.html?${query}`;
-    $('top-all').textContent = rows.length > 10 ? `Xem cả ${rows.length} khách ở Công nợ theo tháng ›` : 'Xem ở Công nợ theo tháng ›';
+    const chip = (text, what) => `<span class="chip">${esc(text)}<button type="button" data-clear="${what}" aria-label="Bỏ lọc ${esc(text)}">✕</button></span>`;
+    const cls = state.cls && classOf(state.cls);
+    $('chips').innerHTML = (state.tier != null ? chip(`Nợ ${state.tiers[state.tier].short}`, 'tier') : '')
+      + (cls ? chip(`${dimOf(state.cls.dim).title}: ${cls.label.toLowerCase()}`, 'cls') : '');
   }
 
-  function render(data, customers = []) {
-    const labels = customerLabels(customers);
-    const commodityLabel = item => item.commodity ? `${item.name} · ${commodityText(item.commodity, item.transport_mode)}` : item.name;
-    const label = item => labels.get(String(item.customer_id)) ?? commodityLabel(item);
+  function paint() { paintFilters(); paintList(); paintClassify(); }
+
+  function render(data, debt, customers = []) {
     state.names = shortLabels(customers);
-    state.groups = M.commodityGroups(data.by_commodity, data.receivable.total_vnd);
-    if (state.com != null && !groupByKey(state.com)) state.com = null;
-    root.innerHTML = `<div class="grid">${receivableCard(data)}${agingCard(data)}
+    root.innerHTML = `<div class="grid">${receivableCard(data, debt)}${dueCard(debt)}
       <div class="filterbar" id="filterbar" hidden><span>Đang lọc danh sách khách:</span><span class="chips" id="chips"></span><button type="button" class="clear-all" data-clear="all">Bỏ lọc</button></div>
-      ${todoCard(data, label)}<div class="side">${commodityCard()}${todayCard(data)}</div>${topCard()}</div>`;
-    paintFilters();
+      ${listCard()}${classifyCard()}</div>`;
+    paint();
   }
 
-  // Trạng thái trên địa chỉ trang: ?tuoi= (0–3), ?mh= (dòng mặt hàng), ?khach= (ngăn kéo).
+  // Trạng thái trên địa chỉ trang: ?han= (0–4), ?nhom= (tiêu chí:nhóm), ?xem= (tiêu chí đang xem), ?xep=tong, ?khach= (ngăn kéo).
   const params = () => new URLSearchParams(location.search);
   const writeUrl = () => {
     const query = params();
-    if (state.age == null) query.delete('tuoi'); else query.set('tuoi', String(state.age));
-    if (state.com == null) query.delete('mh'); else query.set('mh', state.com);
+    const set = (key, value) => (value == null ? query.delete(key) : query.set(key, value));
+    set('han', state.tier == null ? null : String(state.tier));
+    set('nhom', state.cls ? `${state.cls.dim}:${state.cls.key}` : null);
+    set('xem', state.dim === 'risk' ? null : state.dim);
+    set('xep', state.sort === 'total' ? 'tong' : null);
     history.replaceState(null, '', location.pathname + (query.toString() ? `?${query}` : ''));
   };
   const readUrl = () => {
     const query = params();
-    state.age = /^[0-3]$/.test(query.get('tuoi') ?? '') ? Number(query.get('tuoi')) : null;
-    state.com = query.get('mh') || null;
+    state.tier = /^[0-4]$/.test(query.get('han') ?? '') ? Number(query.get('han')) : null;
+    const nhom = query.get('nhom');
+    state.cls = nhom && nhom.includes(':') ? { dim: nhom.slice(0, nhom.indexOf(':')), key: nhom.slice(nhom.indexOf(':') + 1) } : null;
+    state.dim = query.get('xem') || state.cls?.dim || 'risk';
+    state.sort = query.get('xep') === 'tong' ? 'total' : 'overdue';
+  };
+  // Bỏ lọc không còn nghĩa khi số liệu mới không có nhóm đó, hoặc danh sách chưa khớp tổng.
+  const dropStale = () => {
+    if (!state.ready) { state.tier = null; state.cls = null; }
+    if (state.cls && !classOf(state.cls)) state.cls = null;
+    if (!dimOf(state.dim)) state.dim = 'risk';
   };
 
-  function pickAge(index) {
-    // Phần nợ theo nhóm của từng khách không khớp tổng get_dashboard (hoặc chưa tải được ma trận): soi ở ma trận.
-    if (!state.ageReady) { location.href = `/cong-no-theo-thang.html?tuoi=${index}&con-no=1`; return; }
-    state.age = state.age === index ? null : index;
-    writeUrl(); paintFilters();
-  }
-
   root.addEventListener('click', event => {
-    const legend = event.target.closest('[data-tuoi]');
-    if (legend) return pickAge(Number(legend.dataset.tuoi));
-    const segment = event.target.closest('.age-bar [data-i]');
-    if (segment) return pickAge(Number(segment.dataset.i));
-    const commodity = event.target.closest('[data-mh]');
-    if (commodity && state.debtors) {
-      state.com = state.com === commodity.dataset.mh ? null : commodity.dataset.mh;
-      writeUrl(); paintFilters(); return;
+    const tier = event.target.closest('[data-tier]');
+    if (tier) {
+      if (!state.ready) { location.href = '/cong-no-theo-thang.html?con-no=1'; return; }
+      state.tier = state.tier === Number(tier.dataset.tier) ? null : Number(tier.dataset.tier);
+      writeUrl(); paint(); return;
     }
+    const cls = event.target.closest('[data-cls]');
+    if (cls && state.ready) {
+      const value = cls.dataset.cls;
+      const pick = { dim: value.slice(0, value.indexOf(':')), key: value.slice(value.indexOf(':') + 1) };
+      state.cls = state.cls?.dim === pick.dim && state.cls.key === pick.key ? null : pick;
+      state.dim = pick.dim;
+      writeUrl(); paint(); return;
+    }
+    const dim = event.target.closest('[data-dim]');
+    if (dim) { state.dim = dim.dataset.dim; writeUrl(); paintClassify(); return; }
+    const sort = event.target.closest('[data-sort]');
+    if (sort) { state.sort = sort.dataset.sort; writeUrl(); paintList(); return; }
     const clear = event.target.closest('[data-clear]');
     if (clear) {
-      if (clear.dataset.clear !== 'com') state.age = null;
-      if (clear.dataset.clear !== 'age') state.com = null;
-      writeUrl(); paintFilters(); return;
+      if (clear.dataset.clear !== 'cls') state.tier = null;
+      if (clear.dataset.clear !== 'tier') state.cls = null;
+      writeUrl(); paint(); return;
     }
     const customer = event.target.closest('[data-khach]');
     if (customer) {
@@ -215,23 +216,23 @@
 
   // Ô thông tin khi rê chuột hoặc focus bàn phím: số đứng đầu, chi tiết theo sau.
   function tipText(key) {
-    const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
-    const data = state.data;
-    const total = data.receivable.total_vnd;
-    if (kind === 'age') {
-      const value = data.aging.find(item => item.bucket === M.BUCKETS[Number(id)])?.receivable_vnd ?? '0';
-      const count = state.ageReady ? state.debtors.filter(row => row.buckets[Number(id)] > 0n).length : null;
-      return [AGING[Number(id)], F.short(value), `${F.percent(value, total)} còn phải thu${count == null ? '' : ` · ${count} khách`}`, F.full(value)];
+    const kind = key.slice(0, key.indexOf(':'));
+    const rest = key.slice(key.indexOf(':') + 1);
+    const total = state.debt?.receivable_vnd ?? '0';
+    if (kind === 'tier') {
+      const i = Number(rest);
+      const value = state.debt.due_tiers.find(item => item.tier === M.TIERS[i])?.receivable_vnd ?? '0';
+      const count = state.ready ? state.rows.filter(row => row.tiers[i] > 0n).length : null;
+      return [state.tiers[i].label, F.short(value), `${F.percent(value, total)} còn phải thu${count == null ? '' : ` · ${count} khách`} · ${state.tiers[i].span}`, F.full(value)];
     }
-    if (kind === 'com') {
-      const group = groupByKey(id);
-      const extra = group.key === M.OTHER ? ` · ${group.names.join(', ')}` : '';
-      return [group.key, F.short(group.total), `${F.percent(group.total, total)} còn phải thu · ${group.customers} khách${extra}`, F.full(group.total)];
+    if (kind === 'cls') {
+      const item = classOf({ dim: rest.slice(0, rest.indexOf(':')), key: rest.slice(rest.indexOf(':') + 1) });
+      if (!item) return null;
+      return [item.label, F.short(item.total), `${F.percent(item.total, total)} còn phải thu · ${item.count} khách`, F.full(item.total)];
     }
-    const item = topRows().find(row => row.id === Number(id));
-    if (!item) return null;
-    const part = state.age == null ? `${F.percent(item.value, total)} còn phải thu` : `phần nợ ${AGING[state.age].toLowerCase()}`;
-    return [state.names.get(id) ?? `Sổ ${id}`, F.short(item.value), `${part}${item.oldest ? ` · nợ từ ${monthText(item.oldest)}` : ''}`, F.full(item.value)];
+    const row = state.rows?.find(item => item.id === Number(rest));
+    if (!row) return null;
+    return [nameOf(row.id), `Quá hạn ${F.short(row.overdue)}`, `còn nợ ${F.short(row.total)} · ${row.why}`, 'Bấm để xem nhanh'];
   }
   const tip = $('tip');
   const hideTip = () => { tip.hidden = true; };
@@ -256,26 +257,22 @@
   document.addEventListener('focusout', hideTip);
   addEventListener('scroll', hideTip, { passive: true });
 
-  // Ngăn kéo xem nhanh một khách: nợ theo tháng từ ma trận, nút mở sổ.
+  // Ngăn kéo xem nhanh một khách: còn nợ, quá hạn, vì sao ở mức rủi ro này, nợ theo tháng tô theo nhóm hạn trả.
   let lastFocus = null;
   let pushed = false;
   function openDrawer(id, trigger = null) {
-    const row = (state.debtors ?? []).find(item => item.id === id);
-    const top = state.data.top_debtors.find(item => item.customer_id === id);
-    if (!row && !top) return;
+    const row = state.rows?.find(item => item.id === id);
+    if (!row) return;
     hideTip();
-    const name = state.names.get(String(id)) ?? row?.name ?? top.name;
-    const total = row ? row.total : F.toBig(top.outstanding_vnd);
-    $('d-name').textContent = name;
-    $('d-sub').textContent = row ? (row.key === M.UNSORTED ? 'Chưa phân loại' : row.key) : commodityText(top.commodity, top.transport_mode);
-    const lines = row ? [...row.months.map(item => [`Tháng ${item.key.slice(5)}/${item.key.slice(0, 4)}`, item.value, M.ageIndex(Number(item.key.slice(0, 4)), Number(item.key.slice(5)), state.data.as_of)]),
-      ...(row.older !== 0n ? [[`Trước năm ${row.olderBefore}`, row.older, 3]] : [])] : [];
-    const max = lines.reduce((top, line) => (line[1] > top ? line[1] : top), 0n).toString();
+    $('d-name').textContent = nameOf(id);
+    $('d-sub').textContent = commodityText(row.commodity, row.transportMode);
+    const months = row.months.filter(item => item.value !== 0n);
+    const max = months.reduce((top, item) => (item.value > top ? item.value : top), 0n);
     const missing = state.data.todo.missing_price.find(item => item.customer_id === id);
-    $('d-body').innerHTML = `<div class="total"><span>Còn nợ</span><b class="money" title="${esc(F.full(total))}">${esc(F.short(total))}</b></div>`
-      + (lines.length ? `<h3>Còn nợ theo tháng phát sinh</h3>${lines.map(([text, value, age]) => `<div class="mrow"><span>${esc(text)}</span><span class="track"><i style="width:${F.barWidth(value, max)}%;background:var(--age-${age})"></i></span><span class="r money" title="${esc(F.full(value))}">${value < 0n ? `dư ${esc(F.short(-value))}` : esc(F.short(value))}</span></div>`).join('')}`
-        : '<p class="empty">Chưa tải được nợ theo tháng. Mở sổ để xem chi tiết.</p>')
-      + (missing ? `<p class="flags">${missing.count} chuyến thiếu đơn giá — chưa tính vào số trên.</p>` : '');
+    $('d-body').innerHTML = `<div class="dtotals"><div><span>Còn nợ</span><b>${amount(row.total)}</b></div><div class="late"><span>Quá hạn</span><b>${amount(row.overdue)}</b></div></div>
+      <h3>${M.RISK[row.risk]} — vì sao</h3><ul class="reasons">${M.reasons(row, state.debt.rule).map(text => `<li>${esc(text)}</li>`).join('')}</ul>
+      <h3>Còn nợ theo tháng phát sinh</h3>${months.map(item => `<div class="mrow"><span>Tháng ${esc(`${item.key.slice(5, 7)}/${item.key.slice(0, 4)}`)}<small>${esc(state.tiers[item.tier].label)}</small></span><span class="track"><i style="width:${F.barWidth(item.value, max)}%;background:var(--due-${item.tier})"></i></span><span class="r money" title="${esc(F.full(item.value))}">${item.value < 0n ? `dư ${esc(F.short(-item.value))}` : esc(F.short(item.value))}</span></div>`).join('')}
+      ${missing ? `<p class="flags">${missing.count} chuyến thiếu đơn giá — chưa tính vào số trên.</p>` : ''}`;
     $('d-open').href = ledgerHref(id);
     $('d-matrix').href = '/cong-no-theo-thang.html?con-no=1';
     lastFocus = trigger ?? document.activeElement;
@@ -286,7 +283,7 @@
   function closeDrawer() {
     $('scrim').hidden = true;
     $('drawer').hidden = true;
-    const again = lastFocus?.dataset?.khach && document.querySelector(`#top [data-khach="${lastFocus.dataset.khach}"]`);
+    const again = lastFocus?.dataset?.khach && document.querySelector(`#list [data-khach="${lastFocus.dataset.khach}"]`);
     (again || lastFocus)?.focus?.();
   }
   const leave = () => {
@@ -311,7 +308,7 @@
   window.addEventListener('popstate', () => {
     pushed = false;
     readUrl();
-    if (state.data) paintFilters();
+    if (state.data) { dropStale(); paint(); }
     const id = Number(params().get('khach'));
     if (id) openDrawer(id); else if (!$('drawer').hidden) closeDrawer();
   });
@@ -335,6 +332,17 @@
     document.addEventListener('click', event => { if (!event.target.closest('.search')) results.hidden = true; });
   }
 
+  // Số trên mục "Việc cần làm": khách có chuyến thiếu giá/chờ kiểm, chưa có số dư đầu, cần gán mặt hàng.
+  function paintTodoBadge(data, rows) {
+    const badge = $('todo-badge');
+    if (!badge) return;
+    const ids = new Set([...data.todo.missing_price, ...data.todo.pending_review, ...data.todo.no_baseline].map(item => item.customer_id));
+    for (const row of rows ?? []) if (row.com === M.UNSORTED) ids.add(row.id);
+    badge.textContent = ids.size ? String(ids.size) : '';
+    badge.hidden = !ids.size;
+    badge.setAttribute('aria-label', `${ids.size} khách cần xem`);
+  }
+
   const json = async url => {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw Error(url);
@@ -355,23 +363,25 @@
         banner.hidden = false;
         banner.textContent = data.real_copy ? 'Dữ liệu thật · bản sao cô lập, chưa phải prod' : 'Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật';
       }
-      // Danh sách khách và ma trận là phần thêm: lỗi thì trang vẫn đọc được, chỉ tắt lọc.
-      const [customers, current, previous] = await Promise.all([
+      // Phần quá hạn và danh sách khách là phần thêm: lỗi thì trang vẫn đọc được số tổng.
+      const [customers, debt] = await Promise.all([
         json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
-        json(`/api/v7/receivables/matrix?year=${Number(year)}`).catch(() => null),
-        Number(year) > 2000 ? json(`/api/v7/receivables/matrix?year=${Number(year) - 1}`).catch(() => null) : null,
+        json('/api/v7/dashboard/debt').catch(() => null),
       ]);
       state.data = data;
+      state.debt = debt;
       try {
-        state.debtors = current ? M.debtors(current, previous, data.as_of) : null;
+        state.rows = debt ? M.debtors(debt) : null;
       } catch {
-        state.debtors = null;
+        state.rows = null;
       }
-      state.ageReady = Boolean(state.debtors) && M.agingMatches(state.debtors, data.aging);
-      if (!state.ageReady) state.age = null;
-      if (!state.debtors) state.com = null;
-      render(data, customers);
+      state.ready = Boolean(state.rows) && M.totalsMatch(state.rows, debt);
+      state.tiers = M.tierLabels(debt?.as_of ?? data.as_of, debt?.rule);
+      state.dims = state.rows ? M.dimensions(state.rows, debt.receivable_vnd) : [];
+      dropStale();
+      render(data, debt, customers);
       setupSearch(customers);
+      paintTodoBadge(data, state.rows);
       document.querySelector('#error').hidden = true;
       markUpdated();
       const open = Number(params().get('khach'));

@@ -48,7 +48,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="song-song-02"></a>[SONG-SONG-02](decisions/song-song-02.md) | Mốc nạp clean-v2 và ngày song song |  |
 | <a id="nhap-sheet-01"></a>[NHAP-SHEET-01](decisions/nhap-sheet-01.md) | Nhập và sửa chuyến kiểu Sheet | Vế (1) bảng nhập thay bởi [NHAP-SHEET-02](#nhap-sheet-02) |
 | <a id="nhap-sheet-02"></a>[NHAP-SHEET-02](decisions/nhap-sheet-02.md) | Bỏ bảng nhập chuyến; chuyến lấy từ Sheet |  |
-| <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ |  |
+| <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ | Nội dung khối thay bởi [DASH-03](#dash-03) |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
 | <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |
 | <a id="so-gon-02"></a>[SO-GON-02](decisions/so-gon-02.md) | Phiếu thu danh sách riêng, phiếu hủy gom gọn, bỏ cột cộng dồn | Mục (3) phần thanh tháng/dòng tổng sửa bởi [SO-GON-03](#so-gon-03) |
@@ -65,6 +65,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="xoa-dc-thang-01"></a>[XOA-DC-THANG-01](decisions/xoa-dc-thang-01.md) | Xóa dòng điều chỉnh cả tháng |  |
 | <a id="deploy-claude-01"></a>[DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md) | Claude tự triển khai SQL/migration lên hao |  |
 | <a id="gia-nguon-01"></a>[GIA-NGUON-01](decisions/gia-nguon-01.md) | Đơn giá web lấy từ sổ gốc tới ngày chuyển hẳn |  |
+| <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 

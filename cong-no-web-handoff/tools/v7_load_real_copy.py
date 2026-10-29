@@ -1129,6 +1129,8 @@ def validate_books(books: list[dict], control_total: int) -> None:
 
 def clean_data(folder: Path) -> tuple[list[dict], dict, dict]:
     """Read only the frozen bundle. Hash all bytes before parsing any CSV or touching DB."""
+    if (folder / "held.csv").exists():
+        raise LoadError("CLEAN_HAS_HELD_CUSTOMERS")  # bản --hold-out chỉ để đối soát, thiếu khách
     manifest_bytes = (folder / "manifest.json").read_bytes()
     manifest = json.loads(manifest_bytes)
     if manifest.get("format_version") != CLEAN_FORMAT_VERSION:

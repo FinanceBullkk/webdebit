@@ -53,6 +53,7 @@ from pg_v7_harness import (
     trip_json,
     version,
 )
+from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
 from test_pg_v7_backend_locks import (
     check_csm_locks,
@@ -141,6 +142,9 @@ __all__ = ['DATABASE', 'FUNCTIONS', 'IMAGE', 'LABEL_RUN', 'LABEL_TEST', 'LABEL_V
 # IDs retain section 7 numbering; suffixes split schema checks from missing commands.
 CASES = [
     case("DASH.01", "BEHAVIOR", "Dashboard returns stable empty contract", check="dashboard", functions=("get_dashboard",)),
+    # Ngay sau DASH.01, trước case trips tạo sổ giả MAX_BIGINT làm get_dashboard tràn số khi cộng tổng.
+    case("DASH.03", "BEHAVIOR", "Debt overview: due tiers, risk, last receipt/trip, month flow equals get_ledger",
+         check="dashboard_debt", functions=("get_dashboard_debt",)),
     case("CSM.01", "BEHAVIOR", "Optional reference, edit, duplicate warning and idempotency", check="csm_reference", functions=("record_receipt", "edit_receipt_meta")),
     case("CSM.02", "BEHAVIOR", "Every month lock command has one atomic audit event", check="csm_locks", functions=("set_month_lock", "get_ledger")),
     case("CSM.03", "BEHAVIOR", "Atomic CSM migration preserves old rows and retries", check="csm_migration", functions=("record_receipt", "set_month_lock")),
@@ -228,7 +232,7 @@ CASES.append(case("RA-GHI-TIEN.01", "BEHAVIOR", "Audit 29/10: future paste date,
                   check="ra_ghi_tien", functions=("paste_trips", "record_receipt", "apply_price_table",
                                                   "list_sheet_trip_refs", "resolve_sheet_conflict")))
 
-CHECKS = {"dashboard": check_dashboard, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,

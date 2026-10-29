@@ -875,6 +875,23 @@ Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_
 `age` thật chạy khi máy có `age`) và `v7_offsite_pull.pull/fetch` → `tests/test_v7_offsite_pull.py` (SFTP giả), cả hai trong
 `npm run check`. Không chứng minh systemd, `authorized_keys`, Task Scheduler hay mạng tailnet.
 
+## Đối soát cuối tháng — mốc xét chuyển hẳn (SONG-SONG-01)
+
+Theo [`SONG-SONG-01`](decisions/song-song-01.md), chỉ chuyển hẳn sang web sau ít nhất một lần cuối tháng Sheet và web khớp tổng từng khách. Chạy sau khi người nhập đã dán hết thay đổi tháng đó lên web và cả hai bên ngừng nhập. Claude chạy được toàn bộ, chỉ đọc, không ghi Sheet hay DB. Kết quả có tên khách và số tiền nên nằm trong `captures/<ngày>-doi-soat-cuoi-thang/`, ngoài Git.
+
+1. **Tải sổ gốc trên `hao`** (user `v7app`, cùng env với runner giá):
+   ```text
+   sudo systemd-run --quiet --wait --pipe --collect -p User=v7app -p Group=v7app \
+     -p EnvironmentFile=/etc/webdebit/sheet-sync.env -p EnvironmentFile=/etc/webdebit/sheet-prices.env \
+     -p ProtectHome=true /usr/bin/python3 <current>/cong-no-web-handoff/tools/v7_sheet_export_xlsx.py \
+     --output /var/lib/webdebit-sheet-sync/export/so-goc-<ngày>.xlsx
+   ```
+   Chép về máy làm việc (`sudo cat … > captures/…/source-google-export.xlsx`), so sha256 với dòng in ra, rồi xóa file trên `hao`.
+2. **Làm sạch:** `v7_export_clean.py --xlsx <xlsx> --out <captures>/clean`. Mã 2 kèm `held_customers` nghĩa là có khách dữ liệu lỗi trên Sheet. Chạy lại với `--hold-out` vào thư mục mới: phần còn lại vẫn đối soát được, còn tên và lý do khách bị giữ ghi ở `held.csv`. Bản `--hold-out` không nạp được (`CLEAN_HAS_HELD_CUSTOMERS`).
+3. **Đối soát tổng:** `v7_reconcile_sheet.py --api https://<serve_fqdn>:<serve_port> --serve-host <serve_fqdn>:<serve_port> --sheet-dir <clean> --out <captures>/ket-qua --totals-only --brief`. Trên máy Windows, Python có thể báo chứng chỉ "has expired" dù chứng chỉ của `hao` còn hạn: kho gốc của Windows giữ một chứng chỉ trung gian cũ. Khi đó đặt `SSL_CERT_FILE` trỏ tới bộ CA của Git (`C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt`). Chạy khoảng 3 phút cho 236 khách.
+
+**Đạt** khi `DOI SOAT: DAT`: mọi khách `KHOP`, không còn `held.csv`. Khác thì với từng khách lệch, so tháng trong `clean_months.csv` với `/api/v7/ledger`: chênh nằm ở phát sinh hay đã thu, tháng nào. Sửa phía sai (thường là thay đổi trên Sheet chưa dán lên web), rồi chạy lại từ bước 1. Ghi kết luận của mỗi lần cuối tháng vào nhật ký `docs/deploys/` (chỉ số đếm, không tên hay tiền).
+
 ## 7. Rollback theo mức
 
 ### A — dừng đường truy cập
@@ -1354,7 +1371,7 @@ Rollback: bước 1 trả unit đã lưu rồi `daemon-reload`. Bước 2 đổi
 
 ## Rà đường ghi tiền 29/10 — nâng DB đang có (CHƯA CHẠY)
 
-Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql` ([`FUTURE-01`](decisions/future-01.md), [`V7-SO`](decisions/v7-so.md), [`BANG-GIA-01`](decisions/bang-gia-01.md)) chỉ thay thân hàm, không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền: `paste_trips` chặn ngày xe nhập kho sau hôm nay (`FUTURE_DATE`); `record_receipt` phân bổ lại theo (ngày, mã phiếu) ngay khi ghi; `apply_price_table` không ghi đè đơn giá gõ tay (`PRICE_TYPED_PRICE`); đồng bộ ba hàm Sheet (`list_sheet_trip_refs`, `guard_sheet_cross_customer`, `resolve_sheet_conflict`) với file chuẩn — thân hàm giữ nguyên bản 24/10 và 27/10, nên DB đã có không đổi, DB thiếu thì được bổ sung. Chạy lại được. **Chạy sau `2026-10-29-v7-matrix-drawer-receipts.sql`.** Từ đợt này `v7_backend_functions.sql` đã có đủ ba hàm Sheet, nên cài mới theo mục 3 không cần chạy thêm migration 24–27/10 cho phần đó.
+Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql` ([`FUTURE-01`](decisions/future-01.md), [`V7-SO`](decisions/v7-so.md), [`BANG-GIA-01`](decisions/bang-gia-01.md)) chỉ thay thân hàm, không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền: `paste_trips` chặn ngày xe nhập kho sau hôm nay (`FUTURE_DATE`); `record_receipt` phân bổ lại theo (ngày, mã phiếu) ngay khi ghi; `apply_price_table` không ghi đè đơn giá gõ tay (`PRICE_TYPED_PRICE`); đồng bộ ba hàm Sheet (`list_sheet_trip_refs`, `guard_sheet_cross_customer`, `resolve_sheet_conflict`) với file chuẩn — thân hàm giữ nguyên bản 24/10 và 27/10, nên DB đã có không đổi, DB thiếu thì được bổ sung. Chạy lại được. **Chạy sau `2026-10-29-v7-matrix-drawer-receipts.sql`; độc lập với `2026-10-29-v7-tong-quan-quan-ly-no.sql` (DASH-03 chỉ thêm hàm đọc), chạy trước hay sau đều được.** Từ đợt này `v7_backend_functions.sql` đã có đủ ba hàm Sheet, nên cài mới theo mục 3 không cần chạy thêm migration 24–27/10 cho phần đó.
 
 1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt; số dư từng khách/tháng, số dòng mọi bảng và dòng phân bổ hiệu lực không đổi (migration không phân bổ lại gì); `v7_post_deploy_check.sql` OK.
 2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, kiểm số dư, đổi release).

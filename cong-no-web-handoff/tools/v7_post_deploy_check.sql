@@ -35,7 +35,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()',
+      'get_ledger(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()',
       'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
@@ -64,7 +64,7 @@ DECLARE
       'get_price_table(bigint)', 'get_price_status(bigint)'];
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
-      'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
+      'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'get_price_table(bigint)', 'get_price_status(bigint)'];
     denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
@@ -74,7 +74,7 @@ DECLARE
       '_change_fee_type(text,text,bigint,text,text)', '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
       '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)',
       '_guard_receipt_image()', '_receipt_image_matches(text,bigint)',
-      '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)'];
+      '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)', '_legacy_date(text)'];
     wanted text;
     n bigint;
 BEGIN
