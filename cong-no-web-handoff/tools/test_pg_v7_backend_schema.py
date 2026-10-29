@@ -77,7 +77,7 @@ def check_roles(pg: Pg) -> None:
                     f"NOT has_table_privilege('{role}','sokhach.{relation}','DELETE')",
                     f"{role} can read/write {relation}")
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
-    public_commands = ("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee",
+    public_commands = ("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee", "rewrite_trip_fees",
                        "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "get_fee_types", "set_book_fee_columns",
                        "save_price_table", "apply_price_table", "get_price_table", "get_price_status",
                        "paste_trips", "edit_trip_price", "adjust_trip", "adjust_month",

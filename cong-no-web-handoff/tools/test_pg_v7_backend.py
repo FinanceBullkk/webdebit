@@ -88,6 +88,7 @@ from test_pg_v7_backend_opening import (
     check_opening_import,
 )
 from test_pg_v7_backend_price import check_price_table
+from test_pg_v7_backend_ps_fee import check_ps_fee
 from test_pg_v7_backend_receipt_images import check_receipt_images
 from test_pg_v7_backend_receipts import (
     check_atomic,
@@ -214,8 +215,10 @@ CASES.append(case("CHUNG-TU.01", "BEHAVIOR", "Receipt images: attach, warn, remo
                                                      "get_receipt_image", "find_receipt_image")))
 CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
+CASES.append(case("PS-FEE.01", "BEHAVIOR", "PS fee split keeps totals, legacy TOTAL, no reallocation; stale lines and locks rejected",
+                  check="ps_fee", functions=("rewrite_trip_fees",)))
 
-CHECKS = {"dashboard": check_dashboard, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"dashboard": check_dashboard, "ps_fee": check_ps_fee, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
