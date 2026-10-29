@@ -1,6 +1,6 @@
 # V7: phân loại phụ phí theo bảng PS của bộ lập bill
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE; migration ĐÃ TRIỂN KHAI trên `hao` 29/10/2026 ([nhật ký](../docs/deploys/2026-10-29-xoa-dc-ps-fee.md)), runner bản chụp PS chưa cài vì tài khoản dịch vụ chưa đọc được file bộ lập bill (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Chưa có mockup, chưa code. Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
+Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE; migration ĐÃ TRIỂN KHAI trên `hao` 29/10/2026 ([nhật ký](../docs/deploys/2026-10-29-xoa-dc-ps-fee.md)), runner bản chụp PS ĐÃ CÀI cùng ngày (timer 15 phút; quyền đọc `CONT_MASTER` đã có sẵn), chưa có giao diện (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Chưa có mockup, chưa code. Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
 
 ## Người dùng và luồng (bước 1)
 
@@ -51,7 +51,7 @@ Sổ khách có nút "Tách N phụ phí theo bảng PS". Bấm một lần thì
 - `Chủ hàng` lấy từ booking: cùng kiểu tên với `BOOKING_DATA` mà runner đồng bộ chuyến đã gán sổ, không phải tên tab khách.
 
 **Có sẵn, dùng lại:**
-- Đọc Sheet: `tools/v7_sheets_api_reader.py` (Sheets API, `UNFORMATTED_VALUE`), cùng tài khoản dịch vụ `spreadsheets.readonly` với `sheet_sync_runner.py` và `v7_price_snapshot.py`. File chứa `CONT_MASTER` cũng chứa `WEBDEBIT_EXPORT`, `BOOKING_DATA` và bảng duyệt tên khách mà runner đồng bộ chuyến đang đọc. Vì vậy nhiều khả năng quyền đọc đã có (CÒN MỞ, kiểm trên `hao`).
+- Đọc Sheet: `tools/v7_sheets_api_reader.py` (Sheets API, `UNFORMATTED_VALUE`), cùng tài khoản dịch vụ `spreadsheets.readonly` với `sheet_sync_runner.py` và `v7_price_snapshot.py`. File chứa `CONT_MASTER` cũng chứa `WEBDEBIT_EXPORT`, `BOOKING_DATA` và bảng duyệt tên khách mà runner đồng bộ chuyến đang đọc. Quyền đọc đã có: kiểm trên `hao` 29/10/2026 đọc được 108 dòng.
 - Ghép chuyến: quy tắc của `web/v7_price_queue.py`, dùng cho cả chuyến web lẫn dòng sổ gốc: cùng khách, cùng cont, đúng ngày trước rồi tới lệch ≤ 3 ngày, mỗi đích một dòng nguồn. Tên khách → sổ: tên/tên phụ như hàng chờ giá, cộng bảng duyệt tên khách của runner đồng bộ chuyến (`webdebit_export_connector.parse_review_mapping`). Hàm này nằm ở `tools/`, nên tầng web không được import (`ARCH-02`): runner PS đọc bảng duyệt tên và ghi kèm vào bản chụp, giống cách hàng chờ giá chuyển lõi sang `web/`.
 - Phụ phí trên sổ: `get_ledger` trả `fee_lines` (loại, số, ghi chú), `fee_columns`, cờ `has_typed_fee`, `counted_differs`; danh mục ở `get_fee_types()`.
 - Bản chụp và nút làm mới: mẫu `prices.json` (hash theo dòng, ghi nguyên tử, mode 600) và [`v7-sheet-refresh`](v7-sheet-refresh.md) (tín hiệu `.path`).
@@ -150,7 +150,7 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 - Runner `tools/v7_ps_snapshot.py`: một lệnh `values:batchGet` đọc `CONT_MASTER` và bảng duyệt tên khách, tìm cột theo tên ở dòng tiêu đề, chỉ giữ dòng có tiền PS, Bảo hiểm hoặc cờ Health/KĐ; hash gồm cả dòng lẫn bảng tên.
 - Hàng chờ `web/v7_ps_queue.py` và API: `get_ledger` trả `ps_fees`; `POST /api/v7/ps/fees`. Thêm trạng thái `TYPED_CONFLICT` (web đã phân loại khác PS) và `FEE_TYPE_MISSING` (danh mục thiếu loại) vào "PS cần xem"; `PENDING_REVIEW`, `NOT_FOUND`, `NO_CUSTOMER` không hiện trên sổ.
 - Lịch sử sổ khách có nhãn "Tách phụ phí theo PS" (dùng chung câu trước → sau của lệnh phụ phí); nút tách và "PS cần xem" để PR-2.
-- Runbook: [mục Tách phụ phí theo bảng PS](../docs/v7-deploy-runbook.md#tách-phụ-phí-theo-bảng-ps--migration--runner-bản-chụp-migration-đã-chạy-trên-hao-29102026-runner-chưa-cài).
+- Runbook: [mục Tách phụ phí theo bảng PS](../docs/v7-deploy-runbook.md#tách-phụ-phí-theo-bảng-ps--migration--runner-bản-chụp-đã-chạy-trên-hao-29102026).
 
 **ĐÃ KIỂM CHỨNG (máy dev, dữ liệu giả):** harness PostgreSQL 18.6 dùng một lần `test_pg_v7_backend.py`: 66 ca đạt (gồm `PS-FEE.01`: giữ tổng chuyến web và dòng sổ gốc có `counted_differs`, không phân bổ lại, không ghi revision/điều chỉnh sổ gốc, các mã lỗi, quyền), 2 ca bỏ qua cũ (7.11c, 7.15c); `test_pg_v7_grants.py --strict` đạt; `npm run check` đạt. **CÒN MỞ:** chưa đọc `CONT_MASTER` thật bằng tài khoản dịch vụ trên `hao`, chưa thử trên bản sao DB thật.
 
