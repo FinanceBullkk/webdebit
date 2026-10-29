@@ -209,7 +209,12 @@ async function withPage(fn) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    const open = async id => { await page.goto(`${base}/so-khach-v7-live.html?customer=${id}`); await page.waitForSelector('.book-head .history-toggle'); };
+    // Danh sách khách về sau sổ thì vẽ lại cả sổ, xóa ô đang gõ (CẤN TRỪ về THU TIỀN): chờ nó xong mới thao tác.
+    const open = async id => {
+      await page.goto(`${base}/so-khach-v7-live.html?customer=${id}`);
+      await page.waitForSelector('.book-head .history-toggle');
+      await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+    };
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`) }); } };
     await fn({ page, world, open, shot, base });
     assert.deepEqual(errors, []);
