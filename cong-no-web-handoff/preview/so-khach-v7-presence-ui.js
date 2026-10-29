@@ -1,4 +1,4 @@
-/* Sổ khách: ô người khác đang chọn/đang sửa và câu báo sổ vừa đổi kèm tên (PRESENCE-01 mức 1). */
+/* Sổ khách: ô người khác đang chọn/đang sửa, câu báo sổ vừa đổi kèm tên (PRESENCE-01 mức 1), mũi tên chuột (mức 2). */
 (() => {
   'use strict';
   window.SoKhachV7LiveParts = window.SoKhachV7LiveParts || {};
@@ -15,10 +15,32 @@
       if (!td) return { month, cell: null };
       const col = `c${td.cellIndex}`;
       if (active.matches('.draft-input')) return { month, cell: { row: `draft:${active.dataset.month}`, col, editing: true } };
-      const key = td.closest('tr[data-row]')?.dataset.row.match(/^([a-z]+)-([0-9]+)$/);
-      if (!key) return { month, cell: null };
-      return { month, cell: { row: `${key[1]}:${key[2]}`, col, editing: active !== td && active.matches('input,textarea,select') } };
+      const row = rowKey(td);
+      if (!row) return { month, cell: null };
+      return { month, cell: { row, col, editing: active !== td && active.matches('input,textarea,select') } };
     }
+
+    // Khóa dòng ổn định từ data-row (trip-11 → trip:11); hàng nháp, dòng cộng, phiếu rời không có khóa.
+    function rowKey(td) {
+      const key = td.closest('tr[data-row]')?.dataset.row.match(/^([a-z]+)-([0-9]+)$/);
+      return key ? `${key[1]}:${key[2]}` : null;
+    }
+
+    // Mức 2: chuột của mình trên bảng sổ, quy về ô + phần nghìn trong ô.
+    let mouse = null;
+    const permille = (value, size) => Math.max(0, Math.min(1000, Math.round(value / size * 1000)));
+    root.addEventListener('mousemove', event => {
+      const td = event.target.closest?.('td');
+      const row = td && root.contains(td) && rowKey(td);
+      if (!row) {
+        if (mouse) { mouse = null; presence?.move(); }
+        return;
+      }
+      const box = td.getBoundingClientRect();
+      mouse = { row, col: `c${td.cellIndex}`, fx: permille(event.clientX - box.left, box.width), fy: permille(event.clientY - box.top, box.height) };
+      presence?.move();
+    });
+    root.addEventListener('mouseleave', () => { if (mouse) { mouse = null; presence?.move(); } });
 
     function target(cell) {
       if (cell.row.startsWith('draft:')) {
@@ -58,7 +80,7 @@
       setTimeout(() => node.classList.remove('presence-flash'), 1000);
     }
 
-    const presence = window.Presence.start({ page: 'so-khach', customerId, position, decorate, onJump });
+    const presence = window.Presence.start({ page: 'so-khach', customerId, position, decorate, onJump, pointer: () => mouse, locate: target });
     // Câu báo sổ vừa đổi kèm tên người cùng mở sổ, để biết ai vừa sửa (chống ghi đè vẫn do phiên bản sổ).
     ctx.presenceStale = message => {
       const others = presence?.people().filter(presence.sameBook).map(person => person.name) ?? [];

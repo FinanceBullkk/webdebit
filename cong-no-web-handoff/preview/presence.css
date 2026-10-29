@@ -1,4 +1,4 @@
-/* PRESENCE-01 mức 1: vòng tròn người online, chấm ở danh sách khách, viền ô người khác đang chọn. */
+/* PRESENCE-01: vòng tròn người online, chấm ở danh sách khách, viền ô người khác đang chọn (mức 1), mũi tên chuột (mức 2). */
 .presence{display:flex;align-items:center;gap:6px;margin-left:auto}
 .topbar .live-controls+.presence{margin-left:12px}
 .presence-off .presence-avatar{opacity:.35}
@@ -18,3 +18,10 @@ td.presence-cell::after,tr.presence-row>td:first-child::after{content:attr(data-
 .presence-flash{animation:presence-flash .9s 1}
 @keyframes presence-flash{0%,100%{background:inherit}40%{background:#ffe58a}}
 @media (prefers-reduced-motion:reduce){.presence-flash{animation:none;outline:3px solid #ffd54a}}
+.presence-toggle{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer;font-size:13px;white-space:nowrap}
+.presence-toggle[aria-pressed="true"]{background:#eaf1fa}
+.presence-pointers{position:absolute;left:0;top:0;width:0;height:0;z-index:44;pointer-events:none}
+.presence-pointer{position:absolute;transition:left .2s linear,top .2s linear;pointer-events:none}
+.presence-pointer svg{display:block;filter:drop-shadow(0 1px 1px #0005)}
+.presence-pointer b{position:absolute;left:14px;top:16px;padding:1px 7px;background:var(--pc);color:#fff;font:600 12px/1.4 "Segoe UI",system-ui,sans-serif;white-space:nowrap;border-radius:9px}
+@media (prefers-reduced-motion:reduce){.presence-pointer{transition:none}}
