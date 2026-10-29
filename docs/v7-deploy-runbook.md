@@ -9,7 +9,7 @@ Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-
 | ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
-| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản ngoài máy chưa cài ([mẫu](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
+| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản sao ra PC đã cài 29/10/2026 ([mục](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
 
 Giới hạn: Sheet vẫn chính thức theo [SONG-SONG-01](decisions.md#song-song-01).
 Opening theo [OPENING-SO-GOC](decisions.md#opening-so-goc); mốc chuyến là bản xuất mới nhất
@@ -639,9 +639,10 @@ systemd hay peer trên `hao`.
 
 ## Bản sao ngoài máy — timer `v7-backup-offsite`
 
-**CHƯA CÀI.** Lý do: dữ liệu PostgreSQL và `/srv/v7-backup-daily` nằm trên cùng một ổ của `hao`. Người dùng chọn đích ngày
-29/10/2026: PC Windows chính trong tailnet (dưới đây gọi là PC). Không migration, không đổi DB, không ghi tiền. Thêm khóa
-SSH, thư mục, unit và lịch Windows là đổi quyền/systemd ngoài các mục đã có: hỏi người dùng trước khi cài
+**ĐÃ CÀI trên `hao` và PC 29/10/2026** ([nhật ký](deploys/2026-10-29-v7-backup-offsite.md)); lượt timer đầu 30/10 03:00
+giờ VN, PC kéo 04:30. Lý do: dữ liệu PostgreSQL và `/srv/v7-backup-daily` nằm trên cùng một ổ của `hao`. Người dùng chọn
+đích ngày 29/10/2026: PC Windows chính trong tailnet (dưới đây gọi là PC). Không migration, không đổi DB, không ghi tiền.
+Cài lần đầu là thêm khóa SSH, thư mục, unit và lịch Windows ngoài các mục đã có, nên đã hỏi người dùng
 ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)).
 
 | Mục | Chọn | Lý do |
@@ -1066,7 +1067,7 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v
 ```
 
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;
-backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); đã cài 29/10/2026; bản ngoài máy ở mục [Bản sao ngoài máy](#bản-sao-ngoài-máy--timer-v7-backup-offsite), chưa cài); quyền người chạy, route Serve và kiểm
+backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); đã cài 29/10/2026; bản sao ra PC ở mục [Bản sao ngoài máy](#bản-sao-ngoài-máy--timer-v7-backup-offsite), đã cài 29/10/2026); quyền người chạy, route Serve và kiểm
 danh tính. Chính sách ai xem Lịch sử đã chốt V7-CSM, việc triển khai/quyền truy cập backup vẫn cần kiểm.
 Đường Host/Origin/asset và allowlist HTTPS đối soát có regression test dữ liệu giả
 (`test_v7_ledger_api.py`, `test_v7_reconcile_sheet.py`); không chứng minh Serve live.
