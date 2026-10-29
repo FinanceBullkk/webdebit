@@ -91,6 +91,52 @@ class FeeApiTest(unittest.TestCase):
                 self.assertTrue(any(ord(char) > 127 for char in caught.exception.message))
 
 
+class PriceApiTest(unittest.TestCase):
+    setUp = FeeApiTest.setUp
+    request = FeeApiTest.request
+
+    def test_price_routes_and_sql(self):
+        table = {"tt_shippers": ["FAKE"], "locations": [{"name": "DAK LAK"}], "periods": []}
+        name, payload, _ = self.request("/api/v7/price-table", self.common | {"price_table": table})
+        self.assertEqual((name, payload["price_table"]), ("save_price_table", table))
+        name, payload, _ = self.request("/api/v7/price-table/apply", self.common | {"trip_ids": [3, 1]})
+        self.assertEqual((name, payload["trip_ids"]), ("apply_price_table", [3, 1]))
+        self.assertIn("(j->'price_table')::jsonb", api.SQL["save_price_table"])
+        self.assertIn("(j->'trip_ids')::jsonb", api.SQL["apply_price_table"])
+        for path, function in (("/api/v7/price-table?customer=7", "get_price_table"),
+                               ("/api/v7/price-table/status?customer=7", "get_price_status")):
+            with self.subTest(path=path):
+                name, payload, _ = self.request(path, {}, "GET")
+                self.assertEqual((name, payload), (function, {"customer_id": 7}))
+                self.assertNotIn("actor", api.SQL[name])
+
+    def test_price_boundaries(self):
+        for change in ({"price_table": []}, {"price_table": None}, {"actor": "client"}, {}):
+            with self.subTest(change=change), self.assertRaises(api.ApiError):
+                body = self.common | {"price_table": {}} | change
+                if not change:
+                    body.pop("price_table")
+                api.validate("/api/v7/price-table", json.dumps(body).encode())
+        for ids in ([], [0], [1, 1], ["1"], [True], [1.5], list(range(1, 502)), None):
+            with self.subTest(ids=ids), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/price-table/apply", json.dumps(self.common | {"trip_ids": ids}).encode())
+        for query in ("", "?customer=0", "?customer=1&customer=2", "?id=1"):
+            with self.subTest(query=query), self.assertRaises(api.ApiError):
+                api.handle("GET", "/api/v7/price-table" + query, self.headers, b"", FakePsql(),
+                           port=8780, host="127.0.0.1", actor="server-fee-actor")
+
+    def test_price_errors_map_to_vietnamese(self):
+        for code in ("INVALID_PRICE_TABLE", "PRICE_PERIOD_OVERLAP", "PRICE_INVALID_PERIOD", "PRICE_INVALID_AMOUNT",
+                     "PRICE_UNKNOWN_LOCATION", "PRICE_DUPLICATE_ALIAS", "PRICE_DUPLICATE_SHIPPER",
+                     "PRICE_DUPLICATE_RATE", "PRICE_NOT_FOUND", "NO_CHANGE", "MONTH_LOCKED"):
+            with self.subTest(code=code):
+                failure = subprocess.CompletedProcess([], 3, "", f"psql:<stdin>:3: ERROR:  P0001: {code}\n")
+                with patch.object(api.subprocess, "run", return_value=failure), self.assertRaises(api.ApiError) as caught:
+                    api._PsqlRunner()._run_psql(["fake-psql"], "save_price_table", {}, "server-actor")
+                self.assertEqual(caught.exception.code, code)
+                self.assertTrue(any(ord(char) > 127 for char in caught.exception.message))
+
+
 class FakePsql:
     def __init__(self):
         self.calls = []

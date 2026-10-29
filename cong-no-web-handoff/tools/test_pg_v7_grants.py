@@ -39,6 +39,7 @@ READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
 APP_READ = {'list_sheet_trip_refs()'}
 READ.add('get_fee_types()')
+READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 WRITE = {
     'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
     'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
@@ -47,6 +48,7 @@ WRITE = {
     'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
     'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
     'set_book_fee_columns(bigint,bigint,text,jsonb)',
+    'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
     'edit_trip_info(bigint,bigint,text,bigint,text,text)',
     'delete_trip(bigint,bigint,text,bigint)',
     'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
@@ -86,6 +88,8 @@ KNOWN_FUNCTIONS.update({'_fee_lines', '_fee_columns', '_fee_target', '_change_tr
                         'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee',
                         'add_fee_type', 'rename_fee_type', 'set_fee_type_kind', 'set_fee_type_active',
                         'set_book_fee_columns', 'get_fee_types'})
+KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_trip_rows', '_price_text', '_price_date',
+                        'save_price_table', 'apply_price_table', 'get_price_table', 'get_price_status'})
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):

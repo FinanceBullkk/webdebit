@@ -12,4 +12,4 @@ Người dùng/chủ nghiệp vụ chốt bảng giá theo ngày hiệu lực tr
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT chính sách. Các nguyên tắc thiết kế trong spec (gõ tay thắng bảng giá, sửa bảng giá không tự đổi chuyến đã ghi mà mời áp lại, tra không ra thì NULL kèm lý do, cờ "khác bảng giá" chỉ tô màu) là ĐỀ XUẤT của Claude theo các quy tắc đã chốt `V7-BE`, khóa tháng 24/10 và `NHAP-SHEET-01`. Chưa có Penpot, chưa code, chưa đổi schema.
+ĐÃ CHỐT chính sách. Các nguyên tắc thiết kế trong spec (gõ tay thắng bảng giá, sửa bảng giá không tự đổi chuyến đã ghi mà mời áp lại, tra không ra thì NULL kèm lý do, cờ "khác bảng giá" chỉ tô màu) là ĐỀ XUẤT của Claude theo các quy tắc đã chốt `V7-BE`, khóa tháng 24/10 và `NHAP-SHEET-01`. Backend giai đoạn 1 ĐÃ CODE và kiểm bằng harness dữ liệu giả 29/10/2026 (migration `2026-10-29-v7-bang-gia.sql`); chưa triển khai `hao`, chưa có giao diện.
