@@ -32,8 +32,8 @@ B2 dùng mở/khóa tháng vì thao tác này ghi Lịch sử mà không đổi 
 
 | # | Điều kiện | Mức | Ai | Bằng chứng cần có | Trạng thái 22/10 |
 | --- | --- | --- | --- | --- | --- |
-| C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Codex viết mẫu timer vào runbook, Admin cài | `MANIFEST.json` của hai ngày liên tiếp | CHƯA: chỉ có backup trước mỗi đợt nâng |
-| C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Admin | Báo cáo restore khớp exact counts | CHƯA cho bản định kỳ (đã làm trước đợt nâng 22/10) |
+| C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Claude viết mẫu timer vào runbook và cài sau khi người dùng duyệt | `MANIFEST.json` của hai ngày liên tiếp | CHƯA: chỉ có backup trước mỗi đợt nâng. **29/10:** lệnh `v7_backup.py daily` và mẫu unit ở [runbook](v7-deploy-runbook.md#backup-hằng-ngày--timer-v7-backup-daily); chưa cài trên `hao` |
+| C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Claude, theo runbook B4 | Báo cáo restore khớp exact counts | CHƯA cho bản định kỳ (đã làm trước đợt nâng 22/10) |
 | C3 | Rollback A/B/C có trong runbook | Chặn | — | [Runbook mục 7](v7-deploy-runbook.md), tổng duyệt Docker 21/10 | **ĐẠT** về tài liệu |
 | C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | **27/10:** hướng dẫn đã viết ([đối soát cuối ngày](doi-soat-cuoi-ngay.md)). CHƯA chạy thử; phụ thuộc A3 |
 

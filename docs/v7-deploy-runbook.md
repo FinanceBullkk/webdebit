@@ -9,7 +9,7 @@ Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-
 | ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
-| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; lịch backup V7; quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
+| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày chưa cài ([mẫu timer](#backup-hằng-ngày--timer-v7-backup-daily)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
 
 Giới hạn: Sheet vẫn chính thức theo [SONG-SONG-01](decisions.md#song-song-01).
 Opening theo [OPENING-SO-GOC](decisions.md#opening-so-goc); mốc chuyến là bản xuất mới nhất
@@ -458,6 +458,182 @@ Sheet/API/DB thật). GET nhiều lần không tạo snapshot đồng thời: ch
 bên đã ngừng nhập, nếu còn thay đổi thì đối soát lại; chưa có bằng chứng snapshot
 liên hệ thống hay kiểm thay đổi từng dòng sau mốc.
 
+## Backup hằng ngày — timer `v7-backup-daily`
+
+**CHƯA CÀI trên `hao`.** Phạm vi: mục C1/C2 của [checklist song song](song-song-checklist.md). Không migration, không đổi
+DB, không ghi tiền. Đây là đổi systemd ngoài các mục đã có, nên theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)
+phải hỏi người dùng trước khi cài. Không thay backup của mục 2 trước mỗi đợt nâng.
+
+| Mục | Chọn | Lý do |
+| --- | --- | --- |
+| Lệnh | `v7_backup.py daily` | dump `-Fc` lớp `sokhach` và `MANIFEST.json` (số dòng từng bảng, tổng nợ từng khách) lấy trong cùng một snapshot; ảnh chứng từ `bytea` nằm trong dump |
+| Giờ | 02:40 giờ VN mỗi ngày, `Persistent=true` (máy tắt lúc đó thì chạy khi bật lại) | ngoài giờ nhập; lệch lượt 15 phút của runner Sheet và backup vaultwarden 03:30. Bản ngày D có dữ liệu hết ngày D−1 |
+| Nơi lưu | `/srv/v7-backup-daily/v7-YYYYMMDD-HHMMSS/` (giờ VN), chủ `postgres`, thư mục 700, tệp 600 | `/srv` là LV riêng còn nhiều chỗ; ngoài mọi checkout và release |
+| Giữ | 30 bản có `MANIFEST.json` mới nhất | qua được một kỳ cuối tháng. Bản lỗi (không có `MANIFEST.json`) giữ để xem, tới khi cũ hơn bản giữ cũ nhất |
+| Đĩa | dừng trước khi dump nếu chỗ trống dưới 2048 MB hoặc dưới 3 lần dump gần nhất | không làm đầy `/srv`; lượt lỗi không xóa bản nào |
+| User chạy | OS `postgres`, peer, như mục 2 | đọc được mọi bảng `sokhach`; không tạo role mới |
+| Mã chạy | bản ghim `/opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py`, chủ root, 644, khớp SHA-256 với commit | `Deploy hao` cố ý không được đổi DB; chạy mã release tự triển khai dưới `postgres` sẽ vượt cổng đó |
+
+`daily`: kiểm đĩa → backup như `backup --out` → `verify` đọc lại hash → xóa bản cũ theo luật giữ. Chỉ đụng thư mục con tên
+`v7-YYYYMMDD-HHMMSS` (không theo link), thứ khác trong gốc giữ nguyên. Journal có một dòng JSON: `ok`, tên bản,
+`dump_bytes`, số bảng, số khách, `kept`, `pruned`, `free_bytes`; không tên khách, không tiền. Lỗi thì in `ERROR: …`,
+mã thoát 2, unit `failed`, không xóa gì.
+
+### B1. Bản ghim và thư mục
+
+Lấy file từ release đang chạy sau khi PR đã merge và `Deploy hao` xanh (hoặc chép từ commit), rồi so hash với
+`git show <commit>:cong-no-web-handoff/tools/v7_backup.py | sha256sum` ở một checkout; khác thì dừng. Ghi commit và hash
+vào `<evidence_dir>`. Công cụ coi thư mục hai cấp trên (`/opt/webdebit-backup`) là gốc mã, từ chối ghi backup vào đó;
+gốc không có `.git` nên không gọi git.
+
+```bash
+sudo install -d -o root -g root -m 755 /opt/webdebit-backup/cong-no-web-handoff/tools
+```
+
+```bash
+sudo install -o root -g root -m 644 <current_link>/cong-no-web-handoff/tools/v7_backup.py /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py
+```
+
+```bash
+sha256sum /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py
+```
+
+```bash
+sudo install -d -o postgres -g postgres -m 700 /srv/v7-backup-daily
+```
+
+### B2. Unit
+
+`/etc/systemd/system/v7-backup-daily.service`:
+
+```ini
+[Unit]
+Description=V7 daily backup of webdebit_v7 (schema sokhach, v7_backup.py daily)
+# Chỉ xếp thứ tự lúc khởi động; không Requires/Wants để timer không bật lại PostgreSQL đang dừng bảo trì.
+After=postgresql@18-main.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0077
+Environment=PGHOST=/var/run/postgresql PGDATABASE=webdebit_v7 PGAPPNAME=v7-backup-daily
+ExecStart=/usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py daily --root /srv/v7-backup-daily --keep 30 --min-free-mb 2048
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7-backup-daily
+TimeoutStartSec=30min
+```
+
+`/etc/systemd/system/v7-backup-daily.timer`:
+
+```ini
+[Unit]
+Description=V7 daily backup schedule (02:40 Vietnam time)
+
+[Timer]
+OnCalendar=*-*-* 02:40:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=v7-backup-daily.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Máy để giờ UTC: lịch ghi múi giờ như `vaultwarden-backup.timer`. Kiểm trước khi nạp:
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/v7-backup-daily.service /etc/systemd/system/v7-backup-daily.timer
+```
+
+### B3. Chạy tay lần đầu, chưa bật timer
+
+```bash
+sudo systemctl daemon-reload
+```
+
+```bash
+sudo systemctl start v7-backup-daily.service
+```
+
+```bash
+sudo journalctl -u v7-backup-daily.service -n 20 --no-pager
+```
+
+Đạt khi: dòng JSON có `"ok": true` và `customers` bằng số khách đang có; unit kết thúc `status=0/SUCCESS`; thư mục mới
+700, `sokhach.dump` và `MANIFEST.json` 600, chủ `postgres`; `verify` in `MATCH`:
+
+```bash
+sudo ls -la /srv/v7-backup-daily /srv/v7-backup-daily/<ban_moi>
+```
+
+```bash
+sudo -u postgres /usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py verify --from /srv/v7-backup-daily/<ban_moi>
+```
+
+### B4. Phục hồi thử ra DB mới (C2)
+
+`<restore_db>` là tên mới chưa tồn tại. `restore` kiểm hash trước khi kết nối, từ chối DB đã có `sokhach`, nạp một
+transaction, rồi so số dòng mọi bảng và tổng nợ từng khách với `MANIFEST.json`; mã thoát 0 là khớp.
+
+```bash
+sudo -u postgres createdb -h /var/run/postgresql <restore_db>
+```
+
+```bash
+sudo -u postgres psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -d postgres -c 'REVOKE CONNECT ON DATABASE <restore_db> FROM PUBLIC;'
+```
+
+```bash
+sudo -u postgres env PGHOST=/var/run/postgresql /usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py restore --from /srv/v7-backup-daily/<ban_moi> --target-db <restore_db> > <evidence_dir>/restore-check.txt
+```
+
+```bash
+head -n 2 <evidence_dir>/restore-check.txt
+```
+
+Đạt: dòng 1 `MATCH`, dòng 2 `<N> tables; <M> customers`. Báo cáo có id khách và tổng nợ: chỉ giữ trong `<evidence_dir>`.
+
+```bash
+sudo -u postgres dropdb -h /var/run/postgresql <restore_db>
+```
+
+```bash
+sudo -u postgres psql -X -At -h /var/run/postgresql -d postgres -c "SELECT count(*) FROM pg_database WHERE datname='<restore_db>';"
+```
+
+Kỳ vọng 0.
+
+### B5. Bật timer và theo dõi
+
+```bash
+sudo systemctl enable --now v7-backup-daily.timer
+```
+
+```bash
+systemctl list-timers v7-backup-daily.timer --no-pager
+```
+
+NEXT là 02:40 giờ VN kế tiếp (19:40 UTC). Hằng ngày xem cột LAST và `systemctl is-failed v7-backup-daily.service`
+(`failed` là lượt gần nhất lỗi, đọc journal). Hằng tháng phục hồi thử bản mới nhất như B4. C1 đạt khi có `MANIFEST.json`
+của hai ngày liên tiếp do unit này tạo.
+
+Rollback: `sudo systemctl disable --now v7-backup-daily.timer`, giữ các bản đã có. Gỡ hẳn: xóa hai unit rồi
+`daemon-reload`; chỉ xóa `/opt/webdebit-backup` và `/srv/v7-backup-daily` khi người dùng đồng ý.
+
+Còn mở:
+- Dữ liệu PostgreSQL (`/`) và `/srv` là hai LV trên cùng một ổ vật lý: hỏng ổ là mất cả hai. Cần bản sao ra máy khác (người dùng chọn nơi).
+- Không có cảnh báo khi lượt backup lỗi; phải xem trạng thái unit.
+- Backup không có globals (role): phục hồi sang cluster mới phải tạo role trước.
+- `pg_dump` trong công cụ giới hạn 300 giây; ảnh làm dump lớn dần, xem `dump_bytes` khi phục hồi thử hằng tháng.
+- `v7_backup.py` đổi trên `main` không tự vào bản ghim: làm lại B1 khi cần.
+
+Map kiểm: lệnh trên → `v7_backup.daily/stamped/repository_roots` → `tests/test_v7_backup_daily.py` (dữ liệu giả, không DB,
+trong `npm run check`) và `tools/test_v7_backup.py` (PostgreSQL 18.6 Docker `--network none`, chạy tay). Không chứng minh
+systemd hay peer trên `hao`.
+
 ## 7. Rollback theo mức
 
 ### A — dừng đường truy cập
@@ -652,7 +828,7 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v
 ```
 
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;
-backup định kỳ V7 (người giữ, retention, phục hồi định kỳ); quyền người chạy, route Serve và kiểm
+backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); chưa cài, chưa có bản ngoài máy); quyền người chạy, route Serve và kiểm
 danh tính. Chính sách ai xem Lịch sử đã chốt V7-CSM, việc triển khai/quyền truy cập backup vẫn cần kiểm.
 Đường Host/Origin/asset và allowlist HTTPS đối soát có regression test dữ liệu giả
 (`test_v7_ledger_api.py`, `test_v7_reconcile_sheet.py`); không chứng minh Serve live.
