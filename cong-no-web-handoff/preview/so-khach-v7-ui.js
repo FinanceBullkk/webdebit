@@ -524,10 +524,10 @@
       if (!locJumped && hits.length) { locJumped = true; go(0); }
     }
     function showNotice(value) {
-      message = value;
+      message = ctx.presenceStale ? ctx.presenceStale(value) : value;
       const status = root.querySelector('.live-notice');
       // "Đã lưu." trơn không hiện băng vàng: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
-      if (status) { status.textContent = value; status.hidden = !value || value === 'Đã lưu.'; }
+      if (status) { status.textContent = message; status.hidden = !message || message === 'Đã lưu.'; }
       const retry = root.querySelector('.retry-command');
       if (retry) retry.hidden = !api.hasPending();
     }
@@ -553,7 +553,7 @@
       get feeColumnIds() { return feeColumnIds; },
       get snapshot() { return snapshot; }, get rendering() { return rendering; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; } };
-    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'fee']) window.SoKhachV7LiveParts[name]?.(ctx);
+    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'fee', 'presence']) window.SoKhachV7LiveParts[name]?.(ctx);
     const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell, draftsBy, draftGrid } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
