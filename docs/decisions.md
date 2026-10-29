@@ -46,7 +46,8 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="v7-csm"></a>[V7-CSM](decisions/v7-csm.md) | Chính sách V7 còn mở (D04–D07, Lịch sử) |  |
 | <a id="song-song-01"></a>[SONG-SONG-01](decisions/song-song-01.md) | Chạy song song Sheet và web |  |
 | <a id="song-song-02"></a>[SONG-SONG-02](decisions/song-song-02.md) | Mốc nạp clean-v2 và ngày song song |  |
-| <a id="nhap-sheet-01"></a>[NHAP-SHEET-01](decisions/nhap-sheet-01.md) | Nhập và sửa chuyến kiểu Sheet |  |
+| <a id="nhap-sheet-01"></a>[NHAP-SHEET-01](decisions/nhap-sheet-01.md) | Nhập và sửa chuyến kiểu Sheet | Vế (1) bảng nhập thay bởi [NHAP-SHEET-02](#nhap-sheet-02) |
+| <a id="nhap-sheet-02"></a>[NHAP-SHEET-02](decisions/nhap-sheet-02.md) | Bỏ bảng nhập chuyến; chuyến lấy từ Sheet |  |
 | <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ |  |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
 | <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |

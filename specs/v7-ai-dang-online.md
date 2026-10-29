@@ -38,7 +38,7 @@ Không có khóa ô, không xin quyền sửa. Chống ghi đè vẫn là cơ ch
 | Server | `ThreadingHTTPServer` stdlib, một tiến trình, mỗi request một luồng, `connection.settimeout(5)` ([`web/v7_ledger_api.py`](../cong-no-web-handoff/web/v7_ledger_api.py)) | Trạng thái giữ trong RAM của tiến trình là đủ. Luồng SSE phải bỏ timeout 5 giây |
 | Đẩy về trình duyệt | Chưa có; trang tự làm mới sổ mỗi 60 giây (`so-khach-v7-ui.js`) | Thêm SSE (`text/event-stream`) bằng stdlib. Không dùng WebSocket vì stdlib không có, không thêm dependency |
 | Khóa dòng ổn định | Snapshot `get_ledger` có mã chuyến/phiếu/dòng sổ gốc | Con trỏ và ô chọn neo theo **khóa dòng + tên cột**, không theo tọa độ màn hình. CÒN MỞ: kiểm mọi loại dòng hiển thị (dòng điều chỉnh, dòng cộng tháng) đều có khóa; dòng không có khóa thì neo vào dòng gần nhất có khóa |
-| Hàng nháp / hàng trống | Chỉ có ở trình duyệt người nhập (`so-khach-v7-draft-ui.js`), chưa lưu | Người khác không thấy các hàng này → gửi vị trí dạng "khu nhập tháng 9/2026"; người xem hiện viền quanh khu nhập của tháng đó, không hiện mũi tên |
+| Hàng nháp / hàng trống | Đã bỏ cùng bảng nhập chuyến ([`NHAP-SHEET-02`](../docs/decisions.md#nhap-sheet-02), 29/10/2026); dưới đây là thiết kế cũ | Người khác không thấy các hàng này → gửi vị trí dạng "khu nhập tháng 9/2026"; người xem hiện viền quanh khu nhập của tháng đó, không hiện mũi tên |
 | Chống ghi đè | Mọi lệnh ghi gửi `expected_version`; sổ đã đổi thì server trả `STALE_LEDGER`, trang tải lại và báo "Sổ vừa thay đổi…" (`so-khach-v7-api.js`) | **Đã có**, giữ nguyên. Thêm: nếu lúc đó có người khác đang mở sổ thì câu báo kèm tên họ |
 
 ## Giao tiếp frontend–backend (bước 5)

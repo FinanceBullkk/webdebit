@@ -2,6 +2,8 @@
 
 Trạng thái: **ĐỀ XUẤT** (Claude, 22/10/2026), chính sách **ĐÃ CHỐT** ở [`NHAP-SHEET-01`](../docs/decisions.md#nhap-sheet-01) (người dùng, chat 22/10/2026): nháp + **Lưu**; chỉ nhận chuyến; chuyến đã lưu sửa đè tại ô, kể cả tháng khóa; xóa hẳn được; đổi ngày sang tháng khác thì chuyến tự sang bảng tháng đó; dòng sổ gốc sửa/xóa được. Duyệt bằng bản xem HTML dữ liệu giả trước khi code. Chưa code vào trang live, chưa đổi API.
 
+**Cập nhật 29/10/2026:** hàng trống, nháp và nút Lưu (vế (1)) **đã bỏ** khỏi trang live theo [`NHAP-SHEET-02`](../docs/decisions.md#nhap-sheet-02) — chuyến mới lấy từ Sheet. Phần sửa tại ô/xóa/đổi tháng dưới đây còn hiệu lực.
+
 **Cập nhật 22/10/2026 (Claude):** phần **sửa tại ô và xóa hẳn** chuyến web và dòng sổ gốc đã code vào trang live (`so-khach-v7-ui.js`), nối 4 route của [`v7-sua-xoa-chuyen.md`](v7-sua-xoa-chuyen.md): bấm ô → gõ đè → Enter/Tab/rời ô lưu, Esc trả lại; bấm STT → xác nhận → xóa; dòng "Điều chỉnh do sửa/xóa dòng sổ gốc tháng này". Đơn giá/phụ phí chuyến web giữ hai lệnh cũ (sửa đè tháng mở, điều chỉnh tháng khóa). Kiểm: `test-so-khach-v7-edit-browser.js` (máy chủ giả). **Chưa làm:** bảng nhập hàng trống, dán tự trải, nháp. Chưa triển khai lên `hao`.
 
 Bản xem: [`cong-no-web-handoff/preview/mockups/nhap-kieu-sheet/index.html`](../cong-no-web-handoff/preview/mockups/nhap-kieu-sheet/index.html) (DỮ LIỆU GIẢ, chạy trong tab, không gọi API).

@@ -498,40 +498,6 @@ test("legacy edit adjustments sum signed digit strings exactly; none is null, no
   assert.throws(() => model.sumAdjustments([{ amount_vnd: "1.5" }]));
 });
 
-test('NHAP-SHEET-01 paste: Sheet tab layout from STT or container, fees summed, payments and total rows skipped', () => {
-  const row = ['33', 'fake 1234567', 'GIẢ', '5/10/2026', 'DAK LAK', 'XIAMEN', '2,000,000', '', '1,000,000', '90,000,000', '93,000,000', '21/10/2026', 'ck', '200,000,000'];
-  const fromStt = model.spreadPaste(['', row.join('\t'), 'TỔNG CỘNG\t\t\t\t\t\t\t\t\t\t93,000,000'].join('\n'));
-  assert.equal(fromStt.rows.length, 1);
-  assert.deepEqual(fromStt.rows[0], { container: 'FAKE1234567', carrier: 'GIẢ', date: '05/10/2026', from: 'DAK LAK', to: 'XIAMEN',
-    price: '90.000.000', fee: '3.000.000', sheetTotal: '93,000,000' });
-  assert.equal(fromStt.payments, true);
-  assert.equal(fromStt.skipped, 2);
-  assert.deepEqual(model.spreadPaste(row.slice(1, 11).join('\t')).rows, fromStt.rows);
-  const noFees = model.spreadPaste(['FAKE7654321', 'GIẢ', '05/10/2026', 'A', 'B', '', '', '', 'chưa có giá', '0'].join('\t')).rows[0];
-  assert.equal(noFees.fee, '');
-  assert.equal(noFees.price, 'chưa có giá');
-  // Không thấy container: trải theo cột web từ ô đang bấm, như Excel.
-  const byColumn = model.spreadPaste('A\tB', 'from');
-  assert.equal(byColumn.byColumn, true);
-  assert.deepEqual([byColumn.rows[0].from, byColumn.rows[0].to, byColumn.rows[0].container], ['A', 'B', '']);
-});
-
-test('NHAP-SHEET-01 draft check: errors per cell, missing price is not an error, Sheet total mismatch only warns', () => {
-  const ok = model.checkDraft({ container: 'fake1234567', carrier: 'GIẢ', date: '5/10/2026', from: 'A', to: 'B', price: '90.000.000', fee: '', sheetTotal: '91,000,000' }, '2026-10-23');
-  assert.deepEqual(ok.errors, {});
-  assert.equal(ok.amountVnd, 90000000n);
-  assert.equal(ok.warn, 'Sheet ghi 91.000.000');
-  assert.deepEqual(ok.trip, { container: 'FAKE1234567', carrier: 'GIẢ', date: '05/10/2026', from: 'A', to: 'B', unitPriceVnd: '90000000', otherFeeVnd: null, note: '', src: '' });
-  const missing = model.checkDraft({ ...model.blankDraft(), container: 'X', carrier: 'Y', date: '01/10/2026', from: 'A', to: 'B', fee: '5' }, '2026-10-23');
-  assert.equal(missing.missing, true);
-  assert.equal(missing.amountVnd, null);
-  assert.equal(missing.trip.unitPriceVnd, null);
-  const bad = model.checkDraft({ ...model.blankDraft(), container: 'X', date: '24/10/2026', price: '1,2' }, '2026-10-23');
-  assert.deepEqual(Object.keys(bad.errors).sort(), ['carrier', 'date', 'from', 'price', 'to']);
-  assert.equal(bad.errors.date, 'Ngày ở tương lai');
-  assert.equal(bad.trip, null);
-});
-
 test('Ghi giá từ Sheet: tổng tăng tính bằng BigInt, phụ phí null là 0, tổng âm vẫn đọc được', () => {
   const ready = [{ sheet_unit_price_vnd: '12500000', sheet_other_fee_vnd: '300000' }, { sheet_unit_price_vnd: '13000000', sheet_other_fee_vnd: null }];
   assert.equal(model.sheetPriceAmount(ready[0]), 12800000n);
