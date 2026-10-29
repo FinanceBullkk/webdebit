@@ -1,6 +1,6 @@
 # V7 — Tổng quan quản lý công nợ (đổi nội dung DASH-01)
 
-Trạng thái: **ĐÃ CHỐT** ([`DASH-03`](../docs/decisions/dash-03.md), người dùng 29/10/2026: "Duyệt, dùng mặc định" sau khi xem bản xem). Nguồn: góp ý người dùng trong chat 29/10/2026 — Tổng quan phải nhất quán một mục tiêu là bức tranh công nợ (còn nợ, khách quá hạn hoặc rủi ro cao, tình hình thu); "Việc cần làm" không thuộc trang này; phân loại chỉ theo tháng và mặt hàng chưa đủ, trình bày còn đơn giản. Bản xem dữ liệu giả: [`preview/mockups/tong-quan-quan-ly-no/`](../cong-no-web-handoff/preview/mockups/tong-quan-quan-ly-no/index.html).
+Trạng thái: **ĐÃ CHỐT** ([`DASH-03`](../docs/decisions/dash-03.md), người dùng 29/10/2026: "Duyệt, dùng mặc định" sau khi xem bản xem); **ĐÃ TRIỂN KHAI trên `hao` 30/10/2026** (release `5f04bc4`, [nhật ký](../docs/deploys/2026-10-30-tong-quan-quan-ly-no.md)); CÒN MỞ: người dùng tự đi hết luồng trên web thật. Nguồn: góp ý người dùng trong chat 29/10/2026 — Tổng quan phải nhất quán một mục tiêu là bức tranh công nợ (còn nợ, khách quá hạn hoặc rủi ro cao, tình hình thu); "Việc cần làm" không thuộc trang này; phân loại chỉ theo tháng và mặt hàng chưa đủ, trình bày còn đơn giản. Bản xem dữ liệu giả: [`preview/mockups/tong-quan-quan-ly-no/`](../cong-no-web-handoff/preview/mockups/tong-quan-quan-ly-no/index.html).
 
 Spec này thay nội dung sáu khối của [DASH-01](v7-dashboard.md); giữ các điểm tương tác đã chốt 29/10/2026: bấm nhóm để lọc danh sách khách tại chỗ, bấm khách mở ngăn kéo, soi sâu ở Công nợ theo tháng, không so tháng trước, không đường 12 tháng.
 
