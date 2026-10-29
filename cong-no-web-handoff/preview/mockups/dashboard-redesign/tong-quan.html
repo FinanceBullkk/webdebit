@@ -7,22 +7,18 @@
   <title>MOCKUP · Tổng quan công nợ</title>
   <link rel="stylesheet" href="shared.css">
   <style>
-    .aging-row{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:center;padding:6px 0}
-    .aging-row .lbl{font-size:13px}
-    .aging-row .bar{height:16px;border-radius:3px;background:#eef2f6;overflow:hidden}
+    .aging-row{display:grid;grid-template-columns:130px 1fr auto;gap:10px;align-items:center;padding:6px 0}
+    .aging-row .lbl{font-size:13.5px}
+    .aging-row .bar{height:18px;border-radius:3px;background:#eef2f6;overflow:hidden}
     .aging-row .bar i{display:block;height:100%;border-radius:3px}
-    .aging-row .val{font-size:13px;min-width:150px;text-align:right}
-    .aging-row .val small{color:var(--muted);font-weight:400}
-    #trend svg{width:100%;height:auto;display:block}
-    #trend .gline{stroke:#e5e7eb}
-    #trend .ax{font-size:10px;fill:var(--muted)}
-    #trend .line-ps{fill:none;stroke:var(--age1);stroke-width:2}
-    #trend .line-thu{fill:none;stroke:var(--ok);stroke-width:2}
-    #trend .dot{stroke:#fff;stroke-width:1}
-    .legend{display:flex;gap:18px;align-items:center;font-size:12.5px;color:var(--ink2);margin-top:6px}
-    .legend .sw{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
-    .today-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,420px);gap:18px;align-items:start}
-    @media (max-width:1100px){.today-grid{grid-template-columns:1fr}}
+    .aging-row .val{font-size:13.5px;min-width:190px;text-align:right}
+    .aging-row .val small,.hbar-row .val small{color:var(--muted);font-weight:400;display:inline-block;min-width:44px}
+    .hbar-row{grid-template-columns:150px 1fr auto 64px}
+    .hbar-row .val{min-width:150px}
+    .hbar-row .n{font-size:12.5px;color:var(--muted);text-align:right}
+    .card .note{margin:10px 0 0;font-size:12.5px;color:var(--muted)}
+    .today-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,560px);gap:24px;align-items:center}
+    .today-empty{color:var(--muted)}
   </style>
 </head>
 <body>
@@ -31,7 +27,7 @@
     <a class="brand" href="tong-quan.html">CÔNG NỢ HTH</a>
     <nav aria-label="Điều hướng chính"><a class="active" href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
     <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"></label>
-    <span class="pill">Chỉ xem</span><time>Tính đến 29/10/2026</time>
+    <span class="pill">Chỉ xem</span><time id="asof"></time>
   </header>
   <main class="page">
     <div class="page-head">
@@ -40,154 +36,127 @@
     </div>
 
     <section class="kpi-strip" aria-label="Chỉ số chính">
-      <section class="kpi featured">
-        <h3>Còn phải thu</h3>
-        <div class="val money">64.310.000.000 đ</div>
-        <div class="delta bad">▲ +1,31 tỷ so với 30/9</div>
-      </section>
-      <section class="kpi">
-        <h3>Khách đang nợ</h3>
-        <div class="val">15</div>
-        <div class="delta bad">▲ +1 so với tháng trước</div>
-      </section>
-      <section class="kpi">
-        <h3>Khách đang dư</h3>
-        <div class="val money" title="350.000.000 đ">350 tr</div>
-        <div class="delta mut">1 khách · ▼ 187,4 tr</div>
-      </section>
-      <section class="kpi">
-        <h3>Đã thu hôm nay</h3>
-        <div class="val money" title="412.500.000 đ">412,5 tr</div>
-        <div class="delta mut">3 phiếu thu</div>
-      </section>
-      <section class="kpi">
-        <h3>Việc cần làm</h3>
-        <div class="val"><span class="badge bad">16</span></div>
-        <div class="delta mut">12 thiếu đơn giá · 2 chờ kiểm</div>
-      </section>
+      <section class="kpi featured"><h3>Còn phải thu</h3><div class="val money" id="kpi-receivable"></div><div class="delta mut" id="kpi-debtors"></div></section>
+      <section class="kpi"><h3>Khách đang dư</h3><div class="val money" id="kpi-credit"></div><div class="delta mut" id="kpi-creditors"></div></section>
+      <section class="kpi"><h3>Đã thu hôm nay</h3><div class="val money" id="kpi-received"></div><div class="delta mut" id="kpi-receipts"></div></section>
+      <section class="kpi"><h3>Việc cần làm</h3><div class="val"><span class="badge bad" id="kpi-todo"></span></div><div class="delta mut" id="kpi-todo-sub"></div></section>
     </section>
 
     <div class="grid">
-      <section class="card span8">
-        <h2><span class="icon">∿</span>Phát sinh và đã thu · 12 tháng</h2>
-        <div id="trend" aria-live="polite"></div>
-        <div class="legend">
-          <span><span class="sw" style="background:var(--age1)"></span>Phát sinh nợ</span>
-          <span><span class="sw" style="background:var(--ok)"></span>Đã thu</span>
-          <span style="margin-left:auto;color:var(--muted)">đơn vị: tỷ đồng</span>
-        </div>
-      </section>
-      <section class="card span4">
+      <section class="card span6">
         <h2><span class="icon">▮</span>Nợ theo tháng phát sinh</h2>
-        <div class="aging-row"><span class="lbl">Tháng này</span><span class="bar"><i style="width:18.7%;background:var(--age1)"></i></span><span class="val money">12.010.000.000 đ <small>18,7%</small></span></div>
-        <div class="aging-row"><span class="lbl">1–2 tháng trước</span><span class="bar"><i style="width:50%;background:var(--age2)"></i></span><span class="val money">32.150.000.000 đ <small>50%</small></span></div>
-        <div class="aging-row"><span class="lbl">3–6 tháng trước</span><span class="bar"><i style="width:14%;background:var(--age3)"></i></span><span class="val money">9.000.000.000 đ <small>14%</small></span></div>
-        <div class="aging-row"><span class="lbl">Trên 6 tháng</span><span class="bar"><i style="width:17.3%;background:var(--age4)"></i></span><span class="val money">11.150.000.000 đ <small>17,3%</small></span></div>
-        <p style="margin:10px 0 0;font-size:12.5px;color:var(--muted)">Phân nhóm theo tháng phát sinh nợ (debt_month), không phải ngày quá hạn — 31,3% tổng nợ phát sinh từ trước tháng 8/2026.</p>
+        <div id="aging"></div>
+        <p class="note" id="aging-note"></p>
+      </section>
+
+      <section class="card span6">
+        <h2><span class="icon">◆</span>Theo mặt hàng</h2>
+        <div id="commodity"></div>
+        <p class="note">Bấm một dòng để xem các khách của mặt hàng đó.</p>
       </section>
 
       <section class="card span7">
-        <h2><span class="icon">♟</span>Khách nợ nhiều nhất</h2>
+        <h2><span class="icon">♟</span>10 khách nợ nhiều nhất</h2>
         <table class="table">
           <thead><tr><th>#</th><th>Khách</th><th>Mặt hàng</th><th class="money">Còn nợ · tỉ trọng</th><th>Nợ xa nhất từ</th></tr></thead>
-          <tbody>
-            <tr><td>1</td><td><a href="#">MAI HOA (GL) · Sầu riêng · cảng</a></td><td>Sầu riêng</td><td class="money"><span class="share"><i style="width:33.9%"></i><b class="money">21.790.000.000 đ · 33,9%</b></span></td><td>07/2026</td></tr>
-            <tr><td>2</td><td><a href="#">LONG THÀNH · Sầu riêng</a></td><td>Sầu riêng</td><td class="money"><span class="share"><i style="width:18.3%"></i><b class="money">11.800.000.000 đ · 18,3%</b></span></td><td>08/2026</td></tr>
-            <tr><td>3</td><td><a href="#">THANH PHÁT · Sầu riêng · cảng</a></td><td>Sầu riêng</td><td class="money"><span class="share"><i style="width:14%"></i><b class="money">9.030.000.000 đ · 14%</b></span></td><td>08/2026</td></tr>
-            <tr><td>4</td><td><a href="#">HẢI TRIỀU · Chuối</a></td><td>Chuối</td><td class="money"><span class="share"><i style="width:8.7%"></i><b class="money">5.600.000.000 đ · 8,7%</b></span></td><td>03/2026</td></tr>
-            <tr><td>5</td><td><a href="#">ÁNH DƯƠNG · Dừa</a></td><td>Dừa</td><td class="money"><span class="share"><i style="width:6.4%"></i><b class="money">4.100.000.000 đ · 6,4%</b></span></td><td>04/2026</td></tr>
-          </tbody>
+          <tbody id="top"></tbody>
         </table>
-        <p style="margin:8px 0 0;font-size:12.5px;color:var(--muted)">Top 5 chiếm 81,4% tổng nợ — thanh xám trong ô là tỉ trọng trên tổng.</p>
+        <p class="note" id="top-note"></p>
       </section>
 
       <section class="card span5">
-        <h2><span class="icon">◆</span>Theo mặt hàng</h2>
-        <div class="hbar-row"><span class="name">Sầu riêng</span><span class="hbar"><i style="width:72.8%;background:var(--age1)"></i></span><span class="val money">46,82 tỷ</span></div>
-        <div class="hbar-row"><span class="name">Chuối</span><span class="hbar"><i style="width:9.3%;background:var(--age1)"></i></span><span class="val money">6,00 tỷ</span></div>
-        <div class="hbar-row"><span class="name">Thanh long</span><span class="hbar"><i style="width:8.1%;background:var(--age1)"></i></span><span class="val money">5,19 tỷ</span></div>
-        <div class="hbar-row"><span class="name">Dừa</span><span class="hbar"><i style="width:6.9%;background:var(--age1)"></i></span><span class="val money">4,45 tỷ</span></div>
-        <div class="hbar-row"><span class="name">Xoài</span><span class="hbar"><i style="width:1.4%;background:var(--age1)"></i></span><span class="val money">0,90 tỷ</span></div>
-        <div class="hbar-row"><span class="name">Chưa phân loại ⚠</span><span class="hbar"><i style="width:1.5%;background:var(--warn)"></i></span><span class="val money">0,95 tỷ</span></div>
-        <p style="margin:10px 0 0;font-size:12.5px;color:var(--muted)">Thay bảng dài bằng thanh tỉ trọng; bấm vào mặt hàng để lọc (mockup chưa nối). Tổng khớp “Còn phải thu”.</p>
-      </section>
-
-      <section class="card span7">
         <h2><span class="icon">☷</span>Việc cần làm</h2>
-        <div class="todo-group">
-          <div class="todo-head"><span>Chuyến web thiếu đơn giá</span><span class="badge bad">12</span></div>
-          <div class="todo-row"><span><a href="#">MAI HOA (GL) · Sầu riêng · cảng</a></span><span>3 chuyến thiếu đơn giá &gt;</span></div>
-          <div class="todo-row"><span><a href="#">HẢI TRIỀU · Chuối</a></span><span>7 chuyến thiếu đơn giá &gt;</span></div>
-          <div class="todo-row"><span><a href="#">THANH PHÁT · Sầu riêng · cảng</a></span><span>2 chuyến thiếu đơn giá &gt;</span></div>
-        </div>
-        <div class="todo-group">
-          <div class="todo-head"><span>Chuyến CHỜ KIỂM</span><span class="badge warn">2</span></div>
-          <div class="todo-row"><span><a href="#">SÔNG HỒNG · Thanh long · bộ</a></span><span>1 chuyến CHỜ KIỂM &gt;</span></div>
-          <div class="todo-row"><span><a href="#">GIA PHÁT · Thanh long</a></span><span>1 chuyến CHỜ KIỂM &gt;</span></div>
-        </div>
-        <div class="todo-group">
-          <div class="todo-head"><span>Khách chưa có số dư đầu</span><span class="badge mut">1</span></div>
-          <div class="todo-row"><span><a href="#">PHÚ LONG · Chưa phân loại</a></span><span>Chưa có số dư đầu &gt;</span></div>
-        </div>
-        <div class="todo-group">
-          <div class="todo-head"><span>Sổ đang dư tiền</span><span class="badge du">1</span></div>
-          <div class="todo-row"><span><a href="#">KIM LAN · Chưa phân loại</a></span><span>Đang dư 350.000.000 đ &gt;</span></div>
-        </div>
+        <div id="todo"></div>
       </section>
 
-      <section class="card span5">
+      <section class="card span12">
         <h2><span class="icon">▣</span>Hôm nay</h2>
-        <div class="today-grid">
-          <div class="today-strip">
-            <div class="tstat"><strong>5</strong><span>chuyến đã nhập</span></div>
-            <div class="tstat"><strong>3</strong><span>phiếu thu</span></div>
-            <div class="tstat"><strong class="money">412,5 tr</strong><span>đã thu</span></div>
-            <div class="tstat"><strong>0</strong><span>phiếu hủy</span></div>
-          </div>
-          <table class="table">
-            <thead><tr><th>Người nhập</th><th>Chuyến</th><th>Phiếu thu</th><th class="money">Đã thu</th></tr></thead>
-            <tbody>
-              <tr><td>Lan</td><td>3</td><td>2</td><td class="money">265.000.000 đ</td></tr>
-              <tr><td>Hùng</td><td>2</td><td>1</td><td class="money">147.500.000 đ</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p style="margin:10px 0 0;font-size:12.5px;color:var(--muted)">Khi cả 4 số bằng 0, card thu gọn thành một dòng “Chưa có giao dịch hôm nay”.</p>
+        <div id="today"></div>
       </section>
     </div>
 
     <div class="design-note">
-      <h2>Ghi chú duyệt thiết kế (mockup, dữ liệu giả)</h2>
+      <h2>Ghi chú duyệt thiết kế (mockup v3, dữ liệu giả)</h2>
       <ul>
-        <li>Mới: dải KPI đầu trang có Δ so với tháng trước — cần API trả kèm số cuối tháng trước để tính delta thật.</li>
-        <li>Mới: biểu đồ đường phát sinh/đã thu 12 tháng — cần API tổng hợp theo tháng (hiện dashboard API chỉ có 4 bậc aging).</li>
-        <li>Mới: tỉ trọng nợ trong “Khách nợ nhiều nhất” và “Theo mặt hàng” — tính được từ dữ liệu API hiện có.</li>
-        <li>Card “Hôm nay” giữ nguyên dữ liệu API hiện có, chỉ đổi cách trình bày.</li>
-        <li>Màu ngữ nghĩa: đỏ/cam = nợ cũ và việc khẩn; xanh lá = chiều tốt (đã thu, giảm nợ). Số tiền rút gọn “412,5 tr” ở nơi phụ, số đầy đủ giữ ở tooltip/bấm vào.</li>
+        <li>Giữ đúng sáu khối và định nghĩa của DASH-01 (<code>specs/v7-dashboard.md</code>); mọi số lấy từ API <code>GET /api/v7/dashboard</code> đang chạy, không cần API mới.</li>
+        <li>“Còn phải thu” chỉ cộng khách đang nợ; tiền khách đang dư tách riêng, không trừ vào. Khách chưa có số dư đầu không vào tổng nào, chỉ nằm ở Việc cần làm.</li>
+        <li>Mặt hàng tách theo phương thức (sầu riêng · cảng / · bộ) như bản live; có số khách mỗi dòng. Nợ theo tháng phát sinh và mặt hàng cộng đúng bằng “Còn phải thu”.</li>
+        <li>Mới so với bản live: dải 4 số chính đầu trang; thanh tỉ trọng trong bảng khách và mặt hàng; màu theo độ cũ của nợ (xanh → đỏ); số rút gọn ở nơi phụ, rê chuột xem số đủ.</li>
+        <li>Để giai đoạn sau (cần quyết định/API): so với tháng trước, đường phát sinh vs đã thu 12 tháng, bấm nhóm tuổi nợ ra danh sách khoản nợ.</li>
       </ul>
     </div>
   </main>
+  <script src="data.js"></script>
   <script>
     (() => {
       'use strict';
-      const PS = [5.2, 4.8, 6.1, 7.0, 6.4, 5.9, 7.2, 8.1, 9.3, 10.4, 8.9, 7.6];
-      const THU = [4.9, 5.1, 5.6, 6.8, 6.6, 6.1, 6.9, 7.8, 8.9, 9.6, 9.2, 8.4];
-      const LABELS = ['11/25', '12/25', '1/26', '2/26', '3/26', '4/26', '5/26', '6/26', '7/26', '8/26', '9/26', '10/26'];
-      const W = 660, H = 236, L = 44, R = 50, T = 14, B = 28, MAX = 12;
-      const x = i => L + i * (W - L - R) / (LABELS.length - 1);
-      const y = v => T + (H - T - B) * (1 - v / MAX);
-      const pts = series => series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-      const grid = [0, 3, 6, 9, 12].map(v =>
-        `<line class="gline" x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"/>` +
-        `<text class="ax" x="${L - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${v}</text>`).join('');
-      const dots = series => series.map((v, i) =>
-        `<circle class="dot" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.6" fill="${series === PS ? '#1e4e8c' : '#15803d'}"><title>${LABELS[i]}: ${v.toLocaleString('vi-VN')} tỷ</title></circle>`).join('');
-      const xlabels = LABELS.map((t, i) =>
-        `<text class="ax" x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle">${t}</text>`).join('');
-      document.querySelector('#trend').innerHTML =
-        `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Biểu đồ đường phát sinh nợ và đã thu trong 12 tháng">` +
-        grid + `<polyline class="line-ps" points="${pts(PS)}"/><polyline class="line-thu" points="${pts(THU)}"/>` +
-        dots(PS) + dots(THU) + xlabels + '</svg>';
+      const D = window.MOCK;
+      const $ = id => document.getElementById(id);
+      const pct = v => (v / D.receivable * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + '%';
+      const short = v => `<span title="${D.fmtFull(v)}">${D.fmtShort(v)}</span>`;
+      const custLink = row => `<a href="#" title="Mở sổ khách">${D.esc(row.name)}</a>`;
+
+      $('asof').textContent = 'Tính đến ' + D.AS_OF.label;
+      $('kpi-receivable').textContent = D.fmtFull(D.receivable);
+      $('kpi-debtors').textContent = `${D.debtors.length} khách đang nợ`;
+      $('kpi-credit').innerHTML = short(-D.credit);
+      $('kpi-creditors').textContent = `${D.creditors.length} khách · không trừ vào còn phải thu`;
+      const today = D.TODAY.byActor.reduce((a, r) => ({ trips: a.trips + r.trips, receipts: a.receipts + r.receipts,
+        received: a.received + r.received, voids: a.voids + r.voids }), { trips: 0, receipts: 0, received: 0, voids: 0 });
+      $('kpi-received').innerHTML = short(today.received);
+      $('kpi-receipts').textContent = `${today.receipts} phiếu thu`;
+
+      const AGING = [['Tháng này', 'var(--age1)'], ['1–2 tháng trước', 'var(--age2)'], ['3–6 tháng trước', 'var(--age3)'], ['Trên 6 tháng', 'var(--age4)']];
+      $('aging').innerHTML = D.aging.map((v, i) =>
+        `<div class="aging-row"><span class="lbl">${AGING[i][0]}</span><span class="bar"><i style="width:${(v / D.receivable * 100).toFixed(1)}%;background:${AGING[i][1]}"></i></span>` +
+        `<span class="val money">${D.fmtFull(v)} <small>${pct(v)}</small></span></div>`).join('');
+      $('aging-note').textContent = `Tính theo tháng phát sinh nợ, không phải ngày quá hạn. ${pct(D.aging[2] + D.aging[3])} số nợ đã quá 3 tháng.`;
+
+      const groups = new Map();
+      for (const row of D.debtors) {
+        const key = D.groupKey(row);
+        const g = groups.get(key) ?? { total: 0, n: 0 };
+        g.total += D.allOf(row); g.n += 1;
+        groups.set(key, g);
+      }
+      const ordered = [...groups.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || b[1].total - a[1].total);
+      const maxGroup = Math.max(...ordered.map(([, g]) => g.total));
+      $('commodity').innerHTML = ordered.map(([key, g]) =>
+        `<div class="hbar-row"><a class="name" href="#">${D.esc(D.groupLabel(key))}${key ? '' : ' ⚠'}</a>` +
+        `<span class="hbar"><i style="width:${(g.total / maxGroup * 100).toFixed(1)}%;background:${key ? 'var(--age1)' : 'var(--warn)'}"></i></span>` +
+        `<span class="val money">${short(g.total)} <small>${pct(g.total)}</small></span><span class="n">${g.n} khách</span></div>`).join('');
+
+      const top = [...D.debtors].sort((a, b) => D.allOf(b) - D.allOf(a)).slice(0, 10);
+      $('top').innerHTML = top.map((row, i) =>
+        `<tr><td>${i + 1}</td><td>${custLink(row)}</td><td>${D.esc(D.groupLabel(D.groupKey(row)))}</td>` +
+        `<td class="money"><span class="share"><i style="width:${(D.allOf(row) / D.receivable * 100).toFixed(1)}%"></i><b class="money">${D.fmtFull(D.allOf(row))} · ${pct(D.allOf(row))}</b></span></td>` +
+        `<td>${D.oldestMonth(row)}</td></tr>`).join('');
+      $('top-note').textContent = `10 khách này chiếm ${pct(top.reduce((a, row) => a + D.allOf(row), 0))} còn phải thu. Bấm tên khách để mở sổ.`;
+
+      const todoGroups = [
+        ['Chuyến web thiếu đơn giá', 'bad', D.TODO.missingPrice.map(t => [D.byId(t.id), `${t.count} chuyến thiếu đơn giá`]), D.TODO.missingPrice.reduce((a, t) => a + t.count, 0)],
+        ['Chuyến CHỜ KIỂM', 'warn', D.TODO.pendingReview.map(t => [D.byId(t.id), `${t.count} chuyến CHỜ KIỂM`]), D.TODO.pendingReview.reduce((a, t) => a + t.count, 0)],
+        ['Khách chưa có số dư đầu', 'mut', D.ROWS.filter(r => r.noBaseline).map(r => [r, 'Chưa có số dư đầu']), D.ROWS.filter(r => r.noBaseline).length],
+        ['Sổ đang dư tiền', 'du', D.creditors.map(r => [r, 'Đang dư ' + D.fmtFull(-D.allOf(r))]), D.creditors.length],
+      ].filter(g => g[3] > 0);
+      $('todo').innerHTML = todoGroups.map(([title, cls, items, count]) =>
+        `<div class="todo-group"><div class="todo-head"><span>${title}</span><span class="badge ${cls}">${count}</span></div>` +
+        items.map(([row, text]) => `<div class="todo-row"><span>${custLink(row)} <small style="color:var(--muted)">${D.esc(D.groupLabel(D.groupKey(row)))}</small></span><span>${text} &gt;</span></div>`).join('') +
+        '</div>').join('');
+      const missing = todoGroups[0][3], pending = todoGroups[1][3];
+      $('kpi-todo').textContent = todoGroups.reduce((a, g) => a + g[3], 0);
+      $('kpi-todo-sub').textContent = `${missing} thiếu đơn giá · ${pending} chờ kiểm`;
+
+      $('today').innerHTML = today.trips + today.receipts + today.voids === 0
+        ? '<p class="today-empty">Chưa có giao dịch hôm nay.</p>'
+        : '<div class="today-grid"><div class="today-strip">' +
+          `<div class="tstat"><strong>${today.trips}</strong><span>chuyến đã nhập</span></div>` +
+          `<div class="tstat"><strong>${today.receipts}</strong><span>phiếu thu</span></div>` +
+          `<div class="tstat"><strong class="money">${short(today.received)}</strong><span>đã thu</span></div>` +
+          `<div class="tstat"><strong>${today.voids}</strong><span>phiếu hủy</span></div></div>` +
+          '<table class="table"><thead><tr><th>Người làm</th><th>Chuyến</th><th>Phiếu thu</th><th class="money">Đã thu</th><th>Phiếu hủy</th></tr></thead><tbody>' +
+          D.TODAY.byActor.map(r => `<tr><td>${D.esc(r.actor)}</td><td>${r.trips}</td><td>${r.receipts}</td><td class="money">${D.fmtFull(r.received)}</td><td>${r.voids}</td></tr>`).join('') +
+          '</tbody></table></div>';
     })();
   </script>
 </body>

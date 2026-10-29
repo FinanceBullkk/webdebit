@@ -66,10 +66,10 @@
       <div class="live-controls"><button type="button">↻ Làm mới</button><time>Cập nhật 06:45 · tự tải mỗi 60 giây</time></div>
     </div>
 
-    <section class="scope-strip" aria-label="Tổng hai phạm vi">
-      <div class="item"><div class="k">Dư nợ 12 tháng 2026</div><div class="v money" id="scope-year">—</div></div>
-      <div class="item"><div class="k">Dư nợ mọi năm</div><div class="v money" id="scope-all">—</div></div>
-      <div class="item"><div class="k">Từ trước 2026</div><div class="v money" id="scope-old">—</div></div>
+    <section class="scope-strip" aria-label="Tổng công nợ">
+      <div class="item"><div class="k">Còn phải thu</div><div class="v money" id="scope-receivable">—</div></div>
+      <div class="item"><div class="k">Khách đang dư</div><div class="v money" id="scope-credit">—</div></div>
+      <div class="item"><div class="k">Trong đó nợ từ trước 2026</div><div class="v money" id="scope-old">—</div></div>
       <div class="item"><div class="k">Tình trạng khách</div><div class="v" id="scope-cust" style="font-size:14px;font-weight:600">—</div></div>
     </section>
 
@@ -78,7 +78,7 @@
       <select id="commodity" aria-label="Lọc mặt hàng"></select>
       <label><input type="checkbox" id="short-num" checked> Số rút gọn</label>
       <label><input type="checkbox" id="only-open"> Chỉ khách còn nợ</label>
-      <span style="color:var(--muted)">Bấm vào ô để xem chi tiết tháng (drawer như bản live)</span>
+      <span style="color:var(--muted)">Bấm vào ô để xem chi tiết tháng</span>
     </div>
 
     <div class="legend" aria-label="Chú giải màu">
@@ -101,54 +101,25 @@
       <ul>
         <li>Ô ma trận hiển thị số rút gọn (triệu/tỷ), tooltip giữ số VND nguyên chính xác — dữ liệu API không đổi. Nút “Số rút gọn” tắt để xem số đầy đủ.</li>
         <li>Ô âm (khách đang dư) nền teal, dấu + — tách hẳn khỏi nợ. Hàng tổng theo tháng ghim chân bảng; tên khách và hàng tháng ghim khi cuộn.</li>
-        <li>Hai card tổng lớn thay bằng một dải gọn, kèm đếm tình trạng khách; phần còn lại của màn hình dành cho bảng.</li>
+        <li>Hai card tổng lớn thay bằng một dải gọn dùng cùng tên với Tổng quan: “Còn phải thu” (chỉ khách đang nợ), “Khách đang dư” tách riêng. Dòng tổng chân bảng là số ròng (đã trừ khách dư), ghi rõ ở nhãn.</li>
+        <li>Nhóm và bộ lọc mặt hàng tách phương thức (sầu riêng · cảng / · bộ) như Tổng quan. Khách chưa có số dư đầu không có dòng trong bảng.</li>
         <li>Bộ lọc “Chỉ khách còn nợ” ẩn khách đã tất toán (dữ liệu API hiện có đủ để lọc client-side).</li>
         <li>Cấu trúc nhóm mặt hàng, drawer chi tiết khi bấm ô, dòng đối chiếu KHỚP giữ nguyên hành vi bản live.</li>
       </ul>
     </div>
   </main>
+  <script src="data.js"></script>
   <script>
     (() => {
       'use strict';
-      // Dữ liệu giả (đơn vị: đồng). months = số dư cuối tháng; older = nợ từ trước 2026.
-      const ROWS = [
-        { name: 'MAI HOA (GL)', commodity: 'Sầu riêng', months: { 7: 3850000000, 8: 6420000000, 9: 6890000000, 10: 3430000000 }, older: { 2025: 1200000000 } },
-        { name: 'LONG THÀNH', commodity: 'Sầu riêng', months: { 8: 4100000000, 9: 4400000000, 10: 3300000000 }, older: {} },
-        { name: 'THANH PHÁT', commodity: 'Sầu riêng', months: { 8: 2200000000, 9: 3330000000, 10: 3500000000 }, older: {} },
-        { name: 'HẢI NAM', commodity: 'Sầu riêng', months: { 3: 1200000000, 5: 950000000 }, older: 0 },
-        { name: 'AN NHIÊN', commodity: 'Sầu riêng', months: { 9: 1400000000, 10: 650000000 }, older: 0 },
-        { name: 'SÔNG HỒNG', commodity: 'Thanh long', months: { 5: 1100000000, 6: 1250000000, 9: 1450000000 }, older: 0 },
-        { name: 'GIA PHÁT', commodity: 'Thanh long', months: { 7: 350000000, 8: 620000000 }, older: 0 },
-        { name: 'THẢO VY', commodity: 'Thanh long', months: { 10: 420000000 }, older: 0 },
-        { name: 'HẢI TRIỀU', commodity: 'Chuối', months: { 1: 2300000000, 2: 1700000000, 3: 1600000000 }, older: 0 },
-        { name: 'BẢO NGỐC', commodity: 'Chuối', months: { 9: 280000000, 10: 120000000 }, older: 0 },
-        { name: 'ÁNH DƯƠNG', commodity: 'Dừa', months: { 2: 1100000000, 3: 1500000000, 4: 1500000000 }, older: 0 },
-        { name: 'TÂN PHÚ', commodity: 'Dừa', months: { 10: 350000000 }, older: 0 },
-        { name: 'MAI THẢO', commodity: 'Xoài', months: { 8: 310000000, 10: 590000000 }, older: 0 },
-        { name: 'ĐÌNH TRUNG', commodity: null, months: {}, older: { 2024: 551000000 } },
-        { name: 'QUANG MINH', commodity: null, months: {}, older: 0 },
-        { name: 'KIM LAN', commodity: null, months: { 10: -350000000 }, older: 0 },
-        { name: 'PHÚ LONG', commodity: null, months: { 9: 750000000 }, older: 0 },
-      ];
+      const D = window.MOCK;
+      const ROWS = D.ledger;
       const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
-      const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-      const fmtFull = v => v.toLocaleString('vi-VN') + ' đ';
-      const fmtShort = v => {
-        const abs = Math.abs(v);
-        if (abs >= 1e9) return (v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
-        if (abs >= 1e6) return Math.round(v / 1e6).toLocaleString('vi-VN') + ' tr';
-        return v.toLocaleString('vi-VN');
-      };
+      const { esc, fmtFull, fmtShort, yearOf, allOf } = D;
       const fmtCell = (v, short) => (short ? fmtShort(v) : fmtFull(v));
-      const yearOf = row => MONTHS.reduce((sum, m) => sum + (row.months[m] ?? 0), 0);
-      const allOf = row => yearOf(row) + Object.values(row.older ?? {}).reduce((sum, v) => sum + v, 0);
 
-      const state = { commodity: '', short: true, onlyOpen: false };
+      const state = { commodity: null, short: true, onlyOpen: false };
       const $ = id => document.querySelector('#' + id);
-
-      function groupLabel(key) {
-        return key === '__none' ? 'Chưa phân loại' : key;
-      }
 
       function heatCell(value, max) {
         if (!value) return '<td class="empty"><span class="cell" aria-hidden="true"></span></td>';
@@ -169,16 +140,16 @@
 
       function render() {
         const rows = ROWS.filter(row => !state.onlyOpen || allOf(row) > 0 || yearOf(row) !== 0)
-          .filter(row => !state.commodity || (state.commodity === '__none' ? row.commodity == null : row.commodity === state.commodity));
+          .filter(row => state.commodity === null || D.groupKey(row) === state.commodity);
         const groups = new Map();
         rows.forEach(row => {
-          const key = row.commodity ?? '__none';
+          const key = D.groupKey(row);
           if (!groups.has(key)) groups.set(key, []);
           groups.get(key).push(row);
         });
         const ordered = [...groups.entries()].sort((a, b) => {
-          if (a[0] === '__none') return 1;
-          if (b[0] === '__none') return -1;
+          if (a[0] === '') return 1;
+          if (b[0] === '') return -1;
           const total = members => members.reduce((acc, row) => acc + allOf(row), 0);
           return total(b[1]) - total(a[1]);
         });
@@ -187,7 +158,7 @@
 
         const head = ['<th class="khach">Khách</th>']
           .concat(MONTHS.map(m => `<th>T${m}</th>`))
-          .concat(['<th class="total-col">NĂM 2026</th><th class="all-col">Mọi NAM</th>']).join('');
+          .concat(['<th class="total-col">Năm 2026</th><th class="all-col">Mọi năm</th>']).join('');
         $('heat-head').innerHTML = head;
 
         const body = [];
@@ -195,7 +166,7 @@
         let sumYear = 0, sumAll = 0;
         for (const [key, members] of ordered) {
           const gYear = sum(yearOf, members), gAll = sum(allOf, members);
-          body.push(`<tr class="group"><th class="glabel">${esc(groupLabel(key))}<span class="n">${members.length} khách</span></th><th class="gspacer" colspan="12"></th>${totalCell(gYear, 'total-col').replace('<td', '<th').replace('</td>', '</th>')}${totalCell(gAll, 'all-col').replace('<td', '<th').replace('</td>', '</th>')}</tr>`);
+          body.push(`<tr class="group"><th class="glabel">${esc(D.groupLabel(key))}<span class="n">${members.length} khách</span></th><th class="gspacer" colspan="12"></th>${totalCell(gYear, 'total-col').replace('<td', '<th').replace('</td>', '</th>')}${totalCell(gAll, 'all-col').replace('<td', '<th').replace('</td>', '</th>')}</tr>`);
           for (const row of members) {
             body.push(`<tr><td class="khach"><span class="name" title="${esc(row.name)}">${esc(row.name)}</span></td>` +
               MONTHS.map(m => { const v = row.months[m] ?? 0; monthSum[m - 1] += v; return heatCell(v, max); }).join('') +
@@ -204,28 +175,31 @@
           sumYear += gYear; sumAll += gAll;
         }
         $('heat-body').innerHTML = body.length ? body.join('') : '<tr><td colspan="15" style="padding:12px">Không có khách phù hợp.</td></tr>';
-        $('heat-foot').innerHTML = '<tr><th>Tổng ' + rows.length + ' khách hiển thị</th>' +
+        $('heat-foot').innerHTML = '<tr><th>Tổng ' + rows.length + ' khách (đã trừ khách dư)</th>' +
           monthSum.map(v => `<td>${v ? fmtCell(v, state.short) : '—'}</td>`).join('') +
           `<td>${fmtCell(sumYear, state.short)}</td><td>${fmtCell(sumAll, state.short)}</td></tr>`;
 
-        const olderAll = ROWS.reduce((acc, row) => acc + Object.values(row.older ?? {}).reduce((sum, v) => sum + v, 0), 0);
-        $('scope-year').textContent = fmtShort(ROWS.reduce((acc, row) => acc + yearOf(row), 0));
-        $('scope-all').textContent = fmtShort(ROWS.reduce((acc, row) => acc + allOf(row), 0));
-        $('scope-old').textContent = fmtShort(olderAll);
+        const olderOpen = D.debtors.reduce((acc, row) => acc + D.olderOf(row), 0);
+        $('scope-receivable').textContent = fmtShort(D.receivable);
+        $('scope-receivable').title = fmtFull(D.receivable);
+        $('scope-credit').textContent = fmtShort(-D.credit);
+        $('scope-credit').title = fmtFull(-D.credit);
+        $('scope-old').textContent = fmtShort(olderOpen);
+        $('scope-old').title = fmtFull(olderOpen);
         const open = ROWS.filter(row => allOf(row) > 0).length;
         const du = ROWS.filter(row => allOf(row) < 0).length;
         const closed = ROWS.length - open - du;
         $('scope-cust').innerHTML = `${open} còn nợ <small>· ${du} đang dư · ${closed} tất toán</small>`;
-        $('recon').textContent = 'Đối chiếu dữ liệu giả: 12 ô tháng = cột Năm; tổng khách = tổng toàn bảng. KHỚP.';
+        $('recon').textContent = 'Đối chiếu: 12 ô tháng = cột Năm; tổng các khách = tổng toàn bảng. KHỚP.';
       }
 
       function setupControls() {
-        const commodities = [...new Set(ROWS.map(row => row.commodity).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+        const keys = [...new Set(ROWS.map(D.groupKey).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
         const select = $('commodity');
-        select.replaceChildren(new Option('Mặt hàng: tất cả', ''));
-        commodities.forEach(value => select.add(new Option('Mặt hàng: ' + value, value)));
-        if (ROWS.some(row => row.commodity == null)) select.add(new Option('Mặt hàng: chưa phân loại', '__none'));
-        select.addEventListener('change', () => { state.commodity = select.value; render(); });
+        select.replaceChildren(new Option('Mặt hàng: tất cả', '*'));
+        keys.forEach(value => select.add(new Option('Mặt hàng: ' + value, value)));
+        if (ROWS.some(row => !D.groupKey(row))) select.add(new Option('Mặt hàng: chưa phân loại', ''));
+        select.addEventListener('change', () => { state.commodity = select.value === '*' ? null : select.value; render(); });
         $('short-num').addEventListener('change', event => { state.short = event.target.checked; render(); });
         $('only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
         $('year-prev').disabled = true;

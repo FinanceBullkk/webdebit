@@ -17,14 +17,23 @@
 <body>
   <div class="demo">MOCKUP · DỮ LIỆU GIẢ — tên khách và số liệu đều hư cấu, chỉ để duyệt thiết kế</div>
   <main>
-    <h1>Redesign 2 dashboard công nợ — mockup duyệt thiết kế</h1>
+    <h1>Dashboard công nợ — mockup v3 duyệt thiết kế</h1>
+    <p>Bản v3 (29/10/2026): gom lại theo đánh giá bộ biểu đồ v1/v2. Hai trang dùng chung một bộ dữ liệu giả (<code>data.js</code>), nên mọi khối luôn cộng về cùng một tổng.</p>
     <ol>
-      <li><a href="tong-quan.html">Tổng quan công nợ</a> — dải KPI có Δ tháng trước, biểu đồ đường 12 tháng, aging có màu theo độ tuổi, tỉ trọng nợ trong bảng khách, việc cần làm có badge, card Hôm nay gọn.</li>
-      <li><a href="cong-no-theo-thang.html">Công nợ theo tháng</a> — ô ma trận số rút gọn + tooltip đầy đủ, ô âm nền teal, sticky tên khách/hàng tháng/hàng tổng, chú giải màu có mốc, dải tổng gọn, lọc “chỉ khách còn nợ”.</li>
-      <li><a href="charts.html">Biểu đồ đề xuất (v1)</a> — thư viện biểu đồ mới theo đánh giá dữ liệu: aging P1, mặt hàng P2, Pareto top khách P2, vintage theo năm phát sinh P2, phát sinh vs đã thu P3 (cần API mới).</li>
-      <li><a href="charts-v2.html">Biểu đồ v2 (theo góp ý duyệt 29/10)</a> — một bộ dữ liệu dùng chung, đối chiếu tự động về đúng tổng, KPI theo mạch “Nợ bao nhiêu → già đi thế nào → tập trung ở ai”, Pareto top 5 + khách khác + mốc 80%, drill-down drawer, cảnh báo chưa phân loại thành hành động.</li>
+      <li><a href="tong-quan.html">Tổng quan công nợ</a> — sáu khối của DASH-01: còn phải thu, theo mặt hàng (tách cảng/bộ), nợ theo tháng phát sinh, 10 khách nợ nhiều nhất, việc cần làm, hôm nay.</li>
+      <li><a href="cong-no-theo-thang.html">Công nợ theo tháng</a> — ma trận khách × tháng: số rút gọn có số đủ khi rê chuột, ô khách dư màu riêng, ghim tên khách/hàng tháng/hàng tổng, lọc mặt hàng và “chỉ khách còn nợ”.</li>
     </ol>
-    <p>Mỗi trang có mục <strong>Ghi chú duyệt thiết kế</strong> ở chân trang: cái gì mới, cái gì cần thêm API, cái gì giữ nguyên hành vi live. Sửa mockup không đụng code live; sau khi duyệt mới code thật theo <code>docs/development.md#quy-trình-frontend</code>.</p>
+    <h2 style="font-size:17px">Đã cân nhắc và bỏ</h2>
+    <ul>
+      <li><b>Pareto top khách</b>: hai trục khó đọc, nhãn đè nhau, chiếm nửa màn 1280×720; bảng 10 khách có tỉ trọng đã trả lời câu “nợ tập trung ở ai”.</li>
+      <li><b>Dư nợ theo năm phát sinh</b>: gần hết số nợ thuộc năm hiện tại nên không thêm thông tin; ma trận đã có cột năm và mọi năm.</li>
+      <li><b>Bảng đối chiếu tự động trên trang</b>: là phép kiểm kỹ thuật, đặt ở test/server; trang chỉ báo khi lệch.</li>
+    </ul>
+    <h2 style="font-size:17px">Để giai đoạn sau</h2>
+    <ul>
+      <li>So với tháng trước (cần lưu số cuối tháng), đường phát sinh vs đã thu 12 tháng (cần chốt cách tính “đã thu”), bấm nhóm tuổi nợ ra danh sách khoản nợ (cần API).</li>
+    </ul>
+    <p>Mỗi trang có mục <strong>Ghi chú duyệt thiết kế</strong> ở chân trang. Sửa mockup không đụng code live; sau khi duyệt mới code thật theo <code>docs/development.md#quy-trình-frontend</code>.</p>
   </main>
 </body>
 </html>
