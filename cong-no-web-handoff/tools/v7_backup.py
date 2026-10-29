@@ -7,10 +7,13 @@ Restore preserves owners/ACLs: provision target DB and referenced roles first;
 this tool does not create roles or grant permissions.
 Failed backups retain partial files without MANIFEST.json; do not reuse them.
 `daily` is the timer entry: dated folder under one root, disk check, retention.
+`offsite` age-encrypts the newest daily backup into an outbox that an off-host
+PC pulls (v7_offsite_pull.py); decrypting needs the identity kept on that PC.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -19,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
@@ -30,6 +34,8 @@ MANIFEST = "MANIFEST.json"
 VN = timezone(timedelta(hours=7))
 VND = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 STAMP = re.compile(r"v7-[0-9]{8}-[0-9]{6}\Z")
+SEALED = re.compile(r"v7-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
+AGE = ["age"]  # on PATH (/usr/bin/age on hao); tests swap in a fake
 
 
 class BackupError(RuntimeError):
@@ -368,6 +374,99 @@ def daily(root, keep, min_free_mb, pg=None):
     return out
 
 
+def seal(source, stream, recipients):
+    """Tar `<name>/` (MANIFEST.json + dump) straight into age: no plaintext copy on disk.
+
+    Any failure kills age, so a truncated tar is never left looking complete.
+    """
+    with tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen([*AGE, "--encrypt", "--recipients-file", str(recipients)],
+                                       stdin=subprocess.PIPE, stdout=stream, stderr=errors)
+        except OSError as exc:
+            raise BackupError("age unavailable") from exc
+        failure = None
+        try:
+            with tarfile.open(fileobj=process.stdin, mode="w|", format=tarfile.PAX_FORMAT) as archive:
+                folder = tarfile.TarInfo(source.name)
+                folder.type, folder.mode, folder.mtime = tarfile.DIRTYPE, 0o700, int(source.stat().st_mtime)
+                archive.addfile(folder)
+                for name in (MANIFEST, DUMP):
+                    info = archive.gettarinfo(source / name, f"{source.name}/{name}")
+                    if not info.isreg():
+                        raise BackupError(f"{name} must be a regular file")
+                    info.mode, info.uid, info.gid, info.uname, info.gname = 0o600, 0, 0, "", ""
+                    with (source / name).open("rb") as data:
+                        archive.addfile(info, data)
+            process.stdin.close()
+            process.wait(timeout=300)
+        except (OSError, BackupError, tarfile.TarError, subprocess.TimeoutExpired) as exc:
+            failure = exc
+            process.kill()
+            process.wait()
+            with contextlib.suppress(OSError):
+                process.stdin.close()
+        if failure or process.returncode:
+            errors.seek(0)
+            detail = errors.read().decode("utf-8", errors="replace")[-2000:].strip()
+            raise BackupError(f"age/tar failed ({process.returncode}): {detail or failure}") from failure
+
+
+def sealed(outbox):
+    """Archives `v7-…tar.age` directly under outbox, oldest first; links ignored."""
+    return sorted(entry.name for entry in outbox.iterdir() if SEALED.fullmatch(entry.name)
+                  and entry.is_file() and not entry.is_symlink())
+
+
+def offsite(root, outbox, recipients, keep):
+    """Timer entry after `daily`: age-encrypt the newest complete backup for an off-host pull.
+
+    Verifies the source hash, then writes `<name>.tar.age` before its
+    `.sha256` (sha256sum format), so a reader never sees a checksum without its
+    archive; an intact pair is not sealed again. Prunes only after success:
+    archives beyond the newest `keep`, checksum first. Nothing here decrypts.
+    """
+    root, outbox = (Path(path).expanduser().resolve() for path in (root, outbox))
+    if not root.is_dir() or not outbox.is_dir():
+        raise BackupError("offsite root and outbox must be existing directories")
+    if outbox.is_relative_to(root) or root.is_relative_to(outbox):
+        raise BackupError("offsite outbox and daily root must not contain each other")
+    if not Path(recipients).is_file():
+        raise BackupError("offsite recipients file missing")
+    complete = [entry for entry in stamped(root) if (entry / MANIFEST).is_file()]
+    if not complete:
+        raise BackupError("no complete backup to seal")
+    source = complete[-1]
+    verify(source)
+    archive = outbox / f"{source.name}.tar.age"
+    checksum = outbox / f"{archive.name}.sha256"
+    new = not (archive.is_file() and checksum.is_file()
+               and checksum.read_bytes() == f"{sha256(archive)}  {archive.name}\n".encode("ascii"))
+    if new:
+        parts = (outbox / f"{archive.name}.partial", outbox / f"{checksum.name}.partial")
+        try:
+            for part in parts:
+                part.unlink(missing_ok=True)
+            with parts[0].open("xb") as stream:
+                seal(source, stream, recipients)
+            parts[1].write_bytes(f"{sha256(parts[0])}  {archive.name}\n".encode("ascii"))
+            os.replace(parts[0], archive)
+            os.replace(parts[1], checksum)
+        finally:
+            for part in parts:
+                part.unlink(missing_ok=True)
+    names = sealed(outbox)
+    kept = {archive.name, *names[-keep:]}  # A clock step back never prunes today's archive.
+    pruned = [name for name in names if name not in kept]
+    for name in pruned:
+        (outbox / f"{name}.sha256").unlink(missing_ok=True)
+        (outbox / name).unlink()
+    print(json.dumps({"ok": True, "source": source.name, "sealed": archive.name if new else None,
+                      "archive_bytes": archive.stat().st_size, "kept": len(kept), "pruned": pruned,
+                      "free_bytes": shutil.disk_usage(outbox).free}))
+    return archive
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -380,14 +479,23 @@ def main(argv=None):
     command.add_argument("--root", required=True, type=Path)
     command.add_argument("--keep", type=int, default=30)
     command.add_argument("--min-free-mb", type=int, default=2048)
+    command = commands.add_parser("offsite")
+    command.add_argument("--root", required=True, type=Path)
+    command.add_argument("--outbox", required=True, type=Path)
+    command.add_argument("--recipients", required=True, type=Path)
+    command.add_argument("--keep", type=int, default=14)
     args = parser.parse_args(argv)
     if args.command == "daily" and (args.keep < 1 or args.min_free_mb < 0):
         parser.error("daily needs --keep >= 1 and --min-free-mb >= 0")
+    if args.command == "offsite" and args.keep < 1:
+        parser.error("offsite needs --keep >= 1")
     try:
         if args.command == "backup":
             backup(args.out)
         elif args.command == "daily":
             daily(args.root, args.keep, args.min_free_mb)
+        elif args.command == "offsite":
+            offsite(args.root, args.outbox, args.recipients, args.keep)
         elif args.command == "verify":
             verify(args.folder)
             print("MATCH SHA-256 and manifest structure (offline)")

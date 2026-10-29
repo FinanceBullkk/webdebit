@@ -9,7 +9,7 @@ Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-
 | ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
-| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 nhưng chưa có bản ngoài máy ([timer](#backup-hằng-ngày--timer-v7-backup-daily)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
+| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản ngoài máy chưa cài ([mẫu](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
 
 Giới hạn: Sheet vẫn chính thức theo [SONG-SONG-01](decisions.md#song-song-01).
 Opening theo [OPENING-SO-GOC](decisions.md#opening-so-goc); mốc chuyến là bản xuất mới nhất
@@ -626,7 +626,8 @@ Rollback: `sudo systemctl disable --now v7-backup-daily.timer`, giữ các bản
 `daemon-reload`; chỉ xóa `/opt/webdebit-backup` và `/srv/v7-backup-daily` khi người dùng đồng ý.
 
 Còn mở:
-- Dữ liệu PostgreSQL (`/`) và `/srv` là hai LV trên cùng một ổ vật lý: hỏng ổ là mất cả hai. Cần bản sao ra máy khác (người dùng chọn nơi).
+- Dữ liệu PostgreSQL (`/`) và `/srv` là hai LV trên cùng một ổ vật lý: hỏng ổ là mất cả hai. Bản sao ra máy khác: mục
+  [Bản sao ngoài máy](#bản-sao-ngoài-máy--timer-v7-backup-offsite).
 - Không có cảnh báo khi lượt backup lỗi; phải xem trạng thái unit.
 - Backup không có globals (role): phục hồi sang cluster mới phải tạo role trước.
 - `pg_dump` trong công cụ giới hạn 300 giây; ảnh làm dump lớn dần, xem `dump_bytes` khi phục hồi thử hằng tháng.
@@ -635,6 +636,241 @@ Còn mở:
 Map kiểm: lệnh trên → `v7_backup.daily/stamped/repository_roots` → `tests/test_v7_backup_daily.py` (dữ liệu giả, không DB,
 trong `npm run check`) và `tools/test_v7_backup.py` (PostgreSQL 18.6 Docker `--network none`, chạy tay). Không chứng minh
 systemd hay peer trên `hao`.
+
+## Bản sao ngoài máy — timer `v7-backup-offsite`
+
+**CHƯA CÀI.** Lý do: dữ liệu PostgreSQL và `/srv/v7-backup-daily` nằm trên cùng một ổ của `hao`. Người dùng chọn đích ngày
+29/10/2026: PC Windows chính trong tailnet (dưới đây gọi là PC). Không migration, không đổi DB, không ghi tiền. Thêm khóa
+SSH, thư mục, unit và lịch Windows là đổi quyền/systemd ngoài các mục đã có: hỏi người dùng trước khi cài
+([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)).
+
+| Mục | Chọn | Lý do |
+| --- | --- | --- |
+| Hướng | PC kéo từ `hao`, như bản Vaultwarden đang chạy trên PC | `hao` không giữ quyền nào vào PC; PC tắt thì lượt sau kéo bù |
+| Mã hóa | `v7_backup.py offsite`: tar `MANIFEST.json` + `sokhach.dump` của bản mới nhất có `MANIFEST.json`, đổ thẳng vào `age` tới một recipient | dump có tên khách, số tiền, ảnh chứng từ; không có bản rõ thứ hai trên đĩa; khóa giải mã chỉ ở PC |
+| Kiểm hash | trước khi mã hóa: `verify` (SHA-256 dump khớp `MANIFEST.json`); sau: `<bản>.tar.age.sha256` dạng `sha256sum`; PC tính lại trước khi giữ file; giải mã xong lại `verify` | bắt hỏng ở `hao`, trên đường truyền và trên đĩa PC; hai bước đầu không cần khóa |
+| Hộp chờ | `/srv/v7-backup-offsite`, chủ `postgres`, nhóm `<admin>`, 2750; tệp 640 (`UMask=0027`); giữ 14 bản | chỉ có bản đã mã hóa; PC tắt hai tuần vẫn kéo bù được |
+| Giờ | `hao` 03:00 giờ VN (`Persistent=true`, `After=v7-backup-daily.service`); PC 04:30 (`StartWhenAvailable`) | sau backup 02:40; lệch Vaultwarden 03:30 trên `hao` và 04:15 trên PC |
+| Kênh | SFTP qua tailnet bằng khóa ed25519 riêng; dòng `authorized_keys` của `<admin>` có `restrict`, `from="<pc_ip>"`, `command="/usr/lib/openssh/sftp-server -R -d /srv/v7-backup-offsite"` | không shell, không ghi, không forward, chỉ từ PC; không đổi `sshd_config`. Giới hạn: SFTP chỉ đọc vẫn đọc được tệp mà `<admin>` đọc được, chấp nhận vì PC đã có khóa quản trị `hao` |
+| Đích | `<pc_dir>` trên ổ dữ liệu của PC, ngoài OneDrive; giữ 30 cặp; `pull.log` một dòng mỗi lượt | 30 bản qua được một kỳ cuối tháng; log không có tên khách hay tiền |
+| Khóa age | `age-keygen` trên PC, file trong `%USERPROFILE%\.ssh\` cạnh khóa Vaultwarden; chủ máy chép thêm một bản ra USB hoặc giấy, cất riêng | mất khóa là mọi bản trên PC vô dụng; khóa không lên `hao`, không vào repo |
+
+`offsite`: chọn bản mới nhất có `MANIFEST.json` → `verify` → ghi `<bản>.tar.age` rồi mới ghi `.sha256` (bên đọc không bao
+giờ thấy checksum thiếu archive) → giữ 14 archive mới nhất, xóa checksum trước archive. Cặp còn nguyên thì không mã hóa
+lại; archive lệch checksum thì mã hóa lại. Journal một dòng JSON (`ok`, `source`, `sealed`, `archive_bytes`, `kept`,
+`pruned`, `free_bytes`). Lỗi: `ERROR: …`, mã thoát 2, không xóa gì. `v7_offsite_pull.py` trên PC: liệt kê hộp chờ, kéo cặp
+còn thiếu trong cửa sổ `--keep` về `.partial`, giữ file chỉ khi SHA-256 khớp, chỉ xóa bản cũ khi cả lượt không lỗi, ghi
+`PASS`/`FAIL` vào `pull.log`; không giải mã.
+
+Ký hiệu: `<admin>` là user quản trị trên `hao`; `<hao_ip>`, `<pc_ip>` là địa chỉ tailnet; `<pc_tools>`, `<pc_dir>` là thư
+mục script và thư mục đích trên PC; `<python_dir>` là thư mục Python 3.12+ trên PC (`python.exe` chạy tay, `pythonw.exe`
+cho lịch để không bật cửa sổ). Không ghi giá trị thật vào repo.
+
+### O1. Khóa trên PC (PowerShell, user chủ máy)
+
+```powershell
+age-keygen -o "$env:USERPROFILE\.ssh\webdebit-v7-backup-age-key.txt"
+```
+
+Dòng `Public key: age1…` là `<age_recipient>`. `icacls` file khóa chỉ được có chủ máy, `SYSTEM`, `Administrators`
+(thừa hưởng từ `.ssh`). Khóa SSH để kéo; PowerShell 5.1 bỏ đối số rỗng nên viết `'""'`:
+
+```powershell
+ssh-keygen -t ed25519 -N '""' -C webdebit-v7-offsite-pull -f "$env:USERPROFILE\.ssh\webdebit-v7-offsite-pull-ed25519"
+```
+
+### O2. Trên `hao`: mã, recipient, hộp chờ, khóa SSH
+
+Ghim lại `v7_backup.py` theo [B1](#b1-bản-ghim-và-thư-mục) từ commit có `offsite`, so hash rồi mới dùng; lệnh `daily` không
+đổi. Kiểm bản ghim đọc được bản mới nhất:
+
+```bash
+sudo -u postgres /usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py verify --from /srv/v7-backup-daily/<ban_moi>
+```
+
+```bash
+sudo install -d -o root -g root -m 755 /etc/webdebit-backup
+```
+
+```bash
+printf '%s\n' '<age_recipient>' | sudo tee /etc/webdebit-backup/v7-offsite.recipients >/dev/null
+```
+
+```bash
+sudo chmod 644 /etc/webdebit-backup/v7-offsite.recipients
+```
+
+```bash
+sudo install -d -o postgres -g <admin> -m 2750 /srv/v7-backup-offsite
+```
+
+Chép `~/.ssh/authorized_keys` của `<admin>` vào `<evidence_dir>`, rồi thêm đúng một dòng (khóa công khai từ O1):
+
+```text
+restrict,from="<pc_ip>",command="/usr/lib/openssh/sftp-server -R -d /srv/v7-backup-offsite" ssh-ed25519 AAAA… webdebit-v7-offsite-pull
+```
+
+Kiểm từ PC bằng khóa này: `ssh -n … <admin>@<hao_ip> id` không in `uid=` (lệnh bị thay bằng `sftp-server`), `sftp`
+liệt kê được hộp chờ, `put` bị từ chối. Khóa quản trị cũ vẫn đăng nhập bình thường.
+
+### O3. Unit trên `hao`
+
+`/etc/systemd/system/v7-backup-offsite.service`:
+
+```ini
+[Unit]
+Description=V7 off-host copy: age-encrypt newest daily backup for the PC pull (v7_backup.py offsite)
+# Chỉ xếp thứ tự: lượt bù lúc khởi động chạy sau backup ngày; không Requires/Wants để không kéo backup chạy theo.
+After=v7-backup-daily.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+UMask=0027
+ExecStart=/usr/bin/python3 -I /opt/webdebit-backup/cong-no-web-handoff/tools/v7_backup.py offsite --root /srv/v7-backup-daily --outbox /srv/v7-backup-offsite --recipients /etc/webdebit-backup/v7-offsite.recipients --keep 14
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/v7-backup-offsite
+TimeoutStartSec=30min
+```
+
+`/etc/systemd/system/v7-backup-offsite.timer`:
+
+```ini
+[Unit]
+Description=V7 off-host copy schedule (03:00 Vietnam time)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Ho_Chi_Minh
+Persistent=true
+Unit=v7-backup-offsite.service
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemd-analyze verify /etc/systemd/system/v7-backup-offsite.service /etc/systemd/system/v7-backup-offsite.timer
+```
+
+```bash
+sudo systemctl daemon-reload
+```
+
+```bash
+sudo systemctl start v7-backup-offsite.service
+```
+
+```bash
+sudo journalctl -u v7-backup-offsite.service -n 20 --no-pager
+```
+
+Đạt khi: JSON `"ok": true`, `sealed` là `<ban_moi>.tar.age`, unit `status=0/SUCCESS`; trong hộp chờ hai tệp 640 chủ
+`postgres` nhóm `<admin>`; `sha256sum -c` khớp:
+
+```bash
+sudo ls -la /srv/v7-backup-offsite
+```
+
+```bash
+cd /srv/v7-backup-offsite && sha256sum -c <ban_moi>.tar.age.sha256
+```
+
+```bash
+sudo systemctl enable --now v7-backup-offsite.timer
+```
+
+### O4. Trên PC: script và lịch
+
+Chép `cong-no-web-handoff/tools/v7_offsite_pull.py` và `v7_backup.py` của cùng commit vào `<pc_tools>`; `Get-FileHash`
+phải khớp `git show <commit>:<đường dẫn> | sha256sum` ở một checkout. `known_hosts` của chủ máy phải có khóa máy của
+`<hao_ip>` (bản Vaultwarden dùng cùng địa chỉ); lần đầu thì so fingerprint với `/etc/ssh/ssh_host_ed25519_key.pub` trên `hao`.
+Lượt đầu chạy tay bằng `python.exe` để thấy kết quả và mã thoát:
+
+```powershell
+& "<python_dir>\python.exe" -I "<pc_tools>\v7_offsite_pull.py" --host <hao_ip> --user <admin> --identity "$env:USERPROFILE\.ssh\webdebit-v7-offsite-pull-ed25519" --dest "<pc_dir>" --keep 30 --sftp "$env:WINDIR\System32\OpenSSH\sftp.exe"
+```
+
+Đạt: mã thoát 0, dòng cuối `<pc_dir>\pull.log` là `PASS pulled=1 newest=<ban_moi>.tar.age …`. Lịch, chạy khi chủ máy đăng
+nhập như bản Vaultwarden (không lưu mật khẩu Windows):
+
+```powershell
+Register-ScheduledTask -TaskName 'Webdebit V7 Backup Pull' -Description 'Kéo bản V7 đã mã hóa age từ hao (v7_offsite_pull.py)' -Action (New-ScheduledTaskAction -Execute '<python_dir>\pythonw.exe' -Argument '-I "<pc_tools>\v7_offsite_pull.py" --host <hao_ip> --user <admin> --identity "<pc_ssh_dir>\webdebit-v7-offsite-pull-ed25519" --dest "<pc_dir>" --keep 30 --sftp "C:\Windows\System32\OpenSSH\sftp.exe"') -Trigger (New-ScheduledTaskTrigger -Daily -At 04:30) -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew) -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited)
+```
+
+`<pc_ssh_dir>` là đường dẫn đầy đủ của `%USERPROFILE%\.ssh` (Task Scheduler không mở biến môi trường trong đối số).
+Kiểm `Start-ScheduledTask`, rồi `Get-ScheduledTaskInfo` có `LastTaskResult` 0 và `pull.log` thêm một dòng `PASS pulled=0`.
+
+### O5. Phục hồi thử từ bản trên PC (sau khi cài và hằng tháng)
+
+Làm trong một thư mục mới, rỗng, ngoài OneDrive và ngoài mọi checkout; xóa ngay khi xong. Đây cũng là đường phục hồi thật
+khi `hao` hỏng ổ.
+
+```powershell
+Get-FileHash -Algorithm SHA256 "<pc_dir>\<ban>.tar.age"
+```
+
+Phải bằng chuỗi hex trong `<ban>.tar.age.sha256`. Giải mã và giải nén (`tar` có sẵn trong Windows):
+
+```powershell
+age --decrypt -i "$env:USERPROFILE\.ssh\webdebit-v7-backup-age-key.txt" -o "<restore_dir>\<ban>.tar" "<pc_dir>\<ban>.tar.age"
+```
+
+```powershell
+tar -xf "<restore_dir>\<ban>.tar" -C "<restore_dir>"
+```
+
+```powershell
+& "<python_dir>\python.exe" -I "<pc_tools>\v7_backup.py" verify --from "<restore_dir>\<ban>"
+```
+
+Kỳ vọng `MATCH SHA-256 and manifest structure (offline)`. Phục hồi thật vào PostgreSQL 18 mới: dựng role và DB theo
+[mục 3](#3-provision-một-lần), rồi `v7_backup.py restore` như [B4](#b4-phục-hồi-thử-ra-db-mới-c2). Backup không có role:
+dump hiện tham chiếu `sokhach_owner` (chủ), `sokhach_app` và `sokhach_reader` (được cấp quyền); lược đồ đổi thì kiểm lại
+bằng `pg_restore -l`. Bản tập trên PostgreSQL 18.6 Docker `--network none`, xác thực trust, role NOLOGIN:
+
+```bash
+docker run --detach --name <container> --network none --env POSTGRES_HOST_AUTH_METHOD=trust postgres:18.6
+```
+
+Chờ `docker logs` có `PostgreSQL init process complete; ready for start up.` rồi `docker exec <container> pg_isready -U
+postgres` trả 0 (máy chủ khởi động lại sau dòng đó).
+
+```bash
+docker exec <container> psql -X -v ON_ERROR_STOP=1 -U postgres -c 'CREATE ROLE sokhach_owner NOLOGIN; CREATE ROLE sokhach_app NOLOGIN; CREATE ROLE sokhach_reader NOLOGIN;' -c 'CREATE DATABASE v7_offsite_check;'
+```
+
+`restore` gọi `psql`/`pg_restore` trong container qua tiền tố `docker exec` (cách harness `tools/test_v7_backup.py` làm), so
+số dòng mọi bảng và tổng nợ từng khách với `MANIFEST.json`, mã thoát 0 là khớp. Báo cáo có id khách và tổng nợ: chỉ lưu ở
+thư mục bằng chứng ngoài Git.
+
+```bash
+python -I -c "import sys; sys.path.insert(0, sys.argv[1]); import v7_backup as b; sys.exit(b.restore(sys.argv[2], 'v7_offsite_check', b.Pg(prefix=['docker', 'exec', '-i', '--env', 'PGUSER=postgres', sys.argv[3]])))" <tools_dir> <restore_dir>/<ban> <container> > <evidence_dir>/offsite-restore-check.txt
+```
+
+Đạt: dòng 1 `MATCH`, dòng 2 `<N> tables; <M> customers` bằng số trong `MANIFEST.json`. Dọn: `docker rm --force --volumes
+<container>`, xóa `<restore_dir>`.
+
+### O6. Theo dõi và rollback
+
+Hằng ngày: `systemctl is-failed v7-backup-offsite.service` và dòng cuối `pull.log` là `PASS` với `newest=` của ngày đó.
+Hằng tháng: O5 với bản mới nhất. Rollback: `sudo systemctl disable --now v7-backup-offsite.timer`,
+`Disable-ScheduledTask -TaskName 'Webdebit V7 Backup Pull'` trên PC, xóa dòng `authorized_keys` của O2; giữ các bản đã có.
+Gỡ hẳn: xóa hai unit, `daemon-reload`; chỉ xóa hộp chờ và bản trên PC khi người dùng đồng ý. Đổi khóa age (mất hoặc lộ):
+tạo cặp mới ở O1, thay `/etc/webdebit-backup/v7-offsite.recipients`; giữ khóa cũ tới khi bản mã hóa bằng nó hết hạn giữ.
+
+Còn mở:
+- PC và `hao` cùng một nơi: cháy hoặc mất trộm cả nơi vẫn mất cả hai. Muốn chống thì thêm bản đã mã hóa lên mây (bản
+  Vaultwarden đang để trong OneDrive); người dùng quyết.
+- Không có cảnh báo khi lượt lỗi ở cả hai phía; PC phải bật và chủ máy đăng nhập thì lịch mới chạy.
+- Bản khóa age thứ hai (USB/giấy) do chủ máy giữ; repo không có bằng chứng.
+
+Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_backup_offsite.py` (dữ liệu giả, `age` giả; vòng
+`age` thật chạy khi máy có `age`) và `v7_offsite_pull.pull/fetch` → `tests/test_v7_offsite_pull.py` (SFTP giả), cả hai trong
+`npm run check`. Không chứng minh systemd, `authorized_keys`, Task Scheduler hay mạng tailnet.
 
 ## 7. Rollback theo mức
 
@@ -830,7 +1066,7 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v
 ```
 
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;
-backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); đã cài 29/10/2026, chưa có bản ngoài máy); quyền người chạy, route Serve và kiểm
+backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); đã cài 29/10/2026; bản ngoài máy ở mục [Bản sao ngoài máy](#bản-sao-ngoài-máy--timer-v7-backup-offsite), chưa cài); quyền người chạy, route Serve và kiểm
 danh tính. Chính sách ai xem Lịch sử đã chốt V7-CSM, việc triển khai/quyền truy cập backup vẫn cần kiểm.
 Đường Host/Origin/asset và allowlist HTTPS đối soát có regression test dữ liệu giả
 (`test_v7_ledger_api.py`, `test_v7_reconcile_sheet.py`); không chứng minh Serve live.
