@@ -1,6 +1,9 @@
+import io
 import json
 import sys
 import unittest
+import urllib.error
+from contextlib import redirect_stderr
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
@@ -151,6 +154,33 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         booking[1][1] = "Khách B"
         second = connector.read_export("sheet-id", "token", opener, include_booking=True)
         self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_mapping_tab_prefers_new_name_then_legacy_then_fails(self):
+        def fetcher(tabs):
+            asked = []
+
+            def fetch(mapping_range):
+                asked.append(mapping_range.split("!")[0])
+                if asked[-1] not in tabs:
+                    raise urllib.error.HTTPError("url", 400, "Unable to parse range", {}, None)
+                return asked[-1]
+            return fetch, asked
+        fetch, asked = fetcher({"WEB_GHEP_KHACH", "REVIEW_KHACH_2026-10-24"})
+        self.assertEqual(connector.fetch_with_legacy_mapping(fetch), "WEB_GHEP_KHACH")
+        self.assertEqual(asked, ["WEB_GHEP_KHACH"])
+        fetch, asked = fetcher({"REVIEW_KHACH_2026-10-24"})
+        with redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(connector.fetch_with_legacy_mapping(fetch), "REVIEW_KHACH_2026-10-24")
+        self.assertIn("tên cũ", err.getvalue())
+        fetch, asked = fetcher(set())
+        with redirect_stderr(io.StringIO()), self.assertRaises(urllib.error.HTTPError):
+            connector.fetch_with_legacy_mapping(fetch)
+        self.assertEqual(asked, ["WEB_GHEP_KHACH", "REVIEW_KHACH_2026-10-24"])
+
+        def forbidden(mapping_range):
+            raise urllib.error.HTTPError("url", 403, "Forbidden", {}, None)
+        with self.assertRaises(urllib.error.HTTPError):
+            connector.fetch_with_legacy_mapping(forbidden)
 
     def test_customer_mapping_requires_unique_active_exact_name(self):
         row = {"status": "READY", "customer_name": "Khách A", "source_row": 2}
