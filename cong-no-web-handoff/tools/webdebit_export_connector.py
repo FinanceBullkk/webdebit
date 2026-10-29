@@ -15,10 +15,11 @@ from collections.abc import Callable
 from typing import Any
 
 EXPORT_RANGE = "WEBDEBIT_EXPORT!A1:E20000"
-BOOKING_RANGE = "BOOKING_DATA!A1:K20000"
+BOOKING_RANGE = "BOOKING_DATA!A1:O20000"
 MAPPING_RANGE = "REVIEW_KHACH_2026-10-24!A1:F1000"
 HEADERS = ("Số container", "Hãng tàu", "Ngày chuyến", "Nơi đi", "Nơi đến")
 BOOKING_HEADERS = ("Số cont", "Chủ hàng (chuẩn)", "Ngày đóng", "Booking", "Tab nguồn", "Dòng nguồn", "Chủ hàng (gốc)", "Shipper", "Hãng tàu", "Kho", "Cảng đến")
+BOOKING_PRODUCT_HEADERS = ("Giá + phí (gốc)", "Tên hàng", "Mặt hàng", "Bảo hiểm (cột BẢO HIỂM booking)")
 _SPACE_RE = re.compile(r"\s+")
 
 
@@ -82,9 +83,11 @@ def parse_values(values: list[list[Any]]) -> list[dict[str, Any]]:
 def parse_booking_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     if not values or tuple(values[0][:len(BOOKING_HEADERS)]) != BOOKING_HEADERS:
         raise ValueError("BOOKING_DATA header mismatch")
+    if len(values[0]) > len(BOOKING_HEADERS) and tuple(values[0][len(BOOKING_HEADERS):15]) != BOOKING_PRODUCT_HEADERS:
+        raise ValueError("BOOKING_DATA product header mismatch")
     rows = []
     for source_row, raw in enumerate(values[1:], start=2):
-        cells = list(raw[:len(BOOKING_HEADERS)]) + [""] * max(0, len(BOOKING_HEADERS) - len(raw))
+        cells = list(raw[:15]) + [""] * max(0, 15 - len(raw))
         if not any(str(cell or "").strip() for cell in cells):
             continue
         rows.append({
@@ -97,8 +100,20 @@ def parse_booking_values(values: list[list[Any]]) -> list[dict[str, Any]]:
             "carrier": str(cells[8] or "").strip(),
             "origin": str(cells[9] or "").strip(),
             "destination": str(cells[10] or "").strip(),
+            "durian_type": durian_type(cells[12], cells[13]) if len(values[0]) >= 15 else None,
         })
     return rows
+
+
+def durian_type(product_name: Any, commodity: Any) -> str | None:
+    if normalize_customer_name(commodity) != "SẦU RIÊNG":
+        return None
+    words = set(re.findall(r"[A-Z]+", str(product_name or "").upper()))
+    if "FROZEN" in words and "FRESH" not in words:
+        return "frozen"
+    if "FRESH" in words and "FROZEN" not in words:
+        return "fresh"
+    return None
 
 
 def merge_booking_rows(export_rows: list[dict[str, Any]], booking_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -113,7 +128,8 @@ def merge_booking_rows(export_rows: list[dict[str, Any]], booking_rows: list[dic
         item = dict(row)
         if len(matches) == 1:
             item.update({"booking": matches[0]["booking"], "shipper": matches[0]["shipper"],
-                         "customer_name": matches[0]["customer_name"], "booking_source_row": matches[0]["source_row"]})
+                         "customer_name": matches[0]["customer_name"], "booking_source_row": matches[0]["source_row"],
+                         "durian_type": matches[0]["durian_type"]})
             if not matches[0]["customer_name"]:
                 item["status"] = "NO_CUSTOMER"
         elif len(matches) > 1:

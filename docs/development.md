@@ -48,6 +48,25 @@ Giữ hồ sơ gọn trong spec/PR hiện có: thao tác → module/API → chec
 
 **Giới hạn thực thi:** AGENTS.md và quy trình hướng dẫn dev/AI; review phải đối chiếu hồ sơ duyệt và bằng chứng. CI hiện có kiểm code/fixture, chưa tự xác nhận người dùng đã duyệt Penpot hoặc nghiệm thu luồng thật.
 
+### Bố cục mã sổ khách V7 (từ 29/10/2026)
+
+Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung một file (PR FinanceBullkk/webdebit#129). Sửa tính năng nào thì mở đúng file đó:
+
+| File trong `cong-no-web-handoff/preview/` | Nội dung |
+|---|---|
+| `so-khach-v7-model.js` | mọi phép tính tiền (ARCH-03), có test riêng |
+| `so-khach-v7-api.js` | đọc/gửi lệnh tới `/api/v7/*`, giữ phiên bản và khóa trùng lệnh |
+| `so-khach-v7-ui.js` | bản fixture; `initLive`: trạng thái, vẽ sổ (`renderSnapshot`, `redraw`), `submit`, làm mới |
+| `so-khach-v7-history-ui.js` | Lịch sử: diễn giải sự kiện |
+| `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
+| `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO) |
+| `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
+| `so-khach-v7-draft-ui.js` | bảng nhập kiểu Sheet (NHAP-SHEET-01) |
+
+Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài các phần theo thứ tự cố định (history, sheet, offset, edit, draft) để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần mới thì thêm tên vào danh sách cài đó.
+
+**Thêm file preview chỉ sửa một chỗ: thẻ `<script>`/`<link>` trong trang HTML.** Server `web/v7_ledger_api.py` phục vụ đúng các file mà trang trong `PAGES` nạp (file khác vẫn 404), test unit `test-so-khach-v7-api.js` nạp theo thứ tự thẻ của `so-khach-v7-live.html`, test trình duyệt phục vụ cả thư mục, `Deploy hao` đóng gói cả `preview/`. Trang mới thì thêm vào `PAGES`. Test trình duyệt sổ khách dùng chung máy chủ giả `so-khach-v7-browser-world.js`.
+
 ## Lint và lệnh check
 
 `npm run check` ở gốc repo chạy tám bước theo thứ tự: `ruff check`, luật nghiệp vụ
@@ -104,6 +123,15 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
+
+Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
+và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và
+fixture chung (`Pg`, `PsqlSession`, `seed`, `new_book`, đường dẫn migration…) ở `tools/pg_v7_harness.py`;
+thân case ở `tools/test_pg_v7_backend_<nhóm>.py`: `opening` (opening/cutover, model, golden, dashboard),
+`receipts` (thu/hủy phiếu), `locks` (khóa tháng, migration CSM), `trips` (nhập/sửa ô/xóa chuyến, kiểm trùng,
+duyệt chuyến), `offset` (cấn trừ CT-2SO), `sheet_fee` (Sheet, giá, phụ phí), `schema` (case SCHEMA). Case mới:
+viết hàm trong file nhóm, thêm `case(...)` vào `CASES` và tên vào `CHECKS`. Công cụ khác vẫn import helper từ
+`test_pg_v7_backend` (tên liệt kê ở `__all__`).
 
 Trên Windows mỗi `docker exec` tốn ~0,4–0,5 giây qua Docker Desktop/WSL (Linux ~0,1 giây), nên harness
 chậm chủ yếu vì số lần gọi exec chứ không phải PostgreSQL. Từ 28/10/2026 `run()` của
@@ -230,7 +258,7 @@ với luật đã triển khai):
 2. **Tầng trình bày không import tầng DDL/harness.** `web/` và `preview/` không được import
    `tools/`. Hiện đúng, và nếu vi phạm thì là lỗi thật (nạp harness Docker vào đường chạy app).
 3. **Tính tiền chỉ ở model.** Số học tiền nằm ở `preview/*-model.js` và `pilot/reconcile.py`, không
-   ở file `*-ui.js` hay `app.py`. Đây là ranh giới yếu nhất: `so-khach-v7-ui.js` hiện đã có định
+   ở file `*-ui.js` hay `app.py`. Đây là ranh giới yếu nhất: các file `so-khach-v7-*-ui.js` hiện đã có định
    dạng tiền, nên cần người dùng chốt "tính" khác "định dạng" ở đâu trước khi bật.
 
 ## Hoàn tác và ranh giới
