@@ -3,7 +3,17 @@
   const F = CongNoFormat;
   const currentYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
   const currentMonth = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', month: 'numeric' }).format(new Date()));
-  const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: false, request: 0, detail: 0, detailFocus: null };
+  // Mở từ Tổng quan: ?tuoi=0–3 (nhóm tuổi nợ) và ?con-no=1 (chỉ khách còn nợ).
+  const opened = new URLSearchParams(location.search);
+  const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null,
+    age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null };
+  const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
+  // Nhóm tuổi của một tháng như get_dashboard; tháng sau tháng hiện tại không thuộc nhóm nào trên ma trận.
+  const ageOf = month => {
+    const diff = (currentYear - state.year) * 12 + currentMonth - month;
+    return diff < 0 ? -1 : diff === 0 ? 0 : diff <= 2 ? 1 : diff <= 6 ? 2 : 3;
+  };
+  const pickClass = month => state.age == null ? '' : ageOf(month) === state.age ? ' pick' : ' dim';
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
   const $ = selector => document.querySelector(selector);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[ch]);
@@ -40,7 +50,7 @@
     el.textContent = message || '';
   }
 
-  const monthClass = month => 'm' + (month % 2 ? '' : ' even');
+  const monthClass = month => 'm' + (month % 2 ? '' : ' even') + pickClass(month);
 
   function heatCell(customer, month) {
     const value = monthValue(customer, month);
@@ -71,14 +81,33 @@
     $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' đang dư · ' + closed + ' đã tất toán</span>';
   }
 
+  function paintAgePick() {
+    const box = $('#age-pick');
+    box.hidden = state.age == null;
+    if (state.age == null) return;
+    const months = MONTHS.filter(month => ageOf(month) === state.age);
+    const span = months.length ? 'tháng ' + months[0] + (months.length > 1 ? '–' + months.at(-1) : '') + '/' + state.year : 'không có tháng nào trong năm ' + state.year;
+    box.innerHTML = '<span>Đang xem nhóm <b>' + AGES[state.age] + '</b> (' + span + (state.age === 3 ? ', kể cả nợ ngoài năm ở cột Mọi năm' : '') + ') — chỉ hiện khách có nợ trong nhóm này.</span><button type="button" class="btn" id="age-clear">Bỏ chọn nhóm</button>';
+    $('#age-clear').addEventListener('click', () => {
+      state.age = null;
+      const query = new URLSearchParams(location.search); query.delete('tuoi');
+      history.replaceState(null, '', location.pathname + (query.toString() ? '?' + query : ''));
+      render();
+    });
+  }
+
   function render() {
     const data = state.data;
     if (!data) return;
     const rows = data.customers.filter(customer => {
       const matchesText = !state.query || (customer.name + ' ' + groupKey(customer)).toLocaleLowerCase('vi').includes(state.query);
       const matchesCommodity = state.commodity === '' ? true : groupKey(customer) === (state.commodity === '__none' ? '' : state.commodity);
-      return matchesText && matchesCommodity && (!state.onlyOpen || allTotal(customer) > 0n);
+      // Nhóm trên 6 tháng gồm cả nợ ngoài năm đang xem (cột Mọi năm lớn hơn cột Năm).
+      const inAge = state.age == null || MONTHS.some(month => ageOf(month) === state.age && monthValue(customer, month) > 0n)
+        || (state.age === 3 && allTotal(customer) > yearTotal(customer));
+      return matchesText && matchesCommodity && inAge && (!state.onlyOpen || allTotal(customer) > 0n);
     });
+    paintAgePick();
     const groups = new Map();
     rows.forEach(customer => {
       const key = groupKey(customer);
@@ -93,7 +122,7 @@
     });
     const isCurrent = month => state.year === currentYear && month === currentMonth;
     $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách</th>' +
-      MONTHS.map(month => '<th class="mh' + (month % 2 ? '' : ' even') + (isCurrent(month) ? ' cur' : '') + '" scope="col">Tháng ' + month + '</th>').join('') +
+      MONTHS.map(month => '<th class="mh' + (month % 2 ? '' : ' even') + (isCurrent(month) ? ' cur' : '') + pickClass(month).replace(' dim', '') + '" scope="col">Tháng ' + month + '</th>').join('') +
       '<th class="tot" scope="col">Năm ' + state.year + '</th><th class="tot" scope="col">Mọi năm</th>';
     const parts = [];
     for (const [key, members] of ordered) {
@@ -198,6 +227,7 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   $('#find').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase('vi'); render(); });
   $('#commodity').addEventListener('change', event => { state.commodity = event.target.value; render(); });
+  $('#only-open').checked = state.onlyOpen;
   $('#only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
   $('#drawer-close').addEventListener('click', closeDrawer);
   $('#drawer-scrim').addEventListener('click', closeDrawer);

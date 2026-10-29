@@ -40,6 +40,13 @@ const CongNoFormat = (() => {
     return full(amount);
   }
 
+  /** Cột tiền theo tỷ, luôn 2 số lẻ để mắt so được theo cột: "21,79", "0,97", "0,07". */
+  function billions(value) {
+    const amount = toBig(value);
+    const rounded = (abs(amount) * 200n + BILLION) / (BILLION * 2n);
+    return `${sign(amount)}${(rounded / 100n).toLocaleString('vi-VN')},${(rounded % 100n).toString().padStart(2, '0')}`;
+  }
+
   /** Tỉ lệ phần trăm một chữ số thập phân: "34,1%". Tổng không dương thì không có tỉ lệ. */
   function percent(part, total) {
     const whole = toBig(total);
@@ -68,6 +75,6 @@ const CongNoFormat = (() => {
     return [200n * MILLION, 500n * MILLION, BILLION, 2n * BILLION, 4n * BILLION].filter(step => amount >= step).length + 1;
   }
 
-  return { toBig, full, short, percent, barWidth, sum, heatStep };
+  return { toBig, full, short, billions, percent, barWidth, sum, heatStep };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;

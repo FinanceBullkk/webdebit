@@ -1,11 +1,16 @@
-/* Tổng quan (DASH-01) — bố cục theo mockup v4.1; token chung ở cong-no-theme.css. */
+/* Tổng quan (DASH-01) — bố cục và tương tác theo mockup v5.3 (duyệt 29/10/2026); token chung ở cong-no-theme.css. */
 .page{max-width:1440px}
 .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
 .receivable{grid-column:span 4}
 .aging{grid-column:span 8}
-.side{grid-column:span 4;display:flex;flex-direction:column;gap:16px}
+.filterbar{grid-column:1/-1}
+.todo{grid-column:span 4}
+.side{grid-column:span 3;display:flex;flex-direction:column;gap:16px}
 .top-debtors{grid-column:span 5}
-.commodity{grid-column:span 3}
+
+/* Bớt khung: viền nhạt đủ tách khối; không bóng, không dải tiêu đề xám (audit 29/10/2026). */
+.grid .card{box-shadow:none}
+.grid .card-head{margin-bottom:6px;padding-top:16px;padding-bottom:4px;background:none;border-bottom:0}
 
 /* Số chính */
 .card.receivable{padding-top:18px;background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%);border-color:#b7d3f6}
@@ -20,23 +25,38 @@
 .mini .v.credit{color:var(--credit)}
 .mini .s{font-size:13.5px;color:var(--ink-3)}
 
-/* Tuổi nợ: một thanh chia đoạn + chú giải có số */
-.age-bar{display:flex;gap:2px;height:28px;margin:4px 0 18px;border-radius:6px;overflow:hidden;background:var(--line-soft)}
-.age-bar span{display:block;height:100%;min-width:2px}
-.age-legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
-.age-legend .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border-radius:3px;vertical-align:-1px}
+/* Tuổi nợ: bấm đoạn thanh hoặc ô chú giải để lọc danh sách khách; khi lọc chỉ mờ màu, chữ giữ nguyên. */
+.age-note{margin:0 0 12px;font-size:15px;color:var(--ink-2)}
+.age-note b{color:var(--ink)}
+.age-bar{display:flex;gap:2px;height:28px;margin:0 0 12px;border-radius:6px;overflow:hidden;background:var(--line-soft)}
+.age-bar span{display:block;height:100%;min-width:2px;cursor:pointer;transition:opacity .15s}
+.age-bar span:hover{filter:brightness(1.12)}
+.age-legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.age-legend button{display:block;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left;cursor:pointer}
+.age-legend button:hover{border-color:var(--accent)}
+.age-legend button[aria-pressed="true"]{padding:7px 9px;border:2px solid var(--accent-ink);background:var(--accent-soft)}
+.age-legend .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border-radius:3px;vertical-align:-1px;transition:opacity .15s}
 .age-legend .k{font-size:14px;color:var(--ink-2)}
 .age-legend .v{margin-top:2px;font-size:20px;font-weight:700}
 .age-legend .p{font-size:13.5px;color:var(--ink-3)}
-.age-note{margin:16px 0 0;padding:10px 14px;border-radius:8px;background:var(--head);font-size:14px;color:var(--ink-2)}
-.age-note b{color:var(--ink)}
+.picking .age-bar span:not(.on),.picking .age-legend button:not([aria-pressed="true"]) .sw{opacity:.3}
+
+/* Dải lọc chung, đặt trên hàng nó tác động; chỉ hiện khi đang lọc. */
+.filterbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px;border:1px solid #b7d3f6;border-radius:var(--radius);background:var(--accent-soft);font-size:15px}
+.filterbar[hidden]{display:none}
+.filterbar>span:first-child{font-weight:600;color:var(--ink-2)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 12px;border-radius:99px;background:var(--accent-ink);color:#fff;font-size:13.5px;font-weight:600}
+.chip button{width:22px;height:22px;border:0;border-radius:50%;background:#ffffff33;color:#fff;cursor:pointer;line-height:1}
+.chip button:hover{background:#ffffff55}
+.clear-all{margin-left:auto;border:0;background:none;color:var(--accent-ink);font-weight:600;text-decoration:underline;cursor:pointer}
 
 /* Việc cần làm */
 .todo-group+.todo-group{margin-top:14px}
 .todo-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;font-size:14.5px;font-weight:600}
 .todo-group .rows a{padding:7px 6px}
 .todo-group .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.todo-group .what{color:var(--ink-3);font-size:14px;white-space:nowrap}
+.todo-group .what{color:var(--accent-ink);font-size:14px;font-weight:600;white-space:nowrap}
 .empty{margin:0;color:var(--ink-3)}
 
 /* Hôm nay */
@@ -46,27 +66,67 @@
 .actors{margin-top:12px;font-size:14px;color:var(--ink-2)}
 .actors div{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line-soft)}
 
-/* 10 khách */
-.top-debtors .rank{width:22px;text-align:right;font-size:14px;color:var(--ink-3)}
-.top-debtors .who{flex:1;min-width:0}
-.top-debtors .who b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.top-debtors .who span,.top-debtors .amt span{font-size:13.5px;color:var(--ink-3)}
-.top-debtors .amt{text-align:right}
-.top-debtors .amt b{display:block;font-weight:600}
+/* Thanh ngang một màu (màu theo ý nghĩa, không theo thứ hạng). Thứ bậc bằng cỡ chữ và độ dày: nhóm đầu
+   (cộng dồn tới 60% danh sách) chữ to, thanh dày; Khác / Chưa phân loại xám, tách bằng vạch; màu đậm chỉ cho mục đang chọn. */
+.bars{display:flex;flex-direction:column}
+.bar-row{display:block;width:100%;padding:4px 10px 6px;border:0;border-left:3px solid transparent;border-radius:6px;background:none;text-align:left;cursor:pointer}
+.bar-row:hover{background:var(--head)}
+.bar-row:disabled{cursor:default;background:none}
+.bar-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.bar-row .line{display:flex;align-items:baseline;gap:10px;font-size:15px;color:var(--ink-2)}
+.bar-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-row .track{display:block;height:6px;margin-top:4px;border-radius:3px;background:#e6eaf0;transition:opacity .15s}
+.bar-row .track i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.bar-row.major{padding:8px 10px 10px}
+.bar-row.major .line{font-size:17px;color:var(--ink)}
+.bar-row.major .nm{font-weight:600}
+.bar-row.major .val{font-size:18px;font-weight:700}
+.bar-row.major .track{height:12px;margin-top:6px;border-radius:6px}
+.bar-row.major .track i{border-radius:6px}
+.bar-row.major+.bar-row:not(.major){margin-top:6px}
+.bar-row.grey .line{color:var(--ink-3)}
+.bar-row.grey .track i{background:#8e959e}
+.bar-row.grey.first{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line);border-radius:0 0 6px 6px}
+.bar-row[aria-pressed="true"]{background:var(--accent-soft);border-left-color:var(--accent-ink)}
+.bar-row[aria-pressed="true"] .track i{background:var(--accent-ink)}
+.picking .bar-row:not([aria-pressed="true"]) .track{opacity:.3}
+.tbl-foot{display:flex;justify-content:flex-end;padding-top:8px;font-size:13.5px}
+.tbl-foot a{color:var(--accent-ink)}
+.tbl-foot a:hover{text-decoration:underline}
 
-/* Mặt hàng */
-.commodity li>.row{display:block;padding:8px 6px}
-.commodity .line{display:flex;justify-content:space-between;gap:8px;font-size:14.5px}
-.commodity .line b{font-weight:600}
-.commodity .meta{font-size:13px;color:var(--ink-3)}
-.commodity .bar{height:6px;margin-top:6px;border-radius:3px;background:var(--line-soft)}
-.commodity .bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
-.commodity .none .bar i{background:var(--ink-3)}
-.commodity .warning{color:var(--warning);font-weight:600}
+/* Ô thông tin khi rê chuột / focus */
+.tip{position:fixed;z-index:50;max-width:280px;padding:8px 12px;border-radius:8px;background:var(--nav);color:#fff;font-size:13.5px;line-height:1.45;pointer-events:none;box-shadow:0 4px 14px #0f172a40}
+.tip[hidden]{display:none}
+.tip b{display:block;font-size:16px}
+.tip span{display:block;color:#c9d6e4}
 
-@media (max-width:1100px){.receivable,.aging{grid-column:span 12}.side,.top-debtors,.commodity{grid-column:span 6}}
+/* Ngăn kéo xem nhanh một khách */
+.scrim{position:fixed;inset:0;z-index:60;background:#0f172a55}
+.drawer{position:fixed;top:0;right:0;bottom:0;z-index:61;width:min(420px,100vw);display:flex;flex-direction:column;background:var(--surface);box-shadow:-8px 0 24px #0f172a33}
+.drawer[hidden],.scrim[hidden]{display:none}
+.drawer header{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.drawer h2{margin:0;font-size:19px}
+.drawer header p{margin:2px 0 0;color:var(--ink-3);font-size:14px}
+.drawer .x{margin-left:auto;width:36px;height:36px;border:1px solid var(--line);border-radius:8px;background:none;cursor:pointer;font-size:18px}
+.drawer .body{flex:1;overflow:auto;padding:16px 20px}
+.drawer .total{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;border-radius:8px;background:var(--head)}
+.drawer .total b{font-size:24px}
+.drawer h3{margin:18px 0 6px;font-size:14.5px;color:var(--ink-2)}
+.drawer .mrow{display:grid;grid-template-columns:120px 1fr 90px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
+.drawer .mrow .track{height:8px;border-radius:4px;background:#e6eaf0}
+.drawer .mrow .track i{display:block;height:100%;border-radius:4px}
+.drawer .mrow .r{text-align:right}
+.drawer .flags{margin:14px 0 0;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-size:14px}
+.drawer footer{display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
+.drawer footer a{flex:1;display:flex;align-items:center;justify-content:center;height:42px;border-radius:8px;font-weight:600}
+.drawer .primary{background:var(--accent);color:#fff}
+.drawer .primary:hover{background:var(--accent-ink)}
+.drawer .secondary{border:1px solid var(--line);color:var(--ink-2)}
+
+@media (max-width:1100px){.receivable,.aging{grid-column:span 12}.todo,.side{grid-column:span 6}.top-debtors{grid-column:span 12}}
 @media (max-width:760px){
   .grid{display:flex;flex-direction:column}
   .big-money{font-size:38px}
   .age-legend{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+@media (prefers-reduced-motion:reduce){.age-bar span,.age-legend .sw,.bar-row .track{transition:none}}

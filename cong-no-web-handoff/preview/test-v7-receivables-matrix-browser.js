@@ -132,3 +132,29 @@ test('matrix refresh reads new data while preserving selected year', async () =>
     assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
   } finally { await browser.close(); app.close(); }
 });
+
+test('mở từ Tổng quan (?tuoi=&con-no=1): tô cột tháng của nhóm tuổi, chỉ khách còn nợ, bỏ chọn nhóm', async () => {
+  const month = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', month: 'numeric' }).format(new Date()));
+  const diff = month - 1;
+  const age = diff <= 0 ? 0 : diff <= 2 ? 1 : diff <= 6 ? 2 : 3;
+  const app = server();
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html?tuoi=' + age + '&con-no=1');
+    await page.locator('#heat-body .khach').first().waitFor();
+    assert.equal(await page.locator('#age-pick').isVisible(), true);
+    assert.equal(await page.locator('#only-open').isChecked(), true);
+    assert.ok((await page.locator('#heat-head th.mh.pick').allInnerTexts()).includes('Tháng 1'));
+    assert.doesNotMatch(await page.locator('#heat-body').innerText(), /Khách B/);
+    assert.match(await page.locator('#heat-body').innerText(), /Khách A/);
+    await page.locator('#age-clear').click();
+    assert.equal(await page.locator('#age-pick').isHidden(), true);
+    assert.equal(await page.locator('#heat-head th.mh.pick').count(), 0);
+    assert.doesNotMatch(await page.evaluate(() => location.search), /tuoi=/);
+  } finally {
+    await browser.close();
+    app.close();
+  }
+});

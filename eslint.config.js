@@ -48,6 +48,7 @@ module.exports = [
     languageOptions: {
       globals: {
         CongNoFormat: "readonly",
+        DashboardModel: "readonly",
         CustomerLedgerWorkbench: "readonly",
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",

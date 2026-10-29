@@ -302,3 +302,18 @@ test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng
   assert.equal(empty[0].entry, true);
 }));
 
+test('mở từ Việc cần làm (?loc=thieu-gia): tô chuyến thiếu giá, nhảy tới dòng, bỏ đánh dấu; không ẩn dòng nào', async () => withPage(async ({ page }) => {
+  await page.locator('.loc-bar').waitFor();
+  assert.match(await page.locator('.loc-bar').innerText(), /1 chuyến thiếu đơn giá/);
+  assert.equal(await page.locator('tr.loc-hit').count(), 1);
+  assert.equal(await page.locator('tr.loc-hit').getAttribute('data-row'), 'trip-12');
+  assert.equal(await page.locator('tr[data-row="trip-11"]').count(), 1);
+  await page.locator('.loc-next').click();
+  await page.locator('.loc-clear').click();
+  assert.equal(await page.locator('tr.loc-hit').count(), 0);
+  assert.equal(await page.locator('.loc-bar').count(), 0);
+  assert.doesNotMatch(await page.evaluate(() => location.search), /loc=/);
+}, world => {
+  world.query = '&loc=thieu-gia';
+  world.trips.push({ ...world.trips[0], id: 12, container: 'DEMU7654321', unit_price_vnd: null, amount_vnd: null, is_missing_price: true });
+}));
