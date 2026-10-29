@@ -35,6 +35,11 @@ class SheetSyncRunnerTests(unittest.TestCase):
         self.assertEqual(json.loads(runner.base64.urlsafe_b64decode(header + "=="))["alg"], "RS256")
         self.assertEqual(json.loads(runner.base64.urlsafe_b64decode(claims + "=="))["iat"], 100)
         self.assertEqual(signature, "c2ln")
+        def claims_of(token):
+            return json.loads(runner.base64.urlsafe_b64decode(token.split(".")[1] + "=="))
+        self.assertEqual(claims_of(assertion)["scope"], runner.SCOPE)
+        other = runner.make_assertion(credentials, now=100, signer=lambda data, key: b"sig", scope="drive.readonly")
+        self.assertEqual(claims_of(other)["scope"], "drive.readonly")
 
 
 if __name__ == "__main__":

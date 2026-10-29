@@ -169,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-dir", type=Path, default=loader.SOURCE, help="folder with the CSV inputs")
     parser.add_argument("--out", type=Path, required=True, help="new or empty folder outside the repository")
     parser.add_argument("--raw-tab", action="append", default=[], metavar="EXACT_NAME")
+    parser.add_argument("--hold-out", action="store_true",
+                        help="đối soát: bỏ khách bị giữ, ghi tên và lý do vào held.csv; không dùng để nạp")
     args = parser.parse_args(argv)
     try:
         out = output_folder(args.out)
@@ -180,17 +182,23 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "reason": loader.reason(exc)}))
         return 1
     held = [b for b in books if b["in_summary"] and b["reasons"]]
-    if held:
-        print(json.dumps({"ok": False, "held_customers": len(held),
-                          "reason_counts": dict(sum((b["reasons"] for b in held), Counter()))}))
+    reason_counts = dict(sum((b["reasons"] for b in held), Counter()))
+    if held and not args.hold_out:
+        print(json.dumps({"ok": False, "held_customers": len(held), "reason_counts": reason_counts}))
         return 2
     try:
-        manifest = export(books, digests, out, args.xlsx, tuple(args.raw_tab))
+        manifest = export([b for b in books if b not in held], digests, out, args.xlsx, tuple(args.raw_tab))
+        if held:
+            # Bản đối soát thiếu khách: đối soát sẽ báo họ là CHI_CO_WEB, không bao giờ "đạt" thay họ.
+            write_csv(out / "held.csv", ["customer", "reasons"],
+                      [{"customer": b["name"], "reasons": json.dumps(dict(b["reasons"]), sort_keys=True)}
+                       for b in held])
     except loader.LoadError as exc:
         print(json.dumps({"ok": False, "reason": loader.reason(exc)}))
         return 2
     counts = {k: v for k, v in manifest["counts"].items() if k != "anchor_total_vnd"}  # no money on stdout
     print(json.dumps({"ok": True, "counts": counts,
+                      **({"held_customers": len(held), "reason_counts": reason_counts} if held else {}),
                       "customers_per_cleaning_rule": manifest["customers_per_cleaning_rule"],
                       "commodity_counts": manifest["commodity_counts"]}, ensure_ascii=True))
     return 0
