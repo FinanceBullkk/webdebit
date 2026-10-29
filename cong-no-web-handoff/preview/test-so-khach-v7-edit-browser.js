@@ -276,6 +276,8 @@ const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, p
 // Mỗi hàng của danh sách phiếu thu trong tháng → [ngày trả, hình thức, số tiền, có phải hàng nhập].
 const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll(`#thang-${id} .pay-list tr.pay-row`)]
   .map(tr => { const pay = [...tr.querySelectorAll('td.pay')]; const entry = tr.querySelector('.receipt-date');
+    // Hàng nhập là một khung (một ô) có nhãn chữ, không có ngày/hình thức/số tiền đã ghi.
+    if (entry) return { date: '', method: '', amount: '', entry: true };
     return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[2]?.firstChild?.textContent?.trim?.() ?? '', entry: Boolean(entry) }; }), key);
 
 test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau, ô nhập cuối; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
@@ -311,6 +313,14 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau, ô nh
   await page.locator('td.receipt[data-pid="PH-002"]:not([data-field])').click({ position: { x: 4, y: 4 } });
   assert.equal(await page.locator('.void-prompt[data-pid="PH-002"]').count(), 1);
   await page.locator('.cancel-void').click();
+  // Góp ý 29/10/2026: hộp hủy xếp dọc; Enter ở ô lý do như bấm "Hủy phiếu", thiếu lý do thì báo và không gửi lệnh.
+  await page.locator('td.receipt[data-pid="PH-002"] .receipt-sum').click();
+  const before = world.requests.length;
+  await page.locator('.void-reason').press('Enter');
+  assert.equal(await page.locator('.void-prompt .cell-error').innerText(), 'Cần nhập lý do');
+  assert.equal(world.requests.length, before);
+  await page.locator('.cancel-void').click();
+  assert.equal(await page.locator('.void-prompt').count(), 0);
   await shot('phieu-thu-hang-ke-tiep');
   // Tháng chưa có phiếu: ô nhập ở hàng 1.
   world.receipts.length = 0; world.legacy.pop();

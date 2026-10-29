@@ -10,6 +10,9 @@
     receipt: ['/api/v7/receipts', ['date', 'method', 'amount_vnd', 'reference']],
     receiptMeta: ['/api/v7/receipts/meta', ['pid', 'date', 'method', 'reference']],
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],
+    // CHUNG-TU-01: ảnh chứng từ gắn phiếu đã ghi; ảnh gửi base64, không đổi số tiền.
+    imageAttach: ['/api/v7/receipts/images', ['pid', 'content_type', 'data_base64']],
+    imageRemove: ['/api/v7/receipts/images/remove', ['image_id', 'reason']],
     lock: ['/api/v7/months/lock', ['month', 'locked']],
     tripReview: ['/api/v7/trips/review', ['trip_id', 'decision', 'reason']],
     // NHAP-SHEET-01: sửa một ô / xóa hẳn, mọi tháng kể cả tháng khóa; value luôn là chuỗi.

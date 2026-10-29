@@ -49,6 +49,7 @@ module.exports = [
       globals: {
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
+        DebitNoteXlsx: "readonly",
         CustomerLedgerWorkbench: "readonly",
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",

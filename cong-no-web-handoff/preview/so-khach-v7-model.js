@@ -651,6 +651,53 @@ const SoKhachV7Model = (() => {
     return { beforeVnd, afterVnd, deltaVnd: afterVnd - beforeVnd };
   }
 
+  // DEBIT-NOTE-01: phiếu debit note của một tháng công nợ — chỉ các chuyến của tháng, cột như mẫu gửi khách.
+  // Phụ phí xếp theo tên loại; loại không có cột riêng trong mẫu vào Other fee. Thiếu giá: Đơn giá/Tổng null (để trống).
+  const DEBIT_FEES = ["neo", "dien", "ghep", "other", "baoHiem", "kiemDinh", "health"];
+  function debitFeeColumn(name) {
+    const key = String(name ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z]/g, "");
+    return { neo: "neo", dien: "dien", phidien: "dien", ghep: "ghep", dongghep: "ghep", baohiem: "baoHiem", kiemdinh: "kiemDinh" }[key]
+      ?? (key.startsWith("health") ? "health" : "other");
+  }
+  function debitNote(ledger, monthKey, feeTypes = []) {
+    const month = row => String(row.month ?? "").slice(0, 7);
+    const names = new Map(feeTypes.map(type => [Number(type.id), type.name]));
+    const money = value => value === null || value === undefined ? null : vnd(String(value), true);
+    const fees = lines => {
+      const out = Object.fromEntries(DEBIT_FEES.map(column => [column, null]));
+      for (const line of Array.isArray(lines) ? lines : []) {
+        const column = debitFeeColumn(names.get(Number(line.fee_type_id)));
+        out[column] = (out[column] ?? 0n) + vnd(String(line.amount_vnd), true);
+      }
+      return out;
+    };
+    const rows = [];
+    for (const row of ledger.legacy_rows ?? []) {
+      if (row.kind !== "trip" || month(row) !== monthKey || row.current?.deleted) continue;
+      const cur = row.editable && row.current ? row.current : null, d = row.display ?? {};
+      const unitPriceVnd = cur ? money(cur.unit_price_vnd) : /^\d+$/.test(d.unit_price ?? "") ? vnd(d.unit_price) : null;
+      const totalVnd = cur ? (cur.unit_price_vnd == null && cur.counted_vnd === "0" ? null : money(cur.counted_vnd))
+        : (d.flags ?? []).includes("MISSING_PRICE") ? null : money(row.source_total_vnd);
+      const info = cur ? { container: cur.container, carrier: cur.carrier, shipper: cur.shipper, date: cur.event_date, origin: cur.origin, destination: cur.destination }
+        : { container: d.container, carrier: d.carrier, shipper: d.shipper, date: d.date, origin: d.from, destination: d.to };
+      rows.push({ ...info, feeOnly: !info.container, fees: fees(row.fee_lines), unitPriceVnd, totalVnd });
+    }
+    let pendingCount = 0;
+    for (const trip of ledger.trips ?? []) {
+      if (month(trip) !== monthKey || trip.deleted) continue;
+      if (trip.status !== "confirmed") { if (trip.status === "pending_review") pendingCount++; continue; }
+      rows.push({ container: trip.container, carrier: trip.carrier, shipper: trip.shipper, date: trip.event_date, origin: trip.origin,
+        destination: trip.destination, feeOnly: trip.is_fee_only === true, fees: fees(trip.fee_lines),
+        unitPriceVnd: trip.is_missing_price ? null : money(trip.unit_price_vnd), totalVnd: trip.is_missing_price ? null : money(trip.amount_vnd) });
+    }
+    const day = row => /^\d{4}-\d{2}-\d{2}/.test(row.date ?? "") ? row.date.slice(0, 10) : "9999";
+    const sorted = rows.map((row, index) => ({ row, index })).sort((a, b) => day(a.row).localeCompare(day(b.row)) || a.index - b.index).map(item => item.row);
+    const missingCount = sorted.filter(row => row.totalVnd === null).length;
+    const totalVnd = missingCount ? null : sorted.reduce((sum, row) => sum + row.totalVnd, 0n);
+    const adjustmentCount = (ledger.adjustments ?? []).filter(row => month(row) === monthKey && row.legacy_row_id == null).length;
+    return { monthKey, rows: sorted, totalVnd, complete: sorted.length > 0 && missingCount === 0, missingCount, pendingCount, adjustmentCount };
+  }
+
   function parseOutgoingOffsets(list) {
     if (!Array.isArray(list)) throw new Error("Invalid outgoing offsets");
     return list.map(item => {
@@ -667,6 +714,6 @@ const SoKhachV7Model = (() => {
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, parseFeeInput, feeTotalAfter, recountPreview,
-    parseOffsetResult, parseOffsetLink, parseOutgoingOffsets };
+    parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DEBIT_FEES, debitFeeColumn, debitNote };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;

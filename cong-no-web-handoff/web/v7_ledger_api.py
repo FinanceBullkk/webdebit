@@ -1191,7 +1191,7 @@ class Handler(BaseHTTPRequestHandler):
                               ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
                               ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY"),
                               ("Content-Security-Policy", "default-src 'none'; script-src 'self'; "
-                               "style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'")):
+                               "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'")):
             self.send_header(header, value)
         self.end_headers()
         self.wfile.write(data)

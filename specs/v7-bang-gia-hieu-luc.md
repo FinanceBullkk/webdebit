@@ -128,7 +128,7 @@ Mọi lệnh ghi theo khuôn V7: `customer_id`, `expected_version`, `idempotency
 ## Giai đoạn
 
 1. **Backend + bảng giá + áp tay** (ĐÃ CODE 29/10/2026, chưa triển khai `hao`): schema, `save_price_table`, `apply_price_table`, `get_price_table`, `get_price_status`, API; harness PostgreSQL case `BANG-GIA.01`.
-2. **Giao diện**: màn Bảng giá (dán, đợt, nhóm shipper, tên khác kho), nút "Áp giá theo bảng cho N chuyến", cờ "khác bảng giá", tự điền ở bảng nhập kiểu Sheet.
+2. **Giao diện** (ĐÃ CODE 29/10/2026, `so-khach-v7-price-ui.js`, test `test-so-khach-v7-price-browser.js`): nút **Bảng giá** ở đầu sổ mở khung gồm *Dán bảng giá từ Sheet* (5 cột Từ ngày · Đến ngày · Kho · Giá khách · Giá TT, dòng tiêu đề tự bỏ), *Shipper của TT* (kèm danh sách shipper trong sổ đang lấy giá khách và nút "Thêm vào TT"), *Kho và tên khác*, *Đợt giá* (thêm đợt mới mặc định đóng đợt đang áp dụng vào ngày liền trước, chép giá để sửa). Nút **Áp giá theo bảng cho N chuyến** mở khung hỏi lại (số chuyến, tháng, tổng tăng từ server) rồi mới ghi. Ô Đơn giá có chữ nhỏ: "bảng: X (TT/khách)" cho chuyến chưa có giá tra được, "khác bảng: X" (tô vàng) cho giá đang ghi khác bảng, "theo bảng (…)" cho giá ghi từ bảng, hoặc lý do không tra được. Bảng giá đổi thì có dải "Áp lại giá mới". Lịch sử có nhãn "Sửa bảng giá" và "Áp giá theo bảng". Dán lô chuyến không tự điền giá: lưu lô xong, chuyến mới chưa có giá hiện ngay trong nút áp giá (một lần bấm, có hỏi lại) — đổi so với bản đề xuất "tự điền khi dán" để không ghi tiền khi người nhập chưa xem.
 3. **Kiểm chéo với Sheet** trong lúc chạy song song: hàng chờ giá hiện thêm giá theo bảng khi khác giá Sheet.
 
 ## Ngoài phạm vi
@@ -157,9 +157,9 @@ Người dùng trả lời trong chat 29/10/2026; ghi ở [`BANG-GIA-01`](../doc
 - [x] Lưu bảng giá chồng ngày bị `PRICE_PERIOD_OVERLAP`; bảng giữ nguyên.
 - [x] Sửa đợt giá không đổi `trip_price_rev` nào; `affected_trips` đếm đúng.
 - [x] `apply_price_table`: ghi giá, phân bổ lại phiếu theo nợ cũ trước, Lịch sử có nguồn; chặn CHỜ KIỂM, tháng khóa; gọi lặp cùng `idempotency_key` không ghi hai lần.
-- [ ] Dán lô (giai đoạn 2): ô gõ tay giữ nguyên; chuyến mới chưa có giá được áp theo bảng sau khi lưu lô.
+- [x] Dán lô (giai đoạn 2): ô gõ tay giữ nguyên; chuyến mới chưa có giá vào nút "Áp giá theo bảng" sau khi lưu lô (test trình duyệt, máy chủ giả).
 - [ ] `npm run check` xanh.
-- [ ] Frontend: bàn phím/focus ở màn bảng giá; dán vùng có ô trống, số có dấu chấm/phẩy; bấm lặp; tháng khóa.
+- [x] Frontend (test trình duyệt 1280×720, máy chủ giả): dán vùng có ô trống, số có dấu phẩy, ngày một chữ số; ngày sai báo tại khung; lỗi server giữ nguyên bảng đang sửa; hỏi lại trước khi áp; Esc đóng khung. Tháng khóa do server chặn (`MONTH_LOCKED`), chưa có test trình duyệt riêng.
 - [ ] Người dùng đối chiếu trên bản thử: một khách có bảng giá, một tháng chuyến, giá web theo bảng khớp cột UNIT PRICE trên Sheet trừ các dòng đã biết lỗi Sheet.
 
 ## Phạm vi agent

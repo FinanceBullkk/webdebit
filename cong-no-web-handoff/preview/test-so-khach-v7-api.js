@@ -137,14 +137,15 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
         allocations: [{ month: '2026-10-01', kind: 'debt', amount_vnd: '5', superseded_by_event: null }] }] });
   const block = key => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   assert.doesNotMatch(block('2026-08'), /data-pid="PH-/);
-  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*>30<small class="[^"]*receipt-ref empty"[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
+  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-sum">30<\/span><span class="receipt-meta"><small class="[^"]*receipt-ref empty"[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
   assert.doesNotMatch(block('2026-09'), /PH-002/);
-  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*>100<small[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
+  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*><span class="receipt-sum">100<\/span><span class="receipt-meta"><small[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
   // Phiếu trừ đúng nợ tháng của mình: không ghi thêm chữ.
-  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*>5<small[^>]*>\+<\/small><\/td>/);
-  // SO-GON-02: không còn cột "Còn nợ cộng dồn"; còn nợ cuối tháng ở dòng Tổng tháng (vùng phiếu thu) và thanh tháng.
-  assert.match(block('2026-10'), /Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">100<br><span class="month-end-amount">50<\/span><\/td>/);
-  assert.match(block('2026-10'), /Nợ các tháng trước: <b>120<\/b><\/span><span>Phát sinh: <b>30<\/b><\/span><span>Đã thu: <b>100<\/b><\/span><span class="month-end">Còn nợ cuối tháng: <b>50<\/b>/);
+  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*><span class="receipt-sum">5<\/span><span class="receipt-meta"><small[^>]*>\+<\/small><button type="button" class="image-clip none" data-pid="PH-003"[^>]*>＋📎<\/button><\/span><\/td>/);
+  // SO-GON-03: mỗi số một lần — thanh tháng chỉ ghi còn nợ cuối tháng (cách tính ở title), dòng Tổng tháng chỉ ghi đã thu.
+  assert.match(block('2026-10'), /Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">100<\/td>/);
+  assert.match(block('2026-10'), /<em class="month-stats"><span class="month-end" title="Nợ các tháng trước 120 \+ phát sinh 30 − đã thu 100">Còn nợ cuối tháng: <b>50<\/b><\/span><\/em>/);
+  assert.doesNotMatch(block('2026-10'), /Phát sinh: <b>|Đã thu: <b>|month-end-amount|Đã thu<br>Còn nợ/);
 });
 
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
@@ -159,18 +160,22 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     assert.ok(!fee.root.innerHTML.includes(kind), kind);
     assert.match(fee.root.innerHTML, kind === 'set_book_fee_columns' ? /Cột riêng: chỉ Khác → Loại #7/ : /#4: phụ phí 500 → 1\.700 \(Loại #7 1\.200 \(neo&lt;1&gt;\)\)/, kind);
   }
-  // specs/v7-bang-gia-hieu-luc.md: nhãn bảng giá làm ở giai đoạn 2 (giao diện).
-  const PENDING_UI_EVENT_KINDS = ['price_table_edit', 'price_table_apply'];
-  for (const kind of PENDING_UI_EVENT_KINDS) {
-    const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
-      at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });
-    assert.match(pending.root.innerHTML, /Thao tác khác/, kind);
-    assert.ok(!pending.root.innerHTML.includes(kind), kind);
-  }
+  // BANG-GIA-01: sửa bảng giá (cả bảng trước → sau) và áp giá theo bảng (từng chuyến).
+  const PENDING_UI_EVENT_KINDS = [];
+  const priceEdit = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_edit', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { price_table: { tt_shippers: [], locations: [], periods: [] } },
+    after: { price_table: { tt_shippers: ['TT<1>'], locations: [{ name: 'DAK LAK', aliases: [] }], periods: [{ valid_from: '2026-10-10', valid_to: null, rates: [] }] } } }] });
+  assert.match(priceEdit.root.innerHTML, /Sửa bảng giá[\s\S]*Bảng giá: 0 đợt, 0 kho, 0 shipper TT → 1 đợt, 1 kho, 1 shipper TT/);
+  const priceApply = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_apply', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: null }] },
+    after: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: '85000000', rate: { tier: 'tt' } }] } }] });
+  assert.match(priceApply.root.innerHTML, /Áp giá theo bảng[\s\S]*1 chuyến · FAKE&lt;4&gt;: – → 85\.000\.000/);
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
-    receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ', adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
+    receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
+    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng',
+    adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
     after: { amount_vnd: '9007199254740994', note: 'giá đúng', allocations: [{ month: '2026-02-01', kind: 'debt', amount_vnd: '100' }] } }));
@@ -390,7 +395,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   // 23/10/2026: không còn chú thích "Từ sổ gốc", dòng "Theo sổ gốc" hay dòng số dư đầu. DA-THU-01 (28/10/2026): server
   // trả sẵn phát sinh/đã thu như Sheet; trang vẽ nguyên số, không dời số theo số dư đầu.
   assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
-  assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<br>/);
+  assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu và bảng nhập; tháng không có dòng Sheet vẽ thẳng từ GET;
@@ -416,8 +421,8 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây/);
   assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
   assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
-  assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<br>/);
-  assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*Nợ các tháng trước: <b>0<\/b>/);
+  assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);
+  assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*title="Nợ các tháng trước 0 \+ phát sinh 1\.234\.567 − đã thu 1\.234\.067">Còn nợ cuối tháng: <b>500<\/b>/);
   assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"/);
   assert.doesNotMatch(newMonth.innerHTML, /change-customer|Chờ xử lý|Từ tháng|class="badge/);
   // Tháng chỉ có dòng Sheet: một dòng Tổng tháng như Sheet, không dòng trống, không dòng "nợ còn lại".
@@ -432,7 +437,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">484<br><span class="month-end-amount">0<\/span><\/td><\/tr><tr class="spacer">/);
+  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">484<\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
   assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">700<\/td>/);

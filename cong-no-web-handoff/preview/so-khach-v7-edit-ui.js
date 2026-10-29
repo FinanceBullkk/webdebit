@@ -211,7 +211,11 @@
           const row = receipt.closest('tr');
           root.querySelector('.void-prompt')?.remove();
           const saved = ctx.snapshot.receipts.find(item => item.pid === pid);
-          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="${spanOf(row)}">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
+          // Góp ý 29/10/2026: hộp hủy xếp dọc (tiêu đề, ô lý do đủ rộng, hai nút) cho vừa vùng phiếu thu hẹp.
+          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="${spanOf(row)}"><div class="void-box"><div class="void-head"><b>Hủy phiếu ${escape(pid)}</b> · ${fmt(saved.amount_vnd)} đ</div>`
+            + `<p class="void-note">Số tiền phiếu không sửa được. Ghi sai thì hủy phiếu này rồi ghi phiếu mới.</p>`
+            + `<label class="void-label">Lý do hủy (bắt buộc)<input class="void-reason" aria-label="Lý do hủy phiếu" placeholder="Ví dụ: ghi trùng, sai số tiền"></label><span class="cell-error" role="status"></span>`
+            + `<div class="void-actions"><button type="button" class="cancel-void">Bỏ qua</button><button type="button" class="confirm-void">Hủy phiếu</button></div></div></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
         receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(ctx.snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
@@ -254,20 +258,33 @@
       }
       if (event.target.matches('.receipt-amount') || event.target.matches('.receipt-reference')) {
         event.preventDefault();
-        const row = event.target.closest('tr');
-        try {
-          row.querySelector('.receipt-date-error').textContent = '';
-          if (row.querySelector('.receipt-method').value === 'CẤN TRỪ' && await startOffset(row)) return;
-          const result = await submit('receipt', { date: dateInput(row.querySelector('.receipt-date').value), method: row.querySelector('.receipt-method').value,
-            amount_vnd: moneyText(row.querySelector('.receipt-amount').value), ...referenceFields(row) });
-          if (result?.error === 'FUTURE_RECEIPT_DATE') {
-            row.querySelector('.receipt-date-error').textContent = result.message;
-            row.querySelector('.receipt-date').focus();
-          }
-        }
-        catch (error) { showNotice(error.message); }
+        await saveNewReceipt(event.target.closest('tr'));
       }
       if (event.target.matches('.receipt-date')) { event.preventDefault(); event.target.closest('tr').querySelector('.receipt-amount').focus(); }
+      if (event.target.matches('.void-reason')) { event.preventDefault(); event.target.closest('tr').querySelector('.confirm-void').click(); }
+    });
+    // Ghi phiếu mới: Enter ở ô số tiền/tham chiếu hoặc nút "Ghi phiếu" của khung nhập đi cùng một đường.
+    async function saveNewReceipt(row) {
+      try {
+        row.querySelector('.receipt-date-error').textContent = '';
+        if (row.querySelector('.receipt-method').value === 'CẤN TRỪ' && await startOffset(row)) return;
+        const result = await submit('receipt', { date: dateInput(row.querySelector('.receipt-date').value), method: row.querySelector('.receipt-method').value,
+          amount_vnd: moneyText(row.querySelector('.receipt-amount').value), ...referenceFields(row) });
+        if (result?.error === 'FUTURE_RECEIPT_DATE') {
+          row.querySelector('.receipt-date-error').textContent = result.message;
+          row.querySelector('.receipt-date').focus();
+        }
+        // CHUNG-TU-01: phiếu đã ghi đúng tiền trước, rồi mới đính ảnh đã dán ở hàng nhập của tháng này.
+        const done = api.lastOutcome();
+        if (done?.status === 'saved') await ctx.afterReceiptSaved?.(row.closest('section')?.id.slice(6), done.result?.pid);
+      }
+      catch (error) { showNotice(error.message); }
+    }
+    root.addEventListener('click', async event => {
+      const save = event.target.closest('.receipt-save');
+      if (!save || save.disabled) return;
+      save.disabled = true;
+      try { await saveNewReceipt(save.closest('tr')); } finally { save.disabled = false; }
     });
     root.addEventListener('input', event => {
       if (event.target.matches('.receipt-date') && event.target.value.length === 10) event.target.closest('tr').querySelector('.receipt-amount').focus();
