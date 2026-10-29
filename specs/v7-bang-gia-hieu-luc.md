@@ -1,6 +1,6 @@
 # V7: bảng giá theo ngày hiệu lực
 
-Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Chưa có mockup Penpot, chưa code, chưa đổi schema.
+Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Claude làm cả backend và giao diện theo [`CLAUDE-ALL-01`](../docs/decisions.md#claude-all-01); không cần mockup Penpot. Chưa code, chưa đổi schema.
 
 ## Vì sao làm
 
@@ -76,7 +76,7 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 
 Dữ liệu mockup: dùng tên kho thật (tỉnh), giá và tên shipper **giả**. Không đưa tên khách, tên shipper hay giá thật vào repo.
 
-## Mô hình dữ liệu (ĐỀ XUẤT cho Codex, chốt ở spec backend)
+## Mô hình dữ liệu (ĐỀ XUẤT, Claude chốt khi code)
 
 - `sokhach.price_tier(id, customer_id, name, is_default)`: nhóm giá của sổ. Theo Q3 có hai nhóm: **giá khách** (mặc định) và **giá TT** (áp cho shipper của TT). Sổ có thể chỉ có giá khách. Lược đồ không giới hạn cứng hai nhóm, nhưng giao diện chỉ làm hai.
 - `sokhach.price_tier_shipper(customer_id, shipper_key, tier_id)`: shipper → nhóm. `shipper_key` = `upper(btrim)` và gộp khoảng trắng. Một shipper một nhóm trong một sổ.
@@ -122,8 +122,8 @@ Tra giá là hàm đọc thuần ở DB (`sokhach.lookup_price(...)`), gọi đ�
 
 ## Giai đoạn
 
-1. **Backend + bảng giá + áp tay** (Codex): schema, `save_price_table`, `lookup_price`, `apply_price_table`, `get_ledger` trả cờ; harness PostgreSQL.
-2. **Giao diện** (sau Penpot duyệt): màn Bảng giá (dán, đợt, nhóm shipper, tên khác kho), nút "Áp giá theo bảng cho N chuyến", cờ "khác bảng giá", tự điền ở bảng nhập kiểu Sheet.
+1. **Backend + bảng giá + áp tay**: schema, `save_price_table`, `lookup_price`, `apply_price_table`, `get_ledger` trả cờ; harness PostgreSQL.
+2. **Giao diện**: màn Bảng giá (dán, đợt, nhóm shipper, tên khác kho), nút "Áp giá theo bảng cho N chuyến", cờ "khác bảng giá", tự điền ở bảng nhập kiểu Sheet.
 3. **Kiểm chéo với Sheet** trong lúc chạy song song: hàng chờ giá hiện thêm giá theo bảng khi khác giá Sheet.
 
 ## Ngoài phạm vi
@@ -146,7 +146,7 @@ Người dùng trả lời trong chat 29/10/2026; ghi ở [`BANG-GIA-01`](../doc
 - **Q5.** Áp bảng giá cho dòng sổ gốc thiếu giá: **không**.
 - **Q6.** Thêm đợt mới thì web hỏi và mặc định **đóng đợt cũ** vào ngày liền trước: **đồng ý**.
 
-## Câu hỏi kỹ thuật (Codex trả lời trong spec backend)
+## Câu hỏi kỹ thuật (Claude trả lời khi code)
 
 - **K1.** Chặn chồng ngày bằng hàm hay ràng buộc `EXCLUDE USING gist` (cần extension `btree_gist` trên `hao`)?
 - **K2.** Nguồn giá lưu ở `trip_price_rev` (cột mới) hay payload `event`; cách `get_ledger` đếm "chuyến đã ghi theo dòng bị đổi" cho nhanh.
@@ -160,17 +160,14 @@ Người dùng trả lời trong chat 29/10/2026; ghi ở [`BANG-GIA-01`](../doc
 - [ ] `apply_price_table`: ghi giá, phân bổ lại phiếu theo nợ cũ trước, Lịch sử có nguồn; chặn CHỜ KIỂM, tháng khóa; gọi lặp cùng `idempotency_key` không ghi hai lần.
 - [ ] Dán lô: ô gõ tay giữ nguyên; ô trống được điền và ghi `ref`; giá client gửi kèm `price_from_table` sai thì server dùng giá tra lại.
 - [ ] `npm run check` xanh.
-- [ ] Frontend: khớp mockup Penpot đã duyệt; bàn phím/focus ở màn bảng giá; dán vùng có ô trống, số có dấu chấm/phẩy; bấm lặp; tháng khóa.
+- [ ] Frontend: bàn phím/focus ở màn bảng giá; dán vùng có ô trống, số có dấu chấm/phẩy; bấm lặp; tháng khóa.
 - [ ] Người dùng đối chiếu trên bản thử: một khách có bảng giá, một tháng chuyến, giá web theo bảng khớp cột UNIT PRICE trên Sheet trừ các dòng đã biết lỗi Sheet.
 
 ## Phạm vi agent
 
-Spec tổng; giao việc bằng spec con theo [`_template.md`](_template.md).
-
-- Agent: codex (giai đoạn 1), gemini (giai đoạn 2 sau Penpot), claude (review, giai đoạn 3)
-- Mockup: CHỜ DUYỆT — chưa có
+- Agent: claude (cả ba giai đoạn, `CLAUDE-ALL-01`)
 - Review: opus (đường ghi giá, phân bổ lại, schema)
-- Được sửa (dự kiến, chốt ở spec con): `specs/v7-backend/schema-draft.sql`, `cong-no-web-handoff/tools/v7_backend_functions.sql`, migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/tools/test_pg_v7_backend_*.py`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/preview/so-khach-v7-*.js`, `so-khach-v7-live.html`, test tương ứng
+- Được sửa (dự kiến): `specs/v7-backend/schema-draft.sql`, `cong-no-web-handoff/tools/v7_backend_functions.sql`, migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/tools/test_pg_v7_backend_*.py`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/preview/so-khach-v7-*.js`, `so-khach-v7-live.html`, test tương ứng
 - Lệnh kiểm: `npm run check`; harness `cong-no-web-handoff/tools/test_pg_v7_backend.py`
 - Cấm: chạy DDL/migration/import lên `hao` hoặc DB thật; tự áp giá vào chuyến thật; đổi quy tắc khóa tháng, phân bổ, opening; đưa tên khách, shipper, giá thật vào repo.
 
