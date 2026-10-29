@@ -1,6 +1,6 @@
 # V7: hợp đồng đọc Sheet ↔ web (giai đoạn 1)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026), người dùng yêu cầu đề xuất kiến trúc nối CHAU_HAO với web. Nguồn đơn giá đã chốt ở [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md). Giai đoạn 2–3 ở cuối file chỉ là hướng, chưa làm.
+Trạng thái: giai đoạn 1 **ĐÃ TRIỂN KHAI trên `hao` và CHAU_HAO 29/10/2026** (người dùng cho làm cả A, B, C trong chat; [nhật ký](../docs/deploys/2026-10-29-sheet-contract.md)). Đề xuất ban đầu của Claude cùng ngày, theo yêu cầu đề xuất kiến trúc nối CHAU_HAO với web. Nguồn đơn giá đã chốt ở [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md). Giai đoạn 2–3 ở cuối file chỉ là hướng, chưa làm.
 
 ## Bối cảnh: CHAU_HAO đang chạy thế nào (đọc 29/10/2026, chỉ đọc)
 
@@ -20,7 +20,7 @@ Web chỉ đọc, qua ba runner trên `hao` (mỗi 15 phút và khi bấm "↻ L
 
 | Runner | File | Tab / dải | Kiểm cấu trúc |
 |---|---|---|---|
-| đồng bộ chuyến (`sheet_sync_runner.py`) | CHAU_HAO | `WEBDEBIT_EXPORT!A1:E`, `BOOKING_DATA!A1:O`, `REVIEW_KHACH_2026-10-24!A1:F` | So nguyên dòng tiêu đề, lệch thì dừng |
+| đồng bộ chuyến (`sheet_sync_runner.py`) | CHAU_HAO | `WEBDEBIT_EXPORT!A1:E`, `BOOKING_DATA!A1:O`, `WEB_GHEP_KHACH!A1:F` (trước 29/10: `REVIEW_KHACH_2026-10-24`) | So nguyên dòng tiêu đề, lệch thì dừng |
 | bảng PS (`v7_ps_snapshot.py`) | CHAU_HAO | `CONT_MASTER!A2:AC`, tab ghép khách | Tìm cột theo tên |
 | giá (`v7_price_snapshot.py`) | sổ gốc | mọi tab khách | Theo cấu trúc tab khách |
 
@@ -45,7 +45,7 @@ Web chỉ đọc, qua ba runner trên `hao` (mỗi 15 phút và khi bấm "↻ L
 
 **C. Đánh dấu các chỗ web đọc trên Sheet** (Sheet, cần người dùng cho phép)
 
-- Thêm vùng bảo vệ **chỉ cảnh báo** (`warningOnly`, không chặn ai) lên dòng tiêu đề của `WEBDEBIT_EXPORT`, `BOOKING_DATA`, `CONT_MASTER` (dòng 1–2) và cả tab `WEB_GHEP_KHACH`. Lời nhắn: "Web đọc dòng/tab này theo tên cột. Đổi tiêu đề hoặc chèn cột thì đồng bộ lên web dừng. Hỏi trước khi sửa."
+- Thêm vùng bảo vệ **chỉ cảnh báo** (`warningOnly`, không chặn ai) lên dòng tiêu đề của `WEBDEBIT_EXPORT`, `CONT_MASTER` (dòng 1–2) và `WEB_GHEP_KHACH`. Khi làm: `BOOKING_DATA` đã khóa cứng cả tab nên không thêm; `WEB_GHEP_KHACH` chỉ khóa dòng 1 vì người nhập điền cột F hằng ngày. Lời nhắn: "Web đọc dòng/tab này theo tên cột. Đổi tiêu đề hoặc chèn cột thì đồng bộ lên web dừng. Hỏi trước khi sửa."
 - Không đổi công thức, không thêm tab khác.
 
 ## Ngoài phạm vi giai đoạn 1
