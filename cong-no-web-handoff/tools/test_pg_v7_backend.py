@@ -94,6 +94,7 @@ from test_pg_v7_backend_receipts import (
     check_concurrent,
     check_csm_reference,
     check_da_thu,
+    check_delete_month_adjustment,
     check_future_receipt,
     check_idempotency,
     check_invariant_rejections,
@@ -214,10 +215,13 @@ CASES.append(case("CHUNG-TU.01", "BEHAVIOR", "Receipt images: attach, warn, remo
                                                      "get_receipt_image", "find_receipt_image")))
 CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
+# Chạy sau CHUNG-TU.01: case đó chạy lại migration chứng từ, ràng buộc event cũ không nhận event adjust_month_delete đã ghi.
+CASES.append(case("XOA-DC-THANG.01", "BEHAVIOR", "Delete month adjustment: reversal pair hidden, FIFO restored, audit, locked month",
+                  check="delete_month_adjustment", functions=("delete_month_adjustment", "adjust_month", "get_ledger")))
 
 CHECKS = {"dashboard": check_dashboard, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
-          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
+          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,
           "future_receipt": check_future_receipt, "void_get": check_void_get,

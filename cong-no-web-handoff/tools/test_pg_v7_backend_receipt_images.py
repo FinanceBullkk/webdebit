@@ -18,6 +18,7 @@ from pg_v7_harness import (
 )
 
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql"
+LATER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.rollback.sql"
 PNG = b"\x89PNG\r\n\x1a\n" + b"FAKE-PNG"
 PNG2 = b"\x89PNG\r\n\x1a\n" + b"FAKE-PNG-2"
@@ -117,5 +118,6 @@ def check_receipt_images(pg: Pg) -> None:
     pg.sql(MIGRATION.read_text(encoding="utf-8"))
     require(pg.value("SELECT jsonb_agg(to_jsonb(i)-'data' ORDER BY id) FROM sokhach.receipt_image i") == snapshot,
             "migration rerun changed images")
+    pg.sql(LATER_MIGRATION.read_text(encoding="utf-8"))  # dựng lại ràng buộc event của XOA-DC-THANG-01 sau chứng từ
     # Hoàn tác từ chối khi đã có ảnh.
     pg.rejects(ROLLBACK.read_text(encoding="utf-8"), message="RECEIPT_IMAGES_PRESENT")

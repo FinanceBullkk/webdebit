@@ -492,3 +492,45 @@ def check_void_get(pg: Pg) -> None:
              if line["superseded_by_event"] == receipt["voided_by_event"]]
     require(shown == at_void and len(receipt["allocations"]) > len(shown),
             "void shows reallocation history or loses current allocation")
+
+
+def check_delete_month_adjustment(pg: Pg) -> None:
+    """XOA-DC-THANG-01: xóa điều chỉnh cả tháng = dòng đảo dấu, ẩn cả cặp, phân bổ lại như trước khi điều chỉnh."""
+    c = new_book(pg, ("2026-01-01", 100), ("2026-02-01", 200))
+    call(pg, "set_month_lock", c, 0, "xdc-open", "2026-01-01", "false")
+    call(pg, "record_receipt", c, version(pg, c), "xdc-r", "2026-03-01", "THU TIỀN", 150)
+    before = (allocations(pg, c, "PH-001"), [r[1] for r in months(pg, c)][:2])
+    adj = call(pg, "adjust_month", c, version(pg, c), "xdc-a", "2026-01-01", 60, "thử")["adjustment_id"]
+    keep = call(pg, "adjust_month", c, version(pg, c), "xdc-b", "2026-01-01", -5, None)["adjustment_id"]
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "150")], "adjustment did not reallocate")
+    other = new_book(pg, ("2026-01-01", 100))
+    reject_call(pg, "delete_month_adjustment", other, 0, "xdc-other", adj, error="ADJUSTMENT_NOT_FOUND")
+    reject_call(pg, "delete_month_adjustment", c, version(pg, c), "xdc-none", 0, error="ADJUSTMENT_NOT_FOUND")
+    v = version(pg, c)
+    result = call(pg, "delete_month_adjustment", c, v, "xdc-del", adj)
+    require(version(pg, c) == v + 1 and result["adjustment_id"] == adj, "delete result wrong")
+    require(call(pg, "delete_month_adjustment", c, v, "xdc-del", adj) == result and version(pg, c) == v + 1,
+            "same-key retry wrote again")
+    # Trả về đúng phân bổ và số nợ như chỉ còn điều chỉnh -5.
+    require(allocations(pg, c, "PH-001") == [("2026-01-01", "debt", "95"), ("2026-02-01", "debt", "55")]
+            and [r[1] for r in months(pg, c)][:2] == ["0", "145"], "delete did not reallocate FIFO")
+    shown = [row["id"] for row in call(pg, "get_ledger", c)["adjustments"]]
+    require(shown == [keep], f"deleted pair still shown: {shown}")
+    require(pg.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE id IN ({adj},{result['reversal_id']})") == "0",
+            "reversal does not cancel original")
+    audit = json.loads(pg.value(f"SELECT jsonb_build_object('kind',kind,'before',\"before\",'after',\"after\")::text FROM sokhach.event "
+                                f"WHERE customer_id={c} AND idempotency_key='xdc-del' AND kind='adjust_month_delete'"))
+    require(audit["kind"] == "adjust_month_delete" and audit["before"]["adjustment"]["amount_vnd"] == "60"
+            and audit["before"]["adjustment"]["note"] == "thử" and audit["after"]["adjustment"]["deleted"] is True,
+            "delete audit wrong")
+    for target, key in ((adj, "xdc-again"), (result["reversal_id"], "xdc-reversal")):
+        reject_call(pg, "delete_month_adjustment", c, version(pg, c), key, target, error="ADJUSTMENT_NOT_FOUND")
+    call(pg, "delete_month_adjustment", c, version(pg, c), "xdc-del-keep", keep)
+    require((allocations(pg, c, "PH-001"), [r[1] for r in months(pg, c)][:2]) == before
+            and call(pg, "get_ledger", c)["adjustments"] == [], "deleting every adjustment did not restore the book")
+    # Tháng khóa: mở khóa trước, như điều chỉnh cả tháng.
+    locked = call(pg, "adjust_month", c, version(pg, c), "xdc-c", "2026-01-01", 7, None)["adjustment_id"]
+    call(pg, "set_month_lock", c, version(pg, c), "xdc-lock", "2026-01-01", "true")
+    reject_call(pg, "delete_month_adjustment", c, version(pg, c), "xdc-locked", locked, error="MONTH_LOCKED")
+    pg.true(f"EXISTS (SELECT 1 FROM sokhach.v_adjustment_current WHERE id={locked})", "locked reject changed data")
+    assert_allocations(pg, c)

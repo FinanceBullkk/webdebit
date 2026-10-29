@@ -264,6 +264,7 @@ class LedgerApiTest(unittest.TestCase):
             ("/api/v7/trips/delete", "delete_trip", {"trip_id": 7}),
             ("/api/v7/legacy/edit", "edit_legacy_trip", {"legacy_row_id": 8, "field": "unit_price_vnd", "value": "70000000"}),
             ("/api/v7/legacy/delete", "delete_legacy_trip", {"legacy_row_id": 8}),
+            ("/api/v7/months/adjust/delete", "delete_month_adjustment", {"adjustment_id": 9}),
         ]
         for route, function, fields in routes:
             body = self.common | fields
@@ -272,7 +273,7 @@ class LedgerApiTest(unittest.TestCase):
             for extra in ({"actor": "forged"}, {"status": "confirmed"}, {"deleted": True}, {"amount_vnd": "0"}):
                 with self.subTest(route=route, extra=extra), self.assertRaises(api.ApiError):
                     self.call(route, body | extra)
-            id_field = "trip_id" if "trip_id" in fields else "legacy_row_id"
+            id_field = next(iter(fields))
             for invalid in (None, 0, -1, True, "7", 9223372036854775808):
                 with self.subTest(route=route, invalid=invalid), self.assertRaises(api.ApiError):
                     self.call(route, body | {id_field: invalid})
