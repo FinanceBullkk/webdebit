@@ -1101,13 +1101,13 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
-## Hợp đồng đọc Sheet giai đoạn 1 — runner đồng bộ theo release, đổi tên tab ghép khách (CHƯA CHẠY)
+## Hợp đồng đọc Sheet giai đoạn 1 — runner đồng bộ theo release, đổi tên tab ghép khách (ĐÃ CHẠY trên hao 29/10/2026)
 
-Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md). Không migration, không đổi DB. **Thứ tự bắt buộc:** deploy code đọc được tên `WEB_GHEP_KHACH` (bản cũ vẫn đọc được tên cũ) → bước 1 → bước 2 → bước 3. Đổi tên tab trước bước 1 thì runner đồng bộ cũ ở `/opt` hỏng, vì nó chỉ biết tên cũ.
+Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md), nhật ký [`deploys/2026-10-29-sheet-contract.md`](deploys/2026-10-29-sheet-contract.md). Không migration, không đổi DB. Code đã bỏ đường đọc tên cũ; rollback bước 2 nay phải trả code về cùng lúc. **Thứ tự bắt buộc:** deploy code đọc được tên `WEB_GHEP_KHACH` (bản cũ vẫn đọc được tên cũ) → bước 1 → bước 2 → bước 3. Đổi tên tab trước bước 1 thì runner đồng bộ cũ ở `/opt` hỏng, vì nó chỉ biết tên cũ.
 
 1. **Runner đồng bộ chạy từ release.** Lưu bản `webdebit-sheet-sync.service` hiện tại vào thư mục backup. Đổi `WorkingDirectory` và `ExecStart` sang `/srv/v7/auto-releases/current/cong-no-web-handoff/tools/` (`sheet_sync_runner.py`), giữ nguyên `EnvironmentFile`, user, sandbox; rồi `daemon-reload` và chạy một lượt. Đạt khi: `Result=success`; số dòng bằng lượt trước (± chuyến mới); bản chụp có `durian_type` ở chuyến sầu riêng nhận ra được. Chỉ ghi số đếm vào nhật ký. Giữ `/opt/webdebit-sheet-sync` một tuần để quay lại, rồi xóa.
 2. **Đổi tên tab trên Sheet** `REVIEW_KHACH_2026-10-24` → `WEB_GHEP_KHACH` (`updateSheetProperties`, giữ `sheetId` và dữ liệu). Chạy lại ba runner; log hai runner CHAU_HAO không còn dòng "đọc tên cũ".
-3. **Vùng cảnh báo** (`addProtectedRange`, `warningOnly: true`): dòng tiêu đề `WEBDEBIT_EXPORT`, `BOOKING_DATA`, `CONT_MASTER` (dòng 1–2) và cả tab `WEB_GHEP_KHACH`. Đọc lại qua API để thấy đủ bốn vùng.
+3. **Vùng cảnh báo** (`addProtectedRange`, `warningOnly: true`): dòng tiêu đề `WEBDEBIT_EXPORT`, `CONT_MASTER` (dòng 1–2) và `WEB_GHEP_KHACH` (chỉ dòng 1: người nhập điền cột F hằng ngày). `BOOKING_DATA` đã có vùng khóa cứng cả tab từ trước, không thêm. Đọc lại qua API để thấy đủ.
 
 Rollback: bước 1 trả unit đã lưu rồi `daemon-reload`. Bước 2 đổi tên tab lại (code đọc được cả hai tên tới PR bỏ tên cũ). Bước 3 xóa vùng bảo vệ.
 
