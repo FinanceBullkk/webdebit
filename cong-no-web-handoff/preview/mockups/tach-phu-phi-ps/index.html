@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tách phụ phí theo bảng PS · mockup</title>
+<!-- DỮ LIỆU GIẢ. Mockup PR-2 của specs/v7-phu-phi-tu-ps.md, CHỜ DUYỆT. Dựa trên sổ khách có cột phụ phí riêng
+     (PHU-PHI-01, mockups/phu-phi-nhieu-loai) và nút "Ghi N giá từ Sheet" (mockups/ghi-gia-tu-sheet).
+     Chạy trong tab, không gọi API, không lưu gì. Thanh vàng trên cùng là ghi chú cho người duyệt, không thuộc màn hình. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:3px solid #155da8;outline-offset:2px}
+.review{display:flex;align-items:center;gap:8px;flex-wrap:wrap;max-width:1280px;margin:0 auto;padding:8px 10px;background:#ffe08a;color:#452600}
+.review strong{margin-right:6px}.review button{min-height:30px;border:1px solid #b08a2a;border-radius:4px;background:#fff8dc;color:#452600;padding:0 10px}
+.review button[aria-pressed=true]{background:#452600;color:#fff}
+.frame{max-width:1280px;margin:0 auto;background:#eef3f8;padding-bottom:24px}
+.book-head{height:60px;display:flex;align-items:center;gap:10px;padding:6px 11px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:17px;font-weight:700;margin-right:6px}
+.head-btn{min-height:38px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-weight:600}
+.head-btn.primary{background:#1e4e8c;border-color:#1e4e8c;color:#fff;font-weight:700}
+.total{margin-left:auto;display:flex;flex-direction:column;text-align:right}.total span{color:#3e5871;font-size:13px}.total strong{font-size:21px;color:#123f79}
+.strip{display:flex;align-items:center;gap:10px;padding:6px 12px;background:#fff;border-bottom:1px solid #c9d6e3;font-size:15px}
+.strip .sep{color:#9eb4ca}
+.strip .link{border:0;background:none;color:#1d4ed8;text-decoration:underline;padding:0 2px;min-height:32px}
+.strip.warn{background:#fff3d6}
+.panel{margin:8px 11px;padding:10px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:15px}
+.panel.confirm{border-left:4px solid #1e4e8c}.panel.ok{border-left:4px solid #15803d;background:#f1faf3}.panel.err{border-left:4px solid #b91c1c;background:#fff4f4}
+.panel p{margin:0 0 8px}.panel .actions{display:flex;gap:10px;margin-top:8px}
+.panel ul{list-style:none;margin:0;padding:0}
+.panel li{display:flex;align-items:center;gap:12px;min-height:46px;border-top:1px solid #e3eaf2;padding:3px 0}
+.panel li:first-child{border-top:0}.panel li .what{flex:1}.panel li small{display:block;color:#475d73;font-size:13px}
+/* Tháng 5–6 có thể tới vài chục chuyến: danh sách tự cuộn, nút Tách luôn thấy. */
+.panel ul.plan{max-height:220px;overflow-y:auto}.panel ul.plan li{min-height:36px}
+.panel h3{margin:10px 0 2px;font-size:14px;color:#3e5871}.panel h3:first-child{margin-top:0}
+.cont{font-family:Consolas,"Cascadia Mono",monospace}
+.arrow{color:#1e4e8c;font-weight:700;padding:0 4px}
+.same{display:inline-block;margin-top:2px;padding:4px 10px;border-radius:4px;background:#e7f0e9;color:#15803d;font-weight:700}
+.history{margin-top:8px;padding:8px 10px;background:#fff;border:1px solid #c9d6e3;border-radius:4px;font-size:13px}
+.history time{color:#475d73;margin-right:8px}.history b{margin:0 6px}
+.ledger{width:calc(100% - 22px);margin:8px 11px 0;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:0 6px;font-size:13px;height:38px;vertical-align:middle}
+.cols th{background:#eaf1fa;text-align:left;line-height:1.1}.cols th.fee-h{background:#f6ecd8;color:#5a3a00}.cols th.pay{background:#dfeeff}
+.month th{height:40px;padding:0 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.month.locked th{background:#5f7184}.month em{float:right;font-style:normal;font-weight:400;font-size:13px}
+.num{text-align:right;white-space:nowrap}
+td.fee{background:#fffaf0}td.fee.blank::before{content:'–';color:#8193a6}
+td.other small{display:block;color:#5d6f82;font-size:11px;line-height:1.1;white-space:normal}
+td.pay{background:#f2f8ff}
+tr.ps-ready td.fee{background:#fff2c6}
+tr.ps-plan td.fee{background:#fff2c6;font-style:italic;color:#6b4a00}
+tr.ps-done td{background:#e2f5e8}
+tr.flash td{animation:flash 1.6s ease-out}
+@keyframes flash{0%,40%{background:#ffd27a}100%{}}
+@media (prefers-reduced-motion:reduce){tr.flash td{animation:none;background:#ffd27a}}
+.subtotal td{background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+.spacer td{height:12px;padding:0;background:#eef3f8;border:0}
+</style>
+</head>
+<body>
+<div class="review" role="group" aria-label="Trạng thái mockup (ghi chú cho người duyệt)">
+  <strong>MOCKUP · DỮ LIỆU GIẢ ·</strong>
+  <button data-state="ready">1. Có chuyến tách được</button>
+  <button data-state="confirm">2. Khung xác nhận</button>
+  <button data-state="done">3. Đã tách</button>
+  <button data-state="review">4. PS cần xem</button>
+  <button data-state="stale">5. Bảng PS vừa đổi</button>
+  <button data-state="unavailable">6. Chưa đọc được bảng PS</button>
+</div>
+<div class="frame" id="app"></div>
+<script>
+'use strict';
+const fmt = n => n === null || n === undefined ? '' : n.toLocaleString('vi-VN');
+// Sổ giả bật 3 cột riêng Neo, Điện, Ghép; loại khác dồn vào cột Khác như PHU-PHI-01.
+const OWN = ['neo', 'dien', 'ghep'];
+const NAME = { neo: 'Neo', dien: 'Điện', ghep: 'Ghép', khac: 'Khác', ban_dau: 'Phụ phí ban đầu', bao_hiem: 'Bảo hiểm' };
+// before/after: [loại, số]. st: trạng thái theo bảng PS (spec bước 1). after chỉ có ở READY.
+const months = [
+  { key: '9', label: 'THÁNG 9/2026', locked: true, prior: 96000000, received: 40000000, rows: [
+    { id: 'r91', c: 'DEMU0900001', d: '04/09/2026', price: 12000000, before: [] },
+    { id: 'r92', c: 'DEMU0900003', d: '12/09/2026', price: 12000000, before: [['ban_dau', 2000000]], st: 'MONTH_LOCKED', ps: 'Neo 2.000.000' },
+    { id: 'r93', c: 'DEMU0900005', d: '25/09/2026', price: 12500000, before: [['khac', 1200000]], st: 'PS_SOURCE_ERROR' } ] },
+  { key: '10', label: 'THÁNG 10/2026', locked: false, received: 50000000, rows: [
+    { id: 'r1', c: 'DEMU1000001', d: '03/10/2026', price: 12500000, before: [['ban_dau', 2000000]], after: [['neo', 1500000], ['dien', 500000]], st: 'READY', pay: ['15/10/2026', 50000000] },
+    { id: 'r2', c: 'DEMU1000002', d: '05/10/2026', price: 12500000, before: [['khac', 800000]], after: [['ghep', 800000]], st: 'READY' },
+    { id: 'r3', c: 'DEMU1000003', d: '08/10/2026', price: 13000000, before: [], st: 'WEB_NO_FEE' },
+    { id: 'r4', c: 'DEMU1000004', d: '10/10/2026', price: 12500000, before: [['khac', 1500000]], st: 'TOTAL_DIFF' },
+    { id: 'r5', c: 'DEMU1000005', d: '12/10/2026', price: 12500000, before: [['ban_dau', 3315790]], after: [['neo', 3000000], ['khac', 315790]], st: 'READY' },
+    { id: 'r6', c: 'DEMU1000006', d: '15/10/2026', price: 12500000, before: [['neo', 1500000]] },
+    { id: 'r7', c: 'DEMU1000007', d: '18/10/2026', price: 12500000, before: [['khac', 3000000]], st: 'PS_COMBINED' },
+    { id: 'r8', c: 'DEMU1000008', d: '20/10/2026', price: 12500000, before: [['khac', 1500001]], st: 'PS_TYPO' },
+    { id: 'r9', c: 'DEMU1000009', d: '21/10/2026', price: 12500000, before: [['khac', 1000000]], after: [['neo', 600000], ['bao_hiem', 400000]], st: 'READY' },
+    { id: 'r10', c: 'DEMU1000010', d: '22/10/2026', price: 12500000, before: [['neo', 1500000]], st: 'NEED_HEALTH' },
+    { id: 'r11', c: 'DEMU1000011', d: '23/10/2026', price: 12500000, before: [['khac', 900000]], st: 'AMBIGUOUS' },
+    { id: 'r12', c: 'DEMU1000011', d: '23/10/2026', price: 12500000, before: [['khac', 900000]], st: 'AMBIGUOUS' } ] } ];
+const all = months.flatMap(m => m.rows);
+const ready = all.filter(r => r.st === 'READY');
+const sum = lines => lines.reduce((s, [, v]) => s + v, 0);
+const describe = lines => lines.map(([t, v]) => `${NAME[t]} ${fmt(v)}`).join(' + ');
+const readyTotal = ready.reduce((s, r) => s + sum(r.before), 0);
+
+// Mục "PS cần xem", chia theo việc người nhập phải làm. Câu chữ theo bảng ở bước 1 của spec.
+const reviewGroups = [
+  { title: 'Mở khóa tháng là tách được', items: [
+    { row: 'r92', text: 'Tháng 9/2026 đang khóa. PS: Neo 2.000.000', action: '<button class="head-btn">Mở khóa tháng 9</button>' } ] },
+  { title: 'Sửa trên web (bấm ô Khác của chuyến để mở chi tiết phụ phí)', items: [
+    { row: 'r4', text: `Web ${fmt(1500000)} · PS ${fmt(2000000)}`, hint: 'Kiểm tab khách trên Sheet (sổ chính thức). Web sai thì sửa trong chi tiết phụ phí.' },
+    { row: 'r7', text: `PS gộp Health+KĐ ${fmt(3000000)}, cần tách tay`, hint: 'Chia ra Health cert và Kiểm định trong chi tiết phụ phí.' },
+    { row: 'r10', text: 'PS đánh dấu Health cert — nhập giá tay', hint: 'Thêm khoản Health cert. Ghi xong thì dòng này tự hết.' },
+    { row: 'r11', text: 'Cont DEMU1000011 khớp 2 chuyến cùng ngày', hint: 'Phân loại tay ở đúng chuyến.' } ] },
+  { title: 'Sửa ở Sheet hoặc bộ lập bill (lần đọc sau tự cập nhật)', items: [
+    { row: 'r3', text: `PS ${fmt(1200000)} · web chưa có phụ phí`, hint: 'Ghi phí trên tab khách như mọi khi; có giá từ Sheet rồi thì chuyến này vào nút Tách.' },
+    { row: 'r8', text: 'Ghép = 1 trên PS, có thể gõ sai', hint: 'Sửa bảng PS, hoặc phân loại tay trên web.' },
+    { row: 'r93', text: 'Bộ lập bill báo: PS trùng dòng', hint: 'Sửa trong bộ lập bill.' } ] } ];
+const reviewCount = reviewGroups.reduce((s, g) => s + g.items.length, 0);
+const rowById = id => all.find(r => r.id === id);
+
+function feeCells(lines) {
+  const own = OWN.map(t => lines.filter(([k]) => k === t).reduce((s, [, v]) => s + v, 0) || null);
+  const other = lines.filter(([k]) => !OWN.includes(k));
+  const otherSum = other.length ? sum(other) : null;
+  const otherLabel = other.length && !(other.length === 1 && other[0][0] === 'khac') ? `<small>${other.map(([t]) => NAME[t]).join(', ')}</small>` : '';
+  return own.map(v => `<td class="num fee${v === null ? ' blank' : ''}">${fmt(v)}</td>`).join('')
+    + `<td class="num fee other${otherSum === null ? ' blank' : ''}">${fmt(otherSum)}${otherLabel}</td>`;
+}
+
+function rows(state) {
+  let html = '';
+  let carry = 0;
+  for (const m of months) {
+    const prior = m.prior ?? carry;
+    html += `<tr class="month${m.locked ? ' locked' : ''}"><th colspan="13">${m.label} ${m.locked ? '🔒' : '🔓'}<em>Nợ các tháng trước: ${fmt(prior)}</em></th></tr>`;
+    let charges = 0;
+    const colTotals = [0, 0, 0, 0];
+    m.rows.forEach((r, i) => {
+      const isReady = r.st === 'READY';
+      const lines = isReady && ['confirm', 'done'].includes(state) ? r.after : r.before;
+      const amount = r.price + sum(lines);
+      charges += amount;
+      OWN.forEach((t, k) => { colTotals[k] += lines.filter(([x]) => x === t).reduce((s, [, v]) => s + v, 0); });
+      colTotals[3] += sum(lines.filter(([x]) => !OWN.includes(x)));
+      const cls = !isReady ? '' : state === 'ready' ? 'ps-ready' : state === 'confirm' ? 'ps-plan' : state === 'done' ? 'ps-done' : '';
+      const pay = r.pay ? `<td class="pay">${r.pay[0]}</td><td class="pay num">${fmt(r.pay[1])}</td>` : '<td class="pay"></td><td class="pay"></td>';
+      html += `<tr id="${r.id}" class="${cls}"><td>${i + 1}</td><td class="cont">${r.c}</td><td>${r.d}</td><td>Nơi A</td><td>Nơi B</td><td class="num">${fmt(r.price)}</td>${feeCells(lines)}<td class="num">${fmt(amount)}</td>${pay}</tr>`;
+    });
+    carry = prior + charges - m.received;
+    html += `<tr class="subtotal"><td colspan="6">Tổng tháng ${m.key}/2026</td>${colTotals.map(v => `<td class="num">${v ? fmt(v) : ''}</td>`).join('')}<td class="num">${fmt(charges)}</td><td class="pay">Đã thu</td><td class="pay num">${fmt(m.received)}</td></tr>`
+      + `<tr class="spacer"><td colspan="13"></td></tr>`;
+  }
+  return { html, total: carry };
+}
+
+function confirmPanel() {
+  const items = ready.map(r => `<li><div class="what"><span class="cont">${r.c}</span> · ${r.d.slice(0, 5)} · ${describe(r.before)}<span class="arrow">→</span>${describe(r.after)}</div></li>`).join('');
+  return `<div class="panel confirm" role="region" aria-label="Xác nhận tách phụ phí theo bảng PS">
+    <p><strong>Tách phụ phí theo bảng PS cho ${ready.length} chuyến tháng 10/2026?</strong></p>
+    <ul class="plan">${items}</ul>
+    <span class="same">Tổng tiền không đổi: phụ phí ${ready.length} chuyến vẫn là ${fmt(readyTotal)} đ, tổng còn nợ giữ nguyên.</span>
+    <div class="actions"><button class="head-btn primary" id="do-split">Tách ${ready.length} chuyến</button><button class="head-btn" data-go="ready">Thôi</button></div></div>`;
+}
+
+function reviewPanel() {
+  return `<div class="panel" role="region" aria-label="Phụ phí PS cần xem" style="max-height:340px;overflow-y:auto">${reviewGroups.map(g => `<h3>${g.title}</h3><ul>${g.items.map(item => {
+    const r = rowById(item.row);
+    return `<li><div class="what"><span class="cont">${r.c}</span> · ${r.d} · ${item.text}${item.hint ? `<small>${item.hint}</small>` : ''}</div>${item.action ?? ''}<button class="head-btn" data-jump="${r.id}">Xem dòng</button></li>`;
+  }).join('')}</ul>`).join('')}</div>`;
+}
+
+function render(state) {
+  const { html, total } = rows(state);
+  const showSplit = ['ready', 'review'].includes(state);
+  let panel = '';
+  if (state === 'confirm') panel = confirmPanel();
+  if (state === 'review') panel = reviewPanel();
+  if (state === 'done') {
+    const first = ready[0];
+    panel = `<div class="panel ok" role="status">Đã tách phụ phí ${ready.length} chuyến theo bảng PS. Tổng còn nợ không đổi: <strong>${fmt(total)} đ</strong>.
+      <div class="history">Lịch sử có ${ready.length} dòng như sau:<br><time>29/10/2026 21:40</time>Người nhập A<b>Tách phụ phí theo PS</b>
+      <span class="cont">${first.c}</span> ${first.d}: ${describe(first.before)} → ${describe(first.after)}<br><small>Nguồn: bảng PS của bộ lập bill, dòng ${first.c}|2026-10-03</small></div></div>`;
+  }
+  if (state === 'stale') panel = `<div class="panel err" role="alert"><p><strong>Chưa tách chuyến nào.</strong> Bảng PS đã đổi sau khi mở sổ. Tải lại rồi tách.</p><div class="actions"><button class="head-btn primary" data-go="ready">Tải lại sổ</button></div></div>`;
+  const reviewToggle = `Phụ phí PS cần xem: <strong>${reviewCount}</strong> <button class="link" data-go="${state === 'review' ? 'ready' : 'review'}" aria-expanded="${state === 'review'}">${state === 'review' ? 'Đóng' : 'Xem'}</button>`;
+  const strip = state === 'unavailable'
+    ? '<div class="strip warn" role="status">Chưa đọc được bảng PS. Sổ vẫn dùng bình thường; nút tách phụ phí tạm ẩn tới lần đọc sau.</div>'
+    : `<div class="strip">Giá từ Sheet cần xem: <strong>2</strong> <button class="link">Xem</button><span class="sep">|</span>${reviewToggle}</div>`;
+  document.querySelector('#app').innerHTML = `
+    <div class="book-head"><span class="cust">KHÁCH MẪU A</span><button class="head-btn">Cài đặt phụ phí</button><button class="head-btn">Lịch sử</button>
+      ${showSplit ? `<button class="head-btn primary" data-go="confirm">Tách ${ready.length} phụ phí theo bảng PS</button>` : ''}
+      <div class="total"><span>Tổng còn nợ (mọi tháng)</span><strong>${fmt(total)}</strong></div></div>
+    ${strip}${panel}
+    <table class="ledger" aria-label="Sổ khách"><colgroup><col style="width:44px"><col style="width:126px"><col style="width:92px"><col style="width:80px"><col style="width:80px"><col style="width:104px"><col style="width:92px"><col style="width:92px"><col style="width:92px"><col style="width:120px"><col style="width:112px"><col style="width:96px"><col style="width:112px"></colgroup>
+      <thead><tr class="cols"><th>STT</th><th>Số container</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th>Đơn giá</th><th class="fee-h">Neo</th><th class="fee-h">Điện</th><th class="fee-h">Ghép</th><th class="fee-h">Khác</th><th>Thành tiền</th><th class="pay">Ngày trả</th><th class="pay">Số tiền trả</th></tr></thead>
+      <tbody>${html}</tbody></table>`;
+}
+
+function show(state) {
+  document.querySelectorAll('[data-state]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.state === state)));
+  render(state);
+}
+document.querySelectorAll('[data-state]').forEach(button => button.addEventListener('click', () => show(button.dataset.state)));
+document.querySelector('#app').addEventListener('click', event => {
+  const go = event.target.closest('[data-go]');
+  if (go) { show(go.dataset.go); return; }
+  if (event.target.closest('#do-split')) { show('done'); return; }
+  const jump = event.target.closest('[data-jump]');
+  if (jump) {
+    const row = document.getElementById(jump.dataset.jump);
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  }
+});
+show(new URLSearchParams(location.search).get('state') || 'ready');
+</script>
+</body>
+</html>
