@@ -1,0 +1,20 @@
+/* PRESENCE-01 mức 1: vòng tròn người online, chấm ở danh sách khách, viền ô người khác đang chọn. */
+.presence{display:flex;align-items:center;gap:6px;margin-left:auto}
+.topbar .live-controls+.presence{margin-left:12px}
+.presence-off .presence-avatar{opacity:.35}
+.presence-lost{font-size:13px;color:#8a5a00;background:#fff3c4;border-radius:4px;padding:2px 8px;white-space:nowrap}
+.presence-avatar{position:relative;width:34px;height:34px;flex:none;border-radius:50%;border:2px solid #fff;background:var(--pc);color:#fff;font:800 15px/1 "Segoe UI",system-ui,sans-serif;cursor:pointer;padding:0;box-shadow:0 0 0 1px #0002}
+.presence-avatar.away{opacity:.75;border-style:dashed;cursor:default}
+.presence-avatar:focus-visible{outline:2px solid #1e4e8c;outline-offset:2px}
+.presence-tip{display:none;position:absolute;top:40px;right:0;z-index:60;white-space:nowrap;background:#162d48;color:#fff;font-weight:400;font-size:14px;line-height:1.35;padding:6px 10px;border-radius:4px;text-align:left}
+.presence-avatar:hover .presence-tip,.presence-avatar:focus-visible .presence-tip{display:block}
+.presence-dots{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
+.presence-dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--pc);border:2px solid #fff;box-shadow:0 0 0 1px #9eb4ca}
+td.presence-cell,tr.presence-row>td:first-child{position:relative;box-shadow:inset 0 0 0 2px var(--pc)}
+/* Ô chữ của sổ cắt chữ thừa (overflow:hidden); nhãn tên nằm trên ô nên phải cho tràn. */
+td.presence-cell,tr.presence-row>td:first-child{overflow:visible!important}
+td.presence-cell.editing{box-shadow:inset 0 0 0 3px var(--pc);outline:2px dashed var(--pc);outline-offset:-5px}
+td.presence-cell::after,tr.presence-row>td:first-child::after{content:attr(data-presence);position:absolute;left:-2px;bottom:100%;z-index:3;padding:1px 6px;background:var(--pc);color:#fff;font:600 12px/1.4 "Segoe UI",system-ui,sans-serif;white-space:nowrap;border-radius:3px 3px 3px 0;pointer-events:none}
+.presence-flash{animation:presence-flash .9s 1}
+@keyframes presence-flash{0%,100%{background:inherit}40%{background:#ffe58a}}
+@media (prefers-reduced-motion:reduce){.presence-flash{animation:none;outline:3px solid #ffd54a}}

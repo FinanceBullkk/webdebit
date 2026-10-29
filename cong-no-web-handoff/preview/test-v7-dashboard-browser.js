@@ -17,12 +17,13 @@ const matrix = year => ({ as_of: '2026-10-23', year, customers: year !== 2026 ? 
   { customer_id: 3, name: 'Khách K', commodity: null, transport_mode: null, months: months({ 10: '-45000000' }), total_year_vnd: '-45000000', total_all_vnd: '-45000000', oldest_open_month: null },
 ], grand_total_year_vnd: '0', grand_total_all_vnd: '0' });
 
-function makeServer({ payload = dashboard, dashboardStatus = 200, customerStatus = 200, matrixStatus = 200, matrixFor = matrix, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }] } = {}) {
+function makeServer({ payload = dashboard, dashboardStatus = 200, customerStatus = 200, matrixStatus = 200, matrixFor = matrix, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [] } = {}) {
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     if (route === '/api/v7/dashboard') return send(dashboardStatus, 'application/json', JSON.stringify(typeof payload === 'function' ? payload() : payload));
+    if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people }));   // PRESENCE-01
     if (route === '/api/v7/customers') return send(customerStatus, 'application/json', JSON.stringify({ customers }));
     if (route === '/api/v7/receivables/matrix') return send(matrixStatus, 'application/json', JSON.stringify(matrixFor(Number(new URL(req.url, 'http://x').searchParams.get('year')))));
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
@@ -187,3 +188,14 @@ test('ma trận lỗi hoặc lệch tổng tuổi nợ: trang vẫn đọc đư�
     await page.waitForURL(/cong-no-theo-thang\.html\?tuoi=0&con-no=1/);
   });
 });
+
+test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng tròn người online', async () => withDashboard({ people: [
+  { id: 'p1', name: 'Lan', color: 0, page: 'so-khach', customer_id: 1, month: '2026-10', cell: null, pointer: null },
+  { id: 'p2', name: 'Tuấn', color: 3, page: 'so-khach', customer_id: 2, month: '2026-09', cell: null, pointer: null },
+] }, async page => {
+  await page.locator('.top-debtors [data-khach="1"] .presence-dot').waitFor();
+  assert.equal(await page.locator('.top-debtors [data-khach="1"] .presence-dot').getAttribute('aria-label'), 'Lan đang mở sổ này');
+  await page.locator('a[href*="customer=2"] .presence-dot').first().waitFor();
+  const labels = await page.locator('.presence-avatar').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
+  assert.deepEqual(labels, ['Lan · đang mở sổ Khách A, tháng 10/2026', 'Tuấn · đang mở sổ Khách C, tháng 9/2026']);
+}));

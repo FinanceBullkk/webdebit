@@ -216,6 +216,15 @@ async function withPage(fn, setup = () => {}) {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (url.pathname === '/api/v7/customers') { send(200, { customers: [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
+    if (url.pathname.startsWith('/api/v7/presence')) {   // PRESENCE-01: không vào world.requests; SSE không có nên trang hỏi định kỳ
+      const chunks = [];
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', () => {
+        if (req.method === 'POST') (world.presenceReports ??= []).push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        send(200, { people: world.people ?? [] });
+      });
+      return;
+    }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
     if (url.pathname === '/api/v7/sheet/refresh') {   // nút Làm mới: mặc định server chưa bật
@@ -235,7 +244,7 @@ async function withPage(fn, setup = () => {}) {
     }
     const file = path.join(__dirname, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(__dirname) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8' });
+    res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css' : 'text/javascript; charset=utf-8' });
     res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
