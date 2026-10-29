@@ -3,7 +3,7 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).draft = ctx => {
   'use strict';
-  const { root, model, api, escape, todayIso, showNotice, redraw, submit } = ctx;
+  const { root, model, api, escape, todayIso, showNotice, redraw, submit, columnCount, feeOwnCount } = ctx;
     // ---- NHAP-SHEET-01 (1): bảng nhập kiểu Sheet thay ô "Dán các dòng từ Sheet". Nháp chỉ sống trong tab;
     // Lưu gửi một lệnh dán lô (paste_trips), server tự xếp từng chuyến vào tháng của ngày chuyến. ----
     const DRAFT_FIELDS = model.DRAFT_FIELDS;
@@ -23,14 +23,15 @@
         const cells = DRAFT_FIELDS.map(name => {
           const error = result?.errors[name];
           const missing = name === 'price' && result?.missing;
-          return `<td class="${error ? 'bad' : ''}${missing ? ' missing' : ''}"${error ? ` title="${escape(error)}"` : ''}><input class="draft-input${['price', 'fee'].includes(name) ? ' money-input' : ''}" data-month="${escape(key)}" data-draft="${index}" data-field="${name}" value="${escape(row[name])}" aria-label="${draftLabels[name]} hàng nhập ${index + 1}"${error ? ` aria-invalid="true" aria-description="${escape(error)}"` : ''}${missing ? ' placeholder="chưa có giá"' : ''} autocomplete="off"></td>`;
+          // Phụ phí dán vào cột Khác; các cột phụ phí riêng của sổ (PHU-PHI-01) để trống trong hàng nhập.
+          return `${name === 'fee' ? '<td class="off"></td>'.repeat(feeOwnCount()) : ''}<td class="${error ? 'bad' : ''}${missing ? ' missing' : ''}"${error ? ` title="${escape(error)}"` : ''}><input class="draft-input${['price', 'fee'].includes(name) ? ' money-input' : ''}" data-month="${escape(key)}" data-draft="${index}" data-field="${name}" value="${escape(row[name])}" aria-label="${draftLabels[name]} hàng nhập ${index + 1}"${error ? ` aria-invalid="true" aria-description="${escape(error)}"` : ''}${missing ? ' placeholder="chưa có giá"' : ''} autocomplete="off"></td>`;
         }).join('');
         const total = result ? (result.amountVnd === null ? '–' : model.formatVnd(result.amountVnd)) : '';
         return `<tr class="draft-row${result ? ' draft' : ''}"><td class="muted">${result ? 'nháp' : ''}</td>${cells}<td class="num${result?.warn ? ' warn' : ''}">${escape(total)}${result?.warn ? `<small>${escape(result.warn)}</small>` : ''}</td><td class="off pay-start"></td><td class="off"></td><td class="off"></td></tr>`;
       }).join('');
       const note = draftNote.key === key ? draftNote.text : '';
-      return `<tr class="draft-caption"><td colspan="13">Nhập chuyến · dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay (Tab sang ô kế, Enter xuống hàng)</td></tr>${rows}
-        <tr class="draft-bar"><td colspan="13"><div><strong>${drafts.length} chuyến nháp</strong>${bad ? `<span class="cell-error">· ${bad} ô cần sửa</span>` : ''}<button type="button" class="draft-save" data-month="${escape(key)}" ${drafts.length && !bad ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="draft-discard" data-month="${escape(key)}" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="draft-note" role="status">${escape(note)}</span>` : ''}</div></td></tr>`;
+      return `<tr class="draft-caption"><td colspan="${columnCount()}">Nhập chuyến · dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay (Tab sang ô kế, Enter xuống hàng)</td></tr>${rows}
+        <tr class="draft-bar"><td colspan="${columnCount()}"><div><strong>${drafts.length} chuyến nháp</strong>${bad ? `<span class="cell-error">· ${bad} ô cần sửa</span>` : ''}<button type="button" class="draft-save" data-month="${escape(key)}" ${drafts.length && !bad ? '' : 'disabled'}>Lưu ${drafts.length} chuyến</button><button type="button" class="draft-discard" data-month="${escape(key)}" ${drafts.length ? '' : 'disabled'}>Bỏ nháp</button>${note ? `<span class="draft-note" role="status">${escape(note)}</span>` : ''}</div></td></tr>`;
     }
     // ---- Bảng nhập: gõ chỉ ghi vào nháp, vẽ lại khi rời ô (không phá bộ gõ tiếng Việt giữa chừng),
     // trừ lần đầu gõ vào hàng trống: cần mọc ngay một hàng trống mới bên dưới. ----

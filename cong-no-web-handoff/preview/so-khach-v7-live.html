@@ -49,8 +49,8 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:222px}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
 .badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
-.change-customer,.history-toggle,.history-close,.add-month-adjustment{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit}
-.change-customer,.history-toggle{white-space:nowrap}.add-month-adjustment{margin-left:8px;padding:2px 6px;font-weight:400}
+.change-customer,.history-toggle,.fee-settings-open,.history-close,.add-month-adjustment{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit}
+.change-customer,.history-toggle,.fee-settings-open{white-space:nowrap}.add-month-adjustment{margin-left:8px;padding:2px 6px;font-weight:400}
 .history-panel{position:fixed;z-index:50;right:12px;top:76px;bottom:12px;width:min(420px,calc(100vw - 24px));overflow:auto;padding:12px;background:#fff;border:1px solid #8daac9;box-shadow:0 8px 25px #162d4840}
 .history-panel[hidden]{display:none}.history-panel header{display:flex;justify-content:space-between;align-items:center}.history-panel h2{margin:0;font-size:18px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
@@ -67,6 +67,60 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:222px}
 .trip-list td:nth-child(n+2):nth-child(-n+7):not(:has(button,input,small,select)){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}
 .ledger td.fee:empty::before{content:'–';color:#8193a6}
+/* PHU-PHI-01: cụm cột phụ phí (cột riêng của sổ + Khác), khung Chi tiết phụ phí, cài đặt loại phụ phí. */
+.ledger .columns th.fee-h{background:#f6ecd8;color:#5a3a00;text-align:right}
+.ledger td.fee{background:#fffaf0}.ledger.locked td.fee{background:#e9e6df}
+.ledger td.fee.fee-edit,.ledger td.fee-other{cursor:pointer}
+.ledger td.fee.fee-edit:hover,.ledger td.fee.fee-edit:focus-visible,.ledger td.fee-other:hover,.ledger td.fee-other:focus-visible,.ledger td.fee-other.open{outline:2px solid #145fa9;outline-offset:-2px}
+.ledger td.fee-other small{display:block;color:#5d6f82;font-size:11px;line-height:1.1;font-weight:400}
+.ledger td.fee-other .fee-plus{color:#1d4ed8;font-size:12px}
+.ledger td.fee input.fee-own-input{width:100%;height:28px;border:1px solid #145fa9;border-radius:3px;text-align:right;padding:0 4px;font:inherit}
+.ledger .row-delete .fee-pick{width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;cursor:pointer}
+.fee-selbar{display:flex;align-items:center;gap:12px;padding:6px 14px;background:#e3effc;border-bottom:1px solid #9eb4ca;position:sticky;top:136px;z-index:35}
+.fee-selbar button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
+.fee-selbar .fee-batch{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.fee-drawer{position:fixed;top:0;right:0;width:360px;height:100vh;z-index:70;display:flex;flex-direction:column;background:#fff;border-left:3px solid #145fa9;box-shadow:-6px 0 18px #162d4833;font-size:14px}
+.fee-drawer[hidden],.fee-confirm[hidden],.fee-settings[hidden]{display:none}
+.fee-drawer header,.fee-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.fee-drawer h2,.fee-panel h2{margin:0;font-size:16px}.fee-drawer h2 small{display:block;color:#3e5871;font-size:13px;font-weight:400}
+.fee-drawer header button,.fee-panel header button{margin-left:auto;min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}
+.fee-body{flex:1;overflow-y:auto;padding:10px 12px}
+.fee-lines{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.fee-lines th{font-size:12px;color:#3e5871;text-align:left;padding:4px;border-bottom:1px solid #d8e1ec}.fee-lines th.num{text-align:right}
+.fee-lines td{padding:4px;border-bottom:1px solid #edf1f6;vertical-align:middle}.fee-lines td:first-child{width:118px}
+.fee-lines select,.fee-lines input,.fee-add select,.fee-add input{width:100%;height:34px;border:1px solid #98b1c7;border-radius:4px;padding:0 6px;background:#fff;color:#162d48;font:inherit;font-size:13px}
+.fee-lines .fee-amt{text-align:right;font-weight:700;white-space:nowrap;cursor:text}.fee-lines .fee-amt:hover,.fee-lines .fee-amt:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
+.fee-lines .fee-amt input{text-align:right}
+.fee-tag{display:inline-block;margin:2px 4px 0 0;padding:0 6px;border-radius:9px;background:#e3effc;color:#193d64;font-size:11px;font-weight:600}.fee-tag.pass{background:#e7f0e9;color:#145b32}
+.fee-del{width:34px;height:34px;border:1px solid #d8a3a3;border-radius:4px;background:#fff;color:#a01616;cursor:pointer}
+.fee-sumline{display:flex;justify-content:space-between;margin:10px 0 0;padding:6px 10px;background:#f6f7f9;font-weight:700}
+.fee-sumline.calc{margin:0 0 10px;font-weight:400;color:#33465a}.fee-sumline.calc b{color:#123f79}
+.fee-add{display:grid;grid-template-columns:1fr 130px;gap:6px;padding:10px;border:1px solid #9eb4ca;border-radius:6px;background:#f8fbff}
+.fee-add h3{grid-column:1/-1;margin:0;font-size:14px}.fee-add .fee-add-note,.fee-add .fee-error{grid-column:1/-1}.fee-add .fee-add-amount{text-align:right}
+.fee-add button{grid-column:1/-1;min-height:38px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.fee-add button:disabled{opacity:.5;cursor:wait}
+.fee-error{margin:0;color:#a01616;font-weight:700;font-size:13px}.fee-error:empty{display:none}
+.fee-info{padding:8px 10px;border-radius:4px;background:#fff3c4;color:#452600;font-weight:600}
+.fee-muted{color:#5d6f82;font-size:12px}
+.fee-confirm{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;background:#162d4855}
+.fee-confirm-box{width:480px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.fee-confirm-box h2{margin:0 0 8px;font-size:16px}.fee-confirm-box ul{margin:6px 0;padding-left:20px}
+.fee-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.fee-actions button{min-height:38px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.fee-actions .fee-yes{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.fee-settings{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
+.fee-panel{width:900px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.fee-panel-body{padding:12px 16px}
+.fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
+.fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
+.fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
+.fee-types select{height:32px;font:inherit}.fee-types button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;white-space:nowrap;cursor:pointer}
+.fee-types button:disabled,.fee-types input:disabled{opacity:.5;cursor:not-allowed}
+.fee-types td:nth-child(5){white-space:nowrap}
+.fee-colbox{display:flex;align-items:center;gap:6px}.fee-colbox input{width:18px;height:18px}
+.fee-pos{display:inline-block;min-width:22px;padding:0 6px;border-radius:9px;background:#145fa9;color:#fff;font-size:12px;text-align:center}
+.fee-newtype{display:flex;gap:8px;align-items:center;margin-top:12px;padding:10px;border:1px dashed #8daac9;border-radius:6px}
+.fee-newtype input{width:260px;height:36px;padding:0 8px;font:inherit}.fee-newtype select{height:36px;font:inherit}
+.fee-newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .receipt-ref.empty{display:inline-block;float:left;min-width:22px;color:#5d6f82;font-weight:700;text-align:center}
 .void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:12px}
 .pay-list .void-trace s{color:#5d6f82}
@@ -201,7 +255,6 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-void-prompt input{min-height:40px;min-width:280px;font:inherit;font-size:16px}
 @media(max-width:1877px){
   .layout{max-width:1420px}.ledger-book{width:1258px;flex-basis:1258px}
-  .ledger col.col-0{width:38px!important}.ledger col.col-1{width:112px!important}.ledger col.col-2{width:66px!important}.ledger col.col-3{width:130px!important}.ledger col.col-4{width:92px!important}.ledger col.col-5,.ledger col.col-6{width:82px!important}.ledger col.col-7{width:92px!important}.ledger col.col-8{width:76px!important}.ledger col.col-9{width:104px!important}.ledger col.col-10{width:100px!important}.ledger col.col-11{width:98px!important}.ledger col.col-12{width:186px!important}
   .book-head{gap:12px;padding:6px 8px}.book-head h1{font-size:16px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
 }
 @media(max-width:1439px){.layout{max-width:1258px}.months-nav{display:none}}
@@ -223,6 +276,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="so-khach-v7-offset-ui.js"></script>
 <script src="so-khach-v7-edit-ui.js"></script>
 <script src="so-khach-v7-draft-ui.js"></script>
+<script src="so-khach-v7-fee-ui.js"></script>
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
 <script src="so-khach-v7-ui.js"></script>
