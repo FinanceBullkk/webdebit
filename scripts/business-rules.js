@@ -331,6 +331,14 @@ const PSQL_ALLOWED = {
     "adapter DB của V7 — lớp Psql là nơi duy nhất dựng lệnh psql cho đường sổ khách V7",
   "cong-no-web-handoff/tools/test_pg_v7_backend.py":
     "harness kiểm backend V7 trong Docker, phải nói chuyện với psql để kiểm chính psql",
+  // Ba mục dưới đây thêm 29/10/2026 khi tách harness V7 theo nhóm tính năng: mã psql
+  // chuyển nguyên từ `test_pg_v7_backend.py`, cùng lý do với mục ngay trên.
+  "cong-no-web-handoff/tools/pg_v7_harness.py":
+    "phần dựng PostgreSQL dùng một lần chung của harness V7 (lớp Pg, PsqlSession), tách từ test_pg_v7_backend.py",
+  "cong-no-web-handoff/tools/test_pg_v7_backend_opening.py":
+    "case harness V7 (opening/cutover, golden) dùng psql trực tiếp để kiểm khóa và một transaction lớn",
+  "cong-no-web-handoff/tools/test_pg_v7_backend_schema.py":
+    "case harness V7 (SCHEMA, evidence) dùng psql trực tiếp để kiểm DML đồng thời",
   "cong-no-web-handoff/tools/test_pg_v7_matrix.py":
     "harness review SQL get_receivables_matrix trong Docker dùng một lần, cùng loại harness V7 ở trên (thêm 24/10/2026, spec v7-cong-no-theo-thang)",
   "cong-no-web-handoff/tools/v7_load_real_copy.py":
@@ -428,7 +436,7 @@ function ruleWebNoToolsImport(files) {
 // Hiện trạng đã kiểm 19/10/2026: preview ghép từng cặp `X-model.js` +
 // `X-ui.js`, nạp đúng thứ tự đó trong .html. Model giữ toàn bộ số học BigInt
 // (`so-khach-v7-model.js`, `customer-ledger-workbench.js`); hai file UI
-// (`so-khach-v7-ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
+// (`so-khach-v7-*ui.js`, `customer-ledger-workbench-ui.js`) chỉ so sánh, định
 // dạng và gọi model — kể cả chỗ tính lệch giữa số dán và số model cũng gọi
 // `model.allocateReceipt` thay vì tự trừ.
 //

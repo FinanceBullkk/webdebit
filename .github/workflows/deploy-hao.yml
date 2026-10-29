@@ -68,6 +68,7 @@ jobs:
           ssh_hao() { ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "$@"; }
           prev=$(ssh_hao current)
           echo "đang chạy: $prev"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
           [[ $prev == "$SHA" ]] && { echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; }
           [[ $prev =~ ^[0-9a-f]{40}$ ]] || { echo "hao chưa có release dạng SHA: cần chuyển thủ công lần đầu"; exit 1; }
           git cat-file -e "$prev^{commit}" || { echo "không thấy $prev trong lịch sử"; exit 1; }
@@ -80,7 +81,36 @@ jobs:
           fi
 
       - name: Đẩy gói và chạy deploy trên hao
+        id: deploy
         if: steps.diff.outputs.skip != '1'
         run: |
           git archive "$SHA" specs/v7-backend/schema-draft.sql cong-no-web-handoff/tools cong-no-web-handoff/web cong-no-web-handoff/preview \
             | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_TARGET" "deploy $SHA"
+
+      # Nhật ký triển khai nằm ở đây và ở tab Environments → hao, không mở PR tài liệu chỉ để ghi "đã triển khai".
+      - name: Tóm tắt triển khai
+        if: always()
+        env:
+          PREV: ${{ steps.diff.outputs.prev }}
+          SKIP: ${{ steps.diff.outputs.skip }}
+          DIFF_OUTCOME: ${{ steps.diff.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        run: |
+          if [[ $DIFF_OUTCOME == failure ]]; then kq="DỪNG ở kiểm diff (gate SQL/migration hoặc thiếu mốc): triển khai tay theo runbook"
+          elif [[ $SKIP == 1 ]]; then kq="BỎ QUA: không đổi mã app hoặc đã chạy đúng SHA"
+          elif [[ $DEPLOY_OUTCOME == success ]]; then kq="ĐÃ TRIỂN KHAI lên hao, kiểm sống đạt"
+          else kq="LỖI khi triển khai ($DEPLOY_OUTCOME); script trên hao tự quay lại bản trước nếu kiểm sống lỗi"; fi
+          {
+            echo "## Deploy hao"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Kết quả | $kq |"
+            echo "| Bản mới | \`$SHA\` |"
+            echo "| Bản đang chạy trước đó | \`${PREV:-không rõ}\` |"
+            if [[ $PREV =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$PREV^{commit}" 2>/dev/null; then
+              echo
+              echo "### Commit trong đợt"
+              git log --format='- %s (`%h`)' "$PREV..$SHA"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

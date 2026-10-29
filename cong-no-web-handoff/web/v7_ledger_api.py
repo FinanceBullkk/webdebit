@@ -31,22 +31,28 @@ PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdeb
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
-ASSETS = {
-    "/": ("dashboard-v7.html", "text/html; charset=utf-8"),
-    "/dashboard-v7.html": ("dashboard-v7.html", "text/html; charset=utf-8"),
-    "/dashboard-v7.css": ("dashboard-v7.css", "text/css; charset=utf-8"),
-    "/dashboard-v7.js": ("dashboard-v7.js", "text/javascript; charset=utf-8"),
-    "/cong-no-theo-thang.html": ("cong-no-theo-thang.html", "text/html; charset=utf-8"),
-    "/cong-no-theo-thang.css": ("cong-no-theo-thang.css", "text/css; charset=utf-8"),
-    "/cong-no-theo-thang.js": ("cong-no-theo-thang.js", "text/javascript; charset=utf-8"),
-    "/so-khach-v7-live.html": ("so-khach-v7-live.html", "text/html; charset=utf-8"),
-    "/sheet-trip-queue.html": ("sheet-trip-queue-live.html", "text/html; charset=utf-8"),
-    "/sheet-trip-queue-live.js": ("sheet-trip-queue-live.js", "text/javascript; charset=utf-8"),
-    "/so-khach-v7-ui.js": ("so-khach-v7-ui.js", "text/javascript; charset=utf-8"),
-    "/so-khach-v7-model.js": ("so-khach-v7-model.js", "text/javascript; charset=utf-8"),
-    "/so-khach-v7-api.js": ("so-khach-v7-api.js", "text/javascript; charset=utf-8"),
-    "/sheet-refresh.js": ("sheet-refresh.js", "text/javascript; charset=utf-8"),
+# Trang HTML được phục vụ; file .js/.css mỗi trang nạp lấy thẳng từ thẻ <script>/<link> của trang
+# (29/10/2026), để thêm file preview chỉ sửa một chỗ là HTML. File không được trang nào nạp
+# (ví dụ so-khach-v7-fixture.js) vẫn trả 404.
+PAGES = {
+    "/": "dashboard-v7.html",
+    "/dashboard-v7.html": "dashboard-v7.html",
+    "/cong-no-theo-thang.html": "cong-no-theo-thang.html",
+    "/so-khach-v7-live.html": "so-khach-v7-live.html",
+    "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
+PAGE_FILE = re.compile(r'<script src="([a-z0-9-]+\.js)"></script>|<link rel="stylesheet" href="([a-z0-9-]+\.css)">')
+
+
+def page_assets(pages: dict[str, str]) -> dict[str, tuple[str, str]]:
+    assets = {route: (name, "text/html; charset=utf-8") for route, name in pages.items()}
+    for name in sorted(set(pages.values())):
+        for script, style in PAGE_FILE.findall((PREVIEW / name).read_text(encoding="utf-8")):
+            assets[f"/{script or style}"] = (script or style, "text/javascript; charset=utf-8" if script else "text/css; charset=utf-8")
+    return assets
+
+
+ASSETS = page_assets(PAGES)
 ROUTES = {
     "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"}),
     "/api/v7/offsets/void": ("void_offset", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"}),

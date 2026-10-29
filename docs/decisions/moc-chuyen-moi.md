@@ -1,0 +1,15 @@
+# MOC-CHUYEN-MOI
+
+[← Sổ quyết định](../decisions.md)
+
+## Quyết định
+
+(**Sửa 21/10/2026:** mốc đổi theo [`SONG-SONG-01`](song-song-01.md): là bản sổ gốc làm sạch được nạp vào V7 trên `hao` vào ngày bắt đầu chạy song song; bản làm sạch 21/10 chỉ là tổng duyệt, `hao` giữ v2 tới ngày đó. Cụm "bản sổ gốc v2" trong dòng này và các dòng dẫn tới đây (TRIP-KEY, LEGACY-A, NEWTRIP-01, JOIN-01) đọc là bản mốc đó. CÒN MỞ (a) đã chốt ở `SONG-SONG-01`: Sheet vẫn gõ song song, mọi thay đổi sau mốc đưa lên web. CÒN MỞ (b) có hướng: giá điền sau mốc nhập trên chính dòng đó trên web, không nhập như chuyến mới; cách ghi kỹ thuật vẫn CÒN MỞ. Điểm (d) đã xảy ra: mốc chốt lại cùng lần nạp 21/10.) Người dùng/chủ nghiệp vụ chốt mốc chuyến mới là **bản sổ gốc v2 đã nạp lên `hao` ngày 20/10/2026** (mốc cutover `2026-10-20-so-goc-v2`), thay mốc ngày xe nhập kho 14/10/2026. Chuyến **có trong bản đó** thuộc số dư đầu, không nhập lại. Chuyến **chưa có trong bản đó** thì nhập trên web và kiểm trùng với chính bản đó. Xét theo việc chuyến có mặt trong bản xuất, không theo ngày xe nhập kho: xe nhập kho trước 20/10 nhưng gõ vào Sheet sau lúc xuất vẫn nhập web.
+
+## Ngày / nguồn
+
+20/10/2026, xác nhận trong chat sau khi được nêu lý do: mốc 14/10 đặt khi opening là replay 13/10, còn sổ gốc đã có khối tháng 10 nên giữ 14/10 sẽ cộng trùng
+
+## Hiệu lực và giới hạn
+
+ĐÃ CHỐT. Thay mốc 14/10 trong OPENING-FINAL, TRIP-KEY, LEGACY-A, NEWTRIP-01 (xem ghi chú từng dòng): mã chuyến bắt buộc cho mọi chuyến nhập web; tập tham chiếu kiểm trùng của NEWTRIP-01 là bản sổ gốc v2, có dấu hiệu trùng (cùng container lệch ngày trong 3 ngày…) thì CHỜ KIỂM. CHƯA TRIỂN KHAI: fixture CI và mã hiện còn chặn theo ngày 14/10; bản xuất dùng để nạp v2 lưu ngoài Git ở `captures/2026-10-20-so-goc/`, chưa ghi hash trong repo (CÒN MỞ (4) của `OPENING-SO-GOC`), nên chưa dùng được làm tập tham chiếu có phiên bản. **Lỗi đã thấy 20/10/2026:** danh sách chuyến tách tự động từ sổ gốc (`trips_so_goc.csv`, ngoài Git) bỏ sót dòng ở các tab có thêm một cột nhãn ở đầu — có chuyến của điểm (c) không có trong danh sách đó, chỉ thấy khi quét trực tiếp mọi ô của file xuất. File xuất cũng có ô ngày lưu đảo ngày/tháng và bộ tách đảo lại không nhất quán (có dòng lệch 30 ngày). Số dư đầu không bị ảnh hưởng vì lấy từ dòng tổng của từng tab, nhưng không được dùng danh sách này làm tập tham chiếu kiểm trùng cho tới khi sửa bộ tách và đối chiếu lại với file xuất. CÒN MỞ: (a) Sheet sau mốc — từ 20/10 có còn gõ vào Sheet song song không; mọi thay đổi trên Sheet sau lúc xuất, kể cả sửa công thức, không tự vào hệ thống; (b) chuyến có trong bản v2 nhưng chưa có giá (có khối tháng 10 còn trống giá) chưa nằm trong số dư đầu — khi có giá thì sửa trên dòng lịch sử hay nhập như chuyến mới; (c) **ĐÃ ĐỐI CHIẾU 20/10/2026** theo hồ sơ ngoài Git: các chuyến từng cho coi như đã xử lý có trong sổ gốc; chuyến chưa có giá thuộc (b). Bản xuất đối chiếu chưa được chứng minh là đúng bản v2. Không suy các chuyến đó thành chuyến mới để nhập lại; (d) nếu sau này nạp lại hoặc chuyển sang V7 ở mốc khác thì mốc này phải chốt lại cùng mốc đó.

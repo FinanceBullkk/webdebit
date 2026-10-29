@@ -19,7 +19,7 @@ npx playwright install chromium
 npm run check
 ```
 
-`requirements-dev.txt` chỉ có công cụ lint (ruff, ghim phiên bản, không ghim hash), không phải phụ thuộc chạy thật. `npm run check` ([scripts/check.js](scripts/check.js)) tự tìm Python và ruff trong `.venv`, rồi chạy bảy bước: ruff, luật nghiệp vụ, eslint, unittest của `cong-no-web-handoff/tests`, `test:unit`, `test:browser`, `test:viewer`; bước nào hỏng thì lệnh thoát khác 0. `npm run lint` chỉ chạy ba bước lint.
+`requirements-dev.txt` chỉ có công cụ lint (ruff, ghim phiên bản, không ghim hash), không phải phụ thuộc chạy thật. `npm run check` ([scripts/check.js](scripts/check.js)) tự tìm Python và ruff trong `.venv`, rồi chạy tám bước: ruff, luật nghiệp vụ, link tài liệu, eslint, unittest của `cong-no-web-handoff/tests`, `test:unit`, `test:browser`, `test:viewer`; bước nào hỏng thì lệnh thoát khác 0. `npm run lint` chỉ chạy bốn bước lint.
 
 Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.venv/bin/python -m pip install --require-hashes --only-binary=:all: -r requirements.txt` và `.venv/bin/python -m pip install -r requirements-dev.txt`, rồi chạy `npm run check` từ gốc repo. Cài Chromium bằng `npx playwright install --with-deps chromium` để bổ sung thư viện hệ điều hành nếu cần. Python 3.12 trên Windows dùng `py -3.12` để tạo venv. Playwright khóa bằng `package-lock.json`, tự chọn browser khớp phiên bản. Có thể đặt `PLAYWRIGHT_BROWSERS_PATH` tới thư mục mới để kiểm không phụ thuộc cache browser trước đó.
 
