@@ -519,7 +519,7 @@ def check_delete_month_adjustment(pg: Pg) -> None:
     require(pg.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE id IN ({adj},{result['reversal_id']})") == "0",
             "reversal does not cancel original")
     audit = json.loads(pg.value(f"SELECT jsonb_build_object('kind',kind,'before',\"before\",'after',\"after\")::text FROM sokhach.event "
-                                f"WHERE customer_id={c} AND idempotency_key='xdc-del'"))
+                                f"WHERE customer_id={c} AND idempotency_key='xdc-del' AND kind='adjust_month_delete'"))
     require(audit["kind"] == "adjust_month_delete" and audit["before"]["adjustment"]["amount_vnd"] == "60"
             and audit["before"]["adjustment"]["note"] == "thử" and audit["after"]["adjustment"]["deleted"] is True,
             "delete audit wrong")

@@ -191,8 +191,6 @@ CASES = [
          check="price_table", functions=("save_price_table", "apply_price_table", "get_price_table", "get_price_status")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
-    case("XOA-DC-THANG.01", "BEHAVIOR", "Delete month adjustment: reversal pair hidden, FIFO restored, audit, locked month",
-         check="delete_month_adjustment", functions=("delete_month_adjustment", "adjust_month", "get_ledger")),
 ]
 
 
@@ -217,6 +215,9 @@ CASES.append(case("CHUNG-TU.01", "BEHAVIOR", "Receipt images: attach, warn, remo
                                                      "get_receipt_image", "find_receipt_image")))
 CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
+# Chạy sau CHUNG-TU.01: case đó chạy lại migration chứng từ, ràng buộc event cũ không nhận event adjust_month_delete đã ghi.
+CASES.append(case("XOA-DC-THANG.01", "BEHAVIOR", "Delete month adjustment: reversal pair hidden, FIFO restored, audit, locked month",
+                  check="delete_month_adjustment", functions=("delete_month_adjustment", "adjust_month", "get_ledger")))
 
 CHECKS = {"dashboard": check_dashboard, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
