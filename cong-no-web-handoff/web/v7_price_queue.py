@@ -5,6 +5,13 @@ A Sheet trip row (customer tab) points at one web trip or original-book row of t
 same customer: same container, exact date first, then within 3 days; undated rows by
 container alone. A unique, unpriced, open-month match is READY; a changed negative
 fee with the same unit price can also replace its existing discount.
+
+Books were named from Google's .xlsx download, the price runner reads the same tabs through
+the Sheets API, and the two disagree (audit 29/10/2026): the download drops "/" and "'" from
+tab names ("KHACH A/B" becomes "KHACH AB"; the other characters Excel forbids in a sheet name
+are dropped here too) and writes a number typed in the container cell as "4.2E7" where the
+API returns 42000000. Keys below compare both forms alike; the snapshot keeps the tab name
+exactly as the Sheet shows it.
 """
 
 from __future__ import annotations
@@ -13,19 +20,27 @@ import datetime as dt
 import json
 import re
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
+XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
+NUMBER_CELL = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:E\+?[0-9]{1,2})?")
 
 
 def name_key(value: Any) -> str:
-    return " ".join(str(value or "").split())
+    return " ".join(str(value or "").translate(XLSX_DROPPED).split())
 
 
 def container_key(value: Any) -> str:
-    return "".join(str(value or "").upper().split())
+    text = "".join(str(value or "").upper().split())
+    if ("." in text or "E" in text) and NUMBER_CELL.fullmatch(text):
+        number = Decimal(text)
+        if number == number.to_integral_value():
+            return str(int(number))   # "4.2E7" and "42000000.0" read as 42000000; digits keep leading zeros
+    return text
 
 
 def iso(value: Any) -> dt.date | None:
@@ -59,14 +74,17 @@ def load_price_snapshot(path: str | Path) -> dict[str, Any]:
 
 
 def owners(customers: list[dict]) -> dict[str, tuple[Any, str]]:
-    """Tab name -> (customer key, "name" | "alias"). Ledger names win; an alias on two books is dropped."""
-    primary = {name_key(c["name"]): (c["key"], "name") for c in customers}
+    """Tab name -> (customer key, "name" | "alias"). Ledger names win; a name or alias on two books is dropped."""
+    primary: dict[str, set] = {}
+    for customer in customers:
+        primary.setdefault(name_key(customer["name"]), set()).add(customer["key"])
     extra: dict[str, set] = {}
     for customer in customers:
         for alias in [customer.get("display_name"), *(customer.get("aliases") or [])]:
             if isinstance(alias, str) and alias.strip() and name_key(alias) not in primary:
                 extra.setdefault(name_key(alias), set()).add(customer["key"])
-    return primary | {alias: (next(iter(keys)), "alias") for alias, keys in extra.items() if len(keys) == 1}
+    return {key: (next(iter(keys)), basis) for basis, found in (("name", primary), ("alias", extra))
+            for key, keys in found.items() if len(keys) == 1}
 
 
 def targets(ledger: dict) -> list[dict]:

@@ -157,3 +157,18 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - Test model cho tổng tăng, phụ phí null và số âm.
 - `npm run check` xanh.
 - Trên `hao` (28/10/2026): người dùng thấy nút "Ghi N giá từ Sheet" và dòng vàng "giá Sheet / chưa tính" trên sổ khách thật. Chưa có người dùng đi hết luồng ghi (bước 8).
+
+## Tên tab và ô số: bản tải `.xlsx` khác Sheets API (29/10/2026)
+
+**Hiện tượng** (audit tiền 29/10/2026): bản tải `.xlsx` của Google bỏ `/` và `'` trong tên tab (tab `KHACH A/B` thành `KHACH AB`), Sheets API giữ nguyên. Sổ web mang tên theo bản tải (mốc `clean-v2`), runner giá đọc qua API, nên tab có các ký tự này rơi vào `NO_CUSTOMER` và giá Sheet của sổ đó không bao giờ vào hàng chờ. Ô container gõ thành số thì bản tải ghi `4.2E7`, API trả `42000000`.
+
+**Sửa** (`web/v7_price_queue.py`, dùng chung cho `tools/v7_price_match.py`):
+- Ghép tab ↔ sổ: bỏ `/` và `'` (kèm các ký tự Excel cấm khác trong tên tab: `\ ? * [ ] :`) và gộp khoảng trắng ở cả hai phía. Tên hoặc tên phụ của hai sổ trùng khóa thì không ghép sổ nào, không đoán.
+- Container: số nguyên viết kiểu `4.2E7` hay `42000000.0` đọc thành `42000000`; chuỗi chữ số giữ nguyên số 0 đầu.
+- Bản chụp vẫn giữ tên tab đúng như trên Sheet.
+- Đồng bộ chuyến không đổi: nó ghép khách theo tên trong `BOOKING_DATA` và tab ghép khách, không theo tên tab. Bản chụp đồng bộ trên `hao` 29/10/2026 có 0/5.394 dòng mang `/` hoặc `'` trong tên khách.
+
+**Đo chỉ đọc trên dữ liệu thật** (bản chụp giá Sheets API 12:00 UTC 29/10/2026, danh sách sổ từ bản dump `webdebit_v7` cùng ngày, bảng tên phụ đang chạy trên `hao`; chi tiết ngoài Git):
+- `NO_CUSTOMER` trước sửa 157 dòng ở 9 tab, sau sửa 149 dòng ở 7 tab. 8 dòng ở 2 tab về đúng sổ; không dòng nào đổi sổ.
+- 8 dòng đó hôm nay là `NOT_FOUND` vì hai sổ chưa có dòng nào trên web (lịch sử nằm trong số dư đầu). Sửa để giá của chuyến mới ở hai sổ này vào được hàng chờ.
+- 149 dòng còn lại trùng đúng số đo 27/10 ở mục "Số đo thật" (đo trên bản tải, tên hai phía khớp). Cả 7 tab không có sổ web: 5 tab không có trên TONG nên không nạp ở mốc (147 dòng), 1 tab có trên TONG nhưng không có trong bản nạp `clean-v2` (1 dòng), 1 tab tạo sau mốc (1 dòng). Đây là việc thêm sổ hoặc tên phụ, **CÒN MỞ**, không sửa ở đây.
