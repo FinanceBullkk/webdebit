@@ -1,10 +1,10 @@
 # V7: bảng giá theo ngày hiệu lực
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026, theo yêu cầu người dùng "viết spec để làm lên web"). Chưa có quyết định trong [`decisions.md`](../docs/decisions.md), chưa có mockup Penpot, chưa code, chưa đổi schema. Các điểm cần người dùng chốt nằm ở mục [CÒN MỞ](#còn-mở-cần-người-dùng-chốt).
+Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Chưa có mockup Penpot, chưa code, chưa đổi schema.
 
 ## Vì sao làm
 
-Trên Sheet, vài khách có **bảng báo giá** đặt cạnh sổ tháng (tab khách, vùng cột bên phải). Mỗi dòng bảng giá: hiệu lực từ, hiệu lực đến (trống = còn hiệu lực), kho đi, giá thường, giá cho nhóm shipper riêng; kèm danh sách shipper áp giá riêng. Cột UNIT PRICE của từng chuyến là công thức tra bảng đó theo shipper, ngày và kho đi; không có dòng khớp thì ra "CHƯA CÓ GIÁ".
+Trên Sheet, vài khách có **bảng báo giá** đặt cạnh sổ tháng (tab khách, vùng cột bên phải). Mỗi dòng bảng giá: hiệu lực từ, hiệu lực đến (trống = còn hiệu lực), kho đi, **giá khách**, **giá TT**; kèm danh sách shipper của TT (shipper trong danh sách lấy giá TT, còn lại lấy giá khách). Cột UNIT PRICE của từng chuyến là công thức tra bảng đó theo shipper, ngày và kho đi; không có dòng khớp thì ra "CHƯA CÓ GIÁ".
 
 Web hiện không có bảng giá: đơn giá nhập tay, dán, hoặc ghi từ Sheet qua [`v7-price-queue.md`](v7-price-queue.md). Sau ngày chuyển hẳn (`SONG-SONG-01`) không còn Sheet tính giá hộ, nên web phải tự tra được. Trong lúc chạy song song, bảng giá trên web còn dùng để **kiểm chéo** giá Sheet.
 
@@ -12,16 +12,16 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 
 | Chỗ dễ sai trên Sheet | Web làm thế nào |
 | --- | --- |
-| Shipper so khớp tuyệt đối. Viết khác một chữ ("… PHAT" so với không có "PHAT") thì **lặng lẽ** lấy giá thường | Shipper chưa xếp nhóm thì không tự điền, hiện "Shipper chưa xếp nhóm giá" |
+| Shipper so khớp tuyệt đối. Viết khác một chữ ("… PHAT" so với không có "PHAT") thì **lặng lẽ** lấy giá khách thay vì giá TT | Vẫn theo quy tắc chốt (không thuộc TT thì giá khách), nhưng tên shipper chuẩn hóa khoảng trắng/hoa thường, ô giá ghi rõ "giá TT"/"giá khách", và màn Bảng giá liệt kê shipper trong sổ đang lấy giá khách để soát tên viết lệch |
 | Ô ngày là ngày thật (không phải chữ) có thể bị đảo ngày/tháng khi đọc lại | Dùng `event_date` kiểu `date` của chuyến, không đọc lại chuỗi |
-| Kho chỉ có giá nhóm riêng, trống giá thường: chuyến shipper thường ra ô trống/0 | Thiếu giá là NULL, cờ thiếu giá như hiện nay |
+| Kho chỉ có giá TT, trống giá khách: chuyến shipper khác ra ô trống/0 | Thiếu giá là NULL, cờ thiếu giá như hiện nay |
 | Hai dòng chồng ngày: dòng trên thắng, không báo | Chặn lưu khi chồng ngày |
 | Vùng tra cố định theo số dòng; thêm dòng ngoài vùng bị bỏ | Bảng giá là dữ liệu riêng, không giới hạn số dòng |
 | Sửa bảng giá là tính lại giá mọi chuyến cũ | Giá đã ghi vào chuyến giữ nguyên; sửa bảng chỉ tạo đề xuất áp lại |
 
 ## Người dùng và luồng (bước 1)
 
-**Người thao tác:** người nhập (trên 40 tuổi, màn 1280×720, [UX](../docs/ux-guidelines.md)); người sửa bảng giá: CÒN MỞ (Q1). Theo `V7-ID`, mọi lần ghi mang tên người bấm.
+**Người thao tác:** người nhập (trên 40 tuổi, màn 1280×720, [UX](../docs/ux-guidelines.md)); người sửa bảng giá: mọi người vào được app (Q1). Theo `V7-ID`, mọi lần ghi mang tên người bấm.
 
 **Bối cảnh:** chỉ vài khách có bảng giá; mỗi bảng khoảng 10–30 dòng; giá đổi theo đợt (ví dụ đợt mới hiệu lực từ ngày 10), đợt cũ được đóng bằng ngày "hiệu lực đến". Bảng giá hiện nằm trên Sheet nên cách nhập quen thuộc nhất là **dán**.
 
@@ -30,7 +30,7 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 | Mở bảng giá của sổ | Đầu sổ khách → **Bảng giá** | 1 |
 | Nạp bảng giá lần đầu | Copy vùng bảng giá trên Sheet → dán vào bảng giá web → xem trước → **Lưu** | 3 |
 | Thêm đợt giá mới | **Thêm đợt giá** → gõ "hiệu lực từ" → dán hoặc gõ giá từng kho → **Lưu**. Web hỏi "Đóng đợt cũ ngày …?" (ngày trước ngày mới một ngày) | 4 |
-| Xếp shipper vào nhóm giá | Bảng giá → khu **Shipper áp giá riêng** → thêm tên | 2 |
+| Khai shipper của TT | Bảng giá → khu **Shipper áp giá TT** → thêm tên. Ngay dưới có danh sách "Shipper trong sổ đang lấy giá khách" để soát tên viết lệch | 2 |
 | Nhập/dán chuyến | Như [`v7-nhap-kieu-sheet.md`](v7-nhap-kieu-sheet.md). Ô Đơn giá trống thì web **tự điền giá theo bảng**, chữ nghiêng kèm nhãn "theo bảng" cho đến khi Lưu | 0 thêm |
 | Áp giá cho chuyến đã có mà chưa có giá | Đầu sổ: "**Áp giá theo bảng cho N chuyến**" → khung xác nhận dưới đầu sổ (số chuyến, tổng tăng, tháng bị ảnh hưởng) → **Ghi** | 2 |
 | Thấy chuyến lệch bảng giá | Ô Đơn giá tô màu kèm chữ "khác bảng giá: 85.000.000"; bấm thì thấy dòng bảng giá đã tra | 1 |
@@ -47,7 +47,6 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 | Kho đi không có trong bảng giá (kể cả tên khác chưa gắn) | "Kho chưa có trong bảng giá" | Thêm kho, hoặc gắn tên khác cho kho có sẵn (ví dụ "DAKLAK" → "DAK LAK") |
 | Không có đợt giá phủ ngày xe nhập kho | "Ngày … chưa có giá" | Thêm/sửa đợt giá |
 | Đợt giá có kho đó nhưng ô giá của nhóm cần dùng trống | "Kho … chưa có giá nhóm …" | Điền giá nhóm |
-| Shipper trống hoặc chưa xếp nhóm, khi sổ có nhóm giá riêng | "Shipper chưa xếp nhóm giá" | Xếp shipper vào nhóm (hoặc vào nhóm thường) |
 | Chuyến đang CHỜ KIỂM | Không áp | Kết luận CHỜ KIỂM trước |
 | Tháng khóa | "Tháng … đang khóa" | Mở khóa (ổ khóa có sẵn) rồi áp; dán chuyến mới vào tháng khóa vẫn được theo `NHAP-SHEET-01` (7) |
 | Lưu bảng giá có hai đợt chồng ngày cùng kho | Lỗi tại dòng: "Trùng ngày với đợt từ … đến …" | Sửa ngày |
@@ -79,7 +78,7 @@ Dữ liệu mockup: dùng tên kho thật (tỉnh), giá và tên shipper **gi�
 
 ## Mô hình dữ liệu (ĐỀ XUẤT cho Codex, chốt ở spec backend)
 
-- `sokhach.price_tier(id, customer_id, name, is_default)`: nhóm giá của sổ. Mỗi sổ có bảng giá có đúng một nhóm mặc định ("Giá thường"); sổ như ví dụ có thêm một nhóm riêng. Không giới hạn cứng hai nhóm.
+- `sokhach.price_tier(id, customer_id, name, is_default)`: nhóm giá của sổ. Theo Q3 có hai nhóm: **giá khách** (mặc định) và **giá TT** (áp cho shipper của TT). Sổ có thể chỉ có giá khách. Lược đồ không giới hạn cứng hai nhóm, nhưng giao diện chỉ làm hai.
 - `sokhach.price_tier_shipper(customer_id, shipper_key, tier_id)`: shipper → nhóm. `shipper_key` = `upper(btrim)` và gộp khoảng trắng. Một shipper một nhóm trong một sổ.
 - `sokhach.price_location(id, customer_id, name)` và `sokhach.price_location_alias(customer_id, alias_key, location_id)`: kho chuẩn và tên khác. `alias_key` chuẩn hóa như shipper; tên chuẩn tự là một alias.
 - `sokhach.price_period(id, customer_id, valid_from date NOT NULL, valid_to date NULL)`: một đợt giá, `valid_to >= valid_from`, hai đầu đều tính.
@@ -95,9 +94,9 @@ Dữ liệu mockup: dùng tên kho thật (tỉnh), giá và tên shipper **gi�
 1. Sổ không có bảng giá → không tra.
 2. `event_date` NULL hoặc `origin` trống → `NO_DATE` / `NO_ORIGIN`.
 3. `origin` → `alias_key` → kho. Không có → `UNKNOWN_LOCATION`.
-4. Nhóm: sổ chỉ có nhóm mặc định → nhóm mặc định. Có nhóm riêng: shipper có trong `price_tier_shipper` → nhóm đó; shipper trống hoặc chưa xếp → `SHIPPER_UNGROUPED` (không đoán giá thường; khác Sheet, xem Q3).
-5. Đợt: `valid_from <= event_date` và (`valid_to` NULL hoặc `event_date <= valid_to`), có giá cho kho đó. Không có đợt phủ ngày → `NO_PERIOD`. Có đợt nhưng ô của nhóm trống → `NO_RATE`.
-6. Không xét nơi đến (Sheet hiện không xét; Q4).
+4. Nhóm (Q3): shipper (chuẩn hóa `upper/btrim`, gộp khoảng trắng) có trong danh sách shipper của TT → **giá TT**; mọi trường hợp khác, kể cả shipper trống → **giá khách**. Không có lý do "shipper chưa xếp nhóm".
+5. Đợt: `valid_from <= event_date` và (`valid_to` NULL hoặc `event_date <= valid_to`), có giá cho kho đó. Không có đợt phủ ngày → `NO_PERIOD`. Có đợt nhưng ô của nhóm cần dùng trống → `NO_RATE` (không lấy giá nhóm kia thay).
+6. Không xét nơi đến (Q4: hiện giá không khác theo cảng đích). Khi cần thì thêm sau, không làm trước.
 
 Tra giá là hàm đọc thuần ở DB (`sokhach.lookup_price(...)`), gọi được cho một chuyến hoặc một lô; model JS **không** tự tra lại để tránh hai nguồn quy tắc (ARCH-03 giữ tiền ở model, nhưng tra bảng là dữ liệu server).
 
@@ -130,18 +129,22 @@ Tra giá là hàm đọc thuần ở DB (`sokhach.lookup_price(...)`), gọi đ�
 ## Ngoài phạm vi
 
 - Phụ phí theo bảng (neo, điện, ghép…): theo `PHU-PHI-01`, nhập tay.
-- Bảng giá dùng chung nhiều sổ (Q2): giai đoạn đầu mỗi sổ một bảng, có nút chép từ sổ khác nếu chốt cần.
+- Bảng giá dùng chung nhiều sổ (Q2: không): mỗi sổ một bảng riêng.
+- Áp bảng giá cho dòng sổ gốc (Q5: không): dòng sổ gốc thiếu giá vẫn nhập tay.
+- Giá theo cảng đích (Q4: hiện không có).
 - Tỷ giá/giá ngoại tệ: chỉ VND.
 - Tự đọc vùng bảng giá từ file Sheet bằng công cụ nạp.
 
-## CÒN MỞ (cần người dùng chốt)
+## Câu đã chốt (29/10)
 
-- **Q1.** Ai được sửa bảng giá: mọi người vào được app (như `V7-ID` hiện nay), hay chỉ chủ nghiệp vụ (`PRICE-MAKER`: người xác nhận giá là chủ nghiệp vụ)?
-- **Q2.** Một bảng giá có dùng chung cho nhiều sổ không (ví dụ cùng một bảng cho khách và nhóm khách liên quan)?
-- **Q3.** Shipper chưa xếp nhóm: web để trống và báo (đề xuất), hay lấy giá thường như Sheet đang làm?
-- **Q4.** Giá có khi nào khác theo nơi đến (cảng đích) không? Hiện Sheet không xét.
-- **Q5.** Có cần áp bảng giá cho dòng sổ gốc thiếu giá (opening) không? Đề xuất: không, giữ nhập tay.
-- **Q6.** Khi thêm đợt mới, có tự đóng đợt cũ vào ngày trước một ngày không (đề xuất: hỏi, mặc định có)?
+Người dùng trả lời trong chat 29/10/2026; ghi ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01).
+
+- **Q1.** Ai sửa bảng giá: **mọi người** vào được app; mọi thay đổi ghi Lịch sử và người làm.
+- **Q2.** Bảng giá dùng chung nhiều sổ: **không**, mỗi sổ một bảng.
+- **Q3.** Bảng giá có hai giá: **giá TT** cho shipper của TT, **giá khách** cho mọi shipper còn lại.
+- **Q4.** Giá khác theo cảng đích: **hiện tại không**.
+- **Q5.** Áp bảng giá cho dòng sổ gốc thiếu giá: **không**.
+- **Q6.** Thêm đợt mới thì web hỏi và mặc định **đóng đợt cũ** vào ngày liền trước: **đồng ý**.
 
 ## Câu hỏi kỹ thuật (Codex trả lời trong spec backend)
 
@@ -151,7 +154,7 @@ Tra giá là hàm đọc thuần ở DB (`sokhach.lookup_price(...)`), gọi đ�
 
 ## Tiêu chí nghiệm thu
 
-- [ ] Harness PostgreSQL: tra đúng theo đợt ở hai đầu ngày (`valid_from`, `valid_to`, `valid_to` NULL); shipper nhóm riêng/nhóm thường/chưa xếp; tên khác kho; mỗi lý do không có giá ra đúng mã và đơn giá NULL.
+- [ ] Harness PostgreSQL: tra đúng theo đợt ở hai đầu ngày (`valid_from`, `valid_to`, `valid_to` NULL); shipper của TT ra giá TT, shipper khác và shipper trống ra giá khách, tên viết khác khoảng trắng/hoa thường vẫn khớp; tên khác kho; mỗi lý do không có giá ra đúng mã và đơn giá NULL.
 - [ ] Lưu bảng giá chồng ngày bị `PRICE_PERIOD_OVERLAP`; bảng giữ nguyên.
 - [ ] Sửa đợt giá không đổi `trip_price_rev` nào; `affected_trips` đếm đúng.
 - [ ] `apply_price_table`: ghi giá, phân bổ lại phiếu theo nợ cũ trước, Lịch sử có nguồn; chặn CHỜ KIỂM, tháng khóa; gọi lặp cùng `idempotency_key` không ghi hai lần.
