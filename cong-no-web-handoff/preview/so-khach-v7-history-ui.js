@@ -3,12 +3,40 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).history = ctx => {
   'use strict';
-  const { dateText, fmt, monthKey, monthLabel } = ctx;
+  const { dateText, fmt, monthKey, monthLabel, model } = ctx;
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
       trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
-      sheet_conflict_resolved: 'Đối chiếu Sheet', receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
+      sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí',
+      add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
+      void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng',
+      receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
+    // PHU-PHI-01: lệnh phụ phí ghi {targets: [{trip_id|legacy_row_id, fee_lines, counted_vnd}], batch_count} trước → sau.
+    const feeTargetName = target => {
+      const snapshot = ctx.snapshot;
+      const row = target.trip_id != null ? (snapshot?.trips ?? []).find(trip => trip.id === Number(target.trip_id))
+        : (snapshot?.legacy_rows ?? []).find(item => item.id === Number(target.legacy_row_id));
+      return (target.trip_id != null ? row?.container : row?.current?.container) || `#${target.trip_id ?? target.legacy_row_id}`;
+    };
+    const feeTotalText = lines => { const total = model.feeCells(lines ?? [], []).totalVnd; return total === null ? '–' : model.formatVnd(total); };
+    function describeFeeEvent(event) {
+      if (event.kind === 'set_book_fee_columns') {
+        const names = list => (list ?? []).map(item => ctx.feeTypeName(item?.fee_type_id ?? item)).join(', ') || 'chỉ Khác';
+        return `Cột riêng: ${names(event.before?.fee_columns)} → ${names(event.after?.fee_columns)}`;
+      }
+      const before = event.before?.targets ?? [], after = event.after?.targets ?? [];
+      const parts = after.slice(0, 5).map((target, index) => {
+        const old = before[index] ?? {};
+        const added = (target.fee_lines ?? []).filter(line => line.id == null)
+          .map(line => `${ctx.feeTypeName(line.fee_type_id)} ${fmt(line.amount_vnd)}${line.note ? ` (${line.note})` : ''}`);
+        const counted = target.legacy_row_id != null && old.counted_vnd != null && old.counted_vnd !== target.counted_vnd
+          ? ` · Thành tiền: ${fmt(old.counted_vnd)} → ${fmt(target.counted_vnd)}` : '';
+        return `${feeTargetName(target)}: phụ phí ${feeTotalText(old.fee_lines)} → ${feeTotalText(target.fee_lines)}${added.length ? ` (${added.join(', ')})` : ''}${counted}`;
+      });
+      const count = event.after?.batch_count ?? after.length;
+      return `${count > 1 ? `${count} chuyến · ` : ''}${parts.join(' · ')}${after.length > 5 ? ` · và ${after.length - 5} chuyến khác` : ''}`;
+    }
     const reviewReasonText = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
       WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
     const cellText = (field, value) => value === null || value === undefined || value === '' ? '–'
@@ -71,6 +99,7 @@
       // CHUNG-TU-01: ảnh không đổi tiền, chỉ ghi phiếu nào và lý do gỡ.
       if (event.kind === 'receipt_image') return `Phiếu ${event.after?.image?.pid ?? '–'} · thêm 1 ảnh`;
       if (event.kind === 'receipt_image_remove') return `Phiếu ${event.after?.image?.pid ?? '–'} · gỡ 1 ảnh · Lý do: ${event.after?.image?.reason ?? '–'}`;
+      if (['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns'].includes(event.kind)) return describeFeeEvent(event);
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
         ? 'tính vào sổ' : 'loại, không tính'}`;

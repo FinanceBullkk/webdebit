@@ -12,4 +12,4 @@ Người dùng/chủ nghiệp vụ chốt phụ phí nhiều loại theo hướn
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT chính sách. Chưa có Penpot, chưa code, chưa đổi schema; thiết kế backend và đường nhập từ bảng PS trong spec là ĐỀ XUẤT.
+ĐÃ CHỐT chính sách. Chưa có Penpot, chưa code, chưa đổi schema; thiết kế backend và đường nhập từ bảng PS trong spec là ĐỀ XUẤT. **Cập nhật 29/10/2026:** backend PR-A/PR-B/P2 đã triển khai trên `hao` (xem spec backend và runbook). Giao diện: người dùng duyệt mockup HTML [`phu-phi-nhieu-loai`](../../cong-no-web-handoff/preview/mockups/phu-phi-nhieu-loai/index.html) (dữ liệu giả) trong chat ("Duyệt, code luôn"); ĐÃ CODE trang live, kiểm bằng `npm run check`. Đường nhập từ bảng PS và cờ cần nhập Health/KĐ vẫn là ĐỀ XUẤT.
