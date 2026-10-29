@@ -3,11 +3,12 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).offset = ctx => {
   'use strict';
-  const { root, model, api, live, customerId, escape, dateText, dateInput, methods, referenceFields, showNotice } = ctx;
+  const { root, model, api, live, customerId, escape, spanOf, dateText, dateInput, methods, referenceFields, showNotice } = ctx;
     // ---- Cấn trừ hai sổ (CT-2SO): server giữ số dư và chặn; trang chỉ chọn sổ, hiện số trước → sau và gửi lệnh ----
     const OUTSIDE = model.OFFSET_OUTSIDE;
     const offsetState = { sources: [], selected: null, open: false, query: '', error: '', row: null };
-    const sourceRowHtml = '<tr class="offset-source-row"><td colspan="10"></td><td class="pay pay-start offset-source-cell" colspan="3"></td><td></td></tr>';
+    // SO-GON-02: hàng chọn sổ nguồn nằm ngay dưới hàng nhập, trong danh sách phiếu thu (3 cột).
+    const sourceRowHtml = '<tr class="offset-source-row"><td class="pay pay-start offset-source-cell" colspan="3"></td></tr>';
     const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const ownName = () => live.customerName(customerId) ?? `#${customerId}`;
     const validDate = value => /^\d{4}-\d\d-\d\d$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -150,7 +151,7 @@
       root.querySelector('.void-prompt')?.remove();
       const theirs = [...(otherLedger.receipts ?? []), ...(otherLedger.outgoing_offsets ?? [])].find(item => String(item.offset_pair_id) === pair);
       const both = `<strong>${escape(pid)}</strong> ở sổ <strong>${escape(ownName())}</strong> và <strong>${escape(theirs?.pid ?? '–')}</strong> ở sổ <strong>${escape(otherName)}</strong>`;
-      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="14"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
+      rowEl.insertAdjacentHTML('afterend', `<tr class="void-prompt offset-void-prompt" data-pair="${escape(pair)}" data-other-version="${otherLedger.version}"><td colspan="${spanOf(rowEl)}"><div class="offset-void-head">Hủy cấn trừ ở cả hai sổ: ${both} — <strong>${escape(cellEl.textContent.replace('-', ''))}</strong></div><label>Lý do <input class="offset-void-reason" aria-label="Lý do hủy cấn trừ" aria-required="true" autocomplete="off"></label> <button type="button" class="confirm-offset-void">Hủy cả hai dòng</button> <button type="button" class="cancel-void">Bỏ qua</button><span class="cell-error offset-void-error" role="alert"></span></td></tr>`);
       rowEl.nextElementSibling.querySelector('input').focus();
     }
     async function confirmOffsetVoid(promptRow) {

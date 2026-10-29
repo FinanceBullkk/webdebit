@@ -3,15 +3,16 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
 
-test('Ô thu của hàng nhập phiếu dính ngay dưới dòng tháng khi cuộn', async () => withPage(async ({ page }) => {
+test('Danh sách phiếu thu (cả hàng nhập) dính ngay dưới dòng tháng khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
   const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
-    const cell = input.closest('td'), head = cell.closest('table').querySelector('tr.month th');
-    return { sticky: getComputedStyle(cell).position, top: Number.parseInt(cell.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
-      cells: cell.closest('tr').querySelectorAll('td.pay-pin').length };
+    const stick = input.closest('.pay-stick'), head = input.closest('section').querySelector('tr.month th');
+    return { sticky: getComputedStyle(stick).position, top: Number.parseInt(stick.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
+      inTrips: Boolean(input.closest('.trip-list')) };
   });
   assert.equal(pinned.sticky, 'sticky');
-  assert.equal(pinned.cells, 3);
   assert.equal(pinned.top, pinned.below);
+  assert.equal(pinned.inTrips, false);
+  assert.equal(await page.locator('.trip-list td.pay').count(), 0);
 }));
 
 test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',async () => withPage(async ({ page, world }) => {
@@ -93,7 +94,7 @@ test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyể
   await page.locator('#thang-2026-08 tr.moved').waitFor();
   assert.equal(world.requests.at(-1).body.value, '2026-08-05');
   assert.equal(await page.locator('#thang-2026-08 td.info-edit[data-field="event_date"]').innerText(), '05/08/2026');
-  assert.match(await page.locator('#thang-2026-08 tr.moved .moved-tag').innerText(), /Vừa chuyển từ T9/);
+  assert.match(await page.locator('#thang-2026-08 tr.moved + tr.moved-note .moved-tag').innerText(), /Vừa chuyển từ T9/);
   assert.equal(await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"]').count(), 0);
   assert.match(await page.locator('#thang-2026-09 .ghost').innerText(), /DEMU1234567 \(ngày cũ 15\/09\/2026\) đã chuyển sang tháng 8\/2026/);
   assert.equal(await page.locator('.live-notice').isVisible(), false);
@@ -119,7 +120,7 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
   // 23/10/2026: không còn chú thích "Từ sổ gốc" và dòng chênh; dòng cũ trông và sửa như chuyến web.
   assert.equal(await page.locator('.legacy-caption, .source-total').count(), 0);
   const cells = page.locator('[data-row="legacy-21"] > td');
-  assert.equal(await cells.count(), 14);
+  assert.equal(await cells.count(), 10);   // SO-GON-02: hàng chuyến chỉ còn 10 ô chuyến, phiếu thu ở danh sách riêng
   assert.equal(await cells.nth(3).innerText(), 'Chủ hàng thử');
   assert.equal(await cells.nth(4).innerText(), '02/09/2026');
   const price = legacyCell(page, 21, 'unit_price_vnd');
@@ -247,31 +248,29 @@ test('bàn phím: Enter trên ô mở sửa; 1280×720 không cuộn ngang', asy
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 }));
 
-// Góp ý 23/10/2026: phiếu thu web ở hàng kế tiếp sau phiếu thu cuối cùng của tháng, như trên Sheet.
+// SO-GON-02 (29/10/2026): phiếu thu là danh sách riêng bên phải: khoản thu Sheet trước, phiếu web, rồi hàng nhập.
 const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, pid, reference, date, method: 'THU TIỀN', amount_vnd: amount, void_reason: null,
   offset_pair_id: null, counterparty_customer_id: null, counterparty_name: null, voided_on: null, voided_by_event: null,
   allocations: [{ month, amount_vnd: amount, kind: 'debt', superseded_by_event: null }] });
-// Mỗi hàng dữ liệu của tháng → [ngày trả, hình thức, số tiền, STT/container để nhận hàng].
-const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll(`#thang-${id} tr`)]
-  .filter(tr => tr.querySelector('td.pay-start') && !tr.matches('.subtotal,.adjustment,.draft-row,.draft-caption,.draft-bar,.month,.void-trace,.spacer'))
+// Mỗi hàng của danh sách phiếu thu trong tháng → [ngày trả, hình thức, số tiền, có phải hàng nhập].
+const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll(`#thang-${id} .pay-list tr.pay-row`)]
   .map(tr => { const pay = [...tr.querySelectorAll('td.pay')]; const entry = tr.querySelector('.receipt-date');
-    return { first: tr.cells[1]?.textContent.trim() ?? '', date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[2]?.firstChild?.textContent?.trim?.() ?? '', entry: Boolean(entry) }; }), key);
+    return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[2]?.firstChild?.textContent?.trim?.() ?? '', entry: Boolean(entry) }; }), key);
 
-test('phiếu web ở hàng kế tiếp: Sheet có phiếu hàng 1 → web hàng 2; nhiều phiếu hơn hàng thì thêm hàng; ô nhập ở hàng kế tiếp; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
+test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau, ô nhập cuối; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
   world.legacy.push({ id: 23, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false, current: { month: '2026-09-01', deleted: false },
     display: { row: 5, raw_date: '46032.0', note: '2026-01-10 00:00:00' } });
   world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-09-11', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-09-12', '3000000'),
     webReceipt('PH-003', '2026-09-01', '2026-09-13', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
   await page.reload();
   await page.waitForSelector('#thang-2026-09');
-  // Tháng 9: dòng Sheet 1 (phiếu Sheet), dòng Sheet 2, chuyến web, rồi hàng thêm.
+  // Tháng 9: khoản thu Sheet, ba phiếu web, rồi hàng nhập.
   const sept = await payRows(page, '2026-09');
   assert.equal(sept.length, 5);
   assert.equal(sept[0].date, '10/01/2026');   // 46032 = 10/01/2026, ghi chú lặp cùng ngày bị bỏ
   assert.equal(sept[0].method, '');
   assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['11/09/2026', '12/09/2026', '13/09/2026']);
   assert.equal(sept[4].entry, true);
-  assert.equal(sept[3].first, '');            // hàng thêm chỉ có cột thu
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);
   // Tháng hiện tại: một phiếu ở hàng 1, ô nhập ở hàng 2 (cuối), tham chiếu nằm trong ô số tiền.
   const now = await payRows(page, todayMonth.slice(0, 7));
