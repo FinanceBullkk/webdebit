@@ -1036,6 +1036,11 @@ Phục hồi: PR-B và PR-B P2 **không có** file `.rollback.sql` như PR-A. L�
 Trước khi làm giao diện phụ phí: đếm trên bản sao `hao` số dòng sổ gốc có `counted_differs` (chỉ đếm, báo cáo ngoài repo).
 Sau đợt nâng tay được duyệt riêng, phải chạy `v7_post_deploy_check.sql`: app chỉ EXECUTE chữ ký công khai, reader chỉ đọc (gồm `get_fee_types()`); toàn bộ helper/dry-run không được cấp EXECUTE cho hai role. Checker không cấp quyền hay sửa dữ liệu.
 
+# Ngăn kéo Công nợ theo tháng đọc sổ gốc (29/10/2026)
+
+Migration `2026-10-29-v7-matrix-drawer-so-goc.sql` chỉ thay `get_receivables_detail` (chạy sau `2026-10-29-v7-phu-phi-b-p2.sql`; không đổi dữ liệu, giữ quyền EXECUTE, chạy lại được). Hàm đọc số tháng từ `get_ledger`: phát sinh/đã thu như dòng Tổng tháng (tháng sổ gốc lấy số Sheet), danh sách gồm chuyến web và dòng chuyến sổ gốc (`historical`); `outstanding_vnd` vẫn là ô ma trận, thêm `allocated_vnd` là thu đã phân bổ vào kỳ.
+ĐÃ KIỂM CHỨNG cục bộ: `test_pg_v7_matrix.py` (ca D1–D4), harness backend gồm lượt nâng migration hai lần so catalog với khởi tạo mới. CHƯA TRIỂN KHAI: nâng tay trên `hao` cần người dùng duyệt; sau nâng chạy `v7_post_deploy_check.sql` và mở thử ngăn kéo một tháng sổ gốc, một tháng có chuyến web.
+
 # Migration NHAP-SHEET-01 — sửa/xóa chuyến (22/10/2026)
 
 **Đã triển khai 22/10/2026** (commit `723d1ac`, CI xanh đúng SHA): trip-review rồi nhap-sheet chạy trên `webdebit_v7` thật

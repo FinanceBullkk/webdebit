@@ -1925,10 +1925,14 @@ BEGIN
     'grand_total_all_vnd',(SELECT coalesce(sum(total_all),0)::bigint::text FROM base)));
 END $$;
 
-CREATE FUNCTION sokhach.get_receivables_detail(p_customer bigint, p_month date) RETURNS jsonb
+CREATE OR REPLACE FUNCTION sokhach.get_receivables_detail(p_customer bigint, p_month date) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
-DECLARE v_active boolean; v_outstanding bigint; v_charges bigint; v_received bigint;
-        v_opening boolean; v_trips jsonb;
+-- Ngăn kéo ma trận (29/10/2026): số tháng lấy đúng dòng Tổng tháng của get_ledger (DA-THU-01: tháng
+-- sổ gốc dùng phát sinh/đã thu Sheet, đã thu theo ngày thu), danh sách gồm chuyến web và dòng chuyến
+-- sổ gốc. outstanding_vnd là ô ma trận (nợ còn lại sau phân bổ nợ cũ trước); allocated_vnd là thu đã
+-- phân bổ vào kỳ, để giải thích vì sao phát sinh − đã thu có thể khác còn lại.
+DECLARE v_active boolean; v_ledger jsonb; v_row jsonb; v_allocated bigint; v_opening boolean;
+        v_month text := p_month::text;
 BEGIN
     PERFORM sokhach._actor();
     IF p_month IS NULL OR date_trunc('month', p_month)::date <> p_month THEN
@@ -1937,37 +1941,27 @@ BEGIN
     SELECT EXISTS (SELECT 1 FROM sokhach.cutover_customer cc JOIN sokhach.cutover c ON c.id=cc.cutover_id
         WHERE cc.customer_id=p_customer AND cc.status='active' AND c.status='active') INTO v_active;
     IF NOT v_active THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
-    SELECT coalesce(sum(v.outstanding_vnd),0)::bigint INTO v_outstanding
-      FROM sokhach.v_outstanding_month v WHERE v.customer_id=p_customer AND v.debt_month=p_month;
-    SELECT coalesce(sum(CASE WHEN p.unit_price_vnd IS NOT NULL THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
-        WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END),0)::bigint
-      + coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
-          WHERE a.customer_id=p_customer AND a.debt_month=p_month),0)
-      + coalesce((SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
-          JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(o.customer_id,o.cutover_id)
-          JOIN sokhach.cutover c ON c.id=cc.cutover_id
-          WHERE o.customer_id=p_customer AND o.debt_month=p_month AND cc.status='active' AND c.status='active'),0)
-      INTO v_charges
-      FROM sokhach.v_trip_current t LEFT JOIN LATERAL
-        (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-      WHERE t.customer_id=p_customer AND t.debt_month=p_month AND NOT t.deleted AND t.status='confirmed';
+    v_ledger := sokhach.get_ledger(p_customer);
+    SELECT m INTO v_row FROM jsonb_array_elements(v_ledger->'months') m WHERE m->>'month'=v_month;
     SELECT coalesce(sum(l.amount_vnd),0) - coalesce((SELECT sum(o.amount_vnd) FROM sokhach.v_offset_outgoing o
-        WHERE o.customer_id=p_customer AND o.debt_month=p_month),0) INTO v_received
+        WHERE o.customer_id=p_customer AND o.debt_month=p_month),0) INTO v_allocated
       FROM sokhach.v_receipt_line_active l WHERE l.customer_id=p_customer AND l.debt_month=p_month;
-    SELECT EXISTS (SELECT 1 FROM sokhach.opening_balance o JOIN sokhach.cutover_customer cc
-        ON (cc.customer_id,cc.cutover_id)=(o.customer_id,o.cutover_id) JOIN sokhach.cutover c ON c.id=cc.cutover_id
-        WHERE o.customer_id=p_customer AND o.debt_month=p_month AND cc.status='active' AND c.status='active') INTO v_opening;
-    SELECT coalesce(jsonb_agg(jsonb_build_object('id',t.id,'month',t.debt_month,'event_date',t.event_date,
-        'container',t.container,'carrier',t.carrier,'status',t.status,'unit_price_vnd',p.unit_price_vnd::text,
-         'other_fee_vnd',p.other_fee_vnd::text,'amount_vnd',CASE WHEN t.status<>'confirmed' THEN NULL
-          WHEN p.unit_price_vnd IS NOT NULL THEN (p.unit_price_vnd+coalesce(p.other_fee_vnd,0))::text
-          WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd::text END) ORDER BY t.id),'[]'::jsonb) INTO v_trips
-      FROM sokhach.v_trip_current t LEFT JOIN LATERAL
-        (SELECT unit_price_vnd,other_fee_vnd FROM sokhach.trip_price_rev WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) p ON true
-      WHERE t.customer_id=p_customer AND t.debt_month=p_month AND NOT t.deleted;
-    RETURN jsonb_build_object('status','active','customer_id',p_customer,'month',p_month::text,
-        'outstanding_vnd',v_outstanding::text,'charges_vnd',v_charges::text,'received_vnd',v_received::text,
-        'opening',v_opening,'trips',v_trips);
+    SELECT EXISTS (SELECT 1 FROM jsonb_array_elements(v_ledger->'opening') o WHERE o->>'month'=v_month) INTO v_opening;
+    RETURN jsonb_build_object('status','active','customer_id',p_customer,'month',v_month,
+        'outstanding_vnd',coalesce(v_row->>'outstanding_vnd','0'),
+        'charges_vnd',coalesce(v_row->>'charges_vnd','0'),'received_vnd',coalesce(v_row->>'received_vnd','0'),
+        'allocated_vnd',v_allocated::text,'opening',v_opening,
+        'trips',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',t->'id','month',t->'month',
+            'event_date',t->'event_date','container',t->'container','carrier',t->'carrier','status',t->'status',
+            'unit_price_vnd',t->'unit_price_vnd','other_fee_vnd',t->'other_fee_vnd','amount_vnd',t->'amount_vnd',
+            'historical',false) ORDER BY (t->>'id')::bigint),'[]'::jsonb)
+          FROM jsonb_array_elements(v_ledger->'trips') t WHERE t->>'month'=v_month)
+        || (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l->'id','month',l->'month',
+            'event_date',l->'current'->'event_date','container',l->'current'->'container',
+            'carrier',l->'current'->'carrier','status','confirmed',
+            'unit_price_vnd',l->'current'->'unit_price_vnd','other_fee_vnd',l->'current'->'other_fee_vnd',
+            'amount_vnd',l->'current'->'counted_vnd','historical',true) ORDER BY (l->>'id')::bigint),'[]'::jsonb)
+          FROM jsonb_array_elements(v_ledger->'legacy_rows') l WHERE l->>'kind'='trip' AND l->>'month'=v_month));
 END $$;
 
 
