@@ -457,7 +457,7 @@
         const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');
         const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="${labels.length}">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
-          <tr class="month"><th colspan="${labels.length}" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button><em class="month-stats"><span class="month-end" title="Nợ các tháng trước ${fmt(item.prior_months_vnd)} + phát sinh ${fmt(totals.chargesVnd)} − đã thu ${fmt(totals.receivedVnd)}">Còn nợ cuối tháng: <b>${fmt(item.end_of_month_vnd)}</b></span></em></span></th></tr>
+          <tr class="month"><th colspan="${labels.length}" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>${legacy.some(line => line.tripRow) || trips.some(trip => trip.status === 'confirmed') ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog">Debit note</button>` : ''}<em class="month-stats"><span class="month-end" title="Nợ các tháng trước ${fmt(item.prior_months_vnd)} + phát sinh ${fmt(totals.chargesVnd)} − đã thu ${fmt(totals.receivedVnd)}">Còn nợ cuối tháng: <b>${fmt(item.end_of_month_vnd)}</b></span></em></span></th></tr>
           ${lines}${sheetLines}${adjustmentRows}${ghostRows}${draftHere ? draftGrid(key) : ''}
           <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${feeTotalCells}${num(fmt(totals.chargesVnd))}<td class="pay pay-start">Đã thu</td><td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${labels.length}"></td></tr></tbody></table></section>`;
       };
@@ -556,7 +556,7 @@
       get feeColumnIds() { return feeColumnIds; },
       get snapshot() { return snapshot; }, get rendering() { return rendering; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; } };
-    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'fee', 'presence', 'images']) window.SoKhachV7LiveParts[name]?.(ctx);
+    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'fee', 'presence', 'images', 'debit']) window.SoKhachV7LiveParts[name]?.(ctx);
     const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell, draftsBy, draftGrid } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
@@ -570,7 +570,7 @@
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
     let refreshing = true;
     api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
-    const busy = () => api.hasPending() || draftsBy.size || ctx.feeBusy?.() || ctx.imagesBusy?.() || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
+    const busy = () => api.hasPending() || draftsBy.size || ctx.feeBusy?.() || ctx.imagesBusy?.() || ctx.debitBusy?.() || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
       || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
       || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {
