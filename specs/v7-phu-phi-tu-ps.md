@@ -150,7 +150,7 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 - Runner `tools/v7_ps_snapshot.py`: một lệnh `values:batchGet` đọc `CONT_MASTER` và bảng duyệt tên khách, tìm cột theo tên ở dòng tiêu đề, chỉ giữ dòng có tiền PS, Bảo hiểm hoặc cờ Health/KĐ; hash gồm cả dòng lẫn bảng tên.
 - Hàng chờ `web/v7_ps_queue.py` và API: `get_ledger` trả `ps_fees`; `POST /api/v7/ps/fees`. Thêm trạng thái `TYPED_CONFLICT` (web đã phân loại khác PS) và `FEE_TYPE_MISSING` (danh mục thiếu loại) vào "PS cần xem"; `PENDING_REVIEW`, `NOT_FOUND`, `NO_CUSTOMER` không hiện trên sổ.
 - Lịch sử sổ khách có nhãn "Tách phụ phí theo PS" (dùng chung câu trước → sau của lệnh phụ phí); nút tách và "PS cần xem" để PR-2.
-- Runbook: [mục Tách phụ phí theo bảng PS](../docs/v7-deploy-runbook.md#tách-phụ-phí-theo-bảng-ps--migration--runner-bản-chụp-chưa-chạy).
+- Runbook: [mục Tách phụ phí theo bảng PS](../docs/v7-deploy-runbook.md#tách-phụ-phí-theo-bảng-ps--migration--runner-bản-chụp-migration-đã-chạy-trên-hao-29102026-runner-chưa-cài).
 
 **ĐÃ KIỂM CHỨNG (máy dev, dữ liệu giả):** harness PostgreSQL 18.6 dùng một lần `test_pg_v7_backend.py`: 66 ca đạt (gồm `PS-FEE.01`: giữ tổng chuyến web và dòng sổ gốc có `counted_differs`, không phân bổ lại, không ghi revision/điều chỉnh sổ gốc, các mã lỗi, quyền), 2 ca bỏ qua cũ (7.11c, 7.15c); `test_pg_v7_grants.py --strict` đạt; `npm run check` đạt. **CÒN MỞ:** chưa đọc `CONT_MASTER` thật bằng tài khoản dịch vụ trên `hao`, chưa thử trên bản sao DB thật.
 
