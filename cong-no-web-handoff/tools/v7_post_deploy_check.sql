@@ -124,7 +124,7 @@ BEGIN
         SELECT array_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')'
           ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')') INTO actual
         FROM pg_proc p WHERE p.pronamespace='sokhach'::regnamespace AND has_function_privilege(r,p.oid,'EXECUTE');
-        IF actual IS DISTINCT FROM CASE WHEN r='sokhach_app' THEN expected ELSE expected_reader END
+        IF actual IS DISTINCT FROM (CASE WHEN r='sokhach_app' THEN expected ELSE expected_reader END)
         THEN RAISE EXCEPTION 'function allowlist mismatch for %',r; END IF;
         FOREACH wanted IN ARRAY denied LOOP
             IF to_regprocedure('sokhach.'||wanted) IS NULL OR has_function_privilege(r,'sokhach.'||wanted,'EXECUTE')
