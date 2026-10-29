@@ -9,7 +9,7 @@ Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-
 | ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
-| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày chưa cài ([mẫu timer](#backup-hằng-ngày--timer-v7-backup-daily)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
+| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 nhưng chưa có bản ngoài máy ([timer](#backup-hằng-ngày--timer-v7-backup-daily)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
 
 Giới hạn: Sheet vẫn chính thức theo [SONG-SONG-01](decisions.md#song-song-01).
 Opening theo [OPENING-SO-GOC](decisions.md#opening-so-goc); mốc chuyến là bản xuất mới nhất
@@ -460,9 +460,10 @@ liên hệ thống hay kiểm thay đổi từng dòng sau mốc.
 
 ## Backup hằng ngày — timer `v7-backup-daily`
 
-**CHƯA CÀI trên `hao`.** Phạm vi: mục C1/C2 của [checklist song song](song-song-checklist.md). Không migration, không đổi
-DB, không ghi tiền. Đây là đổi systemd ngoài các mục đã có, nên theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)
-phải hỏi người dùng trước khi cài. Không thay backup của mục 2 trước mỗi đợt nâng.
+**ĐÃ CÀI trên `hao` 29/10/2026** ([nhật ký](deploys/2026-10-29-v7-backup-daily.md)); lượt timer đầu 30/10 02:40 giờ VN.
+Phạm vi: mục C1/C2 của [checklist song song](song-song-checklist.md). Không migration, không đổi DB, không ghi tiền.
+Cài lần đầu là đổi systemd ngoài runbook nên đã hỏi người dùng theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md).
+Không thay backup của mục 2 trước mỗi đợt nâng.
 
 | Mục | Chọn | Lý do |
 | --- | --- | --- |
@@ -484,10 +485,11 @@ mã thoát 2, unit `failed`, không xóa gì.
 Lấy file từ release đang chạy sau khi PR đã merge và `Deploy hao` xanh (hoặc chép từ commit), rồi so hash với
 `git show <commit>:cong-no-web-handoff/tools/v7_backup.py | sha256sum` ở một checkout; khác thì dừng. Ghi commit và hash
 vào `<evidence_dir>`. Công cụ coi thư mục hai cấp trên (`/opt/webdebit-backup`) là gốc mã, từ chối ghi backup vào đó;
-gốc không có `.git` nên không gọi git.
+gốc không có `.git` nên không gọi git. Liệt kê đủ ba cấp: `install -d` chỉ đặt `-m` cho thư mục được nêu, thư mục cha tự
+tạo theo `umask 077` của shell admin thành 700 và `postgres` không vào được (đã vấp 29/10/2026).
 
 ```bash
-sudo install -d -o root -g root -m 755 /opt/webdebit-backup/cong-no-web-handoff/tools
+sudo install -d -o root -g root -m 755 /opt/webdebit-backup /opt/webdebit-backup/cong-no-web-handoff /opt/webdebit-backup/cong-no-web-handoff/tools
 ```
 
 ```bash
@@ -828,7 +830,7 @@ psql -X -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d <db_v7> -v db_v
 ```
 
 CÒN MỞ: peer/pg_hba thật (container dùng trust); dung lượng thật và thời gian restore;
-backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); chưa cài, chưa có bản ngoài máy); quyền người chạy, route Serve và kiểm
+backup định kỳ V7 (mẫu timer, retention, phục hồi thử hằng tháng ở mục [Backup hằng ngày](#backup-hằng-ngày--timer-v7-backup-daily); đã cài 29/10/2026, chưa có bản ngoài máy); quyền người chạy, route Serve và kiểm
 danh tính. Chính sách ai xem Lịch sử đã chốt V7-CSM, việc triển khai/quyền truy cập backup vẫn cần kiểm.
 Đường Host/Origin/asset và allowlist HTTPS đối soát có regression test dữ liệu giả
 (`test_v7_ledger_api.py`, `test_v7_reconcile_sheet.py`); không chứng minh Serve live.
