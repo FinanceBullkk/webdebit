@@ -149,7 +149,9 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
 
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
   // specs/v7-phu-phi-backend.md: chưa có nhãn, chờ PR giao diện phụ phí.
-  const PENDING_UI_EVENT_KINDS = ['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns'];
+  // specs/v7-bang-gia-hieu-luc.md: nhãn bảng giá làm ở giai đoạn 2 (giao diện).
+  const PENDING_UI_EVENT_KINDS = ['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
+    'price_table_edit', 'price_table_apply'];
   for (const kind of PENDING_UI_EVENT_KINDS) {
     const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
       at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });

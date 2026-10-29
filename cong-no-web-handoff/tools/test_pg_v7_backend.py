@@ -87,6 +87,7 @@ from test_pg_v7_backend_opening import (
     check_opening_fifo,
     check_opening_import,
 )
+from test_pg_v7_backend_price import check_price_table
 from test_pg_v7_backend_receipts import (
     check_atomic,
     check_concurrent,
@@ -184,6 +185,8 @@ CASES = [
     case("7.27", "BEHAVIOR", "Typed fee intent lands on the effective fee after a price revision", check="fee_intent_after_price", functions=("adjust_trip", "edit_trip_price")),
     case("PRB.01", "BEHAVIOR", "PR-B fee commands atomic batch, signs, locks, legacy delta and cache", check="fee_commands", functions=("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee")),
     case("PRB.02", "BEHAVIOR", "PR-B catalog audit, columns, idempotency and grants", check="fee_catalog", functions=("add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "set_book_fee_columns", "get_fee_types")),
+    case("BANG-GIA.01", "BEHAVIOR", "Price table by effective date: lookup, save guards, batch apply, source, migration",
+         check="price_table", functions=("save_price_table", "apply_price_table", "get_price_table", "get_price_status")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
@@ -209,7 +212,7 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
 CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
-          "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
+          "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog, "price_table": check_price_table,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,
