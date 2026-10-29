@@ -17,6 +17,10 @@ window.MOCK = (() => {
     { id: 10, name: 'BẢO NGỐC', commodity: 'Chuối', transport: null, months: { 9: 280000000, 10: 120000000 }, older: {} },
     { id: 11, name: 'ÁNH DƯƠNG', commodity: 'Dừa', transport: null, months: { 2: 1100000000, 3: 1500000000, 4: 1500000000 }, older: {} },
     { id: 12, name: 'TÂN PHÚ', commodity: 'Dừa', transport: null, months: { 10: 350000000 }, older: {} },
+    // v5: khách sầu riêng chưa ghi cảng/bộ và hai mặt hàng rất nhỏ — để thấy dòng "chưa rõ" và nhóm "Khác".
+    { id: 18, name: 'PHƯƠNG NAM', commodity: 'Sầu riêng', transport: null, months: { 8: 900000000, 9: 1100000000 }, older: {} },
+    { id: 19, name: 'HOÀNG MAI', commodity: 'Mít', transport: null, months: { 10: 45000000 }, older: {} },
+    { id: 20, name: 'SAO VIỆT', commodity: 'Bán cước', transport: null, months: { 9: 28000000 }, older: {} },
     { id: 13, name: 'MAI THẢO', commodity: 'Xoài', transport: null, months: { 8: 310000000, 10: 590000000 }, older: {} },
     { id: 14, name: 'ĐÌNH TRUNG', commodity: null, transport: null, months: {}, older: { 2024: 551000000 } },
     { id: 15, name: 'QUANG MINH', commodity: null, transport: null, months: {}, older: {} },

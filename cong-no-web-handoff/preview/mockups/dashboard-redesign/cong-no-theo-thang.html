@@ -57,6 +57,13 @@
     tfoot td.khach{z-index:4;font-weight:700;text-align:left;padding:8px 12px;background:#16324f;color:#fff}
     tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:#b9c8d9}
     tfoot td:first-child{border-bottom-left-radius:var(--radius)}tfoot td:last-child{border-bottom-right-radius:var(--radius)}
+    /* v5: đến từ Tổng quan với ?tuoi= — tô các cột tháng thuộc nhóm tuổi nợ, làm mờ cột khác */
+    .age-pick{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;border-radius:8px;background:var(--accent-soft);border:1px solid #b7d3f6;font-size:15px}
+    .age-pick button{margin-left:auto}
+    th.mh.pick{background:var(--age-2);color:#fff}
+    th.mh.pick.cur{background:var(--accent)}
+    td.m.dim button{opacity:.28}
+    td.m.pick{box-shadow:inset 2px 0 0 #b7d3f6,inset -2px 0 0 #b7d3f6}
     .check{margin:10px 2px 0;font-size:13.5px;color:var(--ink-3)}
     .check b{color:var(--credit);font-weight:600}
   </style>
@@ -90,6 +97,7 @@
       <span class="legend" aria-label="Chú giải màu"><span>ít</span><i style="background:var(--heat-1)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-5)"></i><i style="background:var(--heat-6)"></i><span>nhiều</span><i style="background:var(--credit-soft);margin-left:12px"></i><span>khách dư</span></span>
     </div>
 
+    <div class="age-pick" id="age-pick" hidden></div>
     <div class="wrap">
       <table>
         <colgroup><col class="c-khach"><col class="c-m" span="12"><col class="c-t" span="2"></colgroup>
@@ -128,10 +136,14 @@
         const step = STEPS.filter(s => v >= s).length + 1;
         return `background:var(--heat-${step});color:${step >= 5 ? '#fff' : 'var(--ink)'}`;
       };
-      const state = { filter: null, onlyOpen: false };
+      const url = new URLSearchParams(location.search);
+      const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
+      const ageOf = m => { const d = D.AS_OF.month - m; return d < 0 ? -1 : d === 0 ? 0 : d <= 2 ? 1 : d <= 6 ? 2 : 3; };
+      const state = { filter: null, onlyOpen: url.get('con-no') === '1', age: url.has('tuoi') ? Number(url.get('tuoi')) : null };
+      const pickClass = m => state.age == null ? '' : ageOf(m) === state.age ? ' pick' : ' dim';
 
       const cell = (v, m) => {
-        const cls = `m${m % 2 ? '' : ' even'}`;
+        const cls = `m${m % 2 ? '' : ' even'}${pickClass(m)}`;
         if (!v) return `<td class="${cls}"></td>`;
         const title = `title="${D.fmtFull(Math.abs(v))}${v < 0 ? ' (khách dư)' : ''}"`;
         return v < 0
@@ -142,8 +154,11 @@
         : `<td class="t ${cls}${v < 0 ? ' credit' : ''}" title="${D.fmtFull(Math.abs(v))}">${v < 0 ? 'dư ' + words(-v) : words(v)}</td>`;
 
       function render() {
+        const inAge = r => state.age == null || Object.entries(r.months).some(([m, v]) => v > 0 && ageOf(Number(m)) === state.age)
+          || (state.age === 3 && D.olderOf(r) > 0);
         const rows = D.ledger
           .filter(r => !state.onlyOpen || D.allOf(r) > 0)
+          .filter(inAge)
           .filter(r => state.filter === null || D.groupKey(r) === state.filter);
         const groups = new Map();
         for (const r of rows) {
@@ -154,7 +169,7 @@
         const ordered = [...groups.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || sum(b[1], D.allOf) - sum(a[1], D.allOf));
 
         $('head').innerHTML = '<th class="khach">Khách</th>' +
-          MONTHS.map(m => `<th class="mh${m % 2 ? '' : ' even'}${m === D.AS_OF.month ? ' cur' : ''}">Tháng ${m}</th>`).join('') +
+          MONTHS.map(m => `<th class="mh${m % 2 ? '' : ' even'}${m === D.AS_OF.month ? ' cur' : ''}${pickClass(m).replace(' dim', '')}">Tháng ${m}</th>`).join('') +
           `<th class="t">Năm ${D.AS_OF.year}</th><th class="t">Mọi năm</th>`;
         const body = [];
         for (const [key, members] of ordered) {
@@ -189,6 +204,14 @@
       keys.forEach(k => select.add(new Option(k, k)));
       if (D.ledger.some(r => !D.groupKey(r))) select.add(new Option('Chưa phân loại', ''));
       select.addEventListener('change', () => { state.filter = select.value === '*' ? null : select.value; render(); });
+      $('only-open').checked = state.onlyOpen;
+      if (state.age != null) {
+        const months = MONTHS.filter(m => m <= D.AS_OF.month && ageOf(m) === state.age);
+        const span = months.length ? `tháng ${months[0]}${months.length > 1 ? '–' + months[months.length - 1] : ''}/${D.AS_OF.year}` : '';
+        $('age-pick').hidden = false;
+        $('age-pick').innerHTML = `<span>Đang xem nhóm <b>${AGES[state.age]}</b> (${span}${state.age === 3 ? ' và các năm trước, ở cột Mọi năm' : ''}) — chỉ hiện khách có nợ trong nhóm này.</span><button type="button" class="btn" id="age-clear">Bỏ chọn nhóm</button>`;
+        $('age-clear').addEventListener('click', () => { state.age = null; $('age-pick').hidden = true; history.replaceState(null, '', location.pathname); render(); });
+      }
       $('only-open').addEventListener('change', e => { state.onlyOpen = e.target.checked; render(); });
       render();
     })();
