@@ -41,6 +41,16 @@ test('dashboard renders six blocks, links, keyboard navigation, and mobile layou
     assert.equal(await page.getByRole('heading', { name: heading }).count(), 1);
   assert.match(await page.locator('.receivable').innerText(), /2\.480\.000\.000/);
   assert.equal(await page.locator('.top-debtors a').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+  // Mockup v4.1: số chính rút gọn, số đồng đủ ở dòng phụ và khi rê chuột; tuổi nợ một thanh chia đoạn.
+  assert.equal(await page.locator('.receivable .big-money').innerText(), '2,48tỷ');
+  assert.equal(await page.locator('.age-bar span').count(), 4);
+  assert.match(await page.locator('.age-note').innerText(), /850 triệu \(34,3%\)/);
+  assert.match(await page.locator('.commodity').innerText(), /Sầu riêng · cảng/);
+  assert.match(await page.locator('.commodity').innerText(), /cần gán mặt hàng/);
+  assert.match(await page.locator('.todo').innerText(), /3 chuyến/);
+  const layout = await page.evaluate(() => ({ scrollX: document.documentElement.scrollWidth > innerWidth,
+    firstRowBottom: Math.max(...[...document.querySelectorAll('.receivable,.aging')].map(el => el.getBoundingClientRect().bottom)) }));
+  assert.equal(!layout.scrollX && layout.firstRowBottom <= 720, true, JSON.stringify(layout));
   await page.locator('#customer-search').fill('Khách C');
   await page.locator('#customer-search').press('Tab');
   assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
@@ -57,8 +67,9 @@ test('dashboard handles empty data without fake values', async () => withDashboa
   await page.locator('.receivable .big-money').waitFor();
   assert.match(await page.locator('.receivable').innerText(), /0 đ/);
   assert.match(await page.locator('.todo').innerText(), /Không có việc cần làm/);
-  assert.equal(await page.locator('.top-debtors tbody tr').count(), 0);
-  assert.equal(await page.locator('.commodity tbody tr').count(), 0);
+  assert.equal(await page.locator('.top-debtors li').count(), 0);
+  assert.equal(await page.locator('.commodity li').count(), 0);
+  assert.match(await page.locator('.today').innerText(), /Chưa có giao dịch nào hôm nay/);
 }));
 
 test('dashboard refresh reads new data and shows update time', async () => {
@@ -92,9 +103,9 @@ test('dashboard uses Sheet labels and commodity while links and money stay on or
   ],
 }, async page => {
   await page.locator('.top-debtors a').getByText('AG LOGISTIC · Dừa').waitFor();
-  assert.equal(await page.locator('.top-debtors td').nth(2).innerText(), 'Dừa');
+  assert.equal(await page.locator('.top-debtors .who span').first().innerText(), 'nợ từ 03/2026');
   assert.equal(await page.locator('.top-debtors a').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
-  assert.match(await page.locator('.top-debtors').innerText(), /380\.000\.000/);
+  assert.equal(await page.locator('.top-debtors .amt .money').first().getAttribute('title'), '380.000.000 đ');
   assert.match(await page.locator('.todo').innerText(), /CHAU HAI THINH · Chuối · sổ 2/);
   await page.locator('#customer-search').fill('AG DU A');
   assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');

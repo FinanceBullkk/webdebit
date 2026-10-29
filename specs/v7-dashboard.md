@@ -130,6 +130,8 @@ Revert PR; migration chỉ thêm một hàm chỉ đọc, gỡ bằng `DROP FUNC
 - Browser fixture 1280×720: route `/` và `/dashboard-v7.html`, sáu khối đúng phương án B, tìm khách và link mở Sổ khách.
 - Lighthouse desktop trên fixture: Accessibility 100, Best Practices 100, SEO 100; không có lỗi audit.
 
+- Giao diện mới (29/10/2026): người dùng duyệt mockup v4.1 trong chat ("ok chốt á", PR FinanceBullkk/webdebit#132, `cong-no-web-handoff/preview/mockups/dashboard-redesign/`) cho Tổng quan và Công nợ theo tháng. Nội dung và thứ tự sáu khối giữ như trên; chỉ đổi trình bày (số chính rút gọn có số đồng đủ, tuổi nợ một thanh chia đoạn, mặt hàng có thanh tỉ trọng, ma trận 12 cột tháng bằng nhau, không khung cuộn riêng). Không đổi API. Tiền định dạng/cộng bằng BigInt ở `preview/cong-no-format.js` (test `test-cong-no-format.js`); browser fixture 1280×720 trong `test-v7-dashboard-browser.js` và `test-v7-receivables-matrix-browser.js`.
+
 ## Câu hỏi mở
 
 - Đường quay lại từ Sổ khách lên Tổng quan cần thêm khi tích hợp hai trang; không đổi nội dung hay thứ tự sáu khối đã duyệt.

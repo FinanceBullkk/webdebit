@@ -1,0 +1,84 @@
+/* Giao diện chung Tổng quan + Công nợ theo tháng — theo mockup v4.1 đã duyệt 29/10/2026
+   (preview/mockups/dashboard-redesign). Màu chỉ dùng khi có nghĩa; ramp tuổi nợ/ô ma trận một màu xanh. */
+:root{
+  color-scheme:light;
+  --page:#e9ecf0;--surface:#fff;--line:#d7dce3;--line-soft:#e9ecf0;--head:#f3f5f8;--zebra:#f8f9fb;
+  --ink:#1a1a19;--ink-2:#52514e;--ink-3:#6f6d67;
+  --accent:#2a78d6;--accent-ink:#1c5cab;--accent-soft:#eaf2fc;
+  --age-0:#86b6ef;--age-1:#3987e5;--age-2:#1c5cab;--age-3:#0d366b;
+  --heat-1:#eaf2fc;--heat-2:#cde2fb;--heat-3:#9ec5f4;--heat-4:#6da7ec;--heat-5:#3987e5;--heat-6:#1c5cab;
+  --critical:#c8322f;--critical-soft:#fdecea;--warning:#9a5b00;--warning-soft:#fdf3e1;
+  --credit:#0f766e;--credit-soft:#e3f4f1;
+  --nav:#16324f;--nav-ink:#c3d1e0;
+  --radius:10px;--shadow:0 1px 3px #1f29371a;
+}
+*{box-sizing:border-box}
+html{background:var(--page)}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+button,input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num,.money{font-variant-numeric:tabular-nums;white-space:nowrap}
+.muted{color:var(--ink-3)}
+#demo-banner{padding:5px 16px;background:#fff1c2;color:#5c4300;text-align:center;font-size:13.5px;font-weight:600;border-bottom:1px solid #ecd58a}
+
+/* Thanh trên */
+.topbar{position:sticky;top:0;z-index:40;height:56px;display:flex;align-items:center;gap:28px;padding:0 24px;background:var(--nav);color:#fff}
+.brand{font-size:17px;font-weight:700;white-space:nowrap;color:#fff}
+.topbar nav{display:flex;align-self:stretch;gap:4px}
+.topbar nav a{display:flex;align-items:center;padding:0 14px;color:var(--nav-ink);font-weight:600;border-bottom:3px solid transparent}
+.topbar nav a:hover{color:#fff}
+.topbar nav a.active{color:#fff;border-color:#6da7ec}
+.search{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px;width:min(300px,28vw);height:38px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:var(--nav-ink)}
+.search input{width:100%;border:0;outline:0;background:transparent;color:#fff}
+.search input::placeholder{color:#9fb3c8}
+.search:focus-within{border-color:#6da7ec}
+.search #customer-results{position:absolute;z-index:5;top:42px;left:0;right:0;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #1f293733}
+.search #customer-results a{display:block;padding:10px 12px;color:var(--ink);border-bottom:1px solid var(--line-soft)}
+.search #customer-results a:hover,.search #customer-results a:focus{background:var(--accent-soft);outline:none}
+.topbar .asof{color:var(--nav-ink);font-size:13.5px;white-space:nowrap}
+
+/* Trang */
+.page{margin:0 auto;padding:20px 24px 40px}
+.page-head{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.page-head h1{margin:0;font-size:22px;font-weight:700}
+.live-controls{margin-left:auto;display:flex;align-items:center;gap:10px;white-space:nowrap}
+.live-controls time{font-size:13.5px;color:var(--ink-3)}
+.live-controls time.sheet-busy{color:var(--accent-ink);font-weight:600}
+.live-controls time.sheet-error{color:var(--critical);font-weight:600}
+.sheet-spin{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid var(--heat-3);border-top-color:var(--accent-ink);border-radius:50%;vertical-align:-2px;animation:sheet-spin 1s linear infinite}
+@keyframes sheet-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.sheet-spin{animation:none}}
+.btn{height:36px;padding:0 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer;font-weight:600;color:var(--ink-2)}
+.btn:hover{border-color:var(--ink-3);color:var(--ink)}
+#error{margin-bottom:16px;padding:12px 16px;background:var(--critical-soft);border:1px solid #ebb7b4;border-radius:8px;color:#8a1f1f}
+.loading{padding:30px;color:var(--ink-3)}
+
+/* Thẻ */
+.card{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0 20px 18px;box-shadow:var(--shadow);overflow:hidden}
+.card-head{display:flex;align-items:center;gap:12px;margin:0 -20px 12px;padding:12px 20px;background:var(--head);border-bottom:1px solid var(--line)}
+.card-head h2{margin:0;font-size:16px;font-weight:700}
+.card-head .aside{margin-left:auto;font-size:13.5px;color:var(--ink-3)}
+
+/* Danh sách hàng bấm được, hàng xen kẽ */
+.rows{list-style:none;margin:0;padding:0}
+.rows li+li{border-top:1px solid var(--line-soft)}
+.rows li:nth-child(even)>a,.rows li:nth-child(even)>.row{background:var(--zebra)}
+.rows a,.rows .row{display:flex;align-items:center;gap:12px;padding:9px 6px;border-radius:6px}
+.rows a:hover{background:var(--accent-soft)}
+.rows .chev{color:var(--ink-3);font-size:18px;line-height:1}
+
+/* Nhãn trạng thái: luôn có chữ, không chỉ màu */
+.tag{display:inline-flex;align-items:center;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:600;white-space:nowrap}
+.tag.critical{background:var(--critical-soft);color:var(--critical)}
+.tag.warning{background:var(--warning-soft);color:var(--warning)}
+.tag.neutral{background:var(--line-soft);color:var(--ink-2)}
+.tag.credit{background:var(--credit-soft);color:var(--credit)}
+
+@media (max-width:760px){
+  .topbar{flex-wrap:wrap;height:auto;padding:10px 12px;gap:10px}
+  .topbar nav{height:40px;order:3;width:100%}
+  .search{order:4;width:100%;margin-left:0}
+  .page{padding:16px 12px 32px}
+  .page-head{flex-wrap:wrap}
+}
