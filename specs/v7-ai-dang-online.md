@@ -50,11 +50,11 @@ Module mới `web/v7_presence.py` (thuần Python, không DB), hai route mới t
 ```json
 {"tab": "k3f9…", "page": "so-khach", "customer_id": 12, "month": "2026-09",
  "cell": {"row": "trip:4812", "col": "unit_price", "editing": false},
- "pointer": {"row": "trip:4812", "col": "unit_price", "fx": 0.42, "fy": 0.6}}
+ "pointer": {"row": "trip:4812", "col": "unit_price", "fx": 420, "fy": 600}}
 ```
 
-- `tab`: chuỗi ngẫu nhiên tạo một lần mỗi tab. `page` ∈ `dashboard | cong-no-theo-thang | so-khach | sheet-queue`. `cell`, `pointer` có thể `null`. `fx`, `fy` ∈ [0, 1] là vị trí trong ô.
-- Server tự gắn `actor` và giờ nhận; bỏ trường lạ; thân > 2 KB hoặc sai kiểu → 400. Trả `204`.
+- `tab`: chuỗi ngẫu nhiên tạo một lần mỗi tab. `page` ∈ `dashboard | cong-no-theo-thang | so-khach | sheet-queue`. `cell`, `pointer` có thể `null`. `fx`, `fy` là vị trí trong ô tính theo phần nghìn (số nguyên 0–1000, không dùng số thực).
+- Server tự gắn `actor` và giờ nhận; bỏ trường lạ; thân > 2 KB hoặc sai kiểu → 400. Trả `200` kèm danh sách người khác như luồng SSE (`{"people": […]}`), nên nhịp giữ chỗ cũng là đường dự phòng khi mất SSE. Một actor tối đa 20 tab, cả server 200 tab; vượt thì `429`.
 - Gửi khi: mở trang; đổi ô chọn / bắt đầu hoặc thôi gõ (ngay, gộp 150 ms); chuột di trên bảng (tối đa 5 lần/giây, chỉ khi có di chuyển); nhịp giữ chỗ mỗi 10 giây; `pagehide` gửi `page: null` qua `sendBeacon`.
 - Tab ẩn (`document.hidden`) thì bỏ `pointer`, giữ nhịp 10 giây.
 
@@ -70,7 +70,7 @@ data: {"people":[{"id":"a1","name":"lan","color":3,"page":"so-khach","customer_i
 - Người mở sổ khách nhận `cell`/`pointer` của người cùng sổ; người ở trang khác chỉ nhận `page`, `customer_id`, `month`.
 - Tối đa 10 lần đẩy/giây mỗi luồng (gộp thay đổi). Không có gì mới thì 15 giây gửi một dòng chú thích `: ping` để giữ kết nối.
 - Hết hạn: không nghe báo 30 giây thì người đó biến mất; `pointer` cũ hơn 3 giây thì ẩn mũi tên.
-- Giới hạn 40 luồng SSE cả server, 6 luồng mỗi actor; vượt thì trả `503`. Trình duyệt mất SSE thì chuyển sang hỏi `GET /api/v7/presence` (cùng dữ liệu, JSON) mỗi 2 giây, chỉ còn mức 1, thử nối lại SSE sau 30 giây.
+- Giới hạn 40 luồng SSE cả server, 6 luồng mỗi actor; vượt thì trả `503`. Trình duyệt mất SSE thì chuyển sang hỏi `GET /api/v7/presence?tab=…` (cùng dữ liệu, JSON) mỗi 2 giây, chỉ còn mức 1, thử nối lại SSE sau 30 giây.
 - Luồng SSE là luồng daemon; tắt server không chờ chúng.
 
 **Phía trình duyệt:** một file dùng chung `preview/presence.js` + `presence.css`, nạp bằng thẻ `<script>`/`<link>` trong bốn trang của `PAGES`. Sổ khách cài thêm một phần `SoKhachV7LiveParts.presence` để đọc ô đang chọn, khóa dòng và vẽ lớp phủ (viền ô, mũi tên) bằng một lớp `position:absolute; pointer-events:none` trên bảng. Mũi tên trượt giữa hai vị trí bằng `transition` 200 ms. Không tính tiền ở đây (ARCH-03 không bị đụng).
