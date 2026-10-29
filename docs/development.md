@@ -33,7 +33,7 @@ Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/
 
 Đặt ra 29/10/2026 sau một ngày 5–6 phiên song song va nhau liên tục:
 
-- **Mỗi lúc chỉ một phiên sửa SQL/migration** (`tools/migrations/`, `*.sql`, `specs/v7-backend/`). Các phiên khác làm UI/tài liệu. Hai migration cùng dựng lại một ràng buộc (ví dụ `event_kind_check`) thì bản chạy sau xóa phần của bản trước; PR thứ hai phải gộp `main` và liệt kê đủ.
+- **Mỗi lúc chỉ một phiên sửa SQL/migration** (`tools/migrations/`, `*.sql`, `specs/v7-backend/`). Các phiên khác làm UI/tài liệu. Hai migration cùng dựng lại một ràng buộc (ví dụ `event_kind_check`) thì bản chạy sau xóa phần của bản trước; PR thứ hai phải gộp `main` và liệt kê đủ. Riêng hai ràng buộc loại event, `tests/test_v7_event_kind_chain.py` bắt lỗi này mà không cần DB: tập loại của các migration phải lồng nhau, tập lớn nhất bằng `schema-draft.sql`.
 - **Trước push luôn gộp `origin/main` mới nhất** và chạy lại `npm run check`. Khi có PR khác cùng sửa file nóng, xếp thứ tự merge trước (một phiên điều phối giữ hàng chờ).
 - **Chỗ thêm mới đã tự động, không sửa danh sách chung:** test JS chạy theo tên file (`scripts/run-tests.js`: `preview/test-*.js`, `*-browser.js` cho Chromium); phần màn hình sổ khách tự đăng ký (mục [bố cục](#bố-cục-mã-sổ-khách-v7-từ-29102026)); mục lục [`decisions.md`](decisions.md) gộp kiểu union (giữ cả hai dòng thêm cuối bảng), `check-doc-links.js` chặn dòng trùng hoặc file quyết định chưa có link.
 - **Test mới để ở file mới** (`test-<tính-năng>.js`/`-browser.js`) thay vì thêm tiếp vào `test-so-khach-v7-api.js`.
