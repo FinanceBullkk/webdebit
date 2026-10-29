@@ -56,6 +56,16 @@ Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sa
 | `Permission denied (publickey)` dù khóa đúng | `AllowUsers` của sshd chỉ liệt kê tài khoản khác | Bước 5; xem `journalctl -u ssh` |
 | Test Postgres lỗi `the database system is starting up` | Container CI chưa sẵn sàng | Chạy lại job lỗi |
 | `ssh-keyscan` Windows báo `unsupported KEX` | Bản OpenSSH Windows cũ | Lấy host key trực tiếp trên `hao` (bước 7) |
+| `rm: cannot remove '…/<sha>/…/__pycache__/….pyc': Permission denied` sau dòng `đã chạy <sha>` (29/10/2026, `376a5bd`) | Service chạy Python ghi `__pycache__` vào release; user deploy không xóa được khi dọn bản cũ. Bản mới đã chạy và kiểm sống xong, chỉ bước dọn làm đỏ | Script trên `main` từ 29/10/2026 chỉ cảnh báo (cần cài lại trên `hao`); admin làm một lần các bước dưới |
+
+### Dọn `__pycache__` của release cũ (admin, root, một lần)
+
+1. Cài lại `scripts/deploy/hao-release.sh` từ `main` như bước 1 (kiểm SHA-256, giữ đường dẫn root-owned).
+2. Tắt ghi bytecode: `systemctl edit <unit>`, thêm `[Service]` / `Environment=PYTHONDONTWRITEBYTECODE=1`, rồi
+   `systemctl restart <unit>` và kiểm `HEALTH_URL` trả 200/403.
+3. Xóa `__pycache__` còn trong các release (bản đang chạy cũng được, Python không cần nó):
+   `find "$RELEASES_DIR" -mindepth 2 -type d -name __pycache__ -prune -exec rm -rf {} +` (lấy `RELEASES_DIR` từ
+   `/etc/webdebit-deploy.conf`). Lượt deploy sau tự dọn bản cũ quá `KEEP`.
 
 ## Rủi ro còn lại
 
