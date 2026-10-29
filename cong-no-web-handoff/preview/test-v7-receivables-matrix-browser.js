@@ -21,13 +21,18 @@ const matrix = year => ({
 const ledger = { status: 'active', month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '150000', received_vnd: '50000', allocated_vnd: '0',
   trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000', historical: false },
     { month: currentYear + '-01-01', event_date: currentYear + '-01-02', container: 'FAKE-GOC', unit_price_vnd: '50000', other_fee_vnd: null, amount_vnd: '50000', historical: true }], opening: true };
+// Tháng web: phát sinh − thu đã trừ = còn lại; có phụ phí; chuyến thiếu giá và chờ kiểm không vào tổng.
+const ledgerFeb = { status: 'active', month: currentYear + '-02-01', outstanding_vnd: '-20000', charges_vnd: '10000', received_vnd: '30000', allocated_vnd: '30000', opening: false,
+  trips: [{ event_date: currentYear + '-02-06', container: 'FAKE-D', status: 'pending_review', unit_price_vnd: '7000', other_fee_vnd: null, amount_vnd: '7000', historical: false },
+    { event_date: currentYear + '-02-05', container: 'FAKE-B', status: 'confirmed', unit_price_vnd: '5000', other_fee_vnd: '5000', amount_vnd: '10000', historical: false },
+    { event_date: currentYear + '-02-04', container: 'FAKE-C', status: 'confirmed', unit_price_vnd: null, other_fee_vnd: null, amount_vnd: null, historical: false }] };
 
 function server({ matrixStatus = 200, matrixPayload = matrix } = {}) {
   return http.createServer((req, res) => {
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/api/v7/receivables/matrix') return send(matrixStatus, 'application/json', JSON.stringify(matrixPayload(Number(url.searchParams.get('year')))));
-    if (url.pathname === '/api/v7/receivables/detail') return send(200, 'application/json', JSON.stringify(ledger));
+    if (url.pathname === '/api/v7/receivables/detail') return send(200, 'application/json', JSON.stringify(url.searchParams.get('month').endsWith('-02-01') ? ledgerFeb : ledger));
     const file = path.join(root, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(root) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     send(200, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript', fs.readFileSync(file));
@@ -76,17 +81,44 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     await page.locator('#find').fill('Khách A');
     await page.locator('.cell-btn[data-id="1"]').first().click();
     await page.locator('#drawer-body .mini-table').waitFor();
-    const drawer = await page.locator('#drawer-body').innerText();
-    assert.match(drawer, /FAKE001/);
-    assert.match(drawer, /FAKE-GOC · sổ gốc/);
-    assert.match(drawer, /Phát sinh trong tháng\s+150\.000 đ/);
-    assert.match(drawer, /Đã thu trong tháng \(theo ngày thu\)\s+50\.000 đ/);
-    assert.match(drawer, /Thu đã trừ vào nợ tháng này\s+0 đ/);
-    assert.doesNotMatch(drawer, /không có dòng chuyến|không khớp/);
-    await page.locator('#drawer-close').focus();
-    await page.keyboard.press('Tab');
-    assert.equal(await page.locator('#drawer a[href]').evaluate(el => el === document.activeElement), true);
+    // Tháng sổ gốc: chuyến xếp theo ngày dd/mm, không cột phụ phí khi tháng không có, dòng tổng khớp phát sinh.
+    const rows = await page.locator('#drawer-body tbody tr').allInnerTexts();
+    assert.match(rows[0], /^02\/01\s+FAKE-GOC\s+sổ gốc\s+50\.000$/);
+    assert.match(rows[1], /^03\/01\s+FAKE001\s+100\.000$/);
+    assert.deepEqual(await page.locator('#drawer-body thead th').allInnerTexts(), ['Ngày', 'Container', 'Thành tiền (đ)']);
+    assert.match(await page.locator('#drawer-body tfoot').innerText(), /Tổng 2 chuyến\s+150\.000/);
+    const sum = await page.locator('#drawer-sum').innerText();
+    assert.match(sum, /Phát sinh trong tháng\s+150\.000 đ/);
+    assert.match(sum, /Thu đã trừ vào nợ tháng này\s+0 đ/);
+    assert.match(sum, /Còn lại tháng này\s+100\.000 đ/);
+    assert.match(sum, /Đã thu trong tháng \(theo ngày thu\): 50\.000 đ/);
+    assert.match(sum, /số dư đầu theo sổ gốc/);
+    assert.doesNotMatch(sum, /[−=]\s*\n/);
+    assert.doesNotMatch(await page.locator('#drawer').innerText(), /không có dòng chuyến|không khớp|chênh/);
+    assert.equal(await page.locator('#drawer-ledger').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+    assert.equal(await page.locator('#drawer-month').innerText(), 'Tháng 1/' + currentYear);
+    assert.equal(await page.locator('.cell-btn.active').getAttribute('data-month'), '1');
+    // Ngăn kéo không chặn bảng: bấm ô khác thì đổi tháng; tháng web hiện phép tính, phụ phí và chuyến chưa tính.
+    await page.locator('.cell-btn[data-id="1"][data-month="2"]').click();
+    await page.locator('#drawer-body').getByText('FAKE-B').waitFor();
+    assert.equal(await page.locator('#drawer-month').innerText(), 'Tháng 2/' + currentYear);
+    assert.equal(await page.locator('.cell-btn.active').getAttribute('data-month'), '2');
+    const feb = await page.locator('#drawer-sum').innerText();
+    assert.match(feb, /−\s+Thu đã trừ vào nợ tháng này\s+30\.000 đ/);
+    assert.match(feb, /=\s+Còn lại tháng này\s+−20\.000 đ/);
+    assert.deepEqual(await page.locator('#drawer-body thead th').allInnerTexts(), ['Ngày', 'Container', 'Đơn giá', 'Phụ phí', 'Thành tiền (đ)']);
+    const febRows = await page.locator('#drawer-body tbody tr').allInnerTexts();
+    assert.match(febRows[0], /^04\/02\s+FAKE-C\s+—\s+—\s+chưa có giá$/);
+    assert.match(febRows[2], /FAKE-D\s+chờ kiểm/);
+    assert.match(await page.locator('#drawer-body tfoot').innerText(), /Tổng 1 chuyến có tính\s+10\.000/);
+    assert.match(await page.locator('#drawer-body').innerText(), /2 chuyến chờ kiểm hoặc chưa có giá/);
+    await page.locator('#drawer-prev').click();
+    await page.locator('#drawer-body').getByText('FAKE001').waitFor();
+    assert.equal(await page.locator('#drawer-prev').isDisabled(), true);
+    assert.equal(await page.locator('.cell-btn.active').getAttribute('data-month'), '1');
     await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#drawer').isHidden(), true);
+    assert.equal(await page.locator('.cell-btn[data-id="1"][data-month="1"]').evaluate(el => el === document.activeElement && !el.classList.contains('active')), true);
     await page.setViewportSize({ width: 390, height: 844 });
     const overflow = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
       nodes: [...document.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).position !== 'sticky').slice(0, 8).map(el => [el.tagName, el.className, Math.round(el.getBoundingClientRect().right)]) }));

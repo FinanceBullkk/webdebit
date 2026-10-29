@@ -218,7 +218,7 @@ test('locked month keeps trip cells read only and receipt entry usable', async (
       unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: '100' }], receipts: [], legacy_rows: [],
     adjustments: [], opening: [], source_exceptions: [], events: [] });
   const block = root.innerHTML.match(/<section id="thang-2026-01">.*?<\/section>/s)[0];
-  assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"|class="draft-input/);
+  assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"/);
   assert.match(block, /class="empty-entry receipt-amount"/);
   assert.match(block, /class="add-month-adjustment"[^>]*disabled/);
 });
@@ -398,7 +398,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10<\/strong>/);
-  // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu và bảng nhập; tháng không có dòng Sheet vẽ thẳng từ GET;
+  // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
   const newMonth = page(true, { ...ledger(4), today_month: '2026-11-01',
     months: [
@@ -409,16 +409,14 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
   assert.match(newMonth.innerHTML, /class="empty-entry receipt-amount"/);
-  // Hàng nhập phiếu và bảng nhập chuyến ở mọi tháng đang mở: tháng hiện tại và tháng cũ đã mở khóa (8/2026);
-  // tháng khóa (9/2026) không có. Không còn ô "Dán các dòng từ Sheet".
+  // Hàng nhập phiếu ở mọi tháng đang mở: tháng hiện tại và tháng cũ đã mở khóa (8/2026).
+  // Không có bảng nhập chuyến (NHAP-SHEET-02) và không còn ô "Dán các dòng từ Sheet".
   const block = key => newMonth.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   for (const key of ['2026-11', '2026-08']) {
-    assert.match(block(key), new RegExp(`class="draft-input[^"]*" data-month="${key}"`));
     assert.match(block(key), /class="empty-entry receipt-date".*class="receipt-reference"/s);
   }
-  assert.doesNotMatch(block('2026-09'), /class="draft-input/);
   assert.match(block('2026-09'), /class="empty-entry receipt-amount"/);
-  assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây/);
+  assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây|draft-input|Nhập chuyến · dán từ Sheet/);
   assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
   assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
   assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);

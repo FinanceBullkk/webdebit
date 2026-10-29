@@ -32,7 +32,7 @@ test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',asy
 
 test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');
-  assert.equal(await sept.locator('td.info-edit,td.row-delete,td.editable,.draft-input').count(), 0);
+  assert.equal(await sept.locator('td.info-edit,td.row-delete,td.editable').count(), 0);
   assert.equal(await sept.locator('.add-month-adjustment').isDisabled(), true);
   assert.equal(await sept.locator('.receipt-amount').count(), 1);
   assert.equal(world.requests.length, 0);
@@ -208,56 +208,10 @@ test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để
     current: { month: '2026-09-01', deleted: false, counted_vnd: '1000000' }, display: { row: 8, raw_date: '', note: '' } });
 }));
 
-test('bảng nhập kiểu Sheet: dán hàng từ tab khách vào hàng trống, ô lỗi chặn Lưu, Lưu gửi một lệnh dán lô', async () => withPage(async ({ page, world, shot }) => {
-  assert.equal(await page.locator('.paste-input').count(), 0);
-  const blank = page.locator(`#thang-${todayMonth.slice(0, 7)} .draft-input[data-draft="0"][data-field="carrier"]`);
-  await blank.click();
-  const day = `${clock.slice(8)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
-  const rows = [['1', 'NEWU0000001', 'Tàu mới', day, 'Nơi A', 'Nơi B', '1,000,000', '', '', '90,000,000', '91,000,000', day, 'ck', '5,000,000'],
-    ['2', 'NEWU0000002', 'Tàu mới', day, 'Nơi A', '', '', '', '', '', '0']].map(row => row.join('\t')).join('\n');
-  await page.evaluate(text => {
-    const data = new DataTransfer();
-    data.setData('text/plain', text);
-    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
-  }, rows);
-  await page.locator('.draft-row.draft').nth(1).waitFor();
-  assert.equal(await page.locator('.draft-input[data-draft="0"][data-field="container"]').inputValue(), 'NEWU0000001');
-  assert.equal(await page.locator('.draft-input[data-draft="0"][data-field="fee"]').inputValue(), '1.000.000');
-  assert.match(await page.locator('.draft-note').innerText(), /Phần tiền khách trả trong vùng dán đã bỏ qua/);
-  // Hàng 2 thiếu nơi đến: ô đỏ, nút Lưu tắt; thiếu giá chỉ tô cam, không chặn.
-  assert.match(await page.locator('.draft-input[data-draft="1"][data-field="to"]').locator('..').getAttribute('class'), /bad/);
-  assert.equal(await page.locator('.draft-save').isDisabled(), true);
-  await page.locator('.draft-input[data-draft="1"][data-field="to"]').fill('Nơi C');
-  await page.locator('.draft-input[data-draft="1"][data-field="from"]').click();
-  await page.waitForFunction(() => !document.querySelector('.draft-save').disabled);
-  assert.equal(world.requests.length, 0);
-  await shot('bang-nhap-nhap');
-  await page.locator('.draft-save').click();
-  await page.waitForFunction(() => /Đã lưu 2 chuyến/.test(document.querySelector('.draft-note')?.textContent ?? ''));
-  const sent = world.requests.at(-1);
-  assert.equal(sent.path, '/api/v7/trips/paste');
-  assert.deepEqual(sent.body.trips, [
-    { container: 'NEWU0000001', carrier: 'Tàu mới', date: day, from: 'Nơi A', to: 'Nơi B', unitPriceVnd: '90000000', otherFeeVnd: '1000000', note: '', src: '' },
-    { container: 'NEWU0000002', carrier: 'Tàu mới', date: day, from: 'Nơi A', to: 'Nơi C', unitPriceVnd: null, otherFeeVnd: null, note: '', src: '' }]);
-  assert.equal(await page.locator('.draft-row.draft').count(), 0);
-  assert.equal(await page.locator('td.info-edit[data-kind="trip"][data-field="container"]').filter({ hasText: 'NEWU0000002' }).count(), 1);
-}, world => { world.locks = [{ month: '2026-09-01', locked: true }]; }));
-
-test('tháng cũ đã mở khóa có hàng nhập phiếu và bảng nhập chuyến riêng; nháp không lẫn tháng, ô thu gõ dở không mất', async () => withPage(async ({ page, world, shot }) => {
+test('tháng cũ đã mở khóa có hàng nhập phiếu riêng; không còn bảng nhập chuyến (NHAP-SHEET-02)', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');
-  const current = page.locator(`#thang-${todayMonth.slice(0, 7)}`);
-  await sept.locator('.draft-input[data-field="container"]').first().waitFor();
   for (const selector of ['.receipt-date:not(.saved-receipt-input)', '.receipt-method', '.receipt-amount', '.receipt-reference']) assert.equal(await sept.locator(selector).count(), 1);
-  // Gõ nháp ở tháng 9 không làm hiện nháp ở tháng hiện tại.
-  const entry = sept.locator('.draft-row').first();
-  await entry.locator('.draft-input[data-field="container"]').fill('NEWU7654321');
-  await sept.locator('.receipt-amount').fill('1.000.000');
-  await entry.locator('.draft-input[data-field="carrier"]').click();
-  await page.waitForFunction(() => document.querySelector('#thang-2026-09 .draft-bar strong')?.textContent === '1 chuyến nháp');
-  assert.equal(await current.locator('.draft-bar strong').innerText(), '0 chuyến nháp');
-  // Bảng nháp vẽ lại không làm mất ô thu đang gõ.
-  assert.equal(await sept.locator('.receipt-amount').inputValue(), '1.000.000');
-  await shot('nhap-thang-cu-mo-khoa');
+  assert.equal(await page.locator('.draft-input,.draft-row,.draft-bar,.paste-input').count(), 0);
   assert.equal(world.requests.length, 0);
 }, world => { world.locks = [{ month: '2026-09-01', locked: false }]; }));
 

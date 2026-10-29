@@ -5,7 +5,7 @@
   const currentMonth = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', month: 'numeric' }).format(new Date()));
   // Mở từ Tổng quan: ?tuoi=0–3 (nhóm tuổi nợ) và ?con-no=1 (chỉ khách còn nợ).
   const opened = new URLSearchParams(location.search);
-  const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null,
+  const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null, open: null,
     age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null };
   const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
   // Nhóm tuổi của một tháng như get_dashboard; tháng sau tháng hiện tại không thuộc nhóm nào trên ma trận.
@@ -152,6 +152,7 @@
     $('#year-prev').disabled = state.year <= yearMin;
     $('#year-next').disabled = state.year >= yearMax;
     document.querySelectorAll('.cell-btn[data-id]').forEach(button => button.addEventListener('click', () => openDetail(Number(button.dataset.id), Number(button.dataset.month), button)));
+    paintActive();
   }
 
   async function load(year) {
@@ -184,43 +185,109 @@
     }
   }
 
+  const MONEY_SUFFIX = / đ$/;
+  // Bảng chuyến: số không kèm "đ" (tiêu đề cột đã ghi), ngày dd/mm vì tháng đã ở đầu ngăn kéo.
+  const plain = value => value == null ? '—' : F.full(value).replace(MONEY_SUFFIX, '');
+  const dayMonth = iso => /^\d{4}-\d{2}-\d{2}$/.test(iso ?? '') ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '—';
+  // Chuyến chờ kiểm và chuyến thiếu giá không vào phát sinh, như dòng Tổng tháng của Sổ khách.
+  const counted = trip => trip.status !== 'pending_review' && trip.amount_vnd != null;
+  const byDate = (a, b) => (a.event_date || '9999').localeCompare(b.event_date || '9999') || String(a.container || '').localeCompare(String(b.container || ''));
+
+  function paintActive() {
+    document.querySelectorAll('.cell-btn.active').forEach(button => button.classList.remove('active'));
+    if (!state.open || $('#drawer').hidden) return;
+    document.querySelector('.cell-btn[data-id="' + state.open.id + '"][data-month="' + state.open.month + '"]')?.classList.add('active');
+  }
+
+  function paintNav(month) {
+    const prev = $('#drawer-prev'), next = $('#drawer-next');
+    prev.textContent = month > 1 ? '‹ Tháng ' + (month - 1) : '‹';
+    next.textContent = month < 12 ? 'Tháng ' + (month + 1) + ' ›' : '›';
+    prev.disabled = month <= 1; next.disabled = month >= 12;
+    $('#drawer-month').textContent = 'Tháng ' + month + '/' + state.year;
+  }
+
+  // Phát sinh − thu đã trừ vào tháng = còn lại khi tháng không có số dư đầu; tháng sổ gốc lấy phát sinh/đã thu theo Sheet nên chỉ liệt kê.
+  function summaryHtml(customer, month, ledger) {
+    const left = monthValue(customer, month);
+    const line = (op, label, value, cls) => '<div' + (cls ? ' class="' + cls + '"' : '') + '><span class="op">' + op + '</span><span>' + label + '</span><b class="money">' + signed(value) + '</b></div>';
+    if (!ledger) return '<div class="calc">' + line('', 'Còn lại tháng này', left, 'result') + '</div>';
+    const charges = vnd(ledger.charges_vnd), received = vnd(ledger.received_vnd), allocated = vnd(ledger.allocated_vnd);
+    const bridged = charges - allocated === left;
+    let html = vnd(ledger.outstanding_vnd) !== left ? '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>' : '';
+    html += '<div class="calc">' + line('', 'Phát sinh trong tháng', charges) + line(bridged ? '−' : '', 'Thu đã trừ vào nợ tháng này', allocated) +
+      line(bridged ? '=' : '', 'Còn lại tháng này', left, 'result') + '</div>';
+    html += '<p class="sub">Đã thu trong tháng (theo ngày thu): <b class="money">' + signed(received) + '</b></p>';
+    if (!bridged) html += '<p class="note">' + (ledger.opening ? 'Tháng có số dư đầu theo sổ gốc: phát sinh và đã thu lấy theo Sheet, còn lại tính từ số dư đầu.' : 'Còn lại khác phát sinh trừ thu đã trừ; xem chi tiết trong sổ khách.') + '</p>';
+    else if (received !== allocated) html += '<p class="note">Đã thu theo ngày thu khác thu trừ vào tháng này vì tiền thu trừ nợ cũ trước.</p>';
+    return html;
+  }
+
+  function tripsHtml(ledger) {
+    const trips = (ledger.trips || []).slice().sort(byDate);
+    let html = ledger.opening && !trips.length ? '<div class="warnbox">Tháng số dư đầu: sổ gốc không có dòng chuyến cho tháng này.</div>' : '';
+    if (!trips.length) return html + '<p class="note">Không có chuyến trong tháng.</p>';
+    const hasFee = trips.some(trip => trip.other_fee_vnd != null && vnd(trip.other_fee_vnd) !== 0n);
+    const included = trips.filter(counted);
+    const total = F.sum(included.map(trip => trip.amount_vnd));
+    const head = '<th>Ngày</th><th>Container</th>' + (hasFee ? '<th class="money">Đơn giá</th><th class="money">Phụ phí</th>' : '') + '<th class="money">Thành tiền (đ)</th>';
+    const row = trip => {
+      const tags = (trip.historical ? ' <span class="tag neutral" title="Dòng sổ gốc, đã nằm trong số dư đầu">sổ gốc</span>' : '') +
+        (trip.status === 'pending_review' ? ' <span class="tag warning" title="Chưa tính vào phát sinh">chờ kiểm</span>' : '');
+      const amount = trip.amount_vnd == null ? '<span class="missing">chưa có giá</span>' : plain(trip.amount_vnd);
+      return '<tr' + (counted(trip) ? '' : ' class="excluded"') + '><td>' + dayMonth(trip.event_date) + '</td><td>' + esc(trip.container || '—') + tags + '</td>' +
+        (hasFee ? '<td class="money">' + plain(trip.unit_price_vnd) + '</td><td class="money">' + plain(trip.other_fee_vnd) + '</td>' : '') +
+        '<td class="money">' + amount + '</td></tr>';
+    };
+    const label = 'Tổng ' + included.length + ' chuyến' + (included.length < trips.length ? ' có tính' : '');
+    html += '<table class="mini-table"><thead><tr>' + head + '</tr></thead><tbody>' + trips.map(row).join('') +
+      '</tbody><tfoot><tr><td colspan="' + (hasFee ? 4 : 2) + '">' + label + '</td><td class="money">' + plain(total) + '</td></tr></tfoot></table>';
+    if (included.length < trips.length) html += '<p class="note">' + (trips.length - included.length) + ' chuyến chờ kiểm hoặc chưa có giá chưa tính vào phát sinh.</p>';
+    const charges = vnd(ledger.charges_vnd);
+    if (total !== charges) html += '<p class="note">Tổng chuyến chênh ' + esc(signed(charges - total)) + ' so với phát sinh trong tháng: phần này là dòng không phải chuyến (điều chỉnh, phí lẻ) hoặc số theo Sheet — xem sổ khách.</p>';
+    return html;
+  }
+
   async function openDetail(customerId, month, trigger) {
     const detail = ++state.detail;
-    state.detailFocus = trigger;
     const customer = state.data.customers.find(item => item.customer_id === customerId);
     if (!customer) return;
+    const wasHidden = $('#drawer').hidden;
+    if (trigger) state.detailFocus = trigger;
+    state.open = { id: customerId, month };
     const date = state.year + '-' + String(month).padStart(2, '0');
     $('#drawer-title').textContent = customer.name;
-    $('#drawer-meta').textContent = 'Tháng ' + month + '/' + state.year + ' · ' + groupLabel(groupKey(customer));
-    $('#drawer-body').innerHTML = '<div class="kv big"><span>Còn lại tháng này</span><b class="money">' + signed(monthValue(customer, month)) + '</b></div><p class="note">Đang tải chi tiết sổ…</p>';
-    $('#drawer').hidden = false; $('#drawer-scrim').hidden = false; document.body.classList.add('drawer-open'); $('#drawer-close').focus();
+    $('#drawer-ledger').href = '/so-khach-v7-live.html?customer=' + customerId;
+    $('#drawer-meta').textContent = groupLabel(groupKey(customer));
+    paintNav(month);
+    $('#drawer-sum').innerHTML = summaryHtml(customer, month, null);
+    $('#drawer-body').innerHTML = '<p class="note">Đang tải chi tiết sổ…</p>';
+    $('#drawer').hidden = false; document.body.classList.add('drawer-open');
+    paintActive();
+    document.querySelector('.cell-btn.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    if (wasHidden) $('#drawer-close').focus();
     try {
       const response = await fetch('/api/v7/receivables/detail?customer=' + customerId + '&month=' + date + '-01', { cache: 'no-store' });
       const ledger = await response.json();
       if (!response.ok || ledger.status !== 'active') throw Error('Không tải được chi tiết tháng.');
       if (detail !== state.detail || $('#drawer').hidden) return;
-      const trips = ledger.trips || [];
-      const opening = ledger.opening;
-      let html = '<div class="kv big"><span>Còn lại tháng này</span><b class="money">' + signed(monthValue(customer, month)) + '</b></div>';
-      if (vnd(ledger.outstanding_vnd) !== monthValue(customer, month)) html += '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>';
-      if (opening && !trips.length) html += '<div class="warnbox">Tháng số dư đầu: sổ gốc không có dòng chuyến cho tháng này.</div>';
-      // Phát sinh và đã thu như dòng Tổng tháng của Sổ khách (tháng sổ gốc lấy số Sheet); còn lại là nợ sau phân bổ nợ cũ trước.
-      html += '<div class="kv"><span>Phát sinh trong tháng</span><b class="money">' + signed(ledger.charges_vnd) + '</b></div><div class="kv"><span>Đã thu trong tháng (theo ngày thu)</span><b class="money">' + signed(ledger.received_vnd) + '</b></div>';
-      if (ledger.allocated_vnd != null && vnd(ledger.allocated_vnd) !== vnd(ledger.received_vnd)) html += '<div class="kv"><span>Thu đã trừ vào nợ tháng này</span><b class="money">' + signed(ledger.allocated_vnd) + '</b></div>';
-      if (trips.length) html += '<h3>Chuyến / container trong tháng (' + trips.length + ')</h3><table class="mini-table"><thead><tr><th>Container</th><th>Ngày</th><th class="money">Đơn giá</th><th class="money">Phụ phí</th><th class="money">Thành tiền</th></tr></thead><tbody>' + trips.map(trip => '<tr><td>' + esc(trip.container || '—') + (trip.historical ? ' <span class="muted" title="Dòng sổ gốc, đã nằm trong số dư đầu">· sổ gốc</span>' : '') + '</td><td>' + esc(trip.event_date || '—') + '</td><td class="money">' + signed(trip.unit_price_vnd) + '</td><td class="money">' + signed(trip.other_fee_vnd) + '</td><td class="money">' + signed(trip.amount_vnd) + '</td></tr>').join('') + '</tbody></table>';
-      html += '<p class="note">Còn lại tháng này là nợ của tháng sau khi trừ tiền thu theo nợ cũ trước, nên có thể khác phát sinh trừ đã thu trong tháng.</p><p class="note"><a href="/so-khach-v7-live.html?customer=' + customerId + '">Mở sổ khách ›</a></p>';
-      $('#drawer-body').innerHTML = html;
+      $('#drawer-sum').innerHTML = summaryHtml(customer, month, ledger);
+      $('#drawer-body').innerHTML = tripsHtml(ledger);
+      $('#drawer-body').scrollTop = 0;
     } catch {
       if (detail !== state.detail || $('#drawer').hidden) return;
-      $('#drawer-body').innerHTML += '<p class="note">Không tải được chi tiết sổ. Giá trị ô vẫn lấy từ ma trận API.</p>';
+      $('#drawer-body').innerHTML = '<p class="note">Không tải được chi tiết sổ. Giá trị ô vẫn lấy từ ma trận API.</p>';
     }
   }
 
   function closeDrawer() {
     state.detail++;
-    $('#drawer').hidden = true; $('#drawer-scrim').hidden = true; document.body.classList.remove('drawer-open');
-    if (state.detailFocus?.isConnected) state.detailFocus.focus();
+    const active = document.querySelector('.cell-btn.active');
+    $('#drawer').hidden = true; state.open = null; document.body.classList.remove('drawer-open');
+    paintActive();
+    (active || (state.detailFocus?.isConnected ? state.detailFocus : null))?.focus();
   }
+  const step = delta => { if (state.open) openDetail(state.open.id, state.open.month + delta, null); };
   $('#year-prev').addEventListener('click', () => load(state.year - 1));
   $('#year-next').addEventListener('click', () => load(state.year + 1));
   const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };
@@ -232,16 +299,8 @@
   $('#only-open').checked = state.onlyOpen;
   $('#only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
   $('#drawer-close').addEventListener('click', closeDrawer);
-  $('#drawer-scrim').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', event => {
-    if ($('#drawer').hidden) return;
-    if (event.key === 'Escape') closeDrawer();
-    if (event.key === 'Tab') {
-      const focusable = [...$('#drawer').querySelectorAll('button,a[href]')];
-      const first = focusable[0], last = focusable.at(-1);
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    }
-  });
+  $('#drawer-prev').addEventListener('click', () => step(-1));
+  $('#drawer-next').addEventListener('click', () => step(1));
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('#drawer').hidden) closeDrawer(); });
   load(state.year);
 })();

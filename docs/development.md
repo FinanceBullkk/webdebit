@@ -70,7 +70,6 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
 | `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO) |
 | `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
-| `so-khach-v7-draft-ui.js` | bảng nhập kiểu Sheet (NHAP-SHEET-01) |
 | `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, "Phụ phí PS cần xem" |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 
