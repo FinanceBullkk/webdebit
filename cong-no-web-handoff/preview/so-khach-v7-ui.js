@@ -501,6 +501,7 @@
       }
       decoratePrices(data, active);
       ctx.priceAfterRender?.(active);
+      ctx.psAfterRender?.(data, active);
       markLoc(data);
       ctx.feeAfterRender?.();
     }

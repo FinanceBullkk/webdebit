@@ -588,3 +588,16 @@ test("DEBIT-NOTE-01 sổ gốc rows without an editable copy read the Sheet disp
   assert.equal(note.rows[2].fees.neo, 70n);
   assert.deepEqual(["Phí điện", "ĐÓNG GHÉP", "Health", "Nâng hạ"].map(model.debitFeeColumn), ["dien", "ghep", "health", "other"]);
 });
+
+test("tách phụ phí theo bảng PS: chỉ ghi 'Tổng tiền không đổi' khi mọi chuyến giữ tổng", () => {
+  const ready = [
+    { before: [{ fee_type_id: 9, amount_vnd: "2000000" }], after: [{ fee_type_id: 1, amount_vnd: "1500000" }, { fee_type_id: 2, amount_vnd: "500000" }] },
+    { before: [{ fee_type_id: 7, amount_vnd: "800000" }], after: [{ fee_type_id: 3, amount_vnd: "800000" }] }];
+  assert.deepEqual(model.planPsFees(ready), { count: 2, totalVnd: 2800000n, same: true });
+  const changed = [...ready, { before: [{ fee_type_id: 7, amount_vnd: "100" }], after: [{ fee_type_id: 1, amount_vnd: "101" }] }];
+  assert.deepEqual(model.planPsFees(changed), { count: 3, totalVnd: null, same: false });
+  assert.deepEqual(model.planPsFees([{ before: [], after: [] }]), { count: 1, totalVnd: null, same: false });
+  assert.deepEqual(model.planPsFees([]), { count: 0, totalVnd: 0n, same: false });
+  const names = { 1: "Neo", 2: "Điện" };
+  assert.equal(model.feeLinesText(ready[0].after, id => names[id]), "Neo 1.500.000 + Điện 500.000");
+});

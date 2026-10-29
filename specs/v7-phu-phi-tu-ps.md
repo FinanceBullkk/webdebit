@@ -1,6 +1,6 @@
 # V7: phân loại phụ phí theo bảng PS của bộ lập bill
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE; migration ĐÃ TRIỂN KHAI trên `hao` 29/10/2026 ([nhật ký](../docs/deploys/2026-10-29-xoa-dc-ps-fee.md)), runner bản chụp PS ĐÃ CÀI cùng ngày (timer 15 phút; quyền đọc `CONT_MASTER` đã có sẵn), chưa có giao diện (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Chưa có mockup, chưa code. Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
+Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE; migration ĐÃ TRIỂN KHAI trên `hao` 29/10/2026 ([nhật ký](../docs/deploys/2026-10-29-xoa-dc-ps-fee.md)), runner bản chụp PS ĐÃ CÀI cùng ngày (timer 15 phút; quyền đọc `CONT_MASTER` đã có sẵn), chưa có giao diện (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Giao diện (PR-2): mockup dữ liệu giả [`preview/mockups/tach-phu-phi-ps`](../cong-no-web-handoff/preview/mockups/tach-phu-phi-ps/index.html) người dùng duyệt trong chat 29/10/2026 ("Duyệt, code luôn"); ĐÃ CODE (mục Tiến độ PR-2). Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
 
 ## Người dùng và luồng (bước 1)
 
@@ -153,6 +153,16 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 - Runbook: [mục Tách phụ phí theo bảng PS](../docs/v7-deploy-runbook.md#tách-phụ-phí-theo-bảng-ps--migration--runner-bản-chụp-đã-chạy-trên-hao-29102026).
 
 **ĐÃ KIỂM CHỨNG (máy dev, dữ liệu giả):** harness PostgreSQL 18.6 dùng một lần `test_pg_v7_backend.py`: 66 ca đạt (gồm `PS-FEE.01`: giữ tổng chuyến web và dòng sổ gốc có `counted_differs`, không phân bổ lại, không ghi revision/điều chỉnh sổ gốc, các mã lỗi, quyền), 2 ca bỏ qua cũ (7.11c, 7.15c); `test_pg_v7_grants.py --strict` đạt; `npm run check` đạt. **CÒN MỞ:** chưa đọc `CONT_MASTER` thật bằng tài khoản dịch vụ trên `hao`, chưa thử trên bản sao DB thật.
+
+## Tiến độ PR-2 giao diện (29/10/2026, Claude)
+
+**ĐÃ CODE** theo mockup đã duyệt: `preview/so-khach-v7-ps-ui.js` + `so-khach-v7-ps.css` (phần mới, nối bằng một dòng `ctx.psAfterRender` trong `so-khach-v7-ui.js`), `planPsFees`/`feeLinesText` trong model.
+- Nút "Tách N phụ phí theo bảng PS" ở đầu sổ; chuyến tách được tô vàng ở cụm cột phụ phí.
+- Khung xác nhận dưới đầu sổ: mỗi chuyến một dòng trước → sau, ô trong sổ hiện kết quả dự kiến. Nhãn "Tổng tiền không đổi" chỉ hiện khi model thấy mọi chuyến giữ tổng; lệch thì khóa nút Tách. Danh sách dài tự cuộn.
+- "Phụ phí PS cần xem" chung dải với "Giá từ Sheet cần xem", chia ba nhóm theo việc phải làm, có câu hướng dẫn, nút "Mở khóa tháng N" và "Xem dòng" (chỉ khi chuyến có trên sổ).
+- `STALE_SHEET`/`STALE_LEDGER`: khung đỏ "Chưa tách chuyến nào" + Tải lại sổ. Mất mạng giữa chừng: giữ khóa lệnh để bấm lại không tách trùng. Thiếu bản chụp: dải báo, nút ẩn.
+
+**ĐÃ KIỂM CHỨNG (máy dev, máy chủ giả):** `test-so-khach-v7-ps-browser.js` 4 ca (1280×720), unit model; `npm run check`. **CÒN MỞ:** chưa thử tay trên sổ thật ở `hao`; tháng 5–6 đang khóa nên phải mở khóa mới tách được.
 
 ## Hoàn tác
 

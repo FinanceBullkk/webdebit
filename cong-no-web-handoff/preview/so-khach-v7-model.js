@@ -537,6 +537,19 @@ const SoKhachV7Model = (() => {
       return values.length ? values.reduce((sum, value) => sum + value, 0n) : null; };
     return { own: columnIds.map((_, index) => total(cell => cell.own[index])), otherVnd: total(cell => cell.otherVnd) };
   }
+  // Tách phụ phí theo bảng PS (specs/v7-phu-phi-tu-ps.md): chỉ đổi loại. Trang chỉ ghi "Tổng tiền không đổi"
+  // khi mọi chuyến có tổng trước = sau; lệch một chuyến thì same = false và không cho tách.
+  function planPsFees(ready) {
+    const list = Array.isArray(ready) ? ready : [];
+    let totalVnd = 0n;
+    for (const item of list) {
+      const before = feeSum(item.before ?? []);
+      if (before === null || before !== feeSum(item.after ?? [])) return { count: list.length, totalVnd: null, same: false };
+      totalVnd += before;
+    }
+    return { count: list.length, totalVnd, same: list.length > 0 };
+  }
+  const feeLinesText = (lines, nameOf) => (lines ?? []).map(line => `${nameOf(line.fee_type_id)} ${formatVnd(vnd(String(line.amount_vnd), true))}`).join(" + ");
   // Số phụ phí gõ tay: trống → null (chỉ ô cột riêng: xóa trắng); khác 0; dấu theo loại (fee_type.sign).
   function parseFeeInput(text, sign, { allowBlank = false } = {}) {
     const value = String(text ?? "").trim().replace(/\s+/g, "");
@@ -631,7 +644,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DEBIT_FEES, debitFeeColumn, debitNote };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;
