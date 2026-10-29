@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mockup Tổng quan công nợ — dữ liệu giả, chỉ để duyệt thiết kế.">
+  <title>MOCKUP · Tổng quan công nợ</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    /* Số chính */
+    .card.hero{padding-top:18px;background:linear-gradient(180deg,#eaf2fc,#fff 70%);border-color:#b7d3f6}
+    .hero .label{font-size:15px;font-weight:600;color:var(--ink-2)}
+    .hero .figure{margin:4px 0 2px;font-size:48px;line-height:1.1;font-weight:700;letter-spacing:-.5px}
+    .hero .figure small{font-size:24px;font-weight:600;margin-left:6px;color:var(--ink-2)}
+    .hero .sub{color:var(--ink-3)}
+    .hero .minis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+    .mini{padding:10px 12px;border-radius:8px;background:#fff;border:1px solid var(--line)}
+    .mini .k{font-size:13.5px;color:var(--ink-3)}
+    .mini .v{font-size:20px;font-weight:700}
+    .mini .v.credit{color:var(--credit)}
+    .mini .s{font-size:13.5px;color:var(--ink-3)}
+
+    /* Tuổi nợ: một thanh chia đoạn + chú giải có số */
+    .age-bar{display:flex;gap:2px;height:28px;margin:4px 0 18px}
+    .age-bar span{display:block;height:100%}
+    .age-bar span:first-child{border-radius:6px 0 0 6px}
+    .age-bar span:last-child{border-radius:0 6px 6px 0}
+    .age-legend{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+    .age-legend .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
+    .age-legend .k{font-size:14px;color:var(--ink-2)}
+    .age-legend .v{font-size:20px;font-weight:700;margin-top:2px}
+    .age-legend .p{font-size:13.5px;color:var(--ink-3)}
+    .age-note{margin:16px 0 0;padding:10px 14px;border-radius:8px;background:var(--head);font-size:14px;color:var(--ink-2)}
+    .age-note b{color:var(--ink)}
+
+    /* Việc cần làm */
+    .todo-group+.todo-group{margin-top:14px}
+    .todo-title{display:flex;align-items:center;justify-content:space-between;font-weight:600;font-size:14.5px;margin-bottom:2px}
+    .todo-group .rows a{padding:7px 4px}
+    .todo-group .who{flex:1;min-width:0}
+    .todo-group .what{color:var(--ink-3);font-size:14px}
+
+    /* Hôm nay */
+    .today-line{display:flex;gap:22px;flex-wrap:wrap}
+    .today-line div b{display:block;font-size:20px}
+    .today-line div span{font-size:13.5px;color:var(--ink-3)}
+    .actors{margin-top:12px;font-size:14px;color:var(--ink-2)}
+    .actors div{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line-soft)}
+
+    /* 10 khách */
+    .top .rank{width:22px;color:var(--ink-3);font-size:14px;text-align:right}
+    .top .who{flex:1;min-width:0}
+    .top .who b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .top .who span{font-size:13.5px;color:var(--ink-3)}
+    .top .amt{text-align:right}
+    .top .amt b{display:block;font-weight:600}
+    .top .amt span{font-size:13.5px;color:var(--ink-3)}
+
+    /* Mặt hàng */
+    .com li a{display:block;padding:8px 4px}
+    .com .line{display:flex;justify-content:space-between;gap:8px;font-size:14.5px}
+    .com .line b{font-weight:600}
+    .com .meta{font-size:13px;color:var(--ink-3)}
+    .com .bar{height:6px;margin-top:6px;border-radius:3px;background:var(--line-soft)}
+    .com .bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+    .com .none .bar i{background:var(--ink-3)}
+  </style>
+</head>
+<body>
+  <div class="demo">Mockup · dữ liệu giả, tên khách và số tiền đều hư cấu</div>
+  <header class="topbar">
+    <a class="brand" href="tong-quan.html">Công nợ HTH</a>
+    <nav aria-label="Điều hướng chính"><a class="active" href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"></label>
+    <span class="asof" id="asof"></span>
+  </header>
+
+  <main class="page">
+    <div class="page-head">
+      <h1>Tổng quan công nợ</h1>
+      <div class="refresh"><span>Cập nhật lúc 06:45</span><button type="button" class="btn">Làm mới</button></div>
+    </div>
+
+    <div class="grid">
+      <section class="card c4 hero" aria-labelledby="h-receivable">
+        <div class="label" id="h-receivable">Còn phải thu</div>
+        <div class="figure" id="receivable"></div>
+        <div class="sub" id="debtors"></div>
+        <div class="minis">
+          <div class="mini"><div class="k">Khách đang dư</div><div class="v credit" id="credit"></div><div class="s" id="creditors"></div></div>
+          <div class="mini"><div class="k">Đã thu hôm nay</div><div class="v" id="received"></div><div class="s" id="receipts"></div></div>
+        </div>
+      </section>
+
+      <section class="card c8" aria-labelledby="h-age">
+        <div class="card-head"><h2 id="h-age">Nợ theo tháng phát sinh</h2><span class="aside">tính theo tháng phát sinh nợ</span></div>
+        <div class="age-bar" id="age-bar" role="img"></div>
+        <div class="age-legend" id="age-legend"></div>
+        <p class="age-note" id="age-note"></p>
+      </section>
+
+      <div class="c4 stack">
+        <section class="card" aria-labelledby="h-todo">
+          <div class="card-head"><h2 id="h-todo">Việc cần làm</h2><span class="aside" id="todo-total"></span></div>
+          <div id="todo"></div>
+        </section>
+        <section class="card" aria-labelledby="h-today">
+          <div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi trên web</span></div>
+          <div id="today"></div>
+        </section>
+      </div>
+
+      <section class="card c5 top" aria-labelledby="h-top">
+        <div class="card-head"><h2 id="h-top">10 khách nợ nhiều nhất</h2><span class="aside" id="top-share"></span></div>
+        <ul class="rows" id="top"></ul>
+      </section>
+
+      <section class="card c3 com" aria-labelledby="h-com">
+        <div class="card-head"><h2 id="h-com">Theo mặt hàng</h2></div>
+        <ul class="rows" id="com"></ul>
+      </section>
+    </div>
+
+    <details class="design-note">
+      <summary>Ghi chú duyệt thiết kế (mockup v4)</summary>
+      <ul>
+        <li>Giữ đúng sáu khối và định nghĩa của DASH-01 (<code>specs/v7-dashboard.md</code>); mọi số có sẵn từ <code>GET /api/v7/dashboard</code>, không cần API mới.</li>
+        <li>Thứ tự đọc: còn phải thu bao nhiêu → nợ cũ tới đâu → việc phải làm → nợ ở khách nào, mặt hàng nào. Màn 1280×720 thấy đủ hai hàng đầu không cần cuộn.</li>
+        <li>Tóm tắt dùng tỷ/triệu viết đủ chữ; rê chuột thấy số đồng chính xác. Màu: xanh đậm dần theo độ cũ của nợ; đỏ chỉ cho chuyến thiếu đơn giá, cam cho chờ kiểm, xanh lục cho tiền khách dư.</li>
+        <li>“Còn phải thu” chỉ cộng khách đang nợ; tiền khách dư tách riêng. Khách chưa có số dư đầu không vào tổng nào.</li>
+        <li>Để giai đoạn sau: so với tháng trước, đường phát sinh vs đã thu 12 tháng, bấm nhóm tuổi nợ ra danh sách khoản nợ.</li>
+      </ul>
+    </details>
+  </main>
+
+  <script src="data.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const D = window.MOCK;
+      const $ = id => document.getElementById(id);
+      const words = v => {
+        const abs = Math.abs(v);
+        if (abs >= 1e9) return (v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
+        return (v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' triệu';
+      };
+      const amount = v => `<span class="num" title="${D.fmtFull(v)}">${words(v)}</span>`;
+      const pct = v => (v / D.receivable * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + '%';
+      const label = row => D.esc(D.groupLabel(D.groupKey(row)));
+
+      $('asof').textContent = 'Số liệu đến ' + D.AS_OF.label;
+      const [whole, frac] = (D.receivable / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }).split(',');
+      $('receivable').innerHTML = `<span title="${D.fmtFull(D.receivable)}">${whole}${frac ? ',' + frac : ''}<small>tỷ</small></span>`;
+      $('debtors').textContent = `${D.debtors.length} khách đang nợ`;
+      $('credit').innerHTML = amount(-D.credit);
+      $('creditors').textContent = `${D.creditors.length} khách · tính riêng`;
+      const today = D.TODAY.byActor.reduce((a, r) => ({ trips: a.trips + r.trips, receipts: a.receipts + r.receipts,
+        received: a.received + r.received, voids: a.voids + r.voids }), { trips: 0, receipts: 0, received: 0, voids: 0 });
+      $('received').innerHTML = amount(today.received);
+      $('receipts').textContent = `${today.receipts} phiếu thu`;
+
+      const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
+      $('age-bar').setAttribute('aria-label', AGES.map((a, i) => `${a} ${words(D.aging[i])}`).join(', '));
+      $('age-bar').innerHTML = D.aging.map((v, i) =>
+        `<span style="flex:${v};background:var(--age-${i})" title="${AGES[i]}: ${D.fmtFull(v)}"></span>`).join('');
+      $('age-legend').innerHTML = D.aging.map((v, i) =>
+        `<div><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGES[i]}</div>` +
+        `<div class="v">${amount(v)}</div><div class="p">${pct(v)}</div></div>`).join('');
+      $('age-note').innerHTML = `<b>${words(D.aging[2] + D.aging[3])}</b> (${pct(D.aging[2] + D.aging[3])}) là nợ phát sinh từ 3 tháng trước trở về trước.`;
+
+      const todo = [
+        ['Chuyến thiếu đơn giá', 'critical', D.TODO.missingPrice.map(t => [D.byId(t.id), `${t.count} chuyến`]), D.TODO.missingPrice.reduce((a, t) => a + t.count, 0), 'chuyến'],
+        ['Chuyến chờ kiểm', 'warning', D.TODO.pendingReview.map(t => [D.byId(t.id), `${t.count} chuyến`]), D.TODO.pendingReview.reduce((a, t) => a + t.count, 0), 'chuyến'],
+        ['Chưa có số dư đầu', 'neutral', D.ROWS.filter(r => r.noBaseline).map(r => [r, 'mở sổ']), D.ROWS.filter(r => r.noBaseline).length, 'khách'],
+        ['Sổ đang dư tiền', 'credit', D.creditors.map(r => [r, words(-D.allOf(r))]), D.creditors.length, 'khách'],
+      ].filter(g => g[3] > 0);
+      $('todo-total').textContent = `${todo.reduce((a, g) => a + g[2].length, 0)} khách cần xem`;
+      $('todo').innerHTML = todo.map(([title, cls, items, count, unit]) =>
+        `<div class="todo-group"><div class="todo-title"><span>${title}</span><span class="tag ${cls}">${count} ${unit}</span></div><ul class="rows">` +
+        items.map(([row, what]) => `<li><a href="#"><span class="who">${D.esc(row.name)}</span><span class="what">${what}</span><span class="chev" aria-hidden="true">›</span></a></li>`).join('') +
+        '</ul></div>').join('');
+
+      $('today').innerHTML = today.trips + today.receipts + today.voids === 0
+        ? '<p class="muted" style="margin:0">Chưa có giao dịch nào hôm nay.</p>'
+        : '<div class="today-line">' +
+          `<div><b>${today.trips}</b><span>chuyến nhập</span></div><div><b>${today.receipts}</b><span>phiếu thu</span></div><div><b>${today.voids}</b><span>phiếu hủy</span></div></div>` +
+          '<div class="actors">' + D.TODAY.byActor.map(r =>
+            `<div><span>${D.esc(r.actor)}</span><span>${r.trips} chuyến · ${r.receipts} phiếu · ${words(r.received)}</span></div>`).join('') + '</div>';
+
+      const top = [...D.debtors].sort((a, b) => D.allOf(b) - D.allOf(a)).slice(0, 10);
+      $('top-share').textContent = `chiếm ${pct(top.reduce((a, r) => a + D.allOf(r), 0))} còn phải thu`;
+      $('top').innerHTML = top.map((row, i) =>
+        `<li><a href="#" title="Mở sổ khách"><span class="rank">${i + 1}</span>` +
+        `<span class="who"><b>${D.esc(row.name)}</b><span>${label(row)} · nợ từ ${D.oldestMonth(row)}</span></span>` +
+        `<span class="amt"><b>${amount(D.allOf(row))}</b><span>${pct(D.allOf(row))}</span></span><span class="chev" aria-hidden="true">›</span></a></li>`).join('');
+
+      const groups = new Map();
+      for (const row of D.debtors) {
+        const g = groups.get(D.groupKey(row)) ?? { total: 0, n: 0 };
+        g.total += D.allOf(row); g.n += 1;
+        groups.set(D.groupKey(row), g);
+      }
+      const ordered = [...groups.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || b[1].total - a[1].total);
+      const maxGroup = Math.max(...ordered.map(([, g]) => g.total));
+      $('com').innerHTML = ordered.map(([key, g]) =>
+        `<li class="${key ? '' : 'none'}"><a href="#"><div class="line"><b>${D.esc(D.groupLabel(key))}</b>${amount(g.total)}</div>` +
+        `<div class="meta">${g.n} khách · ${pct(g.total)}${key ? '' : ' · cần gán mặt hàng'}</div>` +
+        `<div class="bar"><i style="width:${(g.total / maxGroup * 100).toFixed(1)}%"></i></div></a></li>`).join('');
+    })();
+  </script>
+</body>
+</html>

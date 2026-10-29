@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MOCKUP · Dashboard công nợ</title>
+  <style>
+    body{margin:0;padding:40px 24px;background:#f6f7f9;color:#111827;font:15px/1.6 "Segoe UI",system-ui,sans-serif}
+    .demo{position:fixed;top:0;left:0;right:0;padding:8px;background:#fde68a;color:#452600;text-align:center;font-weight:700;font-size:13px}
+    main{max-width:720px;margin:40px auto 0}
+    h1{font-size:22px}
+    li{margin:10px 0}
+    a{color:#1d4ed8;font-weight:700;font-size:17px}
+    code{background:#eef2f6;padding:1px 6px;border-radius:4px;font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="demo">MOCKUP · DỮ LIỆU GIẢ — tên khách và số liệu đều hư cấu, chỉ để duyệt thiết kế</div>
+  <main>
+    <h1>Dashboard công nợ — mockup v4 duyệt thiết kế</h1>
+    <p>Bản v4 (29/10/2026): làm lại giao diện sau góp ý “khó nhìn” — nền dịu, chữ lớn hơn, một số chính nổi bật, màu chỉ dùng khi có nghĩa, ghi chú kỹ thuật thu gọn. Nội dung giữ như v3 (gom theo đánh giá bộ biểu đồ v1/v2). Hai trang dùng chung một bộ dữ liệu giả (<code>data.js</code>), nên mọi khối luôn cộng về cùng một tổng.</p>
+    <ol>
+      <li><a href="tong-quan.html">Tổng quan công nợ</a> — sáu khối của DASH-01: còn phải thu, theo mặt hàng (tách cảng/bộ), nợ theo tháng phát sinh, 10 khách nợ nhiều nhất, việc cần làm, hôm nay.</li>
+      <li><a href="cong-no-theo-thang.html">Công nợ theo tháng</a> — ma trận khách × tháng: số rút gọn có số đủ khi rê chuột, ô khách dư màu riêng, ghim tên khách/hàng tháng/hàng tổng, lọc mặt hàng và “chỉ khách còn nợ”.</li>
+    </ol>
+    <h2 style="font-size:17px">Đã cân nhắc và bỏ</h2>
+    <ul>
+      <li><b>Pareto top khách</b>: hai trục khó đọc, nhãn đè nhau, chiếm nửa màn 1280×720; bảng 10 khách có tỉ trọng đã trả lời câu “nợ tập trung ở ai”.</li>
+      <li><b>Dư nợ theo năm phát sinh</b>: gần hết số nợ thuộc năm hiện tại nên không thêm thông tin; ma trận đã có cột năm và mọi năm.</li>
+      <li><b>Bảng đối chiếu tự động trên trang</b>: là phép kiểm kỹ thuật, đặt ở test/server; trang chỉ báo khi lệch.</li>
+    </ul>
+    <h2 style="font-size:17px">Để giai đoạn sau</h2>
+    <ul>
+      <li>So với tháng trước (cần lưu số cuối tháng), đường phát sinh vs đã thu 12 tháng (cần chốt cách tính “đã thu”), bấm nhóm tuổi nợ ra danh sách khoản nợ (cần API).</li>
+    </ul>
+    <p>Mỗi trang có mục <strong>Ghi chú duyệt thiết kế</strong> ở chân trang. Sửa mockup không đụng code live; sau khi duyệt mới code thật theo <code>docs/development.md#quy-trình-frontend</code>.</p>
+  </main>
+</body>
+</html>
