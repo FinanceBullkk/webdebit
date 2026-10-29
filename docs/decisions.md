@@ -25,7 +25,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="newtrip-01"></a>[NEWTRIP-01](decisions/newtrip-01.md) | Chuyến mới tự coi là ngoài opening, trừ khi kiểm trùng |  |
 | <a id="alt-key-01"></a>[ALT-KEY-01](decisions/alt-key-01.md) | Mã thay thế khi thiếu booking |  |
 | <a id="booking-edit-01"></a>[BOOKING-EDIT-01](decisions/booking-edit-01.md) | Booking sửa sau khi ghi nợ |  |
-| <a id="frontend"></a>[FRONTEND](decisions/frontend.md) | Quy trình frontend: duyệt mockup trước |  |
+| <a id="frontend"></a>[FRONTEND](decisions/frontend.md) | Quy trình frontend: duyệt mockup trước | Thay bởi [CLAUDE-ALL-01](#claude-all-01) |
 | <a id="date"></a>[DATE](decisions/date.md) | Ngày xe nhập kho là ngày nghiệp vụ chuyến |  |
 | <a id="d03"></a>[D03](decisions/d03.md) | Thu mới trừ kỳ nợ cũ trước |  |
 | <a id="future-01"></a>[FUTURE-01](decisions/future-01.md) | Cấm ngày ghi sổ trong tương lai (giờ VN) |  |
@@ -55,7 +55,10 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="phu-phi-01"></a>[PHU-PHI-01](decisions/phu-phi-01.md) | Phụ phí nhiều loại |  |
 | <a id="xoa-thu-goc-01"></a>[XOA-THU-GOC-01](decisions/xoa-thu-goc-01.md) | Xóa khoản thu sổ gốc |  |
 | <a id="da-thu-01"></a>[DA-THU-01](decisions/da-thu-01.md) | Đã thu theo ngày thu, như Sheet |  |
+| <a id="claude-all-01"></a>[CLAUDE-ALL-01](decisions/claude-all-01.md) | Claude làm hết, bỏ bắt buộc mockup Penpot |  |
 | <a id="bang-gia-01"></a>[BANG-GIA-01](decisions/bang-gia-01.md) | Bảng giá theo ngày hiệu lực, giá TT/giá khách |  |
+| <a id="chung-tu-01"></a>[CHUNG-TU-01](decisions/chung-tu-01.md) | Dán chứng từ vào phiếu thu |  |
+| <a id="presence-01"></a>[PRESENCE-01](decisions/presence-01.md) | Thấy ai đang online, ô đang chọn, con trỏ chuột |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 

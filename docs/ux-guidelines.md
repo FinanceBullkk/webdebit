@@ -1,6 +1,6 @@
 # Hướng dẫn UX/UI
 
-Áp dụng cho mockup Penpot và code frontend của app công nợ. Bổ sung cho [quy trình frontend](development.md#quy-trình-frontend), không thay quy tắc nghiệp vụ ở [business-rules](business-rules.md).
+Áp dụng cho code frontend và bản xem (nếu có) của app công nợ. Bổ sung cho [quy trình frontend](development.md#quy-trình-frontend), không thay quy tắc nghiệp vụ ở [business-rules](business-rules.md).
 
 ## Người dùng
 
@@ -31,7 +31,9 @@ CÒN MỞ (hỏi người dùng khi làm spec màn hình, không tự giả đ�
 7. **Lỗi ngay tại chỗ.** Lỗi hiện ở đúng ô/dòng kèm một dòng tóm tắt; giữ nguyên dữ liệu người dùng đã nhập.
 8. **Nhất quán với màn hình đang có.** Giữ tên cột, nút, câu thông báo hiện có trong workbench; chỉ đổi khi spec nêu lý do.
 
-## Quy tắc cho mockup Penpot
+## Quy tắc cho bản xem/mockup (khi có)
+
+Từ 29/10/2026 mockup Penpot không còn bắt buộc ([`CLAUDE-ALL-01`](decisions/claude-all-01.md)); các quy tắc dưới áp dụng khi có dựng bản xem.
 
 - Khung màn hình chỉ chứa đúng những gì người dùng nhìn thấy. Ghi chú cho người duyệt đặt **ngoài khung**, ngắn, hoặc gom vào một board ghi chú riêng.
 - Board xếp theo đúng thứ tự thao tác thật, đánh số bước; mỗi board một trạng thái. Page chỉ gồm board màn hình và một board ghi chú; không lặp lại spec (ranh giới, gate, tiêu chí) trong Penpot.

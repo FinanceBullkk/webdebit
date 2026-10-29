@@ -1,6 +1,6 @@
 ---
 name: planner
-description: Phân tích yêu cầu theo SPEC.md/specs và chia phạm vi file, bước, cách kiểm. Dùng trước khi giao việc cho implementer hoặc Codex/Gemini. Không sửa file.
+description: Phân tích yêu cầu theo SPEC.md/specs và chia phạm vi file, bước, cách kiểm. Dùng trước khi giao việc cho implementer. Không sửa file.
 tools: Read, Grep, Glob
 ---
 
