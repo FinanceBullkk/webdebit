@@ -1,7 +1,7 @@
 # Runbook triển khai V7 — ĐỀ XUẤT
 
 **Chưa triển khai, chưa chạy trên máy chủ thật. Không bước nào tự chạy.**
-Người dùng chạy trên máy chủ sau thông báo/gate riêng của phiên điều phối chính.
+Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md) (đủ điều kiện ở đó, thiếu thì dừng); nạp dữ liệu/mốc và DB legacy vẫn cần người dùng duyệt.
 Đây không phải quyền chạy DDL từ task tài liệu. Không ghi/đổi cấu hình DB `webdebit_ledger`.
 
 | Trạng thái | Phạm vi |

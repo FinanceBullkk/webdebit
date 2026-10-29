@@ -402,7 +402,7 @@
     if (!settingsEl.hidden) renderSettings();
   };
   // Đang mở khung, hộp hỏi lại, cài đặt hoặc còn chuyến đánh dấu: tạm dừng tự tải lại sổ.
-  ctx.feeBusy = () => Boolean(drawer) || !confirmEl.hidden || !settingsEl.hidden || selected.size > 0 || Boolean(root.querySelector?.('.fee-own-input'));
+  ctx.busyChecks.push(() => Boolean(drawer) || !confirmEl.hidden || !settingsEl.hidden || selected.size > 0 || Boolean(root.querySelector?.('.fee-own-input')));
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || !confirmEl.hidden || drawerEl.contains(event.target) || settingsEl.contains(event.target)) return;
     if (!settingsEl.hidden) closeSettings(); else if (drawer) closeDrawer();
