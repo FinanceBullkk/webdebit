@@ -112,10 +112,10 @@ def check_receipt_images(pg: Pg) -> None:
     pg.rejects(f"UPDATE sokhach.receipt_image SET sha256=repeat('b',64) WHERE id={kept['id']}", message="RECEIPT_IMAGE_IMMUTABLE")
     pg.rejects("SELECT data FROM sokhach.receipt_image", user="v7_app", message="permission denied")
     # Migration chạy lại được và không đổi dữ liệu.
-    snapshot = pg.value("SELECT jsonb_agg(to_jsonb(i)-'data' ORDER BY id) FROM sokhach.receipt_image")
+    snapshot = pg.value("SELECT jsonb_agg(to_jsonb(i)-'data' ORDER BY id) FROM sokhach.receipt_image i")
     pg.sql(MIGRATION.read_text(encoding="utf-8"))
     pg.sql(MIGRATION.read_text(encoding="utf-8"))
-    require(pg.value("SELECT jsonb_agg(to_jsonb(i)-'data' ORDER BY id) FROM sokhach.receipt_image") == snapshot,
+    require(pg.value("SELECT jsonb_agg(to_jsonb(i)-'data' ORDER BY id) FROM sokhach.receipt_image i") == snapshot,
             "migration rerun changed images")
     # Hoàn tác từ chối khi đã có ảnh.
     pg.rejects(ROLLBACK.read_text(encoding="utf-8"), message="RECEIPT_IMAGES_PRESENT")
