@@ -19,12 +19,17 @@ from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 import v7_identity
+import v7_presence
 import v7_sheet_refresh
 from v7_price_queue import load_price_snapshot, project_prices
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
 MAX_BIGINT = 9223372036854775807
+PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
+STREAM_PING = 15.0
+STREAM_MAX_SECONDS = 600.0          # luồng SSE tự đóng, trình duyệt tự nối lại
+STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
@@ -916,6 +921,26 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
                  "version": result["version"]}
 
 
+def presence_tab(query: str) -> str:
+    values = parse_qs(query, keep_blank_values=True)
+    if set(values) != {"tab"} or len(values["tab"]) != 1 or not v7_presence.TAB.fullmatch(values["tab"][0]):
+        bad()
+    return values["tab"][0]
+
+
+def report_presence(raw: bytes, actor: str) -> tuple[int, dict]:
+    try:
+        report = v7_presence.parse(raw)
+        PRESENCE.report(actor, report)
+    except v7_presence.PresenceError as exc:
+        if str(exc) == "BODY_TOO_LARGE":
+            raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.") from exc
+        if str(exc) == "TOO_MANY_TABS":
+            raise ApiError(429, "TOO_MANY_TABS", "Đang mở quá nhiều tab.") from exc
+        bad()
+    return 200, {"people": PRESENCE.view(actor, report["tab"])}
+
+
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
@@ -953,6 +978,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return refresh_sheet("POST", raw, actor)
+        if parts.path == "/api/v7/presence":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return report_presence(raw, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
@@ -963,6 +993,12 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return refresh_sheet("GET", raw, actor)
+        if parts.path == "/api/v7/presence":
+            tab = presence_tab(parts.query)
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return 200, {"people": PRESENCE.view(actor, tab)}
         if parts.path == "/api/v7/fee-types" and not parts.query:
             function, payload = "get_fee_types", {}
         elif parts.path == "/api/v7/dashboard" and not parts.query:
@@ -1095,6 +1131,41 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def stream(self, actor: str, tab: str) -> None:
+        """SSE: đẩy toàn bộ danh sách người khác mỗi khi đổi, ping khi im lặng (PRESENCE-01)."""
+        presence = PRESENCE
+        if not presence.open_stream(actor):
+            raise ApiError(503, "PRESENCE_BUSY", "Quá nhiều kết nối. Trang sẽ tự hỏi định kỳ.")
+        try:
+            self.close_connection = True
+            self.connection.settimeout(20)
+            self.send_response(200)
+            for name, field in (("Content-Type", "text/event-stream; charset=utf-8"), ("Cache-Control", "no-store"),
+                                ("X-Content-Type-Options", "nosniff"), ("X-Accel-Buffering", "no")):
+                self.send_header(name, field)
+            self.end_headers()
+            started = last_write = time.monotonic()
+            version, last = -1, None
+            while time.monotonic() - started < STREAM_MAX_SECONDS:
+                version = presence.wait(version, 1.0)
+                people = presence.view(actor, tab)
+                now = time.monotonic()
+                if people != last:
+                    data = json.dumps({"people": people}, ensure_ascii=False, separators=(",", ":"))
+                    self.wfile.write(f"event: presence\ndata: {data}\n\n".encode())
+                    last = people
+                elif now - last_write >= STREAM_PING:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    continue
+                self.wfile.flush()
+                last_write = now
+                time.sleep(STREAM_MIN_GAP)
+        except OSError:
+            pass
+        finally:
+            presence.close_stream(actor)
+
     def request(self) -> None:
         try:
             self.connection.settimeout(5)
@@ -1109,6 +1180,10 @@ class Handler(BaseHTTPRequestHandler):
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
                                                   source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve)
+            route = urlsplit(self.path)
+            if self.command == "GET" and route.path == "/api/v7/presence/stream":
+                self.stream(actor, presence_tab(route.query))
+                return
             if self.asset():
                 return
             raw = b""

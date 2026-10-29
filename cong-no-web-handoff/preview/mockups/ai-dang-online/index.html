@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ai đang online · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem 29/10/2026 cho PRESENCE-01 (specs/v7-ai-dang-online.md):
+     mức 1 = vòng tròn người online, chấm ở Tổng quan, viền ô đang chọn / đang sửa;
+     mức 2 = mũi tên chuột của người khác. Người khác là giả lập trong tab, không gọi API, không lưu gì
+     (trừ lựa chọn Ẩn con trỏ nhớ trong trình duyệt). -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button{font:inherit}
+.demo{margin:0;padding:10px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:16px}
+.guide{max-width:1258px;margin:10px auto;padding:10px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.guide h2{margin:0 0 6px;font-size:15px}.guide p{margin:4px 0}
+.switch{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
+.switch span{color:#3e5871;margin-right:4px}
+.switch button{min-height:38px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font-size:15px}
+.switch button[aria-pressed="true"]{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+
+.app{max-width:1258px;margin:0 auto;height:52px;display:flex;align-items:center;gap:18px;padding:0 12px;background:#24496e;color:#fff}
+.app strong{font-size:16px}
+.app nav button{background:none;border:0;color:#d6e4f3;padding:6px 10px;cursor:pointer;font-size:15px;border-radius:4px}
+.app nav button[aria-current="page"]{background:#1a3a5a;color:#fff;font-weight:700}
+.people{margin-left:auto;display:flex;align-items:center;gap:6px}
+.people.off .avatar{opacity:.35}
+.people .lost{font-size:13px;color:#ffe08a;margin-right:6px}
+.avatar{position:relative;width:34px;height:34px;border-radius:50%;border:2px solid #fff;color:#fff;font-weight:800;font-size:15px;cursor:pointer;padding:0}
+.avatar.away{opacity:.75;border-style:dashed}
+.avatar .tip{display:none;position:absolute;top:40px;right:0;z-index:20;white-space:nowrap;background:#162d48;color:#fff;font-weight:400;font-size:14px;padding:6px 10px;border-radius:4px;text-align:left}
+.avatar:hover .tip,.avatar:focus-visible .tip{display:block}
+.toggle{margin-left:8px;min-height:34px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font-size:13px}
+.notice{max-width:1258px;margin:0 auto;padding:8px 12px;background:#fff3c4;border-bottom:1px solid #e0c060;font-size:15px}
+.notice:empty{display:none}
+
+.book-head{max-width:1258px;margin:0 auto;height:52px;display:flex;align-items:center;gap:20px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:16px;font-weight:700}.cust span{color:#3e5871;font-weight:400;margin-right:8px}
+.head-item{display:flex;flex-direction:column;margin-left:auto}.head-item span{color:#3e5871;font-size:13px}.head-item strong{font-size:18px;color:#123f79}
+.wrap{position:relative;width:1258px;max-width:100%;margin:0 auto 30px;overflow-x:auto}
+.ledger{width:1258px;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 6px;vertical-align:middle;font-size:13.5px}
+.ledger td{height:38px;cursor:cell}.ledger th{text-align:left}
+.columns th{height:36px;background:#eaf1fa}
+.month th{height:40px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px}
+.month-title{display:flex;align-items:center;gap:10px}
+.month-title button{background:none;border:1px solid #8daac9;color:#fff;border-radius:4px;cursor:pointer;min-height:28px}
+.month-title .here{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;background:#ffffff22;border-radius:12px;padding:2px 10px 2px 4px}
+.month-title .here i{display:inline-block;width:20px;height:20px;border-radius:50%;color:#fff;font-style:normal;font-weight:800;font-size:12px;text-align:center;line-height:20px}
+.num{text-align:right;white-space:nowrap}
+.subtotal td{height:40px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5;cursor:default}
+td.mine{outline:2px solid #145fa9;outline-offset:-2px}
+
+.overlay{position:absolute;inset:0;pointer-events:none}
+.mark{position:absolute;border:2px solid;border-radius:1px}
+.mark.editing{border-style:dashed;border-width:3px}
+.mark b{position:absolute;left:-2px;bottom:100%;padding:1px 6px;color:#fff;font-size:12px;font-weight:600;white-space:nowrap;border-radius:3px 3px 3px 0}
+.mark.flash{animation:flash .9s 1}
+@keyframes flash{0%,100%{box-shadow:none}40%{box-shadow:0 0 0 6px #ffd54a}}
+.pointer{position:absolute;transition:left .2s linear,top .2s linear}
+.pointer svg{display:block;filter:drop-shadow(0 1px 1px #0005)}
+.pointer b{position:absolute;left:14px;top:16px;padding:1px 7px;color:#fff;font-size:12px;font-weight:600;white-space:nowrap;border-radius:9px}
+.hint{position:absolute;z-index:5;background:#162d48;color:#fff;font-size:13.5px;padding:5px 9px;border-radius:4px;white-space:nowrap}
+.hint::before{content:"";position:absolute;left:12px;top:-6px;border:6px solid transparent;border-top:0;border-bottom-color:#162d48}
+
+.dash{max-width:1258px;margin:0 auto 30px;background:#fff;border:1px solid #d8e1ec}
+.dash h2{margin:0;padding:12px 14px;font-size:16px;border-bottom:1px solid #d8e1ec}
+.dash table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.dash th,.dash td{padding:0 14px;height:46px;border-bottom:1px solid #e5e7eb;text-align:left}
+.dash th{background:#eaf1fa;font-size:13px;height:36px}
+.dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-left:8px;vertical-align:middle;border:2px solid #fff;box-shadow:0 0 0 1px #9eb4ca}
+@media (prefers-reduced-motion:reduce){.pointer{transition:none}.mark.flash{animation:none;outline:3px solid #ffd54a}}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì</p>
+<section class="guide" aria-labelledby="guide-title">
+  <h2 id="guide-title">Xem gì</h2>
+  <p>Bạn đang mở sổ <strong>KHÁCH GIẢ A</strong>. Bốn người giả cùng vào web: <strong>Lan</strong> mở cùng sổ, tháng 10; <strong>Minh</strong> mở cùng sổ, tháng 9 (đang thu gọn); <strong>Tuấn</strong> mở sổ KHÁCH GIẢ B; <strong>Hoa</strong> ở Tổng quan.</p>
+  <p>Rê chuột vào vòng tròn ở góc phải để xem ai đang ở đâu; bấm vào để nhảy tới ô người đó đang chọn. Bấm một ô trong sổ để chọn ô của bạn. Thu nhỏ cửa sổ hoặc phóng to chữ: mũi tên vẫn nằm đúng ô.</p>
+  <div class="switch" role="group" aria-label="Trang">
+    <span>Trang:</span>
+    <button type="button" data-view="book" aria-pressed="true">Sổ khách</button>
+    <button type="button" data-view="dash" aria-pressed="false">Tổng quan</button>
+  </div>
+  <div class="switch" role="group" aria-label="Tình huống">
+    <span>Tình huống:</span>
+    <button type="button" data-state="normal" aria-pressed="true">Bình thường</button>
+    <button type="button" data-state="editing" aria-pressed="false">Lan đang sửa một ô</button>
+    <button type="button" data-state="stale" aria-pressed="false">Bạn lưu lúc sổ vừa đổi</button>
+    <button type="button" data-state="lost" aria-pressed="false">Mất kết nối</button>
+  </div>
+</section>
+
+<header class="app">
+  <strong>Công nợ HTH</strong>
+  <nav aria-label="Trang"><button type="button" data-view="dash">Tổng quan</button><button type="button" data-view="book">Sổ khách</button></nav>
+  <div class="people" id="people" aria-label="Người đang online"></div>
+  <button type="button" class="toggle" id="toggle"></button>
+</header>
+<div class="notice" id="notice" role="status"></div>
+
+<main id="view-book">
+  <header class="book-head"><div class="cust"><span>Sổ khách</span>KHÁCH GIẢ A</div>
+    <div class="head-item"><span>Tổng còn nợ</span><strong>412.500.000</strong></div></header>
+  <div class="wrap" id="wrap">
+    <table class="ledger" id="ledger">
+      <colgroup><col style="width:52px"><col style="width:150px"><col style="width:140px"><col style="width:110px"><col><col><col style="width:130px"><col style="width:120px"><col style="width:140px"></colgroup>
+      <thead><tr class="columns"><th>STT</th><th>Số container</th><th>Hãng tàu / số xe</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th class="num">Đơn giá</th><th class="num">Phụ phí</th><th class="num">Thành tiền</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="overlay" id="overlay" aria-hidden="true"></div>
+  </div>
+</main>
+
+<main id="view-dash" hidden>
+  <section class="dash" aria-labelledby="dash-title">
+    <h2 id="dash-title">Khách đang nợ mình</h2>
+    <table><thead><tr><th>Khách</th><th class="num">Đang nợ</th></tr></thead><tbody id="dash-rows"></tbody></table>
+  </section>
+</main>
+
+<script>
+const COLORS = ['#c2410c', '#15803d', '#7c3aed', '#0e7490', '#be185d', '#a16207', '#1d4ed8', '#4b5563'];
+const months = [
+  { key: '2026-09', label: 'Tháng 9/2026', open: false, trips: [
+    [1, 'FAKU1000001', 'XE 51C-000.01', '03/09/2026', 'Cảng giả A', 'Kho giả 1', '18.000.000', '', '18.000.000'],
+    [2, 'FAKU1000002', 'XE 51C-000.02', '11/09/2026', 'Cảng giả A', 'Kho giả 2', '18.000.000', '500.000', '18.500.000'],
+    [3, 'FAKU1000003', 'XE 51C-000.03', '24/09/2026', 'Cảng giả B', 'Kho giả 1', '20.000.000', '', '20.000.000'],
+  ] },
+  { key: '2026-10', label: 'Tháng 10/2026', open: true, trips: [
+    [4, 'FAKU1000004', 'XE 51C-000.04', '02/10/2026', 'Cảng giả A', 'Kho giả 1', '18.000.000', '', '18.000.000'],
+    [5, 'FAKU1000005', 'XE 51C-000.05', '06/10/2026', 'Cảng giả A', 'Kho giả 3', '', '', ''],
+    [6, 'FAKU1000006', 'XE 51C-000.06', '12/10/2026', 'Cảng giả B', 'Kho giả 2', '20.000.000', '1.200.000', '21.200.000'],
+    [7, 'FAKU1000007', 'XE 51C-000.07', '19/10/2026', 'Cảng giả A', 'Kho giả 1', '18.000.000', '', '18.000.000'],
+    [8, 'FAKU1000008', 'XE 51C-000.08', '27/10/2026', 'Cảng giả C', 'Kho giả 2', '22.000.000', '', '22.000.000'],
+  ] },
+];
+const COLS = ['stt', 'container', 'carrier', 'event_date', 'origin', 'destination', 'unit_price', 'other_fee', 'amount'];
+const people = [
+  { id: 'lan', name: 'Lan', color: 0, page: 'so-khach', book: 'A', month: '2026-10', cell: { row: 'trip:5', col: 'unit_price', editing: false } },
+  { id: 'minh', name: 'Minh', color: 1, page: 'so-khach', book: 'A', month: '2026-09', cell: { row: 'trip:3', col: 'container', editing: false } },
+  { id: 'tuan', name: 'Tuấn', color: 3, page: 'so-khach', book: 'B', month: '2026-10', cell: null },
+  { id: 'hoa', name: 'Hoa', color: 2, page: 'dashboard', book: null, month: null, cell: null },
+];
+// Đường đi giả của chuột Lan: khóa dòng + cột + vị trí trong ô (phần nghìn), như dữ liệu server đẩy về.
+const lanPath = [
+  ['trip:4', 'container', 300, 500], ['trip:4', 'event_date', 600, 400], ['trip:5', 'origin', 200, 600],
+  ['trip:5', 'unit_price', 400, 500], ['trip:6', 'unit_price', 700, 300], ['trip:7', 'other_fee', 300, 700],
+  ['trip:6', 'destination', 500, 500], ['trip:5', 'unit_price', 600, 600],
+];
+const debtors = [['A', 'KHÁCH GIẢ A', '412.500.000'], ['B', 'KHÁCH GIẢ B', '268.000.000'], ['C', 'KHÁCH GIẢ C', '95.400.000'], ['D', 'KHÁCH GIẢ D', '41.000.000']];
+let view = 'book', state = 'normal', step = 0, mine = null, hidePointers = false;
+try { hidePointers = localStorage.getItem('presence-hide-pointers') === '1'; } catch { /* trình duyệt chặn lưu: mặc định hiện */ }
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const color = p => COLORS[p.color];
+const monthLabel = key => `tháng ${+key.slice(5)}/${key.slice(0, 4)}`;
+const where = p => p.page === 'dashboard' ? 'đang ở Tổng quan'
+  : `đang mở sổ KHÁCH GIẢ ${p.book}, ${monthLabel(p.month)}${p.cell?.editing ? ' · đang sửa' : ''}`;
+const sameBook = p => view === 'book' && p.page === 'so-khach' && p.book === 'A';
+
+function renderRows() {
+  $('rows').innerHTML = months.map(m => {
+    const here = people.filter(p => sameBook(p) && p.month === m.key && !m.open);
+    const chips = here.map(p => `<span class="here"><i style="background:${color(p)}">${esc(p.name[0])}</i>${esc(p.name)} đang ở tháng này</span>`).join('');
+    const head = `<tr class="month"><th colspan="9"><div class="month-title"><button type="button" data-month="${m.key}" aria-expanded="${m.open}">${m.open ? '▾' : '▸'}</button>${m.label}${chips}</div></th></tr>`;
+    if (!m.open) return head;
+    const body = m.trips.map(t => `<tr data-row="trip:${t[0]}">${t.map((v, i) =>
+      `<td data-col="${COLS[i]}" class="${i >= 6 ? 'num' : ''}${mine && mine.row === `trip:${t[0]}` && mine.col === COLS[i] ? ' mine' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('');
+    return head + body + `<tr class="subtotal"><td colspan="8">Cộng ${monthLabel(m.key)}</td><td class="num">${m.key === '2026-10' ? '79.200.000' : '56.500.000'}</td></tr>`;
+  }).join('');
+}
+
+function cellBox(anchor) {
+  const td = $('rows').querySelector(`tr[data-row="${anchor.row}"] td[data-col="${anchor.col}"]`);
+  if (!td) return null;
+  const wrap = $('wrap').getBoundingClientRect(), r = td.getBoundingClientRect();
+  return { x: r.left - wrap.left + $('wrap').scrollLeft, y: r.top - wrap.top, w: r.width, h: r.height, td };
+}
+
+function renderOverlay() {
+  const overlay = $('overlay');
+  const keep = new Map([...overlay.querySelectorAll('.pointer')].map(node => [node.dataset.id, node]));
+  overlay.querySelectorAll('.mark,.hint').forEach(node => node.remove());
+  if (state === 'lost' || view !== 'book') { keep.forEach(node => node.remove()); return; }
+  for (const p of people.filter(sameBook)) {
+    const box = p.cell && cellBox(p.cell);
+    if (box) {
+      const mark = document.createElement('div');
+      mark.className = `mark${p.cell.editing ? ' editing' : ''}`;
+      mark.dataset.id = p.id;
+      Object.assign(mark.style, { left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, borderColor: color(p) });
+      mark.innerHTML = `<b style="background:${color(p)}">${esc(p.name)}${p.cell.editing ? ' đang sửa…' : ''}</b>`;
+      overlay.append(mark);
+      if (mine && p.cell.editing && mine.row === p.cell.row && mine.col === p.cell.col) {
+        const hint = document.createElement('div');
+        hint.className = 'hint';
+        Object.assign(hint.style, { left: `${box.x}px`, top: `${box.y + box.h + 6}px` });
+        hint.textContent = `${p.name} đang sửa ô này`;
+        overlay.append(hint);
+      }
+    }
+    const pointer = p.pointer && !hidePointers && cellBox(p.pointer);
+    let node = keep.get(p.id);
+    keep.delete(p.id);
+    if (!pointer) { node?.remove(); continue; }
+    if (!node) {
+      node = document.createElement('div');
+      node.className = 'pointer';
+      node.dataset.id = p.id;
+      node.innerHTML = `<svg width="18" height="22" viewBox="0 0 18 22"><path d="M1 1l15 11-7 1-3 7z" fill="${color(p)}" stroke="#fff" stroke-width="1.5"/></svg><b style="background:${color(p)}">${esc(p.name)}</b>`;
+      overlay.append(node);
+    }
+    node.style.left = `${pointer.x + pointer.w * p.pointer.fx / 1000}px`;
+    node.style.top = `${pointer.y + pointer.h * p.pointer.fy / 1000}px`;
+  }
+  keep.forEach(node => node.remove());
+}
+
+function renderPeople() {
+  const others = [...people].sort((a, b) => sameBook(b) - sameBook(a));
+  $('people').className = `people${state === 'lost' ? ' off' : ''}`;
+  $('people').innerHTML = (state === 'lost' ? '<span class="lost">Không thấy được người khác</span>' : '')
+    + others.map(p => `<button type="button" class="avatar${sameBook(p) ? '' : ' away'}" data-person="${p.id}" style="background:${color(p)}" aria-label="${esc(p.name)} ${esc(where(p))}">${esc(p.name[0])}<span class="tip"><strong>${esc(p.name)}</strong> · ${esc(where(p))}</span></button>`).join('');
+  $('toggle').textContent = hidePointers ? 'Hiện con trỏ người khác' : 'Ẩn con trỏ người khác';
+  $('toggle').hidden = view !== 'book';
+}
+
+function renderDash() {
+  $('dash-rows').innerHTML = debtors.map(([book, name, debt]) => {
+    const dots = state === 'lost' ? '' : people.filter(p => p.page === 'so-khach' && p.book === book)
+      .map(p => `<span class="dot" style="background:${color(p)}" title="${esc(p.name)} đang mở sổ này" aria-label="${esc(p.name)} đang mở sổ này"></span>`).join('');
+    return `<tr><td>${name}${dots}</td><td class="num">${debt}</td></tr>`;
+  }).join('');
+}
+
+function render() {
+  $('view-book').hidden = view !== 'book';
+  $('view-dash').hidden = view !== 'dash';
+  document.querySelectorAll('[data-view]').forEach(b => {
+    if (!b.closest('.app')) b.setAttribute('aria-pressed', b.dataset.view === view);
+    else if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('[data-state]').forEach(b => b.setAttribute('aria-pressed', b.dataset.state === state));
+  const lan = people[0];
+  lan.cell.editing = state === 'editing';
+  $('notice').textContent = state === 'stale' ? 'Sổ vừa thay đổi (Lan cũng đang mở sổ này). Kiểm tra dữ liệu mới rồi thực hiện lại.' : '';
+  renderRows(); renderPeople(); renderDash(); renderOverlay();
+}
+
+function tick() {
+  const lan = people[0];
+  if (state === 'editing') lan.pointer = { row: lan.cell.row, col: lan.cell.col, fx: 900, fy: 250 };
+  else {
+    const [row, col, fx, fy] = lanPath[step++ % lanPath.length];
+    lan.pointer = { row, col, fx, fy };
+  }
+  const minh = people[1];
+  minh.pointer = { row: 'trip:3', col: 'container', fx: 300 + (step % 3) * 150, fy: 500 };
+  renderOverlay();
+}
+
+document.addEventListener('click', event => {
+  const target = event.target.closest('[data-view],[data-state],[data-month],[data-person],#toggle,#rows td');
+  if (!target) return;
+  if (target.dataset.view) { view = target.dataset.view; render(); return; }
+  if (target.dataset.state) { state = target.dataset.state; render(); return; }
+  if (target.dataset.month) { const m = months.find(x => x.key === target.dataset.month); m.open = !m.open; render(); return; }
+  if (target.id === 'toggle') {
+    hidePointers = !hidePointers;
+    try { localStorage.setItem('presence-hide-pointers', hidePointers ? '1' : '0'); } catch { /* không nhớ được cũng không sao */ }
+    render(); return;
+  }
+  if (target.dataset.person) {
+    const p = people.find(x => x.id === target.dataset.person);
+    if (!sameBook(p) || !p.cell) { $('notice').textContent = `${p.name} ${where(p)}.`; return; }
+    const m = months.find(x => x.key === p.month);
+    if (!m.open) { m.open = true; render(); }
+    const box = cellBox(p.cell);
+    box.td.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    setTimeout(() => $('overlay').querySelector(`.mark[data-id="${p.id}"]`)?.classList.add('flash'), 350);
+    return;
+  }
+  if (target.matches('#rows td') && target.closest('tr[data-row]')) {
+    mine = { row: target.closest('tr').dataset.row, col: target.dataset.col };
+    renderRows(); renderOverlay();
+  }
+});
+addEventListener('resize', renderOverlay);
+$('wrap').addEventListener('scroll', renderOverlay);
+render();
+tick();
+setInterval(tick, 700);
+</script>
+</body>
+</html>

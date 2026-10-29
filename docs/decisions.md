@@ -57,6 +57,8 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="da-thu-01"></a>[DA-THU-01](decisions/da-thu-01.md) | Đã thu theo ngày thu, như Sheet |  |
 | <a id="claude-all-01"></a>[CLAUDE-ALL-01](decisions/claude-all-01.md) | Claude làm hết, bỏ bắt buộc mockup Penpot |  |
 | <a id="bang-gia-01"></a>[BANG-GIA-01](decisions/bang-gia-01.md) | Bảng giá theo ngày hiệu lực, giá TT/giá khách |  |
+| <a id="chung-tu-01"></a>[CHUNG-TU-01](decisions/chung-tu-01.md) | Dán chứng từ vào phiếu thu |  |
+| <a id="presence-01"></a>[PRESENCE-01](decisions/presence-01.md) | Thấy ai đang online, ô đang chọn, con trỏ chuột |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 

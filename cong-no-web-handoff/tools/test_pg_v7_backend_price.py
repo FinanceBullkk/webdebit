@@ -15,7 +15,7 @@ from pg_v7_harness import (
 
 PRICE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-bang-gia.sql"
 # main right before BANG-GIA-01; CI checks out full history (fetch-depth: 0).
-PRE_PRICE_REF = "7214717b5d60948d96836b44dde594dafaf5c9fa"
+PRE_PRICE_REF = "58c43dd89178bed75434978f031152ffacc64d61"
 
 
 def _table(p1_tt_daklak="95", p2_khach_daklak="75"):

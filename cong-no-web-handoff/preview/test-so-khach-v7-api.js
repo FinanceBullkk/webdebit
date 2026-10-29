@@ -148,10 +148,19 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
 });
 
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
-  // specs/v7-phu-phi-backend.md: chưa có nhãn, chờ PR giao diện phụ phí.
+  // PHU-PHI-01: lệnh phụ phí có nhãn riêng và câu trước → sau (không lộ mã lệnh).
+  const feeKinds = { add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
+    void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng' };
+  for (const [kind, label] of Object.entries(feeKinds)) {
+    const fee = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+      before: { targets: [{ trip_id: 4, fee_lines: [{ id: 1, fee_type_id: 7, amount_vnd: '500' }] }], batch_count: 1, fee_columns: [] },
+      after: { targets: [{ trip_id: 4, fee_lines: [{ id: 1, fee_type_id: 7, amount_vnd: '500' }, { fee_type_id: 7, amount_vnd: '1200', note: 'neo<1>' }] }], batch_count: 1, fee_columns: [7] } }] });
+    assert.ok(fee.root.innerHTML.includes(label), kind);
+    assert.ok(!fee.root.innerHTML.includes(kind), kind);
+    assert.match(fee.root.innerHTML, kind === 'set_book_fee_columns' ? /Cột riêng: chỉ Khác → Loại #7/ : /#4: phụ phí 500 → 1\.700 \(Loại #7 1\.200 \(neo&lt;1&gt;\)\)/, kind);
+  }
   // specs/v7-bang-gia-hieu-luc.md: nhãn bảng giá làm ở giai đoạn 2 (giao diện).
-  const PENDING_UI_EVENT_KINDS = ['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-    'price_table_edit', 'price_table_apply'];
+  const PENDING_UI_EVENT_KINDS = ['price_table_edit', 'price_table_apply'];
   for (const kind of PENDING_UI_EVENT_KINDS) {
     const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
       at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });
@@ -182,7 +191,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".
   const pendingUi = ['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete'];
-  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind)).sort(), Object.keys(kinds).sort());
+  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind) && !Object.hasOwn(feeKinds, kind)).sort(), Object.keys(kinds).sort());
 });
 
 test('locked month keeps trip cells read only and receipt entry usable', async () => {
@@ -371,7 +380,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   // 23/10/2026: không còn chú thích "Từ sổ gốc", dòng "Theo sổ gốc" hay dòng số dư đầu. DA-THU-01 (28/10/2026): server
   // trả sẵn phát sinh/đã thu như Sheet; trang vẽ nguyên số, không dời số theo số dư đầu.
   assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
-  assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<br>/);
+  assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<br>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu và bảng nhập; tháng không có dòng Sheet vẽ thẳng từ GET;
@@ -413,10 +422,10 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="9">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">484<br><span class="month-end-amount">0<\/span><\/td><\/tr><tr class="spacer">/);
+  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<br>Còn nợ<\/td><td class="pay num subtotal-pay" colspan="2">484<br><span class="month-end-amount">0<\/span><\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
-  assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num ">700<\/td>/);
+  assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">700<\/td>/);
   assert.match(october, /class="empty-entry receipt-amount"/);
   const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],

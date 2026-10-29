@@ -602,6 +602,55 @@ const SoKhachV7Model = (() => {
       counterpartyName: String(receipt.counterparty_name) };
   }
 
+  // PHU-PHI-01: cụm cột phụ phí của một chuyến/dòng sổ gốc, từ fee_lines của server (chỉ để hiện).
+  // own[i] = tổng các khoản của cột riêng thứ i (null khi không có khoản); other = các khoản còn lại (cột Khác).
+  const feeSum = lines => lines.length ? lines.reduce((sum, line) => sum + vnd(String(line.amount_vnd), true), 0n) : null;
+  function feeCells(lines, columnIds) {
+    const list = Array.isArray(lines) ? lines : [];
+    const ids = columnIds.map(Number);
+    const other = list.filter(line => !ids.includes(Number(line.fee_type_id)));
+    return { own: ids.map(id => feeSum(list.filter(line => Number(line.fee_type_id) === id))),
+      otherVnd: feeSum(other), otherCount: other.length, totalVnd: feeSum(list) };
+  }
+  // Dòng Tổng tháng: tổng từng cột phụ phí của mọi chuyến trong tháng (null khi cột trống cả tháng).
+  function feeColumnTotals(lineLists, columnIds) {
+    const cells = lineLists.map(lines => feeCells(lines, columnIds));
+    const total = pick => { const values = cells.map(pick).filter(value => value !== null);
+      return values.length ? values.reduce((sum, value) => sum + value, 0n) : null; };
+    return { own: columnIds.map((_, index) => total(cell => cell.own[index])), otherVnd: total(cell => cell.otherVnd) };
+  }
+  // Số phụ phí gõ tay: trống → null (chỉ ô cột riêng: xóa trắng); khác 0; dấu theo loại (fee_type.sign).
+  function parseFeeInput(text, sign, { allowBlank = false } = {}) {
+    const value = String(text ?? "").trim().replace(/\s+/g, "");
+    if (!value) { if (allowBlank) return null; throw new Error("Nhập số tiền khác 0"); }
+    let amount;
+    try { amount = value.startsWith("-") ? -parseVnd(value.slice(1)) : parseVnd(value.replace(/^\+/, "")); }
+    catch { throw new Error("Số tiền không đọc được"); }
+    if (amount === 0n) throw new Error("Nhập số tiền khác 0");
+    if (sign === "negative" && amount > 0n) throw new Error("Giảm trừ nhập số âm");
+    if (sign === "positive" && amount < 0n) throw new Error("Loại này nhập số dương — số âm chọn loại Giảm trừ");
+    return amount;
+  }
+  // Dòng sổ gốc có Thành tiền khác đơn giá + phụ phí (counted_differs): lần sửa phí đầu tiên tính lại
+  // Thành tiền = đơn giá + tổng khoản sau lệnh. change: {set:{typeId, amountVnd|null}} | {add} | {replace:{lineId,…}} | {void:{lineId}}.
+  function feeTotalAfter(unitPriceVnd, lines, change) {
+    let next = (Array.isArray(lines) ? lines : []).map(line => ({ id: Number(line.id), type: Number(line.fee_type_id), amount: vnd(String(line.amount_vnd), true) }));
+    if (change.set) {
+      next = next.filter(line => line.type !== Number(change.set.typeId));
+      if (change.set.amountVnd !== null) next.push({ type: Number(change.set.typeId), amount: change.set.amountVnd });
+    }
+    if (change.add) next.push({ type: Number(change.add.typeId), amount: change.add.amountVnd });
+    if (change.replace) next = next.map(line => line.id === Number(change.replace.lineId) ? { ...line, amount: change.replace.amountVnd } : line);
+    if (change.void) next = next.filter(line => line.id !== Number(change.void.lineId));
+    return vnd(String(unitPriceVnd)) + next.reduce((sum, line) => sum + line.amount, 0n);
+  }
+  // Hộp hỏi lại: Thành tiền trước → sau và phần chênh, khi lần sửa phí đầu tiên tính lại dòng sổ gốc.
+  function recountPreview(countedVnd, unitPriceVnd, lines, change) {
+    const beforeVnd = vnd(String(countedVnd), true);
+    const afterVnd = feeTotalAfter(unitPriceVnd, lines, change);
+    return { beforeVnd, afterVnd, deltaVnd: afterVnd - beforeVnd };
+  }
+
   function parseOutgoingOffsets(list) {
     if (!Array.isArray(list)) throw new Error("Invalid outgoing offsets");
     return list.map(item => {
@@ -617,7 +666,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices,
+    sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;

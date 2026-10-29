@@ -11,9 +11,21 @@ const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', y
 const todayMonth = `${clock.slice(0, 7)}-01`;
 const monthOf = iso => `${iso.slice(0, 7)}-01`;
 
+// Danh mục phụ phí giả (PHU-PHI-01): như danh mục khởi tạo, id cố định để test chọn được.
+const feeCatalog = () => [
+  { id: 1, name: 'Neo', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 1 },
+  { id: 2, name: 'Điện', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 2 },
+  { id: 3, name: 'Ghép', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 3 },
+  { id: 4, name: 'Bảo hiểm', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 4 },
+  { id: 7, name: 'Khác', kind: 'service', sign: 'positive', system_key: 'other', active: true, sort: 100 },
+  { id: 8, name: 'Giảm trừ', kind: 'service', sign: 'negative', system_key: 'discount', active: true, sort: 101 },
+  { id: 9, name: 'Phụ phí ban đầu', kind: 'service', sign: 'any', system_key: 'initial', active: true, sort: 102 },
+];
+
 // Sổ giả: chuyến web và dòng sổ gốc tháng 9 đang mở; mỗi test có thể khóa riêng.
 function makeWorld() {
   return {
+    feeTypes: feeCatalog(), feeColumns: [], nextFeeLine: 600, catalogRequests: [],
     version: 1, reads: 0, refreshCalls: [], sheetRefresh: null, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
@@ -23,6 +35,7 @@ function makeWorld() {
         display: { row: 5, stt: '1', container: 'OLDU0000001', carrier: 'Xe 1', date: '2026-09-02', from: 'Nơi C', to: 'Nơi D', unit_price: '', fee_vnd: '', flags: ['MISSING_PRICE'] },
         current: { container: 'OLDU0000001', carrier: 'Xe 1', shipper: 'Chủ hàng thử', event_date: '2026-09-02', origin: 'Nơi C', destination: 'Nơi D', unit_price_vnd: null, other_fee_vnd: null, counted_vnd: '0', month: '2026-09-01', deleted: false } },
       { id: 22, month: '2026-09-01', kind: 'trip', source_total_vnd: '93000000', editable: true,
+        fee_lines: [{ id: 501, fee_type_id: 9, amount_vnd: '3000000', note: null }],
         display: { row: 6, stt: '2', container: 'OLDU0000002', carrier: 'Xe 2', date: '2026-09-03', from: 'Nơi C', to: 'Nơi D', unit_price: '90000000', fee_vnd: '3000000', flags: [] },
         current: { container: 'OLDU0000002', carrier: 'Xe 2', event_date: '2026-09-03', origin: 'Nơi C', destination: 'Nơi D', unit_price_vnd: '90000000', other_fee_vnd: '3000000', counted_vnd: '93000000', month: '2026-09-01', deleted: false } },
     ],
@@ -33,18 +46,92 @@ function ledger(world) {
   const trips = world.trips.filter(trip => !trip.deleted);
   const legacy = world.legacy.filter(row => !row.current.deleted);
   const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(todayMonth))].sort();
+  const feeSum = lines => lines.reduce((sum, line) => sum + BigInt(line.amount_vnd), 0n);
   return { status: 'active', customer_id: 1, version: world.version, demo: true, today_month: todayMonth,
+    fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })),
     month_locks: world.locks,
     months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' })),
-    total_outstanding_vnd: '0', trips, adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
-    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month })), events: world.events, sheet_sync: world.sheetSync,
+    total_outstanding_vnd: '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
+    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
+      counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 } };
+}
+
+// Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.
+function feeTarget(world, target) {
+  if (target.trip_id != null) {
+    const trip = world.trips.find(row => row.id === target.trip_id && !row.deleted);
+    return { row: trip, month: trip.month, lines: (trip.fee_lines ??= []), legacy: false };
+  }
+  const row = world.legacy.find(item => item.id === target.legacy_row_id);
+  return { row, month: row.current.month, lines: (row.fee_lines ??= []), legacy: true };
+}
+function syncFee(info) {
+  const total = info.lines.length ? info.lines.reduce((sum, line) => sum + BigInt(line.amount_vnd), 0n) : null;
+  if (info.legacy) {
+    const cur = info.row.current;
+    Object.assign(cur, { other_fee_vnd: total?.toString() ?? null, counted_vnd: String(BigInt(cur.unit_price_vnd) + (total ?? 0n)) });
+  } else {
+    const trip = info.row;
+    trip.other_fee_vnd = total?.toString() ?? null;
+    if (trip.unit_price_vnd != null) trip.amount_vnd = String(BigInt(trip.unit_price_vnd) + (total ?? 0n));
+  }
+}
+function applyFee(world, url, body) {
+  const locked = month => (world.locks.find(row => row.month === month)?.locked) ?? month !== todayMonth;
+  const lineTarget = id => [...world.trips.map(row => ({ trip_id: row.id, lines: row.fee_lines ?? [] })),
+    ...world.legacy.map(row => ({ legacy_row_id: row.id, lines: row.fee_lines ?? [] }))].find(item => item.lines.some(line => line.id === id));
+  const targets = url.endsWith('/add') ? body.targets : url.endsWith('/set') ? [body.target]
+    : (() => { const found = lineTarget(body.fee_line_id); return found ? [found.trip_id != null ? { trip_id: found.trip_id } : { legacy_row_id: found.legacy_row_id }] : []; })();
+  if (!targets.length) return [409, { error: 'FEE_LINE_NOT_FOUND', message: 'Không tìm thấy khoản phụ phí. Tải lại sổ.' }];
+  const infos = targets.map(target => feeTarget(world, target));
+  if (infos.some(info => locked(info.month))) return [422, { error: 'MONTH_LOCKED', message: 'Tháng đã khóa — mở khóa tháng để sửa phụ phí.' }];
+  if (infos.some(info => info.legacy && info.row.current.unit_price_vnd == null)) return [422, { error: 'LEGACY_NO_UNIT_PRICE', message: 'Dòng sổ gốc chưa có đơn giá.' }];
+  const type = world.feeTypes.find(item => item.id === body.fee_type_id);
+  if (!url.endsWith('/void') && body.amount_vnd != null && type && ((type.sign === 'positive' && body.amount_vnd.startsWith('-')) || (type.sign === 'negative' && !body.amount_vnd.startsWith('-')))) {
+    return [422, { error: 'FEE_SIGN_INVALID', message: 'Dấu phụ phí không phù hợp với loại phí.' }];
+  }
+  const before = infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines.map(line => ({ ...line })) }));
+  for (const info of infos) {
+    if (url.endsWith('/set')) info.lines.splice(0, info.lines.length, ...info.lines.filter(line => line.fee_type_id !== body.fee_type_id));
+    if (url.endsWith('/replace') || url.endsWith('/void')) info.lines.splice(info.lines.findIndex(line => line.id === body.fee_line_id), 1);
+    if (!url.endsWith('/void') && body.amount_vnd != null) info.lines.push({ id: world.nextFeeLine++, fee_type_id: body.fee_type_id, amount_vnd: body.amount_vnd, note: body.note ?? null });
+    syncFee(info);
+  }
+  const kind = { add: 'add_trip_fees', set: 'set_trip_fee_type', replace: 'replace_trip_fee', void: 'void_trip_fee' }[url.split('/').pop()];
+  world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before: { targets: before, batch_count: infos.length },
+    after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
+  world.version += 1;
+  return [200, { ok: true }];
 }
 
 function apply(world, url, body) {
   const fail = world.failNext;
   if (fail) { world.failNext = null; return [422, fail]; }
+  // Danh mục loại phụ phí: dùng chung mọi sổ, không version sổ.
+  if (url === '/api/v7/fee-types' || url === '/api/v7/fee-types/update') {
+    world.catalogRequests.push(body);
+    if (url.endsWith('/update')) {
+      const type = world.feeTypes.find(item => item.id === body.fee_type_id);
+      if (body.command === 'rename_fee_type') type.name = body.name;
+      if (body.command === 'set_fee_type_kind') type.kind = body.kind;
+      if (body.command === 'set_fee_type_active') type.active = body.active;
+    } else {
+      if (world.feeTypes.some(item => item.name.toLowerCase() === body.name.toLowerCase())) return [409, { error: 'FEE_TYPE_DUPLICATE', message: 'Tên loại phụ phí đã tồn tại.' }];
+      world.feeTypes.push({ id: 20 + world.feeTypes.length, name: body.name, kind: body.kind, sign: 'positive', system_key: null, active: true, sort: 50 });
+    }
+    return [200, { ok: true }];
+  }
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
+  if (url.startsWith('/api/v7/trips/fees/')) return applyFee(world, url, body);
+  if (url === '/api/v7/books/fee-columns') {
+    if (body.fee_type_ids.length > 3) return [422, { error: 'FEE_COLUMNS_MAX', message: 'Sổ chỉ được chọn tối đa 3 cột phụ phí.' }];
+    world.events.unshift({ kind: 'set_book_fee_columns', actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z',
+      before: { fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })) }, after: { fee_columns: body.fee_type_ids } });
+    world.feeColumns = [...body.fee_type_ids];
+    world.version += 1;
+    return [200, { ok: true }];
+  }
   if (url === '/api/v7/sheet/approve') {
     if (body.snapshot_sha256 !== world.sheetSync.snapshot_sha256) return [409, { error: 'STALE_SHEET' }];
     const row = world.sheetSync.items.find(item => item.sync_state === 'NEW');
@@ -130,6 +217,7 @@ async function withPage(fn, setup = () => {}) {
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
     if (url.pathname === '/api/v7/customers') { send(200, { customers: [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
+    if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
     if (url.pathname === '/api/v7/sheet/refresh') {   // nút Làm mới: mặc định server chưa bật
       world.refreshCalls.push(req.method);
       if (world.sheetRefresh) send(200, world.sheetRefresh(req.method)); else send(404, { error: 'NOT_FOUND' });

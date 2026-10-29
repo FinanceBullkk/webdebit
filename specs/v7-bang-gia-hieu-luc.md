@@ -178,7 +178,7 @@ Spec: revert commit. Khi đã code: migration có bước ngược xóa các b�
 
 Giai đoạn 1 (backend), 29/10/2026, máy Windows của người dùng, dữ liệu giả, không chạm DB thật:
 
-- `test_pg_v7_backend.py` (PostgreSQL 18.6 dùng một lần): 10 SCHEMA + 54 BEHAVIOR pass, 2 SKIPPED_OPEN như trước. Case `BANG-GIA.01` kiểm tra giá theo hai đầu đợt, tên khác kho, shipper TT/khác/trống, các lý do không tra được, mọi lỗi lưu bảng (bảng giữ nguyên khi bị từ chối), áp lô tất cả-hoặc-không, giữ phụ phí, một event, gọi lặp, tháng khóa, nguồn giá sau sửa phụ phí/sửa tay, sửa bảng không đổi chuyến đã ghi, và migration: chạy lại không đổi lược đồ, lỗi giữa chừng thì rollback, áp lên `main` trước PR (`7214717`) cho đúng lược đồ mới.
+- `test_pg_v7_backend.py` (PostgreSQL 18.6 dùng một lần): 10 SCHEMA + 54 BEHAVIOR pass, 2 SKIPPED_OPEN như trước. Case `BANG-GIA.01` kiểm tra giá theo hai đầu đợt, tên khác kho, shipper TT/khác/trống, các lý do không tra được, mọi lỗi lưu bảng (bảng giữ nguyên khi bị từ chối), áp lô tất cả-hoặc-không, giữ phụ phí, một event, gọi lặp, tháng khóa, nguồn giá sau sửa phụ phí/sửa tay, sửa bảng không đổi chuyến đã ghi, và migration: chạy lại không đổi lược đồ, lỗi giữa chừng thì rollback, áp lên `main` trước PR (`58c43dd`) cho đúng lược đồ mới.
 - `test_pg_v7_grants.py --strict`: pass (quyền app/reader của 4 hàm mới, hàm phụ không ai gọi được).
 - `npm run check`: xanh.
 

@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phụ phí nhiều loại · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem giao diện phụ phí nhiều loại (PHU-PHI-01, specs/v7-phu-phi-nhieu-loai.md) trên bố cục sổ SO-GON-02:
+     cột riêng theo sổ (0–3) + Khác, khung chi tiết phụ phí, áp một khoản cho nhiều chuyến, tháng khóa, dòng chưa có đơn giá,
+     dòng có Thành tiền khác (đơn giá + phụ phí), cài đặt loại phụ phí. Chạy trong tab, không gọi API, không lưu gì. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit}
+.demo{margin:0;padding:8px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:15px}
+.guide{max-width:1258px;margin:8px auto;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.guide h2{margin:0 0 4px;font-size:15px}.guide ol{margin:0;padding-left:20px}.guide li{padding:1px 0}
+.book-head{max-width:1258px;margin:0 auto;height:60px;display:flex;align-items:center;gap:12px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700}.cust span{color:#3e5871}
+.cust input{width:270px;height:38px;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;color:#162d48;font-size:16px;font-weight:700}
+.head-btn{min-height:36px;padding:0 14px;border:1px solid #6584a5;border-radius:4px;background:#fff;color:#173d65;font-weight:600;cursor:pointer}
+.total{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end}.total span{color:#3e5871;font-size:13px}.total strong{font-size:20px;color:#123f79}
+.selbar{max-width:1258px;margin:0 auto;display:flex;align-items:center;gap:12px;padding:6px 10px;background:#e3effc;border-bottom:1px solid #9eb4ca;font-weight:700}
+.selbar button{min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer}
+.selbar .primary{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.ledger{width:1258px;margin:0 auto;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:0 6px;vertical-align:middle;font-size:13px}
+.ledger td{height:36px}
+.cols th{height:36px;background:#eaf1fa;text-align:left;line-height:1.1;overflow-wrap:anywhere}
+.cols th.fee-h{background:#f6ecd8;color:#5a3a00}.cols th.pay{background:#dfeeff}
+.ledger td.cut{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cont{font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}
+.num{text-align:right;white-space:nowrap}
+.missing{background:#ffddb0!important;color:#72410a;font-weight:700}
+.neg{background:#fff3c4!important}
+td.fee{background:#fffaf0}
+td.fee:empty::before{content:'–';color:#8193a6}
+td.fee.edit{cursor:text}td.fee.edit:hover{outline:2px solid #145fa9;outline-offset:-2px}
+td.fee input{width:100%;height:28px;border:1px solid #145fa9;border-radius:3px;text-align:right;padding:0 4px}
+td.other{cursor:pointer}td.other:hover,td.other.open{outline:2px solid #145fa9;outline-offset:-2px}
+td.other .add{color:#1d4ed8;font-size:12px}td.other small{display:block;color:#5d6f82;font-size:11px;line-height:1.1}
+td.other .sum{font-weight:600}
+.stt label{display:flex;align-items:center;gap:4px;cursor:pointer}.stt input{width:16px;height:16px;margin:0}
+.month th{height:42px;padding:0 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.month.locked th{background:#5f7184}
+.month-title{display:flex;align-items:center;gap:12px}
+.lock{min-height:28px;padding:0 8px;border:0;border-radius:4px;background:#fff3c4;color:#5a3a00;font-size:12px;font-weight:700}
+.month.locked .lock{background:#e6eaef;color:#33465a}
+.mstats{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:400}.mstats b{font-weight:700}
+.locked-row td{background:#eceff2}.locked-row td.fee{background:#e9e6df}
+td.side{padding:0;height:auto;vertical-align:top;border-right:0;border-bottom:0}
+td.pay-side{background:#f2f8ff;border-left:3px solid #3269a4!important}
+.inner{width:100%;table-layout:fixed;border-spacing:0;border-collapse:separate}
+.pay-side td{background:#f2f8ff}
+.subtotal td{height:40px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+.spacer td{height:14px;padding:0;background:#eef3f8;border:0}
+/* Khung chi tiết phụ phí: đè lên vùng phiếu thu bên phải và lấn ít nhất; cột Khác vẫn thấy, Thành tiền hiện ngay trong khung. */
+.drawer{position:fixed;top:0;right:max(0px,calc((100vw - 1258px)/2));width:360px;height:100vh;z-index:40;display:flex;flex-direction:column;background:#fff;border-left:3px solid #145fa9;box-shadow:-6px 0 18px #162d4833}
+.drawer[hidden]{display:none}
+.drawer header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.drawer header h2{margin:0;font-size:16px}.drawer header small{display:block;color:#3e5871;font-size:13px;font-weight:400}
+.drawer header button{margin-left:auto;min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;cursor:pointer}
+.drawer .body{flex:1;overflow-y:auto;padding:10px 12px}
+.lines{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.lines th{font-size:12px;color:#3e5871;text-align:left;padding:4px;border-bottom:1px solid #d8e1ec}
+.lines td{padding:4px;border-bottom:1px solid #edf1f6;vertical-align:middle}
+.lines select,.lines input,.addform select,.addform input{width:100%;height:34px;font-size:13px;border:1px solid #98b1c7;border-radius:4px;padding:0 6px;background:#fff;color:#162d48}
+.lines .amt{text-align:right;font-weight:700;cursor:text;white-space:nowrap}.lines .amt:hover{outline:2px solid #145fa9;outline-offset:-2px}
+.lines .amt input{text-align:right}
+.tag{display:inline-block;margin:2px 4px 0 0;padding:0 6px;border-radius:9px;background:#e3effc;color:#193d64;font-size:11px;font-weight:600}
+.tag.pass{background:#e7f0e9;color:#145b32}
+.del{width:34px;height:34px;border:1px solid #d8a3a3;border-radius:4px;background:#fff;color:#a01616;cursor:pointer}
+.ro{color:#33465a}
+.sumline{display:flex;justify-content:space-between;margin:10px 0 0;padding:6px 10px;background:#f6f7f9;font-weight:700}.sumline.calc{margin:0 0 10px;font-weight:400;color:#33465a}.sumline.calc b{color:#123f79}
+.addform{display:grid;grid-template-columns:1fr 130px;gap:6px;padding:10px;border:1px solid #9eb4ca;border-radius:6px;background:#f8fbff}
+.addform h3{grid-column:1/-1;margin:0;font-size:14px}.addform .note{grid-column:1/-1}
+.addform button{grid-column:1/-1;min-height:38px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font-weight:700;cursor:pointer}
+.err{margin:0;color:#a01616;font-weight:700;font-size:13px}.err:empty{display:none}
+.info{padding:8px 10px;border-radius:4px;background:#fff3c4;color:#452600;font-weight:600}
+.confirm{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:#162d4855}
+.confirm[hidden]{display:none}
+.confirm > div{width:460px;padding:16px;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.confirm h2{margin:0 0 8px;font-size:16px}.confirm p{margin:6px 0}
+.confirm .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.confirm button{min-height:38px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;cursor:pointer}
+.confirm .yes{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:70;padding:10px 16px;background:#145b32;color:#fff;border-radius:6px;font-weight:700}
+.toast.bad{background:#a01616}.toast[hidden]{display:none}
+/* Cài đặt loại phụ phí */
+.settings{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
+.settings[hidden]{display:none}
+.settings .panel{width:900px;max-height:calc(100vh - 80px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.settings header{display:flex;align-items:center;padding:12px 16px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.settings header h2{margin:0;font-size:17px}.settings header button{margin-left:auto;min-height:36px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;cursor:pointer}
+.settings .content{padding:12px 16px}
+.settings p.hint{margin:0 0 8px;color:#3e5871}
+.types{width:100%;border-collapse:collapse}
+.types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
+.types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}
+.types tr.off td{color:#8193a6}
+.types .nm{font-weight:700;cursor:text}.types .nm input{width:100%;height:32px}
+.types select{height:32px}
+.types .colbox{display:flex;align-items:center;gap:6px}.types .colbox input{width:18px;height:18px}
+.types .pos{display:inline-block;min-width:22px;padding:0 6px;border-radius:9px;background:#145fa9;color:#fff;font-size:12px;text-align:center}
+.types button{min-height:32px;padding:0 10px;white-space:nowrap;border:1px solid #8daac9;border-radius:4px;background:#fff;cursor:pointer}
+.types button:disabled,.types input:disabled{opacity:.5;cursor:not-allowed}
+.sys{font-size:11px;color:#5d6f82;font-weight:400}
+.newtype{display:flex;gap:8px;align-items:center;margin-top:12px;padding:10px;border:1px dashed #8daac9;border-radius:6px}
+.newtype input{width:260px;height:36px;padding:0 8px}.newtype select{height:36px}
+.newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font-weight:700;cursor:pointer}
+.log{max-width:1258px;margin:10px auto 30px;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:13px}
+.log h2{margin:0 0 4px;font-size:15px}.log ol{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì</p>
+<section class="guide" aria-labelledby="g">
+  <h2 id="g">Thử thế nào</h2>
+  <ol>
+    <li><strong>Cột riêng:</strong> sổ này có cột riêng <b>Neo, Điện, Ghép</b>; các loại khác dồn vào cột <b>Khác</b>. Bấm ô Neo của một chuyến, gõ số rồi Enter để lưu, Esc để thôi. Thành tiền và Tổng tháng đổi theo.</li>
+    <li><strong>Khác:</strong> bấm ô Khác (có số kèm "n khoản", hoặc "+ thêm") để mở khung <b>Chi tiết phụ phí</b>. Trong khung thêm được khoản, đổi loại (đổi sang Neo thì số chuyển qua cột Neo), sửa số, xóa. <b>Giảm trừ</b> nhập số âm.</li>
+    <li><strong>Nhiều chuyến:</strong> đánh dấu ô vuông ở cột STT, rồi bấm <b>Thêm một khoản phụ phí cho N chuyến</b>.</li>
+    <li><strong>Trường hợp đặc biệt:</strong> chuyến <b>OLDU0000002</b> có Thành tiền khác (đơn giá + phụ phí): khi sửa phí lần đầu, web hỏi lại vì Thành tiền sẽ đổi. Chuyến <b>OLDU0000003</b> chưa có đơn giá: chưa sửa được phí. Tháng 9 đang khóa: chỉ xem.</li>
+    <li><strong>Cài đặt phụ phí</strong> (nút trên đầu sổ): chọn tối đa 3 cột riêng cho sổ, đổi tính chất (phí dịch vụ / chi hộ), thêm loại, đổi tên, ngừng dùng. Bỏ hết cột riêng thì sổ về mặc định, chỉ còn cột Khác.</li>
+  </ol>
+</section>
+<header class="book-head">
+  <label class="cust"><span>Sổ khách</span><input value="KHÁCH GIẢ A · Sầu riêng · cảng" aria-label="Tên khách, gõ để đổi khách"></label>
+  <button type="button" class="head-btn">Lịch sử</button>
+  <button type="button" class="head-btn" id="open-settings">Cài đặt phụ phí</button>
+  <div class="total"><span>Tổng còn nợ (mọi tháng)</span><strong id="grand"></strong></div>
+</header>
+<div class="selbar" id="selbar" hidden></div>
+<table class="ledger" aria-label="Sổ khách">
+  <colgroup id="cg"></colgroup>
+  <thead><tr class="cols" id="cols"></tr></thead>
+  <tbody id="body"></tbody>
+</table>
+<aside class="drawer" id="drawer" hidden aria-label="Chi tiết phụ phí"></aside>
+<div class="confirm" id="confirm" hidden role="dialog" aria-modal="true"></div>
+<div class="settings" id="settings" hidden role="dialog" aria-modal="true" aria-label="Cài đặt loại phụ phí"></div>
+<p class="toast" id="toast" role="status" hidden></p>
+<section class="log" aria-labelledby="lg"><h2 id="lg">Lịch sử (bản xem: mỗi thao tác ghi người làm, trước → sau)</h2><ol id="log"><li>Chưa có thao tác.</li></ol></section>
+
+<script>
+'use strict';
+// ---------- Dữ liệu giả ----------
+const types = [
+  { id: 1, name: 'Neo', kind: 'service', sign: 'pos', active: true },
+  { id: 2, name: 'Điện', kind: 'service', sign: 'pos', active: true },
+  { id: 3, name: 'Ghép', kind: 'service', sign: 'pos', active: true },
+  { id: 4, name: 'Bảo hiểm', kind: 'pass', sign: 'pos', active: true },
+  { id: 5, name: 'Kiểm định', kind: 'service', sign: 'pos', active: true },
+  { id: 6, name: 'Health cert', kind: 'service', sign: 'pos', active: true },
+  { id: 7, name: 'Khác', kind: 'service', sign: 'pos', active: true, sys: 'khac' },
+  { id: 8, name: 'Giảm trừ', kind: 'service', sign: 'neg', active: true, sys: 'giam' },
+  { id: 9, name: 'Phụ phí ban đầu', kind: 'service', sign: 'any', active: true, sys: 'bandau' },
+];
+let columns = [1, 2, 3];   // cột riêng của sổ này (thứ tự)
+let nextLine = 100, nextType = 10;
+const L = (type, amount, note = '') => ({ id: nextLine++, type, amount, note });
+const months = [
+  { key: '2026-10', label: '10/2026', locked: false, prior: 1200000000, received: 350000000, trips: [
+    { id: 1, cont: 'OLDU0000001', carrier: 'COSCO', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '16/10/2026', from: 'DAK LAK', to: 'XIAMEN', price: 85000000, lines: [L(9, 2500000)] },
+    { id: 2, cont: 'OLDU0000002', carrier: 'CMA', shipper: 'CONG TY TAY NGUYEN B', date: '17/10/2026', from: 'DAK LAK', to: 'QINGDAO', price: 75000000, counted: 80500000, lines: [L(9, 5000000)] },
+    { id: 3, cont: 'OLDU0000003', carrier: 'WH', shipper: 'CONG TY TAY NGUYEN B', date: '17/10/2026', from: 'DAK LAK', to: 'XIAMEN', price: null, counted: 77000000, lines: [] },
+    { id: 4, cont: 'FAKU1000004', carrier: 'TSL', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '19/10/2026', from: 'DAK LAK', to: 'XIAMEN', price: 85000000, lines: [L(1, 1200000), L(2, 3500000, '42 giờ chạy điện')] },
+    { id: 5, cont: 'FAKU1000005', carrier: 'TSL', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '20/10/2026', from: 'DAK LAK', to: 'XIAMEN', price: 85000000, lines: [L(7, 800000), L(4, 650000), L(8, -500000, 'Bớt cho khách')] },
+    { id: 6, cont: 'FAKU1000006', carrier: 'SNL', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '21/10/2026', from: 'DAK LAK', to: 'NANSHA', price: 85000000, lines: [] },
+    { id: 7, cont: 'FAKU1000007', carrier: 'SNL', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '21/10/2026', from: 'BINH PHUOC', to: 'NANSHA', price: 75000000, lines: [L(3, 1000000)] },
+    { id: 8, cont: '', carrier: '', shipper: '', date: '', from: '', to: '', price: null, feeOnly: true, lines: [L(7, 2000000, 'Phí lưu bãi cả tháng')] },
+  ] },
+  { key: '2026-09', label: '9/2026', locked: true, prior: 900000000, received: 400000000, trips: [
+    { id: 11, cont: 'FAKU0900001', carrier: 'COSCO', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '25/09/2026', from: 'DAK LAK', to: 'XIAMEN', price: 85000000, lines: [L(1, 1200000), L(6, 900000)] },
+    { id: 12, cont: 'FAKU0900002', carrier: 'COSCO', shipper: 'VAN TAI GIA PHAT MIEN TRUNG', date: '26/09/2026', from: 'DAK LAK', to: 'XIAMEN', price: 85000000, lines: [] },
+  ] },
+];
+months.reverse();   // tháng cũ trước, như sổ
+const receipts = { '2026-10': [['21/10/2026', 'THU TIỀN', 300000000], ['24/10/2026', 'THU TIỀN', 50000000]], '2026-09': [['28/09/2026', 'THU TIỀN', 400000000]] };
+
+// ---------- Tính tiền (bản xem; trang thật lấy số từ server) ----------
+const fmt = n => (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('vi-VN');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const typeOf = id => types.find(t => t.id === id);
+const sum = lines => lines.reduce((s, l) => s + l.amount, 0);
+const feeTotal = t => t.lines.length ? sum(t.lines) : null;
+// Thành tiền: có đơn giá → đơn giá + phụ phí (trống tính 0, V7-BE); phí lẻ không container → tổng khoản; thiếu đơn giá → chưa biết.
+// Dòng có `counted` (Thành tiền nạp từ Sheet) giữ số đó tới lần sửa phí đầu tiên.
+const amount = t => t.feeOnly ? sum(t.lines) : t.price == null ? null : t.counted != null ? t.counted : t.price + (feeTotal(t) ?? 0);
+const recomputed = t => t.price + (feeTotal(t) ?? 0);
+const otherLines = t => t.lines.filter(l => !columns.includes(l.type));
+const colSum = (t, typeId) => { const ls = t.lines.filter(l => l.type === typeId); return ls.length ? sum(ls) : null; };
+const monthCharges = m => m.trips.reduce((s, t) => s + (amount(t) ?? 0), 0);
+const monthEnd = m => m.prior + monthCharges(m) - m.received;
+
+// ---------- Trạng thái giao diện ----------
+let selected = new Set(), drawer = null, editing = null, renaming = null;
+const logs = [];
+function log(text) { logs.unshift(`${new Date().toLocaleTimeString('vi-VN')} · Người thử · ${text}`); }
+function toast(text, bad = false) { const t = document.getElementById('toast'); t.textContent = text; t.className = 'toast' + (bad ? ' bad' : ''); t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 3200); }
+const findTrip = id => { for (const m of months) { const t = m.trips.find(x => x.id === id); if (t) return { m, t }; } };
+const tripName = t => t.feeOnly ? 'Phí lẻ' : t.cont;
+
+// ---------- Vẽ sổ ----------
+function widths() {
+  const n = columns.length;
+  // 1258 = phần chuyến + phần phiếu thu (280). Mỗi cột riêng 66px; bớt cột riêng thì Shipper rộng ra.
+  return [['', 44], ['Số container', 110], ['Hãng tàu', 58], ['Shipper', 88 + (3 - n) * 66], ['Ngày chuyến', 86], ['Nơi đi', 72], ['Nơi đến', 72], ['Đơn giá', 84],
+    ...columns.map(id => [typeOf(id).name, 66, 'fee']), ['Khác', 86, 'fee'], ['Thành tiền', 96], ['Ngày trả', 84, 'pay'], ['Hình thức', 76, 'pay'], ['Số tiền trả', 120, 'pay']];
+}
+function render() {
+  const w = widths(), tripCols = w.length - 3;
+  document.getElementById('cg').innerHTML = w.map(c => `<col style="width:${c[1]}px">`).join('');
+  document.getElementById('cols').innerHTML = w.map((c, i) => `<th scope="col" class="${c[2] === 'fee' ? 'fee-h num' : c[2] === 'pay' ? 'pay' : ''}${[7, tripCols - 1, w.length - 1].includes(i) ? ' num' : ''}"${c[2] === 'fee' ? ' title="Phụ phí"' : ''}>${i === 0 ? 'STT' : esc(c[0])}</th>`).join('');
+  let html = '';
+  for (const m of months) {
+    html += `<tr class="month${m.locked ? ' locked' : ''}"><th colspan="${w.length}"><span class="month-title">THÁNG ${m.label}<span class="lock">${m.locked ? '🔒 Đã khóa' : '🔓 Đang mở'}</span><span class="mstats"><span>Nợ các tháng trước: <b>${fmt(m.prior)}</b></span><span>Phát sinh: <b>${fmt(monthCharges(m))}</b></span><span>Đã thu: <b>${fmt(m.received)}</b></span><span>Còn nợ cuối tháng: <b>${fmt(monthEnd(m))}</b></span></span></span></th></tr>`;
+    const rows = m.trips.map((t, i) => tripRow(m, t, i)).join('');
+    const pays = receipts[m.key].map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="num"><b>${fmt(r[2])}</b></td></tr>`).join('');
+    html += `<tr><td class="side" colspan="${tripCols}"><table class="inner"><colgroup>${w.slice(0, tripCols).map(c => `<col style="width:${c[1]}px">`).join('')}</colgroup><tbody>${rows}</tbody></table></td>`
+      + `<td class="side pay-side" colspan="3"><table class="inner"><colgroup>${w.slice(tripCols).map(c => `<col style="width:${c[1]}px">`).join('')}</colgroup><tbody>${pays}</tbody></table></td></tr>`;
+    // Tổng tháng: tổng từng cột phụ phí.
+    const totals = columns.map(id => m.trips.reduce((s, t) => s + (colSum(t, id) ?? 0), 0));
+    const other = m.trips.reduce((s, t) => s + sum(otherLines(t)), 0);
+    html += `<tr class="subtotal"><td colspan="8">Tổng tháng ${m.label} · ${m.trips.length} dòng</td>${totals.map(v => `<td class="num">${v ? fmt(v) : ''}</td>`).join('')}<td class="num">${other ? fmt(other) : ''}</td><td class="num">${fmt(monthCharges(m))}</td><td style="border-left:3px solid #3269a4">Đã thu<br>Còn nợ</td><td class="num" colspan="2">${fmt(m.received)}<br>${fmt(monthEnd(m))}</td></tr><tr class="spacer"><td colspan="${w.length}"></td></tr>`;
+  }
+  document.getElementById('body').innerHTML = html;
+  document.getElementById('grand').textContent = fmt(monthEnd(months[months.length - 1]));
+  const bar = document.getElementById('selbar');
+  bar.hidden = !selected.size;
+  bar.innerHTML = selected.size ? `Đã chọn ${selected.size} chuyến <button type="button" class="primary" id="batch">Thêm một khoản phụ phí cho ${selected.size} chuyến</button><button type="button" id="unselect">Bỏ chọn</button>` : '';
+  document.getElementById('log').innerHTML = logs.length ? logs.map(x => `<li>${esc(x)}</li>`).join('') : '<li>Chưa có thao tác.</li>';
+  renderDrawer();
+}
+function tripRow(m, t, i) {
+  const ro = m.locked;
+  const noPrice = !t.feeOnly && t.price == null;
+  const box = ro || noPrice ? '' : `<input type="checkbox" class="pick" data-id="${t.id}" aria-label="Chọn ${esc(tripName(t))}"${selected.has(t.id) ? ' checked' : ''}>`;
+  const stt = `<td class="stt"><label>${box}${t.feeOnly ? '–' : i + 1}</label></td>`;
+  const info = t.feeOnly ? `<td colspan="6" class="ro"><i>Phí lẻ, không container</i></td>`
+    : `<td class="cont cut">${esc(t.cont)}</td><td class="cut">${esc(t.carrier)}</td><td class="cut" title="${esc(t.shipper)}">${esc(t.shipper)}</td><td>${t.date}</td><td class="cut">${esc(t.from)}</td><td class="cut">${esc(t.to)}</td>`;
+  const price = t.feeOnly ? '<td></td>' : noPrice ? '<td class="num missing">Thiếu giá</td>' : `<td class="num">${fmt(t.price)}</td>`;
+  const own = columns.map(id => {
+    const v = colSum(t, id);
+    if (editing && editing.trip === t.id && editing.type === id) return `<td class="fee"><input class="own-input" data-id="${t.id}" data-type="${id}" value="${v == null ? '' : fmt(v)}" inputmode="numeric" aria-label="${esc(typeOf(id).name)} mới"></td>`;
+    return `<td class="num fee${ro ? '' : ' edit'}" data-own="${id}" data-id="${t.id}" tabindex="${ro ? -1 : 0}" role="button" aria-label="Sửa ${esc(typeOf(id).name)} ${esc(tripName(t))}">${v == null ? '' : fmt(v)}</td>`;
+  }).join('');
+  const ol = otherLines(t);
+  const other = `<td class="num fee other${drawer && drawer.trip === t.id ? ' open' : ''}" data-other="${t.id}" tabindex="0" role="button" aria-label="Chi tiết phụ phí ${esc(tripName(t))}">${ol.length ? `<span class="sum">${fmt(sum(ol))}</span><small>${ol.length} khoản</small>` : ro || noPrice ? '' : '<span class="add">+ thêm</span>'}</td>`;
+  const a = amount(t);
+  const total = a == null ? '<td class="num missing">Chưa tính</td>' : `<td class="num${a < 0 ? ' neg' : ''}">${fmt(a)}</td>`;
+  return `<tr class="${ro ? 'locked-row' : ''}">${stt}${info}${price}${own}${other}${total}</tr>`;
+}
+
+// ---------- Khung chi tiết ----------
+const usable = (allowSystemKeep) => types.filter(x => x.active && x.sys !== 'bandau' || x.id === allowSystemKeep);
+const typeOptions = (sel, keep) => usable(keep).map(x => `<option value="${x.id}"${x.id === sel ? ' selected' : ''}>${esc(x.name)}</option>`).join('');
+function renderDrawer() {
+  const el = document.getElementById('drawer');
+  if (!drawer) { el.hidden = true; return; }
+  el.hidden = false;
+  if (drawer.batch) {
+    el.innerHTML = `<header><h2>Thêm một khoản cho ${selected.size} chuyến<small>${[...selected].map(id => esc(tripName(findTrip(id).t))).join(', ')}</small></h2><button type="button" class="close">Đóng</button></header>
+      <div class="body"><p>Mỗi chuyến nhận một khoản giống nhau. Tất cả cùng vào, hoặc không chuyến nào vào.</p>${addForm(`Thêm cho ${selected.size} chuyến`)}</div>`;
+    return;
+  }
+  const { m, t } = findTrip(drawer.trip);
+  const ro = m.locked, noPrice = !t.feeOnly && t.price == null;
+  const frozen = ro || noPrice;
+  const rows = t.lines.map(l => {
+    const ty = typeOf(l.type);
+    const tags = (columns.includes(l.type) ? '<span class="tag">cột riêng</span>' : '') + (ty.kind === 'pass' ? '<span class="tag pass">chi hộ</span>' : '');
+    const amt = drawer.edit === l.id ? `<input class="line-amount" data-line="${l.id}" value="${fmt(l.amount)}" inputmode="numeric" aria-label="Số tiền mới">`
+      : fmt(l.amount);
+    return frozen ? `<tr><td>${esc(ty.name)}<br>${tags}</td><td class="num"><b>${fmt(l.amount)}</b></td><td>${esc(l.note)}</td><td></td></tr>`
+      : `<tr><td><select class="line-type" data-line="${l.id}" aria-label="Loại">${typeOptions(l.type, l.type === 9 ? 9 : null)}</select>${tags}</td>
+        <td class="amt" data-line="${l.id}" tabindex="0" role="button" aria-label="Sửa số tiền">${amt}</td>
+        <td><input class="line-note" data-line="${l.id}" value="${esc(l.note)}" placeholder="Ghi chú" aria-label="Ghi chú"></td>
+        <td><button type="button" class="del" data-line="${l.id}" aria-label="Xóa khoản ${esc(ty.name)} ${fmt(l.amount)}" title="Xóa khoản">🗑</button></td></tr>`;
+  }).join('');
+  const msg = ro ? '<p class="info">Tháng đã khóa — mở khóa tháng để sửa phụ phí.</p>'
+    : noPrice ? '<p class="info">Dòng này chưa có đơn giá — điền đơn giá trước rồi mới sửa phụ phí.</p>' : '';
+  el.innerHTML = `<header><h2>Chi tiết phụ phí<small>${esc(tripName(t))}${t.date ? ' · ' + t.date : ''}${t.price != null ? ' · đơn giá ' + fmt(t.price) : ''}</small></h2><button type="button" class="close">Đóng</button></header>
+    <div class="body">${msg}
+      ${t.lines.length ? `<table class="lines"><thead><tr><th style="width:38%">Loại</th><th style="width:26%" class="num">Số tiền</th><th>Ghi chú</th><th style="width:40px"></th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="ro">Chưa có khoản phụ phí nào.</p>'}
+      <div class="sumline"><span>Tổng phụ phí</span><span>${t.lines.length ? fmt(sum(t.lines)) : '–'}</span></div>
+      <div class="sumline calc">${calcLine(t)}</div>
+      ${frozen ? '' : addForm('Thêm')}
+    </div>`;
+}
+// Thành tiền của chuyến ngay trong khung, để không phải nhìn sang cột Thành tiền.
+function calcLine(t) {
+  if (t.feeOnly) return `<span>Thành tiền (phí lẻ)</span><b>${fmt(sum(t.lines))}</b>`;
+  if (t.price == null) return '<span>Thành tiền</span><b>chưa tính — thiếu đơn giá</b>';
+  if (t.counted != null) return `<span>Thành tiền đang là</span><b>${fmt(t.counted)}</b>`;
+  return `<span>Thành tiền = ${fmt(t.price)} + ${fmt(feeTotal(t) ?? 0)}</span><b>${fmt(amount(t))}</b>`;
+}
+function addForm(label) {
+  return `<form class="addform" id="addform"><h3>Thêm khoản</h3><select id="add-type" aria-label="Loại">${typeOptions(7)}</select>
+    <input id="add-amount" class="num" inputmode="numeric" placeholder="Số tiền" aria-label="Số tiền"><input id="add-note" class="note" placeholder="Ghi chú (tùy chọn)" aria-label="Ghi chú">
+    <p class="err note" id="add-err" role="alert"></p><button type="submit">${label}</button></form>`;
+}
+
+// ---------- Ghi (bản xem: đổi trong tab) ----------
+function parseMoney(text) {
+  const s = String(text).trim().replace(/\./g, '').replace(/\s/g, '');
+  if (s === '') return null;
+  if (!/^-?\d+$/.test(s)) throw Error('Số tiền không đọc được');
+  return Number(s);
+}
+function checkSign(typeId, v) {
+  const ty = typeOf(typeId);
+  if (v === 0) throw Error('Nhập số tiền khác 0');
+  if (ty.sign === 'neg' && v > 0) throw Error('Giảm trừ nhập số âm');
+  if (ty.sign === 'pos' && v < 0) throw Error('Loại này nhập số dương — số âm chọn loại Giảm trừ');
+}
+// Dòng có Thành tiền khác (đơn giá + phụ phí): lần sửa phí đầu tiên Thành tiền tính lại, hỏi trước khi ghi.
+function guarded(t, change, describe, logText) {
+  if (t.counted == null || t.price == null) { change(); log(logText); return; }
+  const before = t.counted;
+  const copy = { ...t, lines: t.lines.map(l => ({ ...l })) }; const saved = t.lines; t.lines = copy.lines; change(); const after = recomputed(t); t.lines = saved;
+  const box = document.getElementById('confirm');
+  box.innerHTML = `<div><h2>Thành tiền dòng này sẽ đổi</h2><p>${esc(tripName(t))}: Thành tiền đang là <b>${fmt(before)}</b>, khác đơn giá + phụ phí.</p>
+    <p>Sau khi ${esc(describe)}, Thành tiền tính lại = đơn giá ${fmt(t.price)} + phụ phí = <b>${fmt(after)}</b> (${after - before >= 0 ? '+' : ''}${fmt(after - before)}).</p>
+    <p class="ro">Số dư đầu không đổi; phần chênh ghi ở Lịch sử.</p><div class="row"><button type="button" class="no">Thôi</button><button type="button" class="yes">Ghi</button></div></div>`;
+  box.hidden = false;
+  // Đặt con trỏ sau một nhịp: phím Enter vừa lưu ô không được bấm luôn nút Ghi.
+  setTimeout(() => box.querySelector('.yes').focus(), 0);
+  box.onclick = e => {
+    if (e.target.closest('.yes')) { change(); delete t.counted; box.hidden = true; log(`${logText} · Thành tiền ${fmt(before)} → ${fmt(after)}`); render(); }
+    else if (e.target.closest('.no') || e.target === box) { box.hidden = true; editing = null; render(); }
+  };
+}
+function setOwn(t, typeId, text) {
+  let v;
+  try { v = parseMoney(text); if (v != null) checkSign(typeId, v); } catch (e) { toast(e.message, true); return false; }
+  const before = colSum(t, typeId);
+  if (before === v) { editing = null; render(); return true; }
+  guarded(t, () => { t.lines = t.lines.filter(l => l.type !== typeId); if (v != null) t.lines.push(L(typeId, v)); }, `đặt ${typeOf(typeId).name} = ${v == null ? 'trống' : fmt(v)}`,
+    `${typeOf(typeId).name} ${tripName(t)}: ${before == null ? 'trống' : fmt(before)} → ${v == null ? 'trống' : fmt(v)}`);
+  editing = null; render(); return true;
+}
+
+// ---------- Sự kiện ----------
+document.addEventListener('click', e => {
+  const own = e.target.closest('td[data-own]');
+  if (own) {
+    const { m, t } = findTrip(Number(own.dataset.id));
+    if (m.locked) return toast('Tháng đã khóa — mở khóa tháng để sửa phụ phí', true);
+    if (!t.feeOnly && t.price == null) return toast('Dòng này chưa có đơn giá — điền đơn giá trước rồi mới sửa phụ phí', true);
+    editing = { trip: t.id, type: Number(own.dataset.own) }; render();
+    const input = document.querySelector('.own-input'); input.focus(); input.select(); return;
+  }
+  const other = e.target.closest('td[data-other]');
+  if (other) { drawer = { trip: Number(other.dataset.other) }; render(); document.querySelector('#drawer .close').focus(); return; }
+  if (e.target.closest('#drawer .close')) { const id = drawer?.trip; drawer = null; render(); document.querySelector(`td[data-other="${id}"]`)?.focus(); return; }
+  if (e.target.closest('#batch')) { drawer = { batch: true }; render(); document.getElementById('add-amount').focus(); return; }
+  if (e.target.closest('#unselect')) { selected.clear(); if (drawer?.batch) drawer = null; render(); return; }
+  const amt = e.target.closest('.amt');
+  if (amt && !amt.querySelector('input')) { drawer.edit = Number(amt.dataset.line); render(); const i = document.querySelector('.line-amount'); i.focus(); i.select(); return; }
+  const del = e.target.closest('.del');
+  if (del) {
+    const { t } = findTrip(drawer.trip), line = t.lines.find(l => l.id === Number(del.dataset.line));
+    guarded(t, () => { t.lines = t.lines.filter(l => l.id !== line.id); }, `xóa khoản ${typeOf(line.type).name} ${fmt(line.amount)}`,
+      `Xóa khoản ${typeOf(line.type).name} ${fmt(line.amount)} của ${tripName(t)}`); render(); return;
+  }
+  if (e.target.closest('#open-settings')) { document.getElementById('settings').hidden = false; renderSettings(); return; }
+  if (e.target.closest('#settings .close') || e.target.id === 'settings') { document.getElementById('settings').hidden = true; renaming = null; render(); return; }
+  const up = e.target.closest('[data-move]');
+  if (up) { const id = Number(up.dataset.id), i = columns.indexOf(id), j = i + Number(up.dataset.move); [columns[i], columns[j]] = [columns[j], columns[i]]; log(`Đổi thứ tự cột riêng: ${columns.map(c => typeOf(c).name).join(', ')}`); renderSettings(); render(); return; }
+  const stop = e.target.closest('[data-active]');
+  if (stop) { const ty = typeOf(Number(stop.dataset.active)); ty.active = !ty.active; log(`${ty.active ? 'Dùng lại' : 'Ngừng dùng'} loại ${ty.name}`); renderSettings(); return; }
+  const nm = e.target.closest('td.nm[data-id]');
+  if (nm && !nm.querySelector('input')) { renaming = Number(nm.dataset.id); renderSettings(); const i = document.querySelector('.rename'); i.focus(); i.select(); }
+});
+document.addEventListener('change', e => {
+  if (e.target.matches('.pick')) { const id = Number(e.target.dataset.id); e.target.checked ? selected.add(id) : selected.delete(id); render(); return; }
+  if (e.target.matches('.line-type')) {
+    const { t } = findTrip(drawer.trip), line = t.lines.find(l => l.id === Number(e.target.dataset.line)), to = Number(e.target.value);
+    try { checkSign(to, line.amount); } catch (err) { toast(err.message, true); render(); return; }
+    const from = typeOf(line.type).name;
+    t.lines = t.lines.map(l => l.id === line.id ? { ...L(to, l.amount, l.note) } : l);   // đổi loại = bỏ dòng cũ + ghi dòng mới, một lệnh
+    log(`Đổi loại khoản ${fmt(line.amount)} của ${tripName(t)}: ${from} → ${typeOf(to).name}`);
+    toast(columns.includes(to) ? `Đã chuyển sang cột ${typeOf(to).name}` : `Đã đổi sang ${typeOf(to).name}`); render(); return;
+  }
+  if (e.target.matches('.line-note')) {
+    const { t } = findTrip(drawer.trip), line = t.lines.find(l => l.id === Number(e.target.dataset.line));
+    log(`Ghi chú khoản ${typeOf(line.type).name} ${tripName(t)}: "${line.note}" → "${e.target.value.trim()}"`);
+    t.lines = t.lines.map(l => l.id === line.id ? L(l.type, l.amount, e.target.value.trim()) : l); render(); return;
+  }
+  if (e.target.matches('.colbox input')) {
+    const id = Number(e.target.dataset.id);
+    if (e.target.checked) { if (columns.length >= 3) { e.target.checked = false; return; } columns.push(id); } else columns = columns.filter(c => c !== id);
+    log(`Cột riêng của sổ: ${columns.length ? columns.map(c => typeOf(c).name).join(', ') : '(không — chỉ Khác)'}`); renderSettings(); render(); return;
+  }
+  if (e.target.matches('.kind')) { const ty = typeOf(Number(e.target.dataset.id)); ty.kind = e.target.value; log(`Tính chất ${ty.name}: ${ty.kind === 'pass' ? 'chi hộ' : 'phí dịch vụ'}`); renderSettings(); render(); }
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  if (e.target.id === 'addform') {
+    const typeId = Number(document.getElementById('add-type').value), note = document.getElementById('add-note').value.trim();
+    let v;
+    try { v = parseMoney(document.getElementById('add-amount').value); if (v == null) throw Error('Nhập số tiền khác 0'); checkSign(typeId, v); }
+    catch (err) { document.getElementById('add-err').textContent = err.message; document.getElementById('add-amount').focus(); return; }
+    if (drawer.batch) {
+      const ids = [...selected];
+      for (const id of ids) findTrip(id).t.lines.push(L(typeId, v, note));
+      log(`Thêm ${typeOf(typeId).name} ${fmt(v)} cho ${ids.length} chuyến (một lệnh)`);
+      toast(`Đã thêm ${typeOf(typeId).name} ${fmt(v)} cho ${ids.length} chuyến`); selected.clear(); drawer = null; render(); return;
+    }
+    const { t } = findTrip(drawer.trip);
+    guarded(t, () => { t.lines.push(L(typeId, v, note)); }, `thêm ${typeOf(typeId).name} ${fmt(v)}`, `Thêm ${typeOf(typeId).name} ${fmt(v)} cho ${tripName(t)}`); render(); document.getElementById('add-amount')?.focus();
+  }
+  if (e.target.id === 'newtype') {
+    const name = document.getElementById('nt-name').value.trim(), kind = document.getElementById('nt-kind').value;
+    const err = document.getElementById('nt-err');
+    if (!name) { err.textContent = 'Nhập tên loại'; return; }
+    if (types.some(t => t.name.toLowerCase() === name.toLowerCase())) { err.textContent = `Đã có loại ${name}`; return; }
+    types.splice(types.findIndex(t => t.sys), 0, { id: nextType++, name, kind, sign: 'pos', active: true });
+    log(`Thêm loại phụ phí ${name} (${kind === 'pass' ? 'chi hộ' : 'phí dịch vụ'})`); renderSettings();
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches('.own-input')) {
+    if (e.key === 'Enter') { e.preventDefault(); const { t } = findTrip(Number(e.target.dataset.id)); setOwn(t, Number(e.target.dataset.type), e.target.value); }
+    if (e.key === 'Escape') { editing = null; render(); }
+    return;
+  }
+  if (e.target.matches('.line-amount')) {
+    const { t } = findTrip(drawer.trip), line = t.lines.find(l => l.id === Number(e.target.dataset.line));
+    if (e.key === 'Escape') { drawer.edit = null; render(); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    let v;
+    try { v = parseMoney(e.target.value); if (v == null) throw Error('Nhập số tiền khác 0 — muốn bỏ khoản thì bấm thùng rác'); checkSign(line.type, v); } catch (err) { toast(err.message, true); return; }
+    drawer.edit = null;
+    if (v !== line.amount) {
+      guarded(t, () => { t.lines = t.lines.map(l => l.id === line.id ? L(l.type, v, l.note) : l); }, `sửa ${typeOf(line.type).name} ${fmt(line.amount)} → ${fmt(v)}`,
+        `Sửa ${typeOf(line.type).name} ${tripName(t)}: ${fmt(line.amount)} → ${fmt(v)}`);
+    }
+    render(); return;
+  }
+  if (e.target.matches('.rename')) {
+    if (e.key === 'Escape') { renaming = null; renderSettings(); return; }
+    if (e.key !== 'Enter') return;
+    const ty = typeOf(renaming), name = e.target.value.trim();
+    if (!name || types.some(t => t !== ty && t.name.toLowerCase() === name.toLowerCase())) { toast(name ? `Đã có loại ${name}` : 'Nhập tên loại', true); return; }
+    log(`Đổi tên loại: ${ty.name} → ${name}`); ty.name = name; renaming = null; renderSettings(); render(); return;
+  }
+  if (e.key === 'Escape' && !document.getElementById('settings').hidden) { document.getElementById('settings').hidden = true; render(); return; }
+  if (e.key === 'Escape' && drawer) { drawer = null; render(); return; }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('td[role="button"]')) { e.preventDefault(); e.target.click(); }
+});
+
+// ---------- Cài đặt loại phụ phí ----------
+function usedHere(id) { return months.reduce((s, m) => s + m.trips.filter(t => t.lines.some(l => l.type === id)).length, 0); }
+function renderSettings() {
+  const el = document.getElementById('settings');
+  const rows = types.map(ty => {
+    const pos = columns.indexOf(ty.id);
+    const sys = ty.sys ? '<br><span class="sys">loại hệ thống — không đổi tên, không ngừng dùng</span>' : '';
+    const col = ty.sys === 'khac' ? '<span class="sys">luôn là cột Khác</span>'
+      : ty.sys ? '<span class="sys">hiện ở cột Khác</span>'
+      : `<label class="colbox"><input type="checkbox" data-id="${ty.id}"${pos >= 0 ? ' checked' : ''}${pos < 0 && (columns.length >= 3 || !ty.active) ? ' disabled' : ''} title="${pos < 0 && columns.length >= 3 ? 'Mỗi sổ tối đa 3 cột riêng — bỏ một cột trước' : ''}">${pos >= 0 ? `<span class="pos">${pos + 1}</span>` : ''}</label>`;
+    const move = pos >= 0 ? `<button type="button" data-move="-1" data-id="${ty.id}" ${pos === 0 ? 'disabled' : ''} aria-label="Đưa ${esc(ty.name)} sang trái">←</button> <button type="button" data-move="1" data-id="${ty.id}" ${pos === columns.length - 1 ? 'disabled' : ''} aria-label="Đưa ${esc(ty.name)} sang phải">→</button>` : '';
+    const name = renaming === ty.id ? `<input class="rename" value="${esc(ty.name)}" aria-label="Tên mới">` : esc(ty.name);
+    return `<tr class="${ty.active ? '' : 'off'}"><td class="nm"${ty.sys ? '' : ` data-id="${ty.id}" title="Bấm để đổi tên"`}>${name}${sys}${ty.active ? '' : ' <span class="sys">(ngừng dùng)</span>'}</td>
+      <td>${ty.sys === 'giam' ? 'số âm' : ty.sys ? '–' : `<select class="kind" data-id="${ty.id}" aria-label="Tính chất ${esc(ty.name)}"><option value="service"${ty.kind === 'service' ? ' selected' : ''}>Phí dịch vụ</option><option value="pass"${ty.kind === 'pass' ? ' selected' : ''}>Chi hộ</option></select>`}</td>
+      <td class="num">${usedHere(ty.id)}</td><td>${col}</td><td>${move}</td>
+      <td>${ty.sys ? '' : `<button type="button" data-active="${ty.id}">${ty.active ? 'Ngừng dùng' : 'Dùng lại'}</button>`}</td></tr>`;
+  }).join('');
+  el.innerHTML = `<div class="panel"><header><h2>Cài đặt loại phụ phí</h2><button type="button" class="close">Đóng</button></header><div class="content">
+    <p class="hint" style="margin-bottom:8px">Danh mục dùng chung cho mọi sổ. <b>Cột riêng</b> chỉ áp cho sổ <b>KHÁCH GIẢ A</b>: tối đa 3 loại, còn lại hiện ở cột Khác. Bỏ cột riêng không mất số. <b>Chi hộ</b> chỉ là nhãn, vẫn cộng nợ khách.</p>
+    ${columns.length >= 3 ? '<p class="info">Đã đủ 3 cột riêng — bỏ chọn một cột trước khi chọn loại khác.</p>' : ''}<table class="types"><thead><tr><th style="width:30%">Loại</th><th style="width:16%">Tính chất</th><th class="num" style="width:13%">Chuyến dùng ở sổ này</th><th style="width:18%">Cột riêng trên sổ này (${columns.length}/3)</th><th style="width:11%">Thứ tự</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <form class="newtype" id="newtype"><b>Thêm loại</b><input id="nt-name" placeholder="Tên loại, ví dụ Nâng hạ" aria-label="Tên loại mới"><select id="nt-kind" aria-label="Tính chất"><option value="service">Phí dịch vụ</option><option value="pass">Chi hộ</option></select><button type="submit">Thêm loại</button><span class="err" id="nt-err" role="alert"></span></form>
+  </div></div>`;
+}
+render();
+</script>
+</body>
+</html>
