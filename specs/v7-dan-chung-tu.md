@@ -1,6 +1,6 @@
 # Dán chứng từ vào phiếu thu
 
-Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong chat cùng ngày: người dùng chọn làm "dán chứng từ" trước, chưa tích hợp Zalo/WeChat. Bước này **chỉ đính ảnh**, web chưa đọc số trên ảnh. Bản xem HTML (dữ liệu giả): [`preview/mockups/dan-chung-tu`](../cong-no-web-handoff/preview/mockups/dan-chung-tu/index.html). Người dùng giao Claude làm bản xem, không qua Penpot (29/10/2026). Bản xem chờ người dùng duyệt.
+Trạng thái: ĐÃ CHỐT luồng ([`CHUNG-TU-01`](../docs/decisions.md#chung-tu-01), người dùng duyệt bản xem 29/10/2026); đề xuất kỹ thuật lưu ảnh còn chờ duyệt migration. Phạm vi chốt trong chat cùng ngày: người dùng chọn làm "dán chứng từ" trước, chưa tích hợp Zalo/WeChat. Bước này **chỉ đính ảnh**, web chưa đọc số trên ảnh. Bản xem HTML (dữ liệu giả): [`preview/mockups/dan-chung-tu`](../cong-no-web-handoff/preview/mockups/dan-chung-tu/index.html). Người dùng giao Claude làm bản xem, không qua Penpot (29/10/2026). Người dùng duyệt bản xem 29/10/2026 ("Duyệt, làm tiếp").
 
 ## Người dùng và luồng (bước 1)
 
@@ -62,7 +62,7 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 - [`business-rules.md`](../docs/business-rules.md): chứng từ tiền không tự chứng minh thu đã xác minh.
 - [`SO-GON-02`](../docs/decisions.md#so-gon-02): phiếu thu là danh sách riêng bên phải.
 - [`SONG-SONG-01`](../docs/decisions.md#song-song-01): Sheet vẫn là sổ chính thức. Ảnh là phần thêm trên web, không thay đối soát.
-- CÒN MỞ: chưa có mục trong `docs/decisions.md`. Thêm mục `CHUNG-TU-01` khi người dùng duyệt luồng này.
+- [`CHUNG-TU-01`](../docs/decisions.md#chung-tu-01): luồng và phạm vi đã chốt 29/10/2026.
 
 ## Hành vi và bất biến
 
@@ -82,7 +82,10 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 
 ## Phạm vi agent
 
-Chưa giao. Mockup: bản xem HTML do Claude làm, **miễn Penpot** theo lời người dùng 29/10/2026 ("làm mockup ở đây = claude, ko cần qua penpot"), CHỜ DUYỆT. Thứ tự dự kiến: duyệt bản xem → backend và migration (Codex, Claude review opus vì chạm đường ghi phiếu; migration hỏi người dùng trước khi chạy) → nối giao diện → người dùng thử.
+- Agent: claude (`CLAUDE-ALL-01`). Mockup: bản xem HTML đã duyệt 29/10/2026. Review: opus (chạm đường ghi phiếu).
+- PR 1 (backend): một migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql` nếu cần đồng bộ, `cong-no-web-handoff/web/v7_ledger_api.py`, test Python và harness PostgreSQL liên quan, runbook triển khai. Hỏi người dùng trước khi merge và trước khi chạy trên `hao`.
+- PR 2 (giao diện): trang live sổ khách (`so-khach-v7-*.js`, `so-khach-v7-live.html`) theo bản xem, test browser.
+- Cấm: đổi luật tiền, phân bổ, khóa tháng; gửi ảnh ra ngoài `hao`; ảnh thật trong repo; dependency mới.
 
 ## Hoàn tác
 
