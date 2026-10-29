@@ -119,7 +119,10 @@ test('dashboard uses Sheet labels and commodity while links and money stay on or
 }, async page => {
   await page.locator('.top-debtors .bar-row .nm').getByText('AG LOGISTIC', { exact: true }).waitFor();
   await page.locator('.top-debtors .bar-row').first().focus();
-  assert.match(await page.locator('#tip').innerText(), /AG LOGISTIC\n380 triệu\n.*nợ từ 03\/2026\n380\.000\.000 đ/);
+  // Đọc từng dòng của ô thông tin: innerText không có xuống dòng nếu ô vừa ẩn (CI Linux).
+  const tip = await page.locator('#tip > *').allTextContents();
+  assert.deepEqual([tip[0], tip[1], tip[3]], ['AG LOGISTIC', '380 triệu', '380.000.000 đ']);
+  assert.match(tip[2], /nợ từ 03\/2026/);
   await page.locator('.top-debtors .bar-row').first().click();
   assert.equal(await page.locator('#d-open').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
   await page.keyboard.press('Escape');
@@ -157,7 +160,7 @@ test('lọc tại Tổng quan: nhóm tuổi nợ + mặt hàng lọc danh sách 
   assert.equal(await page.locator('#h-top').innerText(), 'Khách nợ nhiều nhất');
   assert.equal(await page.locator('#filterbar').isHidden(), true);
   await page.locator('.age-legend [data-tuoi="3"]').hover();
-  assert.match(await page.locator('#tip').innerText(), /Trên 6 tháng\n250 triệu\n10,1% còn phải thu · 1 khách/);
+  assert.deepEqual((await page.locator('#tip > *').allTextContents()).slice(0, 3), ['Trên 6 tháng', '250 triệu', '10,1% còn phải thu · 1 khách']);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 }));
