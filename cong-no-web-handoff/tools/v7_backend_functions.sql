@@ -1966,7 +1966,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- Ngăn kéo ma trận (29/10/2026): số tháng lấy đúng dòng Tổng tháng của get_ledger (DA-THU-01: tháng
 -- sổ gốc dùng phát sinh/đã thu Sheet, đã thu theo ngày thu), danh sách gồm chuyến web và dòng chuyến
 -- sổ gốc. outstanding_vnd là ô ma trận (nợ còn lại sau phân bổ nợ cũ trước); allocated_vnd là thu đã
--- phân bổ vào kỳ, để giải thích vì sao phát sinh − đã thu có thể khác còn lại.
+-- phân bổ vào kỳ, để giải thích vì sao phát sinh − đã thu có thể khác còn lại. receipts (29/10/2026): phiếu
+-- thu chưa hủy có ngày thu trong tháng, kèm các kỳ đang được trừ (dòng phân bổ hiệu lực).
 DECLARE v_active boolean; v_ledger jsonb; v_row jsonb; v_allocated bigint; v_opening boolean;
         v_month text := p_month::text;
 BEGIN
@@ -1987,6 +1988,16 @@ BEGIN
         'outstanding_vnd',coalesce(v_row->>'outstanding_vnd','0'),
         'charges_vnd',coalesce(v_row->>'charges_vnd','0'),'received_vnd',coalesce(v_row->>'received_vnd','0'),
         'allocated_vnd',v_allocated::text,'opening',v_opening,
+        'receipts',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',r->'id','pid',r->'pid','date',r->'date',
+            'method',r->'method','reference',r->'reference','amount_vnd',r->'amount_vnd',
+            'counterparty_name',r->'counterparty_name',
+            'allocations',(SELECT coalesce(jsonb_agg(jsonb_build_object('month',a.month,'kind',a.kind,'amount_vnd',a.amount::text)
+                ORDER BY a.month,a.kind),'[]'::jsonb) FROM (SELECT x->>'month' AS month,x->>'kind' AS kind,
+                sum((x->>'amount_vnd')::bigint) AS amount FROM jsonb_array_elements(r->'allocations') x
+                WHERE x->>'superseded_by_event' IS NULL GROUP BY 1,2) a))
+            ORDER BY r->>'date',r->>'pid' COLLATE "C"),'[]'::jsonb)
+          FROM jsonb_array_elements(v_ledger->'receipts') r
+          WHERE r->>'voided_on' IS NULL AND date_trunc('month',(r->>'date')::date)::date=p_month),
         'trips',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',t->'id','month',t->'month',
             'event_date',t->'event_date','container',t->'container','carrier',t->'carrier','status',t->'status',
             'unit_price_vnd',t->'unit_price_vnd','other_fee_vnd',t->'other_fee_vnd','amount_vnd',t->'amount_vnd',

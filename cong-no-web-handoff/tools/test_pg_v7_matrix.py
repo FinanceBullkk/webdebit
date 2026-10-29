@@ -215,6 +215,17 @@ def main() -> int:
            pg.value("SELECT has_function_privilege('sokhach_reader','sokhach.get_receivables_detail(bigint,date)','EXECUTE')") == "t"
            and pg.value("SELECT count(*)=0 FROM aclexplode((SELECT proacl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='sokhach' AND p.proname='get_receivables_detail')) a WHERE a.grantee=0") == "t"
            and pg.sql(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-03-02')"), check=False).returncode != 0)
+        # Phiếu thu ngày hôm nay (tháng mở): ngăn kéo tháng này liệt kê phiếu và kỳ đang được trừ (nợ cũ trước → 2026-03).
+        today = pg.value("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
+        version = json.loads(pg.value(actor(f"SELECT sokhach.get_ledger({a})")))["version"]
+        pg.value(actor(f"SELECT sokhach.record_receipt({a},{version},'drawer-receipt','{today}','THU TIỀN',50000,'FAKE-REF')"))
+        now = json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'{today[:8]}01')")))
+        ok("D5 phiếu thu trong tháng: số tiền, tham chiếu và kỳ được trừ; tổng phiếu = đã thu tháng",
+           [(r["date"], r["amount_vnd"], r["reference"], r["allocations"]) for r in now["receipts"]]
+           == [(today, "50000", "FAKE-REF", [{"month": "2026-03-01", "kind": "debt", "amount_vnd": "50000"}])]
+           and now["received_vnd"] == "50000", json.dumps(now["receipts"]))
+        ok("D6 tháng không có phiếu trả danh sách rỗng",
+           json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-03-01')")))["receipts"] == [])
 
         # ---- Benchmark 250 khách (tổng control tính trước bằng SELECT, không UPDATE cutover) ----
         pg.sql("""

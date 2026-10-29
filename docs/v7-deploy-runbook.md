@@ -1527,6 +1527,11 @@ Sau đợt nâng tay được duyệt riêng, phải chạy `v7_post_deploy_chec
 Migration `2026-10-29-v7-matrix-drawer-so-goc.sql` chỉ thay `get_receivables_detail` (chạy sau `2026-10-29-v7-phu-phi-b-p2.sql`; không đổi dữ liệu, giữ quyền EXECUTE, chạy lại được). Hàm đọc số tháng từ `get_ledger`: phát sinh/đã thu như dòng Tổng tháng (tháng sổ gốc lấy số Sheet), danh sách gồm chuyến web và dòng chuyến sổ gốc (`historical`); `outstanding_vnd` vẫn là ô ma trận, thêm `allocated_vnd` là thu đã phân bổ vào kỳ.
 ĐÃ KIỂM CHỨNG cục bộ: `test_pg_v7_matrix.py` (ca D1–D4), harness backend gồm lượt nâng migration hai lần so catalog với khởi tạo mới. CHƯA TRIỂN KHAI: nâng tay trên `hao` cần người dùng duyệt; sau nâng chạy `v7_post_deploy_check.sql` và mở thử ngăn kéo một tháng sổ gốc, một tháng có chuyến web.
 
+# Ngăn kéo Công nợ theo tháng: phiếu thu của tháng (29/10/2026)
+
+Migration `2026-10-29-v7-matrix-drawer-receipts.sql` chỉ thay `get_receivables_detail` (chạy sau `2026-10-29-v7-matrix-drawer-so-goc.sql`; không đổi dữ liệu, giữ quyền EXECUTE, chạy lại được). Thêm trường `receipts`: phiếu chưa hủy có ngày thu trong tháng (`id`, `pid`, `date`, `method`, `reference`, `amount_vnd`, `counterparty_name`) kèm `allocations` gộp theo kỳ/loại từ dòng phân bổ hiệu lực. Các trường cũ giữ nguyên.
+ĐÃ KIỂM CHỨNG cục bộ: `test_pg_v7_matrix.py` (thêm ca D5–D6), `test_pg_v7_backend_locks.py` (nâng migration hai lần, catalog khớp khởi tạo mới).
+
 # Migration NHAP-SHEET-01 — sửa/xóa chuyến (22/10/2026)
 
 **Đã triển khai 22/10/2026** (commit `723d1ac`, CI xanh đúng SHA): trip-review rồi nhap-sheet chạy trên `webdebit_v7` thật

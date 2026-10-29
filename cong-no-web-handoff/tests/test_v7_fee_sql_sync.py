@@ -73,7 +73,7 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertIn(block, schema)
 
     def test_matrix_drawer_matches_canonical(self):
-        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-so-goc.sql").read_text(encoding="utf-8")
+        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-receipts.sql").read_text(encoding="utf-8")
         self.assertEqual(definition(migration, "FUNCTION", "get_receivables_detail"),
                          definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "get_receivables_detail"))
 

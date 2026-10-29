@@ -223,10 +223,32 @@
     return html;
   }
 
+  // Phiếu thu theo ngày thu trong tháng, kèm kỳ đang được trừ; phần đã thu không có phiếu web là số Sheet hoặc cấn trừ đi.
+  const monthLabel = iso => 'T' + Number(iso.slice(5, 7)) + (Number(iso.slice(0, 4)) === state.year ? '' : '/' + iso.slice(0, 4));
+  function receiptsHtml(ledger) {
+    const receipts = ledger.receipts;
+    const received = vnd(ledger.received_vnd);
+    if (!Array.isArray(receipts) || (!receipts.length && received === 0n)) return '';
+    let html = '<h3>Phiếu thu trong tháng (' + receipts.length + ')</h3>';
+    if (receipts.length) {
+      const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
+      const row = receipt => {
+        const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
+        const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthLabel(line.month)).join(', ') || '—';
+        return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
+      };
+      html += '<table class="mini-table receipts"><thead><tr><th>Ngày</th><th>Phiếu</th><th class="money">Số tiền (đ)</th><th>Trừ vào</th></tr></thead><tbody>' +
+        receipts.map(row).join('') + '</tbody><tfoot><tr><td colspan="2">Tổng ' + receipts.length + ' phiếu</td><td class="money">' + plain(total) + '</td><td></td></tr></tfoot></table>';
+      if (total !== received) html += '<p class="note">Chênh ' + esc(signed(received - total)) + ' so với đã thu trong tháng: phần thu theo sổ gốc (Sheet) hoặc cấn trừ sang sổ khác — xem sổ khách.</p>';
+    } else html += '<p class="note">Không có phiếu thu trên web; đã thu ' + esc(signed(received)) + ' là số theo sổ gốc (Sheet).</p>';
+    return html;
+  }
+
   function tripsHtml(ledger) {
     const trips = (ledger.trips || []).slice().sort(byDate);
     let html = ledger.opening && !trips.length ? '<div class="warnbox">Tháng số dư đầu: sổ gốc không có dòng chuyến cho tháng này.</div>' : '';
     if (!trips.length) return html + '<p class="note">Không có chuyến trong tháng.</p>';
+    html += '<h3>Chuyến / container (' + trips.length + ')</h3>';
     const hasFee = trips.some(trip => trip.other_fee_vnd != null && vnd(trip.other_fee_vnd) !== 0n);
     const included = trips.filter(counted);
     const total = F.sum(included.map(trip => trip.amount_vnd));
@@ -272,7 +294,7 @@
       if (!response.ok || ledger.status !== 'active') throw Error('Không tải được chi tiết tháng.');
       if (detail !== state.detail || $('#drawer').hidden) return;
       $('#drawer-sum').innerHTML = summaryHtml(customer, month, ledger);
-      $('#drawer-body').innerHTML = tripsHtml(ledger);
+      $('#drawer-body').innerHTML = receiptsHtml(ledger) + tripsHtml(ledger);
       $('#drawer-body').scrollTop = 0;
     } catch {
       if (detail !== state.detail || $('#drawer').hidden) return;
