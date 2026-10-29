@@ -1369,7 +1369,9 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md), nhật ký [`deploys/
 
 Rollback: bước 1 trả unit đã lưu rồi `daemon-reload`. Bước 2 đổi tên tab lại (code đọc được cả hai tên tới PR bỏ tên cũ). Bước 3 xóa vùng bảo vệ.
 
-## Rà đường ghi tiền 29/10 — nâng DB đang có (CHƯA CHẠY)
+## Rà đường ghi tiền 29/10 — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
+
+Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-ra-ghi-tien.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql` ([`FUTURE-01`](decisions/future-01.md), [`V7-SO`](decisions/v7-so.md), [`BANG-GIA-01`](decisions/bang-gia-01.md)) chỉ thay thân hàm, không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền: `paste_trips` chặn ngày xe nhập kho sau hôm nay (`FUTURE_DATE`); `record_receipt` phân bổ lại theo (ngày, mã phiếu) ngay khi ghi; `apply_price_table` không ghi đè đơn giá gõ tay (`PRICE_TYPED_PRICE`); đồng bộ ba hàm Sheet (`list_sheet_trip_refs`, `guard_sheet_cross_customer`, `resolve_sheet_conflict`) với file chuẩn — thân hàm giữ nguyên bản 24/10 và 27/10, nên DB đã có không đổi, DB thiếu thì được bổ sung. Chạy lại được. **Chạy sau `2026-10-29-v7-matrix-drawer-receipts.sql`; độc lập với `2026-10-29-v7-tong-quan-quan-ly-no.sql` (DASH-03 chỉ thêm hàm đọc), chạy trước hay sau đều được.** Từ đợt này `v7_backend_functions.sql` đã có đủ ba hàm Sheet, nên cài mới theo mục 3 không cần chạy thêm migration 24–27/10 cho phần đó.
 
