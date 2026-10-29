@@ -174,7 +174,8 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
     receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
-    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng' };
+    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng',
+    adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
     after: { amount_vnd: '9007199254740994', note: 'giá đúng', allocations: [{ month: '2026-02-01', kind: 'debt', amount_vnd: '100' }] } }));
@@ -196,6 +197,11 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     before: { image: { id: 5, pid: 'PH-001' } }, after: { image: { id: 5, pid: 'PH-001', removed: true, reason: 'đính <nhầm>' } } }] });
   assert.match(image.root.innerHTML, /Phiếu PH-001 · gỡ 1 ảnh · Lý do: đính &lt;nhầm&gt;/);
   assert.doesNotMatch(image.root.innerHTML, /sha256|data_base64/);
+  const removed = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'adjust_month_delete', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '-100', note: 'thử <x>' } },
+    after: { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '0', deleted: true, reversal: 5 } } }] });
+  assert.match(removed.root.innerHTML, /Xóa điều chỉnh cả tháng/);
+  assert.match(removed.root.innerHTML, /Tháng 10\/2026: -100 \(thử &lt;x&gt;\) → 0/);
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".

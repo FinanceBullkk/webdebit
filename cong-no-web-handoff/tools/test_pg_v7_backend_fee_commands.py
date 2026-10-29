@@ -123,5 +123,6 @@ def check_fee_catalog(pg):
     # Later migrations rewrite the same event constraints; reapply them so the shared DB stays canonical.
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-bang-gia.sql").read_text(encoding="utf-8"))
     pg.sql(chung_tu)  # PR-B dựng lại ràng buộc event; CHUNG-TU-01 phải chạy sau như khi triển khai
-    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"))  # XOA-DC-THANG-01 dựng lại ràng buộc event sau CHUNG-TU-01
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))  # tách phụ phí PS chạy sau cùng
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")

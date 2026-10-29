@@ -929,9 +929,11 @@ sudo systemctl restart v7-ledger-api.service
 
 Spec [`v7-phu-phi-tu-ps`](../specs/v7-phu-phi-tu-ps.md). Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql`
 chỉ thêm loại event `rewrite_trip_fees` và hai hàm (`rewrite_trip_fees` cho app, `_rewrite_trip_fees` không ai được EXECUTE);
-không đổi hàm cũ, tiền, phân bổ hay dữ liệu. Chạy lại được. **Chạy sau `2026-10-29-v7-chung-tu.sql`**: migration này dựng lại
-`event_kind_check`/`event_snapshot_check` gồm mọi loại tới CHUNG-TU-01; chạy lại một migration cũ hơn sau nó sẽ làm mất loại
-`rewrite_trip_fees`. Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
+không đổi hàm cũ, tiền, phân bổ hay dữ liệu. Chạy lại được. **Thứ tự bắt buộc: `2026-10-29-v7-chung-tu.sql` →
+`2026-10-29-v7-xoa-dieu-chinh-thang.sql` (mục [Xóa điều chỉnh cả tháng](#xóa-điều-chỉnh-cả-tháng--nâng-db-đang-có-chưa-chạy)) →
+`2026-10-29-v7-ps-fee.sql`.** Migration PS dựng lại `event_kind_check`/`event_snapshot_check` gồm mọi loại tới nay, cả
+`adjust_month_delete` lẫn `rewrite_trip_fees`; chạy lại một migration cũ hơn sau nó sẽ làm mất loại `rewrite_trip_fees` (và
+ngược lại). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
 
 0. **Quyền đọc bộ lập bill (CHỈ ĐỌC):** dưới user runner chạy một lần
    `v7_ps_snapshot.py --output /tmp/ps-thu.json`. `ok: true` là tài khoản dịch vụ đọc được `CONT_MASTER`; lỗi `HTTPError`
@@ -949,6 +951,21 @@ không đổi hàm cũ, tiền, phân bổ hay dữ liệu. Chạy lại đượ
 
 Rollback: tắt timer runner (sổ trả `ps_fees.unavailable`, không ảnh hưởng chức năng khác). Hàm mới không đổi dữ liệu nên để
 nguyên được; cần gỡ hẳn thì restore dump trước nâng. Các lần tách đã ghi giữ tổng tiền; muốn bỏ thì đổi loại trong khung chi tiết.
+
+## Xóa điều chỉnh cả tháng — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql` ([`XOA-DC-THANG-01`](decisions.md#xoa-dc-thang-01)).
+Thêm cột `sokhach.adjustment.reverses_adjustment_id` (NULL với mọi dòng cũ), loại event `adjust_month_delete`, hàm
+`delete_month_adjustment`, và thay view `v_adjustment_current` để ẩn cặp gốc + đảo. Không đổi dữ liệu có sẵn; chưa có
+dòng đảo nào thì view trả đúng như cũ, số dư không đổi. Chạy lại được. **Chạy sau `2026-10-29-v7-chung-tu.sql`** (dựng lại
+`event_kind_check`/`event_snapshot_check` gồm loại event ảnh). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt; số dư từng khách/tháng và số dòng
+   `v_adjustment_current` không đổi; `v7_post_deploy_check.sql` OK (app thêm `delete_month_adjustment`).
+2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, kiểm số dư, đổi release).
+
+Rollback: chưa có lệnh xóa nào thì trỏ release về bản trước là đủ (cột mới để trống, view cho kết quả như cũ); đã có
+dòng đảo thì giữ DB (cặp vẫn tổng 0) hoặc restore dump trước nâng.
 
 ## Ảnh chứng từ phiếu thu — nâng DB đang có (CHƯA CHẠY)
 

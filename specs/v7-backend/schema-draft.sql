@@ -290,7 +290,8 @@ CREATE TABLE sokhach.event (
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove', 'rewrite_trip_fees')),
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove', 'adjust_month_delete',
+        'rewrite_trip_fees')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -331,6 +332,7 @@ CREATE TABLE sokhach.event (
         WHEN 'price_table_apply' THEN "before" ? 'trips' AND "after" ? 'trips'
         WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
         WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
+        WHEN 'adjust_month_delete' THEN "before" ? 'adjustment' AND coalesce("after"->'adjustment'->'deleted'='true'::jsonb,false)
         WHEN 'rewrite_trip_fees' THEN "before" ? 'targets' AND "after" ? 'targets' AND "after" ? 'source'
         ELSE false END),
     UNIQUE (id, customer_id)
@@ -417,6 +419,10 @@ CREATE TABLE sokhach.legacy_trip_rev (
 CREATE INDEX legacy_trip_rev_latest ON sokhach.legacy_trip_rev(legacy_row_id,id DESC);
 ALTER TABLE sokhach.adjustment ADD COLUMN legacy_row_id bigint REFERENCES sokhach.legacy_row(id);
 ALTER TABLE sokhach.adjustment ADD CONSTRAINT adjustment_one_target CHECK (trip_id IS NULL OR legacy_row_id IS NULL);
+-- XOA-DC-THANG-01: xóa điều chỉnh cả tháng = một dòng đảo dấu trỏ về dòng gốc; cặp này ẩn khỏi sổ, tổng vẫn bằng 0.
+ALTER TABLE sokhach.adjustment ADD COLUMN reverses_adjustment_id bigint UNIQUE REFERENCES sokhach.adjustment(id);
+ALTER TABLE sokhach.adjustment ADD CONSTRAINT adjustment_reversal_month_only CHECK (reverses_adjustment_id IS NULL
+    OR (trip_id IS NULL AND legacy_row_id IS NULL AND field IS NULL));
 CREATE OR REPLACE VIEW sokhach.v_trip_current AS
 SELECT t.id,t.customer_id,t.debt_month AS origin_month,
        coalesce(r.debt_month,t.debt_month) AS debt_month,

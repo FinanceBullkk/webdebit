@@ -40,6 +40,7 @@ DECLARE
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
       'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
       'adjust_month(bigint,bigint,text,date,bigint,text)',
+      'delete_month_adjustment(bigint,bigint,text,bigint)',
       'record_receipt(bigint,bigint,text,date,text,bigint,text)',
       'edit_receipt_meta(bigint,bigint,text,text,date,text,text)',
       'void_receipt(bigint,bigint,text,text,text)',

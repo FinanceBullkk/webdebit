@@ -36,7 +36,9 @@ class PsFeeSqlSync(unittest.TestCase):
             with self.subTest(constraint=name):
                 body = re.search(rf"(?ms)ADD CONSTRAINT {name} (CHECK .*?{end});", migration).group(1)
                 self.assertIn(f"CONSTRAINT {name} {body},", schema)
-                self.assertIn("rewrite_trip_fees", body)
+                # Chạy sau XOA-DC-THANG-01 trên hao: thiếu loại của bên kia thì chạy migration này sẽ làm mất nó.
+                for kind in ("rewrite_trip_fees", "adjust_month_delete", "receipt_image", "price_table_apply"):
+                    self.assertIn(f"'{kind}'", body)
 
     def test_grants(self):
         migration, canonical = text(MIGRATION), text(FUNCTIONS)

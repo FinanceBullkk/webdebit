@@ -9,6 +9,9 @@ MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.
 ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.rollback.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
+# Ràng buộc event trong bản chuẩn bằng migration mới nhất dựng lại chúng
+# (CHUNG-TU-01 → XOA-DC-THANG-01 → tách phụ phí PS).
+EVENT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
 NAMES = ("_guard_receipt_image", "_receipt_image_matches", "attach_receipt_image", "remove_receipt_image",
          "list_receipt_images", "get_receipt_image", "find_receipt_image")
 
@@ -39,15 +42,12 @@ class ChungTuSqlSync(unittest.TestCase):
         table = re.search(r"(?ms)^CREATE TABLE IF NOT EXISTS sokhach\.receipt_image\b.*?^CREATE INDEX IF NOT EXISTS receipt_image_customer.*?;\n",
                           migration).group()
         self.assertIn(table, schema)
-        # Later migrations may add event kinds; every kind and rule of this migration must stay in the schema.
-        kinds = re.search(r"(?ms)ADD CONSTRAINT event_kind_check CHECK \(kind IN \((.*?)\)\);", migration).group(1)
-        schema_kinds = re.search(r"(?ms)CONSTRAINT event_kind_check CHECK \(kind IN \((.*?)\)\),", schema).group(1)
-        self.assertIn("'receipt_image'", kinds)
-        self.assertLessEqual(set(re.findall(r"'([a-z_]+)'", kinds)), set(re.findall(r"'([a-z_]+)'", schema_kinds)))
-        rules = re.search(r"(?ms)ADD CONSTRAINT event_snapshot_check CHECK \(CASE kind\n(.*?)ELSE false END\);", migration).group(1)
-        schema_rules = re.search(r"(?ms)CONSTRAINT event_snapshot_check CHECK \(CASE kind\n(.*?)ELSE false END\),", schema).group(1)
-        self.assertIn("receipt_image", rules)
-        self.assertIn(rules, schema_rules)
+        migration = text(EVENT_MIGRATION)
+        for name, end in (("event_kind_check", r"\)\)"), ("event_snapshot_check", r"ELSE false END\)")):
+            with self.subTest(constraint=name):
+                body = re.search(rf"(?ms)ADD CONSTRAINT {name} (CHECK .*?{end});", migration).group(1)
+                self.assertIn(f"CONSTRAINT {name} {body},", schema)
+                self.assertIn("receipt_image", body)
 
     def test_grants_and_rollback(self):
         migration, canonical, rollback = text(MIGRATION), text(FUNCTIONS), text(ROLLBACK)

@@ -243,6 +243,11 @@ function apply(world, url, body) {
     }
     world.priceStatus = { ...status, ready_count: status.trips.filter(row => row.ready).length, ready_total_vnd: '0', reapply_count: 0 };
     event('price_table_apply', { trips: before }, { trips: rows.map(row => ({ trip_id: row.trip_id, unit_price_vnd: row.lookup.unit_price_vnd })) });
+  } else if (url === '/api/v7/months/adjust/delete') {
+    const row = world.adjustments.find(item => item.id === body.adjustment_id && item.trip_id == null && item.legacy_row_id == null);
+    if (!row) return [422, { error: 'ADJUSTMENT_NOT_FOUND', message: 'Không tìm thấy dòng điều chỉnh cả tháng, có thể đã xóa. Tải lại sổ.' }];
+    world.adjustments = world.adjustments.filter(item => item !== row);
+    event('adjust_month_delete', { adjustment: { ...row } }, { adjustment: { id: row.id, month: row.month, amount_vnd: '0', deleted: true } });
   } else if (url === '/api/v7/trips/paste') {
     for (const trip of body.trips) {
       const [d, m, y] = trip.date.split('/');
