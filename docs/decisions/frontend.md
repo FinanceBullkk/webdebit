@@ -12,4 +12,4 @@ Người dùng xác nhận [quy trình frontend](../development.md#quy-trình-fr
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT quy trình; không tự cấp quyền triển khai hoặc ghi tiền.
+ĐÃ CHỐT quy trình; không tự cấp quyền triển khai hoặc ghi tiền. **Hết hiệu lực 29/10/2026** theo [`CLAUDE-ALL-01`](claude-all-01.md): không còn bắt buộc mockup Penpot duyệt trước khi code frontend.

@@ -1,5 +1,7 @@
 # Cộng tác nhiều agent
 
+> **Hết hiệu lực 29/10/2026** theo [`CLAUDE-ALL-01`](decisions/claude-all-01.md): Claude làm hết spec, backend, frontend, test và review; không giao Codex/Gemini, không bắt buộc mockup Penpot. Tài liệu dưới đây giữ làm lịch sử của `scripts/agent-run.ps1`.
+
 ĐỀ XUẤT ngày 16/10/2026, người dùng đồng ý dựng khung trong chat. Đã chạy thử hai spec nhỏ trên fixture: Codex ([allocation-edge-tests](../specs/allocation-edge-tests.md), chỉ test) và Gemini ([table-scroll-keyboard](../specs/table-scroll-keyboard.md), sửa a11y); cả hai ĐẠT ở vòng đầu. Agy đã kết nối Penpot MCP và gọi được công cụ đọc. Chưa thử task backend, vòng sửa CẦN SỬA, hay một lần Gemini dựng mockup thật. Bổ sung cho [quy trình phát triển](development.md), không thay lan can ở [AGENTS.md](../AGENTS.md).
 
 ## Vai trò
