@@ -9,7 +9,7 @@
     "check": "node scripts/check.js",
     "lint": "node scripts/check.js --lint",
     "test": "npm run test:unit && npm run test:browser && npm run test:viewer",
-    "test:unit": "node --test scripts/test-business-rules.js scripts/sheet-capture/test.js cong-no-web-handoff/preview/test-so-cong-no-model.js cong-no-web-handoff/preview/test-monthly-ledger-model.js cong-no-web-handoff/preview/test-customer-ledger-workbench.js cong-no-web-handoff/preview/test-customer-ledger-requirements.js cong-no-web-handoff/preview/test-so-khach-v7-model.js cong-no-web-handoff/preview/test-so-khach-v7-api.js",
+    "test:unit": "node --test scripts/test-business-rules.js scripts/sheet-capture/test.js cong-no-web-handoff/preview/test-so-cong-no-model.js cong-no-web-handoff/preview/test-monthly-ledger-model.js cong-no-web-handoff/preview/test-cong-no-format.js cong-no-web-handoff/preview/test-customer-ledger-workbench.js cong-no-web-handoff/preview/test-customer-ledger-requirements.js cong-no-web-handoff/preview/test-so-khach-v7-model.js cong-no-web-handoff/preview/test-so-khach-v7-api.js",
     "test:browser": "node --test cong-no-web-handoff/preview/test-customer-ledger-browser.js cong-no-web-handoff/preview/test-so-khach-v7-offset-browser.js cong-no-web-handoff/preview/test-so-khach-v7-edit-browser.js cong-no-web-handoff/preview/test-so-khach-v7-sheet-browser.js cong-no-web-handoff/preview/test-v7-dashboard-browser.js cong-no-web-handoff/preview/test-v7-receivables-matrix-browser.js",
     "test:viewer": "node --test cong-no-web-handoff/tests/test-viewer-browser.js"
   },

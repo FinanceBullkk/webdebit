@@ -3,68 +3,61 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Công nợ còn lại của từng khách theo 12 tháng phát sinh.">
 <title>Công nợ theo tháng · HTH</title>
-
+<link rel="stylesheet" href="cong-no-theme.css">
 <link rel="stylesheet" href="cong-no-theo-thang.css">
-<style>.live-controls{display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}.live-controls button{min-height:34px;padding:0 10px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}.live-controls time{font-size:12px;color:#536d86}</style>
 </head>
 <body>
-<div class="demo" id="demo-banner" hidden></div>
+<div id="demo-banner" hidden role="status"></div>
 <header class="topbar">
-  <a class="brand" href="/dashboard-v7.html">CÔNG NỢ HTH</a>
+  <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
   <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a class="active" href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a></nav>
-  <label class="search"><span aria-hidden="true">⌕</span><input id="find" type="search" placeholder="Tìm khách" aria-label="Tìm khách"></label>
-  <span class="pill">Chỉ xem</span>
-  <time id="as-of"></time>
+  <label class="search"><span aria-hidden="true">⌕</span><input id="find" type="search" placeholder="Lọc khách trong bảng" aria-label="Lọc khách trong bảng" autocomplete="off"></label>
+  <time class="asof" id="as-of"></time>
 </header>
 <main class="page">
-  <div class="page-head"><h1>Công nợ theo tháng</h1><span style="color:var(--muted);font-size:13px">bấm ô bất kỳ để xem chi tiết tháng đó</span><span class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></span></div>
+  <div class="page-head"><h1>Công nợ theo tháng</h1><div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div></div>
 
-  <section class="scopes" aria-label="Hai phạm vi tổng">
-    <div class="scope"><div class="label">Dư nợ còn lại của năm <span id="scope-year-label">—</span></div><div class="value money" id="scope-year"></div><div class="sub" id="scope-year-sub"></div></div>
-    <div class="scope all"><div class="label">Tổng dư nợ còn lại mọi năm</div><div class="value money" id="scope-all"></div><div class="sub">Chênh với năm đang chọn: <span id="scope-old"></span> đ</div></div>
+  <section class="card summary" aria-label="Tổng công nợ">
+    <div><div class="label">Còn phải thu</div><div class="value money" id="scope-receivable"></div></div>
+    <div><div class="label">Khách đang dư</div><div class="value money credit" id="scope-credit"></div></div>
+    <div><div class="label" id="scope-other-label">Nợ ngoài năm</div><div class="value money" id="scope-other"></div></div>
+    <div class="status" id="scope-status"></div>
   </section>
 
   <div id="error" role="alert" hidden></div>
-  <div class="card">
-    <div class="toolbar">
-      <div class="years" role="group" aria-label="Chọn năm">
-        <button id="year-prev" aria-label="Năm trước">‹</button>
-        <span class="cur" id="year-cur">—</span>
-        <button id="year-next" aria-label="Năm sau">›</button>
-      </div>
-      <select id="commodity" aria-label="Lọc mặt hàng"><option value="">Mặt hàng: tất cả</option></select>
+  <div class="toolbar">
+    <div class="years" role="group" aria-label="Chọn năm">
+      <button id="year-prev" type="button" aria-label="Năm trước">‹</button>
+      <span class="cur" id="year-cur">—</span>
+      <button id="year-next" type="button" aria-label="Năm sau">›</button>
     </div>
-    <div class="legend-bar" aria-hidden="true"><span><span class="grad"></span>đậm = tiền nhiều (lớp phụ)</span><span>số hiển thị ngay trong ô</span><span>ô trống = không phát sinh hoặc đã trả hết</span></div>
-    <div class="table-wrap">
-      <table class="heat" aria-label="Ma trận công nợ còn lại: khách theo 12 tháng của năm đang chọn">
-        <thead><tr id="heat-head">
-          <th class="khach">Khách</th>
-          <th>T1</th><th>T2</th><th>T3</th><th>T4</th><th>T5</th><th>T6</th><th>T7</th><th>T8</th><th>T9</th><th>T10</th><th>T11</th><th>T12</th>
-          <th class="total-head">Năm <span id="th-year">—</span></th>
-          <th class="all-head">Mọi năm</th>
-        </tr></thead>
-        <tbody id="heat-body"></tbody>
-        <tfoot><tr id="heat-sum">
-          <td class="khach">Tổng đang hiển thị</td>
-          <td colspan="12" style="text-align:right;color:var(--muted);font-weight:600">(12 tháng)</td>
-          <td class="total-col money" id="sum-year"></td>
-          <td class="all-col money" id="sum-all"></td>
-        </tr></tfoot>
-      </table>
-    </div>
-    <p class="recon" id="recon" role="status">Đang tải số liệu…</p>
-    <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng ròng bằng 0. Ô âm giữ nguyên dấu; thu phân bổ theo tháng, không theo container.</p>
+    <select id="commodity" aria-label="Lọc mặt hàng"><option value="">Tất cả mặt hàng</option></select>
+    <label><input type="checkbox" id="only-open"> Chỉ khách còn nợ</label>
+    <span class="hint">Bấm ô để xem chi tiết tháng</span>
+    <span class="legend" aria-hidden="true"><span>ít</span><i style="background:var(--heat-1)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-5)"></i><i style="background:var(--heat-6)"></i><span>nhiều</span><i style="background:var(--credit-soft);margin-left:12px"></i><span>dư</span></span>
   </div>
+  <div class="table-wrap">
+    <table class="heat" aria-label="Ma trận công nợ còn lại: khách theo 12 tháng của năm đang chọn">
+      <colgroup><col class="c-khach"><col span="12"><col class="c-total" span="2"></colgroup>
+      <thead><tr id="heat-head"></tr></thead>
+      <tbody id="heat-body"></tbody>
+      <tfoot id="heat-foot"></tfoot>
+    </table>
+  </div>
+  <p class="recon" id="recon" role="status">Đang tải số liệu…</p>
+  <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng bằng 0. Ô “dư” là tháng đang dư tiền; thu phân bổ theo tháng, không theo container.</p>
 </main>
 
 <div class="drawer-scrim" id="drawer-scrim" hidden></div>
 <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
-  <header><h2 id="drawer-title"></h2><button class="close" id="drawer-close" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <header><h2 id="drawer-title"></h2><button class="close" id="drawer-close" type="button" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
   <p class="meta" id="drawer-meta"></p>
   <div id="drawer-body"></div>
 </aside>
 
+<script src="cong-no-format.js"></script>
 <script src="cong-no-theo-thang.js"></script>
 </body>
 </html>

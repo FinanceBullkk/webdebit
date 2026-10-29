@@ -47,6 +47,7 @@ module.exports = [
     files: ["cong-no-web-handoff/preview/**/*.js"],
     languageOptions: {
       globals: {
+        CongNoFormat: "readonly",
         CustomerLedgerWorkbench: "readonly",
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",

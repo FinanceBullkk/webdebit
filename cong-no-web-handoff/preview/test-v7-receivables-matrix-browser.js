@@ -39,19 +39,25 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
     await page.locator('#heat-body .khach').first().waitFor();
-    await page.setViewportSize({ width: 1920, height: 800 });
     const layout = await page.evaluate(() => {
-      const page = document.querySelector('.page').getBoundingClientRect();
-      const year = document.querySelector('#heat-head .total-head').getBoundingClientRect();
-      const all = document.querySelector('#heat-head .all-head').getBoundingClientRect();
-      return { pageWidth: page.width, yearWidth: year.width, allWidth: all.width, separated: year.right <= all.left + 1 };
+      const months = [...document.querySelectorAll('#heat-head th.mh')].map(th => Math.round(th.getBoundingClientRect().width));
+      const [year, all] = document.querySelectorAll('#heat-head th.tot');
+      const wrap = document.querySelector('.table-wrap');
+      return { months, equal: new Set(months).size === 1, innerScroll: wrap.scrollHeight > wrap.clientHeight + 1 || wrap.scrollWidth > wrap.clientWidth + 1,
+        pageScrollX: document.documentElement.scrollWidth > innerWidth, separated: year.getBoundingClientRect().right <= all.getBoundingClientRect().left + 1 };
     });
-    assert.equal(layout.pageWidth, 1920);
-    assert.equal(layout.yearWidth >= 160 && layout.allWidth >= 160 && layout.separated, true, JSON.stringify(layout));
-    await page.setViewportSize({ width: 1280, height: 800 });
-    assert.match(await page.locator('#scope-year').innerText(), /80\.000 đ/);
-    assert.match(await page.locator('#recon').innerText(), /KHỚP/);
-    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), '−20.000 đ');
+    // Mockup v4.1 (duyệt 29/10/2026): 12 cột tháng rộng bằng nhau, bảng không có khung cuộn riêng ở 1280px.
+    assert.equal(layout.months.length === 12 && layout.equal && !layout.innerScroll && !layout.pageScrollX && layout.separated, true, JSON.stringify(layout));
+    assert.equal(await page.locator('#heat-head th.mh').first().innerText(), 'Tháng 1');
+    assert.match(await page.locator('#scope-receivable').innerText(), /80\.000 đ/);
+    assert.match(await page.locator('#recon').innerText(), /Khớp/);
+    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 20.000 đ');
+    assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ (dư)');
+    assert.match(await page.locator('#heat-body .group').first().innerText(), /Sầu riêng · cảng/);
+    assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1"]').count(), 1);
+    await page.locator('#only-open').check();
+    assert.doesNotMatch(await page.locator('#heat-body').innerText(), /Khách B/);
+    await page.locator('#only-open').uncheck();
     assert.match(await page.locator('#heat-body').innerText(), /Khách B/);
     if (process.env.SHOTS_DIR) {
       fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
@@ -80,9 +86,8 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     await page.locator('.table-wrap').evaluate(el => { el.scrollLeft = el.scrollWidth; });
     const mobileTotals = await page.evaluate(() => {
       const wrap = document.querySelector('.table-wrap').getBoundingClientRect();
-      const year = document.querySelector('#heat-head .total-head').getBoundingClientRect();
-      const all = document.querySelector('#heat-head .all-head').getBoundingClientRect();
-      return { visible: year.left >= wrap.left && all.right <= wrap.right, separated: year.right <= all.left + 1 };
+      const [year, all] = [...document.querySelectorAll('#heat-head th.tot')].map(th => th.getBoundingClientRect());
+      return { visible: year.left >= wrap.left && all.right <= wrap.right + 1, separated: year.right <= all.left + 1 };
     });
     assert.equal(mobileTotals.visible && mobileTotals.separated, true, JSON.stringify(mobileTotals));
   } finally {
@@ -119,10 +124,10 @@ test('matrix refresh reads new data while preserving selected year', async () =>
   try {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
-    await page.locator('#scope-all').getByText('80.000 đ').waitFor();
+    await page.locator('#heat-foot').getByText('80.000 đ').first().waitFor();
     total = '80001';
     await page.locator('#refresh-data').click();
-    await page.locator('#scope-all').getByText('80.001 đ').waitFor();
+    await page.locator('#scope-receivable').getByText('80.001 đ').waitFor();
     assert.equal(await page.locator('#year-cur').innerText(), String(currentYear));
     assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
   } finally { await browser.close(); app.close(); }

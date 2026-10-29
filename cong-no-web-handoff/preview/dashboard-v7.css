@@ -1,1 +1,72 @@
-*{box-sizing:border-box}html{background:#edf4fb}body{margin:0;color:#123965;font:16px/1.35 "Segoe UI",Arial,sans-serif}#demo-banner{padding:10px;background:#ffe08a;color:#452600;text-align:center;font-weight:800}.topbar{min-height:66px;display:flex;align-items:center;gap:28px;padding:0 22px;background:#f8fbff;border:1px solid #a8c6e1;box-shadow:0 2px 8px #244d7620}.brand{color:#0c3974;font-size:22px;font-weight:800;text-decoration:none;white-space:nowrap}.topbar nav{display:flex;align-self:stretch;gap:24px}.topbar nav a{display:flex;align-items:center;color:#123965;text-decoration:none;font-weight:700}.topbar nav a.active{color:#0877d1;border-bottom:4px solid #0877d1}.search{position:relative;display:flex;align-items:center;gap:8px;width:min(380px,32vw);height:42px;padding:0 12px;background:#fff;border:1px solid #9ebbd7;border-radius:6px}.search span{font-size:28px;line-height:1;color:#246aa8}.search input{width:100%;border:0;outline:0;font:inherit;color:#123965}.search #customer-results{position:absolute;z-index:5;top:45px;left:0;right:0;max-height:260px;overflow:auto;background:#fff;border:1px solid #9ebbd7;box-shadow:0 8px 20px #163c5d35}.search #customer-results a{display:block;min-height:42px;padding:10px 12px;color:#123965;text-decoration:none;border-bottom:1px solid #e2ebf4}.search #customer-results a:hover,.search #customer-results a:focus{background:#e6f2ff;outline:2px solid #1477c9;outline-offset:-2px}.readonly{padding:8px 14px;border:1px solid #9ebbd7;border-radius:6px;color:#174d82;white-space:nowrap}.topbar time{margin-left:auto;white-space:nowrap}.page{padding:0 18px 28px}.page h1{margin:14px 0 12px;font-size:30px;color:#123d73}.grid{display:grid;grid-template-columns:1.05fr 1.05fr .95fr;gap:14px}.card{min-width:0;padding:14px 16px;background:#fff;border:1px solid #a8c6e1;border-radius:6px;box-shadow:0 1px 3px #173f6520}.card h2{display:flex;align-items:center;gap:9px;margin:0 0 12px;color:#0d4b8f;font-size:22px}.icon{color:#0877d1}.receivable{grid-column:1;grid-row:1}.aging{grid-column:2;grid-row:1}.commodity{grid-column:3;grid-row:1}.top-debtors{grid-column:1;grid-row:2}.todo{grid-column:2;grid-row:2}.today{grid-column:3;grid-row:2}.money{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}.big-money{margin:24px 0 6px;color:#0d478d;font-size:46px;font-weight:800;line-height:1.05}.substat{font-size:22px;font-weight:700}.credit{margin-top:24px;padding:13px;background:#eef6ff;border-radius:4px}.table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}.table th,.table td{padding:7px 6px;border:1px solid #d7e5f1;text-align:left}.table th{background:#eaf3fb}.table td.money,.table th.money{text-align:right}.table a,.todo a{color:#006dcc;text-decoration:underline}.aging-row{display:grid;grid-template-columns:128px 1fr 135px;align-items:center;gap:10px;margin:14px 0}.aging-row progress{width:100%;height:22px;accent-color:#1685ce}.todo-group{margin:0 0 10px;border:1px solid #d7e5f1;border-radius:4px}.todo-head{display:flex;justify-content:space-between;padding:7px 10px;background:#e3f0fb;font-weight:700}.todo-row{display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-top:1px solid #e4edf5;font-size:14px}.today-stats{display:grid;grid-template-columns:1fr 1fr;border:1px solid #d7e5f1}.today-stat{padding:12px 4px;text-align:center;border-right:1px solid #d7e5f1;border-bottom:1px solid #d7e5f1}.today-stat strong{display:block;color:#0d4b8f;font-size:26px}.loading{padding:30px}.empty{color:#536d86}.warning{display:block;margin-top:5px;padding:4px 6px;color:#a34317;background:#fff0dc;border-radius:4px;font-size:13px}#error{padding:12px;background:#fff0f0;border:1px solid #cf6c6c;color:#8a1f1f;border-radius:4px}@media(max-width:1050px){.grid{grid-template-columns:1fr 1fr}.receivable,.aging,.commodity,.top-debtors,.todo,.today{grid-column:auto;grid-row:auto}}@media(max-width:700px){.topbar{flex-wrap:wrap;padding:10px 12px;gap:10px}.brand{font-size:18px}.topbar nav{height:42px;order:3}.search{order:4;width:100%}.topbar time{margin-left:0}.grid{display:block}.card{margin-bottom:12px}.big-money{font-size:36px}.aging-row{grid-template-columns:112px 1fr}.aging-row .money{grid-column:2}.page h1{font-size:26px}}
+/* Tổng quan (DASH-01) — bố cục theo mockup v4.1; token chung ở cong-no-theme.css. */
+.page{max-width:1440px}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
+.receivable{grid-column:span 4}
+.aging{grid-column:span 8}
+.side{grid-column:span 4;display:flex;flex-direction:column;gap:16px}
+.top-debtors{grid-column:span 5}
+.commodity{grid-column:span 3}
+
+/* Số chính */
+.card.receivable{padding-top:18px;background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%);border-color:#b7d3f6}
+.receivable h2{margin:0;font-size:15px;font-weight:600;color:var(--ink-2)}
+.big-money{margin:4px 0 2px;font-size:48px;line-height:1.1;font-weight:700;letter-spacing:-.5px;white-space:nowrap}
+.big-money small{margin-left:6px;font-size:24px;font-weight:600;color:var(--ink-2)}
+.substat{color:var(--ink-3)}
+.minis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.mini{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.mini .k{font-size:13.5px;color:var(--ink-3)}
+.mini .v{font-size:20px;font-weight:700}
+.mini .v.credit{color:var(--credit)}
+.mini .s{font-size:13.5px;color:var(--ink-3)}
+
+/* Tuổi nợ: một thanh chia đoạn + chú giải có số */
+.age-bar{display:flex;gap:2px;height:28px;margin:4px 0 18px;border-radius:6px;overflow:hidden;background:var(--line-soft)}
+.age-bar span{display:block;height:100%;min-width:2px}
+.age-legend{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.age-legend .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border-radius:3px;vertical-align:-1px}
+.age-legend .k{font-size:14px;color:var(--ink-2)}
+.age-legend .v{margin-top:2px;font-size:20px;font-weight:700}
+.age-legend .p{font-size:13.5px;color:var(--ink-3)}
+.age-note{margin:16px 0 0;padding:10px 14px;border-radius:8px;background:var(--head);font-size:14px;color:var(--ink-2)}
+.age-note b{color:var(--ink)}
+
+/* Việc cần làm */
+.todo-group+.todo-group{margin-top:14px}
+.todo-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;font-size:14.5px;font-weight:600}
+.todo-group .rows a{padding:7px 6px}
+.todo-group .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.todo-group .what{color:var(--ink-3);font-size:14px;white-space:nowrap}
+.empty{margin:0;color:var(--ink-3)}
+
+/* Hôm nay */
+.today-stats{display:flex;flex-wrap:wrap;gap:22px}
+.today-stat b{display:block;font-size:20px}
+.today-stat span{font-size:13.5px;color:var(--ink-3)}
+.actors{margin-top:12px;font-size:14px;color:var(--ink-2)}
+.actors div{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line-soft)}
+
+/* 10 khách */
+.top-debtors .rank{width:22px;text-align:right;font-size:14px;color:var(--ink-3)}
+.top-debtors .who{flex:1;min-width:0}
+.top-debtors .who b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.top-debtors .who span,.top-debtors .amt span{font-size:13.5px;color:var(--ink-3)}
+.top-debtors .amt{text-align:right}
+.top-debtors .amt b{display:block;font-weight:600}
+
+/* Mặt hàng */
+.commodity li>.row{display:block;padding:8px 6px}
+.commodity .line{display:flex;justify-content:space-between;gap:8px;font-size:14.5px}
+.commodity .line b{font-weight:600}
+.commodity .meta{font-size:13px;color:var(--ink-3)}
+.commodity .bar{height:6px;margin-top:6px;border-radius:3px;background:var(--line-soft)}
+.commodity .bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.commodity .none .bar i{background:var(--ink-3)}
+.commodity .warning{color:var(--warning);font-weight:600}
+
+@media (max-width:1100px){.receivable,.aging{grid-column:span 12}.side,.top-debtors,.commodity{grid-column:span 6}}
+@media (max-width:760px){
+  .grid{display:flex;flex-direction:column}
+  .big-money{font-size:38px}
+  .age-legend{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
