@@ -100,7 +100,7 @@ Lỗi giữ câu có sẵn: `MONTH_LOCKED`, `VERSION_CONFLICT`, `STALE_SHEET`, `
 - [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01): (5) danh mục; (9) số PS là tiền tính cho khách; (10) Health/KĐ không giá cố định, chỉ nhắc nhập; (11) ô PS số quá nhỏ là gõ sai, không nhập tự động.
 - Người dùng, chat 29/10/2026: số PS ở tab tổng hợp `CONT_MASTER` mới đúng; web đọc tab này, không đọc `PS_DATA`.
 - [`SONG-SONG-01`](../docs/decisions.md#song-song-01): Sheet là sổ chính thức tới ngày chuyển hẳn; đối soát theo tổng từng khách.
-- [Khóa tháng 24/10/2026](../docs/decisions.md#cập-nhật-khóa-tháng-24102026): tháng khóa chặn mọi lệnh dòng phụ phí.
+- [Khóa tháng 24/10/2026](../docs/decisions.md#cập-nhật-khóa-tháng-24102026): tháng khóa chặn mọi lệnh dòng phụ phí. Người dùng giữ nguyên quy tắc này cho việc tách theo PS (chat 29/10/2026).
 - [`SO-GON-01`](../docs/decisions.md#so-gon-01): số dư đầu không bị viết lại; không nhãn "sổ gốc".
 - [`V7-ID`](../docs/decisions.md#v7-id): người làm từ phiên server.
 
@@ -149,7 +149,7 @@ Spec: revert commit. Khi đã code: tắt timer runner PS (sổ trả `unavailab
 
 ## Câu hỏi mở
 
-1. **Tháng khóa.** 92/108 cont có tiền PS thuộc tháng 5–6/2026, đang khóa. Theo quy tắc khóa 24/10, mỗi tháng phải mở khóa rồi mới tách được. Có cho ngoại lệ "tách giữ tổng tiền làm được ở tháng khóa" không? Mặc định spec: **không**, giữ quy tắc khóa, giao diện nhắc mở khóa. Đây là câu hỏi cho người dùng.
+1. **Tháng khóa — ĐÃ TRẢ LỜI** (người dùng, chat 29/10/2026: "Giữ khóa tháng"). Không có ngoại lệ: tách phụ phí ở tháng khóa vẫn bị chặn như mọi lệnh dòng phụ phí. Muốn tách thì mở khóa tháng; giao diện có nút "Mở khóa tháng N" trong "PS cần xem". 92/108 cont có tiền PS thuộc tháng 5–6/2026 nên sẽ cần mở khóa hai tháng này.
 2. **Quyền đọc file bộ lập bill trên `hao`.** Cần kiểm `WEBDEBIT_SHEET_ID` có trỏ đúng file chứa `CONT_MASTER` không. Nếu không, cần thêm biến `WEBDEBIT_PS_SHEET_ID` và người dùng chia sẻ file (chỉ xem) cho tài khoản dịch vụ. Kiểm trước PR-1.
 3. **Gán khách theo `Chủ hàng`.** Chưa đo tỉ lệ tên chủ hàng của 108 cont ra được sổ qua tên phụ + bảng duyệt tên. Đo chỉ đọc trên `hao` ở PR-1; tỉ lệ thấp thì cân nhắc ghép theo cont trên mọi sổ rồi dùng tên chủ hàng để kiểm chéo.
 4. **Ngày đóng so với ngày chuyến web** (ngày xe nhập kho): chưa đo độ lệch. Nếu nhiều dòng lệch quá 3 ngày thì xét nới cửa sổ riêng cho PS.
