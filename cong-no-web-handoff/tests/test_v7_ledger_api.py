@@ -535,7 +535,7 @@ class LedgerApiTest(unittest.TestCase):
                          (422, "Ngày trả không được sau hôm nay."))
         sql = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
         for name in ("record_receipt", "edit_receipt_meta"):
-            body = sql.split(f"CREATE FUNCTION sokhach.{name}(", 1)[1].split("END $$;", 1)[0]
+            body = sql.replace("CREATE OR REPLACE FUNCTION", "CREATE FUNCTION").split(f"CREATE FUNCTION sokhach.{name}(", 1)[1].split("END $$;", 1)[0]
             self.assertLess(body.index("_begin_command"), body.index("clock_timestamp()"))
             self.assertIn("AT TIME ZONE 'Asia/Ho_Chi_Minh'", body)
             self.assertIn("RAISE EXCEPTION 'FUTURE_RECEIPT_DATE'", body)

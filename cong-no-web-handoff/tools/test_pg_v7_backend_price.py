@@ -3,7 +3,10 @@ import json
 import re
 
 from pg_v7_harness import (
+    RA_GHI_TIEN_MIGRATION,
     ROOT,
+    SHEET_CONFLICT_DATE_MIGRATION,
+    SHEET_CONFLICT_MIGRATION,
     call,
     fixture_open_month,
     new_book,
@@ -196,6 +199,7 @@ def check_price_migration(pg):
     # XOA-DC-THANG-01 rồi tách phụ phí PS dựng lại ràng buộc event sau bảng giá; chạy lại đúng thứ tự triển khai.
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"))
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
+    pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"))  # bản apply_price_table hiện hành (29/10)
     require([pg.value(q) for q in (catalog, cols, constraints)] == fresh, "price migration rerun changed schema")
     db = "webdebit_v7_price_migration"
     pg.sql(f"CREATE DATABASE {db}", database="postgres")
@@ -203,7 +207,8 @@ def check_price_migration(pg):
     old_functions = run(["git", "show", PRE_PRICE_REF + ":cong-no-web-handoff/tools/v7_backend_functions.sql"], cwd=ROOT).stdout
     old_schema = re.sub(r"^CREATE ROLE .*;\n", "", old_schema, flags=re.M)
     sheet = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-24-v7-sheet-cross-customer.sql").read_text(encoding="utf-8")
-    for sql in (old_schema, old_functions, sheet):
+    for sql in (old_schema, old_functions, sheet, SHEET_CONFLICT_MIGRATION.read_text(encoding="utf-8"),
+                SHEET_CONFLICT_DATE_MIGRATION.read_text(encoding="utf-8")):
         pg.sql(sql, database=db)
     require(pg.sql("SELECT to_regclass('sokhach.price_rate') IS NULL", database=db).stdout.strip() == "t",
             "old schema already has price tables")
@@ -219,5 +224,6 @@ def check_price_migration(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-receipts.sql").read_text(encoding="utf-8"), database=db)
+    pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

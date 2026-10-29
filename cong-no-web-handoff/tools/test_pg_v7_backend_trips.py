@@ -207,10 +207,12 @@ def check_dedup(pg: Pg) -> None:
                      f"(SELECT count(*) FROM sokhach.adjustment WHERE customer_id={c})") == money_rows,
             "pending edit wrote price or adjustment")
     require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == "400", "pending leaked into money")
-    # Only pending trip in a later month must not move overpayment there.
-    future_month = "2099-01-01"
+    # Only pending trip in a later month must not move overpayment there. Ngày sau hôm nay bị FUTURE-01
+    # chặn từ 29/10/2026, nên tháng "sau" là tháng hiện tại (giờ VN) với ngày hôm nay.
+    future_month = current
+    today_vn = pg.value("SELECT to_char(clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh','DD/MM/YYYY')")
     call(pg, "set_month_lock", c, version(pg, c), "open-future", future_month, "false")
-    paste("future-pending", "BASE", day="01/01/2099", booking="BK1", month=future_month)
+    paste("future-pending", "BASE", day=today_vn, booking="BK1", month=future_month)
     call(pg, "record_receipt", c, version(pg, c), "advance", "2026-01-01", "THU TIỀN", 500)
     require(allocations(pg, c, "PH-001")[-1] == ("2026-01-01", "advance", "100"), "pending advance month")
     reject_call(pg, "adjust_month", c, version(pg, c), "pending-month", future_month, 1, "fake",

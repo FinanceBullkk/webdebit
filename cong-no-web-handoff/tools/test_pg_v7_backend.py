@@ -89,6 +89,7 @@ from test_pg_v7_backend_opening import (
 )
 from test_pg_v7_backend_price import check_price_table
 from test_pg_v7_backend_ps_fee import check_ps_fee
+from test_pg_v7_backend_ra_ghi_tien import check_ra_ghi_tien
 from test_pg_v7_backend_receipt_images import check_receipt_images
 from test_pg_v7_backend_receipts import (
     check_atomic,
@@ -222,8 +223,12 @@ CASES.append(case("XOA-DC-THANG.01", "BEHAVIOR", "Delete month adjustment: rever
 # Chạy cuối: migration PS là bản mới nhất dựng lại ràng buộc event, gồm cả adjust_month_delete lẫn rewrite_trip_fees.
 CASES.append(case("PS-FEE.01", "BEHAVIOR", "PS fee split keeps totals, legacy TOTAL, no reallocation; stale lines and locks rejected",
                   check="ps_fee", functions=("rewrite_trip_fees",)))
+# Rà đường ghi tiền 29/10/2026: chạy cuối, migration của nó là bản mới nhất của paste_trips/record_receipt/apply_price_table.
+CASES.append(case("RA-GHI-TIEN.01", "BEHAVIOR", "Audit 29/10: future paste date, receipt FIFO by date, typed price kept, Sheet functions canonical",
+                  check="ra_ghi_tien", functions=("paste_trips", "record_receipt", "apply_price_table",
+                                                  "list_sheet_trip_refs", "resolve_sheet_conflict")))
 
-CHECKS = {"dashboard": check_dashboard, "ps_fee": check_ps_fee, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"dashboard": check_dashboard, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,

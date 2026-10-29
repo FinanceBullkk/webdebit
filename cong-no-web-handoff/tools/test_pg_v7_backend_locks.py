@@ -17,6 +17,7 @@ from pg_v7_harness import (
     MATRIX_MIGRATION,
     MH_MIGRATION,
     NHAP_MIGRATION,
+    RA_GHI_TIEN_MIGRATION,
     REVIEW_MIGRATION,
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
@@ -205,10 +206,13 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(xoa_dc)
     copy.sql(xoa_dc)
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
+    ra_ghi_tien = RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8")
+    copy.sql(ra_ghi_tien)
+    copy.sql(ra_ghi_tien)  # chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
+    # Từ 29/10/2026 file chuẩn có cả resolve_sheet_conflict, nên so đủ mọi hàm, không loại trừ.
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
-    migrated = {k: v for k, v in migrated.items() if not k.startswith("sokhach.resolve_sheet_conflict(")}
     require(migrated == fresh, f"migrated functions differ: {[k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k)]}")
     call(copy, "edit_trip_price", fee_book, version(copy, fee_book), "fee-after-migration",
          fee_trip, 110, 7)

@@ -119,6 +119,10 @@ BEGIN
         v_date := CASE WHEN v_date_text IS NULL THEN NULL ELSE to_date(v_date_text,'DD/MM/YYYY') END;
         IF v_date_text IS NOT NULL AND to_char(v_date,'DD/MM/YYYY') <> v_date_text
         THEN RAISE EXCEPTION 'INVALID_TRIP_DATE'; END IF;
+        -- FUTURE-01 áp vào V7 (29/10/2026): ngày xe nhập kho khi dán không được sau hôm nay giờ VN,
+        -- cùng luật với sửa ngày tại ô (_trip_date); chuyến đồng bộ từ Sheet cũng đi qua đây.
+        IF v_date > (clock_timestamp() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+        THEN RAISE EXCEPTION 'FUTURE_DATE'; END IF;
         BEGIN
             v_unit := (v_item->>'unitPriceVnd')::bigint;
             v_fee := (v_item->>'otherFeeVnd')::bigint;
@@ -203,6 +207,41 @@ BEGIN
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
         jsonb_build_object('trip_ids',v_ids,'reallocated',v_changes,'pending_review',v_pending));
 END $$;
+
+
+-- Đồng bộ từ Sheet (specs/v7-sheet-contract.md). Tới 29/10/2026 ba hàm dưới chỉ có trong migration
+-- 2026-10-24-v7-sheet-cross-customer.sql và 2026-10-25/27-v7-sheet-conflict*.sql; gộp vào file chuẩn để cài mới
+-- đủ hàm API gọi (list_sheet_trip_refs ở mọi lượt duyệt Sheet). Thân hàm giữ nguyên văn bản migration.
+CREATE OR REPLACE FUNCTION sokhach.list_sheet_trip_refs() RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    PERFORM sokhach._actor();
+    RETURN (SELECT jsonb_build_object('items',coalesce(jsonb_agg(
+        jsonb_build_object('customer_id',customer_id,'container',container)
+        ORDER BY customer_id,id),'[]'::jsonb))
+    FROM sokhach.v_trip_current WHERE NOT deleted AND container IS NOT NULL);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION sokhach.guard_sheet_cross_customer() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_container text;
+BEGIN
+    IF NEW.source_ref IS NULL OR NEW.source_ref !~ '^sheet:[0-9a-f]{64}:[0-9]+$' THEN RETURN NEW; END IF;
+    v_container := sokhach._normalize_key(NEW.container);
+    PERFORM pg_advisory_xact_lock(746193,hashtext(v_container));
+    IF EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE NOT t.deleted
+        AND t.customer_id<>NEW.customer_id
+        AND sokhach._normalize_key(t.container)=v_container
+        AND (sokhach._booking_key(t.booking,t.container,t.event_date)=
+             sokhach._booking_key(NEW.booking,NEW.container,NEW.event_date)
+             OR abs(t.event_date-NEW.event_date)<=3))
+    THEN RAISE EXCEPTION 'SHEET_CROSS_CUSTOMER_MATCH'; END IF;
+    RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trip_sheet_cross_customer ON sokhach.trip;
+CREATE TRIGGER trip_sheet_cross_customer BEFORE INSERT ON sokhach.trip
+FOR EACH ROW EXECUTE FUNCTION sokhach.guard_sheet_cross_customer();
 
 -- Strict ISO edit dates; legacy source cells use this only behind exception handling.
 CREATE FUNCTION sokhach._trip_date(p_value text) RETURNS date
@@ -1059,7 +1098,7 @@ BEGIN
             WHERE p.source_customer_id=get_ledger.customer_id),'[]'::jsonb));
 END $$;
 
-CREATE FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint,
+CREATE OR REPLACE FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint,
     idempotency_key text, date date, method text, amount_vnd bigint, reference text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, sokhach, pg_temp AS $$
@@ -1068,7 +1107,7 @@ DECLARE v_payload jsonb := jsonb_build_object('command','record_receipt','date',
         || CASE WHEN reference IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('reference',reference) END;
         v_retry jsonb; v_id bigint; v_pid text; v_event bigint; v_left bigint;
         v_last date; v_month date; v_due bigint; v_take bigint; v_plan jsonb := '[]'::jsonb;
-        v_line jsonb; v_result jsonb; v_plan_ids jsonb := '[]'::jsonb;
+        v_line jsonb; v_result jsonb; v_plan_ids jsonb := '[]'::jsonb; v_changes jsonb;
 BEGIN
     v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
     IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -1119,9 +1158,11 @@ BEGIN
         OVERRIDING SYSTEM VALUE VALUES ((v_line->>'id')::bigint,v_id,customer_id,(v_line->>'month')::date,v_line->>'kind',
                 (v_line->>'amount_vnd')::bigint,v_event);
     END LOOP;
-    PERFORM sokhach._check_allocations(customer_id);
-    v_result := jsonb_build_object('receipt_id',v_id,'pid',v_pid,'allocations',v_plan_ids,
-                                  'overpayment_vnd',v_left::text,
+    -- V7-SO (sửa 29/10/2026): phiếu mới cũng phân bổ lại mọi phiếu chưa hủy theo (ngày, mã phiếu), nên dòng
+    -- phân bổ đã lưu luôn là kết quả chuẩn và không đổi ở lệnh kế tiếp. Tổng nợ từng tháng không đổi.
+    v_changes := sokhach.reallocate(customer_id,idempotency_key);
+    v_result := jsonb_build_object('receipt_id',v_id,'pid',v_pid,'allocations',sokhach._lines(v_id),
+                                  'reallocated',v_changes,'overpayment_vnd',v_left::text,
         'duplicate_reference',EXISTS (SELECT 1 FROM sokhach.receipt r
             WHERE r.customer_id=record_receipt.customer_id AND r.id<>v_id
               AND r.reference=nullif(btrim(record_receipt.reference),'')));
@@ -1279,6 +1320,89 @@ BEGIN
     IF v_status='confirmed' THEN v_changes := sokhach.reallocate(customer_id,idempotency_key); END IF;
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
         jsonb_build_object('trip_id',trip_id,'status',v_status,'reallocated',v_changes));
+END $$;
+
+CREATE OR REPLACE FUNCTION sokhach.resolve_sheet_conflict(
+    customer_id bigint, expected_version bigint, idempotency_key text,
+    snapshot_sha256 text, source_row bigint, target_kind text, target_id bigint,
+    field text, target_value text, sheet_value text, decision text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb := jsonb_build_object('command','resolve_sheet_conflict',
+        'snapshot_sha256',snapshot_sha256,'source_row',source_row,'target_kind',target_kind,
+        'target_id',target_id,'field',field,'target_value',target_value,
+        'sheet_value',sheet_value,'decision',decision);
+    v_retry jsonb; v_trip sokhach.v_trip_current%ROWTYPE; v_legacy jsonb;
+    v_event bigint; v_before text; v_after text;
+BEGIN
+    v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+    IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+    PERFORM sokhach._baseline(customer_id);
+    IF snapshot_sha256 !~ '^[0-9a-f]{64}$' OR source_row <= 0 OR target_id <= 0
+       OR target_kind NOT IN ('trip','legacy')
+       OR field NOT IN ('carrier','shipper','origin','destination','event_date','booking')
+       OR decision NOT IN ('keep_web','use_sheet') OR sheet_value IS NULL
+       -- Date edits must use the normal edit path; posted booking never changes.
+       OR (field IN ('event_date','booking') AND decision<>'keep_web')
+       OR (field='booking' AND target_kind<>'trip') THEN
+        RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION';
+    END IF;
+    IF target_kind='trip' THEN
+        SELECT * INTO v_trip FROM sokhach.v_trip_current t
+          WHERE t.id=target_id AND t.customer_id=resolve_sheet_conflict.customer_id AND NOT t.deleted;
+        IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+        v_before:=to_jsonb(v_trip)->>field;
+    ELSE
+        SELECT sokhach._legacy_current(l.id) INTO v_legacy FROM sokhach.legacy_row l
+          JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id)
+          JOIN sokhach.cutover c ON c.id=cc.cutover_id
+          WHERE l.id=target_id AND l.customer_id=resolve_sheet_conflict.customer_id
+            AND l.kind='trip' AND cc.status='active' AND c.status='active';
+        IF NOT FOUND OR (v_legacy->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
+        v_before:=CASE WHEN field='shipper' THEN coalesce(v_legacy->>'shipper',v_legacy->>'carrier')
+          ELSE v_legacy->>field END;
+    END IF;
+    IF v_before IS DISTINCT FROM target_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+    IF decision='use_sheet' AND nullif(btrim(sheet_value),'') IS NULL THEN
+        RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION';
+    END IF;
+    IF decision='use_sheet' THEN
+        PERFORM sokhach._month_open(customer_id,CASE WHEN target_kind='trip' THEN v_trip.debt_month
+          ELSE (v_legacy->>'debt_month')::date END,clock_timestamp());
+    END IF;
+    v_after:=CASE WHEN decision='use_sheet' THEN btrim(sheet_value) ELSE v_before END;
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+      VALUES(customer_id,'sheet_conflict_resolved',sokhach._actor(),
+        jsonb_build_object('target',jsonb_build_object('kind',target_kind,'id',target_id),
+          'field',field,'value',v_before),
+        jsonb_build_object('snapshot_sha256',snapshot_sha256,'source_row',source_row,
+          'target',jsonb_build_object('kind',target_kind,'id',target_id),
+          'field',field,'sheet_value',sheet_value,'target_value',v_after,'decision',decision),
+        idempotency_key) RETURNING id INTO v_event;
+    IF decision='use_sheet' THEN
+      IF target_kind='trip' THEN
+        INSERT INTO sokhach.trip_info_rev(trip_id,customer_id,debt_month,event_date,container,
+          carrier,shipper,origin,destination,status,created_by_event)
+        VALUES(v_trip.id,customer_id,v_trip.debt_month,v_trip.event_date,v_trip.container,
+          CASE WHEN field='carrier' THEN v_after ELSE v_trip.carrier END,
+          CASE WHEN field='shipper' THEN v_after ELSE v_trip.shipper END,
+          CASE WHEN field='origin' THEN v_after ELSE v_trip.origin END,
+          CASE WHEN field='destination' THEN v_after ELSE v_trip.destination END,
+          v_trip.status,v_event);
+      ELSE
+        v_legacy:=v_legacy||jsonb_build_object(field,v_after);
+        INSERT INTO sokhach.legacy_trip_rev(legacy_row_id,customer_id,debt_month,event_date,
+          container,carrier,shipper,origin,destination,unit_price_vnd,other_fee_vnd,
+          deleted,counted_vnd,created_by_event)
+        VALUES(target_id,customer_id,(v_legacy->>'debt_month')::date,
+          (v_legacy->>'event_date')::date,v_legacy->>'container',v_legacy->>'carrier',
+          v_legacy->>'shipper',v_legacy->>'origin',v_legacy->>'destination',
+          (v_legacy->>'unit_price_vnd')::bigint,(v_legacy->>'other_fee_vnd')::bigint,
+          false,(v_legacy->>'counted_vnd')::bigint,v_event);
+      END IF;
+    END IF;
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
+      jsonb_build_object('resolved',true,'field',field,'decision',decision));
 END $$;
 
 -- Same customer lock is held by caller. This checks source evidence, never
@@ -2722,6 +2846,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS 
 DECLARE v_payload jsonb:=jsonb_build_object('command','apply_price_table','trip_ids',trip_ids);
  v_retry jsonb; v_id bigint; t sokhach.v_trip_current%ROWTYPE; v_old sokhach.trip_price_rev%ROWTYPE;
  v_lookup jsonb; v_before jsonb:='[]'; v_after jsonb:='[]'; v_item jsonb; v_event bigint; v_rev bigint; v_changes jsonb;
+ v_from jsonb;
 BEGIN
  v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -2730,6 +2855,10 @@ BEGIN
    OR EXISTS (SELECT 1 FROM jsonb_array_elements(trip_ids) x WHERE jsonb_typeof(x)<>'number' OR x::text !~ '^[1-9][0-9]{0,18}$')
    OR (SELECT count(*)<>count(DISTINCT x::text) FROM jsonb_array_elements(trip_ids) x)
  THEN RAISE EXCEPTION 'INVALID_TRIPS'; END IF;
+ -- BANG-GIA-01 (29/10/2026): gõ tay thắng bảng giá. Chỉ ghi chuyến chưa có đơn giá hoặc đang mang đơn giá do
+ -- bảng ghi (áp lại); đơn giá gõ tay không bị bảng ghi đè, kể cả khi client gửi nhầm.
+ SELECT coalesce(jsonb_object_agg(x.trip_id::text,x.from_table),'{}') INTO v_from
+   FROM sokhach._price_trip_rows(apply_price_table.customer_id) x;
  FOR v_id IN SELECT x::text::bigint FROM jsonb_array_elements(trip_ids) x ORDER BY 1 LOOP
    SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=v_id AND v.customer_id=apply_price_table.customer_id AND NOT v.deleted;
    IF NOT FOUND OR coalesce(t.container,'')='' THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
@@ -2739,6 +2868,8 @@ BEGIN
    IF NOT v_lookup ? 'unit_price_vnd' THEN RAISE EXCEPTION 'PRICE_NOT_FOUND'; END IF;
    SELECT * INTO v_old FROM sokhach.trip_price_rev r WHERE r.trip_id=v_id ORDER BY r.id DESC LIMIT 1;
    IF v_old.unit_price_vnd::text IS NOT DISTINCT FROM v_lookup->>'unit_price_vnd' THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
+   IF v_old.unit_price_vnd IS NOT NULL AND NOT coalesce((v_from->>v_id::text)::boolean,false)
+   THEN RAISE EXCEPTION 'PRICE_TYPED_PRICE'; END IF;
    v_before:=v_before||jsonb_build_array(jsonb_build_object('trip_id',v_id,'container',t.container,
      'unit_price_vnd',v_old.unit_price_vnd::text,'other_fee_vnd',v_old.other_fee_vnd::text));
    v_after:=v_after||jsonb_build_array(jsonb_build_object('trip_id',v_id,'container',t.container,
@@ -2776,6 +2907,8 @@ GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date
 GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.set_month_lock(bigint,bigint,text,date,boolean) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.review_trip(bigint,bigint,text,bigint,text,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.list_sheet_trip_refs() TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;

@@ -161,6 +161,7 @@ ERRORS = {
     "PRICE_DUPLICATE_SHIPPER": (422, "Shipper của TT bị nhập trùng."),
     "PRICE_DUPLICATE_RATE": (422, "Một kho có hai giá cùng loại trong cùng đợt."),
     "PRICE_NOT_FOUND": (409, "Có chuyến không tra được giá theo bảng. Tải lại để xem lý do."),
+    "PRICE_TYPED_PRICE": (409, "Có chuyến đã gõ đơn giá tay; bảng giá không ghi đè. Tải lại rồi chọn lại."),
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
