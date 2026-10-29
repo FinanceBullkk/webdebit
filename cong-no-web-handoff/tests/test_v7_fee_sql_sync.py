@@ -6,8 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql"
-# DA-THU-01 chạy sau và thay get_ledger; bản chuẩn phải bằng migration mới nhất.
-LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql"
+PR_B_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql"
+# Bản chuẩn get_ledger phải bằng migration mới nhất thay nó (PR-B P2 sau DA-THU-01, PR-B).
+LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -54,10 +55,15 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertIn(block.replace("\r\n", "\n"), canonical.replace("\r\n", "\n"))
 
     def test_pr_b_all_function_copies_match(self):
-        migration = LEDGER_MIGRATION.read_text(encoding="utf-8")
         canonical = FUNCTIONS.read_text(encoding="utf-8")
         schema = SCHEMA.read_text(encoding="utf-8")
-        blocks = re.findall(r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\.\w+\(.*?\$\$;", migration)
+        pattern = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\.(\w+)\(.*?\$\$;"
+        later = LEDGER_MIGRATION.read_text(encoding="utf-8")
+        replaced = {m.group(1) for m in re.finditer(pattern, later)}
+        self.assertEqual(replaced, {"_change_trip_fees", "get_ledger"})
+        blocks = [m.group() for m in re.finditer(pattern, PR_B_MIGRATION.read_text(encoding="utf-8"))
+                  if m.group(1) not in replaced]
+        blocks += [m.group() for m in re.finditer(pattern, later)]
         self.assertGreaterEqual(len(blocks), 17)
         for block in blocks:
             with self.subTest(signature=block.split(" RETURNS")[0]):
