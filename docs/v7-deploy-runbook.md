@@ -28,6 +28,8 @@ Thay tất cả `<...>` trước khi chạy; không gõ nguyên placeholder vào
 không công khai. Backup/evidence quyền 700, tệp 600; lệnh chuyển hướng chạy trong shell admin
 đã `umask 077`. PostgreSQL admin ở các lệnh DB dưới đây là OS user `postgres`.
 User app không có sudo/role loader. User loader chỉ dùng khi nạp, không chạy service.
+Python chạy tay trên `hao` mà import mã release thì luôn có `-B`
+([lý do](hao-auto-deploy.md#chạy-python-tay-trên-hao-với-mã-release)).
 
 Đạt: backup phục hồi thử khớp exact counts; DB riêng có ACL đúng; nạp từ manifest/hash;
 GET và đối soát đạt; legacy counts không đổi. Dừng ngay khi lệnh lỗi, thiếu evidence hoặc gate;
