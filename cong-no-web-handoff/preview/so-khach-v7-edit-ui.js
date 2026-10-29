@@ -134,7 +134,8 @@
       const infoEdit = event.target.closest('td.info-edit');
       if (infoEdit) { openInfoEdit(infoEdit); return; }
       const rowDelete = event.target.closest('td.row-delete');
-      if (rowDelete) { openDelete(rowDelete); return; }
+      // Ô chọn chuyến để thêm phụ phí cho nhiều chuyến (PHU-PHI-01) nằm trong ô STT: bấm ô chọn không phải xóa dòng.
+      if (rowDelete && !event.target.closest('.fee-pick')) { openDelete(rowDelete); return; }
       const deleteRow = event.target.closest('.delete-prompt');
       if (deleteRow) {
         if (event.target.closest('.cancel-delete')) { deleteRow.remove(); return; }

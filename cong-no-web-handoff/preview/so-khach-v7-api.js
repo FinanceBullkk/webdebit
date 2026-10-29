@@ -16,6 +16,17 @@
     tripDelete: ['/api/v7/trips/delete', ['trip_id']],
     legacyEdit: ['/api/v7/legacy/edit', ['legacy_row_id', 'field', 'value']],
     legacyDelete: ['/api/v7/legacy/delete', ['legacy_row_id']],
+    // PHU-PHI-01: khoản phụ phí theo chuyến ({trip_id}) hoặc dòng sổ gốc ({legacy_row_id}); cột riêng của sổ.
+    feeAdd: ['/api/v7/trips/fees/add', ['targets', 'fee_type_id', 'amount_vnd', 'note']],
+    feeSet: ['/api/v7/trips/fees/set', ['target', 'fee_type_id', 'amount_vnd']],
+    feeReplace: ['/api/v7/trips/fees/replace', ['fee_line_id', 'fee_type_id', 'amount_vnd', 'note']],
+    feeVoid: ['/api/v7/trips/fees/void', ['fee_line_id']],
+    feeColumns: ['/api/v7/books/fee-columns', ['fee_type_ids']],
+  };
+  // Danh mục loại phụ phí dùng chung mọi sổ: không gắn khách, không version sổ.
+  const catalogRoutes = {
+    feeTypeAdd: ['/api/v7/fee-types', ['name', 'kind']],
+    feeTypeUpdate: ['/api/v7/fee-types/update', ['command', 'fee_type_id', 'name', 'kind', 'active']],
   };
   // Cấn trừ hai sổ (CT-2SO): một lệnh ghi cả hai sổ, cần version của cả hai. 'target' = sổ đang mở là sổ nhận.
   const offsetRoutes = {
@@ -249,8 +260,26 @@
       if (!data || !Array.isArray(data.sources)) throw Error('Danh sách sổ đang dư tiền không hợp lệ.');
       return data.sources;
     }
+    // Lệnh danh mục: trả {status, result} như cấn trừ; xong thì đọc lại sổ (send) để vẽ lại.
+    async function submitCatalog(action, fields) {
+      if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
+      const route = catalogRoutes[action];
+      if (!route) throw Error('Thao tác không hợp lệ.');
+      const intent = Object.fromEntries(route[1].filter(name => Object.hasOwn(fields, name)).map(name => [name, fields[name]]));
+      pending = { path: route[0], body: { idempotency_key: key(), ...intent } };
+      outcome = null;
+      await send();
+      return outcome ?? { status: 'unknown' };
+    }
+    async function loadFeeTypes() {
+      const response = await fetcher('/api/v7/fee-types', { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được danh mục phụ phí.');
+      const data = await response.json();
+      if (!data || !Array.isArray(data.fee_types)) throw Error('Danh mục phụ phí không hợp lệ.');
+      return data.fee_types;
+    }
     redraw = () => { if (snapshot) onSnapshot(snapshot); };
-    return { read, submit, submitOffset, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
+    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };

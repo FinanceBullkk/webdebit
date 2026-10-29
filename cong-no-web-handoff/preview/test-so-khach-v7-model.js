@@ -540,3 +540,29 @@ test('Ghi giá từ Sheet: tổng tăng tính bằng BigInt, phụ phí null là
   assert.equal(model.sheetVnd(null), null);
   assert.throws(() => model.planSheetPrices([{ sheet_unit_price_vnd: 12500000 }], '0'));   // tiền phải là chuỗi
 });
+
+test('PHU-PHI-01: cụm cột phụ phí, tổng tháng, số gõ tay theo dấu loại, Thành tiền trước → sau khi tính lại', () => {
+  const lines = [{ id: 1, fee_type_id: 1, amount_vnd: '1200000' }, { id: 2, fee_type_id: 1, amount_vnd: '300000' },
+    { id: 3, fee_type_id: 7, amount_vnd: '800000' }, { id: 4, fee_type_id: 8, amount_vnd: '-500000' }];
+  assert.deepEqual(model.feeCells(lines, [1, 2]), { own: [1500000n, null], otherVnd: 300000n, otherCount: 2, totalVnd: 1800000n });
+  assert.deepEqual(model.feeCells([], [1]), { own: [null], otherVnd: null, otherCount: 0, totalVnd: null });   // trống không phải 0
+  assert.deepEqual(model.feeColumnTotals([lines, [], [{ id: 9, fee_type_id: 2, amount_vnd: '50' }]], [1, 2]),
+    { own: [1500000n, 50n], otherVnd: 300000n });
+  assert.deepEqual(model.feeColumnTotals([[]], [1]), { own: [null], otherVnd: null });
+  assert.equal(model.parseFeeInput('1.200.000', 'positive'), 1200000n);
+  assert.equal(model.parseFeeInput('-200.000', 'negative'), -200000n);
+  assert.equal(model.parseFeeInput('  ', 'positive', { allowBlank: true }), null);
+  assert.throws(() => model.parseFeeInput('', 'positive'), /khác 0/);
+  assert.throws(() => model.parseFeeInput('0', 'any'), /khác 0/);
+  assert.throws(() => model.parseFeeInput('200000', 'negative'), /Giảm trừ nhập số âm/);
+  assert.throws(() => model.parseFeeInput('-1', 'positive'), /số dương/);
+  assert.throws(() => model.parseFeeInput('1,2', 'positive'), /không đọc được/);
+  // Dòng sổ gốc 75.000.000 + khoản 5.000.000, Thành tiền đang là 80.500.000: đặt Neo 1.000.000 → 81.000.000.
+  const legacy = [{ id: 7, fee_type_id: 9, amount_vnd: '5000000' }];
+  assert.deepEqual(model.recountPreview('80500000', '75000000', legacy, { set: { typeId: 1, amountVnd: 1000000n } }),
+    { beforeVnd: 80500000n, afterVnd: 81000000n, deltaVnd: 500000n });
+  assert.equal(model.feeTotalAfter('75000000', legacy, { void: { lineId: '7' } }), 75000000n);
+  assert.equal(model.feeTotalAfter('75000000', legacy, { replace: { lineId: 7, amountVnd: 2000000n } }), 77000000n);
+  assert.equal(model.feeTotalAfter('75000000', legacy, { add: { typeId: 8, amountVnd: -1000000n } }), 79000000n);
+  assert.equal(model.feeTotalAfter('75000000', legacy, { set: { typeId: 9, amountVnd: null } }), 75000000n);
+});

@@ -187,7 +187,7 @@ Frontend (Gemini, sau khi Penpot được duyệt):
 Spec này là spec tổng; giao việc bằng hai spec con theo [`_template.md`](_template.md): backend + migration (Codex) trước, frontend (Gemini) sau khi Penpot được duyệt.
 
 - Agent: codex (backend + migration dữ liệu cũ), gemini (frontend)
-- Mockup: CHỜ DUYỆT — có bản xem Design canvas 28/10/2026, chưa có Penpot
+- Mockup: ĐÃ DUYỆT — bản xem HTML dữ liệu giả [`preview/mockups/phu-phi-nhieu-loai`](../cong-no-web-handoff/preview/mockups/phu-phi-nhieu-loai/index.html), người dùng duyệt trong chat 29/10/2026 ("Duyệt, code luôn"); chưa qua Penpot, như các vòng mockup HTML khác
 - Review: opus (đổi đường ghi tiền, phân bổ, migration dữ liệu)
 - Được sửa (dự kiến, chốt ở spec con): `cong-no-web-handoff/tools/v7_backend_functions.sql`, `specs/v7-backend/schema-draft.sql`, migration mới trong `cong-no-web-handoff/tools/migrations/`, `cong-no-web-handoff/web/v7_ledger_api.py`, `cong-no-web-handoff/web/v7_price_queue.py`, `cong-no-web-handoff/tools/v7_load_real_copy.py`, `cong-no-web-handoff/preview/so-khach-v7-*.js`, `so-khach-v7-live.html`, test tương ứng
 - Lệnh kiểm: `npm run check`; DB test qua harness PostgreSQL dùng một lần (`cong-no-web-handoff/tools/test_pg_v7_backend.py`)
@@ -199,7 +199,7 @@ Spec: revert commit. Khi đã code: migration có bước ngược (gộp dòng 
 
 ## Bằng chứng
 
-Chưa có. Bản xem dùng dữ liệu giả, không gọi API.
+Giao diện (29/10/2026, Claude): ĐÃ CODE theo mockup đã duyệt (`so-khach-v7-fee-ui.js` + cụm cột trong `so-khach-v7-ui.js`, hàm tính hiển thị trong `so-khach-v7-model.js`); ĐÃ KIỂM CHỨNG bằng `npm run check` (unit model/API, Playwright máy chủ giả `test-so-khach-v7-fee-browser.js`). Hai phần chưa làm: dán lô vẫn gửi một ô phụ phí (backend tạo một khoản Khác, chưa tách G/H/I thành từng khoản); cờ "cần nhập Health/KĐ" chờ spec nhập bảng PS. Chưa thử tay trên sổ thật.
 
 ## Câu hỏi mở (kỹ thuật, Codex trả lời trong spec backend)
 
