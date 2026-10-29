@@ -160,18 +160,21 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     assert.ok(!fee.root.innerHTML.includes(kind), kind);
     assert.match(fee.root.innerHTML, kind === 'set_book_fee_columns' ? /Cột riêng: chỉ Khác → Loại #7/ : /#4: phụ phí 500 → 1\.700 \(Loại #7 1\.200 \(neo&lt;1&gt;\)\)/, kind);
   }
-  // specs/v7-bang-gia-hieu-luc.md: nhãn bảng giá làm ở giai đoạn 2 (giao diện).
-  const PENDING_UI_EVENT_KINDS = ['price_table_edit', 'price_table_apply'];
-  for (const kind of PENDING_UI_EVENT_KINDS) {
-    const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
-      at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });
-    assert.match(pending.root.innerHTML, /Thao tác khác/, kind);
-    assert.ok(!pending.root.innerHTML.includes(kind), kind);
-  }
+  // BANG-GIA-01: sửa bảng giá (cả bảng trước → sau) và áp giá theo bảng (từng chuyến).
+  const PENDING_UI_EVENT_KINDS = [];
+  const priceEdit = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_edit', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { price_table: { tt_shippers: [], locations: [], periods: [] } },
+    after: { price_table: { tt_shippers: ['TT<1>'], locations: [{ name: 'DAK LAK', aliases: [] }], periods: [{ valid_from: '2026-10-10', valid_to: null, rates: [] }] } } }] });
+  assert.match(priceEdit.root.innerHTML, /Sửa bảng giá[\s\S]*Bảng giá: 0 đợt, 0 kho, 0 shipper TT → 1 đợt, 1 kho, 1 shipper TT/);
+  const priceApply = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_apply', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: null }] },
+    after: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: '85000000', rate: { tier: 'tt' } }] } }] });
+  assert.match(priceApply.root.innerHTML, /Áp giá theo bảng[\s\S]*1 chuyến · FAKE&lt;4&gt;: – → 85\.000\.000/);
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
-    receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
+    receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
+    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
     after: { amount_vnd: '9007199254740994', note: 'giá đúng', allocations: [{ month: '2026-02-01', kind: 'debt', amount_vnd: '100' }] } }));
