@@ -1,0 +1,99 @@
+# Dán chứng từ vào phiếu thu
+
+Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong chat cùng ngày: người dùng chọn làm "dán chứng từ" trước, chưa tích hợp Zalo/WeChat. Bước này **chỉ đính ảnh**, web chưa đọc số trên ảnh. Bước 1–2 chờ người dùng duyệt rồi mới làm mockup.
+
+## Người dùng và luồng (bước 1)
+
+**Người thao tác:** người nhập phiếu thu (danh tính Tailscale, `V7-ID`), trên 40 tuổi, màn 1280x720 ([UX](../docs/ux-guidelines.md)).
+
+**Bối cảnh thật (người dùng trả lời 29/10/2026):**
+
+- Khách báo đã trả tiền qua chat Zalo hoặc WeChat, gửi **ảnh chuyển khoản ngân hàng Việt Nam** (VND) hoặc **ảnh chuyển khoản tiền tệ** (RMB qua Alipay, WeChat Pay hoặc ngân hàng Trung Quốc).
+- Mỗi ngày có khoảng **10–30 khoản thu**.
+- Hiện người nhập nhìn ảnh trong chat rồi gõ tay vào Sheet. Ảnh chỉ nằm lại trong chat. Muốn tra lại "phiếu này căn cứ vào đâu" thì phải lục chat.
+
+**Luồng dán khi ghi phiếu mới:**
+
+1. Trong Zalo hoặc WeChat, người nhập bấm chuột phải vào ảnh rồi chọn **Sao chép** (hoặc lưu ảnh về máy).
+2. Trên web, mở sổ khách rồi tới hàng nhập phiếu ở tháng đang mở (như hiện nay, `SO-GON-01`/`SO-GON-02`).
+3. Người nhập bấm **Ctrl+V** khi đang ở hàng nhập phiếu, kéo thả file ảnh vào hàng đó, hoặc bấm nút **"Đính ảnh"** để chọn file.
+4. Ảnh hiện **phóng to cạnh ô nhập** để vừa nhìn vừa gõ. Không phải chuyển cửa sổ qua lại.
+5. Người nhập gõ ngày trả, hình thức, số tiền, tham chiếu như hiện nay. Với ảnh RMB: **số tiền là VND thực nhận**, còn số RMB và tỷ giá ghi ở ô tham chiếu (`V7-CSM` (2)). Ảnh không thay cho việc ghi số.
+6. Người nhập bấm Ghi. Phiếu và ảnh được lưu cùng một lần. Phiếu đã ghi có biểu tượng 📎, bấm vào thì xem ảnh.
+
+**Luồng đính ảnh vào phiếu đã ghi:** bấm vào phiếu chưa hủy rồi chọn "Đính ảnh" (hoặc Ctrl+V khi đang chọn phiếu). Dùng khi khách gửi ảnh sau, hoặc khi người nhập muốn bổ sung chứng từ cho phiếu cũ, kể cả phiếu ở tháng khóa: ảnh không đổi số tiền.
+
+**Gỡ ảnh nhầm:** bấm "Gỡ" trên ảnh. Bắt buộc ghi lý do. Ảnh không bị xóa hẳn, chỉ ẩn khỏi phiếu và ghi Lịch sử (giống hủy phiếu).
+
+**Cảnh báo (không chặn):**
+
+- Ảnh này đã đính vào phiếu khác (cùng nội dung file) → "Ảnh này đã đính vào phiếu P… của khách … ngày …". Người nhập vẫn ghi được, vì có trường hợp một ảnh chuyển khoản trả cho hai sổ. Cách hiện giống cảnh báo trùng tham chiếu hiện có.
+- Phiếu ghi không có ảnh: không cảnh báo. Ảnh là tùy chọn.
+
+**Bị chặn:** file không phải ảnh (PNG, JPEG, WebP), ảnh quá lớn sau khi nén, mỗi phiếu tối đa 5 ảnh, phiếu đã hủy (chỉ xem ảnh, không đính thêm). Câu thông báo ngắn, nói cách làm tiếp.
+
+**Ngoài phạm vi bước này:** web đọc số tiền và ngày từ ảnh; dán nhiều ảnh cho nhiều khách một lượt; Zalo OA, WeChat; đối chiếu sao kê ngân hàng. Các việc này làm sau khi bước này chạy ổn.
+
+## Đầu ra
+
+Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu khi ghi hoặc sau khi ghi. Ai có quyền vào app cũng xem được ảnh từ phiếu. Số tiền, phân bổ và số dư không đổi gì so với hiện nay.
+
+## Đối chiếu dữ liệu và code hiện có (bước 2)
+
+| Phần | Hiện có | Còn thiếu |
+|---|---|---|
+| Phiếu thu | `sokhach.receipt` (`date`, `method`, `amount_vnd`, `reference`); `record_receipt`, `edit_receipt_meta`, `void_receipt` trong `tools/migrations/2026-10-21-v7-csm.sql` | Bảng ảnh gắn phiếu |
+| API | `POST /api/v7/receipts`, `/receipts/meta`, `/receipts/void` trong `web/v7_ledger_api.py`. Thân request giới hạn `MAX_BODY` = 64 KB | Đường tải ảnh riêng có giới hạn lớn hơn và đường xem ảnh (GET) |
+| Cảnh báo trùng | `record_receipt` trả `duplicate_reference` | `duplicate_attachment` theo SHA-256 của file |
+| Giao diện | Hàng nhập phiếu và ô tham chiếu trong `preview/so-khach-v7-ui.js` (`referenceLine`, `renderLine`), danh sách phiếu bên phải (`SO-GON-02`) | Nhận Ctrl+V/kéo thả, khung xem ảnh cạnh ô nhập, biểu tượng 📎 trên phiếu |
+| Lịch sử | Mọi thao tác ghi người làm, trước → sau (`V7-CSM`) | Sự kiện "đính ảnh" và "gỡ ảnh (lý do)" |
+| Sao lưu | `tools/v7_backup.py` dùng `pg_dump` | Ảnh cần nằm trong phạm vi sao lưu |
+
+**Đề xuất kỹ thuật** (ĐỀ XUẤT, cần duyệt riêng vì là migration):
+
+- Lưu ảnh **trong PostgreSQL**, ở bảng riêng `sokhach.receipt_attachment` (mã, `receipt_id`, `sha256`, kiểu file, kích thước, nội dung `bytea`, người và giờ đính, người, giờ và lý do gỡ). Lý do: `v7_backup.py` sẵn có sao lưu luôn ảnh, không cần sao lưu thư mục riêng. Ước tính 30 ảnh/ngày × khoảng 300 KB ≈ 9 MB/ngày, khoảng 3 GB/năm. Mức này vẫn hợp lý trên `hao`, cần đo lại dung lượng đĩa trước khi triển khai.
+- Trình duyệt **nén ảnh trước khi tải**: cạnh dài tối đa khoảng 2000 px, JPEG hoặc WebP, giới hạn khoảng 1,5 MB mỗi ảnh. Server kiểm lại kiểu file và kích thước, không tin trình duyệt.
+- Ghi phiếu mới kèm ảnh: tải ảnh trước để nhận mã tạm, rồi `record_receipt` nhận danh sách mã ảnh trong cùng giao dịch. Ảnh tạm không gắn phiếu nào trong 24 giờ thì dọn.
+- Đường xem ảnh trả `Content-Type` cố định là ảnh, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, không cache công khai.
+
+## Nguồn quyết định
+
+- [`V7-CSM`](../docs/decisions.md#v7-csm) (2): ô tham chiếu không bắt buộc, chỉ ghi VND thực nhận.
+- [`business-rules.md`](../docs/business-rules.md): chứng từ tiền không tự chứng minh thu đã xác minh.
+- [`SO-GON-02`](../docs/decisions.md#so-gon-02): phiếu thu là danh sách riêng bên phải.
+- [`SONG-SONG-01`](../docs/decisions.md#song-song-01): Sheet vẫn là sổ chính thức. Ảnh là phần thêm trên web, không thay đối soát.
+- CÒN MỞ: chưa có mục trong `docs/decisions.md`. Thêm mục `CHUNG-TU-01` khi người dùng duyệt luồng này.
+
+## Hành vi và bất biến
+
+- Ảnh **không** đổi số tiền, ngày, hình thức hay phân bổ của phiếu. Không có ảnh vẫn ghi được.
+- Có ảnh không có nghĩa là tiền đã về. Không hiện chữ "đã xác minh".
+- Không xóa hẳn ảnh qua giao diện. Gỡ ảnh bắt buộc lý do và ghi Lịch sử. Phiếu bị hủy vẫn giữ ảnh để tra.
+- Ảnh là chứng từ ngân hàng của khách: **không** đưa vào Git, log, changelog, ảnh chụp test hay fixture. Fixture và test dùng ảnh giả do test tự tạo.
+- Không gửi ảnh ra dịch vụ ngoài `hao`.
+
+## Tiêu chí nghiệm thu
+
+- [ ] Harness PostgreSQL: đính, gỡ (thiếu lý do thì bị chặn), cảnh báo trùng SHA-256, phiếu hủy không đính thêm, giới hạn 5 ảnh, dọn ảnh tạm. Số dư và phân bổ trước và sau khi đính ảnh như nhau.
+- [ ] API: từ chối file không phải ảnh, file quá giới hạn, `Content-Type` giả. Ảnh trả về có header an toàn.
+- [ ] Frontend: Ctrl+V, kéo thả và nút "Đính ảnh" đều chạy. Có bàn phím và focus, mất mạng giữa chừng không tạo phiếu nửa vời, bấm Ghi hai lần không ra hai phiếu.
+- [ ] Người dùng tự dán ảnh thật trên bản thử rồi xác nhận.
+- [ ] Giao diện khớp mockup Penpot đã duyệt.
+
+## Phạm vi agent
+
+Chưa giao. Thứ tự dự kiến: người dùng duyệt bước 1–2 → mockup Penpot (Gemini) → duyệt → backend và migration (Codex, Claude review opus vì chạm đường ghi phiếu) → nối giao diện → người dùng thử.
+
+## Hoàn tác
+
+Revert PR. Nếu migration đã chạy thì bảng ảnh là bảng riêng: tắt giao diện là đủ, không đụng `sokhach.receipt` hay số tiền.
+
+## Bằng chứng
+
+Chưa có. Spec chỉ đọc code trên `main` ngày 29/10/2026.
+
+## Câu hỏi mở
+
+- Một ảnh có cần đính vào hai phiếu ở hai sổ khác nhau không (khách trả gộp cho hai sổ)? Đề xuất hiện tại: cho phép và chỉ cảnh báo.
+- Ai được xem ảnh: mọi người vào app (như `V7-ID` hiện nay), hay chỉ người nhập và chủ nghiệp vụ?
+- Có cần giữ ảnh gốc không nén (để phóng to đọc số nhỏ) hay bản nén là đủ?
