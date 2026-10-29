@@ -127,6 +127,7 @@ test('dashboard uses Sheet labels and commodity while links and money stay on or
   await page.locator('.top-debtors .bar-row').first().click();
   assert.equal(await page.locator('#d-open').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
   await page.keyboard.press('Escape');
+  await page.locator('#drawer').waitFor({ state: 'hidden' });
   assert.match(await page.locator('.todo').innerText(), /CHAU HAI THINH · Chuối · sổ 2/);
   await page.locator('#customer-search').fill('AG DU A');
   assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
@@ -153,8 +154,9 @@ test('lọc tại Tổng quan: nhóm tuổi nợ + mặt hàng lọc danh sách 
   await page.locator('#top .bar-row').first().click();
   assert.match(await page.locator('#drawer').innerText(), /Khách D[\s\S]*Tháng 05\/2026[\s\S]*600 triệu/);
   assert.match(await page.evaluate(() => location.search), /khach=4/);
+  // Mở bằng bấm thì ESC gọi history.back(): ngăn kéo đóng ở popstate, sau khi phím đã trả về.
   await page.keyboard.press('Escape');
-  assert.equal(await page.locator('#drawer').isHidden(), true);
+  await page.locator('#drawer').waitFor({ state: 'hidden' });
   assert.doesNotMatch(await page.evaluate(() => location.search), /khach=/);
   assert.equal(await page.evaluate(() => document.activeElement.dataset.khach), '4');
   await page.locator('[data-clear="all"]').click();

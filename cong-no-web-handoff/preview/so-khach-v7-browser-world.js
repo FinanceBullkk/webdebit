@@ -332,6 +332,8 @@ async function withPage(fn, setup = () => {}) {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${world.query ?? ''}`);
     await page.waitForSelector('.book-head .history-toggle');
+    // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
+    await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
     await fn({ page, world, shot });
     assert.deepEqual(errors, []);

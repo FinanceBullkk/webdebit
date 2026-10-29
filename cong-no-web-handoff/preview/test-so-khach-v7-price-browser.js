@@ -63,7 +63,8 @@ test('bảng giá đổi: chuyến theo giá cũ của bảng có dải "Áp l�
 test('khung Bảng giá: dán từ Sheet thành đợt giá, thêm đợt đóng đợt cũ, soát shipper, lưu đúng dữ liệu gửi server', async () => withPage(async ({ page, world, shot }) => {
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
-  await dialog.locator('.price-paste-open').waitFor();
+  // Nút Dán có ngay khi khung mở (lúc còn "Đang đọc bảng giá…"); chờ danh sách shipper tải xong mới đọc.
+  await dialog.locator('.price-shipper-add').waitFor();
   assert.match(await dialog.innerText(), /TT CHUẨN \(4 chuyến\)[\s\S]*Thêm vào TT/);
 
   // Dòng tiêu đề bị bỏ; ngày một chữ số đọc được; giá có dấu phẩy; ô giá trống là không có giá.
