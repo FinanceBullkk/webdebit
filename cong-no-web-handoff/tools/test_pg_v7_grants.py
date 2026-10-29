@@ -47,6 +47,7 @@ WRITE = {
     'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
     'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
     'void_trip_fee(bigint,bigint,text,bigint)',
+    'rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)',
     'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
     'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
     'set_book_fee_columns(bigint,bigint,text,jsonb)',
@@ -98,6 +99,7 @@ KNOWN_FUNCTIONS.update({'_guard_receipt_image', '_receipt_image_matches', 'attac
                         'remove_receipt_image', 'list_receipt_images', 'get_receipt_image', 'find_receipt_image'})
 KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_trip_rows', '_price_text', '_price_date',
                         'save_price_table', 'apply_price_table', 'get_price_table', 'get_price_status'})
+KNOWN_FUNCTIONS.update({'_rewrite_trip_fees', 'rewrite_trip_fees'})
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):

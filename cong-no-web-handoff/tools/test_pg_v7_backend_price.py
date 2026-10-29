@@ -193,8 +193,9 @@ def check_price_migration(pg):
                    "FROM pg_constraint WHERE connamespace='sokhach'::regnamespace")
     fresh = [pg.value(q) for q in (catalog, cols, constraints)]
     pg.sql(migration)  # rerun on the canonical schema changes nothing
-    # XOA-DC-THANG-01 dựng lại ràng buộc event sau bảng giá; chạy lại nó như khi triển khai theo thứ tự.
+    # XOA-DC-THANG-01 rồi tách phụ phí PS dựng lại ràng buộc event sau bảng giá; chạy lại đúng thứ tự triển khai.
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"))
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
     require([pg.value(q) for q in (catalog, cols, constraints)] == fresh, "price migration rerun changed schema")
     db = "webdebit_v7_price_migration"
     pg.sql(f"CREATE DATABASE {db}", database="postgres")
@@ -216,5 +217,6 @@ def check_price_migration(pg):
     # Later migrations (CHUNG-TU-01) are part of the canonical schema the fresh snapshot was taken from.
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql").read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"), database=db)
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

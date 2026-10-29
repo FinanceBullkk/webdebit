@@ -53,6 +53,7 @@ DECLARE
       'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
       'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
       'void_trip_fee(bigint,bigint,text,bigint)',
+      'rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)',
       'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
       'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
       'set_book_fee_columns(bigint,bigint,text,jsonb)', 'get_fee_types()',
@@ -71,7 +72,8 @@ DECLARE
       '_change_trip_fees(bigint,bigint,text,text,jsonb,bigint,bigint,text,bigint)',
       '_change_fee_type(text,text,bigint,text,text)', '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
       '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)',
-      '_guard_receipt_image()', '_receipt_image_matches(text,bigint)'];
+      '_guard_receipt_image()', '_receipt_image_matches(text,bigint)',
+      '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)'];
     wanted text;
     n bigint;
 BEGIN

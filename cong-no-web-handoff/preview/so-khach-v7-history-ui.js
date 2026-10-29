@@ -10,7 +10,7 @@
       trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
       sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí',
       add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
-      void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng',
+      void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng', rewrite_trip_fees: 'Tách phụ phí theo PS',
       receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
       price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng',
       adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
@@ -115,7 +115,7 @@
         const old = event.before?.adjustment ?? {};
         return `Tháng ${monthLabel(monthKey(old.month))}: ${fmt(old.amount_vnd)}${old.note ? ` (${old.note})` : ''} → 0`;
       }
-      if (['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns'].includes(event.kind)) return describeFeeEvent(event);
+      if (['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns', 'rewrite_trip_fees'].includes(event.kind)) return describeFeeEvent(event);
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
         ? 'tính vào sổ' : 'loại, không tính'}`;

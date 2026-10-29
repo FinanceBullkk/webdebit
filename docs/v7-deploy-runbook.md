@@ -925,6 +925,33 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
+## Tách phụ phí theo bảng PS — migration + runner bản chụp (CHƯA CHẠY)
+
+Spec [`v7-phu-phi-tu-ps`](../specs/v7-phu-phi-tu-ps.md). Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql`
+chỉ thêm loại event `rewrite_trip_fees` và hai hàm (`rewrite_trip_fees` cho app, `_rewrite_trip_fees` không ai được EXECUTE);
+không đổi hàm cũ, tiền, phân bổ hay dữ liệu. Chạy lại được. **Thứ tự bắt buộc: `2026-10-29-v7-chung-tu.sql` →
+`2026-10-29-v7-xoa-dieu-chinh-thang.sql` (mục [Xóa điều chỉnh cả tháng](#xóa-điều-chỉnh-cả-tháng--nâng-db-đang-có-chưa-chạy)) →
+`2026-10-29-v7-ps-fee.sql`.** Migration PS dựng lại `event_kind_check`/`event_snapshot_check` gồm mọi loại tới nay, cả
+`adjust_month_delete` lẫn `rewrite_trip_fees`; chạy lại một migration cũ hơn sau nó sẽ làm mất loại `rewrite_trip_fees` (và
+ngược lại). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
+
+0. **Quyền đọc bộ lập bill (CHỈ ĐỌC):** dưới user runner chạy một lần
+   `v7_ps_snapshot.py --output /tmp/ps-thu.json`. `ok: true` là tài khoản dịch vụ đọc được `CONT_MASTER`; lỗi `HTTPError`
+   (403/404) nghĩa là `WEBDEBIT_SHEET_ID` trỏ file khác: đặt `WEBDEBIT_PS_SHEET_ID` = ID file bộ lập bill trong env runner
+   (không ghi vào repo) và người dùng chia sẻ file đó (chỉ xem) cho email tài khoản dịch vụ. Xóa `/tmp/ps-thu.json` sau khi xem số dòng.
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt; số dư từng khách/tháng và số dòng mọi
+   bảng cũ không đổi; `v7_post_deploy_check.sql` OK (app thêm `rewrite_trip_fees`; `_rewrite_trip_fees` không được EXECUTE).
+2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, kiểm số dư, đổi release).
+3. **Runner:** `webdebit-ps-snapshot.service` giống mẫu `webdebit-sheet-prices.service` ở P4 (cùng user, `EnvironmentFile`,
+   `ReadWritePaths`), `ExecStart=<python> <current_link>/cong-no-web-handoff/tools/v7_ps_snapshot.py --output /var/lib/webdebit-sheet-sync/ps.json`;
+   `.timer` 15 phút như runner giá. Thêm `Wants=webdebit-ps-snapshot.service` vào `webdebit-sheet-refresh.service` để nút
+   "↻ Làm mới" đọc luôn bảng PS. API đọc `WEBDEBIT_PS_SNAPSHOT_PATH` (mặc định đúng đường dẫn trên). Mỗi lượt 1 yêu cầu Sheets API.
+4. **Kiểm sau (chỉ đọc):** `GET /api/v7/ledger?customer=<id>` có khóa `ps_fees` (không còn `unavailable`); ghi số `ready`/`review`
+   theo vài khách vào nhật ký. Không bấm tách thật khi chưa có giao diện (PR-2) và lệnh người dùng.
+
+Rollback: tắt timer runner (sổ trả `ps_fees.unavailable`, không ảnh hưởng chức năng khác). Hàm mới không đổi dữ liệu nên để
+nguyên được; cần gỡ hẳn thì restore dump trước nâng. Các lần tách đã ghi giữ tổng tiền; muốn bỏ thì đổi loại trong khung chi tiết.
+
 ## Xóa điều chỉnh cả tháng — nâng DB đang có (CHƯA CHẠY)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql` ([`XOA-DC-THANG-01`](decisions.md#xoa-dc-thang-01)).

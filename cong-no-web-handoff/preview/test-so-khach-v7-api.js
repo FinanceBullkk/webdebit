@@ -151,7 +151,7 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
   // PHU-PHI-01: lệnh phụ phí có nhãn riêng và câu trước → sau (không lộ mã lệnh).
   const feeKinds = { add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
-    void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng' };
+    void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng', rewrite_trip_fees: 'Tách phụ phí theo PS' };
   for (const [kind, label] of Object.entries(feeKinds)) {
     const fee = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
       before: { targets: [{ trip_id: 4, fee_lines: [{ id: 1, fee_type_id: 7, amount_vnd: '500' }] }], batch_count: 1, fee_columns: [] },
