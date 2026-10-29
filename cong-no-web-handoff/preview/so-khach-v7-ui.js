@@ -472,10 +472,10 @@
       if (!locJumped && hits.length) { locJumped = true; go(0); }
     }
     function showNotice(value) {
-      message = value;
+      message = ctx.presenceStale ? ctx.presenceStale(value) : value;
       const status = root.querySelector('.live-notice');
       // "Đã lưu." trơn không hiện băng vàng: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
-      if (status) { status.textContent = value; status.hidden = !value || value === 'Đã lưu.'; }
+      if (status) { status.textContent = message; status.hidden = !message || message === 'Đã lưu.'; }
       const retry = root.querySelector('.retry-command');
       if (retry) retry.hidden = !api.hasPending();
     }
@@ -498,7 +498,7 @@
     const ctx = { root, model, api, live, customerId, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields, showNotice, renderSnapshot, redraw, submit,
       get snapshot() { return snapshot; }, get rendering() { return rendering; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; } };
-    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft']) window.SoKhachV7LiveParts[name](ctx);
+    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'presence']) window.SoKhachV7LiveParts[name](ctx);
     const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell, draftsBy, draftGrid } = ctx;
     root.addEventListener('click', event => {
       const toggle = event.target.closest('.void-toggle');
