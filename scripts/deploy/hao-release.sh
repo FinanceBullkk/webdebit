@@ -59,9 +59,11 @@ case $action in
     fi
     echo "đã chạy $sha (trước đó: $(basename "${prev:-none}"))"
     # ponytail: release cũ thuộc root giữ lại; admin dọn riêng nếu cần giới hạn dung lượng.
+    # Bản mới đã chạy và kiểm sống xong: dọn bản cũ lỗi (vd. __pycache__ do service ghi, 29/10/2026) chỉ cảnh báo, không làm đỏ lượt.
     ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r old; do
       [[ $(stat -c %u "${old%/}") == "$UID" ]] || continue
-      [[ $(readlink -f "$old") == $(readlink -f "$CURRENT_LINK") ]] || rm -rf "$old"
+      [[ $(readlink -f "$old") == $(readlink -f "$CURRENT_LINK") ]] && continue
+      rm -rf "$old" 2>/dev/null || echo "cảnh báo: không dọn hết $old (file của user khác); admin dọn tay" >&2
     done
     ;;
   *) echo "lệnh không hỗ trợ" >&2; exit 2 ;;
