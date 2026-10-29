@@ -157,7 +157,8 @@
   }
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadCustomers(); });
 
-  function create({ customerId, fetcher = fetch, key = () => crypto.randomUUID(), onSnapshot = () => {}, onNotice = () => {} }) {
+  // onRedraw: trang vẽ lại từ bản đang có mà giữ ô đang gõ; thiếu thì vẽ lại bằng onSnapshot.
+  function create({ customerId, fetcher = fetch, key = () => crypto.randomUUID(), onSnapshot = () => {}, onRedraw = null, onNotice = () => {} }) {
     let snapshot = null;
     let pending = null;
     let outcome = null;
@@ -282,7 +283,7 @@
       if (!data || !Array.isArray(data.fee_types)) throw Error('Danh mục phụ phí không hợp lệ.');
       return data.fee_types;
     }
-    redraw = () => { if (snapshot) onSnapshot(snapshot); };
+    redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }

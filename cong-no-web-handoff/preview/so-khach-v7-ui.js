@@ -553,7 +553,8 @@
       const retry = root.querySelector('.retry-command');
       if (retry) retry.hidden = !api.hasPending();
     }
-    const api = live.create({ customerId, onSnapshot: renderSnapshot, onNotice: showNotice });
+    // Danh sách khách về sau sổ thì vẽ lại qua redraw để không xóa ô ghi thu/CẤN TRỪ đang gõ dở.
+    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redraw(), onNotice: showNotice });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
