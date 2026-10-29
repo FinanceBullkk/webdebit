@@ -187,6 +187,27 @@ def main() -> int:
            all(detail[key] == ledger_month[key] for key in ("outstanding_vnd", "charges_vnd", "received_vnd"))
            and detail["outstanding_vnd"] == by_id(m2026)[a]["months"]["3"]
            and detail["opening"] is True and detail["trips"] == [])
+        # Tháng sổ gốc có số Sheet và dòng chuyến: ngăn kéo lấy phát sinh/đã thu của Sheet như Sổ khách,
+        # liệt kê dòng sổ gốc (historical) và vẫn giữ còn lại = ô ma trận.
+        pg.sql("ALTER TABLE sokhach.legacy_row DISABLE TRIGGER USER; ALTER TABLE sokhach.cutover_month_check DISABLE TRIGGER USER; "
+               "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
+               f"SELECT {a},cutover_id,'2026-05-01','trip','{{\"container\":\"FAKE-LEGACY\",\"date\":\"2026-05-03\",\"unit_price\":\"150000\"}}',150000,'FAKE',7,"
+               f"(SELECT id FROM sokhach.event WHERE customer_id={a} AND kind='import') FROM sokhach.cutover_customer WHERE customer_id={a}; "
+               "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
+               f"SELECT {a},cutover_id,'2026-05-01','receipt','{{\"date\":\"2026-05-20\"}}',30000,'FAKE',8,"
+               f"(SELECT id FROM sokhach.event WHERE customer_id={a} AND kind='import') FROM sokhach.cutover_customer WHERE customer_id={a}; "
+               "INSERT INTO sokhach.cutover_month_check(customer_id,cutover_id,debt_month,source_charge_vnd,source_receipt_vnd) "
+               f"SELECT {a},cutover_id,'2026-05-01',150000,30000 FROM sokhach.cutover_customer WHERE customer_id={a}; "
+               "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER USER; ALTER TABLE sokhach.cutover_month_check ENABLE TRIGGER USER")
+        may = json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-05-01')")))
+        ledger = json.loads(pg.value(actor(f"SELECT sokhach.get_ledger({a})")))
+        ledger_may = next(row for row in ledger["months"] if row["month"] == "2026-05-01")
+        ok("D4 tháng sổ gốc: số Sheet như Sổ khách, có dòng chuyến sổ gốc, không có dòng thu",
+           (may["charges_vnd"], may["received_vnd"]) == ("150000", "30000") == (ledger_may["charges_vnd"], ledger_may["received_vnd"])
+           and may["outstanding_vnd"] == by_id(m2026)[a]["months"]["5"] == "120000" and may["allocated_vnd"] == "0"
+           and may["opening"] is True
+           and [(t["container"], t["event_date"], t["amount_vnd"], t["historical"]) for t in may["trips"]]
+           == [("FAKE-LEGACY", "2026-05-03", "150000", True)], json.dumps(may))
         empty = json.loads(pg.value(actor(f"SELECT sokhach.get_receivables_detail({a},'2026-07-01')")))
         ok("D2 tháng trống giữ 0 và không bịa chuyến", empty["outstanding_vnd"] == empty["charges_vnd"] == empty["received_vnd"] == "0"
            and empty["opening"] is False and empty["trips"] == [])
