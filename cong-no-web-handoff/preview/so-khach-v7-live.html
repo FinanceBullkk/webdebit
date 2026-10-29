@@ -56,7 +56,24 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:222px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
 .month-adjustment-input input{min-height:28px;max-width:100%;font:inherit}.month-adjustment-input .month-amount{width:100%;text-align:right}
 .ledger td.num{text-align:right;white-space:nowrap;font-size:13px}
-.ledger td.pay{background:#f2f8ff}.ledger td.pay-pin{position:sticky;z-index:15}.ledger td.pay-pin-last{box-shadow:inset 0 -2px 0 #3269a4}.ledger td.pay-start,.ledger th.pay-start{border-left:3px solid #3269a4}
+.ledger td.pay{background:#f2f8ff}.ledger td.pay-start,.ledger th.pay-start{border-left:3px solid #3269a4}
+/* SO-GON-02: trong tháng, chuyến (bảng trái) và phiếu thu (danh sách phải) là hai bảng riêng, đường kẻ không trùng nhau. */
+.ledger td.trip-side,.ledger td.pay-side{height:auto;padding:0;vertical-align:top;border-right:0;border-bottom:0}
+.ledger td.pay-side{background:#f2f8ff}
+.ledger-inner{width:100%;table-layout:fixed;border-spacing:0;border-collapse:separate}
+.pay-list td.pay-start{border-left:0}
+.pay-stick.pinned{position:sticky;z-index:15;box-shadow:0 2px 0 #3269a4}
+/* Mỗi chuyến một hàng: chữ dài cắt "…", rê chuột xem đủ (title); số container chữ đều để dễ dò. */
+.trip-list td:nth-child(n+2):nth-child(-n+7):not(:has(button,input,small,select)){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}
+.ledger td.fee:empty::before{content:'–';color:#8193a6}
+.receipt-ref.empty{display:inline-block;float:left;min-width:22px;color:#5d6f82;font-weight:700;text-align:center}
+.void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:12px}
+.pay-list .void-trace s{color:#5d6f82}
+.void-toggle{min-height:28px;margin-left:6px;padding:0 4px;border:0;background:none;color:#1d4ed8;text-decoration:underline;font:inherit;cursor:pointer}
+.void-toggle:focus-visible{outline:2px solid #145fa9}
+.month-stats{display:flex;gap:18px}.month-stats b{font-weight:700}.month-stats .month-end{padding-left:18px;border-left:1px solid #6d8bab}
+.month-end-amount{color:#123f79}
 .ledger .missing{background:#ffddb0;color:#72410a;font-weight:700}
 .ledger .editable{cursor:text;min-height:38px}.ledger .editable:hover,.ledger .editable:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .money-input{width:100%;min-width:0;font:inherit;text-align:right}.cell-error,.paste-error{display:block;color:#a01616;font-weight:700;white-space:normal}
@@ -90,7 +107,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 #customer-picker.in-head #customer-list{position:absolute;top:100%;left:0;z-index:70;width:420px;margin:0;background:#fff;border:1px solid #8daac9;box-shadow:0 8px 20px #162d4833}
 .ledger.locked .month th{background:#5f7184}
 .ledger.locked tr:is([data-row],.legacy) td:not(.pay):not(.missing){background:#eceff2}
-.ledger.locked tr:is([data-row],.legacy) td.pay{background:#e6eaef}
+.ledger.locked tr:is([data-row],.legacy) td.pay,.ledger.locked td.pay-side,.ledger.locked tr.pay-row td.pay{background:#e6eaef}
 .ledger tr.moved td:not(.pay){background:#fff3c4!important}
 .ledger tr.sheet-new td:not(.pay){background:#fff1ad!important}
 .ledger tr.sheet-conflict td:not(.pay){background:#ffd6d6!important}
@@ -132,7 +149,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-panel li:first-child{border-top:0}.price-panel .what{flex:1}.price-panel small{display:block;color:#475d73;font-size:13px}
 .ledger tr.from-sheet td{background:#fff6d6}
 .sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:11px;font-style:normal}
-.moved-tag{color:#6b4a00;font-size:12px;font-weight:700}
+.moved-tag{color:#6b4a00;font-size:12px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}
 .ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
 .move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}
 .ghost button,.move-ask button,.draft-bar button{min-height:30px;margin-left:8px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-style:normal;cursor:pointer}
@@ -184,7 +201,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-void-prompt input{min-height:40px;min-width:280px;font:inherit;font-size:16px}
 @media(max-width:1877px){
   .layout{max-width:1420px}.ledger-book{width:1258px;flex-basis:1258px}
-  .ledger col.col-0{width:38px!important}.ledger col.col-1{width:100px!important}.ledger col.col-2{width:70px!important}.ledger col.col-3{width:70px!important}.ledger col.col-4,.ledger col.col-5,.ledger col.col-6{width:75px!important}.ledger col.col-7{width:85px!important}.ledger col.col-8,.ledger col.col-10,.ledger col.col-11{width:85px!important}.ledger col.col-9{width:110px!important}.ledger col.col-12{width:115px!important}.ledger col.col-13{width:120px!important}
+  .ledger col.col-0{width:38px!important}.ledger col.col-1{width:112px!important}.ledger col.col-2{width:66px!important}.ledger col.col-3{width:130px!important}.ledger col.col-4{width:92px!important}.ledger col.col-5,.ledger col.col-6{width:82px!important}.ledger col.col-7{width:92px!important}.ledger col.col-8{width:76px!important}.ledger col.col-9{width:104px!important}.ledger col.col-10{width:100px!important}.ledger col.col-11{width:98px!important}.ledger col.col-12{width:186px!important}
   .book-head{gap:12px;padding:6px 8px}.book-head h1{font-size:16px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
 }
 @media(max-width:1439px){.layout{max-width:1258px}.months-nav{display:none}}

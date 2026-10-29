@@ -3,7 +3,7 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).edit = ctx => {
   'use strict';
-  const { root, model, api, live, escape, fmt, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, renderSnapshot, redraw, submit } = ctx;
+  const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, renderSnapshot, redraw, submit } = ctx;
     // CHỜ KIỂM (NEWTRIP-01): mở dòng kết luận ngay dưới chuyến, khuôn như hỏi lý do hủy phiếu.
     const closeReview = () => {
       root.querySelectorAll('.review-prompt').forEach(item => item.remove());
@@ -17,7 +17,7 @@
       const trip = (ctx.snapshot?.trips ?? []).find(item => String(item.id) === button.dataset.trip);
       const why = Object.hasOwn(reviewReasonText, trip?.review_reason) ? reviewReasonText[trip.review_reason] : 'Nghi trùng';
       button.setAttribute('aria-expanded', 'true');
-      row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="14"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="review-prompt" data-trip="${escape(button.dataset.trip)}"><td colspan="${spanOf(row)}"><div>Chuyến ${escape(trip?.container ?? '')} đang CHỜ KIỂM, chưa tính vào số dư — ${escape(why)}</div><label>Lý do kết luận <input class="review-reason" aria-label="Lý do kết luận" maxlength="500" autocomplete="off"></label> <button type="button" class="review-confirm">Tính vào sổ</button> <button type="button" class="review-reject">Loại, không tính</button> <button type="button" class="review-cancel">Thôi</button><span class="cell-error review-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.review-reason').focus();
     }
     async function concludeReview(promptRow, decision) {
@@ -57,7 +57,7 @@
         const lock = (ctx.snapshot?.month_locks ?? []).find(row => monthKey(row.month) === to);
         const locked = lock ? lock.locked : to !== (monthKey(ctx.snapshot?.today_month) || liveOpenMonth);
         const what = `${kind === 'trip' ? 'chuyến' : 'dòng'} ${rowValues(kind, before).container || 'phí lẻ'}`;
-        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="14">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button> <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button></td></tr>`);
+        td.closest('tr').insertAdjacentHTML('afterend', `<tr class="move-ask"><td colspan="${spanOf(td.closest('tr'))}">Ngày ${escape(dateText(value))} thuộc tháng ${monthLabel(to)}${locked ? ' (đã khóa)' : ''}. Chuyển ${escape(what)} sang tháng ${monthLabel(to)}? <button type="button" class="move-yes">Chuyển sang tháng ${monthLabel(to)}</button> <button type="button" class="move-no">Giữ ngày cũ (${escape(start)})</button></td></tr>`);
         const row = askRow();
         row.querySelector('.move-yes').addEventListener('click', () => { row.remove(); state = 'editing'; save(true); });
         row.querySelector('.move-no').addEventListener('click', () => { restore(); td.focus(); });
@@ -120,7 +120,7 @@
         : `${kind === 'trip' ? 'chuyến' : 'dòng sổ gốc'} ${values.container || 'phí lẻ'} (${values.event_date ? dateText(values.event_date) : 'không ngày'}, ${amount})`;
       const extra = paid ? ` Nợ tăng lại ${fmt(data.source_total_vnd)}; số dư đầu không đổi, phần cộng ghi ở dòng điều chỉnh sổ gốc của tháng.`
         : kind === 'legacy' ? ' Số dư đầu không đổi; phần trừ ghi ở dòng điều chỉnh sổ gốc của tháng.' : '';
-      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="14">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="${escape(kind)}" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn ${escape(what)}?${escape(extra)} <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
       row.nextElementSibling.querySelector('.cancel-delete').focus();
     }
     async function confirmDelete(promptRow) {
@@ -202,7 +202,7 @@
           const row = receipt.closest('tr');
           root.querySelector('.void-prompt')?.remove();
           const saved = ctx.snapshot.receipts.find(item => item.pid === pid);
-          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="14">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
+          row.insertAdjacentHTML('afterend', `<tr class="void-prompt" data-pid="${escape(pid)}"><td colspan="${spanOf(row)}">Hủy phiếu ${escape(pid)} — ${fmt(saved.amount_vnd)} <label>Lý do <input class="void-reason" aria-label="Lý do hủy phiếu"></label> <button class="confirm-void">Hủy phiếu</button> <button class="cancel-void">Bỏ qua</button><span class="cell-error" role="status"></span></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
         receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(ctx.snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :

@@ -3,7 +3,7 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).sheet = ctx => {
   'use strict';
-  const { root, model, api, customerId, escape, dateText, monthKey, monthLabel, sheetFieldLabel, resolvableSheetFields, showNotice, renderSnapshot, submit } = ctx;
+  const { root, model, api, customerId, escape, spanOf, dateText, monthKey, monthLabel, sheetFieldLabel, resolvableSheetFields, showNotice, renderSnapshot, submit } = ctx;
     // Ghi giá từ Sheet (specs/v7-price-queue.md): null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
     let priceView = null;
     let priceApproval = null;
@@ -72,7 +72,7 @@
           : `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`;
         return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
-      const detailRow = `<tr class="sheet-detail"><td colspan="14"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div><p class="sheet-detail-status" role="status" hidden></p></div></td></tr>`;
+      const detailRow = `<tr class="sheet-detail"><td colspan="${spanOf(tableRow)}"><div class="sheet-detail-content"><div class="sheet-detail-heading"><strong>↳ Dữ liệu từ Sheet</strong><span>${escape(trip.container)}</span></div><div class="sheet-detail-fields">${sheetFields}</div><p class="sheet-detail-status" role="status" hidden></p></div></td></tr>`;
       tableRow.insertAdjacentHTML('afterend', detailRow);
       button.textContent = 'Đóng';
       button.setAttribute('aria-expanded', 'true');

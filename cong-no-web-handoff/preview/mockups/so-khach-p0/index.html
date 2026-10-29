@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sổ khách P0 · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem audit UX 29/10/2026 (nhóm P0) trên nền so-khach-gon (SO-GON-01): phiếu hủy gọn, phiếu thu tách khỏi
+     dòng chuyến (hai phương án), bỏ cột "Còn nợ cộng dồn", phụ phí hiển thị một kiểu, dòng chuyến một hàng.
+     Chạy trong tab, không gọi API, không lưu gì. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit}
+.demo{margin:0;padding:8px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:15px}
+.guide{max-width:1258px;margin:8px auto;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px}
+.guide h2{margin:0 0 4px;font-size:15px}.guide ol{margin:0;padding-left:20px}.guide li{padding:1px 0}
+.switch{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.switch button{min-height:32px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer}
+.switch button[aria-pressed="true"]{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
+.book-head{max-width:1258px;margin:0 auto;height:60px;display:flex;align-items:center;gap:16px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700}.cust span{color:#3e5871}
+.cust input{width:280px;height:38px;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;color:#162d48;font-size:16px;font-weight:700}
+.head-btn{min-height:34px;padding:0 14px;border:1px solid #6584a5;border-radius:4px;background:#fff;color:#173d65;font-weight:600;cursor:pointer}
+.total{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end}.total span{color:#3e5871;font-size:13px}.total strong{font-size:20px;color:#123f79}
+.ledger{width:1252px;margin:0 auto;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
+.ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:0 6px;vertical-align:middle;font-size:13px}
+.ledger td{height:34px}
+/* P0-5: một hàng mỗi chuyến. Chữ dài cắt bằng "…", rê chuột/focus xem đủ (title). */
+.ledger td.cut{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cols th{height:34px;overflow:hidden;text-overflow:ellipsis;background:#eaf1fa;text-align:left;white-space:nowrap}
+.cols th.pay{background:#dfeeff}
+.cont{font-family:Consolas,"Cascadia Mono",monospace;font-size:13px;letter-spacing:.2px}
+.num{text-align:right;white-space:nowrap}
+.muted{color:#8193a6}
+.missing{background:#ffddb0!important;color:#72410a;font-weight:700}
+/* Thanh tháng: thêm tóm tắt tháng ngay trên thanh (P1-8 đi kèm vì thay chỗ cột cộng dồn bị bỏ). */
+.month th{height:42px;padding:0 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
+.month-title{display:flex;align-items:center;gap:12px}
+.lock{min-height:28px;padding:0 8px;border:0;border-radius:4px;background:#fff3c4;color:#5a3a00;font-size:12px;font-weight:700;cursor:default}
+.mstats{margin-left:auto;display:flex;gap:18px;font-size:13px;font-weight:400}
+.mstats b{font-weight:700}.mstats .end{padding-left:18px;border-left:1px solid #6d8bab}
+/* Vùng tiền khách trả: viền trái đậm, nền xanh nhạt */
+.pay{background:#f2f8ff}.pay-start{border-left:3px solid #3269a4!important}
+/* Phương án A: một ô gộp cao bằng các dòng chuyến, bên trong là danh sách phiếu riêng — đường kẻ phiếu không trùng đường kẻ chuyến */
+td.paypanel{padding:0;vertical-align:top;background:#f2f8ff}
+.plist{display:grid;grid-template-columns:104px 102px 1fr}
+.plist>div{min-height:34px;display:flex;align-items:center;padding:0 6px;border-bottom:1px solid #c9dcf0}
+.plist .a{justify-content:flex-end;font-weight:700}
+.plist .ref{grid-column:1/-1;min-height:22px;padding-bottom:4px;color:#3e5871;font-size:12px;justify-content:flex-end}
+.plist .ref.offset{justify-content:flex-start}
+.plist .hd{min-height:26px;color:#3e5871;font-size:12px;font-weight:700;background:#e3effc}
+.entry input,.entry select{width:100%;height:28px;border:1px solid #8daac9;border-radius:3px;padding:0 3px;background:#fff;color:#162d48;font-size:13px}
+.entry input.money{text-align:right}
+.entry.full{grid-column:1/-1}
+/* P0-1: phiếu đã hủy gom thành một dòng mờ, bấm mới mở */
+.voided-toggle{grid-column:1/-1;min-height:30px!important;background:#f6f7f9;color:#5d6f82;font-size:12px}
+.voided-toggle button{border:0;background:none;color:#1d4ed8;text-decoration:underline;font-size:12px;cursor:pointer;padding:0 4px}
+.vline{grid-column:1/-1;min-height:26px!important;background:#f6f7f9;color:#5d6f82;font-size:12px;gap:6px}
+.vline s{color:#8193a6}
+/* Phương án B: phiếu thu thành khối riêng dưới các dòng chuyến */
+.pblock-h td{height:30px;background:#dfeeff;color:#16385f;font-weight:700;border-top:2px solid #3269a4}
+.prow td{background:#f2f8ff}
+.prow .entry input,.prow .entry select{width:100%}
+.prow.void td{background:#f6f7f9;color:#5d6f82;font-size:12px;height:28px}
+.subtotal td{height:40px;background:#e8f1fc;font-weight:700;border-top:2px solid #9bb8d5}
+.spacer td{height:14px;padding:0;background:#eef3f8;border:0}
+.hidden{display:none!important}
+.legend{max-width:1258px;margin:8px auto 30px;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:13px}
+.legend h2{margin:0 0 4px;font-size:15px}.legend ul{margin:0;padding-left:20px}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì</p>
+<section class="guide" aria-labelledby="g">
+  <h2 id="g">Bản xem nhóm P0: điểm thay đổi so với trang hiện tại</h2>
+  <ol>
+    <li><strong>Phiếu đã hủy</strong> gom thành một dòng mờ "4 phiếu đã hủy · Xem". Bấm Xem thì hiện từng phiếu, mỗi phiếu một dòng: số tiền · ngày phiếu · ngày hủy · lý do.</li>
+    <li><strong>Phiếu thu tách khỏi dòng chuyến</strong>, để người xem không đọc nhầm "chuyến này trả số tiền này". Bấm nút dưới đây để so hai phương án.</li>
+    <li><strong>Bỏ cột "Còn nợ cộng dồn"</strong> (cột này luôn trống). Còn nợ cuối tháng hiện ở thanh tháng và dòng Tổng tháng.</li>
+    <li><strong>Phụ phí</strong> hiển thị một kiểu: có số thì ghi số, trống thì ghi "–" màu nhạt. Thiếu đơn giá vẫn tô cam như cũ.</li>
+    <li><strong>Mỗi chuyến chỉ một hàng</strong>: chữ dài như Shipper bị cắt "…", rê chuột thì xem đủ. Số container dùng font đều để dễ dò.</li>
+  </ol>
+  <div class="switch" role="group" aria-label="Phương án phiếu thu">
+    <span>Phiếu thu:</span>
+    <button type="button" data-variant="A" aria-pressed="true">A · Giữ bên phải như Sheet, danh sách riêng</button>
+    <button type="button" data-variant="B" aria-pressed="false">B · Khối phiếu thu dưới các chuyến</button>
+  </div>
+</section>
+
+<header class="book-head">
+  <label class="cust"><span>Sổ khách</span><input value="KHÁCH GIẢ A · Sầu riêng · cảng" aria-label="Tên khách, gõ để đổi khách"></label>
+  <button type="button" class="head-btn">Lịch sử</button>
+  <div class="total"><span>Tổng còn nợ (mọi tháng)</span><strong>1.576.500.000</strong></div>
+</header>
+
+<table class="ledger" aria-label="Sổ khách tháng 10/2026">
+  <colgroup id="cg"></colgroup>
+  <thead><tr class="cols" id="cols"></tr></thead>
+  <tbody id="body"></tbody>
+</table>
+
+<section class="legend" aria-labelledby="l">
+  <h2 id="l">Không đổi trong bản xem này</h2>
+  <ul>
+    <li>Luật tiền, API, DB, thứ tự thu trừ nợ cũ trước, ổ khóa tháng, sửa tại ô (NHAP-SHEET-01) và hàng nhập chuyến trống giữ nguyên. Bản xem chỉ vẽ phần đọc và hàng nhập phiếu.</li>
+    <li>Danh sách tháng bên phải chưa vẽ (thuộc nhóm P2). Ở màn 1280 bảng chiếm hết bề ngang.</li>
+    <li>Cột phụ phí sẽ thay theo PHU-PHI-01 (≤3 cột riêng + Khác); quy tắc "trống ghi –" áp dụng cho mọi cột phụ phí.</li>
+    <li>Dòng chuyến xếp theo ngày chuyến (ngày xe nhập kho) để dễ đọc. Trang thật đang xếp khác, điểm này thuộc nhóm P1.</li>
+  </ul>
+</section>
+
+<script>
+const trips = [
+  ['FAKU1000001','COSCO','VAN TAI GIA PHAT MIEN TRUNG','18/10/2026','DAK LAK','XIAMEN',85000000,null],
+  ['FAKU1000002','CMA','CONG TY TAY NGUYEN B','19/10/2026','DAK LAK','QINGDAO',75000000,null],
+  ['FAKU1000003','WH','CONG TY TAY NGUYEN B','19/10/2026','DAK LAK','XIAMEN',75000000,null],
+  ['FAKU1000004','WH','CONG TY TAY NGUYEN B','19/10/2026','DAK LAK','XIAMEN',75000000,null],
+  ['FAKU1000005','COSCO','VAN TAI GIA PHAT MIEN TRUNG','19/10/2026','DAK LAK','QINGDAO',85000000,1500000],
+  ['FAKU1000006','TSL','VAN TAI GIA PHAT MIEN TRUNG','20/10/2026','DAK LAK','XIAMEN',85000000,null],
+  ['FAKU1000007','TSL','VAN TAI GIA PHAT MIEN TRUNG','20/10/2026','DAK LAK','XIAMEN',85000000,null],
+  ['FAKU1000008','SNL','VAN TAI GIA PHAT MIEN TRUNG','21/10/2026','DAK LAK','NANSHA',85000000,null],
+  ['FAKU1000009','SNL','VAN TAI GIA PHAT MIEN TRUNG','21/10/2026','BINH PHUOC','NANSHA',75000000,null],
+  ['FAKU1000010','COSCO','CONG TY TAY NGUYEN B','22/10/2026','DAK LAK','XIAMEN',null,null],
+];
+const receipts = [
+  {date:'21/10/2026', method:'THU TIỀN', amount:300000000, ref:'UNC 2110'},
+  {date:'24/10/2026', method:'THU TIỀN', amount:50000000, ref:'', alloc:'Trừ nợ T9/2026'},
+];
+const voided = [
+  [2000000000,'23/10/2026','23/10/2026','Nhập nhầm số'],
+  [1000000000,'23/10/2026','23/10/2026','Trùng phiếu'],
+  [2000000000,'23/10/2026','23/10/2026','Nhập nhầm số'],
+  [3000,'23/10/2026','23/10/2026','Thử nhập'],
+];
+const fmt = n => n.toLocaleString('vi-VN');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const carry = 1200000000;
+const charges = trips.reduce((s, t) => s + (t[6] == null ? 0 : t[6] + (t[7] ?? 0)), 0);
+const received = receipts.reduce((s, r) => s + r.amount, 0);
+const end = carry + charges - received;
+const unpriced = trips.filter(t => t[6] == null).length;
+let variant = 'A', showVoided = false;
+
+// 1258px = 914 phần chuyến + 344 phần phiếu thu (A) — B dùng cùng phần chuyến, phiếu thu trải hết bề ngang ở khối dưới.
+const tripCols = [['STT',38],['Số container',120],['Hãng tàu',72],['Shipper',140],['Ngày chuyến',104],['Nơi đi',92],['Nơi đến',84],['Đơn giá',92],['Phụ phí',76],['Thành tiền',100]];
+const payCols = [['Ngày trả',104],['Hình thức',102],['Số tiền trả',138]];
+
+function voidedHtml(cls) {
+  const head = `<div class="${cls}">${voided.length} phiếu đã hủy, không tính tiền<button type="button" class="tv" aria-expanded="${showVoided}">${showVoided ? 'Ẩn' : 'Xem'}</button></div>`;
+  if (!showVoided) return head;
+  return head + voided.map(v => `<div class="vline"><s>${fmt(v[0])}</s> · phiếu ${v[1]} · hủy ${v[2]} · ${esc(v[3])}</div>`).join('');
+}
+
+function render() {
+  document.querySelectorAll('[data-variant]').forEach(b => b.setAttribute('aria-pressed', b.dataset.variant === variant));
+  const cols = variant === 'A' ? tripCols.concat(payCols) : tripCols.map((c, i) => i === 3 ? [c[0], c[1] + 120] : i === 9 ? [c[0], c[1] + 222] : c);
+  document.getElementById('cg').innerHTML = cols.map(c => `<col style="width:${c[1]}px">`).join('');
+  document.getElementById('cols').innerHTML = cols.map((c, i) => `<th scope="col" class="${i >= 10 ? 'pay' + (i === 10 ? ' pay-start' : '') : ''}${[7, 8, 9, 12].includes(i) ? ' num' : ''}">${c[0]}</th>`).join('');
+  const span = cols.length;
+  let html = `<tr class="month"><th colspan="${span}" scope="rowgroup"><span class="month-title">THÁNG 10/2026
+    <span class="lock" title="Tháng đang mở: sửa đè có ghi Lịch sử">🔓 Đang mở</span>
+    <span class="mstats"><span>Nợ các tháng trước <b>${fmt(carry)}</b></span><span>Phát sinh <b>+${fmt(charges)}</b></span><span>Đã thu <b>−${fmt(received)}</b></span><span class="end">Còn nợ cuối tháng <b>${fmt(end)}</b></span></span></span></th></tr>`;
+  trips.forEach((t, i) => {
+    const price = t[6] == null ? '<td class="num missing">Thiếu giá</td>' : `<td class="num">${fmt(t[6])}</td>`;
+    const fee = t[7] == null ? '<td class="num muted">–</td>' : `<td class="num">${fmt(t[7])}</td>`;
+    const amount = t[6] == null ? '<td class="num missing">Chưa tính</td>' : `<td class="num">${fmt(t[6] + (t[7] ?? 0))}</td>`;
+    let row = `<tr><td>${i + 1}</td><td class="cont">${t[0]}</td><td class="cut">${t[1]}</td><td class="cut" title="${esc(t[2])}">${esc(t[2])}</td><td>${t[3]}</td><td class="cut" title="${t[4]}">${t[4]}</td><td class="cut">${t[5]}</td>${price}${fee}${amount}`;
+    if (variant === 'A' && i === 0) row += `<td class="paypanel pay-start" colspan="3" rowspan="${trips.length}">${panelA()}</td>`;
+    html += row + '</tr>';
+  });
+  if (variant === 'B') html += blockB(span);
+  const unpricedNote = unpriced ? ` <span style="font-weight:400;color:#72410a">(${unpriced} chuyến thiếu giá chưa tính)</span>` : '';
+  if (variant === 'A') {
+    html += `<tr class="subtotal"><td colspan="9">Tổng tháng 10/2026 · ${trips.length} chuyến${unpricedNote}</td><td class="num">${fmt(charges)}</td><td class="pay pay-start" colspan="2">Đã thu · Còn nợ cuối tháng</td><td class="pay num">${fmt(received)}<br><span style="color:#123f79">${fmt(end)}</span></td></tr>`;
+  } else {
+    html += `<tr class="subtotal"><td colspan="9">Tổng tháng 10/2026 · ${trips.length} chuyến${unpricedNote} · Đã thu ${fmt(received)} · <span style="color:#123f79">Còn nợ cuối tháng ${fmt(end)}</span></td><td class="num">${fmt(charges)}</td></tr>`;
+  }
+  html += `<tr class="spacer"><td colspan="${span}"></td></tr>`;
+  document.getElementById('body').innerHTML = html;
+}
+
+function panelA() {
+  let h = '<div class="plist">';
+  receipts.forEach(r => {
+    h += `<div>${r.date}</div><div>${r.method}</div><div class="a">${fmt(r.amount)}</div>`;
+    // Tham chiếu / trừ nợ tháng khác chỉ hiện khi có — không còn "Tham chiếu: –"
+    const extra = [r.ref && `Tham chiếu: ${esc(r.ref)}`, r.alloc].filter(Boolean).join(' · ');
+    if (extra) h += `<div class="ref">${extra}</div>`;
+  });
+  h += `<div class="entry"><input aria-label="Ngày trả" placeholder="dd/mm/yyyy"></div>
+    <div class="entry"><select aria-label="Hình thức"><option>THU TIỀN</option><option>CẤN TRỪ</option><option>ỨNG TRƯỚC</option><option>KHÁC</option></select></div>
+    <div class="entry"><input class="money" aria-label="Số tiền trả" inputmode="numeric" placeholder="Số tiền"></div>
+    <div class="entry full"><input aria-label="Tham chiếu" placeholder="Tham chiếu (tùy chọn)"></div>`;
+  h += voidedHtml('voided-toggle');
+  return h + '</div>';
+}
+
+function blockB(span) {
+  let h = `<tr class="pblock-h"><td colspan="${span}">Tiền khách trả trong tháng 10/2026 · ${receipts.length} phiếu</td></tr>`;
+  h += `<tr class="cols"><th></th><th class="pay">Ngày trả</th><th class="pay" colspan="2">Hình thức</th><th class="pay" colspan="4">Tham chiếu</th><th class="pay">Trừ nợ</th><th class="pay num">Số tiền trả</th></tr>`;
+  receipts.forEach((r, i) => {
+    h += `<tr class="prow"><td class="muted">${i + 1}</td><td>${r.date}</td><td colspan="2">${r.method}</td><td colspan="4" class="cut">${esc(r.ref) || '<span class="muted">–</span>'}</td><td class="muted cut" style="font-size:12px">${r.alloc || ''}</td><td class="num"><b>${fmt(r.amount)}</b></td></tr>`;
+  });
+  h += `<tr class="prow"><td></td><td class="entry"><input aria-label="Ngày trả" placeholder="dd/mm/yyyy"></td><td class="entry" colspan="2"><select aria-label="Hình thức"><option>THU TIỀN</option><option>CẤN TRỪ</option><option>ỨNG TRƯỚC</option><option>KHÁC</option></select></td><td colspan="4" class="entry"><input aria-label="Tham chiếu" placeholder="Tham chiếu (tùy chọn)"></td><td></td><td class="entry"><input class="money" aria-label="Số tiền trả" inputmode="numeric" placeholder="Số tiền"></td></tr>`;
+  h += `<tr class="prow void"><td colspan="${span}">${voided.length} phiếu đã hủy, không tính tiền <button type="button" class="tv" aria-expanded="${showVoided}" style="border:0;background:none;color:#1d4ed8;text-decoration:underline;cursor:pointer;font-size:12px">${showVoided ? 'Ẩn' : 'Xem'}</button></td></tr>`;
+  if (showVoided) voided.forEach(v => { h += `<tr class="prow void"><td colspan="${span}" style="padding-left:44px"><s>${fmt(v[0])}</s> · phiếu ${v[1]} · hủy ${v[2]} · ${esc(v[3])}</td></tr>`; });
+  return h;
+}
+
+document.addEventListener('click', e => {
+  const v = e.target.closest('[data-variant]');
+  if (v) { variant = v.dataset.variant; render(); return; }
+  if (e.target.closest('.tv')) { showVoided = !showVoided; render(); }
+});
+render();
+</script>
+</body>
+</html>

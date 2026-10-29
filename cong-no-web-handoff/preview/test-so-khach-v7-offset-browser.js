@@ -81,7 +81,7 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
   await reference.click();
   await reference.locator('input').fill('');
   await reference.locator('input').press('Enter');
-  await page.waitForFunction(() => document.querySelector('[data-pid="PH-021"][data-field="reference"]')?.textContent === 'Tham chiếu: –');
+  await page.waitForFunction(() => document.querySelector('[data-pid="PH-021"][data-field="reference"]')?.classList.contains('empty'));
   await pay('FAKE USD/rate text');
   assert.equal(world.books[1].receipts.length, 3);
   await page.waitForFunction(() => /Tham chiếu trùng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
@@ -391,11 +391,16 @@ test('hủy cấn trừ từ sổ nguồn: bắt buộc lý do, hủy cả hai s
   assert.equal(sent.path, '/api/v7/offsets/void');
   assert.deepEqual({ ...sent.body, idempotency_key: typeof sent.body.idempotency_key },
     { customer_id: 2, expected_version: 2, other_version: 2, idempotency_key: 'string', offset_pair_id: 1, reason: 'nhập nhầm' });
-  assert.equal(await page.locator('td.voided-method').innerText(), 'ĐÃ HỦY');
+  // SO-GON-02: phiếu đã hủy rời danh sách phiếu, gom vào một dòng mờ; bấm Xem mới hiện số tiền và lý do.
+  assert.equal(await page.locator('td.voided-method').count(), 0);
+  assert.match(await page.locator('.void-summary').innerText(), /1 phiếu đã hủy, không tính tiền/);
+  await page.locator('.void-toggle').click();
+  assert.match(await page.locator('.pay-list .void-trace').innerText(), /nhập nhầm/);
+  assert.equal(await page.locator('.void-toggle').getAttribute('aria-expanded'), 'true');
   assert.equal(await page.locator('.head-item.total strong').innerText(), '-100.000.000');
   await shot('9-sau-khi-huy-so-nguon');
   await open(1);
-  assert.equal(await page.locator('td.voided-method').innerText(), 'ĐÃ HỦY');
+  assert.match(await page.locator('.void-summary').innerText(), /1 phiếu đã hủy/);
   assert.equal(await page.locator('.head-item.total strong').innerText(), '50.000.000');
 }));
 

@@ -50,6 +50,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ |  |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
 | <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |
+| <a id="so-gon-02"></a>[SO-GON-02](decisions/so-gon-02.md) | Phiếu thu danh sách riêng, phiếu hủy gom gọn, bỏ cột cộng dồn |  |
 | <a id="ct-2so"></a>[CT-2SO](decisions/ct-2so.md) | Cấn trừ giữa hai sổ |  |
 | <a id="phu-phi-01"></a>[PHU-PHI-01](decisions/phu-phi-01.md) | Phụ phí nhiều loại |  |
 | <a id="xoa-thu-goc-01"></a>[XOA-THU-GOC-01](decisions/xoa-thu-goc-01.md) | Xóa khoản thu sổ gốc |  |
