@@ -137,11 +137,11 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
         allocations: [{ month: '2026-10-01', kind: 'debt', amount_vnd: '5', superseded_by_event: null }] }] });
   const block = key => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   assert.doesNotMatch(block('2026-08'), /data-pid="PH-/);
-  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*>30<small class="[^"]*receipt-ref empty"[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
+  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-sum">30<\/span><span class="receipt-meta"><small class="[^"]*receipt-ref empty"[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
   assert.doesNotMatch(block('2026-09'), /PH-002/);
-  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*>100<small[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
+  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*><span class="receipt-sum">100<\/span><span class="receipt-meta"><small[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
   // Phiếu trừ đúng nợ tháng của mình: không ghi thêm chữ.
-  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*>5<small[^>]*>\+<\/small><button type="button" class="image-clip none" data-pid="PH-003"[^>]*>＋📎<\/button><\/td>/);
+  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*><span class="receipt-sum">5<\/span><span class="receipt-meta"><small[^>]*>\+<\/small><button type="button" class="image-clip none" data-pid="PH-003"[^>]*>＋📎<\/button><\/span><\/td>/);
   // SO-GON-03: mỗi số một lần — thanh tháng chỉ ghi còn nợ cuối tháng (cách tính ở title), dòng Tổng tháng chỉ ghi đã thu.
   assert.match(block('2026-10'), /Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">100<\/td>/);
   assert.match(block('2026-10'), /<em class="month-stats"><span class="month-end" title="Nợ các tháng trước 120 \+ phát sinh 30 − đã thu 100">Còn nợ cuối tháng: <b>50<\/b><\/span><\/em>/);
