@@ -173,7 +173,7 @@ const SoKhachV7Model = (() => {
   // NHAP-SHEET-01: one typed cell → the string the server takes. Throws a Vietnamese message.
   // Dates accept d/m/yyyy like the Sheet; money "" means unknown (NULL), never 0.
   // Blank text goes to the server as-is: only it knows whether the row needs the cell (fee-only rows do not).
-  const CELL_FIELDS = ["container", "carrier", "event_date", "origin", "destination", "unit_price_vnd", "other_fee_vnd"];
+  const CELL_FIELDS = ["container", "carrier", "shipper", "event_date", "origin", "destination", "unit_price_vnd", "other_fee_vnd"];
   function parseCellEdit(field, text, todayIso) {
     if (!CELL_FIELDS.includes(field)) throw new Error("Ô không được sửa.");
     const value = String(text ?? "").trim();
