@@ -1,6 +1,6 @@
 # Dán chứng từ vào phiếu thu
 
-Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong chat cùng ngày: người dùng chọn làm "dán chứng từ" trước, chưa tích hợp Zalo/WeChat. Bước này **chỉ đính ảnh**, web chưa đọc số trên ảnh. Bước 1–2 chờ người dùng duyệt rồi mới làm mockup.
+Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong chat cùng ngày: người dùng chọn làm "dán chứng từ" trước, chưa tích hợp Zalo/WeChat. Bước này **chỉ đính ảnh**, web chưa đọc số trên ảnh. Bản xem HTML (dữ liệu giả): [`preview/mockups/dan-chung-tu`](../cong-no-web-handoff/preview/mockups/dan-chung-tu/index.html). Người dùng giao Claude làm bản xem, không qua Penpot (29/10/2026). Bản xem chờ người dùng duyệt.
 
 ## Người dùng và luồng (bước 1)
 
@@ -16,12 +16,12 @@ Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong ch
 
 1. Trong Zalo hoặc WeChat, người nhập bấm chuột phải vào ảnh rồi chọn **Sao chép** (hoặc lưu ảnh về máy).
 2. Trên web, mở sổ khách rồi tới hàng nhập phiếu ở tháng đang mở (như hiện nay, `SO-GON-01`/`SO-GON-02`).
-3. Người nhập bấm **Ctrl+V** khi đang ở hàng nhập phiếu, kéo thả file ảnh vào hàng đó, hoặc bấm nút **"Đính ảnh"** để chọn file.
+3. Người nhập bấm **Ctrl+V** ở bất kỳ đâu trên trang sổ khách, kéo thả file ảnh vào trang, hoặc bấm nút **"Chọn ảnh…"**. Ảnh vào phiếu đang nhập, trừ khi khung xem ảnh của một phiếu đã ghi đang mở thì vào phiếu đó. Dán chữ vào ô nhập vẫn như bình thường.
 4. Ảnh hiện **phóng to cạnh ô nhập** để vừa nhìn vừa gõ. Không phải chuyển cửa sổ qua lại.
 5. Người nhập gõ ngày trả, hình thức, số tiền, tham chiếu như hiện nay. Với ảnh RMB: **số tiền là VND thực nhận**, còn số RMB và tỷ giá ghi ở ô tham chiếu (`V7-CSM` (2)). Ảnh không thay cho việc ghi số.
 6. Người nhập bấm Ghi. Phiếu và ảnh được lưu cùng một lần. Phiếu đã ghi có biểu tượng 📎, bấm vào thì xem ảnh.
 
-**Luồng đính ảnh vào phiếu đã ghi:** bấm vào phiếu chưa hủy rồi chọn "Đính ảnh" (hoặc Ctrl+V khi đang chọn phiếu). Dùng khi khách gửi ảnh sau, hoặc khi người nhập muốn bổ sung chứng từ cho phiếu cũ, kể cả phiếu ở tháng khóa: ảnh không đổi số tiền.
+**Luồng đính ảnh vào phiếu đã ghi:** bấm nút 📎 của phiếu chưa hủy (phiếu chưa có ảnh hiện "＋📎") để mở khung xem, rồi Ctrl+V hoặc kéo thả. Dùng khi khách gửi ảnh sau, hoặc khi người nhập muốn bổ sung chứng từ cho phiếu cũ, kể cả phiếu ở tháng khóa: ảnh không đổi số tiền.
 
 **Gỡ ảnh nhầm:** bấm "Gỡ" trên ảnh. Bắt buộc ghi lý do. Ảnh không bị xóa hẳn, chỉ ẩn khỏi phiếu và ghi Lịch sử (giống hủy phiếu).
 
@@ -78,11 +78,11 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 - [ ] API: từ chối file không phải ảnh, file quá giới hạn, `Content-Type` giả. Ảnh trả về có header an toàn.
 - [ ] Frontend: Ctrl+V, kéo thả và nút "Đính ảnh" đều chạy. Có bàn phím và focus, mất mạng giữa chừng không tạo phiếu nửa vời, bấm Ghi hai lần không ra hai phiếu.
 - [ ] Người dùng tự dán ảnh thật trên bản thử rồi xác nhận.
-- [ ] Giao diện khớp mockup Penpot đã duyệt.
+- [ ] Giao diện khớp bản xem HTML đã duyệt.
 
 ## Phạm vi agent
 
-Chưa giao. Thứ tự dự kiến: người dùng duyệt bước 1–2 → mockup Penpot (Gemini) → duyệt → backend và migration (Codex, Claude review opus vì chạm đường ghi phiếu) → nối giao diện → người dùng thử.
+Chưa giao. Mockup: bản xem HTML do Claude làm, **miễn Penpot** theo lời người dùng 29/10/2026 ("làm mockup ở đây = claude, ko cần qua penpot"), CHỜ DUYỆT. Thứ tự dự kiến: duyệt bản xem → backend và migration (Codex, Claude review opus vì chạm đường ghi phiếu; migration hỏi người dùng trước khi chạy) → nối giao diện → người dùng thử.
 
 ## Hoàn tác
 
