@@ -925,12 +925,12 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
-## Tách phụ phí theo bảng PS — migration + runner bản chụp (CHƯA CHẠY)
+## Tách phụ phí theo bảng PS — migration + runner bản chụp (migration ĐÃ CHẠY trên hao 29/10/2026; runner chưa cài)
 
 Spec [`v7-phu-phi-tu-ps`](../specs/v7-phu-phi-tu-ps.md). Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql`
 chỉ thêm loại event `rewrite_trip_fees` và hai hàm (`rewrite_trip_fees` cho app, `_rewrite_trip_fees` không ai được EXECUTE);
 không đổi hàm cũ, tiền, phân bổ hay dữ liệu. Chạy lại được. **Thứ tự bắt buộc: `2026-10-29-v7-chung-tu.sql` →
-`2026-10-29-v7-xoa-dieu-chinh-thang.sql` (mục [Xóa điều chỉnh cả tháng](#xóa-điều-chỉnh-cả-tháng--nâng-db-đang-có-chưa-chạy)) →
+`2026-10-29-v7-xoa-dieu-chinh-thang.sql` (mục [Xóa điều chỉnh cả tháng](#xóa-điều-chỉnh-cả-tháng--nâng-db-đang-có-đã-chạy-trên-hao-29102026)) →
 `2026-10-29-v7-ps-fee.sql`.** Migration PS dựng lại `event_kind_check`/`event_snapshot_check` gồm mọi loại tới nay, cả
 `adjust_month_delete` lẫn `rewrite_trip_fees`; chạy lại một migration cũ hơn sau nó sẽ làm mất loại `rewrite_trip_fees` (và
 ngược lại). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
@@ -952,7 +952,7 @@ ngược lại). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùn
 Rollback: tắt timer runner (sổ trả `ps_fees.unavailable`, không ảnh hưởng chức năng khác). Hàm mới không đổi dữ liệu nên để
 nguyên được; cần gỡ hẳn thì restore dump trước nâng. Các lần tách đã ghi giữ tổng tiền; muốn bỏ thì đổi loại trong khung chi tiết.
 
-## Xóa điều chỉnh cả tháng — nâng DB đang có (CHƯA CHẠY)
+## Xóa điều chỉnh cả tháng — nâng DB đang có (ĐÃ CHẠY trên hao 29/10/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql` ([`XOA-DC-THANG-01`](decisions.md#xoa-dc-thang-01)).
 Thêm cột `sokhach.adjustment.reverses_adjustment_id` (NULL với mọi dòng cũ), loại event `adjust_month_delete`, hàm
