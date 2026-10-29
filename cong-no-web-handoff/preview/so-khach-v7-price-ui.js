@@ -16,6 +16,7 @@
   let savedShape = '';
   let bar = null;               // { kind: 'info'|'ok'|'bad', text } | { kind: 'ask' } | { kind: 'new' }
   let bookShippers = [];
+  let loading = false;          // đang đọc bảng giá: chưa hiện lưới để không gõ vào bảng sắp bị thay
   let nextUid = 1;
 
   // ---- Trạng thái giá: tải lại khi phiên bản sổ đổi; server cũ chưa có đường này thì coi như sổ chưa có bảng giá ----
@@ -242,6 +243,7 @@
 
   async function openDialog() {
     form = fromServer(null);
+    loading = true;
     bar = { kind: 'info', text: 'Đang đọc bảng giá…' };
     savedShape = shapeOf({ rows: [], ships: [] });
     dialog.hidden = false;
@@ -254,11 +256,12 @@
       bookShippers = Array.isArray(data.book_shippers) ? data.book_shippers : [];
       savedShape = shapeOf(form);
       bar = null;
-    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; }
+    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; loading = false; render(); dialog.querySelector('.price-body')?.remove(); dialog.querySelector('.price-table-save')?.remove(); dialog.querySelector('.price-new-open')?.remove(); return; }
+    loading = false;
     render();
     $('.price-grid-title')?.focus();
   }
-  function closeDialog() { form = null; bar = null; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
+  function closeDialog() { form = null; bar = null; loading = false; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
   const dirty = () => form && shapeOf(form) !== savedShape;
   function requestClose() {
     if (dirty()) { bar = { kind: 'ask' }; renderBar(); $('.price-bar .primary')?.focus(); return; }
@@ -269,6 +272,11 @@
 
   function render() {
     if (!form) return;
+    if (loading) {
+      dialog.innerHTML = `<div class="price-table-panel"><header><h2 class="price-grid-title" tabindex="-1">Bảng giá · ${escape(live.customerName?.(customerId) ?? 'sổ khách')}</h2><span class="price-grow"></span><button type="button" class="price-table-close">Đóng</button></header><div class="price-bar"></div></div>`;
+      renderBar();
+      return;
+    }
     pad();
     const { errors } = check();
     const hasRows = form.rows.some(filled);
