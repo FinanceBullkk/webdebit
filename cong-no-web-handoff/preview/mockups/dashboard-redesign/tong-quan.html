@@ -20,22 +20,24 @@
     .mini .v.credit{color:var(--credit)}
     .mini .s{font-size:13.5px;color:var(--ink-3)}
 
-    /* Tuổi nợ: một thanh chia đoạn + chú giải có số; mỗi nhóm bấm được sang ma trận */
-    .age-bar{display:flex;gap:2px;height:28px;margin:4px 0 14px}
-    .age-bar span{display:block;height:100%}
+    /* Câu kết luận đầu mỗi khối: điều người xem cần nhớ */
+    .lead{margin:0 0 12px;font-size:15px;color:var(--ink-2)}
+    .lead b{color:var(--ink)}
+
+    /* Tuổi nợ: bấm một nhóm để lọc danh sách khách */
+    .age-bar{display:flex;gap:2px;height:28px;margin:4px 0 12px}
+    .age-bar span{display:block;height:100%;transition:opacity .15s}
     .age-bar span:first-child{border-radius:6px 0 0 6px}
     .age-bar span:last-child{border-radius:0 6px 6px 0}
     .age-legend{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-    .age-legend a{display:block;padding:6px 8px;border-radius:8px;border:1px solid transparent}
-    .age-legend a:hover{background:var(--accent-soft);border-color:#b7d3f6}
+    .age-legend button{display:block;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left;cursor:pointer;transition:opacity .15s}
+    .age-legend button:hover{border-color:var(--accent)}
+    .age-legend button[aria-pressed="true"]{border:2px solid var(--accent-ink);padding:7px 9px;background:var(--accent-soft)}
     .age-legend .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:8px;vertical-align:-1px}
     .age-legend .k{font-size:14px;color:var(--ink-2)}
     .age-legend .v{font-size:20px;font-weight:700;margin-top:2px}
     .age-legend .p{font-size:13.5px;color:var(--ink-3)}
-    .age-legend .go{font-size:13px;color:var(--accent-ink);visibility:hidden}
-    .age-legend a:hover .go,.age-legend a:focus-visible .go{visibility:visible}
-    .age-note{margin:12px 0 0;padding:10px 14px;border-radius:8px;background:var(--head);font-size:14px;color:var(--ink-2)}
-    .age-note b{color:var(--ink)}
+    .picking .age-bar span:not(.on),.picking .age-legend button:not([aria-pressed="true"]){opacity:.4}
 
     /* Việc cần làm */
     .todo-group+.todo-group{margin-top:14px}
@@ -51,45 +53,34 @@
     .actors{margin-top:12px;font-size:14px;color:var(--ink-2)}
     .actors div{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line-soft)}
 
-    /* Bảng một dòng dùng chung cho 10 khách và mặt hàng: cột tiền một đơn vị (tỷ), thanh tỉ trọng */
-    .tbl-head,.tbl-row{display:grid;align-items:center;gap:10px;padding:0 6px}
-    .tbl-head{font-size:12.5px;color:var(--ink-3);padding-bottom:6px;border-bottom:1px solid var(--line)}
-    .tbl-head .r,.tbl-row .r{text-align:right}
-    .tbl-row{width:100%;min-height:38px;border:0;border-bottom:1px solid var(--line-soft);background:none;text-align:left;cursor:pointer;font-size:14.5px}
-    .tbl-row:hover{background:var(--accent-soft)}
-    .tbl-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-    .share{height:8px;border-radius:4px;background:var(--line-soft)}
-    .share i{display:block;height:100%;border-radius:4px;background:var(--accent)}
-    .name{min-width:0;display:flex;align-items:baseline;white-space:nowrap}
-    .name>*{flex:none}
-    .name small{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ink-3);font-size:13px;margin-left:6px}
-    .pct{color:var(--ink-3);font-size:13.5px}
-    .old{display:inline-block;flex:none;margin-left:6px;padding:0 7px;border-radius:99px;background:var(--warning-soft);color:var(--warning);font-size:12px;font-weight:600;vertical-align:1px}
+    /* Thanh ngang: tên + số trên một dòng, thanh dày bên dưới. Không cột %, không nhãn phụ. */
+    .bars{display:flex;flex-direction:column;gap:4px}
+    .bar-row{display:block;width:100%;padding:7px 10px 8px;border:0;border-left:3px solid transparent;border-radius:6px;background:none;text-align:left;cursor:pointer;transition:opacity .15s}
+    .bar-row:hover{background:var(--head)}
+    .bar-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+    .bar-row .line{display:flex;align-items:baseline;gap:10px;font-size:15px}
+    .bar-row .line .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bar-row .line .rk{width:18px;color:var(--ink-3);font-size:13.5px;text-align:right;flex:none}
+    .bar-row .line .val{font-weight:700;font-variant-numeric:tabular-nums}
+    .bar-row .track{display:block;height:10px;margin-top:5px;border-radius:5px;background:#e3e8ef}
+    .bar-row .track i{display:block;height:100%;border-radius:5px;background:var(--accent)}
+    .bar-row.grey .track i{background:#9aa3ae}
+    .bar-row.grey .nm{color:var(--ink-2)}
+    .bar-row[aria-pressed="true"]{background:var(--accent-soft);border-left-color:var(--accent-ink)}
+    .bar-row[aria-pressed="true"] .track i{background:var(--accent-ink)}
+    .com.picking .bar-row:not([aria-pressed="true"]){opacity:.45}
+    .unit{font-size:12.5px;color:var(--ink-3);text-align:right;margin:-6px 10px 4px}
+    .top .bar-row .track{margin-left:28px}
+
+    /* Lọc đang bật: hiện thành chip có nút bỏ */
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+    .chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 12px;border-radius:99px;background:var(--accent-ink);color:#fff;font-size:13.5px;font-weight:600}
+    .chip button{width:22px;height:22px;border:0;border-radius:50%;background:#ffffff33;color:#fff;cursor:pointer;line-height:1}
+    .chip button:hover{background:#ffffff55}
     .tbl-foot{display:flex;justify-content:flex-end;padding-top:10px;font-size:14px}
     .tbl-foot a{color:var(--accent-ink);font-weight:600}
     .tbl-foot a:hover{text-decoration:underline}
-
-    .top .tbl-head,.top .tbl-row{grid-template-columns:20px minmax(0,1fr) 72px 52px 46px}
-    .top .rank{color:var(--ink-3);font-size:13.5px;text-align:right}
-    .top .name{overflow:hidden}
-
-    .com .tbl-head,.com .tbl-row{grid-template-columns:minmax(0,1fr) 52px 46px}
-    .com .tbl-row{position:relative;padding-bottom:6px}
-    .com .tbl-row .share{position:absolute;left:6px;right:6px;bottom:4px;height:3px}
-    .com .tbl-row.sub{padding-left:24px;font-size:14px;color:var(--ink-2)}
-    .com .tbl-row.sub .share{left:22px}
-    .com .tbl-row.warn .name{color:var(--warning)}
-    .com .tbl-row.warn .share i{background:var(--warning)}
-    .com .tbl-row.none .share i{background:var(--ink-3)}
-    .com .caret{display:inline-block;width:12px;color:var(--ink-3);font-size:11px}
-    .com .tbl-row[aria-expanded="true"]{background:var(--accent-soft)}
-    .com .tbl-row[aria-expanded="true"] .caret{transform:rotate(90deg)}
-    .members{margin:0;padding:4px 0;list-style:none;background:#f7faff;border-bottom:1px solid var(--line-soft)}
-    .members button{display:grid;grid-template-columns:minmax(0,1fr) 52px;gap:10px;width:100%;padding:5px 6px 5px 22px;border:0;background:none;cursor:pointer;font-size:13.5px;text-align:left}
-    .members .r{text-align:right}
-    .members .name{overflow:hidden}
-    .members button:hover{background:var(--accent-soft)}
-    .members .num{color:var(--ink-2)}
+    .empty{margin:8px 0;color:var(--ink-3)}
 
     /* Ngăn kéo xem nhanh một khách */
     .scrim{position:fixed;inset:0;z-index:60;background:#0f172a55}
@@ -104,7 +95,8 @@
     .drawer .total b{font-size:24px}
     .drawer h3{margin:18px 0 6px;font-size:14.5px;color:var(--ink-2)}
     .drawer .mrow{display:grid;grid-template-columns:110px 1fr 84px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
-    .drawer .mrow .share i{background:var(--age-1)}
+    .drawer .mrow .track{height:8px;border-radius:4px;background:#e3e8ef}
+    .drawer .mrow .track i{display:block;height:100%;border-radius:4px}
     .drawer .mrow .r{text-align:right}
     .drawer .flags{margin:14px 0 0;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-size:14px}
     .drawer footer{display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
@@ -119,14 +111,11 @@
       .page{padding:16px 12px 32px}
       .age-legend{grid-template-columns:1fr 1fr}
       .hero .figure{font-size:40px}
-      .top .tbl-head,.top .tbl-row{grid-template-columns:20px minmax(0,1fr) 52px 46px}
-      .top .share,.top .tbl-head span:nth-child(3){display:none}
-      .top .name small{display:none}
     }
   </style>
 </head>
 <body>
-  <div class="demo">Mockup v5 · dữ liệu giả, tên khách và số tiền đều hư cấu · thử bấm vào khách, mặt hàng, nhóm tuổi nợ, việc cần làm</div>
+  <div class="demo">Mockup v5.1 · dữ liệu giả, tên khách và số tiền đều hư cấu · bấm nhóm tuổi nợ hoặc mặt hàng để lọc danh sách khách</div>
   <header class="topbar">
     <a class="brand" href="tong-quan.html">Công nợ HTH</a>
     <nav aria-label="Điều hướng chính"><a class="active" href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
@@ -151,11 +140,11 @@
         </div>
       </section>
 
-      <section class="card c8" aria-labelledby="h-age">
-        <div class="card-head"><h2 id="h-age">Nợ theo tháng phát sinh</h2><span class="aside">bấm một nhóm để xem từng khách ở Công nợ theo tháng</span></div>
+      <section class="card c8" id="age-card" aria-labelledby="h-age">
+        <div class="card-head"><h2 id="h-age">Nợ theo tháng phát sinh</h2><span class="aside">bấm một nhóm để lọc danh sách khách</span></div>
+        <p class="lead" id="age-lead"></p>
         <div class="age-bar" id="age-bar" role="img"></div>
         <div class="age-legend" id="age-legend"></div>
-        <p class="age-note" id="age-note"></p>
       </section>
 
       <div class="c4 stack">
@@ -169,28 +158,32 @@
         </section>
       </div>
 
-      <section class="card c5 top" aria-labelledby="h-top">
-        <div class="card-head"><h2 id="h-top">10 khách nợ nhiều nhất</h2><span class="aside" id="top-share"></span></div>
-        <div class="tbl-head"><span>#</span><span>Khách</span><span>Tỉ trọng</span><span class="r">Tỷ đồng</span><span class="r">%</span></div>
-        <div id="top"></div>
-        <div class="tbl-foot"><a href="cong-no-theo-thang.html?con-no=1" id="top-all"></a></div>
+      <section class="card c3 com" id="com-card" aria-labelledby="h-com">
+        <div class="card-head"><h2 id="h-com">Theo mặt hàng</h2></div>
+        <p class="lead" id="com-lead"></p>
+        <div class="unit">tỷ đồng</div>
+        <div class="bars" id="com"></div>
       </section>
 
-      <section class="card c3 com" aria-labelledby="h-com">
-        <div class="card-head"><h2 id="h-com">Theo mặt hàng</h2></div>
-        <div class="tbl-head"><span>Mặt hàng</span><span class="r">Tỷ đồng</span><span class="r">%</span></div>
-        <div id="com"></div>
+      <section class="card c5 top" aria-labelledby="h-top">
+        <div class="card-head"><h2 id="h-top"></h2></div>
+        <div class="chips" id="chips"></div>
+        <p class="lead" id="top-lead"></p>
+        <div class="unit">tỷ đồng</div>
+        <div class="bars" id="top"></div>
+        <div class="tbl-foot"><a id="top-all" href="cong-no-theo-thang.html?con-no=1"></a></div>
       </section>
     </div>
 
     <details class="design-note">
-      <summary>Ghi chú duyệt thiết kế (mockup v5 — tương tác)</summary>
+      <summary>Ghi chú duyệt thiết kế (mockup v5.1)</summary>
       <ul>
-        <li>Theo lựa chọn 29/10/2026: bấm khách mở <b>ngăn kéo xem nhanh</b> (nợ theo tháng, nút Mở sổ); bấm mặt hàng chỉ <b>bung danh sách khách ngay dưới dòng</b>, các khối khác giữ nguyên số; soi sâu theo tuổi nợ dẫn sang <b>Công nợ theo tháng</b>; <b>Việc cần làm</b> mở sổ khách đã lọc đúng các dòng cần xử lý. Không có so tháng trước, không lọc cả trang.</li>
-        <li>10 khách: mỗi khách một dòng, cột tiền cùng đơn vị tỷ (2 số lẻ), thanh tỉ trọng; chỉ khách có nợ từ 3 tháng trước trở về trước mới có nhãn “nợ cũ”. Cuối bảng dẫn sang ma trận với “chỉ khách còn nợ”.</li>
-        <li>Mặt hàng: gom theo mặt hàng, xếp tiền giảm dần; mặt hàng có phương thức thì tách dòng con cảng/bộ, khách chưa ghi phương thức thành dòng “chưa rõ cảng/bộ” màu cam (cần gán theo MH-01). Mặt hàng dưới 1% gom vào “Khác”. Tỉ lệ rất nhỏ ghi “&lt;0,1%” thay vì 0%.</li>
-        <li>Trạng thái ngăn kéo/mặt hàng đang mở ghi lên địa chỉ trang (<code>?khach=</code>, <code>?mh=</code>): nút Back đóng ngăn kéo, gửi link thấy đúng màn đó. ESC đóng ngăn kéo, focus trả về dòng vừa bấm.</li>
-        <li>Mọi số vẫn từ API hiện có, trừ danh sách đủ khách theo mặt hàng (lấy từ <code>/api/v7/customers</code> + ma trận) và nợ theo tháng của một khách (<code>/api/v7/receivables/detail</code> hoặc ma trận).</li>
+        <li>v5.1 theo góp ý 29/10/2026: bấm nhóm tuổi nợ hoặc mặt hàng <b>lọc danh sách khách ngay trên Tổng quan</b> (có thể kết hợp hai lọc); chỉ danh sách khách đổi, các số tổng giữ nguyên để không hiểu nhầm. Lọc hiện thành chip có nút ✕; bấm lại mục đang chọn cũng bỏ lọc.</li>
+        <li>Khi lọc theo tuổi nợ, số cạnh mỗi khách là <b>phần nợ thuộc nhóm đó</b>, không phải tổng nợ của khách.</li>
+        <li>Hai bảng làm gọn: mỗi dòng chỉ tên + số + một thanh; bỏ cột %, mặt hàng phụ, nhãn nợ cũ, dòng con. Điều cần nhớ đưa lên một câu đầu khối. Muốn biết ai nợ cũ thì bấm nhóm “3–6 tháng” / “Trên 6 tháng”.</li>
+        <li>Mặt hàng: chỉ sầu riêng tách cảng/bộ; khách thiếu mặt hàng hoặc sầu riêng chưa ghi cảng/bộ gom vào “Chưa phân loại” (thanh xám) và đưa sang Việc cần làm; mặt hàng dưới 1% gom “Khác”.</li>
+        <li>Bấm một khách mở ngăn kéo xem nhanh (nợ theo tháng, nút Mở sổ). Trạng thái lọc và ngăn kéo ghi lên địa chỉ trang (<code>?tuoi=</code>, <code>?mh=</code>, <code>?khach=</code>).</li>
+        <li>Code thật: phần nợ theo nhóm tuổi của từng khách tính ở trình duyệt từ <code>/api/v7/receivables/matrix</code> (đã có số theo tháng từng khách); không cần API mới.</li>
       </ul>
     </details>
   </main>
@@ -214,25 +207,27 @@
         return (v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' triệu';
       };
       const amount = v => `<span class="num" title="${D.fmtFull(v)}">${words(v)}</span>`;
-      // Cột bảng: luôn tỷ, 2 số lẻ, để mắt so được theo cột.
-      const ty = v => `<span class="num" title="${D.fmtFull(v)}">${(v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
-      const pct = v => {
-        const p = v / D.receivable * 100;
+      const ty = v => `<span class="val" title="${D.fmtFull(v)}">${(v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
+      const pct = (v, of = D.receivable) => {
+        const p = v / of * 100;
         return p > 0 && p < 0.1 ? '&lt;0,1%' : p.toLocaleString('vi-VN', { maximumFractionDigits: p < 10 ? 1 : 0 }) + '%';
       };
-      const MODE = { cảng: 'cảng', bộ: 'bộ' };
       const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
-      const ledgerHref = row => `so-khach-loc.html?customer=${row.id}`;
-      // Số tháng từ tháng nợ cũ nhất tới nay; nợ từ năm trước coi như trên 6 tháng.
-      const ageMonths = row => Object.values(row.older).some(v => v > 0) ? 99
-        : Math.max(0, ...Object.keys(row.months).filter(m => row.months[m] > 0).map(m => D.AS_OF.month - Number(m)));
-      const oldTag = row => {
-        const n = ageMonths(row);
-        if (n < 3) return '';
-        return `<span class="old">${n === 99 ? 'nợ từ ' + D.oldestMonth(row) : 'nợ cũ ' + n + ' tháng'}</span>`;
+      const ageOf = m => { const d = D.AS_OF.month - m; return d <= 0 ? 0 : d <= 2 ? 1 : d <= 6 ? 2 : 3; };
+      // Phần nợ của một khách trong từng nhóm tuổi (code thật: tính từ ma trận theo tháng).
+      const bucketsOf = row => {
+        const b = [0, 0, 0, 0];
+        for (const [m, v] of Object.entries(row.months)) b[ageOf(Number(m))] += v;
+        b[3] += D.olderOf(row);
+        return b;
       };
+      // Mặt hàng: chỉ sầu riêng tách cảng/bộ; thiếu mặt hàng hoặc thiếu cảng/bộ là "Chưa phân loại".
+      const UNSORTED = 'Chưa phân loại';
+      const comOf = row => !row.commodity ? UNSORTED
+        : row.commodity === 'Sầu riêng' ? (row.transport ? `Sầu riêng ${row.transport}` : UNSORTED) : row.commodity;
+      const ledgerHref = row => `so-khach-loc.html?customer=${row.id}`;
 
-      // Khối trên: giữ như v4.1.
+      // Khối trên.
       $('asof').textContent = 'Số liệu đến ' + D.AS_OF.label;
       const [whole, frac] = (D.receivable / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }).split(',');
       $('receivable').innerHTML = `<span title="${D.fmtFull(D.receivable)}">${whole}${frac ? ',' + frac : ''}<small>tỷ</small></span>`;
@@ -244,19 +239,22 @@
       $('received').innerHTML = amount(today.received);
       $('receipts').textContent = `${today.receipts} phiếu thu`;
 
+      const old = D.aging[2] + D.aging[3];
+      $('age-lead').innerHTML = `<b>${words(old)} (${pct(old)})</b> là nợ từ 3 tháng trước trở về trước.`;
       $('age-bar').setAttribute('aria-label', AGES.map((a, i) => `${a} ${words(D.aging[i])}`).join(', '));
       $('age-bar').innerHTML = D.aging.map((v, i) =>
-        `<span style="flex:${v};background:var(--age-${i})" title="${AGES[i]}: ${D.fmtFull(v)}"></span>`).join('');
+        `<span data-i="${i}" style="flex:${v};background:var(--age-${i})" title="${AGES[i]}: ${D.fmtFull(v)}"></span>`).join('');
       $('age-legend').innerHTML = D.aging.map((v, i) =>
-        `<a href="cong-no-theo-thang.html?tuoi=${i}&amp;con-no=1"><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGES[i]}</div>` +
-        `<div class="v">${amount(v)}</div><div class="p">${pct(v)} <span class="go">· xem khách ›</span></div></a>`).join('');
-      $('age-note').innerHTML = `<b>${words(D.aging[2] + D.aging[3])}</b> (${pct(D.aging[2] + D.aging[3])}) là nợ phát sinh từ 3 tháng trước trở về trước.`;
+        `<button type="button" data-tuoi="${i}" aria-pressed="false"><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGES[i]}</div>` +
+        `<div class="v">${amount(v)}</div><div class="p">${pct(v)}</div></button>`).join('');
 
-      // Việc cần làm: mỗi dòng mở sổ khách đã lọc đúng các dòng cần xử lý.
+      // Việc cần làm: thêm nhóm khách cần gán mặt hàng / cảng-bộ (đưa từ khối mặt hàng sang).
+      const unsorted = D.debtors.filter(r => comOf(r) === UNSORTED);
       const todo = [
         ['Chuyến thiếu đơn giá', 'critical', D.TODO.missingPrice.map(t => [D.byId(t.id), `${t.count} chuyến`, 'thieu-gia']), D.TODO.missingPrice.reduce((a, t) => a + t.count, 0), 'chuyến'],
         ['Chuyến chờ kiểm', 'warning', D.TODO.pendingReview.map(t => [D.byId(t.id), `${t.count} chuyến`, 'cho-kiem']), D.TODO.pendingReview.reduce((a, t) => a + t.count, 0), 'chuyến'],
         ['Chưa có số dư đầu', 'neutral', D.ROWS.filter(r => r.noBaseline).map(r => [r, 'nhập số dư đầu', 'so-du-dau']), D.ROWS.filter(r => r.noBaseline).length, 'khách'],
+        ['Cần gán mặt hàng / cảng-bộ', 'neutral', unsorted.map(r => [r, r.commodity ? 'chưa rõ cảng/bộ' : 'chưa có mặt hàng', 'gan-mat-hang']), unsorted.length, 'khách'],
         ['Sổ đang dư tiền', 'credit', D.creditors.map(r => [r, 'dư ' + words(-D.allOf(r)), 'dang-du']), D.creditors.length, 'khách'],
       ].filter(g => g[3] > 0);
       $('todo-total').textContent = `${todo.reduce((a, g) => a + g[2].length, 0)} khách cần xem`;
@@ -272,92 +270,101 @@
           '<div class="actors">' + D.TODAY.byActor.map(r =>
             `<div><span>${D.esc(r.actor)}</span><span>${r.trips} chuyến · ${r.receipts} phiếu · ${words(r.received)}</span></div>`).join('') + '</div>';
 
-      // 10 khách: một dòng, cột tiền một đơn vị, thanh tỉ trọng so với khách lớn nhất.
-      const sorted = [...D.debtors].sort((a, b) => D.allOf(b) - D.allOf(a));
-      const top = sorted.slice(0, 10);
-      const topMax = D.allOf(top[0]);
-      $('top-share').textContent = `chiếm ${pct(top.reduce((a, r) => a + D.allOf(r), 0))} còn phải thu`;
-      const commodityOf = row => row.commodity ? row.commodity + (row.transport ? ' · ' + MODE[row.transport] : '') : 'chưa phân loại';
-      $('top').innerHTML = top.map((row, i) =>
-        `<button type="button" class="tbl-row" data-khach="${row.id}" aria-haspopup="dialog"><span class="rank">${i + 1}</span>` +
-        `<span class="name"><span>${D.esc(row.name)}</span>${oldTag(row)}<small>${D.esc(commodityOf(row))}</small></span>` +
-        `<span class="share"><i style="width:${(D.allOf(row) / topMax * 100).toFixed(1)}%"></i></span>` +
-        `<span class="r">${ty(D.allOf(row))}</span><span class="r pct">${pct(D.allOf(row))}</span></button>`).join('');
-      $('top-all').textContent = `Xem tất cả ${D.debtors.length} khách đang nợ ›`;
-
-      // Mặt hàng: gom theo mặt hàng, dòng con theo phương thức, nhỏ hơn 1% vào "Khác".
-      const byCom = new Map();
-      for (const row of D.debtors) {
-        const key = row.commodity ?? '';
-        if (!byCom.has(key)) byCom.set(key, []);
-        byCom.get(key).push(row);
-      }
+      // Nhóm mặt hàng, xếp tiền giảm dần; dưới 1% gom "Khác"; "Chưa phân loại" luôn cuối.
       const sum = list => list.reduce((a, r) => a + D.allOf(r), 0);
-      const items = [...byCom.entries()].map(([key, members]) => {
-        const hasMode = members.some(r => r.transport);
-        const subs = hasMode ? ['cảng', 'bộ', null].map(mode => [mode, members.filter(r => r.transport === mode)]).filter(([, m]) => m.length) : [];
-        return { key, members, total: sum(members), subs };
-      }).sort((a, b) => (a.key === '') - (b.key === '') || b.total - a.total);
-      const small = items.filter(it => it.key && it.total / D.receivable < 0.01);
-      const big = items.filter(it => !small.includes(it));
-      const comMax = Math.max(...items.map(it => it.total));
-      let groupSeq = 0;
+      const raw = new Map();
+      for (const r of D.debtors) raw.set(comOf(r), [...(raw.get(comOf(r)) ?? []), r]);
       const groups = new Map();
-      const row = (label, members, total, cls, caretLabel) => {
-        const id = 'g' + (++groupSeq);
-        groups.set(id, { label, members });
-        return `<button type="button" class="tbl-row ${cls}" data-mh="${id}" aria-expanded="false" aria-controls="m-${id}" title="Bấm để xem ${members.length} khách">` +
-          `<span class="name"><span class="caret" aria-hidden="true">▶</span>${caretLabel}</span><span class="r">${ty(total)}</span><span class="r pct">${pct(total)}</span>` +
-          `<span class="share"><i style="width:${(total / comMax * 100).toFixed(1)}%"></i></span></button><ul class="members" id="m-${id}" hidden></ul>`;
-      };
-      const comHtml = [];
-      for (const it of big) {
-        if (!it.key) { comHtml.push(row('Chưa phân loại', it.members, it.total, 'none', 'Chưa phân loại')); continue; }
-        comHtml.push(row(it.key, it.members, it.total, '', `<b>${D.esc(it.key)}</b>`));
-        for (const [mode, members] of it.subs) {
-          comHtml.push(mode
-            ? row(`${it.key} · ${mode}`, members, sum(members), 'sub', mode === 'cảng' ? 'Cảng' : 'Bộ')
-            : row(`${it.key} · chưa rõ`, members, sum(members), 'sub warn', 'Chưa rõ cảng/bộ'));
-        }
+      const other = [];
+      for (const [key, members] of raw) {
+        if (key !== UNSORTED && sum(members) / D.receivable < 0.01) other.push(...members); else groups.set(key, members);
       }
-      if (small.length) {
-        const members = small.flatMap(it => it.members);
-        comHtml.push(row('Khác', members, sum(members), '', `Khác <small>(${small.map(it => D.esc(it.key)).join(', ')})</small>`));
-      }
-      $('com').innerHTML = comHtml.join('');
+      if (other.length) groups.set('Khác', other);
+      const comOrder = [...groups.keys()].sort((a, b) => (a === UNSORTED) - (b === UNSORTED) || (a === 'Khác') - (b === 'Khác') || sum(groups.get(b)) - sum(groups.get(a)));
+      const comMax = Math.max(...comOrder.map(k => sum(groups.get(k))));
+      const [first] = comOrder;
+      $('com-lead').innerHTML = `<b>${D.esc(first)}</b> chiếm <b>${pct(sum(groups.get(first)))}</b> còn phải thu.`;
 
-      // Trạng thái trên địa chỉ trang: ?mh= (dòng mặt hàng đang bung), ?khach= (ngăn kéo).
+      // Trạng thái lọc, ghi lên địa chỉ trang.
+      const state = { age: null, com: null };
       const params = () => new URLSearchParams(location.search);
-      const setParam = (key, value, push) => {
+      const writeUrl = push => {
         const p = params();
-        if (value == null) p.delete(key); else p.set(key, value);
+        state.age == null ? p.delete('tuoi') : p.set('tuoi', state.age);
+        state.com == null ? p.delete('mh') : p.set('mh', state.com);
         const url = location.pathname + (p.toString() ? '?' + p : '');
         (push ? history.pushState : history.replaceState).call(history, null, '', url);
       };
 
-      function expand(id, on) {
-        document.querySelectorAll('.com .tbl-row[aria-expanded="true"]').forEach(btn => {
-          btn.setAttribute('aria-expanded', 'false');
-          $('m-' + btn.dataset.mh).hidden = true;
-        });
-        if (!on || !groups.has(id)) return;
-        const btn = document.querySelector(`[data-mh="${id}"]`);
-        const list = $('m-' + id);
-        btn.setAttribute('aria-expanded', 'true');
-        list.hidden = false;
-        list.innerHTML = [...groups.get(id).members].sort((a, b) => D.allOf(b) - D.allOf(a)).map(r =>
-          `<li><button type="button" data-khach="${r.id}" aria-haspopup="dialog"><span class="name"><span>${D.esc(r.name)}</span>${oldTag(r)}</span><span class="r">${ty(D.allOf(r))}</span></button></li>`).join('');
+      function renderCom() {
+        $('com-card').classList.toggle('picking', state.com != null);
+        $('com').innerHTML = comOrder.map(key => {
+          const v = sum(groups.get(key));
+          return `<button type="button" class="bar-row${key === UNSORTED ? ' grey' : ''}" data-mh="${D.esc(key)}" aria-pressed="${key === state.com}" title="${groups.get(key).length} khách · ${pct(v)} còn phải thu">` +
+            `<span class="line"><span class="nm">${D.esc(key)}</span>${ty(v)}</span>` +
+            `<span class="track"><i style="width:${(v / comMax * 100).toFixed(1)}%"></i></span></button>`;
+        }).join('');
       }
-      $('com').addEventListener('click', event => {
-        const btn = event.target.closest('.tbl-row');
-        if (!btn) return;
-        const open = btn.getAttribute('aria-expanded') !== 'true';
-        expand(btn.dataset.mh, open);
-        setParam('mh', open ? groups.get(btn.dataset.mh).label : null, false);
+
+      function renderTop() {
+        $('age-card').classList.toggle('picking', state.age != null);
+        document.querySelectorAll('[data-tuoi]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.tuoi) === state.age)));
+        document.querySelectorAll('#age-bar span').forEach(s => s.classList.toggle('on', Number(s.dataset.i) === state.age));
+        const valueOf = r => state.age == null ? D.allOf(r) : bucketsOf(r)[state.age];
+        const pool = state.com == null ? D.debtors : groups.get(state.com) ?? [];
+        const rows = pool.filter(r => valueOf(r) > 0).sort((a, b) => valueOf(b) - valueOf(a));
+        const shown = rows.slice(0, 10);
+        const total = rows.reduce((a, r) => a + valueOf(r), 0);
+        const filtered = state.age != null || state.com != null;
+        $('h-top').textContent = filtered ? 'Khách theo lọc đang chọn' : '10 khách nợ nhiều nhất';
+        $('chips').innerHTML = (state.age != null ? `<span class="chip">${AGES[state.age]}<button type="button" data-clear="age" aria-label="Bỏ lọc ${AGES[state.age]}">✕</button></span>` : '') +
+          (state.com != null ? `<span class="chip">${D.esc(state.com)}<button type="button" data-clear="com" aria-label="Bỏ lọc ${D.esc(state.com)}">✕</button></span>` : '');
+        $('chips').hidden = !filtered;
+        if (!rows.length) {
+          $('top-lead').textContent = '';
+          $('top').innerHTML = '<p class="empty">Không có khách nào khớp lọc này.</p>';
+        } else if (!filtered) {
+          const three = rows.slice(0, 3).reduce((a, r) => a + valueOf(r), 0);
+          $('top-lead').innerHTML = `3 khách lớn nhất chiếm <b>${pct(three)}</b> còn phải thu.`;
+        } else {
+          $('top-lead').innerHTML = `<b>${rows.length} khách · ${words(total)}</b>${state.age != null ? ' — số cạnh tên là phần nợ thuộc nhóm này' : ''}.`;
+        }
+        const max = rows.length ? valueOf(rows[0]) : 1;
+        if (rows.length) {
+          $('top').innerHTML = shown.map((r, i) =>
+            `<button type="button" class="bar-row" data-khach="${r.id}" aria-haspopup="dialog">` +
+            `<span class="line"><span class="rk">${i + 1}</span><span class="nm">${D.esc(r.name)}</span>${ty(valueOf(r))}</span>` +
+            `<span class="track"><i style="width:${(valueOf(r) / max * 100).toFixed(1)}%"></i></span></button>`).join('');
+        }
+        const q = new URLSearchParams({ 'con-no': '1' });
+        if (state.age != null) q.set('tuoi', state.age);
+        $('top-all').href = 'cong-no-theo-thang.html?' + q;
+        $('top-all').textContent = rows.length > 10 ? `Xem cả ${rows.length} khách ở Công nợ theo tháng ›` : 'Xem ở Công nợ theo tháng ›';
+      }
+      const render = () => { renderCom(); renderTop(); };
+
+      $('age-legend').addEventListener('click', e => {
+        const b = e.target.closest('[data-tuoi]');
+        if (!b) return;
+        state.age = state.age === Number(b.dataset.tuoi) ? null : Number(b.dataset.tuoi);
+        writeUrl(false); render();
+      });
+      $('com').addEventListener('click', e => {
+        const b = e.target.closest('[data-mh]');
+        if (!b) return;
+        state.com = state.com === b.dataset.mh ? null : b.dataset.mh;
+        writeUrl(false); render();
+      });
+      $('chips').addEventListener('click', e => {
+        const b = e.target.closest('[data-clear]');
+        if (!b) return;
+        state[b.dataset.clear] = null;
+        writeUrl(false); render();
       });
 
       // Ngăn kéo xem nhanh.
       let lastFocus = null;
+      let pushed = false;
       function openDrawer(id) {
         const r = D.byId(id);
         if (!r) return;
@@ -365,14 +372,14 @@
         const older = Object.entries(r.older).filter(([, v]) => v > 0);
         const max = Math.max(...months.map(([, v]) => v), ...older.map(([, v]) => v));
         const missing = D.TODO.missingPrice.find(t => t.id === id);
-        const rank = sorted.indexOf(r) + 1;
+        const line = (label, v, age) => `<div class="mrow"><span>${label}</span><span class="track"><i style="width:${(v / max * 100).toFixed(1)}%;background:var(--age-${age})"></i></span><span class="r num" title="${D.fmtFull(v)}">${words(v)}</span></div>`;
         $('d-name').textContent = r.name;
-        $('d-sub').textContent = `${commodityOf(r)} · hạng ${rank}/${D.debtors.length} khách đang nợ`;
+        $('d-sub').textContent = comOf(r) === UNSORTED ? 'chưa phân loại' : comOf(r);
         $('d-body').innerHTML =
           `<div class="total"><span>Còn nợ</span><b title="${D.fmtFull(D.allOf(r))}">${words(D.allOf(r))}</b></div>` +
           `<h3>Còn nợ theo tháng phát sinh</h3>` +
-          months.map(([m, v]) => `<div class="mrow"><span>Tháng ${String(m).padStart(2, '0')}/${D.AS_OF.year}</span><span class="share"><i style="width:${(v / max * 100).toFixed(1)}%"></i></span><span class="r num" title="${D.fmtFull(v)}">${words(v)}</span></div>`).join('') +
-          older.map(([y, v]) => `<div class="mrow"><span>Năm ${y}</span><span class="share"><i style="width:${(v / max * 100).toFixed(1)}%"></i></span><span class="r num" title="${D.fmtFull(v)}">${words(v)}</span></div>`).join('') +
+          months.map(([m, v]) => line(`Tháng ${String(m).padStart(2, '0')}/${D.AS_OF.year}`, v, ageOf(Number(m)))).join('') +
+          older.map(([y, v]) => line(`Năm ${y}`, v, 3)).join('') +
           (missing ? `<p class="flags">${missing.count} chuyến thiếu đơn giá — chưa tính vào số trên.</p>` : '');
         $('d-open').href = ledgerHref(r);
         lastFocus = document.activeElement;
@@ -385,29 +392,30 @@
         $('drawer').hidden = true;
         lastFocus?.focus();
       }
-      document.addEventListener('click', event => {
-        const btn = event.target.closest('[data-khach]');
-        if (!btn) return;
-        openDrawer(Number(btn.dataset.khach));
-        setParam('khach', btn.dataset.khach, true);
+      $('top').addEventListener('click', e => {
+        const b = e.target.closest('[data-khach]');
+        if (!b) return;
+        openDrawer(Number(b.dataset.khach));
+        const p = params(); p.set('khach', b.dataset.khach);
+        history.pushState(null, '', location.pathname + '?' + p);
         pushed = true;
       });
-      // Mở bằng link có sẵn ?khach= thì không có bước lùi để quay về: đóng tại chỗ.
-      let pushed = false;
       const leave = () => {
         if ($('drawer').hidden) return;
         if (pushed) { pushed = false; history.back(); return; }
         closeDrawer();
-        setParam('khach', null, false);
+        const p = params(); p.delete('khach');
+        history.replaceState(null, '', location.pathname + (p.toString() ? '?' + p : ''));
       };
       $('d-close').addEventListener('click', leave);
       $('scrim').addEventListener('click', leave);
-      document.addEventListener('keydown', event => { if (event.key === 'Escape') leave(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') leave(); });
 
       function fromUrl() {
         const p = params();
-        const mh = [...groups.entries()].find(([, g]) => g.label === p.get('mh'));
-        expand(mh?.[0], Boolean(mh));
+        state.age = p.has('tuoi') ? Number(p.get('tuoi')) : null;
+        state.com = groups.has(p.get('mh')) ? p.get('mh') : null;
+        render();
         if (p.get('khach')) openDrawer(Number(p.get('khach'))); else if (!$('drawer').hidden) closeDrawer();
       }
       window.addEventListener('popstate', () => { pushed = false; fromUrl(); });

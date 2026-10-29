@@ -70,6 +70,7 @@
         'thieu-gia': ['critical', n => `Đang hiện <b>${n} chuyến thiếu đơn giá</b> — nhập giá để tính vào nợ.`, t => t.state === 'thieu-gia'],
         'cho-kiem': ['warning', n => `Đang hiện <b>${n} chuyến chờ kiểm</b> — kiểm xong mới vào sổ.`, t => t.state === 'cho-kiem'],
         'so-du-dau': ['neutral', () => 'Khách <b>chưa có số dư đầu</b> — nhập số dư đầu trước khi nhập chuyến.', () => false],
+        'gan-mat-hang': ['neutral', () => 'Khách <b>chưa đủ mặt hàng / cảng-bộ</b> — gán ở phần thông tin khách để vào đúng nhóm trên Tổng quan.', () => false],
         'dang-du': ['neutral', () => 'Sổ <b>đang dư tiền</b> — xem cấn trừ sang sổ khác hoặc trả lại khách.', () => true],
       };
       $('name').textContent = row.name;
