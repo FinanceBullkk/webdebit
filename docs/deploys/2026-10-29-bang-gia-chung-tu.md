@@ -1,7 +1,7 @@
 # Gói triển khai tay: bảng giá + ảnh chứng từ (29/10/2026)
 
-**ĐỀ XUẤT, CHƯA CHẠY.** Chỉ chạy khi người dùng ra lệnh chạy; không bước nào tự chạy. Lượt `Deploy hao` đỏ ở cổng SQL
-là chủ ý, không phải lỗi.
+**ĐÃ CHẠY trên `hao` ngày 29/10/2026** theo lệnh "Chạy luôn" của người dùng trong chat (Claude chạy). Lượt `Deploy hao` đỏ ở cổng SQL
+là chủ ý, không phải lỗi; xem mục *Kết quả* cuối file.
 
 | Mục | Nội dung |
 | --- | --- |
@@ -59,3 +59,14 @@ Kỳ vọng `f|f`. Nếu một trong hai là `t` thì migration đó đã áp: d
 - Chạy `chung-tu.sql` **trước** `bang-gia.sql` vẫn an toàn sau sửa này, nhưng giữ thứ tự trên để khớp harness.
 - Ảnh làm dump lớn dần: kiểm timer `v7_backup.py` và chỗ trống đĩa trước khi bật nhập ảnh cho người dùng.
 - Kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng; cần người dùng thử tay bảng giá và dán một ảnh vào phiếu thử trên bản sao.
+
+## Kết quả (29/10/2026)
+
+- **Trước:** `hao` chạy `a7987dd`; `to_regclass` hai bảng mới đều không có; DB `webdebit_v7` ~30 MB; 236 khách.
+- **Bản sao thử:** dump, restore vào DB thử, `bang-gia.sql` hai lượt rồi `chung-tu.sql` hai lượt: dấu vân tay số dư
+  (`md5` của `v_outstanding_month`) và số dòng khách/event/phiếu thu/chuyến (236/3644/4/51) không đổi; xóa DB thử.
+- **Cửa sổ dừng ghi:** dừng `v7-ledger-api.service`, dump lần hai + hash, áp hai migration (mỗi file một transaction,
+  tổng 1 giây), dấu vân tay không đổi, hai bảng mới có mặt; `webdebit-release.sh deploy 639c1d7` (CI xanh đúng SHA), service active.
+- **Sau:** `v7_post_deploy_check.sql` 9/9 OK (236 khách, 877 kỳ mở đầu); cổng loopback 403 (sống); số dư không đổi; `.release-sha` = `639c1d7`.
+- **Bằng chứng:** thư mục backup `v7-bang-gia-chung-tu-20261029-090153` trên `hao` (dump trước, dump lúc dừng, hash migration, dấu vân tay), ngoài Git.
+- **CÒN MỞ:** người dùng thử tay bảng giá và dán ảnh vào một phiếu trên web; giao diện bảng giá/ảnh chứng từ chưa có (chỉ backend).
