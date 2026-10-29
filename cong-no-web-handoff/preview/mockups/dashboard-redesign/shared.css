@@ -4,7 +4,7 @@
 :root{
   color-scheme:light;
   --page:#e9ecf0;--surface:#fff;--line:#d7dce3;--line-soft:#e9ecf0;--head:#f3f5f8;--zebra:#f8f9fb;
-  --ink:#1a1a19;--ink-2:#52514e;--ink-3:#85837c;
+  --ink:#1a1a19;--ink-2:#52514e;--ink-3:#6b6964;
   --accent:#2a78d6;--accent-ink:#1c5cab;--accent-soft:#eaf2fc;
   /* Ramp thứ bậc cho tuổi nợ (đã kiểm validate_palette --ordinal) */
   --age-0:#86b6ef;--age-1:#3987e5;--age-2:#1c5cab;--age-3:#0d366b;

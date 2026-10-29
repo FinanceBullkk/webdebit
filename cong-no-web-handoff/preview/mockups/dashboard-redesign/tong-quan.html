@@ -7,6 +7,10 @@
   <title>MOCKUP · Tổng quan công nợ</title>
   <link rel="stylesheet" href="shared.css">
   <style>
+    /* Bớt khung: viền nhạt là đủ tách khối; không bóng, không dải tiêu đề xám. */
+    .card{box-shadow:none}
+    .card-head{background:none;border-bottom:0;margin-bottom:6px;padding-top:16px;padding-bottom:4px}
+
     /* Số chính */
     .card.hero{padding-top:18px;background:linear-gradient(180deg,#eaf2fc,#fff 70%);border-color:#b7d3f6}
     .hero .label{font-size:15px;font-weight:600;color:var(--ink-2)}
@@ -26,7 +30,8 @@
 
     /* Tuổi nợ: bấm một nhóm để lọc danh sách khách */
     .age-bar{display:flex;gap:2px;height:28px;margin:4px 0 12px}
-    .age-bar span{display:block;height:100%;transition:opacity .15s}
+    .age-bar span{display:block;height:100%;cursor:pointer;transition:opacity .15s}
+    .age-bar span:hover{filter:brightness(1.12)}
     .age-bar span:first-child{border-radius:6px 0 0 6px}
     .age-bar span:last-child{border-radius:0 6px 6px 0}
     .age-legend{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -37,7 +42,7 @@
     .age-legend .k{font-size:14px;color:var(--ink-2)}
     .age-legend .v{font-size:20px;font-weight:700;margin-top:2px}
     .age-legend .p{font-size:13.5px;color:var(--ink-3)}
-    .picking .age-bar span:not(.on),.picking .age-legend button:not([aria-pressed="true"]){opacity:.4}
+    .picking .age-bar span:not(.on),.picking .age-legend button:not([aria-pressed="true"]) .sw{opacity:.3}
 
     /* Việc cần làm */
     .todo-group+.todo-group{margin-top:14px}
@@ -53,34 +58,38 @@
     .actors{margin-top:12px;font-size:14px;color:var(--ink-2)}
     .actors div{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line-soft)}
 
-    /* Thanh ngang có thứ bậc: nhóm đầu (cộng dồn tới 60% danh sách) to, đậm, thanh xanh đậm;
-       phần đuôi chữ nhỏ, thanh mảnh nhạt; Khác / Chưa phân loại xám, tách bằng vạch. */
+    /* Thanh ngang một màu (màu đi theo ý nghĩa, không theo thứ hạng). Thứ bậc bằng cỡ chữ và độ dày:
+       nhóm đầu (cộng dồn tới 60% danh sách) chữ to, thanh dày; Khác / Chưa phân loại xám, tách bằng vạch.
+       Màu đậm chỉ dành cho mục đang chọn. */
     .bars{display:flex;flex-direction:column}
     .bar-row{display:block;width:100%;padding:4px 10px 6px;border:0;border-left:3px solid transparent;border-radius:6px;background:none;text-align:left;cursor:pointer;transition:opacity .15s}
     .bar-row:hover{background:var(--head)}
     .bar-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-    .bar-row .line{display:flex;align-items:baseline;gap:10px;font-size:14px;color:var(--ink-2)}
+    .bar-row .line{display:flex;align-items:baseline;gap:10px;font-size:15px;color:var(--ink-2)}
     .bar-row .line .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .bar-row .line .val{font-variant-numeric:tabular-nums}
-    .bar-row .track{display:block;height:5px;margin-top:3px;border-radius:3px;background:#e6eaf0}
-    .bar-row .track i{display:block;height:100%;border-radius:3px;background:#8fb8ea}
+    .bar-row .track{display:block;height:6px;margin-top:4px;border-radius:3px;background:#e6eaf0;transition:opacity .15s}
+    .bar-row .track i{display:block;height:100%;border-radius:3px;background:var(--accent)}
     .bar-row.major{padding:8px 10px 10px}
-    .bar-row.major .line{font-size:16px;color:var(--ink)}
+    .bar-row.major .line{font-size:17px;color:var(--ink)}
     .bar-row.major .nm{font-weight:600}
-    .bar-row.major .val{font-size:17px;font-weight:700}
+    .bar-row.major .val{font-size:18px;font-weight:700}
     .bar-row.major .track{height:12px;margin-top:6px;border-radius:6px}
-    .bar-row.major .track i{border-radius:6px;background:var(--accent-ink)}
+    .bar-row.major .track i{border-radius:6px}
     .bar-row.major+.bar-row:not(.major){margin-top:6px}
     .bar-row.grey .line{color:var(--ink-3)}
-    .bar-row.grey .track i{background:#b8bec6}
+    .bar-row.grey .track i{background:#8e959e}
     .bar-row.grey.first{margin-top:8px;border-top:1px dashed var(--line);border-radius:0 0 6px 6px;padding-top:10px}
     .bar-row[aria-pressed="true"]{background:var(--accent-soft);border-left-color:var(--accent-ink)}
     .bar-row[aria-pressed="true"] .track i{background:var(--accent-ink)}
-    .picking .bar-row:not([aria-pressed="true"]){opacity:.4}
+    .picking .bar-row:not([aria-pressed="true"]) .track{opacity:.3}
 
     /* Lọc đang bật: hiện thành chip có nút bỏ */
-    .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
-    .chips[hidden]{display:none}
+    .filterbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px;border-radius:var(--radius);background:var(--accent-soft);border:1px solid #b7d3f6;font-size:15px}
+    .filterbar[hidden]{display:none}
+    .filterbar>span{font-weight:600;color:var(--ink-2)}
+    .chips{display:flex;flex-wrap:wrap;gap:8px}
+    .clear-all{margin-left:auto;border:0;background:none;color:var(--accent-ink);font-weight:600;cursor:pointer;text-decoration:underline}
     .chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 12px;border-radius:99px;background:var(--accent-ink);color:#fff;font-size:13.5px;font-weight:600}
     .chip button{width:22px;height:22px;border:0;border-radius:50%;background:#ffffff33;color:#fff;cursor:pointer;line-height:1}
     .chip button:hover{background:#ffffff55}
@@ -88,6 +97,11 @@
     .tbl-foot a{color:var(--accent-ink)}
     .tbl-foot a:hover{text-decoration:underline}
     .empty{margin:8px 0;color:var(--ink-3)}
+
+    .tip{position:fixed;z-index:50;max-width:280px;padding:8px 12px;border-radius:8px;background:#16324f;color:#fff;font-size:13.5px;line-height:1.45;pointer-events:none;box-shadow:0 4px 14px #0f172a40}
+    .tip[hidden]{display:none}
+    .tip b{display:block;font-size:16px}
+    .tip span{display:block;color:#c9d6e4}
 
     /* Ngăn kéo xem nhanh một khách */
     .scrim{position:fixed;inset:0;z-index:60;background:#0f172a55}
@@ -122,7 +136,7 @@
   </style>
 </head>
 <body>
-  <div class="demo">Mockup v5.2 · dữ liệu giả, tên khách và số tiền đều hư cấu · bấm nhóm tuổi nợ hoặc mặt hàng để lọc danh sách khách</div>
+  <div class="demo">Mockup v5.3 · dữ liệu giả, tên khách và số tiền đều hư cấu · bấm nhóm tuổi nợ hoặc mặt hàng để lọc danh sách khách</div>
   <header class="topbar">
     <a class="brand" href="tong-quan.html">Công nợ HTH</a>
     <nav aria-label="Điều hướng chính"><a class="active" href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
@@ -148,49 +162,52 @@
       </section>
 
       <section class="card c8" id="age-card" aria-labelledby="h-age">
-        <div class="card-head"><h2 id="h-age">Nợ theo tháng phát sinh</h2><span class="aside">bấm một nhóm để lọc danh sách khách</span></div>
+        <div class="card-head"><h2 id="h-age">Nợ theo tháng phát sinh</h2></div>
         <p class="lead" id="age-lead"></p>
         <div class="age-bar" id="age-bar" role="img"></div>
         <div class="age-legend" id="age-legend"></div>
       </section>
 
-      <div class="c4 stack">
-        <section class="card" aria-labelledby="h-todo">
-          <div class="card-head"><h2 id="h-todo">Việc cần làm</h2><span class="aside" id="todo-total"></span></div>
-          <div id="todo"></div>
+      <div class="c12 filterbar" id="filterbar" hidden><span>Đang lọc danh sách khách:</span><span class="chips" id="chips"></span><button type="button" class="clear-all" data-clear="all">Bỏ lọc</button></div>
+
+      <section class="card c4" aria-labelledby="h-todo">
+        <div class="card-head"><h2 id="h-todo">Việc cần làm</h2><span class="aside" id="todo-total"></span></div>
+        <div id="todo"></div>
+      </section>
+
+      <div class="c3 stack">
+        <section class="card com" id="com-card" aria-labelledby="h-com">
+          <div class="card-head"><h2 id="h-com">Theo mặt hàng</h2><span class="aside">tỷ đồng</span></div>
+          <div class="bars" id="com"></div>
         </section>
         <section class="card" aria-labelledby="h-today">
-          <div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi trên web</span></div>
+          <div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi</span></div>
           <div id="today"></div>
         </section>
       </div>
 
-      <section class="card c3 com" id="com-card" aria-labelledby="h-com">
-        <div class="card-head"><h2 id="h-com">Theo mặt hàng</h2><span class="aside">tỷ đồng</span></div>
-        <div class="bars" id="com"></div>
-      </section>
-
       <section class="card c5 top" aria-labelledby="h-top">
         <div class="card-head"><h2 id="h-top"></h2><span class="aside" id="top-aside"></span></div>
-        <div class="chips" id="chips"></div>
         <div class="bars" id="top"></div>
         <div class="tbl-foot"><a id="top-all" href="cong-no-theo-thang.html?con-no=1"></a></div>
       </section>
     </div>
 
     <details class="design-note">
-      <summary>Ghi chú duyệt thiết kế (mockup v5.2)</summary>
+      <summary>Ghi chú duyệt thiết kế (mockup v5.3)</summary>
       <ul>
         <li>v5.1 theo góp ý 29/10/2026: bấm nhóm tuổi nợ hoặc mặt hàng <b>lọc danh sách khách ngay trên Tổng quan</b> (có thể kết hợp hai lọc); chỉ danh sách khách đổi, các số tổng giữ nguyên để không hiểu nhầm. Lọc hiện thành chip có nút ✕; bấm lại mục đang chọn cũng bỏ lọc.</li>
         <li>Khi lọc theo tuổi nợ, số cạnh mỗi khách là <b>phần nợ thuộc nhóm đó</b>, không phải tổng nợ của khách.</li>
         <li>Hai bảng: mỗi dòng chỉ tên + số + một thanh, không câu giải thích. Thứ bậc bằng cỡ chữ, độ đậm và màu: các dòng đầu cộng dồn tới 60% danh sách to, đậm, thanh xanh đậm; phần đuôi chữ nhỏ, thanh mảnh nhạt; Khác / Chưa phân loại xám, tách bằng vạch. Muốn biết ai nợ cũ thì bấm “3–6 tháng” / “Trên 6 tháng”.</li>
         <li>Mặt hàng: chỉ sầu riêng tách cảng/bộ; khách thiếu mặt hàng hoặc sầu riêng chưa ghi cảng/bộ gom vào “Chưa phân loại” (thanh xám) và đưa sang Việc cần làm; mặt hàng dưới 1% gom “Khác”.</li>
         <li>Bấm một khách mở ngăn kéo xem nhanh (nợ theo tháng, nút Mở sổ). Trạng thái lọc và ngăn kéo ghi lên địa chỉ trang (<code>?tuoi=</code>, <code>?mh=</code>, <code>?khach=</code>).</li>
+        <li>v5.3 theo audit (skill dataviz + artifact-design): chữ phụ đậm lên đạt 4,5:1; khi lọc chỉ mờ thanh, chữ giữ nguyên; mọi thanh một màu, màu đậm chỉ cho mục đang chọn; một dải “Đang lọc” chung trên hàng dưới; bỏ bóng và dải tiêu đề xám; Hôm nay chuyển xuống dưới mặt hàng; rê chuột hoặc tab tới thanh/đoạn tuổi nợ hiện ô thông tin (số, %, số khách, số đồng đủ); bấm thẳng đoạn thanh tuổi nợ cũng lọc.</li>
         <li>Code thật: phần nợ theo nhóm tuổi của từng khách tính ở trình duyệt từ <code>/api/v7/receivables/matrix</code> (đã có số theo tháng từng khách); không cần API mới.</li>
       </ul>
     </details>
   </main>
 
+  <div class="tip" id="tip" role="tooltip" hidden></div>
   <div class="scrim" id="scrim" hidden></div>
   <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-name" hidden>
     <header><div><h2 id="d-name"></h2><p id="d-sub"></p></div><button type="button" class="x" id="d-close" aria-label="Đóng">✕</button></header>
@@ -210,7 +227,7 @@
         return (v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' triệu';
       };
       const amount = v => `<span class="num" title="${D.fmtFull(v)}">${words(v)}</span>`;
-      const ty = v => `<span class="val" title="${D.fmtFull(v)}">${(v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
+      const ty = v => `<span class="val">${(v / 1e9).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
       const pct = (v, of = D.receivable) => {
         const p = v / of * 100;
         return p > 0 && p < 0.1 ? '&lt;0,1%' : p.toLocaleString('vi-VN', { maximumFractionDigits: p < 10 ? 1 : 0 }) + '%';
@@ -246,9 +263,9 @@
       $('age-lead').innerHTML = `<b>${words(old)} (${pct(old)})</b> là nợ từ 3 tháng trước trở về trước.`;
       $('age-bar').setAttribute('aria-label', AGES.map((a, i) => `${a} ${words(D.aging[i])}`).join(', '));
       $('age-bar').innerHTML = D.aging.map((v, i) =>
-        `<span data-i="${i}" style="flex:${v};background:var(--age-${i})" title="${AGES[i]}: ${D.fmtFull(v)}"></span>`).join('');
+        `<span data-i="${i}" data-tip="age:${i}" style="flex:${v};background:var(--age-${i})"></span>`).join('');
       $('age-legend').innerHTML = D.aging.map((v, i) =>
-        `<button type="button" data-tuoi="${i}" aria-pressed="false"><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGES[i]}</div>` +
+        `<button type="button" data-tuoi="${i}" data-tip="age:${i}" aria-pressed="false"><div class="k"><span class="sw" style="background:var(--age-${i})"></span>${AGES[i]}</div>` +
         `<div class="v">${amount(v)}</div><div class="p">${pct(v)}</div></button>`).join('');
 
       // Việc cần làm: thêm nhóm khách cần gán mặt hàng / cảng-bộ (đưa từ khối mặt hàng sang).
@@ -313,7 +330,7 @@
         $('com').innerHTML = comOrder.map(key => {
           const v = sum(groups.get(key));
           const cls = GREY.has(key) ? ` grey${key === firstGrey ? ' first' : ''}` : ranked.indexOf(key) < major ? ' major' : '';
-          return `<button type="button" class="bar-row${cls}" data-mh="${D.esc(key)}" aria-pressed="${key === state.com}" title="${groups.get(key).length} khách · ${pct(v)} còn phải thu">` +
+          return `<button type="button" class="bar-row${cls}" data-mh="${D.esc(key)}" aria-pressed="${key === state.com}" data-tip="com:${D.esc(key)}">` +
             `<span class="line"><span class="nm">${D.esc(key)}</span>${ty(v)}</span>` +
             `<span class="track"><i style="width:${(v / comMax * 100).toFixed(1)}%"></i></span></button>`;
         }).join('');
@@ -333,13 +350,13 @@
         $('top-aside').textContent = filtered && rows.length ? `tổng ${words(total)} · tỷ đồng` : 'tỷ đồng';
         $('chips').innerHTML = (state.age != null ? `<span class="chip">Phần nợ ${AGES[state.age].toLowerCase()}<button type="button" data-clear="age" aria-label="Bỏ lọc ${AGES[state.age]}">✕</button></span>` : '') +
           (state.com != null ? `<span class="chip">${D.esc(state.com)}<button type="button" data-clear="com" aria-label="Bỏ lọc ${D.esc(state.com)}">✕</button></span>` : '');
-        $('chips').hidden = !filtered;
+        $('filterbar').hidden = !filtered;
         if (!rows.length) $('top').innerHTML = '<p class="empty">Không có khách nào khớp lọc này.</p>';
         const max = rows.length ? valueOf(rows[0]) : 1;
         const major = majorCount(rows.map(valueOf));
         if (rows.length) {
           $('top').innerHTML = shown.map((r, i) =>
-            `<button type="button" class="bar-row${i < major ? ' major' : ''}" data-khach="${r.id}" aria-haspopup="dialog">` +
+            `<button type="button" class="bar-row${i < major ? ' major' : ''}" data-khach="${r.id}" data-tip="khach:${r.id}" aria-haspopup="dialog">` +
             `<span class="line"><span class="nm">${D.esc(r.name)}</span>${ty(valueOf(r))}</span>` +
             `<span class="track"><i style="width:${(valueOf(r) / max * 100).toFixed(1)}%"></i></span></button>`).join('');
         }
@@ -362,12 +379,59 @@
         state.com = state.com === b.dataset.mh ? null : b.dataset.mh;
         writeUrl(false); render();
       });
-      $('chips').addEventListener('click', e => {
+      $('filterbar').addEventListener('click', e => {
         const b = e.target.closest('[data-clear]');
         if (!b) return;
-        state[b.dataset.clear] = null;
+        if (b.dataset.clear === 'all') { state.age = null; state.com = null; } else state[b.dataset.clear] = null;
         writeUrl(false); render();
       });
+      $('age-bar').addEventListener('click', e => {
+        const s = e.target.closest('[data-i]');
+        if (!s) return;
+        state.age = state.age === Number(s.dataset.i) ? null : Number(s.dataset.i);
+        writeUrl(false); render();
+      });
+
+      // Ô thông tin: số đứng đầu, chi tiết theo sau; hiện cả khi focus bằng bàn phím.
+      const tipText = key => {
+        const [kind, id] = key.split(':');
+        if (kind === 'age') {
+          const i = Number(id);
+          const n = D.debtors.filter(r => bucketsOf(r)[i] > 0).length;
+          return [AGES[i], words(D.aging[i]), `${pct(D.aging[i]).replace('&lt;', '<')} còn phải thu · ${n} khách`, D.fmtFull(D.aging[i])];
+        }
+        if (kind === 'com') {
+          const members = groups.get(id) ?? [];
+          const v = sum(members);
+          const names = id === 'Khác' ? ' · ' + [...new Set(members.map(r => r.commodity))].join(', ') : '';
+          return [id, words(v), `${pct(v).replace('&lt;', '<')} còn phải thu · ${members.length} khách${names}`, D.fmtFull(v)];
+        }
+        const r = D.byId(Number(id));
+        const v = state.age == null ? D.allOf(r) : bucketsOf(r)[state.age];
+        const part = state.age == null ? `${pct(v).replace('&lt;', '<')} còn phải thu` : `phần nợ ${AGES[state.age].toLowerCase()}`;
+        return [r.name, words(v), `${part} · nợ từ ${D.oldestMonth(r)}`, D.fmtFull(v)];
+      };
+      const tip = $('tip');
+      const showTip = el => {
+        const [head, value, sub, full] = tipText(el.dataset.tip);
+        tip.replaceChildren();
+        const h = document.createElement('span'); h.textContent = head;
+        const b = document.createElement('b'); b.textContent = value;
+        const s1 = document.createElement('span'); s1.textContent = sub;
+        const s2 = document.createElement('span'); s2.textContent = full;
+        tip.append(h, b, s1, s2);
+        tip.hidden = false;
+        const box = el.getBoundingClientRect();
+        const left = Math.min(Math.max(8, box.left + box.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - 8);
+        const above = box.top - tip.offsetHeight - 8;
+        tip.style.left = left + 'px';
+        tip.style.top = (above > 64 ? above : box.bottom + 8) + 'px';
+      };
+      const hideTip = () => { tip.hidden = true; };
+      document.addEventListener('pointerover', e => { const el = e.target.closest('[data-tip]'); if (el) showTip(el); else hideTip(); });
+      document.addEventListener('focusin', e => { const el = e.target.closest('[data-tip]'); if (el) showTip(el); else hideTip(); });
+      document.addEventListener('focusout', hideTip);
+      addEventListener('scroll', hideTip, { passive: true });
 
       // Ngăn kéo xem nhanh.
       let lastFocus = null;
@@ -375,6 +439,7 @@
       function openDrawer(id) {
         const r = D.byId(id);
         if (!r) return;
+        hideTip();
         const months = Object.entries(r.months).filter(([, v]) => v > 0).sort((a, b) => b[0] - a[0]);
         const older = Object.entries(r.older).filter(([, v]) => v > 0);
         const max = Math.max(...months.map(([, v]) => v), ...older.map(([, v]) => v));
