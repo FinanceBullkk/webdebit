@@ -96,5 +96,5 @@
     if (event.shiftKey && at <= 0) { event.preventDefault(); items[items.length - 1].focus(); }
     else if (!event.shiftKey && at === items.length - 1) { event.preventDefault(); items[0].focus(); }
   });
-  ctx.debitBusy = () => !dialog.hidden;
+  ctx.busyChecks.push(() => !dialog.hidden);
 };

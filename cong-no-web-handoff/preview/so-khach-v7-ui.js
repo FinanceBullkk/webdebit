@@ -566,7 +566,8 @@
       catch (error) { showNotice(error.message); }
     }
     // Các phần màn hình ở so-khach-v7-*-ui.js (nạp trước file này) dùng chung phạm vi qua ctx;
-    // cài theo đúng thứ tự cũ để trình nghe sự kiện đăng ký như trước khi tách.
+    // cài theo thứ tự thẻ script trong so-khach-v7-live.html (trình nghe sự kiện đăng ký theo thứ tự đó).
+    // Phần nào cần chặn tự cập nhật khi đang mở/nhập thì tự thêm hàm vào ctx.busyChecks.
     // Dòng hỏi/chi tiết chèn sau một hàng trải hết bảng chứa hàng đó (bảng chuyến, danh sách phiếu thu 3 cột, cả sổ).
     const spanOf = row => (typeof row?.closest === 'function' && row.closest('table')?.querySelector(':scope > colgroup')?.children.length) || labels.length;
     const ctx = { root, model, api, live, customerId, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields, showNotice, renderSnapshot, redraw, submit,
@@ -574,8 +575,9 @@
       get feeTypes() { return feeTypes; }, set feeTypes(value) { feeTypes = value; },
       get feeColumnIds() { return feeColumnIds; },
       get snapshot() { return snapshot; }, get rendering() { return rendering; },
-      get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; } };
-    for (const name of ['history', 'sheet', 'offset', 'edit', 'draft', 'fee', 'presence', 'images', 'debit', 'price']) window.SoKhachV7LiveParts[name]?.(ctx);
+      get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
+      busyChecks: [] };
+    for (const install of Object.values(window.SoKhachV7LiveParts ?? {})) install(ctx);
     const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell, draftsBy, draftGrid } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
@@ -589,7 +591,7 @@
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
     let refreshing = true;
     api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
-    const busy = () => api.hasPending() || draftsBy.size || ctx.feeBusy?.() || ctx.imagesBusy?.() || ctx.debitBusy?.() || ctx.priceBusy?.() || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
+    const busy = () => api.hasPending() || draftsBy.size || ctx.busyChecks.some(check => check()) || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
       || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
       || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {

@@ -27,7 +27,16 @@ Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/
 2. **PR lỗi thời** (main đã có commit mới): bấm *Update branch* trên GitHub hoặc `gh pr update-branch <số>`; conflict thì rebase ở máy. Repo chỉ cho **squash merge**, lịch sử `main` thẳng; required check duy nhất là `ci-ok` ([CI](#ci-trên-runner-github)). PR xếp chồng: retarget PR con về `main` trước khi merge PR cha, rồi rebase PR con.
 3. **Quyết định** ghi trong đúng file `docs/decisions/<id>.md` của nó; quyết định mới tạo file mới và thêm một dòng vào bảng của [`decisions.md`](decisions.md). Hai PR sửa hai quyết định khác nhau không còn đụng nhau.
 4. **Triển khai app không cần PR tài liệu riêng.** Merge vào `main` là tự triển khai lên `hao`; bằng chứng là lượt `Deploy hao` (bảng *Tóm tắt triển khai*: kết quả, SHA trước/sau, commit trong đợt) và tab *Environments → hao* trên GitHub. Trong PR của tính năng, file quyết định ghi "triển khai tự động khi merge qua `Deploy hao`", không ghi trước "ĐÃ TRIỂN KHAI". Lượt đỏ thì sửa và báo lại, không ghi là đã triển khai.
-5. **Triển khai tay** (gate SQL/migration/loader dừng `Deploy hao`): nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](deploys/README.md), không chèn thêm mục vào [runbook](v7-deploy-runbook.md); runbook chỉ giữ quy trình. Đợt đó cập nhật trạng thái trong file quyết định liên quan ở cùng PR.
+5. **Triển khai tay** (gate SQL/migration/loader dừng `Deploy hao`): nhật ký mỗi đợt là một file mới trong [`docs/deploys/`](deploys/README.md), không chèn thêm mục vào [runbook](v7-deploy-runbook.md); runbook chỉ giữ quy trình. Đợt đó cập nhật trạng thái trong file quyết định liên quan ở cùng PR. Trong lúc `main` có migration chưa chạy trên `hao`, mọi lượt `Deploy hao` sau đó cũng dừng ở bước kiểm diff (so với bản đang chạy) cho tới đợt triển khai tay.
+
+### Nhiều phiên Claude Code cùng lúc
+
+Đặt ra 29/10/2026 sau một ngày 5–6 phiên song song va nhau liên tục:
+
+- **Mỗi lúc chỉ một phiên sửa SQL/migration** (`tools/migrations/`, `*.sql`, `specs/v7-backend/`). Các phiên khác làm UI/tài liệu. Hai migration cùng dựng lại một ràng buộc (ví dụ `event_kind_check`) thì bản chạy sau xóa phần của bản trước; PR thứ hai phải gộp `main` và liệt kê đủ.
+- **Trước push luôn gộp `origin/main` mới nhất** và chạy lại `npm run check`. Khi có PR khác cùng sửa file nóng, xếp thứ tự merge trước (một phiên điều phối giữ hàng chờ).
+- **Chỗ thêm mới đã tự động, không sửa danh sách chung:** test JS chạy theo tên file (`scripts/run-tests.js`: `preview/test-*.js`, `*-browser.js` cho Chromium); phần màn hình sổ khách tự đăng ký (mục [bố cục](#bố-cục-mã-sổ-khách-v7-từ-29102026)); mục lục [`decisions.md`](decisions.md) gộp kiểu union (giữ cả hai dòng thêm cuối bảng), `check-doc-links.js` chặn dòng trùng hoặc file quyết định chưa có link.
+- **Test mới để ở file mới** (`test-<tính-năng>.js`/`-browser.js`) thay vì thêm tiếp vào `test-so-khach-v7-api.js`.
 
 ## Quy trình frontend
 
@@ -64,7 +73,7 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-draft-ui.js` | bảng nhập kiểu Sheet (NHAP-SHEET-01) |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 
-Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài các phần theo thứ tự cố định (history, sheet, offset, edit, draft) để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần mới thì thêm tên vào danh sách cài đó.
+Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài mọi phần đã đăng ký theo thứ tự thẻ `<script>` trong `so-khach-v7-live.html` để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần nào đang mở hộp/nhập dở cần chặn tự cập nhật thì `ctx.busyChecks.push(() => …)`. Phần mới không sửa `so-khach-v7-ui.js`: chỉ thêm thẻ script của nó ngay trên `so-khach-v7-ui.js`, CSS riêng để ở file `.css` của phần (như `presence.css`).
 
 **Thêm file preview chỉ sửa một chỗ: thẻ `<script>`/`<link>` trong trang HTML.** Server `web/v7_ledger_api.py` phục vụ đúng các file mà trang trong `PAGES` nạp (file khác vẫn 404), test unit `test-so-khach-v7-api.js` nạp theo thứ tự thẻ của `so-khach-v7-live.html`, test trình duyệt phục vụ cả thư mục, `Deploy hao` đóng gói cả `preview/`. Trang mới thì thêm vào `PAGES`. Test trình duyệt sổ khách dùng chung máy chủ giả `so-khach-v7-browser-world.js`.
 
