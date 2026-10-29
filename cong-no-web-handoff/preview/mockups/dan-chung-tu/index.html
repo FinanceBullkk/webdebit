@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dán chứng từ · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem spec v7-dan-chung-tu (29/10/2026) trên nền SO-GON-02 phương án A: dán ảnh chuyển khoản vào phiếu thu.
+     Chạy trong tab, không gọi API, không lưu gì: ảnh dán thật chỉ nằm trong bộ nhớ trình duyệt, đóng tab là mất.
+     Ảnh mẫu là hình vẽ giả, không mô phỏng ngân hàng hay ví thật nào. -->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid #1e4e8c;outline-offset:1px}
+.demo{margin:0;padding:6px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:14px}
+.guide{width:1252px;margin:6px auto;padding:6px 12px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px}
+.guide b{font-size:14px}
+.guide button{min-height:30px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65}
+.book-head{width:1252px;margin:0 auto;height:56px;display:flex;align-items:center;gap:16px;padding:6px 10px;background:#fff;border-bottom:2px solid #6584a5}
+.cust{font-size:16px;font-weight:700}.cust span{color:#3e5871;font-weight:400;margin-right:6px}
+.head-btn{min-height:34px;padding:0 14px;border:1px solid #6584a5;border-radius:4px;background:#fff;color:#173d65;font-weight:600}
+.total{margin-left:auto;text-align:right}.total span{display:block;color:#3e5871;font-size:13px}.total strong{font-size:20px;color:#123f79}
+.book{position:relative;width:1252px;margin:0 auto;display:grid;grid-template-columns:832px 420px;background:#fff;font-variant-numeric:tabular-nums}
+.month{grid-column:1/-1;height:40px;display:flex;align-items:center;gap:12px;padding:0 10px;background:#24496e;color:#fff;font-size:15px;font-weight:700}
+.lock{padding:3px 8px;border-radius:4px;background:#fff3c4;color:#5a3a00;font-size:12px}
+.mstats{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:400}.mstats b{font-weight:700}
+table.trips{width:100%;border-collapse:collapse;table-layout:fixed;align-self:start}
+.trips th,.trips td{height:34px;padding:0 6px;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trips th{background:#eaf1fa;text-align:left}
+.num{text-align:right}
+.cont{font-family:Consolas,"Cascadia Mono",monospace}
+.muted{color:#8193a6}
+/* Phiếu thu: danh sách riêng bên phải (SO-GON-02 A) */
+.pay{border-left:3px solid #3269a4;background:#f2f8ff;align-self:stretch}
+.plist{display:grid;grid-template-columns:92px 96px 1fr 52px}
+.plist>div{min-height:34px;display:flex;align-items:center;padding:0 6px;border-bottom:1px solid #c9dcf0;font-size:13px}
+.plist .hd{min-height:34px;background:#dfeeff;font-weight:700}
+.plist .a{justify-content:flex-end;font-weight:700}
+.plist .ref{grid-column:1/-1;min-height:22px;padding-bottom:4px;color:#3e5871;font-size:12px;justify-content:flex-end;gap:8px}
+.plist .row-sel{background:#dcebfb}
+.clip{min-width:42px;height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:13px;padding:0 4px}
+.clip.none{border-color:transparent;background:none;color:#8193a6}
+.entry-h{grid-column:1/-1;min-height:26px!important;background:#e3effc;color:#16385f;font-size:12px;font-weight:700}
+.entry input,.entry select{width:100%;height:30px;border:1px solid #8daac9;border-radius:3px;padding:0 4px;background:#fff;color:#162d48;font-size:13px}
+.entry input.money{text-align:right}
+.full{grid-column:1/-1}
+.full.entry{padding:4px 6px!important}
+.drop{grid-column:1/-1;min-height:62px!important;margin:6px;padding:6px 8px!important;border:2px dashed #8daac9!important;border-radius:6px;background:#fff;gap:8px;flex-wrap:wrap}
+.drop.over{border-color:#1e4e8c!important;background:#e8f1fc}
+.drop .hint{color:#3e5871;font-size:13px;line-height:1.4}
+.drop .hint b{color:#162d48}
+.pick{min-height:30px;padding:0 10px;border:1px solid #1e4e8c;border-radius:4px;background:#fff;color:#1e4e8c;font-weight:600}
+.thumb{position:relative;width:52px;height:52px;border:1px solid #8daac9;border-radius:4px;background:#fff;padding:0;overflow:hidden}
+.thumb img{width:100%;height:100%;object-fit:cover;object-position:top}
+.thumb.on{outline:2px solid #1e4e8c}
+.thumb .x{position:absolute;top:0;right:0;width:18px;height:18px;border:0;border-radius:0 0 0 4px;background:#24496ecc;color:#fff;font-size:12px;line-height:18px;padding:0}
+.warn,.err{grid-column:1/-1;min-height:0!important;margin:0 6px 6px;padding:6px 8px!important;border-radius:4px;font-size:13px;line-height:1.4;display:block!important}
+.warn{background:#fff3c4;color:#5a3a00;border:1px solid #e3c766}
+.err{background:#fdecec;color:#8a1414;border:1px solid #efb4b4}
+.err[hidden]{display:none!important}
+.actions{grid-column:1/-1;justify-content:flex-end;gap:8px;border-bottom:0!important;padding:6px!important}
+.save{min-height:36px;padding:0 18px;border:0;border-radius:4px;background:#1e4e8c;color:#fff;font-weight:700}
+.status{grid-column:1/-1;min-height:0!important;padding:6px!important;color:#15803d;font-size:13px;border-bottom:0!important}
+.voided-toggle{grid-column:1/-1;background:#f6f7f9;color:#5d6f82;font-size:12px!important}
+.voided-toggle button{border:0;background:none;color:#1d4ed8;text-decoration:underline;font-size:12px;padding:0 4px}
+.vline{grid-column:1/-1;background:#f6f7f9;color:#5d6f82;font-size:12px!important;gap:6px;min-height:30px!important}
+.vline s{color:#8193a6}
+.vline .clip{margin-left:auto;height:24px}
+/* Khung xem ảnh: nằm đè lên vùng chuyến, cạnh danh sách phiếu */
+.viewer{position:fixed;top:8px;left:max(8px,calc(50% - 618px));width:470px;height:calc(100vh - 16px);display:flex;flex-direction:column;background:#fff;border:2px solid #1e4e8c;border-radius:8px;box-shadow:0 8px 28px #11182740;z-index:5}
+.viewer[hidden]{display:none}
+.vbar{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #d1d5db;background:#eef2f6;border-radius:6px 6px 0 0}
+.vbar strong{font-size:14px;margin-right:auto}
+.vbar button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:13px}
+.vbar button.danger{border-color:#c98585;color:#8a1414}
+.vimg{flex:1;min-height:0;overflow:auto;background:#5b6675;display:flex;justify-content:center;align-items:flex-start}
+/* Vừa khung: thấy trọn ảnh chụp màn hình điện thoại; Phóng to: rộng hết khung, cuộn dọc để đọc số nhỏ. */
+.vimg img{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+.vimg.zoom img{width:100%;max-height:none}
+.vfoot{padding:6px 10px;font-size:12px;color:#374151;border-top:1px solid #d1d5db;line-height:1.4}
+.remove{padding:8px 10px;border-top:1px solid #d1d5db;background:#fdf6f6;display:grid;gap:6px;font-size:13px}
+.remove[hidden]{display:none}
+.remove input{height:32px;border:1px solid #c98585;border-radius:4px;padding:0 6px}
+.remove .row{display:flex;gap:8px;justify-content:flex-end}
+.remove .row button{min-height:32px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff}
+.remove .row button.danger{background:#b91c1c;border-color:#b91c1c;color:#fff;font-weight:700}
+.legend{width:1252px;margin:8px auto 30px;padding:8px 14px;background:#fff;border:1px solid #9eb4ca;border-radius:6px;font-size:13px}
+.legend h2{margin:0 0 4px;font-size:15px}.legend ul{margin:0;padding-left:20px}
+@media (prefers-reduced-motion:no-preference){.drop,.thumb{transition:background .12s,border-color .12s}}
+</style>
+</head>
+<body>
+<p class="demo" role="status">Bản xem · DỮ LIỆU GIẢ · Không phải sổ thật · Không lưu gì (ảnh dán chỉ nằm trong tab này)</p>
+<section class="guide" aria-label="Thử bản xem">
+  <b>Thử:</b> copy một ảnh bất kỳ rồi bấm <b>Ctrl+V</b> ở đâu cũng được trên trang, hoặc kéo thả ảnh vào khung nét đứt. Không có ảnh thì dùng ảnh mẫu:
+  <button type="button" data-sample="vnd">Ảnh mẫu VND</button>
+  <button type="button" data-sample="rmb">Ảnh mẫu RMB</button>
+  <button type="button" data-sample="dup">Ảnh đã dùng ở phiếu khác</button>
+  <button type="button" data-sample="bad">File không phải ảnh</button>
+</section>
+
+<header class="book-head">
+  <div class="cust"><span>Sổ khách</span>KHÁCH GIẢ A · Sầu riêng · cảng</div>
+  <button type="button" class="head-btn">Lịch sử</button>
+  <div class="total"><span>Tổng còn nợ (mọi tháng)</span><strong id="grand"></strong></div>
+</header>
+
+<main class="book" id="book">
+  <div class="month">THÁNG 10/2026 <span class="lock">🔓 Đang mở</span>
+    <span class="mstats"><span>Nợ các tháng trước <b id="carry"></b></span><span>Phát sinh <b id="charges"></b></span><span>Đã thu <b id="received"></b></span><span>Còn nợ cuối tháng <b id="end"></b></span></span></div>
+  <table class="trips" aria-label="Chuyến tháng 10/2026">
+    <colgroup><col style="width:40px"><col style="width:124px"><col style="width:70px"><col style="width:170px"><col style="width:100px"><col style="width:84px"><col style="width:96px"><col style="width:148px"></colgroup>
+    <thead><tr><th>STT</th><th>Số container</th><th>Hãng tàu</th><th>Shipper</th><th>Ngày chuyến</th><th>Nơi đến</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+    <tbody id="trips"></tbody>
+  </table>
+  <section class="pay" aria-label="Phiếu thu tháng 10/2026"><div class="plist" id="plist"></div></section>
+
+  <aside class="viewer" id="viewer" hidden aria-label="Xem ảnh chứng từ">
+    <div class="vbar">
+      <strong id="vtitle"></strong>
+      <button type="button" id="vprev" aria-label="Ảnh trước">‹</button>
+      <button type="button" id="vnext" aria-label="Ảnh sau">›</button>
+      <button type="button" id="vzoom">Phóng to</button>
+      <button type="button" id="vremove" class="danger">Gỡ ảnh</button>
+      <button type="button" id="vclose">Đóng</button>
+    </div>
+    <div class="vimg" id="vimg"><img id="vpic" alt="Ảnh chứng từ"></div>
+    <div class="remove" id="vremovebox" hidden>
+      <label>Lý do gỡ ảnh (bắt buộc) <input id="vreason" maxlength="200" placeholder="Ví dụ: đính nhầm ảnh của khách khác"></label>
+      <span class="err" id="vreasonerr" hidden style="margin:0">Cần ghi lý do trước khi gỡ.</span>
+      <div class="row"><button type="button" id="vcancel">Thôi</button><button type="button" class="danger" id="vconfirm">Gỡ ảnh</button></div>
+    </div>
+    <div class="vfoot" id="vfoot"></div>
+  </aside>
+</main>
+
+<section class="legend" aria-labelledby="l">
+  <h2 id="l">Ghi chú bản xem</h2>
+  <ul>
+    <li>Ảnh chỉ để đối chiếu. Web <b>không đọc số</b> trên ảnh. Người nhập vẫn gõ ngày, hình thức, số tiền. Ảnh RMB: ô Số tiền ghi VND thực nhận, số RMB và tỷ giá ghi ở Tham chiếu (V7-CSM).</li>
+    <li>Ảnh được nén nhẹ trước khi lưu: cạnh dài tối đa 2400 px, tối đa 2 MB, tối đa 5 ảnh mỗi phiếu. Phiếu có ảnh hiện nút 📎 kèm số ảnh. Bấm vào để xem, đính thêm hoặc gỡ ảnh (gỡ bắt buộc lý do, ghi Lịch sử).</li>
+    <li>Ảnh đã đính vào phiếu khác thì cảnh báo, không chặn (khách trả gộp hai sổ). Phiếu đã hủy chỉ xem ảnh, không đính thêm.</li>
+    <li>Không đổi: luật tiền, thứ tự trừ nợ cũ trước, ổ khóa tháng, cách nhập phiếu hiện có. Bảng chuyến vẽ gọn để tập trung vào phiếu thu.</li>
+  </ul>
+</section>
+
+<script>
+const fmt = n => n.toLocaleString('vi-VN');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const TODAY = '29/10/2026';
+const MAX_IMAGES = 5, MAX_BYTES = 2 * 1024 * 1024, MAX_EDGE = 2400;
+
+// Ảnh mẫu: hình vẽ giả của màn hình chuyển khoản, không giống ngân hàng hay ví thật nào.
+function fakeShot(lines, accent) {
+  const rows = lines.map(([t, y, size, w, c]) => `<text x="40" y="${y}" font-size="${size}" font-weight="${w || 400}" fill="${c || '#1f2937'}">${esc(t)}</text>`).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="540" height="1170" viewBox="0 0 540 1170" font-family="Segoe UI, sans-serif">
+    <rect width="540" height="1170" fill="#f3f4f6"/><rect width="540" height="140" fill="${accent}"/>
+    <text x="40" y="90" font-size="30" font-weight="700" fill="#fff">ỨNG DỤNG GIẢ · BẢN XEM</text>
+    <rect x="24" y="170" width="492" height="760" rx="18" fill="#fff"/>
+    <circle cx="270" cy="250" r="44" fill="#d1fae5"/><path d="M248 250l16 16 30-32" stroke="#047857" stroke-width="8" fill="none"/>
+    ${rows}</svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+const SAMPLES = {
+  vnd: fakeShot([['Chuyển tiền thành công', 340, 30, 700], ['50.000.000 VND', 410, 44, 800, '#111827'],
+    ['Thời gian: 29/10/2026 09:42', 500, 22], ['Từ: CONG TY GIA A', 550, 22], ['Đến: HTH (tài khoản giả)', 600, 22],
+    ['Nội dung: KHACH GIA A TT T10', 650, 22], ['Mã giao dịch: GIA0000000042', 700, 22, 400, '#6b7280']], '#475569'),
+  rmb: fakeShot([['转账成功 · Chuyển thành công', 340, 28, 700], ['¥ 28,000.00', 410, 44, 800, '#111827'],
+    ['时间 29/10/2026 08:15', 500, 22], ['付款方: GIA A TRADING', 550, 22], ['收款方: (tài khoản giả)', 600, 22],
+    ['备注: T10 货款', 650, 22], ['单号: GIA-RMB-0000017', 700, 22, 400, '#6b7280']], '#64748b'),
+  used: fakeShot([['Chuyển tiền thành công', 340, 30, 700], ['300.000.000 VND', 410, 44, 800, '#111827'],
+    ['Thời gian: 21/10/2026 15:03', 500, 22], ['Nội dung: KHACH GIA A + GIA B', 550, 22], ['Mã giao dịch: GIA0000000007', 600, 22, 400, '#6b7280']], '#475569'),
+};
+
+// Khóa trùng: bản thật dùng SHA-256 trên server; bản xem băm nội dung data URL ngay trong tab.
+async function fingerprint(url) {
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(url));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch { let h = 0; for (let i = 0; i < url.length; i++) h = (h * 31 + url.charCodeAt(i)) | 0; return 'h' + h; }
+}
+
+const trips = [
+  ['FAKU1000001','COSCO','VAN TAI GIA PHAT MIEN TRUNG','18/10/2026','XIAMEN',85000000],
+  ['FAKU1000002','CMA','CONG TY TAY NGUYEN B','19/10/2026','QINGDAO',75000000],
+  ['FAKU1000003','WH','CONG TY TAY NGUYEN B','19/10/2026','XIAMEN',75000000],
+  ['FAKU1000004','COSCO','VAN TAI GIA PHAT MIEN TRUNG','20/10/2026','XIAMEN',85000000],
+  ['FAKU1000005','TSL','VAN TAI GIA PHAT MIEN TRUNG','21/10/2026','NANSHA',85000000],
+  ['FAKU1000006','SNL','VAN TAI GIA PHAT MIEN TRUNG','22/10/2026','NANSHA',null],
+];
+const carry = 1200000000;
+// Ảnh đã đính ở sổ khác (để thử cảnh báo trùng).
+const elsewhere = new Map();
+const state = {
+  receipts: [
+    {pid:'P-0001', date:'21/10/2026', method:'THU TIỀN', amount:300000000, ref:'UNC 2110', images:[]},
+    {pid:'P-0002', date:'24/10/2026', method:'THU TIỀN', amount:50000000, ref:'', images:[]},
+  ],
+  voided: [{pid:'P-0003', amount:2000000000, date:'23/10/2026', voidedOn:'23/10/2026', reason:'Nhập nhầm số', images:[]}],
+  draft: {date:'', method:'THU TIỀN', amount:'', ref:'', images:[], warn:[], err:''},
+  showVoided: false, status: '', nextPid: 4,
+  view: null, // {owner:'draft'|pid, index, voided}
+};
+
+async function makeImage(url, source) { return {url, hash: await fingerprint(url), source}; }
+
+async function seed() {
+  const used = await makeImage(SAMPLES.used, 'mẫu');
+  state.receipts[0].images.push(used);
+  elsewhere.set(used.hash, 'phiếu P-0009 của KHÁCH GIẢ B (sổ khác), ngày 21/10/2026');
+  state.voided[0].images.push(await makeImage(SAMPLES.vnd, 'mẫu'));
+  render();
+}
+
+function totals() {
+  const charges = trips.reduce((s, t) => s + (t[5] ?? 0), 0);
+  const received = state.receipts.reduce((s, r) => s + r.amount, 0);
+  return {charges, received, end: carry + charges - received};
+}
+
+function clipButton(owner, n, label) {
+  return n ? `<button type="button" class="clip" data-open="${owner}" aria-label="Xem ${n} ảnh chứng từ ${label}">📎 ${n}</button>`
+    : `<button type="button" class="clip none" data-open="${owner}" aria-label="Đính ảnh cho ${label}" title="Đính ảnh">＋📎</button>`;
+}
+
+function render() {
+  const t = totals();
+  document.getElementById('grand').textContent = fmt(t.end);
+  document.getElementById('carry').textContent = fmt(carry);
+  document.getElementById('charges').textContent = '+' + fmt(t.charges);
+  document.getElementById('received').textContent = '−' + fmt(t.received);
+  document.getElementById('end').textContent = fmt(t.end);
+  document.getElementById('trips').innerHTML = trips.map((r, i) => `<tr><td>${i + 1}</td><td class="cont">${r[0]}</td><td>${r[1]}</td><td title="${esc(r[2])}">${esc(r[2])}</td><td>${r[3]}</td><td>${r[4]}</td>
+    ${r[5] == null ? '<td class="num" style="background:#ffddb0;color:#72410a;font-weight:700">Thiếu giá</td><td class="num" style="background:#ffddb0;color:#72410a;font-weight:700">Chưa tính</td>' : `<td class="num">${fmt(r[5])}</td><td class="num">${fmt(r[5])}</td>`}</tr>`).join('');
+
+  const d = state.draft, sel = state.view?.owner;
+  let h = '<div class="hd">Ngày trả</div><div class="hd">Hình thức</div><div class="hd a">Số tiền trả</div><div class="hd">Ảnh</div>';
+  for (const r of state.receipts) {
+    const on = sel === r.pid ? ' row-sel' : '';
+    h += `<div class="${on}">${r.date}</div><div class="${on}">${r.method}</div><div class="a${on}">${fmt(r.amount)}</div><div class="${on}">${clipButton(r.pid, r.images.length, r.pid)}</div>`;
+    if (r.ref) h += `<div class="ref${on}">Tham chiếu: ${esc(r.ref)}</div>`;
+  }
+  h += `<div class="voided-toggle">${state.voided.length} phiếu đã hủy, không tính tiền<button type="button" id="tv" aria-expanded="${state.showVoided}">${state.showVoided ? 'Ẩn' : 'Xem'}</button></div>`;
+  if (state.showVoided) for (const v of state.voided)
+    h += `<div class="vline"><s>${fmt(v.amount)}</s> · phiếu ${v.date} · hủy ${v.voidedOn} · ${esc(v.reason)}${v.images.length ? `<button type="button" class="clip" data-open="${v.pid}" aria-label="Xem ảnh phiếu đã hủy">📎 ${v.images.length}</button>` : ''}</div>`;
+
+  h += '<div class="entry-h">Ghi phiếu mới</div>';
+  h += `<div class="entry"><input id="d-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric" value="${esc(d.date)}"></div>
+    <div class="entry"><select id="d-method" aria-label="Hình thức">${['THU TIỀN','CẤN TRỪ','ỨNG TRƯỚC','KHÁC'].map(m => `<option${m === d.method ? ' selected' : ''}>${m}</option>`).join('')}</select></div>
+    <div class="entry"><input id="d-amount" class="money" aria-label="Số tiền trả (VND thực nhận)" placeholder="VND thực nhận" inputmode="numeric" value="${esc(d.amount)}"></div>
+    <div>${d.images.length ? `<button type="button" class="clip" data-open="draft" aria-label="Xem ${d.images.length} ảnh vừa dán">📎 ${d.images.length}</button>` : ''}</div>
+    <div class="full entry"><input id="d-ref" aria-label="Tham chiếu" maxlength="500" placeholder="Tham chiếu (tùy chọn): mã giao dịch, số RMB × tỷ giá…" value="${esc(d.ref)}"></div>`;
+  h += `<div class="drop" id="drop">${d.images.map((im, i) => `<span class="thumb${sel === 'draft' && state.view.index === i ? ' on' : ''}"><button type="button" class="thumb" style="border:0" data-open="draft" data-index="${i}" aria-label="Xem ảnh ${i + 1}"><img src="${im.url}" alt=""></button><button type="button" class="x" data-drop="${i}" aria-label="Bỏ ảnh ${i + 1} khỏi phiếu đang nhập">×</button></span>`).join('')}
+    <span class="hint">${d.images.length ? `${d.images.length}/${MAX_IMAGES} ảnh. Dán tiếp để thêm.` : '<b>📎 Dán ảnh chuyển khoản:</b> bấm Ctrl+V, hoặc kéo thả ảnh vào đây.'}</span>
+    <button type="button" class="pick" id="pick">Chọn ảnh…</button><input type="file" id="file" accept="image/png,image/jpeg,image/webp" multiple hidden></div>`;
+  for (const w of d.warn) h += `<div class="warn" role="status">⚠ ${w}</div>`;
+  if (d.err) h += `<div class="err" role="alert">${d.err}</div>`;
+  h += '<div class="actions"><button type="button" class="save" id="save">Ghi phiếu</button></div>';
+  if (state.status) h += `<div class="status" role="status">${state.status}</div>`;
+  document.getElementById('plist').innerHTML = h;
+  renderViewer();
+}
+
+function ownerOf(key) {
+  if (key === 'draft') return {images: state.draft.images, label: 'Phiếu đang nhập', draft: true};
+  const r = state.receipts.find(x => x.pid === key);
+  if (r) return {images: r.images, label: `Phiếu ${r.pid} · ${r.date} · ${fmt(r.amount)}`, receipt: r};
+  const v = state.voided.find(x => x.pid === key);
+  return {images: v.images, label: `Phiếu đã hủy ${v.pid}`, voided: true};
+}
+
+function renderViewer() {
+  const box = document.getElementById('viewer');
+  const v = state.view;
+  if (!v) { box.hidden = true; return; }
+  const o = ownerOf(v.owner);
+  box.hidden = false;
+  const n = o.images.length;
+  document.getElementById('vtitle').textContent = n ? `${o.label} · ảnh ${v.index + 1}/${n}` : o.label;
+  document.getElementById('vprev').disabled = v.index <= 0;
+  document.getElementById('vnext').disabled = v.index >= n - 1;
+  document.getElementById('vzoom').textContent = v.zoom ? 'Vừa khung' : 'Phóng to';
+  document.getElementById('vimg').classList.toggle('zoom', !!v.zoom);
+  const pic = document.getElementById('vpic');
+  pic.hidden = !n;
+  if (n) pic.src = o.images[v.index].url;
+  // Phiếu đang nhập bỏ ảnh bằng dấu ×; phiếu đã ghi gỡ có lý do; phiếu hủy chỉ xem.
+  document.getElementById('vremove').hidden = !o.receipt || !n;
+  document.getElementById('vremovebox').hidden = !v.removing;
+  document.getElementById('vfoot').innerHTML = o.voided
+    ? 'Phiếu đã hủy: chỉ xem ảnh, không đính thêm.'
+    : `Ảnh chỉ để đối chiếu, web không đọc số. Ảnh RMB: Số tiền ghi <b>VND thực nhận</b>, RMB và tỷ giá ghi ở Tham chiếu.${o.receipt ? ' Dán Ctrl+V lúc khung này mở để <b>đính thêm ảnh vào phiếu này</b>.' : ''}${!n && o.receipt ? '<br><b>Phiếu chưa có ảnh.</b> Bấm Ctrl+V hoặc kéo thả ảnh vào khung này.' : ''}`;
+}
+
+function readDraftInputs() {
+  const g = id => document.getElementById(id);
+  if (!g('d-date')) return;
+  Object.assign(state.draft, {date: g('d-date').value, method: g('d-method').value, amount: g('d-amount').value, ref: g('d-ref').value});
+}
+
+// Nén nhẹ: cạnh dài ≤2400 px, WebP 0,9 (spec, Câu hỏi mở). Ảnh mẫu SVG giữ nguyên.
+function compress(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/webp', 0.9));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad')); };
+    img.src = url;
+  });
+}
+
+// Ảnh dán vào đâu: khung xem của phiếu đã ghi đang mở thì đính vào phiếu đó; còn lại vào phiếu đang nhập.
+function target() {
+  const v = state.view;
+  if (v && v.owner !== 'draft') {
+    const o = ownerOf(v.owner);
+    if (o.voided) return {err: 'Phiếu đã hủy, không đính thêm ảnh được. Đóng khung xem để dán vào phiếu mới.'};
+    return {list: o.images, owner: v.owner, receipt: o.receipt};
+  }
+  return {list: state.draft.images, owner: 'draft'};
+}
+
+async function addFiles(files) {
+  readDraftInputs();
+  state.draft.err = ''; state.status = '';
+  const t = target();
+  if (t.err) { state.draft.err = t.err; render(); return; }
+  for (const f of files) {
+    if (t.list.length >= MAX_IMAGES) { state.draft.err = `Mỗi phiếu tối đa ${MAX_IMAGES} ảnh. Bỏ bớt ảnh rồi dán lại.`; break; }
+    let url;
+    if (typeof f === 'string') url = f;
+    else if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { state.draft.err = `File "${esc(f.name || 'vừa dán')}" không phải ảnh. Chỉ nhận ảnh PNG, JPG hoặc WebP.`; continue; }
+    else {
+      try { url = await compress(f); } catch { state.draft.err = 'Không mở được ảnh này. Thử chụp màn hình lại rồi dán.'; continue; }
+      if (url.length * 0.75 > MAX_BYTES) { state.draft.err = 'Ảnh quá lớn kể cả sau khi nén (trên 2 MB). Cắt bớt phần thừa rồi dán lại.'; continue; }
+    }
+    const im = await makeImage(url, typeof f === 'string' ? 'mẫu' : 'dán');
+    const where = elsewhere.get(im.hash) || [...state.receipts].find(r => r.images.some(x => x.hash === im.hash) && r.pid !== t.owner)?.pid;
+    if (t.list.some(x => x.hash === im.hash)) { state.draft.err = 'Ảnh này đã có trong phiếu, không thêm lần nữa.'; continue; }
+    if (where) state.draft.warn.push(`Ảnh này đã đính vào ${where.startsWith('P-') ? 'phiếu ' + where + ' của sổ này' : where}. Vẫn ghi được nếu khách trả gộp cho hai sổ; kiểm lại để khỏi ghi trùng.`);
+    t.list.push(im);
+    if (t.receipt) state.status = `Đã đính thêm ảnh vào phiếu ${t.owner}. Ghi Lịch sử: người đính, giờ đính.`;
+    state.view = {owner: t.owner, index: t.list.length - 1, zoom: false};
+  }
+  render();
+}
+
+function save() {
+  readDraftInputs();
+  const d = state.draft;
+  const m = d.date.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const amount = Number(d.amount.replace(/[.\s]/g, ''));
+  const toKey = s => s.split('/').reverse().map(x => x.padStart(2, '0')).join('');
+  if (!m) d.err = 'Ngày trả cần dạng dd/mm/yyyy.';
+  else if (toKey(d.date.trim()) > toKey(TODAY)) d.err = 'Ngày trả không được sau hôm nay.';
+  else if (!Number.isSafeInteger(amount) || amount <= 0) d.err = 'Số tiền trả cần là số VND nguyên, lớn hơn 0.';
+  else {
+    const pid = 'P-' + String(state.nextPid++).padStart(4, '0');
+    state.receipts.push({pid, date: d.date.trim(), method: d.method, amount, ref: d.ref.trim(), images: d.images});
+    state.status = `Đã ghi phiếu ${pid}${d.images.length ? ` kèm ${d.images.length} ảnh` : ' (không có ảnh)'}. Ghi Lịch sử: người làm, giờ làm.`;
+    state.draft = {date:'', method:'THU TIỀN', amount:'', ref:'', images:[], warn:[], err:''};
+    state.view = null;
+  }
+  render();
+}
+
+document.addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (!files.length) return; // chữ thường dán vào ô như bình thường
+  e.preventDefault();
+  addFiles(files);
+});
+document.addEventListener('dragover', e => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); document.getElementById('drop')?.classList.add('over'); } });
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.getElementById('drop')?.classList.remove('over'); });
+document.addEventListener('drop', e => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); addFiles([...e.dataTransfer.files]); });
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const v = state.view;
+  if (b.dataset.sample) {
+    if (b.dataset.sample === 'bad') { addFiles([new File(['x'], 'bang-ke.pdf', {type: 'application/pdf'})]); return; }
+    addFiles([SAMPLES[{vnd:'vnd', rmb:'rmb', dup:'used'}[b.dataset.sample]]]); return;
+  }
+  if (b.dataset.open) { readDraftInputs(); state.view = {owner: b.dataset.open, index: Number(b.dataset.index || 0), zoom: false}; render(); return; }
+  if (b.dataset.drop != null) {
+    readDraftInputs(); state.draft.images.splice(Number(b.dataset.drop), 1); state.draft.warn = []; state.draft.err = '';
+    if (v?.owner === 'draft') state.view = state.draft.images.length ? {...v, index: Math.min(v.index, state.draft.images.length - 1)} : null;
+    render(); return;
+  }
+  switch (b.id) {
+    case 'tv': readDraftInputs(); state.showVoided = !state.showVoided; render(); break;
+    case 'pick': document.getElementById('file').click(); break;
+    case 'save': save(); break;
+    case 'vclose': state.view = null; render(); break;
+    case 'vprev': v.index--; v.removing = false; renderViewer(); break;
+    case 'vnext': v.index++; v.removing = false; renderViewer(); break;
+    case 'vzoom': v.zoom = !v.zoom; renderViewer(); break;
+    case 'vremove': v.removing = true; renderViewer(); document.getElementById('vreason').focus(); break;
+    case 'vcancel': v.removing = false; document.getElementById('vreasonerr').hidden = true; renderViewer(); break;
+    case 'vconfirm': {
+      const reason = document.getElementById('vreason').value.trim();
+      if (!reason) { document.getElementById('vreasonerr').hidden = false; document.getElementById('vreason').focus(); break; }
+      const o = ownerOf(v.owner);
+      o.images.splice(v.index, 1);
+      state.status = `Đã gỡ 1 ảnh khỏi phiếu ${v.owner}. Lý do: "${esc(reason)}". Ảnh không bị xóa hẳn, xem lại trong Lịch sử.`;
+      document.getElementById('vreason').value = ''; document.getElementById('vreasonerr').hidden = true;
+      state.view = o.images.length ? {owner: v.owner, index: Math.max(0, v.index - 1), zoom: false} : null;
+      render(); break;
+    }
+  }
+});
+document.addEventListener('change', e => { if (e.target.id === 'file' && e.target.files.length) addFiles([...e.target.files]); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.view) { state.view = null; render(); }
+  if (e.key === 'Enter' && e.target.closest?.('.entry')) { e.preventDefault(); save(); }
+});
+seed();
+</script>
+</body>
+</html>
