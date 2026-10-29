@@ -1,6 +1,6 @@
 # V7: phân loại phụ phí theo bảng PS của bộ lập bill
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE, chưa triển khai (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Chưa có mockup, chưa code. Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
+Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026); PR-1 backend ĐÃ CODE; migration ĐÃ TRIỂN KHAI trên `hao` 29/10/2026 ([nhật ký](../docs/deploys/2026-10-29-xoa-dc-ps-fee.md)), runner bản chụp PS chưa cài vì tài khoản dịch vụ chưa đọc được file bộ lập bill (mục Tiến độ). Spec con của [`v7-phu-phi-nhieu-loai.md`](v7-phu-phi-nhieu-loai.md), mục "Nhập từ bảng chi phí phát sinh". Chính sách nguồn đã chốt ở [`PHU-PHI-01`](../docs/decisions.md#phu-phi-01) (9)–(11). Nguồn đọc là tab tổng hợp `CONT_MASTER` của bộ lập bill: người dùng xác nhận trong chat 29/10/2026 rằng số PS ở tab này mới đúng, thay cho tab gom thô `PS_DATA`. Chưa có mockup, chưa code. Spec này đổi ba điểm so với phần ĐỀ XUẤT của spec cha; lý do ở mục [Khác spec cha](#khác-spec-cha).
 
 ## Người dùng và luồng (bước 1)
 

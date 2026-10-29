@@ -17,4 +17,4 @@ Người dùng cho **xóa dòng điều chỉnh cả tháng** trên sổ V7, tha
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Code: hàm `delete_month_adjustment`, cột `adjustment.reverses_adjustment_id`, loại sự kiện `adjust_month_delete`, migration `2026-10-29-v7-xoa-dieu-chinh-thang.sql` (chạy sau `2026-10-29-v7-chung-tu.sql`), API `POST /api/v7/months/adjust/delete`, UI sổ khách. Có migration nên phải triển khai tay trên `hao` theo runbook; CHƯA TRIỂN KHAI. Hai dòng thử đã ghi trước đó chỉ ẩn được sau khi migration chạy.
+ĐÃ CHỐT. Code: hàm `delete_month_adjustment`, cột `adjustment.reverses_adjustment_id`, loại sự kiện `adjust_month_delete`, migration `2026-10-29-v7-xoa-dieu-chinh-thang.sql` (chạy sau `2026-10-29-v7-chung-tu.sql`), API `POST /api/v7/months/adjust/delete`, UI sổ khách. **ĐÃ TRIỂN KHAI trên `hao` 29/10/2026** (release `f7d4817`, nhật ký [`deploys/2026-10-29-xoa-dc-ps-fee.md`](../deploys/2026-10-29-xoa-dc-ps-fee.md)): migration áp trong cửa sổ dừng ghi, số dư 236/236 khách không đổi, checker OK. CÒN MỞ: chưa thử tay xóa một dòng trên web; hai dòng thử đã ghi trước đó giờ ẩn được.
