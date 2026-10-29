@@ -144,6 +144,14 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
 });
 
 test('history formats every SQL event kind, snapshots and VN timestamp; hides unknown codes', async () => {
+  // specs/v7-phu-phi-backend.md: chưa có nhãn, chờ PR giao diện phụ phí.
+  const PENDING_UI_EVENT_KINDS = ['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns'];
+  for (const kind of PENDING_UI_EVENT_KINDS) {
+    const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
+      at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });
+    assert.match(pending.root.innerHTML, /Thao tác khác/, kind);
+    assert.ok(!pending.root.innerHTML.includes(kind), kind);
+  }
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM' };
@@ -168,7 +176,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".
   const pendingUi = ['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete'];
-  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind)).sort(), Object.keys(kinds).sort());
+  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind)).sort(), Object.keys(kinds).sort());
 });
 
 test('locked month keeps trip cells read only and receipt entry usable', async () => {

@@ -20,6 +20,76 @@ sys.path.insert(0, str(ROOT / "web"))
 import v7_ledger_api as api  # noqa: E402
 
 
+class FeeApiTest(unittest.TestCase):
+    def setUp(self):
+        self.common = {"customer_id": 1, "expected_version": 0, "idempotency_key": "fee-request"}
+        self.headers = {"Host": "127.0.0.1:8780", "Origin": "http://127.0.0.1:8780", "Content-Type": "application/json"}
+
+    def request(self, path, body, method="POST"):
+        runner = FakePsql()
+        result = api.handle(method, path, self.headers, json.dumps(body).encode(), runner,
+                            port=8780, host="127.0.0.1", actor="server-fee-actor")
+        self.assertEqual(result[0], 200)
+        self.assertEqual(runner.calls[-1][2], "server-fee-actor")
+        return runner.calls[-1]
+
+    def test_all_fee_routes_and_sql(self):
+        samples = [
+            ("/api/v7/trips/fees/add", "add_trip_fees", self.common | {"targets": [{"trip_id": 1}, {"legacy_row_id": 2}], "fee_type_id": 1, "amount_vnd": "5", "note": "fee"}),
+            ("/api/v7/trips/fees/set", "set_trip_fee_type", self.common | {"target": {"trip_id": 1}, "fee_type_id": 1, "amount_vnd": None}),
+            ("/api/v7/trips/fees/replace", "replace_trip_fee", self.common | {"fee_line_id": 1, "fee_type_id": 1, "amount_vnd": "-5"}),
+            ("/api/v7/trips/fees/void", "void_trip_fee", self.common | {"fee_line_id": 1}),
+            ("/api/v7/books/fee-columns", "set_book_fee_columns", self.common | {"fee_type_ids": [3, 1]}),
+            ("/api/v7/fee-types", "add_fee_type", {"idempotency_key": "catalog", "name": "FAKE", "kind": "service"}),
+            ("/api/v7/fee-types/update", "rename_fee_type", {"command": "rename_fee_type", "idempotency_key": "catalog", "fee_type_id": 1, "name": "FAKE RENAMED"}),
+            ("/api/v7/fee-types/update", "set_fee_type_kind", {"command": "set_fee_type_kind", "idempotency_key": "catalog", "fee_type_id": 1, "kind": "pass_through"}),
+            ("/api/v7/fee-types/update", "set_fee_type_active", {"command": "set_fee_type_active", "idempotency_key": "catalog", "fee_type_id": 1, "active": False}),
+        ]
+        for path, function, body in samples:
+            with self.subTest(path=path, function=function):
+                name, payload, _ = self.request(path, body)
+                self.assertEqual(name, function)
+                self.assertNotIn("command", payload)
+                self.assertIn(f"SELECT sokhach.{function}(", api.SQL[name])
+                self.assertNotIn("actor", api.SQL[name])
+        self.assertEqual(self.request("/api/v7/fee-types", {}, "GET")[0], "get_fee_types")
+        self.assertIn("(j->'targets')::jsonb", api.SQL["add_trip_fees"])
+        self.assertIn("(j->'target')::jsonb", api.SQL["set_trip_fee_type"])
+        self.assertIn("(j->'fee_type_ids')::jsonb", api.SQL["set_book_fee_columns"])
+
+    def test_fee_boundaries(self):
+        path = "/api/v7/trips/fees/add"
+        base = self.common | {"targets": [{"trip_id": 1}], "fee_type_id": 1, "amount_vnd": "5"}
+        for amount in ("0", "-0", "1.5", 1, True, None, "9223372036854775808", "-9223372036854775809"):
+            with self.subTest(amount=amount), self.assertRaises(api.ApiError) as caught:
+                api.validate(path, json.dumps(base | {"amount_vnd": amount}).encode())
+            self.assertEqual(caught.exception.code, "FEE_AMOUNT_INVALID")
+        for change in ({"actor": "client"}, {"expected_version": None}, {"idempotency_key": " "},
+                       {"targets": []}, {"targets": [{"trip_id": 1, "legacy_row_id": 2}]},
+                       {"targets": [{"trip_id": True}]}, {"targets": [{"trip_id": 1}] * 2}, {"fee_type_id": False}):
+            with self.subTest(change=change), self.assertRaises(api.ApiError):
+                api.validate(path, json.dumps(base | change).encode())
+        for command in ([], None, "drop_table"):
+            with self.assertRaises(api.ApiError):
+                api.validate("/api/v7/fee-types/update", json.dumps({"command": command}).encode())
+        with self.assertRaises(api.ApiError) as caught:
+            api.validate("/api/v7/books/fee-columns", json.dumps(self.common | {"fee_type_ids": [1, 2, 3, 4]}).encode())
+        self.assertEqual(caught.exception.code, "FEE_COLUMNS_MAX")
+
+    def test_every_spec_error_maps_to_vietnamese(self):
+        codes = ("MONTH_LOCKED", "FEE_AMOUNT_INVALID", "FEE_SIGN_INVALID", "FEE_TYPE_INACTIVE", "FEE_TYPE_SYSTEM",
+                 "FEE_TYPE_DUPLICATE", "FEE_LINES_TYPED", "FEE_COLUMNS_MAX", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT",
+                 "TRIP_NOT_FOUND", "LEGACY_NOT_FOUND", "TRIP_PENDING_REVIEW", "LEGACY_NO_UNIT_PRICE")
+        for code in codes:
+            with self.subTest(code=code):
+                failure = subprocess.CompletedProcess([], 3, "", f"psql:<stdin>:3: ERROR:  P0001: {code}\n")
+                with patch.object(api.subprocess, "run", return_value=failure), self.assertRaises(api.ApiError) as caught:
+                    api._PsqlRunner()._run_psql(["fake-psql"], "add_trip_fees", {}, "server-actor")
+                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(caught.exception.status, api.ERRORS[code][0])
+                self.assertTrue(any(ord(char) > 127 for char in caught.exception.message))
+
+
 class FakePsql:
     def __init__(self):
         self.calls = []

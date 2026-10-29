@@ -110,6 +110,15 @@ def check_csm_migration(pg: Pg) -> None:
         "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
         f"VALUES({legacy_book},{cutover},'2026-01-01','trip','{{\"container\":\"LEGACY\",\"unit_price\":\"100\",\"fee_vnd\":\"5\"}}',999,'FAKE',99,{import_event}) RETURNING id; "
         "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard; COMMIT").splitlines()[0]
+    no_price_book = new_book(copy, ("2026-01-01", 321))
+    fixture_open_month(copy, no_price_book, "2026-01-01")
+    no_price_id = copy.value("BEGIN; SET LOCAL ROLE sokhach_owner; "
+        "ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard; "
+        "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
+        f"SELECT {no_price_book},cutover_id,'2026-01-01','trip','{{\"container\":\"NO-PRICE\",\"fee_vnd\":\"5\"}}',321,'FAKE',100,"
+        f"(SELECT id FROM sokhach.event WHERE customer_id={no_price_book} AND kind='import') "
+        f"FROM sokhach.cutover_customer WHERE customer_id={no_price_book} RETURNING id; "
+        "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard; COMMIT").splitlines()[0]
     before_fee = copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}")
     fee_migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql").read_text(encoding="utf-8")
     dry_gate = "DO $$ DECLARE r record; BEGIN SELECT * INTO r FROM sokhach.v7_fee_migration_dry_run();"
@@ -182,10 +191,11 @@ def check_csm_migration(pg: Pg) -> None:
             "migration changed receipt row")
     require(call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10) == old_result,
             "old idempotency key broken by migration")
-    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8"))
+    catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
-    migrated.pop("resolve_sheet_conflict", None)  # Existing migration, absent from canonical function file.
+    migrated = {k: v for k, v in migrated.items() if not k.startswith("sokhach.resolve_sheet_conflict(")}
     require(migrated == fresh, f"migrated functions differ: {[k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k)]}")
     call(copy, "edit_trip_price", fee_book, version(copy, fee_book), "fee-after-migration",
          fee_trip, 110, 7)
@@ -252,6 +262,61 @@ def check_csm_migration(pg: Pg) -> None:
     check_catalog(copy, extra_functions={"resolve_sheet_conflict"}, extra_app={
         "resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)"})
     check_sheet_conflict_resolution(copy)
+    # PR-B replacement uses a genuine PR-A initial line, with guard enabled.
+    initial_line = int(copy.value(f"SELECT id FROM sokhach.trip_fee_line WHERE trip_id={fee_trip} AND voided_by_event IS NULL"))
+    initial_type = int(copy.value("SELECT id FROM sokhach.fee_type WHERE system_key='initial'"))
+    call(copy, "replace_trip_fee", fee_book, version(copy, fee_book), "initial-keep", initial_line, initial_type, 8, "fixed")
+    require(copy.value(f"SELECT other_fee_vnd FROM sokhach.trip_price_rev WHERE trip_id={fee_trip} ORDER BY id DESC LIMIT 1") == "8", "initial replacement cache")
+    opening = copy.value(f"SELECT sum(amount_vnd) FROM sokhach.opening_balance WHERE customer_id={legacy_book}")
+    other_type = int(copy.value("SELECT id FROM sokhach.fee_type WHERE system_key='other'"))
+    call(copy, "add_trip_fees", legacy_book, version(copy, legacy_book), "legacy-prb-add", json.dumps([{"legacy_row_id": int(legacy_id)}]), other_type, 12, "fee")
+    require(copy.value(f"SELECT counted_vnd FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1") == "119", "legacy add counted")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE legacy_row_id={legacy_id}") == "-880", "legacy add delta")
+    line = int(copy.value(f"SELECT max(id) FROM sokhach.trip_fee_line WHERE legacy_row_id={legacy_id} AND voided_by_event IS NULL"))
+    call(copy, "void_trip_fee", legacy_book, version(copy, legacy_book), "legacy-prb-void", line)
+    require(copy.value(f"SELECT counted_vnd FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1") == "107", "legacy void counted")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE legacy_row_id={legacy_id}") == "-892", "legacy void delta")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.opening_balance WHERE customer_id={legacy_book}") == opening, "legacy fee changed opening")
+    # Missing unit price must fail before any target, adjustment, event or version changes.
+    no_price_line = int(copy.value(f"SELECT id FROM sokhach.trip_fee_line WHERE legacy_row_id={no_price_id} AND voided_by_event IS NULL"))
+    before = call(copy, "get_ledger", no_price_book)
+    for name, args in (
+            ("add_trip_fees", (json.dumps([{"legacy_row_id": int(no_price_id)}]), other_type, 10, "blocked")),
+            ("set_trip_fee_type", (json.dumps({"legacy_row_id": int(no_price_id)}), other_type, None)),
+            ("replace_trip_fee", (no_price_line, initial_type, 6, "blocked")),
+            ("void_trip_fee", (no_price_line,)),
+            ("edit_legacy_trip", (int(no_price_id), "other_fee_vnd", "10"))):
+        reject_call(copy, name, no_price_book, version(copy, no_price_book), "no-price-" + name,
+                    *args, error="LEGACY_NO_UNIT_PRICE")
+    require(call(copy, "get_ledger", no_price_book) == before, "missing-price rejection changed ledger")
+    # Mixed web/legacy batch remains atomic, then succeeds once legacy price is known.
+    mixed_trip = call(copy, "paste_trips", no_price_book, version(copy, no_price_book), "mixed-paste",
+                      "2026-01-01", trip_json(container="MIXED"))["trip_ids"][0]
+    mixed = json.dumps([{"trip_id": mixed_trip}, {"legacy_row_id": int(no_price_id)}])
+    before = call(copy, "get_ledger", no_price_book)
+    reject_call(copy, "add_trip_fees", no_price_book, version(copy, no_price_book), "mixed-fee", mixed,
+                other_type, 10, "mixed", error="LEGACY_NO_UNIT_PRICE")
+    require(call(copy, "get_ledger", no_price_book) == before, "mixed rejected batch wrote partial changes")
+    call(copy, "edit_legacy_trip", no_price_book, version(copy, no_price_book), "fill-price", int(no_price_id), "unit_price_vnd", "100")
+    call(copy, "add_trip_fees", no_price_book, version(copy, no_price_book), "mixed-fee", mixed, other_type, 10, "mixed")
+    discount_type = int(copy.value("SELECT id FROM sokhach.fee_type WHERE system_key='discount'"))
+    call(copy, "add_trip_fees", no_price_book, version(copy, no_price_book), "zero-sum-legacy",
+         json.dumps([{"legacy_row_id": int(no_price_id)}]), discount_type, -15, "offset")
+    require(copy.value(f"SELECT other_fee_vnd FROM sokhach.legacy_trip_rev WHERE legacy_row_id={no_price_id} ORDER BY id DESC LIMIT 1") == "0",
+            "legacy zero sum became unknown")
+    for delete_name, book, row_id, target_key, root_key in (
+            ("delete_trip", fee_book, fee_trip, "trip_id", "trip"),
+            ("delete_legacy_trip", legacy_book, int(legacy_id), "legacy_row_id", "legacy")):
+        lines = json.loads(copy.value(f"SELECT sokhach._fee_lines({row_id if target_key == 'trip_id' else 'NULL'},"
+                                      f"{row_id if target_key == 'legacy_row_id' else 'NULL'})"))
+        result = call(copy, delete_name, book, version(copy, book), "snapshot-" + delete_name, row_id)
+        snapshot = json.loads(copy.value(f"SELECT \"before\"->'{root_key}'->'fee_lines' FROM sokhach.event "
+                                         f"WHERE customer_id={book} AND idempotency_key='snapshot-{delete_name}'"))
+        require(lines and snapshot == lines and result["deleted"], "delete omitted fee line snapshot")
+        if delete_name == "delete_trip":
+            require(copy.value(f"SELECT \"before\"->'trip'->>'amount_vnd' FROM sokhach.event "
+                               f"WHERE customer_id={book} AND idempotency_key='snapshot-{delete_name}'") == "118",
+                    "delete snapshot counted absorbed fee twice")
 
 
 def check_csm_locks(pg: Pg) -> None:

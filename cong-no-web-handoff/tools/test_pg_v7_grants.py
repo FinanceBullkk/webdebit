@@ -38,7 +38,15 @@ from v7_ledger_api import ROUTES, Psql, validate
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
 APP_READ = {'list_sheet_trip_refs()'}
+READ.add('get_fee_types()')
 WRITE = {
+    'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
+    'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
+    'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
+    'void_trip_fee(bigint,bigint,text,bigint)',
+    'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
+    'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
+    'set_book_fee_columns(bigint,bigint,text,jsonb)',
     'edit_trip_info(bigint,bigint,text,bigint,text,text)',
     'delete_trip(bigint,bigint,text,bigint)',
     'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
@@ -74,11 +82,20 @@ KNOWN_FUNCTIONS.add('get_receivables_detail')
 KNOWN_FUNCTIONS.update({'_compat_trip_fee', '_sync_trip_fee', '_guard_fee_line',
                         '_fee_cache_check', 'v7_fee_migration_dry_run'})
 
+KNOWN_FUNCTIONS.update({'_fee_lines', '_fee_columns', '_fee_target', '_change_trip_fees', '_change_fee_type',
+                        'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee',
+                        'add_fee_type', 'rename_fee_type', 'set_fee_type_kind', 'set_fee_type_active',
+                        'set_book_fee_columns', 'get_fee_types'})
+
+
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):
     inventory = functions(pg)
     require({f['signature'].split('(')[0] for f in inventory} == KNOWN_FUNCTIONS | extra_functions,
             'function inventory changed; classify new functions explicitly before granting')
-    require(len(inventory) == len(KNOWN_FUNCTIONS | extra_functions), 'unexpected function overload')
+    require({f['signature'] for f in inventory if f['signature'].startswith('_change_legacy(')} == {
+        '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
+        '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)'}, 'unexpected legacy helper overload')
+    require(len(inventory) == len(KNOWN_FUNCTIONS | extra_functions) + 1, 'unexpected function overload')
     for role, expected in [('v7_app', READ | APP_READ | WRITE | extra_app), ('v7_reader', READ)]:
         actual = {f['signature'] for f in inventory if pg.value(
             f"SELECT has_function_privilege('{role}',{f['oid']},'EXECUTE')") == 't'}
