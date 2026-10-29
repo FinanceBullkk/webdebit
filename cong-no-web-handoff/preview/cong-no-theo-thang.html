@@ -52,11 +52,15 @@
   <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng bằng 0. Ô “dư” là tháng đang dư tiền; thu phân bổ theo tháng, không theo container.</p>
 </main>
 
-<div class="drawer-scrim" id="drawer-scrim" hidden></div>
-<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden>
-  <header><h2 id="drawer-title"></h2><button class="close" id="drawer-close" type="button" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
-  <p class="meta" id="drawer-meta"></p>
-  <div id="drawer-body"></div>
+<!-- Ngăn kéo không chặn trang: bảng vẫn bấm được, bấm ô khác thì ngăn kéo đổi theo. -->
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-top">
+    <header><h2 id="drawer-title"></h2><a class="ledger-link" id="drawer-ledger" href="/so-khach-v7-live.html">Mở sổ khách ›</a><button class="close" id="drawer-close" type="button" aria-label="Đóng"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+    <p class="meta" id="drawer-meta"></p>
+    <div class="month-nav" role="group" aria-label="Đổi tháng"><button class="btn" id="drawer-prev" type="button"></button><b id="drawer-month"></b><button class="btn" id="drawer-next" type="button"></button></div>
+    <div id="drawer-sum"></div>
+  </div>
+  <div class="drawer-scroll" id="drawer-body"></div>
 </aside>
 
 <script src="cong-no-format.js"></script>
