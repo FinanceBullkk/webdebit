@@ -66,7 +66,7 @@ window.MOCK = (() => {
     const y = Math.floor(n / 12), m = n % 12 + 1;
     return y === AS_OF.year ? `T${m}` : `T${m}/${y}`;
   };
-  const span = (from, to) => from === to ? monthName(from) : `${monthName(to)}–${monthName(from)}`;
+  const span = (from, to) => from === to ? monthName(from) : `${monthName(from)}–${monthName(to)}`;
 
   // Nhóm hạn trả của một tháng nợ: số tháng đã quá hạn = khoảng cách tới tháng hiện tại − số tháng được nợ.
   const lateOf = (y, m) => (AS_OF.year - y) * 12 + AS_OF.month - m - RULE.dueAfterMonths;

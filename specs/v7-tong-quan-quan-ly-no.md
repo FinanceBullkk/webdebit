@@ -1,8 +1,8 @@
 # V7 — Tổng quan quản lý công nợ (đổi nội dung DASH-01)
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 29/10/2026), chờ người dùng duyệt. Nguồn: góp ý người dùng trong chat 29/10/2026 — Tổng quan phải nhất quán một mục tiêu là bức tranh công nợ (còn nợ, khách quá hạn hoặc rủi ro cao, tình hình thu); "Việc cần làm" không thuộc trang này; phân loại chỉ theo tháng và mặt hàng chưa đủ, trình bày còn đơn giản. Bản xem dữ liệu giả: [`preview/mockups/tong-quan-quan-ly-no/`](../cong-no-web-handoff/preview/mockups/tong-quan-quan-ly-no/index.html).
+Trạng thái: **ĐÃ CHỐT** ([`DASH-03`](../docs/decisions/dash-03.md), người dùng 29/10/2026: "Duyệt, dùng mặc định" sau khi xem bản xem). Nguồn: góp ý người dùng trong chat 29/10/2026 — Tổng quan phải nhất quán một mục tiêu là bức tranh công nợ (còn nợ, khách quá hạn hoặc rủi ro cao, tình hình thu); "Việc cần làm" không thuộc trang này; phân loại chỉ theo tháng và mặt hàng chưa đủ, trình bày còn đơn giản. Bản xem dữ liệu giả: [`preview/mockups/tong-quan-quan-ly-no/`](../cong-no-web-handoff/preview/mockups/tong-quan-quan-ly-no/index.html).
 
-Khi được chốt, spec này thay nội dung sáu khối của [DASH-01](v7-dashboard.md); giữ các điểm tương tác đã chốt 29/10/2026: bấm nhóm để lọc danh sách khách tại chỗ, bấm khách mở ngăn kéo, soi sâu ở Công nợ theo tháng, không so tháng trước, không đường 12 tháng.
+Spec này thay nội dung sáu khối của [DASH-01](v7-dashboard.md); giữ các điểm tương tác đã chốt 29/10/2026: bấm nhóm để lọc danh sách khách tại chỗ, bấm khách mở ngăn kéo, soi sâu ở Công nợ theo tháng, không so tháng trước, không đường 12 tháng.
 
 ## Người dùng và luồng (bước 1)
 
@@ -25,7 +25,7 @@ Luồng người nhập: số trên mục "Việc cần làm" của thanh điề
 - Tab mới "Việc cần làm" nhận nguyên khối Việc cần làm và Hôm nay hiện có, thêm "Sổ đang dư tiền".
 - Đọc được trên 1280×720: hàng trên (A, B) nằm trọn màn đầu; mọi số khớp server.
 
-## Nội dung đề xuất
+## Nội dung
 
 | Khối | Thay cho | Hiện gì | Cách vẽ |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ Luồng người nhập: số trên mục "Việc cần làm" của thanh điề
 | D. Phân loại khách đang nợ | B (mặt hàng) | Chọn một tiêu chí: Rủi ro · Lần trả gần nhất · Đi hàng gần nhất · Quy mô · Mặt hàng; mỗi nhóm: số khách, còn nợ; một câu kết luận | Thanh ngang; bấm = lọc C |
 | Bỏ khỏi Tổng quan | E, F | Việc cần làm, Hôm nay → tab "Việc cần làm" | — |
 
-## Quy tắc đề xuất (CÒN MỞ — người dùng chốt)
+## Quy tắc (ĐÃ CHỐT 29/10/2026, mặc định của đề xuất)
 
 - **Hạn trả:** nợ tháng M đến hạn cuối tháng M+1 (gửi debit note đầu tháng sau, khách trả trong tháng đó). Một tham số chung cho mọi sổ; hạn riêng từng khách để sau.
 - **Nhóm hạn trả** (theo tháng nợ, giờ VN): số tháng quá hạn = (tháng hiện tại − tháng nợ) − 1. Dưới 0: chưa đến hạn; 0: đến hạn cuối tháng này; 1–2; 3–6; từ 7: trên 6 tháng. Năm cũ không có tháng tính như tháng 12 năm đó.
@@ -59,9 +59,9 @@ Luồng người nhập: số trên mục "Việc cần làm" của thanh điề
 
 Mockup dùng bộ khách hư cấu của `preview/mockups/dashboard-redesign/data.js`, thêm ngày thu/ngày đi hàng/thu-phát sinh tháng giả; mọi khối tính từ cùng một bộ nên cộng về cùng tổng.
 
-## Giao tiếp frontend–backend (bước 5, ĐỀ XUẤT)
+## Giao tiếp frontend–backend (bước 5)
 
-Một hàm đọc mới `sokhach.get_dashboard_debt()` (SECURITY DEFINER, chỉ đọc, như `get_dashboard`) và route `GET /api/v7/dashboard/debt`; tiền là chuỗi VND nguyên, ngày `YYYY-MM-DD`:
+Một hàm đọc mới `sokhach.get_dashboard_debt()` (SECURITY DEFINER, chỉ đọc, như `get_dashboard`; helper `_legacy_date` đọc ô ngày dòng sổ gốc, không ai được EXECUTE) và route `GET /api/v7/dashboard/debt`; tiền là chuỗi VND nguyên, ngày `YYYY-MM-DD`; chỉ khách đang nợ, xếp theo tiền quá hạn rồi còn nợ:
 
 ```json
 {
@@ -69,14 +69,17 @@ Một hàm đọc mới `sokhach.get_dashboard_debt()` (SECURITY DEFINER, chỉ 
   "rule": {"due_after_months": 1, "long_overdue_months": 3, "no_pay_days": 60, "no_trip_days": 90},
   "due_tiers": [{"tier": "not_due", "receivable_vnd": "0", "from_month": "2026-10-01", "to_month": "2026-10-01"}, "… 5 nhóm …"],
   "this_month": {"received_vnd": "0", "charges_vnd": "0"},
+  "receivable_vnd": "0",
+  "summary": {"overdue_vnd": "0", "long_overdue_vnd": "0", "overdue_customers": 0, "high_customers": 0, "high_overdue_vnd": "0"},
   "customers": [{"customer_id": 1, "name": "…", "commodity": null, "transport_mode": null,
-                 "outstanding_vnd": "0", "tiers_vnd": ["0", "0", "0", "0", "0"], "oldest_open_month": "2026-07-01",
-                 "last_receipt_date": null, "last_receipt_month": null, "last_trip_date": null,
-                 "risk": "high", "signals": ["long_overdue", "no_pay", "no_trip", "still_shipping"]}]
+                 "outstanding_vnd": "0", "tiers_vnd": ["0", "0", "0", "0", "0"], "overdue_vnd": "0", "long_overdue_vnd": "0",
+                 "oldest_open_month": "2026-07-01", "last_receipt_date": null, "last_receipt_exact": null, "pay_days": null,
+                 "last_trip_date": null, "last_trip_exact": null, "trip_days": null, "risk": "high",
+                 "months": [{"month": "2026-07-01", "outstanding_vnd": "0"}]}]
 }
 ```
 
-`get_dashboard()` giữ nguyên cho số tổng, mặt hàng và tab Việc cần làm. Frontend chỉ gom/lọc danh sách, không cộng trừ tiền (`ARCH-03`); nếu tổng `due_tiers` khác `receivable.total_vnd` thì không lọc tại chỗ (như cách Tổng quan đang làm với `aging`).
+`*_exact` = false khi ngày lấy cuối tháng của dòng sổ gốc không có ngày. `get_dashboard()` giữ nguyên cho số tổng và tab Việc cần làm. Frontend gom/lọc danh sách bằng BigInt (`cong-no-format.js`); nếu tổng khách hoặc tổng từng nhóm khác số server thì không lọc tại chỗ mà mở Công nợ theo tháng (như cách Tổng quan làm với ma trận). API debt lỗi (ví dụ chưa nâng DB) thì trang vẫn hiện số tổng, các khối kia báo chưa tải được.
 
 ## Hành vi và bất biến
 
@@ -93,17 +96,22 @@ Một hàm đọc mới `sokhach.get_dashboard_debt()` (SECURITY DEFINER, chỉ 
 - [ ] Tab Việc cần làm giữ đúng số và đường mở sổ `?loc=` như trước.
 - [ ] Người dùng tự đi hết luồng trên bản thử và xác nhận.
 
+## Phạm vi agent
+
+- Agent: claude (`CLAUDE-ALL-01`)
+- Review: opus
+- Được sửa: `tools/v7_backend_functions.sql`, migration `tools/migrations/2026-10-29-v7-tong-quan-quan-ly-no.sql`, `tools/v7_post_deploy_check.sql`, harness (`test_pg_v7_backend.py`, `test_pg_v7_backend_dashboard_debt.py`, chuỗi migration trong `test_pg_v7_backend_locks.py`/`_price.py`, `test_pg_v7_grants.py`), `web/v7_ledger_api.py`, `web/v7_presence.py`, `tests/test_v7_ledger_api.py`, `preview/dashboard-v7.*`, `preview/dashboard-v7-model.js`, `preview/viec-can-lam.*`, thanh điều hướng của `cong-no-theo-thang.html`/`so-khach-v7-live.html`, `preview/presence.js` (tên trang), test JS tương ứng.
+- Cấm: đổi bảng, view, hàm ghi tiền, phân bổ hay `get_ledger`; GRANT bảng/view; thêm dependency.
+
 ## Hoàn tác
 
-Revert PR; migration chỉ thêm một hàm đọc (`DROP FUNCTION sokhach.get_dashboard_debt()`). Không đụng dữ liệu.
+Revert PR; migration chỉ thêm hai hàm đọc (`DROP FUNCTION sokhach.get_dashboard_debt(); DROP FUNCTION sokhach._legacy_date(text);`). Không đụng dữ liệu.
 
 ## Bằng chứng
 
-- Bản xem: `preview/mockups/tong-quan-quan-ly-no/` (serve thư mục `cong-no-web-handoff/preview` rồi mở `/mockups/tong-quan-quan-ly-no/`), kiểm ở khung 1280×720 ngày 29/10/2026: không cuộn ngang, không lỗi console, lọc kết hợp và ngăn kéo chạy; eslint đạt. Chỉ là dữ liệu giả, chưa có backend.
+- Bản xem: `preview/mockups/tong-quan-quan-ly-no/` (serve thư mục `cong-no-web-handoff/preview` rồi mở `/mockups/tong-quan-quan-ly-no/`), kiểm ở khung 1280×720 ngày 29/10/2026: không cuộn ngang, không lỗi console, lọc kết hợp và ngăn kéo chạy; eslint đạt. Chỉ là dữ liệu giả.
+- Code: harness `DASH.03` (khách giả: nhóm hạn trả, mức rủi ro, ngày thu/đi hàng từ phiếu web, cấn trừ, dòng sổ gốc có/không/sai ngày và đã xóa, tháng có số Sheet; tổng khớp `get_dashboard`; đã thu/phát sinh tháng này khớp tổng `get_ledger` mọi sổ), chuỗi migration so catalog với khởi tạo mới, checker quyền; test model và trình duyệt 1280×720 + 390px cho Tổng quan và tab Việc cần làm. Kết quả lượt chạy ghi ở PR.
 
 ## Câu hỏi mở
 
-1. Hạn trả: nợ tháng M đến hạn cuối tháng M+1 có đúng thực tế không? (Hay cuối tháng M, hay số ngày sau ngày xe nhập kho, hay riêng từng khách.)
-2. Ngưỡng rủi ro 3 tháng / 60 ngày / 90 ngày có hợp không?
-3. "Việc cần làm" thành tab riêng (đề xuất) hay đặt ở đầu trang Sổ khách?
-4. Phiếu CẤN TRỪ có tính là "khách đã trả" khi xét lần trả gần nhất không? (Đề xuất: có, vì sổ đó đã được trừ nợ.)
+- Hạn trả riêng từng khách, hạn mức nợ, gộp nhiều sổ của một công ty: chưa có dữ liệu, chưa làm.

@@ -202,6 +202,9 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(xoa_dc)
     copy.sql(xoa_dc)
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
+    tong_quan = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-tong-quan-quan-ly-no.sql").read_text(encoding="utf-8")
+    copy.sql(tong_quan)
+    copy.sql(tong_quan)  # DASH-03 chỉ thêm hàm đọc, chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))

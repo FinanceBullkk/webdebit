@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Việc cần làm cuối ngày: chuyến thiếu đơn giá, chờ kiểm, sổ cần gán mặt hàng, hôm nay đã nhập/thu.">
+  <title>Công nợ HTH · Việc cần làm</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="dashboard-v7.css">
+<link rel="stylesheet" href="presence.css">
+</head>
+<body data-presence="viec-can-lam">
+  <div id="demo-banner" hidden role="status"></div>
+  <header class="topbar">
+    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a class="active" href="/viec-can-lam.html" aria-current="page">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
+    <time class="asof" id="as-of"></time>
+  </header>
+  <main class="page todo-page">
+    <div class="page-head">
+      <h1>Việc cần làm</h1>
+      <div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div>
+    </div>
+    <div id="error" role="alert" hidden></div>
+    <div id="todo-root" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
+  </main>
+  <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="sheet-refresh.js"></script>
+  <script src="viec-can-lam.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

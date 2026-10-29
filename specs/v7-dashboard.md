@@ -135,4 +135,6 @@ Revert PR; migration chỉ thêm một hàm chỉ đọc, gỡ bằng `DROP FUNC
 
 ## Câu hỏi mở
 
+- 29/10/2026: nội dung các khối thay bởi [`DASH-03`](v7-tong-quan-quan-ly-no.md) — Tổng quan chỉ còn bốn khối về công nợ, Việc cần làm và Hôm nay sang tab riêng; hợp đồng `GET /api/v7/dashboard` giữ nguyên.
+
 - Đường quay lại từ Sổ khách lên Tổng quan cần thêm khi tích hợp hai trang; không đổi nội dung hay thứ tự sáu khối đã duyệt.

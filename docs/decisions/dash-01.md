@@ -14,4 +14,6 @@ Trang tổng quan công nợ V7 là **trang đầu khi vào web**, chỉ đọc,
 
 ĐÃ CHỐT nội dung. Backend giao Codex (ĐỀ XUẤT hợp đồng `GET /api/v7/dashboard`); giao diện chờ mockup Penpot được duyệt. Chưa code, chưa triển khai.
 
+Cập nhật 29/10/2026 (cùng ngày, sau v5.3): nội dung khối thay bởi [`DASH-03`](dash-03.md) — Tổng quan chỉ còn bốn khối về công nợ, Việc cần làm và Hôm nay sang tab riêng; tương tác dưới đây giữ nguyên.
+
 Cập nhật 29/10/2026 (người dùng chốt trong chat, mockup v5.3, PR FinanceBullkk/webdebit#134): Tổng quan có tương tác — bấm nhóm tuổi nợ / mặt hàng lọc danh sách khách tại chỗ, bấm khách mở ngăn kéo; Việc cần làm thêm nhóm "Cần gán mặt hàng / cảng-bộ". Chi tiết ở spec, mục Bằng chứng.
