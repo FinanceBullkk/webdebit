@@ -6,6 +6,7 @@ Backup keeps one exported REPEATABLE READ snapshot alive for dump + manifest.
 Restore preserves owners/ACLs: provision target DB and referenced roles first;
 this tool does not create roles or grant permissions.
 Failed backups retain partial files without MANIFEST.json; do not reuse them.
+`daily` is the timer entry: dated folder under one root, disk check, retention.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,6 +29,7 @@ DUMP = "sokhach.dump"
 MANIFEST = "MANIFEST.json"
 VN = timezone(timedelta(hours=7))
 VND = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
+STAMP = re.compile(r"v7-[0-9]{8}-[0-9]{6}\Z")
 
 
 class BackupError(RuntimeError):
@@ -153,7 +156,13 @@ def database_state(snapshot):
 
 
 def repository_roots():
-    """Reject primary repo and every registered worktree, including linked ones."""
+    """Reject primary repo and every registered worktree, including linked ones.
+
+    A git-archive copy (no .git in ROOT or any parent, like the pinned copy the
+    daily timer runs on hao) has no worktrees: only ROOT itself is protected.
+    """
+    if not any((folder / ".git").exists() for folder in (ROOT, *ROOT.parents)):
+        return {ROOT}
     try:
         result = subprocess.run(["git", "-C", str(ROOT), "worktree", "list", "--porcelain", "-z"],
                                 capture_output=True, timeout=15, check=False)
@@ -317,6 +326,48 @@ def restore(folder, target_db, pg=None):
     return report(expected, actual)
 
 
+def stamped(root):
+    """Dated folders directly under root, oldest first; links and files ignored."""
+    return sorted((entry for entry in root.iterdir() if STAMP.fullmatch(entry.name)
+                   and entry.is_dir() and not entry.is_symlink()), key=lambda entry: entry.name)
+
+
+def daily(root, keep, min_free_mb, pg=None):
+    """Timer entry: new dated backup under an existing root, verify, then prune.
+
+    Stops before writing when free space is under min_free_mb or 3x the last
+    dump. Prunes only after a verified backup, and only dated folders: complete
+    ones beyond the newest `keep`, failed ones older than the oldest kept.
+    """
+    root = Path(root).expanduser().resolve()
+    if not root.is_dir():
+        raise BackupError("daily root must be an existing directory")
+    complete = [entry for entry in stamped(root) if (entry / MANIFEST).is_file()]
+    last = (complete[-1] / DUMP).stat().st_size if complete and (complete[-1] / DUMP).is_file() else 0
+    need, free = max(min_free_mb * 2**20, 3 * last), shutil.disk_usage(root).free
+    if free < need:
+        raise BackupError(f"low disk: free={free} need={need} bytes; backup not started")
+    umask = os.umask(0o077)  # folder 700, files 600 even if the unit forgets UMask.
+    try:
+        out = root / datetime.now(VN).strftime("v7-%Y%m%d-%H%M%S")
+        manifest = backup(out, pg)
+        verify(out)
+    finally:
+        os.umask(umask)
+    complete = [entry for entry in stamped(root) if (entry / MANIFEST).is_file()]
+    kept = {out, *complete[-keep:]}  # A clock step back never prunes today's backup.
+    oldest = min(entry.name for entry in kept)
+    pruned = [entry.name for entry in stamped(root) if entry not in kept
+              and ((entry / MANIFEST).is_file() or entry.name < oldest)]
+    for name in pruned:
+        shutil.rmtree(root / name)
+    print(json.dumps({"ok": True, "backup": out.name, "dump_bytes": (out / DUMP).stat().st_size,
+                      "tables": len(manifest["table_row_counts"]),
+                      "customers": len(manifest["customer_totals"]), "kept": len(kept),
+                      "pruned": pruned, "free_bytes": shutil.disk_usage(root).free}))
+    return out
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -325,10 +376,18 @@ def main(argv=None):
     command.add_argument("--from", dest="folder", required=True, type=Path)
     command.add_argument("--target-db", required=True)
     commands.add_parser("verify").add_argument("--from", dest="folder", required=True, type=Path)
+    command = commands.add_parser("daily")
+    command.add_argument("--root", required=True, type=Path)
+    command.add_argument("--keep", type=int, default=30)
+    command.add_argument("--min-free-mb", type=int, default=2048)
     args = parser.parse_args(argv)
+    if args.command == "daily" and (args.keep < 1 or args.min_free_mb < 0):
+        parser.error("daily needs --keep >= 1 and --min-free-mb >= 0")
     try:
         if args.command == "backup":
             backup(args.out)
+        elif args.command == "daily":
+            daily(args.root, args.keep, args.min_free_mb)
         elif args.command == "verify":
             verify(args.folder)
             print("MATCH SHA-256 and manifest structure (offline)")
