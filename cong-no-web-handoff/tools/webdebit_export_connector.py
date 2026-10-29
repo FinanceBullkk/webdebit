@@ -8,9 +8,7 @@ import hashlib
 import json
 import os
 import re
-import sys
 import unicodedata
-import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -19,8 +17,6 @@ from typing import Any
 EXPORT_RANGE = "WEBDEBIT_EXPORT!A1:E20000"
 BOOKING_RANGE = "BOOKING_DATA!A1:O20000"
 MAPPING_RANGE = "WEB_GHEP_KHACH!A1:F1000"
-# Tên cũ, đọc khi tab chưa đổi tên (specs/v7-sheet-contract.md mục B); bỏ sau khi Sheet đã đổi.
-LEGACY_MAPPING_RANGE = "REVIEW_KHACH_2026-10-24!A1:F1000"
 HEADERS = ("Số container", "Hãng tàu", "Ngày chuyến", "Nơi đi", "Nơi đến")
 BOOKING_HEADERS = ("Số cont", "Chủ hàng (chuẩn)", "Ngày đóng", "Booking", "Tab nguồn", "Dòng nguồn", "Chủ hàng (gốc)", "Shipper", "Hãng tàu", "Kho", "Cảng đến")
 BOOKING_PRODUCT_HEADERS = ("Giá + phí (gốc)", "Tên hàng", "Mặt hàng", "Bảo hiểm (cột BẢO HIỂM booking)")
@@ -220,18 +216,6 @@ def _fetch_values(spreadsheet_id: str, access_token: str, opener: Callable[..., 
     return values
 
 
-def fetch_with_legacy_mapping(fetch: Callable[[str], Any]) -> Any:
-    """Gọi fetch(MAPPING_RANGE); tab mới chưa có (Sheets trả 400) thì đọc tên cũ và cảnh báo."""
-    try:
-        return fetch(MAPPING_RANGE)
-    except urllib.error.HTTPError as error:
-        if error.code != 400:
-            raise
-    print(f"cảnh báo: không đọc được {MAPPING_RANGE.split('!')[0]}, đọc tên cũ {LEGACY_MAPPING_RANGE.split('!')[0]}",
-          file=sys.stderr)
-    return fetch(LEGACY_MAPPING_RANGE)
-
-
 def read_export(spreadsheet_id: str, access_token: str, opener: Callable[..., Any] = urllib.request.urlopen,
                 *, include_booking: bool = False, include_mapping: bool = False) -> dict[str, Any]:
     if include_mapping and not include_booking:
@@ -246,8 +230,7 @@ def read_export(spreadsheet_id: str, access_token: str, opener: Callable[..., An
         sources["booking"] = booking_values
     aliases = None
     if include_mapping:
-        mapping_values = fetch_with_legacy_mapping(
-            lambda mapping_range: _fetch_values(spreadsheet_id, access_token, opener, mapping_range))
+        mapping_values = _fetch_values(spreadsheet_id, access_token, opener, MAPPING_RANGE)
         aliases = parse_review_mapping(mapping_values)
         sources["customer_mapping"] = mapping_values
     canonical = json.dumps(sources, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")

@@ -119,15 +119,12 @@ def parse_rows(values: list[list[Any]]) -> list[dict[str, Any]]:
 def fetch(spreadsheet_id: str, token: str, opener: Callable[..., Any] = urllib.request.urlopen) -> list[list[list[Any]]]:
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", spreadsheet_id):
         raise ValueError("invalid spreadsheet ID")
-
-    def batch(mapping_range: str) -> list:
-        query = [("ranges", RANGE), ("ranges", mapping_range), ("valueRenderOption", "UNFORMATTED_VALUE"),
-                 ("dateTimeRenderOption", "SERIAL_NUMBER"), ("majorDimension", "ROWS")]
-        url = API + urllib.parse.quote(spreadsheet_id) + "/values:batchGet?" + urllib.parse.urlencode(query)
-        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-        with opener(request, timeout=60) as response:
-            return json.loads(response.read().decode("utf-8")).get("valueRanges", [])
-    ranges = connector.fetch_with_legacy_mapping(batch)
+    query = [("ranges", RANGE), ("ranges", connector.MAPPING_RANGE), ("valueRenderOption", "UNFORMATTED_VALUE"),
+             ("dateTimeRenderOption", "SERIAL_NUMBER"), ("majorDimension", "ROWS")]
+    url = API + urllib.parse.quote(spreadsheet_id) + "/values:batchGet?" + urllib.parse.urlencode(query)
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    with opener(request, timeout=60) as response:
+        ranges = json.loads(response.read().decode("utf-8")).get("valueRanges", [])
     if len(ranges) != 2:
         raise ValueError("Sheets API returned a different number of ranges")
     return [value_range.get("values", []) for value_range in ranges]
