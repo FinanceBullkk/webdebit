@@ -182,10 +182,11 @@ def check_csm_migration(pg: Pg) -> None:
             "migration changed receipt row")
     require(call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10) == old_result,
             "old idempotency key broken by migration")
-    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8"))
+    catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
-    migrated.pop("resolve_sheet_conflict", None)  # Existing migration, absent from canonical function file.
+    migrated = {k: v for k, v in migrated.items() if not k.startswith("sokhach.resolve_sheet_conflict(")}
     require(migrated == fresh, f"migrated functions differ: {[k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k)]}")
     call(copy, "edit_trip_price", fee_book, version(copy, fee_book), "fee-after-migration",
          fee_trip, 110, 7)
@@ -252,6 +253,21 @@ def check_csm_migration(pg: Pg) -> None:
     check_catalog(copy, extra_functions={"resolve_sheet_conflict"}, extra_app={
         "resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)"})
     check_sheet_conflict_resolution(copy)
+    # PR-B replacement uses a genuine PR-A initial line, with guard enabled.
+    initial_line = int(copy.value(f"SELECT id FROM sokhach.trip_fee_line WHERE trip_id={fee_trip} AND voided_by_event IS NULL"))
+    initial_type = int(copy.value("SELECT id FROM sokhach.fee_type WHERE system_key='initial'"))
+    call(copy, "replace_trip_fee", fee_book, version(copy, fee_book), "initial-keep", initial_line, initial_type, 8, "fixed")
+    require(copy.value(f"SELECT other_fee_vnd FROM sokhach.trip_price_rev WHERE trip_id={fee_trip} ORDER BY id DESC LIMIT 1") == "8", "initial replacement cache")
+    opening = copy.value(f"SELECT sum(amount_vnd) FROM sokhach.opening_balance WHERE customer_id={legacy_book}")
+    other_type = int(copy.value("SELECT id FROM sokhach.fee_type WHERE system_key='other'"))
+    call(copy, "add_trip_fees", legacy_book, version(copy, legacy_book), "legacy-prb-add", json.dumps([{"legacy_row_id": int(legacy_id)}]), other_type, 12, "fee")
+    require(copy.value(f"SELECT counted_vnd FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1") == "119", "legacy add counted")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE legacy_row_id={legacy_id}") == "-880", "legacy add delta")
+    line = int(copy.value(f"SELECT max(id) FROM sokhach.trip_fee_line WHERE legacy_row_id={legacy_id} AND voided_by_event IS NULL"))
+    call(copy, "void_trip_fee", legacy_book, version(copy, legacy_book), "legacy-prb-void", line)
+    require(copy.value(f"SELECT counted_vnd FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1") == "107", "legacy void counted")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.adjustment WHERE legacy_row_id={legacy_id}") == "-892", "legacy void delta")
+    require(copy.value(f"SELECT sum(amount_vnd) FROM sokhach.opening_balance WHERE customer_id={legacy_book}") == opening, "legacy fee changed opening")
 
 
 def check_csm_locks(pg: Pg) -> None:

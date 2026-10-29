@@ -53,6 +53,7 @@ from pg_v7_harness import (
     trip_json,
     version,
 )
+from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
 from test_pg_v7_backend_locks import (
     check_csm_locks,
     check_csm_migration,
@@ -181,6 +182,8 @@ CASES = [
     case("7.23", "BEHAVIOR", "Typed adjustment values survive audit tampering and latest price revision", check="adjustment_source", functions=("adjust_trip",)),
     case("7.26", "BEHAVIOR", "Shipper survives paste, review and edits in the ledger reader", check="shipper_write_sync", functions=("paste_trips", "edit_trip_info", "review_trip")),
     case("7.27", "BEHAVIOR", "Typed fee intent lands on the effective fee after a price revision", check="fee_intent_after_price", functions=("adjust_trip", "edit_trip_price")),
+    case("PRB.01", "BEHAVIOR", "PR-B fee commands atomic batch, signs, locks, legacy delta and cache", check="fee_commands", functions=("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee")),
+    case("PRB.02", "BEHAVIOR", "PR-B catalog audit, columns, idempotency and grants", check="fee_catalog", functions=("add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "set_book_fee_columns", "get_fee_types")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
@@ -206,6 +209,7 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
 CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+          "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,

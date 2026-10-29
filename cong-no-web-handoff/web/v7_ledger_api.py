@@ -70,6 +70,13 @@ ROUTES = {
     "/api/v7/trips/delete": ("delete_trip", {"trip_id"}),
     "/api/v7/legacy/edit": ("edit_legacy_trip", {"legacy_row_id", "field", "value"}),
     "/api/v7/legacy/delete": ("delete_legacy_trip", {"legacy_row_id"}),
+    "/api/v7/trips/fees/add": ("add_trip_fees", {"targets", "fee_type_id", "amount_vnd", "note"}),
+    "/api/v7/trips/fees/set": ("set_trip_fee_type", {"target", "fee_type_id", "amount_vnd"}),
+    "/api/v7/trips/fees/replace": ("replace_trip_fee", {"fee_line_id", "fee_type_id", "amount_vnd", "note"}),
+    "/api/v7/trips/fees/void": ("void_trip_fee", {"fee_line_id"}),
+    "/api/v7/fee-types": ("add_fee_type", {"name", "kind"}),
+    "/api/v7/fee-types/update": ("fee_type_update", {"command", "fee_type_id", "name", "kind", "active"}),
+    "/api/v7/books/fee-columns": ("set_book_fee_columns", {"fee_type_ids"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd", "fees"}
@@ -88,6 +95,13 @@ ERRORS = {
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
     "TRIP_PENDING_REVIEW": (409, "Chuyến chưa được tính vào sổ (CHỜ KIỂM hoặc đã loại)."),
+    "VERSION_CONFLICT": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),
+    "FEE_AMOUNT_INVALID": (422, "Số phụ phí phải là số nguyên VND khác 0 và không tràn."),
+    "FEE_SIGN_INVALID": (422, "Dấu phụ phí không phù hợp với loại phí."),
+    "FEE_TYPE_INACTIVE": (422, "Loại phụ phí không tồn tại hoặc đã ngừng dùng."),
+    "FEE_TYPE_SYSTEM": (422, "Không được chọn loại phụ phí hệ thống."),
+    "FEE_TYPE_DUPLICATE": (409, "Tên loại phụ phí đã tồn tại."),
+    "FEE_COLUMNS_MAX": (422, "Sổ chỉ được chọn tối đa 3 cột phụ phí."),
     "FEE_LINES_TYPED": (409, "Chuyến có phụ phí đã phân loại. Sửa trong khung chi tiết."),
     "TRIP_NOT_PENDING": (409, "Chuyến không còn CHỜ KIỂM."),
     "SHEET_CROSS_CUSTOMER_MATCH": (409, "Chuyến đã có ở khách khác. Tải lại để kiểm tra."),
@@ -206,6 +220,55 @@ def no_duplicates(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def validate_fee(function: str, body: dict) -> tuple[str, dict]:
+    update = function == "fee_type_update"
+    if update:
+        function = body.get("command")
+        if type(function) is not str or function not in ("rename_fee_type", "set_fee_type_kind", "set_fee_type_active"):
+            bad()
+    catalog = function in ("add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active")
+    required = set(ARGUMENTS[function]) | (set() if catalog else COMMON)
+    optional = {"note"} if function in ("add_trip_fees", "replace_trip_fee") else set()
+    if set(body) - (required | ({"command"} if update else set())) or not set(body) >= required - optional:
+        bad()
+    key = body.get("idempotency_key")
+    if not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key):
+        bad()
+    if not catalog and (not positive_int(body.get("customer_id")) or type(body.get("expected_version")) is not int
+                        or not 0 <= body["expected_version"] <= MAX_BIGINT):
+        bad()
+    for field in ("fee_type_id", "fee_line_id"):
+        if field in required and not positive_int(body.get(field)):
+            bad()
+    if "amount_vnd" in required:
+        amount = body["amount_vnd"]
+        if not vnd(amount, signed=True, nullable=function == "set_trip_fee_type") or amount == "0":
+            bad("FEE_AMOUNT_INVALID", ERRORS["FEE_AMOUNT_INVALID"][1])
+    if "note" in body and body["note"] is not None and (type(body["note"]) is not str or len(body["note"]) > 2000):
+        bad()
+    targets = body.get("targets") if function == "add_trip_fees" else [body["target"]] if "target" in body else []
+    if type(targets) is not list or (function == "add_trip_fees" and not targets):
+        bad()
+    for target in targets:
+        if type(target) is not dict or set(target) not in ({"trip_id"}, {"legacy_row_id"}) or not positive_int(next(iter(target.values()))):
+            bad()
+    if len({json.dumps(t, sort_keys=True) for t in targets}) != len(targets):
+        bad()
+    if function == "set_book_fee_columns":
+        ids = body["fee_type_ids"]
+        if type(ids) is not list or any(not positive_int(i) for i in ids) or len(set(ids)) != len(ids):
+            bad()
+        if len(ids) > 3:
+            bad("FEE_COLUMNS_MAX", ERRORS["FEE_COLUMNS_MAX"][1])
+    if "name" in required and (type(body["name"]) is not str or not body["name"].strip() or len(body["name"]) > 200):
+        bad()
+    if "kind" in required and body["kind"] not in ("service", "pass_through"):
+        bad()
+    if "active" in required and type(body["active"]) is not bool:
+        bad()
+    return function, {k: v for k, v in body.items() if k != "command"}
+
+
 def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if path not in ROUTES:
         raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
@@ -218,6 +281,8 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if not isinstance(body, dict):
         bad()
     function, fields = ROUTES[path]
+    if "/fees/" in path or path.startswith("/api/v7/fee-types") or path.endswith("/fee-columns"):
+        return validate_fee(function, body)
     offset = function in ("record_offset", "void_offset", "edit_offset_date")
     common = set() if offset else COMMON
     if set(body) - (common | fields) or not set(body) >= ((fields - {"reference"}) if offset else COMMON):
@@ -317,6 +382,7 @@ SQL = {
     "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
+    "get_fee_types": "SELECT sokhach.get_fee_types();",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
     "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
@@ -340,20 +406,31 @@ ARGUMENTS = {
     "delete_trip": ("trip_id",),
     "edit_legacy_trip": ("legacy_row_id", "field", "value"),
     "delete_legacy_trip": ("legacy_row_id",),
+    "add_trip_fees": ("targets", "fee_type_id", "amount_vnd", "note"),
+    "set_trip_fee_type": ("target", "fee_type_id", "amount_vnd"),
+    "replace_trip_fee": ("fee_line_id", "fee_type_id", "amount_vnd", "note"),
+    "void_trip_fee": ("fee_line_id",),
+    "set_book_fee_columns": ("fee_type_ids",),
+    "add_fee_type": ("idempotency_key", "name", "kind"),
+    "rename_fee_type": ("idempotency_key", "fee_type_id", "name"),
+    "set_fee_type_kind": ("idempotency_key", "fee_type_id", "kind"),
+    "set_fee_type_active": ("idempotency_key", "fee_type_id", "active"),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
         "legacy_row_id": "bigint",
         "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",
         "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
-        "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean"}
+        "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean",
+        "targets": "jsonb", "target": "jsonb", "fee_type_id": "bigint", "fee_line_id": "bigint", "fee_type_ids": "jsonb", "active": "boolean"}
 for _name, _fields in ARGUMENTS.items():
     _args = ["(j->>'customer_id')::bigint", "(j->>'expected_version')::bigint", "j->>'idempotency_key'"]
-    if _name in ("record_offset", "void_offset", "edit_offset_date"):
+    if _name in ("record_offset", "void_offset", "edit_offset_date", "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active"):
         _args = []
-    _args += [f"(j{'->' if field == 'trips' else '->>'}'{field}')::{CAST[field]}" if field in CAST
+    _args += [f"(j{'->' if CAST.get(field) == 'jsonb' else '->>'}'{field}')::{CAST[field]}" if field in CAST
               else f"j->>'{field}'" for field in _fields]
     SQL[_name] = f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{_name}({', '.join(_args)}) FROM b;"
+
 
 
 class _PsqlRunner:
@@ -860,7 +937,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return refresh_sheet("GET", raw, actor)
-        if parts.path == "/api/v7/dashboard" and not parts.query:
+        if parts.path == "/api/v7/fee-types" and not parts.query:
+            function, payload = "get_fee_types", {}
+        elif parts.path == "/api/v7/dashboard" and not parts.query:
             function, payload = "get_dashboard", {}
         elif parts.path == "/api/v7/receivables/matrix":
             query = parse_qs(parts.query, keep_blank_values=True)

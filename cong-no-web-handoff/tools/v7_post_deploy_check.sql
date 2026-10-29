@@ -47,8 +47,23 @@ DECLARE
       'review_trip(bigint,bigint,text,bigint,text,text)',
       'record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text)',
       'void_offset(bigint,bigint,bigint,text,bigint,text)',
-      'edit_offset_date(bigint,bigint,bigint,text,bigint,date)'];
+      'edit_offset_date(bigint,bigint,bigint,text,bigint,date)',
+      'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
+      'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
+      'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
+      'void_trip_fee(bigint,bigint,text,bigint)',
+      'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
+      'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
+      'set_book_fee_columns(bigint,bigint,text,jsonb)', 'get_fee_types()'];
     actual text[];
+    expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
+      'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()'];
+    denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
+      '_guard_fee_line()', '_fee_cache_check()', 'v7_fee_migration_dry_run()',
+      '_fee_lines(bigint,bigint)', '_fee_columns(bigint)', '_fee_target(bigint,jsonb)',
+      '_change_trip_fees(bigint,bigint,text,text,jsonb,bigint,bigint,text,bigint)',
+      '_change_fee_type(text,text,bigint,text,text)', '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
+      '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)'];
     wanted text;
     n bigint;
 BEGIN
@@ -104,6 +119,18 @@ BEGIN
       AND has_function_privilege('v7_app',p.oid,'EXECUTE');
     IF actual IS DISTINCT FROM expected THEN RAISE EXCEPTION 'function allowlist mismatch'; END IF;
     RAISE NOTICE 'OK app_execute_allowlist';
+    SELECT array_agg(s ORDER BY s) INTO expected_reader FROM unnest(expected_reader) s;
+    FOREACH r IN ARRAY ARRAY['sokhach_app','sokhach_reader'] LOOP
+        SELECT array_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')'
+          ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')') INTO actual
+        FROM pg_proc p WHERE p.pronamespace='sokhach'::regnamespace AND has_function_privilege(r,p.oid,'EXECUTE');
+        IF actual IS DISTINCT FROM CASE WHEN r='sokhach_app' THEN expected ELSE expected_reader END
+        THEN RAISE EXCEPTION 'function allowlist mismatch for %',r; END IF;
+        FOREACH wanted IN ARRAY denied LOOP
+            IF to_regprocedure('sokhach.'||wanted) IS NULL OR has_function_privilege(r,'sokhach.'||wanted,'EXECUTE')
+            THEN RAISE EXCEPTION 'private function missing or executable: % %',r,wanted; END IF;
+        END LOOP;
+    END LOOP;
     FOREACH r IN ARRAY ARRAY['sokhach_app','sokhach_reader','v7_app'] LOOP
         FOR x IN SELECT oid,relkind FROM pg_class WHERE relnamespace='sokhach'::regnamespace
             AND relkind IN ('r','p','v','m','f','S') LOOP
