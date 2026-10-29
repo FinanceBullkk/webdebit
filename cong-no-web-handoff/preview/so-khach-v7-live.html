@@ -9,13 +9,13 @@
 html{scroll-behavior:smooth}
 body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
 #app{padding:0 10px 24px}
-.topbar{position:sticky;top:0;z-index:45;box-sizing:border-box;height:56px;display:flex;align-items:center;gap:28px;padding:0 24px;background:#16324f;color:#fff;font-family:"Segoe UI",system-ui,-apple-system,sans-serif}
+.topbar{position:sticky;top:0;z-index:45;box-sizing:border-box;height:56px;display:flex;align-items:center;gap:20px;padding:0 24px;background:#16324f;color:#fff;font-family:"Segoe UI",system-ui,-apple-system,sans-serif}
 .topbar .brand{color:#fff;font-size:17px;font-weight:700;text-decoration:none;white-space:nowrap}
 .topbar nav{display:flex;align-self:stretch;gap:4px}
-.topbar nav a{display:flex;align-items:center;padding:0 14px;color:#c3d1e0;font-size:15px;text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
+.topbar nav a{display:flex;align-items:center;padding:0 12px;color:#c3d1e0;font-size:15px;text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
 .topbar nav a:hover{color:#fff}
 .topbar nav a.active{color:#fff;border-color:#6da7ec}
-.topbar .live-controls{display:flex;align-items:center;gap:6px;margin-left:auto;white-space:nowrap}.topbar .live-controls button{min-height:34px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer}.topbar .live-controls button:hover{border-color:#6da7ec}.topbar .live-controls time{font-size:13px;color:#c3d1e0}
+.topbar .live-controls{display:flex;align-items:center;gap:6px;min-width:0;margin-left:auto;white-space:nowrap}.topbar .live-controls time{min-width:0;overflow:hidden;text-overflow:ellipsis}.topbar .live-controls button{min-height:34px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer}.topbar .live-controls button:hover{border-color:#6da7ec}.topbar .live-controls time{font-size:13px;color:#c3d1e0}
 .topbar .live-controls time.sheet-busy{color:#fff;font-weight:600}.topbar .live-controls time.sheet-error{color:#ffb4ae;font-weight:600}
 .sheet-spin{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid #9ebbd7;border-top-color:#174d82;border-radius:50%;vertical-align:-2px;animation:sheet-spin 1s linear infinite}@keyframes sheet-spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.sheet-spin{animation:none}}
 .topbar .readonly{margin-left:auto;padding:8px 14px;border:1px solid #3d5876;border-radius:6px;color:#c3d1e0;white-space:nowrap}
@@ -380,7 +380,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 </head>
 <body>
 <p id="demo-banner" hidden role="status" style="margin:0;padding:12px;background:#ffe08a;color:#452600;text-align:center;font-weight:800;font-size:18px">Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật</p>
-<header class="topbar"><a class="brand" href="/dashboard-v7.html">Công nợ HTH</a><nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a class="active" href="/so-khach-v7-live.html">Sổ khách</a></nav><span class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></span></header>
+<header class="topbar"><a class="brand" href="/dashboard-v7.html">Công nợ HTH</a><nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a class="active" href="/so-khach-v7-live.html">Sổ khách</a><a href="/viec-can-lam.html">Việc cần làm</a></nav><span class="live-controls"><button id="refresh-data" type="button">↻ Làm mới</button><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time></span></header>
 <div id="customer-picker"><a class="dashboard-link" href="/dashboard-v7.html">← Tổng quan</a><label for="customer-search">Tìm khách</label><input id="customer-search" type="search" autocomplete="off" aria-controls="customer-list" placeholder="Gõ tên khách hoặc mặt hàng"><span id="customer-count" role="status"></span><nav id="customer-list" aria-label="Danh sách khách tìm được"></nav></div>
 <main id="app"></main>
 <script src="so-khach-v7-model.js"></script>

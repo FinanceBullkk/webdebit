@@ -1,0 +1,81 @@
+/* Bản xem Tổng quan quản lý công nợ (ĐỀ XUẤT 29/10/2026). Dùng lại cong-no-theme.css + dashboard-v7.css của trang
+   thật; file này chỉ thêm phần mới: nhóm hạn trả, danh sách khách cần đòi, phân loại nhiều tiêu chí, tab Việc cần làm. */
+:root{--due-0:var(--age-0);--due-1:var(--age-1);--due-2:#efa53f;--due-3:#d9622b;--due-4:#a3231f}
+
+.grid>.receivable{grid-column:span 4}
+.grid>.due{grid-column:span 8}
+.grid>.debtors{grid-column:span 7}
+.grid>.classify{grid-column:span 5;align-self:start}
+
+/* Số việc trên thanh điều hướng: người nhập thấy ngay khi vào web */
+.topbar nav .badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;margin-left:8px;padding:0 7px;border-radius:11px;background:var(--critical);color:#fff;font-size:12.5px;font-weight:700}
+
+/* Còn phải thu: hai ô nhỏ mới (thu tháng này, khách rủi ro cao) và dòng chú thích phần chưa tính */
+.mini.risk{display:block;width:100%;text-align:left;cursor:pointer;border-color:#ebb7b4;background:var(--critical-soft)}
+.mini.risk .v{color:var(--critical)}
+.mini.risk:hover{border-color:var(--critical)}
+.mini.risk[aria-pressed="true"]{padding:9px 11px;border:2px solid var(--critical)}
+.hero-foot{margin:12px 0 0;font-size:13.5px;color:var(--ink-3)}
+
+/* Nợ theo hạn trả: một thanh 5 đoạn, vạch "Hạn trả" tách phần trong hạn / quá hạn */
+.due .age-legend{grid-template-columns:repeat(5,minmax(0,1fr))}
+.due .age-legend .k{min-height:42px;line-height:1.5}
+.due .age-legend .v .p{margin-left:6px;font-size:13.5px;font-weight:400;color:var(--ink-3)}
+.due .age-legend .m{font-size:13px;color:var(--ink-3)}
+.due .age-legend button.late .v{color:var(--critical)}
+.due-wrap{position:relative;margin:26px 0 12px}
+.due-wrap .age-bar{margin:0}
+.due-mark{position:absolute;top:-24px;bottom:-6px;border-left:2px dashed var(--ink-2);pointer-events:none}
+.due-mark span{position:absolute;top:-2px;font-size:13px;font-weight:600;white-space:nowrap}
+.due-mark .l{right:8px;color:var(--accent-ink)}
+.due-mark .r{left:8px;color:var(--critical)}
+
+/* Khách cần đòi trước: tên + nhãn + một câu lý do, thanh cơ cấu nợ, quá hạn, còn nợ */
+.dhead,.drow{display:grid;grid-template-columns:minmax(0,1fr) 120px 84px 84px;align-items:center;gap:12px}
+.dhead{padding:0 10px 6px;font-size:13.5px;color:var(--ink-3);border-bottom:1px solid var(--line)}
+.dhead button{height:32px;border:0;background:none;padding:0;text-align:right;white-space:nowrap;color:inherit;cursor:pointer}
+.dhead button:hover{color:var(--ink)}
+.dhead button[aria-pressed="true"]{color:var(--ink);font-weight:700}
+.drow{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid var(--line-soft);background:none;text-align:left;cursor:pointer}
+.drow:hover{background:var(--head)}
+.drow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.drow .who{min-width:0}
+.drow .nm{font-size:16px;font-weight:600}
+.drow .tag{margin-left:8px;padding:1px 8px;font-size:12.5px;vertical-align:1px}
+.drow .why{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--ink-3)}
+.drow .num{text-align:right;font-size:16px;font-variant-numeric:tabular-nums}
+.drow .num.od{font-weight:700;color:var(--critical)}
+.drow .num.zero{font-weight:400;color:var(--ink-3)}
+.mbar{display:block;height:10px;border-radius:5px;background:#eef1f5;overflow:hidden}
+.mbar>span{display:flex;gap:1px;height:100%}
+.mbar i{display:block;height:100%}
+.debtors .empty{padding:16px 10px}
+
+/* Phân loại: một tiêu chí mỗi lần, thanh ngang + số khách; bấm thanh để lọc danh sách bên trái */
+.seg{display:flex;gap:4px;margin:0 0 12px;padding:3px;border-radius:9px;background:var(--line-soft)}
+.seg button{flex:1;height:40px;border:0;border-radius:7px;background:none;font-weight:600;color:var(--ink-2);cursor:pointer}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px #1f293726}
+.bar-row .cnt{font-size:13.5px;color:var(--ink-3)}
+.bar-row.critical .track i{background:var(--critical)}
+.bar-row.warning .track i{background:var(--due-2)}
+
+/* Ngăn kéo: hai số, lý do, nợ theo tháng tô theo nhóm hạn trả */
+.drawer .dtotals{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.drawer .dtotals div{padding:10px 14px;border-radius:8px;background:var(--head)}
+.drawer .dtotals span{display:block;font-size:13.5px;color:var(--ink-3)}
+.drawer .dtotals b{font-size:22px}
+.drawer .dtotals .late b{color:var(--critical)}
+.drawer .reasons{margin:0;padding-left:20px;font-size:14.5px;line-height:1.6}
+.drawer .mrow small{display:block;font-size:12.5px;color:var(--ink-3)}
+
+/* Tab Việc cần làm (chuyển từ Tổng quan) */
+.todo-page .grid>.todo{grid-column:span 7}
+.todo-page .grid>.side{grid-column:span 5}
+
+@media (max-width:1100px){.grid>.receivable,.grid>.due,.grid>.debtors,.grid>.classify,.todo-page .grid>.todo,.todo-page .grid>.side{grid-column:span 12}}
+@media (max-width:760px){
+  .due .age-legend{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dhead,.drow{grid-template-columns:minmax(0,1fr) 84px 84px}
+  .mbar,.dhead .mb-h{display:none}
+}

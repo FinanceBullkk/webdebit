@@ -51,6 +51,7 @@ CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
 PAGES = {
     "/": "dashboard-v7.html",
     "/dashboard-v7.html": "dashboard-v7.html",
+    "/viec-can-lam.html": "viec-can-lam.html",
     "/cong-no-theo-thang.html": "cong-no-theo-thang.html",
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
@@ -456,6 +457,7 @@ SQL = {
     "get_price_table": "SELECT sokhach.get_price_table((:'payload'::jsonb->>'customer_id')::bigint);",
     "get_price_status": "SELECT sokhach.get_price_status((:'payload'::jsonb->>'customer_id')::bigint);",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
+    "get_dashboard_debt": "SELECT sokhach.get_dashboard_debt();",
     "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
@@ -1130,6 +1132,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = "get_fee_types", {}
         elif parts.path == "/api/v7/dashboard" and not parts.query:
             function, payload = "get_dashboard", {}
+        elif parts.path == "/api/v7/dashboard/debt" and not parts.query:
+            function, payload = "get_dashboard_debt", {}
         elif parts.path == "/api/v7/receivables/matrix":
             query = parse_qs(parts.query, keep_blank_values=True)
             values = query.get("year")
@@ -1232,9 +1236,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                                             "ready_count": 0, "review_count": 0}}
     if function == "list_offset_sources":
         result = {"sources": result}
-    if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):
+    if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix"):
         result = {**result, "demo": True}
-    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):
+    if real_copy and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix"):
         result = {**result, "real_copy": True}
     return 200, result
 

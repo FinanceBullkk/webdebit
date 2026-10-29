@@ -37,6 +37,7 @@ from v7_ledger_api import ROUTES, Psql, validate
 
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
+READ.add('get_dashboard_debt()')  # DASH-03
 APP_READ = {'list_sheet_trip_refs()'}
 READ.add('get_fee_types()')
 # CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
@@ -85,6 +86,7 @@ KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_
 
 
 KNOWN_FUNCTIONS.add('get_dashboard')
+KNOWN_FUNCTIONS.update({'get_dashboard_debt', '_legacy_date'})
 KNOWN_FUNCTIONS.add('delete_month_adjustment')
 KNOWN_FUNCTIONS.add('get_receivables_matrix')
 KNOWN_FUNCTIONS.add('get_receivables_detail')
