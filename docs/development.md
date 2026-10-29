@@ -71,6 +71,7 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO) |
 | `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
 | `so-khach-v7-draft-ui.js` | bảng nhập kiểu Sheet (NHAP-SHEET-01) |
+| `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, "Phụ phí PS cần xem" |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 
 Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài mọi phần đã đăng ký theo thứ tự thẻ `<script>` trong `so-khach-v7-live.html` để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần nào đang mở hộp/nhập dở cần chặn tự cập nhật thì `ctx.busyChecks.push(() => …)`. Phần mới không sửa `so-khach-v7-ui.js`: chỉ thêm thẻ script của nó ngay trên `so-khach-v7-ui.js`, CSS riêng để ở file `.css` của phần (như `presence.css`).
