@@ -23,6 +23,7 @@ import v7_identity
 import v7_presence
 import v7_sheet_refresh
 from v7_price_queue import load_price_snapshot, project_prices
+from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
@@ -40,6 +41,7 @@ STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
+PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/ps.json")
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
@@ -123,6 +125,8 @@ ERRORS = {
     "FEE_TYPE_DUPLICATE": (409, "Tên loại phụ phí đã tồn tại."),
     "FEE_COLUMNS_MAX": (422, "Sổ chỉ được chọn tối đa 3 cột phụ phí."),
     "FEE_LINES_TYPED": (409, "Chuyến có phụ phí đã phân loại. Sửa trong khung chi tiết."),
+    "FEE_LINES_CHANGED": (409, "Phụ phí chuyến này vừa đổi. Tải lại rồi tách."),
+    "FEE_TOTAL_CHANGED": (409, "Tách sẽ đổi tổng phụ phí nên không ghi. Tải lại rồi xem lại."),
     "TRIP_NOT_PENDING": (409, "Chuyến không còn CHỜ KIỂM."),
     "SHEET_CROSS_CUSTOMER_MATCH": (409, "Chuyến đã có ở khách khác. Tải lại để kiểm tra."),
     "REVIEW_REASON_REQUIRED": (422, "Cần ghi lý do kết luận chuyến CHỜ KIỂM."),
@@ -480,6 +484,8 @@ ARGUMENTS = {
     "set_trip_fee_type": ("target", "fee_type_id", "amount_vnd"),
     "replace_trip_fee": ("fee_line_id", "fee_type_id", "amount_vnd", "note"),
     "void_trip_fee": ("fee_line_id",),
+    # Không có đường POST riêng: chỉ /api/v7/ps/fees gọi, với kế hoạch server tự tính từ bảng PS.
+    "rewrite_trip_fees": ("target", "expected_line_ids", "lines", "source"),
     "set_book_fee_columns": ("fee_type_ids",),
     "add_fee_type": ("idempotency_key", "name", "kind"),
     "rename_fee_type": ("idempotency_key", "fee_type_id", "name"),
@@ -495,7 +501,8 @@ CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigin
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
         "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean",
         "targets": "jsonb", "target": "jsonb", "fee_type_id": "bigint", "fee_line_id": "bigint", "fee_type_ids": "jsonb", "active": "boolean",
-        "image_id": "bigint", "price_table": "jsonb", "trip_ids": "jsonb"}
+        "image_id": "bigint", "price_table": "jsonb", "trip_ids": "jsonb",
+        "expected_line_ids": "jsonb", "lines": "jsonb", "source": "jsonb"}
 for _name, _fields in ARGUMENTS.items():
     _args = ["(j->>'customer_id')::bigint", "(j->>'expected_version')::bigint", "j->>'idempotency_key'"]
     if _name in ("record_offset", "void_offset", "edit_offset_date", "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active"):
@@ -906,6 +913,62 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
 
 
+def ps_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    snapshot = load_ps_snapshot(PS_SNAPSHOT_PATH)
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    return project_ps(snapshot, ledger, customers, runner.run("get_fee_types", {}, actor).get("fee_types", []))
+
+
+def approve_ps_fees(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Split every READY PS row of one customer; each target is one total-preserving command."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}:
+        bad()
+    customer, version = request["customer_id"], request["expected_version"]
+    digest, key = request["snapshot_sha256"], request["idempotency_key"]
+    if (not positive_int(customer) or type(version) is not int or not 0 <= version <= MAX_BIGINT
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip()
+            or any(ord(char) < 32 for char in key)):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
+    if ledger.get("status") != "active":
+        raise ApiError(409, "NO_BASELINE", "Khách chưa có số dư đầu hiệu lực.")
+    if ledger.get("version") != version:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = ps_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "PS_FEES_UNAVAILABLE", "Không đọc được bảng PS.") from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Bảng PS đã đổi. Tải lại rồi tách.")
+    written = 0
+    for item in projection["ready"]:
+        target = {"trip_id" if item["target_kind"] == "trip" else "legacy_row_id": item["target_id"]}
+        # One key per target: a repeated click replays the stored result, never a second split.
+        command_key = hashlib.sha256(f"{key}:{digest}:{item['target_kind']}:{item['target_id']}".encode()).hexdigest()
+        try:
+            result = runner.run("rewrite_trip_fees", {
+                "customer_id": customer, "expected_version": version, "idempotency_key": command_key,
+                "target": target, "expected_line_ids": [line["id"] for line in item["before"]],
+                "lines": [{k: line[k] for k in ("fee_type_id", "amount_vnd", "note")} for line in item["after"]],
+                "source": {"kind": "ps", "key": item["key"], "ps_source": item["ps_source"], "snapshot_sha256": digest}}, actor)
+        except ApiError as exc:
+            if not written:
+                raise   # nothing written yet: a plain error, same as one fee edit
+            # Every split keeps totals, so stopping half way leaves no money wrong; the rest stays READY.
+            return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                         "complete": False, "error": exc.code}
+        version = result["version"] if type(result.get("version")) is int else \
+            runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+        written += 1
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+
+
 def refresh_sheet(method: str, raw: bytes, actor: str) -> tuple[int, dict]:
     """Status of, or a request for, an immediate read-only Sheet run (specs/v7-sheet-refresh.md)."""
     paths = (SHEET_SNAPSHOT_PATH, PRICE_SNAPSHOT_PATH)
@@ -1032,6 +1095,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return approve_prices(raw, runner, actor)
+        if parts.path == "/api/v7/ps/fees":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return approve_ps_fees(raw, runner, actor)
         if parts.path == "/api/v7/sheet/refresh":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
@@ -1157,6 +1225,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         except (ValueError, ApiError):
             result = {**result, "sheet_prices": {"unavailable": True, "ready": [], "review": [],
                                                  "ready_count": 0, "review_count": 0}}
+        try:
+            result = {**result, "ps_fees": ps_projection(runner, result, actor)}
+        except (ValueError, ApiError):
+            result = {**result, "ps_fees": {"unavailable": True, "ready": [], "review": [],
+                                            "ready_count": 0, "review_count": 0}}
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_receivables_matrix"):

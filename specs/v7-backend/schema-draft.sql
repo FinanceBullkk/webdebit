@@ -290,7 +290,8 @@ CREATE TABLE sokhach.event (
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove', 'adjust_month_delete')),
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove', 'adjust_month_delete',
+        'rewrite_trip_fees')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -332,6 +333,7 @@ CREATE TABLE sokhach.event (
         WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
         WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
         WHEN 'adjust_month_delete' THEN "before" ? 'adjustment' AND coalesce("after"->'adjustment'->'deleted'='true'::jsonb,false)
+        WHEN 'rewrite_trip_fees' THEN "before" ? 'targets' AND "after" ? 'targets' AND "after" ? 'source'
         ELSE false END),
     UNIQUE (id, customer_id)
 );

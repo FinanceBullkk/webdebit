@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
+EVENT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
 
 
 def text(path: Path) -> str:
@@ -39,7 +40,9 @@ class XoaDcThangSqlSync(unittest.TestCase):
         self.assertIn(check, re.sub(r"\s+", " ", schema))
         for name in ("event_kind_check", "event_snapshot_check"):
             with self.subTest(constraint=name):
-                body = block(migration, rf"(?ms)ADD CONSTRAINT {name} CHECK .*?;\n")
+                self.assertIn("adjust_month_delete", block(migration, rf"(?ms)ADD CONSTRAINT {name} CHECK .*?;\n"))
+                # Bản chuẩn bằng migration mới nhất dựng lại ràng buộc (tách phụ phí PS chạy sau XOA-DC-THANG-01).
+                body = block(text(EVENT_MIGRATION), rf"(?ms)ADD CONSTRAINT {name} CHECK .*?;\n")
                 self.assertIn("adjust_month_delete", body)
                 self.assertIn(body.removeprefix("ADD ").removesuffix(";\n"), schema)
 

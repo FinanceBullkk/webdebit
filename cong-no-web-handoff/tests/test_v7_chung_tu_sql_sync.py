@@ -9,8 +9,9 @@ MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.
 ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.rollback.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
-# Ràng buộc event trong bản chuẩn bằng migration mới nhất dựng lại chúng (XOA-DC-THANG-01 sau CHUNG-TU-01).
-EVENT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
+# Ràng buộc event trong bản chuẩn bằng migration mới nhất dựng lại chúng
+# (CHUNG-TU-01 → XOA-DC-THANG-01 → tách phụ phí PS).
+EVENT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
 NAMES = ("_guard_receipt_image", "_receipt_image_matches", "attach_receipt_image", "remove_receipt_image",
          "list_receipt_images", "get_receipt_image", "find_receipt_image")
 
