@@ -39,6 +39,8 @@ READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
 APP_READ = {'list_sheet_trip_refs()'}
 READ.add('get_fee_types()')
+# CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
+READ.update({'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)'})
 READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 WRITE = {
     'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
@@ -66,6 +68,8 @@ WRITE = {
     'record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text)',
     'void_offset(bigint,bigint,bigint,text,bigint,text)',
     'edit_offset_date(bigint,bigint,bigint,text,bigint,date)',
+    'attach_receipt_image(bigint,bigint,text,text,text,bytea)',
+    'remove_receipt_image(bigint,bigint,text,bigint,text)',
 }
 
 
@@ -88,6 +92,8 @@ KNOWN_FUNCTIONS.update({'_fee_lines', '_fee_columns', '_fee_target', '_change_tr
                         'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee',
                         'add_fee_type', 'rename_fee_type', 'set_fee_type_kind', 'set_fee_type_active',
                         'set_book_fee_columns', 'get_fee_types'})
+KNOWN_FUNCTIONS.update({'_guard_receipt_image', '_receipt_image_matches', 'attach_receipt_image',
+                        'remove_receipt_image', 'list_receipt_images', 'get_receipt_image', 'find_receipt_image'})
 KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_trip_rows', '_price_text', '_price_date',
                         'save_price_table', 'apply_price_table', 'get_price_table', 'get_price_status'})
 

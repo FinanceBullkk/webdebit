@@ -290,7 +290,7 @@ CREATE TABLE sokhach.event (
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'price_table_edit', 'price_table_apply')),
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -329,6 +329,8 @@ CREATE TABLE sokhach.event (
         WHEN 'set_book_fee_columns' THEN "before" ? 'fee_columns' AND "after" ? 'fee_columns'
         WHEN 'price_table_edit' THEN "before" ? 'price_table' AND "after" ? 'price_table'
         WHEN 'price_table_apply' THEN "before" ? 'trips' AND "after" ? 'trips'
+        WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
+        WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
         ELSE false END),
     UNIQUE (id, customer_id)
 );
@@ -340,6 +342,21 @@ COMMENT ON COLUMN sokhach.event.idempotency_key IS 'Khóa lệnh nguồn, có th
 COMMENT ON COLUMN sokhach.event.cutover_id IS 'Chỉ event import có mốc chuyển; chỉ mục duy nhất chặn nhập lại kể cả khi không có dòng opening.';
 COMMENT ON COLUMN sokhach.event."before" IS 'Bắt buộc: tạo mới dùng {}; sửa/hủy/phân bổ lại có snapshot ID và giá trị trước.';
 COMMENT ON COLUMN sokhach.event."after" IS 'Bắt buộc theo kind: ID, giá trị sau và bộ phân bổ; CHECK chỉ xác nhận key tối thiểu, hàm phải kiểm nội dung/quan hệ trước commit.';
+
+-- CHUNG-TU-01: ảnh chứng từ gắn phiếu thu; chỉ thêm, gỡ có lý do, không xóa hẳn.
+CREATE TABLE IF NOT EXISTS sokhach.receipt_image(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,customer_id bigint NOT NULL REFERENCES sokhach.customer(id),receipt_id bigint NOT NULL,
+ sha256 text NOT NULL CHECK(sha256 ~ '^[0-9a-f]{64}$'),content_type text NOT NULL CHECK(content_type IN('image/png','image/jpeg','image/webp')),
+ data bytea NOT NULL CHECK(octet_length(data) BETWEEN 1 AND 2097152),created_by_event bigint NOT NULL,
+ removed_reason text CHECK(removed_reason IS NULL OR btrim(removed_reason)<>''),removed_by_event bigint,
+ CHECK((removed_reason IS NULL)=(removed_by_event IS NULL)),
+ FOREIGN KEY(receipt_id,customer_id) REFERENCES sokhach.receipt(id,customer_id),
+ FOREIGN KEY(created_by_event,customer_id) REFERENCES sokhach.event(id,customer_id),
+ FOREIGN KEY(removed_by_event,customer_id) REFERENCES sokhach.event(id,customer_id));
+ALTER TABLE sokhach.receipt_image ALTER COLUMN data SET STORAGE EXTERNAL;
+CREATE UNIQUE INDEX IF NOT EXISTS receipt_image_active_unique ON sokhach.receipt_image(receipt_id,sha256) WHERE removed_by_event IS NULL;
+CREATE INDEX IF NOT EXISTS receipt_image_sha256 ON sokhach.receipt_image(sha256) WHERE removed_by_event IS NULL;
+CREATE INDEX IF NOT EXISTS receipt_image_customer ON sokhach.receipt_image(customer_id,receipt_id);
 
 ALTER TABLE sokhach.trip ADD COLUMN created_by_event bigint NOT NULL;
 ALTER TABLE sokhach.trip ADD CONSTRAINT trip_created_event_fk

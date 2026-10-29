@@ -1,5 +1,5 @@
 -- BANG-GIA-01 (29/10/2026): bảng giá theo ngày hiệu lực. Chỉ thêm bảng cấu hình, nguồn giá và hàm;
--- không đổi tiền chuyến nào, không chuyển dữ liệu. Áp sau 2026-10-29-v7-phu-phi-b-p2.sql; chạy lại được.
+-- không đổi tiền chuyến nào, không chuyển dữ liệu. Ràng buộc event có sẵn loại của CHUNG-TU-01 để áp hai migration theo thứ tự nào cũng không làm mất loại sự kiện. Áp sau 2026-10-29-v7-phu-phi-b-p2.sql; chạy lại được.
 BEGIN;
 SET LOCAL ROLE sokhach_owner;
 ALTER TABLE sokhach.event DROP CONSTRAINT event_kind_check;
@@ -7,7 +7,7 @@ ALTER TABLE sokhach.event ADD CONSTRAINT event_kind_check CHECK (kind IN ('paste
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'price_table_edit', 'price_table_apply'));
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove'));
 ALTER TABLE sokhach.event DROP CONSTRAINT event_snapshot_check;
 ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
         WHEN 'paste' THEN "before" = '{}'::jsonb AND "after" ? 'trips'
@@ -40,6 +40,8 @@ ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
         WHEN 'set_book_fee_columns' THEN "before" ? 'fee_columns' AND "after" ? 'fee_columns'
         WHEN 'price_table_edit' THEN "before" ? 'price_table' AND "after" ? 'price_table'
         WHEN 'price_table_apply' THEN "before" ? 'trips' AND "after" ? 'trips'
+        WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
+        WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
         ELSE false END);
 
 -- BANG-GIA-01 (29/10/2026): mỗi sổ một bảng giá theo ngày hiệu lực; giá TT cho shipper của TT, còn lại giá khách.

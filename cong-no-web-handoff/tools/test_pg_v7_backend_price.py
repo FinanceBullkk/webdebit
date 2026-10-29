@@ -211,5 +211,7 @@ def check_price_migration(pg):
             "failed price migration did not roll back")
     pg.sql(migration, database=db)
     pg.sql(migration, database=db)
+    # Later migrations (CHUNG-TU-01) are part of the canonical schema the fresh snapshot was taken from.
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql").read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

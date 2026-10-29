@@ -10,7 +10,8 @@
       trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
       sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí',
       add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
-      void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng' };
+      void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng',
+      receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
     // PHU-PHI-01: lệnh phụ phí ghi {targets: [{trip_id|legacy_row_id, fee_lines, counted_vnd}], batch_count} trước → sau.
     const feeTargetName = target => {
       const snapshot = ctx.snapshot;
@@ -95,6 +96,9 @@
         const label = { carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[after.field] ?? 'Ô';
         return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;
       }
+      // CHUNG-TU-01: ảnh không đổi tiền, chỉ ghi phiếu nào và lý do gỡ.
+      if (event.kind === 'receipt_image') return `Phiếu ${event.after?.image?.pid ?? '–'} · thêm 1 ảnh`;
+      if (event.kind === 'receipt_image_remove') return `Phiếu ${event.after?.image?.pid ?? '–'} · gỡ 1 ảnh · Lý do: ${event.after?.image?.reason ?? '–'}`;
       if (['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns'].includes(event.kind)) return describeFeeEvent(event);
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'

@@ -55,18 +55,22 @@ DECLARE
       'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
       'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
       'set_book_fee_columns(bigint,bigint,text,jsonb)', 'get_fee_types()',
+      'attach_receipt_image(bigint,bigint,text,text,text,bytea)', 'remove_receipt_image(bigint,bigint,text,bigint,text)',
+      'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
       'get_price_table(bigint)', 'get_price_status(bigint)'];
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
       'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
+      'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'get_price_table(bigint)', 'get_price_status(bigint)'];
     denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
       '_guard_fee_line()', '_fee_cache_check()', 'v7_fee_migration_dry_run()',
       '_fee_lines(bigint,bigint)', '_fee_columns(bigint)', '_fee_target(bigint,jsonb)',
       '_change_trip_fees(bigint,bigint,text,text,jsonb,bigint,bigint,text,bigint)',
       '_change_fee_type(text,text,bigint,text,text)', '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
-      '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)'];
+      '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)',
+      '_guard_receipt_image()', '_receipt_image_matches(text,bigint)'];
     wanted text;
     n bigint;
 BEGIN

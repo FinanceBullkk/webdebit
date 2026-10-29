@@ -1,5 +1,6 @@
 """V7 HTTP boundary checks; Docker case runs only on an isolated fake harness."""
 
+import base64
 import http.client
 import io
 import json
@@ -1216,6 +1217,92 @@ class LedgerDockerTest(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 worker.join(timeout=3)
+
+
+class ReceiptImageApiTest(unittest.TestCase):
+    """CHUNG-TU-01: đính/gỡ/xem ảnh chứng từ; ảnh giả do test tự tạo."""
+
+    PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+    WEBP = b"RIFF\x10\x00\x00\x00WEBPVP8 " + b"\x00" * 8
+
+    def setUp(self):
+        self.common = {"customer_id": 1, "expected_version": 3, "idempotency_key": "image-request"}
+        self.headers = {"Host": "127.0.0.1:8780", "Origin": "http://127.0.0.1:8780", "Content-Type": "application/json"}
+
+    def body(self, data=None, content_type="image/png", **extra):
+        encoded = base64.b64encode(self.PNG if data is None else data).decode()
+        return self.common | {"pid": "P-0001", "content_type": content_type, "data_base64": encoded} | extra
+
+    def call(self, method, path, body=None):
+        runner = FakePsql()
+        status, _ = api.handle(method, path, self.headers, json.dumps(body or {}).encode() if method == "POST" else b"",
+                               runner, port=8780, host="127.0.0.1", actor="server-image-actor")
+        self.assertEqual(status, 200)
+        return runner.calls[-1]
+
+    def rejected(self, code, method, path, body=None, raw=None):
+        with self.assertRaises(api.ApiError) as caught:
+            api.handle(method, path, self.headers, raw if raw is not None else json.dumps(body or {}).encode(),
+                       FakePsql(), port=8780, host="127.0.0.1", actor="server-image-actor")
+        self.assertEqual(caught.exception.code, code)
+
+    def test_routes_reach_functions(self):
+        self.assertEqual(self.call("POST", "/api/v7/receipts/images", self.body())[0], "attach_receipt_image")
+        self.assertEqual(self.call("POST", "/api/v7/receipts/images", self.body(self.WEBP, "image/webp"))[0], "attach_receipt_image")
+        name, payload, actor = self.call("POST", "/api/v7/receipts/images/remove", self.common | {"image_id": 9, "reason": "Đính nhầm"})
+        self.assertEqual((name, payload["image_id"], actor), ("remove_receipt_image", 9, "server-image-actor"))
+        self.assertEqual(self.call("GET", "/api/v7/receipt-images?customer=1")[:2], ("list_receipt_images", {"customer_id": 1}))
+        self.assertEqual(self.call("GET", "/api/v7/receipt-image?customer=1&id=9")[:2],
+                         ("get_receipt_image", {"customer_id": 1, "image_id": 9}))
+        sha = "a" * 64
+        self.assertEqual(self.call("GET", f"/api/v7/receipt-images/find?sha256={sha}")[:2], ("find_receipt_image", {"sha256": sha}))
+        self.assertIn("(j->>'image_id')::bigint", api.SQL["remove_receipt_image"])
+
+    def test_rejects_bad_images_and_requests(self):
+        path = "/api/v7/receipts/images"
+        self.rejected("IMAGE_INVALID", "POST", path, self.body(b"%PDF-1.7 fake"))
+        self.rejected("IMAGE_INVALID", "POST", path, self.body(self.PNG, "image/webp"))
+        self.rejected("IMAGE_INVALID", "POST", path, self.body(content_type="image/gif"))
+        self.rejected("IMAGE_INVALID", "POST", path, self.body() | {"data_base64": "AAA'; DROP TABLE x;--"})
+        self.rejected("IMAGE_INVALID", "POST", path, self.body() | {"data_base64": "AAA"})
+        self.rejected("IMAGE_TOO_LARGE", "POST", path, self.body(self.PNG + b"\x00" * api.MAX_IMAGE_BYTES))
+        self.rejected("INVALID_REQUEST", "POST", path, self.body(pid=" "))
+        self.rejected("INVALID_REQUEST", "POST", path, self.body(extra_field=1))
+        remove = "/api/v7/receipts/images/remove"
+        self.rejected("IMAGE_REMOVE_REASON_REQUIRED", "POST", remove, self.common | {"image_id": 9, "reason": "  "})
+        self.rejected("INVALID_REQUEST", "POST", remove, self.common | {"image_id": 0, "reason": "x"})
+        for target in ("/api/v7/receipt-images", "/api/v7/receipt-images?customer=0", "/api/v7/receipt-image?customer=1",
+                       "/api/v7/receipt-image?customer=1&id=1&id=2", "/api/v7/receipt-images/find?sha256=ABC"):
+            with self.subTest(target=target):
+                self.rejected("INVALID_REQUEST", "GET", target, raw=b"")
+
+    def test_body_limit_is_larger_only_for_image_path(self):
+        big = b"{" + b" " * (api.MAX_BODY + 10) + b"}"
+        self.rejected("BODY_TOO_LARGE", "POST", "/api/v7/receipts", raw=big)
+        self.rejected("BODY_TOO_LARGE", "POST", "/api/v7/receipts/images", raw=b" " * (api.MAX_IMAGE_BODY + 1))
+        self.rejected("INVALID_REQUEST", "POST", "/api/v7/receipts/images", raw=big)
+
+    def test_image_goes_through_stdin_not_command_line(self):
+        ok = Mock(returncode=0, stdout='{"image":{"id":1},"version":4}', stderr="")
+        body = self.body()
+        with patch.object(api.subprocess, "run", return_value=ok) as run:
+            api._PsqlRunner()._run_psql(["fake-psql"], "attach_receipt_image", body, "server-image-actor")
+        argv, kwargs = run.call_args[0][0], run.call_args[1]
+        self.assertFalse(any(body["data_base64"] in arg for arg in argv))
+        self.assertIn(f"decode('{body['data_base64']}', 'base64')", kwargs["input"])
+        self.assertNotIn(api.IMAGE_MARK, kwargs["input"])
+        with patch.object(api.subprocess, "run", return_value=ok), self.assertRaises(api.ApiError) as caught:
+            api._PsqlRunner()._run_psql(["fake-psql"], "attach_receipt_image", body | {"data_base64": "x'--"}, "a")
+        self.assertEqual(caught.exception.code, "IMAGE_INVALID")
+
+    def test_image_error_mapping(self):
+        for code in ("IMAGE_INVALID", "IMAGE_TOO_LARGE", "IMAGE_LIMIT", "IMAGE_DUPLICATE", "IMAGE_NOT_FOUND",
+                     "IMAGE_ALREADY_REMOVED", "IMAGE_REMOVE_REASON_REQUIRED", "RECEIPT_ALREADY_VOID"):
+            with self.subTest(code=code), patch.object(api.subprocess, "run") as run:
+                run.return_value = Mock(returncode=1, stdout="", stderr=f"psql:<stdin>:1: ERROR:  P0001: {code}\n")
+                with self.assertRaises(api.ApiError) as caught:
+                    api._PsqlRunner()._run_psql([], "remove_receipt_image", self.common | {"image_id": 1, "reason": "x"}, "a")
+                self.assertEqual(caught.exception.code, code)
 
 
 if __name__ == "__main__":
