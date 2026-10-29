@@ -159,6 +159,14 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     assert.ok(!fee.root.innerHTML.includes(kind), kind);
     assert.match(fee.root.innerHTML, kind === 'set_book_fee_columns' ? /Cột riêng: chỉ Khác → Loại #7/ : /#4: phụ phí 500 → 1\.700 \(Loại #7 1\.200 \(neo&lt;1&gt;\)\)/, kind);
   }
+  // specs/v7-bang-gia-hieu-luc.md: nhãn bảng giá làm ở giai đoạn 2 (giao diện).
+  const PENDING_UI_EVENT_KINDS = ['price_table_edit', 'price_table_apply'];
+  for (const kind of PENDING_UI_EVENT_KINDS) {
+    const pending = await livePage({ ...ledger(1), events: [{ id: 1, kind, actor: 'Người thử',
+      at: '2026-10-20T01:02:00Z', before: { targets: [] }, after: { targets: [] } }] });
+    assert.match(pending.root.innerHTML, /Thao tác khác/, kind);
+    assert.ok(!pending.root.innerHTML.includes(kind), kind);
+  }
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM' };
@@ -183,7 +191,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".
   const pendingUi = ['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete'];
-  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !Object.hasOwn(feeKinds, kind)).sort(), Object.keys(kinds).sort());
+  assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind) && !Object.hasOwn(feeKinds, kind)).sort(), Object.keys(kinds).sort());
 });
 
 test('locked month keeps trip cells read only and receipt entry usable', async () => {
