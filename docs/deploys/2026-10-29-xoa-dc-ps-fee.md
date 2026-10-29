@@ -38,6 +38,12 @@ Lần chạy thử đầu dừng trước bước migration vì `postgres` khôn
 - `delete_month_adjustment`, `rewrite_trip_fees`: role app được EXECUTE, reader không. `_rewrite_trip_fees`: không ai được EXECUTE.
 - **Bằng chứng:** thư mục backup `v7-xoa-dc-ps-fee-20261029-175657` trên `hao` (dump trước, dump lúc dừng, hash migration, dấu vân tay, số dư, log áp migration, kết quả checker), ngoài Git.
 
+## Runner bảng PS (cài cùng ngày, sau đợt trên)
+
+- Lần thử đọc đầu trả `HTTPError` vì Claude nạp cả `sheet-prices.env`. File đó ghi đè `WEBDEBIT_SHEET_ID` sang sổ gốc, nên runner đọc nhầm file. Thật ra file bộ lập bill đã được chia sẻ cho tài khoản dịch vụ từ trước. Chỉ nạp `sheet-sync.env` thì đọc được `CONT_MASTER`: `ok: true`, 108 dòng.
+- Cài `webdebit-ps-snapshot.service` + `.timer` (15 phút) theo runbook bước 3. Thêm `webdebit-ps-snapshot.service` vào `Wants=` của `webdebit-sheet-refresh.service`, để nút "↻ Làm mới" đọc luôn bảng PS; bản unit cũ lưu ở `ps-runner-20261029-115626` trên `hao`. Lượt đầu ghi `ps.json`, timer đã bật.
+- Kiểm chỉ đọc qua API: 236/236 sổ có `ps_fees` (không còn `unavailable`). Có 0 chuyến `ready` và 96 chuyến `review`: `WEB_NO_FEE` 61, `TOTAL_DIFF` 15, `PS_BAD_AMOUNT` 8, `PS_COMBINED` 7, `MONTH_LOCKED` 4, `AMBIGUOUS` 1. Không bấm tách thật.
+
 ## Rollback
 
 - App: trỏ `CURRENT_LINK` về release `310ee69` trong `RELEASES_DIR` rồi restart. DB mới tương thích release cũ vì chỉ thêm: cột mới để trống, view cho kết quả như cũ khi chưa có dòng đảo.
@@ -45,5 +51,5 @@ Lần chạy thử đầu dừng trước bước migration vì `postgres` khôn
 
 ## CÒN MỞ
 
-- **Runner bảng PS chưa cài** (runbook mục tách phụ phí PS, bước 0): chạy thử đọc dưới user runner trả `HTTPError`. Tức là tài khoản dịch vụ chưa đọc được file bộ lập bill. Cần người dùng chia sẻ file bộ lập bill (chỉ xem) cho email tài khoản dịch vụ, và đặt `WEBDEBIT_PS_SHEET_ID` trong env runner (không ghi vào repo). Tới lúc đó, sổ trả `ps_fees.unavailable`, chức năng khác không ảnh hưởng.
+- Chưa thử tay bấm tách phụ phí PS: chưa có giao diện (PR-2).
 - Chưa thử tay trên web: xóa một dòng điều chỉnh cả tháng (hai dòng thử ghi trước đó giờ mới ẩn được).
