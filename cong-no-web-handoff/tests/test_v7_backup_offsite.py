@@ -146,11 +146,12 @@ class OffsiteTests(unittest.TestCase):
         self.assertEqual(self.names(), before)
 
     def test_unreadable_member_kills_age_and_leaves_no_partial(self):
-        dump = make_backup(self.root, "v7-20200102-024000") / backup.DUMP
+        make_backup(self.root, "v7-20200102-024000")
         real_open, opened = Path.open, []
 
         def flaky_open(path, *args, **kwargs):
-            if path == dump:
+            # By name: offsite() resolves paths, and a runner's TEMP may be an 8.3 short path.
+            if path.name == backup.DUMP:
                 opened.append(path)
                 if len(opened) == 2:  # 1st: verify() hashes it; 2nd: seal() streams it
                     raise PermissionError("fake unreadable dump")
