@@ -103,8 +103,11 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
 
 function handleApi(world, req, res, url, body) {
   if (req.method === 'GET' && url.pathname === '/api/v7/customers') {
-    return reply(res, 200, { demo: true, customers: Object.values(world.books).map(item => ({ id: item.id, name: item.name, status: 'active',
+    const send = () => reply(res, 200, { demo: true, customers: Object.values(world.books).map(item => ({ id: item.id, name: item.name, status: 'active',
       commodity: item.commodity, transport_mode: item.mode ?? null })) });
+    // holdCustomers: giữ câu trả lời tới khi test thả, để danh sách khách về sau sổ.
+    if (world.holdCustomers) { world.holdCustomers.push(send); world.customersHeld?.(); return; }
+    return send();
   }
   if (url.pathname.startsWith('/api/v7/presence')) return reply(res, 200, { people: [] });   // PRESENCE-01, không phải lệnh ghi sổ
   if (url.pathname.startsWith('/api/v7/price-table') && req.method === 'GET') return reply(res, 404, { error: 'NOT_FOUND' });   // BANG-GIA-01: sổ thử chưa có bảng giá
@@ -271,6 +274,27 @@ test('chọn CẤN TRỪ hiện ô Lấy từ sổ; danh sách xếp A→Z, có 
   assert.match(await page.locator('.offset-none').innerText(), /Không tìm thấy/);
   await page.locator('.receipt-method').selectOption('THU TIỀN');
   assert.equal(await page.locator('.offset-source-row').count(), 0);
+}));
+
+test('danh sách khách về sau sổ: vẽ lại giữ ô đang gõ, CẤN TRỪ và ô chọn sổ', async () => withPage(async ({ page, world, base }) => {
+  world.holdCustomers = [];
+  const asked = new Promise(resolve => { world.customersHeld = resolve; });
+  await page.goto(`${base}/so-khach-v7-live.html?customer=1`);
+  await page.waitForSelector('.book-head .history-toggle');
+  await fillEntry(page, dayInMonth, '50.000.000');
+  await pickSource(page, 'Khách Thử Hai');
+  await asked;
+  const held = world.holdCustomers;
+  world.holdCustomers = null;
+  held.forEach(send => send());
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  assert.equal(await page.locator('.receipt-method').inputValue(), 'CẤN TRỪ');
+  assert.equal(await page.locator('.receipt-date').inputValue(), viDate(dayInMonth));
+  assert.equal(await page.locator('.receipt-amount').inputValue(), '50.000.000');
+  assert.match(await page.locator('.offset-source-select').innerText(), /Khách Thử Hai/);
+  await page.locator('.receipt-amount').press('Enter');
+  // Tên sổ nhận lấy từ danh sách khách vừa về.
+  assert.match(await page.locator('.offset-dialog').innerText(), /từ sổ Khách Thử Hai · sầu riêng sang sổ Khách Thử Một/);
 }));
 
 test('ghi cấn trừ: khung xác nhận có số trước → sau, gửi version cả hai sổ, sổ nhận có liên kết sang sổ bên kia', async () => withPage(async ({ page, world, open, shot }) => {
