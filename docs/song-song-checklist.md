@@ -4,6 +4,8 @@ Lập 22/10/2026 (Claude, phiên điều phối). Trạng thái từng mục l�
 
 **Cập nhật 27/10/2026** (Claude, đọc code trên `main` tại `b58f470` và chạy `npm run check` cục bộ; không kiểm live): ghi chú 27/10 ở A2, A3, C4, E1. Người dùng báo trong chat 27/10 rằng `hao` đã nhận code mới và đang chạy; chưa có bằng chứng revision trong repo.
 
+**Cập nhật 29/10/2026** (Claude, cài và kiểm live trên `hao`): C1, C2.
+
 Ngày bắt đầu song song chính thức là ngày mọi mục **Chặn** dưới đây ĐẠT và chủ nghiệp vụ chốt ngày ([`SONG-SONG-02`](decisions.md#song-song-02) còn mở). Mục **Không chặn** làm trong lúc chạy song song, nhưng phải xong trước ngày chuyển hẳn.
 
 Vai trò: **Chủ NV** = chủ nghiệp vụ (người dùng); **Admin** = người chạy lệnh trên `hao` (hiện cũng là người dùng); **Người nhập**; **Claude** = điều phối, spec, review; **Codex** = code backend ([vai trò](multi-agent.md)).
@@ -32,8 +34,8 @@ B2 dùng mở/khóa tháng vì thao tác này ghi Lịch sử mà không đổi 
 
 | # | Điều kiện | Mức | Ai | Bằng chứng cần có | Trạng thái 22/10 |
 | --- | --- | --- | --- | --- | --- |
-| C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Claude viết mẫu timer vào runbook và cài sau khi người dùng duyệt | `MANIFEST.json` của hai ngày liên tiếp | CHƯA: chỉ có backup trước mỗi đợt nâng. **29/10:** lệnh `v7_backup.py daily` và mẫu unit ở [runbook](v7-deploy-runbook.md#backup-hằng-ngày--timer-v7-backup-daily); chưa cài trên `hao` |
-| C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Claude, theo runbook B4 | Báo cáo restore khớp exact counts | CHƯA cho bản định kỳ (đã làm trước đợt nâng 22/10) |
+| C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Claude viết mẫu timer vào runbook và cài sau khi người dùng duyệt | `MANIFEST.json` của hai ngày liên tiếp | CHƯA ĐẠT, đang chạy. **29/10:** timer `v7-backup-daily` đã cài trên `hao` (02:40 giờ VN, giữ 30 bản, [runbook](v7-deploy-runbook.md#backup-hằng-ngày--timer-v7-backup-daily), [nhật ký](deploys/2026-10-29-v7-backup-daily.md)). Ngày 1: `v7-20261029-194852` (chạy tay qua unit, `verify` MATCH). ĐẠT khi có bản của lượt timer 30/10 |
+| C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Claude, theo runbook B4 | Báo cáo restore khớp exact counts | **ĐẠT 29/10:** bản `v7-20261029-194852` phục hồi ra DB tạm mới trên `hao`: `MATCH`, số dòng 31 bảng và tổng nợ 236 khách khớp `MANIFEST.json`; đã xóa DB tạm. Báo cáo ở thư mục `v7-backup-daily-install-20261029-194749` trên `hao`, ngoài Git ([nhật ký](deploys/2026-10-29-v7-backup-daily.md)) |
 | C3 | Rollback A/B/C có trong runbook | Chặn | — | [Runbook mục 7](v7-deploy-runbook.md), tổng duyệt Docker 21/10 | **ĐẠT** về tài liệu |
 | C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | **27/10:** hướng dẫn đã viết ([đối soát cuối ngày](doi-soat-cuoi-ngay.md)). CHƯA chạy thử; phụ thuộc A3 |
 
