@@ -205,7 +205,8 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".
-  const pendingUi = ['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete'];
+  // sheet_conflict_resolved: hàm gộp vào file chuẩn 29/10/2026, Lịch sử chưa có nhãn riêng.
+  const pendingUi = ['trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete', 'sheet_conflict_resolved'];
   assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind) && !Object.hasOwn(feeKinds, kind)).sort(), Object.keys(kinds).sort());
 });
 

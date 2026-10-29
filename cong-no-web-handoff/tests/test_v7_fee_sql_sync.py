@@ -11,6 +11,8 @@ PR_B_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-
 LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
+# Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
+AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -28,11 +30,16 @@ class FeeSqlSync(unittest.TestCase):
         migration = MIGRATION.read_text(encoding="utf-8")
         canonical = FUNCTIONS.read_text(encoding="utf-8")
         for name in ("_fee_cache_check", "_sync_trip_fee", "v7_fee_migration_dry_run",
-                     "paste_trips", "_compat_trip_fee",
+                     "_compat_trip_fee",
                      "edit_trip_price", "adjust_trip"):
             with self.subTest(name=name):
                 self.assertEqual(definition(migration, "FUNCTION", name),
                                  definition(canonical, "FUNCTION", name))
+        audit = AUDIT_MIGRATION.read_text(encoding="utf-8")
+        for name in ("paste_trips", "record_receipt", "apply_price_table",
+                     "list_sheet_trip_refs", "guard_sheet_cross_customer", "resolve_sheet_conflict"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         with self.subTest(name="get_ledger"):
             self.assertEqual(definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
                              definition(canonical, "FUNCTION", "get_ledger"))

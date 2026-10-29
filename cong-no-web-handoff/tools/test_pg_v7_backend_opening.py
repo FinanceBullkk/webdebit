@@ -537,8 +537,9 @@ const book={months:['2026-01','2026-02'].map((key,i)=>({key,
 const month=k=>book.months.find(x=>x.key===k);
 const apply=()=>{const p=m.planReallocation(book);for(const x of book.months)x.receipts=x.receipts.filter(r=>r.voided!==null);
   for(const x of p.lines)month(x.monthKey).receipts.push(x.receipt)};
+// V7-SO (29/10/2026): ghi phiếu mới cũng phân bổ lại theo (ngày, mã phiếu) như server.
 const add=(pid,date,amount)=>{const p=m.planReceipt(book,{pid,date,method:'THU TIỀN',amountVnd:amount});
-  for(const x of p.lines)month(x.monthKey).receipts.push({pid,date,method:'THU TIỀN',amountVnd:x.amountVnd,kind:x.kind,voided:null})};
+  for(const x of p.lines)month(x.monthKey).receipts.push({pid,date,method:'THU TIỀN',amountVnd:x.amountVnd,kind:x.kind,voided:null});apply()};
 const snap=()=>({months:m.outstandingByMonth(book).map(x=>[x.monthKey,x.outstandingVnd.toString()]),
   total:m.monthChain(book).totalOutstandingVnd.toString(),
   receipts:Object.fromEntries(['PH-001','PH-002','PH-003'].map(pid=>[pid,book.months.flatMap(x=>
