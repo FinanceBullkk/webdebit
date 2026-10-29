@@ -24,7 +24,15 @@
     <div id="error" role="alert" hidden></div>
     <div id="dashboard" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-name" hidden>
+    <header><div><h2 id="d-name"></h2><p id="d-sub"></p></div><button type="button" class="x" id="d-close" aria-label="Đóng">✕</button></header>
+    <div class="body" id="d-body"></div>
+    <footer><a class="primary" id="d-open" href="/so-khach-v7-live.html">Mở sổ khách</a><a class="secondary" id="d-matrix" href="/cong-no-theo-thang.html">Xem ở ma trận</a></footer>
+  </aside>
   <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
   <script src="sheet-refresh.js"></script>
   <script src="dashboard-v7.js"></script>
 </body>

@@ -156,7 +156,7 @@ async function withPage(fn, setup = () => {}) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${world.query ?? ''}`);
     await page.waitForSelector('.book-head .history-toggle');
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
     await fn({ page, world, shot });

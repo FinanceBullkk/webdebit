@@ -48,6 +48,12 @@ body.drawer-open{overflow:hidden}
 .heat tr.group td.khach{padding:8px 12px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .heat tr.group td.khach .n{margin-left:6px;font-weight:400;font-size:13px;color:var(--ink-2)}
 .heat td.m{padding:3px}
+/* Mở từ Tổng quan với ?tuoi=: tô các cột tháng thuộc nhóm tuổi nợ, làm mờ ô tháng khác. */
+.age-pick{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px;padding:10px 14px;border:1px solid #b7d3f6;border-radius:var(--radius);background:var(--accent-soft);font-size:15px}
+.age-pick[hidden]{display:none}
+.age-pick button{margin-left:auto}
+.heat thead th.mh.pick{background:var(--age-2);color:#fff}
+.heat td.m.dim .cell-btn{opacity:.28}
 .heat .cell-btn{display:block;width:100%;height:30px;padding:0 6px;border:0;border-radius:4px;background:none;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
 .heat .cell-btn:hover{outline:2px solid var(--ink);outline-offset:-2px}
 .heat .cell-btn.neg{background:var(--credit-soft);color:var(--credit);font-weight:600}
