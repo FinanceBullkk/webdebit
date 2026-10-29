@@ -278,3 +278,9 @@ Số đo thực tế (Playwright):
 - **Ranh giới:** không fixture, không benchmark giả trong trang thật; tiền định dạng từ chuỗi VND bằng `BigInt`; ô âm giữ dấu; khách tổng ròng 0 vẫn hiện; thu hiển thị theo tháng, không theo container.
 - **ĐÃ KIỂM CHỨNG:** `node --test cong-no-web-handoff/preview/test-v7-receivables-matrix-browser.js` **2/2 PASS**; `npm run test:browser` **34/34 PASS**; `npm run check` **7/7 PASS**; screenshot 1280×800 và 390×844 đã kiểm tra.
 - **CÒN MỞ:** review diff/PR Phase 5, chạy CI đầy đủ, kiểm tra tích hợp PostgreSQL disposable; chưa deploy `hao`.
+
+### Ngăn kéo chi tiết tháng — audit UI 29/10/2026
+
+- **ĐÃ CHỐT (người dùng chọn sửa nhóm P1 + P2 của audit trong chat, 29/10/2026):** chuyến xếp theo ngày, ngày `dd/mm`, số không kèm "đ" trong bảng, ẩn cột Phụ phí khi tháng không có phụ phí, dòng tổng chuyến ghim đáy; phần đầu (khách, "Mở sổ khách ›", đổi tháng ‹ ›, phép tính Phát sinh − Thu đã trừ = Còn lại) đứng yên, chỉ bảng chuyến cuộn. Ngăn kéo không có lớp phủ: màn ≥ 900px bảng thu hẹp, cuộn ngang tới ô đang mở và tô viền ô đó; bấm ô khác thì ngăn kéo đổi theo.
+- Tháng có số dư đầu sổ gốc không ghi dấu −/= vì phát sinh/đã thu lấy theo Sheet; chuyến chờ kiểm hoặc chưa có giá hiện nhãn và không vào dòng tổng (như dòng Tổng tháng của Sổ khách).
+- **CÒN MỞ:** danh sách phiếu thu của tháng trong ngăn kéo cần thêm trường vào `get_receivables_detail` (migration riêng).
