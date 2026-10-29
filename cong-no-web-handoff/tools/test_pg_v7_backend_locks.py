@@ -192,6 +192,7 @@ def check_csm_migration(pg: Pg) -> None:
     require(call(copy, "record_receipt", c, 0, "old-retry", "2026-01-02", "THU TIỀN", 10) == old_result,
             "old idempotency key broken by migration")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8"))
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql").read_text(encoding="utf-8"))
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))
     fresh = json.loads(pg.value(catalog))
@@ -201,12 +202,16 @@ def check_csm_migration(pg: Pg) -> None:
          fee_trip, 110, 7)
     require(copy.value(f"SELECT outstanding_vnd FROM sokhach.v_outstanding_month WHERE customer_id={fee_book}") == "117",
             "old fee adjustment counted twice after unit edit")
+    def legacy_differs():
+        return next(r for r in call(copy, "get_ledger", legacy_book)["legacy_rows"] if r["id"] == int(legacy_id))["counted_differs"]
+    require(legacy_differs() is True, "TOTAL 999 vs unit 100 + fee 5 not flagged")
     call(copy, "edit_legacy_trip", legacy_book, version(copy, legacy_book), "legacy-fee-total",
          int(legacy_id), "other_fee_vnd", "7")
     copy.true(f"(SELECT counted_vnd=107 FROM sokhach.legacy_trip_rev WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1)",
               "legacy fee edit ignored source TOTAL difference")
     copy.true(f"(SELECT amount_vnd=-892 FROM sokhach.adjustment WHERE legacy_row_id={legacy_id} ORDER BY id DESC LIMIT 1)",
               "legacy fee adjustment delta wrong")
+    require(legacy_differs() is False, "counted_differs stayed on after fee edit")
     legacy_flag = copy.value("BEGIN; SET LOCAL ROLE sokhach_owner; SET LOCAL sokhach.actor='harness'; "
         "INSERT INTO sokhach.trip_fee_line(customer_id,legacy_row_id,fee_type_id,amount_vnd,created_by_event) "
         f"SELECT {legacy_book},{legacy_id},id,3,{import_event} FROM sokhach.fee_type WHERE name='Neo'; "

@@ -94,6 +94,7 @@ ERRORS = {
     "NO_CHANGE": (409, "Nội dung không thay đổi."),
     "CUSTOMER_NOT_FOUND": (422, "Không tìm thấy khách."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
+    "FEE_LINE_NOT_FOUND": (409, "Không tìm thấy khoản phụ phí. Tải lại sổ."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
     "TRIP_PENDING_REVIEW": (409, "Chuyến chưa được tính vào sổ (CHỜ KIỂM hoặc đã loại)."),
     "VERSION_CONFLICT": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),

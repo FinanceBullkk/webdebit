@@ -969,6 +969,11 @@ BEGIN
         'has_typed_fee',EXISTS (SELECT 1 FROM sokhach.trip_fee_line fl JOIN sokhach.fee_type ft ON ft.id=fl.fee_type_id
             WHERE fl.legacy_row_id=l.id AND fl.voided_by_event IS NULL
               AND coalesce(ft.system_key,'') NOT IN ('other','discount','initial')),
+        -- Lần sửa phí đầu tiên đổi TOTAL sổ gốc sang đơn giá + tổng khoản; cờ báo trước số sẽ đổi.
+        'counted_differs',l.kind='trip' AND cur.data->>'unit_price_vnd' IS NOT NULL
+            AND (cur.data->>'counted_vnd')::bigint<>(cur.data->>'unit_price_vnd')::bigint
+              +coalesce((SELECT sum(fl.amount_vnd) FROM sokhach.trip_fee_line fl
+                WHERE fl.legacy_row_id=l.id AND fl.voided_by_event IS NULL),0),
         'historical',true,'editable',l.kind='trip','current',CASE WHEN l.kind='trip' THEN cur.data END) ORDER BY l.debt_month,l.id),'[]'::jsonb)
     INTO v_legacy FROM sokhach.legacy_row l
     CROSS JOIN LATERAL (SELECT sokhach._legacy_current(l.id) AS data) cur
@@ -2077,7 +2082,7 @@ BEGIN
  IF p_command IN ('replace_trip_fee','void_trip_fee') THEN
    SELECT * INTO v_old FROM sokhach.trip_fee_line WHERE id=p_line AND customer_id=p_customer
      AND voided_by_event IS NULL FOR UPDATE;
-   IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+   IF NOT FOUND THEN RAISE EXCEPTION 'FEE_LINE_NOT_FOUND'; END IF;
    p_targets:=jsonb_build_array(CASE WHEN v_old.trip_id IS NOT NULL
      THEN jsonb_build_object('trip_id',v_old.trip_id) ELSE jsonb_build_object('legacy_row_id',v_old.legacy_row_id) END);
  END IF;

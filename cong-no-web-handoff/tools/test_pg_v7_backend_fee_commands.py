@@ -57,6 +57,9 @@ def check_fee_commands(pg):
     v = version(pg, c)
     voided = call(pg, "void_trip_fee", c, v, "fee-void", line)
     require(call(pg, "void_trip_fee", c, v, "fee-void", line) == voided, "void retry failed")
+    for key, book in (("fee-void-again", c), ("fee-void-stranger", new_book(pg, ("2026-01-01", 1)))):
+        reject_call(pg, "void_trip_fee", book, version(pg, book), key, line, error="FEE_LINE_NOT_FOUND")
+    reject_call(pg, "replace_trip_fee", c, version(pg, c), "fee-replace-voided", line, other, 7, None, error="FEE_LINE_NOT_FOUND")
     for key, amount, type_id, error in [("zero", 0, ft, "FEE_AMOUNT_INVALID"), ("sign", -1, ft, "FEE_SIGN_INVALID"),
                                        ("discount-sign", 1, discount, "FEE_SIGN_INVALID"), ("system", 1, initial, "FEE_TYPE_SYSTEM"),
                                        ("overflow", 9223372036854775808, ft, "out of range")]:
@@ -112,6 +115,8 @@ def check_fee_catalog(pg):
     # Migration reruns preserve financial rows and definitions.
     migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8")
     snapshot = pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v")
-    pg.sql(migration)
-    pg.sql(migration)
+    p2 = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql").read_text(encoding="utf-8")
+    for _ in range(2):
+        pg.sql(migration)
+        pg.sql(p2)
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")
