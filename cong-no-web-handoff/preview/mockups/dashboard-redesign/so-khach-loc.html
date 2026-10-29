@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mockup sổ khách mở từ Việc cần làm, đã lọc các dòng cần xử lý — dữ liệu giả.">
+  <title>MOCKUP · Sổ khách đã lọc</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .back{display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;color:var(--accent-ink);font-weight:600}
+    .back:hover{text-decoration:underline}
+    .who{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .who h1{margin:0;font-size:22px}
+    .who span{color:var(--ink-3)}
+    .who .bal{margin-left:auto;font-size:15px;color:var(--ink-2)}
+    .who .bal b{font-size:20px;color:var(--ink)}
+    .filter{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;border-radius:8px;border:1px solid;font-size:15px}
+    .filter.critical{background:var(--critical-soft);border-color:#f3c3bf;color:var(--critical)}
+    .filter.warning{background:var(--warning-soft);border-color:#f0d6a8;color:var(--warning)}
+    .filter.neutral{background:var(--head);border-color:var(--line);color:var(--ink-2)}
+    .filter b{color:var(--ink)}
+    .filter button{margin-left:auto}
+    .wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:auto}
+    table{width:100%;border-collapse:collapse;font-size:14.5px;min-width:720px}
+    th,td{padding:9px 12px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap}
+    th{background:var(--head);font-size:13.5px;color:var(--ink-2)}
+    td.r,th.r{text-align:right}
+    tr.hit td{background:#fffaf2}
+    .need{display:inline-block;min-width:110px;padding:4px 8px;border:1.5px dashed var(--critical);border-radius:6px;color:var(--critical);font-weight:600;text-align:center}
+    .need.warning{border-color:var(--warning);color:var(--warning)}
+    .note{margin-top:10px;font-size:13.5px;color:var(--ink-3)}
+    @media (max-width:900px){.topbar nav,.topbar .asof{display:none}.page{padding:16px 12px}.search{width:auto;flex:1}}
+  </style>
+</head>
+<body>
+  <div class="demo">Mockup v5 · dữ liệu giả · sổ khách mở từ “Việc cần làm” — chỉ minh họa phần lọc, không thay màn Sổ khách thật</div>
+  <header class="topbar">
+    <a class="brand" href="tong-quan.html">Công nợ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a class="active" href="#">Sổ khách</a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"></label>
+    <span class="asof">Số liệu đến 29/10/2026</span>
+  </header>
+  <main class="page">
+    <a class="back" href="tong-quan.html">‹ Về Tổng quan</a>
+    <div class="who"><h1 id="name"></h1><span id="com"></span><span class="bal">Còn nợ <b id="bal"></b></span></div>
+    <div class="filter" id="filter" hidden></div>
+    <div class="wrap"><table>
+      <thead><tr><th>Ngày nhập kho</th><th>Container</th><th class="r">Đơn giá</th><th class="r">Phụ phí</th><th class="r">Thành tiền</th><th>Trạng thái</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <p class="note">Sổ thật giữ nguyên cách sửa tại ô (NHAP-SHEET-01): nhập giá xong dòng tự rời bộ lọc, khi hết dòng cần xử lý thì hiện “Đã xong — về Tổng quan”.</p>
+  </main>
+  <script src="data.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const D = window.MOCK;
+      const $ = id => document.getElementById(id);
+      const p = new URLSearchParams(location.search);
+      const row = D.byId(Number(p.get('customer'))) ?? D.ROWS[0];
+      let loc = p.get('loc');
+      const missing = D.TODO.missingPrice.find(t => t.id === row.id)?.count ?? 0;
+      const pending = D.TODO.pendingReview.find(t => t.id === row.id)?.count ?? 0;
+      const words = v => (v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' triệu';
+      // Chuyến giả: vài chuyến đủ giá, cộng các chuyến thiếu giá / chờ kiểm theo Việc cần làm.
+      const trips = Array.from({ length: Math.max(9, missing * 2, pending * 2 + 2) },(_, i) => ({ date: new Date(2026, 9, 28 - i * 3), cont: `MOCK${String(4100 + i * 7).padStart(7, '0')}`, price: 96000000 + i * 1500000, fee: i % 3 ? 2500000 : null, state: 'ok' }));
+      for (let i = 0; i < missing; i++) Object.assign(trips[i * 2], { price: null, state: 'thieu-gia' });
+      for (let i = 0; i < pending; i++) Object.assign(trips[i * 2 + 1], { state: 'cho-kiem' });
+      const LOC = {
+        'thieu-gia': ['critical', n => `Đang hiện <b>${n} chuyến thiếu đơn giá</b> — nhập giá để tính vào nợ.`, t => t.state === 'thieu-gia'],
+        'cho-kiem': ['warning', n => `Đang hiện <b>${n} chuyến chờ kiểm</b> — kiểm xong mới vào sổ.`, t => t.state === 'cho-kiem'],
+        'so-du-dau': ['neutral', () => 'Khách <b>chưa có số dư đầu</b> — nhập số dư đầu trước khi nhập chuyến.', () => false],
+        'dang-du': ['neutral', () => 'Sổ <b>đang dư tiền</b> — xem cấn trừ sang sổ khác hoặc trả lại khách.', () => true],
+      };
+      $('name').textContent = row.name;
+      $('com').textContent = row.commodity ? row.commodity + (row.transport ? ' · ' + row.transport : '') : 'chưa phân loại';
+      $('bal').textContent = (D.allOf(row) / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
+      function render() {
+        const rule = LOC[loc];
+        const shown = rule ? trips.filter(rule[2]) : trips;
+        $('filter').hidden = !rule;
+        if (rule) {
+          $('filter').className = 'filter ' + rule[0];
+          $('filter').innerHTML = `<span>${rule[1](shown.length)}</span><button type="button" class="btn" id="all">Hiện cả sổ (${trips.length} dòng)</button>`;
+          $('all').addEventListener('click', () => { loc = null; history.replaceState(null, '', `?customer=${row.id}`); render(); });
+        }
+        $('rows').innerHTML = shown.map(t => `<tr class="${t.state === 'ok' ? '' : 'hit'}"><td>${t.date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td><td>${t.cont}</td>` +
+          `<td class="r num">${t.price == null ? '<span class="need">nhập đơn giá</span>' : words(t.price)}</td>` +
+          `<td class="r num">${t.fee == null ? '' : words(t.fee)}</td>` +
+          `<td class="r num">${t.price == null ? '<span class="muted">chưa tính</span>' : words(t.price + (t.fee ?? 0))}</td>` +
+          `<td>${t.state === 'cho-kiem' ? '<span class="tag warning">Chờ kiểm</span>' : t.state === 'thieu-gia' ? '<span class="tag critical">Thiếu giá</span>' : ''}</td></tr>`).join('')
+          || '<tr><td colspan="6" class="muted">Không có dòng nào cần xử lý.</td></tr>';
+      }
+      render();
+    })();
+  </script>
+</body>
+</html>
