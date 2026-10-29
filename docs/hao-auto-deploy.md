@@ -56,7 +56,14 @@ Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sa
 | `Permission denied (publickey)` dù khóa đúng | `AllowUsers` của sshd chỉ liệt kê tài khoản khác | Bước 5; xem `journalctl -u ssh` |
 | Test Postgres lỗi `the database system is starting up` | Container CI chưa sẵn sàng | Chạy lại job lỗi |
 | `ssh-keyscan` Windows báo `unsupported KEX` | Bản OpenSSH Windows cũ | Lấy host key trực tiếp trên `hao` (bước 7) |
-| `rm: cannot remove '…/<sha>/…/__pycache__/….pyc': Permission denied` sau dòng `đã chạy <sha>` (29/10/2026, `376a5bd`) | Service chạy Python ghi `__pycache__` vào release; user deploy không xóa được khi dọn bản cũ. Bản mới đã chạy và kiểm sống xong, chỉ bước dọn làm đỏ | Script trên `main` từ 29/10/2026 chỉ cảnh báo (cần cài lại trên `hao`); admin làm một lần các bước dưới |
+| `rm: cannot remove '…/<sha>/…/__pycache__/….pyc': Permission denied` sau dòng `đã chạy <sha>` (29/10/2026, `376a5bd`) | Lệnh Python chạy tay bằng root (`sudo python3 -`, kể cả `-I`) import mã từ `current` qua `sys.path` ghi `__pycache__` của root vào release; user deploy không xóa được khi dọn bản cũ. Không phải service: kiểm 29/10/2026 mọi unit dùng mã release chạy bằng `v7app`, không ghi được vào release (thư mục 755 của `webdebit-deploy`). Bản mới đã chạy và kiểm sống xong, chỉ bước dọn làm đỏ | Script trên `main` từ 29/10/2026 chỉ cảnh báo (đã cài lại trên `hao` 29/10/2026); chạy tay theo mục dưới; còn `.pyc` của root thì admin dọn như bước 3 |
+
+### Chạy Python tay trên `hao` với mã release
+
+Script tạm cần import module trong `current` (ví dụ kiểm hàng chờ giá, thử backfill) thì chạy `python3 -B`
+(`ssh hao 'sudo -n python3 -B -I -' < script.py`). `-I` không chặn ghi bytecode, còn `sudo` bỏ biến
+`PYTHONDONTWRITEBYTECODE` của phiên gọi, nên phải có cờ `-B`. Không cần root thì chạy `sudo -u v7app python3 -B`.
+Quên `-B` thì lượt deploy chỉ cảnh báo, release cũ không bị dọn: tìm bằng `sudo find "$RELEASES_DIR" -user root`.
 
 ### Dọn `__pycache__` của release cũ (admin, root, một lần)
 
