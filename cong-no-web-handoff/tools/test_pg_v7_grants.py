@@ -41,6 +41,7 @@ APP_READ = {'list_sheet_trip_refs()'}
 READ.add('get_fee_types()')
 # CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
 READ.update({'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)'})
+READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 WRITE = {
     'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
     'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
@@ -49,6 +50,7 @@ WRITE = {
     'add_fee_type(text,text,text)', 'rename_fee_type(text,bigint,text)',
     'set_fee_type_kind(text,bigint,text)', 'set_fee_type_active(text,bigint,boolean)',
     'set_book_fee_columns(bigint,bigint,text,jsonb)',
+    'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
     'edit_trip_info(bigint,bigint,text,bigint,text,text)',
     'delete_trip(bigint,bigint,text,bigint)',
     'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
@@ -92,6 +94,8 @@ KNOWN_FUNCTIONS.update({'_fee_lines', '_fee_columns', '_fee_target', '_change_tr
                         'set_book_fee_columns', 'get_fee_types'})
 KNOWN_FUNCTIONS.update({'_guard_receipt_image', '_receipt_image_matches', 'attach_receipt_image',
                         'remove_receipt_image', 'list_receipt_images', 'get_receipt_image', 'find_receipt_image'})
+KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_trip_rows', '_price_text', '_price_date',
+                        'save_price_table', 'apply_price_table', 'get_price_table', 'get_price_status'})
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):

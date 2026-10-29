@@ -91,6 +91,8 @@ ROUTES = {
     "/api/v7/fee-types": ("add_fee_type", {"name", "kind"}),
     "/api/v7/fee-types/update": ("fee_type_update", {"command", "fee_type_id", "name", "kind", "active"}),
     "/api/v7/books/fee-columns": ("set_book_fee_columns", {"fee_type_ids"}),
+    "/api/v7/price-table": ("save_price_table", {"price_table"}),
+    "/api/v7/price-table/apply": ("apply_price_table", {"trip_ids"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd", "fees"}
@@ -144,6 +146,15 @@ ERRORS = {
     "IMAGE_NOT_FOUND": (422, "Không tìm thấy ảnh."),
     "IMAGE_ALREADY_REMOVED": (409, "Ảnh đã được gỡ."),
     "IMAGE_REMOVE_REASON_REQUIRED": (422, "Cần ghi lý do gỡ ảnh."),
+    "INVALID_PRICE_TABLE": (422, "Bảng giá không hợp lệ."),
+    "PRICE_PERIOD_OVERLAP": (422, "Hai đợt giá trùng ngày ở cùng kho và cùng loại giá."),
+    "PRICE_INVALID_PERIOD": (422, "Ngày hiệu lực không hợp lệ (ngày đến phải từ ngày bắt đầu trở đi)."),
+    "PRICE_INVALID_AMOUNT": (422, "Giá phải là số nguyên VND không âm."),
+    "PRICE_UNKNOWN_LOCATION": (422, "Kho chưa có trong danh sách kho của bảng giá."),
+    "PRICE_DUPLICATE_ALIAS": (422, "Tên kho hoặc tên khác bị trùng."),
+    "PRICE_DUPLICATE_SHIPPER": (422, "Shipper của TT bị nhập trùng."),
+    "PRICE_DUPLICATE_RATE": (422, "Một kho có hai giá cùng loại trong cùng đợt."),
+    "PRICE_NOT_FOUND": (409, "Có chuyến không tra được giá theo bảng. Tải lại để xem lý do."),
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
@@ -419,6 +430,14 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         bad()
     if function == "review_trip" and (not isinstance(body.get("reason"), str) or not body["reason"].strip()):
         bad("REVIEW_REASON_REQUIRED", "Cần ghi lý do kết luận chuyến CHỜ KIỂM.")
+    # Bảng giá: chỉ kiểm hình dạng; nội dung (ngày, giá, kho, chồng ngày) do save_price_table kiểm.
+    if function == "save_price_table" and type(body.get("price_table")) is not dict:
+        bad()
+    if function == "apply_price_table":
+        ids = body.get("trip_ids")
+        if (type(ids) is not list or not 1 <= len(ids) <= 500
+                or any(not positive_int(i) for i in ids) or len(set(ids)) != len(ids)):
+            bad()
     return function, body
 
 
@@ -428,6 +447,8 @@ SQL = {
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
     "get_fee_types": "SELECT sokhach.get_fee_types();",
+    "get_price_table": "SELECT sokhach.get_price_table((:'payload'::jsonb->>'customer_id')::bigint);",
+    "get_price_status": "SELECT sokhach.get_price_status((:'payload'::jsonb->>'customer_id')::bigint);",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
     "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
@@ -461,6 +482,8 @@ ARGUMENTS = {
     "rename_fee_type": ("idempotency_key", "fee_type_id", "name"),
     "set_fee_type_kind": ("idempotency_key", "fee_type_id", "kind"),
     "set_fee_type_active": ("idempotency_key", "fee_type_id", "active"),
+    "save_price_table": ("price_table",),
+    "apply_price_table": ("trip_ids",),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
         "legacy_row_id": "bigint",
@@ -469,7 +492,7 @@ CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigin
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
         "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean",
         "targets": "jsonb", "target": "jsonb", "fee_type_id": "bigint", "fee_line_id": "bigint", "fee_type_ids": "jsonb", "active": "boolean",
-        "image_id": "bigint"}
+        "image_id": "bigint", "price_table": "jsonb", "trip_ids": "jsonb"}
 for _name, _fields in ARGUMENTS.items():
     _args = ["(j->>'customer_id')::bigint", "(j->>'expected_version')::bigint", "j->>'idempotency_key'"]
     if _name in ("record_offset", "void_offset", "edit_offset_date", "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active"):
@@ -531,10 +554,10 @@ class _PsqlRunner:
             raise ApiError(
                 503,
                 "DB_UNAVAILABLE"
-                if function in ("get_ledger", "list_offset_sources")
+                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
                 else "RESULT_UNKNOWN",
                 "Sổ tạm thời không truy cập được."
-                if function in ("get_ledger", "list_offset_sources")
+                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
                 else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
             ) from exc
         except OSError as exc:
@@ -1080,7 +1103,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             if set(query) != {"sha256"} or len(query["sha256"]) != 1 or not re.fullmatch(r"[0-9a-f]{64}", query["sha256"][0]):
                 bad()
             function, payload = "find_receipt_image", {"sha256": query["sha256"][0]}
-        elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources"):
+        elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources", "/api/v7/price-table", "/api/v7/price-table/status"):
             raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
         else:
             query = parse_qs(parts.query, keep_blank_values=True)
@@ -1092,6 +1115,10 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             customer = int(customer_text)
             if parts.path == "/api/v7/offset-sources":
                 function, payload = "list_offset_sources", {"target_customer_id": customer}
+            elif parts.path == "/api/v7/price-table":
+                function, payload = "get_price_table", {"customer_id": customer}
+            elif parts.path == "/api/v7/price-table/status":
+                function, payload = "get_price_status", {"customer_id": customer}
             else:
                 function, payload = "get_ledger", {"customer_id": customer}
     else:

@@ -290,7 +290,7 @@ CREATE TABLE sokhach.event (
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'receipt_image', 'receipt_image_remove')),
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove')),
     actor text NOT NULL CHECK (btrim(actor) <> ''),
     at timestamptz NOT NULL DEFAULT now(),
     "before" jsonb NOT NULL CHECK (jsonb_typeof("before") = 'object'),
@@ -327,6 +327,8 @@ CREATE TABLE sokhach.event (
         WHEN 'replace_trip_fee' THEN "before" ? 'targets' AND "after" ? 'targets'
         WHEN 'void_trip_fee' THEN "before" ? 'targets' AND "after" ? 'targets'
         WHEN 'set_book_fee_columns' THEN "before" ? 'fee_columns' AND "after" ? 'fee_columns'
+        WHEN 'price_table_edit' THEN "before" ? 'price_table' AND "after" ? 'price_table'
+        WHEN 'price_table_apply' THEN "before" ? 'trips' AND "after" ? 'trips'
         WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
         WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
         ELSE false END),
@@ -1570,6 +1572,39 @@ BEGIN
     v_changes:=sokhach.reallocate(customer_id,idempotency_key);
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('trip_id',t.id,'deleted',true,'reallocated',v_changes));
 END $$;
+
+-- BANG-GIA-01 (29/10/2026): mỗi sổ một bảng giá theo ngày hiệu lực; giá TT cho shipper của TT, còn lại giá khách.
+-- Bảng cấu hình thay cả bảng mỗi lần lưu (vết trước → sau nằm ở event price_table_edit); không phải dữ liệu tiền.
+CREATE TABLE IF NOT EXISTS sokhach.price_tt_shipper(
+ customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+ name text NOT NULL CHECK(btrim(name)<>'' AND length(name)<=200),shipper_key text NOT NULL,
+ PRIMARY KEY(customer_id,shipper_key));
+CREATE TABLE IF NOT EXISTS sokhach.price_location(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+ name text NOT NULL CHECK(btrim(name)<>'' AND length(name)<=200),name_key text NOT NULL,
+ UNIQUE(customer_id,name_key),UNIQUE(id,customer_id));
+CREATE TABLE IF NOT EXISTS sokhach.price_location_alias(
+ customer_id bigint NOT NULL,location_id bigint NOT NULL,
+ alias text NOT NULL CHECK(btrim(alias)<>'' AND length(alias)<=200),alias_key text NOT NULL,
+ PRIMARY KEY(customer_id,alias_key),
+ FOREIGN KEY(location_id,customer_id) REFERENCES sokhach.price_location(id,customer_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS sokhach.price_period(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+ valid_from date NOT NULL,valid_to date,CHECK(valid_to IS NULL OR valid_to>=valid_from),UNIQUE(id,customer_id));
+CREATE TABLE IF NOT EXISTS sokhach.price_rate(
+ period_id bigint NOT NULL,location_id bigint NOT NULL,customer_id bigint NOT NULL,
+ tier text NOT NULL CHECK(tier IN('khach','tt')),unit_price_vnd bigint NOT NULL CHECK(unit_price_vnd>=0),
+ PRIMARY KEY(period_id,location_id,tier),
+ FOREIGN KEY(period_id,customer_id) REFERENCES sokhach.price_period(id,customer_id) ON DELETE CASCADE,
+ FOREIGN KEY(location_id,customer_id) REFERENCES sokhach.price_location(id,customer_id) ON DELETE CASCADE);
+-- Revision giá ghi từ bảng giá; dòng gõ tay/dán/Sheet không có hàng ở đây.
+CREATE TABLE IF NOT EXISTS sokhach.trip_price_source(
+ price_rev_id bigint PRIMARY KEY REFERENCES sokhach.trip_price_rev(id),
+ customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+ rate jsonb NOT NULL CHECK(jsonb_typeof(rate)='object'),
+ created_by_event bigint NOT NULL REFERENCES sokhach.event(id));
+DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip_price_source'::regclass AND tgname='trip_price_source_immutable')
+ THEN CREATE TRIGGER trip_price_source_immutable BEFORE UPDATE OR DELETE ON sokhach.trip_price_source FOR EACH ROW EXECUTE FUNCTION sokhach.reject_immutable_change(); END IF; END $$;
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA sokhach FROM PUBLIC,sokhach_app,sokhach_reader;
 RESET ROLE;

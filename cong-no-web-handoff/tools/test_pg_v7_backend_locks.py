@@ -196,6 +196,7 @@ def check_csm_migration(pg: Pg) -> None:
     drawer_migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-so-goc.sql").read_text(encoding="utf-8")
     copy.sql(drawer_migration)
     copy.sql(drawer_migration)
+    copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-bang-gia.sql").read_text(encoding="utf-8"))
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql").read_text(encoding="utf-8"))
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     migrated = json.loads(copy.value(catalog))

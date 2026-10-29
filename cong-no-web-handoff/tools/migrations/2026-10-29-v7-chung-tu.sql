@@ -1,5 +1,5 @@
 -- CHUNG-TU-01: ảnh chứng từ gắn phiếu thu. Chỉ thêm bảng/hàm, không đổi tiền, phân bổ hay hàm cũ.
--- Áp sau 2026-10-29-v7-phu-phi-b-p2.sql. Chạy lại được. Không chạy trên hao khi chưa có lệnh người dùng.
+-- Áp sau 2026-10-29-v7-phu-phi-b-p2.sql và 2026-10-29-v7-bang-gia.sql (ràng buộc event gồm cả loại của bảng giá). Chạy lại được. Không chạy trên hao khi chưa có lệnh người dùng.
 BEGIN;
 SET LOCAL ROLE sokhach_owner;
 -- CHUNG-TU-01: ảnh chứng từ gắn phiếu thu; chỉ thêm, gỡ có lý do, không xóa hẳn.
@@ -21,7 +21,7 @@ ALTER TABLE sokhach.event ADD CONSTRAINT event_kind_check CHECK (kind IN ('paste
         'adjust_month', 'receipt', 'receipt_edit', 'void', 'reallocation', 'month_lock', 'import',
         'customer_attr', 'trip_review', 'trip_edit', 'trip_delete', 'legacy_edit', 'legacy_delete',
         'sheet_conflict_resolved', 'fee_migration', 'add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns',
-        'receipt_image', 'receipt_image_remove'));
+        'price_table_edit', 'price_table_apply', 'receipt_image', 'receipt_image_remove'));
 ALTER TABLE sokhach.event DROP CONSTRAINT event_snapshot_check;
 ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
         WHEN 'paste' THEN "before" = '{}'::jsonb AND "after" ? 'trips'
@@ -52,6 +52,8 @@ ALTER TABLE sokhach.event ADD CONSTRAINT event_snapshot_check CHECK (CASE kind
         WHEN 'replace_trip_fee' THEN "before" ? 'targets' AND "after" ? 'targets'
         WHEN 'void_trip_fee' THEN "before" ? 'targets' AND "after" ? 'targets'
         WHEN 'set_book_fee_columns' THEN "before" ? 'fee_columns' AND "after" ? 'fee_columns'
+        WHEN 'price_table_edit' THEN "before" ? 'price_table' AND "after" ? 'price_table'
+        WHEN 'price_table_apply' THEN "before" ? 'trips' AND "after" ? 'trips'
         WHEN 'receipt_image' THEN "before" = '{}'::jsonb AND "after" ? 'image'
         WHEN 'receipt_image_remove' THEN "before" ? 'image' AND "after" ? 'image'
         ELSE false END);
