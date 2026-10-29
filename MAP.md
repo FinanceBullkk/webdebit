@@ -13,7 +13,7 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `.claude/skills/kiem-tra-truoc-pr/` | Quy trình kiểm trước khi mở PR |
 | `scripts/check-secrets.js` | Quét secrets nhẹ (stdlib Node) trên diff đã stage hoặc toàn bộ file đã theo dõi |
 | `scripts/sheet-capture/` | Apps Script chỉ ghi vết sửa Sheet nguồn vào log riêng (`Code.gs`) và test giả lập (`test.js`); spec `specs/sheet-capture.md` |
-| `scripts/` (còn lại) | `check.js` (`npm run check`), luật nghiệp vụ, `agent-run.ps1` chạy Codex/Gemini |
+| `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), luật nghiệp vụ, `agent-run.ps1` chạy Codex/Gemini |
 | `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`, `multi-agent.md`) |
 | `specs/` | Spec từng thay đổi, theo `specs/_template.md` |
 | `cong-no-web-handoff/` | Mã web/tools/tests (Python + JS) đang phát triển |

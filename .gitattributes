@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# Mục lục quyết định: hai nhánh cùng thêm dòng cuối bảng thì giữ cả hai (check-doc-links.js chặn dòng trùng).
+docs/decisions.md merge=union

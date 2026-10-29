@@ -55,7 +55,7 @@
     return `<button class="price-table-open" aria-haspopup="dialog">Bảng giá</button>`
       + (ready ? `<button class="price-table-apply">Áp giá theo bảng cho ${ready} chuyến</button>` : '');
   };
-  ctx.priceBusy = () => form !== null || confirm !== null;
+  ctx.busyChecks.push(() => form !== null || confirm !== null);
 
   // Sau khi vẽ sổ: chữ nhỏ ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
   ctx.priceAfterRender = active => {

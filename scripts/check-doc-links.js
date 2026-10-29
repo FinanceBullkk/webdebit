@@ -79,6 +79,22 @@ for (const rel of files) {
   }
 }
 
+// Mục lục `docs/decisions.md` gộp theo kiểu union (.gitattributes) để hai PR cùng thêm dòng
+// cuối bảng không va nhau; đổi lại phải chặn dòng trùng (hai bên cùng sửa một dòng thì union
+// giữ cả hai) và file quyết định không được link từ mục lục.
+const INDEX = "docs/decisions.md";
+if (files.includes(INDEX)) {
+  const index = fs.readFileSync(path.join(ROOT, INDEX), "utf-8");
+  const seen = new Set();
+  for (const m of index.matchAll(/^\| <a id="([^"]+)"><\/a>/gm)) {
+    if (seen.has(m[1])) problems.push(`${INDEX}: dòng #${m[1]} lặp lại (gộp union giữ cả hai bản, chọn lấy một)`);
+    seen.add(m[1]);
+  }
+  for (const rel of files.filter((f) => /^docs\/decisions\/[^/]+\.md$/.test(f))) {
+    if (!index.includes(`(decisions/${path.basename(rel)})`)) problems.push(`${INDEX}: chưa có dòng link tới ${rel}`);
+  }
+}
+
 for (const p of problems) console.log(p);
 console.log(`${files.length} file Markdown, ${problems.length} link gãy.`);
 process.exit(problems.length ? 1 : 0);

@@ -64,7 +64,7 @@
   };
 
   // Tự cập nhật sổ tạm dừng khi còn ảnh chưa ghi hoặc khung xem đang mở.
-  ctx.imagesBusy = () => drafts.size > 0 || view !== null;
+  ctx.busyChecks.push(() => drafts.size > 0 || view !== null);
 
   function bytesToBase64(bytes) {
     let text = '';
