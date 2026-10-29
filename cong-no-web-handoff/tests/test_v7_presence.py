@@ -3,6 +3,7 @@
 import http.client
 import json
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -107,6 +108,24 @@ class PresenceTest(unittest.TestCase):
         self.p.report("dev:local", book(TAB_B))
         self.assertEqual(self.p.view("dev:local", TAB_A)[0]["name"], "Người dùng 2")
         self.assertEqual(self.p.view("dev:local", TAB_B)[0]["name"], "Người dùng 1")
+
+    def test_short_names_from_file_reload_without_restart(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "names.json"
+            table = presence.NameTable(str(path))
+            p = presence.Presence(clock=self.clock, names=table)
+            p.report("Lan.Nguyen@example.test", book(TAB_A))
+            self.assertEqual(p.view("minh@example.test", TAB_B)[0]["name"], "Lan.Nguyen")   # chưa có file: phần trước @
+            path.write_text(json.dumps({"version": 1, "names": {"lan.nguyen@EXAMPLE.test": " Lan "}}), encoding="utf-8")
+            self.assertEqual(p.view("minh@example.test", TAB_B)[0]["name"], "Lan")
+            for bad in ({"version": 2, "names": {}}, {"version": 1, "names": {"lan.nguyen@example.test": "x" * 31}},
+                        {"version": 1, "names": {"lan.nguyen@example.test": "Lan\nB"}}):
+                path.write_text(json.dumps(bad), encoding="utf-8")
+                self.assertEqual(p.view("minh@example.test", TAB_B)[0]["name"], "Lan.Nguyen")
+            path.write_text("{hỏng", encoding="utf-8")
+            self.assertEqual(p.view("minh@example.test", TAB_B)[0]["name"], "Lan.Nguyen")
+            path.unlink()
+            self.assertEqual(p.view("minh@example.test", TAB_B)[0]["name"], "Lan.Nguyen")
 
     def test_limits(self):
         with patch.object(presence, "MAX_TABS_PER_ACTOR", 2):
