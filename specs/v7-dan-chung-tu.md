@@ -36,7 +36,7 @@ Trạng thái: ĐỀ XUẤT (Claude, 29/10/2026). Phạm vi đã chốt trong ch
 
 ## Đầu ra
 
-Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu khi ghi hoặc sau khi ghi. Ai có quyền vào app cũng xem được ảnh từ phiếu. Số tiền, phân bổ và số dư không đổi gì so với hiện nay.
+Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu khi ghi hoặc sau khi ghi. Mọi người vào app đều xem được ảnh từ phiếu (người dùng chốt 29/10/2026). Số tiền, phân bổ và số dư không đổi gì so với hiện nay.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
@@ -52,7 +52,7 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 **Đề xuất kỹ thuật** (ĐỀ XUẤT, cần duyệt riêng vì là migration):
 
 - Lưu ảnh **trong PostgreSQL**, ở bảng riêng `sokhach.receipt_attachment` (mã, `receipt_id`, `sha256`, kiểu file, kích thước, nội dung `bytea`, người và giờ đính, người, giờ và lý do gỡ). Lý do: `v7_backup.py` sẵn có sao lưu luôn ảnh, không cần sao lưu thư mục riêng. Ước tính 30 ảnh/ngày × khoảng 300 KB ≈ 9 MB/ngày, khoảng 3 GB/năm. Mức này vẫn hợp lý trên `hao`, cần đo lại dung lượng đĩa trước khi triển khai.
-- Trình duyệt **nén ảnh trước khi tải**: cạnh dài tối đa khoảng 2000 px, JPEG hoặc WebP, giới hạn khoảng 1,5 MB mỗi ảnh. Server kiểm lại kiểu file và kích thước, không tin trình duyệt.
+- Trình duyệt **nén ảnh trước khi tải**: cạnh dài tối đa 2400 px, WebP hoặc JPEG chất lượng 0,9, tối đa 2 MB mỗi ảnh (xem Câu hỏi mở). Server kiểm lại kiểu file và kích thước, không tin trình duyệt.
 - Ghi phiếu mới kèm ảnh: tải ảnh trước để nhận mã tạm, rồi `record_receipt` nhận danh sách mã ảnh trong cùng giao dịch. Ảnh tạm không gắn phiếu nào trong 24 giờ thì dọn.
 - Đường xem ảnh trả `Content-Type` cố định là ảnh, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, không cache công khai.
 
@@ -94,6 +94,8 @@ Chưa có. Spec chỉ đọc code trên `main` ngày 29/10/2026.
 
 ## Câu hỏi mở
 
-- Một ảnh có cần đính vào hai phiếu ở hai sổ khác nhau không (khách trả gộp cho hai sổ)? Đề xuất hiện tại: cho phép và chỉ cảnh báo.
-- Ai được xem ảnh: mọi người vào app (như `V7-ID` hiện nay), hay chỉ người nhập và chủ nghiệp vụ?
-- Có cần giữ ảnh gốc không nén (để phóng to đọc số nhỏ) hay bản nén là đủ?
+Người dùng trả lời ba câu hỏi ngày 29/10/2026:
+
+- Một ảnh đính vào phiếu ở hai sổ (khách trả gộp): **cho phép, chỉ cảnh báo** (người dùng: "ok theo bạn").
+- Ai được xem ảnh: **mọi người vào app**, như `V7-ID` hiện nay.
+- Ảnh gốc hay ảnh nén: người dùng để Claude chọn. Claude chọn **chỉ giữ bản nén, nén nhẹ**: cạnh dài tối đa 2400 px (đủ độ phân giải gốc của ảnh chụp màn hình điện thoại, chữ số nhỏ vẫn rõ), WebP hoặc JPEG chất lượng 0,9, tối đa 2 MB mỗi ảnh. Không giữ bản gốc, vì sẽ gấp đôi dung lượng mà không đọc rõ hơn.
