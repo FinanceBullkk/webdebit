@@ -328,6 +328,11 @@ class DockerEndToEndTests(unittest.TestCase):
                 self.assertEqual(first["customer_totals"][str(customer)], "9007199254741043")
                 self.assertEqual(first["customer_totals"][str(negative)], "-25")
                 self.assertIsNone(first["customer_totals"][str(no_baseline)])
+                daily_root = Path(raw) / "daily"
+                daily_root.mkdir()
+                with redirect_stdout(io.StringIO()):
+                    made = backup.daily(daily_root, 1, 0, pg)
+                self.assertEqual(backup.verify(made)["customer_totals"], first["customer_totals"])
                 output = io.StringIO()
                 with redirect_stdout(output):
                     self.assertEqual(backup.restore(first_dir, "v7_restore", pg), 0)
