@@ -111,6 +111,13 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .fee-settings{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
 .fee-panel{width:900px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .fee-panel-body{padding:12px 16px}
+.debit-open{min-height:28px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;font-size:13px;font-weight:400}
+.debit-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:24px;background:#162d4855}.debit-dialog[hidden]{display:none}
+.debit-panel{width:1240px;max-width:calc(100vw - 24px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.debit-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.debit-panel h2{margin:0 auto 0 0;font-size:16px}.debit-panel h2 small{display:block;color:#3e5871;font-size:13px;font-weight:400}
+.debit-panel header button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.debit-panel header .debit-excel{background:#173d65;border-color:#173d65;color:#fff}
+.debit-notes{margin:0;padding:8px 12px 8px 30px;background:#fff3d6;font-size:14px}.debit-body{overflow:auto;padding:12px}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
 .fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
@@ -333,6 +340,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
 <script src="so-khach-v7-images-ui.js"></script>
+<script src="debit-note-xlsx.js"></script>
+<script src="so-khach-v7-debit-ui.js"></script>
 <script src="so-khach-v7-ui.js"></script>
 </body>
 </html>
