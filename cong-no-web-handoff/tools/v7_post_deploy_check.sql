@@ -36,6 +36,7 @@ DECLARE
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
       'get_ledger(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()',
+      'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
       'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
@@ -118,10 +119,7 @@ BEGIN
         RAISE EXCEPTION 'required membership missing';
     END IF;
     RAISE NOTICE 'OK login_roles';
-    IF to_regprocedure('sokhach.resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)') IS NOT NULL THEN
-        expected := array_append(expected,
-            'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)');
-    END IF;
+    -- resolve_sheet_conflict nằm trong file chuẩn từ 29/10/2026 (migration ra-ghi-tien), nên luôn bắt buộc.
     SELECT array_agg(s ORDER BY s) INTO expected FROM unnest(expected) s;
     SELECT array_agg(p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')'
       ORDER BY p.proname||'('||replace(oidvectortypes(p.proargtypes),', ', ',')||')')
