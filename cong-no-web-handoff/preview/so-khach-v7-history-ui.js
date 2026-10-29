@@ -11,7 +11,8 @@
       sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí',
       add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
       void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng', rewrite_trip_fees: 'Tách phụ phí theo PS',
-      receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
+      receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
+      price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng' };
     // PHU-PHI-01: lệnh phụ phí ghi {targets: [{trip_id|legacy_row_id, fee_lines, counted_vnd}], batch_count} trước → sau.
     const feeTargetName = target => {
       const snapshot = ctx.snapshot;
@@ -97,6 +98,16 @@
         return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;
       }
       // CHUNG-TU-01: ảnh không đổi tiền, chỉ ghi phiếu nào và lý do gỡ.
+      // BANG-GIA-01: sửa bảng giá ghi cả bảng trước → sau; áp giá ghi từng chuyến {container, unit_price_vnd} trước → sau.
+      if (event.kind === 'price_table_edit') {
+        const size = table => `${(table?.periods ?? []).length} đợt, ${(table?.locations ?? []).length} kho, ${(table?.tt_shippers ?? []).length} shipper TT`;
+        return `Bảng giá: ${size(event.before?.price_table)} → ${size(event.after?.price_table)}`;
+      }
+      if (event.kind === 'price_table_apply') {
+        const before = event.before?.trips ?? [], after = event.after?.trips ?? [];
+        const parts = after.slice(0, 5).map((trip, index) => `${trip.container || `#${trip.trip_id}`}: ${fmt(before[index]?.unit_price_vnd)} → ${fmt(trip.unit_price_vnd)}`);
+        return `${after.length} chuyến · ${parts.join(' · ')}${after.length > 5 ? ` · và ${after.length - 5} chuyến khác` : ''}`;
+      }
       if (event.kind === 'receipt_image') return `Phiếu ${event.after?.image?.pid ?? '–'} · thêm 1 ảnh`;
       if (event.kind === 'receipt_image_remove') return `Phiếu ${event.after?.image?.pid ?? '–'} · gỡ 1 ảnh · Lý do: ${event.after?.image?.reason ?? '–'}`;
       if (['add_trip_fees', 'set_trip_fee_type', 'replace_trip_fee', 'void_trip_fee', 'set_book_fee_columns', 'rewrite_trip_fees'].includes(event.kind)) return describeFeeEvent(event);
