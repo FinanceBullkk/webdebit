@@ -8,7 +8,7 @@
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
       trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
-      sheet_conflict_resolved: 'Đối chiếu Sheet' };
+      sheet_conflict_resolved: 'Đối chiếu Sheet', receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ' };
     const reviewReasonText = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
       WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
     const cellText = (field, value) => value === null || value === undefined || value === '' ? '–'
@@ -68,6 +68,9 @@
         const label = { carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[after.field] ?? 'Ô';
         return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;
       }
+      // CHUNG-TU-01: ảnh không đổi tiền, chỉ ghi phiếu nào và lý do gỡ.
+      if (event.kind === 'receipt_image') return `Phiếu ${event.after?.image?.pid ?? '–'} · thêm 1 ảnh`;
+      if (event.kind === 'receipt_image_remove') return `Phiếu ${event.after?.image?.pid ?? '–'} · gỡ 1 ảnh · Lý do: ${event.after?.image?.reason ?? '–'}`;
       if (event.kind === 'month_lock') return `${event.after?.locked ? 'Khóa' : 'Mở'} tháng ${monthLabel(monthKey(event.after?.month))}`;
       if (event.kind === 'trip_review') return `Chuyến ${event.after?.container || '–'}: ${event.after?.status === 'confirmed'
         ? 'tính vào sổ' : 'loại, không tính'}`;

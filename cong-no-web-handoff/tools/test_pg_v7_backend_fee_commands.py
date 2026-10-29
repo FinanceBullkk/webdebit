@@ -116,7 +116,9 @@ def check_fee_catalog(pg):
     migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql").read_text(encoding="utf-8")
     snapshot = pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v")
     p2 = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql").read_text(encoding="utf-8")
+    chung_tu = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql").read_text(encoding="utf-8")
     for _ in range(2):
         pg.sql(migration)
         pg.sql(p2)
+        pg.sql(chung_tu)  # PR-B dựng lại ràng buộc event; CHUNG-TU-01 phải chạy sau như khi triển khai
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")

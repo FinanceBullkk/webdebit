@@ -925,6 +925,24 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
+## Ảnh chứng từ phiếu thu — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql` ([`CHUNG-TU-01`](decisions.md#chung-tu-01),
+spec [`v7-dan-chung-tu`](../specs/v7-dan-chung-tu.md)). Chỉ thêm bảng `sokhach.receipt_image`, hai loại event và bảy hàm;
+không đổi hàm cũ, tiền, phân bổ hay dữ liệu có sẵn. Chạy lại được. **Chạy sau PR-B và PR-B P2** (migration này dựng lại
+`event_kind_check`/`event_snapshot_check` gồm cả loại event phụ phí; chạy PR-B sau nó sẽ làm mất hai loại event ảnh).
+Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt; số dư từng khách/tháng và số dòng
+   mọi bảng cũ không đổi; `v7_post_deploy_check.sql` OK (app thêm `attach_receipt_image`, `remove_receipt_image`;
+   app và reader thêm `list_receipt_images`, `get_receipt_image`, `find_receipt_image`; hai helper không được EXECUTE).
+2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, kiểm số dư, đổi release).
+3. **Dung lượng:** ảnh lưu `bytea` ngay trong DB nên `v7_backup.py` sao lưu luôn ảnh. Ước tính 10–30 ảnh/ngày, mỗi ảnh
+   tối đa 2 MB (thường 200–500 KB): khoảng 1–5 GB/năm. Kiểm chỗ trống đĩa và thời gian dump trước khi bật.
+
+Rollback: `2026-10-29-v7-chung-tu.rollback.sql` chỉ chạy khi chưa có ảnh hay event ảnh nào (có thì dừng
+`RECEIPT_IMAGES_PRESENT`, không xóa chứng từ); đã có ảnh thì tắt giao diện là đủ, hoặc restore dump trước nâng.
+
 ## Đã thu theo ngày thu — nâng DB đang có (ĐÃ CHẠY trên hao 28/10/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql` (PR #125, [`DA-THU-01`](decisions.md#da-thu-01)),

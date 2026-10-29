@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import ipaddress
 import json
@@ -24,6 +25,12 @@ from v7_price_queue import load_price_snapshot, project_prices
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
+# CHUNG-TU-01: ảnh chứng từ tối đa 2 MiB, gửi base64 trong JSON nên thân lệnh đính ảnh được lớn hơn.
+IMAGE_PATH = "/api/v7/receipts/images"
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+MAX_IMAGE_BODY = 3 * 1024 * 1024
+IMAGE_TYPES = {"image/png": (b"\x89PNG\r\n\x1a\n",), "image/jpeg": (b"\xff\xd8\xff",), "image/webp": (b"RIFF", b"WEBP")}
+BASE64 = re.compile(r"[A-Za-z0-9+/]+={0,2}")
 MAX_BIGINT = 9223372036854775807
 PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
@@ -64,6 +71,8 @@ ROUTES = {
     "/api/v7/receipts": ("record_receipt", {"date", "method", "amount_vnd", "reference"}),
     "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid", "date", "method", "reference"}),
     "/api/v7/receipts/void": ("void_receipt", {"pid", "reason"}),
+    IMAGE_PATH: ("attach_receipt_image", {"pid", "content_type", "data_base64"}),
+    "/api/v7/receipts/images/remove": ("remove_receipt_image", {"image_id", "reason"}),
     "/api/v7/months/lock": ("set_month_lock", {"month", "locked"}),
     "/api/v7/trips/review": ("review_trip", {"trip_id", "decision", "reason"}),
     "/api/v7/trips/info": ("edit_trip_info", {"trip_id", "field", "value"}),
@@ -123,6 +132,13 @@ ERRORS = {
     "INVALID_DATE": (422, "Ngày không hợp lệ."),
     "INVALID_YEAR": (422, "Năm không hợp lệ."),
     "INVALID_MONTH": (422, "Tháng không hợp lệ."),
+    "IMAGE_INVALID": (422, "File không phải ảnh PNG, JPG hoặc WebP."),
+    "IMAGE_TOO_LARGE": (422, "Ảnh quá lớn (trên 2 MB). Cắt bớt rồi dán lại."),
+    "IMAGE_LIMIT": (422, "Mỗi phiếu tối đa 5 ảnh."),
+    "IMAGE_DUPLICATE": (409, "Ảnh này đã có trong phiếu."),
+    "IMAGE_NOT_FOUND": (422, "Không tìm thấy ảnh."),
+    "IMAGE_ALREADY_REMOVED": (409, "Ảnh đã được gỡ."),
+    "IMAGE_REMOVE_REASON_REQUIRED": (422, "Cần ghi lý do gỡ ảnh."),
 }
 for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_METHOD",
               "INVALID_MONTH", "INVALID_MONTH_LOCK", "INVALID_RECEIPT", "INVALID_TRIP",
@@ -271,6 +287,19 @@ def validate_fee(function: str, body: dict) -> tuple[str, dict]:
     return function, {k: v for k, v in body.items() if k != "command"}
 
 
+def image_bytes(content_type: object, data: object) -> bytes:
+    """Kiểm ảnh trước khi tới DB; DB kiểm lại đầu file và kích thước."""
+    if content_type not in IMAGE_TYPES or not isinstance(data, str) or len(data) % 4 or not BASE64.fullmatch(data):
+        bad("IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
+    image = base64.b64decode(data, validate=True)
+    if len(image) > MAX_IMAGE_BYTES:
+        bad("IMAGE_TOO_LARGE", ERRORS["IMAGE_TOO_LARGE"][1])
+    magic = IMAGE_TYPES[content_type]
+    if not image.startswith(magic[0]) or (len(magic) > 1 and image[8:12] != magic[1]):
+        bad("IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
+    return image
+
+
 def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if path not in ROUTES:
         raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
@@ -370,6 +399,15 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
         bad()
     if function == "void_receipt" and not isinstance(body.get("reason"), str):
         bad()
+    if function == "attach_receipt_image":
+        image_bytes(body.get("content_type"), body.get("data_base64"))
+        if not isinstance(body.get("pid"), str) or not body["pid"].strip():
+            bad()
+    if function == "remove_receipt_image":
+        if not positive_int(body.get("image_id")):
+            bad()
+        if not isinstance(body.get("reason"), str) or not body["reason"].strip():
+            bad("IMAGE_REMOVE_REASON_REQUIRED", ERRORS["IMAGE_REMOVE_REASON_REQUIRED"][1])
     if function == "set_month_lock" and type(body.get("locked")) is not bool:
         bad()
     if function == "review_trip" and body.get("decision") not in ("confirm", "reject"):
@@ -402,6 +440,7 @@ ARGUMENTS = {
     "record_receipt": ("date", "method", "amount_vnd", "reference"),
     "edit_receipt_meta": ("pid", "date", "method", "reference"),
     "void_receipt": ("pid", "reason"),
+    "remove_receipt_image": ("image_id", "reason"),
     "set_month_lock": ("month", "locked"),
     "review_trip": ("trip_id", "decision", "reason"),
     "edit_trip_info": ("trip_id", "field", "value"),
@@ -424,7 +463,8 @@ CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigin
         "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
         "amount_vnd": "bigint", "new_value_vnd": "bigint", "trips": "jsonb", "locked": "boolean",
-        "targets": "jsonb", "target": "jsonb", "fee_type_id": "bigint", "fee_line_id": "bigint", "fee_type_ids": "jsonb", "active": "boolean"}
+        "targets": "jsonb", "target": "jsonb", "fee_type_id": "bigint", "fee_line_id": "bigint", "fee_type_ids": "jsonb", "active": "boolean",
+        "image_id": "bigint"}
 for _name, _fields in ARGUMENTS.items():
     _args = ["(j->>'customer_id')::bigint", "(j->>'expected_version')::bigint", "j->>'idempotency_key'"]
     if _name in ("record_offset", "void_offset", "edit_offset_date", "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active"):
@@ -432,6 +472,16 @@ for _name, _fields in ARGUMENTS.items():
     _args += [f"(j{'->' if CAST.get(field) == 'jsonb' else '->>'}'{field}')::{CAST[field]}" if field in CAST
               else f"j->>'{field}'" for field in _fields]
     SQL[_name] = f"WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.{_name}({', '.join(_args)}) FROM b;"
+# Ảnh vượt giới hạn một tham số dòng lệnh (-v payload) nên đi qua stdin: _run_psql thay chỗ đánh dấu
+# bằng chữ base64 đã kiểm (chỉ A-Z a-z 0-9 + / =), không có dấu nháy để thoát chuỗi SQL.
+IMAGE_MARK = "__IMAGE_BASE64__"
+SQL["attach_receipt_image"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.attach_receipt_image("
+                               "(j->>'customer_id')::bigint, (j->>'expected_version')::bigint, j->>'idempotency_key', "
+                               f"j->>'pid', j->>'content_type', decode('{IMAGE_MARK}', 'base64')) FROM b;")
+SQL["list_receipt_images"] = "SELECT sokhach.list_receipt_images((:'payload'::jsonb->>'customer_id')::bigint);"
+SQL["get_receipt_image"] = ("SELECT sokhach.get_receipt_image((:'payload'::jsonb->>'customer_id')::bigint,"
+                            "(:'payload'::jsonb->>'image_id')::bigint);")
+SQL["find_receipt_image"] = "SELECT sokhach.find_receipt_image(:'payload'::jsonb->>'sha256');"
 
 
 
@@ -439,9 +489,16 @@ class _PsqlRunner:
     def _run_psql(
         self, argv: list[str], function: str, payload: dict, actor: str
     ) -> dict:
+        statement = SQL[function]
+        if function == "attach_receipt_image":
+            payload = dict(payload)
+            image = payload.pop("data_base64", None)
+            if not isinstance(image, str) or len(image) % 4 or not BASE64.fullmatch(image):
+                raise ApiError(422, "IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
+            statement = statement.replace(IMAGE_MARK, image)
         sql = (
             "BEGIN;\nSET LOCAL sokhach.actor = :'actor';\n"
-            + SQL[function]
+            + statement
             + "\nCOMMIT;\n"
         )
         env = os.environ.copy()
@@ -904,9 +961,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             raise ApiError(403, "INVALID_ORIGIN", "Nguồn yêu cầu không hợp lệ.")
         if headers.get("content-type", "").lower() != "application/json":
             raise ApiError(415, "INVALID_CONTENT_TYPE", "Cần gửi JSON.")
-        if len(raw) > MAX_BODY:
-            raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
         parts = urlsplit(target)
+        if len(raw) > (MAX_IMAGE_BODY if parts.path == IMAGE_PATH else MAX_BODY):
+            raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
         if parts.query:
             bad()
         if parts.path == "/api/v7/sheet/approve":
@@ -971,6 +1028,22 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = "list_customers", {}
         elif parts.path == "/api/v7/customers" and not parts.query:
             function, payload = "list_customers", {}
+        elif parts.path in ("/api/v7/receipt-images", "/api/v7/receipt-image"):
+            query = parse_qs(parts.query, keep_blank_values=True)
+            names = {"customer", "id"} if parts.path == "/api/v7/receipt-image" else {"customer"}
+            if set(query) != names or any(len(query[name]) != 1 or not re.fullmatch(r"[1-9][0-9]{0,18}", query[name][0])
+                                          or int(query[name][0]) > MAX_BIGINT for name in names):
+                bad()
+            payload = {"customer_id": int(query["customer"][0])}
+            if "id" in names:
+                function, payload = "get_receipt_image", {**payload, "image_id": int(query["id"][0])}
+            else:
+                function = "list_receipt_images"
+        elif parts.path == "/api/v7/receipt-images/find":
+            query = parse_qs(parts.query, keep_blank_values=True)
+            if set(query) != {"sha256"} or len(query["sha256"]) != 1 or not re.fullmatch(r"[0-9a-f]{64}", query["sha256"][0]):
+                bad()
+            function, payload = "find_receipt_image", {"sha256": query["sha256"][0]}
         elif parts.path not in ("/api/v7/ledger", "/api/v7/offset-sources"):
             raise ApiError(404, "NOT_FOUND", "Không có đường dẫn này.")
         else:
@@ -1088,8 +1161,9 @@ class Handler(BaseHTTPRequestHandler):
                 length = self.headers.get("Content-Length", "")
                 if not length.isascii() or not length.isdecimal():
                     bad()
-                length_value = int(length.lstrip("0") or "0") if len(length.lstrip("0")) <= len(str(MAX_BODY)) else MAX_BODY + 1
-                if length_value > MAX_BODY:
+                limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
+                length_value = int(length.lstrip("0") or "0") if len(length.lstrip("0")) <= len(str(limit)) else limit + 1
+                if length_value > limit:
                     raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
                 raw = self.rfile.read(length_value)
                 if len(raw) != length_value:

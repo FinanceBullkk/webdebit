@@ -87,6 +87,7 @@ from test_pg_v7_backend_opening import (
     check_opening_fifo,
     check_opening_import,
 )
+from test_pg_v7_backend_receipt_images import check_receipt_images
 from test_pg_v7_backend_receipts import (
     check_atomic,
     check_concurrent,
@@ -205,10 +206,13 @@ for _n, _title in [
                                  "list_offset_sources")))
 
 
+CASES.append(case("CHUNG-TU.01", "BEHAVIOR", "Receipt images: attach, warn, remove with reason, void keeps, money unchanged",
+                  check="receipt_images", functions=("attach_receipt_image", "remove_receipt_image", "list_receipt_images",
+                                                     "get_receipt_image", "find_receipt_image")))
 CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exact legacy examples, moved debt and FIFO",
                   check="nhap_sheet", functions=("edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip")))
 
-CHECKS = {"dashboard": check_dashboard, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"dashboard": check_dashboard, "receipt_images": check_receipt_images, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,

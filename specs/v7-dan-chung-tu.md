@@ -19,7 +19,7 @@ Trạng thái: ĐÃ CHỐT luồng ([`CHUNG-TU-01`](../docs/decisions.md#chung-t
 3. Người nhập bấm **Ctrl+V** ở bất kỳ đâu trên trang sổ khách, kéo thả file ảnh vào trang, hoặc bấm nút **"Chọn ảnh…"**. Ảnh vào phiếu đang nhập, trừ khi khung xem ảnh của một phiếu đã ghi đang mở thì vào phiếu đó. Dán chữ vào ô nhập vẫn như bình thường.
 4. Ảnh hiện **phóng to cạnh ô nhập** để vừa nhìn vừa gõ. Không phải chuyển cửa sổ qua lại.
 5. Người nhập gõ ngày trả, hình thức, số tiền, tham chiếu như hiện nay. Với ảnh RMB: **số tiền là VND thực nhận**, còn số RMB và tỷ giá ghi ở ô tham chiếu (`V7-CSM` (2)). Ảnh không thay cho việc ghi số.
-6. Người nhập bấm Ghi. Phiếu và ảnh được lưu cùng một lần. Phiếu đã ghi có biểu tượng 📎, bấm vào thì xem ảnh.
+6. Người nhập bấm Ghi. Phiếu được ghi trước, ảnh lưu ngay sau (một lần bấm). Phiếu đã ghi có biểu tượng 📎, bấm vào thì xem ảnh.
 
 **Luồng đính ảnh vào phiếu đã ghi:** bấm nút 📎 của phiếu chưa hủy (phiếu chưa có ảnh hiện "＋📎") để mở khung xem, rồi Ctrl+V hoặc kéo thả. Dùng khi khách gửi ảnh sau, hoặc khi người nhập muốn bổ sung chứng từ cho phiếu cũ, kể cả phiếu ở tháng khóa: ảnh không đổi số tiền.
 
@@ -49,12 +49,14 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 | Lịch sử | Mọi thao tác ghi người làm, trước → sau (`V7-CSM`) | Sự kiện "đính ảnh" và "gỡ ảnh (lý do)" |
 | Sao lưu | `tools/v7_backup.py` dùng `pg_dump` | Ảnh cần nằm trong phạm vi sao lưu |
 
-**Đề xuất kỹ thuật** (ĐỀ XUẤT, cần duyệt riêng vì là migration):
+**Thiết kế kỹ thuật** (ĐÃ CODE ở PR backend, chưa triển khai; migration hỏi người dùng trước khi merge và chạy):
 
-- Lưu ảnh **trong PostgreSQL**, ở bảng riêng `sokhach.receipt_attachment` (mã, `receipt_id`, `sha256`, kiểu file, kích thước, nội dung `bytea`, người và giờ đính, người, giờ và lý do gỡ). Lý do: `v7_backup.py` sẵn có sao lưu luôn ảnh, không cần sao lưu thư mục riêng. Ước tính 30 ảnh/ngày × khoảng 300 KB ≈ 9 MB/ngày, khoảng 3 GB/năm. Mức này vẫn hợp lý trên `hao`, cần đo lại dung lượng đĩa trước khi triển khai.
-- Trình duyệt **nén ảnh trước khi tải**: cạnh dài tối đa 2400 px, WebP hoặc JPEG chất lượng 0,9, tối đa 2 MB mỗi ảnh (xem Câu hỏi mở). Server kiểm lại kiểu file và kích thước, không tin trình duyệt.
-- Ghi phiếu mới kèm ảnh: tải ảnh trước để nhận mã tạm, rồi `record_receipt` nhận danh sách mã ảnh trong cùng giao dịch. Ảnh tạm không gắn phiếu nào trong 24 giờ thì dọn.
-- Đường xem ảnh trả `Content-Type` cố định là ảnh, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, không cache công khai.
+- Bảng `sokhach.receipt_image` (mã, khách, phiếu, `sha256`, kiểu file, `data bytea` ≤ 2 MiB, event tạo, lý do và event gỡ) trong PostgreSQL, nên `v7_backup.py` sao lưu luôn ảnh. Trigger chặn xóa và chặn sửa, trừ một lần ghi lý do gỡ. App và reader không đọc bảng trực tiếp, chỉ qua hàm.
+- Hàm: `attach_receipt_image` và `remove_receipt_image` (qua `_begin_command`/`_finish_command`: kiểm phiên bản sổ, chống gửi lặp, tăng phiên bản; mỗi lệnh một event `receipt_image`/`receipt_image_remove` trong Lịch sử); `list_receipt_images`, `get_receipt_image`, `find_receipt_image` (đọc, cấp cho cả reader). Không đụng `record_receipt` hay đường ghi tiền.
+- Ghi phiếu kèm ảnh là **hai bước**: `record_receipt` như cũ, rồi đính từng ảnh vào mã phiếu vừa nhận. Mất mạng giữa chừng thì phiếu đã ghi đúng tiền, chỉ thiếu ảnh; giao diện báo "Phiếu đã ghi, ảnh chưa lưu" để dán lại. Chọn cách này để không sửa hàm ghi tiền.
+- API: `POST /api/v7/receipts/images` (JSON có `data_base64`, thân tối đa 3 MiB chỉ ở đường này), `POST /api/v7/receipts/images/remove`, `GET /api/v7/receipt-images?customer=`, `GET /api/v7/receipt-image?customer=&id=` (trả JSON base64), `GET /api/v7/receipt-images/find?sha256=` (cảnh báo trùng trước khi ghi). Ảnh đi vào psql qua stdin (vượt giới hạn tham số dòng lệnh), chỉ sau khi kiểm là chữ base64.
+- Kiểm hai lớp: API và DB đều kiểm kiểu file theo đầu file (PNG, JPEG, WebP), kích thước, tối đa 5 ảnh còn hiệu lực mỗi phiếu, cùng ảnh trong một phiếu (`IMAGE_DUPLICATE`). Cùng ảnh ở phiếu khác hoặc sổ khác trả `duplicates` để cảnh báo, không chặn.
+- Trình duyệt nén ảnh trước khi tải (cạnh dài ≤ 2400 px, WebP 0,9). Giao diện cần thêm `img-src 'self' blob: data:` vào CSP của trang; việc này thuộc PR giao diện.
 
 ## Nguồn quyết định
 
@@ -76,7 +78,7 @@ Trên sổ khách, người nhập dán ảnh chuyển khoản vào phiếu thu 
 
 - [ ] Harness PostgreSQL: đính, gỡ (thiếu lý do thì bị chặn), cảnh báo trùng SHA-256, phiếu hủy không đính thêm, giới hạn 5 ảnh, dọn ảnh tạm. Số dư và phân bổ trước và sau khi đính ảnh như nhau.
 - [ ] API: từ chối file không phải ảnh, file quá giới hạn, `Content-Type` giả. Ảnh trả về có header an toàn.
-- [ ] Frontend: Ctrl+V, kéo thả và nút "Đính ảnh" đều chạy. Có bàn phím và focus, mất mạng giữa chừng không tạo phiếu nửa vời, bấm Ghi hai lần không ra hai phiếu.
+- [ ] Frontend: Ctrl+V, kéo thả và nút "Đính ảnh" đều chạy. Có bàn phím và focus, mất mạng giữa chừng thì báo rõ phiếu đã ghi nhưng ảnh chưa lưu, bấm Ghi hai lần không ra hai phiếu.
 - [ ] Người dùng tự dán ảnh thật trên bản thử rồi xác nhận.
 - [ ] Giao diện khớp bản xem HTML đã duyệt.
 
