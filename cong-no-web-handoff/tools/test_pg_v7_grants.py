@@ -60,6 +60,7 @@ WRITE = {
     'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
     'adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint)',
     'adjust_month(bigint,bigint,text,date,bigint,text)',
+    'delete_month_adjustment(bigint,bigint,text,bigint)',
     'record_receipt(bigint,bigint,text,date,text,bigint,text)',
     'edit_receipt_meta(bigint,bigint,text,text,date,text,text)',
     'void_receipt(bigint,bigint,text,text,text)',
@@ -83,6 +84,7 @@ KNOWN_FUNCTIONS = {'list_sheet_trip_refs', 'guard_sheet_cross_customer', '_trip_
 
 
 KNOWN_FUNCTIONS.add('get_dashboard')
+KNOWN_FUNCTIONS.add('delete_month_adjustment')
 KNOWN_FUNCTIONS.add('get_receivables_matrix')
 KNOWN_FUNCTIONS.add('get_receivables_detail')
 KNOWN_FUNCTIONS.update({'_compat_trip_fee', '_sync_trip_fee', '_guard_fee_line',
@@ -214,7 +216,12 @@ def check_api(pg):
     balance(1120)
     write('adjust_trip', trip_id=trip, new_amount_vnd='130', note='fake')
     balance(1130)
-    write('adjust_month', debt_month='2026-01-01', amount_vnd='20', note='fake')
+    adj = write('adjust_month', debt_month='2026-01-01', amount_vnd='20', note='fake')['adjustment_id']
+    balance(1150)
+    write('delete_month_adjustment', adjustment_id=adj)
+    balance(1130)
+    invoke('adjust_month', customer_id=c, expected_version=ledger()['version'], idempotency_key='fake-adjust_month-2',
+           debt_month='2026-01-01', amount_vnd='20', note='fake')
     balance(1150)
     receipt = write('record_receipt', date='2026-01-02', method='THU TIỀN', amount_vnd='50', reference='FAKE TXN')
     require(ledger()['receipts'][0]['reference'] == 'FAKE TXN', 'app API lost receipt reference')

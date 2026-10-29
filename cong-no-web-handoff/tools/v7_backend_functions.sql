@@ -15,11 +15,14 @@ LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
 $$;
 
 -- Trip adjustments follow current information; pending/deleted trips contribute nothing.
+-- A deleted month adjustment and its reversal sum to 0 in the same month, so both are hidden (XOA-DC-THANG-01).
 CREATE OR REPLACE VIEW sokhach.v_adjustment_current AS
 SELECT a.id,a.customer_id,coalesce(t.debt_month,a.debt_month) AS debt_month,
        a.trip_id,a.legacy_row_id,a.amount_vnd,a.field,a.new_value_vnd,a.note,a.actor,a.at,a.created_by_event
 FROM sokhach.adjustment a LEFT JOIN sokhach.v_trip_current t ON t.id=a.trip_id
-WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='confirmed'));
+WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='confirmed'))
+  AND a.reverses_adjustment_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment r WHERE r.reverses_adjustment_id=a.id);
 
 -- Keep source schema draft scoped to P1-2; align runtime read view with JS truthiness.
 CREATE OR REPLACE VIEW sokhach.v_outstanding_month AS
@@ -615,6 +618,39 @@ BEGIN
     RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
         jsonb_build_object('adjustment_id',v_id,'reallocated',v_changes));
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
+END $$;
+
+-- XOA-DC-THANG-01: xóa điều chỉnh cả tháng bằng một dòng đảo dấu trỏ về dòng gốc; tháng phải đang mở.
+CREATE OR REPLACE FUNCTION sokhach.delete_month_adjustment(customer_id bigint, expected_version bigint,
+    idempotency_key text, adjustment_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_payload jsonb := jsonb_build_object('command','delete_month_adjustment','adjustment_id',adjustment_id);
+        v_retry jsonb; a sokhach.adjustment%ROWTYPE; v_id bigint; v_event bigint; v_changes jsonb;
+BEGIN
+    v_retry := sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+    IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+    PERFORM sokhach._baseline(customer_id);
+    SELECT a0.* INTO a FROM sokhach.adjustment a0
+    WHERE a0.id=delete_month_adjustment.adjustment_id AND a0.customer_id=delete_month_adjustment.customer_id
+      AND a0.trip_id IS NULL AND a0.legacy_row_id IS NULL AND a0.field IS NULL AND NOT a0.fee_absorbed
+      AND a0.reverses_adjustment_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment r WHERE r.reverses_adjustment_id=a0.id);
+    IF NOT FOUND THEN RAISE EXCEPTION 'ADJUSTMENT_NOT_FOUND'; END IF;
+    PERFORM sokhach._month_open(customer_id,a.debt_month,clock_timestamp());
+    v_id := nextval(pg_get_serial_sequence('sokhach.adjustment','id'));
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+    VALUES (customer_id,'adjust_month_delete',sokhach._actor(),
+        jsonb_build_object('adjustment',jsonb_build_object('id',a.id,'month',a.debt_month,
+            'amount_vnd',a.amount_vnd::text,'note',a.note,'actor',a.actor,'at',a.at)),
+        jsonb_build_object('adjustment',jsonb_build_object('id',a.id,'month',a.debt_month,
+            'amount_vnd','0','deleted',true,'reversal',v_id)),idempotency_key)
+    RETURNING id INTO v_event;
+    INSERT INTO sokhach.adjustment(id,customer_id,debt_month,trip_id,amount_vnd,note,actor,created_by_event,reverses_adjustment_id)
+    OVERRIDING SYSTEM VALUE VALUES (v_id,customer_id,a.debt_month,NULL,-a.amount_vnd,a.note,sokhach._actor(),v_event,a.id);
+    v_changes := sokhach.reallocate(customer_id,idempotency_key);
+    RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
+        jsonb_build_object('adjustment_id',a.id,'reversal_id',v_id,'reallocated',v_changes));
 END $$;
 
 -- Caller holds customer lock after this returns. NULL means a new command.
@@ -2652,6 +2688,7 @@ GRANT EXECUTE ON FUNCTION sokhach.paste_trips(bigint,bigint,text,date,jsonb) TO 
 GRANT EXECUTE ON FUNCTION sokhach.edit_trip_price(bigint,bigint,text,bigint,bigint,bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.adjust_trip(bigint,bigint,text,bigint,bigint,text,text,bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.adjust_month(bigint,bigint,text,date,bigint,text) TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.delete_month_adjustment(bigint,bigint,text,bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.record_receipt(bigint,bigint,text,date,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_receipt_meta(bigint,bigint,text,text,date,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO sokhach_app;

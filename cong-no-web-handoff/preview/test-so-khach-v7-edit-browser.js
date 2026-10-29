@@ -170,6 +170,27 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
   assert.equal(await page.locator('.legacy-adjustment').count(), 0);
 }));
 
+test('XOA-DC-THANG-01: bấm số tiền điều chỉnh cả tháng để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
+  assert.equal(await page.locator('td.row-delete[data-kind="adjustment"][data-id="32"]').count(), 0);
+  assert.equal(await page.locator('td.row-delete[data-kind="adjustment"][data-id="33"]').count(), 0);
+  const amount = page.locator('td.row-delete[data-kind="adjustment"][data-id="31"]');
+  assert.equal(await amount.innerText(), '100');
+  await amount.click();
+  const prompt = page.locator('.delete-prompt');
+  assert.match(await prompt.innerText(), /Xóa hẳn điều chỉnh cả tháng 100 \(test\)\? Nợ tháng bỏ đúng số này/);
+  await prompt.locator('.cancel-delete').click();
+  assert.equal(world.requests.length, 0);
+  await amount.click();
+  await page.locator('.confirm-delete').click();
+  await page.waitForFunction(() => !document.querySelector('td.row-delete[data-id="31"]'));
+  assert.deepEqual(posts(world).map(([url, body]) => [url, body.adjustment_id]), [['/api/v7/months/adjust/delete', 31]]);
+}, world => {
+  world.locks = [{ month: '2026-09-01', locked: true }];
+  world.adjustments.push({ id: 31, month: todayMonth, trip_id: null, legacy_row_id: null, amount_vnd: '100', note: 'test' },
+    { id: 32, month: '2026-09-01', trip_id: null, legacy_row_id: null, amount_vnd: '-100', note: null },
+    { id: 33, month: todayMonth, trip_id: 11, legacy_row_id: null, amount_vnd: '5', note: null });
+}));
+
 test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
   assert.equal(await page.locator('td.row-delete[data-kind="legacy"][data-id="25"]').count(), 0);
   const amount = page.locator('td.row-delete[data-kind="legacy"][data-id="24"]');

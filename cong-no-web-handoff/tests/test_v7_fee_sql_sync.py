@@ -9,6 +9,8 @@ MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-c
 PR_B_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql"
 # Bản chuẩn get_ledger phải bằng migration mới nhất thay nó (PR-B P2 sau DA-THU-01, PR-B).
 LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql"
+# v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
+VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -34,7 +36,7 @@ class FeeSqlSync(unittest.TestCase):
         with self.subTest(name="get_ledger"):
             self.assertEqual(definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
                              definition(canonical, "FUNCTION", "get_ledger"))
-        self.assertEqual(definition(migration, "VIEW", "v_adjustment_current"),
+        self.assertEqual(definition(VIEW_MIGRATION.read_text(encoding="utf-8"), "VIEW", "v_adjustment_current"),
                          definition(canonical, "VIEW", "v_adjustment_current"))
         schema = SCHEMA.read_text(encoding="utf-8")
         for name in ("fee_type", "book_fee_column", "trip_fee_line", "fee_type_audit"):

@@ -925,6 +925,21 @@ sudo systemctl restart v7-ledger-api.service
 
 - `sudo systemctl disable --now webdebit-sheet-refresh.path`, xóa drop-in của API rồi `daemon-reload` và restart API: nút về cách cũ. Lịch 15 phút không bị ảnh hưởng.
 
+## Xóa điều chỉnh cả tháng — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql` ([`XOA-DC-THANG-01`](decisions.md#xoa-dc-thang-01)).
+Thêm cột `sokhach.adjustment.reverses_adjustment_id` (NULL với mọi dòng cũ), loại event `adjust_month_delete`, hàm
+`delete_month_adjustment`, và thay view `v_adjustment_current` để ẩn cặp gốc + đảo. Không đổi dữ liệu có sẵn; chưa có
+dòng đảo nào thì view trả đúng như cũ, số dư không đổi. Chạy lại được. **Chạy sau `2026-10-29-v7-chung-tu.sql`** (dựng lại
+`event_kind_check`/`event_snapshot_check` gồm loại event ảnh). Auto-deploy dừng ở gate SQL; chỉ chạy khi người dùng cho phép.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt; số dư từng khách/tháng và số dòng
+   `v_adjustment_current` không đổi; `v7_post_deploy_check.sql` OK (app thêm `delete_month_adjustment`).
+2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, kiểm số dư, đổi release).
+
+Rollback: chưa có lệnh xóa nào thì trỏ release về bản trước là đủ (cột mới để trống, view cho kết quả như cũ); đã có
+dòng đảo thì giữ DB (cặp vẫn tổng 0) hoặc restore dump trước nâng.
+
 ## Ảnh chứng từ phiếu thu — nâng DB đang có (CHƯA CHẠY)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-29-v7-chung-tu.sql` ([`CHUNG-TU-01`](decisions.md#chung-tu-01),

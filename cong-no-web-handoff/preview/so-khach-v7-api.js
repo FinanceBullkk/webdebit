@@ -6,6 +6,7 @@
     price: ['/api/v7/trips/price', ['trip_id', 'unit_price_vnd', 'other_fee_vnd']],
     tripAdjust: ['/api/v7/trips/adjust', ['trip_id', 'new_amount_vnd', 'field', 'new_value_vnd', 'note']],
     monthAdjust: ['/api/v7/months/adjust', ['debt_month', 'amount_vnd', 'note']],
+    monthAdjustDelete: ['/api/v7/months/adjust/delete', ['adjustment_id']],
     receipt: ['/api/v7/receipts', ['date', 'method', 'amount_vnd', 'reference']],
     receiptMeta: ['/api/v7/receipts/meta', ['pid', 'date', 'method', 'reference']],
     receiptVoid: ['/api/v7/receipts/void', ['pid', 'reason']],

@@ -109,6 +109,12 @@
       root.querySelectorAll('.delete-prompt').forEach(item => item.remove());
       if (wasOpen) return;
       const { kind, id } = td.dataset;
+      if (kind === 'adjustment') {
+        const adjustment = (ctx.snapshot?.adjustments ?? []).find(row => String(row.id) === id);
+        row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="adjustment" data-id="${escape(id)}"><td colspan="${spanOf(row)}">Xóa hẳn điều chỉnh cả tháng ${escape(fmt(adjustment?.amount_vnd))}${adjustment?.note ? ` (${escape(adjustment.note)})` : ''}? Nợ tháng bỏ đúng số này; Lịch sử vẫn ghi. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+        row.nextElementSibling.querySelector('.cancel-delete').focus();
+        return;
+      }
       const data = findRow(kind, id);
       const values = rowValues(kind, data);
       const paid = kind === 'legacy' && data?.kind === 'receipt';
@@ -127,7 +133,9 @@
       const { kind, id } = promptRow.dataset;
       const result = kind === 'trip'
         ? await submit('tripDelete', { trip_id: Number(id) })
-        : await submit('legacyDelete', { legacy_row_id: Number(id) });
+        : kind === 'adjustment'
+          ? await submit('monthAdjustDelete', { adjustment_id: Number(id) })
+          : await submit('legacyDelete', { legacy_row_id: Number(id) });
       if (result?.message && promptRow.isConnected) promptRow.querySelector('.delete-error').textContent = result.message;
     }
     root.addEventListener('click', async event => {

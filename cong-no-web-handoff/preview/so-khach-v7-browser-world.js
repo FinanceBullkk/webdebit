@@ -196,6 +196,11 @@ function apply(world, url, body) {
     if (delta !== 0n) world.adjustments.push({ id: world.adjustments.length + 1, month: old.month, trip_id: null, legacy_row_id: row.id, amount_vnd: delta.toString(), note: null });
     row.current = next;
     event(url.endsWith('delete') ? 'legacy_delete' : 'legacy_edit', { legacy: { ...old, field: body.field, value: old[body.field] } }, { legacy: { ...next, field: body.field, value: next[body.field] } });
+  } else if (url === '/api/v7/months/adjust/delete') {
+    const row = world.adjustments.find(item => item.id === body.adjustment_id && item.trip_id == null && item.legacy_row_id == null);
+    if (!row) return [422, { error: 'ADJUSTMENT_NOT_FOUND', message: 'Không tìm thấy dòng điều chỉnh cả tháng, có thể đã xóa. Tải lại sổ.' }];
+    world.adjustments = world.adjustments.filter(item => item !== row);
+    event('adjust_month_delete', { adjustment: { ...row } }, { adjustment: { id: row.id, month: row.month, amount_vnd: '0', deleted: true } });
   } else if (url === '/api/v7/trips/paste') {
     for (const trip of body.trips) {
       const [d, m, y] = trip.date.split('/');

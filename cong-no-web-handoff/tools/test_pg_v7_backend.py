@@ -94,6 +94,7 @@ from test_pg_v7_backend_receipts import (
     check_concurrent,
     check_csm_reference,
     check_da_thu,
+    check_delete_month_adjustment,
     check_future_receipt,
     check_idempotency,
     check_invariant_rejections,
@@ -190,6 +191,8 @@ CASES = [
          check="price_table", functions=("save_price_table", "apply_price_table", "get_price_table", "get_price_status")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
+    case("XOA-DC-THANG.01", "BEHAVIOR", "Delete month adjustment: reversal pair hidden, FIFO restored, audit, locked month",
+         check="delete_month_adjustment", functions=("delete_month_adjustment", "adjust_month", "get_ledger")),
 ]
 
 
@@ -217,7 +220,7 @@ CASES.append(case("NHAP-SHEET.01", "BEHAVIOR", "Append-only edits, deletion, exa
 
 CHECKS = {"dashboard": check_dashboard, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
-          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "field_adjustment": check_field_adjustment,
+          "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
           "fee_intent_after_price": check_fee_intent_after_price,
           "future_receipt": check_future_receipt, "void_get": check_void_get,

@@ -73,6 +73,7 @@ ROUTES = {
     "/api/v7/trips/price": ("edit_trip_price", {"trip_id", "unit_price_vnd", "other_fee_vnd"}),
     "/api/v7/trips/adjust": ("adjust_trip", {"trip_id", "new_amount_vnd", "field", "new_value_vnd", "note"}),
     "/api/v7/months/adjust": ("adjust_month", {"debt_month", "amount_vnd", "note"}),
+    "/api/v7/months/adjust/delete": ("delete_month_adjustment", {"adjustment_id"}),
     "/api/v7/receipts": ("record_receipt", {"date", "method", "amount_vnd", "reference"}),
     "/api/v7/receipts/meta": ("edit_receipt_meta", {"pid", "date", "method", "reference"}),
     "/api/v7/receipts/void": ("void_receipt", {"pid", "reason"}),
@@ -101,6 +102,7 @@ ERRORS = {
     "INVALID_FIELD": (422, "Ô không được sửa."),
     "LEGACY_NO_UNIT_PRICE": (422, "Dòng sổ gốc chưa có đơn giá. Bổ sung đơn giá trước khi sửa phụ phí; số tiền hiện tại được giữ nguyên."),
     "LEGACY_NOT_FOUND": (422, "Không tìm thấy dòng sổ gốc."),
+    "ADJUSTMENT_NOT_FOUND": (422, "Không tìm thấy dòng điều chỉnh cả tháng, có thể đã xóa. Tải lại sổ."),
     "LEGACY_NOT_TRIP": (422, "Dòng sổ gốc này là khoản thu, không sửa ở đây."),
     "STALE_LEDGER": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),
     "MONTH_LOCKED": (409, "Tháng đang khóa."),
@@ -344,7 +346,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     key = body["idempotency_key"]
     if not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key):
         bad()
-    for name in ("trip_id", "legacy_row_id"):
+    for name in ("trip_id", "legacy_row_id", "adjustment_id"):
         if name in fields and (name not in body or not positive_int(body[name])):
             bad()
     for name in ("debt_month", "month"):
@@ -463,6 +465,7 @@ ARGUMENTS = {
     "edit_trip_price": ("trip_id", "unit_price_vnd", "other_fee_vnd"),
     "adjust_trip": ("trip_id", "new_amount_vnd", "note", "field", "new_value_vnd"),
     "adjust_month": ("debt_month", "amount_vnd", "note"),
+    "delete_month_adjustment": ("adjustment_id",),
     "record_receipt": ("date", "method", "amount_vnd", "reference"),
     "edit_receipt_meta": ("pid", "date", "method", "reference"),
     "void_receipt": ("pid", "reason"),
@@ -486,7 +489,7 @@ ARGUMENTS = {
     "apply_price_table": ("trip_ids",),
 }
 CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
-        "legacy_row_id": "bigint",
+        "legacy_row_id": "bigint", "adjustment_id": "bigint",
         "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",
         "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",
         "unit_price_vnd": "bigint", "other_fee_vnd": "bigint", "new_amount_vnd": "bigint",
