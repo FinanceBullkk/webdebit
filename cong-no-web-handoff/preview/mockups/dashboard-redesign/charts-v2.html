@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mockup v2 biểu đồ dashboard công nợ — một bộ dữ liệu, đối chiếu tự động, drill-down.">
+  <title>MOCKUP v2 · Biểu đồ đề xuất</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    .asof{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:-4px 0 12px}
+    .asof b{color:var(--ink2)}
+    .charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+    @media (max-width:1100px){.charts{grid-template-columns:1fr}}
+    .card svg{width:100%;height:auto;display:block}
+    .card .gline{stroke:var(--line)}
+    .card .ax{font-size:10px;fill:var(--muted)}
+    .note{margin:8px 0 0;font-size:12.5px;color:var(--ink2)}
+    .note b{color:var(--ink)}
+    .note .pri{display:inline-block;padding:0 8px;border-radius:99px;font-weight:700;font-size:11.5px;color:#fff}
+    .pri.p1{background:var(--ok)}.pri.p2{background:#64748b}.pri.p3{background:var(--warn)}
+    .delta{font-size:12px;font-weight:600}
+    .delta.bad{color:var(--bad)}.delta.good{color:var(--ok)}.delta.mut{color:var(--muted)}
+    .aging-row{display:grid;grid-template-columns:150px 1fr auto auto;gap:10px;align-items:center;padding:6px 0}
+    .aging-row .bar{height:16px;border-radius:3px;background:#eef2f6;overflow:hidden}
+    .aging-row .bar i{display:block;height:100%;border-radius:3px}
+    .aging-row .val{font-size:13px;min-width:110px;text-align:right}
+    .aging-row .val small{color:var(--muted);font-weight:400}
+    button.seg{display:block;background:none;border:0;padding:0;font:inherit;cursor:pointer;text-align:left;width:100%}
+    button.seg:hover .bar{outline:2px solid var(--brand);outline-offset:-1px}
+    .seg .bar,.seg .hbar{display:block}
+    .hbar-row{display:grid;grid-template-columns:130px 1fr auto auto auto;gap:10px;align-items:center;padding:5px 0}
+    .hbar-row .name{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .hbar{height:16px;border-radius:3px;background:#eef2f6;overflow:hidden}
+    .hbar i{display:block;height:100%;border-radius:3px}
+    .hbar-row .val{font-size:13px;min-width:78px;text-align:right}
+    .hbar-row .vsmall{font-size:12px;color:var(--muted);min-width:86px;text-align:right}
+    .warnbox{margin-top:10px;padding:8px 12px;background:#fef3c7;border:1px solid #f59e0b;border-radius:6px;font-size:12.5px;color:#713f12;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+    .warnbox button{border:1px solid #b45309;background:#fff;color:#7c2d12;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+    .recon-panel{margin-top:12px;padding:12px 16px;background:var(--ok-bg);border:1px solid #bcd9c5;border-radius:var(--radius);font-size:13px}
+    .recon-panel table{width:100%;border-collapse:collapse;margin-top:6px}
+    .recon-panel td{padding:4px 8px;border-bottom:1px dashed #bcd9c5;font-size:13px}
+    .recon-panel tr:last-child td{border-bottom:0}
+    .recon-panel .ok{color:var(--ok);font-weight:700}
+    /* Drawer drill-down */
+    #drawer-scrim{position:fixed;inset:0;background:#11182755;z-index:50}
+    #drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,92vw);background:#fff;z-index:51;box-shadow:-8px 0 24px #11182733;padding:16px 18px;overflow:auto}
+    #drawer h2{margin:0 0 4px;font-size:16px;color:var(--ink)}
+    #drawer .meta{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+    #drawer table{width:100%;border-collapse:collapse}
+    #drawer td,#drawer th{padding:6px 6px;border-bottom:1px solid var(--line);font-size:13px;text-align:left}
+    #drawer th{font-size:12px;color:var(--muted)}
+    #drawer .money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    #drawer .note{font-size:12px;color:var(--muted)}
+    #drawer-close{margin-top:12px;border:1px solid #9ebbd7;background:#fff;color:#174d82;border-radius:6px;padding:6px 14px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="demo">MOCKUP · DỮ LIỆU GIẢ — tên khách và số liệu đều hư cấu, chỉ để duyệt thiết kế</div>
+  <header class="topbar">
+    <a class="brand" href="tong-quan.html">CÔNG NỢ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="tong-quan.html">Tổng quan</a><a href="cong-no-theo-thang.html">Công nợ theo tháng</a><a class="active" href="charts-v2.html">Biểu đồ v2</a><a href="#">Sổ khách</a></nav>
+    <span class="pill">Chỉ xem</span>
+  </header>
+  <main class="page">
+    <div class="page-head"><h1>Dashboard công nợ — v2 theo góp ý duyệt</h1></div>
+    <div class="asof"><span><b>Thời điểm dữ liệu:</b> <time id="asof">—</time></span><span><b>Đơn vị:</b> tỷ VND (ròng)</span><span><b>Tổng đối chiếu:</b> <b class="money" id="master-total">—</b></span></div>
+
+    <section class="kpi-strip" style="grid-template-columns:1.4fr 1.2fr 1fr 1.2fr" aria-label="Chỉ số chính">
+      <section class="kpi featured"><h3>Tổng dư nợ (ròng)</h3><div class="val money" id="kpi-total">—</div><div class="delta bad">▲ +1,31 tỷ so với 30/9 (giả)</div></section>
+      <section class="kpi"><h3>Nợ trên 3 tháng</h3><div class="val money" id="kpi-old">—</div><div class="delta mut" id="kpi-old-share">—</div></section>
+      <section class="kpi"><h3>Top 5 khách</h3><div class="val" id="kpi-top5">—</div><div class="delta mut">tổng dư nợ</div></section>
+      <section class="kpi"><h3>Khách đang dư</h3><div class="val money" id="kpi-credit">—</div><div class="delta mut">ngoài tổng dư nợ ròng</div></section>
+    </section>
+
+    <div class="charts">
+      <section class="card">
+        <h2><span class="icon">▮</span>① Cơ cấu dư nợ theo tháng phát sinh</h2>
+        <div id="aging"></div>
+        <p class="note"><b>Đo theo tháng phát sinh nợ</b> (debt_month), không phải ngày quá hạn — dữ liệu hiện không có hạn thanh toán.</p>
+        <p class="note"><span class="delta bad" id="aging-delta">—</span> <b>Δ so với 30/9</b> — snapshot tháng trước hiện là giả minh họa; hệ thống thật cần lưu snapshot hàng tháng.</p>
+        <p class="note"><span class="pri p1">P1 · dữ liệu sẵn</span> Bấm từng nhóm để xem danh sách khoản nợ (drill-down).</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="icon">◆</span>② Dư nợ theo mặt hàng</h2>
+        <div id="commodity"></div>
+        <div class="warnbox"><span id="unclassified-text">—</span><button type="button" id="fix-unclassified">Xử lý → gán mặt hàng</button></div>
+        <p class="note"><span class="pri p2">P2 · dữ liệu sẵn</span> Cột “nợ &gt;3 tháng” trả lời “mặt hàng nào có nợ già”; bấm tên mặt hàng để xem danh sách khách.</p>
+      </section>
+
+      <section class="card" style="grid-column:1/-1">
+        <h2><span class="icon">♟</span>③ Tập trung nợ theo khách — Pareto (top 5 + khách khác)</h2>
+        <div id="pareto"></div>
+        <p class="note"><b>Đường cam:</b> % lũy kế trên tổng dư nợ ròng, về đúng 100% nhờ nhóm “Khách khác”. <b>Đường mốc 80%:</b> tham chiếu.</p>
+        <p class="note"><span class="pri p2">P2 · dữ liệu sẵn</span> Vẽ trên toàn bộ khách còn nợ (không còn giới hạn 10 của API — bộ mockup có 15 khách dương; khi code thật cần API trả đủ hoặc top N + nhóm còn lại). Bấm cột để mở danh sách nợ của khách.</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="icon">▤</span>④ Dư nợ theo năm phát sinh</h2>
+        <div id="vintage"></div>
+        <p class="note">Năm phát sinh = <b>debt_month gốc của bucket</b>; điều chỉnh tiền/đơn giá không đổi năm. “≤2023” hiển thị cả khi bằng 0.</p>
+        <p class="note"><span class="pri p2">P2 · dữ liệu sẵn</span> Bấm năm để phân rã theo tháng (drill-down). Bản này thu gọn so với v1.</p>
+      </section>
+
+      <section class="card">
+        <h2><span class="icon">✓</span>Đối chiếu tự động (nguyên tắc P0)</h2>
+        <div class="recon-panel" style="margin:0;padding:6px 0 0;border:0;background:none">
+          <table id="recon-table"></table>
+        </div>
+        <p class="note">Mọi phép phân rã tính trực tiếp từ <b>một bộ dữ liệu duy nhất</b> trong trang — khác tổng là báo LỆCH. Khi code thật, check này phải chạy server-side trên cùng nguồn <code>v_outstanding_month</code>.</p>
+      </section>
+    </div>
+
+    <div class="design-note">
+      <h2>Đối chiếu với góp ý duyệt (29/10/2026)</h2>
+      <ul>
+        <li><b>P0 đối soát:</b> v1 lệch vì hai trang mockup dùng hai bộ dữ liệu giả khác nhau — lỗi dữ liệu mockup, không phải thiết kế API (aging và matrix thật cùng đọc v_outstanding_month). v2 tính mọi biểu đồ từ một dataset + bảng đối chiếu ở trên.</li>
+        <li><b>P1 KPI & chuẩn hóa:</b> dải KPI “Nợ bao nhiêu → già đi thế nào → tập trung ở ai”, tiêu đề ① đổi thành “Cơ cấu dư nợ theo tháng phát sinh”, có thời điểm dữ liệu + đơn vị trên mọi trang.</li>
+        <li><b>P1 Pareto:</b> thêm nhóm “Khách khác”, đường 80%, lũy kế về 100%, tên khách đầy đủ, đơn vị trục “tỷ VND”, bấm để drill-down.</li>
+        <li><b>P1 drill-down:</b> bấm aging / mặt hàng / cột Pareto / năm → drawer danh sách khoản nợ (mockup; thật sẽ link xuống sổ khách).</li>
+        <li><b>P2 bố cục:</b> thu gọn card vintage, thêm % + số khách + nợ già cho mặt hàng, cảnh báo “chưa phân loại” thành hành động, so sánh kỳ trước cho aging (snapshot giả).</li>
+      </ul>
+    </div>
+  </main>
+
+  <div id="drawer-scrim" hidden></div>
+  <aside id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <h2 id="drawer-title">—</h2>
+    <div class="meta" id="drawer-meta">—</div>
+    <div id="drawer-body"></div>
+    <button type="button" id="drawer-close">Đóng (Esc)</button>
+  </aside>
+
+  <script>
+    (() => {
+      'use strict';
+      const AS_OF_MONTH = 10, AS_OF_YEAR = 2026;
+      // Một bộ dữ liệu duy nhất cho mọi biểu đồ (đơn vị: đồng, số dư ròng theo bucket tháng phát sinh).
+      const ROWS = [
+        { name: 'MAI HOA (GL)', commodity: 'Sầu riêng', months: { 7: 3.85e9, 8: 6.42e9, 9: 6.89e9, 10: 3.43e9 }, older: { 2025: 1.2e9 } },
+        { name: 'LONG THÀNH', commodity: 'Sầu riêng', months: { 8: 4.1e9, 9: 4.4e9, 10: 3.3e9 }, older: {} },
+        { name: 'THANH PHÁT', commodity: 'Sầu riêng', months: { 8: 2.2e9, 9: 3.33e9, 10: 3.5e9 }, older: {} },
+        { name: 'HẢI NAM', commodity: 'Sầu riêng', months: { 3: 1.2e9, 5: 0.95e9 }, older: {} },
+        { name: 'AN NHIÊN', commodity: 'Sầu riêng', months: { 9: 1.4e9, 10: 0.65e9 }, older: {} },
+        { name: 'SÔNG HỒNG', commodity: 'Thanh long', months: { 5: 1.1e9, 6: 1.25e9, 9: 1.45e9 }, older: {} },
+        { name: 'GIA PHÁT', commodity: 'Thanh long', months: { 7: 0.35e9, 8: 0.62e9 }, older: {} },
+        { name: 'THẢO VY', commodity: 'Thanh long', months: { 10: 0.42e9 }, older: {} },
+        { name: 'HẢI TRIỀU', commodity: 'Chuối', months: { 1: 2.3e9, 2: 1.7e9, 3: 1.6e9 }, older: {} },
+        { name: 'BẢO NGỐC', commodity: 'Chuối', months: { 9: 0.28e9, 10: 0.12e9 }, older: {} },
+        { name: 'ÁNH DƯƠNG', commodity: 'Dừa', months: { 2: 1.1e9, 3: 1.5e9, 4: 1.5e9 }, older: {} },
+        { name: 'TÂN PHÚ', commodity: 'Dừa', months: { 10: 0.35e9 }, older: {} },
+        { name: 'MAI THẢO', commodity: 'Xoài', months: { 8: 0.31e9, 10: 0.59e9 }, older: {} },
+        { name: 'ĐÌNH TRUNG', commodity: null, months: {}, older: { 2024: 0.551e9 } },
+        { name: 'QUANG MINH', commodity: null, months: {}, older: {} },
+        { name: 'KIM LAN', commodity: null, months: { 10: -0.35e9 }, older: {} },
+        { name: 'PHÚ LONG', commodity: null, months: { 9: 0.75e9 }, older: {} },
+      ];
+      // Snapshot aging tháng trước (giả minh họa cho Δ; hệ thống thật cần lưu snapshot).
+      const AGING_PREV = [10.2e9, 30.6e9, 11.3e9, 10.9e9];
+
+      const yearOf = r => Object.values(r.months).reduce((a, b) => a + b, 0);
+      const allOf = r => yearOf(r) + Object.values(r.older).reduce((a, b) => a + b, 0);
+      const MASTER = ROWS.reduce((a, r) => a + allOf(r), 0);
+      const ty = v => (v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+      const pct = v => (v / MASTER * 100).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + '%';
+      const ageOf = m => { const d = AS_OF_MONTH - m; return d <= 0 ? 0 : d <= 2 ? 1 : d <= 6 ? 2 : 3; };
+      const AGING_LABELS = ['Phát sinh tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
+      const AGING_COLORS = ['var(--age1)', 'var(--age2)', 'var(--age3)', 'var(--age4)'];
+
+      const $ = id => document.getElementById(id);
+      const fmtCell = (v, max, color) => {
+        const alpha = Math.min(0.86, 0.12 + (v / max) * 0.74);
+        const hex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+        return `background:#1e4e8c${hex};color:${alpha > 0.55 ? '#fff' : 'inherit'}`;
+      };
+
+      // ---- ① Aging theo tháng phát sinh + Δ kỳ trước
+      const agingBuckets = [0, 0, 0, 0];
+      for (const r of ROWS) {
+        for (const [m, v] of Object.entries(r.months)) agingBuckets[ageOf(Number(m))] += v;
+        for (const [, v] of Object.entries(r.older)) agingBuckets[3] += v;
+      }
+      $('aging').innerHTML = agingBuckets.map((v, i) => {
+        const d = v - AGING_PREV[i];
+        const dCls = d > 0 ? 'bad' : d < 0 ? 'good' : 'mut';
+        const dTxt = (d > 0 ? '▲ +' : d < 0 ? '▼ −' : '± ') + ty(Math.abs(d)) + ' tỷ';
+        return `<div class="aging-row"><button type="button" class="seg" data-drill="aging" data-k="${i}">` +
+          `<span style="font-size:13.5px">${AGING_LABELS[i]}</span></button>` +
+          `<button type="button" class="seg" data-drill="aging" data-k="${i}" aria-label="Xem khoản nợ ${AGING_LABELS[i]}"><span class="bar"><i style="width:${(v / MASTER * 100).toFixed(1)}%;background:${AGING_COLORS[i]}"></i></span></button>` +
+          `<span class="val money">${ty(v)} tỷ <small>${pct(v)}</small></span>` +
+          `<span class="delta ${dCls}" style="min-width:96px;text-align:right">${dTxt}</span></div>`;
+      }).join('');
+      $('aging-delta').textContent = `▲ +${ty(MASTER - AGING_PREV.reduce((a, c) => a + c, 0))} tỷ`;
+
+      // ---- ② Theo mặt hàng: tiền + % + số khách + nợ >3 tháng
+      const comGroups = new Map();
+      for (const r of ROWS) {
+        const k = r.commodity ?? '__none';
+        if (!comGroups.has(k)) comGroups.set(k, { label: r.commodity ?? 'Chưa phân loại', none: r.commodity == null, total: 0, customers: 0, old: 0 });
+        const g = comGroups.get(k);
+        if (allOf(r) !== 0) g.customers += 1;
+        g.total += allOf(r);
+        g.old += Object.values(r.older).reduce((a, b) => a + b, 0)
+          + Object.entries(r.months).filter(([m]) => ageOf(Number(m)) >= 2).reduce((a, [, v]) => a + v, 0);
+      }
+      const comList = [...comGroups.entries()].sort((a, b) => b[1].total - a[1].total);
+      const maxCom = Math.max(...comList.map(([, g]) => g.total), 1);
+      $('commodity').innerHTML = comList.map(([k, g]) =>
+        `<div class="hbar-row"><button type="button" class="seg name" data-drill="com" data-k="${esc(k)}">${esc(g.label)}${g.none ? ' ⚠' : ''}</button>` +
+        `<button type="button" class="seg" data-drill="com" data-k="${esc(k)}" aria-label="Xem khách ${esc(g.label)}"><span class="hbar"><i style="width:${(g.total / maxCom * 100).toFixed(1)}%;background:${g.none ? 'var(--warn)' : 'var(--age1)'}"></i></span></button>` +
+        `<span class="val money">${ty(g.total)} tỷ <small>${pct(g.total)}</small></span>` +
+        `<span class="vsmall">${g.customers} khách</span><span class="vsmall">nợ &gt;3T: ${ty(g.old)}</span></div>`).join('');
+      const noneGroup = comGroups.get('__none');
+      $('unclassified-text').textContent = `Chưa phân loại: ${ty(noneGroup.total)} tỷ · ${noneGroup.customers} khách chưa gán mặt hàng — ảnh hưởng đối chiếu theo mặt hàng.`;
+
+      // ---- ③ Pareto: top 5 + Khách khác, lũy kế về 100%, mốc 80%
+      const positives = ROWS.filter(r => allOf(r) > 0).map(r => ({ name: r.name, v: allOf(r) })).sort((a, b) => b.v - a.v);
+      const top5 = positives.slice(0, 5);
+      const others = positives.slice(5);
+      const othersNet = MASTER - top5.reduce((a, x) => a + x.v, 0);
+      const paretoBars = top5.map(x => ({ label: x.name, v: x.v / 1e9, drill: 'cust', k: x.name }))
+        .concat([{ label: `Khách khác (${others.length})`, v: othersNet / 1e9, drill: 'others', k: '' }]);
+      const NS = 'http://www.w3.org/2000/svg';
+      const el = (tag, attrs, text) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
+      const paretoRoot = el('svg', { viewBox: '0 0 660 260', role: 'img', 'aria-label': 'Pareto tập trung nợ theo khách' });
+      {
+        const W = 660, H = 260, L = 52, R = 46, T = 18, B = 40, MAXV = 24;
+        const plotH = H - T - B, step = (W - L - R) / paretoBars.length;
+        paretoRoot.appendChild(el('text', { x: 4, y: 10, class: 'ax' }, 'tỷ VND'));
+        [0, 6, 12, 18, 24].forEach(v => {
+          const y = T + plotH * (1 - v / MAXV);
+          paretoRoot.appendChild(el('line', { x1: L, y1: y.toFixed(1), x2: W - R, y2: y.toFixed(1), class: 'gline' }));
+          paretoRoot.appendChild(el('text', { x: L - 6, y: (y + 3).toFixed(1), 'text-anchor': 'end', class: 'ax' }, String(v)));
+        });
+        [0, 25, 50, 75, 100].forEach(p => {
+          const y = T + plotH * (1 - p / 100);
+          paretoRoot.appendChild(el('text', { x: W - R + 6, y: (y + 3).toFixed(1), class: 'axr' }, p + '%'));
+        });
+        const y80 = T + plotH * 0.2;
+        paretoRoot.appendChild(el('line', { x1: L, y1: y80.toFixed(1), x2: W - R, y2: y80.toFixed(1), stroke: '#d97706', 'stroke-dasharray': '5 4', 'stroke-width': 1.4 }));
+        paretoRoot.appendChild(el('text', { x: W - R - 4, y: (y80 - 4).toFixed(1), 'text-anchor': 'end', class: 'axr' }, 'mốc 80%'));
+        let cum = 0; const cumPts = [];
+        paretoBars.forEach((bar, i) => {
+          const x = L + i * step + step * 0.18, bw = step * 0.64;
+          const y = T + plotH * (1 - bar.v / MAXV);
+          const rect = el('rect', { x: x.toFixed(1), y: y.toFixed(1), width: bw.toFixed(1), height: (H - B - y).toFixed(1), fill: i === paretoBars.length - 1 ? '#94a3b8' : '#1e4e8c', rx: 2, style: 'cursor:pointer' });
+          rect.appendChild(el('title', {}, `${bar.label}: ${bar.v.toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tỷ`));
+          paretoRoot.appendChild(rect);
+          paretoRoot.appendChild(el('text', { x: (L + i * step + step / 2).toFixed(1), y: (y - 4).toFixed(1), 'text-anchor': 'middle', class: 'ax' }, bar.v.toLocaleString('vi-VN', { maximumFractionDigits: 2 })));
+          const nameText = el('text', { x: (L + i * step + step / 2).toFixed(1), y: H - 22, 'text-anchor': 'middle', class: 'ax' }, '');
+          bar.label.split(' ').forEach((word, wi) => { const ts = el('tspan', { x: nameText.getAttribute('x'), dy: wi === 0 ? 0 : 11 }, word); nameText.appendChild(ts); });
+          paretoRoot.appendChild(nameText);
+          cum += bar.v;
+          cumPts.push([L + i * step + step / 2, T + plotH * (1 - cum * 1e9 / MASTER)]);
+        });
+        paretoRoot.appendChild(el('polyline', { points: cumPts.map(p => p.map(n => n.toFixed(1)).join(',')).join(' '), fill: 'none', stroke: '#d97706', 'stroke-width': 2 }));
+        cumPts.forEach((p, i) => {
+          const c = el('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 2.8, fill: '#d97706' });
+          c.appendChild(el('title', {}, `Lũy kế: ${pct(paretoBars.slice(0, i + 1).reduce((a, b) => a + b.v, 0) * 1e9)}`));
+          paretoRoot.appendChild(c);
+        });
+        [0, 2, 5].forEach(i => paretoRoot.appendChild(el('text', { x: (cumPts[i][0] + 6).toFixed(1), y: (cumPts[i][1] - 6).toFixed(1), class: 'axr' }, pct(paretoBars.slice(0, i + 1).reduce((a, b) => a + b.v, 0) * 1e9))));
+      }
+      $('pareto').replaceChildren(paretoRoot);
+
+      // ---- ④ Vintage theo năm phát sinh (compact)
+      const vintage = { 2026: 0, 2025: 0, 2024: 0, '≤2023': 0 };
+      for (const r of ROWS) {
+        for (const [, v] of Object.entries(r.months)) vintage[2026] += v;
+        for (const [y, v] of Object.entries(r.older)) vintage[Number(y) <= 2023 ? '≤2023' : y] += v;
+      }
+      const vinMax = Math.max(...Object.values(vintage), 1);
+      $('vintage').innerHTML = Object.entries(vintage).map(([y, v]) =>
+        `<div class="aging-row"><button type="button" class="seg" style="font-size:13.5px" data-drill="year" data-k="${y}">Phát sinh ${y === '≤2023' ? y : y}</button>` +
+        `<button type="button" class="seg" data-drill="year" data-k="${y}" aria-label="Phân rã năm ${y}"><span class="bar"><i style="width:${(v / vinMax * 100).toFixed(1)}%;background:${y === '2026' ? 'var(--age1)' : 'var(--age3)'}"></i></span></button>` +
+        `<span class="val money">${v ? ty(v) + ' tỷ' : '0'} <small>${v ? pct(v) : '0%'}</small></span><span></span></div>`).join('');
+
+      // ---- Đối chiếu tự động
+      const sums = {
+        'Tổng dư nợ ròng (mẫu số)': MASTER,
+        'Σ Cơ cấu theo tháng phát sinh': agingBuckets.reduce((a, c) => a + c, 0),
+        'Σ Theo mặt hàng': comList.reduce((a, [, g]) => a + g.total, 0),
+        'Σ Theo năm phát sinh': Object.values(vintage).reduce((a, c) => a + c, 0),
+        'Σ Pareto (top 5 + khách khác)': paretoBars.reduce((a, b) => a + b.v, 0) * 1e9,
+      };
+      $('recon-table').innerHTML = Object.entries(sums).map(([k, v], i) =>
+        `<tr><td>${k}</td><td class="money">${ty(v)} tỷ</td><td>${i === 0 ? '<b>mẫu số</b>' : (Math.abs(v - MASTER) < 1 ? '<span class="ok">✓ KHỚP</span>' : '<span style="color:var(--bad);font-weight:700">✗ LỆCH ' + ty(v - MASTER) + '</span>')}</td></tr>`).join('');
+      $('master-total').textContent = ty(MASTER) + ' tỷ';
+      $('kpi-total').textContent = ty(MASTER) + ' tỷ';
+      const oldSum = agingBuckets[2] + agingBuckets[3];
+      $('kpi-old').textContent = ty(oldSum) + ' tỷ';
+      $('kpi-old-share').textContent = pct(oldSum) + ' tổng dư nợ';
+      $('kpi-top5').textContent = pct(top5.reduce((a, x) => a + x.v, 0));
+      const credit = ROWS.filter(r => allOf(r) < 0).reduce((a, r) => a + allOf(r), 0);
+      $('kpi-credit').textContent = ty(-credit) + ' tỷ';
+      $('asof').textContent = `29/10/2026`;
+
+      // ---- Drill-down drawer
+      const bucketOf = r => {
+        const items = [];
+        for (const [m, v] of Object.entries(r.months)) items.push({ src: `tháng ${m}/${AS_OF_YEAR}`, v });
+        for (const [y, v] of Object.entries(r.older)) items.push({ src: `bucket ${y}`, v });
+        return items;
+      };
+      function openDrill(title, meta, rows) {
+        $('drawer-title').textContent = title;
+        $('drawer-meta').textContent = meta;
+        $('drawer-body').innerHTML = rows.length
+          ? `<table><thead><tr><th>Khách</th><th>Nguồn</th><th class="money">Số tiền</th></tr></thead><tbody>` +
+            rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.src)}</td><td class="money">${ty(r.v)} tỷ</td></tr>`).join('') +
+            `</tbody></table><p class="note">Bản thật sẽ link từng dòng xuống sổ khách.</p>`
+          : '<p class="note">Không có khoản nào.</p>';
+        $('drawer').hidden = false; $('drawer-scrim').hidden = false;
+      }
+      function closeDrill() { $('drawer').hidden = true; $('drawer-scrim').hidden = true; }
+      document.addEventListener('click', event => {
+        const seg = event.target.closest('[data-drill]');
+        if (!seg) return;
+        const kind = seg.dataset.drill, k = seg.dataset.k;
+        if (kind === 'aging') {
+          const i = Number(k);
+          const rows = ROWS.flatMap(r => bucketOf(r).map(it => ({ ...it, name: r.name }))
+            .filter(it => it.v !== 0 && (it.src.startsWith('tháng') ? ageOf(Number(it.src.match(/tháng (\d+)\//)[1])) : 3) === i));
+          openDrill(AGING_LABELS[i], 'Phân rã theo khách · dữ liệu giả', rows);
+        } else if (kind === 'com') {
+          const rows = ROWS.filter(r => (r.commodity ?? '__none') === k).flatMap(r => bucketOf(r).map(it => ({ ...it, name: r.name })).filter(it => it.v !== 0));
+          openDrill((comGroups.get(k).label), 'Danh sách khách và bucket · dữ liệu giả', rows);
+        } else if (kind === 'cust') {
+          const r = ROWS.find(x => x.name === k);
+          openDrill(k, `Tổng ${ty(allOf(r))} tỷ · dữ liệu giả`, bucketOf(r).filter(it => it.v !== 0).map(it => ({ ...it, name: k })));
+        } else if (kind === 'others') {
+          const rows = others.flatMap(x => bucketOf(ROWS.find(r => r.name === x.name)).filter(it => it.v !== 0).map(it => ({ ...it, name: x.name })));
+          openDrill(`Khách khác (${others.length} khách)`, `Ròng ${ty(othersNet)} tỷ (gồm khách đang dư) · dữ liệu giả`, rows);
+        } else if (kind === 'year') {
+          const rows = k === '2026'
+            ? ROWS.flatMap(r => bucketOf(r).filter(it => it.src.startsWith('tháng') && it.v !== 0).map(it => ({ ...it, name: r.name })))
+            : ROWS.flatMap(r => Object.entries(r.older).filter(([y]) => (k === '≤2023' ? Number(y) <= 2023 : Number(y) === Number(k))).map(([y, v]) => ({ name: r.name, src: `bucket ${y}`, v })));
+          openDrill(`Nợ phát sinh năm ${k}`, 'Phân rã theo khách và tháng · dữ liệu giả', rows);
+        }
+      });
+      $('drawer-close').addEventListener('click', closeDrill);
+      $('drawer-scrim').addEventListener('click', closeDrill);
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('drawer').hidden) closeDrill(); });
+      $('fix-unclassified').addEventListener('click', () => {
+        const rows = ROWS.filter(r => r.commodity == null && allOf(r) !== 0).map(r => ({ name: r.name, src: 'chưa gán mặt hàng', v: allOf(r) }));
+        openDrill('Cảnh báo dữ liệu: chưa phân loại', 'Xử lý bằng cách gán mặt hàng cho các khách sau · dữ liệu giả', rows);
+      });
+      function esc(value) { return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]); }
+    })();
+  </script>
+</body>
+</html>

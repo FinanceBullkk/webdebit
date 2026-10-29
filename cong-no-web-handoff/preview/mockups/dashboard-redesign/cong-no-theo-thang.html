@@ -112,9 +112,9 @@
       'use strict';
       // Dữ liệu giả (đơn vị: đồng). months = số dư cuối tháng; older = nợ từ trước 2026.
       const ROWS = [
-        { name: 'MAI HOA (GL)', commodity: 'Sầu riêng', months: { 7: 3850000000, 8: 6420000000, 9: 7890000000, 10: 3430000000 }, older: 1200000000 },
-        { name: 'LONG THÀNH', commodity: 'Sầu riêng', months: { 8: 4100000000, 9: 4900000000, 10: 3300000000 }, older: 0 },
-        { name: 'THANH PHÁT', commodity: 'Sầu riêng', months: { 8: 2200000000, 9: 3580000000, 10: 3500000000 }, older: 0 },
+        { name: 'MAI HOA (GL)', commodity: 'Sầu riêng', months: { 7: 3850000000, 8: 6420000000, 9: 6890000000, 10: 3430000000 }, older: { 2025: 1200000000 } },
+        { name: 'LONG THÀNH', commodity: 'Sầu riêng', months: { 8: 4100000000, 9: 4400000000, 10: 3300000000 }, older: {} },
+        { name: 'THANH PHÁT', commodity: 'Sầu riêng', months: { 8: 2200000000, 9: 3330000000, 10: 3500000000 }, older: {} },
         { name: 'HẢI NAM', commodity: 'Sầu riêng', months: { 3: 1200000000, 5: 950000000 }, older: 0 },
         { name: 'AN NHIÊN', commodity: 'Sầu riêng', months: { 9: 1400000000, 10: 650000000 }, older: 0 },
         { name: 'SÔNG HỒNG', commodity: 'Thanh long', months: { 5: 1100000000, 6: 1250000000, 9: 1450000000 }, older: 0 },
@@ -125,7 +125,7 @@
         { name: 'ÁNH DƯƠNG', commodity: 'Dừa', months: { 2: 1100000000, 3: 1500000000, 4: 1500000000 }, older: 0 },
         { name: 'TÂN PHÚ', commodity: 'Dừa', months: { 10: 350000000 }, older: 0 },
         { name: 'MAI THẢO', commodity: 'Xoài', months: { 8: 310000000, 10: 590000000 }, older: 0 },
-        { name: 'ĐÌNH TRUNG', commodity: null, months: {}, older: 551000000 },
+        { name: 'ĐÌNH TRUNG', commodity: null, months: {}, older: { 2024: 551000000 } },
         { name: 'QUANG MINH', commodity: null, months: {}, older: 0 },
         { name: 'KIM LAN', commodity: null, months: { 10: -350000000 }, older: 0 },
         { name: 'PHÚ LONG', commodity: null, months: { 9: 750000000 }, older: 0 },
@@ -141,7 +141,7 @@
       };
       const fmtCell = (v, short) => (short ? fmtShort(v) : fmtFull(v));
       const yearOf = row => MONTHS.reduce((sum, m) => sum + (row.months[m] ?? 0), 0);
-      const allOf = row => yearOf(row) + row.older;
+      const allOf = row => yearOf(row) + Object.values(row.older ?? {}).reduce((sum, v) => sum + v, 0);
 
       const state = { commodity: '', short: true, onlyOpen: false };
       const $ = id => document.querySelector('#' + id);
@@ -208,7 +208,7 @@
           monthSum.map(v => `<td>${v ? fmtCell(v, state.short) : '—'}</td>`).join('') +
           `<td>${fmtCell(sumYear, state.short)}</td><td>${fmtCell(sumAll, state.short)}</td></tr>`;
 
-        const olderAll = ROWS.reduce((acc, row) => acc + row.older, 0);
+        const olderAll = ROWS.reduce((acc, row) => acc + Object.values(row.older ?? {}).reduce((sum, v) => sum + v, 0), 0);
         $('scope-year').textContent = fmtShort(ROWS.reduce((acc, row) => acc + yearOf(row), 0));
         $('scope-all').textContent = fmtShort(ROWS.reduce((acc, row) => acc + allOf(row), 0));
         $('scope-old').textContent = fmtShort(olderAll);
