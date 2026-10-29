@@ -111,6 +111,13 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .fee-settings{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
 .fee-panel{width:900px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .fee-panel-body{padding:12px 16px}
+.debit-open{min-height:28px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;font-size:13px;font-weight:400}
+.debit-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:24px;background:#162d4855}.debit-dialog[hidden]{display:none}
+.debit-panel{width:1240px;max-width:calc(100vw - 24px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.debit-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.debit-panel h2{margin:0 auto 0 0;font-size:16px}.debit-panel h2 small{display:block;color:#3e5871;font-size:13px;font-weight:400}
+.debit-panel header button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.debit-panel header .debit-excel{background:#173d65;border-color:#173d65;color:#fff}
+.debit-notes{margin:0;padding:8px 12px 8px 30px;background:#fff3d6;font-size:14px}.debit-body{overflow:auto;padding:12px}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
 .fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
@@ -122,13 +129,38 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .fee-newtype{display:flex;gap:8px;align-items:center;margin-top:12px;padding:10px;border:1px dashed #8daac9;border-radius:6px}
 .fee-newtype input{width:260px;height:36px;padding:0 8px;font:inherit}.fee-newtype select{height:36px;font:inherit}
 .fee-newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
-.receipt-ref.empty{display:inline-block;float:left;min-width:22px;color:#5d6f82;font-weight:700;text-align:center}
+.receipt-ref.empty{display:inline-block;min-width:24px;min-height:22px;padding:0 4px;border:1px solid #c4d3e3;border-radius:4px;background:#fff;color:#3e5871;font-weight:700;line-height:20px;text-align:center}
+/* Góp ý 29/10/2026: vùng phiếu thu. Phiếu đã ghi: số tiền một dòng, tham chiếu · tháng trừ nợ · ảnh gom một dòng nhỏ bên dưới.
+   Hàng nhập: một khung có nhãn, chỗ dán ảnh và nút Ghi phiếu. Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. */
+.receipt-sum{display:block;font-size:14px;font-weight:700;color:#162d48}.ledger .voided .receipt-sum{color:#475d73}
+.ledger td.num .receipt-meta{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 6px;margin-top:2px;white-space:normal}
+.receipt-meta .image-clip{margin-left:0;min-height:22px}.receipt-meta .receipt-ref:has(input){flex:1 1 100%}
+.pay-list .saved-receipt-input{width:100%;min-width:0;height:30px;padding:0 6px;border:1px solid #145fa9;border-radius:4px;background:#fff;font:inherit;color:#162d48}
+.ledger td.pay-form{height:auto;padding:6px}
+.pay-form-card{padding:8px 10px 10px;border:1px solid #8daac9;border-radius:6px;background:#fff;box-shadow:0 1px 2px #162d4814}
+.pay-form-title{margin:0 0 6px;font-size:14px;font-weight:700;color:#173d65}
+.pay-form-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px}
+.pay-field{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12px;font-weight:600;color:#3e5871}
+.pay-field input,.pay-field select{width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:15px;font-weight:400;color:#162d48}
+.pay-field input:focus,.pay-field select:focus{border-color:#145fa9;outline:2px solid #145fa9;outline-offset:0}
+.pay-field .receipt-amount{text-align:right;font-weight:700}.pay-field .cell-error{font-size:12px}
+.pay-form .image-entry{margin-top:8px}.pay-form .image-drop{min-height:40px;padding:4px 8px}
+.pay-form-actions{display:flex;justify-content:flex-end;margin-top:8px}
+.receipt-save{min-height:36px;padding:0 20px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.receipt-save:hover{background:#0f4f8f}.receipt-save:disabled{opacity:.6;cursor:default}.receipt-save:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.pay-list .void-prompt td{height:auto;padding:6px;background:transparent}
+.void-box{display:grid;gap:6px;padding:8px 10px;border:1px solid #e0a46b;border-radius:6px;background:#fff8f1;font-size:13px;color:#162d48}
+.void-head{font-size:14px}.void-note{margin:0;color:#5d4a36;font-size:12px;line-height:1.4}
+.void-label{display:flex;flex-direction:column;gap:2px;font-size:12px;font-weight:600;color:#3e5871}
+.void-prompt .void-label input{width:100%;min-width:0;height:34px;padding:0 8px;border:1px solid #c98a55;border-radius:4px;background:#fff;font-size:15px;font-weight:400}
+.void-actions{display:flex;justify-content:flex-end;gap:8px}
+.void-prompt .void-actions button{min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:14px}
+.void-prompt .void-actions .confirm-void{border-color:#a01616;background:#a01616;color:#fff;font-weight:700}
 .void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:12px}
 .pay-list .void-trace s{color:#5d6f82}
 .void-toggle{min-height:28px;margin-left:6px;padding:0 4px;border:0;background:none;color:#1d4ed8;text-decoration:underline;font:inherit;cursor:pointer}
 .void-toggle:focus-visible{outline:2px solid #145fa9}
-.month-stats{display:flex;gap:18px}.month-stats b{font-weight:700}.month-stats .month-end{padding-left:18px;border-left:1px solid #6d8bab}
-.month-end-amount{color:#123f79}
+.month-stats{display:flex;gap:18px}.month-stats b{font-size:15px;font-weight:700}.month-stats .month-end{cursor:help}
 .ledger .missing{background:#ffddb0;color:#72410a;font-weight:700}
 .ledger .editable{cursor:text;min-height:38px}.ledger .editable:hover,.ledger .editable:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .money-input{width:100%;min-width:0;font:inherit;text-align:right}.cell-error,.paste-error{display:block;color:#a01616;font-weight:700;white-space:normal}
@@ -263,7 +295,6 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 /* CHUNG-TU-01: ảnh chứng từ phiếu thu */
 .image-clip{margin-left:6px;min-width:40px;min-height:26px;padding:0 4px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:12px;cursor:pointer}
 .image-clip.none{border-color:transparent;background:none;color:#5d6f82}
-.image-entry td{padding:4px 6px;background:#f2f8ff}
 .image-drop{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:6px 8px;border:2px dashed #8daac9;border-radius:6px;background:#fff}
 .image-drop.over{border-color:#1e4e8c;background:#e8f1fc}
 .image-hint{color:#3e5871;font-size:13px;line-height:1.4}.image-hint b{color:#162d48}
@@ -309,6 +340,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
 <script src="so-khach-v7-images-ui.js"></script>
+<script src="debit-note-xlsx.js"></script>
+<script src="so-khach-v7-debit-ui.js"></script>
 <script src="so-khach-v7-ui.js"></script>
 </body>
 </html>

@@ -41,7 +41,8 @@ test('dán ảnh vào hàng nhập, ghi phiếu: phiếu trước, ảnh sau; xe
 
   await entry.locator('.receipt-date').fill(today);
   await entry.locator('.receipt-amount').fill('50000000');
-  await entry.locator('.receipt-amount').press('Enter');
+  // Nút "Ghi phiếu" của khung nhập đi cùng đường với Enter: phiếu trước, ảnh sau.
+  await entry.locator('.receipt-save').click();
   await page.waitForFunction(() => document.querySelector('.image-clip:not(.none)')?.textContent.includes('📎 1'));
   const [first, second] = world.requests;
   assert.equal(first.path, '/api/v7/receipts');

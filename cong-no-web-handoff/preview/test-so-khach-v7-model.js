@@ -566,3 +566,59 @@ test('PHU-PHI-01: cụm cột phụ phí, tổng tháng, số gõ tay theo dấu
   assert.equal(model.feeTotalAfter('75000000', legacy, { add: { typeId: 8, amountVnd: -1000000n } }), 79000000n);
   assert.equal(model.feeTotalAfter('75000000', legacy, { set: { typeId: 9, amountVnd: null } }), 75000000n);
 });
+
+test("DEBIT-NOTE-01 debit note lists only the month's trips, fee columns by type name, blank when price is missing", () => {
+  const feeTypes = [{ id: 1, name: "Neo" }, { id: 2, name: "Điện" }, { id: 3, name: "Ghép" }, { id: 4, name: "Bảo hiểm" },
+    { id: 5, name: "Kiểm định" }, { id: 6, name: "Health cert" }, { id: 7, name: "Khác" }, { id: 8, name: "Giảm trừ" }, { id: 9, name: "Phụ phí ban đầu" }];
+  const trip = (id, day, extra = {}) => ({ id, month: "2026-10-01", container: `CONT${id}`, carrier: "L", shipper: "S", event_date: `2026-10-${day}`,
+    origin: "K", destination: "C", unit_price_vnd: "1000", amount_vnd: "1000", status: "confirmed", is_missing_price: false, is_fee_only: false, fee_lines: [], ...extra });
+  const ledger = {
+    trips: [
+      trip(1, "12", { fee_lines: [{ fee_type_id: 1, amount_vnd: "200" }, { fee_type_id: 2, amount_vnd: "300" }, { fee_type_id: 6, amount_vnd: "50" },
+        { fee_type_id: 7, amount_vnd: "40" }, { fee_type_id: 8, amount_vnd: "-10" }], amount_vnd: "1580" }),
+      trip(2, "03"),
+      trip(3, "05", { status: "pending_review" }), trip(4, "06", { status: "rejected" }), trip(5, "07", { deleted: true }),
+      trip(6, "09", { month: "2026-09-01" }),
+    ],
+    legacy_rows: [
+      { id: 21, month: "2026-10-01", kind: "trip", editable: true, fee_lines: [{ fee_type_id: 9, amount_vnd: "30" }],
+        display: { row: 4 }, current: { container: "OLD1", carrier: "X", shipper: "Y", event_date: "2026-10-12", origin: "A", destination: "B",
+          unit_price_vnd: "500", counted_vnd: "530", deleted: false } },
+      { id: 22, month: "2026-10-01", kind: "receipt", display: { row: 4 } },
+    ],
+    adjustments: [{ month: "2026-10-01", legacy_row_id: null, amount_vnd: "5" }, { month: "2026-10-01", legacy_row_id: 21, amount_vnd: "30" }],
+  };
+  const note = model.debitNote(ledger, "2026-10", feeTypes);
+  assert.deepEqual(note.rows.map(row => row.container), ["CONT2", "OLD1", "CONT1"]);
+  assert.deepEqual(note.rows[2].fees, { neo: 200n, dien: 300n, ghep: null, other: 30n, baoHiem: null, kiemDinh: null, health: 50n });
+  assert.equal(note.rows[1].fees.other, 30n);
+  assert.equal(note.totalVnd, 1000n + 530n + 1580n);
+  assert.equal(note.complete, true);
+  assert.equal(note.pendingCount, 1);
+  assert.equal(note.adjustmentCount, 1);
+
+  ledger.trips[1] = trip(2, "03", { unit_price_vnd: null, amount_vnd: null, is_missing_price: true });
+  ledger.legacy_rows[0].current = { ...ledger.legacy_rows[0].current, unit_price_vnd: null, counted_vnd: "0" };
+  const missing = model.debitNote(ledger, "2026-10", feeTypes);
+  assert.deepEqual(missing.rows.map(row => [row.unitPriceVnd, row.totalVnd]), [[null, null], [null, null], [1000n, 1580n]]);
+  assert.equal(missing.totalVnd, null);
+  assert.equal(missing.complete, false);
+  assert.equal(missing.missingCount, 2);
+  assert.equal(model.debitNote(ledger, "2026-08", feeTypes).complete, false);
+});
+
+test("DEBIT-NOTE-01 sổ gốc rows without an editable copy read the Sheet display", () => {
+  const ledger = { legacy_rows: [
+    { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "900", fee_lines: [],
+      display: { container: "D1", carrier: "C", date: "2026-10-02", from: "A", to: "B", unit_price: "900", flags: [] } },
+    { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "0", fee_lines: [],
+      display: { container: "D2", date: "2026-10-01", unit_price: "", flags: ["MISSING_PRICE"] } },
+    { month: "2026-10-01", kind: "trip", editable: false, source_total_vnd: "70", fee_lines: [{ fee_type_id: 1, amount_vnd: "70" }],
+      display: { container: "", date: null, unit_price: "", flags: [] } },
+  ] };
+  const note = model.debitNote(ledger, "2026-10", [{ id: 1, name: "Neo" }]);
+  assert.deepEqual(note.rows.map(row => [row.container, row.origin, row.unitPriceVnd, row.totalVnd, row.feeOnly]),
+    [["D2", undefined, null, null, false], ["D1", "A", 900n, 900n, false], ["", undefined, null, 70n, true]]);
+  assert.equal(note.rows[2].fees.neo, 70n);
+  assert.deepEqual(["Phí điện", "ĐÓNG GHÉP", "Health", "Nâng hạ"].map(model.debitFeeColumn), ["dien", "ghep", "health", "other"]);
+});

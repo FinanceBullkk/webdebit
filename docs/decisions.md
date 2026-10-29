@@ -50,7 +50,8 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ |  |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
 | <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |
-| <a id="so-gon-02"></a>[SO-GON-02](decisions/so-gon-02.md) | Phiếu thu danh sách riêng, phiếu hủy gom gọn, bỏ cột cộng dồn |  |
+| <a id="so-gon-02"></a>[SO-GON-02](decisions/so-gon-02.md) | Phiếu thu danh sách riêng, phiếu hủy gom gọn, bỏ cột cộng dồn | Mục (3) phần thanh tháng/dòng tổng sửa bởi [SO-GON-03](#so-gon-03) |
+| <a id="so-gon-03"></a>[SO-GON-03](decisions/so-gon-03.md) | Mỗi số tiền của tháng hiện một lần |  |
 | <a id="ct-2so"></a>[CT-2SO](decisions/ct-2so.md) | Cấn trừ giữa hai sổ |  |
 | <a id="phu-phi-01"></a>[PHU-PHI-01](decisions/phu-phi-01.md) | Phụ phí nhiều loại |  |
 | <a id="xoa-thu-goc-01"></a>[XOA-THU-GOC-01](decisions/xoa-thu-goc-01.md) | Xóa khoản thu sổ gốc |  |
@@ -59,6 +60,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="bang-gia-01"></a>[BANG-GIA-01](decisions/bang-gia-01.md) | Bảng giá theo ngày hiệu lực, giá TT/giá khách |  |
 | <a id="chung-tu-01"></a>[CHUNG-TU-01](decisions/chung-tu-01.md) | Dán chứng từ vào phiếu thu |  |
 | <a id="presence-01"></a>[PRESENCE-01](decisions/presence-01.md) | Thấy ai đang online, ô đang chọn, con trỏ chuột |  |
+| <a id="debit-note-01"></a>[DEBIT-NOTE-01](decisions/debit-note-01.md) | Xuất debit note theo tháng công nợ (Excel + PDF) |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 
