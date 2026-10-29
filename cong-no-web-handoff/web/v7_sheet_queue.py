@@ -80,7 +80,7 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             continue
         item = {key: source.get(key) for key in (
             "source_row", "container", "carrier", "event_date", "origin", "destination",
-            "booking", "customer_name", "source_date", "status")}
+            "booking", "customer_name", "source_date", "status", "durian_type")}
         if "shipper" in source:
             item["shipper"] = source.get("shipper")
         status = source.get("status") or "INVALID"
@@ -205,7 +205,16 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                                                     (old.get("carrier") if old["kind"] == "legacy" else None))
                                             if field == "shipper" else old.get(field)
                                             for field in changed} if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None})
-    return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible,
+    trip_types = {}
+    by_row = {row.get("source_row"): row for row in queue["items"]
+              if row.get("customer_id") == ledger.get("customer_id") and row.get("status") == "READY"
+              and row.get("durian_type") in ("frozen", "fresh")}
+    for trip in ledger.get("trips", []):
+        row = by_row.get(_source_row(trip.get("source_ref")))
+        if (row and type(trip.get("id")) is int and _container(trip.get("container")) == _container(row.get("container"))
+                and str(trip.get("event_date") or "")[:10] == row.get("event_date")):
+            trip_types[str(trip["id"])] = row["durian_type"]
+    return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible, "trip_types": trip_types,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
             "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible)}
 
