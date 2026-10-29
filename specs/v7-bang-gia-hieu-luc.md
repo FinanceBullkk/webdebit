@@ -71,7 +71,7 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 | Tính tiền | `v_trip_current`, `so-khach-v7-model.js` (`tripAmount`) | Không đổi: bảng giá chỉ sinh đơn giá, tiền vẫn tính như cũ |
 | Phụ phí | `PHU-PHI-01`, dòng phụ phí theo loại | Ngoài phạm vi: bảng giá chỉ cho đơn giá |
 | Ghi giá từ Sheet | `v7_price_queue.py`, `POST /api/v7/sheet/prices` | Thêm so với giá theo bảng (giai đoạn 2) |
-| Nhập kiểu Sheet | `so-khach-v7-draft-ui.js` (nhãn cột có `shipper`, `from`, `price`) | Thêm tự điền ô Đơn giá và nhãn "theo bảng" |
+| Nhập kiểu Sheet | Đã bỏ bảng nhập ([`NHAP-SHEET-02`](../docs/decisions.md#nhap-sheet-02), 29/10/2026); chuyến mới lấy từ Sheet | Không còn chỗ tự điền khi nhập tay |
 | Bảng giá trên Sheet | Vùng cột phải của tab khách, nằm ngang khối tháng; vị trí khác nhau giữa các tab | Không dựng bộ đọc tự động vị trí; người nhập dán vùng đó (luồng "Nạp bảng giá") |
 
 Dữ liệu mockup: dùng tên kho thật (tỉnh), giá và tên shipper **giả**. Không đưa tên khách, tên shipper hay giá thật vào repo.

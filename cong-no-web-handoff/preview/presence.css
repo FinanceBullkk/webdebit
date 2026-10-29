@@ -10,11 +10,11 @@
 .presence-avatar:hover .presence-tip,.presence-avatar:focus-visible .presence-tip{display:block}
 .presence-dots{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
 .presence-dot{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--pc);border:2px solid #fff;box-shadow:0 0 0 1px #9eb4ca}
-td.presence-cell,tr.presence-row>td:first-child{position:relative;box-shadow:inset 0 0 0 2px var(--pc)}
+td.presence-cell{position:relative;box-shadow:inset 0 0 0 2px var(--pc)}
 /* Ô chữ của sổ cắt chữ thừa (overflow:hidden); nhãn tên nằm trên ô nên phải cho tràn. */
-td.presence-cell,tr.presence-row>td:first-child{overflow:visible!important}
+td.presence-cell{overflow:visible!important}
 td.presence-cell.editing{box-shadow:inset 0 0 0 3px var(--pc);outline:2px dashed var(--pc);outline-offset:-5px}
-td.presence-cell::after,tr.presence-row>td:first-child::after{content:attr(data-presence);position:absolute;left:-2px;bottom:100%;z-index:3;padding:1px 6px;background:var(--pc);color:#fff;font:600 12px/1.4 "Segoe UI",system-ui,sans-serif;white-space:nowrap;border-radius:3px 3px 3px 0;pointer-events:none}
+td.presence-cell::after{content:attr(data-presence);position:absolute;left:-2px;bottom:100%;z-index:3;padding:1px 6px;background:var(--pc);color:#fff;font:600 12px/1.4 "Segoe UI",system-ui,sans-serif;white-space:nowrap;border-radius:3px 3px 3px 0;pointer-events:none}
 .presence-flash{animation:presence-flash .9s 1}
 @keyframes presence-flash{0%,100%{background:inherit}40%{background:#ffe58a}}
 @media (prefers-reduced-motion:reduce){.presence-flash{animation:none;outline:3px solid #ffd54a}}

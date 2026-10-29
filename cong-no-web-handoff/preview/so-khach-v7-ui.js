@@ -299,13 +299,13 @@
           tripRow: trip ? `<tr class="legacy${moved.has(rowKey) ? ' moved' : ''}"${rowKey ? ` data-row="${escape(rowKey)}"` : ''}>${tripCells}</tr>${movedTag(rowKey)}` : '' };
       });
     };
-    // Vẽ lại sổ từ bản đang có (không tải lại), giữ con trỏ ở ô nháp/nút đang đứng.
+    // Vẽ lại sổ từ bản đang có (không tải lại).
     // Cờ rendering: thay DOM làm ô đang đứng mất focus; không coi đó là người dùng rời ô (tránh vẽ lại vòng tròn).
     let rendering = false;
-    function redraw(focus) {
+    function redraw() {
       if (!snapshot) return;
       rendering = true;
-      // Ô ghi thu đang gõ dở (hàng nhập phiếu của từng tháng mở): vẽ lại bảng nháp không được làm mất.
+      // Ô ghi thu đang gõ dở (hàng nhập phiếu của từng tháng mở): vẽ lại không được làm mất.
       const typed = [...root.querySelectorAll('.receipt-date:not(.saved-receipt-input)')].flatMap(date => {
         const row = date.closest('tr'), section = row.closest('section')?.id;
         return [...row.querySelectorAll('.receipt-date, .receipt-method, .receipt-amount, .receipt-reference')]
@@ -320,8 +320,6 @@
         const offset = typed.find(box => box.name === 'receipt-method' && box.value === 'CẤN TRỪ');
         const entryRow = offset && root.querySelector(`#${CSS.escape(offset.section)} .receipt-date:not(.saved-receipt-input)`)?.closest('tr');
         if (entryRow) { entryRow.insertAdjacentHTML('afterend', sourceRowHtml); offsetState.row = entryRow; renderSourceCell(); }
-        const input = focus && root.querySelector(`.draft-input[data-month="${focus.month}"][data-draft="${focus.row}"][data-field="${focus.field}"]`);
-        if (input) { input.focus(); const end = focus.caret ?? input.value.length; input.setSelectionRange(end, end); }
       } finally { rendering = false; }
     }
     // Mọi số tiền lấy nguyên từ GET; trang không cộng trừ tiền.
@@ -390,9 +388,9 @@
         // SO-GON-02 (29/10/2026, phương án A): chuyến bên trái, phiếu thu là danh sách riêng bên phải — không chung hàng,
         // để không đọc nhầm "chuyến này trả số tiền này". Danh sách: khoản thu Sheet (thứ tự Sheet), phiếu web, hàng nhập, phiếu đã hủy gom cuối.
         const legacy = legacyLines(historical.get(key) ?? [], locked);
-        // Phiếu thu vẫn nhập trong tháng khóa; bảng nhập chuyến chỉ có khi mở khóa.
+        // Phiếu thu vẫn nhập trong tháng khóa. Không có bảng nhập chuyến: chuyến vào sổ từ Sheet (NHAP-SHEET-02).
         const entryHere = active;
-        const draftHere = active && !locked;
+        const openHere = active && !locked;
         // STT chuyến web nối tiếp các dòng chuyến từ Sheet của tháng (dòng Sheet vẽ trước, như thứ tự trên Sheet).
         const sttBase = new Set((historical.get(key) ?? []).filter(row => row.kind !== 'receipt').map(row => row.display?.row)).size;
         const referenceInline = receipt => {
@@ -464,7 +462,7 @@
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
         // Các dòng đó vẫn nằm trong số tiền: dòng Tổng tháng lấy phát sinh/đã thu của Sheet từ server (DA-THU-01), chênh ghi ở Lịch sử.
         // XOA-DC-THANG-01: điều chỉnh cả tháng xóa được khi tháng đang mở — bấm ô số tiền như xóa dòng chuyến.
-        const adjustmentAmount = row => row.trip_id == null && draftHere
+        const adjustmentAmount = row => row.trip_id == null && openHere
           ? `<td class="num row-delete" data-kind="adjustment" data-id="${escape(row.id)}" tabindex="0" role="button" aria-label="Xóa hẳn điều chỉnh cả tháng ${escape(fmt(row.amount_vnd))}" title="Bấm để xóa hẳn dòng điều chỉnh này">${fmt(row.amount_vnd)}</td>`
           : num(fmt(row.amount_vnd));
         const adjustmentRows = adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="${tripCols() - 1}">Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${adjustmentAmount(row)}<td class="pay pay-start" colspan="3"></td></tr>`).join('');
@@ -476,7 +474,7 @@
         const ghostRows = ghosts.map((ghost, index) => ghost.month !== key ? '' : `<tr class="ghost"><td colspan="${labels.length}">↪ ${escape(ghost.container || 'Chuyến')} (ngày cũ ${escape(dateText(ghost.oldIso))}) đã chuyển sang tháng ${monthLabel(ghost.to)}<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button><button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
           <tr class="month"><th colspan="${labels.length}" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>${legacy.some(line => line.tripRow) || trips.some(trip => trip.status === 'confirmed') ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog">Debit note</button>` : ''}<em class="month-stats"><span class="month-end" title="Nợ các tháng trước ${fmt(item.prior_months_vnd)} + phát sinh ${fmt(totals.chargesVnd)} − đã thu ${fmt(totals.receivedVnd)}">Còn nợ cuối tháng: <b>${fmt(item.end_of_month_vnd)}</b></span></em></span></th></tr>
-          ${lines}${sheetLines}${adjustmentRows}${ghostRows}${draftHere ? draftGrid(key) : ''}
+          ${lines}${sheetLines}${adjustmentRows}${ghostRows}
           <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${feeTotalCells}${num(fmt(totals.chargesVnd))}<td class="pay pay-start">Đã thu</td><td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${labels.length}"></td></tr></tbody></table></section>`;
       };
       const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
@@ -579,7 +577,7 @@
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
       busyChecks: [] };
     for (const install of Object.values(window.SoKhachV7LiveParts ?? {})) install(ctx);
-    const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell, draftsBy, draftGrid } = ctx;
+    const { eventLabels, describeEvent, eventTime, decoratePrices, offsetState, sourceRowHtml, renderSourceCell } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
     root.addEventListener('click', event => {
@@ -592,9 +590,9 @@
     root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
     let refreshing = true;
     api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
-    const busy = () => api.hasPending() || draftsBy.size || ctx.busyChecks.some(check => check()) || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
+    const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
       || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
-      || [...root.querySelectorAll('.draft-input,.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
+      || [...root.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {

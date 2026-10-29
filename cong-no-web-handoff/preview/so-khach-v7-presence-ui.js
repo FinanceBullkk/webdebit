@@ -6,7 +6,7 @@
     const { root, customerId, live } = ctx;
     if (!window.Presence) return;
 
-    // Vị trí của mình: khóa dòng (trip:11, legacy:21, draft:<tháng>) + cột theo thứ tự ô, không theo tọa độ màn hình.
+    // Vị trí của mình: khóa dòng (trip:11, legacy:21) + cột theo thứ tự ô, không theo tọa độ màn hình.
     function position() {
       const active = document.activeElement;
       if (!active || !root.contains(active)) return { month: null, cell: null };
@@ -14,7 +14,6 @@
       const td = active.closest('td');
       if (!td) return { month, cell: null };
       const col = `c${td.cellIndex}`;
-      if (active.matches('.draft-input')) return { month, cell: { row: `draft:${active.dataset.month}`, col, editing: true } };
       const row = rowKey(td);
       if (!row) return { month, cell: null };
       return { month, cell: { row, col, editing: active !== td && active.matches('input,textarea,select') } };
@@ -43,31 +42,24 @@
     root.addEventListener('mouseleave', () => { if (mouse) { mouse = null; presence?.move(); } });
 
     function target(cell) {
-      if (cell.row.startsWith('draft:')) {
-        const input = root.querySelector(`.draft-input[data-month="${CSS.escape(cell.row.slice(6))}"]`);
-        return input?.closest('tr') ?? null;
-      }
       const [kind, id] = cell.row.split(':');
       const row = root.querySelector(`tr[data-row="${CSS.escape(`${kind}-${id}`)}"]`);
       return row?.cells[Number(cell.col.slice(1))] ?? null;
     }
 
     function decorate(people, colors) {
-      for (const node of root.querySelectorAll('.presence-cell,.presence-row,[data-presence]')) {
-        node.classList.remove('presence-cell', 'presence-row', 'editing');
+      for (const node of root.querySelectorAll('.presence-cell,[data-presence]')) {
+        node.classList.remove('presence-cell', 'editing');
         node.removeAttribute('data-presence');
         node.style.removeProperty('--pc');
       }
       for (const person of people) {
         const node = person.cell && target(person.cell);
         if (!node || node.dataset.presence) continue;
-        const draft = person.cell.row.startsWith('draft:');
-        const label = draft ? `${person.name} đang nhập chuyến…` : person.cell.editing ? `${person.name} đang sửa…` : person.name;
-        const mark = draft ? node.cells[0] : node;
-        node.classList.add(draft ? 'presence-row' : 'presence-cell');
-        if (person.cell.editing && !draft) node.classList.add('editing');
+        const label = person.cell.editing ? `${person.name} đang sửa…` : person.name;
+        node.classList.add('presence-cell');
+        if (person.cell.editing) node.classList.add('editing');
         node.dataset.presence = label;
-        mark.dataset.presence = label;
         node.style.setProperty('--pc', colors[person.color % colors.length]);
       }
     }
