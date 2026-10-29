@@ -55,7 +55,8 @@ function ledger(world) {
     total_outstanding_vnd: '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
-    sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 } };
+    sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
+    ...(world.psFees ? { ps_fees: world.psFees } : {}) };
 }
 
 // Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.
@@ -153,6 +154,23 @@ function apply(world, url, body) {
       Object.assign(row, { unit_price_vnd: item.sheet_unit_price_vnd, other_fee_vnd: item.sheet_other_fee_vnd, is_missing_price: false });
     }
     world.sheetPrices = { ...world.sheetPrices, ready: [], ready_count: 0 };
+    world.version += 1;
+    return [200, { written, remaining: 0, complete: true, version: world.version }];
+  }
+  // Tách phụ phí theo bảng PS: thay khoản của từng chuyến READY bằng kế hoạch "sau", tổng giữ nguyên.
+  if (url === '/api/v7/ps/fees') {
+    if (world.psStale || body.snapshot_sha256 !== world.psFees.snapshot_sha256) return [409, { error: 'STALE_SHEET', message: 'Bảng PS đã đổi. Tải lại rồi tách.' }];
+    for (const item of world.psFees.ready) {
+      const info = feeTarget(world, item.target_kind === 'trip' ? { trip_id: item.target_id } : { legacy_row_id: item.target_id });
+      const before = info.lines.map(line => ({ ...line }));
+      info.lines.splice(0, info.lines.length, ...item.after.map(line => ({ id: world.nextFeeLine++, ...line })));
+      syncFee(info);
+      world.events.unshift({ kind: 'rewrite_trip_fees', actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z',
+        before: { targets: [{ [item.target_kind === 'trip' ? 'trip_id' : 'legacy_row_id']: item.target_id, fee_lines: before }], batch_count: 1 },
+        after: { targets: [{ [item.target_kind === 'trip' ? 'trip_id' : 'legacy_row_id']: item.target_id, fee_lines: info.lines }], batch_count: 1 } });
+    }
+    const written = world.psFees.ready.length;
+    world.psFees = { ...world.psFees, ready: [], ready_count: 0 };
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
