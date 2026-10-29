@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mockup redesign Công nợ theo tháng — dữ liệu giả, chỉ để duyệt thiết kế.">
+  <title>MOCKUP · Công nợ theo tháng</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    /* Dải tổng gọn thay 2 card lớn */
+    .scope-strip{display:flex;gap:0;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
+    .scope-strip .item{flex:1 1 160px;padding:10px 16px;border-right:1px solid var(--line)}
+    .scope-strip .item:last-child{border-right:0}
+    .scope-strip .item .k{font-size:12px;color:var(--muted)}
+    .scope-strip .item .v{font-size:18px;font-weight:800;color:var(--brand)}
+    .scope-strip .item .v small{font-size:12px;font-weight:400;color:var(--muted)}
+    .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:13.5px}
+    .controls .year{display:inline-flex;align-items:center;gap:4px}
+    .controls button{min-height:32px;min-width:32px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}
+    .controls button:disabled{opacity:.4;cursor:default}
+    .controls .year b{min-width:52px;text-align:center;font-size:15px}
+    .controls select{min-height:32px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;padding:0 8px}
+    .controls label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+    /* Chú giải màu */
+    .legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin-bottom:10px}
+    .legend .grad{width:220px;height:10px;border-radius:5px;background:linear-gradient(90deg,#1e4e8c1f,#1e4e8cd9);position:relative}
+    .legend .grad i{position:absolute;top:12px;transform:translateX(-50%);font-style:normal;font-size:11.5px;color:var(--muted);white-space:nowrap}
+    .legend .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+    /* Bảng nhiệt */
+    .wrap{overflow:auto;max-height:calc(100vh - 300px);border:1px solid var(--line);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow)}
+    table{border-collapse:separate;border-spacing:0;width:100%;min-width:1150px}
+    th,td{padding:0;border-bottom:1px solid var(--line)}
+    thead th{position:sticky;top:0;z-index:3;background:#f8fafc;font-size:12px;font-weight:600;color:var(--muted);padding:7px 8px;text-align:right;white-space:nowrap}
+    thead th.khach,tbody td.khach,tbody tr.group th.glabel{position:sticky;left:0;z-index:2}
+    thead th.khach{z-index:4;text-align:left}
+    tbody td.khach,tbody tr.group th.glabel{background:var(--card);text-align:left;padding:7px 10px;font-size:13.5px;font-weight:600;box-shadow:1px 0 0 var(--line)}
+    tbody tr.group th.glabel{z-index:3;background:#eef2f6;font-size:13px;color:#0c3974}
+    tbody tr.group th.glabel .n{margin-left:8px;font-weight:400;font-size:12px;color:var(--muted)}
+    tbody tr.group th.gspacer,thead th.gspacer{z-index:1}
+    td .cell{display:block;width:100%;min-height:34px;padding:7px 8px;border:0;background:none;text-align:right;cursor:pointer;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    td .cell:hover{outline:2px solid var(--brand);outline-offset:-2px}
+    td.empty .cell{cursor:default}
+    td.du .cell{background:var(--du-bg);color:var(--du);font-weight:700}
+    td.khach .name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+    td.total-col,td.all-col,th.total-col,th.all-col{padding:7px 10px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    td.total-col{background:#f8fafc;font-weight:600}
+    td.du-cell{color:var(--du);font-weight:700}
+    td.none{color:var(--line2)}
+    tfoot th,tfoot td{position:sticky;bottom:0;z-index:3;background:#f8fafc;padding:7px 8px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums;border-top:2px solid var(--line2);border-bottom:0;white-space:nowrap}
+    tfoot th{text-align:left;left:0;z-index:4}
+    tr.warn-row td.khach .name::after{content:"⚠";margin-left:6px;color:var(--warn)}
+    .recon{margin:10px 0 0;font-size:12.5px;color:var(--ok)}
+  </style>
+</head>
+<body>
+  <div class="demo">MOCKUP · DỮ LIỆU GIẢ — tên khách và số liệu đều hư cấu, chỉ để duyệt thiết kế</div>
+  <header class="topbar">
+    <a class="brand" href="tong-quan.html">CÔNG NỢ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="tong-quan.html">Tổng quan</a><a class="active" href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"></label>
+    <span class="pill">Chỉ xem</span><time>Tính đến 29/10/2026</time>
+  </header>
+  <main class="page">
+    <div class="page-head">
+      <h1>Công nợ theo tháng</h1>
+      <div class="live-controls"><button type="button">↻ Làm mới</button><time>Cập nhật 06:45 · tự tải mỗi 60 giây</time></div>
+    </div>
+
+    <section class="scope-strip" aria-label="Tổng hai phạm vi">
+      <div class="item"><div class="k">Dư nợ 12 tháng 2026</div><div class="v money" id="scope-year">—</div></div>
+      <div class="item"><div class="k">Dư nợ mọi năm</div><div class="v money" id="scope-all">—</div></div>
+      <div class="item"><div class="k">Từ trước 2026</div><div class="v money" id="scope-old">—</div></div>
+      <div class="item"><div class="k">Tình trạng khách</div><div class="v" id="scope-cust" style="font-size:14px;font-weight:600">—</div></div>
+    </section>
+
+    <div class="controls">
+      <span class="year"><button type="button" id="year-prev" aria-label="Năm trước">‹</button><b id="year-cur">2026</b><button type="button" id="year-next" aria-label="Năm sau">›</button></span>
+      <select id="commodity" aria-label="Lọc mặt hàng"></select>
+      <label><input type="checkbox" id="short-num" checked> Số rút gọn</label>
+      <label><input type="checkbox" id="only-open"> Chỉ khách còn nợ</label>
+      <span style="color:var(--muted)">Bấm vào ô để xem chi tiết tháng (drawer như bản live)</span>
+    </div>
+
+    <div class="legend" aria-label="Chú giải màu">
+      <span class="grad"><i style="left:2%">0</i><i style="left:28%">10 tr</i><i style="left:58%">100 tr</i><i style="left:96%">1 tỷ+</i></span>
+      <span><span class="sw" style="background:var(--du-bg);border:1px solid var(--du)"></span>đang dư (+)</span>
+      <span><span class="sw" style="background:#fff;border:1px solid var(--line2)"></span>trống = không phát sinh hoặc đã trả hết</span>
+    </div>
+
+    <div class="wrap">
+      <table>
+        <thead><tr id="heat-head"></tr></thead>
+        <tbody id="heat-body"></tbody>
+        <tfoot id="heat-foot"></tfoot>
+      </table>
+    </div>
+    <p class="recon" id="recon"></p>
+
+    <div class="design-note">
+      <h2>Ghi chú duyệt thiết kế (mockup, dữ liệu giả)</h2>
+      <ul>
+        <li>Ô ma trận hiển thị số rút gọn (triệu/tỷ), tooltip giữ số VND nguyên chính xác — dữ liệu API không đổi. Nút “Số rút gọn” tắt để xem số đầy đủ.</li>
+        <li>Ô âm (khách đang dư) nền teal, dấu + — tách hẳn khỏi nợ. Hàng tổng theo tháng ghim chân bảng; tên khách và hàng tháng ghim khi cuộn.</li>
+        <li>Hai card tổng lớn thay bằng một dải gọn, kèm đếm tình trạng khách; phần còn lại của màn hình dành cho bảng.</li>
+        <li>Bộ lọc “Chỉ khách còn nợ” ẩn khách đã tất toán (dữ liệu API hiện có đủ để lọc client-side).</li>
+        <li>Cấu trúc nhóm mặt hàng, drawer chi tiết khi bấm ô, dòng đối chiếu KHỚP giữ nguyên hành vi bản live.</li>
+      </ul>
+    </div>
+  </main>
+  <script>
+    (() => {
+      'use strict';
+      // Dữ liệu giả (đơn vị: đồng). months = số dư cuối tháng; older = nợ từ trước 2026.
+      const ROWS = [
+        { name: 'MAI HOA (GL)', commodity: 'Sầu riêng', months: { 7: 3850000000, 8: 6420000000, 9: 7890000000, 10: 3430000000 }, older: 1200000000 },
+        { name: 'LONG THÀNH', commodity: 'Sầu riêng', months: { 8: 4100000000, 9: 4900000000, 10: 3300000000 }, older: 0 },
+        { name: 'THANH PHÁT', commodity: 'Sầu riêng', months: { 8: 2200000000, 9: 3580000000, 10: 3500000000 }, older: 0 },
+        { name: 'HẢI NAM', commodity: 'Sầu riêng', months: { 3: 1200000000, 5: 950000000 }, older: 0 },
+        { name: 'AN NHIÊN', commodity: 'Sầu riêng', months: { 9: 1400000000, 10: 650000000 }, older: 0 },
+        { name: 'SÔNG HỒNG', commodity: 'Thanh long', months: { 5: 1100000000, 6: 1250000000, 9: 1450000000 }, older: 0 },
+        { name: 'GIA PHÁT', commodity: 'Thanh long', months: { 7: 350000000, 8: 620000000 }, older: 0 },
+        { name: 'THẢO VY', commodity: 'Thanh long', months: { 10: 420000000 }, older: 0 },
+        { name: 'HẢI TRIỀU', commodity: 'Chuối', months: { 1: 2300000000, 2: 1700000000, 3: 1600000000 }, older: 0 },
+        { name: 'BẢO NGỐC', commodity: 'Chuối', months: { 9: 280000000, 10: 120000000 }, older: 0 },
+        { name: 'ÁNH DƯƠNG', commodity: 'Dừa', months: { 2: 1100000000, 3: 1500000000, 4: 1500000000 }, older: 0 },
+        { name: 'TÂN PHÚ', commodity: 'Dừa', months: { 10: 350000000 }, older: 0 },
+        { name: 'MAI THẢO', commodity: 'Xoài', months: { 8: 310000000, 10: 590000000 }, older: 0 },
+        { name: 'ĐÌNH TRUNG', commodity: null, months: {}, older: 551000000 },
+        { name: 'QUANG MINH', commodity: null, months: {}, older: 0 },
+        { name: 'KIM LAN', commodity: null, months: { 10: -350000000 }, older: 0 },
+        { name: 'PHÚ LONG', commodity: null, months: { 9: 750000000 }, older: 0 },
+      ];
+      const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+      const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+      const fmtFull = v => v.toLocaleString('vi-VN') + ' đ';
+      const fmtShort = v => {
+        const abs = Math.abs(v);
+        if (abs >= 1e9) return (v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
+        if (abs >= 1e6) return Math.round(v / 1e6).toLocaleString('vi-VN') + ' tr';
+        return v.toLocaleString('vi-VN');
+      };
+      const fmtCell = (v, short) => (short ? fmtShort(v) : fmtFull(v));
+      const yearOf = row => MONTHS.reduce((sum, m) => sum + (row.months[m] ?? 0), 0);
+      const allOf = row => yearOf(row) + row.older;
+
+      const state = { commodity: '', short: true, onlyOpen: false };
+      const $ = id => document.querySelector('#' + id);
+
+      function groupLabel(key) {
+        return key === '__none' ? 'Chưa phân loại' : key;
+      }
+
+      function heatCell(value, max) {
+        if (!value) return '<td class="empty"><span class="cell" aria-hidden="true"></span></td>';
+        const title = ` title="${fmtFull(value)}"`;
+        if (value < 0) return `<td class="du"><button type="button" class="cell"${title}>+${fmtCell(-value, state.short)}</button></td>`;
+        const alpha = Math.min(0.86, 0.12 + (value / max) * 0.74);
+        const hex = Math.round(alpha * 255).toString(16).padStart(2, '0');
+        const ink = alpha > 0.55 ? '#fff' : 'inherit';
+        return `<td><button type="button" class="cell" style="background:#1e4e8c${hex};color:${ink}"${title}>${fmtCell(value, state.short)}</button></td>`;
+      }
+
+      function totalCell(value, cls) {
+        if (!value) return `<td class="${cls} none">—</td>`;
+        const title = ` title="${fmtFull(value)}"`;
+        if (value < 0) return `<td class="${cls} du-cell"${title}>+${fmtCell(-value, state.short)}</td>`;
+        return `<td class="${cls}"${title}>${fmtCell(value, state.short)}</td>`;
+      }
+
+      function render() {
+        const rows = ROWS.filter(row => !state.onlyOpen || allOf(row) > 0 || yearOf(row) !== 0)
+          .filter(row => !state.commodity || (state.commodity === '__none' ? row.commodity == null : row.commodity === state.commodity));
+        const groups = new Map();
+        rows.forEach(row => {
+          const key = row.commodity ?? '__none';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(row);
+        });
+        const ordered = [...groups.entries()].sort((a, b) => {
+          if (a[0] === '__none') return 1;
+          if (b[0] === '__none') return -1;
+          const total = members => members.reduce((acc, row) => acc + allOf(row), 0);
+          return total(b[1]) - total(a[1]);
+        });
+        const max = rows.reduce((m, row) => Math.max(m, ...MONTHS.map(m2 => Math.max(0, row.months[m2] ?? 0))), 1);
+        const sum = (fn, list) => list.reduce((acc, row) => acc + fn(row), 0);
+
+        const head = ['<th class="khach">Khách</th>']
+          .concat(MONTHS.map(m => `<th>T${m}</th>`))
+          .concat(['<th class="total-col">NĂM 2026</th><th class="all-col">Mọi NAM</th>']).join('');
+        $('heat-head').innerHTML = head;
+
+        const body = [];
+        const monthSum = MONTHS.map(() => 0);
+        let sumYear = 0, sumAll = 0;
+        for (const [key, members] of ordered) {
+          const gYear = sum(yearOf, members), gAll = sum(allOf, members);
+          body.push(`<tr class="group"><th class="glabel">${esc(groupLabel(key))}<span class="n">${members.length} khách</span></th><th class="gspacer" colspan="12"></th>${totalCell(gYear, 'total-col').replace('<td', '<th').replace('</td>', '</th>')}${totalCell(gAll, 'all-col').replace('<td', '<th').replace('</td>', '</th>')}</tr>`);
+          for (const row of members) {
+            body.push(`<tr><td class="khach"><span class="name" title="${esc(row.name)}">${esc(row.name)}</span></td>` +
+              MONTHS.map(m => { const v = row.months[m] ?? 0; monthSum[m - 1] += v; return heatCell(v, max); }).join('') +
+              totalCell(yearOf(row), 'total-col') + totalCell(allOf(row), 'all-col') + '</tr>');
+          }
+          sumYear += gYear; sumAll += gAll;
+        }
+        $('heat-body').innerHTML = body.length ? body.join('') : '<tr><td colspan="15" style="padding:12px">Không có khách phù hợp.</td></tr>';
+        $('heat-foot').innerHTML = '<tr><th>Tổng ' + rows.length + ' khách hiển thị</th>' +
+          monthSum.map(v => `<td>${v ? fmtCell(v, state.short) : '—'}</td>`).join('') +
+          `<td>${fmtCell(sumYear, state.short)}</td><td>${fmtCell(sumAll, state.short)}</td></tr>`;
+
+        const olderAll = ROWS.reduce((acc, row) => acc + row.older, 0);
+        $('scope-year').textContent = fmtShort(ROWS.reduce((acc, row) => acc + yearOf(row), 0));
+        $('scope-all').textContent = fmtShort(ROWS.reduce((acc, row) => acc + allOf(row), 0));
+        $('scope-old').textContent = fmtShort(olderAll);
+        const open = ROWS.filter(row => allOf(row) > 0).length;
+        const du = ROWS.filter(row => allOf(row) < 0).length;
+        const closed = ROWS.length - open - du;
+        $('scope-cust').innerHTML = `${open} còn nợ <small>· ${du} đang dư · ${closed} tất toán</small>`;
+        $('recon').textContent = 'Đối chiếu dữ liệu giả: 12 ô tháng = cột Năm; tổng khách = tổng toàn bảng. KHỚP.';
+      }
+
+      function setupControls() {
+        const commodities = [...new Set(ROWS.map(row => row.commodity).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+        const select = $('commodity');
+        select.replaceChildren(new Option('Mặt hàng: tất cả', ''));
+        commodities.forEach(value => select.add(new Option('Mặt hàng: ' + value, value)));
+        if (ROWS.some(row => row.commodity == null)) select.add(new Option('Mặt hàng: chưa phân loại', '__none'));
+        select.addEventListener('change', () => { state.commodity = select.value; render(); });
+        $('short-num').addEventListener('change', event => { state.short = event.target.checked; render(); });
+        $('only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
+        $('year-prev').disabled = true;
+        $('year-next').disabled = true;
+      }
+
+      setupControls();
+      render();
+    })();
+  </script>
+</body>
+</html>
