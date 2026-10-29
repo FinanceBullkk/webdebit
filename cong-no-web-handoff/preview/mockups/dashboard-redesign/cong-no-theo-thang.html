@@ -3,210 +3,181 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Mockup redesign Công nợ theo tháng — dữ liệu giả, chỉ để duyệt thiết kế.">
+  <meta name="description" content="Mockup Công nợ theo tháng — dữ liệu giả, chỉ để duyệt thiết kế.">
   <title>MOCKUP · Công nợ theo tháng</title>
   <link rel="stylesheet" href="shared.css">
   <style>
-    /* Dải tổng gọn thay 2 card lớn */
-    .scope-strip{display:flex;gap:0;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
-    .scope-strip .item{flex:1 1 160px;padding:10px 16px;border-right:1px solid var(--line)}
-    .scope-strip .item:last-child{border-right:0}
-    .scope-strip .item .k{font-size:12px;color:var(--muted)}
-    .scope-strip .item .v{font-size:18px;font-weight:800;color:var(--brand)}
-    .scope-strip .item .v small{font-size:12px;font-weight:400;color:var(--muted)}
-    .controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:13.5px}
-    .controls .year{display:inline-flex;align-items:center;gap:4px}
-    .controls button{min-height:32px;min-width:32px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;cursor:pointer}
-    .controls button:disabled{opacity:.4;cursor:default}
-    .controls .year b{min-width:52px;text-align:center;font-size:15px}
-    .controls select{min-height:32px;border:1px solid #9ebbd7;border-radius:6px;background:#fff;color:#174d82;padding:0 8px}
-    .controls label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-    /* Chú giải màu */
-    .legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin-bottom:10px}
-    .legend .grad{width:220px;height:10px;border-radius:5px;background:linear-gradient(90deg,#1e4e8c1f,#1e4e8cd9);position:relative}
-    .legend .grad i{position:absolute;top:12px;transform:translateX(-50%);font-style:normal;font-size:11.5px;color:var(--muted);white-space:nowrap}
-    .legend .sw{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:5px}
-    /* Bảng nhiệt */
-    .wrap{overflow:auto;max-height:calc(100vh - 300px);border:1px solid var(--line);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow)}
-    table{border-collapse:separate;border-spacing:0;width:100%;min-width:1150px}
-    th,td{padding:0;border-bottom:1px solid var(--line)}
-    thead th{position:sticky;top:0;z-index:3;background:#f8fafc;font-size:12px;font-weight:600;color:var(--muted);padding:7px 8px;text-align:right;white-space:nowrap}
-    thead th.khach,tbody td.khach,tbody tr.group th.glabel{position:sticky;left:0;z-index:2}
+    .summary{display:flex;align-items:stretch;padding:0;margin-bottom:16px}
+    .summary>div{padding:14px 20px}
+    .summary>div+div{border-left:1px solid var(--line-soft)}
+    .summary .k{font-size:13.5px;color:var(--ink-3)}
+    .summary .v{font-size:22px;font-weight:700}
+    .summary .v.credit{color:var(--credit)}
+    .summary .status{margin-left:auto;display:flex;flex-direction:column;justify-content:center;gap:2px;font-size:14px;color:var(--ink-2)}
+
+    .controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+    .year{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+    .year button{width:36px;height:36px;border:0;background:none;cursor:pointer;font-size:18px;color:var(--ink-2)}
+    .year button:disabled{color:var(--line);cursor:default}
+    .year b{padding:0 8px;font-size:15px}
+    .controls select{height:36px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+    .controls label{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--ink-2);cursor:pointer}
+    .legend{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3)}
+    .legend i{display:inline-block;width:22px;height:14px;border-radius:3px}
+
+    .wrap{overflow:auto;max-height:calc(100vh - 290px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+    table{border-collapse:separate;border-spacing:0;width:100%;min-width:1180px;font-size:14px}
+    th,td{padding:0;border-bottom:1px solid var(--line-soft)}
+    thead th{position:sticky;top:0;z-index:3;background:var(--surface);padding:10px 8px;font-size:13px;font-weight:600;color:var(--ink-3);text-align:right;border-bottom:1px solid var(--line)}
+    thead th.cur{color:var(--accent-ink)}
+    .khach{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;width:190px;min-width:190px;padding:0 12px;box-shadow:1px 0 0 var(--line-soft)}
     thead th.khach{z-index:4;text-align:left}
-    tbody td.khach,tbody tr.group th.glabel{background:var(--card);text-align:left;padding:7px 10px;font-size:13.5px;font-weight:600;box-shadow:1px 0 0 var(--line)}
-    tbody tr.group th.glabel{z-index:3;background:#eef2f6;font-size:13px;color:#0c3974}
-    tbody tr.group th.glabel .n{margin-left:8px;font-weight:400;font-size:12px;color:var(--muted)}
-    tbody tr.group th.gspacer,thead th.gspacer{z-index:1}
-    td .cell{display:block;width:100%;min-height:34px;padding:7px 8px;border:0;background:none;text-align:right;cursor:pointer;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
-    td .cell:hover{outline:2px solid var(--brand);outline-offset:-2px}
-    td.empty .cell{cursor:default}
-    td.du .cell{background:var(--du-bg);color:var(--du);font-weight:700}
-    td.khach .name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
-    td.total-col,td.all-col,th.total-col,th.all-col{padding:7px 10px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
-    td.total-col{background:#f8fafc;font-weight:600}
-    td.du-cell{color:var(--du);font-weight:700}
-    td.none{color:var(--line2)}
-    tfoot th,tfoot td{position:sticky;bottom:0;z-index:3;background:#f8fafc;padding:7px 8px;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums;border-top:2px solid var(--line2);border-bottom:0;white-space:nowrap}
-    tfoot th{text-align:left;left:0;z-index:4}
-    tr.warn-row td.khach .name::after{content:"⚠";margin-left:6px;color:var(--warn)}
-    .recon{margin:10px 0 0;font-size:12.5px;color:var(--ok)}
+    td.khach a{display:block;padding:9px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+    td.khach a:hover{color:var(--accent-ink)}
+    tr.group td{background:var(--page);padding:8px 8px;font-weight:600;text-align:right;color:var(--ink-2)}
+    tr.group td.khach{background:var(--page);color:var(--ink);padding:8px 12px;text-align:left}
+    tr.group td.khach span{font-weight:400;color:var(--ink-3);margin-left:6px;font-size:13px}
+    td.m{padding:3px}
+    td.m button{display:block;width:100%;height:32px;padding:0 6px;border:0;border-radius:4px;background:none;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
+    td.m button:hover{outline:2px solid var(--ink);outline-offset:-2px}
+    td.m button.credit{background:var(--credit-soft);color:var(--credit);font-weight:600}
+    td.t{padding:0 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+    td.t.yr{padding-left:18px}
+    td.t.credit{color:var(--credit)}
+    tfoot td{position:sticky;bottom:0;z-index:3;background:var(--surface);padding:10px 8px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;border-top:1px solid var(--line);border-bottom:0}
+    tfoot td.khach{z-index:4;font-weight:700;text-align:left;padding:8px 12px}
+    tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:var(--ink-3)}
+    .check{margin:10px 2px 0;font-size:13.5px;color:var(--ink-3)}
+    .check b{color:var(--credit);font-weight:600}
   </style>
 </head>
 <body>
-  <div class="demo">MOCKUP · DỮ LIỆU GIẢ — tên khách và số liệu đều hư cấu, chỉ để duyệt thiết kế</div>
+  <div class="demo">Mockup · dữ liệu giả, tên khách và số tiền đều hư cấu</div>
   <header class="topbar">
-    <a class="brand" href="tong-quan.html">CÔNG NỢ HTH</a>
+    <a class="brand" href="tong-quan.html">Công nợ HTH</a>
     <nav aria-label="Điều hướng chính"><a href="tong-quan.html">Tổng quan</a><a class="active" href="cong-no-theo-thang.html">Công nợ theo tháng</a><a href="#">Sổ khách</a></nav>
-    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"></label>
-    <span class="pill">Chỉ xem</span><time>Tính đến 29/10/2026</time>
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"></label>
+    <span class="asof" id="asof"></span>
   </header>
+
   <main class="page">
     <div class="page-head">
       <h1>Công nợ theo tháng</h1>
-      <div class="live-controls"><button type="button">↻ Làm mới</button><time>Cập nhật 06:45 · tự tải mỗi 60 giây</time></div>
+      <div class="refresh"><span>Cập nhật lúc 06:45</span><button type="button" class="btn">Làm mới</button></div>
     </div>
 
-    <section class="scope-strip" aria-label="Tổng công nợ">
-      <div class="item"><div class="k">Còn phải thu</div><div class="v money" id="scope-receivable">—</div></div>
-      <div class="item"><div class="k">Khách đang dư</div><div class="v money" id="scope-credit">—</div></div>
-      <div class="item"><div class="k">Trong đó nợ từ trước 2026</div><div class="v money" id="scope-old">—</div></div>
-      <div class="item"><div class="k">Tình trạng khách</div><div class="v" id="scope-cust" style="font-size:14px;font-weight:600">—</div></div>
+    <section class="card summary" aria-label="Tổng công nợ">
+      <div><div class="k">Còn phải thu</div><div class="v" id="s-receivable"></div></div>
+      <div><div class="k">Khách đang dư</div><div class="v credit" id="s-credit"></div></div>
+      <div><div class="k">Trong đó nợ từ trước 2026</div><div class="v" id="s-old"></div></div>
+      <div class="status" id="s-status"></div>
     </section>
 
     <div class="controls">
-      <span class="year"><button type="button" id="year-prev" aria-label="Năm trước">‹</button><b id="year-cur">2026</b><button type="button" id="year-next" aria-label="Năm sau">›</button></span>
-      <select id="commodity" aria-label="Lọc mặt hàng"></select>
-      <label><input type="checkbox" id="short-num" checked> Số rút gọn</label>
+      <span class="year"><button type="button" id="year-prev" aria-label="Năm trước">‹</button><b id="year-cur"></b><button type="button" id="year-next" aria-label="Năm sau">›</button></span>
+      <select id="filter" aria-label="Lọc mặt hàng"></select>
       <label><input type="checkbox" id="only-open"> Chỉ khách còn nợ</label>
-      <span style="color:var(--muted)">Bấm vào ô để xem chi tiết tháng</span>
-    </div>
-
-    <div class="legend" aria-label="Chú giải màu">
-      <span class="grad"><i style="left:2%">0</i><i style="left:28%">10 tr</i><i style="left:58%">100 tr</i><i style="left:96%">1 tỷ+</i></span>
-      <span><span class="sw" style="background:var(--du-bg);border:1px solid var(--du)"></span>đang dư (+)</span>
-      <span><span class="sw" style="background:#fff;border:1px solid var(--line2)"></span>trống = không phát sinh hoặc đã trả hết</span>
+      <span class="legend" aria-label="Chú giải màu"><span>ít</span><i style="background:var(--heat-1)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-5)"></i><i style="background:var(--heat-6)"></i><span>nhiều</span><i style="background:var(--credit-soft);margin-left:12px"></i><span>khách dư</span></span>
     </div>
 
     <div class="wrap">
       <table>
-        <thead><tr id="heat-head"></tr></thead>
-        <tbody id="heat-body"></tbody>
-        <tfoot id="heat-foot"></tfoot>
+        <thead><tr id="head"></tr></thead>
+        <tbody id="body"></tbody>
+        <tfoot id="foot"></tfoot>
       </table>
     </div>
-    <p class="recon" id="recon"></p>
+    <p class="check" id="check"></p>
 
-    <div class="design-note">
-      <h2>Ghi chú duyệt thiết kế (mockup, dữ liệu giả)</h2>
+    <details class="design-note">
+      <summary>Ghi chú duyệt thiết kế (mockup v4)</summary>
       <ul>
-        <li>Ô ma trận hiển thị số rút gọn (triệu/tỷ), tooltip giữ số VND nguyên chính xác — dữ liệu API không đổi. Nút “Số rút gọn” tắt để xem số đầy đủ.</li>
-        <li>Ô âm (khách đang dư) nền teal, dấu + — tách hẳn khỏi nợ. Hàng tổng theo tháng ghim chân bảng; tên khách và hàng tháng ghim khi cuộn.</li>
-        <li>Hai card tổng lớn thay bằng một dải gọn dùng cùng tên với Tổng quan: “Còn phải thu” (chỉ khách đang nợ), “Khách đang dư” tách riêng. Dòng tổng chân bảng là số ròng (đã trừ khách dư), ghi rõ ở nhãn.</li>
-        <li>Nhóm và bộ lọc mặt hàng tách phương thức (sầu riêng · cảng / · bộ) như Tổng quan. Khách chưa có số dư đầu không có dòng trong bảng.</li>
-        <li>Bộ lọc “Chỉ khách còn nợ” ẩn khách đã tất toán (dữ liệu API hiện có đủ để lọc client-side).</li>
-        <li>Cấu trúc nhóm mặt hàng, drawer chi tiết khi bấm ô, dòng đối chiếu KHỚP giữ nguyên hành vi bản live.</li>
+        <li>Mỗi ô là số còn nợ của khách trong tháng phát sinh đó; màu đậm dần theo số tiền (6 bậc một màu xanh), ô khách dư màu xanh lục ghi chữ “dư”. Rê chuột thấy số đồng chính xác, bấm ô mở chi tiết tháng như bản live.</li>
+        <li>Dải trên cùng dùng cùng tên với Tổng quan: “Còn phải thu” chỉ cộng khách đang nợ, “Khách đang dư” tách riêng. Dòng tổng chân bảng là số ròng, đã ghi rõ.</li>
+        <li>Nhóm và bộ lọc mặt hàng tách phương thức (sầu riêng · cảng / · bộ). Khách chưa có số dư đầu không có dòng trong bảng. Tháng hiện tại tô đậm ở tiêu đề cột.</li>
       </ul>
-    </div>
+    </details>
   </main>
+
   <script src="data.js"></script>
   <script>
     (() => {
       'use strict';
       const D = window.MOCK;
-      const ROWS = D.ledger;
+      const $ = id => document.getElementById(id);
       const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
-      const { esc, fmtFull, fmtShort, yearOf, allOf } = D;
-      const fmtCell = (v, short) => (short ? fmtShort(v) : fmtFull(v));
+      const words = v => {
+        const abs = Math.abs(v);
+        if (abs >= 1e9) return (v / 1e9).toLocaleString('vi-VN', { maximumFractionDigits: 2 }) + ' tỷ';
+        return (v / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' tr';
+      };
+      // 6 bậc theo số tiền tuyệt đối để màu không đổi khi lọc.
+      const STEPS = [2e8, 5e8, 1e9, 2e9, 4e9];
+      const heat = v => {
+        const step = STEPS.filter(s => v >= s).length + 1;
+        return `background:var(--heat-${step});color:${step >= 5 ? '#fff' : 'var(--ink)'}`;
+      };
+      const state = { filter: null, onlyOpen: false };
 
-      const state = { commodity: null, short: true, onlyOpen: false };
-      const $ = id => document.querySelector('#' + id);
-
-      function heatCell(value, max) {
-        if (!value) return '<td class="empty"><span class="cell" aria-hidden="true"></span></td>';
-        const title = ` title="${fmtFull(value)}"`;
-        if (value < 0) return `<td class="du"><button type="button" class="cell"${title}>+${fmtCell(-value, state.short)}</button></td>`;
-        const alpha = Math.min(0.86, 0.12 + (value / max) * 0.74);
-        const hex = Math.round(alpha * 255).toString(16).padStart(2, '0');
-        const ink = alpha > 0.55 ? '#fff' : 'inherit';
-        return `<td><button type="button" class="cell" style="background:#1e4e8c${hex};color:${ink}"${title}>${fmtCell(value, state.short)}</button></td>`;
-      }
-
-      function totalCell(value, cls) {
-        if (!value) return `<td class="${cls} none">—</td>`;
-        const title = ` title="${fmtFull(value)}"`;
-        if (value < 0) return `<td class="${cls} du-cell"${title}>+${fmtCell(-value, state.short)}</td>`;
-        return `<td class="${cls}"${title}>${fmtCell(value, state.short)}</td>`;
-      }
+      const cell = v => {
+        if (!v) return '<td class="m"></td>';
+        const title = `title="${D.fmtFull(Math.abs(v))}${v < 0 ? ' (khách dư)' : ''}"`;
+        return v < 0
+          ? `<td class="m"><button type="button" class="credit" ${title}>dư ${words(-v)}</button></td>`
+          : `<td class="m"><button type="button" style="${heat(v)}" ${title}>${words(v)}</button></td>`;
+      };
+      const total = (v, cls) => !v ? `<td class="t ${cls} muted">—</td>`
+        : `<td class="t ${cls}${v < 0 ? ' credit' : ''}" title="${D.fmtFull(Math.abs(v))}">${v < 0 ? 'dư ' + words(-v) : words(v)}</td>`;
 
       function render() {
-        const rows = ROWS.filter(row => !state.onlyOpen || allOf(row) > 0 || yearOf(row) !== 0)
-          .filter(row => state.commodity === null || D.groupKey(row) === state.commodity);
+        const rows = D.ledger
+          .filter(r => !state.onlyOpen || D.allOf(r) > 0)
+          .filter(r => state.filter === null || D.groupKey(r) === state.filter);
         const groups = new Map();
-        rows.forEach(row => {
-          const key = D.groupKey(row);
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key).push(row);
-        });
-        const ordered = [...groups.entries()].sort((a, b) => {
-          if (a[0] === '') return 1;
-          if (b[0] === '') return -1;
-          const total = members => members.reduce((acc, row) => acc + allOf(row), 0);
-          return total(b[1]) - total(a[1]);
-        });
-        const max = rows.reduce((m, row) => Math.max(m, ...MONTHS.map(m2 => Math.max(0, row.months[m2] ?? 0))), 1);
-        const sum = (fn, list) => list.reduce((acc, row) => acc + fn(row), 0);
-
-        const head = ['<th class="khach">Khách</th>']
-          .concat(MONTHS.map(m => `<th>T${m}</th>`))
-          .concat(['<th class="total-col">Năm 2026</th><th class="all-col">Mọi năm</th>']).join('');
-        $('heat-head').innerHTML = head;
-
-        const body = [];
-        const monthSum = MONTHS.map(() => 0);
-        let sumYear = 0, sumAll = 0;
-        for (const [key, members] of ordered) {
-          const gYear = sum(yearOf, members), gAll = sum(allOf, members);
-          body.push(`<tr class="group"><th class="glabel">${esc(D.groupLabel(key))}<span class="n">${members.length} khách</span></th><th class="gspacer" colspan="12"></th>${totalCell(gYear, 'total-col').replace('<td', '<th').replace('</td>', '</th>')}${totalCell(gAll, 'all-col').replace('<td', '<th').replace('</td>', '</th>')}</tr>`);
-          for (const row of members) {
-            body.push(`<tr><td class="khach"><span class="name" title="${esc(row.name)}">${esc(row.name)}</span></td>` +
-              MONTHS.map(m => { const v = row.months[m] ?? 0; monthSum[m - 1] += v; return heatCell(v, max); }).join('') +
-              totalCell(yearOf(row), 'total-col') + totalCell(allOf(row), 'all-col') + '</tr>');
-          }
-          sumYear += gYear; sumAll += gAll;
+        for (const r of rows) {
+          if (!groups.has(D.groupKey(r))) groups.set(D.groupKey(r), []);
+          groups.get(D.groupKey(r)).push(r);
         }
-        $('heat-body').innerHTML = body.length ? body.join('') : '<tr><td colspan="15" style="padding:12px">Không có khách phù hợp.</td></tr>';
-        $('heat-foot').innerHTML = '<tr><th>Tổng ' + rows.length + ' khách (đã trừ khách dư)</th>' +
-          monthSum.map(v => `<td>${v ? fmtCell(v, state.short) : '—'}</td>`).join('') +
-          `<td>${fmtCell(sumYear, state.short)}</td><td>${fmtCell(sumAll, state.short)}</td></tr>`;
+        const sum = (list, fn) => list.reduce((a, r) => a + fn(r), 0);
+        const ordered = [...groups.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || sum(b[1], D.allOf) - sum(a[1], D.allOf));
 
-        const olderOpen = D.debtors.reduce((acc, row) => acc + D.olderOf(row), 0);
-        $('scope-receivable').textContent = fmtShort(D.receivable);
-        $('scope-receivable').title = fmtFull(D.receivable);
-        $('scope-credit').textContent = fmtShort(-D.credit);
-        $('scope-credit').title = fmtFull(-D.credit);
-        $('scope-old').textContent = fmtShort(olderOpen);
-        $('scope-old').title = fmtFull(olderOpen);
-        const open = ROWS.filter(row => allOf(row) > 0).length;
-        const du = ROWS.filter(row => allOf(row) < 0).length;
-        const closed = ROWS.length - open - du;
-        $('scope-cust').innerHTML = `${open} còn nợ <small>· ${du} đang dư · ${closed} tất toán</small>`;
-        $('recon').textContent = 'Đối chiếu: 12 ô tháng = cột Năm; tổng các khách = tổng toàn bảng. KHỚP.';
+        $('head').innerHTML = '<th class="khach">Khách</th>' +
+          MONTHS.map(m => `<th class="${m === D.AS_OF.month ? 'cur' : ''}">T${m}</th>`).join('') +
+          `<th>Năm ${D.AS_OF.year}</th><th>Mọi năm</th>`;
+        const body = [];
+        for (const [key, members] of ordered) {
+          body.push(`<tr class="group"><td class="khach">${D.esc(D.groupLabel(key))}<span>${members.length} khách</span></td>` +
+            '<td colspan="12"></td>' + total(sum(members, D.yearOf), 'yr') + total(sum(members, D.allOf), '') + '</tr>');
+          for (const r of members) {
+            body.push(`<tr><td class="khach"><a href="#" title="Mở sổ ${D.esc(r.name)}">${D.esc(r.name)}</a></td>` +
+              MONTHS.map(m => cell(r.months[m] ?? 0)).join('') + total(D.yearOf(r), 'yr') + total(D.allOf(r), '') + '</tr>');
+          }
+        }
+        $('body').innerHTML = body.length ? body.join('') : '<tr><td class="khach" colspan="15" style="padding:16px">Không có khách phù hợp.</td></tr>';
+        $('foot').innerHTML = `<tr><td class="khach">Tổng ${rows.length} khách<span>đã trừ tiền khách dư</span></td>` +
+          MONTHS.map(m => { const v = sum(rows, r => r.months[m] ?? 0); return `<td>${v ? words(v) : '—'}</td>`; }).join('') +
+          `<td>${words(sum(rows, D.yearOf))}</td><td>${words(sum(rows, D.allOf))}</td></tr>`;
+        $('check').innerHTML = '<b>✓ Khớp</b> — cộng 12 tháng bằng cột năm, cộng các khách bằng dòng tổng.';
       }
 
-      function setupControls() {
-        const keys = [...new Set(ROWS.map(D.groupKey).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
-        const select = $('commodity');
-        select.replaceChildren(new Option('Mặt hàng: tất cả', '*'));
-        keys.forEach(value => select.add(new Option('Mặt hàng: ' + value, value)));
-        if (ROWS.some(row => !D.groupKey(row))) select.add(new Option('Mặt hàng: chưa phân loại', ''));
-        select.addEventListener('change', () => { state.commodity = select.value === '*' ? null : select.value; render(); });
-        $('short-num').addEventListener('change', event => { state.short = event.target.checked; render(); });
-        $('only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
-        $('year-prev').disabled = true;
-        $('year-next').disabled = true;
-      }
+      $('asof').textContent = 'Số liệu đến ' + D.AS_OF.label;
+      $('year-cur').textContent = D.AS_OF.year;
+      $('year-prev').disabled = true;
+      $('year-next').disabled = true;
+      $('s-receivable').innerHTML = `<span title="${D.fmtFull(D.receivable)}">${words(D.receivable)}</span>`;
+      $('s-credit').innerHTML = `<span title="${D.fmtFull(-D.credit)}">${words(-D.credit).replace(' tr', ' triệu')}</span>`;
+      const old = D.debtors.reduce((a, r) => a + D.olderOf(r), 0);
+      $('s-old').innerHTML = `<span title="${D.fmtFull(old)}">${words(old)}</span>`;
+      const closed = D.ledger.length - D.debtors.length - D.creditors.length;
+      $('s-status').innerHTML = `<span><b>${D.debtors.length}</b> khách còn nợ</span><span class="muted">${D.creditors.length} đang dư · ${closed} đã tất toán</span>`;
 
-      setupControls();
+      const keys = [...new Set(D.ledger.map(D.groupKey).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'vi'));
+      const select = $('filter');
+      select.add(new Option('Tất cả mặt hàng', '*'));
+      keys.forEach(k => select.add(new Option(k, k)));
+      if (D.ledger.some(r => !D.groupKey(r))) select.add(new Option('Chưa phân loại', ''));
+      select.addEventListener('change', () => { state.filter = select.value === '*' ? null : select.value; render(); });
+      $('only-open').addEventListener('change', e => { state.onlyOpen = e.target.checked; render(); });
       render();
     })();
   </script>
