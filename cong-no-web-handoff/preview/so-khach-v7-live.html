@@ -237,28 +237,68 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-table-open{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;white-space:nowrap}
 .price-table-apply{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .price-table-open:focus-visible,.price-table-apply:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
-.ledger td small.price-hint{display:block;color:#3e5871;font-size:12px;line-height:1.2;font-weight:400;font-style:italic;white-space:normal;overflow-wrap:anywhere}
-.ledger td small.price-diff{color:#8a4b00;font-style:normal;font-weight:700}
-.ledger td.price-differs{background:#fff4dc}
-.price-table-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
+.ledger td small.price-hint{display:block;margin-top:2px;color:#3e5871;font-size:12px;line-height:1.25;font-weight:400;white-space:normal;overflow-wrap:anywhere}
+.ledger td small.price-ready{color:#1846a3;font-weight:600}
+.ledger td small.price-diff{color:#7a4f00;font-weight:600}
+.ledger td.price-differs{background:#fff3d1}
+.price-confirm-list{max-height:220px;overflow:auto}
+.price-confirm-list table{border-collapse:collapse;font-size:15px}
+.price-confirm-list th,.price-confirm-list td{padding:5px 14px 5px 0;border-bottom:1px solid #d8e1ec;text-align:left;white-space:nowrap}
+.price-confirm-list th{font-size:14px;font-weight:600;color:#3e5871}.price-confirm-list .num{text-align:right}
+.price-panel.confirm .price-actions{margin-top:12px}
+.price-table-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:20px;background:#162d4860}
 .price-table-dialog[hidden]{display:none}
-.price-table-panel h3{margin:16px 0 6px;font-size:16px}
-.price-table-panel textarea,.price-table-panel input:not([type=checkbox]){min-height:36px;border:1px solid #8daac9;border-radius:4px;padding:4px 8px;font:inherit}
-.price-table-panel textarea{width:100%;box-sizing:border-box}
-.price-table-panel button{min-height:36px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
+.price-table-panel{width:1214px;max-width:calc(100vw - 24px);max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 10px 32px #0005;font-size:16px;color:#162d48}
+.price-table-panel header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:#eaf1fa;border-bottom:1px solid #9eb4ca;border-radius:8px 8px 0 0}
+.price-table-panel h2{margin:0;font-size:19px}
+.price-dirty{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:12px;background:#fff3d1;color:#7a4f00;font-size:13px;font-weight:700}
+.price-dirty[hidden]{display:none}.price-grow{flex:1}
+.price-table-panel button{min-height:40px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;cursor:pointer;white-space:nowrap}
 .price-table-panel button.primary{background:#1e4e8c;border-color:#1e4e8c;color:#fff;font-weight:700}
-.price-table-panel button:focus-visible,.price-table-panel input:focus-visible,.price-table-panel textarea:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
-.price-locations,.price-rates{border-collapse:collapse;width:100%;margin-bottom:8px}
-.price-locations td,.price-rates td,.price-rates th,.price-locations th{padding:4px 6px;border-bottom:1px solid #e3eaf2;text-align:left}
-.price-locations input{width:100%;box-sizing:border-box}.price-rates th.num,.price-rates td.num{text-align:right}
-.price-rates input{width:160px;text-align:right;font-variant-numeric:tabular-nums}
-.price-period{margin:10px 0;padding:10px;border:1px solid #c9d6e3;border-radius:6px;background:#fafcff}
-.price-period-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px}.price-period-head input{width:150px}
-.price-adding,.price-paste{margin:10px 0;padding:10px;border:1px solid #9eb4ca;border-left:4px solid #1e4e8c;border-radius:6px;background:#fff;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.price-paste{display:block}.price-paste .price-actions{margin-top:8px}
-.price-book-shippers{margin:4px 0 0;padding-left:18px}.price-book-shippers li{margin:2px 0}
-.price-save-row{margin-top:16px;padding-top:12px;border-top:1px solid #d8e1ec}
-.price-panel li:first-child{border-top:0}.price-panel .what{flex:1}.price-panel small{display:block;color:#475d73;font-size:13px}
+.price-table-panel button:disabled{opacity:.55;cursor:default}
+.price-table-panel button:focus-visible,.price-table-panel input:focus-visible,.price-grid-title:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
+.price-bar{padding:0 16px}.price-bar:empty{display:none}
+.price-msg{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:8px 12px;border:1px solid #c9d6e3;border-radius:6px;font-size:16px}
+.price-msg>span{flex:1;min-width:260px;font-weight:600}
+.price-msg.info{background:#e8effd;border-color:#bfd0f3;color:#1846a3}.price-msg.ok{background:#e3f3e8;border-color:#b9dcc5;color:#17663a}
+.price-msg.bad{background:#fdecec;border-color:#efb7b7;color:#a01616}.price-msg.ask{background:#fff3d1;border-color:#e2bf5f;color:#7a4f00}
+.price-msg.form{background:#f6f9fc;border-color:#8daac9}.price-msg.form label{font-weight:600}
+.price-msg .price-msg-close{min-height:36px;border:0;background:none;color:inherit;text-decoration:underline}
+.price-new-from{width:150px;min-height:40px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;font:inherit}
+.price-body{overflow:auto;padding:12px 16px 18px}
+.price-help{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;border:1px dashed #2563c9;border-radius:6px;background:#f6f9fc}
+.price-help p{margin:0;max-width:300px}
+.price-sheet{border-collapse:collapse;font:12px/1.2 Arial,sans-serif;background:#fff}
+.price-sheet td{border:1px solid #d5dbe2;padding:4px 7px;white-space:nowrap;color:#202124}
+.price-sheet tr:first-child td{font-weight:700}.price-sheet td.s{background:#e3edfb}.price-sheet td.n{text-align:right}
+.price-sheet tr td.s:first-child{border-left:2px solid #2563c9}.price-sheet td.s.r{border-right:2px solid #2563c9}
+.price-sheet tr:first-child td.s{border-top:2px solid #2563c9}.price-sheet tr:last-child td.s{border-bottom:2px solid #2563c9}
+.price-sheet td.o{border:1px dashed #2563c9}.price-sheet td.g{border-color:transparent;background:none}
+.price-grids{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+.price-hint-line{margin:0 0 6px;color:#3e5871;font-size:15px}
+.price-grid th,.price-grid td{box-sizing:border-box}
+.price-grid{border-collapse:separate;border-spacing:0;border-top:1px solid #d8e1ec;border-left:1px solid #d8e1ec}
+.price-grid th{position:sticky;top:-12px;z-index:1;height:40px;padding:0 8px;background:#eaf1fa;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;font-size:14px;font-weight:700;text-align:left;white-space:nowrap}
+.price-grid th.num{text-align:right}
+.price-grid td{height:40px;padding:0;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;background:#fff}
+.price-grid .rn{width:40px;text-align:center;color:#5d6f82;font-size:13px;background:#f6f9fc}
+.price-grid .w-date{width:124px}.price-grid .w-kho{width:160px}.price-grid .w-price{width:138px}.price-grid .w-st{width:124px}.price-grid .w-ship{width:220px}.price-grid .xc{width:40px;text-align:center}
+.price-grid input{display:block;width:100%;height:39px;box-sizing:border-box;border:0;padding:0 8px;background:transparent;color:#162d48;font:inherit;font-size:16px}
+.price-grid input:focus{outline:2px solid #145fa9;outline-offset:-2px;background:#fff}
+.price-grid input.num{text-align:right;font-variant-numeric:tabular-nums}
+.price-grid input::placeholder{color:#8a9aab}
+.price-grid tr.fresh td:not(.rn){background:#fff3d1}
+.price-grid tr.old input{color:#5d6f82}
+.price-grid td.bad{background:#fdecec!important;box-shadow:inset 0 0 0 1px #a01616}
+.price-grid td.st{padding:0 8px;font-size:14px;font-weight:600;white-space:nowrap}
+.price-grid .st-now{color:#17663a}.price-grid .st-old{color:#5d6f82;font-weight:400}.price-grid .st-future{color:#1846a3}.price-grid .st-bad{color:#a01616}
+.price-table-panel .price-grid .xc button{width:36px;min-height:36px;padding:0;border:0;background:none;color:#5d6f82;font-size:20px;line-height:1}
+.price-table-panel .price-grid .xc button:hover{background:#fdecec;color:#a01616}
+.price-grid .ship-cell{position:relative}
+.price-grid .ship-cell input{padding-right:110px;text-transform:uppercase}
+.price-ship-count{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#5d6f82;font-size:13px;pointer-events:none}
+.price-ship-count.none{color:#7a4f00}
+.price-ship-note{margin:8px 0 0;max-width:250px;color:#3e5871;font-size:15px}
 .ledger tr.from-sheet td{background:#fff6d6}
 .sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:11px;font-style:normal}
 .moved-tag{color:#6b4a00;font-size:12px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}
