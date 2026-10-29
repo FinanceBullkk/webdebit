@@ -107,6 +107,7 @@ function handleApi(world, req, res, url, body) {
       commodity: item.commodity, transport_mode: item.mode ?? null })) });
   }
   if (url.pathname.startsWith('/api/v7/presence')) return reply(res, 200, { people: [] });   // PRESENCE-01, không phải lệnh ghi sổ
+  if (url.pathname.startsWith('/api/v7/price-table') && req.method === 'GET') return reply(res, 404, { error: 'NOT_FOUND' });   // BANG-GIA-01: sổ thử chưa có bảng giá
   if (url.pathname === '/api/v7/sheet/refresh') return reply(res, 404, { error: 'NOT_FOUND' });   // nút Làm mới: server chưa bật
   if (req.method === 'GET' && url.pathname === '/api/v7/fee-types') return reply(res, 200, { fee_types: [] });   // danh mục phụ phí (PHU-PHI-01)
   if (req.method === 'GET' && url.pathname === '/api/v7/ledger') return reply(res, 200, ledger(world, Number(url.searchParams.get('customer'))));

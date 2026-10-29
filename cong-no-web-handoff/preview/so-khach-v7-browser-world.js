@@ -225,6 +225,24 @@ function apply(world, url, body) {
     if (delta !== 0n) world.adjustments.push({ id: world.adjustments.length + 1, month: old.month, trip_id: null, legacy_row_id: row.id, amount_vnd: delta.toString(), note: null });
     row.current = next;
     event(url.endsWith('delete') ? 'legacy_delete' : 'legacy_edit', { legacy: { ...old, field: body.field, value: old[body.field] } }, { legacy: { ...next, field: body.field, value: next[body.field] } });
+  } else if (url === '/api/v7/price-table') {
+    if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' }];
+    const before = world.priceTable ?? { tt_shippers: [], locations: [], periods: [] };
+    world.priceTable = body.price_table;
+    event('price_table_edit', { price_table: before }, { price_table: body.price_table });
+    world.version += 1;
+    return [200, { price_table: body.price_table, affected_trips: world.affectedTrips ?? 0, version: world.version }];
+  } else if (url === '/api/v7/price-table/apply') {
+    const status = world.priceStatus;
+    const rows = body.trip_ids.map(id => status.trips.find(row => row.trip_id === id));
+    const before = rows.map(row => ({ trip_id: row.trip_id, unit_price_vnd: world.trips.find(trip => trip.id === row.trip_id).unit_price_vnd }));
+    for (const row of rows) {
+      const trip = world.trips.find(item => item.id === row.trip_id);
+      Object.assign(trip, { unit_price_vnd: row.lookup.unit_price_vnd, amount_vnd: row.lookup.unit_price_vnd, is_missing_price: false });
+      Object.assign(row, { unit_price_vnd: row.lookup.unit_price_vnd, ready: false, differs: false, from_table: true });
+    }
+    world.priceStatus = { ...status, ready_count: status.trips.filter(row => row.ready).length, ready_total_vnd: '0', reapply_count: 0 };
+    event('price_table_apply', { trips: before }, { trips: rows.map(row => ({ trip_id: row.trip_id, unit_price_vnd: row.lookup.unit_price_vnd })) });
   } else if (url === '/api/v7/trips/paste') {
     for (const trip of body.trips) {
       const [d, m, y] = trip.date.split('/');
@@ -268,6 +286,17 @@ async function withPage(fn, setup = () => {}) {
     if (url.pathname === '/api/v7/receipt-images/find') {
       (world.finds ??= []).push(url.searchParams.get('sha256'));
       send(200, { matches: world.otherImages.filter(other => other.sha256 === url.searchParams.get('sha256')) });
+      return;
+    }
+    // BANG-GIA-01: bảng giá và trạng thái giá do test đặt sẵn (world.priceTable, world.priceStatus).
+    if (url.pathname === '/api/v7/price-table' && req.method === 'GET') {
+      send(200, { customer_id: 1, version: world.version, price_table: world.priceTable ?? { tt_shippers: [], locations: [], periods: [] },
+        book_shippers: world.bookShippers ?? [] });
+      return;
+    }
+    if (url.pathname === '/api/v7/price-table/status') {
+      send(200, world.priceStatus ?? { customer_id: 1, version: world.version, has_table: false, trips: [], ready_count: 0,
+        ready_total_vnd: '0', ready_months: [], reapply_count: 0 });
       return;
     }
     if (url.pathname === '/api/v7/sheet/refresh') {   // nút Làm mới: mặc định server chưa bật

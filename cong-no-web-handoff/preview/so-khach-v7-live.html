@@ -200,6 +200,31 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-panel.confirm{border-left:4px solid #1e4e8c}.price-panel.err{border-left:4px solid #b91c1c;background:#fff4f4}
 .price-panel p{margin:0 0 10px}.price-actions{display:flex;gap:10px}
 .price-panel ul{list-style:none;margin:0;padding:0}.price-panel li{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid #e3eaf2}
+/* BANG-GIA-01: nút Bảng giá, chữ nhỏ ở ô Đơn giá, khung Bảng giá */
+.price-table-open{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;white-space:nowrap}
+.price-table-apply{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.price-table-open:focus-visible,.price-table-apply:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.ledger td small.price-hint{display:block;color:#3e5871;font-size:12px;line-height:1.2;font-weight:400;font-style:italic;white-space:normal;overflow-wrap:anywhere}
+.ledger td small.price-diff{color:#8a4b00;font-style:normal;font-weight:700}
+.ledger td.price-differs{background:#fff4dc}
+.price-table-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
+.price-table-dialog[hidden]{display:none}
+.price-table-panel h3{margin:16px 0 6px;font-size:16px}
+.price-table-panel textarea,.price-table-panel input:not([type=checkbox]){min-height:36px;border:1px solid #8daac9;border-radius:4px;padding:4px 8px;font:inherit}
+.price-table-panel textarea{width:100%;box-sizing:border-box}
+.price-table-panel button{min-height:36px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
+.price-table-panel button.primary{background:#1e4e8c;border-color:#1e4e8c;color:#fff;font-weight:700}
+.price-table-panel button:focus-visible,.price-table-panel input:focus-visible,.price-table-panel textarea:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
+.price-locations,.price-rates{border-collapse:collapse;width:100%;margin-bottom:8px}
+.price-locations td,.price-rates td,.price-rates th,.price-locations th{padding:4px 6px;border-bottom:1px solid #e3eaf2;text-align:left}
+.price-locations input{width:100%;box-sizing:border-box}.price-rates th.num,.price-rates td.num{text-align:right}
+.price-rates input{width:160px;text-align:right;font-variant-numeric:tabular-nums}
+.price-period{margin:10px 0;padding:10px;border:1px solid #c9d6e3;border-radius:6px;background:#fafcff}
+.price-period-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:6px}.price-period-head input{width:150px}
+.price-adding,.price-paste{margin:10px 0;padding:10px;border:1px solid #9eb4ca;border-left:4px solid #1e4e8c;border-radius:6px;background:#fff;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.price-paste{display:block}.price-paste .price-actions{margin-top:8px}
+.price-book-shippers{margin:4px 0 0;padding-left:18px}.price-book-shippers li{margin:2px 0}
+.price-save-row{margin-top:16px;padding-top:12px;border-top:1px solid #d8e1ec}
 .price-panel li:first-child{border-top:0}.price-panel .what{flex:1}.price-panel small{display:block;color:#475d73;font-size:13px}
 .ledger tr.from-sheet td{background:#fff6d6}
 .sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:11px;font-style:normal}
@@ -308,6 +333,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
 <script src="so-khach-v7-images-ui.js"></script>
+<script src="so-khach-v7-price-ui.js"></script>
 <script src="so-khach-v7-ui.js"></script>
 </body>
 </html>
