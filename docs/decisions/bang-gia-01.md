@@ -15,3 +15,5 @@ Người dùng/chủ nghiệp vụ chốt bảng giá theo ngày hiệu lực tr
 ĐÃ CHỐT chính sách. Các nguyên tắc thiết kế trong spec (gõ tay thắng bảng giá, sửa bảng giá không tự đổi chuyến đã ghi mà mời áp lại, tra không ra thì NULL kèm lý do, cờ "khác bảng giá" chỉ tô màu) là ĐỀ XUẤT của Claude theo các quy tắc đã chốt `V7-BE`, khóa tháng 24/10 và `NHAP-SHEET-01`. Backend giai đoạn 1 ĐÃ CODE và kiểm bằng harness dữ liệu giả 29/10/2026 (migration `2026-10-29-v7-bang-gia.sql`); chưa triển khai `hao`, chưa có giao diện.
 
 **Cập nhật 29/10/2026:** backend (migration + hàm + API) ĐÃ TRIỂN KHAI trên `hao` bằng đợt tay, xem [nhật ký](../deploys/2026-10-29-bang-gia-chung-tu.md); giao diện chưa có.
+
+**Cập nhật 29/10/2026 (giao diện):** khung Bảng giá đầu tiên bị người dùng báo "không dùng được, không ai hiểu"; thay bằng giao diện lưới giống vùng bảng giá trên Sheet sau khi người dùng thử mockup v2 và chốt "Ổn, làm thật" (xem spec, giai đoạn 2). Không đổi quy tắc giá hay API.

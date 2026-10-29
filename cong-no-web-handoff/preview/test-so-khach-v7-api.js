@@ -169,12 +169,12 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   const priceApply = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_apply', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: null }] },
     after: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: '85000000', rate: { tier: 'tt' } }] } }] });
-  assert.match(priceApply.root.innerHTML, /Áp giá theo bảng[\s\S]*1 chuyến · FAKE&lt;4&gt;: – → 85\.000\.000/);
+  assert.match(priceApply.root.innerHTML, /Điền giá theo bảng[\s\S]*1 chuyến · FAKE&lt;4&gt;: – → 85\.000\.000/);
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
     adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
     receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
-    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Áp giá theo bảng',
+    price_table_edit: 'Sửa bảng giá', price_table_apply: 'Điền giá theo bảng',
     adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
   const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
     before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
