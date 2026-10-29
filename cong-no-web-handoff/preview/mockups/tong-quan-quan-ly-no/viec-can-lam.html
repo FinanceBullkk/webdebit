@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Bản xem tab Việc cần làm (chuyển từ Tổng quan) — dữ liệu giả, chỉ để duyệt thiết kế.">
+  <title>Bản xem · Việc cần làm</title>
+  <link rel="stylesheet" href="../../cong-no-theme.css">
+  <link rel="stylesheet" href="../../dashboard-v7.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="demo-banner" role="status">Bản xem thiết kế · DỮ LIỆU GIẢ · tên khách và số tiền hư cấu</div>
+  <header class="topbar">
+    <a class="brand" href="index.html">Công nợ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="index.html">Tổng quan</a><a href="#" title="Trang hiện có, không đổi trong bản xem này">Công nợ theo tháng</a><a href="#" title="Trang hiện có, không đổi trong bản xem này">Sổ khách</a><a class="active" href="viec-can-lam.html" aria-current="page">Việc cần làm<span class="badge" id="todo-badge"></span></a></nav>
+    <label class="search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"></label>
+    <time class="asof" id="as-of"></time>
+  </header>
+  <main class="page todo-page">
+    <div class="page-head"><h1>Việc cần làm</h1><div class="live-controls"><time>Sheet lúc 21:30 · tự tải mỗi 60 giây</time><button class="btn" type="button">Làm mới</button></div></div>
+    <div class="grid" id="todo-root"></div>
+  </main>
+  <script src="data.js"></script>
+  <script>
+    (() => {
+      'use strict';
+      const D = window.MOCK;
+      const esc = D.esc;
+      const name = id => D.byId(id).name;
+      const link = (item, what, loc) => `<li><a href="#"${loc ? ' title="Mở sổ, đánh dấu các dòng cần xử lý"' : ''}><span class="who">${esc(name(item.id))}</span><span class="what">${what}</span><span class="chev" aria-hidden="true">›</span></a></li>`;
+      const count = items => items.reduce((total, item) => total + item.count, 0);
+      const groups = [
+        ['Chuyến thiếu đơn giá', 'critical', D.TODO.missingPrice, `${count(D.TODO.missingPrice)} chuyến`, item => `${item.count} chuyến`, true],
+        ['Chuyến chờ kiểm', 'warning', D.TODO.pendingReview, `${count(D.TODO.pendingReview)} chuyến`, item => `${item.count} chuyến`, true],
+        ['Chưa có số dư đầu', 'neutral', D.ROWS.filter(row => row.noBaseline), null, () => 'mở sổ', false],
+        ['Cần gán mặt hàng / cảng-bộ', 'neutral', D.unsorted, null, item => D.byId(item.id).commodity ? 'chưa rõ cảng/bộ' : 'chưa có mặt hàng', false],
+      ].filter(group => group[2].length);
+      const todo = `<section class="card todo" aria-labelledby="h-todo"><div class="card-head"><h2 id="h-todo">Cần xử lý trong sổ</h2><span class="aside">${D.todoCustomers} khách cần xem</span></div>
+        ${groups.map(([title, tone, items, total, what, loc]) => `<div class="todo-group"><div class="todo-title"><span>${title}</span><span class="tag ${tone}">${total ?? `${items.length} khách`}</span></div>
+          <ul class="rows">${items.map(item => link(item, what(item), loc)).join('')}</ul></div>`).join('')}</section>`;
+      const actors = D.TODAY.byActor;
+      const sum = key => actors.reduce((total, item) => total + item[key], 0);
+      const today = `<section class="card today" aria-labelledby="h-today"><div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi trên web</span></div>
+        <div class="today-stats"><div class="today-stat"><b>${sum('trips')}</b><span>chuyến nhập</span></div><div class="today-stat"><b>${sum('receipts')}</b><span>phiếu thu</span></div><div class="today-stat"><b>${esc(D.short(sum('received')))}</b><span>đã thu</span></div><div class="today-stat"><b>${sum('voids')}</b><span>phiếu hủy</span></div></div>
+        <div class="actors">${actors.map(item => `<div><span>${esc(item.actor)}</span><span>${item.trips} chuyến · ${item.receipts} phiếu · ${esc(D.short(item.received))}${item.voids ? ` · ${item.voids} hủy` : ''}</span></div>`).join('')}</div></section>`;
+      const credit = `<section class="card" aria-labelledby="h-credit"><div class="card-head"><h2 id="h-credit">Sổ đang dư tiền</h2><span class="aside">tự trừ vào chuyến sau</span></div>
+        <div class="todo-group"><ul class="rows">${D.creditors.map(row => `<li><a href="#"><span class="who">${esc(row.name)}</span><span class="what">dư ${esc(D.short(-row.total))}</span><span class="chev" aria-hidden="true">›</span></a></li>`).join('')}</ul></div></section>`;
+      document.getElementById('todo-root').innerHTML = `${todo}<div class="side">${today}${credit}</div>`;
+      document.getElementById('as-of').textContent = `Số liệu đến ${D.AS_OF.label}`;
+      document.getElementById('todo-badge').textContent = D.todoCustomers;
+    })();
+  </script>
+</body>
+</html>
