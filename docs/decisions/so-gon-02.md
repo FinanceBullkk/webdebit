@@ -8,7 +8,7 @@ Người dùng/chủ nghiệp vụ chốt nhóm P0 của audit giao diện sổ 
 
 1. **Phiếu thu là danh sách riêng bên phải**, vẫn đặt cạnh chuyến như Sheet nhưng không chung hàng với chuyến. Mục đích: không còn đọc nhầm "chuyến này trả số tiền này". Thứ tự trong danh sách: khoản thu Sheet (giữ thứ tự Sheet), phiếu web, hàng nhập phiếu ở cuối như [`SO-GON-01`](so-gon-01.md). Danh sách dính dưới dòng tháng khi cuộn, nếu cả danh sách vừa màn hình. Điểm này thay cách ghim từng ô thu của góp ý ngày 28/10.
 2. **Phiếu đã hủy** rời danh sách phiếu và gom thành một dòng mờ "n phiếu đã hủy, không tính tiền · Xem". Bấm Xem thì hiện từng phiếu: số tiền gạch · ngày phiếu · ngày hủy · lý do. Bỏ các dòng vết hủy kéo hết bề ngang dưới tháng.
-3. **Bỏ cột "Còn nợ cộng dồn"** (cột này luôn trống). Thanh tháng ghi: nợ các tháng trước · phát sinh · đã thu · còn nợ cuối tháng. Dòng Tổng tháng ghi đã thu và còn nợ cuối tháng ở vùng phiếu thu. Dòng vừa chuyển tháng ghi "↪ Vừa chuyển từ Tn" ở một dòng mảnh ngay dưới dòng đó.
+3. **Bỏ cột "Còn nợ cộng dồn"** (cột này luôn trống). Thanh tháng ghi: nợ các tháng trước · phát sinh · đã thu · còn nợ cuối tháng. Dòng Tổng tháng ghi đã thu và còn nợ cuối tháng ở vùng phiếu thu. **Sửa 29/10/2026:** thanh tháng chỉ còn còn nợ cuối tháng, dòng Tổng tháng chỉ còn đã thu — xem [`SO-GON-03`](so-gon-03.md). Dòng vừa chuyển tháng ghi "↪ Vừa chuyển từ Tn" ở một dòng mảnh ngay dưới dòng đó.
 4. **Phụ phí trống** luôn hiện "–" màu nhạt, giống nhau giữa chuyến web và dòng sổ gốc. Ô phụ phí vẫn rỗng khi sửa. Thiếu đơn giá vẫn tô cam.
 5. **Mỗi chuyến chỉ một hàng.** Chữ dài ở các cột container … nơi đến bị cắt "…", rê chuột xem đủ. Số container dùng font đều chữ. Phiếu chưa có tham chiếu không còn ghi "Tham chiếu: –", chỉ còn dấu "+" nhỏ để thêm tham chiếu.
 
