@@ -1029,7 +1029,9 @@ Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` đ�
 
 ĐÃ CODE: migration `2026-10-29-v7-phu-phi-b.sql`, hàm/API PR-B, danh mục và cột phí.
 ĐÃ KIỂM CHỨNG cục bộ: `npm run check`, unit/API, SQL copy và `check-secrets`; PostgreSQL 18.6 dùng một lần: 10 ca schema + 53 ca hành vi đạt, 0 lỗi. Hai mục `SKIPPED_OPEN` có sẵn (7.11c, 7.15c) vẫn chưa được chứng minh; `--strict` toàn bộ trả 1 vì hai mục này. Harness chạy qua `codex-check-loop.ps1`; lệnh CI backend dùng chế độ mặc định.
-CHƯA TRIỂN KHAI: không chạy `hao`/DB thật. Trước gate deploy, chạy harness backend hai lượt theo lệnh CI, harness quyền `test_pg_v7_grants.py --strict`, kiểm snapshot tổng từng khách/tháng, rồi Claude opus review từng commit.
+CHƯA TRIỂN KHAI: không chạy `hao`/DB thật. Trước gate deploy, chạy harness backend hai lượt theo lệnh CI, harness quyền `test_pg_v7_grants.py --strict`, kiểm snapshot tổng từng khách/tháng, review diff cuối trước khi mở PR.
+Quyết định bổ sung 29/10/2026: dòng sổ gốc thiếu đơn giá bị chặn với `LEGACY_NO_UNIT_PRICE` khi add/set/replace/void hoặc sửa tổng phí cũ; bổ sung đơn giá trước, giữ nguyên TOTAL, opening và adjustment khi bị từ chối. Xóa chuyến/dòng sổ gốc chụp đầy đủ `fee_lines` trong event. Người dùng đã bỏ gate opus; vẫn giữ gate kiểm cục bộ và CI.
+Thứ tự nâng: PR-A (gồm chuyển dữ liệu) trước PR-B; không chạy lại phần tạo dòng Phụ phí ban đầu của PR-A sau khi đã nạp trigger PR-B. Loại phí ngừng dùng vẫn giữ cột sổ đã chọn và lịch sử; chỉ chặn chọn mới, không tự dọn cấu hình sổ.
 Sau đợt nâng tay được duyệt riêng, phải chạy `v7_post_deploy_check.sql`: app chỉ EXECUTE chữ ký công khai, reader chỉ đọc (gồm `get_fee_types()`); toàn bộ helper/dry-run không được cấp EXECUTE cho hai role. Checker không cấp quyền hay sửa dữ liệu.
 
 # Migration NHAP-SHEET-01 — sửa/xóa chuyến (22/10/2026)

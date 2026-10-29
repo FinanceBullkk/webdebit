@@ -430,9 +430,11 @@ def check_nhap_sheet(pg: Pg) -> None:
     reject_call(pg, "edit_legacy_trip", other, 0, "wrong-cut", ids[1], "carrier", "X", error="LEGACY_NOT_FOUND")
     write("edit_legacy_trip", ids[1], "unit_price_vnd", "")
     require(deltas(ids[1]) == 0, "blank price did not restore zero contribution")
-    write("edit_legacy_trip", ids[1], "other_fee_vnd", "7")
+    reject_call(pg, "edit_legacy_trip", c, version(pg, c), "fee-without-price", ids[1], "other_fee_vnd", "7",
+                error="LEGACY_NO_UNIT_PRICE")
     require(deltas(ids[1]) == 0, "fee without unit price entered balance")
     write("edit_legacy_trip", ids[1], "unit_price_vnd", "1")
+    write("edit_legacy_trip", ids[1], "other_fee_vnd", "7")
     require(deltas(ids[1]) == 8, "legacy unit plus fee")
     write("edit_legacy_trip", ids[1], "other_fee_vnd", "")
     require(deltas(ids[1]) == 1, "NULL fee with known price is not zero in calculation")

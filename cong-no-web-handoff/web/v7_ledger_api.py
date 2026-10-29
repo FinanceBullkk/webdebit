@@ -83,6 +83,7 @@ TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to
 ERRORS = {
     "INVALID_SHEET_RESOLUTION": (422, "Không thể xử lý ô này."),
     "INVALID_FIELD": (422, "Ô không được sửa."),
+    "LEGACY_NO_UNIT_PRICE": (422, "Dòng sổ gốc chưa có đơn giá. Bổ sung đơn giá trước khi sửa phụ phí; số tiền hiện tại được giữ nguyên."),
     "LEGACY_NOT_FOUND": (422, "Không tìm thấy dòng sổ gốc."),
     "LEGACY_NOT_TRIP": (422, "Dòng sổ gốc này là khoản thu, không sửa ở đây."),
     "STALE_LEDGER": (409, "Sổ đã thay đổi. Tải lại rồi thử tiếp."),

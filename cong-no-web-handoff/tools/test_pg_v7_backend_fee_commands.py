@@ -72,6 +72,12 @@ def check_fee_commands(pg):
     require(pg.value(f"SELECT count(*) FROM sokhach.trip_fee_line WHERE customer_id={c} AND created_by_event IN (SELECT id FROM sokhach.event WHERE idempotency_key='locked-batch')") == "0", "locked batch leaked")
     pending = call(pg, "paste_trips", c, version(pg, c), "pending-paste", "2026-01-01", json.dumps([rows[0]]))["trip_ids"][0]
     reject("pending", "TRIP_PENDING_REVIEW", selected=json.dumps([{"trip_id": pending}]))
+    ledger_line = next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == ids[1])["fee_lines"][0]
+    require(set(ledger_line) == {"id", "fee_type_id", "amount_vnd", "note"}
+            and ledger_line["fee_type_id"] == ft and ledger_line["amount_vnd"] == "10"
+            and ledger_line["note"] == "batch", "ledger fee line contract")
+    call(pg, "set_trip_fee_type", c, version(pg, c), "clear-fee-cell", json.dumps({"trip_id": ids[2]}), ft, None)
+    require(next(t for t in call(pg, "get_ledger", c)["trips"] if t["id"] == ids[2])["fee_lines"] == [], "NULL did not clear type")
     # Every successful command commits deferred cache checks; additionally compare every trip.
     pg.true("NOT EXISTS(SELECT 1 FROM sokhach.v_trip_current t LEFT JOIN LATERAL (SELECT sum(amount_vnd)::bigint total FROM sokhach.trip_fee_line WHERE trip_id=t.id AND voided_by_event IS NULL) f ON true WHERE (SELECT other_fee_vnd FROM sokhach.trip_price_rev WHERE trip_id=t.id ORDER BY id DESC LIMIT 1) IS DISTINCT FROM f.total)", "FEE_CACHE_MISMATCH")
 
@@ -93,6 +99,9 @@ def check_fee_catalog(pg):
     call(pg, "set_book_fee_columns", c, 0, "columns", json.dumps([other, ft]))
     require([x["fee_type_id"] for x in call(pg, "get_ledger", c)["fee_columns"]] == [other, ft], "column order")
     reject_call(pg, "set_book_fee_columns", c, version(pg, c), "four-columns", "[1,2,3,4]", error="FEE_COLUMNS_MAX")
+    reject_call(pg, "set_book_fee_columns", c, version(pg, c), "duplicate-columns", json.dumps([ft, ft]), error="INVALID_COMMAND")
+    for name, value in (("rename_fee_type", "SYSTEM"), ("set_fee_type_kind", "pass_through"), ("set_fee_type_active", False)):
+        reject_call(pg, name, "system-" + name, other, value, error="FEE_TYPE_SYSTEM")
     call(pg, "set_book_fee_columns", c, version(pg, c), "no-columns", "[]")
     require(call(pg, "get_ledger", c)["fee_columns"] == [], "zero columns")
     for name in ("trip_fee_line", "fee_type", "book_fee_column", "fee_type_audit"):
