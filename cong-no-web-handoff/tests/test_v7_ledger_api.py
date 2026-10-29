@@ -79,7 +79,8 @@ class FeeApiTest(unittest.TestCase):
     def test_every_spec_error_maps_to_vietnamese(self):
         codes = ("MONTH_LOCKED", "FEE_AMOUNT_INVALID", "FEE_SIGN_INVALID", "FEE_TYPE_INACTIVE", "FEE_TYPE_SYSTEM",
                  "FEE_TYPE_DUPLICATE", "FEE_LINES_TYPED", "FEE_COLUMNS_MAX", "VERSION_CONFLICT", "IDEMPOTENCY_CONFLICT",
-                 "TRIP_NOT_FOUND", "LEGACY_NOT_FOUND", "TRIP_PENDING_REVIEW", "LEGACY_NO_UNIT_PRICE")
+                 "TRIP_NOT_FOUND", "LEGACY_NOT_FOUND", "TRIP_PENDING_REVIEW", "LEGACY_NO_UNIT_PRICE",
+                 "FEE_LINE_NOT_FOUND")
         for code in codes:
             with self.subTest(code=code):
                 failure = subprocess.CompletedProcess([], 3, "", f"psql:<stdin>:3: ERROR:  P0001: {code}\n")
