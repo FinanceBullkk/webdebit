@@ -53,14 +53,14 @@
       : `<button type="button" class="image-clip none" data-pid="${escape(receipt.pid)}" aria-label="Đính ảnh chứng từ cho phiếu ${escape(receipt.pid)}" title="Đính ảnh">＋📎</button>`;
   };
 
-  // Hàng dưới hàng nhập phiếu: ảnh vừa dán, gợi ý cách dán, cảnh báo/lỗi.
-  ctx.imageEntryRow = month => {
+  // Chỗ dán ảnh trong khung nhập phiếu (trên nút Ghi phiếu): ảnh vừa dán, gợi ý cách dán, cảnh báo/lỗi.
+  ctx.imageEntryBox = month => {
     const list = drafts.get(month) ?? [];
     const thumbs = list.map((item, index) => `<span class="image-thumb${view?.month === month && view.index === index ? ' on' : ''}"><button type="button" class="image-thumb-open" data-month="${escape(month)}" data-index="${index}" aria-label="Xem ảnh ${index + 1}"><img src="${escape(item.url)}" alt=""></button><button type="button" class="image-thumb-drop" data-month="${escape(month)}" data-index="${index}" aria-label="Bỏ ảnh ${index + 1} khỏi phiếu đang nhập">×</button></span>`).join('');
-    const hint = list.length ? `${list.length}/${MAX_IMAGES} ảnh. Dán tiếp để thêm.` : '<b>📎 Dán ảnh chuyển khoản:</b> bấm Ctrl+V, hoặc kéo thả ảnh vào đây.';
+    const hint = list.length ? `${list.length}/${MAX_IMAGES} ảnh. Dán tiếp để thêm.` : '<b>📎 Ảnh chuyển khoản:</b> Ctrl+V hoặc kéo thả vào đây';
     const warnings = list.filter(item => item.warning).map(item => `<p class="image-warn" role="status">⚠ ${escape(item.warning)}</p>`).join('');
     const problem = problems.get(month);
-    return `<tr class="image-entry" data-month="${escape(month)}"><td colspan="3"><div class="image-drop">${thumbs}<span class="image-hint">${hint}</span><button type="button" class="image-pick">Chọn ảnh…</button><input type="file" class="image-file" accept="${TYPES.join(',')}" multiple hidden></div>${warnings}${problem ? `<p class="image-error" role="alert">${escape(problem)}</p>` : ''}</td></tr>`;
+    return `<div class="image-entry" data-month="${escape(month)}"><div class="image-drop">${thumbs}<span class="image-hint">${hint}</span><button type="button" class="image-pick">Chọn ảnh…</button><input type="file" class="image-file" accept="${TYPES.join(',')}" multiple hidden></div>${warnings}${problem ? `<p class="image-error" role="alert">${escape(problem)}</p>` : ''}</div>`;
   };
 
   // Tự cập nhật sổ tạm dừng khi còn ảnh chưa ghi hoặc khung xem đang mở.
@@ -310,7 +310,7 @@
       problems.delete(button.dataset.month);
       if (view?.month === button.dataset.month) view = list.length ? { ...view, index: Math.min(view.index, list.length - 1) } : null;
       renderView(); ctx.redraw();
-    } else if (button.matches('.image-pick')) button.closest('td').querySelector('.image-file').click();
+    } else if (button.matches('.image-pick')) button.closest('.image-entry').querySelector('.image-file').click();
   });
   root.addEventListener('change', event => {
     if (!event.target.matches('.image-file') || !event.target.files.length) return;
