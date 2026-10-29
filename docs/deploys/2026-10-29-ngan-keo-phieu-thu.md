@@ -42,7 +42,7 @@ Hai lần đầu không tính: lần một file migration rỗng vì máy chưa 
 
 ## Dọn release cũ
 
-Lượt `Deploy hao` của `1ea04c9` báo đỏ dù release đã lên. Nguyên nhân: `webdebit-release.sh` không xóa được `__pycache__` do root sở hữu trong release cũ. Trước khi đổi release, Claude đã `chown` cho `webdebit-deploy` mọi file root trong `/srv/v7/auto-releases`, và lượt đổi release tay đã dọn xong. File `.pyc` của root sẽ còn sinh ra nếu một dịch vụ chạy bằng root import mã từ release.
+Lượt `Deploy hao` của `1ea04c9` báo đỏ dù release đã lên. Nguyên nhân: `webdebit-release.sh` không xóa được `__pycache__` do root sở hữu trong release cũ. Trước khi đổi release, Claude đã `chown` cho `webdebit-deploy` mọi file root trong `/srv/v7/auto-releases`, và lượt đổi release tay đã dọn xong. Kiểm sau đó: không unit nào dùng mã release chạy bằng root; `.pyc` bị kẹt (`v7_price_queue.cpython-314.pyc` trong release `5a2cc47`) do lệnh `sudo python3 -` chạy tay import module từ `current`. Quy tắc chạy tay ghi ở [hao-auto-deploy](../hao-auto-deploy.md#chạy-python-tay-trên-hao-với-mã-release).
 
 ## Rollback
 
@@ -52,4 +52,3 @@ Lượt `Deploy hao` của `1ea04c9` báo đỏ dù release đã lên. Nguyên n
 ## CÒN MỞ
 
 - Chưa thấy tận mắt bảng phiếu thu trên dữ liệu thật: tháng đã mở thử không có phiếu web (DB đang có 5 phiếu).
-- Tìm dịch vụ chạy bằng root đang ghi `__pycache__` vào release, để `Deploy hao` không đỏ ở bước dọn.
