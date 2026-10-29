@@ -256,6 +256,9 @@
             row.querySelector('.receipt-date-error').textContent = result.message;
             row.querySelector('.receipt-date').focus();
           }
+          // CHUNG-TU-01: phiếu đã ghi đúng tiền trước, rồi mới đính ảnh đã dán ở hàng nhập của tháng này.
+          const done = api.lastOutcome();
+          if (done?.status === 'saved') await ctx.afterReceiptSaved?.(row.closest('section')?.id.slice(6), done.result?.pid);
         }
         catch (error) { showNotice(error.message); }
       }

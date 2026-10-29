@@ -117,6 +117,8 @@ function handleApi(world, req, res, url, body) {
       outstanding_vnd: outstanding(item).toString(), available_credit_vnd: (-outstanding(item)).toString() }));
     return reply(res, 200, { demo: true, sources: sources.reverse() });
   }
+  // CHUNG-TU-01: trang đọc danh sách ảnh chứng từ sau mỗi lần đọc sổ; máy giả này chưa có ảnh, không tính là lệnh.
+  if (req.method === 'GET' && url.pathname.startsWith('/api/v7/receipt-image')) return reply(res, 404, { error: 'NOT_FOUND' });
   world.requests.push({ path: url.pathname, body });
   if (world.failNext) { const failure = world.failNext; world.failNext = null; return reply(res, failure.status, failure.body); }
   const bump = (...books) => books.forEach(item => { item.version += 1; });

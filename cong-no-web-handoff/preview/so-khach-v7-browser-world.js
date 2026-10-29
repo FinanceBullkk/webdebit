@@ -2,6 +2,7 @@
  * Tách từ test-so-khach-v7-edit-browser.js (29/10/2026). Dữ liệu giả, không chạm DB hay Sheet. */
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('playwright');
@@ -26,7 +27,7 @@ const feeCatalog = () => [
 function makeWorld() {
   return {
     feeTypes: feeCatalog(), feeColumns: [], nextFeeLine: 600, catalogRequests: [],
-    version: 1, reads: 0, refreshCalls: [], sheetRefresh: null, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
+    version: 1, reads: 0, refreshCalls: [], sheetRefresh: null, sheetSync: { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, items: [] }, receipts: [], images: [], otherImages: [], requests: [], failNext: null, locks: [{ month: '2026-09-01', locked: false }], nextEvent: 1, events: [], adjustments: [],
     trips: [{ id: 11, month: '2026-09-01', container: 'DEMU1234567', carrier: 'Tàu thử', event_date: '2026-09-15', origin: 'Nơi A', destination: 'Nơi B',
       unit_price_vnd: '50000000', other_fee_vnd: null, amount_vnd: '50000000', status: 'confirmed', is_missing_price: false, is_fee_only: false,
       editable: true, info_editable: true, deleted: false }],
@@ -164,6 +165,34 @@ function apply(world, url, body) {
     return [200, { resolved: true, version: world.version }];
   }
   const event = (kind, before, after) => world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before, after });
+  // CHUNG-TU-01: phiếu thu và ảnh chứng từ giả; ảnh không đổi số tiền.
+  if (url === '/api/v7/receipts') {
+    const pid = `PH-${String(world.receipts.length + 1).padStart(3, '0')}`;
+    world.receipts.push({ id: world.receipts.length + 1, pid, date: body.date, method: body.method, amount_vnd: body.amount_vnd,
+      reference: body.reference ?? null, voided_by_event: null, void_reason: null,
+      allocations: [{ id: 1, month: monthOf(body.date), kind: 'debt', amount_vnd: body.amount_vnd, superseded_by_event: null }] });
+    event('receipt', {}, { pid, date: body.date, amount_vnd: body.amount_vnd });
+    world.version += 1;
+    return [200, { pid, receipt_id: world.receipts.length, version: world.version }];
+  }
+  if (url === '/api/v7/receipts/images') {
+    const data = Buffer.from(body.data_base64, 'base64');
+    const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+    const active = world.images.filter(image => image.pid === body.pid && !image.removed);
+    if (active.some(image => image.sha256 === sha256)) return [409, { error: 'IMAGE_DUPLICATE', message: 'Ảnh này đã có trong phiếu.' }];
+    const image = { id: 900 + world.images.length, pid: body.pid, sha256, content_type: body.content_type, data: body.data_base64, removed: false };
+    world.images.push(image);
+    event('receipt_image', {}, { image: { id: image.id, pid: body.pid } });
+    world.version += 1;
+    return [200, { image: { id: image.id, pid: body.pid, sha256 }, duplicates: world.otherImages.filter(other => other.sha256 === sha256), version: world.version }];
+  }
+  if (url === '/api/v7/receipts/images/remove') {
+    const image = world.images.find(item => item.id === body.image_id);
+    image.removed = true;
+    event('receipt_image_remove', { image: { id: image.id, pid: image.pid } }, { image: { id: image.id, pid: image.pid, removed: true, reason: body.reason } });
+    world.version += 1;
+    return [200, { image_id: image.id, removed: true, version: world.version }];
+  }
   if (url === '/api/v7/trips/price') {
     const trip = world.trips.find(row => row.id === body.trip_id);
     Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false });
@@ -227,6 +256,20 @@ async function withPage(fn, setup = () => {}) {
     }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
+    if (url.pathname === '/api/v7/receipt-images') {
+      send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });
+      return;
+    }
+    if (url.pathname === '/api/v7/receipt-image') {
+      const image = world.images.find(item => item.id === Number(url.searchParams.get('id')));
+      if (image) send(200, { id: image.id, content_type: image.content_type, data_base64: image.data }); else send(422, { error: 'IMAGE_NOT_FOUND' });
+      return;
+    }
+    if (url.pathname === '/api/v7/receipt-images/find') {
+      (world.finds ??= []).push(url.searchParams.get('sha256'));
+      send(200, { matches: world.otherImages.filter(other => other.sha256 === url.searchParams.get('sha256')) });
+      return;
+    }
     if (url.pathname === '/api/v7/sheet/refresh') {   // nút Làm mới: mặc định server chưa bật
       world.refreshCalls.push(req.method);
       if (world.sheetRefresh) send(200, world.sheetRefresh(req.method)); else send(404, { error: 'NOT_FOUND' });
