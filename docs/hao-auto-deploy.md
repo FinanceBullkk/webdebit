@@ -60,6 +60,8 @@ Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sa
 
 ### Dọn `__pycache__` của release cũ (admin, root, một lần)
 
+**ĐÃ CHẠY trên `hao` 29/10/2026** (Claude, theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)). Script cài đúng SHA-256 `fed3944b…`. Bước 2 làm bằng drop-in `no-bytecode.conf` thay cho `systemctl edit`; API sống lại (403). Đã xóa 1 thư mục `__pycache__`. Bản script và unit cũ lưu trong `/srv/backups/deploy-script-20261029-153500`. Chưa có lượt deploy code app nào chạy qua script mới.
+
 1. Cài lại `scripts/deploy/hao-release.sh` từ `main` như bước 1 (kiểm SHA-256, giữ đường dẫn root-owned).
 2. Tắt ghi bytecode: `systemctl edit <unit>`, thêm `[Service]` / `Environment=PYTHONDONTWRITEBYTECODE=1`, rồi
    `systemctl restart <unit>` và kiểm `HEALTH_URL` trả 200/403.

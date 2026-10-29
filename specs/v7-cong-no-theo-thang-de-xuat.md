@@ -283,4 +283,4 @@ Số đo thực tế (Playwright):
 
 - **ĐÃ CHỐT (người dùng chọn sửa nhóm P1 + P2 của audit trong chat, 29/10/2026):** chuyến xếp theo ngày, ngày `dd/mm`, số không kèm "đ" trong bảng, ẩn cột Phụ phí khi tháng không có phụ phí, dòng tổng chuyến ghim đáy; phần đầu (khách, "Mở sổ khách ›", đổi tháng ‹ ›, phép tính Phát sinh − Thu đã trừ = Còn lại) đứng yên, chỉ bảng chuyến cuộn. Ngăn kéo không có lớp phủ: màn ≥ 900px bảng thu hẹp, cuộn ngang tới ô đang mở và tô viền ô đó; bấm ô khác thì ngăn kéo đổi theo.
 - Tháng có số dư đầu sổ gốc không ghi dấu −/= vì phát sinh/đã thu lấy theo Sheet; chuyến chờ kiểm hoặc chưa có giá hiện nhãn và không vào dòng tổng (như dòng Tổng tháng của Sổ khách).
-- **CÒN MỞ:** danh sách phiếu thu của tháng trong ngăn kéo cần thêm trường vào `get_receivables_detail` (migration riêng).
+- **ĐÃ CODE (29/10/2026):** ngăn kéo có bảng "Phiếu thu trong tháng" (ngày, phiếu/tham chiếu/cấn trừ từ, số tiền, kỳ đang được trừ hoặc trả trước, dòng tổng); tổng phiếu khác đã thu thì ghi phần chênh là số Sheet hoặc cấn trừ đi. Dữ liệu từ trường `receipts` của `get_receivables_detail` (migration `2026-10-29-v7-matrix-drawer-receipts.sql`).

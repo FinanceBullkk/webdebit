@@ -110,6 +110,9 @@
 .drawer .mini-table th,.drawer .mini-table td{padding:7px 6px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap}
 .drawer .mini-table thead th{position:sticky;top:0;z-index:1;background:var(--head);color:var(--ink-2);font-weight:600;border-bottom:1px solid var(--line)}
 .drawer .mini-table tfoot td{position:sticky;bottom:0;background:var(--head);font-weight:700;border-top:1px solid var(--line);border-bottom:0}
+.drawer .mini-table.receipts tfoot td{position:static}
+.drawer .mini-table td.wrap{white-space:normal}
+.drawer-scroll h3{margin:14px 0 6px;font-size:15px;font-weight:700}
 .drawer .mini-table .money{text-align:right}
 .drawer .mini-table .tag{margin-left:4px;padding:1px 8px;font-size:12px}
 .drawer .mini-table tr.excluded td{color:var(--ink-3)}

@@ -279,7 +279,7 @@ class LedgerApiTest(unittest.TestCase):
                     self.call(route, body | {id_field: invalid})
             self.assertIn(f"sokhach.{function}(", api.SQL[function])
         for route, id_field in [("/api/v7/trips/info", "trip_id"), ("/api/v7/legacy/edit", "legacy_row_id")]:
-            for field in ("container", "carrier", "origin", "destination", "event_date"):
+            for field in ("container", "carrier", "shipper", "origin", "destination", "event_date"):
                 self.call(route, self.common | {id_field: 1, "field": field,
                                                "value": "2026-01-01" if field == "event_date" else "FAKE"})
             for invalid in ("unknown", [], {}, None, "status"):
