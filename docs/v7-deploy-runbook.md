@@ -875,6 +875,23 @@ Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_
 `age` thật chạy khi máy có `age`) và `v7_offsite_pull.pull/fetch` → `tests/test_v7_offsite_pull.py` (SFTP giả), cả hai trong
 `npm run check`. Không chứng minh systemd, `authorized_keys`, Task Scheduler hay mạng tailnet.
 
+## Đối soát cuối tháng — mốc xét chuyển hẳn (SONG-SONG-01)
+
+Theo [`SONG-SONG-01`](decisions/song-song-01.md), chỉ chuyển hẳn sang web sau ít nhất một lần cuối tháng Sheet và web khớp tổng từng khách. Chạy sau khi người nhập đã dán hết thay đổi tháng đó lên web và cả hai bên ngừng nhập. Claude chạy được toàn bộ, chỉ đọc, không ghi Sheet hay DB. Kết quả có tên khách và số tiền nên nằm trong `captures/<ngày>-doi-soat-cuoi-thang/`, ngoài Git.
+
+1. **Tải sổ gốc trên `hao`** (user `v7app`, cùng env với runner giá):
+   ```text
+   sudo systemd-run --quiet --wait --pipe --collect -p User=v7app -p Group=v7app \
+     -p EnvironmentFile=/etc/webdebit/sheet-sync.env -p EnvironmentFile=/etc/webdebit/sheet-prices.env \
+     -p ProtectHome=true /usr/bin/python3 <current>/cong-no-web-handoff/tools/v7_sheet_export_xlsx.py \
+     --output /var/lib/webdebit-sheet-sync/export/so-goc-<ngày>.xlsx
+   ```
+   Chép về máy làm việc (`sudo cat … > captures/…/source-google-export.xlsx`), so sha256 với dòng in ra, rồi xóa file trên `hao`.
+2. **Làm sạch:** `v7_export_clean.py --xlsx <xlsx> --out <captures>/clean`. Mã 2 kèm `held_customers` nghĩa là có khách dữ liệu lỗi trên Sheet. Chạy lại với `--hold-out` vào thư mục mới: phần còn lại vẫn đối soát được, còn tên và lý do khách bị giữ ghi ở `held.csv`. Bản `--hold-out` không nạp được (`CLEAN_HAS_HELD_CUSTOMERS`).
+3. **Đối soát tổng:** `v7_reconcile_sheet.py --api https://<serve_fqdn>:<serve_port> --serve-host <serve_fqdn>:<serve_port> --sheet-dir <clean> --out <captures>/ket-qua --totals-only --brief`. Trên máy Windows, Python có thể báo chứng chỉ "has expired" dù chứng chỉ của `hao` còn hạn: kho gốc của Windows giữ một chứng chỉ trung gian cũ. Khi đó đặt `SSL_CERT_FILE` trỏ tới bộ CA của Git (`C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt`). Chạy khoảng 3 phút cho 236 khách.
+
+**Đạt** khi `DOI SOAT: DAT`: mọi khách `KHOP`, không còn `held.csv`. Khác thì với từng khách lệch, so tháng trong `clean_months.csv` với `/api/v7/ledger`: chênh nằm ở phát sinh hay đã thu, tháng nào. Sửa phía sai (thường là thay đổi trên Sheet chưa dán lên web), rồi chạy lại từ bước 1. Ghi kết luận của mỗi lần cuối tháng vào nhật ký `docs/deploys/` (chỉ số đếm, không tên hay tiền).
+
 ## 7. Rollback theo mức
 
 ### A — dừng đường truy cập

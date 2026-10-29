@@ -38,12 +38,12 @@ def load_credentials(path: str | os.PathLike[str]) -> dict[str, str]:
 
 
 def make_assertion(credentials: dict[str, str], now: int | None = None,
-                   signer: Callable[[bytes, bytes], bytes] | None = None) -> str:
+                   signer: Callable[[bytes, bytes], bytes] | None = None, scope: str = SCOPE) -> str:
     issued = int(time.time()) if now is None else now
     header = _b64(json.dumps({"alg": "RS256", "typ": "JWT"}, separators=(",", ":")).encode())
     claims = _b64(json.dumps({
         "iss": credentials["client_email"],
-        "scope": SCOPE,
+        "scope": scope,
         "aud": TOKEN_URL,
         "iat": issued,
         "exp": issued + 3600,
@@ -66,8 +66,9 @@ def make_assertion(credentials: dict[str, str], now: int | None = None,
     return f"{header}.{claims}.{_b64(signature)}"
 
 
-def exchange_token(credentials: dict[str, str], opener: Callable[..., Any] = urllib.request.urlopen) -> str:
-    assertion = make_assertion(credentials)
+def exchange_token(credentials: dict[str, str], opener: Callable[..., Any] = urllib.request.urlopen,
+                   scope: str = SCOPE) -> str:
+    assertion = make_assertion(credentials, scope=scope)
     body = urllib.parse.urlencode({
         "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
         "assertion": assertion,

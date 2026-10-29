@@ -73,6 +73,17 @@ class ExportCleanTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(list(self.out.iterdir()), [])
         self.assertNotIn(FAKE_NAME, printed)
+        # --hold-out (đối soát cuối tháng): xuất phần còn lại, ghi khách bị giữ ra held.csv, không in tên.
+        code, printed = self.run_export("--hold-out")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(printed)["held_customers"], 1)
+        self.assertNotIn(FAKE_NAME, printed)
+        held = list(csv.DictReader((self.out / "held.csv").open(encoding="utf-8-sig")))
+        self.assertEqual([h["customer"] for h in held], [FAKE_NAME])
+        self.assertIn("ANCHOR_CHAIN_MISMATCH", held[0]["reasons"])
+        self.assertEqual(json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))["counts"]["customers"], 0)
+        with self.assertRaisesRegex(loader.LoadError, "CLEAN_HAS_HELD_CUSTOMERS"):
+            loader.clean_data(self.out)
 
     def test_all_write_entries_and_temp_stage_reject_repository_paths(self):
         blocked = exporter.REPO / "export-test"
