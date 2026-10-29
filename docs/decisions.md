@@ -62,6 +62,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="presence-01"></a>[PRESENCE-01](decisions/presence-01.md) | Thấy ai đang online, ô đang chọn, con trỏ chuột |  |
 | <a id="debit-note-01"></a>[DEBIT-NOTE-01](decisions/debit-note-01.md) | Xuất debit note theo tháng công nợ (Excel + PDF) |  |
 | <a id="xoa-dc-thang-01"></a>[XOA-DC-THANG-01](decisions/xoa-dc-thang-01.md) | Xóa dòng điều chỉnh cả tháng |  |
+| <a id="deploy-claude-01"></a>[DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md) | Claude tự triển khai SQL/migration lên hao |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 

@@ -18,7 +18,7 @@ Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sa
 - Chỉ đổi release của app (`cong-no-web-handoff/{web,preview,tools}`), như mục "Giao diện sửa/xóa tại ô" trong
   [runbook](v7-deploy-runbook.md#giao-diện-sửaxóa-tại-ô--chỉ-đổi-release-app-đã-chạy-trên-hao-22102026).
 - Diff so với bản đang chạy có `specs/v7-backend/`, `tools/migrations/`, file `.sql` hoặc loader `v7_load*`
-  → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Không DDL, không nạp dữ liệu.
+  → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Job không chạy DDL, không nạp dữ liệu; Claude tự làm đợt tay cho SQL/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md).
   Sau khi nâng DB tay, đặt `.release-sha` của release đang chạy bằng SHA `main` vừa triển khai để lượt sau có mốc diff đúng.
 - Không backup DB mỗi lượt vì không đụng DB.
 - Đạt: service active và cổng loopback trả 200/403 trong 30 giây; không thì quay lại release cũ, job đỏ.
