@@ -1,6 +1,6 @@
 @AGENTS.md
 
-Vai trò của Claude trong cộng tác nhiều agent: điều phối, chốt spec và review cuối. Xem [docs/multi-agent.md](docs/multi-agent.md).
+Vai trò của Claude: từ 29/10/2026 Claude làm hết — spec, backend, frontend, test, review ([`CLAUDE-ALL-01`](docs/decisions/claude-all-01.md)); không giao Codex/Gemini, không bắt buộc mockup Penpot. [docs/multi-agent.md](docs/multi-agent.md) chỉ còn là lịch sử.
 
 ## Harness cho Claude Code
 

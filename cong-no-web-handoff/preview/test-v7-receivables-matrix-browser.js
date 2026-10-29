@@ -17,7 +17,10 @@ const matrix = year => ({
     total_year_vnd: '0', total_all_vnd: '0', oldest_open_month: currentYear + '-01-01' }],
   grand_total_year_vnd: year === currentYear ? '80000' : '0', grand_total_all_vnd: '80000'
 });
-const ledger = { status: 'active', month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '100000', received_vnd: '0', trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000' }], opening: false };
+// Tháng có số dư đầu: dòng sổ gốc và chuyến web cùng hiện; phát sinh/đã thu như Sổ khách, thu phân bổ khác đã thu.
+const ledger = { status: 'active', month: currentYear + '-01-01', outstanding_vnd: '100000', charges_vnd: '150000', received_vnd: '50000', allocated_vnd: '0',
+  trips: [{ month: currentYear + '-01-01', event_date: currentYear + '-01-03', container: 'FAKE001', unit_price_vnd: '100000', other_fee_vnd: null, amount_vnd: '100000', historical: false },
+    { month: currentYear + '-01-01', event_date: currentYear + '-01-02', container: 'FAKE-GOC', unit_price_vnd: '50000', other_fee_vnd: null, amount_vnd: '50000', historical: true }], opening: true };
 
 function server({ matrixStatus = 200, matrixPayload = matrix } = {}) {
   return http.createServer((req, res) => {
@@ -73,7 +76,13 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     await page.locator('#find').fill('Khách A');
     await page.locator('.cell-btn[data-id="1"]').first().click();
     await page.locator('#drawer-body .mini-table').waitFor();
-    assert.match(await page.locator('#drawer-body').innerText(), /FAKE001/);
+    const drawer = await page.locator('#drawer-body').innerText();
+    assert.match(drawer, /FAKE001/);
+    assert.match(drawer, /FAKE-GOC · sổ gốc/);
+    assert.match(drawer, /Phát sinh trong tháng\s+150\.000 đ/);
+    assert.match(drawer, /Đã thu trong tháng \(theo ngày thu\)\s+50\.000 đ/);
+    assert.match(drawer, /Thu đã trừ vào nợ tháng này\s+0 đ/);
+    assert.doesNotMatch(drawer, /không có dòng chuyến|không khớp/);
     await page.locator('#drawer-close').focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.locator('#drawer a[href]').evaluate(el => el === document.activeElement), true);

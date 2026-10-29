@@ -31,9 +31,8 @@ Trạng thái: ĐỀ XUẤT | ĐÃ CHỐT (ai, ngày, phạm vi)
 - [ ] <Test/lệnh cụ thể và kết quả mong đợi>
 - [ ] <Frontend, bước 7: bàn phím/focus, nhập sai, bấm lặp, tải chậm/mất mạng, thiếu quyền — theo phạm vi tác động>
 - [ ] <Frontend, bước 8: người dùng tự đi hết luồng trên bản thử và xác nhận>
-- [ ] <Frontend: giao diện khớp đúng phiên bản mockup Penpot đã duyệt>
 
-## Ảnh chụp giao diện (bắt buộc khi Agent: gemini)
+## Ảnh chụp giao diện (tùy chọn, khi có giao diện)
 
 Kịch bản để script chụp giao diện thật trước/sau thay đổi cho reviewer, theo [multi-agent](../docs/multi-agent.md#ảnh-chụp-giao-diện). Mỗi trạng thái ứng với một board mockup; thử bằng `-Step capture` trước khi giao agent.
 
@@ -53,8 +52,7 @@ Kịch bản để script chụp giao diện thật trước/sau thay đổi cho
 
 Mục này là hợp đồng với agent thực hiện; `scripts/agent-run.ps1` đọc nó để kiểm diff.
 
-- Agent: codex | gemini | claude
-- Mockup (bắt buộc khi Agent: gemini): CHỜ DUYỆT | ĐÃ DUYỆT <link page Penpot> · phiên bản "<tên version Penpot>" · <người> · <ngày> | miễn: <lý do sửa nhỏ không đổi luồng>
+- Agent: claude (từ 29/10/2026 theo `CLAUDE-ALL-01`)
 - Review (model Claude review chốt, effort tùy chọn; thiếu dòng = opus): opus | sonnet medium — opus cho ghi tiền/phân bổ/opening/quyền
 - Được sửa:
   - `đường/dẫn/file.py`
