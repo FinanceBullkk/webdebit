@@ -237,6 +237,10 @@ class RemovedSheetTripTests(unittest.TestCase):
         trip = {**self.trip(9, "MOVED", "2026-10-20"), "note": None, "source_ref": f"sheet:{'a' * 64}:5"}
         self.assertEqual(self.project(rows, [trip])["removed_count"], 1)
 
+    def test_unmapped_sheet_row_keeps_trip(self):
+        rows = [self.ready("KEEP1", "2026-10-20"), self.ready("NONAME", "2026-10-20", customer_id=None)]
+        self.assertEqual(self.project(rows, [self.trip(9, "NONAME", "2026-10-20")])["removed_items"], [])
+
     def test_legacy_manual_rejected_and_old_trips_are_not_reported(self):
         rows = [self.ready("KEEP1", "2026-10-20")]
         legacy = [{"id": 1, "kind": "trip", "current": {"container": "OLD1", "event_date": "2026-10-01"}}]

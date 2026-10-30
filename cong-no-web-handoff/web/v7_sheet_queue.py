@@ -229,7 +229,8 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[st
         return []
     rows = []
     for row in ready:
-        if row.get("customer_id") != ledger.get("customer_id"):
+        # An unmapped row (name not matched) still exists on the Sheet: it keeps the trip, not flags it.
+        if row.get("customer_id") not in (ledger.get("customer_id"), None):
             continue
         try:
             rows.append((_container(row.get("container")), dt.date.fromisoformat(str(row.get("event_date"))[:10]),

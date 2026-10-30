@@ -42,13 +42,14 @@ Trạng thái: **ĐÃ CHỐT** phạm vi (phiên điều phối giao Claude 30/1
 - Không xét dòng sổ gốc (`legacy_rows`) và chuyến không có nguồn Sheet.
 - Bản chụp **không có dòng READY nào** (đọc rỗng, đổi tên tab) thì không báo gì, để một lỗi đọc không tô cả sổ.
 - Dòng Sheet đổi sang khách khác hoặc thành INVALID (thiếu container…) thì chuyến web bị báo: với khách này Sheet không còn dòng đó.
+- Dòng READY chưa ghép được khách (tên lạ, `NEEDS_CUSTOMER`) vẫn giữ chuyến cùng container: dòng còn trên Sheet, chỉ chưa ghép tên, nên một lỗi ghép tên không tô cả sổ khách.
 - Chuyến CHỜ KIỂM được báo với "chưa tính vào số dư"; số tiền lấy nguyên từ server, trang không tính.
 
 ## Tiêu chí nghiệm thu
 
-- [x] `tests/test_sheet_queue.py` (`RemovedSheetTripTests`): còn/không còn dòng Sheet, lệch 3 ngày (giữ) và 4 ngày (báo), cùng booking, chuyến theo `source_ref`, dòng của khách khác không khớp, chuyến sổ gốc/nhập tay/đã loại/năm cũ không báo, bản chụp rỗng không báo.
+- [x] `tests/test_sheet_queue.py` (`RemovedSheetTripTests`): còn/không còn dòng Sheet, lệch 3 ngày (giữ) và 4 ngày (báo), cùng booking, chuyến theo `source_ref`, dòng của khách khác không khớp, dòng chưa ghép khách vẫn giữ, chuyến sổ gốc/nhập tay/đã loại/năm cũ không báo, bản chụp rỗng không báo.
 - [x] `preview/test-so-khach-v7-sheet-browser.js` (Playwright 1280×720, máy chủ giả): dải đếm và nút Xem đưa focus tới dòng; "Xóa trên web" mở dòng hỏi, Thôi không gửi gì, Xóa hẳn gửi đúng `/api/v7/trips/delete`; bấm nút không mở sửa ô container; tháng khóa không có nút xóa, nút mở khóa gửi lệnh khóa có sẵn; Giữ không gửi gì, nhớ qua tải lại, hiện lại khi hash bản chụp đổi.
-- [ ] `npm run check` xanh.
+- [x] `npm run check` xanh (30/10/2026, đủ 8 bước gồm Playwright).
 - [ ] Người nhập tự đi hết luồng trên bản thử sau deploy và xác nhận.
 
 ## Phạm vi agent
