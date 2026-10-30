@@ -297,6 +297,23 @@ test("ARCH-01 không tính việc truyền tham số psql xuống adapter là vi
   assert.strictEqual(still.length, 1, JSON.stringify(still, null, 2));
 });
 
+// Worktree của các phiên Claude song song nằm trong `.claude/worktrees/` (đã
+// gitignore) và chứa nguyên một bản sao repo. Không bỏ qua thì luật quét cả bản
+// sao đó, và vì danh sách cho phép của ARCH-01 là đường dẫn tương đối tường minh
+// nên mọi file tầng DB trong bản sao đều thành "vi phạm" (31/10/2026: `npm run
+// check` đỏ trên `main` sạch chỉ vì hai worktree cũ còn trên đĩa).
+test("collect bỏ qua .claude: bản sao repo trong worktree của phiên khác không bị quét", () => {
+  const violating = "import subprocess\n\ndef rows():\n    return subprocess.run(['psql', '-c', 'SELECT 1'])\n";
+  const found = check("ARCH-01", {
+    ".claude/worktrees/phien-khac/cong-no-web-handoff/web/app.py": violating,
+    ".claude/worktrees/phien-khac/cong-no-web-handoff/tests/test_v7_ledger_api.py": "run(['psql'])\n",
+  });
+  assert.deepStrictEqual(found, []);
+  // Cùng nội dung ở cây chính thì vẫn bị bắt: bỏ qua là theo thư mục, không phải nới luật.
+  const still = check("ARCH-01", { "cong-no-web-handoff/web/app.py": violating });
+  assert.strictEqual(still.length, 1, JSON.stringify(still, null, 2));
+});
+
 // ---------------------------------------------------------------------------
 test("ARCH-02 bắt tầng web import ngược vào tools/ hay pilot/", () => {
   const found = check("ARCH-02", {
