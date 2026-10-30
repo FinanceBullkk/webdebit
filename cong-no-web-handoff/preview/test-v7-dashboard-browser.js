@@ -62,7 +62,7 @@ async function withPage(options, fn, page = '/dashboard-v7.html') {
 }
 const withDashboard = (options, fn, query = '') => withPage(options, fn, `/dashboard-v7.html${query}`);
 
-test('Tổng quan chỉ còn bốn khối về công nợ; số chính, hạn trả, khách cần đòi, phân loại; màn đầu và điện thoại', async () => withDashboard({}, async page => {
+test('Tổng quan chỉ còn bốn khối về công nợ; số chính, hạn trả, khách cần đòi, ma trận; màn đầu và điện thoại', async () => withDashboard({}, async page => {
   await page.locator('.due .big-money').waitFor();
   await page.locator('#list .drow').first().waitFor();
   for (const heading of [/^Còn phải thu/, 'Thu tháng 10', 'Khách cần đòi trước', 'Khách quá hạn đang ở đâu'])
@@ -254,9 +254,45 @@ test('số từng khách lệch tổng server: không lọc tại chỗ, bấm n
   await page.locator('#list .drow').first().waitFor();
   assert.equal(await page.locator('#mx .c').first().isDisabled(), true);
   assert.equal(await page.locator('#com-filter').isDisabled(), true);
+  assert.equal(await page.locator('#mx .mx-note').innerText(), 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.');
   await page.locator('.age-legend [data-tier="2"]').click();
   await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1/);
 }, '?han=2'));
+
+test('ma trận không cộng ra ngoặc Quá hạn (quá hạn âm ở server): không lọc tại chỗ, có dòng giải thích', async () => withDashboard({
+  debtPayload: { ...debt, summary: { ...debt.summary, overdue_vnd: '1799999900' } },
+}, async page => {
+  await page.locator('#mx .c').first().waitFor();
+  assert.equal(await page.locator('#mx .c').first().isDisabled(), true);
+  assert.equal(await page.locator('#mx .mx-note').count(), 1);
+}));
+
+test('link cũ ?nhom=com: mở lọc mặt hàng, ?xem= cũ bị xóa khỏi địa chỉ', async () => withDashboard({}, async page => {
+  await page.locator('#list .drow').first().waitFor();
+  assert.equal(await page.locator('#com-filter').inputValue(), 'Chuối');
+  assert.equal(await page.locator('#list .drow').count(), 1);
+  assert.equal(await page.locator('#mx .mx-note').count(), 0);
+  await page.locator('[data-sort="total"]').click();
+  assert.doesNotMatch(await page.evaluate(() => location.search), /xem=/);
+}, '?nhom=com%3AChu%E1%BB%91i&xem=pay'));
+
+test('đoạn hẹp dưới 7% không ghi số trong thanh, liệt kê một dòng dưới thanh', async () => withDashboard({
+  debtPayload: { ...debt, receivable_vnd: '2330000000',
+    due_tiers: debt.due_tiers.map(t => (t.tier === 'late_over_6' ? { ...t, receivable_vnd: '100000000' } : t)) },
+}, async page => {
+  await page.locator('.age-legend .tiny').waitFor();
+  assert.deepEqual(await page.locator('.age-bar span').allInnerTexts(), ['680 triệu', '950 triệu', '600 triệu', '']);
+  assert.match(await page.locator('.age-legend .tiny').innerText(), /^Đoạn hẹp: .*trên 6 tháng.*100 triệu/i);
+}));
+
+test('đầu tháng: nhãn hôm nay nằm bên phải vạch, không tràn khỏi thước', async () => withDashboard({
+  debtPayload: { ...debt, as_of: '2026-11-02', month: '2026-11-01', this_month: { month: '2026-11-01', charges_vnd: '0', received_vnd: '0' } },
+}, async page => {
+  await page.locator('.meter .today.early').waitFor();
+  const [meter, label] = await Promise.all([page.locator('.meter').boundingBox(), page.locator('.meter .today span').boundingBox()]);
+  assert.ok(label.x >= meter.x, `nhãn ${label.x} tràn trái thước ${meter.x}`);
+  assert.match(await page.locator('.meter .today').innerText(), /hôm nay 2\/11/);
+}));
 
 test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng tròn người online', async () => withDashboard({ people: [
   { id: 'p1', name: 'Lan', color: 0, page: 'so-khach', customer_id: 1, month: '2026-10', cell: null, pointer: null },

@@ -52,6 +52,7 @@
 .meter .fill{height:100%;border-radius:6px;background:var(--got)}
 .meter .today{position:absolute;top:-20px;bottom:-6px;border-left:2px dashed var(--ink-2);pointer-events:none}
 .meter .today span{position:absolute;top:0;right:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.meter .today.early span{right:auto;left:6px}
 .mrow{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;color:var(--ink-3)}
 .mrow b{display:block;font-size:20px;color:var(--ink)}
 .mrow .got b{color:var(--got)}
@@ -106,6 +107,7 @@
 .mx{display:grid;grid-template-columns:84px 1fr 1fr;grid-template-rows:auto auto auto;gap:6px}
 .mx .h{display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-size:12.5px;color:var(--ink-3);text-align:center;line-height:1.3}
 .mx .v{display:flex;align-items:center;font-size:12.5px;color:var(--ink-3);line-height:1.3}
+.mx .mx-note{grid-column:1/-1;margin:4px 0 0;font-size:12.5px;color:var(--ink-3)}
 .mx .c{display:flex;flex-direction:column;justify-content:center;min-height:84px;padding:8px 12px;border:1px solid transparent;border-radius:8px;text-align:left;cursor:pointer;transition:opacity .15s}
 .mx .c:hover{border-color:var(--accent)}
 .mx .c:disabled{cursor:default}

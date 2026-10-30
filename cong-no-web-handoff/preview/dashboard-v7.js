@@ -79,7 +79,7 @@
     const head = `<div class="card-head"><h2 id="h-month">Thu tháng ${p.month}</h2><span class="aside">đã thu / phát sinh</span></div>`;
     if (!debt) return `<section class="card month" aria-labelledby="h-month">${head}<p class="empty">Chưa tải được số thu tháng này.</p>${foot}</section>`;
     const meter = `<div class="meter" role="img" aria-label="Đã thu ${esc(F.short(p.received))} trên phát sinh ${esc(F.short(p.charges))}${p.percent ? ` (${esc(p.percent)})` : ''}">
-        <div class="fill" style="width:${p.fill}%"></div><div class="today" style="left:${p.dayPct}%"><span>hôm nay ${p.day}/${p.month}</span></div></div>
+        <div class="fill" style="width:${p.fill}%"></div><div class="today${p.dayPct < 30 ? ' early' : ''}" style="left:${p.dayPct}%"><span>hôm nay ${p.day}/${p.month}</span></div></div>
       <div class="mrow"><div class="got"><b>${amount(p.received)}</b>đã thu${p.percent ? ` · ${esc(p.percent)}` : ''}</div>
         <div class="chg"><b>${amount(p.charges)}</b>${p.charges > 0n ? 'phát sinh tháng này' : 'chưa phát sinh'}</div></div>`;
     return `<section class="card month" aria-labelledby="h-month">${head}${meter}${foot}</section>`;
@@ -139,7 +139,8 @@
       return `<button type="button" class="c h${c.bad}" data-cls="mx:${key}" data-tip="cls:mx:${key}" aria-pressed="${on}"${state.ready ? '' : ' disabled'}><b>${c.count} khách</b><span>${c.count ? `quá hạn ${esc(F.short(c.overdue))}` : '—'}</span></button>`; };
     $('mx').innerHTML = `<div></div><div class="h">${esc(mx.cols[0])}</div><div class="h">${esc(mx.cols[1])}</div>
       <div class="v">${esc(mx.lines[0])}</div>${box('p0t0')}${box('p1t0')}
-      <div class="v">${esc(mx.lines[1])}</div>${box('p0t1')}${box('p1t1')}`;
+      <div class="v">${esc(mx.lines[1])}</div>${box('p0t1')}${box('p1t1')}`
+      + (state.ready ? '' : '<p class="mx-note" role="note">Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.</p>');
     $('mx-card').classList.toggle('picking', state.cls?.dim === 'mx');
   }
 
@@ -176,6 +177,7 @@
     set('nhom', state.cls ? `${state.cls.dim}:${state.cls.key}` : null);
     set('mh', state.com);
     set('xep', Object.keys(SORTS).find(key => SORTS[key] === state.sort) ?? null);
+    query.delete('xem');
     history.replaceState(null, '', location.pathname + (query.toString() ? `?${query}` : ''));
   };
   const readUrl = () => {
@@ -183,7 +185,8 @@
     state.tier = /^[0-4]$/.test(query.get('han') ?? '') ? Number(query.get('han')) : null;
     const nhom = query.get('nhom');
     state.cls = nhom && nhom.startsWith('mx:') ? { dim: 'mx', key: nhom.slice(3) } : null;
-    state.com = query.get('mh') || null;
+    // Link cũ của DASH-03 (?nhom=com:<mặt hàng>) vẫn mở đúng lọc mặt hàng.
+    state.com = query.get('mh') || (nhom?.startsWith('com:') ? nhom.slice(4) || null : null);
     state.sort = SORTS[query.get('xep')] ?? 'overdue';
   };
   // Bỏ lọc không còn nghĩa khi số liệu mới không có nhóm đó, hoặc danh sách chưa khớp tổng.
@@ -392,9 +395,10 @@
       } catch {
         state.rows = null;
       }
-      state.ready = Boolean(state.rows) && M.totalsMatch(state.rows, debt);
-      state.tiers = M.tierLabels(debt?.as_of ?? data.as_of, debt?.rule);
       state.mx = state.rows ? M.matrix(state.rows, debt.rule) : null;
+      // Tổng 4 ô ma trận phải bằng ngoặc "Quá hạn" (summary); lệch thì như danh sách lệch tổng: không lọc tại chỗ.
+      state.ready = Boolean(state.rows) && M.totalsMatch(state.rows, debt) && M.matrixMatches(state.mx, debt.summary);
+      state.tiers = M.tierLabels(debt?.as_of ?? data.as_of, debt?.rule);
       state.coms = state.rows ? M.commodities(state.rows) : [];
       dropStale();
       render(data, debt, customers);

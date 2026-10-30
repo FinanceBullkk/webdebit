@@ -94,19 +94,19 @@
     <div class="grid" id="g"></div>
   </main>
   <script>
-    // Dữ liệu giả ~ tỉ lệ của ảnh chụp 30/10: 67,9 tỷ, 67 khách, 50,7% quá hạn.
-    const tiers = [8.79, 24.65, 26.63, 5.21, 2.61];
+    // Dữ liệu giả hoàn toàn (tên và số bịa, số tròn), chỉ để xem bố cục.
+    const tiers = [9, 24, 26, 5, 2.5];
     const total = tiers.reduce((s, v) => s + v, 0);
     const late = tiers[2] + tiers[3] + tiers[4];
-    const names = ['FANYA 泛亚', 'FENG JIE-A LONG', 'STEVEN', 'XIAOLONG 小龙世迈', 'KK · Dừa', 'LIJIE 李姐', 'A MINH', 'HOÀNG LONG'];
+    const names = ['Khách A', 'Khách B', 'Khách C', 'Khách D', 'Khách E', 'Khách F', 'Khách G', 'Khách H'];
     const rows = [
-      { n: 0, t: [3.2, 11.2, 10.98, 0, 0], pay: 92, trip: 2, r: 'high' },
-      { n: 1, t: [0, 2.5, 4.04, 0, 0], pay: 41, trip: 12, r: 'watch' },
-      { n: 2, t: [0, 0, 0, 3.16, 0], pay: 215, trip: 160, r: 'high' },
-      { n: 3, t: [0, 0, 2.39, 0, 0], pay: 48, trip: 9, r: 'watch' },
-      { n: 4, t: [0, 0.81, 0.9, 0.88, 0], pay: 150, trip: 4, r: 'high' },
-      { n: 5, t: [2.1, 6.77, 0.96, 0, 0], pay: 95, trip: 1, r: 'high' },
-      { n: 6, t: [0, 0, 0.3, 0.42, 0.21], pay: null, trip: 130, r: 'high' },
+      { n: 0, t: [3, 11, 11, 0, 0], pay: 90, trip: 2, r: 'high' },
+      { n: 1, t: [0, 2.5, 4, 0, 0], pay: 40, trip: 12, r: 'watch' },
+      { n: 2, t: [0, 0, 0, 3, 0], pay: 200, trip: 160, r: 'high' },
+      { n: 3, t: [0, 0, 2.5, 0, 0], pay: 45, trip: 9, r: 'watch' },
+      { n: 4, t: [0, 0.8, 0.9, 0.9, 0], pay: 150, trip: 4, r: 'high' },
+      { n: 5, t: [2, 7, 1, 0, 0], pay: 95, trip: 1, r: 'high' },
+      { n: 6, t: [0, 0, 0.3, 0.4, 0.2], pay: null, trip: 130, r: 'high' },
       { n: 7, t: [0.4, 1.2, 0.8, 0, 0], pay: 20, trip: 3, r: 'watch' },
     ];
     const f = v => v.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
@@ -117,16 +117,16 @@
     const seg = (cls, arr) => arr.map((v, i) => `<div class="t${i}" style="flex:${v}">${cls ? `${f(v)} tỷ` : ''}</div>`).join('');
     const days = (d, bad, warn) => d == null ? `<td class="days bad">chưa trả</td>` : `<td class="days${d > bad ? ' bad' : d > warn ? ' warn' : ''}">${d}</td>`;
     document.getElementById('g').innerHTML = `
-      <section class="card age"><h2>Còn phải thu <b>${f(total)} tỷ</b><small>67 khách đang nợ</small><span class="q">hạn trả: cuối tháng sau ⓘ</span></h2>
-        <div class="brk"><div class="in" style="flex:${tiers[0] + tiers[1]}">Trong hạn <b>${f(tiers[0] + tiers[1])} tỷ</b></div><div class="late" style="flex:${late}">Quá hạn <b>${f(late)} tỷ</b> · ${pct(late)} · 49 khách</div></div>
+      <section class="card age"><h2>Còn phải thu <b>${f(total)} tỷ</b><small>60 khách đang nợ</small><span class="q">hạn trả: cuối tháng sau ⓘ</span></h2>
+        <div class="brk"><div class="in" style="flex:${tiers[0] + tiers[1]}">Trong hạn <b>${f(tiers[0] + tiers[1])} tỷ</b></div><div class="late" style="flex:${late}">Quá hạn <b>${f(late)} tỷ</b> · ${pct(late)} · 45 khách</div></div>
         <div class="bar">${tiers.map((v, i) => `<div class="t${i}" style="flex:${v};background:var(--t${i})">${v / total > 0.07 ? `${f(v)} tỷ` : ''}</div>`).join('')}</div>
         <div class="lab">${tiers.map((v, i) => `<div style="flex:${v}">${v / total > 0.07 ? `<b>${labs[i]}</b>${spans[i]}` : ''}</div>`).join('')}</div>
         <p class="tiny">Đoạn hẹp: ${tiers.map((v, i) => v / total <= 0.07 ? `<i style="background:var(--t${i})"></i>${labs[i].toLowerCase()} <b>${f(v)} tỷ</b> (${spans[i]})` : '').filter(Boolean).join(' · ')}</p>
       </section>
       <section class="card month"><h2>Thu tháng 10<span class="q">đã thu / phát sinh</span></h2>
-        <div class="meter"><div class="fill" style="width:3.8%"></div><div class="today" style="left:${Math.round(30 / 31 * 100)}%"><span>hôm nay 30/10</span></div></div>
-        <div class="mrow"><div class="got"><b>344,6 triệu</b>đã thu · 3,8%</div><div style="text-align:right"><b>9,04 tỷ</b>phát sinh tháng này</div></div>
-        <p class="note">Chưa tính 22 chuyến thiếu đơn giá · 3 khách đang dư 194,2 triệu</p>
+        <div class="meter"><div class="fill" style="width:4%"></div><div class="today" style="left:${Math.round(30 / 31 * 100)}%"><span>hôm nay 30/10</span></div></div>
+        <div class="mrow"><div class="got"><b>360 triệu</b>đã thu · 4%</div><div style="text-align:right"><b>9 tỷ</b>phát sinh tháng này</div></div>
+        <p class="note">Chưa tính 20 chuyến thiếu đơn giá · 3 khách đang dư 200 triệu</p>
       </section>
       <section class="card who"><h2>Khách cần đòi trước<span class="q">xếp theo quá hạn · tỷ đồng · ngày</span></h2>
         <table><thead><tr><th class="l">Khách</th><th class="l" style="width:260px">Cơ cấu nợ (cùng thang)</th><th>Quá hạn</th><th>Còn nợ</th><th>Chưa trả</th><th>Đi hàng</th></tr></thead><tbody>
@@ -135,13 +135,13 @@
           <td><div class="st" style="width:${Math.round(sum / maxRow * 100)}%">${r.t.map((v, i) => v ? `<i style="flex:${v};background:var(--t${i})"></i>` : '').join('')}</div></td>
           <td class="od">${f(od)}</td><td class="dim">${f(sum)}</td>${days(r.pay, 60, 30)}${days(r.trip, 90, 30)}</tr>`; }).join('')}
         </tbody></table>
-        <div class="foot"><span class="lg"><span><i style="background:var(--critical)"></i>Rủi ro cao</span><span><i style="background:var(--t2)"></i>Theo dõi</span><span>Ngày đỏ: chưa trả &gt;60 · không đi hàng &gt;90</span></span><a href="#">Xem cả 49 khách ở Công nợ theo tháng ›</a></div>
+        <div class="foot"><span class="lg"><span><i style="background:var(--critical)"></i>Rủi ro cao</span><span><i style="background:var(--t2)"></i>Theo dõi</span><span>Ngày đỏ: chưa trả &gt;60 · không đi hàng &gt;90</span></span><a href="#">Xem cả 45 khách ở Công nợ theo tháng ›</a></div>
       </section>
       <section class="card risk"><h2>Khách quá hạn đang ở đâu<span class="q">bấm ô để lọc bảng</span></h2>
         <div class="mx">
           <div></div><div class="h">Có trả trong 60 ngày</div><div class="h">Trên 60 ngày chưa trả</div>
-          <div class="v">Còn đi hàng</div><div class="c h0"><b>6 khách</b><span>quá hạn 2,9 tỷ</span></div><div class="c h2"><b>19 khách</b><span>quá hạn 14,7 tỷ</span></div>
-          <div class="v">Ngừng đi hàng<br>&gt;90 ngày</div><div class="c h1"><b>5 khách</b><span>quá hạn 2,1 tỷ</span></div><div class="c h3"><b>19 khách</b><span>quá hạn 14,8 tỷ</span></div>
+          <div class="v">Còn đi hàng</div><div class="c h0"><b>6 khách</b><span>quá hạn 3 tỷ</span></div><div class="c h2"><b>18 khách</b><span>quá hạn 15 tỷ</span></div>
+          <div class="v">Ngừng đi hàng<br>&gt;90 ngày</div><div class="c h1"><b>5 khách</b><span>quá hạn 2 tỷ</span></div><div class="c h3"><b>16 khách</b><span>quá hạn 13,5 tỷ</span></div>
         </div>
       </section>`;
   </script>

@@ -86,6 +86,14 @@ test('matrix splits only overdue customers by pay × trip thresholds; null days 
   assert.equal(F.sum(mx.cells.map(c => c.overdue)), mx.overdue);
 });
 
+test('matrixMatches: matrix totals must equal summary (server sums negative overdue too)', () => {
+  const mx = M.matrix(M.debtors(debt), rule);
+  assert.equal(M.matrixMatches(mx, debt.summary), true);
+  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_vnd: String(F.toBig(debt.summary.overdue_vnd) - 100n) }), false);
+  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_customers: debt.summary.overdue_customers + 1 }), false);
+  assert.equal(M.matrixMatches(null, debt.summary), false);
+});
+
 test('commodities: under 1% folds into Khác, unsorted last, bigger first', () => {
   const big = { ...debt, receivable_vnd: '100000',
     customers: [...debt.customers, customer(5, 'Khách E', ['98400', '0', '0', '0', '0'], { commodity: 'Dừa' })] };

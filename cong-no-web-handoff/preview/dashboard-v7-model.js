@@ -141,6 +141,10 @@ const DashboardModel = (() => {
     return { cols, lines, cells, count: late.length, overdue: F.sum(late.map(row => row.overdue)) };
   }
 
+  /** Ma trận chỉ gom khách quá hạn > 0; server cộng cả quá hạn âm vào summary, nên phải đối chiếu trước khi cho lọc. */
+  const matrixMatches = (mx, summary) => Boolean(mx && summary) && mx.count === summary.overdue_customers
+    && mx.overdue === F.toBig(summary.overdue_vnd);
+
   /** Nhóm mặt hàng để lọc bảng: nhiều tiền trước, "Khác" rồi "Chưa phân loại" cuối. */
   function commodities(rows) {
     return [...new Set(rows.map(row => row.com))]
@@ -186,6 +190,6 @@ const DashboardModel = (() => {
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, commodityKey, monthName, tierLabels, tierOfMonth, reason, reasons, ago,
-    debtors, totalsMatch, matrix, commodities, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, matrix, matrixMatches, commodities, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;
