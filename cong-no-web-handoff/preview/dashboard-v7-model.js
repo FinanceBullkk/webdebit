@@ -138,12 +138,18 @@ const DashboardModel = (() => {
       const key = `p${p}t${t}`;
       cells.push(summarize({ key, label: `${cols[p]} · ${lines[t].toLowerCase()}`, bad: p + t }, late.filter(row => row.mx === key)));
     }
-    return { cols, lines, cells, count: late.length, overdue: F.sum(late.map(row => row.overdue)) };
+    // Khách quá hạn âm (dư ở tháng nợ cũ, còn nợ mới): không vào ô nào, nhưng server đã trừ vào summary.overdue_vnd.
+    const credit = rows.filter(row => row.overdue < 0n);
+    return { cols, lines, cells, count: late.length, overdue: F.sum(late.map(row => row.overdue)),
+      credit: { count: credit.length, overdue: F.sum(credit.map(row => row.overdue)) } };
   }
 
-  /** Ma trận chỉ gom khách quá hạn > 0; server cộng cả quá hạn âm vào summary, nên phải đối chiếu trước khi cho lọc. */
+  /**
+   * Ma trận chỉ gom khách quá hạn > 0; server cộng cả quá hạn âm vào summary. Khớp khi số khách bằng nhau và
+   * tổng ô cộng phần quá hạn âm bằng đúng summary; lệch khác (thiếu khách, sai số) vẫn khóa lọc tại chỗ.
+   */
   const matrixMatches = (mx, summary) => Boolean(mx && summary) && mx.count === summary.overdue_customers
-    && mx.overdue === F.toBig(summary.overdue_vnd);
+    && mx.overdue + mx.credit.overdue === F.toBig(summary.overdue_vnd);
 
   /** Nhóm mặt hàng để lọc bảng: nhiều tiền trước, "Khác" rồi "Chưa phân loại" cuối. */
   function commodities(rows) {
