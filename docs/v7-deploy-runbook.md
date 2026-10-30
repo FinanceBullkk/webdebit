@@ -1369,7 +1369,9 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md), nhật ký [`deploys/
 
 Rollback: bước 1 trả unit đã lưu rồi `daemon-reload`. Bước 2 đổi tên tab lại (code đọc được cả hai tên tới PR bỏ tên cũ). Bước 3 xóa vùng bảo vệ.
 
-## Cấn khoản dư vào tháng nợ cũ nhất — nâng DB đang có (CHƯA CHẠY)
+## Cấn khoản dư vào tháng nợ cũ nhất — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
+
+Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-can-du.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql` ([`CAN-DU-01`](decisions/can-du-01.md), spec [`v7-can-du`](../specs/v7-can-du.md)) chỉ đổi view đọc và hai hàm, không đổi bảng, ràng buộc, loại event, dữ liệu, dòng phân bổ hay quyền: tạo `v_outstanding_month_raw` (thân cũ của `v_outstanding_month`), thay `v_outstanding_month` bằng bản cấn khoản dư, `record_receipt` xếp tạm theo view thô, `get_receivables_detail` thêm `credit_applied_vnd`, rồi `ANALYZE` các bảng `sokhach`. Trong cùng transaction tự kiểm tổng từng khách trước = sau = view thô (`CAN_DU_TOTAL_MISMATCH`) và không khách nào vừa có kỳ dương vừa có kỳ âm (`CAN_DU_CREDIT_LEFT`); lệch thì hủy cả lượt. Chạy lại được. **Chạy sau `2026-10-29-v7-ra-ghi-tien.sql`.**
 
