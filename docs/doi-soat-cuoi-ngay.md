@@ -32,7 +32,8 @@ cd D:\webdebit\repo
 | Màn hình in ra | Nghĩa | Làm gì |
 | --- | --- | --- |
 | `"ok": true` | Làm sạch xong | Sang bước 3 |
-| `"held_customers": …` | Có khách bị giữ, **không tạo file nào** | Dừng. Báo admin/Claude số khách và `reason_counts` |
+| `"held_customers": 1` và `reason_counts` chỉ gồm `MISSING_SOURCE_TAB`, `MISSING_MONTH_ANCHOR`, `NO_ANCHOR`, `MISSING_OPENING_ANCHOR` | Đúng khách đang để ngoài phạm vi theo [`SONG-SONG-03`](decisions/song-song-03.md) (2), **không tạo file nào** | Chạy lại lệnh trên, thêm `--hold-out` và đổi `--out` sang thư mục mới (`sach-2`); bước 3 dùng thư mục đó. Mở `held.csv` kiểm đúng một khách |
+| `"held_customers": …` khác dòng trên | Có khách bị giữ, **không tạo file nào** | Dừng. Báo admin/Claude số khách và `reason_counts` |
 | `"ok": false, "reason": …` | Lỗi đọc file | Dừng. Báo lại nguyên dòng đó |
 
 ## Bước 3. So với web
@@ -49,6 +50,7 @@ Màn hình PowerShell in một dòng kết luận:
 
 - `DOI SOAT: DAT`: mọi khách khớp. Xong, sang bước 6.
 - `DOI SOAT: KHONG DAT`: có khách lệch. Sang bước 5.
+- Bước 2 đã chạy `--hold-out` và `KHONG DAT` chỉ do **một** dòng `CHI_CO_WEB`, đúng khách ghi trong `held.csv`: coi như đạt theo [`SONG-SONG-03`](decisions/song-song-03.md) (2). Ghi vào sổ theo dõi là "đạt, 1 khách ngoài phạm vi", sang bước 6.
 
 Nếu không thấy dòng `DOI SOAT` mà thấy `reconciliation input/output error`, đó là lỗi đọc/ghi, **không** phải kết quả. Báo lại.
 
