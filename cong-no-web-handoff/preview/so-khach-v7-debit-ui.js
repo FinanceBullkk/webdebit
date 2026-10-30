@@ -64,17 +64,28 @@
     setTimeout(() => frame.remove(), 60000);
   }
   // Bảng phiếu dùng chung một bộ kiểu cho hộp xem trước và bản in.
-  const SHEET_CSS = `.dn-sheet{font:10px Arial,sans-serif;color:#000;border-collapse:collapse;width:100%;table-layout:fixed}.dn-sheet td,.dn-sheet th{padding:2px 4px;overflow:hidden}
-    .dn-title{background:#2e75b6;color:#fff;font-size:22px;font-weight:700;text-align:center;padding:6px}
-    .dn-date-label{text-align:right;font-weight:700}.dn-date{background:#00f;color:#fff;font-weight:700;text-align:right}
-    .dn-label,.dn-strong{font-weight:700}.dn-mail{color:#0563c1;font-weight:700;text-decoration:underline}.dn-gap td{height:8px}
-    .dn-head th{background:#ffc000;color:#1f4e79;border:1px solid #000;font-size:10px;vertical-align:middle}
-    .dn-sheet tr:not(.dn-head) td{white-space:nowrap}.dn-head ~ tr td{border:1px solid #000;font-size:9px}
-    .dn-sheet .num{text-align:right}.dn-sheet .no{text-align:right}
-    .dn-total td{font-weight:700;color:#1f4e79;text-align:center}.dn-total .num{color:#000}
-    .dn-sheet tr:last-child td{border:0;text-align:right;font-size:8px}
+  const SHEET_CSS = `.dn-sheet{font:10px/1.35 Arial,sans-serif;color:#1c2430;background:#fff}
+    .dn-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:10px;border-bottom:2px solid #1b3a5c}
+    .dn-co{font-size:17px;font-weight:700;color:#1b3a5c}.dn-addr{color:#5f6b7a;font-size:9px;margin-top:2px}
+    .dn-doc{text-align:right;white-space:nowrap}.dn-title{font-size:24px;font-weight:700;color:#1b3a5c;letter-spacing:1px}.dn-sub{color:#5f6b7a;font-size:10px}
+    .dn-meta{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:12px 0}
+    .dn-label{font-size:8px;font-weight:700;color:#5f6b7a;letter-spacing:1px}.dn-customer{font-size:15px;font-weight:700;color:#1b3a5c;margin-top:2px}
+    .dn-info{border-collapse:collapse;background:#f4f6f9;min-width:260px}.dn-info th{text-align:left;color:#1b3a5c;padding:3px 10px;font-size:9px}.dn-info td{text-align:right;padding:3px 10px;font-size:9px}
+    .dn-table{width:100%;border-collapse:collapse;table-layout:fixed}.dn-table th,.dn-table td{padding:3px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    .dn-group th{background:#1b3a5c;color:#fff;font-size:9px;font-weight:700;letter-spacing:.3px;border-right:1px solid #fff}.dn-group th:last-child{border-right:0}
+    .dn-head th{background:#e9eef4;color:#1b3a5c;font-size:8px;font-weight:700;border-bottom:1px solid #1b3a5c;white-space:normal;vertical-align:middle;line-height:1.2}
+    .dn-head small{display:block;font-weight:400;font-size:7.5px;color:#5f6b7a}
+    .dn-table tbody td{border-bottom:1px solid #d5dbe3;font-size:9px}.dn-table tbody tr:nth-child(even) td{background:#fafbfc}
+    .dn-table .num{text-align:right;font-variant-numeric:tabular-nums}.dn-table .no{text-align:center;color:#5f6b7a}
+    .dn-total td{border-top:2px solid #1b3a5c;font-weight:700;color:#1b3a5c;padding-top:6px}.dn-total td:first-child{text-align:right;font-size:10px}.dn-total .num{font-size:12px;overflow:visible}
+    .dn-foot{margin-top:6px}.dn-status-row{text-align:right}
+    .dn-status{display:inline-block;font-weight:700;font-size:9px;padding:2px 8px;border-radius:3px}.dn-status.is-done{color:#1e7b4f;background:#e6f4ec}.dn-status.is-open{color:#b4690e;background:#fdf1df}
+    .dn-signs{display:flex;justify-content:space-between;padding:14px 80px 0}.dn-sign{text-align:center;min-width:180px}
+    .dn-sign b{display:block;color:#1b3a5c;font-size:9px}.dn-sign i{display:block;color:#5f6b7a;font-size:8px;margin-top:44px}
     .dn-sheet *{-webkit-print-color-adjust:exact;print-color-adjust:exact}`;
-  const PRINT_CSS = `@page{size:A4 landscape;margin:8mm}body{margin:0}${SHEET_CSS}`;
+  // In: tiêu đề cột lặp mỗi trang (thead), dòng TỔNG chỉ in một lần sau dòng cuối, không cắt ngang dòng/ô ký.
+  const PRINT_CSS = `@page{size:A4 landscape;margin:8mm}body{margin:0}${SHEET_CSS}
+    .dn-table thead{display:table-header-group}.dn-table tfoot{display:table-row-group}.dn-table tr,.dn-foot{page-break-inside:avoid}`;
   const style = document.createElement('style');
   style.textContent = SHEET_CSS;
   document.head.append(style);

@@ -34,32 +34,39 @@ const note = { monthKey: '2026-10', complete: false, totalVnd: null, rows: [
     fees: fees(), unitPriceVnd: null, totalVnd: null },
 ] };
 
-test('DEBIT-NOTE-01 xlsx is a valid zip with the template columns, exact numbers and blanks for missing price', () => {
+test('DEBIT-NOTE-02 xlsx is a valid zip with the template columns, exact numbers and blanks for missing price', () => {
   const bytes = writer.xlsx(note, { customer: 'Khách Thử 三川', todayIso: '2026-10-29' });
   assert.equal(writer.crc32(Buffer.from('123456789')), 0xCBF43926);
   const files = unzip(bytes);
   assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
   const sheet = files['xl/worksheets/sheet1.xml'];
   assert.match(sheet, /COMMERCIAL INVOICE/);
-  assert.match(sheet, /October 29, 2026/);
+  assert.match(sheet, /29\/10\/2026/);
+  assert.match(sheet, /Tháng 10\/2026 · 2026年10月/);
+  assert.match(sheet, /PHỤ PHÍ · 附加费/);
+  assert.match(sheet, /<mergeCell ref="H10:N10"\/>/);
   assert.match(sheet, /Khách Thử 三川/);
   assert.match(sheet, /Chủ hàng &lt;A&amp;B&gt;/);
-  assert.match(sheet, /<c r="H10" s="7"><v>2000000<\/v><\/c>/);
-  assert.match(sheet, /<c r="N10" s="7"><v>300000<\/v><\/c>/);
-  assert.match(sheet, /<c r="P10" s="7"><v>82300000<\/v><\/c>/);
-  assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">03\/10\/2026<\/t>/);
-  assert.match(sheet, /<c r="O11" s="7"\/><c r="P11" s="7"\/>/);
-  assert.match(sheet, /<c r="P12" s="10"\/>/);
+  assert.match(sheet, /<c r="H12" s="12"><v>2000000<\/v><\/c>/);
+  assert.match(sheet, /<c r="N12" s="12"><v>300000<\/v><\/c>/);
+  assert.match(sheet, /<c r="P12" s="12"><v>82300000<\/v><\/c>/);
+  assert.match(sheet, /<c r="E12" s="11" t="inlineStr"><is><t xml:space="preserve">03\/10\/2026<\/t>/);
+  assert.match(sheet, /<c r="O13" s="12"\/><c r="P13" s="12"\/>/);
+  assert.match(sheet, /<c r="O14" s="15"\/><c r="P14" s="15"\/>/);
   assert.match(sheet, /CHƯA CHỐT/);
-  assert.match(sheet, /<mergeCell ref="A12:O12"\/>/);
+  assert.match(sheet, /<mergeCell ref="A14:N14"\/>/);
+  assert.match(sheet, /<mergeCell ref="O14:P14"\/>/);
   assert.match(files['xl/workbook.xml'], /name="T10-2026"/);
+  assert.match(files['xl/workbook.xml'], /Print_Titles.*\$10:\$11/);
+  assert.match(files['xl/workbook.xml'], /\$A\$1:\$P\$18/);
   for (const [name, text] of Object.entries(files)) assert.match(text, /^<\?xml version="1.0"/, name);
 });
 
-test('DEBIT-NOTE-01 html preview and file name', () => {
+test('DEBIT-NOTE-02 html preview and file name', () => {
   const escape = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = writer.html({ ...note, complete: true, totalVnd: 82300000n, rows: [note.rows[0]] }, { customer: 'K', todayIso: '2026-01-05', escape });
-  assert.match(html, /January 5, 2026/);
+  assert.match(html, /05\/01\/2026/);
+  assert.match(html, /class="dn-status is-done"/);
   assert.match(html, /<td class="num">80,000,000<\/td><td class="num">82,300,000<\/td>/);
   assert.match(html, /ĐÃ CHỐT/);
   assert.equal(writer.fileName('Tâm Xuyên / ĐẠI', '2026-10'), 'debit-note-Tam-Xuyen-DAI-2026-10.xlsx');

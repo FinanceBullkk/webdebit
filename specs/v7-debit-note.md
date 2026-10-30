@@ -1,6 +1,6 @@
 # Debit note theo tháng công nợ
 
-Trạng thái: ĐÃ CHỐT (người dùng, 29/10/2026, [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md)); các điểm Claude chọn ghi trong file quyết định.
+Trạng thái: ĐÃ CHỐT (người dùng, 29/10/2026, [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md)); các điểm Claude chọn ghi trong file quyết định. Bố cục phiếu làm lại 30/10/2026 theo [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md) (sếp yêu cầu; CÒN MỞ sếp duyệt bản thử), cột và dữ liệu không đổi.
 
 ## Người dùng và luồng (bước 1, bắt buộc với frontend)
 
@@ -15,7 +15,7 @@ Không có gì bị chặn: tháng không có chuyến thì không hiện nút. 
 
 ## Đầu ra
 
-Nút Debit note ở mỗi tháng có chuyến; hộp xem trước; file Excel và bản in cùng nội dung, cột như mẫu.
+Nút Debit note ở mỗi tháng có chuyến; hộp xem trước; file Excel và bản in cùng nội dung, cột như mẫu, bố cục theo `DEBIT-NOTE-02` (đầu trang công ty/tiêu đề, khối BILL TO và thông tin phiếu, bảng có dòng nhóm cột, dòng TỔNG CỘNG, nhãn chốt, ô ký; Excel lặp tiêu đề cột và đánh số trang khi in).
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2, bắt buộc với frontend)
 
@@ -36,7 +36,7 @@ Mọi trường đã có trong `GET /api/v7/ledger` mà trang sổ đang dùng; 
 
 Lấy chuyến web `status='confirmed'`, chưa xóa; dòng sổ gốc chưa xóa. Tháng = tháng công nợ (`month`) như khối tháng trên sổ. Thứ tự theo ngày, cùng ngày giữ thứ tự sổ (sổ gốc trước, web sau). Dòng TỔNG = tổng cột Tổng khi mọi dòng có Tổng; còn dòng trống thì TỔNG trống và nhãn CHƯA CHỐT.
 
-FROM (tên, địa chỉ, email HTH) là chữ cố định trong `debit-note-xlsx.js`, giống mẫu. TO = tên khách của sổ. DATE = ngày xuất theo giờ Việt Nam.
+FROM (tên, địa chỉ, email HTH) là chữ cố định trong `debit-note-xlsx.js`. BILL TO = tên khách của sổ. Ngày = ngày xuất theo giờ Việt Nam (dd/mm/yyyy); Kỳ công nợ = tháng của phiếu; Tiền tệ = VND.
 
 ## Giao tiếp frontend–backend (bước 5, khi có)
 
@@ -45,6 +45,7 @@ Không có lệnh mới. Phiếu dựng từ bản sổ trang đã tải (`ctx.s
 ## Nguồn quyết định
 
 - [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md), [`PHU-PHI-01`](../docs/decisions/phu-phi-01.md) (2): phiếu gửi khách hiện từng khoản phụ phí.
+- [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md): bố cục mới của phiếu (30/10/2026).
 
 ## Hành vi và bất biến
 

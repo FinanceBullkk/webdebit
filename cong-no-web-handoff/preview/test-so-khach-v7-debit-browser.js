@@ -21,13 +21,14 @@ test('Debit note: xem trước đúng chuyến của tháng, thiếu giá để 
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'debit-excel');
   assert.match(await dialog.locator('h2').innerText(), /Debit note tháng 9\/2026\s*3 dòng · CHƯA CHỐT/);
   assert.match(await dialog.locator('.debit-notes').innerText(), /1 chuyến chưa có giá/);
-  const rows = await dialog.locator('.dn-head ~ tr').evaluateAll(list => list.map(row => [...row.cells].map(cell => cell.textContent)));
+  const rows = await dialog.locator('.dn-table tbody tr').evaluateAll(list => list.map(row => [...row.cells].map(cell => cell.textContent)));
   assert.deepEqual(rows[0].slice(0, 7), ['1', 'OLDU0000001', 'Xe 1', 'Chủ hàng thử', '02/09/2026', 'Nơi C', 'Nơi D']);
   assert.deepEqual(rows[0].slice(14), ['', '']);
   assert.deepEqual(rows[1].slice(7), ['', '', '', '3,000,000', '', '', '', '90,000,000', '93,000,000']);
   assert.deepEqual(rows[2].slice(7), ['2,000,000', '', '', '', '', '', '', '50,000,000', '52,000,000']);
-  assert.deepEqual(rows[3], ['TỔNG( 总计)  VND', '']);
-  assert.deepEqual(rows[4].slice(-1), ['CHƯA CHỐT']);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(await dialog.locator('.dn-total td').allTextContents(), ['TỔNG CỘNG · 总计 (VND)', '']);
+  assert.equal(await dialog.locator('.dn-status').innerText(), 'CHƯA CHỐT');
   assert.match(await dialog.innerText(), /Khách Thử Sửa/);
   await shot('debit-note-xem-truoc');
 
@@ -48,6 +49,7 @@ test('Debit note: đủ giá thì có tổng và ĐÃ CHỐT; chuyến CHỜ KI�
   assert.match(await dialog.locator('h2').innerText(), /3 dòng · ĐÃ CHỐT/);
   assert.match(await dialog.locator('.debit-notes').innerText(), /1 chuyến đang CHỜ KIỂM không lên phiếu/);
   assert.equal(await dialog.locator('.dn-total .num').innerText(), '143,000,000');
+  assert.equal(await dialog.locator('.dn-status').innerText(), 'ĐÃ CHỐT');
   await page.evaluate(() => { window.__printed = 0; HTMLIFrameElement.prototype.focus = () => {}; });
   await page.evaluate(() => {
     const original = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow').get;
@@ -55,7 +57,7 @@ test('Debit note: đủ giá thì có tổng và ĐÃ CHỐT; chuyến CHỜ KI�
   });
   await dialog.locator('.debit-print').click();
   assert.equal(await page.evaluate(() => window.__printed), 1);
-  assert.equal(await page.evaluate(() => document.querySelector('.debit-print-frame').contentDocument.querySelectorAll('.dn-head ~ tr').length), 5);
+  assert.equal(await page.evaluate(() => document.querySelector('.debit-print-frame').contentDocument.querySelectorAll('.dn-table tbody tr').length), 3);
   await dialog.locator('.debit-close').click();
   assert.equal(await dialog.isHidden(), true);
 }, world => {
