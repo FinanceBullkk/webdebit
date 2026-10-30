@@ -70,6 +70,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04); quy tắc giữ |
 | <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận |  |
 | <a id="can-du-01"></a>[CAN-DU-01](decisions/can-du-01.md) | Nợ từng tháng theo chuẩn tuổi nợ: khoản dư cấn vào tháng nợ cũ nhất | Thay vế số nợ từng tháng của [V7-BE](#v7-be) (6) |
+| <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + đồng bộ "đã nhắc" từ Zalo (metadata-only) | ĐÃ CHỐT kiến trúc, chưa code |
 
 ## Cập nhật khóa tháng 24/10/2026
 

@@ -1,0 +1,46 @@
+/* NHAC-NO-01: tab Đòi nợ. Dùng chung nền/thẻ của cong-no-theme.css + dashboard-v7.css. */
+#doi-no .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+#doi-no .filters .chip {
+  border: 1px solid var(--line, #d4d8de); background: var(--surface, #fff);
+  border-radius: 999px; padding: 4px 12px; font: inherit; cursor: pointer; color: inherit;
+}
+#doi-no .filters .chip[aria-pressed="true"] { background: var(--accent, #1f6feb); color: #fff; border-color: transparent; }
+#doi-no .filters .chip b { font-variant-numeric: tabular-nums; opacity: .8; }
+
+#doi-no .rhead, #doi-no .rrow {
+  display: grid; align-items: center; gap: 10px;
+  grid-template-columns: minmax(160px, 2fr) 92px 92px 108px 150px 150px auto;
+}
+#doi-no .rhead { padding: 6px 8px; font-size: 13px; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line, #e5e7eb); }
+#doi-no .rrow { padding: 8px; border-bottom: 1px solid var(--line, #eef0f3); }
+#doi-no .rrow:hover { background: var(--hover, #f7f9fc); }
+#doi-no .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+#doi-no .who .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#doi-no .who small { color: var(--muted, #6b7280); white-space: nowrap; }
+#doi-no .num { text-align: right; font-variant-numeric: tabular-nums; }
+#doi-no .num.od { font-weight: 600; }
+#doi-no .when { font-variant-numeric: tabular-nums; font-size: 13px; }
+#doi-no .muted { color: var(--muted, #9aa0a6); font-style: normal; }
+#doi-no .st { font-size: 13px; }
+#doi-no .st.bad { color: #b42318; font-weight: 600; }
+#doi-no .st.watch { color: #b54708; }
+#doi-no .st.ok { color: #067647; }
+#doi-no .rrow .copy { white-space: nowrap; }
+#doi-no .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; align-self: center; background: #9aa0a6; }
+#doi-no .dot.r-high { background: #d92d20; }
+#doi-no .dot.r-watch { background: #f79009; }
+#doi-no .dot.r-ok { background: #12b76a; }
+#doi-no .tiny { color: var(--muted, #6b7280); font-size: 12px; margin-top: 10px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: #101828; color: #fff; padding: 10px 16px; border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.25); z-index: 50; max-width: 90vw;
+}
+.toast.bad { background: #b42318; }
+
+@media (max-width: 760px) {
+  #doi-no .rhead { display: none; }
+  #doi-no .rrow { grid-template-columns: 1fr auto; row-gap: 4px; }
+  #doi-no .rrow .when, #doi-no .rrow .st { grid-column: 1 / -1; }
+}

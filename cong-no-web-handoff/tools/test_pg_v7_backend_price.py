@@ -229,5 +229,6 @@ def check_price_migration(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-tong-quan-quan-ly-no.sql").read_text(encoding="utf-8"), database=db)
     pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"), database=db)
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")
