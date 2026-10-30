@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import v7_identity
 import v7_presence
 import v7_sheet_refresh
+import v7_zalo_chat
 from v7_price_queue import load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
@@ -60,6 +61,7 @@ PAGES = {
     "/cong-no-theo-thang.html": "cong-no-theo-thang.html",
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/doi-no.html": "doi-no.html",
+    "/zalo-chat.html": "zalo-chat.html",
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
 PAGE_FILE = re.compile(r'<script src="([a-z0-9-]+\.js)"></script>|<link rel="stylesheet" href="([a-z0-9-]+\.css)">')
@@ -1217,6 +1219,15 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return 200, {"people": PRESENCE.view(actor, tab)}
+        if parts.path.startswith("/api/v7/zalo/"):
+            # ZALO-CHAT-01: đọc bản xuất chat ngoài DB; vẫn qua xác thực danh tính như mọi route.
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            try:
+                return v7_zalo_chat.handle_get(parts.path, parts.query)
+            except v7_zalo_chat.ChatError as exc:
+                raise ApiError(exc.status, exc.code, exc.message) from exc
         if parts.path == "/api/v7/fee-types" and not parts.query:
             function, payload = "get_fee_types", {}
         elif parts.path == "/api/v7/dashboard" and not parts.query:
@@ -1566,6 +1577,7 @@ def main() -> None:
     Handler.serve_hosts = tuple(args.serve_host)
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
+    v7_zalo_chat.warm()
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Chat Zalo: xem lại hội thoại với khách từ bản xuất, tìm hội thoại và tìm trong hội thoại, chỉ đọc.">
+  <title>Công nợ HTH · Chat Zalo</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="dashboard-v7.css">
+  <link rel="stylesheet" href="zalo-chat.css">
+<link rel="stylesheet" href="presence.css">
+</head>
+<body data-presence="zalo-chat">
+  <div id="demo-banner" hidden role="status"></div>
+  <header class="topbar">
+    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
+    <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a class="active" href="/doi-no.html" aria-current="page">Đòi nợ</a><a href="/viec-can-lam.html">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
+    <time class="asof" id="as-of"></time>
+  </header>
+  <main class="page chat-page">
+    <div class="page-head">
+      <a class="btn back" href="/doi-no.html">← Đòi nợ</a>
+      <h1>Chat Zalo</h1>
+      <p class="summary" id="summary" aria-live="polite">Đang tải…</p>
+    </div>
+    <div id="error" role="alert" hidden></div>
+    <div id="chat" class="chat" hidden>
+      <section class="pane list-pane" aria-label="Hội thoại">
+        <div class="pane-head">
+          <label class="sr-only" for="conversation-search">Tìm hội thoại</label>
+          <input id="conversation-search" type="search" placeholder="Tìm hội thoại theo tên khách…" autocomplete="off">
+          <span id="conversation-count" class="count"></span>
+        </div>
+        <div id="conversations" class="conversations" role="list"></div>
+      </section>
+      <section class="pane detail-pane" aria-label="Tin nhắn">
+        <div class="pane-head detail-head">
+          <button type="button" class="btn back-list" id="back-list" aria-label="Về danh sách hội thoại">←</button>
+          <div class="title-box">
+            <h2 id="title">Chọn một hội thoại</h2>
+            <small id="subtitle"></small>
+          </div>
+          <label class="sr-only" for="message-search">Tìm trong hội thoại</label>
+          <input id="message-search" type="search" placeholder="Tìm trong hội thoại…" autocomplete="off" disabled>
+        </div>
+        <div id="messages" class="messages" aria-live="polite">
+          <p class="empty">Chọn một hội thoại bên trái để xem tin nhắn.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script src="zalo-chat.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

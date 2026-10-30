@@ -25,7 +25,9 @@
 #doi-no .st.bad { color: #b42318; font-weight: 600; }
 #doi-no .st.watch { color: #b54708; }
 #doi-no .st.ok { color: #067647; }
-#doi-no .rrow .copy { white-space: nowrap; }
+#doi-no .rrow .acts { display: flex; gap: 6px; justify-content: flex-end; }
+#doi-no .rrow .copy, #doi-no .rrow .chat { white-space: nowrap; }
+#doi-no .rrow .chat { display: inline-flex; align-items: center; color: var(--accent-ink); }
 #doi-no .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; align-self: center; background: #9aa0a6; }
 #doi-no .dot.r-high { background: #d92d20; }
 #doi-no .dot.r-watch { background: #f79009; }
