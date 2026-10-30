@@ -1,6 +1,6 @@
-/* Phép tính cho Tổng quan quản lý công nợ (DASH-03, duyệt 29/10/2026): nhóm hạn trả, mức rủi ro và
-   phân loại khách từ GET /api/v7/dashboard/debt. Tiền là BigInt từ chuỗi VND của API; server tính nhóm
-   hạn trả và mức rủi ro, ở đây chỉ gom/lọc danh sách. File render (dashboard-v7.js) không tự cộng trừ. */
+/* Phép tính cho Tổng quan (quy tắc DASH-03 29/10/2026, trình bày DASH-04 30/10/2026): nhóm hạn trả, mức
+   rủi ro, ma trận trả × đi hàng, tiến độ thu tháng từ GET /api/v7/dashboard/debt. Tiền là BigInt từ chuỗi
+   VND của API; server tính nhóm hạn trả và mức rủi ro, ở đây chỉ gom/lọc. Render (dashboard-v7.js) không tự cộng trừ. */
 const DashboardModel = (() => {
   'use strict';
   const F = typeof CongNoFormat !== 'undefined' ? CongNoFormat : require('./cong-no-format.js');
@@ -101,13 +101,11 @@ const DashboardModel = (() => {
         months: (item.months ?? []).map(m => ({ key: m.month, value: F.toBig(m.outstanding_vnd), tier: tierOfMonth(m.month, debt.as_of, rule) })),
         com: commodityKey(item.commodity, item.transport_mode),
       };
-      row.pay = row.payDays == null ? 'never' : row.payDays <= 30 ? 'p30' : row.payDays <= rule.no_pay_days ? 'p60' : 'p61';
-      row.trip = row.tripDays == null || row.tripDays > rule.no_trip_days ? 't91' : row.tripDays > rule.active_trip_days ? 't90' : 't30';
+      // Ô ma trận: p1 = quá ngưỡng chưa trả (hoặc chưa trả lần nào), t1 = ngừng đi hàng (hoặc chưa có chuyến).
+      row.mx = `p${row.payDays == null || row.payDays > rule.no_pay_days ? 1 : 0}t${row.tripDays == null || row.tripDays > rule.no_trip_days ? 1 : 0}`;
       row.why = reason(row, rule);
       return row;
     });
-    const bySize = [...rows].sort((a, b) => (b.total > a.total ? 1 : b.total < a.total ? -1 : a.id - b.id));
-    bySize.forEach((row, index) => { row.size = index < 5 ? 'top5' : index < 10 ? 'next5' : 'rest'; });
     // Mặt hàng dưới 1% còn phải thu gom "Khác"; "Chưa phân loại" giữ riêng.
     const receivable = F.toBig(debt.receivable_vnd);
     const comTotals = new Map();
@@ -123,53 +121,71 @@ const DashboardModel = (() => {
   }
 
   const compare = (a, b) => (b > a ? 1 : b < a ? -1 : 0);
+  const summarize = (item, members) => ({ ...item, count: members.length, total: F.sum(members.map(row => row.total)),
+    overdue: F.sum(members.map(row => row.overdue)) });
 
-  /** Năm tiêu chí phân loại; mỗi nhóm có số khách, còn nợ, quá hạn, tên khách. Nhóm rỗng bỏ đi. */
-  function dimensions(rows, receivable) {
-    const total = F.toBig(receivable);
-    const group = (field, classes) => classes.map(item => {
-      const members = rows.filter(row => row[field] === item.key);
-      return { ...item, count: members.length, total: F.sum(members.map(row => row.total)),
-        overdue: F.sum(members.map(row => row.overdue)), names: members.map(row => row.name) };
-    }).filter(item => item.count);
-    const find = (groups, key) => groups.find(item => item.key === key);
-    const coms = [...new Set(rows.map(row => row.com))].map(key => ({ key, label: key, tone: key === OTHER || key === UNSORTED ? 'grey' : '' }));
-    const comGroups = group('com', coms).sort((a, b) => ((a.tone === 'grey') - (b.tone === 'grey'))
-      || ((a.key === UNSORTED) - (b.key === UNSORTED)) || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
-    return [
-      { key: 'risk', tab: 'Rủi ro', title: 'Mức rủi ro', groups: group('risk', [
-        { key: 'high', label: 'Rủi ro cao', tone: 'critical' }, { key: 'watch', label: 'Cần theo dõi', tone: 'warning' },
-        { key: 'ok', label: 'Trong hạn' }]),
-      lead: groups => { const g = find(groups, 'high'); return g ? [['b', `${g.count} khách rủi ro cao`], ' đang nợ ', ['b', F.short(g.total)], `, trong đó quá hạn ${F.short(g.overdue)}.`] : ['Không có khách rủi ro cao.']; } },
-      { key: 'pay', tab: 'Lần trả', title: 'Lần trả gần nhất', groups: group('pay', [
-        { key: 'p30', label: 'Có trả trong 30 ngày qua' }, { key: 'p60', label: '31–60 ngày chưa trả', tone: 'warning' },
-        { key: 'p61', label: 'Trên 60 ngày chưa trả', tone: 'critical' }, { key: 'never', label: 'Chưa trả lần nào', tone: 'grey' }]),
-      lead: groups => { const g = find(groups, 'p61'); return g ? [['b', `${g.count} khách`], ' đã hơn 60 ngày chưa trả, đang nợ ', ['b', F.short(g.total)], '.'] : ['Khách nào cũng có trả trong 60 ngày qua.']; } },
-      { key: 'trip', tab: 'Đi hàng', title: 'Đi hàng gần nhất', groups: group('trip', [
-        { key: 't30', label: 'Đang đi hàng (30 ngày qua)' }, { key: 't90', label: 'Ít đi hàng (31–90 ngày)', tone: 'grey' },
-        { key: 't91', label: 'Ngừng đi hàng (trên 90 ngày)', tone: 'critical' }]),
-      lead: groups => { const g = find(groups, 't91'); return g ? [['b', `${g.count} khách ngừng đi hàng`], ' còn nợ ', ['b', F.short(g.total)], '.'] : ['Khách đang nợ đều còn đi hàng.']; } },
-      { key: 'size', tab: 'Quy mô', title: 'Quy mô nợ', groups: group('size', [
-        { key: 'top5', label: '5 khách nợ nhiều nhất' }, { key: 'next5', label: '5 khách tiếp theo' },
-        { key: 'rest', label: 'Các khách còn lại', tone: 'grey' }]),
-      lead: groups => { const g = find(groups, 'top5'); return g ? [`${g.count === 5 ? '5 khách' : `${g.count} khách`} nợ nhiều nhất chiếm `, ['b', F.percent(g.total, total)], ' tổng còn phải thu.'] : []; } },
-      { key: 'com', tab: 'Mặt hàng', title: 'Mặt hàng', groups: comGroups,
-        lead: groups => (groups.length ? [['b', groups[0].label], ' chiếm ', ['b', F.percent(groups[0].total, total)], ' tổng còn phải thu.'] : []) },
-    ];
+  /**
+   * Ma trận 2×2 của khách CÓ nợ quá hạn theo hai yếu tố ngày của quy tắc rủi ro: cột = trả gần nhất
+   * (trong/quá `no_pay_days`), hàng = đi hàng gần nhất (trong/quá `no_trip_days`). `bad` = số yếu tố xấu
+   * (0–2) để tô nền; ô dưới-phải là nơi nguy nhất. Yếu tố thứ ba (quá hạn ≥ 3 tháng) không chia ở đây.
+   */
+  function matrix(rows, rule) {
+    const cols = [`Có trả trong ${rule.no_pay_days} ngày`, `Trên ${rule.no_pay_days} ngày chưa trả`];
+    const lines = ['Còn đi hàng', `Ngừng đi hàng > ${rule.no_trip_days} ngày`];
+    const late = rows.filter(row => row.overdue > 0n);
+    const cells = [];
+    for (const t of [0, 1]) for (const p of [0, 1]) {
+      const key = `p${p}t${t}`;
+      cells.push(summarize({ key, label: `${cols[p]} · ${lines[t].toLowerCase()}`, bad: p + t }, late.filter(row => row.mx === key)));
+    }
+    return { cols, lines, cells, count: late.length, overdue: F.sum(late.map(row => row.overdue)) };
+  }
+
+  /** Nhóm mặt hàng để lọc bảng: nhiều tiền trước, "Khác" rồi "Chưa phân loại" cuối. */
+  function commodities(rows) {
+    return [...new Set(rows.map(row => row.com))]
+      .map(key => summarize({ key, label: key, tone: key === OTHER || key === UNSORTED ? 'grey' : '' }, rows.filter(row => row.com === key)))
+      .sort((a, b) => ((a.tone === 'grey') - (b.tone === 'grey')) || ((a.key === UNSORTED) - (b.key === UNSORTED))
+        || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
+  }
+
+  /**
+   * Thước đo tháng: đã thu so với phát sinh tháng này và hôm nay là ngày mấy của tháng (theo `as_of`, giờ VN).
+   * Phát sinh 0 thì không có tỉ lệ (`percent` null, `fill` 0); thu vượt phát sinh thì thước đầy, % vẫn đúng.
+   */
+  function monthProgress(asOf, thisMonth) {
+    const day = Number(asOf.slice(8, 10));
+    const days = new Date(Date.UTC(Number(asOf.slice(0, 4)), Number(asOf.slice(5, 7)), 0)).getUTCDate();
+    const charges = F.toBig(thisMonth?.charges_vnd ?? '0');
+    const received = F.toBig(thisMonth?.received_vnd ?? '0');
+    return { month: Number(asOf.slice(5, 7)), day, days, dayPct: Math.round(day / days * 100), charges, received,
+      fill: charges > 0n ? F.barWidth(received, charges) : 0, percent: charges > 0n ? F.percent(received, charges) : null };
+  }
+
+  /** Ô số ngày trên bảng: chữ ngắn và sắc thái theo ngưỡng; null là "chưa …", không phải 0. */
+  function dayCell(days, limit, active, never) {
+    if (days == null) return { text: never, tone: 'bad' };
+    return { text: ago(days), tone: days > limit ? 'bad' : days > active ? 'warn' : '' };
   }
 
   /**
    * Danh sách khách theo lọc: `tier` là nhóm hạn trả (cột số đầu thành phần nợ thuộc nhóm), `cls` là
-   * {dim, key} của một nhóm phân loại. Mặc định xếp theo cột số đầu, `sort: 'total'` xếp theo còn nợ.
+   * {dim, key} của một ô ma trận (`mx`, chỉ khách có nợ quá hạn), `com` là mặt hàng. Xếp theo cột số đầu
+   * (mặc định), `total` còn nợ, `pay`/`trip` số ngày giảm dần với null (chưa trả / chưa có chuyến) coi là lâu nhất.
    */
-  function filterRows(rows, { tier = null, cls = null, sort = 'overdue' } = {}) {
-    return rows.filter(row => (tier == null || row.tiers[tier] > 0n) && (!cls || row[cls.dim] === cls.key))
+  function filterRows(rows, { tier = null, cls = null, com = null, sort = 'overdue' } = {}) {
+    const days = value => (value == null ? Infinity : value);
+    const byDays = (field, a, b) => compare(days(a.row[field]), days(b.row[field]));
+    return rows.filter(row => (tier == null || row.tiers[tier] > 0n)
+      && (!cls || (row[cls.dim] === cls.key && (cls.dim !== 'mx' || row.overdue > 0n))) && (com == null || row.com === com))
       .map(row => ({ row, first: tier == null ? row.overdue : row.tiers[tier] }))
       .sort((a, b) => (sort === 'total' ? compare(a.row.total, b.row.total) || compare(a.first, b.first)
-        : compare(a.first, b.first) || compare(a.row.total, b.row.total)) || a.row.name.localeCompare(b.row.name, 'vi'));
+        : sort === 'pay' ? byDays('payDays', a, b) || compare(a.first, b.first)
+          : sort === 'trip' ? byDays('tripDays', a, b) || compare(a.first, b.first)
+            : compare(a.first, b.first) || compare(a.row.total, b.row.total)) || a.row.name.localeCompare(b.row.name, 'vi'));
   }
 
-  return { UNSORTED, OTHER, TIERS, RISK, commodityKey, monthName, tierLabels, tierOfMonth, reason, reasons,
-    debtors, totalsMatch, dimensions, filterRows };
+  return { UNSORTED, OTHER, TIERS, RISK, commodityKey, monthName, tierLabels, tierOfMonth, reason, reasons, ago,
+    debtors, totalsMatch, matrix, commodities, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;

@@ -1,64 +1,62 @@
-/* Tổng quan quản lý công nợ (DASH-03, duyệt 29/10/2026) và tab Việc cần làm; token chung ở cong-no-theme.css.
-   Nhóm hạn trả: trong hạn dùng hai bậc xanh của tuổi nợ, quá hạn cam → đỏ (đỏ chỉ cho cảnh báo thật). */
-:root{--due-0:var(--age-0);--due-1:var(--age-1);--due-2:#efa53f;--due-3:#d9622b;--due-4:#a3231f}
+/* Tổng quan v2 (DASH-04, 30/10/2026: mỗi câu hỏi một hình, số nằm trong hình) và tab Việc cần làm; token chung ở cong-no-theme.css.
+   Nhóm hạn trả: trong hạn dùng hai bậc xanh của tuổi nợ, quá hạn cam → đỏ (đỏ chỉ cho cảnh báo thật); xanh lá cho tiền thu về. */
+:root{--due-0:var(--age-0);--due-1:var(--age-1);--due-2:#efa53f;--due-3:#d9622b;--due-4:#a3231f;--got:#0f766e}
 .page{max-width:1440px}
 .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
-.receivable{grid-column:span 4}
 .due{grid-column:span 8}
+.month{grid-column:span 4}
 .filterbar{grid-column:1/-1}
-.debtors{grid-column:span 7}
-.classify{grid-column:span 5;align-self:start}
+.debtors{grid-column:span 8}
+.matrix{grid-column:span 4;align-self:start}
 .todo-page .todo{grid-column:span 7}
 .todo-page .side{grid-column:span 5;display:flex;flex-direction:column;gap:16px}
 
 /* Bớt khung: viền nhạt đủ tách khối; không bóng, không dải tiêu đề xám (audit 29/10/2026). */
 .grid .card{box-shadow:none}
 .grid .card-head{margin-bottom:6px;padding-top:16px;padding-bottom:4px;background:none;border-bottom:0}
+.grid .card-head h2{font-size:15px;font-weight:600;color:var(--ink-2)}
+.card-head .hint{cursor:help}
+.empty{margin:0;color:var(--ink-3)}
 
 /* Số việc trên thanh điều hướng: người nhập thấy ngay khi vào web */
 .topbar nav .badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;margin-left:8px;padding:0 7px;border-radius:11px;background:var(--critical);color:#fff;font-size:12.5px;font-weight:700}
 .topbar nav .badge[hidden]{display:none}
 
-/* Số chính */
-.card.receivable{padding-top:18px;background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%);border-color:#b7d3f6}
-.receivable h2{margin:0;font-size:15px;font-weight:600;color:var(--ink-2)}
-.big-money{margin:4px 0 2px;font-size:48px;line-height:1.1;font-weight:700;letter-spacing:-.5px;white-space:nowrap}
-.big-money small{margin-left:6px;font-size:24px;font-weight:600;color:var(--ink-2)}
-.substat{color:var(--ink-3)}
-.minis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
-.mini{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
-.mini .k{font-size:13.5px;color:var(--ink-3)}
-.mini .v{font-size:20px;font-weight:700}
-.mini .s{font-size:13.5px;color:var(--ink-3)}
-.mini.risk{display:block;width:100%;text-align:left;cursor:pointer;border-color:#ebb7b4;background:var(--critical-soft)}
-.mini.risk .v{color:var(--critical)}
-.mini.risk:hover{border-color:var(--critical)}
-.mini.risk:disabled{cursor:default}
-.mini.risk[aria-pressed="true"]{padding:9px 11px;border:2px solid var(--critical)}
-.hero-foot{margin:12px 0 0;font-size:13.5px;color:var(--ink-3)}
-
-/* Nợ theo hạn trả: một thanh 5 đoạn, vạch tách trong hạn / quá hạn; bấm đoạn hoặc ô chú giải để lọc danh sách khách. */
-.age-note{margin:0 0 12px;font-size:15px;color:var(--ink-2)}
-.age-note b{color:var(--ink)}
-.due-wrap{position:relative;margin:26px 0 12px}
-.age-bar{display:flex;gap:2px;height:28px;border-radius:6px;overflow:hidden;background:var(--line-soft)}
-.age-bar span{display:block;height:100%;min-width:2px;cursor:pointer;transition:opacity .15s}
+/* 1. Nợ theo hạn trả: số headline trên tiêu đề, ngoặc trong hạn | quá hạn, thanh lớn 5 đoạn có số trong đoạn, nhãn thẳng hàng dưới đoạn. */
+.due h2 .big-money{margin-left:8px;font-size:26px;font-weight:700;color:var(--ink);letter-spacing:-.3px}
+.due h2 small{margin-left:8px;font-size:13.5px;font-weight:400;color:var(--ink-3)}
+.brk{display:flex;gap:3px;height:22px;margin-top:4px;font-size:13.5px}
+.brk>div{display:flex;align-items:flex-end;justify-content:center;gap:6px;min-width:0;padding-bottom:3px;border-bottom:2px solid var(--line);white-space:nowrap;overflow:hidden}
+.brk .in{color:var(--accent-ink)}
+.brk .late{color:var(--critical);border-color:var(--critical)}
+.brk b{font-size:15px}
+.age-bar{display:flex;gap:3px;height:52px;margin-top:4px;border-radius:8px;overflow:hidden;background:var(--line-soft)}
+.age-bar span{display:flex;align-items:center;justify-content:center;min-width:2px;height:100%;overflow:hidden;color:#fff;font-size:15px;font-weight:700;white-space:nowrap;cursor:pointer;transition:opacity .15s}
+.age-bar span.t0{color:#0d366b}
 .age-bar span:hover{filter:brightness(1.12)}
-.due-mark{position:absolute;top:-24px;bottom:-6px;border-left:2px dashed var(--ink-2);pointer-events:none}
-.due-mark span{position:absolute;top:-2px;font-size:13px;font-weight:600;white-space:nowrap}
-.due-mark .l{right:8px;color:var(--accent-ink)}
-.due-mark .r{left:8px;color:var(--critical)}
-.age-legend{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
-.age-legend button{display:block;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);text-align:left;cursor:pointer}
-.age-legend button:hover{border-color:var(--accent)}
-.age-legend button[aria-pressed="true"]{padding:7px 9px;border:2px solid var(--accent-ink);background:var(--accent-soft)}
-.age-legend .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border-radius:3px;vertical-align:-1px;transition:opacity .15s}
-.age-legend .k{min-height:42px;font-size:14px;line-height:1.5;color:var(--ink-2)}
-.age-legend .v{margin-top:2px;font-size:20px;font-weight:700}
-.age-legend .v .p{margin-left:6px;font-size:13.5px;font-weight:400;color:var(--ink-3)}
-.age-legend .m{font-size:13px;color:var(--ink-3)}
-.age-legend button.late .v .money{color:var(--critical)}
-.picking .age-bar span:not(.on),.picking .age-legend button:not([aria-pressed="true"]) .sw{opacity:.3}
+.age-legend .lab{display:flex;gap:3px;margin-top:6px}
+.age-legend .lab>*{display:block;min-width:0;padding:4px 2px;border:0;border-radius:6px;background:none;font-family:inherit;font-size:13px;line-height:1.35;color:var(--ink-3);text-align:center;overflow:hidden}
+.age-legend .lab button{cursor:pointer}
+.age-legend .lab button:hover{background:var(--head)}
+.age-legend .lab b{display:block;font-weight:600;color:var(--ink-2)}
+.age-legend button[aria-pressed="true"]{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent-ink)}
+.age-legend .tiny{margin:6px 0 0;font-size:12.5px;color:var(--ink-3)}
+.age-legend .tiny button{padding:2px 6px;border:0;border-radius:6px;background:none;font-size:inherit;color:inherit;cursor:pointer}
+.age-legend .tiny button:hover{background:var(--head)}
+.age-legend .tiny i{display:inline-block;width:9px;height:9px;margin-right:4px;border-radius:2px}
+.age-legend .tiny b{color:var(--ink-2)}
+.picking .age-bar span:not(.on){opacity:.3}
+
+/* 2. Thu tháng này: thước đo đã thu / phát sinh, vạch hôm nay. */
+.meter{position:relative;height:30px;margin:22px 0 6px;border-radius:6px;background:#e6eaf0}
+.meter .fill{height:100%;border-radius:6px;background:var(--got)}
+.meter .today{position:absolute;top:-20px;bottom:-6px;border-left:2px dashed var(--ink-2);pointer-events:none}
+.meter .today span{position:absolute;top:0;right:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
+.mrow{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;color:var(--ink-3)}
+.mrow b{display:block;font-size:20px;color:var(--ink)}
+.mrow .got b{color:var(--got)}
+.mrow .chg{text-align:right}
+.hero-foot{margin:14px 0 0;font-size:12.5px;color:var(--ink-3)}
 
 /* Dải lọc chung, đặt trên hàng nó tác động; chỉ hiện khi đang lọc. */
 .filterbar{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px;border:1px solid #b7d3f6;border-radius:var(--radius);background:var(--accent-soft);font-size:15px}
@@ -70,55 +68,55 @@
 .chip button:hover{background:#ffffff55}
 .clear-all{margin-left:auto;border:0;background:none;color:var(--accent-ink);font-weight:600;text-decoration:underline;cursor:pointer}
 
-/* Khách cần đòi trước: tên + nhãn + một câu lý do, thanh cơ cấu nợ theo hạn trả, quá hạn, còn nợ. */
-.dhead,.drow{display:grid;grid-template-columns:minmax(0,1fr) 120px 84px 84px;align-items:center;gap:12px}
-.dhead{padding:0 10px 6px;font-size:13.5px;color:var(--ink-3);border-bottom:1px solid var(--line)}
-.dhead button{height:32px;padding:0;border:0;background:none;text-align:right;white-space:nowrap;color:inherit;cursor:pointer}
+/* 3. Khách cần đòi trước: bảng; cột cơ cấu nợ trên cùng thang, hai cột số ngày tô theo ngưỡng, chấm màu mức rủi ro. */
+.debtors .card-head{flex-wrap:wrap}
+.com-pick{margin-left:auto}
+.com-pick select{height:30px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:13.5px;color:var(--ink-2)}
+.com-pick select[hidden]{display:none}
+.dhead,.drow{display:grid;grid-template-columns:minmax(0,1fr) 200px 78px 78px 80px 80px;align-items:center;gap:10px}
+.dhead{padding:0 10px 6px;font-size:13px;color:var(--ink-3);border-bottom:1px solid var(--line)}
+.dhead button{height:30px;padding:0;border:0;background:none;text-align:right;white-space:nowrap;color:inherit;cursor:pointer}
 .dhead button:hover{color:var(--ink)}
 .dhead button[aria-pressed="true"]{color:var(--ink);font-weight:700}
-.drow{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid var(--line-soft);background:none;text-align:left;cursor:pointer}
+.drow{width:100%;min-height:42px;padding:4px 10px;border:0;border-bottom:1px solid var(--line-soft);background:none;text-align:left;cursor:pointer}
 .drow:hover{background:var(--head)}
 .drow:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.drow .who{min-width:0}
-.drow .nm{font-size:16px;font-weight:600}
-.drow .tag{margin-left:8px;padding:1px 8px;font-size:12.5px;vertical-align:1px}
-.drow .why{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--ink-3)}
-.drow .num{text-align:right;font-size:16px;font-variant-numeric:tabular-nums}
-.drow .num.od{font-weight:700;color:var(--critical)}
+.drow .who{display:flex;align-items:center;min-width:0}
+.drow .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:15.5px;font-weight:600}
+.dot{display:inline-block;flex:none;width:10px;height:10px;margin-right:8px;border-radius:50%;background:var(--age-1)}
+.dot.r-high{background:var(--critical)}
+.dot.r-watch{background:var(--due-2)}
+.drow .num{text-align:right;font-size:15px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.drow .num.od{font-size:16px;font-weight:700;color:var(--critical)}
 .drow .num.zero{font-weight:400;color:var(--ink-3)}
-.mbar{display:block;height:10px;border-radius:5px;background:#eef1f5;overflow:hidden}
+.drow .days{text-align:right;font-size:14px;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.drow .days.warn{color:var(--warning);font-weight:600}
+.drow .days.bad{color:var(--critical);font-weight:700}
+.mbar{display:block;height:12px;border-radius:6px;background:#eef1f5;overflow:hidden}
 .mbar>span{display:flex;gap:1px;height:100%}
 .mbar i{display:block;height:100%;min-width:2px}
 .debtors .empty{padding:16px 10px}
-.empty{margin:0;color:var(--ink-3)}
-.tbl-foot{display:flex;justify-content:flex-end;padding-top:8px;font-size:13.5px}
+.tbl-foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding-top:8px;font-size:13px;color:var(--ink-3)}
 .tbl-foot a{color:var(--accent-ink)}
 .tbl-foot a:hover{text-decoration:underline}
+.lg{display:inline-flex;flex-wrap:wrap;gap:12px}
+.lg .dot{width:9px;height:9px;margin-right:5px}
 
-/* Phân loại: một tiêu chí mỗi lần; thanh ngang một màu theo ý nghĩa, bấm để lọc danh sách bên trái. */
-.seg{display:flex;gap:4px;margin:0 0 12px;padding:3px;border-radius:9px;background:var(--line-soft)}
-.seg button{flex:1;height:40px;border:0;border-radius:7px;background:none;font-weight:600;color:var(--ink-2);cursor:pointer}
-.seg button:hover{color:var(--ink)}
-.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px #1f293726}
-.bars{display:flex;flex-direction:column}
-.bar-row{display:block;width:100%;padding:6px 10px 8px;border:0;border-left:3px solid transparent;border-radius:6px;background:none;text-align:left;cursor:pointer}
-.bar-row:hover{background:var(--head)}
-.bar-row:disabled{cursor:default;background:none}
-.bar-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.bar-row .line{display:flex;align-items:baseline;gap:10px;font-size:15px;color:var(--ink-2)}
-.bar-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar-row .cnt{font-size:13.5px;color:var(--ink-3)}
-.bar-row .val{font-weight:600;color:var(--ink)}
-.bar-row .track{display:block;height:8px;margin-top:5px;border-radius:4px;background:#e6eaf0;transition:opacity .15s}
-.bar-row .track i{display:block;height:100%;border-radius:4px;background:var(--accent)}
-.bar-row.critical .track i{background:var(--critical)}
-.bar-row.warning .track i{background:var(--due-2)}
-.bar-row.grey .line{color:var(--ink-3)}
-.bar-row.grey .track i{background:#8e959e}
-.bar-row.grey.first{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line);border-radius:0 0 6px 6px}
-.bar-row[aria-pressed="true"]{background:var(--accent-soft);border-left-color:var(--accent-ink)}
-.bar-row[aria-pressed="true"] .track i{background:var(--accent-ink)}
-.picking .bar-row:not([aria-pressed="true"]) .track{opacity:.3}
+/* 4. Ma trận 2×2: nền theo số yếu tố xấu (0 xanh, 1 vàng, 2 đỏ); bấm ô để lọc bảng. */
+.mx{display:grid;grid-template-columns:84px 1fr 1fr;grid-template-rows:auto auto auto;gap:6px}
+.mx .h{display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;font-size:12.5px;color:var(--ink-3);text-align:center;line-height:1.3}
+.mx .v{display:flex;align-items:center;font-size:12.5px;color:var(--ink-3);line-height:1.3}
+.mx .c{display:flex;flex-direction:column;justify-content:center;min-height:84px;padding:8px 12px;border:1px solid transparent;border-radius:8px;text-align:left;cursor:pointer;transition:opacity .15s}
+.mx .c:hover{border-color:var(--accent)}
+.mx .c:disabled{cursor:default}
+.mx .c b{font-size:21px;line-height:1.1}
+.mx .c span{font-size:13px;color:var(--ink-2)}
+.mx .c.h0{background:#eaf2fc}
+.mx .c.h1{background:#fdf3e1}
+.mx .c.h2{background:#f6cfcc}
+.mx .c.h2 b{color:var(--critical)}
+.mx .c[aria-pressed="true"]{border-color:var(--accent-ink);box-shadow:inset 0 0 0 1px var(--accent-ink)}
+.picking .mx .c:not([aria-pressed="true"]){opacity:.4}
 
 /* Việc cần làm (tab riêng) */
 .todo-group+.todo-group{margin-top:14px}
@@ -156,7 +154,7 @@
 .drawer .dtotals .late b{color:var(--critical)}
 .drawer h3{margin:18px 0 6px;font-size:14.5px;color:var(--ink-2)}
 .drawer .reasons{margin:0;padding-left:20px;font-size:14.5px;line-height:1.6}
-.drawer .mrow{display:grid;grid-template-columns:150px 1fr 90px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:14px}
+.drawer .mrow{display:grid;grid-template-columns:150px 1fr 90px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:14px;color:var(--ink)}
 .drawer .mrow small{display:block;font-size:12.5px;color:var(--ink-3)}
 .drawer .mrow .track{height:8px;border-radius:4px;background:#e6eaf0}
 .drawer .mrow .track i{display:block;height:100%;border-radius:4px}
@@ -168,14 +166,13 @@
 .drawer .primary:hover{background:var(--accent-ink)}
 .drawer .secondary{border:1px solid var(--line);color:var(--ink-2)}
 
-@media (max-width:1100px){.receivable,.due,.debtors,.classify,.todo-page .todo,.todo-page .side{grid-column:span 12}}
+@media (max-width:1100px){.due,.month,.debtors,.matrix,.todo-page .todo,.todo-page .side{grid-column:span 12}}
 @media (max-width:760px){
   .grid{display:flex;flex-direction:column}
-  .big-money{font-size:38px}
-  .age-legend{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .dhead,.drow{grid-template-columns:minmax(0,1fr) 76px 76px}
-  .mbar,.dhead .mb-h{display:none}
-  .seg{flex-wrap:wrap}
-  .seg button{flex:1 1 30%}
+  .due h2 .big-money{font-size:22px}
+  .brk{font-size:12.5px}
+  .age-bar span{font-size:13px}
+  .dhead,.drow{grid-template-columns:minmax(0,1fr) 72px 72px}
+  .mbar,.dhead .mb-h,.dhead .dh,.drow .days{display:none}
 }
-@media (prefers-reduced-motion:reduce){.age-bar span,.age-legend .sw,.bar-row .track{transition:none}}
+@media (prefers-reduced-motion:reduce){.age-bar span,.mx .c{transition:none}}

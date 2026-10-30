@@ -63,38 +63,45 @@ async function withPage(options, fn, page = '/dashboard-v7.html') {
 const withDashboard = (options, fn, query = '') => withPage(options, fn, `/dashboard-v7.html${query}`);
 
 test('Tổng quan chỉ còn bốn khối về công nợ; số chính, hạn trả, khách cần đòi, phân loại; màn đầu và điện thoại', async () => withDashboard({}, async page => {
-  await page.locator('.receivable .big-money').waitFor();
+  await page.locator('.due .big-money').waitFor();
   await page.locator('#list .drow').first().waitFor();
-  for (const heading of ['Còn phải thu', 'Nợ theo hạn trả', 'Khách cần đòi trước', 'Phân loại khách đang nợ'])
+  for (const heading of [/^Còn phải thu/, 'Thu tháng 10', 'Khách cần đòi trước', 'Khách quá hạn đang ở đâu'])
     assert.equal(await page.getByRole('heading', { name: heading }).count(), 1);
-  for (const heading of ['Việc cần làm', 'Hôm nay', 'Theo mặt hàng', 'Khách nợ nhiều nhất'])
+  for (const heading of ['Việc cần làm', 'Hôm nay', 'Theo mặt hàng', 'Khách nợ nhiều nhất', 'Nợ theo hạn trả', 'Phân loại khách đang nợ'])
     assert.equal(await page.getByRole('heading', { name: heading }).count(), 0);
-  assert.equal(await page.locator('.receivable .big-money').innerText(), '2,48tỷ');
-  assert.match(await page.locator('.receivable').innerText(), /2\.480\.000\.000 đ · 4 khách đang nợ/);
-  assert.match(await page.locator('.receivable .minis').innerText(), /Đã thu tháng 10\s+186 triệu\s+phát sinh 700 triệu[\s\S]*Khách rủi ro cao\s+2 khách\s+quá hạn 850 triệu/);
+  // 1. Số headline trên tiêu đề, số đồng đầy đủ chỉ ở tooltip (DASH-04: số nằm trong hình, không câu kết luận).
+  assert.equal(await page.locator('.due .big-money').innerText(), '2,48 tỷ');
+  assert.equal(await page.locator('.due .big-money').getAttribute('title'), '2.480.000.000 đ');
+  assert.match(await page.locator('.due h2').innerText(), /4 khách đang nợ/);
+  assert.equal(await page.locator('.age-note, .minis, .age-legend .p').count(), 0);
+  // Thanh hạn trả: nhóm trống không vẽ; số ghi trong đoạn rộng; ngoặc trong hạn / quá hạn; nhãn + tháng nợ thẳng hàng dưới đoạn.
+  assert.deepEqual(await page.locator('.age-bar span').allInnerTexts(), ['680 triệu', '950 triệu', '600 triệu', '250 triệu']);
+  assert.match(await page.locator('.brk').innerText(), /Trong hạn\s+680 triệu[\s\S]*Quá hạn\s+1,8 tỷ\s+· 72,6% · 3 khách/);
+  assert.deepEqual(await page.locator('.age-legend .lab button').allInnerTexts(), ['Chưa đến hạn\nnợ T10', '1–2 tháng\nnợ T7–T8', '3–6 tháng\nnợ T3–T6', 'Trên 6 tháng\nnợ T2 trở về trước']);
+  assert.equal(await page.locator('.age-legend .tiny').count(), 0);
+  // 2. Thu tháng này: thước đo đã thu / phát sinh, vạch hôm nay 29/31; chú thích thiếu giá, khách dư giữ nguyên.
+  assert.match(await page.locator('.month .mrow').innerText(), /186 triệu\s+đã thu · 26,6%\s+700 triệu\s+phát sinh tháng này/);
+  assert.equal(await page.locator('.meter .fill').evaluate(el => el.style.width), '26.6%');
+  assert.equal(await page.locator('.meter .today').evaluate(el => el.style.left), '94%');
   assert.equal(await page.locator('.hero-foot').innerText(), 'Chưa tính 3 chuyến thiếu đơn giá · 3 khách đang dư 125 triệu, tính riêng');
-  // Năm nhóm hạn trả: nhóm trống không vẽ đoạn; chú giải ghi tháng nợ; vạch tách trong hạn / quá hạn.
-  assert.equal(await page.locator('.age-bar span').count(), 4);
-  assert.match(await page.locator('.due .age-note').innerText(), /^1,8 tỷ \(72,6%\) đã quá hạn, trong đó 850 triệu quá hạn từ 3 tháng trở lên\.$/);
-  assert.deepEqual(await page.locator('.age-legend .m').allInnerTexts(), ['nợ T10', 'nợ T9', 'nợ T7–T8', 'nợ T3–T6', 'nợ T2 trở về trước']);
-  assert.equal(await page.locator('.due-mark').evaluate(el => el.style.left), '27.4%');
-  // Khách cần đòi: xếp theo tiền quá hạn; nhãn rủi ro và một câu lý do.
+  // 3. Khách cần đòi: xếp theo tiền quá hạn; chấm màu mức rủi ro, hai cột số ngày tô theo ngưỡng; lý do bằng chữ ở title.
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách C', 'Khách D', 'Khách E', 'Khách A']);
   assert.deepEqual(await page.locator('#list .num.od').allInnerTexts(), ['0,95', '0,60', '0,25', '0,00']);
-  assert.deepEqual(await page.locator('#list .why').allInnerTexts(), ['Nợ T8/2026 quá hạn · có trả 02/10',
-    'Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng', 'Nợ từ T2/2024 · 32 tháng chưa trả · chưa có chuyến', 'Trong hạn · có trả 20/10']);
-  assert.equal(await page.locator('#list .tag.critical').count(), 2);
+  assert.deepEqual(await page.locator('#list .days').allInnerTexts(), ['27 ngày', '3 ngày', 'chưa trả', '5 tháng', '32 tháng', 'chưa có', '9 ngày', '4 ngày']);
+  assert.deepEqual(await page.locator('#list .days.bad').allInnerTexts(), ['chưa trả', '5 tháng', '32 tháng', 'chưa có']);
+  assert.equal(await page.locator('#list .dot.r-high').count(), 2);
+  assert.equal(await page.locator('#list .drow').nth(1).getAttribute('title'), 'Rủi ro cao — Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng');
   assert.equal(await page.locator('#list-aside').innerText(), '3/4 khách có nợ quá hạn · tỷ đồng');
-  // Phân loại: mặc định theo rủi ro; đổi tiêu chí.
-  assert.match(await page.locator('#cls-lead').innerText(), /2 khách rủi ro cao đang nợ 850 triệu, trong đó quá hạn 850 triệu\./);
-  assert.deepEqual(await page.locator('#cls-bars .nm').allInnerTexts(), ['Rủi ro cao', 'Cần theo dõi', 'Trong hạn']);
-  await page.locator('[data-dim="com"]').click();
-  assert.deepEqual(await page.locator('#cls-bars .nm').allInnerTexts(), ['Chuối', 'Sầu riêng cảng', 'Chưa phân loại']);
-  assert.equal(await page.locator('#cls-bars .bar-row.grey').count(), 1);
+  assert.match(await page.locator('#list-legend').innerText(), /Rủi ro cao\s+Theo dõi\s+ngày đỏ: chưa trả > 60 · không đi hàng > 90/);
+  assert.deepEqual(await page.locator('#com-filter option').allInnerTexts(), ['Mặt hàng: tất cả', 'Chuối · 1', 'Sầu riêng cảng · 1', 'Chưa phân loại · 2']);
+  // 4. Ma trận 2×2: chỉ khách có nợ quá hạn; chưa trả lần nào / chưa có chuyến vào ô xấu; tổng = 3 khách quá hạn.
+  assert.deepEqual(await page.locator('#mx .h').allInnerTexts(), ['Có trả trong 60 ngày', 'Trên 60 ngày chưa trả']);
+  assert.deepEqual(await page.locator('#mx .c').allInnerTexts(), ['1 khách\nquá hạn 950 triệu', '0 khách\n—', '0 khách\n—', '2 khách\nquá hạn 850 triệu']);
+  assert.equal(await page.locator('#mx .c.h2').count(), 1);
   assert.equal(await page.locator('#todo-badge').innerText(), '3');
   assert.equal(await page.locator('nav a[href="/viec-can-lam.html"]').count(), 1);
   const layout = await page.evaluate(() => ({ scrollX: document.documentElement.scrollWidth > innerWidth,
-    firstRowBottom: Math.max(...[...document.querySelectorAll('.receivable,.due')].map(el => el.getBoundingClientRect().bottom)) }));
+    firstRowBottom: Math.max(...[...document.querySelectorAll('.due,.month')].map(el => el.getBoundingClientRect().bottom)) }));
   assert.equal(!layout.scrollX && layout.firstRowBottom <= 720, true, JSON.stringify(layout));
   await page.locator('#customer-search').fill('Khách C');
   await page.locator('#customer-search').press('Tab');
@@ -114,22 +121,24 @@ test('Tổng quan không có khách đang nợ: không bịa số', async () => 
     summary: { overdue_vnd: '0', long_overdue_vnd: '0', overdue_customers: 0, high_customers: 0, high_overdue_vnd: '0' },
     this_month: { month: '2026-10-01', charges_vnd: '0', received_vnd: '0' } },
 }, async page => {
-  await page.locator('.receivable .big-money').waitFor();
-  assert.match(await page.locator('.receivable').innerText(), /0 đ/);
+  await page.locator('.due .big-money').waitFor();
+  assert.match(await page.locator('.due').innerText(), /0 đ[\s\S]*Chưa có khách đang nợ/);
   assert.equal(await page.locator('.hero-foot').count(), 0);
   assert.equal(await page.locator('.age-bar span').count(), 0);
+  assert.match(await page.locator('.month').innerText(), /0 đ\s+đã thu\s+0 đ\s+chưa phát sinh/);
+  assert.equal(await page.locator('.meter .fill').evaluate(el => el.style.width), '0%');
   assert.match(await page.locator('#list').innerText(), /Không có khách đang nợ/);
-  assert.match(await page.locator('#cls-bars').innerText(), /Chưa có khách đang nợ/);
+  assert.deepEqual(await page.locator('#mx .c b').allInnerTexts(), ['0 khách', '0 khách', '0 khách', '0 khách']);
   assert.equal(await page.locator('#todo-badge').isHidden(), true);
 }));
 
 test('Làm mới đọc số mới và ghi giờ cập nhật', async () => {
   let amount = '2480000000';
   await withDashboard({ payload: () => ({ ...dashboard, receivable: { ...dashboard.receivable, total_vnd: amount } }) }, async page => {
-    await page.locator('.receivable .big-money').waitFor();
+    await page.locator('.due .big-money').waitFor();
     amount = '2480000001';
     await page.locator('#refresh-data').click();
-    await page.getByText('2.480.000.001 đ').waitFor();
+    await page.locator('.due .big-money[title="2.480.000.001 đ"]').waitFor();
     assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
   });
 });
@@ -142,12 +151,13 @@ test('lỗi API tổng quan: báo lỗi, không để chữ đang tải', async 
 
 test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số tổng vẫn đọc được', async () => {
   await withDashboard({ debtStatus: 503 }, async page => {
-    await page.locator('.receivable .big-money').waitFor();
-    assert.match(await page.locator('.receivable').innerText(), /2\.480\.000\.000/);
-    assert.equal(await page.locator('.receivable .minis').count(), 0);
-    assert.match(await page.locator('.due').innerText(), /Chưa tải được phần quá hạn/);
+    await page.locator('.due .big-money').waitFor();
+    assert.match(await page.locator('.due').innerText(), /2,48 tỷ\s*4 khách đang nợ[\s\S]*Chưa tải được phần quá hạn/);
+    assert.equal(await page.locator('.meter').count(), 0);
+    assert.match(await page.locator('.month').innerText(), /Chưa tải được số thu tháng này[\s\S]*Chưa tính 3 chuyến thiếu đơn giá/);
     assert.match(await page.locator('#list').innerText(), /Chưa tải được danh sách khách quá hạn/);
-    assert.match(await page.locator('.classify').innerText(), /Chưa tải được phân loại khách/);
+    assert.equal(await page.locator('#com-filter').isHidden(), true);
+    assert.match(await page.locator('.matrix').innerText(), /Chưa tải được phân loại khách/);
     assert.equal(await page.locator('#error').isHidden(), true);
   });
   await withDashboard({ customerStatus: 503 }, async page => {
@@ -180,9 +190,9 @@ test('tên Sheet trên danh sách, ô thông tin, ngăn kéo mở sổ gốc', a
   assert.equal(await page.locator('#customer-results a').innerText(), 'AG LOGISTIC · Dừa');
 }));
 
-test('lọc tại chỗ: nhóm hạn trả + nhóm phân loại kết hợp, số tổng giữ nguyên, ngăn kéo và địa chỉ trang', async () => withDashboard({}, async page => {
+test('lọc tại chỗ: nhóm hạn trả + ô ma trận + mặt hàng kết hợp, số tổng giữ nguyên, ngăn kéo và địa chỉ trang', async () => withDashboard({}, async page => {
   await page.locator('#list .drow').first().waitFor();
-  const receivable = await page.locator('.receivable').innerText();
+  const receivable = await page.locator('.due').innerText();
   await page.locator('.age-legend [data-tier="3"]').click();
   assert.equal(await page.locator('#h-list').innerText(), '1 khách theo lọc');
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D']);
@@ -191,14 +201,14 @@ test('lọc tại chỗ: nhóm hạn trả + nhóm phân loại kết hợp, s�
   assert.match(await page.evaluate(() => location.search), /han=3/);
   await page.locator('.age-bar [data-tier="2"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách C']);
-  await page.locator('[data-dim="trip"]').click();
-  await page.locator('[data-cls="trip:t91"]').click();
+  await page.locator('[data-cls="mx:p1t1"]').click();
   assert.equal(await page.locator('#h-list').innerText(), '0 khách theo lọc');
   assert.match(await page.locator('#list').innerText(), /Không có khách nào khớp lọc này/);
   await page.locator('[data-clear="tier"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
-  assert.match(await page.locator('#filterbar').innerText(), /Đi hàng gần nhất: ngừng đi hàng \(trên 90 ngày\)/);
-  assert.equal(await page.locator('.receivable').innerText(), receivable);
+  assert.match(await page.locator('#filterbar').innerText(), /Khách: trên 60 ngày chưa trả · ngừng đi hàng > 90 ngày/);
+  assert.match(await page.evaluate(() => location.search), /nhom=mx%3Ap1t1/);
+  assert.equal(await page.locator('.due').innerText(), receivable);
   await page.locator('[data-sort="total"]').click();
   assert.match(await page.evaluate(() => location.search), /xep=tong/);
   await page.locator('#list .drow').first().click();
@@ -209,9 +219,16 @@ test('lọc tại chỗ: nhóm hạn trả + nhóm phân loại kết hợp, s�
   await page.locator('#drawer').waitFor({ state: 'hidden' });
   assert.doesNotMatch(await page.evaluate(() => location.search), /khach=/);
   assert.equal(await page.evaluate(() => document.activeElement.dataset.khach), '4');
-  await page.locator('.mini.risk').click();
+  // Lọc mặt hàng cộng thêm vào ô ma trận đang chọn; xếp theo cột ngày: chưa trả lần nào coi là lâu nhất.
+  await page.locator('#com-filter').selectOption('Chưa phân loại');
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
-  assert.equal(await page.locator('[data-dim="risk"]').getAttribute('aria-selected'), 'true');
+  assert.match(await page.locator('#filterbar').innerText(), /Mặt hàng: Chưa phân loại/);
+  assert.match(await page.evaluate(() => location.search), /mh=Ch/);
+  await page.locator('[data-sort="pay"]').click();
+  assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
+  await page.locator('[data-sort="trip"]').click();
+  assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách E', 'Khách D']);
+  assert.match(await page.evaluate(() => location.search), /xep=di-hang/);
   await page.locator('[data-clear="all"]').click();
   assert.equal(await page.locator('#h-list').innerText(), 'Khách cần đòi trước');
   assert.equal(await page.locator('#filterbar').isHidden(), true);
@@ -225,18 +242,18 @@ test('link có sẵn ?han=&nhom=&khach= mở đúng trạng thái; ESC đóng t�
   await page.locator('#drawer:not([hidden])').waitFor();
   assert.equal(await page.locator('#d-name').innerText(), 'Khách D');
   assert.equal(await page.locator('.age-legend [data-tier="3"]').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.locator('[data-cls="risk:high"].bar-row').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('[data-cls="mx:p1t1"]').getAttribute('aria-pressed'), 'true');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#drawer').isHidden(), true);
-  assert.equal(await page.evaluate(() => location.search), '?han=3&nhom=risk%3Ahigh');
-}, '?han=3&nhom=risk%3Ahigh&khach=4'));
+  assert.equal(await page.evaluate(() => location.search), '?han=3&nhom=mx%3Ap1t1');
+}, '?han=3&nhom=mx%3Ap1t1&khach=4'));
 
 test('số từng khách lệch tổng server: không lọc tại chỗ, bấm nhóm hạn trả sang Công nợ theo tháng', async () => withDashboard({
   debtPayload: { ...debt, due_tiers: debt.due_tiers.map(t => (t.tier === 'not_due' ? { ...t, receivable_vnd: '680000001' } : t)) },
 }, async page => {
   await page.locator('#list .drow').first().waitFor();
-  assert.equal(await page.locator('#cls-bars .bar-row').first().isDisabled(), true);
-  assert.equal(await page.locator('.mini.risk').isDisabled(), true);
+  assert.equal(await page.locator('#mx .c').first().isDisabled(), true);
+  assert.equal(await page.locator('#com-filter').isDisabled(), true);
   await page.locator('.age-legend [data-tier="2"]').click();
   await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1/);
 }, '?han=2'));
