@@ -483,7 +483,8 @@
       renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
         sheetButton: `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`
           + (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
-          + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : ''),
+          + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
+          + (ctx.receiptButton?.(data, active) ?? ''),
         sections: groups.map(section).join(''), navigation: groups.map(item => `<a href="#thang-${escape(monthKey(item.month))}"><span>${monthLabel(monthKey(item.month))}</span><small>${fmt(item.outstanding_vnd)}</small></a>`).join(''),
         history: (data.events ?? []).length ? `<ol>${data.events.map(event => `<li><time>${escape(eventTime(event.at))}</time><span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span><strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong><p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(event.after?.note || event.after?.void_reason || event.after?.review_reason || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–')}</small></li>`).join('')}</ol>` : '<p>Chưa có thay đổi nào</p>' });
       for (const row of sheetRows.filter(item => item.sync_state === 'CONFLICT' && item.existing_id)) {
@@ -501,6 +502,7 @@
       }
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);
+      ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
       markLoc(data);

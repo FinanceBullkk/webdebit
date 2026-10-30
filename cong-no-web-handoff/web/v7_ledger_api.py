@@ -24,6 +24,9 @@ import v7_presence
 import v7_sheet_refresh
 from v7_price_queue import load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
+from v7_receipt_queue import METHOD as RECEIPT_METHOD
+from v7_receipt_queue import load_receipt_snapshot, project_receipts
+from v7_receipt_queue import reference as receipt_reference
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 MAX_BODY = 64 * 1024
@@ -42,6 +45,8 @@ PREVIEW = Path(__file__).resolve().parents[1] / "preview"
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
 PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/ps.json")
+# Runner giá ghi phiếu thu cạnh prices.json (THU-SHEET-01), nên mặc định đi theo đường giá.
+RECEIPT_SNAPSHOT_PATH = os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("receipts.json"))
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
@@ -916,6 +921,61 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
 
 
+def receipt_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    snapshot = load_receipt_snapshot(RECEIPT_SNAPSHOT_PATH)
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    return project_receipts(snapshot, ledger, customers, datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date())
+
+
+def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Record every READY Sheet receipt of one customer through record_receipt (THU-SHEET-01)."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}:
+        bad()
+    customer, version = request["customer_id"], request["expected_version"]
+    digest, key = request["snapshot_sha256"], request["idempotency_key"]
+    if (not positive_int(customer) or type(version) is not int or not 0 <= version <= MAX_BIGINT
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip()
+            or any(ord(char) < 32 for char in key)):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
+    if ledger.get("status") != "active":
+        raise ApiError(409, "NO_BASELINE", "Khách chưa có số dư đầu hiệu lực.")
+    if ledger.get("version") != version:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        projection = receipt_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_RECEIPTS_UNAVAILABLE", "Không đọc được phiếu thu từ Sheet.") from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+    written = 0
+    for item in projection["ready"]:
+        # One key per Sheet receipt: a repeated click replays the stored result, never a second receipt.
+        command_key = hashlib.sha256(
+            f"{key}:{digest}:{item['customer_tab']}:{item['source_row']}:{item['amount_vnd']}:{item['date']}".encode()).hexdigest()
+        try:
+            result = runner.run("record_receipt", {
+                "customer_id": customer, "expected_version": version, "idempotency_key": command_key,
+                "date": item["date"], "method": RECEIPT_METHOD, "amount_vnd": item["amount_vnd"],
+                "reference": receipt_reference(item["note"])}, actor)
+        except ApiError as exc:
+            if not written:
+                raise   # nothing written yet: a plain error, same as one receipt
+            # Each receipt stands alone; the rest stays READY and the next read matches what was written.
+            return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                         "complete": False, "error": exc.code}
+        version = result["version"] if type(result.get("version")) is int else \
+            runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+        written += 1
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+
+
 def ps_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     snapshot = load_ps_snapshot(PS_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
@@ -1098,6 +1158,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return approve_prices(raw, runner, actor)
+        if parts.path == "/api/v7/sheet/receipts":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return approve_receipts(raw, runner, actor)
         if parts.path == "/api/v7/ps/fees":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
@@ -1231,6 +1296,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         except (ValueError, ApiError):
             result = {**result, "sheet_prices": {"unavailable": True, "ready": [], "review": [],
                                                  "ready_count": 0, "review_count": 0}}
+        try:
+            result = {**result, "sheet_receipts": receipt_projection(runner, result, actor)}
+        except (ValueError, ApiError):
+            result = {**result, "sheet_receipts": {"unavailable": True, "ready": [], "review": [],
+                                                   "ready_count": 0, "review_count": 0}}
         try:
             result = {**result, "ps_fees": ps_projection(runner, result, actor)}
         except (ValueError, ApiError):

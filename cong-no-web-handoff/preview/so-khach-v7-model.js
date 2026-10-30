@@ -497,6 +497,13 @@ const SoKhachV7Model = (() => {
     return { count: ready.length, increaseVnd, beforeVnd, afterVnd: beforeVnd + increaseVnd };
   }
 
+  // Ghi phiếu thu từ Sheet (specs/v7-receipt-queue.md): tiền là chuỗi số nguyên dương từ server.
+  function planSheetReceipts(ready, totalOutstandingVnd) {
+    const totalVnd = ready.reduce((sum, item) => sum + vnd(item.amount_vnd), 0n);
+    const beforeVnd = vnd(totalOutstandingVnd, true);
+    return { count: ready.length, totalVnd, beforeVnd, afterVnd: beforeVnd - totalVnd };
+  }
+
   function offsetErrorMessage(code, detail) {
     if (code === "OFFSET_EXCEEDS_CREDIT") {
       const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
@@ -644,7 +651,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DEBIT_FEES, debitFeeColumn, debitNote };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;
