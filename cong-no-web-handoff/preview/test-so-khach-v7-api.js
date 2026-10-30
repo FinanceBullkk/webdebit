@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { create, stale, unknown } = require('./so-khach-v7-api.js');
-// File sổ khách nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
-const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="(so-khach-v7-[a-z0-9-]+\.js)"><\/script>/g)].map(match => match[1]);
+// File sổ khách (và cong-no-format.js dùng chung) nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
+const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="((?:cong-no-format|so-khach-v7-[a-z0-9-]+)\.js)"><\/script>/g)].map(match => match[1]);
 
 const reply = (status, body) => ({ ok: status === 200, json: async () => body });
 const ledger = version => ({ status: 'active', customer_id: 7, version, months: [], total_outstanding_vnd: '10' });
@@ -354,7 +354,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
       URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
-    for (const name of live ? liveScripts : ['so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
+    for (const name of live ? liveScripts : ['cong-no-format.js', 'so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
       vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context, { filename: name });
     }
     return root;
@@ -649,5 +649,5 @@ test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm
   assert.deepEqual([...customerLabels([
     { id: 10, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
     { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
-  ])], [[10, 'SHEET · Chuối · sổ 10'], [11, 'SHEET · Chuối · sổ 11']]);
+  ])], [['10', 'SHEET · Chuối · sổ 10'], ['11', 'SHEET · Chuối · sổ 11']]);
 });

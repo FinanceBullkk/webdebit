@@ -4,9 +4,8 @@
   // Trang chỉ nhận từng trang tin từ /api/v7/zalo/messages (tối đa 100 tin một lượt), không bao giờ
   // tải cả bản xuất; không ghi nội dung tin ra console hay nơi nào khác.
   const $ = id => document.getElementById(id);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-  // So khớp không phân biệt hoa thường và dấu tiếng Việt, cùng quy tắc với máy chủ.
-  const fold = value => String(value ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+  // Thoát HTML và so khớp không phân biệt hoa thường/dấu tiếng Việt (foldText: cùng quy tắc với máy chủ) từ CongNoFormat.
+  const { esc, foldText } = CongNoFormat;
   const TZ = 'Asia/Ho_Chi_Minh';
   const PAGE_LIMIT = 50;
   const state = {
@@ -61,9 +60,9 @@
   }
 
   function filtered() {
-    const needle = fold(state.filter.trim());
+    const needle = foldText(state.filter.trim());
     if (!needle) return state.conversations;
-    return state.conversations.filter(row => fold(row.display_name).includes(needle) || row.conversation_id.startsWith(needle));
+    return state.conversations.filter(row => foldText(row.display_name).includes(needle) || row.conversation_id.startsWith(needle));
   }
 
   function paintList() {
@@ -83,8 +82,8 @@
     const safe = esc(text);
     const needle = state.query.trim();
     if (!needle) return safe;
-    const folded = fold(text);
-    const target = fold(needle);
+    const folded = foldText(text);
+    const target = foldText(needle);
     // Chỉ tô khi độ dài không đổi sau khi bỏ dấu (gần như luôn đúng với tiếng Việt), tránh lệch vị trí.
     if (folded.length !== text.length) return safe;
     let out = '';

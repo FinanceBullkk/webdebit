@@ -2,7 +2,7 @@
  * các trang chi tiết container khổ A4 ngang, chung một file khi "Lưu dưới dạng PDF". Chỉ dựng HTML/CSS từ chứng từ do
  * SoKhachV7Model.debitNote dựng và thông tin chứng từ người lập điền; mọi con số lấy từ model, ở đây chỉ định dạng. */
 const DebitNotePrint = (() => {
-  const escape = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const { esc: escape } = typeof CongNoFormat !== 'undefined' ? CongNoFormat : require('./cong-no-format.js');
   // Tiền VND: dấu phẩy ngăn nghìn, 0 là "–", số âm trong ngoặc đơn, thiếu số để trống.
   function money(value) {
     if (value === null || value === undefined) return '';

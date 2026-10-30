@@ -4,23 +4,13 @@
   const M = DashboardModel;
   const root = document.querySelector('#dashboard');
   const $ = id => document.getElementById(id);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const { esc, fold, commodityText, customerLabels } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   // Sang Công nợ theo tháng: chỉ khách còn nợ, xếp nợ nhiều nhất trước; có khách thì tô và cuộn tới dòng đó.
   const matrixHref = id => `/cong-no-theo-thang.html?con-no=1&xep=con-no${id == null ? '' : `&khach=${encodeURIComponent(id)}`}`;
   // Số rút gọn, rê chuột thấy số đồng chính xác.
   const amount = value => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value))}</span>`;
   const positive = value => String(value).replace(/^-/, '');
-  const fold = value => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const transportText = mode => ({ CANG: 'cảng', 'CẢNG': 'cảng', BO: 'bộ', 'BỘ': 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
-  const commodityText = (commodity, mode) => commodity ? `${commodity}${transportText(mode) ? ` · ${transportText(mode)}` : ''}` : 'Chưa phân loại';
-  const customerLabel = row => row.label ?? `${row.display_name ?? row.name}${row.commodity ? ` · ${commodityText(row.commodity, row.transport_mode)}` : ''}`;
-  const customerLabels = customers => {
-    const counts = new Map();
-    for (const row of customers) counts.set(customerLabel(row), (counts.get(customerLabel(row)) ?? 0) + 1);
-    return new Map(customers.map(row => [String(row.id), counts.get(customerLabel(row)) > 1 ? `${customerLabel(row)} · sổ ${row.id}` : customerLabel(row)]));
-  };
   // Tên ngắn cho danh sách: tên Sheet; trùng tên thì thêm mặt hàng, vẫn trùng thì thêm số sổ.
   const shortLabels = customers => {
     const base = row => row.display_name ?? row.name;
