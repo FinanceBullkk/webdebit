@@ -6,7 +6,7 @@ Lập 22/10/2026 (Claude, phiên điều phối). Trạng thái từng mục l�
 
 **Cập nhật 29/10/2026** (Claude, cài và kiểm live trên `hao`): C1, C2.
 
-**Cập nhật 30/10/2026** (Claude, kiểm live trên `hao` sau lượt timer 02:40): C1.
+**Cập nhật 30/10/2026** (Claude, kiểm live trên `hao` sau lượt timer 02:40): C1. Cùng ngày (Claude, đọc Sheet nguồn qua Google Sheets, người dùng chốt trong chat): A3, C4.
 
 Ngày bắt đầu song song chính thức là ngày mọi mục **Chặn** dưới đây ĐẠT và chủ nghiệp vụ chốt ngày ([`SONG-SONG-02`](decisions.md#song-song-02) còn mở). Mục **Không chặn** làm trong lúc chạy song song, nhưng phải xong trước ngày chuyển hẳn.
 
@@ -18,7 +18,7 @@ Vai trò: **Chủ NV** = chủ nghiệp vụ (người dùng); **Admin** = ngư�
 | --- | --- | --- | --- | --- | --- |
 | A1 | Mốc `clean-v2` nạp vào `webdebit_v7`, checker và đối soát với mốc đạt | Chặn | Admin | Checker OK, `DOI SOAT: DAT` 236 khách | **ĐẠT** 21/10, đọc lại sau đợt nâng 22/10 |
 | A2 | Mọi thay đổi trên Sheet sau mốc (khoảng 9 giờ 21/10) đã dán bù lên web: chuyến mới, thu, sửa dòng cũ | Chặn | Người nhập | Đối soát `--totals-only` với bản xuất Sheet mới nhất ngày bắt đầu: mã thoát 0, tất cả `KHOP` | CHƯA. **27/10:** đã có đồng bộ chuyến Sheet → web (`sheet_sync_runner.py`, hàng chờ trong sổ khách, nút "Duyệt … chuyến mới", đối chiếu lệch từng trường), nên chuyến mới không phải dán tay. Đồng bộ chuyến **không** mang đơn giá/phụ phí và **không** có phiếu thu. **28/10:** giá đã có đường riêng, nút "Ghi N giá từ Sheet" (runner đọc tab khách 15 phút một lần, triển khai `hao` 27/10, [spec](../specs/v7-price-queue.md)); người nhập vẫn phải bấm ghi. Phiếu thu vẫn nhập tay |
-| A3 | Hai khách bị giữ ở các bản xuất sau `clean-v2` (một tab trùng tên, một thiếu số dư đầu) có cách xử lý đã chốt | Chặn | Chủ NV quyết, Claude ghi `decisions.md` | Dòng quyết định; khách đó `KHOP` hoặc được ghi rõ là ngoài phạm vi đối soát | CHƯA chốt. **27/10:** chặn luôn C4: `v7_export_clean.py` thoát mã 2, không tạo file khi bản xuất có khách bị giữ, nên chưa chạy được đối soát cuối ngày |
+| A3 | Hai khách bị giữ ở các bản xuất sau `clean-v2` (một tab trùng tên, một thiếu số dư đầu) có cách xử lý đã chốt | Chặn | Chủ NV quyết, Claude ghi `decisions.md` | Dòng quyết định; khách đó `KHOP` hoặc được ghi rõ là ngoài phạm vi đối soát | **ĐẠT 30/10** về quyết định ([`SONG-SONG-03`](decisions/song-song-03.md)): khách tab trùng tên đã sửa trên Sheet (đổi tên tab); khách không còn tab tạm ngoài phạm vi đối soát hằng ngày, CÒN MỞ tới trước F4. Chưa kiểm chứng bằng một lần chạy `v7_export_clean.py` trên bản xuất mới. (27/10: mục này chặn C4 vì `v7_export_clean.py` thoát mã 2 khi có khách bị giữ.) |
 | A4 | Cách tìm dòng cũ trong mốc bị sửa trên Sheet | Không chặn | Claude chốt, Codex code nếu cần | Capture-only đã chạy trên Sheet thật từ 21/10 16:26 ([spec](../specs/sheet-capture.md)); còn thiếu bước đọc log ra danh sách dòng cần dán | ĐỀ XUẤT: đối soát tổng khách bắt lệch tiền, log capture dùng để truy dòng |
 | A5 | Đóng băng nguồn bằng hash xlsx ([`V7-CSM`](decisions.md#v7-csm) (5), case `7.11c`) | Không chặn | Claude spec, Codex code | Spec riêng, test `7.11c` thành BEHAVIOR | CHƯA cài; chỉ cần nếu nạp lại mốc |
 
@@ -39,7 +39,7 @@ B2 dùng mở/khóa tháng vì thao tác này ghi Lịch sử mà không đổi 
 | C1 | Backup V7 tự động hằng ngày bằng `v7_backup.py`, giữ nhiều bản, ngoài repo | Chặn | Claude viết mẫu timer vào runbook và cài sau khi người dùng duyệt | `MANIFEST.json` của hai ngày liên tiếp | **ĐẠT 30/10:** timer `v7-backup-daily` cài trên `hao` 29/10 (02:40 giờ VN, giữ 30 bản, [runbook](v7-deploy-runbook.md#backup-hằng-ngày--timer-v7-backup-daily), [nhật ký](deploys/2026-10-29-v7-backup-daily.md)). Hai ngày liên tiếp có bản do unit `v7-backup-daily` tạo: `v7-20261029-194852` (chạy tay qua unit) và `v7-20261030-024010` (lượt timer 02:40 giờ VN 30/10, `Result=success`), cả hai `verify` MATCH. Bằng chứng `day2-*.txt` ở thư mục `v7-backup-daily-install-20261029-194749` trên `hao`, ngoài Git |
 | C2 | Phục hồi thử một bản backup định kỳ ra DB mới, khớp số đếm | Chặn | Claude, theo runbook B4 | Báo cáo restore khớp exact counts | **ĐẠT 29/10:** bản `v7-20261029-194852` phục hồi ra DB tạm mới trên `hao`: `MATCH`, số dòng 31 bảng và tổng nợ 236 khách khớp `MANIFEST.json`; đã xóa DB tạm. Báo cáo ở thư mục `v7-backup-daily-install-20261029-194749` trên `hao`, ngoài Git ([nhật ký](deploys/2026-10-29-v7-backup-daily.md)) |
 | C3 | Rollback A/B/C có trong runbook | Chặn | — | [Runbook mục 7](v7-deploy-runbook.md), tổng duyệt Docker 21/10 | **ĐẠT** về tài liệu |
-| C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | **27/10:** hướng dẫn đã viết ([đối soát cuối ngày](doi-soat-cuoi-ngay.md)). CHƯA chạy thử; phụ thuộc A3 |
+| C4 | Người chạy đối soát cuối ngày biết cách chạy và đọc kết quả | Chặn | Claude viết hướng dẫn ngắn, Người nhập chạy thử một lần | Một lần chạy thử có mã thoát và số đếm | **27/10:** hướng dẫn đã viết ([đối soát cuối ngày](doi-soat-cuoi-ngay.md)). CHƯA chạy thử. **30/10:** A3 đã chốt, hướng dẫn thêm cách chạy `--hold-out` khi chỉ còn khách ngoài phạm vi; hết phụ thuộc A3 |
 
 ## D. Hành vi ghi trên `hao`
 
