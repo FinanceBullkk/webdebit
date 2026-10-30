@@ -3,10 +3,12 @@
   const F = CongNoFormat;
   const currentYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
   const currentMonth = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', month: 'numeric' }).format(new Date()));
-  // Mở từ Tổng quan: ?tuoi=0–3 (nhóm tuổi nợ) và ?con-no=1 (chỉ khách còn nợ).
+  // Mở từ Tổng quan: ?tuoi=0–3 (nhóm tuổi nợ), ?con-no=1 (chỉ khách còn nợ), ?xep=con-no (bỏ nhóm mặt hàng,
+  // nợ Mọi năm nhiều nhất trước), ?khach=<id> (tô và cuộn tới dòng khách đó một lần sau khi tải).
   const opened = new URLSearchParams(location.search);
   const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null, open: null,
-    age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null };
+    age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null,
+    sort: opened.get('xep') === 'con-no' ? 'debt' : 'group', focus: Number(opened.get('khach')) || null, scrolled: false };
   const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
   // Nhóm tuổi của một tháng như get_dashboard; tháng sau tháng hiện tại không thuộc nhóm nào trên ma trận.
   const ageOf = month => {
@@ -115,7 +117,8 @@
       groups.get(key).push(customer);
     });
     const groupAll = members => F.sum(members.map(customer => customer.total_all_vnd));
-    const ordered = [...groups.entries()].sort((a, b) => {
+    const byDebt = (a, b) => compareDesc(allTotal(a), allTotal(b)) || a.name.localeCompare(b.name, 'vi');
+    const ordered = state.sort === 'debt' ? [[null, rows.slice()]] : [...groups.entries()].sort((a, b) => {
       if (a[0] === '') return 1;
       if (b[0] === '') return -1;
       return compareDesc(groupAll(a[1]), groupAll(b[1])) || a[0].localeCompare(b[0], 'vi');
@@ -126,11 +129,12 @@
       '<th class="tot" scope="col">Năm ' + state.year + '</th><th class="tot" scope="col">Mọi năm</th>';
     const parts = [];
     for (const [key, members] of ordered) {
-      members.sort((a, b) => compareDesc(allTotal(a), allTotal(b)) || a.name.localeCompare(b.name, 'vi'));
-      parts.push('<tr class="group"><td class="khach" title="' + esc(groupLabel(key)) + '">' + esc(groupLabel(key)) + '<span class="n">(' + members.length + ')</span></td><td colspan="12"></td>' +
+      members.sort(byDebt);
+      // Xếp theo nợ: một danh sách liền, không dòng nhóm (dòng Tổng cuối bảng vẫn là tổng).
+      if (key !== null) parts.push('<tr class="group"><td class="khach" title="' + esc(groupLabel(key)) + '">' + esc(groupLabel(key)) + '<span class="n">(' + members.length + ')</span></td><td colspan="12"></td>' +
         totalCell(F.sum(members.map(customer => customer.total_year_vnd)), 'yr') + totalCell(groupAll(members), 'all') + '</tr>');
       members.forEach((customer, index) => {
-        parts.push('<tr class="' + (index % 2 ? 'alt' : '') + '"><td class="khach"><a href="/so-khach-v7-live.html?customer=' + esc(customer.customer_id) + '" title="Mở sổ ' + esc(customer.name) + '">' + esc(customer.name) + '</a></td>' +
+        parts.push('<tr class="' + (index % 2 ? 'alt' : '') + (customer.customer_id === state.focus ? ' focus' : '') + '" data-row="' + esc(customer.customer_id) + '"><td class="khach"><a href="/so-khach-v7-live.html?customer=' + esc(customer.customer_id) + '" title="Mở sổ ' + esc(customer.name) + '">' + esc(customer.name) + '</a></td>' +
           MONTHS.map(month => heatCell(customer, month)).join('') + totalCell(yearTotal(customer), 'yr') + totalCell(allTotal(customer), 'all') + '</tr>');
       });
     }
@@ -153,6 +157,11 @@
     $('#year-next').disabled = state.year >= yearMax;
     document.querySelectorAll('.cell-btn[data-id]').forEach(button => button.addEventListener('click', () => openDetail(Number(button.dataset.id), Number(button.dataset.month), button)));
     paintActive();
+    $('#sort').value = state.sort;
+    if (state.focus != null && !state.scrolled) {
+      state.scrolled = true;
+      document.querySelector('#heat-body tr[data-row="' + state.focus + '"]')?.scrollIntoView({ block: 'center' });
+    }
   }
 
   async function load(year) {
@@ -318,6 +327,13 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   $('#find').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase('vi'); render(); });
   $('#commodity').addEventListener('change', event => { state.commodity = event.target.value; render(); });
+  $('#sort').addEventListener('change', event => {
+    state.sort = event.target.value;
+    const query = new URLSearchParams(location.search);
+    if (state.sort === 'debt') query.set('xep', 'con-no'); else query.delete('xep');
+    history.replaceState(null, '', location.pathname + (query.toString() ? '?' + query : ''));
+    render();
+  });
   $('#only-open').checked = state.onlyOpen;
   $('#only-open').addEventListener('change', event => { state.onlyOpen = event.target.checked; render(); });
   $('#drawer-close').addEventListener('click', closeDrawer);

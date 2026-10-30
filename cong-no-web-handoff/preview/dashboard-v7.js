@@ -6,6 +6,8 @@
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
+  // Sang Công nợ theo tháng: chỉ khách còn nợ, xếp nợ nhiều nhất trước; có khách thì tô và cuộn tới dòng đó.
+  const matrixHref = id => `/cong-no-theo-thang.html?con-no=1&xep=con-no${id == null ? '' : `&khach=${encodeURIComponent(id)}`}`;
   // Số rút gọn, rê chuột thấy số đồng chính xác.
   const amount = value => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value))}</span>`;
   const positive = value => String(value).replace(/^-/, '');
@@ -90,7 +92,7 @@
       <span class="aside" id="list-aside"></span><label class="com-pick"><select id="com-filter" aria-label="Lọc theo mặt hàng"></select></label></div>
       <div class="dhead"><span>Khách</span><span class="mb-h">Cơ cấu nợ · cùng thang</span><button type="button" data-sort="overdue" id="col-first">Quá hạn</button><button type="button" data-sort="total">Còn nợ</button><button type="button" data-sort="pay" class="dh">Chưa trả</button><button type="button" data-sort="trip" class="dh">Đi hàng</button></div>
       <div id="list"></div>
-      <div class="tbl-foot"><span class="lg" id="list-legend"></span><a id="list-all" href="/cong-no-theo-thang.html?con-no=1"></a></div></section>`;
+      <div class="tbl-foot"><span class="lg" id="list-legend"></span><a id="list-all" href="${matrixHref()}"></a></div></section>`;
 
   // 4. Khách quá hạn đang ở đâu: ma trận 2×2 trả gần nhất × đi hàng gần nhất; bấm ô = lọc bảng.
   const matrixCard = () => `<section class="card matrix" id="mx-card" aria-labelledby="h-mx"><div class="card-head"><h2 id="h-mx">Khách quá hạn đang ở đâu</h2><span class="aside">bấm ô để lọc bảng</span></div>
@@ -140,7 +142,8 @@
     $('mx').innerHTML = `<div></div><div class="h">${esc(mx.cols[0])}</div><div class="h">${esc(mx.cols[1])}</div>
       <div class="v">${esc(mx.lines[0])}</div>${box('p0t0')}${box('p1t0')}
       <div class="v">${esc(mx.lines[1])}</div>${box('p0t1')}${box('p1t1')}`
-      + (state.ready ? '' : '<p class="mx-note" role="note">Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.</p>');
+      + (!state.ready ? '<p class="mx-note" role="note">Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.</p>'
+        : mx.credit.count ? `<p class="mx-credit" role="note">Tổng ô ${esc(F.short(mx.overdue))}: chưa trừ ${mx.credit.count} khách dư ở nợ cũ ${esc(F.short(-mx.credit.overdue))}.</p>` : '');
     $('mx-card').classList.toggle('picking', state.cls?.dim === 'mx');
   }
 
@@ -199,7 +202,7 @@
   root.addEventListener('click', event => {
     const tier = event.target.closest('[data-tier]');
     if (tier) {
-      if (!state.ready) { location.href = '/cong-no-theo-thang.html?con-no=1'; return; }
+      if (!state.ready) { location.href = matrixHref(); return; }
       state.tier = state.tier === Number(tier.dataset.tier) ? null : Number(tier.dataset.tier);
       writeUrl(); paint(); return;
     }
@@ -294,7 +297,7 @@
       <h3>Còn nợ theo tháng phát sinh</h3>${months.map(item => `<div class="mrow"><span>Tháng ${esc(`${item.key.slice(5, 7)}/${item.key.slice(0, 4)}`)}<small>${esc(state.tiers[item.tier].label)}</small></span><span class="track"><i style="width:${F.barWidth(item.value, max)}%;background:var(--due-${item.tier})"></i></span><span class="r money" title="${esc(F.full(item.value))}">${item.value < 0n ? `dư ${esc(F.short(-item.value))}` : esc(F.short(item.value))}</span></div>`).join('')}
       ${missing ? `<p class="flags">${missing.count} chuyến thiếu đơn giá — chưa tính vào số trên.</p>` : ''}`;
     $('d-open').href = ledgerHref(id);
-    $('d-matrix').href = '/cong-no-theo-thang.html?con-no=1';
+    $('d-matrix').href = matrixHref(id);
     lastFocus = trigger ?? document.activeElement;
     $('scrim').hidden = false;
     $('drawer').hidden = false;

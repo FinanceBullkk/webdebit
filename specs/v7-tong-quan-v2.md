@@ -57,9 +57,11 @@ Quy tắc đếm ngày của khối 3 và 4 dùng đúng ngưỡng `rule` của 
 
 ## Giao tiếp frontend–backend
 
-Không đổi. Vẫn `GET /api/v7/dashboard` và `GET /api/v7/dashboard/debt` như [`v7-tong-quan-quan-ly-no.md`](v7-tong-quan-quan-ly-no.md). API debt lỗi: khối 1 chỉ hiện số headline, khối 2–4 báo "Chưa tải được…" như cũ. Danh sách khách không khớp tổng server (`totalsMatch` sai) hoặc tổng 4 ô ma trận không bằng `summary` (`matrixMatches` sai, ví dụ server cộng cả quá hạn âm): không lọc tại chỗ; bấm đoạn/nhãn hạn trả mở Công nợ theo tháng, ô ma trận và select mặt hàng bị khóa, dưới ma trận ghi "Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng."
+Không đổi. Vẫn `GET /api/v7/dashboard` và `GET /api/v7/dashboard/debt` như [`v7-tong-quan-quan-ly-no.md`](v7-tong-quan-quan-ly-no.md). API debt lỗi: khối 1 chỉ hiện số headline, khối 2–4 báo "Chưa tải được…" như cũ. Danh sách khách không khớp tổng server (`totalsMatch` sai) hoặc ma trận không đối chiếu được với `summary` (`matrixMatches` sai: số khách khác, hoặc tổng 4 ô cộng phần quá hạn âm khác `summary.overdue_vnd`): không lọc tại chỗ; bấm đoạn/nhãn hạn trả mở Công nợ theo tháng, ô ma trận và select mặt hàng bị khóa, dưới ma trận ghi "Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng."
 
 Trạng thái trên địa chỉ trang giữ: `?han=` (0–4), `?nhom=mx:<pay><trip>` (ví dụ `mx:p1t1`), `?mh=<mặt hàng>` (tách khỏi `nhom` để kết hợp được với ô ma trận; link cũ `?nhom=com:<mặt hàng>` vẫn mở đúng lọc mặt hàng), `?xep=tong|chua-tra|di-hang`, `?khach=`. Giá trị `nhom` của tiêu chí đã bỏ (`risk`, `pay`, `trip`, `size`) bị bỏ qua; `?xem=` cũ bị xóa khỏi địa chỉ khi đổi lọc.
+
+**Sửa sau góp ý 30/10/2026** (người dùng xem trên `hao`: "dashboard chưa có interactive", "bấm từ tổng quan sang ma trận chưa tự sort sẵn"). Dữ liệu thật có khách *quá hạn âm* (dư ở tháng nợ cũ, còn nợ mới): server trừ phần này vào `summary.overdue_vnd`, ma trận chỉ gom khách quá hạn > 0, nên tổng 4 ô lớn hơn ngoặc Quá hạn và trang tự khóa mọi lọc tại chỗ. Từ nay phần chênh này là đối chiếu được: `matrix()` trả thêm `credit` (số khách và tổng quá hạn âm), `matrixMatches` đúng khi số khách bằng `summary.overdue_customers` và tổng ô + `credit` = `summary.overdue_vnd`; khi có khách quá hạn âm, dưới ma trận ghi một dòng "Tổng ô X: chưa trừ k khách dư ở nợ cũ Y." Không đổi quy tắc tính hay API. Các link sang Công nợ theo tháng (bảng "Xem cả … khách", ngăn kéo "Xem ở ma trận", nhóm hạn trả khi lọc bị khóa) mở `?con-no=1&xep=con-no` (bỏ nhóm mặt hàng, khách nợ Mọi năm nhiều nhất trước), ngăn kéo thêm `&khach=<id>` để tô và cuộn tới dòng khách đó; trang Công nợ theo tháng có thêm ô chọn "Nhóm theo mặt hàng / Nợ nhiều nhất trước", mặc định vẫn nhóm theo mặt hàng khi mở thẳng.
 
 ## Hành vi và bất biến
 
@@ -80,7 +82,7 @@ Trạng thái trên địa chỉ trang giữ: `?han=` (0–4), `?nhom=mx:<pay><t
 ## Phạm vi agent
 
 - Agent: claude (`CLAUDE-ALL-01`).
-- Được sửa: `preview/dashboard-v7.js`, `preview/dashboard-v7.css`, `preview/dashboard-v7-model.js`, hai test tương ứng, `preview/mockups/tong-quan-v2/`, spec và quyết định.
+- Được sửa: `preview/dashboard-v7.js`, `preview/dashboard-v7.css`, `preview/dashboard-v7-model.js`, hai test tương ứng, `preview/cong-no-theo-thang.{html,js,css}` và test browser của trang đó (chỉ phần xếp và tô khách khi mở từ Tổng quan), `preview/mockups/tong-quan-v2/`, spec và quyết định.
 - Cấm: SQL, migration, `web/`, `viec-can-lam.*`, hàm ghi tiền, dependency mới.
 
 ## Hoàn tác
