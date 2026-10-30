@@ -206,3 +206,35 @@ test('mở từ Tổng quan (?tuoi=&con-no=1): tô cột tháng của nhóm tu�
     app.close();
   }
 });
+
+test('mở từ Tổng quan (?xep=con-no&khach=): bỏ nhóm mặt hàng, nợ nhiều nhất trước, tô dòng khách; đổi lại nhóm', async () => {
+  const zero = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), '0']));
+  const one = (id, name, commodity, value) => ({ customer_id: id, name, commodity, transport_mode: commodity ? 'CẢNG' : null,
+    months: { ...zero, '1': value }, total_year_vnd: value, total_all_vnd: value, oldest_open_month: currentYear + '-01-01' });
+  // Nhóm Sầu riêng · cảng (A 80.000 + D 30.000) đứng trước Chuối (C 50.000); xếp theo nợ thì C lên giữa A và D.
+  const payload = year => ({ as_of: currentYear + '-10-26', year, years_available: [currentYear],
+    customers: year === currentYear ? [one(1, 'Khách A', 'Sầu riêng', '80000'), one(3, 'Khách C', 'Chuối', '50000'), one(4, 'Khách D', 'Sầu riêng', '30000')] : [],
+    grand_total_year_vnd: year === currentYear ? '160000' : '0', grand_total_all_vnd: year === currentYear ? '160000' : '0' });
+  const app = server({ matrixPayload: payload });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html?con-no=1&xep=con-no&khach=3');
+    await page.locator('#heat-body .khach').first().waitFor();
+    assert.equal(await page.locator('#sort').inputValue(), 'debt');
+    assert.equal(await page.locator('#heat-body tr.group').count(), 0);
+    assert.deepEqual(await page.locator('#heat-body td.khach a').allInnerTexts(), ['Khách A', 'Khách C', 'Khách D']);
+    assert.equal(await page.locator('#heat-body tr.focus').getAttribute('data-row'), '3');
+    assert.match(await page.locator('#heat-foot').innerText(), /Tổng 3 khách/);
+    await page.locator('#sort').selectOption('group');
+    assert.equal(await page.locator('#heat-body tr.group').count(), 2);
+    assert.deepEqual(await page.locator('#heat-body td.khach a').allInnerTexts(), ['Khách A', 'Khách D', 'Khách C']);
+    assert.doesNotMatch(await page.evaluate(() => location.search), /xep=/);
+    await page.locator('#sort').selectOption('debt');
+    assert.match(await page.evaluate(() => location.search), /xep=con-no/);
+  } finally {
+    await browser.close();
+    app.close();
+  }
+});
