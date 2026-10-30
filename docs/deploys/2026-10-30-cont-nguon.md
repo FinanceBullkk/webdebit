@@ -35,6 +35,6 @@ Drop-in cho `webdebit-sheet-sync.service`: `Environment=WEBDEBIT_SHEET_SOURCE=ex
 
 ## CÒN MỞ
 
-- Phía Sheet bỏ `BOOKING_DATA`, `CONT_BO` (web báo được bỏ sau khi lượt timer đầu đạt); `WEBDEBIT_EXPORT` bỏ được cùng lúc.
+- Phía Sheet bỏ `BOOKING_DATA`, `CONT_BO`, `WEBDEBIT_EXPORT` (web đã báo được bỏ 30/10/2026 sau lượt timer đầu; API không đọc `WEBDEBIT_EXPORT`, runner chỉ còn đọc nó ở đường quay lại).
 - Sau đó PR bỏ đường `export` trong `sheet_sync_runner.py` và `webdebit_export_connector.py`.
 - Chuyến `Loại = BỘ` chưa đồng bộ; cần quyết định riêng và `WEB_GHEP_KHACH` đủ tên chủ hàng đường bộ.
