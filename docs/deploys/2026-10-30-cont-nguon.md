@@ -27,7 +27,7 @@ PR đổi `DEFAULT_SOURCE = "cont_nguon"`; đường `export` giữ để quay l
 
 ## Kiểm sau deploy
 
-(điền sau lượt timer đầu)
+PR đổi mặc định merge lúc 10:08 UTC; Tests trên `main` đỏ một lần vì test trình duyệt Windows "ma trận Quá hạn" hết giờ 30 giây (không liên quan, cùng test đã xanh ở PR), chạy lại phần đỏ thì xanh, `Deploy hao` xanh, release `c8b3c23` lên `hao` lúc 10:13 UTC. Lượt timer đầu 10:15:29 UTC: `Result=success`, bản chụp ghi `runner.source = cont_nguon`, vùng `CONT_NGUON!A1:Z20000`, 5.576 dòng, `READY` 5.381, `INVALID` 195. So với bản chụp cuối của đường cũ (10:00 UTC, giữ tạm rồi xóa): `identical_ready: true`, cùng các số như bảng trên. Chưa mở sổ khách trên màn hình để nhìn nút duyệt; bằng chứng là tập dòng `READY` giống hệt nên hàng chờ và "không còn trên Sheet" không đổi.
 
 ## Rollback
 
