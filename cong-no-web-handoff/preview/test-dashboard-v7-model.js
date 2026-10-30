@@ -94,6 +94,22 @@ test('matrixMatches: matrix totals must equal summary (server sums negative over
   assert.equal(M.matrixMatches(null, debt.summary), false);
 });
 
+test('matrixMatches: khách quá hạn âm (dư ở nợ cũ) không vào ô nhưng được trừ đúng vào summary thì vẫn khớp', () => {
+  // Khách F: dư 50 ở nợ 3–6 tháng, còn nợ mới 250 → quá hạn −50, còn nợ 200; server cộng −50 vào overdue_vnd.
+  const withCredit = { ...debt, receivable_vnd: '1800',
+    due_tiers: debt.due_tiers.map(t => (t.tier === 'not_due' ? { ...t, receivable_vnd: '550' } : t.tier === 'late_3_6' ? { ...t, receivable_vnd: '350' } : t)),
+    summary: { ...debt.summary, overdue_vnd: '1050' },
+    customers: [...debt.customers, customer(6, 'Khách F', ['250', '0', '0', '-50', '0'])] };
+  const rows = M.debtors(withCredit);
+  assert.equal(M.totalsMatch(rows, withCredit), true);
+  const mx = M.matrix(rows, rule);
+  assert.equal(mx.count, 3);
+  assert.equal(mx.overdue, 1100n);
+  assert.deepEqual(mx.credit, { count: 1, overdue: -50n });
+  assert.equal(M.matrixMatches(mx, withCredit.summary), true);
+  assert.equal(M.matrixMatches(mx, { ...withCredit.summary, overdue_vnd: '1049' }), false);
+});
+
 test('commodities: under 1% folds into Khác, unsorted last, bigger first', () => {
   const big = { ...debt, receivable_vnd: '100000',
     customers: [...debt.customers, customer(5, 'Khách E', ['98400', '0', '0', '0', '0'], { commodity: 'Dừa' })] };

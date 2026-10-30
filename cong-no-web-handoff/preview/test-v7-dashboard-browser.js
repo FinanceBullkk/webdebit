@@ -183,6 +183,7 @@ test('tên Sheet trên danh sách, ô thông tin, ngăn kéo mở sổ gốc', a
   assert.match(tip[2], /còn nợ 1,25 tỷ/);
   await page.locator('#list .drow').first().click();
   assert.equal(await page.locator('#d-open').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  assert.equal(await page.locator('#d-matrix').getAttribute('href'), '/cong-no-theo-thang.html?con-no=1&xep=con-no&khach=2');
   assert.match(await page.locator('#d-body').innerText(), /3 chuyến thiếu đơn giá — chưa tính vào số trên/);
   await page.keyboard.press('Escape');
   await page.locator('#drawer').waitFor({ state: 'hidden' });
@@ -256,7 +257,7 @@ test('số từng khách lệch tổng server: không lọc tại chỗ, bấm n
   assert.equal(await page.locator('#com-filter').isDisabled(), true);
   assert.equal(await page.locator('#mx .mx-note').innerText(), 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.');
   await page.locator('.age-legend [data-tier="2"]').click();
-  await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1/);
+  await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1&xep=con-no$/);
 }, '?han=2'));
 
 test('ma trận không cộng ra ngoặc Quá hạn (quá hạn âm ở server): không lọc tại chỗ, có dòng giải thích', async () => withDashboard({
@@ -265,6 +266,24 @@ test('ma trận không cộng ra ngoặc Quá hạn (quá hạn âm ở server):
   await page.locator('#mx .c').first().waitFor();
   assert.equal(await page.locator('#mx .c').first().isDisabled(), true);
   assert.equal(await page.locator('#mx .mx-note').count(), 1);
+}));
+
+test('khách quá hạn âm (dư ở nợ cũ) được trừ đúng vào summary: vẫn lọc tại chỗ, ma trận ghi phần chưa trừ', async () => withDashboard({
+  // Khách F: dư 30 triệu ở nợ 3–6 tháng, còn nợ mới 200 triệu; server trừ −30 triệu vào ngoặc Quá hạn.
+  debtPayload: { ...debt, receivable_vnd: '2650000000',
+    due_tiers: debt.due_tiers.map(t => (t.tier === 'not_due' ? { ...t, receivable_vnd: '880000000' } : t.tier === 'late_3_6' ? { ...t, receivable_vnd: '570000000' } : t)),
+    summary: { ...debt.summary, overdue_vnd: '1770000000' },
+    customers: [...debt.customers, row(6, 'Khách F', ['200000000', '0', '0', '-30000000', '0'], { risk: 'ok', pay_days: 5, trip_days: 2 })] },
+}, async page => {
+  await page.locator('#mx .c').first().waitFor();
+  assert.equal(await page.locator('#mx .mx-note').count(), 0);
+  assert.equal(await page.locator('#mx .mx-credit').innerText(), 'Tổng ô 1,8 tỷ: chưa trừ 1 khách dư ở nợ cũ 30 triệu.');
+  assert.equal(await page.locator('#com-filter').isDisabled(), false);
+  await page.locator('[data-cls="mx:p1t1"]').click();
+  assert.equal(await page.locator('#list .drow').count(), 2);
+  await page.locator('.age-legend [data-tier="2"]').click();
+  assert.match(await page.evaluate(() => location.search), /han=2/);
+  assert.equal(await page.locator('#filterbar').isHidden(), false);
 }));
 
 test('link cũ ?nhom=com: mở lọc mặt hàng, ?xem= cũ bị xóa khỏi địa chỉ', async () => withDashboard({}, async page => {

@@ -43,6 +43,7 @@
 .heat td.khach{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .heat td.khach a{display:block;padding:8px 0;overflow:hidden;text-overflow:ellipsis}
 .heat td.khach a:hover{color:var(--accent-ink)}
+.heat tr.focus td.khach{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent-ink),1px 0 0 var(--line);font-weight:700}
 .heat tr.group td{padding:8px 10px;background:#dfe7f1;border-top:1px solid #c5d3e3;font-weight:700;text-align:right}
 .heat tr.group td.khach{padding:8px 12px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .heat tr.group td.khach .n{margin-left:6px;font-weight:400;font-size:13px;color:var(--ink-2)}
