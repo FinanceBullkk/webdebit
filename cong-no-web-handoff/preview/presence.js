@@ -6,7 +6,7 @@
   const COLORS = ['#c2410c', '#15803d', '#7c3aed', '#0e7490', '#be185d', '#a16207', '#1d4ed8', '#4b5563'];
   const HEARTBEAT = 10000, POLL = 2000, RETRY_STREAM = 30000, LOST_AFTER = 30000, DEBOUNCE = 150, MOVE_GAP = 200;
   const HIDE_KEY = 'presence-hide-pointers';
-  const PAGE_NAMES = { dashboard: 'Tổng quan', 'cong-no-theo-thang': 'Công nợ theo tháng', 'sheet-queue': 'Chuyến từ Sheet', 'viec-can-lam': 'Việc cần làm' };
+  const PAGE_NAMES = { dashboard: 'Tổng quan', 'cong-no-theo-thang': 'Công nợ theo tháng', 'sheet-queue': 'Chuyến từ Sheet', 'viec-can-lam': 'Việc cần làm', 'doi-no': 'Đòi nợ', 'zalo-chat': 'Chat Zalo' };
   const BOOK_LINK = /so-khach-v7-live\.html\?customer=([1-9][0-9]*)/;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 
