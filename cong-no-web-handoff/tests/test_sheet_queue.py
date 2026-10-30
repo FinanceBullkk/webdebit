@@ -204,5 +204,58 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(plan_shipper_backfill(queue, ledger), [])
 
 
+class RemovedSheetTripTests(unittest.TestCase):
+    def ready(self, container, date, booking=None, customer_id=7):
+        return {"source_row": 2, "customer_id": customer_id, "container": container, "event_date": date,
+                "booking": booking, "status": "READY", "review_status": "NEEDS_PRICE"}
+
+    def trip(self, trip_id, container, date, booking=None, **extra):
+        return {"id": trip_id, "month": date[:7] + "-01", "container": container, "event_date": date, "booking": booking,
+                "note": "Chuyến đồng bộ", "status": "confirmed", "amount_vnd": "5000000", "info_editable": True, **extra}
+
+    def project(self, rows, trips, legacy=()):
+        queue = {"snapshot_sha256": "c" * 64, "items": rows}
+        return project_customer(queue, {"customer_id": 7, "trips": trips, "legacy_rows": list(legacy)})
+
+    def test_trip_without_sheet_row_is_reported_with_amount_and_lock(self):
+        result = self.project([self.ready("KEEP1", "2026-10-20")], [
+            self.trip(9, "GONE1", "2026-09-10", info_editable=False),
+            self.trip(10, "KEEP1", "2026-10-20")])
+        self.assertEqual(result["removed_items"], [{"trip_id": 9, "container": "GONE1", "event_date": "2026-09-10",
+            "month": "2026-09-01", "status": "confirmed", "amount_vnd": "5000000", "month_locked": True}])
+        self.assertEqual(result["removed_count"], 1)
+        self.assertEqual(result["items"], [])
+
+    def test_sheet_row_within_three_days_or_same_booking_keeps_trip(self):
+        rows = [self.ready("ABC1", "2026-10-23"), self.ready("ABC2", "2026-10-01", "BK9")]
+        result = self.project(rows, [self.trip(9, "ABC1", "2026-10-20"), self.trip(10, "abc 2", "2026-10-20", "bk9"),
+                                     self.trip(11, "ABC1", "2026-10-19")])
+        self.assertEqual([item["trip_id"] for item in result["removed_items"]], [11])
+
+    def test_source_ref_trip_counts_and_other_customer_row_does_not_match(self):
+        rows = [self.ready("KEEP1", "2026-10-20"), self.ready("MOVED", "2026-10-20", customer_id=8)]
+        trip = {**self.trip(9, "MOVED", "2026-10-20"), "note": None, "source_ref": f"sheet:{'a' * 64}:5"}
+        self.assertEqual(self.project(rows, [trip])["removed_count"], 1)
+
+    def test_unmapped_sheet_row_keeps_trip(self):
+        rows = [self.ready("KEEP1", "2026-10-20"), self.ready("NONAME", "2026-10-20", customer_id=None)]
+        self.assertEqual(self.project(rows, [self.trip(9, "NONAME", "2026-10-20")])["removed_items"], [])
+
+    def test_legacy_manual_rejected_and_old_trips_are_not_reported(self):
+        rows = [self.ready("KEEP1", "2026-10-20")]
+        legacy = [{"id": 1, "kind": "trip", "current": {"container": "OLD1", "event_date": "2026-10-01"}}]
+        trips = [{**self.trip(9, "MANUAL", "2026-10-20"), "note": None},
+                 self.trip(10, "REJ1", "2026-10-20", status="rejected"),
+                 self.trip(11, "OLDYEAR", "2025-12-30")]
+        self.assertEqual(self.project(rows, trips, legacy)["removed_items"], [])
+
+    def test_non_ready_row_does_not_keep_trip_but_empty_snapshot_reports_nothing(self):
+        invalid = {**self.ready("ABC1", "2026-10-20"), "status": "INVALID", "review_status": "INVALID"}
+        trips = [self.trip(9, "ABC1", "2026-10-20")]
+        self.assertEqual(self.project([invalid, self.ready("KEEP1", "2026-10-20")], trips)["removed_count"], 1)
+        self.assertEqual(self.project([invalid], trips)["removed_count"], 0)
+        self.assertEqual(self.project([], trips)["removed_items"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

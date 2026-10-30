@@ -1224,7 +1224,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         try:
             result = {**result, "sheet_sync": sheet_projection(runner, result, actor)}
         except (ValueError, ApiError):
-            result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}}
+            result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0,
+                                                "removed_items": [], "removed_count": 0}}
         try:
             result = {**result, "sheet_prices": price_projection(runner, result, actor)}
         except (ValueError, ApiError):
