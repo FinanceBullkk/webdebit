@@ -152,6 +152,64 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         second = connector.read_export("sheet-id", "token", opener, include_booking=True)
         self.assertNotEqual(first["sha256"], second["sha256"])
 
+    def test_source_tab_is_read_by_header_name_with_export_path_statuses(self):
+        header = ["Khóa", "Loại", "Cờ lỗi", "Số cont", "Ngày đóng", "Booking", "Chủ hàng (chuẩn)", "Chủ hàng (gốc)",
+                  "Shipper", "Hãng tàu", "Kho", "Cảng đến", "Tên hàng", "Mặt hàng", "Bảo hiểm", "Tab nguồn", "Dòng nguồn"]
+        def line(cont, day, name="Khách A", kind="BIỂN", flag="", product="FROZEN DURIAN", commodity="SẦU RIÊNG", origin="Kho"):
+            return ["k", kind, flag, cont, day, " bk 01 ", name, "Gốc", "Ship", " WH ", origin, "Port ", product, commodity,
+                    "", "THÁNG 10/2026", "7"]
+        rows = connector.parse_source_values([
+            header,
+            line(" abcu 1234567 ", "01/10/2026"),
+            line("WXYZ7654321", "02/10/2026", name=""),
+            line("DUPU0000001", "03/10/2026"), line("DUPU0000001", "03/10/2026"),
+            line("", "", flag="Thiếu số cont; Ngày đóng trống/sai; Thiếu chủ hàng", name=""),
+            line("ROAD0000001", "04/10/2026", kind="BỘ"),
+            line("NOKH0000001", "05/10/2026", origin=""),
+            line("FRSH0000001", "06/10/2026", product="FRESH DURIAN"),
+            [], ["", "", ""],
+        ])
+        self.assertEqual([row["status"] for row in rows],
+                         ["READY", "NO_CUSTOMER", "DUPLICATE", "DUPLICATE", "INVALID", "INVALID", "READY"])
+        first = rows[0]
+        self.assertEqual((first["source_row"], first["container"], first["event_date"], first["booking"], first["carrier"],
+                          first["destination"], first["shipper"], first["customer_name"], first["durian_type"]),
+                         (2, "ABCU1234567", "2026-10-01", "BK01", "WH", "Port", "Ship", "Khách A", "frozen"))
+        self.assertEqual((first["source_tab"], first["source_line"], first["source_flag"]), ("THÁNG 10/2026", "7", ""))
+        self.assertEqual(rows[4]["source_flag"], "Thiếu số cont; Ngày đóng trống/sai; Thiếu chủ hàng")
+        self.assertEqual(rows[6]["durian_type"], "fresh")
+        self.assertEqual(connector.to_paste_trip(first)["booking"], "BK01")
+        with self.assertRaisesRegex(ValueError, "header mismatch"):
+            connector.parse_source_values([[h for h in header if h != "Booking"], line("A", "01/10/2026")])
+        with self.assertRaisesRegex(ValueError, "empty"):
+            connector.parse_source_values([])
+
+    def test_read_source_hashes_tab_and_mapping_without_booking_read(self):
+        header = list(connector.SOURCE_COLUMNS.values())
+        tab = [header, ["ABCU1234567", "01/10/2026", "BK1", "Khách A", "Ship", "WH", "Kho", "Port", "", "", "BIỂN", "T", "2", ""]]
+        mapping = [["Chủ hàng từ BOOKING_DATA", "", "", "", "", "Khách chuẩn trên hao (bạn điền)"], ["Khách A", "", "", "", "", "KHÁCH A"]]
+        requested = []
+
+        class Response:
+            def __init__(self, values): self.values = values
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self): return json.dumps({"values": self.values}).encode()
+
+        def opener(request, timeout):
+            requested.append(request.full_url)
+            return Response(mapping if "WEB_GHEP_KHACH" in request.full_url else tab)
+
+        result = connector.read_source("sheet-id", "token", opener)
+        self.assertEqual(len(requested), 2)
+        self.assertIn("CONT_NGUON", requested[0])
+        self.assertNotIn("BOOKING_DATA", "".join(requested))
+        self.assertEqual((result["row_count"], result["rows"][0]["status"], result["customer_aliases"]),
+                         (1, "READY", {"KHÁCH A": "KHÁCH A"}))
+        self.assertEqual(result["source"]["range"], connector.SOURCE_RANGE)
+        mapping[1][5] = "KHÁCH B"
+        self.assertNotEqual(connector.read_source("sheet-id", "token", opener)["sha256"], result["sha256"])
+
     def test_customer_mapping_requires_unique_active_exact_name(self):
         row = {"status": "READY", "customer_name": "Khách A", "source_row": 2}
         customers = {"customers": [{"id": 7, "name": "Khách A", "status": "active"}]}
