@@ -69,7 +69,7 @@ Xem các **dòng đỏ** trong `reconcile_report.html`. **Chênh lệch = web �
 | Chênh lệch | Hay gặp do | Sửa trên web |
 | --- | --- | --- |
 | Âm (web ít hơn) | Chuyến đồng bộ từ Sheet còn **chưa điền giá**; chuyến mới chưa bấm duyệt; chuyến đang CHỜ KIỂM | Bấm "Ghi N giá từ Sheet" (giá Sheet cập nhật 15 phút một lần) hoặc điền giá tay; bấm "Duyệt … chuyến mới"; kết luận CHỜ KIỂM |
-| Dương (web nhiều hơn) | **Phiếu thu** trên Sheet chưa nhập lên web; Sheet đã sửa giá/xóa dòng mà web chưa theo | Nhập phiếu thu; sửa ô cho giống Sheet |
+| Dương (web nhiều hơn) | Sheet đã **xóa dòng chuyến** mà web còn; **phiếu thu** trên Sheet chưa nhập lên web; Sheet đã sửa giá mà web chưa theo | **Trước tiên** mở sổ khách, xem dải "Sheet không còn dòng của N chuyến": mỗi dòng tím "Sheet không còn dòng này" bấm "Xóa trên web" (tháng khóa thì mở khóa trước) hoặc "Giữ" nếu Sheet sẽ thêm lại. Sau đó nhập phiếu thu; sửa ô cho giống Sheet |
 
 Tháng đã khóa thì mở khóa trước khi sửa chuyến (phiếu thu vẫn nhập được). Sửa xong, chạy lại **bước 3** với thư mục kết quả mới. Không sửa được hoặc không hiểu vì sao lệch: ghi lại tên khách và số chênh, báo chủ nghiệp vụ.
 

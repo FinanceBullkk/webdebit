@@ -219,3 +219,49 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Chưa lấy được từ Sheet, đang dùng bản lúc 11:45'));
   assert.equal(await status.evaluate(node => node.classList.contains('sheet-error')), true);
 }));
+
+const removedTrip = (world, extra = {}) => {
+  world.sheetSync = { ...world.sheetSync, removed_count: 1, removed_items: [{ trip_id: 11, container: 'DEMU1234567',
+    event_date: '2026-09-15', month: '2026-09-01', status: 'confirmed', amount_vnd: '50000000', month_locked: false, ...extra }] };
+};
+
+test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua lệnh xóa có sẵn', async () => withPage(async ({ page, world, shot }) => {
+  const row = page.locator('[data-row="trip-11"].sheet-removed');
+  assert.match(await row.innerText(), /Sheet không còn dòng này/);
+  assert.match(await page.locator('.sheet-removed-strip').textContent(), /Sheet không còn dòng của 1 chuyến/);
+  await page.locator('.sheet-removed-next').click();
+  assert.equal(await page.evaluate(() => document.activeElement.className), 'sheet-removed-delete');
+  await shot('sheet-khong-con-dong');
+  await page.locator('.sheet-removed-delete').click();
+  assert.equal(await page.locator('.info-input').count(), 0, 'bấm nút không mở sửa ô container');
+  const prompt = page.locator('.delete-prompt');
+  assert.match(await prompt.innerText(), /Sheet không còn dòng này\. Xóa hẳn chuyến DEMU1234567 \(15\/09\/2026, thành tiền 50\.000\.000\)/);
+  await shot('sheet-khong-con-dong-hoi-xoa');
+  await prompt.locator('.cancel-delete').click();
+  assert.equal(await page.locator('.delete-prompt').count(), 0);
+  assert.deepEqual(posts(world), []);
+  await page.locator('.sheet-removed-delete').click();
+  await page.locator('.delete-prompt .confirm-delete').click();
+  await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"]'));
+  assert.deepEqual(posts(world).map(([url, body]) => [url, body.trip_id]), [['/api/v7/trips/delete', 11]]);
+}, world => removedTrip(world)));
+
+test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ ẩn tới bản chụp Sheet mới', async () => withPage(async ({ page, world }) => {
+  await page.locator('.sheet-removed-delete').click();
+  const prompt = page.locator('.delete-prompt');
+  assert.match(await prompt.innerText(), /Tháng 9\/2026 đang khóa nên chưa xóa được/);
+  assert.equal(await prompt.locator('.confirm-delete').count(), 0);
+  await prompt.locator('.sheet-removed-unlock').click();
+  await page.waitForFunction(() => !document.querySelector('.delete-prompt'));
+  assert.deepEqual(posts(world).map(([url, body]) => [url, body.month, body.locked]), [['/api/v7/months/lock', '2026-09-01', false]]);
+  await page.locator('.sheet-removed-keep').click();
+  assert.equal(await page.locator('.sheet-removed').count(), 0);
+  assert.equal(await page.locator('.sheet-removed-strip').count(), 0);
+  assert.equal(posts(world).length, 1, 'Giữ không gửi gì lên server');
+  await page.reload();
+  await page.waitForSelector('.book-head .history-toggle');
+  assert.equal(await page.locator('.sheet-removed').count(), 0, 'Giữ nhớ qua lần tải lại cùng bản chụp');
+  world.sheetSync = { ...world.sheetSync, snapshot_sha256: 'b'.repeat(64) };
+  await page.reload();
+  await page.waitForSelector('[data-row="trip-11"].sheet-removed');
+}, world => removedTrip(world, { month_locked: true })));
