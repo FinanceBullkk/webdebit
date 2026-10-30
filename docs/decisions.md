@@ -38,7 +38,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="v7-so"></a>[V7-SO](decisions/v7-so.md) | Màn sổ khách V7, ổ khóa từng tháng |  |
 | <a id="v7-id"></a>[V7-ID](decisions/v7-id.md) | Người thao tác là danh tính Tailscale |  |
 | <a id="v7-mig"></a>[V7-MIG](decisions/v7-mig.md) | Chuyển dữ liệu từ Sheet theo phương án lai |  |
-| <a id="v7-be"></a>[V7-BE](decisions/v7-be.md) | Quy tắc backend V7 (phụ phí trống, FIFO…) |  |
+| <a id="v7-be"></a>[V7-BE](decisions/v7-be.md) | Quy tắc backend V7 (phụ phí trống, FIFO…) | (6) số nợ từng tháng thay bởi [CAN-DU-01](#can-du-01) |
 | <a id="v7-mh"></a>[V7-MH](decisions/v7-mh.md) | Mặt hàng gắn theo sổ khách |  |
 | <a id="v7-tong"></a>[V7-TONG](decisions/v7-tong.md) | Loại tab không có tên trên TONG |  |
 | <a id="moc-chuyen-moi"></a>[MOC-CHUYEN-MOI](decisions/moc-chuyen-moi.md) | Mốc chuyến mới |  |
@@ -67,6 +67,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="gia-nguon-01"></a>[GIA-NGUON-01](decisions/gia-nguon-01.md) | Đơn giá web lấy từ sổ gốc tới ngày chuyển hẳn |  |
 | <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04); quy tắc giữ |
 | <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận |  |
+| <a id="can-du-01"></a>[CAN-DU-01](decisions/can-du-01.md) | Nợ từng tháng theo chuẩn tuổi nợ: khoản dư cấn vào tháng nợ cũ nhất | Thay vế số nợ từng tháng của [V7-BE](#v7-be) (6) |
 
 ## Cập nhật khóa tháng 24/10/2026
 

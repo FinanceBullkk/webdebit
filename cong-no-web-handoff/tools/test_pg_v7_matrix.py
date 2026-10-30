@@ -117,6 +117,7 @@ def main() -> int:
         d = new_book(pg, ("2026-01-01", 30000))                                                      # sẽ archive
         pg.sql(f"UPDATE sokhach.customer SET archived=true WHERE id={d}")
         f = new_book(pg, ("2026-03-01", 100000), ("2026-04-01", -100000))                           # tổng ròng 0
+        g = new_book(pg, ("2026-02-01", -30000))                                                     # chỉ trả trước
         e = int(pg.value("INSERT INTO sokhach.customer(name) VALUES ('MATRIX NOBASE') RETURNING id"))  # không cutover
 
         m2026 = json.loads(pg.value(actor("SELECT sokhach.get_receivables_matrix(2026)")))
@@ -128,7 +129,7 @@ def main() -> int:
         ok("T1 tổng_all = get_ledger.total_outstanding_vnd (mọi khách)",
            all(by_id(m2026)[cid]["total_all_vnd"] == json.loads(
                pg.value(actor(f"SELECT sokhach.get_ledger({cid})")))["total_outstanding_vnd"]
-               for cid in (a, b, c, f)))
+               for cid in (a, b, c, g)))
         mm = by_id(m2026)[a]["months"]
         ok("T2 ô tháng = v_outstanding_month đúng tháng",
            mm["3"] == "180000" and mm["5"] == "120000" and mm["6"] == "80000" and mm["1"] == "0",
@@ -142,8 +143,11 @@ def main() -> int:
         ok("T5 đổi năm không đổi tổng mọi năm",
            m2026["grand_total_all_vnd"] == m2025["grand_total_all_vnd"] == m2027["grand_total_all_vnd"]
            == m2026["grand_total_all_vnd"])
-        ok("T6 tháng ÂM giữ nguyên dấu (không về 0)",
-           by_id(m2026)[c]["months"]["10"] == "-20000")
+        ok("T6 CAN-DU-01: khoản dư tháng ÂM cấn vào tháng nợ cũ nhất",
+           by_id(m2026)[c]["months"]["9"] == "130000" and by_id(m2026)[c]["months"]["10"] == "0"
+           and by_id(m2026)[c]["total_all_vnd"] == "130000")
+        ok("T6b CAN-DU-01: khách chỉ trả trước giữ số âm ở tháng cuối",
+           by_id(m2026)[g]["months"]["2"] == "-30000" and by_id(m2026)[g]["total_all_vnd"] == "-30000")
         ok("T7 khách chưa phân loại: commodity null, vẫn trong ma trận",
            by_id(m2026)[b]["commodity"] is None)
         ok("T8 số dư đầu nằm đúng tháng gốc (2025-12 trong ma trận 2025)",
@@ -159,10 +163,9 @@ def main() -> int:
            m2026["years_available"] == expect_years, f"{m2026['years_available']} (hiện tại {cur_year})")
         ok("T12 năm sai bị từ chối (INVALID_YEAR)",
            pg.sql(actor("SELECT sokhach.get_receivables_matrix(1999)"), check=False).returncode != 0)
-        ok("T13 P0: khách tổng ròng 0 (tháng +100000/−100000) VẪN hiện, giữ đủ 2 tháng",
-           f in by_id(m2026) and by_id(m2026)[f]["months"]["3"] == "100000"
-           and by_id(m2026)[f]["months"]["4"] == "-100000" and by_id(m2026)[f]["total_all_vnd"] == "0"
-           and by_id(m2026)[f]["total_year_vnd"] == "0")
+        # CAN-DU-01 (30/10/2026) thay T13 cũ: cấn xong không còn tháng nào nợ hay dư nên khách không hiện.
+        ok("T13 CAN-DU-01: khách tổng ròng 0 (tháng +100000/−100000) cấn hết, không hiện",
+           f not in by_id(m2026) and f not in by_id(m2025))
         ok("T14 P0: năm 2027 ngoài years_available vẫn truy vấn được, giữ khách nợ cũ",
            2027 not in m2026["years_available"] and b in by_id(m2027))
         ok("T14b P0: năm ngoài phạm vi [2000, hiện_tại+1] bị từ chối (2028)",
@@ -258,6 +261,9 @@ def main() -> int:
         pg.sql("UPDATE sokhach.cutover_customer SET status='verified' WHERE cutover_id=(SELECT min(cut) FROM bench_c)")
         pg.sql("UPDATE sokhach.cutover SET status='verified' WHERE id=(SELECT min(cut) FROM bench_c)")
         pg.sql("UPDATE sokhach.cutover SET status='active' WHERE id=(SELECT min(cut) FROM bench_c)")
+        # DB thật có thống kê (autovacuum, dump PG18 mang thống kê, migration CAN-DU-01 chạy ANALYZE). Thiếu thống
+        # kê thì planner tính lại view cấn dư (CAN-DU-01) cho từng khách; đo như DB thật.
+        pg.sql("ANALYZE")
         pg.sql("UPDATE sokhach.cutover_customer SET status='active' WHERE cutover_id=(SELECT min(cut) FROM bench_c)")
         n = int(pg.value("SELECT count(*) FROM sokhach.customer c JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id AND cc.status='active' JOIN sokhach.cutover x ON x.id=cc.cutover_id AND x.status='active' WHERE NOT c.archived AND c.name LIKE 'BENCH%'"))
         size = int(pg.value(actor("SELECT octet_length(sokhach.get_receivables_matrix(2026)::text)")))

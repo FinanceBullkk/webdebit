@@ -760,11 +760,12 @@ def check_monthly_identity(pg: Pg) -> None:
     call(pg, "record_receipt", c, 1, "identity-r", "2026-04-01", "THU TIỀN", 100)
     rows = call(pg, "get_ledger", c)["months"]
     # DA-THU-01: phiếu 01/04 trừ nợ tháng 1 nhưng thuộc tháng 4; còn nợ cuối tháng 1 không bị sửa lùi.
+    # CAN-DU-01: khoản dư -50 của tháng 2 cấn vào tháng 1 (400 → 350).
     require(rows[0]["charges_vnd"] == "500" and rows[0]["end_of_month_vnd"] == "500"
-            and rows[0]["outstanding_vnd"] == "400" and rows[-1]["month"] == "2026-04-01"
+            and rows[0]["outstanding_vnd"] == "350" and rows[-1]["month"] == "2026-04-01"
             and rows[-1]["received_vnd"] == "100" and rows[-1]["end_of_month_vnd"] == "350",
             "opening absent from charges, counted twice, or receipt not in its date month")
     call(pg, "adjust_month", c, 2, "identity-a", "2026-02-01", -25, "giảm")
     rows = call(pg, "get_ledger", c)["months"]
-    require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "-75",
+    require(rows[1]["charges_vnd"] == "-75" and rows[1]["outstanding_vnd"] == "0" and rows[0]["outstanding_vnd"] == "325",
             "signed opening/adjustment missing from charges")

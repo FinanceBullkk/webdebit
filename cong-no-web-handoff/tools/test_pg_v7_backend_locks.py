@@ -9,6 +9,7 @@ import re
 import time
 
 from pg_v7_harness import (
+    CAN_DU_MIGRATION,
     DA_THU_MIGRATION,
     DASHBOARD_MIGRATION,
     DETAIL_MIGRATION,
@@ -212,6 +213,9 @@ def check_csm_migration(pg: Pg) -> None:
     ra_ghi_tien = RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8")
     copy.sql(ra_ghi_tien)
     copy.sql(ra_ghi_tien)  # chạy lại được
+    can_du = CAN_DU_MIGRATION.read_text(encoding="utf-8")
+    copy.sql(can_du)
+    copy.sql(can_du)  # CAN-DU-01 chỉ thay view đọc và hai hàm, chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     # Từ 29/10/2026 file chuẩn có cả resolve_sheet_conflict, nên so đủ mọi hàm, không loại trừ.
     migrated = json.loads(copy.value(catalog))

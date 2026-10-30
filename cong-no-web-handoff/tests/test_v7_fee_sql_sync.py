@@ -13,6 +13,8 @@ LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ph
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
 AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
+# CAN-DU-01 30/10/2026: record_receipt, get_receivables_detail và hai view nợ tháng bằng migration mới nhất thay chúng.
+CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -36,10 +38,15 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertEqual(definition(migration, "FUNCTION", name),
                                  definition(canonical, "FUNCTION", name))
         audit = AUDIT_MIGRATION.read_text(encoding="utf-8")
-        for name in ("paste_trips", "record_receipt", "apply_price_table",
+        for name in ("paste_trips", "apply_price_table",
                      "list_sheet_trip_refs", "guard_sheet_cross_customer", "resolve_sheet_conflict"):
             with self.subTest(name=name):
                 self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        can_du = CAN_DU_MIGRATION.read_text(encoding="utf-8")
+        for kind, name in (("FUNCTION", "record_receipt"), ("FUNCTION", "get_receivables_detail"),
+                           ("VIEW", "v_outstanding_month_raw"), ("VIEW", "v_outstanding_month")):
+            with self.subTest(name=name):
+                self.assertEqual(definition(can_du, kind, name), definition(canonical, kind, name))
         with self.subTest(name="get_ledger"):
             self.assertEqual(definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
                              definition(canonical, "FUNCTION", "get_ledger"))
@@ -80,7 +87,7 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertIn(block, schema)
 
     def test_matrix_drawer_matches_canonical(self):
-        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-matrix-drawer-receipts.sql").read_text(encoding="utf-8")
+        migration = CAN_DU_MIGRATION.read_text(encoding="utf-8")
         self.assertEqual(definition(migration, "FUNCTION", "get_receivables_detail"),
                          definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "get_receivables_detail"))
 

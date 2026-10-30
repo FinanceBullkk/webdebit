@@ -29,12 +29,12 @@ const ledgerFeb = { status: 'active', month: currentYear + '-02-01', outstanding
     { event_date: currentYear + '-02-05', container: 'FAKE-B', status: 'confirmed', unit_price_vnd: '5000', other_fee_vnd: '5000', amount_vnd: '10000', historical: false },
     { event_date: currentYear + '-02-04', container: 'FAKE-C', status: 'confirmed', unit_price_vnd: null, other_fee_vnd: null, amount_vnd: null, historical: false }] };
 
-function server({ matrixStatus = 200, matrixPayload = matrix } = {}) {
+function server({ matrixStatus = 200, matrixPayload = matrix, detail = month => month.endsWith('-02-01') ? ledgerFeb : ledger } = {}) {
   return http.createServer((req, res) => {
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/api/v7/receivables/matrix') return send(matrixStatus, 'application/json', JSON.stringify(matrixPayload(Number(url.searchParams.get('year')))));
-    if (url.pathname === '/api/v7/receivables/detail') return send(200, 'application/json', JSON.stringify(url.searchParams.get('month').endsWith('-02-01') ? ledgerFeb : ledger));
+    if (url.pathname === '/api/v7/receivables/detail') return send(200, 'application/json', JSON.stringify(detail(url.searchParams.get('month'))));
     const file = path.join(root, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(root) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     send(200, file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript', fs.readFileSync(file));
@@ -142,6 +142,35 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     await browser.close();
     app.close();
   }
+});
+// CAN-DU-01: khoản dư tháng âm cấn vào tháng còn nợ cũ nhất; ngăn kéo cộng trừ đủ để ra đúng ô ma trận.
+test('drawer explains credit applied from or to other months', async () => {
+  const cells = { '1': '0', '2': '0', '3': '129000', ...Object.fromEntries(Array.from({length:9}, (_, i) => [String(i + 4), '0'])) };
+  const zero = Object.fromEntries(Array.from({length:12}, (_, i) => [String(i + 1), '0']));
+  const credited = year => ({ ...matrix(year), customers: [{ ...matrix(year).customers[0], months: year === currentYear ? cells : zero,
+    total_year_vnd: year === currentYear ? '129000' : '0', total_all_vnd: '129000', oldest_open_month: currentYear + '-03-01' }],
+    grand_total_year_vnd: year === currentYear ? '129000' : '0', grand_total_all_vnd: '129000' });
+  const month = (key, extra) => ({ status: 'active', month: currentYear + key, received_vnd: '0', allocated_vnd: '0', opening: false, receipts: [], trips: [], ...extra });
+  const app = server({ matrixPayload: credited, detail: key => key.endsWith('-02-01')
+    ? month('-02-01', { outstanding_vnd: '0', charges_vnd: '-271000', credit_applied_vnd: '-271000' })
+    : month('-03-01', { outstanding_vnd: '129000', charges_vnd: '300000', credit_applied_vnd: '171000' }) });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
+    await page.locator('.cell-btn[data-id="1"][data-month="3"]').click();
+    await page.locator('#drawer-sum').getByText('Tiền khách dư tháng khác cấn vào').waitFor();
+    const march = await page.locator('#drawer-sum').innerText();
+    assert.match(march, /−\s+Tiền khách dư tháng khác cấn vào\s+171\.000 đ/);
+    assert.match(march, /=\s+Còn lại tháng này\s+129\.000 đ/);
+    assert.doesNotMatch(await page.locator('#drawer').innerText(), /không khớp|Còn lại khác/);
+    await page.locator('#drawer-prev').click();
+    await page.locator('#drawer-sum').getByText('Khoản dư đã cấn sang tháng còn nợ').waitFor();
+    const feb = await page.locator('#drawer-sum').innerText();
+    assert.match(feb, /\+\s+Khoản dư đã cấn sang tháng còn nợ\s+271\.000 đ/);
+    assert.match(feb, /=\s+Còn lại tháng này\s+0 đ/);
+  } finally { await browser.close(); app.close(); }
 });
 test('matrix rejects missing money evidence from API', async () => {
   const app = server({ matrixPayload: year => ({ ...matrix(year), customers: [{ ...matrix(year).customers[0], months: {} }] }) });

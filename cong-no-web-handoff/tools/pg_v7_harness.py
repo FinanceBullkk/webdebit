@@ -329,8 +329,9 @@ LEGACY_RECEIPT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-
 DA_THU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-da-thu-theo-ngay-thu.sql"
 SHEET_CONFLICT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-25-v7-sheet-conflict.sql"
 SHEET_CONFLICT_DATE_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-27-v7-sheet-conflict-date-booking.sql"
-# Rà đường ghi tiền 29/10/2026: migration cuối hiện nay; mọi chuỗi nâng kết thúc ở đây để khớp file chuẩn.
 RA_GHI_TIEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
+# CAN-DU-01 30/10/2026: migration cuối hiện nay; mọi chuỗi nâng kết thúc ở đây để khớp file chuẩn.
+CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 
 def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
     p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)

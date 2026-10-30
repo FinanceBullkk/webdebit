@@ -25,7 +25,9 @@ WHERE NOT a.fee_absorbed AND (a.trip_id IS NULL OR (NOT t.deleted AND t.status='
   AND NOT EXISTS (SELECT 1 FROM sokhach.adjustment r WHERE r.reverses_adjustment_id=a.id);
 
 -- Keep source schema draft scoped to P1-2; align runtime read view with JS truthiness.
-CREATE OR REPLACE VIEW sokhach.v_outstanding_month AS
+-- CAN-DU-01 (30/10/2026): số thô từng kỳ (phát sinh − dòng phân bổ thu); kỳ âm giữ dấu ở đây.
+-- reallocate/record_receipt phân bổ phiếu theo số này; v_outstanding_month bên dưới cấn khoản dư.
+CREATE OR REPLACE VIEW sokhach.v_outstanding_month_raw AS
 WITH active_customer AS (
     SELECT cc.customer_id,cc.cutover_id FROM sokhach.cutover_customer cc
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
@@ -52,6 +54,24 @@ WITH active_customer AS (
 )
 SELECT customer_id,debt_month,sum(amount_vnd)::bigint AS outstanding_vnd
 FROM movements GROUP BY customer_id,debt_month;
+
+-- CAN-DU-01 (30/10/2026), thay V7-BE (6): nợ còn lại từng kỳ theo chuẩn tuổi nợ. Khoản dư của các kỳ âm
+-- cấn vào kỳ còn nợ cũ nhất trước; cấn hết nợ mà vẫn dư thì phần dư (khách trả trước) nằm ở kỳ cuối.
+-- Tổng mỗi khách bằng đúng số thô; kỳ không còn nợ vẫn có dòng (0).
+CREATE OR REPLACE VIEW sokhach.v_outstanding_month AS
+WITH s AS (
+    SELECT customer_id,debt_month,outstanding_vnd AS raw_vnd,
+        sum(greatest(-outstanding_vnd,0)) OVER whole AS credit_vnd,
+        sum(greatest(outstanding_vnd,0)) OVER whole AS debt_vnd,
+        sum(greatest(outstanding_vnd,0)) OVER (PARTITION BY customer_id ORDER BY debt_month
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS debt_through_vnd,
+        debt_month=max(debt_month) OVER whole AS last_month
+    FROM sokhach.v_outstanding_month_raw WINDOW whole AS (PARTITION BY customer_id)
+)
+SELECT customer_id,debt_month,
+    (least(greatest(raw_vnd,0),greatest(debt_through_vnd-credit_vnd,0))
+     + CASE WHEN last_month THEN least(debt_vnd-credit_vnd,0) ELSE 0 END)::bigint AS outstanding_vnd
+FROM s;
 
 CREATE FUNCTION sokhach._actor() RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
@@ -1127,8 +1147,9 @@ BEGIN
     v_pid := sokhach._next_pid(customer_id);
     v_id := nextval(pg_get_serial_sequence('sokhach.receipt','id'));
     v_left := amount_vnd;
-    FOR v_month,v_due IN SELECT debt_month,outstanding_vnd FROM sokhach.v_outstanding_month
-        WHERE v_outstanding_month.customer_id=record_receipt.customer_id ORDER BY debt_month
+    -- Xếp tạm theo số thô, cùng cách reallocate (CAN-DU-01 chỉ đổi số nợ hiển thị, không đổi dòng phân bổ).
+    FOR v_month,v_due IN SELECT debt_month,outstanding_vnd FROM sokhach.v_outstanding_month_raw
+        WHERE v_outstanding_month_raw.customer_id=record_receipt.customer_id ORDER BY debt_month
     LOOP
         EXIT WHEN v_left=0;
         IF v_due > 0 THEN
@@ -2224,8 +2245,10 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- sổ gốc. outstanding_vnd là ô ma trận (nợ còn lại sau phân bổ nợ cũ trước); allocated_vnd là thu đã
 -- phân bổ vào kỳ, để giải thích vì sao phát sinh − đã thu có thể khác còn lại. receipts (29/10/2026): phiếu
 -- thu chưa hủy có ngày thu trong tháng, kèm các kỳ đang được trừ (dòng phân bổ hiệu lực).
+-- credit_applied_vnd (CAN-DU-01, 30/10/2026): số thô − ô ma trận; dương là khoản dư tháng khác cấn vào tháng
+-- này, âm là khoản dư của tháng này đã cấn sang tháng còn nợ.
 DECLARE v_active boolean; v_ledger jsonb; v_row jsonb; v_allocated bigint; v_opening boolean;
-        v_month text := p_month::text;
+        v_raw bigint; v_month text := p_month::text;
 BEGIN
     PERFORM sokhach._actor();
     IF p_month IS NULL OR date_trunc('month', p_month)::date <> p_month THEN
@@ -2240,10 +2263,13 @@ BEGIN
         WHERE o.customer_id=p_customer AND o.debt_month=p_month),0) INTO v_allocated
       FROM sokhach.v_receipt_line_active l WHERE l.customer_id=p_customer AND l.debt_month=p_month;
     SELECT EXISTS (SELECT 1 FROM jsonb_array_elements(v_ledger->'opening') o WHERE o->>'month'=v_month) INTO v_opening;
+    SELECT coalesce(sum(outstanding_vnd),0) INTO v_raw FROM sokhach.v_outstanding_month_raw
+      WHERE customer_id=p_customer AND debt_month=p_month;
     RETURN jsonb_build_object('status','active','customer_id',p_customer,'month',v_month,
         'outstanding_vnd',coalesce(v_row->>'outstanding_vnd','0'),
         'charges_vnd',coalesce(v_row->>'charges_vnd','0'),'received_vnd',coalesce(v_row->>'received_vnd','0'),
         'allocated_vnd',v_allocated::text,'opening',v_opening,
+        'credit_applied_vnd',(v_raw-coalesce((v_row->>'outstanding_vnd')::bigint,0))::text,
         'receipts',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',r->'id','pid',r->'pid','date',r->'date',
             'method',r->'method','reference',r->'reference','amount_vnd',r->'amount_vnd',
             'counterparty_name',r->'counterparty_name',
