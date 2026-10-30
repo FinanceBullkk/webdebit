@@ -59,6 +59,7 @@ PAGES = {
     "/viec-can-lam.html": "viec-can-lam.html",
     "/cong-no-theo-thang.html": "cong-no-theo-thang.html",
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
+    "/doi-no.html": "doi-no.html",
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
 PAGE_FILE = re.compile(r'<script src="([a-z0-9-]+\.js)"></script>|<link rel="stylesheet" href="([a-z0-9-]+\.css)">')
@@ -119,6 +120,7 @@ ERRORS = {
     "RECEIPT_ALREADY_VOID": (409, "Phiếu đã hủy."),
     "NO_CHANGE": (409, "Nội dung không thay đổi."),
     "CUSTOMER_NOT_FOUND": (422, "Không tìm thấy khách."),
+    "INVALID_REMINDER": (422, "Dữ liệu nhắc nợ không hợp lệ."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "FEE_LINE_NOT_FOUND": (409, "Không tìm thấy khoản phụ phí. Tải lại sổ."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
@@ -528,6 +530,9 @@ SQL["list_receipt_images"] = "SELECT sokhach.list_receipt_images((:'payload'::js
 SQL["get_receipt_image"] = ("SELECT sokhach.get_receipt_image((:'payload'::jsonb->>'customer_id')::bigint,"
                             "(:'payload'::jsonb->>'image_id')::bigint);")
 SQL["find_receipt_image"] = "SELECT sokhach.find_receipt_image(:'payload'::jsonb->>'sha256');"
+# NHAC-NO-01: nhắc nợ là ghi chú ngoài đường tiền, không dùng COMMON (version/idempotency); POST đặc biệt.
+SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.record_reminder((j->>'customer_id')::bigint, j->>'source') FROM b;"
+SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
 
 
 
@@ -1126,6 +1131,19 @@ def report_presence(raw: bytes, actor: str) -> tuple[int, dict]:
     return 200, {"people": PRESENCE.view(actor, report["tab"])}
 
 
+def handle_reminder(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    # NHAC-NO-01: ghi mốc "đã nhắc" đòi nợ. Ghi chú ngoài đường tiền: không version/idempotency.
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    if (not isinstance(body, dict) or set(body) != {"customer_id", "source"}
+            or not positive_int(body.get("customer_id"))
+            or body.get("source") not in ("copy-button", "manual", "zalo")):
+        bad("INVALID_REMINDER", ERRORS["INVALID_REMINDER"][1])
+    return 200, runner.run("record_reminder", {"customer_id": body["customer_id"], "source": body["source"]}, actor)
+
+
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
@@ -1178,6 +1196,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                                   behind_tailscale_serve=behind_tailscale_serve)
             return report_presence(raw, actor)
+        if parts.path == "/api/v7/reminders":
+            if actor is None:
+                actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
+                                                  behind_tailscale_serve=behind_tailscale_serve)
+            return handle_reminder(raw, runner, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
         parts = urlsplit(target)
@@ -1200,6 +1223,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             function, payload = "get_dashboard", {}
         elif parts.path == "/api/v7/dashboard/debt" and not parts.query:
             function, payload = "get_dashboard_debt", {}
+        elif parts.path == "/api/v7/reminders" and not parts.query:
+            function, payload = "get_reminders", {}
         elif parts.path == "/api/v7/receivables/matrix":
             query = parse_qs(parts.query, keep_blank_values=True)
             values = query.get("year")
