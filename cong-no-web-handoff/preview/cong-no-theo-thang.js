@@ -275,7 +275,7 @@
     const row = trip => {
       const tag = trip.status === 'pending_review' ? ' <span class="tag warning" title="Chưa tính vào phát sinh">chờ kiểm</span>' : '';
       const amount = trip.amount_vnd == null ? '<span class="missing">chưa có giá</span>' : plain(trip.amount_vnd);
-      return '<tr' + (counted(trip) ? '' : ' class="excluded"') + '><td>' + dayMonth(trip.event_date) + '</td><td>' + esc(trip.container || '—') + tag + '</td>' +
+      return '<tr' + (counted(trip) ? '' : ' class="excluded"') + '><td>' + dayMonth(trip.event_date) + '</td><td' + (tag ? ' class="wrap"' : '') + '>' + esc(trip.container || '—') + tag + '</td>' +
         (hasFee ? '<td class="money">' + plain(trip.unit_price_vnd) + '</td><td class="money">' + plain(trip.other_fee_vnd) + '</td>' : '') +
         '<td class="money">' + amount + '</td></tr>';
     };
