@@ -582,52 +582,237 @@ const SoKhachV7Model = (() => {
     return { beforeVnd, afterVnd, deltaVnd: afterVnd - beforeVnd };
   }
 
-  // DEBIT-NOTE-01: phiếu debit note của một tháng công nợ — chỉ các chuyến của tháng, cột như mẫu gửi khách.
-  // Phụ phí xếp theo tên loại; loại không có cột riêng trong mẫu vào Other fee. Thiếu giá: Đơn giá/Tổng null (để trống).
-  const DEBIT_FEES = ["neo", "dien", "ghep", "other", "baoHiem", "kiemDinh", "health"];
-  function debitFeeColumn(name) {
-    const key = String(name ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z]/g, "");
-    return { neo: "neo", dien: "dien", phidien: "dien", ghep: "ghep", dongghep: "ghep", baohiem: "baoHiem", kiemdinh: "kiemDinh" }[key]
-      ?? (key.startsWith("health") ? "health" : "other");
+  // DEBIT-NOTE-01 + DEBIT-NOTE-02 (mẫu Debit Note v3 sếp duyệt 30/10/2026, specs/v7-debit-note.md): chứng từ của một
+  // tháng công nợ — chỉ các chuyến của tháng. Mọi con số trên chứng từ tính ở đây từ dòng chi tiết, không nhập tay.
+  // Danh mục loại phí in trên chứng từ, đúng thứ tự cột. Tám loại đầu theo đặc tả v3; bốn loại sau là loại phụ phí sổ web
+  // đang có mà danh mục v3 chưa có, chỉ thành cột khi phát sinh (CÒN MỞ: sếp gán vào tám loại hay giữ).
+  const DN_FEES = [
+    { code: "LUMP_SUM", en: "LUMP-SUM", cn: "单价" }, { code: "STORAGE", en: "STORAGE", cn: "早装产生费用" },
+    { code: "TRUCKING", en: "TRUCKING", cn: "拼柜" }, { code: "GENSET", en: "GENERATOR / ELECTRICITY FEE", cn: "发电机/电费" },
+    { code: "OVERSTAY", en: "OVERSTAY", cn: "押车" }, { code: "HC_FEE", en: "HC FEE", cn: "卫生证" },
+    { code: "CANCELLATION", en: "CANCELLATION FEE", cn: "取消订柜费" }, { code: "AMENDMENT", en: "AMD FEE", cn: "改单费" },
+    { code: "INSURANCE", en: "INSURANCE", cn: "保险", extra: true }, { code: "INSPECTION", en: "INSPECTION (O+CD+VS)", cn: "检验费", extra: true },
+    { code: "OTHER", en: "OTHER FEES", cn: "其他费用", extra: true }, { code: "DISCOUNT", en: "DISCOUNT", cn: "折扣", extra: true },
+  ];
+  const dnFold = text => String(text ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Tên loại phụ phí trên sổ web → mã loại phí trên chứng từ. Neo = 押车 (OVERSTAY), Điện = GENSET, Ghép = 拼柜 (TRUCKING).
+  const FEE_RULES = [[/^(neo|overstay|epxe)/, "OVERSTAY"], [/^(dien|phidien|genset|generator|electric)/, "GENSET"],
+    [/^(ghep|dongghep|trucking)/, "TRUCKING"], [/^(health|hc|vesinh)/, "HC_FEE"], [/^(storage|luukho|luubai|dongsom)/, "STORAGE"],
+    [/^(huy|phihuy|cancel)/, "CANCELLATION"], [/^(amd|amend|suabill|suadon|doibill)/, "AMENDMENT"], [/^(baohiem|insurance)/, "INSURANCE"],
+    [/^(kiemdinh|inspection)/, "INSPECTION"], [/^(giamtru|discount)/, "DISCOUNT"]];
+  const dnFeeCode = name => FEE_RULES.find(([pattern]) => pattern.test(dnFold(name)))?.[1] ?? "OTHER";
+
+  // Số container theo ISO 6346: 3 chữ chủ, 1 chữ loại (U/J/Z/R), 6 số, 1 chữ số kiểm tra.
+  function containerCheck(value) {
+    const id = String(value ?? "").toUpperCase().replace(/\s+/g, "");
+    if (!/^[A-Z]{3}[UJZR]\d{7}$/.test(id)) return { id, valid: false, reason: "format" };
+    let sum = 0;
+    for (let index = 0; index < 10; index++) {
+      let value = index < 4 ? id.charCodeAt(index) - 55 : Number(id[index]);
+      if (index < 4) value += Math.floor((value - 1) / 10);   // bảng chữ ISO bỏ 11, 22, 33
+      sum += value * 2 ** index;
+    }
+    const expected = sum % 11 % 10;
+    return { id, valid: expected === Number(id[10]), reason: expected === Number(id[10]) ? null : "check", expected };
   }
+
+  // Số tiền bằng chữ tiếng Anh: SAY VIETNAM DONG … ONLY; nhóm tỷ/triệu/nghìn, 21–99 có gạch nối, không dùng AND.
+  const WORD_ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE",
+    "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
+  const WORD_TENS = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
+  function wordsBelowThousand(number) {
+    const parts = [];
+    if (number >= 100) parts.push(WORD_ONES[Math.floor(number / 100)], "HUNDRED");
+    const rest = number % 100;
+    if (rest >= 20) parts.push(WORD_TENS[Math.floor(rest / 10)] + (rest % 10 ? `-${WORD_ONES[rest % 10]}` : ""));
+    else if (rest > 0) parts.push(WORD_ONES[rest]);
+    return parts.join(" ");
+  }
+  function vndInWords(amountVnd) {
+    if (typeof amountVnd !== "bigint" || amountVnd < 0n || amountVnd >= 10n ** 15n) return null;
+    if (amountVnd === 0n) return "SAY VIETNAM DONG ZERO ONLY";
+    const parts = [];
+    let rest = amountVnd;
+    for (const [size, label] of [[10n ** 12n, "TRILLION"], [10n ** 9n, "BILLION"], [10n ** 6n, "MILLION"], [1000n, "THOUSAND"], [1n, ""]]) {
+      const group = rest / size;
+      rest %= size;
+      if (group > 0n) parts.push(wordsBelowThousand(Number(group)), label);
+    }
+    return `SAY VIETNAM DONG ${parts.filter(Boolean).join(" ")} ONLY`;
+  }
+
+  // Tỷ giá VND/USD: số nguyên dương, cho phép dấu phẩy ngăn nghìn.
+  function parseRate(text) {
+    const value = String(text ?? "").trim();
+    if (!/^(\d{1,3}(,\d{3})+|\d+)$/.test(value)) return null;
+    const rate = BigInt(value.replace(/,/g, ""));
+    return rate > 0n ? rate : null;
+  }
+  // Quy đổi một lần trên tổng: tổng VND ÷ tỷ giá, làm tròn nửa lên 2 số lẻ. Trả về số cent (BigInt).
+  function usdCents(totalVnd, rate) {
+    if (typeof totalVnd !== "bigint" || typeof rate !== "bigint" || rate <= 0n || totalVnd < 0n) return null;
+    return (totalVnd * 200n + rate) / (2n * rate);
+  }
+  const usdText = cents => typeof cents !== "bigint" ? "" : `${(cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${String(cents % 100n).padStart(2, "0")}`;
+
+  // Ngày trên chứng từ: "01 Dec 2025" — tháng tiếng Anh, không theo ngôn ngữ máy.
+  const DN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const isIsoDay = iso => {
+    const text = String(iso ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+    const date = new Date(`${text}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text;
+  };
+  const validDay = isIsoDay;
+  const dnDate = iso => isIsoDay(iso) ? `${iso.slice(8, 10)} ${DN_MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : "";
+  const dnPeriod = monthKey => `${DN_MONTHS[Number(monthKey.slice(5, 7)) - 1]} ${monthKey.slice(0, 4)}`;
+  function addDays(iso, days) {
+    if (!isIsoDay(iso) || !Number.isInteger(days)) return null;
+    const date = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  // Danh mục nơi đóng hàng và cảng đến (bản đầu, CÒN MỞ: bộ lập bill bổ sung). Chuẩn chính tả: "Dak Lak", không "DAKLAK".
+  const DN_PLACES = ["Dak Lak", "Dak Nong", "Gia Lai", "Kon Tum", "Lam Dong", "Binh Phuoc", "Binh Duong", "Dong Nai", "Long Khanh",
+    "Tay Ninh", "Ho Chi Minh", "Long An", "Tien Giang", "Ben Tre", "Vinh Long", "Tra Vinh", "Dong Thap", "An Giang", "Can Tho",
+    "Hau Giang", "Soc Trang", "Kien Giang", "Bac Lieu", "Ca Mau", "Khanh Hoa", "Phu Yen", "Binh Dinh", "Quang Nam", "Quang Ngai",
+    "Binh Thuan", "Ninh Thuan", "Ba Ria - Vung Tau"];
+  const DN_PORTS = ["Xiamen", "Nansha", "Qingdao", "Shanghai", "Shekou", "Shenzhen", "Yantian", "Guangzhou", "Huangpu", "Ningbo",
+    "Tianjin", "Dalian", "Hong Kong", "Lianyungang", "Qinzhou", "Fangcheng", "Haikou", "Pingxiang", "Dongxing", "Hekou"];
+  const titleCase = text => String(text ?? "").trim().replace(/\s+/g, " ").toLowerCase().replace(/(^|[\s(\-/])([a-z])/g, (_, lead, char) => lead + char.toUpperCase());
+  // Một tên nơi (có thể "GIA LAI + DAK LAK") → chữ chuẩn và cờ có trong danh mục.
+  function dnPlace(raw, list) {
+    const catalog = new Map(list.map(name => [dnFold(name), name]));
+    const parts = String(raw ?? "").split("+").map(part => part.trim()).filter(Boolean);
+    const named = parts.map(part => catalog.get(dnFold(part)) ?? null);
+    return { text: parts.map((part, index) => named[index] ?? titleCase(part)).join(" + "), known: parts.length > 0 && named.every(Boolean) };
+  }
+
+  // Ô tiền của một dòng ở cột loại phí `code`: dòng container có LUMP-SUM và phí theo loại; dòng phí không gắn container
+  // chỉ có số tiền ở đúng cột loại của nó. null = không có khoản.
+  const dnCell = (code, item) => item.fees ? (code === "LUMP_SUM" ? item.lumpSumVnd : item.fees[code] ?? null) : item.code === code ? item.amountVnd : null;
+  const sumOrNull = list => list.some(value => value === null) ? null : list.reduce((sum, value) => sum + value, 0n);
+
   function debitNote(ledger, monthKey, feeTypes = []) {
     const month = row => String(row.month ?? "").slice(0, 7);
     const names = new Map(feeTypes.map(type => [Number(type.id), type.name]));
     const money = value => value === null || value === undefined ? null : vnd(String(value), true);
-    const fees = lines => {
-      const out = Object.fromEntries(DEBIT_FEES.map(column => [column, null]));
-      for (const line of Array.isArray(lines) ? lines : []) {
-        const column = debitFeeColumn(names.get(Number(line.fee_type_id)));
-        out[column] = (out[column] ?? 0n) + vnd(String(line.amount_vnd), true);
+    const containers = [], extras = [];
+    const add = (info, lines, lumpSumVnd, sourceVnd, feeOnly) => {
+      const list = Array.isArray(lines) ? lines : [];
+      if (feeOnly) {   // dòng phí không gắn container (phí lẻ): mỗi khoản một dòng ADDITIONAL CHARGES
+        if (list.length) for (const line of list) extras.push({ date: info.date, code: dnFeeCode(names.get(Number(line.fee_type_id))),
+          note: String(line.note ?? "").trim(), amountVnd: vnd(String(line.amount_vnd), true) });
+        else extras.push({ date: info.date, code: "OTHER", note: "", amountVnd: sourceVnd });
+        return;
       }
-      return out;
+      const fees = {};
+      for (const line of list) {
+        const code = dnFeeCode(names.get(Number(line.fee_type_id)));
+        fees[code] = (fees[code] ?? 0n) + vnd(String(line.amount_vnd), true);
+      }
+      const feesVnd = Object.values(fees).reduce((sum, value) => sum + value, 0n);
+      const amountVnd = lumpSumVnd === null ? null : lumpSumVnd + feesVnd;   // thành tiền = LUMP-SUM + phí của dòng
+      containers.push({ ...info, container: containerCheck(info.container).id, place: dnPlace(info.origin, DN_PLACES),
+        port: dnPlace(info.destination, DN_PORTS), lumpSumVnd, fees, feesVnd, amountVnd,
+        mismatch: amountVnd !== null && sourceVnd !== null && amountVnd !== sourceVnd });
     };
-    const rows = [];
     for (const row of ledger.legacy_rows ?? []) {
       if (row.kind !== "trip" || month(row) !== monthKey || row.current?.deleted) continue;
       const cur = row.editable && row.current ? row.current : null, d = row.display ?? {};
-      const unitPriceVnd = cur ? money(cur.unit_price_vnd) : /^\d+$/.test(d.unit_price ?? "") ? vnd(d.unit_price) : null;
-      const totalVnd = cur ? (cur.unit_price_vnd == null && cur.counted_vnd === "0" ? null : money(cur.counted_vnd))
+      const lumpSumVnd = cur ? money(cur.unit_price_vnd) : /^\d+$/.test(d.unit_price ?? "") ? vnd(d.unit_price) : null;
+      const sourceVnd = cur ? (cur.unit_price_vnd == null && cur.counted_vnd === "0" ? null : money(cur.counted_vnd))
         : (d.flags ?? []).includes("MISSING_PRICE") ? null : money(row.source_total_vnd);
       const info = cur ? { container: cur.container, carrier: cur.carrier, shipper: cur.shipper, date: cur.event_date, origin: cur.origin, destination: cur.destination }
         : { container: d.container, carrier: d.carrier, shipper: d.shipper, date: d.date, origin: d.from, destination: d.to };
-      rows.push({ ...info, feeOnly: !info.container, fees: fees(row.fee_lines), unitPriceVnd, totalVnd });
+      add(info, row.fee_lines, lumpSumVnd, sourceVnd, !info.container);
     }
     let pendingCount = 0;
     for (const trip of ledger.trips ?? []) {
       if (month(trip) !== monthKey || trip.deleted) continue;
       if (trip.status !== "confirmed") { if (trip.status === "pending_review") pendingCount++; continue; }
-      rows.push({ container: trip.container, carrier: trip.carrier, shipper: trip.shipper, date: trip.event_date, origin: trip.origin,
-        destination: trip.destination, feeOnly: trip.is_fee_only === true, fees: fees(trip.fee_lines),
-        unitPriceVnd: trip.is_missing_price ? null : money(trip.unit_price_vnd), totalVnd: trip.is_missing_price ? null : money(trip.amount_vnd) });
+      const info = { container: trip.container, carrier: trip.carrier, shipper: trip.shipper, date: trip.event_date, origin: trip.origin, destination: trip.destination };
+      add(info, trip.fee_lines, trip.is_missing_price ? null : money(trip.unit_price_vnd), trip.is_missing_price ? null : money(trip.amount_vnd), trip.is_fee_only === true);
     }
-    const day = row => /^\d{4}-\d{2}-\d{2}/.test(row.date ?? "") ? row.date.slice(0, 10) : "9999";
-    const sorted = rows.map((row, index) => ({ row, index })).sort((a, b) => day(a.row).localeCompare(day(b.row)) || a.index - b.index).map(item => item.row);
-    const missingCount = sorted.filter(row => row.totalVnd === null).length;
-    const totalVnd = missingCount ? null : sorted.reduce((sum, row) => sum + row.totalVnd, 0n);
+    const day = row => validDay(row.date) ? String(row.date).slice(0, 10) : "9999";
+    const byDay = list => list.map((row, index) => ({ row, index })).sort((a, b) => day(a.row).localeCompare(day(b.row)) || a.index - b.index).map(item => item.row);
+    const rows = byDay(containers).map((row, index) => ({ ...row, no: index + 1 }));
+    const charges = byDay(extras);
+    const all = [...rows, ...charges];
+    // LUMP-SUM luôn là cột; loại khác thành cột khi có ô khác 0 (kể cả dòng phí không gắn container).
+    const columnTotal = code => code === "LUMP_SUM" ? sumOrNull(rows.map(row => row.lumpSumVnd))
+      : sumOrNull(all.filter(item => item.fees || item.code === code).map(item => item.fees ? item.fees[code] ?? 0n : item.amountVnd));
+    const used = DN_FEES.filter(fee => fee.code === "LUMP_SUM" || all.some(item => { const value = dnCell(fee.code, item); return value !== null && value !== 0n; }));
+    const lumpSumVnd = columnTotal("LUMP_SUM");
+    const containerFeesVnd = rows.reduce((sum, row) => sum + row.feesVnd, 0n);
+    const additionalVnd = sumOrNull(charges.map(item => item.amountVnd));
+    const totalVnd = sumOrNull([...rows.map(row => row.amountVnd), additionalVnd]);
+    const groups = new Map();
+    for (const row of rows) {
+      const item = groups.get(row.port.text) ?? { port: row.port.text, containers: 0, lumps: [], otherVnd: 0n };
+      item.containers++; item.lumps.push(row.lumpSumVnd); item.otherVnd += row.feesVnd;
+      groups.set(row.port.text, item);
+    }
+    const summary = [...groups.values()].map(item => ({ port: item.port, containers: item.containers, lumpSumVnd: sumOrNull(item.lumps), otherVnd: item.otherVnd }))
+      .sort((a, b) => b.containers - a.containers || a.port.localeCompare(b.port));
+    const otherVnd = additionalVnd === null ? null : containerFeesVnd + additionalVnd;
+    const subtotalVnd = lumpSumVnd === null || otherVnd === null ? null : lumpSumVnd + otherVnd;
     const adjustmentCount = (ledger.adjustments ?? []).filter(row => month(row) === monthKey && row.legacy_row_id == null).length;
-    return { monthKey, rows: sorted, totalVnd, complete: sorted.length > 0 && missingCount === 0, missingCount, pendingCount, adjustmentCount };
+    const missingCount = rows.filter(row => row.lumpSumVnd === null).length + charges.filter(item => item.amountVnd === null).length;
+    const column = fee => ({ ...fee, totalVnd: columnTotal(fee.code) });
+    return { monthKey, period: dnPeriod(monthKey), rows, charges, feeColumns: used.map(column),
+      excelColumns: DN_FEES.filter(fee => !fee.extra || used.includes(fee)).map(column),
+      summary, additionalVnd: charges.length ? additionalVnd : null, lumpSumVnd, otherVnd, subtotalVnd, totalVnd, containerCount: rows.length,
+      complete: all.length > 0 && missingCount === 0, missingCount, pendingCount, adjustmentCount,
+      lastLoadingDate: rows.map(day).filter(value => value !== "9999").sort().at(-1) ?? null };
   }
+
+  // Kiểm tra trước khi phát hành: "block" thì chỉ xuất được bản nháp; "warn" cần người lập xác nhận; "info" chỉ báo.
+  const PHONE = /(^|\D)0\d{9}(?!\d)/;
+  function debitNoteChecks(note, doc) {
+    const out = [];
+    const push = level => text => out.push({ level, text });
+    const block = push("block"), warn = push("warn"), info = push("info");
+    const blank = value => !String(value ?? "").trim();
+    if (!note.rows.length && !note.charges.length) block("Tháng này không có chuyến nào để lập chứng từ.");
+    if (note.missingCount) block(`${note.missingCount} dòng chưa có giá hoặc số tiền.`);
+    const bad = note.rows.filter(row => !containerCheck(row.container).valid);
+    if (bad.length) block(`Số container sai theo ISO 6346: ${bad.map(row => row.container || "(trống)").join(", ")}.`);
+    const seen = new Map();
+    for (const row of note.rows) if (row.container) seen.set(row.container, (seen.get(row.container) ?? 0) + 1);
+    const twice = [...seen].filter(([, count]) => count > 1).map(([id]) => id);
+    if (twice.length) block(`Container trùng trong chứng từ: ${twice.join(", ")}.`);
+    const off = note.rows.filter(row => row.mismatch);
+    if (off.length) block(`Thành tiền LUMP-SUM + phí khác số trên sổ ở container: ${off.map(row => row.container).join(", ")}.`);
+    if (note.subtotalVnd !== null && note.totalVnd !== null && note.subtotalVnd !== note.totalVnd) block("Subtotal trang 1 khác TOTAL DUE.");
+    const missing = [["Số debit note", doc.number], ["Dịch vụ", doc.service], ["Tên bên phát hành", doc.issuer?.name], ["MST bên phát hành", doc.issuer?.taxId],
+      ["Tên pháp lý của khách", doc.buyer?.legal], ["Địa chỉ của khách", doc.buyer?.address], ["Người nhận tiền", doc.payment?.beneficiary],
+      ["Ngân hàng", doc.payment?.bank], ["Số tài khoản", doc.payment?.account], ["SWIFT", doc.payment?.swift]].filter(([, value]) => blank(value)).map(([label]) => label);
+    if (missing.length) block(`Còn thiếu: ${missing.join(", ")}.`);
+    if (!validDay(doc.issueDate)) block("Ngày phát hành chưa đúng.");
+    if (!Number.isInteger(doc.paymentDays) || doc.paymentDays < 0 || doc.paymentDays > 365) block("Số ngày thanh toán phải là số nguyên từ 0 đến 365.");
+    if (doc.usd?.on && (parseRate(doc.usd.rate) === null || blank(doc.usd.source) || !validDay(doc.usd.date))) block("Bật quy đổi USD nhưng thiếu tỷ giá, nguồn hoặc ngày lấy tỷ giá.");
+    const texts = note.charges.map(item => item.note).concat(doc.extraTexts ?? []);
+    if (texts.some(text => PHONE.test(String(text).replace(/(?<=\d)[ .-](?=\d)/g, "")))) block("Mô tả hoặc ghi chú có chuỗi giống số điện thoại.");
+    if (!blank(doc.payment?.beneficiary) && !blank(doc.issuer?.name) && dnFold(doc.payment.beneficiary) !== dnFold(doc.issuer.name))
+      warn("Chủ tài khoản nhận tiền khác bên phát hành.");
+    if (validDay(doc.issueDate) && note.lastLoadingDate && doc.issueDate < note.lastLoadingDate)
+      warn(`Ngày phát hành sớm hơn ngày đóng hàng cuối cùng (${dnDate(note.lastLoadingDate)}).`);
+    const places = [...new Set(note.rows.filter(row => !row.place.known).map(row => row.place.text || "(trống)"))];
+    const ports = [...new Set(note.rows.filter(row => !row.port.known).map(row => row.port.text || "(trống)"))];
+    if (places.length) warn(`Nơi đóng hàng ngoài danh mục: ${places.join(", ")}.`);
+    if (ports.length) warn(`Cảng đến ngoài danh mục: ${ports.join(", ")}.`);
+    const zero = note.rows.filter(row => row.lumpSumVnd === 0n);
+    if (zero.length) warn(`${zero.length} container có LUMP-SUM bằng 0.`);
+    const thin = note.rows.filter(row => blank(row.carrier) || blank(row.shipper) || !validDay(row.date));
+    if (thin.length) warn(`${thin.length} container thiếu hãng tàu, shipper hoặc ngày đóng hàng.`);
+    if (note.pendingCount) info(`${note.pendingCount} chuyến đang CHỜ KIỂM không lên chứng từ.`);
+    if (note.adjustmentCount) info(`Tháng có ${note.adjustmentCount} dòng điều chỉnh, không lên chứng từ.`);
+    return out;
+  }
+  // Số debit note gợi ý: <mã bên phát hành>-<yymm của kỳ>-001 (CÒN MỞ: quy tắc đánh số chính thức).
+  const suggestNumber = (code, monthKey) => `${code}-${monthKey.slice(2, 4)}${monthKey.slice(5, 7)}-001`;
 
   function parseOutgoingOffsets(list) {
     if (!Array.isArray(list)) throw new Error("Invalid outgoing offsets");
@@ -645,6 +830,7 @@ const SoKhachV7Model = (() => {
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     sheetPriceAmount, sheetVnd, planSheetPrices, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
-    parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DEBIT_FEES, debitFeeColumn, debitNote };
+    parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
+    parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;
