@@ -1369,19 +1369,19 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md), nhật ký [`deploys/
 
 Rollback: bước 1 trả unit đã lưu rồi `daemon-reload`. Bước 2 đổi tên tab lại (code đọc được cả hai tên tới PR bỏ tên cũ). Bước 3 xóa vùng bảo vệ.
 
-## Đổi nguồn đồng bộ chuyến sang CONT_NGUON — đối chiếu rồi đổi mặc định (giai đoạn 2a)
+## Đổi nguồn đồng bộ chuyến sang CONT_NGUON — đối chiếu rồi đổi mặc định (giai đoạn 2a, ĐÃ CHẠY trên hao 30/10/2026)
 
-Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a". Không migration, không đổi DB, không ghi Sheet. Code (`--source`, công cụ so) lên `hao` qua `Deploy hao` như thường.
+Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a", nhật ký [`deploys/2026-10-30-cont-nguon.md`](deploys/2026-10-30-cont-nguon.md). Không migration, không đổi DB, không ghi Sheet. Code (`--source`, công cụ so) lên `hao` qua `Deploy hao` như thường.
 
 1. **Chụp thử từ tab mới**, cùng user và env của runner, ra file tạm (có tên khách: xóa sau khi so):
    ```text
    sudo systemd-run --quiet --wait --pipe --collect -p User=v7app -p Group=v7app      -p EnvironmentFile=/etc/webdebit/sheet-sync.env -p ProtectHome=true      /usr/bin/python3 <current>/cong-no-web-handoff/tools/sheet_sync_runner.py --source cont_nguon      --output /var/lib/webdebit-sheet-sync/export/cont-nguon-thu.json
    ```
 2. **So với bản chụp đang dùng:** `… v7_sheet_source_diff.py /var/lib/webdebit-sheet-sync/snapshot.json /var/lib/webdebit-sheet-sync/export/cont-nguon-thu.json --detail /var/lib/webdebit-sheet-sync/export/cont-nguon-lech.json` (chạy cùng cách bước 1, cách nhau dưới 15 phút để Sheet chưa kịp đổi; nếu `only_old`/`only_new` có `READY` thì chạy lại cả hai sát nhau trước khi kết luận). Đạt khi mã thoát 0 và `identical_ready: true`; dòng `INVALID` nhiều hơn ở bản mới là bình thường (dòng thiếu số cont mà `WEBDEBIT_EXPORT` đã lọc). Ghi các số đếm vào nhật ký `docs/deploys/`, xóa hai file tạm.
-3. **Đổi mặc định** bằng PR: `DEFAULT_SOURCE = "cont_nguon"` trong `sheet_sync_runner.py`, bỏ đường `export` và test của nó. Sau `Deploy hao`, chờ một lượt timer: `journalctl -u webdebit-sheet-sync.service` có `Result=success`, `snapshot.json` có `runner.source = cont_nguon`, số `READY` như bước 2 (± chuyến mới). Mở một sổ khách có chuyến đồng bộ: không có chuyến nào bị báo "không còn trên Sheet", nút duyệt vẫn đếm đúng.
+3. **Đổi mặc định** bằng PR: `DEFAULT_SOURCE = "cont_nguon"` trong `sheet_sync_runner.py`; đường `export` giữ lại để quay lại, bỏ khi phía Sheet đã xóa `BOOKING_DATA`. Sau `Deploy hao`, chờ một lượt timer: `journalctl -u webdebit-sheet-sync.service` có `Result=success`, `snapshot.json` có `runner.source = cont_nguon`, số `READY` như bước 2 (± chuyến mới). Mở một sổ khách có chuyến đồng bộ: không có chuyến nào bị báo "không còn trên Sheet", nút duyệt vẫn đếm đúng.
 4. **Báo phía Sheet** được bỏ `BOOKING_DATA` và `CONT_BO`; `WEBDEBIT_EXPORT` bỏ được sau khi không còn gì đọc (API không đọc tab này). `CONT_MASTER` và `WEB_GHEP_KHACH` giữ.
 
-Rollback: trước bước 3 không có gì phải trả. Sau bước 3, đặt `Environment=WEBDEBIT_SHEET_SOURCE=export` vào drop-in của unit chỉ chạy được nếu PR chưa bỏ đường `export`; đã bỏ thì revert PR đó (tab cũ vẫn còn trên Sheet tới khi web báo bỏ).
+Rollback: trước bước 3 không có gì phải trả. Sau bước 3, drop-in cho unit `webdebit-sheet-sync.service` với `[Service]` `Environment=WEBDEBIT_SHEET_SOURCE=export`, `daemon-reload`, chạy một lượt; chỉ còn tác dụng khi `BOOKING_DATA` và `WEBDEBIT_EXPORT` chưa bị xóa trên Sheet.
 
 ## Cấn khoản dư vào tháng nợ cũ nhất — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
 

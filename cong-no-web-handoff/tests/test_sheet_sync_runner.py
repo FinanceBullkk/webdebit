@@ -16,14 +16,14 @@ class SheetSyncRunnerTests(unittest.TestCase):
             credential_path.write_text(json.dumps({
                 "type": "service_account", "client_email": "reader@example.com", "private_key": "unused",
             }), encoding="utf-8")
-            original = runner.read_export
-            runner.read_export = lambda sheet, token, **kwargs: {
+            original = runner.read_source
+            runner.read_source = lambda sheet, token, **kwargs: {
                 "row_count": 2, "sha256": "a" * 64, "rows": [], "source": {"spreadsheet_id": sheet},
             }
             try:
                 snapshot = runner.run_once(str(credential_path), "sheet-id", str(output_path), lambda _: "token")
             finally:
-                runner.read_export = original
+                runner.read_source = original
             self.assertEqual(snapshot["runner"]["mode"], "read-only")
             self.assertEqual(json.loads(output_path.read_text(encoding="utf-8"))["row_count"], 2)
             self.assertFalse((output_path.with_name("snapshot.json.tmp")).exists())
@@ -43,14 +43,14 @@ class SheetSyncRunnerTests(unittest.TestCase):
             try:
                 default = runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "a.json"), lambda _: "t")
                 central = runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "b.json"), lambda _: "t",
-                                          source="cont_nguon")
+                                          source="export")
                 with self.assertRaisesRegex(ValueError, "unknown sheet source"):
                     runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "c.json"), lambda _: "t",
                                     source="booking")
             finally:
                 runner.read_export, runner.read_source = originals
-            self.assertEqual(calls, ["export", "cont_nguon"])
-            self.assertEqual((default["runner"]["source"], central["runner"]["source"]), ("export", "cont_nguon"))
+            self.assertEqual(calls, ["cont_nguon", "export"])
+            self.assertEqual((default["runner"]["source"], central["runner"]["source"]), ("cont_nguon", "export"))
 
     def test_assertion_has_expected_claims(self):
         credentials = {"client_email": "reader@example.com", "private_key": "unused"}

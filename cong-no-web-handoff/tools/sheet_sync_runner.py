@@ -20,10 +20,11 @@ from webdebit_export_connector import read_export, read_source
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
-# "export": WEBDEBIT_EXPORT joined with BOOKING_DATA (until 30/10/2026). "cont_nguon": the central tab
-# (specs/v7-sheet-contract.md, phase 2a). The default flips only after the two snapshots compared 0-diff on hao.
+# "cont_nguon": the central tab (specs/v7-sheet-contract.md, phase 2a), default since 30/10/2026 after the
+# two snapshots compared identical on hao. "export": WEBDEBIT_EXPORT joined with BOOKING_DATA, kept only as
+# the rollback path until the Sheet side drops BOOKING_DATA; remove it then.
 SOURCES = ("export", "cont_nguon")
-DEFAULT_SOURCE = "export"
+DEFAULT_SOURCE = "cont_nguon"
 
 
 def _b64(value: bytes) -> str:

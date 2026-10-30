@@ -1,6 +1,6 @@
 # V7: hợp đồng đọc Sheet ↔ web (giai đoạn 1)
 
-Trạng thái: giai đoạn 1 **ĐÃ TRIỂN KHAI trên `hao` và CHAU_HAO 29/10/2026** (người dùng cho làm cả A, B, C trong chat; [nhật ký](../docs/deploys/2026-10-29-sheet-contract.md)). Đề xuất ban đầu của Claude cùng ngày, theo yêu cầu đề xuất kiến trúc nối CHAU_HAO với web. Nguồn đơn giá đã chốt ở [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md). Giai đoạn 2a (đọc `CONT_NGUON`) **ĐÃ CODE 30/10/2026**, chuyển nguồn trên `hao` sau khi đối chiếu 0 lệch (xem mục cuối). Giai đoạn 2b–3 chỉ là hướng.
+Trạng thái: giai đoạn 1 **ĐÃ TRIỂN KHAI trên `hao` và CHAU_HAO 29/10/2026** (người dùng cho làm cả A, B, C trong chat; [nhật ký](../docs/deploys/2026-10-29-sheet-contract.md)). Đề xuất ban đầu của Claude cùng ngày, theo yêu cầu đề xuất kiến trúc nối CHAU_HAO với web. Nguồn đơn giá đã chốt ở [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md). Giai đoạn 2a (đọc `CONT_NGUON`) **ĐÃ TRIỂN KHAI trên `hao` 30/10/2026** sau khi đối chiếu hai bản chụp giống hệt phần READY ([nhật ký](../docs/deploys/2026-10-30-cont-nguon.md)). Giai đoạn 2b–3 chỉ là hướng.
 
 ## Bối cảnh: CHAU_HAO đang chạy thế nào (đọc 29/10/2026, chỉ đọc)
 
@@ -69,13 +69,15 @@ Web chỉ đọc, qua ba runner trên `hao` (mỗi 15 phút và khi bấm "↻ L
 
 **Thay đổi code (PR này):**
 - `webdebit_export_connector.read_source` / `parse_source_values`: đọc `CONT_NGUON!A1:Z`, tìm 14 cột theo tên tiêu đề (thêm hoặc đảo cột không sao, đổi chữ tiêu đề thì dừng với `CONT_NGUON header mismatch`). Luật trạng thái **giữ y đường cũ**: `INVALID` khi thiếu cont/ngày/hãng/nơi đi/nơi đến, `DUPLICATE` khi trùng cont + ngày, `NO_CUSTOMER` khi trống chủ hàng chuẩn. Cờ lỗi của Sheet giữ nguyên văn ở `source_flag`, không đổi trạng thái. Chỉ lấy `Loại = BIỂN`; chuyến bộ vẫn dán tay cho tới khi có quyết định riêng.
-- `sheet_sync_runner.py --source export|cont_nguon` (env `WEBDEBIT_SHEET_SOURCE`), **mặc định vẫn `export`** cho tới khi đối chiếu trên `hao` đạt; bản chụp ghi `runner.source`.
+- `sheet_sync_runner.py --source export|cont_nguon` (env `WEBDEBIT_SHEET_SOURCE`); mặc định `export` ở PR #204, đổi sang `cont_nguon` ở PR kế sau khi đối chiếu trên `hao` đạt; bản chụp ghi `runner.source`. Đường `export` chỉ còn để quay lại; bỏ khi phía Sheet đã xóa `BOOKING_DATA`.
 - `v7_sheet_source_diff.py OLD NEW [--detail]`: so hai bản chụp theo chuyến (cont, ngày, hãng, nơi đi, nơi đến), không theo số dòng; in số đếm, chi tiết (có tên khách) ghi ra file ngoài Git. Mã thoát 0 khi tập dòng `READY` và booking/chủ hàng/shipper/loại sầu riêng của chúng giống hệt.
 - `v7_sheet_queue.project_customer`: quyết định "Giữ web" (`sheet_conflict_resolved`) khóa theo đích + trường, không theo số dòng Sheet, vì số dòng đổi khi đổi tab (trên `hao` có 69 quyết định như vậy tới 30/10). Mọi chỗ khác đã ghép theo cont + ngày từ trước (`get_ledger` không trả `source_ref` từ 22/10).
 
 **Đã thử trên dữ liệu thật (PC, chỉ đọc, 30/10/2026):** `CONT_NGUON` 5.576 dòng → `READY` 5.381 (bằng bản chụp đường cũ trên `hao` cùng ngày), `INVALID` 195 (đường cũ 23: 172 dòng thiếu số cont bị công thức `FILTER` của `WEBDEBIT_EXPORT` bỏ từ trước, nay thấy được và đều có Cờ lỗi); sầu riêng 980 đông / 196 tươi.
 
-**Chuyển nguồn trên `hao` (runbook, mục "Đổi nguồn đồng bộ chuyến sang CONT_NGUON"):** chạy runner một lượt với `--source cont_nguon` ra file tạm, so với `snapshot.json` bằng `v7_sheet_source_diff.py`; đạt khi `identical_ready: true`. Rồi PR nhỏ đổi `DEFAULT_SOURCE` sang `cont_nguon` và bỏ đường `export`; sau một lượt timer thành công, báo phía Sheet được bỏ `BOOKING_DATA` và `CONT_BO`. `WEBDEBIT_EXPORT` và `CONT_MASTER` vẫn giữ (PS đọc `CONT_MASTER`).
+**Đối chiếu trên `hao` 30/10/2026 (runbook, mục "Đổi nguồn đồng bộ chuyến sang CONT_NGUON"):** bản chụp thử từ `CONT_NGUON` so với `snapshot.json` đường cũ cách nhau 10 phút: `identical_ready: true`, READY 5.381 = 5.381, không dòng READY nào chỉ có ở một bên; khác nhau chỉ ở dòng INVALID (195 so với 23, đều có Cờ lỗi) và 23 dòng INVALID nay có thêm booking/chủ hàng/shipper vì không còn qua phép ghép. Sau đó PR đổi `DEFAULT_SOURCE`. `WEBDEBIT_EXPORT` và `CONT_MASTER` vẫn giữ (PS đọc `CONT_MASTER`).
+
+**CÒN MỞ:** bỏ đường `export` trong code khi phía Sheet đã xóa `BOOKING_DATA`; `WEBDEBIT_EXPORT` bỏ được cùng lúc (API không đọc tab này).
 
 **Không đổi:** luật tiền, DB, nút duyệt, hợp đồng `WEB_GHEP_KHACH` (tiêu đề cột A vẫn "Chủ hàng từ BOOKING_DATA"), `CONT_MASTER` cho PS, nguồn đơn giá.
 
