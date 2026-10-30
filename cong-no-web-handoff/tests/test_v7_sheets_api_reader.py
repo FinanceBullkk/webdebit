@@ -106,11 +106,12 @@ class ReaderTest(unittest.TestCase):
             credentials = Path(temp) / "fake-credentials.json"
             credentials.write_text(json.dumps({"type": "service_account", "client_email": "fake@example.invalid",
                                                "private_key": "FAKE"}), encoding="utf-8")
-            from_api = snapshot_tool.build_from_api(SHEET_ID, str(credentials), token_exchange=lambda _: "fake-token",
-                                                    opener=FakeOpener(api_payloads(xlsx)))
+            from_api, receipts = snapshot_tool.build_all_from_api(SHEET_ID, str(credentials), token_exchange=lambda _: "fake-token",
+                                                                  opener=FakeOpener(api_payloads(xlsx)))
             self.assertEqual(from_api["sha256"], snapshot_tool.build(xlsx)["sha256"])
+            self.assertEqual(receipts["sha256"], snapshot_tool.build_all(xlsx)[1]["sha256"])
             self.assertEqual(from_api["source"], {"kind": "sheets_api"})
-            with patch.object(snapshot_tool, "build_from_api", side_effect=KeyError("sheets")):
+            with patch.object(snapshot_tool, "build_all_from_api", side_effect=KeyError("sheets")):
                 self.assertEqual(snapshot_tool.main(["--spreadsheet-id", SHEET_ID, "--credentials", str(credentials),
                                                      "--output", str(Path(temp) / "p.json")]), 2)
 

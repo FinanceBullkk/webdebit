@@ -17,6 +17,14 @@ from typing import Any
 EXPORT_RANGE = "WEBDEBIT_EXPORT!A1:E20000"
 BOOKING_RANGE = "BOOKING_DATA!A1:O20000"
 MAPPING_RANGE = "WEB_GHEP_KHACH!A1:F1000"
+# Phase 2a (specs/v7-sheet-contract.md): one central tab replaces WEBDEBIT_EXPORT + BOOKING_DATA.
+# Columns are found by header text in row 1, so the Sheet side may add or reorder columns.
+SOURCE_RANGE = "CONT_NGUON!A1:Z20000"
+SOURCE_COLUMNS = {"container": "Số cont", "date": "Ngày đóng", "booking": "Booking", "customer_name": "Chủ hàng (chuẩn)",
+                  "shipper": "Shipper", "carrier": "Hãng tàu", "origin": "Kho", "destination": "Cảng đến",
+                  "product_name": "Tên hàng", "commodity": "Mặt hàng", "kind": "Loại", "source_tab": "Tab nguồn",
+                  "source_line": "Dòng nguồn", "flag": "Cờ lỗi"}
+SOURCE_KIND_SEA = "BIỂN"
 HEADERS = ("Số container", "Hãng tàu", "Ngày chuyến", "Nơi đi", "Nơi đến")
 BOOKING_HEADERS = ("Số cont", "Chủ hàng (chuẩn)", "Ngày đóng", "Booking", "Tab nguồn", "Dòng nguồn", "Chủ hàng (gốc)", "Shipper", "Hãng tàu", "Kho", "Cảng đến")
 BOOKING_PRODUCT_HEADERS = ("Giá + phí (gốc)", "Tên hàng", "Mặt hàng", "Bảo hiểm (cột BẢO HIỂM booking)")
@@ -102,6 +110,61 @@ def parse_booking_values(values: list[list[Any]]) -> list[dict[str, Any]]:
             "destination": str(cells[10] or "").strip(),
             "durian_type": durian_type(cells[12], cells[13]) if len(values[0]) >= 15 else None,
         })
+    return rows
+
+
+def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
+    """CONT_NGUON rows in the same shape as merge_booking_rows output (one read, no join).
+
+    Status rules match the WEBDEBIT_EXPORT + BOOKING_DATA path so the switch is a 0-diff
+    change: INVALID when a trip field is blank, DUPLICATE on a repeated container + date,
+    NO_CUSTOMER when the standard owner is blank. The Sheet's own "Cờ lỗi" stays as text
+    (`source_flag`); it never changes a status here. Rows whose "Loại" is not BIỂN are left
+    out for now (road trips are pasted by hand, specs/v7-sheet-contract.md).
+    """
+    if not values:
+        raise ValueError("CONT_NGUON empty")
+    header = [_SPACE_RE.sub(" ", unicodedata.normalize("NFC", str(cell or ""))).strip() for cell in values[0]]
+    missing = [name for name in SOURCE_COLUMNS.values() if name not in header]
+    if missing:
+        raise ValueError("CONT_NGUON header mismatch")
+    index = {field: header.index(name) for field, name in SOURCE_COLUMNS.items()}
+    rows: list[dict[str, Any]] = []
+    for row_number, raw in enumerate(values[1:], start=2):
+        cell = {field: raw[i] if i < len(raw) else "" for field, i in index.items()}
+        if not any(str(value or "").strip() for value in cell.values()):
+            continue
+        if normalize_customer_name(cell["kind"]) != SOURCE_KIND_SEA:
+            continue
+        item = {
+            "source_row": row_number,
+            "container": normalize_container(cell["container"]),
+            "carrier": str(cell["carrier"] or "").strip(),
+            "source_date": str(cell["date"] or "").strip(),
+            "event_date": parse_date(cell["date"]),
+            "origin": str(cell["origin"] or "").strip(),
+            "destination": str(cell["destination"] or "").strip(),
+            "booking": _SPACE_RE.sub("", str(cell["booking"] or "").strip().upper()),
+            "shipper": str(cell["shipper"] or "").strip(),
+            "customer_name": str(cell["customer_name"] or "").strip(),
+            "durian_type": durian_type(cell["product_name"], cell["commodity"]),
+            "source_tab": str(cell["source_tab"] or "").strip(),
+            "source_line": str(cell["source_line"] or "").strip(),
+            "source_flag": str(cell["flag"] or "").strip(),
+        }
+        item["status"] = _row_status(item)
+        rows.append(item)
+    by_key: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
+    for item in rows:
+        if item["status"] == "READY":
+            by_key.setdefault((item["container"], item["event_date"]), []).append(item)
+    for matches in by_key.values():
+        if len(matches) > 1:
+            for item in matches:
+                item["status"] = "DUPLICATE"
+    for item in rows:
+        if item["status"] == "READY" and not item["customer_name"]:
+            item["status"] = "NO_CUSTOMER"
     return rows
 
 
@@ -237,6 +300,27 @@ def read_export(spreadsheet_id: str, access_token: str, opener: Callable[..., An
     return {
         "source": {"spreadsheet_id": spreadsheet_id, "range": EXPORT_RANGE,
                    **({"booking_range": BOOKING_RANGE} if include_booking else {})},
+        "rows": rows,
+        "row_count": len(rows),
+        "sha256": hashlib.sha256(canonical).hexdigest(),
+        **({"customer_aliases": aliases} if include_mapping else {}),
+    }
+
+
+def read_source(spreadsheet_id: str, access_token: str, opener: Callable[..., Any] = urllib.request.urlopen,
+                *, include_mapping: bool = True) -> dict[str, Any]:
+    """Snapshot from CONT_NGUON; same keys as read_export(include_booking=True, include_mapping=True)."""
+    values = _fetch_values(spreadsheet_id, access_token, opener, SOURCE_RANGE)
+    rows = parse_source_values(values)
+    sources: dict[str, Any] = {"source": values}
+    aliases = None
+    if include_mapping:
+        mapping_values = _fetch_values(spreadsheet_id, access_token, opener, MAPPING_RANGE)
+        aliases = parse_review_mapping(mapping_values)
+        sources["customer_mapping"] = mapping_values
+    canonical = json.dumps(sources, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return {
+        "source": {"spreadsheet_id": spreadsheet_id, "range": SOURCE_RANGE},
         "rows": rows,
         "row_count": len(rows),
         "sha256": hashlib.sha256(canonical).hexdigest(),

@@ -509,6 +509,13 @@ test('Ghi giá từ Sheet: tổng tăng tính bằng BigInt, phụ phí null là
   assert.throws(() => model.planSheetPrices([{ sheet_unit_price_vnd: 12500000 }], '0'));   // tiền phải là chuỗi
 });
 
+test('THU-SHEET-01: phiếu thu từ Sheet trừ tổng còn nợ bằng BigInt, khách đang dư vẫn đọc được', () => {
+  const ready = [{ amount_vnd: '300000000' }, { amount_vnd: '20000000' }];
+  assert.deepEqual(model.planSheetReceipts(ready, '600000000'), { count: 2, totalVnd: 320000000n, beforeVnd: 600000000n, afterVnd: 280000000n });
+  assert.equal(model.planSheetReceipts(ready, '-1000000').afterVnd, -321000000n);
+  assert.throws(() => model.planSheetReceipts([{ amount_vnd: 300000000 }], '0'));   // tiền phải là chuỗi
+});
+
 test('PHU-PHI-01: cụm cột phụ phí, tổng tháng, số gõ tay theo dấu loại, Thành tiền trước → sau khi tính lại', () => {
   const lines = [{ id: 1, fee_type_id: 1, amount_vnd: '1200000' }, { id: 2, fee_type_id: 1, amount_vnd: '300000' },
     { id: 3, fee_type_id: 7, amount_vnd: '800000' }, { id: 4, fee_type_id: 8, amount_vnd: '-500000' }];
