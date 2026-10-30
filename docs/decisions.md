@@ -49,6 +49,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="song-song-03"></a>[SONG-SONG-03](decisions/song-song-03.md) | Hai khách bị giữ sau mốc (A3) |  |
 | <a id="nhap-sheet-01"></a>[NHAP-SHEET-01](decisions/nhap-sheet-01.md) | Nhập và sửa chuyến kiểu Sheet | Vế (1) bảng nhập thay bởi [NHAP-SHEET-02](#nhap-sheet-02) |
 | <a id="nhap-sheet-02"></a>[NHAP-SHEET-02](decisions/nhap-sheet-02.md) | Bỏ bảng nhập chuyến; chuyến lấy từ Sheet |  |
+| <a id="thu-sheet-01"></a>[THU-SHEET-01](decisions/thu-sheet-01.md) | Phiếu thu từ Sheet lên web bằng hàng chờ |  |
 | <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ | Nội dung khối thay bởi [DASH-03](#dash-03) |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
 | <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |

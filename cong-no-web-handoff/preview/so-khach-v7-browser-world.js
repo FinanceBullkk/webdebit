@@ -56,6 +56,7 @@ function ledger(world) {
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
+    sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     ...(world.psFees ? { ps_fees: world.psFees } : {}) };
 }
 
@@ -154,6 +155,20 @@ function apply(world, url, body) {
       Object.assign(row, { unit_price_vnd: item.sheet_unit_price_vnd, other_fee_vnd: item.sheet_other_fee_vnd, is_missing_price: false });
     }
     world.sheetPrices = { ...world.sheetPrices, ready: [], ready_count: 0 };
+    world.version += 1;
+    return [200, { written, remaining: 0, complete: true, version: world.version }];
+  }
+  // THU-SHEET-01: mỗi phiếu READY thành một phiếu thu web, như record_receipt.
+  if (url === '/api/v7/sheet/receipts') {
+    if (world.receiptStale || body.snapshot_sha256 !== world.sheetReceipts.snapshot_sha256) return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi. Tải lại rồi ghi.' }];
+    for (const item of world.sheetReceipts.ready) {
+      const pid = `PH-${String(world.receipts.length + 1).padStart(3, '0')}`;
+      world.receipts.push({ id: world.receipts.length + 1, pid, date: item.date, method: 'THU TIỀN', amount_vnd: item.amount_vnd,
+        reference: `Sheet: ${item.note}`, voided_by_event: null, void_reason: null,
+        allocations: [{ id: 1, month: monthOf(item.date), kind: 'debt', amount_vnd: item.amount_vnd, superseded_by_event: null }] });
+    }
+    const written = world.sheetReceipts.ready.length;
+    world.sheetReceipts = { ...world.sheetReceipts, ready: [], ready_count: 0 };
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
