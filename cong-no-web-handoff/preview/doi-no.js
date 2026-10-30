@@ -122,7 +122,7 @@
         <span class="when">${paid}</span>
         <span class="when">${remText}</span>
         <span class="st ${st.tone}">${esc(st.label)}</span>
-        <button type="button" class="btn copy" data-copy="${row.customer_id}">Copy tin nhắc</button>
+        <span class="acts"><button type="button" class="btn copy" data-copy="${row.customer_id}">Copy tin nhắc</button><a class="btn chat" href="/zalo-chat.html?q=${encodeURIComponent(nameOf(row.customer_id).replace(/ · sổ \d+$/, ''))}" title="Mở hội thoại Zalo với khách này">Chat</a></span>
       </div>`;
     }).join('') : `<p class="empty">${state.filter === 'all' ? 'Không có khách quá hạn.' : 'Không có khách khớp lọc này.'}</p>`;
     root.innerHTML = `<section class="card">
@@ -130,7 +130,7 @@
       <div class="filters">${filterBtns}</div>
       <div class="rhead"><span>Khách</span><span class="num">Quá hạn</span><span class="num">Còn nợ</span><span class="when">Trả gần nhất</span><span class="when">Nhắc gần nhất</span><span class="st">Trạng thái</span><span></span></div>
       <div class="rlist">${list}</div>
-      <p class="tiny">"Đã nhắc" ghi khi bạn bấm Copy tin nhắc (dán vào Zalo). Đồng bộ tự động từ Zalo sẽ bổ sung sau.</p>
+      <p class="tiny">"Đã nhắc" ghi khi bạn bấm Copy tin nhắc (dán vào Zalo). Nút Chat mở lại hội thoại Zalo với khách từ bản xuất (<a href="/zalo-chat.html">xem mọi hội thoại</a>).</p>
     </section>`;
   }
 
