@@ -77,7 +77,8 @@ a{color:inherit;text-decoration:none}
 
 @media (max-width:760px){
   .topbar{flex-wrap:wrap;height:auto;padding:10px 12px;gap:10px}
-  .topbar nav{height:40px;order:3;width:100%}
+  .topbar nav{height:40px;order:3;width:100%;overflow-x:auto}
+  .topbar nav a{flex:none;white-space:nowrap}
   .search{order:4;width:100%;margin-left:0}
   .page{padding:16px 12px 32px}
   .page-head{flex-wrap:wrap}
