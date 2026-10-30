@@ -50,6 +50,7 @@ module.exports = [
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
         DebitNoteXlsx: "readonly",
+        DebitNotePrint: "readonly",
         CustomerLedgerWorkbench: "readonly",
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",

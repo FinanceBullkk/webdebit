@@ -1,130 +1,114 @@
-/* DEBIT-NOTE-01: ghi phiếu debit note (từ SoKhachV7Model.debitNote) thành file .xlsx theo mẫu "COMMERCIAL INVOICE"
- * đang gửi khách, và dựng bảng HTML cùng nội dung cho hộp xem trước/bản in. Không thư viện ngoài: zip kiểu "stored"
- * (không nén) đủ cho Excel. Không tính tiền: số tiền lấy nguyên từ phiếu, chỉ đổi BigInt thành chữ số. */
+/* DEBIT-NOTE-02: file Excel đối chiếu gửi kèm PDF Debit Note (mẫu v3 sếp duyệt 30/10/2026, specs/v7-debit-note.md).
+ * Một sheet; phía trên là số chứng từ, ngày, kỳ, bên phát hành, bên mua, tỷ giá; bảng dữ liệu cột cố định như file Statement
+ * khách đang đối chiếu: NO., CONTAINER NO., SHIPPER, DATE, FROM, TO, đủ 8 cột phí (thêm loại ngoài danh mục khi phát sinh),
+ * TOTAL (VND). Số tiền là số thật, không gộp ô trong bảng, cố định hàng tiêu đề; USD chỉ ở dòng tổng. Không thư viện ngoài:
+ * zip kiểu "stored" (không nén) đủ cho Excel. Không tính tiền: số lấy nguyên từ chứng từ do model dựng. */
 const DebitNoteXlsx = (() => {
-  const FROM = { name: 'HTH LOGISTICS DV TM CO.,LTD', address: '20/21/15 LE CONG PHAP, AN LAC WARD, BINH TAN DISTRICT, HO CHI MINH CITY, VIETNAM',
-    tel: '', email: 'hth.logs@gmail.com' };
-  // Cột như mẫu; fee = khóa trong row.fees của model.
-  const COLUMNS = [
-    { head: ['NO.', ''], width: 5 }, { head: ['CONTAINER NO.', '柜号'], width: 15 }, { head: ['LINE', '船东'], width: 8 },
-    { head: ['SHIPPER', ''], width: 18 }, { head: ['NGÀY', '装柜日期'], width: 12 }, { head: ['KHO', '工厂'], width: 14 },
-    { head: ['CẢNG ĐẾN', '目的港'], width: 13 }, { head: ['NEO', '押车'], width: 11, fee: 'neo' },
-    { head: ['PHÍ ĐIỆN', '插电费'], width: 11, fee: 'dien' }, { head: ['ĐÓNG GHÉP', '井柜'], width: 11, fee: 'ghep' },
-    { head: ['OTHER FEE', '其他费用'], width: 11, fee: 'other' }, { head: ['BẢO HIỂM', '保险'], width: 11, fee: 'baoHiem' },
-    { head: ['KIỂM ĐỊNH', '(O + CD + VS)'], width: 12, fee: 'kiemDinh' }, { head: ['HEALTH CERT', ''], width: 11, fee: 'health' },
-    { head: ['ĐƠN GIÁ', '单价'], width: 13 }, { head: ['TỔNG', '总计 (VND)'], width: 15 },
-  ];
-  const TOTAL_WIDTH = COLUMNS.reduce((sum, column) => sum + column.width, 0);   // bề rộng cột trên trang theo tỉ lệ cột Excel
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const isoDay = iso => /^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '';
-  const longDay = iso => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`;
-  const digits = value => value === null || value === undefined ? '' : value.toString();
-  const grouped = value => value === null || value === undefined ? '' : (value < 0n ? '-' : '') + (value < 0n ? -value : value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const statusText = note => note.complete ? 'ĐÃ CHỐT' : 'CHƯA CHỐT';
-
-  // Một dòng phiếu → giá trị từng cột (chữ hoặc BigInt/null cho cột tiền).
-  function cells(row, index) {
-    return [String(index + 1), row.feeOnly ? 'Phí lẻ' : row.container ?? '', row.carrier ?? '', row.shipper ?? '', isoDay(row.date),
-      row.origin ?? '', row.destination ?? '', ...COLUMNS.slice(7, 14).map(column => row.fees[column.fee]), row.unitPriceVnd, row.totalVnd];
-  }
-
-  // ---- HTML (xem trước và in) ----
-  function html(note, { customer, todayIso, escape }) {
-    const head = COLUMNS.map(column => `<th>${escape(column.head[0])}${column.head[1] ? `<br>${escape(column.head[1])}` : ''}</th>`).join('');
-    const body = note.rows.map((row, index) => `<tr>${cells(row, index).map((value, col) =>
-      col < 7 ? `<td${col === 0 ? ' class="no"' : ''}>${escape(value)}</td>` : `<td class="num">${grouped(value)}</td>`).join('')}</tr>`).join('');
-    return `<table class="dn-sheet"><colgroup>${COLUMNS.map(column => `<col style="width:calc(100% * ${column.width} / ${TOTAL_WIDTH})">`).join('')}</colgroup>
-      <tr><td class="dn-title" colspan="16">COMMERCIAL INVOICE</td></tr>
-      <tr><td colspan="13"></td><td class="dn-date-label">DATE:</td><td class="dn-date" colspan="2">${escape(longDay(todayIso))}</td></tr>
-      <tr><td></td><td class="dn-label">FROM:</td><td class="dn-strong" colspan="14">${escape(FROM.name)}</td></tr>
-      <tr><td colspan="2"></td><td>ADDRESS:</td><td colspan="2"></td><td class="dn-strong" colspan="11">${escape(FROM.address)}</td></tr>
-      <tr><td colspan="2"></td><td>TEL:</td><td colspan="2"></td><td colspan="11">${escape(FROM.tel)}</td></tr>
-      <tr><td colspan="2"></td><td>Email:</td><td colspan="2"></td><td class="dn-mail" colspan="11">${escape(FROM.email)}</td></tr>
-      <tr><td></td><td class="dn-label">TO:</td><td colspan="14">${escape(customer)}</td></tr>
-      <tr class="dn-gap"><td colspan="16"></td></tr>
-      <tr class="dn-head">${head}</tr>${body}
-      <tr class="dn-total"><td colspan="15">TỔNG( 总计)  VND</td><td class="num">${grouped(note.totalVnd)}</td></tr>
-      <tr><td colspan="15"></td><td class="dn-status">${statusText(note)}</td></tr></table>`;
-  }
-
-  // ---- XLSX ----
-  const xml = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const colName = index => String.fromCharCode(65 + index);   // 16 cột: A..P
-  // Kiểu ô (chỉ số cellXfs trong styles.xml bên dưới).
-  const S = { title: 1, label: 2, text: 3, dateBox: 4, head: 5, cell: 6, money: 7, center: 8, totalLabel: 9, totalMoney: 10, status: 11, mail: 12, dateLabel: 13 };
+  const xml = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const colName = index => (index >= 26 ? String.fromCharCode(64 + Math.floor(index / 26)) : '') + String.fromCharCode(65 + (index % 26));
+  // Ngày Excel (số ngày từ 30/12/1899) từ chuỗi yyyy-mm-dd; định dạng [$-409] để luôn hiện tên tháng tiếng Anh.
+  const serial = iso => /^\d{4}-\d{2}-\d{2}/.test(iso ?? '') ? (Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) - Date.UTC(1899, 11, 30)) / 86400000 : null;
+  const HEADER_ROW = 9;   // hàng tiêu đề cố định qua các tháng; dữ liệu từ hàng 10
+  // Kiểu ô (chỉ số cellXfs trong styles.xml).
+  const S = { title: 1, label: 2, value: 3, valueBold: 4, head: 5, text: 6, money: 7, date: 8, center: 9, totalText: 10, totalMoney: 11, usd: 12, headNum: 13, dateValue: 14 };
+  const NAVY = 'FF14304F', LINE = 'FFDDE2E8', GRAY = 'FF5F6B7A';
+  const font = (extra, color = 'FF1F2933', sz = 9) => `<font>${extra}<sz val="${sz}"/><color rgb="${color}"/><name val="Arial"/></font>`;
   const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0"/></numFmts>
-<fonts count="7"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="20"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF1F4E79"/><name val="Arial"/></font><font><sz val="8"/><name val="Arial"/></font><font><b/><u/><sz val="10"/><color rgb="FF0563C1"/><name val="Arial"/></font></fonts>
-<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2E75B6"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0000FF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFC000"/></patternFill></fill></fills>
-<borders count="2"><border/><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/></border></borders>
+<numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0;(#,##0);&quot;–&quot;"/><numFmt numFmtId="165" formatCode="[$-409]dd mmm yyyy"/><numFmt numFmtId="166" formatCode="#,##0.00"/></numFmts>
+<fonts count="6">${[font(''), font('<b/>', NAVY, 14), font('', GRAY, 8), font('<b/>'), font('<b/>', 'FFFFFFFF', 8), font('<b/>', NAVY)].join('')}</fonts>
+<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="${NAVY}"/></patternFill></fill></fills>
+<borders count="3"><border/><border><bottom style="thin"><color rgb="${LINE}"/></bottom></border><border><top style="medium"><color rgb="${NAVY}"/></top></border></borders>
 <cellStyleXfs count="1"><xf/></cellStyleXfs>
-<cellXfs count="14"><xf/>
-<xf fontId="1" fillId="2" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<cellXfs count="15"><xf/>
+<xf fontId="1" applyFont="1"/>
 <xf fontId="2" applyFont="1"/>
-<xf/>
-<xf fontId="3" fillId="3" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-<xf fontId="4" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-<xf fontId="5" borderId="1" applyFont="1" applyBorder="1"/>
-<xf numFmtId="164" fontId="5" borderId="1" applyNumberFormat="1" applyFont="1" applyBorder="1"/>
-<xf fontId="5" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-<xf fontId="4" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
-<xf numFmtId="164" fontId="2" borderId="1" applyNumberFormat="1" applyFont="1" applyBorder="1"/>
-<xf fontId="5" applyFont="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-<xf fontId="6" applyFont="1"/>
-<xf fontId="2" applyFont="1" applyAlignment="1"><alignment horizontal="right"/></xf>
-</cellXfs></styleSheet>`;
+<xf fontId="0" applyFont="1"/>
+<xf fontId="3" applyFont="1"/>
+<xf fontId="4" fillId="2" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf fontId="0" borderId="1" applyFont="1" applyBorder="1"/>
+<xf numFmtId="164" fontId="0" borderId="1" applyNumberFormat="1" applyFont="1" applyBorder="1"/>
+<xf numFmtId="165" fontId="0" borderId="1" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left"/></xf>
+<xf fontId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>
+<xf fontId="5" borderId="2" applyFont="1" applyBorder="1"/>
+<xf numFmtId="164" fontId="5" borderId="2" applyNumberFormat="1" applyFont="1" applyBorder="1"/>
+<xf numFmtId="166" fontId="5" applyNumberFormat="1" applyFont="1"/>
+<xf fontId="4" fillId="2" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="165" fontId="0" applyNumberFormat="1" applyFont="1" applyAlignment="1"><alignment horizontal="left"/></xf>
+</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
-  function sheetXml(note, customer, todayIso) {
+  function sheetXml(note, doc, model, draft) {
     const rows = [];
-    const merges = [];
     const row = (number, list, height) => rows.push(`<row r="${number}"${height ? ` ht="${height}" customHeight="1"` : ''}>${list.join('')}</row>`);
     const text = (col, number, value, style) => `<c r="${colName(col)}${number}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
     const blank = (col, number, style) => `<c r="${colName(col)}${number}" s="${style}"/>`;
-    const amount = (col, number, value, style) => value === null || value === undefined ? blank(col, number, style) : `<c r="${colName(col)}${number}" s="${style}"><v>${digits(value)}</v></c>`;
-    row(1, [text(0, 1, 'COMMERCIAL INVOICE', S.title)], 30); merges.push('A1:P1');
-    row(2, [text(13, 2, 'DATE:', S.dateLabel), text(14, 2, longDay(todayIso), S.dateBox), blank(15, 2, S.dateBox)]); merges.push('O2:P2');
-    row(3, [text(1, 3, 'FROM:', S.label), text(2, 3, FROM.name, S.label)]);
-    row(4, [text(2, 4, 'ADDRESS:', S.text), text(5, 4, FROM.address, S.label)]);
-    row(5, [text(2, 5, 'TEL:', S.text), text(5, 5, FROM.tel, S.text)]);
-    row(6, [text(2, 6, 'Email:', S.text), text(5, 6, FROM.email, S.mail)]);
-    row(7, [text(1, 7, 'TO:', S.label), text(2, 7, customer, S.text)]);
-    row(9, COLUMNS.map((column, col) => text(col, 9, column.head.filter(Boolean).join('\n'), S.head)), 42);
-    note.rows.forEach((item, index) => {
-      const number = 10 + index;
-      row(number, cells(item, index).map((value, col) => col === 0 ? text(col, number, value, S.center)
-        : col < 7 ? text(col, number, value, S.cell) : amount(col, number, value, S.money)));
+    const num = (col, number, value, style) => value === null || value === undefined ? blank(col, number, style) : `<c r="${colName(col)}${number}" s="${style}"><v>${value.toString()}</v></c>`;
+    const date = (col, number, iso, style) => serial(iso) === null ? blank(col, number, style) : `<c r="${colName(col)}${number}" s="${style}"><v>${serial(iso)}</v></c>`;
+    const rate = doc.usd?.on ? model.parseRate(doc.usd.rate) : null;
+    const cents = rate === null ? null : model.usdCents(note.totalVnd, rate);
+    const fees = note.excelColumns;
+    const totalCol = 6 + fees.length;
+    row(1, [text(0, 1, `DEBIT NOTE  ·  账单${draft ? '  —  DRAFT · 草稿' : ''}`, S.title)], 22);
+    const top = [['Debit Note No.  账单号', doc.number, S.valueBold], ['Issue Date  开单日期', null, S.dateValue], ['Billing Period  账单期间', note.period, S.value],
+      ['From  开票方', doc.issuer?.name, S.value], ['To  客户', [doc.buyer?.legal, doc.buyer?.display].filter(Boolean).join('  ·  '), S.value],
+      ['Exchange Rate  汇率', rate === null ? '' : `${rate.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')} VND/USD${doc.usd?.source ? `  ·  ${doc.usd.source}` : ''}${model.dnDate(doc.usd?.date) ? `  ·  ${model.dnDate(doc.usd.date)}` : ''}`, S.value]];
+    top.forEach(([label, value, style], index) => {
+      const number = 2 + index;
+      row(number, [text(0, number, label, S.label), index === 1 ? date(2, number, doc.issueDate, style) : text(2, number, value ?? '', style)]);
     });
-    const end = 10 + note.rows.length;
-    row(end, [text(0, end, 'TỔNG( 总计)  VND', S.totalLabel), ...COLUMNS.slice(1, 15).map((_, col) => blank(col + 1, end, S.totalLabel)),
-      amount(15, end, note.totalVnd, S.totalMoney)]);
-    merges.push(`A${end}:O${end}`);
-    row(end + 1, [text(15, end + 1, statusText(note), S.status)]);
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    const head = [['NO.', '序号'], ['CONTAINER NO.', '柜号'], ['SHIPPER', '发货人'], ['DATE', '装柜日期'], ['FROM', '装柜地点'], ['TO', '目的港'],
+      ...fees.map(fee => [fee.en, fee.cn]), ['TOTAL (VND)', '金额']];
+    row(HEADER_ROW, head.map(([en, cn], col) => text(col, HEADER_ROW, `${en}\n${cn}`, col >= 6 ? S.headNum : S.head)), 30);
+    let number = HEADER_ROW;
+    for (const item of note.rows) {
+      number++;
+      row(number, [num(0, number, item.no, S.center), text(1, number, item.container, S.text), text(2, number, item.shipper ?? '', S.text), date(3, number, item.date, S.date),
+        text(4, number, item.place.text, S.text), text(5, number, item.port.text, S.text), ...fees.map((fee, k) => num(6 + k, number, model.dnCell(fee.code, item), S.money)),
+        num(totalCol, number, item.amountVnd, S.money)]);
+    }
+    for (const item of note.charges) {
+      number++;
+      const fee = model.DN_FEES.find(entry => entry.code === item.code);
+      row(number, [blank(0, number, S.center), blank(1, number, S.text), text(2, number, `${fee.en}  ·  ${fee.cn}`, S.text), date(3, number, item.date, S.date),
+        text(4, number, item.note, S.text), blank(5, number, S.text), ...fees.map((entry, k) => num(6 + k, number, model.dnCell(entry.code, item), S.money)),
+        num(totalCol, number, item.amountVnd, S.money)]);
+    }
+    number++;
+    row(number, [text(0, number, 'TOTAL  ·  合计', S.totalText), text(1, number, `${note.containerCount} containers  ·  ${note.containerCount}个柜`, S.totalText),
+      ...[2, 3, 4, 5].map(col => blank(col, number, S.totalText)), ...fees.map((fee, k) => num(6 + k, number, fee.totalVnd, S.totalMoney)), num(totalCol, number, note.totalVnd, S.totalMoney)]);
+    if (cents !== null) {
+      number++;
+      row(number, [text(totalCol - 2, number, `TOTAL (USD)  折合美元 @ ${rate.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, S.label), `<c r="${colName(totalCol)}${number}" s="${S.usd}"><v>${model.usdText(cents).replace(/,/g, '')}</v></c>`]);
+    }
+    const widths = [6, 15, 22, 13, 18, 12, ...fees.map(fee => fee.code === 'LUMP_SUM' ? 14 : 13), 16];
+    return { lastRow: number, xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
-<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
-<cols>${COLUMNS.map((column, col) => `<col min="${col + 1}" max="${col + 1}" width="${column.width}" customWidth="1"/>`).join('')}</cols>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="${HEADER_ROW}" topLeftCell="A${HEADER_ROW + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>${widths.map((width, col) => `<col min="${col + 1}" max="${col + 1}" width="${width}" customWidth="1"/>`).join('')}</cols>
 <sheetData>${rows.join('')}</sheetData>
-<mergeCells count="${merges.length}">${merges.map(ref => `<mergeCell ref="${ref}"/>`).join('')}</mergeCells>
-<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>
+<autoFilter ref="A${HEADER_ROW}:${colName(totalCol)}${HEADER_ROW + note.rows.length + note.charges.length}"/>
+<pageMargins left="0.45" right="0.45" top="0.4" bottom="0.6" header="0.2" footer="0.3"/>
 <pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>
-</worksheet>`;
+<headerFooter><oddFooter>&amp;L&amp;8${xml(doc.issuer?.name)} · Debit Note ${xml(doc.number)}&amp;R&amp;8Page &amp;P of &amp;N</oddFooter></headerFooter>
+</worksheet>` };
   }
 
-  function files(note, customer, todayIso) {
-    const sheetName = xml(`T${note.monthKey.slice(5)}-${note.monthKey.slice(0, 4)}`);
+  function files(note, doc, model, draft = false) {
+    const sheet = sheetXml(note, doc, model, draft);
+    const name = 'Statement';
+    const last = colName(6 + note.excelColumns.length);
     return {
       '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
       '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
       'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${sheetName}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'${sheetName}'!$A$1:$P$${11 + note.rows.length}</definedName></definedNames></workbook>`,
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${name}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${name}!$A$${HEADER_ROW}:$${last}$${HEADER_ROW + note.rows.length + note.charges.length}</definedName><definedName name="_xlnm.Print_Area" localSheetId="0">${name}!$A$1:$${last}$${sheet.lastRow}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">${name}!$${HEADER_ROW}:$${HEADER_ROW}</definedName></definedNames></workbook>`,
       'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
       'xl/styles.xml': STYLES,
-      'xl/worksheets/sheet1.xml': sheetXml(note, customer, todayIso),
+      'xl/worksheets/sheet1.xml': sheet.xml,
     };
   }
 
@@ -170,11 +154,15 @@ const DebitNoteXlsx = (() => {
     return out;
   }
 
-  const xlsx = (note, { customer, todayIso }) => zip(files(note, customer, todayIso));
-  // Tên file không dấu, không ký tự lạ: debit-note-<khách>-<yyyy-mm>.xlsx
-  const fileName = (customer, monthKey) => `debit-note-${String(customer).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D')
-    .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'khach'}-${monthKey}.xlsx`;
+  const xlsx = (note, doc, { model, draft = false }) => zip(files(note, doc, model, draft));
+  // Tên file: <số chứng từ>_<khách>_<yyyy-mm>; "/" trong số chứng từ thành "-"; chữ không phải ASCII bỏ đi.
+  function baseName(doc, monthKey, draft = false) {
+    const clean = text => String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd')
+      .replace(/[^A-Za-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const number = clean(String(doc.number ?? '').replace(/\//g, '-')) || 'DEBIT-NOTE';
+    return `${number}_${clean(doc.buyer?.display).slice(0, 40) || 'khach'}_${monthKey}${draft ? '_DRAFT' : ''}`;
+  }
 
-  return { FROM, COLUMNS, html, files, xlsx, zip, crc32, fileName, statusText };
+  return { xlsx, files, zip, crc32, baseName, serial };
 })();
 if (typeof module !== 'undefined') module.exports = DebitNoteXlsx;
