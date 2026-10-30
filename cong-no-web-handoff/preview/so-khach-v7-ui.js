@@ -500,6 +500,7 @@
         }
       }
       decoratePrices(data, active);
+      ctx.removedAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
       markLoc(data);

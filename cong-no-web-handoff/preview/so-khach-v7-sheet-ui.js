@@ -206,5 +206,74 @@
       } catch { showNotice('Chưa rõ kết quả duyệt. Tải lại sổ để kiểm tra trước khi thử lại.'); }
       button.disabled = false;
     });
-    Object.assign(ctx, { decoratePrices });
+    // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
+    // "Giữ" nhớ trên máy này theo bản chụp Sheet; bản chụp mới (hash khác) thì hỏi lại. Không ghi gì lên server.
+    const keptKey = data => `sokhach-v7-sheet-giu:${customerId}:${data.sheet_sync?.snapshot_sha256 ?? ''}`;
+    // Trình duyệt chặn localStorage thì vẫn nhớ trong phiên này.
+    const keptMemory = new Map();
+    const keptIds = data => {
+      const ids = new Set(keptMemory.get(keptKey(data)) ?? []);
+      try { for (const id of JSON.parse(localStorage.getItem(keptKey(data)) ?? '[]')) ids.add(String(id)); } catch { /* chỉ còn bản trong phiên */ }
+      return ids;
+    };
+    const removedRows = data => {
+      const kept = keptIds(data);
+      return (data.sheet_sync?.removed_items ?? []).filter(item => !kept.has(String(item.trip_id)));
+    };
+    let removedJump = 0;
+    function decorateRemoved(data, active) {
+      const items = active ? removedRows(data) : [];
+      for (const item of items) {
+        const row = root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`);
+        if (!row) continue;
+        row.classList.add('sheet-removed');
+        row.title = 'Sheet không còn dòng này. Web vẫn tính chuyến cho tới khi xóa.';
+        row.children[1]?.insertAdjacentHTML('beforeend', `<small class="sheet-removed-tag">Sheet không còn dòng này</small><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span>`);
+      }
+      if (items.length) root.querySelector('.book-head')?.insertAdjacentHTML('afterend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
+    }
+    root.addEventListener('click', async event => {
+      const button = event.target.closest('.sheet-removed-delete,.sheet-removed-keep,.sheet-removed-next,.sheet-removed-unlock');
+      if (!button || !ctx.snapshot) return;
+      event.stopImmediatePropagation();
+      if (button.matches('.sheet-removed-unlock')) { button.disabled = true; await submit('lock', { month: button.dataset.month, locked: false }); return; }
+      const items = removedRows(ctx.snapshot);
+      if (button.matches('.sheet-removed-next')) {
+        const rows = items.map(item => root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`)).filter(Boolean);
+        if (!rows.length) return;
+        const row = rows[removedJump++ % rows.length];
+        row.scrollIntoView({ block: 'center' });
+        row.querySelector('.sheet-removed-delete')?.focus();
+        return;
+      }
+      const item = items.find(entry => String(entry.trip_id) === button.dataset.trip);
+      if (!item) return;
+      const row = button.closest('tr');
+      if (button.matches('.sheet-removed-keep')) {
+        const kept = keptIds(ctx.snapshot);
+        kept.add(String(item.trip_id));
+        keptMemory.set(keptKey(ctx.snapshot), kept);
+        try { localStorage.setItem(keptKey(ctx.snapshot), JSON.stringify([...kept])); } catch { /* chỉ nhớ trong phiên */ }
+        renderSnapshot(ctx.snapshot);
+        showNotice(`Đã giữ chuyến ${item.container}. Sheet có bản mới thì sổ hỏi lại.`);
+        return;
+      }
+      const wasOpen = row.nextElementSibling?.classList.contains('delete-prompt');
+      root.querySelectorAll('.delete-prompt').forEach(prompt => prompt.remove());
+      if (wasOpen) return;
+      const what = `chuyến ${escape(item.container)} (${escape(dateText(item.event_date))}`;
+      // Xóa chuyến tháng khóa vẫn bị chặn (24/10/2026): mở khóa là một thao tác riêng, có ghi Lịch sử.
+      if (item.month_locked || row.closest('table.ledger')?.classList.contains('locked')) {
+        const month = monthKey(item.month);
+        row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt"><td colspan="${spanOf(row)}">Tháng ${monthLabel(month)} đang khóa nên chưa xóa được ${what}). Mở khóa tháng rồi bấm lại "Xóa trên web". <button type="button" class="sheet-removed-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button> <button type="button" class="cancel-delete">Thôi</button></td></tr>`);
+        row.nextElementSibling.querySelector('.sheet-removed-unlock').focus();
+        return;
+      }
+      const amount = item.status !== 'confirmed' ? 'chưa tính vào số dư'
+        : item.amount_vnd == null ? 'chưa có giá' : `thành tiền ${escape(ctx.fmt(item.amount_vnd))}`;
+      // Dòng hỏi cùng dạng xóa chuyến ở ô STT: nút Xóa hẳn/Thôi do so-khach-v7-edit-ui.js xử lý (lệnh tripDelete).
+      row.insertAdjacentHTML('afterend', `<tr class="void-prompt delete-prompt" data-kind="trip" data-id="${escape(item.trip_id)}"><td colspan="${spanOf(row)}">Sheet không còn dòng này. Xóa hẳn ${what}, ${amount}) trên web? Lịch sử ghi người xóa. <button type="button" class="confirm-delete">Xóa hẳn</button> <button type="button" class="cancel-delete">Thôi</button><span class="cell-error delete-error" role="alert"></span></td></tr>`);
+      row.nextElementSibling.querySelector('.cancel-delete').focus();
+    });
+    Object.assign(ctx, { decoratePrices, removedAfterRender: decorateRemoved });
 };

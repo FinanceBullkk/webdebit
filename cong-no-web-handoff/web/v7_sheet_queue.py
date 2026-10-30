@@ -214,9 +214,51 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         if (row and type(trip.get("id")) is int and _container(trip.get("container")) == _container(row.get("container"))
                 and str(trip.get("event_date") or "")[:10] == row.get("event_date")):
             trip_types[str(trip["id"])] = row["durian_type"]
+    removed = removed_trips(queue, ledger)
     return {"snapshot_sha256": queue["snapshot_sha256"], "items": visible, "trip_types": trip_types,
             "new_count": sum(row["sync_state"] == "NEW" for row in visible),
-            "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible)}
+            "conflict_count": sum(row["sync_state"] == "CONFLICT" for row in visible),
+            "removed_items": removed, "removed_count": len(removed)}
+
+
+def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
+    """Web trips taken from the Sheet whose Sheet row is gone; report only, never delete."""
+    ready = [row for row in queue["items"] if row.get("status") == "READY"]
+    # An empty read (tab renamed, runner failure) must not flag every trip.
+    if not ready:
+        return []
+    rows = []
+    for row in ready:
+        # An unmapped row (name not matched) still exists on the Sheet: it keeps the trip, not flags it.
+        if row.get("customer_id") not in (ledger.get("customer_id"), None):
+            continue
+        try:
+            rows.append((_container(row.get("container")), dt.date.fromisoformat(str(row.get("event_date"))[:10]),
+                         _container(row.get("booking"))))
+        except ValueError:
+            continue
+    result = []
+    for trip in ledger.get("trips", []):
+        # get_ledger stopped returning source_ref on 22/10; the queue approval note still marks Sheet trips.
+        from_sheet = _source_row(trip.get("source_ref")) is not None or trip.get("note") == "Chuyến đồng bộ"
+        container = _container(trip.get("container"))
+        if (not from_sheet or not container or trip.get("deleted") or trip.get("status") == "rejected"
+                or type(trip.get("id")) is not int):
+            continue
+        try:
+            date = dt.date.fromisoformat(str(trip.get("event_date"))[:10])
+        except ValueError:
+            continue
+        if date.year < QUEUE_FIRST_YEAR:
+            continue
+        booking = _container(trip.get("booking"))
+        if any(container == other and ((booking and booking == other_booking) or abs((date - other_date).days) <= 3)
+               for other, other_date, other_booking in rows):
+            continue
+        result.append({"trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
+                       "month": trip.get("month"), "status": trip.get("status"), "amount_vnd": trip.get("amount_vnd"),
+                       "month_locked": trip.get("info_editable") is not True})
+    return result
 
 
 def plan_shipper_backfill(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
