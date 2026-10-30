@@ -33,6 +33,20 @@ COMMENT ON COLUMN sokhach.customer.transport_mode IS 'Phương thức vận chuy
 COMMENT ON COLUMN sokhach.customer.archived IS 'Sổ lưu trữ: xem được, không tính vào thống kê. Chỉ áp dụng cho tab không có dòng TONG và không có số dư mở; khách có nợ không được archive.';
 COMMENT ON COLUMN sokhach.customer.version IS 'Tăng sau mỗi lệnh ghi; expected_version cũ bị từ chối.';
 
+-- NHAC-NO-01: nhật ký "đã nhắc" đòi nợ (tab Đòi nợ). Ghi chú thuần, ngoài đường tiền:
+-- không VND, không khóa tháng, không phân bổ, không bump customer.version.
+CREATE TABLE sokhach.reminder_log (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    source text NOT NULL CHECK (source IN ('zalo', 'copy-button', 'manual')),
+    reminded_at date NOT NULL,
+    actor text NOT NULL CHECK (btrim(actor) <> ''),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (customer_id, source, reminded_at)
+);
+CREATE INDEX reminder_log_customer ON sokhach.reminder_log (customer_id, reminded_at DESC);
+COMMENT ON TABLE sokhach.reminder_log IS 'Mốc đã nhắc đòi nợ từng khách (nguồn copy-button/zalo/manual); một dòng mỗi khách/nguồn/ngày; không tham gia tính tiền.';
+
 CREATE TABLE sokhach.cutover (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name text NOT NULL CHECK (btrim(name) <> ''),

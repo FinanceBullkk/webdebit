@@ -71,6 +71,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận |  |
 | <a id="can-du-01"></a>[CAN-DU-01](decisions/can-du-01.md) | Nợ từng tháng theo chuẩn tuổi nợ: khoản dư cấn vào tháng nợ cũ nhất | Thay vế số nợ từng tháng của [V7-BE](#v7-be) (6) |
 | <a id="debit-note-02"></a>[DEBIT-NOTE-02](decisions/debit-note-02.md) | Mẫu Debit Note v3 sếp duyệt: bố cục, 8 loại phí, quy tắc tính, kiểm tra trước phát hành | Thay bố cục và điểm (3) thiếu giá của [DEBIT-NOTE-01](#debit-note-01) |
+| <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + đồng bộ "đã nhắc" từ Zalo (metadata-only) | ĐÃ CHỐT kiến trúc, chưa code |
 
 ## Cập nhật khóa tháng 24/10/2026
 

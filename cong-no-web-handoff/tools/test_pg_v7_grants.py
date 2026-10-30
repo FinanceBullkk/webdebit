@@ -43,7 +43,9 @@ READ.add('get_fee_types()')
 # CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
 READ.update({'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)'})
 READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
+READ.add('get_reminders()')  # NHAC-NO-01: ai vào app cũng xem được mốc đã nhắc
 WRITE = {
+    'record_reminder(bigint,text)',  # NHAC-NO-01: ghi "đã nhắc", app ghi
     'add_trip_fees(bigint,bigint,text,jsonb,bigint,bigint,text)',
     'set_trip_fee_type(bigint,bigint,text,jsonb,bigint,bigint)',
     'replace_trip_fee(bigint,bigint,text,bigint,bigint,bigint,text)',
@@ -105,6 +107,7 @@ KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_t
                         'save_price_table', 'apply_price_table', 'get_price_table', 'get_price_status'})
 KNOWN_FUNCTIONS.update({'_rewrite_trip_fees', 'rewrite_trip_fees'})
 KNOWN_FUNCTIONS.add('resolve_sheet_conflict')  # gộp vào file chuẩn 29/10/2026
+KNOWN_FUNCTIONS.update({'record_reminder', 'get_reminders'})  # NHAC-NO-01
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):
