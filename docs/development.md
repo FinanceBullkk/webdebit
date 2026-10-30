@@ -111,7 +111,9 @@ Lý do bỏ runner tự host: `hao` là máy chạy DB thật `webdebit_ledger` 
 PR từ fork có thể đưa mã lạ chạy trên chính máy đó. Máy GitHub sạch mỗi lượt, không chạm `hao`, nên
 rủi ro CÒN MỞ trước đây (chạy mã PR cạnh DB thật) không còn áp dụng cho CI. Lượt cũ của cùng PR bị hủy
 khi có commit mới (`concurrency`). Gỡ đăng ký runner tự host khỏi repo là việc trong Settings của
-người dùng, không nằm trong workflow.
+người dùng, không nằm trong workflow. Lưu ý (kiểm 31/10/2026): repo này không có runner tự host, nhưng trên
+`hao` vẫn còn một runner tự host của dự án khác chạy dưới tài khoản quản trị; đó là rủi ro của máy, không của
+CI này, theo dõi ở audit hạ tầng ngoài Git.
 
 Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
 451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng

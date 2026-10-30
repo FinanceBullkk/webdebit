@@ -28,11 +28,15 @@ WINDOWS_PIPE = r"\\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled"
 
 
 class IdentityError(Exception):
-    """Fail-closed identity error; code is safe to expose without peer metadata."""
+    """Fail-closed identity error; code is safe to expose without peer metadata.
 
-    def __init__(self, code: str):
+    `detail` (optional) is for the operator's log only, never for the response.
+    """
+
+    def __init__(self, code: str, detail: str | None = None):
         super().__init__(code)
         self.code = code
+        self.detail = detail
 
 
 class LocalAPI(Protocol):
@@ -176,15 +180,41 @@ def _login(value: object) -> str:
     return local + separator + domain.lower() if separator else login
 
 
+def parse_allowed_logins(value: object) -> frozenset[str] | None:
+    """Operator allowlist from WEBDEBIT_ALLOWED_LOGINS / --allowed-login (ACCESS-01).
+
+    Logins are separated by commas or whitespace and normalized like actors
+    (domain lower-cased). None means "not configured": resolve_actor then keeps
+    every verified tailnet identity and the API decides whether that is allowed
+    (Serve mode refuses to start). An empty set denies everyone.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise IdentityError("INVALID_CONFIG")
+    return frozenset(_login(item) for item in value.replace(",", " ").split())
+
+
+def _allowed(login: str, allowed_logins: frozenset[str] | None) -> str:
+    if allowed_logins is not None and login not in allowed_logins:
+        raise IdentityError("LOGIN_NOT_ALLOWED", login)
+    return login
+
+
 def resolve_actor(source_ip: str, headers: Mapping[str, str], localapi: LocalAPI | None = None,
-                  *, source_port: int = 0, behind_tailscale_serve: bool = False) -> str:
+                  *, source_port: int = 0, behind_tailscale_serve: bool = False,
+                  allowed_logins: frozenset[str] | None = None) -> str:
     """Resolve one request; no default actor, forwarded IP, or cached fallback.
 
     source_port=0 supports IP-only callers; pass the socket peer port when known.
     The LocalAPI daemon, not an IP range guess, decides tailnet membership.
     Explicit Serve mode trusts only exact 127.0.0.1/::1 socket peers.
+    allowed_logins (ACCESS-01): a verified login outside the set fails closed
+    with LOGIN_NOT_ALLOWED (the login only in `detail`); None skips the check.
     """
     if type(behind_tailscale_serve) is not bool:
+        raise IdentityError("INVALID_CONFIG")
+    if allowed_logins is not None and not isinstance(allowed_logins, frozenset):
         raise IdentityError("INVALID_CONFIG")
     try:
         if not isinstance(source_ip, str) or "%" in source_ip:
@@ -199,7 +229,7 @@ def resolve_actor(source_ip: str, headers: Mapping[str, str], localapi: LocalAPI
         if len(values) > 1:
             raise IdentityError("AMBIGUOUS_LOGIN")
         if values:
-            return _login(values[0])
+            return _allowed(_login(values[0]), allowed_logins)
     addr = f"[{ip}]:{source_port}" if ip.version == 6 else f"{ip}:{source_port}"
     try:
         result = (TailscaleLocalAPI() if localapi is None else localapi).whois(addr)
@@ -216,4 +246,4 @@ def resolve_actor(source_ip: str, headers: Mapping[str, str], localapi: LocalAPI
         raise IdentityError("LOCALAPI_INVALID_RESPONSE")
     if "LoginName" not in profile:
         raise IdentityError("NO_USER")
-    return _login(profile["LoginName"])
+    return _allowed(_login(profile["LoginName"]), allowed_logins)

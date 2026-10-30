@@ -25,7 +25,7 @@ Linux: tạo `.venv` bằng `python3 -m venv .venv`, cài requirements bằng `.
 
 `npm run test:unit` chạy sáu file JS không cần browser (gồm `scripts/test-business-rules.js`); `npm run test:browser` mở HTML fixture từ vị trí file test bằng Chromium headless; `npm run test:viewer` chạy test trình duyệt viewer dữ liệu giả. `npm test` chạy cả ba bộ JS nhưng không chạy lint hay unittest Python, nên lệnh chuẩn là `npm run check`. Chưa tải Chromium thì hai bước trình duyệt báo SKIP.
 
-[Workflow](.github/workflows/test.yml) chạy mọi job trên máy của GitHub từ 21/10/2026 (repo public): unittest Python 3.12/3.13 và các harness PostgreSQL 18.6 dùng một lần trên `ubuntu-latest`; job `javascript` chạy `npm run check` (Python 3.13 qua `uv`, Node theo `.node-version`) trên `ubuntu-latest` và `windows-latest`. Không còn runner tự host trên `hao` (máy DB thật), xem [Quy trình phát triển](docs/development.md#ci-trên-runner-github). File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
+[Workflow](.github/workflows/test.yml) chạy mọi job trên máy của GitHub từ 21/10/2026 (repo public): unittest Python 3.12/3.13 và các harness PostgreSQL 18.6 dùng một lần trên `ubuntu-latest`; job `javascript` chạy `npm run check` (Python 3.13 qua `uv`, Node theo `.node-version`) trên `ubuntu-latest` và `windows-latest`. Repo này không dùng runner tự host trên `hao` (máy DB thật), xem [Quy trình phát triển](docs/development.md#ci-trên-runner-github). File workflow có mặt chưa chứng minh đã có lượt chạy GitHub: xem [bằng chứng](docs/verification.md).
 
 ## Phạm vi mã
 
