@@ -75,51 +75,61 @@
 .heat .cell-btn.active{outline:3px solid var(--ink);outline-offset:-3px}
 .heat td.m:has(.cell-btn.active){background:var(--accent-soft)}
 .drawer[hidden]{display:none}
-.drawer{position:fixed;z-index:61;top:0;right:0;bottom:0;width:min(480px,100vw);display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--line);box-shadow:-8px 0 24px #11182740;animation:drawer-in .18s ease-out}
+.drawer{position:fixed;z-index:61;top:0;right:0;bottom:0;width:min(520px,100vw);display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--line);box-shadow:-8px 0 24px #11182740;animation:drawer-in .18s ease-out}
 @keyframes drawer-in{from{transform:translateX(20px);opacity:.5}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.drawer{animation:none}}
-.drawer-top{flex:none;padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+.drawer-top{flex:none;padding:14px 20px 12px;border-bottom:1px solid var(--line)}
 .drawer header{display:flex;align-items:center;gap:12px}
-.drawer h2{flex:1;min-width:0;margin:0;font-size:18px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drawer .who{flex:1;min-width:0}
+.drawer h2{margin:0;font-size:18px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer .ledger-link{font-size:14.5px;font-weight:600;color:var(--accent-ink);white-space:nowrap}
 .drawer .close{display:grid;place-items:center;min-width:36px;min-height:36px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer;color:var(--ink-2)}
 .drawer .close:hover{background:var(--accent-soft)}
-.drawer .meta{margin:2px 0 10px;font-size:14px;color:var(--ink-3)}
-.month-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-bottom:10px}
+.drawer .meta{margin:0;font-size:13.5px;color:var(--ink-3)}
+.month-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin:10px 0}
 .month-nav b{font-size:16px}
 .month-nav .btn{justify-self:start;min-height:34px}
 .month-nav .btn:last-child{justify-self:end}
 .month-nav .btn:disabled{visibility:hidden}
-.drawer .calc{font-size:15px}
-.drawer .calc>div{display:grid;grid-template-columns:16px 1fr auto;gap:6px;padding:5px 0}
+/* Phép tính gói trong một khối nền nhạt: nhìn là biết đây là tóm tắt của ô đang mở. */
+.drawer .calc{padding:6px 12px;border-radius:8px;background:var(--head);font-size:15px}
+.drawer .calc>div{display:grid;grid-template-columns:16px 1fr auto;gap:6px;padding:3px 0}
 .drawer .calc .op{color:var(--ink-3);font-weight:700}
 .drawer .calc b{font-variant-numeric:tabular-nums}
-.drawer .calc .result{margin-top:2px;padding-top:8px;border-top:1px solid var(--line);font-weight:700}
+.drawer .calc .result{margin-top:3px;padding-top:6px;border-top:1px solid var(--line);font-weight:700}
 .drawer .calc .result b{font-size:18px}
-.drawer .sub{margin:6px 0 0 22px;font-size:14px;color:var(--ink-2)}
 .drawer-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 20px}
 .drawer-scroll>:last-child{margin-bottom:16px}
 .drawer-scroll>table:last-child{margin-bottom:0}
 /* Màn rộng: ngăn kéo đứng cạnh bảng, không đè; bảng thu hẹp và cuộn ngang tới ô đang mở. */
 @media (min-width:900px){
-  body.drawer-open .page{padding-right:504px}
+  body.drawer-open .page{padding-right:544px}
   body.drawer-open .table-wrap{overflow-x:auto}
   body.drawer-open .heat{min-width:1200px}
   body.drawer-open .heat thead th{top:0}
 }
 .drawer .mini-table{width:100%;border-collapse:separate;border-spacing:0;font-size:14.5px;font-variant-numeric:tabular-nums}
-.drawer .mini-table th,.drawer .mini-table td{padding:7px 6px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap}
+.drawer .mini-table th,.drawer .mini-table td{padding:6px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap}
 .drawer .mini-table thead th{position:sticky;top:0;z-index:1;background:var(--head);color:var(--ink-2);font-weight:600;border-bottom:1px solid var(--line)}
 .drawer .mini-table tfoot td{position:sticky;bottom:0;background:var(--head);font-weight:700;border-top:1px solid var(--line);border-bottom:0}
 .drawer .mini-table.receipts tfoot td{position:static}
 .drawer .mini-table td.wrap{white-space:normal}
 .drawer-scroll h3{margin:14px 0 6px;font-size:15px;font-weight:700}
+.drawer-scroll h3 .h-sub{margin-left:8px;font-size:13.5px;font-weight:400;color:var(--ink-3)}
+.drawer .mini-table tr.part td{padding:8px 6px 4px;font-size:13.5px;font-weight:600;color:var(--ink-2);background:var(--surface)}
 .drawer .mini-table .money{text-align:right}
-.drawer .mini-table .tag{margin-left:4px;padding:1px 8px;font-size:12px}
+.drawer .mini-table .tag{margin-left:6px;padding:1px 8px;font-size:12px}
 .drawer .mini-table tr.excluded td{color:var(--ink-3)}
 .drawer .missing{color:var(--warning);font-weight:600}
 .drawer .note{margin:10px 0 0;font-size:14px;color:var(--ink-3)}
+.drawer-top .note{margin:8px 0 0;font-size:13.5px;line-height:1.4}
 .drawer .warnbox{margin:8px 0;padding:10px 12px;border-radius:8px;background:var(--warning-soft);color:var(--warning);font-weight:600;font-size:14px}
+/* Điện thoại: thu lề và khoảng ô để bảng chuyến có phụ phí vừa bề ngang. */
+@media (max-width:560px){
+  .drawer-top,.drawer-scroll{padding-left:12px;padding-right:12px}
+  .drawer .mini-table{font-size:13px}
+  .drawer .mini-table th,.drawer .mini-table td{padding:6px 3px}
+}
 
 @media (max-width:1100px){
   .table-wrap{overflow-x:auto}
