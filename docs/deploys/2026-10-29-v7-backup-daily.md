@@ -35,7 +35,7 @@ Bản backup lượt đầu: `/srv/v7-backup-daily/v7-20261029-194852`.
 
 ## CÒN MỞ
 
-- C1 đạt khi có thêm bản của lượt timer 30/10 02:40 (ngày thứ hai liên tiếp).
+- C1 ĐẠT 30/10/2026 (lượt timer 02:40 có bản, verify MATCH).
 - Bản sao ra máy khác: dữ liệu PostgreSQL và `/srv` cùng một ổ vật lý. Chưa có cảnh báo khi lượt backup lỗi.
 - Trên `hao` còn 13 DB restore/tổng duyệt của các đợt trước (`v7_prb_*`, `webdebit_v7_*restore*`, …), mỗi DB là một bản sao
   dữ liệu khách. Không thuộc việc này nên chưa xóa; cần người dùng quyết.
