@@ -48,13 +48,13 @@ test('tierOfMonth matches the server rule: due end of next month', () => {
   assert.equal(M.tierOfMonth('2026-11-01', '2026-10-29', rule), 0);
 });
 
-test('debtors keep server money as BigInt and add classes for every dimension', () => {
+test('debtors keep server money as BigInt and add the matrix cell and commodity of each customer', () => {
   const rows = M.debtors(debt);
-  assert.deepEqual(rows.map(r => [r.id, r.total, r.overdue, r.pay, r.trip, r.size, r.com]), [
-    [1, 400n, 300n, 'p30', 't30', 'top5', 'Sầu riêng cảng'],
-    [2, 400n, 400n, 'p61', 't91', 'top5', 'Chuối'],
-    [3, 500n, 400n, 'p30', 't90', 'top5', M.UNSORTED],
-    [4, 300n, 0n, 'never', 't30', 'top5', 'Mít']]);
+  assert.deepEqual(rows.map(r => [r.id, r.total, r.overdue, r.mx, r.com]), [
+    [1, 400n, 300n, 'p0t0', 'Sầu riêng cảng'],
+    [2, 400n, 400n, 'p1t1', 'Chuối'],
+    [3, 500n, 400n, 'p0t0', M.UNSORTED],
+    [4, 300n, 0n, 'p1t0', 'Mít']]);
   assert.deepEqual(rows[0].months.map(m => [m.key, m.value, m.tier]), [['2025-12-01', 100n, 4], ['2026-08-01', 200n, 2], ['2026-10-01', 100n, 0]]);
   assert.equal(M.totalsMatch(rows, debt), true);
   assert.equal(M.totalsMatch(rows, { ...debt, receivable_vnd: '1601' }), false);
@@ -72,30 +72,68 @@ test('reason lines say why: risk signals first, otherwise which month is late an
   assert.deepEqual(M.reasons(rows[3], rule), ['Chưa có nợ quá hạn', 'Chưa trả lần nào', 'Đi hàng gần nhất 20/10/2026 — vẫn đi hàng']);
 });
 
-test('dimensions group customers; under 1% folds into Khác, unsorted last; empty groups dropped', () => {
+test('matrix splits only overdue customers by pay × trip thresholds; null days count as the bad side; totals match', () => {
+  const rows = M.debtors(debt);
+  const mx = M.matrix(rows, rule);
+  assert.deepEqual(mx.cols, ['Có trả trong 60 ngày', 'Trên 60 ngày chưa trả']);
+  assert.deepEqual(mx.lines, ['Còn đi hàng', 'Ngừng đi hàng > 90 ngày']);
+  // Khách D chưa trả lần nào nhưng không có nợ quá hạn: không vào ma trận.
+  assert.deepEqual(mx.cells.map(c => [c.key, c.bad, c.count, c.overdue, c.total]), [
+    ['p0t0', 0, 2, 700n, 900n], ['p1t0', 1, 0, 0n, 0n], ['p0t1', 1, 0, 0n, 0n], ['p1t1', 2, 1, 400n, 400n]]);
+  assert.equal(mx.cells[3].label, 'Trên 60 ngày chưa trả · ngừng đi hàng > 90 ngày');
+  assert.equal(mx.count, 3);
+  assert.equal(mx.overdue, F.toBig(debt.summary.overdue_vnd));
+  assert.equal(F.sum(mx.cells.map(c => c.overdue)), mx.overdue);
+});
+
+test('matrixMatches: matrix totals must equal summary (server sums negative overdue too)', () => {
+  const mx = M.matrix(M.debtors(debt), rule);
+  assert.equal(M.matrixMatches(mx, debt.summary), true);
+  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_vnd: String(F.toBig(debt.summary.overdue_vnd) - 100n) }), false);
+  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_customers: debt.summary.overdue_customers + 1 }), false);
+  assert.equal(M.matrixMatches(null, debt.summary), false);
+});
+
+test('commodities: under 1% folds into Khác, unsorted last, bigger first', () => {
   const big = { ...debt, receivable_vnd: '100000',
     customers: [...debt.customers, customer(5, 'Khách E', ['98400', '0', '0', '0', '0'], { commodity: 'Dừa' })] };
   big.due_tiers = big.due_tiers.map(t => (t.tier === 'not_due' ? { ...t, receivable_vnd: '98700' } : t));
-  const rows = M.debtors(big);
-  const dims = M.dimensions(rows, big.receivable_vnd);
-  assert.deepEqual(dims.map(d => d.key), ['risk', 'pay', 'trip', 'size', 'com']);
-  const com = dims.find(d => d.key === 'com');
-  assert.deepEqual(com.groups.map(g => [g.key, g.count, g.total]), [['Dừa', 1, 98400n], [M.OTHER, 3, 1100n], [M.UNSORTED, 1, 500n]]);
-  const risk = dims.find(d => d.key === 'risk');
-  assert.deepEqual(risk.groups.map(g => [g.key, g.count, g.total, g.overdue]), [['high', 2, 800n, 700n], ['watch', 1, 500n, 400n], ['ok', 2, 98700n, 0n]]);
-  assert.deepEqual(risk.lead(risk.groups), [['b', '2 khách rủi ro cao'], ' đang nợ ', ['b', '800 đ'], ', trong đó quá hạn 700 đ.']);
-  const pay = dims.find(d => d.key === 'pay');
-  assert.deepEqual(pay.groups.map(g => g.key), ['p30', 'p61', 'never']);
-  assert.equal(F.sum(dims.find(d => d.key === 'size').groups.map(g => g.total)), 100000n);
+  const coms = M.commodities(M.debtors(big));
+  assert.deepEqual(coms.map(g => [g.key, g.count, g.total, g.tone]), [['Dừa', 1, 98400n, ''], [M.OTHER, 3, 1100n, 'grey'], [M.UNSORTED, 1, 500n, 'grey']]);
+  assert.deepEqual(M.commodities(M.debtors(debt)).map(g => g.key), ['Chuối', 'Sầu riêng cảng', 'Mít', M.UNSORTED]);
 });
 
-test('filterRows filters by due tier and class, sorts by first column or by total', () => {
+test('monthProgress: received over charges, today within the month; charges 0 has no ratio; over 100% caps the fill', () => {
+  const p = M.monthProgress('2026-10-29', { charges_vnd: '700000000', received_vnd: '186000000' });
+  assert.deepEqual([p.month, p.day, p.days, p.dayPct, p.fill, p.percent], [10, 29, 31, 94, 26.6, '26,6%']);
+  const none = M.monthProgress('2026-02-01', { charges_vnd: '0', received_vnd: '5' });
+  assert.deepEqual([none.days, none.dayPct, none.fill, none.percent, none.received], [28, 4, 0, null, 5n]);
+  const over = M.monthProgress('2026-10-31', { charges_vnd: '100', received_vnd: '250' });
+  assert.deepEqual([over.dayPct, over.fill, over.percent], [100, 100, '250%']);
+  assert.deepEqual(M.monthProgress('2026-10-29', undefined).charges, 0n);
+});
+
+test('dayCell: short text and tone by threshold; null is "chưa …", never 0', () => {
+  assert.deepEqual(M.dayCell(27, 60, 30, 'chưa trả'), { text: '27 ngày', tone: '' });
+  assert.deepEqual(M.dayCell(45, 60, 30, 'chưa trả'), { text: '45 ngày', tone: 'warn' });
+  assert.deepEqual(M.dayCell(92, 60, 30, 'chưa trả'), { text: '3 tháng', tone: 'bad' });
+  assert.deepEqual(M.dayCell(61, 60, 30, 'chưa trả'), { text: '61 ngày', tone: 'bad' });
+  assert.deepEqual(M.dayCell(null, 90, 30, 'chưa có'), { text: 'chưa có', tone: 'bad' });
+  assert.deepEqual(M.dayCell(0, 90, 30, 'chưa có'), { text: '0 ngày', tone: '' });
+});
+
+test('filterRows filters by due tier, matrix cell and commodity; sorts by first column, total, or days with null first', () => {
   const rows = M.debtors(debt);
   assert.deepEqual(M.filterRows(rows).map(x => [x.row.id, x.first]), [[3, 400n], [2, 400n], [1, 300n], [4, 0n]]);
   assert.deepEqual(M.filterRows(rows, { sort: 'total' }).map(x => x.row.id), [3, 2, 1, 4]);
   assert.deepEqual(M.filterRows(rows, { tier: 2 }).map(x => [x.row.id, x.first]), [[3, 400n], [1, 200n]]);
-  assert.deepEqual(M.filterRows(rows, { tier: 2, cls: { dim: 'risk', key: 'high' } }).map(x => x.row.id), [1]);
-  assert.deepEqual(M.filterRows(rows, { cls: { dim: 'trip', key: 't91' } }).map(x => x.row.id), [2]);
+  assert.deepEqual(M.filterRows(rows, { tier: 2, cls: { dim: 'mx', key: 'p0t0' } }).map(x => x.row.id), [3, 1]);
+  assert.deepEqual(M.filterRows(rows, { cls: { dim: 'mx', key: 'p1t1' } }).map(x => x.row.id), [2]);
+  // Khách D nằm ở p1t0 theo ngày nhưng không có nợ quá hạn: ô ma trận không lọc ra.
+  assert.deepEqual(M.filterRows(rows, { cls: { dim: 'mx', key: 'p1t0' } }).map(x => x.row.id), []);
+  assert.deepEqual(M.filterRows(rows, { com: M.UNSORTED }).map(x => x.row.id), [3]);
+  assert.deepEqual(M.filterRows(rows, { sort: 'pay' }).map(x => x.row.id), [4, 2, 3, 1]);
+  assert.deepEqual(M.filterRows(rows, { sort: 'trip' }).map(x => x.row.id), [2, 3, 4, 1]);
   assert.equal(M.commodityKey('Sầu riêng', 'BỘ'), 'Sầu riêng bộ');
   assert.equal(M.commodityKey('Sầu riêng', null), M.UNSORTED);
 });

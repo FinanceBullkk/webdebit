@@ -19,6 +19,6 @@ Giữ các điểm tương tác đã chốt ở [`DASH-01`](dash-01.md) ngày 29
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Thay nội dung sáu khối của `DASH-01` (tương tác giữ nguyên). Chưa có hạn trả riêng từng khách, hạn mức nợ, gộp nhiều sổ của một công ty — không có dữ liệu, để sau. Trạng thái triển khai ghi theo lượt `Deploy hao` và nhật ký trong [`docs/deploys/`](../deploys/README.md).
+ĐÃ CHỐT. Thay nội dung sáu khối của `DASH-01` (tương tác giữ nguyên). Từ 30/10/2026 phần **trình bày** (câu kết luận, câu lý do, khối Phân loại 5 tiêu chí) bị [`DASH-04`](dash-04.md) thay; các quy tắc 1–4 ở trên vẫn hiệu lực. Chưa có hạn trả riêng từng khách, hạn mức nợ, gộp nhiều sổ của một công ty — không có dữ liệu, để sau. Trạng thái triển khai ghi theo lượt `Deploy hao` và nhật ký trong [`docs/deploys/`](../deploys/README.md).
 
 **Cập nhật 30/10/2026:** ĐÃ TRIỂN KHAI trên `hao` bằng đợt tay (release `5f04bc4`, [nhật ký](../deploys/2026-10-30-tong-quan-quan-ly-no.md)): migration áp trong cửa sổ dừng ghi, số dư 236/236 khách không đổi, checker OK. CÒN MỞ: người dùng tự đi hết luồng trên web thật.
