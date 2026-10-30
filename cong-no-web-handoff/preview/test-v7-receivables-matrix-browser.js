@@ -84,20 +84,23 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     await page.locator('.cell-btn[data-id="1"]').first().click();
     await page.locator('#drawer-body .mini-table').waitFor();
     // Tháng sổ gốc: chuyến xếp theo ngày dd/mm, không cột phụ phí khi tháng không có, dòng tổng khớp phát sinh.
-    const rows = await page.locator('#drawer-body table:not(.receipts) tbody tr').allInnerTexts();
-    assert.match(rows[0], /^02\/01\s+FAKE-GOC\s+sổ gốc\s+50\.000$/);
+    // Dòng sổ gốc lẫn dòng web: tách hai nhóm thay cho nhãn "sổ gốc" từng dòng (nhãn làm bảng tràn ngang).
+    assert.deepEqual(await page.locator('#drawer-body tr.part').allInnerTexts(), ['Theo sổ gốc (đã nằm trong số dư đầu) · 1 chuyến', 'Nhập trên web · 1 chuyến']);
+    const rows = await page.locator('#drawer-body table:not(.receipts) tbody tr:not(.part)').allInnerTexts();
+    assert.match(rows[0], /^02\/01\s+FAKE-GOC\s+50\.000$/);
     assert.match(rows[1], /^03\/01\s+FAKE001\s+100\.000$/);
     assert.deepEqual(await page.locator('#drawer-body table:not(.receipts) thead th').allInnerTexts(), ['Ngày', 'Container', 'Thành tiền (đ)']);
     assert.match(await page.locator('#drawer-body table:not(.receipts) tfoot').innerText(), /Tổng 2 chuyến\s+150\.000/);
     const sum = await page.locator('#drawer-sum').innerText();
     assert.match(sum, /Phát sinh trong tháng\s+150\.000 đ/);
-    assert.match(sum, /Thu đã trừ vào nợ tháng này\s+0 đ/);
+    // Tháng không thành phép tính: hiện thẳng đã thu, bỏ dòng "thu đã trừ 0 đ" dễ hiểu nhầm là khách chưa trả.
+    assert.match(sum, /Đã thu trong tháng\s+50\.000 đ/);
+    assert.doesNotMatch(sum, /Thu đã trừ vào nợ/);
     assert.match(sum, /Còn lại tháng này\s+100\.000 đ/);
-    assert.match(sum, /Đã thu trong tháng \(theo ngày thu\): 50\.000 đ/);
     assert.match(sum, /số dư đầu theo sổ gốc/);
     assert.doesNotMatch(sum, /[−=]\s*\n/);
     assert.doesNotMatch(await page.locator('#drawer').innerText(), /không có dòng chuyến|không khớp|chênh/);
-    assert.match(await page.locator('#drawer-body').innerText(), /Phiếu thu trong tháng \(0\)\s+Không có phiếu thu trên web; đã thu 50\.000 đ là số theo sổ gốc/);
+    assert.doesNotMatch(await page.locator('#drawer-body').innerText(), /Phiếu thu|Không có phiếu thu/);
     assert.equal(await page.locator('#drawer-ledger').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
     assert.equal(await page.locator('#drawer-month').innerText(), 'Tháng 1/' + currentYear);
     assert.equal(await page.locator('.cell-btn.active').getAttribute('data-month'), '1');
@@ -110,6 +113,9 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.match(feb, /−\s+Thu đã trừ vào nợ tháng này\s+30\.000 đ/);
     assert.match(feb, /=\s+Còn lại tháng này\s+−20\.000 đ/);
     assert.deepEqual(await page.locator('#drawer-body table:not(.receipts) thead th').allInnerTexts(), ['Ngày', 'Container', 'Đơn giá', 'Phụ phí', 'Thành tiền (đ)']);
+    // Màn 1280: bảng chuyến có phụ phí vừa ngăn kéo, không cuộn ngang.
+    assert.equal(await page.locator('#drawer-body').evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    assert.equal(await page.locator('#drawer-body tr.part').count(), 0);
     const febRows = await page.locator('#drawer-body table:not(.receipts) tbody tr').allInnerTexts();
     assert.match(febRows[0], /^04\/02\s+FAKE-C\s+—\s+—\s+chưa có giá$/);
     assert.match(febRows[2], /FAKE-D\s+chờ kiểm/);

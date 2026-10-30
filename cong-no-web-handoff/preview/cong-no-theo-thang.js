@@ -217,6 +217,7 @@
   }
 
   // Phát sinh − thu đã trừ vào tháng = còn lại khi tháng không có số dư đầu; tháng sổ gốc lấy phát sinh/đã thu theo Sheet nên chỉ liệt kê.
+  // Mỗi dòng giải thích chỉ một câu ngắn để phần đầu ngăn kéo thấp, chừa chỗ cho bảng chuyến ở màn 1280x720.
   function summaryHtml(customer, month, ledger) {
     const left = monthValue(customer, month);
     const line = (op, label, value, cls) => '<div' + (cls ? ' class="' + cls + '"' : '') + '><span class="op">' + op + '</span><span>' + label + '</span><b class="money">' + signed(value) + '</b></div>';
@@ -226,13 +227,16 @@
     const credit = ledger.credit_applied_vnd === undefined ? 0n : vnd(ledger.credit_applied_vnd);
     const bridged = charges - allocated - credit === left;
     let html = vnd(ledger.outstanding_vnd) !== left ? '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>' : '';
-    html += '<div class="calc">' + line('', 'Phát sinh trong tháng', charges) + line(bridged ? '−' : '', 'Thu đã trừ vào nợ tháng này', allocated) +
+    // Không thành phép tính (tháng sổ gốc): hiện thẳng đã thu trong tháng; "thu đã trừ" chỉ hiện khi có số khác 0 và khác đã thu.
+    const allocatedLine = bridged || (allocated !== 0n && allocated !== received);
+    html += '<div class="calc">' + line('', 'Phát sinh trong tháng', charges) +
+      (bridged ? '' : line('', 'Đã thu trong tháng', received)) +
+      (allocatedLine ? line(bridged ? '−' : '', 'Thu đã trừ vào nợ tháng này', allocated) : '') +
       (credit > 0n ? line(bridged ? '−' : '', 'Tiền khách dư tháng khác cấn vào', credit) : '') +
       (credit < 0n ? line(bridged ? '+' : '', 'Khoản dư đã cấn sang tháng còn nợ', -credit) : '') +
       line(bridged ? '=' : '', 'Còn lại tháng này', left, 'result') + '</div>';
-    html += '<p class="sub">Đã thu trong tháng (theo ngày thu): <b class="money">' + signed(received) + '</b></p>';
-    if (!bridged) html += '<p class="note">' + (ledger.opening ? 'Tháng có số dư đầu theo sổ gốc: phát sinh và đã thu lấy theo Sheet, còn lại tính từ số dư đầu.' : 'Còn lại khác phát sinh trừ thu đã trừ; xem chi tiết trong sổ khách.') + '</p>';
-    else if (received !== allocated) html += '<p class="note">Đã thu theo ngày thu khác thu trừ vào tháng này vì tiền thu trừ nợ cũ trước.</p>';
+    if (!bridged) html += '<p class="note">' + (ledger.opening ? 'Tháng có số dư đầu theo sổ gốc: còn lại tính từ số dư đầu, không bằng phát sinh trừ đã thu.' : 'Còn lại khác phát sinh trừ thu đã trừ; xem chi tiết trong sổ khách.') + '</p>';
+    else if (received !== allocated) html += '<p class="note">Đã thu trong tháng (theo ngày thu): <b class="money">' + signed(received) + '</b> — khác số trừ vào tháng này vì tiền thu trừ nợ cũ trước.</p>';
     return html;
   }
 
@@ -242,18 +246,18 @@
     const receipts = ledger.receipts;
     const received = vnd(ledger.received_vnd);
     if (!Array.isArray(receipts) || (!receipts.length && received === 0n)) return '';
+    // Tháng sổ gốc không có phiếu web: đã thu đã nằm ở phần tóm tắt kèm câu "theo sổ gốc", không lặp một mục rỗng.
+    if (!receipts.length) return ledger.opening ? '' : '<p class="note">Không có phiếu thu trên web; đã thu ' + esc(signed(received)) + ' là số theo sổ gốc (Sheet) hoặc cấn trừ — xem sổ khách.</p>';
+    const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
+    const row = receipt => {
+      const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
+      const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthLabel(line.month)).join(', ') || '—';
+      return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
+    };
     let html = '<h3>Phiếu thu trong tháng (' + receipts.length + ')</h3>';
-    if (receipts.length) {
-      const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
-      const row = receipt => {
-        const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
-        const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthLabel(line.month)).join(', ') || '—';
-        return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
-      };
-      html += '<table class="mini-table receipts"><thead><tr><th>Ngày</th><th>Phiếu</th><th class="money">Số tiền (đ)</th><th>Trừ vào</th></tr></thead><tbody>' +
-        receipts.map(row).join('') + '</tbody><tfoot><tr><td colspan="2">Tổng ' + receipts.length + ' phiếu</td><td class="money">' + plain(total) + '</td><td></td></tr></tfoot></table>';
-      if (total !== received) html += '<p class="note">Chênh ' + esc(signed(received - total)) + ' so với đã thu trong tháng: phần thu theo sổ gốc (Sheet) hoặc cấn trừ sang sổ khác — xem sổ khách.</p>';
-    } else html += '<p class="note">Không có phiếu thu trên web; đã thu ' + esc(signed(received)) + ' là số theo sổ gốc (Sheet).</p>';
+    html += '<table class="mini-table receipts"><thead><tr><th>Ngày</th><th>Phiếu</th><th class="money">Số tiền (đ)</th><th>Trừ vào</th></tr></thead><tbody>' +
+      receipts.map(row).join('') + '</tbody><tfoot><tr><td colspan="2">Tổng ' + receipts.length + ' phiếu</td><td class="money">' + plain(total) + '</td><td></td></tr></tfoot></table>';
+    if (total !== received) html += '<p class="note">Chênh ' + esc(signed(received - total)) + ' so với đã thu trong tháng: phần thu theo sổ gốc (Sheet) hoặc cấn trừ sang sổ khác — xem sổ khách.</p>';
     return html;
   }
 
@@ -261,21 +265,24 @@
     const trips = (ledger.trips || []).slice().sort(byDate);
     let html = ledger.opening && !trips.length ? '<div class="warnbox">Tháng số dư đầu: sổ gốc không có dòng chuyến cho tháng này.</div>' : '';
     if (!trips.length) return html + '<p class="note">Không có chuyến trong tháng.</p>';
-    html += '<h3>Chuyến / container (' + trips.length + ')</h3>';
+    // "Sổ gốc" không gắn nhãn từng dòng (làm bảng tràn ngang): cả tháng sổ gốc thì ghi ở tiêu đề, lẫn dòng web thì tách hai nhóm.
+    const historical = trips.filter(trip => trip.historical), web = trips.filter(trip => !trip.historical);
+    html += '<h3>Chuyến / container (' + trips.length + ')' + (web.length ? '' : '<span class="h-sub">theo sổ gốc</span>') + '</h3>';
     const hasFee = trips.some(trip => trip.other_fee_vnd != null && vnd(trip.other_fee_vnd) !== 0n);
     const included = trips.filter(counted);
     const total = F.sum(included.map(trip => trip.amount_vnd));
     const head = '<th>Ngày</th><th>Container</th>' + (hasFee ? '<th class="money">Đơn giá</th><th class="money">Phụ phí</th>' : '') + '<th class="money">Thành tiền (đ)</th>';
     const row = trip => {
-      const tags = (trip.historical ? ' <span class="tag neutral" title="Dòng sổ gốc, đã nằm trong số dư đầu">sổ gốc</span>' : '') +
-        (trip.status === 'pending_review' ? ' <span class="tag warning" title="Chưa tính vào phát sinh">chờ kiểm</span>' : '');
+      const tag = trip.status === 'pending_review' ? ' <span class="tag warning" title="Chưa tính vào phát sinh">chờ kiểm</span>' : '';
       const amount = trip.amount_vnd == null ? '<span class="missing">chưa có giá</span>' : plain(trip.amount_vnd);
-      return '<tr' + (counted(trip) ? '' : ' class="excluded"') + '><td>' + dayMonth(trip.event_date) + '</td><td>' + esc(trip.container || '—') + tags + '</td>' +
+      return '<tr' + (counted(trip) ? '' : ' class="excluded"') + '><td>' + dayMonth(trip.event_date) + '</td><td' + (tag ? ' class="wrap"' : '') + '>' + esc(trip.container || '—') + tag + '</td>' +
         (hasFee ? '<td class="money">' + plain(trip.unit_price_vnd) + '</td><td class="money">' + plain(trip.other_fee_vnd) + '</td>' : '') +
         '<td class="money">' + amount + '</td></tr>';
     };
+    const part = (title, list) => '<tr class="part"><td colspan="' + (hasFee ? 5 : 3) + '">' + title + ' · ' + list.length + ' chuyến</td></tr>' + list.map(row).join('');
+    const body = historical.length && web.length ? part('Theo sổ gốc (đã nằm trong số dư đầu)', historical) + part('Nhập trên web', web) : trips.map(row).join('');
     const label = 'Tổng ' + included.length + ' chuyến' + (included.length < trips.length ? ' có tính' : '');
-    html += '<table class="mini-table"><thead><tr>' + head + '</tr></thead><tbody>' + trips.map(row).join('') +
+    html += '<table class="mini-table"><thead><tr>' + head + '</tr></thead><tbody>' + body +
       '</tbody><tfoot><tr><td colspan="' + (hasFee ? 4 : 2) + '">' + label + '</td><td class="money">' + plain(total) + '</td></tr></tfoot></table>';
     if (included.length < trips.length) html += '<p class="note">' + (trips.length - included.length) + ' chuyến chờ kiểm hoặc chưa có giá chưa tính vào phát sinh.</p>';
     const charges = vnd(ledger.charges_vnd);
