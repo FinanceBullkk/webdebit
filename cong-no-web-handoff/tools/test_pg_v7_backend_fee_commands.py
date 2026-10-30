@@ -126,4 +126,5 @@ def check_fee_catalog(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"))  # XOA-DC-THANG-01 dựng lại ràng buộc event sau CHUNG-TU-01
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))  # tách phụ phí PS chạy sau cùng
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql").read_text(encoding="utf-8"))  # bảng giá cũ thay apply_price_table; trả về bản 29/10
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql").read_text(encoding="utf-8"))  # ra-ghi-tien trả record_receipt cũ; CAN-DU-01 trả về bản 30/10
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")

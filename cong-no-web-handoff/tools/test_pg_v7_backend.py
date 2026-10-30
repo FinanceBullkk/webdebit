@@ -53,6 +53,7 @@ from pg_v7_harness import (
     trip_json,
     version,
 )
+from test_pg_v7_backend_can_du import check_can_du
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
 from test_pg_v7_backend_locks import (
@@ -176,7 +177,7 @@ CASES = [
     case("7.14a", "SCHEMA", "Import-once indexes and customer uniqueness", check="import_guard"),
     case("7.14b", "BEHAVIOR", "Retry import, totals, NO_BASELINE, concurrent import/verify", check="import_behavior", functions=("import_cutover", "verify_cutover_customer")),
     case("7.15a", "SCHEMA", "Negative opening remains signed in active view", check="negative"),
-    case("7.15b", "BEHAVIOR", "Receipt skips negative bucket; void preserves other receipts", check="negative_receipt", functions=("record_receipt", "void_receipt")),
+    case("7.15b", "BEHAVIOR", "Receipt lines skip negative bucket, months net its credit (CAN-DU-01); void preserves other receipts", check="negative_receipt", functions=("record_receipt", "void_receipt")),
     case("7.15c", "SKIPPED_OPEN", "Cross-ledger negative transfer and refund", open_reason="cross-ledger transfer and refund policy remain open"),
     case("7.16a", "SCHEMA", "Event snapshot and same-customer FK checks", check="events"),
     case("7.16b", "BEHAVIOR", "Reallocation snapshots and rollback of seven commands", check="snapshots", functions=("record_receipt", "edit_receipt_meta", "void_receipt", "adjust_trip", "adjust_month", "edit_trip_price", "paste_trips")),
@@ -231,8 +232,11 @@ CASES.append(case("PS-FEE.01", "BEHAVIOR", "PS fee split keeps totals, legacy TO
 CASES.append(case("RA-GHI-TIEN.01", "BEHAVIOR", "Audit 29/10: future paste date, receipt FIFO by date, typed price kept, Sheet functions canonical",
                   check="ra_ghi_tien", functions=("paste_trips", "record_receipt", "apply_price_table",
                                                   "list_sheet_trip_refs", "resolve_sheet_conflict")))
+# CAN-DU-01 30/10/2026: chạy sau RA-GHI-TIEN.01, migration của nó là bản mới nhất của record_receipt.
+CASES.append(case("CAN-DU.01", "BEHAVIOR", "Credit of negative months applied to oldest debt; totals and receipt lines unchanged",
+                  check="can_du", functions=("record_receipt", "get_receivables_detail")))
 
-CHECKS = {"dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"can_du": check_can_du, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,

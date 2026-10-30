@@ -172,7 +172,10 @@ def check_negative_receipt(pg: Pg) -> None:
     call(pg, "record_receipt", c, 1, "negative-r2", "2026-04-02", "THU TIỀN", 5)
     other = allocations(pg, c, "PH-002")
     call(pg, "void_receipt", c, 2, "negative-void", "PH-001", "sai")
-    require([r[1] for r in months(pg, c)] == ["-50", "100", "15", "0"]
+    # CAN-DU-01: dòng phân bổ vẫn bỏ qua kỳ âm; số nợ từng kỳ cấn khoản dư -50 vào kỳ còn nợ cũ nhất (100 → 50).
+    require([r[1] for r in months(pg, c)] == ["0", "50", "15", "0"]
+            and pg.value(f"SELECT string_agg(outstanding_vnd::text,',' ORDER BY debt_month) FROM sokhach.v_outstanding_month_raw "
+                         f"WHERE customer_id={c}") == "-50,100,15"
             and allocations(pg, c, "PH-002") == other, "void altered negative opening or other receipt")
 
 

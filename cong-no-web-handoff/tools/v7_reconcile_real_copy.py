@@ -24,10 +24,11 @@ from v7_load_real_copy import (
 def reconcile(pg: Pg, source: Path) -> dict:
     books, digests, _ = source_data(source)
     # Never log these rows: customer identity and amounts stay in memory only.
+    # Raw buckets (CAN-DU-01): compare each opening bucket as loaded, before credit is applied to older debt.
     found = json.loads(pg.value("""SELECT coalesce(jsonb_agg(jsonb_build_object(
         'name',c.name,'active',cc.status='active' AND co.status='active',
         'months',(SELECT coalesce(jsonb_object_agg(v.debt_month::text,
-             v.outstanding_vnd::text),'{}'::jsonb) FROM sokhach.v_outstanding_month v
+             v.outstanding_vnd::text),'{}'::jsonb) FROM sokhach.v_outstanding_month_raw v
              WHERE v.customer_id=c.id))),'[]'::jsonb)
         FROM sokhach.customer c
         LEFT JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id

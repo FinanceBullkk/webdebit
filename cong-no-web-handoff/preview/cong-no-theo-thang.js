@@ -222,9 +222,13 @@
     const line = (op, label, value, cls) => '<div' + (cls ? ' class="' + cls + '"' : '') + '><span class="op">' + op + '</span><span>' + label + '</span><b class="money">' + signed(value) + '</b></div>';
     if (!ledger) return '<div class="calc">' + line('', 'Còn lại tháng này', left, 'result') + '</div>';
     const charges = vnd(ledger.charges_vnd), received = vnd(ledger.received_vnd), allocated = vnd(ledger.allocated_vnd);
-    const bridged = charges - allocated === left;
+    // CAN-DU-01: khoản dư của tháng âm cấn vào tháng còn nợ cũ nhất; dương là nhận vào, âm là đã chuyển đi.
+    const credit = ledger.credit_applied_vnd === undefined ? 0n : vnd(ledger.credit_applied_vnd);
+    const bridged = charges - allocated - credit === left;
     let html = vnd(ledger.outstanding_vnd) !== left ? '<div class="warnbox">Ô ma trận và chi tiết sổ không khớp. Cần kiểm tra nguồn.</div>' : '';
     html += '<div class="calc">' + line('', 'Phát sinh trong tháng', charges) + line(bridged ? '−' : '', 'Thu đã trừ vào nợ tháng này', allocated) +
+      (credit > 0n ? line(bridged ? '−' : '', 'Tiền khách dư tháng khác cấn vào', credit) : '') +
+      (credit < 0n ? line(bridged ? '+' : '', 'Khoản dư đã cấn sang tháng còn nợ', -credit) : '') +
       line(bridged ? '=' : '', 'Còn lại tháng này', left, 'result') + '</div>';
     html += '<p class="sub">Đã thu trong tháng (theo ngày thu): <b class="money">' + signed(received) + '</b></p>';
     if (!bridged) html += '<p class="note">' + (ledger.opening ? 'Tháng có số dư đầu theo sổ gốc: phát sinh và đã thu lấy theo Sheet, còn lại tính từ số dư đầu.' : 'Còn lại khác phát sinh trừ thu đã trừ; xem chi tiết trong sổ khách.') + '</p>';
