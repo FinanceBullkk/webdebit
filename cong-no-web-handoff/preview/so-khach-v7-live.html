@@ -113,11 +113,19 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .fee-panel-body{padding:12px 16px}
 .debit-open{min-height:28px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;font-size:13px;font-weight:400}
 .debit-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:24px;background:#162d4855}.debit-dialog[hidden]{display:none}
-.debit-panel{width:1240px;max-width:calc(100vw - 24px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
+.debit-panel{width:1240px;max-width:calc(100vw - 24px);height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .debit-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
 .debit-panel h2{margin:0 auto 0 0;font-size:16px}.debit-panel h2 small{display:block;color:#3e5871;font-size:13px;font-weight:400}
-.debit-panel header button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.debit-panel header .debit-excel{background:#173d65;border-color:#173d65;color:#fff}
-.debit-notes{margin:0;padding:8px 12px 8px 30px;background:#fff3d6;font-size:14px}.debit-body{overflow:auto;padding:12px}
+.debit-panel header button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.debit-panel header .debit-print{background:#173d65;border-color:#173d65;color:#fff}
+.debit-main{flex:1;display:flex;min-height:0}.debit-form{width:320px;flex:none;overflow:auto;padding:4px 12px 12px;border-right:1px solid #c9d6e3;background:#f7f9fb}
+.debit-form fieldset{margin:8px 0 0;padding:0;border:0}.debit-form legend{padding:6px 0 2px;font-weight:700;color:#173d65;font-size:14px}
+.debit-field{display:block;margin:6px 0}.debit-field span{display:block;font-size:13px;color:#3e5871;margin-bottom:2px}.debit-field small{display:block;font-size:12px;color:#5f6b7a}
+.debit-field input,.debit-field select,.debit-field textarea{width:100%;box-sizing:border-box;min-height:32px;padding:4px 8px;border:1px solid #9eb4ca;border-radius:4px;font:inherit;font-size:14px;background:#fff}
+.debit-field textarea{resize:vertical}.debit-check,.debit-ack{display:flex;gap:8px;align-items:center;font-size:14px;margin:6px 0}.debit-ack[hidden]{display:none}
+.debit-side{flex:1;min-width:0;display:flex;flex-direction:column}.debit-review{padding:8px 12px;border-bottom:1px solid #c9d6e3;max-height:150px;overflow:auto}
+.debit-checks{margin:0;padding:0;list-style:none;font-size:14px}.debit-checks li{padding:3px 8px;margin:2px 0;border-radius:4px}
+.debit-checks .is-block{background:#fde7e7;color:#8a1f1f}.debit-checks .is-warn{background:#fff3d6;color:#7a4b00}.debit-checks .is-info{background:#eef2f7;color:#3e5871}.debit-checks .is-ok{background:#e6f4ec;color:#1e6b43}
+.debit-body{flex:1;position:relative;background:#e6e9ee}.debit-preview{position:absolute;inset:0;width:100%;height:100%;border:0}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
 .fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}
@@ -402,6 +410,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 <script src="presence.js"></script>
 <script src="so-khach-v7-presence-ui.js"></script>
 <script src="so-khach-v7-images-ui.js"></script>
+<script src="debit-note-print.js"></script>
 <script src="debit-note-xlsx.js"></script>
 <script src="so-khach-v7-debit-ui.js"></script>
 <script src="so-khach-v7-price-ui.js"></script>

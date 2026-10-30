@@ -43,6 +43,7 @@
   const unknown = 'Chưa rõ lệnh đã lưu. Thử lại bằng cùng yêu cầu.';
   const tripFields = ['date', 'booking', 'container', 'carrier', 'shipper', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
   const customerNames = new Map();
+  const customerRows = new Map();   // DEBIT-NOTE-02: tên, mặt hàng, phương thức để điền sẵn debit note
 
   // Danh sách khách tải sau sổ: vẽ lại qua renderer để tên khách vào đúng tiêu đề, không chép đè DOM.
   let redraw = null;
@@ -107,7 +108,9 @@
         banner.hidden = false;
       }
       customerNames.clear();
+      customerRows.clear();
       for (const [id, label] of customerLabels(customers)) customerNames.set(id, label);
+      for (const row of customers) customerRows.set(row.id, row);
       // Plain links, not a <select>: the embedded app browser does not open native select popups.
       const current = new URLSearchParams(location.search).get('customer');
       const href = row => `/so-khach-v7-live.html?customer=${encodeURIComponent(row.id)}`;
@@ -287,7 +290,7 @@
     return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
-  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(id), showCustomers: () => showCustomers() };
+  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(id), customerRow: id => customerRows.get(id), showCustomers: () => showCustomers() };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();
