@@ -28,7 +28,10 @@ ISO = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 
 
 def note_key(value: Any) -> str:
-    return " ".join(str(value or "").split()).casefold()
+    """A date cell is a serial: the .xlsx download (cutover rows) writes "45870.0", the Sheets API
+    (runner) 45870, so both forms compare as the whole number."""
+    text = " ".join(str(value or "").split()).casefold()
+    return text.split(".")[0] if SERIAL.fullmatch(text) else text
 
 
 def pay_date(note: Any) -> dt.date | None:
