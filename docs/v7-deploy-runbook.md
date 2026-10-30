@@ -1395,6 +1395,18 @@ Migration `cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql` ([`CAN
 
 Rollback: `CREATE OR REPLACE VIEW sokhach.v_outstanding_month AS SELECT * FROM sokhach.v_outstanding_month_raw` dưới `sokhach_owner`, rồi áp lại `get_receivables_detail` từ `2026-10-29-v7-matrix-drawer-receipts.sql` và `record_receipt` từ `2026-10-29-v7-ra-ghi-tien.sql` (chạy cả migration đó cũng được, chỉ thay thân hàm). View thô để lại không ảnh hưởng. Release app cũ chạy được với hàm mới (ngăn kéo bỏ qua trường lạ).
 
+## Nhật ký đòi nợ (tab Đòi nợ) — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
+
+Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-nhac-no.md).
+
+Migration `cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql` ([`NHAC-NO-01`](decisions/nhac-no-01.md)) chỉ THÊM bảng `sokhach.reminder_log` + hàm `record_reminder`/`get_reminders` (ghi chú "đã nhắc", NGOÀI đường tiền: không VND, không khóa tháng, không phân bổ, không bump version); không đổi bảng tiền, view nợ, loại event, dữ liệu hay quyền cũ. Chạy lại được.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore DB thử, chạy migration hai lượt (idempotent); tổng từng khách, số event, số dòng không đổi; `reminder_log` tạo, 2 hàm có; `v7_post_deploy_check.sql` 9/9 OK.
+2. **Cửa sổ dừng ghi:** dừng API, dump + hash, migration một transaction, đối soát tổng từng khách và số event trước=sau, checker 9/9, bật lại API; rồi đổi release để có tab Đòi nợ.
+3. **Sau:** `/doi-no.html` và `GET /api/v7/reminders` trả 200.
+
+Rollback: `DROP TABLE sokhach.reminder_log; DROP FUNCTION sokhach.record_reminder(bigint,text), sokhach.get_reminders();` dưới `sokhach_owner` (không gì tham chiếu tới); release app cũ chạy được dù DB có bảng/hàm mới.
+
 ## Rà đường ghi tiền 29/10 — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
 
 Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-ra-ghi-tien.md).
