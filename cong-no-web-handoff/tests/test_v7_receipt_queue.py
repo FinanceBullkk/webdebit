@@ -74,6 +74,13 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(statuses(rows, led), ["MATCHED_LEGACY", "MATCHED_LEGACY"])
         self.assertEqual(statuses([row(amount=12345665)], ledger([legacy(amount=12345667)])), ["SHEET_EDITED"])
 
+    def test_date_cell_serial_matches_in_both_forms(self):
+        # The cutover read the .xlsx download ("45870.0"); the runner reads the Sheets API (45870).
+        self.assertEqual(statuses([row(month="2025-08", note="45870")], ledger([legacy(month="2025-08-01", note="45870.0")])),
+                         ["MATCHED_LEGACY"])
+        self.assertEqual(statuses([row(month="2025-08", note="45870.0")], ledger([legacy(month="2025-08-01", note="45870")])),
+                         ["MATCHED_LEGACY"])
+
     def test_two_equal_sheet_rows_need_two_book_rows(self):
         rows = [row(source_row=40), row(source_row=41)]
         self.assertEqual(statuses(rows, ledger([legacy()])), ["MATCHED_LEGACY", "READY"])

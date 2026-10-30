@@ -91,6 +91,8 @@ Hình thức phiếu: `THU TIỀN`. Chứng từ: "Sheet: " + chữ ngày thu tr
 
 **Đo chỉ đọc bằng chính code này trên dữ liệu thật** (cùng bản tải 30/10, sổ `hao`, 238 khách; chi tiết ngoài Git): bản chụp 1.206 phiếu; `READY` 6 phiếu ở 6 khách; `SHEET_EDITED` 3 phiếu ở 2 khách; `NO_DATE` 4. Bản đo thử đầu tiên đọc cả dòng của khối tháng lặp y hệt và lệch 1 đ do làm tròn; đã sửa (đọc theo khối, ghép sổ gốc cho lệch ≤ 1 đ cùng tháng, cùng chữ ngày).
 
+**Sau triển khai (30/10/2026, PR #200):** bản chụp thật đầu tiên của runner (Sheets API) có 1.206 phiếu, `READY` khớp số đo (6 phiếu ở 6 khách), nhưng `SHEET_EDITED` 18 và `FUTURE_DATE` 3. Nguyên nhân: ô ngày thu là ô ngày, bản tải `.xlsx` (dòng sổ gốc lúc nạp mốc) ghi số sê-ri `45870.0`, Sheets API trả `45870`, nên không ghép được. Sửa: so số sê-ri theo phần nguyên. Đo lại chỉ đọc trên chính bản chụp đó: `READY` 6, `SHEET_EDITED` 3, `NO_DATE` 4, không còn `FUTURE_DATE`. Không có phiếu nào bị ghi trong lúc lỗi (các dòng đó chỉ nằm ở "Cần xem").
+
 **Triển khai:** không SQL, không migration, không đổi unit. Runner giá trên `hao` chạy từ release nên lượt kế tiếp sau khi `Deploy hao` xanh tự ghi `receipts.json` cạnh `prices.json`; API mặc định đọc cùng thư mục.
 
 ## Câu hỏi mở
