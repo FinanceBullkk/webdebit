@@ -137,8 +137,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         target = after.get("target") or {}
         field = after.get("field")
         if field and target.get("kind") in ("trip", "legacy") and type(target.get("id")) is int:
-            resolved[(after.get("source_row"), target["kind"], target["id"], field)] = (
-                after.get("target_value"), after.get("sheet_value"))
+            # Keyed on target + field, not the Sheet row number: the source tab changed on 30/10/2026
+            # (WEBDEBIT_EXPORT -> CONT_NGUON) and row numbers moved while decisions still hold.
+            resolved[(target["kind"], target["id"], field)] = (after.get("target_value"), after.get("sheet_value"))
     visible = []
     for row in queue["items"]:
         if row.get("customer_id") != ledger.get("customer_id"):
@@ -182,7 +183,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             if old.get("booking") and booking != _container(old["booking"]):
                 changed.append("booking")
             changed = [field for field in changed if not (
-                (key := (row.get("source_row"), old["kind"], old["id"], field)) in resolved
+                (key := (old["kind"], old["id"], field)) in resolved
                 and _name(old.get(field)) == _name(resolved[key][0])
                 and _name(row.get(field)) == _name(resolved[key][1]))]
             if not changed:

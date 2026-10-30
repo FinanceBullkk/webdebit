@@ -16,10 +16,15 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from webdebit_export_connector import read_export
+from webdebit_export_connector import read_export, read_source
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+# "cont_nguon": the central tab (specs/v7-sheet-contract.md, phase 2a), default since 30/10/2026 after the
+# two snapshots compared identical on hao. "export": WEBDEBIT_EXPORT joined with BOOKING_DATA, kept only as
+# the rollback path until the Sheet side drops BOOKING_DATA; remove it then.
+SOURCES = ("export", "cont_nguon")
+DEFAULT_SOURCE = "cont_nguon"
 
 
 def _b64(value: bytes) -> str:
@@ -84,11 +89,17 @@ def exchange_token(credentials: dict[str, str], opener: Callable[..., Any] = url
 
 
 def run_once(credentials_path: str, spreadsheet_id: str, output_path: str,
-             token_exchange: Callable[[dict[str, str]], str] = exchange_token) -> dict[str, Any]:
+             token_exchange: Callable[[dict[str, str]], str] = exchange_token,
+             source: str = DEFAULT_SOURCE) -> dict[str, Any]:
+    if source not in SOURCES:
+        raise ValueError("unknown sheet source")
     credentials = load_credentials(credentials_path)
     token = token_exchange(credentials)
-    snapshot = read_export(spreadsheet_id, token, include_booking=True, include_mapping=True)
-    snapshot["runner"] = {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only"}
+    if source == "cont_nguon":
+        snapshot = read_source(spreadsheet_id, token, include_mapping=True)
+    else:
+        snapshot = read_export(spreadsheet_id, token, include_booking=True, include_mapping=True)
+    snapshot["runner"] = {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only", "source": source}
     destination = pathlib.Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
@@ -109,11 +120,14 @@ def main() -> int:
     parser.add_argument("--credentials", default=os.getenv("WEBDEBIT_GOOGLE_CREDENTIALS"))
     parser.add_argument("--spreadsheet-id", default=os.getenv("WEBDEBIT_SHEET_ID"))
     parser.add_argument("--output", default=os.getenv("WEBDEBIT_SNAPSHOT_PATH", "sheet-snapshot.json"))
+    parser.add_argument("--source", choices=SOURCES, default=os.getenv("WEBDEBIT_SHEET_SOURCE", DEFAULT_SOURCE),
+                        help="which tab(s) to read; env WEBDEBIT_SHEET_SOURCE")
     args = parser.parse_args()
     if not args.credentials or not args.spreadsheet_id:
         parser.error("set --credentials/WEBDEBIT_GOOGLE_CREDENTIALS and --spreadsheet-id/WEBDEBIT_SHEET_ID")
-    snapshot = run_once(args.credentials, args.spreadsheet_id, args.output)
-    print(json.dumps({"output": args.output, "row_count": snapshot["row_count"], "sha256": snapshot["sha256"]}))
+    snapshot = run_once(args.credentials, args.spreadsheet_id, args.output, source=args.source)
+    print(json.dumps({"output": args.output, "source": args.source, "row_count": snapshot["row_count"],
+                      "sha256": snapshot["sha256"]}))
     return 0
 
 
