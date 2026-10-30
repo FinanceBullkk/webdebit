@@ -150,6 +150,8 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(project_customer(queue, ledger)["items"], [])
         queue["snapshot_sha256"] = "b" * 64
         self.assertEqual(project_customer(queue, ledger)["items"], [])
+        row["source_row"] = 41   # source tab switched, row numbers moved: the decision still holds
+        self.assertEqual(project_customer(queue, ledger)["items"], [])
         row["carrier"] = "MAERSK"
         self.assertEqual(project_customer(queue, ledger)["conflict_count"], 1)
         row["carrier"] = "COSCO"

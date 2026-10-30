@@ -28,6 +28,30 @@ class SheetSyncRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output_path.read_text(encoding="utf-8"))["row_count"], 2)
             self.assertFalse((output_path.with_name("snapshot.json.tmp")).exists())
 
+    def test_source_option_picks_the_central_tab_and_rejects_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            credential_path = Path(directory) / "credential.json"
+            credential_path.write_text(json.dumps({
+                "type": "service_account", "client_email": "reader@example.com", "private_key": "unused",
+            }), encoding="utf-8")
+            calls = []
+            originals = (runner.read_export, runner.read_source)
+            runner.read_export = lambda sheet, token, **kwargs: calls.append("export") or {
+                "row_count": 0, "sha256": "a" * 64, "rows": [], "source": {}}
+            runner.read_source = lambda sheet, token, **kwargs: calls.append("cont_nguon") or {
+                "row_count": 0, "sha256": "b" * 64, "rows": [], "source": {}}
+            try:
+                default = runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "a.json"), lambda _: "t")
+                central = runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "b.json"), lambda _: "t",
+                                          source="cont_nguon")
+                with self.assertRaisesRegex(ValueError, "unknown sheet source"):
+                    runner.run_once(str(credential_path), "sheet-id", str(Path(directory) / "c.json"), lambda _: "t",
+                                    source="booking")
+            finally:
+                runner.read_export, runner.read_source = originals
+            self.assertEqual(calls, ["export", "cont_nguon"])
+            self.assertEqual((default["runner"]["source"], central["runner"]["source"]), ("export", "cont_nguon"))
+
     def test_assertion_has_expected_claims(self):
         credentials = {"client_email": "reader@example.com", "private_key": "unused"}
         assertion = runner.make_assertion(credentials, now=100, signer=lambda data, key: b"sig")
