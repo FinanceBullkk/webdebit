@@ -133,39 +133,39 @@ Thứ tự 2a → 2b vì 2b cần biết tháng nào đang mở để cuộn t�
 ## Tiêu chí nghiệm thu
 
 PR 2a:
-- [ ] Sổ giả 9 tháng ở 1280×720: lúc mở chỉ có bảng dòng của tháng hiện tại và tháng liền trước; 7 tháng còn lại là dòng gập có Còn nợ cuối tháng đúng bằng số GET.
-- [ ] Thanh tháng có 9 chip, dính khi cuộn; chip của tháng đang ở giữa màn được tô; bấm chip của tháng gập thì tháng mở và thanh tháng của nó nằm ngay dưới phần dính.
-- [ ] Tổng chiều cao phần dính ≤ 180px (hiện 206px); không cuộn ngang ở 1280.
-- [ ] `?month=2026-05` mở và cuộn tới tháng 5; tháng không có trong sổ thì mở bình thường, không lỗi.
-- [ ] `?loc=thieu-gia` trên sổ có dòng chưa có giá ở tháng gập: tháng đó tự mở, "Đến dòng tiếp ›" đi hết mọi dòng như trước.
-- [ ] So số trước/sau (bản `main` và bản PR) trên mọi sổ giả: mọi số tiền trong `#app` sau khi mở hết các tháng bằng nhau.
+- [x] Sổ giả 9 tháng ở 1280×720: lúc mở chỉ có bảng dòng của tháng hiện tại và tháng liền trước; 7 tháng còn lại là dòng gập có Còn nợ cuối tháng đúng bằng số GET.
+- [x] Thanh tháng có 9 chip, dính khi cuộn; chip của tháng đang ở giữa màn được tô; bấm chip của tháng gập thì tháng mở và thanh tháng của nó nằm ngay dưới phần dính.
+- [x] Tổng chiều cao phần dính ≤ 180px (hiện 206px); không cuộn ngang ở 1280.
+- [x] `?month=2026-05` mở và cuộn tới tháng 5; tháng không có trong sổ thì mở bình thường, không lỗi.
+- [x] `?loc=thieu-gia` trên sổ có dòng chưa có giá ở tháng gập: tháng đó tự mở, "Đến dòng tiếp ›" đi hết mọi dòng như trước.
+- [x] So số trước/sau (bản `main` và bản PR) trên mọi sổ giả: mọi số tiền trong `#app` sau khi mở hết các tháng bằng nhau.
 
 PR 2b:
-- [ ] Sổ không còn khung "Ghi phiếu mới" trong từng tháng; nút Ghi phiếu thu ở đầu sổ thấy được ở mọi vị trí cuộn.
-- [ ] Ngày + số tiền + Enter → bước xem lại, chưa có `POST`; Enter tiếp → đúng một `POST` ghi phiếu; tiêu điểm mặc định ở Ghi phiếu; Sửa lại hoặc Esc về ô Số tiền, số đã gõ còn nguyên.
-- [ ] Bấm Ghi phiếu hai lần nhanh / Enter giữ phím: vẫn một phiếu.
-- [ ] Sau khi ghi: băng hiện mã phiếu, số tiền và phân bổ đúng `allocations` server trả; tháng của phiếu mở; dòng mới tô.
-- [ ] "Hủy phiếu vừa ghi" mở dòng hủy với lý do điền sẵn; xóa trống lý do thì "Cần nhập lý do", không gửi lệnh.
-- [ ] Ngày tương lai → lỗi tại ô Ngày, không có `POST` thứ hai; mất mạng khi ghi (`page.route` abort một lần) → "Thử lại thao tác vừa gửi" ghi đúng một phiếu.
-- [ ] Ngày thuộc tháng khóa → bước xem lại có câu tháng khóa, ghi được.
-- [ ] Hình thức CẤN TRỪ → hộp cấn trừ như cũ; ảnh dán trong khung được đính vào phiếu vừa ghi.
-- [ ] Bấm ổ khóa → dòng hỏi; Thôi/Esc không gửi lệnh; Khóa tháng → một lệnh `lock`. Tương tự cho mở khóa và nút mở khóa ở khung giá Sheet.
-- [ ] Duyệt n chuyến mới → khung xác nhận; Thôi không gửi `POST /api/v7/sheet/approve`.
+- [x] Sổ không còn khung "Ghi phiếu mới" trong từng tháng; nút Ghi phiếu thu ở đầu sổ thấy được ở mọi vị trí cuộn.
+- [x] Ngày + số tiền + Enter → bước xem lại, chưa có `POST`; Enter tiếp → đúng một `POST` ghi phiếu; tiêu điểm mặc định ở Ghi phiếu; Sửa lại hoặc Esc về ô Số tiền, số đã gõ còn nguyên.
+- [x] Bấm Ghi phiếu hai lần nhanh / Enter giữ phím: vẫn một phiếu.
+- [x] Sau khi ghi: băng hiện mã phiếu, số tiền và phân bổ đúng `allocations` server trả; tháng của phiếu mở; dòng mới tô.
+- [x] "Hủy phiếu vừa ghi" mở dòng hủy với lý do điền sẵn; xóa trống lý do thì "Cần nhập lý do", không gửi lệnh.
+- [x] Ngày tương lai → lỗi tại ô Ngày, không có `POST` thứ hai; mất mạng khi ghi (`page.route` abort một lần) → "Thử lại thao tác vừa gửi" ghi đúng một phiếu.
+- [x] Ngày thuộc tháng khóa → bước xem lại có câu tháng khóa, ghi được.
+- [x] Hình thức CẤN TRỪ → hộp cấn trừ như cũ; ảnh dán trong khung được đính vào phiếu vừa ghi.
+- [x] Bấm ổ khóa → dòng hỏi; Thôi/Esc không gửi lệnh; Khóa tháng → một lệnh `lock`. Tương tự cho mở khóa và nút mở khóa ở khung giá Sheet.
+- [x] Duyệt n chuyến mới → khung xác nhận; Thôi không gửi `POST /api/v7/sheet/approve`.
 
 PR 2c:
-- [ ] Không chữ nào < 14px trong `.ledger td` và `.pay-list`; số tiền và chữ thân trong bảng 16px; vẫn không cuộn ngang ở 1280 với sổ có Shipper và 3 cột phụ phí riêng.
-- [ ] Sổ giả 300 dòng: số chữ "+ thêm" đang hiện = 0 khi không rê chuột; rê vào dòng hoặc Tab tới ô thì hiện; tick chọn dòng thì hiện.
-- [ ] Chờ kiểm là nhãn "chờ kiểm" bấm được và mở dòng kết luận như trước; chưa có giá có nhãn chữ, không chỉ tô màu.
-- [ ] Thanh trên của sổ khách giống các trang khác (cùng `cong-no-theme.css`): không còn "↻ Làm mới" và "Ẩn con trỏ" trong thanh xanh.
+- [x] Không chữ nào < 14px trong `.ledger td` và `.pay-list`; số tiền và chữ thân trong bảng 16px; vẫn không cuộn ngang ở 1280 với sổ có Shipper và 3 cột phụ phí riêng.
+- [x] Sổ giả 300 dòng: số chữ "+ thêm" đang hiện = 0 khi không rê chuột; rê vào dòng hoặc Tab tới ô thì hiện; tick chọn dòng thì hiện.
+- [x] Chờ kiểm là nhãn "chờ kiểm" bấm được và mở dòng kết luận như trước; chưa có giá có nhãn chữ, không chỉ tô màu.
+- [x] Thanh trên của sổ khách giống các trang khác (cùng `cong-no-theme.css`): không còn "↻ Làm mới" và "Ẩn con trỏ" trong thanh xanh. Làm khác phần `cong-no-theme.css` (chưa nạp chung), người dùng đồng ý 31/10/2026 — xem L7.
 
 PR 2d:
-- [ ] Lịch sử: mỗi sự kiện một câu, có tên hiển thị người làm; không còn "Ghi chú/lý do: –"; lọc theo loại; Esc đóng và trả tiêu điểm về nút mở.
-- [ ] Tab sau khi ghi một ô đi tới ô sửa kế (không về `BODY`); Enter xuống ô cùng cột hàng dưới; mũi tên lên/xuống đổi hàng ở bảng chuyến và lưới bảng giá.
-- [ ] Esc đóng mọi dòng hỏi trong bảng; tiêu điểm về ô đã mở.
+- [x] Lịch sử: mỗi sự kiện một câu, có tên hiển thị người làm; không còn "Ghi chú/lý do: –"; lọc theo loại; Esc đóng và trả tiêu điểm về nút mở.
+- [x] Tab sau khi ghi một ô đi tới ô sửa kế (không về `BODY`); Enter xuống ô cùng cột hàng dưới; mũi tên lên/xuống đổi hàng ở bảng chuyến và lưới bảng giá.
+- [x] Esc đóng mọi dòng hỏi trong bảng; tiêu điểm về ô đã mở.
 
 Chung (bước 7–8):
-- [ ] `npm run check` xanh ở từng PR; `test-so-khach-v7-ctx.js` xanh.
-- [ ] Sau khi 2a–2d triển khai trên `hao`: đo lại sổ nợ nhiều nhất (chỉ đọc) — chiều cao trang lúc mở, chiều cao phần dính, số chữ "+ thêm" đang hiện; ghi vào phần Bằng chứng.
+- [x] `npm run check` xanh ở từng PR; `test-so-khach-v7-ctx.js` xanh.
+- [x] Sau khi 2a–2d triển khai trên `hao`: đo lại sổ nợ nhiều nhất (chỉ đọc) — chiều cao trang lúc mở, chiều cao phần dính, số chữ "+ thêm" đang hiện; ghi vào phần Bằng chứng.
 - [ ] Người dùng tự đi L1–L4 trên `hao` một lần với một phiếu thật cần ghi (không ghi thử) và xác nhận; hoặc phiên quan sát 30 phút theo mục 7 của audit.
 
 ## Hoàn tác
@@ -187,7 +187,22 @@ Số đo hiện trạng lấy từ audit 31/10/2026 (mục 7 của audit).
   - Lịch sử: câu và tên ngắn, lọc kèm số mục, câu "Không có thay đổi loại này.", bộ lọc giữ qua lần mở lại, Esc ở nút lọc về nút Lịch sử.
   - Lưới bảng giá: mũi tên lên/xuống, giữ chữ đã gõ.
 
-  Chạy cùng file test trên mã `main`: cả 5 đỏ, test đầu báo tiêu điểm ở `BODY` sau Tab. Test đơn vị Lịch sử viết lại theo khuôn before/after của từng hàm SQL, gồm mọi loại sự kiện SQL đang ghi, thao tác lạ và nhóm lọc của dòng sổ gốc. Test API: `actor_name` lấy theo bảng tên, login không có trong bảng thì lấy phần trước `@`. So mọi ô số tiền giữa `main` (đã có 2c) và bản 2d, mở hết tháng ở cả hai: 322 ô trùng khớp. `npm run check` xanh (ruff chạy bằng venv của checkout chính).
+  Chạy cùng file test trên mã `main`: cả 5 đỏ, test đầu báo tiêu điểm ở `BODY` sau Tab. Test đơn vị Lịch sử viết lại theo khuôn before/after của từng hàm SQL, gồm mọi loại sự kiện SQL đang ghi, thao tác lạ và nhóm lọc của dòng sổ gốc. Test API: `actor_name` lấy theo bảng tên, login không có trong bảng thì lấy phần trước `@`. So mọi ô số tiền giữa `main` (đã có 2c) và bản 2d, mở hết tháng ở cả hai: 322 ô trùng khớp. `npm run check` xanh (ruff chạy bằng venv của checkout chính). Đã triển khai trên `hao` (PR #233, `Deploy hao` xanh). GET sổ trên `hao` đã có `actor_name` (đọc thử một sổ: 2/2 sự kiện). Chưa sự kiện nào lấy tên từ bảng tên vì bảng tên trên `hao` còn trống, nên Lịch sử hiện phần trước `@`.
+- **Đo lại trên `hao` sau 2a–2d** — 1/11/2026, chỉ đọc qua Tailscale, Chromium 1280×720, không bấm nút ghi (chỉ bấm "Xem chi tiết" để mở các tháng gập). Sổ đo là sổ của khách nợ nhiều nhất theo Tổng quan; không ghi tên khách hay số dư vào đây.
+
+  | Số đo | Audit 31/10/2026 | 1/11/2026 |
+  |---|---|---|
+  | Chiều cao trang lúc mở | 17.734px | 3.537px: 10 tháng trên thanh chip, 8 tháng gập; vẽ 49 dòng chuyến của tháng 11 và tháng 10; hàng 40px |
+  | Phần dính khi cuộn | 164px (thanh trên 56 + đầu sổ 70 + tiêu đề cột 38; chưa có thanh tháng) | 180px = thanh trên 56 + đầu sổ 48 + thanh tháng 40 + tiêu đề cột 36: đạt mục tiêu ≤ 180px; ≤ 110px vẫn CÒN MỞ |
+  | Chỗ ghi phiếu thu | 9 khung, mỗi tháng một khung | 1 nút "Ghi phiếu thu", 0 khung trong tháng |
+  | Chữ "+ thêm" đang hiện | 387 | 0 |
+  | Mở hết tháng | 387 dòng chuyến | 387 dòng chuyến, trang 18.247px, hàng trung bình 41,8px (số 16px); không cuộn ngang |
+
+  Ghi thêm: lần mở đầu tiên sổ vẽ xong sau khoảng 11,5 giây, lần mở lại khoảng 3,3 giây. `GET` sổ mất khoảng 1,4 giây (~900 KB); mỗi file script mất khoảng 1,3 giây khi trang tải song song.
+
+  Lúc đo trên `hao`, trang không có chữ "+ thêm" nào: "+ thêm" chỉ có ở dòng sửa phụ phí được, mà lúc đo không dòng nào như vậy (tháng 10 đã tự khóa từ 1/11). Vì thế tiêu chí "+ thêm" được kiểm thêm trên máy chủ giả, cùng tiêu chí `?month=` với tháng không có trong sổ (cả hai chưa có test riêng); code `main` sau 2d, 1/11/2026:
+  - Sổ giả 300 dòng ở tháng mở: 301 chữ "+ thêm" trong trang, 0 chữ đang hiện khi không rê chuột. Rê vào một dòng, đứng ở một ô, hay tick một dòng rồi bấm ra ngoài thì hiện đúng 1, ở đúng dòng đó.
+  - `?month=2020-01` (tháng không có trong sổ): sổ mở như mặc định, không lỗi trang.
 
 ## Lựa chọn đã chốt
 
