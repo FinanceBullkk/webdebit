@@ -5,7 +5,7 @@
 | ĐÃ CHỐT | Người dùng chọn cách 2 (GitHub Action đẩy qua Tailscale), 23/10/2026 |
 | ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt. **28/10/2026:** người dùng bỏ *Required reviewers* (dự án chỉ một người làm), Environment chỉ còn luật nhánh `main`; kiểm bằng GitHub API cùng ngày |
 | ĐÃ KIỂM CHỨNG | Lượt `Deploy hao` xanh trên GitHub cho commit `3608c9d` (từ đầu tới cuối: Tailscale, SSH, đẩy gói, restart, kiểm sống). Script thử trong Docker với `systemctl`/`curl` giả: deploy, tự quay lại khi kiểm sống lỗi, bỏ qua cùng SHA, từ chối SHA sai |
-| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống (từ 31/10/2026 là `/healthz`) chứng minh tiến trình sống và đường psql tới DB chạy, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; action dùng tag (`@v4`, `@v3`), nên ghim SHA |
+| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống (từ 31/10/2026 là `/healthz`) chứng minh tiến trình sống và đường psql tới DB chạy, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; mọi action đã ghim SHA (31/10/2026, Dependabot nâng), nhưng setting repo *require SHA pinning* chưa bật |
 
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`

@@ -25,7 +25,12 @@ function previewTests(browser) {
 }
 
 const suites = {
-  unit: () => ["scripts/test-business-rules.js", "scripts/sheet-capture/test.js", ...previewTests(false)],
+  unit: () => [
+    "scripts/test-business-rules.js",
+    "scripts/test-check-secrets.js",
+    "scripts/sheet-capture/test.js",
+    ...previewTests(false),
+  ],
   browser: () => previewTests(true),
   viewer: () => ["cong-no-web-handoff/tests/test-viewer-browser.js"],
 };
