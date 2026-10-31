@@ -5,7 +5,7 @@
   // tải cả bản xuất; không ghi nội dung tin ra console hay nơi nào khác.
   const $ = id => document.getElementById(id);
   // Thoát HTML và so khớp không phân biệt hoa thường/dấu tiếng Việt (foldText: cùng quy tắc với máy chủ) từ CongNoFormat.
-  const { esc, foldText } = CongNoFormat;
+  const { esc, foldText, loadError } = CongNoFormat;
   const TZ = 'Asia/Ho_Chi_Minh';
   const PAGE_LIMIT = 50;
   const state = {
@@ -47,7 +47,8 @@
     } else if (error?.status === 403) {
       box.textContent = 'Bạn không có quyền xem chat trên máy chủ này.';
     } else {
-      box.textContent = `Không tải được dữ liệu chat. ${error?.message ?? ''} Tải lại trang để thử lại.`.trim();
+      // Audit UX 31/10/2026 (P1-6): một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt hay mã HTTP.
+      box.innerHTML = `${esc(loadError('dữ liệu chat'))} <button type="button" class="btn" data-retry>Thử lại</button>`;
     }
   }
 
@@ -171,7 +172,7 @@
     } catch (error) {
       if (request !== state.request) return;
       if (error.status === 404) box.innerHTML = '<p class="empty">Hội thoại này không còn trong bản xuất.</p>';
-      else box.innerHTML = `<p class="empty">Không tải được tin nhắn. ${esc(error.message)}</p>`;
+      else box.innerHTML = `<p class="empty">${esc(loadError('tin nhắn'))} <button type="button" class="btn" data-retry-page="${page}">Thử lại</button></p>`;
     }
   }
 
@@ -210,6 +211,8 @@
     if (button) open(button.dataset.id);
   });
   $('messages').addEventListener('click', event => {
+    const retry = event.target.closest('[data-retry-page]');
+    if (retry) { loadPage(Number(retry.dataset.retryPage)); return; }
     if (event.target.closest('#older') && state.hasOlder) loadPage(state.page + 1);
   });
   $('back-list').addEventListener('click', () => {
@@ -220,6 +223,7 @@
     const params = new URLSearchParams(location.search);
     state.filter = params.get('q') ?? '';
     $('conversation-search').value = state.filter;
+    $('summary').textContent = 'Đang tải…';
     try {
       const [summary, list] = await Promise.all([json('/api/v7/zalo/report'), json('/api/v7/zalo/conversations')]);
       state.conversations = list.conversations ?? [];
@@ -237,5 +241,6 @@
     }
   }
 
+  $('error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) init(); });
   init();
 })();

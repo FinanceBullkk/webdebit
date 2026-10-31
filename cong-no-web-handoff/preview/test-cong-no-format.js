@@ -90,3 +90,33 @@ test('month labels accept YYYY-MM and YYYY-MM-DD', () => {
   assert.equal(F.monthTag('2026-07-01', 2026), 'T7');
   assert.equal(F.monthTag('2025-12-01', 2026), 'T12/2025');
 });
+
+// Audit UX 31/10/2026 (đợt 1): số triệu không đơn vị cho ma trận, một kiểu ngày dd/mm/yyyy, câu lỗi tải trang.
+test('millions writes triệu without unit for tables that state "triệu đồng" once', () => {
+  assert.equal(F.millions('412500000'), '412,5');
+  assert.equal(F.millions('380000000'), '380');
+  assert.equal(F.millions('1249600000'), '1.250');
+  assert.equal(F.millions('999999999'), '1.000');
+  assert.equal(F.millions('950000'), '0,95');
+  assert.equal(F.millions('50000'), '0,05');
+  assert.equal(F.millions('5000'), '0,01');
+  assert.equal(F.millions('4999'), '<0,01');
+  assert.equal(F.millions('-15500000'), '−15,5');
+  assert.equal(F.millions(-20000n), '−0,02');
+  assert.equal(F.millions('0'), '0');
+  assert.throws(() => F.millions('1.5'), /không hợp lệ/);
+});
+
+test('dateText writes dd/mm/yyyy from ISO dates and keeps any other text', () => {
+  assert.equal(F.dateText('2026-10-22'), '22/10/2026');
+  assert.equal(F.dateText('2026-10-22 08:15:00'), '22/10/2026');
+  assert.equal(F.dateText('2026-10-22T08:15:00+07:00'), '22/10/2026');
+  assert.equal(F.dateText(null), '');
+  assert.equal(F.dateText(''), '');
+  assert.equal(F.dateText('2026-10-2'), '2026-10-2');
+  assert.equal(F.dateText('đã tt'), 'đã tt');
+});
+
+test('loadError says what failed and what to do, never a browser string', () => {
+  assert.equal(F.loadError('ma trận công nợ'), 'Không tải được ma trận công nợ. Kiểm tra mạng rồi bấm Thử lại.');
+});

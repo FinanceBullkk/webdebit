@@ -48,6 +48,17 @@ const CongNoFormat = (() => {
     return `${sign(amount)}${(rounded / 100n).toLocaleString('vi-VN')},${(rounded % 100n).toString().padStart(2, '0')}`;
   }
 
+  /** Số triệu đồng không kèm đơn vị, cho bảng đã ghi "Đơn vị: triệu đồng" một lần ở tiêu đề (ma trận Công nợ theo tháng):
+   *  từ 1 tỷ làm tròn tới triệu "1.250", từ 1 triệu một số lẻ "412,5", dưới 1 triệu hai số lẻ "0,05"; khác 0 mà quá nhỏ
+   *  ghi "<0,01" để ô không thành "0"; số âm dùng dấu trừ "−". */
+  function millions(value) {
+    const amount = toBig(value);
+    const size = abs(amount);
+    if (size === 0n) return '0';
+    const text = scaled(size, MILLION, size >= BILLION ? 0 : size >= MILLION ? 1 : 2);
+    return `${sign(amount)}${text === '0' ? '<0,01' : text}`;
+  }
+
   /** Tỉ lệ phần trăm một chữ số thập phân: "34,1%". Tổng không dương thì không có tỉ lệ. */
   function percent(part, total) {
     const whole = toBig(total);
@@ -117,7 +128,20 @@ const CongNoFormat = (() => {
   /** Thẻ "T7", kèm năm "T12/2025" khi khác `year` (Công nợ theo tháng). */
   const monthTag = (iso, year) => `T${Number(iso.slice(5, 7))}${Number(iso.slice(0, 4)) === year ? '' : `/${iso.slice(0, 4)}`}`;
 
-  return { toBig, full, short, billions, percent, barWidth, sum, heatStep,
-    UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag };
+  /** Ngày "dd/mm/yyyy" từ ngày ISO "2026-10-22" (phần giờ phía sau, nếu có, bỏ qua; không đổi múi giờ); trống → "";
+   *  chuỗi khác giữ nguyên để không mất chữ người dùng đã gõ (audit UX 31/10/2026: một kiểu ngày cho mọi trang). */
+  function dateText(value) {
+    const text = String(value ?? '').trim();
+    const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]|$)/.exec(text);
+    return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : text;
+  }
+
+  /** Câu báo không tải được trang theo mẫu "chuyện gì · cần làm gì"; trang đặt kèm nút "Thử lại".
+   *  Không bao giờ hiện chữ của trình duyệt ("Failed to fetch") hay mã lỗi (audit UX 31/10/2026). */
+  const loadError = what => `Không tải được ${what}. Kiểm tra mạng rồi bấm Thử lại.`;
+
+  return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
+    UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
+    dateText, loadError };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;
