@@ -312,7 +312,7 @@ async function withPage(fn, setup = () => {}) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
-    if (url.pathname === '/api/v7/customers') { send(200, { customers: [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
+    if (url.pathname === '/api/v7/customers') { send(200, { customers: world.customers ?? [{ id: 1, name: 'Khách Thử Sửa', status: 'active' }], demo: true }); return; }
     if (url.pathname.startsWith('/api/v7/presence')) {   // PRESENCE-01: không vào world.requests; SSE không có nên trang hỏi định kỳ
       const chunks = [];
       req.on('data', chunk => chunks.push(chunk));

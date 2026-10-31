@@ -75,7 +75,7 @@ test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu 
   assert.equal(await page.locator('.topbar #refresh-data, .topbar .live-controls, .topbar .presence-toggle').count(), 0);
   const head = page.locator('.book-head');
   assert.equal(await head.locator('button.entry-open').count(), 1);
-  assert.deepEqual(await head.locator('button').allInnerTexts(), ['Ghi phiếu thu', 'Lịch sử']);
+  assert.deepEqual(await head.locator('button:not([role="tab"])').allInnerTexts(), ['Ghi phiếu thu', 'Lịch sử']);
   assert.equal(await page.locator('.book-bar #refresh-data').innerText(), 'Làm mới');
   assert.equal(await page.locator('.book-bar .fee-settings-open').count(), 1);
   assert.equal(await page.locator('.book-bar #updated-at').count(), 1);

@@ -74,7 +74,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="debit-note-02"></a>[DEBIT-NOTE-02](decisions/debit-note-02.md) | Mẫu Debit Note v3 sếp duyệt: bố cục, 8 loại phí, quy tắc tính, kiểm tra trước phát hành | Thay bố cục và điểm (3) thiếu giá của [DEBIT-NOTE-01](#debit-note-01) |
 | <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + nút Copy tin nhắc; sửa đổi 30/10/2026: trang Chat Zalo đọc nội dung từ bản xuất (ZALO-CHAT-01) | Đã code; bản xuất chat chưa đặt lên `hao` |
 | <a id="access-01"></a>[ACCESS-01](decisions/access-01.md) | Chỉ login Tailscale trong danh sách mới dùng được web V7; login lạ nhận 403 `LOGIN_NOT_ALLOWED`; chế độ Serve không có danh sách thì API không khởi động | Danh sách đặt trên `hao` (drop-in), ngoài Git |
-| <a id="trang-khach-01"></a>[TRANG-KHACH-01](decisions/trang-khach-01.md) | Trang khách: sổ khách mở rộng thành bốn thẻ Tình hình, Sổ, Trao đổi, Hồ sơ; hứa trả, gắn hội thoại Zalo, ghi lần xuất debit note | Chưa code |
+| <a id="trang-khach-01"></a>[TRANG-KHACH-01](decisions/trang-khach-01.md) | Trang khách: sổ khách mở rộng thành bốn thẻ Tình hình, Sổ, Trao đổi, Hồ sơ; hứa trả, gắn hội thoại Zalo, ghi lần xuất debit note | PR A1 (vỏ, thanh thẻ) đã code; A2–A4 chưa |
 
 ## Cập nhật khóa tháng 24/10/2026
 

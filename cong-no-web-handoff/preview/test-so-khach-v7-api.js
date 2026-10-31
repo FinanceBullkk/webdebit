@@ -430,7 +430,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
   assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
-  assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10 đ<\/strong>/);
+  assert.match(live.innerHTML, /<div class="head-item total"><span>Tổng còn nợ<\/span><strong>10 đ<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối tháng; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
   const oldBook = { ...ledger(4), today_month: '2026-11-01',
@@ -442,10 +442,12 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   const newMonth = page(true, oldBook);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
-  // SO-GON-04 (H2, L7): đầu sổ chỉ còn ô tìm khách, nút chính "Ghi phiếu thu", Lịch sử và tổng còn nợ; các nút khác ở dải
-  // ngay dưới đầu sổ. Không còn khung nhập phiếu ở từng tháng.
-  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button type="button" class="entry-open" >Ghi phiếu thu<\/button><button class="history-toggle"[^>]*>Lịch sử<\/button><div class="head-item total">/);
-  assert.match(newMonth.innerHTML, /<div class="book-bar"><div class="book-tasks">(?:(?!<\/div>).)*<button class="fee-settings-open"[^>]*>Cài đặt phụ phí<\/button>(?:(?!<\/div>).)*<\/div><div class="live-slot"><\/div><\/div>/s);
+  // SO-GON-04 (H2, L7) và TRANG-KHACH-01 (A1): đầu trang một dòng — về trang trước, tên khách, thanh bốn thẻ (địa chỉ không ghi
+  // thẻ thì mở Sổ), tổng còn nợ, nút chính "Ghi phiếu thu", Lịch sử; các nút khác ở dải đầu thẻ Sổ. Không còn khung nhập phiếu ở
+  // từng tháng.
+  assert.match(newMonth.innerHTML, /<div class="book-head"><a class="page-back"[^>]*>← Tổng quan<\/a><div class="page-who"><h1 class="page-name">#7<\/h1><\/div><div class="page-tabs" role="tablist"[^>]*>(?:<button type="button" role="tab"[^>]*>[^<]*<\/button>){4}<\/div><div class="head-item total"><span>Tổng còn nợ<\/span><strong>10 đ<\/strong><\/div><button type="button" class="entry-open" >Ghi phiếu thu<\/button><button class="history-toggle"[^>]*>Lịch sử<\/button><\/div>/);
+  assert.match(newMonth.innerHTML, /<button type="button" role="tab" class="page-tab" id="tab-so" data-the="so" aria-controls="the-so" aria-selected="true" tabindex="0">Sổ<\/button>/);
+  assert.match(newMonth.innerHTML, /<div id="the-so" class="tab-pane" role="tabpanel" aria-labelledby="tab-so"><div class="book-bar"><div class="book-tasks">(?:(?!<\/div>).)*<button class="fee-settings-open"[^>]*>Cài đặt phụ phí<\/button>(?:(?!<\/div>).)*<\/div><div class="live-slot"><\/div><\/div>/s);
   assert.doesNotMatch(newMonth.innerHTML, /receipt-amount|receipt-date|pay-entry|Ghi phiếu mới/);
   const block = (root, key) => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   // SO-GON-04: lúc mở sổ chỉ tháng hiện tại và tháng liền trước hiện chi tiết; tháng cũ thu gọn còn thanh tháng (ổ khóa,
