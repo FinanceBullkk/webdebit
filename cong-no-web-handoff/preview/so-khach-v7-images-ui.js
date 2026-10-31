@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — ảnh chứng từ phiếu thu (CHUNG-TU-01, specs/v7-dan-chung-tu.md).
  * Dán (Ctrl+V), kéo thả hoặc chọn ảnh chuyển khoản; ảnh chỉ để đối chiếu, không đổi số tiền.
- * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
+ * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).images = ctx => {
   'use strict';
   const { root, api, customerId, escape, dateText, showNotice, submit } = ctx;

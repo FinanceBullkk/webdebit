@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — Phụ phí nhiều loại (PHU-PHI-01, specs/v7-phu-phi-nhieu-loai.md), theo mockup
  * preview/mockups/phu-phi-nhieu-loai đã duyệt 29/10/2026: ô cột riêng gõ số, khung Chi tiết phụ phí, thêm một khoản
- * cho nhiều chuyến, Cài đặt loại phụ phí. Nạp trước so-khach-v7-ui.js, dùng chung phạm vi initLive qua ctx.
+ * cho nhiều chuyến, Cài đặt loại phụ phí. Nạp trước so-khach-v7-ui.js, dùng chung phạm vi initLive qua ctx (hợp đồng: so-khach-v7-ctx.js).
  * Mọi số tiền lấy từ server; model chỉ cộng các khoản để hiện và tính trước Thành tiền khi hỏi lại. */
 (window.SoKhachV7LiveParts ??= {}).fee = ctx => {
   'use strict';

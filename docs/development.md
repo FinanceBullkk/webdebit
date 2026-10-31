@@ -65,8 +65,13 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 |---|---|
 | `so-khach-v7-model.js` | mọi phép tính tiền (ARCH-03), có test riêng |
 | `so-khach-v7-api.js` | đọc/gửi lệnh tới `/api/v7/*`, giữ phiên bản và khóa trùng lệnh |
-| `so-khach-v7-ui.js` | bản fixture; `initLive`: trạng thái, vẽ sổ (`renderSnapshot`, `redraw`), `submit`, làm mới |
-| `so-khach-v7-history-ui.js` | Lịch sử: diễn giải sự kiện |
+| `so-khach-v7-ui.js` | bản fixture; `initLive` (lõi bản live): trạng thái, dựng `ctx`, thanh đầu sổ, `renderSnapshot`/`redraw` gọi các phần vẽ, `submit`, tự làm mới |
+| `so-khach-v7-ctx.js` | hợp đồng `ctx`: trường, ai ghi, ai đọc, thứ tự cài các phần; `install()` |
+| `so-khach-v7-month-ui.js` | bảng tháng: tháng nào có bảng, thanh tháng, điều chỉnh, dòng "đã chuyển sang tháng", Tổng tháng, danh sách tháng |
+| `so-khach-v7-trips-ui.js` | bảng chuyến bên trái: dòng sổ gốc, chuyến web, chuyến Sheet chờ duyệt, nhãn KHÁC trên dòng lệch Sheet |
+| `so-khach-v7-pay-ui.js` | danh sách phiếu thu bên phải: khoản thu Sheet, phiếu web, khung "Ghi phiếu mới", phiếu đã hủy |
+| `so-khach-v7-loc-ui.js` | thanh `?loc=thieu-gia\|cho-kiem` khi mở từ Việc cần làm |
+| `so-khach-v7-history-ui.js` | Lịch sử: diễn giải sự kiện, danh sách trong khung Lịch sử |
 | `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
 | `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO) |
 | `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
@@ -74,7 +79,9 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 | `so-khach-v7.css` | CSS khung sổ live, tách nguyên văn khỏi khối `<style>` của `so-khach-v7-live.html` (31/10/2026), nạp trước `presence.css`; bản fixture `so-khach-v7.html` vẫn giữ `<style>` riêng vì offset sticky và bề rộng khác |
 
-Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài mọi phần đã đăng ký theo thứ tự thẻ `<script>` trong `so-khach-v7-live.html` để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần nào đang mở hộp/nhập dở cần chặn tự cập nhật thì `ctx.busyChecks.push(() => …)`. Phần mới không sửa `so-khach-v7-ui.js`: chỉ thêm thẻ script của nó ngay trên `so-khach-v7-ui.js`, CSS riêng để ở file `.css` của phần (như `presence.css`).
+**Hợp đồng `ctx` (từ 31/10/2026).** Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy trường dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `so-khach-v7-ctx.js` là nguồn duy nhất của hợp đồng: `FIELDS` ghi từng trường — ai ghi (lõi `core` hay phần nào; trường đọc/ghi kèm phần được gán, ví dụ `core+fee`), kiểu (giá trị, hàm, đọc, đọc/ghi, danh sách, móc), ai đọc, ý nghĩa; `PARTS` ghi thứ tự cài và các trường của phần khác mà một phần đọc ngay lúc cài. `initLive` dựng `ctx` rồi gọi `SoKhachV7Ctx.install(ctx, window.SoKhachV7LiveParts)`: cài theo `PARTS`, không theo thứ tự thẻ `<script>` — đó cũng là thứ tự trình nghe sự kiện của các phần trên `#app`, trước trình nghe của lõi — và dừng ngay với câu lỗi nêu tên khi lõi đưa thiếu/thừa trường, thiếu phần, phần đọc lúc cài trường chưa có hoặc ghi trường không khai. `test-so-khach-v7-ctx.js` quét mã từng file và đỏ khi trường đọc/ghi lệch hợp đồng. Giá trị đổi theo thời gian đọc qua getter (`ctx.snapshot`, `ctx.feeColumnIds`, `ctx.historyOpen`, `ctx.feeTypes`); khung cột hiện tại qua `ctx.columns`. Phần đang mở hộp/nhập dở cần chặn tự cập nhật thì `ctx.busyChecks.push(() => …)`. Móc (`ctx.imageClip?.()`, `ctx.priceAfterRender?.()`…) là trường phần có thể không ghi; nơi đọc gọi bằng `?.`.
+
+**Vẽ sổ live theo vùng màn hình.** `renderSnapshot` chỉ đặt bề rộng cột, dựng thanh đầu sổ rồi gọi các phần: `monthSections` (month-ui; bảng chuyến `legacyTripRow`/`webTripRow`/`sheetPendingRows` ở trips-ui, phiếu thu `payRows` ở pay-ui), `historyList` (history-ui), sau đó các móc sau khi vẽ (`conflictsAfterRender`, `decoratePrices`, …, `locAfterRender`). Phần vẽ chỉ định dạng số GET trả; tiền vẫn ở model (ARCH-03 quét mọi `*-ui.js`). Thêm phần mới không sửa `so-khach-v7-ui.js`: khai trường ở `FIELDS`, thêm một dòng ở `PARTS`, thêm thẻ script ngay trên `so-khach-v7-ui.js`; CSS riêng để ở file `.css` của phần (như `presence.css`).
 
 **Thêm file preview chỉ sửa một chỗ: thẻ `<script>`/`<link>` trong trang HTML.** Server `web/v7_ledger_api.py` phục vụ đúng các file mà trang trong `PAGES` nạp (file khác vẫn 404), test unit `test-so-khach-v7-api.js` nạp theo thứ tự thẻ của `so-khach-v7-live.html`, test trình duyệt phục vụ cả thư mục, `Deploy hao` đóng gói cả `preview/`. Trang mới thì thêm vào `PAGES`. Test trình duyệt sổ khách dùng chung máy chủ giả `so-khach-v7-browser-world.js`.
 

@@ -1,9 +1,8 @@
-/* Sổ khách V7 bản live — Lịch sử thay đổi: diễn giải từng sự kiện thành câu tiếng Việt.
- * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; nạp trước so-khach-v7-ui.js,
- * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
+/* Sổ khách V7 bản live — Lịch sử thay đổi: diễn giải từng sự kiện thành câu tiếng Việt và vẽ danh sách trong khung Lịch sử.
+ * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).history = ctx => {
   'use strict';
-  const { dateText, fmt, monthKey, monthLabel, model } = ctx;
+  const { escape, dateText, fmt, monthKey, monthLabel, model } = ctx;
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
@@ -138,5 +137,13 @@
       const part = name => parts.find(item => item.type === name).value;
       return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}`;
     }
-    Object.assign(ctx, { eventLabels, reviewReasonText, describeEvent, eventTime });
+    // Khung Lịch sử (nút "Lịch sử" ở đầu sổ): mỗi sự kiện một mục — giờ VN, người làm, loại, câu diễn giải, ghi chú/lý do.
+    const eventNote = event => event.after?.note || event.after?.void_reason || event.after?.review_reason
+      || event.after?.trips?.map(trip => trip.note).filter(Boolean).join('; ') || event.before?.note || '–';
+    const historyList = events => events.length ? `<ol>${events.map(event => `<li><time>${escape(eventTime(event.at))}</time>`
+      + `<span>${escape(event.actor ?? 'Chưa rõ người thao tác')}</span>`
+      + `<strong>${escape(Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác')}</strong>`
+      + `<p>${escape(describeEvent(event))}</p><small>Ghi chú/lý do: ${escape(eventNote(event))}</small></li>`).join('')}</ol>`
+      : '<p>Chưa có thay đổi nào</p>';
+    Object.assign(ctx, { reviewReasonText, historyList });
 };
