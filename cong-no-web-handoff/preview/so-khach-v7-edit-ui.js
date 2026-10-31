@@ -1,9 +1,10 @@
-/* Sổ khách V7 bản live — CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng.
+/* Sổ khách V7 bản live — CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng, hỏi trước khi khóa/mở khóa tháng.
+ * Ghi phiếu thu mới ở so-khach-v7-entry-ui.js (SO-GON-04).
  * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; nạp trước so-khach-v7-ui.js,
  * dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).edit = ctx => {
   'use strict';
-  const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, redraw, submit } = ctx;
+  const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, reviewReasonText, todayIso, openOffsetReceipt, showNotice, redraw, submit } = ctx;
     // CHỜ KIỂM (NEWTRIP-01): mở dòng kết luận ngay dưới chuyến, khuôn như hỏi lý do hủy phiếu.
     const closeReview = () => {
       root.querySelectorAll('.review-prompt').forEach(item => item.remove());
@@ -178,7 +179,7 @@
       // Ô tìm khách nằm trên đầu trang, trôi mất khi cuộn: nút ở thanh tiêu đề đưa về đó và mở danh sách.
       if (event.target.closest('.change-customer')) { window.scrollTo(0, 0); live.showCustomers(); return; }
       const lock = event.target.closest('.month-lock');
-      if (lock) { await submit('lock', { month: lock.dataset.month, locked: lock.getAttribute('aria-pressed') === 'true' }); return; }
+      if (lock) { askLock(lock, lock.dataset.month, lock.getAttribute('aria-pressed') === 'true'); return; }
       const add = event.target.closest('.add-month-adjustment');
       if (add) {
         const row = add.closest('tr');
@@ -271,38 +272,42 @@
         }
         catch (error) { showNotice(error.message); }
       }
-      if (event.target.matches('.receipt-amount') || event.target.matches('.receipt-reference')) {
-        event.preventDefault();
-        await saveNewReceipt(event.target.closest('tr'));
-      }
-      if (event.target.matches('.receipt-date')) { event.preventDefault(); event.target.closest('tr').querySelector('.receipt-amount').focus(); }
       if (event.target.matches('.void-reason')) { event.preventDefault(); event.target.closest('tr').querySelector('.confirm-void').click(); }
     });
-    // Ghi phiếu mới: Enter ở ô số tiền/tham chiếu hoặc nút "Ghi phiếu" của khung nhập đi cùng một đường.
-    async function saveNewReceipt(row) {
-      try {
-        row.querySelector('.receipt-date-error').textContent = '';
-        if (row.querySelector('.receipt-method').value === 'CẤN TRỪ' && await startOffset(row)) return;
-        const result = await submit('receipt', { date: dateInput(row.querySelector('.receipt-date').value), method: row.querySelector('.receipt-method').value,
-          amount_vnd: moneyText(row.querySelector('.receipt-amount').value), ...referenceFields(row) });
-        if (result?.error === 'FUTURE_RECEIPT_DATE') {
-          row.querySelector('.receipt-date-error').textContent = result.message;
-          row.querySelector('.receipt-date').focus();
-        }
-        // CHUNG-TU-01: phiếu đã ghi đúng tiền trước, rồi mới đính ảnh đã dán ở hàng nhập của tháng này.
-        const done = api.lastOutcome();
-        if (done?.status === 'saved') await ctx.afterReceiptSaved?.(row.closest('section')?.id.slice(6), done.result?.pid);
-      }
-      catch (error) { showNotice(error.message); }
+    // ---- Khóa / mở khóa tháng (SO-GON-04, H6): hỏi một câu ngay dưới nút; Thôi hoặc Esc không gửi lệnh ----
+    // Dùng cho ổ khóa trên thanh tháng và các nút "Mở khóa tháng" của phần khác (giá Sheet, chuyến Sheet không còn).
+    let lockFrom = null;
+    function askLock(button, month, lock) {
+      root.querySelectorAll('.lock-ask').forEach(item => item.remove());
+      const key = monthKey(month), label = monthLabel(key);
+      const text = lock ? `Khóa tháng ${label}? Sau khi khóa, sửa tiền trong tháng sẽ thành dòng điều chỉnh.`
+        : `Mở khóa tháng ${label}? Trong tháng mở, sửa ô sẽ ghi đè (vẫn có Lịch sử).`;
+      const body = `<span>${escape(text)}</span> <button type="button" class="lock-yes" data-month="${escape(month)}" data-lock="${lock}">`
+        + `${lock ? 'Khóa' : 'Mở khóa'} tháng ${Number(key.slice(5))}</button> <button type="button" class="lock-no">Thôi</button>`;
+      const row = button.closest('tr'), item = button.closest('li');
+      if (row) row.insertAdjacentHTML('afterend', `<tr class="lock-ask"><td colspan="${spanOf(row)}">${body}</td></tr>`);
+      else if (item) item.insertAdjacentHTML('afterend', `<li class="lock-ask">${body}</li>`);
+      else button.insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
+      lockFrom = { month, selector: button.classList.contains('month-lock') ? '.month-lock' : null };
+      root.querySelector('.lock-ask .lock-yes')?.focus();
+    }
+    function dropLockAsk() {
+      root.querySelectorAll('.lock-ask').forEach(item => item.remove());
+      if (lockFrom?.selector) root.querySelector(`${lockFrom.selector}[data-month="${CSS.escape(lockFrom.month)}"]`)?.focus();
+      lockFrom = null;
     }
     root.addEventListener('click', async event => {
-      const save = event.target.closest('.receipt-save');
-      if (!save || save.disabled) return;
-      save.disabled = true;
-      try { await saveNewReceipt(save.closest('tr')); } finally { save.disabled = false; }
+      const yes = event.target.closest('.lock-yes');
+      if (yes && !yes.disabled) {
+        yes.disabled = true;
+        lockFrom = null;
+        await submit('lock', { month: yes.dataset.month, locked: yes.dataset.lock === 'true' });
+        return;
+      }
+      if (event.target.closest('.lock-no')) dropLockAsk();
     });
-    root.addEventListener('input', event => {
-      if (event.target.matches('.receipt-date') && event.target.value.length === 10) event.target.closest('tr').querySelector('.receipt-amount').focus();
+    root.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && event.target.closest?.('.lock-ask')) { event.preventDefault(); dropLockAsk(); }
     });
     // ---- Chuyển tháng: Xem / Hoàn tác ở dòng mờ của tháng cũ ----
     const showRow = rowKey => {
@@ -331,5 +336,5 @@
       redraw();
       showRow(`${ghost.kind}-${ghost.id}`);
     });
-    Object.assign(ctx, { openInfoEdit });
+    Object.assign(ctx, { openInfoEdit, askLock });
 };

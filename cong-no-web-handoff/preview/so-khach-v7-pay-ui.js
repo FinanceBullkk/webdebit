@@ -1,9 +1,10 @@
 /* Sổ khách V7 bản live — danh sách phiếu thu bên phải của mỗi tháng (SO-GON-02, phương án A 29/10/2026): khoản thu Sheet
- * (thứ tự Sheet), phiếu web, khung "Ghi phiếu mới", phiếu đã hủy gom cuối. Tách từ renderSnapshot của so-khach-v7-ui.js
- * (31/10/2026, DOM không đổi). Số tiền lấy nguyên từ GET, chỉ định dạng (ARCH-03). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
+ * (thứ tự Sheet), phiếu web, phiếu đã hủy gom cuối. Ghi phiếu mới ở khung "Ghi phiếu thu" (so-khach-v7-entry-ui.js, SO-GON-04),
+ * không còn khung nhập ở từng tháng. Tách từ renderSnapshot của so-khach-v7-ui.js (31/10/2026). Số tiền lấy nguyên từ GET,
+ * chỉ định dạng (ARCH-03). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).pay = ctx => {
   'use strict';
-  const { root, escape, fmt, cell, num, dateText, sheetDay, monthKey, monthLabel, methods, redraw } = ctx;
+  const { root, escape, fmt, cell, num, dateText, sheetDay, monthKey, monthLabel, redraw } = ctx;
   // Tháng (yyyy-mm) đang mở danh sách phiếu đã hủy; chỉ sống trong tab.
   const openVoided = new Set();
   const offsetAttrs = receipt => receipt.offset_pair_id == null ? ''
@@ -45,24 +46,6 @@
       + `<span class="receipt-sum">${fmt(receipt.line.amount_vnd)}</span>${meta ? `<span class="receipt-meta">${meta}</span>` : ''}</td>`;
     return dateCell + methodCell + amountCell;
   }
-  // Góp ý 29/10/2026: hàng nhập phiếu là một khung có nhãn từng ô, chỗ dán ảnh và nút "Ghi phiếu" (Enter vẫn ghi),
-  // không ép vào ba cột hẹp nữa. Tên lớp các ô giữ nguyên để đường ghi (edit-ui, offset-ui) không đổi.
-  // GAP: xuống dòng giữa các thẻ của khung, giữ đúng như trước khi tách file để DOM không đổi.
-  const GAP = '\n          ';
-  const payField = (label, input) => `<label class="pay-field"><span>${label}</span>${input}</label>`;
-  const entryForm = key => [
-    '<tr class="pay-row pay-entry"><td class="pay pay-start pay-form" colspan="3"><div class="pay-form-card">',
-    '<div class="pay-form-title">Ghi phiếu mới</div>',
-    '<div class="pay-form-grid">',
-    payField('Ngày trả', '<input class="empty-entry receipt-date" aria-label="Ngày trả" placeholder="dd/mm/yyyy" inputmode="numeric">'
-      + '<span class="cell-error receipt-date-error" role="status"></span>'),
-    payField('Hình thức', `<select class="receipt-method" aria-label="Hình thức">${methods.map(method => `<option>${method}</option>`).join('')}</select>`),
-    payField('Số tiền (VND)', '<input class="empty-entry receipt-amount" aria-label="Số tiền trả" inputmode="numeric">'
-      + '<span class="cell-error receipt-amount-error" role="status"></span>'),
-    payField('Tham chiếu', '<input class="receipt-reference" aria-label="Tham chiếu" maxlength="500" placeholder="Tùy chọn">'),
-    `</div>${ctx.imageEntryBox?.(key) ?? ''}`,
-    '<div class="pay-form-actions"><button type="button" class="receipt-save">Ghi phiếu</button></div></div></td></tr>',
-  ].join(GAP);
   // Khoản thu Sheet (dòng sổ gốc): ngày Sheet, ghi chú, số tiền. Hình thức thu không suy từ ghi chú (V7-MIG còn mở);
   // ghi chú chỉ hiện khi không lặp lại cùng ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
   function legacyPayRow(receipt, locked) {
@@ -88,13 +71,12 @@
       + (open ? voided.map(trace).join('') : '');
   }
   // Các hàng của danh sách phiếu tháng `key`: legacy là cặp dòng sổ gốc của tháng (so-khach-v7-month-ui.js),
-  // receipts là phiếu web và khoản cấn trừ đi đã gắn `line`; khung nhập hiện khi sổ ghi được (entryHere).
-  function payRows(key, { legacy, receipts, entryHere, locked }) {
+  // receipts là phiếu web và khoản cấn trừ đi đã gắn `line`.
+  function payRows(key, { legacy, receipts, locked }) {
     const kept = receipts.filter(row => row.voided_by_event == null);
     const voided = voidRows(key, receipts.filter(row => row.voided_by_event != null));
     return legacy.map(line => line.receipt ? legacyPayRow(line.receipt, locked) : '').join('')
-      + kept.map(receipt => `<tr class="pay-row">${payCells(receipt, key)}</tr>`).join('')
-      + (entryHere ? entryForm(key) : '') + voided;
+      + kept.map(receipt => `<tr class="pay-row">${payCells(receipt, key)}</tr>`).join('') + voided;
   }
   root.addEventListener('click', event => {
     const toggle = event.target.closest('.void-toggle');

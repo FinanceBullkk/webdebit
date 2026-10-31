@@ -69,12 +69,13 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-ctx.js` | hợp đồng `ctx`: trường, ai ghi, ai đọc, thứ tự cài các phần; `install()` |
 | `so-khach-v7-month-ui.js` | bảng tháng: tháng nào có bảng, tháng nào hiện chi tiết hay thu gọn (`SO-GON-04`), thanh chip tháng dính đầu sổ, thanh tháng, điều chỉnh, dòng "đã chuyển sang tháng", Tổng tháng; `showMonth` cho phần khác hiện chi tiết một tháng trước khi tìm dòng của tháng đó |
 | `so-khach-v7-trips-ui.js` | bảng chuyến bên trái: dòng sổ gốc, chuyến web, chuyến Sheet chờ duyệt, nhãn KHÁC trên dòng lệch Sheet |
-| `so-khach-v7-pay-ui.js` | danh sách phiếu thu bên phải: khoản thu Sheet, phiếu web, khung "Ghi phiếu mới", phiếu đã hủy |
+| `so-khach-v7-pay-ui.js` | danh sách phiếu thu bên phải: khoản thu Sheet, phiếu web, phiếu đã hủy |
+| `so-khach-v7-entry-ui.js` | khung "Ghi phiếu thu" (nút ở đầu sổ, khung bên phải nằm ngoài `#app` nên vẽ lại sổ không mất chữ đang gõ), bước xem lại trước khi ghi, băng kết quả và "Hủy phiếu vừa ghi" (`SO-GON-04`); CẤN TRỪ đi hộp của offset-ui |
 | `so-khach-v7-loc-ui.js` | thanh `?loc=thieu-gia\|cho-kiem` khi mở từ Việc cần làm |
 | `so-khach-v7-history-ui.js` | Lịch sử: diễn giải sự kiện, danh sách trong khung Lịch sử |
 | `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
-| `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO) |
-| `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
+| `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO): ô chọn sổ nguồn trong khung Ghi phiếu thu, hộp xác nhận, hủy/đổi ngày cấn trừ |
+| `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng, hỏi một câu trước khi khóa/mở khóa tháng (`askLock`) |
 | `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, "Phụ phí PS cần xem" |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 | `so-khach-v7.css` | CSS khung sổ live, tách nguyên văn khỏi khối `<style>` của `so-khach-v7-live.html` (31/10/2026), nạp trước `presence.css`; bản fixture `so-khach-v7.html` vẫn giữ `<style>` riêng vì offset sticky và bề rộng khác |

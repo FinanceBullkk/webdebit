@@ -504,6 +504,14 @@ const SoKhachV7Model = (() => {
     return { count: ready.length, totalVnd, beforeVnd, afterVnd: beforeVnd - totalVnd };
   }
 
+  // Bước xem lại trước khi ghi một phiếu thu tay (SO-GON-04 H5): tổng còn nợ trước → sau; sau âm là khách dư (creditVnd).
+  // Phần trừ nợ từng tháng do server quyết định (record_receipt rồi phân bổ lại mọi phiếu), trang không tính trước.
+  function planReceiptPreview(totalOutstandingVnd, amountVnd) {
+    const beforeVnd = vnd(totalOutstandingVnd, true);
+    const afterVnd = beforeVnd - vnd(amountVnd);
+    return { beforeVnd, afterVnd, creditVnd: afterVnd < 0n ? -afterVnd : 0n };
+  }
+
   function offsetErrorMessage(code, detail) {
     if (code === "OFFSET_EXCEEDS_CREDIT") {
       const credit = detail && typeof detail.available_credit_vnd === "string" ? vnd(detail.available_credit_vnd) : null;
@@ -836,7 +844,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

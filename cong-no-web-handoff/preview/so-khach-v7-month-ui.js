@@ -28,7 +28,7 @@
   let lastOpen = new Set();
 
   // Tháng có bảng, xếp theo tháng: tháng server có số; tháng hiện tại (giờ VN theo server, đồng hồ máy khi server cũ chưa trả)
-  // dù chưa có dữ liệu, vì vẫn cần khối để ghi thu (trừ nợ cũ trước) và dán chuyến; tháng mà một dòng rơi vào.
+  // dù chưa có dữ liệu, để thanh tháng luôn có tháng đang làm; tháng mà một dòng rơi vào.
   function bookMonths(data, active) {
     const openKey = monthKey(data.today_month) || liveOpenMonth;
     const groups = [...(data.months ?? [])];
@@ -159,14 +159,13 @@
     const adjustments = (data.adjustments ?? []).filter(row => monthKey(row.month) === key);
     // SO-GON-02 (29/10/2026, phương án A): chuyến bên trái, phiếu thu là danh sách riêng bên phải — không chung hàng,
     // để không đọc nhầm "chuyến này trả số tiền này".
-    // Phiếu thu vẫn nhập trong tháng khóa. Không có bảng nhập chuyến: chuyến vào sổ từ Sheet (NHAP-SHEET-02).
-    const entryHere = active;
+    // Không có bảng nhập chuyến: chuyến vào sổ từ Sheet (NHAP-SHEET-02). Phiếu thu ghi ở khung "Ghi phiếu thu" (SO-GON-04).
     const openHere = active && !locked;
     // STT chuyến web nối tiếp các dòng chuyến từ Sheet của tháng (dòng Sheet vẽ trước, như thứ tự trên Sheet).
     const sttBase = new Set(legacyRows.filter(row => row.kind !== 'receipt').map(row => row.display?.row)).size;
     const tripRows = legacy.map(line => line.trip ? legacyTripRow(line.trip, locked) : '').join('')
       + trips.map((trip, index) => webTripRow(trip, index, { locked, sttBase })).join('');
-    const pays = payRows(key, { legacy, receipts, entryHere, locked });
+    const pays = payRows(key, { legacy, receipts, locked });
     const body = `<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
       + `<tbody>${tripRows}</tbody></table></td><td class="pay-side pay-start" colspan="3"><div class="pay-stick">`
@@ -227,12 +226,10 @@
     redraw();
     return true;
   }
-  // Thu gọn không được làm mất chữ đang gõ hay dòng hỏi đang mở trong tháng đó.
+  // Thu gọn không được làm mất chữ đang gõ hay dòng hỏi đang mở trong tháng đó (khung Ghi phiếu thu nằm ngoài sổ, không bị ảnh hưởng).
   function busyIn(section) {
-    const typed = [...section.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference,.info-input,.money-input,.month-amount,.month-note')]
-      .some(input => input.value.trim());
-    const method = [...section.querySelectorAll('.receipt-method')].some(select => select.value !== 'THU TIỀN');
-    return typed || method || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.offset-source-row,.image-thumb');
+    return [...section.querySelectorAll('.info-input,.money-input,.month-amount,.month-note,.saved-receipt-input')].some(input => input.value.trim())
+      || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask');
   }
   root.addEventListener('click', event => {
     const toggle = event.target.closest('.month-toggle');
@@ -240,7 +237,7 @@
       const key = toggle.dataset.month, open = toggle.getAttribute('aria-expanded') === 'true';
       const section = sectionOf(key);
       if (open && section && busyIn(section)) {
-        showNotice(`Tháng ${monthLabel(key)} đang có ô nhập dở. Ghi hoặc bỏ ô đó trước khi thu gọn.`);
+        showNotice(`Tháng ${monthLabel(key)} còn ô đang sửa hoặc câu hỏi chưa trả lời. Làm xong hoặc bấm Thôi rồi hãy thu gọn.`);
         return;
       }
       shown.set(key, !open);

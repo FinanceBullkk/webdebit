@@ -321,23 +321,10 @@
     let feeColumnIds = [];
     let feeTypes = [];
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
-    // Vẽ lại sổ từ bản đang có (không tải lại).
+    // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
+    // ở đó không mất khi vẽ lại.
     function redraw() {
-      if (!snapshot) return;
-      // Ô ghi thu đang gõ dở (hàng nhập phiếu của từng tháng mở): vẽ lại không được làm mất.
-      const typed = [...root.querySelectorAll('.receipt-date:not(.saved-receipt-input)')].flatMap(date => {
-        const row = date.closest('tr'), section = row.closest('section')?.id;
-        return [...row.querySelectorAll('.receipt-date, .receipt-method, .receipt-amount, .receipt-reference')]
-          .map(box => ({ section, name: box.className.match(/receipt-(date|method|amount|reference)/)[0], value: box.value }));
-      });
-      renderSnapshot(snapshot);
-      for (const box of typed) {
-        const target = box.section && root.querySelector(`#${CSS.escape(box.section)} .${box.name}:not(.saved-receipt-input)`);
-        if (target) target.value = box.value;
-      }
-      const offset = typed.find(box => box.name === 'receipt-method' && box.value === 'CẤN TRỪ');
-      const entryRow = offset && root.querySelector(`#${CSS.escape(offset.section)} .receipt-date:not(.saved-receipt-input)`)?.closest('tr');
-      if (entryRow) { entryRow.insertAdjacentHTML('afterend', sourceRowHtml); offsetState.row = entryRow; renderSourceCell(); }
+      if (snapshot) renderSnapshot(snapshot);
     }
     // Thanh đầu sổ: tên khách, tổng còn nợ, băng thông báo và nút của các phần (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet).
     function headView(data, active) {
@@ -347,7 +334,8 @@
       const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
         + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       const newCount = data.sheet_sync?.new_count ?? 0;
-      const sheetButton = `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`
+      // SO-GON-04: nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) đứng đầu các nút của sổ.
+      const sheetButton = `${ctx.entryButton(active)}<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`
         + (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
         + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
         + (ctx.receiptButton?.(data, active) ?? '');
@@ -380,6 +368,7 @@
       ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
+      ctx.entryAfterRender();
       monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
@@ -419,8 +408,7 @@
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
       busyChecks: [] };
     SoKhachV7Ctx.install(ctx, window.SoKhachV7LiveParts ?? {});
-    const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender, offsetState, sourceRowHtml,
-      renderSourceCell } = ctx;
+    const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
     // Audit UX 31/10/2026 (P1-6): đọc sổ lỗi thì một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
@@ -437,10 +425,9 @@
     firstRead();
     // Đang nhập hoặc đang mở chi tiết thì không tự cập nhật (vẽ lại sẽ xóa ô đang gõ hoặc đóng khung đang xem).
     const BUSY_OPEN = 'input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,'
-      + '.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])';
+      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden])';
     const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || root.querySelector(BUSY_OPEN)
-      || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
-      || [...root.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
+      || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {

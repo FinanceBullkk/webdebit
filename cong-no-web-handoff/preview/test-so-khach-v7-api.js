@@ -210,7 +210,8 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   assert.deepEqual([...new Set(written)].filter(kind => !pendingUi.includes(kind) && !PENDING_UI_EVENT_KINDS.includes(kind) && !Object.hasOwn(feeKinds, kind)).sort(), Object.keys(kinds).sort());
 });
 
-test('locked month keeps trip cells read only and receipt entry usable', async () => {
+// SO-GON-04: phiếu thu ghi ở khung "Ghi phiếu thu" (nút ở đầu sổ), không còn khung nhập trong từng tháng; tháng khóa vẫn ghi được.
+test('locked month keeps trip cells read only; receipts still written from the Ghi phiếu thu button', async () => {
   const { root } = await livePage({ ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-01-01', charges_vnd: '100', received_vnd: '0', outstanding_vnd: '100', end_of_month_vnd: '100' }],
     month_locks: [{ month: '2026-01-01', locked: true }],
@@ -220,21 +221,9 @@ test('locked month keeps trip cells read only and receipt entry usable', async (
     adjustments: [], opening: [], source_exceptions: [], events: [] }, '?customer=7&month=2026-01');
   const block = root.innerHTML.match(/<section id="thang-2026-01">.*?<\/section>/s)[0];
   assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"/);
-  assert.match(block, /class="empty-entry receipt-amount"/);
+  assert.doesNotMatch(block, /receipt-amount|receipt-date/);
   assert.match(block, /class="add-month-adjustment"[^>]*disabled/);
-});
-
-test('future receipt error appears beside date and releases pending command', async () => {
-  const { root, listeners } = await livePage(ledger(1));
-  root.fetcher = async () => reply(422, { error: 'FUTURE_RECEIPT_DATE', message: 'Ngày trả không được sau hôm nay.' });
-  const error = { textContent: '' }, date = { value: '21/10/2026', focus() {} };
-  const amount = { value: '10' };
-  const row = { querySelector: selector => selector === '.receipt-date' ? date : selector === '.receipt-method' ? { value: 'THU TIỀN' } : selector === '.receipt-amount' ? amount : selector === '.receipt-reference' ? null : error };
-  // Enter ở ô số tiền hay ô tham chiếu đều ghi hàng nhập phiếu chứa ô đó.
-  const target = { value: '10', matches: selector => selector === '.receipt-amount', closest: () => row };
-  await listeners.keydown({ key: 'Enter', target, preventDefault() {} });
-  assert.equal(error.textContent, 'Ngày trả không được sau hôm nay.');
-  assert.match(root.innerHTML, /receipt-date-error/);
+  assert.match(root.innerHTML, /<button type="button" class="entry-open" >Ghi phiếu thu<\/button>/);
 });
 
 test('saved receipt date shows future-date error in clicked cell', async () => {
@@ -399,7 +388,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10 đ<\/strong>/);
-  // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu; tháng không có dòng Sheet vẽ thẳng từ GET;
+  // Tháng hiện tại chưa có dữ liệu vẫn có khối tháng; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
   const oldBook = { ...ledger(4), today_month: '2026-11-01',
     months: [
@@ -410,7 +399,9 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   const newMonth = page(true, oldBook);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
-  assert.match(newMonth.innerHTML, /class="empty-entry receipt-amount"/);
+  // SO-GON-04 (H2): một nút "Ghi phiếu thu" ở đầu sổ mở khung bên phải; không còn khung nhập phiếu ở từng tháng.
+  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"[^>]*>Lịch sử<\/button><button type="button" class="entry-open" >Ghi phiếu thu<\/button>/);
+  assert.doesNotMatch(newMonth.innerHTML, /receipt-amount|receipt-date|pay-entry|Ghi phiếu mới/);
   const block = (root, key) => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   // SO-GON-04: lúc mở sổ chỉ tháng hiện tại và tháng liền trước hiện chi tiết; tháng cũ thu gọn còn thanh tháng (ổ khóa,
   // còn nợ cuối tháng, cách tính ở title) và nút "Xem chi tiết", không có dòng nào.
@@ -421,16 +412,15 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   // Thanh chip tháng thay danh sách tháng bên phải: tên tháng, còn nợ cuối tháng rút gọn, dấu khóa của tháng khóa.
   assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><b class="chip-end">0 đ<\/b><\/a><a class="month-chip locked" href="#thang-2026-09" [^>]*><span class="chip-name">T9<\/span><b class="chip-end">500 đ<\/b><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
   assert.doesNotMatch(newMonth.innerHTML, /months-nav|DANH SÁCH THÁNG/);
-  // Tháng cũ hiện chi tiết qua ?month=: hàng nhập phiếu ở tháng cũ đã mở khóa (8/2026) và ở tháng khóa (9/2026).
-  // Không có bảng nhập chuyến (NHAP-SHEET-02) và không còn ô "Dán các dòng từ Sheet".
+  // Tháng cũ hiện chi tiết qua ?month= (8/2026 đã mở khóa, 9/2026 khóa): không có khung nhập phiếu, bảng nhập chuyến
+  // (NHAP-SHEET-02) hay ô "Dán các dòng từ Sheet".
   const august = page(true, oldBook, '?customer=7&month=2026-08');
   const september = page(true, oldBook, '?customer=7&month=2026-09');
   await new Promise(resolve => setImmediate(resolve));
-  for (const [root, key] of [[newMonth, '2026-11'], [august, '2026-08']]) {
-    assert.match(block(root, key), /class="empty-entry receipt-date".*class="receipt-reference"/s);
+  for (const [root, key] of [[august, '2026-08'], [september, '2026-09']]) {
+    assert.match(block(root, key), /class="month-body"/);
+    assert.doesNotMatch(block(root, key), /receipt-amount|receipt-date|paste-input|Dán các dòng từ Sheet vào đây|draft-input|Nhập chuyến · dán từ Sheet/);
   }
-  assert.match(block(september, '2026-09'), /class="empty-entry receipt-amount"/);
-  assert.doesNotMatch(august.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây|draft-input|Nhập chuyến · dán từ Sheet/);
   assert.match(september.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
   assert.match(august.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
   assert.match(september.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);
@@ -454,7 +444,6 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
   assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">700<\/td>/);
-  assert.match(october, /class="empty-entry receipt-amount"/);
   const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],
     trips: [{ id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
@@ -473,6 +462,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(noBaseline.innerHTML, /Khách chưa có số dư đầu hiệu lực/);
   assert.doesNotMatch(noBaseline.innerHTML, /Thiếu mốc đối soát nguồn|NO_BASELINE/);
   assert.doesNotMatch(noBaseline.innerHTML, /class="receipt-amount"/);
+  assert.match(noBaseline.innerHTML, /<button type="button" class="entry-open" disabled>Ghi phiếu thu<\/button>/);
 });
 
 test('offset commands send numeric ids/versions of both books and one idempotency key per command', async () => {

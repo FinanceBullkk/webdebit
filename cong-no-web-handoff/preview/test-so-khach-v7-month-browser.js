@@ -75,15 +75,18 @@ test('Bấm chip của tháng thu gọn: tháng hiện chi tiết, cuộn tới 
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
-test('Thu gọn / Xem chi tiết; không thu gọn khi đang gõ dở trong tháng; số tiền không đổi', async () => withPage(async ({ page, world }) => {
+test('Thu gọn / Xem chi tiết; không thu gọn khi tháng đang có dòng hỏi; số tiền không đổi', async () => withPage(async ({ page, world }) => {
   const key = MONTHS[8];
   const total = await page.locator('.head-item.total strong').innerText();
   const toggle = page.locator(`#thang-${key} .month-toggle`);
-  await page.locator(`#thang-${key} .receipt-amount`).fill('123');
+  // Dòng hỏi "Xóa hẳn" đang mở trong tháng: thu gọn sẽ làm mất nó, nên chặn và báo.
+  await page.locator(`#thang-${key} td.row-delete[data-kind="trip"]`).first().focus();
+  await page.keyboard.press('Enter');
+  await page.locator(`#thang-${key} .delete-prompt`).waitFor();
   await toggle.click();
-  assert.match(await page.locator('.live-notice').innerText(), /đang có ô nhập dở/);
+  assert.match(await page.locator('.live-notice').innerText(), /còn ô đang sửa hoặc câu hỏi chưa trả lời/);
   assert.equal(await page.locator(`#thang-${key} .month-body`).count(), 1);
-  await page.locator(`#thang-${key} .receipt-amount`).fill('');
+  await page.locator(`#thang-${key} .cancel-delete`).click();
   await toggle.click();
   await page.locator(`#thang-${key} table.month-collapsed`).waitFor();
   assert.equal(await toggle.innerText(), 'Xem chi tiết');
