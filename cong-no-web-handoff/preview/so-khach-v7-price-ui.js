@@ -488,6 +488,15 @@
       event.preventDefault();
       el.dispatchEvent(new Event('change', { bubbles: true }));
       $(`input[data-r="${Number(el.dataset.r) + 1}"][data-c="${el.dataset.c}"]`)?.focus();
+    } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && el.dataset.c != null
+      && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      // SO-GON-04 (L5): mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, ghi ô đang đứng như Enter. Cột shipper (data-s) có
+      // danh sách gợi ý nên mũi tên để chọn gợi ý.
+      const selector = `input[data-r="${Number(el.dataset.r) + (event.key === 'ArrowDown' ? 1 : -1)}"][data-c="${el.dataset.c}"]`;
+      if (!$(selector)) return;
+      event.preventDefault();
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      $(selector)?.focus();
     } else if (event.key === 'Enter' && el.matches('.price-new-from')) { event.preventDefault(); newPeriod(el.value); }
   });
   dialog.addEventListener('click', event => {

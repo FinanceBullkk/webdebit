@@ -15,7 +15,7 @@ const SoKhachV7Ctx = (() => {
   'use strict';
   const FIELDS = {
     // Lõi: dữ liệu và hàm dùng chung.
-    root: ['core', 'giá trị', 'debit edit entry fee loc month offset pay presence price ps receipts sheet trips', 'phần tử #app chứa cả sổ'],
+    root: ['core', 'giá trị', 'debit edit entry fee history loc month offset pay presence price ps receipts sheet trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit entry fee history month offset price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
     api: ['core', 'giá trị', 'edit entry fee images offset price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
     live: ['core', 'giá trị', 'debit edit entry offset presence price', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
@@ -71,6 +71,11 @@ const SoKhachV7Ctx = (() => {
     openOffsetReceipt: ['offset', 'hàm', 'edit', 'mở hỏi hủy/sửa khoản cấn trừ'],
     openInfoEdit: ['edit', 'hàm', 'sheet', 'mở sửa một ô chuyến'],
     askLock: ['edit', 'hàm', 'sheet', 'hỏi một câu trước khi khóa/mở khóa tháng (SO-GON-04 H6)'],
+    markOf: ['edit', 'hàm', 'fee', 'nhận dạng một ô/nút (thẻ, lớp đầu, data-*) để tìm lại sau khi sổ vẽ lại'],
+    findMark: ['edit', 'hàm', 'fee', 'tìm lại ô/nút của markOf trong bảng đang hiện'],
+    stepRow: ['edit', 'hàm', 'fee', 'tiêu điểm sang ô cùng cột ở hàng chuyến trên/dưới (SO-GON-04 L5)'],
+    focusMark: ['edit', 'hàm', 'core', 'ghi ô đang có tiêu điểm trước khi vẽ lại'],
+    focusBack: ['edit', 'hàm', 'core', 'trả tiêu điểm về ô đó sau khi vẽ lại (không rơi về BODY)'],
     entryButton: ['entry', 'hàm', 'core', 'nút "Ghi phiếu thu" ở đầu sổ (SO-GON-04)'],
     entryAfterRender: ['entry', 'hàm', 'core', 'băng kết quả phiếu vừa ghi và chỗ dán ảnh của khung Ghi phiếu thu, sau khi vẽ'],
     entryImageKey: ['entry', 'hàm', 'images', 'khóa nháp ảnh của khung Ghi phiếu thu (mở khung nếu đang đóng); null khi chưa ghi được'],

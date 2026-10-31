@@ -188,6 +188,25 @@ class LedgerApiTest(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_ledger_history_names_actor_by_short_name_not_login(self):
+        # SO-GON-04 (L6): Lịch sử hiện tên ngắn theo bảng tên của PRESENCE-01; login không có trong bảng thì phần trước @.
+        ledger = {"customer_id": 7, "version": 3, "status": "active", "events": [
+            {"id": 2, "kind": "receipt", "actor": "Thu.Ke@example.test"},
+            {"id": 1, "kind": "month_lock", "actor": "other@example.test"},
+            {"id": 0, "kind": "import", "actor": None}]}
+        with tempfile.TemporaryDirectory() as folder:
+            names = Path(folder) / "names.json"
+            names.write_text(json.dumps({"version": 1, "names": {"thu.ke@example.test": "Thu"}}), encoding="utf-8")
+            with patch.object(api.PRESENCE, "names", api.v7_presence.NameTable(str(names))), \
+                    patch.object(api, "ledger_projections", side_effect=lambda runner, result, actor: result), \
+                    patch.object(self.runner, "run", return_value=ledger):
+                status, result = api.handle("GET", "/api/v7/ledger?customer=7", self.headers, b"", self.runner,
+                                            port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual(status, 200)
+        self.assertEqual([event.get("actor_name") for event in result["events"]], ["Thu", "other", None])
+        self.assertEqual(result["events"][0]["actor"], "Thu.Ke@example.test")
+        self.assertEqual(api.with_actor_names({"version": 1}), {"version": 1})
+
     def test_sheet_conflict_resolution_uses_server_values_and_rejects_stale(self):
         class Runner:
             def __init__(self):

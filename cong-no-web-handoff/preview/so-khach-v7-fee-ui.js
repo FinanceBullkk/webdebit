@@ -110,10 +110,12 @@
     const info = findTarget(td.dataset.feeTarget);
     if (!info) return;
     if (info.blocked) { showNotice(info.blocked); return; }
-    const typeId = Number(td.dataset.feeType);
+    const typeId = Number(td.dataset.feeType), spot = ctx.markOf(td);
     td.innerHTML = `<input class="fee-own-input" inputmode="numeric" aria-label="${escape(ctx.feeTypeName(typeId))} mới" value="${escape(td.textContent.trim())}"><span class="cell-error" role="status"></span>`;
     const input = td.querySelector('input');
     input.focus(); input.select();
+    // SO-GON-04 (L5): Enter lưu rồi tiêu điểm xuống ô cùng cột hàng dưới; Esc/Thôi về lại chính ô này.
+    const down = () => ctx.stepRow(ctx.findMark(spot), 1);
     input.addEventListener('keydown', async event => {
       if (event.key === 'Escape') { event.preventDefault(); redraw(); return; }
       if (event.key !== 'Enter') return;
@@ -123,10 +125,11 @@
       try { amount = model.parseFeeInput(input.value, typeOf(typeId)?.sign, { allowBlank: true }); }
       catch (problem) { error.textContent = problem.message; return; }
       const current = model.feeCells(info.lines, [typeId]).own[0];
-      if (current === amount) { redraw(); return; }
-      if (!await confirmRecount([{ info, change: { set: { typeId, amountVnd: amount } } }])) { redraw(); return; }
+      if (current === amount) { redraw(); down(); return; }
+      if (!await confirmRecount([{ info, change: { set: { typeId, amountVnd: amount } } }])) { redraw(); ctx.findMark(spot)?.focus(); return; }
       const message = await send('feeSet', { target: info.payload, fee_type_id: typeId, amount_vnd: amount === null ? null : amount.toString() });
       if (message && td.isConnected) td.querySelector('.cell-error').textContent = message;
+      else if (!message) down();
     });
   }
 

@@ -53,6 +53,15 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .history-panel{position:fixed;z-index:50;right:12px;top:66px;bottom:12px;width:min(420px,calc(100vw - 24px));overflow:auto;padding:12px;background:#fff;border:1px solid #8daac9;box-shadow:0 8px 25px #162d4840}
 .history-panel[hidden]{display:none}.history-panel header{display:flex;justify-content:space-between;align-items:center}.history-panel h2{margin:0;font-size:18px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
+/* SO-GON-04 (L6), bản live: mỗi sự kiện một dòng "giờ · người làm · câu", lọc theo loại. Bản fixture giữ khuôn ở dòng trên. */
+.history-filter{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.history-filter button{min-height:40px;padding:0 12px;border:1px solid #8daac9;border-radius:20px;background:#fff;color:#173d65;font:inherit;font-size:15px;cursor:pointer}
+.history-filter button[aria-pressed="true"]{background:#173d65;border-color:#173d65;color:#fff}.history-filter button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.history-panel .history-items{padding-left:0;list-style:none}.history-panel .history-items li{font-size:15px;line-height:1.45}
+.history-panel .history-items li :is(time,span,strong){display:inline}.history-panel .history-items li :is(time,.who){color:#4a5f78}
+.history-panel .history-items li small{display:block;margin-top:2px;font-size:14px;color:#4a5f78}
+.history-items[data-filter="thu"]>li:not([data-group="thu"]),.history-items[data-filter="chuyen"]>li:not([data-group="chuyen"]),
+.history-items[data-filter="gia"]>li:not([data-group="gia"]),.history-items[data-filter="khoa"]>li:not([data-group="khoa"]){display:none}
 .month-adjustment-input input{min-height:28px;max-width:100%;font:inherit}.month-adjustment-input .month-amount{width:100%;text-align:right}
 .ledger td.num{text-align:right;white-space:nowrap;font-size:16px}
 .ledger-book.tight .ledger td.num{font-size:15px;padding-left:3px;padding-right:3px}.ledger-book.tight .ledger .subtotal td.num{font-weight:600}
@@ -206,6 +215,9 @@ li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .void-prompt td,.void-trace td{background:#fff1e5;font-size:14px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
 .receipt-status td{background:#e2f5e8;color:#145b32;font-size:14px;font-weight:700;min-height:38px}
 .adjustment td{background:#fff2f2}
+/* SO-GON-04 (L5): mũi tên lên/xuống đứng được cả ô chỉ đọc (tabindex -1); ô được cuộn tới không nằm dưới phần dính đầu trang. */
+.trip-list td{scroll-margin-top:calc(var(--banner) + var(--bar) + var(--head) + var(--chips) + var(--cols))}
+.trip-list td[tabindex="-1"]:focus{outline:2px dashed #6584a5;outline-offset:-2px}
 .ledger .info-edit{cursor:text}.ledger .info-edit:hover,.ledger .info-edit:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .info-input{width:100%;min-width:0;font:inherit}.ledger .row-delete{cursor:pointer}.ledger .row-delete:hover,.ledger .row-delete:focus-visible{outline:2px solid #a01616;outline-offset:-2px;color:#a01616}
 .delete-prompt td{font-size:16px}.delete-prompt button{min-height:32px;font:inherit;cursor:pointer}.delete-prompt .confirm-delete{color:#fff;background:#a01616;border:1px solid #a01616;font-weight:700}

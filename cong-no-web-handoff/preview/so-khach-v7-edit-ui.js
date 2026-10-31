@@ -42,7 +42,7 @@
     function openInfoEdit(td) {
       if (td.querySelector('input')) return;
       const { kind, id, field } = td.dataset;
-      const original = td.innerHTML;
+      const original = td.innerHTML, spot = markOf(td);
       const start = startValue(kind, id, field);
       const hint = field === 'event_date' ? ' placeholder="dd/mm/yyyy" inputmode="numeric"' : field.endsWith('_vnd') ? ' inputmode="numeric"' : '';
       td.innerHTML = `<input class="info-input${field.endsWith('_vnd') ? ' money-input' : ''}" aria-label="${escape(fieldNames[field][0].toUpperCase() + fieldNames[field].slice(1))} mới" value="${escape(start)}"${hint}><span class="cell-error" role="status"></span>`;
@@ -64,9 +64,10 @@
         row.querySelector('.move-no').addEventListener('click', () => { restore(); td.focus(); });
         row.querySelector('.move-yes').focus();
       }
-      const save = async (confirmedMove = false) => {
+      // down: lưu bằng Enter thì xong tiêu điểm xuống ô cùng cột ở hàng dưới (SO-GON-04, L5); Tab/rời ô thì tiêu điểm đã đi.
+      const save = async (confirmedMove = false, down = false) => {
         if (state !== 'editing') return;
-        if (input.value.trim() === start.trim()) { restore(); return; }
+        if (input.value.trim() === start.trim()) { restore(); if (down) goDown(td); return; }
         const box = td.querySelector('.cell-error');
         let value;
         try { value = model.parseCellEdit(field, input.value, todayIso()); } catch (error) { box.textContent = error.message; return; }
@@ -77,7 +78,7 @@
         const result = kind === 'trip'
           ? await submit('tripInfo', { trip_id: Number(id), field, value })
           : await submit('legacyEdit', { legacy_row_id: Number(id), field, value });
-        if (result?.error === 'NO_CHANGE') { if (td.isConnected) restore(); return; }
+        if (result?.error === 'NO_CHANGE') { if (td.isConnected) restore(); if (down) goDown(findMark(spot)); return; }
         if (result?.message) { state = 'editing'; if (td.isConnected) { box.textContent = result.message; input.focus(); } return; }
         state = 'done';
         // Sau khi lưu, sổ đã tải lại: báo những gì người dùng không thấy ngay trên dòng đang sửa.
@@ -96,10 +97,11 @@
           redraw();
           showRow(rowKey);
         }
+        if (down) goDown(findMark(spot));
       };
       input.addEventListener('keydown', keyEvent => {
         if (keyEvent.key === 'Escape') { keyEvent.stopPropagation(); restore(); td.focus(); return; }
-        if (keyEvent.key === 'Enter') { keyEvent.preventDefault(); keyEvent.stopPropagation(); save(); }
+        if (keyEvent.key === 'Enter') { keyEvent.preventDefault(); keyEvent.stopPropagation(); save(false, true); }
       });
       // Tab hoặc bấm ra ngoài: lưu như Sheet; ô lỗi giữ nguyên ô nhập kèm lý do.
       input.addEventListener('blur', () => { save(); });
@@ -193,23 +195,34 @@
         const trip = ctx.snapshot.trips.find(row => row.id === Number(editable.dataset.trip));
         const field = editable.dataset.field;
         const locked = !trip.editable;
-        const original = editable.innerHTML;
-        editable.innerHTML = `<input class="money-input" aria-label="${field === 'unit_price_vnd' ? 'Đơn giá mới' : 'Phụ phí mới'}" value="${locked ? '' : escape(trip[field] === null ? '' : fmt(trip[field]))}">${locked ? '<label>Ghi chú <input class="adjustment-note" aria-label="Ghi chú điều chỉnh chuyến (tùy chọn)"></label>' : ''}<span class="cell-error" role="status"></span>`;
+        const original = editable.innerHTML, spot = markOf(editable);
+        const start = locked || trip[field] === null ? '' : fmt(trip[field]);
+        editable.innerHTML = `<input class="money-input" aria-label="${field === 'unit_price_vnd' ? 'Đơn giá mới' : 'Phụ phí mới'}" value="${escape(start)}">${locked ? '<label>Ghi chú <input class="adjustment-note" aria-label="Ghi chú điều chỉnh chuyến (tùy chọn)"></label>' : ''}<span class="cell-error" role="status"></span>`;
         const input = editable.querySelector('input'); input.focus(); input.select();
+        // SO-GON-04 (L5): Enter lưu rồi xuống ô cùng cột hàng dưới; Tab rời ô cũng lưu như ô chữ (tháng khóa: Tab qua lại giữa
+        // số tiền và Ghi chú thì chưa). Không đổi gì thì chỉ đóng ô nhập — với Tab thì đóng sau khi tiêu điểm đã sang ô kế.
         const save = async keyEvent => {
-          if (keyEvent.key === 'Escape') { editable.innerHTML = original; return; }
-          if (keyEvent.key !== 'Enter') return;
-          keyEvent.preventDefault();
+          if (keyEvent.key === 'Escape') { editable.innerHTML = original; editable.focus(); return; }
+          const inside = locked && (keyEvent.target === input) !== keyEvent.shiftKey;
+          const leaving = keyEvent.key === 'Tab' && !inside;
+          if (keyEvent.key !== 'Enter' && !leaving) return;
+          if (!leaving) keyEvent.preventDefault();
+          if (input.value.trim() === start) {
+            if (leaving) setTimeout(() => { if (editable.contains(input)) editable.innerHTML = original; });
+            else { editable.innerHTML = original; goDown(editable); }
+            return;
+          }
           try {
             const value = moneyText(input.value, !locked);
             if (locked) {
               const result = await submit('tripAdjust', { trip_id: trip.id, field, new_value_vnd: value,
                 note: editable.querySelector('.adjustment-note').value.trim() });
-              if (result?.message) editable.querySelector('.cell-error').textContent = result.message;
+              if (result?.message) { editable.querySelector('.cell-error').textContent = result.message; return; }
             }
             else await submit('price', { trip_id: trip.id, unit_price_vnd: field === 'unit_price_vnd' ? value : trip.unit_price_vnd,
               other_fee_vnd: field === 'other_fee_vnd' ? value : trip.other_fee_vnd });
-          } catch (error) { editable.querySelector('.cell-error').textContent = error.message; }
+          } catch (error) { editable.querySelector('.cell-error').textContent = error.message; return; }
+          if (!leaving && api.lastOutcome()?.status === 'saved') goDown(findMark(spot));
         };
         input.addEventListener('keydown', save);
         editable.querySelector('.adjustment-note')?.addEventListener('keydown', save);
@@ -240,7 +253,7 @@
         receipt.classList.add?.('receipt-cancel-edit');
         receipt.addEventListener?.('cancel-edit', () => { receipt.innerHTML = original; receipt.classList.remove('receipt-cancel-edit'); }, { once: true });
         input.addEventListener('keydown', async keyEvent => {
-          if (keyEvent.key === 'Escape') { receipt.innerHTML = original; receipt.classList.remove?.('receipt-cancel-edit'); return; }
+          if (keyEvent.key === 'Escape') { receipt.innerHTML = original; receipt.classList.remove?.('receipt-cancel-edit'); receipt.focus?.(); return; }
           if (keyEvent.key === 'Enter') {
             keyEvent.preventDefault();
             const result = await submit('receiptMeta', { pid, [field]: field === 'date' ? dateInput(input.value) : input.value });
@@ -288,20 +301,23 @@
       if (row) row.insertAdjacentHTML('afterend', `<tr class="lock-ask"><td colspan="${spanOf(row)}">${body}</td></tr>`);
       else if (item) item.insertAdjacentHTML('afterend', `<li class="lock-ask">${body}</li>`);
       else button.insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
-      lockFrom = { month, selector: button.classList.contains('month-lock') ? '.month-lock' : null };
+      lockFrom = { button, spot: markOf(button) };
       root.querySelector('.lock-ask .lock-yes')?.focus();
     }
+    // Thôi/Esc trả tiêu điểm về nút đã hỏi; khóa/mở xong (sổ vẽ lại) về nút cùng tháng trong bảng mới.
     function dropLockAsk() {
       root.querySelectorAll('.lock-ask').forEach(item => item.remove());
-      if (lockFrom?.selector) root.querySelector(`${lockFrom.selector}[data-month="${CSS.escape(lockFrom.month)}"]`)?.focus();
+      (lockFrom?.button.isConnected ? lockFrom.button : findMark(lockFrom?.spot))?.focus();
       lockFrom = null;
     }
     root.addEventListener('click', async event => {
       const yes = event.target.closest('.lock-yes');
       if (yes && !yes.disabled) {
         yes.disabled = true;
+        const back = lockFrom?.spot;
         lockFrom = null;
         await submit('lock', { month: yes.dataset.month, locked: yes.dataset.lock === 'true' });
+        findMark(back)?.focus();
         return;
       }
       if (event.target.closest('.lock-no')) dropLockAsk();
@@ -336,5 +352,75 @@
       redraw();
       showRow(`${ghost.kind}-${ghost.id}`);
     });
-    Object.assign(ctx, { openInfoEdit, askLock });
+    // ---- Bàn phím trong bảng chuyến (SO-GON-04, L5) ----
+    // Một ô nhận ra bằng thẻ + lớp đầu + các thuộc tính data-*: sổ vẽ lại (thay cả #app) sau mỗi lệnh vẫn tìm lại đúng ô đó.
+    // Ô chỉ đọc không có data-*: nhận ra bằng dòng (data-row) + vị trí cột.
+    function markOf(el) {
+      const row = el.matches('td') && !Object.keys(el.dataset).length ? el.closest('tr[data-row]') : null;
+      return row ? { row: row.dataset.row, index: el.cellIndex }
+        : { tag: el.tagName.toLowerCase(), cls: el.classList[0] ?? '', data: Object.entries(el.dataset) };
+    }
+    function findMark(mark) {
+      if (mark?.row) {
+        const cell = root.querySelector(`tr[data-row="${CSS.escape(mark.row)}"]`)?.children[mark.index];
+        if (cell && !cell.hasAttribute('tabindex')) cell.tabIndex = -1;
+        return cell ?? null;
+      }
+      if (!mark || (!mark.cls && !mark.data.length)) return null;   // không có gì để nhận ra: không đoán
+      const attr = name => `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
+      const selector = mark.tag + (mark.cls ? `.${CSS.escape(mark.cls)}` : '') + mark.data.map(([name, value]) => `[${attr(name)}="${CSS.escape(value)}"]`).join('');
+      const found = [...root.querySelectorAll(selector)].filter(el => Object.keys(el.dataset).length === mark.data.length);
+      return found.length === 1 ? found[0] : null;   // hai ô giống hệt: không đoán
+    }
+    // Ô cùng cột ở hàng chuyến trên/dưới, qua các tháng đang mở; ô chỉ đọc vẫn đứng được (tabindex -1) như ô Sheet.
+    function stepRow(td, delta) {
+      const row = td?.closest('tr[data-row]');
+      if (!row) return null;
+      const rows = [...root.querySelectorAll('table.trip-list tr[data-row]')], index = rows.indexOf(row);
+      const next = index < 0 ? null : rows[index + delta]?.children[td.cellIndex];
+      if (!next) return null;
+      if (!next.hasAttribute('tabindex')) next.tabIndex = -1;
+      next.focus({ preventScroll: true });
+      next.scrollIntoView({ block: 'nearest' });
+      return next;
+    }
+    // Enter ở ô đang sửa: xuống ô cùng cột hàng dưới; hàng cuối thì đứng lại ở chính ô đó.
+    function goDown(cell) {
+      if (!stepRow(cell, 1)) cell?.focus();
+    }
+    // Lõi gọi quanh mỗi lần vẽ lại: Tab rời ô đang sửa thì tiêu điểm đã sang ô kế, lưu xong vẽ lại không để nó rơi về BODY.
+    // Đang gõ trong ô thì giữ chính ô đó. Ô tìm khách và dải Làm mới được dời nguyên sang bảng mới nên để yên.
+    function focusMark() {
+      let el = document.activeElement;
+      if (!el || !root.contains(el) || el.closest('#customer-picker,#live-controls')) return null;
+      if (el.matches('input:not([type="checkbox"]),select,textarea')) el = el.closest('td[tabindex]') ?? el;
+      return markOf(el);
+    }
+    function focusBack(mark) {
+      const now = document.activeElement;
+      if (mark && !(now && now !== document.body && root.contains(now))) findMark(mark)?.focus({ preventScroll: true });
+    }
+    root.addEventListener('keydown', event => {
+      if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.target.matches('input:not([type="checkbox"]),select,textarea')) return;   // đang gõ: mũi tên thuộc ô nhập
+      const td = event.target.closest('table.trip-list td');
+      if (td && stepRow(td, event.key === 'ArrowDown' ? 1 : -1)) event.preventDefault();
+    });
+    // Esc đóng dòng hỏi trong bảng (hủy phiếu, xóa, chờ kiểm, chuyển tháng, điều chỉnh cả tháng; khóa tháng ở askLock) và trả
+    // tiêu điểm về ô/nút đã mở nó. preventDefault để cùng lần Esc này không đóng luôn khung Lịch sử.
+    root.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const ask = event.target.closest?.('.move-ask,.review-prompt,.delete-prompt,.void-prompt,.month-adjustment-input');
+      if (!ask) return;
+      event.preventDefault();
+      if (ask.matches('.move-ask')) { ask.querySelector('.move-no').click(); return; }
+      const { trip, kind, id, pid, month } = ask.dataset;
+      const back = ask.matches('.review-prompt') ? `.review-open[data-trip="${CSS.escape(trip)}"]`
+        : ask.matches('.delete-prompt') ? `td.row-delete[data-kind="${CSS.escape(kind)}"][data-id="${CSS.escape(id)}"]`
+          : ask.matches('.void-prompt') ? `td.receipt[data-pid="${CSS.escape(pid)}"]:not([data-field])`
+            : `.add-month-adjustment[data-month="${CSS.escape(month)}"]`;
+      if (ask.matches('.review-prompt')) closeReview(); else ask.remove();
+      root.querySelector(back)?.focus();
+    });
+    Object.assign(ctx, { openInfoEdit, askLock, markOf, findMark, stepRow, focusMark, focusBack });
 };
