@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — Đối chiếu Sheet và ghi giá từ Sheet.
  * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; nạp trước so-khach-v7-ui.js,
- * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
+ * dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).sheet = ctx => {
   'use strict';
   const { root, model, api, customerId, escape, spanOf, dateText, monthKey, monthLabel, sheetFieldLabel, resolvableSheetFields, showNotice, renderSnapshot, submit } = ctx;

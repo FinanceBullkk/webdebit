@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng.
  * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; nạp trước so-khach-v7-ui.js,
- * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
+ * dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).edit = ctx => {
   'use strict';
   const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, redraw, submit } = ctx;
@@ -184,7 +184,7 @@
         const row = add.closest('tr');
         if (!row.previousElementSibling?.classList.contains('month-adjustment-input')) row.insertAdjacentHTML('beforebegin',
           // Ô số tiền nằm dưới cột Thành tiền: số cột đổi theo sổ (cột phụ phí riêng, cột Shipper chỉ hiện khi có dữ liệu).
-          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="${ctx.columnCount() - 4}">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="3"></td></tr>`);
+          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="${ctx.columns.count() - 4}">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="3"></td></tr>`);
         row.previousElementSibling.querySelector('.month-amount').focus(); return;
       }
       const editable = event.target.closest('td.editable');

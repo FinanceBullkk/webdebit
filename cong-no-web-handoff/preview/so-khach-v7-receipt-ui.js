@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — Ghi phiếu thu từ Sheet (specs/v7-receipt-queue.md, THU-SHEET-01).
  * Server chọn phiếu chắc chắn (READY), trang chỉ hiện và gửi một lệnh cho cả lô; phiếu còn lại
- * nằm ở "Phiếu thu Sheet cần xem". Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx. */
+ * nằm ở "Phiếu thu Sheet cần xem". Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).receipts = ctx => {
   'use strict';
   const { root, model, api, customerId, escape, showNotice, renderSnapshot } = ctx;

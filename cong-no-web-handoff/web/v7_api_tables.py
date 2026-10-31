@@ -223,3 +223,5 @@ SQL["find_receipt_image"] = "SELECT sokhach.find_receipt_image(:'payload'::jsonb
 # NHAC-NO-01: nhắc nợ là ghi chú ngoài đường tiền, không dùng COMMON (version/idempotency); POST đặc biệt.
 SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.record_reminder((j->>'customer_id')::bigint, j->>'source') FROM b;"
 SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
+# /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
+SQL["healthz"] = "SELECT 1;"
