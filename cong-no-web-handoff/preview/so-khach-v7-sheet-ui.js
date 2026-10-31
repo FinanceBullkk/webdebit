@@ -58,7 +58,7 @@
       const review = prices.review ?? [];
       if (!review.length && priceView === 'review') priceView = null;
       const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
-      root.querySelector('.book-head')?.insertAdjacentHTML('afterend', strip + pricePanel(data) + approvePanel(data, active));
+      root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', strip + pricePanel(data) + approvePanel(data, active));
     }
     const openSheetDetail = button => {
       const trip = ctx.snapshot.sheet_sync.items[Number(button.dataset.index)];
@@ -246,7 +246,7 @@
         row.title = 'Sheet không còn dòng này. Web vẫn tính chuyến cho tới khi xóa.';
         row.children[1]?.insertAdjacentHTML('beforeend', `<small class="sheet-removed-tag">Sheet không còn dòng này</small><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span>`);
       }
-      if (items.length) root.querySelector('.book-head')?.insertAdjacentHTML('afterend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
+      if (items.length) root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
     root.addEventListener('click', async event => {
       const button = event.target.closest('.sheet-removed-delete,.sheet-removed-keep,.sheet-removed-next,.sheet-removed-unlock');

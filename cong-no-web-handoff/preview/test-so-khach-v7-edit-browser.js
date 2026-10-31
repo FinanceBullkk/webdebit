@@ -22,7 +22,8 @@ test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',asy
   const amount = page.locator('.entry-drawer .receipt-amount');
   await amount.fill('123');
   const before = world.reads;
-  await page.locator('#refresh-data').click();
+  // Khung mở che nút Làm mới (dải dưới đầu sổ, SO-GON-04): bấm thẳng vào nút để thử đường bị chặn.
+  await page.locator('#refresh-data').dispatchEvent('click');
   assert.equal(world.reads, before);
   assert.equal(await amount.inputValue(), '123');
   await page.locator('.entry-close').click();

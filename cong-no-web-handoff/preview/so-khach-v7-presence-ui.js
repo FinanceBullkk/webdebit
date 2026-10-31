@@ -72,7 +72,9 @@
       setTimeout(() => node.classList.remove('presence-flash'), 1000);
     }
 
-    const presence = window.Presence.start({ page: 'so-khach', customerId, position, decorate, onJump, pointer: () => mouse, locate: target });
+    // Nút Ẩn/Hiện con trỏ ở cạnh "Làm mới" (dải dưới đầu sổ), không ở thanh xanh trên cùng (SO-GON-04, L7).
+    const presence = window.Presence.start({ page: 'so-khach', customerId, position, decorate, onJump, pointer: () => mouse, locate: target,
+      toggleHost: document.querySelector('#live-controls') ?? undefined });
     // Câu báo sổ vừa đổi kèm tên người cùng mở sổ, để biết ai vừa sửa (chống ghi đè vẫn do phiên bản sổ).
     ctx.presenceStale = message => {
       const others = presence?.people().filter(presence.sameBook).map(person => person.name) ?? [];

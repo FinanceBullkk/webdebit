@@ -491,7 +491,7 @@ test('không có sổ nào đang dư: báo rõ và vẫn còn Ngoài sổ', asyn
   assert.equal(await page.locator('.offset-outside').count(), 1);
 }));
 
-test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không gửi, Loại → ĐÃ LOẠI gạch ngang, Tính vào sổ gửi đúng lệnh', async () => withPage(async ({ page, world, open, shot }) => {
+test('CHỜ KIỂM: bấm nhãn "chờ kiểm" mở dòng kết luận, lý do trống không gửi, Loại → "đã loại" gạch ngang, Tính vào sổ gửi đúng lệnh', async () => withPage(async ({ page, world, open, shot }) => {
   world.books[1].review = [{ id: 11, container: 'DEMO-HELD-1', status: 'pending_review', reason: 'BASELINE_CODE_MATCH' },
     { id: 12, container: 'DEMO-HELD-2', status: 'pending_review', reason: null }];
   await open(1);
@@ -507,7 +507,7 @@ test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không g�
   await page.waitForFunction(() => document.querySelectorAll('.trip-rejected').length === 1);
   assert.deepEqual({ ...world.requests[0].body, idempotency_key: typeof world.requests[0].body.idempotency_key },
     { customer_id: 1, expected_version: 1, idempotency_key: 'string', trip_id: 11, decision: 'reject', reason: 'trùng dòng sổ gốc' });
-  assert.equal(await page.locator('.trip-rejected').innerText(), 'ĐÃ LOẠI');
+  assert.equal(await page.locator('.trip-rejected').innerText(), 'đã loại');
   assert.match(await page.locator('.trip-rejected').evaluate(el => getComputedStyle(el).textDecorationLine), /line-through/);
   assert.equal(await page.locator('.review-open').count(), 1);
   await page.locator('.review-open[data-trip="12"]').click();
