@@ -69,7 +69,7 @@
     wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length)];
     widths = colTags(0, wide.length);
   }
-  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ 8), phiếu thu 3 cột cuối.
+  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()), phiếu thu 3 cột cuối.
   const tripCols = () => labels.length - 3;
   // Cột phụ phí riêng đầu tiên (ngay sau Đơn giá): 8 khi có cột Shipper, 7 khi không.
   const feeStart = () => tripCols() - ownCount - 2;
