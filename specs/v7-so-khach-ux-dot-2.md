@@ -165,7 +165,9 @@ Mỗi PR revert riêng được (chỉ file giao diện); triển khai tự đ�
 
 ## Bằng chứng
 
-Chưa có (spec). Số đo hiện trạng lấy từ audit 31/10/2026 (mục 7 của audit).
+Số đo hiện trạng lấy từ audit 31/10/2026 (mục 7 của audit).
+
+- **PR 2a (thanh tháng, thu gọn tháng)** — máy chủ giả, 1280×720 (fixture, chưa đo trên `hao`): `test-so-khach-v7-month-browser.js` 6 test (sổ 9 tháng × 30 chuyến lúc mở chỉ vẽ 60 dòng của tháng hiện tại và tháng trước; phần dính khi cuộn đúng 180px; bấm chip mở và cuộn tới tháng; Thu gọn/Xem chi tiết, chặn khi đang gõ dở; `?month=`; `?loc=thieu-gia` tự mở tháng cũ). So mọi ô số tiền của `#app` giữa bản `main` và bản PR (bản PR mở hết tháng) trên hai sổ giả: 322 ô trùng khớp. Danh sách phiếu thu dính dưới tiêu đề cột thay vì dưới thanh tháng (thanh tháng không dính nữa). `npm run check` xanh (ruff chạy bằng venv của checkout chính).
 
 ## Lựa chọn đã chốt
 

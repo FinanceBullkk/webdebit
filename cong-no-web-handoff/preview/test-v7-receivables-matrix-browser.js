@@ -105,7 +105,8 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.doesNotMatch(sum, /[−=]\s*\n/);
     assert.doesNotMatch(await page.locator('#drawer').innerText(), /không có dòng chuyến|không khớp|chênh/);
     assert.doesNotMatch(await page.locator('#drawer-body').innerText(), /Phiếu thu|Không có phiếu thu/);
-    assert.equal(await page.locator('#drawer-ledger').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+    // SO-GON-04: sổ mở đúng tháng đang xem ở ngăn kéo.
+    assert.equal(await page.locator('#drawer-ledger').getAttribute('href'), `/so-khach-v7-live.html?customer=1&month=${currentYear}-01`);
     assert.equal(await page.locator('#drawer-month').innerText(), 'Tháng 1/' + currentYear);
     assert.equal(await page.locator('.cell-btn.active').getAttribute('data-month'), '1');
     // Ngăn kéo không chặn bảng: bấm ô khác thì đổi tháng; tháng web hiện phép tính, phụ phí và chuyến chưa tính.

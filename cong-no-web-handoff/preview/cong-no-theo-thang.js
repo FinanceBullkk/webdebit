@@ -302,7 +302,8 @@
     state.open = { id: customerId, month };
     const date = state.year + '-' + String(month).padStart(2, '0');
     $('#drawer-title').textContent = customer.name;
-    $('#drawer-ledger').href = '/so-khach-v7-live.html?customer=' + customerId;
+    // SO-GON-04: sổ thu gọn các tháng cũ, nên mở đúng tháng đang xem.
+    $('#drawer-ledger').href = '/so-khach-v7-live.html?customer=' + customerId + '&month=' + date;
     $('#drawer-meta').textContent = groupLabel(groupKey(customer));
     paintNav(month);
     $('#drawer-sum').innerHTML = summaryHtml(customer, month, null);
