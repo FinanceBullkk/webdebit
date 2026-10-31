@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import v7_api_sheet
 import v7_identity
 import v7_presence
 import v7_zalo_chat
@@ -77,6 +78,38 @@ def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()
     if behind_tailscale_serve and value in serve_hosts:
         return value
     raise ApiError(400, "INVALID_HOST", "Địa chỉ truy cập không hợp lệ.")
+
+
+HEALTHZ_PATH = "/healthz"
+
+
+def healthz_allowed(client_ip: str, headers, port: int) -> bool:
+    """Kiểm sống chỉ dành cho curl trên chính máy chủ: loopback, Host loopback, không danh tính/proxy.
+
+    Qua Tailscale Serve thì Host là tên ts.net và có header `Tailscale-*`, nên bị từ chối (ACCESS-01 giữ nguyên).
+    """
+    names = {name.lower() for name in headers}
+    return (loopback(client_ip)
+            and headers.get("Host", "").lower() in {f"127.0.0.1:{port}", f"localhost:{port}"}
+            and not any(name.startswith("tailscale-") or name in ("x-forwarded-for", "forwarded") for name in names))
+
+
+def healthz(runner: Psql, now: float) -> tuple[int, dict]:
+    """`SELECT 1` qua đúng runner psql của app, kèm tuổi bản chụp Sheet; DB lỗi thì 503 (audit DevOps #6, #14)."""
+    times = []
+    for path in (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH):
+        try:
+            times.append(os.stat(path).st_mtime)
+        except OSError:
+            times.append(None)
+    # Như nút Làm mới: tuổi tính theo bản cũ hơn trong hai file; thiếu file thì null. Không làm đỏ kiểm sống.
+    age = None if None in times else max(0, int(now - min(times)))
+    try:
+        db_ok = runner.run("healthz", {}, "healthz") == 1
+    except ApiError:
+        db_ok = False
+    body = {"ok": db_ok, "db": "ok" if db_ok else "error", "sheet_snapshot_age_seconds": age}
+    return (200 if db_ok else 503), body
 
 
 def presence_tab(query: str) -> str:
@@ -268,12 +301,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def request(self) -> None:
         try:
+            self._request()
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            # Client ngắt giữa chừng (audit DevOps 31/10, #15): một dòng log, không traceback, không trả lời nữa.
+            self.close_connection = True
+            print(f"V7 API: client ngắt kết nối ({type(exc).__name__}) {self.command} {urlsplit(self.path).path}",
+                  file=sys.stderr, flush=True)
+
+    def _request(self) -> None:
+        try:
             self.connection.settimeout(5)
             for name in ("Host", "Origin", "Content-Length", "Content-Type", "Tailscale-User-Login"):
                 if len(self.headers.get_all(name, [])) > 1:
                     raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
             if self.headers.get("Transfer-Encoding"):
                 raise ApiError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
+            if urlsplit(self.path).path == HEALTHZ_PATH:
+                # Trước bước giải danh tính: kiểm sống sau deploy không có login Tailscale.
+                if self.command != "GET" or not healthz_allowed(self.client_address[0], self.headers, self.port):
+                    raise ApiError(403, "HEALTHZ_LOOPBACK_ONLY", "Chỉ kiểm sống từ chính máy chủ.")
+                self.reply(*healthz(self.runner, time.time()))
+                return
             checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                          self.behind_tailscale_serve, self.serve_hosts)
             actor = self.server.dev_actor
@@ -318,6 +366,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
         except ApiError as exc:
             self.reply(exc.status, {"error": exc.code, "message": exc.message, **exc.extra})
+        except (BrokenPipeError, ConnectionResetError):
+            raise  # request() ghi một dòng; không cố gửi 503 vào kết nối đã đứt
         except OSError:
             self.reply(503, {"error": "ASSET_UNAVAILABLE", "message": "Không đọc được trang thử."})
 

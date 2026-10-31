@@ -1,7 +1,7 @@
 /* Sổ khách V7 bản live — Bảng giá theo ngày hiệu lực (BANG-GIA-01, specs/v7-bang-gia-hieu-luc.md, giai đoạn 2, giao diện lưới).
  * Khung Bảng giá là lưới giống vùng bảng giá trên Sheet (Từ ngày · Đến ngày · Nơi đi · Giá khách · Giá TT, cột Shipper áp giá TT),
  * nút "Điền giá theo bảng (N chuyến)" và chữ nhỏ ở ô Đơn giá. Server tra giá và ghi; trang không tự tính giá hay cộng tiền.
- * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
+ * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).price = ctx => {
   'use strict';
   const { root, model, api, live, customerId, escape, fmt, dateText, monthKey, monthLabel, showNotice } = ctx;
@@ -64,7 +64,7 @@
     if (!active || !status) return;
     for (const row of status.trips) {
       // Ô Đơn giá: vị trí đổi khi sổ không có cột Shipper (audit UX 31/10/2026).
-      const cell = root.querySelector(`[data-row="trip-${row.trip_id}"]`)?.children[ctx.unitPriceColumn?.() ?? 7];
+      const cell = root.querySelector(`[data-row="trip-${row.trip_id}"]`)?.children[ctx.columns.unitPrice()];
       if (!cell) continue;
       const lookup = row.lookup ?? {};
       let note = '', cls = 'price-hint', title = '';

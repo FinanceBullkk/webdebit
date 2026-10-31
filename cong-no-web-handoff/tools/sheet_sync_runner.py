@@ -9,8 +9,10 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
@@ -25,6 +27,8 @@ SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 # the rollback path until the Sheet side drops BOOKING_DATA; remove it then.
 SOURCES = ("export", "cont_nguon")
 DEFAULT_SOURCE = "cont_nguon"
+# Hai lượt thử lại khi hết giờ; lượt đọc ~21 giây, cả ba lượt vẫn trong TimeoutStartSec=300 của unit.
+RETRY_DELAYS = (5.0, 15.0)
 
 
 def _b64(value: bytes) -> str:
@@ -88,17 +92,41 @@ def exchange_token(credentials: dict[str, str], opener: Callable[..., Any] = url
     return token
 
 
+def _is_timeout(exc: BaseException) -> bool:
+    # Hết giờ khi đang đọc là TimeoutError; hết giờ khi đang nối thì urllib bọc trong URLError.
+    return isinstance(exc, TimeoutError) or (
+        isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError))
+
+
+def with_timeout_retry(action: Callable[[], Any], delays: tuple[float, ...] = RETRY_DELAYS,
+                       sleep: Callable[[float], None] = time.sleep) -> Any:
+    """Gọi lại khi Google API hết giờ (audit DevOps 31/10, #14); lỗi khác hoặc hết lượt thì ném ra."""
+    for attempt, delay in enumerate(delays, start=1):
+        try:
+            return action()
+        except (TimeoutError, urllib.error.URLError) as exc:
+            if not _is_timeout(exc):
+                raise
+            print(f"sheet-sync: Google API hết giờ (lượt {attempt}), thử lại sau {delay:g} giây",
+                  file=sys.stderr, flush=True)
+            sleep(delay)
+    return action()
+
+
 def run_once(credentials_path: str, spreadsheet_id: str, output_path: str,
              token_exchange: Callable[[dict[str, str]], str] = exchange_token,
-             source: str = DEFAULT_SOURCE) -> dict[str, Any]:
+             source: str = DEFAULT_SOURCE, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     if source not in SOURCES:
         raise ValueError("unknown sheet source")
     credentials = load_credentials(credentials_path)
-    token = token_exchange(credentials)
-    if source == "cont_nguon":
-        snapshot = read_source(spreadsheet_id, token, include_mapping=True)
-    else:
-        snapshot = read_export(spreadsheet_id, token, include_booking=True, include_mapping=True)
+
+    def read() -> dict[str, Any]:
+        token = token_exchange(credentials)
+        if source == "cont_nguon":
+            return read_source(spreadsheet_id, token, include_mapping=True)
+        return read_export(spreadsheet_id, token, include_booking=True, include_mapping=True)
+
+    snapshot = with_timeout_retry(read, sleep=sleep)
     snapshot["runner"] = {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only", "source": source}
     destination = pathlib.Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -5,7 +5,7 @@
 | ĐÃ CHỐT | Người dùng chọn cách 2 (GitHub Action đẩy qua Tailscale), 23/10/2026 |
 | ĐÃ TRIỂN KHAI | `hao`, 23/10/2026: user deploy, script root-owned, sudoers, khóa SSH một lệnh, unit trỏ symlink release, Tailscale tag `tag:ci`, Environment `hao` có người duyệt. **28/10/2026:** người dùng bỏ *Required reviewers* (dự án chỉ một người làm), Environment chỉ còn luật nhánh `main`; kiểm bằng GitHub API cùng ngày |
 | ĐÃ KIỂM CHỨNG | Lượt `Deploy hao` xanh trên GitHub cho commit `3608c9d` (từ đầu tới cuối: Tailscale, SSH, đẩy gói, restart, kiểm sống). Script thử trong Docker với `systemctl`/`curl` giả: deploy, tự quay lại khi kiểm sống lỗi, bỏ qua cùng SHA, từ chối SHA sai |
-| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống chỉ chứng minh tiến trình sống, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; mọi action đã ghim SHA (31/10/2026, Dependabot nâng), nhưng setting repo *require SHA pinning* chưa bật |
+| CÒN MỞ | Tự quay lại khi kiểm sống lỗi chưa thử trên `hao` thật; kiểm sống (từ 31/10/2026 là `/healthz`) chứng minh tiến trình sống và đường psql tới DB chạy, không chứng minh sổ đúng; giao diện sau deploy cần người dùng thử tay; mọi action đã ghim SHA (31/10/2026, Dependabot nâng), nhưng setting repo *require SHA pinning* chưa bật |
 
 Luồng: merge vào `main` → `Tests` xanh trên đúng SHA → job `Deploy hao` tự chạy (Environment `hao`, không người duyệt từ 28/10/2026)
 → runner GitHub vào Tailscale → SSH bằng khóa chỉ chạy được một lệnh → `scripts/deploy/hao-release.sh`
@@ -21,14 +21,19 @@ Mỗi lượt ghi bảng *Tóm tắt triển khai* (kết quả, SHA trước/sa
   → job **dừng**, phải triển khai tay theo runbook (backup, bản sao, gate). Job không chạy DDL, không nạp dữ liệu; Claude tự làm đợt tay cho SQL/migration theo [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md).
   Sau khi nâng DB tay, đặt `.release-sha` của release đang chạy bằng SHA `main` vừa triển khai để lượt sau có mốc diff đúng.
 - Không backup DB mỗi lượt vì không đụng DB.
-- Đạt: service active và cổng loopback trả 200/403 trong 30 giây; không thì quay lại release cũ, job đỏ.
+- Đạt: service active và `GET /healthz` loopback trả **200** trong 30 giây; không thì quay lại release cũ, job đỏ.
+  `/healthz` (từ 31/10/2026, audit DevOps #6) chỉ nhận curl trên chính máy (Host loopback, không header `Tailscale-*`/`X-Forwarded-For`),
+  chạy `SELECT 1` qua đúng đường psql của app, trả `{"ok", "db", "sheet_snapshot_age_seconds"}`; DB hỏng thì 503.
+  Trước đó script nhận cả 403 nên deploy làm hỏng đường psql vẫn xanh.
+  Script trên `hao` là bản cài tay (bước 1): khi chưa cài lại từ `main`, lượt deploy vẫn dùng kiểm 200/403 cũ.
 
 ## Cài đặt một lần (người dùng/admin, ngoài repo)
 
 1. **Hao:** tạo OS user `webdebit-deploy`; thư mục release riêng thuộc user này (khác thư mục release cũ để
    script dọn dẹp không đụng bản cũ). Chép `scripts/deploy/hao-release.sh` từ commit đã review, **kiểm SHA-256**,
    rồi cài vào đường dẫn root-owned. `/etc/webdebit-deploy.conf` (root-owned): `RELEASES_DIR`, `CURRENT_LINK`,
-   `UNIT`, `HEALTH_URL` (loopback, một route thật như `/api/v7/customers`: 200 hoặc 403 là sống, 404 bị coi là lỗi).
+   `UNIT`, `HEALTH_URL` (loopback, ví dụ `http://127.0.0.1:<port>/api/v7/customers`). Script chỉ lấy gốc của nó và kiểm
+   `<gốc>/healthz`, đòi 200; đặt `HEALTHZ_URL` trong conf nếu cần URL khác.
 2. **Unit hiện tại:** đổi một lần `WorkingDirectory`/`ExecStart` sang `CURRENT_LINK` (symlink); chép release đang chạy
    làm bản đầu, ghi `.release-sha` bằng SHA thật của nó; lưu bản unit cũ để rollback; `daemon-reload`, restart.
 3. **sudoers:** cho `webdebit-deploy` đúng một lệnh không mật khẩu: `systemctl restart <unit>`; kiểm `visudo -c`.
@@ -71,7 +76,7 @@ Quên `-B` thì lượt deploy chỉ cảnh báo, release cũ không bị dọn:
 
 1. Cài lại `scripts/deploy/hao-release.sh` từ `main` như bước 1 (kiểm SHA-256, giữ đường dẫn root-owned).
 2. Tắt ghi bytecode: `systemctl edit <unit>`, thêm `[Service]` / `Environment=PYTHONDONTWRITEBYTECODE=1`, rồi
-   `systemctl restart <unit>` và kiểm `HEALTH_URL` trả 200/403.
+   `systemctl restart <unit>` và kiểm `curl http://127.0.0.1:<port>/healthz` trả 200.
 3. Xóa `__pycache__` còn trong các release (bản đang chạy cũng được, Python không cần nó):
    `find "$RELEASES_DIR" -mindepth 2 -type d -name __pycache__ -prune -exec rm -rf {} +` (lấy `RELEASES_DIR` từ
    `/etc/webdebit-deploy.conf`). Lượt deploy sau tự dọn bản cũ quá `KEEP`.
