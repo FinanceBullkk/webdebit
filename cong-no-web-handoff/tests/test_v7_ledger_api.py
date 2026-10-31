@@ -798,6 +798,24 @@ class LedgerApiTest(unittest.TestCase):
         self.error(422, "INVALID_REQUEST", lambda: api.handle("GET", "/api/v7/ledger?customer=" + "9" * 5000,
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
 
+    def test_sheet_queue_route_customer_validation(self):
+        # Hồi quy 31/10: `?&` qua kiểm vì parse_qs("&") rỗng, rồi sheet_queue đọc ["customer"] ném KeyError khi có snapshot
+        # (kết nối đóng không trả lời). Có chuỗi truy vấn thì phải đúng một `customer`, như sheet_queue đọc.
+        queue = {"items": [{"customer_id": 7}, {"customer_id": 8}], "row_count": 2, "ready_count": 0, "review_count": 2}
+        with patch.object(v7_api_sheet, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
+             patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
+             patch.object(v7_api_sheet, "build_queue", return_value=queue):
+            for query in ("&", "&&"):
+                with self.subTest(query=query):
+                    with self.assertRaises(api.ApiError) as caught:
+                        api.handle("GET", "/api/v7/sheet-queue?" + query, self.headers, b"", self.runner,
+                                   port=8780, host="127.0.0.1", actor="server")
+                    self.assertEqual((caught.exception.status, caught.exception.code), (422, "INVALID_REQUEST"))
+            self.assertEqual(self.runner.calls, [])
+            status, data = api.handle("GET", "/api/v7/sheet-queue?customer=7", self.headers, b"", self.runner,
+                                      port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual((status, data["items"], data["row_count"]), (200, [{"customer_id": 7}], 1))
+
     def test_rejects_client_calculation_actor_and_bad_money(self):
         self.assertTrue(api.vnd("-9223372036854775808", signed=True))
         self.assertFalse(api.vnd("-9223372036854775809", signed=True))
@@ -1382,6 +1400,18 @@ class ReceiptImageApiTest(unittest.TestCase):
                        "/api/v7/receipt-image?customer=1&id=1&id=2", "/api/v7/receipt-images/find?sha256=ABC"):
             with self.subTest(target=target):
                 self.rejected("INVALID_REQUEST", "GET", target, raw=b"")
+
+    def test_unhashable_content_type_is_invalid_image(self):
+        # Hồi quy 31/10: content_type mảng/object từng ném TypeError (unhashable), Handler đóng kết nối không trả lời.
+        runner = FakePsql()
+        for content_type in ([], {}, ["image/png"], {"image/png": True}):
+            with self.subTest(content_type=content_type):
+                with self.assertRaises(api.ApiError) as caught:
+                    api.handle("POST", "/api/v7/receipts/images", self.headers,
+                               json.dumps(self.body(content_type=content_type)).encode(),
+                               runner, port=8780, host="127.0.0.1", actor="server-image-actor")
+                self.assertEqual((caught.exception.status, caught.exception.code), (422, "IMAGE_INVALID"))
+        self.assertEqual(runner.calls, [])
 
     def test_body_limit_is_larger_only_for_image_path(self):
         big = b"{" + b" " * (api.MAX_BODY + 10) + b"}"
