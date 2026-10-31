@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Pull age-encrypted V7 backups from hao over read-only SFTP (stdlib only).
 
-Task Scheduler entry on the off-host PC; pairs with `v7_backup.py offsite`.
-Copies `v7-YYYYMMDD-HHMMSS.tar.age` + `.sha256` pairs missing here, keeps a
-file only after its SHA-256 matches, prunes pairs beyond `--keep` when the run
-had no error, appends one line to `pull.log`. Never decrypts. Host, user and
-key come from arguments, never from the repo.
+Task Scheduler entry on the off-host PC; pairs with `v7_backup.py offsite`
+and `v7_backup.py config`. Copies `v7-YYYYMMDD-HHMMSS.tar.age` and
+`v7-config-YYYYMMDD-HHMMSS.tar.age` + `.sha256` pairs missing here, keeps a
+file only after its SHA-256 matches, prunes each family beyond `--keep` when
+the run had no error, appends one line to `pull.log`. Never decrypts. Host,
+user and key come from arguments, never from the repo.
 """
 from __future__ import annotations
 
@@ -19,7 +20,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ARCHIVE = re.compile(r"v7-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
-CHECKSUM = re.compile(r"([0-9a-f]{64})  (v7-[0-9]{8}-[0-9]{6}\.tar\.age)\n\Z")
+CONFIG = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\.tar\.age\Z")  # optional: older outboxes have none
+FAMILIES = (("", ARCHIVE), ("config_", CONFIG))  # (pull.log prefix, names)
+CHECKSUM = re.compile(r"([0-9a-f]{64})  (v7-(?:config-)?[0-9]{8}-[0-9]{6}\.tar\.age)\n\Z")
 LOG = "pull.log"
 VN = timezone(timedelta(hours=7))
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # pythonw under Task Scheduler: no console flash
@@ -51,14 +54,18 @@ def sftp(args, commands):
     return result.stdout
 
 
-def remote_pairs(args):
-    """Archives whose checksum is also in the outbox (the forced command starts there)."""
-    names = {line.strip() for line in sftp(args, ["ls -1"]).splitlines()}
-    return sorted(name for name in names if ARCHIVE.fullmatch(name) and f"{name}.sha256" in names)
+def remote_names(args):
+    """One listing of the outbox (the forced command starts there)."""
+    return {line.strip() for line in sftp(args, ["ls -1"]).splitlines()}
 
 
-def local_pairs(dest):
-    return sorted(entry.name for entry in dest.iterdir() if ARCHIVE.fullmatch(entry.name)
+def remote_pairs(names, pattern):
+    """Archives whose checksum is also in the outbox."""
+    return sorted(name for name in names if pattern.fullmatch(name) and f"{name}.sha256" in names)
+
+
+def local_pairs(dest, pattern=ARCHIVE):
+    return sorted(entry.name for entry in dest.iterdir() if pattern.fullmatch(entry.name)
                   and entry.is_file() and (dest / f"{entry.name}.sha256").is_file())
 
 
@@ -85,30 +92,35 @@ def pull(args):
         raise PullError("dest must be an existing directory")
     for entry in args.dest.iterdir():  # leftovers of a run killed mid-transfer
         stem = entry.name.removesuffix(".partial").removesuffix(".sha256")
-        if entry.name.endswith(".partial") and ARCHIVE.fullmatch(stem) and entry.is_file():
+        if entry.name.endswith(".partial") and entry.is_file() and any(
+                pattern.fullmatch(stem) for _, pattern in FAMILIES):
             entry.unlink()
-    have = local_pairs(args.dest)
-    remote = remote_pairs(args)
-    if not remote:
+    names = remote_names(args)
+    if not remote_pairs(names, ARCHIVE):
         raise PullError("no sealed backup in the outbox")
-    # Only what the window keeps: a short --keep never re-downloads pruned pairs.
-    wanted = sorted({*have, *remote})[-args.keep:]
-    errors = []
-    pulled = [name for name in wanted if name not in have]
-    for name in pulled:
-        try:
-            fetch(args, name)
-        except PullError as exc:
-            errors.append(str(exc))
+    errors, pulled = [], {}
+    for prefix, pattern in FAMILIES:
+        have = local_pairs(args.dest, pattern)
+        # Only what the window keeps: a short --keep never re-downloads pruned pairs.
+        wanted = sorted({*have, *remote_pairs(names, pattern)})[-args.keep:]
+        pulled[prefix] = [name for name in wanted if name not in have]
+        for name in pulled[prefix]:
+            try:
+                fetch(args, name)
+            except PullError as exc:
+                errors.append(str(exc))
     if errors:
         raise PullError("; ".join(errors))
-    pairs = local_pairs(args.dest)
-    pruned = pairs[:-args.keep]
-    for name in pruned:
-        (args.dest / f"{name}.sha256").unlink()
-        (args.dest / name).unlink()
-    return (f"PASS pulled={len(pulled)} newest={pairs[-1]} kept={len(pairs) - len(pruned)} "
-            f"pruned={len(pruned)}")
+    summary = []
+    for prefix, pattern in FAMILIES:  # prune only after a run without any error
+        pairs = local_pairs(args.dest, pattern)
+        pruned = pairs[:-args.keep]
+        for name in pruned:
+            (args.dest / f"{name}.sha256").unlink()
+            (args.dest / name).unlink()
+        summary.append(f"{prefix}pulled={len(pulled[prefix])} {prefix}newest={pairs[-1] if pairs else '-'} "
+                       f"{prefix}kept={len(pairs) - len(pruned)} {prefix}pruned={len(pruned)}")
+    return "PASS " + " ".join(summary)
 
 
 def main(argv=None):

@@ -6,20 +6,25 @@ Backup keeps one exported REPEATABLE READ snapshot alive for dump + manifest.
 Restore preserves owners/ACLs: provision target DB and referenced roles first;
 this tool does not create roles or grant permissions.
 Failed backups retain partial files without MANIFEST.json; do not reuse them.
-`daily` is the timer entry: dated folder under one root, disk check, retention.
+`daily` is the timer entry: dated folder under one root, disk check, retention
+(the hourly timer runs it too, on its own root).
 `offsite` age-encrypts the newest daily backup into an outbox that an off-host
 PC pulls (v7_offsite_pull.py); decrypting needs the identity kept on that PC.
+`config` (root) seals PostgreSQL globals and hao config files into the same outbox.
 """
 from __future__ import annotations
 
 import argparse
 import contextlib
+import glob
 import hashlib
+import io
 import json
 import os
 import queue
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
@@ -31,11 +36,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DUMP = "sokhach.dump"
 MANIFEST = "MANIFEST.json"
+CONFIG_MANIFEST = "CONFIG.json"
 VN = timezone(timedelta(hours=7))
 VND = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 STAMP = re.compile(r"v7-[0-9]{8}-[0-9]{6}\Z")
 SEALED = re.compile(r"v7-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
+CONFIG_TOP = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\Z")
+CONFIG_SEALED = re.compile(r"v7-config-[0-9]{8}-[0-9]{6}\.tar\.age\Z")
+DB_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,62}\Z")
 AGE = ["age"]  # on PATH (/usr/bin/age on hao); tests swap in a fake
+# What a rebuild of hao needs besides the dump. Globs only: the values (env files,
+# service-account keys) exist only inside the age archive. No match is reported.
+CONFIG_PATHS = (
+    "/etc/systemd/system/v7-*", "/etc/systemd/system/webdebit-*",
+    "/etc/systemd/system/*.wants/v7-*", "/etc/systemd/system/*.wants/webdebit-*",
+    "/etc/webdebit", "/etc/webdebit-backup", "/srv/v7/customer-name-mapping.json",
+    "/etc/ssh/sshd_config", "/etc/ssh/sshd_config.d", "/etc/sudoers", "/etc/sudoers.d",
+    "/etc/postgresql/18/main", "/etc/ufw/user.rules", "/etc/ufw/user6.rules",
+)
+# (member, argv, OS user): stdout kept in memory. Root drops to postgres for peer auth.
+CONFIG_COMMANDS = (
+    ("globals.sql", ("pg_dumpall", "--globals-only", "--no-password"), "postgres"),
+    ("tailscale-serve.json", ("tailscale", "serve", "status", "--json"), None),
+)
 
 
 class BackupError(RuntimeError):
@@ -374,8 +397,8 @@ def daily(root, keep, min_free_mb, pg=None):
     return out
 
 
-def seal(source, stream, recipients):
-    """Tar `<name>/` (MANIFEST.json + dump) straight into age: no plaintext copy on disk.
+def encrypt(stream, recipients, add):
+    """`add(tar)` writes members into a tar piped straight into age: no plaintext copy on disk.
 
     Any failure kills age, so a truncated tar is never left looking complete.
     """
@@ -388,16 +411,7 @@ def seal(source, stream, recipients):
         failure = None
         try:
             with tarfile.open(fileobj=process.stdin, mode="w|", format=tarfile.PAX_FORMAT) as archive:
-                folder = tarfile.TarInfo(source.name)
-                folder.type, folder.mode, folder.mtime = tarfile.DIRTYPE, 0o700, int(source.stat().st_mtime)
-                archive.addfile(folder)
-                for name in (MANIFEST, DUMP):
-                    info = archive.gettarinfo(source / name, f"{source.name}/{name}")
-                    if not info.isreg():
-                        raise BackupError(f"{name} must be a regular file")
-                    info.mode, info.uid, info.gid, info.uname, info.gname = 0o600, 0, 0, "", ""
-                    with (source / name).open("rb") as data:
-                        archive.addfile(info, data)
+                add(archive)
             process.stdin.close()
             process.wait(timeout=300)
         except (OSError, BackupError, tarfile.TarError, subprocess.TimeoutExpired) as exc:
@@ -412,10 +426,60 @@ def seal(source, stream, recipients):
             raise BackupError(f"age/tar failed ({process.returncode}): {detail or failure}") from failure
 
 
-def sealed(outbox):
-    """Archives `v7-…tar.age` directly under outbox, oldest first; links ignored."""
-    return sorted(entry.name for entry in outbox.iterdir() if SEALED.fullmatch(entry.name)
+def seal(source, stream, recipients):
+    """Tar `<name>/` (MANIFEST.json + dump) of one daily backup into age."""
+    def add(archive):
+        folder = tarfile.TarInfo(source.name)
+        folder.type, folder.mode, folder.mtime = tarfile.DIRTYPE, 0o700, int(source.stat().st_mtime)
+        archive.addfile(folder)
+        for name in (MANIFEST, DUMP):
+            info = archive.gettarinfo(source / name, f"{source.name}/{name}")
+            if not info.isreg():
+                raise BackupError(f"{name} must be a regular file")
+            info.mode, info.uid, info.gid, info.uname, info.gname = 0o600, 0, 0, "", ""
+            with (source / name).open("rb") as data:
+                archive.addfile(info, data)
+
+    encrypt(stream, recipients, add)
+
+
+def publish(outbox, name, write):
+    """`write(stream)` fills `<name>`, then `<name>.sha256` (sha256sum format) is written.
+
+    Both go through `.partial` and the archive is renamed first, so a reader
+    never sees a checksum without its archive; a failure leaves neither.
+    """
+    archive, checksum = outbox / name, outbox / f"{name}.sha256"
+    parts = (outbox / f"{archive.name}.partial", outbox / f"{checksum.name}.partial")
+    try:
+        for part in parts:
+            part.unlink(missing_ok=True)
+        with parts[0].open("xb") as stream:
+            write(stream)
+        parts[1].write_bytes(f"{sha256(parts[0])}  {archive.name}\n".encode("ascii"))
+        os.replace(parts[0], archive)
+        os.replace(parts[1], checksum)
+    finally:
+        for part in parts:
+            part.unlink(missing_ok=True)
+    return archive
+
+
+def sealed(outbox, pattern=SEALED):
+    """Archives matching `pattern` directly under outbox, oldest first; links ignored."""
+    return sorted(entry.name for entry in outbox.iterdir() if pattern.fullmatch(entry.name)
                   and entry.is_file() and not entry.is_symlink())
+
+
+def prune_sealed(outbox, pattern, keep, current):
+    """Keep the newest `keep` of one family plus `current` (a clock step back never prunes it)."""
+    names = sealed(outbox, pattern)
+    kept = {current, *names[-keep:]}
+    pruned = [name for name in names if name not in kept]
+    for name in pruned:
+        (outbox / f"{name}.sha256").unlink(missing_ok=True)
+        (outbox / name).unlink()
+    return kept, pruned
 
 
 def offsite(root, outbox, recipients, keep):
@@ -443,28 +507,150 @@ def offsite(root, outbox, recipients, keep):
     new = not (archive.is_file() and checksum.is_file()
                and checksum.read_bytes() == f"{sha256(archive)}  {archive.name}\n".encode("ascii"))
     if new:
-        parts = (outbox / f"{archive.name}.partial", outbox / f"{checksum.name}.partial")
-        try:
-            for part in parts:
-                part.unlink(missing_ok=True)
-            with parts[0].open("xb") as stream:
-                seal(source, stream, recipients)
-            parts[1].write_bytes(f"{sha256(parts[0])}  {archive.name}\n".encode("ascii"))
-            os.replace(parts[0], archive)
-            os.replace(parts[1], checksum)
-        finally:
-            for part in parts:
-                part.unlink(missing_ok=True)
-    names = sealed(outbox)
-    kept = {archive.name, *names[-keep:]}  # A clock step back never prunes today's archive.
-    pruned = [name for name in names if name not in kept]
-    for name in pruned:
-        (outbox / f"{name}.sha256").unlink(missing_ok=True)
-        (outbox / name).unlink()
+        publish(outbox, archive.name, lambda stream: seal(source, stream, recipients))
+    kept, pruned = prune_sealed(outbox, SEALED, keep, archive.name)
     print(json.dumps({"ok": True, "source": source.name, "sealed": archive.name if new else None,
                       "archive_bytes": archive.stat().st_size, "kept": len(kept), "pruned": pruned,
                       "free_bytes": shutil.disk_usage(outbox).free}))
     return archive
+
+
+def capture(argv, user):
+    """stdout of one short command; as `user` (no supplementary groups) when given."""
+    drop = {"user": user, "group": user, "extra_groups": []} if user else {}
+    try:
+        result = subprocess.run(list(argv), capture_output=True, timeout=300, check=False, **drop)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        raise BackupError(f"{argv[0]} unavailable/timed out") from exc
+    if result.returncode:
+        raise BackupError(f"{argv[0]} failed ({result.returncode}): "
+                          + result.stderr.decode("utf-8", errors="replace")[-2000:].strip())
+    if not result.stdout:
+        raise BackupError(f"{argv[0]} printed nothing")
+    return result.stdout
+
+
+def collect(patterns):
+    """Matched paths plus everything under matched directories; links kept, not followed."""
+    found, missing = set(), []
+    for pattern in patterns:
+        matches = glob.glob(pattern)
+        if not matches:
+            missing.append(pattern)
+        for match in matches:
+            path = Path(match)
+            found.add(path)
+            if path.is_dir() and not path.is_symlink():
+                for folder, dirs, files in os.walk(path):
+                    found.update(Path(folder) / name for name in (*dirs, *files))
+    return sorted(found), missing  # parents sort before children
+
+
+def config_members(top, outputs, paths):
+    """(TarInfo, bytes or None) for every member except CONFIG.json, all read up front."""
+    now = int(datetime.now(VN).timestamp())
+    members, files, links = [], {}, {}
+
+    def generated(name, data):
+        info = tarfile.TarInfo(f"{top}/{name}")
+        info.size, info.mode, info.mtime = len(data), 0o600, now
+        members.append((info, data))
+
+    for name, data in outputs.items():
+        generated(name, data)
+        files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    with tarfile.TarFile(fileobj=io.BytesIO(), mode="w") as probe:  # gettarinfo needs a TarFile
+        for path in paths:
+            name = "files/" + path.relative_to(path.anchor).as_posix()
+            info = probe.gettarinfo(path, f"{top}/{name}")  # lstat: owner, mode, link target
+            if info.isreg():
+                data = path.read_bytes()
+                info.size = len(data)
+                files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+                members.append((info, data))
+            elif info.issym() or info.isdir():
+                if info.issym():
+                    links[name] = info.linkname
+                members.append((info, None))
+            else:
+                raise BackupError(f"unsupported file type: {path}")
+    return members, files, links
+
+
+def config(outbox, recipients, keep, databases=(), paths=CONFIG_PATHS, commands=CONFIG_COMMANDS):
+    """Timer entry (root): PostgreSQL globals, hao config files, optional DB dumps, into age.
+
+    Command output and file bytes go from memory into the age stream, so env
+    files, service-account keys and role password hashes never land in
+    plaintext. CONFIG.json lists SHA-256 of every file and each link target;
+    a pattern matching nothing is listed under `missing`, not fatal. Prunes
+    only after success, and only `v7-config-…` archives.
+    """
+    outbox = Path(outbox).expanduser().resolve()
+    if not outbox.is_dir():
+        raise BackupError("config outbox must be an existing directory")
+    if not Path(recipients).is_file():
+        raise BackupError("config recipients file missing")
+    for database in databases:
+        if not isinstance(database, str) or not DB_NAME.fullmatch(database):
+            raise BackupError("database must be a plain database name (1..63 ASCII characters)")
+    stamp = datetime.now(VN)
+    top = stamp.strftime("v7-config-%Y%m%d-%H%M%S")
+    commands = [*commands, *((f"databases/{name}.dump",
+                              ("pg_dump", "--no-password", "-Fc", f"--dbname={name}"), "postgres")
+                             for name in databases)]
+    outputs = {member: capture(argv, user) for member, argv, user in commands}
+    found, missing = collect(paths)
+    members, files, links = config_members(top, outputs, found)
+    manifest = json.dumps({"format_version": 1, "kind": "config", "host": socket.gethostname(),
+                           "created_at_vn": stamp.isoformat(), "files": files, "links": links,
+                           "missing": missing}, ensure_ascii=False, indent=2, sort_keys=True)
+
+    def add(archive):
+        folder = tarfile.TarInfo(top)
+        folder.type, folder.mode, folder.mtime = tarfile.DIRTYPE, 0o700, int(stamp.timestamp())
+        archive.addfile(folder)
+        listing = tarfile.TarInfo(f"{top}/{CONFIG_MANIFEST}")
+        text = (manifest + "\n").encode("utf-8")
+        listing.size, listing.mode, listing.mtime = len(text), 0o600, folder.mtime
+        archive.addfile(listing, io.BytesIO(text))
+        for info, data in members:
+            archive.addfile(info, io.BytesIO(data) if data is not None else None)
+
+    archive = publish(outbox, f"{top}.tar.age", lambda stream: encrypt(stream, recipients, add))
+    kept, pruned = prune_sealed(outbox, CONFIG_SEALED, keep, archive.name)
+    print(json.dumps({"ok": True, "sealed": archive.name, "archive_bytes": archive.stat().st_size,
+                      "files": len(files), "links": len(links), "missing": missing,
+                      "kept": len(kept), "pruned": pruned, "free_bytes": shutil.disk_usage(outbox).free}))
+    return archive
+
+
+def verify_config(path):
+    """Decrypted config tar: one `v7-config-…/` folder, every file and link as CONFIG.json says."""
+    tops, files, links, manifest = set(), {}, {}, None
+    try:
+        with tarfile.open(path, mode="r:") as archive:
+            for member in archive:
+                top, _, name = member.name.partition("/")
+                tops.add(top)
+                if member.isreg():
+                    data = archive.extractfile(member).read()
+                    if name == CONFIG_MANIFEST:
+                        manifest = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_object)
+                    else:
+                        files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+                elif member.issym():
+                    links[name] = member.linkname
+    except (OSError, ValueError, tarfile.TarError) as exc:
+        raise BackupError("cannot read config archive: " + str(exc)) from exc
+    if len(tops) != 1 or not CONFIG_TOP.fullmatch(next(iter(tops))):
+        raise BackupError("config archive must hold exactly one v7-config-YYYYMMDD-HHMMSS folder")
+    if (not isinstance(manifest, dict) or manifest.get("format_version") != 1
+            or manifest.get("kind") != "config" or not isinstance(manifest.get("missing"), list)):
+        raise BackupError("missing or unsupported CONFIG.json")
+    if manifest.get("files") != files or manifest.get("links") != links:
+        raise BackupError("config archive does not match CONFIG.json")
+    return manifest
 
 
 def main(argv=None):
@@ -484,11 +670,17 @@ def main(argv=None):
     command.add_argument("--outbox", required=True, type=Path)
     command.add_argument("--recipients", required=True, type=Path)
     command.add_argument("--keep", type=int, default=14)
+    command = commands.add_parser("config")
+    command.add_argument("--outbox", required=True, type=Path)
+    command.add_argument("--recipients", required=True, type=Path)
+    command.add_argument("--keep", type=int, default=14)
+    command.add_argument("--database", action="append", default=[], help="also pg_dump -Fc this DB")
+    commands.add_parser("config-verify").add_argument("--tar", required=True, type=Path)
     args = parser.parse_args(argv)
     if args.command == "daily" and (args.keep < 1 or args.min_free_mb < 0):
         parser.error("daily needs --keep >= 1 and --min-free-mb >= 0")
-    if args.command == "offsite" and args.keep < 1:
-        parser.error("offsite needs --keep >= 1")
+    if args.command in ("offsite", "config") and args.keep < 1:
+        parser.error(f"{args.command} needs --keep >= 1")
     try:
         if args.command == "backup":
             backup(args.out)
@@ -496,6 +688,12 @@ def main(argv=None):
             daily(args.root, args.keep, args.min_free_mb)
         elif args.command == "offsite":
             offsite(args.root, args.outbox, args.recipients, args.keep)
+        elif args.command == "config":
+            config(args.outbox, args.recipients, args.keep, args.database)
+        elif args.command == "config-verify":
+            manifest = verify_config(args.tar)
+            print(f"MATCH config archive: {len(manifest['files'])} files, {len(manifest['links'])} links, "
+                  f"{len(manifest['missing'])} missing patterns")
         elif args.command == "verify":
             verify(args.folder)
             print("MATCH SHA-256 and manifest structure (offline)")
