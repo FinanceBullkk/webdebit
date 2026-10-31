@@ -7,6 +7,13 @@
     // Ghi giá từ Sheet (specs/v7-price-queue.md): null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
     let priceView = null;
     let priceApproval = null;
+    // Khung hỏi lại trước khi duyệt chuyến mới từ Sheet đang mở (SO-GON-04); giữ qua lần vẽ lại.
+    let approveAsk = false;
+    function approvePanel(data, active) {
+      const count = active ? data.sheet_sync?.new_count ?? 0 : 0;
+      if (!count) approveAsk = false;
+      return approveAsk ? `<div class="price-panel confirm sheet-approve-panel" role="region" aria-label="Xác nhận duyệt chuyến mới"><p><strong>Duyệt ${count} chuyến mới từ Sheet?</strong> Chuyến có giá tính tiền ngay; chuyến chưa có giá chưa tính; chuyến nghi trùng thành chờ kiểm.</p><div class="price-actions"><button type="button" class="sheet-approve-write primary">Duyệt ${count} chuyến</button><button type="button" class="sheet-approve-cancel">Thôi</button></div></div>` : '';
+    }
     // ---- Ghi giá từ Sheet: server chọn dòng chắc chắn (READY), trang chỉ hiện và gửi một lệnh cho cả lô ----
     const priceRows = data => new Map([...(data.trips ?? []).map(row => [`trip-${row.id}`, row]),
       ...(data.legacy_rows ?? []).map(row => [`legacy-${row.id}`, row])]);
@@ -51,7 +58,7 @@
       const review = prices.review ?? [];
       if (!review.length && priceView === 'review') priceView = null;
       const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
-      root.querySelector('.book-head')?.insertAdjacentHTML('afterend', strip + pricePanel(data));
+      root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', strip + pricePanel(data) + approvePanel(data, active));
     }
     const openSheetDetail = button => {
       const trip = ctx.snapshot.sheet_sync.items[Number(button.dataset.index)];
@@ -148,7 +155,7 @@
         await api.read().catch(() => showNotice('Không tải được sổ mới. Thử lại.'));
         return;
       }
-      if (target.matches('.price-unlock')) { await submit('lock', { month: target.dataset.month, locked: false }); return; }
+      if (target.matches('.price-unlock')) { ctx.askLock(target, target.dataset.month, false); return; }
       if (target.matches('.price-use-sheet')) {
         const { kind, id, price, fee } = target.dataset;
         target.disabled = true;
@@ -186,10 +193,19 @@
         : `Đã ghi ${result.written} giá từ Sheet.`);
     });
     let sheetApproval = null;
+    // SO-GON-04 (L4): "Duyệt n chuyến mới" hỏi lại một bước trước khi gửi lệnh; Thôi không gửi gì.
+    root.addEventListener('click', event => {
+      const ask = event.target.closest('.sheet-approve,.sheet-approve-cancel');
+      if (!ask || ask.disabled || !ctx.snapshot) return;
+      approveAsk = ask.matches('.sheet-approve');
+      renderSnapshot(ctx.snapshot);
+      root.querySelector(approveAsk ? '.sheet-approve-write' : '.sheet-approve')?.focus();
+    });
     root.addEventListener('click', async event => {
-      const button = event.target.closest('.sheet-approve');
+      const button = event.target.closest('.sheet-approve-write');
       if (!button || button.disabled) return;
       if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+      approveAsk = false;
       sheetApproval ??= { customer_id: customerId, expected_version: ctx.snapshot.version,
         snapshot_sha256: ctx.snapshot.sheet_sync.snapshot_sha256, idempotency_key: crypto.randomUUID() };
       button.disabled = true;
@@ -230,13 +246,13 @@
         row.title = 'Sheet không còn dòng này. Web vẫn tính chuyến cho tới khi xóa.';
         row.children[1]?.insertAdjacentHTML('beforeend', `<small class="sheet-removed-tag">Sheet không còn dòng này</small><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span>`);
       }
-      if (items.length) root.querySelector('.book-head')?.insertAdjacentHTML('afterend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
+      if (items.length) root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
     root.addEventListener('click', async event => {
       const button = event.target.closest('.sheet-removed-delete,.sheet-removed-keep,.sheet-removed-next,.sheet-removed-unlock');
       if (!button || !ctx.snapshot) return;
       event.stopImmediatePropagation();
-      if (button.matches('.sheet-removed-unlock')) { button.disabled = true; await submit('lock', { month: button.dataset.month, locked: false }); return; }
+      if (button.matches('.sheet-removed-unlock')) { ctx.askLock(button, button.dataset.month, false); return; }
       const items = removedRows(ctx.snapshot);
       if (button.matches('.sheet-removed-next')) {
         if (!items.length) return;

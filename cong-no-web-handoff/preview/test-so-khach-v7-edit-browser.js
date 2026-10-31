@@ -4,11 +4,11 @@ const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
 
 // SO-GON-04: dòng tháng không dính nữa (chip tháng đang tô thay), nên danh sách phiếu dính ngay dưới tiêu đề cột.
-test('Danh sách phiếu thu (cả hàng nhập) dính ngay dưới tiêu đề cột khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
-  const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
-    const stick = input.closest('.pay-stick'), head = document.querySelector('.ledger-head');
+test('Danh sách phiếu thu dính ngay dưới tiêu đề cột khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
+  const pinned = await page.locator('#thang-2026-09 .pay-stick').evaluate(stick => {
+    const head = document.querySelector('.ledger-head');
     return { sticky: getComputedStyle(stick).position, top: Number.parseInt(stick.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
-      inTrips: Boolean(input.closest('.trip-list')) };
+      inTrips: Boolean(stick.closest('.trip-list')) };
   });
   assert.equal(pinned.sticky, 'sticky');
   assert.equal(pinned.top, pinned.below);
@@ -16,26 +16,33 @@ test('Danh sách phiếu thu (cả hàng nhập) dính ngay dưới tiêu đề 
   assert.equal(await page.locator('.trip-list td.pay').count(), 0);
 }));
 
+// Khung Ghi phiếu thu đang mở (SO-GON-04) thì tạm dừng tự cập nhật; chữ đang gõ nằm ngoài sổ nên không mất.
 test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',async () => withPage(async ({ page, world }) => {
-  const amount = page.locator('.receipt-amount').first();
+  await page.locator('.entry-open').click();
+  const amount = page.locator('.entry-drawer .receipt-amount');
   await amount.fill('123');
   const before = world.reads;
-  await page.locator('#refresh-data').click();
+  // Khung mở che nút Làm mới (dải dưới đầu sổ, SO-GON-04): bấm thẳng vào nút để thử đường bị chặn.
+  await page.locator('#refresh-data').dispatchEvent('click');
   assert.equal(world.reads, before);
   assert.equal(await amount.inputValue(), '123');
-  await amount.fill('');
+  await page.locator('.entry-close').click();
   await page.locator('#refresh-data').click();
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Cập nhật'));
   assert.equal(world.reads, before + 1);
+  await page.locator('.entry-open').click();
+  assert.equal(await amount.inputValue(), '123', 'đóng khung không xóa chữ đã gõ');
 }));
 
-
-
-test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn nhập được', async () => withPage(async ({ page, world }) => {
+test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn ghi được, bước xem lại nói rõ tháng khóa', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');
   assert.equal(await sept.locator('td.info-edit,td.row-delete,td.editable').count(), 0);
   assert.equal(await sept.locator('.add-month-adjustment').isDisabled(), true);
-  assert.equal(await sept.locator('.receipt-amount').count(), 1);
+  await page.locator('.entry-open').click();
+  await page.locator('.entry-drawer .receipt-date').fill('20/09/2026');
+  await page.locator('.entry-drawer .receipt-amount').fill('1.000.000');
+  await page.locator('.entry-drawer .receipt-amount').press('Enter');
+  assert.match(await page.locator('.entry-review').innerText(), /nằm ở tháng 9\/2026[\s\S]*Tháng 9\/2026 đang khóa; phiếu vẫn ghi được\./);
   assert.equal(world.requests.length, 0);
 }, world => { world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
 
@@ -209,9 +216,10 @@ test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để
     current: { month: '2026-09-01', deleted: false, counted_vnd: '1000000' }, display: { row: 8, raw_date: '', note: '' } });
 }));
 
-test('tháng cũ đã mở khóa có hàng nhập phiếu riêng; không còn bảng nhập chuyến (NHAP-SHEET-02)', async () => withPage(async ({ page, world }) => {
-  const sept = page.locator('#thang-2026-09');
-  for (const selector of ['.receipt-date:not(.saved-receipt-input)', '.receipt-method', '.receipt-amount', '.receipt-reference']) assert.equal(await sept.locator(selector).count(), 1);
+// SO-GON-04 (H2): một khung Ghi phiếu thu cho cả sổ thay khung nhập ở từng tháng; vẫn không có bảng nhập chuyến (NHAP-SHEET-02).
+test('không còn khung nhập phiếu ở từng tháng (một nút Ghi phiếu thu); không còn bảng nhập chuyến', async () => withPage(async ({ page, world }) => {
+  assert.equal(await page.locator('#app .receipt-date:not(.saved-receipt-input),#app .receipt-amount,#app .receipt-method,#app .pay-entry').count(), 0);
+  assert.equal(await page.locator('.book-head .entry-open').count(), 1);
   assert.equal(await page.locator('.draft-input,.draft-row,.draft-bar,.paste-input').count(), 0);
   assert.equal(world.requests.length, 0);
 }, world => { world.locks = [{ month: '2026-09-01', locked: false }]; }));
@@ -299,38 +307,34 @@ test('cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper
   });
 });
 
-// SO-GON-02 (29/10/2026): phiếu thu là danh sách riêng bên phải: khoản thu Sheet trước, phiếu web, rồi hàng nhập.
+// SO-GON-02 (29/10/2026): phiếu thu là danh sách riêng bên phải: khoản thu Sheet trước, phiếu web sau. Ghi phiếu mới ở khung
+// Ghi phiếu thu (SO-GON-04), không còn hàng nhập trong danh sách.
 const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, pid, reference, date, method: 'THU TIỀN', amount_vnd: amount, void_reason: null,
   offset_pair_id: null, counterparty_customer_id: null, counterparty_name: null, voided_on: null, voided_by_event: null,
   allocations: [{ month, amount_vnd: amount, kind: 'debt', superseded_by_event: null }] });
-// Mỗi hàng của danh sách phiếu thu trong tháng → [ngày trả, hình thức, số tiền, có phải hàng nhập].
+// Mỗi hàng của danh sách phiếu thu trong tháng → [ngày trả, hình thức, số tiền].
 const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll(`#thang-${id} .pay-list tr.pay-row`)]
-  .map(tr => { const pay = [...tr.querySelectorAll('td.pay')]; const entry = tr.querySelector('.receipt-date');
-    // Hàng nhập là một khung (một ô) có nhãn chữ, không có ngày/hình thức/số tiền đã ghi.
-    if (entry) return { date: '', method: '', amount: '', entry: true };
-    return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[2]?.firstChild?.textContent?.trim?.() ?? '', entry: Boolean(entry) }; }), key);
+  .map(tr => { const pay = [...tr.querySelectorAll('td.pay')];
+    return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[2]?.firstChild?.textContent?.trim?.() ?? '' }; }), key);
 
-test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau, ô nhập cuối; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
+test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
   world.legacy.push({ id: 23, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false, current: { month: '2026-09-01', deleted: false },
     display: { row: 5, raw_date: '46032.0', note: '2026-01-10 00:00:00' } });
   world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-09-11', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-09-12', '3000000'),
     webReceipt('PH-003', '2026-09-01', '2026-09-13', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
   await page.reload();
   await page.waitForSelector('#thang-2026-09');
-  // Tháng 9: khoản thu Sheet, ba phiếu web, rồi hàng nhập.
+  // Tháng 9: khoản thu Sheet rồi ba phiếu web.
   const sept = await payRows(page, '2026-09');
-  assert.equal(sept.length, 5);
+  assert.equal(sept.length, 4);
   assert.equal(sept[0].date, '10/01/2026');   // 46032 = 10/01/2026, ghi chú lặp cùng ngày bị bỏ
   assert.equal(sept[0].method, '');
   assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['11/09/2026', '12/09/2026', '13/09/2026']);
-  assert.equal(sept[4].entry, true);
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);
-  // Tháng hiện tại: một phiếu ở hàng 1, ô nhập ở hàng 2 (cuối), tham chiếu nằm trong ô số tiền.
+  // Tháng hiện tại: một phiếu, không có hàng nhập.
   const now = await payRows(page, todayMonth.slice(0, 7));
-  assert.equal(now.length, 2);
-  assert.equal(now[0].entry, false);
-  assert.equal(now[1].entry, true);
-  assert.equal(await page.locator(`#thang-${todayMonth.slice(0, 7)} .receipt-amount`).locator('xpath=ancestor::td').locator('.receipt-reference').count(), 1);
+  assert.equal(now.length, 1);
+  assert.equal(now[0].amount, '5.000.000');
   // Tham chiếu là chữ nhỏ trong ô Số tiền trả, bấm để sửa; không còn hàng Tham chiếu riêng.
   assert.equal(await page.locator('tr.reference-row').count(), 0);
   const reference = page.locator('.receipt-ref[data-pid="PH-001"][data-field="reference"]');
@@ -352,14 +356,12 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau, ô nh
   await page.locator('.cancel-void').click();
   assert.equal(await page.locator('.void-prompt').count(), 0);
   await shot('phieu-thu-hang-ke-tiep');
-  // Tháng chưa có phiếu: ô nhập ở hàng 1.
+  // Tháng chưa có phiếu: danh sách trống.
   world.receipts.length = 0; world.legacy.pop();
   await page.reload();
   await page.waitForSelector('#thang-2026-09');
-  assert.equal((await payRows(page, '2026-09')).some(row => row.date !== ''), false);
-  const empty = await payRows(page, todayMonth.slice(0, 7));
-  assert.equal(empty.length, 1);
-  assert.equal(empty[0].entry, true);
+  assert.equal((await payRows(page, '2026-09')).length, 0);
+  assert.equal((await payRows(page, todayMonth.slice(0, 7))).length, 0);
 }));
 
 test('mở từ Việc cần làm (?loc=thieu-gia): tô chuyến thiếu giá, nhảy tới dòng, bỏ đánh dấu; không ẩn dòng nào', async () => withPage(async ({ page }) => {

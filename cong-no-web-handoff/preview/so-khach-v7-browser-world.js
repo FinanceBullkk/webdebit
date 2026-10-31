@@ -53,7 +53,7 @@ function ledger(world) {
     month_locks: world.locks,
     months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
       ...world.monthValues?.[month] })),
-    total_outstanding_vnd: '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
+    total_outstanding_vnd: world.total ?? '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
@@ -208,6 +208,17 @@ function apply(world, url, body) {
     event('receipt', {}, { pid, date: body.date, amount_vnd: body.amount_vnd });
     world.version += 1;
     return [200, { pid, receipt_id: world.receipts.length, version: world.version }];
+  }
+  // Hủy phiếu: phiếu và phần trừ nợ của nó bị thay bằng sự kiện hủy, như void_receipt.
+  if (url === '/api/v7/receipts/void') {
+    const receipt = world.receipts.find(item => item.pid === body.pid && item.voided_by_event == null);
+    if (!receipt) return [422, { error: 'RECEIPT_NOT_FOUND', message: 'Không tìm thấy phiếu.' }];
+    const id = 100 + world.nextEvent++;
+    Object.assign(receipt, { voided_by_event: id, void_reason: body.reason, voided_on: clock,
+      allocations: receipt.allocations.map(line => ({ ...line, superseded_by_event: id })) });
+    event('void', { pid: body.pid }, { pid: body.pid, reason: body.reason });
+    world.version += 1;
+    return [200, { pid: body.pid, version: world.version }];
   }
   if (url === '/api/v7/receipts/images') {
     const data = Buffer.from(body.data_base64, 'base64');

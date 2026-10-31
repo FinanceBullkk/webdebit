@@ -14,8 +14,6 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .topbar nav a{display:flex;align-items:center;padding:0 12px;color:#c3d1e0;font-size:15px;text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
 .topbar nav a:hover{color:#fff}
 .topbar nav a.active{color:#fff;border-color:#6da7ec}
-.topbar .live-controls{display:flex;align-items:center;gap:6px;min-width:0;margin-left:auto;white-space:nowrap}.topbar .live-controls time{min-width:0;overflow:hidden;text-overflow:ellipsis}.topbar .live-controls button{min-height:34px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:#fff;font:inherit;font-size:14px;font-weight:600;cursor:pointer}.topbar .live-controls button:hover{border-color:#6da7ec}.topbar .live-controls time{font-size:13px;color:#c3d1e0}
-.topbar .live-controls time.sheet-busy{color:#fff;font-weight:600}.topbar .live-controls time.sheet-error{color:#ffb4ae;font-weight:600}
 .sheet-spin{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid #9ebbd7;border-top-color:#174d82;border-radius:50%;vertical-align:-2px;animation:sheet-spin 1s linear infinite}@keyframes sheet-spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.sheet-spin{animation:none}}
 .topbar .readonly{margin-left:auto;padding:8px 14px;border:1px solid #3d5876;border-radius:6px;color:#c3d1e0;white-space:nowrap}
 .book-head{position:sticky;top:calc(var(--banner) + var(--bar));z-index:40;height:var(--head);display:flex;align-items:center;gap:24px;padding:4px 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
@@ -38,12 +36,16 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere}
 /* Audit UX 31/10/2026 (P0-2, đợt 1): chữ trong bảng sổ 15px (trước 13px), nhãn 14px (trước 12px), hàng cao 40px. */
 .ledger th{font-weight:700;text-align:left;font-size:15px}.ledger td{min-height:40px;height:40px;font-size:15px}
+/* SO-GON-04 (H4): số tiền 16px; chữ 15px ở màn 1280 (cột chữ cắt "…"), 16px ở màn rộng; mọi chữ nhỏ trong sổ ≥ 14px.
+   Sổ quá nhiều cột ở màn 1280 (Shipper + 3 cột phụ phí riêng) dùng khổ chật: số 15px (.ledger-book.tight). */
+@media(min-width:1878px){.ledger td{font-size:16px}}
+.ledger td small{font-size:14px}
 .ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:15px}
 .ledger .group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
 .ledger .columns th{height:var(--cols);padding:1px 5px;background:#eaf1fa;font-size:15px;line-height:1.05}
 .ledger .columns .pay{background:#dfeeff}
 .ledger .month th{height:48px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
-.month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
+.month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:15px;font-weight:400}
 .badge{padding:2px 8px;border-radius:10px;background:#eff4fc;color:#193d64;font-size:12px}.badge.open{background:#dbf5e4;color:#145b32}
 .month-lock{min-width:32px;min-height:28px;border:1px solid #b6d3ed;border-radius:4px;background:#fff;cursor:pointer;font-size:16px}
 .change-customer,.history-toggle,.fee-settings-open,.history-close,.add-month-adjustment{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit}
@@ -52,7 +54,8 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .history-panel[hidden]{display:none}.history-panel header{display:flex;justify-content:space-between;align-items:center}.history-panel h2{margin:0;font-size:18px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
 .month-adjustment-input input{min-height:28px;max-width:100%;font:inherit}.month-adjustment-input .month-amount{width:100%;text-align:right}
-.ledger td.num{text-align:right;white-space:nowrap;font-size:15px}
+.ledger td.num{text-align:right;white-space:nowrap;font-size:16px}
+.ledger-book.tight .ledger td.num{font-size:15px;padding-left:3px;padding-right:3px}.ledger-book.tight .ledger .subtotal td.num{font-weight:600}
 .ledger td.pay{background:#f2f8ff}.ledger td.pay-start,.ledger th.pay-start{border-left:3px solid #3269a4}
 /* SO-GON-02: trong tháng, chuyến (bảng trái) và phiếu thu (danh sách phải) là hai bảng riêng, đường kẻ không trùng nhau. */
 .ledger td.trip-side,.ledger td.pay-side{height:auto;padding:0;vertical-align:top;border-right:0;border-bottom:0}
@@ -71,8 +74,10 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger td.fee{background:#fffaf0}.ledger.locked td.fee{background:#e9e6df}
 .ledger td.fee.fee-edit,.ledger td.fee-other{cursor:pointer}
 .ledger td.fee.fee-edit:hover,.ledger td.fee.fee-edit:focus-visible,.ledger td.fee-other:hover,.ledger td.fee-other:focus-visible,.ledger td.fee-other.open{outline:2px solid #145fa9;outline-offset:-2px}
-.ledger td.fee-other small{display:block;color:#5d6f82;font-size:11px;line-height:1.1;font-weight:400}
-.ledger td.fee-other .fee-plus{color:#1d4ed8;font-size:12px}
+.ledger td.fee-other small{display:block;color:#5d6f82;font-size:14px;line-height:1.1;font-weight:400}
+.ledger td.fee-other .fee-plus{display:none;color:#1d4ed8;font-size:14px}.ledger td.fee-other .fee-dash{color:#8193a6}
+.trip-list tr:is(:hover,:focus-within,:has(.fee-pick:checked)) td.fee-other .fee-plus{display:inline}
+.trip-list tr:is(:hover,:focus-within,:has(.fee-pick:checked)) td.fee-other .fee-dash{display:none}
 .ledger td.fee input.fee-own-input{width:100%;height:28px;border:1px solid #145fa9;border-radius:3px;text-align:right;padding:0 4px;font:inherit}
 .ledger .row-delete .fee-pick{width:16px;height:16px;margin:0 4px 0 0;vertical-align:-3px;cursor:pointer}
 .fee-selbar{display:flex;align-items:center;gap:12px;padding:6px 14px;background:#e3effc;border-bottom:1px solid #9eb4ca;position:sticky;top:calc(var(--banner) + var(--bar) + var(--head));z-index:35}
@@ -109,7 +114,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-settings{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:60px;background:#162d4855}
 .fee-panel{width:900px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .fee-panel-body{padding:12px 16px}
-.debit-open{min-height:28px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;font-size:13px;font-weight:400}
+.debit-open{min-height:34px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;font-size:14px;font-weight:400}
 .debit-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:24px;background:#162d4855}.debit-dialog[hidden]{display:none}
 .debit-panel{width:1240px;max-width:calc(100vw - 24px);height:calc(100vh - 40px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 8px 30px #0004}
 .debit-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
@@ -137,27 +142,52 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .receipt-ref.empty{display:inline-block;min-width:24px;min-height:22px;padding:0 4px;border:1px solid #c4d3e3;border-radius:4px;background:#fff;color:#3e5871;font-weight:700;line-height:20px;text-align:center}
 /* Góp ý 29/10/2026: vùng phiếu thu. Phiếu đã ghi: số tiền một dòng, tham chiếu · tháng trừ nợ · ảnh gom một dòng nhỏ bên dưới.
-   Hàng nhập: một khung có nhãn, chỗ dán ảnh và nút Ghi phiếu. Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. */
-.receipt-sum{display:block;font-size:14px;font-weight:700;color:#162d48}.ledger .voided .receipt-sum{color:#475d73}
+   Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. Ghi phiếu mới ở khung "Ghi phiếu thu" bên phải (SO-GON-04). */
+.receipt-sum{display:block;font-size:16px;font-weight:700;color:#162d48}.ledger-book.tight .receipt-sum{font-size:15px}.ledger .voided .receipt-sum{color:#475d73}
 .ledger td.num .receipt-meta{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 6px;margin-top:2px;white-space:normal}
 .receipt-meta .image-clip{margin-left:0;min-height:22px}.receipt-meta .receipt-ref,.receipt-meta .receipt-allocation,.receipt-meta .image-clip{font-size:14px}.receipt-meta .receipt-ref:has(input){flex:1 1 100%}
 .pay-list .saved-receipt-input{width:100%;min-width:0;height:30px;padding:0 6px;border:1px solid #145fa9;border-radius:4px;background:#fff;font:inherit;color:#162d48}
-.ledger td.pay-form{height:auto;padding:6px}
-.pay-form-card{padding:8px 10px 10px;border:1px solid #8daac9;border-radius:6px;background:#fff;box-shadow:0 1px 2px #162d4814}
-.pay-form-title{margin:0 0 6px;font-size:14px;font-weight:700;color:#173d65}
-.pay-form-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px}
-.pay-field{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:14px;font-weight:600;color:#3e5871}
-.pay-field input,.pay-field select{width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:15px;font-weight:400;color:#162d48}
-.pay-field input:focus,.pay-field select:focus{border-color:#145fa9;outline:2px solid #145fa9;outline-offset:0}
-.pay-field .receipt-amount{text-align:right;font-weight:700}.pay-field .cell-error{font-size:12px}
-.pay-form .image-entry{margin-top:8px}.pay-form .image-drop{min-height:40px;padding:4px 8px}
-.pay-form-actions{display:flex;justify-content:flex-end;margin-top:8px}
-.receipt-save{min-height:36px;padding:0 20px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
-.receipt-save:hover{background:#0f4f8f}.receipt-save:disabled{opacity:.6;cursor:default}.receipt-save:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* SO-GON-04 (L2): nút chính "Ghi phiếu thu" ở đầu sổ mở khung bên phải (cùng mẫu ngăn phụ phí, nằm ngoài #app); bước xem lại
+   trong cùng khung; băng kết quả ngay dưới đầu sổ; dòng phiếu vừa ghi tô xanh 3 giây. */
+.entry-open{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap}
+.entry-open:hover{background:#0f4f8f}.entry-open:disabled{opacity:.55;cursor:default}.entry-open:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.entry-drawer{position:fixed;top:calc(var(--banner) + var(--bar));right:0;width:380px;max-width:100vw;height:calc(100vh - var(--banner) - var(--bar));z-index:70;display:flex;flex-direction:column;background:#fff;border-left:3px solid #145fa9;box-shadow:-6px 0 18px #162d4833;font-size:16px;color:#162d48}
+.entry-drawer[hidden]{display:none}
+.entry-drawer header{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.entry-drawer h2{margin:0;font-size:18px}.entry-drawer h2 small{display:block;color:#3e5871;font-size:14px;font-weight:400}
+.entry-drawer button{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;cursor:pointer}
+.entry-drawer header button{margin-left:auto}
+.entry-drawer button:focus-visible,.entry-drawer input:focus-visible,.entry-drawer select:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
+.entry-body{flex:1;overflow-y:auto;padding:12px 14px}
+.entry-form{display:flex;flex-direction:column;gap:4px}.entry-form[hidden],.entry-review[hidden]{display:none}
+.entry-field{display:flex;flex-direction:column;gap:4px;margin-top:6px;font-size:15px;font-weight:600;color:#3e5871}
+.entry-field input,.entry-field select{width:100%;min-width:0;height:40px;margin:0;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#162d48}
+.entry-field .receipt-amount{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.entry-date{display:flex;gap:6px}.entry-date input{flex:1}
+.entry-form .cell-error{min-height:0;font-size:14px}
+.entry-images .image-entry{margin-top:10px}.entry-review b{white-space:nowrap}
+.entry-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.entry-drawer .entry-next,.entry-drawer .receipt-save{padding:0 22px;border-color:#145fa9;background:#145fa9;color:#fff;font-weight:700}
+.entry-drawer .receipt-save:disabled{opacity:.6;cursor:default}
+.entry-review p{margin:0 0 10px;line-height:1.45}.entry-review .entry-sum{font-size:17px}
+.entry-review .entry-note{padding:6px 10px;border-radius:4px;background:#fff3d6;color:#5a3a00}
+.entry-review .entry-hint{color:#3e5871;font-size:14px}
+.entry-review .entry-error:empty{display:none}.entry-review .entry-error button{margin-left:6px}
+.saved-strip{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0;padding:8px 14px;border:1px solid #9fd3b0;border-left:4px solid #17663a;border-radius:6px;background:#e3f3e8;color:#123f26;font-size:15px}
+.saved-strip span{flex:1;min-width:260px}
+.saved-strip button{min-height:36px;padding:0 12px;border:1px solid #6aa985;border-radius:4px;background:#fff;color:#123f26;font:inherit;cursor:pointer}
+.saved-strip button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.ledger tr.just-saved td{background:#d6f5df!important;transition:background .6s}
+/* SO-GON-04 (H6): hỏi một câu trước khi khóa/mở khóa tháng, ngay dưới nút đã bấm. */
+.lock-ask td,div.lock-ask,li.lock-ask{padding:8px 10px;background:#fff3c4;color:#452600;font-size:15px;font-weight:600}
+li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.lock-ask button{min-height:36px;margin-left:8px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;cursor:pointer}
+.lock-ask .lock-yes{border-color:#145fa9;background:#145fa9;color:#fff}
+.lock-ask button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .pay-list .void-prompt td{height:auto;padding:6px;background:transparent}
-.void-box{display:grid;gap:6px;padding:8px 10px;border:1px solid #e0a46b;border-radius:6px;background:#fff8f1;font-size:13px;color:#162d48}
-.void-head{font-size:14px}.void-note{margin:0;color:#5d4a36;font-size:12px;line-height:1.4}
-.void-label{display:flex;flex-direction:column;gap:2px;font-size:12px;font-weight:600;color:#3e5871}
+.void-box{display:grid;gap:6px;padding:8px 10px;border:1px solid #e0a46b;border-radius:6px;background:#fff8f1;font-size:14px;color:#162d48}
+.void-head{font-size:14px}.void-note{margin:0;color:#5d4a36;font-size:14px;line-height:1.4}
+.void-label{display:flex;flex-direction:column;gap:2px;font-size:14px;font-weight:600;color:#3e5871}
 .void-prompt .void-label input{width:100%;min-width:0;height:34px;padding:0 8px;border:1px solid #c98a55;border-radius:4px;background:#fff;font-size:15px;font-weight:400}
 .void-actions{display:flex;justify-content:flex-end;gap:8px}
 .void-prompt .void-actions button{min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:14px}
@@ -185,7 +215,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger .spacer td{height:16px;padding:0;background:#eef3f8;border:0}
 .ledger-book section:last-child .spacer td{height:calc(100vh - var(--banner) - var(--bar) - var(--head) - var(--chips) - var(--cols))}
 .receipt-ref{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#425b73;text-align:right;cursor:pointer}.receipt-ref.voided{text-decoration:line-through}.receipt-allocation{display:block;font-size:12px;line-height:1.3;font-weight:400;color:#5d6f82;text-align:right;white-space:normal}.receipt-reference{display:block;width:100%;min-width:0;min-height:26px;margin-top:2px;font:inherit;font-size:13px;color:#162d48}
-.muted{color:#475d73}.empty-entry{display:block;min-height:28px}
+.muted{color:#475d73}
 /* SO-GON-04: thanh chip tháng dính trên tiêu đề cột; chip đang tô = tháng ở trên cùng vùng dữ liệu. Tháng thu gọn chỉ còn
    thanh tháng. Vùng bấm cao 40px. */
 .month-chips{position:sticky;top:calc(var(--banner) + var(--bar) + var(--head));z-index:32;display:flex;gap:4px;height:var(--chips);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;background:#eef3f8;border-bottom:1px solid #9eb4ca}
@@ -215,7 +245,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .ledger tr.sheet-removed td:not(.pay){background:#e9ddff!important}
 .sheet-removed-tag{display:block;color:#4b2a86;font-weight:700}
 .sheet-removed-actions{display:flex;gap:5px;margin-top:4px}
-.sheet-removed-actions button{min-height:28px;padding:2px 8px;border:1px solid #7a62ad;border-radius:4px;background:#fff;color:#3d2470;font:inherit;font-size:13px;cursor:pointer}
+.sheet-removed-actions button{min-height:28px;padding:2px 8px;border:1px solid #7a62ad;border-radius:4px;background:#fff;color:#3d2470;font:inherit;font-size:14px;cursor:pointer}
 .sheet-removed-actions .sheet-removed-delete{background:#4b2a86;color:#fff}
 .sheet-removed-actions button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .ledger tr.loc-hit td:not(.pay){background:#fff1c2!important}
@@ -230,11 +260,11 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .sheet-detail-fields{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:8px}
 .sheet-detail-field{min-width:0;padding:7px 8px;background:#fff;border:1px solid #e5bcbc;border-radius:4px}
 .sheet-detail-field.sheet-value-conflict{border-color:#a94c4c;background:#fff8f8}
-.sheet-detail-label{display:block;color:#7f1616;font-size:11px;font-weight:700}
+.sheet-detail-label{display:block;color:#7f1616;font-size:14px;font-weight:700}
 .sheet-detail-web{display:block;margin-top:4px;color:#425b73}
 .sheet-detail-field strong{display:block;margin-top:2px;overflow-wrap:anywhere}
 .sheet-choice-actions{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
-.sheet-choice-actions button{min-height:28px;padding:2px 7px;border:1px solid #b47c7c;border-radius:4px;background:#fff;color:#732020;font:inherit;font-size:12px;cursor:pointer}
+.sheet-choice-actions button{min-height:28px;padding:2px 7px;border:1px solid #b47c7c;border-radius:4px;background:#fff;color:#732020;font:inherit;font-size:14px;cursor:pointer}
 .sheet-choice-actions button[data-sheet-decision="use_sheet"]{background:#732020;color:#fff}
 .sheet-detail-status{margin:8px 0 0;padding:6px 8px;background:#fff3d6;font-weight:600}
 .sheet-choice-actions button:disabled{opacity:.55;cursor:wait}
@@ -258,7 +288,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-table-open{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;white-space:nowrap}
 .price-table-apply{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .price-table-open:focus-visible,.price-table-apply:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
-.ledger td small.price-hint{display:block;margin-top:2px;color:#3e5871;font-size:12px;line-height:1.25;font-weight:400;white-space:normal;overflow-wrap:anywhere}
+.ledger td small.price-hint{display:block;margin-top:2px;color:#3e5871;font-size:14px;line-height:1.25;font-weight:400;white-space:normal;overflow-wrap:anywhere}
 .ledger td small.price-ready{color:#1846a3;font-weight:600}
 .ledger td small.price-diff{color:#7a4f00;font-weight:600}
 .ledger td.price-differs{background:#fff3d1}
@@ -321,8 +351,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-ship-count.none{color:#7a4f00}
 .price-ship-note{margin:8px 0 0;max-width:250px;color:#3e5871;font-size:15px}
 .ledger tr.from-sheet td{background:#fff6d6}
-.sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:11px;font-style:normal}
-.moved-tag{color:#6b4a00;font-size:12px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}
+.sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:14px;font-style:normal}
+.moved-tag{color:#6b4a00;font-size:14px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}
 .ghost td{height:32px;background:#f6f7f9;color:#475d73;font-style:italic}
 .move-ask td{padding:8px 10px;background:#fff3c4;color:#452600;font-weight:700}
 .ghost button,.move-ask button{min-height:30px;margin-left:8px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-style:normal;cursor:pointer}
@@ -342,7 +372,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-outside{justify-content:flex-start;border-top:2px solid #9eb8d1;margin-top:6px;font-weight:700}
 .offset-none{margin:0;padding:14px 8px;color:#475d73;font-size:16px;text-align:center}
 .offset-link{display:block;font-size:14px;font-weight:700;color:#075fa2;text-decoration:underline;overflow-wrap:anywhere}
-.offset-method{font-size:13px}
+.offset-method{font-size:15px}
 .offset-backdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:#10243a88}
 .offset-dialog{width:min(660px,94vw);max-height:92vh;overflow:auto;padding:20px 24px;background:#fff;border:1px solid #8cacc9;border-radius:8px;box-shadow:0 18px 60px #031d3655;font-size:16px}
 .offset-dialog h2{margin:0 0 12px;font-size:20px;color:#173d66}
@@ -359,7 +389,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-actions button,.offset-void-prompt button{min-height:44px;padding:0 18px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:16px;cursor:pointer}
 .offset-actions .offset-confirm,.offset-void-prompt .confirm-offset-void{background:#145fa9;border-color:#145fa9;color:#fff;font-weight:700}
 .offset-actions button:disabled{opacity:.6;cursor:wait}
-.review-open{min-height:34px;font:inherit;font-weight:700;color:#7a4b00;background:#fff3d6;border:2px solid #b87400;border-radius:4px;cursor:pointer}.review-prompt td{background:#fff3d6;font-size:16px}.review-prompt input{min-height:32px;min-width:300px;font:inherit}.review-prompt button{min-height:32px;font:inherit;cursor:pointer}.trip-rejected{text-decoration:line-through;color:#475d73;font-weight:700}
+.row-tag{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border-radius:99px;font:inherit;font-size:15px;font-weight:700;white-space:nowrap}.row-tag.review{border:1px solid #b87400;background:#fff3d6;color:#7a4b00}button.row-tag{min-height:34px;cursor:pointer}.row-tag.rejected{background:#eceff2;color:#475d73;text-decoration:line-through}.review-prompt td{background:#fff3d6;font-size:16px}.review-prompt input{min-height:32px;min-width:300px;font:inherit}.review-prompt button{min-height:32px;font:inherit;cursor:pointer}
 .offset-void-prompt td{font-size:16px}.offset-void-head{margin-bottom:8px;line-height:1.5}
 .offset-void-prompt input{min-height:40px;min-width:280px;font:inherit;font-size:16px}
 @media(max-width:1877px){
@@ -368,7 +398,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 }
 @media(max-width:700px){:root{--bar:0px}.topbar{position:static;height:auto;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar nav{order:3;width:100%;gap:14px;min-height:42px}}
 /* CHUNG-TU-01: ảnh chứng từ phiếu thu */
-.image-clip{margin-left:6px;min-width:40px;min-height:26px;padding:0 4px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:12px;cursor:pointer}
+.image-clip{margin-left:6px;min-width:40px;min-height:26px;padding:0 4px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:14px;cursor:pointer}
 .image-clip.none{border-color:transparent;background:none;color:#5d6f82}
 .image-drop{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:6px 8px;border:2px dashed #8daac9;border-radius:6px;background:#fff}
 .image-drop.over{border-color:#1e4e8c;background:#e8f1fc}
@@ -398,3 +428,15 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .load-error{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:16px 4px;padding:12px 16px;border:1px solid #efb7b7;border-radius:8px;background:#fdecec;color:#8a1414;font-size:16px}
 .load-error p{margin:0}.load-retry{min-height:40px;padding:0 18px;border:1px solid #a01616;border-radius:6px;background:#fff;color:#8a1414;font:inherit;font-weight:700;cursor:pointer}
 .load-retry:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* SO-GON-04 (L7): đầu sổ dính chỉ còn ô tìm khách, nút chính Ghi phiếu thu, Lịch sử và tổng còn nợ; các nút khác và
+   "Cập nhật · Làm mới" (dời khỏi thanh xanh) ở dải ngay dưới, không dính. Vùng bấm 40px. */
+.book-head .history-toggle{min-height:40px;padding:0 14px;font-size:15px}
+.book-bar{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin:8px 0 4px}
+.book-tasks{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.book-tasks button{min-height:40px;padding:0 14px;font-size:15px}
+.live-controls{display:flex;align-items:center;gap:10px;white-space:nowrap}#live-controls:not(.book-bar *){padding:6px 14px}
+.book-bar .live-slot{margin-left:auto}
+.live-controls time{font-size:14px;color:#3e5871}
+.live-controls time.sheet-busy{color:#174d82;font-weight:600}.live-controls time.sheet-error{color:#a01616;font-weight:600}
+#refresh-data,.live-controls .presence-toggle{min-height:40px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+#refresh-data:disabled{opacity:.55;cursor:default}#refresh-data:focus-visible{outline:3px solid #145fa9;outline-offset:2px}

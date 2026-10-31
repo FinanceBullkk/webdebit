@@ -27,8 +27,9 @@
     const own = ctx.feeColumnIds.map((id, index) => `<td class="num fee own${editable ? ' fee-edit' : ''}" data-fee-target="${target}" `
       + `data-fee-type="${id}"${editable ? ` tabindex="0" role="button" aria-label="Sửa ${escape(feeTypeName(id))} ${escape(what)}"` : ''}>`
       + `${cells.own[index] === null ? '' : model.formatVnd(cells.own[index])}</td>`).join('');
+    // SO-GON-04 (P0-4): ô Khác trống ghi "–"; "+ thêm" chỉ hiện khi rê chuột, đứng ở dòng hoặc tick chọn dòng (CSS).
     const other = cells.otherCount ? `<span class="fee-sum">${model.formatVnd(cells.otherVnd)}</span><small>${cells.otherCount} khoản</small>`
-      : editable ? '<span class="fee-plus">+ thêm</span>' : '';
+      : editable ? '<span class="fee-dash" aria-hidden="true">–</span><span class="fee-plus">+ thêm</span>' : '';
     return `${own}<td class="num fee fee-other" data-field="other_fee_vnd" data-fee-target="${target}" tabindex="0" role="button" `
       + `aria-label="Chi tiết phụ phí ${escape(what)}">${other}</td>`;
   };
@@ -90,10 +91,11 @@
     const price = pending || trip?.status === 'rejected' || locked ? num(priceText)
       : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" `
         + `role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${priceText}</td>` : empty('num');
-    const amount = !trip ? empty('num') : pending && locked ? num('CHỜ KIỂM')
-      : pending ? `<td class="num review-cell"><button type="button" class="review-open" data-trip="${trip.id}" aria-expanded="false" `
-        + `aria-label="Kết luận chuyến ${escape(trip.container)} đang CHỜ KIỂM">CHỜ KIỂM</button></td>`
-      : trip.status === 'rejected' ? '<td class="num trip-rejected">ĐÃ LOẠI</td>' : num(fmt(trip.amount_vnd));
+    // SO-GON-04 (L5): trạng thái dòng là nhãn chữ có nền màu ở cột Thành tiền — "chờ kiểm" bấm mở dòng kết luận, "đã loại" gạch.
+    const amount = !trip ? empty('num') : pending && locked ? '<td class="num"><span class="row-tag review">chờ kiểm</span></td>'
+      : pending ? `<td class="num review-cell"><button type="button" class="review-open row-tag review" data-trip="${trip.id}" aria-expanded="false" `
+        + `aria-label="Kết luận chuyến ${escape(trip.container)} đang chờ kiểm">chờ kiểm</button></td>`
+      : trip.status === 'rejected' ? '<td class="num"><span class="trip-rejected row-tag rejected">đã loại</span></td>' : num(fmt(trip.amount_vnd));
     return `<tr${rowKey ? ` data-row="${rowKey}"` : ''}${moved.has(rowKey) ? ' class="moved"' : ''}>${stt}
             ${infoCells}
             ${price}

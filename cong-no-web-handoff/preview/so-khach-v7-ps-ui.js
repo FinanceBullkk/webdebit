@@ -81,11 +81,12 @@
       row.classList.add(psView === 'confirm' ? 'ps-plan' : 'ps-ready');
       if (psView === 'confirm') showLines(row, item.after);
     }
-    const head = root.querySelector('.book-head');
-    if (!head) return;
-    if (ready.length && psView !== 'confirm') head.querySelector('.total')?.insertAdjacentHTML('beforebegin', `<button type="button" class="ps-approve">Tách ${ready.length} phụ phí theo bảng PS</button>`);
+    // SO-GON-04 (L7): nút việc chờ nằm ở dải ngay dưới đầu sổ, cùng các nút ghi từ Sheet.
+    const bar = root.querySelector('.book-bar');
+    if (!bar) return;
+    if (ready.length && psView !== 'confirm') bar.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', `<button type="button" class="ps-approve">Tách ${ready.length} phụ phí theo bảng PS</button>`);
     // Một dải "cần xem" chung với giá từ Sheet; chưa có dải đó thì tự tạo.
-    let anchor = head;
+    let anchor = bar;
     while (anchor.nextElementSibling?.matches('.price-strip,.price-panel')) anchor = anchor.nextElementSibling;
     const toggle = ps.unavailable ? '<span class="ps-unavailable">Chưa đọc được bảng PS; nút tách phụ phí tạm ẩn tới lần đọc sau.</span>'
       : review.length ? `Phụ phí PS cần xem: <strong>${review.length}</strong> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '';

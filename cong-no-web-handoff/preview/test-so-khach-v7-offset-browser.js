@@ -58,15 +58,19 @@ function reply(res, status, body) {
 
 test('CSM: optional reference, inline edit/clear, duplicate warns but saves, lock history has both actions', async () => withPage(async ({ page, world, open }) => {
   await open(1);
+  await openEntry(page);
   assert.equal(await page.getByLabel('Tham chiếu', { exact: true }).count(), 1);
+  // SO-GON-04: khung Ghi phiếu thu → Enter ra bước xem lại → Ghi phiếu; xong thì băng kết quả hiện mã phiếu.
   async function pay(reference) {
     const expected = world.books[1].receipts.length + 1;
-    await page.locator('.receipt-date:not(.saved-receipt-input)').fill(viDate(dayInMonth));
-    await page.locator('.receipt-reference').fill(reference);
-    await page.locator('.receipt-amount').fill('10');
-    await page.locator('.receipt-amount').press('Enter');
+    await openEntry(page);
+    await page.locator('.entry-drawer .receipt-date').fill(viDate(dayInMonth));
+    await page.locator('.entry-drawer .receipt-reference').fill(reference);
+    await page.locator('.entry-drawer .receipt-amount').fill('10');
+    await page.locator('.entry-drawer .receipt-amount').press('Enter');
+    await page.locator('.entry-drawer .receipt-save').click();
     await page.waitForFunction(count => document.querySelectorAll('[data-field="reference"]').length === count, expected);
-    await page.waitForFunction(() => /Đã lưu/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+    await page.waitForFunction(() => /Đã ghi phiếu PH-/.test(document.querySelector('.saved-strip')?.textContent ?? ''));
   }
   await pay('');
   assert.equal(world.books[1].receipts[0].reference, null);
@@ -84,12 +88,14 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
   await page.waitForFunction(() => document.querySelector('[data-pid="PH-021"][data-field="reference"]')?.classList.contains('empty'));
   await pay('FAKE USD/rate text');
   assert.equal(world.books[1].receipts.length, 3);
-  await page.waitForFunction(() => /Tham chiếu trùng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
-  assert.match(await page.locator('.live-notice').innerText(), /Tham chiếu trùng/);
+  assert.match(await page.locator('.saved-strip').innerText(), /Tham chiếu trùng/);
+  // SO-GON-04 (H6): khóa và mở khóa đều hỏi một câu; bấm Khóa/Mở khóa tháng mới gửi lệnh.
   const lock = page.locator('.month-lock');
   await lock.click();
+  await page.locator('.lock-yes').click();
   await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'false');
   await lock.click();
+  await page.locator('.lock-yes').click();
   await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'true');
   await page.locator('.history-toggle').click();
   const history = await page.locator('#history-panel').innerText();
@@ -165,9 +171,10 @@ function handleApi(world, req, res, url, body) {
     const self = world.books[body.customer_id];
     const reference = body.reference?.trim() || null;
     const duplicate = reference !== null && self.receipts.some(item => item.reference === reference);
-    self.receipts.push({ pid: `PH-${String(21 + self.receipts.length).padStart(3, '0')}`, reference, date: body.date, method: body.method, amount: BigInt(body.amount_vnd) });
+    const pid = `PH-${String(21 + self.receipts.length).padStart(3, '0')}`;
+    self.receipts.push({ pid, reference, date: body.date, method: body.method, amount: BigInt(body.amount_vnd) });
     bump(self);
-    return reply(res, 200, { receipt: 'ok', duplicate_reference: duplicate });
+    return reply(res, 200, { pid, duplicate_reference: duplicate });
   }
   if (url.pathname === '/api/v7/receipts/meta') {
     const self = world.books[body.customer_id], receipt = self.receipts.find(item => item.pid === body.pid);
@@ -226,7 +233,13 @@ async function withPage(fn) {
 
 const notice = page => page.locator('.live-notice');
 
+// SO-GON-04: phiếu thu (cả CẤN TRỪ) nhập ở khung "Ghi phiếu thu" mở từ nút ở đầu sổ.
+async function openEntry(page) {
+  if (await page.locator('.entry-drawer').isHidden()) await page.locator('.entry-open').click();
+}
+
 async function fillEntry(page, date, amount) {
+  await openEntry(page);
   await page.locator('.receipt-method').selectOption('CẤN TRỪ');
   await page.locator('.receipt-date').fill(viDate(date));
   await page.locator('.receipt-amount').fill(amount);
@@ -257,6 +270,7 @@ test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo m�
 
 test('chọn CẤN TRỪ hiện ô Lấy từ sổ; danh sách xếp A→Z, có Ngoài sổ, lọc theo tên', async () => withPage(async ({ page, open, shot }) => {
   await open(1);
+  await openEntry(page);
   assert.equal(await page.locator('.offset-source-row').count(), 0);
   await page.locator('.receipt-method').selectOption('CẤN TRỪ');
   await page.locator('.offset-source-select').waitFor();
@@ -373,7 +387,10 @@ test('Ngoài sổ ghi như thu thường, không hỏi sổ bên kia', async () 
   await page.locator('.offset-outside').click();
   assert.match(await page.locator('.offset-source-select').innerText(), /Ngoài sổ/);
   await page.locator('.receipt-amount').press('Enter');
-  await page.waitForFunction(() => document.querySelector('.live-notice')?.textContent === 'Đã lưu.');
+  // Ngoài sổ: không có hộp cấn trừ, đi bước xem lại như phiếu thường.
+  assert.match(await page.locator('.entry-review').innerText(), /Ghi phiếu 5\.000\.000 đ · CẤN TRỪ/);
+  await page.locator('.receipt-save').click();
+  await page.locator('.saved-strip').waitFor();
   assert.equal(await page.locator('.offset-dialog').count(), 0);
   assert.deepEqual(world.requests.map(item => item.path), ['/api/v7/receipts']);
   assert.equal(world.requests[0].body.method, 'CẤN TRỪ');
@@ -467,13 +484,14 @@ test('đổi ngày cấn trừ từ sổ nhận: gửi version cả hai sổ, b�
 test('không có sổ nào đang dư: báo rõ và vẫn còn Ngoài sổ', async () => withPage(async ({ page, world, open }) => {
   world.books[2].base = 0n; world.books[3].base = 0n;
   await open(1);
+  await openEntry(page);
   await page.locator('.receipt-method').selectOption('CẤN TRỪ');
   await page.locator('.offset-source-select').click();
   assert.match(await page.locator('.offset-none').innerText(), /Không có sổ nào đang dư tiền/);
   assert.equal(await page.locator('.offset-outside').count(), 1);
 }));
 
-test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không gửi, Loại → ĐÃ LOẠI gạch ngang, Tính vào sổ gửi đúng lệnh', async () => withPage(async ({ page, world, open, shot }) => {
+test('CHỜ KIỂM: bấm nhãn "chờ kiểm" mở dòng kết luận, lý do trống không gửi, Loại → "đã loại" gạch ngang, Tính vào sổ gửi đúng lệnh', async () => withPage(async ({ page, world, open, shot }) => {
   world.books[1].review = [{ id: 11, container: 'DEMO-HELD-1', status: 'pending_review', reason: 'BASELINE_CODE_MATCH' },
     { id: 12, container: 'DEMO-HELD-2', status: 'pending_review', reason: null }];
   await open(1);
@@ -489,7 +507,7 @@ test('CHỜ KIỂM: bấm nút mở dòng kết luận, lý do trống không g�
   await page.waitForFunction(() => document.querySelectorAll('.trip-rejected').length === 1);
   assert.deepEqual({ ...world.requests[0].body, idempotency_key: typeof world.requests[0].body.idempotency_key },
     { customer_id: 1, expected_version: 1, idempotency_key: 'string', trip_id: 11, decision: 'reject', reason: 'trùng dòng sổ gốc' });
-  assert.equal(await page.locator('.trip-rejected').innerText(), 'ĐÃ LOẠI');
+  assert.equal(await page.locator('.trip-rejected').innerText(), 'đã loại');
   assert.match(await page.locator('.trip-rejected').evaluate(el => getComputedStyle(el).textDecorationLine), /line-through/);
   assert.equal(await page.locator('.review-open').count(), 1);
   await page.locator('.review-open[data-trip="12"]').click();

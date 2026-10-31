@@ -39,10 +39,15 @@
   let widths = colTags(0, wide.length);
   let ownCount = 0;
   // Bề rộng từng cột ở hai khổ sổ (1696px màn rộng, 1258px màn 1280): [màn rộng, tối thiểu màn rộng, màn 1280, tối thiểu màn 1280].
-  // Mỗi cột riêng lấy chỗ từ các cột theo thứ tự `shrinkOrder`, không cột nào hẹp hơn mức tối thiểu; 3 cột riêng vừa khít 1258px.
-  const liveColumns = [[52, 44, 44, 40], [148, 120, 112, 108], [104, 80, 62, 58], [188, 120, 150, 90], [104, 96, 90, 86], [118, 90, 80, 70],
-    [118, 90, 80, 70], [128, 110, 88, 84], [116, 100, 80, 76], [148, 120, 100, 96], [124, 100, 96, 84], [124, 100, 90, 78], [224, 150, 186, 120]];
+  // Mỗi cột riêng lấy chỗ từ các cột theo thứ tự `shrinkOrder`, không cột nào hẹp hơn mức tối thiểu.
+  // SO-GON-04 (H4): số tiền 16px, nên ở màn 1280 cột tiền (Đơn giá, Khác, Thành tiền) không co dưới chỗ cần cho số 16px; cột chữ
+  // (cắt "…", rê chuột xem đủ) co trước. Co hết vẫn thiếu (Shipper + 3 cột riêng) thì cả sổ dùng khổ chật: số 15px, cột tiền hẹp lại.
+  const liveColumns = [[52, 44, 44, 40], [148, 120, 112, 104], [104, 80, 62, 50], [188, 120, 130, 64], [104, 96, 90, 86], [118, 90, 80, 56],
+    [118, 90, 80, 56], [128, 110, 100, 100], [116, 100, 88, 88], [148, 120, 120, 120], [124, 100, 90, 84], [124, 100, 84, 78], [224, 150, 178, 120]];
   const shrinkOrder = [12, 3, 10, 11, 5, 6, 1, 2, 4, 7, 9, 8, 0];
+  // Khổ chật (chỉ màn 1280): cột riêng 80px, Đơn giá 92, Khác 80, Thành tiền 108 — vừa số 15px.
+  const TIGHT_OWN = 80, TIGHT_MONEY = [[7, 92], [8, 80], [9, 108]];
+  let tight = false;
   const isWide = () => typeof matchMedia !== 'function' || !matchMedia('(max-width:1877px)').matches;
   // Audit UX 31/10/2026 (P0-2): cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper (sổ thật và sổ giả hiện đều trống).
   // Bỏ cột thì cột phụ phí riêng lấy chỗ của nó trước; phần còn lại chia cho hãng tàu, nơi đi, nơi đến (cột chữ hay bị cắt "…").
@@ -50,7 +55,8 @@
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
   function useLiveColumns(ownNames, shipper = true) {
-    const wideMode = isWide(), ownWidth = wideMode ? 110 : 66;
+    const wideMode = isWide();
+    let ownWidth = wideMode ? 110 : 88;
     const base = liveColumns.map(item => wideMode ? item[0] : item[2]);
     const floor = liveColumns.map(item => wideMode ? item[1] : item[3]);
     if (!shipper) floor[SHIPPER] = 0;
@@ -58,6 +64,15 @@
     for (const index of shipper ? shrinkOrder : [SHIPPER, ...shrinkOrder.filter(item => item !== SHIPPER)]) {
       const take = Math.min(need, base[index] - floor[index]);
       base[index] -= take; need -= take;
+    }
+    tight = need > 0;
+    if (tight) {
+      need = Math.max(0, need - ownNames.length * (ownWidth - TIGHT_OWN));
+      ownWidth = TIGHT_OWN;
+      for (const [index, width] of TIGHT_MONEY) {
+        const take = Math.min(need, base[index] - width);
+        base[index] -= take; need -= take;
+      }
     }
     if (!shipper) {
       const spare = base[SHIPPER], carrier = Math.round(spare * 0.3), origin = Math.round(spare * 0.35);
@@ -210,10 +225,16 @@
   function renderShell(view) {
     const scrollY = window.scrollY;
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách (bản live: chính ô tìm khách, gõ để đổi), Lịch sử, tổng còn nợ.
+    // Bản live (SO-GON-04, L7): đầu sổ dính chỉ còn một nút chính "Ghi phiếu thu" và nút phụ Lịch sử; các nút khác (cài đặt
+    // phụ phí, bảng giá, việc chờ từ Sheet) và "Làm mới" ở dải ngay dưới đầu sổ, không dính.
     const picker = live && document.querySelector('#customer-picker');
-    const head = `<div class="book-head">${live ? '<div class="picker-slot"></div>' : `<h1>Sổ khách · ${escape(view.customer)}</h1>`}`
-      + `<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>${view.sheetButton ?? ''}`
-      + `<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>`;
+    const liveControls = live && document.querySelector('#live-controls');
+    const history = `<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>`;
+    const total = `<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>`;
+    const head = live
+      ? `<div class="book-head"><div class="picker-slot"></div>${view.entryButton}${history}${total}`
+        + `<div class="book-bar"><div class="book-tasks">${view.barButtons}</div><div class="live-slot"></div></div>`
+      : `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1>${history}${view.sheetButton ?? ''}${total}`;
     const payStart = live ? tripCols() : 9;
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
@@ -225,7 +246,7 @@
     const aside = `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
       + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
     root.innerHTML = [head,
-      `${view.notice ?? ''}<div class="layout"><div class="ledger-book">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
+      `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
         + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`,
       view.chips === undefined ? `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>${aside}`
         : `</div>${aside}`].join('\n    ');
@@ -240,6 +261,9 @@
       // Bấm vào tên là chọn hết chữ: gõ đè để tìm khách khác.
       if (!search.dataset.selectOnFocus) { search.dataset.selectOnFocus = '1'; search.addEventListener('focus', () => search.select()); }
     }
+    // "Cập nhật … · Làm mới" giữ trình nghe của sheet-refresh.js: chỉ dời vào dải dưới đầu sổ, như ô tìm khách.
+    const liveSlot = root.querySelector('.live-slot');
+    if (liveControls && liveSlot) liveSlot.append(liveControls);
     pinReceipts();
     window.scrollTo(0, scrollY);
   }
@@ -321,25 +345,13 @@
     let feeColumnIds = [];
     let feeTypes = [];
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
-    // Vẽ lại sổ từ bản đang có (không tải lại).
+    // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
+    // ở đó không mất khi vẽ lại.
     function redraw() {
-      if (!snapshot) return;
-      // Ô ghi thu đang gõ dở (hàng nhập phiếu của từng tháng mở): vẽ lại không được làm mất.
-      const typed = [...root.querySelectorAll('.receipt-date:not(.saved-receipt-input)')].flatMap(date => {
-        const row = date.closest('tr'), section = row.closest('section')?.id;
-        return [...row.querySelectorAll('.receipt-date, .receipt-method, .receipt-amount, .receipt-reference')]
-          .map(box => ({ section, name: box.className.match(/receipt-(date|method|amount|reference)/)[0], value: box.value }));
-      });
-      renderSnapshot(snapshot);
-      for (const box of typed) {
-        const target = box.section && root.querySelector(`#${CSS.escape(box.section)} .${box.name}:not(.saved-receipt-input)`);
-        if (target) target.value = box.value;
-      }
-      const offset = typed.find(box => box.name === 'receipt-method' && box.value === 'CẤN TRỪ');
-      const entryRow = offset && root.querySelector(`#${CSS.escape(offset.section)} .receipt-date:not(.saved-receipt-input)`)?.closest('tr');
-      if (entryRow) { entryRow.insertAdjacentHTML('afterend', sourceRowHtml); offsetState.row = entryRow; renderSourceCell(); }
+      if (snapshot) renderSnapshot(snapshot);
     }
-    // Thanh đầu sổ: tên khách, tổng còn nợ, băng thông báo và nút của các phần (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet).
+    // Thanh đầu sổ: tên khách, tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của
+    // các phần ngay dưới đầu sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7.
     function headView(data, active) {
       const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
       const shown = (message && message !== 'Đã lưu.') || !active || sheetNotice;
@@ -347,12 +359,13 @@
       const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
         + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       const newCount = data.sheet_sync?.new_count ?? 0;
-      const sheetButton = `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`
-        + (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
+      const barButtons = (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
         + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
-        + (ctx.receiptButton?.(data, active) ?? '');
+        + (ctx.receiptButton?.(data, active) ?? '')
+        + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`;
       return { customer: live.customerName(customerId) ?? `#${customerId}`,
-        total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice, sheetButton };
+        total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice,
+        entryButton: ctx.entryButton(active), barButtons };
     }
     // Vẽ cả sổ từ một bản GET; mọi số tiền lấy nguyên từ GET, trang không cộng trừ tiền. Bảng tháng: so-khach-v7-month-ui.js
     // (bảng chuyến: trips-ui, phiếu thu: pay-ui); Lịch sử: history-ui; thanh ?loc: loc-ui; móc sau khi vẽ của các phần khác.
@@ -380,6 +393,7 @@
       ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
+      ctx.entryAfterRender();
       monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
@@ -419,8 +433,7 @@
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
       busyChecks: [] };
     SoKhachV7Ctx.install(ctx, window.SoKhachV7LiveParts ?? {});
-    const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender, offsetState, sourceRowHtml,
-      renderSourceCell } = ctx;
+    const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
     // Audit UX 31/10/2026 (P1-6): đọc sổ lỗi thì một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
@@ -437,10 +450,9 @@
     firstRead();
     // Đang nhập hoặc đang mở chi tiết thì không tự cập nhật (vẽ lại sẽ xóa ô đang gõ hoặc đóng khung đang xem).
     const BUSY_OPEN = 'input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,'
-      + '.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])';
+      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden])';
     const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || root.querySelector(BUSY_OPEN)
-      || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
-      || [...root.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());
+      || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {
