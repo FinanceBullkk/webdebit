@@ -34,7 +34,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0');
+  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
@@ -113,7 +113,7 @@ test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số t
   const tripRow = page.locator('[data-row="trip-12"]');
   assert.match(await tripRow.locator('[data-field="unit_price_vnd"]').innerText(), /12\.500\.000\s*giá Sheet/);
   assert.match(await tripRow.innerText(), /12\.800\.000\s*chưa tính/);
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0');
+  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
   await shot('gia-sheet-1-cho-ghi');
   await button.click();
   const confirm = page.locator('.price-panel.confirm');

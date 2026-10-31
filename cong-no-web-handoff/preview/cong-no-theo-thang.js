@@ -22,7 +22,9 @@
   const vnd = F.toBig;
   const fmt = value => F.full(typeof value === 'bigint' ? value : vnd(String(value)));
   const signed = value => value == null ? '—' : F.full(typeof value === 'bigint' ? value : vnd(value));
-  const short = value => F.short(value, 'tr');
+  // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
+  // "Đơn vị: triệu đồng" ghi một lần ở tiêu đề cột Khách, cho 12 cột tháng vừa màn 1280 không cuộn ngang.
+  const inMillions = value => F.millions(value);
   const yearMin = 2000;
   const yearMax = currentYear + 1;
   const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -45,10 +47,13 @@
     }
   }
 
-  function showError(message) {
+  // Lỗi tải: một câu "chuyện gì · cần làm gì" và nút Thử lại tải lại đúng năm vừa hỏi; không hiện chữ của trình duyệt.
+  let retryLoad = null;
+  function showError(message, retry = null) {
     const el = $('#error');
     el.hidden = !message;
-    el.textContent = message || '';
+    retryLoad = retry;
+    el.innerHTML = message ? esc(message) + (retry ? ' <button type="button" class="btn" data-retry>Thử lại</button>' : '') : '';
   }
 
   const monthClass = month => 'm' + (month % 2 ? '' : ' even') + pickClass(month);
@@ -57,14 +62,14 @@
     const value = monthValue(customer, month);
     const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' (dư)' : '') + '"';
     if (value === 0n) return '<td class="' + monthClass(month) + '"></td>';
-    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(short(-value)) + '</button></td>';
+    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(inMillions(-value)) + '</button></td>';
     const step = F.heatStep(value);
-    return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(short(value)) + '</button></td>';
+    return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(inMillions(value)) + '</button></td>';
   }
 
   function totalCell(value, cls) {
     if (value === 0n) return '<td class="tot ' + cls + ' muted">—</td>';
-    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(short(-value)) : esc(short(value))) + '</td>';
+    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(inMillions(-value)) : esc(inMillions(value))) + '</td>';
   }
 
   function renderSummary(data) {
@@ -123,7 +128,7 @@
       return compareDesc(groupAll(a[1]), groupAll(b[1])) || a[0].localeCompare(b[0], 'vi');
     });
     const isCurrent = month => state.year === currentYear && month === currentMonth;
-    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách</th>' +
+    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách<span class="unit">Đơn vị: triệu đồng</span></th>' +
       MONTHS.map(month => '<th class="mh' + (month % 2 ? '' : ' even') + (isCurrent(month) ? ' cur' : '') + pickClass(month).replace(' dim', '') + '" scope="col">Tháng ' + month + '</th>').join('') +
       '<th class="tot" scope="col">Năm ' + state.year + '</th><th class="tot" scope="col">Mọi năm</th>';
     const parts = [];
@@ -139,7 +144,7 @@
     }
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
     const monthSums = MONTHS.map(month => F.sum(rows.map(customer => monthValue(customer, month))));
-    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(short(value))) + '</td>';
+    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(inMillions(value))) + '</td>';
     $('#heat-foot').innerHTML = '<tr><td class="khach">Tổng ' + rows.length + ' khách<span>đã trừ tiền khách dư</span></td>' + monthSums.map(footCell).join('') +
       footCell(F.sum(rows.map(customer => customer.total_year_vnd))) + footCell(F.sum(rows.map(customer => customer.total_all_vnd))) + '</tr>';
 
@@ -170,7 +175,7 @@
       const response = await fetch('/api/v7/receivables/matrix?year=' + encodeURIComponent(year), { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'Không tải được ma trận công nợ.');
-      validatePayload(payload, year);
+      try { validatePayload(payload, year); } catch { throw Object.assign(Error('invalid'), { invalid: true }); }
       if (request !== state.request) return;
       state.year = payload.year;
       state.data = payload;
@@ -188,7 +193,7 @@
       markUpdated();
     } catch (error) {
       if (request !== state.request) return;
-      showError(error.message);
+      showError(error?.invalid ? 'Số liệu ma trận không hợp lệ nên chưa hiện. Báo người quản trị kiểm tra nguồn số liệu.' : F.loadError('ma trận công nợ'), () => load(year));
       if (!state.data) $('#recon').textContent = '';
     }
   }
@@ -332,6 +337,7 @@
   $('#year-next').addEventListener('click', () => load(state.year + 1));
   const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };
   $('#refresh-data').addEventListener('click', () => load(state.year));
+  $('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]') && retryLoad) retryLoad(); });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   $('#find').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase('vi'); render(); });

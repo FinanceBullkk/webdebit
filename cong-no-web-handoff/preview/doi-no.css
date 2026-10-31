@@ -7,15 +7,21 @@
 #doi-no .filters .chip[aria-pressed="true"] { background: var(--accent, #1f6feb); color: #fff; border-color: transparent; }
 #doi-no .filters .chip b { font-variant-numeric: tabular-nums; opacity: .8; }
 
-#doi-no .rhead, #doi-no .rrow {
-  display: grid; align-items: center; gap: 10px;
+/* Audit UX 31/10/2026 P1-2: tiêu đề và mọi dòng nằm trên một lưới cột chung (subgrid), nên cột cuối (nút) rộng bằng nhau
+   và tiêu đề luôn thẳng với số bên dưới. */
+#doi-no .rgrid {
+  display: grid; column-gap: 10px;
   grid-template-columns: minmax(160px, 2fr) 92px 92px 108px 150px 150px auto;
 }
+#doi-no .rhead, #doi-no .rrow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; }
+#doi-no .rgrid > .empty { grid-column: 1 / -1; }
 #doi-no .rhead { padding: 6px 8px; font-size: 13px; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line, #e5e7eb); }
 #doi-no .rrow { padding: 8px; border-bottom: 1px solid var(--line, #eef0f3); }
 #doi-no .rrow:hover { background: var(--hover, #f7f9fc); }
 #doi-no .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 #doi-no .who .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#doi-no .who a.nm { color: var(--accent-ink); }
+#doi-no .who a.nm:hover { text-decoration: underline; }
 #doi-no .who small { color: var(--muted, #6b7280); white-space: nowrap; }
 #doi-no .num { text-align: right; font-variant-numeric: tabular-nums; }
 #doi-no .num.od { font-weight: 600; }
@@ -42,6 +48,7 @@
 .toast.bad { background: #b42318; }
 
 @media (max-width: 760px) {
+  #doi-no .rgrid { display: block; }
   #doi-no .rhead { display: none; }
   #doi-no .rrow { grid-template-columns: 1fr auto; row-gap: 4px; }
   #doi-no .rrow .when, #doi-no .rrow .st { grid-column: 1 / -1; }

@@ -401,10 +401,11 @@
       markUpdated();
       const open = Number(params().get('khach'));
       if (open && $('drawer').hidden) openDrawer(open);
-    } catch (error) {
+    } catch {
       const alert = document.querySelector('#error');
       alert.hidden = false;
-      alert.textContent = error.message;
+      // Audit UX 31/10/2026 (P1-6): một câu tiếng Việt "chuyện gì · cần làm gì" và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
+      alert.innerHTML = `${esc(F.loadError('tổng quan công nợ'))} <button type="button" class="btn" data-retry>Thử lại</button>`;
       if (!root.querySelector('.grid')) root.replaceChildren();
     } finally { loading = false; }
   }
@@ -412,6 +413,7 @@
   readUrl();
   load();
   const refresh = () => { if (document.activeElement?.id === 'customer-search' || !$('drawer').hidden) return; load(); sheetRefresh?.load(); };
+  document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });
