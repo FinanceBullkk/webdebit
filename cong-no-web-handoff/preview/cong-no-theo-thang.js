@@ -18,20 +18,21 @@
   const pickClass = month => state.age == null ? '' : ageOf(month) === state.age ? ' pick' : ' dim';
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
   const $ = selector => document.querySelector(selector);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[ch]);
+  const { esc, commodityText, monthTag } = F;
   const vnd = F.toBig;
   const fmt = value => F.full(typeof value === 'bigint' ? value : vnd(String(value)));
   const signed = value => value == null ? '—' : F.full(typeof value === 'bigint' ? value : vnd(value));
-  const short = value => F.short(value, 'tr');
+  // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
+  // "Đơn vị: triệu đồng" ghi một lần ở tiêu đề cột Khách, cho 12 cột tháng vừa màn 1280 không cuộn ngang.
+  const inMillions = value => F.millions(value);
   const yearMin = 2000;
   const yearMax = currentYear + 1;
   const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
   const yearTotal = customer => vnd(customer.total_year_vnd);
   const allTotal = customer => vnd(customer.total_all_vnd);
   const monthValue = (customer, month) => vnd(customer.months?.[String(month)]);
-  const transportText = mode => ({ CANG: 'cảng', 'CẢNG': 'cảng', BO: 'bộ', 'BỘ': 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
   // Nhóm theo mặt hàng · phương thức, như Tổng quan; '' là chưa phân loại.
-  const groupKey = customer => customer.commodity ? customer.commodity + (transportText(customer.transport_mode) ? ' · ' + transportText(customer.transport_mode) : '') : '';
+  const groupKey = customer => customer.commodity ? commodityText(customer.commodity, customer.transport_mode) : '';
   const groupLabel = key => key || 'Chưa phân loại';
   const compareDesc = (a, b) => (b > a ? 1 : b < a ? -1 : 0);
 
@@ -46,10 +47,13 @@
     }
   }
 
-  function showError(message) {
+  // Lỗi tải: một câu "chuyện gì · cần làm gì" và nút Thử lại tải lại đúng năm vừa hỏi; không hiện chữ của trình duyệt.
+  let retryLoad = null;
+  function showError(message, retry = null) {
     const el = $('#error');
     el.hidden = !message;
-    el.textContent = message || '';
+    retryLoad = retry;
+    el.innerHTML = message ? esc(message) + (retry ? ' <button type="button" class="btn" data-retry>Thử lại</button>' : '') : '';
   }
 
   const monthClass = month => 'm' + (month % 2 ? '' : ' even') + pickClass(month);
@@ -58,14 +62,14 @@
     const value = monthValue(customer, month);
     const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' (dư)' : '') + '"';
     if (value === 0n) return '<td class="' + monthClass(month) + '"></td>';
-    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(short(-value)) + '</button></td>';
+    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(inMillions(-value)) + '</button></td>';
     const step = F.heatStep(value);
-    return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(short(value)) + '</button></td>';
+    return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(inMillions(value)) + '</button></td>';
   }
 
   function totalCell(value, cls) {
     if (value === 0n) return '<td class="tot ' + cls + ' muted">—</td>';
-    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(short(-value)) : esc(short(value))) + '</td>';
+    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(inMillions(-value)) : esc(inMillions(value))) + '</td>';
   }
 
   function renderSummary(data) {
@@ -124,7 +128,7 @@
       return compareDesc(groupAll(a[1]), groupAll(b[1])) || a[0].localeCompare(b[0], 'vi');
     });
     const isCurrent = month => state.year === currentYear && month === currentMonth;
-    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách</th>' +
+    $('#heat-head').innerHTML = '<th class="khach" scope="col">Khách<span class="unit">Đơn vị: triệu đồng</span></th>' +
       MONTHS.map(month => '<th class="mh' + (month % 2 ? '' : ' even') + (isCurrent(month) ? ' cur' : '') + pickClass(month).replace(' dim', '') + '" scope="col">Tháng ' + month + '</th>').join('') +
       '<th class="tot" scope="col">Năm ' + state.year + '</th><th class="tot" scope="col">Mọi năm</th>';
     const parts = [];
@@ -140,7 +144,7 @@
     }
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
     const monthSums = MONTHS.map(month => F.sum(rows.map(customer => monthValue(customer, month))));
-    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(short(value))) + '</td>';
+    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(inMillions(value))) + '</td>';
     $('#heat-foot').innerHTML = '<tr><td class="khach">Tổng ' + rows.length + ' khách<span>đã trừ tiền khách dư</span></td>' + monthSums.map(footCell).join('') +
       footCell(F.sum(rows.map(customer => customer.total_year_vnd))) + footCell(F.sum(rows.map(customer => customer.total_all_vnd))) + '</tr>';
 
@@ -171,7 +175,7 @@
       const response = await fetch('/api/v7/receivables/matrix?year=' + encodeURIComponent(year), { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'Không tải được ma trận công nợ.');
-      validatePayload(payload, year);
+      try { validatePayload(payload, year); } catch { throw Object.assign(Error('invalid'), { invalid: true }); }
       if (request !== state.request) return;
       state.year = payload.year;
       state.data = payload;
@@ -189,7 +193,7 @@
       markUpdated();
     } catch (error) {
       if (request !== state.request) return;
-      showError(error.message);
+      showError(error?.invalid ? 'Số liệu ma trận không hợp lệ nên chưa hiện. Báo người quản trị kiểm tra nguồn số liệu.' : F.loadError('ma trận công nợ'), () => load(year));
       if (!state.data) $('#recon').textContent = '';
     }
   }
@@ -241,7 +245,6 @@
   }
 
   // Phiếu thu theo ngày thu trong tháng, kèm kỳ đang được trừ; phần đã thu không có phiếu web là số Sheet hoặc cấn trừ đi.
-  const monthLabel = iso => 'T' + Number(iso.slice(5, 7)) + (Number(iso.slice(0, 4)) === state.year ? '' : '/' + iso.slice(0, 4));
   function receiptsHtml(ledger) {
     const receipts = ledger.receipts;
     const received = vnd(ledger.received_vnd);
@@ -251,7 +254,7 @@
     const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
     const row = receipt => {
       const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
-      const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthLabel(line.month)).join(', ') || '—';
+      const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthTag(line.month, state.year)).join(', ') || '—';
       return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
     };
     let html = '<h3>Phiếu thu trong tháng (' + receipts.length + ')</h3>';
@@ -334,6 +337,7 @@
   $('#year-next').addEventListener('click', () => load(state.year + 1));
   const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };
   $('#refresh-data').addEventListener('click', () => load(state.year));
+  $('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]') && retryLoad) retryLoad(); });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   $('#find').addEventListener('input', event => { state.query = event.target.value.trim().toLocaleLowerCase('vi'); render(); });

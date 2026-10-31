@@ -75,6 +75,24 @@ test('Đòi nợ: liệt kê khách quá hạn, trạng thái nhắc, lọc chư
   assert.deepEqual(await page.locator('.rrow .nm').allInnerTexts(), ['Khách D', 'Khách E']);
 }));
 
+// Audit UX 31/10/2026 (đợt 1, P0-6/P1-2): ngày dd/mm/yyyy, tên khách là liên kết mở sổ, tiêu đề cột cùng lưới với các dòng.
+test('Đòi nợ: ngày dd/mm/yyyy, tên khách mở sổ khách, tiêu đề cột thẳng với số bên dưới', async () => withPage({}, async page => {
+  await page.locator('.rrow').first().waitFor();
+  const cRow = page.locator('.rrow').filter({ hasText: 'Khách C' });
+  assert.deepEqual(await cRow.locator('.when').allInnerTexts(), ['chưa có', '20/10/2026 · 9 ngày trước']);
+  assert.equal(await page.locator('.rrow').filter({ hasText: 'Khách E' }).locator('.when').first().innerText(), '10/03/2024');
+  for (const text of await page.locator('.rrow .when').allInnerTexts()) assert.doesNotMatch(text, /\d{4}-\d{2}-\d{2}/);
+  assert.equal(await cRow.locator('a.nm').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  // Mỗi ô của từng dòng thẳng mép trái/phải với ô tiêu đề cùng cột (lệch tối đa 1px).
+  const aligned = await page.evaluate(() => {
+    const edges = el => { const box = el.getBoundingClientRect(); return [box.left, box.right]; };
+    const head = [...document.querySelector('.rhead').children].map(edges);
+    return [...document.querySelectorAll('.rrow')].map(row => [...row.children].map(edges)
+      .every(([left, right], index) => Math.abs(left - head[index][0]) <= 1 && Math.abs(right - head[index][1]) <= 1));
+  });
+  assert.deepEqual(aligned, [true, true, true]);
+}));
+
 test('Copy tin nhắc: ghi mốc đã nhắc (POST reminder) và cập nhật dòng ngay', async () => {
   const posted = [];
   await withPage({ posted }, async page => {

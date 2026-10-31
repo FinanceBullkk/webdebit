@@ -223,6 +223,81 @@ test('bàn phím: Enter trên ô mở sửa; 1280×720 không cuộn ngang', asy
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 }));
 
+// Audit UX 31/10/2026 (đợt 1): Esc đóng bảng Lịch sử, tiêu điểm về nút "Lịch sử"; Esc trong ô đang sửa chỉ bỏ sửa ô đó.
+test('Lịch sử: Esc đóng bảng và trả tiêu điểm về nút Lịch sử; Esc trong ô đang sửa không đóng bảng', async () => withPage(async ({ page }) => {
+  const panel = page.locator('#history-panel');
+  const toggleFocused = () => page.evaluate(() => document.activeElement?.classList.contains('history-toggle'));
+  await page.locator('.history-toggle').click();
+  await panel.waitFor();
+  await tripCell(page, 'carrier').click();
+  await page.locator('.info-input').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.info-input').count(), 0);
+  assert.equal(await panel.isVisible(), true);
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.history-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await toggleFocused(), true);
+  await page.keyboard.press('Enter');
+  await panel.waitFor();
+  await page.locator('.history-close').click();
+  await panel.waitFor({ state: 'hidden' });
+  assert.equal(await toggleFocused(), true);
+}));
+
+// Audit UX 31/10/2026 (đợt 1, P0-2, P0-6, P2-8): chữ trong bảng sổ không dưới 14px, hàng chuyến ≥ 40px, tổng còn nợ có "đ", tiêu đề tab.
+test('sổ khách 1280×720: không ô nào chữ dưới 14px, hàng chuyến ≥ 40px, tổng còn nợ có "đ", tiêu đề tab', async () => withPage(async ({ page }) => {
+  const small = await page.evaluate(() => [...document.querySelectorAll('.ledger td')]
+    .filter(td => Number.parseFloat(getComputedStyle(td).fontSize) < 14).map(td => `${td.className}: ${td.textContent.trim().slice(0, 30)}`));
+  assert.deepEqual(small, []);
+  const heights = await page.evaluate(() => [...document.querySelectorAll('.trip-list tr[data-row]')].map(tr => tr.getBoundingClientRect().height));
+  assert.equal(heights.length > 0 && heights.every(height => height >= 40), true, JSON.stringify(heights));
+  assert.match(await page.locator('.head-item.total strong').innerText(), /^\d[\d.]* đ$/);
+  assert.equal(await page.title(), 'Công nợ HTH · Sổ khách');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+}));
+
+// Audit UX 31/10/2026 (P1-6): mất mạng khi đọc sổ chỉ hiện câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
+test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page }) => {
+  await page.route('**/api/v7/ledger?*', route => route.abort('failed'), { times: 1 });
+  await page.reload();
+  const alert = page.locator('.load-error');
+  await alert.waitFor();
+  assert.match(await alert.innerText(), /^Không tải được sổ khách\. Kiểm tra mạng rồi bấm Thử lại\.\s*Thử lại$/);
+  assert.doesNotMatch(await page.locator('#app').innerText(), /fetch|TypeError|HTTP/i);
+  await alert.getByRole('button', { name: 'Thử lại' }).click();
+  await page.locator('.book-head .history-toggle').waitFor();
+  assert.equal(await page.locator('.load-error').count(), 0);
+}));
+
+// Mỗi hàng của bảng (chuyến, cả sổ) có đúng số ô bằng số cột — bỏ cột không làm lệch ô.
+const rowsFit = page => page.evaluate(() => [...document.querySelectorAll('section > table.ledger, .trip-list')].flatMap(table => {
+  const cols = table.querySelectorAll(':scope > colgroup > col').length;
+  return [...table.querySelectorAll(':scope > tbody > tr')].map(tr => [...tr.children].reduce((sum, td) => sum + td.colSpan, 0) === cols);
+}));
+
+test('cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper; bỏ cột thì ô vẫn thẳng cột', async () => {
+  await withPage(async ({ page }) => {
+    assert.equal(await page.locator('.ledger-head th', { hasText: /^Shipper$/ }).count(), 1);
+    assert.equal(await legacyCell(page, 21, 'shipper').innerText(), 'Chủ hàng thử');
+    assert.equal((await rowsFit(page)).every(Boolean), true);
+  });
+  await withPage(async ({ page }) => {
+    assert.equal(await page.locator('.ledger-head th', { hasText: /^Shipper$/ }).count(), 0);
+    assert.equal(await page.locator('td[data-field="shipper"]').count(), 0);
+    assert.equal((await rowsFit(page)).every(Boolean), true);
+    assert.equal(await tripCell(page, 'carrier').innerText(), 'Tàu thử');
+    // Chú thích bảng giá vẫn nằm ở ô Đơn giá khi cột Shipper không còn.
+    assert.match(await page.locator('[data-row="trip-11"] td[data-field="unit_price_vnd"]').innerText(), /50\.000\.000\s*bảng 55\.000\.000/);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }, world => {
+    delete world.legacy[0].current.shipper;
+    world.priceStatus = { customer_id: 1, version: 1, has_table: true, ready_count: 0, ready_total_vnd: '0', ready_months: [], reapply_count: 0,
+      trips: [{ trip_id: 11, unit_price_vnd: '50000000', from_table: false, ready: false, differs: true,
+        lookup: { unit_price_vnd: '55000000', tier: 'khach', location: 'Nơi A', valid_from: '2026-09-01', valid_to: null } }] };
+  });
+});
+
 // SO-GON-02 (29/10/2026): phiếu thu là danh sách riêng bên phải: khoản thu Sheet trước, phiếu web, rồi hàng nhập.
 const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, pid, reference, date, method: 'THU TIỀN', amount_vnd: amount, void_reason: null,
   offset_pair_id: null, counterparty_customer_id: null, counterparty_name: null, voided_on: null, voided_by_event: null,

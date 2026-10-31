@@ -1,5 +1,5 @@
 (() => {
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+  const { esc } = CongNoFormat;
   const customer = new URLSearchParams(location.search).get('customer');
   const query = customer && /^[1-9][0-9]*$/.test(customer) ? `?customer=${customer}` : '';
   fetch(`/api/v7/sheet-queue${query}`, { cache: 'no-store' })

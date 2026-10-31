@@ -15,7 +15,8 @@
   const history = [];
   let historyOpen = false;
   let monthPrompt = null;
-  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // Thoát HTML và nhãn tháng "7/2026" dùng chung (CongNoFormat); các phần nhận qua ctx dưới tên escape/monthLabel.
+  const { esc: escape, monthLabel, loadError } = CongNoFormat;
   const conflictFields = row => row.changed_fields?.length
     ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
@@ -23,7 +24,6 @@
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
   const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Điểm đi', destination: 'Điểm đến', booking: 'Booking' }[field] || field);
   const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination', 'event_date', 'booking']);
-  const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
   const outstanding = model?.formatOutstanding;
@@ -42,21 +42,37 @@
     [118, 90, 80, 70], [128, 110, 88, 84], [116, 100, 80, 76], [148, 120, 100, 96], [124, 100, 96, 84], [124, 100, 90, 78], [224, 150, 186, 120]];
   const shrinkOrder = [12, 3, 10, 11, 5, 6, 1, 2, 4, 7, 9, 8, 0];
   const isWide = () => typeof matchMedia !== 'function' || !matchMedia('(max-width:1877px)').matches;
-  function useLiveColumns(ownNames) {
+  // Audit UX 31/10/2026 (P0-2): cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper (sổ thật và sổ giả hiện đều trống).
+  // Bỏ cột thì cột phụ phí riêng lấy chỗ của nó trước; phần còn lại chia cho hãng tàu, nơi đi, nơi đến (cột chữ hay bị cắt "…").
+  const SHIPPER = 3;
+  let showShipper = true;
+  const shipperCell = html => showShipper ? html : '';
+  function useLiveColumns(ownNames, shipper = true) {
     const wideMode = isWide(), ownWidth = wideMode ? 110 : 66;
     const base = liveColumns.map(item => wideMode ? item[0] : item[2]);
+    const floor = liveColumns.map(item => wideMode ? item[1] : item[3]);
+    if (!shipper) floor[SHIPPER] = 0;
     let need = ownNames.length * ownWidth;
-    for (const index of shrinkOrder) {
-      const take = Math.min(need, base[index] - liveColumns[index][wideMode ? 1 : 3]);
+    for (const index of shipper ? shrinkOrder : [SHIPPER, ...shrinkOrder.filter(item => item !== SHIPPER)]) {
+      const take = Math.min(need, base[index] - floor[index]);
       base[index] -= take; need -= take;
     }
+    if (!shipper) {
+      const spare = base[SHIPPER], carrier = Math.round(spare * 0.3), origin = Math.round(spare * 0.35);
+      base[2] += carrier; base[5] += origin; base[6] += spare - carrier - origin;
+      base.splice(SHIPPER, 1);
+    }
+    showShipper = shipper;
     ownCount = ownNames.length;
-    labels = ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả'];
-    wide = [...base.slice(0, 8), ...ownNames.map(() => ownWidth), ...base.slice(8)];
+    const tripNames = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá'];
+    labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả'];
+    wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length)];
     widths = colTags(0, wide.length);
   }
-  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ 8), phiếu thu 3 cột cuối.
+  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()), phiếu thu 3 cột cuối.
   const tripCols = () => labels.length - 3;
+  // Cột phụ phí riêng đầu tiên (ngay sau Đơn giá): 8 khi có cột Shipper, 7 khi không.
+  const feeStart = () => tripCols() - ownCount - 2;
   const cell = (value, classes = '') => `<td class="${classes}">${escape(value)}</td>`;
   const num = (value, classes = '') => cell(value, `num ${classes}`);
   const empty = (classes = '') => `<td class="${classes}"></td>`;
@@ -148,7 +164,7 @@
     root.innerHTML = `<div class="book-head">${live ? '<div class="picker-slot"></div>' : `<h1>Sổ khách · ${escape(view.customer)}</h1>`}<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>${view.sheetButton ?? ''}<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>
     ${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách"><colgroup>${widths}</colgroup><thead><tr class="columns">${labels.map((label, index) => {
       const payStart = live ? tripCols() : 9;
-      const fee = live && index >= 8 && index < tripCols() - 1;
+      const fee = live && index >= feeStart() && index < tripCols() - 1;
       return `<th scope="col" class="${index >= payStart && index <= payStart + 2 ? 'pay ' : ''}${index === payStart ? 'pay-start' : ''}${fee ? 'fee-h num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('')}</tr></thead></table>${view.sections}</div>
     <nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div><aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2><button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
@@ -279,12 +295,12 @@
         const unitText = cur?.unit_price_vnd != null ? [fmt(cur.unit_price_vnd), '']
           : /^\d+$/.test(t.unit_price ?? '') || !t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? ['chưa có giá', 'missing'] : [moneyCell(t.unit_price), ''];
         const tripCells = cur && locked
-          ? `${cell(stt || '–')}${cell(cur.container || 'Phí lẻ')}${cell(cur.carrier ?? '')}${cell(cur.shipper ?? '')}${cell(cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${cell(cur.origin ?? '')}${cell(cur.destination ?? '')}${num(unitText[0])}${feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false)}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
+          ? `${cell(stt || '–')}${cell(cur.container || 'Phí lẻ')}${cell(cur.carrier ?? '')}${shipperCell(cell(cur.shipper ?? ''))}${cell(cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${cell(cur.origin ?? '')}${cell(cur.destination ?? '')}${num(unitText[0])}${feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false)}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
           : cur
-          ? `${deleteCell('legacy', trip.id, stt || '–', `dòng sổ gốc ${cur.container || 'phí lẻ'}`, feePick(`legacy:${trip.id}`, cur.container || 'phí lẻ', cur.unit_price_vnd != null))}${infoCell('legacy', trip.id, 'container', cur.container || 'Phí lẻ')}${infoCell('legacy', trip.id, 'carrier', cur.carrier ?? '')}${infoCell('legacy', trip.id, 'shipper', cur.shipper ?? '')}${infoCell('legacy', trip.id, 'event_date', cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${infoCell('legacy', trip.id, 'origin', cur.origin ?? '')}${infoCell('legacy', trip.id, 'destination', cur.destination ?? '')}${infoCell('legacy', trip.id, 'unit_price_vnd', unitText[0], `num ${unitText[1]}`)}${feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, cur.unit_price_vnd != null)}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
+          ? `${deleteCell('legacy', trip.id, stt || '–', `dòng sổ gốc ${cur.container || 'phí lẻ'}`, feePick(`legacy:${trip.id}`, cur.container || 'phí lẻ', cur.unit_price_vnd != null))}${infoCell('legacy', trip.id, 'container', cur.container || 'Phí lẻ')}${infoCell('legacy', trip.id, 'carrier', cur.carrier ?? '')}${shipperCell(infoCell('legacy', trip.id, 'shipper', cur.shipper ?? ''))}${infoCell('legacy', trip.id, 'event_date', cur.event_date ? dateText(cur.event_date) : rawDay(t.raw_date))}${infoCell('legacy', trip.id, 'origin', cur.origin ?? '')}${infoCell('legacy', trip.id, 'destination', cur.destination ?? '')}${infoCell('legacy', trip.id, 'unit_price_vnd', unitText[0], `num ${unitText[1]}`)}${feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, cur.unit_price_vnd != null)}${num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd))}`
           : trip
-          ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${cell(t.shipper ?? '')}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${feeCells(`legacy:${trip.id}`, t.container || 'phí lẻ', trip.fee_lines, false)}${num(fmt(trip.source_total_vnd))}`
-          : `${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty()}${empty('num')}${feeEmpty()}${empty('num')}`;
+          ? `${cell(String(t.stt ?? '').replace(/^(\d+)\.0+$/, '$1'))}${cell(t.container || 'Phí lẻ')}${cell(t.carrier ?? '')}${shipperCell(cell(t.shipper ?? ''))}${cell(t.date ? dateText(t.date) : rawDay(t.raw_date))}${cell(t.from ?? '')}${cell(t.to ?? '')}${!t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price))}${feeCells(`legacy:${trip.id}`, t.container || 'phí lẻ', trip.fee_lines, false)}${num(fmt(trip.source_total_vnd))}`
+          : `${empty()}${empty()}${empty()}${shipperCell(empty())}${empty()}${empty()}${empty()}${empty('num')}${feeEmpty()}${empty('num')}`;
         // Hình thức thu không suy từ ghi chú (V7-MIG còn mở); ghi chú chỉ hiện khi không lặp lại cùng ngày.
         const day = sheetDay(r.raw_date);
         const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
@@ -328,7 +344,11 @@
       ctx.imagesOnSnapshot?.(data);
       ctx.priceOnSnapshot?.(data);
       feeColumnIds = (data.fee_columns ?? []).map(column => Number(column.fee_type_id));
-      useLiveColumns(feeColumnIds.map(feeTypeName));
+      // Cột Shipper chỉ hiện khi có dòng có shipper: chuyến web, dòng sổ gốc, chuyến Sheet chờ duyệt (các dòng sổ vẽ ra).
+      const shipperRows = [...(data.trips ?? []).filter(row => !row.deleted),
+        ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted).flatMap(row => [row.current, row.display]),
+        ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id)];
+      useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''));
       const updated = document.querySelector('#updated-at');
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`;
       sheetRefresh?.paint();
@@ -431,9 +451,9 @@
           const pending = trip?.status === 'pending_review';
           const info = !locked && trip?.info_editable === true;
           const infoCells = info
-            ? ['container', 'carrier', 'shipper', 'event_date', 'origin', 'destination'].map(field =>
+            ? ['container', 'carrier', ...(showShipper ? ['shipper'] : []), 'event_date', 'origin', 'destination'].map(field =>
               infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('')
-            : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${cell(trip?.shipper ?? '')}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
+            : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${shipperCell(cell(trip?.shipper ?? ''))}${cell(dateText(trip?.event_date))}${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
           const rowKey = trip ? `trip-${trip.id}` : '';
           const feeEditable = !locked && trip?.editable === true && trip.status === 'confirmed';
           const what = trip?.container || 'phí lẻ';
@@ -449,14 +469,14 @@
         const voided = receipts.filter(row => row.voided_by_event != null);
         // Audit P0 29/10/2026: phiếu đã hủy không chiếm chỗ phiếu thật — gom một dòng mờ, bấm Xem mới hiện từng phiếu.
         const voidOpen = openVoided.has(key);
-        const voidRows = voided.length ? `<tr class="void-summary"><td colspan="3">${voided.length} phiếu đã hủy, không tính tiền<button type="button" class="void-toggle" data-month="${escape(key)}" aria-expanded="${voidOpen}">${voidOpen ? 'Ẩn' : 'Xem'}</button></td></tr>`
+        const voidRows = voided.length ? `<tr class="void-summary"><td colspan="3">${voided.length} phiếu đã hủy, không tính tiền <button type="button" class="void-toggle" data-month="${escape(key)}" aria-expanded="${voidOpen}">${voidOpen ? 'Ẩn' : 'Xem'}</button></td></tr>`
           + (voidOpen ? voided.map(row => `<tr class="void-trace"><td colspan="3"><s>${fmt(row.line.amount_vnd)}</s> · ${[escape(dateText(row.date)), row.outgoing ? '' : `hủy ${escape(dateText(row.voided_on))}`, escape(row.void_reason)].filter(Boolean).join(' · ')}${ctx.imageClip?.(row) ?? ''}</td></tr>`).join('') : '') : '';
         const payRows = legacy.map(line => line.payRow).join('') + kept.map(receipt => `<tr class="pay-row">${payCells(receipt)}</tr>`).join('')
           + (entryHere ? entryForm(key) : '') + voidRows;
-        const lines = `<tr class="month-body"><td class="trip-side" colspan="${tripCols()}"><table class="ledger-inner trip-list"><colgroup>${colTags(0, tripCols())}</colgroup><tbody>${tripRows}</tbody></table></td>`
+        const lines = `<tr class="month-body"><td class="trip-side" colspan="${tripCols()}"><table class="ledger-inner trip-list${showShipper ? '' : ' no-shipper'}"><colgroup>${colTags(0, tripCols())}</colgroup><tbody>${tripRows}</tbody></table></td>`
           + `<td class="pay-side pay-start" colspan="3"><div class="pay-stick"><table class="ledger-inner pay-list" aria-label="Tiền khách trả tháng ${monthLabel(key)}"><colgroup>${colTags(tripCols(), labels.length)}</colgroup><tbody>${payRows}</tbody></table></div></td></tr>`;
         const sheetLines = sheetPending.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
-          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>${cell(row.carrier)}${cell(row.shipper)}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
+          ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
           ${empty('num')}${feeEmpty()}${num('–')}${empty('pay pay-start')}${empty('pay')}${empty('pay num')}
           </tr>`).join('');
         // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
@@ -475,12 +495,12 @@
         return `<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}"><colgroup>${widths}</colgroup><tbody>
           <tr class="month"><th colspan="${labels.length}" scope="rowgroup"><span class="month-title">THÁNG ${monthLabel(key)}<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${monthLabel(key)}" title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>${legacy.some(line => line.tripRow) || trips.some(trip => trip.status === 'confirmed') ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog">Debit note</button>` : ''}<em class="month-stats"><span class="month-end" title="Nợ các tháng trước ${fmt(item.prior_months_vnd)} + phát sinh ${fmt(totals.chargesVnd)} − đã thu ${fmt(totals.receivedVnd)}">Còn nợ cuối tháng: <b>${fmt(item.end_of_month_vnd)}</b></span></em></span></th></tr>
           ${lines}${sheetLines}${adjustmentRows}${ghostRows}
-          <tr class="subtotal"><td colspan="8">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${feeTotalCells}${num(fmt(totals.chargesVnd))}<td class="pay pay-start">Đã thu</td><td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${labels.length}"></td></tr></tbody></table></section>`;
+          <tr class="subtotal"><td colspan="${feeStart()}">Tổng tháng ${monthLabel(key)} <button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>${feeTotalCells}${num(fmt(totals.chargesVnd))}<td class="pay pay-start">Đã thu</td><td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${labels.length}"></td></tr></tbody></table></section>`;
       };
       const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
       const noticeHtml = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${(message && message !== 'Đã lưu.') || !active || sheetNotice ? '' : 'hidden'}>${escape(message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.'))}</p><button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       const newCount = data.sheet_sync?.new_count ?? 0;
-      renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, total: fmt(data.total_outstanding_vnd), notice: noticeHtml,
+      renderShell({ customer: live.customerName(customerId) ?? `#${customerId}`, total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice: noticeHtml,
         sheetButton: `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`
           + (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
           + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
@@ -574,7 +594,7 @@
     // Dòng hỏi/chi tiết chèn sau một hàng trải hết bảng chứa hàng đó (bảng chuyến, danh sách phiếu thu 3 cột, cả sổ).
     const spanOf = row => (typeof row?.closest === 'function' && row.closest('table')?.querySelector(':scope > colgroup')?.children.length) || labels.length;
     const ctx = { root, model, api, live, customerId, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields, showNotice, renderSnapshot, redraw, submit,
-      columnCount: () => labels.length, feeOwnCount: () => ownCount, feeTypeName,
+      columnCount: () => labels.length, feeOwnCount: () => ownCount, unitPriceColumn: () => feeStart() - 1, feeTypeName,
       get feeTypes() { return feeTypes; }, set feeTypes(value) { feeTypes = value; },
       get feeColumnIds() { return feeColumnIds; },
       get snapshot() { return snapshot; }, get rendering() { return rendering; },
@@ -591,9 +611,17 @@
       redraw();
       if (typeof CSS !== 'undefined') root.querySelector(`.void-toggle[data-month="${CSS.escape(toggle.dataset.month)}"]`)?.focus();
     });
-    root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
-    let refreshing = true;
-    api.read().catch(error => { root.innerHTML = `<p role="alert">${escape(error.message)}</p>`; }).finally(() => { refreshing = false; });
+    // Audit UX 31/10/2026 (P1-6): đọc sổ lỗi thì một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
+    let refreshing = false;
+    const firstRead = () => {
+      root.innerHTML = '<p role="status">Đang đọc sổ khách…</p>';
+      refreshing = true;
+      api.read().catch(() => {
+        root.innerHTML = `<div class="load-error" role="alert"><p>${escape(loadError('sổ khách'))}</p><button type="button" class="load-retry">Thử lại</button></div>`;
+      }).finally(() => { refreshing = false; });
+    };
+    root.addEventListener('click', event => { if (event.target.closest('.load-retry')) firstRead(); });
+    firstRead();
     const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || root.querySelector('input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,.void-prompt,.move-ask,.delete-prompt,.price-panel,.history-panel:not([hidden])')
       || [...root.querySelectorAll('.receipt-method')].some(input => input.value !== 'THU TIỀN')
       || [...root.querySelectorAll('.receipt-date,.receipt-amount,.receipt-reference,.info-input')].some(input => input.value.trim());

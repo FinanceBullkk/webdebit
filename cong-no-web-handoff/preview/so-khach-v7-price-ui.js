@@ -63,7 +63,8 @@
   ctx.priceAfterRender = active => {
     if (!active || !status) return;
     for (const row of status.trips) {
-      const cell = root.querySelector(`[data-row="trip-${row.trip_id}"]`)?.children[7];
+      // Ô Đơn giá: vị trí đổi khi sổ không có cột Shipper (audit UX 31/10/2026).
+      const cell = root.querySelector(`[data-row="trip-${row.trip_id}"]`)?.children[ctx.unitPriceColumn?.() ?? 7];
       if (!cell) continue;
       const lookup = row.lookup ?? {};
       let note = '', cls = 'price-hint', title = '';

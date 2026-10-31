@@ -5,20 +5,10 @@
   const F = CongNoFormat;
   const M = DashboardModel;
   const root = document.querySelector('#todo-root');
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const { esc, fold, customerLabels } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   const amount = value => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value))}</span>`;
   const positive = value => String(value).replace(/^-/, '');
-  const fold = value => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const transportText = mode => ({ CANG: 'cảng', 'CẢNG': 'cảng', BO: 'bộ', 'BỘ': 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
-  const commodityText = (commodity, mode) => commodity ? `${commodity}${transportText(mode) ? ` · ${transportText(mode)}` : ''}` : 'Chưa phân loại';
-  const customerLabel = row => row.label ?? `${row.display_name ?? row.name}${row.commodity ? ` · ${commodityText(row.commodity, row.transport_mode)}` : ''}`;
-  const customerLabels = customers => {
-    const counts = new Map();
-    for (const row of customers) counts.set(customerLabel(row), (counts.get(customerLabel(row)) ?? 0) + 1);
-    return new Map(customers.map(row => [String(row.id), counts.get(customerLabel(row)) > 1 ? `${customerLabel(row)} · sổ ${row.id}` : customerLabel(row)]));
-  };
   let loading = false;
   let sheetRefresh = null;
   let searchReady = false;
@@ -118,16 +108,18 @@
       setupSearch(customers);
       document.querySelector('#error').hidden = true;
       markUpdated();
-    } catch (error) {
+    } catch {
       const alert = document.querySelector('#error');
       alert.hidden = false;
-      alert.textContent = error.message;
+      // Audit UX 31/10/2026 (P1-6): một câu tiếng Việt "chuyện gì · cần làm gì" và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
+      alert.innerHTML = `${esc(F.loadError('việc cần làm'))} <button type="button" class="btn" data-retry>Thử lại</button>`;
       if (!root.querySelector('.grid')) root.replaceChildren();
     } finally { loading = false; }
   }
 
   load();
   const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); sheetRefresh?.load(); };
+  document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });

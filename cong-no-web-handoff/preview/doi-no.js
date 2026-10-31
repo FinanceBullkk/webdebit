@@ -5,7 +5,7 @@
   const F = CongNoFormat;
   const root = document.getElementById('doi-no');
   const $ = id => document.getElementById(id);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const { esc, commodityText, monthTitle, dateText } = F;
   const FILTERS = [['all', 'Tất cả'], ['chua-nhac', 'Chưa nhắc'], ['nhac-cho', 'Đã nhắc, chưa trả']];
   const state = { asOf: null, rows: [], byId: new Map(), names: new Map(), filter: 'all' };
   let loading = false;
@@ -25,10 +25,7 @@
     const toUTC = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
     return Math.round((toUTC(a) - toUTC(b)) / 86400000);
   };
-  const monthLabel = key => `Tháng ${key.slice(5, 7)}/${key.slice(0, 4)}`;
 
-  const transportText = mode => ({ CANG: 'cảng', BO: 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
-  const commodityText = (commodity, mode) => commodity ? `${commodity}${transportText(mode) ? ` · ${transportText(mode)}` : ''}` : 'Chưa phân loại';
   // Tên hiển thị: tên Sheet; trùng tên thì thêm số sổ.
   function buildNames(customers) {
     const base = row => row.display_name ?? row.name;
@@ -62,7 +59,7 @@
     const months = (row.months ?? []).filter(m => F.toBig(m.outstanding_vnd) > 0n);
     if (months.length) {
       lines.push('Chi tiết nợ theo tháng:');
-      for (const m of months) lines.push(`- ${monthLabel(m.month)}: ${F.full(m.outstanding_vnd)}`);
+      for (const m of months) lines.push(`- ${monthTitle(m.month)}: ${F.full(m.outstanding_vnd)}`);
     }
     lines.push('Kính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
     return lines.join('\n');
@@ -112,11 +109,12 @@
       const st = statusOf(row);
       const rem = row.reminder;
       const remText = rem && rem.last_reminded
-        ? `${esc(rem.last_reminded)}${dayDiff(state.asOf, rem.last_reminded) ? ` · ${dayDiff(state.asOf, rem.last_reminded)} ngày trước` : ' · hôm nay'}`
+        ? `${esc(dateText(rem.last_reminded))}${dayDiff(state.asOf, rem.last_reminded) ? ` · ${dayDiff(state.asOf, rem.last_reminded)} ngày trước` : ' · hôm nay'}`
         : '<i class="muted">chưa nhắc</i>';
-      const paid = row.last_receipt_date ? esc(row.last_receipt_date) : '<i class="muted">chưa có</i>';
+      const paid = row.last_receipt_date ? esc(dateText(row.last_receipt_date)) : '<i class="muted">chưa có</i>';
+      // Audit UX 31/10/2026 (P1-2): tên khách mở sổ khách; ngày dd/mm/yyyy như mọi trang.
       return `<div class="rrow s-${st.key}">
-        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><span class="nm">${esc(nameOf(row.customer_id))}</span><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
+        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}" title="Mở sổ ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
         <span class="num od" title="${esc(F.full(row.overdue_vnd))}">${esc(F.short(row.overdue_vnd))}</span>
         <span class="num" title="${esc(F.full(row.outstanding_vnd))}">${esc(F.short(row.outstanding_vnd))}</span>
         <span class="when">${paid}</span>
@@ -128,8 +126,7 @@
     root.innerHTML = `<section class="card">
       <div class="card-head"><h2>Khách quá hạn cần đòi <small>${state.rows.length} khách · ${unreminded} chưa nhắc</small></h2></div>
       <div class="filters">${filterBtns}</div>
-      <div class="rhead"><span>Khách</span><span class="num">Quá hạn</span><span class="num">Còn nợ</span><span class="when">Trả gần nhất</span><span class="when">Nhắc gần nhất</span><span class="st">Trạng thái</span><span></span></div>
-      <div class="rlist">${list}</div>
+      <div class="rgrid"><div class="rhead"><span>Khách</span><span class="num">Quá hạn</span><span class="num">Còn nợ</span><span class="when">Trả gần nhất</span><span class="when">Nhắc gần nhất</span><span class="st">Trạng thái</span><span></span></div>${list}</div>
       <p class="tiny">"Đã nhắc" ghi khi bạn bấm Copy tin nhắc (dán vào Zalo). Nút Chat mở lại hội thoại Zalo với khách từ bản xuất (<a href="/zalo-chat.html">xem mọi hội thoại</a>).</p>
     </section>`;
   }
@@ -151,10 +148,7 @@
         json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
       ]);
       state.asOf = debt.as_of;
-      if (debt.as_of) {
-        const [year, month, day] = debt.as_of.split('-');
-        $('as-of').textContent = `Số liệu đến ${day}/${month}/${year}`;
-      }
+      if (debt.as_of) $('as-of').textContent = `Số liệu đến ${dateText(debt.as_of)}`;
       state.byId = new Map();
       state.rows = (debt.customers ?? []).filter(row => F.toBig(row.overdue_vnd) > 0n);
       state.names = buildNames(customers);

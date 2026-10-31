@@ -202,7 +202,7 @@ async function withPage(fn) {
     }
     const file = path.join(__dirname, url.pathname.replace(/^\//, ''));
     if (!file.startsWith(__dirname) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8' });
+    res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8' });
     res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -324,12 +324,12 @@ test('ghi cấn trừ: khung xác nhận có số trước → sau, gửi versio
   const link = page.locator('.offset-link');
   assert.equal(await link.innerText(), 'từ Khách Thử Hai');
   assert.match(await link.getAttribute('href'), /customer=2$/);
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '0');
+  assert.equal(await page.locator('.head-item.total strong').innerText(), '0 đ');
   await shot('4-ghi-xong-so-nhan');
   await open(2);
   assert.equal(await page.locator('.offset-link').innerText(), 'sang Khách Thử Một');
   assert.equal(await page.locator('td.receipt[data-pair]').last().innerText(), '-50.000.000');
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '-50.000.000');
+  assert.equal(await page.locator('.head-item.total strong').innerText(), '-50.000.000 đ');
   await shot('5-so-nguon-sau-khi-ghi');
 }));
 
@@ -431,11 +431,11 @@ test('hủy cấn trừ từ sổ nguồn: bắt buộc lý do, hủy cả hai s
   await page.locator('.void-toggle').click();
   assert.match(await page.locator('.pay-list .void-trace').innerText(), /nhập nhầm/);
   assert.equal(await page.locator('.void-toggle').getAttribute('aria-expanded'), 'true');
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '-100.000.000');
+  assert.equal(await page.locator('.head-item.total strong').innerText(), '-100.000.000 đ');
   await shot('9-sau-khi-huy-so-nguon');
   await open(1);
   assert.match(await page.locator('.void-summary').innerText(), /1 phiếu đã hủy/);
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '50.000.000');
+  assert.equal(await page.locator('.head-item.total strong').innerText(), '50.000.000 đ');
 }));
 
 test('đổi ngày cấn trừ từ sổ nhận: gửi version cả hai sổ, báo đã đổi cả hai sổ; ngày tương lai bị chặn tại ô', async () => withPage(async ({ page, world, open, shot }) => {

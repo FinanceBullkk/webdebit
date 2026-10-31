@@ -72,10 +72,13 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng |
 | `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, "Phụ phí PS cần xem" |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
+| `so-khach-v7.css` | CSS khung sổ live, tách nguyên văn khỏi khối `<style>` của `so-khach-v7-live.html` (31/10/2026), nạp trước `presence.css`; bản fixture `so-khach-v7.html` vẫn giữ `<style>` riêng vì offset sticky và bề rộng khác |
 
 Mỗi file phần là `window.SoKhachV7LiveParts.<tên> = ctx => { … }`: lấy hàm dùng chung từ `ctx` ở đầu, trả hàm cho phần khác bằng `Object.assign(ctx, …)` ở cuối. `initLive` dựng `ctx` rồi cài mọi phần đã đăng ký theo thứ tự thẻ `<script>` trong `so-khach-v7-live.html` để trình nghe sự kiện đăng ký ổn định; biến có thể đổi giá trị thì đọc qua `ctx.snapshot`, `ctx.rendering`, `ctx.historyOpen`. Phần nào đang mở hộp/nhập dở cần chặn tự cập nhật thì `ctx.busyChecks.push(() => …)`. Phần mới không sửa `so-khach-v7-ui.js`: chỉ thêm thẻ script của nó ngay trên `so-khach-v7-ui.js`, CSS riêng để ở file `.css` của phần (như `presence.css`).
 
 **Thêm file preview chỉ sửa một chỗ: thẻ `<script>`/`<link>` trong trang HTML.** Server `web/v7_ledger_api.py` phục vụ đúng các file mà trang trong `PAGES` nạp (file khác vẫn 404), test unit `test-so-khach-v7-api.js` nạp theo thứ tự thẻ của `so-khach-v7-live.html`, test trình duyệt phục vụ cả thư mục, `Deploy hao` đóng gói cả `preview/`. Trang mới thì thêm vào `PAGES`. Test trình duyệt sổ khách dùng chung máy chủ giả `so-khach-v7-browser-world.js`.
+
+**Helper chuỗi dùng chung nằm ở `cong-no-format.js`** (`CongNoFormat`, từ 31/10/2026): thoát HTML `esc`; bỏ dấu `fold` (khóa tìm kiếm, gộp ký tự lạ thành khoảng trắng) và `foldText` (giữ dấu câu và độ dài, cùng quy tắc với `fold` của `web/v7_zalo_chat.py`); `transportText`/`commodityText`; `customerLabel`/`customerLabels` (khóa `String(id)`); nhãn tháng `monthLabel` "7/2026", `monthTitle` "Tháng 07/2026", `monthTag` "T7"/"T12/2025"; ngày `dateText` "22/10/2026"; số triệu không đơn vị `millions` cho bảng ghi "Đơn vị: triệu đồng" một lần (ma trận); câu lỗi tải trang `loadError` ("Không tải được … Kiểm tra mạng rồi bấm Thử lại.", trang đặt kèm nút "Thử lại"). Mọi trang nạp `cong-no-format.js` trước script khác rồi destructure hàm cần dùng; không định nghĩa lại trong file trang (tiền vẫn ở `so-khach-v7-model.js` theo ARCH-03).
 
 ## Lint và lệnh check
 

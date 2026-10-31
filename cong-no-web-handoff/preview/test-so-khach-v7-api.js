@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { create, stale, unknown } = require('./so-khach-v7-api.js');
-// File sổ khách nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
-const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="(so-khach-v7-[a-z0-9-]+\.js)"><\/script>/g)].map(match => match[1]);
+// File sổ khách (và cong-no-format.js dùng chung) nạp theo đúng thứ tự thẻ <script> của trang live (bỏ sheet-refresh.js: test không có ô Cập nhật).
+const liveScripts = [...fs.readFileSync(require.resolve('./so-khach-v7-live.html'), 'utf8').matchAll(/<script src="((?:cong-no-format|so-khach-v7-[a-z0-9-]+)\.js)"><\/script>/g)].map(match => match[1]);
 
 const reply = (status, body) => ({ ok: status === 200, json: async () => body });
 const ledger = version => ({ status: 'active', customer_id: 7, version, months: [], total_outstanding_vnd: '10' });
@@ -111,7 +111,7 @@ test('void keeps only allocations superseded by void event, with struck date/mon
         { month: '2026-02-01', amount_vnd: '123456', superseded_by_event: 30 }] }] });
   // SO-GON-02: phiếu đã hủy không nằm trong danh sách phiếu; gom một dòng mờ, bấm Xem mới hiện số gạch, ngày, lý do.
   assert.doesNotMatch(root.innerHTML, /ĐÃ HỦY|data-pid="PH-001"/);
-  assert.match(root.innerHTML, /<tr class="void-summary"><td colspan="3">1 phiếu đã hủy, không tính tiền<button type="button" class="void-toggle" data-month="2026-03" aria-expanded="false">Xem<\/button>/);
+  assert.match(root.innerHTML, /<tr class="void-summary"><td colspan="3">1 phiếu đã hủy, không tính tiền <button type="button" class="void-toggle" data-month="2026-03" aria-expanded="false">Xem<\/button>/);
   assert.doesNotMatch(root.innerHTML, /nhập trùng/);
   root.querySelectorAll = () => [];
   await listeners.click({ target: { closest: selector => selector === '.void-toggle' ? { dataset: { month: '2026-03' } } : null } });
@@ -354,7 +354,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
       window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
       URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
-    for (const name of live ? liveScripts : ['so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
+    for (const name of live ? liveScripts : ['cong-no-format.js', 'so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
       vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context, { filename: name });
     }
     return root;
@@ -398,7 +398,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
   assert.match(live.innerHTML, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.233\.967<\/td>/);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
-  assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10<\/strong>/);
+  assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10 đ<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
   const newMonth = page(true, { ...ledger(4), today_month: '2026-11-01',
@@ -436,7 +436,8 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
-  assert.match(february, /<tr class="subtotal"><td colspan="8">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">484<\/td><\/tr><tr class="spacer">/);
+  // Sổ không dòng nào có shipper: không có cột Shipper (audit UX 31/10/2026), nhãn Tổng tháng trải 7 cột chuyến trước cột phụ phí.
+  assert.match(february, /<tr class="subtotal"><td colspan="7">Tổng tháng 2\/2026 <button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">484<\/td><\/tr><tr class="spacer">/);
   const october = carried.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
   assert.match(october, /Tổng tháng 10\/2026 <button[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">700<\/td>/);
@@ -649,5 +650,5 @@ test('tên Sheet và mặt hàng hiện trên sổ; tên V7 và alias vẫn tìm
   assert.deepEqual([...customerLabels([
     { id: 10, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
     { id: 11, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
-  ])], [[10, 'SHEET · Chuối · sổ 10'], [11, 'SHEET · Chuối · sổ 11']]);
+  ])], [['10', 'SHEET · Chuối · sổ 10'], ['11', 'SHEET · Chuối · sổ 11']]);
 });
