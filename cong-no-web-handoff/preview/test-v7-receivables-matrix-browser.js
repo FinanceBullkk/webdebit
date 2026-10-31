@@ -231,7 +231,7 @@ test('matrix refresh reads new data while preserving selected year', async () =>
   try {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
-    await page.locator('#heat-foot').getByText('80.000 đ').first().waitFor();
+    await page.locator('#heat-foot').getByText('0,08').first().waitFor();
     total = '80001';
     await page.locator('#refresh-data').click();
     await page.locator('#scope-receivable').getByText('80.001 đ').waitFor();
