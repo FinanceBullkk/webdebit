@@ -37,7 +37,7 @@ Người dùng lấy đúng phương án Claude đề xuất cho tám câu:
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT, chưa code.
+ĐÃ CHỐT. **PR A1 (vỏ trang khách) đã code** ngày 1/11/2026: đầu trang có thanh bốn thẻ, tham số `the=`, K2; ba thẻ ngoài Sổ hiện câu "đang làm" tới PR A2, A3. Kiểm trên máy chủ giả (spec, mục Bằng chứng); triển khai tự động lên `hao` khi merge. A2–A4, giai đoạn B và C chưa code.
 - **Thời điểm:** code theo [PLAN](../../PLAN.md) (tạm dừng tính năng mới tới khi chạy song song) và sau PR 2c của SO-GON-04, vì cùng sửa đầu sổ.
 - **Giai đoạn A:** chỉ đổi giao diện và đọc API có sẵn.
 - **Giai đoạn B:** mỗi mục cần spec backend và migration riêng: B1 trả sau hạn, B2 hứa trả, B3 gắn Zalo, B4 ghi lần xuất debit note và ghi chú lần nhắc. Bảng mới nằm ngoài đường tiền, triển khai theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md).
