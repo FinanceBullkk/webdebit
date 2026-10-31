@@ -1,8 +1,8 @@
 # Trang khách: một khách, bốn thẻ
 
-Trạng thái: **ĐỀ XUẤT** (Claude, 31/10/2026), chưa chốt, chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Tám câu K1–K8 ở cuối, mỗi câu có một phương án ghi "(đề xuất)". Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
+Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). Chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
-Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; spec này để duyệt hướng. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
+Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
 ## Vì sao cần
 
@@ -45,7 +45,7 @@ Kết quả: khoảng 30 giây là trả lời được khách nợ bao nhiêu, 
 1. Ở Đòi nợ, bấm tên khách: mở `?customer=<id>&the=trao-doi`.
 2. Thấy dòng thời gian của khách: phiếu thu, lần nhắc, tin Zalo. Giai đoạn B thêm debit note đã gửi và hứa trả.
 3. Bấm **Copy tin nhắc** (giống Đòi nợ, tự ghi `source: copy-button`) hoặc **Mở chat** (trang Chat Zalo, đúng hội thoại).
-4. Giai đoạn B2, nếu K4 chốt: khách hứa trả thì bấm **Ghi hứa trả** (số tiền, hẹn ngày, ghi chú).
+4. Giai đoạn B2 (K4): khách hứa trả thì bấm **Ghi hứa trả** (số tiền, hẹn ngày, ghi chú).
 
 Kết quả: lần sau ai mở khách cũng thấy đã nhắc khi nào, khách nói gì, hứa gì.
 
@@ -153,7 +153,7 @@ Dòng thời gian của một khách, mới nhất ở trên. Lọc theo loại:
 | Debit note đã xuất | bảng ghi mới, ghi khi bấm xuất | B4 |
 | Hứa trả | bảng mới | B2 (K4) |
 
-**Hứa trả** (nếu K4 chốt):
+**Hứa trả** (K4):
 - Người dùng ghi tay số tiền (VND nguyên), hẹn ngày và ghi chú.
 - Máy tự chấm theo phiếu thu chưa hủy, tính từ ngày ghi tới ngày hẹn:
   - đủ số hứa thì là **giữ lời**;
@@ -185,7 +185,7 @@ Dòng thời gian của một khách, mới nhất ở trên. Lọc theo loại:
 - Mọi link cũ vẫn mở thẻ Sổ như trước.
 - Tổng quan, ma trận và Đòi nợ có đường vào đúng thẻ.
 
-**Giai đoạn B và C**: theo từng spec backend riêng, sau khi các câu K liên quan đã chốt.
+**Giai đoạn B và C**: theo từng spec backend riêng của mỗi mục.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
@@ -238,7 +238,7 @@ Dữ liệu cho test: máy chủ giả `so-khach-v7-browser-world.js`. Thêm `GE
 
 Copy tin nhắc gọi đúng lệnh ghi `reminder_log` mà Đòi nợ đang dùng. Quyền như hiện nay ([`V7-ID`](../docs/decisions/v7-id.md): ai vào app cũng thao tác như nhau, actor lấy từ phiên).
 
-**Giai đoạn B:** hợp đồng đề xuất, sẽ viết chi tiết thành spec backend riêng khi K4–K7 chốt.
+**Giai đoạn B** (K4–K7 đã chốt): hợp đồng đề xuất; mỗi mục viết chi tiết thành spec backend riêng trước khi làm.
 
 | Mục | API đề xuất | DB đề xuất |
 | --- | --- | --- |
@@ -261,7 +261,7 @@ Mọi bảng của giai đoạn B nằm ngoài đường tiền: không vào `v_
   - [`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md), [`BANG-GIA-01`](../docs/decisions/bang-gia-01.md), [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md).
   - [`V7-ID`](../docs/decisions/v7-id.md), [`V7-SO`](../docs/decisions/v7-so.md).
 - Đề xuất: [audit UX 31/10/2026](../docs/ux-audit-2026-10-31.md), mục 4.1 (điều hướng, ô tìm toàn cục, link mang tháng), P1-1 (không cắt tên), 4.6 (phản hồi và lỗi).
-- CÒN MỞ: K1–K8 ở cuối spec.
+- Đã chốt cho spec này: [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md) (kiến trúc và K1–K8).
 
 ## Hành vi và bất biến
 
@@ -291,7 +291,7 @@ Giai đoạn A gồm bốn PR, mỗi PR chỉ đổi file giao diện và tự x
 | **A3 · Trao đổi và Hồ sơ** | Phần A của hai thẻ | file mới `so-khach-v7-contact-ui.js`, dùng lại Copy tin nhắc từ `doi-no.js` | 350 dòng |
 | **A4 · Đường vào** | "Trang khách" trong ngăn kéo Tổng quan; tên khách ở ma trận và Đòi nợ | `dashboard-v7.js`, `cong-no-theo-thang.js`, `doi-no.js` | 80 dòng |
 
-Giai đoạn B: mỗi mục B1–B4 một spec backend, một migration và một PR giao diện, theo thứ tự người dùng chốt ở K4–K7. Giai đoạn C để sau K1.
+Giai đoạn B: mỗi mục B1–B4 một spec backend, một migration và một PR giao diện; thứ tự làm do người dùng chọn khi tới giai đoạn B. Giai đoạn C chờ dữ liệu gán sổ vào khách (K1).
 
 ## Tiêu chí nghiệm thu
 
@@ -328,17 +328,21 @@ Mỗi PR của giai đoạn A revert riêng được, vì chỉ đổi file giao
 
 ## Bằng chứng
 
-Chưa có (spec). Hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ dùng dữ liệu giả, không gọi API.
+Chưa có (chưa code). Hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ dùng dữ liệu giả, không gọi API; đã chạy Playwright ở 1280×720, đạt 25/25 kiểm (ghi trong [PR FinanceBullkk/webdebit#229](https://github.com/FinanceBullkk/webdebit/pull/229)).
+
+## Lựa chọn đã chốt
+
+Người dùng chốt ngày 31/10/2026 trong chat, chọn đúng phương án Claude đề xuất cho cả tám câu ([`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md)). Phương án không chọn ghi lại để sau này biết đã cân nhắc gì.
+
+- **K1 · Theo sổ hay theo khách:** theo sổ ở giai đoạn A và B; gộp sổ ở giai đoạn C, sau khi chủ nghiệp vụ gán 236 sổ vào khách. Không đoán theo tên, vì tên trùng không có nghĩa là cùng khách. Không chọn: làm khóa nhóm sổ ngay từ đầu.
+- **K2 · Thẻ mặc định khi địa chỉ không ghi thẻ:** Sổ, để giữ thói quen người nhập và nghĩa của mọi link cũ. Không chọn: Tình hình; nhớ thẻ dùng lần trước trên máy.
+- **K3 · Tên mục trên thanh điều hướng:** giữ "Sổ khách" tới khi chốt từ điển giao diện (audit 4.5). Không chọn: đổi thành "Khách".
+- **K4 · Hứa trả:** có. Người đòi nợ ghi tay; máy tự chấm giữ lời hay lỡ hẹn theo phiếu thu; không cộng vào số nào. Không chọn: không làm, giữ đúng phạm vi NHAC-NO-01 v1.
+- **K5 · Đo trả chậm:** số ngày từ hạn trả tới ngày trả xong của từng tháng nợ, theo quy tắc ở mục đối chiếu; tháng trả xong trước mốc nạp thì không đo. Không chọn: bỏ khối 3.
+- **K6 · Hội thoại Zalo:** gắn tay một lần, ở thẻ Hồ sơ hoặc từ trang Chat Zalo. Không chọn: tiếp tục tìm theo tên.
+- **K7 · Debit note:** ghi lại mỗi lần bấm xuất (tháng, số debit note, tổng tiền, người làm). Không chọn: không ghi.
+- **K8 · Quyền:** giữ V7-ID ở giai đoạn này. Phân quyền "chỉ xem" cho sếp là việc riêng, cần spec danh tính. Không chọn: làm phân quyền trước trang khách.
 
 ## Câu hỏi mở
 
-- **K1 · Trang khách theo sổ hay theo khách?** Đề xuất: theo sổ ở giai đoạn A và B; thêm gộp sổ ở giai đoạn C sau khi chủ nghiệp vụ gán 236 sổ vào khách. Không đoán theo tên, vì tên trùng không có nghĩa là cùng khách. Phương án khác: làm khóa nhóm sổ ngay từ đầu.
-- **K2 · Thẻ mở mặc định khi địa chỉ không ghi thẻ?** Đề xuất: Sổ, để giữ thói quen người nhập và để mọi link cũ giữ nghĩa. Phương án khác: Tình hình; hoặc nhớ thẻ dùng lần trước trên máy.
-- **K3 · Tên mục trên thanh điều hướng?** Đề xuất: giữ "Sổ khách" tới khi chốt từ điển giao diện (audit 4.5). Phương án khác: đổi thành "Khách".
-- **K4 · Có ghi hứa trả không?** Đề xuất: có. Người đòi nợ ghi tay; máy tự chấm giữ lời hay lỡ hẹn theo phiếu thu; không cộng vào số nào. Phương án khác: không làm, giữ đúng phạm vi NHAC-NO-01 v1.
-- **K5 · Đo trả chậm thế nào?** Đề xuất: số ngày từ hạn trả tới ngày trả xong của từng tháng nợ, theo quy tắc ở mục đối chiếu; tháng trả xong trước mốc nạp thì không đo. Phương án khác: bỏ khối 3.
-- **K6 · Gắn hội thoại Zalo với khách?** Đề xuất: gắn tay một lần ở thẻ Hồ sơ hoặc từ trang Chat Zalo. Phương án khác: tiếp tục tìm theo tên.
-- **K7 · Ghi lại lần xuất debit note?** Đề xuất: có; mỗi lần bấm xuất ghi tháng, số debit note, tổng tiền và người làm. Phương án khác: không ghi.
-- **K8 · Quyền xem cho sếp?** Đề xuất: giữ V7-ID ở giai đoạn này (ai vào app cũng thao tác như nhau). Phân quyền "chỉ xem" là việc riêng, cần spec danh tính. Phương án khác: làm phân quyền trước trang khách.
-
-Ngoài phạm vi, ghi lại để xét ở đợt 3 của audit: ma trận "Công nợ theo tháng" nhóm theo tuổi tháng, còn Tổng quan và trang khách nhóm theo hạn trả. Hai cách cùng chữ "1–2 tháng" nhưng lệch nhau một tháng (mục Vì sao cần, điểm 5).
+- Ngoài phạm vi, xét ở đợt 3 của audit: ma trận "Công nợ theo tháng" nhóm theo tuổi tháng, còn Tổng quan và trang khách nhóm theo hạn trả. Hai cách cùng chữ "1–2 tháng" nhưng lệch nhau một tháng (mục Vì sao cần, điểm 5).
