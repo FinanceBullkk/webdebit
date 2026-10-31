@@ -3,12 +3,14 @@
  * dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).offset = ctx => {
   'use strict';
-  const { root, model, api, live, customerId, escape, spanOf, dateText, dateInput, methods, referenceFields, showNotice } = ctx;
+  const { root, model, api, live, customerId, escape, spanOf, dateText, dateInput, referenceFields, showNotice } = ctx;
     // ---- Cấn trừ hai sổ (CT-2SO): server giữ số dư và chặn; trang chỉ chọn sổ, hiện số trước → sau và gửi lệnh ----
     const OUTSIDE = model.OFFSET_OUTSIDE;
     const offsetState = { sources: [], selected: null, open: false, query: '', error: '', row: null };
-    // SO-GON-02: hàng chọn sổ nguồn nằm ngay dưới hàng nhập, trong danh sách phiếu thu (3 cột).
-    const sourceRowHtml = '<tr class="offset-source-row"><td class="pay pay-start offset-source-cell" colspan="3"></td></tr>';
+    // SO-GON-04: ô chọn sổ nguồn nằm trong khung Ghi phiếu thu (so-khach-v7-entry-ui.js, ngoài #app), ngay dưới ô Hình thức;
+    // `row` là phần nhập của khung. Trình nghe đặt ở document vì khung không nằm trong #app.
+    const sourceRowHtml = '<div class="offset-source-row"><div class="offset-source-cell"></div></div>';
+    const scope = () => offsetState.row ?? root;
     const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const ownName = () => live.customerName(customerId) ?? `#${customerId}`;
     const validDate = value => /^\d{4}-\d\d-\d\d$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -23,14 +25,14 @@
       }
     }
     function renderOptions() {
-      const holder = root.querySelector('.offset-options');
+      const holder = scope().querySelector('.offset-options');
       if (!holder) return;
       const found = model.filterOffsetSources(offsetState.sources, offsetState.query);
       holder.innerHTML = found.map(item => `<button type="button" role="option" class="offset-option" data-source="${escape(item.customerId)}"><span>${escape(item.label)}</span><strong>${model.formatVnd(item.outstandingVnd)}</strong></button>`).join('')
         + (found.length ? '' : `<p class="offset-none">${offsetState.sources.length ? 'Không tìm thấy sổ phù hợp' : 'Không có sổ nào đang dư tiền'}</p>`);
     }
     function renderSourceCell() {
-      const holder = root.querySelector('.offset-source-cell');
+      const holder = scope().querySelector('.offset-source-cell');
       if (!holder) return;
       const chosen = offsetState.selected;
       const text = chosen === OUTSIDE ? 'Ngoài sổ · chỉ trừ sổ này' : chosen ? `${chosen.label} · ${model.formatVnd(chosen.outstandingVnd)}` : 'Chọn sổ đang dư tiền…';
@@ -38,22 +40,17 @@
         ? `<div class="offset-picker" role="listbox" aria-label="Chọn sổ lấy tiền"><input class="offset-search" aria-label="Lọc theo tên khách hoặc mặt hàng" placeholder="Gõ tên khách hoặc mặt hàng để lọc…" value="${escape(offsetState.query)}" autocomplete="off"><div class="offset-options"></div><button type="button" role="option" class="offset-option offset-outside" data-source="OUTSIDE">Ngoài sổ (khoản phải trả, USD…) · chỉ trừ sổ này</button></div>` : ''}`;
       renderOptions();
     }
-    async function showSourceRow(entryRow) {
-      if (entryRow.nextElementSibling?.classList.contains('offset-source-row')) return;
-      // Một ô chọn sổ nguồn tại một lúc: tháng khác đang chọn CẤN TRỪ thì trả về THU TIỀN.
-      root.querySelectorAll('.offset-source-row').forEach(row => {
-        const method = row.previousElementSibling?.querySelector('.receipt-method');
-        if (method) method.value = methods[0];
-        row.remove();
-      });
-      entryRow.insertAdjacentHTML('afterend', sourceRowHtml);
-      Object.assign(offsetState, { selected: null, open: false, query: '', error: '', row: entryRow });
+    async function showSourceRow(entry) {
+      const slot = entry.querySelector('.offset-slot');
+      if (!slot || slot.querySelector('.offset-source-row')) return;
+      slot.innerHTML = sourceRowHtml;
+      Object.assign(offsetState, { selected: null, open: false, query: '', error: '', row: entry });
       renderSourceCell();
       await refreshSources();
       renderSourceCell();
     }
-    function hideSourceRow(entryRow) {
-      if (entryRow.nextElementSibling?.classList.contains('offset-source-row')) entryRow.nextElementSibling.remove();
+    function hideSourceRow(entry) {
+      entry.querySelector('.offset-slot')?.replaceChildren();
       Object.assign(offsetState, { selected: null, open: false, query: '', error: '' });
     }
     function closeDialog() { root.querySelector('.offset-backdrop')?.remove(); }
@@ -95,6 +92,7 @@
                 + (done.overpaymentVnd > 0n ? ` Phần thừa ${f(done.overpaymentVnd)} thành ứng trước.` : '');
             } catch { /* kết quả lạ: giữ câu chung, số liệu vẫn lấy từ sổ vừa tải */ }
             closeDialog();
+            ctx.afterOffsetSaved?.();
             showNotice(text + (result.target_receipt?.duplicate_reference ? ' Tham chiếu trùng với phiếu khác trong sổ.' : ''));
           });
           if (outcome.status === 'stale' || outcome.status === 'unknown') closeDialog();
@@ -103,11 +101,12 @@
       });
       box.querySelector('.offset-confirm').focus();
     }
-    // Enter ở ô số tiền khi hình thức là CẤN TRỪ. Trả true nếu đã xử lý; false để ghi thu như thường (Ngoài sổ).
+    // Enter ở ô số tiền khi hình thức là CẤN TRỪ (`row`: phần nhập của khung Ghi phiếu thu). Trả true nếu đã xử lý; false để
+    // ghi thu như thường (Ngoài sổ).
     async function startOffset(row) {
       const dateBox = row.querySelector('.receipt-date'), amountBox = row.querySelector('.receipt-amount');
       const dateError = row.querySelector('.receipt-date-error'), amountError = row.querySelector('.receipt-amount-error');
-      const sourceRow = row.nextElementSibling?.classList.contains('offset-source-row') ? row.nextElementSibling : null;
+      const sourceRow = row.querySelector('.offset-source-row');
       dateError.textContent = ''; amountError.textContent = '';
       const date = dateInput(dateBox.value.trim());
       if (!validDate(date)) { dateError.textContent = model.offsetErrorMessage('INVALID_DATE'); dateBox.focus(); return true; }
@@ -163,40 +162,48 @@
         afterOffset(outcome, box, () => showNotice('Đã hủy cấn trừ ở cả hai sổ.'));
       } catch (error) { box.textContent = error.message; }
     }
-    root.addEventListener('change', event => {
-      if (!event.target.matches('.receipt-method')) return;
-      const row = event.target.closest('tr');
-      if (event.target.value === 'CẤN TRỪ') showSourceRow(row); else hideSourceRow(row);
-    });
-    root.addEventListener('input', event => {
-      if (!event.target.matches('.offset-search')) return;
-      offsetState.query = event.target.value;
-      renderOptions();
-    });
+    // Ô chọn sổ nguồn nằm trong khung Ghi phiếu thu (ngoài #app): nghe ở document.
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('change', event => {
+        if (!event.target.matches?.('.receipt-method')) return;
+        const entry = event.target.closest('.entry-form');
+        if (!entry) return;
+        if (event.target.value === 'CẤN TRỪ') showSourceRow(entry); else hideSourceRow(entry);
+      });
+      document.addEventListener('input', event => {
+        if (!event.target.matches?.('.offset-search')) return;
+        offsetState.query = event.target.value;
+        renderOptions();
+      });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && offsetState.open) { offsetState.open = false; renderSourceCell(); scope().querySelector('.offset-source-select')?.focus(); }
+      });
+      document.addEventListener('click', async event => {
+        if (offsetState.open && !event.target.closest?.('.offset-picker,.offset-source-select')) { offsetState.open = false; renderSourceCell(); }
+        if (event.target.closest?.('.offset-source-select')) {
+          if (offsetState.open) { offsetState.open = false; renderSourceCell(); return; }
+          await refreshSources();
+          Object.assign(offsetState, { open: true, query: '' });
+          renderSourceCell();
+          scope().querySelector('.offset-search')?.focus();
+          return;
+        }
+        const option = event.target.closest?.('.offset-option');
+        if (option) {
+          offsetState.selected = option.dataset.source === 'OUTSIDE' ? OUTSIDE : offsetState.sources.find(item => item.customerId === option.dataset.source) ?? null;
+          Object.assign(offsetState, { open: false, error: '' });
+          renderSourceCell();
+          offsetState.row?.querySelector('.receipt-amount')?.focus();
+        }
+      });
+    }
+    // Hộp xác nhận cấn trừ và dòng hủy cấn trừ nằm trong sổ (#app).
     root.addEventListener('keydown', event => {
       if (event.key === 'Escape' && root.querySelector('.offset-backdrop')) { closeDialog(); offsetState.row?.querySelector('.receipt-amount')?.focus(); return; }
-      if (event.key === 'Escape' && offsetState.open) { offsetState.open = false; renderSourceCell(); root.querySelector('.offset-source-select')?.focus(); return; }
       if (event.key === 'Enter' && event.target.matches('.offset-void-reason')) { event.preventDefault(); confirmOffsetVoid(event.target.closest('tr')); }
     });
     root.addEventListener('click', async event => {
-      if (offsetState.open && !event.target.closest('.offset-picker,.offset-source-select')) { offsetState.open = false; renderSourceCell(); }
-      if (event.target.closest('.offset-source-select')) {
-        if (offsetState.open) { offsetState.open = false; renderSourceCell(); return; }
-        await refreshSources();
-        Object.assign(offsetState, { open: true, query: '' });
-        renderSourceCell();
-        root.querySelector('.offset-search')?.focus();
-        return;
-      }
-      const option = event.target.closest('.offset-option');
-      if (option) {
-        offsetState.selected = option.dataset.source === 'OUTSIDE' ? OUTSIDE : offsetState.sources.find(item => item.customerId === option.dataset.source) ?? null;
-        Object.assign(offsetState, { open: false, error: '' });
-        renderSourceCell();
-        offsetState.row?.querySelector('.receipt-amount')?.focus();
-        return;
-      }
       if (event.target.closest('.confirm-offset-void')) await confirmOffsetVoid(event.target.closest('tr'));
     });
-    Object.assign(ctx, { todayIso, startOffset, openOffsetReceipt, offsetState, sourceRowHtml, renderSourceCell });
+    Object.assign(ctx, { todayIso, startOffset, openOffsetReceipt });
 };

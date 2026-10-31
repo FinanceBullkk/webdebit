@@ -3,11 +3,11 @@
  * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).images = ctx => {
   'use strict';
-  const { root, api, customerId, escape, dateText, showNotice, submit } = ctx;
+  const { api, customerId, escape, dateText, showNotice, submit } = ctx;
   const MAX_IMAGES = 5, MAX_EDGE = 2400, MAX_BYTES = 2 * 1024 * 1024;
   const TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-  const drafts = new Map();     // tháng "YYYY-MM" của hàng nhập → [{ url, b64, type, sha256, warning }]
-  const problems = new Map();   // tháng → câu lỗi gần nhất của hàng nhập đó
+  const drafts = new Map();     // khóa của khung nhập phiếu (so-khach-v7-entry-ui.js) → [{ url, b64, type, sha256, warning }]
+  const problems = new Map();   // khóa → câu lỗi gần nhất của khung nhập đó
   let saved = new Map();        // mã phiếu → [{ id, sha256, content_type }]
   let loadedVersion = null;
   const blobs = new Map();      // mã ảnh → object URL đã tải
@@ -149,10 +149,10 @@
     return outcome?.status === 'saved' ? outcome.result : null;
   }
 
-  // Ghi phiếu xong (so-khach-v7-edit-ui.js gọi): đính lần lượt các ảnh đã dán ở hàng nhập của tháng đó.
+  // Ghi phiếu xong (so-khach-v7-entry-ui.js gọi): đính lần lượt các ảnh đã dán ở khung nhập; trả một câu cho băng kết quả.
   ctx.afterReceiptSaved = async (month, pid) => {
     const list = drafts.get(month);
-    if (!list?.length || !pid) return;
+    if (!list?.length || !pid) return '';
     drafts.delete(month);
     problems.delete(month);
     if (view?.month === month) view = null;
@@ -167,9 +167,8 @@
     }
     renderView();
     const missing = list.length - stored;
-    showNotice(missing
-      ? `Phiếu ${pid} đã ghi đúng số tiền, nhưng còn ${missing} ảnh chưa lưu. Bấm 📎 của phiếu ${pid} rồi dán lại ảnh.`
-      : `Đã ghi phiếu ${pid} kèm ${stored} ảnh.${warnings.length ? ` ${warnings[0]}` : ''}`);
+    return missing ? `Phiếu đã ghi đúng số tiền, nhưng còn ${missing} ảnh chưa lưu: bấm 📎 của phiếu ${pid} rồi dán lại ảnh.`
+      : `Kèm ${stored} ảnh.${warnings.length ? ` ${warnings[0]}` : ''}`;
   };
 
   // ---- Khung xem ảnh: đè lên vùng chuyến, cạnh danh sách phiếu thu ----
@@ -253,17 +252,13 @@
     else if (button.matches('.image-remove-confirm')) confirmRemove();
   }
 
-  // Ảnh dán vào đâu: khung xem của phiếu đã ghi đang mở thì vào phiếu đó; còn lại vào hàng nhập của tháng
-  // đang đứng (ô đang chọn), không có thì tháng hiện tại.
+  // Ảnh dán vào đâu: khung xem của phiếu đã ghi đang mở thì vào phiếu đó; còn lại vào khung Ghi phiếu thu (SO-GON-04: một
+  // khung duy nhất, đang đóng thì mở ra).
   function entryMonth(node) {
-    const row = node?.closest?.('.image-entry');
-    if (row) return row.dataset.month;
-    const section = node?.closest?.('section[id^="thang-"]');
-    if (section && root.querySelector(`#${section.id} .image-entry`)) return section.id.slice(6);
+    const box = node?.closest?.('.image-entry');
+    if (box) return box.dataset.month;
     if (view?.month) return view.month;
-    const today = String(ctx.snapshot?.today_month ?? '').slice(0, 7);
-    const rows = [...root.querySelectorAll('.image-entry')];
-    return (rows.find(item => item.dataset.month === today) ?? rows.at(-1))?.dataset.month ?? null;
+    return ctx.entryImageKey();
   }
   function take(files, node) {
     if (!files.length) return false;
@@ -296,9 +291,15 @@
       // Esc trong ô nhập ngoài khung xem giữ việc riêng của ô đó (bỏ sửa), không đóng khung.
       if (event.key === 'Escape' && view && !(event.target.matches?.('input,select,textarea') && !panel?.contains(event.target))) closeView();
     });
+    // Nút 📎 nằm trong sổ, chỗ dán ảnh nằm trong khung Ghi phiếu thu (ngoài #app): nghe ở document.
+    document.addEventListener('click', onClick);
+    document.addEventListener('change', event => {
+      if (!event.target.matches?.('.image-file') || !event.target.files.length) return;
+      addDrafts(event.target.closest('.image-entry').dataset.month, [...event.target.files]);
+    });
   }
-  root.addEventListener('click', event => {
-    const button = event.target.closest('button');
+  function onClick(event) {
+    const button = event.target.closest?.('button');
     if (!button) return;
     if (button.matches('.image-clip')) { view = { pid: button.dataset.pid, index: 0, zoom: false }; renderView(); ctx.redraw(); }
     else if (button.matches('.image-thumb-open')) { view = { month: button.dataset.month, index: Number(button.dataset.index), zoom: false }; renderView(); ctx.redraw(); }
@@ -311,9 +312,5 @@
       if (view?.month === button.dataset.month) view = list.length ? { ...view, index: Math.min(view.index, list.length - 1) } : null;
       renderView(); ctx.redraw();
     } else if (button.matches('.image-pick')) button.closest('.image-entry').querySelector('.image-file').click();
-  });
-  root.addEventListener('change', event => {
-    if (!event.target.matches('.image-file') || !event.target.files.length) return;
-    addDrafts(event.target.closest('.image-entry').dataset.month, [...event.target.files]);
-  });
+  }
 };

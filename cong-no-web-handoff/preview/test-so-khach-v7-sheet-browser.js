@@ -28,7 +28,16 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).body.decision, 'keep_web');
   assert.equal(await page.locator('.info-input').count(), 0);
   assert.match(await page.locator('.sheet-approve').innerText(), /Duyệt 1 chuyến mới/);
+  // SO-GON-04 (L4): hỏi lại một bước; Thôi không gửi lệnh, "Duyệt 1 chuyến" mới gửi.
+  const before = world.requests.length;
   await page.locator('.sheet-approve').click();
+  assert.match(await page.locator('.sheet-approve-panel').innerText(), /Duyệt 1 chuyến mới từ Sheet\?[\s\S]*chuyến nghi trùng thành chờ kiểm/);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('sheet-approve-write')), true);
+  await page.locator('.sheet-approve-cancel').click();
+  assert.equal(await page.locator('.sheet-approve-panel').count(), 0);
+  assert.equal(world.requests.length, before);
+  await page.locator('.sheet-approve').click();
+  await page.locator('.sheet-approve-write').click();
   await page.waitForFunction(() => !document.querySelector('.sheet-approve'));
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/approve');
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
@@ -166,7 +175,10 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
   assert.deepEqual(posts(world).at(-1)[1].unit_price_vnd, '52000000');
   assert.equal(posts(world).at(-1)[0], '/api/v7/trips/price');
   // Khung "Cần xem" vẫn mở sau khi ghi một dòng, để xử lý tiếp dòng khác.
+  // SO-GON-04 (H6): mở khóa từ khung giá Sheet cũng hỏi một câu trước.
   await page.locator('.price-unlock').click();
+  assert.match(await page.locator('.lock-ask').innerText(), /Mở khóa tháng 8\/2026\?/);
+  await page.locator('.lock-yes').click();
   for (let i = 0; i < 100 && posts(world).at(-1)[0] !== '/api/v7/months/lock'; i++) await page.waitForTimeout(50);
   const [lockPath, lockBody] = posts(world).at(-1);
   assert.deepEqual([lockPath, lockBody.month, lockBody.locked], ['/api/v7/months/lock', '2026-08-01', false]);
@@ -207,12 +219,13 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
   assert.equal(world.refreshCalls.filter(method => method === 'POST').length, 2);
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Sheet vừa lấy lúc 11:52'), null, { timeout: 15000 });
 
-  const amount = page.locator('.receipt-amount').first();
-  await amount.fill('123');
+  // Khung Ghi phiếu thu đang mở (SO-GON-04) thì không lấy Sheet.
+  await page.locator('.entry-open').click();
+  await page.locator('.entry-drawer .receipt-amount').fill('123');
   const posts = world.refreshCalls.length;
   await page.locator('#refresh-data').click();
   assert.equal(world.refreshCalls.slice(posts).includes('POST'), false);
-  await amount.fill('');
+  await page.locator('.entry-close').click();
 
   state = 'broken';
   await page.locator('#refresh-data').click();
@@ -252,6 +265,7 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ �
   assert.match(await prompt.innerText(), /Tháng 9\/2026 đang khóa nên chưa xóa được/);
   assert.equal(await prompt.locator('.confirm-delete').count(), 0);
   await prompt.locator('.sheet-removed-unlock').click();
+  await page.locator('.lock-yes').click();
   await page.waitForFunction(() => !document.querySelector('.delete-prompt'));
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.month, body.locked]), [['/api/v7/months/lock', '2026-09-01', false]]);
   await page.locator('.sheet-removed-keep').click();

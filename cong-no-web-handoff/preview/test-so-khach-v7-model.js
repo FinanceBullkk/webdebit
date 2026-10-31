@@ -516,6 +516,15 @@ test('THU-SHEET-01: phiếu thu từ Sheet trừ tổng còn nợ bằng BigInt,
   assert.throws(() => model.planSheetReceipts([{ amount_vnd: 300000000 }], '0'));   // tiền phải là chuỗi
 });
 
+test('SO-GON-04: xem lại phiếu thu tay — tổng còn nợ trước → sau bằng BigInt; vượt nợ hay khách đang dư thì ra số dư', () => {
+  assert.deepEqual(model.planReceiptPreview('1250000000', '50000000'), { beforeVnd: 1250000000n, afterVnd: 1200000000n, creditVnd: 0n });
+  assert.deepEqual(model.planReceiptPreview('10000000', '25000000'), { beforeVnd: 10000000n, afterVnd: -15000000n, creditVnd: 15000000n });
+  assert.deepEqual(model.planReceiptPreview('-5000000', '1000000'), { beforeVnd: -5000000n, afterVnd: -6000000n, creditVnd: 6000000n });
+  assert.equal(model.planReceiptPreview('9007199254740993', '1').afterVnd, 9007199254740992n);
+  assert.throws(() => model.planReceiptPreview('100', 50));          // tiền phải là chuỗi
+  assert.throws(() => model.planReceiptPreview('100', '-5'));        // số tiền phiếu là số dương
+});
+
 test('PHU-PHI-01: cụm cột phụ phí, tổng tháng, số gõ tay theo dấu loại, Thành tiền trước → sau khi tính lại', () => {
   const lines = [{ id: 1, fee_type_id: 1, amount_vnd: '1200000' }, { id: 2, fee_type_id: 1, amount_vnd: '300000' },
     { id: 3, fee_type_id: 7, amount_vnd: '800000' }, { id: 4, fee_type_id: 8, amount_vnd: '-500000' }];

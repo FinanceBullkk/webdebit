@@ -137,23 +137,48 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-newtype button{min-height:36px;padding:0 14px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-weight:700;cursor:pointer}
 .receipt-ref.empty{display:inline-block;min-width:24px;min-height:22px;padding:0 4px;border:1px solid #c4d3e3;border-radius:4px;background:#fff;color:#3e5871;font-weight:700;line-height:20px;text-align:center}
 /* Góp ý 29/10/2026: vùng phiếu thu. Phiếu đã ghi: số tiền một dòng, tham chiếu · tháng trừ nợ · ảnh gom một dòng nhỏ bên dưới.
-   Hàng nhập: một khung có nhãn, chỗ dán ảnh và nút Ghi phiếu. Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. */
+   Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. Ghi phiếu mới ở khung "Ghi phiếu thu" bên phải (SO-GON-04). */
 .receipt-sum{display:block;font-size:14px;font-weight:700;color:#162d48}.ledger .voided .receipt-sum{color:#475d73}
 .ledger td.num .receipt-meta{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 6px;margin-top:2px;white-space:normal}
 .receipt-meta .image-clip{margin-left:0;min-height:22px}.receipt-meta .receipt-ref,.receipt-meta .receipt-allocation,.receipt-meta .image-clip{font-size:14px}.receipt-meta .receipt-ref:has(input){flex:1 1 100%}
 .pay-list .saved-receipt-input{width:100%;min-width:0;height:30px;padding:0 6px;border:1px solid #145fa9;border-radius:4px;background:#fff;font:inherit;color:#162d48}
-.ledger td.pay-form{height:auto;padding:6px}
-.pay-form-card{padding:8px 10px 10px;border:1px solid #8daac9;border-radius:6px;background:#fff;box-shadow:0 1px 2px #162d4814}
-.pay-form-title{margin:0 0 6px;font-size:14px;font-weight:700;color:#173d65}
-.pay-form-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px}
-.pay-field{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:14px;font-weight:600;color:#3e5871}
-.pay-field input,.pay-field select{width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:15px;font-weight:400;color:#162d48}
-.pay-field input:focus,.pay-field select:focus{border-color:#145fa9;outline:2px solid #145fa9;outline-offset:0}
-.pay-field .receipt-amount{text-align:right;font-weight:700}.pay-field .cell-error{font-size:12px}
-.pay-form .image-entry{margin-top:8px}.pay-form .image-drop{min-height:40px;padding:4px 8px}
-.pay-form-actions{display:flex;justify-content:flex-end;margin-top:8px}
-.receipt-save{min-height:36px;padding:0 20px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
-.receipt-save:hover{background:#0f4f8f}.receipt-save:disabled{opacity:.6;cursor:default}.receipt-save:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* SO-GON-04 (L2): nút chính "Ghi phiếu thu" ở đầu sổ mở khung bên phải (cùng mẫu ngăn phụ phí, nằm ngoài #app); bước xem lại
+   trong cùng khung; băng kết quả ngay dưới đầu sổ; dòng phiếu vừa ghi tô xanh 3 giây. */
+.entry-open{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#145fa9;color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap}
+.entry-open:hover{background:#0f4f8f}.entry-open:disabled{opacity:.55;cursor:default}.entry-open:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.entry-drawer{position:fixed;top:calc(var(--banner) + var(--bar));right:0;width:380px;max-width:100vw;height:calc(100vh - var(--banner) - var(--bar));z-index:70;display:flex;flex-direction:column;background:#fff;border-left:3px solid #145fa9;box-shadow:-6px 0 18px #162d4833;font-size:16px;color:#162d48}
+.entry-drawer[hidden]{display:none}
+.entry-drawer header{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
+.entry-drawer h2{margin:0;font-size:18px}.entry-drawer h2 small{display:block;color:#3e5871;font-size:14px;font-weight:400}
+.entry-drawer button{min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;cursor:pointer}
+.entry-drawer header button{margin-left:auto}
+.entry-drawer button:focus-visible,.entry-drawer input:focus-visible,.entry-drawer select:focus-visible{outline:3px solid #145fa9;outline-offset:1px}
+.entry-body{flex:1;overflow-y:auto;padding:12px 14px}
+.entry-form{display:flex;flex-direction:column;gap:4px}.entry-form[hidden],.entry-review[hidden]{display:none}
+.entry-field{display:flex;flex-direction:column;gap:4px;margin-top:6px;font-size:15px;font-weight:600;color:#3e5871}
+.entry-field input,.entry-field select{width:100%;min-width:0;height:40px;margin:0;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:16px;font-weight:400;color:#162d48}
+.entry-field .receipt-amount{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.entry-date{display:flex;gap:6px}.entry-date input{flex:1}
+.entry-form .cell-error{min-height:0;font-size:14px}
+.entry-images .image-entry{margin-top:10px}.entry-review b{white-space:nowrap}
+.entry-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+.entry-drawer .entry-next,.entry-drawer .receipt-save{padding:0 22px;border-color:#145fa9;background:#145fa9;color:#fff;font-weight:700}
+.entry-drawer .receipt-save:disabled{opacity:.6;cursor:default}
+.entry-review p{margin:0 0 10px;line-height:1.45}.entry-review .entry-sum{font-size:17px}
+.entry-review .entry-note{padding:6px 10px;border-radius:4px;background:#fff3d6;color:#5a3a00}
+.entry-review .entry-hint{color:#3e5871;font-size:14px}
+.entry-review .entry-error:empty{display:none}.entry-review .entry-error button{margin-left:6px}
+.saved-strip{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0;padding:8px 14px;border:1px solid #9fd3b0;border-left:4px solid #17663a;border-radius:6px;background:#e3f3e8;color:#123f26;font-size:15px}
+.saved-strip span{flex:1;min-width:260px}
+.saved-strip button{min-height:36px;padding:0 12px;border:1px solid #6aa985;border-radius:4px;background:#fff;color:#123f26;font:inherit;cursor:pointer}
+.saved-strip button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.ledger tr.just-saved td{background:#d6f5df!important;transition:background .6s}
+/* SO-GON-04 (H6): hỏi một câu trước khi khóa/mở khóa tháng, ngay dưới nút đã bấm. */
+.lock-ask td,div.lock-ask,li.lock-ask{padding:8px 10px;background:#fff3c4;color:#452600;font-size:15px;font-weight:600}
+li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.lock-ask button{min-height:36px;margin-left:8px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;cursor:pointer}
+.lock-ask .lock-yes{border-color:#145fa9;background:#145fa9;color:#fff}
+.lock-ask button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .pay-list .void-prompt td{height:auto;padding:6px;background:transparent}
 .void-box{display:grid;gap:6px;padding:8px 10px;border:1px solid #e0a46b;border-radius:6px;background:#fff8f1;font-size:13px;color:#162d48}
 .void-head{font-size:14px}.void-note{margin:0;color:#5d4a36;font-size:12px;line-height:1.4}
@@ -185,7 +210,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger .spacer td{height:16px;padding:0;background:#eef3f8;border:0}
 .ledger-book section:last-child .spacer td{height:calc(100vh - var(--banner) - var(--bar) - var(--head) - var(--chips) - var(--cols))}
 .receipt-ref{display:block;font-size:13px;line-height:1.3;font-weight:400;color:#425b73;text-align:right;cursor:pointer}.receipt-ref.voided{text-decoration:line-through}.receipt-allocation{display:block;font-size:12px;line-height:1.3;font-weight:400;color:#5d6f82;text-align:right;white-space:normal}.receipt-reference{display:block;width:100%;min-width:0;min-height:26px;margin-top:2px;font:inherit;font-size:13px;color:#162d48}
-.muted{color:#475d73}.empty-entry{display:block;min-height:28px}
+.muted{color:#475d73}
 /* SO-GON-04: thanh chip tháng dính trên tiêu đề cột; chip đang tô = tháng ở trên cùng vùng dữ liệu. Tháng thu gọn chỉ còn
    thanh tháng. Vùng bấm cao 40px. */
 .month-chips{position:sticky;top:calc(var(--banner) + var(--bar) + var(--head));z-index:32;display:flex;gap:4px;height:var(--chips);overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;background:#eef3f8;border-bottom:1px solid #9eb4ca}

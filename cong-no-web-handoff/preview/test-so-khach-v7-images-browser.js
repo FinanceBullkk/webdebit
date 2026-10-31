@@ -3,7 +3,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage } = require('./so-khach-v7-browser-world');
 
-const section = `#thang-${todayMonth.slice(0, 7)}`;
+// SO-GON-04: ảnh dán vào khung "Ghi phiếu thu" (bên phải, ngoài sổ), không còn hàng nhập trong từng tháng.
+const section = '.entry-drawer';
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 
 // Dán một ảnh giả (hoặc file không phải ảnh) như Ctrl+V vào phần tử đang chọn.
@@ -24,8 +25,9 @@ const paste = (page, { color = '#2a6', kind = 'image' } = {}) => page.evaluate(a
   (document.activeElement ?? document.body).dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
 }, { color, kind });
 
-test('dán ảnh vào hàng nhập, ghi phiếu: phiếu trước, ảnh sau; xem và gỡ ảnh có lý do', async () => withPage(async ({ page, world, shot }) => {
+test('dán ảnh vào khung Ghi phiếu thu, ghi phiếu: phiếu trước, ảnh sau; xem và gỡ ảnh có lý do', async () => withPage(async ({ page, world, shot }) => {
   const entry = page.locator(section);
+  await page.locator('.entry-open').click();
   await entry.locator('.receipt-date').focus();
   await paste(page, { kind: 'pdf' });
   await page.waitForSelector(`${section} .image-error`);
@@ -41,7 +43,10 @@ test('dán ảnh vào hàng nhập, ghi phiếu: phiếu trước, ảnh sau; xe
 
   await entry.locator('.receipt-date').fill(today);
   await entry.locator('.receipt-amount').fill('50000000');
-  // Nút "Ghi phiếu" của khung nhập đi cùng đường với Enter: phiếu trước, ảnh sau.
+  // Nút "Xem lại" đi cùng đường với Enter; bước xem lại ghi số ảnh kèm theo; Ghi phiếu: phiếu trước, ảnh sau.
+  await entry.locator('.entry-next').click();
+  assert.match(await entry.locator('.entry-review').innerText(), /Kèm 1 ảnh chứng từ/);
+  assert.equal(world.requests.length, 0, 'xem lại chưa gửi lệnh nào');
   await entry.locator('.receipt-save').click();
   await page.waitForFunction(() => document.querySelector('.image-clip:not(.none)')?.textContent.includes('📎 1'));
   const [first, second] = world.requests;
@@ -50,8 +55,9 @@ test('dán ảnh vào hàng nhập, ghi phiếu: phiếu trước, ảnh sau; xe
   assert.equal(second.body.pid, 'PH-001');
   assert.match(second.body.content_type, /^image\/(webp|jpeg)$/);
   assert.equal(second.body.expected_version, first.body.expected_version + 1);
-  assert.equal(await page.locator('.image-thumb').count(), 0, 'hàng nhập hết ảnh sau khi ghi');
-  assert.match(await page.locator('.live-notice').innerText(), /Đã ghi phiếu PH-001 kèm 1 ảnh/);
+  assert.equal(await page.locator('.image-thumb').count(), 0, 'khung nhập hết ảnh sau khi ghi');
+  await page.locator('.saved-strip').waitFor();
+  assert.match(await page.locator('.saved-strip').innerText(), /Đã ghi phiếu PH-001 · 50\.000\.000 đ[\s\S]*Kèm 1 ảnh\./);
 
   await page.locator('.image-clip:not(.none)').click();
   await page.waitForFunction(() => document.querySelector('.image-viewer img')?.naturalWidth > 0);
@@ -70,6 +76,7 @@ test('dán ảnh vào hàng nhập, ghi phiếu: phiếu trước, ảnh sau; xe
 }));
 
 test('ảnh đã đính ở sổ khác: cảnh báo, không chặn; mở khung phiếu đã ghi rồi dán thì đính thẳng vào phiếu đó', async () => withPage(async ({ page, world }) => {
+  await page.locator('.entry-open').click();
   await page.locator(`${section} .receipt-date`).focus();
   await paste(page, { color: '#a52' });
   await page.waitForSelector(`${section} .image-thumb`);
@@ -83,6 +90,8 @@ test('ảnh đã đính ở sổ khác: cảnh báo, không chặn; mở khung p
   await page.locator('.image-thumb-drop').click();
 
   assert.equal(await page.locator('.image-viewer').isVisible(), false, 'bỏ ảnh cuối thì đóng khung');
+  // Khung Ghi phiếu thu che cột phiếu thu bên phải (như ngăn phụ phí): đóng khung rồi mới bấm 📎 của phiếu đã ghi.
+  await page.locator('.entry-close').click();
   await page.locator('.image-clip').first().click();
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu PH-001[\s\S]*Phiếu chưa có ảnh/);
   await paste(page, { color: '#25a' });
