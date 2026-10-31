@@ -60,9 +60,9 @@ class PullTests(unittest.TestCase):
         self.sftp = FakeSftp(self.remote)
         self.enterContext(patch.object(pull.subprocess, "run", self.sftp))
 
-    def seal(self, stamp, folder=None, payload=None, good=True):
+    def seal(self, stamp, folder=None, payload=None, good=True, family="v7-"):
         folder = folder or self.remote
-        name = f"v7-{stamp}.tar.age"
+        name = f"{family}{stamp}.tar.age"
         data = payload or f"encrypted {stamp}".encode()
         (folder / name).write_bytes(data)
         digest = hashlib.sha256(data if good else b"other").hexdigest()
@@ -90,7 +90,8 @@ class PullTests(unittest.TestCase):
         self.assertEqual(self.names(), [first, f"{first}.sha256", second, f"{second}.sha256"])
         self.assertEqual((self.dest / second).read_bytes(), b"\x00\xff binary \r\n bytes")
         self.assertRegex(self.log()[-1], r"^\S+\+07:00 PASS pulled=2 newest=v7-20200102-030000.tar.age "
-                                         r"kept=2 pruned=0$")
+                                         r"kept=2 pruned=0 config_pulled=0 config_newest=- "
+                                         r"config_kept=0 config_pruned=0$")
         self.assertEqual(self.main(), 0)
         self.assertIn("PASS pulled=0", self.log()[-1])
         argv, _ = self.sftp.calls[-1]
@@ -122,6 +123,21 @@ class PullTests(unittest.TestCase):
         self.assertIn("pruned=2", self.log()[-1])
         gets = [line for _, batch in self.sftp.calls for line in batch.splitlines() if line.startswith("get")]
         self.assertFalse([line for line in gets if local[0] in line or local[1] in line])
+
+    def test_config_family_has_its_own_window_and_needs_db_archives(self):
+        db = [self.seal(f"2020010{day}-030000") for day in "12"]
+        config = [self.seal(f"2020010{day}-025000", family="v7-config-") for day in "123"]
+        (self.dest / f"{config[0]}.partial").write_bytes(b"killed mid-transfer")
+        self.assertEqual(self.main(keep="2"), 0)
+        self.assertEqual(self.names(), sorted([*db, *(f"{n}.sha256" for n in db),
+                                               *config[1:], *(f"{n}.sha256" for n in config[1:])]))
+        self.assertRegex(self.log()[-1], rf"PASS pulled=2 newest={db[-1]} kept=2 pruned=0 "
+                                         rf"config_pulled=2 config_newest={config[-1]} config_kept=2 "
+                                         rf"config_pruned=0$")
+        for name in [*db, *(f"{n}.sha256" for n in db)]:
+            (self.remote / name).unlink()
+        self.assertEqual(self.main(keep="2"), 2)  # config archives alone: the DB copy is what matters
+        self.assertIn("FAIL no sealed backup in the outbox", self.log()[-1])
 
     def test_connection_failure_logs_fail_and_touches_nothing(self):
         kept = self.seal("20200101-030000", folder=self.dest)
