@@ -1149,7 +1149,8 @@ def handle_reminder(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,
            port: int, host: str, default_actor: str | None = None, actor: str | None = None,
            source_ip: str = "", source_port: int = 0, localapi=None, behind_tailscale_serve: bool = False,
-           demo: bool = False, real_copy: bool = False, serve_hosts: tuple[str, ...] = ()) -> tuple[int, dict]:
+           demo: bool = False, real_copy: bool = False, serve_hosts: tuple[str, ...] = (),
+           allowed_logins: frozenset[str] | None = None) -> tuple[int, dict]:
     headers = {name.lower(): value for name, value in headers.items()}
     request_host = checked_host(headers.get("host", ""), port, host, behind_tailscale_serve, serve_hosts)
     if method == "POST":
@@ -1166,42 +1167,42 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.path == "/api/v7/sheet/approve":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return approve_sheet(raw, runner, actor)
         if parts.path == "/api/v7/sheet/resolve":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return resolve_sheet_conflict(raw, runner, actor)
         if parts.path == "/api/v7/sheet/prices":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return approve_prices(raw, runner, actor)
         if parts.path == "/api/v7/sheet/receipts":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return approve_receipts(raw, runner, actor)
         if parts.path == "/api/v7/ps/fees":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return approve_ps_fees(raw, runner, actor)
         if parts.path == "/api/v7/sheet/refresh":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return refresh_sheet("POST", raw, actor)
         if parts.path == "/api/v7/presence":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return report_presence(raw, actor)
         if parts.path == "/api/v7/reminders":
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return handle_reminder(raw, runner, actor)
         function, payload = validate(parts.path, raw)
     elif method == "GET":
@@ -1211,19 +1212,19 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
                 bad()
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return refresh_sheet("GET", raw, actor)
         if parts.path == "/api/v7/presence":
             tab = presence_tab(parts.query)
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             return 200, {"people": PRESENCE.view(actor, tab)}
         if parts.path.startswith("/api/v7/zalo/"):
             # ZALO-CHAT-01: đọc bản xuất chat ngoài DB; vẫn qua xác thực danh tính như mọi route.
             if actor is None:
                 actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                                  behind_tailscale_serve=behind_tailscale_serve)
+                                                  behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
             try:
                 return v7_zalo_chat.handle_get(parts.path, parts.query)
             except v7_zalo_chat.ChatError as exc:
@@ -1302,7 +1303,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         raise ApiError(405, "METHOD_NOT_ALLOWED", "Phương thức không được hỗ trợ.")
     if actor is None:
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
-                                          behind_tailscale_serve=behind_tailscale_serve)
+                                          behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
     result = runner.run(function, payload, actor)
     if function == "list_customers" and parts.path == "/api/v7/customers":
         mapping = customer_name_mapping()
@@ -1359,6 +1360,7 @@ class Handler(BaseHTTPRequestHandler):
     dev_actor_mode = None
     behind_tailscale_serve = False
     serve_hosts: tuple[str, ...] = ()
+    allowed_logins: frozenset[str] | None = None  # ACCESS-01; None only outside Serve mode
     localapi = None
     demo = False
     real_copy = False
@@ -1439,7 +1441,8 @@ class Handler(BaseHTTPRequestHandler):
             actor = self.server.dev_actor
             if actor is None:
                 actor = v7_identity.resolve_actor(self.client_address[0], self.headers, self.localapi,
-                                                  source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve)
+                                                  source_port=self.client_address[1], behind_tailscale_serve=self.behind_tailscale_serve,
+                                                  allowed_logins=self.allowed_logins)
             route = urlsplit(self.path)
             if self.command == "GET" and route.path == "/api/v7/presence/stream":
                 self.stream(actor, presence_tab(route.query))
@@ -1461,10 +1464,18 @@ class Handler(BaseHTTPRequestHandler):
             status, value = handle(self.command, self.path, dict(self.headers), raw, self.runner,
                                    port=self.port, host=self.bind_host, default_actor=self.default_actor,
                                    actor=actor, demo=self.demo, real_copy=self.real_copy,
-                                   serve_hosts=self.serve_hosts, behind_tailscale_serve=self.behind_tailscale_serve)
+                                   serve_hosts=self.serve_hosts, behind_tailscale_serve=self.behind_tailscale_serve,
+                                   allowed_logins=self.allowed_logins)
             self.reply(status, value)
         except v7_identity.IdentityError as exc:
-            self.reply(403, {"error": exc.code})
+            if exc.code == "LOGIN_NOT_ALLOWED":
+                # ACCESS-01: the login goes to the journal (so the admin knows whom to add), never to the client.
+                print(f"ACCESS-01: từ chối login ngoài danh sách: {exc.detail} (peer {self.client_address[0]})",
+                      file=sys.stderr, flush=True)
+                self.reply(403, {"error": exc.code,
+                                 "message": "Tài khoản này chưa được cấp quyền dùng sổ. Báo quản trị thêm vào danh sách."})
+            else:
+                self.reply(403, {"error": exc.code})
         except TimeoutError:
             self.reply(408, {"error": "REQUEST_TIMEOUT", "message": "Yêu cầu gửi quá chậm."})
         except ApiError as exc:
@@ -1529,6 +1540,9 @@ def main() -> None:
     )
     parser.add_argument("--serve-host", action="append", default=[],
                         help="Exact Host value accepted from Tailscale Serve; requires --behind-tailscale-serve")
+    parser.add_argument("--allowed-login", action="append", default=[],
+                        help="Tailscale login allowed to use the ledger (ACCESS-01); repeatable, merged with "
+                             "WEBDEBIT_ALLOWED_LOGINS (comma/space separated). Serve mode requires at least one")
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
         "--demo", action="store_true", help="Mark GET snapshots as fake demo data"
@@ -1548,6 +1562,19 @@ def main() -> None:
             port_value = 0
         if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*(?::[1-9][0-9]{0,4})?", value) or not 1 <= port_value <= 65535:
             parser.error("--serve-host requires lowercase fqdn[:port]")
+    # ACCESS-01: the allowlist lives in the unit drop-in on the host, never in Git. Serve mode without it
+    # must not start: every tailnet identity reaching Serve would otherwise be a valid ledger actor.
+    allowed_env = os.getenv("WEBDEBIT_ALLOWED_LOGINS")
+    allowed_raw = None
+    if args.allowed_login or allowed_env is not None:
+        allowed_raw = ",".join([*args.allowed_login, allowed_env or ""])
+    try:
+        allowed_logins = v7_identity.parse_allowed_logins(allowed_raw)
+    except v7_identity.IdentityError as exc:
+        parser.error(f"allowed logins invalid: {exc.code}")
+    if args.behind_tailscale_serve and args.insecure_dev_actor is None and not allowed_logins:
+        parser.error("--behind-tailscale-serve requires at least one allowed login "
+                     "(--allowed-login or WEBDEBIT_ALLOWED_LOGINS; ACCESS-01)")
     if args.direct_socket_dir:
         if not args.database or args.database == "webdebit_ledger":
             parser.error("direct mode requires explicit non-legacy database")
@@ -1575,6 +1602,7 @@ def main() -> None:
     Handler.dev_actor_mode = args.insecure_dev_actor is not None
     Handler.behind_tailscale_serve = args.behind_tailscale_serve
     Handler.serve_hosts = tuple(args.serve_host)
+    Handler.allowed_logins = allowed_logins
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()

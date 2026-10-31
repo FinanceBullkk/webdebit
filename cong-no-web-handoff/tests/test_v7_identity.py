@@ -148,6 +148,60 @@ class IdentityTest(unittest.TestCase):
             self.assertEqual(identity.resolve_actor("100.101.102.103", {}), "User@example.test")
 
 
+class AllowlistTest(unittest.TestCase):
+    """ACCESS-01: only configured logins may act; None keeps the pre-allowlist behaviour."""
+
+    def setUp(self):
+        self.client = FakeLocalAPI({"UserProfile": {"LoginName": "Owner@EXAMPLE.TEST"}})
+
+    def test_parse_allowed_logins(self):
+        self.assertIsNone(identity.parse_allowed_logins(None))
+        self.assertEqual(identity.parse_allowed_logins(""), frozenset())
+        self.assertEqual(identity.parse_allowed_logins(" , \n"), frozenset())
+        self.assertEqual(identity.parse_allowed_logins("A@EXAMPLE.TEST,b@example.test  c@Example.Test\n"),
+                         frozenset({"A@example.test", "b@example.test", "c@example.test"}))
+        for value, code in ((42, "INVALID_CONFIG"), ("ok@example.test,\x7fbad@example.test", "INVALID_LOGIN")):
+            with self.subTest(value=value), self.assertRaises(identity.IdentityError) as caught:
+                identity.parse_allowed_logins(value)
+            self.assertEqual(caught.exception.code, code)
+
+    def test_whois_login_outside_allowlist_fails_closed(self):
+        with self.assertRaises(identity.IdentityError) as caught:
+            identity.resolve_actor("100.101.102.103", {}, self.client, source_port=1,
+                                   allowed_logins=frozenset({"someone-else@example.test"}))
+        self.assertEqual((caught.exception.code, caught.exception.detail), ("LOGIN_NOT_ALLOWED", "Owner@example.test"))
+        self.assertEqual(str(caught.exception), "LOGIN_NOT_ALLOWED")  # response text never carries the login
+
+    def test_serve_header_login_outside_allowlist_fails_closed(self):
+        headers = {"Tailscale-User-Login": "stranger@example.test"}
+        with self.assertRaises(identity.IdentityError) as caught:
+            identity.resolve_actor("127.0.0.1", headers, self.client, behind_tailscale_serve=True,
+                                   allowed_logins=frozenset({"Owner@example.test"}))
+        self.assertEqual((caught.exception.code, caught.exception.detail), ("LOGIN_NOT_ALLOWED", "stranger@example.test"))
+        self.assertEqual(self.client.calls, [])
+
+    def test_allowed_login_passes_after_normalization(self):
+        allowed = frozenset({"Owner@example.test"})
+        self.assertEqual(identity.resolve_actor("100.101.102.103", {}, self.client, allowed_logins=allowed),
+                         "Owner@example.test")
+        self.assertEqual(identity.resolve_actor("::1", {"Tailscale-User-Login": " Owner@EXAMPLE.test "}, self.client,
+                                                behind_tailscale_serve=True, allowed_logins=allowed), "Owner@example.test")
+
+    def test_empty_allowlist_denies_everyone_and_none_allows_any_verified_login(self):
+        with self.assertRaises(identity.IdentityError) as caught:
+            identity.resolve_actor("100.101.102.103", {}, self.client, allowed_logins=frozenset())
+        self.assertEqual(caught.exception.code, "LOGIN_NOT_ALLOWED")
+        self.assertEqual(identity.resolve_actor("100.101.102.103", {}, self.client, allowed_logins=None),
+                         "Owner@example.test")
+
+    def test_allowlist_must_be_a_frozenset(self):
+        for value in ({"a@example.test"}, ["a@example.test"], "a@example.test"):
+            with self.subTest(value=value), self.assertRaises(identity.IdentityError) as caught:
+                identity.resolve_actor("100.101.102.103", {}, self.client, allowed_logins=value)
+            self.assertEqual(caught.exception.code, "INVALID_CONFIG")
+        self.assertEqual(self.client.calls, [])
+
+
 class LocalAPITransportTest(unittest.TestCase):
     def test_http_request_and_response_errors_without_io(self):
         cases = ((200, b'{"UserProfile":{"LoginName":"user@example.test"}}', None),
