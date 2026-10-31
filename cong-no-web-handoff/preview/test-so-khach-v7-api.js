@@ -599,7 +599,8 @@ test('CHỜ KIỂM: nhãn "chờ kiểm" bấm được, rejected ghi "đã lo�
     { id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', review_reason: 'WEB_DUPLICATE', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
     { id: 2, month: '2026-10-01', container: 'FAKE-GONE', status: 'rejected', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
     { id: 3, month: '2026-10-01', container: 'FAKE-OK', status: 'confirmed', unit_price_vnd: '100', other_fee_vnd: '5', amount_vnd: '105' }];
-  const { root } = await livePage({ ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '105' }], trips });
+  // Tháng hiện tại do server báo (today_month): không theo đồng hồ máy chạy test, nếu không từ 1/11/2026 tháng 10 thành tháng khóa.
+  const { root } = await livePage({ ...ledger(1), today_month: '2026-10-01', months: [{ month: '2026-10-01', outstanding_vnd: '105' }], trips });
   assert.match(root.innerHTML, /<button type="button" class="review-open row-tag review" data-trip="1"[^>]*>chờ kiểm<\/button>/);
   assert.doesNotMatch(root.innerHTML, /review-open row-tag review" data-trip="[23]"/);
   assert.match(root.innerHTML, /<td class="num"><span class="trip-rejected row-tag rejected">đã loại<\/span><\/td>/);

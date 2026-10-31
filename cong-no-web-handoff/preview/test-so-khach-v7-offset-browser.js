@@ -456,6 +456,9 @@ test('hủy cấn trừ từ sổ nguồn: bắt buộc lý do, hủy cả hai s
 }));
 
 test('đổi ngày cấn trừ từ sổ nhận: gửi version cả hai sổ, báo đã đổi cả hai sổ; ngày tương lai bị chặn tại ô', async () => withPage(async ({ page, world, open, shot }) => {
+  // Ngày 1 đầu tháng, phiếu ghi ngày 1 và ngày 2 còn là ngày tương lai: trình duyệt của test này đứng ở ngày 2 (giờ VN)
+  // để vẫn có một ngày đổi hợp lệ trong tháng.
+  if (clock.endsWith('-01')) await page.clock.setFixedTime(new Date(`${clock.slice(0, 7)}-02T05:00:00Z`));
   await open(1);
   await fillEntry(page, dayInMonth, '20.000.000');
   await pickSource(page, 'Khách Thử Hai');
