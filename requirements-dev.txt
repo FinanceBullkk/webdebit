@@ -4,4 +4,4 @@
 # nền tảng (Windows/Linux, x86_64/arm64), nên --require-hashes sẽ cần một danh
 # sách hash dài và phải sửa mỗi lần nâng cấp. Ghim đúng phiên bản là đủ: ruff
 # không chạy trong đường ghi tiền, nó chỉ đọc mã nguồn.
-ruff==0.17.1
+ruff==0.17.3
