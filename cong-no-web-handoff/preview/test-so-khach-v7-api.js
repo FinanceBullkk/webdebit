@@ -27,16 +27,23 @@ test('reference remains text; duplicate warning follows successful save and refr
   assert.equal(sent[1].reference, '');
 });
 
-test('month history shows separate open and close with actor, VN time and month', async () => {
+// Lịch sử (SO-GON-04, L6): mỗi mục một dòng "giờ · người làm · tên thao tác câu", ghi chú/lý do ở <small> khi có. Bỏ thẻ, giữ &lt;…&gt;.
+const historyItems = html => [...html.matchAll(/<li data-group="([a-z]*)">(.*?)<\/li>/gs)].map(([, group, body]) => {
+  const [line, note = ''] = body.split('<small>');
+  const text = value => value.replace(/<[^>]+>/g, '');
+  return { group, line: text(line), note: text(note) };
+});
+
+test('month history: one line each for unlock and lock, short actor name (not login), VN time and month', async () => {
   const { root } = await livePage({ ...ledger(1), events: [
-    { kind: 'month_lock', actor: 'fake-opener', at: '2026-01-02T03:00:00Z', before: { month: '2026-01-01', locked: true }, after: { month: '2026-01-01', locked: false } },
-    { kind: 'month_lock', actor: 'fake-closer', at: '2026-01-02T04:00:00Z', before: { month: '2026-01-01', locked: false }, after: { month: '2026-01-01', locked: true } },
+    { kind: 'month_lock', actor: 'fake-opener@example.test', actor_name: 'Người mở', at: '2026-01-02T03:00:00Z', before: { month: '2026-01-01', locked: true }, after: { month: '2026-01-01', locked: false } },
+    { kind: 'month_lock', actor: 'fake-closer@example.test', at: '2026-01-02T04:00:00Z', before: { month: '2026-01-01', locked: false }, after: { month: '2026-01-01', locked: true } },
   ] });
-  assert.match(root.innerHTML, /fake-opener/);
-  assert.match(root.innerHTML, /02\/01\/2026 10:00/);
-  assert.match(root.innerHTML, /Mở tháng 1\/2026/);
-  assert.match(root.innerHTML, /fake-closer/);
-  assert.match(root.innerHTML, /Khóa tháng 1\/2026/);
+  assert.deepEqual(historyItems(root.innerHTML), [
+    { group: 'khoa', line: '02/01/2026 10:00 · Người mở · Mở khóa tháng 1/2026', note: '' },
+    // Bản API chưa gắn actor_name: lấy phần trước @ như server.
+    { group: 'khoa', line: '02/01/2026 11:00 · fake-closer · Khóa tháng 1/2026', note: '' }]);
+  assert.doesNotMatch(root.innerHTML, /@example\.test|Ghi chú\/lý do/);
 });
 
 async function livePage(data, search = '?customer=7') {
@@ -53,19 +60,23 @@ async function livePage(data, search = '?customer=7') {
   return { root, listeners, context };
 }
 
-test('paste history labels one trip date; receipt history keeps payment date', async () => {
+test('paste history lists each trip with one date; receipt history is one sentence with payment date and allocation', async () => {
+  const at = '2026-10-20T01:02:00Z';
   const { root } = await livePage({ ...ledger(1), events: [
-    { kind: 'paste', before: {}, after: { trips: [
-      { container: 'FAKE', date: '01/01/2026', event_date: '2026-01-01' },
+    { kind: 'paste', actor: 'thu', at, before: {}, after: { trips: [
+      { container: 'FAKE', date: '01/01/2026', event_date: '2026-01-01', unitPriceVnd: '100' },
       { container: 'FAKE-2', date: '02/01/2026' },
-      { container: 'FAKE-3', event_date: '2026-01-03' }] } },
-    { kind: 'receipt', before: {}, after: { pid: 'PH-001', date: '2026-10-20', amount_vnd: '100' } },
+      { container: 'FAKE-3', event_date: '2026-01-03', status: 'pending_review' }] } },
+    { kind: 'receipt', actor: 'thu', at, before: {}, after: { pid: 'PH-001', date: '2026-10-15', method: 'THU TIỀN', amount_vnd: '200000000',
+      allocations: [{ month: '2026-08-01', kind: 'debt', amount_vnd: '1000000' }, { month: '2026-09-01', kind: 'debt', amount_vnd: '199000000' }] } },
+    { kind: 'receipt', actor: 'thu', at, before: {}, after: { pid: 'PH-002', date: '2026-01-05', amount_vnd: '300',
+      allocations: [{ month: '2025-12-01', kind: 'debt', amount_vnd: '100' }, { month: '2026-02-01', kind: 'advance', amount_vnd: '200' }] } },
   ] });
-  const paste = root.innerHTML.match(/<li>.*?<strong>Dán lô chuyến<\/strong>.*?<\/li>/s)[0];
-  assert.doesNotMatch(paste, /Ngày trả/);
-  assert.equal((paste.match(/Ngày chuyến:/g) || []).length, 3);
-  assert.equal((paste.match(/01\/01\/2026/g) || []).length, 1);
-  assert.match(root.innerHTML, /<strong>Ghi thu<\/strong><p>.*?Ngày trả: 20\/10\/2026/);
+  assert.deepEqual(historyItems(root.innerHTML).map(item => item.line.replace('20/10/2026 08:02 · thu · ', '')), [
+    'Dán lô chuyến 3 chuyến: FAKE (01/01/2026, 100) · FAKE-2 (02/01/2026) · FAKE-3 (03/01/2026) · 1 chuyến chờ kiểm',
+    'Ghi phiếu thu PH-001: 200.000.000 đ ngày 15/10/2026 · THU TIỀN (trừ T8 1.000.000 · T9 199.000.000)',
+    // Tháng khác năm của phiếu ghi thêm năm; phần dư thành ứng trước.
+    'Ghi phiếu thu PH-002: 300 đ ngày 05/01/2026 (trừ T12/2025 100; ứng trước T2 200)']);
 });
 
 test('trip adjustment history pairs field and amount before to after with signed server delta', async () => {
@@ -85,7 +96,8 @@ test('trip adjustment history pairs field and amount before to after with signed
       before: { trip: 1, amount_vnd: oldAmount, field, new_value_vnd: oldValue },
       after: { adjustment: 1, new_amount_vnd: newAmount, old_amount_vnd: oldAmount,
         delta_vnd: delta, field, new_value_vnd: newValue } }] });
-    assert.ok(root.innerHTML.includes(`<p>${expected}</p>`), expected);
+    // Chuyến không có trong sổ đang xem (dữ liệu giả): ghi mã chuyến.
+    assert.deepEqual(historyItems(root.innerHTML), [{ group: 'gia', line: `Chưa rõ thời điểm · Chưa rõ người làm · Điều chỉnh chuyến Chuyến #1 · ${expected}`, note: '' }]);
   }
 });
 
@@ -171,37 +183,59 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     after: { trips: [{ trip_id: 4, container: 'FAKE<4>', unit_price_vnd: '85000000', rate: { tier: 'tt' } }] } }] });
   assert.match(priceApply.root.innerHTML, /Điền giá theo bảng[\s\S]*1 chuyến · FAKE&lt;4&gt;: – → 85\.000\.000/);
   const kinds = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
-    adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
+    adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi phiếu thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Khóa tháng',
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
     receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
     price_table_edit: 'Sửa bảng giá', price_table_apply: 'Điền giá theo bảng',
     adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
-  const events = Object.keys(kinds).map((kind, i) => ({ id: i, kind, actor: 'Người thử', at: '2026-10-20T01:02:00Z',
-    before: { amount_vnd: '9007199254740993', date: '2026-01-02', month: '2026-01-01' },
-    after: { amount_vnd: '9007199254740994', note: 'giá đúng', allocations: [{ month: '2026-02-01', kind: 'debt', amount_vnd: '100' }] } }));
+  // SO-GON-04 (L6): mỗi loại SQL ghi một câu từ đúng khuôn before/after của hàm SQL; ghi chú/lý do chỉ khi người làm gõ.
+  const table = { price_table: { tt_shippers: [], locations: [], periods: [] } };
+  const sentences = {
+    paste: [{}, { trips: [{ container: 'FAKE-P', date: '02/10/2026', event_date: '2026-10-02', unitPriceVnd: '9007199254740993', note: 'lô <1>', trip_id: 3, status: 'confirmed' }] },
+      'chuyen', '1 chuyến: FAKE-P (02/10/2026, 9.007.199.254.740.993)', 'Ghi chú: lô &lt;1&gt;'],
+    price_edit: [{ price: { trip_id: 3, revision_id: 1, unit_price_vnd: '9007199254740993', other_fee_vnd: null } },
+      { price: { trip_id: 3, unit_price_vnd: '9007199254740994', other_fee_vnd: null } }, 'gia', 'Chuyến #3 · Đơn giá: 9.007.199.254.740.993 → 9.007.199.254.740.994', ''],
+    adjust_trip: [{ trip: 3, amount_vnd: '100', field: 'unit_price_vnd', new_value_vnd: '100' },
+      { adjustment: 1, trip_id: 3, old_amount_vnd: '100', new_amount_vnd: '150', delta_vnd: '50', note: 'giá đúng', field: 'unit_price_vnd', new_value_vnd: '150' },
+      'gia', 'Chuyến #3 · Đơn giá: 100 → 150 · Thành tiền: 100 → 150 · Điều chỉnh: +50', 'Ghi chú: giá đúng'],
+    adjust_month: [{ month: '2026-01-01', amount_vnd: '0' }, { adjustment: 2, month: '2026-01-01', amount_vnd: '-5000', note: null }, 'gia', '1/2026: -5.000', ''],
+    receipt: [{}, { receipt: 1, pid: 'PH-001', date: '2026-10-15', method: 'CHUYỂN KHOẢN', amount_vnd: '200', reference: 'REF <1>',
+      allocations: [{ month: '2026-09-01', kind: 'debt', amount_vnd: '200', id: 9 }] }, 'thu', 'PH-001: 200 đ ngày 15/10/2026 · CHUYỂN KHOẢN · tham chiếu REF &lt;1&gt; (trừ T9 200)', ''],
+    receipt_edit: [{ receipt: 1, pid: 'PH-001', date: '2026-10-14', method: 'THU TIỀN', reference: null, allocations: [] },
+      { receipt: 1, pid: 'PH-001', date: '2026-10-15', method: 'THU TIỀN', reference: 'REF', allocations: [] }, 'thu', 'PH-001: ngày 14/10/2026 → 15/10/2026 · tham chiếu – → REF', ''],
+    month_lock: [{ month: '2026-09-01', locked: false }, { month: '2026-09-01', locked: true }, 'khoa', '9/2026', ''],
+    void: [{ receipt: 1, pid: 'PH-001', amount_vnd: '200', allocations: [] }, { receipt: 1, pid: 'PH-001', void_reason: 'nhập <trùng>', allocations: [] },
+      'thu', 'PH-001: 200 đ', 'Lý do hủy: nhập &lt;trùng&gt;'],
+    // Phiếu không có trong sổ đang xem (dữ liệu giả): ghi mã phiếu, tháng kèm năm.
+    reallocation: [{ receipt: 1, allocations: [{ month: '2026-09-01', kind: 'debt', amount_vnd: '200' }] },
+      { receipt: 1, allocations: [{ month: '2026-08-01', kind: 'debt', amount_vnd: '50' }, { month: '2026-09-01', kind: 'debt', amount_vnd: '150' }] },
+      'thu', 'phiếu #1: trừ T9/2026 200 → trừ T8/2026 50 · T9/2026 150', ''],
+    import: [{}, { cutover: 1, openings: 3, legacy: 120, report_sha256: 'a'.repeat(64) }, '', '3 kỳ số dư đầu, 120 dòng sổ gốc', ''],
+    trip_review: [{ trip: 3, container: 'FAKE<1>', status: 'pending_review' }, { trip: 3, container: 'FAKE<1>', status: 'rejected', review_reason: 'trùng <sổ gốc>' },
+      'chuyen', 'chuyến FAKE&lt;1&gt;: loại, không tính', 'Lý do: trùng &lt;sổ gốc&gt;'],
+    receipt_image: [{}, { image: { id: 5, receipt_id: 1, pid: 'PH-001', sha256: 'b'.repeat(64) } }, 'thu', 'phiếu PH-001', ''],
+    receipt_image_remove: [{ image: { id: 5, pid: 'PH-001' } }, { image: { id: 5, pid: 'PH-001', removed: true, reason: 'đính <nhầm>' } }, 'thu', 'phiếu PH-001', 'Lý do gỡ: đính &lt;nhầm&gt;'],
+    price_table_edit: [table, { price_table: { tt_shippers: ['TT'], locations: [{ name: 'KHO', aliases: [] }], periods: [{ valid_from: '2026-10-10', valid_to: null, rates: [] }] } },
+      'gia', 'Bảng giá: 0 đợt, 0 kho, 0 shipper TT → 1 đợt, 1 kho, 1 shipper TT', ''],
+    price_table_apply: [{ trips: [{ trip_id: 4, container: 'FAKE-4', unit_price_vnd: null }] }, { trips: [{ trip_id: 4, container: 'FAKE-4', unit_price_vnd: '85000000' }] },
+      'gia', '1 chuyến · FAKE-4: – → 85.000.000', ''],
+    adjust_month_delete: [{ adjustment: { id: 4, month: '2026-10-01', amount_vnd: '-100', note: 'thử <x>' } },
+      { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '0', deleted: true, reversal: 5 } }, 'gia', '10/2026: -100 (thử &lt;x&gt;) → 0', ''],
+  };
+  assert.deepEqual(Object.keys(sentences).sort(), Object.keys(kinds).sort());
+  const events = Object.entries(sentences).map(([kind, [before, after]], id) => ({ id, kind, actor: 'nguoi.thu@example.test', actor_name: 'Thu',
+    at: '2026-10-20T01:02:00Z', before, after }));
   events.push({ kind: 'private_new_code', at: '2026-10-20T01:01:00Z', before: { unknown_key: 'private_value' }, after: {} });
   const { root } = await livePage({ ...ledger(1), events });
-  for (const label of Object.values(kinds)) assert.ok(root.innerHTML.includes(label), label);
-  assert.match(root.innerHTML, /20\/10\/2026 08:02/);
-  assert.match(root.innerHTML, /9\.007\.199\.254\.740\.993.*→.*9\.007\.199\.254\.740\.994/);
-  assert.match(root.innerHTML, /02\/01\/2026/);
-  assert.match(root.innerHTML, /tháng 2\/2026/);
-  assert.match(root.innerHTML, /Ghi chú\/lý do: giá đúng/);
-  assert.match(root.innerHTML, /Thao tác khác/);
-  const review = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'trip_review', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
-    before: { trip: 3, container: 'FAKE<1>', status: 'pending_review' },
-    after: { trip: 3, container: 'FAKE<1>', status: 'rejected', review_reason: 'trùng <sổ gốc>' } }] });
-  assert.match(review.root.innerHTML, /Chuyến FAKE&lt;1&gt;: loại, không tính<\/p><small>Ghi chú\/lý do: trùng &lt;sổ gốc&gt;/);
-  assert.doesNotMatch(root.innerHTML, /private_new_code|unknown_key|private_value|\[object Object\]|"amount_vnd"/);
-  const image = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'receipt_image_remove', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
-    before: { image: { id: 5, pid: 'PH-001' } }, after: { image: { id: 5, pid: 'PH-001', removed: true, reason: 'đính <nhầm>' } } }] });
-  assert.match(image.root.innerHTML, /Phiếu PH-001 · gỡ 1 ảnh · Lý do: đính &lt;nhầm&gt;/);
-  assert.doesNotMatch(image.root.innerHTML, /sha256|data_base64/);
-  const removed = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'adjust_month_delete', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
-    before: { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '-100', note: 'thử <x>' } },
-    after: { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '0', deleted: true, reversal: 5 } } }] });
-  assert.match(removed.root.innerHTML, /Xóa điều chỉnh cả tháng/);
-  assert.match(removed.root.innerHTML, /Tháng 10\/2026: -100 \(thử &lt;x&gt;\) → 0/);
+  assert.deepEqual(historyItems(root.innerHTML), [...Object.entries(sentences).map(([kind, [, , group, text, note]]) =>
+    ({ group, line: `20/10/2026 08:02 · Thu · ${kinds[kind]} ${text}`, note })),
+  { group: '', line: '20/10/2026 08:01 · Chưa rõ người làm · Thao tác khác', note: '' }]);
+  assert.doesNotMatch(root.innerHTML, /private_new_code|unknown_key|private_value|\[object Object\]|"amount_vnd"|sha256|aaaa|bbbb|Ghi chú\/lý do|nguoi\.thu/);
+  // Bộ lọc theo loại: Thu · Chuyến · Giá/phụ phí · Khóa tháng · Tất cả, kèm số mục; mặc định Tất cả.
+  assert.deepEqual([...root.innerHTML.matchAll(/<button type="button" data-filter="([a-z]+)" aria-pressed="(true|false)">([^<]+)<\/button>/g)].map(match => match.slice(1)),
+    [['thu', 'false', 'Thu (6)'], ['chuyen', 'false', 'Chuyến (2)'], ['gia', 'false', 'Giá/phụ phí (6)'], ['khoa', 'false', 'Khóa tháng (1)'], ['all', 'true', 'Tất cả (17)']]);
+  assert.match(root.innerHTML, /<ol class="history-items" data-filter="all">/);
+  assert.match(root.innerHTML, /<p class="history-none" hidden>/);
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
   const written = [...sql.matchAll(/VALUES\s*\(\s*(?:customer_id|p_customer)\s*,\s*'([^']+)'/g)].map(match => match[1]);
   // Bốn loại NHAP-SHEET-01 chưa có nhãn trên giao diện (làm sau); tới lúc đó hiện "Thao tác khác".
@@ -248,18 +282,27 @@ test('real copy banner uses exact warning from GET', async () => {
   assert.equal(root.hidden, false);
 });
 
-test('history presents actual nested price/paste/void snapshots and escapes notes', async () => {
+test('history: price edit lists only changed fields; typed notes and reasons escaped; legacy rows grouped by what changed', async () => {
   const { root } = await livePage({ ...ledger(1), events: [
     { kind: 'price_edit', before: { price: { unit_price_vnd: '9007199254740993', other_fee_vnd: null } },
       after: { price: { unit_price_vnd: '9007199254740994', other_fee_vnd: '10' } } },
     { kind: 'paste', before: {}, after: { trips: [{ container: 'FAKE', date: '01/01/2026',
       unitPriceVnd: '100', otherFeeVnd: null, note: '<script>bad</script>' }] } },
     { kind: 'void', before: { pid: 'PH-001', amount_vnd: '100' }, after: { pid: 'PH-001', void_reason: 'nhập trùng', allocations: [] } },
+    { kind: 'legacy_edit', before: { legacy: { container: 'OLD', field: 'unit_price_vnd', value: '10', counted_vnd: '10', month: '2026-09-01' } },
+      after: { legacy: { container: 'OLD', field: 'unit_price_vnd', value: '20', counted_vnd: '20', month: '2026-09-01' } } },
+    { kind: 'legacy_delete', before: { legacy: { kind: 'receipt', container: 'OLD', counted_vnd: '-5', month: '2026-09-01' } }, after: { legacy: { deleted: true } } },
+    { kind: 'legacy_edit', before: { legacy: { container: 'OLD', field: 'shipper', value: 'A', counted_vnd: '20', month: '2026-09-01' } },
+      after: { legacy: { container: 'OLD', field: 'shipper', value: 'B', counted_vnd: '20', month: '2026-09-01' } } },
   ] });
-  assert.match(root.innerHTML, /Đơn giá: 9\.007\.199\.254\.740\.993 · Phụ phí: – → Đơn giá: 9\.007\.199\.254\.740\.994 · Phụ phí: 10/);
-  assert.match(root.innerHTML, /Chuyến: Container: FAKE/);
-  assert.match(root.innerHTML, /Ghi chú\/lý do: &lt;script&gt;bad&lt;\/script&gt;/);
-  assert.match(root.innerHTML, /Ghi chú\/lý do: nhập trùng/);
+  const items = historyItems(root.innerHTML);
+  assert.deepEqual(items.map(item => [item.group, item.line.replace('Chưa rõ thời điểm · Chưa rõ người làm · ', ''), item.note]), [
+    ['gia', 'Sửa giá Đơn giá: 9.007.199.254.740.993 → 9.007.199.254.740.994 · Phụ phí: – → 10', ''],
+    ['chuyen', 'Dán lô chuyến 1 chuyến: FAKE (01/01/2026, 100)', 'Ghi chú: &lt;script&gt;bad&lt;/script&gt;'],
+    ['thu', 'Hủy phiếu PH-001: 100 đ', 'Lý do hủy: nhập trùng'],
+    ['gia', 'Sửa dòng sổ gốc Dòng sổ gốc OLD · Đơn giá: 10 → 20 · Số tính: 10 → 20', ''],
+    ['thu', 'Xóa dòng sổ gốc Khoản thu sổ gốc OLD · tháng 9/2026 · Số đã trừ nợ: -5', ''],
+    ['chuyen', 'Sửa dòng sổ gốc Dòng sổ gốc OLD · Shipper: A → B', '']]);
   assert.doesNotMatch(root.innerHTML, /<script>|price_edit|void_reason|unitPriceVnd/);
 });
 

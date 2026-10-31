@@ -112,6 +112,17 @@ def healthz(runner: Psql, now: float) -> tuple[int, dict]:
     return (200 if db_ok else 503), body
 
 
+def with_actor_names(ledger: dict) -> dict:
+    """SO-GON-04 (L6): Lịch sử ghi tên ngắn người làm theo bảng tên của PRESENCE-01, không phải login. Chỉ thêm `actor_name`."""
+    events = ledger.get("events")
+    if not isinstance(events, list):
+        return ledger
+    names = PRESENCE.names()
+    return {**ledger, "events": [{**event, "actor_name": v7_presence.display_name(event["actor"], names)}
+                                 if isinstance(event, dict) and isinstance(event.get("actor"), str) else event
+                                 for event in events]}
+
+
 def presence_tab(query: str) -> str:
     values = parse_qs(query, keep_blank_values=True)
     if set(values) != {"tab"} or len(values["tab"]) != 1 or not v7_presence.TAB.fullmatch(values["tab"][0]):
@@ -213,7 +224,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     if parts.path == "/api/v7/sheet-queue":
         return 200, sheet_queue(result, parts.query)
     if function == "get_ledger":
-        result = ledger_projections(runner, result, actor)
+        result = with_actor_names(ledger_projections(runner, result, actor))
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in FLAGGED_READS:

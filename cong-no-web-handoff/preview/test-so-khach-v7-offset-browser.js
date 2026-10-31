@@ -99,9 +99,9 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
   await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'true');
   await page.locator('.history-toggle').click();
   const history = await page.locator('#history-panel').innerText();
-  assert.match(history, /Khóa tháng/);
-  assert.match(history, /Mở tháng/);
-  assert.match(history, /fake-browser-actor/);
+  // SO-GON-04 (L6): một dòng mỗi sự kiện, tên thao tác như chữ trên nút ("Mở khóa tháng").
+  assert.match(history, /fake-browser-actor · Khóa tháng \d{1,2}\/\d{4}/);
+  assert.match(history, /fake-browser-actor · Mở khóa tháng \d{1,2}\/\d{4}/);
   assert.match(history, /02\/01\/2026 10:00/);
   assert.equal(await page.locator('#history-panel li').count(), 2);
   assert.equal(world.requests.at(-1).path, '/api/v7/months/lock');

@@ -370,6 +370,7 @@
     // Vẽ cả sổ từ một bản GET; mọi số tiền lấy nguyên từ GET, trang không cộng trừ tiền. Bảng tháng: so-khach-v7-month-ui.js
     // (bảng chuyến: trips-ui, phiếu thu: pay-ui); Lịch sử: history-ui; thanh ?loc: loc-ui; móc sau khi vẽ của các phần khác.
     function renderSnapshot(data) {
+      const focus = ctx.focusMark();   // vẽ lại thay cả #app: giữ tiêu điểm ở đúng ô (so-khach-v7-edit-ui.js)
       snapshot = data;
       ctx.imagesOnSnapshot?.(data);
       ctx.priceOnSnapshot?.(data);
@@ -397,6 +398,7 @@
       monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
+      ctx.focusBack(focus);
     }
     function showNotice(value) {
       message = ctx.presenceStale ? ctx.presenceStale(value) : value;
