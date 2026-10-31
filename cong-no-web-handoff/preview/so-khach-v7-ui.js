@@ -15,7 +15,8 @@
   const history = [];
   let historyOpen = false;
   let monthPrompt = null;
-  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // Thoát HTML và nhãn tháng "7/2026" dùng chung (CongNoFormat); các phần nhận qua ctx dưới tên escape/monthLabel.
+  const { esc: escape, monthLabel } = CongNoFormat;
   const conflictFields = row => row.changed_fields?.length
     ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
@@ -23,7 +24,6 @@
       CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
   const sheetFieldLabel = field => ({ carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Điểm đi', destination: 'Điểm đến', booking: 'Booking' }[field] || field);
   const resolvableSheetFields = new Set(['carrier', 'shipper', 'origin', 'destination', 'event_date', 'booking']);
-  const monthLabel = key => `${Number(key.slice(5))}/${key.slice(0, 4)}`;
   const money = amount => amount === null || amount === undefined ? '–' : model.formatVnd(amount);
   const fieldMoney = amount => amount === null || amount === undefined ? '–' : model.formatVnd(model.parseVnd(amount));
   const outstanding = model?.formatOutstanding;

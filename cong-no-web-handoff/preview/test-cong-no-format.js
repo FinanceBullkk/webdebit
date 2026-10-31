@@ -49,3 +49,44 @@ test('sum is exact beyond Number precision', () => {
 test('heatStep bins by absolute amount', () => {
   assert.deepEqual(['1', '199999999', '200000000', '500000000', '1000000000', '2000000000', '4000000000', '9000000000'].map(F.heatStep), [1, 1, 2, 3, 4, 5, 6, 6]);
 });
+
+test('esc escapes the five HTML characters and blanks null', () => {
+  assert.equal(F.esc(`<a href="x">Tom & Jerry's</a>`), '&lt;a href=&quot;x&quot;&gt;Tom &amp; Jerry&#39;s&lt;/a&gt;');
+  assert.equal(F.esc(null), '');
+  assert.equal(F.esc(0), '0');
+});
+
+test('foldText keeps length and punctuation; fold collapses to search words', () => {
+  assert.equal(F.foldText('Nguyễn Hoàng Vũ · Đà Lạt'), 'nguyen hoang vu · da lat');
+  assert.equal(F.foldText('Hoàng').length, 'Hoàng'.length);
+  assert.equal(F.fold('  Sầu riêng · BỘ  '), 'sau rieng bo');
+  assert.equal(F.fold(null), '');
+});
+
+test('transportText and commodityText follow the DB codes CANG/BO', () => {
+  assert.deepEqual(['CANG', 'BO', 'CẢNG', 'BỘ', null, undefined, ''].map(F.transportText), ['cảng', 'bộ', 'cảng', 'bộ', '', '', '']);
+  assert.equal(F.commodityText('Sầu riêng', 'BO'), 'Sầu riêng · bộ');
+  assert.equal(F.commodityText('Chuối', null), 'Chuối');
+  assert.equal(F.commodityText(null, 'BO'), F.UNSORTED);
+});
+
+test('customerLabels keys by String(id) and disambiguates duplicates with sổ id', () => {
+  const rows = [
+    { id: 7, name: 'OLD A', display_name: 'SHEET', commodity: 'Chuối' },
+    { id: 8, name: 'OLD B', display_name: 'SHEET', commodity: 'Chuối' },
+    { id: 9, name: 'UNMAPPED', commodity: null },
+    { id: 10, name: 'X', label: 'Đặt sẵn' },
+  ];
+  assert.equal(F.customerLabel(rows[0]), 'SHEET · Chuối');
+  assert.equal(F.customerLabel(rows[2]), 'UNMAPPED');
+  assert.equal(F.customerLabel(rows[3]), 'Đặt sẵn');
+  assert.deepEqual([...F.customerLabels(rows)], [['7', 'SHEET · Chuối · sổ 7'], ['8', 'SHEET · Chuối · sổ 8'], ['9', 'UNMAPPED'], ['10', 'Đặt sẵn']]);
+});
+
+test('month labels accept YYYY-MM and YYYY-MM-DD', () => {
+  assert.equal(F.monthLabel('2026-07'), '7/2026');
+  assert.equal(F.monthLabel('2026-07-19'), '7/2026');
+  assert.equal(F.monthTitle('2026-07-01'), 'Tháng 07/2026');
+  assert.equal(F.monthTag('2026-07-01', 2026), 'T7');
+  assert.equal(F.monthTag('2025-12-01', 2026), 'T12/2025');
+});

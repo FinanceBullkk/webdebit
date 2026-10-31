@@ -4,16 +4,13 @@
 const DashboardModel = (() => {
   'use strict';
   const F = typeof CongNoFormat !== 'undefined' ? CongNoFormat : require('./cong-no-format.js');
-  const UNSORTED = 'Chưa phân loại';
+  const UNSORTED = F.UNSORTED;
   const OTHER = 'Khác';
   const TIERS = ['not_due', 'due_this_month', 'late_1_2', 'late_3_6', 'late_over_6'];
   const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
-  const fold = value => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[đĐ]/g, 'd').toLowerCase().trim();
-  const transportText = mode => ({ CANG: 'cảng', 'CẢNG': 'cảng', BO: 'bộ', 'BỘ': 'bộ' })[mode] ?? '';
+  const { fold, transportText, monthLabel } = F;
   const dm = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
   const dmy = iso => `${dm(iso)}/${iso.slice(0, 4)}`;
-  const monthText = iso => `${Number(iso.slice(5, 7))}/${iso.slice(0, 4)}`;
   // Tới 90 ngày đếm ngày, lâu hơn đếm tháng: dễ đọc hơn "678 ngày".
   const ago = days => days > 90 ? `${Math.floor(days / 30)} tháng` : `${days} ngày`;
 
@@ -57,11 +54,11 @@ const DashboardModel = (() => {
 
   /** Một dòng lý do ngắn: dấu hiệu rủi ro trước; khách không rủi ro cao thì nói nợ nào quá hạn và lần trả gần nhất. */
   function reason(row, rule) {
-    const paid = row.payDate ? `có trả ${row.payExact ? dm(row.payDate) : `khoảng T${monthText(row.payDate)}`}` : 'chưa trả lần nào';
+    const paid = row.payDate ? `có trả ${row.payExact ? dm(row.payDate) : `khoảng T${monthLabel(row.payDate)}`}` : 'chưa trả lần nào';
     let parts;
     if (row.risk === 'high') {
       parts = [];
-      if (row.longOverdue > 0n && row.oldest) parts.push(`Nợ từ T${monthText(row.oldest)}`);
+      if (row.longOverdue > 0n && row.oldest) parts.push(`Nợ từ T${monthLabel(row.oldest)}`);
       if (row.payDays == null) parts.push('chưa trả lần nào');
       else if (row.payDays > rule.no_pay_days) parts.push(`${ago(row.payDays)} chưa trả`);
       if (row.tripDays == null) parts.push('chưa có chuyến');
@@ -69,7 +66,7 @@ const DashboardModel = (() => {
       else if (row.tripDays <= rule.active_trip_days) parts.push('vẫn đi hàng');
     } else {
       const late = row.months.find(item => item.tier >= 2 && item.value > 0n);
-      parts = [late ? `Nợ T${monthText(late.key)} quá hạn` : 'Trong hạn', paid];
+      parts = [late ? `Nợ T${monthLabel(late.key)} quá hạn` : 'Trong hạn', paid];
     }
     const text = parts.join(' · ');
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -77,13 +74,13 @@ const DashboardModel = (() => {
 
   /** Câu giải thích trong ngăn kéo: vì sao khách ở mức này. */
   function reasons(row, rule) {
-    const oldest = row.oldest ? ` (nợ từ tháng ${monthText(row.oldest)})` : '';
+    const oldest = row.oldest ? ` (nợ từ tháng ${monthLabel(row.oldest)})` : '';
     return [
       row.longOverdue > 0n ? `Còn ${F.short(row.longOverdue)} quá hạn từ 3 tháng trở lên${oldest}`
         : row.overdue > 0n ? `Quá hạn ${F.short(row.overdue)}${oldest}` : 'Chưa có nợ quá hạn',
-      row.payDate ? `Trả gần nhất ${row.payExact ? dmy(row.payDate) : `trong tháng ${monthText(row.payDate)}`} — ${row.payDays ? `${ago(row.payDays)} trước` : 'hôm nay'}`
+      row.payDate ? `Trả gần nhất ${row.payExact ? dmy(row.payDate) : `trong tháng ${monthLabel(row.payDate)}`} — ${row.payDays ? `${ago(row.payDays)} trước` : 'hôm nay'}`
         : 'Chưa trả lần nào',
-      row.tripDate ? `Đi hàng gần nhất ${row.tripExact ? dmy(row.tripDate) : `trong tháng ${monthText(row.tripDate)}`} — ${row.tripDays > rule.no_trip_days ? 'đã ngừng đi hàng' : row.tripDays > rule.active_trip_days ? 'ít đi hàng' : 'vẫn đi hàng'}`
+      row.tripDate ? `Đi hàng gần nhất ${row.tripExact ? dmy(row.tripDate) : `trong tháng ${monthLabel(row.tripDate)}`} — ${row.tripDays > rule.no_trip_days ? 'đã ngừng đi hàng' : row.tripDays > rule.active_trip_days ? 'ít đi hàng' : 'vẫn đi hàng'}`
         : 'Chưa có chuyến',
     ];
   }
