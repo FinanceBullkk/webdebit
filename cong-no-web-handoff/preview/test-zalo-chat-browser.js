@@ -34,7 +34,7 @@ const conversations = () => ({ total: 2, conversations: [
   { conversation_id: CONV_B, display_name: null, name_status: 'unmatched', message_count: 1, last_message_at: DAY, last_own_message_at: null, participant_count: 1 },
 ] });
 const report = () => ({ status: 'EXPORTED_WITH_GAPS', conversation_count: 2, message_count: 8, named_conversations: 1, owner_conversations: 1, body_missing: 1, attachment_matched: 1, attachment_unmatched: 1, skipped_lines: 0 });
-const fold = s => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const { foldText: fold } = require('./cong-no-format.js');   // cùng quy tắc với fold của web/v7_zalo_chat.py
 
 function makeServer({ unavailable = false, requests = [] } = {}) {
   return http.createServer((req, res) => {

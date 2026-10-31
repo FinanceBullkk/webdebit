@@ -8,7 +8,7 @@
   const HIDE_KEY = 'presence-hide-pointers';
   const PAGE_NAMES = { dashboard: 'Tổng quan', 'cong-no-theo-thang': 'Công nợ theo tháng', 'sheet-queue': 'Chuyến từ Sheet', 'viec-can-lam': 'Việc cần làm', 'doi-no': 'Đòi nợ', 'zalo-chat': 'Chat Zalo' };
   const BOOK_LINK = /so-khach-v7-live\.html\?customer=([1-9][0-9]*)/;
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const { esc } = CongNoFormat;
 
   function tabId() {
     const fresh = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');

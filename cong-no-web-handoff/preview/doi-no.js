@@ -5,7 +5,7 @@
   const F = CongNoFormat;
   const root = document.getElementById('doi-no');
   const $ = id => document.getElementById(id);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+  const { esc, commodityText, monthTitle } = F;
   const FILTERS = [['all', 'Tất cả'], ['chua-nhac', 'Chưa nhắc'], ['nhac-cho', 'Đã nhắc, chưa trả']];
   const state = { asOf: null, rows: [], byId: new Map(), names: new Map(), filter: 'all' };
   let loading = false;
@@ -25,10 +25,7 @@
     const toUTC = s => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
     return Math.round((toUTC(a) - toUTC(b)) / 86400000);
   };
-  const monthLabel = key => `Tháng ${key.slice(5, 7)}/${key.slice(0, 4)}`;
 
-  const transportText = mode => ({ CANG: 'cảng', BO: 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
-  const commodityText = (commodity, mode) => commodity ? `${commodity}${transportText(mode) ? ` · ${transportText(mode)}` : ''}` : 'Chưa phân loại';
   // Tên hiển thị: tên Sheet; trùng tên thì thêm số sổ.
   function buildNames(customers) {
     const base = row => row.display_name ?? row.name;
@@ -62,7 +59,7 @@
     const months = (row.months ?? []).filter(m => F.toBig(m.outstanding_vnd) > 0n);
     if (months.length) {
       lines.push('Chi tiết nợ theo tháng:');
-      for (const m of months) lines.push(`- ${monthLabel(m.month)}: ${F.full(m.outstanding_vnd)}`);
+      for (const m of months) lines.push(`- ${monthTitle(m.month)}: ${F.full(m.outstanding_vnd)}`);
     }
     lines.push('Kính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
     return lines.join('\n');
