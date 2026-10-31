@@ -59,9 +59,13 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     // Mockup v4.1 (duyệt 29/10/2026): 12 cột tháng rộng bằng nhau, bảng không có khung cuộn riêng ở 1280px.
     assert.equal(layout.months.length === 12 && layout.equal && !layout.innerScroll && !layout.pageScrollX && layout.separated, true, JSON.stringify(layout));
     assert.equal(await page.locator('#heat-head th.mh').first().innerText(), 'Tháng 1');
+    // Audit UX 31/10/2026 (P0-6): ô và cột tổng ghi số triệu đồng không kèm đơn vị (không còn "tr"); đơn vị ghi một lần ở tiêu đề.
+    assert.match(await page.locator('#heat-head th.khach').innerText(), /^Khách\s+Đơn vị: triệu đồng$/);
+    assert.equal(await page.locator('.cell-btn[data-id="1"][data-month="1"]').innerText(), '0,1');
+    assert.deepEqual(await page.locator('#heat-body tr[data-row="1"] td.tot').allInnerTexts(), ['0,08', '0,08']);
     assert.match(await page.locator('#scope-receivable').innerText(), /80\.000 đ/);
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
-    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 20.000 đ');
+    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 0,02');
     assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ (dư)');
     assert.match(await page.locator('#heat-body .group').first().innerText(), /Sầu riêng · cảng/);
     assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1"]').count(), 1);
@@ -186,8 +190,28 @@ test('matrix rejects missing money evidence from API', async () => {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
     await page.locator('#error').waitFor({ state: 'visible' });
-    assert.match(await page.locator('#error').innerText(), /Dữ liệu tiền từ API không hợp lệ/);
+    assert.match(await page.locator('#error').innerText(), /Số liệu ma trận không hợp lệ nên chưa hiện\. Báo người quản trị kiểm tra nguồn số liệu\./);
+    assert.doesNotMatch(await page.locator('#error').innerText(), /API/);
     assert.equal(await page.locator('#heat-body tr').count(), 0);
+  } finally { await browser.close(); app.close(); }
+});
+// Audit UX 31/10/2026 (P1-6): mất mạng khi tải chỉ hiện một câu tiếng Việt "chuyện gì · cần làm gì" và nút Thử lại tải lại.
+test('matrix network error: Vietnamese sentence, never the browser string; Thử lại loads the table', async () => {
+  const app = server();
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.route('**/api/v7/receivables/matrix*', route => route.abort('failed'));
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
+    await page.locator('#error').waitFor({ state: 'visible' });
+    const text = await page.locator('#error').innerText();
+    assert.match(text, /^Không tải được ma trận công nợ\. Kiểm tra mạng rồi bấm Thử lại\.\s*Thử lại$/);
+    assert.doesNotMatch(text, /fetch|TypeError|HTTP/i);
+    await page.unroute('**/api/v7/receivables/matrix*');
+    await page.locator('#error').getByRole('button', { name: 'Thử lại' }).click();
+    await page.locator('#heat-body .khach').first().waitFor();
+    assert.equal(await page.locator('#error').isHidden(), true);
   } finally { await browser.close(); app.close(); }
 });
 test('matrix refresh reads new data while preserving selected year', async () => {
