@@ -44,7 +44,7 @@
     const review = receipts.review ?? [];
     if (!review.length && view === 'review') view = null;
     const strip = review.length ? `<div class="price-strip receipt-strip">Phiếu thu Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="receipt-review-toggle" aria-expanded="${view === 'review'}">${view === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
-    root.querySelector('.book-head')?.insertAdjacentHTML('afterend', strip + panel(data));
+    root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', strip + panel(data));
   }
 
   root.addEventListener('click', async event => {

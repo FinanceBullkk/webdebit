@@ -399,8 +399,10 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   const newMonth = page(true, oldBook);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
-  // SO-GON-04 (H2): một nút "Ghi phiếu thu" ở đầu sổ mở khung bên phải; không còn khung nhập phiếu ở từng tháng.
-  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"[^>]*>Lịch sử<\/button><button type="button" class="entry-open" >Ghi phiếu thu<\/button>/);
+  // SO-GON-04 (H2, L7): đầu sổ chỉ còn ô tìm khách, nút chính "Ghi phiếu thu", Lịch sử và tổng còn nợ; các nút khác ở dải
+  // ngay dưới đầu sổ. Không còn khung nhập phiếu ở từng tháng.
+  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button type="button" class="entry-open" >Ghi phiếu thu<\/button><button class="history-toggle"[^>]*>Lịch sử<\/button><div class="head-item total">/);
+  assert.match(newMonth.innerHTML, /<div class="book-bar"><div class="book-tasks">(?:(?!<\/div>).)*<button class="fee-settings-open"[^>]*>Cài đặt phụ phí<\/button>(?:(?!<\/div>).)*<\/div><div class="live-slot"><\/div><\/div>/s);
   assert.doesNotMatch(newMonth.innerHTML, /receipt-amount|receipt-date|pay-entry|Ghi phiếu mới/);
   const block = (root, key) => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   // SO-GON-04: lúc mở sổ chỉ tháng hiện tại và tháng liền trước hiện chi tiết; tháng cũ thu gọn còn thanh tháng (ổ khóa,
@@ -425,7 +427,6 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(august.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
   assert.match(september.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);
   assert.match(september.innerHTML, /THÁNG 9\/2026.*title="Nợ các tháng trước 0 \+ phát sinh 1\.234\.567 − đã thu 1\.234\.067">Còn nợ cuối tháng: <b>500<\/b>/);
-  assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"/);
   assert.doesNotMatch(newMonth.innerHTML, /change-customer|Chờ xử lý|Từ tháng|class="badge/);
   // Tháng chỉ có dòng Sheet: một dòng Tổng tháng như Sheet, không dòng trống, không dòng "nợ còn lại".
   const carried = page(true, { ...ledger(5), today_month: '2026-10-01',
@@ -452,7 +453,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   await new Promise(resolve => setImmediate(resolve));
   const heldLive = pending.innerHTML.match(/<tr data-row="trip-1"><td[^>]*>1<\/td>\s*<td[^>]*>FAKE-HELD<\/td>.*?<\/tr>/s)?.[0];
   assert.ok(heldLive);
-  assert.match(heldLive, /CHỜ KIỂM/);
+  assert.match(heldLive, /class="review-open row-tag review"[^>]*>chờ kiểm</);
   assert.doesNotMatch(heldLive, /class="num editable/);
   assert.match(pending.innerHTML, /data-trip="2"/);
   assert.doesNotMatch(pending.innerHTML, /chuyến chưa có giá/);
@@ -549,15 +550,16 @@ test('loadOffsetSources and readOther read without touching the open book snapsh
   await assert.rejects(api.readOther(4), /không hợp lệ/);
 });
 
-test('CHỜ KIỂM: nút bấm được, rejected ghi ĐÃ LOẠI và không sửa được', async () => {
+// SO-GON-04 (L5): trạng thái dòng là nhãn chữ thường có nền màu — "chờ kiểm" (nút mở dòng kết luận), "đã loại" (gạch).
+test('CHỜ KIỂM: nhãn "chờ kiểm" bấm được, rejected ghi "đã loại" và không sửa được', async () => {
   const trips = [
     { id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', review_reason: 'WEB_DUPLICATE', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
     { id: 2, month: '2026-10-01', container: 'FAKE-GONE', status: 'rejected', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },
     { id: 3, month: '2026-10-01', container: 'FAKE-OK', status: 'confirmed', unit_price_vnd: '100', other_fee_vnd: '5', amount_vnd: '105' }];
   const { root } = await livePage({ ...ledger(1), months: [{ month: '2026-10-01', outstanding_vnd: '105' }], trips });
-  assert.match(root.innerHTML, /<button type="button" class="review-open" data-trip="1"[^>]*>CHỜ KIỂM<\/button>/);
-  assert.doesNotMatch(root.innerHTML, /review-open" data-trip="[23]"/);
-  assert.match(root.innerHTML, /<td class="num trip-rejected">ĐÃ LOẠI<\/td>/);
+  assert.match(root.innerHTML, /<button type="button" class="review-open row-tag review" data-trip="1"[^>]*>chờ kiểm<\/button>/);
+  assert.doesNotMatch(root.innerHTML, /review-open row-tag review" data-trip="[23]"/);
+  assert.match(root.innerHTML, /<td class="num"><span class="trip-rejected row-tag rejected">đã loại<\/span><\/td>/);
   assert.doesNotMatch(root.innerHTML, /data-trip="2"/);
   // 23/10/2026: bỏ bộ đếm "Chờ xử lý" ở đầu sổ; chữ CHỜ KIỂM ngay trên dòng là đủ.
   assert.doesNotMatch(root.innerHTML, /chuyến CHỜ KIỂM|Chờ xử lý/);

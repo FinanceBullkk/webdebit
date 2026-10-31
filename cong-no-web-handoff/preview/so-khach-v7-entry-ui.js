@@ -171,7 +171,7 @@
     const text = [`Đã ghi phiếu${lastSaved.pid ? ` ${lastSaved.pid}` : ''}`, `${fmt(lastSaved.amount)} đ`, `ngày ${dateText(lastSaved.date)}`,
       ...(debt.length ? [`trừ nợ ${debt.join(' · ')}`] : []), ...advance].join(' · ')
       + (lastSaved.duplicate ? '. Tham chiếu trùng với phiếu khác trong sổ.' : '.') + (lastSaved.imageText ? ` ${lastSaved.imageText}` : '');
-    root.querySelector('.book-head')?.insertAdjacentHTML('afterend', `<div class="saved-strip" role="status"><span>${escape(text)}</span>`
+    root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', `<div class="saved-strip" role="status"><span>${escape(text)}</span>`
       + (lastSaved.pid ? `<button type="button" class="saved-void" data-pid="${escape(lastSaved.pid)}">Hủy phiếu vừa ghi</button>` : '')
       + '<button type="button" class="saved-close">Đóng</button></div>');
   }

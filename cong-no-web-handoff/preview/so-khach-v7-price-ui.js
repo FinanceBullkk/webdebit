@@ -81,7 +81,7 @@
     const reapply = confirmIds('reapply').length;
     const strip = reapply && confirm?.kind !== 'reapply'
       ? `<div class="price-strip">Bảng giá đã đổi: <strong>${reapply}</strong> chuyến đang ghi theo giá cũ của bảng. <button type="button" class="price-reapply-open">Áp lại giá mới</button></div>` : '';
-    root.querySelector('.book-head')?.insertAdjacentHTML('afterend', strip + confirmPanel());
+    root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', strip + confirmPanel());
   };
   function confirmPanel() {
     if (!confirm) return '';

@@ -223,7 +223,7 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
   await page.locator('.entry-open').click();
   await page.locator('.entry-drawer .receipt-amount').fill('123');
   const posts = world.refreshCalls.length;
-  await page.locator('#refresh-data').click();
+  await page.locator('#refresh-data').dispatchEvent('click');   // khung mở che nút: bấm thẳng vào nút
   assert.equal(world.refreshCalls.slice(posts).includes('POST'), false);
   await page.locator('.entry-close').click();
 

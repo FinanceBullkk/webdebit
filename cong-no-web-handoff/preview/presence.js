@@ -24,7 +24,8 @@
   function monthText(month) { return month ? `tháng ${Number(month.slice(5, 7))}/${month.slice(0, 4)}` : ''; }
 
   // options: page, customerId?, position() -> {month, cell}, decorate(people)?, onJump(person)?,
-  // pointer() -> {row, col, fx, fy} | null và locate(anchor) -> ô (mức 2, chỉ sổ khách).
+  // pointer() -> {row, col, fx, fy} | null và locate(anchor) -> ô (mức 2, chỉ sổ khách),
+  // toggleHost? — chỗ đặt nút Ẩn/Hiện con trỏ (mặc định thanh trên; sổ khách đặt ở dải dưới đầu sổ, SO-GON-04).
   function start(options) {
     const topbar = document.querySelector('.topbar');
     if (!topbar || typeof fetch !== 'function') return null;
@@ -45,7 +46,7 @@
       document.body.append(pointers);
       toggle.type = 'button';
       toggle.className = 'presence-toggle';
-      topbar.append(toggle);
+      (options.toggleHost ?? topbar).append(toggle);
     }
 
     const sameBook = person => options.customerId != null && person.page === 'so-khach' && person.customer_id === options.customerId;
