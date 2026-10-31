@@ -11,6 +11,9 @@ CONF=${WEBDEBIT_DEPLOY_CONF:-/etc/webdebit-deploy.conf}
 . "$CONF"
 : "${RELEASES_DIR:?}" "${CURRENT_LINK:?}" "${UNIT:?}" "${HEALTH_URL:?}"
 KEEP=${KEEP:-5}
+# Kiểm sống chạm DB (audit DevOps 31/10, #6): /healthz cùng gốc với HEALTH_URL, trừ khi conf đặt HEALTHZ_URL.
+[[ $HEALTH_URL =~ ^(https?://[^/]+) ]] || { echo "HEALTH_URL không hợp lệ" >&2; exit 2; }
+HEALTHZ_URL=${HEALTHZ_URL:-${BASH_REMATCH[1]}/healthz}
 
 read -r -a args <<< "${SSH_ORIGINAL_COMMAND:-$*}"
 action=${args[0]:-}
@@ -19,10 +22,10 @@ sha=${args[1]:-}
 current_sha() { cat "$CURRENT_LINK/.release-sha" 2>/dev/null || echo none; }
 
 alive() {
-  # 200 hoặc 403 đều là dịch vụ sống (GET loopback không có danh tính Tailscale nên có thể 403, runbook mục 6).
+  # Chỉ 200: /healthz chạy SELECT 1 qua psql của app; DB hỏng trả 503, route thiếu trả 403/404 đều là lỗi.
   local code
-  code=$(curl --silent --output /dev/null --max-time 5 --write-out '%{http_code}' "$HEALTH_URL" || true)
-  [[ $code == 200 || $code == 403 ]] && systemctl is-active --quiet "$UNIT"
+  code=$(curl --silent --output /dev/null --max-time 10 --write-out '%{http_code}' "$HEALTHZ_URL" || true)
+  [[ $code == 200 ]] && systemctl is-active --quiet "$UNIT"
 }
 
 case $action in
