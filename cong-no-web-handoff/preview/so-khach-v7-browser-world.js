@@ -310,6 +310,8 @@ async function withPage(fn, setup = () => {}) {
       });
       return;
     }
+    // world.dropReads: số lần đọc sổ kế tiếp bị cắt kết nối (giả mất mạng).
+    if (url.pathname === '/api/v7/ledger' && world.dropReads > 0) { world.dropReads--; req.socket.destroy(); return; }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
     if (url.pathname === '/api/v7/receipt-images') {

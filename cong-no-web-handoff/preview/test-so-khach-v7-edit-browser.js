@@ -257,6 +257,19 @@ test('sổ khách 1280×720: không ô nào chữ dưới 14px, hàng chuyến �
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 }));
 
+// Audit UX 31/10/2026 (P1-6): mất mạng khi đọc sổ chỉ hiện câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
+test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page, world }) => {
+  world.dropReads = 1;
+  await page.reload();
+  const alert = page.locator('.load-error');
+  await alert.waitFor();
+  assert.match(await alert.innerText(), /^Không tải được sổ khách\. Kiểm tra mạng rồi bấm Thử lại\.\s*Thử lại$/);
+  assert.doesNotMatch(await page.locator('#app').innerText(), /fetch|TypeError|HTTP/i);
+  await alert.getByRole('button', { name: 'Thử lại' }).click();
+  await page.locator('.book-head .history-toggle').waitFor();
+  assert.equal(await page.locator('.load-error').count(), 0);
+}));
+
 // Mỗi hàng của bảng (chuyến, cả sổ) có đúng số ô bằng số cột — bỏ cột không làm lệch ô.
 const rowsFit = page => page.evaluate(() => [...document.querySelectorAll('section > table.ledger, .trip-list')].flatMap(table => {
   const cols = table.querySelectorAll(':scope > colgroup > col').length;
