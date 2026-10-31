@@ -3,7 +3,7 @@
  * nằm ở "Phiếu thu Sheet cần xem". Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).receipts = ctx => {
   'use strict';
-  const { root, model, api, customerId, escape, showNotice, renderSnapshot } = ctx;
+  const { root, model, api, customerId, escape, monthKey, showNotice, renderSnapshot } = ctx;
   // null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
   let view = null;
   let approval = null;
@@ -58,6 +58,8 @@
       return;
     }
     if (target.matches('.receipt-goto')) {
+      // SO-GON-04: khoản cũ nằm trong tháng đang thu gọn thì hiện chi tiết tháng đó trước.
+      ctx.showMonth(monthKey((ctx.snapshot.legacy_rows ?? []).find(row => String(row.id) === target.dataset.id)?.month));
       const cell = root.querySelector(`td.row-delete[data-kind="legacy"][data-id="${CSS.escape(target.dataset.id)}"]`);
       if (!cell) { showNotice('Tháng của khoản cũ đang khóa. Mở khóa tháng rồi bấm ô số tiền để xóa.'); return; }
       cell.scrollIntoView({ block: 'center' });

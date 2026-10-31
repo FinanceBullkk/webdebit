@@ -82,7 +82,8 @@ test('Đòi nợ: ngày dd/mm/yyyy, tên khách mở sổ khách, tiêu đề c�
   assert.deepEqual(await cRow.locator('.when').allInnerTexts(), ['chưa có', '20/10/2026 · 9 ngày trước']);
   assert.equal(await page.locator('.rrow').filter({ hasText: 'Khách E' }).locator('.when').first().innerText(), '10/03/2024');
   for (const text of await page.locator('.rrow .when').allInnerTexts()) assert.doesNotMatch(text, /\d{4}-\d{2}-\d{2}/);
-  assert.equal(await cRow.locator('a.nm').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  // SO-GON-04: mở sổ ở tháng nợ cũ nhất còn nợ.
+  assert.equal(await cRow.locator('a.nm').getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-08');
   // Mỗi ô của từng dòng thẳng mép trái/phải với ô tiêu đề cùng cột (lệch tối đa 1px).
   const aligned = await page.evaluate(() => {
     const edges = el => { const box = el.getBoundingClientRect(); return [box.left, box.right]; };

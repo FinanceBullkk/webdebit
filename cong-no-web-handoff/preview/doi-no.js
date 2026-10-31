@@ -113,8 +113,10 @@
         : '<i class="muted">chưa nhắc</i>';
       const paid = row.last_receipt_date ? esc(dateText(row.last_receipt_date)) : '<i class="muted">chưa có</i>';
       // Audit UX 31/10/2026 (P1-2): tên khách mở sổ khách; ngày dd/mm/yyyy như mọi trang.
+      // SO-GON-04: mở sổ ở tháng nợ cũ nhất còn nợ (sổ thu gọn các tháng cũ).
+      const oldest = /^\d{4}-\d{2}/.exec(row.oldest_open_month ?? '')?.[0];
       return `<div class="rrow s-${st.key}">
-        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}" title="Mở sổ ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
+        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}${oldest ? `&amp;month=${esc(oldest)}` : ''}" title="Mở sổ ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
         <span class="num od" title="${esc(F.full(row.overdue_vnd))}">${esc(F.short(row.overdue_vnd))}</span>
         <span class="num" title="${esc(F.full(row.outstanding_vnd))}">${esc(F.short(row.outstanding_vnd))}</span>
         <span class="when">${paid}</span>

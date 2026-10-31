@@ -239,9 +239,12 @@
       if (button.matches('.sheet-removed-unlock')) { button.disabled = true; await submit('lock', { month: button.dataset.month, locked: false }); return; }
       const items = removedRows(ctx.snapshot);
       if (button.matches('.sheet-removed-next')) {
-        const rows = items.map(item => root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`)).filter(Boolean);
-        if (!rows.length) return;
-        const row = rows[removedJump++ % rows.length];
+        if (!items.length) return;
+        // SO-GON-04: chuyến nằm trong tháng đang thu gọn thì hiện chi tiết tháng đó trước.
+        const item = items[removedJump++ % items.length];
+        ctx.showMonth(monthKey(item.month));
+        const row = root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`);
+        if (!row) return;
         row.scrollIntoView({ block: 'center' });
         row.querySelector('.sheet-removed-delete')?.focus();
         return;

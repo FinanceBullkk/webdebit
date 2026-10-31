@@ -15,7 +15,7 @@ const SoKhachV7Ctx = (() => {
   'use strict';
   const FIELDS = {
     // Lõi: dữ liệu và hàm dùng chung.
-    root: ['core', 'giá trị', 'debit edit fee images loc offset pay presence price ps receipts sheet trips', 'phần tử #app chứa cả sổ'],
+    root: ['core', 'giá trị', 'debit edit fee images loc month offset pay presence price ps receipts sheet trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit fee history month offset price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
     api: ['core', 'giá trị', 'edit fee images offset price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
     live: ['core', 'giá trị', 'debit edit offset presence price', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
@@ -29,7 +29,7 @@ const SoKhachV7Ctx = (() => {
     dateText: ['core', 'hàm', 'edit fee history images month offset pay price ps sheet trips', 'yyyy-mm-dd → dd/mm/yyyy'],
     sheetDay: ['core', 'hàm', 'pay trips', 'ngày trong ô Sheet (số ngày Excel, ISO có giờ) → dd/mm/yyyy'],
     dateInput: ['core', 'hàm', 'edit offset', 'dd/mm/yyyy gõ vào → yyyy-mm-dd'],
-    monthKey: ['core', 'hàm', 'edit fee history month pay price ps sheet', 'ngày/tháng → "yyyy-mm"'],
+    monthKey: ['core', 'hàm', 'edit fee history loc month pay price ps receipts sheet', 'ngày/tháng → "yyyy-mm"'],
     monthLabel: ['core', 'hàm', 'debit edit history month pay price ps sheet', '"yyyy-mm" → "7/2026"'],
     liveOpenMonth: ['core', 'giá trị', 'edit month', 'tháng hiện tại theo đồng hồ máy (giờ VN), khi server chưa trả today_month'],
     methods: ['core', 'giá trị', 'edit offset pay', 'các hình thức thu'],
@@ -40,9 +40,9 @@ const SoKhachV7Ctx = (() => {
     resolvableSheetFields: ['core', 'giá trị', 'sheet', 'cột lệch Sheet được lấy theo Sheet'],
     moneyText: ['core', 'hàm', 'edit', 'chữ gõ vào → chuỗi VND nguyên (qua model)'],
     referenceFields: ['core', 'hàm', 'edit offset', 'ô Tham chiếu của khung nhập phiếu → { reference }'],
-    showNotice: ['core', 'hàm', 'edit fee images offset price ps receipts sheet', 'băng thông báo trên sổ'],
+    showNotice: ['core', 'hàm', 'edit fee images month offset price ps receipts sheet', 'băng thông báo trên sổ'],
     renderSnapshot: ['core', 'hàm', 'ps receipts sheet', 'vẽ cả sổ từ một bản GET'],
-    redraw: ['core', 'hàm', 'edit fee images pay price', 'vẽ lại từ bản đang có, giữ ô ghi thu đang gõ'],
+    redraw: ['core', 'hàm', 'edit fee images month pay price', 'vẽ lại từ bản đang có, giữ ô ghi thu đang gõ'],
     submit: ['core', 'hàm', 'edit fee images ps sheet', 'gửi lệnh; lỗi thì hiện ở băng thông báo'],
     columns: ['core', 'giá trị', 'edit month price trips', 'khung cột hiện tại: count, trip, feeStart, unitPrice, tags, all, shipper, shipperCell'],
     feeTypeName: ['core', 'hàm', 'fee history ps trips', 'mã loại phụ phí → tên'],
@@ -58,8 +58,11 @@ const SoKhachV7Ctx = (() => {
     sheetPendingRows: ['trips', 'hàm', 'month', 'hàng chuyến Sheet chờ duyệt/lệch chưa nối'],
     conflictsAfterRender: ['trips', 'hàm', 'core', 'tô KHÁC + nút Xem trên dòng lệch Sheet sau khi vẽ'],
     payRows: ['pay', 'hàm', 'month', 'các hàng của danh sách phiếu thu một tháng'],
-    monthSections: ['month', 'hàm', 'core', 'các bảng tháng và danh sách tháng'],
+    monthSections: ['month', 'hàm', 'core', 'các bảng tháng và thanh chip tháng'],
+    monthsAfterRender: ['month', 'hàm', 'core', 'cuộn tới tháng của ?month= và tô chip tháng đang xem sau khi vẽ'],
+    showMonth: ['month', 'hàm', 'edit receipts sheet', 'hiện chi tiết một tháng đang thu gọn (vẽ lại) trước khi tìm dòng của tháng đó'],
     locAfterRender: ['loc', 'hàm', 'core', 'tô dòng và thanh ?loc= sau khi vẽ'],
+    locMonths: ['loc', 'hàm', 'month', 'tháng có dòng ?loc= cần xử lý (để tự hiện chi tiết)'],
     // Phần tính năng: hàm cho phần khác.
     reviewReasonText: ['history', 'giá trị', 'edit', 'lý do CHỜ KIỂM → câu tiếng Việt'],
     decoratePrices: ['sheet', 'hàm', 'core', 'gợi ý giá Sheet trên ô Đơn giá sau khi vẽ'],
