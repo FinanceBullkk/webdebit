@@ -258,8 +258,8 @@ test('sổ khách 1280×720: không ô nào chữ dưới 14px, hàng chuyến �
 }));
 
 // Audit UX 31/10/2026 (P1-6): mất mạng khi đọc sổ chỉ hiện câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
-test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page, world }) => {
-  world.dropReads = 1;
+test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page }) => {
+  await page.route('**/api/v7/ledger?*', route => route.abort('failed'), { times: 1 });
   await page.reload();
   const alert = page.locator('.load-error');
   await alert.waitFor();
