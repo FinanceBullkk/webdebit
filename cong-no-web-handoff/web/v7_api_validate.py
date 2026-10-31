@@ -124,7 +124,7 @@ def validate_fee(function: str, body: dict) -> tuple[str, dict]:
 
 def image_bytes(content_type: object, data: object) -> bytes:
     """Kiểm ảnh trước khi tới DB; DB kiểm lại đầu file và kích thước."""
-    if content_type not in IMAGE_TYPES or not isinstance(data, str) or len(data) % 4 or not BASE64.fullmatch(data):
+    if not isinstance(content_type, str) or content_type not in IMAGE_TYPES or not isinstance(data, str) or len(data) % 4 or not BASE64.fullmatch(data):
         bad("IMAGE_INVALID", ERRORS["IMAGE_INVALID"][1])
     image = base64.b64decode(data, validate=True)
     if len(image) > MAX_IMAGE_BYTES:
@@ -300,9 +300,9 @@ def _detail(parts_query: str) -> tuple[str, dict]:
 
 def _sheet_queue(parts_query: str) -> tuple[str, dict]:
     query = parse_qs(parts_query, keep_blank_values=True)
-    if query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
-                  not re.fullmatch(r"[1-9][0-9]*", query["customer"][0]) or
-                  len(query["customer"][0]) > 19 or int(query["customer"][0]) > MAX_BIGINT):
+    if parts_query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
+                        not re.fullmatch(r"[1-9][0-9]*", query["customer"][0]) or
+                        len(query["customer"][0]) > 19 or int(query["customer"][0]) > MAX_BIGINT):
         bad()
     return "list_customers", {}
 
