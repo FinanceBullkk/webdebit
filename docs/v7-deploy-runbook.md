@@ -358,6 +358,19 @@ cùng nhận Host đã cấu hình; POST chỉ nhận Origin `https://<serve-hos
 Kiểm cổng trống và lưu `tailscale serve status --json` ngoài repo trước đổi. Dùng cổng HTTPS
 riêng chưa có route, không `tailscale serve reset` vì có thể ảnh hưởng viewer.
 
+**Danh sách login ([`ACCESS-01`](decisions/access-01.md), từ 31/10/2026):** chế độ Serve bắt buộc có danh sách login
+được dùng sổ, không có thì service từ chối khởi động. Đặt bằng drop-in, ngoài Git vì chứa login:
+
+```ini
+# /etc/systemd/system/<unit>.service.d/allowed-logins.conf
+[Service]
+Environment=WEBDEBIT_ALLOWED_LOGINS=<login1>,<login2>
+```
+
+Thêm người: sửa dòng này rồi `sudo systemctl daemon-reload` và `sudo systemctl restart <unit>`. Login bị từ chối
+nhận 403 `LOGIN_NOT_ALLOWED` và được ghi vào journal của unit (dòng `ACCESS-01: từ chối login …`), nên tra
+`journalctl -u <unit>` để biết cần thêm ai.
+
 ```bash
 sudo systemctl daemon-reload
 ```
