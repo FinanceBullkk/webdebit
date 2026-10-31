@@ -9,7 +9,7 @@ Từ 29/10/2026 Claude tự chạy phần nâng release/migration theo [`DEPLOY-
 | ĐỀ XUẤT | Quy trình 0–8; SQL schema còn nhãn DRAFT, cần review commit và gate triển khai riêng |
 | ĐÃ CHỐT | Người dùng + phiên điều phối, 21/10/2026: PostgreSQL 18 trực tiếp/systemd, chỉ unix socket `/var/run/postgresql`; DB V7 riêng; app/loader dùng OS user riêng, peer, không mật khẩu |
 | ĐÃ KIỂM CHỨNG (bản sao Docker) | Tổng duyệt 21/10/2026 trên PostgreSQL 18.6 dùng một lần (`--network none`, xác thực trust, API chạy ở máy chạy kịch bản): `status=pass` đủ bước 1–7 kể cả rollback B/C và dọn sạch, với bản sạch thật 236 khách / 877 dòng mở đầu (báo cáo và hash ở thư mục log ngoài repo) và với bản giả; đo thời gian từng bước ghi trong báo cáo. KHÔNG phải kiểm máy chủ thật: peer, systemd, Tailscale chưa thử |
-| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản sao ra PC đã cài 29/10/2026 ([mục](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); backup mỗi giờ và gói cấu hình/globals người dùng duyệt cài 31/10/2026 ([giờ](#backup-mỗi-giờ--timer-v7-backup-hourly), [cấu hình](#gói-cấu-hình-và-globals--timer-v7-backup-config)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
+| CÒN MỞ | Peer/pg_hba thực tế; dung lượng thật; backup V7 hằng ngày đã cài 29/10/2026 ([timer](#backup-hằng-ngày--timer-v7-backup-daily)), bản sao ra PC đã cài 29/10/2026 ([mục](#bản-sao-ngoài-máy--timer-v7-backup-offsite)); backup mỗi giờ, gói cấu hình/globals và PC kéo thứ hai đã cài 31/10/2026 ([giờ](#backup-mỗi-giờ--timer-v7-backup-hourly), [cấu hình](#gói-cấu-hình-và-globals--timer-v7-backup-config)); quyền người chạy; nghiệm thu danh tính/service; triển khai chính sách mới còn gate |
 
 Giới hạn: Sheet vẫn chính thức theo [SONG-SONG-01](decisions.md#song-song-01).
 Opening theo [OPENING-SO-GOC](decisions.md#opening-so-goc); mốc chuyến là bản xuất mới nhất
@@ -655,7 +655,8 @@ systemd hay peer trên `hao`.
 
 ## Backup mỗi giờ — timer `v7-backup-hourly`
 
-Người dùng duyệt cài ngày 31/10/2026 trong chat (unit mới, [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)), trước
+**ĐÃ CÀI trên `hao` 31/10/2026** ([nhật ký](deploys/2026-10-31-v7-backup-hourly-config.md)); lượt timer đầu 14:00 giờ VN
+cùng ngày đạt. Người dùng duyệt cài ngày 31/10/2026 trong chat (unit mới, [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)), trước
 khi người nhập ghi thật song song với Sheet từ 1/11/2026. Lý do: bản hằng ngày cho RPO 24 giờ; trong giờ nhập, lỡ tay hay
 lỗi app chỉ mất tối đa một giờ. Không migration, không đổi DB, không ghi tiền. Không thay bản hằng ngày.
 
@@ -771,7 +772,7 @@ giờ VN, PC kéo 04:30. Lý do: dữ liệu PostgreSQL và `/srv/v7-backup-dail
 đích ngày 29/10/2026: PC Windows chính trong tailnet (dưới đây gọi là PC). Không migration, không đổi DB, không ghi tiền.
 Cài lần đầu là thêm khóa SSH, thư mục, unit và lịch Windows ngoài các mục đã có, nên đã hỏi người dùng
 ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)). Ngày 31/10/2026 người dùng duyệt thêm PC thứ hai (máy làm việc chính
-từ 30/10) kéo cùng hộp chờ: mỗi PC một khóa age, một khóa SSH, một dòng `authorized_keys`; làm lại O1, O2 (phần recipient
+từ 30/10) kéo cùng hộp chờ, **đã cài cùng ngày**, kéo 04:40 ([nhật ký](deploys/2026-10-31-v7-backup-hourly-config.md)): mỗi PC một khóa age, một khóa SSH, một dòng `authorized_keys`; làm lại O1, O2 (phần recipient
 và khóa), O4, O5 cho PC đó. Hộp chờ còn có gói cấu hình [`v7-config-…`](#gói-cấu-hình-và-globals--timer-v7-backup-config);
 script kéo từ commit có `config` kéo cả hai họ, bản cũ hơn bỏ qua gói cấu hình.
 
@@ -808,6 +809,13 @@ Dòng `Public key: age1…` là `<age_recipient>`. `icacls` file khóa chỉ đ�
 
 ```powershell
 ssh-keygen -t ed25519 -N '""' -C webdebit-v7-offsite-pull -f "$env:USERPROFILE\.ssh\webdebit-v7-offsite-pull-ed25519"
+```
+
+PowerShell 7 (`pwsh`) truyền nguyên `'""'` thành passphrase hai dấu nháy, rồi lịch `BatchMode` báo `Permission denied
+(publickey)` dù server nhận khóa (vấp 31/10/2026). Ở PowerShell 7 viết `-N ''`. Kiểm khóa không có passphrase:
+
+```powershell
+ssh-keygen -y -P '' -f "$env:USERPROFILE\.ssh\webdebit-v7-offsite-pull-ed25519"
 ```
 
 ### O2. Trên `hao`: mã, recipient, hộp chờ, khóa SSH
@@ -1012,7 +1020,9 @@ Map kiểm: lệnh trên → `v7_backup.offsite/seal/sealed` → `tests/test_v7_
 
 ## Gói cấu hình và globals — timer `v7-backup-config`
 
-Người dùng duyệt cài ngày 31/10/2026 trong chat, gồm dump hằng ngày hai DB legacy (unit mới chạy root,
+**ĐÃ CÀI trên `hao` 31/10/2026** ([nhật ký](deploys/2026-10-31-v7-backup-hourly-config.md)); lượt tay đạt, giải mã và
+phục hồi globals + dump trên PC thứ hai đạt; lượt timer đầu 1/11 02:50 giờ VN. Người dùng duyệt cài ngày 31/10/2026 trong
+chat, gồm dump hằng ngày hai DB legacy (unit mới chạy root,
 [`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)). Lý do (audit DevOps 31/10 #4): dump `sokhach` thiếu role, và hỏng ổ
 `hao` thì unit, drop-in, env, khóa SA Google, sshd, sudoers, cấu hình PostgreSQL, Tailscale Serve chỉ còn trong trí nhớ.
 Chỉ đọc: không đổi DB, role, `pg_hba`, Tailscale hay cấu hình nào.
