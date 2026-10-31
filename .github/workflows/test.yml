@@ -26,7 +26,7 @@ jobs:
       pg_v7: ${{ steps.f.outputs.pg_v7 }}
       pg_old: ${{ steps.f.outputs.pg_old }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - id: f
@@ -50,10 +50,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.12', '3.13']
+        python: ['3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements*.txt
@@ -69,10 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: Characterize repository ledger schema on PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-characterization.json
       - name: Verify F2/F3 migration from pre-fix schema on isolated PostgreSQL
@@ -81,7 +81,7 @@ jobs:
           uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_ledger_schema.py --report pg-ledger-migration.json --base-schema "$RUNNER_TEMP/pg-ledger-base.sql" --migration cong-no-web-handoff/tools/migrations/2026-10-16-ledger-f2f3.sql
       - name: Upload PostgreSQL characterization report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pg-ledger-characterization
           path: |
@@ -95,13 +95,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: V7 backend contract
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_backend.py
 
@@ -111,10 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: V7 P0 write paths
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_p0_harness.py --strict
 
@@ -124,10 +124,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: V7 least privilege grants
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_v7_grants.py --strict
       - name: V7 direct socket API and loader
@@ -143,16 +143,16 @@ jobs:
     env:
       EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: Test HistoryDB M1 queries on isolated PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_m1_queries.py pg-m1-history-queries.json
       - name: Upload PostgreSQL M1 query report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pg-m1-history-queries
           path: pg-m1-history-queries.json
@@ -164,13 +164,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: Test immutable approval revisions and opening resolution on PostgreSQL 18.6
         run: uv run --python 3.13 python cong-no-web-handoff/tools/test_pg_versioned_approval.py --report pg-versioned-approval.json
       - name: Upload versioned approval fixture report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pg-versioned-approval-fixture
           path: pg-versioned-approval.json
@@ -178,26 +178,28 @@ jobs:
 
   javascript:
     # CI gọi đúng `npm run check` như ở máy; nó đã gồm cả `test:viewer` nên ảnh
-    # chụp viewer vẫn được sinh ra. Windows giữ lại vì người dùng chạy trên Windows.
+    # chụp viewer vẫn được sinh ra. Windows giữ lại vì người dùng chạy trên Windows;
+    # 3.14 vì `hao` chạy Python 3.14 (audit DevOps 31/10/2026, mục 9).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python: ['3.13', '3.14']
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: npm
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           cache-dependency-glob: requirements*.txt
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -225,13 +227,13 @@ jobs:
       # windows-latest, `uv run` không spawn được `npm` vì đó là file npm.cmd.
       - name: ruff + luat nghiep vu + eslint + unittest + node --test + browser + viewer
         run: >-
-          uv run --python 3.13 --with-requirements requirements.txt
+          uv run --python ${{ matrix.python }} --with-requirements requirements.txt
           --with-requirements requirements-dev.txt node scripts/check.js
       - name: Upload fake-data viewer screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: viewer-browser-screenshots-${{ matrix.os }}
+          name: viewer-browser-screenshots-${{ matrix.os }}-py${{ matrix.python }}
           path: test-results/viewer
           if-no-files-found: warn
 

@@ -18,5 +18,6 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `specs/` | Spec từng thay đổi, theo `specs/_template.md` |
 | `cong-no-web-handoff/` | Mã web/tools/tests (Python + JS) đang phát triển |
 | `.github/workflows/test.yml` | CI chạy `npm run check` |
+| `.github/dependabot.yml` | Nâng phụ thuộc hằng tuần, gom một PR mỗi hệ (actions ghim SHA, npm, pip) |
 
 Không tạo, có chủ đích: `.mcp.json` (chưa cần MCP cho dự án), `.env.example` (mã chỉ đọc vài biến `WEBDEBIT_*`/`PG*`, không nạp `.env`), `sources/` (đã có `docs/source-register.md`), `.claude/rules/` (nội dung đã nằm trong `AGENTS.md`).
