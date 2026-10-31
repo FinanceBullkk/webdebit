@@ -327,8 +327,10 @@ const PSQL_ALLOWED = {
     "test của công cụ M1, truyền tên chương trình giả vào hàm đã được patch",
   // Sáu mục dưới đây thêm 21/10/2026 khi gom V7: tầng DB và công cụ của V7 thật sự
   // dựng lệnh psql (docker exec ... psql); cùng loại với adapter/harness ở trên.
-  "cong-no-web-handoff/web/v7_ledger_api.py":
-    "adapter DB của V7 — lớp Psql là nơi duy nhất dựng lệnh psql cho đường sổ khách V7",
+  // 31/10/2026 tách `web/v7_ledger_api.py`: lớp Psql/PsqlDirect chuyển nguyên sang `web/v7_psql.py`,
+  // file API không còn dựng lệnh psql nên mục của nó thay bằng mục dưới đây.
+  "cong-no-web-handoff/web/v7_psql.py":
+    "adapter DB của V7 — lớp Psql/PsqlDirect là nơi duy nhất dựng lệnh psql cho đường sổ khách V7",
   "cong-no-web-handoff/tools/test_pg_v7_backend.py":
     "harness kiểm backend V7 trong Docker, phải nói chuyện với psql để kiểm chính psql",
   // Ba mục dưới đây thêm 29/10/2026 khi tách harness V7 theo nhóm tính năng: mã psql
