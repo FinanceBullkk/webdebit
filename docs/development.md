@@ -100,9 +100,9 @@ chạy trên máy của GitHub (`ubuntu-latest`, `windows-latest`), thay cho run
 
 | Job | Runner | Chạy gì |
 |---|---|---|
-| `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12 và 3.13 qua `uv` |
+| `python` | `ubuntu-latest` | unittest `cong-no-web-handoff/tests`, Python 3.12, 3.13 và 3.14 qua `uv` |
 | `postgres-ledger`, `postgres-m1-history-queries`, `pg18-versioned-approval-fixture` | `ubuntu-latest` | ba harness `tools/test_pg_*.py`, mỗi lần dựng một container PostgreSQL 18.6 dùng một lần bằng Docker |
-| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 qua `uv` |
+| `javascript` | `ubuntu-latest` và `windows-latest` | `npm run check` với Python 3.13 và 3.14 qua `uv` (`hao` chạy 3.14) |
 | `ci-ok` | `ubuntu-latest` | gom kết quả mọi job trên; **required check duy nhất** của `main` |
 
 **Luật nhánh `main`** (từ 29/10/2026): required check chỉ còn `ci-ok`, vẫn bắt nhánh cập nhật theo `main`
@@ -117,6 +117,13 @@ khi có commit mới (`concurrency`). Gỡ đăng ký runner tự host khỏi re
 người dùng, không nằm trong workflow. Lưu ý (kiểm 31/10/2026): repo này không có runner tự host, nhưng trên
 `hao` vẫn còn một runner tự host của dự án khác chạy dưới tài khoản quản trị; đó là rủi ro của máy, không của
 CI này, theo dõi ở audit hạ tầng ngoài Git.
+
+**Chuỗi cung ứng** (31/10/2026, audit DevOps mục 11): mọi `uses:` trong workflow ghim SHA đầy đủ, comment
+ghi tag. Không sửa SHA bằng tay: `.github/dependabot.yml` mỗi thứ Hai gom bản nâng của từng hệ
+(github-actions, npm, pip) vào một PR (bản vá bảo mật, khi đã bật, vào một PR riêng) và tự cập nhật cả SHA
+lẫn comment. PR Dependabot đi qua `ci-ok` và review như PR
+khác; merge là Deploy hao. Setting repo (Dependabot alerts/security updates, *require SHA pinning*, CodeQL)
+là cài đặt tài khoản của người dùng, không nằm trong file nào ở đây.
 
 Chọn luật theo một nguyên tắc: **chỉ bật luật bắt lỗi thật, không bật luật định dạng.** Mã hiện có
 451 dòng Python vượt 88 ký tự và dòng JS dài nhất 1878 ký tự; ép định dạng sẽ tạo một diff khổng
