@@ -11,6 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 sys.path.insert(0, str(ROOT / "tools"))
+import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_ps_snapshot as reader  # noqa: E402
 from v7_ps_queue import load_ps_snapshot, project_ps  # noqa: E402
@@ -229,7 +230,7 @@ BODY = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64, "i
 
 class ApproveTest(unittest.TestCase):
     def approve(self, runner, body=BODY, projection=READY):
-        with patch.object(api, "ps_projection", return_value=projection):
+        with patch.object(v7_api_sheet, "ps_projection", return_value=projection):
             return api.approve_ps_fees(json.dumps(body).encode(), runner, "fake-actor")
 
     def test_each_target_is_one_rewrite(self):
@@ -259,9 +260,9 @@ class ApproveTest(unittest.TestCase):
             self.approve(Runner(fail_at=1))
 
     def test_ledger_read_falls_back_when_ps_snapshot_is_missing(self):
-        with patch.object(api, "PS_SNAPSHOT_PATH", str(ROOT / "missing-ps.json")), \
-                patch.object(api, "sheet_projection", return_value={"items": []}), \
-                patch.object(api, "price_projection", return_value={"ready": []}):
+        with patch.object(v7_api_sheet, "PS_SNAPSHOT_PATH", str(ROOT / "missing-ps.json")), \
+                patch.object(v7_api_sheet, "sheet_projection", return_value={"items": []}), \
+                patch.object(v7_api_sheet, "price_projection", return_value={"ready": []}):
             status, result = api.handle("GET", "/api/v7/ledger?customer=7", {"host": "127.0.0.1:8780"}, b"",
                                         Runner(), port=8780, host="127.0.0.1", actor="fake-actor")
         self.assertEqual((status, result["ps_fees"]["unavailable"], result["ps_fees"]["ready"]), (200, True, []))

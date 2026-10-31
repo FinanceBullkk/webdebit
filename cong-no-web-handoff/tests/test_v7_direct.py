@@ -11,6 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 import v7_ledger_api as api  # noqa: E402
+import v7_psql  # noqa: E402
 
 
 class DirectTests(unittest.TestCase):
@@ -45,7 +46,7 @@ class DirectTests(unittest.TestCase):
         with patch.dict(os.environ, {"PGPASSWORD": "secret"}), self.assertRaises(ValueError) as caught:
             self.direct()
         self.assertNotIn("secret", str(caught.exception))
-        with patch.object(api, "Path") as constructor, patch.dict(os.environ, {"PGPASSFILE": "placeholder"}):
+        with patch.object(v7_psql, "Path") as constructor, patch.dict(os.environ, {"PGPASSFILE": "placeholder"}):
             file = constructor.return_value
             file.is_symlink.return_value = False
             file.is_file.return_value = False

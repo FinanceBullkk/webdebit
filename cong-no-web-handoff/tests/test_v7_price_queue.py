@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tests"))
+import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_price_snapshot as snapshot_tool  # noqa: E402
 from test_v7_load_real_copy import fixture  # noqa: E402
@@ -129,7 +130,7 @@ BODY = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64, "i
 
 class ApproveTest(unittest.TestCase):
     def approve(self, runner, body=BODY, projection=READY):
-        with patch.object(api, "price_projection", return_value=projection):
+        with patch.object(v7_api_sheet, "price_projection", return_value=projection):
             return api.approve_prices(json.dumps(body).encode(), runner, "fake-actor")
 
     def test_writes_ready_rows_through_existing_commands(self):
@@ -200,8 +201,8 @@ class ApproveTest(unittest.TestCase):
             self.approve(Runner(fail_at=1))
 
     def test_ledger_read_falls_back_when_price_snapshot_is_missing(self):
-        with patch.object(api, "PRICE_SNAPSHOT_PATH", str(ROOT / "missing-prices.json")), \
-                patch.object(api, "sheet_projection", return_value={"items": []}):
+        with patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(ROOT / "missing-prices.json")), \
+                patch.object(v7_api_sheet, "sheet_projection", return_value={"items": []}):
             status, result = api.handle("GET", "/api/v7/ledger?customer=7", {"host": "127.0.0.1:8780"}, b"",
                                         Runner(), port=8780, host="127.0.0.1", actor="fake-actor")
         self.assertEqual(status, 200)

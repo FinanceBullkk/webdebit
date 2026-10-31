@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
+import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_sheet_refresh as refresh  # noqa: E402
 
@@ -97,16 +98,16 @@ class SheetRefreshApiTest(unittest.TestCase):
             for name in ("snapshot.json", "prices.json"):
                 (base / name).write_text("{}", encoding="utf-8")
                 os.utime(base / name, (time.time() - 600, time.time() - 600))
-            with patch.object(api, "SHEET_REFRESH_PATH", str(base / "refresh.request")), \
-                    patch.object(api, "SHEET_SNAPSHOT_PATH", str(base / "snapshot.json")), \
-                    patch.object(api, "PRICE_SNAPSHOT_PATH", str(base / "prices.json")):
+            with patch.object(v7_api_sheet, "SHEET_REFRESH_PATH", str(base / "refresh.request")), \
+                    patch.object(v7_api_sheet, "SHEET_SNAPSHOT_PATH", str(base / "snapshot.json")), \
+                    patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(base / "prices.json")):
                 self.assertEqual(self.call("GET", "/api/v7/sheet/refresh")[1]["state"], "idle")
                 status, result = self.call("POST", "/api/v7/sheet/refresh", b"{}")
                 self.assertEqual((status, result["state"]), (200, "running"))
                 self.assertTrue((base / "refresh.request").exists())
 
     def test_unconfigured_and_bad_requests(self):
-        with patch.object(api, "SHEET_REFRESH_PATH", None):
+        with patch.object(v7_api_sheet, "SHEET_REFRESH_PATH", None):
             self.assertEqual(self.call("GET", "/api/v7/sheet/refresh")[1]["state"], "unavailable")
             self.assertEqual(self.call("POST", "/api/v7/sheet/refresh", b"{}")[1]["state"], "unavailable")
             for body in (b'{"x":1}', b"[]", b"no"):
@@ -118,9 +119,9 @@ class SheetRefreshApiTest(unittest.TestCase):
 
     def test_unwritable_signal_is_503(self):
         with tempfile.TemporaryDirectory() as directory, \
-                patch.object(api, "SHEET_REFRESH_PATH", str(Path(directory) / "missing" / "refresh.request")), \
-                patch.object(api, "SHEET_SNAPSHOT_PATH", str(Path(directory) / "snapshot.json")), \
-                patch.object(api, "PRICE_SNAPSHOT_PATH", str(Path(directory) / "prices.json")):
+                patch.object(v7_api_sheet, "SHEET_REFRESH_PATH", str(Path(directory) / "missing" / "refresh.request")), \
+                patch.object(v7_api_sheet, "SHEET_SNAPSHOT_PATH", str(Path(directory) / "snapshot.json")), \
+                patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(Path(directory) / "prices.json")):
             with self.assertRaises(api.ApiError) as caught:
                 self.call("POST", "/api/v7/sheet/refresh", b"{}")
             self.assertEqual(caught.exception.code, "SHEET_REFRESH_UNAVAILABLE")
