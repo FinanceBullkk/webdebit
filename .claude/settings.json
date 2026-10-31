@@ -28,7 +28,6 @@
       "Bash(git merge*)",
       "Bash(git init*)",
       "Bash(gh repo create*)",
-      "Bash(*psql*)",
       "Bash(rm *)",
       "Bash(del *)",
       "Bash(Remove-Item*)"
