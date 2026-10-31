@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trang khách · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem spec specs/v7-trang-khach.md (ĐỀ XUẤT 31/10/2026): sổ khách mở rộng thành trang khách bốn thẻ.
+     Chạy trong tab, không gọi API, không lưu gì. Tên khách, container, tin nhắn đều bịa; "hôm nay" cố định 31/10/2026,
+     mốc nạp của sổ giả cố định 01/07/2026. Thẻ Sổ chỉ minh họa chỗ đặt; nội dung thật theo SO-GON-04. -->
+<style>
+*{box-sizing:border-box}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#111827;--ink2:#374151;--muted:#6b7280;--line:#e5e7eb;--line2:#d1d5db;--brand:#1e4e8c;--link:#1d4ed8;--bad:#b91c1c;--bad-bg:#fdecec;--ok:#15803d;--ok-bg:#e7f0e9;--info-bg:#eef2f6;--warn-bg:#fff3c4;--warn:#5a3a00}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.money{font-variant-numeric:tabular-nums;white-space:nowrap}
+.wrap{width:1252px;margin:0 auto}
+.demo{margin:0;padding:6px;background:#ffe08a;color:#452600;text-align:center;font-weight:700;font-size:15px}
+.guide{width:1252px;margin:6px auto;padding:8px 12px;background:#fff;border:1px solid var(--line2);border-radius:8px;display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;font-size:14px}
+.guide b{font-weight:600}
+.guide .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.guide .seg button{min-height:32px;padding:0 10px;border:0;border-right:1px solid var(--line2);background:#fff}
+.guide .seg button:last-child{border-right:0}
+.guide .seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.guide code{font-size:13px;background:var(--info-bg);padding:2px 6px;border-radius:4px}
+.topbar{background:var(--brand);color:#fff}
+.topbar .wrap{height:56px;display:flex;align-items:center;gap:6px}
+.brand{font-weight:700;margin-right:14px}
+.topbar nav{display:flex;gap:2px}
+.topbar nav span{padding:8px 12px;border-radius:6px;white-space:nowrap;font-size:15px}
+.topbar nav span.on{background:#ffffff26;font-weight:600}
+.search{margin-left:auto;width:240px;height:36px;border-radius:6px;border:0;padding:0 10px;color:var(--ink)}
+.head{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line2)}
+.head .wrap{min-height:44px;display:flex;align-items:center;gap:12px;padding:0 4px}
+.back{min-height:36px;padding:0 10px;border:1px solid var(--line2);border-radius:6px;background:#fff}
+.cname{font-size:18px;font-weight:700}
+.cmeta{color:var(--muted);font-size:14px}
+.tabs{display:flex;gap:2px;margin-left:8px}
+.tab{min-height:40px;padding:0 14px;border:0;border-bottom:3px solid transparent;background:none;color:var(--ink2);font-weight:600}
+.tab[aria-selected="true"]{color:var(--brand);border-bottom-color:var(--brand)}
+.tab .cnt{display:inline-block;min-width:22px;margin-left:4px;padding:0 6px;border-radius:10px;background:#f59e0b;color:#3b2300;font-size:13px}
+.htotal{margin-left:auto;text-align:right;line-height:1.2}
+.htotal span{display:block;color:var(--muted);font-size:13px}
+.htotal b{font-size:18px;color:var(--brand)}
+.primary{min-height:40px;padding:0 16px;border:1px solid var(--brand);border-radius:6px;background:var(--brand);color:#fff;font-weight:600}
+.secondary{min-height:40px;padding:0 14px;border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--ink2);font-weight:600}
+main{padding:12px 0 40px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 1px 2px #1118270d;padding:14px 16px;min-width:0}
+.card h2{margin:0 0 2px;font-size:17px}
+.card .q{color:var(--muted);font-size:14px;margin:0 0 8px}
+.prop{border:2px dashed #c99700}
+.ptag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:4px;background:var(--warn-bg);color:var(--warn);font-size:13px;font-weight:600;vertical-align:2px}
+.kpi .lab{color:var(--muted);font-size:14px}
+.kpi .val{font-size:26px;font-weight:800;line-height:1.25}
+.kpi .sub{color:var(--ink2);font-size:14px}
+.kpi.bad .val{color:var(--bad)}
+.facts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.fact{padding:4px 10px;border:1px solid var(--line2);border-radius:14px;background:#fff;font-size:14px}
+.risk{padding:4px 12px;border-radius:14px;background:#fff3c4;color:#5a3a00;font-weight:700;font-size:14px}
+.lk{border:0;background:none;padding:0;color:var(--link);text-decoration:underline;text-underline-offset:3px;font:inherit;text-align:left}
+.row{display:grid;align-items:center;gap:10px;min-height:44px;padding:4px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--ink2);font-size:14px;margin-top:4px}
+.sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px}
+.note{color:var(--muted);font-size:14px;margin:8px 0 0}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{min-height:36px;padding:0 12px;border:1px solid var(--line2);border-radius:18px;background:#fff;font-size:15px}
+.chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:#fff}
+.tl .ic{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--info-bg);color:var(--brand);font-size:13px;font-weight:700}
+.err{color:var(--bad);font-size:14px;min-height:20px}
+.field{display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--ink2)}
+.field input,.field select{height:40px;padding:0 10px;border:1px solid var(--line2);border-radius:6px;font-size:16px;background:#fff}
+.strip{display:flex;gap:10px;align-items:center;padding:8px 12px;margin-bottom:10px;border:1px solid var(--line2);border-radius:8px;background:#fff}
+.strip.hot,.card.hot,.mbar.hot{outline:3px solid #f59e0b;outline-offset:1px}
+.mchips{position:sticky;top:45px;z-index:4;display:flex;gap:6px;padding:8px 0;background:var(--bg)}
+.mchip{min-height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:#fff;font-size:15px}
+.mchip.on{border-color:var(--brand);box-shadow:inset 0 -3px 0 var(--brand)}
+.mchip .dot{display:inline-block;margin-left:6px;padding:0 6px;border-radius:9px;background:#f59e0b;color:#3b2300;font-size:13px}
+.mbar{display:flex;align-items:center;gap:14px;min-height:44px;padding:0 12px;margin-top:10px;background:#24496e;color:#fff;border-radius:6px 6px 0 0;font-weight:600}
+.mbar .stat{margin-left:auto;font-weight:400;font-size:15px}
+.mbar.fold{background:#fff;color:var(--ink);border:1px solid var(--line2);border-radius:6px}
+.lock{padding:2px 8px;border-radius:4px;background:#fff3c4;color:#5a3a00;font-size:13px}
+table.trips{width:100%;border-collapse:collapse;background:#fff;font-variant-numeric:tabular-nums}
+.trips th,.trips td{height:40px;padding:0 10px;border-bottom:1px solid var(--line);text-align:left;font-size:16px}
+.trips th{background:#eaf1fa;font-size:15px;font-weight:600}
+.trips td.num,.trips th.num{text-align:right}
+.trips tr.hl td{background:#fff3c4}
+.tag{padding:2px 8px;border-radius:4px;font-size:14px}
+.tag.np{background:#ffe4c7;color:#7a3300}
+.tag.ck{background:#fff3c4;color:#5a3a00}
+.mtotal{display:flex;gap:24px;justify-content:flex-end;padding:8px 12px;background:#f3f6fa;border:1px solid var(--line);border-top:0;font-size:15px}
+.paybox{position:fixed;top:56px;right:max(0px,calc((100vw - 1252px) / 2));bottom:0;z-index:20;width:400px;border-radius:0;border-left:2px solid var(--brand);box-shadow:-8px 0 24px #11182726;overflow:auto}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:no-preference){.tab,.chip,.mchip{transition:background-color .12s,color .12s}}
+</style>
+</head>
+<body>
+<p class="demo">DỮ LIỆU GIẢ · Bản xem spec trang khách (ĐỀ XUẤT 31/10/2026) · không gọi API, không lưu gì</p>
+<div class="guide" aria-label="Điều khiển bản xem">
+  <b>Mở trang từ:</b>
+  <span class="seg" id="from">
+    <button type="button" data-from="tq" aria-pressed="true">Tổng quan</button>
+    <button type="button" data-from="mx" aria-pressed="false">Ma trận: ô T8</button>
+    <button type="button" data-from="dn" aria-pressed="false">Đòi nợ</button>
+    <button type="button" data-from="vc" aria-pressed="false">Việc cần làm: thiếu giá</button>
+    <button type="button" data-from="tk" aria-pressed="false">Ô tìm khách</button>
+  </span>
+  <b>Giai đoạn:</b>
+  <span class="seg" id="phase">
+    <button type="button" data-phase="A" aria-pressed="false">A · dữ liệu có sẵn</button>
+    <button type="button" data-phase="B" aria-pressed="false">A + B</button>
+    <button type="button" data-phase="C" aria-pressed="true">Đủ A + B + C</button>
+  </span>
+  <span>Địa chỉ: <code id="addr"></code></span>
+</div>
+<header class="topbar"><div class="wrap">
+  <span class="brand">Công nợ HTH</span>
+  <nav aria-label="Trang"><span>Tổng quan</span><span>Công nợ theo tháng</span><span class="on">Sổ khách</span><span>Đòi nợ</span><span>Việc cần làm</span></nav>
+  <input class="search" placeholder="Tìm khách…" aria-label="Tìm khách">
+</div></header>
+<div class="head"><div class="wrap">
+  <button type="button" class="back">← Quay lại</button>
+  <span class="cname">KHÁCH GIẢ A</span><span class="cmeta">Sầu riêng · cảng</span>
+  <div class="tabs" role="tablist" aria-label="Thẻ của trang khách">
+    <button type="button" class="tab" role="tab" id="tab-tinh-hinh" data-tab="tinh-hinh">Tình hình</button>
+    <button type="button" class="tab" role="tab" id="tab-so" data-tab="so">Sổ <span class="cnt" title="3 việc chờ">3</span></button>
+    <button type="button" class="tab" role="tab" id="tab-trao-doi" data-tab="trao-doi">Trao đổi</button>
+    <button type="button" class="tab" role="tab" id="tab-ho-so" data-tab="ho-so">Hồ sơ</button>
+  </div>
+  <div class="htotal"><span>Tổng còn nợ</span><b class="money">1.160.000.000 đ</b></div>
+  <button type="button" class="primary" data-act="pay">Ghi phiếu thu</button>
+  <button type="button" class="secondary" data-act="more">Thêm ▾</button>
+</div></div>
+<main class="wrap" id="main" role="tabpanel"></main>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const fmt = v => v.toLocaleString('vi-VN') + ' đ';
+const tr = v => v * 1000000;
+const shortVnd = v => { const t = v / 1000000; return t >= 1000 ? (t / 1000).toFixed(2).replace(/\.?0+$/, '').replace('.', ',') + ' tỷ' : t + ' triệu'; };
+const MONTHS = ['T11/25', 'T12/25', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10'];
+const PS = [300, 280, 350, 120, 220, 260, 310, 290, 320, 210, 380, 450];
+const THU = [280, 300, 250, 300, 330, 200, 280, 260, 300, 150, 100, 200];
+const DU = [640, 620, 720, 540, 430, 490, 520, 550, 570, 630, 910, 1160];
+const LATE = [['T3', null], ['T4', null], ['T5', 16], ['T6', 53], ['T7', -61], ['T8', -31]];
+const TRIPS = [['T5', 12], ['T6', 11], ['T7', 12], ['T8', 8], ['T9', 15], ['T10', 21]];
+const BOOK = {
+  T5: { n: 12, ps: 310, thu: 280, end: 520 }, T6: { n: 11, ps: 290, thu: 260, end: 550 },
+  T7: { n: 12, ps: 320, thu: 300, end: 570 }, T8: { n: 8, ps: 210, thu: 150, end: 630 },
+  T9: { n: 15, ps: 380, thu: 100, end: 910, rc: ['22/09/2026', 100, 'T6/2026'] },
+  T10: { n: 21, ps: 450, thu: 200, end: 1160, rc: ['15/10/2026', 200, 'T7/2026'] }
+};
+const S = { tab: 'tinh-hinh', phase: 'C', month: null, loc: null, sheet: false, pay: false, filter: 'all', pform: false,
+  promises: [{ d: '29/10/2026', amt: 200, due: '07/11/2026', status: 'đang chờ' }, { d: '12/09/2026', amt: 300, due: '30/09/2026', status: 'lỡ hẹn: trả 100.000.000 đ ngày 22/09' }] };
+const show = p => p <= S.phase;
+const ptag = (p, text) => S.phase === 'C' || S.phase === 'B' ? (p === 'A' ? '' : `<span class="ptag">Giai đoạn ${p}: ${text}</span>`) : '';
+const box = (p, html, cls = '') => show(p) ? `<section class="card ${p === 'A' ? '' : 'prop'} ${cls}">${html}</section>` : '';
+
+function chartDebt() {
+  const W = 1200, H = 250, x0 = 70, step = 92, base = 200, sc = v => v / 1200 * 170;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-labelledby="t-debt"><title id="t-debt">Phát sinh, đã thu và còn nợ cuối tháng, 12 tháng</title>`;
+  [[0, '0'], [500, '0,5 tỷ'], [1000, '1 tỷ']].forEach(([v, t]) => { const y = base - sc(v); s += `<line x1="${x0 - 6}" x2="${W - 10}" y1="${y}" y2="${y}" stroke="#e5e7eb"/><text x="${x0 - 12}" y="${y + 5}" text-anchor="end" font-size="14" fill="#6b7280">${t}</text>`; });
+  const pts = DU.map((v, i) => [x0 + i * step + step / 2, base - sc(v)]);
+  s += `<polygon points="${pts[0][0]},${base} ${pts.map(p => p.join(',')).join(' ')} ${pts[11][0]},${base}" fill="#e8edf3"/>`;
+  MONTHS.forEach((m, i) => {
+    const cx = x0 + i * step + step / 2;
+    s += `<rect x="${cx - 19}" y="${base - sc(PS[i])}" width="18" height="${sc(PS[i])}" fill="#9aa9bc"/><rect x="${cx + 1}" y="${base - sc(THU[i])}" width="18" height="${sc(THU[i])}" fill="#1e4e8c"/>`;
+    s += `<text x="${cx}" y="${base + 22}" text-anchor="middle" font-size="14" fill="#374151">${m.replace('/25', '/2025').replace(/^T1$/, 'T1/2026')}</text>`;
+  });
+  s += `<polyline points="${pts.map(p => p.join(',')).join(' ')}" fill="none" stroke="#111827" stroke-width="2"/>`;
+  pts.forEach(([x, y]) => { s += `<circle cx="${x}" cy="${y}" r="4" fill="#111827"/>`; });
+  [[4, '430 triệu'], [11, '1,16 tỷ']].forEach(([i, t]) => { s += `<text x="${pts[i][0]}" y="${pts[i][1] - 12}" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">${t}</text>`; });
+  for (let i = 6; i < 12; i++) { const cx = x0 + i * step + step / 2; s += `<rect data-month="${MONTHS[i]}" x="${cx - step / 2}" y="10" width="${step}" height="${base + 30 - 10}" fill="transparent" style="cursor:pointer"><title>Mở sổ tháng ${MONTHS[i].slice(1)}/2026</title></rect>`; }
+  return s + '</svg>';
+}
+function chartLate() {
+  const W = 560, H = 210, x0 = 20, step = 88, base = 150, sc = v => Math.min(v, 70) / 70 * 110;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-labelledby="t-late"><title id="t-late">Số ngày trả sau hạn theo tháng nợ</title><line x1="${x0}" x2="${W - 10}" y1="${base}" y2="${base}" stroke="#d1d5db"/>`;
+  LATE.forEach(([m, d], i) => {
+    const cx = x0 + i * step + step / 2;
+    if (d === null) { s += `<text x="${cx}" y="${base - 8}" text-anchor="middle" font-size="14" fill="#6b7280">trước mốc</text>`; }
+    else {
+      const open = d < 0, v = Math.abs(d), h = sc(v);
+      s += `<rect ${BOOK[m] ? `data-month="${m}" style="cursor:pointer"` : ''} x="${cx - 22}" y="${base - h}" width="44" height="${h}" fill="${open ? '#b91c1c' : '#71839c'}"><title>${m}: ${open ? 'chưa trả đủ, đã quá hạn ' + v + ' ngày' : 'trả đủ sau hạn ' + v + ' ngày'}</title></rect>`;
+      s += `<text x="${cx}" y="${base - h - 8}" text-anchor="middle" font-size="15" font-weight="700" fill="${open ? '#b91c1c' : '#111827'}">${v}${open ? '+' : ''}</text>`;
+      if (open) s += `<text x="${cx}" y="${base + 40}" text-anchor="middle" font-size="14" fill="#b91c1c">chưa trả</text>`;
+    }
+    s += `<text x="${cx}" y="${base + 22}" text-anchor="middle" font-size="14" fill="#374151">${m}</text>`;
+  });
+  return s + '</svg>';
+}
+function chartTrips() {
+  const W = 560, H = 210, x0 = 20, step = 88, base = 160, sc = v => v / 21 * 120;
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-labelledby="t-trips"><title id="t-trips">Số chuyến mỗi tháng</title><line x1="${x0}" x2="${W - 10}" y1="${base}" y2="${base}" stroke="#d1d5db"/>`;
+  TRIPS.forEach(([m, n], i) => {
+    const cx = x0 + i * step + step / 2, h = sc(n);
+    s += `<rect data-month="${m}" x="${cx - 22}" y="${base - h}" width="44" height="${h}" fill="#46587a" style="cursor:pointer"><title>Mở sổ tháng ${m.slice(1)}/2026</title></rect>`;
+    s += `<text x="${cx}" y="${base - h - 8}" text-anchor="middle" font-size="15" font-weight="700" fill="#111827">${n}</text><text x="${cx}" y="${base + 22}" text-anchor="middle" font-size="14" fill="#374151">${m}</text>`;
+  });
+  return s + '</svg>';
+}
+
+function vTinhHinh() {
+  const p = S.promises.find(x => x.status === 'đang chờ');
+  return `<div class="grid4">
+    <section class="card kpi"><div class="lab">Khách đang nợ mình</div><div class="val money">${fmt(tr(1160))}</div><div class="sub">4 tháng còn nợ: T7 → T10</div></section>
+    <section class="card kpi bad"><div class="lab">Đã quá hạn</div><div class="val money">${fmt(tr(330))}</div><div class="sub"><button type="button" class="lk" data-month="T7">T7, T8 · lâu nhất 61 ngày</button></div></section>
+    <section class="card kpi"><div class="lab">Đến hạn hôm nay 31/10</div><div class="val money">${fmt(tr(380))}</div><div class="sub">nợ T9 · kế tiếp 450.000.000 đ hạn 30/11</div></section>
+    <section class="card kpi"><div class="lab">Thu tháng 10</div><div class="val money">${fmt(tr(200))}</div><div class="sub">phát sinh tháng này ${fmt(tr(450))}</div></section>
+  </div>
+  <div class="facts"><span class="risk">Theo dõi</span><span class="fact">Trả gần nhất 15/10/2026</span><span class="fact">Đi hàng gần nhất 29/10/2026</span><span class="fact">Quá hạn lâu nhất 61 ngày</span>
+    ${show('B') && p ? `<button type="button" class="fact" data-tab="trao-doi" style="color:var(--link)">Hứa trả ${fmt(tr(p.amt))} trước ${p.due.slice(0, 5)}</button>${ptag('B', 'hứa trả')}` : ''}</div>
+  <section class="card" style="margin-top:12px"><h2>Nợ đang tăng hay giảm?</h2><p class="q">12 tháng gần nhất · bấm một tháng từ T5 để mở sổ tháng đó</p>${chartDebt()}
+    <div class="legend"><span><i class="sw" style="background:#9aa9bc"></i>Phát sinh</span><span><i class="sw" style="background:#1e4e8c"></i>Đã thu</span><span><i class="sw" style="background:#111827;height:3px;vertical-align:4px"></i>Còn nợ cuối tháng</span></div></section>
+  <div class="grid2">
+    ${box('B', `<h2>Khách trả có chậm dần không?${ptag('B', 'hàm đọc trả sau hạn (B1)')}</h2><p class="q">Số ngày trả sau hạn của từng tháng nợ · tháng trả xong trước mốc nạp (01/07/2026) không đo</p>${chartLate()}`)}
+    ${box('A', `<h2>Khách còn đi hàng không?</h2><p class="q">Số chuyến mỗi tháng · gần nhất 29/10/2026 · bấm cột để mở sổ</p>${chartTrips()}`)}
+  </div>
+  <div class="grid2">
+    ${box('A', `<h2>Còn gì làm số chưa đúng?</h2>
+      <div class="row" style="grid-template-columns:1fr auto"><span>2 chuyến chưa có giá</span><button type="button" class="lk" data-loc="thieu-gia">Xem ở T10/2026</button></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>1 chuyến chờ kiểm</span><button type="button" class="lk" data-loc="cho-kiem">Xem ở T10/2026</button></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Sheet có phiếu thu 30/10/2026 · ${fmt(tr(150))}, chưa ghi lên web</span><button type="button" class="lk" data-act="sheet">Ghi phiếu</button></div>
+      <p class="note">Số còn nợ ở trên chưa tính 3 chuyến và phiếu thu này.</p>`)}
+    ${box('A', `<h2>Lần cuối nói chuyện với khách</h2>
+      ${show('B') && p ? `<div class="row" style="grid-template-columns:1fr"><span>Hứa trả ${fmt(tr(p.amt))} trước ${p.due} · <b>${p.status}</b>${ptag('B', 'hứa trả (B2)')}</span></div>` : ''}
+      <div class="row" style="grid-template-columns:1fr"><span>Nhắc gần nhất 22/10/2026 · Copy tin nhắc · đã nhắc 3 lần</span></div>
+      <div class="row" style="grid-template-columns:1fr"><span>Zalo 28/10/2026, khách: “Tuần sau bên em chuyển tiếp 200 triệu.” <span class="cmeta">${show('B') ? '(hội thoại đã gắn)' : '(tìm hội thoại theo tên)'}</span></span></div>
+      <div class="row" style="grid-template-columns:1fr"><button type="button" class="lk" data-tab="trao-doi">Xem cả dòng trao đổi</button></div>`)}
+  </div>`;
+}
+
+function tripRows(m) {
+  const mm = m.slice(1).padStart(2, '0'), cont = i => 'GIAU ' + String((Number(mm) * 100000 + (i + 1) * 12345) % 10000000).padStart(7, '0');
+  const rows = [];
+  if (m === 'T10') {
+    rows.push([`27/10/2026`, cont(20), '<span class="tag np">chưa có giá</span>', 'thieu-gia'], [`28/10/2026`, cont(21), '<span class="tag np">chưa có giá</span>', 'thieu-gia'], [`29/10/2026`, cont(22), '<span class="tag ck">chờ kiểm</span>', 'cho-kiem']);
+  }
+  for (let i = 0; i < 3; i++) rows.push([`${String(3 + i * 3).padStart(2, '0')}/${mm}/2026`, cont(i), fmt(25000000), '']);
+  return rows.map(([d, c, a, k]) => `<tr class="${k && S.loc === k ? 'hl' : ''}"><td>${d}</td><td>${c}</td><td>Đắk Lắk → Cát Lái</td><td class="num">${a}</td></tr>`).join('');
+}
+function monthOpen(m) {
+  const b = BOOK[m], n = Number(m.slice(1)), shown = (m === 'T10' ? 6 : 3);
+  return `<div class="mbar ${S.month === m ? 'hot' : ''}" id="m-${m}">Tháng ${n}/2026 ${m === 'T10' ? '<span class="lock" style="background:#e7f0e9;color:#14532d">đang mở</span>' : '<span class="lock">đã khóa</span>'}<span class="stat">${b.n} chuyến · Debit note</span></div>
+    <table class="trips"><thead><tr><th style="width:150px">Ngày xe</th><th style="width:190px">Container</th><th>Nơi đi → nơi đến</th><th class="num" style="width:200px">Thành tiền</th></tr></thead><tbody>${tripRows(m)}
+    <tr><td colspan="4" class="cmeta">Bản xem rút gọn: ${shown}/${b.n} dòng</td></tr></tbody></table>
+    ${b.rc ? `<div class="mtotal" style="justify-content:flex-start;gap:12px"><span>Phiếu ${b.rc[0]} · THU TIỀN · <b class="money">${fmt(tr(b.rc[1]))}</b></span><span class="cmeta">Trừ nợ ${b.rc[2]} ${tr(b.rc[1]).toLocaleString('vi-VN')}</span></div>` : ''}
+    <div class="mtotal"><span>Phát sinh <b class="money">${fmt(tr(b.ps))}</b></span><span>Đã thu <b class="money">${fmt(tr(b.thu))}</b></span><span>Còn nợ cuối tháng <b class="money">${fmt(tr(b.end))}</b></span></div>`;
+}
+function vSo() {
+  const open = new Set(['T10', 'T9']); if (S.month) open.add(S.month);
+  const order = ['T10', 'T9', 'T8', 'T7', 'T6', 'T5'];
+  const pay = !S.pay ? '' : `<section class="card paybox" aria-label="Ghi phiếu thu"><h2>Ghi phiếu thu</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+        <label class="field">Ngày trả<input id="pdate" value="${S.sheet ? '30/10/2026' : '31/10/2026'}"></label>
+        <label class="field">Hình thức<select><option>THU TIỀN</option><option>CẤN TRỪ</option></select></label>
+        <label class="field" style="grid-column:1/-1">Số tiền (VND)<input id="pamt" inputmode="numeric" value="${S.sheet ? '150.000.000' : ''}" placeholder="50.000.000"></label></div>
+      <div class="err" id="perr"></div><div id="prev" class="note" style="margin:0 0 8px"></div>
+      <div style="display:flex;gap:8px"><button type="button" class="primary" data-act="review">Xem lại</button><button type="button" class="secondary" data-act="payclose">Thôi</button></div>
+      <p class="note">Theo SO-GON-04 (H5): bước xem lại chỉ hiện tổng còn nợ trước → sau; phân bổ từng tháng hiện sau khi ghi.</p></section>`;
+  return `${pay}<div class="strip ${S.sheet ? 'hot' : ''}"><span>Việc từ Sheet:</span><button type="button" class="secondary" data-act="sheet">Ghi 1 phiếu thu từ Sheet</button><span class="cmeta">Thanh việc chờ, chip tháng và bảng tháng giữ nguyên như SO-GON-04; bản xem chỉ minh họa chỗ đặt.</span></div>
+    <div class="mchips">${order.slice().reverse().map(m => `<button type="button" class="mchip ${S.month === m ? 'on' : ''}" data-month="${m}">${m} · ${shortVnd(tr(BOOK[m].end))}${m === 'T10' ? '<span class="dot">3</span>' : ''}</button>`).join('')}</div>
+    ${order.map(m => open.has(m) ? monthOpen(m) : `<div class="mbar fold ${S.month === m ? 'hot' : ''}" id="m-${m}">Tháng ${m.slice(1)}/2026 <span class="lock">đã khóa</span><span class="stat">${BOOK[m].n} chuyến · Còn nợ cuối tháng <b class="money">${fmt(tr(BOOK[m].end))}</b> · Debit note</span><button type="button" class="secondary" data-month="${m}">Xem chi tiết</button></div>`).join('')}`;
+}
+
+const TL = [
+  { d: '28/10/2026', k: 'lienlac', p: 'A', ic: 'Zalo', t: 'Zalo · khách nhắn', x: '“Tuần sau bên em chuyển tiếp 200 triệu.”' },
+  { d: '22/10/2026', k: 'lienlac', p: 'A', ic: 'Nhắc', t: 'Nhắc nợ · Copy tin nhắc', x: 'Lần nhắc gần nhất (đã nhắc 3 lần)' },
+  { d: '15/10/2026', k: 'thu', p: 'A', ic: 'Thu', t: 'Thu tiền 200.000.000 đ', x: 'Trừ nợ T7/2026 · có ảnh chứng từ' },
+  { d: '05/10/2026', k: 'dn', p: 'B', ic: 'DN', t: 'Debit note T9/2026 đã xuất', x: 'Tổng 910.000.000 đ · số DN-2026-09-012', tag: 'ghi lần xuất (B4)' },
+  { d: '22/09/2026', k: 'thu', p: 'A', ic: 'Thu', t: 'Thu tiền 100.000.000 đ', x: 'Trừ nợ T6/2026' },
+  { d: '10/09/2026', k: 'lienlac', p: 'B', ic: 'Nhắc', t: 'Nhắc nợ · gọi điện', x: 'Ghi chú: khách hẹn cuối tháng', tag: 'từng lần nhắc, có ghi chú (B4)' }
+];
+const pd = d => { const [a, b, c] = d.split('/').map(Number); return c * 10000 + b * 100 + a; };
+function vTraoDoi() {
+  const items = TL.concat(S.promises.map(p => ({ d: p.d, k: 'hua', p: 'B', ic: 'Hứa', t: `Hứa trả ${fmt(tr(p.amt))} trước ${p.due}`, x: p.status + (p.note ? ' · ' + p.note : ''), tag: 'hứa trả (B2)' })))
+    .filter(x => show(x.p) && (S.filter === 'all' || x.k === S.filter)).sort((a, b) => pd(b.d) - pd(a.d));
+  const filters = [['all', 'Tất cả'], ['hua', 'Hứa trả', 'B'], ['lienlac', 'Nhắc và Zalo'], ['thu', 'Thu tiền'], ['dn', 'Debit note', 'B']].filter(f => !f[2] || show(f[2]));
+  const form = !(S.pform && show('B')) ? '' : `<section class="card prop" style="margin-bottom:12px"><h2>Ghi hứa trả${ptag('B', 'B2')}</h2>
+      <div style="display:grid;grid-template-columns:220px 220px 1fr;gap:10px;margin-top:8px">
+        <label class="field">Số tiền hứa (VND)<input id="hamt" inputmode="numeric" placeholder="200.000.000"></label>
+        <label class="field">Hẹn trả trước ngày<input id="hdue" placeholder="07/11/2026"></label>
+        <label class="field">Ghi chú<input id="hnote" placeholder="Khách nói qua Zalo"></label></div>
+      <div class="err" id="herr"></div>
+      <div style="display:flex;gap:8px"><button type="button" class="primary" data-act="hsave">Lưu hứa trả</button><button type="button" class="secondary" data-act="hcancel">Thôi</button></div>
+      <p class="note">Tới hạn mà phiếu thu chưa đủ thì tự thành "lỡ hẹn"; đủ trước hạn thì "giữ lời". Không cộng vào số nào.</p></section>`;
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><div class="chips" role="group" aria-label="Lọc theo loại">${filters.map(([k, l]) => `<button type="button" class="chip" data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`).join('')}</div>
+      <span style="margin-left:auto;display:flex;gap:8px">${show('B') ? '<button type="button" class="secondary" data-act="hform">Ghi hứa trả</button>' : ''}<button type="button" class="secondary" data-act="copy">Copy tin nhắc</button><button type="button" class="secondary" data-act="chat">Mở chat</button></span></div>
+    ${form}<p class="note" id="tdnote" style="margin:0 0 8px"></p>
+    <section class="card tl">${items.map(x => `<div class="row" style="grid-template-columns:34px 110px 1fr"><span class="ic">${x.ic}</span><span class="cmeta">${x.d}</span><span><b>${x.t}</b>${x.tag ? ptag(x.p, x.tag) : ''}<br><span class="cmeta">${x.x}</span></span></div>`).join('') || '<p class="note">Chưa có mục nào.</p>'}</section>`;
+}
+function vHoSo() {
+  const r = 'grid-template-columns:1fr auto';
+  return `<div class="grid2" style="margin-top:0">
+    ${box('A', `<h2>Mặt hàng và hạn trả</h2><div class="row" style="${r}"><span>Mặt hàng · vận chuyển</span><b>Sầu riêng · cảng</b></div><div class="row" style="${r}"><span>Hạn trả</span><span>cuối tháng sau tháng nợ (quy tắc chung)</span></div>`)}
+    ${box('A', `<h2>Giá đang áp</h2><div class="row" style="${r}"><span>Đắk Lắk → Cát Lái</span><b class="money">25.000.000 đ</b></div><div class="row" style="${r}"><span>Đắk Lắk → Hiệp Phước</span><b class="money">26.500.000 đ</b></div><p class="note">Hiệu lực từ 01/09/2026 · bảng đầy đủ ở thẻ Sổ → Thêm ▾ → Bảng giá</p>`)}
+    ${box('A', `<h2>Phụ phí và chứng từ</h2><div class="row" style="${r}"><span>Cột phụ phí riêng của sổ</span><span>Nâng hạ · Lưu bãi · Khác</span></div><div class="row" style="${r}"><span>Ảnh chứng từ</span><span>phiếu 15/10/2026 · phiếu 22/09/2026</span></div>`)}
+    ${box('B', `<h2>Hội thoại Zalo${ptag('B', 'gắn hội thoại (B3)')}</h2><div class="row" style="${r}"><span>Chưa gắn hội thoại nào</span><button type="button" class="secondary" data-act="zlink">Gắn hội thoại</button></div><p class="note" id="znote"></p>`)}
+    ${box('C', `<h2>Các sổ của khách${ptag('C', 'nhóm sổ theo khách')}</h2><div class="row" style="${r}"><span>Sầu riêng · cảng <span class="cmeta">(đang xem)</span></span><b class="money">1.160.000.000 đ</b></div><div class="row" style="${r}"><span>Dừa · cảng</span><b class="money">90.000.000 đ</b></div><div class="row" style="${r}"><b>Cả khách</b><b class="money">1.250.000.000 đ</b></div>`)}
+    ${box('C', `<h2>Điều khoản và liên hệ${ptag('C', 'cần chốt nghiệp vụ')}</h2><div class="row" style="${r}"><span>Hạn mức nợ</span><span class="cmeta">chưa đặt</span></div><div class="row" style="${r}"><span>Người liên hệ</span><span class="cmeta">chưa có</span></div><div class="row" style="${r}"><span>Ghi chú nội bộ</span><span class="cmeta">chưa có</span></div>`)}
+  </div>`;
+}
+
+const VIEW = { 'tinh-hinh': vTinhHinh, so: vSo, 'trao-doi': vTraoDoi, 'ho-so': vHoSo };
+function addr() {
+  const q = [['customer', '12']];
+  if (S.tab !== 'so') q.push(['the', S.tab]);
+  if (S.tab === 'so' && S.month) q.push(['month', '2026-' + S.month.slice(1).padStart(2, '0')]);
+  if (S.tab === 'so' && S.loc) q.push(['loc', S.loc]);
+  return 'so-khach-v7-live.html?' + q.map(([k, v]) => k + '=' + v).join('&');
+}
+function render(focus) {
+  document.querySelectorAll('.tab').forEach(t => { const on = t.dataset.tab === S.tab; t.setAttribute('aria-selected', String(on)); t.tabIndex = on ? 0 : -1; });
+  $('main').setAttribute('aria-labelledby', 'tab-' + S.tab);
+  $('addr').textContent = addr();
+  $('main').innerHTML = VIEW[S.tab]();
+  if (S.tab === 'so' && S.month) { const el = $('m-' + S.month); if (el) el.scrollIntoView({ block: 'center' }); }
+  if (focus && $(focus)) $(focus).focus();
+}
+function go(tab, extra = {}) { Object.assign(S, { tab, month: null, loc: null, sheet: false, pay: false, pform: false }, extra); render(extra.focus); }
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button,rect'); if (!t) return;
+  const d = t.dataset;
+  if (d.from) {
+    document.querySelectorAll('#from button').forEach(b => b.setAttribute('aria-pressed', String(b === t)));
+    ({ tq: () => go('tinh-hinh'), mx: () => go('so', { month: 'T8' }), dn: () => go('trao-doi'), vc: () => go('so', { month: 'T10', loc: 'thieu-gia' }), tk: () => go('so') })[d.from]();
+    return;
+  }
+  if (d.phase) { S.phase = d.phase; document.querySelectorAll('#phase button').forEach(b => b.setAttribute('aria-pressed', String(b === t))); if (!show('B')) { S.pform = false; if (S.filter === 'hua' || S.filter === 'dn') S.filter = 'all'; } render(); return; }
+  if (d.tab) { go(d.tab); return; }
+  if (d.month) { if (BOOK[d.month]) go('so', { month: d.month }); return; }
+  if (d.loc) { go('so', { month: 'T10', loc: d.loc }); return; }
+  if (d.filter) { S.filter = d.filter; render(); return; }
+  switch (d.act) {
+    case 'pay': go('so', { pay: true, focus: 'pamt' }); break;
+    case 'sheet': go('so', { pay: true, sheet: true, focus: 'pamt' }); break;
+    case 'payclose': S.pay = false; S.sheet = false; render(); break;
+    case 'review': {
+      const raw = $('pamt').value.replace(/\./g, '').trim(), v = Number(raw), date = $('pdate').value.trim();
+      $('prev').textContent = '';
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(date)) { $('perr').textContent = 'Ngày trả viết dạng dd/mm/yyyy.'; return; }
+      if (pd(date) > pd('31/10/2026')) { $('perr').textContent = 'Ngày trả sau hôm nay, chưa ghi được.'; return; }
+      if (!raw || !Number.isSafeInteger(v) || v <= 0) { $('perr').textContent = 'Số tiền là số nguyên dương, tính bằng đồng.'; return; }
+      $('perr').textContent = '';
+      const after = tr(1160) - v;
+      $('prev').innerHTML = `Ghi phiếu <b>${fmt(v)}</b> · THU TIỀN · ngày ${date}, nằm ở tháng ${Number(date.slice(3, 5))}/${date.slice(6)}. Tổng còn nợ: ${fmt(tr(1160))} → ${after >= 0 ? fmt(after) : '0 đ, khách sẽ dư ' + fmt(-after)}. Bản xem: không ghi.`;
+      break;
+    }
+    case 'more': t.textContent = 'Lịch sử · Cài đặt phụ phí · Bảng giá'; break;
+    case 'copy': t.textContent = 'Bản xem: không chép'; break;
+    case 'chat': { const n = $('tdnote'); if (n) n.textContent = 'Bản xem: mở trang Chat Zalo ở đúng hội thoại của khách.'; break; }
+    case 'zlink': { const n = $('znote'); if (n) n.textContent = 'Bản xem: chọn một hội thoại trong bản xuất chat để gắn với sổ này; từ đó tin hiện ở thẻ Trao đổi.'; break; }
+    case 'hform': S.pform = true; render('hamt'); break;
+    case 'hcancel': S.pform = false; render(); break;
+    case 'hsave': {
+      const raw = $('hamt').value.replace(/\./g, '').trim(), v = Number(raw), due = $('hdue').value.trim(), note = $('hnote').value.trim();
+      if (!raw || !Number.isSafeInteger(v) || v <= 0) { $('herr').textContent = 'Số tiền hứa là số nguyên dương, tính bằng đồng.'; return; }
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(due)) { $('herr').textContent = 'Hẹn trả viết dạng dd/mm/yyyy, ví dụ 07/11/2026.'; return; }
+      if (pd(due) < pd('31/10/2026')) { $('herr').textContent = 'Ngày hẹn đã qua.'; return; }
+      S.promises.unshift({ d: '31/10/2026', amt: v / 1000000, due, note, status: 'đang chờ' }); S.pform = false; S.filter = 'all'; render(); break;
+    }
+  }
+});
+document.addEventListener('input', e => { if (e.target.id === 'pamt' || e.target.id === 'pdate') $('perr').textContent = ''; if (['hamt', 'hdue'].includes(e.target.id)) $('herr').textContent = ''; });
+document.querySelector('.tabs').addEventListener('keydown', e => {
+  const tabs = [...document.querySelectorAll('.tab')], i = tabs.findIndex(t => t.dataset.tab === S.tab);
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  e.preventDefault();
+  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  go(next.dataset.tab); next.focus();
+});
+render();
+})();
+</script>
+</body>
+</html>
