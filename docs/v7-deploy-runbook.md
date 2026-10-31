@@ -773,7 +773,8 @@ giờ VN, PC kéo 04:30. Lý do: dữ liệu PostgreSQL và `/srv/v7-backup-dail
 Cài lần đầu là thêm khóa SSH, thư mục, unit và lịch Windows ngoài các mục đã có, nên đã hỏi người dùng
 ([`DEPLOY-CLAUDE-01`](decisions/deploy-claude-01.md)). Ngày 31/10/2026 người dùng duyệt thêm PC thứ hai (máy làm việc chính
 từ 30/10) kéo cùng hộp chờ, **đã cài cùng ngày**, kéo 04:40 ([nhật ký](deploys/2026-10-31-v7-backup-hourly-config.md)): mỗi PC một khóa age, một khóa SSH, một dòng `authorized_keys`; làm lại O1, O2 (phần recipient
-và khóa), O4, O5 cho PC đó. Hộp chờ còn có gói cấu hình [`v7-config-…`](#gói-cấu-hình-và-globals--timer-v7-backup-config);
+và khóa), O4, O5 cho PC đó. Cùng ngày thêm PC thứ ba (máy làm việc chính từ 31/10) theo đúng các bước đó, kéo 04:50
+([nhật ký](deploys/2026-10-31-v7-backup-pull-pc3.md)). Hộp chờ còn có gói cấu hình [`v7-config-…`](#gói-cấu-hình-và-globals--timer-v7-backup-config);
 script kéo từ commit có `config` kéo cả hai họ, bản cũ hơn bỏ qua gói cấu hình.
 
 | Mục | Chọn | Lý do |
@@ -782,7 +783,7 @@ script kéo từ commit có `config` kéo cả hai họ, bản cũ hơn bỏ qua
 | Mã hóa | `v7_backup.py offsite`: tar `MANIFEST.json` + `sokhach.dump` của bản mới nhất có `MANIFEST.json`, đổ thẳng vào `age` tới một recipient | dump có tên khách, số tiền, ảnh chứng từ; không có bản rõ thứ hai trên đĩa; khóa giải mã chỉ ở PC |
 | Kiểm hash | trước khi mã hóa: `verify` (SHA-256 dump khớp `MANIFEST.json`); sau: `<bản>.tar.age.sha256` dạng `sha256sum`; PC tính lại trước khi giữ file; giải mã xong lại `verify` | bắt hỏng ở `hao`, trên đường truyền và trên đĩa PC; hai bước đầu không cần khóa |
 | Hộp chờ | `/srv/v7-backup-offsite`, chủ `postgres`, nhóm `<admin>`, 2750; tệp 640 (`UMask=0027`); giữ 14 bản | chỉ có bản đã mã hóa; PC tắt hai tuần vẫn kéo bù được |
-| Giờ | `hao` 03:00 giờ VN (`Persistent=true`, `After=v7-backup-daily.service`); PC 04:30, PC thứ hai 04:40 (`StartWhenAvailable`) | sau backup 02:40 và gói cấu hình 02:50; lệch Vaultwarden 03:30 trên `hao` và 04:15 trên PC; hai PC không kéo cùng lúc |
+| Giờ | `hao` 03:00 giờ VN (`Persistent=true`, `After=v7-backup-daily.service`); PC 04:30, PC thứ hai 04:40, PC thứ ba 04:50 (`StartWhenAvailable`) | sau backup 02:40 và gói cấu hình 02:50; lệch Vaultwarden 03:30 trên `hao` và 04:15 trên PC; các PC không kéo cùng lúc |
 | Kênh | SFTP qua tailnet bằng khóa ed25519 riêng của từng PC; mỗi PC một dòng `authorized_keys` của `<admin>` có `restrict`, `from="<pc_ip>"`, `command="/usr/lib/openssh/sftp-server -R -d /srv/v7-backup-offsite"` | không shell, không ghi, không forward, chỉ từ đúng PC; gỡ một PC không đụng PC kia; không đổi `sshd_config`. Giới hạn: SFTP chỉ đọc vẫn đọc được tệp mà `<admin>` đọc được, chấp nhận vì PC đã có khóa quản trị `hao` |
 | Đích | `<pc_dir>` trên ổ dữ liệu của PC, ngoài OneDrive; giữ 30 cặp mỗi họ (bản dữ liệu, gói cấu hình); `pull.log` một dòng mỗi lượt | 30 bản qua được một kỳ cuối tháng; log không có tên khách hay tiền |
 | Khóa age | `age-keygen` trên từng PC, file trong `%USERPROFILE%\.ssh\`; `v7-offsite.recipients` mỗi dòng một PC nên mỗi bản giải được bằng khóa của bất kỳ PC nào; chủ máy chép thêm một bản mỗi khóa ra USB hoặc giấy, cất riêng | mất khóa là mọi bản trên PC đó vô dụng; khóa không lên `hao`, không vào repo |
