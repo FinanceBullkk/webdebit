@@ -15,11 +15,11 @@ Khối lượng thật (đo trên `hao` 31/10/2026, chỉ đọc): sổ nợ nhi
 ### L1. Mở sổ và tới đúng tháng
 
 1. Người dùng mở sổ từ ô tìm khách, Tổng quan, Công nợ theo tháng, Việc cần làm hoặc Đòi nợ.
-2. Sổ hiện **tháng hiện tại và tháng liền trước** mở sẵn (H1). Mỗi tháng cũ gập thành một dòng: tên tháng, ổ khóa, số chuyến, Còn nợ cuối tháng, nút Debit note, nút "Mở tháng".
-3. **Thanh tháng** dính dưới đầu sổ: mỗi tháng một chip "T9/2026" kèm Còn nợ cuối tháng và ổ khóa; chip của tháng đang ở giữa màn hình được tô. Tháng có việc chờ (chuyến chưa có giá, chờ kiểm, chuyến Sheet chờ duyệt) thì chip có chấm cam và số việc, bấm vào thấy chữ "2 chưa có giá".
-4. Bấm chip: tháng gập thì mở ra, rồi cuộn tới thanh của tháng đó. Thanh tháng thay "DANH SÁCH THÁNG" bên phải (đang bị ẩn dưới 1440px).
-5. Địa chỉ `?customer=…&month=2026-09` mở sẵn và cuộn tới tháng đó. Ngăn kéo ma trận (Công nợ theo tháng) gửi tháng đang xem; Đòi nợ gửi tháng nợ cũ nhất còn nợ. Hai đường này là hai dòng sửa link, nằm trong cùng PR.
-6. Đi vào bằng `?loc=thieu-gia|cho-kiem` thì mọi tháng có dòng cần xử lý tự mở; "Đến dòng tiếp ›" đi qua cả các tháng đó.
+2. Sổ hiện **tháng hiện tại và tháng liền trước** mở sẵn (H1). Mỗi tháng cũ thu gọn thành một dòng: tên tháng, ổ khóa, số chuyến, Còn nợ cuối tháng, nút Debit note, nút **"Xem chi tiết"**; tháng đang xem chi tiết có nút **"Thu gọn"**. Không gọi nút là "Mở tháng" vì "mở tháng" trên sổ đã có nghĩa là mở khóa ([`V7-SO`](../docs/decisions/v7-so.md)).
+3. **Thanh tháng** dính dưới đầu sổ: mỗi tháng một chip "T9" (ghi năm khi khác năm hiện tại: "T12/2025") kèm Còn nợ cuối tháng rút gọn ("1,25 tỷ", "950 triệu", như `CongNoFormat.short`) và dấu khóa chỉ để xem (khóa/mở khóa vẫn bấm ở thanh của bảng tháng). Chip của tháng đang ở trên cùng vùng dữ liệu được tô. Chip đang tô làm thay việc "dính đầu khi cuộn" của thanh tháng trong [`SO-GON-03`](../docs/decisions/so-gon-03.md) (1): thanh của từng bảng tháng không dính nữa, để phần dính còn ≤ 180px. Sổ nhiều tháng thì thanh chip cuộn ngang, chip đang tô luôn nằm trong tầm nhìn. Tháng có việc chờ (chuyến chưa có giá, chờ kiểm, chuyến Sheet chờ duyệt) thì chip có chấm cam và số việc, bấm vào thấy chữ "2 chưa có giá".
+4. Bấm chip: tháng đang thu gọn thì hiện chi tiết, rồi cuộn tới thanh của tháng đó. Thanh tháng thay "DANH SÁCH THÁNG" bên phải (đang bị ẩn dưới 1440px).
+5. Địa chỉ `?customer=…&month=2026-09` hiện chi tiết tháng đó (cùng hai tháng mặc định) và cuộn tới. Ngăn kéo ma trận (Công nợ theo tháng) gửi tháng đang xem; Đòi nợ gửi tháng nợ cũ nhất còn nợ. Hai đường này là hai dòng sửa link, nằm trong cùng PR.
+6. Đi vào bằng `?loc=thieu-gia|cho-kiem` thì mọi tháng có dòng cần xử lý tự hiện chi tiết; "Đến dòng tiếp ›" đi qua cả các tháng đó.
 
 Kết quả: sổ 9 tháng 387 dòng chỉ vẽ khoảng 180 dòng lúc mở, và tới bất kỳ tháng nào bằng một lần bấm.
 
@@ -36,7 +36,7 @@ Bị chặn: ngày sau hôm nay thì báo lỗi tại ô Ngày, giữ số đã 
 
 ### L3. Khóa / mở khóa tháng
 
-1. Bấm ổ khóa (trên thanh tháng, chip, hoặc nút "Mở khóa tháng" trong khung giá Sheet) thì hiện một dòng hỏi ngay dưới nút. Khóa: "Khóa tháng 10/2026? Sau khi khóa, sửa tiền trong tháng sẽ thành dòng điều chỉnh." Mở: "Mở khóa tháng 9/2026? Trong tháng mở, sửa ô sẽ ghi đè (vẫn có Lịch sử)."
+1. Bấm ổ khóa (trên thanh của bảng tháng, hoặc nút "Mở khóa tháng" trong khung giá Sheet) thì hiện một dòng hỏi ngay dưới nút. Khóa: "Khóa tháng 10/2026? Sau khi khóa, sửa tiền trong tháng sẽ thành dòng điều chỉnh." Mở: "Mở khóa tháng 9/2026? Trong tháng mở, sửa ô sẽ ghi đè (vẫn có Lịch sử)."
 2. Hai nút **Khóa tháng 10** / **Thôi** (hoặc **Mở khóa tháng 9** / **Thôi**); Esc là Thôi.
 
 ### L4. Duyệt chuyến mới từ Sheet

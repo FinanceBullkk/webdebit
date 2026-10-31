@@ -52,10 +52,10 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="thu-sheet-01"></a>[THU-SHEET-01](decisions/thu-sheet-01.md) | Phiếu thu từ Sheet lên web bằng hàng chờ |  |
 | <a id="dash-01"></a>[DASH-01](decisions/dash-01.md) | Trang tổng quan công nợ | Nội dung khối thay bởi [DASH-03](#dash-03) |
 | <a id="mh-01"></a>[MH-01](decisions/mh-01.md) | Mặt hàng lấy từ cột LOAI HANG của TONG |  |
-| <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn |  |
+| <a id="so-gon-01"></a>[SO-GON-01](decisions/so-gon-01.md) | Sổ khách gọn | Hàng nhập phiếu từng tháng và danh sách tháng bên phải thay bởi [SO-GON-04](#so-gon-04) |
 | <a id="so-gon-02"></a>[SO-GON-02](decisions/so-gon-02.md) | Phiếu thu danh sách riêng, phiếu hủy gom gọn, bỏ cột cộng dồn | Mục (3) phần thanh tháng/dòng tổng sửa bởi [SO-GON-03](#so-gon-03) |
-| <a id="so-gon-03"></a>[SO-GON-03](decisions/so-gon-03.md) | Mỗi số tiền của tháng hiện một lần |  |
-| <a id="so-gon-04"></a>[SO-GON-04](decisions/so-gon-04.md) | Sổ khách một tháng đang làm: thanh tháng, gập tháng cũ, một nút Ghi phiếu thu có xem lại, hỏi khi khóa/mở tháng | Chưa code; thay chỗ hàng nhập phiếu và danh sách tháng của [SO-GON-01](#so-gon-01) |
+| <a id="so-gon-03"></a>[SO-GON-03](decisions/so-gon-03.md) | Mỗi số tiền của tháng hiện một lần | Vế "dính đầu khi cuộn" của thanh tháng thay bởi chip tháng của [SO-GON-04](#so-gon-04) |
+| <a id="so-gon-04"></a>[SO-GON-04](decisions/so-gon-04.md) | Sổ khách một tháng đang làm: thanh tháng, gập tháng cũ, một nút Ghi phiếu thu có xem lại, hỏi khi khóa/mở tháng | Chưa code |
 | <a id="ct-2so"></a>[CT-2SO](decisions/ct-2so.md) | Cấn trừ giữa hai sổ |  |
 | <a id="phu-phi-01"></a>[PHU-PHI-01](decisions/phu-phi-01.md) | Phụ phí nhiều loại |  |
 | <a id="xoa-thu-goc-01"></a>[XOA-THU-GOC-01](decisions/xoa-thu-goc-01.md) | Xóa khoản thu sổ gốc |  |
