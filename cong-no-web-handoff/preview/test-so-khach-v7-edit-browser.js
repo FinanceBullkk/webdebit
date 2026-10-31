@@ -3,9 +3,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
 
-test('Danh sách phiếu thu (cả hàng nhập) dính ngay dưới dòng tháng khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
+// SO-GON-04: dòng tháng không dính nữa (chip tháng đang tô thay), nên danh sách phiếu dính ngay dưới tiêu đề cột.
+test('Danh sách phiếu thu (cả hàng nhập) dính ngay dưới tiêu đề cột khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
   const pinned = await page.locator('.receipt-amount').first().evaluate(input => {
-    const stick = input.closest('.pay-stick'), head = input.closest('section').querySelector('tr.month th');
+    const stick = input.closest('.pay-stick'), head = document.querySelector('.ledger-head');
     return { sticky: getComputedStyle(stick).position, top: Number.parseInt(stick.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
       inTrips: Boolean(input.closest('.trip-list')) };
   });

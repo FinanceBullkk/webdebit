@@ -306,6 +306,9 @@
     });
     // ---- Chuyển tháng: Xem / Hoàn tác ở dòng mờ của tháng cũ ----
     const showRow = rowKey => {
+      // SO-GON-04: dòng nằm trong tháng đang thu gọn thì hiện chi tiết tháng đó trước.
+      const split = rowKey.indexOf('-');
+      ctx.showMonth(monthKey(findRow(rowKey.slice(0, split), rowKey.slice(split + 1))?.month));
       const row = root.querySelector(`tr[data-row="${rowKey}"]`);
       row?.scrollIntoView({ block: 'center' });
       return row;

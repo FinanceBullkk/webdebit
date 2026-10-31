@@ -220,13 +220,15 @@
       return `<th scope="col" class="${index >= payStart && index <= payStart + 2 ? 'pay ' : ''}${index === payStart ? 'pay-start' : ''}`
         + `${fee ? 'fee-h num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
-    // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi).
+    // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
+    // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng.
+    const aside = `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
+      + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
     root.innerHTML = [head,
-      `${view.notice ?? ''}<div class="layout"><div class="ledger-book"><table class="ledger ledger-head" aria-label="Cột sổ khách">`
+      `${view.notice ?? ''}<div class="layout"><div class="ledger-book">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
         + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`,
-      `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>`
-        + `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
-        + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`].join('\n    ');
+      view.chips === undefined ? `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>${aside}`
+        : `</div>${aside}`].join('\n    ');
     const slot = root.querySelector('.picker-slot');
     if (picker && slot) {
       // Nút giữ nguyên trình nghe của api (lọc danh sách khách); chỉ dời vào thanh đầu sổ.
@@ -243,12 +245,14 @@
   }
 
   // Góp ý 28/10/2026: cuộn xuống trong tháng vẫn thấy các khoản đã thu. SO-GON-02: phiếu thu là danh sách riêng
-  // bên phải (không chung hàng với chuyến); cả danh sách dính ngay dưới dòng tháng khi vừa màn. Dài hơn màn thì để yên
+  // bên phải (không chung hàng với chuyến); cả danh sách dính khi vừa màn. Dài hơn màn thì để yên
   // (không cắt khung: ô chọn sổ cấn trừ mở xuống dưới hàng nhập). Ô chữ chuyến bị cắt "…" thì rê chuột xem đủ.
+  // Bản fixture dính dưới dòng tháng; bản live (SO-GON-04: dòng tháng không dính nữa) dính dưới tiêu đề cột.
   function pinReceipts() {
     if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
+    const columnHead = live ? root.querySelector('.ledger-head') : null;
     for (const table of root.querySelectorAll('section > table.ledger')) {
-      const head = table.querySelector('tr.month th'), stick = table.querySelector('.pay-stick');
+      const head = columnHead ?? table.querySelector('tr.month th'), stick = table.querySelector('.pay-stick');
       if (!head || !stick) continue;
       const top = (Number.parseInt(getComputedStyle(head).top, 10) || 0) + head.offsetHeight;
       const fits = stick.offsetHeight <= window.innerHeight - top - 8;
@@ -368,14 +372,15 @@
       sheetRefresh?.paint();
       const active = data.status === 'active';
       const head = headView(data, active);
-      const { sections, navigation } = monthSections(data, active);
-      renderShell({ ...head, sections, navigation, history: historyList(data.events ?? []) });
+      const { sections, chips } = monthSections(data, active);
+      renderShell({ ...head, sections, chips, history: historyList(data.events ?? []) });
       conflictsAfterRender(data);
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);
       ctx.receiptsAfterRender?.(data, active);
       ctx.priceAfterRender?.(active);
       ctx.psAfterRender?.(data, active);
+      monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
     }
@@ -414,7 +419,8 @@
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
       busyChecks: [] };
     SoKhachV7Ctx.install(ctx, window.SoKhachV7LiveParts ?? {});
-    const { monthSections, historyList, conflictsAfterRender, decoratePrices, locAfterRender, offsetState, sourceRowHtml, renderSourceCell } = ctx;
+    const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender, offsetState, sourceRowHtml,
+      renderSourceCell } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
     if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
     // Audit UX 31/10/2026 (P1-6): đọc sổ lỗi thì một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.

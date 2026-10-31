@@ -51,7 +51,8 @@ function ledger(world) {
   return { status: 'active', customer_id: 1, version: world.version, demo: true, today_month: todayMonth,
     fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })),
     month_locks: world.locks,
-    months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0' })),
+    months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
+      ...world.monthValues?.[month] })),
     total_outstanding_vnd: '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
@@ -363,7 +364,10 @@ async function withPage(fn, setup = () => {}) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${world.query ?? ''}`);
+    // SO-GON-04: sổ chỉ mở sẵn tháng hiện tại và tháng liền trước. Dữ liệu giả nằm ở tháng 9/2026 nên mặc định mở tháng đó
+    // (?month=) để test không đổi theo ngày chạy; world.month = null để thử đúng mặc định.
+    const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
+    await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head .history-toggle');
     // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
     await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);

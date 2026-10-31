@@ -39,13 +39,13 @@ test('month history shows separate open and close with actor, VN time and month'
   assert.match(root.innerHTML, /Khóa tháng 1\/2026/);
 });
 
-async function livePage(data) {
+async function livePage(data, search = '?customer=7') {
   const listeners = {};
   const handlers = {};
   // Trang đăng ký nhiều trình nghe cùng loại: gọi lần lượt như trình duyệt.
   const root = { innerHTML: '', addEventListener(name, handler) { (handlers[name] ??= []).push(handler); listeners[name] = async event => { for (const item of handlers[name]) await item(event); }; }, querySelector() { return null; }, contains: () => false };
   const context = vm.createContext({ document: { querySelector: () => root, addEventListener() {} },
-    window: { scrollY: 0, scrollTo() {} }, location: { search: '?customer=7' },
+    window: { scrollY: 0, scrollTo() {} }, location: { search },
     URLSearchParams, structuredClone, Date, BigInt, Intl, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
     fetch: async (...args) => root.fetcher ? root.fetcher(...args) : reply(200, data) });
   for (const name of liveScripts) vm.runInContext(fs.readFileSync(require.resolve(`./${name}`), 'utf8'), context);
@@ -108,7 +108,7 @@ test('void keeps only allocations superseded by void event, with struck date/mon
     months: [{ month: '2026-01-01' }, { month: '2026-02-01' }],
     receipts: [{ pid: 'PH-001', date: '2026-03-01', amount_vnd: '123456', voided_on: '2026-10-20', void_reason: 'nhập trùng', voided_by_event: 30,
       allocations: [{ month: '2026-01-01', amount_vnd: '999', superseded_by_event: 20 },
-        { month: '2026-02-01', amount_vnd: '123456', superseded_by_event: 30 }] }] });
+        { month: '2026-02-01', amount_vnd: '123456', superseded_by_event: 30 }] }] }, '?customer=7&month=2026-03');
   // SO-GON-02: phiếu đã hủy không nằm trong danh sách phiếu; gom một dòng mờ, bấm Xem mới hiện số gạch, ngày, lý do.
   assert.doesNotMatch(root.innerHTML, /ĐÃ HỦY|data-pid="PH-001"/);
   assert.match(root.innerHTML, /<tr class="void-summary"><td colspan="3">1 phiếu đã hủy, không tính tiền <button type="button" class="void-toggle" data-month="2026-03" aria-expanded="false">Xem<\/button>/);
@@ -134,7 +134,7 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
         allocations: [{ month: '2026-08-01', kind: 'debt', amount_vnd: '70', superseded_by_event: null },
           { month: '2026-09-01', kind: 'debt', amount_vnd: '30', superseded_by_event: null }] },
       { pid: 'PH-003', date: '2026-10-20', method: 'THU TIỀN', amount_vnd: '5', voided_on: null, voided_by_event: null,
-        allocations: [{ month: '2026-10-01', kind: 'debt', amount_vnd: '5', superseded_by_event: null }] }] });
+        allocations: [{ month: '2026-10-01', kind: 'debt', amount_vnd: '5', superseded_by_event: null }] }] }, '?customer=7&month=2026-08');
   const block = key => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
   assert.doesNotMatch(block('2026-08'), /data-pid="PH-/);
   assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-sum">30<\/span><span class="receipt-meta"><small class="[^"]*receipt-ref empty"[^>]*>\+<\/small><small class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
@@ -217,7 +217,7 @@ test('locked month keeps trip cells read only and receipt entry usable', async (
     trips: [{ id: 1, month: '2026-01-01', status: 'confirmed', editable: false, info_editable: false,
       container: 'FAKE-LOCK', carrier: 'FAKE', event_date: '2026-01-10', origin: 'A', destination: 'B',
       unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: '100' }], receipts: [], legacy_rows: [],
-    adjustments: [], opening: [], source_exceptions: [], events: [] });
+    adjustments: [], opening: [], source_exceptions: [], events: [] }, '?customer=7&month=2026-01');
   const block = root.innerHTML.match(/<section id="thang-2026-01">.*?<\/section>/s)[0];
   assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"/);
   assert.match(block, /class="empty-entry receipt-amount"/);
@@ -348,10 +348,10 @@ test('NO_BASELINE blocks writes and money must be string', async () => {
 });
 
 test('fixture renderer stays in tab; live renderer uses GET values and flags', async () => {
-  function page(live, data) {
+  function page(live, data, search = '?customer=7') {
     const root = { innerHTML: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; }, querySelector() { return null; } };
     const context = vm.createContext({ document: { querySelector: selector => selector === '#app' ? root : null, addEventListener() {} },
-      window: { scrollY: 0, scrollTo() {} }, location: { search: live ? '?customer=7' : '' },
+      window: { scrollY: 0, scrollTo() {} }, location: { search: live ? search : '' },
       URLSearchParams, structuredClone, Date, BigInt, setInterval: () => 0, crypto: { randomUUID: () => 'key' },
       fetch: async () => reply(200, data) });
     for (const name of live ? liveScripts : ['cong-no-format.js', 'so-khach-v7-fixture.js', 'so-khach-v7-model.js', 'so-khach-v7-ui.js']) {
@@ -401,27 +401,40 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   assert.match(live.innerHTML, /Tổng còn nợ \(mọi tháng\)<\/span><strong>10 đ<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối ghi thu; tháng không có dòng Sheet vẽ thẳng từ GET;
   // cờ khóa lấy từ month_locks kể cả tháng không chuyến.
-  const newMonth = page(true, { ...ledger(4), today_month: '2026-11-01',
+  const oldBook = { ...ledger(4), today_month: '2026-11-01',
     months: [
       { month: '2026-08-01', outstanding_vnd: '0', end_of_month_vnd: '0', prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0' },
       { month: '2026-09-01', outstanding_vnd: '500', end_of_month_vnd: '500', prior_months_vnd: '0', charges_vnd: '1234567', received_vnd: '1234067' }],
     month_locks: [{ month: '2026-08-01', locked: false }],
-    opening: [], trips: [], receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] });
+    opening: [], trips: [], receipts: [], adjustments: [], legacy_rows: [], source_exceptions: [], events: [] };
+  const newMonth = page(true, oldBook);
   await new Promise(resolve => setImmediate(resolve));
   assert.match(newMonth.innerHTML, /id="thang-2026-11"/);
   assert.match(newMonth.innerHTML, /class="empty-entry receipt-amount"/);
-  // Hàng nhập phiếu ở mọi tháng đang mở: tháng hiện tại và tháng cũ đã mở khóa (8/2026).
+  const block = (root, key) => root.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
+  // SO-GON-04: lúc mở sổ chỉ tháng hiện tại và tháng liền trước hiện chi tiết; tháng cũ thu gọn còn thanh tháng (ổ khóa,
+  // còn nợ cuối tháng, cách tính ở title) và nút "Xem chi tiết", không có dòng nào.
+  assert.match(block(newMonth, '2026-09'), /<table class="ledger month-collapsed locked" aria-label="Sổ khách tháng 9\/2026, thu gọn">/);
+  assert.match(block(newMonth, '2026-09'), /title="Nợ các tháng trước 0 \+ phát sinh 1\.234\.567 − đã thu 1\.234\.067">Còn nợ cuối tháng: <b>500<\/b><\/span><\/em><button type="button" class="month-toggle" data-month="2026-09" aria-expanded="false" aria-controls="thang-2026-09">Xem chi tiết<\/button>/);
+  assert.doesNotMatch(block(newMonth, '2026-09'), /month-body|receipt-amount|subtotal/);
+  assert.match(block(newMonth, '2026-08'), /<table class="ledger month-collapsed" aria-label="Sổ khách tháng 8\/2026, thu gọn">/);
+  // Thanh chip tháng thay danh sách tháng bên phải: tên tháng, còn nợ cuối tháng rút gọn, dấu khóa của tháng khóa.
+  assert.match(newMonth.innerHTML, /<nav class="month-chips" aria-label="Các tháng của sổ"><a class="month-chip" href="#thang-2026-08" data-month="2026-08" [^>]*><span class="chip-name">T8<\/span><b class="chip-end">0 đ<\/b><\/a><a class="month-chip locked" href="#thang-2026-09" [^>]*><span class="chip-name">T9<\/span><b class="chip-end">500 đ<\/b><span class="chip-lock" aria-hidden="true">🔒<\/span><\/a>/);
+  assert.doesNotMatch(newMonth.innerHTML, /months-nav|DANH SÁCH THÁNG/);
+  // Tháng cũ hiện chi tiết qua ?month=: hàng nhập phiếu ở tháng cũ đã mở khóa (8/2026) và ở tháng khóa (9/2026).
   // Không có bảng nhập chuyến (NHAP-SHEET-02) và không còn ô "Dán các dòng từ Sheet".
-  const block = key => newMonth.innerHTML.match(new RegExp(`<section id="thang-${key}">.*?</section>`, 's'))[0];
-  for (const key of ['2026-11', '2026-08']) {
-    assert.match(block(key), /class="empty-entry receipt-date".*class="receipt-reference"/s);
+  const august = page(true, oldBook, '?customer=7&month=2026-08');
+  const september = page(true, oldBook, '?customer=7&month=2026-09');
+  await new Promise(resolve => setImmediate(resolve));
+  for (const [root, key] of [[newMonth, '2026-11'], [august, '2026-08']]) {
+    assert.match(block(root, key), /class="empty-entry receipt-date".*class="receipt-reference"/s);
   }
-  assert.match(block('2026-09'), /class="empty-entry receipt-amount"/);
-  assert.doesNotMatch(newMonth.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây|draft-input|Nhập chuyến · dán từ Sheet/);
-  assert.match(newMonth.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
-  assert.match(newMonth.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
-  assert.match(newMonth.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);
-  assert.match(newMonth.innerHTML, /THÁNG 9\/2026.*title="Nợ các tháng trước 0 \+ phát sinh 1\.234\.567 − đã thu 1\.234\.067">Còn nợ cuối tháng: <b>500<\/b>/);
+  assert.match(block(september, '2026-09'), /class="empty-entry receipt-amount"/);
+  assert.doesNotMatch(august.innerHTML, /paste-input|Dán các dòng từ Sheet vào đây|draft-input|Nhập chuyến · dán từ Sheet/);
+  assert.match(september.innerHTML, /<table class="ledger locked" aria-label="Sổ khách tháng 9\/2026">/);
+  assert.match(august.innerHTML, /<table class="ledger" aria-label="Sổ khách tháng 8\/2026">/);
+  assert.match(september.innerHTML, /<td class="num ">1\.234\.567<\/td><td class="pay pay-start">Đã thu<\/td><td class="pay num subtotal-pay" colspan="2">1\.234\.067<\/td>/);
+  assert.match(september.innerHTML, /THÁNG 9\/2026.*title="Nợ các tháng trước 0 \+ phát sinh 1\.234\.567 − đã thu 1\.234\.067">Còn nợ cuối tháng: <b>500<\/b>/);
   assert.match(newMonth.innerHTML, /<div class="book-head"><div class="picker-slot"><\/div><button class="history-toggle"/);
   assert.doesNotMatch(newMonth.innerHTML, /change-customer|Chờ xử lý|Từ tháng|class="badge/);
   // Tháng chỉ có dòng Sheet: một dòng Tổng tháng như Sheet, không dòng trống, không dòng "nợ còn lại".
@@ -432,7 +445,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
     opening: [{ month: '2026-02-01', amount_vnd: '0' }, { month: '2026-10-01', amount_vnd: '700' }],
     legacy_rows: [{ month: '2026-02-01', kind: 'trip', display: { row: 3, container: 'FAKE-OLD' }, source_total_vnd: '307' }],
     source_exceptions: [{ month: '2026-02-01', source_charge_vnd: '307', source_receipt_vnd: '484', source_cumulative_vnd: '232' }],
-    trips: [], receipts: [], adjustments: [], events: [] });
+    trips: [], receipts: [], adjustments: [], events: [] }, '?customer=7&month=2026-02');
   await new Promise(resolve => setImmediate(resolve));
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);

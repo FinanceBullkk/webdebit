@@ -3,7 +3,7 @@
  * (31/10/2026, DOM không đổi). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).loc = ctx => {
   'use strict';
-  const { root } = ctx;
+  const { root, monthKey } = ctx;
   const LOC = {
     'thieu-gia': ['chuyến thiếu đơn giá', trip => trip.status === 'confirmed' && trip.is_missing_price === true],
     'cho-kiem': ['chuyến chờ kiểm', trip => trip.status === 'pending_review'],
@@ -11,6 +11,11 @@
   let locKind = new URLSearchParams(location.search).get('loc');
   let locJumped = false;
   let locIndex = 0;
+  // SO-GON-04: tháng có dòng cần xử lý tự hiện chi tiết (so-khach-v7-month-ui.js), để tô và "Đến dòng tiếp" đi qua cả tháng cũ.
+  function locMonths(data) {
+    const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
+    return rule ? (data.trips ?? []).filter(trip => !trip.deleted && rule[1](trip)).map(trip => monthKey(trip.month)) : [];
+  }
   // Gọi sau mỗi lần vẽ sổ: tô lại các dòng và dựng lại thanh trên bảng tháng.
   function locAfterRender(data) {
     const rule = Object.hasOwn(LOC, locKind ?? '') ? LOC[locKind] : null;
@@ -43,5 +48,5 @@
     });
     if (!locJumped && hits.length) { locJumped = true; go(0); }
   }
-  Object.assign(ctx, { locAfterRender });
+  Object.assign(ctx, { locAfterRender, locMonths });
 };
