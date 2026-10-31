@@ -496,6 +496,43 @@ class LedgerApiTest(unittest.TestCase):
                 patch.dict(os.environ, {"V7_API_BEHIND_TAILSCALE_SERVE": "0"}), self.assertRaises(SystemExit):
             api.main()
 
+    def test_serve_cli_requires_allowed_login_unless_dev_actor(self):
+        # ACCESS-01: Serve mode without an allowlist must not start (fail closed); a bad login never starts either.
+        for env in ({}, {"WEBDEBIT_ALLOWED_LOGINS": " , "}):
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True), \
+                    patch.object(sys, "argv", ["api", "--container", "fake", "--behind-tailscale-serve"]), \
+                    patch.object(api, "Psql") as runner, self.assertRaises(SystemExit) as caught:
+                api.main()
+            self.assertEqual(caught.exception.code, 2)
+            runner.assert_not_called()
+        with patch.dict(os.environ, {"WEBDEBIT_ALLOWED_LOGINS": "ok@example.test,\x7fbad@example.test"}, clear=True), \
+                patch.object(sys, "argv", ["api", "--container", "fake"]), \
+                patch.object(api, "Psql") as runner, self.assertRaises(SystemExit) as caught:
+            api.main()
+        self.assertEqual(caught.exception.code, 2)
+        runner.assert_not_called()
+
+    def test_allowed_logins_merge_env_and_flags(self):
+        with patch.dict(os.environ, {"WEBDEBIT_ALLOWED_LOGINS": "Owner@EXAMPLE.TEST, second@example.test\n"}, clear=True), \
+                patch.object(sys, "argv", ["api", "--container", "fake", "--behind-tailscale-serve",
+                                           "--allowed-login", "third@example.test"]), \
+                patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer") as server, \
+                patch.object(api.Handler, "allowed_logins", None), patch.object(api.Handler, "behind_tailscale_serve", False), \
+                patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None), \
+                patch.object(api.Handler, "serve_hosts", ()):
+            api.main()
+            self.assertEqual(api.Handler.allowed_logins,
+                             frozenset({"Owner@example.test", "second@example.test", "third@example.test"}))
+            server.return_value.serve_forever.assert_called_once()
+        # Outside Serve mode the allowlist stays optional (loopback trial/dev); a stale class value is reset.
+        with patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", ["api", "--container", "fake"]), \
+                patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"), \
+                patch.object(api.Handler, "allowed_logins", frozenset({"stale@example.test"})), \
+                patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None), \
+                patch.object(api.Handler, "behind_tailscale_serve", True), patch.object(api.Handler, "serve_hosts", ()):
+            api.main()
+            self.assertIsNone(api.Handler.allowed_logins)
+
     def test_get_opening_and_void_contract_sql(self):
         # Static contract only; money identities run in the PostgreSQL harness.
         sql = (ROOT / "tools/v7_backend_functions.sql").read_text(encoding="utf-8")
@@ -558,14 +595,17 @@ class LedgerApiTest(unittest.TestCase):
 
     def test_serve_cli_wires_repeatable_hosts(self):
         with patch.object(sys, "argv", ["api", "--container", "fake", "--behind-tailscale-serve",
-                "--serve-host", "demo.example.test:8443", "--serve-host", "second.example.test"]), \
+                "--serve-host", "demo.example.test:8443", "--serve-host", "second.example.test",
+                "--allowed-login", "ops@example.test"]), \
                 patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer") as server, \
+                patch.object(api.Handler, "allowed_logins", None), \
                 patch.object(api.Handler, "serve_hosts", ()), patch.object(api.Handler, "behind_tailscale_serve", False), \
                 patch.object(api.Handler, "default_actor", None), patch.object(api.Handler, "dev_actor_mode", None), \
                 patch.object(api.Handler, "demo", False), patch.object(api.Handler, "real_copy", False):
             api.main()
             self.assertEqual(api.Handler.serve_hosts, ("demo.example.test:8443", "second.example.test"))
             self.assertTrue(api.Handler.behind_tailscale_serve)
+            self.assertEqual(api.Handler.allowed_logins, frozenset({"ops@example.test"}))
             server.return_value.serve_forever.assert_called_once()
 
     def setUp(self):
@@ -616,6 +656,60 @@ class LedgerApiTest(unittest.TestCase):
                     host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210, behind_tailscale_serve=True)
                 self.assertEqual(status, 200)
                 self.assertEqual(self.runner.calls[-1][2], "trusted@example.test")
+
+    def test_handle_rejects_login_outside_allowlist(self):
+        # ACCESS-01: a verified login must also be in the operator allowlist, on reads and on money writes.
+        allowed = frozenset({"trusted@example.test"})
+        lock = self.common | {"month": "2026-10-01", "locked": True}
+        for method, path, raw in (("GET", "/api/v7/customers", b""),
+                                  ("POST", "/api/v7/months/lock", json.dumps(lock).encode())):
+            with self.subTest(path=path), self.assertRaises(api.v7_identity.IdentityError) as caught:
+                api.handle(method, path, self.headers | {"Tailscale-User-Login": "stranger@example.test"}, raw,
+                           self.runner, port=8780, host="127.0.0.1", source_ip="127.0.0.1", source_port=43210,
+                           behind_tailscale_serve=True, allowed_logins=allowed)
+            self.assertEqual((caught.exception.code, caught.exception.detail),
+                             ("LOGIN_NOT_ALLOWED", "stranger@example.test"))
+        self.runner.calls.clear()
+        status, _ = api.handle("POST", "/api/v7/months/lock", self.headers | {"Tailscale-User-Login": "trusted@example.test"},
+                               json.dumps(lock).encode(), self.runner, port=8780, host="127.0.0.1", source_ip="127.0.0.1",
+                               source_port=43210, behind_tailscale_serve=True, allowed_logins=allowed)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.runner.calls[-1][2], "trusted@example.test")
+
+    def test_http_login_outside_allowlist_gets_403_and_is_logged(self):
+        authority = "demo.tail-example.ts.net:8443"
+        class AllowlistHandler(api.Handler):
+            behind_tailscale_serve = True
+            serve_hosts = (authority,)
+            allowed_logins = frozenset({"serve-user@example.test"})
+            default_actor = None
+            dev_actor_mode = False
+        AllowlistHandler.runner = self.runner
+        AllowlistHandler.localapi = self.localapi
+        with api.ThreadingHTTPServer(("127.0.0.1", 0), AllowlistHandler) as server:
+            AllowlistHandler.port = server.server_port
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            def request(login):
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                conn.request("GET", "/api/v7/customers", headers={"Host": authority, "Tailscale-User-Login": login})
+                response = conn.getresponse()
+                data = response.read()
+                conn.close()
+                return response.status, json.loads(data)
+            try:
+                errors = io.StringIO()
+                with patch.object(sys, "stderr", errors):
+                    status, data = request("stranger@example.test")
+                self.assertEqual(status, 403)
+                self.assertEqual(data["error"], "LOGIN_NOT_ALLOWED")
+                self.assertIn("message", data)
+                self.assertNotIn("stranger", json.dumps(data))  # the client never learns which login was seen
+                self.assertIn("stranger@example.test", errors.getvalue())  # the journal does
+                self.assertEqual(request("serve-user@example.test")[0], 200)
+            finally:
+                server.shutdown()
+                worker.join(timeout=3)
 
     def test_receivables_matrix_route_year_validation(self):
         current = api.datetime.now().year
@@ -961,19 +1055,21 @@ class LedgerHttpTest(unittest.TestCase):
                                     "V7_API_INSECURE_DEV_ACTOR": "env-demo"}), \
              patch.object(sys, "argv", ["api", "--container", "fake"]), patch.object(api, "Psql"), \
              patch.object(api, "ThreadingHTTPServer"), patch.object(api.Handler, "default_actor"), \
-             patch.object(api.Handler, "dev_actor_mode"), patch.object(api.Handler, "behind_tailscale_serve"):
+             patch.object(api.Handler, "dev_actor_mode"), patch.object(api.Handler, "behind_tailscale_serve"), \
+             patch.object(api.Handler, "allowed_logins"):
             api.main()
             self.assertTrue(api.Handler.behind_tailscale_serve)
             self.assertTrue(api.Handler.dev_actor_mode)
+            self.assertIsNone(api.Handler.allowed_logins)  # dev actor bypasses identity, allowlist not required
             self.assertEqual(api.Handler.default_actor, "env-demo")
 
     def test_cli_identity_modes(self):
         for flags, actor, serve in (([], None, False), (["--insecure-dev-actor", "demo"], "demo", False),
-                                    (["--behind-tailscale-serve"], None, True)):
+                                    (["--behind-tailscale-serve", "--allowed-login", "ops@example.test"], None, True)):
             with patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", ["api", "--container", "fake", *flags]), \
                  patch.object(api, "Psql"), patch.object(api, "ThreadingHTTPServer"), \
                  patch.object(api.Handler, "default_actor"), patch.object(api.Handler, "dev_actor_mode"), \
-                 patch.object(api.Handler, "behind_tailscale_serve"):
+                 patch.object(api.Handler, "behind_tailscale_serve"), patch.object(api.Handler, "allowed_logins"):
                 api.main()
                 self.assertEqual(api.Handler.default_actor, actor)
                 self.assertEqual(api.Handler.dev_actor_mode, actor is not None)
