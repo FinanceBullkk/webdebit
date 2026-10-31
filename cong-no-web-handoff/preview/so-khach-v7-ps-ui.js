@@ -1,6 +1,6 @@
 /* Sổ khách V7 bản live — Tách phụ phí theo bảng PS (specs/v7-phu-phi-tu-ps.md, PR-2; mockup mockups/tach-phu-phi-ps).
  * Server tính chuyến tách được (READY) và chuyến cần xem từ bản chụp CONT_MASTER; trang chỉ hiện và gửi một lệnh
- * cho cả lô. Tách chỉ đổi loại khoản, không đổi tiền. Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx. */
+ * cho cả lô. Tách chỉ đổi loại khoản, không đổi tiền. Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).ps = ctx => {
   'use strict';
   const { root, model, api, customerId, escape, dateText, monthKey, monthLabel, showNotice, renderSnapshot, submit } = ctx;
