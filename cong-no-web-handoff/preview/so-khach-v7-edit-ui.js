@@ -3,7 +3,7 @@
  * dùng chung phạm vi của initLive qua ctx (xem so-khach-v7-ui.js). */
 (window.SoKhachV7LiveParts ??= {}).edit = ctx => {
   'use strict';
-  const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, renderSnapshot, redraw, submit } = ctx;
+  const { root, model, api, live, escape, fmt, spanOf, dateText, dateInput, monthKey, monthLabel, liveOpenMonth, methods, fieldNames, moved, ghosts, moneyText, referenceFields, reviewReasonText, todayIso, startOffset, openOffsetReceipt, showNotice, redraw, submit } = ctx;
     // CHỜ KIỂM (NEWTRIP-01): mở dòng kết luận ngay dưới chuyến, khuôn như hỏi lý do hủy phiếu.
     const closeReview = () => {
       root.querySelectorAll('.review-prompt').forEach(item => item.remove());
@@ -138,6 +138,20 @@
           : await submit('legacyDelete', { legacy_row_id: Number(id) });
       if (result?.message && promptRow.isConnected) promptRow.querySelector('.delete-error').textContent = result.message;
     }
+    // Bảng Lịch sử: mở/đóng vẽ lại sổ (giữ ô đang gõ), tiêu điểm về nút "Lịch sử". Esc đóng bảng (audit UX 31/10/2026),
+    // trừ khi Esc thuộc ô đang sửa ngoài bảng hoặc một hộp khác đang mở (hộp đó tự đóng trước).
+    const setHistory = open => {
+      ctx.historyOpen = open;
+      if (ctx.snapshot) redraw();
+      root.querySelector('.history-toggle')?.focus();
+    };
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || !ctx.historyOpen || event.defaultPrevented) return;
+      const inPanel = root.querySelector('.history-panel')?.contains(event.target);
+      if (!inPanel && (event.target.matches?.('input,select,textarea') || event.target.closest?.('[role="dialog"],[aria-modal="true"],.fee-drawer,.image-viewer')
+        || document.querySelector('[aria-modal="true"]:not([hidden]),.offset-backdrop'))) return;
+      setHistory(false);
+    });
     root.addEventListener('click', async event => {
       const infoEdit = event.target.closest('td.info-edit');
       if (infoEdit) { openInfoEdit(infoEdit); return; }
@@ -158,8 +172,8 @@
         if (event.target.closest('.review-confirm')) { await concludeReview(reviewRow, 'confirm'); return; }
         if (event.target.closest('.review-reject')) { await concludeReview(reviewRow, 'reject'); return; }
       }
-      if (event.target.closest('.history-toggle')) { ctx.historyOpen = !ctx.historyOpen; if (ctx.snapshot) renderSnapshot(ctx.snapshot); return; }
-      if (event.target.closest('.history-close')) { ctx.historyOpen = false; if (ctx.snapshot) renderSnapshot(ctx.snapshot); return; }
+      if (event.target.closest('.history-toggle')) { setHistory(!ctx.historyOpen); return; }
+      if (event.target.closest('.history-close')) { setHistory(false); return; }
       if (event.target.closest('.retry-command')) { await api.retry(); return; }
       // Ô tìm khách nằm trên đầu trang, trôi mất khi cuộn: nút ở thanh tiêu đề đưa về đó và mở danh sách.
       if (event.target.closest('.change-customer')) { window.scrollTo(0, 0); live.showCustomers(); return; }

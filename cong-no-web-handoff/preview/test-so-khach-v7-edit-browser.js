@@ -223,6 +223,28 @@ test('bàn phím: Enter trên ô mở sửa; 1280×720 không cuộn ngang', asy
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 }));
 
+// Audit UX 31/10/2026 (đợt 1): Esc đóng bảng Lịch sử, tiêu điểm về nút "Lịch sử"; Esc trong ô đang sửa chỉ bỏ sửa ô đó.
+test('Lịch sử: Esc đóng bảng và trả tiêu điểm về nút Lịch sử; Esc trong ô đang sửa không đóng bảng', async () => withPage(async ({ page }) => {
+  const panel = page.locator('#history-panel');
+  const toggleFocused = () => page.evaluate(() => document.activeElement?.classList.contains('history-toggle'));
+  await page.locator('.history-toggle').click();
+  await panel.waitFor();
+  await tripCell(page, 'carrier').click();
+  await page.locator('.info-input').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.info-input').count(), 0);
+  assert.equal(await panel.isVisible(), true);
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
+  assert.equal(await page.locator('.history-toggle').getAttribute('aria-expanded'), 'false');
+  assert.equal(await toggleFocused(), true);
+  await page.keyboard.press('Enter');
+  await panel.waitFor();
+  await page.locator('.history-close').click();
+  await panel.waitFor({ state: 'hidden' });
+  assert.equal(await toggleFocused(), true);
+}));
+
 // SO-GON-02 (29/10/2026): phiếu thu là danh sách riêng bên phải: khoản thu Sheet trước, phiếu web, rồi hàng nhập.
 const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, pid, reference, date, method: 'THU TIỀN', amount_vnd: amount, void_reason: null,
   offset_pair_id: null, counterparty_customer_id: null, counterparty_name: null, voided_on: null, voided_by_event: null,
