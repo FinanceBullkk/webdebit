@@ -29,17 +29,18 @@ body:has(#demo-banner:not([hidden])) .topbar{top:48px}
 body:has(#demo-banner:not([hidden])) .book-head{top:104px}
 body:has(#demo-banner:not([hidden])) .ledger-head{top:174px}
 body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
-.book-head h1{font-size:18px;margin:0;white-space:nowrap}.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:13px}.head-item strong{font-size:16px}.head-item.total{margin-left:auto}.head-item.total strong{font-size:22px;color:#123f79}
+.book-head h1{font-size:18px;margin:0;white-space:nowrap}.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:14px}.head-item strong{font-size:16px}.head-item.total{margin-left:auto}.head-item.total strong{font-size:22px;color:#123f79}
 .layout{display:flex;gap:12px;align-items:flex-start;max-width:1858px;margin:0 auto}
 .ledger-book{width:1696px;flex:0 0 1696px}
 .ledger-book section{scroll-margin-top:170px}
 .ledger{width:100%;table-layout:fixed;border-spacing:0;border-collapse:separate;background:#fff;font-variant-numeric:tabular-nums}
 .ledger-head{position:sticky;top:126px;z-index:30}
 .ledger th,.ledger td{border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;padding:4px 5px;vertical-align:middle;overflow-wrap:anywhere}
-.ledger th{font-weight:700;text-align:left}.ledger td{min-height:38px;height:38px;font-size:13px}
-.ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:13px}
+/* Audit UX 31/10/2026 (P0-2, đợt 1): chữ trong bảng sổ 15px (trước 13px), nhãn 14px (trước 12px), hàng cao 40px. */
+.ledger th{font-weight:700;text-align:left;font-size:15px}.ledger td{min-height:40px;height:40px;font-size:15px}
+.ledger .group th{height:30px;padding:3px 6px;background:#dbe8f7;color:#16385f;font-size:15px}
 .ledger .group .group-pay{background:#cfe5ff;border-left:3px solid #3269a4}
-.ledger .columns th{height:38px;padding:3px 5px;background:#eaf1fa;font-size:13px;line-height:1.12}
+.ledger .columns th{height:40px;padding:3px 5px;background:#eaf1fa;font-size:15px;line-height:1.12}
 .ledger .columns .pay{background:#dfeeff}
 .ledger .month th{position:sticky;top:164px;z-index:20;height:42px;padding:4px 10px;background:#24496e;color:#fff;font-size:15px;text-align:left}
 .month-title{display:flex;align-items:center;gap:12px}.month-title em{margin-left:auto;font-style:normal;font-size:13px;font-weight:400}
@@ -51,7 +52,7 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .history-panel[hidden]{display:none}.history-panel header{display:flex;justify-content:space-between;align-items:center}.history-panel h2{margin:0;font-size:18px}
 .history-panel ol{padding-left:22px}.history-panel li{padding:8px 0;border-bottom:1px solid #d8e1ec}.history-panel li time,.history-panel li span,.history-panel li strong{display:block}.history-panel li p{margin:4px 0}
 .month-adjustment-input input{min-height:28px;max-width:100%;font:inherit}.month-adjustment-input .month-amount{width:100%;text-align:right}
-.ledger td.num{text-align:right;white-space:nowrap;font-size:13px}
+.ledger td.num{text-align:right;white-space:nowrap;font-size:15px}
 .ledger td.pay{background:#f2f8ff}.ledger td.pay-start,.ledger th.pay-start{border-left:3px solid #3269a4}
 /* SO-GON-02: trong tháng, chuyến (bảng trái) và phiếu thu (danh sách phải) là hai bảng riêng, đường kẻ không trùng nhau. */
 .ledger td.trip-side,.ledger td.pay-side{height:auto;padding:0;vertical-align:top;border-right:0;border-bottom:0}
@@ -60,7 +61,9 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .pay-list td.pay-start{border-left:0}
 .pay-stick.pinned{position:sticky;z-index:15;box-shadow:0 2px 0 #3269a4}
 /* Mỗi chuyến một hàng: chữ dài cắt "…", rê chuột xem đủ (title); số container chữ đều để dễ dò. */
-.trip-list td:nth-child(n+2):nth-child(-n+7):not(:has(button,input,small,select)){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Cột chữ (số container → nơi đến; không có cột Shipper thì ít hơn một cột) cắt "…"; ô Đơn giá không bao giờ bị cắt. */
+.trip-list:not(.no-shipper) td:nth-child(n+2):nth-child(-n+7):not(:has(button,input,small,select)),
+.trip-list.no-shipper td:nth-child(n+2):nth-child(-n+6):not(:has(button,input,small,select)){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}
 .ledger td.fee:empty::before{content:'–';color:#8193a6}
 /* PHU-PHI-01: cụm cột phụ phí (cột riêng của sổ + Khác), khung Chi tiết phụ phí, cài đặt loại phụ phí. */
@@ -137,13 +140,13 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
    Hàng nhập: một khung có nhãn, chỗ dán ảnh và nút Ghi phiếu. Hộp hủy phiếu xếp dọc cho vừa vùng hẹp. */
 .receipt-sum{display:block;font-size:14px;font-weight:700;color:#162d48}.ledger .voided .receipt-sum{color:#475d73}
 .ledger td.num .receipt-meta{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:2px 6px;margin-top:2px;white-space:normal}
-.receipt-meta .image-clip{margin-left:0;min-height:22px}.receipt-meta .receipt-ref:has(input){flex:1 1 100%}
+.receipt-meta .image-clip{margin-left:0;min-height:22px}.receipt-meta .receipt-ref,.receipt-meta .receipt-allocation,.receipt-meta .image-clip{font-size:14px}.receipt-meta .receipt-ref:has(input){flex:1 1 100%}
 .pay-list .saved-receipt-input{width:100%;min-width:0;height:30px;padding:0 6px;border:1px solid #145fa9;border-radius:4px;background:#fff;font:inherit;color:#162d48}
 .ledger td.pay-form{height:auto;padding:6px}
 .pay-form-card{padding:8px 10px 10px;border:1px solid #8daac9;border-radius:6px;background:#fff;box-shadow:0 1px 2px #162d4814}
 .pay-form-title{margin:0 0 6px;font-size:14px;font-weight:700;color:#173d65}
 .pay-form-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 10px}
-.pay-field{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12px;font-weight:600;color:#3e5871}
+.pay-field{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:14px;font-weight:600;color:#3e5871}
 .pay-field input,.pay-field select{width:100%;min-width:0;height:34px;margin:0;padding:0 8px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;font-size:15px;font-weight:400;color:#162d48}
 .pay-field input:focus,.pay-field select:focus{border-color:#145fa9;outline:2px solid #145fa9;outline-offset:0}
 .pay-field .receipt-amount{text-align:right;font-weight:700}.pay-field .cell-error{font-size:12px}
@@ -159,7 +162,7 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .void-actions{display:flex;justify-content:flex-end;gap:8px}
 .void-prompt .void-actions button{min-height:34px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:14px}
 .void-prompt .void-actions .confirm-void{border-color:#a01616;background:#a01616;color:#fff;font-weight:700}
-.void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:12px}
+.void-summary td,.pay-list .void-trace td{height:30px;background:#f6f7f9;color:#475d73;font-size:14px}
 .pay-list .void-trace s{color:#5d6f82}
 .void-toggle{min-height:28px;margin-left:6px;padding:0 4px;border:0;background:none;color:#1d4ed8;text-decoration:underline;font:inherit;cursor:pointer}
 .void-toggle:focus-visible{outline:2px solid #145fa9}
@@ -170,7 +173,7 @@ body:has(#demo-banner:not([hidden])) .ledger .month th{top:212px}
 .receipt-date,.receipt-amount,.receipt-method{width:100%;min-height:28px;min-width:0;font:inherit;color:#162d48}.receipt-amount{text-align:right}.receipt-date::placeholder{color:#425b73}
 .ledger .receipt:not(.voided):not(.voided-method){cursor:pointer}.ledger .receipt:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
 .ledger .voided{text-decoration:line-through;color:#475d73}.ledger .voided-method{font-weight:700;color:#8b2020}
-.void-prompt td,.void-trace td{background:#fff1e5;font-size:13px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
+.void-prompt td,.void-trace td{background:#fff1e5;font-size:14px}.void-prompt input{min-height:28px;min-width:230px;font:inherit}.void-prompt button{min-height:28px;font:inherit;cursor:pointer}
 .receipt-status td{background:#e2f5e8;color:#145b32;font-size:14px;font-weight:700;min-height:38px}
 .adjustment td{background:#fff2f2}
 .ledger .info-edit{cursor:text}.ledger .info-edit:hover,.ledger .info-edit:focus-visible{outline:2px solid #145fa9;outline-offset:-2px}
@@ -384,3 +387,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .image-reason-error{color:#8a1414}.image-remove-actions{display:flex;gap:8px;justify-content:flex-end}
 .image-remove-actions .danger{background:#b91c1c;border-color:#b91c1c;color:#fff;font-weight:700}
 .image-viewer-foot{margin:0;padding:6px 10px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;line-height:1.4}
+/* Audit UX 31/10/2026 (P1-6): đọc sổ lỗi — một câu "chuyện gì · cần làm gì" và nút Thử lại. */
+.load-error{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:16px 4px;padding:12px 16px;border:1px solid #efb7b7;border-radius:8px;background:#fdecec;color:#8a1414;font-size:16px}
+.load-error p{margin:0}.load-retry{min-height:40px;padding:0 18px;border:1px solid #a01616;border-radius:6px;background:#fff;color:#8a1414;font:inherit;font-weight:700;cursor:pointer}
+.load-retry:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
