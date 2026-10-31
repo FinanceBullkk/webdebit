@@ -276,6 +276,20 @@ với luật đã triển khai):
    ở file `*-ui.js` hay `app.py`. Đây là ranh giới yếu nhất: các file `so-khach-v7-*-ui.js` hiện đã có định
    dạng tiền, nên cần người dùng chốt "tính" khác "định dạng" ở đâu trước khi bật.
 
+### Bố cục API V7 (`web/`, từ 31/10/2026)
+
+API sổ khách V7 tách theo việc để mỗi thay đổi mở đúng một file. Điểm vào vẫn là `web/v7_ledger_api.py` (systemd trên `hao` gọi đường này).
+
+| File trong `cong-no-web-handoff/web/` | Nội dung |
+|---|---|
+| `v7_ledger_api.py` | tầng HTTP: `handle` (kiểm Host/Origin/Content-Type/kích thước, giải danh tính một lần, tra route), `Handler` (HTTP, SSE, file tĩnh), `main` |
+| `v7_api_tables.py` | bảng tra: `PAGES`/`ASSETS`, `ROUTES` của POST, `ERRORS`, `SQL` sinh từ `ARGUMENTS`/`CAST` |
+| `v7_api_validate.py` | `ApiError`, kiểm thân lệnh POST (`validate`) và chuỗi truy vấn GET (`GET_ROUTES`) |
+| `v7_psql.py` | chạy hàm `sokhach.*` qua psql (`Psql` container thử, `PsqlDirect` socket); mục ARCH-01 duy nhất của API |
+| `v7_api_sheet.py` | đồng bộ Sheet/PS: chiếu hàng chờ, duyệt theo lô (`approve_request` dùng chung), xung đột, làm mới, tên hiển thị khách |
+
+Lệnh ghi mới: thêm dòng vào `ROUTES` và `ARGUMENTS` (SQL tự sinh), luật kiểm vào `validate`; đường đọc mới thêm vào `GET_ROUTES`. Test vá biến toàn cục ở module định nghĩa nó, ví dụ `patch.object(v7_api_sheet, "SHEET_SNAPSHOT_PATH", …)`: `v7_ledger_api` chỉ re-export tên test gọi, vá bản re-export không đổi lời gọi bên trong module khác.
+
 ## Hoàn tác và ranh giới
 
 Thay đổi hiện tại chỉ code/tài liệu/CI. Hoàn tác bằng diff/commit đã review, không xóa capture/release hay đụng DB. CI chỉ chạy fixture và DB thử dùng một lần trên máy của GitHub, không chạm `hao`; xem [CI trên runner GitHub](#ci-trên-runner-github). Ghi tiền/deploy cần scope, policy, DB test và quyền riêng theo gate nghiệp vụ.

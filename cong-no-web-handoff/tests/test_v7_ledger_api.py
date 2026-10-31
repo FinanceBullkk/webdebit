@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
+import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 
 
@@ -158,7 +159,7 @@ class LedgerApiTest(unittest.TestCase):
         try:
             rows = {"customers": [{"id": 7, "name": "V7 NAME", "status": "active",
                                    "commodity": None, "transport_mode": None}]}
-            with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", path), \
+            with patch.object(v7_api_sheet, "CUSTOMER_NAME_MAPPING_PATH", path), \
                     patch.object(self.runner, "run", return_value=rows):
                 status, result = api.handle("GET", "/api/v7/customers", self.headers, b"", self.runner,
                                             port=8780, host="127.0.0.1", actor="server")
@@ -175,14 +176,14 @@ class LedgerApiTest(unittest.TestCase):
         stale = {"id": 7, "name": "RENAMED"}
         self.assertEqual(api.named_customer(stale, {"7": {
             "v7_name": "OLD", "display_name": "SHEET"}}), stale)
-        with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", None):
+        with patch.object(v7_api_sheet, "CUSTOMER_NAME_MAPPING_PATH", None):
             self.assertEqual(api.customer_name_mapping(), {})
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as handle:
             json.dump({"version": 1, "customers": {"7": {
                 "v7_name": "V7", "display_name": " ", "aliases": []}}}, handle)
             path = handle.name
         try:
-            with patch.object(api, "CUSTOMER_NAME_MAPPING_PATH", path):
+            with patch.object(v7_api_sheet, "CUSTOMER_NAME_MAPPING_PATH", path):
                 self.assertEqual(api.customer_name_mapping(), {})
         finally:
             os.unlink(path)
@@ -203,8 +204,8 @@ class LedgerApiTest(unittest.TestCase):
         projection = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 8,
             "sync_state": "CONFLICT", "existing_kind": "trip", "existing_id": 9,
             "changed_fields": ["carrier"], "carrier": "COSCO", "existing_values": {"carrier": "WH"}}]}
-        with patch.object(api, "sheet_projection", return_value=projection), \
-                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
+                patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}):
             status, result = api.resolve_sheet_conflict(json.dumps(body).encode(), runner, "fake-actor")
         self.assertEqual((status, result["version"]), (200, 4))
         self.assertEqual(runner.calls[-1][0], "resolve_sheet_conflict")
@@ -214,15 +215,15 @@ class LedgerApiTest(unittest.TestCase):
         shipper = body | {"field": "shipper", "decision": "use_sheet"}
         projection["items"][0].update(changed_fields=["shipper"], shipper="KHOI PHONG",
                                       existing_values={"shipper": None})
-        with patch.object(api, "sheet_projection", return_value=projection), \
-                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
+                patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}):
             api.resolve_sheet_conflict(json.dumps(shipper).encode(), runner, "fake-actor")
         self.assertIsNone(runner.calls[-1][1]["target_value"])
         for change in ({"sheet_value": "FORGED"}, {"field": "unit_price_vnd"}, {"target_id": 10},
                        {"snapshot_sha256": "b" * 64}, {"expected_version": 2}):
             runner.calls.clear()
-            with self.subTest(change=change), patch.object(api, "sheet_projection", return_value=projection), \
-                    patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}), \
+            with self.subTest(change=change), patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
+                    patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}), \
                     self.assertRaises(api.ApiError):
                 api.resolve_sheet_conflict(json.dumps(body | change).encode(), runner, "fake-actor")
             self.assertFalse(any(call[0] == "resolve_sheet_conflict" for call in runner.calls))
@@ -244,8 +245,8 @@ class LedgerApiTest(unittest.TestCase):
             "sync_state": "CONFLICT", "existing_kind": "trip", "existing_id": 9,
             "changed_fields": ["event_date", "booking"], "event_date": "2026-10-20", "booking": None,
             "existing_values": {"event_date": "2026-10-18", "booking": "BK-OLD"}}]}
-        with patch.object(api, "sheet_projection", return_value=projection), \
-                patch.object(api, "load_snapshot", return_value={"sha256": "a" * 64}):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection), \
+                patch.object(v7_api_sheet, "load_snapshot", return_value={"sha256": "a" * 64}):
             api.resolve_sheet_conflict(json.dumps(body).encode(), runner, "fake-actor")
             self.assertEqual((runner.calls[-1][1]["sheet_value"], runner.calls[-1][1]["target_value"]),
                              ("2026-10-20", "2026-10-18"))
@@ -373,7 +374,7 @@ class LedgerApiTest(unittest.TestCase):
             row | {"source_row": 4, "event_date": "2026-09-24", "container": "FAKE2"}]}
         body = {"customer_id": 7, "expected_version": 3, "snapshot_sha256": "a" * 64,
                 "idempotency_key": "test-bulk"}
-        with patch.object(api, "sheet_projection", return_value=projection):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection):
             status, result = api.handle("POST", "/api/v7/sheet/approve", self.headers,
                 json.dumps(body).encode(), runner, port=8780, host="127.0.0.1", actor="tester")
         self.assertEqual((status, result["approved"], result["complete"]), (200, 2, True))
@@ -385,7 +386,7 @@ class LedgerApiTest(unittest.TestCase):
         self.assertTrue(all(call[2] == "tester" for call in writes))
         runner.calls.clear()
         runner.version = 3
-        with patch.object(api, "sheet_projection", return_value=projection | {"snapshot_sha256": "b" * 64}), \
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection | {"snapshot_sha256": "b" * 64}), \
                 self.assertRaises(api.ApiError) as caught:
             api.approve_sheet(json.dumps(body).encode(), runner, "tester")
         self.assertEqual(caught.exception.code, "STALE_SHEET")
@@ -399,14 +400,14 @@ class LedgerApiTest(unittest.TestCase):
                 value["month_locks"] = [{"month": "2026-09-01", "locked": True}]
             return value
         runner.run = locked_run
-        with patch.object(api, "sheet_projection", return_value=projection):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection):
             status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
         self.assertEqual((status, result["approved"], result["remaining"]), (200, 2, 0))
         self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
                          ["2026-09-01", "2026-10-01"])
         runner.calls.clear()
         runner.version = 3
-        with patch.object(api, "sheet_projection", return_value=projection | {"items": [projection["items"][2]]}):
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection | {"items": [projection["items"][2]]}):
             status, result = api.approve_sheet(json.dumps(body).encode(), runner, "tester")
         self.assertEqual((status, result["approved"]), (200, 1))
         self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
@@ -764,9 +765,9 @@ class LedgerApiTest(unittest.TestCase):
             api.handle("GET", "/api/v7/dashboard/debt?x=1", self.headers, b"", self.runner,
                        port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
         self.assertEqual(caught.exception.status, 404)
-        with patch.object(api, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
-             patch.object(api, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
-             patch.object(api, "build_queue", return_value={"items": [], "row_count": 0, "ready_count": 0, "review_count": 0}) as queue:
+        with patch.object(v7_api_sheet, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
+             patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
+             patch.object(v7_api_sheet, "build_queue", return_value={"items": [], "row_count": 0, "ready_count": 0, "review_count": 0}) as queue:
             status, data = api.handle("GET", "/api/v7/sheet-queue", self.headers, b"", self.runner,
                                       port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210)
             self.assertEqual((status, data["row_count"]), (200, 0))
@@ -796,6 +797,24 @@ class LedgerApiTest(unittest.TestCase):
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
         self.error(422, "INVALID_REQUEST", lambda: api.handle("GET", "/api/v7/ledger?customer=" + "9" * 5000,
                    self.headers, b"", self.runner, port=8780, host="127.0.0.1", default_actor="ignored", source_ip="127.0.0.1", source_port=43210))
+
+    def test_sheet_queue_route_customer_validation(self):
+        # Hồi quy 31/10: `?&` qua kiểm vì parse_qs("&") rỗng, rồi sheet_queue đọc ["customer"] ném KeyError khi có snapshot
+        # (kết nối đóng không trả lời). Có chuỗi truy vấn thì phải đúng một `customer`, như sheet_queue đọc.
+        queue = {"items": [{"customer_id": 7}, {"customer_id": 8}], "row_count": 2, "ready_count": 0, "review_count": 2}
+        with patch.object(v7_api_sheet, "load_snapshot", return_value={"rows": [], "row_count": 0, "sha256": "a" * 64}), \
+             patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 1, "refs": [{}]}), \
+             patch.object(v7_api_sheet, "build_queue", return_value=queue):
+            for query in ("&", "&&"):
+                with self.subTest(query=query):
+                    with self.assertRaises(api.ApiError) as caught:
+                        api.handle("GET", "/api/v7/sheet-queue?" + query, self.headers, b"", self.runner,
+                                   port=8780, host="127.0.0.1", actor="server")
+                    self.assertEqual((caught.exception.status, caught.exception.code), (422, "INVALID_REQUEST"))
+            self.assertEqual(self.runner.calls, [])
+            status, data = api.handle("GET", "/api/v7/sheet-queue?customer=7", self.headers, b"", self.runner,
+                                      port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual((status, data["items"], data["row_count"]), (200, [{"customer_id": 7}], 1))
 
     def test_rejects_client_calculation_actor_and_bad_money(self):
         self.assertTrue(api.vnd("-9223372036854775808", signed=True))
@@ -1381,6 +1400,18 @@ class ReceiptImageApiTest(unittest.TestCase):
                        "/api/v7/receipt-image?customer=1&id=1&id=2", "/api/v7/receipt-images/find?sha256=ABC"):
             with self.subTest(target=target):
                 self.rejected("INVALID_REQUEST", "GET", target, raw=b"")
+
+    def test_unhashable_content_type_is_invalid_image(self):
+        # Hồi quy 31/10: content_type mảng/object từng ném TypeError (unhashable), Handler đóng kết nối không trả lời.
+        runner = FakePsql()
+        for content_type in ([], {}, ["image/png"], {"image/png": True}):
+            with self.subTest(content_type=content_type):
+                with self.assertRaises(api.ApiError) as caught:
+                    api.handle("POST", "/api/v7/receipts/images", self.headers,
+                               json.dumps(self.body(content_type=content_type)).encode(),
+                               runner, port=8780, host="127.0.0.1", actor="server-image-actor")
+                self.assertEqual((caught.exception.status, caught.exception.code), (422, "IMAGE_INVALID"))
+        self.assertEqual(runner.calls, [])
 
     def test_body_limit_is_larger_only_for_image_path(self):
         big = b"{" + b" " * (api.MAX_BODY + 10) + b"}"
