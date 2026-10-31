@@ -29,14 +29,20 @@ a{color:inherit;text-decoration:none}
 .topbar nav a{display:flex;align-items:center;padding:0 14px;color:var(--nav-ink);font-weight:600;border-bottom:3px solid transparent}
 .topbar nav a:hover{color:#fff}
 .topbar nav a.active{color:#fff;border-color:#6da7ec}
-.search{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px;width:min(300px,28vw);height:38px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:var(--nav-ink)}
+/* Audit UX 31/10/2026 P0-3: ở màn 1280 mỗi mục điều hướng một dòng; thiếu chỗ (người online) thì ô tìm co trước, tới 120px.
+   Hẹp hơn 1280 (phóng to trình duyệt): "Số liệu đến" xuống hai dòng; dưới 1180px hoặc từ 5 người online, mục được
+   xuống dòng như cũ để trang không cuộn ngang. */
+@media (min-width:1180px){.topbar nav a{white-space:nowrap}.search{min-width:120px}}
+.topbar:has(.presence-avatar:nth-of-type(5)) nav a{white-space:normal}
+.search{position:relative;margin-left:auto;display:flex;align-items:center;gap:8px;flex:0 50 220px;height:38px;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:var(--nav-ink)}
 .search input{width:100%;border:0;outline:0;background:transparent;color:#fff}
 .search input::placeholder{color:#9fb3c8}
 .search:focus-within{border-color:#6da7ec}
-.search #customer-results{position:absolute;z-index:5;top:42px;left:0;right:0;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #1f293733}
+.search #customer-results{position:absolute;z-index:5;top:42px;left:0;right:0;min-width:300px;max-height:300px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #1f293733}
 .search #customer-results a{display:block;padding:10px 12px;color:var(--ink);border-bottom:1px solid var(--line-soft)}
 .search #customer-results a:hover,.search #customer-results a:focus{background:var(--accent-soft);outline:none}
 .topbar .asof{color:var(--nav-ink);font-size:13.5px;white-space:nowrap}
+@media (max-width:1279px){.topbar .asof{white-space:normal;line-height:1.2;text-align:right}}
 
 /* Trang */
 .page{margin:0 auto;padding:20px 24px 40px}
@@ -79,7 +85,7 @@ a{color:inherit;text-decoration:none}
   .topbar{flex-wrap:wrap;height:auto;padding:10px 12px;gap:10px}
   .topbar nav{height:40px;order:3;width:100%;overflow-x:auto}
   .topbar nav a{flex:none;white-space:nowrap}
-  .search{order:4;width:100%;margin-left:0}
+  .search{order:4;flex:1 1 100%;width:100%;margin-left:0}
   .page{padding:16px 12px 32px}
   .page-head{flex-wrap:wrap}
 }

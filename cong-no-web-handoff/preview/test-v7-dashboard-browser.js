@@ -61,6 +61,16 @@ async function withPage(options, fn, page = '/dashboard-v7.html') {
   }
 }
 const withDashboard = (options, fn, query = '') => withPage(options, fn, `/dashboard-v7.html${query}`);
+// Audit UX 31/10/2026 P0-3: ở 1280×720 mỗi mục điều hướng một dòng — chữ của mục (không tính huy hiệu) cao ≤ 24px.
+const navLineHeights = page => page.locator('.topbar nav a').evaluateAll(links => links.map(link => {
+  const range = document.createRange();
+  range.selectNodeContents(link.firstChild);
+  return Math.round(range.getBoundingClientRect().height);
+}));
+const assertNavOneLine = async page => {
+  const heights = await navLineHeights(page);
+  assert.equal(heights.length === 5 && heights.every(height => height <= 24), true, JSON.stringify(heights));
+};
 
 test('Tổng quan chỉ còn bốn khối về công nợ; số chính, hạn trả, khách cần đòi, ma trận; màn đầu và điện thoại', async () => withDashboard({}, async page => {
   await page.locator('.due .big-money').waitFor();
@@ -103,6 +113,7 @@ test('Tổng quan chỉ còn bốn khối về công nợ; số chính, hạn tr
   const layout = await page.evaluate(() => ({ scrollX: document.documentElement.scrollWidth > innerWidth,
     firstRowBottom: Math.max(...[...document.querySelectorAll('.due,.month')].map(el => el.getBoundingClientRect().bottom)) }));
   assert.equal(!layout.scrollX && layout.firstRowBottom <= 720, true, JSON.stringify(layout));
+  await assertNavOneLine(page);
   await page.locator('#customer-search').fill('Khách C');
   await page.locator('#customer-search').press('Tab');
   assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
@@ -331,6 +342,7 @@ test('tab Việc cần làm: nhóm việc mở đúng dòng trong sổ, hôm nay
   assert.match(await page.locator('.today').innerText(), /12\s+chuyến nhập[\s\S]*Người nhập 1/);
   assert.match(await page.locator('.credit').innerText(), /Khách K\s+dư 45 triệu/);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await assertNavOneLine(page);
 }, '/viec-can-lam.html'));
 
 test('tab Việc cần làm: không có việc thì nói rõ; API debt lỗi chỉ bỏ nhóm gán mặt hàng', async () => {
