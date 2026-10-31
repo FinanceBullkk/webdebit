@@ -16,6 +16,9 @@ module.exports = [
       ".venv/**",
       ".playwright-browsers/**",
       "test-results/**",
+      // Worktree của các phiên Claude song song (đã gitignore) là bản sao cả repo;
+      // flat config không tự bỏ qua thư mục chấm nên phải ghi tường minh.
+      ".claude/**",
     ],
   },
   js.configs.recommended,

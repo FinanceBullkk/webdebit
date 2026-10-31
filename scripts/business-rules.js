@@ -19,6 +19,10 @@ const path = require("node:path");
 const SKIP_DIRS = new Set([
   "node_modules", ".venv", ".git", "__pycache__",
   ".playwright-browsers", "test-results", ".pytest_cache",
+  // Worktree của các phiên Claude song song (`.claude/worktrees/`, đã gitignore)
+  // là bản sao cả repo: quét vào là báo vi phạm trên chính mã đã sạch, vì danh
+  // sách cho phép của ARCH-01 là đường dẫn tương đối tường minh.
+  ".claude",
 ]);
 
 // Duyệt cây file một lần, các luật cùng dùng lại kết quả này.

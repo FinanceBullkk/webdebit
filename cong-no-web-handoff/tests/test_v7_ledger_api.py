@@ -1155,8 +1155,8 @@ class LedgerHttpTest(unittest.TestCase):
             self.assertEqual((response.status, json.loads(response.read())["error"]), (413, "BODY_TOO_LARGE"))
             conn.close()
             # Tài sản lấy từ thẻ <script>/<link> của các trang; mất một file quen là regex đã hỏng.
-            self.assertLessEqual({"/", "/dashboard-v7.css", "/so-khach-v7-ui.js", "/so-khach-v7-edit-ui.js",
-                                  "/sheet-refresh.js", "/sheet-trip-queue-live.js"}, set(api.ASSETS))
+            self.assertLessEqual({"/", "/dashboard-v7.css", "/so-khach-v7-ui.js", "/so-khach-v7-edit-ui.js", "/so-khach-v7.css",
+                                  "/cong-no-format.js", "/sheet-refresh.js", "/sheet-trip-queue-live.js"}, set(api.ASSETS))
             for path in api.ASSETS:
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
                 conn.request("GET", path)

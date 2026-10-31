@@ -18,7 +18,7 @@
   const pickClass = month => state.age == null ? '' : ageOf(month) === state.age ? ' pick' : ' dim';
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; };
   const $ = selector => document.querySelector(selector);
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[ch]);
+  const { esc, commodityText, monthTag } = F;
   const vnd = F.toBig;
   const fmt = value => F.full(typeof value === 'bigint' ? value : vnd(String(value)));
   const signed = value => value == null ? '—' : F.full(typeof value === 'bigint' ? value : vnd(value));
@@ -29,9 +29,8 @@
   const yearTotal = customer => vnd(customer.total_year_vnd);
   const allTotal = customer => vnd(customer.total_all_vnd);
   const monthValue = (customer, month) => vnd(customer.months?.[String(month)]);
-  const transportText = mode => ({ CANG: 'cảng', 'CẢNG': 'cảng', BO: 'bộ', 'BỘ': 'bộ' })[mode] ?? (mode ? String(mode).toLowerCase() : '');
   // Nhóm theo mặt hàng · phương thức, như Tổng quan; '' là chưa phân loại.
-  const groupKey = customer => customer.commodity ? customer.commodity + (transportText(customer.transport_mode) ? ' · ' + transportText(customer.transport_mode) : '') : '';
+  const groupKey = customer => customer.commodity ? commodityText(customer.commodity, customer.transport_mode) : '';
   const groupLabel = key => key || 'Chưa phân loại';
   const compareDesc = (a, b) => (b > a ? 1 : b < a ? -1 : 0);
 
@@ -241,7 +240,6 @@
   }
 
   // Phiếu thu theo ngày thu trong tháng, kèm kỳ đang được trừ; phần đã thu không có phiếu web là số Sheet hoặc cấn trừ đi.
-  const monthLabel = iso => 'T' + Number(iso.slice(5, 7)) + (Number(iso.slice(0, 4)) === state.year ? '' : '/' + iso.slice(0, 4));
   function receiptsHtml(ledger) {
     const receipts = ledger.receipts;
     const received = vnd(ledger.received_vnd);
@@ -251,7 +249,7 @@
     const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
     const row = receipt => {
       const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
-      const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthLabel(line.month)).join(', ') || '—';
+      const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthTag(line.month, state.year)).join(', ') || '—';
       return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
     };
     let html = '<h3>Phiếu thu trong tháng (' + receipts.length + ')</h3>';
