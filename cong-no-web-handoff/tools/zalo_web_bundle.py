@@ -421,7 +421,121 @@ def cmd_change(source: Source, needles: list[str], add: bool) -> int:
     return 0
 
 
+# Đẩy gói lên máy chủ qua ssh (G5). Thư mục đích trên máy chủ là bản gương của `--out`: chỉ gửi thư mục dữ liệu và ảnh
+# máy chủ chưa có (cả hai bất biến theo tên), đổi export-report.json sau cùng bằng mv (server nạp lại khi file này đổi),
+# rồi xóa phía máy chủ mọi thư mục dữ liệu và ảnh mà máy này không còn giữ: bỏ chọn group là rời máy chủ ở lượt đẩy kế tiếp.
+TARGET = re.compile(r"(?P<host>[A-Za-z0-9][A-Za-z0-9.-]{0,62}):(?P<path>/[A-Za-z0-9_./-]{1,200})")
+REMOTE_APPLY = r"""set -eu
+cd "$1"
+tar -xf - --no-same-owner --no-same-permissions
+mv -f .incoming-report.json export-report.json
+for d in data-*; do
+  if [ -d "$d" ] && ! grep -qxF "$d" .keep-data; then rm -rf -- "$d"; fi
+done
+if [ -d media ]; then
+  for f in media/*; do
+    if [ -f "$f" ] && ! grep -qxF "${f#media/}" .keep-media; then rm -f -- "$f"; fi
+  done
+fi
+rm -f .keep-data .keep-media
+chmod -R u+rwX,g+rX,g-w,o-rwx .
+"""
+
+
+def ssh_run(host: str, command: str, stdin=None) -> str:
+    import subprocess
+    # Chạy theo lịch bằng pythonw: không mở cửa sổ console cho ssh.exe.
+    done = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", host, command],
+                          stdin=stdin, capture_output=True, check=False, timeout=1800,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if done.returncode != 0:
+        raise BundleError(f"ssh {host} lỗi (mã {done.returncode}): {done.stderr.decode('utf-8', 'replace').strip()[:300]}")
+    return done.stdout.decode("utf-8", "replace")
+
+
+def push(out: Path, target: str, run=ssh_run) -> dict:
+    import shlex
+    import tarfile
+    import tempfile
+    match = TARGET.fullmatch(target)
+    if not match or ".." in match["path"]:
+        raise BundleError("--target phải dạng máy:/đường/dẫn tuyệt đối, ví dụ hao:/srv/v7/zalo-bundle")
+    host, remote = match["host"], match["path"].rstrip("/")
+    report = read_json(out / REPORT)
+    data_dirs = sorted(path.name for path in out.glob("data-*") if path.is_dir())
+    media = sorted(path.name for path in (out / "media").glob("*") if path.is_file() and ".tmp-" not in path.name)
+    if report.get("data_dir") not in data_dirs:
+        raise BundleError("gói chưa dựng xong (export-report.json trỏ tới thư mục dữ liệu không có)")
+    there = run(host, f"cd {shlex.quote(remote)} && ls -1A && echo --- && (ls -1A media 2>/dev/null || true)").split("---")
+    remote_dirs = set(there[0].split())
+    remote_media = set(there[1].split()) if len(there) > 1 else set()
+    new_dirs = [name for name in data_dirs if name not in remote_dirs]
+    new_media = [name for name in media if name not in remote_media]
+
+    def add(tar, name: str, data: bytes) -> None:
+        info = tarfile.TarInfo(name)
+        info.size, info.mode, info.mtime = len(data), 0o640, int(time.time())
+        tar.addfile(info, io.BytesIO(data))
+
+    with tempfile.TemporaryFile() as spool:
+        with tarfile.open(fileobj=spool, mode="w", format=tarfile.PAX_FORMAT) as tar:
+            for name in new_dirs:
+                for path in sorted((out / name).iterdir()):
+                    add(tar, f"{name}/{path.name}", path.read_bytes())
+            for name in new_media:
+                add(tar, f"media/{name}", (out / "media" / name).read_bytes())
+            add(tar, ".keep-data", ("\n".join(data_dirs) + "\n").encode())
+            add(tar, ".keep-media", ("\n".join(media) + "\n").encode())
+            add(tar, ".incoming-report.json", (out / REPORT).read_bytes())
+        size = spool.tell()
+        spool.seek(0)
+        run(host, f"sh -c {shlex.quote(REMOTE_APPLY)} apply {shlex.quote(remote)}", stdin=spool)
+    return {"data_sent": len(new_dirs), "media_sent": len(new_media), "bytes_sent": size, "data_dir": report["data_dir"]}
+
+
+def log_line(out: Path, text: str) -> None:
+    """Nhật ký đồng bộ (chỉ số đếm, không nội dung tin), giữ 500 dòng gần nhất."""
+    path = out / "sync.log"
+    lines = path.read_text(encoding="utf-8").splitlines()[-499:] if path.is_file() else []
+    lines.append(f"{datetime.now(VN).isoformat(timespec='seconds')} {text}")
+    write_atomic(path, ("\n".join(lines) + "\n").encode("utf-8"))
+
+
+def cmd_sync(source: Source, out: Path, target: str, **build_args) -> int:
+    """Lịch chạy định kỳ: dựng gói rồi đẩy. Chưa chọn group thì thôi, không lỗi. Hai lượt không chạy chồng nhau."""
+    out.mkdir(parents=True, exist_ok=True)
+    lock = out / "sync.lock"
+    try:
+        if lock.is_file() and time.time() - lock.stat().st_mtime > 2 * 3600:
+            lock.unlink()   # lượt trước chết giữa chừng
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        log_line(out, "bỏ qua: lượt trước còn đang chạy")
+        return 0
+    try:
+        os.close(fd)
+        if not [cid for cid in source.selection() if cid in source.conversations]:
+            log_line(out, "bỏ qua: chưa chọn group nào")
+            return 0
+        report = build(source, out, **build_args)
+        sent = push(out, target)
+        log_line(out, f"ok: {report['conversation_count']} group, {report['message_count']} tin, {report['media_count']} ảnh "
+                      f"(tải mới {report['media_fetched']}, chờ {report['media_pending']}); gửi {sent['data_sent']} thư mục dữ liệu, "
+                      f"{sent['media_sent']} ảnh, {sent['bytes_sent']} byte")
+        print(f"Đã đẩy {sent['data_dir']} lên {target}: {sent['media_sent']} ảnh mới, {sent['bytes_sent']} byte.")
+        return 0
+    except BundleError as exc:
+        log_line(out, f"lỗi: {exc}")
+        raise
+    finally:
+        lock.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
+    # Tên group tiếng Việt: đầu ra đi qua pipe hay Task Scheduler trên Windows mặc định cp1252 sẽ lỗi; in UTF-8, ký tự lạ thì thay.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Chọn group Zalo được lên web và dựng gói web (ZALO-GROUP-01).")
     parser.add_argument("--source", required=True, help="thư mục live-sync-20261030 của zalo-audit-viewer")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -430,11 +544,14 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("add", "remove"):
         sub.add_parser(name, help=f"{'thêm' if name == 'add' else 'bỏ'} group theo tên hoặc 8 ký tự đầu id").add_argument("needles", nargs="+")
     building = sub.add_parser("build", help="dựng gói web từ các group đã chọn")
-    building.add_argument("--out", required=True)
-    building.add_argument("--max-fetch", type=int, default=300, help="số ảnh tối đa tải từ Zalo mỗi lượt")
-    building.add_argument("--no-fetch", action="store_true", help="không tải ảnh mới, chỉ dùng ảnh đã có")
-    building.add_argument("--max-age-days", type=int, default=30,
-                          help="không tải ảnh cũ hơn số ngày này (CDN của Zalo giữ ảnh khoảng 2–3 tuần)")
+    syncing = sub.add_parser("sync", help="dựng gói rồi đẩy lên máy chủ qua ssh (chạy theo lịch)")
+    syncing.add_argument("--target", required=True, help="máy:/đường/dẫn trên máy chủ, ví dụ hao:/srv/v7/zalo-bundle")
+    for command in (building, syncing):
+        command.add_argument("--out", required=True)
+        command.add_argument("--max-fetch", type=int, default=300, help="số ảnh tối đa tải từ Zalo mỗi lượt")
+        command.add_argument("--no-fetch", action="store_true", help="không tải ảnh mới, chỉ dùng ảnh đã có")
+        command.add_argument("--max-age-days", type=int, default=30,
+                             help="không tải ảnh cũ hơn số ngày này (CDN của Zalo giữ ảnh khoảng 2–3 tuần)")
     args = parser.parse_args(argv)
     try:
         source = Source(Path(args.source))
@@ -443,7 +560,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command in ("add", "remove"):
             return cmd_change(source, args.needles, args.command == "add")
-        report = build(source, Path(args.out), max_fetch=0 if args.no_fetch else args.max_fetch, max_age_days=args.max_age_days)
+        limits = {"max_fetch": 0 if args.no_fetch else args.max_fetch, "max_age_days": args.max_age_days}
+        if args.command == "sync":
+            return cmd_sync(source, Path(args.out), args.target, **limits)
+        report = build(source, Path(args.out), **limits)
     except BundleError as exc:
         print(f"Lỗi: {exc}", file=sys.stderr)
         return 2

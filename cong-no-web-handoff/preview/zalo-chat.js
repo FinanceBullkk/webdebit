@@ -48,8 +48,9 @@
     const box = $('error');
     box.hidden = false;
     if (error?.status === 503 && error.code === 'ZALO_EXPORT_UNAVAILABLE') {
-      box.innerHTML = `Máy chủ này chưa có bản xuất chat Zalo nên chưa xem được. ${esc(error.message)}<br>` +
-        'Cách bật: chép thư mục bản xuất (conversations.json, messages.jsonl) lên máy chạy web, đặt biến <code>WEBDEBIT_ZALO_EXPORT_DIR</code> rồi khởi động lại dịch vụ.';
+      // ZALO-GROUP-01 G5: máy có Zalo đẩy gói lên 15 phút một lần; chưa chọn group nào thì máy chủ chưa có tin.
+      box.innerHTML = 'Máy chủ chưa có tin nhắn của group Zalo nào.<br>'
+        + 'Trên máy có Zalo, chọn group để đưa lên web (<code>zalo_web_bundle.py add</code>). Tin lên web ở lượt đồng bộ kế tiếp, 15 phút một lần.';
     } else if (error?.status === 403) {
       box.textContent = 'Bạn không có quyền xem chat trên máy chủ này.';
     } else {

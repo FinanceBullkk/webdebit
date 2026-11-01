@@ -248,8 +248,8 @@ test('Chat Zalo: ?q= từ tab Đòi nợ lọc sẵn và tự mở khi chỉ cò
 test('Chat Zalo: máy chủ chưa có bản xuất thì báo rõ, không treo "Đang tải"', async () => {
   await withPage({ unavailable: true }, async page => {
     await page.locator('#error').waitFor({ state: 'visible' });
-    assert.match(await page.locator('#error').innerText(), /chưa có bản xuất chat Zalo/);
-    assert.match(await page.locator('#error').innerText(), /WEBDEBIT_ZALO_EXPORT_DIR/);
+    assert.match(await page.locator('#error').innerText(), /Máy chủ chưa có tin nhắn của group Zalo nào/);
+    assert.match(await page.locator('#error').innerText(), /zalo_web_bundle\.py add/);
     assert.equal(await page.locator('#summary').innerText(), 'Chưa có dữ liệu chat.');
     assert.ok(await page.locator('#chat').isHidden());
   });
