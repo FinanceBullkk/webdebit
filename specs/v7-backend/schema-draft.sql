@@ -47,6 +47,49 @@ CREATE TABLE sokhach.reminder_log (
 CREATE INDEX reminder_log_customer ON sokhach.reminder_log (customer_id, reminded_at DESC);
 COMMENT ON TABLE sokhach.reminder_log IS 'Mốc đã nhắc đòi nợ từng khách (nguồn copy-button/zalo/manual); một dòng mỗi khách/nguồn/ngày; không tham gia tính tiền.';
 
+CREATE TABLE sokhach.zalo_link (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    conversation_id text NOT NULL CHECK (conversation_id ~ '^[0-9a-f]{64}$'),
+    customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    linked_by text NOT NULL CHECK (btrim(linked_by) <> ''),
+    linked_at timestamptz NOT NULL DEFAULT now(),
+    unlinked_by text CHECK (unlinked_by IS NULL OR btrim(unlinked_by) <> ''),
+    unlinked_at timestamptz,
+    unlink_reason text CHECK (unlink_reason IS NULL OR btrim(unlink_reason) <> ''),
+    CHECK ((unlinked_at IS NULL) = (unlinked_by IS NULL) AND (unlinked_at IS NULL) = (unlink_reason IS NULL))
+);
+CREATE UNIQUE INDEX zalo_link_active ON sokhach.zalo_link (conversation_id, customer_id) WHERE unlinked_at IS NULL;
+CREATE INDEX zalo_link_customer ON sokhach.zalo_link (customer_id) WHERE unlinked_at IS NULL;
+COMMENT ON TABLE sokhach.zalo_link IS 'ZALO-GROUP-01: group Zalo (id băm của gói web) gắn với sổ; nhiều–nhiều, bỏ gắn giữ vết; không tham gia tính tiền.';
+
+CREATE TABLE sokhach.contact_mark (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    customer_id bigint NOT NULL REFERENCES sokhach.customer(id),
+    kind text NOT NULL CHECK (kind IN ('promise', 'paid_claim', 'note')),
+    amount_vnd bigint CHECK (amount_vnd IS NULL OR amount_vnd > 0),
+    on_date date,
+    note text CHECK (note IS NULL OR (btrim(note) <> '' AND char_length(note) <= 500)),
+    conversation_id text CHECK (conversation_id IS NULL OR conversation_id ~ '^[0-9a-f]{64}$'),
+    message_id text CHECK (message_id IS NULL OR message_id ~ '^[0-9A-Za-z_-]{1,128}$'),
+    message_at timestamptz,
+    message_sender text CHECK (message_sender IS NULL OR char_length(message_sender) <= 200),
+    message_excerpt text CHECK (message_excerpt IS NULL OR char_length(message_excerpt) <= 300),
+    idempotency_key text NOT NULL UNIQUE CHECK (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 200),
+    created_by text NOT NULL CHECK (btrim(created_by) <> ''),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    created_on date NOT NULL,
+    cancelled_by text CHECK (cancelled_by IS NULL OR btrim(cancelled_by) <> ''),
+    cancelled_at timestamptz,
+    cancel_reason text CHECK (cancel_reason IS NULL OR btrim(cancel_reason) <> ''),
+    CHECK ((kind = 'note' AND amount_vnd IS NULL AND on_date IS NULL AND note IS NOT NULL)
+        OR (kind <> 'note' AND amount_vnd IS NOT NULL AND on_date IS NOT NULL)),
+    CHECK (message_id IS NULL OR conversation_id IS NOT NULL),
+    CHECK ((cancelled_at IS NULL) = (cancelled_by IS NULL) AND (cancelled_at IS NULL) = (cancel_reason IS NULL))
+);
+CREATE INDEX contact_mark_customer ON sokhach.contact_mark (customer_id, created_at DESC);
+CREATE INDEX contact_mark_conversation ON sokhach.contact_mark (conversation_id) WHERE conversation_id IS NOT NULL;
+COMMENT ON TABLE sokhach.contact_mark IS 'ZALO-GROUP-01/TRANG-KHACH-01 B2: dấu hứa trả, khách báo đã chuyển, ghi chú (có thể gắn một tin Zalo); trạng thái tính khi đọc; không tham gia tính tiền.';
+
 CREATE TABLE sokhach.cutover (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name text NOT NULL CHECK (btrim(name) <> ''),

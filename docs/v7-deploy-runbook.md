@@ -1659,6 +1659,25 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a
 
 Rollback: trước bước 3 không có gì phải trả. Sau bước 3, drop-in cho unit `webdebit-sheet-sync.service` với `[Service]` `Environment=WEBDEBIT_SHEET_SOURCE=export`, `daemon-reload`, chạy một lượt; chỉ còn tác dụng khi `BOOKING_DATA` và `WEBDEBIT_EXPORT` chưa bị xóa trên Sheet.
 
+## Group Zalo: gắn sổ và dấu tin — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-01-v7-zalo-group.sql` ([`ZALO-GROUP-01`](decisions/zalo-group-01.md), spec [`v7-zalo-group-web`](../specs/v7-zalo-group-web.md)) chỉ THÊM, ngoài đường tiền. Không đổi bảng tiền, ràng buộc, loại event, view nợ, dòng phân bổ, dữ liệu hay quyền cũ.
+- Bảng `sokhach.zalo_link`: group Zalo gắn với sổ; bỏ gắn giữ vết.
+- Bảng `sokhach.contact_mark`: dấu hứa trả, khách báo đã chuyển, ghi chú. Đây cũng là B2 Hứa trả của TRANG-KHACH-01.
+- Hàm cấp cho app: `link_zalo`, `unlink_zalo`, `record_mark`, `cancel_mark`.
+- Hàm cấp cho app và reader: `get_zalo_links`, `get_marks`.
+- Hàm nội bộ: `_mark_json`, tính trạng thái từ phiếu thu chưa hủy, chỉ đọc.
+
+Chạy lại được. **Chạy sau `2026-11-01-v7-chan-trung-hang-cho.sql`.**
+
+Thứ tự với release: release mới gọi `/api/v7/zalo/links` và `/api/v7/marks` khi mở trang Chat Zalo và thẻ Trao đổi. Nếu release lên trước migration, hai chỗ đó báo lỗi đọc kèm nút Thử lại; sổ và tiền không ảnh hưởng. Release cũ chạy được với DB mới.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Số dư từng khách/tháng, số dòng mọi bảng và số event không đổi. `v7_post_deploy_check.sql` OK. App EXECUTE được 4 hàm ghi và 2 hàm đọc, không EXECUTE được `_mark_json`.
+2. **Cửa sổ dừng ghi:** như các đợt trước: dừng API, dump kèm hash, chạy migration một transaction, đối soát tổng từng khách và số event trước bằng sau, chạy checker, bật lại API.
+3. **Sau:** `GET /api/v7/zalo/links` trả `{"links":[]}` và `GET /api/v7/marks?customer=<id>` trả `{"marks":[]}`.
+
+Rollback: `DROP TABLE sokhach.contact_mark, sokhach.zalo_link` và `DROP FUNCTION` sáu hàm cùng `_mark_json`, dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore dump lúc dừng.
+
 ## Chặn tính trùng ở hàng chờ chuyến mới — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026)
 
 Đã chạy 1/11/2026, xem [nhật ký](deploys/2026-11-01-chan-trung-hang-cho.md).

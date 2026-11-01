@@ -16,6 +16,7 @@ from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import v7_api_sheet
+import v7_api_zalo
 import v7_identity
 import v7_presence
 import v7_zalo_chat
@@ -166,6 +167,10 @@ POST_HANDLERS = {
     "/api/v7/sheet/refresh": lambda raw, runner, actor: refresh_sheet("POST", raw, actor),
     "/api/v7/presence": lambda raw, runner, actor: report_presence(raw, actor),
     "/api/v7/reminders": handle_reminder,
+    "/api/v7/zalo/link": v7_api_zalo.handle_link,
+    "/api/v7/zalo/unlink": lambda raw, runner, actor: v7_api_zalo.handle_link(raw, runner, actor, unlink=True),
+    "/api/v7/marks": v7_api_zalo.handle_mark,
+    "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
 }
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
 FLAGGED_READS = ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix")
@@ -210,8 +215,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return refresh_sheet("GET", raw, actor)
     elif parts.path == "/api/v7/presence":
         return 200, {"people": PRESENCE.view(actor, presence_tab(parts.query))}
-    elif parts.path.startswith("/api/v7/zalo/"):
+    elif parts.path == "/api/v7/marks":
+        function, payload = v7_api_zalo.parse_marks(parts.query)
+    elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
         # ZALO-CHAT-01: đọc bản xuất chat ngoài DB; vẫn qua xác thực danh tính như mọi route.
+        # /api/v7/zalo/links (ZALO-GROUP-01) là bảng gắn sổ trong DB nên đi đường đọc DB như mọi route.
         try:
             return v7_zalo_chat.handle_get(parts.path, parts.query)
         except v7_zalo_chat.ChatError as exc:
