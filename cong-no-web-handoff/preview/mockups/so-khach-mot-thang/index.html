@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sổ một tháng · bản xem</title>
+<!-- DỮ LIỆU GIẢ. Bản xem ĐỀ XUẤT 1/11/2026 (Claude): sổ khách "một tháng trên màn hình", thay H1 của SO-GON-04
+     (bỏ dải tháng gập, hàng chip là chỗ chọn tháng duy nhất). Chạy trong tab, không gọi API, không lưu gì.
+     Tên khách, container, hãng tàu, shipper, số tiền đều bịa; "hôm nay" cố định 01/11/2026. -->
+<style>
+*{box-sizing:border-box}
+:root{--page:#e9ecf0;--surface:#fff;--line:#d7dce3;--line-soft:#eceff3;--head:#f3f5f8;--ink:#1a1a19;--ink-2:#45443f;--ink-3:#6f6d67;
+  --accent:#2a78d6;--accent-ink:#1c5cab;--accent-soft:#eaf2fc;--nav:#16324f;--nav-ink:#c3d1e0;
+  --warn:#7a4a00;--warn-soft:#fdf3e1;--warn-line:#f0d9a8;--orange:#b4460b;--orange-soft:#fde9dc;--ok:#0f766e;--ok-soft:#e3f4f1;--bad:#c8322f}
+html,body{margin:0;background:var(--page);color:var(--ink);font:16px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.money{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Phần hướng dẫn của bản xem (không thuộc giao diện) */
+.demo{margin:0;padding:6px;background:#ffe08a;color:#452600;text-align:center;font-weight:700;font-size:15px}
+.guide{width:1280px;margin:8px auto;padding:10px 14px;background:#fff;border:1px solid var(--line);border-radius:8px;font-size:14.5px}
+.guide ol{margin:4px 0 0;padding-left:20px;display:flex;flex-wrap:wrap;gap:2px 22px}
+.guide .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.guide label{display:inline-flex;gap:6px;align-items:center;font-weight:600}
+.guide details{margin-top:6px}.guide summary{cursor:pointer;font-weight:600;color:var(--accent-ink)}
+.guide details ul{margin:6px 0 0;padding-left:20px}
+
+.frame{position:relative;width:1280px;margin:0 auto 40px;background:var(--surface);box-shadow:0 1px 4px #1f293733}
+.fold{display:none;position:absolute;left:-14px;right:-14px;top:560px;height:0;border-top:2px dashed var(--bad);z-index:60;pointer-events:none}
+.fold span{position:absolute;right:14px;top:-24px;padding:1px 8px;background:var(--bad);color:#fff;font-size:12.5px;font-weight:700;border-radius:4px}
+body.show-fold .fold{display:block}
+
+/* Thanh điều hướng chung (cuộn đi, không dính) */
+.nav{height:44px;display:flex;align-items:center;gap:22px;padding:0 20px;background:var(--nav);color:var(--nav-ink);font-size:15px;font-weight:600}
+.nav b{color:#fff;font-size:16px}.nav .on{color:#fff;border-bottom:3px solid #6da7ec;padding:11px 0 8px}
+
+/* Đầu sổ (dính) */
+.head{position:sticky;top:0;z-index:50;height:60px;display:flex;align-items:center;gap:14px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.btn{min-height:40px;padding:0 14px;border:1px solid #b9c3cf;border-radius:8px;background:#fff;font-weight:600;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff}
+.btn.primary:hover{background:#174c8e}
+.btn.small{min-height:34px;padding:0 10px;font-size:15px}
+.link{border:0;background:none;padding:0;color:var(--accent-ink);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.who{display:flex;flex-direction:column;line-height:1.2}.who b{font-size:19px}.who span{color:var(--ink-3);font-size:14px}
+.tabs{display:flex;align-self:stretch;margin-left:8px}
+.tabs a{display:flex;align-items:center;padding:0 12px;color:var(--ink-2);font-weight:600;text-decoration:none;border-bottom:3px solid transparent}
+.tabs a.on{color:var(--accent-ink);border-color:var(--accent-ink)}
+.total{margin-left:auto;text-align:right;line-height:1.15}.total span{display:block;color:var(--ink-3);font-size:13.5px}.total b{font-size:21px}
+.menu-wrap{position:relative}
+.menu{display:none;position:absolute;right:0;top:46px;min-width:250px;padding:6px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #1f293733}
+.menu.open{display:block}
+.menu button{display:block;width:100%;min-height:40px;padding:0 10px;border:0;background:none;text-align:left;border-radius:6px}
+.menu button:hover{background:var(--head)}
+.menu p{margin:4px 10px 2px;padding-top:8px;border-top:1px solid var(--line-soft);color:var(--ink-3);font-size:13.5px}
+
+/* Hàng chọn tháng (dính dưới đầu sổ) */
+.chips{position:sticky;top:60px;z-index:45;height:48px;display:flex;align-items:center;gap:5px;padding:0 12px;background:var(--head);border-bottom:1px solid var(--line)}
+.chip{position:relative;height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border:1px solid #c5ced9;border-radius:18px;background:#fff;color:var(--ink-2);white-space:nowrap;font-size:15px}
+.chip b{color:var(--ink)}.chip .amt{color:var(--ink-3);font-size:14px;font-variant-numeric:tabular-nums}
+.chip:hover{border-color:var(--accent)}
+.chip.on{background:var(--accent-ink);border-color:var(--accent-ink)}.chip.on b,.chip.on .amt{color:#fff}
+.chip .open{color:var(--ok);font-weight:700;font-size:13.5px}.chip.on .open{color:#bff0e6}
+.chip .pill{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--orange);color:#fff;font-size:12.5px;font-weight:700;font-style:normal;line-height:20px;text-align:center}
+.chips .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+
+/* Việc chờ */
+.work{display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;min-height:44px;padding:6px 16px;background:var(--warn-soft);border-bottom:1px solid var(--warn-line);color:var(--warn);font-size:15px}
+.work > b{font-weight:700}
+.work .item{display:inline-flex;align-items:center;gap:8px}
+.work .item + .item::before{content:"·";margin-right:10px;color:#c9a35a}
+
+/* Tóm tắt tháng */
+.msum{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.msum h2{margin:0;font-size:20px;white-space:nowrap}
+.state{font-size:14.5px;white-space:nowrap;color:var(--ink-3)}
+.state.is-open{color:var(--ok);font-weight:600}
+.formula{display:flex;align-items:baseline;gap:8px;white-space:nowrap;color:var(--ink-2);font-size:15px}
+.empty-trips{padding:24px 16px;color:var(--ink-3)}
+.formula .op{color:var(--ink-3)}.formula b{font-size:17px;color:var(--ink)}
+.msum .right{margin-left:auto;display:flex;gap:10px}
+
+/* Bảng tháng: chuyến bên trái, phiếu thu bên phải */
+.sheet{display:flex;align-items:flex-start}
+.trips{flex:1;min-width:0;border-right:2px solid #9fb0c3}
+.pays{flex:0 0 272px}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{position:sticky;top:108px;z-index:20;height:40px;padding:0 8px;background:var(--head);border-bottom:1px solid var(--line);color:var(--ink-2);font-size:14.5px;font-weight:600;text-align:left;white-space:nowrap}
+td{height:40px;padding:0 8px;border-bottom:1px solid var(--line-soft);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+td.n,th.n{text-align:right}
+td.n{font-size:16px;font-variant-numeric:tabular-nums}
+td.cont{font-family:Consolas,"Cascadia Mono",monospace;font-size:15px}
+td.dim{color:#a3a19b}
+tr:hover td{background:#f7f9fc}
+tr.flash td{animation:flash 2.2s ease-out}
+@keyframes flash{0%,40%{background:#fff3b0}100%{background:transparent}}
+.tag{display:inline-block;padding:1px 9px;border-radius:12px;font-size:14px;font-weight:600}
+.tag.review{background:#fff1b8;color:#6b4b00;border:1px solid #ecd36c}
+.tag.noprice{background:var(--orange-soft);color:var(--orange);border:1px solid #f4c3a3}
+tr.st-review td,tr.st-noprice td{background:#fffcf0}
+tfoot td{height:44px;background:var(--head);border-top:1px solid var(--line);font-weight:700}
+.pays td.void{color:var(--ink-3);text-decoration:line-through}
+.pays .empty{padding:14px 10px;color:var(--ink-3);font-size:15px;white-space:normal}
+.pays .voidline{padding:8px 10px;color:var(--ink-3);font-size:14px}
+.month-block + .month-block{border-top:6px solid var(--page)}
+
+/* Khung ghi phiếu thu */
+.drawer{position:fixed;top:0;right:0;bottom:0;z-index:80;width:400px;padding:18px;background:#fff;box-shadow:-6px 0 24px #1f293740;transform:translateX(105%);transition:transform .18s}
+.drawer.open{transform:none}
+.drawer h3{margin:0 0 14px;font-size:20px}
+.drawer label{display:block;margin:12px 0 4px;font-weight:600;font-size:15px}
+.drawer input,.drawer select{width:100%;height:42px;padding:0 10px;border:1px solid #b9c3cf;border-radius:8px}
+.drawer .err{margin-top:10px;color:var(--bad);font-weight:600;font-size:15px}
+.drawer .review{margin-top:16px;padding:12px;border-radius:8px;background:var(--accent-soft);font-size:15.5px}
+.drawer .actions{display:flex;gap:10px;margin-top:18px}
+.toast{position:fixed;left:50%;bottom:22px;z-index:90;transform:translateX(-50%);display:none;align-items:center;gap:14px;padding:10px 16px;background:#1f2937;color:#fff;border-radius:8px;font-size:15px}
+.toast.show{display:flex}.toast .link{color:#a9cdfb}
+</style>
+</head>
+<body class="show-fold">
+<p class="demo">BẢN XEM · DỮ LIỆU GIẢ — không gọi API, không lưu gì. Đề xuất thay mục H1 của SO-GON-04, chờ bước giao diện (UX-NEN-01).</p>
+<div class="guide">
+  <div class="row">
+    <b>Thử lần lượt:</b>
+    <label><input type="checkbox" id="fold-toggle" checked> Vạch hết phần nhìn thấy (560px)</label>
+  </div>
+  <ol>
+    <li>Mở trang: thấy ngay bảng chuyến tháng 10, không có dải tháng nào chắn</li>
+    <li>Bấm chip <b>T7</b> rồi <b>T8</b>: cột phụ phí chỉ hiện loại có số</li>
+    <li>Ở dải vàng, bấm <b>Đến dòng</b> của "T9 · 1 chưa có giá"</li>
+    <li>Bấm <b>Ghi phiếu thu</b> → Xem lại → Ghi</li>
+    <li>Bấm <b>Xem cả sổ</b> (cuộn liền như Sheet), rồi <b>Xem từng tháng</b></li>
+    <li>Bấm <b>⋯</b> xem các nút ít dùng</li>
+  </ol>
+  <details>
+    <summary>Khác gì bản đang chạy trên hao</summary>
+    <ul>
+      <li>Bỏ 10 dải "THÁNG …" gập: hàng chip là chỗ chọn tháng duy nhất; mặc định mở tháng hiện tại, tháng hiện tại chưa có chuyến thì mở tháng trước.</li>
+      <li>Ổ khóa chỉ còn ở tháng đang xem (chữ "Đã khóa"); chip chỉ đánh dấu tháng <b>đang mở</b>.</li>
+      <li>Chip ghi một kiểu đơn vị cho cả sổ (sổ này: tỷ, 2 số lẻ); số là <b>còn nợ cuối tháng</b>, công thức đầy đủ ở dòng tóm tắt.</li>
+      <li>Chấm cam trên chip có lời giải ở dải "Việc chờ"; việc từ Sheet và phụ phí PS gom cùng một dải, chỉ hiện khi có việc.</li>
+      <li>Cài đặt phụ phí, Bảng giá, Làm mới, Ẩn con trỏ vào nút ⋯ (khác điểm (a) đã đồng ý 31/10 — cần bạn chốt lại).</li>
+      <li>Ngày chỉ ghi ngày/tháng (năm đã có ở tháng đang xem); Nơi đi → Nơi đến chung một cột; cột phụ phí trống cả tháng thì ẩn.</li>
+      <li>Phiếu đã hủy xuống cuối cột phiếu thu.</li>
+    </ul>
+  </details>
+</div>
+
+<div class="frame" id="frame">
+  <div class="fold"><span>Hết phần nhìn thấy (Chrome 1280×560)</span></div>
+  <div class="nav"><b>Công nợ HTH</b><span>Tổng quan</span><span>Công nợ theo tháng</span><span class="on">Sổ khách</span><span>Việc cần làm</span><span>Đòi nợ</span></div>
+  <header class="head">
+    <button class="btn" type="button">← Quay lại</button>
+    <div class="who"><b>KHÁCH MẪU A</b><span>Sầu riêng · cảng</span></div>
+    <nav class="tabs"><a href="#" onclick="return false">Tình hình</a><a href="#" class="on" onclick="return false">Sổ</a><a href="#" onclick="return false">Trao đổi</a><a href="#" onclick="return false">Hồ sơ</a></nav>
+    <div class="total"><span>Tổng còn nợ</span><b class="money" id="grand"></b></div>
+    <button class="btn primary" type="button" id="open-drawer">Ghi phiếu thu</button>
+    <button class="btn" type="button" data-demo="Lịch sử mở như hiện tại.">Lịch sử</button>
+    <div class="menu-wrap">
+      <button class="btn" type="button" id="menu-btn" aria-haspopup="true" aria-expanded="false" title="Thêm">⋯</button>
+      <div class="menu" id="menu">
+        <button type="button" data-demo="Cài đặt phụ phí mở như hiện tại.">Cài đặt phụ phí</button>
+        <button type="button" data-demo="Bảng giá mở như hiện tại.">Bảng giá</button>
+        <button type="button" data-demo="Đã tải lại sổ.">Làm mới</button>
+        <button type="button" data-demo="Đã ẩn con trỏ của người khác.">Ẩn con trỏ người khác</button>
+        <p>Lấy từ Sheet lúc 12:30 · tự tải mỗi 60 giây</p>
+      </div>
+    </div>
+  </header>
+  <nav class="chips" id="chips" aria-label="Chọn tháng"></nav>
+  <div class="work" id="work"></div>
+  <main id="book"></main>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="Ghi phiếu thu">
+  <h3>Ghi phiếu thu</h3>
+  <label for="f-date">Ngày thu</label><input id="f-date" value="01/11/2026" inputmode="numeric">
+  <label for="f-kind">Hình thức</label><select id="f-kind"><option>Chuyển khoản</option><option>Tiền mặt</option></select>
+  <label for="f-amt">Số tiền (đ)</label><input id="f-amt" inputmode="numeric" placeholder="vd 50.000.000">
+  <div class="err" id="f-err"></div>
+  <div class="review" id="f-review" hidden></div>
+  <div class="actions">
+    <button class="btn primary" type="button" id="f-next">Xem lại</button>
+    <button class="btn" type="button" id="f-close">Thôi</button>
+  </div>
+</aside>
+<div class="toast" id="toast"><span id="toast-text"></span></div>
+
+<script>
+'use strict';
+const TODAY = '2026-11-01';
+const CUR = '2026-11';
+let seed = 20261101;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const pick = list => list[Math.floor(rnd() * list.length)];
+const fmt = n => n.toLocaleString('vi-VN');
+
+// Dữ liệu giả: số chuyến theo tháng giống hình dạng sổ thật (vài tháng thưa, rồi dày dần), T11 chưa có chuyến.
+const PLAN = [['2025-12', 5], ['2026-01', 3], ['2026-02', 4], ['2026-05', 4], ['2026-06', 8], ['2026-07', 40], ['2026-08', 55], ['2026-09', 70], ['2026-10', 88], ['2026-11', 0]];
+const FEE_COLS = [['neo', 'Neo'], ['ghep', 'Ghép'], ['dien', 'Điện'], ['khac', 'Khác']];
+const months = PLAN.map(([key, count]) => {
+  const trips = [];
+  for (let i = 0; i < count; i++) {
+    const fees = {};
+    if (key === '2026-07' && rnd() < 0.35) fees.neo = 500000;
+    if (key === '2026-07' && rnd() < 0.25) fees.dien = 1200000;
+    if (key === '2026-08' && rnd() < 0.3) fees.ghep = 800000;
+    if ((key === '2026-08' || key === '2026-09') && rnd() < 0.12) fees.khac = 300000;
+    trips.push({
+      id: `${key}-${i}`, cont: pick(['HTHU', 'DEMU', 'MAUU']) + String(Math.floor(1000000 + rnd() * 8999999)),
+      line: pick(['SNL', 'HTL', 'BSL']), shipper: pick(['HÒA HẠNH', 'MINH PHÁT', 'AN KHANG']),
+      day: Math.min(28, 1 + Math.floor(i * 28 / Math.max(count, 1))),
+      from: pick(['Long Khánh', 'Cai Lậy', 'Krông Pắc']), to: pick(['Nansha', 'Khâm Châu', 'Bằng Tường']),
+      price: pick([60000000, 60000000, 55000000]), fees, status: 'ok',
+    });
+  }
+  return { key, trips, pays: [], voids: [], locked: key !== CUR };
+});
+const M = key => months.find(m => m.key === key);
+M('2026-10').trips[14].status = 'review'; M('2026-10').trips[51].status = 'review';
+M('2026-09').trips[33].status = 'noprice'; M('2026-09').trips[33].price = null;
+const PAYS = { '2025-12': [[20, 110000000]], '2026-01': [[15, 60000000]], '2026-02': [[25, 410000000]], '2026-05': [[20, 240000000]],
+  '2026-06': [[10, 150000000], [28, 300000000]], '2026-07': [[12, 300000000], [26, 200000000]], '2026-08': [[18, 500000000]],
+  '2026-09': [[5, 400000000], [22, 600000000]], '2026-10': [[8, 900000000], [25, 1200000000]] };
+for (const [key, rows] of Object.entries(PAYS)) M(key).pays = rows.map(([day, amount], i) => ({ day, amount, kind: i % 2 ? 'Tiền mặt' : 'Chuyển khoản' }));
+M('2026-10').voids = [[3, 50000000], [9, 120000000], [9, 120000000], [17, 30000000], [21, 75000000]].map(([day, amount]) => ({ day, amount, kind: 'Chuyển khoản' }));
+
+const amountOf = t => t.status === 'ok' ? t.price + Object.values(t.fees).reduce((s, v) => s + v, 0) : null;
+function compute() {
+  let open = 0;
+  for (const m of months) {
+    m.open = open;
+    m.charge = m.trips.reduce((s, t) => s + (amountOf(t) ?? 0), 0);
+    m.paid = m.pays.reduce((s, p) => s + p.amount, 0);
+    m.end = open + m.charge - m.paid;
+    open = m.end;
+  }
+}
+compute();
+const unitTy = () => Math.max(...months.map(m => Math.abs(m.end))) >= 1e9;
+const short = v => unitTy() ? `${(v / 1e9).toFixed(2).replace('.', ',')} tỷ` : `${Math.round(v / 1e6)} triệu`;
+const [y, mo] = [k => k.slice(0, 4), k => Number(k.slice(5))];
+const chipName = k => y(k) === '2026' ? `T${mo(k)}` : `T${mo(k)}/${y(k).slice(2)}`;
+const longName = k => `Tháng ${mo(k)}/${y(k)}`;
+const dd = (day, k) => `${String(day).padStart(2, '0')}/${String(mo(k)).padStart(2, '0')}`;
+const workOf = m => [[m.trips.filter(t => t.status === 'review').length, 'chờ kiểm', 'review'], [m.trips.filter(t => t.status === 'noprice').length, 'chưa có giá', 'noprice']].filter(w => w[0]);
+
+const state = { month: null, all: false, voidOpen: new Set() };
+const fromHash = /month=(\d{4}-\d{2})/.exec(location.hash);
+state.month = fromHash && M(fromHash[1]) ? fromHash[1] : (M(CUR).trips.length ? CUR : months[months.length - 2].key);
+
+function renderChips() {
+  const chips = months.map(m => {
+    const work = workOf(m).reduce((s, w) => s + w[0], 0);
+    const on = !state.all && m.key === state.month;
+    const tip = `${longName(m.key)} · còn nợ cuối tháng ${fmt(m.end)} đ${m.locked ? ' · đã khóa' : ' · đang mở'}`;
+    return `<button type="button" class="chip${on ? ' on' : ''}" data-month="${m.key}" title="${tip}" aria-pressed="${on}">`
+      + `<b>${chipName(m.key)}</b>${m.trips.length || m.paid ? `<span class="amt">${short(m.end)}</span>` : ''}`
+      + `${m.locked ? '' : '<span class="open">đang mở</span>'}${work ? `<i class="pill" aria-label="${work} việc chờ">${work}</i>` : ''}</button>`;
+  }).join('');
+  document.getElementById('chips').innerHTML = `${chips}<span class="right">`
+    + `<button type="button" class="btn small" id="all-toggle">${state.all ? 'Xem từng tháng' : 'Xem cả sổ'}</button></span>`;
+}
+
+function renderWork() {
+  const items = ['<span class="item">1 chuyến mới từ Sheet <button class="btn small" data-demo="Mở khung duyệt chuyến mới như hiện tại.">Duyệt</button></span>',
+    '<span class="item">6 phụ phí PS cần xem <button class="btn small" data-demo="Mở danh sách phụ phí PS như hiện tại.">Xem</button></span>'];
+  let total = 7;
+  for (const m of months) for (const [count, what, kind] of workOf(m)) {
+    total += count;
+    items.push(`<span class="item">${chipName(m.key)} · ${count} ${what} <button class="btn small" data-goto="${m.key}" data-kind="${kind}">Đến dòng</button></span>`);
+  }
+  document.getElementById('work').innerHTML = `<b>Việc chờ ở sổ này (${total}):</b>${items.join('')}`;
+}
+
+function monthBlock(m) {
+  const feeCols = FEE_COLS.filter(([k]) => m.trips.some(t => t.fees[k]));
+  const head = `<tr><th style="width:42px">STT</th><th style="width:128px">Số container</th><th style="width:70px">Hãng tàu</th>`
+    + `<th style="width:112px">Shipper</th><th style="width:60px">Ngày</th><th>Nơi đi → Nơi đến</th><th class="n" style="width:110px">Đơn giá</th>`
+    + feeCols.map(([, label]) => `<th class="n" style="width:84px">${label}</th>`).join('') + `<th class="n" style="width:122px">Thành tiền</th></tr>`;
+  const rows = m.trips.map((t, i) => {
+    const cls = t.status === 'ok' ? '' : ` class="st-${t.status}"`;
+    const money = t.status === 'review' ? '<span class="tag review" title="Bấm để kết luận Đúng / Loại (như hiện tại)">chờ kiểm</span>'
+      : t.status === 'noprice' ? '<span class="tag noprice" title="Chưa có đơn giá cho tuyến này">chưa có giá</span>' : fmt(amountOf(t));
+    return `<tr id="r-${t.id}"${cls}><td>${i + 1}</td><td class="cont">${t.cont}</td><td>${t.line}</td><td title="${t.shipper}">${t.shipper}</td>`
+      + `<td>${dd(t.day, m.key)}</td><td title="${t.from} → ${t.to}">${t.from} → ${t.to}</td>`
+      + (t.price == null ? '<td class="n dim">–</td>' : `<td class="n">${fmt(t.price)}</td>`)
+      + feeCols.map(([k]) => t.fees[k] ? `<td class="n">${fmt(t.fees[k])}</td>` : '<td class="n dim">–</td>').join('')
+      + `<td class="n">${money}</td></tr>`;
+  }).join('');
+  const span = 7 + feeCols.length;
+  const foot = m.trips.length ? `<tfoot><tr><td colspan="${span}">Cộng ${m.trips.length} chuyến${workOf(m).length ? ` <span style="font-weight:400;color:var(--ink-3)">(không tính dòng chờ kiểm / chưa có giá)</span>` : ''}</td><td class="n">${fmt(m.charge)}</td></tr></tfoot>` : '';
+  const trips = m.trips.length
+    ? `<table><thead>${head}</thead><tbody>${rows}</tbody>${foot}</table>`
+    : `<div class="empty-trips">Tháng này chưa có chuyến. Chuyến mới từ Sheet sẽ hiện ở dải "Việc chờ".</div>`;
+  const payRows = m.pays.map(p => `<tr><td>${dd(p.day, m.key)}</td><td>${p.kind === 'Tiền mặt' ? 'TM' : 'CK'}</td><td class="n">${fmt(p.amount)}</td></tr>`).join('');
+  const voidOpen = state.voidOpen.has(m.key);
+  const voids = m.voids.length ? `<div class="voidline">${m.voids.length} phiếu đã hủy, không tính tiền · <button class="link" data-void="${m.key}">${voidOpen ? 'Ẩn' : 'Xem'}</button></div>`
+    + (voidOpen ? `<table><tbody>${m.voids.map(p => `<tr><td class="void">${dd(p.day, m.key)}</td><td class="void">CK</td><td class="n void">${fmt(p.amount)}</td></tr>`).join('')}</tbody></table>` : '') : '';
+  const pays = `<table><thead><tr><th style="width:64px">Ngày</th><th style="width:54px" title="CK chuyển khoản · TM tiền mặt">HT</th><th class="n">Số tiền trả</th></tr></thead>`
+    + `<tbody>${payRows}</tbody>${m.pays.length ? `<tfoot><tr><td colspan="2">Đã thu</td><td class="n">${fmt(m.paid)}</td></tr></tfoot>` : ''}</table>`
+    + (m.pays.length ? '' : `<div class="empty">Chưa có phiếu thu tháng này. <button class="link" data-drawer>Ghi phiếu thu</button></div>`) + voids;
+  const st = m.locked ? `<span class="state">🔒 Đã khóa · <button class="link" data-lock="${m.key}">Mở khóa</button></span>`
+    : `<span class="state is-open">Đang mở · <button class="link" data-lock="${m.key}">Khóa tháng</button></span>`;
+  return `<section class="month-block" id="m-${m.key}">
+    <div class="msum"><h2>${longName(m.key)}</h2>${st}
+      <div class="formula"><span>Nợ đầu tháng <span class="money">${fmt(m.open)}</span></span><span class="op">+</span>
+        <span>Phát sinh <span class="money">${fmt(m.charge)}</span></span><span class="op">−</span>
+        <span>Đã thu <span class="money">${fmt(m.paid)}</span></span><span class="op">=</span>
+        <span>Còn nợ cuối tháng <b class="money">${fmt(m.end)}</b></span></div>
+      <div class="right"><button class="btn small" data-demo="Debit note ${longName(m.key)} mở như hiện tại.">Debit note</button></div></div>
+    <div class="sheet"><div class="trips">${trips}</div><div class="pays">${pays}</div></div>
+  </section>`;
+}
+
+function render() {
+  compute();
+  document.getElementById('grand').textContent = `${fmt(months[months.length - 1].end)} đ`;
+  renderChips(); renderWork();
+  document.getElementById('book').innerHTML = state.all ? months.map(monthBlock).join('') : monthBlock(M(state.month));
+}
+
+function goMonth(key, { scroll = true } = {}) {
+  if (state.all) { document.getElementById(`m-${key}`)?.scrollIntoView({ block: 'start' }); scrollBy(0, -112); return; }
+  state.month = key;
+  history.replaceState(null, '', `#month=${key}`);
+  render();
+  if (scroll && scrollY > document.getElementById('chips').offsetTop) scrollTo({ top: document.getElementById('frame').offsetTop + 44 });
+}
+
+let toastTimer;
+function toast(html, ms = 3500) {
+  document.getElementById('toast-text').innerHTML = html;
+  const el = document.getElementById('toast');
+  el.classList.add('show'); clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+document.addEventListener('click', event => {
+  const el = event.target.closest('button');
+  const menu = document.getElementById('menu');
+  if (!el || el.id !== 'menu-btn') { menu.classList.remove('open'); document.getElementById('menu-btn').setAttribute('aria-expanded', 'false'); }
+  if (!el) return;
+  if (el.id === 'menu-btn') { const open = menu.classList.toggle('open'); el.setAttribute('aria-expanded', String(open)); return; }
+  if (el.dataset.demo) return toast(`Bản xem: ${el.dataset.demo}`);
+  if (el.classList.contains('chip')) return goMonth(el.dataset.month);
+  if (el.id === 'all-toggle') { state.all = !state.all; render(); return; }
+  if (el.dataset.void) { const k = el.dataset.void; state.voidOpen.has(k) ? state.voidOpen.delete(k) : state.voidOpen.add(k); render(); return; }
+  if (el.dataset.lock) {
+    const m = M(el.dataset.lock);
+    const ask = m.locked ? `Mở khóa ${longName(m.key).toLowerCase()}? Sau khi mở, sửa ô sẽ ghi đè và ghi vào Lịch sử.`
+      : `Khóa ${longName(m.key).toLowerCase()}? Sau khi khóa, muốn sửa phải thêm dòng điều chỉnh.`;
+    if (confirm(ask)) { m.locked = !m.locked; render(); toast(`${longName(m.key)} đã ${m.locked ? 'khóa' : 'mở khóa'} (ghi vào Lịch sử).`); }
+    return;
+  }
+  if (el.dataset.goto) {
+    const m = M(el.dataset.goto);
+    const t = m.trips.find(x => x.status === el.dataset.kind);
+    goMonth(m.key, { scroll: false });
+    const row = document.getElementById(`r-${t.id}`);
+    row.scrollIntoView({ block: 'center' }); row.classList.add('flash');
+    return;
+  }
+  if (el.id === 'open-drawer' || el.hasAttribute('data-drawer')) return openDrawer();
+  if (el.id === 'f-close') return closeDrawer();
+  if (el.id === 'f-next') return drawerNext();
+  if (el.dataset.undo) {
+    const m = M(el.dataset.undo); m.pays.pop(); render();
+    return toast('Bản xem: thật ra nút này mở dòng hủy phiếu, lý do điền sẵn "Ghi nhầm, hủy ngay sau khi ghi" (H3).', 5000);
+  }
+});
+document.getElementById('fold-toggle').addEventListener('change', e => document.body.classList.toggle('show-fold', e.target.checked));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); document.getElementById('menu').classList.remove('open'); } });
+
+// Khung ghi phiếu thu: Xem lại (còn nợ trước → sau, tháng nào) rồi mới Ghi — như H2/H5 của SO-GON-04.
+let pending = null;
+const drawer = document.getElementById('drawer');
+function openDrawer() { pending = null; resetReview(); drawer.classList.add('open'); document.getElementById('f-amt').focus(); }
+function closeDrawer() { drawer.classList.remove('open'); }
+function resetReview() { document.getElementById('f-review').hidden = true; document.getElementById('f-err').textContent = ''; document.getElementById('f-next').textContent = 'Xem lại'; }
+document.getElementById('f-amt').addEventListener('input', e => { const n = Number(e.target.value.replace(/\D/g, '')); e.target.value = n ? fmt(n) : ''; });
+['f-date', 'f-amt', 'f-kind'].forEach(id => document.getElementById(id).addEventListener('input', () => { pending = null; resetReview(); }));
+function drawerNext() {
+  const err = document.getElementById('f-err');
+  if (pending) {
+    const m = M(pending.key);
+    m.pays.push({ day: pending.day, amount: pending.amount, kind: pending.kind });
+    m.pays.sort((a, b) => a.day - b.day);
+    closeDrawer(); goMonth(m.key);
+    toast(`Đã ghi phiếu ${fmt(pending.amount)} đ vào ${longName(m.key).toLowerCase()}. <button class="link" data-undo="${m.key}">Hủy phiếu vừa ghi</button>`, 8000);
+    pending = null; document.getElementById('f-amt').value = ''; return;
+  }
+  const d = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(document.getElementById('f-date').value.trim());
+  const amount = Number(document.getElementById('f-amt').value.replace(/\D/g, ''));
+  if (!d) { err.textContent = 'Ngày thu ghi theo dạng ngày/tháng/năm, vd 01/11/2026.'; return; }
+  const key = `${d[3]}-${d[2].padStart(2, '0')}`;
+  const iso = `${key}-${d[1].padStart(2, '0')}`;
+  if (iso > TODAY) { err.textContent = 'Ngày thu không được sau hôm nay.'; return; }
+  if (!M(key)) { err.textContent = 'Bản xem chỉ có các tháng trên hàng chip.'; return; }
+  if (!amount) { err.textContent = 'Nhập số tiền.'; return; }
+  const before = months[months.length - 1].end;
+  const m = M(key);
+  pending = { key, day: Number(d[1]), amount, kind: document.getElementById('f-kind').value };
+  const review = document.getElementById('f-review');
+  review.innerHTML = `Tổng còn nợ: <b class="money">${fmt(before)}</b> → <b class="money">${fmt(before - amount)}</b><br>`
+    + `Phiếu vào ${longName(key).toLowerCase()}${m.locked ? ' — <b>tháng đang khóa</b>, phiếu vẫn ghi được' : ''}.`
+    + (before - amount < 0 ? '<br><b>Khách sẽ dư tiền.</b>' : '');
+  review.hidden = false; err.textContent = '';
+  document.getElementById('f-next').textContent = 'Ghi phiếu';
+}
+
+render();
+</script>
+</body>
+</html>
