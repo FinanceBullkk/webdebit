@@ -2,21 +2,23 @@
    Phần riêng (presence, phụ phí PS) ở file .css của phần. Bản fixture so-khach-v7.html giữ <style> riêng vì offset khác. */
 *{box-sizing:border-box}
 /* SO-GON-04 (UX đợt 2): phần dính đầu trang = thanh trên 56 + đầu sổ 48 + thanh tháng 40 + tiêu đề cột 36 = 180px
-   (trước 206px); băng DỮ LIỆU GIẢ cộng thêm 48px. Mọi chỗ dính/cuộn tới tính từ các biến này. */
-:root{--banner:0px;--bar:56px;--head:48px;--chips:40px;--cols:36px}
+   (trước 206px); băng DỮ LIỆU GIẢ cộng thêm 48px. Mọi chỗ dính/cuộn tới tính từ các biến này.
+   TRANG-KHACH-01 (A1): đầu trang khách thay đầu sổ, cao 44px — phần dính ở thẻ Sổ còn 176px. */
+:root{--banner:0px;--bar:56px;--head:44px;--chips:40px;--cols:36px}
 body:has(#demo-banner:not([hidden])){--banner:48px}
 html{scroll-behavior:smooth}
 body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-ui,sans-serif}
 #app{padding:0 10px 24px}
 .topbar{position:sticky;top:var(--banner);z-index:45;box-sizing:border-box;height:56px;display:flex;align-items:center;gap:20px;padding:0 24px;background:#16324f;color:#fff;font-family:"Segoe UI",system-ui,-apple-system,sans-serif}
 .topbar .brand{color:#fff;font-size:17px;font-weight:700;text-decoration:none;white-space:nowrap}
-.topbar nav{display:flex;align-self:stretch;gap:4px}
-.topbar nav a{display:flex;align-items:center;padding:0 12px;color:#c3d1e0;font-size:15px;text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
-.topbar nav a:hover{color:#fff}
-.topbar nav a.active{color:#fff;border-color:#6da7ec}
+/* Chỉ thanh điều hướng của thanh trên (con trực tiếp): danh sách tìm khách cũng là <nav> nằm trong thanh trên (TRANG-KHACH-01). */
+.topbar>nav{display:flex;align-self:stretch;gap:4px}
+.topbar>nav a{display:flex;align-items:center;padding:0 12px;color:#c3d1e0;font-size:15px;text-decoration:none;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
+.topbar>nav a:hover{color:#fff}
+.topbar>nav a.active{color:#fff;border-color:#6da7ec}
 .sheet-spin{display:inline-block;width:12px;height:12px;margin-right:6px;border:2px solid #9ebbd7;border-top-color:#174d82;border-radius:50%;vertical-align:-2px;animation:sheet-spin 1s linear infinite}@keyframes sheet-spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.sheet-spin{animation:none}}
 .topbar .readonly{margin-left:auto;padding:8px 14px;border:1px solid #3d5876;border-radius:6px;color:#c3d1e0;white-space:nowrap}
-.book-head{position:sticky;top:calc(var(--banner) + var(--bar));z-index:40;height:var(--head);display:flex;align-items:center;gap:24px;padding:4px 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
+.book-head{position:sticky;top:calc(var(--banner) + var(--bar));z-index:40;height:var(--head);display:flex;align-items:center;gap:24px;padding:0 14px;background:#fff;border-bottom:2px solid #6584a5;box-shadow:0 2px 5px #162d4820}
 #demo-banner:not([hidden]){position:sticky;top:0;z-index:60}
 #customer-picker{padding:8px 14px;background:#fff;border-bottom:1px solid #9eb4ca}
 .dashboard-link{display:inline-flex;align-items:center;min-height:38px;margin-right:8px;color:#174b82;font-weight:700;white-space:nowrap}
@@ -27,7 +29,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 #customer-list a:hover,#customer-list a:focus{background:#eaf2fb;outline:2px solid #2d6cb5;outline-offset:-2px}
 #customer-list a[aria-current=page]{font-weight:700}
 #customer-list .customer-group{position:sticky;top:0;padding:4px 10px;background:#e3ecf5;color:#28496b;font-size:14px;font-weight:700;border-bottom:1px solid #b9cbdd}
-.book-head h1{font-size:18px;margin:0;white-space:nowrap}.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:14px}.head-item strong{font-size:16px}.head-item.total{margin-left:auto;flex-direction:row;align-items:baseline;gap:8px;white-space:nowrap}.head-item.total strong{font-size:22px;color:#123f79}
+.head-item{display:flex;flex-direction:column;min-width:0}.head-item span{color:#3e5871;font-size:14px}.head-item strong{font-size:16px}.head-item.total{flex:none;margin-left:auto;align-items:flex-end;line-height:1.2;white-space:nowrap}.head-item.total strong{font-size:20px;color:#123f79}
 .layout{display:flex;gap:12px;align-items:flex-start;max-width:1696px;margin:0 auto}
 .ledger-book{width:1696px;flex:0 0 1696px}
 .ledger-book section{scroll-margin-top:calc(var(--banner) + var(--bar) + var(--head) + var(--chips) + var(--cols))}
@@ -243,11 +245,15 @@ li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .ledger-book section:has(> .month-collapsed){margin-bottom:6px}
 a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 /* Góp ý 23/10/2026: một thanh đầu sổ, tháng khóa tô xám, chuyển tháng, bảng nhập kiểu Sheet (NHAP-SHEET-01) */
-#customer-picker.in-head{position:relative;display:flex;align-items:center;gap:8px;padding:0;border:0;background:none}
-#customer-picker.in-head label{font-size:16px;color:#3e5871}
-#customer-picker.in-head #customer-search{width:280px;min-height:38px;margin:0;padding:4px 10px;border:1px solid #8daac9;border-radius:4px;font-size:16px;font-weight:700;color:#162d48}
-#customer-picker.in-head #customer-count{display:none}
-#customer-picker.in-head #customer-list{position:absolute;top:100%;left:0;z-index:70;width:420px;margin:0;background:#fff;border:1px solid #8daac9;box-shadow:0 8px 20px #162d4833}
+/* TRANG-KHACH-01 (A1): ô tìm khách lên thanh trên như Tổng quan (audit UX 4.1); danh sách khách mở khi đang ở trong ô. */
+#customer-picker.in-bar{position:relative;flex:0 1 240px;margin-left:auto;padding:0;border:0;background:none}
+#customer-picker.in-bar .dashboard-link{display:none}
+#customer-picker.in-bar :is(label,#customer-count){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#customer-picker.in-bar #customer-search{width:100%;min-width:0;height:38px;margin:0;padding:0 12px;border:1px solid #3d5876;border-radius:8px;background:#21405f;color:#fff;font-size:15px}
+#customer-picker.in-bar #customer-search::placeholder{color:#9fb3c8}#customer-picker.in-bar #customer-search:focus{border-color:#6da7ec;outline:2px solid #6da7ec}
+#customer-picker.in-bar #customer-list{position:absolute;top:42px;right:0;z-index:70;width:min(420px,calc(100vw - 24px));max-height:min(420px,70vh);margin:0;background:#fff;border:1px solid #8daac9;border-radius:6px;box-shadow:0 8px 20px #162d4833}
+#customer-picker.in-bar:not(:focus-within) #customer-list{display:none}
+.topbar #customer-picker~.presence{margin-left:12px}
 .ledger.locked .month th{background:#5f7184}
 .ledger.locked tr:is([data-row],.legacy) td:not(.pay):not(.missing){background:#eceff2}
 .ledger.locked tr:is([data-row],.legacy) td.pay,.ledger.locked td.pay-side,.ledger.locked tr.pay-row td.pay{background:#e6eaef}
@@ -406,9 +412,9 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-void-prompt input{min-height:40px;min-width:280px;font:inherit;font-size:16px}
 @media(max-width:1877px){
   .layout{max-width:1258px}.ledger-book{width:1258px;flex-basis:1258px}
-  .book-head{gap:12px;padding:4px 8px}.book-head h1{font-size:16px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
+  .book-head{gap:12px;padding:0 8px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
 }
-@media(max-width:700px){:root{--bar:0px}.topbar{position:static;height:auto;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar nav{order:3;width:100%;gap:14px;min-height:42px}}
+@media(max-width:700px){:root{--bar:0px}.topbar{position:static;height:auto;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar>nav{order:3;width:100%;gap:14px;min-height:42px}}
 /* CHUNG-TU-01: ảnh chứng từ phiếu thu */
 .image-clip{margin-left:6px;min-width:40px;min-height:26px;padding:0 4px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:14px;cursor:pointer}
 .image-clip.none{border-color:transparent;background:none;color:#5d6f82}
@@ -452,3 +458,21 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .live-controls time.sheet-busy{color:#174d82;font-weight:600}.live-controls time.sheet-error{color:#a01616;font-weight:600}
 #refresh-data,.live-controls .presence-toggle{min-height:40px;padding:0 16px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
 #refresh-data:disabled{opacity:.55;cursor:default}#refresh-data:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* TRANG-KHACH-01 (A1): đầu trang khách một dòng: ← Quay lại · tên khách (đủ, không cắt; dài thì xuống dòng) · mặt hàng · thanh
+   bốn thẻ · Tổng còn nợ · Ghi phiếu thu · Lịch sử. Vùng bấm 40px. Thẻ đang mở ghi ở <body data-the>: thẻ khác Sổ thì ẩn thẻ Sổ
+   (#the-so) và các khung của sổ, giữ nguyên DOM nên chữ đang gõ không mất. */
+.page-back{display:inline-flex;flex:none;align-items:center;min-height:40px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;color:#173d65;font-size:15px;font-weight:600;text-decoration:none;white-space:nowrap}
+.page-back:hover{background:#eaf2fb}
+.page-who{min-width:0;line-height:1.15;overflow-wrap:break-word}
+.book-head .page-name{display:inline;margin:0 8px 0 0;font-size:18px}.page-who.long .page-name{font-size:16px}
+.page-meta{color:#3e5871;font-size:14px}
+.page-tabs{display:flex;flex:none;align-self:stretch;gap:2px}
+.page-tab{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px;border:0;border-bottom:3px solid transparent;background:none;color:#3e5871;font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+.page-tab:hover{background:#eef3f8;color:#123f79}.page-tab[aria-selected="true"]{border-bottom-color:#145fa9;color:#123f79}
+.page-tab:focus-visible,.page-back:focus-visible,.tab-go:focus-visible{outline:3px solid #145fa9;outline-offset:-3px}
+.tab-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
+body[data-the]:not([data-the="so"]) :is(#the-so,.fee-selbar,.entry-drawer,.fee-drawer,.image-viewer),
+body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) #the-trao-doi,body:not([data-the="ho-so"]) #the-ho-so{display:none}
+.tab-soon{max-width:720px;margin:24px auto;padding:20px 24px;background:#fff;border:1px solid #c9d6e3;border-radius:8px;font-size:16px;line-height:1.5}
+.tab-soon h2{margin:0 0 8px;font-size:20px}.tab-soon p{margin:0 0 10px}
+.tab-go{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#fff;color:#145fa9;font:inherit;font-weight:700;cursor:pointer}

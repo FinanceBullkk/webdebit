@@ -48,6 +48,7 @@
   }
   function open() {
     if (!drawer || !active()) return;
+    ctx.showTab('so');   // trang khách (TRANG-KHACH-01): khung thuộc thẻ Sổ, đang ở thẻ khác thì sang thẻ Sổ trước
     if (!drawer.firstChild) drawer.innerHTML = formHtml();
     $('.entry-customer').textContent = live.customerName(customerId) ?? '';
     drawer.hidden = false;

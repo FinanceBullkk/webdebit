@@ -15,12 +15,12 @@ const SoKhachV7Ctx = (() => {
   'use strict';
   const FIELDS = {
     // Lõi: dữ liệu và hàm dùng chung.
-    root: ['core', 'giá trị', 'debit edit entry fee history loc month offset pay presence price ps receipts sheet trips', 'phần tử #app chứa cả sổ'],
+    root: ['core', 'giá trị', 'debit edit entry fee history loc month offset pay presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit entry fee history month offset price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
     api: ['core', 'giá trị', 'edit entry fee images offset price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
-    live: ['core', 'giá trị', 'debit edit entry offset presence price', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
-    customerId: ['core', 'giá trị', 'debit entry images offset presence price ps receipts sheet', 'mã khách của sổ đang mở'],
-    escape: ['core', 'hàm', 'debit edit entry fee history images month offset pay price ps receipts sheet trips', 'thoát HTML (CongNoFormat.esc)'],
+    live: ['core', 'giá trị', 'debit edit entry offset presence price tabs', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
+    customerId: ['core', 'giá trị', 'debit entry images offset presence price ps receipts sheet tabs', 'mã khách của sổ đang mở'],
+    escape: ['core', 'hàm', 'debit edit entry fee history images month offset pay price ps receipts sheet tabs trips', 'thoát HTML (CongNoFormat.esc)'],
     fmt: ['core', 'hàm', 'edit entry history month pay price sheet trips', 'chuỗi VND nguyên → "1.234.567"; trống → "–"'],
     cell: ['core', 'hàm', 'pay trips', 'ô <td> chữ đã thoát'],
     num: ['core', 'hàm', 'month pay trips', 'ô <td> số, căn phải'],
@@ -52,6 +52,8 @@ const SoKhachV7Ctx = (() => {
     historyOpen: ['core+edit', 'đọc/ghi', 'edit', 'khung Lịch sử đang mở'],
     busyChecks: ['core', 'danh sách', 'core debit entry fee images price', 'hàm báo đang mở khung/nhập dở → tạm dừng tự cập nhật'],
     // Phần vẽ vùng màn hình.
+    pageHead: ['tabs', 'hàm', 'core', 'phần trái đầu trang khách: ← Quay lại, tên khách, mặt hàng, thanh bốn thẻ (TRANG-KHACH-01)'],
+    tabPanes: ['tabs', 'hàm', 'core', 'khung các thẻ ngoài thẻ Sổ (Tình hình, Trao đổi, Hồ sơ)'],
     historyList: ['history', 'hàm', 'core', 'danh sách trong khung Lịch sử'],
     legacyTripRow: ['trips', 'hàm', 'month', 'hàng chuyến của dòng sổ gốc'],
     webTripRow: ['trips', 'hàm', 'month', 'hàng chuyến web'],
@@ -64,6 +66,7 @@ const SoKhachV7Ctx = (() => {
     locAfterRender: ['loc', 'hàm', 'core', 'tô dòng và thanh ?loc= sau khi vẽ'],
     locMonths: ['loc', 'hàm', 'month', 'tháng có dòng ?loc= cần xử lý (để tự hiện chi tiết)'],
     // Phần tính năng: hàm cho phần khác.
+    showTab: ['tabs', 'hàm', 'entry', 'mở một thẻ của trang khách (Ghi phiếu thu sang thẻ Sổ trước khi mở khung)'],
     reviewReasonText: ['history', 'giá trị', 'edit', 'lý do CHỜ KIỂM → câu tiếng Việt'],
     decoratePrices: ['sheet', 'hàm', 'core', 'gợi ý giá Sheet trên ô Đơn giá sau khi vẽ'],
     todayIso: ['offset', 'hàm', 'edit entry', 'hôm nay (giờ VN) dạng yyyy-mm-dd'],
@@ -96,6 +99,7 @@ const SoKhachV7Ctx = (() => {
     receiptsAfterRender: ['receipts', 'móc', 'core', 'khung phiếu thu Sheet sau khi vẽ'],
   };
   const PARTS = [
+    ['tabs', 'so-khach-v7-tabs-ui.js', []],
     ['history', 'so-khach-v7-history-ui.js', []],
     ['sheet', 'so-khach-v7-sheet-ui.js', []],
     ['offset', 'so-khach-v7-offset-ui.js', []],

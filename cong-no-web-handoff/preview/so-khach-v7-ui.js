@@ -224,16 +224,17 @@
 
   function renderShell(view) {
     const scrollY = window.scrollY;
-    // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách (bản live: chính ô tìm khách, gõ để đổi), Lịch sử, tổng còn nợ.
-    // Bản live (SO-GON-04, L7): đầu sổ dính chỉ còn một nút chính "Ghi phiếu thu" và nút phụ Lịch sử; các nút khác (cài đặt
-    // phụ phí, bảng giá, việc chờ từ Sheet) và "Làm mới" ở dải ngay dưới đầu sổ, không dính.
-    const picker = live && document.querySelector('#customer-picker');
+    // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách, Lịch sử, tổng còn nợ.
+    // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = ← Quay lại, tên khách, mặt hàng, thanh bốn thẻ
+    // (so-khach-v7-tabs-ui.js, phần đó cũng dời ô tìm khách lên thanh trên), Tổng còn nợ, nút chính "Ghi phiếu thu" và nút phụ
+    // Lịch sử (SO-GON-04 L7). Phần còn lại của sổ — dải nút việc chờ và "Làm mới" (không dính), các bảng tháng — là thẻ Sổ
+    // (#the-so); khung các thẻ khác nằm sau.
     const liveControls = live && document.querySelector('#live-controls');
     const history = `<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>`;
     const total = `<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>`;
     const head = live
-      ? `<div class="book-head"><div class="picker-slot"></div>${view.entryButton}${history}${total}`
-        + `<div class="book-bar"><div class="book-tasks">${view.barButtons}</div><div class="live-slot"></div></div>`
+      ? `<div class="book-head">${view.pageHead}<div class="head-item total"><span>Tổng còn nợ</span><strong>${view.total}</strong></div>`
+        + `${view.entryButton}${history}</div>`
       : `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1>${history}${view.sheetButton ?? ''}${total}`;
     const payStart = live ? tripCols() : 9;
     const columnHead = labels.map((label, index) => {
@@ -242,26 +243,17 @@
         + `${fee ? 'fee-h num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
-    // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng.
+    // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng. Khung Lịch sử nằm ngoài thẻ Sổ (mở được ở
+    // mọi thẻ, nút ở đầu trang).
     const aside = `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
       + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
-    root.innerHTML = [head,
-      `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
-        + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`,
-      view.chips === undefined ? `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>${aside}`
-        : `</div>${aside}`].join('\n    ');
-    const slot = root.querySelector('.picker-slot');
-    if (picker && slot) {
-      // Nút giữ nguyên trình nghe của api (lọc danh sách khách); chỉ dời vào thanh đầu sổ.
-      slot.append(picker);
-      picker.classList.add('in-head');
-      picker.querySelector('label').textContent = 'Sổ khách';
-      const search = picker.querySelector('#customer-search');
-      if (document.activeElement !== search) search.value = view.customer;
-      // Bấm vào tên là chọn hết chữ: gõ đè để tìm khách khác.
-      if (!search.dataset.selectOnFocus) { search.dataset.selectOnFocus = '1'; search.addEventListener('focus', () => search.select()); }
-    }
-    // "Cập nhật … · Làm mới" giữ trình nghe của sheet-refresh.js: chỉ dời vào dải dưới đầu sổ, như ô tìm khách.
+    const book = `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
+      + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`;
+    root.innerHTML = (live
+      ? [head, '<div id="the-so" class="tab-pane" role="tabpanel" aria-labelledby="tab-so"><div class="book-bar">'
+        + `<div class="book-tasks">${view.barButtons}</div><div class="live-slot"></div></div>${book}`, `</div></div>${aside}${view.panes}`]
+      : [head, book, `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>${aside}`]).join('\n    ');
+    // "Cập nhật … · Làm mới" giữ trình nghe của sheet-refresh.js: chỉ dời vào dải đầu thẻ Sổ.
     const liveSlot = root.querySelector('.live-slot');
     if (liveControls && liveSlot) liveSlot.append(liveControls);
     pinReceipts();
@@ -350,8 +342,9 @@
     function redraw() {
       if (snapshot) renderSnapshot(snapshot);
     }
-    // Thanh đầu sổ: tên khách, tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của
-    // các phần ngay dưới đầu sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7.
+    // Đầu trang: tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của các phần ngay
+    // dưới đầu trang ở thẻ Sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7. Tên khách và thanh thẻ:
+    // so-khach-v7-tabs-ui.js.
     function headView(data, active) {
       const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
       const shown = (message && message !== 'Đã lưu.') || !active || sheetNotice;
@@ -363,8 +356,7 @@
         + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
         + (ctx.receiptButton?.(data, active) ?? '')
         + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`;
-      return { customer: live.customerName(customerId) ?? `#${customerId}`,
-        total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice,
+      return { total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice,
         entryButton: ctx.entryButton(active), barButtons };
     }
     // Vẽ cả sổ từ một bản GET; mọi số tiền lấy nguyên từ GET, trang không cộng trừ tiền. Bảng tháng: so-khach-v7-month-ui.js
@@ -386,8 +378,8 @@
       sheetRefresh?.paint();
       const active = data.status === 'active';
       const head = headView(data, active);
-      const { sections, chips } = monthSections(data, active);
-      renderShell({ ...head, sections, chips, history: historyList(data.events ?? []) });
+      const { sections, chips, work } = monthSections(data, active);
+      renderShell({ ...head, sections, chips, pageHead: ctx.pageHead(work), panes: ctx.tabPanes(), history: historyList(data.events ?? []) });
       conflictsAfterRender(data);
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);

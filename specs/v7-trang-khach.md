@@ -1,6 +1,6 @@
 # Trang khách: một khách, bốn thẻ
 
-Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). Chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
+Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** (1/11/2026, mục Bằng chứng); A2–A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
@@ -106,6 +106,16 @@ Mặt hàng, cảng/bộ, giá đang áp, cột phụ phí riêng, ảnh chứng
 - Ô tìm khách lên thanh trên cùng như mọi trang (audit 4.1) để đầu trang đủ chỗ.
 - Đầu trang thay đúng dòng đầu sổ của L7, không thêm dòng. Nhờ vậy ở thẻ Sổ, phần dính (thanh trên + đầu trang + thanh tháng + tiêu đề cột) vẫn ≤ 180px như SO-GON-04.
 - Bấm Ghi phiếu thu khi đang ở thẻ khác thì chuyển sang thẻ Sổ rồi mở khung bên phải (SO-GON-04 L2).
+
+**Khi code (PR A1, 1/11/2026), Claude làm như sau** — không đổi tiền, API hay lựa chọn K1–K8:
+
+1. **Không có "Thêm ▾":** giữ nút phụ **Lịch sử** như SO-GON-04 L7 đã chốt khi code PR 2c (bỏ menu, Cài đặt phụ phí và Bảng giá ở dải đầu thẻ Sổ). Đầu trang: ← Quay lại · tên khách · mặt hàng · bốn thẻ · Tổng còn nợ · Ghi phiếu thu · Lịch sử. Khung Lịch sử mở được ở mọi thẻ.
+2. **← Quay lại** là nút Back của tab: máy chủ gửi `Referrer-Policy: no-referrer` nên trang không biết trang trước là trang nào. Tab mới mở, chưa có trang trước, thì nút ghi "← Tổng quan".
+3. **Tổng còn nợ** hai dòng chữ (nhãn 14px trên, số 18px dưới; bỏ "(mọi tháng)") để cả đầu trang vừa một dòng ở 1280. Tên khách dài xuống dòng, mặt hàng chảy liền sau tên, tên trên 30 ký tự chữ nhỏ một cỡ (16px).
+4. **Bàn phím** theo mẫu thanh thẻ WAI-ARIA đúng tiêu chí nghiệm thu: mũi tên trái/phải (vòng), Home/End chỉ chuyển tiêu điểm; Enter/Space mới mở thẻ. Bản xem đổi thẻ ngay khi bấm mũi tên.
+5. **Đổi thẻ chỉ ẩn/hiện**: thẻ đang mở ghi ở `<body data-the>`, CSS ẩn thẻ Sổ cùng khung Ghi phiếu thu, ngăn phụ phí, khung ảnh chứng từ khi sang thẻ khác. DOM giữ nguyên nên chữ đang gõ không mất và quay lại thẻ Sổ đúng chỗ cuộn cũ. Mở khung Ghi phiếu thu bằng bất cứ đường nào (nút ở đầu trang, dán ảnh) thì sang thẻ Sổ trước.
+6. **Địa chỉ:** rời thẻ Sổ thì bỏ `month=` và `loc=` (hai tham số đó luôn mở Sổ); về thẻ Sổ thì bỏ `the=`.
+7. **Ba thẻ chưa có nội dung** (Tình hình, Trao đổi, Hồ sơ) tới PR A2, A3 hiện một câu thẻ sẽ trả lời gì và nút "Mở thẻ Sổ".
 
 ### Bốn thẻ, mỗi thẻ một mục tiêu
 
@@ -295,12 +305,12 @@ Giai đoạn B: mỗi mục B1–B4 một spec backend, một migration và mộ
 
 ## Tiêu chí nghiệm thu
 
-PR A1:
-- [ ] Mọi địa chỉ cũ (`?customer=`, `&month=`, `&loc=`) mở thẻ Sổ y như trước: mọi số tiền trong `#app` bằng nhau giữa bản `main` và bản PR.
-- [ ] `the=tinh-hinh|so|trao-doi|ho-so` mở đúng thẻ. Bấm thẻ thì địa chỉ đổi mà không tải lại trang; Back về trang trước.
-- [ ] Thẻ Sổ ở 1280×720: phần dính ≤ 180px, không cuộn ngang. Tên khách dài nhất của sổ giả không bị cắt.
-- [ ] Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải đổi thẻ, Enter mở; vùng bấm ≥ 40px.
-- [ ] Đang gõ dở trong khung Ghi phiếu thu mà bấm sang thẻ khác rồi quay lại: số đã gõ còn nguyên.
+PR A1 (đã kiểm trên máy chủ giả, mục Bằng chứng):
+- [x] Mọi địa chỉ cũ (`?customer=`, `&month=`, `&loc=`) mở thẻ Sổ y như trước: mọi số tiền trong `#app` bằng nhau giữa bản `main` và bản PR.
+- [x] `the=tinh-hinh|so|trao-doi|ho-so` mở đúng thẻ. Bấm thẻ thì địa chỉ đổi mà không tải lại trang; Back về trang trước.
+- [x] Thẻ Sổ ở 1280×720: phần dính ≤ 180px, không cuộn ngang. Tên khách dài nhất của sổ giả không bị cắt.
+- [x] Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải đổi thẻ, Enter mở; vùng bấm ≥ 40px.
+- [x] Đang gõ dở trong khung Ghi phiếu thu mà bấm sang thẻ khác rồi quay lại: số đã gõ còn nguyên.
 
 PR A2:
 - [ ] Bốn số bằng đúng: Còn nợ = `total_outstanding_vnd`; Quá hạn = `overdue_vnd` của khách; Thu tháng này = `received_vnd` của `today_month`.
@@ -328,7 +338,21 @@ Mỗi PR của giai đoạn A revert riêng được, vì chỉ đổi file giao
 
 ## Bằng chứng
 
-Chưa có (chưa code). Hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ dùng dữ liệu giả, không gọi API; đã chạy Playwright ở 1280×720, đạt 25/25 kiểm (ghi trong [PR FinanceBullkk/webdebit#229](https://github.com/FinanceBullkk/webdebit/pull/229)).
+Spec: hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ dùng dữ liệu giả, không gọi API; đã chạy Playwright ở 1280×720, đạt 25/25 kiểm (ghi trong [PR FinanceBullkk/webdebit#229](https://github.com/FinanceBullkk/webdebit/pull/229)).
+
+**PR A1 (vỏ trang khách), 1/11/2026** — máy chủ giả, 1280×720, dữ liệu giả; chưa đo trên `hao`:
+- `test-so-khach-v7-tabs-browser.js`, 8 test:
+  1. `the=` và K2 qua tám địa chỉ, kể cả `the=` đi cùng `month=`/`loc=` và thẻ lạ.
+  2. Bấm thẻ: địa chỉ đổi, trang không tải lại, không đọc lại sổ, `history.length` không đổi; Back và "← Quay lại" về trang trước.
+  3. Bàn phím: Tab, mũi tên vòng, Home/End, Enter/Space; mọi nút ở đầu trang ≥ 40px.
+  4. Đầu trang 44px; tên khách giả 43 ký tự cùng mặt hàng nằm gọn trong đầu trang; phần dính 176px, thanh tháng dính ở 100px; không cuộn ngang.
+  5. Khung Ghi phiếu thu đang gõ dở ẩn khi sang thẻ khác, quay lại còn nguyên số; bấm Ghi phiếu thu ở thẻ khác thì mở thẻ Sổ.
+  6. Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ đúng chỗ cuộn, danh sách phiếu dính và chip tháng đo lại đúng. Đã thử ngược: bỏ bước đo lại thì test đỏ.
+  7. Ô tìm khách ở thanh trên: gõ thì hiện danh sách, rời ô thì đóng, không tràn mép; sổ đọc lỗi vẫn tìm được khách.
+  8. Số việc chờ trên thẻ Sổ bằng tổng chấm cam trên các chip tháng.
+- Sửa test cũ theo đầu trang mới: `test-so-khach-v7-api.js` (khuôn đầu trang), `test-so-khach-v7-chu-browser.js` (nút ngoài thanh thẻ), `test-so-khach-v7-month-browser.js` (thanh tháng dính ở 100px thay 104px).
+- So mọi ô số tiền của `#app` giữa `main` (`5cf0ac0`) và bản PR, mở hết tháng, trên hai sổ giả: 608 ô (31 + 577) trùng khớp.
+- `npm run check` xanh (ruff chạy bằng venv của checkout chính).
 
 ## Lựa chọn đã chốt
 

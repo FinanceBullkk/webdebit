@@ -210,8 +210,10 @@
     const open = openMonths(data, groups, openKey);
     lastOpen = open;
     const book = { data, active, openKey, lockFlags, historical, outgoing, open };
+    // work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
     return { sections: groups.map(item => monthSection(item, book)).join(''),
-      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map(item => monthChip(item, book)).join('')}</nav>` };
+      chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map(item => monthChip(item, book)).join('')}</nav>`,
+      work: groups.reduce((sum, item) => sum + monthWork(data, monthKey(item.month)).reduce((total, [count]) => total + count, 0), 0) };
   }
 
   // ---- Thu gọn / xem chi tiết, chip tháng, tháng đang xem ----
