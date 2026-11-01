@@ -28,10 +28,12 @@
       + `data-fee-type="${id}"${editable ? ` tabindex="0" role="button" aria-label="Sửa ${escape(feeTypeName(id))} ${escape(what)}"` : ''}>`
       + `${cells.own[index] === null ? '' : model.formatVnd(cells.own[index])}</td>`).join('');
     // SO-GON-04 (P0-4): ô Khác trống ghi "–"; "+ thêm" chỉ hiện khi rê chuột, đứng ở dòng hoặc tick chọn dòng (CSS).
-    const other = cells.otherCount ? `<span class="fee-sum">${model.formatVnd(cells.otherVnd)}</span><small>${cells.otherCount} khoản</small>`
+    // SO-GON-05: ô có khoản chỉ hiện số (hàng đều một dòng); số khoản ở chữ rê chuột và nhãn đọc màn hình.
+    const other = cells.otherCount ? `<span class="fee-sum">${model.formatVnd(cells.otherVnd)}</span>`
       : editable ? '<span class="fee-dash" aria-hidden="true">–</span><span class="fee-plus">+ thêm</span>' : '';
+    const count = cells.otherCount ? ` (${cells.otherCount} khoản)` : '';
     return `${own}<td class="num fee fee-other" data-field="other_fee_vnd" data-fee-target="${target}" tabindex="0" role="button" `
-      + `aria-label="Chi tiết phụ phí ${escape(what)}">${other}</td>`;
+      + `${count ? `title="Phụ phí khác${count}" ` : ''}aria-label="Chi tiết phụ phí ${escape(what)}${count}">${other}</td>`;
   };
   const feeEmpty = () => ctx.feeColumnIds.map(() => empty('num fee')).join('') + empty('num fee');
   const feePick = (target, what, editable) => editable

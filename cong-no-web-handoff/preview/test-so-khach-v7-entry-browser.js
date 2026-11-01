@@ -2,7 +2,7 @@
  * khóa/mở khóa tháng (SO-GON-04, specs/v7-so-khach-ux-dot-2.md, PR 2b). Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, posts } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
 
 const today = `${clock.slice(8, 10)}/${clock.slice(5, 7)}/${clock.slice(0, 4)}`;
 const thisMonth = `${Number(clock.slice(5, 7))}/${clock.slice(0, 4)}`;
@@ -135,6 +135,7 @@ test('Hủy phiếu vừa ghi: mở dòng hủy có lý do điền sẵn; lý do
 
 test('Khóa / mở khóa tháng: hỏi một câu dưới nút; Thôi hay Esc không gửi lệnh; Khóa tháng mới gửi', async () => withPage(async ({ page, world }) => {
   const key = todayMonth.slice(0, 7), short = Number(key.slice(5));
+  await viewMonth(page, key);
   const lock = page.locator(`.month-lock[data-month="${todayMonth}"]`);
   await lock.click();
   const ask = page.locator('.lock-ask');

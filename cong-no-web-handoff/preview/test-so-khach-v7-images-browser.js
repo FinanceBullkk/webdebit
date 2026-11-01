@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho ảnh chứng từ phiếu thu (CHUNG-TU-01). Máy chủ giả, ảnh giả vẽ bằng canvas, không chạm DB. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, viewMonth } = require('./so-khach-v7-browser-world');
 
 // SO-GON-04: ảnh dán vào khung "Ghi phiếu thu" (bên phải, ngoài sổ), không còn hàng nhập trong từng tháng.
 const section = '.entry-drawer';
@@ -92,6 +92,7 @@ test('ảnh đã đính ở sổ khác: cảnh báo, không chặn; mở khung p
   assert.equal(await page.locator('.image-viewer').isVisible(), false, 'bỏ ảnh cuối thì đóng khung');
   // Khung Ghi phiếu thu che cột phiếu thu bên phải (như ngăn phụ phí): đóng khung rồi mới bấm 📎 của phiếu đã ghi.
   await page.locator('.entry-close').click();
+  await viewMonth(page, todayMonth);   // phiếu PH-001 ở tháng hiện tại (SO-GON-05: mỗi tháng một màn)
   await page.locator('.image-clip').first().click();
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu PH-001[\s\S]*Phiếu chưa có ảnh/);
   await paste(page, { color: '#25a' });
