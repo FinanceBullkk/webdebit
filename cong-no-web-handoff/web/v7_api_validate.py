@@ -343,6 +343,7 @@ GET_ROUTES = {
     "/api/v7/dashboard": _no_query("get_dashboard"),
     "/api/v7/dashboard/debt": _no_query("get_dashboard_debt"),
     "/api/v7/reminders": _no_query("get_reminders"),
+    "/api/v7/zalo/links": _no_query("get_zalo_links"),
     "/api/v7/customers": _no_query("list_customers"),
     "/api/v7/receivables/matrix": _matrix,
     "/api/v7/receivables/detail": _detail,

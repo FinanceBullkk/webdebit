@@ -26,6 +26,7 @@ from pg_v7_harness import (
     SHEET_CONFLICT_MIGRATION,
     SHEET_MIGRATION,
     SYNC_MIGRATION,
+    ZALO_GROUP_MIGRATION,
     Pg,
     PsqlSession,
     call,
@@ -222,6 +223,8 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(doi_no)  # NHAC-NO-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ: chạy lại được
+    copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     # Từ 29/10/2026 file chuẩn có cả resolve_sheet_conflict, nên so đủ mọi hàm, không loại trừ.
     migrated = json.loads(copy.value(catalog))

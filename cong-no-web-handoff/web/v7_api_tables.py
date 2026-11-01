@@ -90,6 +90,14 @@ ERRORS = {
     "NO_CHANGE": (409, "Nội dung không thay đổi."),
     "CUSTOMER_NOT_FOUND": (422, "Không tìm thấy khách."),
     "INVALID_REMINDER": (422, "Dữ liệu nhắc nợ không hợp lệ."),
+    # ZALO-GROUP-01: gắn group ↔ sổ và dấu tin.
+    "INVALID_LINK": (422, "Group hoặc sổ không hợp lệ."),
+    "LINK_NOT_FOUND": (409, "Group này không còn gắn với sổ đó. Tải lại."),
+    "REASON_REQUIRED": (422, "Cần ghi lý do."),
+    "INVALID_MARK": (422, "Dữ liệu đánh dấu không hợp lệ."),
+    "INVALID_MARK_DATE": (422, "Hứa trả hẹn từ hôm nay trở đi; ngày khách báo đã chuyển không được sau hôm nay."),
+    "MARK_NOT_FOUND": (422, "Không tìm thấy dấu này."),
+    "MARK_ALREADY_CANCELLED": (409, "Dấu này đã được bỏ."),
     "TRIP_NOT_FOUND": (422, "Không tìm thấy chuyến."),
     "FEE_LINE_NOT_FOUND": (409, "Không tìm thấy khoản phụ phí. Tải lại sổ."),
     "TRIP_HAS_NO_PRICE": (422, "Chuyến chưa có giá."),
@@ -224,5 +232,14 @@ SQL["find_receipt_image"] = "SELECT sokhach.find_receipt_image(:'payload'::jsonb
 # NHAC-NO-01: nhắc nợ là ghi chú ngoài đường tiền, không dùng COMMON (version/idempotency); POST đặc biệt.
 SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.record_reminder((j->>'customer_id')::bigint, j->>'source') FROM b;"
 SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
+# ZALO-GROUP-01: gắn group ↔ sổ và dấu tin, cũng ngoài đường tiền; POST đặc biệt (v7_api_zalo kiểm thân lệnh).
+SQL["link_zalo"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.link_zalo(j->>'conversation_id', (j->>'customer_id')::bigint) FROM b;"
+SQL["unlink_zalo"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
+                      "SELECT sokhach.unlink_zalo(j->>'conversation_id', (j->>'customer_id')::bigint, j->>'reason') FROM b;")
+SQL["get_zalo_links"] = "SELECT sokhach.get_zalo_links();"
+SQL["record_mark"] = "SELECT sokhach.record_mark(:'payload'::jsonb);"
+SQL["cancel_mark"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.cancel_mark((j->>'id')::bigint, j->>'reason') FROM b;"
+SQL["get_marks"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
+                    "SELECT sokhach.get_marks((j->>'customer_id')::bigint, j->>'conversation_id') FROM b;")
 # /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
 SQL["healthz"] = "SELECT 1;"

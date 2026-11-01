@@ -9,6 +9,7 @@ from pg_v7_harness import (
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
     SHEET_CONFLICT_MIGRATION,
+    ZALO_GROUP_MIGRATION,
     call,
     fixture_open_month,
     new_book,
@@ -238,5 +239,6 @@ def check_price_migration(pg):
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8"), database=db)
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"), database=db)
+    pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

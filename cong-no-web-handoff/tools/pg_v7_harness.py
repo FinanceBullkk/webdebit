@@ -334,6 +334,8 @@ RA_GHI_TIEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-
 CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 # Chặn trùng hàng chờ 1/11/2026: migration cuối hiện nay, chuỗi nâng nào so với file chuẩn cũng chạy nó sau cùng.
 CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql"
+# ZALO-GROUP-01 1/11/2026: chỉ thêm bảng/hàm ghi chú; chuỗi nâng từ lược đồ cũ chạy nó sau chặn trùng.
+ZALO_GROUP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-zalo-group.sql"
 
 def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
     p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)
