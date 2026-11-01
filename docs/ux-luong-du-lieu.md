@@ -111,6 +111,8 @@ Nơi đi và nơi đến có thể ảnh hưởng giá vì bảng giá tính the
 
 ## 7. Câu hỏi cần người dùng chốt
 
+Q1–Q3 **ĐÃ CHỐT** 1/11/2026 theo đề xuất: [`HANG-CHO-01`](decisions/hang-cho-01.md). Q4 chuyển sang [bước 03](ux-buoc-03-luong-thao-tac.md) mục 8.
+
 - **Q1:** Trong lúc song song, khi Sheet đổi nơi đi, nơi đến hoặc shipper mà giá không đổi, web có tự lấy theo Sheet (ghi Lịch sử, không hỏi) không? *Claude đề xuất: có.*
 - **Q2:** Chuyến mới có được tự vào sổ khi đủ bốn điều kiện: khớp đúng một khách, container chưa có ở đâu (kể cả bản đối chiếu lúc nạp), giá tính được từ bảng giá, tháng đang mở? Đây là đổi cổng duyệt chuyến mới đang có. *Claude đề xuất: có, kèm danh sách "đã tự vào hôm nay" để người nhập soát.*
 - **Q3:** Phiếu thu từ Sheet vẫn để người bấm xác nhận, nhưng ở hộp chung? *Claude đề xuất: có. Tiền vào là chỗ M4, giữ người.*
