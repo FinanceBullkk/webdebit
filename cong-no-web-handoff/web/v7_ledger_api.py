@@ -446,6 +446,10 @@ def loopback(host: str) -> bool:
 
 
 class ThreadingHTTPServer(HTTPServer):
+    # socketserver mặc định chỉ xếp hàng 5 kết nối; trang sổ nạp 33 file cùng lúc qua Tailscale Serve, kết nối thứ 6
+    # trở đi bị bỏ rồi chờ 1 giây mới kết nối lại (đo trên `hao` 1/11/2026: 3.842 lần bỏ, trang chờ 1,9 giây).
+    request_queue_size = 128
+
     def __init__(self, server_address, handler, *, default_actor=None, dev_actor_mode=None,
                  bind_and_activate=True):
         name = handler.default_actor if default_actor is None else default_actor

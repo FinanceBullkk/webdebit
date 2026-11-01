@@ -1499,6 +1499,58 @@ class SheetProjectionLegacyRefs(unittest.TestCase):
         with patch.object(v7_api_sheet, "load_snapshot", return_value=snapshot),                 patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 0, "refs": []}),                 self.assertRaises(ValueError):
             v7_api_sheet.sheet_projection(Runner(), {"customer_id": 7, "trips": [], "legacy_rows": []}, "tester")
 
+
+class LedgerSpeed(unittest.TestCase):
+    """Tăng tốc mở sổ 1/11/2026: đọc chung một lần, chiếu song song, giữ bản chụp tới khi file đổi, hàng đợi kết nối."""
+
+    def test_projections_share_reads_and_isolate_failures(self):
+        calls = []
+
+        class Runner:
+            def run(self, function, payload, actor):
+                calls.append(function)
+                return {"customers": []}
+
+        def uses_customers(name):
+            def project(runner, ledger, actor):
+                runner.run("list_customers", {}, actor)
+                return {"from": name, "customer": ledger["customer_id"]}
+            return project
+
+        def broken(runner, ledger, actor):
+            raise api.ApiError(503, "DB_UNAVAILABLE", "x")
+
+        with patch.object(v7_api_sheet, "sheet_projection", uses_customers("sync")),                 patch.object(v7_api_sheet, "price_projection", uses_customers("prices")),                 patch.object(v7_api_sheet, "receipt_projection", broken),                 patch.object(v7_api_sheet, "ps_projection", uses_customers("ps")):
+            result = v7_api_sheet.ledger_projections(Runner(), {"customer_id": 7, "trips": []}, "tester")
+        self.assertEqual(calls, ["list_customers"])   # trước đây 4 lần mỗi lần mở sổ
+        self.assertEqual(result["sheet_sync"], {"from": "sync", "customer": 7})
+        self.assertEqual(result["ps_fees"], {"from": "ps", "customer": 7})
+        self.assertTrue(result["sheet_receipts"]["unavailable"])
+        self.assertEqual(result["trips"], [])
+
+    def test_snapshot_read_once_until_file_changes(self):
+        loads = []
+
+        def loader(path):
+            loads.append(path)
+            return {"n": len(loads)}
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "snapshot.json"
+            path.write_text("{}", encoding="utf-8")
+            first = v7_api_sheet.cached_load(loader, str(path))
+            self.assertIs(v7_api_sheet.cached_load(loader, str(path)), first)
+            stamp = time.time() + 5
+            os.utime(path, (stamp, stamp))
+            self.assertEqual(v7_api_sheet.cached_load(loader, str(path)), {"n": 2})
+            self.assertEqual(len(loads), 2)
+            with self.assertRaises(FileNotFoundError):
+                v7_api_sheet.cached_load(Path.read_text, Path(folder) / "missing.json")
+
+    def test_listen_queue_fits_a_page_of_assets(self):
+        self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, 128)
+        self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, len(api.ASSETS) // 2)
+
 if __name__ == "__main__":
     unittest.main()
 
