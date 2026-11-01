@@ -109,8 +109,25 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             "skipped_out_of_scope": skipped_out_of_scope}
 
 
-def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None) -> dict[str, Any]:
-    """Show only new or changed Sheet rows inside one customer ledger."""
+def _same_legacy_trip(ref: dict[str, Any], container: str, date: dt.date) -> bool:
+    """An original-book row of another book is this trip: same container and within 3 days, or undated in the same month.
+
+    Same rule as paste_trips (BASELINE_DATE_WINDOW, BASELINE_UNDATED_MONTH); a dated row further away is a reused container.
+    """
+    if _container(ref.get("container")) != container:
+        return False
+    if ref.get("event_date"):
+        return abs((dt.date.fromisoformat(str(ref["event_date"])[:10]) - date).days) <= 3
+    return str(ref.get("debt_month") or "")[:7] == date.isoformat()[:7]
+
+
+def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None,
+                     other_legacy: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Show only new or changed Sheet rows inside one customer ledger.
+
+    `other_legacy` holds original-book rows of other books for the containers waiting here (list_legacy_trip_refs).
+    A row that is already one of them is not offered as new (docs/ux-luong-du-lieu.md 3.3: same customer, other commodity book).
+    """
     existing = []
     for trip in ledger.get("trips", []):
         existing.append({"kind": "trip", "id": trip.get("id"), "container": trip.get("container"),
@@ -193,6 +210,10 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
         elif matches or same_container:
             state = "CONFLICT"
             reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
+            changed = []
+        elif any(_same_legacy_trip(ref, container, date) for ref in other_legacy or ()):
+            state = "CONFLICT"
+            reason = "OTHER_BOOK_LEGACY"
             changed = []
         else:
             state = "NEW"

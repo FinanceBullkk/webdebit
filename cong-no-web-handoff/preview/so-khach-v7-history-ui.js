@@ -72,6 +72,7 @@
       return `${count > 1 ? `${count} chuyến · ` : ''}${parts.join(' · ')}${after.length > 5 ? ` · và ${after.length - 5} chuyến khác` : ''}`;
     }
     const reviewReasonText = { BASELINE_CODE_MATCH: 'Trùng mã với dòng sổ gốc', BASELINE_DATE_WINDOW: 'Cùng container, lệch ngày ≤3 ngày với dòng sổ gốc',
+      BASELINE_UNDATED_MONTH: 'Cùng container, cùng tháng với dòng sổ gốc không có ngày',
       WEB_DUPLICATE: 'Trùng chuyến đã nhập trên web', BATCH_DUPLICATE: 'Trùng trong cùng lô dán' };
     const fieldLabels = { container: 'Container', carrier: 'Hãng tàu', shipper: 'Shipper', event_date: 'Ngày chuyến', origin: 'Nơi đi',
       destination: 'Nơi đến', unit_price_vnd: 'Đơn giá', other_fee_vnd: 'Phụ phí' };

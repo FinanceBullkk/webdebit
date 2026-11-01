@@ -194,6 +194,24 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual((result["new_count"], result["conflict_count"]), (0, 1))
         self.assertEqual(result["items"][0]["sync_reason"], "OTHER_CUSTOMER")
 
+    def test_other_book_original_row_is_not_offered_as_new(self):
+        # docs/ux-luong-du-lieu.md 3.3: the same customer's other commodity book already has the trip in its original book.
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7,
+            "container": "dup 1", "event_date": "2026-03-18", "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "legacy_rows": [], "trips": []}
+        cases = [
+            ({"container": "DUP1", "event_date": None, "debt_month": "2026-03-01"}, "OTHER_BOOK_LEGACY"),
+            ({"container": "DUP1", "event_date": "2026-03-21", "debt_month": "2026-03-01"}, "OTHER_BOOK_LEGACY"),
+            ({"container": "DUP1", "event_date": None, "debt_month": "2026-04-01"}, ""),
+            ({"container": "DUP1", "event_date": "2026-03-28", "debt_month": "2026-03-01"}, ""),
+            ({"container": "OTHER", "event_date": None, "debt_month": "2026-03-01"}, ""),
+        ]
+        for ref, reason in cases:
+            with self.subTest(ref=ref):
+                item = project_customer(queue, ledger, set(), [{"customer_id": 8, **ref}])["items"][0]
+                self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", reason) if reason else ("NEW", ""))
+        self.assertEqual(project_customer(queue, ledger)["new_count"], 1)
+
     def test_shipper_backfill_only_proposes_unique_exact_matches(self):
         queue = {"items": [{"customer_id": 7, "status": "READY", "source_row": 8,
                             "container": "ABC1", "event_date": "2026-10-01",

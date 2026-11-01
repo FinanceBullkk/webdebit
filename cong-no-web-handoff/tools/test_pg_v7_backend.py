@@ -17,6 +17,7 @@ import uuid
 from pathlib import Path
 
 from pg_v7_harness import (
+    CHAN_TRUNG_MIGRATION,
     DATABASE,
     FUNCTIONS,
     IMAGE,
@@ -54,6 +55,7 @@ from pg_v7_harness import (
     version,
 )
 from test_pg_v7_backend_can_du import check_can_du
+from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_doi_no import check_doi_no
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
@@ -238,8 +240,11 @@ CASES.append(case("NHAC-NO.01", "BEHAVIOR", "Reminder log: record 'đã nhắc' 
                    check="doi_no", functions=("record_reminder", "get_reminders")))
 CASES.append(case("CAN-DU.01", "BEHAVIOR", "Credit of negative months applied to oldest debt; totals and receipt lines unchanged",
                   check="can_du", functions=("record_receipt", "get_receivables_detail")))
+# Chặn trùng hàng chờ 1/11/2026: chạy sau RA-GHI-TIEN.01, migration của nó là bản mới nhất của paste_trips.
+CASES.append(case("CHAN-TRUNG.01", "BEHAVIOR", "Undated original-book row holds a same-month paste; legacy refs listed by container",
+                  check="chan_trung", functions=("paste_trips", "list_legacy_trip_refs", "_legacy_undated_match")))
 
-CHECKS = {"can_du": check_can_du, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"can_du": check_can_du, "chan_trung": check_chan_trung, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -340,6 +345,8 @@ def check_migration(pg: Pg) -> None:
     doi_no = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8")
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01: idempotent
+    copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ: chạy lại được
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")

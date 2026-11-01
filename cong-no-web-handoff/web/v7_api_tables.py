@@ -159,6 +159,7 @@ SQL = {
     "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
+    "list_legacy_trip_refs": "SELECT sokhach.list_legacy_trip_refs(:'payload'::jsonb->'containers');",
     "resolve_sheet_conflict": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.resolve_sheet_conflict((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'snapshot_sha256',(p->>'source_row')::bigint,p->>'target_kind',(p->>'target_id')::bigint,p->>'field',p->>'target_value',p->>'sheet_value',p->>'decision') FROM j;",
 }
 ARGUMENTS = {

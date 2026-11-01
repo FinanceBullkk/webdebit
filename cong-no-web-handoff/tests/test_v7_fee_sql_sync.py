@@ -15,6 +15,8 @@ VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-
 AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql"
 # CAN-DU-01 30/10/2026: record_receipt, get_receivables_detail và hai view nợ tháng bằng migration mới nhất thay chúng.
 CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
+# Chặn trùng hàng chờ 1/11/2026: paste_trips và hai hàm mới bằng migration mới nhất thay chúng.
+CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -38,10 +40,14 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertEqual(definition(migration, "FUNCTION", name),
                                  definition(canonical, "FUNCTION", name))
         audit = AUDIT_MIGRATION.read_text(encoding="utf-8")
-        for name in ("paste_trips", "apply_price_table",
+        for name in ("apply_price_table",
                      "list_sheet_trip_refs", "guard_sheet_cross_customer", "resolve_sheet_conflict"):
             with self.subTest(name=name):
                 self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
+        for name in ("_legacy_undated_match", "paste_trips", "list_legacy_trip_refs"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(chan_trung, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         can_du = CAN_DU_MIGRATION.read_text(encoding="utf-8")
         for kind, name in (("FUNCTION", "record_receipt"), ("FUNCTION", "get_receivables_detail"),
                            ("VIEW", "v_outstanding_month_raw"), ("VIEW", "v_outstanding_month")):

@@ -94,6 +94,22 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
         ELSE 'ALT:' || sokhach._normalize_key(p_container) || ':' || coalesce(to_char(p_date,'YYYYMMDD'),'UNKNOWN') END
 $$;
 
+-- Dòng sổ gốc còn hiệu lực ở bất kỳ sổ nào, cùng container, không có ngày, nằm đúng tháng nợ của ngày chuyến.
+-- Luật ±3 ngày của baseline_trip_ref không bắt được dòng không ngày (docs/ux-luong-du-lieu.md mục 3.3, 1/11/2026).
+CREATE OR REPLACE FUNCTION sokhach._legacy_undated_match(p_container text, p_date date) RETURNS boolean
+LANGUAGE plpgsql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    IF coalesce(p_container,'')='' OR p_date IS NULL THEN RETURN false; END IF;
+    RETURN EXISTS (SELECT 1 FROM sokhach.legacy_row l
+        JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id) AND cc.status='active'
+        LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.container,x.deleted FROM sokhach.legacy_trip_rev x
+            WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
+        WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)
+          AND coalesce(r.debt_month,l.debt_month)=date_trunc('month',p_date)::date
+          AND sokhach._normalize_key(CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END)=p_container
+          AND (CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END) IS NULL);
+END $$;
+
 CREATE OR REPLACE FUNCTION sokhach.paste_trips(customer_id bigint, expected_version bigint,
     idempotency_key text, debt_month date, trips jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
@@ -173,6 +189,8 @@ BEGIN
             ELSIF EXISTS (SELECT 1 FROM sokhach.baseline_trip_ref r WHERE r.cutover_id=v_cutover
                 AND r.container_norm=v_container AND abs(r.event_date-v_date)<=3)
             THEN v_reason := 'BASELINE_DATE_WINDOW';
+            ELSIF sokhach._legacy_undated_match(v_container,v_date)
+            THEN v_reason := 'BASELINE_UNDATED_MONTH';
             ELSIF EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE NOT t.deleted AND t.customer_id=paste_trips.customer_id
                 AND sokhach._normalize_key(t.container)=v_container
                 AND (sokhach._booking_key(t.booking,t.container,t.event_date)=v_booking
@@ -240,6 +258,32 @@ BEGIN
         jsonb_build_object('customer_id',customer_id,'container',container)
         ORDER BY customer_id,id),'[]'::jsonb))
     FROM sokhach.v_trip_current WHERE NOT deleted AND container IS NOT NULL);
+END;
+$$;
+
+-- Hàng chờ chuyến mới (1/11/2026): dòng sổ gốc còn hiệu lực của mọi sổ có container nằm trong danh sách hỏi.
+-- API chỉ hỏi container của các dòng Sheet đang chờ ở một sổ, nên không trả cả sổ gốc mỗi lần mở sổ.
+CREATE OR REPLACE FUNCTION sokhach.list_legacy_trip_refs(containers jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+BEGIN
+    PERFORM sokhach._actor();
+    IF jsonb_typeof(containers) IS DISTINCT FROM 'array' OR jsonb_array_length(containers)>2000
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(containers) c WHERE jsonb_typeof(c)<>'string')
+    THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+    RETURN (SELECT jsonb_build_object('items',coalesce(jsonb_agg(jsonb_build_object(
+            'customer_id',x.customer_id,'container',x.container,'event_date',x.event_date,'debt_month',x.debt_month)
+            ORDER BY x.customer_id,x.id),'[]'::jsonb))
+        FROM (SELECT l.id,l.customer_id,
+                CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END AS container,
+                CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS event_date,
+                coalesce(r.debt_month,l.debt_month) AS debt_month
+            FROM sokhach.legacy_row l
+            JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id) AND cc.status='active'
+            LEFT JOIN LATERAL (SELECT y.id,y.debt_month,y.event_date,y.container,y.deleted FROM sokhach.legacy_trip_rev y
+                WHERE y.legacy_row_id=l.id ORDER BY y.id DESC LIMIT 1) r ON true
+            WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)) x
+        WHERE sokhach._normalize_key(x.container) IN (SELECT sokhach._normalize_key(c#>>'{}') FROM jsonb_array_elements(containers) c)
+          AND sokhach._normalize_key(x.container)<>'');
 END;
 $$;
 
@@ -3066,6 +3110,7 @@ GRANT EXECUTE ON FUNCTION sokhach.void_receipt(bigint,bigint,text,text,text) TO 
 GRANT EXECUTE ON FUNCTION sokhach.set_month_lock(bigint,bigint,text,date,boolean) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.review_trip(bigint,bigint,text,bigint,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.list_sheet_trip_refs() TO sokhach_app;
+GRANT EXECUTE ON FUNCTION sokhach.list_legacy_trip_refs(jsonb) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text,date,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;

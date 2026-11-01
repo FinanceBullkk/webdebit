@@ -10,6 +10,7 @@ import time
 
 from pg_v7_harness import (
     CAN_DU_MIGRATION,
+    CHAN_TRUNG_MIGRATION,
     DA_THU_MIGRATION,
     DASHBOARD_MIGRATION,
     DETAIL_MIGRATION,
@@ -219,6 +220,8 @@ def check_csm_migration(pg: Pg) -> None:
     doi_no = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8")
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
+    copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ: chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     # Từ 29/10/2026 file chuẩn có cả resolve_sheet_conflict, nên so đủ mọi hàm, không loại trừ.
     migrated = json.loads(copy.value(catalog))
