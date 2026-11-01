@@ -17,6 +17,7 @@ from typing import Any
 
 from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
     SharedReads,
+    paste_sheet_rows,
     sheet_projection,
 )
 from v7_api_validate import ApiError
@@ -32,6 +33,8 @@ SETTLE_SECONDS = 90
 AUTO_ACTOR = "may-theo-sheet"
 AUTO_FIELDS = {"carrier", "shipper", "origin", "destination"}
 AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm"
+# P3b (HANG-CHO-01 Q2 theo Q5 A, specs/v7-hop-ngoai-le-p3b.md): máy bấm thay "Duyệt" cho chuyến mới khớp đúng sổ theo
+# mặt hàng, tháng mở, ngày không sau hôm nay. Bật bằng WEBDEBIT_AUTO_SHEET=trips (gộp được: "text,trips").
 
 
 def auto_enabled(kind: str) -> bool:
@@ -185,10 +188,15 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
-        text_books = sorted(cid for cid, book in books.items() if book["text_diff"])
-        if auto_enabled("text") and text_books and key is not None:
-            for customer_id in text_books:
-                self._auto_text(shared, customer_id)
+        text, trips = auto_enabled("text"), auto_enabled("trips")
+        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or (trips and book["trips_new"]))
+        if todo and key is not None:
+            for customer_id in todo:
+                if text and books[customer_id]["text_diff"]:
+                    self._auto_text(shared, customer_id)
+                if trips and books[customer_id]["trips_new"]:
+                    # Đọc lại chuyến web mọi sổ cho từng sổ: chuyến máy vừa thêm ở sổ trước phải chặn được ở sổ sau.
+                    self._auto_trips(SharedReads(shared.runner), customer_id)
                 result = self._one(shared, customer_id)
                 if result[2]:
                     books.pop(customer_id, None)
@@ -239,6 +247,44 @@ class Inbox:
                     self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id, "container": item.get("container"),
                                               "field": field, "before": target_value, "after": sheet_value.strip()})
 
+    def _auto_trips(self, runner, customer_id: int) -> None:
+        """Dán chuyến mới đủ điều kiện Q2 của một sổ bằng đúng đường của nút "Duyệt" (`paste_sheet_rows`), chưa có giá.
+
+        Chỉ dòng "chuyến mới" khớp sổ theo mặt hàng (`COMMODITY_OK`), tháng nợ đang mở, ngày không sau hôm nay (giờ VN).
+        `paste_trips` vẫn tự đẩy chuyến nghi trùng sang "chờ kiểm". Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            projection = sheet_projection(runner, ledger, AUTO_ACTOR)
+        except (ApiError, ValueError):
+            self.auto_errors += 1
+            return
+        today = _vn_day(self.clock())
+        rows = [item for item in projection.get("items") or []
+                if item.get("sync_state") == "NEW" and item.get("book_match") == "COMMODITY_OK"
+                and str(item.get("event_date") or "") <= today]
+        locked = set(_locked_months(ledger, {str(item["event_date"])[:7] for item in rows}))
+        rows = [item for item in rows if str(item["event_date"])[:7] not in locked]
+        if not rows:
+            return
+        digest = projection.get("snapshot_sha256")
+        try:
+            result = paste_sheet_rows(runner, customer_id, ledger.get("version"), digest,
+                                      f"{AUTO_ACTOR}:trips:{customer_id}", rows, AUTO_ACTOR)
+        except ApiError:
+            self.auto_errors += 1
+            return
+        if not result.get("complete"):
+            self.auto_errors += 1
+        pending = {entry.get("trip_id") for entry in result.get("pending_review") or []}
+        by_row = {item["source_row"]: item for item in rows}
+        with self.lock:
+            for entry in result.get("pasted") or []:
+                item = by_row.get(entry["source_row"], {})
+                self.auto_log.appendleft({"at": self.clock(), "kind": "trip", "customer_id": customer_id,
+                                          "container": item.get("container"), "event_date": item.get("event_date"),
+                                          "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending})
+
     def start(self, runner) -> bool:
         with self.lock:
             if self.running:
@@ -280,9 +326,15 @@ class Inbox:
             iso = lambda t: None if t is None else datetime.fromtimestamp(t, UTC).isoformat()  # noqa: E731
             today = _vn_day(self.clock())
             done_today = [entry for entry in self.auto_log if _vn_day(entry["at"]) == today]
-            auto = {"text_enabled": auto_enabled("text"), "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
-                    "today_count": len(done_today), "today_books": len({entry["customer_id"] for entry in done_today}),
-                    "items": [{**entry, "at": iso(entry["at"])} for entry in done_today[:100]]}
+            text_done = [entry for entry in done_today if entry.get("kind") != "trip"]
+            trip_done = [entry for entry in done_today if entry.get("kind") == "trip"]
+            auto = {"text_enabled": auto_enabled("text"), "trips_enabled": auto_enabled("trips"),
+                    "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
+                    "today_count": len(text_done), "today_books": len({entry["customer_id"] for entry in text_done}),
+                    "today_trips": len(trip_done), "today_trip_books": len({entry["customer_id"] for entry in trip_done}),
+                    "today_trips_pending": sum(1 for entry in trip_done if entry.get("pending")),
+                    "items": [{**entry, "at": iso(entry["at"])} for entry in text_done[:100]],
+                    "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]]}
             return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),

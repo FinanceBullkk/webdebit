@@ -114,12 +114,17 @@
 
   // L2 của UX bước 03 (P3a): máy đã tự lấy chữ theo Sheet hôm nay, mỗi dòng có đường mở sổ để sửa lại tại ô.
   const AUTO_FIELD = { carrier: 'hãng tàu', shipper: 'shipper', origin: 'nơi đi', destination: 'nơi đến' };
+  // P3b: chuyến mới máy đã đưa vào sổ hôm nay (chưa có giá); chuyến nghi trùng nằm ở "chờ kiểm" của sổ.
   function autoHtml(auto, esc, label, href) {
-    if (!auto?.today_count) return '';
-    const items = (auto.items ?? []).map(item => `<li><a href="${href(item.customer_id)}">${esc(label(item))}</a> · ${esc(item.container ?? '')} · `
-      + `${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → <b>${esc(item.after)}</b></li>`).join('');
-    return `<details class="auto-done"><summary>Máy đã tự lấy theo Sheet hôm nay: <b>${auto.today_count}</b> ô chữ ở <b>${auto.today_books}</b> sổ</summary>`
-      + `<ul>${items}</ul><p class="tiny">Không đụng tiền. Sai ô nào thì mở sổ, sửa lại tại ô (có ghi Lịch sử).</p></details>`;
+    const link = item => `<a href="${href(item.customer_id)}">${esc(label(item))}</a> · ${esc(item.container ?? '')}`;
+    const text = auto?.today_count ? `<details class="auto-done"><summary>Máy đã tự lấy theo Sheet hôm nay: <b>${auto.today_count}</b> ô chữ ở <b>${auto.today_books}</b> sổ</summary>`
+      + `<ul>${(auto.items ?? []).map(item => `<li>${link(item)} · ${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → <b>${esc(item.after)}</b></li>`).join('')}</ul>`
+      + '<p class="tiny">Không đụng tiền. Sai ô nào thì mở sổ, sửa lại tại ô (có ghi Lịch sử).</p></details>' : '';
+    const pending = auto?.today_trips_pending ? `, ${auto.today_trips_pending} chuyến vào chờ kiểm` : '';
+    const trips = auto?.today_trips ? `<details class="auto-done"><summary>Máy đã đưa vào sổ hôm nay: <b>${auto.today_trips}</b> chuyến mới ở <b>${auto.today_trip_books}</b> sổ${pending}</summary>`
+      + `<ul>${(auto.trip_items ?? []).map(item => `<li>${link(item)} · ${esc(dayText(item.event_date))}${item.pending ? ' · <span class="tag warn">chờ kiểm</span>' : ''}</li>`).join('')}</ul>`
+      + '<p class="tiny">Chuyến chưa có giá, chưa cộng vào nợ. Sai chuyến nào thì mở sổ, xóa chuyến đó (có ghi Lịch sử).</p></details>' : '';
+    return text + trips;
   }
 
   function rows(books, group, F, esc, label, href) {

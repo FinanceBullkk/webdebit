@@ -148,6 +148,8 @@ def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
             "shipper": str(cell["shipper"] or "").strip(),
             "customer_name": str(cell["customer_name"] or "").strip(),
             "durian_type": durian_type(cell["product_name"], cell["commodity"]),
+            # P3b (1/11/2026): hàng chờ chọn sổ theo tên khách + mặt hàng (khách nhiều sổ, V7-MH).
+            "commodity": str(cell["commodity"] or "").strip(),
             "source_tab": str(cell["source_tab"] or "").strip(),
             "source_line": str(cell["source_line"] or "").strip(),
             "source_flag": str(cell["flag"] or "").strip(),

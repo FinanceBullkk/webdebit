@@ -11,6 +11,8 @@ from typing import Any
 
 # Rows before this year sit in the opening balance; later years stay in scope with no upper bound.
 QUEUE_FIRST_YEAR = 2026
+# Cột "Mặt hàng" của booking sheet ghi thế này thì không dùng để chọn sổ (đo trên hao 1/11/2026).
+UNKNOWN_COMMODITY = {"KHÁC", "(CHƯA GHI)"}
 
 
 def _name(value: Any) -> str:
@@ -62,11 +64,41 @@ def load_baseline(path: str | Path) -> dict[str, Any]:
     return baseline
 
 
+def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]],
+               owners: dict[str, list[dict[str, Any]]]) -> tuple[dict[str, Any] | None, str]:
+    """Sổ cho một dòng booking và `book_match` (specs/v7-hop-ngoai-le-p3b.md, luật chọn sổ).
+
+    Nhóm sổ = sổ có tên sổ `name` cộng sổ có tên khách (`display_name`) `name`. Nhóm nhiều sổ thì chọn theo mặt hàng
+    trong các sổ không phải đường bộ (dòng booking chỉ là BIỂN); không chọn được thì giữ sổ trùng tên như trước P3b.
+    Dòng rơi vào sổ đường bộ là `ROAD_BOOK`: máy không đưa vào.
+    """
+    exact = names.get(name, [])
+    match = exact[0] if len(exact) == 1 and exact[0].get("status") == "active" else None
+    family = {c["id"]: c for c in exact + owners.get(name, []) if c.get("status") == "active"}
+    if len(family) == 1:
+        match = next(iter(family.values()))
+    elif family and commodity:
+        same = [c for c in family.values() if _name(c.get("commodity")) == commodity and c.get("transport_mode") != "BO"]
+        if len(same) == 1:
+            match = same[0]
+    if match is None:
+        return None, ""
+    if match.get("transport_mode") == "BO":
+        return match, "ROAD_BOOK"
+    book = _name(match.get("commodity"))
+    if not commodity or commodity in UNKNOWN_COMMODITY or not book:
+        return match, "COMMODITY_UNKNOWN"
+    return match, "COMMODITY_OK" if book == commodity else "COMMODITY_MISMATCH"
+
+
 def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], baseline: dict[str, Any]) -> dict[str, Any]:
     names: dict[str, list[dict[str, Any]]] = {}
+    owners: dict[str, list[dict[str, Any]]] = {}
     for customer in customers:
         if isinstance(customer, dict) and type(customer.get("id")) is int and isinstance(customer.get("name"), str):
             names.setdefault(_name(customer["name"]), []).append(customer)
+            if isinstance(customer.get("display_name"), str) and _name(customer["display_name"]) != _name(customer["name"]):
+                owners.setdefault(_name(customer["display_name"]), []).append(customer)
     aliases = snapshot.get("customer_aliases") or {}
     items = []
     skipped_out_of_scope = 0
@@ -80,13 +112,14 @@ def build_queue(snapshot: dict[str, Any], customers: list[dict[str, Any]], basel
             continue
         item = {key: source.get(key) for key in (
             "source_row", "container", "carrier", "event_date", "origin", "destination",
-            "booking", "customer_name", "source_date", "status", "durian_type")}
+            "booking", "customer_name", "source_date", "status", "durian_type", "commodity")}
         if "shipper" in source:
             item["shipper"] = source.get("shipper")
         status = source.get("status") or "INVALID"
         reasons: list[str] = []
-        matches = names.get(_name(aliases.get(_name(source.get("customer_name")), source.get("customer_name"))), [])
-        match = matches[0] if len(matches) == 1 and matches[0].get("status") == "active" else None
+        match, book_match = _pick_book(_name(aliases.get(_name(source.get("customer_name")), source.get("customer_name"))),
+                                       _name(source.get("commodity")), names, owners)
+        item["book_match"] = book_match or None
         if status != "READY":
             review_status = status
             reasons.append(status)

@@ -120,7 +120,7 @@ Q1–Q3 **ĐÃ CHỐT** 1/11/2026 theo đề xuất: [`HANG-CHO-01`](decisions/h
 
 ## 8. Chặn tính trùng ở hàng chờ chuyến mới (từ kết quả mục 3.3)
 
-Việc 1 và 2 **ĐÃ TRIỂN KHAI** trên `hao` 1/11/2026 (PR FinanceBullkk/webdebit#240, [nhật ký](deploys/2026-11-01-chan-trung-hang-cho.md)). Đo lại sau triển khai: "chuyến mới" chờ duyệt từ 341 còn 100; 241 dòng hiện "đã có ở sổ gốc của sổ khác". Việc 3 còn chờ Q4.
+Việc 1 và 2 **ĐÃ TRIỂN KHAI** trên `hao` 1/11/2026 (PR FinanceBullkk/webdebit#240, [nhật ký](deploys/2026-11-01-chan-trung-hang-cho.md)). Đo lại sau triển khai: "chuyến mới" chờ duyệt từ 341 còn 100; 241 dòng hiện "đã có ở sổ gốc của sổ khác". Việc 3 làm ở [P3b](../specs/v7-hop-ngoai-le-p3b.md): Q4 đã có câu trả lời từ dữ liệu, cột "Mặt hàng" của `CONT_NGUON`.
 
 1. **Hàng chờ:** trước khi gọi một dòng là "mới", so container với sổ gốc còn hiệu lực và chuyến web của **mọi** sổ.
    - Có ở sổ khác thì hiện "Đã có ở sổ …, ngày …", không có nút Duyệt, đưa vào hộp ngoại lệ.
