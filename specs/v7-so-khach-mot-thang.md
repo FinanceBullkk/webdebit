@@ -45,3 +45,20 @@ Trạng thái: ĐỀ XUẤT (Claude, 1/11/2026). Bước 04 (giao diện) của 
 - [x] Màn 1280×560 và màn rộng: bảng chiếm hết bề ngang vùng sổ, tiêu đề cột thẳng hàng với cột của bảng tháng.
 - [x] Ô Khác một dòng.
 - [ ] `npm run check` xanh; người dùng đi luồng 1–4 trên `hao`.
+
+## Đợt 2 (1/11/2026, [`SO-GON-06`](../docs/decisions/so-gon-06.md))
+
+Sau đợt 1, người dùng nói "thấy vẫn chưa ổn" và chọn hai chỗ: ba thanh đầu sổ rối, cột thu tiền trống. Người dùng chọn phương án đề xuất cho cả hai.
+
+- **PR A · Phiếu thu lên đầu tháng:**
+  - bỏ ba cột thu khỏi khung cột của sổ live; chỗ của chúng trả cho cột chuyến, nên ở màn 1280 cột chữ cũng đủ chỗ;
+  - khối "Tiền khách trả tháng …" ngay dưới thanh tháng: cùng các hàng phiếu như trước (phiếu web, khoản thu sổ gốc, cấn trừ, phiếu hủy gom một dòng); sửa ngày, hình thức, tham chiếu, ảnh 📎 như cũ;
+  - tháng không có phiếu: một dòng "… : chưa có phiếu thu".
+- **PR B · Một thanh việc:** việc cần làm bên trái; giờ Sheet, Làm mới, "Cài đặt ▾" bên phải.
+
+Tiêu chí đợt 2:
+
+- [x] Thanh tháng → khối phiếu thu → bảng chuyến; bảng chuyến rộng bằng vùng sổ; tiêu đề cột kết thúc ở Thành tiền.
+- [x] Tháng không phiếu: một dòng chữ, không bảng trống.
+- [ ] Đầu sổ còn một thanh dưới thanh tên khách; cài đặt trong "Cài đặt ▾".
+- [ ] `npm run check` xanh; người dùng xem lại trên `hao`.

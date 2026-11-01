@@ -131,8 +131,7 @@
         + `aria-label="Xóa hẳn điều chỉnh cả tháng ${escape(fmt(row.amount_vnd))}" title="Bấm để xóa hẳn dòng điều chỉnh này">${fmt(row.amount_vnd)}</td>`
       : num(fmt(row.amount_vnd));
     return adjustments.filter(row => row.legacy_row_id == null).map(row => `<tr class="adjustment"><td colspan="${columns.trip() - 1}">`
-      + `Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${amount(row)}`
-      + '<td class="pay pay-start" colspan="3"></td></tr>').join('');
+      + `Điều chỉnh ${row.trip_id ? 'chuyến' : 'cả tháng'}${row.note ? ` · ${escape(row.note)}` : ''}</td>${amount(row)}</tr>`).join('');
   }
 
   // Tháng cũ của dòng vừa đổi ngày sang tháng khác: một dòng mờ có Xem / Hoàn tác (ctx.ghosts, so-khach-v7-edit-ui.js).
@@ -141,12 +140,12 @@
     + `<button type="button" class="ghost-go" data-row="${escape(`${ghost.kind}-${ghost.id}`)}">Xem</button>`
     + `<button type="button" class="ghost-undo" data-ghost="${index}">Hoàn tác</button></td></tr>`).join('');
 
-  // Dòng Tổng tháng: tổng từng cột phụ phí (chuyến đã tính tiền và dòng sổ gốc của tháng), Thành tiền và Đã thu của server.
+  // Dòng Tổng tháng: tổng từng cột phụ phí (chuyến đã tính tiền và dòng sổ gốc của tháng) và Thành tiền của server. Đã thu ở
+  // dòng tóm tắt của thanh tháng và đầu khối phiếu thu (SO-GON-06).
   function subtotalRow(item, key, { locked, active, feeTotalCells, totals }) {
     return `<tr class="subtotal"><td colspan="${columns.feeStart()}">Tổng tháng ${monthLabel(key)} `
       + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>`
-      + `${feeTotalCells}${num(fmt(totals.chargesVnd))}<td class="pay pay-start">Đã thu</td>`
-      + `<td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
+      + `${feeTotalCells}${num(fmt(totals.chargesVnd))}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
 
   function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing }) {
@@ -167,8 +166,8 @@
     });
     const receipts = [...received, ...(outgoing.get(key) ?? [])];
     const adjustments = (data.adjustments ?? []).filter(row => monthKey(row.month) === key);
-    // SO-GON-02 (29/10/2026, phương án A): chuyến bên trái, phiếu thu là danh sách riêng bên phải — không chung hàng,
-    // để không đọc nhầm "chuyến này trả số tiền này".
+    // SO-GON-02 (29/10/2026, phương án A): phiếu thu là danh sách riêng, không chung hàng với chuyến, để không đọc nhầm
+    // "chuyến này trả số tiền này". SO-GON-06 (1/11/2026): danh sách đó là khối ở đầu tháng, bảng chuyến dùng hết bề ngang.
     // Không có bảng nhập chuyến: chuyến vào sổ từ Sheet (NHAP-SHEET-02). Phiếu thu ghi ở khung "Ghi phiếu thu" (SO-GON-04).
     const openHere = active && !locked;
     // STT chuyến web nối tiếp các dòng chuyến từ Sheet của tháng (dòng Sheet vẽ trước, như thứ tự trên Sheet).
@@ -176,11 +175,13 @@
     const tripRows = legacy.map(line => line.trip ? legacyTripRow(line.trip, locked) : '').join('')
       + trips.map((trip, index) => webTripRow(trip, index, { locked, sttBase })).join('');
     const pays = payRows(key, { legacy, receipts, locked });
-    const body = `<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
+    const payBlock = `<tr class="month-pay"><td colspan="${columns.count()}"><div class="pay-block">`
+      + `<div class="pay-head">Tiền khách trả tháng ${monthLabel(key)}${pays ? '' : '<span class="pay-empty">: chưa có phiếu thu</span>'}</div>`
+      + `<table class="ledger-inner pay-list${pays ? '' : ' empty'}" aria-label="Tiền khách trả tháng ${monthLabel(key)}">`
+      + `<colgroup>${columns.payTags()}</colgroup><tbody>${pays}</tbody></table></div></td></tr>`;
+    const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
-      + `<tbody>${tripRows}</tbody></table></td><td class="pay-side pay-start" colspan="3"><div class="pay-stick">`
-      + `<table class="ledger-inner pay-list" aria-label="Tiền khách trả tháng ${monthLabel(key)}">`
-      + `<colgroup>${columns.tags(columns.trip(), columns.count())}</colgroup><tbody>${pays}</tbody></table></div></td></tr>`;
+      + `<tbody>${tripRows}</tbody></table></td></tr>`;
     const feeTotals = model.feeColumnTotals([...legacyRows.filter(row => row.kind === 'trip'),
       ...trips.filter(trip => trip.status === 'confirmed')].map(row => row.fee_lines ?? []), ctx.feeColumnIds);
     const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');

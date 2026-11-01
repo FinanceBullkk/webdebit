@@ -3,17 +3,31 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth } = require('./so-khach-v7-browser-world');
 
-// SO-GON-04: dòng tháng không dính nữa (chip tháng đang tô thay), nên danh sách phiếu dính ngay dưới tiêu đề cột.
-test('Danh sách phiếu thu dính ngay dưới tiêu đề cột khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
-  const pinned = await page.locator('#thang-2026-09 .pay-stick').evaluate(stick => {
-    const head = document.querySelector('.ledger-head');
-    return { sticky: getComputedStyle(stick).position, top: Number.parseInt(stick.style.top, 10), below: Number.parseInt(getComputedStyle(head).top, 10) + head.offsetHeight,
-      inTrips: Boolean(stick.closest('.trip-list')) };
+// SO-GON-06: phiếu thu là khối riêng ở đầu tháng (ngay dưới thanh tháng, trên bảng chuyến); không chung hàng với chuyến;
+// tiêu đề cột không còn ba cột thu, bảng chuyến dùng hết bề ngang.
+test('Phiếu thu là khối ở đầu tháng, trên bảng chuyến; không chung hàng với chuyến; bảng chuyến dùng hết bề ngang', async () => withPage(async ({ page, world }) => {
+  world.receipts.push({ id: 1, pid: 'PH-001', date: '2026-09-11', method: 'THU TIỀN', amount_vnd: '2000000', reference: null,
+    voided_by_event: null, void_reason: null, allocations: [{ id: 1, month: '2026-09-01', kind: 'debt', amount_vnd: '2000000', superseded_by_event: null }] });
+  await page.reload();
+  const sept = page.locator('#thang-2026-09');
+  await sept.locator('.pay-list tr.pay-row').first().waitFor();
+  const geo = await sept.evaluate(section => {
+    const pay = section.querySelector('.pay-block'), trips = section.querySelector('.trip-list'), bar = section.querySelector('tr.month');
+    return { order: bar.getBoundingClientRect().bottom <= pay.getBoundingClientRect().top && pay.getBoundingClientRect().bottom <= trips.getBoundingClientRect().top,
+      inTrips: Boolean(pay.closest('.trip-list')), trips: trips.getBoundingClientRect().width,
+      book: document.querySelector('#the-so .ledger-book').clientWidth };
   });
-  assert.equal(pinned.sticky, 'sticky');
-  assert.equal(pinned.top, pinned.below);
-  assert.equal(pinned.inTrips, false);
-  assert.equal(await page.locator('.trip-list td.pay').count(), 0);
+  assert.ok(geo.order, 'thanh tháng → khối phiếu thu → bảng chuyến');
+  assert.equal(geo.inTrips, false);
+  assert.ok(geo.book - geo.trips <= 2, `bảng chuyến ${geo.trips}px / vùng sổ ${geo.book}px`);
+  assert.match(await sept.locator('.pay-head').innerText(), /^Tiền khách trả tháng 9\/2026$/);
+  assert.deepEqual(await page.locator('.ledger-head th').evaluateAll(cells => cells.map(cell => cell.textContent).slice(-2)), ['Khác', 'Thành tiền']);
+  assert.equal(await page.locator('.trip-list td.pay, .ledger-head th.pay, tr.subtotal td.pay').count(), 0);
+  // Tháng không có phiếu: một dòng chữ, không có bảng trống.
+  await viewMonth(page, todayMonth);
+  const now = page.locator(`#thang-${todayMonth.slice(0, 7)}`);
+  assert.equal(await now.locator('.pay-head').innerText(), `Tiền khách trả tháng ${Number(todayMonth.slice(5, 7))}/${todayMonth.slice(0, 4)}: chưa có phiếu thu`);
+  assert.equal(await now.locator('.pay-list').isVisible(), false);
 }));
 
 // Khung Ghi phiếu thu đang mở (SO-GON-04) thì tạm dừng tự cập nhật; chữ đang gõ nằm ngoài sổ nên không mất.

@@ -44,7 +44,9 @@
   // (cắt "…", rê chuột xem đủ) co trước. Co hết vẫn thiếu (Shipper + 3 cột riêng) thì cả sổ dùng khổ chật: số 15px, cột tiền hẹp lại.
   const liveColumns = [[52, 44, 44, 40], [148, 120, 112, 104], [104, 80, 62, 50], [188, 120, 130, 64], [104, 96, 90, 86], [118, 90, 80, 56],
     [118, 90, 80, 56], [128, 110, 100, 100], [116, 100, 88, 88], [148, 120, 120, 120], [124, 100, 90, 84], [124, 100, 84, 78], [224, 150, 178, 120]];
-  const shrinkOrder = [12, 3, 10, 11, 5, 6, 1, 2, 4, 7, 9, 8, 0];
+  // SO-GON-06: bản live không còn ba cột thu (phiếu thu là khối riêng ở đầu tháng); chỗ của chúng trả cho các cột chuyến.
+  const PAY = [10, 11, 12];
+  const shrinkOrder = [3, 5, 6, 1, 2, 4, 7, 9, 8, 0];
   // Khổ chật (chỉ màn 1280): cột riêng 80px, Đơn giá 92, Khác 80, Thành tiền 108 — vừa số 15px.
   const TIGHT_OWN = 80, TIGHT_MONEY = [[7, 92], [8, 80], [9, 108]];
   let tight = false;
@@ -60,7 +62,7 @@
     const base = liveColumns.map(item => wideMode ? item[0] : item[2]);
     const floor = liveColumns.map(item => wideMode ? item[1] : item[3]);
     if (!shipper) floor[SHIPPER] = 0;
-    let need = ownNames.length * ownWidth;
+    let need = Math.max(0, ownNames.length * ownWidth - PAY.reduce((sum, index) => sum + base[index], 0));
     for (const index of shipper ? shrinkOrder : [SHIPPER, ...shrinkOrder.filter(item => item !== SHIPPER)]) {
       const take = Math.min(need, base[index] - floor[index]);
       base[index] -= take; need -= take;
@@ -82,8 +84,8 @@
     showShipper = shipper;
     ownCount = ownNames.length;
     const tripNames = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá'];
-    labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả'];
-    wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length)];
+    labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền'];
+    wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length, tripNames.length + 2)];
     // SO-GON-05: sổ co giãn theo màn hình; phần bề ngang dư (so với khổ tối thiểu) dồn cho cột chữ hay bị cắt "…", cột tiền
     // giữ bề rộng vừa số. `fitWidth` là bề ngang thật của vùng sổ ở lần vẽ trước (0 lúc chưa vẽ). Vùng sổ hẹp hơn khổ tối thiểu
     // một chút (thanh cuộn dọc 15px của Chrome Windows ở màn 1280) thì cột chữ nhường phần thiếu, để không có thanh cuộn ngang.
@@ -104,13 +106,16 @@
   // Tỉ lệ chia phần bề ngang dư cho cột chữ (SO-GON-05).
   const TEXT_SHARE = { 'Hãng tàu': 1, Shipper: 2, 'Nơi đi': 2, 'Nơi đến': 1.5 };
   let fitWidth = 0;
-  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()), phiếu thu 3 cột cuối.
-  const tripCols = () => labels.length - 3;
+  // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()). Bản fixture còn ba cột phiếu thu ở cuối; bản live không
+  // (SO-GON-06: phiếu thu là khối riêng ở đầu tháng).
+  const tripCols = () => live ? labels.length : labels.length - 3;
   // Cột phụ phí riêng đầu tiên (ngay sau Đơn giá): 8 khi có cột Shipper, 7 khi không.
   const feeStart = () => tripCols() - ownCount - 2;
   // Khung cột cho các phần vẽ bản live (ctx.columns): luôn đọc bố cục hiện tại, useLiveColumns đổi nó mỗi lần vẽ.
+  // Ba cột của bảng phiếu thu đầu tháng (SO-GON-06): ngày trả, hình thức, số tiền kèm tham chiếu và tháng trừ nợ.
+  const payTags = () => [124, 170, 300].map((width, index) => `<col style="width:${width}px" class="pay-col-${index}">`).join('');
   const columns = { count: () => labels.length, trip: tripCols, feeStart, unitPrice: () => feeStart() - 1, tags: colTags,
-    all: () => widths, shipper: () => showShipper, shipperCell };
+    all: () => widths, shipper: () => showShipper, shipperCell, payTags };
   const cell = (value, classes = '') => `<td class="${classes}">${escape(value)}</td>`;
   const num = (value, classes = '') => cell(value, `num ${classes}`);
   const empty = (classes = '') => `<td class="${classes}"></td>`;
@@ -254,10 +259,10 @@
       ? `<div class="book-head">${view.pageHead}<div class="head-item total"><span>Tổng còn nợ</span><strong>${view.total}</strong></div>`
         + `${view.entryButton}${history}</div>`
       : `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1>${history}${view.sheetButton ?? ''}${total}`;
-    const payStart = live ? tripCols() : 9;
+    const pay = index => !live && index >= 9 && index <= 11;
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
-      return `<th scope="col" class="${index >= payStart && index <= payStart + 2 ? 'pay ' : ''}${index === payStart ? 'pay-start' : ''}`
+      return `<th scope="col" class="${pay(index) ? 'pay ' : ''}${!live && index === 9 ? 'pay-start' : ''}`
         + `${fee ? 'fee-h num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
@@ -286,15 +291,16 @@
     if (typeof root.querySelectorAll !== 'function' || typeof getComputedStyle !== 'function') return;
     const columnHead = live ? root.querySelector('.ledger-head') : null;
     for (const table of root.querySelectorAll('section > table.ledger')) {
+      for (const td of table.querySelectorAll('.trip-list td')) {
+        if (td.scrollWidth > td.clientWidth && !td.title) td.title = td.textContent.trim();
+      }
+      // Bản live (SO-GON-06) không còn danh sách phiếu bên phải để dính.
       const head = columnHead ?? table.querySelector('tr.month th'), stick = table.querySelector('.pay-stick');
       if (!head || !stick) continue;
       const top = (Number.parseInt(getComputedStyle(head).top, 10) || 0) + head.offsetHeight;
       const fits = stick.offsetHeight <= window.innerHeight - top - 8;
       stick.classList.toggle('pinned', fits);
       stick.style.top = fits ? `${top}px` : '';
-      for (const td of table.querySelectorAll('.trip-list td')) {
-        if (td.scrollWidth > td.clientWidth && !td.title) td.title = td.textContent.trim();
-      }
     }
   }
   if (typeof window.addEventListener === 'function') window.addEventListener('resize', pinReceipts);
