@@ -37,13 +37,25 @@ const inboxBook = (id, extra = {}) => ({ customer_id: id, receipts: { ready: 0, 
   trips_new: 0, trips_check: { count: 0, reasons: {} }, text_diff: 0, prices: { ready: 0, review: 0 }, ps: { ready: 0, review: 0 }, ...extra });
 
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200 } = {}) {
+function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200, receiptPost = null, posted = [] } = {}) {
   return http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     const value = item => JSON.stringify(typeof item === 'function' ? item() : item);
     if (drop.has(route)) { req.socket.destroy(); return; }
+    if (req.method === 'POST' && route === '/api/v7/sheet/receipts') {   // hộp P2: ghi phiếu thu từ Sheet của một sổ
+      let raw = '';
+      req.on('data', chunk => { raw += chunk; });
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        posted.push(body);
+        const reply = receiptPost(body, posted.length);
+        if (reply === 'drop') { req.socket.destroy(); return; }
+        send(reply.status, 'application/json', JSON.stringify(reply.json));
+      });
+      return;
+    }
     if (route === '/api/v7/dashboard') return send(dashboardStatus, 'application/json', value(payload));
     if (route === '/api/v7/dashboard/debt') return send(debtStatus, 'application/json', value(debtPayload));
     if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people }));   // PRESENCE-01
@@ -452,5 +464,74 @@ test('Việc cần làm: khối Sheet đang tính, không đọc được Sheet,
     drop.delete('/api/v7/inbox');
     await page.locator('[data-inbox-retry]').click();
     await page.locator('.inbox .empty:not(.inbox-error)').waitFor();
+  }, '/viec-can-lam.html');
+});
+
+// Hộp P2: sổ ghi được có phiên bản, bản chụp và phiếu sẵn sàng.
+const writable = (id, extra = {}) => inboxBook(id, { version: 3, outstanding_vnd: '1000000000', ...extra,
+  receipts: { ready: 1, review: 0, amount_vnd: '50000000', ready_amount_vnd: '50000000', snapshot_sha256: 'c'.repeat(64), locked_months: [],
+    items: [{ status: 'READY', date: '2026-10-30', amount_vnd: '50000000', debt_month: '2026-09-01', note: '30/10 tt' }], ...(extra.receipts ?? {}) } });
+
+test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; sổ lỗi ở lại với câu của server', async () => {
+  const posted = [];
+  let written = false;
+  const books = () => [
+    ...(written ? [] : [writable(1, { receipts: { ready: 2, amount_vnd: '400000000', ready_amount_vnd: '400000000', locked_months: ['2026-09'],
+      items: [{ status: 'READY', date: '2026-09-28', amount_vnd: '300000000', debt_month: '2026-08-01', note: '' },
+        { status: 'READY', date: '2026-10-02', amount_vnd: '100000000', debt_month: '2026-09-01', note: 'ck' }] } })]),
+    writable(2, { outstanding_vnd: '30000000' }),
+    inboxBook(7, { receipts: { ready: 0, review: 1, amount_vnd: '9000000', items: [{ status: 'NO_DATE', date: null, amount_vnd: '9000000', debt_month: '2026-08-01', note: '?' }] } }),
+  ];
+  await withPage({ viewport: { width: 1280, height: 560 }, posted, inbox: () => ({ ...INBOX_EMPTY, books: books() }),
+    receiptPost: body => (body.customer_id === 1 ? (written = true, { status: 200, json: { written: 2, remaining: 0, complete: true, version: 5 } })
+      : { status: 409, json: { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' } }) }, async page => {
+    const group = page.locator('.inbox [data-group="receipts"]');
+    await group.locator('.receipt-book').first().waitFor();
+    assert.equal(await group.locator('[data-book="7"] input').count(), 0);   // phiếu cần xem: không chọn được
+    await group.locator('[data-book="7"] summary').click();
+    assert.match(await group.locator('[data-book="7"] .receipt-items').innerText(), /cần xem: không rõ ngày/);
+    assert.equal(await group.locator('[data-review]').isDisabled(), true);
+    await group.locator('[data-pick-all]').check();
+    assert.match(await group.locator('[data-review]').innerText(), /Xem lại 2 sổ \(tổng 450 triệu\)/);
+    await group.locator('[data-review]').click();
+    const review = group.locator('.receipt-review');
+    const text = await review.innerText();
+    assert.match(text, /Xem lại trước khi ghi 3 phiếu ở 2 sổ · tổng 450\.000\.000/);
+    assert.match(text, /1\.000\.000\.000 đ → 600\.000\.000 đ/);
+    assert.match(text, /có phiếu ngày trong tháng đang khóa \(T9\): vẫn ghi được/);
+    assert.match(text, /khách sẽ dư 20 triệu/);
+    assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-write')), true);
+    await review.locator('[data-write]').click();
+    await page.locator('.inbox-result').waitFor();
+    assert.match(await page.locator('.inbox-result').innerText(), /Đã ghi 2 phiếu ở 1 sổ, tổng 400 triệu[\s\S]*1 sổ chưa ghi xong/);
+    assert.match(await group.locator('[data-book="2"] .row-error').innerText(), /Sổ đã thay đổi\. Tải lại rồi thử tiếp\./);
+    assert.equal(await group.locator('[data-book="1"]').count(), 0);
+    assert.deepEqual(posted.map(body => [body.customer_id, body.expected_version, body.snapshot_sha256.length, typeof body.idempotency_key]),
+      [[1, 3, 64, 'string'], [2, 3, 64, 'string']]);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }, '/viec-can-lam.html');
+});
+
+test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đúng khóa cũ, không ghi trùng; Thôi đóng khung xem lại', async () => {
+  const posted = [];
+  await withPage({ posted, inbox: () => ({ ...INBOX_EMPTY, books: [writable(1)] }),
+    receiptPost: () => ({ status: 200, json: { written: 1, remaining: 0, complete: true, version: 4 } }) }, async page => {
+    // Cắt ngay trong trình duyệt (cắt socket ở server thì Chrome tự gửi lại): lần gửi đầu mất kết nối, ghi lại khóa đã gửi.
+    const lost = [];
+    await page.route('**/api/v7/sheet/receipts', route => { lost.push(route.request().postDataJSON()); return route.abort(); }, { times: 1 });
+    const group = page.locator('.inbox [data-group="receipts"]');
+    await group.locator('[data-pick="1"]').check();
+    await group.locator('[data-review]').click();
+    await group.locator('[data-review-cancel]').click();
+    assert.equal(await group.locator('.receipt-review').count(), 0);
+    await group.locator('[data-review]').click();
+    await group.locator('[data-write]').click();
+    await page.locator('[data-write-retry]').waitFor();
+    assert.match(await group.locator('[data-book="1"] .row-error').innerText(), /Mất kết nối khi ghi: chưa rõ sổ này đã ghi chưa/);
+    await page.locator('[data-write-retry]').click();
+    await page.waitForFunction(() => document.querySelector('.inbox-result')?.textContent.includes('Đã ghi 1 phiếu'));
+    assert.equal(lost.length, 1);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].idempotency_key, lost[0].idempotency_key);
   }, '/viec-can-lam.html');
 });

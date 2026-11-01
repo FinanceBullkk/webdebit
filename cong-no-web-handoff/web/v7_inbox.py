@@ -29,8 +29,26 @@ def _vnd(value: Any) -> int | None:
     return int(text) if text.lstrip("-").isdigit() else None
 
 
+def _locked_months(ledger: dict[str, Any], months: set[str]) -> list[str]:
+    """Tháng (yyyy-mm) đang khóa trong `months`: cờ đã ghi thắng; tháng không có hàng thì chỉ tháng hiện tại mở."""
+    flags = {str(row.get("month") or "")[:7]: row.get("locked") for row in ledger.get("month_locks") or []}
+    today = str(ledger.get("today_month") or "")[:7]
+    return sorted(m for m in months if (flags[m] is True if m in flags else m != today))
+
+
+def _receipt_item(row: dict[str, Any], ready: bool) -> dict[str, Any]:
+    note = str(row.get("note") or "").strip()
+    return {"status": "READY" if ready else str(row.get("status") or "REVIEW"), "date": row.get("date"),
+            "amount_vnd": row.get("amount_vnd"), "debt_month": str(row.get("debt_month") or "")[:10] or None,
+            "note": note[:80]}
+
+
 def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None:
-    """Gom kết quả chiếu của một sổ thành bảy nhóm; None khi sổ không có việc."""
+    """Gom kết quả chiếu của một sổ thành bảy nhóm; None khi sổ không có việc.
+
+    P2 (specs/v7-hop-ngoai-le-p2.md): kèm phiên bản và tổng còn nợ của sổ, danh sách phiếu thu và bản chụp để hộp ghi
+    được phiếu bằng lệnh duyệt đang có, và các tháng đang khóa của phiếu sẵn sàng (chỉ để báo, lệnh ghi không chặn).
+    """
     sync = ledger.get("sheet_sync") or {}
     receipts = ledger.get("sheet_receipts") or {}
     prices = ledger.get("sheet_prices") or {}
@@ -56,10 +74,18 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
             else:
                 key = "FIELDS" if reason == "DIFFERENT_FIELDS" else reason
                 check_reasons[key] = check_reasons.get(key, 0) + 1
+    ready_rows = list(receipts.get("ready") or [])
     book = {
         "customer_id": customer_id,
-        "receipts": {"ready": len(receipts.get("ready") or []), "review": len(receipts.get("review") or []),
-                     "amount_vnd": str(sum(a for a in receipt_amounts if a is not None))},
+        "version": ledger.get("version"),
+        "outstanding_vnd": ledger.get("total_outstanding_vnd"),
+        "receipts": {"ready": len(ready_rows), "review": len(receipts.get("review") or []),
+                     "amount_vnd": str(sum(a for a in receipt_amounts if a is not None)),
+                     "ready_amount_vnd": str(sum(a for a in (_vnd(r.get("amount_vnd")) for r in ready_rows) if a is not None)),
+                     "snapshot_sha256": receipts.get("snapshot_sha256"),
+                     "items": [_receipt_item(r, True) for r in ready_rows]
+                     + [_receipt_item(r, False) for r in receipts.get("review") or []],
+                     "locked_months": _locked_months(ledger, {str(r.get("date") or "")[:7] for r in ready_rows if r.get("date")})},
         "removed": {"count": len(removed), "amount_vnd": str(sum(a for a in removed_amounts if a is not None))},
         "trips_new": trips_new,
         "trips_check": {"count": sum(check_reasons.values()), "reasons": check_reasons},

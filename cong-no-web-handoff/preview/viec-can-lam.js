@@ -122,31 +122,99 @@
     } finally { loading = false; }
   }
 
+  // Hộp P2 (specs/v7-hop-ngoai-le-p2.md): sổ đã chọn, khung xem lại, kết quả lần ghi; giữ qua các lần tự tải lại.
+  const inbox = { data: undefined, selected: new Set(), review: null, result: null, busy: false, keys: new Map() };
+  const inboxLabel = book => customerLabels(currentCustomers).get(String(book.customer_id)) ?? `Sổ #${book.customer_id}`;
+  function paintInbox() {
+    inboxRoot.innerHTML = globalThis.InboxCard.render(inbox.data, {
+      F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
+      selected: inbox.selected, review: inbox.review, result: inbox.result, busy: inbox.busy,
+    });
+  }
+
   async function loadInbox() {
-    if (inboxLoading || !globalThis.InboxCard) return;
+    if (inboxLoading || !globalThis.InboxCard || inbox.busy || inbox.review) return;   // không vẽ lại khi đang xem lại/ghi
     inboxLoading = true;
     clearTimeout(inboxTimer);
-    let data;
     try {
-      const [inbox, customers] = await Promise.all([json('/api/v7/inbox'),
+      const [data, customers] = await Promise.all([json('/api/v7/inbox'),
         currentCustomers.length ? currentCustomers : json('/api/v7/customers').then(body => body.customers ?? []).catch(() => [])]);
-      data = inbox;
+      inbox.data = data;
       if (!currentCustomers.length) currentCustomers = customers;
-    } catch { data = null; }
-    const labels = customerLabels(currentCustomers);
-    inboxRoot.innerHTML = globalThis.InboxCard.render(data, {
-      F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'),
-      label: book => labels.get(String(book.customer_id)) ?? `Sổ #${book.customer_id}`,
-    });
-    if (data && (data.state === 'computing' || data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
+      // Bỏ chọn sổ không còn ghi được (đã ghi xong, phiếu đổi sang cần xem…).
+      const writable = new Set((data.books ?? []).filter(globalThis.InboxCard.canWrite).map(book => book.customer_id));
+      for (const id of inbox.selected) if (!writable.has(id)) inbox.selected.delete(id);
+    } catch { inbox.data = null; }
+    paintInbox();
+    if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
   }
+
+  // Ghi phiếu của từng sổ đã xem lại bằng lệnh duyệt đang có. Khóa chống ghi trùng gắn với (sổ, phiên bản, bản chụp):
+  // bấm lại hay "Thử lại" sau mất mạng dùng đúng khóa đó; sổ đã ghi một phần thì server báo sổ đã đổi, không ghi lại.
+  async function writeReceipts() {
+    const books = inbox.review ?? [];
+    if (!books.length || inbox.busy) return;
+    inbox.busy = true;
+    paintInbox();
+    const outcome = [];
+    let unknown = false;
+    for (const book of books) {
+      const tag = `${book.customer_id}:${book.version}:${book.receipts.snapshot_sha256}`;
+      if (!inbox.keys.has(tag)) inbox.keys.set(tag, globalThis.crypto?.randomUUID?.() ?? `hop-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      const row = { customer_id: book.customer_id, written: 0, amount_vnd: book.receipts.ready_amount_vnd };
+      try {
+        const response = await fetch('/api/v7/sheet/receipts', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customer_id: book.customer_id, expected_version: book.version,
+            snapshot_sha256: book.receipts.snapshot_sha256, idempotency_key: inbox.keys.get(tag) }) });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok && body.complete) outcome.push({ ...row, ok: true, written: body.written });
+        else if (response.ok) outcome.push({ ...row, ok: false, message: `Ghi được ${body.written}/${book.receipts.ready} phiếu rồi dừng. Mở sổ xem phiếu còn lại.` });
+        else outcome.push({ ...row, ok: false, message: body.message ?? 'Chưa ghi được sổ này. Tải lại rồi thử lại.' });
+      } catch {
+        unknown = true;
+        outcome.push({ ...row, ok: false, message: 'Mất kết nối khi ghi: chưa rõ sổ này đã ghi chưa. Bấm Thử lại (không ghi trùng).' });
+      }
+    }
+    for (const row of outcome) if (row.ok) inbox.selected.delete(row.customer_id);
+    inbox.result = { books: outcome, unknown };
+    inbox.review = unknown ? books.filter(book => outcome.some(row => row.customer_id === book.customer_id && !row.ok)) : null;
+    inbox.busy = false;
+    paintInbox();
+    if (!unknown) loadInbox();   // sổ vừa ghi được API tính lại ngay ở lần đọc này
+  }
+
+  inboxRoot.addEventListener('change', event => {
+    const pick = event.target.closest('[data-pick]');
+    const all = event.target.closest('[data-pick-all]');
+    if (!pick && !all) return;
+    if (pick) {
+      const id = Number(pick.dataset.pick);
+      if (pick.checked) inbox.selected.add(id); else inbox.selected.delete(id);
+    } else {
+      const writable = (inbox.data?.books ?? []).filter(globalThis.InboxCard.canWrite).map(book => book.customer_id);
+      inbox.selected = new Set(all.checked ? writable : []);
+    }
+    paintInbox();
+  });
+  inboxRoot.addEventListener('click', event => {
+    if (event.target.closest('[data-inbox-retry]')) { loadInbox(); return; }
+    if (event.target.closest('[data-review]')) {
+      inbox.result = null;
+      inbox.review = (inbox.data?.books ?? []).filter(book => inbox.selected.has(book.customer_id) && globalThis.InboxCard.canWrite(book));
+      paintInbox();
+      inboxRoot.querySelector('[data-write]')?.focus();
+      return;
+    }
+    if (event.target.closest('[data-review-cancel]')) { inbox.review = null; paintInbox(); return; }
+    if (event.target.closest('[data-write]') || event.target.closest('[data-write-retry]')) writeReceipts();
+  });
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && inbox.review && !inbox.busy) { inbox.review = null; paintInbox(); } });
 
   load();
   loadInbox();
   const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); sheetRefresh?.load(); };
   document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
-  inboxRoot.addEventListener('click', event => { if (event.target.closest('[data-inbox-retry]')) loadInbox(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });

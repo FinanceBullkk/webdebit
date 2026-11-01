@@ -2,12 +2,14 @@
   'use strict';
   // NHAC-NO-01: tab Đòi nợ — khách quá hạn + mốc "đã nhắc" (reminder_log), nút Copy tin nhắc.
   // Chỉ dùng metadata công nợ + mốc nhắc; không đụng nội dung tin nhắn.
+  // Hộp ngoại lệ P2 (specs/v7-hop-ngoai-le-p2.md): khách còn phiếu thu trên Sheet chưa ghi vào web thì có nhãn, và
+  // Copy tin nhắc hỏi lại trước (số nợ trong tin sẽ cao hơn thực tế). Không đọc được việc chờ thì không hỏi, ghi rõ ở chú thích.
   const F = CongNoFormat;
   const root = document.getElementById('doi-no');
   const $ = id => document.getElementById(id);
   const { esc, commodityText, dateText } = F;
   const FILTERS = [['all', 'Tất cả'], ['chua-nhac', 'Chưa nhắc'], ['nhac-cho', 'Đã nhắc, chưa trả']];
-  const state = { asOf: null, rows: [], byId: new Map(), names: new Map(), filter: 'all' };
+  const state = { asOf: null, rows: [], byId: new Map(), names: new Map(), filter: 'all', pending: new Map(), pendingKnown: false };
   let loading = false;
 
   const json = async url => {
@@ -63,9 +65,30 @@
     toast.timer = setTimeout(() => { node.hidden = true; }, 3200);
   }
 
+  // Hỏi lại trước khi copy tin nhắc cho khách còn phiếu thu chưa ghi: trả 'write' | 'copy' | 'cancel'.
+  function askPending(id) {
+    const pending = state.pending.get(id);
+    const dialog = $('pending-ask');
+    $('pending-text').textContent = `Khách còn ${pending.count} phiếu thu ${F.full(pending.amount)} trên Sheet chưa ghi vào web. `
+      + 'Tin nhắc sẽ ghi nợ cao hơn thực tế.';
+    return new Promise(resolve => {
+      const done = value => { dialog.close(); resolve(value); };
+      dialog.onclose = () => resolve('cancel');
+      $('pending-write').onclick = () => done('write');
+      $('pending-copy').onclick = () => done('copy');
+      dialog.showModal();
+      $('pending-write').focus();
+    });
+  }
+
   async function copyRemind(id) {
     const row = state.byId.get(id);
     if (!row) return;
+    if (state.pending.has(id)) {
+      const choice = await askPending(id);
+      if (choice === 'write') { location.href = '/viec-can-lam.html'; return; }
+      if (choice !== 'copy') return;
+    }
     let copied = false;
     try {
       await navigator.clipboard.writeText(buildMessage(row));
@@ -87,6 +110,11 @@
     }
   }
 
+  function pendingTag(id) {
+    const pending = state.pending.get(id);
+    return pending ? `<a class="pend" href="/viec-can-lam.html" title="Ghi phiếu ở Việc cần làm">còn ${pending.count} phiếu chưa ghi · ${esc(F.short(pending.amount))}</a>` : '';
+  }
+
   function paint() {
     const rows = state.rows.filter(matchFilter);
     const unreminded = state.rows.filter(r => statusOf(r).key === 'chua-nhac').length;
@@ -106,7 +134,7 @@
       const book = `/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}`;
       const oldest = /^\d{4}-\d{2}/.exec(row.oldest_open_month ?? '')?.[0];
       return `<div class="rrow s-${st.key}">
-        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="${book}&amp;the=trao-doi" title="Xem trao đổi với ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
+        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="${book}&amp;the=trao-doi" title="Xem trao đổi với ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small>${pendingTag(row.customer_id)}</span>
         <a class="num od" href="${book}${oldest ? `&amp;month=${esc(oldest)}` : ''}" title="${esc(F.full(row.overdue_vnd))}${oldest ? ` · mở sổ tháng ${esc(F.monthLabel(oldest))}` : ''}">${esc(F.short(row.overdue_vnd))}</a>
         <span class="num" title="${esc(F.full(row.outstanding_vnd))}">${esc(F.short(row.outstanding_vnd))}</span>
         <span class="when">${paid}</span>
@@ -119,6 +147,7 @@
       <div class="card-head"><h2>Khách quá hạn cần đòi <small>${state.rows.length} khách · ${unreminded} chưa nhắc</small></h2></div>
       <div class="filters">${filterBtns}</div>
       <div class="rgrid"><div class="rhead"><span>Khách</span><span class="num">Quá hạn</span><span class="num">Còn nợ</span><span class="when">Trả gần nhất</span><span class="when">Nhắc gần nhất</span><span class="st">Trạng thái</span><span></span></div>${list}</div>
+      ${state.pendingKnown ? '' : '<p class="tiny warn">Chưa kiểm được phiếu thu từ Sheet chờ ghi: số nợ có thể chưa trừ phiếu mới.</p>'}
       <p class="tiny">"Đã nhắc" ghi khi bạn bấm Copy tin nhắc (dán vào Zalo). Nút Chat mở lại hội thoại Zalo với khách từ bản xuất (<a href="/zalo-chat.html">xem mọi hội thoại</a>).</p>
     </section>`;
   }
@@ -134,11 +163,16 @@
     if (loading) return;
     loading = true;
     try {
-      const [debt, reminders, customers] = await Promise.all([
+      const [debt, reminders, customers, inbox] = await Promise.all([
         json('/api/v7/dashboard/debt'),
         json('/api/v7/reminders').then(body => body.reminders ?? []).catch(() => []),
         json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
+        json('/api/v7/inbox').catch(() => null),
       ]);
+      state.pendingKnown = inbox?.state === 'ready';
+      state.pending = new Map(state.pendingKnown ? (inbox.books ?? [])
+        .filter(book => book.receipts.ready + book.receipts.review > 0)
+        .map(book => [book.customer_id, { count: book.receipts.ready + book.receipts.review, amount: book.receipts.amount_vnd }]) : []);
       state.asOf = debt.as_of;
       if (debt.as_of) $('as-of').textContent = `Số liệu đến ${dateText(debt.as_of)}`;
       state.byId = new Map();
