@@ -10,6 +10,17 @@ test('full keeps exact VND with Vietnamese grouping and minus sign', () => {
   assert.throws(() => F.full(12), /không hợp lệ/);
 });
 
+test('reminderText: tin nhắc chung của Đòi nợ và thẻ Trao đổi — tổng, quá hạn, từng tháng còn nợ; vnDay theo giờ VN', () => {
+  assert.equal(F.reminderText('Khách A', { outstanding_vnd: '150000000', overdue_vnd: '100000000', months: [
+    { month: '2026-08-01', outstanding_vnd: '100000000' }, { month: '2026-09-01', outstanding_vnd: '0' }, { month: '2026-10-01', outstanding_vnd: '50000000' }] }),
+  'Kính gửi Khách A,\nTổng công nợ còn lại: 150.000.000 đ\nTrong đó quá hạn: 100.000.000 đ\nChi tiết nợ theo tháng:\n'
+    + '- Tháng 08/2026: 100.000.000 đ\n- Tháng 10/2026: 50.000.000 đ\nKính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
+  assert.equal(F.reminderText('Khách B', { outstanding_vnd: '0', overdue_vnd: '0' }),
+    'Kính gửi Khách B,\nTổng công nợ còn lại: 0 đ\nTrong đó quá hạn: 0 đ\nKính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
+  assert.equal(F.vnDay(Date.UTC(2026, 9, 31, 17, 30)), '2026-11-01', '00:30 ngày 1/11 giờ VN');
+  assert.equal(F.vnDay(Date.UTC(2026, 9, 31, 16, 59)), '2026-10-31');
+});
+
 test('short rounds half up to tỷ/triệu and trims zeros', () => {
   assert.equal(F.short('63911000000'), '63,91 tỷ');
   assert.equal(F.short('11800000000'), '11,8 tỷ');

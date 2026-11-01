@@ -4,22 +4,23 @@
  *   2. Nợ đang tăng hay giảm: 12 tháng phát sinh, đã thu, Còn nợ cuối tháng; bấm một tháng thì sang thẻ Sổ tháng đó.
  *   4. Khách còn đi hàng không: số chuyến 6 tháng, lần đi hàng gần nhất.
  *   5. Còn gì làm số chưa đúng: việc chờ của sổ, mỗi dòng mở thẻ Sổ đúng chỗ.
- *   6. Lần cuối nói chuyện với khách, phần A: lần nhắc gần nhất, sang thẻ Trao đổi.
+ *   6. Lần cuối nói chuyện với khách, phần A: lần nhắc gần nhất, tin Zalo gần nhất (PR A3), sang thẻ Trao đổi.
  * Khối 3 (trả sau hạn) chờ hàm đọc mới (B1). Thẻ chỉ đọc, không ghi tiền: tiền lấy nguyên từ GET, chuỗi tháng do model dựng
- * (ARCH-03). Sổ (GET /api/v7/ledger) vẽ cùng lần với thẻ Sổ; Tổng quan (dashboard/debt) và lần nhắc (reminders) chỉ đọc khi
- * thẻ đang mở, đọc lại khi sổ đổi phiên bản hoặc lần đọc đã quá 60 giây; nguồn nào lỗi thì chỉ khối đó báo lỗi kèm Thử lại.
+ * (ARCH-03). Sổ (GET /api/v7/ledger) vẽ cùng lần với thẻ Sổ; Tổng quan (dashboard/debt), lần nhắc (reminders) và hội thoại Zalo
+ * chỉ đọc khi thẻ đang mở, đọc lại khi sổ đổi phiên bản hoặc lần đọc đã quá 60 giây; nguồn nào lỗi thì chỉ khối đó báo lỗi kèm
+ * Thử lại.
  * Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).overview = ctx => {
   'use strict';
   const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork } = ctx;
-  const { toBig, full, short, monthTag, dateText, loadError } = CongNoFormat;
+  const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
   // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau.
   const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
   const SOURCE = { 'copy-button': 'bấm Copy tin nhắc', zalo: 'Zalo', manual: 'ghi tay' };
   // Nút ở dải việc chờ đầu thẻ Sổ (SO-GON-04 L7) mà mỗi lô từ Sheet hay bảng PS mở tới.
   const TASKS = { sheet: '.sheet-approve', price: '.price-approve,.price-review-toggle', receipt: '.receipt-approve,.receipt-review-toggle',
     ps: '.ps-approve,.ps-review-toggle' };
-  const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' } };
+  const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, chats: { state: 'idle', read: 'findChats' } };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
   const thisMonth = () => monthKey(ctx.snapshot?.today_month) || liveOpenMonth;
@@ -188,14 +189,21 @@
       ? `${list}${rows.length ? '<p class="ov-note">Còn nợ ở trên chưa tính các dòng này.</p>' : ''}` : '<p>Sổ không còn việc chờ.</p>');
   }
 
-  // Khối 6, phần A: lần nhắc gần nhất (reminder_log, NHAC-NO-01). Tin Zalo, hứa trả ở thẻ Trao đổi (A3, B2).
+  // Khối 6, phần A: lần nhắc gần nhất (reminder_log, NHAC-NO-01) và tin Zalo gần nhất của hội thoại tìm theo tên khách, như thẻ
+  // Trao đổi (PR A3). Hứa trả ở giai đoạn B2.
   function talk() {
-    const item = side.reminders;
+    const item = side.reminders, chats = side.chats;
     const line = item.state === 'error' ? `${escape(loadError('lần nhắc nợ'))} ${button('retry:reminders', 'Thử lại')}`
       : !loaded(item) ? 'Đang đọc lần nhắc nợ…'
         : item.data ? escape(`Nhắc gần nhất ${dateText(item.data.last_reminded)} · ${SOURCE[item.data.last_source] ?? item.data.last_source} · `
           + `đã nhắc ${item.data.reminder_count} lần`) : 'Chưa nhắc lần nào.';
+    const latest = loaded(chats) ? (chats.data.conversations ?? []).find(row => row.last_message_at) : null;
+    const chat = chats.state === 'error' ? `${escape(loadError('hội thoại Zalo'))} ${button('retry:chats', 'Thử lại')}`
+      : !loaded(chats) ? 'Đang tìm hội thoại Zalo…' : chats.data.conversations === null ? 'Chưa có dữ liệu chat trên máy chủ.'
+        : latest ? escape(`Zalo gần nhất ${dateText(vnDay(latest.last_message_at))} · ${latest.display_name ?? 'hội thoại chưa rõ tên'}`)
+          : 'Không thấy hội thoại Zalo có tên khách.';
     return block('Lần cuối nói chuyện với khách', `<p class="ov-talk"${item.state === 'error' ? ' role="alert"' : ''}>${line}</p>`
+      + `<p class="ov-chat"${chats.state === 'error' ? ' role="alert"' : ''}>${chat}</p>`
       + '<button type="button" class="tab-go" data-the="trao-doi">Xem thẻ Trao đổi</button>');
   }
 

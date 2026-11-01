@@ -1,6 +1,6 @@
 # Trang khách: một khách, bốn thẻ
 
-Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** (1/11/2026, kiểm trên máy chủ giả); A3–A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
+Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** (1/11/2026, kiểm trên máy chủ giả); A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
@@ -197,6 +197,31 @@ Dòng thời gian của một khách, mới nhất ở trên. Lọc theo loại:
 | Hạn mức nợ, hạn trả riêng | mới | C |
 | Người liên hệ, ghi chú nội bộ | mới; dữ liệu cá nhân, chỉ nằm trong DB trên `hao` | C |
 
+**Khi code (PR A3, 1/11/2026), Claude làm như sau** — không đổi tiền, API, DB hay lựa chọn K1–K8:
+
+1. **Dòng thời gian của thẻ Trao đổi:** phiếu thu và cấn trừ vào sổ (`receipts[]`), khoản cấn trừ sang sổ khác (`outgoing_offsets[]`), lần nhắc gần nhất, hội thoại Zalo; xếp theo ngày, mới nhất ở trên. Khoản thu sổ gốc (trước khi lên web) không vào dòng thời gian; một câu dưới danh sách chỉ sang thẻ Sổ.
+2. **Phiếu thu:** số tiền nguyên của phiếu. Tháng trừ nợ lấy dòng phân bổ có `superseded_by_event` trống; một tháng thì chỉ ghi tháng, như danh sách phiếu ở thẻ Sổ; dòng `kind = advance` ghi "ứng trước". Phiếu hủy gạch số tiền, ghi ngày hủy và lý do. Phiếu có ảnh có nút 📎: bấm thì sang thẻ Sổ, khung xem ảnh mở ở đó. Xem và đính ảnh vẫn chỉ ở thẻ Sổ.
+3. **Zalo phần A:** tìm hội thoại theo tên Sheet của sổ (`display_name`, rồi `name`), như nút Chat ở Đòi nợ.
+   - Mỗi hội thoại khớp là một mục ở ngày tin cuối (giờ VN), kèm số tin, lần mình nhắn gần nhất và link mở đúng hội thoại. Tối đa ba hội thoại; nhiều hơn thì bấm Mở chat.
+   - Không hiện nội dung tin: đọc tin ở trang Chat Zalo.
+   - Máy chủ chưa có bản xuất chat thì một câu "Chưa có dữ liệu chat trên máy chủ", không báo lỗi.
+   - Khối 6 của thẻ Tình hình thêm "Zalo gần nhất dd/mm/yyyy · tên hội thoại", phần A2 để lại.
+4. **Copy tin nhắc:**
+   - Tin soạn bằng cùng một hàm với Đòi nợ (`CongNoFormat.reminderText`), từ dòng của khách ở Tổng quan. Dòng đó đọc lại ngay lúc bấm để số gửi khách là số mới nhất.
+   - "Kính gửi" dùng tên Sheet, không kèm "· sổ N" như Đòi nợ khi hai sổ trùng tên.
+   - Ghi "đã nhắc" bằng đúng lệnh của Đòi nợ (`POST /api/v7/reminders`, `source: copy-button`), rồi đọc lại lần nhắc từ server, không tự cộng số lần.
+   - Khách không còn nợ thì không có tin. Không chép được vào bộ nhớ tạm thì tin hiện trong ô để copy tay.
+5. **Thẻ Hồ sơ:**
+   - Giá đang áp là các dòng "Đang dùng" của khung Bảng giá: Từ ngày ≤ hôm nay (giờ VN) ≤ Đến ngày, Đến ngày trống là chưa hết hạn; cùng thứ tự. Kèm shipper áp giá TT và ngày có giá mới.
+   - Nút Mở Bảng giá và Cài đặt phụ phí sang thẻ Sổ rồi mở khung đó: sửa vẫn ở thẻ Sổ.
+   - Hạn trả ghi quy tắc chung, kèm ví dụ bằng tháng hiện tại.
+   - Ảnh chứng từ: các phiếu có ảnh, mới nhất trước.
+6. **Đọc API phụ khi cần**, như thẻ Tình hình:
+   - Thẻ Trao đổi đọc `reminders` và `zalo/conversations`; thẻ Hồ sơ đọc `dashboard/debt` (quy tắc hạn trả) và `price-table`. Chỉ đọc khi thẻ đang mở.
+   - Copy tin nhắc đọc `dashboard/debt` lúc bấm.
+   - Hai thẻ chỉ dựng nội dung khi đang mở: dòng thời gian dài không dựng lại mỗi lần sổ vẽ lại.
+7. **Lọc:** Tất cả · Nhắc và Zalo · Thu tiền, kèm số mục. Hứa trả và Debit note chờ giai đoạn B.
+
 ## Đầu ra
 
 **Giai đoạn A**, trên máy chủ giả rồi trên `hao`:
@@ -331,10 +356,10 @@ PR A2 (đã kiểm trên máy chủ giả, mục Bằng chứng):
 - [x] Khách chưa có số dư đầu thì hiện câu thay số; khách dư thì hiện "Khách đang dư …", không hiện quá hạn.
 - [x] `dashboard/debt` lỗi (`page.route` abort): khối 1 hiện Còn nợ từ ledger, phần quá hạn báo lỗi kèm Thử lại; các khối khác vẫn hiện.
 
-PR A3:
-- [ ] Trao đổi: phiếu thu (kể cả cấn trừ) đúng ngày, số tiền, tháng trừ nợ theo `allocations` hiện hành; phiếu hủy hiện gạch, có lý do.
-- [ ] Copy tin nhắc ghi đúng một dòng `reminder_log` như ở Đòi nợ. Bấm lặp trong một ngày không tạo dòng mới (`UNIQUE` theo ngày).
-- [ ] Hồ sơ: giá đang áp bằng bảng giá trong sổ ở ngày hôm nay; cột phụ phí riêng đúng cài đặt của sổ.
+PR A3 (đã kiểm trên máy chủ giả, mục Bằng chứng):
+- [x] Trao đổi: phiếu thu (kể cả cấn trừ) đúng ngày, số tiền, tháng trừ nợ theo `allocations` hiện hành; phiếu hủy hiện gạch, có lý do.
+- [x] Copy tin nhắc ghi đúng một dòng `reminder_log` như ở Đòi nợ. Bấm lặp trong một ngày không tạo dòng mới (`UNIQUE` theo ngày).
+- [x] Hồ sơ: giá đang áp bằng bảng giá trong sổ ở ngày hôm nay; cột phụ phí riêng đúng cài đặt của sổ.
 
 PR A4:
 - [ ] Ngăn kéo Tổng quan có "Trang khách" mở `the=tinh-hinh`; tên khách ở ma trận mở `the=tinh-hinh`; tên khách ở Đòi nợ mở `the=trao-doi`. Các link khác giữ như cũ.
@@ -375,6 +400,32 @@ Spec: hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ d
   5. Khách chưa có số dư đầu: một câu, không đọc Tổng quan; khách dư: "Khách đang dư", không có chữ quá hạn.
   6. `dashboard/debt` cắt một lần (`page.route` abort `times: 1`): Còn nợ và Thu tháng này vẫn hiện, quá hạn báo lỗi kèm Thử lại, các khối khác còn; Thử lại thì có số. `reminders` cắt một lần: chỉ khối 6 báo lỗi.
 - So mọi ô số tiền của thẻ Sổ (`#app` trừ khung Tình hình) giữa `main` (`a6cb0d1`) và bản PR, cùng máy chủ giả, mở hết tháng, trên hai sổ giả: 161 ô (85 + 76) trùng khớp; đã thử ngược bằng một bản cố ý sai thì phép so báo lệch.
+- `npm run check` xanh (ruff chạy bằng venv của checkout chính).
+
+**PR A3 (thẻ Trao đổi và Hồ sơ), 1/11/2026** — máy chủ giả, 1280×720, dữ liệu giả, đồng hồ trang ghim 15/11/2026 (giờ VN); chưa đo trên `hao`:
+- `test-so-khach-v7-contact-browser.js`, 4 test trên sổ giả có phiếu hủy, cấn trừ vào và ra, phiếu có dòng phân bổ đã bị thay, phần ứng trước, một hội thoại Zalo khớp tên và một không khớp:
+  1. Trao đổi:
+     - Bảy mục đúng ngày, số tiền, tháng trừ nợ; dòng phân bổ đã bị thay không hiện; phiếu hủy gạch số tiền, có ngày hủy và lý do.
+     - Phần trừ nợ trùng chữ ở danh sách phiếu thẻ Sổ.
+     - Hội thoại tìm theo tên Sheet; link Mở chat, Mở hội thoại đúng tên và đúng hội thoại.
+     - Lọc theo loại giữ tiêu điểm; không cuộn ngang, nút ≥ 40px, chữ thân 16px; không gửi lệnh nào.
+     - Khối 6 của thẻ Tình hình có Zalo gần nhất.
+  2. Copy tin nhắc:
+     - Bộ nhớ tạm có đúng tin của Đòi nợ; gửi một lệnh `POST /api/v7/reminders` `{customer_id, source: copy-button}`.
+     - Lần nhắc đọc lại thành 15/11/2026 · đã nhắc 4 lần.
+     - Bấm lần hai cùng ngày gửi lệnh giống hệt; máy chủ giả giữ `UNIQUE` theo ngày như `reminder_log` nên không thêm dòng, vẫn 4 lần. Phiên bản sổ không đổi.
+  3. Hồ sơ:
+     - Mặt hàng, hạn trả kèm ví dụ.
+     - Giá đang áp bằng các dòng "Đang dùng" của khung Bảng giá, mở bằng nút ở thẻ Hồ sơ.
+     - Cột phụ phí riêng bằng tiêu đề cột của sổ; nút 📎 mở khung xem ảnh ở thẻ Sổ.
+  4. Lỗi:
+     - `reminders` cắt một lần (`page.route` abort `times: 1`): chỉ dòng lần nhắc báo lỗi kèm Thử lại, phiếu thu vẫn hiện.
+     - Máy chủ chưa có bản xuất chat: một câu "Chưa có dữ liệu chat trên máy chủ." ở cả thẻ Trao đổi và Tình hình.
+     - `price-table` cắt một lần: chỉ khối giá báo lỗi.
+- Ở DB, bấm lặp không thêm dòng nhờ `UNIQUE(customer_id, source, reminded_at)` và `ON CONFLICT DO NOTHING` của `record_reminder`. Harness `tools/test_pg_v7_backend_doi_no.py` đã kiểm điều này; PR không đổi SQL.
+- `test-cong-no-format.js`: `reminderText` cho đúng tin Đòi nợ cũ; `vnDay` qua nửa đêm giờ VN.
+- Sửa test cũ: `test-so-khach-v7-tabs-browser.js` đổi nút "Mở thẻ Sổ" của thẻ chưa có nội dung thành nút "Xem thẻ Trao đổi" của thẻ Tình hình.
+- So mọi ô số tiền của thẻ Sổ (`#app` trừ ba khung ngoài Sổ) giữa `main` (`1d3bfac`) và bản PR, cùng máy chủ giả, mở hết tháng: 182 ô (85 + 21 + 76) trùng khớp. Sổ thứ ba có phiếu hủy, cấn trừ vào và ra, ứng trước, ảnh chứng từ. Đã thử ngược bằng một bản cố ý sai thì phép so báo lệch.
 - `npm run check` xanh (ruff chạy bằng venv của checkout chính).
 
 ## Lựa chọn đã chốt

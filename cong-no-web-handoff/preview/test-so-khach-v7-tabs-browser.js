@@ -40,11 +40,12 @@ test('Bấm thẻ: địa chỉ đổi, trang không tải lại, không thêm l
     await page.locator(`#tab-${tab}`).click();
     assert.deepEqual(await state(page), { selected: [tab], shown: [`the-${tab}`], search });
   }
-  // Thẻ chưa có nội dung có nút về thẻ Sổ; tiêu điểm về thẻ Sổ trên thanh.
-  await page.locator('#tab-ho-so').click();
-  await page.locator('#the-ho-so .tab-go').click();
-  assert.deepEqual((await state(page)).selected, ['so']);
-  assert.equal(await focused(page), 'tab-so');
+  // Nút trong một thẻ đưa sang thẻ khác (Tình hình → Trao đổi): tiêu điểm về thẻ đó trên thanh.
+  await page.locator('#tab-tinh-hinh').click();
+  await page.locator('#the-tinh-hinh .tab-go').click();
+  assert.deepEqual((await state(page)).selected, ['trao-doi']);
+  assert.equal(await focused(page), 'tab-trao-doi');
+  await page.locator('#tab-so').click();
   assert.deepEqual(await page.evaluate(() => [window.sameDocument, history.length]), [true, before]);
   assert.equal(world.reads, reads, 'đổi thẻ không đọc lại sổ');
   await page.goBack();

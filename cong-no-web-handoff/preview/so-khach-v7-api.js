@@ -44,6 +44,11 @@
   const tripFields = ['date', 'booking', 'container', 'carrier', 'shipper', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
   const customerNames = new Map();
   const customerRows = new Map();   // DEBIT-NOTE-02: tên, mặt hàng, phương thức để điền sẵn debit note
+  // Tên Sheet của sổ (display_name, rồi name), như tên Đòi nợ dùng trong tin nhắc và nút Chat; danh sách chưa về thì "".
+  const sheetName = id => String(customerRows.get(id)?.display_name ?? customerRows.get(id)?.name ?? '').trim();
+  // Trang khách: tìm hội thoại Zalo cần tên khách nên đợi danh sách khách về (đọc được hay lỗi).
+  let customersDone = () => {};
+  const customersLoaded = new Promise(resolve => { customersDone = resolve; });
 
   // Danh sách khách tải sau sổ: vẽ lại qua renderer để tên khách vào đúng tiêu đề, không chép đè DOM.
   let redraw = null;
@@ -79,7 +84,7 @@
   async function loadCustomers(fetcher = fetch) {
     const search = document.querySelector('#customer-search');
     const list = document.querySelector('#customer-list');
-    if (!search || !list) return;
+    if (!search || !list) { customersDone(); return; }
     try {
       const response = await fetcher('/api/v7/customers', { cache: 'no-store' });
       if (!response.ok) throw Error();
@@ -140,7 +145,7 @@
       redraw?.();
     } catch {
       document.querySelector('#customer-count').textContent = 'Không tải được danh sách khách';
-    }
+    } finally { customersDone(); }
   }
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadCustomers(); });
 
@@ -287,11 +292,40 @@
       if (!data || !Array.isArray(data.reminders)) throw Error('Lần nhắc nợ không hợp lệ.');
       return data.reminders.find(row => Number(row.customer_id) === customerId) ?? null;
     }
+    // Thẻ Trao đổi và Tình hình: hội thoại Zalo có tên khớp tên Sheet của sổ (ZALO-CHAT-01, tìm như nút Chat ở Đòi nợ). Máy chủ
+    // chưa có bản xuất chat (503 ZALO_EXPORT_UNAVAILABLE, như hao hiện nay) thì conversations = null, không phải lỗi.
+    async function findChats() {
+      await customersLoaded;
+      const name = sheetName(customerId);
+      if (!name) throw Error('Chưa biết tên khách để tìm hội thoại.');
+      const response = await fetcher(`/api/v7/zalo/conversations?q=${encodeURIComponent(name)}`, { cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (response.status === 503 && data?.error === 'ZALO_EXPORT_UNAVAILABLE') return { name, conversations: null };
+      if (!response.ok || !Array.isArray(data?.conversations)) throw Error('Không đọc được hội thoại Zalo.');
+      return { name, conversations: data.conversations };
+    }
+    // Thẻ Hồ sơ: bảng giá của sổ (BANG-GIA-01), chỉ đọc.
+    async function readPrices() {
+      const response = await fetcher(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được bảng giá.');
+      const data = await response.json();
+      if (!Array.isArray(data?.price_table?.periods)) throw Error('Bảng giá không hợp lệ.');
+      return data.price_table;
+    }
+    // Copy tin nhắc (NHAC-NO-01): ghi "đã nhắc" hôm nay như Đòi nợ, ngoài đường tiền (không version sổ). Bấm lặp trong ngày thì
+    // server không thêm dòng (reminder_log UNIQUE theo khách, nguồn, ngày).
+    async function remind() {
+      const response = await fetcher('/api/v7/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: customerId, source: 'copy-button' }) });
+      if (!response.ok) throw Error('Chưa ghi được lần nhắc.');
+      return response.json();
+    }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
-      snapshot: () => snapshot };
+    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, findChats, readPrices, remind,
+      lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
-  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id), showCustomers: () => showCustomers() };
+  const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
+    sheetName, showCustomers: () => showCustomers() };
   if (typeof module !== 'undefined') module.exports = api;
   if (typeof window !== 'undefined') window.SoKhachV7Api = api;
 })();
