@@ -60,5 +60,5 @@ Tiêu chí đợt 2:
 
 - [x] Thanh tháng → khối phiếu thu → bảng chuyến; bảng chuyến rộng bằng vùng sổ; tiêu đề cột kết thúc ở Thành tiền.
 - [x] Tháng không phiếu: một dòng chữ, không bảng trống.
-- [ ] Đầu sổ còn một thanh dưới thanh tên khách; cài đặt trong "Cài đặt ▾".
+- [x] Đầu sổ còn một thanh dưới thanh tên khách; cài đặt trong "Cài đặt ▾".
 - [ ] `npm run check` xanh; người dùng xem lại trên `hao`.

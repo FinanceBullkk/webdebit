@@ -253,6 +253,8 @@
     // Lịch sử (SO-GON-04 L7). Phần còn lại của sổ — dải nút việc chờ và "Làm mới" (không dính), các bảng tháng — là thẻ Sổ
     // (#the-so); khung các thẻ khác nằm sau.
     const liveControls = live && document.querySelector('#live-controls');
+    // Nút "Ẩn con trỏ" của presence.js: giữ đúng nút đó (có trình nghe) và dời vào menu Cài đặt mỗi lần vẽ (SO-GON-06).
+    const pointerToggle = live && document.querySelector('.presence-toggle');
     const history = `<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>`;
     const total = `<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>`;
     const head = live
@@ -274,11 +276,13 @@
       + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`;
     root.innerHTML = (live
       ? [head, '<div id="the-so" class="tab-pane" role="tabpanel" aria-labelledby="tab-so"><div class="book-bar">'
-        + `<div class="book-tasks">${view.barButtons}</div><div class="live-slot"></div></div>${book}`, `</div></div>${aside}${view.panes}`]
+        + `<div class="book-tasks">${view.barButtons}</div><div class="live-slot"></div>${view.settings ?? ''}</div>${book}`, `</div></div>${aside}${view.panes}`]
       : [head, book, `<nav class="months-nav" aria-label="Danh sách tháng"><h2>DANH SÁCH THÁNG</h2>${view.navigation}</nav></div>${aside}`]).join('\n    ');
     // "Cập nhật … · Làm mới" giữ trình nghe của sheet-refresh.js: chỉ dời vào dải đầu thẻ Sổ.
     const liveSlot = root.querySelector('.live-slot');
     if (liveControls && liveSlot) liveSlot.append(liveControls);
+    const settingsMenu = root.querySelector('.settings-menu');
+    if (pointerToggle && settingsMenu) settingsMenu.append(pointerToggle);
     pinReceipts();
     window.scrollTo(0, scrollY);
   }
@@ -376,12 +380,16 @@
       const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
         + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
       const newCount = data.sheet_sync?.new_count ?? 0;
+      // SO-GON-06: một thanh việc — bên trái việc cần làm (nút ghi/duyệt và các ô "cần xem" phần khác chèn vào), bên phải giờ
+      // Sheet, Làm mới và menu "Cài đặt ▾" (cài đặt phụ phí, bảng giá, ẩn con trỏ).
+      const price = ctx.priceButtons?.(active) ?? { task: '', setting: '' };
       const barButtons = (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
         + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
-        + (ctx.receiptButton?.(data, active) ?? '')
-        + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${ctx.priceButtons?.(active) ?? ''}`;
+        + (ctx.receiptButton?.(data, active) ?? '') + price.task;
+      const settings = '<details class="book-settings"><summary>Cài đặt</summary><div class="settings-menu" role="group" aria-label="Cài đặt sổ">'
+        + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${price.setting}</div></details>`;
       return { total: `${fmt(data.total_outstanding_vnd)}${data.total_outstanding_vnd == null ? '' : ' đ'}`, notice,
-        entryButton: ctx.entryButton(active), barButtons };
+        entryButton: ctx.entryButton(active), barButtons, settings };
     }
     // Vẽ cả sổ từ một bản GET; mọi số tiền lấy nguyên từ GET, trang không cộng trừ tiền. Bảng tháng: so-khach-v7-month-ui.js
     // (bảng chuyến: trips-ui, phiếu thu: pay-ui); Lịch sử: history-ui; thanh ?loc: loc-ui; móc sau khi vẽ của các phần khác.
@@ -421,6 +429,13 @@
         fitWidth = width;
         renderSnapshot(data);
       }
+    }
+    // Menu "Cài đặt ▾" (SO-GON-06): bấm một mục hoặc bấm ra ngoài thì đóng.
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('click', event => {
+        const menu = root.querySelector('.book-settings[open]');
+        if (menu && (!menu.contains(event.target) || event.target.closest('.settings-menu button'))) menu.open = false;
+      });
     }
     let resizing = 0;
     if (typeof window.addEventListener === 'function') {

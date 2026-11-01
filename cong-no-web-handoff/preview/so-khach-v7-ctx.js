@@ -99,7 +99,7 @@ const SoKhachV7Ctx = (() => {
     imageEntryBox: ['images', 'móc', 'entry', 'chỗ dán ảnh trong khung Ghi phiếu thu'],
     afterReceiptSaved: ['images', 'móc', 'entry', 'đính ảnh đã dán sau khi ghi phiếu; trả một câu cho băng kết quả'],
     priceOnSnapshot: ['price', 'móc', 'core', 'nạp trạng thái bảng giá khi có bản GET mới'],
-    priceButtons: ['price', 'móc', 'core', 'nút Bảng giá ở đầu sổ'],
+    priceButtons: ['price', 'móc', 'core', 'nút của bảng giá ở đầu sổ: { task: Điền giá theo bảng (thanh việc), setting: Bảng giá (menu Cài đặt) }'],
     priceAfterRender: ['price', 'móc', 'core', 'chữ nhỏ giá theo bảng ở ô Đơn giá sau khi vẽ'],
     psAfterRender: ['ps', 'móc', 'core', 'nút và khung tách phụ phí theo PS sau khi vẽ'],
     receiptButton: ['receipts', 'móc', 'core', 'nút ghi phiếu thu từ Sheet ở đầu sổ'],

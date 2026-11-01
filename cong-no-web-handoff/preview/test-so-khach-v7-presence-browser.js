@@ -65,14 +65,16 @@ test('mũi tên chuột người khác nằm đúng ô ở mọi cỡ màn hình
   await page.waitForFunction(() => document.querySelector('.presence-pointer'));
   await page.waitForTimeout(300);
   assert.deepEqual(await pointerAt(page), { inside: true, name: 'Lan' });
-  const toggle = page.locator('.presence-toggle');
+  const toggle = page.locator('.settings-menu .presence-toggle');
+  await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   assert.equal(await toggle.innerText(), 'Ẩn con trỏ');
   await toggle.click();
+  assert.equal(await page.locator('.book-settings[open]').count(), 0, 'bấm một mục thì menu đóng');
   assert.equal(await page.locator('.presence-pointer').count(), 0);
   assert.equal(await page.locator('tr[data-row="trip-11"] > td').nth(2).getAttribute('data-presence'), 'Lan');   // vẫn thấy ô họ chọn
   await page.reload();
   await page.locator('.presence-avatar').first().waitFor();
-  assert.equal(await page.locator('.presence-toggle').innerText(), 'Hiện con trỏ');
+  assert.equal(await page.locator('.settings-menu .presence-toggle').textContent(), 'Hiện con trỏ');
   await page.waitForTimeout(500);
   assert.equal(await page.locator('.presence-pointer').count(), 0);
 }, world => { world.people = [{ ...lan, cell: { row: 'trip:11', col: 'c2', editing: false }, pointer: { row: 'trip:11', col: 'c2', fx: 500, fy: 500 } }]; }));

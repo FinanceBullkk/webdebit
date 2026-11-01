@@ -85,14 +85,14 @@
     const bar = root.querySelector('.book-bar');
     if (!bar) return;
     if (ready.length && psView !== 'confirm') bar.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', `<button type="button" class="ps-approve">Tách ${ready.length} phụ phí theo bảng PS</button>`);
-    // Một dải "cần xem" chung với giá từ Sheet; chưa có dải đó thì tự tạo.
+    // Một dải "cần xem" chung với giá từ Sheet (một ô trong thanh việc, SO-GON-06); chưa có dải đó thì tự tạo.
     let anchor = bar;
-    while (anchor.nextElementSibling?.matches('.price-strip,.price-panel')) anchor = anchor.nextElementSibling;
+    while (anchor.nextElementSibling?.matches('.price-panel')) anchor = anchor.nextElementSibling;
     const toggle = ps.unavailable ? '<span class="ps-unavailable">Chưa đọc được bảng PS; nút tách phụ phí tạm ẩn tới lần đọc sau.</span>'
       : review.length ? `Phụ phí PS cần xem: <strong>${review.length}</strong> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '';
     const strip = toggle && root.querySelector('.price-strip:has(.price-review-toggle)');
     if (strip) strip.insertAdjacentHTML('beforeend', `<span class="ps-sep">|</span>${toggle}`);
-    else if (toggle) { anchor.insertAdjacentHTML('afterend', `<div class="price-strip ps-strip">${toggle}</div>`); anchor = anchor.nextElementSibling; }
+    else if (toggle) bar.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip ps-strip">${toggle}</div>`);
     anchor.insertAdjacentHTML('afterend', panel(ps));
   }
   root.addEventListener('click', async event => {

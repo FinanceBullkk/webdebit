@@ -50,11 +50,12 @@
       : row.differs && row.from_table && trips.get(row.trip_id)?.editable === true).map(row => row.trip_id);
   }
 
+  // SO-GON-06: "Điền giá theo bảng" là việc (thanh việc), "Bảng giá" là cài đặt (menu Cài đặt ▾).
   ctx.priceButtons = active => {
-    if (!active) return '';
+    if (!active) return { task: '', setting: '' };
     const ready = status?.ready_count ?? 0;
-    return `<button class="price-table-open" aria-haspopup="dialog">Bảng giá</button>`
-      + (ready && !confirm ? `<button class="price-table-apply">Điền giá theo bảng (${ready} chuyến)</button>` : '');
+    return { setting: '<button class="price-table-open" aria-haspopup="dialog">Bảng giá</button>',
+      task: ready && !confirm ? `<button class="price-table-apply">Điền giá theo bảng (${ready} chuyến)</button>` : '' };
   };
 
   // Sau khi vẽ sổ: chữ nhỏ ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
@@ -81,7 +82,8 @@
     const reapply = confirmIds('reapply').length;
     const strip = reapply && confirm?.kind !== 'reapply'
       ? `<div class="price-strip">Bảng giá đã đổi: <strong>${reapply}</strong> chuyến đang ghi theo giá cũ của bảng. <button type="button" class="price-reapply-open">Áp lại giá mới</button></div>` : '';
-    root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', strip + confirmPanel());
+    root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', strip);
+    root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', confirmPanel());
   };
   function confirmPanel() {
     if (!confirm) return '';
