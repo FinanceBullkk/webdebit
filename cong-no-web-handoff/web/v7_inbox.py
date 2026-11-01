@@ -13,12 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
+from v7_api_sheet import SharedReads  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
+
 ACTOR = "hop-viec"   # đọc nền, không phải người; hàm đọc chỉ cần sokhach.actor khác rỗng
 WORKERS = 4
 DIRTY_INLINE_LIMIT = 5   # quá số này thì tính lại nền, không giữ GET chờ
 TEXT_FIELDS = {"origin", "destination", "shipper", "carrier", "shipper_unavailable"}
-# Hàm đọc gọi lại y hệt ở mỗi sổ trong một lượt: lấy một lần cho cả lượt.
-SHARED_READS = ("list_customers", "get_fee_types", "list_sheet_trip_refs")
 
 
 def _vnd(value: Any) -> int | None:
@@ -69,21 +69,6 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
     return book if busy else None
 
 
-class _SharedReads:
-    """Runner bọc: ba hàm đọc dùng chung chỉ chạy một lần mỗi lượt; hàm khác đi thẳng (thread-safe)."""
-
-    def __init__(self, runner):
-        self.runner, self.cache, self.lock = runner, {}, threading.Lock()
-
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        if function not in SHARED_READS:
-            return self.runner.run(function, payload, actor)
-        with self.lock:
-            if function not in self.cache:
-                self.cache[function] = self.runner.run(function, payload, actor)
-            return self.cache[function]
-
-
 class Inbox:
     def __init__(self, project: Callable[[Any, dict, str], dict], snapshot_paths: Callable[[], tuple[str, ...]],
                  sheet_status: Callable[[], dict] | None = None, clock: Callable[[], float] | None = None):
@@ -126,7 +111,7 @@ class Inbox:
     def refresh_all(self, runner) -> None:
         """Một lượt tính cả mọi sổ (chạy ở luồng nền)."""
         key = self._key()
-        shared = _SharedReads(runner)
+        shared = SharedReads(runner)
         try:
             customers = [c["id"] for c in shared.run("list_customers", {}, ACTOR).get("customers", [])
                          if type(c.get("id")) is int and c.get("status") == "active"]
@@ -176,7 +161,7 @@ class Inbox:
             if len(dirty) > DIRTY_INLINE_LIMIT:
                 self.start(runner)
             else:
-                shared = _SharedReads(runner)
+                shared = SharedReads(runner)
                 results = [self._one(shared, customer_id) for customer_id in dirty]
                 with self.lock:
                     for result in results:

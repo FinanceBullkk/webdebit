@@ -12,7 +12,9 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -37,6 +39,46 @@ RECEIPT_SNAPSHOT_PATH = os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or str(Path(
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
+
+
+# Bản chụp Sheet/PS đọc một lần cho tới khi file đổi (runner thay file nguyên khối 15 phút một lần). Hàm chiếu chỉ
+# đọc bản chụp và chép dòng ra dict mới, nên dùng chung giữa các request là an toàn. Tăng tốc mở sổ 1/11/2026.
+_SNAPSHOTS: dict[tuple, tuple] = {}
+_SNAPSHOT_LOCK = threading.Lock()
+
+
+def cached_load(loader, path):
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return loader(path)   # để hàm đọc tự báo lỗi đúng của nó
+    stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    key = (loader, str(path))
+    with _SNAPSHOT_LOCK:
+        hit = _SNAPSHOTS.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    value = loader(path)
+    with _SNAPSHOT_LOCK:
+        _SNAPSHOTS[key] = (stamp, value)
+    return value
+
+
+class SharedReads:
+    """Runner bọc cho một lần mở sổ hoặc một lượt hộp ngoại lệ: ba hàm đọc dùng chung chỉ chạy một lần."""
+
+    SHARED = ("list_customers", "get_fee_types", "list_sheet_trip_refs")
+
+    def __init__(self, runner):
+        self.runner, self.cache, self.lock = runner, {}, threading.Lock()
+
+    def run(self, function: str, payload: dict, actor: str) -> dict:
+        if function not in self.SHARED:
+            return self.runner.run(function, payload, actor)
+        with self.lock:
+            if function not in self.cache:
+                self.cache[function] = self.runner.run(function, payload, actor)
+            return self.cache[function]
 
 
 def customer_name_mapping() -> dict[str, dict]:
@@ -94,8 +136,8 @@ def with_display_names(customers: dict) -> dict:
 def sheet_queue(customers: dict, parts_query: str) -> dict:
     """`GET /api/v7/sheet-queue`: hàng chờ chuyến từ Sheet cho mọi khách, hoặc một khách theo `?customer=` đã kiểm."""
     try:
-        snapshot = load_snapshot(SHEET_SNAPSHOT_PATH)
-        baseline = load_baseline(SHEET_BASELINE_PATH)
+        snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
+        baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
     except ValueError as exc:
         raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
     queue = build_queue(snapshot, customers.get("customers", []), baseline)
@@ -108,8 +150,8 @@ def sheet_queue(customers: dict, parts_query: str) -> dict:
 
 
 def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
-    snapshot = load_snapshot(SHEET_SNAPSHOT_PATH)
-    baseline = load_baseline(SHEET_BASELINE_PATH)
+    snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
+    baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
     customers = runner.run("list_customers", {}, actor).get("customers", [])
     refs = runner.run("list_sheet_trip_refs", {}, actor).get("items")
     if not isinstance(refs, list):
@@ -211,7 +253,7 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 
 
 def price_projection(runner: Psql, ledger: dict, actor: str) -> dict:
-    snapshot = load_price_snapshot(PRICE_SNAPSHOT_PATH)
+    snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     return project_prices(snapshot, ledger, customers)
@@ -263,7 +305,7 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 
 
 def receipt_projection(runner: Psql, ledger: dict, actor: str) -> dict:
-    snapshot = load_receipt_snapshot(RECEIPT_SNAPSHOT_PATH)
+    snapshot = cached_load(load_receipt_snapshot, RECEIPT_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     return project_receipts(snapshot, ledger, customers, datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date())
@@ -301,7 +343,7 @@ def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 
 
 def ps_projection(runner: Psql, ledger: dict, actor: str) -> dict:
-    snapshot = load_ps_snapshot(PS_SNAPSHOT_PATH)
+    snapshot = cached_load(load_ps_snapshot, PS_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     return project_ps(snapshot, ledger, customers, runner.run("get_fee_types", {}, actor).get("fee_types", []))
@@ -414,26 +456,25 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
 
 
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
-    """`GET /api/v7/ledger`: gắn bốn hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ."""
-    result = ledger
-    try:
-        result = {**result, "sheet_sync": sheet_projection(runner, result, actor)}
-    except (ValueError, ApiError):
-        result = {**result, "sheet_sync": {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0,
-                                            "removed_items": [], "removed_count": 0}}
-    try:
-        result = {**result, "sheet_prices": price_projection(runner, result, actor)}
-    except (ValueError, ApiError):
-        result = {**result, "sheet_prices": {"unavailable": True, "ready": [], "review": [],
-                                             "ready_count": 0, "review_count": 0}}
-    try:
-        result = {**result, "sheet_receipts": receipt_projection(runner, result, actor)}
-    except (ValueError, ApiError):
-        result = {**result, "sheet_receipts": {"unavailable": True, "ready": [], "review": [],
-                                               "ready_count": 0, "review_count": 0}}
-    try:
-        result = {**result, "ps_fees": ps_projection(runner, result, actor)}
-    except (ValueError, ApiError):
-        result = {**result, "ps_fees": {"unavailable": True, "ready": [], "review": [],
-                                        "ready_count": 0, "review_count": 0}}
+    """`GET /api/v7/ledger`: gắn bốn hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
+
+    Bốn hàm chiếu độc lập (không hàm nào đọc kết quả của hàm khác), nên chạy song song trên cùng một runner đọc chung;
+    phần lớn thời gian là chờ psql. Đo trên `hao` 1/11/2026: nối tiếp 0,75 giây, `list_customers` bị gọi 4 lần.
+    """
+    shared = SharedReads(runner)
+    parts = (
+        ("sheet_sync", sheet_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0,
+                                          "removed_items": [], "removed_count": 0}),
+        ("sheet_prices", price_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
+        ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
+        ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
+    )
+    with ThreadPoolExecutor(max_workers=len(parts)) as pool:
+        futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]
+    result = dict(ledger)
+    for key, future, empty in futures:
+        try:
+            result[key] = future.result()
+        except (ValueError, ApiError):
+            result[key] = empty
     return result
