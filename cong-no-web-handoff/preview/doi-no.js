@@ -101,12 +101,13 @@
         ? `${esc(dateText(rem.last_reminded))}${dayDiff(state.asOf, rem.last_reminded) ? ` · ${dayDiff(state.asOf, rem.last_reminded)} ngày trước` : ' · hôm nay'}`
         : '<i class="muted">chưa nhắc</i>';
       const paid = row.last_receipt_date ? esc(dateText(row.last_receipt_date)) : '<i class="muted">chưa có</i>';
-      // Audit UX 31/10/2026 (P1-2): tên khách mở sổ khách; ngày dd/mm/yyyy như mọi trang.
-      // SO-GON-04: mở sổ ở tháng nợ cũ nhất còn nợ (sổ thu gọn các tháng cũ).
+      // TRANG-KHACH-01: tên khách mở trang khách ở thẻ Trao đổi; ngày dd/mm/yyyy như mọi trang (audit UX 31/10/2026, P1-2).
+      // SO-GON-04: số quá hạn mở sổ ở tháng nợ cũ nhất còn nợ (sổ thu gọn các tháng cũ).
+      const book = `/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}`;
       const oldest = /^\d{4}-\d{2}/.exec(row.oldest_open_month ?? '')?.[0];
       return `<div class="rrow s-${st.key}">
-        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}${oldest ? `&amp;month=${esc(oldest)}` : ''}" title="Mở sổ ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
-        <span class="num od" title="${esc(F.full(row.overdue_vnd))}">${esc(F.short(row.overdue_vnd))}</span>
+        <span class="who"><i class="dot r-${esc(row.risk)}" aria-hidden="true"></i><a class="nm" href="${book}&amp;the=trao-doi" title="Xem trao đổi với ${esc(nameOf(row.customer_id))}">${esc(nameOf(row.customer_id))}</a><small>${esc(commodityText(row.commodity, row.transport_mode))}</small></span>
+        <a class="num od" href="${book}${oldest ? `&amp;month=${esc(oldest)}` : ''}" title="${esc(F.full(row.overdue_vnd))}${oldest ? ` · mở sổ tháng ${esc(F.monthLabel(oldest))}` : ''}">${esc(F.short(row.overdue_vnd))}</a>
         <span class="num" title="${esc(F.full(row.outstanding_vnd))}">${esc(F.short(row.outstanding_vnd))}</span>
         <span class="when">${paid}</span>
         <span class="when">${remText}</span>

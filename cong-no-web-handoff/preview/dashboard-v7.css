@@ -163,7 +163,7 @@
 .drawer .mrow .r{text-align:right}
 .drawer .flags{margin:14px 0 0;padding:10px 14px;border-radius:8px;background:var(--critical-soft);color:var(--critical);font-size:14px}
 .drawer footer{display:flex;gap:10px;padding:14px 20px;border-top:1px solid var(--line)}
-.drawer footer a{flex:1;display:flex;align-items:center;justify-content:center;height:42px;border-radius:8px;font-weight:600}
+.drawer footer a{flex:1;display:flex;align-items:center;justify-content:center;height:42px;border-radius:8px;font-weight:600;white-space:nowrap}
 .drawer .primary{background:var(--accent);color:#fff}
 .drawer .primary:hover{background:var(--accent-ink)}
 .drawer .secondary{border:1px solid var(--line);color:var(--ink-2)}

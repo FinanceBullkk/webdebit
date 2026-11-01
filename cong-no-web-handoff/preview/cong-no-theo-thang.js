@@ -137,8 +137,9 @@
       // Xếp theo nợ: một danh sách liền, không dòng nhóm (dòng Tổng cuối bảng vẫn là tổng).
       if (key !== null) parts.push('<tr class="group"><td class="khach" title="' + esc(groupLabel(key)) + '">' + esc(groupLabel(key)) + '<span class="n">(' + members.length + ')</span></td><td colspan="12"></td>' +
         totalCell(F.sum(members.map(customer => customer.total_year_vnd)), 'yr') + totalCell(groupAll(members), 'all') + '</tr>');
+      // Tên khách mở trang khách ở thẻ Tình hình (TRANG-KHACH-01); ô tháng và ngăn kéo vẫn mở sổ đúng tháng.
       members.forEach((customer, index) => {
-        parts.push('<tr class="' + (index % 2 ? 'alt' : '') + (customer.customer_id === state.focus ? ' focus' : '') + '" data-row="' + esc(customer.customer_id) + '"><td class="khach"><a href="/so-khach-v7-live.html?customer=' + esc(customer.customer_id) + '" title="Mở sổ ' + esc(customer.name) + '">' + esc(customer.name) + '</a></td>' +
+        parts.push('<tr class="' + (index % 2 ? 'alt' : '') + (customer.customer_id === state.focus ? ' focus' : '') + '" data-row="' + esc(customer.customer_id) + '"><td class="khach"><a href="/so-khach-v7-live.html?customer=' + esc(customer.customer_id) + '&amp;the=tinh-hinh" title="Xem tình hình ' + esc(customer.name) + '">' + esc(customer.name) + '</a></td>' +
           MONTHS.map(month => heatCell(customer, month)).join('') + totalCell(yearTotal(customer), 'yr') + totalCell(allTotal(customer), 'all') + '</tr>');
       });
     }

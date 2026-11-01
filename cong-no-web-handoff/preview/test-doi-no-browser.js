@@ -75,15 +75,19 @@ test('Đòi nợ: liệt kê khách quá hạn, trạng thái nhắc, lọc chư
   assert.deepEqual(await page.locator('.rrow .nm').allInnerTexts(), ['Khách D', 'Khách E']);
 }));
 
-// Audit UX 31/10/2026 (đợt 1, P0-6/P1-2): ngày dd/mm/yyyy, tên khách là liên kết mở sổ, tiêu đề cột cùng lưới với các dòng.
-test('Đòi nợ: ngày dd/mm/yyyy, tên khách mở sổ khách, tiêu đề cột thẳng với số bên dưới', async () => withPage({}, async page => {
+// Audit UX 31/10/2026 (đợt 1, P0-6/P1-2): ngày dd/mm/yyyy, tên khách là liên kết, tiêu đề cột cùng lưới với các dòng.
+test('Đòi nợ: ngày dd/mm/yyyy, tên khách mở thẻ Trao đổi, số quá hạn mở sổ, tiêu đề cột thẳng với số bên dưới', async () => withPage({}, async page => {
   await page.locator('.rrow').first().waitFor();
   const cRow = page.locator('.rrow').filter({ hasText: 'Khách C' });
   assert.deepEqual(await cRow.locator('.when').allInnerTexts(), ['chưa có', '20/10/2026 · 9 ngày trước']);
   assert.equal(await page.locator('.rrow').filter({ hasText: 'Khách E' }).locator('.when').first().innerText(), '10/03/2024');
   for (const text of await page.locator('.rrow .when').allInnerTexts()) assert.doesNotMatch(text, /\d{4}-\d{2}-\d{2}/);
-  // SO-GON-04: mở sổ ở tháng nợ cũ nhất còn nợ.
-  assert.equal(await cRow.locator('a.nm').getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-08');
+  // TRANG-KHACH-01 (PR A4): tên khách mở thẻ Trao đổi; SO-GON-04: số quá hạn mở sổ ở tháng nợ cũ nhất còn nợ.
+  assert.equal(await cRow.locator('a.nm').getAttribute('href'), '/so-khach-v7-live.html?customer=2&the=trao-doi');
+  assert.equal(await cRow.locator('a.num.od').getAttribute('href'), '/so-khach-v7-live.html?customer=2&month=2026-08');
+  assert.equal(await cRow.locator('a.num.od').getAttribute('title'), '950.000.000 đ · mở sổ tháng 8/2026');
+  assert.deepEqual(await page.locator('.rrow a.num.od').evaluateAll(links => links.map(link => link.getBoundingClientRect().height >= 40)), [true, true, true]);
+  assert.equal(await page.locator('.rrow a.chat').first().getAttribute('href'), '/zalo-chat.html?q=Kh%C3%A1ch%20C');
   // Mỗi ô của từng dòng thẳng mép trái/phải với ô tiêu đề cùng cột (lệch tối đa 1px).
   const aligned = await page.evaluate(() => {
     const edges = el => { const box = el.getBoundingClientRect(); return [box.left, box.right]; };
