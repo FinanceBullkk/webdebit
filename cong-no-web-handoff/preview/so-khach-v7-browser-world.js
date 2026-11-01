@@ -427,4 +427,12 @@ const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind=
 const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
-module.exports = { clock, todayMonth, withPage, tripCell, legacyCell, posts };
+// SO-GON-05: sổ hiện một tháng; sang tháng khác bằng chip như người dùng, chờ bảng tháng đó vẽ xong. `key` là yyyy-mm hoặc ngày.
+async function viewMonth(page, key) {
+  const month = key.slice(0, 7);
+  await page.locator(`.month-chip[data-month="${month}"]`).click();
+  // Tháng không có dòng nào thì thân tháng cao 0px: chờ có mặt, không chờ "nhìn thấy".
+  await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
+}
+
+module.exports = { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth };

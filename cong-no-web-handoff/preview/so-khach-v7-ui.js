@@ -84,8 +84,23 @@
     const tripNames = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá'];
     labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả'];
     wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length)];
+    // SO-GON-05: sổ co giãn theo màn hình; phần bề ngang dư (so với khổ tối thiểu) dồn cho cột chữ hay bị cắt "…", cột tiền
+    // giữ bề rộng vừa số. `fitWidth` là bề ngang thật của vùng sổ ở lần vẽ trước (0 lúc chưa vẽ).
+    const extra = Math.floor(fitWidth) - wide.reduce((sum, width) => sum + width, 0);
+    if (live && extra > 0) {
+      const share = Object.entries(TEXT_SHARE).map(([name, weight]) => [labels.indexOf(name), weight]).filter(([index]) => index >= 0);
+      const weights = share.reduce((sum, [, weight]) => sum + weight, 0);
+      let left = extra;
+      for (const [position, [index, weight]] of share.entries()) {
+        const add = position === share.length - 1 ? left : Math.floor(extra * weight / weights);
+        wide[index] += add; left -= add;
+      }
+    }
     widths = colTags(0, wide.length);
   }
+  // Tỉ lệ chia phần bề ngang dư cho cột chữ (SO-GON-05).
+  const TEXT_SHARE = { 'Hãng tàu': 1, Shipper: 2, 'Nơi đi': 2, 'Nơi đến': 1.5 };
+  let fitWidth = 0;
   // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()), phiếu thu 3 cột cuối.
   const tripCols = () => labels.length - 3;
   // Cột phụ phí riêng đầu tiên (ngay sau Đơn giá): 8 khi có cột Shipper, 7 khi không.
@@ -391,6 +406,22 @@
       locAfterRender(data);
       ctx.feeAfterRender?.();
       ctx.focusBack(focus);
+      // SO-GON-05: cột chữ lấy phần bề ngang dư theo bề ngang thật của vùng sổ; lần đầu hoặc vừa đổi cỡ thì vẽ lại một lần.
+      const width = root.querySelector('#the-so .ledger-book')?.clientWidth ?? 0;
+      if (width && Math.abs(width - fitWidth) > 1) {
+        fitWidth = width;
+        renderSnapshot(data);
+      }
+    }
+    let resizing = 0;
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('resize', () => {
+        clearTimeout(resizing);
+        resizing = setTimeout(() => {
+          const width = root.querySelector('#the-so .ledger-book')?.clientWidth ?? 0;
+          if (width && Math.abs(width - fitWidth) > 1) redraw();
+        }, 150);
+      });
     }
     function showNotice(value) {
       message = ctx.presenceStale ? ctx.presenceStale(value) : value;

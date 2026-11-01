@@ -4,7 +4,7 @@
  * ghim 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, viewMonth } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -108,20 +108,23 @@ test('Hình 12 tháng: cột và điểm bằng months[], tháng thiếu không 
 }, debtor));
 
 test('Đi hàng: số chuyến tháng bằng dòng chuyến web và sổ gốc, đã loại và phí lẻ không đếm; thẻ chỉ đọc Tổng quan khi mở', async () => withPage(async ({ page, world }) => {
-  // Mở thẻ Sổ trước: chưa đọc Tổng quan hay lần nhắc. Tháng thu gọn ghi số chuyến của sổ để so.
+  // Mở thẻ Sổ trước: chưa đọc Tổng quan hay lần nhắc. Đếm dòng chuyến của từng tháng trên sổ (bỏ dòng đã loại và phí lẻ không STT)
+  // để so; sổ hiện mỗi tháng một màn (SO-GON-05) nên bấm chip từng tháng.
   assert.deepEqual(world.sideReads ?? [], []);
-  const collapsed = await page.locator('.month-count').evaluateAll(nodes => Object.fromEntries(nodes.map(node =>
-    [node.closest('section').id.slice(6), Number.parseInt(node.textContent, 10)])));
+  const rowsOf = key => page.locator(`#thang-${key} .trip-list tr[data-row]`).evaluateAll(rows => rows.filter(row =>
+    !row.querySelector('.trip-rejected') && row.cells[0].innerText.trim() !== '–').length);
+  const shown = {};
+  for (const key of ['2026-07', '2026-08', '2026-09', '2026-11']) {
+    await viewMonth(page, key);
+    shown[key] = await rowsOf(key);
+  }
   await page.locator('#tab-tinh-hinh').click();
   await ready(page);
   assert.deepEqual([...new Set(world.sideReads)].sort(), ['/api/v7/dashboard/debt', '/api/v7/reminders']);
   const counts = Object.fromEntries(await page.locator('#the-tinh-hinh .ov-bar.trip').evaluateAll(nodes => nodes.map(node => [node.dataset.month, Number(node.dataset.count)])));
   assert.deepEqual(counts, { '2026-06': 0, '2026-07': 2, '2026-08': 1, '2026-09': 3, '2026-10': 3, '2026-11': 2 });
-  for (const key of ['2026-07', '2026-08', '2026-09']) assert.equal(counts[key], collapsed[key], `tháng ${key}`);
-  // Tháng 11 đang mở: 4 dòng chuyến web, bỏ dòng đã loại và dòng phí lẻ (không có STT) còn 2.
-  const open = await page.locator('#thang-2026-11 .trip-list tr[data-row]').evaluateAll(rows => rows.filter(row =>
-    !row.querySelector('.trip-rejected') && row.cells[0].innerText.trim() !== '–').length);
-  assert.equal(open, counts['2026-11']);
+  // Tháng 11: 4 dòng chuyến web, bỏ dòng đã loại và dòng phí lẻ (không có STT) còn 2.
+  for (const key of ['2026-07', '2026-08', '2026-09', '2026-11']) assert.equal(counts[key], shown[key], `tháng ${key}`);
   assert.equal(await page.locator('#the-tinh-hinh .ov-note').nth(1).innerText(), 'Số chuyến mỗi tháng · đi hàng gần nhất 12/11/2026');
 }, world => { debtor(world); world.query = ''; }));
 

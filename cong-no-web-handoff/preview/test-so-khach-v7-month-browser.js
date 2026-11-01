@@ -1,4 +1,5 @@
-/* Trình duyệt (Playwright) cho thanh tháng và tháng thu gọn của sổ khách V7 (SO-GON-04, specs/v7-so-khach-ux-dot-2.md, PR 2a).
+/* Trình duyệt (Playwright) cho thanh chip tháng và tháng đang xem của sổ khách V7 (SO-GON-05: một tháng trên màn hình,
+ * specs/v7-so-khach-mot-thang.md; thay phần thu gọn tháng của SO-GON-04).
  * Sổ giả 9 tháng × 30 chuyến tính lùi từ tháng hiện tại (giờ VN), máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -35,16 +36,17 @@ const atTop = (page, key) => page.waitForFunction(id => {
   return Math.abs(top - document.querySelector('.ledger-head').getBoundingClientRect().bottom) <= 2;
 }, key);
 
-test('Sổ 9 tháng: lúc mở chỉ tháng hiện tại và tháng liền trước hiện chi tiết; tháng cũ thu gọn còn số chuyến và còn nợ cuối tháng', async () => withPage(async ({ page }) => {
+test('Sổ 9 tháng: lúc mở chỉ một tháng (tháng hiện tại) với dòng tóm tắt; không còn thanh tháng gập hay nút Xem chi tiết', async () => withPage(async ({ page }) => {
   const list = await sections(page);
-  assert.deepEqual(list.map(item => item.id), MONTHS.map(key => `thang-${key}`));
-  assert.deepEqual(list.filter(item => item.open).map(item => item.id), MONTHS.slice(-2).map(key => `thang-${key}`));
-  for (const [index, item] of list.entries()) {
-    assert.match(item.bar, new RegExp(`Còn nợ cuối tháng: ${dots(endOf(index))}`), item.id);
-    assert.match(item.bar, item.open ? /Thu gọn/ : /30 chuyến[\s\S]*Xem chi tiết/, item.id);
-  }
-  // 9 tháng × 30 chuyến: lúc mở chỉ vẽ 60 dòng.
-  assert.equal(await page.locator('.trip-list tr[data-row]').count(), 60);
+  assert.deepEqual(list.map(item => item.id), [`thang-${MONTHS[8]}`]);
+  assert.ok(list[0].open);
+  // Dòng tóm tắt: Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng, số lấy nguyên từ GET.
+  assert.match(list[0].bar, new RegExp(`Nợ đầu tháng 0\\s*\\+\\s*Phát sinh 30\\.000\\.000\\s*−\\s*Đã thu 0\\s*=\\s*Còn nợ cuối tháng ${dots(endOf(8))}`));
+  assert.match(list[0].bar, /Đang mở/);
+  assert.equal(await page.locator('.month-toggle, table.month-collapsed').count(), 0);
+  // 9 tháng × 30 chuyến: lúc mở chỉ vẽ 30 dòng.
+  assert.equal(await page.locator('.trip-list tr[data-row]').count(), 30);
+  assert.equal(await page.locator('.month-chip.on[aria-current="true"]').getAttribute('data-month'), MONTHS[8]);
   // Thanh chip thay danh sách tháng bên phải: 9 chip, còn nợ rút gọn, tháng khóa có dấu khóa.
   const chips = await page.locator('.month-chip').allInnerTexts();
   assert.equal(chips.length, 9);
@@ -64,59 +66,64 @@ test('Phần dính đầu trang ≤ 180px khi cuộn (trừ băng dữ liệu gi
   assert.equal(geo.overflow, 0);
 }, nineMonths));
 
-test('Bấm chip của tháng thu gọn: tháng hiện chi tiết, cuộn tới ngay dưới phần dính, chip được tô', async () => withPage(async ({ page, world }) => {
+test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần dính, chip được tô; không gọi API', async () => withPage(async ({ page, world }) => {
   const key = MONTHS[3];
+  await page.evaluate(() => window.scrollTo({ top: 800, behavior: 'instant' }));
   await page.locator(`.month-chip[data-month="${key}"]`).click();
   await page.locator(`#thang-${key} .month-body`).waitFor();
   await atTop(page, key);
+  assert.deepEqual((await sections(page)).map(item => item.id), [`thang-${key}`]);
   await page.waitForFunction(id => document.querySelector(`.month-chip[data-month="${id}"]`).getAttribute('aria-current') === 'true', key);
   assert.equal(await page.locator('.month-chip[aria-current="true"]').count(), 1);
   assert.equal(await page.locator(`#thang-${key} .trip-list tr[data-row]`).count(), 30);
+  assert.match(await page.locator(`#thang-${key} tr.month th`).innerText(), new RegExp(`Còn nợ cuối tháng ${dots(endOf(3))}`));
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
-test('Thu gọn / Xem chi tiết; không thu gọn khi tháng đang có dòng hỏi; số tiền không đổi', async () => withPage(async ({ page, world }) => {
+test('Không sang tháng khác khi tháng đang xem có dòng hỏi; số tiền không đổi', async () => withPage(async ({ page, world }) => {
   const key = MONTHS[8];
   const total = await page.locator('.head-item.total strong').innerText();
-  const toggle = page.locator(`#thang-${key} .month-toggle`);
-  // Dòng hỏi "Xóa hẳn" đang mở trong tháng: thu gọn sẽ làm mất nó, nên chặn và báo.
+  const chip = page.locator(`.month-chip[data-month="${MONTHS[7]}"]`);
+  // Dòng hỏi "Xóa hẳn" đang mở trong tháng: sang tháng khác sẽ làm mất nó, nên chặn và báo.
   await page.locator(`#thang-${key} td.row-delete[data-kind="trip"]`).first().focus();
   await page.keyboard.press('Enter');
   await page.locator(`#thang-${key} .delete-prompt`).waitFor();
-  await toggle.click();
+  await chip.click();
   assert.match(await page.locator('.live-notice').innerText(), /còn ô đang sửa hoặc câu hỏi chưa trả lời/);
   assert.equal(await page.locator(`#thang-${key} .month-body`).count(), 1);
   await page.locator(`#thang-${key} .cancel-delete`).click();
-  await toggle.click();
-  await page.locator(`#thang-${key} table.month-collapsed`).waitFor();
-  assert.equal(await toggle.innerText(), 'Xem chi tiết');
-  assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
-  assert.ok(await toggle.evaluate(button => document.activeElement === button), 'tiêu điểm ở lại nút vừa bấm');
-  assert.match(await page.locator(`#thang-${key} tr.month th`).innerText(), new RegExp(`Còn nợ cuối tháng: ${dots(endOf(8))}`));
+  await chip.click();
+  await page.locator(`#thang-${MONTHS[7]} .month-body`).waitFor();
+  assert.ok(await chip.evaluate(link => document.activeElement === link), 'tiêu điểm ở lại chip vừa bấm');
   assert.equal(await page.locator('.head-item.total strong').innerText(), total);
-  await toggle.click();
-  await page.locator(`#thang-${key} .month-body`).waitFor();
-  assert.equal(await toggle.innerText(), 'Thu gọn');
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
-test('?month= mở đúng tháng cũ và cuộn tới; các tháng cũ khác vẫn thu gọn', async () => withPage(async ({ page }) => {
+test('?month= mở đúng tháng cũ và cuộn tới; chỉ tháng đó hiện', async () => withPage(async ({ page }) => {
   const key = MONTHS[2];
   await page.locator(`#thang-${key} .month-body`).waitFor();
   await atTop(page, key);
-  const open = (await sections(page)).filter(item => item.open).map(item => item.id);
-  assert.deepEqual(open, [MONTHS[2], MONTHS[7], MONTHS[8]].map(month => `thang-${month}`));
+  assert.deepEqual((await sections(page)).map(item => item.id), [`thang-${key}`]);
 }, world => { nineMonths(world); world.month = MONTHS[2]; }));
 
-test('?loc=thieu-gia: tháng cũ có chuyến thiếu giá tự hiện chi tiết; chip có chấm việc chờ', async () => withPage(async ({ page }) => {
+test('Tháng hiện tại chưa có số liệu: mở tháng gần nhất có số liệu; chip tháng hiện tại vẫn có', async () => withPage(async ({ page }) => {
+  await page.locator(`#thang-${MONTHS[7]} .month-body`).waitFor();
+  assert.deepEqual((await sections(page)).map(item => item.id), [`thang-${MONTHS[7]}`]);
+  assert.equal(await page.locator(`.month-chip[data-month="${MONTHS[8]}"]`).count(), 1);
+}, world => {
+  nineMonths(world);
+  world.trips = world.trips.filter(trip => trip.month !== `${MONTHS[8]}-01`);
+  delete world.monthValues[`${MONTHS[8]}-01`];
+}));
+
+test('?loc=thieu-gia: mở tháng cũ có chuyến thiếu giá; chip có chấm việc chờ', async () => withPage(async ({ page }) => {
   const key = MONTHS[1];
   await page.locator('.loc-bar').waitFor();
   assert.match(await page.locator('.loc-bar').innerText(), /1 chuyến thiếu đơn giá/);
   assert.equal(await page.locator(`#thang-${key} tr.loc-hit`).count(), 1);
   assert.equal(await page.locator(`.month-chip[data-month="${key}"] .chip-work`).innerText(), '1');
   assert.equal(await page.locator(`.month-chip[data-month="${key}"] .chip-work`).getAttribute('title'), '1 chưa có giá');
-  const open = (await sections(page)).filter(item => item.open).map(item => item.id);
-  assert.deepEqual(open, [MONTHS[1], MONTHS[7], MONTHS[8]].map(month => `thang-${month}`));
+  assert.deepEqual((await sections(page)).map(item => item.id), [`thang-${key}`]);
 }, world => {
   nineMonths(world);
   world.query = '&loc=thieu-gia';

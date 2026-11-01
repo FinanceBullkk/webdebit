@@ -1,9 +1,12 @@
 /* Trình duyệt (Playwright) cho đối chiếu Sheet, ghi giá từ Sheet và Làm mới trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
+  // Chuyến mới ở tháng hiện tại, dòng lệch ở tháng 9 (đang xem): mỗi tháng một màn (SO-GON-05).
+  await viewMonth(page, clock);
   assert.equal(await page.locator('tr.sheet-new').count(), 1);
+  await viewMonth(page, '2026-09');
   assert.equal(await page.locator('[data-row="legacy-21"].sheet-conflict').count(), 1);
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   assert.match(await page.locator('.sheet-detail').innerText(), /Xe 2/);
@@ -42,6 +45,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/approve');
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
+  await viewMonth(page, clock);
   assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
   assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
 }, world => {

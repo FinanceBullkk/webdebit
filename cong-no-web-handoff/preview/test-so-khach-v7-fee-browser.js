@@ -13,8 +13,9 @@ test('sổ mặc định chỉ có cột Khác; ba cột riêng vẫn vừa 1280
   await page.locator('.fee-other').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Khác']);
   assert.equal(await page.locator('td.fee.own').count(), 0);
-  // Dòng sổ gốc OLDU0000002: phụ phí cũ đã tách thành một khoản → ô Khác ghi số và "1 khoản".
-  assert.match(await other(page, 'legacy:22').innerText(), /3\.000\.000\s*1 khoản/);
+  // Dòng sổ gốc OLDU0000002: phụ phí cũ đã tách thành một khoản → ô Khác ghi số (một dòng), "1 khoản" ở chữ rê chuột (SO-GON-05).
+  assert.equal(await other(page, 'legacy:22').innerText(), '3.000.000');
+  assert.equal(await other(page, 'legacy:22').getAttribute('title'), 'Phụ phí khác (1 khoản)');
   world.feeColumns = [1, 2, 3];
   world.version += 1;
   await page.reload();
@@ -64,7 +65,8 @@ test('khung Chi tiết phụ phí: thêm, đổi loại sang cột riêng, sửa
   await drawer.locator('.fee-add button[type="submit"]').click();
   await drawer.locator('.fee-lines tbody tr').first().waitFor();
   assert.deepEqual(strip(feePosts(world)[0][1]), { targets: [{ trip_id: 11 }], fee_type_id: 7, amount_vnd: '200000', note: 'lưu bãi' });
-  assert.match(await other(page, 'trip:11').innerText(), /200\.000\s*1 khoản/);
+  assert.equal(await other(page, 'trip:11').innerText(), '200.000');
+  assert.match(await other(page, 'trip:11').getAttribute('aria-label'), /\(1 khoản\)$/);
   assert.match(await drawer.locator('.fee-sumline.calc').innerText(), /50\.000\.000 \+ 200\.000\s*50\.200\.000/);
   // Đổi loại sang Neo (cột riêng của sổ) → số chuyển qua cột Neo, ô Khác trống.
   await drawer.locator('.fee-line-type').first().selectOption('1');

@@ -1,8 +1,8 @@
-/* Sổ khách V7 bản live — các bảng tháng: chọn tháng nào có bảng, tháng nào hiện chi tiết, thanh chip tháng dính đầu sổ, thanh
- * của từng bảng tháng (ổ khóa, Debit note, còn nợ cuối tháng), thân tháng (bảng chuyến của so-khach-v7-trips-ui.js bên trái,
+/* Sổ khách V7 bản live — các bảng tháng: tháng nào có chip, tháng nào đang xem, thanh chip tháng dính đầu sổ, thanh của
+ * bảng tháng (ổ khóa, Debit note, dòng tóm tắt tiền của tháng), thân tháng (bảng chuyến của so-khach-v7-trips-ui.js bên trái,
  * phiếu thu của so-khach-v7-pay-ui.js bên phải), dòng điều chỉnh, dòng mờ "đã chuyển sang tháng", dòng Tổng tháng.
- * SO-GON-04 (31/10/2026): lúc mở sổ chỉ tháng hiện tại và tháng liền trước hiện chi tiết, tháng khác thu gọn một dòng; thanh
- * chip tháng thay danh sách tháng bên phải. Số tiền lấy nguyên từ GET; tổng cột phụ phí do model cộng (ARCH-03).
+ * SO-GON-05 (1/11/2026, thay H1 của SO-GON-04): một tháng trên màn hình; hàng chip là chỗ chọn tháng duy nhất. Số tiền lấy
+ * nguyên từ GET; tổng cột phụ phí do model cộng (ARCH-03).
  * Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).month = ctx => {
   'use strict';
@@ -13,19 +13,15 @@
   const sheetPending = row => row.sync_state === 'NEW' || !row.existing_id;
   // Xuống dòng giữa các hàng của bảng tháng, giữ đúng như trước khi tách file để DOM không đổi.
   const GAP = '\n          ';
-  const prevMonth = key => {
-    const year = Number(key.slice(0, 4)), month = Number(key.slice(5, 7));
-    return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
-  };
 
-  // Tháng người dùng đã bấm Xem chi tiết (true) hoặc Thu gọn (false); chỉ sống trong tab, thắng mặc định.
-  const shown = new Map();
-  // ?month=yyyy-mm (từ Công nợ theo tháng, Đòi nợ): hiện chi tiết tháng đó và cuộn tới sau lần vẽ đầu có tháng đó.
+  // ?month=yyyy-mm (từ Công nợ theo tháng, Đòi nợ): xem tháng đó và cuộn tới sau lần vẽ đầu có tháng đó.
   const wanted = /^\d{4}-(0[1-9]|1[0-2])$/.exec(new URLSearchParams(location.search).get('month') ?? '')?.[0] ?? null;
-  if (wanted) shown.set(wanted, true);
+  // Tháng đang xem (SO-GON-05): chọn ở lần vẽ đầu, rồi chỉ đổi khi người dùng bấm chip hoặc một phần gọi showMonth; chỉ sống
+  // trong tab. Tự cập nhật, bỏ đánh dấu ?loc= hay qua ngày không làm sổ tự nhảy tháng.
+  let selected = wanted;
   let scrollTarget = wanted;
-  // Tháng đang hiện chi tiết ở lần vẽ gần nhất (để showMonth biết có cần vẽ lại không).
-  let lastOpen = new Set();
+  // Tháng đang hiện ở lần vẽ gần nhất (để showMonth biết có cần vẽ lại không).
+  let lastOpen = null;
 
   // Tháng có bảng, xếp theo tháng: tháng server có số; tháng hiện tại (giờ VN theo server, đồng hồ máy khi server cũ chưa trả)
   // dù chưa có dữ liệu, để thanh tháng luôn có tháng đang làm; tháng mà một dòng rơi vào.
@@ -57,14 +53,25 @@
     return { groups, openKey, outgoing };
   }
 
-  // Tháng hiện chi tiết: người dùng chọn thì theo người dùng; còn lại tháng hiện tại, tháng liền trước, tháng có dòng vừa chuyển
-  // tới (ctx.ghosts) và tháng có dòng ?loc= cần xử lý. Tháng đã hiện chi tiết thì giữ trong tab tới khi người dùng bấm Thu gọn,
-  // để tự cập nhật, bỏ đánh dấu ?loc= hay qua ngày không làm tháng đang xem tự thu lại.
+  // Tháng có số liệu: có phát sinh hoặc đã thu khác 0 (số của server), hoặc có dòng rơi vào (chuyến, sổ gốc, phiếu thu,
+  // chuyến Sheet chờ). Tháng hiện tại server trả toàn 0 khi chưa có gì thì không tính.
+  const nonZero = value => value != null && !/^-?0*$/.test(String(value));
+  function hasRows(data, item) {
+    const key = monthKey(item.month);
+    return nonZero(item.charges_vnd) || nonZero(item.received_vnd)
+      || [...(data.trips ?? []), ...(data.legacy_rows ?? []), ...(data.receipts ?? []).map(row => ({ month: row.date })),
+      ...(data.sheet_sync?.items ?? []).filter(sheetPending).map(row => ({ month: row.event_date }))].some(row => monthKey(row.month) === key);
+  }
+  // Tháng đang xem (SO-GON-05): giữ tháng đã chọn nếu còn chip; chưa chọn thì tháng của ?loc=, rồi tháng hiện tại có số liệu,
+  // rồi tháng gần nhất có số liệu, cuối cùng là tháng hiện tại.
   function openMonths(data, groups, openKey) {
-    const auto = new Set([openKey, prevMonth(openKey), ...ghosts.map(ghost => ghost.to), ...(ctx.locMonths?.(data) ?? [])]);
     const keys = groups.map(item => monthKey(item.month));
-    for (const key of keys) if (!shown.has(key) && auto.has(key)) shown.set(key, true);
-    return new Set(keys.filter(key => shown.get(key) === true));
+    if (!selected || !keys.includes(selected)) {
+      const filled = groups.filter(item => hasRows(data, item)).map(item => monthKey(item.month));
+      selected = (ctx.locMonths?.(data) ?? []).find(key => keys.includes(key))
+        ?? (filled.includes(openKey) ? openKey : filled.filter(key => key <= openKey).at(-1) ?? filled.at(-1) ?? openKey);
+    }
+    return selected;
   }
 
   // Việc chờ của một tháng, cho chấm cam trên chip: cùng điều kiện với ?loc= (so-khach-v7-loc-ui.js) và dòng Sheet chờ.
@@ -99,21 +106,20 @@
     return [...byRow.values()];
   }
 
-  // Thanh tháng: ổ khóa (V7-SO), Debit note khi tháng có chuyến tính tiền, còn nợ cuối tháng (SO-GON-03: mỗi số tiền của
-  // tháng hiện một lần; rê chuột xem cách tính), nút Xem chi tiết / Thu gọn (SO-GON-04; không gọi "Mở tháng" vì mở tháng là
-  // mở khóa). Tháng thu gọn ghi thêm số chuyến.
-  function monthBar(item, key, { locked, active, debit, totals, open, tripCount }) {
+  // Thanh tháng: ổ khóa (V7-SO) kèm chữ trạng thái, Debit note khi tháng có chuyến tính tiền, dòng tóm tắt Nợ đầu tháng +
+  // Phát sinh − Đã thu = Còn nợ cuối tháng (SO-GON-05; số lấy nguyên từ GET, mỗi số tiền của tháng vẫn hiện một lần như SO-GON-03).
+  function monthBar(item, key, { locked, active, debit, totals }) {
     const label = monthLabel(key);
     const lock = `<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${label}" `
-      + `title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>`;
+      + `title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>`
+      + `<span class="month-lock-text">${locked ? 'Đã khóa' : 'Đang mở'}</span>`;
     const debitButton = debit ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog">Debit note</button>` : '';
-    const count = !open && tripCount ? `<span class="month-count">${tripCount} chuyến</span>` : '';
-    const how = `Nợ các tháng trước ${fmt(item.prior_months_vnd)} + phát sinh ${fmt(totals.chargesVnd)} − đã thu ${fmt(totals.receivedVnd)}`;
-    const toggle = `<button type="button" class="month-toggle" data-month="${escape(key)}" aria-expanded="${open}" `
-      + `aria-controls="thang-${escape(key)}">${open ? 'Thu gọn' : 'Xem chi tiết'}</button>`;
-    return `<tr class="month"><th colspan="${columns.count()}" scope="rowgroup"><span class="month-title">THÁNG ${label}${lock}${debitButton}${count}`
-      + `<em class="month-stats"><span class="month-end" title="${how}">Còn nợ cuối tháng: <b>${fmt(item.end_of_month_vnd)}</b></span></em>`
-      + `${toggle}</span></th></tr>`;
+    const part = (name, value, cls) => `<span class="${cls}">${name} <b>${fmt(value)}</b></span>`;
+    const stats = `${part('Nợ đầu tháng', item.prior_months_vnd, 'month-prior')}<i aria-hidden="true">+</i>`
+      + `${part('Phát sinh', totals.chargesVnd, 'month-charges')}<i aria-hidden="true">−</i>${part('Đã thu', totals.receivedVnd, 'month-received')}`
+      + `<i aria-hidden="true">=</i>${part('Còn nợ cuối tháng', item.end_of_month_vnd, 'month-end')}`;
+    return `<tr class="month"><th colspan="${columns.count()}" scope="rowgroup"><span class="month-title">THÁNG ${label}${lock}${debitButton}`
+      + `<em class="month-stats">${stats}</em></span></th></tr>`;
   }
 
   // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
@@ -143,7 +149,7 @@
       + `<td class="pay num subtotal-pay" colspan="2">${fmt(totals.receivedVnd)}</td></tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
 
-  function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing, open }) {
+  function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing }) {
     const key = monthKey(item.month);
     const legacyRows = historical.get(key) ?? [];
     const trips = (data.trips ?? []).filter(row => monthKey(row.month) === key);
@@ -151,12 +157,6 @@
     const legacy = legacyPairs(legacyRows);
     const totals = { chargesVnd: item.charges_vnd ?? '0', receivedVnd: item.received_vnd ?? '0' };
     const debit = legacy.some(line => line.trip) || trips.some(trip => trip.status === 'confirmed');
-    // SO-GON-04: tháng thu gọn chỉ còn thanh tháng (cùng số tiền, ổ khóa, Debit note) và số chuyến; không vẽ dòng nào.
-    if (!open.has(key)) {
-      const tripCount = legacy.filter(line => line.trip).length + trips.length;
-      return `<section id="thang-${escape(key)}"><table class="ledger month-collapsed${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}, thu gọn">`
-        + `<colgroup>${columns.all()}</colgroup><tbody>${monthBar(item, key, { locked, active, debit, totals, open: false, tripCount })}</tbody></table></section>`;
-    }
     const sheetRows = (data.sheet_sync?.items ?? []).filter(row => monthKey(row.event_date) === key && sheetPending(row));
     // DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền một lần (như Sheet); `lines` là phần trừ nợ còn hiệu lực
     // (phiếu đã hủy: phần bị hủy cùng lệnh hủy).
@@ -186,7 +186,7 @@
     const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');
     return [`<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}">`
       + `<colgroup>${columns.all()}</colgroup><tbody>`,
-    monthBar(item, key, { locked, active, debit, totals, open: true }),
+    monthBar(item, key, { locked, active, debit, totals }),
     `${body}${sheetPendingRows(sheetRows)}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
     `${subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table></section>`].join(GAP);
   }
@@ -200,7 +200,8 @@
     const work = monthWork(data, key);
     const todo = work.map(([count, what]) => `${count} ${what}`).join(' · ');
     const total = work.reduce((sum, [count]) => sum + count, 0);
-    return `<a class="month-chip${locked ? ' locked' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
+    return `<a class="month-chip${locked ? ' locked' : ''}${key === selected ? ' on' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
+      + `${key === selected ? 'aria-current="true" ' : ''}`
       + `aria-label="Tháng ${monthLabel(key)} · còn nợ cuối tháng ${escape(end)}${locked ? ' · đã khóa' : ''}${todo ? ` · ${escape(todo)}` : ''}">`
       + `<span class="chip-name">${monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span><b class="chip-end">${escape(end)}</b>`
       + `${locked ? '<span class="chip-lock" aria-hidden="true">🔒</span>' : ''}`
@@ -219,81 +220,54 @@
     }
     const open = openMonths(data, groups, openKey);
     lastOpen = open;
-    const book = { data, active, openKey, lockFlags, historical, outgoing, open };
-    // work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
-    return { sections: groups.map(item => monthSection(item, book)).join(''),
+    const book = { data, active, openKey, lockFlags, historical, outgoing };
+    // Chỉ vẽ tháng đang xem (SO-GON-05). work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
+    return { sections: groups.filter(item => monthKey(item.month) === open).map(item => monthSection(item, book)).join(''),
       chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map(item => monthChip(item, book)).join('')}</nav>`,
       work: bookWork(data, groups).reduce((sum, [count]) => sum + count, 0) };
   }
 
-  // ---- Thu gọn / xem chi tiết, chip tháng, tháng đang xem ----
+  // ---- Chip tháng, tháng đang xem ----
   const sectionOf = key => root.querySelector(`#thang-${key}`);
-  // Bấm chip/nút thì cuộn mượt (theo CSS); lần cuộn tới ?month= lúc mở trang thì tức thì, vì lần vẽ lại ngay sau đó (danh sách
-  // khách về) giữ vị trí cuộn đang có và sẽ cắt ngang một lần cuộn mượt.
+  // Bấm chip thì cuộn về đầu tháng (đầu sổ, dưới phần dính); lần cuộn tới ?month= lúc mở trang thì tức thì, vì lần vẽ lại ngay
+  // sau đó (danh sách khách về) giữ vị trí cuộn đang có và sẽ cắt ngang một lần cuộn mượt.
   const scrollToMonth = (key, behavior = 'auto') => sectionOf(key)?.scrollIntoView({ block: 'start', behavior });
-  // Tháng đang thu gọn thì hiện chi tiết (vẽ lại); trả về true khi có vẽ lại. Phần khác gọi trước khi tìm một dòng của tháng.
+  // Chuyển sang xem một tháng (vẽ lại); trả về true khi có vẽ lại. Phần khác gọi trước khi tìm một dòng của tháng.
   function showMonth(key) {
-    if (!key || lastOpen.has(key)) return false;
-    shown.set(key, true);
+    if (!key || lastOpen === key) return false;
+    selected = key;
     redraw();
     return true;
   }
-  // Thu gọn không được làm mất chữ đang gõ hay dòng hỏi đang mở trong tháng đó (khung Ghi phiếu thu nằm ngoài sổ, không bị ảnh hưởng).
+  // Đổi tháng không được làm mất chữ đang gõ hay dòng hỏi đang mở ở tháng đang xem (khung Ghi phiếu thu nằm ngoài sổ, không
+  // bị ảnh hưởng).
   function busyIn(section) {
     return [...section.querySelectorAll('.info-input,.money-input,.month-amount,.month-note,.saved-receipt-input')].some(input => input.value.trim())
       || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask');
   }
   root.addEventListener('click', event => {
-    const toggle = event.target.closest('.month-toggle');
-    if (toggle) {
-      const key = toggle.dataset.month, open = toggle.getAttribute('aria-expanded') === 'true';
-      const section = sectionOf(key);
-      if (open && section && busyIn(section)) {
-        showNotice(`Tháng ${monthLabel(key)} còn ô đang sửa hoặc câu hỏi chưa trả lời. Làm xong hoặc bấm Thôi rồi hãy thu gọn.`);
-        return;
-      }
-      shown.set(key, !open);
-      redraw();
-      scrollToMonth(key);
-      root.querySelector(`.month-toggle[data-month="${key}"]`)?.focus({ preventScroll: true });
-      return;
-    }
     const chip = event.target.closest('.month-chip');
     if (!chip) return;
     event.preventDefault();
-    showMonth(chip.dataset.month);
-    scrollToMonth(chip.dataset.month);
+    const key = chip.dataset.month;
+    const section = lastOpen && key !== lastOpen ? sectionOf(lastOpen) : null;
+    if (section && busyIn(section)) {
+      showNotice(`Tháng ${monthLabel(lastOpen)} còn ô đang sửa hoặc câu hỏi chưa trả lời. Làm xong hoặc bấm Thôi rồi hãy sang tháng khác.`);
+      return;
+    }
+    showMonth(key);
+    scrollToMonth(key);
+    root.querySelector(`.month-chip[data-month="${key}"]`)?.focus({ preventScroll: true });
   });
-  // Chip của tháng đang ở trên cùng vùng dữ liệu được tô (thay việc dính đầu của thanh tháng, SO-GON-04); sổ nhiều tháng thì
-  // thanh chip cuộn ngang để chip đó luôn trong tầm nhìn.
+  // Chip của tháng đang xem được tô (lúc vẽ); sổ nhiều tháng thì thanh chip cuộn ngang để chip đó luôn trong tầm nhìn.
   function markCurrent() {
     const bar = root.querySelector('.month-chips');
-    if (!bar) return;
-    const line = (root.querySelector('.ledger-head')?.getBoundingClientRect().bottom ?? 0) + 1;
-    const sections = [...root.querySelectorAll('.ledger-book > section')];
-    let current = sections[0]?.id;
-    for (const section of sections) {
-      if (section.getBoundingClientRect().top > line) break;
-      current = section.id;
-    }
-    for (const chip of bar.querySelectorAll('.month-chip')) {
-      const on = `thang-${chip.dataset.month}` === current;
-      chip.classList.toggle('on', on);
-      if (on) chip.setAttribute('aria-current', 'true'); else chip.removeAttribute('aria-current');
-      if (on && (chip.offsetLeft < bar.scrollLeft || chip.offsetLeft + chip.offsetWidth > bar.scrollLeft + bar.clientWidth)) {
-        bar.scrollLeft = chip.offsetLeft - (bar.clientWidth - chip.offsetWidth) / 2;
-      }
+    const chip = bar?.querySelector('.month-chip.on');
+    if (chip && (chip.offsetLeft < bar.scrollLeft || chip.offsetLeft + chip.offsetWidth > bar.scrollLeft + bar.clientWidth)) {
+      bar.scrollLeft = chip.offsetLeft - (bar.clientWidth - chip.offsetWidth) / 2;
     }
   }
-  let marking = false;
-  if (typeof window.addEventListener === 'function') {
-    window.addEventListener('scroll', () => {
-      if (marking) return;
-      marking = true;
-      requestAnimationFrame(() => { marking = false; markCurrent(); });
-    }, { passive: true });
-  }
-  // Sau mỗi lần vẽ: cuộn tới tháng của ?month= (một lần) rồi tô chip tháng đang xem.
+  // Sau mỗi lần vẽ: cuộn tới tháng của ?month= (một lần) rồi đưa chip tháng đang xem vào tầm nhìn.
   function monthsAfterRender() {
     if (typeof root.querySelectorAll !== 'function') return;
     if (scrollTarget && sectionOf(scrollTarget)) {

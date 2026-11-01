@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho sửa/xóa tại ô (NHAP-SHEET-01) trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth } = require('./so-khach-v7-browser-world');
 
 // SO-GON-04: dòng tháng không dính nữa (chip tháng đang tô thay), nên danh sách phiếu dính ngay dưới tiêu đề cột.
 test('Danh sách phiếu thu dính ngay dưới tiêu đề cột khi cuộn; không chung hàng với chuyến', async () => withPage(async ({ page }) => {
@@ -87,7 +87,7 @@ test('chuyến web tháng mở: sửa ô bằng Enter, Esc trả lại, Tab lưu
   await shot('sua-o-chuyen-web');
 }));
 
-test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyển → dòng vàng ở tháng mới, dòng mờ Hoàn tác ở tháng cũ', async () => withPage(async ({ page, world, shot }) => {
+test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyển → sổ theo dòng sang tháng mới (dòng vàng), tháng cũ có dòng mờ Xem / Hoàn tác', async () => withPage(async ({ page, world, shot }) => {
   await tripCell(page, 'event_date').click();
   await page.locator('.info-input').fill('31/02/2026');
   await page.keyboard.press('Enter');
@@ -109,14 +109,21 @@ test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyể
   await page.locator('.info-input').fill('5/8/2026');
   await page.keyboard.press('Enter');
   await page.locator('.move-ask .move-yes').click();
+  // SO-GON-05 (một tháng trên màn hình): sổ theo dòng sang tháng mới, dòng vàng; tháng cũ giữ dòng mờ Xem / Hoàn tác.
   await page.locator('#thang-2026-08 tr.moved').waitFor();
   assert.equal(world.requests.at(-1).body.value, '2026-08-05');
   assert.equal(await page.locator('#thang-2026-08 td.info-edit[data-field="event_date"]').innerText(), '05/08/2026');
   assert.match(await page.locator('#thang-2026-08 tr.moved + tr.moved-note .moved-tag').innerText(), /Vừa chuyển từ T9/);
-  assert.equal(await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"]').count(), 0);
-  assert.match(await page.locator('#thang-2026-09 .ghost').innerText(), /DEMU1234567 \(ngày cũ 15\/09\/2026\) đã chuyển sang tháng 8\/2026/);
+  assert.equal(await page.locator('.month-chip[aria-current="true"]').getAttribute('data-month'), '2026-08');
   assert.equal(await page.locator('.live-notice').isVisible(), false);
   await shot('chuyen-thang');
+  await viewMonth(page, '2026-09');
+  assert.equal(await page.locator('#thang-2026-09 td.info-edit[data-kind="trip"]').count(), 0);
+  assert.match(await page.locator('#thang-2026-09 .ghost').innerText(), /DEMU1234567 \(ngày cũ 15\/09\/2026\) đã chuyển sang tháng 8\/2026/);
+  // Xem: sang tháng mới, tới đúng dòng; quay lại tháng cũ để Hoàn tác.
+  await page.locator('#thang-2026-09 .ghost-go').click();
+  await page.locator('#thang-2026-08 tr.moved').waitFor();
+  await viewMonth(page, '2026-09');
 
   // Hoàn tác: gửi lại ngày cũ, dòng về tháng 9, hết dòng mờ và màu vàng.
   await page.locator('#thang-2026-09 .ghost-undo').click();
@@ -189,7 +196,10 @@ test('bấm STT để xóa hẳn: hỏi xác nhận có ngày và số tiền; T
 }));
 
 test('XOA-DC-THANG-01: bấm số tiền điều chỉnh cả tháng để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
+  // Tháng 9 (khóa, đang xem): dòng điều chỉnh có nhưng không có nút xóa.
+  assert.equal(await page.locator('#thang-2026-09 tr.adjustment').count(), 1);
   assert.equal(await page.locator('td.row-delete[data-kind="adjustment"][data-id="32"]').count(), 0);
+  await viewMonth(page, todayMonth);
   assert.equal(await page.locator('td.row-delete[data-kind="adjustment"][data-id="33"]').count(), 0);
   const amount = page.locator('td.row-delete[data-kind="adjustment"][data-id="31"]');
   assert.equal(await amount.innerText(), '100');
@@ -210,7 +220,10 @@ test('XOA-DC-THANG-01: bấm số tiền điều chỉnh cả tháng để xóa 
 }));
 
 test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để xóa hẳn; tháng khóa không có nút', async () => withPage(async ({ page, world }) => {
+  // Tháng 9 (khóa, đang xem): khoản thu sổ gốc có nhưng không có nút xóa.
+  await page.locator('#thang-2026-09 .pay-list').waitFor();
   assert.equal(await page.locator('td.row-delete[data-kind="legacy"][data-id="25"]').count(), 0);
+  await viewMonth(page, todayMonth);
   const amount = page.locator('td.row-delete[data-kind="legacy"][data-id="24"]');
   assert.equal(await amount.innerText(), '1.234.567');
   await amount.click();
@@ -341,10 +354,12 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
   assert.equal(sept[0].method, '');
   assert.deepEqual(sept.slice(1, 4).map(row => row.date), ['11/09/2026', '12/09/2026', '13/09/2026']);
   assert.equal(await page.locator('#thang-2026-09 [data-pid="PH-001"][data-field="date"]').count(), 1);
-  // Tháng hiện tại: một phiếu, không có hàng nhập.
+  // Tháng hiện tại: một phiếu, không có hàng nhập (SO-GON-05: sang tháng đó bằng chip rồi về tháng 9).
+  await viewMonth(page, todayMonth);
   const now = await payRows(page, todayMonth.slice(0, 7));
   assert.equal(now.length, 1);
   assert.equal(now[0].amount, '5.000.000');
+  await viewMonth(page, '2026-09');
   // Tham chiếu là chữ nhỏ trong ô Số tiền trả, bấm để sửa; không còn hàng Tham chiếu riêng.
   assert.equal(await page.locator('tr.reference-row').count(), 0);
   const reference = page.locator('.receipt-ref[data-pid="PH-001"][data-field="reference"]');
