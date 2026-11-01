@@ -3,7 +3,7 @@
  * (31/10/2026, DOM không đổi). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).loc = ctx => {
   'use strict';
-  const { root, monthKey } = ctx;
+  const { root, monthKey, redraw } = ctx;
   const LOC = {
     'thieu-gia': ['chuyến thiếu đơn giá', trip => trip.status === 'confirmed' && trip.is_missing_price === true],
     'cho-kiem': ['chuyến chờ kiểm', trip => trip.status === 'pending_review'],
@@ -48,5 +48,14 @@
     });
     if (!locJumped && hits.length) { locJumped = true; go(0); }
   }
-  Object.assign(ctx, { locAfterRender, locMonths });
+  // Trang khách (TRANG-KHACH-01, khối "Còn gì làm số chưa đúng" của thẻ Tình hình): mở ?loc= ngay trong trang, không tải lại —
+  // ghi loc= lên địa chỉ rồi vẽ lại: tháng có dòng cần xử lý tự hiện chi tiết, dòng được tô và sổ nhảy tới dòng đầu như link cũ.
+  function showLoc(kind) {
+    if (!Object.hasOwn(LOC, kind)) return;
+    locKind = kind; locJumped = false; locIndex = 0;
+    const query = new URLSearchParams(location.search); query.set('loc', kind);
+    window.history.replaceState(window.history.state, '', `${location.pathname}?${query}`);
+    redraw();
+  }
+  Object.assign(ctx, { locAfterRender, locMonths, showLoc });
 };

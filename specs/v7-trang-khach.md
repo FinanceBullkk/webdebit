@@ -1,6 +1,6 @@
 # Trang khách: một khách, bốn thẻ
 
-Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** (1/11/2026, mục Bằng chứng); A2–A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
+Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** (1/11/2026, kiểm trên máy chủ giả); A3–A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
@@ -140,6 +140,17 @@ Theo tinh thần [`DASH-03`](../docs/decisions/dash-03.md): mỗi tab một mụ
 | 4 | Khách còn đi hàng không? | Số chuyến mỗi tháng trong 6 tháng, lần đi hàng gần nhất | A |
 | 5 | Còn gì làm số chưa đúng? | Chuyến chưa có giá, chờ kiểm, chuyến/giá/phiếu thu từ Sheet đang chờ, phụ phí PS cần xem. Mỗi dòng mở Sổ đúng chỗ. Kèm câu "Còn nợ ở trên chưa tính các dòng này" | A |
 | 6 | Lần cuối nói chuyện với khách | Lần nhắc gần nhất (ngày, cách nhắc), tin Zalo gần nhất; B2 thêm hứa trả đang chờ. Link sang thẻ Trao đổi | A một phần, B |
+
+**Khi code (PR A2, 1/11/2026), Claude làm như sau** — không đổi tiền, API hay lựa chọn K1–K8:
+
+1. **Đọc API phụ khi cần:** `dashboard/debt` và `reminders` chỉ đọc khi thẻ Tình hình đang mở (lần đầu mở, khi sổ đổi phiên bản, hoặc lần đọc đã quá 60 giây). Người chỉ dùng thẻ Sổ không gọi thêm API nào.
+2. **Khối 1:** Còn nợ và Thu tháng này lấy ở sổ; Quá hạn, Đến hạn và mức rủi ro lấy dòng của khách ở Tổng quan. Ô Đến hạn ghi ngày như Tổng quan ("Đến hạn 30/11"), dòng dưới ghi tháng nợ và khoản kế tiếp. Bấm dòng tháng quá hạn thì sang thẻ Sổ ở tháng quá hạn lâu nhất. Dữ kiện của mức rủi ro: lần trả và lần đi hàng gần nhất, cùng chữ với ngăn kéo Tổng quan. Sổ không có dòng ở Tổng quan (không nợ) thì Quá hạn 0 đ.
+3. **Thu tháng này khi tháng hiện tại chưa có dòng nào:** 0 đ, như dòng Tổng tháng của tháng đang làm ở thẻ Sổ, kèm câu "chưa có chuyến hay phiếu thu".
+4. **Khối 2:** không vẽ trục số; số ghi ở điểm thấp nhất và điểm cuối, rê chuột xem số từng cột. Tháng có dòng bấm được ở cả cột trên hình và hàng tên tháng bên dưới (nút 40px, Tab tới được). Bấm thì sang thẻ Sổ, ghi `month=` lên địa chỉ và hiện chi tiết tháng đó, không tải lại trang.
+5. **Khối 4:** đếm dòng chuyến web (trừ đã xóa, đã loại, phí lẻ) và dòng chuyến sổ gốc chưa xóa. Lần đi hàng gần nhất lấy ở Tổng quan; sổ không có ở Tổng quan thì lấy ngày chuyến mới nhất trong sổ.
+6. **Khối 5:** chuyến chưa có giá, chờ kiểm và chuyến từ Sheet đếm như chấm cam trên chip tháng. Hai dòng đầu mở thẻ Sổ với `loc=` ngay trong trang (`showLoc` của `so-khach-v7-loc-ui.js`). Dòng Sheet, giá và phiếu thu từ Sheet, phụ phí PS tới nút của lô ở dải đầu thẻ Sổ. Câu "Còn nợ ở trên chưa tính các dòng này" không kể phụ phí PS, vì tách theo PS không đổi tổng tiền.
+7. **Khối 6 phần A:** chỉ có lần nhắc gần nhất (ngày, cách nhắc, số lần) và nút sang thẻ Trao đổi. Tin Zalo gần nhất để PR A3, cùng chỗ tìm hội thoại theo tên của thẻ Trao đổi.
+8. **Trường hợp đặc biệt:** khách dư có hai ô, "Khách đang dư … trả trước" và Thu tháng này. Khách chưa có số dư đầu: một câu như sổ, không đọc Tổng quan.
 
 ### Thẻ Sổ
 
@@ -312,13 +323,13 @@ PR A1 (đã kiểm trên máy chủ giả, mục Bằng chứng):
 - [x] Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải đổi thẻ, Enter mở; vùng bấm ≥ 40px.
 - [x] Đang gõ dở trong khung Ghi phiếu thu mà bấm sang thẻ khác rồi quay lại: số đã gõ còn nguyên.
 
-PR A2:
-- [ ] Bốn số bằng đúng: Còn nợ = `total_outstanding_vnd`; Quá hạn = `overdue_vnd` của khách; Thu tháng này = `received_vnd` của `today_month`.
-- [ ] Hình 12 tháng: mỗi cột và mỗi điểm bằng `charges_vnd`, `received_vnd`, `end_of_month_vnd` của tháng đó. Tháng không có trong `months[]` không có cột. Bấm cột thì sang thẻ Sổ với `month=` đúng.
-- [ ] Đi hàng: số chuyến tháng bằng số dòng chuyến web và sổ gốc của tháng; chuyến đã loại không đếm.
-- [ ] Còn gì làm số chưa đúng: mỗi dòng mở Sổ với `loc` đúng; số đếm khớp chip tháng của SO-GON-04.
-- [ ] Khách chưa có số dư đầu thì hiện câu thay số; khách dư thì hiện "Khách đang dư …", không hiện quá hạn.
-- [ ] `dashboard/debt` lỗi (`page.route` abort): khối 1 hiện Còn nợ từ ledger, phần quá hạn báo lỗi kèm Thử lại; các khối khác vẫn hiện.
+PR A2 (đã kiểm trên máy chủ giả, mục Bằng chứng):
+- [x] Bốn số bằng đúng: Còn nợ = `total_outstanding_vnd`; Quá hạn = `overdue_vnd` của khách; Thu tháng này = `received_vnd` của `today_month`.
+- [x] Hình 12 tháng: mỗi cột và mỗi điểm bằng `charges_vnd`, `received_vnd`, `end_of_month_vnd` của tháng đó. Tháng không có trong `months[]` không có cột. Bấm cột thì sang thẻ Sổ với `month=` đúng.
+- [x] Đi hàng: số chuyến tháng bằng số dòng chuyến web và sổ gốc của tháng; chuyến đã loại không đếm.
+- [x] Còn gì làm số chưa đúng: mỗi dòng mở Sổ với `loc` đúng; số đếm khớp chip tháng của SO-GON-04.
+- [x] Khách chưa có số dư đầu thì hiện câu thay số; khách dư thì hiện "Khách đang dư …", không hiện quá hạn.
+- [x] `dashboard/debt` lỗi (`page.route` abort): khối 1 hiện Còn nợ từ ledger, phần quá hạn báo lỗi kèm Thử lại; các khối khác vẫn hiện.
 
 PR A3:
 - [ ] Trao đổi: phiếu thu (kể cả cấn trừ) đúng ngày, số tiền, tháng trừ nợ theo `allocations` hiện hành; phiếu hủy hiện gạch, có lý do.
@@ -352,6 +363,18 @@ Spec: hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ d
   8. Số việc chờ trên thẻ Sổ bằng tổng chấm cam trên các chip tháng.
 - Sửa test cũ theo đầu trang mới: `test-so-khach-v7-api.js` (khuôn đầu trang), `test-so-khach-v7-chu-browser.js` (nút ngoài thanh thẻ), `test-so-khach-v7-month-browser.js` (thanh tháng dính ở 100px thay 104px).
 - So mọi ô số tiền của `#app` giữa `main` (`5cf0ac0`) và bản PR, mở hết tháng, trên hai sổ giả: 608 ô (31 + 577) trùng khớp.
+- `npm run check` xanh (ruff chạy bằng venv của checkout chính).
+
+**PR A2 (thẻ Tình hình), 1/11/2026** — máy chủ giả, 1280×720, dữ liệu giả, đồng hồ trang ghim 15/11/2026 (giờ VN); chưa đo trên `hao`:
+- `monthSeries` và `creditOf` trong `so-khach-v7-model.js`, hai test model: tháng thiếu không có cột, điểm còn nợ giữ tháng trước (kể cả tháng trước cửa sổ), sổ dư đặt số 0 giữa thang, chưa có tháng nào thì không có điểm, qua năm, số sai báo lỗi.
+- `test-so-khach-v7-overview-browser.js`, 6 test trên sổ giả 16 tháng (thiếu tháng 5, có chuyến thiếu giá, chờ kiểm, đã loại, phí lẻ, chuyến và giá từ Sheet):
+  1. Bốn số bằng `total_outstanding_vnd`, `overdue_vnd`, `tiers_vnd`, `received_vnd` của `today_month`; mức rủi ro và dữ kiện; lần nhắc; không cuộn ngang, mọi nút ≥ 40px, chữ thân 16px; bấm dòng quá hạn sang Sổ tháng quá hạn lâu nhất.
+  2. Mỗi cột, mỗi điểm bằng số của tháng; tháng 5 không có cột; số ở điểm thấp nhất và điểm cuối; bấm tên tháng và bấm cột trên hình sang thẻ Sổ với `month=`, không đọc lại sổ.
+  3. Số chuyến 6 tháng bằng số chuyến của tháng thu gọn ở thẻ Sổ và số dòng chuyến tính được của tháng đang mở; mở thẻ Sổ trước thì chưa đọc `dashboard/debt` hay `reminders`.
+  4. Việc chờ khớp chấm cam và số trên thẻ Sổ; dòng thiếu giá, chờ kiểm mở Sổ với `loc=` (dòng được tô); dòng Sheet, giá Sheet tới đúng nút; không gửi lệnh nào.
+  5. Khách chưa có số dư đầu: một câu, không đọc Tổng quan; khách dư: "Khách đang dư", không có chữ quá hạn.
+  6. `dashboard/debt` cắt một lần (`page.route` abort `times: 1`): Còn nợ và Thu tháng này vẫn hiện, quá hạn báo lỗi kèm Thử lại, các khối khác còn; Thử lại thì có số. `reminders` cắt một lần: chỉ khối 6 báo lỗi.
+- So mọi ô số tiền của thẻ Sổ (`#app` trừ khung Tình hình) giữa `main` (`a6cb0d1`) và bản PR, cùng máy chủ giả, mở hết tháng, trên hai sổ giả: 161 ô (85 + 76) trùng khớp; đã thử ngược bằng một bản cố ý sai thì phép so báo lệch.
 - `npm run check` xanh (ruff chạy bằng venv của checkout chính).
 
 ## Lựa chọn đã chốt

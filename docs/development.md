@@ -71,7 +71,9 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-trips-ui.js` | bảng chuyến bên trái: dòng sổ gốc, chuyến web, chuyến Sheet chờ duyệt, nhãn KHÁC trên dòng lệch Sheet |
 | `so-khach-v7-pay-ui.js` | danh sách phiếu thu bên phải: khoản thu Sheet, phiếu web, phiếu đã hủy |
 | `so-khach-v7-entry-ui.js` | khung "Ghi phiếu thu" (nút ở đầu sổ, khung bên phải nằm ngoài `#app` nên vẽ lại sổ không mất chữ đang gõ), bước xem lại trước khi ghi, băng kết quả và "Hủy phiếu vừa ghi" (`SO-GON-04`); CẤN TRỪ đi hộp của offset-ui |
-| `so-khach-v7-loc-ui.js` | thanh `?loc=thieu-gia\|cho-kiem` khi mở từ Việc cần làm |
+| `so-khach-v7-loc-ui.js` | thanh `?loc=thieu-gia\|cho-kiem` khi mở từ Việc cần làm; `showLoc` mở `loc=` ngay trong trang (thẻ Tình hình) |
+| `so-khach-v7-tabs-ui.js` | trang khách (`TRANG-KHACH-01`): phần trái đầu trang (← Quay lại, tên khách, thanh bốn thẻ), đổi thẻ bằng `<body data-the>` và `history.replaceState` |
+| `so-khach-v7-overview-ui.js`, `so-khach-v7-overview.css` | thẻ Tình hình: bốn số và mức rủi ro, hình 12 tháng, số chuyến 6 tháng, việc chờ, lần nhắc gần nhất; đọc `dashboard/debt` và `reminders` chỉ khi thẻ đang mở |
 | `so-khach-v7-history-ui.js` | Lịch sử: diễn giải sự kiện, danh sách trong khung Lịch sử |
 | `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
 | `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO): ô chọn sổ nguồn trong khung Ghi phiếu thu, hộp xác nhận, hủy/đổi ngày cấn trừ |

@@ -412,6 +412,47 @@ const SoKhachV7Model = (() => {
     return vnd(item.amountVnd, true);
   }
 
+  /* Trang khách, thẻ Tình hình (TRANG-KHACH-01, khối 2 "Nợ đang tăng hay giảm?"): `count` tháng tới tháng `today` từ months[]
+     của GET /api/v7/ledger, số lấy nguyên từ GET (dòng Tổng tháng, DA-THU-01). Tháng không có trong months[] không có cột
+     (null, không phải 0); điểm Còn nợ cuối tháng giữ số của tháng gần nhất trước đó, kể cả tháng trước cửa sổ (`carried`);
+     sổ chưa có tháng nào trước đó thì không có điểm. `*At` là vị trí để vẽ (0 = đáy, 1 = đỉnh) trên một thang từ số nhỏ nhất
+     (≤ 0) tới số lớn nhất (≥ 0), `zeroAt` là vị trí số 0; `low`/`last` là chỉ số điểm thấp nhất (lần đầu) và điểm cuối. */
+  function monthSeries(months, today, count = 12) {
+    const keyOf = value => String(value ?? "").slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(keyOf(today))) throw new Error("Invalid month");
+    const shift = (key, by) => {
+      const n = Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1 + by;
+      return `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, "0")}`;
+    };
+    const money = value => value === null || value === undefined ? null : vnd(String(value), true);
+    const rows = new Map((Array.isArray(months) ? months : []).map(row => [keyOf(row.month), row]));
+    const first = shift(keyOf(today), 1 - count);
+    let carry = null;
+    for (const key of [...rows.keys()].sort()) {
+      if (key < first && money(rows.get(key).end_of_month_vnd) !== null) carry = money(rows.get(key).end_of_month_vnd);
+    }
+    const items = Array.from({ length: count }, (_, index) => {
+      const key = shift(first, index), row = rows.get(key), own = row ? money(row.end_of_month_vnd) : null;
+      if (own !== null) carry = own;
+      return { key, present: row !== undefined, chargesVnd: row ? money(row.charges_vnd) : null,
+        receivedVnd: row ? money(row.received_vnd) : null, endVnd: carry, carried: own === null && carry !== null };
+    });
+    const values = items.flatMap(item => [item.chargesVnd, item.receivedVnd, item.endVnd]).filter(value => value !== null);
+    const bottom = values.reduce((min, value) => value < min ? value : min, 0n);
+    const top = values.reduce((max, value) => value > max ? value : max, 0n);
+    const at = value => value === null ? null : top === bottom ? 0 : Number((value - bottom) * 10000n / (top - bottom)) / 10000;
+    for (const item of items) Object.assign(item, { chargesAt: at(item.chargesVnd), receivedAt: at(item.receivedVnd), endAt: at(item.endVnd) });
+    const points = items.map((item, index) => [item.endVnd, index]).filter(([value]) => value !== null);
+    return { items, zeroAt: at(0n), low: points.length ? points.reduce((best, point) => point[0] < best[0] ? point : best)[1] : null,
+      last: points.length ? points.at(-1)[1] : null };
+  }
+
+  // Khách đang dư (tổng còn nợ âm, CAN-DU-01): số trả trước, dương; không dư thì 0.
+  function creditOf(total) {
+    const amount = vnd(String(total), true);
+    return amount < 0n ? -amount : 0n;
+  }
+
   /* Cấn trừ hai sổ (CT-2SO). Số tiền do server trả (chuỗi nguyên) đọc bằng vnd(); số gõ tay đọc bằng parsePositiveVnd.
      Hàm ở đây chỉ đọc/kiểm hợp đồng JSON và dựng dữ liệu hiển thị; server mới là nơi chặn và ghi. */
   const OFFSET_OUTSIDE = "OUTSIDE";
@@ -842,7 +883,7 @@ const SoKhachV7Model = (() => {
 
   return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
-    parseSignedVnd, adjustmentAmount, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
+    parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,

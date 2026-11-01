@@ -1,0 +1,40 @@
+/* Thẻ Tình hình của trang khách (TRANG-KHACH-01, PR A2; so-khach-v7-overview-ui.js). Màu theo DESIGN: xám + một navy, đỏ chỉ
+   cho nợ quá hạn; chữ thân 16px, vùng bấm ≥ 40px; vừa 1280px không cuộn ngang. */
+#the-tinh-hinh{max-width:1260px;margin:0 auto;padding-top:12px;font-size:16px;line-height:1.4}
+.ov-block{min-width:0;margin-bottom:12px;padding:12px 16px;background:#fff;border:1px solid #c9d6e3;border-radius:8px}
+.ov-block h2{margin:0 0 8px;font-size:18px}
+.ov-block p{margin:0 0 8px}
+.ov-note{color:#3e5871;font-size:15px}
+.ov-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ov-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding-left:10px;border-left:3px solid #c9d6e3}
+.ov-card.wide{grid-column:span 2}
+.ov-card.late{border-left-color:#b91c1c}.ov-card.late .ov-value{color:#b91c1c}
+.ov-error{justify-content:center;gap:8px;color:#8f1414}
+.ov-label{color:#3e5871;font-size:15px}
+.ov-value{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ov-sub{font-size:15px}
+.ov-facts{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
+.ov-risk,.ov-fact{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border:1px solid #c9d6e3;border-radius:16px;font-size:15px}
+.ov-risk{background:#eef3f8;font-weight:700}
+.ov-risk.r-high{background:#fdecec;border-color:#f0b4b4;color:#8f1414}.ov-risk.r-watch{background:#fff3c4;border-color:#e3cf7d;color:#5a3a00}
+.ov-chart svg{display:block;width:100%;height:auto}
+.ov-zero{stroke:#9eb4ca}.ov-area{fill:#e8edf3}.ov-line{fill:none;stroke:#162d48;stroke-width:2}
+.ov-area,.ov-line,.ov-num,.ov-zero{pointer-events:none}
+.ov-bar.ps{fill:#9aa9bc}.ov-bar.thu{fill:#1e4e8c}.ov-bar.trip{fill:#46587a}
+.ov-point{fill:#162d48;cursor:pointer}
+.ov-hit{fill:transparent}.ov-col[data-go]{cursor:pointer}.ov-col[data-go]:hover .ov-hit{fill:#eef3f8}
+.ov-num{font-size:15px;font-weight:700;fill:#162d48;paint-order:stroke;stroke:#fff;stroke-width:4px}
+.ov-months{display:grid}
+.ov-month{display:flex;align-items:center;justify-content:center;min-width:0;min-height:40px;padding:0;border:0;background:none;color:#174b82;font:inherit;font-size:15px;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.ov-month.off{color:#6b7280;font-weight:400;text-decoration:none;cursor:default}
+.ov-legend{display:flex;gap:18px;margin:6px 0 0;color:#3e5871;font-size:15px}
+.ov-sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px}
+.ov-sw.ps{background:#9aa9bc}.ov-sw.thu{background:#1e4e8c}.ov-sw.line{height:3px;vertical-align:3px;background:#162d48}
+.ov-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+.ov-row .ov-block{margin-bottom:0}
+.ov-task{display:flex;align-items:center;gap:10px;min-height:48px;border-top:1px solid #e5e7eb}
+.ov-task span{flex:1}
+.ov-go{flex:none;min-height:40px;padding:0 12px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+.ov-go:hover,.ov-month:hover{background:#eaf2fb}
+.ov-link{min-height:40px;padding:0;border:0;background:none;color:#174b82;font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.ov-go:focus-visible,.ov-month:focus-visible,.ov-link:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
