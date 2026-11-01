@@ -31,10 +31,10 @@ Mặc định Claude chọn, người dùng đã đọc trong chat và không ph
 - **G1** (công cụ dựng gói, FinanceBullkk/webdebit#241) và **G2** (trang chat đọc gói, ảnh, mở đúng tin, FinanceBullkk/webdebit#243): đã lên `hao` 1/11/2026.
 - **G3** (bảng `zalo_link`, `contact_mark`, API, FinanceBullkk/webdebit#244): nâng DB tay trên `hao` 1/11/2026 ([nhật ký](../deploys/2026-11-01-zalo-group.md)).
 - **G4** (nút Đánh dấu, gắn sổ trong chat, dấu ở thẻ Trao đổi): đã code.
-- **G5** (đẩy gói lên `hao`): chưa làm. `hao` chưa có gói chat nên trên web thật chưa xem hay đánh dấu được.
+- **G5** (đẩy gói lên `hao`): người dùng đồng ý 1/11/2026 ("Đồng ý làm G5"). `hao` có thư mục gói và biến môi trường cho API; máy có Zalo đẩy 15 phút một lần ([nhật ký](../deploys/2026-11-01-zalo-group.md#g5-đường-đẩy-gói-chat)). Người dùng chưa chọn group nào nên `hao` chưa có tin nhắn.
 
 - Mọi bảng mới nằm ngoài đường tiền: không vào `v_outstanding_month`, không đổi phân bổ, không khóa tháng, không bump `customer.version`. Triển khai theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md).
 - **Đẩy gói chat lên `hao` cần hỏi người dùng trước** khi mở đường ghi mới (CLAUDE.md: đổi quyền ngoài runbook). Chép dữ liệu chat lên `hao` chỉ gồm group đã chọn; người dùng đã đồng ý nguyên tắc này ngày 1/11/2026.
 - Thay một phần [`NHAC-NO-01`](nhac-no-01.md), sửa đổi ZALO-CHAT-01: trang chat đọc **gói web** (chỉ group đã chọn, có ảnh) thay cho bản xuất 30/10. Bản xuất cũ vẫn đọc được.
 
-Còn mở: một group thường là một khách hay nhiều khách (thiết kế cho cả hai); tự đẩy gói theo lịch hay bấm tay.
+Còn mở: một group thường là một khách hay nhiều khách (thiết kế cho cả hai). Đã chốt ở G5: tự đẩy theo lịch 15 phút.

@@ -56,6 +56,28 @@ Thư mục `backup-20261101-zalo-group` trong `/srv/v7` trên `hao`, ngoài Git,
 - DB: `DROP TABLE sokhach.contact_mark, sokhach.zalo_link` và `DROP FUNCTION` các hàm `link_zalo`, `unlink_zalo`, `get_zalo_links`, `record_mark`, `cancel_mark`, `get_marks`, `_mark_json` dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore `v7-stopped.dump` vào DB mới.
 - App: `webdebit-release.sh deploy 443b3d455fe79caa2cc485f8bd81d1e9bc711137`. Release cũ không gọi bảng hay hàm mới.
 
+## G5: đường đẩy gói chat
+
+Người dùng đồng ý trong chat 1/11/2026 ("Đồng ý làm G5"), sau khi Claude nêu đủ ba việc: thư mục trên `hao`, biến môi trường cho API, lịch đẩy 15 phút. Đây là đổi systemd ngoài runbook nên phải hỏi theo `DEPLOY-CLAUDE-01`.
+
+- 08:37 UTC:
+  - tạo `/srv/v7/zalo-bundle` (`drwxr-s---`, chủ `aohanh`, nhóm `v7app`);
+  - thêm drop-in `/etc/systemd/system/v7-ledger-api.service.d/zalo-bundle.conf` với `Environment=WEBDEBIT_ZALO_EXPORT_DIR=/srv/v7/zalo-bundle`;
+  - `daemon-reload`, restart API.
+- Sau restart:
+  - `active`, `/healthz` 200;
+  - `v7app` đọc được thư mục;
+  - `/api/v7/zalo/report` báo 503 "không đọc được conversations.json", đúng vì chưa có gói.
+- Thử đường đẩy thật (ssh + tar) bằng **gói bịa** của test, vào thư mục tạm trên `hao`, rồi xóa:
+  - lượt 1 gửi 4 ảnh, lượt 2 không gửi lại ảnh;
+  - group bỏ chọn bị xóa phía `hao`;
+  - thư mục khớp từng file với máy này.
+
+  Không dữ liệu chat thật nào lên `hao` trước khi người dùng chọn group.
+
+Rollback G5: tắt task `WebdebitZaloSync`; xóa `zalo-bundle.conf`, `daemon-reload`, restart API; xóa `/srv/v7/zalo-bundle`.
+
 ## CÒN MỞ
 
-- `hao` chưa có gói chat (G5): trang Chat Zalo vẫn báo chưa có dữ liệu, nên chưa đánh dấu được trên web thật. Đẩy gói cần người dùng chọn group và đồng ý mở đường ghi.
+- Người dùng chọn group đưa lên web (`zalo_web_bundle.py add`). Tới lúc đó lượt đồng bộ chỉ ghi "bỏ qua: chưa chọn group nào".
+- Người dùng tự đi hết luồng trên web thật: đọc chat, đánh dấu, gắn sổ, xem ở thẻ Trao đổi.

@@ -4,10 +4,13 @@ import contextlib
 import hashlib
 import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -246,6 +249,116 @@ class ZaloWebBundleTest(unittest.TestCase):
         self.assertIsNone(bundle.sniff(b"<html>"))
         self.assertFalse(bundle.allowed("http://f1.photo.zdn.vn/x.jpg"))   # chỉ https
         self.assertFalse(bundle.allowed("https://zdn.vn.evil.com/x.jpg"))
+
+
+def working_bash() -> str | None:
+    """bash chạy được thật (trên Windows, `bash` trên PATH có thể là trình khởi chạy WSL không có bản phân phối)."""
+    candidates = [shutil.which("bash"), r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"]
+    for candidate in dict.fromkeys(item for item in candidates if item and Path(item).is_file()):
+        try:
+            done = subprocess.run([candidate, "-c", "tar --version"], capture_output=True, check=False, timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode == 0:
+            return candidate
+    return None
+
+
+BASH = working_bash()
+
+
+class FakeServer:
+    """Máy chủ giả cho push(): một thư mục tạm; lệnh áp gói chạy đúng đoạn shell REMOTE_APPLY bằng bash + tar thật."""
+
+    def __init__(self, directory: Path):
+        self.dir, self.calls = directory, []
+
+    def __call__(self, host, command, stdin=None):
+        self.calls.append((host, command, stdin is not None))
+        assert host == "fake" and "/srv/v7/zalo-bundle" in command
+        if stdin is None:
+            top = "\n".join(sorted(path.name for path in self.dir.iterdir()))
+            media = "\n".join(sorted(path.name for path in (self.dir / "media").iterdir())) if (self.dir / "media").is_dir() else ""
+            return f"{top}\n---\n{media}\n"
+        done = subprocess.run([BASH, "-c", bundle.REMOTE_APPLY, "apply", self.dir.as_posix()], stdin=stdin,
+                              capture_output=True, check=False)
+        assert done.returncode == 0, done.stderr
+        return ""
+
+
+@unittest.skipUnless(BASH, "cần bash và tar để chạy đoạn áp gói phía máy chủ")
+class ZaloWebPushTest(unittest.TestCase):
+    TARGET = "fake:/srv/v7/zalo-bundle"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.src, self.out, remote = root / "live-sync", root / "web-bundle", root / "remote"
+        self.src.mkdir()
+        remote.mkdir()
+        write_source(self.src)
+        self.server = FakeServer(remote)
+        self.source = bundle.Source(self.src)
+
+    def build(self, ids, now):
+        self.source.save_selection(ids)
+        return bundle.build(bundle.Source(self.src), self.out, fetch=FakeCdn(), transcode=no_jxl, now=now)
+
+    def mirror(self):
+        def files(root):
+            return sorted(str(path.relative_to(root)).replace("\\", "/") for path in root.rglob("*")
+                          if path.is_file() and path.name not in (bundle.CACHE, "sync.log"))
+        return files(self.out), files(self.server.dir)
+
+    def test_push_mirrors_bundle_sends_only_new_and_prunes_unselected(self):
+        first = self.build([GROUP, OTHER], NOW)
+        sent = bundle.push(self.out, self.TARGET, run=self.server)
+        local, remote = self.mirror()
+        self.assertEqual(local, remote)
+        self.assertEqual((sent["data_sent"], sent["media_sent"]), (1, 4))   # 3 ảnh của group khách + 1 của group kia
+        self.assertIn(f"{first['data_dir']}/messages.jsonl", remote)
+        self.assertFalse(any(name.startswith(".") for name in remote))
+        # Dựng lại cùng lựa chọn: chỉ gửi thư mục dữ liệu mới, không gửi lại ảnh.
+        self.build([GROUP, OTHER], NOW + 60)
+        sent = bundle.push(self.out, self.TARGET, run=self.server)
+        self.assertEqual((sent["data_sent"], sent["media_sent"]), (1, 0))
+        self.assertEqual(*self.mirror())
+        # Bỏ chọn một group: lượt đẩy kế tiếp xóa thư mục dữ liệu và ảnh của group đó trên máy chủ.
+        self.build([GROUP], NOW + 120)
+        bundle.push(self.out, self.TARGET, run=self.server)
+        local, remote = self.mirror()
+        self.assertEqual(local, remote)
+        text = "\n".join(path.read_bytes().decode("utf-8", "replace") for path in self.server.dir.rglob("*") if path.is_file())
+        self.assertNotIn("Bí mật", text)
+        self.assertNotIn(hashlib.sha256(cdn_bytes(CDN_OTHER)).hexdigest(), "\n".join(remote))
+        report = json.loads((self.server.dir / bundle.REPORT).read_text(encoding="utf-8"))
+        self.assertEqual(report, json.loads((self.out / bundle.REPORT).read_text(encoding="utf-8")))
+
+    def test_bad_target_and_unbuilt_bundle(self):
+        for target in ("hao", "hao:relative", "hao:/srv/../etc", "-oProxyCommand=x:/srv", "hao:/srv/a b"):
+            with self.subTest(target=target), self.assertRaises(bundle.BundleError):
+                bundle.push(self.out, target, run=self.server)
+        self.assertEqual(self.server.calls, [])
+
+    def test_sync_skips_without_selection_and_while_locked(self):
+        with patch.object(bundle, "push", side_effect=AssertionError("không được đẩy")):
+            self.assertEqual(bundle.cmd_sync(self.source, self.out, self.TARGET), 0)
+        self.assertIn("chưa chọn group nào", (self.out / "sync.log").read_text(encoding="utf-8"))
+        self.source.save_selection([GROUP])
+        (self.out / "sync.lock").write_text("", encoding="utf-8")
+        with patch.object(bundle, "push", side_effect=AssertionError("không được đẩy")):
+            self.assertEqual(bundle.cmd_sync(bundle.Source(self.src), self.out, self.TARGET), 0)
+        self.assertIn("lượt trước còn đang chạy", (self.out / "sync.log").read_text(encoding="utf-8"))
+        (self.out / "sync.lock").unlink()
+        real_push = bundle.push
+        with patch.object(bundle, "push", side_effect=lambda out, target: real_push(out, target, run=self.server)), \
+                patch.object(bundle, "fetch_url", FakeCdn()), patch.object(bundle, "transcode_jxl", no_jxl), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bundle.cmd_sync(bundle.Source(self.src), self.out, self.TARGET, max_age_days=None), 0)
+        self.assertFalse((self.out / "sync.lock").exists())
+        self.assertRegex((self.out / "sync.log").read_text(encoding="utf-8").splitlines()[-1], r"ok: 1 group, 8 tin")
+        self.assertEqual(*self.mirror())
 
 
 if __name__ == "__main__":

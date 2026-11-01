@@ -216,7 +216,23 @@ Kiểm ở API trước khi gọi DB: `amount_vnd` là số nguyên dương (VND
 | G2 | `v7_zalo_chat.py` đọc gói, route media, `message=`, nạp lại; giao diện chat kiểu Zalo có ảnh | tự deploy khi merge; `hao` chưa có gói nên vẫn báo chưa có dữ liệu |
 | G3 | Migration `zalo_link` + `contact_mark`, hàm, API, harness PG | triển khai tay theo runbook ([`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md)) |
 | G4 | Đánh dấu, gắn sổ trong chat; dấu trong thẻ Trao đổi | |
-| G5 | Đẩy gói lên `hao` | **hỏi người dùng trước** khi mở đường ghi |
+| G5 | Đẩy gói lên `hao` | người dùng đồng ý 1/11/2026 ("Đồng ý làm G5") |
+
+### G5: đẩy gói lên `hao`
+
+- **Trên `hao`:**
+  - thư mục `/srv/v7/zalo-bundle`: chủ `aohanh` (tài khoản ssh đẩy gói), nhóm `v7app` (user của API, chỉ đọc), quyền 2750 với setgid nên file mới tự thuộc nhóm `v7app`;
+  - drop-in `v7-ledger-api.service.d/zalo-bundle.conf` đặt `WEBDEBIT_ZALO_EXPORT_DIR`. API vẫn chạy `ProtectSystem=strict`, không mở ghi chỗ nào.
+- **Trên máy có Zalo:** `zalo_web_bundle.py sync --out D:\zalo-web-bundle --target hao:/srv/v7/zalo-bundle`, chạy bằng Task Scheduler 15 phút một lần khi người dùng đăng nhập (`pythonw`, không mở cửa sổ). Mỗi lượt:
+  1. dựng gói;
+  2. hỏi `hao` đang có thư mục dữ liệu và ảnh nào, chỉ gửi phần chưa có (cả hai bất biến theo tên) trong một tar qua ssh;
+  3. phía `hao` giải nén rồi `mv` file `.incoming-report.json` thành `export-report.json` sau cùng, server thấy file này đổi thì lập chỉ mục lại;
+  4. xóa mọi thư mục dữ liệu và ảnh mà máy này không còn giữ: bỏ chọn group thì tin và ảnh của group đó rời `hao` ở lượt kế tiếp.
+- **An toàn khi chạy theo lịch:**
+  - chưa chọn group nào thì lượt chạy chỉ ghi "bỏ qua" vào `sync.log`;
+  - hai lượt không chạy chồng nhau (khóa `sync.lock`, lượt chết quá 2 giờ thì bỏ khóa);
+  - `sync.log` chỉ ghi số đếm, không ghi nội dung tin.
+- Đo 1/11/2026 với gói bịa trên `hao` (thư mục tạm, đã xóa): lượt 1 gửi 4 ảnh, lượt 2 không gửi lại ảnh, bỏ chọn group thì bị xóa; thư mục trên `hao` khớp từng file với máy này.
 
 ## Phạm vi agent
 
@@ -230,9 +246,9 @@ Kiểm ở API trước khi gọi DB: `amount_vnd` là số nguyên dương (VND
 
 - G1, G2, G4: revert PR.
 - G3: `DROP` hai bảng và các hàm mới theo runbook (chỉ thêm, không gì tham chiếu tới).
-- G5: xóa thư mục gói trên `hao`, bỏ biến môi trường.
+- G5: tắt task `WebdebitZaloSync` trên máy có Zalo; trên `hao` xóa `zalo-bundle.conf`, `daemon-reload`, restart API, rồi xóa `/srv/v7/zalo-bundle`.
 
 ## Câu hỏi mở
 
 - CÒN MỞ: một group thường ứng với một khách hay nhiều khách? Thiết kế cho phép cả hai (gắn nhiều sổ); hỏi lại người dùng khi nghiệm thu.
-- CÒN MỞ: tự đẩy gói lên `hao` theo lịch (mỗi 5 phút?) hay bấm tay. Quyết ở G5.
+- ĐÃ CHỐT ở G5 (1/11/2026): đẩy tự động theo lịch, 15 phút một lần khi máy có Zalo đang bật.
