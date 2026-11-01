@@ -357,6 +357,7 @@ test('Đánh dấu (G4): group chưa gắn sổ thì gắn ngay trong hộp, ghi
     assert.ok(await page.locator('#mark-no-book').isVisible());
     await page.locator('#mark-no-book [data-open-link]').click();
     await page.locator('#link-search').fill('hoang vu');
+    await page.locator('#link-options .option').first().waitFor();   // danh sách sổ tải sau khi mở hộp
     assert.deepEqual(await page.locator('#link-options .option').allInnerTexts(), ['Nguyễn Hoàng Vũ · Sầu riêng']);
     await page.locator('#link-options .option').click();
     await page.locator('#mark-book-field').waitFor();

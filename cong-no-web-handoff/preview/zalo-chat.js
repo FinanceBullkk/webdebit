@@ -349,6 +349,7 @@
   }
   const bookName = row => row.label || row.display_name || row.name;
   function paintOptions() {
+    if (!customers) return;   // còn đang tải: giữ câu "Đang tải…", tải xong sẽ lọc theo chữ đã gõ
     const needle = foldText($('link-search').value.trim());
     const taken = new Set(linkedBooks().map(row => String(row.customer_id)));
     const rows = (customers ?? []).filter(row => !taken.has(String(row.id)) && (!needle || foldText(bookName(row)).includes(needle))).slice(0, 30);
