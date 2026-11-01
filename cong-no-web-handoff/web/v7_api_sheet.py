@@ -64,6 +64,24 @@ def cached_load(loader, path):
     return value
 
 
+# Hàng chờ chuyến dựng từ bản chụp chỉ phụ thuộc bản chụp, danh sách khách và bản đối chiếu lúc nạp, nên giống hệt nhau
+# ở mọi sổ và mọi lần mở sổ cho tới khi một trong ba đổi. Giữ một bản; `project_customer` chỉ đọc và chép dòng ra dict mới.
+_QUEUE: list = [None, None, None, None]   # [snapshot, baseline, khóa danh sách khách, hàng chờ]
+_QUEUE_LOCK = threading.Lock()
+
+
+def cached_queue(snapshot: dict, customers: list, baseline: dict) -> dict:
+    key = json.dumps(customers, sort_keys=True, ensure_ascii=False, default=str)
+    with _QUEUE_LOCK:
+        held_snapshot, held_baseline, held_key, held_queue = _QUEUE
+        if held_snapshot is snapshot and held_baseline is baseline and held_key == key:
+            return held_queue
+    queue = build_queue(snapshot, customers, baseline)
+    with _QUEUE_LOCK:
+        _QUEUE[:] = [snapshot, baseline, key, queue]
+    return queue
+
+
 class SharedReads:
     """Runner bọc cho một lần mở sổ hoặc một lượt hộp ngoại lệ: ba hàm đọc dùng chung chỉ chạy một lần."""
 
@@ -162,7 +180,7 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             raise ValueError("web trip references invalid")
         if ref["customer_id"] != ledger.get("customer_id"):
             other_containers.add("".join(ref["container"].upper().split()))
-    queue = build_queue(snapshot, customers, baseline)
+    queue = cached_queue(snapshot, customers, baseline)
     waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in queue["items"]
                       if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"} - {""})
     other_legacy = []

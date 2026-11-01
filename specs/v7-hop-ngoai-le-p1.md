@@ -39,7 +39,7 @@ Sếp và người đòi nợ không đổi gì trong P1. Cảnh báo theo khác
 - Nhóm thiếu giá và chờ kiểm của trang vẫn lấy từ `GET /api/v7/dashboard` như cũ, khối mới không lặp lại hai nhóm này.
 
 **Tốc độ:** tính một sổ khoảng 0,75 giây (đo 1/11/2026), nên không tính lúc mở trang.
-- API tính nền bằng 4 luồng: lúc khởi động, và mỗi khi bản chụp Sheet đổi (15 phút một lần).
+- API tính nền bằng 2 luồng (4 luồng làm chậm việc mở sổ đang diễn ra; đo 1/11/2026): lúc khởi động, và một lần sau mỗi đợt bản chụp Sheet (chờ cả ba runner ghi xong, file mới nhất cũ hơn 90 giây).
 - Sau một lệnh ghi (POST có `customer_id`), sổ đó được đánh dấu "cần tính lại" và tính lại ngay ở lần `GET /api/v7/inbox` sau.
 
 ## Giao tiếp frontend–backend (bước 5)

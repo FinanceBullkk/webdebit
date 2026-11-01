@@ -109,15 +109,20 @@ class InboxTests(unittest.TestCase):
         self.assertFalse(view["refreshing"])
         self.assertEqual([b["customer_id"] for b in view["books"]], [2])
 
-    def test_new_snapshot_refreshes_in_background_and_keeps_old_result(self):
+    def test_new_snapshot_refreshes_once_settled_and_keeps_old_result(self):
         runner = Runner([1])
+        now = [time.time()]
+        self.inbox.clock = lambda: now[0]
         self.inbox.start(runner)
         wait_idle(self.inbox)
-        stamp = time.time() + 5
+        stamp = now[0] + 5
         os.utime(self.paths[0], (stamp, stamp))
         self.outputs[1] = projection()
+        # Runner khác còn đang ghi (file mới nhất chưa đủ cũ): giữ kết quả cũ, chưa tính lại.
         view = self.inbox.view(runner)
-        self.assertEqual(view["state"], "ready")
+        self.assertEqual((view["state"], view["refreshing"], len(view["books"])), ("ready", False, 1))
+        now[0] = stamp + v7_inbox.SETTLE_SECONDS + 1
+        self.assertEqual(self.inbox.view(runner)["state"], "ready")
         wait_idle(self.inbox)
         self.assertEqual(self.inbox.view(runner)["books"], [])
 
