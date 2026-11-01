@@ -412,7 +412,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .offset-void-prompt td{font-size:16px}.offset-void-head{margin-bottom:8px;line-height:1.5}
 .offset-void-prompt input{min-height:40px;min-width:280px;font:inherit;font-size:16px}
 @media(max-width:1877px){
-  .layout{max-width:1258px}.ledger-book{width:1258px;flex-basis:1258px}#the-so .ledger-book{min-width:1258px}
+  .layout{max-width:1258px}.ledger-book{width:1258px;flex-basis:1258px}#the-so .ledger-book{min-width:1198px}
   .book-head{gap:12px;padding:0 8px}.head-item strong{font-size:14px}.head-item.total strong{font-size:18px}
 }
 @media(max-width:700px){:root{--bar:0px}.topbar{position:static;height:auto;flex-wrap:wrap;gap:10px;padding:10px 12px}.topbar .brand{font-size:18px}.topbar>nav{order:3;width:100%;gap:14px;min-height:42px}}

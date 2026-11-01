@@ -66,6 +66,20 @@ test('Phần dính đầu trang ≤ 180px khi cuộn (trừ băng dữ liệu gi
   assert.equal(geo.overflow, 0);
 }, nineMonths));
 
+test('Màn 1280 trên Chrome Windows (thanh cuộn dọc 15px, khung nhìn 1265): không cuộn ngang; cột chữ nhường chỗ, cột tiền giữ nguyên', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 1265, height: 720 });
+  await page.reload();
+  await page.locator('.ledger-book > section .month-body').waitFor({ state: 'attached' });
+  await page.waitForFunction(() => {
+    const book = document.querySelector('#the-so .ledger-book').clientWidth;
+    return [...document.querySelectorAll('#the-so table.ledger')].every(table => table.scrollWidth <= book);
+  });
+  const geo = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    money: [...document.querySelectorAll('.ledger-head col')].slice(-3).map(col => parseInt(col.style.width, 10)) }));
+  assert.equal(geo.overflow, 0);
+  assert.deepEqual(geo.money, [90, 84, 178]);   // cột phiếu thu giữ khổ 1280
+}, nineMonths));
+
 test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần dính, chip được tô; không gọi API', async () => withPage(async ({ page, world }) => {
   const key = MONTHS[3];
   await page.evaluate(() => window.scrollTo({ top: 800, behavior: 'instant' }));
