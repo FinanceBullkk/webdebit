@@ -1659,7 +1659,9 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a
 
 Rollback: trước bước 3 không có gì phải trả. Sau bước 3, drop-in cho unit `webdebit-sheet-sync.service` với `[Service]` `Environment=WEBDEBIT_SHEET_SOURCE=export`, `daemon-reload`, chạy một lượt; chỉ còn tác dụng khi `BOOKING_DATA` và `WEBDEBIT_EXPORT` chưa bị xóa trên Sheet.
 
-## Chặn tính trùng ở hàng chờ chuyến mới — nâng DB đang có (ĐỀ XUẤT 1/11/2026)
+## Chặn tính trùng ở hàng chờ chuyến mới — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026)
+
+Đã chạy 1/11/2026, xem [nhật ký](deploys/2026-11-01-chan-trung-hang-cho.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql` ([UX bước 02](ux-luong-du-lieu.md) mục 3.3 và 8; áp luật [`DUP-01`](decisions/dup-01.md) cho cả hàng chờ) chỉ THÊM hai hàm và thay thân `paste_trips`. Không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền cũ.
 - `_legacy_undated_match(text,date)` là hàm nội bộ, không cấp cho app.
