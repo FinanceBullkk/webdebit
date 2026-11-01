@@ -1,6 +1,6 @@
 # Hộp ngoại lệ P3a: máy tự lấy chữ mô tả theo Sheet; tháng khóa sửa được bốn ô chữ
 
-Trạng thái: ĐỀ XUẤT (Claude, 1/11/2026). Giai đoạn P3 của [UX bước 03](../docs/ux-buoc-03-luong-thao-tac.md), phần Q1 của [`HANG-CHO-01`](../docs/decisions/hang-cho-01.md), kèm [`KHOA-CHU-01`](../docs/decisions/khoa-chu-01.md). Người dùng bảo "Làm P3", rồi chọn "Cho sửa, ghi Lịch sử" (chat 1/11/2026). P3b (máy tự đưa chuyến mới vào sổ, Q2/Q5) làm sau.
+Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 1/11/2026, máy chưa bật ([nhật ký](../docs/deploys/2026-11-01-khoa-chu.md)). Giai đoạn P3 của [UX bước 03](../docs/ux-buoc-03-luong-thao-tac.md), phần Q1 của [`HANG-CHO-01`](../docs/decisions/hang-cho-01.md), kèm [`KHOA-CHU-01`](../docs/decisions/khoa-chu-01.md). Người dùng bảo "Làm P3", rồi chọn "Cho sửa, ghi Lịch sử" (chat 1/11/2026). P3b (máy tự đưa chuyến mới vào sổ, Q2/Q5) làm sau.
 
 ## Người dùng và luồng (bước 1)
 
