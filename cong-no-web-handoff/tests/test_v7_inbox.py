@@ -150,6 +150,28 @@ class InboxTests(unittest.TestCase):
         wait_idle(self.inbox)
         self.assertEqual(self.inbox.view(runner)["books"], [])
 
+    def test_background_tick_refreshes_new_snapshot_without_any_view(self):
+        """Máy chạy theo đợt Sheet kể cả khi không ai mở Việc cần làm: nhịp nền tự tính lại khi bản chụp đã yên."""
+        runner = Runner([1])
+        now = [time.time()]
+        self.inbox.clock = lambda: now[0]
+        self.assertTrue(self.inbox.tick(runner))   # chưa tính lần nào
+        wait_idle(self.inbox)
+        self.assertFalse(self.inbox.tick(runner))  # bản chụp chưa đổi
+        stamp = now[0] + 5
+        os.utime(self.paths[0], (stamp, stamp))
+        self.assertFalse(self.inbox.tick(runner))  # chưa yên
+        now[0] = stamp + v7_inbox.SETTLE_SECONDS + 1
+        self.outputs[1] = projection()
+        self.inbox.keep_fresh(runner, every=0.01)
+        deadline = time.monotonic() + 5
+        while self.inbox.books and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.inbox.stopped.set()
+        wait_idle(self.inbox)
+        self.assertEqual(self.inbox.books, {})
+        self.assertEqual(runner.calls.count("list_customers"), 2)
+
     def test_missing_snapshot_is_unavailable(self):
         for path in self.paths:
             path.unlink()

@@ -6,6 +6,7 @@ quả trong bộ nhớ: lúc khởi động, khi bản chụp Sheet đổi, và 
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import threading
@@ -28,6 +29,7 @@ DIRTY_INLINE_LIMIT = 5   # quá số này thì tính lại nền, không giữ G
 # Ba runner (chuyến, giá, PS) ghi bản chụp cách nhau vài chục giây mỗi 15 phút; chờ file mới nhất cũ hơn chừng này
 # mới tính lại, để mỗi đợt Sheet chỉ một lượt thay vì ba (đo trên `hao` 1/11/2026).
 SETTLE_SECONDS = 90
+TICK_SECONDS = 60   # nhịp nền: xem bản chụp Sheet đã đổi chưa (runner 15 phút một lần)
 # P3a (HANG-CHO-01 Q1, KHOA-CHU-01): máy tự lấy theo Sheet khi dòng lệch chỉ ở các ô chữ này (không đụng tiền). Bật bằng
 # WEBDEBIT_AUTO_SHEET=text trên `hao`; mặc định tắt. Người làm trong Lịch sử là AUTO_ACTOR ("Máy (theo Sheet)").
 AUTO_ACTOR = "may-theo-sheet"
@@ -140,6 +142,7 @@ class Inbox:
         self.auto_log: deque = deque(maxlen=AUTO_LOG)
         self.auto_errors = 0
         self.auto_run_at: float | None = None
+        self.stopped = threading.Event()   # đặt để dừng nhịp nền (test)
 
     def _key(self) -> tuple | None:
         try:
@@ -298,15 +301,28 @@ class Inbox:
         with self.lock:
             self.dirty.update(c for c in customer_ids if type(c) is int and c > 0)
 
+    def tick(self, runner) -> bool:
+        """Khởi động lượt nền khi bản chụp Sheet đã đổi và đã yên. Nhịp nền của API gọi mỗi phút, để máy (P3a, P3b)
+        chạy theo từng đợt Sheet mà không cần ai mở Việc cần làm."""
+        key = self._key()
+        with self.lock:
+            stale = self.computed_at is None or key != self.key
+        return stale and (self.computed_at is None or self._settled(key)) and self.start(runner)
+
+    def keep_fresh(self, runner, every: float = TICK_SECONDS) -> None:
+        """Luồng nền chạy suốt đời API: `tick` mỗi `every` giây; lỗi một nhịp không dừng luồng."""
+        def loop():
+            while not self.stopped.wait(every):
+                with contextlib.suppress(Exception):   # nhịp sau thử lại
+                    self.tick(runner)
+        threading.Thread(target=loop, daemon=True, name="hop-viec-nhip").start()
+
     def view(self, runner) -> dict:
         """Trả kết quả cho GET; tự khởi động lượt nền khi cần và tính lại ngay vài sổ vừa ghi."""
         key = self._key()
         with self.lock:
-            stale = self.computed_at is None or key != self.key
             dirty = sorted(self.dirty) if not self.running else []
-        if stale and (self.computed_at is None or self._settled(key)):
-            self.start(runner)
-        elif dirty:
+        if not self.tick(runner) and dirty:
             if len(dirty) > DIRTY_INLINE_LIMIT:
                 self.start(runner)
             else:
