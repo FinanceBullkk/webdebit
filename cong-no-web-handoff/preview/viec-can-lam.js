@@ -1,5 +1,6 @@
 // Tab Việc cần làm (DASH-03, 29/10/2026): nhận nguyên khối Việc cần làm và Hôm nay từ Tổng quan cũ, thêm sổ đang dư.
 // Người nhập xem cuối ngày; bấm dòng mở đúng sổ khách (`?loc=` tô các chuyến cần xử lý). Trang chỉ đọc.
+// Từ 1/11/2026 có thêm khối "Từ Sheet chờ đưa vào sổ" (hộp ngoại lệ P1, viec-can-lam-inbox.js) ở đầu trang.
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -13,6 +14,10 @@
   let sheetRefresh = null;
   let searchReady = false;
   let currentCustomers = [];
+  // Hộp ngoại lệ P1: khối riêng, tải và lỗi riêng; đang tính thì hỏi lại sau 5 giây.
+  const inboxRoot = document.querySelector('#inbox-root');
+  let inboxTimer = null;
+  let inboxLoading = false;
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
 
   function todoCard(data, unsorted, label) {
@@ -117,15 +122,37 @@
     } finally { loading = false; }
   }
 
+  async function loadInbox() {
+    if (inboxLoading || !globalThis.InboxCard) return;
+    inboxLoading = true;
+    clearTimeout(inboxTimer);
+    let data;
+    try {
+      const [inbox, customers] = await Promise.all([json('/api/v7/inbox'),
+        currentCustomers.length ? currentCustomers : json('/api/v7/customers').then(body => body.customers ?? []).catch(() => [])]);
+      data = inbox;
+      if (!currentCustomers.length) currentCustomers = customers;
+    } catch { data = null; }
+    const labels = customerLabels(currentCustomers);
+    inboxRoot.innerHTML = globalThis.InboxCard.render(data, {
+      F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'),
+      label: book => labels.get(String(book.customer_id)) ?? `Sổ #${book.customer_id}`,
+    });
+    if (data && (data.state === 'computing' || data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
+    inboxLoading = false;
+  }
+
   load();
-  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); sheetRefresh?.load(); };
+  loadInbox();
+  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); sheetRefresh?.load(); };
   document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
+  inboxRoot.addEventListener('click', event => { if (event.target.closest('[data-inbox-retry]')) loadInbox(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });
     sheetRefresh.load();
   }
-  button?.addEventListener('click', () => { load(); sheetRefresh?.trigger(); });
+  button?.addEventListener('click', () => { load(); loadInbox(); sheetRefresh?.trigger(); });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

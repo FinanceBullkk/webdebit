@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Việc cần làm cuối ngày: chuyến thiếu đơn giá, chờ kiểm, sổ cần gán mặt hàng, hôm nay đã nhập/thu.">
+  <meta name="description" content="Việc cần làm cuối ngày: việc từ Sheet chờ đưa vào sổ, chuyến thiếu đơn giá, chờ kiểm, sổ cần gán mặt hàng, hôm nay đã nhập/thu.">
   <title>Công nợ HTH · Việc cần làm</title>
   <link rel="stylesheet" href="cong-no-theme.css">
   <link rel="stylesheet" href="dashboard-v7.css">
@@ -23,11 +23,13 @@
       <div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div>
     </div>
     <div id="error" role="alert" hidden></div>
+    <div id="inbox-root" aria-live="polite"></div>
     <div id="todo-root" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
   <script src="cong-no-format.js"></script>
   <script src="dashboard-v7-model.js"></script>
   <script src="sheet-refresh.js"></script>
+  <script src="viec-can-lam-inbox.js"></script>
   <script src="viec-can-lam.js"></script>
   <script src="presence.js"></script>
 </body>
