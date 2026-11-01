@@ -43,6 +43,8 @@
     } catch { /* giữ danh sách cũ; lần đọc sổ sau thử lại */ }
   }
 
+  // Số ảnh đã lưu của một phiếu: thẻ Trao đổi, Hồ sơ của trang khách chỉ hiện nút 📎 cho phiếu có ảnh (không đính ảnh ở đó).
+  ctx.imageCount = pid => saved.get(pid)?.length ?? 0;
   // Nút 📎 cạnh số tiền phiếu đã ghi (không áp cho khoản cấn trừ đi và khoản thu sổ gốc).
   ctx.imageClip = receipt => {
     if (!receipt?.pid || receipt.outgoing) return '';

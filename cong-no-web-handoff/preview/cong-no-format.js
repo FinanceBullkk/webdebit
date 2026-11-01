@@ -136,12 +136,25 @@ const CongNoFormat = (() => {
     return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : text;
   }
 
+  /** Ngày "YYYY-MM-DD" theo giờ Việt Nam của một mốc tính bằng ms (giờ tin Zalo trong bản xuất chat). */
+  const vnDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms);
+
   /** Câu báo không tải được trang theo mẫu "chuyện gì · cần làm gì"; trang đặt kèm nút "Thử lại".
    *  Không bao giờ hiện chữ của trình duyệt ("Failed to fetch") hay mã lỗi (audit UX 31/10/2026). */
   const loadError = what => `Không tải được ${what}. Kiểm tra mạng rồi bấm Thử lại.`;
 
+  /** Tin nhắc nợ để dán vào Zalo (NHAC-NO-01), dùng chung cho tab Đòi nợ và thẻ Trao đổi của trang khách: tổng nợ, phần quá hạn,
+   *  nợ từng tháng còn lại, số đồng chính xác. `row` là dòng của khách ở Tổng quan (`GET /api/v7/dashboard/debt`). */
+  function reminderText(name, row) {
+    const lines = [`Kính gửi ${name},`, `Tổng công nợ còn lại: ${full(row.outstanding_vnd)}`, `Trong đó quá hạn: ${full(row.overdue_vnd)}`];
+    const months = (row.months ?? []).filter(item => toBig(item.outstanding_vnd) > 0n);
+    if (months.length) lines.push('Chi tiết nợ theo tháng:', ...months.map(item => `- ${monthTitle(item.month)}: ${full(item.outstanding_vnd)}`));
+    lines.push('Kính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
+    return lines.join('\n');
+  }
+
   return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
-    dateText, loadError };
+    dateText, vnDay, loadError, reminderText };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;

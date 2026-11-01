@@ -7,8 +7,6 @@
   'use strict';
   const { root, live, customerId, escape } = ctx;
   const TABS = [['tinh-hinh', 'Tình hình'], ['so', 'Sổ'], ['trao-doi', 'Trao đổi'], ['ho-so', 'Hồ sơ']];
-  // Thẻ chưa có nội dung (PR A3): thẻ sẽ trả lời gì. Thẻ Tình hình do so-khach-v7-overview-ui.js vẽ (PR A2).
-  const SOON = { 'trao-doi': 'phiếu thu, lần nhắc nợ và tin Zalo của khách', 'ho-so': 'mặt hàng, giá đang áp, cột phụ phí, ảnh chứng từ, hạn trả' };
   const known = id => TABS.some(([tab]) => tab === id);
   const query = new URLSearchParams(location.search);
   // K2: địa chỉ không ghi thẻ thì mở Sổ; có month= hoặc loc= thì luôn mở Sổ — mọi link cũ giữ nguyên nghĩa.
@@ -53,10 +51,8 @@
     }).join('')}</div>`;
   }
   const pageHead = work => backLink() + who() + tabBar(work);
-  const tabPanes = () => TABS.filter(([id]) => id !== 'so').map(([id, name]) => (id === 'tinh-hinh' ? ctx.overviewPane()
-    : `<section class="tab-pane tab-soon" id="the-${id}" role="tabpanel" aria-labelledby="tab-${id}"><h2>${name}</h2>`
-    + `<p>Thẻ này đang làm, có trong bản sau: ${SOON[id]}.</p><p>Bây giờ số của khách xem ở thẻ Sổ.</p>`
-    + '<button type="button" class="tab-go" data-the="so">Mở thẻ Sổ</button></section>')).join('');
+  // Khung các thẻ ngoài thẻ Sổ: Tình hình do so-khach-v7-overview-ui.js vẽ (PR A2), Trao đổi và Hồ sơ do so-khach-v7-contact-ui.js (PR A3).
+  const tabPanes = () => TABS.filter(([id]) => id !== 'so').map(([id]) => (id === 'tinh-hinh' ? ctx.overviewPane() : ctx.contactPane(id))).join('');
 
   // Đổi thẻ: ghi thẻ lên <body>, tô thẻ, đổi địa chỉ (thẻ Sổ không ghi the=; rời Sổ thì bỏ month= và loc= vì hai tham số đó
   // luôn mở Sổ), về chỗ cuộn cũ của thẻ. Ghi phiếu thu (so-khach-v7-entry-ui.js) gọi showTab('so') trước khi mở khung.
@@ -77,6 +73,7 @@
     // Sổ tự cập nhật lúc đang ẩn thì phần đo vị trí (danh sách phiếu dính, chip tháng đang xem) đo sai: đo lại khi hiện.
     if (id === 'so') { window.dispatchEvent(new Event('resize')); window.dispatchEvent(new Event('scroll')); }
     ctx.tabShown(id);
+    ctx.contactShown(id);
   }
 
   root.addEventListener('click', event => {

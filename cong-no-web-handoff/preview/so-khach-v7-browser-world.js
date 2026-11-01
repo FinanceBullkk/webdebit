@@ -56,7 +56,7 @@ function ledger(world) {
     month_locks: world.locks,
     months: world.months ?? keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
       ...world.monthValues?.[month] })),
-    total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
+    total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
@@ -128,6 +128,19 @@ function apply(world, url, body) {
       world.feeTypes.push({ id: 20 + world.feeTypes.length, name: body.name, kind: body.kind, sign: 'positive', system_key: null, active: true, sort: 50 });
     }
     return [200, { ok: true }];
+  }
+  // NHAC-NO-01: Copy tin nhắc ghi "đã nhắc" ngoài đường tiền (không version sổ). Như reminder_log: UNIQUE(khách, nguồn, ngày giờ
+  // VN) nên bấm lặp trong ngày không thêm dòng; world.reminders là kết quả get_reminders gộp theo khách.
+  if (url === '/api/v7/reminders') {
+    const day = (world.clock ?? clock).slice(0, 10);
+    const log = (world.reminderLog ??= []);
+    if (!log.some(row => row.customer_id === body.customer_id && row.source === body.source && row.reminded_at === day)) {
+      log.push({ customer_id: body.customer_id, source: body.source, reminded_at: day });
+      const rows = (world.reminders ??= []);
+      const row = rows.find(item => item.customer_id === body.customer_id) ?? rows[rows.push({ customer_id: body.customer_id, reminder_count: 0 }) - 1];
+      Object.assign(row, { last_reminded: day, last_source: body.source, reminder_count: row.reminder_count + 1 });
+    }
+    return [200, { customer_id: body.customer_id, source: body.source, reminded_at: day }];
   }
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
   if (url.startsWith('/api/v7/trips/fees/')) return applyFee(world, url, body);
@@ -331,6 +344,14 @@ async function withPage(fn, setup = () => {}) {
       (world.sideReads ??= []).push(url.pathname);
       send(200, url.pathname.endsWith('/reminders') ? { reminders: world.reminders ?? [] } : world.debt ?? { as_of: clock,
         rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 }, receivable_vnd: '0', customers: [] });
+      return;
+    }
+    // Chat Zalo (ZALO-CHAT-01): hội thoại có tên chứa q do test đặt (world.chats); không đặt thì như hao, máy chủ chưa có bản xuất.
+    if (url.pathname === '/api/v7/zalo/conversations') {
+      const q = url.searchParams.get('q') ?? '';
+      (world.chatReads ??= []).push(q);
+      if (!world.chats) send(503, { error: 'ZALO_EXPORT_UNAVAILABLE', message: 'Máy chủ chưa có bản xuất chat Zalo: chưa đặt WEBDEBIT_ZALO_EXPORT_DIR' });
+      else send(200, { conversations: world.chats.filter(row => (row.display_name ?? '').toLowerCase().includes(q.toLowerCase())), total: world.chats.length });
       return;
     }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }

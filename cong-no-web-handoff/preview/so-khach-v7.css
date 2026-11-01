@@ -473,6 +473,4 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .tab-work{min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:#c2410c;color:#fff;font-size:12px;font-weight:700;line-height:20px;text-align:center}
 body[data-the]:not([data-the="so"]) :is(#the-so,.fee-selbar,.entry-drawer,.fee-drawer,.image-viewer),
 body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) #the-trao-doi,body:not([data-the="ho-so"]) #the-ho-so{display:none}
-.tab-soon{max-width:720px;margin:24px auto;padding:20px 24px;background:#fff;border:1px solid #c9d6e3;border-radius:8px;font-size:16px;line-height:1.5}
-.tab-soon h2{margin:0 0 8px;font-size:20px}.tab-soon p{margin:0 0 10px}
 .tab-go{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#fff;color:#145fa9;font:inherit;font-weight:700;cursor:pointer}

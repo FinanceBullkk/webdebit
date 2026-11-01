@@ -5,7 +5,7 @@
   const F = CongNoFormat;
   const root = document.getElementById('doi-no');
   const $ = id => document.getElementById(id);
-  const { esc, commodityText, monthTitle, dateText } = F;
+  const { esc, commodityText, dateText } = F;
   const FILTERS = [['all', 'Tất cả'], ['chua-nhac', 'Chưa nhắc'], ['nhac-cho', 'Đã nhắc, chưa trả']];
   const state = { asOf: null, rows: [], byId: new Map(), names: new Map(), filter: 'all' };
   let loading = false;
@@ -51,19 +51,8 @@
     return true;
   }
 
-  // Tin nhắc: tổng nợ, phần quá hạn, nợ từng tháng còn lại. Số đồng chính xác để dán vào group.
-  function buildMessage(row) {
-    const lines = [`Kính gửi ${nameOf(row.customer_id)},`,
-      `Tổng công nợ còn lại: ${F.full(row.outstanding_vnd)}`,
-      `Trong đó quá hạn: ${F.full(row.overdue_vnd)}`];
-    const months = (row.months ?? []).filter(m => F.toBig(m.outstanding_vnd) > 0n);
-    if (months.length) {
-      lines.push('Chi tiết nợ theo tháng:');
-      for (const m of months) lines.push(`- ${monthTitle(m.month)}: ${F.full(m.outstanding_vnd)}`);
-    }
-    lines.push('Kính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
-    return lines.join('\n');
-  }
+  // Tin nhắc: tổng nợ, phần quá hạn, nợ từng tháng còn lại (CongNoFormat.reminderText, dùng chung với thẻ Trao đổi của trang khách).
+  const buildMessage = row => F.reminderText(nameOf(row.customer_id), row);
 
   function toast(text, bad = false) {
     const node = $('toast');
