@@ -558,6 +558,7 @@ def main() -> None:
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
+    INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 

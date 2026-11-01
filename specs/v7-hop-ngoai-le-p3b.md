@@ -48,6 +48,7 @@ Với tên Sheet `N` (sau bảng ghép tên `customer_aliases`):
 - Không đổi tiền: chuyến vào sổ chưa có giá, không cộng nợ (NULL không phải 0). Số dư 236 khách phải bằng trước khi máy chạy.
 - Mỗi lô một khóa chống ghi trùng cố định theo (bản chụp, sổ, tháng, dòng Sheet đầu lô). Phiên bản sổ nối tiếp qua từng lô. Lỗi ở một sổ thì dừng sổ đó (đếm vào `auto.errors`); lượt sau thử lại.
 - Máy chỉ chạy khi bản chụp Sheet đọc được (`key` khác `None`) và đã yên `SETTLE_SECONDS`.
+- Nhịp nền của API (`Inbox.keep_fresh`, mỗi 60 giây) tự tính lại hộp khi bản chụp đổi, nên máy chạy theo từng đợt Sheet kể cả khi không ai mở Việc cần làm. Trước bản sửa 1/11/2026, hộp chỉ tính lại lúc API khởi động hoặc khi có người mở trang.
 - Danh sách "máy đã làm" giữ trong RAM của API như P3a; Lịch sử từng sổ là nguồn đủ.
 
 ## Tiêu chí nghiệm thu
