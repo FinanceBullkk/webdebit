@@ -100,12 +100,10 @@ Trạng thái: khi chưa tính được việc chờ (job lỗi), nhãn ghi "ch�
 
 1. **P1 · Hộp chỉ đọc + độ tươi.** Job gom việc, `GET /api/v7/inbox`, trang hộp ngoại lệ với nút "Mở trong sổ", độ tươi trên Tổng quan. Không đổi đường ghi. Làm được ngay.
 2. **P2 · Ghi tại hộp (Q3).** Ghi phiếu thu, giá, giải quyết lệch ngay ở hộp; ghi một phần; cảnh báo ở Đòi nợ.
-3. **P3 · Máy tự làm (Q1, Q2).** Bật từng luật bằng công tắc, có danh sách "Máy đã tự làm" (L2). Q2 chỉ bật cho khách nhiều sổ sau khi có Q4.
+3. **P3 · Máy tự làm (Q1, Q2 theo Q5).** Bật từng luật bằng công tắc, có danh sách "Máy đã tự làm" (L2). Chuyến tự vào sổ ở trạng thái "chưa có giá" nếu sổ không có bảng giá. Q2 chỉ bật cho khách nhiều sổ sau khi có Q4.
 4. **Bước 04 (giao diện)** đi cùng P1: bản bấm thử hộp ngoại lệ ở khung 1280×560, dữ liệu giả lấy theo số đo thật.
 
 ## 8. Câu hỏi cần người dùng trả lời
 
 - **Q4 (xác nhận):** cột "Mặt hàng" của booking sheet có ghi đúng tên mặt hàng như sổ không (sầu riêng, chuối, thanh long, dừa…)? Nếu đúng thì dòng booking của khách nhiều sổ vào sổ theo (tên khách, mặt hàng). Đây là gốc của 241 dòng rơi nhầm sổ.
-- **Q5 (mới):** chỉ 1/236 sổ có bảng giá, nên điều kiện (c) của Q2 làm máy hầu như không tự đưa chuyến nào vào sổ. Có hai cách:
-  - **(A, Claude đề xuất)** chuyến đủ điều kiện (a)(b)(d)(e) tự vào sổ dù chưa có giá. Chuyến hiện "chưa có giá", **không cộng vào nợ** cho tới khi có giá; giá vào sau qua hàng chờ giá. Danh sách chuyến luôn đủ và tươi (M2, M5), số nợ chỉ đổi khi có giá có nguồn (M3).
-  - **(B)** giữ điều kiện giá, dựng bảng giá cho các sổ trước. Đây là việc cấu hình lớn; trong lúc đó mỗi ngày vẫn có 35–40 chuyến chờ người.
+- **Q5 · ĐÃ CHỐT (A), 1/11/2026** ([`HANG-CHO-01`](decisions/hang-cho-01.md) mục 4). Chuyến đủ điều kiện tự vào sổ dù chưa có giá. Chuyến đó hiện "chưa có giá", không cộng vào nợ cho tới khi có giá có nguồn; giá từ Sheet vẫn do người bấm ở hộp chung. Vì vậy nhóm "Chuyến chưa có giá" ở mục 2.2 là nơi giá vào sổ, còn danh sách chuyến luôn đủ và tươi (M2, M5).
