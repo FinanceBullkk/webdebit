@@ -1659,6 +1659,27 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a
 
 Rollback: trước bước 3 không có gì phải trả. Sau bước 3, drop-in cho unit `webdebit-sheet-sync.service` với `[Service]` `Environment=WEBDEBIT_SHEET_SOURCE=export`, `daemon-reload`, chạy một lượt; chỉ còn tác dụng khi `BOOKING_DATA` và `WEBDEBIT_EXPORT` chưa bị xóa trên Sheet.
 
+## Chặn tính trùng ở hàng chờ chuyến mới — nâng DB đang có (ĐỀ XUẤT 1/11/2026)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql` ([UX bước 02](ux-luong-du-lieu.md) mục 3.3 và 8; áp luật [`DUP-01`](decisions/dup-01.md) cho cả hàng chờ) chỉ THÊM hai hàm và thay thân `paste_trips`. Không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền cũ.
+- `_legacy_undated_match(text,date)` là hàm nội bộ, không cấp cho app.
+- `list_legacy_trip_refs(jsonb)` là hàm đọc, chỉ cấp cho `sokhach_app`.
+- `paste_trips` đưa chuyến cùng container với dòng sổ gốc **không có ngày**, cùng tháng nợ, ở bất kỳ sổ nào, vào chờ kiểm với lý do `BASELINE_UNDATED_MONTH`.
+
+Chạy lại được. **Chạy sau `2026-10-30-v7-doi-no.sql`.**
+
+Thứ tự với release: release mới gọi `list_legacy_trip_refs` mỗi lần mở sổ. Nếu `Deploy hao` lên trước migration, phần chuyến mới từ Sheet của mọi sổ hiện "không lấy được" (`sheet_sync.unavailable`) và không duyệt được. Sổ vẫn đọc bình thường, không ghi sai gì. Vì vậy chạy migration ngay sau khi merge. Release cũ chạy được với DB mới.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Số dư từng khách/tháng, số dòng mọi bảng và số event không đổi (migration không ghi dữ liệu). `v7_post_deploy_check.sql` OK. Đo thời gian `list_legacy_trip_refs` với 1.000 container và `paste_trips` một lô 50 chuyến (không chậm rõ).
+2. **Cửa sổ dừng ghi:** như các đợt trước (dừng API, dump + hash, chạy migration một transaction, đối soát tổng từng khách và số event trước = sau, checker, bật lại API).
+3. **Sau:** đo lại hàng chờ của cả 236 sổ bằng hàm chiếu của API, chỉ đọc. Đạt khi:
+   - các dòng tháng 1–9 đã có ở sổ gốc của sổ khác chuyển từ `NEW` sang `CONFLICT` / `OTHER_BOOK_LEGACY` (đo 1/11/2026: 226 dòng);
+   - số `NEW` của tháng 10–11 không giảm vì luật này, trừ dòng thật sự đã có ở sổ khác.
+
+   Ghi số đếm vào nhật ký `docs/deploys/`.
+
+Rollback: áp lại `paste_trips` từ `2026-10-29-v7-ra-ghi-tien.sql`, hoặc chạy cả migration đó (nó chỉ thay thân hàm). Hai hàm mới để lại không ảnh hưởng. Release cũ không gọi chúng.
+
 ## Cấn khoản dư vào tháng nợ cũ nhất — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
 
 Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-can-du.md).

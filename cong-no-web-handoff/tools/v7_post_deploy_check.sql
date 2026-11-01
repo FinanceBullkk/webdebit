@@ -35,7 +35,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()',
+      'get_ledger(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)',
       'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
@@ -75,7 +75,8 @@ DECLARE
       '_change_fee_type(text,text,bigint,text,text)', '_change_legacy(bigint,bigint,text,bigint,text,text,boolean)',
       '_change_legacy(bigint,bigint,text,bigint,text,text,boolean,bigint)',
       '_guard_receipt_image()', '_receipt_image_matches(text,bigint)',
-      '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)', '_legacy_date(text)'];
+      '_rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)', '_legacy_date(text)',
+      '_legacy_undated_match(text,date)'];
     wanted text;
     n bigint;
 BEGIN

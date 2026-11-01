@@ -38,7 +38,7 @@ from v7_ledger_api import ROUTES, Psql, validate
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
 READ.add('get_dashboard_debt()')  # DASH-03
-APP_READ = {'list_sheet_trip_refs()'}
+APP_READ = {'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)'}
 READ.add('get_fee_types()')
 # CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
 READ.update({'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)'})
@@ -108,6 +108,7 @@ KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_t
 KNOWN_FUNCTIONS.update({'_rewrite_trip_fees', 'rewrite_trip_fees'})
 KNOWN_FUNCTIONS.add('resolve_sheet_conflict')  # gộp vào file chuẩn 29/10/2026
 KNOWN_FUNCTIONS.update({'record_reminder', 'get_reminders'})  # NHAC-NO-01
+KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):
