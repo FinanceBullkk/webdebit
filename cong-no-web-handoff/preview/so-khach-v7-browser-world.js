@@ -354,6 +354,9 @@ async function withPage(fn, setup = () => {}) {
       else send(200, { conversations: world.chats.filter(row => (row.display_name ?? '').toLowerCase().includes(q.toLowerCase())), total: world.chats.length });
       return;
     }
+    // ZALO-GROUP-01: dấu tin và group đã gắn của sổ giả do test đặt (world.marks, world.zaloLinks); mặc định chưa có.
+    if (url.pathname === '/api/v7/marks' && req.method === 'GET') { send(200, { marks: world.marks ?? [] }); return; }
+    if (url.pathname === '/api/v7/zalo/links' && req.method === 'GET') { send(200, { links: world.zaloLinks ?? [] }); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
     if (url.pathname === '/api/v7/receipt-images') {
       send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });

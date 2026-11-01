@@ -20,6 +20,10 @@
 .ct-item b{font-weight:700}.ct-item.voided b{color:#5d6f82;font-weight:600}
 .ct-sub{display:block;color:#3e5871;font-size:15px}
 .ct-money{font-variant-numeric:tabular-nums;white-space:nowrap}
+/* ZALO-GROUP-01: trạng thái dấu tin — xanh khi giữ lời/đã có phiếu, đỏ khi lỡ hẹn/chưa thấy phiếu, xám khi đang chờ. */
+.ct-mark{display:inline-block;margin-left:8px;padding:0 8px;border-radius:10px;background:#eef1f5;color:#3e5871;font-size:14px;font-weight:600}
+.ct-mark.kept,.ct-mark.received{background:#e3f4f1;color:#0f5e57}
+.ct-mark.missed,.ct-mark.not_seen{background:#fdecea;color:#8f1414}
 .ct-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
 .ct-grid .ov-block{margin-bottom:0}
 .ct-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;border-top:1px solid #e5e7eb}

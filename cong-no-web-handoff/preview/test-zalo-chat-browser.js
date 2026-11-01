@@ -49,13 +49,60 @@ const groupRows = Array.from({ length: 120 }, (_, i) => {
   return row;
 });
 
+// ZALO-GROUP-01 G4: sổ công nợ giả cho gắn group ↔ sổ và dấu tin, theo hợp đồng /api/v7/zalo/link(s), /api/v7/marks.
+// Trạng thái dấu như hàm get_marks lúc chưa có phiếu thu: hứa trả "pending", khách báo đã chuyển "waiting".
+const todayVn = (days = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(Date.now() + days * 86_400_000);
+function ledgerWorld() {
+  return { links: [], marks: [], posts: [], customers: [{ id: 7, name: 'NGUYEN HOANG VU', label: 'Nguyễn Hoàng Vũ · Sầu riêng' },
+    { id: 8, name: 'TRAN LAN', label: 'Trần Lan · Thanh long' }] };
+}
+function ledgerRoute(world, req, url, body, json) {
+  if (req.method === 'GET' && url.pathname === '/api/v7/zalo/links') return json(200, { links: world.links });
+  if (req.method === 'GET' && url.pathname === '/api/v7/customers') return json(200, { customers: world.customers });
+  if (req.method === 'GET' && url.pathname === '/api/v7/marks') {
+    const id = url.searchParams.get('conversation');
+    return json(200, { marks: world.marks.filter(row => row.conversation_id === id).slice().reverse() });
+  }
+  if (req.method !== 'POST') return false;
+  world.posts.push({ path: url.pathname, body });
+  if (url.pathname === '/api/v7/zalo/link') {
+    const book = world.customers.find(row => row.id === body.customer_id);
+    world.links.push({ conversation_id: body.conversation_id, customer_id: book.id, customer_name: book.label });
+    return json(200, world.links.at(-1));
+  }
+  if (url.pathname === '/api/v7/zalo/unlink') {
+    world.links = world.links.filter(row => !(row.conversation_id === body.conversation_id && row.customer_id === body.customer_id));
+    return json(200, { unlinked: true });
+  }
+  if (url.pathname === '/api/v7/marks') {
+    const old = world.marks.find(row => row.idempotency_key === body.idempotency_key);
+    if (old) return json(200, { ...old, replayed: true });
+    const book = world.links.find(row => row.customer_id === body.customer_id);
+    // Tiền trả về dạng chuỗi như get_marks (ARCH-03).
+    world.marks.push({ ...body, id: world.marks.length + 1, customer_name: book?.customer_name, amount_vnd: body.amount_vnd ?? null,
+      status: { promise: 'pending', paid_claim: 'waiting', note: null }[body.kind], paid_vnd: body.kind === 'promise' ? '0' : null });
+    return json(200, world.marks.at(-1));
+  }
+  if (url.pathname === '/api/v7/marks/cancel') {
+    const row = world.marks.find(item => item.id === body.id);
+    Object.assign(row, { status: 'cancelled', cancel_reason: body.reason });
+    return json(200, row);
+  }
+  return false;
+}
+
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false } = {}) {
-  return http.createServer((req, res) => {
+function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false, world = null } = {}) {
+  return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     if (drop.has(url.pathname)) { req.socket.destroy(); return; }
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
     const json = (status, body) => send(status, 'application/json', JSON.stringify(body));
+    if (world) {
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      if (ledgerRoute(world, req, url, raw ? JSON.parse(raw) : null, json) !== false) return;
+    }
     if (url.pathname.startsWith('/api/v7/zalo/')) {
       requests.push(url.pathname + url.search);
       if (unavailable) return json(503, { error: 'ZALO_EXPORT_UNAVAILABLE', message: 'Máy chủ chưa có bản xuất chat Zalo: chưa đặt WEBDEBIT_ZALO_EXPORT_DIR' });
@@ -295,4 +342,117 @@ test('Chat Zalo (gói web): tin đã đánh dấu không còn thì báo và hi�
     await page.locator('.msg[data-id="g119"]').waitFor();
     assert.match(await page.locator('#subtitle').innerText(), /Tin đã đánh dấu không còn trên web/);
   }, { query: `?c=${GROUP}&m=khong-co` });
+});
+
+test('Đánh dấu (G4): group chưa gắn sổ thì gắn ngay trong hộp, ghi hứa trả từ một tin, nhãn hiện dưới tin và tên sổ ở danh sách', async () => {
+  const world = ledgerWorld();
+  await withPage({ bundled: true, world }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g115"]').waitFor();
+    assert.match(await page.locator('#links').innerText(), /Chưa gắn sổ/);
+    await page.locator('.msg[data-id="g115"]').hover();
+    await page.locator('.msg[data-id="g115"] .mark-btn').click();
+    assert.ok(await page.locator('#mark-dialog').evaluate(dialog => dialog.open));
+    assert.match(await page.locator('#mark-quote').innerText(), /Vũ · .*\nTin số 115/);
+    assert.ok(await page.locator('#mark-no-book').isVisible());
+    await page.locator('#mark-no-book [data-open-link]').click();
+    await page.locator('#link-search').fill('hoang vu');
+    await page.locator('#link-options .option').first().waitFor();   // danh sách sổ tải sau khi mở hộp
+    assert.deepEqual(await page.locator('#link-options .option').allInnerTexts(), ['Nguyễn Hoàng Vũ · Sầu riêng']);
+    await page.locator('#link-options .option').click();
+    await page.locator('#mark-book-field').waitFor();
+    assert.equal(await page.locator('#mark-book').inputValue(), '7');
+    // Thiếu số tiền thì báo, không gửi.
+    await page.locator('#mark-save').click();
+    assert.match(await page.locator('#mark-error').innerText(), /Số tiền phải là số nguyên dương/);
+    await page.locator('#mark-amount').fill('50.000.000');
+    await page.locator('#mark-date').fill(todayVn(3));
+    await page.locator('#mark-note').fill('mai chuyển');
+    await page.locator('#mark-save').click();
+    await page.locator('.msg[data-id="g115"] .mark').waitFor();
+    const due = todayVn(3).split('-').reverse().join('/');
+    assert.equal(await page.locator('.msg[data-id="g115"] .mark span').innerText(), `Hứa trả 50.000.000 đ · hẹn ${due} · đang chờ`);
+    const sent = world.posts.find(post => post.path === '/api/v7/marks').body;
+    assert.deepEqual({ ...sent, idempotency_key: typeof sent.idempotency_key, message_at: typeof sent.message_at }, {
+      customer_id: 7, kind: 'promise', idempotency_key: 'string', conversation_id: GROUP, message_id: 'g115', message_at: 'string',
+      message_sender: 'Vũ', message_excerpt: 'Tin số 115', note: 'mai chuyển', amount_vnd: '50000000', on_date: todayVn(3) });
+    assert.deepEqual(await page.locator('#links .chip a').allInnerTexts(), ['Nguyễn Hoàng Vũ · Sầu riêng']);
+    assert.match(await page.locator('.conv .books').innerText(), /Sổ: Nguyễn Hoàng Vũ/);
+    assert.equal(await page.locator('#links a').getAttribute('href'), '/so-khach-v7-live.html?customer=7&the=trao-doi');
+  });
+});
+
+test('Đánh dấu (G4): khách báo đã chuyển không cho ngày mai, ghi chú bắt buộc chữ; mất mạng khi lưu thì bấm lại vẫn chỉ một dấu', async () => {
+  const world = ledgerWorld();
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Hoàng Vũ · Sầu riêng' });
+  const drop = new Set();
+  await withPage({ bundled: true, world, drop }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g118"]').waitFor();
+    await page.locator('.msg[data-id="g118"]').hover();
+    await page.locator('.msg[data-id="g118"] .mark-btn').click();
+    assert.match(await page.locator('#mark-quote').innerText(), /\[Ảnh\]/);
+    await page.locator('#mark-form input[value="paid_claim"]').check();
+    assert.equal(await page.locator('#mark-date-label').innerText(), 'Ngày khách nói đã chuyển');
+    await page.locator('#mark-amount').fill('300000');
+    await page.locator('#mark-date').fill(todayVn(1));
+    await page.locator('#mark-save').click();
+    assert.match(await page.locator('#mark-error').innerText(), /không được sau hôm nay/);
+    await page.locator('#mark-date').fill(todayVn(0));
+    drop.add('/api/v7/marks');
+    await page.locator('#mark-save').click();
+    await page.locator('#mark-error').waitFor();
+    assert.match(await page.locator('#mark-error').innerText(), /^Không lưu dấu được\. Kiểm tra mạng rồi bấm lại\.$/);
+    assert.equal(await page.locator('#mark-save').isEnabled(), true);
+    drop.clear();
+    await page.locator('#mark-save').click();
+    await page.locator('.msg[data-id="g118"] .mark').waitFor();
+    assert.equal(world.marks.length, 1, 'bấm lại sau mất mạng không tạo dấu thứ hai');
+    assert.match(await page.locator('.msg[data-id="g118"] .mark').innerText(), /Khách báo đã chuyển 300\.000 đ · ngày .* · chờ đối chiếu/);
+    // Ghi chú: không có ô tiền, chữ bắt buộc.
+    await page.locator('.msg[data-id="g117"]').hover();
+    await page.locator('.msg[data-id="g117"] .mark-btn').click();
+    await page.locator('#mark-form input[value="note"]').check();
+    assert.ok(await page.locator('#mark-amount-field').isHidden());
+    await page.locator('#mark-save').click();
+    assert.match(await page.locator('#mark-error').innerText(), /Ghi chú không được trống/);
+    await page.locator('#mark-note').fill('Xin giãn tới cuối tháng');
+    await page.locator('#mark-save').click();
+    await page.locator('.msg[data-id="g117"] .mark').waitFor();
+    assert.equal(await page.locator('.msg[data-id="g117"] .mark span').innerText(), 'Ghi chú: Xin giãn tới cuối tháng');
+    assert.equal(world.posts.filter(post => post.path === '/api/v7/marks').at(-1).body.amount_vnd, undefined);
+  });
+});
+
+test('Đánh dấu (G4): bỏ dấu và bỏ gắn sổ bắt buộc lý do; điện thoại chạm vào tin thì hiện nút Đánh dấu', async () => {
+  const world = ledgerWorld();
+  world.links.push({ conversation_id: GROUP, customer_id: 7, customer_name: 'Nguyễn Hoàng Vũ · Sầu riêng' });
+  world.marks.push({ id: 1, customer_id: 7, kind: 'promise', amount_vnd: '2000000', on_date: todayVn(2), conversation_id: GROUP, message_id: 'g119',
+    status: 'pending', paid_vnd: '0', idempotency_key: 'k1' });
+  await withPage({ bundled: true, world }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"] .mark').waitFor();
+    await page.locator('.msg[data-id="g119"] [data-unmark]').click();
+    await page.locator('#reason-save').click();
+    assert.match(await page.locator('#reason-error').innerText(), /Cần ghi lý do/);
+    await page.locator('#reason-text').fill('ghi nhầm');
+    await page.locator('#reason-save').click();
+    await page.locator('.msg[data-id="g119"] .mark s').waitFor();
+    assert.match(await page.locator('.msg[data-id="g119"] .mark').innerText(), /đã bỏ · lý do: ghi nhầm/);
+    assert.equal(await page.locator('.msg[data-id="g119"] [data-unmark]').count(), 0);
+    await page.locator('#links [data-unlink="7"]').click();
+    await page.locator('#reason-text').fill('nhầm group');
+    await page.locator('#reason-save').click();
+    await page.locator('#links .hint').waitFor();
+    assert.deepEqual(world.posts.at(-1), { path: '/api/v7/zalo/unlink', body: { conversation_id: GROUP, customer_id: 7, reason: 'nhầm group' } });
+  });
+  await withPage({ bundled: true, world: ledgerWorld() }, async page => {
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g116"]').waitFor();
+    assert.ok(await page.locator('.msg[data-id="g116"] .mark-btn').isHidden());
+    await page.locator('.msg[data-id="g116"] .body').click();
+    assert.ok(await page.locator('.msg[data-id="g116"] .mark-btn').isVisible());
+    const height = await page.locator('.msg[data-id="g116"] .mark-btn').evaluate(node => node.getBoundingClientRect().height);
+    assert.ok(height >= 26, `nút Đánh dấu đủ lớn để chạm (${height}px)`);
+  }, { viewport: { width: 375, height: 812 } });
 });

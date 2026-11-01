@@ -76,7 +76,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="access-01"></a>[ACCESS-01](decisions/access-01.md) | Chỉ login Tailscale trong danh sách mới dùng được web V7; login lạ nhận 403 `LOGIN_NOT_ALLOWED`; chế độ Serve không có danh sách thì API không khởi động | Danh sách đặt trên `hao` (drop-in), ngoài Git |
 | <a id="trang-khach-01"></a>[TRANG-KHACH-01](decisions/trang-khach-01.md) | Trang khách: sổ khách mở rộng thành bốn thẻ Tình hình, Sổ, Trao đổi, Hồ sơ; hứa trả, gắn hội thoại Zalo, ghi lần xuất debit note | PR A1 (vỏ, thanh thẻ), A2 (thẻ Tình hình), A3 (Trao đổi, Hồ sơ) đã lên `hao`; A4 (đường vào) đã code, xong giai đoạn A; B, C chưa |
 | <a id="ux-nen-01"></a>[UX-NEN-01](decisions/ux-nen-01.md) | Mục tiêu sản phẩm: bỏ Sheet mà không mất độ đúng; năm chỉ số M1–M5; UX làm theo thứ tự người dùng → luồng → dễ dùng → giao diện → kiểm | Chưa có phép kiểm nào chạy |
-| <a id="zalo-group-01"></a>[ZALO-GROUP-01](decisions/zalo-group-01.md) | Theo dõi nợ trong group Zalo: dựng lại tin có ảnh, đánh dấu tin (hứa trả, khách báo đã chuyển, ghi chú), nối vào thẻ Trao đổi; chỉ group được chọn lên `hao` | Chưa code |
+| <a id="zalo-group-01"></a>[ZALO-GROUP-01](decisions/zalo-group-01.md) | Theo dõi nợ trong group Zalo: dựng lại tin có ảnh, đánh dấu tin (hứa trả, khách báo đã chuyển, ghi chú), nối vào thẻ Trao đổi; chỉ group được chọn lên `hao` | G1–G3 đã lên `hao` 1/11/2026 (bảng và API có, `hao` chưa có gói chat); G4 giao diện đánh dấu; G5 đẩy gói chờ người dùng |
 
 ## Cập nhật khóa tháng 24/10/2026
 

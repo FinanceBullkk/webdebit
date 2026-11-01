@@ -304,6 +304,22 @@
       if (!response.ok || !Array.isArray(data?.conversations)) throw Error('Không đọc được hội thoại Zalo.');
       return { name, conversations: data.conversations };
     }
+    // Thẻ Trao đổi (ZALO-GROUP-01): dấu tin của sổ (hứa trả, khách báo đã chuyển, ghi chú; trạng thái máy chủ tính từ phiếu thu)
+    // và các group Zalo đã gắn với sổ. Chỉ đọc; dấu là ghi chú ngoài đường tiền.
+    async function readMarks() {
+      const response = await fetcher(`/api/v7/marks?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được dấu tin Zalo.');
+      const data = await response.json();
+      if (!Array.isArray(data?.marks)) throw Error('Dấu tin Zalo không hợp lệ.');
+      return data.marks;
+    }
+    async function readZaloLinks() {
+      const response = await fetcher('/api/v7/zalo/links', { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được group Zalo đã gắn.');
+      const data = await response.json();
+      if (!Array.isArray(data?.links)) throw Error('Group Zalo đã gắn không hợp lệ.');
+      return data.links.filter(row => Number(row.customer_id) === customerId);
+    }
     // Thẻ Hồ sơ: bảng giá của sổ (BANG-GIA-01), chỉ đọc.
     async function readPrices() {
       const response = await fetcher(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
@@ -322,6 +338,7 @@
     }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, findChats, readPrices, remind,
+      readMarks, readZaloLinks,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),

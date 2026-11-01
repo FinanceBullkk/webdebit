@@ -27,7 +27,11 @@ Mặc định Claude chọn, người dùng đã đọc trong chat và không ph
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT, chưa code.
+ĐÃ CHỐT.
+- **G1** (công cụ dựng gói, FinanceBullkk/webdebit#241) và **G2** (trang chat đọc gói, ảnh, mở đúng tin, FinanceBullkk/webdebit#243): đã lên `hao` 1/11/2026.
+- **G3** (bảng `zalo_link`, `contact_mark`, API, FinanceBullkk/webdebit#244): nâng DB tay trên `hao` 1/11/2026 ([nhật ký](../deploys/2026-11-01-zalo-group.md)).
+- **G4** (nút Đánh dấu, gắn sổ trong chat, dấu ở thẻ Trao đổi): đã code.
+- **G5** (đẩy gói lên `hao`): chưa làm. `hao` chưa có gói chat nên trên web thật chưa xem hay đánh dấu được.
 
 - Mọi bảng mới nằm ngoài đường tiền: không vào `v_outstanding_month`, không đổi phân bổ, không khóa tháng, không bump `customer.version`. Triển khai theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md).
 - **Đẩy gói chat lên `hao` cần hỏi người dùng trước** khi mở đường ghi mới (CLAUDE.md: đổi quyền ngoài runbook). Chép dữ liệu chat lên `hao` chỉ gồm group đã chọn; người dùng đã đồng ý nguyên tắc này ngày 1/11/2026.

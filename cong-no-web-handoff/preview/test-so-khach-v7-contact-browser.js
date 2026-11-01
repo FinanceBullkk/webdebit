@@ -79,7 +79,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.equal(await page.locator('#the-trao-doi .ct-bar a.ov-go').getAttribute('href'), `/zalo-chat.html?q=${name}`);
   assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Mở hội thoại' }).getAttribute('href'), `/zalo-chat.html?q=${name}&c=${CHAT}`);
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
-  assert.deepEqual(await page.locator('#the-trao-doi .ct-chip').allInnerTexts(), ['Tất cả 7', 'Nhắc và Zalo 2', 'Thu tiền 5']);
+  assert.deepEqual(await page.locator('#the-trao-doi .ct-chip').allInnerTexts(), ['Tất cả 7', 'Hứa trả 0', 'Nhắc và Zalo 2', 'Thu tiền 5']);
   await page.locator('#the-trao-doi .ct-chip', { hasText: 'Thu tiền' }).click();
   assert.deepEqual(await page.locator('#the-trao-doi .ct-item').evaluateAll(nodes => nodes.map(node => node.dataset.kind)), Array(5).fill('thu'));
   assert.equal(await page.locator('#the-trao-doi .ct-chip[aria-pressed="true"]').innerText(), 'Thu tiền 5');
@@ -93,6 +93,39 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.equal(await page.locator('#the-tinh-hinh .ov-chat').innerText(), 'Zalo gần nhất 12/11/2026 · Khách Thử Sửa');
   assert.deepEqual(world.requests, [], 'thẻ Trao đổi không gửi lệnh nào khi chỉ xem');
 }, talking));
+
+// ZALO-GROUP-01: dấu tin Zalo của sổ trong dòng thời gian, ở ngày của tin; trạng thái do máy chủ tính; dấu đã bỏ gạch có lý do;
+// "Mở tin" sang đúng tin; Mở chat mở group đã gắn thay vì tìm theo tên.
+function marked(world) {
+  talking(world);
+  const at = text => new Date(`${text}+07:00`).toISOString();
+  world.zaloLinks = [{ conversation_id: CHAT, customer_id: 1, customer_name: 'Khách Thử Sửa' }];
+  world.marks = [
+    { id: 3, customer_id: 1, kind: 'paid_claim', amount_vnd: M(30), on_date: '2026-11-04', conversation_id: CHAT, message_id: 'm77', message_at: at('2026-11-04T16:00:00'),
+      message_sender: 'Vũ', message_excerpt: 'Em chuyển 30 triệu rồi nha', status: 'received', receipt_pid: 'PH-003', created_by: 'hao@example.test', created_on: '2026-11-04' },
+    { id: 2, customer_id: 1, kind: 'promise', amount_vnd: M(50), on_date: '2026-11-08', conversation_id: CHAT, message_id: 'm70', message_at: at('2026-11-01T09:15:00'),
+      message_sender: 'Vũ', message_excerpt: 'Mai em chuyển 50 triệu', status: 'missed', paid_vnd: M(30), created_by: 'hao@example.test', created_on: '2026-11-01' },
+    { id: 1, customer_id: 1, kind: 'note', amount_vnd: null, on_date: null, note: 'Xin giãn tới cuối tháng', conversation_id: null, message_id: null, message_at: null,
+      status: 'cancelled', cancel_reason: 'ghi nhầm sổ', created_by: 'hao@example.test', created_on: '2026-10-30' }];
+}
+
+test('Trao đổi: dấu tin Zalo ở đúng ngày, trạng thái, Mở tin; lọc Hứa trả; Mở chat mở group đã gắn', async () => withPage(async ({ page, world }) => {
+  await page.locator('#the-trao-doi .ct-item', { hasText: 'Hứa trả' }).waitFor();
+  const rows = (await items(page)).filter(([, title]) => /Hứa trả|báo đã chuyển|Ghi chú/.test(title));
+  assert.deepEqual(rows, [
+    ['04/11/2026', 'Khách báo đã chuyển 30.000.000 đ · ngày 04/11/2026', '“Em chuyển 30 triệu rồi nha” — Vũ · Mở tin', 'Đánh dấu bởi hao@example.test'],
+    ['01/11/2026', 'Hứa trả 50.000.000 đ · hẹn 08/11/2026', '“Mai em chuyển 50 triệu” — Vũ · Mở tin', 'Đánh dấu bởi hao@example.test'],
+    ['30/10/2026', 'Ghi chú: Xin giãn tới cuối tháng', 'Đã bỏ dấu · Lý do: ghi nhầm sổ', 'Đánh dấu bởi hao@example.test']]);
+  assert.deepEqual(await page.locator('#the-trao-doi .ct-mark').allInnerTexts(), ['đã có phiếu thu · phiếu PH-003', 'lỡ hẹn · đã trả 30.000.000 đ']);
+  assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Mở tin' }).first().getAttribute('href'), `/zalo-chat.html?c=${CHAT}&m=m77`);
+  assert.equal(await page.locator('#the-trao-doi .ct-item.voided', { hasText: 'Ghi chú' }).count(), 1);
+  assert.equal(await page.locator('#the-trao-doi .ct-bar a.ov-go').getAttribute('href'), `/zalo-chat.html?c=${CHAT}`);
+  assert.match(await page.locator('#the-trao-doi .ct-status').innerText(), /Group Zalo đã gắn: 1/);
+  await page.locator('#the-trao-doi .ct-chip', { hasText: 'Hứa trả' }).click();
+  assert.deepEqual(await page.locator('#the-trao-doi .ct-item').evaluateAll(nodes => nodes.map(node => node.dataset.kind)), ['hua', 'hua']);
+  assert.deepEqual(await layout(page, '#the-trao-doi'), { overflow: 0, small: [], named: [], font: '16px' });
+  assert.deepEqual(world.requests, [], 'xem dấu không gửi lệnh nào');
+}, marked));
 
 test('Copy tin nhắc: chép đúng tin của Đòi nợ, ghi một dòng "đã nhắc"; bấm lặp trong ngày không thêm dòng', async () => withPage(async ({ page, world }) => {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);

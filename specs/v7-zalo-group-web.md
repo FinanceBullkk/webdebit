@@ -196,14 +196,15 @@ Kiểm ở API trước khi gọi DB: `amount_vnd` là số nguyên dương (VND
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tests/test_zalo_web_bundle.py` (fixture bịa): chỉ group đã chọn vào gói; body không còn URL; ảnh local và ảnh CDN (giả lập) vào `media/` đúng sha; thiếu `pillow-jxl` thì đếm `media_failed`; nguồn không đổi byte; ghi nguyên tử.
+- [x] `tests/test_zalo_web_bundle.py` (fixture bịa, G1): chỉ group đã chọn vào gói; body không còn URL; ảnh local và ảnh CDN (giả lập) vào `media/` đúng sha; thiếu `pillow-jxl` thì đếm `media_failed`; nguồn không đổi byte; ghi nguyên tử.
 - [x] `tests/test_v7_zalo_chat.py`: tên người gửi, `self_user`, `media` trong tin, route media (200, 404 sha lạ, không đọc ngoài `media/`), `message=` trả đúng trang, nạp lại khi gói đổi, bản xuất cũ vẫn chạy (G2).
 - [x] `preview/test-zalo-chat-browser.js` phần G2: tên người gửi theo cụm, ảnh, xem lớn và Esc, "Ảnh không còn trên Zalo", `?c=&m=` mở đúng tin ở trang giữa và tải được tin mới hơn/cũ hơn, tin không còn thì báo, khung tin tự cuộn ở 1280×720.
 - [x] G2 bước 7 (1/11/2026, gói thật 3 group ở thư mục nháp, máy chủ chạy thử không PostgreSQL): 5.485 tin, 190 ảnh/video hiện được; mở hội thoại đứng ở tin mới nhất; 375×812 không tràn ngang. Phát hiện và sửa lỗi có từ ZALO-CHAT-01: `.chat { flex: 1 }` làm trình duyệt bỏ `height`, cả trang dài theo số tin (5.900px) nên mở hội thoại không thấy tin mới nhất.
 - [x] `tools/test_pg_v7_backend_zalo_group.py` (case ZALO-GROUP.01): gắn/bỏ gắn, ghi dấu, idempotency, bỏ dấu, trạng thái giữ lời / lỡ hẹn / đang chờ / đã có phiếu thu / chưa thấy phiếu thu, phiếu hủy không tính, không bump version, tổng nợ không đổi. Harness backend 63/63 hành vi + 10/10 lược đồ, harness quyền 3/3 (G3, chạy tay 1/11/2026).
 - [x] Grants và `v7_post_deploy_check.sql` có các hàm mới; `tests/test_v7_api_zalo.py`: kiểm thân lệnh (tiền là chuỗi số nguyên, ngày theo giờ VN, actor không lấy từ thân lệnh), migration khớp từng byte với file hàm và lược đồ chuẩn (G3).
-- [ ] `preview/test-zalo-chat-browser.js`: bong bóng, ảnh, xem to, Đánh dấu ba loại, chọn sổ, gắn sổ, mở `?c=&m=`, bấm lặp Lưu không tạo hai dấu, mất mạng khi lưu, màn 1280×720 và 375×812.
-- [ ] `preview/test-so-khach-v7-contact-browser.js`: dấu trong Trao đổi, trạng thái, bấm sang đúng tin, Bỏ dấu.
+- [x] G3 triển khai trên `hao` 1/11/2026 theo runbook: [nhật ký](../docs/deploys/2026-11-01-zalo-group.md).
+- [x] `preview/test-zalo-chat-browser.js` (13 test): bong bóng, ảnh, xem to, Đánh dấu ba loại, gắn sổ ngay trong hộp Đánh dấu, mở `?c=&m=`, mất mạng khi lưu rồi bấm lại vẫn một dấu (cùng mã yêu cầu), bỏ dấu và bỏ gắn bắt buộc lý do, 1280×720 và 375×812 (chạm tin hiện nút) (G2, G4).
+- [x] `preview/test-so-khach-v7-contact-browser.js`: dấu trong Trao đổi ở ngày của tin, trạng thái máy chủ tính, "Mở tin" sang đúng tin, dấu đã bỏ gạch có lý do, lọc Hứa trả, Mở chat mở group đã gắn (G4).
 - [ ] Bước 7: dựng gói thật ở máy này, chạy thử web với gói, đi hết luồng 2–4.
 - [ ] Bước 8: người dùng chọn group thật, tự đi hết luồng và quyết định đẩy lên `hao`.
 

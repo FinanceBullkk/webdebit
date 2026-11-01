@@ -1,7 +1,8 @@
 /* Sổ khách V7 bản live — thẻ Trao đổi và thẻ Hồ sơ của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A3), phần A:
  *   Trao đổi: dòng thời gian của sổ, mới nhất ở trên — phiếu thu và cấn trừ (tháng trừ nợ theo dòng phân bổ còn hiệu lực, phiếu
- *     hủy gạch kèm lý do), lần nhắc gần nhất, hội thoại Zalo tìm theo tên như nút Chat ở Đòi nợ; lọc Tất cả · Nhắc và Zalo · Thu
- *     tiền (Hứa trả, Debit note là giai đoạn B); Copy tin nhắc (cùng tin, cùng lệnh ghi reminder_log với Đòi nợ) và Mở chat.
+ *     hủy gạch kèm lý do), lần nhắc gần nhất, hội thoại Zalo tìm theo tên như nút Chat ở Đòi nợ, dấu tin Zalo (ZALO-GROUP-01: hứa
+ *     trả, khách báo đã chuyển, ghi chú); lọc Tất cả · Hứa trả · Nhắc và Zalo · Thu tiền (Debit note là giai đoạn B); Copy tin nhắc
+ *     (cùng tin, cùng lệnh ghi reminder_log với Đòi nợ) và Mở chat (group đã gắn trước, tìm theo tên sau).
  *   Hồ sơ: mặt hàng · cảng/bộ, hạn trả (quy tắc chung DASH-03), giá đang áp hôm nay (giờ VN) theo bảng giá của sổ, cột phụ phí
  *     riêng, phiếu có ảnh chứng từ.
  * Hai thẻ không ghi tiền (Copy tin nhắc chỉ ghi "đã nhắc", ngoài đường tiền); số tiền lấy nguyên từ GET, chỉ định dạng (ARCH-03).
@@ -12,13 +13,18 @@
   const { root, api, live, customerId, escape, dateText, monthKey, monthLabel, showTab, todayIso } = ctx;
   const { full, commodityText, vnDay, loadError, reminderText } = CongNoFormat;
   const SOURCE = { 'copy-button': 'bấm Copy tin nhắc', zalo: 'Zalo', manual: 'ghi tay' };
-  const FILTERS = [['all', 'Tất cả'], ['lienlac', 'Nhắc và Zalo'], ['thu', 'Thu tiền']];
+  const FILTERS = [['all', 'Tất cả'], ['hua', 'Hứa trả'], ['lienlac', 'Nhắc và Zalo'], ['thu', 'Thu tiền']];
+  // ZALO-GROUP-01: dấu tin Zalo — hứa trả và khách báo đã chuyển vào lọc "Hứa trả", ghi chú vào "Nhắc và Zalo".
+  const MARK = { promise: 'Hứa trả', paid_claim: 'Khách báo đã chuyển', note: 'Ghi chú' };
+  const MARK_STATUS = { pending: 'đang chờ', kept: 'giữ lời', missed: 'lỡ hẹn', waiting: 'chờ đối chiếu',
+    received: 'đã có phiếu thu', not_seen: 'chưa thấy phiếu thu' };
   // Nút ở thẻ Sổ mà thẻ Hồ sơ mở tới: bảng giá và cột phụ phí sửa ở thẻ Sổ (SO-GON-04 L7).
   const OPEN = { 'bang-gia': '.price-table-open', 'phu-phi': '.fee-settings-open' };
   // Nguồn phụ đọc qua so-khach-v7-api.js và thẻ cần chúng; `what` là chữ trong câu đang đọc, câu lỗi.
   const side = { reminders: { read: 'readReminders', what: 'lần nhắc nợ' }, chats: { read: 'findChats', what: 'hội thoại Zalo' },
+    marks: { read: 'readMarks', what: 'dấu tin Zalo' }, links: { read: 'readZaloLinks', what: 'group Zalo đã gắn' },
     debt: { read: 'readDebt', what: 'hạn trả' }, prices: { read: 'readPrices', what: 'bảng giá' } };
-  const NEEDS = { 'trao-doi': ['reminders', 'chats'], 'ho-so': ['debt', 'prices'] };
+  const NEEDS = { 'trao-doi': ['reminders', 'chats', 'marks', 'links'], 'ho-so': ['debt', 'prices'] };
   for (const item of Object.values(side)) item.state = 'idle';
   let filter = 'all', note = '', copying = false;
   const shown = () => document.body?.dataset.the;
@@ -105,23 +111,47 @@
         + `${row.last_own_message_at ? `mình nhắn gần nhất ${dateText(vnDay(row.last_own_message_at))}` : 'mình chưa nhắn'} · `
         + `<a href="${escape(chatHref(row))}">Mở hội thoại</a>`]))];
   }
-  // Trang Chat Zalo lọc theo tên khách (trang tự mở khi chỉ một hội thoại khớp); có `row` thì mở đúng hội thoại đó.
+  // Dấu tin Zalo của sổ (ZALO-GROUP-01), ở ngày của tin được đánh dấu; trạng thái do máy chủ tính từ phiếu thu chưa hủy. Dấu đã bỏ
+  // gạch kèm lý do như phiếu hủy. "Mở tin" sang trang Chat đúng group, cuộn tới đúng tin.
+  function marked() {
+    const rows = loaded(side.marks) ? side.marks.data : [];
+    return rows.map(row => {
+      const cancelled = row.status === 'cancelled';
+      const what = row.kind === 'note' ? `${MARK.note}: ${escape(row.note ?? '')}`
+        : `${MARK[row.kind]} <span class="ct-money">${full(row.amount_vnd)}</span> · ${row.kind === 'promise' ? 'hẹn' : 'ngày'} ${escape(dateText(row.on_date))}`;
+      const state = row.status && !cancelled ? `<span class="ct-mark ${escape(row.status)}">${escape(MARK_STATUS[row.status] ?? row.status)}`
+        + `${row.status === 'missed' ? ` · đã trả ${full(row.paid_vnd ?? '0')}` : ''}${row.receipt_pid ? ` · phiếu ${escape(row.receipt_pid)}` : ''}</span>` : '';
+      const quote = row.message_excerpt ? `“${escape(row.message_excerpt)}”${row.message_sender ? ` — ${escape(row.message_sender)}` : ''}` : '';
+      const open = row.conversation_id && row.message_id
+        ? `<a href="/zalo-chat.html?c=${encodeURIComponent(row.conversation_id)}&amp;m=${encodeURIComponent(row.message_id)}">Mở tin</a>` : '';
+      const day = row.message_at ? vnDay(Date.parse(row.message_at)) : row.created_on;
+      return entry(day, row.kind === 'note' ? 'lienlac' : 'hua', `<b>${what}</b>${state}`,
+        [cancelled ? `Đã bỏ dấu · Lý do: ${escape(row.cancel_reason ?? '')}` : '', [quote, open].filter(Boolean).join(' · '),
+          `Đánh dấu bởi ${escape(row.created_by ?? '')}`], cancelled);
+    });
+  }
+  // Trang Chat Zalo: sổ đã gắn group thì mở group đó; chưa gắn thì lọc theo tên khách (trang tự mở khi chỉ một hội thoại khớp);
+  // có `row` thì mở đúng hội thoại đó.
   function chatHref(row = null) {
+    const linked = loaded(side.links) ? side.links.data : [];
+    if (!row && linked.length) return `/zalo-chat.html?c=${encodeURIComponent(linked[0].conversation_id)}`;
     const name = loaded(side.chats) ? side.chats.data.name : '';
     return `/zalo-chat.html${name ? `?q=${encodeURIComponent(name)}${row ? `&c=${encodeURIComponent(row.conversation_id)}` : ''}` : ''}`;
   }
+  const linkStatus = linked => (linked.length ? `Group Zalo đã gắn: ${linked.length}. Mở chat sẽ mở group đó.` : '');
   const chatStatus = ({ name, conversations }) => (conversations === null ? 'Chưa có dữ liệu chat trên máy chủ.'
     : !conversations.length ? `Không có hội thoại Zalo nào có tên “${escape(name)}”.`
       : conversations.length > 3 ? `Còn ${conversations.length - 3} hội thoại khác có tên “${escape(name)}”: bấm Mở chat để xem.` : '');
 
   function talk(data) {
-    const items = [...talks(), ...money(data)].sort((a, b) => b.date.localeCompare(a.date));
+    const items = [...talks(), ...marked(), ...money(data)].sort((a, b) => b.date.localeCompare(a.date));
     const count = key => (key === 'all' ? items.length : items.filter(item => item.kind === key).length);
     const chips = FILTERS.map(([key, label]) => `<button type="button" class="ct-chip" data-go="loai:${key}" aria-pressed="${filter === key}">`
       + `${label} <b>${count(key)}</b></button>`).join('');
     const rows = items.filter(item => filter === 'all' || item.kind === filter).map(item => `<li class="ct-item${item.voided ? ' voided' : ''}" `
       + `data-kind="${item.kind}"><time datetime="${escape(item.date)}">${escape(dateText(item.date))}</time><div>${item.html}</div></li>`).join('');
-    const status = [source('reminders', () => ''), source('chats', chatStatus)].filter(Boolean).map(line => `<p class="ct-status">${line}</p>`).join('');
+    const status = [source('reminders', () => ''), source('chats', chatStatus), source('marks', () => ''), source('links', linkStatus)]
+      .filter(Boolean).map(line => `<p class="ct-status">${line}</p>`).join('');
     return `<div class="ct-bar"><div class="ct-chips" role="group" aria-label="Lọc theo loại">${chips}</div>`
       + `${button('copy', copying ? 'Đang soạn tin…' : 'Copy tin nhắc', 'chép tin nhắc nợ để dán vào Zalo và ghi “đã nhắc” hôm nay')}`
       + `<a class="ov-go" href="${escape(chatHref())}">Mở chat</a></div>${note}${status}`

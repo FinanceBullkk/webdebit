@@ -68,6 +68,51 @@
 .msg .vid { max-width: min(320px, 100%); max-height: 320px; border-radius: 8px; background: #000; }
 .msg .pic-gone { margin-top: 4px; padding: 10px 12px; border-radius: 8px; background: var(--head); color: var(--ink-3); font-size: 13px; font-style: italic; }
 .messages .newer { align-self: center; margin-top: 8px; }
+/* ZALO-GROUP-01 G4: gắn sổ, nút Đánh dấu, nhãn dấu dưới tin, các hộp thoại. Nút ≥ 40px, chữ 16px trong hộp thoại (UX trên 40 tuổi). */
+.conv .sub.books { color: var(--accent-ink); }
+.links { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 4px; font-size: 13px; color: var(--ink-2); }
+.links[hidden] { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 8px; border-radius: 999px; background: var(--accent-soft); }
+.chip a { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+.chip-x { min-width: 28px; height: 28px; border: 0; background: none; color: var(--ink-3); font-size: 16px; cursor: pointer; border-radius: 50%; }
+.chip-x:hover { background: #d6e6fa; color: var(--critical); }
+.link-btn { border: 0; background: none; padding: 4px 6px; color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.mark-btn { margin-left: auto; padding: 0 10px; height: 26px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--accent-ink); font-size: 12.5px; font-weight: 600; cursor: pointer; visibility: hidden; }
+.msg:hover .mark-btn, .msg:focus-within .mark-btn, .msg.show-actions .mark-btn { visibility: visible; }
+.msg .meta { align-items: center; }
+.marks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.mark { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; padding: 4px 8px; border-radius: 8px; font-size: 13px; background: var(--head); border-left: 3px solid var(--ink-3); }
+.mark.promise { border-left-color: var(--accent); }
+.mark.paid_claim { border-left-color: var(--credit); }
+.mark.kept, .mark.received { background: var(--credit-soft); }
+.mark.missed, .mark.not_seen { background: var(--critical-soft); color: #8a1f1f; }
+.mark.cancelled { color: var(--ink-3); }
+.mark .link-btn { padding: 2px 4px; font-size: 12.5px; }
+.sheet { width: min(480px, 94vw); padding: 0; border: 0; border-radius: var(--radius); box-shadow: 0 10px 40px #0004; font-size: 16px; }
+.sheet::backdrop { background: rgba(15, 23, 42, .45); }
+.sheet form { display: grid; gap: 12px; padding: 18px 20px; }
+.sheet h3 { margin: 0; font-size: 18px; }
+.sheet .quote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--head); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.sheet fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.sheet legend { margin-bottom: 4px; font-weight: 600; }
+.sheet .kinds label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.sheet .kinds label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.sheet .field { display: grid; gap: 4px; font-weight: 600; }
+.sheet .field[hidden], .sheet .hint[hidden], .sheet .form-error[hidden] { display: none; }
+.sheet input:not([type="radio"]), .sheet select, .sheet textarea { min-height: 40px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; font-weight: 400; }
+.sheet .money input { font-variant-numeric: tabular-nums; }
+.sheet .hint { margin: 0; color: var(--ink-3); font-size: 14px; }
+.form-error { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--critical-soft); color: var(--critical); font-size: 14px; }
+.sheet .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sheet .btn { height: 40px; font-size: 15px; }
+.sheet .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sheet .btn.danger { background: var(--critical); border-color: var(--critical); color: #fff; }
+.sheet .btn:disabled { opacity: .6; cursor: progress; }
+.options { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
+.options .option { min-height: 40px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
+.options .option:hover, .options .option:focus-visible { background: var(--accent-soft); border-color: var(--accent); }
+
 .pic-viewer { max-width: 96vw; max-height: 96vh; padding: 8px; border: 0; border-radius: 10px; background: #111; }
 .pic-viewer::backdrop { background: rgba(0, 0, 0, .7); }
 .pic-viewer img { display: block; max-width: calc(96vw - 16px); max-height: calc(96vh - 64px); margin: 0 auto; }
