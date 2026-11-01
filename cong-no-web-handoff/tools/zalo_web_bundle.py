@@ -422,6 +422,10 @@ def cmd_change(source: Source, needles: list[str], add: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Tên group tiếng Việt: đầu ra đi qua pipe hay Task Scheduler trên Windows mặc định cp1252 sẽ lỗi; in UTF-8, ký tự lạ thì thay.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Chọn group Zalo được lên web và dựng gói web (ZALO-GROUP-01).")
     parser.add_argument("--source", required=True, help="thư mục live-sync-20261030 của zalo-audit-viewer")
     sub = parser.add_subparsers(dest="command", required=True)
