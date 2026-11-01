@@ -114,7 +114,7 @@
   const sheetPendingRows = rows => rows.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
           ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>`
     + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
-          ${empty('num')}${feeEmpty()}${num('–')}${empty('pay pay-start')}${empty('pay')}${empty('pay num')}
+          ${empty('num')}${feeEmpty()}${num('–')}
           </tr>`).join('');
 
   // Dòng trong sổ mà Sheet có dữ liệu khác: tô KHÁC và nút Xem (khung đối chiếu ở so-khach-v7-sheet-ui.js).

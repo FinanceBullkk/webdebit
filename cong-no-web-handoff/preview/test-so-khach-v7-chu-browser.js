@@ -33,11 +33,11 @@ test('Chữ trong sổ và danh sách phiếu ≥ 14px; số tiền 16px; không
   assert.equal(overflow, 0);
 }, rich));
 
-test('Sổ có Shipper và 3 cột phụ phí riêng: khổ chật, số 15px, vẫn không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
-  assert.equal(await page.locator('.ledger-book.tight').count(), 1);
+test('Sổ có Shipper và 3 cột phụ phí riêng: không cần khổ chật (SO-GON-06 trả chỗ ba cột thu), số 16px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
+  assert.equal(await page.locator('.ledger-book.tight').count(), 0);
   const { small, money, overflow } = await sizes(page);
   assert.deepEqual(small, []);
-  assert.deepEqual(money, [15]);
+  assert.deepEqual(money, [16]);
   assert.equal(overflow, 0);
 }, world => { rich(world); world.feeColumns = [1, 2, 3]; }));
 

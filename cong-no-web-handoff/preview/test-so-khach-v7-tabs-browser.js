@@ -132,13 +132,12 @@ test('Đang gõ dở trong khung Ghi phiếu thu, sang thẻ khác rồi quay l�
   assert.equal(world.requests.length, 0, 'chưa gửi lệnh nào');
 }));
 
-test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ đúng chỗ cuộn, danh sách phiếu dính và chip tháng đo lại đúng', async () => withPage(async ({ page, world }) => {
-  const probe = () => page.evaluate(() => {
-    const head = document.querySelector('.ledger-head');
-    return { y: Math.round(window.scrollY), top: document.querySelector('#thang-2026-09 .pay-stick.pinned')?.style.top,
-      want: `${Math.round(Number.parseFloat(getComputedStyle(head).top) + head.offsetHeight)}px`,
-      chip: document.querySelector('.month-chip[aria-current="true"]')?.dataset.month };
-  });
+test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ đúng chỗ cuộn, khối phiếu thu, bề ngang bảng và chip tháng đúng', async () => withPage(async ({ page, world }) => {
+  const probe = () => page.evaluate(() => ({ y: Math.round(window.scrollY),
+    pays: document.querySelectorAll('#thang-2026-09 .pay-list tr.pay-row').length,
+    fit: Math.abs(document.querySelector('#thang-2026-09 .trip-list').getBoundingClientRect().width
+      - document.querySelector('#the-so .ledger-book').clientWidth) <= 2,
+    chip: document.querySelector('.month-chip[aria-current="true"]')?.dataset.month }));
   await page.evaluate(() => window.scrollTo({ top: 400, behavior: 'instant' }));
   await page.waitForFunction(() => document.querySelector('.month-chip[aria-current="true"]')?.dataset.month === '2026-09');
   const before = await probe();
@@ -151,7 +150,7 @@ test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ �
   await page.waitForFunction(() => document.querySelector('.month-chip[aria-current="true"]')?.dataset.month === '2026-09');
   const after = await probe();
   assert.deepEqual(after, before);
-  assert.equal(after.top, after.want, 'danh sách phiếu dính ngay dưới tiêu đề cột');
+  assert.deepEqual([after.pays, after.fit], [1, true], 'khối phiếu thu đầu tháng, bảng chuyến rộng bằng vùng sổ');
 }, world => {
   world.trips.push(...Array.from({ length: 30 }, (_, index) => trip(300 + index, '2026-09-01')));
   world.receipts.push({ id: 1, pid: 'PH-001', date: '2026-09-25', method: 'THU TIỀN', amount_vnd: '5000000', reference: null, voided_by_event: null,

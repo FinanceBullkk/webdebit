@@ -475,3 +475,10 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 body[data-the]:not([data-the="so"]) :is(#the-so,.fee-selbar,.entry-drawer,.fee-drawer,.image-viewer),
 body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) #the-trao-doi,body:not([data-the="ho-so"]) #the-ho-so{display:none}
 .tab-go{min-height:40px;padding:0 16px;border:1px solid #145fa9;border-radius:4px;background:#fff;color:#145fa9;font:inherit;font-weight:700;cursor:pointer}
+/* SO-GON-06: phiếu thu là khối riêng ở đầu tháng (bảng 3 cột, rộng vừa nội dung); bảng chuyến bên dưới dùng hết bề ngang. */
+.ledger tr.month-pay>td{height:auto;padding:8px 10px 10px;background:#f2f8ff;border-right:0}
+.ledger.locked tr.month-pay>td{background:#e6eaef}
+.pay-block .pay-head{margin-bottom:6px;font-size:15px;font-weight:700;color:#16385f}
+.pay-block .pay-empty{font-weight:400;color:#475d73}
+.pay-block .pay-list{width:594px;max-width:100%;border-top:1px solid #d8e1ec;border-left:1px solid #d8e1ec}
+.pay-block .pay-list.empty{display:none}

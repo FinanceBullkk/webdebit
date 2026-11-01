@@ -187,7 +187,7 @@
         const row = add.closest('tr');
         if (!row.previousElementSibling?.classList.contains('month-adjustment-input')) row.insertAdjacentHTML('beforebegin',
           // Ô số tiền nằm dưới cột Thành tiền: số cột đổi theo sổ (cột phụ phí riêng, cột Shipper chỉ hiện khi có dữ liệu).
-          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="${ctx.columns.count() - 4}">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td><td class="pay pay-start" colspan="3"></td></tr>`);
+          `<tr class="month-adjustment-input" data-month="${escape(add.dataset.month)}"><td colspan="${ctx.columns.trip() - 1}">Điều chỉnh cả tháng · <label>Ghi chú <input class="month-note" aria-label="Ghi chú điều chỉnh cả tháng"></label></td><td><input class="month-amount" aria-label="Số điều chỉnh cả tháng" placeholder="+5.000.000"><span class="cell-error" role="status"></span></td></tr>`);
         row.previousElementSibling.querySelector('.month-amount').focus(); return;
       }
       const editable = event.target.closest('td.editable');
