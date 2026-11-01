@@ -214,7 +214,17 @@ test('tên Sheet trên danh sách, ô thông tin, ngăn kéo mở sổ gốc', a
   assert.match(tip[2], /còn nợ 1,25 tỷ/);
   await page.locator('#list .drow').first().click();
   assert.equal(await page.locator('#d-open').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  // TRANG-KHACH-01 (PR A4): "Trang khách" cạnh "Mở sổ khách", mở thẻ Tình hình; ba nút một dòng, cao ≥ 40px.
+  assert.equal(await page.locator('#d-page').getAttribute('href'), '/so-khach-v7-live.html?customer=2&the=tinh-hinh');
   assert.equal(await page.locator('#d-matrix').getAttribute('href'), '/cong-no-theo-thang.html?con-no=1&xep=con-no&khach=2');
+  const footer = await page.locator('#drawer footer').evaluate(node => [...node.querySelectorAll('a')].map(link => {
+    const box = link.getBoundingClientRect(), range = document.createRange();
+    range.selectNodeContents(link);
+    return { text: link.textContent, top: box.top, tall: box.height >= 40, inside: box.right <= node.getBoundingClientRect().right,
+      oneLine: range.getClientRects().length === 1, fits: link.scrollWidth <= link.clientWidth + 1 };
+  }));
+  assert.deepEqual(footer.map(link => link.text), ['Mở sổ khách', 'Trang khách', 'Xem ở ma trận']);
+  assert.equal(footer.every(link => link.top === footer[0].top && link.tall && link.inside && link.oneLine && link.fits), true, JSON.stringify(footer));
   assert.match(await page.locator('#d-body').innerText(), /3 chuyến thiếu đơn giá — chưa tính vào số trên/);
   await page.keyboard.press('Escape');
   await page.locator('#drawer').waitFor({ state: 'hidden' });

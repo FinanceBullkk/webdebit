@@ -68,7 +68,9 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 0,02');
     assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ (dư)');
     assert.match(await page.locator('#heat-body .group').first().innerText(), /Sầu riêng · cảng/);
-    assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1"]').count(), 1);
+    // TRANG-KHACH-01 (PR A4): tên khách mở trang khách ở thẻ Tình hình.
+    assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1&the=tinh-hinh"]').count(), 1);
+    assert.equal(await page.locator('#heat-body a[href^="/so-khach-v7-live.html"]:not([href$="&the=tinh-hinh"])').count(), 0);
     await page.locator('#only-open').check();
     assert.doesNotMatch(await page.locator('#heat-body').innerText(), /Khách B/);
     await page.locator('#only-open').uncheck();

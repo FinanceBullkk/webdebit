@@ -6,6 +6,8 @@
   const $ = id => document.getElementById(id);
   const { esc, fold, commodityText, customerLabels } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
+  // Trang khách ở thẻ Tình hình (TRANG-KHACH-01); "Mở sổ khách" và ô tìm khách vẫn mở thẻ Sổ.
+  const pageHref = id => `${ledgerHref(id)}&the=tinh-hinh`;
   // Sang Công nợ theo tháng: chỉ khách còn nợ, xếp nợ nhiều nhất trước; có khách thì tô và cuộn tới dòng đó.
   const matrixHref = id => `/cong-no-theo-thang.html?con-no=1&xep=con-no${id == null ? '' : `&khach=${encodeURIComponent(id)}`}`;
   // Số rút gọn, rê chuột thấy số đồng chính xác.
@@ -287,6 +289,7 @@
       <h3>Còn nợ theo tháng phát sinh</h3>${months.map(item => `<div class="mrow"><span>Tháng ${esc(`${item.key.slice(5, 7)}/${item.key.slice(0, 4)}`)}<small>${esc(state.tiers[item.tier].label)}</small></span><span class="track"><i style="width:${F.barWidth(item.value, max)}%;background:var(--due-${item.tier})"></i></span><span class="r money" title="${esc(F.full(item.value))}">${item.value < 0n ? `dư ${esc(F.short(-item.value))}` : esc(F.short(item.value))}</span></div>`).join('')}
       ${missing ? `<p class="flags">${missing.count} chuyến thiếu đơn giá — chưa tính vào số trên.</p>` : ''}`;
     $('d-open').href = ledgerHref(id);
+    $('d-page').href = pageHref(id);
     $('d-matrix').href = matrixHref(id);
     lastFocus = trigger ?? document.activeElement;
     $('scrim').hidden = false;

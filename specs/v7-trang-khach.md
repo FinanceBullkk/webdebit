@@ -1,6 +1,6 @@
 # Trang khách: một khách, bốn thẻ
 
-Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** (1/11/2026, kiểm trên máy chủ giả); A4 chưa code. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
+Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#237); **PR A4 (đường vào) đã code** (1/11/2026, kiểm trên máy chủ giả), nên giai đoạn A đã code xong. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
@@ -93,6 +93,14 @@ Mặt hàng, cảng/bộ, giá đang áp, cột phụ phí riêng, ảnh chứng
 | Đòi nợ | số quá hạn | Sổ, tháng nợ cũ nhất (SO-GON-04 L1.5) |
 | Việc cần làm | một việc | Sổ với `loc=` (như nay) |
 | Chat Zalo | "Trang khách" (khi hội thoại đã gắn khách, B3) | `the=trao-doi` |
+
+**Khi code (PR A4, 1/11/2026), Claude làm như sau** — không đổi tiền, API hay lựa chọn K1–K8:
+
+1. **Ngăn kéo Tổng quan:** ba nút một dòng: **Mở sổ khách** (nút chính, giữ như cũ) · **Trang khách** · Xem ở ma trận.
+2. **Đòi nợ:** tên khách mở thẻ Trao đổi. Trước A4, tên khách mở Sổ ở tháng nợ cũ nhất (SO-GON-04); link đó chuyển sang số quá hạn:
+   - số thành link; rê chuột thấy số đồng chính xác và tháng sẽ mở;
+   - vùng bấm cao 40px mà dòng không cao thêm.
+3. **Không đổi:** ô tìm khách (`?customer=`), Việc cần làm (`loc=`), ô tháng và ngăn kéo ma trận (`month=`), nút Chat ở Đòi nợ.
 
 ### Đầu trang (dính, một dòng, cao ≤ 44px)
 
@@ -361,11 +369,11 @@ PR A3 (đã kiểm trên máy chủ giả, mục Bằng chứng):
 - [x] Copy tin nhắc ghi đúng một dòng `reminder_log` như ở Đòi nợ. Bấm lặp trong một ngày không tạo dòng mới (`UNIQUE` theo ngày).
 - [x] Hồ sơ: giá đang áp bằng bảng giá trong sổ ở ngày hôm nay; cột phụ phí riêng đúng cài đặt của sổ.
 
-PR A4:
-- [ ] Ngăn kéo Tổng quan có "Trang khách" mở `the=tinh-hinh`; tên khách ở ma trận mở `the=tinh-hinh`; tên khách ở Đòi nợ mở `the=trao-doi`. Các link khác giữ như cũ.
+PR A4 (đã kiểm trên máy chủ giả, mục Bằng chứng):
+- [x] Ngăn kéo Tổng quan có "Trang khách" mở `the=tinh-hinh`; tên khách ở ma trận mở `the=tinh-hinh`; tên khách ở Đòi nợ mở `the=trao-doi`. Các link khác giữ như cũ.
 
 Chung (bước 7–8):
-- [ ] `npm run check` xanh ở từng PR; `test-so-khach-v7-ctx.js` xanh.
+- [x] `npm run check` xanh ở từng PR; `test-so-khach-v7-ctx.js` xanh.
 - [ ] Sếp hoặc chủ nghiệp vụ tự đi luồng 1 trên `hao` với một khách thật và xác nhận đọc đúng; người đòi nợ đi luồng 2 một lần.
 
 ## Hoàn tác
@@ -426,6 +434,19 @@ Spec: hiện trạng đối chiếu trên mã tại `d65be02`. Bản xem chỉ d
 - `test-cong-no-format.js`: `reminderText` cho đúng tin Đòi nợ cũ; `vnDay` qua nửa đêm giờ VN.
 - Sửa test cũ: `test-so-khach-v7-tabs-browser.js` đổi nút "Mở thẻ Sổ" của thẻ chưa có nội dung thành nút "Xem thẻ Trao đổi" của thẻ Tình hình.
 - So mọi ô số tiền của thẻ Sổ (`#app` trừ ba khung ngoài Sổ) giữa `main` (`1d3bfac`) và bản PR, cùng máy chủ giả, mở hết tháng: 182 ô (85 + 21 + 76) trùng khớp. Sổ thứ ba có phiếu hủy, cấn trừ vào và ra, ứng trước, ảnh chứng từ. Đã thử ngược bằng một bản cố ý sai thì phép so báo lệch.
+- `npm run check` xanh (ruff chạy bằng venv của checkout chính).
+
+**PR A4 (đường vào), 1/11/2026** — máy chủ giả, 1280×720, dữ liệu giả; chưa đo trên `hao`:
+- `test-v7-dashboard-browser.js`:
+  - ngăn kéo có "Trang khách" `?customer=2&the=tinh-hinh` giữa "Mở sổ khách" (`?customer=2`, giữ) và "Xem ở ma trận";
+  - ba nút một dòng, cao 42px, chữ không tràn.
+  - Test cũ vẫn xanh: ô tìm khách mở `?customer=`, Việc cần làm mở `loc=`.
+- `test-v7-receivables-matrix-browser.js`: tên khách mở `&the=tinh-hinh`, không còn tên nào mở thẳng Sổ; ngăn kéo vẫn `month=` (test cũ).
+- `test-doi-no-browser.js`:
+  - tên khách mở `&the=trao-doi`;
+  - số quá hạn mở `&month=2026-08` (tháng nợ cũ nhất), title ghi số đồng chính xác và tháng, vùng bấm ≥ 40px;
+  - nút Chat giữ link cũ; các cột vẫn thẳng tiêu đề.
+- Thử ngược: ba file test mới chạy trên code của `main` (`65433ec`) thì ba test đỏ đúng ở dòng kiểm link.
 - `npm run check` xanh (ruff chạy bằng venv của checkout chính).
 
 ## Lựa chọn đã chốt

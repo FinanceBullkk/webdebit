@@ -20,8 +20,10 @@
 #doi-no .rrow:hover { background: var(--hover, #f7f9fc); }
 #doi-no .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 #doi-no .who .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#doi-no .who a.nm { color: var(--accent-ink); }
-#doi-no .who a.nm:hover { text-decoration: underline; }
+#doi-no .who a.nm, #doi-no a.num { color: var(--accent-ink); }
+#doi-no .who a.nm:hover, #doi-no a.num:hover { text-decoration: underline; }
+/* Số quá hạn là link mở sổ: vùng bấm cao 40px mà dòng không cao thêm. */
+#doi-no a.num { padding: 10px 0; margin: -10px 0; }
 #doi-no .who small { color: var(--muted, #6b7280); white-space: nowrap; }
 #doi-no .num { text-align: right; font-variant-numeric: tabular-nums; }
 #doi-no .num.od { font-weight: 600; }
