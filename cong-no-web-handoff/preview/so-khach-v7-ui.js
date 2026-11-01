@@ -85,9 +85,10 @@
     labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức', 'Số tiền trả'];
     wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length)];
     // SO-GON-05: sổ co giãn theo màn hình; phần bề ngang dư (so với khổ tối thiểu) dồn cho cột chữ hay bị cắt "…", cột tiền
-    // giữ bề rộng vừa số. `fitWidth` là bề ngang thật của vùng sổ ở lần vẽ trước (0 lúc chưa vẽ).
+    // giữ bề rộng vừa số. `fitWidth` là bề ngang thật của vùng sổ ở lần vẽ trước (0 lúc chưa vẽ). Vùng sổ hẹp hơn khổ tối thiểu
+    // một chút (thanh cuộn dọc 15px của Chrome Windows ở màn 1280) thì cột chữ nhường phần thiếu, để không có thanh cuộn ngang.
     const extra = Math.floor(fitWidth) - wide.reduce((sum, width) => sum + width, 0);
-    if (live && extra > 0) {
+    if (live && fitWidth && extra !== 0 && extra >= -MAX_SHRINK) {
       const share = Object.entries(TEXT_SHARE).map(([name, weight]) => [labels.indexOf(name), weight]).filter(([index]) => index >= 0);
       const weights = share.reduce((sum, [, weight]) => sum + weight, 0);
       let left = extra;
@@ -98,6 +99,8 @@
     }
     widths = colTags(0, wide.length);
   }
+  // Cột chữ nhường tối đa chừng này px khi vùng sổ hẹp hơn khổ tối thiểu (thanh cuộn, lề).
+  const MAX_SHRINK = 60;
   // Tỉ lệ chia phần bề ngang dư cho cột chữ (SO-GON-05).
   const TEXT_SHARE = { 'Hãng tàu': 1, Shipper: 2, 'Nơi đi': 2, 'Nơi đến': 1.5 };
   let fitWidth = 0;
