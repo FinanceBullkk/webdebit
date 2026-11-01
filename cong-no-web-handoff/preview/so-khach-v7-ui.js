@@ -113,7 +113,7 @@
   const feeStart = () => tripCols() - ownCount - 2;
   // Khung cột cho các phần vẽ bản live (ctx.columns): luôn đọc bố cục hiện tại, useLiveColumns đổi nó mỗi lần vẽ.
   // Ba cột của bảng phiếu thu đầu tháng (SO-GON-06): ngày trả, hình thức, số tiền kèm tham chiếu và tháng trừ nợ.
-  const payTags = () => [124, 170, 300].map((width, index) => `<col style="width:${width}px" class="pay-col-${index}">`).join('');
+  const payTags = () => [190, 150, 300].map((width, index) => `<col style="width:${width}px" class="pay-col-${index}">`).join('');
   const columns = { count: () => labels.length, trip: tripCols, feeStart, unitPrice: () => feeStart() - 1, tags: colTags,
     all: () => widths, shipper: () => showShipper, shipperCell, payTags };
   const cell = (value, classes = '') => `<td class="${classes}">${escape(value)}</td>`;

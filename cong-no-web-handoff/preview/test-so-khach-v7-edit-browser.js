@@ -41,6 +41,8 @@ test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',asy
   assert.equal(world.reads, before);
   assert.equal(await amount.inputValue(), '123');
   await page.locator('.entry-close').click();
+  // Xóa chữ "Cập nhật …" (có sẵn từ lần vẽ đầu) để lần chờ chỉ xong khi đã đọc lại và vẽ lại.
+  await page.evaluate(() => { document.querySelector('#updated-at').textContent = ''; });
   await page.locator('#refresh-data').click();
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Cập nhật'));
   assert.equal(world.reads, before + 1);

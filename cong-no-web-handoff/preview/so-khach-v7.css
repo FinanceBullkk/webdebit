@@ -480,7 +480,7 @@ body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) 
 .ledger.locked tr.month-pay>td{background:#e6eaef}
 .pay-block .pay-head{margin-bottom:6px;font-size:15px;font-weight:700;color:#16385f}
 .pay-block .pay-empty{font-weight:400;color:#475d73}
-.pay-block .pay-list{width:594px;max-width:100%;border-top:1px solid #d8e1ec;border-left:1px solid #d8e1ec}
+.pay-block .pay-list{width:640px;max-width:100%;border-top:1px solid #d8e1ec;border-left:1px solid #d8e1ec}
 .pay-block .pay-list.empty{display:none}
 /* SO-GON-06: một thanh việc dưới đầu trang — việc cần làm bên trái (nút và các ô "cần xem"), giờ Sheet, Làm mới, menu Cài đặt bên phải. */
 .book-tasks .price-strip{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 10px;border:1px solid #e3c98f;border-radius:4px;background:#fff8e6;font-size:15px}

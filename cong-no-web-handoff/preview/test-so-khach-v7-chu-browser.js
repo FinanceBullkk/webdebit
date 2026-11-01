@@ -91,6 +91,8 @@ test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu 
   assert.equal(await page.locator('.book-bar #updated-at').count(), 1);
   // Làm mới ở dải mới vẫn tải lại sổ như trước.
   const before = world.reads;
+  // Xóa chữ "Cập nhật …" (có sẵn từ lần vẽ đầu) để lần chờ chỉ xong khi đã đọc lại và vẽ lại.
+  await page.evaluate(() => { document.querySelector('#updated-at').textContent = ''; });
   await page.locator('#refresh-data').click();
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Cập nhật'));
   assert.equal(world.reads, before + 1);
