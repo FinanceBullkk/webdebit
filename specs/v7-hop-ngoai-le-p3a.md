@@ -1,6 +1,6 @@
 # Hộp ngoại lệ P3a: máy tự lấy chữ mô tả theo Sheet; tháng khóa sửa được bốn ô chữ
 
-Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 1/11/2026, máy chưa bật ([nhật ký](../docs/deploys/2026-11-01-khoa-chu.md)). Giai đoạn P3 của [UX bước 03](../docs/ux-buoc-03-luong-thao-tac.md), phần Q1 của [`HANG-CHO-01`](../docs/decisions/hang-cho-01.md), kèm [`KHOA-CHU-01`](../docs/decisions/khoa-chu-01.md). Người dùng bảo "Làm P3", rồi chọn "Cho sửa, ghi Lịch sử" (chat 1/11/2026). P3b (máy tự đưa chuyến mới vào sổ, Q2/Q5) làm sau.
+Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 1/11/2026, máy đã bật 19:22 ([nhật ký](../docs/deploys/2026-11-01-khoa-chu.md)). Giai đoạn P3 của [UX bước 03](../docs/ux-buoc-03-luong-thao-tac.md), phần Q1 của [`HANG-CHO-01`](../docs/decisions/hang-cho-01.md), kèm [`KHOA-CHU-01`](../docs/decisions/khoa-chu-01.md). Người dùng bảo "Làm P3", rồi chọn "Cho sửa, ghi Lịch sử" (chat 1/11/2026). P3b (máy tự đưa chuyến mới vào sổ, Q2/Q5) làm sau.
 
 ## Người dùng và luồng (bước 1)
 
@@ -32,7 +32,7 @@ Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 1/11/2026, máy chưa bật ([nhậ
 
 ## Tiêu chí nghiệm thu
 
-- [ ] Harness `KHOA-CHU.01`: tháng khóa sửa được bốn ô chữ (chuyến web, sổ gốc, lấy theo Sheet) có Lịch sử; tiền, ngày, container, xóa vẫn `MONTH_LOCKED`; số dư không đổi; migration chạy hai lượt không đổi catalog.
-- [ ] Unit: máy tắt mặc định; khi bật chỉ lấy ô chữ, đúng phiên bản nối tiếp, đúng người làm, bỏ lệch ngày/thiếu shipper/giá trị trống.
-- [ ] Trình duyệt: dòng "Máy đã tự lấy theo Sheet hôm nay"; sổ khóa mở bốn ô chữ.
-- [ ] Trên `hao`: sau khi bật công tắc, số lệch chữ giảm về gần 0. Mỗi sổ có Lịch sử "Máy (theo Sheet)"; số dư 236 khách không đổi.
+- [x] Harness `KHOA-CHU.01`: tháng khóa sửa được bốn ô chữ (chuyến web, sổ gốc, lấy theo Sheet) có Lịch sử; tiền, ngày, container, xóa vẫn `MONTH_LOCKED`; số dư không đổi; migration chạy hai lượt không đổi catalog.
+- [x] Unit: máy tắt mặc định; khi bật chỉ lấy ô chữ, đúng phiên bản nối tiếp, đúng người làm, bỏ lệch ngày/thiếu shipper/giá trị trống.
+- [x] Trình duyệt: dòng "Máy đã tự lấy theo Sheet hôm nay"; sổ khóa mở bốn ô chữ.
+- [x] Trên `hao`: sau khi bật công tắc, số lệch chữ giảm về gần 0. Mỗi sổ có Lịch sử "Máy (theo Sheet)"; số dư 236 khách không đổi. (1/11/2026: 944 → 0, 1.316 ô ở 69 sổ, số dư bằng.)
