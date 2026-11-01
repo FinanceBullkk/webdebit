@@ -5,7 +5,7 @@
   // tải cả bản xuất; không ghi nội dung tin ra console hay nơi nào khác.
   const $ = id => document.getElementById(id);
   // Thoát HTML và so khớp không phân biệt hoa thường/dấu tiếng Việt (foldText: cùng quy tắc với máy chủ) từ CongNoFormat.
-  const { esc, foldText, loadError } = CongNoFormat;
+  const { esc, foldText, loadError, full, dateText, vnDay } = CongNoFormat;
   const TZ = 'Asia/Ho_Chi_Minh';
   const PAGE_LIMIT = 50;
   // page: trang cũ nhất đã tải; newest: trang mới nhất đã tải (khác 0 khi mở thẳng một tin bằng ?m=).
@@ -81,6 +81,7 @@
         <span class="nm${row.display_name ? '' : ' unnamed'}">${esc(nameOf(row))}</span>
         <span class="last">${esc(row.last_message_at ? dayKey(row.last_message_at) : '—')}</span>
         <span class="sub">${number(row.message_count)} tin · ${own}</span>
+        ${(links.byConversation.get(row.conversation_id) ?? []).length ? `<span class="sub books">Sổ: ${esc(links.byConversation.get(row.conversation_id).map(book => book.customer_name).join(', '))}</span>` : ''}
       </button>`;
     }).join('') : '<p class="empty">Không có hội thoại khớp.</p>';
   }
@@ -155,11 +156,282 @@
   // Tin liền nhau cùng người gửi gộp thành một cụm như Zalo: tên ở tin đầu cụm, giờ ở mỗi tin.
   function renderMessage(message, first) {
     const who = first ? `<span class="who">${esc(senderText(message))}</span>` : '';
+    const action = links.ok && !message.deleted
+      ? `<button type="button" class="mark-btn" data-mark="${esc(message.message_id)}" aria-label="Đánh dấu tin lúc ${esc(timeText(message.timestamp_ms))}">Đánh dấu</button>` : '';
     return `<article class="msg ${message.is_own ? 'own' : 'other'}${first ? ' first' : ''}${message.message_id === state.focus ? ' focus' : ''}" data-id="${esc(message.message_id)}">
-      <div class="meta">${who}<time>${esc(timeText(message.timestamp_ms))}</time></div>
-      ${bodyHtml(message)}${mediaHtml(message)}${attachmentText(message.attachment)}
+      <div class="meta">${who}<time>${esc(timeText(message.timestamp_ms))}</time>${action}</div>
+      ${bodyHtml(message)}${mediaHtml(message)}${attachmentText(message.attachment)}${marksHtml(message.message_id)}
     </article>`;
   }
+
+  // ZALO-GROUP-01: gắn group ↔ sổ và dấu tin (hứa trả, khách báo đã chuyển, ghi chú). Dấu là ghi chú ngoài đường tiền: không
+  // cộng vào số dư; số tiền gửi dạng chuỗi số nguyên như mọi lệnh tiền; trạng thái do máy chủ tính từ phiếu thu.
+  const links = { ok: false, byConversation: new Map() };   // ok = false: máy chủ không nối sổ (bản chạy thử) thì ẩn nút
+  const marks = new Map();                                    // mã tin → các dấu của group đang mở
+  let customers = null;
+  const KIND = { promise: 'Hứa trả', paid_claim: 'Khách báo đã chuyển', note: 'Ghi chú' };
+  const STATUS = { pending: 'đang chờ', kept: 'giữ lời', missed: 'lỡ hẹn', waiting: 'chờ đối chiếu',
+    received: 'đã có phiếu thu', not_seen: 'chưa thấy phiếu thu', cancelled: 'đã bỏ' };
+  const today = () => vnDay(Date.now());
+  const linkedBooks = () => links.byConversation.get(state.selected) ?? [];
+
+  async function post(url, body) {
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let data;
+    try { data = await response.json(); } catch { data = null; }
+    if (!response.ok) {
+      const error = Error(data?.message || '');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+  // Câu lỗi khi ghi: máy chủ trả câu tiếng Việt thì hiện câu đó; mất mạng thì câu chung, bấm lại dùng cùng mã yêu cầu.
+  const saveError = (error, what) => (error.status && error.message ? error.message : `Không ${what} được. Kiểm tra mạng rồi bấm lại.`);
+
+  async function loadLinks() {
+    try {
+      const data = await json('/api/v7/zalo/links');
+      links.byConversation = new Map();
+      for (const row of data.links ?? []) {
+        if (!links.byConversation.has(row.conversation_id)) links.byConversation.set(row.conversation_id, []);
+        links.byConversation.get(row.conversation_id).push(row);
+      }
+      links.ok = true;
+    } catch { links.ok = false; }
+  }
+  async function loadMarks(id) {
+    marks.clear();
+    if (!links.ok) return;
+    try {
+      const data = await json(`/api/v7/marks?conversation=${encodeURIComponent(id)}`);
+      if (id !== state.selected) return;
+      for (const row of data.marks ?? []) {
+        if (!row.message_id) continue;
+        if (!marks.has(row.message_id)) marks.set(row.message_id, []);
+        marks.get(row.message_id).push(row);
+      }
+    } catch { /* nhãn dấu là phần phụ: đọc lỗi thì tin vẫn hiện, lần mở sau đọc lại */ }
+  }
+  function markText(row) {
+    const book = linkedBooks().length > 1 || !linkedBooks().some(item => item.customer_id === row.customer_id)
+      ? ` · sổ ${esc(row.customer_name ?? row.customer_id)}` : '';
+    const status = row.status ? ` · ${STATUS[row.status] ?? esc(row.status)}${row.status === 'missed' ? ` (đã trả ${full(row.paid_vnd ?? '0')})` : ''}` : '';
+    const money = row.kind === 'note' ? `: ${esc(row.note ?? '')}`
+      : ` ${full(row.amount_vnd)} · ${row.kind === 'promise' ? 'hẹn' : 'ngày'} ${esc(dateText(row.on_date))}`;
+    return `${KIND[row.kind] ?? esc(row.kind)}${money}${status}${book}`;
+  }
+  function marksHtml(id) {
+    const rows = marks.get(id) ?? [];
+    return rows.length ? `<ul class="marks">${rows.map(row => `<li class="mark ${esc(row.kind)} ${esc(row.status ?? '')}">`
+      + `<span>${row.status === 'cancelled' ? `<s>${markText(row)}</s> · lý do: ${esc(row.cancel_reason ?? '')}` : markText(row)}</span>`
+      + (row.status === 'cancelled' ? '' : `<button type="button" class="link-btn" data-unmark="${esc(row.id)}">Bỏ dấu</button>`)
+      + '</li>').join('')}</ul>` : '';
+  }
+  function paintLinks() {
+    const box = $('links');
+    box.hidden = !links.ok || !state.selected;
+    if (box.hidden) return;
+    const chips = linkedBooks().map(row => `<span class="chip"><a href="/so-khach-v7-live.html?customer=${encodeURIComponent(row.customer_id)}&the=trao-doi">`
+      + `${esc(row.customer_name)}</a><button type="button" class="chip-x" data-unlink="${esc(row.customer_id)}" aria-label="Bỏ gắn sổ ${esc(row.customer_name)}">×</button></span>`);
+    box.innerHTML = `${chips.length ? `Sổ: ${chips.join('')}` : '<span class="hint">Chưa gắn sổ.</span>'}`
+      + `<button type="button" class="link-btn" data-open-link>${chips.length ? 'Gắn thêm sổ' : 'Gắn sổ'}</button>`;
+  }
+  // Vẽ lại khung tin mà giữ nguyên chỗ đang đọc (sau khi ghi dấu, gắn sổ).
+  function repaintKeep() {
+    const box = $('messages');
+    const top = box.scrollTop;
+    paintMessages();
+    box.scrollTop = top;
+  }
+
+  // Hộp Đánh dấu: một mã yêu cầu cho mỗi lần mở, bấm Lưu lặp (mất mạng rồi bấm lại) không tạo hai dấu.
+  const markDialog = $('mark-dialog');
+  let marking = null;
+  const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  function messageExcerpt(message) {
+    const text = message.body_text || (message.media?.length ? '[Ảnh]' : `[${message.type_label}]`);
+    return text.length > 300 ? `${text.slice(0, 299)}…` : text;
+  }
+  function fillBooks() {
+    const books = linkedBooks();
+    const select = $('mark-book');
+    const keep = select.value;
+    select.innerHTML = books.length > 1 ? `<option value="">Chọn sổ…</option>${books.map(row => `<option value="${esc(row.customer_id)}">${esc(row.customer_name)}</option>`).join('')}`
+      : books.map(row => `<option value="${esc(row.customer_id)}">${esc(row.customer_name)}</option>`).join('');
+    if (books.some(row => String(row.customer_id) === keep)) select.value = keep;
+    $('mark-book-field').hidden = !books.length;
+    $('mark-no-book').hidden = books.length > 0;
+  }
+  function syncKind() {
+    const kind = new FormData($('mark-form')).get('kind');
+    $('mark-amount-field').hidden = $('mark-date-field').hidden = kind === 'note';
+    $('mark-date-label').textContent = kind === 'promise' ? 'Hẹn ngày trả' : 'Ngày khách nói đã chuyển';
+    const date = $('mark-date');
+    if (kind === 'promise') { date.min = today(); date.removeAttribute('max'); if (date.value && date.value < today()) date.value = ''; }
+    if (kind === 'paid_claim') {
+      date.max = today(); date.removeAttribute('min');
+      if (!date.value || date.value > today()) date.value = marking?.message.timestamp_ms ? vnDay(marking.message.timestamp_ms) : today();
+    }
+  }
+  function openMark(id) {
+    const message = state.messages.find(item => item.message_id === id);
+    if (!message) return;
+    marking = { message, key: newKey() };
+    $('mark-form').reset();
+    $('mark-quote').innerHTML = `<b>${esc(senderText(message))}</b> · ${esc(timeText(message.timestamp_ms))} ${esc(dayKey(message.timestamp_ms))}<br>${esc(messageExcerpt(message))}`;
+    $('mark-error').hidden = true;
+    $('mark-save').disabled = false;
+    $('mark-save').textContent = 'Lưu dấu';
+    fillBooks();
+    syncKind();
+    markDialog.showModal();
+  }
+  function markBody() {
+    const form = new FormData($('mark-form'));
+    const kind = form.get('kind');
+    const book = Number(form.get('book'));
+    const note = String(form.get('note') ?? '').trim();
+    if (!linkedBooks().length) return 'Gắn group với sổ trước rồi mới đánh dấu.';
+    if (!book) return 'Chọn sổ của dấu này.';
+    const body = { customer_id: book, kind, idempotency_key: marking.key, conversation_id: state.selected,
+      message_id: marking.message.message_id, message_at: new Date(marking.message.timestamp_ms).toISOString(),
+      message_sender: senderText(marking.message).slice(0, 200), message_excerpt: messageExcerpt(marking.message) };
+    if (note) body.note = note;
+    if (kind === 'note') return note ? body : 'Ghi chú không được trống.';
+    // Số tiền gõ có dấu chấm ngăn nghìn (50.000.000) hay chữ "đ" đều nhận; còn lại phải là số nguyên dương.
+    const amount = String(form.get('amount') ?? '').replace(/[.\s,]|đ$/giu, '');
+    if (!/^[1-9][0-9]{0,17}$/.test(amount)) return 'Số tiền phải là số nguyên dương, ví dụ 50.000.000.';
+    const day = String(form.get('on_date') ?? '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return kind === 'promise' ? 'Chọn ngày khách hẹn trả.' : 'Chọn ngày khách nói đã chuyển.';
+    if (kind === 'promise' && day < today()) return 'Ngày hẹn trả phải từ hôm nay trở đi.';
+    if (kind === 'paid_claim' && day > today()) return 'Ngày khách nói đã chuyển không được sau hôm nay.';
+    return { ...body, amount_vnd: amount, on_date: day };
+  }
+  async function saveMark(event) {
+    event.preventDefault();
+    const body = markBody();
+    const errorBox = $('mark-error');
+    if (typeof body === 'string') { errorBox.textContent = body; errorBox.hidden = false; return; }
+    const button = $('mark-save');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Đang lưu…';
+    errorBox.hidden = true;
+    try {
+      await post('/api/v7/marks', body);
+      markDialog.close();
+      await loadMarks(state.selected);
+      repaintKeep();
+      $('subtitle').textContent = `Đã lưu dấu ${KIND[body.kind].toLowerCase()}.`;
+    } catch (error) {
+      errorBox.textContent = saveError(error, 'lưu dấu');
+      errorBox.hidden = false;
+      button.disabled = false;
+      button.textContent = 'Lưu dấu';
+    }
+  }
+
+  // Gắn group với sổ: tìm sổ theo tên (không dấu), bấm một dòng là gắn.
+  const linkDialog = $('link-dialog');
+  async function openLink() {
+    $('link-error').hidden = true;
+    $('link-search').value = '';
+    $('link-options').innerHTML = '<p class="hint">Đang tải danh sách sổ…</p>';
+    linkDialog.showModal();
+    if (!customers) {
+      try { customers = (await json('/api/v7/customers')).customers ?? []; } catch {
+        $('link-options').innerHTML = `<p class="form-error">${esc(loadError('danh sách sổ'))}</p>`;
+        return;
+      }
+    }
+    paintOptions();
+  }
+  const bookName = row => row.label || row.display_name || row.name;
+  function paintOptions() {
+    const needle = foldText($('link-search').value.trim());
+    const taken = new Set(linkedBooks().map(row => String(row.customer_id)));
+    const rows = (customers ?? []).filter(row => !taken.has(String(row.id)) && (!needle || foldText(bookName(row)).includes(needle))).slice(0, 30);
+    $('link-options').innerHTML = rows.length ? rows.map(row => `<button type="button" class="option" role="option" data-book="${esc(row.id)}">${esc(bookName(row))}</button>`).join('')
+      : '<p class="hint">Không có sổ khớp.</p>';
+  }
+  async function link(customer) {
+    try {
+      await post('/api/v7/zalo/link', { conversation_id: state.selected, customer_id: customer });
+      linkDialog.close();
+      await loadLinks();
+      paintLinks();
+      paintList();
+      if (markDialog.open) fillBooks();
+      repaintKeep();
+    } catch (error) {
+      $('link-error').textContent = saveError(error, 'gắn sổ');
+      $('link-error').hidden = false;
+    }
+  }
+
+  // Bỏ dấu, bỏ gắn: lý do bắt buộc, giữ vết như hủy phiếu.
+  const reasonDialog = $('reason-dialog');
+  let reasonAction = null;
+  function askReason(title, what, action) {
+    reasonAction = action;
+    $('reason-title').textContent = title;
+    $('reason-what').textContent = what;
+    $('reason-text').value = '';
+    $('reason-error').hidden = true;
+    $('reason-save').disabled = false;
+    reasonDialog.showModal();
+  }
+  async function saveReason(event) {
+    event.preventDefault();
+    const reason = $('reason-text').value.trim();
+    if (!reason) { $('reason-error').textContent = 'Cần ghi lý do.'; $('reason-error').hidden = false; return; }
+    if ($('reason-save').disabled) return;
+    $('reason-save').disabled = true;
+    try {
+      await reasonAction(reason);
+      reasonDialog.close();
+    } catch (error) {
+      $('reason-error').textContent = saveError(error, 'lưu');
+      $('reason-error').hidden = false;
+      $('reason-save').disabled = false;
+    }
+  }
+  function unmark(id) {
+    const row = [...marks.values()].flat().find(item => String(item.id) === String(id));
+    if (!row) return;
+    askReason('Bỏ dấu', markText(row).replace(/<[^>]*>/g, ''), async reason => {
+      await post('/api/v7/marks/cancel', { id: row.id, reason });
+      await loadMarks(state.selected);
+      repaintKeep();
+    });
+  }
+  function unlink(customer) {
+    const row = linkedBooks().find(item => String(item.customer_id) === String(customer));
+    if (!row) return;
+    askReason('Bỏ gắn sổ', `Bỏ gắn group này với sổ ${row.customer_name}. Dấu đã ghi vẫn giữ.`, async reason => {
+      await post('/api/v7/zalo/unlink', { conversation_id: state.selected, customer_id: row.customer_id, reason });
+      await loadLinks();
+      paintLinks();
+      paintList();
+      repaintKeep();
+    });
+  }
+
+  for (const dialog of [markDialog, linkDialog, reasonDialog]) {
+    dialog.addEventListener('click', event => { if (event.target.closest('[data-close]')) dialog.close(); });
+  }
+  $('mark-form').addEventListener('change', event => { if (event.target.name === 'kind') syncKind(); });
+  $('mark-form').addEventListener('submit', saveMark);
+  $('mark-no-book').addEventListener('click', event => { if (event.target.closest('[data-open-link]')) openLink(); });
+  $('link-search').addEventListener('input', paintOptions);
+  $('link-options').addEventListener('click', event => { const option = event.target.closest('[data-book]'); if (option) link(Number(option.dataset.book)); });
+  $('reason-form').addEventListener('submit', saveReason);
+  $('links').addEventListener('click', event => {
+    if (event.target.closest('[data-open-link]')) openLink();
+    const chip = event.target.closest('[data-unlink]');
+    if (chip) unlink(chip.dataset.unlink);
+  });
 
   function paintMessages() {
     const box = $('messages');
@@ -251,7 +523,9 @@
     chat.classList.add('show-detail');
     paintList();
     setUrl();
-    await loadPage(0, { focus });
+    paintLinks();
+    await Promise.all([loadMarks(id), loadPage(0, { focus })]);
+    if (marks.size && state.selected === id) repaintKeep();
   }
 
   // Xem ảnh lớn: hộp thoại gốc của trình duyệt, Esc hoặc bấm ra ngoài thì đóng.
@@ -284,6 +558,16 @@
     if (retry) { loadPage(Number(retry.dataset.retryPage)); return; }
     const picture = event.target.closest('[data-pic]');
     if (picture) { showPicture(picture.dataset.pic); return; }
+    const mark = event.target.closest('[data-mark]');
+    if (mark) { openMark(mark.dataset.mark); return; }
+    const unmarkButton = event.target.closest('[data-unmark]');
+    if (unmarkButton) { unmark(unmarkButton.dataset.unmark); return; }
+    // Điện thoại không rê chuột: chạm vào tin thì hiện nút Đánh dấu của tin đó.
+    const article = event.target.closest('.msg');
+    if (article) {
+      for (const other of $('messages').querySelectorAll('.msg.show-actions')) if (other !== article) other.classList.remove('show-actions');
+      article.classList.add('show-actions');
+    }
     if (event.target.closest('#older') && state.hasOlder) loadPage(state.page + 1, { mode: 'older' });
     if (event.target.closest('#newer') && state.newest > 0) loadPage(state.newest - 1, { mode: 'newer' });
   });
@@ -297,7 +581,7 @@
     $('conversation-search').value = state.filter;
     $('summary').textContent = 'Đang tải…';
     try {
-      const [summary, list] = await Promise.all([json('/api/v7/zalo/report'), json('/api/v7/zalo/conversations')]);
+      const [summary, list] = await Promise.all([json('/api/v7/zalo/report'), json('/api/v7/zalo/conversations'), loadLinks()]);
       state.conversations = list.conversations ?? [];
       // Gói web (ZALO-GROUP-01) ghi giờ dựng; bản xuất cũ 30/10 thì giữ dòng đếm như trước.
       $('summary').textContent = summary.status === 'BUNDLED'

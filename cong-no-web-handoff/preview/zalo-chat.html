@@ -39,6 +39,7 @@
           <div class="title-box">
             <h2 id="title">Chọn một hội thoại</h2>
             <small id="subtitle"></small>
+            <div id="links" class="links" hidden></div>
           </div>
           <label class="sr-only" for="message-search">Tìm trong hội thoại</label>
           <input id="message-search" type="search" placeholder="Tìm trong hội thoại…" autocomplete="off" disabled>
@@ -49,6 +50,45 @@
       </section>
     </div>
   </main>
+  <!-- ZALO-GROUP-01: đánh dấu một tin; dấu là ghi chú ngoài đường tiền, không cộng vào số dư. -->
+  <dialog id="mark-dialog" class="sheet" aria-labelledby="mark-title">
+    <form id="mark-form" method="dialog" novalidate>
+      <h3 id="mark-title">Đánh dấu tin</h3>
+      <blockquote id="mark-quote" class="quote"></blockquote>
+      <fieldset class="kinds">
+        <legend>Loại</legend>
+        <label><input type="radio" name="kind" value="promise" checked> Hứa trả</label>
+        <label><input type="radio" name="kind" value="paid_claim"> Khách báo đã chuyển</label>
+        <label><input type="radio" name="kind" value="note"> Ghi chú</label>
+      </fieldset>
+      <label class="field" id="mark-book-field">Sổ <select id="mark-book" name="book"></select></label>
+      <p id="mark-no-book" class="hint" hidden>Group này chưa gắn sổ nào. <button type="button" class="btn" data-open-link>Gắn sổ</button></p>
+      <label class="field money" id="mark-amount-field">Số tiền (đ) <input id="mark-amount" name="amount" inputmode="numeric" autocomplete="off" placeholder="50.000.000"></label>
+      <label class="field" id="mark-date-field"><span id="mark-date-label">Hẹn ngày trả</span> <input id="mark-date" name="on_date" type="date"></label>
+      <label class="field">Ghi chú <textarea id="mark-note" name="note" rows="2" maxlength="500"></textarea></label>
+      <p class="hint">Dấu chỉ để theo dõi, <b>không ghi tiền</b>. Tiền vào sổ bằng phiếu thu.</p>
+      <p id="mark-error" class="form-error" role="alert" hidden></p>
+      <div class="actions"><button type="button" class="btn" data-close>Thôi</button><button type="submit" class="btn primary" id="mark-save">Lưu dấu</button></div>
+    </form>
+  </dialog>
+  <dialog id="link-dialog" class="sheet" aria-labelledby="link-title">
+    <form id="link-form" method="dialog" novalidate>
+      <h3 id="link-title">Gắn group với sổ</h3>
+      <label class="field">Tìm sổ <input id="link-search" type="search" autocomplete="off" placeholder="Gõ tên khách…"></label>
+      <div id="link-options" class="options" role="listbox" aria-label="Sổ khớp"></div>
+      <p id="link-error" class="form-error" role="alert" hidden></p>
+      <div class="actions"><button type="button" class="btn" data-close>Thôi</button></div>
+    </form>
+  </dialog>
+  <dialog id="reason-dialog" class="sheet" aria-labelledby="reason-title">
+    <form id="reason-form" method="dialog" novalidate>
+      <h3 id="reason-title">Bỏ dấu</h3>
+      <p id="reason-what"></p>
+      <label class="field">Lý do (bắt buộc) <input id="reason-text" maxlength="200" autocomplete="off"></label>
+      <p id="reason-error" class="form-error" role="alert" hidden></p>
+      <div class="actions"><button type="button" class="btn" data-close>Thôi</button><button type="submit" class="btn danger" id="reason-save">Bỏ</button></div>
+    </form>
+  </dialog>
   <dialog id="pic-viewer" class="pic-viewer" aria-label="Ảnh lớn">
     <button type="button" class="btn close" data-close aria-label="Đóng ảnh">Đóng</button>
     <img alt="Ảnh trong tin, cỡ lớn">

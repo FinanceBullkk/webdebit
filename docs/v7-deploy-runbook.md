@@ -1659,7 +1659,7 @@ Spec [`v7-sheet-contract`](../specs/v7-sheet-contract.md) mục "Giai đoạn 2a
 
 Rollback: trước bước 3 không có gì phải trả. Sau bước 3, drop-in cho unit `webdebit-sheet-sync.service` với `[Service]` `Environment=WEBDEBIT_SHEET_SOURCE=export`, `daemon-reload`, chạy một lượt; chỉ còn tác dụng khi `BOOKING_DATA` và `WEBDEBIT_EXPORT` chưa bị xóa trên Sheet.
 
-## Group Zalo: gắn sổ và dấu tin — nâng DB đang có (CHƯA CHẠY)
+## Group Zalo: gắn sổ và dấu tin — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026, [nhật ký](deploys/2026-11-01-zalo-group.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-01-v7-zalo-group.sql` ([`ZALO-GROUP-01`](decisions/zalo-group-01.md), spec [`v7-zalo-group-web`](../specs/v7-zalo-group-web.md)) chỉ THÊM, ngoài đường tiền. Không đổi bảng tiền, ràng buộc, loại event, view nợ, dòng phân bổ, dữ liệu hay quyền cũ.
 - Bảng `sokhach.zalo_link`: group Zalo gắn với sổ; bỏ gắn giữ vết.
