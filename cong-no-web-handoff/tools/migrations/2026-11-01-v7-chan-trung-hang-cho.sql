@@ -9,14 +9,22 @@ BEGIN;
 SET LOCAL ROLE sokhach_owner;
 CREATE OR REPLACE FUNCTION sokhach._legacy_undated_match(p_container text, p_date date) RETURNS boolean
 LANGUAGE plpgsql STABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_month date := date_trunc('month',p_date)::date;
 BEGIN
     IF coalesce(p_container,'')='' OR p_date IS NULL THEN RETURN false; END IF;
-    RETURN EXISTS (SELECT 1 FROM sokhach.legacy_row l
+    -- Lọc theo tháng và container trước (rẻ), rồi mới đọc bản sửa mới nhất của từng dòng ứng viên.
+    RETURN EXISTS (SELECT 1 FROM (
+            SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip' AND l.debt_month=v_month
+               AND sokhach._normalize_key(l.display->>'container')=p_container
+            UNION
+            SELECT y.legacy_row_id FROM sokhach.legacy_trip_rev y WHERE y.debt_month=v_month
+               AND sokhach._normalize_key(y.container)=p_container) c
+        JOIN sokhach.legacy_row l ON l.id=c.id
         JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id) AND cc.status='active'
         LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.container,x.deleted FROM sokhach.legacy_trip_rev x
             WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
-        WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)
-          AND coalesce(r.debt_month,l.debt_month)=date_trunc('month',p_date)::date
+        WHERE NOT coalesce(r.deleted,false)
+          AND coalesce(r.debt_month,l.debt_month)=v_month
           AND sokhach._normalize_key(CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END)=p_container
           AND (CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END) IS NULL);
 END $$;
@@ -164,20 +172,26 @@ BEGIN
     IF jsonb_typeof(containers) IS DISTINCT FROM 'array' OR jsonb_array_length(containers)>2000
        OR EXISTS (SELECT 1 FROM jsonb_array_elements(containers) c WHERE jsonb_typeof(c)<>'string')
     THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
-    RETURN (SELECT jsonb_build_object('items',coalesce(jsonb_agg(jsonb_build_object(
-            'customer_id',x.customer_id,'container',x.container,'event_date',x.event_date,'debt_month',x.debt_month)
-            ORDER BY x.customer_id,x.id),'[]'::jsonb))
-        FROM (SELECT l.id,l.customer_id,
+    -- Lọc theo container trước (dòng gốc hoặc bản sửa), rồi mới đọc bản sửa mới nhất của dòng ứng viên.
+    RETURN (WITH want AS (SELECT DISTINCT sokhach._normalize_key(c#>>'{}') AS k FROM jsonb_array_elements(containers) c),
+        cand AS (SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip'
+                   AND sokhach._normalize_key(l.display->>'container') IN (SELECT k FROM want)
+                 UNION
+                 SELECT y.legacy_row_id FROM sokhach.legacy_trip_rev y
+                  WHERE sokhach._normalize_key(y.container) IN (SELECT k FROM want)),
+        x AS (SELECT l.id,l.customer_id,
                 CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END AS container,
                 CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS event_date,
                 coalesce(r.debt_month,l.debt_month) AS debt_month
-            FROM sokhach.legacy_row l
+            FROM cand JOIN sokhach.legacy_row l ON l.id=cand.id
             JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id) AND cc.status='active'
             LEFT JOIN LATERAL (SELECT y.id,y.debt_month,y.event_date,y.container,y.deleted FROM sokhach.legacy_trip_rev y
                 WHERE y.legacy_row_id=l.id ORDER BY y.id DESC LIMIT 1) r ON true
-            WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)) x
-        WHERE sokhach._normalize_key(x.container) IN (SELECT sokhach._normalize_key(c#>>'{}') FROM jsonb_array_elements(containers) c)
-          AND sokhach._normalize_key(x.container)<>'');
+            WHERE NOT coalesce(r.deleted,false))
+        SELECT jsonb_build_object('items',coalesce(jsonb_agg(jsonb_build_object(
+            'customer_id',x.customer_id,'container',x.container,'event_date',x.event_date,'debt_month',x.debt_month)
+            ORDER BY x.customer_id,x.id),'[]'::jsonb))
+        FROM x WHERE sokhach._normalize_key(x.container) IN (SELECT k FROM want) AND sokhach._normalize_key(x.container)<>'');
 END;
 $$;
 
