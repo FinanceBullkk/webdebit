@@ -260,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
                               ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
                               ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY"),
                               ("Content-Security-Policy", "default-src 'none'; script-src 'self'; "
-                               "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'")):
+                               "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; base-uri 'none'; frame-ancestors 'none'")):
             self.send_header(header, value)
         self.end_headers()
         self.wfile.write(data)
@@ -345,6 +345,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.stream(actor, presence_tab(route.query))
                 return
             if self.asset():
+                return
+            if self.command == "GET" and route.path.startswith(v7_zalo_chat.MEDIA_PREFIX):
+                # ZALO-GROUP-01: ảnh của gói chat, sau xác thực danh tính như mọi /api/v7/*.
+                try:
+                    kind, data = v7_zalo_chat.handle_media(route.path, route.query)
+                except v7_zalo_chat.ChatError as exc:
+                    raise ApiError(exc.status, exc.code, exc.message) from exc
+                self.send_response(200)
+                for name, field in (("Content-Type", kind), ("Content-Length", str(len(data))),
+                                    ("Cache-Control", "private, max-age=86400"), ("X-Content-Type-Options", "nosniff")):
+                    self.send_header(name, field)
+                self.end_headers()
+                self.wfile.write(data)
                 return
             raw = b""
             if self.command == "POST":

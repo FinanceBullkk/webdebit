@@ -1,16 +1,22 @@
 """ZALO-CHAT-01: API đọc bản xuất chat Zalo theo trang (dữ liệu giả, không chạm bản xuất thật)."""
 
+import hashlib
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tests"))
+import test_zalo_web_bundle as fixture  # noqa: E402  (kho bịa dùng chung với test công cụ gói)
 import v7_ledger_api as api  # noqa: E402
 import v7_zalo_chat as chat  # noqa: E402
+import zalo_web_bundle as bundle  # noqa: E402
 
 OWNER = "a" * 64
 KHACH = "b" * 64
@@ -74,7 +80,8 @@ class ZaloChatStoreTest(unittest.TestCase):
     def test_index_owner_and_summary(self):
         self.assertEqual(self.store.owner_id, OWNER)
         self.assertEqual(self.store.summary(), {
-            "status": "EXPORTED_WITH_GAPS", "conversation_count": 4, "message_count": 9, "named_conversations": 3,
+            "status": "EXPORTED_WITH_GAPS", "built_at": None, "media_count": 0,
+            "conversation_count": 4, "message_count": 9, "named_conversations": 3,
             "owner_conversations": 2, "body_missing": 1, "attachment_matched": 1, "attachment_unmatched": 1,
             "skipped_lines": 2})
 
@@ -192,6 +199,77 @@ class ZaloChatApiTest(unittest.TestCase):
         self.assertEqual(api.ASSETS["/zalo-chat.html"], ("zalo-chat.html", "text/html; charset=utf-8"))
         self.assertIn("/zalo-chat.js", api.ASSETS)
         self.assertIn("/zalo-chat.css", api.ASSETS)
+
+
+class ZaloWebBundleStoreTest(unittest.TestCase):
+    """ZALO-GROUP-01: đọc gói web do tools/zalo_web_bundle.py dựng (dựng thật từ kho bịa của test công cụ)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.src = Path(self.tmp.name) / "live-sync"
+        self.src.mkdir()
+        fixture.write_source(self.src)
+        self.out = Path(self.tmp.name) / "web-bundle"
+        self.source = bundle.Source(self.src)
+        self.source.save_selection([fixture.GROUP])
+        self.report = bundle.build(self.source, self.out, fetch=fixture.FakeCdn(), transcode=fixture.no_jxl, now=fixture.NOW)
+        chat._STORE, chat._STORE_DIR = None, None
+        chat._RELOAD.clear()
+        chat._RELOAD["running"] = False
+        self.addCleanup(setattr, chat, "_STORE", None)
+
+    def test_names_owner_media_and_album(self):
+        store = chat.ChatStore(self.out)
+        self.assertEqual(store.owner_id, fixture.OWNER)        # self_user của viewer, không đoán
+        self.assertEqual(store.conversations()[0]["is_group"], True)
+        rows = {m["message_id"]: m for m in store.messages(fixture.GROUP, 0, 100)["messages"]}
+        self.assertEqual((rows["m1"]["sender_name"], rows["m1"]["is_own"], rows["m2"]["sender_name"]), ("Hào", True, "Vũ"))
+        sha = hashlib.sha256(fixture.cdn_bytes(fixture.CDN_OK)).hexdigest()
+        self.assertEqual(rows["m2"]["media"], [{"id": sha, "mime": "image/jpeg", "width": 1280, "height": 960}])
+        self.assertEqual(rows["m2"]["album"], hashlib.sha256(b"77").hexdigest()[:16])
+        self.assertEqual((rows["m5"]["media"], rows["m7"]["deleted"]), ([], True))
+        self.assertEqual(store.media_file(sha), ("image/jpeg", fixture.cdn_bytes(fixture.CDN_OK)))
+        self.assertEqual(store.summary()["media_count"], self.report["media_count"])
+        for bad in ("0" * 64, "../media.json", sha.upper()):
+            with self.subTest(bad=bad), self.assertRaises(chat.ChatError) as caught:
+                store.media_file(bad)
+            self.assertEqual(caught.exception.status, 404)
+
+    def test_focus_returns_page_holding_message(self):
+        store = chat.ChatStore(self.out)
+        page = store.messages(fixture.GROUP, 0, 3, focus="m2")   # 8 tin: trang 0 = m6..m8, trang 1 = m3..m5, trang 2 = m1, m2
+        self.assertEqual((page["page"], page["focus"], [m["message_id"] for m in page["messages"]]), (2, "m2", ["m1", "m2"]))
+        self.assertEqual(store.messages(fixture.GROUP, 5, 3, focus="m8")["page"], 0)
+        with self.assertRaises(chat.ChatError) as caught:
+            store.messages(fixture.GROUP, 0, 3, focus="khong-co")
+        self.assertEqual((caught.exception.status, caught.exception.code), (404, "MESSAGE_NOT_FOUND"))
+
+    def test_api_message_param_and_media_route(self):
+        base = f"/api/v7/zalo/messages?conversation={fixture.GROUP}&limit=3"
+        status, body = chat.handle_get("/api/v7/zalo/messages", base.split("?", 1)[1] + "&message=m4", str(self.out))
+        self.assertEqual((status, body["page"], body["focus"]), (200, 1, "m4"))
+        for query in (base.split("?", 1)[1] + "&message=m4&q=cont", base.split("?", 1)[1] + "&message=a%2Fb"):
+            with self.subTest(query=query), self.assertRaises(chat.ChatError) as caught:
+                chat.handle_get("/api/v7/zalo/messages", query, str(self.out))
+            self.assertEqual(caught.exception.status, 400)
+        sha = hashlib.sha256(fixture.cdn_bytes(fixture.CDN_OK)).hexdigest()
+        self.assertEqual(chat.handle_media(chat.MEDIA_PREFIX + sha, "", str(self.out))[0], "image/jpeg")
+        with self.assertRaises(chat.ChatError):
+            chat.handle_media(chat.MEDIA_PREFIX + sha, "x=1", str(self.out))
+
+    def test_rebuilt_bundle_reloads_in_background(self):
+        first = chat.get_store(str(self.out))
+        self.assertEqual([row["conversation_id"] for row in first.conversations()], [fixture.GROUP])
+        self.source.save_selection([fixture.GROUP, fixture.OTHER])
+        bundle.build(self.source, self.out, fetch=fixture.FakeCdn(), transcode=fixture.no_jxl, now=fixture.NOW + 60)
+        self.assertIs(chat.get_store(str(self.out)), first)   # đang lập chỉ mục mới: vẫn trả chỉ mục cũ
+        for _ in range(200):
+            if chat.get_store(str(self.out)) is not first:
+                break
+            time.sleep(0.01)
+        self.assertEqual(sorted(row["conversation_id"] for row in chat.get_store(str(self.out)).conversations()),
+                         [fixture.GROUP, fixture.OTHER])
 
 
 if __name__ == "__main__":

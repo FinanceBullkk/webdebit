@@ -1,7 +1,11 @@
 """ZALO-CHAT-01: đọc bản xuất chat Zalo (JSONL) theo trang cho tab Đòi nợ. Chỉ đọc, stdlib.
 
 Bản xuất nằm ngoài repo (`WEBDEBIT_ZALO_EXPORT_DIR`): `conversations.json` + `messages.jsonl`
-(+ `export-report.json`). Khởi động chỉ đọc một lượt để lập chỉ mục offset theo hội thoại;
+(+ `export-report.json`). Từ ZALO-GROUP-01 thư mục đó có thể là **gói web** do
+`tools/zalo_web_bundle.py` dựng: `export-report.json` trỏ `data_dir` tới thư mục dữ liệu của lượt
+dựng (thêm `users.json` tên người gửi, `media.json`), ảnh nằm ở `media/<sha256>.<đuôi>`; gói đổi
+thì lập chỉ mục lại ở luồng nền, trong lúc đó vẫn trả theo chỉ mục cũ.
+Khởi động chỉ đọc một lượt để lập chỉ mục offset theo hội thoại;
 mỗi yêu cầu đọc đúng các dòng của trang cần trả, không bao giờ nạp cả file vào RAM hay gửi
 cả file cho trình duyệt. Không ghi, không sửa file nguồn, không log nội dung tin.
 """
@@ -25,6 +29,10 @@ MAX_LIMIT = 100
 MAX_PAGE = 100_000
 MAX_QUERY = 200
 CONVERSATION_ID = re.compile(r"[0-9a-f]{64}")
+MESSAGE_ID = re.compile(r"[0-9A-Za-z_-]{1,128}")
+MEDIA_ID = re.compile(r"[0-9a-f]{64}")
+DATA_DIR = re.compile(r"data-[0-9-]{1,40}")
+MEDIA_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp", "video/mp4": ".mp4"}
 # Nhãn loại tin suy từ bản xuất 30/10/2026 (msgType của Zalo PC); loại lạ hiện "Loại N".
 TYPE_NAMES = {1: "Văn bản", 2: "Ảnh", 3: "Ghi âm", 4: "Sticker", 5: "Ảnh", 6: "Cuộc gọi", 7: "GIF",
               17: "Vị trí", 18: "Video", 19: "Tệp", 20: "Đã thu hồi", 21: "Thẻ liên kết", -4: "Thông báo nhóm"}
@@ -33,6 +41,7 @@ STATUS_NAMES = {2: "đã gửi", 4: "đã nhận"}
 _LOCK = threading.Lock()
 _STORE: ChatStore | None = None
 _STORE_DIR: str | None = None
+_RELOAD: dict = {"running": False}   # luồng nền đang lập chỉ mục gói mới; xong thì để "store" chờ get_store lấy
 
 
 class ChatError(Exception):
@@ -103,12 +112,40 @@ def shape_attachment(meta: object) -> dict | None:
             "media_items": items}
 
 
+def report_stamp(directory: Path) -> tuple[int, int] | None:
+    try:
+        info = (directory / "export-report.json").stat()
+    except OSError:
+        return None
+    return info.st_mtime_ns, info.st_size
+
+
+def read_optional(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 class ChatStore:
     def __init__(self, directory: Path):
         self.directory = directory
-        self.messages_path = directory / "messages.jsonl"
+        self.stamp = report_stamp(directory)
+        self.report = {}
+        for name in ("export-report.json", "message-export-report.json"):
+            try:
+                self.report = json.loads((directory / name).read_text(encoding="utf-8"))
+                break
+            except (OSError, ValueError):
+                continue
+        data_dir = self.report.get("data_dir") if isinstance(self.report, dict) else None
+        if data_dir is not None and not (isinstance(data_dir, str) and DATA_DIR.fullmatch(data_dir)):
+            raise unavailable("export-report.json trỏ tới thư mục dữ liệu không hợp lệ")
+        base = directory / data_dir if data_dir else directory
+        self.messages_path = base / "messages.jsonl"
         try:
-            conversations = json.loads((directory / "conversations.json").read_text(encoding="utf-8"))
+            conversations = json.loads((base / "conversations.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise unavailable("không đọc được conversations.json") from exc
         if not isinstance(conversations, list):
@@ -117,20 +154,21 @@ class ChatStore:
         for row in conversations:
             if isinstance(row, dict) and isinstance(row.get("conversation_id"), str):
                 self.by_id[row["conversation_id"]] = row
-        self.report = {}
-        for name in ("export-report.json", "message-export-report.json"):
-            try:
-                self.report = json.loads((directory / name).read_text(encoding="utf-8"))
-                break
-            except (OSError, ValueError):
-                continue
-        self.entries: dict[str, list[tuple[int, int, int]]] = {cid: [] for cid in self.by_id}
+        # Gói web (ZALO-GROUP-01): tên người gửi, chủ tài khoản do viewer xác minh, bảng ảnh. Bản xuất cũ không có.
+        users = read_optional(base / "users.json")
+        self.user_names = {key: value for key, value in (users.get("users") or {}).items()
+                           if isinstance(key, str) and isinstance(value, str)}
+        self.self_user = users.get("self_user") if isinstance(users.get("self_user"), str) else None
+        self.media = {key: value for key, value in read_optional(base / "media.json").items()
+                      if MEDIA_ID.fullmatch(key) and isinstance(value, dict) and value.get("mime") in MEDIA_EXTENSIONS}
+        self.media_dir = directory / "media"
+        self.entries: dict[str, list[tuple[int, int, int, str]]] = {cid: [] for cid in self.by_id}
         self.last_sent: dict[str, dict[str, int]] = {cid: {} for cid in self.by_id}
         self.body_missing = self.attachment_matched = self.attachment_unmatched = self.skipped = 0
         self._index()
         for entries in self.entries.values():
             entries.sort()
-        self.owner_id = self._owner()
+        self.owner_id = self.self_user or self._owner()
         self.message_count = sum(len(entries) for entries in self.entries.values())
 
     def _index(self) -> None:
@@ -148,7 +186,8 @@ class ChatStore:
                     else:
                         cid = row["conversation_id"]
                         stamp = to_millis(row.get("timestamp")) or to_millis(row.get("server_time")) or 0
-                        self.entries[cid].append((stamp, offset, length))
+                        mid = row.get("message_id") if isinstance(row.get("message_id"), str) else ""
+                        self.entries[cid].append((stamp, offset, length, mid))
                         sender = row.get("sender_id")
                         if isinstance(sender, str):
                             sent = self.last_sent[cid]
@@ -180,6 +219,8 @@ class ChatStore:
         named = sum(1 for row in self.by_id.values() if isinstance(row.get("display_name"), str) and row["display_name"].strip())
         owner_conversations = sum(1 for sent in self.last_sent.values() if self.owner_id in sent)
         return {"status": self.report.get("status") if isinstance(self.report.get("status"), str) else None,
+                "built_at": self.report.get("built_at") if isinstance(self.report.get("built_at"), str) else None,
+                "media_count": len(self.media),
                 "conversation_count": len(self.by_id), "message_count": self.message_count,
                 "named_conversations": named, "owner_conversations": owner_conversations,
                 "body_missing": self.body_missing, "attachment_matched": self.attachment_matched,
@@ -199,19 +240,29 @@ class ChatStore:
                          "message_count": len(entries),
                          "last_message_at": entries[-1][0] if entries else None,
                          "last_own_message_at": sent.get(self.owner_id) if self.owner_id else None,
-                         "participant_count": len(row.get("participant_ids") or [])})
+                         "participant_count": len(row.get("participant_ids") or []),
+                         "is_group": bool(row.get("is_group"))})
         rows.sort(key=lambda item: (-(item["last_message_at"] or 0), item["conversation_id"]))
         return rows
 
-    def _read(self, stream, entry: tuple[int, int, int]) -> dict:
+    def _read(self, stream, entry: tuple[int, int, int, str]) -> dict:
         stream.seek(entry[1])
         return json.loads(stream.read(entry[2]))
 
-    def messages(self, conversation_id: str, page: int = 0, limit: int = DEFAULT_LIMIT, query: str = "") -> dict:
-        """Trang 0 là các tin mới nhất; tin trong trang xếp theo thời gian tăng dần."""
+    def messages(self, conversation_id: str, page: int = 0, limit: int = DEFAULT_LIMIT, query: str = "",
+                 focus: str = "") -> dict:
+        """Trang 0 là các tin mới nhất; tin trong trang xếp theo thời gian tăng dần.
+
+        `focus` (mã tin): trả đúng trang chứa tin đó, bỏ qua `page`, để mở lại tin đã đánh dấu.
+        """
         if conversation_id not in self.by_id:
             raise ChatError(404, "CONVERSATION_NOT_FOUND", "Không có hội thoại này.")
         entries = self.entries[conversation_id]
+        if focus:
+            position = next((index for index, entry in enumerate(entries) if entry[3] == focus), None)
+            if position is None:
+                raise ChatError(404, "MESSAGE_NOT_FOUND", "Tin này không còn trong dữ liệu chat.")
+            page = (len(entries) - 1 - position) // limit
         needle = fold(query.strip())
         with self.messages_path.open("rb") as stream:
             if needle:
@@ -227,16 +278,29 @@ class ChatStore:
             end = max(total - page * limit, 0)
             start = max(end - limit, 0)
             rows = [self.shape(self._read(stream, entry)) for entry in selected[start:end]]
-        return {"conversation_id": conversation_id, "messages": rows, "total": total, "page": page, "limit": limit,
-                "pages": math.ceil(total / limit), "has_older": start > 0, "query": query.strip()}
+        result = {"conversation_id": conversation_id, "messages": rows, "total": total, "page": page, "limit": limit,
+                  "pages": math.ceil(total / limit), "has_older": start > 0, "query": query.strip()}
+        if focus:
+            result["focus"] = focus
+        return result
 
     def shape(self, row: dict) -> dict:
         body = row.get("body")
         kind = "missing" if body is None else "text" if isinstance(body, str) else "card"
         message_type = row.get("message_type") if isinstance(row.get("message_type"), int) else None
         status = row.get("status") if isinstance(row.get("status"), int) else None
-        return {"message_id": row.get("message_id"), "sender_id": row.get("sender_id"),
-                "is_own": self.owner_id is not None and row.get("sender_id") == self.owner_id,
+        sender = row.get("sender_id")
+        media = []
+        for key in row.get("media") or []:
+            item = self.media.get(key) if isinstance(key, str) else None
+            if item:
+                media.append({"id": key, "mime": item["mime"],
+                              **{name: item.get(name) if isinstance(item.get(name), int) else None for name in ("width", "height")}})
+        album = body.get("album") if isinstance(body, dict) and isinstance(body.get("album"), str) else None
+        return {"message_id": row.get("message_id"), "sender_id": sender,
+                "sender_name": self.user_names.get(sender) if isinstance(sender, str) else None,
+                "is_own": self.owner_id is not None and sender == self.owner_id,
+                "deleted": row.get("deleted") is True, "media": media, "album": album,
                 "timestamp_ms": to_millis(row.get("timestamp")) or to_millis(row.get("server_time")),
                 "message_type": message_type,
                 "type_label": TYPE_NAMES.get(message_type, f"Loại {message_type}" if message_type is not None else "Không rõ loại"),
@@ -247,15 +311,46 @@ class ChatStore:
                 "attachment": shape_attachment(row.get("attachment_metadata"))}
 
 
+    def media_file(self, media_id: str) -> tuple[str, bytes]:
+        """Ảnh/video của gói: chỉ sha có trong media.json, chỉ file thường nằm thẳng trong `media/`."""
+        item = self.media.get(media_id) if MEDIA_ID.fullmatch(media_id) else None
+        if item is None:
+            raise ChatError(404, "MEDIA_NOT_FOUND", "Không có ảnh này.")
+        path = self.media_dir / (media_id + MEDIA_EXTENSIONS[item["mime"]])
+        if path.is_symlink() or not path.is_file():
+            raise ChatError(404, "MEDIA_NOT_FOUND", "Không có ảnh này.")
+        return item["mime"], path.read_bytes()
+
+
+def _reload(directory: str) -> None:
+    """Luồng nền: lập chỉ mục gói mới rồi để sẵn; get_store thay chỉ mục ở lần gọi kế tiếp."""
+    try:
+        store = ChatStore(Path(directory))
+    except ChatError as exc:
+        print(f"WARNING: zalo export: {exc.message}", file=sys.stderr)
+        store = None
+    with _LOCK:
+        _RELOAD.update(running=False, store=store, directory=directory)
+
+
 def get_store(directory: str | None = None) -> ChatStore:
-    """Lập chỉ mục một lần cho mỗi tiến trình; lỗi thì lần gọi sau thử lại."""
+    """Lập chỉ mục một lần cho mỗi tiến trình; lỗi thì lần gọi sau thử lại.
+
+    Gói web được dựng lại (export-report.json đổi) thì lập chỉ mục mới ở luồng nền, vẫn trả chỉ mục cũ tới khi xong.
+    """
     global _STORE, _STORE_DIR
     directory = EXPORT_DIR if directory is None else directory
     if not directory:
         raise unavailable("chưa đặt WEBDEBIT_ZALO_EXPORT_DIR")
     with _LOCK:
+        ready = _RELOAD.pop("store", None)
+        if ready is not None and _RELOAD.pop("directory", None) == directory == _STORE_DIR:
+            _STORE, _STORE_DIR = ready, directory
         if _STORE is None or directory != _STORE_DIR:
             _STORE, _STORE_DIR = ChatStore(Path(directory)), directory
+        elif not _RELOAD["running"] and report_stamp(Path(directory)) != _STORE.stamp:
+            _RELOAD["running"] = True
+            threading.Thread(target=_reload, args=(directory,), name="zalo-chat-reload", daemon=True).start()
         return _STORE
 
 
@@ -288,15 +383,28 @@ def handle_get(path: str, query: str, directory: str | None = None) -> tuple[int
         rows = get_store(directory).conversations(values.get("q", "")[:MAX_QUERY])
         return 200, {"conversations": rows, "total": len(rows)}
     if path == "/api/v7/zalo/messages":
-        values = _query(query, {"conversation", "page", "limit", "q"})
+        values = _query(query, {"conversation", "page", "limit", "q", "message"})
         conversation = values.get("conversation", "")
         page_text, limit_text = values.get("page", "0"), values.get("limit", str(DEFAULT_LIMIT))
+        focus = values.get("message", "")
         if (not CONVERSATION_ID.fullmatch(conversation) or not page_text.isdigit() or not limit_text.isdigit()
                 or len(page_text) > 6 or len(limit_text) > 3
-                or not 0 <= int(page_text) <= MAX_PAGE or not 1 <= int(limit_text) <= MAX_LIMIT):
+                or not 0 <= int(page_text) <= MAX_PAGE or not 1 <= int(limit_text) <= MAX_LIMIT
+                or ("message" in values and (not MESSAGE_ID.fullmatch(focus) or values.get("q", "").strip()))):
             raise ChatError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
-        return 200, get_store(directory).messages(conversation, int(page_text), int(limit_text), values.get("q", "")[:MAX_QUERY])
+        return 200, get_store(directory).messages(conversation, int(page_text), int(limit_text),
+                                                  values.get("q", "")[:MAX_QUERY], focus)
     raise ChatError(404, "NOT_FOUND", "Không có đường dẫn này.")
+
+
+MEDIA_PREFIX = "/api/v7/zalo/media/"
+
+
+def handle_media(path: str, query: str, directory: str | None = None) -> tuple[str, bytes]:
+    """GET /api/v7/zalo/media/<sha256>: trả (kiểu, byte) cho Handler gửi thẳng; lỗi ném ChatError."""
+    if query:
+        raise ChatError(400, "INVALID_REQUEST", "Dữ liệu gửi không hợp lệ.")
+    return get_store(directory).media_file(path.removeprefix(MEDIA_PREFIX))
 
 
 class _NoDatabase:
