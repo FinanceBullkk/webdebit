@@ -75,6 +75,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + nút Copy tin nhắc; sửa đổi 30/10/2026: trang Chat Zalo đọc nội dung từ bản xuất (ZALO-CHAT-01) | Đã code; bản xuất chat chưa đặt lên `hao` |
 | <a id="access-01"></a>[ACCESS-01](decisions/access-01.md) | Chỉ login Tailscale trong danh sách mới dùng được web V7; login lạ nhận 403 `LOGIN_NOT_ALLOWED`; chế độ Serve không có danh sách thì API không khởi động | Danh sách đặt trên `hao` (drop-in), ngoài Git |
 | <a id="trang-khach-01"></a>[TRANG-KHACH-01](decisions/trang-khach-01.md) | Trang khách: sổ khách mở rộng thành bốn thẻ Tình hình, Sổ, Trao đổi, Hồ sơ; hứa trả, gắn hội thoại Zalo, ghi lần xuất debit note | PR A1 (vỏ, thanh thẻ), A2 (thẻ Tình hình), A3 (Trao đổi, Hồ sơ) đã lên `hao`; A4 (đường vào) đã code, xong giai đoạn A; B, C chưa |
+| <a id="ux-nen-01"></a>[UX-NEN-01](decisions/ux-nen-01.md) | Mục tiêu sản phẩm: bỏ Sheet mà không mất độ đúng; năm chỉ số M1–M5; UX làm theo thứ tự người dùng → luồng → dễ dùng → giao diện → kiểm | Chưa có phép kiểm nào chạy |
 
 ## Cập nhật khóa tháng 24/10/2026
 
