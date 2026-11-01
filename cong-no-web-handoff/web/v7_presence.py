@@ -87,8 +87,12 @@ def parse(raw: bytes) -> dict:
             "pointer": _anchor(body.get("pointer"), {"row", "col", "fx", "fy"})}
 
 
+# Người làm không phải người (HANG-CHO-01 Q1, P3): máy tự lấy chữ mô tả theo Sheet.
+MACHINE_NAMES = {"may-theo-sheet": "Máy (theo Sheet)"}
+
+
 def display_name(actor: str, names: dict[str, str] | None = None) -> str:
-    return (names or {}).get(actor.lower()) or actor.split("@", 1)[0][:40]
+    return MACHINE_NAMES.get(actor) or (names or {}).get(actor.lower()) or actor.split("@", 1)[0][:40]
 
 
 def load_names(path: str) -> dict[str, str]:

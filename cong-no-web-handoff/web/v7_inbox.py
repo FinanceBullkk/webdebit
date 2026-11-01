@@ -6,14 +6,20 @@ quả trong bộ nhớ: lúc khởi động, khi bản chụp Sheet đổi, và 
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
-from v7_api_sheet import SharedReads  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
+from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
+    SharedReads,
+    sheet_projection,
+)
+from v7_api_validate import ApiError
 
 ACTOR = "hop-viec"   # đọc nền, không phải người; hàm đọc chỉ cần sokhach.actor khác rỗng
 WORKERS = 2   # đo trên `hao` 1/11/2026: 4 luồng làm mở sổ lúc đang tính chậm 1,36 s, 2 luồng 0,84 s (hộp 34 → 39 s)
@@ -21,6 +27,19 @@ DIRTY_INLINE_LIMIT = 5   # quá số này thì tính lại nền, không giữ G
 # Ba runner (chuyến, giá, PS) ghi bản chụp cách nhau vài chục giây mỗi 15 phút; chờ file mới nhất cũ hơn chừng này
 # mới tính lại, để mỗi đợt Sheet chỉ một lượt thay vì ba (đo trên `hao` 1/11/2026).
 SETTLE_SECONDS = 90
+# P3a (HANG-CHO-01 Q1, KHOA-CHU-01): máy tự lấy theo Sheet khi dòng lệch chỉ ở các ô chữ này (không đụng tiền). Bật bằng
+# WEBDEBIT_AUTO_SHEET=text trên `hao`; mặc định tắt. Người làm trong Lịch sử là AUTO_ACTOR ("Máy (theo Sheet)").
+AUTO_ACTOR = "may-theo-sheet"
+AUTO_FIELDS = {"carrier", "shipper", "origin", "destination"}
+AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm"
+
+
+def auto_enabled(kind: str) -> bool:
+    return kind in {part.strip() for part in os.getenv("WEBDEBIT_AUTO_SHEET", "").split(",")}
+
+
+def _vn_day(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp + 7 * 3600, UTC).date().isoformat()
 TEXT_FIELDS = {"origin", "destination", "shipper", "carrier", "shipper_unavailable"}
 
 
@@ -115,6 +134,9 @@ class Inbox:
         self.running = False
         self.dirty: set[int] = set()
         self.unavailable = False
+        self.auto_log: deque = deque(maxlen=AUTO_LOG)
+        self.auto_errors = 0
+        self.auto_run_at: float | None = None
 
     def _key(self) -> tuple | None:
         try:
@@ -163,10 +185,59 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
+        text_books = sorted(cid for cid, book in books.items() if book["text_diff"])
+        if auto_enabled("text") and text_books and key is not None:
+            for customer_id in text_books:
+                self._auto_text(shared, customer_id)
+                result = self._one(shared, customer_id)
+                if result[2]:
+                    books.pop(customer_id, None)
+                    if result[1] is not None:
+                        books[customer_id] = result[1]
+            self.auto_run_at = self.clock()
         with self.lock:
             self.books, self.failed = books, failed
             self.computed_at, self.key, self.running = self.clock(), key, False
             self.unavailable = key is None
+
+    def _auto_text(self, runner, customer_id: int) -> None:
+        """Lấy theo Sheet mọi ô chữ lệch của một sổ, bằng đúng lệnh giải quyết lệch người dùng bấm (decision use_sheet).
+
+        Chỉ dòng lệch toàn ô chữ (AUTO_FIELDS); lệch ngày, container, booking, khách khác để người quyết. Mỗi ô một khóa chống
+        ghi trùng cố định theo (bản chụp, dòng Sheet, đích, ô, giá trị Sheet). Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            projection = sheet_projection(runner, ledger, AUTO_ACTOR)
+        except (ApiError, ValueError):
+            self.auto_errors += 1
+            return
+        version, digest = ledger.get("version"), projection.get("snapshot_sha256")
+        for item in projection.get("items") or []:
+            fields = item.get("changed_fields") or []
+            if (item.get("sync_state") != "CONFLICT" or item.get("sync_reason") != "DIFFERENT_FIELDS" or not fields
+                    or not set(fields) <= AUTO_FIELDS or item.get("existing_kind") not in ("trip", "legacy")):
+                continue
+            for field in fields:
+                sheet_value = item.get(field)
+                target_value = (item.get("existing_values") or {}).get(field)
+                if not isinstance(sheet_value, str) or not sheet_value.strip():
+                    continue
+                key = hashlib.sha256(f"auto:{digest}:{item.get('source_row')}:{item['existing_kind']}:{item.get('existing_id')}:"
+                                     f"{field}:{sheet_value}".encode()).hexdigest()
+                try:
+                    result = runner.run("resolve_sheet_conflict", {
+                        "customer_id": customer_id, "expected_version": version, "idempotency_key": key,
+                        "snapshot_sha256": digest, "source_row": item.get("source_row"), "target_kind": item["existing_kind"],
+                        "target_id": item.get("existing_id"), "field": field, "target_value": target_value,
+                        "sheet_value": sheet_value, "decision": "use_sheet"}, AUTO_ACTOR)
+                except ApiError:
+                    self.auto_errors += 1
+                    return
+                version = result.get("version", version)
+                with self.lock:
+                    self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id, "container": item.get("container"),
+                                              "field": field, "before": target_value, "after": sheet_value.strip()})
 
     def start(self, runner) -> bool:
         with self.lock:
@@ -207,7 +278,12 @@ class Inbox:
             else:
                 state = "unavailable" if self.unavailable else "ready"
             iso = lambda t: None if t is None else datetime.fromtimestamp(t, UTC).isoformat()  # noqa: E731
-            return {"state": state, "computed_at": iso(self.computed_at),
+            today = _vn_day(self.clock())
+            done_today = [entry for entry in self.auto_log if _vn_day(entry["at"]) == today]
+            auto = {"text_enabled": auto_enabled("text"), "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
+                    "today_count": len(done_today), "today_books": len({entry["customer_id"] for entry in done_today}),
+                    "items": [{**entry, "at": iso(entry["at"])} for entry in done_today[:100]]}
+            return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),
                     "books": sorted(self.books.values(), key=lambda b: b["customer_id"])}

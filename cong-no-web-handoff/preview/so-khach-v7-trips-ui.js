@@ -42,9 +42,11 @@
   // The loader resolves every serial date to one reading (dd/mm/yyyy); anything left is text typed in the Sheet ("da tt").
   const curDay = (cur, t) => cur.event_date ? dateText(cur.event_date) : sheetDay(t.raw_date);
   const countedCell = cur => num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd));
-  const legacyLocked = (trip, cur, t, stt, unitText) => [cell(stt || '–'), cell(cur.container || 'Phí lẻ'), cell(cur.carrier ?? ''),
-    shipperCell(cell(cur.shipper ?? '')), cell(curDay(cur, t)), cell(cur.origin ?? ''), cell(cur.destination ?? ''), num(unitText[0]),
-    feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur)].join('');
+  // KHOA-CHU-01 (1/11/2026): tháng khóa vẫn sửa được bốn ô chữ (hãng tàu, shipper, nơi đi, nơi đến); container, ngày, tiền, xóa thì không.
+  const legacyLocked = (trip, cur, t, stt, unitText) => [cell(stt || '–'), cell(cur.container || 'Phí lẻ'),
+    infoCell('legacy', trip.id, 'carrier', cur.carrier ?? ''), shipperCell(infoCell('legacy', trip.id, 'shipper', cur.shipper ?? '')),
+    cell(curDay(cur, t)), infoCell('legacy', trip.id, 'origin', cur.origin ?? ''), infoCell('legacy', trip.id, 'destination', cur.destination ?? ''),
+    num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur)].join('');
   const legacyEditable = (trip, cur, t, stt, unitText) => {
     const what = cur.container || 'phí lẻ';
     const edit = (field, text, classes) => infoCell('legacy', trip.id, field, text, classes);
@@ -76,11 +78,13 @@
   function webTripRow(trip, index, { locked, sttBase }) {
     const pending = trip?.status === 'pending_review';
     const info = !locked && trip?.info_editable === true;
+    // KHOA-CHU-01: tháng khóa chỉ mở bốn ô chữ; chuyến đã loại thì không sửa gì.
+    const text = field => (locked && trip && trip.status !== 'rejected' ? infoCell('trip', trip.id, field, trip[field] ?? '') : cell(trip?.[field] ?? ''));
     const infoCells = info
       ? ['container', 'carrier', ...(columns.shipper() ? ['shipper'] : []), 'event_date', 'origin', 'destination'].map(field =>
         infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('')
-      : `${cell(trip?.container ?? '')}${cell(trip?.carrier ?? '')}${shipperCell(cell(trip?.shipper ?? ''))}${cell(dateText(trip?.event_date))}`
-        + `${cell(trip?.origin ?? '')}${cell(trip?.destination ?? '')}`;
+      : `${cell(trip?.container ?? '')}${text('carrier')}${shipperCell(text('shipper'))}${cell(dateText(trip?.event_date))}`
+        + `${text('origin')}${text('destination')}`;
     const rowKey = trip ? `trip-${trip.id}` : '';
     const feeEditable = !locked && trip?.editable === true && trip.status === 'confirmed';
     const what = trip?.container || 'phí lẻ';

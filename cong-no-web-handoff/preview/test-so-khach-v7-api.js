@@ -245,7 +245,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
 });
 
 // SO-GON-04: phiếu thu ghi ở khung "Ghi phiếu thu" (nút ở đầu sổ), không còn khung nhập trong từng tháng; tháng khóa vẫn ghi được.
-test('locked month keeps trip cells read only; receipts still written from the Ghi phiếu thu button', async () => {
+test('locked month: only the text cells open (KHOA-CHU-01); money, date, container stay read only; receipts from the Ghi phiếu thu button', async () => {
   const { root } = await livePage({ ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-01-01', charges_vnd: '100', received_vnd: '0', outstanding_vnd: '100', end_of_month_vnd: '100' }],
     month_locks: [{ month: '2026-01-01', locked: true }],
@@ -254,7 +254,11 @@ test('locked month keeps trip cells read only; receipts still written from the G
       unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: '100' }], receipts: [], legacy_rows: [],
     adjustments: [], opening: [], source_exceptions: [], events: [] }, '?customer=7&month=2026-01');
   const block = root.innerHTML.match(/<section id="thang-2026-01">.*?<\/section>/s)[0];
-  assert.doesNotMatch(block, /data-trip="1"|data-kind="trip"/);
+  assert.doesNotMatch(block, /data-trip="1"/);   // ô đơn giá
+  const fields = [...block.matchAll(/data-kind="trip" data-id="1" data-field="(\w+)"/g)].map(match => match[1]);
+  assert.deepEqual(fields.sort(), ['carrier', 'destination', 'origin']);   // shipper ẩn cột khi sổ không có dữ liệu shipper
+  assert.doesNotMatch(block, /data-kind="trip"[^>]*data-field="(container|event_date)"/);
+  assert.doesNotMatch(block, /class="row-delete" data-kind="trip"/);
   assert.doesNotMatch(block, /receipt-amount|receipt-date/);
   assert.match(block, /class="add-month-adjustment"[^>]*disabled/);
   assert.match(root.innerHTML, /<button type="button" class="entry-open" >Ghi phiếu thu<\/button>/);

@@ -156,6 +156,81 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(self.inbox.view(Runner([]))["state"], "unavailable")
 
 
+
+class AutoTextTests(unittest.TestCase):
+    """P3a (HANG-CHO-01 Q1, KHOA-CHU-01): máy tự lấy theo Sheet các ô chữ lệch, chỉ khi bật."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "s.json"
+        self.path.write_text("{}", encoding="utf-8")
+        self.resolved = False
+        self.calls = []
+        items = [
+            {"sync_state": "CONFLICT", "sync_reason": "DIFFERENT_FIELDS", "changed_fields": ["origin", "destination"],
+             "existing_kind": "legacy", "existing_id": 5, "source_row": 12, "container": "C1", "origin": "KHO B",
+             "destination": " CANG D ", "existing_values": {"origin": "KHO A", "destination": "CANG C"}},
+            {"sync_state": "CONFLICT", "sync_reason": "DIFFERENT_FIELDS", "changed_fields": ["event_date"],
+             "existing_kind": "trip", "existing_id": 6, "source_row": 13, "event_date": "2026-10-02", "existing_values": {}},
+            {"sync_state": "CONFLICT", "sync_reason": "DIFFERENT_FIELDS", "changed_fields": ["shipper_unavailable"],
+             "existing_kind": "legacy", "existing_id": 7, "source_row": 14, "existing_values": {}},
+            {"sync_state": "CONFLICT", "sync_reason": "DIFFERENT_FIELDS", "changed_fields": ["shipper"],
+             "existing_kind": "legacy", "existing_id": 8, "source_row": 15, "shipper": "", "existing_values": {"shipper": "X"}},
+        ]
+        self.items = items
+
+        def project(runner, ledger, actor):
+            text = [] if self.resolved else [dict(item, sync_state="CONFLICT") for item in items[:1]]
+            return projection(sheet_sync={"items": text, "removed_items": []})
+        self.inbox = v7_inbox.Inbox(project, lambda: (str(self.path),))
+        test = self
+
+        class Runner:
+            version = 3
+
+            def run(self, function, payload, actor):
+                test.calls.append((function, payload, actor))
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "status": "active"}]}
+                if function == "get_ledger":
+                    return {"customer_id": 1, "version": self.version}
+                if function == "resolve_sheet_conflict":
+                    self.version += 1
+                    if payload["field"] == "destination":
+                        test.resolved = True
+                    return {"version": self.version}
+                raise AssertionError(function)
+        self.runner = Runner()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_once(self):
+        with patch.object(v7_inbox, "sheet_projection", return_value={"snapshot_sha256": "e" * 64, "items": self.items}):
+            self.inbox.start(self.runner)
+            wait_idle(self.inbox)
+        return self.inbox.view(self.runner)
+
+    def test_off_by_default(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": ""}):
+            view = self.run_once()
+        self.assertFalse([c for c in self.calls if c[0] == "resolve_sheet_conflict"])
+        self.assertEqual((view["auto"]["text_enabled"], view["books"][0]["text_diff"]), (False, 1))
+
+    def test_takes_sheet_text_only_and_logs(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "text"}):
+            view = self.run_once()
+        resolves = [c for c in self.calls if c[0] == "resolve_sheet_conflict"]
+        self.assertEqual([(c[1]["field"], c[1]["expected_version"], c[1]["target_value"], c[1]["sheet_value"]) for c in resolves],
+                         [("origin", 3, "KHO A", "KHO B"), ("destination", 4, "CANG C", " CANG D ")])
+        self.assertTrue(all(c[1]["decision"] == "use_sheet" and c[2] == v7_inbox.AUTO_ACTOR and c[1]["target_kind"] == "legacy"
+                            and c[1]["target_id"] == 5 and c[1]["snapshot_sha256"] == "e" * 64 for c in resolves))
+        self.assertEqual(len({c[1]["idempotency_key"] for c in resolves}), 2)
+        # Lệch ngày, thiếu shipper trên Sheet, giá trị Sheet trống: để người quyết.
+        self.assertEqual(view["books"], [])
+        self.assertEqual((view["auto"]["today_count"], view["auto"]["today_books"], view["auto"]["errors"]), (2, 1, 0))
+        self.assertEqual(view["auto"]["items"][0]["after"], "CANG D")
+
 class ApiInboxRoute(unittest.TestCase):
     def call(self, method, target, raw=b""):
         headers = {"Host": "127.0.0.1:8780"}

@@ -334,7 +334,7 @@ BEGIN
     RETURN v;
 END $$;
 
-CREATE FUNCTION sokhach.edit_trip_info(customer_id bigint,expected_version bigint,idempotency_key text,
+CREATE OR REPLACE FUNCTION sokhach.edit_trip_info(customer_id bigint,expected_version bigint,idempotency_key text,
     trip_id bigint,field text,value text) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
 DECLARE v_payload jsonb := jsonb_build_object('command','edit_trip_info','trip_id',trip_id,'field',field,'value',value);
@@ -348,7 +348,10 @@ BEGIN
     IF field IS NULL OR field NOT IN ('container','carrier','shipper','origin','destination','event_date') THEN RAISE EXCEPTION 'INVALID_FIELD'; END IF;
     SELECT * INTO t FROM sokhach.v_trip_current v WHERE v.id=trip_id AND v.customer_id=edit_trip_info.customer_id AND NOT v.deleted;
     IF NOT FOUND THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
-    PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
+    -- KHOA-CHU-01 (1/11/2026): bốn ô chữ mô tả sửa được cả ở tháng khóa; container và ngày vẫn theo khóa tháng.
+    IF field NOT IN ('carrier','shipper','origin','destination') THEN
+      PERFORM sokhach._month_open(customer_id,t.debt_month,clock_timestamp());
+    END IF;
     v_value := nullif(btrim(value),'');
     IF field='container' THEN v_value := nullif(sokhach._normalize_key(value),''); END IF;
     IF field='event_date' THEN v_date := sokhach._trip_date(value); v_value := v_date::text;
@@ -479,7 +482,10 @@ BEGIN
     END IF;
     IF (v_old->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
     v_old_month:=(v_old->>'month')::date; v_month:=v_old_month; v_old_count:=(v_old->>'counted_vnd')::bigint;
-    PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
+    -- KHOA-CHU-01 (1/11/2026): sửa một trong bốn ô chữ mô tả không cần tháng mở; xóa, tiền, ngày, container vẫn theo khóa.
+    IF p_delete OR p_fee_event IS NOT NULL OR field IS NULL OR field NOT IN ('carrier','shipper','origin','destination') THEN
+      PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
+    END IF;
     IF NOT p_delete AND field='other_fee_vnd' AND v_old->>'unit_price_vnd' IS NULL
     THEN RAISE EXCEPTION 'LEGACY_NO_UNIT_PRICE'; END IF;
     IF p_delete THEN v_count:=0; v_new:=v_new||jsonb_build_object('deleted',true);
@@ -1445,7 +1451,8 @@ BEGIN
     IF decision='use_sheet' AND nullif(btrim(sheet_value),'') IS NULL THEN
         RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION';
     END IF;
-    IF decision='use_sheet' THEN
+    -- KHOA-CHU-01 (1/11/2026): lấy theo Sheet cho bốn ô chữ mô tả không cần tháng mở.
+    IF decision='use_sheet' AND field NOT IN ('carrier','shipper','origin','destination') THEN
         PERFORM sokhach._month_open(customer_id,CASE WHEN target_kind='trip' THEN v_trip.debt_month
           ELSE (v_legacy->>'debt_month')::date END,clock_timestamp());
     END IF;

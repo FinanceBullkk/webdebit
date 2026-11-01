@@ -14,6 +14,7 @@ from pg_v7_harness import (
     DA_THU_MIGRATION,
     DASHBOARD_MIGRATION,
     DETAIL_MIGRATION,
+    KHOA_CHU_MIGRATION,
     LEGACY_RECEIPT_MIGRATION,
     LOCKED_TRIP_MIGRATION,
     MATRIX_MIGRATION,
@@ -222,7 +223,9 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ: chạy lại được
+    copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
@@ -436,7 +439,7 @@ def check_locks(pg: Pg) -> str:
     reject_call(pg, "edit_trip_price", c, 4, "price-locked-current", current_trip, 101, None, error="MONTH_LOCKED")
     before = (version(pg, c), pg.value(f"SELECT count(*) FROM sokhach.event WHERE customer_id={c}"))
     for name, args in (
-            ("edit_trip_info", (current_trip, "carrier", "FAKE NEW")),
+            ("edit_trip_info", (current_trip, "container", "FAKENEW1")),   # ô chữ thì sửa được (KHOA-CHU-01)
             ("delete_trip", (current_trip,)),
             ("adjust_trip", (current_trip, 120, "fake")),
             ("adjust_month", (current, 5, "fake"))):

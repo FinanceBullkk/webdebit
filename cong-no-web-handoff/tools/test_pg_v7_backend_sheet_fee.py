@@ -138,10 +138,9 @@ def check_sheet_conflict_resolution(pg: Pg) -> None:
                       ("booking-sheet", resolve("x", "booking", "BK-OLD", "BK-NEW", "use_sheet")),
                       ("booking-legacy", resolve("x", "booking", None, "BK-NEW", "keep_web", "legacy", 1))]:
         reject_call(pg, "resolve_sheet_conflict", *args[:2], key, *args[3:], error="INVALID_SHEET_RESOLUTION")
-    # Taking the Sheet value now honours the month lock; keeping web stays allowed.
+    # KHOA-CHU-01 (1/11/2026): ở tháng khóa vẫn giữ web hoặc lấy theo Sheet được cho ô chữ; số dư không đổi.
     pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-09-01'")
-    reject_call(pg, "resolve_sheet_conflict", *resolve("locked-carrier", "carrier", "FAKE", "FAKE NEW", "use_sheet"),
-                error="MONTH_LOCKED")
     call(pg, "resolve_sheet_conflict", *resolve("locked-keep", "carrier", "FAKE", "FAKE NEW", "keep_web"))
+    call(pg, "resolve_sheet_conflict", *resolve("locked-carrier", "carrier", "FAKE", "FAKE NEW", "use_sheet"))
     require(call(pg, "get_ledger", c)["total_outstanding_vnd"] == before["total_outstanding_vnd"],
             "locked resolution changed balance")

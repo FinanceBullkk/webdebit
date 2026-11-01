@@ -112,6 +112,16 @@
     return `<p class="inbox-result${bad.length ? ' warn' : ''}" role="status">${okText}${badText}</p>`;
   }
 
+  // L2 của UX bước 03 (P3a): máy đã tự lấy chữ theo Sheet hôm nay, mỗi dòng có đường mở sổ để sửa lại tại ô.
+  const AUTO_FIELD = { carrier: 'hãng tàu', shipper: 'shipper', origin: 'nơi đi', destination: 'nơi đến' };
+  function autoHtml(auto, esc, label, href) {
+    if (!auto?.today_count) return '';
+    const items = (auto.items ?? []).map(item => `<li><a href="${href(item.customer_id)}">${esc(label(item))}</a> · ${esc(item.container ?? '')} · `
+      + `${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → <b>${esc(item.after)}</b></li>`).join('');
+    return `<details class="auto-done"><summary>Máy đã tự lấy theo Sheet hôm nay: <b>${auto.today_count}</b> ô chữ ở <b>${auto.today_books}</b> sổ</summary>`
+      + `<ul>${items}</ul><p class="tiny">Không đụng tiền. Sai ô nào thì mở sổ, sửa lại tại ô (có ghi Lịch sử).</p></details>`;
+  }
+
   function rows(books, group, F, esc, label, href) {
     const sorted = books.filter(b => group.count(b) > 0)
       .sort((x, y) => (group.money ? Number(big(group.money(y)) - big(group.money(x))) : 0) || group.count(y) - group.count(x)
@@ -145,7 +155,8 @@
       .filter(part => part.sorted.length);
     const textBooks = books.filter(b => b.text_diff > 0);
     const textCount = textBooks.reduce((sum, b) => sum + b.text_diff, 0);
-    if (!groups.length && !textCount) return card(aside, `${resultHtml(result, F, esc, label, href)}${failed}<p class="empty">Không còn việc từ Sheet.</p>`);
+    const autoDone = autoHtml(data.auto, esc, label, href);
+    if (!groups.length && !textCount) return card(aside, `${resultHtml(result, F, esc, label, href)}${autoDone}${failed}<p class="empty">Không còn việc từ Sheet.</p>`);
     const total = groups.reduce((sum, part) => sum + part.sorted.reduce((n, b) => n + part.group.count(b), 0), 0);
     const money = books.reduce((sum, b) => sum + big(b.receipts.amount_vnd), 0n);
     const bookCount = new Set(groups.flatMap(part => part.sorted.map(b => b.customer_id))).size;
@@ -155,8 +166,9 @@
       const extra = group.key === 'receipts' && review?.length ? reviewHtml(review, F, esc, label, busy) : '';
       return `<div class="todo-group" data-group="${group.key}"><div class="todo-title"><span>${group.title}</span><span class="tag ${group.tone}">${n} ${group.unit}</span></div>${html}${extra}</div>`;
     }).join('');
-    const text = textCount ? `<p class="inbox-note">Lệch chữ nơi đi, nơi đến, shipper: ${textCount} chỗ ở ${textBooks.length} sổ. Không đụng tiền; sắp tới máy tự lấy theo Sheet.</p>` : '';
-    return card(aside, `${summary}${resultHtml(result, F, esc, label, href)}${failed}${body}${text}`);
+    const text = textCount ? `<p class="inbox-note">Lệch chữ nơi đi, nơi đến, shipper: ${textCount} chỗ ở ${textBooks.length} sổ. Không đụng tiền; `
+      + `${data.auto?.text_enabled ? 'máy lấy theo Sheet ở lượt tính tới (chỗ còn lại là dòng thiếu shipper trên Sheet hoặc Sheet để trống).' : 'máy chưa bật tự lấy theo Sheet.'}</p>` : '';
+    return card(aside, `${summary}${resultHtml(result, F, esc, label, href)}${autoDone}${failed}${body}${text}`);
   }
 
   return { render, canWrite, reviewLine, GROUPS, REASONS };

@@ -34,10 +34,20 @@ test('Sổ khách làm mới thủ công nhưng giữ dữ liệu đang gõ',asy
   assert.equal(await amount.inputValue(), '123', 'đóng khung không xóa chữ đã gõ');
 }));
 
-test('tháng khóa: cột chuyến chỉ đọc; phiếu thu vẫn ghi được, bước xem lại nói rõ tháng khóa', async () => withPage(async ({ page, world }) => {
+test('tháng khóa: chỉ bốn ô chữ sửa được (KHOA-CHU-01); tiền, ngày, container, xóa chỉ đọc; phiếu thu vẫn ghi được', async () => withPage(async ({ page, world }) => {
   const sept = page.locator('#thang-2026-09');
-  assert.equal(await sept.locator('td.info-edit,td.row-delete,td.editable').count(), 0);
+  assert.equal(await sept.locator('td.row-delete,td.editable').count(), 0);
+  const fields = await sept.locator('td.info-edit').evaluateAll(cells => [...new Set(cells.map(cell => cell.dataset.field))].sort());
+  assert.deepEqual(fields.filter(field => !['carrier', 'shipper', 'origin', 'destination'].includes(field)), []);
+  assert.equal(fields.includes('carrier'), true);
   assert.equal(await sept.locator('.add-month-adjustment').isDisabled(), true);
+  await sept.locator('td.info-edit[data-kind="trip"][data-field="carrier"]').first().click();
+  await page.locator('.info-input').fill('Tàu tháng khóa');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('#thang-2026-09 td.info-edit[data-kind="trip"][data-field="carrier"]')?.textContent === 'Tàu tháng khóa');
+  assert.equal(world.requests.at(-1).path, '/api/v7/trips/info');
+  assert.equal(world.requests.at(-1).body.field, 'carrier');
+  world.requests.length = 0;
   await page.locator('.entry-open').click();
   await page.locator('.entry-drawer .receipt-date').fill('20/09/2026');
   await page.locator('.entry-drawer .receipt-amount').fill('1.000.000');
