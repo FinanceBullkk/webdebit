@@ -143,7 +143,9 @@ test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ �
   const before = await probe();
   await page.locator('#tab-tinh-hinh').click();
   const reads = world.reads;
-  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));   // tự cập nhật: đọc lại và vẽ lại cả sổ
+  // Tự cập nhật: đọc lại và vẽ lại cả sổ. Xóa chữ "Cập nhật …" trước để lần chờ dưới chỉ xong khi lượt vẽ mới đã chạy
+  // (chữ đó có sẵn từ lần vẽ đầu; chờ mà không xóa thì máy CI nhanh đi tiếp trước khi kịp đọc lại sổ).
+  await page.evaluate(() => { document.querySelector('#updated-at').textContent = ''; document.dispatchEvent(new Event('visibilitychange')); });
   await page.waitForFunction(() => document.querySelector('#updated-at').textContent.startsWith('Cập nhật'));
   assert.equal(world.reads, reads + 1);
   await page.locator('#tab-so').click();
