@@ -16,8 +16,11 @@ from typing import Any
 from v7_api_sheet import SharedReads  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
 
 ACTOR = "hop-viec"   # đọc nền, không phải người; hàm đọc chỉ cần sokhach.actor khác rỗng
-WORKERS = 4
+WORKERS = 2   # đo trên `hao` 1/11/2026: 4 luồng làm mở sổ lúc đang tính chậm 1,36 s, 2 luồng 0,84 s (hộp 34 → 39 s)
 DIRTY_INLINE_LIMIT = 5   # quá số này thì tính lại nền, không giữ GET chờ
+# Ba runner (chuyến, giá, PS) ghi bản chụp cách nhau vài chục giây mỗi 15 phút; chờ file mới nhất cũ hơn chừng này
+# mới tính lại, để mỗi đợt Sheet chỉ một lượt thay vì ba (đo trên `hao` 1/11/2026).
+SETTLE_SECONDS = 90
 TEXT_FIELDS = {"origin", "destination", "shipper", "carrier", "shipper_unavailable"}
 
 
@@ -93,6 +96,9 @@ class Inbox:
         except OSError:
             return None
 
+    def _settled(self, key: tuple | None) -> bool:
+        return key is None or self.clock() - max(key) / 1e9 >= SETTLE_SECONDS
+
     def _one(self, runner, customer_id: int) -> tuple[int, dict | None, bool]:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, ACTOR)
@@ -155,7 +161,7 @@ class Inbox:
         with self.lock:
             stale = self.computed_at is None or key != self.key
             dirty = sorted(self.dirty) if not self.running else []
-        if stale:
+        if stale and (self.computed_at is None or self._settled(key)):
             self.start(runner)
         elif dirty:
             if len(dirty) > DIRTY_INLINE_LIMIT:

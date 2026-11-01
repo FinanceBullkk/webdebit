@@ -1547,6 +1547,17 @@ class LedgerSpeed(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 v7_api_sheet.cached_load(Path.read_text, Path(folder) / "missing.json")
 
+    def test_queue_built_once_until_snapshot_or_customers_change(self):
+        snapshot, baseline = {"rows": []}, {"refs": []}
+        customers = [{"id": 1, "name": "A", "status": "active"}]
+        with patch.object(v7_api_sheet, "build_queue", side_effect=lambda s, c, b: {"items": [], "n": len(c)}) as build:
+            first = v7_api_sheet.cached_queue(snapshot, customers, baseline)
+            self.assertIs(v7_api_sheet.cached_queue(snapshot, list(customers), baseline), first)
+            self.assertEqual(build.call_count, 1)
+            v7_api_sheet.cached_queue(snapshot, customers + [{"id": 2, "name": "B", "status": "active"}], baseline)
+            v7_api_sheet.cached_queue({"rows": []}, customers, baseline)   # bản chụp mới (đối tượng khác)
+            self.assertEqual(build.call_count, 3)
+
     def test_listen_queue_fits_a_page_of_assets(self):
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, 128)
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, len(api.ASSETS) // 2)
