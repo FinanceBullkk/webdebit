@@ -26,6 +26,11 @@
     <div id="doi-no" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
   <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="pending-ask" class="pending-ask" aria-labelledby="pending-title">
+    <h2 id="pending-title">Khách còn phiếu thu chưa ghi</h2>
+    <p id="pending-text"></p>
+    <form method="dialog" class="actions"><button type="button" class="btn primary" id="pending-write">Ghi phiếu trước</button><button type="button" class="btn" id="pending-copy">Vẫn copy</button><button class="btn" value="cancel">Thôi</button></form>
+  </dialog>
   <script src="cong-no-format.js"></script>
   <script src="doi-no.js"></script>
   <script src="presence.js"></script>

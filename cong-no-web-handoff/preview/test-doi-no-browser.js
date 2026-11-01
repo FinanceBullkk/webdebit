@@ -27,7 +27,7 @@ const debt = () => ({ as_of: '2026-10-29', month: '2026-10-01', rule, receivable
 function makeServer({ debtPayload = debt(), debtStatus = 200,
   reminders = [{ customer_id: 2, last_reminded: '2026-10-20', reminder_count: 1, last_source: 'copy-button' }],
   customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }, { id: 4, name: 'Khách D' }, { id: 5, name: 'Khách E' }],
-  posted = [] } = {}) {
+  posted = [], inbox = null } = {}) {
   return http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const send = (status, type, body) => { res.writeHead(status, { 'Content-Type': type }); res.end(body); };
@@ -42,6 +42,7 @@ function makeServer({ debtPayload = debt(), debtStatus = 200,
     if (route === '/api/v7/reminders') return send(200, 'application/json', JSON.stringify({ reminders }));
     if (route === '/api/v7/customers') return send(200, 'application/json', JSON.stringify({ customers }));
     if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people: [] }));
+    if (route === '/api/v7/inbox') return inbox ? send(200, 'application/json', JSON.stringify(inbox)) : send(503, 'application/json', '{}');
     const file = path.join(__dirname, route.replace(/^\//, ''));
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
@@ -116,3 +117,51 @@ test('Đòi nợ: API debt lỗi thì báo lỗi, không để chữ đang tải
   await page.locator('#error').waitFor({ state: 'visible' });
   assert.match(await page.locator('#error').innerText(), /Không tải được số liệu đòi nợ/);
 }));
+
+// Hộp ngoại lệ P2 (specs/v7-hop-ngoai-le-p2.md): khách còn phiếu thu từ Sheet chưa ghi thì có nhãn, Copy tin nhắc hỏi lại trước.
+const inboxBook = (id, receipts) => ({ customer_id: id, version: 3, outstanding_vnd: '950000000', receipts: { ready: 0, review: 0, amount_vnd: '0', ready_amount_vnd: '0', items: [], locked_months: [], ...receipts },
+  removed: { count: 0, amount_vnd: '0' }, trips_new: 0, trips_check: { count: 0, reasons: {} }, text_diff: 0, prices: { ready: 0, review: 0 }, ps: { ready: 0, review: 0 } });
+const INBOX = { state: 'ready', computed_at: '2026-10-29T08:00:00+00:00', sheet_at: null, refreshing: false, books_total: 4, books_done: 4, failed: [],
+  books: [inboxBook(2, { ready: 1, amount_vnd: '50000000', ready_amount_vnd: '50000000' }), inboxBook(4, { ready: 0, review: 0 })] };
+
+test('Đòi nợ: khách còn phiếu thu chưa ghi có nhãn; Copy tin nhắc hỏi lại, Vẫn copy thì copy và ghi đã nhắc', async () => {
+  const posted = [];
+  await withPage({ inbox: INBOX, posted }, async page => {
+    await page.locator('.rrow').first().waitFor();
+    assert.match(await page.locator('.rrow', { hasText: 'Khách C' }).innerText(), /còn 1 phiếu chưa ghi · 50 triệu/);
+    assert.equal(await page.locator('.rrow', { hasText: 'Khách D' }).locator('.pend').count(), 0);
+    assert.equal(await page.locator('.tiny.warn').count(), 0);
+    await page.locator('[data-copy="2"]').click();
+    const dialog = page.locator('#pending-ask');
+    await dialog.waitFor({ state: 'visible' });
+    assert.match(await dialog.innerText(), /Khách còn 1 phiếu thu 50\.000\.000 đ trên Sheet chưa ghi vào web\. Tin nhắc sẽ ghi nợ cao hơn thực tế\./);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'pending-write');
+    await page.locator('#pending-copy').click();
+    await page.locator('#toast:not([hidden])').waitFor();
+    assert.deepEqual(posted, [{ customer_id: 2, source: 'copy-button' }]);
+    assert.match(await page.evaluate(() => navigator.clipboard.readText()), /Tổng công nợ còn lại/);
+    // Khách không có phiếu chờ: copy thẳng, không hỏi.
+    await page.locator('[data-copy="4"]').click();
+    await page.waitForFunction(() => document.querySelector('#toast')?.textContent.includes('Khách D'));
+    assert.equal(posted.length, 2);
+  });
+});
+
+test('Đòi nợ: Ghi phiếu trước mở Việc cần làm, Thôi không copy; không đọc được việc chờ thì ghi rõ và không hỏi', async () => {
+  const posted = [];
+  await withPage({ inbox: INBOX, posted }, async page => {
+    await page.locator('[data-copy="2"]').click();
+    await page.locator('#pending-ask').waitFor({ state: 'visible' });
+    await page.keyboard.press('Escape');
+    await page.locator('#pending-ask').waitFor({ state: 'hidden' });
+    assert.equal(posted.length, 0);
+    await page.locator('[data-copy="2"]').click();
+    await Promise.all([page.waitForURL(/\/viec-can-lam\.html$/), page.locator('#pending-write').click()]);
+    assert.equal(posted.length, 0);
+  });
+  await withPage({ inbox: null, posted: [] }, async page => {
+    await page.locator('.rrow').first().waitFor();
+    assert.match(await page.locator('.tiny.warn').innerText(), /Chưa kiểm được phiếu thu từ Sheet chờ ghi/);
+    assert.equal(await page.locator('.pend').count(), 0);
+  });
+});

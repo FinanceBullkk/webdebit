@@ -129,6 +129,33 @@
 .inbox-note{margin:12px 0 0;color:var(--ink-3);font-size:14px}
 .inbox-note.warn{color:var(--warning);font-weight:600}
 .inbox .more summary{cursor:pointer;padding:6px;color:var(--accent-ink);font-size:14px;font-weight:600}
+/* Hộp P2: ghi phiếu thu từ Sheet tại hộp — chọn sổ, xem lại, kết quả từng sổ */
+.inbox .btn{height:40px}
+.inbox .btn.primary{border-color:var(--accent-ink);background:var(--accent-ink);color:#fff}
+.inbox .btn:disabled{opacity:.55;cursor:not-allowed}
+.receipt-rows>li{padding:4px 6px;border-bottom:1px solid var(--line-soft)}
+.receipt-line{display:flex;align-items:center;gap:12px;min-height:40px}
+.receipt-line .pick,.receipt-line>.who{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.receipt-line .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick input{width:20px;height:20px;flex:none;accent-color:var(--accent-ink)}
+.receipt-line .what{color:var(--accent-ink);font-size:14px;font-weight:600;white-space:nowrap}
+.receipt-line .open{padding:6px 8px;color:var(--accent-ink);font-size:14px;font-weight:600;text-decoration:underline}
+.receipt-items summary{cursor:pointer;padding:2px 0 4px 30px;color:var(--ink-3);font-size:13.5px}
+.receipt-items ul{margin:0 0 6px;padding-left:46px;font-size:14px}
+.receipt-items li.muted{color:var(--ink-3)}
+.row-error{margin:2px 0 6px 30px;color:var(--critical);font-size:14px;font-weight:600}
+.receipt-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap}
+.receipt-bar .pick{display:flex;align-items:center;gap:10px;font-size:14.5px}
+.receipt-review{margin-top:12px;padding:12px 14px;border:2px solid var(--accent-ink);border-radius:10px;background:var(--accent-soft)}
+.receipt-review h3{margin:0 0 8px;font-size:16px}
+.receipt-review table{width:100%;border-collapse:collapse;font-size:14.5px}
+.receipt-review th,.receipt-review td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.receipt-review .num{text-align:right;white-space:nowrap}
+.receipt-review .tiny{margin:8px 0;font-size:13.5px;color:var(--ink-3)}
+.receipt-review .actions{display:flex;gap:10px}
+.inbox-result{margin:0 0 10px;padding:8px 12px;border-radius:8px;background:var(--credit-soft);color:var(--credit);font-size:14.5px}
+.inbox-result.warn{background:var(--warning-soft);color:var(--warning)}
+.inbox-result a{text-decoration:underline}
 .todo-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;font-size:14.5px;font-weight:600}
 .todo-group .rows a{padding:7px 6px}
 .todo-group .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

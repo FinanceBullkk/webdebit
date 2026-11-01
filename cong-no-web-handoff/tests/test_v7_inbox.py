@@ -54,6 +54,9 @@ class SummarizeTests(unittest.TestCase):
             sheet_sync={"items": items, "removed_items": [{"amount_vnd": "300"}, {"amount_vnd": None}]},
             sheet_receipts={"ready": [{"amount_vnd": "100"}], "review": [{"amount_vnd": "50"}, {"amount_vnd": ""}]},
             sheet_prices={"ready": [], "review": [{}]}, ps_fees={"ready": [{}], "review": [{}, {}]}))
+        # Trường của P2 (phiếu chi tiết, phiên bản, nợ) có test riêng; ở đây so bảy nhóm.
+        book = {key: value for key, value in book.items() if key not in ("version", "outstanding_vnd")}
+        book["receipts"] = {key: book["receipts"][key] for key in ("ready", "review", "amount_vnd")}
         self.assertEqual(book, {
             "customer_id": 7,
             "receipts": {"ready": 1, "review": 2, "amount_vnd": "150"},   # phiếu không có số tiền không cộng như 0
@@ -63,6 +66,27 @@ class SummarizeTests(unittest.TestCase):
             "text_diff": 1,
             "prices": {"ready": 0, "review": 1},
             "ps": {"ready": 1, "review": 2}})
+
+    def test_receipt_details_for_writing_at_the_inbox(self):
+        ledger = projection(sheet_receipts={"snapshot_sha256": "b" * 64,
+            "ready": [{"date": "2026-10-30", "amount_vnd": "100", "debt_month": "2026-09-01", "note": " 30/10 tt "},
+                      {"date": "2026-09-05", "amount_vnd": "40", "debt_month": "2026-08-01", "note": ""},
+                      {"date": "2026-11-01", "amount_vnd": "5", "debt_month": "2026-11-01", "note": ""}],
+            "review": [{"date": None, "amount_vnd": "7", "debt_month": "2026-08-01", "note": "?", "status": "NO_DATE"}]})
+        ledger.update(version=12, total_outstanding_vnd="900", today_month="2026-11-01",
+                      month_locks=[{"month": "2026-09-01", "locked": True}, {"month": "2026-10-01", "locked": False}])
+        receipts = v7_inbox.summarize(7, ledger)["receipts"]
+        book = v7_inbox.summarize(7, ledger)
+        self.assertEqual((book["version"], book["outstanding_vnd"]), (12, "900"))
+        self.assertEqual((receipts["ready"], receipts["review"], receipts["ready_amount_vnd"], receipts["amount_vnd"]), (3, 1, "145", "152"))
+        self.assertEqual(receipts["snapshot_sha256"], "b" * 64)
+        self.assertEqual(receipts["items"][0], {"status": "READY", "date": "2026-10-30", "amount_vnd": "100",
+                                                "debt_month": "2026-09-01", "note": "30/10 tt"})
+        self.assertEqual(receipts["items"][-1]["status"], "NO_DATE")
+        # T9 khóa theo cờ, T10 mở theo cờ, T11 là tháng hiện tại (không có hàng) nên mở.
+        self.assertEqual(receipts["locked_months"], ["2026-09"])
+        ledger["month_locks"] = []
+        self.assertEqual(v7_inbox.summarize(7, ledger)["receipts"]["locked_months"], ["2026-09", "2026-10"])
 
     def test_empty_book_is_dropped_and_unavailable_raises(self):
         self.assertIsNone(v7_inbox.summarize(7, projection()))
