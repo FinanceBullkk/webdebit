@@ -270,8 +270,25 @@
       if (!data || !Array.isArray(data.fee_types)) throw Error('Danh mục phụ phí không hợp lệ.');
       return data.fee_types;
     }
+    // Trang khách, thẻ Tình hình (TRANG-KHACH-01): chỉ đọc, không đổi sổ. Tổng quan trả mọi sổ đang nợ; trang lấy dòng của sổ
+    // đang mở (không có dòng: sổ không nợ, row = null), kèm ngày số liệu (giờ VN) và quy tắc hạn trả (DASH-03).
+    async function readDebt() {
+      const response = await fetcher('/api/v7/dashboard/debt', { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được số quá hạn.');
+      const data = await response.json();
+      if (!data || !Array.isArray(data.customers) || !/^\d{4}-\d\d-\d\d$/.test(data.as_of ?? '')) throw Error('Số quá hạn không hợp lệ.');
+      return { asOf: data.as_of, rule: data.rule ?? {}, row: data.customers.find(row => Number(row.customer_id) === customerId) ?? null };
+    }
+    // Lần nhắc gần nhất của sổ (NHAC-NO-01, reminder_log); chưa nhắc lần nào thì null.
+    async function readReminders() {
+      const response = await fetcher('/api/v7/reminders', { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được lần nhắc nợ.');
+      const data = await response.json();
+      if (!data || !Array.isArray(data.reminders)) throw Error('Lần nhắc nợ không hợp lệ.');
+      return data.reminders.find(row => Number(row.customer_id) === customerId) ?? null;
+    }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
+    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending,
       snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id), showCustomers: () => showCustomers() };

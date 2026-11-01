@@ -68,12 +68,22 @@
   }
 
   // Việc chờ của một tháng, cho chấm cam trên chip: cùng điều kiện với ?loc= (so-khach-v7-loc-ui.js) và dòng Sheet chờ.
+  // Mỗi mục [số, tên, loại]: loại thieu-gia/cho-kiem là ?loc=, sheet là chuyến Sheet chờ.
   function monthWork(data, key) {
     const trips = (data.trips ?? []).filter(trip => !trip.deleted && monthKey(trip.month) === key);
     const sheet = (data.sheet_sync?.items ?? []).filter(item => monthKey(item.event_date) === key).length;
-    return [[trips.filter(trip => trip.status === 'confirmed' && trip.is_missing_price === true).length, 'chưa có giá'],
-      [trips.filter(trip => trip.status === 'pending_review').length, 'chờ kiểm'], [sheet, 'từ Sheet cần xem']]
+    return [[trips.filter(trip => trip.status === 'confirmed' && trip.is_missing_price === true).length, 'chưa có giá', 'thieu-gia'],
+      [trips.filter(trip => trip.status === 'pending_review').length, 'chờ kiểm', 'cho-kiem'], [sheet, 'từ Sheet cần xem', 'sheet']]
       .filter(([count]) => count > 0);
+  }
+  // Việc chờ của cả sổ: cộng mọi chip tháng theo loại, giữ thứ tự loại như trên. Số trên thẻ Sổ và khối "Còn gì làm số chưa
+  // đúng" của thẻ Tình hình (TRANG-KHACH-01) cùng lấy ở đây nên luôn bằng tổng chấm cam.
+  function bookWork(data, groups = bookMonths(data, data.status === 'active').groups) {
+    const total = new Map();
+    for (const item of groups) {
+      for (const [count, what, kind] of monthWork(data, monthKey(item.month))) total.set(kind, [(total.get(kind)?.[0] ?? 0) + count, what, kind]);
+    }
+    return ['thieu-gia', 'cho-kiem', 'sheet'].filter(kind => total.has(kind)).map(kind => total.get(kind));
   }
 
   // Dòng sổ gốc của tháng: chuyến và khoản thu cùng một hàng Sheet thành một cặp, giữ thứ tự hàng Sheet.
@@ -213,7 +223,7 @@
     // work: tổng số việc chờ của mọi chip (số trên thẻ Sổ của trang khách, TRANG-KHACH-01).
     return { sections: groups.map(item => monthSection(item, book)).join(''),
       chips: `<nav class="month-chips" aria-label="Các tháng của sổ">${groups.map(item => monthChip(item, book)).join('')}</nav>`,
-      work: groups.reduce((sum, item) => sum + monthWork(data, monthKey(item.month)).reduce((total, [count]) => total + count, 0), 0) };
+      work: bookWork(data, groups).reduce((sum, [count]) => sum + count, 0) };
   }
 
   // ---- Thu gọn / xem chi tiết, chip tháng, tháng đang xem ----
@@ -293,5 +303,5 @@
     markCurrent();
   }
 
-  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth });
+  Object.assign(ctx, { monthSections, monthsAfterRender, showMonth, bookWork });
 };

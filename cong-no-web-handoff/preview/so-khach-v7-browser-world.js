@@ -43,17 +43,20 @@ function makeWorld() {
   };
 }
 
+// world.todayMonth (tháng hiện tại của server), world.months (cả months[]), world.status và world.total (null khi chưa có số dư
+// đầu) để test thẻ Tình hình dựng sổ nhiều tháng; mặc định như trước.
 function ledger(world) {
   const trips = world.trips.filter(trip => !trip.deleted);
   const legacy = world.legacy.filter(row => !row.current.deleted);
-  const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(todayMonth))].sort();
+  const today = world.todayMonth ?? todayMonth;
+  const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(today))].sort();
   const feeSum = lines => lines.reduce((sum, line) => sum + BigInt(line.amount_vnd), 0n);
-  return { status: 'active', customer_id: 1, version: world.version, demo: true, today_month: todayMonth,
+  return { status: world.status ?? 'active', customer_id: 1, version: world.version, demo: true, today_month: today,
     fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })),
     month_locks: world.locks,
-    months: keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
+    months: world.months ?? keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
       ...world.monthValues?.[month] })),
-    total_outstanding_vnd: world.total ?? '0', trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
+    total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
@@ -323,6 +326,13 @@ async function withPage(fn, setup = () => {}) {
       return;
     }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
+    // Thẻ Tình hình (TRANG-KHACH-01): dòng Tổng quan và lần nhắc của sổ giả do test đặt; mặc định sổ không nợ, chưa nhắc.
+    if (url.pathname === '/api/v7/dashboard/debt' || (url.pathname === '/api/v7/reminders' && req.method === 'GET')) {
+      (world.sideReads ??= []).push(url.pathname);
+      send(200, url.pathname.endsWith('/reminders') ? { reminders: world.reminders ?? [] } : world.debt ?? { as_of: clock,
+        rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 }, receivable_vnd: '0', customers: [] });
+      return;
+    }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
     if (url.pathname === '/api/v7/receipt-images') {
       send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });
@@ -378,6 +388,7 @@ async function withPage(fn, setup = () => {}) {
     // SO-GON-04: sổ chỉ mở sẵn tháng hiện tại và tháng liền trước. Dữ liệu giả nằm ở tháng 9/2026 nên mặc định mở tháng đó
     // (?month=) để test không đổi theo ngày chạy; world.month = null để thử đúng mặc định.
     const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
+    if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head .history-toggle');
     // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.

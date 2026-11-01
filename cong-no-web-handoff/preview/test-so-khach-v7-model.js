@@ -694,3 +694,36 @@ test("tách phụ phí theo bảng PS: chỉ ghi 'Tổng tiền không đổi' k
   const names = { 1: "Neo", 2: "Điện" };
   assert.equal(model.feeLinesText(ready[0].after, id => names[id]), "Neo 1.500.000 + Điện 500.000");
 });
+
+// Trang khách, thẻ Tình hình (TRANG-KHACH-01, khối 2): số lấy nguyên từ months[] của GET; tháng thiếu không có cột,
+// điểm Còn nợ cuối tháng giữ số tháng gần nhất trước đó (kể cả tháng trước cửa sổ); vị trí vẽ chung một thang có số 0.
+test("chuỗi 12 tháng của thẻ Tình hình: tháng thiếu không có cột, điểm còn nợ giữ tháng trước, thang có số 0", () => {
+  const row = (month, charges, received, end) => ({ month: `${month}-01`, charges_vnd: charges, received_vnd: received, end_of_month_vnd: end });
+  const months = [row("2025-09", "100", "0", "100"), row("2025-10", "50", "20", "130"), row("2025-12", "0", "30", "100"),
+    row("2026-01", "40", "0", "140"), row("2026-03", "60", "200", "0"), row("2026-10", "20", "10", "10")];
+  const series = model.monthSeries([...months].reverse(), "2026-10-01");
+  assert.deepEqual(series.items.map(item => item.key), ["2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05",
+    "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+  assert.deepEqual(series.items.map(item => item.present), [false, true, true, false, true, false, false, false, false, false, false, true]);
+  assert.deepEqual(series.items.map(item => item.chargesVnd), [null, 0n, 40n, null, 60n, null, null, null, null, null, null, 20n]);
+  assert.deepEqual(series.items.map(item => item.receivedVnd), [null, 30n, 0n, null, 200n, null, null, null, null, null, null, 10n]);
+  assert.deepEqual(series.items.map(item => item.endVnd), [130n, 100n, 140n, 140n, 0n, 0n, 0n, 0n, 0n, 0n, 0n, 10n]);
+  assert.deepEqual(series.items.map(item => item.carried), [true, false, false, true, false, true, true, true, true, true, true, false]);
+  assert.deepEqual([series.zeroAt, series.items[2].endAt, series.items[4].receivedAt, series.items[3].chargesAt], [0, 0.7, 1, null]);
+  assert.deepEqual([series.low, series.last], [4, 11]);
+});
+
+test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ chưa có tháng nào thì không có điểm; tháng sai thì báo lỗi", () => {
+  const credit = model.monthSeries([{ month: "2026-09-01", charges_vnd: "0", received_vnd: "500", end_of_month_vnd: "-200" },
+    { month: "2026-10-01", charges_vnd: "100", received_vnd: "0", end_of_month_vnd: "-100" }], "2026-10", 3);
+  assert.deepEqual(credit.items.map(item => [item.key, item.endVnd, item.endAt, item.carried]),
+    [["2026-08", null, null, false], ["2026-09", -200n, 0, false], ["2026-10", -100n, 0.1428, false]]);
+  assert.deepEqual([credit.zeroAt, credit.items[1].receivedAt, credit.low, credit.last], [0.2857, 1, 1, 2]);
+  const empty = model.monthSeries([], "2026-02", 3);
+  assert.deepEqual(empty.items.map(item => [item.key, item.present, item.endVnd]), [["2025-12", false, null], ["2026-01", false, null], ["2026-02", false, null]]);
+  assert.deepEqual([empty.zeroAt, empty.low, empty.last], [0, null, null]);
+  assert.throws(() => model.monthSeries([], "2026-13"), /Invalid month/);
+  assert.throws(() => model.monthSeries([{ month: "2026-10-01", charges_vnd: "1.5" }], "2026-10"), /Invalid VND/);
+  assert.deepEqual([model.creditOf("-50000000"), model.creditOf("10"), model.creditOf("0")], [50000000n, 0n, 0n]);
+  assert.throws(() => model.creditOf(null), /Invalid VND/);
+});
