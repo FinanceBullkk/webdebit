@@ -1461,6 +1461,44 @@ class ReceiptImageApiTest(unittest.TestCase):
                 self.assertEqual(caught.exception.code, code)
 
 
+
+class SheetProjectionLegacyRefs(unittest.TestCase):
+    """Hàng chờ chuyến mới hỏi sổ gốc của sổ khác đúng các container đang chờ ở sổ này (chặn trùng 1/11/2026)."""
+
+    def test_waiting_containers_are_checked_against_other_books(self):
+        snapshot = {"sha256": "a" * 64, "row_count": 3, "rows": [
+            {"source_row": 2, "container": "dup 1", "event_date": "2026-03-18", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 3, "container": "NEW1", "event_date": "2026-03-19", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 4, "container": "ELSE1", "event_date": "2026-03-19", "status": "READY", "customer_name": "Khách B"}]}
+        calls = []
+
+        class Runner:
+            def run(self, function, payload, actor):
+                calls.append((function, payload))
+                return {"list_customers": {"customers": [{"id": 7, "name": "KHÁCH A", "status": "active"},
+                                                         {"id": 8, "name": "KHÁCH B", "status": "active"}]},
+                        "list_sheet_trip_refs": {"items": []},
+                        "list_legacy_trip_refs": {"items": [
+                            {"customer_id": 8, "container": "DUP1", "event_date": None, "debt_month": "2026-03-01"},
+                            {"customer_id": 7, "container": "NEW1", "event_date": None, "debt_month": "2026-03-01"}]}}[function]
+
+        with patch.object(v7_api_sheet, "load_snapshot", return_value=snapshot),                 patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 0, "refs": []}):
+            result = v7_api_sheet.sheet_projection(Runner(), {"customer_id": 7, "trips": [], "legacy_rows": []}, "tester")
+        self.assertIn(("list_legacy_trip_refs", {"containers": ["DUP1", "NEW1"]}), calls)
+        states = {item["container"]: (item["sync_state"], item["sync_reason"]) for item in result["items"]}
+        # NEW1 chỉ có ở sổ gốc của chính sổ này theo hàm đọc: phần so cùng sổ lo, không bị coi là sổ khác.
+        self.assertEqual(states, {"dup 1": ("CONFLICT", "OTHER_BOOK_LEGACY"), "NEW1": ("NEW", "")})
+
+    def test_bad_legacy_refs_hide_the_queue(self):
+        class Runner:
+            def run(self, function, payload, actor):
+                return {"list_customers": {"customers": [{"id": 7, "name": "KHÁCH A", "status": "active"}]},
+                        "list_sheet_trip_refs": {"items": []}, "list_legacy_trip_refs": {"items": None}}[function]
+        snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [
+            {"source_row": 2, "container": "DUP1", "event_date": "2026-03-18", "status": "READY", "customer_name": "Khách A"}]}
+        with patch.object(v7_api_sheet, "load_snapshot", return_value=snapshot),                 patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 0, "refs": []}),                 self.assertRaises(ValueError):
+            v7_api_sheet.sheet_projection(Runner(), {"customer_id": 7, "trips": [], "legacy_rows": []}, "tester")
+
 if __name__ == "__main__":
     unittest.main()
 

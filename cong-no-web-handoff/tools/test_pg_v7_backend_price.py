@@ -4,6 +4,7 @@ import re
 
 from pg_v7_harness import (
     CAN_DU_MIGRATION,
+    CHAN_TRUNG_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
@@ -202,7 +203,13 @@ def check_price_migration(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))
     pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"))  # bản apply_price_table hiện hành (29/10)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"))  # bản record_receipt/get_receivables_detail hiện hành (30/10)
-    require([pg.value(q) for q in (catalog, cols, constraints)] == fresh, "price migration rerun changed schema")
+    pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # bản paste_trips hiện hành (1/11)
+    after = [pg.value(q) for q in (catalog, cols, constraints)]
+    if after != fresh:
+        diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
+                if json.loads(after[0]).get(k) != json.loads(fresh[0]).get(k)]
+        require(False, f"price migration rerun changed schema: functions {diff}, cols {after[1] != fresh[1]}, "
+                       f"constraints {after[2] != fresh[2]}")
     db = "webdebit_v7_price_migration"
     pg.sql(f"CREATE DATABASE {db}", database="postgres")
     old_schema = run(["git", "show", PRE_PRICE_REF + ":specs/v7-backend/schema-draft.sql"], cwd=ROOT).stdout
@@ -230,5 +237,6 @@ def check_price_migration(pg):
     pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8"), database=db)
+    pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

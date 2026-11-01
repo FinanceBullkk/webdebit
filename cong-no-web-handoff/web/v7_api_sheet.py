@@ -120,7 +120,20 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             raise ValueError("web trip references invalid")
         if ref["customer_id"] != ledger.get("customer_id"):
             other_containers.add("".join(ref["container"].upper().split()))
-    return project_customer(build_queue(snapshot, customers, baseline), ledger, other_containers)
+    queue = build_queue(snapshot, customers, baseline)
+    waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in queue["items"]
+                      if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"} - {""})
+    other_legacy = []
+    for start in range(0, len(waiting), 1000):
+        items = runner.run("list_legacy_trip_refs", {"containers": waiting[start:start + 1000]}, actor).get("items")
+        if not isinstance(items, list):
+            raise ValueError("legacy trip references unavailable")
+        for ref in items:
+            if not isinstance(ref, dict) or type(ref.get("customer_id")) is not int or not isinstance(ref.get("container"), str):
+                raise ValueError("legacy trip references invalid")
+            if ref["customer_id"] != ledger.get("customer_id"):
+                other_legacy.append(ref)
+    return project_customer(queue, ledger, other_containers, other_legacy)
 
 
 def approve_request(raw: bytes, runner: Psql, actor: str) -> tuple[int, int, str, str, dict]:
