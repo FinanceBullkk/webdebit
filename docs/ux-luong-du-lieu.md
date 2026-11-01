@@ -116,7 +116,9 @@ Nơi đi và nơi đến có thể ảnh hưởng giá vì bảng giá tính the
 - **Q3:** Phiếu thu từ Sheet vẫn để người bấm xác nhận, nhưng ở hộp chung? *Claude đề xuất: có. Tiền vào là chỗ M4, giữ người.*
 - **Q4:** Với khách có nhiều sổ theo mặt hàng, làm sao biết một dòng booking thuộc sổ nào? Booking sheet có cột mặt hàng (như LOAI HANG của TONG theo `MH-01`) không?
 
-## 8. Chặn tính trùng ở hàng chờ chuyến mới (ĐỀ XUẤT, từ kết quả mục 3.3)
+## 8. Chặn tính trùng ở hàng chờ chuyến mới (từ kết quả mục 3.3)
+
+Việc 1 và 2 **ĐÃ TRIỂN KHAI** trên `hao` 1/11/2026 (PR FinanceBullkk/webdebit#240, [nhật ký](deploys/2026-11-01-chan-trung-hang-cho.md)). Đo lại sau triển khai: "chuyến mới" chờ duyệt từ 341 còn 100; 241 dòng hiện "đã có ở sổ gốc của sổ khác". Việc 3 còn chờ Q4.
 
 1. **Hàng chờ:** trước khi gọi một dòng là "mới", so container với sổ gốc còn hiệu lực và chuyến web của **mọi** sổ.
    - Có ở sổ khác thì hiện "Đã có ở sổ …, ngày …", không có nút Duyệt, đưa vào hộp ngoại lệ.
