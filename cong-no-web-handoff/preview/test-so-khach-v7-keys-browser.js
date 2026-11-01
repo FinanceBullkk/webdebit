@@ -198,6 +198,7 @@ test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; l
 
 test('lưới bảng giá: mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
   const at = () => page.evaluate(() => `${document.activeElement?.dataset.r}:${document.activeElement?.dataset.c}`);
+  await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
   await dialog.locator('.price-grid-main').waitFor();

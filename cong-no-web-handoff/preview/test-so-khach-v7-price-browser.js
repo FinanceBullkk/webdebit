@@ -72,6 +72,7 @@ const cell = (r, c) => `.price-table-dialog input[data-r="${r}"][data-c="${c}"]`
 const rowStatus = (page, r) => page.locator('.price-table-dialog tbody tr').nth(r).locator('td.st').innerText();
 
 test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy cột shipper TT), lỗi tại dòng, đổi giá từ ngày, lưu đúng dữ liệu gửi server', async () => withPage(async ({ page, world, shot }) => {
+  await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
   await dialog.locator('.price-help').waitFor();
@@ -136,6 +137,7 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
 }));
 
 test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi đi giữ nguyên; lỗi server giữ bảng đang sửa; đóng khi chưa lưu thì hỏi', async () => withPage(async ({ page, world }) => {
+  await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
   await dialog.locator('.price-grid-main').waitFor();
@@ -160,6 +162,7 @@ test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi �
   assert.deepEqual(body.price_table.locations, [{ name: 'DAK LAK', aliases: ['DAKLAK'] }]);
   assert.deepEqual(body.price_table.tt_shippers, ['TT CHUẨN']);
 
+  await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   await dialog.locator('.price-grid-main').waitFor();
   await page.fill(cell(0, 3), '1');

@@ -482,3 +482,13 @@ body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) 
 .pay-block .pay-empty{font-weight:400;color:#475d73}
 .pay-block .pay-list{width:594px;max-width:100%;border-top:1px solid #d8e1ec;border-left:1px solid #d8e1ec}
 .pay-block .pay-list.empty{display:none}
+/* SO-GON-06: một thanh việc dưới đầu trang — việc cần làm bên trái (nút và các ô "cần xem"), giờ Sheet, Làm mới, menu Cài đặt bên phải. */
+.book-tasks .price-strip{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 10px;border:1px solid #e3c98f;border-radius:4px;background:#fff8e6;font-size:15px}
+.book-tasks .price-strip button{min-height:30px;padding:0 4px}
+.book-settings{position:relative}
+.book-settings>summary{display:inline-flex;align-items:center;min-height:40px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font-size:15px;cursor:pointer;list-style:none}
+.book-settings>summary::-webkit-details-marker{display:none}.book-settings>summary::after{content:'▾';margin-left:6px}
+.book-settings>summary:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.settings-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:60;display:flex;flex-direction:column;gap:4px;min-width:200px;padding:6px;background:#fff;border:1px solid #8daac9;border-radius:6px;box-shadow:0 6px 18px #162d4833}
+.settings-menu button{min-height:40px;padding:0 12px;border:0;border-radius:4px;background:none;color:#173d65;font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.settings-menu button:hover,.settings-menu button:focus-visible{background:#eaf1fa}

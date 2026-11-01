@@ -71,13 +71,23 @@ test('Trạng thái dòng là nhãn chữ: "chờ kiểm" bấm mở dòng kết
   assert.equal(await page.locator('td.missing').first().innerText(), 'chưa có giá');
 }, rich));
 
-test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu sổ một nút chính; Làm mới ở dải dưới đầu sổ', async () => withPage(async ({ page, world }) => {
+test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu sổ một nút chính; một thanh việc: Làm mới, menu Cài đặt', async () => withPage(async ({ page, world }) => {
   assert.equal(await page.locator('.topbar #refresh-data, .topbar .live-controls, .topbar .presence-toggle').count(), 0);
   const head = page.locator('.book-head');
   assert.equal(await head.locator('button.entry-open').count(), 1);
   assert.deepEqual(await head.locator('button:not([role="tab"])').allInnerTexts(), ['Ghi phiếu thu', 'Lịch sử']);
   assert.equal(await page.locator('.book-bar #refresh-data').innerText(), 'Làm mới');
-  assert.equal(await page.locator('.book-bar .fee-settings-open').count(), 1);
+  // SO-GON-06: cài đặt nằm trong menu "Cài đặt ▾" của thanh việc (ẩn tới khi mở); bấm ra ngoài thì đóng.
+  assert.equal(await page.locator('.book-bar .settings-menu .fee-settings-open').count(), 1);
+  assert.equal(await page.locator('.book-bar .settings-menu .price-table-open').count(), 1);
+  assert.equal(await page.locator('.book-bar .settings-menu .presence-toggle').count(), 1);
+  assert.equal(await page.locator('.fee-settings-open').isVisible(), false);
+  await page.locator('.book-settings > summary').click();
+  assert.equal(await page.locator('.fee-settings-open').isVisible(), true);
+  await page.locator('.book-head').click({ position: { x: 5, y: 5 } });
+  assert.equal(await page.locator('.fee-settings-open').isVisible(), false);
+  // Không còn hàng riêng nào giữa thanh việc và chip tháng.
+  assert.equal(await page.evaluate(() => document.querySelector('.book-bar').nextElementSibling?.matches('.price-strip')), false);
   assert.equal(await page.locator('.book-bar #updated-at').count(), 1);
   // Làm mới ở dải mới vẫn tải lại sổ như trước.
   const before = world.reads;
