@@ -36,8 +36,21 @@ const conversations = () => ({ total: 2, conversations: [
 const report = () => ({ status: 'EXPORTED_WITH_GAPS', conversation_count: 2, message_count: 8, named_conversations: 1, owner_conversations: 1, body_missing: 1, attachment_matched: 1, attachment_unmatched: 1, skipped_lines: 0 });
 const { foldText: fold } = require('./cong-no-format.js');   // cùng quy tắc với fold của web/v7_zalo_chat.py
 
+// ZALO-GROUP-01: gói web — một group có tên người gửi và ảnh; 120 tin để thử mở thẳng một tin ở trang giữa.
+const GROUP = '5'.repeat(64);
+const PIC = 'e'.repeat(64);
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const people = { [OWNER]: 'Hào', [KHACH]: 'Vũ', ['c'.repeat(64)]: 'Lan kế toán' };
+const groupRows = Array.from({ length: 120 }, (_, i) => {
+  const sender = i % 3 === 0 ? OWNER : i % 3 === 1 ? KHACH : 'c'.repeat(64);
+  const row = msg(`g${i}`, sender === OWNER, DAY + i * 60_000, `Tin số ${i}`, { sender_id: sender, sender_name: people[sender], media: [], deleted: false });
+  if (i === 118) return { ...row, message_type: 2, type_label: 'Ảnh', body_kind: 'card', body_text: null, media: [{ id: PIC, mime: 'image/png', width: 1, height: 1 }] };
+  if (i === 119) return { ...row, message_type: 2, type_label: 'Ảnh', body_kind: 'card', body_text: null, media: [] };
+  return row;
+});
+
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ unavailable = false, requests = [], drop = new Set() } = {}) {
+function makeServer({ unavailable = false, requests = [], drop = new Set(), bundled = false } = {}) {
   return http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     if (drop.has(url.pathname)) { req.socket.destroy(); return; }
@@ -46,20 +59,32 @@ function makeServer({ unavailable = false, requests = [], drop = new Set() } = {
     if (url.pathname.startsWith('/api/v7/zalo/')) {
       requests.push(url.pathname + url.search);
       if (unavailable) return json(503, { error: 'ZALO_EXPORT_UNAVAILABLE', message: 'Máy chủ chưa có bản xuất chat Zalo: chưa đặt WEBDEBIT_ZALO_EXPORT_DIR' });
-      if (url.pathname === '/api/v7/zalo/report') return json(200, report());
-      if (url.pathname === '/api/v7/zalo/conversations') return json(200, conversations());
+      if (url.pathname === `/api/v7/zalo/media/${PIC}`) return send(200, 'image/png', PNG);
+      if (url.pathname === '/api/v7/zalo/report') {
+        return json(200, bundled ? { ...report(), status: 'BUNDLED', conversation_count: 1, message_count: 120, media_count: 1, built_at: '2026-11-01T14:12:19+07:00' } : report());
+      }
+      if (url.pathname === '/api/v7/zalo/conversations') {
+        return json(200, bundled ? { total: 1, conversations: [{ conversation_id: GROUP, display_name: 'Nhóm Vũ - công nợ', name_status: 'name_index', message_count: 120,
+          last_message_at: DAY + 119 * 60_000, last_own_message_at: DAY + 117 * 60_000, participant_count: 3, is_group: true }] } : conversations());
+      }
       if (url.pathname === '/api/v7/zalo/messages') {
         const id = url.searchParams.get('conversation');
-        if (id !== CONV_A && id !== CONV_B) return json(404, { error: 'CONVERSATION_NOT_FOUND', message: 'Không có hội thoại này.' });
-        const page = Number(url.searchParams.get('page') ?? 0);
+        if (![CONV_A, CONV_B, GROUP].includes(id)) return json(404, { error: 'CONVERSATION_NOT_FOUND', message: 'Không có hội thoại này.' });
+        let page = Number(url.searchParams.get('page') ?? 0);
         const limit = Number(url.searchParams.get('limit') ?? 50);
         const q = fold(url.searchParams.get('q') ?? '');
-        const rows = id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL;
+        const rows = id === GROUP ? groupRows : id === CONV_B ? [msg('x1', false, DAY, 'Khuyến mãi hôm nay')] : ALL;
         const selected = q ? rows.filter(m => m.body_text && fold(m.body_text).includes(q)) : rows;
+        const focus = url.searchParams.get('message');
+        if (focus) {
+          const at = selected.findIndex(m => m.message_id === focus);
+          if (at < 0) return json(404, { error: 'MESSAGE_NOT_FOUND', message: 'Tin này không còn trong dữ liệu chat.' });
+          page = Math.floor((selected.length - 1 - at) / limit);
+        }
         const end = Math.max(selected.length - page * limit, 0);
         const start = Math.max(end - limit, 0);
         return json(200, { conversation_id: id, messages: selected.slice(start, end), total: selected.length, page, limit,
-          pages: Math.ceil(selected.length / limit), has_older: start > 0, query: url.searchParams.get('q') ?? '' });
+          pages: Math.ceil(selected.length / limit), has_older: start > 0, query: url.searchParams.get('q') ?? '', ...(focus ? { focus } : {}) });
       }
       return json(404, { error: 'NOT_FOUND' });
     }
@@ -107,7 +132,8 @@ test('Chat Zalo: danh sách hội thoại có tên, số tin, ngày tin cuối; 
     assert.deepEqual(await page.locator('.day').allInnerTexts(), ['09/10/2025', '10/10/2025']);
     assert.deepEqual(await page.locator('.msg.own .who').allInnerTexts(), ['Mình', 'Mình', 'Mình']);
     assert.equal(await page.locator('.msg.other .who').first().innerText(), 'Nguyễn Hoàng Vũ');
-    assert.match(await page.locator('.msg[data-id="m1"] .meta').innerText(), /Văn bản\s*đã gửi/);
+    // ZALO-GROUP-01: dòng trên bong bóng chỉ còn người gửi và giờ (bỏ "Văn bản · đã gửi" cho đỡ rối).
+    assert.doesNotMatch(await page.locator('.msg[data-id="m1"] .meta').innerText(), /Văn bản|đã gửi/);
     // Đính kèm đã khớp, chưa khớp, và tin thiếu nội dung đều hiện rõ.
     assert.match(await page.locator('.msg[data-id="m3"] .att.matched').innerText(), /Ảnh · 1920×2560/);
     assert.match(await page.locator('.msg[data-id="m4"] .att.unmatched').innerText(), /chưa khớp metadata: cong-no.pdf/);
@@ -216,4 +242,57 @@ test('Chat Zalo: màn hình điện thoại hiện danh sách, mở hội thoạ
     assert.ok(await page.locator('.list-pane').isVisible());
     assert.ok(await page.locator('.detail-pane').isHidden());
   }, { viewport: { width: 390, height: 844 } });
+});
+
+test('Chat Zalo (gói web): group có tên người gửi theo cụm, ảnh trong tin, bấm xem lớn, ảnh mất thì báo', async () => {
+  await withPage({ bundled: true }, async (page, logs) => {
+    await page.locator('.conv').first().waitFor();
+    assert.match(await page.locator('#summary').innerText(), /^1 group · 120 tin · 1 ảnh · cập nhật 14:12 01\/11\/2026 · chỉ xem$/);
+    await page.locator('.conv').first().click();
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    // Khung tin tự cuộn và đứng ở tin mới nhất; trang không dài theo số tin (lỗi flex: 1 bỏ qua height, sửa 1/11/2026).
+    const layout = await page.locator('#messages').evaluate(box => ({ inner: box.scrollHeight > box.clientHeight,
+      bottom: Math.round(box.scrollHeight - box.scrollTop - box.clientHeight), page: document.documentElement.scrollHeight }));
+    assert.deepEqual(layout, { inner: true, bottom: 0, page: 720 });
+    assert.equal(await page.locator('.msg[data-id="g117"] .who').innerText(), 'Mình');
+    assert.equal(await page.locator('.msg[data-id="g118"] .who').innerText(), 'Vũ');
+    assert.equal(await page.locator('.msg[data-id="g119"] .who').innerText(), 'Lan kế toán');
+    const picture = page.locator('.msg[data-id="g118"] .pic img');
+    await picture.waitFor();
+    assert.equal(await picture.evaluate(img => img.complete && img.naturalWidth), 1);
+    assert.match(await picture.getAttribute('src'), new RegExp(`/api/v7/zalo/media/${PIC}$`));
+    assert.match(await page.locator('.msg[data-id="g119"] .pic-gone').innerText(), /Ảnh không còn trên Zalo/);
+    await page.locator('.msg[data-id="g118"] .pic').click();
+    assert.ok(await page.locator('#pic-viewer').evaluate(dialog => dialog.open));
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#pic-viewer').evaluate(dialog => dialog.open), false);
+    assert.ok(!logs.some(line => /Tin số/.test(line)), 'không log nội dung tin ra console');
+  }, {});
+});
+
+test('Chat Zalo (gói web): ?c=&m= mở đúng tin ở giữa hội thoại, tô sáng, tải được tin mới hơn và cũ hơn', async () => {
+  const requests = [];
+  await withPage({ bundled: true, requests }, async page => {
+    await page.locator('.msg.focus').waitFor();
+    assert.equal(await page.locator('.msg.focus').getAttribute('data-id'), 'g30');
+    assert.ok(requests.some(r => r.includes('message=g30')));
+    // 120 tin, trang 50: g30 ở trang 1 (g20–g69); còn tin cũ hơn và tin mới hơn.
+    assert.deepEqual(await page.locator('.msg').evaluateAll(nodes => [nodes[0].dataset.id, nodes.at(-1).dataset.id]), ['g20', 'g69']);
+    assert.ok(await page.locator('.msg.focus').isVisible());
+    await page.locator('#newer').click();
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    assert.equal(await page.locator('#newer').count(), 0);
+    assert.match(await page.locator('#older').innerText(), /20 tin/);
+    await page.locator('#older').click();
+    await page.locator('.end').waitFor();
+    assert.equal(await page.locator('.msg').count(), 120);
+    assert.equal(await page.locator('.msg.focus').count(), 0, 'tô sáng tắt sau 3 giây hoặc khi vẽ lại');
+  }, { query: `?c=${GROUP}&m=g30` });
+});
+
+test('Chat Zalo (gói web): tin đã đánh dấu không còn thì báo và hiện tin mới nhất', async () => {
+  await withPage({ bundled: true }, async page => {
+    await page.locator('.msg[data-id="g119"]').waitFor();
+    assert.match(await page.locator('#subtitle').innerText(), /Tin đã đánh dấu không còn trên web/);
+  }, { query: `?c=${GROUP}&m=khong-co` });
 });

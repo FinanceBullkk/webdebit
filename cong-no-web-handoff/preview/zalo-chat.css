@@ -4,8 +4,10 @@
 .chat-page .page-head .back { white-space: nowrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+/* flex: none: với flex: 1 trình duyệt bỏ qua height, khung tin dài theo nội dung và cả trang cuộn thay vì khung tin
+   (phát hiện 1/11/2026 khi có ảnh: mở hội thoại không thấy tin mới nhất). */
 .chat {
-  flex: 1; min-height: 0; display: grid; gap: 16px;
+  flex: none; min-height: 0; display: grid; gap: 16px;
   grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
   height: calc(100vh - 56px - 20px - 36px - 16px - 40px);
 }
@@ -53,6 +55,23 @@
 .msg.own .att { background: #dde9f8; }
 .msg.own .att.unmatched { background: var(--warning-soft); }
 .messages .end { align-self: center; font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+
+/* ZALO-GROUP-01: cụm tin như Zalo, ảnh trong tin, tin được mở từ dấu. */
+.msg:not(.first) { margin-top: -3px; }
+.msg .meta .who + time::before { content: "·"; margin-right: 6px; }
+.msg.focus { outline: 3px solid var(--warning); outline-offset: 2px; transition: outline-color .6s; }
+.msg .pics { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.msg .pic { padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 8px; overflow: hidden; line-height: 0; }
+.msg .pic:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.msg .pic img { display: block; max-width: 100%; object-fit: cover; background: var(--head); }
+.msg .pic img:not([style]) { width: 200px; height: 200px; }
+.msg .vid { max-width: min(320px, 100%); max-height: 320px; border-radius: 8px; background: #000; }
+.msg .pic-gone { margin-top: 4px; padding: 10px 12px; border-radius: 8px; background: var(--head); color: var(--ink-3); font-size: 13px; font-style: italic; }
+.messages .newer { align-self: center; margin-top: 8px; }
+.pic-viewer { max-width: 96vw; max-height: 96vh; padding: 8px; border: 0; border-radius: 10px; background: #111; }
+.pic-viewer::backdrop { background: rgba(0, 0, 0, .7); }
+.pic-viewer img { display: block; max-width: calc(96vw - 16px); max-height: calc(96vh - 64px); margin: 0 auto; }
+.pic-viewer .close { display: block; margin: 0 0 8px auto; min-height: 40px; }
 
 #error { margin-bottom: 12px; padding: 10px 14px; border-radius: 8px; background: var(--critical-soft); color: var(--critical); }
 #error code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
