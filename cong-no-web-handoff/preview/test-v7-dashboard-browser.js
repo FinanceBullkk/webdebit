@@ -31,8 +31,13 @@ const debt = { as_of: '2026-10-29', month: '2026-10-01', rule, receivable_vnd: '
       months: [{ month: '2026-10-01', outstanding_vnd: '380000000' }] }),
   ] };
 
+// Hộp ngoại lệ P1: kết quả GET /api/v7/inbox giả (specs/v7-hop-ngoai-le-p1.md).
+const INBOX_EMPTY = { state: 'ready', computed_at: '2026-11-01T08:02:00+00:00', sheet_at: '2026-11-01T07:45:00+00:00', refreshing: false, books_total: 3, books_done: 3, failed: [], books: [] };
+const inboxBook = (id, extra = {}) => ({ customer_id: id, receipts: { ready: 0, review: 0, amount_vnd: '0' }, removed: { count: 0, amount_vnd: '0' },
+  trips_new: 0, trips_check: { count: 0, reasons: {} }, text_diff: 0, prices: { ready: 0, review: 0 }, ps: { ready: 0, review: 0 }, ...extra });
+
 // `drop`: tập đường API mà máy chủ cắt kết nối (giả mất mạng); test xóa khỏi tập để lần sau tải được.
-function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set() } = {}) {
+function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus = 200, debtStatus = 200, customerStatus = 200, customers = [{ id: 1, name: 'Khách A' }, { id: 2, name: 'Khách C' }], people = [], drop = new Set(), inbox = INBOX_EMPTY, inboxStatus = 200 } = {}) {
   return http.createServer((req, res) => {
     const route = req.url.split('?')[0];
     const file = path.join(__dirname, route.replace(/^\//, ''));
@@ -43,6 +48,7 @@ function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus =
     if (route === '/api/v7/dashboard/debt') return send(debtStatus, 'application/json', value(debtPayload));
     if (route.startsWith('/api/v7/presence')) return send(200, 'application/json', JSON.stringify({ people }));   // PRESENCE-01
     if (route === '/api/v7/customers') return send(customerStatus, 'application/json', JSON.stringify({ customers }));
+    if (route === '/api/v7/inbox') return send(inboxStatus, 'application/json', value(inbox));   // hộp ngoại lệ P1
     if (!file.startsWith(__dirname) || !fs.existsSync(file)) return send(404, 'text/plain', 'not found');
     const type = file.endsWith('.html') ? 'text/html' : file.endsWith('.css') ? 'text/css' : 'text/javascript';
     return send(200, type, fs.readFileSync(file));
@@ -391,5 +397,60 @@ test('tab Việc cần làm: không có việc thì nói rõ; API debt lỗi ch�
   await withPage({ dashboardStatus: 503 }, async page => {
     await page.locator('#error').waitFor({ state: 'visible' });
     assert.match(await page.locator('#error').innerText(), /Không tải được việc cần làm/);
+  }, '/viec-can-lam.html');
+});
+
+test('Việc cần làm: khối "Từ Sheet chờ đưa vào sổ" gom việc mọi sổ, xếp theo tiền, mở đúng sổ', async () => withPage({
+  viewport: { width: 1280, height: 560 },
+  inbox: { ...INBOX_EMPTY, failed: [9], books: [
+    inboxBook(1, { receipts: { ready: 1, review: 0, amount_vnd: '50000000' }, trips_new: 3, text_diff: 4 }),
+    inboxBook(2, { receipts: { ready: 1, review: 1, amount_vnd: '150000000' }, trips_check: { count: 2, reasons: { OTHER_BOOK_LEGACY: 2 } },
+      ps: { ready: 0, review: 2 }, text_diff: 1 }),
+    inboxBook(7, { removed: { count: 1, amount_vnd: '30000000' }, prices: { ready: 1, review: 1 } }),
+  ] },
+}, async page => {
+  const card = page.locator('.inbox');
+  await card.locator('.todo-group').first().waitFor();
+  const text = await card.innerText();
+  assert.match(text, /Tính lúc 15:02 · Sheet lúc 14:45/);
+  assert.match(text, /Còn 13 việc ở 3 sổ · phiếu thu chờ ghi 200 triệu/);
+  assert.match(text, /1 sổ chưa tính được/);
+  // Nhóm theo thứ tự đụng tiền; trong nhóm phiếu thu, sổ nhiều tiền đứng trước.
+  const titles = await card.locator('.todo-title > span:first-child').allInnerTexts();
+  assert.deepEqual(titles, ['Phiếu thu từ Sheet chờ ghi', 'Chuyến đang tính nợ nhưng không còn trên Sheet', 'Chuyến mới từ Sheet chờ duyệt',
+    'Chuyến cần người xem', 'Giá từ Sheet', 'Phụ phí PS cần xem']);
+  assert.deepEqual(await card.locator('[data-group="receipts"] .who').allInnerTexts(), ['Khách C', 'Khách A']);
+  assert.match(await card.locator('[data-group="receipts"]').innerText(), /2 phiếu · 150 triệu \(1 cần xem\)/);
+  assert.match(await card.locator('[data-group="trips_check"]').innerText(), /2 chuyến · 2 đã có ở sổ khác/);
+  assert.match(await card.locator('[data-group="removed"]').innerText(), /Sổ #7\s+1 chuyến · 30 triệu/);
+  assert.match(text, /Lệch chữ nơi đi, nơi đến, shipper: 5 chỗ ở 2 sổ/);
+  assert.equal(await card.locator('[data-group="trips_new"] a').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+}, '/viec-can-lam.html'));
+
+test('Việc cần làm: khối Sheet đang tính, không đọc được Sheet, trống, lỗi tải có Thử lại', async () => {
+  let calls = 0;
+  await withPage({ inbox: () => (++calls === 1 ? { ...INBOX_EMPTY, state: 'computing', computed_at: null, books_done: 120, books_total: 236 }
+    : { ...INBOX_EMPTY, books: [inboxBook(1, { trips_new: 2 })] }) }, async page => {
+    await page.locator('.inbox .loading').waitFor();
+    assert.match(await page.locator('.inbox').innerText(), /Đang tính việc của mọi sổ \(đã xong 120\/236 sổ\)/);
+    await page.locator('.inbox [data-group="trips_new"]').waitFor({ timeout: 8000 });   // tự hỏi lại sau 5 giây
+  }, '/viec-can-lam.html');
+  await withPage({ inbox: { ...INBOX_EMPTY, state: 'unavailable', computed_at: null } }, async page => {
+    await page.locator('.inbox .empty').waitFor();
+    assert.match(await page.locator('.inbox').innerText(), /Chưa đọc được bản lấy từ Sheet/);
+  }, '/viec-can-lam.html');
+  await withPage({}, async page => {
+    await page.locator('.inbox .empty').waitFor();
+    assert.match(await page.locator('.inbox').innerText(), /Không còn việc từ Sheet/);
+  }, '/viec-can-lam.html');
+  const drop = new Set(['/api/v7/inbox']);
+  await withPage({ drop }, async page => {
+    await page.locator('.inbox-error').waitFor();
+    assert.match(await page.locator('.inbox').innerText(), /Không tải được việc từ Sheet/);
+    await page.locator('.todo .todo-group').first().waitFor();   // các nhóm cũ vẫn hiện
+    drop.delete('/api/v7/inbox');
+    await page.locator('[data-inbox-retry]').click();
+    await page.locator('.inbox .empty:not(.inbox-error)').waitFor();
   }, '/viec-can-lam.html');
 });

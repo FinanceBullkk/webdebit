@@ -122,6 +122,13 @@
 
 /* Việc cần làm (tab riêng) */
 .todo-group+.todo-group{margin-top:14px}
+/* Hộp ngoại lệ P1: khối đầu tab Việc cần làm, rộng cả trang */
+#inbox-root:not(:empty){margin-bottom:16px}
+.inbox{padding-bottom:12px}
+.inbox-summary{margin:0 0 10px;font-size:15px}
+.inbox-note{margin:12px 0 0;color:var(--ink-3);font-size:14px}
+.inbox-note.warn{color:var(--warning);font-weight:600}
+.inbox .more summary{cursor:pointer;padding:6px;color:var(--accent-ink);font-size:14px;font-weight:600}
 .todo-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;font-size:14.5px;font-weight:600}
 .todo-group .rows a{padding:7px 6px}
 .todo-group .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

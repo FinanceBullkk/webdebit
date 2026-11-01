@@ -18,7 +18,9 @@ from urllib.parse import parse_qs, urlsplit
 import v7_api_sheet
 import v7_api_zalo
 import v7_identity
+import v7_inbox
 import v7_presence
+import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
     approve_prices,
@@ -68,6 +70,13 @@ from v7_psql import (
 # gọi qua `api.`. Muốn vá (patch) một biến toàn cục thì vá ở module định nghĩa nó.
 
 PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
+# Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): kết quả chiếu của mọi sổ, tính nền, chỉ trong RAM của tiến trình.
+INBOX = v7_inbox.Inbox(
+    ledger_projections,
+    lambda: (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH,
+             v7_api_sheet.RECEIPT_SNAPSHOT_PATH, v7_api_sheet.PS_SNAPSHOT_PATH),
+    lambda: v7_sheet_refresh.status(v7_api_sheet.SHEET_REFRESH_PATH,
+                                    (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH), time.time()))
 STREAM_PING = 15.0
 STREAM_MAX_SECONDS = 600.0          # luồng SSE tự đóng, trình duyệt tự nối lại
 STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
@@ -144,6 +153,16 @@ def report_presence(raw: bytes, actor: str) -> tuple[int, dict]:
     return 200, {"people": PRESENCE.view(actor, report["tab"])}
 
 
+def touch_inbox(raw: bytes) -> None:
+    """Sau một lệnh ghi thành công: đánh dấu các sổ trong thân lệnh để hộp ngoại lệ tính lại ở lần đọc sau."""
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        return
+    if isinstance(body, dict):
+        INBOX.mark_dirty(*(body.get(key) for key in ("customer_id", "source_customer_id", "target_customer_id")))
+
+
 def handle_reminder(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     # NHAC-NO-01: ghi mốc "đã nhắc" đòi nợ. Ghi chú ngoài đường tiền: không version/idempotency.
     try:
@@ -207,7 +226,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     if method == "POST":
         special = POST_HANDLERS.get(parts.path)
         if special is not None:
-            return special(raw, runner, actor)
+            status, body = special(raw, runner, actor)
+            touch_inbox(raw)
+            return status, body
         function, payload = validate(parts.path, raw)
     elif parts.path == "/api/v7/sheet/refresh":
         if parts.query:
@@ -215,6 +236,10 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return refresh_sheet("GET", raw, actor)
     elif parts.path == "/api/v7/presence":
         return 200, {"people": PRESENCE.view(actor, presence_tab(parts.query))}
+    elif parts.path == "/api/v7/inbox":
+        if parts.query:
+            bad()
+        return 200, INBOX.view(runner)
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
@@ -227,6 +252,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     else:
         function, payload = validate_get(parts.path, parts.query)
     result = runner.run(function, payload, actor)
+    if method == "POST":
+        touch_inbox(raw)
     if function == "list_customers" and parts.path == "/api/v7/customers":
         result = with_display_names(result)
     if parts.path == "/api/v7/sheet-queue":
@@ -526,6 +553,7 @@ def main() -> None:
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()
+    INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
 
 
