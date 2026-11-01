@@ -20,6 +20,6 @@ So với bản 22/10: Harness, V7 trên `hao` (tự deploy khi merge `main`), ca
 - Khách còn mở của `SONG-SONG-03` (2): chủ nghiệp vụ xác định số phải thu trước F4.
 - Chép bản xuất chat Zalo lên `hao` để trang Chat Zalo có dữ liệu (`NHAC-NO-01`, sửa đổi ZALO-CHAT-01).
 - Bỏ đường export cũ khi Sheet xóa ba tab (sau khi đồng bộ chuyến đã đọc `CONT_NGUON` ổn định).
-- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy.
+- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)).
 
 Cập nhật bảng khi trạng thái đổi; lộ trình ở `docs/roadmap.md`, điều kiện khởi động ở `docs/song-song-checklist.md`.
