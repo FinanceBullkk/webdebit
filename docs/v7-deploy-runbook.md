@@ -1678,7 +1678,9 @@ Thứ tự với release: release mới gọi `/api/v7/zalo/links` và `/api/v7/
 
 Rollback: `DROP TABLE sokhach.contact_mark, sokhach.zalo_link` và `DROP FUNCTION` sáu hàm cùng `_mark_json`, dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore dump lúc dừng.
 
-## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐỀ XUẤT 1/11/2026)
+## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026; máy chưa bật)
+
+Đã nâng DB và đổi release 1/11/2026, xem [nhật ký](deploys/2026-11-01-khoa-chu.md). Bước 2 (bật máy) chưa chạy.
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql` ([`KHOA-CHU-01`](decisions/khoa-chu-01.md), [spec P3a](../specs/v7-hop-ngoai-le-p3a.md)) chỉ thay thân ba hàm `edit_trip_info`, `_change_legacy` (bản 8 tham số) và `resolve_sheet_conflict`: bốn ô chữ (hãng tàu, shipper, nơi đi, nơi đến) không đòi tháng mở. Tiền, ngày, container, xóa vẫn kiểm khóa. Không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền. Chạy lại được. **Chạy sau `2026-11-01-v7-chan-trung-hang-cho.sql`; độc lập với `2026-11-01-v7-zalo-group.sql`.** Đã đối chiếu 1/11/2026: sáu hàm liên quan trên `hao` trùng mã băm `pg_get_functiondef` với file chuẩn.
 
