@@ -535,3 +535,23 @@ test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đ�
     assert.equal(posted[0].idempotency_key, lost[0].idempotency_key);
   }, '/viec-can-lam.html');
 });
+
+test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt kê ô đã đổi, mở đúng sổ; lệch chữ còn lại ghi rõ máy bật hay chưa', async () => {
+  const auto = { text_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 2, today_books: 1,
+    items: [{ at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'destination', before: 'CANG C', after: 'CANG D' },
+      { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
+  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
+    const done = page.locator('.inbox .auto-done');
+    await done.waitFor();
+    assert.match(await done.locator('summary').innerText(), /Máy đã tự lấy theo Sheet hôm nay: 2 ô chữ ở 1 sổ/);
+    await done.locator('summary').click();
+    assert.match(await done.innerText(), /Khách C · MAUU0000001 · nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
+    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+    assert.match(await page.locator('.inbox .inbox-note').innerText(), /3 chỗ ở 1 sổ\. Không đụng tiền; máy lấy theo Sheet ở lượt tính tới/);
+  }, '/viec-can-lam.html');
+  await withPage({ inbox: { ...INBOX_EMPTY, auto: { ...auto, text_enabled: false, today_count: 0, items: [] }, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
+    await page.locator('.inbox .inbox-note').waitFor();
+    assert.match(await page.locator('.inbox .inbox-note').innerText(), /máy chưa bật tự lấy theo Sheet/);
+    assert.equal(await page.locator('.inbox .auto-done').count(), 0);
+  }, '/viec-can-lam.html');
+});

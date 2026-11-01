@@ -1307,7 +1307,10 @@ BEGIN
     END IF;
     IF (v_old->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
     v_old_month:=(v_old->>'month')::date; v_month:=v_old_month; v_old_count:=(v_old->>'counted_vnd')::bigint;
-    PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
+    -- KHOA-CHU-01 (1/11/2026): sửa một trong bốn ô chữ mô tả không cần tháng mở; xóa, tiền, ngày, container vẫn theo khóa.
+    IF p_delete OR p_fee_event IS NOT NULL OR field IS NULL OR field NOT IN ('carrier','shipper','origin','destination') THEN
+      PERFORM sokhach._month_open(customer_id,v_old_month,clock_timestamp());
+    END IF;
     IF NOT p_delete AND field='other_fee_vnd' AND v_old->>'unit_price_vnd' IS NULL
     THEN RAISE EXCEPTION 'LEGACY_NO_UNIT_PRICE'; END IF;
     IF p_delete THEN v_count:=0; v_new:=v_new||jsonb_build_object('deleted',true);

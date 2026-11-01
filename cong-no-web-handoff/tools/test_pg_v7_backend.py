@@ -21,6 +21,7 @@ from pg_v7_harness import (
     DATABASE,
     FUNCTIONS,
     IMAGE,
+    KHOA_CHU_MIGRATION,
     LABEL_RUN,
     LABEL_TEST,
     LABEL_VALUE,
@@ -60,6 +61,7 @@ from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_doi_no import check_doi_no
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
+from test_pg_v7_backend_khoa_chu import check_khoa_chu
 from test_pg_v7_backend_locks import (
     check_csm_locks,
     check_csm_migration,
@@ -245,12 +247,15 @@ CASES.append(case("CAN-DU.01", "BEHAVIOR", "Credit of negative months applied to
 # Chặn trùng hàng chờ 1/11/2026: chạy sau RA-GHI-TIEN.01, migration của nó là bản mới nhất của paste_trips.
 CASES.append(case("CHAN-TRUNG.01", "BEHAVIOR", "Undated original-book row holds a same-month paste; legacy refs listed by container",
                   check="chan_trung", functions=("paste_trips", "list_legacy_trip_refs", "_legacy_undated_match")))
+# KHOA-CHU-01 1/11/2026: chạy cuối, migration của nó là bản mới nhất của edit_trip_info/_change_legacy/resolve_sheet_conflict.
+CASES.append(case("KHOA-CHU.01", "BEHAVIOR", "Locked month: four text fields editable with audit; money, date, container, delete still locked",
+                  check="khoa_chu", functions=("edit_trip_info", "_change_legacy", "resolve_sheet_conflict")))
 
 # ZALO-GROUP-01 1/11/2026: gắn group ↔ sổ, dấu tin; trạng thái tính từ phiếu thu, không đổi số tiền.
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
 
-CHECKS = {"can_du": check_can_du, "chan_trung": check_chan_trung, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -352,7 +357,9 @@ def check_migration(pg: Pg) -> None:
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01: idempotent
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))
+    copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ: chạy lại được
+    copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "

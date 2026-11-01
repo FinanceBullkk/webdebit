@@ -5,6 +5,7 @@ import re
 from pg_v7_harness import (
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
+    KHOA_CHU_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
@@ -205,6 +206,7 @@ def check_price_migration(pg):
     pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"))  # bản apply_price_table hiện hành (29/10)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"))  # bản record_receipt/get_receivables_detail hiện hành (30/10)
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # bản paste_trips hiện hành (1/11)
+    pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -239,6 +241,7 @@ def check_price_migration(pg):
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8"), database=db)
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"), database=db)
+    pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

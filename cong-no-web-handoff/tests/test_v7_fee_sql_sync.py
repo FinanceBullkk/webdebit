@@ -17,6 +17,8 @@ AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-
 CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 # Chặn trùng hàng chờ 1/11/2026: paste_trips và hai hàm mới bằng migration mới nhất thay chúng.
 CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql"
+# KHOA-CHU-01 1/11/2026: edit_trip_info, _change_legacy, resolve_sheet_conflict bằng migration mới nhất thay chúng.
+KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -40,14 +42,20 @@ class FeeSqlSync(unittest.TestCase):
                 self.assertEqual(definition(migration, "FUNCTION", name),
                                  definition(canonical, "FUNCTION", name))
         audit = AUDIT_MIGRATION.read_text(encoding="utf-8")
-        for name in ("apply_price_table",
-                     "list_sheet_trip_refs", "guard_sheet_cross_customer", "resolve_sheet_conflict"):
+        for name in ("apply_price_table", "list_sheet_trip_refs", "guard_sheet_cross_customer"):
             with self.subTest(name=name):
                 self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
         for name in ("_legacy_undated_match", "paste_trips", "list_legacy_trip_refs"):
             with self.subTest(name=name):
                 self.assertEqual(definition(chan_trung, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        khoa_chu = KHOA_CHU_MIGRATION.read_text(encoding="utf-8")
+        for name in ("edit_trip_info", "resolve_sheet_conflict"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(khoa_chu, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        overload = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\._change_legacy\([^)]*p_fee_event bigint\).*?\$\$;"
+        self.assertEqual(re.search(overload, khoa_chu).group().replace("\r\n", "\n"),
+                         re.search(overload, canonical).group().replace("\r\n", "\n"))
         can_du = CAN_DU_MIGRATION.read_text(encoding="utf-8")
         for kind, name in (("FUNCTION", "record_receipt"), ("FUNCTION", "get_receivables_detail"),
                            ("VIEW", "v_outstanding_month_raw"), ("VIEW", "v_outstanding_month")):
@@ -83,9 +91,13 @@ class FeeSqlSync(unittest.TestCase):
         later = LEDGER_MIGRATION.read_text(encoding="utf-8")
         replaced = {m.group(1) for m in re.finditer(pattern, later)}
         self.assertEqual(replaced, {"_change_trip_fees", "get_ledger"})
+        # KHOA-CHU-01 (1/11/2026) thay _change_legacy bản 8 tham số; bản của nó phải có ở cả file chuẩn lẫn schema-draft.
+        khoa_chu = [m.group() for m in re.finditer(pattern, KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
+                    if m.group(1) == "_change_legacy"]
+        self.assertEqual(len(khoa_chu), 1)
         blocks = [m.group() for m in re.finditer(pattern, PR_B_MIGRATION.read_text(encoding="utf-8"))
-                  if m.group(1) not in replaced]
-        blocks += [m.group() for m in re.finditer(pattern, later)]
+                  if m.group(1) not in replaced and not (m.group(1) == "_change_legacy" and "p_fee_event bigint)" in m.group())]
+        blocks += [m.group() for m in re.finditer(pattern, later)] + khoa_chu
         self.assertGreaterEqual(len(blocks), 17)
         for block in blocks:
             with self.subTest(signature=block.split(" RETURNS")[0]):

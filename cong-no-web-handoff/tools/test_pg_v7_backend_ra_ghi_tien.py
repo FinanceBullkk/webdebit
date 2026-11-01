@@ -6,6 +6,7 @@ import json
 from pg_v7_harness import (
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
+    KHOA_CHU_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     actor_sql,
     allocations,
@@ -36,6 +37,7 @@ def check_ra_ghi_tien(pg) -> str:
     pg.sql(migration)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"))  # CAN-DU-01 thay record_receipt sau bản 29/10
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ thay paste_trips sau bản 29/10
+    pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     require(pg.value(CATALOG) == fresh, "ra-ghi-tien migration rerun changed function catalog")
     pg.true("EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip'::regclass AND tgname='trip_sheet_cross_customer')",
             "sheet cross-customer trigger missing from canonical schema")
