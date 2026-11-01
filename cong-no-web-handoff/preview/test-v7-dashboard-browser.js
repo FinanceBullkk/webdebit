@@ -555,3 +555,20 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
     assert.equal(await page.locator('.inbox .auto-done').count(), 0);
   }, '/viec-can-lam.html');
 });
+
+test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chuyến mới, đánh dấu chuyến chờ kiểm, mở đúng sổ', async () => {
+  const auto = { text_enabled: true, trips_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 0, today_books: 0,
+    items: [], today_trips: 2, today_trip_books: 1, today_trips_pending: 1,
+    trip_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000002', event_date: '2026-11-01', trip_id: 9, pending: false },
+      { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
+  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
+    const done = page.locator('.inbox .auto-done');
+    await done.waitFor();
+    assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
+    assert.match(await done.locator('summary').innerText(), /Máy đã đưa vào sổ hôm nay: 2 chuyến mới ở 1 sổ, 1 chuyến vào chờ kiểm/);
+    await done.locator('summary').click();
+    assert.match(await done.innerText(), /Khách C · MAUU0000002 · 01\/11\/2026\n[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
+    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+    assert.match(await done.innerText(), /chưa cộng vào nợ/);
+  }, '/viec-can-lam.html');
+});

@@ -231,6 +231,101 @@ class AutoTextTests(unittest.TestCase):
         self.assertEqual((view["auto"]["today_count"], view["auto"]["today_books"], view["auto"]["errors"]), (2, 1, 0))
         self.assertEqual(view["auto"]["items"][0]["after"], "CANG D")
 
+
+class AutoTripsTests(unittest.TestCase):
+    """P3b (HANG-CHO-01 Q2 theo Q5 A): máy bấm thay "Duyệt" cho chuyến mới đủ điều kiện, chỉ khi bật."""
+
+    NOW = 1793509200.0   # 1/11/2026 12:00 giờ VN
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "s.json"
+        self.path.write_text("{}", encoding="utf-8")
+        self.pasted = False
+        self.calls = []
+        new = {"sync_state": "NEW", "book_match": "COMMODITY_OK", "carrier": "HT", "origin": "KHO", "destination": "CANG"}
+        self.items = [
+            dict(new, source_row=10, container="OK1", event_date="2026-11-01"),
+            dict(new, source_row=11, container="MIS1", event_date="2026-11-01", book_match="COMMODITY_MISMATCH"),
+            dict(new, source_row=12, container="UNK1", event_date="2026-11-01", book_match="COMMODITY_UNKNOWN"),
+            dict(new, source_row=13, container="LOCK1", event_date="2026-10-05"),    # tháng 10 khóa
+            dict(new, source_row=14, container="FUT1", event_date="2026-11-02"),     # sau hôm nay
+            dict(new, source_row=15, container="DUP1", event_date="2026-11-01"),     # paste_trips đẩy sang chờ kiểm
+            {"sync_state": "CONFLICT", "sync_reason": "OTHER_CUSTOMER", "source_row": 16, "container": "OC1",
+             "event_date": "2026-11-01", "book_match": "COMMODITY_OK"},
+        ]
+
+        def project(runner, ledger, actor):
+            return projection(sheet_sync={"items": [] if self.pasted else [{"sync_state": "NEW"}], "removed_items": []})
+        self.inbox = v7_inbox.Inbox(project, lambda: (str(self.path),), clock=lambda: self.NOW)
+        test = self
+
+        class Runner:
+            version = 3
+
+            def run(self, function, payload, actor):
+                test.calls.append((function, payload, actor))
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "status": "active"}]}
+                if function == "get_ledger":
+                    return {"customer_id": 1, "version": self.version, "today_month": "2026-11-01", "month_locks": []}
+                if function == "paste_trips":
+                    if test.fail:
+                        raise ApiError(409, "STALE_LEDGER", "x")
+                    self.version += 1
+                    test.pasted = True
+                    ids = [100 + n for n in range(len(payload["trips"]))]
+                    return {"trip_ids": ids, "pending_review": [{"trip_id": ids[-1], "reason": "WEB_DUPLICATE"}]}
+                raise AssertionError(function)
+        self.fail = False
+        self.runner = Runner()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_once(self):
+        with patch.object(v7_inbox, "sheet_projection", return_value={"snapshot_sha256": "e" * 64, "items": self.items}):
+            self.inbox.start(self.runner)
+            wait_idle(self.inbox)
+        return self.inbox.view(self.runner)
+
+    def test_off_by_default(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "text"}):
+            view = self.run_once()
+        self.assertFalse([c for c in self.calls if c[0] == "paste_trips"])
+        self.assertEqual((view["auto"]["trips_enabled"], view["books"][0]["trips_new"]), (False, 1))
+
+    def test_pastes_only_eligible_rows_and_logs(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "text,trips"}):
+            view = self.run_once()
+        pastes = [c for c in self.calls if c[0] == "paste_trips"]
+        self.assertEqual(len(pastes), 1)
+        _, payload, actor = pastes[0]
+        self.assertEqual(actor, v7_inbox.AUTO_ACTOR)
+        self.assertEqual((payload["customer_id"], payload["expected_version"], payload["debt_month"]), (1, 3, "2026-11-01"))
+        self.assertEqual([t["container"] for t in payload["trips"]], ["OK1", "DUP1"])
+        self.assertTrue(all(t["unitPriceVnd"] is None and t["src"].startswith("sheet:" + "e" * 64) for t in payload["trips"]))
+        auto = view["auto"]
+        self.assertEqual((auto["today_trips"], auto["today_trip_books"], auto["today_trips_pending"], auto["errors"]), (2, 1, 1, 0))
+        self.assertEqual({(i["container"], i["pending"]) for i in auto["trip_items"]}, {("OK1", False), ("DUP1", True)})
+        self.assertEqual((auto["today_count"], auto["items"]), (0, []))   # ô chữ đếm riêng
+        self.assertEqual(view["books"], [])
+
+    def test_same_key_on_rerun_and_error_stops_book(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "trips"}):
+            self.run_once()
+            self.pasted = False
+            self.inbox.key = None
+            self.run_once()
+        keys = [c[1]["idempotency_key"] for c in self.calls if c[0] == "paste_trips"]
+        self.assertEqual((len(keys), len(set(keys))), (2, 1))   # cùng bản chụp, cùng dòng: DB trả lại kết quả cũ
+        self.fail, self.pasted = True, False
+        self.inbox.key = None
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "trips"}):
+            view = self.run_once()
+        self.assertEqual(view["auto"]["errors"], 1)
+
+
 class ApiInboxRoute(unittest.TestCase):
     def call(self, method, target, raw=b""):
         headers = {"Host": "127.0.0.1:8780"}

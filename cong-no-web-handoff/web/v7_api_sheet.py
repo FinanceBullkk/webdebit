@@ -158,7 +158,7 @@ def sheet_queue(customers: dict, parts_query: str) -> dict:
         baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
     except ValueError as exc:
         raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", str(exc)) from exc
-    queue = build_queue(snapshot, customers.get("customers", []), baseline)
+    queue = build_queue(snapshot, with_display_names(customers).get("customers", []), baseline)
     if parts_query:
         customer = int(parse_qs(parts_query, keep_blank_values=True)["customer"][0])
         queue["items"] = [item for item in queue["items"] if item["customer_id"] == customer]
@@ -170,7 +170,9 @@ def sheet_queue(customers: dict, parts_query: str) -> dict:
 def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
     baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
-    customers = runner.run("list_customers", {}, actor).get("customers", [])
+    # Tên khách và mặt hàng từ bảng gán tên để chọn sổ theo mặt hàng (P3b), như ba hàm chiếu kia.
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     refs = runner.run("list_sheet_trip_refs", {}, actor).get("items")
     if not isinstance(refs, list):
         raise ValueError("web trip references unavailable")
@@ -234,6 +236,16 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     rows = [item for item in projection["items"] if item["sync_state"] == "NEW"]
     if not rows:
         return 200, {"approved": 0, "remaining": 0}
+    return 200, paste_sheet_rows(runner, customer, version, digest, key, rows, actor)
+
+
+def paste_sheet_rows(runner: Psql, customer: int, version: int, digest: str, key: str, rows: list[dict],
+                     actor: str) -> dict:
+    """Dán các dòng Sheet "chuyến mới" của một sổ bằng `paste_trips`, theo tháng, 200 dòng một lệnh, chưa có giá.
+
+    Nút "Duyệt" (`approve_sheet`) và máy (P3b, `v7_inbox`) đi chung đường này. Lỗi ở lệnh đầu ném `ApiError`;
+    lỗi sau khi đã ghi một phần thì trả `complete: False` kèm mã lỗi.
+    """
     months: dict[str, list[dict]] = {}
     for row in rows:
         month = row["event_date"][:7] + "-01"
@@ -241,6 +253,7 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     approved = 0
     processed = 0
     pending = []
+    pasted = []   # (dòng Sheet, mã chuyến) theo thứ tự dán
     # ponytail: commands are atomic per 200 rows/month; add one DB bulk function if cross-month atomicity becomes required.
     for month in sorted(months):
         values = sorted(months[month], key=lambda row: row["source_row"])
@@ -258,16 +271,18 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             except ApiError as exc:
                 if not processed:
                     raise
-                return 200, {"approved": approved, "remaining": len(rows) - processed,
-                             "review_count": len(pending), "complete": False, "error": exc.code}
+                return {"approved": approved, "remaining": len(rows) - processed, "review_count": len(pending),
+                        "complete": False, "error": exc.code, "pending_review": pending, "pasted": pasted}
             processed += len(batch)
+            pasted.extend({"source_row": row["source_row"], "trip_id": trip_id}
+                          for row, trip_id in zip(batch, result.get("trip_ids", []), strict=False))
             newly_pending = result.get("pending_review", [])
             pending.extend(newly_pending)
             approved += len(batch) - len(newly_pending)
             if processed < len(rows):
                 version = runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
-    return 200, {"approved": approved, "remaining": 0, "complete": True,
-                 "review_count": len(pending), "pending_review": pending}
+    return {"approved": approved, "remaining": 0, "complete": True,
+            "review_count": len(pending), "pending_review": pending, "pasted": pasted}
 
 
 def price_projection(runner: Psql, ledger: dict, actor: str) -> dict:

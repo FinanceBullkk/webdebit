@@ -31,6 +31,38 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(queue["items"][1]["review_status"], "NEEDS_CUSTOMER")
         self.assertEqual(queue["ready_count"], 0)
 
+    def test_book_chosen_by_customer_and_commodity(self):
+        """P3b: khách nhiều sổ (cùng tên khách `display_name`) chọn sổ theo cột "Mặt hàng" của booking sheet."""
+        books = [{"id": 1, "name": "KHÁCH A", "status": "active", "commodity": "Thanh long"},
+                 {"id": 2, "name": "KHÁCH A - DỪA", "display_name": "Khách A", "status": "active", "commodity": "Dừa"},
+                 {"id": 3, "name": "SR BỘ - KHÁCH A", "display_name": "KHÁCH A", "status": "active", "commodity": "Sầu riêng",
+                  "transport_mode": "BO"},
+                 {"id": 4, "name": "SR CẢNG - KHÁCH A", "display_name": "KHÁCH A", "status": "active", "commodity": "Sầu riêng",
+                  "transport_mode": "CANG"},
+                 {"id": 5, "name": "KHÁCH B", "status": "active", "commodity": "Chuối"},
+                 {"id": 6, "name": "XOÀI - KHÁCH C", "display_name": "KHÁCH C", "status": "active", "commodity": "Xoài"},
+                 {"id": 7, "name": "KHÁCH D", "status": "active"},
+                 {"id": 8, "name": "KHÁCH F", "status": "active", "commodity": "Thanh long"},
+                 {"id": 9, "name": "SR BỘ - KHÁCH F", "display_name": "KHÁCH F", "status": "active", "commodity": "Sầu riêng",
+                  "transport_mode": "BO"},
+                 {"id": 10, "name": "KHÁCH G", "status": "active", "commodity": "Sầu riêng", "transport_mode": "BO"}]
+        cases = [("Khách A", "THANH LONG", 1, "COMMODITY_OK"), ("Khách A", "Dừa", 2, "COMMODITY_OK"),
+                 ("Khách A", "SẦU RIÊNG", 4, "COMMODITY_OK"),                # bỏ sổ đường bộ: dòng booking là BIỂN
+                 ("Khách A", "MÍT", 1, "COMMODITY_MISMATCH"),                # không sổ nào trùng: giữ sổ trùng tên
+                 ("Khách A", "KHÁC", 1, "COMMODITY_UNKNOWN"), ("Khách A", "", 1, "COMMODITY_UNKNOWN"),
+                 ("Khách B", "CHUỐI", 5, "COMMODITY_OK"), ("Khách B", "DỪA", 5, "COMMODITY_MISMATCH"),
+                 ("Khách C", "XOÀI", 6, "COMMODITY_OK"),                     # chỉ có sổ mang tên khách
+                 ("Khách D", "DỪA", 7, "COMMODITY_UNKNOWN"),                 # sổ chưa có mặt hàng
+                 ("Khách F", "SẦU RIÊNG", 8, "COMMODITY_MISMATCH"),          # sổ sầu riêng là đường bộ: không chọn
+                 ("Khách G", "SẦU RIÊNG", 10, "ROAD_BOOK"),                  # sổ duy nhất là đường bộ: máy không đụng
+                 ("Khách E", "DỪA", None, None)]
+        rows = [{"source_row": n, "container": f"C{n}", "event_date": "2026-11-01", "status": "READY",
+                 "customer_name": name, "commodity": commodity} for n, (name, commodity, _, _) in enumerate(cases, 2)]
+        queue = build_queue({"sha256": "a" * 64, "row_count": len(rows), "rows": rows}, books, BASELINE)
+        self.assertEqual([(i["customer_id"], i["book_match"]) for i in queue["items"]], [(c[2], c[3]) for c in cases])
+        self.assertEqual(queue["items"][-1]["review_status"], "NEEDS_CUSTOMER")
+        self.assertEqual(queue["items"][1]["commodity"], "Dừa")
+
     def test_baseline_container_without_current_row_is_new_after_reconciliation(self):
         snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [
             {"source_row": 2, "container": "OLD123", "event_date": "2026-10-01", "status": "READY", "customer_name": "Khách A"}

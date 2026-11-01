@@ -1678,6 +1678,15 @@ Thứ tự với release: release mới gọi `/api/v7/zalo/links` và `/api/v7/
 
 Rollback: `DROP TABLE sokhach.contact_mark, sokhach.zalo_link` và `DROP FUNCTION` sáu hàm cùng `_mark_json`, dưới `sokhach_owner`; không gì tham chiếu tới. Hoặc restore dump lúc dừng.
 
+## Chuyến từ booking vào đúng sổ theo mặt hàng, máy tự đưa chuyến mới vào sổ (P3b, ĐỀ XUẤT 1/11/2026)
+
+Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-ngoai-le-p3b.md)).
+
+1. **Chọn sổ theo mặt hàng (luôn chạy, không ghi):** bản chụp Sheet thêm cột `commodity`. Runner `webdebit-sheet-sync` chạy lượt 15 phút kế tiếp từ release mới thì hàng chờ mới chọn sổ theo mặt hàng; trước đó dòng không có `commodity` giữ sổ trùng tên như cũ. Đo trước/sau (chỉ đọc) bằng hàm chiếu trên cả 236 sổ: số "chuyến mới", `OTHER_BOOK_LEGACY`, chuyến web báo "Sheet không còn dòng".
+   - Khi lên, máy lấy chữ (P3a, đang bật) sẽ lấy theo Sheet các dòng lệch chữ ở sổ vừa nhận dòng đúng mặt hàng.
+2. **Bật máy đưa chuyến (chỉ khi người dùng đồng ý):** sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips`, `daemon-reload`, restart. Đo trước/sau: số chuyến mới đủ điều kiện (`NEW`, `COMMODITY_OK`, tháng mở, không ngày tương lai), số event `paste` của `may-theo-sheet`, số dư 236 khách (phải bằng nhau: chuyến vào chưa có giá).
+3. **Tắt máy đưa chuyến:** bỏ `trips` khỏi biến, restart. Chuyến máy đã đưa vào vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai.
+
 ## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026; máy đã bật)
 
 Đã nâng DB và đổi release 1/11/2026, xem [nhật ký](deploys/2026-11-01-khoa-chu.md). Bước 2 (bật máy) chạy 19:22 cùng ngày: lệch chữ 944 → 0, số dư không đổi.
