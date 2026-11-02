@@ -297,8 +297,9 @@ def check_csm_migration(pg: Pg) -> None:
         "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND "
         "(prosrc ~* 'INSERT[[:space:]]+INTO[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd' "
         "OR prosrc ~* 'UPDATE[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd')"))
-    # Historical sheet conflict command copies unchanged legacy fee for an information edit.
-    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict"],
+    # Historical sheet conflict command copies unchanged legacy fee for an information edit; batch undo copies the
+    # current fee unchanged when it restores an original-book TOTAL that differs from price + fee.
+    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict", "undo_sheet_batch"],
             f"unexpected fee cache writers: {writers}")
     check_csm_reference(copy)
     check_csm_locks(copy)
