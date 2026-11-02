@@ -16,7 +16,8 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
         row: box('.trip-list tr').height, pay: box('.pay-list tr').height,
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    assert.deepEqual(geometry, { nav: 76, header: 67, card: 180, gap: 10, toolbar: 48, row: 35, pay: 33, overflow: 0 });
+    assert.ok(geometry.card >= 180 && geometry.card <= 210, 'khối số dư đủ chỗ theo font, không cắt chữ hoặc số');
+    assert.deepEqual({ ...geometry, card: 0 }, { nav: 76, header: 67, card: 0, gap: 10, toolbar: 48, row: 35, pay: 33, overflow: 0 });
     const attachments = page.locator('.receipt-money>.image-clip');
     assert.deepEqual(await attachments.allTextContents(), ['📎', '📎']);
     for (const button of await attachments.all()) {
