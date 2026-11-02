@@ -357,7 +357,7 @@ const webReceipt = (pid, month, date, amount, reference = null) => ({ id: pid, p
 // Mỗi hàng của danh sách phiếu thu trong tháng → [ngày trả, hình thức, số tiền].
 const payRows = (page, key) => page.evaluate(id => [...document.querySelectorAll(`#thang-${id} .pay-list tr.pay-row`)]
   .map(tr => { const pay = [...tr.querySelectorAll('td.pay')];
-    return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: pay[4]?.firstChild?.textContent?.trim?.() ?? '' }; }), key);
+    return { date: pay[0]?.textContent.trim() ?? '', method: pay[1]?.textContent.trim() ?? '', amount: (pay[4]?.querySelector('.receipt-sum') ?? pay[4])?.textContent.trim() ?? '' }; }), key);
 
 test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày Sheet dd/mm/yyyy', async () => withPage(async ({ page, world, shot }) => {
   world.legacy.push({ id: 23, month: '2026-09-01', kind: 'receipt', source_total_vnd: '1000000', editable: false, current: { month: '2026-09-01', deleted: false },
