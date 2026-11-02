@@ -40,7 +40,7 @@ Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/
 
 ## Quy trình frontend
 
-ĐÃ CHỐT bởi người dùng/chủ nghiệp vụ ngày 16/10/2026 trong chat; **sửa 29/10/2026** theo [`CLAUDE-ALL-01`](decisions/claude-all-01.md): Claude làm hết, bỏ bắt buộc mockup Penpot (bước 3–4 cũ). Áp dụng các bước dưới đây cho luồng frontend mới hoặc thay đổi đáng kể trong repo. Quy trình không tự cấp quyền triển khai hoặc ghi tiền.
+ĐÃ CHỐT bởi người dùng/chủ nghiệp vụ ngày 16/10/2026 trong chat; **sửa 29/10/2026** theo [`CLAUDE-ALL-01`](decisions/claude-all-01.md): Claude làm hết, bỏ bắt buộc mockup Penpot (bước 3–4 cũ). Áp dụng các bước dưới đây cho luồng frontend mới hoặc thay đổi đáng kể trong repo. Quy trình không tự cấp quyền triển khai hoặc ghi tiền. Phần thiết kế (bài toán, cấu trúc thông tin, thị giác, trạng thái, kiểm bản render) theo skill [`thiet-ke-ux`](../.claude/skills/thiet-ke-ux/SKILL.md).
 
 1. **Chốt kết quả nghiệp vụ:** xác định người thao tác, đầu vào, kết quả, điều kiện bị chặn và tiêu chí nghiệm thu. Quy tắc chưa chốt phải ghi CÒN MỞ, không biến lựa chọn trên UI thành chính sách.
 2. **Đối chiếu dữ liệu/backend:** đọc nguồn, trường dữ liệu và entry point/API hiện có; ghi phần dùng được, phần thiếu, dữ liệu thật và fixture. Không dựng trường tiền từ giả định.
