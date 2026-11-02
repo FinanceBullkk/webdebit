@@ -42,7 +42,7 @@ Kiểm: `npm run check`; harness `test_pg_v7_backend.py` (ca `VCL-GIU.01` phủ 
 
 **CÒN MỞ — cần người dùng chốt trước khi merge:**
 
-- Chọn sổ cho chuyến chỉ áp dụng riêng chuyến đó (đang làm theo cách này, như package tách hai thao tác) hay gán luôn mặt hàng mặc định của sổ.
+- ~~Chọn sổ cho chuyến~~ ĐÃ CHỐT (người dùng, chat 2/11/2026: "Riêng chuyến đó"): chỉ đưa chuyến đó vào sổ được chọn, không gán mặt hàng mặc định của sổ; gán mặt hàng là thao tác riêng.
 - Hoàn tác lô là quy tắc tiền mới (hủy phiếu với lý do cố định "Hoàn tác lần ghi từ Việc cần làm", trả giá cũ, thêm dòng điều chỉnh cho TOTAL sổ gốc).
 
 **Giới hạn đã biết:**
