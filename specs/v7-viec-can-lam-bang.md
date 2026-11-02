@@ -40,10 +40,10 @@ Người dùng yêu cầu giống toàn bộ package, không chỉ dùng bố c�
 
 Kiểm: `npm run check`; harness `test_pg_v7_backend.py` (ca `VCL-GIU.01` phủ cả năm lệnh: gửi lại, khóa tháng, quyền chỉ xem, số dư từng tháng) và `test_pg_v7_backend_sheet_keep.py` chạy ở CI.
 
-**CÒN MỞ — cần người dùng chốt trước khi merge:**
+**Hai điểm đã hỏi người dùng trước khi merge:**
 
 - ~~Chọn sổ cho chuyến~~ ĐÃ CHỐT (người dùng, chat 2/11/2026: "Riêng chuyến đó"): chỉ đưa chuyến đó vào sổ được chọn, không gán mặt hàng mặc định của sổ; gán mặt hàng là thao tác riêng.
-- Hoàn tác lô là quy tắc tiền mới (hủy phiếu với lý do cố định "Hoàn tác lần ghi từ Việc cần làm", trả giá cũ, thêm dòng điều chỉnh cho TOTAL sổ gốc).
+- ~~Hoàn tác lô~~ ĐÃ CHỐT (người dùng, chat 2/11/2026: "Đồng ý cách hiện tại"): hủy phiếu vừa ghi với lý do cố định "Hoàn tác lần ghi từ Việc cần làm", trả giá chuyến về giá trước (chặn nếu đã có người sửa sau), dòng sổ gốc trả cả TOTAL cũ bằng revision + dòng điều chỉnh; phân bổ lại theo nợ cũ trước.
 
 **Giới hạn đã biết:**
 
