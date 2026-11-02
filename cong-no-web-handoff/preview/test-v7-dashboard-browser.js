@@ -183,7 +183,7 @@ test('lỗi API tổng quan: báo lỗi, không để chữ đang tải', async 
 // Audit UX 31/10/2026 (P1-6): mất mạng khi tải trang chỉ hiện một câu tiếng Việt và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
 test('mất mạng khi tải Tổng quan và Việc cần làm: câu tiếng Việt, nút Thử lại tải lại', async () => {
   for (const [page, sentence, ready] of [['/dashboard-v7.html', 'Không tải được tổng quan công nợ', '.due .big-money'],
-    ['/viec-can-lam.html', 'Không tải được việc cần làm', '.todo .todo-group']]) {
+    ['/viec-can-lam.html', 'Không tải được việc cần làm', '.work-row']]) {
     const drop = new Set(['/api/v7/dashboard']);
     await withPage({ drop }, async tab => {
       await tab.locator('#error').waitFor({ state: 'visible' });
@@ -382,92 +382,7 @@ test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng
   assert.deepEqual(labels, ['Lan · đang mở sổ Khách A, tháng 10/2026', 'Tuấn · đang mở sổ Khách C, tháng 9/2026']);
 }));
 
-test('tab Việc cần làm: nhóm việc mở đúng dòng trong sổ, hôm nay, sổ đang dư, số trên thanh điều hướng', async () => withPage({}, async page => {
-  await page.locator('.todo .todo-group').first().waitFor();
-  assert.match(await page.locator('nav a.active').innerText(), /^Việc cần làm\s*3$/);
-  assert.equal(await page.locator('.todo a', { hasText: 'Khách C' }).getAttribute('href'), '/so-khach-v7-live.html?customer=2&loc=thieu-gia');
-  assert.match(await page.locator('.todo').innerText(), /Chuyến thiếu đơn giá\s+3 chuyến[\s\S]*Cần gán mặt hàng \/ cảng-bộ\s+2 khách[\s\S]*Khách D[\s\S]*chưa có mặt hàng[\s\S]*Khách E[\s\S]*chưa rõ cảng\/bộ/);
-  assert.match(await page.locator('.today').innerText(), /12\s+chuyến nhập[\s\S]*Người nhập 1/);
-  assert.match(await page.locator('.credit').innerText(), /Khách K\s+dư 45 triệu/);
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  await assertNavOneLine(page);
-}, '/viec-can-lam.html'));
-
-test('tab Việc cần làm: không có việc thì nói rõ; API debt lỗi chỉ bỏ nhóm gán mặt hàng', async () => {
-  await withPage({ payload: { ...dashboard, todo: { missing_price: [], pending_review: [], no_baseline: [], credit: [] }, today: { trips: 0, receipts: 0, received_vnd: '0', voids: 0, by_actor: [] } }, debtPayload: { ...debt, customers: [] } }, async page => {
-    await page.locator('.todo').waitFor();
-    assert.match(await page.locator('.todo').innerText(), /Không có việc cần làm/);
-    assert.match(await page.locator('.today').innerText(), /Chưa có giao dịch nào hôm nay/);
-    assert.match(await page.locator('.credit').innerText(), /Không có sổ nào đang dư/);
-    assert.equal(await page.locator('#todo-badge').isHidden(), true);
-  }, '/viec-can-lam.html');
-  await withPage({ debtStatus: 503 }, async page => {
-    await page.locator('.todo .todo-group').first().waitFor();
-    assert.doesNotMatch(await page.locator('.todo').innerText(), /Cần gán mặt hàng/);
-    assert.equal(await page.locator('#todo-badge').innerText(), '1');
-  }, '/viec-can-lam.html');
-  await withPage({ dashboardStatus: 503 }, async page => {
-    await page.locator('#error').waitFor({ state: 'visible' });
-    assert.match(await page.locator('#error').innerText(), /Không tải được việc cần làm/);
-  }, '/viec-can-lam.html');
-});
-
-test('Việc cần làm: khối "Từ Sheet chờ đưa vào sổ" gom việc mọi sổ, xếp theo tiền, mở đúng sổ', async () => withPage({
-  viewport: { width: 1280, height: 560 },
-  inbox: { ...INBOX_EMPTY, failed: [9], books: [
-    inboxBook(1, { receipts: { ready: 1, review: 0, amount_vnd: '50000000' }, trips_new: 3, text_diff: 4 }),
-    inboxBook(2, { receipts: { ready: 1, review: 1, amount_vnd: '150000000' }, trips_check: { count: 2, reasons: { OTHER_BOOK_LEGACY: 2 } },
-      ps: { ready: 0, review: 2 }, text_diff: 1 }),
-    inboxBook(7, { removed: { count: 1, amount_vnd: '30000000' }, prices: { ready: 1, review: 1 } }),
-  ] },
-}, async page => {
-  const card = page.locator('.inbox');
-  await card.locator('.todo-group').first().waitFor();
-  const text = await card.innerText();
-  assert.match(text, /Tính lúc 15:02 · Sheet lúc 14:45/);
-  assert.match(text, /Còn 13 việc ở 3 sổ · phiếu thu chờ ghi 200 triệu/);
-  assert.match(text, /1 sổ chưa tính được/);
-  // Nhóm theo thứ tự đụng tiền; trong nhóm phiếu thu, sổ nhiều tiền đứng trước.
-  const titles = await card.locator('.todo-title > span:first-child').allInnerTexts();
-  assert.deepEqual(titles, ['Phiếu thu từ Sheet chờ ghi', 'Chuyến đang tính nợ nhưng không còn trên Sheet', 'Chuyến mới từ Sheet chờ duyệt',
-    'Chuyến cần người xem', 'Giá từ Sheet', 'Phụ phí PS cần xem']);
-  assert.deepEqual(await card.locator('[data-group="receipts"] .who').allInnerTexts(), ['Khách C', 'Khách A']);
-  assert.match(await card.locator('[data-group="receipts"]').innerText(), /2 phiếu · 150 triệu \(1 cần xem\)/);
-  assert.match(await card.locator('[data-group="trips_check"]').innerText(), /2 chuyến · 2 đã có ở sổ khác/);
-  assert.match(await card.locator('[data-group="removed"]').innerText(), /Sổ #7\s+1 chuyến · 30 triệu/);
-  assert.match(text, /Lệch chữ nơi đi, nơi đến, shipper: 5 chỗ ở 2 sổ/);
-  assert.equal(await card.locator('[data-group="trips_new"] a').getAttribute('href'), '/so-khach-v7-live.html?customer=1');
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-}, '/viec-can-lam.html'));
-
-test('Việc cần làm: khối Sheet đang tính, không đọc được Sheet, trống, lỗi tải có Thử lại', async () => {
-  let calls = 0;
-  await withPage({ inbox: () => (++calls === 1 ? { ...INBOX_EMPTY, state: 'computing', computed_at: null, books_done: 120, books_total: 236 }
-    : { ...INBOX_EMPTY, books: [inboxBook(1, { trips_new: 2 })] }) }, async page => {
-    await page.locator('.inbox .loading').waitFor();
-    assert.match(await page.locator('.inbox').innerText(), /Đang tính việc của mọi sổ \(đã xong 120\/236 sổ\)/);
-    await page.locator('.inbox [data-group="trips_new"]').waitFor({ timeout: 8000 });   // tự hỏi lại sau 5 giây
-  }, '/viec-can-lam.html');
-  await withPage({ inbox: { ...INBOX_EMPTY, state: 'unavailable', computed_at: null } }, async page => {
-    await page.locator('.inbox .empty').waitFor();
-    assert.match(await page.locator('.inbox').innerText(), /Chưa đọc được bản lấy từ Sheet/);
-  }, '/viec-can-lam.html');
-  await withPage({}, async page => {
-    await page.locator('.inbox .empty').waitFor();
-    assert.match(await page.locator('.inbox').innerText(), /Không còn việc từ Sheet/);
-  }, '/viec-can-lam.html');
-  const drop = new Set(['/api/v7/inbox']);
-  await withPage({ drop }, async page => {
-    await page.locator('.inbox-error').waitFor();
-    assert.match(await page.locator('.inbox').innerText(), /Không tải được việc từ Sheet/);
-    await page.locator('.todo .todo-group').first().waitFor();   // các nhóm cũ vẫn hiện
-    drop.delete('/api/v7/inbox');
-    await page.locator('[data-inbox-retry]').click();
-    await page.locator('.inbox .empty:not(.inbox-error)').waitFor();
-  }, '/viec-can-lam.html');
-});
-
-// Hộp P2: sổ ghi được có phiên bản, bản chụp và phiếu sẵn sàng.
+// Bố cục nhóm cũ thay bằng bảng bốn cột; các ca tải/lọc/trống/lỗi/mở sổ nằm trong test-viec-can-lam-table-browser.js.
 const writable = (id, extra = {}) => inboxBook(id, { version: 3, outstanding_vnd: '1000000000', ...extra,
   receipts: { ready: 1, review: 0, amount_vnd: '50000000', ready_amount_vnd: '50000000', snapshot_sha256: 'c'.repeat(64), locked_months: [],
     items: [{ status: 'READY', date: '2026-10-30', amount_vnd: '50000000', debt_month: '2026-09-01', note: '30/10 tt' }], ...(extra.receipts ?? {}) } });
@@ -485,15 +400,14 @@ test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; s
   await withPage({ viewport: { width: 1280, height: 560 }, posted, inbox: () => ({ ...INBOX_EMPTY, books: books() }),
     receiptPost: body => (body.customer_id === 1 ? (written = true, { status: 200, json: { written: 2, remaining: 0, complete: true, version: 5 } })
       : { status: 409, json: { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' } }) }, async page => {
-    const group = page.locator('.inbox [data-group="receipts"]');
-    await group.locator('.receipt-book').first().waitFor();
+    const group = page.locator('.inbox');
+    await group.locator('.work-row').first().waitFor();
     assert.equal(await group.locator('[data-book="7"] input').count(), 0);   // phiếu cần xem: không chọn được
-    await group.locator('[data-book="7"] summary').click();
-    assert.match(await group.locator('[data-book="7"] .receipt-items').innerText(), /cần xem: không rõ ngày/);
-    assert.equal(await group.locator('[data-review]').isDisabled(), true);
-    await group.locator('[data-pick-all]').check();
-    assert.match(await group.locator('[data-review]').innerText(), /Xem lại 2 sổ \(tổng 450 triệu\)/);
-    await group.locator('[data-review]').click();
+    await group.locator('[data-book="7"] .book-name').click();
+    assert.match(await group.locator('.work-detail').innerText(), /Không rõ ngày[\s\S]*Cần xem/);
+    assert.equal(await group.locator('[data-review]').count(), 0);
+    await page.locator('[data-pick-ready]').click();
+    // Chọn hết mở ngay bước xem lại như bản thiết kế đã chọn.
     const review = group.locator('.receipt-review');
     const text = await review.innerText();
     assert.match(text, /Xem lại trước khi ghi 3 phiếu ở 2 sổ · tổng 450\.000\.000/);
@@ -505,7 +419,7 @@ test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; s
     await page.locator('.inbox-result').waitFor();
     assert.match(await page.locator('.inbox-result').innerText(), /Đã ghi 2 phiếu ở 1 sổ, tổng 400 triệu[\s\S]*1 sổ chưa ghi xong/);
     assert.match(await group.locator('[data-book="2"] .row-error').innerText(), /Sổ đã thay đổi\. Tải lại rồi thử tiếp\./);
-    assert.equal(await group.locator('[data-book="1"]').count(), 0);
+    await page.waitForFunction(() => !document.querySelector('[data-book="1"]'));
     assert.deepEqual(posted.map(body => [body.customer_id, body.expected_version, body.snapshot_sha256.length, typeof body.idempotency_key]),
       [[1, 3, 64, 'string'], [2, 3, 64, 'string']]);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -519,7 +433,7 @@ test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đ�
     // Cắt ngay trong trình duyệt (cắt socket ở server thì Chrome tự gửi lại): lần gửi đầu mất kết nối, ghi lại khóa đã gửi.
     const lost = [];
     await page.route('**/api/v7/sheet/receipts', route => { lost.push(route.request().postDataJSON()); return route.abort(); }, { times: 1 });
-    const group = page.locator('.inbox [data-group="receipts"]');
+    const group = page.locator('.inbox');
     await group.locator('[data-pick="1"]').check();
     await group.locator('[data-review]').click();
     await group.locator('[data-review-cancel]').click();
@@ -541,7 +455,8 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
     items: [{ at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'destination', before: 'CANG C', after: 'CANG D' },
       { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
-    const done = page.locator('.inbox .auto-done');
+    await page.locator('[data-auto]').click();
+    const done = page.locator('.auto-done');
     await done.waitFor();
     assert.match(await done.locator('summary').innerText(), /Máy đã tự lấy theo Sheet hôm nay: 2 ô chữ ở 1 sổ/);
     await done.locator('summary').click();
@@ -552,7 +467,7 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
   await withPage({ inbox: { ...INBOX_EMPTY, auto: { ...auto, text_enabled: false, today_count: 0, items: [] }, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
     await page.locator('.inbox .inbox-note').waitFor();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /máy chưa bật tự lấy theo Sheet/);
-    assert.equal(await page.locator('.inbox .auto-done').count(), 0);
+    assert.equal(await page.locator('.auto-done').count(), 0);
   }, '/viec-can-lam.html');
 });
 
@@ -562,7 +477,8 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
     trip_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000002', event_date: '2026-11-01', trip_id: 9, pending: false },
       { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
-    const done = page.locator('.inbox .auto-done');
+    await page.locator('[data-auto]').click();
+    const done = page.locator('.auto-done');
     await done.waitFor();
     assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
     assert.match(await done.locator('summary').innerText(), /Máy đã đưa vào sổ hôm nay: 2 chuyến mới ở 1 sổ, 1 chuyến vào chờ kiểm/);
