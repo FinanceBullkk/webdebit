@@ -199,7 +199,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
     receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
     price_table_edit: 'Sửa bảng giá', price_table_apply: 'Điền giá theo bảng',
-    adjust_month_delete: 'Xóa điều chỉnh cả tháng' };
+    adjust_month_delete: 'Xóa điều chỉnh cả tháng', customer_attr: 'Gán mặt hàng' };
   // SO-GON-04 (L6): mỗi loại SQL ghi một câu từ đúng khuôn before/after của hàm SQL; ghi chú/lý do chỉ khi người làm gõ.
   const table = { price_table: { tt_shippers: [], locations: [], periods: [] } };
   const sentences = {
@@ -233,6 +233,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
       'gia', '1 chuyến · FAKE-4: – → 85.000.000', ''],
     adjust_month_delete: [{ adjustment: { id: 4, month: '2026-10-01', amount_vnd: '-100', note: 'thử <x>' } },
       { adjustment: { id: 4, month: '2026-10-01', amount_vnd: '0', deleted: true, reversal: 5 } }, 'gia', '10/2026: -100 (thử &lt;x&gt;) → 0', ''],
+    customer_attr: [{ customer: { id: 1, commodity_id: null } }, { customer: { id: 1, commodity_id: 3 }, commodity_name: 'Mít' }, '', 'Mặt hàng: Mít · nợ không đổi', ''],
   };
   assert.deepEqual(Object.keys(sentences).sort(), Object.keys(kinds).sort());
   const events = Object.entries(sentences).map(([kind, [before, after]], id) => ({ id, kind, actor: 'nguoi.thu@example.test', actor_name: 'Thu',
@@ -245,7 +246,7 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
   assert.doesNotMatch(root.innerHTML, /private_new_code|unknown_key|private_value|\[object Object\]|"amount_vnd"|sha256|aaaa|bbbb|Ghi chú\/lý do|nguoi\.thu/);
   // Bộ lọc theo loại: Thu · Chuyến · Giá/phụ phí · Khóa tháng · Tất cả, kèm số mục; mặc định Tất cả.
   assert.deepEqual([...root.innerHTML.matchAll(/<button type="button" data-filter="([a-z]+)" aria-pressed="(true|false)">([^<]+)<\/button>/g)].map(match => match.slice(1)),
-    [['thu', 'false', 'Thu (6)'], ['chuyen', 'false', 'Chuyến (2)'], ['gia', 'false', 'Giá/phụ phí (6)'], ['khoa', 'false', 'Khóa tháng (1)'], ['all', 'true', 'Tất cả (17)']]);
+    [['thu', 'false', 'Thu (6)'], ['chuyen', 'false', 'Chuyến (2)'], ['gia', 'false', 'Giá/phụ phí (6)'], ['khoa', 'false', 'Khóa tháng (1)'], ['all', 'true', 'Tất cả (18)']]);
   assert.match(root.innerHTML, /<ol class="history-items" data-filter="all">/);
   assert.match(root.innerHTML, /<p class="history-none" hidden>/);
   const sql = fs.readFileSync(require.resolve('../tools/v7_backend_functions.sql'), 'utf8');
