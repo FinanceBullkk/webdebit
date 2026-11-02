@@ -244,7 +244,7 @@ const removedTrip = (world, extra = {}) => {
 
 test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua lệnh xóa có sẵn', async () => withPage(async ({ page, world, shot }) => {
   const row = page.locator('[data-row="trip-11"].sheet-removed');
-  assert.match(await row.innerText(), /Sheet không còn dòng này/);
+  assert.match(await row.locator('xpath=following-sibling::tr[1]').innerText(), /Sheet không còn dòng này/);
   assert.match(await page.locator('.sheet-removed-strip').textContent(), /Sheet không còn dòng của 1 chuyến/);
   await page.locator('.sheet-removed-next').click();
   assert.equal(await page.evaluate(() => document.activeElement.className), 'sheet-removed-delete');

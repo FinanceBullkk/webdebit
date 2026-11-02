@@ -1,5 +1,9 @@
 # Sổ khách: mỗi số một chỗ, xếp theo ưu tiên
 
+## Sửa lỗi trạng thái sau phát hành 2/11/2026
+
+Ảnh người dùng cho thấy cảnh báo Sheet bị nhét trong cột container 116px làm nút xuống từng chữ, và nhãn cuối tháng bị ép bởi số dư lớn. Sửa: đặt cảnh báo cùng hai hành động trong một hàng trải đủ cột ngay dưới chuyến; giữ màu, lệnh xác nhận, khóa tháng, Giữ và nhảy từ Xem. Nhãn số dư không bẻ chữ; số tiền xuống hàng khi cần. Không đổi API, quy tắc tiền hay dữ liệu. Bổ sung `test-so-khach-v7-warning-layout-browser.js`: sáu cảnh báo, ba cột phí, số dư lớn tại 1895/1280/390px; kiểm dòng chuyến 35px, nút không vỡ chữ, nhãn một dòng, không tràn trang; Xem, Thôi và Giữ không ghi giao dịch. Kiểm xóa/mở khóa vẫn dùng bộ Sheet hiện có.
+
 Ngày 2/11/2026. Người dùng yêu cầu đổi UX/UI theo bản HTML “Mỗi số một chỗ, xếp theo ưu tiên”. Chỉ trang sổ live; chưa phát hành.
 
 Người nhập thường xuyên cần biết đang xem tháng nào, số nợ hình thành thế nào, khách đã trả gì, rồi soát chuyến. Hướng đã chọn từ mẫu: thanh tháng → phép đối chiếu bốn số bên trái và phiếu thu bên phải → bảng chuyến. So với hướng cũ (tóm tắt ngang, phiếu thu bên dưới), hướng này đặt số và bằng chứng cạnh nhau; màn hẹp xếp dọc. Không cần chọn lại phương án vì người dùng đã cung cấp hướng cụ thể.
