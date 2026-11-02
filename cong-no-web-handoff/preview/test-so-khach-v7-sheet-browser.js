@@ -47,7 +47,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   await viewMonth(page, clock);
   assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
@@ -78,7 +78,7 @@ test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đ�
   assert.equal(resolved.path, '/api/v7/sheet/resolve');
   assert.deepEqual([resolved.body.field, resolved.body.decision, resolved.body.target_kind, resolved.body.target_id], ['booking', 'keep_web', 'trip', 11]);
   await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
   const [route, body] = posts(world).at(-1);
   assert.equal(route, '/api/v7/trips/info');
   assert.equal(body.field, 'event_date');
@@ -126,7 +126,7 @@ test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số t
   const tripRow = page.locator('[data-row="trip-12"]');
   assert.match(await tripRow.locator('[data-field="unit_price_vnd"]').innerText(), /12\.500\.000\s*giá Sheet/);
   assert.match(await tripRow.innerText(), /12\.800\.000\s*chưa tính/);
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
   await shot('gia-sheet-1-cho-ghi');
   await button.click();
   const confirm = page.locator('.price-panel.confirm');
@@ -277,7 +277,7 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ �
   assert.equal(await page.locator('.sheet-removed-strip').count(), 0);
   assert.equal(posts(world).length, 1, 'Giữ không gửi gì lên server');
   await page.reload();
-  await page.waitForSelector('.book-head .history-toggle');
+  await page.waitForSelector('.book-head');
   assert.equal(await page.locator('.sheet-removed').count(), 0, 'Giữ nhớ qua lần tải lại cùng bản chụp');
   world.sheetSync = { ...world.sheetSync, snapshot_sha256: 'b'.repeat(64) };
   await page.reload();

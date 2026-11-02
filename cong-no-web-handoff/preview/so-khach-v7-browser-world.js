@@ -414,7 +414,7 @@ async function withPage(fn, setup = () => {}) {
     const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
-    await page.waitForSelector('.book-head .history-toggle');
+    await page.waitForSelector('.book-head');
     // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
     await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
@@ -423,8 +423,8 @@ async function withPage(fn, setup = () => {}) {
   } finally { await browser.close(); server.close(); }
 }
 
-const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
-const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
+const tripCell = (page, field, id = 11) => page.locator(`.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
+const legacyCell = (page, id, field) => page.locator(`.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
 // SO-GON-05: sổ hiện một tháng; sang tháng khác bằng chip như người dùng, chờ bảng tháng đó vẽ xong. `key` là yyyy-mm hoặc ngày.

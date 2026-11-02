@@ -52,7 +52,7 @@
     if (!count && isVoided(receipt)) return '';
     return count
       ? `<button type="button" class="image-clip" data-pid="${escape(receipt.pid)}" aria-label="Xem ${count} ảnh chứng từ phiếu ${escape(receipt.pid)}">📎 ${count}</button>`
-      : `<button type="button" class="image-clip none" data-pid="${escape(receipt.pid)}" aria-label="Đính ảnh chứng từ cho phiếu ${escape(receipt.pid)}" title="Đính ảnh">＋📎</button>`;
+      : `<button type="button" class="image-clip none" data-pid="${escape(receipt.pid)}" aria-label="Đính ảnh chứng từ cho phiếu ${escape(receipt.pid)}" title="Đính ảnh">📎</button>`;
   };
 
   // Chỗ dán ảnh trong khung nhập phiếu (trên nút Ghi phiếu): ảnh vừa dán, gợi ý cách dán, cảnh báo/lỗi.

@@ -6,6 +6,17 @@ const fixture = require("./so-khach-v7-fixture.js");
 const copy = () => structuredClone(fixture);
 const month = (book, key) => book.months.find(item => item.key === key);
 
+test('unit price footer sums known values exactly, excludes pending/deleted, preserves unknown', () => {
+  const trip = (unit_price_vnd, extra = {}) => ({ unit_price_vnd, status: 'confirmed', ...extra });
+  assert.equal(model.unitPriceTotal([trip('9007199254740993'), trip(null), trip('80', { status: 'pending_review' }),
+    trip('90', { deleted: true }), trip('100', { status: 'rejected' })], [
+    { kind: 'trip', editable: true, current: { unit_price_vnd: '7' }, display: { unit_price: '999' } },
+    { kind: 'trip', display: { unit_price: '10' } }, { kind: 'trip', display: { unit_price: 'chưa giá' } },
+    { kind: 'receipt', display: { unit_price: '200' } }]), 9007199254741010n);
+  assert.equal(model.unitPriceTotal([trip(null)], []), null);
+  assert.equal(model.unitPriceTotal([trip('0')], []), 0n);
+});
+
 test("NEWTRIP-01 keys normalize Unicode whitespace, booking symbols and ALT dates", () => {
   const row = { container: " a\u0085b\u00a0c ", date: "10/01/2026", booking: " b\u202fk 1" };
   assert.equal(model.tripKey(row), "BK1|ABC");

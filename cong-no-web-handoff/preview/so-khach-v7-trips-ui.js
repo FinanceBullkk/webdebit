@@ -16,8 +16,13 @@
   const movedTag = rowKey => moved.has(rowKey)
     ? `<tr class="moved-note"><td colspan="${columns.trip()}"><span class="moved-tag">↪ Vừa chuyển từ T${Number(moved.get(rowKey).slice(5))}</span></td></tr>`
     : '';
-  const infoCell = (kind, id, field, text, classes = '') => `<td class="info-edit ${classes}" data-kind="${kind}" data-id="${escape(id)}" `
-    + `data-field="${field}" tabindex="0" role="button" aria-label="Sửa ${fieldNames[field]}">${escape(text)}</td>`;
+  const infoCell = (kind, id, field, text, classes = '') => {
+    const tag = ['origin', 'destination'].includes(field) ? 'span' : 'td';
+    return `<${tag} class="info-edit ${classes}" data-kind="${kind}" data-id="${escape(id)}" `
+    + `data-field="${field}" tabindex="0" role="button" aria-label="Sửa ${fieldNames[field]}">${escape(text)}</${tag}>`;
+  };
+  const route = (origin, destination) => `<td class="route-cell">${origin}<span class="route-arrow" aria-hidden="true"> → </span>${destination}</td>`;
+  const routeText = (origin, destination) => route(`<span data-field="origin">${escape(origin)}</span>`, `<span data-field="destination">${escape(destination)}</span>`);
   const deleteCell = (kind, id, text, what, pick = '') => `<td class="row-delete" data-kind="${kind}" data-id="${escape(id)}" tabindex="0" `
     + `role="button" aria-label="Xóa hẳn ${escape(what)}" title="Bấm để xóa hẳn dòng này">${pick}${escape(text)}</td>`;
   // PHU-PHI-01: cụm cột phụ phí = cột riêng của sổ (0–3, theo fee_columns) + Khác. Số lấy từ fee_lines của server,
@@ -47,19 +52,19 @@
   // KHOA-CHU-01 (1/11/2026): tháng khóa vẫn sửa được bốn ô chữ (hãng tàu, shipper, nơi đi, nơi đến); container, ngày, tiền, xóa thì không.
   const legacyLocked = (trip, cur, t, stt, unitText) => [cell(stt || '–'), cell(cur.container || 'Phí lẻ'),
     infoCell('legacy', trip.id, 'carrier', cur.carrier ?? ''), shipperCell(infoCell('legacy', trip.id, 'shipper', cur.shipper ?? '')),
-    cell(curDay(cur, t)), infoCell('legacy', trip.id, 'origin', cur.origin ?? ''), infoCell('legacy', trip.id, 'destination', cur.destination ?? ''),
+    cell(curDay(cur, t)), route(infoCell('legacy', trip.id, 'origin', cur.origin ?? ''), infoCell('legacy', trip.id, 'destination', cur.destination ?? '')),
     num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur)].join('');
   const legacyEditable = (trip, cur, t, stt, unitText) => {
     const what = cur.container || 'phí lẻ';
     const edit = (field, text, classes) => infoCell('legacy', trip.id, field, text, classes);
     return [deleteCell('legacy', trip.id, stt || '–', `dòng sổ gốc ${what}`, feePick(`legacy:${trip.id}`, what, cur.unit_price_vnd != null)),
       edit('container', cur.container || 'Phí lẻ'), edit('carrier', cur.carrier ?? ''), shipperCell(edit('shipper', cur.shipper ?? '')),
-      edit('event_date', curDay(cur, t)), edit('origin', cur.origin ?? ''), edit('destination', cur.destination ?? ''),
+      edit('event_date', curDay(cur, t)), route(edit('origin', cur.origin ?? ''), edit('destination', cur.destination ?? '')),
       edit('unit_price_vnd', unitText[0], `num ${unitText[1]}`), feeCells(`legacy:${trip.id}`, what, trip.fee_lines, cur.unit_price_vnd != null),
       countedCell(cur)].join('');
   };
   const legacySheet = (trip, t, stt) => [cell(stt), cell(t.container || 'Phí lẻ'), cell(t.carrier ?? ''), shipperCell(cell(t.shipper ?? '')),
-    cell(t.date ? dateText(t.date) : sheetDay(t.raw_date)), cell(t.from ?? ''), cell(t.to ?? ''),
+    cell(t.date ? dateText(t.date) : sheetDay(t.raw_date)), routeText(t.from ?? '', t.to ?? ''),
     !t.unit_price && (t.flags ?? []).includes('MISSING_PRICE') ? '<td class="num missing">chưa có giá</td>' : num(moneyCell(t.unit_price)),
     feeCells(`legacy:${trip.id}`, t.container || 'phí lẻ', trip.fee_lines, false), num(fmt(trip.source_total_vnd))].join('');
   function legacyTripRow(trip, locked) {
@@ -83,10 +88,10 @@
     // KHOA-CHU-01: tháng khóa chỉ mở bốn ô chữ; chuyến đã loại thì không sửa gì.
     const text = field => (locked && trip && trip.status !== 'rejected' ? infoCell('trip', trip.id, field, trip[field] ?? '') : cell(trip?.[field] ?? ''));
     const infoCells = info
-      ? ['container', 'carrier', ...(columns.shipper() ? ['shipper'] : []), 'event_date', 'origin', 'destination'].map(field =>
-        infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('')
+      ? ['container', 'carrier', ...(columns.shipper() ? ['shipper'] : []), 'event_date'].map(field =>
+        infoCell('trip', trip.id, field, field === 'event_date' ? dateText(trip.event_date) : trip[field] ?? '')).join('') + route(infoCell('trip', trip.id, 'origin', trip.origin ?? ''), infoCell('trip', trip.id, 'destination', trip.destination ?? ''))
       : `${cell(trip?.container ?? '')}${text('carrier')}${shipperCell(text('shipper'))}${cell(dateText(trip?.event_date))}`
-        + `${text('origin')}${text('destination')}`;
+        + route(text('origin').replace(/^<td/, '<span').replace(/<\/td>$/, '</span>'), text('destination').replace(/^<td/, '<span').replace(/<\/td>$/, '</span>'));
     const rowKey = trip ? `trip-${trip.id}` : '';
     const feeEditable = !locked && trip?.editable === true && trip.status === 'confirmed';
     const what = trip?.container || 'phí lẻ';
@@ -113,7 +118,7 @@
   // Chuyến Sheet chưa vào sổ: CHỜ DUYỆT (dòng mới) hoặc KHÁC (lệch chưa nối được dòng nào trong sổ).
   const sheetPendingRows = rows => rows.map(row => `<tr class="${row.sync_state === 'NEW' ? 'sheet-new' : 'sheet-conflict'}">
           ${empty()}<td>${escape(row.container)}<small>${row.sync_state === 'NEW' ? 'CHỜ DUYỆT' : `KHÁC: ${conflictFields(row)}`}</small></td>`
-    + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${cell(row.origin)}${cell(row.destination)}
+    + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${routeText(row.origin, row.destination)}
           ${empty('num')}${feeEmpty()}${num('–')}
           </tr>`).join('');
 

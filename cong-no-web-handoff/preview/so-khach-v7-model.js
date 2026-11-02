@@ -593,6 +593,15 @@ const SoKhachV7Model = (() => {
       return values.length ? values.reduce((sum, value) => sum + value, 0n) : null; };
     return { own: columnIds.map((_, index) => total(cell => cell.own[index])), otherVnd: total(cell => cell.otherVnd) };
   }
+  // Tổng cột đơn giá đã biết; không tính chuyến chờ kiểm, đã loại hoặc đã xóa. Trống cả cột vẫn là null.
+  function unitPriceTotal(trips, legacyRows) {
+    const prices = [...trips.filter(row => row.status === 'confirmed' && !row.deleted).map(row => row.unit_price_vnd),
+      ...legacyRows.filter(row => row.kind === 'trip' && !row.current?.deleted).map(row =>
+        row.editable && row.current ? row.current.unit_price_vnd
+          : /^-?\d+$/.test(row.display?.unit_price ?? '') ? row.display.unit_price : null)]
+      .filter(value => value != null && value !== '');
+    return prices.length ? prices.reduce((sum, value) => sum + vnd(String(value), true), 0n) : null;
+  }
   // Tách phụ phí theo bảng PS (specs/v7-phu-phi-tu-ps.md): chỉ đổi loại. Trang chỉ ghi "Tổng tiền không đổi"
   // khi mọi chuyến có tổng trước = sau; lệch một chuyến thì same = false và không cho tách.
   function planPsFees(ready) {
@@ -885,7 +894,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

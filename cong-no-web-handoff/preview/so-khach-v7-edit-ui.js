@@ -156,7 +156,7 @@
       setHistory(false);
     });
     root.addEventListener('click', async event => {
-      const infoEdit = event.target.closest('td.info-edit');
+      const infoEdit = event.target.closest('.info-edit');
       if (infoEdit) { openInfoEdit(infoEdit); return; }
       const rowDelete = event.target.closest('td.row-delete');
       // Ô chọn chuyến để thêm phụ phí cho nhiều chuyến (PHU-PHI-01) nằm trong ô STT: bấm ô chọn không phải xóa dòng.
@@ -271,7 +271,7 @@
     });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
-      if (event.target.matches('td.editable,td.receipt,td.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
+      if (event.target.matches('td.editable,td.receipt,.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
       if (event.target.matches('.month-amount,.month-note')) {
         event.preventDefault();
         const row = event.target.closest('tr');
@@ -377,7 +377,8 @@
       const row = td?.closest('tr[data-row]');
       if (!row) return null;
       const rows = [...root.querySelectorAll('table.trip-list tr[data-row]')], index = rows.indexOf(row);
-      const next = index < 0 ? null : rows[index + delta]?.children[td.cellIndex];
+      const nextRow = index < 0 ? null : rows[index + delta];
+      const next = td.matches('.route-cell span') ? nextRow?.querySelector(`[data-field="${td.dataset.field}"]`) : nextRow?.children[td.cellIndex];
       if (!next) return null;
       if (!next.hasAttribute('tabindex')) next.tabIndex = -1;
       next.focus({ preventScroll: true });
@@ -393,7 +394,7 @@
     function focusMark() {
       let el = document.activeElement;
       if (!el || !root.contains(el) || el.closest('#customer-picker,#live-controls')) return null;
-      if (el.matches('input:not([type="checkbox"]),select,textarea')) el = el.closest('td[tabindex]') ?? el;
+      if (el.matches('input:not([type="checkbox"]),select,textarea')) el = el.closest('[tabindex]') ?? el;
       return markOf(el);
     }
     function focusBack(mark) {
@@ -403,7 +404,7 @@
     root.addEventListener('keydown', event => {
       if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.target.matches('input:not([type="checkbox"]),select,textarea')) return;   // đang gõ: mũi tên thuộc ô nhập
-      const td = event.target.closest('table.trip-list td');
+      const td = event.target.closest('.route-cell .info-edit,table.trip-list td');
       if (td && stepRow(td, event.key === 'ArrowDown' ? 1 : -1)) event.preventDefault();
     });
     // Esc đóng dòng hỏi trong bảng (hủy phiếu, xóa, chờ kiểm, chuyển tháng, điều chỉnh cả tháng; khóa tháng ở askLock) và trả

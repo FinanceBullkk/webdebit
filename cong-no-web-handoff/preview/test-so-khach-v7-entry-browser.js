@@ -17,8 +17,8 @@ async function fill(page, date, amount) {
 }
 
 test('Ghi phiếu thu: một nút ở đầu sổ, Enter ra bước xem lại (chưa gửi), Enter nữa mới ghi đúng một lệnh', async () => withPage(async ({ page, world, shot }) => {
-  const open = page.locator('.book-head .entry-open');
-  assert.equal(await open.innerText(), 'Ghi phiếu thu');
+  const open = page.locator('.pay-head .entry-open');
+  assert.equal(await open.innerText(), '+ Ghi phiếu thu');
   await open.click();
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('receipt-date')), true);
   await drawer(page).locator('.entry-today').click();

@@ -97,6 +97,7 @@ test('CSM: optional reference, inline edit/clear, duplicate warns but saves, loc
   await lock.click();
   await page.locator('.lock-yes').click();
   await page.waitForFunction(() => document.querySelector('.month-lock')?.getAttribute('aria-pressed') === 'true');
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
   const history = await page.locator('#history-panel').innerText();
   // SO-GON-04 (L6): một dòng mỗi sự kiện, tên thao tác như chữ trên nút ("Mở khóa tháng").
@@ -222,7 +223,7 @@ async function withPage(fn) {
     // Danh sách khách về sau sổ thì vẽ lại cả sổ, xóa ô đang gõ (CẤN TRỪ về THU TIỀN): chờ nó xong mới thao tác.
     const open = async id => {
       await page.goto(`${base}/so-khach-v7-live.html?customer=${id}`);
-      await page.waitForSelector('.book-head .history-toggle');
+      await page.waitForSelector('.book-head');
       await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
     };
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`) }); } };
@@ -254,6 +255,7 @@ test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo m�
   world.books[1].mode = 'BO';
   await open(3);
   const search = page.locator('#customer-search');
+  await page.locator('.customer-switch').click();
   await search.click();
   await search.fill('');
   await page.locator('#customer-list .customer-group').first().waitFor();
@@ -294,7 +296,7 @@ test('danh sách khách về sau sổ: vẽ lại giữ ô đang gõ, CẤN TR�
   world.holdCustomers = [];
   const asked = new Promise(resolve => { world.customersHeld = resolve; });
   await page.goto(`${base}/so-khach-v7-live.html?customer=1`);
-  await page.waitForSelector('.book-head .history-toggle');
+  await page.waitForSelector('.book-head');
   await fillEntry(page, dayInMonth, '50.000.000');
   await pickSource(page, 'Khách Thử Hai');
   await asked;
@@ -338,12 +340,12 @@ test('ghi cấn trừ: khung xác nhận có số trước → sau, gửi versio
   const link = page.locator('.offset-link');
   assert.equal(await link.innerText(), 'từ Khách Thử Hai');
   assert.match(await link.getAttribute('href'), /customer=2$/);
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '0 đ');
+  assert.equal(await page.locator('.head-item.total strong').textContent(), '0 đ');
   await shot('4-ghi-xong-so-nhan');
   await open(2);
   assert.equal(await page.locator('.offset-link').innerText(), 'sang Khách Thử Một');
   assert.equal(await page.locator('td.receipt[data-pair]').last().innerText(), '-50.000.000');
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '-50.000.000 đ');
+  assert.equal(await page.locator('.head-item.total strong').textContent(), '-50.000.000 đ');
   await shot('5-so-nguon-sau-khi-ghi');
 }));
 
@@ -448,11 +450,11 @@ test('hủy cấn trừ từ sổ nguồn: bắt buộc lý do, hủy cả hai s
   await page.locator('.void-toggle').click();
   assert.match(await page.locator('.pay-list .void-trace').innerText(), /nhập nhầm/);
   assert.equal(await page.locator('.void-toggle').getAttribute('aria-expanded'), 'true');
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '-100.000.000 đ');
+  assert.equal(await page.locator('.head-item.total strong').textContent(), '-100.000.000 đ');
   await shot('9-sau-khi-huy-so-nguon');
   await open(1);
   assert.match(await page.locator('.void-summary').innerText(), /1 phiếu đã hủy/);
-  assert.equal(await page.locator('.head-item.total strong').innerText(), '50.000.000 đ');
+  assert.equal(await page.locator('.head-item.total strong').textContent(), '50.000.000 đ');
 }));
 
 test('đổi ngày cấn trừ từ sổ nhận: gửi version cả hai sổ, báo đã đổi cả hai sổ; ngày tương lai bị chặn tại ô', async () => withPage(async ({ page, world, open, shot }) => {
