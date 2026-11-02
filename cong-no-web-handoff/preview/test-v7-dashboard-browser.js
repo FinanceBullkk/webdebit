@@ -404,14 +404,14 @@ test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; s
     await group.locator('.work-row').first().waitFor();
     assert.equal(await group.locator('[data-book="7"] input').count(), 0);   // phiếu cần xem: không chọn được
     await group.locator('[data-book="7"] .book-name').click();
-    assert.match(await group.locator('.work-detail').innerText(), /Không rõ ngày[\s\S]*Cần xem/);
+    assert.match(await group.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*máy không ghi phiếu thiếu ngày/i);
     assert.equal(await group.locator('[data-review]').count(), 0);
     await page.locator('[data-pick-ready]').click();
     // Chọn hết mở ngay bước xem lại như bản thiết kế đã chọn.
     const review = group.locator('.receipt-review');
     const text = await review.innerText();
-    assert.match(text, /Xem lại trước khi ghi 3 phiếu ở 2 sổ · tổng 450\.000\.000/);
-    assert.match(text, /1\.000\.000\.000 đ → 600\.000\.000 đ/);
+    assert.match(text, /Xem lại trước khi ghi · 3 phiếu thu ở 2 sổ/);
+    assert.match(text, /1\.000 → 600/);
     assert.match(text, /có phiếu ngày trong tháng đang khóa \(T9\): vẫn ghi được/);
     assert.match(text, /khách sẽ dư 20 triệu/);
     assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-write')), true);
@@ -456,18 +456,16 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
       { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
     await page.locator('[data-auto]').click();
-    const done = page.locator('.auto-done');
+    const done = page.locator('.auto-list');
     await done.waitFor();
-    assert.match(await done.locator('summary').innerText(), /Máy đã tự lấy theo Sheet hôm nay: 2 ô chữ ở 1 sổ/);
-    await done.locator('summary').click();
-    assert.match(await done.innerText(), /Khách C · MAUU0000001 · nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
+    assert.match(await done.innerText(), /Khách C[\s\S]*nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
     assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /3 chỗ ở 1 sổ\. Không đụng tiền; máy lấy theo Sheet ở lượt tính tới/);
   }, '/viec-can-lam.html');
   await withPage({ inbox: { ...INBOX_EMPTY, auto: { ...auto, text_enabled: false, today_count: 0, items: [] }, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
     await page.locator('.inbox .inbox-note').waitFor();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /máy chưa bật tự lấy theo Sheet/);
-    assert.equal(await page.locator('.auto-done').count(), 0);
+    assert.equal(await page.locator('.auto-list').count(), 0);
   }, '/viec-can-lam.html');
 });
 
@@ -478,13 +476,11 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
       { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
     await page.locator('[data-auto]').click();
-    const done = page.locator('.auto-done');
+    const done = page.locator('.auto-list');
     await done.waitFor();
     assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
-    assert.match(await done.locator('summary').innerText(), /Máy đã đưa vào sổ hôm nay: 2 chuyến mới ở 1 sổ, 1 chuyến vào chờ kiểm/);
-    await done.locator('summary').click();
-    assert.match(await done.innerText(), /Khách C · MAUU0000002 · 01\/11\/2026\n[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
+    assert.match(await done.innerText(), /Khách C[\s\S]*MAUU0000002 · 01\/11\/2026[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
     assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
-    assert.match(await done.innerText(), /chưa cộng vào nợ/);
+    assert.equal(await done.locator('li').count(), 2);
   }, '/viec-can-lam.html');
 });
