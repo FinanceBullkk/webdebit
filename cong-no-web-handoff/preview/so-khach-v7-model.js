@@ -544,6 +544,18 @@ const SoKhachV7Model = (() => {
     return { count: ready.length, increaseVnd, beforeVnd, afterVnd: beforeVnd + increaseVnd };
   }
 
+  function planSheetPriceConflicts(items, totalOutstandingVnd) {
+    const beforeVnd = vnd(totalOutstandingVnd, true);
+    const deltaVnd = items.reduce((sum, item) => {
+      const oldAmount = item.target_kind === 'legacy' ? vnd(item.web_total_vnd, true)
+        : vnd(item.web_unit_price_vnd, true) + (item.web_other_fee_vnd == null ? 0n : vnd(item.web_other_fee_vnd, true));
+      const newAmount = vnd(item.sheet_unit_price_vnd, true)
+        + (item.sheet_other_fee_vnd == null ? 0n : vnd(item.sheet_other_fee_vnd, true));
+      return sum + newAmount - oldAmount;
+    }, 0n);
+    return { beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
+  }
+
   // Ghi phiếu thu từ Sheet (specs/v7-receipt-queue.md): tiền là chuỗi số nguyên dương từ server.
   function planSheetReceipts(ready, totalOutstandingVnd) {
     const totalVnd = ready.reduce((sum, item) => sum + vnd(item.amount_vnd), 0n);
@@ -900,7 +912,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, seriesCharges, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

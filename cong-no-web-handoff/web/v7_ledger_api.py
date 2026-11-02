@@ -23,6 +23,7 @@ import v7_presence
 import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
+    approve_price_conflicts,
     approve_prices,
     approve_ps_fees,
     approve_receipts,
@@ -181,6 +182,7 @@ POST_HANDLERS = {
     "/api/v7/sheet/approve": approve_sheet,
     "/api/v7/sheet/resolve": resolve_sheet_conflict,
     "/api/v7/sheet/prices": approve_prices,
+    "/api/v7/sheet/prices/conflicts": approve_price_conflicts,
     "/api/v7/sheet/receipts": approve_receipts,
     "/api/v7/ps/fees": approve_ps_fees,
     "/api/v7/sheet/refresh": lambda raw, runner, actor: refresh_sheet("POST", raw, actor),

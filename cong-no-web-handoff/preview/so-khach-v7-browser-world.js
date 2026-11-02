@@ -175,6 +175,25 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
+  if (url === '/api/v7/sheet/prices/conflicts') {
+    if (world.priceConflictStale || body.snapshot_sha256 !== world.sheetPrices.snapshot_sha256)
+      return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi.' }];
+    const selected = body.conflicts.map(key => world.sheetPrices.review.find(item => item.status === 'CONFLICT' && item.batchable &&
+      item.target_kind === key.target_kind && item.target_id === key.target_id && item.source_row === key.source_row));
+    if (selected.some(item => !item)) return [409, { error: 'STALE_SHEET', message: 'Dòng giá đã đổi.' }];
+    for (const item of selected) {
+      const row = item.target_kind === 'trip' ? world.trips.find(trip => trip.id === item.target_id)
+        : world.legacy.find(line => line.id === item.target_id).current;
+      const fee = BigInt(item.sheet_other_fee_vnd ?? '0');
+      Object.assign(row, { unit_price_vnd: item.sheet_unit_price_vnd, other_fee_vnd: item.sheet_other_fee_vnd,
+        counted_vnd: item.target_kind === 'legacy' ? String(BigInt(item.sheet_unit_price_vnd) + fee) : row.counted_vnd,
+        amount_vnd: item.target_kind === 'trip' ? String(BigInt(item.sheet_unit_price_vnd) + fee) : row.amount_vnd });
+      world.sheetPrices.review.splice(world.sheetPrices.review.indexOf(item), 1);
+      world.version += 1;
+    }
+    world.sheetPrices.review_count = world.sheetPrices.review.length;
+    return [200, { written: selected.length, remaining: 0, complete: true, version: world.version }];
+  }
   // THU-SHEET-01: mỗi phiếu READY thành một phiếu thu web, như record_receipt.
   if (url === '/api/v7/sheet/receipts') {
     if (world.receiptStale || body.snapshot_sha256 !== world.sheetReceipts.snapshot_sha256) return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi. Tải lại rồi ghi.' }];

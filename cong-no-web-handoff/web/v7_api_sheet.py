@@ -292,17 +292,10 @@ def price_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     return project_prices(snapshot, ledger, customers)
 
 
-def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
-    """Write every READY Sheet price of one customer through the existing price commands."""
-    customer, version, digest, key, ledger = approve_request(raw, runner, actor)
-    try:
-        projection = price_projection(runner, ledger, actor)
-    except ValueError as exc:
-        raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
-    if projection["snapshot_sha256"] != digest:
-        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+def write_price_items(items: list[dict], customer: int, version: int, digest: str, key: str,
+                      runner: Psql, actor: str, *, conflict: bool = False) -> tuple[int, dict]:
     written = commands_done = 0
-    for item in projection["ready"]:
+    for item in items:
         price, fee = str(item["sheet_unit_price_vnd"]), item["sheet_other_fee_vnd"]
         if item["target_kind"] == "trip":
             commands = [("edit_trip_price", {"trip_id": item["target_id"], "unit_price_vnd": price,
@@ -312,9 +305,10 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             if item.get("web_unit_price_vnd") is None or str(item["web_unit_price_vnd"]) != price:
                 commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"],
                                                      "field": "unit_price_vnd", "value": price}))
-            if fee is not None:
+            fee_changed = (item.get("web_other_fee_vnd") or "0") != (fee or "0")
+            if (conflict and fee_changed) or (not conflict and fee is not None):
                 commands.append(("edit_legacy_trip", {"legacy_row_id": item["target_id"], "field": "other_fee_vnd",
-                                                      "value": str(fee)}))
+                                                      "value": "" if fee is None else str(fee)}))
         for function, fields in commands:
             # One key per target and field: a repeated click replays the stored result, never a second write.
             command_key = hashlib.sha256(
@@ -324,17 +318,63 @@ def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
                                                "idempotency_key": command_key, **fields}, actor)
             except ApiError as exc:
                 if exc.code == "FEE_LINES_TYPED":
-                    return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                    return 200, {"written": written, "remaining": len(items) - written,
                                  "complete": False, "error": exc.code,
                                  "review": [{**item, "status": "MANUAL"}]}
                 if not commands_done:
                     raise   # nothing written yet: a plain error, same as one price edit
-                return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+                return 200, {"written": written, "remaining": len(items) - written,
                              "complete": False, "error": exc.code}
             version = result["version"] if type(result.get("version")) is int else                 runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
             commands_done += 1
         written += 1
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+
+
+def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Write every READY Sheet price of one customer through the existing price commands."""
+    customer, version, digest, key, ledger = approve_request(raw, runner, actor)
+    try:
+        projection = price_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+    return write_price_items(projection["ready"], customer, version, digest, key, runner, actor)
+
+
+def approve_price_conflicts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Write only explicitly selected, still matching Sheet price conflicts."""
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256",
+                                                     "idempotency_key", "conflicts"}:
+        bad()
+    selected = request["conflicts"]
+    if (type(selected) is not list or not 1 <= len(selected) <= 200 or
+            any(type(item) is not dict or set(item) != {"target_kind", "target_id", "source_row"} or
+                item["target_kind"] not in ("trip", "legacy") or not positive_int(item["target_id"]) or
+                not positive_int(item["source_row"]) for item in selected)):
+        bad()
+    keys = [(item["target_kind"], item["target_id"], item["source_row"]) for item in selected]
+    if len(set(keys)) != len(keys):
+        bad()
+    base = {name: value for name, value in request.items() if name != "conflicts"}
+    customer, version, digest, key, ledger = approve_request(json.dumps(base).encode(), runner, actor)
+    try:
+        projection = price_projection(runner, ledger, actor)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_PRICES_UNAVAILABLE", "Không đọc được giá từ Sheet.") from exc
+    if projection["snapshot_sha256"] != digest:
+        raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+    available = {(item["target_kind"], item["target_id"], item["source_row"]): item
+                 for item in projection["review"] if item["status"] == "CONFLICT" and item["batchable"]}
+    if any(item not in available for item in keys):
+        raise ApiError(409, "STALE_SHEET", "Dòng giá đã đổi hoặc cần xử lý riêng. Tải lại sổ rồi xem lại.")
+    return write_price_items([available[item] for item in keys], customer, version, digest, key, runner, actor,
+                             conflict=True)
 
 
 def receipt_projection(runner: Psql, ledger: dict, actor: str) -> dict:
