@@ -186,14 +186,24 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
     customer = ledger.get("customer_id")
     rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == customer]
     pool = targets(ledger)
+    by_target = {(target["kind"], target["id"]): target for target in pool}
     results = mark_shared([classify(row, pool) for row in rows])
     keep = ("customer_tab", "source_row", "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd",
-            "status", "target_kind", "target_id", "web_unit_price_vnd", "web_other_fee_vnd")
-    money_fields = ("sheet_unit_price_vnd", "sheet_other_fee_vnd", "web_unit_price_vnd", "web_other_fee_vnd")
+            "status", "target_kind", "target_id", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd", "batchable")
+    money_fields = ("sheet_unit_price_vnd", "sheet_other_fee_vnd", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd")
 
     def public(result: dict) -> dict:
         # Money leaves the API as exact decimal strings, NULL stays null (same contract as get_ledger).
-        return {k: (None if result[k] is None else str(result[k])) if k in money_fields else result[k] for k in keep}
+        target = by_target.get((result["target_kind"], result["target_id"]))
+        price, fee = result["sheet_unit_price_vnd"], result["sheet_other_fee_vnd"]
+        changed = target is not None and (price != target["price"] or (fee or 0) != (target["fee"] or 0))
+        sheet_total = result.get("sheet_total_vnd")
+        total_matches = price is not None and (sheet_total is None or sheet_total == price + (fee or 0))
+        batchable = (result["status"] == "CONFLICT" and target is not None and not target["locked"] and changed
+                     and total_matches and (target["kind"] == "trip" or (target["total"] is not None
+                         and sheet_total is not None)))
+        return {k: batchable if k == "batchable" else
+                ((None if result[k] is None else str(result[k])) if k in money_fields else result[k]) for k in keep}
     ready = [public(r) for r in results if r["status"] == "READY"]
     review = [public(r) for r in results if r["status"] in REVIEW]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
