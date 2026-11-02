@@ -32,13 +32,14 @@
     const lines = books.map(b => ({ b, line: reviewLine(b, F) }));
     const count = lines.reduce((n, { line }) => n + line.count, 0);
     const total = lines.reduce((sum, { line }) => sum + big(line.total), 0n);
-    const rowsHtml = lines.map(({ b, line }) => `<tr><td>${esc(label(b))}</td><td class="num">${line.count}</td><td class="num money">${esc(F.full(line.total))}</td>`
-      + `<td class="num money">${line.before === null ? '—' : `${esc(F.full(line.before))} → <b>${esc(F.full(line.after))}</b>`}</td>`
+    const million = value => globalThis.InboxTable.million(value);
+    const rowsHtml = lines.map(({ b, line }) => `<tr><td>${esc(label(b))}</td><td>${line.count} phiếu thu (−${million(line.total)})</td>`
+      + `<td class="num money" title="${line.before === null ? '' : esc(`${F.full(line.before)} → ${F.full(line.after)}`)}">${line.before === null ? '—' : `${million(line.before)} → <b>${million(line.after)}</b>`}</td>`
       + `<td>${line.notes.map(note => `<span class="tag warning">${esc(note)}</span>`).join(' ')}</td></tr>`).join('');
-    return `<div class="receipt-review" role="dialog" aria-labelledby="h-review"><h3 id="h-review">Xem lại trước khi ghi ${count} phiếu ở ${books.length} sổ · tổng ${esc(F.full(total.toString()))}</h3>`
-      + `<table><thead><tr><th>Khách</th><th class="num">Phiếu</th><th class="num">Tổng phiếu</th><th class="num">Còn nợ trước → sau (tạm tính)</th><th>Lưu ý</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
-      + '<p class="tiny">Phiếu ghi đúng ngày trên Sheet, trừ vào nợ cũ trước. Ghi nhầm thì mở sổ để hủy phiếu (cần lý do).</p>'
-      + `<div class="actions"><button type="button" class="btn primary" data-write${busy ? ' disabled' : ''}>${busy ? 'Đang ghi…' : `Ghi ${count} phiếu`}</button>`
+    return `<div class="receipt-review" role="dialog" aria-labelledby="h-review"><h3 id="h-review" title="Tổng ${esc(F.full(total.toString()))}">Xem lại trước khi ghi · ${count} phiếu thu ở ${books.length} sổ</h3>`
+      + `<table><thead><tr><th>Khách</th><th>Ghi</th><th class="num" title="Tạm tính; số thật lấy lại sau khi ghi">Còn nợ trước → sau <span class="muted">tr</span></th><th>Lưu ý</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+      + '<p>Phiếu ghi đúng ngày trên Sheet, trừ vào nợ cũ trước. Chuyến có giá thì bắt đầu cộng vào nợ.</p>'
+      + `<div class="actions"><button type="button" class="btn primary" data-write${busy ? ' disabled' : ''}>${busy ? 'Đang ghi…' : `Ghi ${count} mục`}</button>`
       + `<button type="button" class="btn" data-review-cancel${busy ? ' disabled' : ''}>Thôi</button></div></div>`;
   }
 
@@ -58,15 +59,9 @@
   const AUTO_FIELD = { carrier: 'hãng tàu', shipper: 'shipper', origin: 'nơi đi', destination: 'nơi đến' };
   // P3b: chuyến mới máy đã đưa vào sổ hôm nay (chưa có giá); chuyến nghi trùng nằm ở "chờ kiểm" của sổ.
   function autoHtml(auto, esc, label, href) {
-    const link = item => `<a href="${href(item.customer_id)}">${esc(label(item))}</a> · ${esc(item.container ?? '')}`;
-    const text = auto?.today_count ? `<details class="auto-done"><summary>Máy đã tự lấy theo Sheet hôm nay: <b>${auto.today_count}</b> ô chữ ở <b>${auto.today_books}</b> sổ</summary>`
-      + `<ul>${(auto.items ?? []).map(item => `<li>${link(item)} · ${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → <b>${esc(item.after)}</b></li>`).join('')}</ul>`
-      + '<p class="tiny">Không đụng tiền. Sai ô nào thì mở sổ, sửa lại tại ô (có ghi Lịch sử).</p></details>' : '';
-    const pending = auto?.today_trips_pending ? `, ${auto.today_trips_pending} chuyến vào chờ kiểm` : '';
-    const trips = auto?.today_trips ? `<details class="auto-done"><summary>Máy đã đưa vào sổ hôm nay: <b>${auto.today_trips}</b> chuyến mới ở <b>${auto.today_trip_books}</b> sổ${pending}</summary>`
-      + `<ul>${(auto.trip_items ?? []).map(item => `<li>${link(item)} · ${esc(dayText(item.event_date))}${item.pending ? ' · <span class="tag warn">chờ kiểm</span>' : ''}</li>`).join('')}</ul>`
-      + '<p class="tiny">Chuyến chưa có giá, chưa cộng vào nợ. Sai chuyến nào thì mở sổ, xóa chuyến đó (có ghi Lịch sử).</p></details>' : '';
-    return text + trips;
+    const text = (auto?.items ?? []).map(item => `<li><span class="auto-kind">Sửa chữ</span><strong>${esc(label(item))}</strong><span>${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → ${esc(item.after)}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
+    const trips = (auto?.trip_items ?? []).map(item => `<li><span class="auto-kind">Chuyến mới</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.event_date))}${item.pending ? ' · chờ kiểm' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
+    return auto?.today_count || auto?.today_trips ? `<ul aria-label="Việc máy làm hôm nay">${text}${trips}</ul>` : '';
   }
 
   const changePreview = (total, before, after) => (BigInt(total) - BigInt(before) + BigInt(after)).toString();

@@ -91,7 +91,12 @@
 
   // Hộp P2 (specs/v7-hop-ngoai-le-p2.md): sổ đã chọn, khung xem lại, kết quả lần ghi; giữ qua các lần tự tải lại.
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), showAuto: false, action: null };
-  const inboxLabel = book => customerLabels(currentCustomers).get(String(book.customer_id)) ?? `Sổ #${book.customer_id}`;
+  const inboxLabel = book => {
+    const row = currentCustomers.find(c => c.id === book.customer_id);
+    if (!row) return `Sổ #${book.customer_id}`;
+    const name = row.display_name ?? row.name;
+    return currentCustomers.filter(c => (c.display_name ?? c.name) === name).length === 1 ? name : customerLabels(currentCustomers).get(String(row.id));
+  };
   const drafts = new Map();
   const keptMemory = new Map();
   const draftKey = input => input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
@@ -103,14 +108,17 @@
     inboxRoot.innerHTML = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, actionHtml: actionHtml(), notice: inbox.notice,
+      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
     });
     const badge = document.querySelector('#todo-badge');
     const n = globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length;
     badge.textContent = String(n);
     badge.hidden = !n;
     badge.setAttribute('aria-label', String(n) + ' sổ còn việc');
-    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason]')) input.value = drafts.get(draftKey(input)) ?? '';
+    const sheetAt = inbox.data?.sheet_at;
+    document.querySelector('#sheet-clock').textContent = sheetAt ? new Date(sheetAt).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' }) : '—';
+    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
+    for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
     if (focusAttr) inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`)?.focus({ preventScroll: true });
     const scroller = inboxRoot.querySelector('.work-scroll:has(.work-table)');
@@ -144,6 +152,7 @@
     paintInbox();
     try {
       const ledger = await json(`/api/v7/ledger?customer=${id}`);
+      ledger.price_status = await json(`/api/v7/price-table/status?customer=${id}`).catch(() => null);
       const key = `sokhach-v7-sheet-giu:${id}:${ledger.sheet_sync?.snapshot_sha256 ?? ''}`;
       const kept = new Set(keptMemory.get(key) ?? []);
       try { for (const trip of JSON.parse(localStorage.getItem(key) ?? '[]')) kept.add(String(trip)); } catch { /* giữ bản trong phiên */ }
@@ -154,34 +163,11 @@
     paintInbox();
   }
 
-  async function reviewPrices(id) {
-    if (inbox.busy || inbox.action || inbox.review) return;
-    inbox.busy = true; paintInbox();
-    try {
-      const ledger = await json(`/api/v7/ledger?customer=${id}`);
-      inbox.details.set(id, ledger);
-      const part = ledger.sheet_prices;
-      if (part?.unavailable || !part?.ready?.length || !Number.isInteger(ledger.version) || !/^[0-9a-f]{64}$/.test(part.snapshot_sha256 ?? '')) {
-        throw Error('Giá từ Sheet đã đổi hoặc chưa đủ dữ liệu. Mở lại chi tiết sổ để kiểm tra.');
-      }
-      const plan = SoKhachV7Model.planSheetPrices(part.ready, ledger.total_outstanding_vnd);
-      inbox.review = null;
-      inbox.action = { title: `Ghi ${plan.count} giá từ Sheet`, id,
-        text: `Còn nợ ${F.full(plan.beforeVnd)} → ${F.full(plan.afterVnd)}. Phiếu thu tự phân bổ lại theo nợ cũ trước.`,
-        path: '/api/v7/sheet/prices', body: { customer_id: id, expected_version: ledger.version,
-          snapshot_sha256: part.snapshot_sha256, idempotency_key: crypto.randomUUID() } };
-    } catch {
-      inbox.action = { title: 'Chưa xem lại được giá', text: 'Không tải đủ giá hoặc số nợ của sổ. Tải lại rồi chọn lại; chưa ghi giá nào.' };
-    }
-    inbox.busy = false; paintInbox();
-    inboxRoot.querySelector('[data-action-cancel]')?.focus();
-  }
-
   async function reviewCombined() {
     if (inbox.busy || inbox.action || inbox.review) return;
     inbox.busy = true; paintInbox();
     try {
-      const tasks = [], lines = [];
+      const tasks = [], lines = [], rows = [];
       for (const id of new Set([...inbox.selected, ...inbox.selectedPrices])) {
         const ledger = await json(`/api/v7/ledger?customer=${id}`);
         const parts = [], kinds = [];
@@ -203,13 +189,15 @@
         }
         for (const [kind, part] of kinds) {
           if (!Number.isInteger(ledger.version) || !/^[0-9a-f]{64}$/.test(part.snapshot_sha256 ?? '')) throw Error('Sổ chưa đủ dữ liệu để ghi. Tải lại rồi chọn lại.');
-          tasks.push({ path: `/api/v7/sheet/${kind}`, body: { customer_id: id, expected_version: ledger.version,
+          tasks.push({ count: part.ready.length, path: `/api/v7/sheet/${kind}`, body: { customer_id: id, expected_version: ledger.version,
             snapshot_sha256: part.snapshot_sha256, idempotency_key: crypto.randomUUID() }, kind, done: false });
         }
         const credit = F.toBig(after) < 0n ? ` · khách sẽ dư ${F.full(-F.toBig(after))}` : '';
         lines.push(`${inboxLabel({ customer_id: id })}: ${parts.join(' · ')}; còn nợ ${before} → ${F.full(after)}${credit}`);
+        rows.push({ name: inboxLabel({ customer_id: id }), what: parts.join(' · '), before: ledger.total_outstanding_vnd, after, note: credit });
       }
-      inbox.action = { title: 'Xem lại trước khi ghi', text: lines.join('\n'), tasks, path: 'batch' };
+      inbox.open = null;
+      inbox.action = { title: 'Xem lại trước khi ghi', text: lines.join('\n'), rows, tasks, count: tasks.reduce((n, t) => n + t.count, 0), path: 'batch' };
     } catch {
       inbox.action = { title: 'Chưa xem lại được', text: 'Không tải đủ phiếu thu, giá hoặc số nợ của sổ. Tải lại rồi chọn lại; chưa ghi mục nào.' };
     }
@@ -224,7 +212,8 @@
     const counted = row.status === 'confirmed' ? row.amount_vnd : '0';
     if (counted == null) return;
     const preview = `Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, counted, '0'))}.`;
-    inbox.action = { title: `Xóa chuyến ${row.container}`, id: inbox.open,
+    inbox.action = { title: `Xóa chuyến ${row.container}`, id: inbox.open, rowKey: `removed:${id}`,
+      inlineText: `Xóa chuyến · nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, counted, '0'))} tr`,
       text: `Sheet không còn dòng này. ${preview} Xóa trên web có ghi Lịch sử.`,
       path: '/api/v7/trips/delete', body: { customer_id: inbox.open, expected_version: ledger.version,
         trip_id: id, idempotency_key: crypto.randomUUID() } };
@@ -238,7 +227,7 @@
     const kind = button.dataset.command;
     const row = ledger.trips?.find(r => r.id === Number(button.dataset.trip));
     const body = { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID() };
-    let title, text, path;
+    let title, text, path, inlineText;
     try {
       if (kind === 'ps' || kind === 'approve') {
         const part = kind === 'ps' ? ledger.ps_fees : ledger.sheet_sync;
@@ -261,39 +250,48 @@
         body.trip_id = row.id;
         let next = '0';
         if (kind === 'price') {
-          body.unit_price_vnd = SoKhachV7Model.parseVnd(inboxRoot.querySelector(`[data-manual-price="${row.id}"]`).value).toString();
+          body.unit_price_vnd = globalThis.InboxTable.parseMillions(inboxRoot.querySelector(`[data-manual-price="${row.id}"]`).value);
           body.other_fee_vnd = row.other_fee_vnd;
           next = SoKhachV7Model.tripAmount({ unitPriceVnd: body.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: row.status }).amountVnd.toString();
           title = `Ghi đơn giá ${F.full(body.unit_price_vnd)} cho ${row.container}`;
           path = '/api/v7/trips/price';
         } else {
-          body.reason = inboxRoot.querySelector(`[data-reason="${row.id}"]`).value.trim();
-          if (!body.reason || body.reason.length > 500) throw Error();
+          body.reason = '';
           body.decision = kind;
           next = kind === 'confirm' ? SoKhachV7Model.tripAmount({ unitPriceVnd: row.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: 'confirmed' }).amountVnd?.toString() ?? '0' : '0';
           title = `${kind === 'confirm' ? 'Tính vào sổ' : 'Loại chuyến'} ${row.container}`;
           path = '/api/v7/trips/review';
         }
         text = `Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
+        inlineText = `${kind === 'price' ? `Ghi giá ${globalThis.InboxTable.million(body.unit_price_vnd)} tr` : kind === 'confirm' ? 'Chuyến riêng' : 'Bỏ chuyến'} · ${next === '0' ? 'nợ không đổi' : `nợ ${globalThis.InboxTable.million(ledger.total_outstanding_vnd)} → ${globalThis.InboxTable.million(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))} tr`}`;
       }
-      inbox.action = { title, text, path, body, id: inbox.open };
+      inbox.action = { title, text, inlineText, path, body, id: inbox.open, rowKey: row ? `${kind === 'price' ? 'price' : 'review'}:${row.id}` : null, reasonRequired: kind === 'confirm' || kind === 'reject' };
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
     } catch {
       const alert = document.querySelector('#error');
       alert.hidden = false;
-      alert.textContent = 'Chưa đủ thông tin để ghi. Kiểm tra đơn giá nguyên đồng, lý do kết luận hoặc mở sổ để đối chiếu.';
+      alert.textContent = 'Chưa đủ thông tin để ghi. Nhập đơn giá bằng triệu đồng, dùng dấu phẩy cho phần lẻ; hoặc mở sổ để đối chiếu.';
     }
   }
 
   function actionHtml() {
     const a = inbox.action;
     if (!a) return '';
+    if (a.rowKey) return '';
+    if (a.rows) return `<section class="receipt-review" role="dialog" aria-labelledby="h-action"><h3 id="h-action">${esc(a.title)} · ${a.count} mục ở ${a.rows.length} sổ</h3><div class="work-scroll"><table><thead><tr><th>Khách</th><th>Ghi</th><th class="num">Còn nợ trước → sau <span class="muted">tr</span></th><th>Lưu ý</th></tr></thead><tbody>${a.rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.what)}</td><td class="num action-description" title="${esc(`${F.full(r.before)} → ${F.full(r.after)}`)}">${globalThis.InboxTable.million(r.before)} → <strong>${globalThis.InboxTable.million(r.after)}</strong></td><td>${esc(r.note)}</td></tr>`).join('')}</tbody></table></div><p>Phiếu ghi đúng ngày trên Sheet, trừ vào nợ cũ trước. Chuyến có giá thì bắt đầu cộng vào nợ.</p>${a.error ? `<p role="alert">${esc(a.error)}</p>` : ''}<div class="actions">${a.path ? `<button class="btn primary" type="button" data-action-write${inbox.busy ? ' disabled' : ''}>${inbox.busy ? 'Đang ghi…' : a.unknown ? 'Thử lại' : `Ghi ${a.count} mục`}</button>` : ''}${a.unknown ? '' : '<button class="btn" type="button" data-action-cancel>Thôi</button>'}</div></section>`;
     return `<section class="receipt-review" role="dialog" aria-labelledby="h-action"><h3 id="h-action">${esc(a.title)}</h3><p class="action-description">${esc(a.text)}</p>${a.tasks ? '<p>Giá có nguồn mới bắt đầu tính nợ. Phiếu thu trừ nợ cũ trước; ngày trong tháng khóa vẫn ghi được.</p>' : ''}${a.error ? `<p role="alert">${esc(a.error)}</p>` : ''}<div class="actions">${a.path ? `<button type="button" class="btn primary" data-action-write${inbox.busy ? ' disabled' : ''}>${inbox.busy ? 'Đang ghi…' : a.unknown ? 'Thử lại' : 'Xác nhận'}</button>` : ''}${a.unknown ? '' : `<button type="button" class="btn" data-action-cancel${inbox.busy ? ' disabled' : ''}>Thôi</button>`}</div></section>`;
   }
 
   async function writeAction() {
     const a = inbox.action;
     if (!a?.path || inbox.busy) return;
+    if (a.reasonRequired && !a.unknown) {
+      const reason = inboxRoot.querySelector('[data-action-reason]');
+      if (!reason?.value.trim() || reason.value.trim().length > 500) {
+        reason?.setCustomValidity('Nhập lý do kết luận để lưu Lịch sử.'); reason?.reportValidity(); return;
+      }
+      a.body.reason = reason.value.trim();
+    }
     inbox.busy = true; paintInbox();
     if (a.tasks) { await writeCombined(a); return; }
     try {
@@ -383,9 +381,16 @@
   }
 
   inboxRoot.addEventListener('input', event => {
+    if (event.target.matches('[data-action-reason]')) { event.target.setCustomValidity(''); return; }
     const input = event.target.closest('[data-manual-price],[data-reason]');
-    if (input) drafts.set(draftKey(input), input.value);
+    if (input) { drafts.set(draftKey(input), input.value); if (input.hasAttribute('data-manual-price')) setPriceValidity(input); }
   });
+  function setPriceValidity(input) {
+    const button = input.closest('.detail-actions')?.querySelector('[data-command="price"]');
+    if (!button) return;
+    try { globalThis.InboxTable.parseMillions(input.value); button.disabled = inbox.busy; }
+    catch { button.disabled = true; }
+  }
   inboxRoot.addEventListener('change', event => {
     if (inbox.busy || inbox.review || inbox.action) return;
     const price = event.target.closest('[data-pick-price]');
@@ -413,7 +418,7 @@
     if ((inbox.action?.unknown || inbox.result?.unknown) && !button.matches('[data-action-write],[data-write-retry]')) return;
     if ((inbox.action || inbox.review) && !button.matches('[data-action-write],[data-action-cancel],[data-write],[data-write-retry],[data-review-cancel]')) return;
     if (button.hasAttribute('data-filter')) {
-      inbox.filter = button.dataset.filter; paintInbox(); return;
+      inbox.filter = inbox.filter === button.dataset.filter ? '' : button.dataset.filter; paintInbox(); return;
     }
     if (button.hasAttribute('data-auto')) { inbox.showAuto = !inbox.showAuto; paintInbox(); return; }
     if (button.hasAttribute('data-pick-ready')) {
@@ -432,7 +437,6 @@
       return;
     }
     if (button.hasAttribute('data-detail-retry')) { await loadDetail(Number(button.dataset.detailRetry), true); return; }
-    if (button.hasAttribute('data-price-review')) { await reviewPrices(Number(button.dataset.priceReview)); return; }
     if (button.hasAttribute('data-remove-trip')) { reviewRemove(Number(button.dataset.removeTrip)); return; }
     if (button.hasAttribute('data-command')) { reviewCommand(button); return; }
     if (button.hasAttribute('data-keep-trip')) {

@@ -46,7 +46,8 @@ function serverFor(opts = {}) {
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? sample));
     if (route === '/api/v7/dashboard') return send(opts.dashboardStatus ?? 200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: opts.unsorted ?? [] });
-    if (route === '/api/v7/customers') return send(200, { customers });
+    if (route === '/api/v7/customers') return send(200, { customers: opts.customers ?? customers });
+    if (route === '/api/v7/price-table/status') return send(200, opts.priceStatus ?? { trips: [] });
     if (route === '/api/v7/ledger') return send(opts.ledgerStatus ?? 200, value(opts.ledger ?? ledger));
     if (route.startsWith('/api/v7/presence')) return send(200, { people: [] });
     if (route.startsWith('/api/')) return send(404, {});
@@ -66,22 +67,56 @@ async function withPage(opts, fn) {
     await fn(page);
   } finally { await browser.close(); server.close(); }
 }
-if (process.argv.includes('--preview')) {
-  const port = Number(process.env.UX_PREVIEW_PORT ?? 18765);
-  serverFor().listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
+// Cùng dữ liệu giả của package để đo hình học; không dùng số liệu khách thật.
+function designFixture() {
+  const titles = ['Lộc Phát', 'An Phát', 'Đông Á', 'Bình Minh', 'Kim Ngân', 'Minh Châu', 'Nam Việt', 'Phú Quý'];
+  const receipt = (id, n, amount, review = 0) => writable(id, { receipts: { ready: n, review, ready_amount_vnd: amount, amount_vnd: amount, snapshot_sha256: sha, items: [], locked_months: [] } });
+  return { priceStatus: { trips: [1, 2].map(trip_id => ({ trip_id, ready: true, lookup: { unit_price_vnd: '9200000' } })) }, customers: titles.map((name, i) => ({ id: i + 1, name: `Công ty Mẫu ${name}`, commodity: i === 7 ? null : 'Sầu riêng', transport_mode: 'CANG' })),
+    unsorted: [{ customer_id: 8, name: 'Công ty Mẫu Phú Quý', commodity: null }],
+    dashboard: { ...dashboard, todo: { missing_price: [{ customer_id: 2, count: 2 }, { customer_id: 4, count: 1 }, { customer_id: 5, count: 1 }], pending_review: [{ customer_id: 3, count: 3 }, { customer_id: 6, count: 1 }], no_baseline: [{ customer_id: 8 }], credit: [] },
+      today: { ...dashboard.today, by_actor: [{ actor: 'Lan', trips: 9, receipts: 2, received_vnd: '70000000', voids: 1 }, { actor: 'Tuấn', trips: 5, receipts: 1, received_vnd: '25000000', voids: 0 }] } },
+    inbox: { ...sample, books: [book(1, { removed: { count: 1, amount_vnd: '12500000' }, prices: { ready: 0, review: 1 } }), receipt(2, 2, '180000000'), receipt(3, 1, '60000000', 1), book(4, { prices: { ready: 1, review: 0 } }), book(6, { trips_new: 3 }), book(7, { ps: { ready: 2, review: 0 } })].map(b => b.customer_id === 3 ? { ...b, trips_check: { count: 2 } } : b),
+      auto: { ...sample.auto, today_trips: 3, today_count: 18 } },
+    ledger: { ...ledger, sheet_prices: { ...ledger.sheet_prices, ready: [] }, trips: [1, 2].map((id, i) => ({ id, container: `TGHU 76543${i + 2}-${i ? 7 : 1}`, event_date: `2026-10-${30 + i}`, status: 'confirmed', unit_price_vnd: null, other_fee_vnd: null, editable: true, origin: 'Ea Súp', destination: 'Cát Lái' })) } };
+}
+if (process.argv.includes('--preview') || process.argv.includes('--design-preview')) {
+  const port = Number(process.env.UX_PREVIEW_PORT ?? (process.argv.includes('--design-preview') ? 18767 : 18765));
+  serverFor(process.argv.includes('--design-preview') ? designFixture() : {}).listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
 } else {
+  test('package đã chọn: hình học, màu, số tổng, số mục và đơn vị triệu', async () => withPage(designFixture(), async page => {
+    await page.setViewportSize({ width: 1280, height: 760 });
+    await page.addStyleTag({ content: '#demo-banner{display:none}' }); // Chỉ bỏ banner fixture khi so reference.
+    await page.waitForFunction(() => document.querySelectorAll('.work-row').length === 8);
+    const geometry = await page.locator('.page-head,.work-band,.work-card').evaluateAll(nodes => nodes.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
+    assert.deepEqual(geometry[0], [76, 0, 1204, 53]);
+    assert.deepEqual(geometry[1], [104, 69, 1144, 66]);
+    assert.equal(geometry[2][1], 149);
+    assert.match(await page.locator('tfoot').innerText(), /240 tr \+1[\s\S]*1 giá Sheet · 1 giá khác · 4 chưa giá[\s\S]*1 Sheet xóa · 6 cần xem · 3 mới/);
+    assert.deepEqual(await page.locator('[data-filter] b').allTextContents(), ['5', '2', '2']);
+    assert.deepEqual(await page.locator('.work-row .book-name').allTextContents(), ['Lộc Phát', 'An Phát', 'Đông Á', 'Bình Minh', 'Kim Ngân', 'Minh Châu', 'Nam Việt', 'Phú Quý'].map(n => `Công ty Mẫu ${n}`));
+    await page.locator('[data-pick="2"]').check();
+    assert.match(await page.locator('[data-review]').innerText(), /Xem lại 2 mục/);
+    await page.locator('[data-book="2"] .book-name').click();
+    await page.locator('[data-manual-price]').first().waitFor();
+    const input = page.locator('[data-manual-price]').first();
+    await input.fill('9,2'); await page.locator('[data-command="price"]').first().click();
+    assert.equal(await page.locator('.pending-action [data-action-write]').count(), 1);
+    assert.equal(await page.locator('.receipt-review').count(), 0);
+    assert.deepEqual(await page.evaluate(() => ['9,2', '9.2', '0,000001'].map(v => globalThis.InboxTable.parseMillions(v))), ['9200000', '9200000', '1']);
+    for (const value of ['', '0', '-1', '9x', '9.200.000', '0,0000001', '9223372036855']) assert.equal(await page.evaluate(v => { try { globalThis.InboxTable.parseMillions(v); return false; } catch { return true; } }, value), true);
+  }));
   test('bảng bốn cột: gộp đúng ID, lọc sổ, chữ Hán/tên dài, 1280 có scrollbar và màn hẹp', async () => withPage({}, async page => {
     await page.waitForFunction(() => document.querySelectorAll('.work-row').length === 8);
     assert.deepEqual(await page.locator('.work-table thead th').allTextContents(), ['Khách', 'Phiếu thu tr', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ', 'Mở']);
     assert.equal(await page.locator('#todo-badge').innerText(), '8');
-    assert.match(await page.locator('.today-inline').innerText(), /Người nhập mẫu[\s\S]*9 chuyến · 2 phiếu/);
+    assert.match(await page.locator('.today-inline').innerText(), /Người nhập mẫu[\s\S]*9[\s\S]*2/);
     await page.locator('[data-filter="trips"]').click();
     assert.equal(await page.locator('.work-row').count(), 2);
     await page.locator('[data-filter="setup"]').click();
     assert.equal(await page.locator('.work-row').count(), 3);
     await page.locator('[data-filter=""]').click();
     await page.locator('[data-book="2"] .book-name').click();
-    await page.locator('[data-price-review]').waitFor();
+    await page.locator('.work-detail .loading').waitFor({state:'hidden'});
     assert.equal(await page.locator('.work-detail .open-book').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     await page.locator('[data-book="2"] .book-name').click();
     assert.equal(await page.locator('.work-detail').count(), 0);
@@ -95,12 +130,12 @@ if (process.argv.includes('--preview')) {
   test('phiếu: chỉ mục READY được chọn, xem lại nợ trước/sau, tháng khóa và khách dư, hủy không ghi', async () => withPage({ inbox: { ...sample, books: [writable(1, { outstanding_vnd: '30000000' }), book(2, { receipts: { ready: 0, review: 1, amount_vnd: '9000000', items: [{ status: 'NO_DATE', date: null, amount_vnd: null }] } })] } }, async page => {
     assert.equal(await page.locator('[data-book="2"] input').count(), 0);
     await page.locator('[data-book="2"] .book-name').click();
-    assert.match(await page.locator('.work-detail').innerText(), /Không rõ ngày[\s\S]*—[\s\S]*Cần xem/);
+    assert.match(await page.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*—[\s\S]*máy không ghi phiếu thiếu ngày/i);
     await page.locator('[data-pick="1"]').check();
     assert.equal(await page.locator('[data-pick="1"]').evaluate(e => e === document.activeElement), true);
     await page.locator('[data-review]').click();
     const text = await page.locator('.receipt-review').innerText();
-    assert.match(text, /30\.000\.000 đ →.*20\.000\.000 đ/);
+    assert.match(text, /30 → −20/);
     assert.match(text, /khách sẽ dư 20 triệu/);
     assert.match(text, /T9/);
     assert.equal(await page.locator('[data-write]').evaluate(e => e === document.activeElement), true);
@@ -135,13 +170,13 @@ if (process.argv.includes('--preview')) {
   test('giá: đọc phiên bản mới, nợ trước/sau đúng, mất mạng gửi lại nguyên yêu cầu', async () => {
     const posted = []; const lost = [];
     await withPage({ posted }, async page => {
-      await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-price-review]').click();
-      assert.match(await page.locator('#h-action').innerText(), /Ghi 1 giá từ Sheet/);
-      assert.match(await page.locator('.receipt-review').innerText(), /100\.000\.000 đ → 109\.200\.000 đ/);
+      await page.locator('[data-pick-price="2"]').check(); await page.locator('[data-review]').click();
+      assert.match(await page.locator('#h-action').innerText(), /Xem lại trước khi ghi/);
+      assert.match(await page.locator('.receipt-review').innerText(), /100 → 109,2/);
       await page.route('**/api/v7/sheet/prices', route => { lost.push(route.request().postDataJSON()); return route.abort(); }, { times: 1 });
       await page.locator('[data-action-write]').click(); await page.locator('[data-action-write]', { hasText: 'Thử lại' }).waitFor();
       await page.locator('[data-action-write]').click();
-      await page.waitForFunction(() => !document.querySelector('#h-action'));
+      await page.waitForFunction(() => document.querySelector('#h-action')?.textContent.includes('Đã ghi các mục'));
       assert.deepEqual(posted[0].body, lost[0]); assert.equal(posted[0].body.expected_version, 7);
     });
   });
@@ -153,7 +188,7 @@ if (process.argv.includes('--preview')) {
       const lost = [];
       await page.route('**/api/v7/sheet/receipts', route => { lost.push(route.request().postDataJSON()); return route.abort(); }, { times: 1 });
       await page.locator('[data-pick-ready]').click();
-      assert.match(await page.locator('.action-description').innerText(), /100\.000\.000 đ → 59\.200\.000 đ/);
+      assert.match(await page.locator('.action-description').innerText(), /100 → 59,2/);
       await page.locator('[data-action-write]').click();
       await page.locator('[data-action-write]', { hasText: 'Thử lại' }).waitFor();
       assert.equal(posted.length, 1);
@@ -163,7 +198,7 @@ if (process.argv.includes('--preview')) {
       assert.deepEqual(posted[1].body, lost[0]);
     });
   });
-  test('chi tiết: nhập giá nguyên đồng, kết luận cần lý do, PS giữ tổng, xóa có xem lại; không ghi tháng khóa', async () => {
+  test('chi tiết: nhập giá triệu đồng, kết luận cần lý do, PS giữ tổng, xóa có xem lại; không ghi tháng khóa', async () => {
     const posted = [];
     const detail = { ...ledger,
       trips: [{ id: 11, container: 'MAUU0000011', status: 'confirmed', unit_price_vnd: null, other_fee_vnd: '100000', editable: true },
@@ -173,19 +208,20 @@ if (process.argv.includes('--preview')) {
       ps_fees: { snapshot_sha256: sha, ready: [{ container: 'MAUU0000011', before: [{ amount_vnd: '100000' }], after: [{ amount_vnd: '100000' }] }], review: [] } };
     await withPage({ posted, ledger: detail }, async page => {
       await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-manual-price]').waitFor();
-      await page.locator('[data-manual-price]').fill('9.200.000');
+      await page.locator('[data-manual-price]').fill('9,2');
       await page.locator('[data-filter="trips"]').click(); await page.locator('[data-filter=""]').click();
-      assert.equal(await page.locator('[data-manual-price]').inputValue(), '9.200.000');
+      assert.equal(await page.locator('[data-manual-price]').inputValue(), '9,2');
       await page.locator('[data-command="price"]').click();
-      assert.match(await page.locator('.action-description').innerText(), /100\.000\.000 đ → 109\.300\.000 đ/);
+      assert.match(await page.locator('.action-description').innerText(), /100 → 109,3 tr/);
       await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('#h-action'));
       assert.equal(posted[0].body.unit_price_vnd, '9200000'); assert.equal(posted[0].body.other_fee_vnd, '100000');
       await page.locator('[data-detail-retry]').count();
       await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-book="2"] .book-name').click();
       await page.locator('[data-command="confirm"]').waitFor();
-      await page.locator('[data-command="confirm"]').click(); assert.equal(await page.locator('#h-action').count(), 0);
-      await page.locator('[data-reason="12"]').fill('Đã đối chiếu, chuyến riêng'); await page.locator('[data-command="confirm"]').click();
-      assert.match(await page.locator('.action-description').innerText(), /109\.000\.000 đ/);
+      await page.locator('[data-command="confirm"]').click();
+      await page.locator('[data-action-write]').click(); assert.equal(posted.length, 1);
+      await page.locator('[data-action-reason]').fill('Đã đối chiếu, chuyến riêng');
+      assert.match(await page.locator('.action-description').innerText(), /100 → 109 tr/);
       await page.locator('[data-action-cancel]').click();
       await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-book="2"] .book-name').click();
       await page.locator('[data-command="ps"]').click(); assert.match(await page.locator('.action-description').innerText(), /giữ nguyên/);
@@ -193,7 +229,7 @@ if (process.argv.includes('--preview')) {
       await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-book="2"] .book-name').click();
       assert.equal(await page.locator('[data-remove-trip="14"]').count(), 0);
       await page.locator('[data-remove-trip="13"]').click();
-      assert.match(await page.locator('.action-description').innerText(), /100\.000\.000 đ → 87\.500\.000 đ/);
+      assert.match(await page.locator('.action-description').innerText(), /100 → 87,5 tr/);
       assert.equal(await page.locator('[data-action-cancel]').evaluate(e => e === document.activeElement), true);
       await page.keyboard.press('Escape'); assert.equal(await page.locator('#h-action').count(), 0);
     });
@@ -218,9 +254,7 @@ if (process.argv.includes('--preview')) {
   });
   test('soát máy: chữ trước/sau, chuyến chờ kiểm, đường mở đúng sổ; tìm khách và bàn phím', async () => withPage({}, async page => {
     await page.locator('[data-auto]').click();
-    const summaries = page.locator('.auto-done summary');
-    await summaries.nth(0).click(); await summaries.nth(1).click();
-    assert.match(await page.locator('.auto-list').innerText(), /nơi đi: — → KHO MẪU[\s\S]*chờ kiểm/);
+    assert.match(await page.locator('.auto-list').innerText(), /nơi đi: — →\s*KHO MẪU[\s\S]*chờ kiểm/);
     assert.equal(await page.locator('.auto-list a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     await page.locator('#customer-search').fill('明珠'); await page.locator('#customer-results a').waitFor();
     assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
