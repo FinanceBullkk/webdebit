@@ -8,8 +8,8 @@ Người dùng yêu cầu code theo bản HTML đã chọn ngày 2/11: `ViecCanL
 - Hợp nhất `/api/v7/inbox`, `/dashboard`, `/dashboard/debt`, `/customers` bằng ID sổ. Không gộp khách theo tên. Chưa lấy được một nguồn phải báo thiếu, không kết luận hết việc.
 - Giữ ghi phiếu qua `/sheet/receipts`, xem lại nợ trước/sau, phiên bản, hash Sheet, khóa chống trùng và kết quả riêng từng sổ. Giá đọc chi tiết `/ledger` trước khi xem lại và gọi `/sheet/prices`; không dựng số tiền từ bộ đếm.
 - Chọn chung phiếu và giá: đọc mới từng sổ, xem tổng nợ cuối sau cả hai loại; ghi giá rồi phiếu, dùng phiên bản trả về của lệnh trước. Mất mạng giữ nguyên payload của lô chưa rõ, bỏ qua lô đã xong. Lô lỗi/một phần dừng và yêu cầu mở sổ kiểm tra, không gọi tiếp bằng phiên bản cũ.
-- Chi tiết dùng lệnh có sẵn: đơn giá nhập theo triệu đồng (tối đa sáu số lẻ, quy đổi BigInt ra nguyên đồng), kết luận chờ kiểm có lý do bắt buộc, duyệt chuyến mới chưa giá, tách PS giữ tổng, xóa chuyến có xem lại. Tháng khóa giữ đường mở sổ; không tự mở khóa. “Giữ” chuyến Sheet xóa chỉ nhớ theo bản chụp trên trình duyệt như sổ hiện hành, không là ghi DB.
-- Việc cần đối chiếu sâu mở đúng sổ bằng đường đang có. Không tạo chính sách sửa tiền, thay đổi schema, dữ liệu thật, Sheet hoặc triển khai.
+- Chi tiết dùng lệnh có sẵn: đơn giá nhập theo triệu đồng (tối đa sáu số lẻ, quy đổi BigInt ra nguyên đồng), kết luận chờ kiểm có lý do bắt buộc, duyệt chuyến mới chưa giá, tách PS giữ tổng, xóa chuyến có xem lại. Tháng khóa giữ đường mở sổ; không tự mở khóa. “Giữ giá web” và “Giữ chuyến” lưu quyết định có người làm trên server theo nội dung dòng liên quan, theo [VCL-GIU-01](../docs/decisions/vcl-giu-01.md). Không thay đổi số dư.
+- Việc cần đối chiếu sâu mở đúng sổ bằng đường đang có. Không tự tạo chính sách sửa tiền, ghi dữ liệu thật, sửa Sheet hoặc triển khai. Hàm SQL mới chỉ lưu quyết định Giữ, có migration riêng.
 - Kiểm: `npm run check`; browser với fixture ở 1280×560, thanh cuộn dọc, màn hẹp, chữ dài/Hán, dữ liệu trống/thiếu/lỗi, lọc, mở/gập, xem lại/hủy, ghi lỗi và thử lại cùng khóa. Xem ảnh render trước khi bàn giao.
 
 ## Map kiểm
@@ -30,7 +30,7 @@ Người dùng yêu cầu giống toàn bộ package, không chỉ dùng bố c�
 Khoảng trống còn phải xử lý trước nghiệm thu toàn bộ package:
 
 - Chưa có API xác nhận ngày của phiếu Sheet thiếu ngày và ghi dấu để hàng chờ không đưa lại; không gọi record_receipt trực tiếp rồi để phiếu vẫn hiện cần xem.
-- Chưa có lệnh giải quyết giá xung đột theo snapshot, gồm giữ web có Lịch sử; đường xử lý ô chữ hiện tại không nhận trường giá.
+- Giá xung đột: đã nối Giữ giá web có Lịch sử; còn thiếu Lấy giá Sheet. Đường xử lý ô chữ hiện tại không nhận trường giá.
 - Chưa có lệnh gán mặt hàng/sổ đích cho chuyến mơ hồ. set_customer_attributes ở schema chỉ là đề xuất, không phải hàm đã có.
 - Chưa có hợp đồng hoàn tác lô trả đủ mã phiếu/giá trước và phiên bản để đảo đúng những mục vừa ghi; không làm nút Hoàn tác giả.
 - Backend review_trip bắt buộc lý do: chỉ hiện ô lý do khi xác nhận chờ kiểm. Các trường hợp trên hiện giữ đường mở sổ; không tuyên bố giao diện và hành vi giống hoàn toàn.

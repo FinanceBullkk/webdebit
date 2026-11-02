@@ -294,19 +294,8 @@
       button.disabled = false;
     });
     // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
-    // "Giữ" nhớ trên máy này theo bản chụp Sheet; bản chụp mới (hash khác) thì hỏi lại. Không ghi gì lên server.
-    const keptKey = data => `sokhach-v7-sheet-giu:${customerId}:${data.sheet_sync?.snapshot_sha256 ?? ''}`;
-    // Trình duyệt chặn localStorage thì vẫn nhớ trong phiên này.
-    const keptMemory = new Map();
-    const keptIds = data => {
-      const ids = new Set(keptMemory.get(keptKey(data)) ?? []);
-      try { for (const id of JSON.parse(localStorage.getItem(keptKey(data)) ?? '[]')) ids.add(String(id)); } catch { /* chỉ còn bản trong phiên */ }
-      return ids;
-    };
-    const removedRows = data => {
-      const kept = keptIds(data);
-      return (data.sheet_sync?.removed_items ?? []).filter(item => !kept.has(String(item.trip_id)));
-    };
+    const removedRows = data => data.sheet_sync?.removed_items ?? [];
+    const keepRequests = new Map();
     let removedJump = 0;
     function decorateRemoved(data, active) {
       const items = active ? removedRows(data) : [];
@@ -340,12 +329,22 @@
       if (!item) return;
       const row = button.closest('tr');
       if (button.matches('.sheet-removed-keep')) {
-        const kept = keptIds(ctx.snapshot);
-        kept.add(String(item.trip_id));
-        keptMemory.set(keptKey(ctx.snapshot), kept);
-        try { localStorage.setItem(keptKey(ctx.snapshot), JSON.stringify([...kept])); } catch { /* chỉ nhớ trong phiên */ }
-        renderSnapshot(ctx.snapshot);
-        showNotice(`Đã giữ chuyến ${item.container}. Sheet có bản mới thì sổ hỏi lại.`);
+        let body = keepRequests.get(item.trip_id);
+        if (!body) {
+          body = { customer_id: customerId, expected_version: ctx.snapshot.version, idempotency_key: crypto.randomUUID(),
+            task_kind: 'removed', target_kind: 'trip', target_id: item.trip_id, source_fingerprint: item.source_fingerprint };
+          keepRequests.set(item.trip_id, body);
+        }
+        button.disabled = true;
+        try {
+          const response = await fetch('/api/v7/sheet/tasks/keep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          const result = await response.json();
+          keepRequests.delete(item.trip_id);
+          if (!response.ok) { showNotice(result.message || 'Chưa giữ được chuyến. Tải lại sổ để đối chiếu.'); return; }
+          await api.read();
+          showNotice(`Đã giữ chuyến ${item.container}. Dòng Sheet liên quan đổi thì hỏi lại.`);
+        } catch { showNotice('Chưa rõ kết quả giữ chuyến. Bấm Giữ để thử lại cùng thao tác.'); }
+        finally { button.disabled = false; }
         return;
       }
       const wasOpen = row.nextElementSibling?.classList.contains('delete-prompt');

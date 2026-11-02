@@ -23,16 +23,20 @@ import v7_presence
 import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
+    apply_sheet_price,
     approve_price_conflicts,
     approve_prices,
     approve_ps_fees,
     approve_receipts,
     approve_sheet,
+    assign_sheet_trip,
     customer_name_mapping,  # noqa: F401
+    keep_sheet_task,
     ledger_projections,
     named_customer,  # noqa: F401
     refresh_sheet,
     resolve_sheet_conflict,
+    review_sheet_receipt,
     sheet_queue,
     with_display_names,
 )
@@ -179,6 +183,10 @@ def handle_reminder(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
 
 # POST ngoài bảng ROUTES: thân JSON riêng, không qua validate(); mỗi hàm tự kiểm và trả (status, body).
 POST_HANDLERS = {
+    "/api/v7/sheet/trips/assign": assign_sheet_trip,
+    "/api/v7/sheet/receipts/review": review_sheet_receipt,
+    "/api/v7/sheet/tasks/price": apply_sheet_price,
+    "/api/v7/sheet/tasks/keep": keep_sheet_task,
     "/api/v7/sheet/approve": approve_sheet,
     "/api/v7/sheet/resolve": resolve_sheet_conflict,
     "/api/v7/sheet/prices": approve_prices,

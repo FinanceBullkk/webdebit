@@ -89,8 +89,10 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await page.waitForFunction(() => document.querySelectorAll('.work-row').length === 8);
     const geometry = await page.locator('.page-head,.work-band,.work-card').evaluateAll(nodes => nodes.map(n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }));
     assert.deepEqual(geometry[0], [76, 0, 1204, 53]);
-    assert.deepEqual(geometry[1], [104, 69, 1144, 66]);
-    assert.equal(geometry[2][1], 149);
+    // Chiều cao dải đo theo Segoe UI (máy người dùng); font Linux rộng hơn làm dải xuống dòng, chỉ giữ vị trí và bề ngang.
+    assert.deepEqual(geometry[1].slice(0, 3), [104, 69, 1144]);
+    if (process.platform === 'win32') assert.equal(geometry[1][3], 66);
+    assert.equal(geometry[2][1], geometry[1][1] + geometry[1][3] + 14);
     assert.match(await page.locator('tfoot').innerText(), /240 tr \+1[\s\S]*1 giá Sheet · 1 giá khác · 4 chưa giá[\s\S]*1 Sheet xóa · 6 cần xem · 3 mới/);
     assert.deepEqual(await page.locator('[data-filter] b').allTextContents(), ['5', '2', '2']);
     assert.deepEqual(await page.locator('.work-row .book-name').allTextContents(), ['Lộc Phát', 'An Phát', 'Đông Á', 'Bình Minh', 'Kim Ngân', 'Minh Châu', 'Nam Việt', 'Phú Quý'].map(n => `Công ty Mẫu ${n}`));
@@ -232,6 +234,93 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.match(await page.locator('.action-description').innerText(), /100 → 87,5 tr/);
       assert.equal(await page.locator('[data-action-cancel]').evaluate(e => e === document.activeElement), true);
       await page.keyboard.press('Escape'); assert.equal(await page.locator('#h-action').count(), 0);
+    });
+  });
+  test('Giữ giá web và Giữ chuyến lưu server; mất mạng thử lại cùng khóa, nợ không đổi', async () => {
+    const posted = [], lost = [], drop = new Set();
+    const detail = { ...ledger, sheet_prices: { ready: [], review: [{ status: 'CONFLICT', target_kind: 'trip', target_id: 12,
+      container: 'FAKE12', date: '2026-11-01', web_unit_price_vnd: '8500000', web_other_fee_vnd: null, sheet_unit_price_vnd: '9000000', sheet_other_fee_vnd: null, source_fingerprint: sha }] },
+      sheet_sync: { items: [], removed_items: [{ trip_id: 13, container: 'FAKE13', amount_vnd: '12000000', source_fingerprint: sha }] } };
+    await withPage({ posted, drop, ledger: detail }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-keep-price="trip:12"]').click();
+      assert.match(await page.locator('.action-description').innerText(), /nợ không đổi/);
+      await page.route('**/api/v7/sheet/tasks/keep', async route => {
+        lost.push(route.request().postDataJSON()); await route.abort();
+      });
+      await page.locator('[data-action-write]').click();
+      await page.getByText('Thử lại', { exact: true }).waitFor();
+      await page.unroute('**/api/v7/sheet/tasks/keep');
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
+      assert.deepEqual(posted[0].body, lost[0]);
+      assert.equal(posted[0].body.task_kind, 'price');
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-keep-trip="13"]').click();
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[1].body.task_kind, 'removed');
+      assert.equal(posted[1].body.target_id, 13);
+      assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('sheet-giu')).length), 0);
+    });
+  });
+  test('Lấy giá Sheet và ghi phiếu thiếu ngày đều xem lại nợ, giữ yêu cầu khi thử lại', async () => {
+    const posted = [];
+    const detail = { ...ledger, trips: [{ id: 12, container: 'FAKE12', status: 'confirmed', unit_price_vnd: '8500000', other_fee_vnd: null, amount_vnd: '8500000' }],
+      sheet_prices: { ready: [], review: [{ status: 'CONFLICT', target_kind: 'trip', target_id: 12, month_locked: false,
+        container: 'FAKE12', date: '2026-11-01', web_unit_price_vnd: '8500000', web_other_fee_vnd: null, sheet_unit_price_vnd: '9000000', sheet_other_fee_vnd: null, source_fingerprint: sha }] },
+      sheet_receipts: { review: [{ status: 'NO_DATE', amount_vnd: '35000000', note: 'CK đợt 2', source_fingerprint: sha, debt_month: '2026-01-01' }] } };
+    await withPage({ posted, ledger: detail }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-use-sheet-price="trip:12"]').click();
+      assert.match(await page.locator('.action-description').innerText(), /100 → 100,5 tr/);
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/price');
+      assert.equal(posted[0].body.source_fingerprint, sha);
+      await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-receipt-date]').fill('31/2');
+      await page.locator('[data-record-sheet-receipt]').click();
+      assert.equal(await page.locator('[data-action-write]').count(), 0);
+      await page.locator('[data-receipt-date]').fill('2/1');
+      await page.locator('[data-record-sheet-receipt]').click();
+      assert.match(await page.locator('.action-description').innerText(), /02\/01\/2026.*100 → 65 tr/);
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[1].route, '/api/v7/sheet/receipts/review');
+      assert.equal(posted[1].body.date, '2026-01-02');
+      assert.equal(posted[1].body.amount_vnd, undefined);
+    });
+  });
+  test('chọn sổ cho riêng chuyến; gán mặt hàng riêng; hoàn tác đúng khóa lô vừa ghi', async () => {
+    const posted = [];
+    const detail = { ...ledger, sheet_sync: { items: [{ sync_state: 'NEW', source_fingerprint: sha, container: 'FAKE-NEW', event_date: '2026-01-02',
+      candidate_books: [{ id: 2, name: 'Mẫu', commodity: 'Sầu riêng' }, { id: 3, name: 'Mẫu', commodity: 'Dừa' }] }], removed_items: [] } };
+    await withPage({ posted, ledger: detail, unsorted: [{ customer_id: 2 }] }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-trip-book]').selectOption('3'); await page.locator('[data-assign-trip]').click();
+      assert.match(await page.locator('.action-description').innerText(), /Vào sổ Dừa.*nợ không đổi/);
+      await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[0].body.target_customer_id, 3); assert.equal(posted[0].body.target_version, 7);
+      assert.equal(posted[0].route, '/api/v7/sheet/trips/assign');
+      await page.locator('[data-book="2"] .book-name').click(); await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-commodity]').selectOption('Chuối'); await page.locator('[data-save-commodity]').click();
+      await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[1].route, '/api/v7/customers/commodity'); assert.equal(posted[1].body.commodity_name, 'Chuối');
+    });
+    const undoPosts = [];
+    await withPage({ posted: undoPosts, post: route => ({ status: 200, json: route.endsWith('/undo')
+      ? { complete: true, undone: 1, version: 5 } : { complete: true, written: 1, version: 4, undo_keys: [sha] } }) }, async page => {
+      await page.locator('[data-pick="1"]').check(); await page.locator('[data-review]').click(); await page.locator('[data-write]').click();
+      await page.locator('[data-undo-batch]').click();
+      assert.match(await page.locator('.receipt-review').innerText(), /Hoàn tác lần vừa ghi/);
+      assert.match(await page.locator('.action-description').innerText(), /950 →\s*1.000/);
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => document.querySelector('#h-action')?.textContent.includes('Đã hoàn tác'));
+      assert.equal(undoPosts[1].route, '/api/v7/sheet/batch/undo');
+      assert.deepEqual(undoPosts[1].body.command_keys, [sha]); assert.equal(undoPosts[1].body.expected_version, 4);
     });
   });
   test('lỗi nguồn/đang tính/thiếu baseline không kết luận hết việc; retry tải được', async () => {

@@ -276,12 +276,17 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             "removed_items": removed, "removed_count": len(removed)}
 
 
-def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
+def removed_trips(queue: dict[str, Any], ledger: dict[str, Any], *, include_kept=False) -> list[dict[str, Any]]:
     """Web trips taken from the Sheet whose Sheet row is gone; report only, never delete."""
     ready = [row for row in queue["items"] if row.get("status") == "READY"]
     # An empty read (tab renamed, runner failure) must not flag every trip.
     if not ready:
         return []
+    from v7_sheet_task_keep import trip_identity
+    source_ids = {trip_identity(row) for row in queue["items"]}
+    assigned = {(event.get("after") or {}).get("target", {}).get("id") for event in ledger.get("events", [])
+                if event.get("kind") == "sheet_conflict_resolved" and (event.get("after") or {}).get("field") == "task_assignment"
+                and (event.get("after") or {}).get("sheet_value") in source_ids}
     rows = []
     for row in ready:
         # An unmapped row (name not matched) still exists on the Sheet: it keeps the trip, not flags it.
@@ -294,6 +299,8 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[st
             continue
     result = []
     for trip in ledger.get("trips", []):
+        if trip.get("id") in assigned:
+            continue
         # get_ledger stopped returning source_ref on 22/10; the queue approval note still marks Sheet trips.
         from_sheet = _source_row(trip.get("source_ref")) is not None or trip.get("note") == "Chuyến đồng bộ"
         container = _container(trip.get("container"))
@@ -310,7 +317,11 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[st
         if any(container == other and ((booking and booking == other_booking) or abs((date - other_date).days) <= 3)
                for other, other_date, other_booking in rows):
             continue
-        result.append({"trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
+        from v7_sheet_task_keep import kept, removed_identity, web_value
+        source = removed_identity(queue, ledger, trip)
+        if not include_kept and kept(ledger, "removed", "trip", trip["id"], source, web_value("removed", trip)):
+            continue
+        result.append({"source_fingerprint": source, "trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
                        "month": trip.get("month"), "status": trip.get("status"), "amount_vnd": trip.get("amount_vnd"),
                        "month_locked": trip.get("info_editable") is not True})
     return result

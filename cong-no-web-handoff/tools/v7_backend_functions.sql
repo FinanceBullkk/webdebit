@@ -3323,3 +3323,241 @@ RESET ROLE;
 -- 3. Tháng âm, hoàn tiền/chuyển sổ còn mở; không suy từ cờ ngoại lệ.
 -- 4. Nếu không dùng namespace idempotency theo khách nhỏ nhất, cần bảng
 --    cutover_command(cutover_id, key, request_hash, result, signoff evidence).
+
+BEGIN;
+SET ROLE sokhach_owner;
+CREATE OR REPLACE FUNCTION sokhach.keep_sheet_task(
+ customer_id bigint, expected_version bigint, idempotency_key text,
+ task_kind text, target_kind text, target_id bigint, source_fingerprint text, web_value jsonb
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb:=jsonb_build_object('command','keep_sheet_task','task_kind',task_kind,
+ 'target_kind',target_kind,'target_id',target_id,'source_fingerprint',source_fingerprint,'web_value',web_value);
+ v_retry jsonb; v_current jsonb; v_row jsonb;
+BEGIN
+ v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+ IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+ PERFORM sokhach._baseline(customer_id);
+ IF task_kind IS NULL OR task_kind NOT IN ('price','removed')
+  OR target_kind IS NULL OR target_kind NOT IN ('trip','legacy') OR target_id IS NULL OR target_id<=0
+  OR source_fingerprint !~ '^[0-9a-f]{64}$' OR source_fingerprint IS NULL
+  OR (task_kind='removed' AND target_kind<>'trip') OR web_value IS NULL
+ THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
+ IF target_kind='trip' THEN
+  SELECT t.value INTO v_row FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
+   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+ ELSE
+  SELECT sokhach._legacy_current(l.id) INTO v_row FROM sokhach.legacy_row l
+   JOIN sokhach.cutover_customer cc USING(customer_id,cutover_id)
+   JOIN sokhach.cutover c ON c.id=cc.cutover_id
+   WHERE l.customer_id=keep_sheet_task.customer_id AND l.id=target_id AND l.kind='trip'
+     AND cc.status='active' AND c.status='active';
+ END IF;
+ IF v_row IS NULL OR coalesce((v_row->>'deleted')::boolean,false) THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+ v_current:=CASE WHEN task_kind='price' THEN jsonb_build_object(
+  'unit_price_vnd',v_row->>'unit_price_vnd','other_fee_vnd',v_row->>'other_fee_vnd')
+ ELSE jsonb_build_object('container',v_row->>'container','event_date',v_row->>'event_date',
+  'status',v_row->>'status','booking',v_row->>'booking') END;
+ IF v_current IS DISTINCT FROM web_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+ VALUES(customer_id,'sheet_conflict_resolved',sokhach._actor(),
+  jsonb_build_object('target',jsonb_build_object('kind',target_kind,'id',target_id),'field','task_'||task_kind,'value',v_current),
+  jsonb_build_object('target',jsonb_build_object('kind',target_kind,'id',target_id),'field','task_'||task_kind,
+   'source_row',0,'sheet_value',source_fingerprint,'target_value',v_current,'decision','keep_web','request_key',idempotency_key),idempotency_key);
+ RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('kept',true));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb) FROM PUBLIC,sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb) TO sokhach_app;
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SET ROLE sokhach_owner;
+CREATE OR REPLACE FUNCTION sokhach.apply_sheet_price(
+ customer_id bigint, expected_version bigint, idempotency_key text,
+ target_kind text, target_id bigint, source_fingerprint text, web_value jsonb, sheet_price jsonb
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb:=jsonb_build_object('command','apply_sheet_price','target_kind',target_kind,
+ 'target_id',target_id,'source_fingerprint',source_fingerprint,'web_value',web_value,'sheet_price',sheet_price);
+ v_retry jsonb; v_current jsonb; v_result jsonb; v_version bigint; v_key text;
+BEGIN
+ v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+ IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+ PERFORM sokhach._baseline(customer_id);
+ IF target_kind IS NULL OR target_kind NOT IN ('trip','legacy') OR target_id IS NULL OR target_id<=0
+  OR source_fingerprint IS NULL OR source_fingerprint !~ '^[0-9a-f]{64}$'
+  OR jsonb_typeof(sheet_price) IS DISTINCT FROM 'object' OR web_value IS NULL
+  OR sheet_price->>'unit_price_vnd' IS NULL OR sheet_price->>'unit_price_vnd' !~ '^[0-9]+$'
+  OR (sheet_price->>'other_fee_vnd' IS NOT NULL AND sheet_price->>'other_fee_vnd' !~ '^-?[0-9]+$')
+ THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
+ IF target_kind='trip' THEN
+  SELECT jsonb_build_object('unit_price_vnd',t.value->>'unit_price_vnd','other_fee_vnd',t.value->>'other_fee_vnd')
+   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
+   WHERE (t.value->>'id')::bigint=target_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+ ELSE
+  SELECT jsonb_build_object('unit_price_vnd',l.value->'current'->>'unit_price_vnd','other_fee_vnd',l.value->'current'->>'other_fee_vnd')
+   INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'legacy_rows') l
+   WHERE (l.value->>'id')::bigint=target_id AND l.value->>'kind'='trip' AND NOT coalesce((l.value->'current'->>'deleted')::boolean,false);
+ END IF;
+ IF v_current IS NULL THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
+ IF v_current IS DISTINCT FROM web_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+ v_key:=encode(sha256(convert_to(idempotency_key||':sheet-price','UTF8')),'hex');
+ IF target_kind='trip' THEN
+  v_result:=sokhach.edit_trip_price(customer_id,expected_version,v_key,target_id,
+   (sheet_price->>'unit_price_vnd')::bigint,(sheet_price->>'other_fee_vnd')::bigint);
+ ELSE
+  v_version:=expected_version;
+  IF v_current->>'unit_price_vnd' IS DISTINCT FROM sheet_price->>'unit_price_vnd' THEN
+   v_result:=sokhach.edit_legacy_trip(customer_id,v_version,v_key,target_id,'unit_price_vnd',sheet_price->>'unit_price_vnd');
+   v_version:=(v_result->>'version')::bigint;
+  END IF;
+  IF nullif(v_current->>'other_fee_vnd','0') IS DISTINCT FROM nullif(sheet_price->>'other_fee_vnd','0') THEN
+   v_result:=sokhach.edit_legacy_trip(customer_id,v_version,v_key||':fee',target_id,'other_fee_vnd',sheet_price->>'other_fee_vnd');
+  END IF;
+  IF v_result IS NULL THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
+ END IF;
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+ VALUES(customer_id,'sheet_conflict_resolved',sokhach._actor(),
+  jsonb_build_object('target',jsonb_build_object('kind',target_kind,'id',target_id),'field','task_price','value',v_current),
+  jsonb_build_object('target',jsonb_build_object('kind',target_kind,'id',target_id),'field','task_price','source_row',0,
+   'sheet_value',source_fingerprint,'target_value',sheet_price,'decision','use_sheet','requested_price',sheet_price,
+   'web_value',web_value,'request_key',idempotency_key),idempotency_key);
+ RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('written',1,'complete',true));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb) FROM PUBLIC,sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb) TO sokhach_app;
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SET ROLE sokhach_owner;
+CREATE OR REPLACE FUNCTION sokhach.set_customer_commodity(
+ customer_id bigint, expected_version bigint, idempotency_key text, commodity_name text
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb:=jsonb_build_object('command','set_customer_commodity','commodity_name',commodity_name);
+ v_retry jsonb; v_before jsonb; v_after jsonb; v_commodity bigint;
+BEGIN
+ v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+ IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+ IF commodity_name IS NULL OR commodity_name NOT IN ('Sầu riêng','Thanh long','Chuối','Mít','Dừa')
+ THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+ SELECT to_jsonb(c) INTO v_before FROM sokhach.customer c WHERE c.id=customer_id;
+ IF v_before->>'commodity_id' IS NOT NULL THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+ INSERT INTO sokhach.commodity(name) VALUES(commodity_name) ON CONFLICT(name) DO NOTHING;
+ SELECT id INTO v_commodity FROM sokhach.commodity WHERE name=commodity_name;
+ UPDATE sokhach.customer c SET commodity_id=v_commodity WHERE c.id=customer_id RETURNING to_jsonb(c) INTO v_after;
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+ VALUES(customer_id,'customer_attr',sokhach._actor(),jsonb_build_object('customer',v_before),
+  jsonb_build_object('customer',v_after,'commodity_name',commodity_name),idempotency_key);
+ RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('commodity',commodity_name));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.set_customer_commodity(bigint,bigint,text,text) FROM PUBLIC,sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.set_customer_commodity(bigint,bigint,text,text) TO sokhach_app;
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SET ROLE sokhach_owner;
+CREATE OR REPLACE FUNCTION sokhach.assign_sheet_trip(
+ customer_id bigint, expected_version bigint, idempotency_key text,
+ target_customer_id bigint, target_version bigint, source_fingerprint text, source_row jsonb
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb:=jsonb_build_object('command','assign_sheet_trip','target_customer_id',target_customer_id,
+ 'source_fingerprint',source_fingerprint,'source_row',source_row);
+ v_retry jsonb; v_result jsonb; v_trip bigint; v_after jsonb; v_date date; v_key text;
+BEGIN
+ PERFORM id FROM sokhach.customer c WHERE c.id IN (customer_id,target_customer_id) ORDER BY id FOR UPDATE;
+ v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+ IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+ IF target_customer_id IS NULL OR target_customer_id<=0 OR source_fingerprint IS NULL
+  OR source_fingerprint !~ '^[0-9a-f]{64}$' OR jsonb_typeof(source_row) IS DISTINCT FROM 'object'
+ THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+ v_date:=(source_row->>'event_date')::date;
+ IF v_date IS NULL THEN RAISE EXCEPTION 'INVALID_DATE'; END IF;
+ v_key:=encode(sha256(convert_to(idempotency_key||':assign','UTF8')),'hex');
+ v_result:=sokhach.paste_trips(target_customer_id,target_version,v_key,date_trunc('month',v_date)::date,
+  jsonb_build_array(jsonb_build_object('date',to_char(v_date,'DD/MM/YYYY'),'container',source_row->>'container',
+   'carrier',source_row->>'carrier','shipper',source_row->>'shipper','from',source_row->>'origin','to',source_row->>'destination',
+   'booking',coalesce(source_row->>'booking',''),'unitPriceVnd',NULL,'otherFeeVnd',NULL,
+   'note','Chuyến đồng bộ','src','sheet-choice:'||source_fingerprint)));
+ v_trip:=(v_result->'trip_ids'->>0)::bigint;
+ v_after:=jsonb_build_object('target',jsonb_build_object('kind','trip','id',v_trip),'field','task_assignment',
+  'source_row',source_row->'source_row','sheet_value',source_fingerprint,'target_value',target_customer_id,
+  'decision','use_sheet','target_customer_id',target_customer_id,'request_key',idempotency_key,
+  'arguments',jsonb_build_object('customer_id',customer_id,'expected_version',expected_version,'idempotency_key',idempotency_key,
+   'target_customer_id',target_customer_id,'target_version',target_version,'source_fingerprint',source_fingerprint,'source_row',source_row));
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+ VALUES(customer_id,'sheet_conflict_resolved',sokhach._actor(),jsonb_build_object('target',v_after->'target','field','task_assignment'),v_after,idempotency_key);
+ IF target_customer_id<>customer_id THEN
+  INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+  VALUES(target_customer_id,'sheet_conflict_resolved',sokhach._actor(),jsonb_build_object('target',v_after->'target','field','task_assignment'),v_after,v_key);
+ END IF;
+ RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('approved',1,'trip_id',v_trip,
+  'target_customer_id',target_customer_id,'pending_review',v_result->'pending_review','complete',true));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb) FROM PUBLIC,sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb) TO sokhach_app;
+RESET ROLE;
+COMMIT;
+
+BEGIN;
+SET ROLE sokhach_owner;
+CREATE OR REPLACE FUNCTION sokhach.undo_sheet_batch(
+ customer_id bigint, expected_version bigint, idempotency_key text, command_keys jsonb
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_payload jsonb:=jsonb_build_object('command','undo_sheet_batch','command_keys',command_keys);
+ v_retry jsonb; v_key text; v_undo_key text; e sokhach.event%ROWTYPE; v_version bigint;
+ v_result jsonb; v_before jsonb; v_after jsonb; v_current jsonb; v_id bigint; v_event bigint; v_count bigint;
+BEGIN
+ v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
+ IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
+ PERFORM sokhach._baseline(customer_id);
+ IF jsonb_typeof(command_keys) IS DISTINCT FROM 'array' OR jsonb_array_length(command_keys) NOT BETWEEN 1 AND 1000
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(command_keys) k WHERE jsonb_typeof(k)<>'string' OR k#>>'{}' !~ '^[0-9a-f]{64}$')
+  OR (SELECT count(DISTINCT k) FROM jsonb_array_elements_text(command_keys) k)<>jsonb_array_length(command_keys)
+ THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+ v_version:=expected_version;
+ FOR v_key IN SELECT k FROM jsonb_array_elements_text(command_keys) WITH ORDINALITY x(k,n) ORDER BY n DESC LOOP
+  SELECT * INTO e FROM sokhach.event ev WHERE ev.customer_id=undo_sheet_batch.customer_id AND ev.idempotency_key=v_key
+   AND ev.kind IN ('price_edit','receipt','legacy_edit') ORDER BY ev.id DESC LIMIT 1;
+  IF NOT FOUND THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+  v_undo_key:=encode(sha256(convert_to(idempotency_key||':'||v_key,'UTF8')),'hex');
+  IF e.kind='receipt' THEN
+   v_result:=sokhach.void_receipt(customer_id,v_version,v_undo_key,e."after"->>'pid','Hoàn tác lần ghi từ Việc cần làm');
+  ELSIF e.kind='price_edit' THEN
+   v_before:=e."before"->'price'; v_after:=e."after"->'price'; v_id:=(v_after->>'trip_id')::bigint;
+   SELECT t.value INTO v_current FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t
+    WHERE (t.value->>'id')::bigint=v_id AND NOT coalesce((t.value->>'deleted')::boolean,false);
+   IF v_current IS NULL OR v_current->>'unit_price_vnd' IS DISTINCT FROM v_after->>'unit_price_vnd'
+    OR v_current->>'other_fee_vnd' IS DISTINCT FROM v_after->>'other_fee_vnd' THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+   v_result:=sokhach.edit_trip_price(customer_id,v_version,v_undo_key,v_id,
+     (v_before->>'unit_price_vnd')::bigint,(v_before->>'other_fee_vnd')::bigint);
+  ELSE
+   v_before:=e."before"->'legacy'; v_after:=e."after"->'legacy'; v_id:=(v_before->>'legacy_row_id')::bigint;
+   IF v_before->>'kind'<>'trip' OR v_before->>'field' NOT IN ('unit_price_vnd','other_fee_vnd') THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+   v_current:=sokhach._legacy_current(v_id);
+   IF v_current->>'unit_price_vnd' IS DISTINCT FROM v_after->>'unit_price_vnd'
+    OR v_current->>'counted_vnd' IS DISTINCT FROM v_after->>'counted_vnd' THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+   v_result:=sokhach.edit_legacy_trip(customer_id,v_version,v_undo_key,v_id,v_before->>'field',v_before->>'value');
+   v_current:=sokhach._legacy_current(v_id);
+   v_count:=(v_before->>'counted_vnd')::bigint;
+   IF (v_current->>'counted_vnd')::bigint<>v_count THEN
+    -- Restoring an original-book price must also restore its original TOTAL, which may differ from price + fees.
+    v_after:=v_current||jsonb_build_object('counted_vnd',v_count::text,'field','unit_price_vnd','value',v_current->'unit_price_vnd');
+    INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+    VALUES(customer_id,'legacy_edit',sokhach._actor(),jsonb_build_object('legacy',v_current),jsonb_build_object('legacy',v_after),v_undo_key) RETURNING id INTO v_event;
+    INSERT INTO sokhach.legacy_trip_rev(legacy_row_id,customer_id,debt_month,event_date,container,carrier,shipper,origin,destination,unit_price_vnd,other_fee_vnd,deleted,counted_vnd,created_by_event)
+    VALUES(v_id,customer_id,(v_current->>'month')::date,(v_current->>'event_date')::date,v_current->>'container',v_current->>'carrier',v_current->>'shipper',v_current->>'origin',v_current->>'destination',
+     (v_current->>'unit_price_vnd')::bigint,(v_current->>'other_fee_vnd')::bigint,false,v_count,v_event);
+    INSERT INTO sokhach.adjustment(customer_id,debt_month,legacy_row_id,amount_vnd,actor,created_by_event)
+    VALUES(customer_id,(v_current->>'month')::date,v_id,v_count-(v_current->>'counted_vnd')::bigint,sokhach._actor(),v_event);
+   END IF;
+  END IF;
+  v_version:=(v_result->>'version')::bigint;
+ END LOOP;
+ PERFORM sokhach.reallocate(customer_id,idempotency_key);
+ RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('undone',jsonb_array_length(command_keys),'complete',true));
+END $$;
+REVOKE ALL ON FUNCTION sokhach.undo_sheet_batch(bigint,bigint,text,jsonb) FROM PUBLIC,sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.undo_sheet_batch(bigint,bigint,text,jsonb) TO sokhach_app;
+RESET ROLE;
+COMMIT;

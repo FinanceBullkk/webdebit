@@ -225,6 +225,13 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
+  if (url === '/api/v7/sheet/tasks/keep') {
+    const item = world.sheetSync.removed_items?.find(row => row.trip_id === body.target_id);
+    if (!item || item.source_fingerprint !== body.source_fingerprint) return [409, { error: 'STALE_SHEET' }];
+    world.sheetSync.removed_items = world.sheetSync.removed_items.filter(row => row !== item);
+    world.sheetSync.removed_count = world.sheetSync.removed_items.length;
+    return [200, { kept: true, version: ++world.version }];
+  }
   if (url === '/api/v7/sheet/resolve') {
     const item = world.sheetSync.items.find(row => row.source_row === body.source_row || row.existing_id === body.target_id);
     if (!item || !item.changed_fields.includes(body.field)) return [404, { message: 'Không còn trường lệch.' }];
