@@ -56,7 +56,7 @@ test('Bốn số bằng đúng sổ và Tổng quan, mức rủi ro kèm dữ ki
     ['Quá hạn', '241.000.000 đ', 'T7, T8, T9 · lâu nhất 76 ngày'],
     ['Đến hạn 30/11', '200.000.000 đ', 'nợ T10 · kế tiếp 50 triệu hạn 31/12'],
     ['Thu tháng 11', '30.000.000 đ', 'phát sinh tháng 11: 50.000.000 đ']]);
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '491.000.000 đ');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '491.000.000 đ');
   assert.deepEqual(await page.locator('#the-tinh-hinh .ov-facts span').allInnerTexts(),
     ['Rủi ro cao', 'Trả gần nhất 05/11/2026 · 10 ngày trước', 'Đi hàng gần nhất 12/11/2026 · 3 ngày trước']);
   assert.equal(await page.locator('#the-tinh-hinh .ov-talk').innerText(), 'Nhắc gần nhất 10/11/2026 · bấm Copy tin nhắc · đã nhắc 3 lần');

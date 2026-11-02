@@ -72,7 +72,7 @@ const SoKhachV7Ctx = (() => {
     showTab: ['tabs', 'hàm', 'contact entry overview', 'mở một thẻ của trang khách (Ghi phiếu thu sang thẻ Sổ trước khi mở khung)'],
     tabShown: ['overview', 'hàm', 'tabs', 'vừa mở một thẻ: thẻ Tình hình đọc số quá hạn và lần nhắc khi cần'],
     contactShown: ['contact', 'hàm', 'tabs', 'vừa mở một thẻ: thẻ Trao đổi, Hồ sơ đọc lần nhắc, chat, hạn trả, bảng giá khi cần'],
-    showLoc: ['loc', 'hàm', 'overview', 'mở ?loc= ngay trong trang, không tải lại (việc chờ ở thẻ Tình hình)'],
+    showLoc: ['loc', 'hàm', 'month overview', 'mở ?loc= ngay trong trang, không tải lại (việc chờ ở thẻ Tình hình)'],
     reviewReasonText: ['history', 'giá trị', 'edit', 'lý do CHỜ KIỂM → câu tiếng Việt'],
     decoratePrices: ['sheet', 'hàm', 'core', 'gợi ý giá Sheet trên ô Đơn giá sau khi vẽ'],
     todayIso: ['offset', 'hàm', 'contact edit entry', 'hôm nay (giờ VN) dạng yyyy-mm-dd'],

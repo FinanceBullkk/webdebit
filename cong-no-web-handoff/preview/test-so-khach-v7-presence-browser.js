@@ -66,6 +66,7 @@ test('mũi tên chuột người khác nằm đúng ô ở mọi cỡ màn hình
   await page.waitForTimeout(300);
   assert.deepEqual(await pointerAt(page), { inside: true, name: 'Lan' });
   const toggle = page.locator('.settings-menu .presence-toggle');
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   assert.equal(await toggle.innerText(), 'Ẩn con trỏ');
   await toggle.click();

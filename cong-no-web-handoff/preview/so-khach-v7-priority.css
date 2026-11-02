@@ -1,62 +1,88 @@
-/* Mẫu “Mỗi số một chỗ, xếp theo ưu tiên”. Giữ token kích thước sticky của sổ. */
-:root{--bar:0px}
-body{background:#e9ecf0;color:#1a1a19;padding-left:76px}
-.topbar{position:fixed;left:0;bottom:0;top:var(--banner);width:76px;height:auto;padding:8px;display:flex;flex-direction:column;gap:4px;align-items:stretch;z-index:55;background:#16324f}
-.nav-toggle{display:flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:8px;background:transparent;color:#fff;cursor:pointer}
-.topbar .brand{display:none}.topbar>nav{flex-direction:column;align-self:auto;gap:4px}
-.topbar>nav a{position:relative;min-height:48px;justify-content:center;border:0;border-radius:8px;padding:10px;color:#c3d1e0}
-.topbar>nav a svg{flex:none}.topbar>nav a span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.topbar>nav a.active{background:#2a78d6;color:#fff}.topbar>nav a:hover{background:#214b72}
-.topbar.expanded{width:250px;box-shadow:4px 0 16px #1f293733}.topbar.expanded .brand{display:block;padding:8px}
-.topbar.expanded>nav a{justify-content:flex-start;gap:16px}.topbar.expanded>nav a span{position:static;width:auto;height:auto;clip-path:none}
-.topbar .presence{margin:8px 0;flex-wrap:wrap}
-.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
-.customer-switch{min-width:40px;min-height:40px;border:0;background:transparent;color:#52514e;font-size:20px;cursor:pointer;vertical-align:middle}
-.page-who{position:relative;padding-right:40px}.customer-switch{position:absolute;right:0;top:50%;transform:translateY(-50%)}
-#customer-picker.in-bar[popover]{position:fixed;inset:calc(var(--banner) + 48px) auto auto 92px;margin:0;width:min(420px,calc(100vw - 108px));padding:12px;border:1px solid #d7dce3;border-radius:8px;background:#fff;color:#1a1a19;box-shadow:0 12px 32px #1f293733}
-#customer-picker.in-bar #customer-search{background:#fff;color:#1a1a19;border-color:#d7dce3}
-#customer-picker.in-bar #customer-search::placeholder{color:#6f6d67}
-#customer-picker.in-bar #customer-list{position:static;width:100%;border:0;box-shadow:none;max-height:50vh}
-#customer-picker.in-bar:not(:focus-within) #customer-list{display:block}
-.book-head{border-bottom:1px solid #d7dce3;box-shadow:none;gap:12px}
-#the-so .ledger-book{min-width:0}
-.book-head .head-item.total{font-size:14px}.book-head .head-item.total strong{font-size:16px}
-.book-head .page-meta{display:block;color:#6f6d67}
-.month-chips{background:#e9ecf0;border-bottom:0;align-items:flex-end;gap:4px}
-.month-chip,.month-chip.locked{height:34px;background:#dde2e8;border:1px solid transparent;color:#52514e;padding:0 16px}
-.month-chip.on,.month-chip.locked.on{height:40px;background:#fff;color:#0d366b;border-color:#d7dce3;border-bottom-color:#fff}
-.month-chip .chip-name{font-size:15px}
-.ledger tr.month th,.ledger.locked tr.month th{background:#fff;color:#52514e;border:1px solid #d7dce3;border-bottom:0}
-.month-title{font-size:14px;min-height:40px}.month-lock-text{color:#52514e}
-.month-title .debit-open{margin-left:auto}
-.ledger tr.month-summary>td{padding:0;border:1px solid #d7dce3;border-top:0;background:#fff}
-.month-summary-layout{display:flex;align-items:stretch;min-width:0}
-.month-stats{display:grid;grid-template-columns:22px minmax(0,1fr);grid-template-rows:34px 34px 34px 44px;gap:0 8px;flex:0 0 380px;margin:0;padding:8px 16px 12px;border-right:1px solid #e9ecf0;font-style:normal;font-weight:400;white-space:normal}
-.month-stats>span{display:flex;justify-content:space-between;align-items:center;gap:12px;grid-column:2;color:#52514e;font-size:14px}
-.month-stats>i{display:flex;align-items:center;justify-content:center;color:#52514e;grid-column:1;font-style:normal}
-.month-stats .month-prior{grid-row:1}.month-stats>i:nth-child(2),.month-stats .month-charges{grid-row:2}
-.month-stats>i:nth-child(4),.month-stats .month-received{grid-row:3}
-.month-stats>i:nth-child(6),.month-stats .month-end{grid-row:4;border-top:2px solid #52514e;margin-top:4px}
-.month-stats b{font-size:16px;font-weight:400;color:#1a1a19;white-space:nowrap}
-.month-stats .month-end{font-weight:700;color:#0d366b}.month-stats .month-end b{font-size:22px;font-weight:800;color:#0d366b}
-.month-pay-slot{flex:1;min-width:0;padding:8px 16px 12px}
-.pay-block .pay-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 6px;color:#1a1a19;font-size:15px;font-weight:600}
-.pay-head .entry-open{margin-left:auto;min-height:40px;border-radius:8px;background:#1c5cab;border-color:#1c5cab}
-.pay-block .pay-list{width:100%;border:0}.pay-block .pay-list td{background:#fff;border-right:0;border-bottom:1px solid #e9ecf0}
-.ledger tr.trip-heading>td{padding:0;border:0;height:auto}
-.trip-heading{position:sticky;top:calc(var(--banner) + var(--bar) + var(--head) + var(--chips));z-index:30}
-.ledger-head{position:static;width:100%}.ledger .columns th{background:#f3f5f8;color:#52514e;border-color:#d7dce3;font-size:14px}
-.ledger td{border-right:0;border-color:#e9ecf0}.ledger tr.subtotal td{background:#f3f5f8}
-.ledger .month-body>.trip-side{padding:0}.ledger tr.spacer td{background:#e9ecf0}
-.ledger-book section{margin-bottom:12px}
-.book-bar{margin:6px 0}.book-bar button,.book-settings>summary{border-color:#d7dce3;border-radius:8px}
-@media(max-width:1000px){
-  body:has(#demo-banner:not([hidden])){--banner:0px}
-  #demo-banner:not([hidden]){position:static}
-  .book-head,.month-chips,.trip-heading{position:static}
-  .month-summary-layout{flex-direction:column;max-width:calc(100vw - 112px)}.month-stats{flex-basis:auto;width:100%;max-width:480px;border-right:0}
-  .month-pay-slot{border-top:1px solid #e9ecf0;overflow-x:auto}.book-head{height:auto;min-height:var(--head);flex-wrap:wrap}
-  .live-controls{flex-wrap:wrap;white-space:normal;min-width:0}.book-bar .live-slot{min-width:0;max-width:100%}
-  #the-so .layout{overflow-x:auto}#the-so .ledger-book{min-width:980px}
-}
-@media(max-width:700px){body{padding-left:56px}.topbar{width:56px;padding:4px}.topbar>nav{width:auto;gap:4px;min-height:0}.topbar>nav a{padding:8px}.book-head .head-item.total{display:none}#app{padding:0 8px 16px}}
+/* Kích thước, màu và mật độ lấy trực tiếp từ HTML handoff UuTien.dc.html. */
+:root{--bar:0px;--head:67px;--chips:40px;--cols:34px}
+body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+#app{padding:0 16px 24px}
+.topbar{position:fixed;inset:var(--banner) auto 0 0;width:76px;height:auto;padding:8px 0;background:#16324f;display:flex;flex-direction:column;align-items:stretch;gap:2px;z-index:55}
+.topbar .brand{display:none}
+.nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:48px;margin:0 6px 8px;padding:0;border:0;border-radius:8px;background:#21405f;color:#fff;font:inherit;cursor:pointer}
+.topbar>nav{display:flex;flex-direction:column;align-self:auto;gap:2px}
+.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-height:60px;margin:2px 6px;padding:6px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
+.topbar>nav a.active{background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{background:#21405f}
+.topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}
+.topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:2px 8px}
+.topbar.expanded>nav a span,.topbar.expanded .picker-open span{font-size:15px;white-space:nowrap;max-width:none}
+.topbar .presence{margin:8px auto;flex-wrap:wrap;max-width:60px}.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
+.book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:8px 16px;gap:16px;border-bottom:1px solid #d7dce3;background:#fff;box-shadow:none}
+.page-who{padding:0;min-width:0;line-height:1.2}.customer-switch{display:flex;align-items:center;gap:10px;margin-left:-8px;padding:4px 10px 4px 8px;border:1px solid transparent;border-radius:8px;background:transparent;color:#1a1a19;font:inherit;text-align:left;cursor:pointer;min-height:44px}
+.customer-switch:hover{border-color:#d7dce3;background:#f3f5f8}.customer-switch>span{display:flex;flex-direction:column;min-width:0}
+.book-head .page-name{display:block;margin:0;font-size:18px;font-weight:700;line-height:1.2}.book-head .page-meta{display:block;font-size:13px;color:#6f6d67}
+.page-tabs{margin-left:8px;gap:4px}.page-tab{padding:0 12px;min-height:40px;font-size:14px;color:#52514e}.page-tab[aria-selected=true]{color:#1c5cab;border-bottom-color:#2a78d6;font-weight:700}
+.tab-work{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.page-more{position:relative;margin-left:auto}.page-more>summary{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #d7dce3;border-radius:8px;background:#fff;font-size:20px;cursor:pointer;list-style:none}.page-more>summary::-webkit-details-marker{display:none}
+.page-more-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:70;display:flex;flex-direction:column;gap:8px;min-width:240px;padding:10px;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 12px 32px #1f293733}
+.page-more-menu .head-item.total{align-items:flex-start;margin:0;padding:6px}.page-more-menu .head-item.total strong{font-size:16px}
+.book-head>.entry-open{display:none}.book-settings>summary{border-color:#d7dce3}.book-settings .settings-menu{right:0}
+#customer-picker.in-bar[popover]{position:fixed;inset:calc(var(--banner) + 58px) auto auto 84px;margin:0;width:min(380px,calc(100vw - 100px));padding:10px;border:1px solid #d7dce3;border-radius:10px;background:#fff;color:#1a1a19;box-shadow:0 12px 32px #1f293733}
+#customer-picker.in-bar #customer-search{height:40px;background:#fff;color:#1a1a19;border:2px solid #2a78d6;font-size:15px}
+#customer-picker.in-bar #customer-search::placeholder{color:#6f6d67}#customer-picker.in-bar #customer-list{position:static;width:100%;border:0;box-shadow:none;max-height:50vh}#customer-picker.in-bar:not(:focus-within) #customer-list{display:block}
+.book-bar{margin:0}.book-bar[hidden]{display:none}.book-bar .live-slot{display:none}.book-tasks:not(:empty){padding:8px 0}
+#the-so .layout{max-width:none}#the-so .ledger-book{min-width:0;width:100%;padding-top:10px}
+.month-chips{position:sticky;top:calc(var(--banner) + var(--head));height:40px;align-items:flex-end;gap:4px;background:#e9ecf0;border:0;z-index:32}
+.month-chip,.month-chip.locked{height:34px;padding:0 14px;border:1px solid transparent;border-radius:8px 8px 0 0;background:#dde2e8;color:#52514e;font-size:14px;font-weight:600}
+.month-chip.on,.month-chip.locked.on{position:relative;top:1px;height:40px;padding:0 18px;background:#fff;color:#0d366b;border-color:#d7dce3;border-bottom-color:#fff;font-size:15px;font-weight:700}
+.month-chip.on:not(.locked)::before{content:"";width:8px;height:8px;border-radius:4px;background:#0f766e}.chip-lock{display:none}
+.ledger-book section{scroll-margin-top:calc(var(--banner) + var(--head) + var(--chips));margin:0}
+.month-card{background:#fff;border:1px solid #d7dce3;border-radius:0 8px 8px 8px;overflow:hidden}.month-summary-layout{display:flex;flex-wrap:wrap;min-width:0}
+.month-stats{display:grid;grid-template-columns:22px minmax(0,1fr);grid-template-rows:34px 34px 34px 48px;gap:0 8px;flex:0 1 380px;min-width:300px;margin:0;padding:12px 16px;border-right:1px solid #e9ecf0;font-style:normal;font-weight:400;white-space:normal}
+.month-stats>span{display:flex;align-items:center;justify-content:space-between;gap:8px;grid-column:2;font-size:14px;color:#52514e}.month-stats>i{display:flex;align-items:center;justify-content:center;grid-column:1;font-style:normal;color:#52514e}
+.month-stats .month-prior{grid-row:1;border-bottom:1px solid #eef0f3}.month-stats>i:nth-child(2),.month-stats .month-charges{grid-row:2}.month-stats>i:nth-child(4),.month-stats .month-received{grid-row:3;border-top:1px solid #eef0f3}
+.month-stats>i:nth-child(6),.month-stats .month-end{grid-row:4;border-top:2px solid #52514e;margin-top:4px}.month-stats b{font-size:16px;font-weight:400;color:#1a1a19;white-space:nowrap}.month-stats .month-end{font-size:15px;font-weight:700;color:#0d366b}.month-stats .month-end b{font-size:22px;font-weight:800;color:#0d366b}
+.month-missing{height:26px;min-width:0;padding:0 8px;border:1px solid #f0d9ae;border-radius:13px;background:#fdf3e1;color:#6b4000;font:600 12.5px "Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}.month-charges b{margin-left:auto}
+.month-pay-slot{flex:1 1 420px;min-width:0;padding:10px 16px 12px}.pay-block .pay-head{display:flex;align-items:center;gap:10px;margin:0 0 4px;color:#1a1a19;font-size:15px;font-weight:700}.pay-count{font-size:13px;font-weight:400;color:#6f6d67}.pay-empty{font-size:14px;font-weight:400}
+.pay-head .entry-open{margin-left:auto;height:36px;min-height:36px;padding:0 16px;border:0;border-radius:8px;background:#1c5cab;color:#fff;font-size:14px;font-weight:700;white-space:nowrap}
+.pay-block .pay-list{width:100%;border:0;table-layout:fixed}.pay-list td{height:32px;min-height:32px;padding:4px 10px 4px 0;border:0;border-top:1px solid #e9ecf0!important;background:#fff!important;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pay-list .receipt-sum{font-size:14px;font-weight:400}.pay-list .receipt-ref,.pay-list .receipt-allocation{font-size:14px;font-weight:400;color:#52514e;display:inline}.pay-list .receipt-allocation{font-size:13px}
+.pay-list td:last-child{padding-right:0}.pay-list .receipt>.image-clip{display:none}.pay-list .receipt:hover>.image-clip,.pay-list .receipt:focus-within>.image-clip{display:inline-flex}.pay-list .receipt-ref.empty{visibility:hidden}.pay-list tr:hover .receipt-ref.empty,.pay-list .receipt-ref.empty:focus{visibility:visible}
+.trip-card{margin-top:10px;border:1px solid #d7dce3;border-radius:8px;overflow:clip;background:#fff}.trip-toolbar{display:flex;align-items:center;gap:10px;padding:6px 14px}.trip-toolbar h3{margin:0;font-size:15px;font-weight:700}.trip-toolbar h3 span{font-size:13px;font-weight:400;color:#6f6d67}.trip-tools{display:flex;align-items:center;gap:6px;margin-left:auto}
+.trip-tools button{margin:0;display:inline-flex;align-items:center;justify-content:center;min-width:36px;width:36px;min-height:36px;height:36px;padding:0;border:1px solid #d7dce3;border-radius:8px;background:#fff;color:#52514e;cursor:pointer}.trip-tools button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.trip-tools .month-lock[aria-pressed=true]{border-color:#a7d8cf;background:#e3f4f1;color:#0f766e}
+#refresh-data{font-size:0}
+.month-lock-text{display:none}.ledger-head{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:30;width:100%}
+.ledger{color:#1a1a19}.ledger th,.ledger td{border-right:0;border-color:#e9ecf0}.ledger .columns th{height:34px;padding:0 5px;background:#f3f5f8;color:#52514e;font-size:13px;font-weight:600;line-height:1.2;border-top:1px solid #d7dce3;border-bottom:1px solid #d7dce3}
+.ledger .columns th.num{text-align:right}.ledger td{height:34px;min-height:34px;padding:4px 5px;font-size:14px}.ledger td.num{font-size:14px}.ledger-book.tight .ledger td.num{font-size:14px}.ledger .month-body>.trip-side{padding:0;border:0}.ledger-inner td{background:#fff}.ledger tr.subtotal td{height:40px;background:#f3f5f8;border:0;font-size:14px}
+.subtotal td:first-child{position:relative}.subtotal td:first-child::after{content:"Cộng cột";position:absolute;right:8px;top:10px;color:#52514e;font-size:13px;font-weight:400}.add-month-adjustment{margin:0 0 0 8px;min-height:30px;padding:0 10px;border:1px solid #d7dce3;border-radius:6px;font-size:13px}
+.trip-list td:nth-child(2){font-family:Consolas,"Cascadia Mono",monospace;letter-spacing:.2px}.trip-list .row-delete{color:#6f6d67}.fee-pick{position:absolute;width:1px;height:1px;opacity:0}.trip-list tr:hover .fee-pick,.fee-pick:focus{position:static;width:auto;height:auto;opacity:1}
+.ledger td.missing{background:#fff;color:#6b4000;font-size:13px;font-weight:600}.ledger td.missing:not(:has(input)){background:linear-gradient(#fdf3e1,#fdf3e1) right center/calc(100% - 10px) 26px no-repeat}
+.route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:45%;min-width:70px}.route-arrow{color:#52514e}
+.ledger tr.spacer{display:none}.ledger .fee-other{background:#fff}.ledger .fee-h{color:#52514e}
+@media(max-width:1100px){.month-stats{flex-basis:100%;max-width:none;border-right:0}.month-pay-slot{overflow-x:auto}.pay-list{min-width:620px}.book-head{height:auto;min-height:61px;flex-wrap:wrap}.page-more{margin-left:auto}#the-so .layout{overflow-x:auto}.ledger-book section{min-width:0}.trip-card{overflow-x:auto}.trip-card>.ledger{min-width:980px}.ledger-head{position:static}.month-chips{position:static}.month-summary-layout{flex-direction:column}.month-card{width:100%}.month-stats{min-width:0}.book-head{position:static}.page-tabs{order:3;width:100%;margin-left:0}}
+@media(max-width:700px){body{padding-left:76px}.topbar{width:76px;padding:8px 0}.topbar>nav{width:auto;gap:2px;min-height:0}.topbar>nav a{padding:6px 2px}body:has(#demo-banner:not([hidden])){--banner:0px}#demo-banner:not([hidden]){position:static}.month-stats{padding:12px 10px}.month-end{flex-wrap:wrap}.month-pay-slot{padding:10px}.pay-head{flex-wrap:wrap}.book-head .page-name{font-size:16px}}
+
+/* Handoff dùng khoảng đệm ngang 14px và hàng 34px cộng đường kẻ 1px. */
+.month-stats{padding-bottom:16px}.chip-work{display:none}
+.trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
+.ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
+.ledger .columns th{height:35px}.ledger td.missing:not(:has(input)){background-size:84px 24px;background-position:right center}
+.pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}.pay-list col:nth-child(4){width:122px!important}
+.pay-list td.receipt{ text-align:right }.pay-list td:first-child,.pay-list td:nth-child(2){text-align:left}
+.trip-tools #live-controls{display:none}.trip-tools #live-controls:has(.sheet-error,.sheet-busy){display:flex}
+.trip-tools #live-controls #refresh-data{display:none}
+
+#refresh-data{height:36px;min-height:36px;padding:0;border-color:#d7dce3;border-radius:8px;color:#52514e}
+#refresh-data svg{flex:none;width:18px;height:18px}.month-stats{align-items:stretch}
+.ledger .columns th.fee-h{background:#f3f5f8;color:#52514e}.ledger td.fee,.ledger.locked td.fee{background:#fff}
+.book-bar{min-height:0;padding:0;border:0;background:transparent}
+.pay-list .receipt-ref.empty{visibility:visible;opacity:0}.pay-list tr:hover .receipt-ref.empty,.pay-list .receipt-ref.empty:focus{opacity:1}
+
+.pay-list tr:not(.pay-row) td{height:auto;white-space:normal;overflow:visible;text-overflow:clip}
+.pay-list .receipt>.image-clip:not(.none){display:inline-flex}
+
+.pay-list tr:hover .receipt>.image-clip,.pay-list tr:focus-within .receipt>.image-clip{display:inline-flex}
+.page-tab{min-width:40px}.month-card{overflow:visible}
+
+.trip-card>.ledger{width:calc(100% - 28px);margin:0 14px}.trip-card .trip-list{width:100%;margin:0}
+.ledger-head{background:#f3f5f8;box-shadow:-14px 0 #f3f5f8,14px 0 #f3f5f8}
+.subtotal{background:#f3f5f8;box-shadow:-14px 0 #f3f5f8,14px 0 #f3f5f8}.subtotal td:last-child{padding-right:0}.add-month-adjustment{margin-left:0}
+.pay-list td.receipt{position:relative}.pay-list .receipt>.image-clip{position:absolute;right:0;top:0;z-index:1;background:#fff}
+@media(max-width:1100px){.month-stats,.month-pay-slot{flex:none;width:100%}.month-pay-slot{overflow-x:auto}}
+@media(max-width:700px){.month-stats{grid-template-rows:34px 34px 34px auto}.month-stats .month-end{min-height:66px;flex-direction:column;align-items:flex-start;justify-content:center;gap:0}.month-pay-slot .pay-head{min-width:250px}}

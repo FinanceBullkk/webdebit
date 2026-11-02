@@ -228,7 +228,7 @@
     });
   }
 
-  const entryButton = on => `<button type="button" class="entry-open" ${on ? '' : 'disabled'}>Ghi phiếu thu</button>`;
+  const entryButton = on => `<button type="button" class="entry-open" ${on ? '' : 'disabled'}>+ Ghi phiếu thu</button>`;
   function entryAfterRender() { paintStrip(); paintImages(); }
   // Ảnh dán khi không đứng ở ô nhập nào: vào khung Ghi phiếu thu (mở khung nếu đang đóng); sổ chưa ghi được thì null.
   function entryImageKey() {

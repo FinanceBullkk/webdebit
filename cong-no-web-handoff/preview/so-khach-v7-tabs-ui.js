@@ -23,15 +23,12 @@
     picker.setAttribute('popover', 'auto');
     const search = picker.querySelector('#customer-search');
     search.setAttribute('autofocus', '');
-    search.placeholder = 'Tìm khách để mở sổ';
+    search.placeholder = 'Gõ tên khách hoặc mặt hàng';
     search.addEventListener('focus', () => search.select());
   }
 
   // ← Quay lại (audit UX 4.1): về trang vừa đến bằng lịch sử của tab (máy chủ gửi Referrer-Policy: no-referrer nên trang không
   // biết trang trước là trang nào); tab mới mở, chưa có trang trước, thì về Tổng quan.
-  const backLink = () => (window.history?.length > 1
-    ? '<a class="page-back" href="/dashboard-v7.html" data-back="lich-su">← Quay lại</a>'
-    : '<a class="page-back" href="/dashboard-v7.html">← Tổng quan</a>');
   // Tên khách viết đủ, không cắt (audit P1-1): tên dài thì xuống dòng, chữ nhỏ một cỡ; mặt hàng · cảng/bộ chữ nhạt bên cạnh.
   function who() {
     const label = live.customerName(customerId) ?? `#${customerId}`;
@@ -39,9 +36,9 @@
     const name = String(row?.display_name ?? row?.name ?? '');
     const meta = name && label.startsWith(`${name} · `) ? label.slice(name.length + 3) : '';
     const shown = meta ? name : label;
-    return `<div class="page-who${shown.length > 30 ? ' long' : ''}"><h1 class="page-name">${escape(shown)}</h1>`
-      + '<button type="button" class="customer-switch" popovertarget="customer-picker" aria-label="Đổi khách">⌄</button>'
-      + `${meta ? `<span class="page-meta">${escape(meta)}</span>` : ''}</div>`;
+    return `<div class="page-who${shown.length > 30 ? ' long' : ''}"><button type="button" class="customer-switch" popovertarget="customer-picker" aria-label="Đổi khách" title="Đổi sang khách khác">`
+      + `<span><span class="page-name" role="heading" aria-level="1">${escape(shown)}</span>${meta ? `<span class="page-meta">${escape(meta.replace(/(^| · )cảng$/, '$1đường cảng').replace(/(^| · )bộ$/, '$1đường bộ'))}</span>` : ''}</span>`
+      + '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>';
   }
   // Thẻ Sổ kèm số việc chờ, cùng cách đếm với chấm cam trên chip tháng (SO-GON-04 L1.3; `work` do so-khach-v7-month-ui.js đếm).
   function tabBar(work) {
@@ -53,7 +50,7 @@
         + `${count ? `<span class="tab-work" aria-hidden="true">${count}</span>` : ''}</button>`;
     }).join('')}</div>`;
   }
-  const pageHead = work => backLink() + who() + tabBar(work);
+  const pageHead = work => who() + tabBar(work);
   // Khung các thẻ ngoài thẻ Sổ: Tình hình do so-khach-v7-overview-ui.js vẽ (PR A2), Trao đổi và Hồ sơ do so-khach-v7-contact-ui.js (PR A3).
   const tabPanes = () => TABS.filter(([id]) => id !== 'so').map(([id]) => (id === 'tinh-hinh' ? ctx.overviewPane() : ctx.contactPane(id))).join('');
 
@@ -65,7 +62,7 @@
     current = id;
     mark();
     const entry = root.querySelector('.entry-open');
-    const entrySlot = root.querySelector(id === 'so' ? '.pay-head' : '.book-head');
+    const entrySlot = root.querySelector(id === 'so' ? '.pay-head' : '.page-more-menu');
     if (entry && entrySlot) entrySlot.append(entry);
     for (const tab of root.querySelectorAll('.page-tab')) {
       tab.setAttribute('aria-selected', String(tab.dataset.the === id));

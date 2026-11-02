@@ -111,12 +111,12 @@
   function monthBar(item, key, { locked, active, debit, totals }) {
     const label = monthLabel(key);
     const lock = `<button class="month-lock" data-month="${escape(item.month)}" aria-label="${locked ? 'Mở khóa' : 'Khóa'} tháng ${label}" `
-      + `title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '🔒' : '🔓'}</button>`
+      + `title="${locked ? 'Đã khóa' : 'Đang mở'}" aria-pressed="${!locked}" ${active ? '' : 'disabled'}>${locked ? '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>'}</button>`
       + `<span class="month-lock-text">${locked ? 'Đã khóa' : 'Đang mở'}</span>`;
-    const debitButton = debit ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog">Debit note</button>` : '';
-    const part = (name, value, cls) => `<span class="${cls}">${name} <b>${fmt(value)}</b></span>`;
+    const debitButton = debit ? `<button class="debit-open" data-month="${escape(key)}" aria-haspopup="dialog" aria-label="Debit note tháng ${label}" title="Debit note tháng ${label}"><svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><rect x="4" y="9" width="16" height="8" rx="1.5"/><path d="M7 14h10v7H7z"/></svg></button>` : '';
+    const part = (name, value, cls) => `<span class="${cls}">${name} <b>${fmt(value)}${cls === 'month-end' && value != null ? ' đ' : ''}</b></span>`;
     const stats = `${part('Nợ đầu tháng', item.prior_months_vnd, 'month-prior')}<i aria-hidden="true">+</i>`
-      + `${part('Phát sinh', totals.chargesVnd, 'month-charges')}<i aria-hidden="true">−</i>${part('Đã thu', totals.receivedVnd, 'month-received')}`
+      + `${part('Phát sinh', totals.chargesVnd, 'month-charges')}<i aria-hidden="true">−</i>${part('Khách trả', totals.receivedVnd, 'month-received')}`
       + `<i aria-hidden="true">=</i>${part('Còn nợ cuối tháng', item.end_of_month_vnd, 'month-end')}`;
     return `<tr class="month"><th colspan="${columns.count()}" scope="rowgroup"><span class="month-title">THÁNG ${label}${lock}${debitButton}`
       + `</span></th></tr><tr class="month-summary"><td colspan="${columns.count()}"><div class="month-summary-layout">`
@@ -143,10 +143,10 @@
 
   // Dòng Tổng tháng: tổng từng cột phụ phí (chuyến đã tính tiền và dòng sổ gốc của tháng) và Thành tiền của server. Đã thu ở
   // dòng tóm tắt của thanh tháng và đầu khối phiếu thu (SO-GON-06).
-  function subtotalRow(item, key, { locked, active, feeTotalCells }) {
-    return `<tr class="subtotal"><td colspan="${columns.feeStart()}">Tổng tháng ${monthLabel(key)} `
+  function subtotalRow(item, key, { locked, active, feeTotalCells, totals }) {
+    return `<tr class="subtotal"><td colspan="${columns.feeStart()}">`
       + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>`
-      + `${feeTotalCells}<td></td></tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
+      + `${feeTotalCells}${num(fmt(totals.chargesVnd))}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
 
   function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing }) {
@@ -177,9 +177,13 @@
       + trips.map((trip, index) => webTripRow(trip, index, { locked, sttBase })).join('');
     const pays = payRows(key, { legacy, receipts, locked });
     const payBlock = `<tr class="month-pay"><td colspan="${columns.count()}"><div class="pay-block">`
-      + `<div class="pay-head">Tiền khách trả tháng ${monthLabel(key)}${pays ? '' : '<span class="pay-empty">: chưa có phiếu thu</span>'}</div>`
+      + `<div class="pay-head">Khách trả trong tháng <span class="pay-count">· ${legacy.filter(line => line.receipt).length + receipts.filter(row => row.voided_by_event == null).length} phiếu</span>${pays ? '' : '<span class="pay-empty">Chưa có phiếu thu</span>'}</div>`
       + `<table class="ledger-inner pay-list${pays ? '' : ' empty'}" aria-label="Tiền khách trả tháng ${monthLabel(key)}">`
-      + `<colgroup>${columns.payTags()}</colgroup><tbody>${pays}</tbody></table></div></td></tr>`;
+      + `<colgroup><col style="width:84px"><col style="width:104px"><col><col style="width:112px"><col style="width:104px"></colgroup><tbody>${pays}</tbody></table></div></td></tr>`;
+    const missing = trips.filter(row => row.is_missing_price && row.status === 'confirmed').length
+      + legacy.filter(line => line.trip && line.trip.current?.unit_price_vnd == null && (line.trip.d.flags ?? []).includes('MISSING_PRICE')).length;
+    const badge = missing ? `<button type="button" class="month-missing" data-missing-month="${escape(key)}" title="Xem ${missing} chuyến chưa có giá">ⓘ ${missing} chưa giá</button>` : '';
+    const toolbar = `<div class="trip-toolbar"><h3>Chuyến trong tháng <span>· ${sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3><div class="trip-tools"></div></div>`;
     const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
       + `<tbody>${tripRows}</tbody></table></td></tr>`;
@@ -188,9 +192,9 @@
     const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');
     return [`<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}">`
       + `<colgroup>${columns.all()}</colgroup><tbody>`,
-    monthBar(item, key, { locked, active, debit, totals }),
+    monthBar(item, key, { locked, active, debit, totals }).replace('Phát sinh <b>', `Phát sinh ${badge}<b>`),
     `${body}${sheetPendingRows(sheetRows)}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
-    `${subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table></section>`].join(GAP);
+    `${subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
   }
 
   // Chip một tháng trên thanh tháng: "T9" (ghi năm khi khác năm hiện tại), còn nợ cuối tháng rút gọn, dấu khóa chỉ để xem
@@ -205,7 +209,7 @@
     return `<a class="month-chip${locked ? ' locked' : ''}${key === selected ? ' on' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
       + `${key === selected ? 'aria-current="true" ' : ''}`
       + `aria-label="Tháng ${monthLabel(key)} · còn nợ cuối tháng ${escape(end)}${locked ? ' · đã khóa' : ''}${todo ? ` · ${escape(todo)}` : ''}">`
-      + `<span class="chip-name">${monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span>`
+      + `<span class="chip-name">${key === selected ? `Tháng ${monthLabel(key)}` : monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span>`
       + `${locked ? '<span class="chip-lock" aria-hidden="true">🔒</span>' : ''}`
       + `${total ? `<span class="chip-work" title="${escape(todo)}" aria-hidden="true">${total}</span>` : ''}</a>`;
   }
@@ -248,6 +252,8 @@
       || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask');
   }
   root.addEventListener('click', event => {
+    const missing = event.target.closest('.month-missing');
+    if (missing) { ctx.showLoc('thieu-gia'); return; }
     const chip = event.target.closest('.month-chip');
     if (!chip) return;
     event.preventDefault();

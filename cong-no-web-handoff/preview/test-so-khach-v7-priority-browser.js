@@ -1,6 +1,52 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
+const handoff = require('./so-khach-v7-handoff-world');
+
+test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
+  for (const width of [1280, 1895]) {
+    await page.setViewportSize({ width, height: 848 });
+    await page.reload();
+    await page.locator('.month-card').waitFor();
+    const geometry = await page.evaluate(() => {
+      const box = selector => document.querySelector(selector).getBoundingClientRect();
+      const card = box('.month-card'), trips = box('.trip-card');
+      return { nav: box('.topbar').width, header: box('.book-head').height, card: card.height,
+        gap: trips.top - card.bottom, toolbar: box('.trip-toolbar').height,
+        row: box('.trip-list tr').height, pay: box('.pay-list tr').height,
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    assert.deepEqual(geometry, { nav: 76, header: 67, card: 180, gap: 10, toolbar: 48, row: 35, pay: 32, overflow: 0 });
+    assert.deepEqual(await page.locator('.ledger-head th').allTextContents(), ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Tuyến', 'Đơn giá', 'Nâng hạ', 'Khác', 'Thành tiền']);
+    assert.equal(await page.locator('.pay-list tr').first().locator('td').count(), 5);
+    assert.equal(await page.locator('.trip-list .route-cell').count(), 8);
+    assert.equal(await page.locator('.trip-tools button').count(), 3);
+    assert.equal(await page.locator('.month-missing').innerText(), 'ⓘ 2 chưa giá');
+    assert.equal(await page.locator('#demo-banner').isVisible(), true);
+    assert.equal(await page.locator('.history-toggle').isVisible(), false);
+    assert.equal(await page.locator('.month-chip.on .chip-name').innerText(), 'Tháng 11/2026');
+    await shot(`handoff-${width}`);
+  }
+  assert.deepEqual(world.requests, [], 'xem và đổi cỡ không ghi tiền');
+}, handoff));
+
+test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu tuyến hàng kế', async () => withPage(async ({ page, world }) => {
+  const origin = id => page.locator(`.route-cell .info-edit[data-id="${id}"][data-field="origin"]`);
+  await origin(11).click();
+  await page.locator('.info-input').fill('Kho mới');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="origin"]')?.textContent === 'Kho mới');
+  assert.equal(world.requests.at(-1).body.field, 'origin');
+  assert.equal(await origin(12).evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await origin(11).evaluate(node => node === document.activeElement), true);
+  await page.locator('.route-cell [data-id="11"][data-field="destination"]').click();
+  await page.locator('.info-input').fill('Cảng mới');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="destination"]')?.textContent === 'Cảng mới');
+  assert.equal(world.requests.at(-1).body.field, 'destination');
+  assert.equal(world.requests.length, 2);
+}, handoff));
 
 test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số tháng một chỗ; không ghi tiền khi mở sổ', async () => withPage(async ({ page, world, shot }) => {
   await page.setViewportSize({ width: 1280, height: 560 });
@@ -11,9 +57,9 @@ test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số t
       below: columns.top >= Math.max(stats.bottom, pays.bottom), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   });
   assert.deepEqual(geometry, { sideBySide: true, below: true, overflow: 0 });
-  assert.deepEqual(await page.locator('.month-stats b').allTextContents(), ['412.600.000', '58.750.000', '150.000.000', '321.350.000']);
+  assert.deepEqual(await page.locator('.month-stats b').allTextContents(), ['412.600.000', '58.750.000', '150.000.000', '321.350.000 đ']);
   assert.equal(await page.locator('.month-chip .chip-end').count(), 0);
-  assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('58.750.000')), false);
+  assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('58.750.000')), true);
   assert.equal(await page.locator('.entry-open').count(), 1);
   assert.equal(world.requests.length, 0);
   await shot('uu-tien-1280');
@@ -24,7 +70,7 @@ test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số t
 }));
 
 test('Ưu tiên: giữ NULL và số âm từ API; mở menu và đổi khách bằng bàn phím', async () => withPage(async ({ page, world }) => {
-  assert.deepEqual(await page.locator('.month-stats b').allTextContents(), ['–', '–', '–', '-12.345']);
+  assert.deepEqual(await page.locator('.month-stats b').allTextContents(), ['–', '–', '–', '-12.345 đ']);
   await page.locator('.nav-toggle').first().click();
   assert.equal(await page.locator('.nav-toggle').first().getAttribute('aria-expanded'), 'true');
   await page.locator('.customer-switch').focus();
