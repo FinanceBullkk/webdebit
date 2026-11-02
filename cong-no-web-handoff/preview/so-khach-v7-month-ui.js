@@ -144,9 +144,10 @@
   // Dòng Tổng tháng: tổng từng cột phụ phí (chuyến đã tính tiền và dòng sổ gốc của tháng) và Thành tiền của server. Đã thu ở
   // dòng tóm tắt của thanh tháng và đầu khối phiếu thu (SO-GON-06).
   function subtotalRow(item, key, { locked, active, feeTotalCells, totals }) {
-    return `<tr class="subtotal"><td colspan="${columns.feeStart()}">`
+    return `<tr class="subtotal"><td colspan="${columns.unitPrice()}">`
       + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>`
-      + `${feeTotalCells}${num(fmt(totals.chargesVnd))}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
+      + `<td class="num unit-total" title="Chỉ cộng giá đã có; bỏ qua chuyến thiếu giá, chờ kiểm hoặc đã loại">${fmt(totals.unitPriceVnd)}</td>`
+      + `${feeTotalCells}${num(fmt(totals.chargesVnd), 'amount-total')}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
 
   function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing }) {
@@ -155,7 +156,7 @@
     const trips = (data.trips ?? []).filter(row => monthKey(row.month) === key);
     const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
     const legacy = legacyPairs(legacyRows);
-    const totals = { chargesVnd: item.charges_vnd, receivedVnd: item.received_vnd };
+    const totals = { chargesVnd: item.charges_vnd, receivedVnd: item.received_vnd, unitPriceVnd: model.unitPriceTotal(trips, legacyRows) };
     const debit = legacy.some(line => line.trip) || trips.some(trip => trip.status === 'confirmed');
     const sheetRows = (data.sheet_sync?.items ?? []).filter(row => monthKey(row.event_date) === key && sheetPending(row));
     // DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền một lần (như Sheet); `lines` là phần trừ nợ còn hiệu lực

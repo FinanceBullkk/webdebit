@@ -41,7 +41,7 @@
       : `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${tab}">`
         + `${escape(methodText(receipt, voided, receipt.method))}</td>`;
     const amountCell = `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${tab}">`
-      + `<span class="receipt-sum">${fmt(receipt.line.amount_vnd)}</span>${ctx.imageClip?.(receipt) ?? ''}</td>`;
+      + `<span class="receipt-money"><span class="receipt-sum">${fmt(receipt.line.amount_vnd)}</span>${ctx.imageClip?.(receipt) ?? ''}</span></td>`;
     return dateCell + methodCell
       + `<td class="pay pay-reference">${receipt.outgoing ? '' : referenceInline(receipt)}</td>`
       + `<td class="pay pay-allocation">${allocationInline(receipt, key)}</td>` + amountCell;

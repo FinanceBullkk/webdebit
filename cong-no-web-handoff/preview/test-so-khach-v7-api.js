@@ -156,16 +156,17 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
   const block = key => blocks[key];
   assert.doesNotMatch(block('2026-08'), /data-pid="PH-/);
   assert.match(block('2026-09'), /class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
-  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-sum">30<\/span>/);
+  assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-money"><span class="receipt-sum">30<\/span>/);
   assert.doesNotMatch(block('2026-09'), /PH-002/);
   assert.match(block('2026-10'), /class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
-  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*><span class="receipt-sum">100<\/span>/);
+  assert.match(block('2026-10'), /data-pid="PH-002"[^>]*><span class="receipt-money"><span class="receipt-sum">100<\/span>/);
   // Phiếu trừ đúng nợ tháng của mình: không ghi thêm chữ.
-  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*><span class="receipt-sum">5<\/span><button type="button" class="image-clip none"/);
+  assert.match(block('2026-10'), /data-pid="PH-003"[^>]*><span class="receipt-money"><span class="receipt-sum">5<\/span>/);
+  assert.match(block('2026-10'), /<button type="button" class="image-clip none" data-pid="PH-003"[^>]*>📎<\/button>/);
   // SO-GON-05: thanh tháng có dòng tóm tắt Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng, số nguyên từ GET.
   // SO-GON-06: phiếu thu là khối đầu tháng; dòng Tổng tháng chỉ còn phụ phí và Thành tiền (Đã thu ở dòng tóm tắt).
   assert.match(block('2026-10'), /class="pay-head">Khách trả trong tháng <span class="pay-count">· 2 phiếu/);
-  assert.match(block('2026-10'), /<tr class="subtotal">.*?<td class="num ">30<\/td><\/tr>/s);
+  assert.match(block('2026-10'), /<tr class="subtotal">.*?<td class="num amount-total">30<\/td><\/tr>/s);
   assert.doesNotMatch(block('2026-10'), /subtotal-pay|pay-side|pay-stick/);
   assert.match(block('2026-10'), /<em class="month-stats"[^>]*><span class="month-prior">Nợ đầu tháng <b>120<\/b><\/span><i aria-hidden="true">\+<\/i><span class="month-charges">Phát sinh <b>30<\/b><\/span><i aria-hidden="true">−<\/i><span class="month-received">Khách trả <b>100<\/b><\/span><i aria-hidden="true">=<\/i><span class="month-end">Còn nợ cuối tháng <b>50 đ<\/b><\/span><\/em>/);
   assert.doesNotMatch(block('2026-10'), /month-toggle|Xem chi tiết|Thu gọn/);
@@ -443,7 +444,7 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   // 23/10/2026: không còn chú thích "Từ sổ gốc", dòng "Theo sổ gốc" hay dòng số dư đầu. DA-THU-01 (28/10/2026): server
   // trả sẵn phát sinh/đã thu như Sheet; trang vẽ nguyên số, không dời số theo số dư đầu.
   assert.doesNotMatch(live.innerHTML, /Từ sổ gốc|Theo sổ gốc|source-total|legacy-caption|Nợ tháng này còn lại/);
-  assert.match(live.innerHTML, /<tr class="subtotal">.*?<td class="num ">1\.234\.567<\/td><\/tr>/s);
+  assert.match(live.innerHTML, /<tr class="subtotal">.*?<td class="num amount-total">1\.234\.567<\/td><\/tr>/s);
   assert.doesNotMatch(live.innerHTML, /\[object Object\]/);
   assert.match(live.innerHTML, /<div class="head-item total"><span>Tổng còn nợ \(mọi tháng\)<\/span><strong>10 đ<\/strong>/);
   // Tháng hiện tại chưa có dữ liệu vẫn có khối tháng; tháng không có dòng Sheet vẽ thẳng từ GET;
@@ -507,10 +508,10 @@ test('fixture renderer stays in tab; live renderer uses GET values and flags', a
   const february = carried.innerHTML.match(/<section id="thang-2026-02">.*?<\/section>/s)[0];
   assert.doesNotMatch(february, /Cộng tháng|Nợ tháng này còn lại|<tr>\s*<td class=""><\/td>/);
   // Sổ không dòng nào có shipper: không có cột Shipper (audit UX 31/10/2026), nhãn Tổng tháng trải 7 cột chuyến trước cột phụ phí.
-  assert.match(february, /<tr class="subtotal"><td colspan="6"><button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num fee">[^<]*<\/td><td class="num ">307<\/td><\/tr>/);
+  assert.match(february, /<tr class="subtotal"><td colspan="5"><button class="add-month-adjustment"[^>]*>[^<]*<\/button><\/td><td class="num unit-total"[^>]*>–<\/td><td class="num fee">[^<]*<\/td><td class="num amount-total">307<\/td><\/tr>/);
   const october = carriedOct.innerHTML.match(/<section id="thang-2026-10">.*?<\/section>/s)[0];
   assert.doesNotMatch(october, /Nợ tháng này còn lại/);
-  assert.match(october, /<tr class="subtotal">.*?<td class="num ">700<\/td><\/tr>/s);
+  assert.match(october, /<tr class="subtotal">.*?<td class="num amount-total">700<\/td><\/tr>/s);
   const pending = page(true, { ...ledger(1), today_month: '2026-10-01',
     months: [{ month: '2026-10-01', charges_vnd: '200', outstanding_vnd: '200', end_of_month_vnd: '200' }],
     trips: [{ id: 1, month: '2026-10-01', container: 'FAKE-HELD', status: 'pending_review', unit_price_vnd: '100', other_fee_vnd: null, amount_vnd: null },

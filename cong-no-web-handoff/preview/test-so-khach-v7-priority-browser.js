@@ -16,7 +16,17 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
         row: box('.trip-list tr').height, pay: box('.pay-list tr').height,
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    assert.deepEqual(geometry, { nav: 76, header: 67, card: 180, gap: 10, toolbar: 48, row: 35, pay: 32, overflow: 0 });
+    assert.deepEqual(geometry, { nav: 76, header: 67, card: 180, gap: 10, toolbar: 48, row: 35, pay: 33, overflow: 0 });
+    const attachments = page.locator('.receipt-money>.image-clip');
+    assert.deepEqual(await attachments.allTextContents(), ['📎', '📎']);
+    for (const button of await attachments.all()) {
+      assert.equal(await button.isVisible(), true);
+      assert.equal(await button.evaluate(node => {
+        const amount = node.closest('tr').querySelector('.receipt-sum').getBoundingClientRect();
+        const box = node.getBoundingClientRect();
+        return box.height >= 24 && box.left - amount.right >= 8 && Math.abs(box.top + box.height / 2 - amount.top - amount.height / 2) < 1;
+      }), true, 'icon cạnh số tiền, cách 8px, cùng hàng và không che tiền');
+    }
     assert.deepEqual(await page.locator('.ledger-head th').allTextContents(), ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Tuyến', 'Đơn giá', 'Nâng hạ', 'Khác', 'Thành tiền']);
     assert.equal(await page.locator('.pay-list tr').first().locator('td').count(), 5);
     assert.equal(await page.locator('.trip-list .route-cell').count(), 8);
@@ -25,6 +35,21 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
     assert.equal(await page.locator('#demo-banner').isVisible(), true);
     assert.equal(await page.locator('.history-toggle').isVisible(), false);
     assert.equal(await page.locator('.month-chip.on .chip-name').innerText(), 'Tháng 11/2026');
+    assert.equal(await page.locator('.subtotal .unit-total').innerText(), '57.000.000');
+    assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('Cộng cột')), false);
+    const colors = await page.locator('.ledger-head th:is(.unit-h,.fee-h,.amount-h)').evaluateAll(nodes =>
+      nodes.map(node => getComputedStyle(node).backgroundColor));
+    assert.equal(new Set(colors).size, 3);
+    const padding = await page.locator('.ledger-head th.num,.trip-list td.num,.subtotal td.num').evaluateAll(cells =>
+      cells.every(cell => getComputedStyle(cell).paddingLeft === '10px' && getComputedStyle(cell).paddingRight === '10px'));
+    assert.equal(padding, true, 'tiêu đề, ô tiền và tổng có cùng khoảng đệm hai bên');
+    const warningColor = await page.locator('.trip-list td.unit-price:not(.missing)').first().evaluate(cell => {
+      cell.classList.add('price-differs');
+      const color = getComputedStyle(cell).backgroundColor;
+      cell.classList.remove('price-differs');
+      return color;
+    });
+    assert.equal(warningColor, 'rgb(255, 243, 209)');
     await shot(`handoff-${width}`);
   }
   assert.deepEqual(world.requests, [], 'xem và đổi cỡ không ghi tiền');
@@ -46,6 +71,33 @@ test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu t
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="destination"]')?.textContent === 'Cảng mới');
   assert.equal(world.requests.at(-1).body.field, 'destination');
   assert.equal(world.requests.length, 2);
+}, handoff));
+
+test('Thiếu giá: nền cả ô, nhập ngay trong ô với một viền focus; Esc giữ NULL', async () => withPage(async ({ page, world, shot }) => {
+  const cell = page.locator('.trip-list td.missing').first();
+  const before = await cell.evaluate(node => ({ background: getComputedStyle(node).backgroundColor, image: getComputedStyle(node).backgroundImage }));
+  assert.deepEqual(before, { background: 'rgb(253, 243, 225)', image: 'none' });
+  await cell.click();
+  const input = cell.locator('input');
+  assert.equal(await input.inputValue(), '');
+  assert.deepEqual(await input.evaluate(node => {
+    const style = getComputedStyle(node), parent = getComputedStyle(node.parentElement);
+    return { background: style.backgroundColor, border: style.borderTopWidth, outline: style.outlineWidth, cellOutline: parent.outlineWidth, cellBackground: parent.backgroundColor };
+  }), { background: 'rgba(0, 0, 0, 0)', border: '0px', outline: '0px', cellOutline: '2px', cellBackground: before.background });
+  await shot('money-edit-missing');
+  await input.fill('9.000.000');
+  await page.keyboard.press('Escape');
+  assert.equal(await cell.innerText(), 'chưa có giá');
+  const fee = page.locator('td.fee.own[data-fee-target="trip:15"]').first();
+  await fee.click();
+  const feeInput = fee.locator('input');
+  assert.deepEqual(await feeInput.evaluate(node => {
+    const style = getComputedStyle(node), parent = getComputedStyle(node.parentElement);
+    return { background: style.backgroundColor, border: style.borderTopWidth, outline: style.outlineWidth, cellOutline: parent.outlineWidth };
+  }), { background: 'rgba(0, 0, 0, 0)', border: '0px', outline: '0px', cellOutline: '2px' });
+  await shot('money-edit-fee');
+  await page.keyboard.press('Escape');
+  assert.deepEqual(world.requests, []);
 }, handoff));
 
 test('Ưu tiên: số API cạnh phiếu thu, trên cột chuyến; mỗi số tháng một chỗ; không ghi tiền khi mở sổ', async () => withPage(async ({ page, world, shot }) => {

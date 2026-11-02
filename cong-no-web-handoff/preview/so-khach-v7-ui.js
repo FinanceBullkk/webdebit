@@ -214,7 +214,7 @@
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
       return `<th scope="col" class="${pay(index) ? 'pay ' : ''}${!live && index === 9 ? 'pay-start' : ''}`
-        + `${fee ? 'fee-h num' : live && index >= columns.unitPrice() ? 'num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
+        + `${fee ? 'fee-h num' : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
     // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng. Khung Lịch sử nằm ngoài thẻ Sổ (mở được ở
@@ -269,6 +269,10 @@
         if (bar) trips.append(bar);
         if (columnTable) trips.append(columnTable);
         trips.append(table);
+        for (const row of trips.querySelectorAll('.trip-list tr[data-row]')) {
+          row.cells[columns.unitPrice()]?.classList.add('unit-price');
+          row.lastElementChild?.classList.add('trip-amount');
+        }
         const refresh = refreshButton;
         if (refresh && controls) {
           refresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>';
