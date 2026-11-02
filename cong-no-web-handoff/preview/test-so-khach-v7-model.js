@@ -722,6 +722,7 @@ test("chuỗi 12 tháng của thẻ Tình hình: tháng thiếu không có cột
   assert.deepEqual(series.items.map(item => item.carried), [true, false, false, true, false, true, true, true, true, true, true, false]);
   assert.deepEqual([series.zeroAt, series.items[2].endAt, series.items[4].receivedAt, series.items[3].chargesAt], [0, 0.7, 1, null]);
   assert.deepEqual([series.low, series.last], [4, 11]);
+  assert.equal(model.seriesCharges(series), 120n, 'chỉ cộng tháng có số đã ghi');
 });
 
 test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ chưa có tháng nào thì không có điểm; tháng sai thì báo lỗi", () => {
@@ -731,6 +732,7 @@ test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ ch�
     [["2026-08", null, null, false], ["2026-09", -200n, 0, false], ["2026-10", -100n, 0.1428, false]]);
   assert.deepEqual([credit.zeroAt, credit.items[1].receivedAt, credit.low, credit.last], [0.2857, 1, 1, 2]);
   const empty = model.monthSeries([], "2026-02", 3);
+  assert.equal(model.seriesCharges(empty), null, 'thiếu dữ liệu không thành 0');
   assert.deepEqual(empty.items.map(item => [item.key, item.present, item.endVnd]), [["2025-12", false, null], ["2026-01", false, null], ["2026-02", false, null]]);
   assert.deepEqual([empty.zeroAt, empty.low, empty.last], [0, null, null]);
   assert.throws(() => model.monthSeries([], "2026-13"), /Invalid month/);

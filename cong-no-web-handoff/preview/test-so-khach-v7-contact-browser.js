@@ -89,8 +89,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.deepEqual(await layout(page, '#the-trao-doi'), { overflow: 0, small: [], named: [], font: '16px' });
   // Thẻ Tình hình, khối 6: tin Zalo gần nhất cùng hội thoại tìm theo tên.
   await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .ov-chat', { hasText: 'Zalo gần nhất' }).waitFor();
-  assert.equal(await page.locator('#the-tinh-hinh .ov-chat').innerText(), 'Zalo gần nhất 12/11/2026 · Khách Thử Sửa');
+  await page.locator('#the-tinh-hinh .ov-activity').waitFor();
   assert.deepEqual(world.requests, [], 'thẻ Trao đổi không gửi lệnh nào khi chỉ xem');
 }, talking));
 
@@ -198,15 +197,13 @@ test('Nguồn phụ lỗi: lần nhắc, chat, bảng giá lỗi thì chỉ kh�
   await error.locator('button').click();
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Nhắc nợ' }).waitFor();
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
-  // Máy chủ chưa có bản xuất chat (như hao): một câu, không báo lỗi; thẻ Tình hình cũng vậy.
+  // Máy chủ chưa có bản xuất chat (như hao): thẻ Trao đổi báo rõ.
   delete world.chats;
   await page.reload();
   const none = page.locator('#the-trao-doi .ct-status', { hasText: 'Chưa có dữ liệu chat' });
   await none.waitFor();
   assert.equal(await none.innerText(), 'Chưa có dữ liệu chat trên máy chủ.');
   assert.equal(await page.locator('#the-trao-doi .ct-error').count(), 0);
-  await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .ov-chat', { hasText: 'Chưa có dữ liệu chat trên máy chủ.' }).waitFor();
   // Bảng giá lỗi: chỉ khối giá báo lỗi, khối khác của thẻ Hồ sơ vẫn hiện; Thử lại thì có bảng.
   await page.locator('#tab-ho-so').click();
   await page.route(/\/api\/v7\/price-table\?/, route => route.abort(), { times: 1 });

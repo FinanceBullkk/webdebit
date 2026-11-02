@@ -447,6 +447,12 @@ const SoKhachV7Model = (() => {
       last: points.length ? points.at(-1)[1] : null };
   }
 
+  // Phát sinh đã ghi trong cửa sổ hiện trên hình; tháng thiếu dữ liệu không thành 0.
+  function seriesCharges(series) {
+    const values = series.items.map(item => item.chargesVnd).filter(value => value !== null);
+    return values.length ? values.reduce((sum, value) => sum + value, 0n) : null;
+  }
+
   // Khách đang dư (tổng còn nợ âm, CAN-DU-01): số trả trước, dương; không dư thì 0.
   function creditOf(total) {
     const amount = vnd(String(total), true);
@@ -892,7 +898,7 @@ const SoKhachV7Model = (() => {
 
   return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
-    parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
+    parseSignedVnd, adjustmentAmount, monthSeries, seriesCharges, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     sheetPriceAmount, sheetVnd, planSheetPrices, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
