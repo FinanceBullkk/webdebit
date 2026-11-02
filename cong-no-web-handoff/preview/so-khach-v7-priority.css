@@ -103,3 +103,12 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .pay-list .receipt .receipt-money>.image-clip{display:inline-flex;position:static;align-items:center;justify-content:center;flex:none;min-width:24px;min-height:24px;margin:0;padding:0 3px;border:0;border-radius:4px;background:transparent;color:#174579;font-size:16px;line-height:24px}
 .pay-list .receipt-money>.image-clip:hover{background:#e3edf9}
 .pay-list .receipt-money>.image-clip:focus-visible{outline:2px solid #145fa9;outline-offset:1px}
+/* Cảnh báo có cả hàng riêng; không nhét hành động vào cột container hẹp. */
+.trip-list .sheet-removed-notice>td{padding:4px 10px 8px 40px;background:#f3edff;border-bottom:1px solid #d7c8ed}
+.sheet-removed-content{display:flex;align-items:center;flex-wrap:wrap;gap:6px 16px;font-family:"Segoe UI",sans-serif;letter-spacing:normal}
+.sheet-removed-content .sheet-removed-tag{font-size:14px;font-weight:400}
+.sheet-removed-content .sheet-removed-actions{flex-wrap:wrap;margin:0;gap:8px}
+.sheet-removed-content button{white-space:nowrap;min-height:32px}
+.month-stats{grid-template-rows:34px 34px 34px minmax(48px,auto)}
+.month-stats .month-end{flex-wrap:wrap;white-space:nowrap;gap:0 12px}
+.month-stats .month-end b{margin-left:auto}

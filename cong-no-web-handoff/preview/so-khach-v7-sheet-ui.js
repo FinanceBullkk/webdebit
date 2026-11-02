@@ -246,7 +246,7 @@
         if (!row) continue;
         row.classList.add('sheet-removed');
         row.title = 'Sheet không còn dòng này. Web vẫn tính chuyến cho tới khi xóa.';
-        row.children[1]?.insertAdjacentHTML('beforeend', `<small class="sheet-removed-tag">Sheet không còn dòng này</small><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span>`);
+        row.insertAdjacentHTML('afterend', `<tr class="sheet-removed-notice" data-sheet-trip="${escape(item.trip_id)}"><td colspan="${spanOf(row)}"><div class="sheet-removed-content"><span class="sheet-removed-tag">Sheet không còn dòng này</span><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span></div></td></tr>`);
       }
       if (items.length) root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
@@ -264,7 +264,7 @@
         const row = root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`);
         if (!row) return;
         row.scrollIntoView({ block: 'center' });
-        row.querySelector('.sheet-removed-delete')?.focus();
+        row.nextElementSibling?.querySelector('.sheet-removed-delete')?.focus();
         return;
       }
       const item = items.find(entry => String(entry.trip_id) === button.dataset.trip);
