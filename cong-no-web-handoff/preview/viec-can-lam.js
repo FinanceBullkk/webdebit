@@ -1,64 +1,22 @@
-// Tab Việc cần làm (DASH-03, 29/10/2026): nhận nguyên khối Việc cần làm và Hôm nay từ Tổng quan cũ, thêm sổ đang dư.
-// Người nhập xem cuối ngày; bấm dòng mở đúng sổ khách (`?loc=` tô các chuyến cần xử lý). Trang chỉ đọc.
-// Từ 1/11/2026 có thêm khối "Từ Sheet chờ đưa vào sổ" (hộp ngoại lệ P1, viec-can-lam-inbox.js) ở đầu trang.
+// Việc cần làm: bảng bốn cột đã chọn 2/11; nguồn việc Sheet + sổ web, ghi qua API hiện hành.
 (() => {
   'use strict';
   const F = CongNoFormat;
   const M = DashboardModel;
   const root = document.querySelector('#todo-root');
-  const { esc, fold, customerLabels } = F;
+  const { esc, foldText, customerLabels } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
-  const amount = value => `<span class="money" title="${esc(F.full(value))}">${esc(F.short(value))}</span>`;
-  const positive = value => String(value).replace(/^-/, '');
   let loading = false;
   let sheetRefresh = null;
   let searchReady = false;
   let currentCustomers = [];
+  let dashboard = null;
+  let unsorted = null;
   // Hộp ngoại lệ P1: khối riêng, tải và lỗi riêng; đang tính thì hỏi lại sau 5 giây.
   const inboxRoot = document.querySelector('#inbox-root');
   let inboxTimer = null;
   let inboxLoading = false;
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
-
-  function todoCard(data, unsorted, label) {
-    const todo = data.todo;
-    const sumCount = items => items.reduce((count, item) => count + item.count, 0);
-    const groups = [
-      ['Chuyến thiếu đơn giá', 'critical', todo.missing_price, `${sumCount(todo.missing_price)} chuyến`, item => `${item.count} chuyến`, 'thieu-gia'],
-      ['Chuyến chờ kiểm', 'warning', todo.pending_review, `${sumCount(todo.pending_review)} chuyến`, item => `${item.count} chuyến`, 'cho-kiem'],
-      ['Chưa có số dư đầu', 'neutral', todo.no_baseline, `${todo.no_baseline.length} khách`, () => 'mở sổ', null],
-      ['Cần gán mặt hàng / cảng-bộ', 'neutral', unsorted, `${unsorted.length} khách`, item => item.commodity ? 'chưa rõ cảng/bộ' : 'chưa có mặt hàng', null],
-    ].filter(group => group[2].length);
-    const customers = new Set(groups.flatMap(group => group[2].map(item => item.customer_id))).size;
-    return `<section class="card todo" aria-labelledby="h-todo"><div class="card-head"><h2 id="h-todo">Cần xử lý trong sổ</h2>${customers ? `<span class="aside">${customers} khách cần xem</span>` : ''}</div>
-      ${groups.map(([title, tone, items, count, what, loc]) => `<div class="todo-group"><div class="todo-title"><span>${title}</span><span class="tag ${tone}">${count}</span></div><ul class="rows">${items.map(item =>
-        `<li><a href="${ledgerHref(item.customer_id)}${loc ? `&amp;loc=${loc}` : ''}"${loc ? ' title="Mở sổ, đánh dấu các dòng cần xử lý"' : ''}><span class="who">${esc(label(item))}</span><span class="what">${what(item)}</span><span class="chev" aria-hidden="true">›</span></a></li>`).join('')}</ul></div>`).join('')}
-      ${groups.length ? '' : '<p class="empty">Không có việc cần làm.</p>'}</section>`;
-  }
-
-  function todayCard(data) {
-    const today = data.today;
-    const body = today.trips + today.receipts + today.voids === 0
-      ? '<p class="empty">Chưa có giao dịch nào hôm nay.</p>'
-      : `<div class="today-stats"><div class="today-stat"><b>${today.trips}</b><span>chuyến nhập</span></div><div class="today-stat"><b>${today.receipts}</b><span>phiếu thu</span></div><div class="today-stat"><b>${amount(today.received_vnd)}</b><span>đã thu</span></div><div class="today-stat"><b>${today.voids}</b><span>phiếu hủy</span></div></div>
-        <div class="actors">${today.by_actor.map(item => `<div><span>${esc(item.actor)}</span><span>${item.trips} chuyến · ${item.receipts} phiếu · ${amount(item.received_vnd)}${item.voids ? ` · ${item.voids} hủy` : ''}</span></div>`).join('')}</div>`;
-    return `<section class="card today" aria-labelledby="h-today"><div class="card-head"><h2 id="h-today">Hôm nay</h2><span class="aside">theo ngày ghi trên web</span></div>${body}</section>`;
-  }
-
-  function creditCard(data, label) {
-    const items = data.todo.credit;
-    return `<section class="card credit" aria-labelledby="h-credit"><div class="card-head"><h2 id="h-credit">Sổ đang dư tiền</h2><span class="aside">tự trừ vào chuyến sau</span></div>
-      ${items.length ? `<div class="todo-group"><ul class="rows">${items.map(item => `<li><a href="${ledgerHref(item.customer_id)}"><span class="who">${esc(label(item))}</span><span class="what">dư ${esc(F.short(positive(item.credit_vnd)))}</span><span class="chev" aria-hidden="true">›</span></a></li>`).join('')}</ul></div>`
-        : '<p class="empty">Không có sổ nào đang dư.</p>'}</section>`;
-  }
-
-  function paintBadge(data, unsorted) {
-    const badge = document.querySelector('#todo-badge');
-    const ids = new Set([...data.todo.missing_price, ...data.todo.pending_review, ...data.todo.no_baseline, ...unsorted].map(item => item.customer_id));
-    badge.textContent = ids.size ? String(ids.size) : '';
-    badge.hidden = !ids.size;
-    badge.setAttribute('aria-label', `${ids.size} khách cần xem`);
-  }
 
   function setupSearch(customers) {
     currentCustomers = customers;
@@ -67,15 +25,20 @@
     const input = document.querySelector('#customer-search');
     const results = document.querySelector('#customer-results');
     const draw = () => {
-      const query = fold(input.value);
+      const query = foldText(input.value).trim();
       const labels = customerLabels(currentCustomers);
       const found = currentCustomers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
-        .some(value => fold(value).includes(query))).slice(0, 20);
+        .some(value => foldText(value).includes(query))).slice(0, 20);
       results.innerHTML = found.map(item => `<a role="option" href="${ledgerHref(item.id)}">${esc(labels.get(String(item.id)))}</a>`).join('');
       results.hidden = !query || !found.length;
     };
     input.addEventListener('input', draw);
     input.addEventListener('focus', draw);
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { results.hidden = true; return; }
+      if (event.key === 'ArrowDown' && !results.hidden) { event.preventDefault(); results.querySelector('a')?.focus(); }
+      if (event.key === 'Enter' && !results.hidden) results.querySelector('a')?.click();
+    });
     document.addEventListener('click', event => { if (!event.target.closest('.search')) results.hidden = true; });
   }
 
@@ -86,7 +49,7 @@
   };
 
   async function load() {
-    if (loading) return;
+    if (loading || inbox.busy || inbox.review || inbox.action) return;
     loading = true;
     try {
       const response = await fetch('/api/v7/dashboard', { cache: 'no-store' });
@@ -101,39 +64,61 @@
       }
       // Sổ cần gán mặt hàng lấy từ danh sách khách đang nợ của Tổng quan; lỗi thì chỉ bỏ nhóm đó.
       const [customers, debt] = await Promise.all([
-        json('/api/v7/customers').then(body => body.customers ?? []).catch(() => []),
+        json('/api/v7/customers').then(body => body.customers ?? []).catch(() => null),
         json('/api/v7/dashboard/debt').catch(() => null),
       ]);
-      const unsorted = (debt?.customers ?? []).filter(row => M.commodityKey(row.commodity, row.transport_mode) === M.UNSORTED)
-        .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity }));
-      const labels = customerLabels(customers);
-      const label = item => labels.get(String(item.customer_id)) ?? item.name;
-      root.innerHTML = `<div class="grid">${todoCard(data, unsorted, label)}<div class="side">${todayCard(data)}${creditCard(data, label)}</div></div>`;
-      paintBadge(data, unsorted);
-      setupSearch(customers);
+      unsorted = debt ? (debt.customers ?? []).filter(row => M.commodityKey(row.commodity, row.transport_mode) === M.UNSORTED)
+        .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity })) : null;
+      dashboard = data;
+      root.replaceChildren();
+      if (customers) setupSearch(customers);
+      paintInbox();
       document.querySelector('#error').hidden = true;
       markUpdated();
+      if (!customers || !debt) {
+        const alert = document.querySelector('#error');
+        alert.hidden = false;
+        alert.textContent = 'Chưa tải đủ danh sách khách hoặc mặt hàng. Việc đang hiện có thể thiếu. Bấm Làm mới để thử lại.';
+      }
     } catch {
       const alert = document.querySelector('#error');
       alert.hidden = false;
       // Audit UX 31/10/2026 (P1-6): một câu tiếng Việt "chuyện gì · cần làm gì" và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
       alert.innerHTML = `${esc(F.loadError('việc cần làm'))} <button type="button" class="btn" data-retry>Thử lại</button>`;
-      if (!root.querySelector('.grid')) root.replaceChildren();
+      root.replaceChildren();
     } finally { loading = false; }
   }
 
   // Hộp P2 (specs/v7-hop-ngoai-le-p2.md): sổ đã chọn, khung xem lại, kết quả lần ghi; giữ qua các lần tự tải lại.
-  const inbox = { data: undefined, selected: new Set(), review: null, result: null, busy: false, keys: new Map() };
+  const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), showAuto: false, action: null };
   const inboxLabel = book => customerLabels(currentCustomers).get(String(book.customer_id)) ?? `Sổ #${book.customer_id}`;
+  const drafts = new Map();
+  const keptMemory = new Map();
+  const draftKey = input => input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
   function paintInbox() {
-    inboxRoot.innerHTML = globalThis.InboxCard.render(inbox.data, {
+    const active = document.activeElement;
+    const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-review'].find(attr => active.hasAttribute(attr));
+    const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
+    inboxRoot.innerHTML = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
-      selected: inbox.selected, review: inbox.review, result: inbox.result, busy: inbox.busy,
+      selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
+      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, actionHtml: actionHtml(), notice: inbox.notice,
     });
+    const badge = document.querySelector('#todo-badge');
+    const n = globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length;
+    badge.textContent = String(n);
+    badge.hidden = !n;
+    badge.setAttribute('aria-label', String(n) + ' sổ còn việc');
+    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason]')) input.value = drafts.get(draftKey(input)) ?? '';
+    for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
+    if (focusAttr) inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`)?.focus({ preventScroll: true });
+    const scroller = inboxRoot.querySelector('.work-scroll:has(.work-table)');
+    if (scroller) scroller.scrollLeft = scrollLeft;
   }
 
   async function loadInbox() {
-    if (inboxLoading || !globalThis.InboxCard || inbox.busy || inbox.review) return;   // không vẽ lại khi đang xem lại/ghi
+    if (inboxLoading || !globalThis.InboxCard || inbox.busy || inbox.review || inbox.action) return;   // không vẽ lại khi đang xem lại/ghi
     inboxLoading = true;
     clearTimeout(inboxTimer);
     try {
@@ -144,10 +129,223 @@
       // Bỏ chọn sổ không còn ghi được (đã ghi xong, phiếu đổi sang cần xem…).
       const writable = new Set((data.books ?? []).filter(globalThis.InboxCard.canWrite).map(book => book.customer_id));
       for (const id of inbox.selected) if (!writable.has(id)) inbox.selected.delete(id);
+      for (const id of inbox.selectedPrices) if (!data.books?.some(b => b.customer_id === id && b.prices.ready)) inbox.selectedPrices.delete(id);
+      inbox.details.clear();
     } catch { inbox.data = null; }
     paintInbox();
     if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
+    if (inbox.open !== null) loadDetail(inbox.open);
+  }
+
+  async function loadDetail(id, force = false) {
+    if (!force && inbox.details.has(id)) return;
+    inbox.details.delete(id);
+    paintInbox();
+    try {
+      const ledger = await json(`/api/v7/ledger?customer=${id}`);
+      const key = `sokhach-v7-sheet-giu:${id}:${ledger.sheet_sync?.snapshot_sha256 ?? ''}`;
+      const kept = new Set(keptMemory.get(key) ?? []);
+      try { for (const trip of JSON.parse(localStorage.getItem(key) ?? '[]')) kept.add(String(trip)); } catch { /* giữ bản trong phiên */ }
+      if (ledger.sheet_sync?.removed_items) ledger.sheet_sync.removed_items = ledger.sheet_sync.removed_items.filter(r => !kept.has(String(r.trip_id)));
+      inbox.details.set(id, ledger);
+    }
+    catch { inbox.details.set(id, null); }
+    paintInbox();
+  }
+
+  async function reviewPrices(id) {
+    if (inbox.busy || inbox.action || inbox.review) return;
+    inbox.busy = true; paintInbox();
+    try {
+      const ledger = await json(`/api/v7/ledger?customer=${id}`);
+      inbox.details.set(id, ledger);
+      const part = ledger.sheet_prices;
+      if (part?.unavailable || !part?.ready?.length || !Number.isInteger(ledger.version) || !/^[0-9a-f]{64}$/.test(part.snapshot_sha256 ?? '')) {
+        throw Error('Giá từ Sheet đã đổi hoặc chưa đủ dữ liệu. Mở lại chi tiết sổ để kiểm tra.');
+      }
+      const plan = SoKhachV7Model.planSheetPrices(part.ready, ledger.total_outstanding_vnd);
+      inbox.review = null;
+      inbox.action = { title: `Ghi ${plan.count} giá từ Sheet`, id,
+        text: `Còn nợ ${F.full(plan.beforeVnd)} → ${F.full(plan.afterVnd)}. Phiếu thu tự phân bổ lại theo nợ cũ trước.`,
+        path: '/api/v7/sheet/prices', body: { customer_id: id, expected_version: ledger.version,
+          snapshot_sha256: part.snapshot_sha256, idempotency_key: crypto.randomUUID() } };
+    } catch {
+      inbox.action = { title: 'Chưa xem lại được giá', text: 'Không tải đủ giá hoặc số nợ của sổ. Tải lại rồi chọn lại; chưa ghi giá nào.' };
+    }
+    inbox.busy = false; paintInbox();
+    inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+
+  async function reviewCombined() {
+    if (inbox.busy || inbox.action || inbox.review) return;
+    inbox.busy = true; paintInbox();
+    try {
+      const tasks = [], lines = [];
+      for (const id of new Set([...inbox.selected, ...inbox.selectedPrices])) {
+        const ledger = await json(`/api/v7/ledger?customer=${id}`);
+        const parts = [], kinds = [];
+        let after = ledger.total_outstanding_vnd;
+        const before = F.full(after); // validate known total before offering write
+        if (inbox.selectedPrices.has(id)) {
+          const price = ledger.sheet_prices;
+          if (!price?.ready?.length || price.unavailable) throw Error('Giá từ Sheet đã đổi. Tải lại việc rồi chọn lại.');
+          const plan = SoKhachV7Model.planSheetPrices(price.ready, after);
+          after = plan.afterVnd.toString();
+          parts.push(`${plan.count} giá Sheet`); kinds.push(['prices', price]);
+        }
+        if (inbox.selected.has(id)) {
+          const receipt = ledger.sheet_receipts;
+          if (!receipt?.ready?.length || receipt.unavailable) throw Error('Phiếu thu đã đổi. Tải lại việc rồi chọn lại.');
+          const plan = SoKhachV7Model.planSheetReceipts(receipt.ready, after);
+          after = plan.afterVnd.toString();
+          parts.push(`${plan.count} phiếu thu`); kinds.push(['receipts', receipt]);
+        }
+        for (const [kind, part] of kinds) {
+          if (!Number.isInteger(ledger.version) || !/^[0-9a-f]{64}$/.test(part.snapshot_sha256 ?? '')) throw Error('Sổ chưa đủ dữ liệu để ghi. Tải lại rồi chọn lại.');
+          tasks.push({ path: `/api/v7/sheet/${kind}`, body: { customer_id: id, expected_version: ledger.version,
+            snapshot_sha256: part.snapshot_sha256, idempotency_key: crypto.randomUUID() }, kind, done: false });
+        }
+        const credit = F.toBig(after) < 0n ? ` · khách sẽ dư ${F.full(-F.toBig(after))}` : '';
+        lines.push(`${inboxLabel({ customer_id: id })}: ${parts.join(' · ')}; còn nợ ${before} → ${F.full(after)}${credit}`);
+      }
+      inbox.action = { title: 'Xem lại trước khi ghi', text: lines.join('\n'), tasks, path: 'batch' };
+    } catch {
+      inbox.action = { title: 'Chưa xem lại được', text: 'Không tải đủ phiếu thu, giá hoặc số nợ của sổ. Tải lại rồi chọn lại; chưa ghi mục nào.' };
+    }
+    inbox.busy = false; paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+
+  function reviewRemove(id) {
+    if (inbox.action || inbox.review) return;
+    const ledger = inbox.details.get(inbox.open);
+    const row = ledger?.sheet_sync?.removed_items?.find(r => r.trip_id === id);
+    if (!row || row.month_locked || !Number.isInteger(ledger.version)) return;
+    const counted = row.status === 'confirmed' ? row.amount_vnd : '0';
+    if (counted == null) return;
+    const preview = `Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, counted, '0'))}.`;
+    inbox.action = { title: `Xóa chuyến ${row.container}`, id: inbox.open,
+      text: `Sheet không còn dòng này. ${preview} Xóa trên web có ghi Lịch sử.`,
+      path: '/api/v7/trips/delete', body: { customer_id: inbox.open, expected_version: ledger.version,
+        trip_id: id, idempotency_key: crypto.randomUUID() } };
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+
+  function reviewCommand(button) {
+    if (inbox.action || inbox.review) return;
+    const ledger = inbox.details.get(inbox.open);
+    if (!Number.isInteger(ledger?.version)) return;
+    const kind = button.dataset.command;
+    const row = ledger.trips?.find(r => r.id === Number(button.dataset.trip));
+    const body = { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID() };
+    let title, text, path;
+    try {
+      if (kind === 'ps' || kind === 'approve') {
+        const part = kind === 'ps' ? ledger.ps_fees : ledger.sheet_sync;
+        if (!/^[0-9a-f]{64}$/.test(part?.snapshot_sha256 ?? '')) throw Error();
+        body.snapshot_sha256 = part.snapshot_sha256;
+        if (kind === 'ps') {
+          const plan = SoKhachV7Model.planPsFees(part.ready);
+          if (!plan.same) throw Error();
+          title = `Tách phụ phí cho ${plan.count} chuyến`;
+          text = `Tổng phụ phí ${F.full(plan.totalVnd)}, tổng còn nợ ${F.full(ledger.total_outstanding_vnd)} giữ nguyên.`;
+          path = '/api/v7/ps/fees';
+        } else {
+          const n = part.items.filter(r => r.sync_state === 'NEW').length;
+          title = `Duyệt ${n} chuyến mới`;
+          text = 'Chuyến vào sổ chưa có giá, chưa cộng nợ. Chuyến nghi trùng vào chờ kiểm.';
+          path = '/api/v7/sheet/approve';
+        }
+      } else {
+        if (!row || row.editable !== true) throw Error();
+        body.trip_id = row.id;
+        let next = '0';
+        if (kind === 'price') {
+          body.unit_price_vnd = SoKhachV7Model.parseVnd(inboxRoot.querySelector(`[data-manual-price="${row.id}"]`).value).toString();
+          body.other_fee_vnd = row.other_fee_vnd;
+          next = SoKhachV7Model.tripAmount({ unitPriceVnd: body.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: row.status }).amountVnd.toString();
+          title = `Ghi đơn giá ${F.full(body.unit_price_vnd)} cho ${row.container}`;
+          path = '/api/v7/trips/price';
+        } else {
+          body.reason = inboxRoot.querySelector(`[data-reason="${row.id}"]`).value.trim();
+          if (!body.reason || body.reason.length > 500) throw Error();
+          body.decision = kind;
+          next = kind === 'confirm' ? SoKhachV7Model.tripAmount({ unitPriceVnd: row.unit_price_vnd, otherFeeVnd: row.other_fee_vnd, container: row.container, status: 'confirmed' }).amountVnd?.toString() ?? '0' : '0';
+          title = `${kind === 'confirm' ? 'Tính vào sổ' : 'Loại chuyến'} ${row.container}`;
+          path = '/api/v7/trips/review';
+        }
+        text = `Còn nợ ${F.full(ledger.total_outstanding_vnd)} → ${F.full(globalThis.InboxCard.changePreview(ledger.total_outstanding_vnd, '0', next))}. ${body.reason ?? 'Chuyến bắt đầu tính nợ theo đơn giá đã nhập.'}`;
+      }
+      inbox.action = { title, text, path, body, id: inbox.open };
+      paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+    } catch {
+      const alert = document.querySelector('#error');
+      alert.hidden = false;
+      alert.textContent = 'Chưa đủ thông tin để ghi. Kiểm tra đơn giá nguyên đồng, lý do kết luận hoặc mở sổ để đối chiếu.';
+    }
+  }
+
+  function actionHtml() {
+    const a = inbox.action;
+    if (!a) return '';
+    return `<section class="receipt-review" role="dialog" aria-labelledby="h-action"><h3 id="h-action">${esc(a.title)}</h3><p class="action-description">${esc(a.text)}</p>${a.tasks ? '<p>Giá có nguồn mới bắt đầu tính nợ. Phiếu thu trừ nợ cũ trước; ngày trong tháng khóa vẫn ghi được.</p>' : ''}${a.error ? `<p role="alert">${esc(a.error)}</p>` : ''}<div class="actions">${a.path ? `<button type="button" class="btn primary" data-action-write${inbox.busy ? ' disabled' : ''}>${inbox.busy ? 'Đang ghi…' : a.unknown ? 'Thử lại' : 'Xác nhận'}</button>` : ''}${a.unknown ? '' : `<button type="button" class="btn" data-action-cancel${inbox.busy ? ' disabled' : ''}>Thôi</button>`}</div></section>`;
+  }
+
+  async function writeAction() {
+    const a = inbox.action;
+    if (!a?.path || inbox.busy) return;
+    inbox.busy = true; paintInbox();
+    if (a.tasks) { await writeCombined(a); return; }
+    try {
+      const response = await fetch(a.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(a.body) });
+      const body = await response.json();
+      a.unknown = false;
+      if (!response.ok) {
+        a.error = body.message ?? 'Chưa ghi được. Tải lại sổ rồi thử lại.';
+        a.path = null;
+      } else {
+        inbox.action = null;
+        if (a.body.trip_id) { drafts.delete(`price:${a.body.trip_id}`); drafts.delete(`reason:${a.body.trip_id}`); }
+        inbox.details.delete(a.id);
+        inbox.notice = body.complete === false ? `Đã ghi ${body.written ?? body.approved}; còn ${body.remaining} mục chưa ghi. Mở lại sổ để kiểm tra.` : `Đã xử lý: ${a.title}. Mở sổ xem Lịch sử nếu cần kiểm tra.`;
+        await loadDetail(a.id, true);
+      }
+    } catch {
+      a.unknown = true;
+      a.error = 'Mất kết nối khi ghi: chưa rõ kết quả. Bấm Thử lại; yêu cầu giữ nguyên để không ghi trùng.';
+    }
+    inbox.busy = false; paintInbox();
+    if (!inbox.action) { loadInbox(); load(); }
+  }
+
+  async function writeCombined(a) {
+    try {
+      for (const task of a.tasks.filter(t => !t.done)) {
+        const response = await fetch(task.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task.body) });
+        const body = await response.json();
+        a.unknown = false;
+        if (!response.ok || body.complete !== true) {
+          a.path = null;
+          a.error = body.message ?? `Ghi được ${body.written ?? 0} mục trong lô rồi dừng. Mở sổ kiểm tra; tải lại trước khi chọn lại.`;
+          break;
+        }
+        task.done = true;
+        if (task.kind === 'prices') inbox.selectedPrices.delete(task.body.customer_id); else inbox.selected.delete(task.body.customer_id);
+        const next = a.tasks.find(t => !t.done && t.body.customer_id === task.body.customer_id);
+        if (next) {
+          if (!Number.isInteger(body.version)) { a.path = null; a.error = 'Đã ghi một lô; chưa nhận được phiên bản mới. Mở sổ kiểm tra trước khi làm tiếp.'; break; }
+          next.body.expected_version = body.version;
+        }
+      }
+      if (a.tasks.every(t => t.done)) {
+        a.path = null;
+        a.title = 'Đã ghi các mục đã chọn';
+      } else a.title = `Đã ghi ${a.tasks.filter(t => t.done).length}/${a.tasks.length} lô theo sổ`;
+    } catch {
+      a.unknown = true;
+      a.error = 'Mất kết nối khi ghi: chưa rõ kết quả lô đang ghi. Thử lại giữ nguyên yêu cầu, bỏ qua các lô đã xong.';
+    }
+    inbox.busy = false; paintInbox();
   }
 
   // Ghi phiếu của từng sổ đã xem lại bằng lệnh duyệt đang có. Khóa chống ghi trùng gắn với (sổ, phiên bản, bản chụp):
@@ -167,7 +365,7 @@
         const response = await fetch('/api/v7/sheet/receipts', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ customer_id: book.customer_id, expected_version: book.version,
             snapshot_sha256: book.receipts.snapshot_sha256, idempotency_key: inbox.keys.get(tag) }) });
-        const body = await response.json().catch(() => ({}));
+        const body = await response.json();
         if (response.ok && body.complete) outcome.push({ ...row, ok: true, written: body.written });
         else if (response.ok) outcome.push({ ...row, ok: false, message: `Ghi được ${body.written}/${book.receipts.ready} phiếu rồi dừng. Mở sổ xem phiếu còn lại.` });
         else outcome.push({ ...row, ok: false, message: body.message ?? 'Chưa ghi được sổ này. Tải lại rồi thử lại.' });
@@ -184,7 +382,18 @@
     if (!unknown) loadInbox();   // sổ vừa ghi được API tính lại ngay ở lần đọc này
   }
 
+  inboxRoot.addEventListener('input', event => {
+    const input = event.target.closest('[data-manual-price],[data-reason]');
+    if (input) drafts.set(draftKey(input), input.value);
+  });
   inboxRoot.addEventListener('change', event => {
+    if (inbox.busy || inbox.review || inbox.action) return;
+    const price = event.target.closest('[data-pick-price]');
+    if (price) {
+      const id = Number(price.dataset.pickPrice);
+      if (price.checked) inbox.selectedPrices.add(id); else inbox.selectedPrices.delete(id);
+      paintInbox(); return;
+    }
     const pick = event.target.closest('[data-pick]');
     const all = event.target.closest('[data-pick-all]');
     if (!pick && !all) return;
@@ -197,9 +406,55 @@
     }
     paintInbox();
   });
-  inboxRoot.addEventListener('click', event => {
+  inboxRoot.addEventListener('click', async event => {
+    if (inbox.busy) return;
+    const button = event.target.closest('button');
+    if (!button) return;
+    if ((inbox.action?.unknown || inbox.result?.unknown) && !button.matches('[data-action-write],[data-write-retry]')) return;
+    if ((inbox.action || inbox.review) && !button.matches('[data-action-write],[data-action-cancel],[data-write],[data-write-retry],[data-review-cancel]')) return;
+    if (button.hasAttribute('data-filter')) {
+      inbox.filter = button.dataset.filter; paintInbox(); return;
+    }
+    if (button.hasAttribute('data-auto')) { inbox.showAuto = !inbox.showAuto; paintInbox(); return; }
+    if (button.hasAttribute('data-pick-ready')) {
+      inbox.selected = new Set((inbox.data?.books ?? []).filter(globalThis.InboxCard.canWrite).map(b => b.customer_id));
+      inbox.selectedPrices = new Set((inbox.data?.books ?? []).filter(b => b.prices?.ready).map(b => b.customer_id));
+      if (inbox.selectedPrices.size) { await reviewCombined(); return; }
+      inbox.review = (inbox.data?.books ?? []).filter(b => inbox.selected.has(b.customer_id));
+      inbox.result = null; paintInbox(); inboxRoot.querySelector('[data-write]')?.focus(); return;
+    }
+    if (button.hasAttribute('data-open-book')) {
+      const id = Number(button.dataset.openBook);
+      inbox.open = inbox.open === id ? null : id;
+      paintInbox();
+      inboxRoot.querySelector('[data-open-book="' + id + '"]')?.focus();
+      if (inbox.open !== null) await loadDetail(id);
+      return;
+    }
+    if (button.hasAttribute('data-detail-retry')) { await loadDetail(Number(button.dataset.detailRetry), true); return; }
+    if (button.hasAttribute('data-price-review')) { await reviewPrices(Number(button.dataset.priceReview)); return; }
+    if (button.hasAttribute('data-remove-trip')) { reviewRemove(Number(button.dataset.removeTrip)); return; }
+    if (button.hasAttribute('data-command')) { reviewCommand(button); return; }
+    if (button.hasAttribute('data-keep-trip')) {
+      const ledger = inbox.details.get(inbox.open);
+      if (!ledger) return;
+      const id = Number(button.dataset.keepTrip);
+      const key = `sokhach-v7-sheet-giu:${inbox.open}:${ledger.sheet_sync.snapshot_sha256 ?? ''}`;
+      try {
+        const kept = new Set(JSON.parse(localStorage.getItem(key) ?? '[]'));
+        kept.add(String(id)); localStorage.setItem(key, JSON.stringify([...kept]));
+      } catch { /* sổ hiện hành cũng hỗ trợ trình duyệt chặn lưu cục bộ */ }
+      const kept = new Set(keptMemory.get(key) ?? []);
+      kept.add(String(id)); keptMemory.set(key, kept);
+      ledger.sheet_sync.removed_items = ledger.sheet_sync.removed_items.filter(r => r.trip_id !== id);
+      paintInbox(); return;
+    }
+    if (button.hasAttribute('data-action-cancel')) { inbox.action = null; paintInbox(); loadInbox(); return; }
+    if (button.hasAttribute('data-action-write')) { await writeAction(); return; }
     if (event.target.closest('[data-inbox-retry]')) { loadInbox(); return; }
     if (event.target.closest('[data-review]')) {
+      if (inbox.selectedPrices.size) { await reviewCombined(); return; }
+      inbox.action = null;
       inbox.result = null;
       inbox.review = (inbox.data?.books ?? []).filter(book => inbox.selected.has(book.customer_id) && globalThis.InboxCard.canWrite(book));
       paintInbox();
@@ -209,7 +464,18 @@
     if (event.target.closest('[data-review-cancel]')) { inbox.review = null; paintInbox(); return; }
     if (event.target.closest('[data-write]') || event.target.closest('[data-write-retry]')) writeReceipts();
   });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape' && inbox.review && !inbox.busy) { inbox.review = null; paintInbox(); } });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || inbox.busy) return;
+    if (inbox.action?.unknown || inbox.result?.unknown) return;
+    inbox.review = null; inbox.action = null; paintInbox();
+    inboxRoot.querySelector('[data-review]')?.focus();
+  });
+  document.querySelector('#nav-toggle').addEventListener('click', event => {
+    const button = event.currentTarget;
+    const expanded = button.getAttribute('aria-expanded') !== 'true';
+    button.setAttribute('aria-expanded', String(expanded));
+    button.closest('.todo-nav').classList.toggle('menu-open', expanded);
+  });
 
   load();
   loadInbox();
@@ -217,7 +483,7 @@
   document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
-    sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => load() });
+    sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => { load(); loadInbox(); } });
     sheetRefresh.load();
   }
   button?.addEventListener('click', () => { load(); loadInbox(); sheetRefresh?.trigger(); });
