@@ -25,8 +25,8 @@ test('the= mở đúng thẻ; không ghi thẻ, có month= hoặc loc=, hay th�
     assert.deepEqual([now.selected, now.shown], [[tab], [`the-${tab}`]], query);
     // Đầu trang (tên khách, tổng còn nợ, Ghi phiếu thu) ở mọi thẻ; sổ chỉ hiện ở thẻ Sổ.
     assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ', query);
-    if (tab !== 'so') if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
-    assert.equal(await page.locator('.entry-open').isVisible(), true, query);
+    if (tab !== 'so' && tab !== 'tinh-hinh') if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+    assert.equal(await page.locator('.entry-open').isVisible(), tab !== 'tinh-hinh', query);
     assert.equal(await page.locator('.ledger-book').isVisible(), tab === 'so', query);
   }
 }));
@@ -43,7 +43,7 @@ test('Bấm thẻ: địa chỉ đổi, trang không tải lại, không thêm l
   }
   // Nút trong một thẻ đưa sang thẻ khác (Tình hình → Trao đổi): tiêu điểm về thẻ đó trên thanh.
   await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .tab-go').click();
+  await page.locator('#the-tinh-hinh .ov-next-actions .tab-go').first().click();
   assert.deepEqual((await state(page)).selected, ['trao-doi']);
   assert.equal(await focused(page), 'tab-trao-doi');
   await page.locator('#tab-so').click();
@@ -78,7 +78,7 @@ test('Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải chuyển thẻ, 
   await page.keyboard.press('End');
   assert.equal(await focused(page), 'tab-ho-so');
   await page.keyboard.press('Tab');
-  assert.equal(await focused(page), '', 'Tab rời thanh thẻ tới menu' );
+  assert.equal(await focused(page), 'tab-go', 'Tab rời thanh thẻ tới hành động trong Tình hình');
   const small = await page.evaluate(() => [...document.querySelectorAll('.book-head :is(a,button)')].map(node => [node.id || node.className, node.getBoundingClientRect()])
     .filter(([, box]) => box.height > 0 && (box.height < 40 || box.width < 40)).map(([name, box]) => `${name} ${box.width}×${box.height}`));
   assert.deepEqual(small, []);

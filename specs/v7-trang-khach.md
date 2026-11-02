@@ -2,6 +2,15 @@
 
 Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#237); **PR A4 (đường vào) đã code** (1/11/2026, kiểm trên máy chủ giả), nên giai đoạn A đã code xong. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
+### Giao diện Tình hình theo bản HTML người dùng cấp 02/11/2026
+
+Người dùng đưa bản xem `TinhHinh.dc.html` và yêu cầu code theo đúng thiết kế. Bố cục mới của thẻ Tình hình: thanh sổ/khách và bốn thẻ ở trên; dải **Còn nợ** + cơ cấu theo hạn trả + **Việc tiếp theo**; ba thẻ chỉ số; hình **Còn nợ 12 tháng** cạnh **Hoạt động gần đây**. Việc chờ là nút mở thẻ Sổ. Nội dung khối 5–6 của bản A2 chuyển vào việc chờ và hoạt động; thẻ Trao đổi vẫn giữ chi tiết.
+
+- Tiền và rủi ro lấy từ API sổ/Tổng quan, hứa trả từ dấu Zalo, không dùng các số và tên giả trong bản xem. Nhãn **Doanh thu** ghi rõ bên dưới là phát sinh đã ghi sổ trong 12 tháng; không suy ra doanh thu từ chuyến chưa giá hoặc chờ kiểm. Tháng thiếu dữ liệu không biến thành 0.
+- **Trễ trung bình sau hạn** hiện `—` cho tới khi B1 có API; không dựng số từ ví dụ. Khi không đọc được dấu hứa trả, Việc tiếp theo ghi chưa xác định và có Thử lại, không tự bảo nhắc ngay.
+- **Vẫn nhắc nợ** dùng đúng lệnh Copy tin nhắc sẵn có ở thẻ Trao đổi. Bấm tháng mở Sổ đúng tháng, không tải lại. Không đổi đường ghi tiền, Sheet hay DB.
+- Kiểm trên máy chủ giả: số Còn nợ/cơ cấu, thiếu opening, khách trả trước, dấu hứa trả, lỗi nguồn phụ, 1280×720 và màn hẹp; ảnh chụp chỉ dùng khách và số giả. Đây là tiêu chí cho code giao diện, không là bằng chứng đã triển khai `hao`.
+
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
 ## Vì sao cần
