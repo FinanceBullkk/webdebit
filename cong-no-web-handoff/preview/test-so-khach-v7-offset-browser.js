@@ -254,6 +254,7 @@ test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo m�
   world.books[1].mode = 'BO';
   await open(3);
   const search = page.locator('#customer-search');
+  await page.locator('.customer-switch').click();
   await search.click();
   await search.fill('');
   await page.locator('#customer-list .customer-group').first().waitFor();

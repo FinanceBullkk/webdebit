@@ -20,7 +20,9 @@
   if (picker?.id === 'customer-picker' && topbar) {
     topbar.append(picker);
     picker.classList.add('in-bar');
+    picker.setAttribute('popover', 'auto');
     const search = picker.querySelector('#customer-search');
+    search.setAttribute('autofocus', '');
     search.placeholder = 'Tìm khách để mở sổ';
     search.addEventListener('focus', () => search.select());
   }
@@ -38,6 +40,7 @@
     const meta = name && label.startsWith(`${name} · `) ? label.slice(name.length + 3) : '';
     const shown = meta ? name : label;
     return `<div class="page-who${shown.length > 30 ? ' long' : ''}"><h1 class="page-name">${escape(shown)}</h1>`
+      + '<button type="button" class="customer-switch" popovertarget="customer-picker" aria-label="Đổi khách">⌄</button>'
       + `${meta ? `<span class="page-meta">${escape(meta)}</span>` : ''}</div>`;
   }
   // Thẻ Sổ kèm số việc chờ, cùng cách đếm với chấm cam trên chip tháng (SO-GON-04 L1.3; `work` do so-khach-v7-month-ui.js đếm).
@@ -61,6 +64,9 @@
     scrolls.set(current, window.scrollY);
     current = id;
     mark();
+    const entry = root.querySelector('.entry-open');
+    const entrySlot = root.querySelector(id === 'so' ? '.pay-head' : '.book-head');
+    if (entry && entrySlot) entrySlot.append(entry);
     for (const tab of root.querySelectorAll('.page-tab')) {
       tab.setAttribute('aria-selected', String(tab.dataset.the === id));
       tab.tabIndex = tab.dataset.the === id ? 0 : -1;

@@ -283,6 +283,29 @@
     if (liveControls && liveSlot) liveSlot.append(liveControls);
     const settingsMenu = root.querySelector('.settings-menu');
     if (pointerToggle && settingsMenu) settingsMenu.append(pointerToggle);
+    if (live && typeof root.querySelectorAll === 'function') {
+      // Giữ phần vẽ và trình nghe hiện có; chỉ đổi nơi đặt các khối trong sổ live.
+      const section = root.querySelector('.ledger-book > section');
+      const slot = section?.querySelector('.month-pay-slot');
+      const pay = section?.querySelector('.pay-block');
+      if (slot && pay) {
+        slot.append(pay);
+        section.querySelector('.month-pay')?.remove();
+        const entry = root.querySelector('.book-head .entry-open');
+        if (entry && document.body.dataset.the === 'so') pay.querySelector('.pay-head').append(entry);
+      }
+      const columnTable = root.querySelector('.ledger-head');
+      const body = section?.querySelector('.month-body');
+      if (columnTable && body) {
+        const row = document.createElement('tr');
+        row.className = 'trip-heading';
+        const cell = document.createElement('td');
+        cell.colSpan = labels.length;
+        cell.append(columnTable);
+        row.append(cell);
+        body.before(row);
+      }
+    }
     pinReceipts();
     window.scrollTo(0, scrollY);
   }
@@ -729,5 +752,13 @@
   if (!live) document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && historyOpen) { historyOpen = false; render(); root.querySelector('.history-toggle').focus(); }
   });
-  if (live) initLive(); else render();
+  if (live) {
+    const topbar = document.querySelector('.topbar');
+    const menuToggle = topbar?.querySelector('.nav-toggle');
+    menuToggle?.addEventListener('click', () => {
+      const expanded = topbar.classList.toggle('expanded');
+      menuToggle.setAttribute('aria-expanded', String(expanded));
+    });
+    initLive();
+  } else render();
 })();

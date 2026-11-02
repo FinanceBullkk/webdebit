@@ -119,7 +119,8 @@
       + `${part('Phát sinh', totals.chargesVnd, 'month-charges')}<i aria-hidden="true">−</i>${part('Đã thu', totals.receivedVnd, 'month-received')}`
       + `<i aria-hidden="true">=</i>${part('Còn nợ cuối tháng', item.end_of_month_vnd, 'month-end')}`;
     return `<tr class="month"><th colspan="${columns.count()}" scope="rowgroup"><span class="month-title">THÁNG ${label}${lock}${debitButton}`
-      + `<em class="month-stats">${stats}</em></span></th></tr>`;
+      + `</span></th></tr><tr class="month-summary"><td colspan="${columns.count()}"><div class="month-summary-layout">`
+      + `<em class="month-stats" aria-label="Đối chiếu số nợ tháng ${label}">${stats}</em><div class="month-pay-slot"></div></div></td></tr>`;
   }
 
   // Góp ý 23/10/2026: không hiện dòng số dư đầu, dòng "Theo sổ gốc" và dòng chênh do sửa dòng cũ.
@@ -142,10 +143,10 @@
 
   // Dòng Tổng tháng: tổng từng cột phụ phí (chuyến đã tính tiền và dòng sổ gốc của tháng) và Thành tiền của server. Đã thu ở
   // dòng tóm tắt của thanh tháng và đầu khối phiếu thu (SO-GON-06).
-  function subtotalRow(item, key, { locked, active, feeTotalCells, totals }) {
+  function subtotalRow(item, key, { locked, active, feeTotalCells }) {
     return `<tr class="subtotal"><td colspan="${columns.feeStart()}">Tổng tháng ${monthLabel(key)} `
       + `<button class="add-month-adjustment" data-month="${escape(item.month)}" ${active && !locked ? '' : 'disabled'}>+ Điều chỉnh cả tháng</button></td>`
-      + `${feeTotalCells}${num(fmt(totals.chargesVnd))}</tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
+      + `${feeTotalCells}<td></td></tr><tr class="spacer"><td colspan="${columns.count()}"></td></tr>`;
   }
 
   function monthSection(item, { data, active, openKey, lockFlags, historical, outgoing }) {
@@ -154,7 +155,7 @@
     const trips = (data.trips ?? []).filter(row => monthKey(row.month) === key);
     const locked = lockFlags.has(key) ? lockFlags.get(key) : key !== openKey;
     const legacy = legacyPairs(legacyRows);
-    const totals = { chargesVnd: item.charges_vnd ?? '0', receivedVnd: item.received_vnd ?? '0' };
+    const totals = { chargesVnd: item.charges_vnd, receivedVnd: item.received_vnd };
     const debit = legacy.some(line => line.trip) || trips.some(trip => trip.status === 'confirmed');
     const sheetRows = (data.sheet_sync?.items ?? []).filter(row => monthKey(row.event_date) === key && sheetPending(row));
     // DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền một lần (như Sheet); `lines` là phần trừ nợ còn hiệu lực
@@ -204,7 +205,7 @@
     return `<a class="month-chip${locked ? ' locked' : ''}${key === selected ? ' on' : ''}" href="#thang-${escape(key)}" data-month="${escape(key)}" `
       + `${key === selected ? 'aria-current="true" ' : ''}`
       + `aria-label="Tháng ${monthLabel(key)} · còn nợ cuối tháng ${escape(end)}${locked ? ' · đã khóa' : ''}${todo ? ` · ${escape(todo)}` : ''}">`
-      + `<span class="chip-name">${monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span><b class="chip-end">${escape(end)}</b>`
+      + `<span class="chip-name">${monthTag(`${key}-01`, Number(openKey.slice(0, 4)))}</span>`
       + `${locked ? '<span class="chip-lock" aria-hidden="true">🔒</span>' : ''}`
       + `${total ? `<span class="chip-work" title="${escape(todo)}" aria-hidden="true">${total}</span>` : ''}</a>`;
   }

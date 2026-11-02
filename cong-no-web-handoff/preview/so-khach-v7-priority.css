@@ -1,0 +1,62 @@
+/* Mẫu “Mỗi số một chỗ, xếp theo ưu tiên”. Giữ token kích thước sticky của sổ. */
+:root{--bar:0px}
+body{background:#e9ecf0;color:#1a1a19;padding-left:76px}
+.topbar{position:fixed;left:0;bottom:0;top:var(--banner);width:76px;height:auto;padding:8px;display:flex;flex-direction:column;gap:4px;align-items:stretch;z-index:55;background:#16324f}
+.nav-toggle{display:flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:8px;background:transparent;color:#fff;cursor:pointer}
+.topbar .brand{display:none}.topbar>nav{flex-direction:column;align-self:auto;gap:4px}
+.topbar>nav a{position:relative;min-height:48px;justify-content:center;border:0;border-radius:8px;padding:10px;color:#c3d1e0}
+.topbar>nav a svg{flex:none}.topbar>nav a span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.topbar>nav a.active{background:#2a78d6;color:#fff}.topbar>nav a:hover{background:#214b72}
+.topbar.expanded{width:250px;box-shadow:4px 0 16px #1f293733}.topbar.expanded .brand{display:block;padding:8px}
+.topbar.expanded>nav a{justify-content:flex-start;gap:16px}.topbar.expanded>nav a span{position:static;width:auto;height:auto;clip-path:none}
+.topbar .presence{margin:8px 0;flex-wrap:wrap}
+.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
+.customer-switch{min-width:40px;min-height:40px;border:0;background:transparent;color:#52514e;font-size:20px;cursor:pointer;vertical-align:middle}
+.page-who{position:relative;padding-right:40px}.customer-switch{position:absolute;right:0;top:50%;transform:translateY(-50%)}
+#customer-picker.in-bar[popover]{position:fixed;inset:calc(var(--banner) + 48px) auto auto 92px;margin:0;width:min(420px,calc(100vw - 108px));padding:12px;border:1px solid #d7dce3;border-radius:8px;background:#fff;color:#1a1a19;box-shadow:0 12px 32px #1f293733}
+#customer-picker.in-bar #customer-search{background:#fff;color:#1a1a19;border-color:#d7dce3}
+#customer-picker.in-bar #customer-search::placeholder{color:#6f6d67}
+#customer-picker.in-bar #customer-list{position:static;width:100%;border:0;box-shadow:none;max-height:50vh}
+#customer-picker.in-bar:not(:focus-within) #customer-list{display:block}
+.book-head{border-bottom:1px solid #d7dce3;box-shadow:none;gap:12px}
+#the-so .ledger-book{min-width:0}
+.book-head .head-item.total{font-size:14px}.book-head .head-item.total strong{font-size:16px}
+.book-head .page-meta{display:block;color:#6f6d67}
+.month-chips{background:#e9ecf0;border-bottom:0;align-items:flex-end;gap:4px}
+.month-chip,.month-chip.locked{height:34px;background:#dde2e8;border:1px solid transparent;color:#52514e;padding:0 16px}
+.month-chip.on,.month-chip.locked.on{height:40px;background:#fff;color:#0d366b;border-color:#d7dce3;border-bottom-color:#fff}
+.month-chip .chip-name{font-size:15px}
+.ledger tr.month th,.ledger.locked tr.month th{background:#fff;color:#52514e;border:1px solid #d7dce3;border-bottom:0}
+.month-title{font-size:14px;min-height:40px}.month-lock-text{color:#52514e}
+.month-title .debit-open{margin-left:auto}
+.ledger tr.month-summary>td{padding:0;border:1px solid #d7dce3;border-top:0;background:#fff}
+.month-summary-layout{display:flex;align-items:stretch;min-width:0}
+.month-stats{display:grid;grid-template-columns:22px minmax(0,1fr);grid-template-rows:34px 34px 34px 44px;gap:0 8px;flex:0 0 380px;margin:0;padding:8px 16px 12px;border-right:1px solid #e9ecf0;font-style:normal;font-weight:400;white-space:normal}
+.month-stats>span{display:flex;justify-content:space-between;align-items:center;gap:12px;grid-column:2;color:#52514e;font-size:14px}
+.month-stats>i{display:flex;align-items:center;justify-content:center;color:#52514e;grid-column:1;font-style:normal}
+.month-stats .month-prior{grid-row:1}.month-stats>i:nth-child(2),.month-stats .month-charges{grid-row:2}
+.month-stats>i:nth-child(4),.month-stats .month-received{grid-row:3}
+.month-stats>i:nth-child(6),.month-stats .month-end{grid-row:4;border-top:2px solid #52514e;margin-top:4px}
+.month-stats b{font-size:16px;font-weight:400;color:#1a1a19;white-space:nowrap}
+.month-stats .month-end{font-weight:700;color:#0d366b}.month-stats .month-end b{font-size:22px;font-weight:800;color:#0d366b}
+.month-pay-slot{flex:1;min-width:0;padding:8px 16px 12px}
+.pay-block .pay-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 6px;color:#1a1a19;font-size:15px;font-weight:600}
+.pay-head .entry-open{margin-left:auto;min-height:40px;border-radius:8px;background:#1c5cab;border-color:#1c5cab}
+.pay-block .pay-list{width:100%;border:0}.pay-block .pay-list td{background:#fff;border-right:0;border-bottom:1px solid #e9ecf0}
+.ledger tr.trip-heading>td{padding:0;border:0;height:auto}
+.trip-heading{position:sticky;top:calc(var(--banner) + var(--bar) + var(--head) + var(--chips));z-index:30}
+.ledger-head{position:static;width:100%}.ledger .columns th{background:#f3f5f8;color:#52514e;border-color:#d7dce3;font-size:14px}
+.ledger td{border-right:0;border-color:#e9ecf0}.ledger tr.subtotal td{background:#f3f5f8}
+.ledger .month-body>.trip-side{padding:0}.ledger tr.spacer td{background:#e9ecf0}
+.ledger-book section{margin-bottom:12px}
+.book-bar{margin:6px 0}.book-bar button,.book-settings>summary{border-color:#d7dce3;border-radius:8px}
+@media(max-width:1000px){
+  body:has(#demo-banner:not([hidden])){--banner:0px}
+  #demo-banner:not([hidden]){position:static}
+  .book-head,.month-chips,.trip-heading{position:static}
+  .month-summary-layout{flex-direction:column;max-width:calc(100vw - 112px)}.month-stats{flex-basis:auto;width:100%;max-width:480px;border-right:0}
+  .month-pay-slot{border-top:1px solid #e9ecf0;overflow-x:auto}.book-head{height:auto;min-height:var(--head);flex-wrap:wrap}
+  .live-controls{flex-wrap:wrap;white-space:normal;min-width:0}.book-bar .live-slot{min-width:0;max-width:100%}
+  #the-so .layout{overflow-x:auto}#the-so .ledger-book{min-width:980px}
+}
+@media(max-width:700px){body{padding-left:56px}.topbar{width:56px;padding:4px}.topbar>nav{width:auto;gap:4px;min-height:0}.topbar>nav a{padding:8px}.book-head .head-item.total{display:none}#app{padding:0 8px 16px}}

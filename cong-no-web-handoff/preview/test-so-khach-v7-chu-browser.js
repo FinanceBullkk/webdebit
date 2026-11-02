@@ -74,8 +74,8 @@ test('Trạng thái dòng là nhãn chữ: "chờ kiểm" bấm mở dòng kết
 test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu sổ một nút chính; một thanh việc: Làm mới, menu Cài đặt', async () => withPage(async ({ page, world }) => {
   assert.equal(await page.locator('.topbar #refresh-data, .topbar .live-controls, .topbar .presence-toggle').count(), 0);
   const head = page.locator('.book-head');
-  assert.equal(await head.locator('button.entry-open').count(), 1);
-  assert.deepEqual(await head.locator('button:not([role="tab"])').allInnerTexts(), ['Ghi phiếu thu', 'Lịch sử']);
+  assert.equal(await page.locator('.pay-head button.entry-open').count(), 1);
+  assert.deepEqual(await head.locator('button:not([role="tab"])').allInnerTexts(), ['⌄', 'Lịch sử']);
   assert.equal(await page.locator('.book-bar #refresh-data').innerText(), 'Làm mới');
   // SO-GON-06: cài đặt nằm trong menu "Cài đặt ▾" của thanh việc (ẩn tới khi mở); bấm ra ngoài thì đóng.
   assert.equal(await page.locator('.book-bar .settings-menu .fee-settings-open').count(), 1);

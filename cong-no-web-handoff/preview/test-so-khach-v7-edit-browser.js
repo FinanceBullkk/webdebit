@@ -20,13 +20,13 @@ test('Phiếu thu là khối ở đầu tháng, trên bảng chuyến; không ch
   assert.ok(geo.order, 'thanh tháng → khối phiếu thu → bảng chuyến');
   assert.equal(geo.inTrips, false);
   assert.ok(geo.book - geo.trips <= 2, `bảng chuyến ${geo.trips}px / vùng sổ ${geo.book}px`);
-  assert.match(await sept.locator('.pay-head').innerText(), /^Tiền khách trả tháng 9\/2026$/);
+  assert.match(await sept.locator('.pay-head').innerText(), /^Tiền khách trả tháng 9\/2026\s*Ghi phiếu thu$/);
   assert.deepEqual(await page.locator('.ledger-head th').evaluateAll(cells => cells.map(cell => cell.textContent).slice(-2)), ['Khác', 'Thành tiền']);
   assert.equal(await page.locator('.trip-list td.pay, .ledger-head th.pay, tr.subtotal td.pay').count(), 0);
   // Tháng không có phiếu: một dòng chữ, không có bảng trống.
   await viewMonth(page, todayMonth);
   const now = page.locator(`#thang-${todayMonth.slice(0, 7)}`);
-  assert.equal(await now.locator('.pay-head').innerText(), `Tiền khách trả tháng ${Number(todayMonth.slice(5, 7))}/${todayMonth.slice(0, 4)}: chưa có phiếu thu`);
+  assert.equal((await now.locator('.pay-head').innerText()).replace(/\s+/g, ' ').trim(), `Tiền khách trả tháng ${Number(todayMonth.slice(5, 7))}/${todayMonth.slice(0, 4)} : chưa có phiếu thu Ghi phiếu thu`);
   assert.equal(await now.locator('.pay-list').isVisible(), false);
 }));
 
@@ -258,7 +258,7 @@ test('XOA-THU-GOC-01: tháng mở bấm số tiền khoản thu sổ gốc để
 // SO-GON-04 (H2): một khung Ghi phiếu thu cho cả sổ thay khung nhập ở từng tháng; vẫn không có bảng nhập chuyến (NHAP-SHEET-02).
 test('không còn khung nhập phiếu ở từng tháng (một nút Ghi phiếu thu); không còn bảng nhập chuyến', async () => withPage(async ({ page, world }) => {
   assert.equal(await page.locator('#app .receipt-date:not(.saved-receipt-input),#app .receipt-amount,#app .receipt-method,#app .pay-entry').count(), 0);
-  assert.equal(await page.locator('.book-head .entry-open').count(), 1);
+  assert.equal(await page.locator('.pay-head .entry-open').count(), 1);
   assert.equal(await page.locator('.draft-input,.draft-row,.draft-bar,.paste-input').count(), 0);
   assert.equal(world.requests.length, 0);
 }, world => { world.locks = [{ month: '2026-09-01', locked: false }]; }));
