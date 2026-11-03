@@ -10,7 +10,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from docker_exec_channel import run_docker_exec
+from docker_exec_channel import run_docker_exec, run_kept_psql
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "specs" / "v7-backend" / "schema-draft.sql"
@@ -27,9 +27,11 @@ class HarnessError(RuntimeError):
 
 
 def run(args: list[str], *, input_text: str | None = None, check: bool = True,
-        timeout: float = 30, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        timeout: float = 30, cwd: Path | None = None, keep: bool = False) -> subprocess.CompletedProcess[str]:
     try:
-        p = run_docker_exec(args, input_text=input_text, timeout=timeout)
+        p = None if input_text is None else run_kept_psql(args, input_text=input_text, timeout=timeout, share=keep)
+        if p is None:
+            p = run_docker_exec(args, input_text=input_text, timeout=timeout)
         if p is None:
             p = subprocess.run(args, input=input_text, text=True, encoding="utf-8",
                                errors="replace", capture_output=True, timeout=timeout, cwd=cwd, check=False)
@@ -74,9 +76,12 @@ class Pg:
 
     def sql(self, sql: str, *, user: str = "postgres", check: bool = True,
             database: str = DATABASE) -> subprocess.CompletedProcess[str]:
+        # Must-succeed superuser statements share a kept connection (reset after each);
+        # expected errors and other roles keep a fresh psql (docker_exec_channel.run_kept_psql).
         return run(["docker", "exec", "-i", *self.env, self.name, "psql", "-X", "-qAt",
                     "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-U", user,
-                    "-d", database], input_text=sql.rstrip().rstrip(";") + ";\n", check=check)
+                    "-d", database], input_text=sql.rstrip().rstrip(";") + ";\n", check=check,
+                   keep=check and user == "postgres")
 
     def value(self, sql: str, *, user: str = "postgres") -> str:
         return self.sql(sql, user=user).stdout.strip()
