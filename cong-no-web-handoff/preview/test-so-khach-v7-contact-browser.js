@@ -224,6 +224,11 @@ test('Hồ sơ: nơi đi chưa có giá và giá hết hạn ghi cam ở đúng 
   await pane.locator('.hs-toast [data-go="dong"]').click();
   assert.equal(await pane.locator('.hs-toast').count(), 0);
   assert.deepEqual(world.requests, [], 'nút chưa hỗ trợ không gửi lệnh');
+  // 1265 (Chrome Windows có thanh cuộn dọc) và màn hẹp: không cuộn ngang.
+  for (const width of [1265, 390]) {
+    await page.setViewportSize({ width, height: 720 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, `không cuộn ngang ở ${width}px`);
+  }
 }, world => {
   profiled(world);
   Object.assign(world, { feeColumns: [], zaloLinks: [{ conversation_id: CHAT, customer_id: 1, customer_name: 'Khách Thử Sửa', linked_by: 'nguoi-thu', linked_at: '2026-11-02T03:00:00Z' }] });
