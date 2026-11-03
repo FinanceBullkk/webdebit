@@ -154,7 +154,10 @@ GĐ3, phần chuyến bộ mới:
 - [x] Unit `test_v7_road_queue`: sổ theo đúng một tab (tên sổ, tên khác), không theo CHỦ HÀNG; dòng không gắn được chỉ đếm; đã có ở sổ ±3 ngày thì bỏ, container dùng lại xa ngày là mới; sổ khác và lệch tháng để người; `road_projection` thiếu file thì không có việc; dán giữ `src`, ghi chú, "—".
 - [x] Unit `test_v7_inbox.AutoRoadTests`: tắt thì không dán; tháng 10 khóa mở, dán, khóa lại; ngày sau hôm nay và dòng vướng sổ khác không dán.
 - [x] Chạy chỉ đọc trên dữ liệu thật ở máy (CONT_BO 16:46 3/11, bản xuất Sheet 21:15, sổ qua API, chưa có bước kiểm sổ khác): 196 chuyến từ 10/2026 gắn được sổ, 10 chưa ở tab nào; 195 chuyến chưa có trên sổ ở 5 sổ, toàn tháng 10. Bốn sổ đã biết 40 chuyến; sổ thứ năm 155 chuyến là khách đang giữ ngoài đối soát (A3), web chưa có chuyến nào tháng 10.
-- [ ] Trên bản sao DB của `hao`, với `road,prices`: số chuyến dán khớp số NEW; tổng nợ mỗi sổ tăng đúng bằng giá tab của các chuyến đó; mọi tháng máy mở đã khóa lại.
+- [x] Trên bản sao DB của `hao`, với `road,prices` (3/11/2026; dump 14:51 UTC, bản chụp đóng băng, `road.json` do runner của nhánh ghi, 2.694 dòng):
+  - dán 195 chuyến ở 5 sổ; 0 chờ kiểm, 0 vướng sổ khác, 0 lỗi;
+  - máy ghi 195 giá; tổng nợ tăng đúng 3.111.500.000đ, bằng giá tab dự tính, từng sổ khớp;
+  - mọi tháng máy mở đã khóa lại.
 
 GĐ3:
 - [ ] Unit phần chiếu:
