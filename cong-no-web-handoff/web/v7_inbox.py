@@ -37,6 +37,18 @@ AUTO_FIELDS = {"carrier", "shipper", "origin", "destination"}
 AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm"
 # P3b (HANG-CHO-01 Q2 theo Q5 A, specs/v7-hop-ngoai-le-p3b.md): máy bấm thay "Duyệt" cho chuyến mới khớp đúng sổ theo
 # mặt hàng, tháng mở, ngày không sau hôm nay. Bật bằng WEBDEBIT_AUTO_SHEET=trips (gộp được: "text,trips").
+# MAY-KHOA-01 (3/11/2026): khóa tháng chỉ chặn người. Máy mở tháng khóa, ghi, khóa lại ngay (ba lệnh có sẵn, đều vào
+# Lịch sử) để điền ngày cho dòng sổ gốc không ngày ở mọi tháng, và đưa chuyến mới vào tháng khóa từ tháng này trở đi
+# (trước đó sổ gốc là chuẩn).
+AUTO_LOCKED_TRIPS_FROM = "2026-10"
+
+
+def date_fill(item: dict[str, Any]) -> bool:
+    """Dòng sổ gốc không ngày khớp dòng Sheet cùng tháng nợ: máy điền ngày theo Sheet, không đổi tiền (MAY-KHOA-01)."""
+    month = str(item.get("event_date") or "")[:7]
+    return ("event_date" in (item.get("changed_fields") or []) and item.get("existing_kind") == "legacy"
+            and not (item.get("existing_values") or {}).get("event_date")
+            and month != "" and str(item.get("existing_debt_month") or "")[:7] == month)
 
 
 def auto_enabled(kind: str) -> bool:
@@ -93,7 +105,10 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
             trips_new += 1
         elif state == "CONFLICT":
             fields = set(item.get("changed_fields") or [])
-            if reason == "DIFFERENT_FIELDS" and fields and fields <= TEXT_FIELDS:
+            fill = date_fill(item)
+            if fill:
+                fields.discard("event_date")
+            if reason == "DIFFERENT_FIELDS" and (fill or fields) and fields <= TEXT_FIELDS:
                 text_diff += 1
             else:
                 key = "FIELDS" if reason == "DIFFERENT_FIELDS" else reason
@@ -214,8 +229,10 @@ class Inbox:
     def _auto_text(self, runner, customer_id: int) -> None:
         """Lấy theo Sheet mọi ô chữ lệch của một sổ, bằng đúng lệnh giải quyết lệch người dùng bấm (decision use_sheet).
 
-        Chỉ dòng lệch toàn ô chữ (AUTO_FIELDS); lệch ngày, container, booking, khách khác để người quyết. Mỗi ô một khóa chống
-        ghi trùng cố định theo (bản chụp, dòng Sheet, đích, ô, giá trị Sheet). Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        Chỉ dòng lệch toàn ô chữ (AUTO_FIELDS), cộng ngày của dòng sổ gốc không ngày cùng tháng nợ (`date_fill`, sửa bằng
+        `edit_legacy_trip`, tháng khóa thì máy mở rồi khóa lại); lệch ngày khác, container, booking, khách khác để người quyết.
+        Mỗi ô một khóa chống ghi trùng cố định theo (bản chụp, dòng Sheet, đích, ô, giá trị Sheet). Lỗi ở một sổ dừng sổ đó,
+        lượt sau thử lại.
         """
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
@@ -226,10 +243,13 @@ class Inbox:
         version, digest = ledger.get("version"), projection.get("snapshot_sha256")
         for item in projection.get("items") or []:
             fields = item.get("changed_fields") or []
+            fill = date_fill(item)
+            text = [field for field in fields if not (fill and field == "event_date")]
             if (item.get("sync_state") != "CONFLICT" or item.get("sync_reason") != "DIFFERENT_FIELDS" or not fields
-                    or not set(fields) <= AUTO_FIELDS or item.get("existing_kind") not in ("trip", "legacy")):
+                    or not set(text) <= AUTO_FIELDS | ({"shipper_unavailable"} if fill else set())
+                    or item.get("existing_kind") not in ("trip", "legacy")):
                 continue
-            for field in fields:
+            for field in text:
                 sheet_value = item.get(field)
                 target_value = (item.get("existing_values") or {}).get(field)
                 if not isinstance(sheet_value, str) or not sheet_value.strip():
@@ -249,11 +269,52 @@ class Inbox:
                 with self.lock:
                     self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id, "container": item.get("container"),
                                               "field": field, "before": target_value, "after": sheet_value.strip()})
+            if fill:
+                day = str(item["event_date"])[:10]
+                key = f"auto:{digest}:{item.get('source_row')}:legacy:{item.get('existing_id')}:event_date:{day}"
+
+                def edit(at, item=item, day=day, key=key):
+                    return runner.run("edit_legacy_trip", {
+                        "customer_id": customer_id, "expected_version": at,
+                        "idempotency_key": hashlib.sha256(key.encode()).hexdigest(), "legacy_row_id": item.get("existing_id"),
+                        "field": "event_date", "value": day}, AUTO_ACTOR).get("version", at)
+                try:
+                    version = self._in_month(runner, customer_id, version, ledger, day[:7], key, edit)
+                except ApiError:
+                    self.auto_errors += 1
+                    return
+                with self.lock:
+                    self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id, "container": item.get("container"),
+                                              "field": "event_date", "before": None, "after": day})
+
+    def _in_month(self, runner, customer_id: int, version: int, ledger: dict[str, Any], month: str, key: str,
+                  action: Callable[[int], int]) -> int:
+        """Chạy `action(version)`; tháng `month` (yyyy-mm) đang khóa thì máy mở, chạy, khóa lại (MAY-KHOA-01).
+
+        Khóa chống ghi trùng của lệnh mở/khóa gắn phiên bản sổ lúc đó, nên mỗi lần là một lệnh mới. Lệnh chính lỗi thì vẫn
+        khóa lại rồi ném lỗi.
+        """
+        if not _locked_months(ledger, {month}):
+            return action(version)
+
+        def lock(locked: bool, at: int) -> int:
+            digest = hashlib.sha256(f"{key}:khoa:{month}:{locked}:{at}".encode()).hexdigest()
+            return runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": at, "idempotency_key": digest,
+                                                 "month": month + "-01", "locked": locked}, AUTO_ACTOR).get("version", at + 1)
+
+        version = lock(False, version)
+        try:
+            version = action(version)
+        finally:
+            current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            version = lock(True, current)
+        return version
 
     def _auto_trips(self, runner, customer_id: int) -> None:
         """Dán chuyến mới đủ điều kiện Q2 của một sổ bằng đúng đường của nút "Duyệt" (`paste_sheet_rows`), chưa có giá.
 
-        Chỉ dòng "chuyến mới" khớp sổ theo mặt hàng (`COMMODITY_OK`), tháng nợ đang mở, ngày không sau hôm nay (giờ VN).
+        Chỉ dòng "chuyến mới" khớp sổ theo mặt hàng (`COMMODITY_OK`), ngày không sau hôm nay (giờ VN), tháng nợ đang mở
+        hoặc khóa nhưng từ AUTO_LOCKED_TRIPS_FROM (máy mở, dán, khóa lại; MAY-KHOA-01).
         `paste_trips` vẫn tự đẩy chuyến nghi trùng sang "chờ kiểm". Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
         """
         try:
@@ -267,26 +328,39 @@ class Inbox:
                 if item.get("sync_state") == "NEW" and item.get("book_match") == "COMMODITY_OK"
                 and str(item.get("event_date") or "") <= today]
         locked = set(_locked_months(ledger, {str(item["event_date"])[:7] for item in rows}))
-        rows = [item for item in rows if str(item["event_date"])[:7] not in locked]
+        rows = [item for item in rows if str(item["event_date"])[:7] not in locked
+                or str(item["event_date"])[:7] >= AUTO_LOCKED_TRIPS_FROM]
         if not rows:
             return
         digest = projection.get("snapshot_sha256")
-        try:
-            result = paste_sheet_rows(runner, customer_id, ledger.get("version"), digest,
-                                      f"{AUTO_ACTOR}:trips:{customer_id}", rows, AUTO_ACTOR)
-        except ApiError:
-            self.auto_errors += 1
-            return
-        if not result.get("complete"):
-            self.auto_errors += 1
-        pending = {entry.get("trip_id") for entry in result.get("pending_review") or []}
-        by_row = {item["source_row"]: item for item in rows}
-        with self.lock:
-            for entry in result.get("pasted") or []:
-                item = by_row.get(entry["source_row"], {})
-                self.auto_log.appendleft({"at": self.clock(), "kind": "trip", "customer_id": customer_id,
-                                          "container": item.get("container"), "event_date": item.get("event_date"),
-                                          "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending})
+        months: dict[str, list[dict[str, Any]]] = {}
+        for item in rows:
+            months.setdefault(str(item["event_date"])[:7], []).append(item)
+        version = ledger.get("version")
+        for month in sorted(months):
+            batch, out = months[month], {}
+
+            def paste(at, batch=batch, out=out):
+                out.update(paste_sheet_rows(runner, customer_id, at, digest, f"{AUTO_ACTOR}:trips:{customer_id}", batch,
+                                            AUTO_ACTOR))
+                return runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            try:
+                version = self._in_month(runner, customer_id, version, ledger, month, f"{AUTO_ACTOR}:trips:{customer_id}",
+                                         paste)
+            except ApiError:
+                self.auto_errors += 1
+                return
+            pending = {entry.get("trip_id") for entry in out.get("pending_review") or []}
+            by_row = {item["source_row"]: item for item in batch}
+            with self.lock:
+                for entry in out.get("pasted") or []:
+                    item = by_row.get(entry["source_row"], {})
+                    self.auto_log.appendleft({"at": self.clock(), "kind": "trip", "customer_id": customer_id,
+                                              "container": item.get("container"), "event_date": item.get("event_date"),
+                                              "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending})
+            if not out.get("complete"):
+                self.auto_errors += 1
+                return
 
     def start(self, runner) -> bool:
         with self.lock:

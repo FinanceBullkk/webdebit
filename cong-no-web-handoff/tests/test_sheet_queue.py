@@ -263,6 +263,26 @@ class SheetQueueTests(unittest.TestCase):
             item = project_customer(queue, ledger, set(), refs, {8})["items"][0]
             self.assertEqual(item["sync_reason"], "OTHER_BOOK_LEGACY")
 
+    def test_undated_original_row_in_same_month_is_this_trip(self):
+        """MAY-KHOA-01 nhóm A: dòng sổ gốc không ngày cùng tháng nợ là chuyến này (lệch ngày), không phải container đã dùng."""
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7, "container": "UND1",
+                 "event_date": "2026-03-18", "review_status": "NEEDS_PRICE", "origin": "KHO", "destination": "CANG",
+                 "shipper": "TN"}]}
+
+        def legacy(n, month, date=None):
+            return {"id": n, "kind": "trip", "month": month, "current": {"container": "UND1", "event_date": date,
+                    "debt_month": month, "origin": "KHO", "destination": "CANG", "shipper": "TN"}}
+        cases = [([legacy(5, "2026-03-01")], ("CONFLICT", "DIFFERENT_FIELDS", ["event_date"], 5, "2026-03-01")),
+                 ([legacy(5, "2026-04-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
+                 ([legacy(5, "2026-03-01"), legacy(6, "2026-03-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
+                 ([legacy(5, "2026-03-01", "2026-03-18")], None)]   # có ngày, trùng ngày: không còn việc
+        for rows, want in cases:
+            with self.subTest(rows=len(rows), want=want):
+                items = project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": rows})["items"]
+                got = (items[0]["sync_state"], items[0]["sync_reason"], items[0]["changed_fields"], items[0]["existing_id"],
+                       items[0]["existing_debt_month"]) if items else None
+                self.assertEqual(got, want)
+
     def test_shipper_backfill_only_proposes_unique_exact_matches(self):
         queue = {"items": [{"customer_id": 7, "status": "READY", "source_row": 8,
                             "container": "ABC1", "event_date": "2026-10-01",

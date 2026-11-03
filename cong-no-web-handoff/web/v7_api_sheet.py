@@ -176,12 +176,12 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     refs = runner.run("list_sheet_trip_refs", {}, actor).get("items")
     if not isinstance(refs, list):
         raise ValueError("web trip references unavailable")
-    other_containers = set()
+    other_refs: dict[str, set[int]] = {}
     for ref in refs:
         if not isinstance(ref, dict) or type(ref.get("customer_id")) is not int or not isinstance(ref.get("container"), str):
             raise ValueError("web trip references invalid")
         if ref["customer_id"] != ledger.get("customer_id"):
-            other_containers.add("".join(ref["container"].upper().split()))
+            other_refs.setdefault("".join(ref["container"].upper().split()), set()).add(ref["customer_id"])
     queue = cached_queue(snapshot, customers, baseline)
     current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
     family = current.get("display_name") or current.get("name")
@@ -197,6 +197,34 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                  else row for row in queue["items"]]}
     waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in queue["items"]
                       if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"} - {""})
+    # Container dùng lại cho chuyến khác là chuyện thường: chỉ báo "khách khác" khi chuyến web của khách kia cách dòng Sheet
+    # không quá 3 ngày, cùng luật với sổ gốc. Hàm đọc chỉ trả container nên đọc sổ khách kia, chỉ cho container đang chờ
+    # ở sổ này (đo 3/11/2026: máy dán 52 chuyến thì 4 dòng cũ ở sổ khác bị báo nhầm).
+    other_containers = set()
+    others: dict[int, dict] = {}
+    for row in queue["items"]:
+        container = "".join(str(row.get("container") or "").upper().split())
+        if (row.get("customer_id") != ledger.get("customer_id") or row.get("review_status") != "NEEDS_PRICE"
+                or container in other_containers or container not in other_refs):
+            continue
+        try:
+            date = datetime.fromisoformat(str(row.get("event_date"))[:10]).date()
+        except ValueError:
+            other_containers.add(container)
+            continue
+        for customer_id in sorted(other_refs[container]):
+            if customer_id not in others:
+                others[customer_id] = runner.run("get_ledger", {"customer_id": customer_id}, actor)
+            for trip in others[customer_id].get("trips") or []:
+                if ("".join(str(trip.get("container") or "").upper().split()) != container or trip.get("deleted")
+                        or trip.get("status") == "rejected"):
+                    continue
+                try:
+                    near = abs((datetime.fromisoformat(str(trip.get("event_date"))[:10]).date() - date).days) <= 3
+                except ValueError:
+                    near = True
+                if near:
+                    other_containers.add(container)
     other_legacy = []
     for start in range(0, len(waiting), 1000):
         items = runner.run("list_legacy_trip_refs", {"containers": waiting[start:start + 1000]}, actor).get("items")
