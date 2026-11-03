@@ -8,10 +8,10 @@ So với bản 22/10: Harness, V7 trên `hao` (tự deploy khi merge `main`), ca
 
 | # | Việc | Ai | Trạng thái 31/10 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
-| A2 | Web khớp tổng từng khách với Sheet (dán bù sau mốc) | Người nhập bấm các nút ghi từ Sheet; Claude đối soát | Đối soát chỉ đọc trên bản xuất cuối ngày 30/10: 223/236 khách khớp, 13 lệch; phần lớn chờ bấm "Ghi phiếu thu từ Sheet", điền ngày cho phiếu thu Sheet thiếu ngày, duyệt chuyến mới + giá; chi tiết ở checklist A2 | `DOI SOAT: DAT` trên bản xuất ngày bắt đầu |
+| A2 | Web khớp tổng từng khách với Sheet (dán bù sau mốc) | Người nhập bấm các nút ghi từ Sheet; Claude đối soát | **3/11** (bằng chứng chính thức, chỉ đọc): `KHONG DAT`, 213/236 khớp, 19 lệch, 4 khách bị giữ vì số dư chuyển tháng trên Sheet. Ngoài việc người nhập (phiếu thu Sheet thiếu ngày, giá lệch, Sheet sửa phiếu cũ) có hai lỗ hổng hệ thống: giá chuyến tháng trước bị kẹt `MONTH_LOCKED` sau khi sang tháng, và chuyến tháng 10 của 3 khách không vào hàng chờ; chi tiết ở checklist A2 | `DOI SOAT: DAT` trên bản xuất ngày bắt đầu |
 | B1, B2 | Mỗi người nhập một tài khoản Tailscale; hai người mở/khóa một tháng ra hai tên trong Lịch sử | Admin (người dùng) mời vào tailnet; người nhập thao tác | CHƯA (tailnet một tài khoản) | Danh sách tailnet ngoài Git; hai cặp dòng Lịch sử |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Người nhập | Nút "Tính vào sổ"/"Loại" đã trên `hao`; hiện không có chuyến CHỜ KIỂM nên chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
-| C4 | Người nhập tự chạy đối soát cuối ngày một lần theo [hướng dẫn](docs/doi-soat-cuoi-ngay.md) | Người nhập | CHƯA; Claude đã chạy 29, 30 và 31/10 | Một lần chạy có mã thoát và số đếm |
+| C4 | Người nhập tự chạy đối soát cuối ngày một lần theo [hướng dẫn](docs/doi-soat-cuoi-ngay.md) | Người nhập | CHƯA; Claude đã chạy 29, 30, 31/10 và 3/11 (lần 3/11 sửa thư mục kết quả trong hướng dẫn) | Một lần chạy có mã thoát và số đếm |
 | F2 | Chốt ngày bắt đầu song song | Chủ nghiệp vụ | ĐỀ XUẤT 1/11/2026 | Dòng cập nhật `SONG-SONG-02` |
 
 ## Không chặn — làm trong lúc chạy song song, xong trước ngày chuyển hẳn
