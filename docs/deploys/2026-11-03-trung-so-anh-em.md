@@ -40,6 +40,6 @@ Người dùng hỏi phương án cho dòng "đã có ở sổ gốc của sổ 
 
 ## CÒN MỞ
 
-- 4 dòng giữa hai khách khác nhau (cùng container, cùng ngày, tháng 3/2026): người dùng xem Sheet booking ghi đúng khách chưa.
-  Ghi nhầm thì sửa tên khách trên Sheet, dòng tự hết; sổ gốc tính nhầm khách thì là việc điều chỉnh tiền, cần người dùng quyết.
+- ~~4 dòng giữa hai khách khác nhau~~: người dùng chốt Sheet booking đúng; đã dời về đúng sổ cùng ngày
+  ([nhật ký](2026-11-03-doi-cont-sang-so-booking.md)).
 - Bảng gán tên chỉ nằm trên `hao` (có trong gói cấu hình backup), không có trong Git.
