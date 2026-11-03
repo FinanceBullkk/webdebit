@@ -1153,7 +1153,7 @@ trong `npm run check`. Không chứng minh chạy root, peer của `pg_dumpall`,
 
 ## Đối soát cuối tháng — mốc xét chuyển hẳn (SONG-SONG-01)
 
-Theo [`SONG-SONG-01`](decisions/song-song-01.md), chỉ chuyển hẳn sang web sau ít nhất một lần cuối tháng Sheet và web khớp tổng từng khách. Chạy sau khi người nhập đã dán hết thay đổi tháng đó lên web và cả hai bên ngừng nhập. Claude chạy được toàn bộ, chỉ đọc, không ghi Sheet hay DB. Kết quả có tên khách và số tiền nên nằm trong `captures/<ngày>-doi-soat-cuoi-thang/`, ngoài Git.
+Theo [`SONG-SONG-01`](decisions/song-song-01.md), chỉ chuyển hẳn sang web sau ít nhất một lần cuối tháng Sheet và web khớp tổng từng khách. Chạy sau khi người nhập đã dán hết thay đổi tháng đó lên web và cả hai bên ngừng nhập. Claude chạy được toàn bộ, chỉ đọc, không ghi Sheet hay DB. Kết quả có tên khách và số tiền nên nằm ngoài Git: bản tải xlsx trong `captures/<ngày>-doi-soat-cuoi-thang/`, còn thư mục `--out` của bước 2 và 3 phải ở ngoài `D:\webdebit\` (ví dụ `D:\doi-soat\<ngày>\`), vì `D:\webdebit\` có `.git` bao ngoài và hai công cụ từ chối ghi vào thư mục nằm trong một Git.
 
 1. **Tải sổ gốc trên `hao`** (user `v7app`, cùng env với runner giá):
    ```text
