@@ -1,5 +1,5 @@
 /* Kích thước, màu và mật độ lấy trực tiếp từ HTML handoff UuTien.dc.html. */
-:root{--bar:0px;--head:67px;--chips:40px;--cols:34px}
+:root{--bar:0px;--head:52px;--chips:40px;--cols:34px}
 body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 #app{padding:0 16px 24px}
 .topbar{position:fixed;inset:var(--banner) auto 0 0;width:76px;height:auto;padding:8px 0;background:#16324f;display:flex;flex-direction:column;align-items:stretch;gap:2px;z-index:55}
@@ -13,13 +13,14 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:2px 8px}
 .topbar.expanded>nav a span,.topbar.expanded .picker-open span{font-size:15px;white-space:nowrap;max-width:none}
 .topbar .presence{margin:8px auto;flex-wrap:wrap;max-width:60px}.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
-.book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:8px 16px;gap:16px;border-bottom:1px solid #d7dce3;background:#fff;box-shadow:none}
-.page-who{padding:0;min-width:0;line-height:1.2}.customer-switch{display:flex;align-items:center;gap:10px;margin-left:-8px;padding:4px 10px 4px 8px;border:1px solid transparent;border-radius:8px;background:transparent;color:#1a1a19;font:inherit;text-align:left;cursor:pointer;min-height:44px}
-.customer-switch:hover{border-color:#d7dce3;background:#f3f5f8}.customer-switch>span{display:flex;flex-direction:column;min-width:0}
-.book-head .page-name{display:block;margin:0;font-size:18px;font-weight:700;line-height:1.2}.book-head .page-meta{display:block;font-size:13px;color:#6f6d67}
-.page-tabs{margin-left:8px;gap:4px}.page-tab{padding:0 12px;min-height:40px;font-size:14px;color:#52514e}.page-tab[aria-selected=true]{color:#1c5cab;border-bottom-color:#2a78d6;font-weight:700}
+/* Đầu trang chung của bốn thẻ (canvas UuTien 3/11/2026): thanh trắng 52px "Sổ khách / Tên ▾" · bốn thẻ · ⋯. */
+.book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:0 28px;gap:16px;border-bottom:1px solid #e3e7ec;background:#fff;box-shadow:none}
+.page-who{flex:0 1 auto;max-width:40%;padding:0;min-width:0;line-height:1.2}.customer-switch{display:flex;align-items:center;gap:6px;margin-left:-8px;padding:4px 8px;border:1px solid transparent;border-radius:8px;background:transparent;color:#52514e;font:inherit;font-size:14px;text-align:left;cursor:pointer;min-height:40px}
+.customer-switch:hover{border-color:#d7dce3;background:#f3f5f8}.customer-switch>span{min-width:0}.customer-switch>svg{flex:none}
+.book-head .page-name{display:inline;margin:0;color:#1a1a19;font-size:14px;font-weight:600;line-height:1.2}
+.page-tabs{margin-left:8px;gap:4px}.page-tab{padding:0 12px;min-height:40px;font-size:14px;font-weight:600;color:#52514e}.page-tab[aria-selected=true]{color:#1c5cab;border-bottom-color:#2a78d6;font-weight:700}
 .tab-work{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-.page-more{position:relative;margin-left:auto}.page-more>summary{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #d7dce3;border-radius:8px;background:#fff;font-size:20px;cursor:pointer;list-style:none}.page-more>summary::-webkit-details-marker{display:none}
+.page-more{position:relative;margin-left:auto}.page-more>summary{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid #d7dce3;border-radius:8px;background:#fff;font-size:20px;cursor:pointer;list-style:none}.page-more>summary::-webkit-details-marker{display:none}
 .page-more-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:70;display:flex;flex-direction:column;gap:8px;min-width:240px;padding:10px;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 12px 32px #1f293733}
 .page-more-menu .head-item.total{align-items:flex-start;margin:0;padding:6px}.page-more-menu .head-item.total strong{font-size:16px}
 .book-head>.entry-open{display:none}.book-settings>summary{border-color:#d7dce3}.book-settings .settings-menu{right:0}

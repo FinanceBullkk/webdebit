@@ -1,5 +1,5 @@
-/* Sổ khách V7 bản live — trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A1): phần trái của đầu trang (← Quay lại,
- * tên khách, mặt hàng, thanh bốn thẻ Tình hình · Sổ · Trao đổi · Hồ sơ) và việc đổi thẻ. Thẻ Sổ là sổ khách của SO-GON-04,
+/* Sổ khách V7 bản live — trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A1): phần trái của đầu trang ("Sổ khách /
+ * tên khách ▾", thanh bốn thẻ Tình hình · Sổ · Trao đổi · Hồ sơ) và việc đổi thẻ. Thẻ Sổ là sổ khách của SO-GON-04,
  * không đổi gì. Đổi thẻ chỉ ghi thẻ lên <body data-the> (so-khach-v7.css ẩn/hiện, DOM giữ nguyên nên chữ đang gõ ở thẻ Sổ còn
  * nguyên) và đổi địa chỉ bằng history.replaceState: không tải lại trang, Back về trang trước chứ không lùi từng thẻ.
  * Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
@@ -29,16 +29,17 @@
 
   // ← Quay lại (audit UX 4.1): về trang vừa đến bằng lịch sử của tab (máy chủ gửi Referrer-Policy: no-referrer nên trang không
   // biết trang trước là trang nào); tab mới mở, chưa có trang trước, thì về Tổng quan.
-  // Tên khách viết đủ, không cắt (audit P1-1): tên dài thì xuống dòng, chữ nhỏ một cỡ; mặt hàng · cảng/bộ chữ nhạt bên cạnh.
+  // Đầu trang chung của bốn thẻ (canvas UuTien 3/11/2026): "Sổ khách / Tên ▾", bấm mở hộp đổi khách. Tên viết đủ, không cắt
+  // (audit P1-1): tên dài thì xuống dòng. Mặt hàng · vận chuyển chỉ ở đầu thẻ Hồ sơ, không lặp ở đây.
   function who() {
     const label = live.customerName(customerId) ?? `#${customerId}`;
     const row = live.customerRow?.(customerId);
     const name = String(row?.display_name ?? row?.name ?? '');
-    const meta = name && label.startsWith(`${name} · `) ? label.slice(name.length + 3) : '';
-    const shown = meta ? name : label;
-    return `<div class="page-who${shown.length > 30 ? ' long' : ''}"><button type="button" class="customer-switch" popovertarget="customer-picker" aria-label="Đổi khách" title="Đổi sang khách khác">`
-      + `<span><span class="page-name" role="heading" aria-level="1">${escape(shown)}</span>${meta ? `<span class="page-meta">${escape(meta.replace(/(^| · )cảng$/, '$1đường cảng').replace(/(^| · )bộ$/, '$1đường bộ'))}</span>` : ''}</span>`
-      + '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>';
+    // Hai sổ trùng nhãn thì nhãn có thêm " · sổ <id>" (customerLabels): giữ phần đó để phân biệt.
+    const shown = name && label.startsWith(`${name} · `) ? `${name}${/ · sổ \d+$/.exec(label)?.[0] ?? ''}` : label;
+    return '<div class="page-who"><button type="button" class="customer-switch" popovertarget="customer-picker" title="Đổi sang khách khác">'
+      + `<span>Sổ khách / <span class="page-name" role="heading" aria-level="1">${escape(shown)}</span></span>`
+      + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>';
   }
   // Thẻ Sổ kèm số việc chờ, cùng cách đếm với chấm cam trên chip tháng (SO-GON-04 L1.3; `work` do so-khach-v7-month-ui.js đếm).
   function tabBar(work) {
