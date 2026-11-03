@@ -57,4 +57,5 @@ Với tên Sheet `N` (sau bảng ghép tên `customer_aliases`):
 - [x] Unit máy: tắt mặc định; khi bật chỉ dán chuyến `NEW` + `COMMODITY_OK` + tháng mở + không ngày tương lai; đúng người làm, phiên bản nối tiếp, khóa cố định; lỗi dừng sổ.
 - [x] Trình duyệt: dòng "Máy đã tự làm hôm nay" có chuyến mới.
 - [ ] Trên `hao`, đo trước/sau P3b-0 (chỉ đọc): số "chuyến mới", số `OTHER_BOOK_LEGACY`, số chuyến web bị báo "Sheet không còn dòng".
+  - Đo 3/11/2026: còn 28 `OTHER_BOOK_LEGACY`; bổ sung hai luật chọn/ẩn và sửa bảng gán tên, còn 4 ([nhật ký](../docs/deploys/2026-11-03-trung-so-anh-em.md)).
 - [ ] Trên `hao`, sau khi bật máy: số chuyến máy đưa vào khớp số đủ điều kiện; số dư 236 khách không đổi.
