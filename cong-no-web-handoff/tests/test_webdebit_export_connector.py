@@ -184,6 +184,62 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "empty"):
             connector.parse_source_values([])
 
+    def test_road_tab_is_read_by_header_name(self):
+        # GĐ2 NGUON-CHUYEN-01: CONT_BO 24 cột; tên cột viết hoa, "/" là ô trống; ngày đóng hàng trước, không có thì khởi hành.
+        header = ["STT", "GIÁ", "NOTE", "CỬA KHẨU", "XE", "MÃ TEM", "DC", "SỐ CONT", "SỐ XE", "SỐ MOOC", "KHO", "CHỦ HÀNG",
+                  "SHIPPER", "CONSIGNEE", "NOTIFY", "NGÀY ĐÓNG HÀNG", "NGÀY KHỞI HÀNH", "NHÀ XE"]
+
+        def line(cont, packed, departed="", gate="CHIMA", plate="99Z-00001", warehouse="/", owner="KHÁCH A 324", shipper="/"):
+            cells = dict(zip(header, [""] * len(header), strict=True))
+            cells.update({"CỬA KHẨU": gate, "SỐ CONT": cont, "SỐ XE": plate, "KHO": warehouse, "CHỦ HÀNG": owner,
+                          "SHIPPER": shipper, "NGÀY ĐÓNG HÀNG": packed, "NGÀY KHỞI HÀNH": departed})
+            return [cells[h] for h in header]
+        values = [header,
+                  line(" faku 1000001 ", "/", "2/10/2026"),
+                  line("FAKU1000002", "24/10/2026", "25/10/2026", gate="TÀ LÙNG (水口)", warehouse="LÂM ĐỒNG", shipper="CTY A"),
+                  line("DUPU0000001", "3/10/2026"), line("DUPU0000001", "3/10/2026"),
+                  line("NOGT0000001", "4/10/2026", gate="/"),
+                  line("NODT0000001", "/", "/"),
+                  ["", "", "/"]]
+        rows = connector.parse_road_values(values)
+        self.assertEqual([r["status"] for r in rows], ["READY", "READY", "DUPLICATE", "DUPLICATE", "INVALID", "INVALID"])
+        first, second = rows[0], rows[1]
+        self.assertEqual((first["source_row"], first["container"], first["event_date"], first["source_date"], first["plate"],
+                          first["gate"], first["warehouse"], first["shipper"], first["owner"]),
+                         (2, "FAKU1000001", "2026-10-02", "2/10/2026", "99Z-00001", "CHIMA", "", "", "KHÁCH A 324"))
+        self.assertEqual((second["event_date"], second["warehouse"], second["shipper"]), ("2026-10-24", "LÂM ĐỒNG", "CTY A"))
+        # Đảo cột vẫn đọc đúng; thiếu một cột cần thì dừng, không đoán.
+        order = list(reversed(range(len(header))))
+        flipped = connector.parse_road_values([[row[i] for i in order] for row in values[:3]])
+        self.assertEqual([(r["container"], r["event_date"]) for r in flipped], [(r["container"], r["event_date"]) for r in rows[:2]])
+        with self.assertRaisesRegex(ValueError, "CONT_BO header mismatch"):
+            connector.parse_road_values([[h for h in header if h != "NGÀY ĐÓNG HÀNG"]])
+        with self.assertRaisesRegex(ValueError, "CONT_BO empty"):
+            connector.parse_road_values([])
+
+    def test_read_road_hashes_the_tab(self):
+        header = list(connector.ROAD_COLUMNS.values())
+        tab = [header, ["FAKU1000001", "99Z-00001", "KHÁCH A", "CHIMA", "/", "/", "/", "2/10/2026"]]
+        requested = []
+
+        class Response:
+            def __init__(self, values): self.values = values
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self): return json.dumps({"values": self.values}).encode()
+
+        def opener(request, timeout):
+            requested.append(request.full_url)
+            return Response(tab)
+
+        result = connector.read_road("sheet-id", "token", opener)
+        self.assertEqual(len(requested), 1)
+        self.assertIn("CONT_BO", requested[0])
+        self.assertEqual((result["row_count"], result["rows"][0]["status"], result["source"]["range"]),
+                         (1, "READY", connector.ROAD_RANGE))
+        tab[1][3] = "HỮU NGHỊ"
+        self.assertNotEqual(connector.read_road("sheet-id", "token", opener)["sha256"], result["sha256"])
+
     def test_read_source_hashes_tab_and_mapping_without_booking_read(self):
         header = list(connector.SOURCE_COLUMNS.values())
         tab = [header, ["ABCU1234567", "01/10/2026", "BK1", "Khách A", "Ship", "WH", "Kho", "Port", "", "", "BIỂN", "T", "2", ""]]

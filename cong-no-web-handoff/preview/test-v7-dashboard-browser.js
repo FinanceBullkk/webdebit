@@ -490,6 +490,14 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
     assert.match(await done.innerText(), /Khách C[\s\S]*MAUU0000002 · 01\/11\/2026[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
     assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     assert.equal(await done.locator('li').count(), 2);
+    assert.equal(await done.locator('.auto-kind', { hasText: 'Chuyến mới' }).count(), 2);
+  }, '/viec-can-lam.html');
+  // NGUON-CHUYEN-01: chuyến bộ máy đưa vào sổ ghi rõ "Chuyến bộ".
+  const road = { ...auto, trip_items: [{ ...auto.trip_items[0], road: true }], today_trips: 1, today_trips_pending: 0 };
+  await withPage({ inbox: { ...INBOX_EMPTY, auto: road, books: [] } }, async page => {
+    await page.locator('[data-auto]').click();
+    await page.locator('.auto-list').waitFor();
+    assert.equal(await page.locator('.auto-list .auto-kind').innerText(), 'Chuyến bộ');
   }, '/viec-can-lam.html');
 });
 

@@ -52,12 +52,18 @@ Số đo (chỉ số đếm; danh sách có tên khách giữ ngoài Git):
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT nguyên tắc (1)–(5) và danh sách nguồn. Cách làm theo giai đoạn ở [spec](../../specs/v7-chuyen-theo-nguon.md). Chưa triển khai: chưa đổi code hay dữ liệu.
+ĐÃ CHỐT nguyên tắc (1)–(5) và danh sách nguồn. Cách làm theo giai đoạn ở [spec](../../specs/v7-chuyen-theo-nguon.md). GĐ1 (công cụ đối soát) đã có; GĐ2 phần `CONT_BO` và GĐ3 phần chuyến bộ mới đã code (xem dưới); các phần khác chưa triển khai.
 
 Không đổi luật tiền, phân bổ, khóa tháng hay quyền. Mọi thay đổi trên sổ đi qua lệnh có sẵn và ghi Lịch sử.
+
+**Chuyến bộ mới tự vào sổ (ĐÃ CHỐT 3/11/2026, chat).** Đối soát 3/11 cho thấy chuyến bộ thêm vào tab khách sau mốc không lên web, vì hàng chờ chỉ đọc `CONT_NGUON`. Claude hỏi "Làm luôn GĐ2–GĐ3 (đọc CONT_BO, máy đưa chuyến bộ vào sổ)?", người dùng chọn làm. Claude hỏi tiếp luật chọn sổ, kèm số đo trên 206 chuyến `CONT_BO` từ 1/10: 41 chuyến nằm trong đúng một tab khách, 165 chưa ở tab nào, và CHỦ HÀNG khác tên sổ ở 4/41. Người dùng chọn **"Theo tab khách trên Sheet"**:
+- Chuyến bộ (dòng `CONT_BO` đủ container, ngày, số xe, cửa khẩu) vào sổ của **đúng một tab khách** có cùng container, ngày cách không quá 3 ngày (dòng tab không ngày thì cùng tháng nợ). Tab đó phải ứng đúng một sổ đang hoạt động, theo tên sổ hoặc tên khác như hàng chờ giá. CHỦ HÀNG của `CONT_BO` chỉ để hiện.
+- Chưa ở tab nào thì chờ, vì phía Sheet chưa vào sổ. Hai tab, sổ chưa hoạt động, hoặc hai chuyến nhận cùng một dòng tab: không đưa vào, chỉ đếm.
+- Ngày theo `CONT_BO` như (2); tháng nợ theo ngày đó. Dòng tab ở tháng khác thì để người (`MONTH_DIFFERS`).
+- Máy dán chưa có giá, bằng đúng đường dán của chuyến biển (P3b), chặn trùng y như vậy: đã có ở sổ này ±3 ngày thì bỏ, có ở sổ khác thì để người. Tháng khóa thì mở, dán, khóa lại (`MAY-KHOA-01`). Chỉ từ tháng 10/2026. Giá theo tab do máy ghi giá ([`MAY-GIA-01`](may-gia-01.md)).
+- Claude chọn các ô chữ theo nguồn: xe = SỐ XE, nơi đến = CỬA KHẨU, nơi đi = KHO, còn KHO trống (189/206 dòng) thì "—". Ghi chú "Chuyến bộ đồng bộ".
 
 CÒN MỞ, hỏi người dùng khi tới giai đoạn liên quan:
 - Người bấm "lấy ngày theo nguồn" ở tháng khóa: theo [`KHOA-CHU-01`](khoa-chu-01.md), ngày vẫn khóa với người.
 - Máy tự lấy ngày nguồn cho dòng **đã có ngày** mà lệch trong cùng tháng: `MAY-KHOA-01` hiện để người quyết.
 - Một lệnh dời chuyến sang sổ khách theo booking. Hôm nay việc này làm bằng chuỗi lệnh tay ([nhật ký](../deploys/2026-11-03-doi-cont-sang-so-booking.md)).
-- Chuyến bộ mới tự vào sổ: cần luật chọn sổ, vì CHỦ HÀNG của `CONT_BO` không luôn là khách.

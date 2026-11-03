@@ -20,6 +20,7 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
     SharedReads,
     paste_sheet_rows,
     price_projection,
+    road_projection,
     sheet_projection,
     write_price_items,
 )
@@ -36,7 +37,9 @@ TICK_SECONDS = 60   # nhịp nền: xem bản chụp Sheet đã đổi chưa (ru
 # WEBDEBIT_AUTO_SHEET=text trên `hao`; mặc định tắt. Người làm trong Lịch sử là AUTO_ACTOR ("Máy (theo Sheet)").
 AUTO_ACTOR = "may-theo-sheet"
 AUTO_FIELDS = {"carrier", "shipper", "origin", "destination"}
-AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm"
+# Số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm". Thử bản sao 3/11/2026: lượt đầu bật chuyến bộ có 195 chuyến
+# + 195 giá, trần 300 cũ làm rơi 90 chuyến khỏi số đếm hôm nay.
+AUTO_LOG = 2000
 # P3b (HANG-CHO-01 Q2 theo Q5 A, specs/v7-hop-ngoai-le-p3b.md): máy bấm thay "Duyệt" cho chuyến mới khớp đúng sổ theo
 # mặt hàng, tháng mở, ngày không sau hôm nay. Bật bằng WEBDEBIT_AUTO_SHEET=trips (gộp được: "text,trips").
 # MAY-KHOA-01 (3/11/2026): khóa tháng chỉ chặn người. Máy mở tháng khóa, ghi, khóa lại ngay (ba lệnh có sẵn, đều vào
@@ -46,6 +49,8 @@ AUTO_LOCKED_TRIPS_FROM = "2026-10"
 # MAY-GIA-01 (3/11/2026): máy ghi giá Sheet sẵn sàng (READY, và dòng chỉ vướng tháng khóa) như nút "Ghi N giá từ Sheet",
 # ở mọi tháng nợ từ mốc này, tháng mở hay khóa; tháng khóa thì mở, ghi, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=prices.
 AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
+# NGUON-CHUYEN-01 GĐ3 (3/11/2026): máy đưa chuyến bộ mới (CONT_BO) vào sổ của tab khách trên Sheet, bằng đúng đường dán của
+# chuyến biển, chưa có giá; tháng khóa thì mở, dán, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=road.
 
 
 def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
@@ -127,6 +132,15 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
             else:
                 key = "FIELDS" if reason == "DIFFERENT_FIELDS" else reason
                 check_reasons[key] = check_reasons.get(key, 0) + 1
+    # Chuyến bộ (NGUON-CHUYEN-01 GĐ3) đếm chung "chuyến mới"/"cần xem"; road.json hỏng thì phần này trống, sổ vẫn tính.
+    road_new = 0
+    for item in (ledger.get("sheet_road") or {}).get("items") or []:
+        if item.get("sync_state") == "NEW":
+            road_new += 1
+        elif item.get("sync_state") == "CONFLICT":
+            key = "ROAD_" + str(item.get("sync_reason") or "")
+            check_reasons[key] = check_reasons.get(key, 0) + 1
+    trips_new += road_new
     ready_rows = list(receipts.get("ready") or [])
     book = {
         "customer_id": customer_id,
@@ -141,6 +155,7 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
                      "locked_months": _locked_months(ledger, {str(r.get("date") or "")[:7] for r in ready_rows if r.get("date")})},
         "removed": {"count": len(removed), "amount_vnd": str(sum(a for a in removed_amounts if a is not None))},
         "trips_new": trips_new,
+        "road_new": road_new,   # phần chuyến bộ trong `trips_new`: máy đưa vào khi bật `road`; không cộng vào `busy`
         "trips_check": {"count": sum(check_reasons.values()), "reasons": check_reasons},
         "text_diff": text_diff,
         "prices": {"ready": len(prices.get("ready") or []), "review": len(prices.get("review") or [])},
@@ -221,17 +236,23 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
-        text, trips, prices = auto_enabled("text"), auto_enabled("trips"), auto_enabled("prices")
-        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or (trips and book["trips_new"])
+        text, trips, prices, road = (auto_enabled(kind) for kind in ("text", "trips", "prices", "road"))
+
+        def pasting(book: dict) -> bool:
+            return bool((trips and book["trips_new"] - book["road_new"]) or (road and book["road_new"]))
+        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or pasting(book)
                       or (prices and book["prices_auto"]))
         if todo and key is not None:
             for customer_id in todo:
-                if text and books[customer_id]["text_diff"]:
+                book = books[customer_id]
+                if text and book["text_diff"]:
                     self._auto_text(shared, customer_id)
-                if trips and books[customer_id]["trips_new"]:
-                    # Đọc lại chuyến web mọi sổ cho từng sổ: chuyến máy vừa thêm ở sổ trước phải chặn được ở sổ sau.
+                # Đọc lại chuyến web mọi sổ cho từng sổ: chuyến máy vừa thêm ở sổ trước phải chặn được ở sổ sau.
+                if trips and book["trips_new"] - book["road_new"]:
                     self._auto_trips(SharedReads(shared.runner), customer_id)
-                if prices and (books[customer_id]["prices_auto"] or (trips and books[customer_id]["trips_new"])):
+                if road and book["road_new"]:
+                    self._auto_road(SharedReads(shared.runner), customer_id)
+                if prices and (book["prices_auto"] or pasting(book)):
                     # Sau lượt dán: chuyến máy vừa đưa vào sổ (chưa giá) nhận giá Sheet ngay trong lượt này.
                     self._auto_prices(shared, customer_id)
                 result = self._one(shared, customer_id)
@@ -356,9 +377,31 @@ class Inbox:
         locked = set(_locked_months(ledger, {str(item["event_date"])[:7] for item in rows}))
         rows = [item for item in rows if str(item["event_date"])[:7] not in locked
                 or str(item["event_date"])[:7] >= AUTO_LOCKED_TRIPS_FROM]
-        if not rows:
+        self._paste_by_month(runner, customer_id, ledger, rows, projection.get("snapshot_sha256"),
+                             f"{AUTO_ACTOR}:trips:{customer_id}")
+
+    def _auto_road(self, runner, customer_id: int) -> None:
+        """Đưa chuyến bộ mới của một sổ vào sổ bằng đúng đường dán của chuyến biển (`paste_sheet_rows`), chưa có giá.
+
+        Chỉ dòng NEW của `road_projection`: sổ theo tab khách, đã chặn trùng ở sổ này và sổ khác; ngày không sau hôm nay
+        (giờ VN), tháng từ AUTO_LOCKED_TRIPS_FROM (tháng khóa thì mở, dán, khóa lại). `paste_trips` vẫn tự đẩy chuyến nghi trùng
+        sang "chờ kiểm". Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            projection = road_projection(runner, ledger, AUTO_ACTOR)
+        except (ApiError, ValueError):
+            self.auto_errors += 1
             return
-        digest = projection.get("snapshot_sha256")
+        today = _vn_day(self.clock())
+        rows = [item for item in projection.get("items") or [] if item.get("sync_state") == "NEW"
+                and str(item.get("event_date") or "") <= today and str(item.get("event_date"))[:7] >= AUTO_LOCKED_TRIPS_FROM]
+        self._paste_by_month(runner, customer_id, ledger, rows, projection.get("snapshot_sha256"),
+                             f"{AUTO_ACTOR}:road:{customer_id}", road=True)
+
+    def _paste_by_month(self, runner, customer_id: int, ledger: dict[str, Any], rows: list[dict[str, Any]], digest: str,
+                        key: str, road: bool = False) -> None:
+        """Dán `rows` theo tháng; tháng khóa thì mở, dán, khóa lại một lần (MAY-KHOA-01). Ghi việc đã làm vào `auto_log`."""
         months: dict[str, list[dict[str, Any]]] = {}
         for item in rows:
             months.setdefault(str(item["event_date"])[:7], []).append(item)
@@ -367,12 +410,10 @@ class Inbox:
             batch, out = months[month], {}
 
             def paste(at, batch=batch, out=out):
-                out.update(paste_sheet_rows(runner, customer_id, at, digest, f"{AUTO_ACTOR}:trips:{customer_id}", batch,
-                                            AUTO_ACTOR))
+                out.update(paste_sheet_rows(runner, customer_id, at, digest, key, batch, AUTO_ACTOR))
                 return runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
             try:
-                version = self._in_month(runner, customer_id, version, ledger, month, f"{AUTO_ACTOR}:trips:{customer_id}",
-                                         paste)
+                version = self._in_month(runner, customer_id, version, ledger, month, key, paste)
             except ApiError:
                 self.auto_errors += 1
                 return
@@ -383,7 +424,8 @@ class Inbox:
                     item = by_row.get(entry["source_row"], {})
                     self.auto_log.appendleft({"at": self.clock(), "kind": "trip", "customer_id": customer_id,
                                               "container": item.get("container"), "event_date": item.get("event_date"),
-                                              "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending})
+                                              "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending,
+                                              **({"road": True} if road else {})})
             if not out.get("complete"):
                 self.auto_errors += 1
                 return

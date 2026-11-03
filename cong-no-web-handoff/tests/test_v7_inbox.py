@@ -62,11 +62,22 @@ class SummarizeTests(unittest.TestCase):
             "receipts": {"ready": 1, "review": 2, "amount_vnd": "150"},   # phiếu không có số tiền không cộng như 0
             "removed": {"count": 2, "amount_vnd": "300"},
             "trips_new": 2,
+            "road_new": 0,
             "trips_check": {"count": 3, "reasons": {"FIELDS": 1, "OTHER_BOOK_LEGACY": 2}},
             "text_diff": 1,
             "prices": {"ready": 0, "review": 1},
             "prices_auto": 0,
             "ps": {"ready": 1, "review": 2}})
+
+    def test_road_trips_count_as_new_and_checks(self):
+        road = {"items": [{"sync_state": "NEW"}, {"sync_state": "NEW"}, {"sync_state": "CONFLICT", "sync_reason": "MONTH_DIFFERS"}]}
+        book = v7_inbox.summarize(7, projection(sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}, sheet_road=road))
+        self.assertEqual((book["trips_new"], book["road_new"], book["trips_check"]),
+                         (3, 2, {"count": 1, "reasons": {"ROAD_MONTH_DIFFERS": 1}}))
+        # road.json hỏng (phần chiếu "unavailable") không làm hỏng sổ: chỉ không có việc chuyến bộ.
+        broken = v7_inbox.summarize(7, projection(sheet_road={"unavailable": True, "items": []},
+                                                  sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}))
+        self.assertEqual((broken["trips_new"], broken["road_new"]), (1, 0))
 
     def test_machine_price_rows_from_october_open_or_locked(self):
         prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
@@ -494,6 +505,83 @@ class AutoPricesTests(unittest.TestCase):
             with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "trips,prices"}):
                 self.run_once()
         self.assertEqual(order, ["trips", "prices"])
+
+
+class AutoRoadTests(unittest.TestCase):
+    """NGUON-CHUYEN-01 GĐ3: máy đưa chuyến bộ mới vào sổ của tab khách, cùng đường dán với chuyến biển, chỉ khi bật `road`."""
+
+    NOW = 1793595600.0   # 2/11/2026 12:00 giờ VN
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "s.json"
+        self.path.write_text("{}", encoding="utf-8")
+        self.calls, self.pasted = [], False
+        sha = "d" * 64
+
+        def item(line, container, date, state="NEW"):
+            return {"source_row": line, "container": container, "event_date": date, "carrier": "99Z-00001", "origin": "—",
+                    "destination": "CHIMA", "shipper": None, "booking": "", "src": f"sheet:{sha}:{line}",
+                    "note": "Chuyến bộ đồng bộ", "sync_state": state, "sync_reason": "" if state == "NEW" else "OTHER_CUSTOMER"}
+        self.items = [item(5, "FAKU1000001", "2026-10-02"), item(6, "FAKU1000003", "2026-11-02"),
+                      item(7, "FUTU0000001", "2026-11-03"),                      # sau hôm nay: chờ
+                      item(8, "OTHU0000001", "2026-10-05", state="CONFLICT")]   # vướng sổ khác: để người
+        self.road = {"snapshot_sha256": sha, "items": self.items}
+
+        def project(runner, ledger, actor):
+            road = {"items": [] if self.pasted else [{"sync_state": "NEW"}]}
+            return projection(sheet_road=road)
+        self.inbox = v7_inbox.Inbox(project, lambda: (str(self.path),), clock=lambda: self.NOW)
+        test = self
+
+        class Runner:
+            version = 3
+
+            def run(self, function, payload, actor):
+                test.calls.append((function, payload, actor))
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "status": "active"}]}
+                if function == "get_ledger":
+                    return {"customer_id": 1, "version": self.version, "today_month": "2026-11-01", "month_locks": []}
+                if function in ("set_month_lock", "paste_trips"):
+                    self.version += 1
+                    test.pasted = test.pasted or function == "paste_trips"
+                    if function == "paste_trips":
+                        return {"trip_ids": [100 + n for n in range(len(payload["trips"]))], "pending_review": []}
+                    return {"version": self.version}
+                raise AssertionError(function)
+        self.runner = Runner()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_once(self, flags):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": flags}), \
+                patch.object(v7_inbox, "road_projection", return_value=self.road), \
+                patch.object(v7_inbox, "sheet_projection", side_effect=AssertionError("không có chuyến biển nào")):
+            self.inbox.start(self.runner)
+            wait_idle(self.inbox)
+            return self.inbox.view(self.runner)
+
+    def test_off_unless_road_is_enabled(self):
+        view = self.run_once("text,trips")
+        self.assertFalse([c for c in self.calls if c[0] == "paste_trips"])
+        self.assertEqual((view["books"][0]["trips_new"], view["books"][0]["road_new"]), (1, 1))
+
+    def test_pastes_new_road_trips_by_month_and_relocks_october(self):
+        view = self.run_once("road")
+        writes = [(c[0], c[1].get("month") or c[1].get("debt_month"), c[1].get("locked"), c[1]["expected_version"], c[2])
+                  for c in self.calls if c[0] in ("paste_trips", "set_month_lock")]
+        machine = v7_inbox.AUTO_ACTOR
+        self.assertEqual(writes, [("set_month_lock", "2026-10-01", False, 3, machine), ("paste_trips", "2026-10-01", None, 4, machine),
+                                  ("set_month_lock", "2026-10-01", True, 5, machine), ("paste_trips", "2026-11-01", None, 6, machine)])
+        trips = [t for c in self.calls if c[0] == "paste_trips" for t in c[1]["trips"]]
+        self.assertEqual([(t["container"], t["src"], t["note"], t["from"], t["unitPriceVnd"]) for t in trips],
+                         [("FAKU1000001", "sheet:" + "d" * 64 + ":5", "Chuyến bộ đồng bộ", "—", None),
+                          ("FAKU1000003", "sheet:" + "d" * 64 + ":6", "Chuyến bộ đồng bộ", "—", None)])
+        auto = view["auto"]
+        self.assertEqual((auto["today_trips"], auto["errors"]), (2, 0))
+        self.assertTrue(all(entry["road"] for entry in auto["trip_items"]))
 
 
 class AutoDateFillTests(unittest.TestCase):

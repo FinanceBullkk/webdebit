@@ -25,6 +25,11 @@ SOURCE_COLUMNS = {"container": "Số cont", "date": "Ngày đóng", "booking": "
                   "product_name": "Tên hàng", "commodity": "Mặt hàng", "kind": "Loại", "source_tab": "Tab nguồn",
                   "source_line": "Dòng nguồn", "flag": "Cờ lỗi"}
 SOURCE_KIND_SEA = "BIỂN"
+# GĐ2 của NGUON-CHUYEN-01 (specs/v7-chuyen-theo-nguon.md): chuyến bộ ở tab CONT_BO, cũng tìm cột theo tên ở dòng 1.
+ROAD_RANGE = "CONT_BO!A1:Z20000"
+ROAD_COLUMNS = {"container": "SỐ CONT", "plate": "SỐ XE", "owner": "CHỦ HÀNG", "gate": "CỬA KHẨU", "warehouse": "KHO",
+                "shipper": "SHIPPER", "packed": "NGÀY ĐÓNG HÀNG", "departed": "NGÀY KHỞI HÀNH"}
+ROAD_BLANK = {"", "/", "-"}   # CONT_BO ghi "/" cho ô không có (đo 3/11/2026: KHO là "/" ở 189/206 chuyến từ tháng 10)
 HEADERS = ("Số container", "Hãng tàu", "Ngày chuyến", "Nơi đi", "Nơi đến")
 BOOKING_HEADERS = ("Số cont", "Chủ hàng (chuẩn)", "Ngày đóng", "Booking", "Tab nguồn", "Dòng nguồn", "Chủ hàng (gốc)", "Shipper", "Hãng tàu", "Kho", "Cảng đến")
 BOOKING_PRODUCT_HEADERS = ("Giá + phí (gốc)", "Tên hàng", "Mặt hàng", "Bảo hiểm (cột BẢO HIỂM booking)")
@@ -120,7 +125,7 @@ def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     change: INVALID when a trip field is blank, DUPLICATE on a repeated container + date,
     NO_CUSTOMER when the standard owner is blank. The Sheet's own "Cờ lỗi" stays as text
     (`source_flag`); it never changes a status here. Rows whose "Loại" is not BIỂN are left
-    out for now (road trips are pasted by hand, specs/v7-sheet-contract.md).
+    out: road trips come from the CONT_BO tab (`parse_road_values`, NGUON-CHUYEN-01).
     """
     if not values:
         raise ValueError("CONT_NGUON empty")
@@ -167,6 +172,56 @@ def parse_source_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     for item in rows:
         if item["status"] == "READY" and not item["customer_name"]:
             item["status"] = "NO_CUSTOMER"
+    return rows
+
+
+def _road_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text in ROAD_BLANK else text
+
+
+def parse_road_values(values: list[list[Any]]) -> list[dict[str, Any]]:
+    """CONT_BO rows (NGUON-CHUYEN-01 GĐ2). Columns by header text, so the Sheet may add or reorder columns.
+
+    The trip date is the packing date ("NGÀY ĐÓNG HÀNG", the day the truck enters the warehouse per DATE), else the
+    departure date. INVALID without container, date, truck plate or border gate (paste_trips needs carrier and
+    destination); DUPLICATE on a repeated container + date. "CHỦ HÀNG" stays text only: it is sometimes the packing
+    warehouse, so the API picks the book from the Sheet customer tab instead (NGUON-CHUYEN-01 (2)).
+    """
+    if not values:
+        raise ValueError("CONT_BO empty")
+    header = [_SPACE_RE.sub(" ", unicodedata.normalize("NFC", str(cell or ""))).strip().upper() for cell in values[0]]
+    if any(name not in header for name in ROAD_COLUMNS.values()):
+        raise ValueError("CONT_BO header mismatch")
+    index = {field: header.index(name) for field, name in ROAD_COLUMNS.items()}
+    rows: list[dict[str, Any]] = []
+    for row_number, raw in enumerate(values[1:], start=2):
+        cell = {field: raw[i] if i < len(raw) else "" for field, i in index.items()}
+        if not any(_road_text(value) for value in cell.values()):
+            continue
+        packed, departed = _road_text(cell["packed"]), _road_text(cell["departed"])
+        event_date = parse_date(packed) or parse_date(departed)
+        item = {
+            "source_row": row_number,
+            "container": normalize_container(_road_text(cell["container"])),
+            "event_date": event_date,
+            "source_date": packed if parse_date(packed) else departed,
+            "plate": _road_text(cell["plate"]),
+            "gate": _road_text(cell["gate"]),
+            "warehouse": _road_text(cell["warehouse"]),
+            "shipper": _road_text(cell["shipper"]),
+            "owner": _road_text(cell["owner"]),
+        }
+        item["status"] = "READY" if all(item[k] for k in ("container", "event_date", "plate", "gate")) else "INVALID"
+        rows.append(item)
+    by_key: dict[tuple[str, str | None], list[dict[str, Any]]] = {}
+    for item in rows:
+        if item["status"] == "READY":
+            by_key.setdefault((item["container"], item["event_date"]), []).append(item)
+    for matches in by_key.values():
+        if len(matches) > 1:
+            for item in matches:
+                item["status"] = "DUPLICATE"
     return rows
 
 
@@ -328,6 +383,15 @@ def read_source(spreadsheet_id: str, access_token: str, opener: Callable[..., An
         "sha256": hashlib.sha256(canonical).hexdigest(),
         **({"customer_aliases": aliases} if include_mapping else {}),
     }
+
+
+def read_road(spreadsheet_id: str, access_token: str, opener: Callable[..., Any] = urllib.request.urlopen) -> dict[str, Any]:
+    """Road snapshot (`road.json`) from CONT_BO; same keys as read_source without the customer mapping."""
+    values = _fetch_values(spreadsheet_id, access_token, opener, ROAD_RANGE)
+    rows = parse_road_values(values)
+    canonical = json.dumps({"road": values}, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return {"source": {"spreadsheet_id": spreadsheet_id, "range": ROAD_RANGE}, "rows": rows, "row_count": len(rows),
+            "sha256": hashlib.sha256(canonical).hexdigest()}
 
 
 def paste_preview(snapshot: dict[str, Any]) -> dict[str, Any]:

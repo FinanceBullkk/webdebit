@@ -29,9 +29,12 @@ from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
 from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_reference
 from v7_receipt_queue import reference as receipt_reference
+from v7_road_queue import build_road_queue, load_road_snapshot, project_road
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
+# GĐ2 NGUON-CHUYEN-01: runner ghi CONT_BO cạnh snapshot.json khi bật WEBDEBIT_ROAD_SNAPSHOT_PATH; chưa có file thì không có việc.
+ROAD_SNAPSHOT_PATH = os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or str(Path(SHEET_SNAPSHOT_PATH).with_name("road.json"))
 PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/prices.json")
 PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/ps.json")
 # Runner giá ghi phiếu thu cạnh prices.json (THU-SHEET-01), nên mặc định đi theo đường giá.
@@ -167,12 +170,9 @@ def sheet_queue(customers: dict, parts_query: str) -> dict:
     return queue
 
 
-def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
-    snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
-    baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
-    # Tên khách và mặt hàng từ bảng gán tên để chọn sổ theo mặt hàng (P3b), như ba hàm chiếu kia.
-    mapping = customer_name_mapping()
-    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+def other_book_checks(runner: Psql, ledger: dict, rows: list[dict], actor: str) -> tuple[set[str], list[dict]]:
+    """Dòng đang chờ ở sổ này đã có ở sổ khác chưa: (container có chuyến web của khách khác cách ≤ 3 ngày, dòng sổ gốc của
+    sổ khác cùng container). Hàng chờ chuyến biển và chuyến bộ (NGUON-CHUYEN-01) dùng chung."""
     refs = runner.run("list_sheet_trip_refs", {}, actor).get("items")
     if not isinstance(refs, list):
         raise ValueError("web trip references unavailable")
@@ -182,30 +182,15 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
             raise ValueError("web trip references invalid")
         if ref["customer_id"] != ledger.get("customer_id"):
             other_refs.setdefault("".join(ref["container"].upper().split()), set()).add(ref["customer_id"])
-    queue = cached_queue(snapshot, customers, baseline)
-    current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
-    family = current.get("display_name") or current.get("name")
-    candidates = [c for c in customers if c.get("status") == "active" and c.get("transport_mode") != "BO"
-                  and (c.get("display_name") or c.get("name")) == family]
-    # Show an unmapped family row once, in its first book, for explicit human choice.
-    if candidates and ledger["customer_id"] == min(c["id"] for c in candidates):
-        from v7_sheet_queue import _name
-        aliases = snapshot.get("customer_aliases") or {}
-        queue = {**queue, "items": [{**row, "customer_id": ledger["customer_id"], "review_status": "NEEDS_PRICE", "book_match": "COMMODITY_UNKNOWN"}
-                 if row.get("customer_id") is None and row.get("review_status") == "NEEDS_CUSTOMER"
-                 and _name(aliases.get(_name(row.get("customer_name")), row.get("customer_name"))) == _name(family)
-                 else row for row in queue["items"]]}
-    waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in queue["items"]
-                      if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"} - {""})
+    waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in rows} - {""})
     # Container dùng lại cho chuyến khác là chuyện thường: chỉ báo "khách khác" khi chuyến web của khách kia cách dòng Sheet
     # không quá 3 ngày, cùng luật với sổ gốc. Hàm đọc chỉ trả container nên đọc sổ khách kia, chỉ cho container đang chờ
     # ở sổ này (đo 3/11/2026: máy dán 52 chuyến thì 4 dòng cũ ở sổ khác bị báo nhầm).
     other_containers = set()
     others: dict[int, dict] = {}
-    for row in queue["items"]:
+    for row in rows:
         container = "".join(str(row.get("container") or "").upper().split())
-        if (row.get("customer_id") != ledger.get("customer_id") or row.get("review_status") != "NEEDS_PRICE"
-                or container in other_containers or container not in other_refs):
+        if container in other_containers or container not in other_refs:
             continue
         try:
             date = datetime.fromisoformat(str(row.get("event_date"))[:10]).date()
@@ -235,9 +220,39 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                 raise ValueError("legacy trip references invalid")
             if ref["customer_id"] != ledger.get("customer_id"):
                 other_legacy.append(ref)
-    # Sổ cùng khách (cùng tên khách), kể cả sổ đường bộ: chuyến đã ở sổ gốc của chúng là đã tính, không hiện.
-    family_ids = {c["id"] for c in customers if (c.get("display_name") or c.get("name")) == family} - {ledger["customer_id"]}
-    result = project_customer(queue, ledger, other_containers, other_legacy, family_ids)
+    return other_containers, other_legacy
+
+
+def family_book_ids(customers: list[dict], ledger: dict) -> set[int]:
+    """Sổ cùng khách (cùng tên khách), kể cả sổ đường bộ: chuyến đã ở sổ gốc của chúng là đã tính, không hiện."""
+    current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
+    family = current.get("display_name") or current.get("name")
+    return {c["id"] for c in customers if (c.get("display_name") or c.get("name")) == family} - {ledger["customer_id"]}
+
+
+def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
+    baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
+    # Tên khách và mặt hàng từ bảng gán tên để chọn sổ theo mặt hàng (P3b), như ba hàm chiếu kia.
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    queue = cached_queue(snapshot, customers, baseline)
+    current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
+    family = current.get("display_name") or current.get("name")
+    candidates = [c for c in customers if c.get("status") == "active" and c.get("transport_mode") != "BO"
+                  and (c.get("display_name") or c.get("name")) == family]
+    # Show an unmapped family row once, in its first book, for explicit human choice.
+    if candidates and ledger["customer_id"] == min(c["id"] for c in candidates):
+        from v7_sheet_queue import _name
+        aliases = snapshot.get("customer_aliases") or {}
+        queue = {**queue, "items": [{**row, "customer_id": ledger["customer_id"], "review_status": "NEEDS_PRICE", "book_match": "COMMODITY_UNKNOWN"}
+                 if row.get("customer_id") is None and row.get("review_status") == "NEEDS_CUSTOMER"
+                 and _name(aliases.get(_name(row.get("customer_name")), row.get("customer_name"))) == _name(family)
+                 else row for row in queue["items"]]}
+    waiting = [row for row in queue["items"]
+               if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"]
+    other_containers, other_legacy = other_book_checks(runner, ledger, waiting, actor)
+    result = project_customer(queue, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
     from v7_sheet_task_keep import trip_identity
     assigned = {}
     for event in ledger.get("events", []):
@@ -257,6 +272,41 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                       "candidate_books": [{k: c.get(k) for k in ("id", "name", "display_name", "commodity", "transport_mode", "version")} for c in candidates]})
     return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" for r in items),
             "conflict_count": sum(r["sync_state"] == "CONFLICT" for r in items)}
+
+
+_ROAD: list = [None, None, None, None]   # [road.json, prices.json, khóa danh sách khách, hàng chờ chuyến bộ]
+_ROAD_LOCK = threading.Lock()
+
+
+def cached_road_queue(road: dict, prices: dict, customers: list) -> dict:
+    key = json.dumps(customers, sort_keys=True, ensure_ascii=False, default=str)
+    with _ROAD_LOCK:
+        held_road, held_prices, held_key, held_queue = _ROAD
+        if held_road is road and held_prices is prices and held_key == key:
+            return held_queue
+    queue = build_road_queue(road, prices, customers)
+    with _ROAD_LOCK:
+        _ROAD[:] = [road, prices, key, queue]
+    return queue
+
+
+def road_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+    """Chuyến bộ mới của một sổ (NGUON-CHUYEN-01 GĐ3): sổ theo tab khách trên Sheet, chặn trùng như hàng chờ chuyến biển.
+
+    Runner chưa ghi road.json thì không có việc (không phải lỗi); file hỏng thì hàm ném lỗi như ba hàm chiếu kia.
+    """
+    if not os.path.exists(ROAD_SNAPSHOT_PATH):
+        return {"snapshot_sha256": None, "items": [], "new_count": 0, "conflict_count": 0, "source_missing": True}
+    road = cached_load(load_road_snapshot, ROAD_SNAPSHOT_PATH)
+    prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
+    mapping = customer_name_mapping()
+    customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
+    queue = cached_road_queue(road, prices, customers)
+    mine = [item for item in queue["items"] if item["customer_id"] == ledger.get("customer_id")]
+    if not mine:
+        return project_road({**queue, "items": []}, ledger)
+    other_containers, other_legacy = other_book_checks(runner, ledger, mine, actor)
+    return project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
 
 
 def approve_request(raw: bytes, runner: Psql, actor: str) -> tuple[int, int, str, str, dict]:
@@ -320,11 +370,12 @@ def paste_sheet_rows(runner: Psql, customer: int, version: int, digest: str, key
         values = sorted(months[month], key=lambda row: row["source_row"])
         for start in range(0, len(values), 200):
             batch = values[start:start + 200]
+            # Chuyến bộ (v7_road_queue) mang sẵn `src` theo bản chụp road.json và ghi chú riêng.
             trips = [{"date": row["event_date"][8:10] + "/" + row["event_date"][5:7] + "/" + row["event_date"][:4],
                       "booking": row.get("booking") or "", "container": row["container"], "carrier": row["carrier"],
                       "from": row["origin"], "to": row["destination"], "shipper": row.get("shipper"), "unitPriceVnd": None,
-                      "otherFeeVnd": None, "note": "Chuyến đồng bộ",
-                      "src": f"sheet:{digest}:{row['source_row']}"} for row in batch]
+                      "otherFeeVnd": None, "note": row.get("note") or "Chuyến đồng bộ",
+                      "src": row.get("src") or f"sheet:{digest}:{row['source_row']}"} for row in batch]
             command_key = hashlib.sha256(f"{key}:{digest}:{month}:{batch[0]['source_row']}".encode()).hexdigest()
             try:
                 result = runner.run("paste_trips", {"customer_id": customer, "expected_version": version,
@@ -737,9 +788,9 @@ def review_sheet_receipt(raw: bytes, runner: Psql, actor: str) -> tuple[int, dic
 
 
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
-    """`GET /api/v7/ledger`: gắn bốn hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
+    """`GET /api/v7/ledger`: gắn các hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
 
-    Bốn hàm chiếu độc lập (không hàm nào đọc kết quả của hàm khác), nên chạy song song trên cùng một runner đọc chung;
+    Các hàm chiếu độc lập (không hàm nào đọc kết quả của hàm khác), nên chạy song song trên cùng một runner đọc chung;
     phần lớn thời gian là chờ psql. Đo trên `hao` 1/11/2026: nối tiếp 0,75 giây, `list_customers` bị gọi 4 lần.
     """
     shared = SharedReads(runner)
@@ -749,6 +800,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("sheet_prices", price_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
+        ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
     )
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]
