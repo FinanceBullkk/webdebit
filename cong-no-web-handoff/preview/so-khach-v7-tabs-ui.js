@@ -35,7 +35,8 @@
     const label = live.customerName(customerId) ?? `#${customerId}`;
     const row = live.customerRow?.(customerId);
     const name = String(row?.display_name ?? row?.name ?? '');
-    const shown = name && label.startsWith(`${name} · `) ? name : label;
+    // Hai sổ trùng nhãn thì nhãn có thêm " · sổ <id>" (customerLabels): giữ phần đó để phân biệt.
+    const shown = name && label.startsWith(`${name} · `) ? `${name}${/ · sổ \d+$/.exec(label)?.[0] ?? ''}` : label;
     return '<div class="page-who"><button type="button" class="customer-switch" popovertarget="customer-picker" title="Đổi sang khách khác">'
       + `<span>Sổ khách / <span class="page-name" role="heading" aria-level="1">${escape(shown)}</span></span>`
       + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></div>';
