@@ -162,6 +162,22 @@ test('Lỗi Tổng quan không đổi số sổ; thử lại đọc được cơ
   await page.locator('.ov-part-link').first().waitFor();
 }, debtor));
 
+// CI 3/11/2026: hứa trả về sau khi người dùng đã Tab tới nút sang thẻ khác (data-the) — vẽ lại thẻ không được làm rơi tiêu điểm.
+test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác', async () => withPage(async ({ page }) => {
+  await ready(page);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route(/\/api\/v7\/marks\?/, async route => { await held; await route.continue(); }, { times: 1 });
+  await page.reload();
+  const go = page.locator('#the-tinh-hinh .tab-go').last();
+  await go.waitFor();
+  await go.focus();
+  const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
+  release();
+  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
+}, debtor));
+
 test('Không đọc được hứa trả thì không tự quyết định nhắc nợ', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/marks\?/, route => route.abort(), { times: 1 });
