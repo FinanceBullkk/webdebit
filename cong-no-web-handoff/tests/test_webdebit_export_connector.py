@@ -189,14 +189,14 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         header = ["STT", "GIÁ", "NOTE", "CỬA KHẨU", "XE", "MÃ TEM", "DC", "SỐ CONT", "SỐ XE", "SỐ MOOC", "KHO", "CHỦ HÀNG",
                   "SHIPPER", "CONSIGNEE", "NOTIFY", "NGÀY ĐÓNG HÀNG", "NGÀY KHỞI HÀNH", "NHÀ XE"]
 
-        def line(cont, packed, departed="", gate="CHIMA", plate="77H-02342", warehouse="/", owner="KHÁCH A 324", shipper="/"):
+        def line(cont, packed, departed="", gate="CHIMA", plate="99Z-00001", warehouse="/", owner="KHÁCH A 324", shipper="/"):
             cells = dict(zip(header, [""] * len(header), strict=True))
             cells.update({"CỬA KHẨU": gate, "SỐ CONT": cont, "SỐ XE": plate, "KHO": warehouse, "CHỦ HÀNG": owner,
                           "SHIPPER": shipper, "NGÀY ĐÓNG HÀNG": packed, "NGÀY KHỞI HÀNH": departed})
             return [cells[h] for h in header]
         values = [header,
-                  line(" emcu 5321485 ", "/", "2/10/2026"),
-                  line("HDMU5475470", "24/10/2026", "25/10/2026", gate="TÀ LÙNG (水口)", warehouse="LÂM ĐỒNG", shipper="CTY A"),
+                  line(" faku 1000001 ", "/", "2/10/2026"),
+                  line("FAKU1000002", "24/10/2026", "25/10/2026", gate="TÀ LÙNG (水口)", warehouse="LÂM ĐỒNG", shipper="CTY A"),
                   line("DUPU0000001", "3/10/2026"), line("DUPU0000001", "3/10/2026"),
                   line("NOGT0000001", "4/10/2026", gate="/"),
                   line("NODT0000001", "/", "/"),
@@ -206,7 +206,7 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         first, second = rows[0], rows[1]
         self.assertEqual((first["source_row"], first["container"], first["event_date"], first["source_date"], first["plate"],
                           first["gate"], first["warehouse"], first["shipper"], first["owner"]),
-                         (2, "EMCU5321485", "2026-10-02", "2/10/2026", "77H-02342", "CHIMA", "", "", "KHÁCH A 324"))
+                         (2, "FAKU1000001", "2026-10-02", "2/10/2026", "99Z-00001", "CHIMA", "", "", "KHÁCH A 324"))
         self.assertEqual((second["event_date"], second["warehouse"], second["shipper"]), ("2026-10-24", "LÂM ĐỒNG", "CTY A"))
         # Đảo cột vẫn đọc đúng; thiếu một cột cần thì dừng, không đoán.
         order = list(reversed(range(len(header))))
@@ -219,7 +219,7 @@ class WebdebitExportConnectorTests(unittest.TestCase):
 
     def test_read_road_hashes_the_tab(self):
         header = list(connector.ROAD_COLUMNS.values())
-        tab = [header, ["EMCU5321485", "77H-02342", "KHÁCH A", "CHIMA", "/", "/", "/", "2/10/2026"]]
+        tab = [header, ["FAKU1000001", "99Z-00001", "KHÁCH A", "CHIMA", "/", "/", "/", "2/10/2026"]]
         requested = []
 
         class Response:

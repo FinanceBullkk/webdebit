@@ -520,10 +520,10 @@ class AutoRoadTests(unittest.TestCase):
         sha = "d" * 64
 
         def item(line, container, date, state="NEW"):
-            return {"source_row": line, "container": container, "event_date": date, "carrier": "77H-02342", "origin": "—",
+            return {"source_row": line, "container": container, "event_date": date, "carrier": "99Z-00001", "origin": "—",
                     "destination": "CHIMA", "shipper": None, "booking": "", "src": f"sheet:{sha}:{line}",
                     "note": "Chuyến bộ đồng bộ", "sync_state": state, "sync_reason": "" if state == "NEW" else "OTHER_CUSTOMER"}
-        self.items = [item(5, "EMCU5321485", "2026-10-02"), item(6, "SZLU9888410", "2026-11-02"),
+        self.items = [item(5, "FAKU1000001", "2026-10-02"), item(6, "FAKU1000003", "2026-11-02"),
                       item(7, "FUTU0000001", "2026-11-03"),                      # sau hôm nay: chờ
                       item(8, "OTHU0000001", "2026-10-05", state="CONFLICT")]   # vướng sổ khác: để người
         self.road = {"snapshot_sha256": sha, "items": self.items}
@@ -577,8 +577,8 @@ class AutoRoadTests(unittest.TestCase):
                                   ("set_month_lock", "2026-10-01", True, 5, machine), ("paste_trips", "2026-11-01", None, 6, machine)])
         trips = [t for c in self.calls if c[0] == "paste_trips" for t in c[1]["trips"]]
         self.assertEqual([(t["container"], t["src"], t["note"], t["from"], t["unitPriceVnd"]) for t in trips],
-                         [("EMCU5321485", "sheet:" + "d" * 64 + ":5", "Chuyến bộ đồng bộ", "—", None),
-                          ("SZLU9888410", "sheet:" + "d" * 64 + ":6", "Chuyến bộ đồng bộ", "—", None)])
+                         [("FAKU1000001", "sheet:" + "d" * 64 + ":5", "Chuyến bộ đồng bộ", "—", None),
+                          ("FAKU1000003", "sheet:" + "d" * 64 + ":6", "Chuyến bộ đồng bộ", "—", None)])
         auto = view["auto"]
         self.assertEqual((auto["today_trips"], auto["errors"]), (2, 0))
         self.assertTrue(all(entry["road"] for entry in auto["trip_items"]))

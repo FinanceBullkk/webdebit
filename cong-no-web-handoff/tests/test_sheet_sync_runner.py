@@ -39,7 +39,7 @@ class SheetSyncRunnerTests(unittest.TestCase):
             }), encoding="utf-8")
             road_path = Path(directory) / "out" / "road.json"
             with patch.object(runner, "read_road", lambda sheet, token: {
-                    "row_count": 1, "sha256": "c" * 64, "rows": [{"container": "EMCU5321485"}], "source": {}}):
+                    "row_count": 1, "sha256": "c" * 64, "rows": [{"container": "FAKU1000001"}], "source": {}}):
                 road = runner.run_road_once(str(credential_path), "sheet-id", str(road_path), lambda _: "token")
             saved = json.loads(road_path.read_text(encoding="utf-8"))
             self.assertEqual((road["runner"]["source"], saved["row_count"], saved["runner"]["mode"]), ("cont_bo", 1, "read-only"))

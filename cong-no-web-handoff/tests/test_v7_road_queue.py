@@ -17,7 +17,7 @@ CUSTOMERS = [{"id": 7, "name": "DUONG BO KHACH A 324", "status": "active"},
              {"id": 9, "name": "KHACH C", "status": "draft"}]
 
 
-def road_row(line, container, date, status="READY", gate="CHIMA", plate="77H-02342", warehouse="", owner="KHÁCH KHO 336"):
+def road_row(line, container, date, status="READY", gate="CHIMA", plate="99Z-00001", warehouse="", owner="KHÁCH KHO 336"):
     return {"source_row": line, "container": container, "event_date": date, "source_date": date, "plate": plate,
             "gate": gate, "warehouse": warehouse, "shipper": "", "owner": owner, "status": status}
 
@@ -37,20 +37,20 @@ class BuildRoadQueueTests(unittest.TestCase):
         return build_road_queue({"sha256": SHA, "rows": road_rows}, {"rows": tab_rows}, CUSTOMERS)
 
     def test_book_comes_from_the_one_tab_holding_the_container_not_from_the_owner_column(self):
-        queue = self.build([road_row(12, "EMCU5321485", "2026-10-02", warehouse="LÂM ĐỒNG")],
-                           [tab_row("DUONG BO KHACH A 324", 382, "EMCU5321485", "2026-10-03"),
-                            tab_row("KHACH B", 40, "EMCU5321485", "2026-08-31", month="2026-08")])   # container dùng lại
+        queue = self.build([road_row(12, "FAKU1000001", "2026-10-02", warehouse="LÂM ĐỒNG")],
+                           [tab_row("DUONG BO KHACH A 324", 382, "FAKU1000001", "2026-10-03"),
+                            tab_row("KHACH B", 40, "FAKU1000001", "2026-08-31", month="2026-08")])   # container dùng lại
         self.assertEqual(queue["stats"], {"BOOK": 1})
         item = queue["items"][0]
         self.assertEqual((item["customer_id"], item["customer_tab"], item["tab_row"], item["tab_debt_month"]),
                          (7, "DUONG BO KHACH A 324", 382, "2026-10"))
         # Ngày theo CONT_BO; xe, cửa khẩu, kho theo CONT_BO; CHỦ HÀNG chỉ để hiện.
         self.assertEqual((item["event_date"], item["carrier"], item["destination"], item["origin"], item["owner"]),
-                         ("2026-10-02", "77H-02342", "CHIMA", "LÂM ĐỒNG", "KHÁCH KHO 336"))
+                         ("2026-10-02", "99Z-00001", "CHIMA", "LÂM ĐỒNG", "KHÁCH KHO 336"))
         self.assertEqual((item["src"], item["note"], item["booking"]), (f"sheet:{SHA}:12", NOTE, ""))
 
     def test_alias_tab_and_blank_warehouse(self):
-        queue = self.build([road_row(3, "HDMU5475470", "2026-10-24")], [tab_row("KHACH B CU", 108, "HDMU5475470", None)])
+        queue = self.build([road_row(3, "FAKU1000002", "2026-10-24")], [tab_row("KHACH B CU", 108, "FAKU1000002", None)])
         self.assertEqual((queue["items"][0]["customer_id"], queue["items"][0]["origin"]), (8, NO_WAREHOUSE))
 
     def test_rows_that_cannot_be_placed_are_counted_never_guessed(self):
@@ -108,10 +108,10 @@ class RoadProjectionApiTests(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         folder = Path(self.dir.name)
         self.road, self.prices = folder / "road.json", folder / "prices.json"
-        rows = [road_row(2, "EMCU5321485", "2026-10-02"), road_row(3, "SZLU9888410", "2026-10-02")]
+        rows = [road_row(2, "FAKU1000001", "2026-10-02"), road_row(3, "FAKU1000003", "2026-10-02")]
         self.road.write_text(json.dumps({"sha256": SHA, "row_count": 2, "rows": rows}), encoding="utf-8")
-        tabs = [tab_row("DUONG BO KHACH A 324", 382, "EMCU5321485", "2026-10-02"),
-                tab_row("DUONG BO KHACH A 324", 383, "SZLU9888410", "2026-10-02")]
+        tabs = [tab_row("DUONG BO KHACH A 324", 382, "FAKU1000001", "2026-10-02"),
+                tab_row("DUONG BO KHACH A 324", 383, "FAKU1000003", "2026-10-02")]
         self.prices.write_text(json.dumps({"sha256": "b" * 64, "row_count": 2, "rows": tabs}), encoding="utf-8")
         self.calls = []
         test = self
@@ -122,9 +122,9 @@ class RoadProjectionApiTests(unittest.TestCase):
                 if function == "list_customers":
                     return {"customers": CUSTOMERS}
                 if function == "list_sheet_trip_refs":
-                    return {"items": [{"customer_id": 8, "container": "SZLU9888410"}]}
+                    return {"items": [{"customer_id": 8, "container": "FAKU1000003"}]}
                 if function == "get_ledger":
-                    return ledger(trips=[{"id": 5, "container": "SZLU9888410", "event_date": "2026-10-03"}], customer_id=8)
+                    return ledger(trips=[{"id": 5, "container": "FAKU1000003", "event_date": "2026-10-03"}], customer_id=8)
                 if function == "list_legacy_trip_refs":
                     return {"items": []}
                 raise AssertionError(function)
@@ -141,7 +141,7 @@ class RoadProjectionApiTests(unittest.TestCase):
                 patch.object(v7_api_sheet, "PRICE_SNAPSHOT_PATH", str(self.prices)):
             result = v7_api_sheet.road_projection(self.runner, ledger(), "t")
         self.assertEqual([(r["container"], r["sync_state"], r["sync_reason"]) for r in result["items"]],
-                         [("EMCU5321485", "NEW", ""), ("SZLU9888410", "CONFLICT", "OTHER_CUSTOMER")])
+                         [("FAKU1000001", "NEW", ""), ("FAKU1000003", "CONFLICT", "OTHER_CUSTOMER")])
 
     def test_paste_keeps_the_road_source_and_note(self):
         pasted = []
@@ -150,7 +150,7 @@ class RoadProjectionApiTests(unittest.TestCase):
             def run(self, function, payload, actor):
                 pasted.append(payload)
                 return {"trip_ids": [41], "pending_review": []}
-        item = {"source_row": 2, "container": "EMCU5321485", "event_date": "2026-10-02", "carrier": "77H-02342",
+        item = {"source_row": 2, "container": "FAKU1000001", "event_date": "2026-10-02", "carrier": "99Z-00001",
                 "origin": NO_WAREHOUSE, "destination": "CHIMA", "shipper": None, "booking": "",
                 "src": f"sheet:{SHA}:2", "note": NOTE}
         result = v7_api_sheet.paste_sheet_rows(Runner(), 7, 3, SHA, "k", [item], "may")
