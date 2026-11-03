@@ -378,6 +378,8 @@ class AutoDateFillTests(unittest.TestCase):
                  event_date="2026-04-01", existing_debt_month="2026-03-01"),
             dict(fill, changed_fields=["event_date"], existing_id=8, source_row=15, container="D4",   # đã có ngày: người xem
                  event_date="2026-03-20", existing_debt_month="2026-03-01", existing_values={"event_date": "2026-03-10"}),
+            dict(fill, changed_fields=["event_date"], existing_id=9, source_row=16, container="D5",   # cùng tháng 3 với D1
+                 event_date="2026-03-25", existing_debt_month="2026-03-01"),
         ]
         self.inbox = v7_inbox.Inbox(lambda runner, ledger, actor: projection(sheet_sync={"items": [], "removed_items": []}),
                                     lambda: (str(self.path),))
@@ -403,7 +405,7 @@ class AutoDateFillTests(unittest.TestCase):
 
     def test_summary_counts_fill_as_machine_text_work(self):
         book = v7_inbox.summarize(1, projection(sheet_sync={"items": self.items, "removed_items": []}))
-        self.assertEqual((book["text_diff"], book["trips_check"]["count"]), (2, 2))
+        self.assertEqual((book["text_diff"], book["trips_check"]["count"]), (3, 2))
 
     def test_fills_date_only_for_undated_same_month_rows(self):
         with patch.object(v7_inbox, "sheet_projection", return_value={"snapshot_sha256": "e" * 64, "items": self.items}), \
@@ -413,16 +415,37 @@ class AutoDateFillTests(unittest.TestCase):
                    c[1].get("month"), c[1].get("locked"), c[1]["expected_version"])
                   for c in self.calls if c[0] != "get_ledger"]
         self.assertEqual(writes, [
-            ("set_month_lock", None, None, None, "2026-03-01", False, 3),       # tháng 3 khóa
-            ("edit_legacy_trip", 5, "event_date", "2026-03-18", None, None, 4),
-            ("set_month_lock", None, None, None, "2026-03-01", True, 5),
-            ("resolve_sheet_conflict", 6, "origin", None, None, None, 6),       # ô chữ như trước
-            ("edit_legacy_trip", 6, "event_date", "2026-11-02", None, None, 7),  # tháng 11 đang mở: sửa thẳng
+            ("resolve_sheet_conflict", 6, "origin", None, None, None, 3),       # ô chữ trước, không cần mở tháng
+            ("set_month_lock", None, None, None, "2026-03-01", False, 4),       # tháng 3 khóa: mở một lần
+            ("edit_legacy_trip", 5, "event_date", "2026-03-18", None, None, 5),
+            ("edit_legacy_trip", 9, "event_date", "2026-03-25", None, None, 6),
+            ("set_month_lock", None, None, None, "2026-03-01", True, 7),        # khóa lại một lần cho cả hai dòng
+            ("edit_legacy_trip", 6, "event_date", "2026-11-02", None, None, 8),  # tháng 11 đang mở: sửa thẳng
         ])
         self.assertTrue(all(c[2] == v7_inbox.AUTO_ACTOR for c in self.calls))
         self.assertEqual(self.inbox.auto_errors, 0)
         self.assertEqual([(i["container"], i["field"], i["after"]) for i in self.inbox.auto_log if i["field"] == "event_date"],
-                         [("D2", "event_date", "2026-11-02"), ("D1", "event_date", "2026-03-18")])
+                         [("D2", "event_date", "2026-11-02"), ("D5", "event_date", "2026-03-25"),
+                          ("D1", "event_date", "2026-03-18")])
+
+    def test_error_in_month_relocks_once_and_keeps_earlier_fills(self):
+        test = self
+        original = self.runner.run
+
+        def failing(function, payload, actor):
+            if function == "edit_legacy_trip" and payload["legacy_row_id"] == 9:
+                test.calls.append((function, payload, actor))
+                raise ApiError(409, "STALE_LEDGER", "x")
+            return original(function, payload, actor)
+        self.runner.run = failing
+        with patch.object(v7_inbox, "sheet_projection", return_value={"snapshot_sha256": "e" * 64, "items": self.items}), \
+                patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "text"}):
+            self.inbox._auto_text(self.runner, 1)
+        locks = [c[1]["locked"] for c in self.calls if c[0] == "set_month_lock"]
+        self.assertEqual(locks, [False, True])                     # lỗi giữa tháng: vẫn khóa lại, đúng một lần
+        self.assertFalse([c for c in self.calls if c[0] == "edit_legacy_trip" and c[1]["legacy_row_id"] == 6])  # dừng sổ
+        self.assertEqual(self.inbox.auto_errors, 1)
+        self.assertEqual([i["container"] for i in self.inbox.auto_log if i["field"] == "event_date"], ["D1"])
 
 
 class ApiInboxRoute(unittest.TestCase):
