@@ -70,8 +70,9 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="xoa-dc-thang-01"></a>[XOA-DC-THANG-01](decisions/xoa-dc-thang-01.md) | Xóa dòng điều chỉnh cả tháng |  |
 | <a id="deploy-claude-01"></a>[DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md) | Claude tự triển khai SQL/migration lên hao |  |
 | <a id="gia-nguon-01"></a>[GIA-NGUON-01](decisions/gia-nguon-01.md) | Đơn giá web lấy từ sổ gốc tới ngày chuyển hẳn |  |
-| <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04); quy tắc giữ |
-| <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận |  |
+| <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04) rồi [DASH-05](#dash-05); quy tắc giữ |
+| <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận | Cách trình bày thay bởi [DASH-05](#dash-05) |
+| <a id="dash-05"></a>[DASH-05](decisions/dash-05.md) | Tổng quan ít chữ theo canvas: chip mức rủi ro thay ma trận, bấm tên mở Tình hình, bảng triệu, nhãn "Không quá hạn" |  |
 | <a id="can-du-01"></a>[CAN-DU-01](decisions/can-du-01.md) | Nợ từng tháng theo chuẩn tuổi nợ: khoản dư cấn vào tháng nợ cũ nhất | Thay vế số nợ từng tháng của [V7-BE](#v7-be) (6) |
 | <a id="debit-note-02"></a>[DEBIT-NOTE-02](decisions/debit-note-02.md) | Mẫu Debit Note v3 sếp duyệt: bố cục, 8 loại phí, quy tắc tính, kiểm tra trước phát hành | Thay bố cục và điểm (3) thiếu giá của [DEBIT-NOTE-01](#debit-note-01) |
 | <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + nút Copy tin nhắc; sửa đổi 30/10/2026: trang Chat Zalo đọc nội dung từ bản xuất (ZALO-CHAT-01) | Đã code; bản xuất chat chưa đặt lên `hao` |
@@ -81,6 +82,10 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="hang-cho-01"></a>[HANG-CHO-01](decisions/hang-cho-01.md) | Hàng chờ Sheet → web: máy tự lấy chữ mô tả theo Sheet khi tiền không đổi (Q1), chuyến mới đủ điều kiện tự vào sổ kể cả chưa có giá, chưa giá thì không cộng nợ (Q2, Q5), phiếu thu và giá từ Sheet người xác nhận ở hộp chung (Q3) | Chưa triển khai; Q2 cho khách nhiều sổ chờ Q4 |
 | <a id="khoa-chu-01"></a>[KHOA-CHU-01](decisions/khoa-chu-01.md) | Tháng khóa vẫn sửa được bốn ô chữ (nơi đi, nơi đến, shipper, hãng tàu), có Lịch sử; tiền, ngày, container, xóa vẫn khóa | Migration 2026-11-01-v7-khoa-chu.sql |
 | <a id="zalo-group-01"></a>[ZALO-GROUP-01](decisions/zalo-group-01.md) | Theo dõi nợ trong group Zalo: dựng lại tin có ảnh, đánh dấu tin (hứa trả, khách báo đã chuyển, ghi chú), nối vào thẻ Trao đổi; chỉ group được chọn lên `hao` | G1–G3 đã lên `hao` 1/11/2026 (bảng và API có, `hao` chưa có gói chat); G4 giao diện đánh dấu; G5 đường đẩy gói có trên `hao`, chờ người dùng chọn group |
+| <a id="ho-so-01"></a>[HO-SO-01](decisions/ho-so-01.md) | Thẻ Hồ sơ theo khung HoSoV4 (nhận diện → doanh nghiệp và quan hệ → thỏa thuận → tài liệu, hai cột 62/38, cảnh báo gắn vào mục); bốn quy tắc hạng khách, tín dụng, hạn mức, vượt hạn mức chỉ cảnh báo | Giai đoạn A chỉ dữ liệu đã có; quy tắc và mục khác cần backend (giai đoạn B) |
+| <a id="vcl-giu-01"></a>[VCL-GIU-01](decisions/vcl-giu-01.md) | Giữ giá web và giữ chuyến tới khi dòng Sheet liên quan đổi; lưu server và Lịch sử | Chốt 2/11/2026; lên `hao` 3/11/2026 ([nhật ký](deploys/2026-11-03-viec-can-lam.md)) |
+| <a id="may-khoa-01"></a>[MAY-KHOA-01](decisions/may-khoa-01.md) | Khóa tháng chỉ chặn người: máy (theo Sheet) mở, ghi, khóa lại để điền ngày cho dòng sổ gốc không ngày cùng tháng, và đưa chuyến mới vào tháng khóa từ 10/2026 | Chốt 3/11/2026; chỉ đổi code app |
+| <a id="nguon-chuyen-01"></a>[NGUON-CHUYEN-01](decisions/nguon-chuyen-01.md) | Chuyến theo booking (ngày; khách, mặt hàng với chuyến biển), tiền theo sổ gốc; lệch vào hộp ngoại lệ; nguồn `CONT_NGUON`, `CONT_BO` (giữ tab), booking 2025 | Chốt 3/11/2026; chưa triển khai, giai đoạn ở [spec](../specs/v7-chuyen-theo-nguon.md) |
 
 ## Cập nhật khóa tháng 24/10/2026
 

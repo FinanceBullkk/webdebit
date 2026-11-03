@@ -38,73 +38,20 @@
   const colTags = (from, to) => wide.slice(from, to).map((width, index) => `<col style="width:${width}px" class="col-${from + index}">`).join('');
   let widths = colTags(0, wide.length);
   let ownCount = 0;
-  // Bề rộng từng cột ở hai khổ sổ (1696px màn rộng, 1258px màn 1280): [màn rộng, tối thiểu màn rộng, màn 1280, tối thiểu màn 1280].
-  // Mỗi cột riêng lấy chỗ từ các cột theo thứ tự `shrinkOrder`, không cột nào hẹp hơn mức tối thiểu.
-  // SO-GON-04 (H4): số tiền 16px, nên ở màn 1280 cột tiền (Đơn giá, Khác, Thành tiền) không co dưới chỗ cần cho số 16px; cột chữ
-  // (cắt "…", rê chuột xem đủ) co trước. Co hết vẫn thiếu (Shipper + 3 cột riêng) thì cả sổ dùng khổ chật: số 15px, cột tiền hẹp lại.
-  const liveColumns = [[52, 44, 44, 40], [148, 120, 112, 104], [104, 80, 62, 50], [188, 120, 130, 64], [104, 96, 90, 86], [118, 90, 80, 56],
-    [118, 90, 80, 56], [128, 110, 100, 100], [116, 100, 88, 88], [148, 120, 120, 120], [124, 100, 90, 84], [124, 100, 84, 78], [224, 150, 178, 120]];
-  // SO-GON-06: bản live không còn ba cột thu (phiếu thu là khối riêng ở đầu tháng); chỗ của chúng trả cho các cột chuyến.
-  const PAY = [10, 11, 12];
-  const shrinkOrder = [3, 5, 6, 1, 2, 4, 7, 9, 8, 0];
-  // Khổ chật (chỉ màn 1280): cột riêng 80px, Đơn giá 92, Khác 80, Thành tiền 108 — vừa số 15px.
-  const TIGHT_OWN = 80, TIGHT_MONEY = [[7, 92], [8, 80], [9, 108]];
-  let tight = false;
-  const isWide = () => typeof matchMedia !== 'function' || !matchMedia('(max-width:1877px)').matches;
-  // Audit UX 31/10/2026 (P0-2): cột Shipper chỉ hiện khi sổ có ít nhất một dòng có shipper (sổ thật và sổ giả hiện đều trống).
-  // Bỏ cột thì cột phụ phí riêng lấy chỗ của nó trước; phần còn lại chia cho hãng tàu, nơi đi, nơi đến (cột chữ hay bị cắt "…").
-  const SHIPPER = 3;
+  const tight = false;
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
   function useLiveColumns(ownNames, shipper = true) {
-    const wideMode = isWide();
-    let ownWidth = wideMode ? 110 : 88;
-    const base = liveColumns.map(item => wideMode ? item[0] : item[2]);
-    const floor = liveColumns.map(item => wideMode ? item[1] : item[3]);
-    if (!shipper) floor[SHIPPER] = 0;
-    let need = Math.max(0, ownNames.length * ownWidth - PAY.reduce((sum, index) => sum + base[index], 0));
-    for (const index of shipper ? shrinkOrder : [SHIPPER, ...shrinkOrder.filter(item => item !== SHIPPER)]) {
-      const take = Math.min(need, base[index] - floor[index]);
-      base[index] -= take; need -= take;
-    }
-    tight = need > 0;
-    if (tight) {
-      need = Math.max(0, need - ownNames.length * (ownWidth - TIGHT_OWN));
-      ownWidth = TIGHT_OWN;
-      for (const [index, width] of TIGHT_MONEY) {
-        const take = Math.min(need, base[index] - width);
-        base[index] -= take; need -= take;
-      }
-    }
-    if (!shipper) {
-      const spare = base[SHIPPER], carrier = Math.round(spare * 0.3), origin = Math.round(spare * 0.35);
-      base[2] += carrier; base[5] += origin; base[6] += spare - carrier - origin;
-      base.splice(SHIPPER, 1);
-    }
     showShipper = shipper;
     ownCount = ownNames.length;
-    const tripNames = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá'];
-    labels = [...tripNames, ...ownNames, 'Khác', 'Thành tiền'];
-    wide = [...base.slice(0, tripNames.length), ...ownNames.map(() => ownWidth), ...base.slice(tripNames.length, tripNames.length + 2)];
-    // SO-GON-05: sổ co giãn theo màn hình; phần bề ngang dư (so với khổ tối thiểu) dồn cho cột chữ hay bị cắt "…", cột tiền
-    // giữ bề rộng vừa số. `fitWidth` là bề ngang thật của vùng sổ ở lần vẽ trước (0 lúc chưa vẽ). Vùng sổ hẹp hơn khổ tối thiểu
-    // một chút (thanh cuộn dọc 15px của Chrome Windows ở màn 1280) thì cột chữ nhường phần thiếu, để không có thanh cuộn ngang.
-    const extra = Math.floor(fitWidth) - wide.reduce((sum, width) => sum + width, 0);
-    if (live && fitWidth && extra !== 0 && extra >= -MAX_SHRINK) {
-      const share = Object.entries(TEXT_SHARE).map(([name, weight]) => [labels.indexOf(name), weight]).filter(([index]) => index >= 0);
-      const weights = share.reduce((sum, [, weight]) => sum + weight, 0);
-      let left = extra;
-      for (const [position, [index, weight]] of share.entries()) {
-        const add = position === share.length - 1 ? left : Math.floor(extra * weight / weights);
-        wide[index] += add; left -= add;
-      }
-    }
+    labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
+    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownNames.map(() => 88), 82, 120];
+    const extra = Math.max(0, Math.floor(fitWidth) - 28 - wide.reduce((sum, value) => sum + value, 0));
+    const share = shipper ? Math.floor(extra / 2.4 + 10) : 0;
+    if (shipper) wide[3] += share;
+    wide[labels.indexOf('Tuyến')] += extra - share;
     widths = colTags(0, wide.length);
   }
-  // Cột chữ nhường tối đa chừng này px khi vùng sổ hẹp hơn khổ tối thiểu (thanh cuộn, lề).
-  const MAX_SHRINK = 60;
-  // Tỉ lệ chia phần bề ngang dư cho cột chữ (SO-GON-05).
-  const TEXT_SHARE = { 'Hãng tàu': 1, Shipper: 2, 'Nơi đi': 2, 'Nơi đến': 1.5 };
   let fitWidth = 0;
   // Chỉ số cột: chuyến 0..tripCols-1 (cụm phụ phí từ feeStart()). Bản fixture còn ba cột phiếu thu ở cuối; bản live không
   // (SO-GON-06: phiếu thu là khối riêng ở đầu tháng).
@@ -248,24 +195,26 @@
   function renderShell(view) {
     const scrollY = window.scrollY;
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách, Lịch sử, tổng còn nợ.
-    // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = ← Quay lại, tên khách, mặt hàng, thanh bốn thẻ
+    // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = Sổ khách / tên khách ▾, thanh bốn thẻ
     // (so-khach-v7-tabs-ui.js, phần đó cũng dời ô tìm khách lên thanh trên), Tổng còn nợ, nút chính "Ghi phiếu thu" và nút phụ
     // Lịch sử (SO-GON-04 L7). Phần còn lại của sổ — dải nút việc chờ và "Làm mới" (không dính), các bảng tháng — là thẻ Sổ
     // (#the-so); khung các thẻ khác nằm sau.
+    const moreOpen = root.querySelector('.page-more')?.open;
     const liveControls = live && document.querySelector('#live-controls');
+    const refreshButton = live && document.querySelector('#refresh-data');
     // Nút "Ẩn con trỏ" của presence.js: giữ đúng nút đó (có trình nghe) và dời vào menu Cài đặt mỗi lần vẽ (SO-GON-06).
     const pointerToggle = live && document.querySelector('.presence-toggle');
     const history = `<button class="history-toggle" aria-expanded="${historyOpen}" aria-controls="history-panel">Lịch sử</button>`;
     const total = `<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div>`;
     const head = live
-      ? `<div class="book-head">${view.pageHead}<div class="head-item total"><span>Tổng còn nợ</span><strong>${view.total}</strong></div>`
-        + `${view.entryButton}${history}</div>`
+      ? `<div class="book-head">${view.pageHead}<details class="page-more"${moreOpen ? ' open' : ''}><summary aria-label="Thêm: Lịch sử, Cài đặt">⋯</summary>`
+        + `<div class="page-more-menu">${history}<div class="head-item total"><span>Tổng còn nợ (mọi tháng)</span><strong>${view.total}</strong></div></div></details>${view.entryButton}</div>`
       : `<div class="book-head"><h1>Sổ khách · ${escape(view.customer)}</h1>${history}${view.sheetButton ?? ''}${total}`;
     const pay = index => !live && index >= 9 && index <= 11;
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
       return `<th scope="col" class="${pay(index) ? 'pay ' : ''}${!live && index === 9 ? 'pay-start' : ''}`
-        + `${fee ? 'fee-h num' : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
+        + `${fee ? 'fee-h num' : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
     // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng. Khung Lịch sử nằm ngoài thẻ Sổ (mở được ở
@@ -283,6 +232,55 @@
     if (liveControls && liveSlot) liveSlot.append(liveControls);
     const settingsMenu = root.querySelector('.settings-menu');
     if (pointerToggle && settingsMenu) settingsMenu.append(pointerToggle);
+    const more = root.querySelector('.page-more-menu');
+    const settings = root.querySelector('.book-settings');
+    if (more && settings) more.append(settings);
+    if (live && typeof root.querySelectorAll === 'function') {
+      // Giữ phần vẽ và trình nghe hiện có; chỉ đổi nơi đặt các khối trong sổ live.
+      const section = root.querySelector('.ledger-book > section');
+      const slot = section?.querySelector('.month-pay-slot');
+      const pay = section?.querySelector('.pay-block');
+      if (slot && pay) {
+        slot.append(pay);
+        section.querySelector('.month-pay')?.remove();
+        const entry = root.querySelector('.book-head .entry-open');
+        if (entry) (document.body.dataset.the === 'so' ? pay.querySelector('.pay-head') : more)?.append(entry);
+      }
+      const columnTable = root.querySelector('.ledger-head');
+      const table = section?.querySelector('table.ledger');
+      const body = section?.querySelector('.month-body');
+      const summary = section?.querySelector('.month-summary-layout');
+      if (table && body && summary) {
+        const summaryBlock = document.createElement('div');
+        summaryBlock.className = 'month-card';
+        summaryBlock.append(summary);
+        section.prepend(summaryBlock);
+        section.querySelector('.month-summary')?.remove();
+        const title = section.querySelector('.month-title');
+        const controls = section.querySelector('.trip-tools');
+        if (title && controls) {
+          for (const button of title.querySelectorAll('button')) controls.append(button);
+          title.closest('tr').remove();
+        }
+        const trips = document.createElement('div');
+        trips.className = 'trip-card';
+        section.append(trips);
+        const bar = section.querySelector('.trip-toolbar');
+        if (bar) trips.append(bar);
+        if (columnTable) trips.append(columnTable);
+        trips.append(table);
+        for (const row of trips.querySelectorAll('.trip-list tr[data-row]')) {
+          row.cells[columns.unitPrice()]?.classList.add('unit-price');
+          row.lastElementChild?.classList.add('trip-amount');
+        }
+        const refresh = refreshButton;
+        if (refresh && controls) {
+          refresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>';
+          controls.prepend(refresh);
+        }
+        if (liveControls) controls?.prepend(liveControls);
+      }
+    }
     pinReceipts();
     window.scrollTo(0, scrollY);
   }
@@ -408,6 +406,12 @@
       const time = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${time} · tự tải mỗi 60 giây`;
       sheetRefresh?.paint();
+      const refresh = document.querySelector('#refresh-data');
+      if (refresh?.id === 'refresh-data') {
+        const label = `Làm mới từ Sheet · ${updated?.textContent ?? ''}`;
+        refresh.title = label;
+        refresh.setAttribute('aria-label', label);
+      }
       const active = data.status === 'active';
       const head = headView(data, active);
       const { sections, chips, work } = monthSections(data, active);
@@ -729,5 +733,13 @@
   if (!live) document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && historyOpen) { historyOpen = false; render(); root.querySelector('.history-toggle').focus(); }
   });
-  if (live) initLive(); else render();
+  if (live) {
+    const topbar = document.querySelector('.topbar');
+    const menuToggle = topbar?.querySelector('.nav-toggle');
+    menuToggle?.addEventListener('click', () => {
+      const expanded = topbar.classList.toggle('expanded');
+      menuToggle.setAttribute('aria-expanded', String(expanded));
+    });
+    initLive();
+  } else render();
 })();

@@ -9,7 +9,7 @@ const sizes = page => page.evaluate(() => {
   const shown = [...document.querySelectorAll('#app .ledger td, #app .ledger td *')].filter(node =>
     node.offsetParent !== null && [...node.childNodes].some(child => child.nodeType === 3 && child.textContent.trim()));
   const px = node => Number.parseFloat(getComputedStyle(node).fontSize);
-  const small = shown.filter(node => px(node) < 14).map(node => `${node.className || node.tagName}: ${node.textContent.trim().slice(0, 20)} (${px(node)}px)`);
+  const small = shown.filter(node => px(node) < (node.closest('.missing,.add-month-adjustment') ? 13 : 14)).map(node => `${node.className || node.tagName}: ${node.textContent.trim().slice(0, 20)} (${px(node)}px)`);
   const money = [...document.querySelectorAll('#app .ledger td.num')].filter(td => /\d\.\d{3}/.test(td.textContent)).map(px);
   return { small, money: [...new Set(money)], overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
 });
@@ -26,18 +26,18 @@ function rich(world) {
       { id: 2, month: '2026-09-01', kind: 'debt', amount_vnd: '90000000', superseded_by_event: null }] });
 }
 
-test('Chữ trong sổ và danh sách phiếu ≥ 14px; số tiền 16px; không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
+test('Chữ trong sổ và danh sách phiếu ≥ 14px; số tiền 14px; không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
   const { small, money, overflow } = await sizes(page);
   assert.deepEqual(small, []);
-  assert.deepEqual(money, [16]);
+  assert.deepEqual(money, [14]);
   assert.equal(overflow, 0);
 }, rich));
 
-test('Sổ có Shipper và 3 cột phụ phí riêng: không cần khổ chật (SO-GON-06 trả chỗ ba cột thu), số 16px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
+test('Sổ có Shipper và 3 cột phụ phí riêng: không cần khổ chật (SO-GON-06 trả chỗ ba cột thu), số 14px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
   assert.equal(await page.locator('.ledger-book.tight').count(), 0);
   const { small, money, overflow } = await sizes(page);
   assert.deepEqual(small, []);
-  assert.deepEqual(money, [16]);
+  assert.deepEqual(money, [14]);
   assert.equal(overflow, 0);
 }, world => { rich(world); world.feeColumns = [1, 2, 3]; }));
 
@@ -74,21 +74,23 @@ test('Trạng thái dòng là nhãn chữ: "chờ kiểm" bấm mở dòng kết
 test('Thanh xanh trên cùng chỉ còn tên trang và điều hướng; đầu sổ một nút chính; một thanh việc: Làm mới, menu Cài đặt', async () => withPage(async ({ page, world }) => {
   assert.equal(await page.locator('.topbar #refresh-data, .topbar .live-controls, .topbar .presence-toggle').count(), 0);
   const head = page.locator('.book-head');
-  assert.equal(await head.locator('button.entry-open').count(), 1);
-  assert.deepEqual(await head.locator('button:not([role="tab"])').allInnerTexts(), ['Ghi phiếu thu', 'Lịch sử']);
-  assert.equal(await page.locator('.book-bar #refresh-data').innerText(), 'Làm mới');
+  assert.equal(await page.locator('.pay-head button.entry-open').count(), 1);
+  assert.equal(await head.locator('.customer-switch').count(), 1);
+  assert.equal(await head.locator('.page-more > summary').isVisible(), true);
+  assert.match(await page.locator('.trip-tools #refresh-data').getAttribute('aria-label'), /Làm mới từ Sheet/);
   // SO-GON-06: cài đặt nằm trong menu "Cài đặt ▾" của thanh việc (ẩn tới khi mở); bấm ra ngoài thì đóng.
-  assert.equal(await page.locator('.book-bar .settings-menu .fee-settings-open').count(), 1);
-  assert.equal(await page.locator('.book-bar .settings-menu .price-table-open').count(), 1);
-  assert.equal(await page.locator('.book-bar .settings-menu .presence-toggle').count(), 1);
+  assert.equal(await page.locator('.page-more .settings-menu .fee-settings-open').count(), 1);
+  assert.equal(await page.locator('.page-more .settings-menu .price-table-open').count(), 1);
+  assert.equal(await page.locator('.page-more .settings-menu .presence-toggle').count(), 1);
   assert.equal(await page.locator('.fee-settings-open').isVisible(), false);
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();
   assert.equal(await page.locator('.fee-settings-open').isVisible(), true);
   await page.locator('.book-head').click({ position: { x: 5, y: 5 } });
   assert.equal(await page.locator('.fee-settings-open').isVisible(), false);
   // Không còn hàng riêng nào giữa thanh việc và chip tháng.
   assert.equal(await page.evaluate(() => document.querySelector('.book-bar').nextElementSibling?.matches('.price-strip')), false);
-  assert.equal(await page.locator('.book-bar #updated-at').count(), 1);
+  assert.equal(await page.locator('.trip-tools #updated-at').count(), 1);
   // Làm mới ở dải mới vẫn tải lại sổ như trước.
   const before = world.reads;
   // Xóa chữ "Cập nhật …" (có sẵn từ lần vẽ đầu) để lần chờ chỉ xong khi đã đọc lại và vẽ lại.

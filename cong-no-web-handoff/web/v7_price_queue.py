@@ -17,12 +17,14 @@ exactly as the Sheet shows it.
 from __future__ import annotations
 
 import datetime as dt
-import json
 import re
 from collections import Counter
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+
+from v7_sheet_queue import read_snapshot
+from v7_sheet_task_keep import kept, price_identity
 
 DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
@@ -59,18 +61,7 @@ def money(value: Any) -> int | None:
 
 
 def load_price_snapshot(path: str | Path) -> dict[str, Any]:
-    try:
-        with open(path, encoding="utf-8") as stream:
-            snapshot = json.load(stream)
-    except (OSError, ValueError) as exc:
-        raise ValueError("Sheet price snapshot unavailable") from exc
-    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("Sheet price snapshot invalid")
-    if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("Sheet price snapshot hash missing")
-    if snapshot.get("row_count") != len(snapshot["rows"]):
-        raise ValueError("Sheet price snapshot row count mismatch")
-    return snapshot
+    return read_snapshot(path, "Sheet price snapshot")
 
 
 def owners(customers: list[dict]) -> dict[str, tuple[Any, str]]:
@@ -180,21 +171,37 @@ def mark_shared(results: list[dict]) -> list[dict]:
             for r in results]
 
 
-def project_prices(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
+def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
     customer = ledger.get("customer_id")
     rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == customer]
     pool = targets(ledger)
+    by_target = {(target["kind"], target["id"]): target for target in pool}
     results = mark_shared([classify(row, pool) for row in rows])
     keep = ("customer_tab", "source_row", "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd",
-            "status", "target_kind", "target_id", "web_unit_price_vnd", "web_other_fee_vnd")
-    money_fields = ("sheet_unit_price_vnd", "sheet_other_fee_vnd", "web_unit_price_vnd", "web_other_fee_vnd")
+            "status", "target_kind", "target_id", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd", "batchable")
+    money_fields = ("sheet_unit_price_vnd", "sheet_other_fee_vnd", "web_unit_price_vnd", "web_other_fee_vnd", "web_total_vnd")
 
     def public(result: dict) -> dict:
         # Money leaves the API as exact decimal strings, NULL stays null (same contract as get_ledger).
-        return {k: (None if result[k] is None else str(result[k])) if k in money_fields else result[k] for k in keep}
+        target = by_target.get((result["target_kind"], result["target_id"]))
+        price, fee = result["sheet_unit_price_vnd"], result["sheet_other_fee_vnd"]
+        changed = target is not None and (price != target["price"] or (fee or 0) != (target["fee"] or 0))
+        sheet_total = result.get("sheet_total_vnd")
+        total_matches = price is not None and (sheet_total is None or sheet_total == price + (fee or 0))
+        batchable = (result["status"] == "CONFLICT" and target is not None and not target["locked"] and changed
+                     and total_matches and (target["kind"] == "trip" or (target["total"] is not None
+                         and sheet_total is not None)))
+        row = {k: batchable if k == "batchable" else
+               ((None if result[k] is None else str(result[k])) if k in money_fields else result[k]) for k in keep}
+        row["source_fingerprint"] = price_identity(result)
+        row["month_locked"] = target["locked"] if target else True
+        return row
     ready = [public(r) for r in results if r["status"] == "READY"]
     review = [public(r) for r in results if r["status"] in REVIEW]
+    if not include_kept:
+        review = [r for r in review if not kept(ledger, "price", r["target_kind"], r["target_id"],
+                  r["source_fingerprint"], {"unit_price_vnd": r["web_unit_price_vnd"], "other_fee_vnd": r["web_other_fee_vnd"]})]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}

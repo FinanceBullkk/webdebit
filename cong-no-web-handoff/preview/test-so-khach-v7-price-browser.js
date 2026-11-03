@@ -14,9 +14,9 @@ const missingTrip = { id: 12, month: '2026-09-01', container: 'NEWU0000012', car
 test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khung hỏi lại; giá gõ tay khác bảng được tô', async () => withPage(async ({ page, world, shot }) => {
   await page.waitForSelector('.price-table-apply');
   assert.equal(await page.locator('.price-table-apply').innerText(), 'Điền giá theo bảng (1 chuyến)');
-  const missing = page.locator('[data-row="trip-12"] td').nth(7);
+  const missing = page.locator('[data-row="trip-12"] td').nth(6);
   assert.match(await missing.innerText(), /chưa có giá\s*bảng 85\.000\.000/);
-  const typed = page.locator('[data-row="trip-11"] td').nth(7);
+  const typed = page.locator('[data-row="trip-11"] td').nth(6);
   assert.match(await typed.innerText(), /50\.000\.000\s*bảng 55\.000\.000/);
   assert.equal(await typed.evaluate(cell => cell.classList.contains('price-differs')), true);
   await shot('bang-gia-o-don-gia');
@@ -35,7 +35,7 @@ test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khun
   assert.deepEqual([body.customer_id, body.expected_version, body.trip_ids], [1, 1, [12]]);
   assert.match(body.idempotency_key, /^[0-9a-f-]{36}$/);
   await page.waitForSelector('.price-table-apply', { state: 'detached' });
-  assert.match(await page.locator('[data-row="trip-12"] td').nth(7).innerText(), /85\.000\.000\s*theo bảng/);
+  assert.match(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), /85\.000\.000\s*theo bảng/);
 }, world => {
   world.trips.push({ ...missingTrip });
   world.priceStatus = status([
@@ -46,7 +46,7 @@ test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khun
 test('bảng giá đổi: chuyến theo giá cũ của bảng có dải "Áp lại giá mới"; lý do không tra được hiện ở ô', async () => withPage(async ({ page, world }) => {
   await page.waitForSelector('.price-reapply-open');
   assert.match(await page.locator('.price-strip').innerText(), /1\s+chuyến đang ghi theo giá cũ của bảng/);
-  assert.match(await page.locator('[data-row="trip-12"] td').nth(7).innerText(), /chưa có giá\s*ngoài bảng giá/);
+  assert.match(await page.locator('[data-row="trip-12"] td').nth(6).innerText(), /chưa có giá\s*ngoài bảng giá/);
   assert.equal(await page.locator('.price-table-apply').count(), 0);
   await page.click('.price-reapply-open');
   assert.match(await page.locator('.price-panel.confirm').innerText(), /Áp lại giá mới của bảng cho 1 chuyến/);
@@ -72,6 +72,7 @@ const cell = (r, c) => `.price-table-dialog input[data-r="${r}"][data-c="${c}"]`
 const rowStatus = (page, r) => page.locator('.price-table-dialog tbody tr').nth(r).locator('td.st').innerText();
 
 test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy cột shipper TT), lỗi tại dòng, đổi giá từ ngày, lưu đúng dữ liệu gửi server', async () => withPage(async ({ page, world, shot }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
@@ -137,6 +138,7 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
 }));
 
 test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi đi giữ nguyên; lỗi server giữ bảng đang sửa; đóng khi chưa lưu thì hỏi', async () => withPage(async ({ page, world }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
@@ -162,6 +164,7 @@ test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi �
   assert.deepEqual(body.price_table.locations, [{ name: 'DAK LAK', aliases: ['DAKLAK'] }]);
   assert.deepEqual(body.price_table.tt_shippers, ['TT CHUẨN']);
 
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   await dialog.locator('.price-grid-main').waitFor();

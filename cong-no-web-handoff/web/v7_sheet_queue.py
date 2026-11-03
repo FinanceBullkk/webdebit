@@ -36,19 +36,24 @@ def _row_year(value: Any) -> int | None:
         return None
 
 
-def load_snapshot(path: str | Path) -> dict[str, Any]:
+def read_snapshot(path: str | Path, label: str = "Sheet snapshot") -> dict[str, Any]:
+    """One runner snapshot file: rows, a sha256 and a matching row_count. `label` starts every error message."""
     try:
         with open(path, encoding="utf-8") as stream:
             snapshot = json.load(stream)
     except (OSError, ValueError) as exc:
-        raise ValueError("Sheet snapshot unavailable") from exc
+        raise ValueError(f"{label} unavailable") from exc
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("Sheet snapshot invalid")
+        raise ValueError(f"{label} invalid")
     if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("Sheet snapshot hash missing")
+        raise ValueError(f"{label} hash missing")
     if snapshot.get("row_count") != len(snapshot["rows"]):
-        raise ValueError("Sheet snapshot row count mismatch")
+        raise ValueError(f"{label} row count mismatch")
     return snapshot
+
+
+def load_snapshot(path: str | Path) -> dict[str, Any]:
+    return read_snapshot(path)
 
 
 def load_baseline(path: str | Path) -> dict[str, Any]:
@@ -74,7 +79,10 @@ def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]]
     """
     exact = names.get(name, [])
     match = exact[0] if len(exact) == 1 and exact[0].get("status") == "active" else None
-    family = {c["id"]: c for c in exact + owners.get(name, []) if c.get("status") == "active"}
+    # Tên Sheet có thể nối thẳng tới tên một sổ (bí danh "KHÁCH H HTH1" → sổ "KHÁCH H-SR"): nhóm theo tên khách của sổ đó.
+    owner = _name(match.get("display_name")) if match and match.get("display_name") else ""
+    family = {c["id"]: c for c in exact + owners.get(name, []) + names.get(owner, []) + owners.get(owner, [])
+              if c.get("status") == "active"}
     if len(family) == 1:
         match = next(iter(family.values()))
     elif family and commodity:
@@ -155,11 +163,14 @@ def _same_legacy_trip(ref: dict[str, Any], container: str, date: dt.date) -> boo
 
 
 def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None,
-                     other_legacy: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                     other_legacy: list[dict[str, Any]] | None = None,
+                     family_ids: set[int] | None = None) -> dict[str, Any]:
     """Show only new or changed Sheet rows inside one customer ledger.
 
     `other_legacy` holds original-book rows of other books for the containers waiting here (list_legacy_trip_refs).
     A row that is already one of them is not offered as new (docs/ux-luong-du-lieu.md 3.3: same customer, other commodity book).
+    When that book is one of `family_ids` (same customer, e.g. the old Sheet kept durian in the dragon fruit book) the trip
+    is already counted there: nothing to do, the row is not shown at all.
     """
     existing = []
     for trip in ledger.get("trips", []):
@@ -178,7 +189,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                          "carrier": current.get("carrier") or display.get("carrier"),
                          "shipper": current.get("shipper") or display.get("shipper"),
                          "origin": current.get("origin") or display.get("from"),
-                         "destination": current.get("destination") or display.get("to")})
+                         "destination": current.get("destination") or display.get("to"),
+                         "debt_month": current.get("debt_month") or legacy.get("month")})
     resolved = {}
     for event in ledger.get("events", []):
         if event.get("kind") != "sheet_conflict_resolved":
@@ -215,6 +227,12 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 continue
             if (booking and old.get("booking") and booking == _container(old["booking"])) or abs((date - old_date).days) <= 3:
                 matches.append(old)
+        if not matches:
+            # Dòng sổ gốc không ngày, cùng container, cùng tháng nợ là chuyến này (như BASELINE_UNDATED_MONTH của paste_trips):
+            # hiện là lệch ngày để máy điền ngày theo Sheet, không phải "container đã dùng" (đo 3/11/2026: 57 dòng).
+            undated = [old for old in same_container if old["kind"] == "legacy" and not old.get("event_date")
+                       and str(old.get("debt_month") or "")[:7] == date.isoformat()[:7]]
+            matches = undated if len(undated) == 1 else []
         if container in (other_customer_containers or set()):
             state = "CONFLICT"
             reason = "OTHER_CUSTOMER"
@@ -244,7 +262,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             state = "CONFLICT"
             reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
             changed = []
-        elif any(_same_legacy_trip(ref, container, date) for ref in other_legacy or ()):
+        elif same_legacy := [ref for ref in other_legacy or () if _same_legacy_trip(ref, container, date)]:
+            if all(ref.get("customer_id") in (family_ids or ()) for ref in same_legacy):
+                continue
             state = "CONFLICT"
             reason = "OTHER_BOOK_LEGACY"
             changed = []
@@ -256,6 +276,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
+                        "existing_debt_month": old.get("debt_month") if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_values": {field: (old.get("shipper") or
                                                     (old.get("carrier") if old["kind"] == "legacy" else None))
                                             if field == "shipper" else old.get(field)
@@ -276,12 +297,17 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             "removed_items": removed, "removed_count": len(removed)}
 
 
-def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[str, Any]]:
+def removed_trips(queue: dict[str, Any], ledger: dict[str, Any], *, include_kept=False) -> list[dict[str, Any]]:
     """Web trips taken from the Sheet whose Sheet row is gone; report only, never delete."""
     ready = [row for row in queue["items"] if row.get("status") == "READY"]
     # An empty read (tab renamed, runner failure) must not flag every trip.
     if not ready:
         return []
+    from v7_sheet_task_keep import trip_identity
+    source_ids = {trip_identity(row) for row in queue["items"]}
+    assigned = {(event.get("after") or {}).get("target", {}).get("id") for event in ledger.get("events", [])
+                if event.get("kind") == "sheet_conflict_resolved" and (event.get("after") or {}).get("field") == "task_assignment"
+                and (event.get("after") or {}).get("sheet_value") in source_ids}
     rows = []
     for row in ready:
         # An unmapped row (name not matched) still exists on the Sheet: it keeps the trip, not flags it.
@@ -294,6 +320,8 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[st
             continue
     result = []
     for trip in ledger.get("trips", []):
+        if trip.get("id") in assigned:
+            continue
         # get_ledger stopped returning source_ref on 22/10; the queue approval note still marks Sheet trips.
         from_sheet = _source_row(trip.get("source_ref")) is not None or trip.get("note") == "Chuyến đồng bộ"
         container = _container(trip.get("container"))
@@ -310,7 +338,11 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any]) -> list[dict[st
         if any(container == other and ((booking and booking == other_booking) or abs((date - other_date).days) <= 3)
                for other, other_date, other_booking in rows):
             continue
-        result.append({"trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
+        from v7_sheet_task_keep import kept, removed_identity, web_value
+        source = removed_identity(queue, ledger, trip)
+        if not include_kept and kept(ledger, "removed", "trip", trip["id"], source, web_value("removed", trip)):
+            continue
+        result.append({"source_fingerprint": source, "trip_id": trip["id"], "container": trip.get("container"), "event_date": date.isoformat(),
                        "month": trip.get("month"), "status": trip.get("status"), "amount_vnd": trip.get("amount_vnd"),
                        "month_locked": trip.get("info_editable") is not True})
     return result

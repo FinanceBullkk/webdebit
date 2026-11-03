@@ -143,6 +143,7 @@ test('dòng sổ gốc có Thành tiền khác đơn giá + phụ phí: hỏi l�
 }, world => { world.feeColumns = [1]; world.legacy[1].current.counted_vnd = '95000000'; }));
 
 test('cài đặt phụ phí: bật cột riêng, đủ 3 thì khóa ô thứ tư, đổi tên và thêm loại qua danh mục chung', async () => withPage(async ({ page, world }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.locator('.fee-settings-open').click();
   const panel = page.locator('.fee-settings');

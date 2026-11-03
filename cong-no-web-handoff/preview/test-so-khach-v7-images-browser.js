@@ -93,6 +93,7 @@ test('ảnh đã đính ở sổ khác: cảnh báo, không chặn; mở khung p
   // Khung Ghi phiếu thu che cột phiếu thu bên phải (như ngăn phụ phí): đóng khung rồi mới bấm 📎 của phiếu đã ghi.
   await page.locator('.entry-close').click();
   await viewMonth(page, todayMonth);   // phiếu PH-001 ở tháng hiện tại (SO-GON-05: mỗi tháng một màn)
+  await page.locator('.pay-row').first().hover();
   await page.locator('.image-clip').first().click();
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu PH-001[\s\S]*Phiếu chưa có ảnh/);
   await paste(page, { color: '#25a' });

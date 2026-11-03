@@ -5,7 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const shots = process.env.SHOTS_DIR;
 const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -43,6 +43,24 @@ function makeWorld() {
   };
 }
 
+// months[] mặc định khớp các dòng như server: phát sinh = Thành tiền chuyến đã duyệt + dòng sổ gốc + điều chỉnh của tháng, đã thu
+// = phiếu chưa hủy theo ngày thu; nợ đầu/cuối tháng cộng dồn từ tháng đầu (sổ giả không có số dư đầu). world.monthValues ghi đè.
+function monthsOf(world, keys, trips, legacy) {
+  const sum = values => values.reduce((total, value) => total + BigInt(value ?? 0), 0n);
+  let prior = 0n;
+  return keys.map(month => {
+    const charges = sum([...trips.filter(trip => trip.month === month && trip.status === 'confirmed').map(trip => trip.amount_vnd),
+      ...legacy.filter(row => row.current.month === month && row.kind !== 'receipt').map(row => row.current.counted_vnd),
+      ...world.adjustments.filter(row => row.month === month).map(row => row.amount_vnd)]);
+    const received = sum(world.receipts.filter(row => row.voided_by_event == null && `${row.date.slice(0, 7)}-01` === month).map(row => row.amount_vnd));
+    const end = prior + charges - received;
+    const row = { month, prior_months_vnd: String(prior), charges_vnd: String(charges), received_vnd: String(received),
+      end_of_month_vnd: String(end), outstanding_vnd: '0', ...world.monthValues?.[month] };
+    prior = end;
+    return row;
+  });
+}
+
 // world.todayMonth (tháng hiện tại của server), world.months (cả months[]), world.status và world.total (null khi chưa có số dư
 // đầu) để test thẻ Tình hình dựng sổ nhiều tháng; mặc định như trước.
 function ledger(world) {
@@ -54,8 +72,7 @@ function ledger(world) {
   return { status: world.status ?? 'active', customer_id: 1, version: world.version, demo: true, today_month: today,
     fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })),
     month_locks: world.locks,
-    months: world.months ?? keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
-      ...world.monthValues?.[month] })),
+    months: world.months ?? monthsOf(world, keys, trips, legacy),
     total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
@@ -175,6 +192,25 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
+  if (url === '/api/v7/sheet/prices/conflicts') {
+    if (world.priceConflictStale || body.snapshot_sha256 !== world.sheetPrices.snapshot_sha256)
+      return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi.' }];
+    const selected = body.conflicts.map(key => world.sheetPrices.review.find(item => item.status === 'CONFLICT' && item.batchable &&
+      item.target_kind === key.target_kind && item.target_id === key.target_id && item.source_row === key.source_row));
+    if (selected.some(item => !item)) return [409, { error: 'STALE_SHEET', message: 'Dòng giá đã đổi.' }];
+    for (const item of selected) {
+      const row = item.target_kind === 'trip' ? world.trips.find(trip => trip.id === item.target_id)
+        : world.legacy.find(line => line.id === item.target_id).current;
+      const fee = BigInt(item.sheet_other_fee_vnd ?? '0');
+      Object.assign(row, { unit_price_vnd: item.sheet_unit_price_vnd, other_fee_vnd: item.sheet_other_fee_vnd,
+        counted_vnd: item.target_kind === 'legacy' ? String(BigInt(item.sheet_unit_price_vnd) + fee) : row.counted_vnd,
+        amount_vnd: item.target_kind === 'trip' ? String(BigInt(item.sheet_unit_price_vnd) + fee) : row.amount_vnd });
+      world.sheetPrices.review.splice(world.sheetPrices.review.indexOf(item), 1);
+      world.version += 1;
+    }
+    world.sheetPrices.review_count = world.sheetPrices.review.length;
+    return [200, { written: selected.length, remaining: 0, complete: true, version: world.version }];
+  }
   // THU-SHEET-01: mỗi phiếu READY thành một phiếu thu web, như record_receipt.
   if (url === '/api/v7/sheet/receipts') {
     if (world.receiptStale || body.snapshot_sha256 !== world.sheetReceipts.snapshot_sha256) return [409, { error: 'STALE_SHEET', message: 'Sheet đã đổi. Tải lại rồi ghi.' }];
@@ -205,6 +241,13 @@ function apply(world, url, body) {
     world.psFees = { ...world.psFees, ready: [], ready_count: 0 };
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
+  }
+  if (url === '/api/v7/sheet/tasks/keep') {
+    const item = world.sheetSync.removed_items?.find(row => row.trip_id === body.target_id);
+    if (!item || item.source_fingerprint !== body.source_fingerprint) return [409, { error: 'STALE_SHEET' }];
+    world.sheetSync.removed_items = world.sheetSync.removed_items.filter(row => row !== item);
+    world.sheetSync.removed_count = world.sheetSync.removed_items.length;
+    return [200, { kept: true, version: ++world.version }];
   }
   if (url === '/api/v7/sheet/resolve') {
     const item = world.sheetSync.items.find(row => row.source_row === body.source_row || row.existing_id === body.target_id);
@@ -404,7 +447,7 @@ async function withPage(fn, setup = () => {}) {
     res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];
@@ -414,7 +457,7 @@ async function withPage(fn, setup = () => {}) {
     const month = world.month === undefined ? '&month=2026-09' : world.month ? `&month=${world.month}` : '';
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
-    await page.waitForSelector('.book-head .history-toggle');
+    await page.waitForSelector('.book-head');
     // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
     await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
@@ -423,8 +466,8 @@ async function withPage(fn, setup = () => {}) {
   } finally { await browser.close(); server.close(); }
 }
 
-const tripCell = (page, field, id = 11) => page.locator(`td.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
-const legacyCell = (page, id, field) => page.locator(`td.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
+const tripCell = (page, field, id = 11) => page.locator(`.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
+const legacyCell = (page, id, field) => page.locator(`.info-edit[data-kind="legacy"][data-id="${id}"][data-field="${field}"]`);
 const posts = world => world.requests.map(item => [item.path, item.body]);
 
 // SO-GON-05: sổ hiện một tháng; sang tháng khác bằng chip như người dùng, chờ bảng tháng đó vẽ xong. `key` là yyyy-mm hoặc ngày.

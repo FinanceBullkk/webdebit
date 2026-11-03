@@ -1489,6 +1489,34 @@ class SheetProjectionLegacyRefs(unittest.TestCase):
         # NEW1 chỉ có ở sổ gốc của chính sổ này theo hàm đọc: phần so cùng sổ lo, không bị coi là sổ khác.
         self.assertEqual(states, {"dup 1": ("CONFLICT", "OTHER_BOOK_LEGACY"), "NEW1": ("NEW", "")})
 
+    def test_other_customer_only_when_web_trip_is_the_same_trip(self):
+        """Container dùng lại ở khách khác cách xa ngày không báo "khách khác"; cách không quá 3 ngày mới báo (3/11/2026)."""
+        snapshot = {"sha256": "a" * 64, "row_count": 3, "rows": [
+            {"source_row": 2, "container": "NEAR1", "event_date": "2026-05-20", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 3, "container": "FAR1", "event_date": "2026-05-20", "status": "READY", "customer_name": "Khách A"},
+            {"source_row": 4, "container": "GONE1", "event_date": "2026-05-20", "status": "READY", "customer_name": "Khách A"}]}
+        calls = []
+
+        class Runner:
+            def run(self, function, payload, actor):
+                calls.append((function, payload))
+                if function == "get_ledger":
+                    return {"customer_id": 8, "trips": [
+                        {"id": 1, "container": "NEAR1", "event_date": "2026-05-22"},
+                        {"id": 2, "container": "FAR1", "event_date": "2026-10-03"},
+                        {"id": 3, "container": "GONE1", "event_date": "2026-05-20", "deleted": True}]}
+                return {"list_customers": {"customers": [{"id": 7, "name": "KHÁCH A", "status": "active"},
+                                                         {"id": 8, "name": "KHÁCH B", "status": "active"}]},
+                        "list_sheet_trip_refs": {"items": [{"customer_id": 8, "container": c} for c in ("NEAR1", "FAR1", "GONE1")]},
+                        "list_legacy_trip_refs": {"items": []}}[function]
+
+        with patch.object(v7_api_sheet, "load_snapshot", return_value=snapshot), \
+                patch.object(v7_api_sheet, "load_baseline", return_value={"cutover_id": 1, "count": 0, "refs": []}):
+            result = v7_api_sheet.sheet_projection(Runner(), {"customer_id": 7, "trips": [], "legacy_rows": []}, "tester")
+        states = {item["container"]: (item["sync_state"], item["sync_reason"]) for item in result["items"]}
+        self.assertEqual(states, {"NEAR1": ("CONFLICT", "OTHER_CUSTOMER"), "FAR1": ("NEW", ""), "GONE1": ("NEW", "")})
+        self.assertEqual([c for c in calls if c[0] == "get_ledger"], [("get_ledger", {"customer_id": 8})])   # đọc sổ kia một lần
+
     def test_bad_legacy_refs_hide_the_queue(self):
         class Runner:
             def run(self, function, payload, actor):

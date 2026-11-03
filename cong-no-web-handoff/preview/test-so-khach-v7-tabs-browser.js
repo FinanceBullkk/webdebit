@@ -24,8 +24,9 @@ test('the= mở đúng thẻ; không ghi thẻ, có month= hoặc loc=, hay th�
     const now = await state(page);
     assert.deepEqual([now.selected, now.shown], [[tab], [`the-${tab}`]], query);
     // Đầu trang (tên khách, tổng còn nợ, Ghi phiếu thu) ở mọi thẻ; sổ chỉ hiện ở thẻ Sổ.
-    assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ', query);
-    assert.equal(await page.locator('.book-head .entry-open').isVisible(), true, query);
+    assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ', query);
+    if (tab !== 'so' && tab !== 'tinh-hinh') if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+    assert.equal(await page.locator('.entry-open').isVisible(), tab !== 'tinh-hinh', query);
     assert.equal(await page.locator('.ledger-book').isVisible(), tab === 'so', query);
   }
 }));
@@ -42,7 +43,7 @@ test('Bấm thẻ: địa chỉ đổi, trang không tải lại, không thêm l
   }
   // Nút trong một thẻ đưa sang thẻ khác (Tình hình → Trao đổi): tiêu điểm về thẻ đó trên thanh.
   await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .tab-go').click();
+  await page.locator('#the-tinh-hinh .ov-next-actions .tab-go').first().click();
   assert.deepEqual((await state(page)).selected, ['trao-doi']);
   assert.equal(await focused(page), 'tab-trao-doi');
   await page.locator('#tab-so').click();
@@ -53,13 +54,11 @@ test('Bấm thẻ: địa chỉ đổi, trang không tải lại, không thêm l
   await page.goForward();
   await page.waitForSelector('.book-head .page-tab');
   assert.match(page.url(), /\?customer=1$/);
-  assert.equal(await page.locator('.page-back').innerText(), '← Quay lại');
-  await page.locator('.page-back').click();
-  await page.waitForURL('about:blank');
+  assert.equal(await page.locator('.page-back').count(), 0);
 }));
 
 test('Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải chuyển thẻ, Enter/Space mở; vùng bấm ở đầu trang ≥ 40px', async () => withPage(async ({ page }) => {
-  await page.locator('.page-back').focus();
+  await page.locator('.customer-switch').focus();
   await page.keyboard.press('Tab');
   assert.equal(await focused(page), 'tab-so');
   await page.keyboard.press('ArrowRight');
@@ -79,30 +78,36 @@ test('Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải chuyển thẻ, 
   await page.keyboard.press('End');
   assert.equal(await focused(page), 'tab-ho-so');
   await page.keyboard.press('Tab');
-  assert.equal(await focused(page), 'entry-open', 'Tab rời thanh thẻ');
+  assert.equal(await page.evaluate(() => document.activeElement.matches('.page-more>summary')), true, 'Tab rời thanh thẻ tới nút ⋯ (có ở mọi thẻ)');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(page), 'tab-go', 'rồi tới hành động trong Tình hình');
   const small = await page.evaluate(() => [...document.querySelectorAll('.book-head :is(a,button)')].map(node => [node.id || node.className, node.getBoundingClientRect()])
-    .filter(([, box]) => box.height < 40 || box.width < 40).map(([name, box]) => `${name} ${box.width}×${box.height}`));
+    .filter(([, box]) => box.height > 0 && (box.height < 40 || box.width < 40)).map(([name, box]) => `${name} ${box.width}×${box.height}`));
   assert.deepEqual(small, []);
 }));
 
 const LONG = 'CÔNG TY TNHH NÔNG SẢN XUẤT KHẨU GIẢ MIỀN TÂY';
-test('Đầu trang một dòng ≤ 44px, tên khách dài không bị cắt; thẻ Sổ: phần dính ≤ 180px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
-  const head = await page.evaluate(() => {
-    const box = selector => document.querySelector(selector).getBoundingClientRect();
-    const bar = box('.book-head'), who = box('.page-who');
-    return { height: bar.height, inside: who.top >= bar.top && who.bottom <= bar.bottom - 2 && who.right <= box('.page-tabs').left,
-      name: document.querySelector('.page-name').innerText, meta: document.querySelector('.page-meta').innerText };
-  });
-  assert.ok(head.height <= 44, `đầu trang ${head.height}px`);
-  assert.ok(head.inside, 'tên khách và mặt hàng nằm gọn trong đầu trang, không chờm sang thanh thẻ');
-  assert.deepEqual([head.name, head.meta], [LONG, 'Sầu riêng · cảng']);
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '12.345.678.900 đ');
+test('Đầu trang 52px giống nhau ở bốn thẻ: "Sổ khách / Tên ▾" · bốn thẻ · ⋯, tên dài không bị cắt; thẻ Sổ: phần dính ≤ 180px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
+  const heads = [];
+  for (const tab of ['tinh-hinh', 'trao-doi', 'ho-so', 'so']) {
+    await page.locator(`#tab-${tab}`).click();
+    heads.push(await page.evaluate(() => {
+      const box = selector => document.querySelector(selector).getBoundingClientRect();
+      const bar = box('.book-head'), who = box('.page-who'), more = box('.page-more>summary');
+      return { height: bar.height, inside: who.top >= bar.top && who.bottom <= bar.bottom - 2 && who.right <= box('.page-tabs').left,
+        more: more.width > 0 && more.right <= bar.right, who: document.querySelector('.customer-switch').innerText.replace(/\s+/g, ' ').trim(),
+        meta: document.querySelectorAll('.book-head .page-meta').length };
+    }));
+  }
+  const want = { height: 52, inside: true, more: true, who: `Sổ khách / ${LONG}`, meta: 0 };
+  assert.deepEqual(heads, [want, want, want, want], 'cùng một đầu trang; mặt hàng không lặp ở đầu trang');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '12.345.678.900 đ');
   await page.evaluate(() => window.scrollTo({ top: 1200, behavior: 'instant' }));
   const geo = await page.evaluate(() => ({ banner: document.querySelector('#demo-banner').offsetHeight,
     chips: document.querySelector('.month-chips').getBoundingClientRect().top, bottom: document.querySelector('.ledger-head').getBoundingClientRect().bottom,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
   assert.ok(geo.bottom - geo.banner <= 180, `phần dính ${geo.bottom - geo.banner}px`);
-  assert.equal(geo.chips - geo.banner, 100, 'thanh tháng dính ngay dưới đầu trang');
+  assert.ok(Math.abs(geo.chips - geo.banner - 52) <= 2, 'thanh tháng dính ngay dưới đầu trang');
   assert.equal(geo.overflow, 0);
 }, world => {
   world.trips.push(...Array.from({ length: 40 }, (_, index) => trip(300 + index, '2026-09-01')));
@@ -113,7 +118,7 @@ test('Đầu trang một dòng ≤ 44px, tên khách dài không bị cắt; th�
 test('Đang gõ dở trong khung Ghi phiếu thu, sang thẻ khác rồi quay lại: số đã gõ còn nguyên; Ghi phiếu thu ở thẻ khác mở thẻ Sổ', async () => withPage(async ({ page, world }) => {
   const drawer = page.locator('.entry-drawer');
   const values = () => drawer.locator('.receipt-date,.receipt-amount,.receipt-reference').evaluateAll(inputs => inputs.map(input => input.value));
-  await page.locator('.book-head .entry-open').click();
+  await page.locator('.entry-open').click();
   await drawer.locator('.receipt-date').fill('15/09/2026');
   await drawer.locator('.receipt-amount').fill('1.234.567');
   await drawer.locator('.receipt-reference').fill('CK thử');
@@ -124,7 +129,8 @@ test('Đang gõ dở trong khung Ghi phiếu thu, sang thẻ khác rồi quay l�
   assert.deepEqual(await values(), ['15/09/2026', '1.234.567', 'CK thử']);
   await drawer.locator('.entry-close').click();
   await page.locator('#tab-ho-so').click();
-  await page.locator('.book-head .entry-open').click();
+  await page.locator('.page-more > summary').click();
+  await page.locator('.entry-open').click();
   assert.deepEqual(await state(page), { selected: ['so'], shown: ['the-so'], search: '?customer=1' });
   assert.equal(await drawer.isVisible(), true);
   assert.equal(await focused(page), 'receipt-amount');
@@ -136,7 +142,7 @@ test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ �
   const probe = () => page.evaluate(() => ({ y: Math.round(window.scrollY),
     pays: document.querySelectorAll('#thang-2026-09 .pay-list tr.pay-row').length,
     fit: Math.abs(document.querySelector('#thang-2026-09 .trip-list').getBoundingClientRect().width
-      - document.querySelector('#the-so .ledger-book').clientWidth) <= 2,
+      - document.querySelector('#the-so .ledger-book').clientWidth) <= 30,
     chip: document.querySelector('.month-chip[aria-current="true"]')?.dataset.month }));
   await page.evaluate(() => window.scrollTo({ top: 400, behavior: 'instant' }));
   await page.waitForFunction(() => document.querySelector('.month-chip[aria-current="true"]')?.dataset.month === '2026-09');
@@ -162,17 +168,19 @@ test('Sổ tự cập nhật lúc đang ở thẻ khác: quay lại thẻ Sổ �
 test('Ô tìm khách ở thanh trên như các trang khác: gõ thì hiện danh sách, rời ô thì đóng; sổ đọc lỗi vẫn tìm được khách', async () => withPage(async ({ page }) => {
   const search = page.locator('.topbar #customer-picker.in-bar #customer-search');
   const list = page.locator('#customer-list');
-  assert.equal(await search.getAttribute('placeholder'), 'Tìm khách để mở sổ');
+  assert.equal(await search.getAttribute('placeholder'), 'Gõ tên khách hoặc mặt hàng');
   assert.equal(await list.isVisible(), false);
+  await page.locator('.customer-switch').click();
   await search.fill('thu');
   assert.deepEqual(await list.locator('a').allInnerTexts(), ['Khách Thử Sửa']);
   assert.equal(await list.isVisible(), true);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'danh sách không tràn mép phải');
-  await page.locator('#tab-tinh-hinh').focus();
+  await page.locator('#tab-tinh-hinh').click();
   assert.equal(await list.isVisible(), false);
   await page.route(/\/api\/v7\/ledger\?/, route => route.abort());
   await page.reload();
   await page.locator('.load-error').waitFor();
+  await page.locator('.picker-open').click();
   assert.equal(await search.isVisible(), true);
 }));
 

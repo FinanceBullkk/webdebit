@@ -8,7 +8,8 @@ Chi tiết kỹ thuật của hai công cụ ở [runbook, mục đối soát cu
 
 - Cả Sheet và web đều **đã ngừng nhập** trong ngày. Nếu ai còn nhập sau khi chạy thì phải chạy lại.
 - Máy chạy là máy có thư mục `D:\webdebit\repo` (đã cài theo README) và vào được web V7 qua Tailscale.
-- Kết quả có tên khách và số tiền: lưu trong `D:\webdebit\captures\doi-soat\`, **không** đưa vào Git, không gửi qua kênh công khai.
+- Bản tải Sheet lưu trong `D:\webdebit\captures\doi-soat\`; kết quả làm sạch và đối soát lưu trong `D:\doi-soat\`. Cả hai có tên khách và số tiền: **không** đưa vào Git, không gửi qua kênh công khai.
+- Kết quả phải nằm **ngoài** `D:\webdebit\`: thư mục đó có `.git` bao ngoài, và hai công cụ từ chối ghi vào bất kỳ thư mục nào nằm trong một Git (báo `output must be outside the repository`).
 
 Trong các lệnh dưới, thay `2026-11-03` bằng ngày hôm nay, `<dia-chi-web>` bằng địa chỉ web V7 (dạng `ten-may.ten-tailnet.ts.net:cong`, admin cung cấp).
 
@@ -26,7 +27,7 @@ Mở PowerShell:
 
 ```powershell
 cd D:\webdebit\repo
-.venv\Scripts\python cong-no-web-handoff\tools\v7_export_clean.py --xlsx D:\webdebit\captures\doi-soat\2026-11-03\sheet.xlsx --out D:\webdebit\captures\doi-soat\2026-11-03\sach
+.venv\Scripts\python cong-no-web-handoff\tools\v7_export_clean.py --xlsx D:\webdebit\captures\doi-soat\2026-11-03\sheet.xlsx --out D:\doi-soat\2026-11-03\sach
 ```
 
 | Màn hình in ra | Nghĩa | Làm gì |
@@ -39,10 +40,11 @@ cd D:\webdebit\repo
 ## Bước 3. So với web
 
 ```powershell
-.venv\Scripts\python cong-no-web-handoff\tools\v7_reconcile_sheet.py --sheet-dir D:\webdebit\captures\doi-soat\2026-11-03\sach --api https://<dia-chi-web> --serve-host <dia-chi-web> --out D:\webdebit\captures\doi-soat\2026-11-03\ket-qua --totals-only --brief
+$env:SSL_CERT_FILE = 'C:\Program Files\Git\usr\ssl\certs\ca-bundle.crt'
+.venv\Scripts\python cong-no-web-handoff\tools\v7_reconcile_sheet.py --sheet-dir D:\doi-soat\2026-11-03\sach --api https://<dia-chi-web> --serve-host <dia-chi-web> --out D:\doi-soat\2026-11-03\ket-qua --totals-only --brief
 ```
 
-Công cụ chỉ **đọc** web, không ghi gì. Thư mục `ket-qua` phải chưa tồn tại; chạy lại thì đặt tên mới (`ket-qua-2`, …).
+Dòng `SSL_CERT_FILE` tránh lỗi chứng chỉ "has expired" giả trên Windows ([runbook](v7-deploy-runbook.md#đối-soát-tổng-khách-cuối-ngày--song-song-02)). Công cụ chỉ **đọc** web, không ghi gì. Thư mục `ket-qua` phải chưa tồn tại; chạy lại thì đặt tên mới (`ket-qua-2`, …).
 
 ## Bước 4. Đọc kết quả
 
@@ -83,4 +85,4 @@ Mỗi ngày ghi một dòng vào sổ theo dõi (ngoài Git): ngày, `DAT`/`KHON
 
 - Chỉ so **tổng từng khách**, không so từng dòng. Hai lỗi bù trừ nhau trong cùng khách sẽ không lộ ra.
 - Bước 2 hiện **dừng** nếu bản tải Sheet có khách bị giữ (mục A3 của [checklist](song-song-checklist.md)). Chưa xử lý A3 thì chưa chạy được bước 3.
-- Hướng dẫn này chưa được chạy thử trên dữ liệu thật (mục C4 của checklist).
+- Claude đã chạy theo hướng dẫn trên dữ liệu thật ngày 3/11/2026 (lộ ra lỗi thư mục kết quả, đã sửa ở trên); người nhập chưa tự chạy (mục C4 của checklist).

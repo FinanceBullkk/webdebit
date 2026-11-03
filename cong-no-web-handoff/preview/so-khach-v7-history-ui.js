@@ -8,7 +8,7 @@
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi phiếu thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
       trip_edit: 'Sửa ô chuyến', trip_delete: 'Xóa chuyến', legacy_edit: 'Sửa dòng sổ gốc', legacy_delete: 'Xóa dòng sổ gốc',
-      sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí',
+      sheet_conflict_resolved: 'Đối chiếu Sheet', fee_migration: 'Tách phụ phí', customer_attr: 'Gán mặt hàng',
       add_trip_fees: 'Thêm phụ phí', set_trip_fee_type: 'Sửa phụ phí', replace_trip_fee: 'Sửa khoản phụ phí',
       void_trip_fee: 'Xóa khoản phụ phí', set_book_fee_columns: 'Đổi cột phụ phí riêng', rewrite_trip_fees: 'Tách phụ phí theo PS',
       receipt_image: 'Đính ảnh chứng từ', receipt_image_remove: 'Gỡ ảnh chứng từ',
@@ -142,7 +142,14 @@
     // Câu đi sau tên thao tác; thao tác lạ không có câu (không lộ mã hay khóa JSON).
     function describeEvent(event) {
       const before = event.before ?? {}, after = event.after ?? {};
+      if (event.kind === 'customer_attr' && after.commodity_name) return `Mặt hàng: ${after.commodity_name} · nợ không đổi`;
       if (event.kind === 'sheet_conflict_resolved') {
+        if (after.field === 'task_assignment') return `Chọn sổ nhận chuyến · chưa giá, nợ không đổi`;
+        if (after.field === 'task_price') return after.decision === 'use_sheet'
+          ? `Lấy giá Sheet: đơn giá ${fmt(before.value?.unit_price_vnd)} → ${fmt(after.target_value?.unit_price_vnd)}, phụ phí ${fmt(before.value?.other_fee_vnd)} → ${fmt(after.target_value?.other_fee_vnd)}`
+          : `Giữ giá web: đơn giá ${fmt(after.target_value?.unit_price_vnd)}, phụ phí ${fmt(after.target_value?.other_fee_vnd)} · nợ không đổi`;
+        if (after.field === 'task_removed') return `Giữ chuyến ${after.target_value?.container || ''} · nợ không đổi`;
+
         const label = { carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[after.field] ?? 'Ô';
         return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;
       }

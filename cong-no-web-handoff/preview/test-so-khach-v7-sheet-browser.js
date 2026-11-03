@@ -47,7 +47,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   await viewMonth(page, clock);
   assert.equal(await page.locator('td[data-trip="200"][data-field="unit_price_vnd"]').innerText(), '');
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
     { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
@@ -78,7 +78,7 @@ test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đ�
   assert.equal(resolved.path, '/api/v7/sheet/resolve');
   assert.deepEqual([resolved.body.field, resolved.body.decision, resolved.body.target_kind, resolved.body.target_id], ['booking', 'keep_web', 'trip', 11]);
   await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
   const [route, body] = posts(world).at(-1);
   assert.equal(route, '/api/v7/trips/info');
   assert.equal(body.field, 'event_date');
@@ -126,7 +126,7 @@ test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số t
   const tripRow = page.locator('[data-row="trip-12"]');
   assert.match(await tripRow.locator('[data-field="unit_price_vnd"]').innerText(), /12\.500\.000\s*giá Sheet/);
   assert.match(await tripRow.innerText(), /12\.800\.000\s*chưa tính/);
-  assert.equal(await page.locator('.book-head .head-item.total strong').innerText(), '0 đ');
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
   await shot('gia-sheet-1-cho-ghi');
   await button.click();
   const confirm = page.locator('.price-panel.confirm');
@@ -238,13 +238,13 @@ test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; 
 }));
 
 const removedTrip = (world, extra = {}) => {
-  world.sheetSync = { ...world.sheetSync, removed_count: 1, removed_items: [{ trip_id: 11, container: 'DEMU1234567',
+  world.sheetSync = { ...world.sheetSync, removed_count: 1, removed_items: [{ source_fingerprint: 'c'.repeat(64), trip_id: 11, container: 'DEMU1234567',
     event_date: '2026-09-15', month: '2026-09-01', status: 'confirmed', amount_vnd: '50000000', month_locked: false, ...extra }] };
 };
 
 test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua lệnh xóa có sẵn', async () => withPage(async ({ page, world, shot }) => {
   const row = page.locator('[data-row="trip-11"].sheet-removed');
-  assert.match(await row.innerText(), /Sheet không còn dòng này/);
+  assert.match(await row.locator('xpath=following-sibling::tr[1]').innerText(), /Sheet không còn dòng này/);
   assert.match(await page.locator('.sheet-removed-strip').textContent(), /Sheet không còn dòng của 1 chuyến/);
   await page.locator('.sheet-removed-next').click();
   assert.equal(await page.evaluate(() => document.activeElement.className), 'sheet-removed-delete');
@@ -263,7 +263,7 @@ test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua l�
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.trip_id]), [['/api/v7/trips/delete', 11]]);
 }, world => removedTrip(world)));
 
-test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ ẩn tới bản chụp Sheet mới', async () => withPage(async ({ page, world }) => {
+test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ lưu server; bản chụp khác vẫn giữ, dòng liên quan đổi thì hiện lại', async () => withPage(async ({ page, world }) => {
   await page.locator('.sheet-removed-delete').click();
   const prompt = page.locator('.delete-prompt');
   assert.match(await prompt.innerText(), /Tháng 9\/2026 đang khóa nên chưa xóa được/);
@@ -273,13 +273,19 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ �
   await page.waitForFunction(() => !document.querySelector('.delete-prompt'));
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.month, body.locked]), [['/api/v7/months/lock', '2026-09-01', false]]);
   await page.locator('.sheet-removed-keep').click();
+  await page.waitForFunction(() => !document.querySelector('.sheet-removed'));
   assert.equal(await page.locator('.sheet-removed').count(), 0);
   assert.equal(await page.locator('.sheet-removed-strip').count(), 0);
-  assert.equal(posts(world).length, 1, 'Giữ không gửi gì lên server');
+  assert.equal(posts(world).length, 2, 'Giữ lưu trên server');
+  assert.equal(posts(world)[1][0], '/api/v7/sheet/tasks/keep');
   await page.reload();
-  await page.waitForSelector('.book-head .history-toggle');
+  await page.waitForSelector('.book-head');
   assert.equal(await page.locator('.sheet-removed').count(), 0, 'Giữ nhớ qua lần tải lại cùng bản chụp');
   world.sheetSync = { ...world.sheetSync, snapshot_sha256: 'b'.repeat(64) };
+  await page.reload();
+  await page.waitForSelector('.book-head');
+  assert.equal(await page.locator('.sheet-removed').count(), 0);
+  removedTrip(world, { source_fingerprint: 'd'.repeat(64) });
   await page.reload();
   await page.waitForSelector('[data-row="trip-11"].sheet-removed');
 }, world => removedTrip(world, { month_locked: true })));

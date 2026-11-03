@@ -303,6 +303,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-panel p{margin:0 0 10px}.price-actions{display:flex;gap:10px}
 .price-panel ul{list-style:none;margin:0;padding:0}.price-panel li{display:flex;align-items:center;gap:12px;min-height:48px;border-top:1px solid #e3eaf2}
 .price-panel .what{flex:1;padding:6px 0}.price-panel .what small{display:block;margin-top:2px;color:#4a5b6d;font-size:14px}
+.price-conflict-actions{display:flex;flex-wrap:wrap;gap:10px;padding:0 0 10px}.price-panel .price-conflict-select{width:18px;height:18px;flex:none}.price-panel .price-conflict-select:focus-visible{outline:3px solid #145fa9;outline-offset:2px}.price-panel.confirm ul{max-height:300px;overflow:auto}
 /* BANG-GIA-01: nút Bảng giá, chữ nhỏ ở ô Đơn giá, khung Bảng giá */
 .price-table-open{min-height:28px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;cursor:pointer;font:inherit;white-space:nowrap}
 .price-table-apply{min-height:40px;padding:0 14px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}

@@ -29,20 +29,20 @@ function nineMonths(world) {
     { prior_months_vnd: '0', charges_vnd: '30000000', received_vnd: '0', end_of_month_vnd: endOf(index), outstanding_vnd: '30000000' }]));
 }
 const sections = page => page.$$eval('.ledger-book > section', list => list.map(section => ({ id: section.id,
-  open: Boolean(section.querySelector('.month-body')), bar: section.querySelector('tr.month th').innerText })));
+  open: Boolean(section.querySelector('.month-body')), bar: section.querySelector('.month-card').innerText.replace(/\s+/g, ' ') })));
 // Thanh của tháng nằm ngay dưới phần dính (cuộn tới tháng đó xong).
 const atTop = (page, key) => page.waitForFunction(id => {
   const top = document.querySelector(`#thang-${id}`).getBoundingClientRect().top;
-  return Math.abs(top - document.querySelector('.ledger-head').getBoundingClientRect().bottom) <= 2;
+  return Math.abs(top - document.querySelector('.month-chips').getBoundingClientRect().bottom) <= 2;
 }, key);
 
 test('Sổ 9 tháng: lúc mở chỉ một tháng (tháng hiện tại) với dòng tóm tắt; không còn thanh tháng gập hay nút Xem chi tiết', async () => withPage(async ({ page }) => {
   const list = await sections(page);
   assert.deepEqual(list.map(item => item.id), [`thang-${MONTHS[8]}`]);
   assert.ok(list[0].open);
-  // Dòng tóm tắt: Nợ đầu tháng + Phát sinh − Đã thu = Còn nợ cuối tháng, số lấy nguyên từ GET.
-  assert.match(list[0].bar, new RegExp(`Nợ đầu tháng 0\\s*\\+\\s*Phát sinh 30\\.000\\.000\\s*−\\s*Đã thu 0\\s*=\\s*Còn nợ cuối tháng ${dots(endOf(8))}`));
-  assert.match(list[0].bar, /Đang mở/);
+  // Dòng tóm tắt: Nợ đầu tháng + Phát sinh − Khách trả = Còn nợ cuối tháng, số lấy nguyên từ GET.
+  assert.match(list[0].bar, new RegExp(`Nợ đầu tháng 0\\s*\\+\\s*Phát sinh 30\\.000\\.000\\s*−\\s*Khách trả 0\\s*=\\s*Còn nợ cuối tháng ${dots(endOf(8))}`));
+  assert.equal(await page.locator('.month-lock').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.locator('.month-toggle, table.month-collapsed').count(), 0);
   // 9 tháng × 30 chuyến: lúc mở chỉ vẽ 30 dòng.
   assert.equal(await page.locator('.trip-list tr[data-row]').count(), 30);
@@ -50,8 +50,8 @@ test('Sổ 9 tháng: lúc mở chỉ một tháng (tháng hiện tại) với d�
   // Thanh chip thay danh sách tháng bên phải: 9 chip, còn nợ rút gọn, tháng khóa có dấu khóa.
   const chips = await page.locator('.month-chip').allInnerTexts();
   assert.equal(chips.length, 9);
-  assert.match(chips[0], /125 triệu/);
-  assert.match(chips[7], /1 tỷ/);
+  assert.doesNotMatch(chips[0], /125 triệu/);
+  assert.doesNotMatch(chips[7], /1 tỷ/);
   assert.equal(await page.locator('.month-chip.locked').count(), 8);
   assert.equal(await page.locator('.months-nav').count(), 0);
 }, nineMonths));
@@ -62,7 +62,7 @@ test('Phần dính đầu trang ≤ 180px khi cuộn (trừ băng dữ liệu gi
     chips: document.querySelector('.month-chips').getBoundingClientRect().top, bottom: document.querySelector('.ledger-head').getBoundingClientRect().bottom,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
   assert.ok(geo.bottom - geo.banner <= 180, `phần dính ${geo.bottom - geo.banner}px`);
-  assert.equal(geo.chips - geo.banner, 100, 'thanh chip dính ngay dưới đầu trang (TRANG-KHACH-01: 44px)');
+  assert.ok(Math.abs(geo.chips - geo.banner - 52) <= 2, 'thanh chip dính ngay dưới đầu trang 52px (canvas UuTien 3/11/2026)');
   assert.equal(geo.overflow, 0);
 }, nineMonths));
 
@@ -77,7 +77,7 @@ test('Màn 1280 trên Chrome Windows (thanh cuộn dọc 15px, khung nhìn 1265)
   const geo = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     money: [...document.querySelectorAll('.ledger-head col')].slice(-3).map(col => parseInt(col.style.width, 10)) }));
   assert.equal(geo.overflow, 0);
-  assert.deepEqual(geo.money, [100, 88, 120]);   // Đơn giá, Khác, Thành tiền giữ khổ 1280 (SO-GON-06: không còn cột thu)
+  assert.deepEqual(geo.money, [108, 82, 120]);   // Đơn giá, Khác, Thành tiền giữ khổ 1280 (SO-GON-06: không còn cột thu)
 }, nineMonths));
 
 test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần dính, chip được tô; không gọi API', async () => withPage(async ({ page, world }) => {
@@ -90,13 +90,13 @@ test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần
   await page.waitForFunction(id => document.querySelector(`.month-chip[data-month="${id}"]`).getAttribute('aria-current') === 'true', key);
   assert.equal(await page.locator('.month-chip[aria-current="true"]').count(), 1);
   assert.equal(await page.locator(`#thang-${key} .trip-list tr[data-row]`).count(), 30);
-  assert.match(await page.locator(`#thang-${key} tr.month th`).innerText(), new RegExp(`Còn nợ cuối tháng ${dots(endOf(3))}`));
+  assert.match((await page.locator(`#thang-${key} .month-card`).innerText()).replace(/\s+/g, ' '), new RegExp(`Còn nợ cuối tháng ${dots(endOf(3))}`));
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
 test('Không sang tháng khác khi tháng đang xem có dòng hỏi; số tiền không đổi', async () => withPage(async ({ page, world }) => {
   const key = MONTHS[8];
-  const total = await page.locator('.head-item.total strong').innerText();
+  const total = await page.locator('.head-item.total strong').textContent();
   const chip = page.locator(`.month-chip[data-month="${MONTHS[7]}"]`);
   // Dòng hỏi "Xóa hẳn" đang mở trong tháng: sang tháng khác sẽ làm mất nó, nên chặn và báo.
   await page.locator(`#thang-${key} td.row-delete[data-kind="trip"]`).first().focus();
@@ -109,7 +109,7 @@ test('Không sang tháng khác khi tháng đang xem có dòng hỏi; số tiền
   await chip.click();
   await page.locator(`#thang-${MONTHS[7]} .month-body`).waitFor();
   assert.ok(await chip.evaluate(link => document.activeElement === link), 'tiêu điểm ở lại chip vừa bấm');
-  assert.equal(await page.locator('.head-item.total strong').innerText(), total);
+  assert.equal(await page.locator('.head-item.total strong').textContent(), total);
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 

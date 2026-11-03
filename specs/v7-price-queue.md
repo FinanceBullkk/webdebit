@@ -152,6 +152,13 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 
 **Khác mockup:** dòng lệch giá chưa có nút "Giữ web", vì backend chưa lưu lựa chọn này (CÒN MỞ ở trên). Bấm "Lấy Sheet" hoặc sửa tay đều làm dòng đó biến mất.
 
+## Chọn nhiều giá lệch (người dùng yêu cầu 2/11/2026)
+
+- Trong "Giá từ Sheet cần xem", chỉ dòng `CONFLICT` có đích duy nhất, tháng mở, giá/phụ phí thực sự khác và không có phụ phí đã phân loại mới được chọn hàng loạt. Tổng Sheet nếu có phải khớp giá cộng phụ phí; dòng sổ gốc bắt buộc có tổng Sheet. Dòng lệch tổng giữ cách xử lý riêng.
+- Người dùng chọn từng dòng hoặc chọn tất cả dòng đủ điều kiện, xem lại container, ngày, giá/phụ phí Web → Sheet và tổng còn nợ dự kiến, rồi bấm Ghi. Không gửi lệnh khi chỉ chọn hoặc xem trước.
+- `POST /api/v7/sheet/prices/conflicts` nhận danh tính dòng được chọn, phiên bản sổ, hash bản chụp và khóa lệnh. Server lấy giá từ bản chụp của chính mình, kiểm lại toàn bộ dòng trước lệnh đầu, rồi ghi qua các lệnh sửa giá sẵn có; lỗi giữa lô trả số đã ghi và số còn lại. Trang đọc lại sổ một lần sau phản hồi, giữ cảnh báo nếu kết quả không rõ.
+- Kiểm bằng dữ liệu giả: chọn và xem trước không ghi; một lô chỉ có một POST và một GET sau ghi; Sheet/sổ đổi hoặc dòng không đủ điều kiện không ghi; âm phụ phí hiển thị đúng. Chưa kiểm với PostgreSQL hay bản đang chạy trên `hao`.
+
 **Kiểm:**
 - Playwright 1280×720, máy chủ giả, 3 test: ghi cả lô, Sheet đổi giữa chừng, mục "Cần xem".
 - Test model cho tổng tăng, phụ phí null và số âm.

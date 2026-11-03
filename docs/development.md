@@ -40,7 +40,7 @@ Từ 29/10/2026, để giảm PR lỗi thời và conflict khi nhiều người/
 
 ## Quy trình frontend
 
-ĐÃ CHỐT bởi người dùng/chủ nghiệp vụ ngày 16/10/2026 trong chat; **sửa 29/10/2026** theo [`CLAUDE-ALL-01`](decisions/claude-all-01.md): Claude làm hết, bỏ bắt buộc mockup Penpot (bước 3–4 cũ). Áp dụng các bước dưới đây cho luồng frontend mới hoặc thay đổi đáng kể trong repo. Quy trình không tự cấp quyền triển khai hoặc ghi tiền.
+ĐÃ CHỐT bởi người dùng/chủ nghiệp vụ ngày 16/10/2026 trong chat; **sửa 29/10/2026** theo [`CLAUDE-ALL-01`](decisions/claude-all-01.md): Claude làm hết, bỏ bắt buộc mockup Penpot (bước 3–4 cũ). Áp dụng các bước dưới đây cho luồng frontend mới hoặc thay đổi đáng kể trong repo. Quy trình không tự cấp quyền triển khai hoặc ghi tiền. Phần thiết kế (bài toán, cấu trúc thông tin, thị giác, trạng thái, kiểm bản render) theo skill [`thiet-ke-ux`](../.claude/skills/thiet-ke-ux/SKILL.md).
 
 1. **Chốt kết quả nghiệp vụ:** xác định người thao tác, đầu vào, kết quả, điều kiện bị chặn và tiêu chí nghiệm thu. Quy tắc chưa chốt phải ghi CÒN MỞ, không biến lựa chọn trên UI thành chính sách.
 2. **Đối chiếu dữ liệu/backend:** đọc nguồn, trường dữ liệu và entry point/API hiện có; ghi phần dùng được, phần thiếu, dữ liệu thật và fixture. Không dựng trường tiền từ giả định.
@@ -171,6 +171,18 @@ chậm chủ yếu vì số lần gọi exec chứ không phải PostgreSQL. T�
 qua `tools/docker_exec_channel.py`: một `docker exec` sống suốt lượt chạy, mỗi lệnh vẫn là một tiến
 trình psql mới trong container với cùng argv, env, stdin, mã thoát — tức vẫn một kết nối, một phạm vi
 transaction như trước. Đo 28/10/2026 trên máy Windows của người dùng: `test_pg_v7_backend.py` từ 1195 giây xuống 238 giây, cùng 60 case xanh, 2 case CÒN MỞ bỏ qua. Lệnh chạy đồng thời (case lock/tranh chấp) và argv lạ vẫn đi `docker exec` riêng.
+
+Từ 3/11/2026, sau kênh đó phần tốn còn lại là mở psql + kết nối mới cho từng lệnh (~50 ms qua Docker
+Desktop, kết nối giữ sẵn ~4 ms; một lượt backend ~5.800 lệnh). `Pg.sql` với user `postgres` và
+`check=True` (lệnh phải thành công) chạy trên một kết nối psql giữ sẵn cho mỗi database
+(`run_kept_psql`): sau mỗi lệnh chạy `ROLLBACK; DISCARD ALL` rồi mới trả kết quả, nên transaction dở,
+khóa, `SET`, role, bảng tạm và advisory lock không sang lệnh sau; lỗi vẫn dừng psql theo
+`ON_ERROR_STOP` với cùng mã thoát và stderr, lệnh sau mở kết nối mới. Lệnh chờ lỗi (`rejects`,
+`check=False`), user khác `postgres`, input có lệnh `\` của psql và lệnh chạy đồng thời vẫn đi psql mới
+như trên. Câu `DROP/ALTER DATABASE` hoặc có `TEMPLATE` (PostgreSQL từ chối khi còn kết nối khác vào
+database đó) đóng mọi kết nối giữ sẵn của container trước rồi chạy psql mới. BOM UTF-8 ở đầu input (file migration lưu kèm BOM) được bỏ như psql vẫn bỏ ở đầu input. Đo
+3/11/2026 trên máy dev: `test_pg_v7_backend.py` 421 giây xuống 96 giây, cùng 75 case xanh, 2 case CÒN MỞ
+bỏ qua; ~5.300 lệnh đi kết nối giữ sẵn, ~450 lệnh vẫn đi psql mới.
 
 ### Luật nghiệp vụ máy đã kiểm
 

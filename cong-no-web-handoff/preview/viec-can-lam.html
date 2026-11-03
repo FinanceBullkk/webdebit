@@ -6,21 +6,17 @@
   <meta name="description" content="Việc cần làm cuối ngày: việc từ Sheet chờ đưa vào sổ, chuyến thiếu đơn giá, chờ kiểm, sổ cần gán mặt hàng, hôm nay đã nhập/thu.">
   <title>Công nợ HTH · Việc cần làm</title>
   <link rel="stylesheet" href="cong-no-theme.css">
-  <link rel="stylesheet" href="dashboard-v7.css">
 <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="viec-can-lam.css">
+  <link rel="stylesheet" href="app-nav.css">
 </head>
 <body data-presence="viec-can-lam">
   <div id="demo-banner" hidden role="status"></div>
-  <header class="topbar">
-    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
-    <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a href="/doi-no.html">Đòi nợ</a><a class="active" href="/viec-can-lam.html" aria-current="page">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
-    <label class="search"><span aria-hidden="true">⌕</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
-    <time class="asof" id="as-of"></time>
-  </header>
+  <aside class="app-nav" data-active="viec-can-lam" data-count="page"></aside>
   <main class="page todo-page">
-    <div class="page-head">
-      <h1>Việc cần làm</h1>
-      <div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div>
+    <div class="page-head topbar">
+      <h1>Việc cần làm</h1><time id="as-of" hidden></time>
+      <div class="live-controls"><span class="sheet-clock" title="Thời điểm lấy bản Sheet"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M4 15h16M10 4v16"/></svg><time id="sheet-clock">—</time></span><time id="updated-at" class="sr-only" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn refresh-icon" type="button" aria-label="Làm mới: lấy lại từ Sheet và tính lại việc" title="Làm mới · lấy lại từ Sheet và tính lại việc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
     </div>
     <div id="error" role="alert" hidden></div>
     <div id="inbox-root" aria-live="polite"></div>
@@ -29,7 +25,10 @@
   <script src="cong-no-format.js"></script>
   <script src="dashboard-v7-model.js"></script>
   <script src="sheet-refresh.js"></script>
+  <script src="so-khach-v7-model.js"></script>
   <script src="viec-can-lam-inbox.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
   <script src="viec-can-lam.js"></script>
   <script src="presence.js"></script>
 </body>

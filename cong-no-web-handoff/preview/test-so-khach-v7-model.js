@@ -6,6 +6,17 @@ const fixture = require("./so-khach-v7-fixture.js");
 const copy = () => structuredClone(fixture);
 const month = (book, key) => book.months.find(item => item.key === key);
 
+test('unit price footer sums known values exactly, excludes pending/deleted, preserves unknown', () => {
+  const trip = (unit_price_vnd, extra = {}) => ({ unit_price_vnd, status: 'confirmed', ...extra });
+  assert.equal(model.unitPriceTotal([trip('9007199254740993'), trip(null), trip('80', { status: 'pending_review' }),
+    trip('90', { deleted: true }), trip('100', { status: 'rejected' })], [
+    { kind: 'trip', editable: true, current: { unit_price_vnd: '7' }, display: { unit_price: '999' } },
+    { kind: 'trip', display: { unit_price: '10' } }, { kind: 'trip', display: { unit_price: 'chưa giá' } },
+    { kind: 'receipt', display: { unit_price: '200' } }]), 9007199254741010n);
+  assert.equal(model.unitPriceTotal([trip(null)], []), null);
+  assert.equal(model.unitPriceTotal([trip('0')], []), 0n);
+});
+
 test("NEWTRIP-01 keys normalize Unicode whitespace, booking symbols and ALT dates", () => {
   const row = { container: " a\u0085b\u00a0c ", date: "10/01/2026", booking: " b\u202fk 1" };
   assert.equal(model.tripKey(row), "BK1|ABC");
@@ -711,6 +722,7 @@ test("chuỗi 12 tháng của thẻ Tình hình: tháng thiếu không có cột
   assert.deepEqual(series.items.map(item => item.carried), [true, false, false, true, false, true, true, true, true, true, true, false]);
   assert.deepEqual([series.zeroAt, series.items[2].endAt, series.items[4].receivedAt, series.items[3].chargesAt], [0, 0.7, 1, null]);
   assert.deepEqual([series.low, series.last], [4, 11]);
+  assert.equal(model.seriesCharges(series), 120n, 'chỉ cộng tháng có số đã ghi');
 });
 
 test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ chưa có tháng nào thì không có điểm; tháng sai thì báo lỗi", () => {
@@ -720,6 +732,7 @@ test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ ch�
     [["2026-08", null, null, false], ["2026-09", -200n, 0, false], ["2026-10", -100n, 0.1428, false]]);
   assert.deepEqual([credit.zeroAt, credit.items[1].receivedAt, credit.low, credit.last], [0.2857, 1, 1, 2]);
   const empty = model.monthSeries([], "2026-02", 3);
+  assert.equal(model.seriesCharges(empty), null, 'thiếu dữ liệu không thành 0');
   assert.deepEqual(empty.items.map(item => [item.key, item.present, item.endVnd]), [["2025-12", false, null], ["2026-01", false, null], ["2026-02", false, null]]);
   assert.deepEqual([empty.zeroAt, empty.low, empty.last], [0, null, null]);
   assert.throws(() => model.monthSeries([], "2026-13"), /Invalid month/);
