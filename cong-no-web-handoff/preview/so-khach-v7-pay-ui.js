@@ -18,7 +18,7 @@
     const voided = receipt.voided_by_event != null;
     return receipt.reference
       ? `<small class="receipt receipt-edit receipt-ref${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" `
-        + `tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">Tham chiếu: ${escape(receipt.reference)}</small>`
+        + `tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">${escape(receipt.reference)}</small>`
       : `<small class="receipt receipt-edit receipt-ref empty" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="0" role="button" `
         + `aria-label="Thêm tham chiếu ${escape(receipt.pid)}" title="Thêm tham chiếu">+</small>`;
   };
@@ -40,11 +40,11 @@
       ? `<td class="pay offset-method${voided ? ' voided-method' : ''}">${escape(methodText(receipt, voided, 'CẤN TRỪ'))}${offsetLink(receipt)}</td>`
       : `<td class="pay receipt receipt-edit${voided ? ' voided-method' : ''}" data-pid="${escape(receipt.pid)}" data-field="method" tabindex="${tab}">`
         + `${escape(methodText(receipt, voided, receipt.method))}</td>`;
-    // Số tiền một dòng riêng; tham chiếu, tháng trừ nợ và nút ảnh gom thành một dòng nhỏ bên dưới.
-    const meta = `${receipt.outgoing ? '' : referenceInline(receipt)}${allocationInline(receipt, key)}${ctx.imageClip?.(receipt) ?? ''}`;
     const amountCell = `<td class="pay num receipt${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}"${offsetAttrs(receipt)} tabindex="${tab}">`
-      + `<span class="receipt-sum">${fmt(receipt.line.amount_vnd)}</span>${meta ? `<span class="receipt-meta">${meta}</span>` : ''}</td>`;
-    return dateCell + methodCell + amountCell;
+      + `<span class="receipt-money"><span class="receipt-sum">${fmt(receipt.line.amount_vnd)}</span>${ctx.imageClip?.(receipt) ?? ''}</span></td>`;
+    return dateCell + methodCell
+      + `<td class="pay pay-reference">${receipt.outgoing ? '' : referenceInline(receipt)}</td>`
+      + `<td class="pay pay-allocation">${allocationInline(receipt, key)}</td>` + amountCell;
   }
   // Khoản thu Sheet (dòng sổ gốc): ngày Sheet, ghi chú, số tiền. Hình thức thu không suy từ ghi chú (V7-MIG còn mở);
   // ghi chú chỉ hiện khi không lặp lại cùng ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
@@ -57,16 +57,16 @@
         + `aria-label="Xóa hẳn khoản thu sổ gốc ${escape(fmt(receipt.source_total_vnd))}" title="Bấm để xóa hẳn khoản thu này">`
         + `${fmt(receipt.source_total_vnd)}</td>`
       : num(fmt(receipt.source_total_vnd), 'pay');
-    return `<tr class="pay-row legacy-pay">${cell(day, 'pay pay-start')}${cell(noteText, 'pay')}${payAmount}</tr>`;
+    return `<tr class="pay-row legacy-pay">${cell(day, 'pay pay-start')}${cell('–', 'pay')}${cell(noteText, 'pay pay-reference')}${cell('', 'pay pay-allocation')}${payAmount}</tr>`;
   }
   // Audit P0 29/10/2026: phiếu đã hủy không chiếm chỗ phiếu thật — gom một dòng mờ, bấm Xem mới hiện từng phiếu.
   function voidRows(key, voided) {
     if (!voided.length) return '';
     const open = openVoided.has(key);
-    const trace = row => `<tr class="void-trace"><td colspan="3"><s>${fmt(row.line.amount_vnd)}</s> · `
+    const trace = row => `<tr class="void-trace"><td colspan="5"><s>${fmt(row.line.amount_vnd)}</s> · `
       + [escape(dateText(row.date)), row.outgoing ? '' : `hủy ${escape(dateText(row.voided_on))}`, escape(row.void_reason)].filter(Boolean).join(' · ')
       + `${ctx.imageClip?.(row) ?? ''}</td></tr>`;
-    return `<tr class="void-summary"><td colspan="3">${voided.length} phiếu đã hủy, không tính tiền <button type="button" class="void-toggle" `
+    return `<tr class="void-summary"><td colspan="5">${voided.length} phiếu đã hủy, không tính tiền <button type="button" class="void-toggle" `
       + `data-month="${escape(key)}" aria-expanded="${open}">${open ? 'Ẩn' : 'Xem'}</button></td></tr>`
       + (open ? voided.map(trace).join('') : '');
   }

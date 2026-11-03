@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 // NHAC-NO-01: tab Đòi nợ — khách quá hạn + mốc "đã nhắc", nút Copy tin nhắc ghi reminder_log.
 const rule = { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 };
@@ -53,7 +53,7 @@ function makeServer({ debtPayload = debt(), debtStatus = 200,
 async function withPage(options, fn) {
   const server = makeServer(options);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, permissions: ['clipboard-read', 'clipboard-write'] });
     const tab = await context.newPage();

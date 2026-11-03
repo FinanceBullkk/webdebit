@@ -1,10 +1,10 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {chromium}=require('playwright');
+const { launchShared } = require('./shared-browser.js');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const url=pathToFileURL(path.join(__dirname,'customer-ledger-workbench.html')).href;
-async function withPage(fn){const browser=await chromium.launch({headless:true});try{const page=await browser.newPage({viewport:{width:1600,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(url);await fn(page);assert.deepEqual(errors,[]);}finally{await browser.close();}}
+async function withPage(fn){const browser=await launchShared();try{const page=await browser.newPage({viewport:{width:1600,height:1100}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(url);await fn(page);assert.deepEqual(errors,[]);}finally{await browser.close();}}
 
 test('pending shipment notice follows filters, opens target, and never changes posted balance',async()=>withPage(async page=>{
   const before=await page.locator('#all-balance').innerText();

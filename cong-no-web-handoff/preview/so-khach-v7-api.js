@@ -320,6 +320,17 @@
       if (!Array.isArray(data?.links)) throw Error('Group Zalo đã gắn không hợp lệ.');
       return data.links.filter(row => Number(row.customer_id) === customerId);
     }
+    // Thẻ Hồ sơ (HO-SO-01): group Zalo đã gắn với sổ, kèm tên group và giờ tin cuối lấy từ gói chat trên máy chủ (chỉ group đã
+    // chọn lên web). Gói chưa có hoặc đọc lỗi thì vẫn trả group đã gắn, tên để trống.
+    async function readZaloGroups() {
+      const links = await readZaloLinks();
+      if (!links.length) return [];
+      const response = await fetcher('/api/v7/zalo/conversations?q=', { cache: 'no-store' }).catch(() => null);
+      const data = response?.ok ? await response.json().catch(() => null) : null;
+      const known = new Map((Array.isArray(data?.conversations) ? data.conversations : []).map(row => [row.conversation_id, row]));
+      return links.map(link => ({ ...link, display_name: known.get(link.conversation_id)?.display_name ?? null,
+        last_message_at: known.get(link.conversation_id)?.last_message_at ?? null }));
+    }
     // Thẻ Hồ sơ: bảng giá của sổ (BANG-GIA-01), chỉ đọc.
     async function readPrices() {
       const response = await fetcher(`/api/v7/price-table?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
@@ -338,7 +349,7 @@
     }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, findChats, readPrices, remind,
-      readMarks, readZaloLinks,
+      readMarks, readZaloLinks, readZaloGroups,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),

@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho thẻ Trao đổi và thẻ Hồ sơ của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A3): phiếu thu
  * và cấn trừ đúng ngày, số tiền, tháng trừ nợ theo phân bổ còn hiệu lực, phiếu hủy gạch có lý do; lần nhắc, hội thoại Zalo tìm theo
- * tên, lọc; Copy tin nhắc ghi một dòng "đã nhắc" mỗi ngày; giá đang áp bằng dòng "Đang dùng" của Bảng giá, cột phụ phí bằng cột của
- * sổ, ảnh chứng từ mở ở thẻ Sổ; nguồn phụ lỗi thì chỉ khối đó báo. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang ghim
+ * tên, lọc; Copy tin nhắc ghi một dòng "đã nhắc" mỗi ngày; Hồ sơ theo HO-SO-01: giá đang áp bằng dòng "Đang dùng" của Bảng giá,
+ * giá sắp áp, chưa có giá, cột phụ phí bằng cột của sổ, group Zalo đã gắn, nút chưa có backend báo rõ; nguồn phụ lỗi thì chỉ khối đó báo. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang ghim
  * 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,7 +34,7 @@ function talking(world) {
   { conversation_id: 'b'.repeat(64), display_name: 'Nhóm giả khác', message_count: 5, last_message_at: Date.parse('2026-11-14T09:00:00+07:00') }];
   world.debt = { as_of: TODAY, month: '2026-11-01', rule: RULE, receivable_vnd: M(241), customers: [DEBT_ROW] };
 }
-// Hồ sơ: sổ sầu riêng cảng, hai cột phụ phí riêng, bảng giá ba đợt (hết hạn, đang dùng, sắp áp dụng), một phiếu có ảnh.
+// Hồ sơ: sổ sầu riêng cảng, hai cột phụ phí riêng, bảng giá ba đợt (hết hạn, đang dùng, sắp áp dụng), một phiếu có ảnh (ảnh chỉ ở thẻ Sổ).
 function profiled(world) {
   talking(world);
   Object.assign(world, { query: '&the=ho-so', feeColumns: [1, 2],
@@ -72,7 +72,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.deepEqual(await page.locator('#the-trao-doi .ct-item.voided s').allInnerTexts(), ['50.000.000 đ']);
   assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Sổ Bên Kia' }).getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   // Cùng nguồn với thẻ Sổ: phần trừ nợ của PH-003 ở danh sách phiếu tháng 11 ghi đúng các tháng đó.
-  assert.equal(await page.locator('#thang-2026-11 [data-pid="PH-003"] .receipt-allocation').innerText(), 'Trừ nợ T7/2026 8.000.000 · T8/2026 22.000.000');
+  assert.equal(await page.locator('#thang-2026-11 tr:has([data-pid="PH-003"]) .receipt-allocation').innerText(), 'Trừ nợ T7/2026 8.000.000 · T8/2026 22.000.000');
   // Hội thoại tìm theo tên Sheet của sổ như nút Chat ở Đòi nợ; hội thoại khác tên không hiện. Mở chat mở trang Chat Zalo lọc theo tên.
   assert.deepEqual(world.chatReads, ['Khách Thử Sửa']);
   const name = encodeURIComponent('Khách Thử Sửa');
@@ -89,8 +89,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.deepEqual(await layout(page, '#the-trao-doi'), { overflow: 0, small: [], named: [], font: '16px' });
   // Thẻ Tình hình, khối 6: tin Zalo gần nhất cùng hội thoại tìm theo tên.
   await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .ov-chat', { hasText: 'Zalo gần nhất' }).waitFor();
-  assert.equal(await page.locator('#the-tinh-hinh .ov-chat').innerText(), 'Zalo gần nhất 12/11/2026 · Khách Thử Sửa');
+  await page.locator('#the-tinh-hinh .ov-activity').waitFor();
   assert.deepEqual(world.requests, [], 'thẻ Trao đổi không gửi lệnh nào khi chỉ xem');
 }, talking));
 
@@ -152,39 +151,91 @@ test('Copy tin nhắc: chép đúng tin của Đòi nợ, ghi một dòng "đã 
   assert.equal(world.version, 1, 'ghi "đã nhắc" không đổi phiên bản sổ');
 }, talking));
 
-test('Hồ sơ: mặt hàng, hạn trả; giá đang áp bằng dòng "Đang dùng" của Bảng giá; cột phụ phí bằng cột của sổ; ảnh chứng từ mở ở thẻ Sổ', async () => withPage(async ({ page, shot }) => {
+test('Hồ sơ (HO-SO-01): đầu hồ sơ, hai cột đúng thứ tự mục; hạn trả; giá đang áp bằng dòng "Đang dùng" của Bảng giá, giá sắp áp; phụ phí bằng cột của sổ; không còn khối ảnh chứng từ', async () => withPage(async ({ page, world, shot }) => {
   const pane = page.locator('#the-ho-so');
-  for (const selector of ['.ct-prices', '.image-clip', '.ov-block p:text("Neo · Điện")']) await pane.locator(selector).waitFor();
+  await pane.locator('.hs-prices').waitFor();
+  await pane.locator('.hs-term', { hasText: 'Cuối tháng kế tiếp' }).waitFor();
   await shot('ho-so');
-  const rows = await pane.locator('.ct-row').evaluateAll(nodes => nodes.map(node => [...node.children].map(child => child.innerText)));
-  assert.deepEqual(rows, [['Mặt hàng · vận chuyển', 'Sầu riêng · cảng'], ['Hạn trả', 'Cuối tháng sau tháng nợ'], ['Phiếu 05/11/2026 · 30.000.000 đ', '📎 1']]);
-  assert.equal(await pane.locator('.ov-block').first().locator('.ov-note').innerText(), 'Quy tắc chung của mọi sổ, như Tổng quan · ví dụ nợ tháng 11/2026 hạn 31/12/2026');
-  assert.equal(await pane.locator('h2').nth(1).innerText(), 'Giá đang áp hôm nay 15/11/2026');
-  const digits = text => text.replace(/\D/g, '');
-  const shown = (await pane.locator('.ct-prices tbody tr').evaluateAll(nodes => nodes.map(node => [...node.cells].map(cell => cell.innerText))))
-    .map(([place, khach, tt, valid]) => [valid.replace(/^từ (\S+).*$/, '$1'), valid.includes('đến') ? valid.replace(/^.* đến /, '') : '', place, digits(khach), digits(tt)]);
-  assert.deepEqual(shown, [['10/10/2026', '30/11/2026', 'TIEN GIANG', '60000000', ''], ['10/10/2026', '30/11/2026', 'LONG AN', '58000000', '66000000']]);
-  assert.equal(await pane.locator('.ct-prices + .ov-note').innerText(), 'Shipper áp giá TT: SHIP TT; shipper khác lấy giá khách. Có giá mới từ 01/12/2026.');
-  assert.equal(await pane.locator('.ov-block', { hasText: 'Cột phụ phí riêng' }).locator('p').innerText(), 'Neo · Điện. Phụ phí loại khác vào cột Khác.');
-  assert.deepEqual(await layout(page, '#the-ho-so'), { overflow: 0, small: [], named: [], font: '16px' });
-  // Mở Bảng giá: sang thẻ Sổ, khung Bảng giá mở; các dòng "Đang dùng" hôm nay đúng bằng bảng ở thẻ Hồ sơ.
+  assert.deepEqual([await pane.locator('.hs-initials').innerText(), await pane.locator('.hs-name').innerText(), await pane.locator('.hs-facts').innerText()],
+    ['TS', 'Khách Thử Sửa', 'Sầu riêng · Đường cảng']);
+  assert.equal(await page.locator('.book-head').innerText().then(head => head.includes('Sầu riêng')), false, 'mặt hàng chỉ ở đầu hồ sơ');
+  assert.deepEqual(await pane.locator('.hs-main h3').allInnerTexts(), ['Thông tin doanh nghiệp', 'Thỏa thuận làm việc', 'Giá và phụ phí áp dụng']);
+  assert.deepEqual(await pane.locator('.hs-side h3').allInnerTexts(), ['Người liên hệ', 'Ghi chú khi làm việc', 'Tài liệu'], 'chưa gắn group thì không có mục Nhóm trao đổi');
+  const terms = await pane.locator('.hs-term').evaluateAll(nodes => nodes.map(node => node.innerText.replace(/\s+/g, ' ').trim()));
+  assert.deepEqual(terms, ['Thanh toán Cuối tháng kế tiếp Công nợ tháng 11/2026 đến hạn 31/12/2026 · quy tắc chung mọi khách',
+    'Hạn mức công nợ Chưa đặt hạn mức Chưa đặt nghĩa là chưa giới hạn, không phải 0 đ. Đặt hạn mức', 'Hợp đồng Chưa lưu hợp đồng trên web Tải hợp đồng lên']);
+  const digits = value => value.replace(/\D/g, '');
+  const rows = await pane.locator('.hs-prices tbody tr').evaluateAll(nodes => nodes.map(node => [node.className, ...[...node.cells].map(cell => cell.innerText)]));
+  assert.deepEqual(rows, [['now', 'TIEN GIANG', '60.000.000', '–', '10/10/2026 – 30/11/2026'], ['now', 'LONG AN', '58.000.000', '66.000.000', '10/10/2026 – 30/11/2026'],
+    ['next', 'TIEN GIANG', '62.000.000', '–', 'giá mới từ 01/12/2026'], ['next', 'LONG AN', '60.000.000', '68.000.000', 'giá mới từ 01/12/2026']]);
+  assert.equal(await pane.locator('.hs-hint').innerText(), 'Đơn vị: đồng/chuyến. Giá TT áp cho shipper SHIP TT; shipper khác lấy giá khách.');
+  assert.equal(await pane.locator('.hs-fees').innerText(), 'Phụ phí riêng trên sổ: Neo, Điện');
+  assert.equal(await pane.locator('.image-clip').count(), 0, 'ảnh chứng từ xem ở phiếu thu thẻ Sổ');
+  assert.deepEqual(await layout(page, '#the-ho-so'), { overflow: 0, small: [], named: [], font: '15px' });
+  const geometry = await page.evaluate(() => {
+    const box = selector => document.querySelector(selector).getBoundingClientRect();
+    const fonts = [...document.querySelectorAll('#the-ho-so :is(p,td,th,span,b,button,a)')].filter(node => node.offsetHeight && node.textContent.trim())
+      .map(node => parseFloat(getComputedStyle(node).fontSize));
+    return { ratio: Math.round(box('.hs-main').width / (box('.hs-main').width + box('.hs-side').width) * 100), side: box('.hs-side').left > box('.hs-main').right,
+      smallest: Math.min(...fonts), name: parseFloat(getComputedStyle(document.querySelector('.hs-name')).fontSize) };
+  });
+  assert.ok(geometry.side && geometry.ratio >= 58 && geometry.ratio <= 66, `hai cột ${geometry.ratio}/${100 - geometry.ratio}`);
+  assert.ok(geometry.smallest >= 14, `chữ nhỏ nhất ${geometry.smallest}px`);
+  assert.equal(geometry.name, 30, 'tên khách to nhất thẻ');
+  // Xem bảng giá: sang thẻ Sổ, khung Bảng giá mở; các dòng "Đang dùng" hôm nay đúng bằng các dòng giá đang áp ở thẻ Hồ sơ.
   await pane.locator('[data-go="mo:bang-gia"]').click();
   assert.deepEqual((await state(page))[0], 'so');
   await page.locator('.price-table-dialog .price-grid-main td.st-now').first().waitFor();
   const now = await page.locator('.price-table-dialog .price-grid-main tbody tr').evaluateAll(nodes => nodes.filter(node => node.querySelector('td.st-now'))
     .map(node => [...node.querySelectorAll('input')].map(input => input.value)));
-  assert.deepEqual(now.map(([from, to, place, khach, tt]) => [from, to, place, digits(khach), digits(tt)]), shown);
+  assert.deepEqual(now.map(([, , place, khach, tt]) => [place, digits(khach), digits(tt)]),
+    rows.filter(([kind]) => kind === 'now').map(([, place, khach, tt]) => [place, digits(khach), digits(tt)]));
   await page.locator('.price-table-dialog .price-table-close').click();
-  // Cột phụ phí riêng của thẻ Hồ sơ là các cột phụ phí ở tiêu đề sổ, trừ cột Khác.
+  // Cài đặt phụ phí mở khung có sẵn ở thẻ Sổ; cột phụ phí riêng là các cột ở tiêu đề sổ, trừ Khác.
   const heads = await page.locator('.ledger-head th.fee-h').allInnerTexts();
-  assert.deepEqual(heads.filter(text => text !== 'Khác'), ['Neo', 'Điện']);
-  // Ảnh chứng từ: bấm 📎 ở thẻ Hồ sơ thì sang thẻ Sổ và khung xem ảnh của phiếu mở ở đó.
+  assert.deepEqual(heads.filter(head => head !== 'Khác'), ['Neo', 'Điện']);
   await page.locator('#tab-ho-so').click();
-  await pane.locator('.image-clip').click();
+  await pane.locator('[data-go="mo:phu-phi"]').click();
   assert.deepEqual((await state(page))[0], 'so');
-  await page.locator('.image-viewer:not([hidden]) img:not([hidden])').waitFor();
-  assert.match(await page.locator('.image-viewer-bar strong').innerText(), /^Phiếu PH-003 · ảnh 1\/1$/);
+  await page.locator('.fee-settings:not([hidden])').waitFor();
+  assert.deepEqual(world.requests, [], 'xem hồ sơ không gửi lệnh ghi');
 }, profiled));
+
+test('Hồ sơ: nơi đi chưa có giá và giá hết hạn ghi cam ở đúng dòng; group Zalo đã gắn có tên, tin cuối, Mở nhóm; nút chưa có backend báo rõ, không gửi lệnh', async () => withPage(async ({ page, world }) => {
+  const pane = page.locator('#the-ho-so');
+  await pane.locator('.hs-prices').waitFor();
+  await pane.locator('h3', { hasText: 'Nhóm trao đổi' }).waitFor();
+  const rows = await pane.locator('.hs-prices tbody tr').evaluateAll(nodes => nodes.map(node => [node.className, ...[...node.cells].map(cell => cell.innerText)]));
+  assert.deepEqual(rows, [['warn', 'TIEN GIANG', '57.000.000', '–', 'hết hạn 09/10/2026 · chưa có giá mới'],
+    ['warn', 'LONG AN', '55.000.000', '70.000.000', 'hết hạn 09/10/2026 · chưa có giá mới'], ['warn', 'BEN LUC', '–', '–', 'chưa có giá']]);
+  assert.equal(await pane.locator('.hs-prices tr.warn td:last-child').first().evaluate(cell => getComputedStyle(cell).color), 'rgb(154, 91, 0)');
+  assert.equal(await pane.locator('.hs-fees').innerText(), 'Phụ phí riêng trên sổ: chưa chọn, mọi phụ phí vào cột Khác');
+  assert.deepEqual(await pane.locator('.hs-side h3').allInnerTexts(), ['Người liên hệ', 'Nhóm trao đổi', 'Ghi chú khi làm việc', 'Tài liệu']);
+  assert.equal(await pane.locator('.hs-person').innerText().then(value => value.replace(/\s+/g, ' ').trim()), 'Z Nhóm giả Hàng bộ Zalo · tin cuối 12/11/2026 Mở nhóm');
+  assert.equal(await pane.locator('.hs-person a').getAttribute('href'), `/zalo-chat.html?c=${CHAT}`);
+  // Sáu nút của mục cần backend: mỗi nút báo đúng việc, có Đóng; không mở khung giả, không gửi lệnh.
+  const buttons = await pane.locator('[data-go^="chua:"]').allInnerTexts();
+  assert.deepEqual(buttons, ['Chỉnh sửa hồ sơ', 'Đặt hạn mức', 'Tải hợp đồng lên', '+ Thêm', '+ Thêm ghi chú', 'Tải tài liệu lên']);
+  for (const [index, what] of ['Chỉnh sửa hồ sơ', 'Đặt hạn mức', 'Tải hợp đồng lên', 'Thêm người liên hệ', 'Thêm ghi chú', 'Tải tài liệu lên'].entries()) {
+    await pane.locator('[data-go^="chua:"]').nth(index).click();
+    assert.equal(await pane.locator('.hs-toast span').innerText(), `${what}: chưa lưu được trên web — cần thêm chức năng (giai đoạn B).`);
+  }
+  assert.equal(await pane.locator('.hs-toast').getAttribute('role'), 'status');
+  await pane.locator('.hs-toast [data-go="dong"]').click();
+  assert.equal(await pane.locator('.hs-toast').count(), 0);
+  assert.deepEqual(world.requests, [], 'nút chưa hỗ trợ không gửi lệnh');
+  // 1265 (Chrome Windows có thanh cuộn dọc) và màn hẹp: không cuộn ngang.
+  for (const width of [1265, 390]) {
+    await page.setViewportSize({ width, height: 720 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, `không cuộn ngang ở ${width}px`);
+  }
+}, world => {
+  profiled(world);
+  Object.assign(world, { feeColumns: [], zaloLinks: [{ conversation_id: CHAT, customer_id: 1, customer_name: 'Khách Thử Sửa', linked_by: 'nguoi-thu', linked_at: '2026-11-02T03:00:00Z' }] });
+  world.chats[0].display_name = 'Nhóm giả Hàng bộ';
+  world.priceTable.locations.push({ name: 'BEN LUC', aliases: [] });
+  world.priceTable.periods = world.priceTable.periods.slice(0, 1);
+}));
 
 test('Nguồn phụ lỗi: lần nhắc, chat, bảng giá lỗi thì chỉ khối đó báo kèm Thử lại; máy chủ chưa có bản xuất chat thì ghi rõ', async () => withPage(async ({ page, world }) => {
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
@@ -198,15 +249,13 @@ test('Nguồn phụ lỗi: lần nhắc, chat, bảng giá lỗi thì chỉ kh�
   await error.locator('button').click();
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Nhắc nợ' }).waitFor();
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
-  // Máy chủ chưa có bản xuất chat (như hao): một câu, không báo lỗi; thẻ Tình hình cũng vậy.
+  // Máy chủ chưa có bản xuất chat (như hao): thẻ Trao đổi báo rõ.
   delete world.chats;
   await page.reload();
   const none = page.locator('#the-trao-doi .ct-status', { hasText: 'Chưa có dữ liệu chat' });
   await none.waitFor();
   assert.equal(await none.innerText(), 'Chưa có dữ liệu chat trên máy chủ.');
   assert.equal(await page.locator('#the-trao-doi .ct-error').count(), 0);
-  await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .ov-chat', { hasText: 'Chưa có dữ liệu chat trên máy chủ.' }).waitFor();
   // Bảng giá lỗi: chỉ khối giá báo lỗi, khối khác của thẻ Hồ sơ vẫn hiện; Thử lại thì có bảng.
   await page.locator('#tab-ho-so').click();
   await page.route(/\/api\/v7\/price-table\?/, route => route.abort(), { times: 1 });
@@ -214,8 +263,8 @@ test('Nguồn phụ lỗi: lần nhắc, chat, bảng giá lỗi thì chỉ kh�
   const priceError = page.locator('#the-ho-so .ct-error');
   await priceError.waitFor();
   assert.equal(await text(priceError), 'Không tải được bảng giá. Kiểm tra mạng rồi bấm Thử lại. Thử lại');
-  assert.match(await page.locator('#the-ho-so .ct-row').first().innerText(), /^Mặt hàng · vận chuyển/);
+  assert.equal(await page.locator('#the-ho-so .hs-facts').innerText(), 'Sầu riêng · Đường cảng');
   await priceError.locator('button').click();
-  await page.locator('#the-ho-so .ct-prices').waitFor();
+  await page.locator('#the-ho-so .hs-prices').waitFor();
   assert.deepEqual(world.requests, [], 'không gửi lệnh nào');
 }, world => { profiled(world); world.query = '&the=trao-doi'; }));

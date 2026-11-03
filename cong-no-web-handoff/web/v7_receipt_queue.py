@@ -12,12 +12,13 @@ is not in the future, and its month has no original-book receipt the Sheet no lo
 from __future__ import annotations
 
 import datetime as dt
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 from v7_price_queue import name_key, owners
+from v7_sheet_queue import read_snapshot
+from v7_sheet_task_keep import fingerprint
 
 DATE_WINDOW_DAYS = 3
 REVIEW = ("NO_DATE", "FUTURE_DATE", "SHEET_EDITED", "WEB_DELETED")
@@ -71,18 +72,7 @@ def rows_from_scan(scan: dict[str, dict]) -> list[dict]:
 
 
 def load_receipt_snapshot(path: str | Path) -> dict[str, Any]:
-    try:
-        with open(path, encoding="utf-8") as stream:
-            snapshot = json.load(stream)
-    except (OSError, ValueError) as exc:
-        raise ValueError("Sheet receipt snapshot unavailable") from exc
-    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("Sheet receipt snapshot invalid")
-    if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("Sheet receipt snapshot hash missing")
-    if snapshot.get("row_count") != len(snapshot["rows"]):
-        raise ValueError("Sheet receipt snapshot row count mismatch")
-    return snapshot
+    return read_snapshot(path, "Sheet receipt snapshot")
 
 
 def _int(value: Any) -> int | None:
@@ -94,6 +84,12 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
     """Status for each Sheet receipt row of one customer, in Sheet order."""
     rows = sorted(rows, key=lambda r: (str(r.get("debt_month")), r.get("source_row") or 0))
     results = [{**row, "date": pay_date(row.get("note")), "status": None} for row in rows]
+    occurrences = {}
+    for row in results:
+        identity = {k: row.get(k) for k in ("customer_tab", "debt_month", "amount_vnd", "note")}
+        base = fingerprint(identity)
+        occurrences[base] = occurrences.get(base, 0) + 1
+        row["source_fingerprint"] = fingerprint({**identity, "occurrence": occurrences[base]})
     legacy: dict[tuple, list[int]] = {}
     deleted: set[tuple] = set()
     for item in ledger.get("legacy_rows", []):
@@ -121,8 +117,16 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
     for (month, amount, _), ids in legacy.items():
         for legacy_id in ids:
             orphans.setdefault(month, []).append({"id": legacy_id, "amount_vnd": str(amount)})
-    web = [{"date": dt.date.fromisoformat(str(r["date"])[:10]), "amount": _int(r.get("amount_vnd"))}
+    web = [{"date": dt.date.fromisoformat(str(r["date"])[:10]), "amount": _int(r.get("amount_vnd")), "reference": r.get("reference") or ""}
            for r in ledger.get("receipts", []) if not r.get("voided_by_event") and r.get("date")]
+    for result in results:
+        if result["status"] or result["date"] is not None:
+            continue
+        found = next((w for w in web if w["reference"].startswith(review_reference(result["source_fingerprint"]))
+                      and w["amount"] == result["amount_vnd"]), None)
+        if found:
+            web.remove(found)
+            result["status"] = "MATCHED_WEB"
     # Exact dates first for every row, so a near match never takes another row's exact one.
     for near in (False, True):
         for result in results:
@@ -161,6 +165,8 @@ def project_receipts(snapshot: dict, ledger: dict, customers: list[dict], today:
         # Money leaves the API as exact decimal strings (same contract as get_ledger).
         out = {k: result[k] for k in keep} | {"amount_vnd": str(result["amount_vnd"]),
                                                 "date": result["date"].isoformat() if result["date"] else None}
+        if result["status"] == "NO_DATE":
+            out["source_fingerprint"] = result["source_fingerprint"]
         return out | ({"web_legacy": result["web_legacy"]} if "web_legacy" in result else {})
     results = classify(rows, ledger, today)
     ready = sorted((public(r) for r in results if r["status"] == "READY"), key=lambda r: (r["date"], r["source_row"]))
@@ -171,3 +177,7 @@ def project_receipts(snapshot: dict, ledger: dict, customers: list[dict], today:
 
 def reference(note: str) -> str:
     return ("Sheet: " + note if note else "Sheet")[:500]
+
+
+def review_reference(source: str) -> str:
+    return "Sheet #" + source + ": "

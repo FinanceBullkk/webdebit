@@ -7,6 +7,7 @@
     // Ghi giá từ Sheet (specs/v7-price-queue.md): null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại.
     let priceView = null;
     let priceApproval = null;
+    const conflictSelection = new Set();
     // Khung hỏi lại trước khi duyệt chuyến mới từ Sheet đang mở (SO-GON-04); giữ qua lần vẽ lại.
     let approveAsk = false;
     function approvePanel(data, active) {
@@ -18,6 +19,9 @@
     const priceRows = data => new Map([...(data.trips ?? []).map(row => [`trip-${row.id}`, row]),
       ...(data.legacy_rows ?? []).map(row => [`legacy-${row.id}`, row])]);
     const vndText = value => value == null ? '' : model.formatVnd(model.sheetVnd(value));
+    const conflictKey = item => `${item.target_kind}:${item.target_id}:${item.source_row}`;
+    const selectedConflicts = data => (data.sheet_prices?.review ?? []).filter(item =>
+      item.status === 'CONFLICT' && item.batchable && conflictSelection.has(conflictKey(item)));
     function priceMonths(data, items) {
       const rows = priceRows(data);
       const keys = [...new Set(items.map(item => monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month)).filter(Boolean))].sort();
@@ -29,18 +33,25 @@
         const plan = model.planSheetPrices(ready, data.total_outstanding_vnd);
         return `<div class="price-panel confirm" role="region" aria-label="Xác nhận ghi giá từ Sheet"><p><strong>Ghi giá Sheet cho ${plan.count} chuyến ${escape(priceMonths(data, ready))}?</strong> Tổng còn nợ tăng <strong>${model.formatVnd(plan.increaseVnd)} đ</strong> (từ ${model.formatVnd(plan.beforeVnd)} lên ${model.formatVnd(plan.afterVnd)}). Phiếu thu tự phân bổ lại theo nợ cũ trước.</p><div class="price-actions"><button type="button" class="price-write primary">Ghi ${plan.count} giá</button><button type="button" class="price-cancel">Thôi</button></div></div>`;
       }
-      if (priceView?.error) return `<div class="price-panel err" role="alert"><p><strong>Chưa ghi giá nào.</strong> ${escape(priceView.error)}</p><div class="price-actions"><button type="button" class="price-reload primary">Tải lại sổ</button></div></div>`;
+      if (priceView === 'conflict-confirm') {
+        const chosen = selectedConflicts(data);
+        const plan = model.planSheetPriceConflicts(chosen, data.total_outstanding_vnd);
+        return `<div class="price-panel confirm" role="region" aria-label="Xác nhận lấy giá Sheet đã chọn"><p><strong>Lấy Sheet cho ${chosen.length} dòng đã chọn?</strong> Tổng còn nợ dự kiến ${model.formatVnd(plan.beforeVnd)} đ → ${model.formatVnd(plan.afterVnd)} đ (chênh ${model.formatVnd(plan.deltaVnd)} đ). Phiếu thu tự phân bổ lại theo nợ cũ trước.</p><ul>${chosen.map(item => `<li><div class="what">${escape(item.container)} · ${escape(dateText(item.date))} · giá Web ${vndText(item.web_unit_price_vnd)} đ → Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Phụ phí Web ${vndText(item.web_other_fee_vnd ?? '0')} đ → Sheet ${vndText(item.sheet_other_fee_vnd ?? '0')} đ</small></div></li>`).join('')}</ul><div class="price-actions"><button type="button" class="price-conflict-write primary">Ghi ${chosen.length} giá</button><button type="button" class="price-conflict-cancel">Quay lại</button></div></div>`;
+      }
+      if (priceView?.error) return `<div class="price-panel err" role="alert"><p><strong>${priceView.unknown ? 'Chưa rõ kết quả.' : 'Chưa ghi giá nào.'}</strong> ${escape(priceView.error)}</p><div class="price-actions"><button type="button" class="price-reload primary">Tải lại sổ</button></div></div>`;
       if (priceView !== 'review') return '';
       const rows = priceRows(data);
       const line = item => {
         const what = `${escape(item.container)} · ${escape(dateText(item.date))}`;
         const month = monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month);
         if (item.status === 'MONTH_LOCKED') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Tháng ${monthLabel(month)} đang khóa nên chưa ghi được.</small></div><button type="button" class="price-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button></li>`;
-        if (item.status === 'CONFLICT') return `<li><div class="what">${what} · Web ${vndText(item.web_unit_price_vnd)} đ · Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Web đã có giá khác Sheet.</small></div><button type="button" class="price-use-sheet" data-kind="${escape(item.target_kind)}" data-id="${escape(item.target_id)}" data-price="${escape(item.sheet_unit_price_vnd)}" data-fee="${escape(item.sheet_other_fee_vnd ?? '')}">Lấy Sheet</button></li>`;
+        if (item.status === 'CONFLICT') return `<li>${item.batchable ? `<input type="checkbox" class="price-conflict-select" aria-label="Chọn ${what} để lấy giá Sheet" data-key="${escape(conflictKey(item))}" ${conflictSelection.has(conflictKey(item)) ? 'checked' : ''}>` : ''}<div class="what">${what} · Web ${vndText(item.web_unit_price_vnd)} đ · Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>${item.batchable ? 'Web đã có giá khác Sheet.' : 'Cần xử lý riêng; không thể ghi hàng loạt.'}</small></div><button type="button" class="price-use-sheet" data-kind="${escape(item.target_kind)}" data-id="${escape(item.target_id)}" data-price="${escape(item.sheet_unit_price_vnd)}" data-fee="${escape(item.sheet_other_fee_vnd ?? '')}">Lấy Sheet</button></li>`;
         if (item.status === 'MANUAL') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd)} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
         return `<li><div class="what">Dòng Sheet ${escape(item.source_row)} · ${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Khớp nhiều chuyến cùng container. Điền giá tay tại ô của đúng chuyến.</small></div></li>`;
       };
-      return `<div class="price-panel" role="region" aria-label="Giá từ Sheet cần xem"><ul>${(data.sheet_prices?.review ?? []).map(line).join('')}</ul></div>`;
+      const selectable = (data.sheet_prices?.review ?? []).filter(item => item.status === 'CONFLICT' && item.batchable);
+      const actions = selectable.length ? `<div class="price-conflict-actions"><button type="button" class="price-conflict-all">${conflictSelection.size === selectable.length ? 'Bỏ chọn tất cả' : `Chọn ${selectable.length} dòng đủ điều kiện`}</button><button type="button" class="price-conflict-confirm primary" ${conflictSelection.size ? '' : 'disabled'}>Xem trước ${conflictSelection.size} giá đã chọn</button></div>` : '';
+      return `<div class="price-panel" role="region" aria-label="Giá từ Sheet cần xem">${actions}<ul>${(data.sheet_prices?.review ?? []).map(line).join('')}</ul></div>`;
     }
     function decoratePrices(data, active) {
       const prices = active ? data.sheet_prices ?? {} : {};
@@ -56,6 +67,9 @@
       }
       if (!prices.ready_count && priceView === 'confirm') priceView = null;
       const review = prices.review ?? [];
+      const available = new Set(review.filter(item => item.status === 'CONFLICT' && item.batchable).map(conflictKey));
+      for (const key of conflictSelection) if (!available.has(key)) conflictSelection.delete(key);
+      if (priceView === 'conflict-confirm' && !conflictSelection.size) priceView = 'review';
       if (!review.length && priceView === 'review') priceView = null;
       const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
       // SO-GON-06: dải "cần xem" là một ô trong thanh việc; khung mở ra nằm ngay dưới thanh.
@@ -141,9 +155,63 @@
         showNotice('Đã xử lý đối chiếu.');
       } catch (error) { detailNotice(error.message); action.disabled = false; }
     });
+    root.addEventListener('change', event => {
+      const checkbox = event.target.closest('.price-conflict-select');
+      if (!checkbox) return;
+      if (checkbox.checked) conflictSelection.add(checkbox.dataset.key);
+      else conflictSelection.delete(checkbox.dataset.key);
+      renderSnapshot(ctx.snapshot);
+      root.querySelector(`.price-conflict-select[data-key="${CSS.escape(checkbox.dataset.key)}"]`)?.focus();
+    });
     root.addEventListener('click', async event => {
-      const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet');
+      const target = event.target.closest('.price-approve,.price-cancel,.price-review-toggle,.price-reload,.price-write,.price-unlock,.price-use-sheet,.price-conflict-all,.price-conflict-confirm,.price-conflict-cancel,.price-conflict-write');
       if (!target || target.disabled || !ctx.snapshot) return;
+      if (target.matches('.price-conflict-all')) {
+        const available = (ctx.snapshot.sheet_prices?.review ?? []).filter(item => item.status === 'CONFLICT' && item.batchable);
+        if (conflictSelection.size === available.length) conflictSelection.clear();
+        else for (const item of available) conflictSelection.add(conflictKey(item));
+        renderSnapshot(ctx.snapshot);
+        root.querySelector('.price-conflict-all')?.focus();
+        return;
+      }
+      if (target.matches('.price-conflict-confirm,.price-conflict-cancel')) {
+        priceView = target.matches('.price-conflict-confirm') ? 'conflict-confirm' : 'review';
+        renderSnapshot(ctx.snapshot);
+        root.querySelector(priceView === 'conflict-confirm' ? '.price-conflict-write' : '.price-conflict-confirm')?.focus();
+        return;
+      }
+      if (target.matches('.price-conflict-write')) {
+        if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
+        const conflicts = selectedConflicts(ctx.snapshot).map(({ target_kind, target_id, source_row }) =>
+          ({ target_kind, target_id, source_row }));
+        if (!conflicts.length) return;
+        const request = { customer_id: customerId, expected_version: ctx.snapshot.version,
+          snapshot_sha256: ctx.snapshot.sheet_prices.snapshot_sha256, idempotency_key: crypto.randomUUID(), conflicts };
+        target.disabled = true;
+        let response, result;
+        try {
+          response = await fetch('/api/v7/sheet/prices/conflicts', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) });
+          result = await response.json();
+        } catch {
+          priceView = { error: 'Tải lại sổ để kiểm tra trước khi thử lại.', unknown: true };
+          renderSnapshot(ctx.snapshot);
+          return;
+        }
+        if (!response.ok) {
+          priceView = { error: result.message || 'Giá hoặc sổ đã đổi. Tải lại rồi xem lại.',
+            unknown: result.error === 'RESULT_UNKNOWN' };
+          renderSnapshot(ctx.snapshot);
+          return;
+        }
+        conflictSelection.clear();
+        priceView = 'review';
+        try { await api.read(); } catch { showNotice('Đã ghi giá; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+        showNotice(result.complete === false
+          ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi (${result.error}). Xem lại các dòng còn lệch.`
+          : `Đã ghi ${result.written} giá từ Sheet.`);
+        return;
+      }
       if (target.matches('.price-approve,.price-cancel,.price-review-toggle')) {
         priceView = target.matches('.price-approve') ? 'confirm'
           : target.matches('.price-review-toggle') && priceView !== 'review' ? 'review' : null;
@@ -154,6 +222,7 @@
       if (target.matches('.price-reload')) {
         priceView = null;
         priceApproval = null;
+        conflictSelection.clear();
         await api.read().catch(() => showNotice('Không tải được sổ mới. Thử lại.'));
         return;
       }
@@ -225,19 +294,8 @@
       button.disabled = false;
     });
     // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
-    // "Giữ" nhớ trên máy này theo bản chụp Sheet; bản chụp mới (hash khác) thì hỏi lại. Không ghi gì lên server.
-    const keptKey = data => `sokhach-v7-sheet-giu:${customerId}:${data.sheet_sync?.snapshot_sha256 ?? ''}`;
-    // Trình duyệt chặn localStorage thì vẫn nhớ trong phiên này.
-    const keptMemory = new Map();
-    const keptIds = data => {
-      const ids = new Set(keptMemory.get(keptKey(data)) ?? []);
-      try { for (const id of JSON.parse(localStorage.getItem(keptKey(data)) ?? '[]')) ids.add(String(id)); } catch { /* chỉ còn bản trong phiên */ }
-      return ids;
-    };
-    const removedRows = data => {
-      const kept = keptIds(data);
-      return (data.sheet_sync?.removed_items ?? []).filter(item => !kept.has(String(item.trip_id)));
-    };
+    const removedRows = data => data.sheet_sync?.removed_items ?? [];
+    const keepRequests = new Map();
     let removedJump = 0;
     function decorateRemoved(data, active) {
       const items = active ? removedRows(data) : [];
@@ -246,7 +304,7 @@
         if (!row) continue;
         row.classList.add('sheet-removed');
         row.title = 'Sheet không còn dòng này. Web vẫn tính chuyến cho tới khi xóa.';
-        row.children[1]?.insertAdjacentHTML('beforeend', `<small class="sheet-removed-tag">Sheet không còn dòng này</small><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span>`);
+        row.insertAdjacentHTML('afterend', `<tr class="sheet-removed-notice" data-sheet-trip="${escape(item.trip_id)}"><td colspan="${spanOf(row)}"><div class="sheet-removed-content"><span class="sheet-removed-tag">Sheet không còn dòng này</span><span class="sheet-removed-actions"><button type="button" class="sheet-removed-delete" data-trip="${escape(item.trip_id)}">Xóa trên web</button><button type="button" class="sheet-removed-keep" data-trip="${escape(item.trip_id)}">Giữ</button></span></div></td></tr>`);
       }
       if (items.length) root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip sheet-removed-strip">Sheet không còn dòng của <strong>${items.length}</strong> chuyến đang tính trên web <button type="button" class="sheet-removed-next">Xem</button></div>`);
     }
@@ -264,19 +322,29 @@
         const row = root.querySelector(`[data-row="trip-${CSS.escape(String(item.trip_id))}"]`);
         if (!row) return;
         row.scrollIntoView({ block: 'center' });
-        row.querySelector('.sheet-removed-delete')?.focus();
+        row.nextElementSibling?.querySelector('.sheet-removed-delete')?.focus();
         return;
       }
       const item = items.find(entry => String(entry.trip_id) === button.dataset.trip);
       if (!item) return;
       const row = button.closest('tr');
       if (button.matches('.sheet-removed-keep')) {
-        const kept = keptIds(ctx.snapshot);
-        kept.add(String(item.trip_id));
-        keptMemory.set(keptKey(ctx.snapshot), kept);
-        try { localStorage.setItem(keptKey(ctx.snapshot), JSON.stringify([...kept])); } catch { /* chỉ nhớ trong phiên */ }
-        renderSnapshot(ctx.snapshot);
-        showNotice(`Đã giữ chuyến ${item.container}. Sheet có bản mới thì sổ hỏi lại.`);
+        let body = keepRequests.get(item.trip_id);
+        if (!body) {
+          body = { customer_id: customerId, expected_version: ctx.snapshot.version, idempotency_key: crypto.randomUUID(),
+            task_kind: 'removed', target_kind: 'trip', target_id: item.trip_id, source_fingerprint: item.source_fingerprint };
+          keepRequests.set(item.trip_id, body);
+        }
+        button.disabled = true;
+        try {
+          const response = await fetch('/api/v7/sheet/tasks/keep', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+          const result = await response.json();
+          keepRequests.delete(item.trip_id);
+          if (!response.ok) { showNotice(result.message || 'Chưa giữ được chuyến. Tải lại sổ để đối chiếu.'); return; }
+          await api.read();
+          showNotice(`Đã giữ chuyến ${item.container}. Dòng Sheet liên quan đổi thì hỏi lại.`);
+        } catch { showNotice('Chưa rõ kết quả giữ chuyến. Bấm Giữ để thử lại cùng thao tác.'); }
+        finally { button.disabled = false; }
         return;
       }
       const wasOpen = row.nextElementSibling?.classList.contains('delete-prompt');

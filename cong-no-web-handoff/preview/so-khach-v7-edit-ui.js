@@ -156,7 +156,7 @@
       setHistory(false);
     });
     root.addEventListener('click', async event => {
-      const infoEdit = event.target.closest('td.info-edit');
+      const infoEdit = event.target.closest('.info-edit');
       if (infoEdit) { openInfoEdit(infoEdit); return; }
       const rowDelete = event.target.closest('td.row-delete');
       // Ô chọn chuyến để thêm phụ phí cho nhiều chuyến (PHU-PHI-01) nằm trong ô STT: bấm ô chọn không phải xóa dòng.
@@ -271,7 +271,7 @@
     });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
-      if (event.target.matches('td.editable,td.receipt,td.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
+      if (event.target.matches('td.editable,td.receipt,.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
       if (event.target.matches('.month-amount,.month-note')) {
         event.preventDefault();
         const row = event.target.closest('tr');
@@ -355,10 +355,19 @@
     // ---- Bàn phím trong bảng chuyến (SO-GON-04, L5) ----
     // Một ô nhận ra bằng thẻ + lớp đầu + các thuộc tính data-*: sổ vẽ lại (thay cả #app) sau mỗi lệnh vẫn tìm lại đúng ô đó.
     // Ô chỉ đọc không có data-*: nhận ra bằng dòng (data-row) + vị trí cột.
+    // Nút giống hệt nhau (thẻ Tình hình có hai nút sang Trao đổi) nhớ thêm thứ tự và số nút cùng dạng lúc ghi.
     function markOf(el) {
       const row = el.matches('td') && !Object.keys(el.dataset).length ? el.closest('tr[data-row]') : null;
-      return row ? { row: row.dataset.row, index: el.cellIndex }
-        : { tag: el.tagName.toLowerCase(), cls: el.classList[0] ?? '', data: Object.entries(el.dataset) };
+      if (row) return { row: row.dataset.row, index: el.cellIndex };
+      const mark = { tag: el.tagName.toLowerCase(), cls: el.classList[0] ?? '', data: Object.entries(el.dataset) };
+      const same = sameAs(mark);
+      return Object.assign(mark, { nth: same.indexOf(el), count: same.length });
+    }
+    function sameAs(mark) {
+      if (!mark.cls && !mark.data.length) return [];
+      const attr = name => `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
+      const selector = mark.tag + (mark.cls ? `.${CSS.escape(mark.cls)}` : '') + mark.data.map(([name, value]) => `[${attr(name)}="${CSS.escape(value)}"]`).join('');
+      return [...root.querySelectorAll(selector)].filter(el => Object.keys(el.dataset).length === mark.data.length);
     }
     function findMark(mark) {
       if (mark?.row) {
@@ -366,18 +375,19 @@
         if (cell && !cell.hasAttribute('tabindex')) cell.tabIndex = -1;
         return cell ?? null;
       }
-      if (!mark || (!mark.cls && !mark.data.length)) return null;   // không có gì để nhận ra: không đoán
-      const attr = name => `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
-      const selector = mark.tag + (mark.cls ? `.${CSS.escape(mark.cls)}` : '') + mark.data.map(([name, value]) => `[${attr(name)}="${CSS.escape(value)}"]`).join('');
-      const found = [...root.querySelectorAll(selector)].filter(el => Object.keys(el.dataset).length === mark.data.length);
-      return found.length === 1 ? found[0] : null;   // hai ô giống hệt: không đoán
+      if (!mark) return null;
+      const found = sameAs(mark);   // không có gì để nhận ra thì rỗng: không đoán
+      if (found.length === 1) return found[0];
+      // Nhiều nút giống hệt: chỉ lấy theo thứ tự khi số nút cùng dạng không đổi, khác thì không đoán.
+      return found.length > 1 && found.length === mark.count && mark.nth >= 0 ? found[mark.nth] : null;
     }
     // Ô cùng cột ở hàng chuyến trên/dưới, qua các tháng đang mở; ô chỉ đọc vẫn đứng được (tabindex -1) như ô Sheet.
     function stepRow(td, delta) {
       const row = td?.closest('tr[data-row]');
       if (!row) return null;
       const rows = [...root.querySelectorAll('table.trip-list tr[data-row]')], index = rows.indexOf(row);
-      const next = index < 0 ? null : rows[index + delta]?.children[td.cellIndex];
+      const nextRow = index < 0 ? null : rows[index + delta];
+      const next = td.matches('.route-cell span') ? nextRow?.querySelector(`[data-field="${td.dataset.field}"]`) : nextRow?.children[td.cellIndex];
       if (!next) return null;
       if (!next.hasAttribute('tabindex')) next.tabIndex = -1;
       next.focus({ preventScroll: true });
@@ -393,7 +403,7 @@
     function focusMark() {
       let el = document.activeElement;
       if (!el || !root.contains(el) || el.closest('#customer-picker,#live-controls')) return null;
-      if (el.matches('input:not([type="checkbox"]),select,textarea')) el = el.closest('td[tabindex]') ?? el;
+      if (el.matches('input:not([type="checkbox"]),select,textarea')) el = el.closest('[tabindex]') ?? el;
       return markOf(el);
     }
     function focusBack(mark) {
@@ -403,7 +413,7 @@
     root.addEventListener('keydown', event => {
       if ((event.key !== 'ArrowDown' && event.key !== 'ArrowUp') || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.target.matches('input:not([type="checkbox"]),select,textarea')) return;   // đang gõ: mũi tên thuộc ô nhập
-      const td = event.target.closest('table.trip-list td');
+      const td = event.target.closest('.route-cell .info-edit,table.trip-list td');
       if (td && stepRow(td, event.key === 'ArrowDown' ? 1 : -1)) event.preventDefault();
     });
     // Esc đóng dòng hỏi trong bảng (hủy phiếu, xóa, chờ kiểm, chuyển tháng, điều chỉnh cả tháng; khóa tháng ở askLock) và trả

@@ -14,7 +14,7 @@ function moreTrips(world) {
 // Ô đang có tiêu điểm: "dòng:cột:tên ô" (cột = vị trí ô trong hàng; ">THẺ" khi tiêu điểm ở phần tử trong ô), hoặc thẻ/BODY.
 const focused = page => page.evaluate(() => {
   const el = document.activeElement, td = el?.closest?.('td'), row = td?.closest('tr[data-row]');
-  return row ? `${row.dataset.row}:${td.cellIndex}:${td.dataset.field ?? ''}${el === td ? '' : `>${el.tagName}`}`
+  return row ? `${row.dataset.row}:${td.cellIndex}:${el?.closest('[data-field]')?.dataset.field ?? ''}${el === td || el.matches('.route-cell > span') ? '' : `>${el.tagName}`}`
     : `${el?.tagName ?? 'BODY'}${el?.className ? `.${el.className.split(' ')[0]}` : ''}`;
 });
 
@@ -22,7 +22,7 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   await tripCell(page, 'carrier').click();
   await page.locator('.info-input').fill('Tàu đổi');
   await page.keyboard.press('Tab');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="trip"][data-id="11"][data-field="carrier"]')?.textContent === 'Tàu đổi');
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-id="11"][data-field="carrier"]')?.textContent === 'Tàu đổi');
   assert.equal(await focused(page), 'trip-11:3:shipper');
   await page.keyboard.press('Shift+Tab');
   assert.equal(await focused(page), 'trip-11:2:carrier');
@@ -30,13 +30,13 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   await legacyCell(page, 21, 'carrier').click();
   await page.locator('.info-input').fill('Xe đổi');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="legacy"][data-id="21"][data-field="carrier"]')?.textContent === 'Xe đổi');
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="21"][data-field="carrier"]')?.textContent === 'Xe đổi');
   assert.equal(await focused(page), 'legacy-22:2:carrier');
   // Enter ở ô đang đứng mở sửa; Enter nữa ghi rồi xuống hàng dưới (sang chuyến web).
   await page.keyboard.press('Enter');
   await page.locator('.info-input').fill('Xe hai');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('td.info-edit[data-kind="legacy"][data-id="22"][data-field="carrier"]')?.textContent === 'Xe hai');
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="22"][data-field="carrier"]')?.textContent === 'Xe hai');
   assert.equal(await focused(page), 'trip-11:2:carrier');
   // Không đổi gì: Enter chỉ xuống hàng, không gửi lệnh.
   await page.keyboard.press('Enter');
@@ -60,14 +60,14 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   // Ô giá của chuyến chờ kiểm chỉ đọc: vẫn đứng được, như ô Sheet.
   await page.locator('td.editable[data-trip="13"]').focus();
   await page.keyboard.press('ArrowDown');
-  assert.equal(await focused(page), 'trip-14:7:');
+  assert.equal(await focused(page), 'trip-14:6:');
   // Sổ tải lại (Làm mới, không dời tiêu điểm) khi đang đứng ở ô chỉ đọc: tiêu điểm về đúng ô đó trong bảng mới.
   await page.evaluate(() => { document.querySelector('tr[data-row="trip-14"]').oldRow = true; });
   await page.locator('#refresh-data').dispatchEvent('click');
   await page.waitForFunction(() => !document.querySelector('tr[data-row="trip-14"]').oldRow);
-  assert.equal(await focused(page), 'trip-14:7:');
+  assert.equal(await focused(page), 'trip-14:6:');
   await page.keyboard.press('ArrowUp');
-  assert.equal(await focused(page), 'trip-13:7:unit_price_vnd');
+  assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
   // Đang gõ thì mũi tên thuộc ô nhập; Esc bỏ sửa, tiêu điểm về ô.
   await tripCell(page, 'origin', 13).click();
   await page.keyboard.press('ArrowDown');
@@ -83,20 +83,20 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.locator('.money-input').fill('55.000.000');
   await page.keyboard.press('Tab');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('55.000.000'));
-  assert.equal(await focused(page), 'trip-11:8:other_fee_vnd');
+  assert.equal(await focused(page), 'trip-11:7:other_fee_vnd');
   assert.deepEqual(posts(world).at(-1), ['/api/v7/trips/price', { ...posts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '55000000', other_fee_vnd: null }]);
   await price(13).click();
   await page.keyboard.press('Escape');
-  assert.equal(await focused(page), 'trip-13:7:unit_price_vnd');
+  assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Tab');   // không đổi: không gửi, ô nhập đóng sau khi tiêu điểm đã sang ô kế
   await page.waitForFunction(() => !document.querySelector('td.editable[data-trip="13"] input'));
-  assert.equal(await focused(page), 'trip-13:8:other_fee_vnd');
+  assert.equal(await focused(page), 'trip-13:7:other_fee_vnd');
   await price(11).click();
   await page.locator('.money-input').fill('56.000.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('56.000.000'));
-  assert.equal(await focused(page), 'trip-13:7:unit_price_vnd');
+  assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
   assert.equal(posts(world).filter(([path]) => path === '/api/v7/trips/price').length, 2);
 
   // Cột phụ phí riêng (PHU-PHI-01): Enter ghi rồi xuống ô cùng cột hàng dưới.
@@ -108,7 +108,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.locator('.fee-own-input').fill('1.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '1.000');
-  assert.equal(await focused(page), 'trip-13:8:');
+  assert.equal(await focused(page), 'trip-13:7:');
   assert.equal(await own(13).evaluate(cell => cell === document.activeElement), true);
 }, moreTrips));
 
@@ -139,6 +139,7 @@ test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu đi�
   await esc('.month-lock[data-month="2026-09-01"]', '.lock-ask');
   assert.deepEqual(posts(world), []);
 
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
   const panel = page.locator('#history-panel');
   await panel.waitFor();
@@ -155,6 +156,7 @@ test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu đi�
 }));
 
 test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; lý do chỉ khi có; lọc theo loại giữ qua lần mở lại; Esc về nút', async () => withPage(async ({ page }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
   const panel = page.locator('#history-panel');
   await panel.waitFor();
@@ -198,6 +200,7 @@ test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; l
 
 test('lưới bảng giá: mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
   const at = () => page.evaluate(() => `${document.activeElement?.dataset.r}:${document.activeElement?.dataset.c}`);
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');

@@ -52,7 +52,7 @@ const SoKhachV7Ctx = (() => {
     historyOpen: ['core+edit', 'đọc/ghi', 'edit', 'khung Lịch sử đang mở'],
     busyChecks: ['core', 'danh sách', 'core debit entry fee images price', 'hàm báo đang mở khung/nhập dở → tạm dừng tự cập nhật'],
     // Phần vẽ vùng màn hình.
-    pageHead: ['tabs', 'hàm', 'core', 'phần trái đầu trang khách: ← Quay lại, tên khách, mặt hàng, thanh bốn thẻ (TRANG-KHACH-01)'],
+    pageHead: ['tabs', 'hàm', 'core', 'phần trái đầu trang khách: Sổ khách / tên khách ▾, thanh bốn thẻ (TRANG-KHACH-01)'],
     tabPanes: ['tabs', 'hàm', 'core', 'khung các thẻ ngoài thẻ Sổ (Tình hình, Trao đổi, Hồ sơ)'],
     overviewPane: ['overview', 'hàm', 'tabs', 'khung thẻ Tình hình vẽ từ bản GET đang vẽ (TRANG-KHACH-01, PR A2)'],
     contactPane: ['contact', 'hàm', 'tabs', 'khung thẻ Trao đổi hoặc Hồ sơ vẽ từ bản GET đang vẽ (TRANG-KHACH-01, PR A3)'],
@@ -72,10 +72,10 @@ const SoKhachV7Ctx = (() => {
     showTab: ['tabs', 'hàm', 'contact entry overview', 'mở một thẻ của trang khách (Ghi phiếu thu sang thẻ Sổ trước khi mở khung)'],
     tabShown: ['overview', 'hàm', 'tabs', 'vừa mở một thẻ: thẻ Tình hình đọc số quá hạn và lần nhắc khi cần'],
     contactShown: ['contact', 'hàm', 'tabs', 'vừa mở một thẻ: thẻ Trao đổi, Hồ sơ đọc lần nhắc, chat, hạn trả, bảng giá khi cần'],
-    showLoc: ['loc', 'hàm', 'overview', 'mở ?loc= ngay trong trang, không tải lại (việc chờ ở thẻ Tình hình)'],
+    showLoc: ['loc', 'hàm', 'month overview', 'mở ?loc= ngay trong trang, không tải lại (việc chờ ở thẻ Tình hình)'],
     reviewReasonText: ['history', 'giá trị', 'edit', 'lý do CHỜ KIỂM → câu tiếng Việt'],
     decoratePrices: ['sheet', 'hàm', 'core', 'gợi ý giá Sheet trên ô Đơn giá sau khi vẽ'],
-    todayIso: ['offset', 'hàm', 'contact edit entry', 'hôm nay (giờ VN) dạng yyyy-mm-dd'],
+    todayIso: ['offset', 'hàm', 'contact edit entry overview', 'hôm nay (giờ VN) dạng yyyy-mm-dd'],
     startOffset: ['offset', 'hàm', 'entry', 'kiểm phiếu CẤN TRỪ của khung Ghi phiếu thu và mở hộp xác nhận cấn trừ'],
     openOffsetReceipt: ['offset', 'hàm', 'edit', 'mở hỏi hủy/sửa khoản cấn trừ'],
     openInfoEdit: ['edit', 'hàm', 'sheet', 'mở sửa một ô chuyến'],
@@ -123,7 +123,7 @@ const SoKhachV7Ctx = (() => {
     ['pay', 'so-khach-v7-pay-ui.js', []],
     ['month', 'so-khach-v7-month-ui.js', ['legacyTripRow', 'webTripRow', 'sheetPendingRows', 'payRows']],
     ['loc', 'so-khach-v7-loc-ui.js', []],
-    ['overview', 'so-khach-v7-overview-ui.js', ['showTab', 'showMonth', 'bookWork']],
+    ['overview', 'so-khach-v7-overview-ui.js', ['showTab', 'showMonth', 'bookWork', 'todayIso']],
     ['contact', 'so-khach-v7-contact-ui.js', ['showTab', 'todayIso']],
   ];
   const KINDS = ['giá trị', 'hàm', 'đọc', 'đọc/ghi', 'danh sách', 'móc'];

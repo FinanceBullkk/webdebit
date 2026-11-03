@@ -63,7 +63,19 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(queue["items"][-1]["review_status"], "NEEDS_CUSTOMER")
         self.assertEqual(queue["items"][1]["commodity"], "Dừa")
 
-    def test_baseline_container_without_current_row_is_new_after_reconciliation(self):
+    def test_name_tied_to_one_book_still_picks_sibling_by_commodity(self):
+        """Tên Sheet nối thẳng tới tên sổ sầu riêng (bí danh) vẫn tìm sổ mít cùng tên khách (đo trên hao 3/11/2026)."""
+        books = [{"id": 1, "name": "KHÁCH H-SR", "display_name": "KHÁCH H", "status": "active", "commodity": "Sầu riêng"},
+                 {"id": 2, "name": "MIT - KHÁCH H", "display_name": "KHÁCH H", "status": "active", "commodity": "Mít"},
+                 {"id": 3, "name": "KHÁCH K", "status": "active", "commodity": "Thanh long"},
+                 {"id": 4, "name": "KHÁCH K-SR", "display_name": "KHÁCH K", "status": "active", "commodity": "Sầu riêng"}]
+        cases = [("KHÁCH H-SR", "MÍT", 2), ("KHÁCH H-SR", "SẦU RIÊNG", 1), ("KHÁCH H-SR", "DỪA", 1),
+                 ("KHÁCH K-SR", "THANH LONG", 3)]
+        rows = [{"source_row": n, "container": f"C{n}", "event_date": "2026-11-01", "status": "READY",
+                 "customer_name": name, "commodity": commodity} for n, (name, commodity, _) in enumerate(cases, 2)]
+        queue = build_queue({"sha256": "a" * 64, "row_count": len(rows), "rows": rows}, books, BASELINE)
+        self.assertEqual([i["customer_id"] for i in queue["items"]], [c[2] for c in cases])
+
         snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [
             {"source_row": 2, "container": "OLD123", "event_date": "2026-10-01", "status": "READY", "customer_name": "Khách A"}
         ]}
@@ -243,6 +255,33 @@ class SheetQueueTests(unittest.TestCase):
                 item = project_customer(queue, ledger, set(), [{"customer_id": 8, **ref}])["items"][0]
                 self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", reason) if reason else ("NEW", ""))
         self.assertEqual(project_customer(queue, ledger)["new_count"], 1)
+        # Sổ kia cùng khách: chuyến đã tính ở đó, không hiện gì; sổ khách khác vẫn đỏ.
+        same = {"customer_id": 8, "container": "DUP1", "event_date": "2026-03-18", "debt_month": "2026-03-01"}
+        self.assertEqual(project_customer(queue, ledger, set(), [same], {8})["items"], [])
+        other = {**same, "customer_id": 9}
+        for refs in ([other], [other, same]):  # có ở sổ khách khác thì vẫn để người xem
+            item = project_customer(queue, ledger, set(), refs, {8})["items"][0]
+            self.assertEqual(item["sync_reason"], "OTHER_BOOK_LEGACY")
+
+    def test_undated_original_row_in_same_month_is_this_trip(self):
+        """MAY-KHOA-01 nhóm A: dòng sổ gốc không ngày cùng tháng nợ là chuyến này (lệch ngày), không phải container đã dùng."""
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7, "container": "UND1",
+                 "event_date": "2026-03-18", "review_status": "NEEDS_PRICE", "origin": "KHO", "destination": "CANG",
+                 "shipper": "TN"}]}
+
+        def legacy(n, month, date=None):
+            return {"id": n, "kind": "trip", "month": month, "current": {"container": "UND1", "event_date": date,
+                    "debt_month": month, "origin": "KHO", "destination": "CANG", "shipper": "TN"}}
+        cases = [([legacy(5, "2026-03-01")], ("CONFLICT", "DIFFERENT_FIELDS", ["event_date"], 5, "2026-03-01")),
+                 ([legacy(5, "2026-04-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
+                 ([legacy(5, "2026-03-01"), legacy(6, "2026-03-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
+                 ([legacy(5, "2026-03-01", "2026-03-18")], None)]   # có ngày, trùng ngày: không còn việc
+        for rows, want in cases:
+            with self.subTest(rows=len(rows), want=want):
+                items = project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": rows})["items"]
+                got = (items[0]["sync_state"], items[0]["sync_reason"], items[0]["changed_fields"], items[0]["existing_id"],
+                       items[0]["existing_debt_month"]) if items else None
+                self.assertEqual(got, want)
 
     def test_shipper_backfill_only_proposes_unique_exact_matches(self):
         queue = {"items": [{"customer_id": 7, "status": "READY", "source_row": 8,
@@ -273,6 +312,7 @@ class RemovedSheetTripTests(unittest.TestCase):
         result = self.project([self.ready("KEEP1", "2026-10-20")], [
             self.trip(9, "GONE1", "2026-09-10", info_editable=False),
             self.trip(10, "KEEP1", "2026-10-20")])
+        self.assertRegex(result["removed_items"][0].pop("source_fingerprint"), r"^[0-9a-f]{64}$")
         self.assertEqual(result["removed_items"], [{"trip_id": 9, "container": "GONE1", "event_date": "2026-09-10",
             "month": "2026-09-01", "status": "confirmed", "amount_vnd": "5000000", "month_locked": True}])
         self.assertEqual(result["removed_count"], 1)

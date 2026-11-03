@@ -2,6 +2,16 @@
 
 Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#237); **PR A4 (đường vào) đã code** (1/11/2026, kiểm trên máy chủ giả), nên giai đoạn A đã code xong. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
+### Giao diện Tình hình theo bản HTML người dùng cấp 02/11/2026
+
+Người dùng đưa bản xem `TinhHinh.dc.html` và yêu cầu code theo đúng thiết kế. Bố cục mới của thẻ Tình hình: thanh sổ/khách và bốn thẻ ở trên; dải **Còn nợ** + cơ cấu theo hạn trả + **Việc tiếp theo**; ba thẻ chỉ số; hình **Còn nợ 12 tháng** cạnh **Hoạt động gần đây**. Việc chờ là nút mở thẻ Sổ. Nội dung khối 5–6 của bản A2 chuyển vào việc chờ và hoạt động; thẻ Trao đổi vẫn giữ chi tiết.
+
+- Tiền và rủi ro lấy từ API sổ/Tổng quan, hứa trả từ dấu Zalo, không dùng các số và tên giả trong bản xem. Nhãn **Doanh thu** ghi rõ bên dưới là phát sinh đã ghi sổ trong 12 tháng; không suy ra doanh thu từ chuyến chưa giá hoặc chờ kiểm. Tháng thiếu dữ liệu không biến thành 0.
+- **Trễ trung bình sau hạn** hiện `—` cho tới khi B1 có API; không dựng số từ ví dụ. Khi không đọc được dấu hứa trả, Việc tiếp theo ghi chưa xác định và có Thử lại, không tự bảo nhắc ngay.
+- **Vẫn nhắc nợ** dùng đúng lệnh Copy tin nhắc sẵn có ở thẻ Trao đổi. Bấm tháng mở Sổ đúng tháng, không tải lại. Không đổi đường ghi tiền, Sheet hay DB.
+- **Nút của Việc tiếp theo** (sửa sau review 3/11/2026, bản đầu bị đảo): *Nhắc nợ ngay* → nút chính xanh **Copy tin nhắc nợ** + **Xem Trao đổi**; *Chờ hứa trả* → **Vẫn nhắc nợ** (nút phụ) + **Xem Trao đổi**; *Chưa cần làm gì* hoặc chưa xác định → chỉ **Xem Trao đổi**. Copy tin nhắc nợ và Vẫn nhắc nợ cùng một lệnh của thẻ Trao đổi. Tháng đang chạy dưới hình 12 tháng ghi thêm "đến dd/mm" (hôm nay, giờ VN).
+- Kiểm trên máy chủ giả: số Còn nợ/cơ cấu, thiếu opening, khách trả trước, dấu hứa trả, lỗi nguồn phụ, 1280×720 và màn hẹp; ảnh chụp chỉ dùng khách và số giả. Đây là tiêu chí cho code giao diện, không là bằng chứng đã triển khai `hao`.
+
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
 
 ## Vì sao cần
@@ -104,6 +114,8 @@ Mặt hàng, cảng/bộ, giá đang áp, cột phụ phí riêng, ảnh chứng
 
 ### Đầu trang (dính, một dòng, cao ≤ 44px)
 
+**Thay bằng chuẩn chung 3/11/2026** (canvas Claude Design, khung UuTien; phiên điều phối review thấy bốn thẻ mỗi thẻ một kiểu đầu trang): mọi thẻ dùng một thanh trắng cao 52px — **Sổ khách / Tên ▾** (bấm mở hộp đổi khách) · bốn thẻ · nút **⋯** ở phải (Lịch sử, Cài đặt, Tổng còn nợ mọi tháng). Không còn dòng mặt hàng dưới tên: mặt hàng · vận chuyển chỉ ở đầu thẻ Hồ sơ. Menu trái 76px và đầu trang giống nhau ở bốn thẻ, thẻ Tình hình không có kiểu riêng. Phần dưới đây là bản A1, giữ để biết lịch sử.
+
 - Một dòng, từ trái sang phải:
   - **← Quay lại**, theo trang vừa đến (audit 4.1);
   - **tên khách** viết đủ, không cắt (audit P1-1); tên quá dài thì xuống dòng;
@@ -192,6 +204,39 @@ Dòng thời gian của một khách, mới nhất ở trên. Lọc theo loại:
 - Hứa trả khác "dự báo tiền về" mà NHAC-NO-01 v1 đã bỏ: không đọc nội dung tin, không dự báo, chỉ ghi lại điều khách đã nói.
 
 ### Thẻ Hồ sơ
+
+**Bản HoSoV4** ([`HO-SO-01`](../docs/decisions/ho-so-01.md), người dùng chốt 2/11/2026 trên canvas; code giai đoạn A ngày 3/11/2026) thay bố cục bốn khối 2×2 của PR A3 dưới đây.
+
+Câu hỏi của thẻ: khách là ai, đang làm theo thỏa thuận nào (giá, phụ phí, hạn trả), liên lạc qua đâu. Không có số nợ (số nợ ở Tình hình và Sổ, mỗi số một chỗ).
+
+Bố cục, nhìn từ trên xuống ở 1280×560:
+
+1. **Đầu hồ sơ** (dưới thanh đầu trang chung): ô chữ viết tắt 88px, tên khách 30px đậm (to nhất trang), dòng **mặt hàng · đường cảng/bộ** (chỗ duy nhất trên trang khách có dòng này), nút **Chỉnh sửa hồ sơ**. Đường kẻ mảnh phía dưới.
+2. **Hai cột 62/38** liền mạch, phân cách bằng đường kẻ mảnh, không card:
+   - trái: **Thông tin doanh nghiệp** → **Thỏa thuận làm việc** (Thanh toán · Hạn mức công nợ · Hợp đồng) → **Giá và phụ phí áp dụng**;
+   - phải: **Người liên hệ** → **Nhóm trao đổi** (chỉ khi đã gắn group) → **Ghi chú khi làm việc** → **Tài liệu**.
+3. Cảnh báo gắn đúng dòng: giá hết hạn chưa có giá mới, nơi đi chưa có giá (cam). Không có dải cảnh báo đầu trang.
+4. Chữ thân 15px, chữ phụ ≥ 13px chỉ cho dòng giải thích; nút và link bấm ≥ 40px; không cuộn ngang ở 1280 (và 1265 có thanh cuộn).
+
+Nút của tính năng chưa có backend vẫn hiện (người dùng thấy chỗ sẽ có), bấm thì một thông báo ở đáy trang: "‹Việc›: chưa lưu được trên web — cần thêm chức năng (giai đoạn B)." kèm nút Đóng. Không mở khung nhập giả, không ghi gì.
+
+| Mục | Hiện gì ở giai đoạn A | Nguồn | Giai đoạn B cần |
+| --- | --- | --- | --- |
+| Đầu hồ sơ: tên, chữ viết tắt | tên sổ (`name`, cũng là tên tab Sheet), chữ viết tắt tự tính từ hai chữ cuối của tên | `GET /api/v7/customers` | chữ viết tắt, tên giao dịch riêng |
+| Mặt hàng · vận chuyển | có | `commodity`, `transport_mode` | khu vực |
+| Loại khách, hạng khách, tín dụng, hợp tác từ, phụ trách, câu tóm tắt | ẩn | — | bảng hồ sơ + quy tắc 1–2 của HO-SO-01 (doanh thu 12 tháng, K5 trả trễ) |
+| Thông tin doanh nghiệp | một dòng "Tên pháp lý, mã số thuế, khu vực chưa lưu trên web." (tên sổ đã ở đầu hồ sơ, không lặp) | — | tên pháp lý, MST, khu vực |
+| Thanh toán | "Cuối tháng kế tiếp" (theo `due_after_months`) + ví dụ "Công nợ tháng M đến hạn dd/mm/yyyy · quy tắc chung mọi khách" | `GET /api/v7/dashboard/debt` `rule` | hạn trả riêng (C) |
+| Hạn mức công nợ | "Chưa đặt hạn mức" + "Chưa đặt nghĩa là chưa giới hạn, không phải 0 đ." + nút Đặt hạn mức (báo chưa hỗ trợ) | — | bảng hạn mức (giá trị, người đặt, lý do, lịch sử), quy tắc 3–4 |
+| Hợp đồng | "Chưa lưu hợp đồng trên web" + nút Tải hợp đồng lên (báo) | — | lưu hợp đồng, ngày hết hạn, cảnh báo sắp hết |
+| Giá và phụ phí | bảng Nơi đi · Giá khách · Giá TT · Hiệu lực: dòng giá đang áp hôm nay (giờ VN), dòng giá sắp áp (xanh, "giá mới từ dd/mm/yyyy"), nơi đi có trong danh mục mà chưa có giá (cam); giá hết hạn chưa có giá mới (cam); đơn vị đồng/chuyến ghi một lần; shipper áp giá TT; **Phụ phí riêng trên sổ** + nút Cài đặt phụ phí; link **Xem bảng giá ›** | `GET /api/v7/price-table`, `fee_columns` của GET sổ | — |
+| Người liên hệ | "Chưa có người liên hệ…" + nút + Thêm (báo) | — | bảng người liên hệ (dữ liệu cá nhân, chỉ trong DB trên `hao`) |
+| Nhóm trao đổi | mỗi group đã gắn: tên group, "Zalo · tin cuối dd/mm/yyyy", link Mở nhóm; chưa gắn thì ẩn mục | `GET /api/v7/zalo/links` + tên từ `GET /api/v7/zalo/conversations` | — |
+| Ghi chú khi làm việc | "Chưa có ghi chú." + nút + Thêm ghi chú (báo) | — | bảng ghi chú (người, ngày) |
+| Tài liệu | "Chưa có tài liệu…" + nút Tải tài liệu lên (báo) | — | lưu tệp |
+| Ảnh chứng từ | **bỏ khỏi Hồ sơ**, xem ở phiếu thu thẻ Sổ | — | — |
+
+Kiểm: test trình duyệt mới cho thẻ Hồ sơ (thứ tự mục, giá đang áp/sắp áp/chưa có giá/hết hạn, phụ phí, group đã gắn và chưa gắn, nút chưa hỗ trợ báo rõ và không gửi request, nút mở Bảng giá/Cài đặt phụ phí ở thẻ Sổ, 1280 không cuộn ngang, nút ≥ 40px, chữ ≥ 14px).
 
 | Khối | Nguồn | Giai đoạn |
 | --- | --- | --- |

@@ -1,43 +1,25 @@
-/* Sổ khách V7 bản live — thẻ Tình hình của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A2): khách này đang thế
- * nào, đọc từ trên xuống, mỗi câu hỏi một khối, số nằm trong hình, không câu kết luận (DASH-04):
- *   1. Khách đang nợ mình bao nhiêu: Còn nợ, Quá hạn, Đến hạn cuối tháng này, Thu tháng này; mức rủi ro kèm dữ kiện.
- *   2. Nợ đang tăng hay giảm: 12 tháng phát sinh, đã thu, Còn nợ cuối tháng; bấm một tháng thì sang thẻ Sổ tháng đó.
- *   4. Khách còn đi hàng không: số chuyến 6 tháng, lần đi hàng gần nhất.
- *   5. Còn gì làm số chưa đúng: việc chờ của sổ, mỗi dòng mở thẻ Sổ đúng chỗ.
- *   6. Lần cuối nói chuyện với khách, phần A: lần nhắc gần nhất, tin Zalo gần nhất (PR A3), sang thẻ Trao đổi.
- * Khối 3 (trả sau hạn) chờ hàm đọc mới (B1). Thẻ chỉ đọc, không ghi tiền: tiền lấy nguyên từ GET, chuỗi tháng do model dựng
- * (ARCH-03). Sổ (GET /api/v7/ledger) vẽ cùng lần với thẻ Sổ; Tổng quan (dashboard/debt), lần nhắc (reminders) và hội thoại Zalo
- * chỉ đọc khi thẻ đang mở, đọc lại khi sổ đổi phiên bản hoặc lần đọc đã quá 60 giây; nguồn nào lỗi thì chỉ khối đó báo lỗi kèm
- * Thử lại.
- * Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
+/* Tình hình trang khách: bố cục theo mockup TinhHinh.dc.html người dùng đưa 02/11/2026.
+ * Số từ sổ, Tổng quan và dấu hứa trả; không dùng số mẫu. Dữ liệu phụ đọc khi mở thẻ.
+ * B1 chưa có API trả sau hạn nên ô đó hiện “—”. Trường ctx: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).overview = ctx => {
   'use strict';
-  const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork } = ctx;
+  const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork, todayIso } = ctx;
   const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
-  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau.
-  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
-  const SOURCE = { 'copy-button': 'bấm Copy tin nhắc', zalo: 'Zalo', manual: 'ghi tay' };
-  // Nút ở dải việc chờ đầu thẻ Sổ (SO-GON-04 L7) mà mỗi lô từ Sheet hay bảng PS mở tới.
-  const TASKS = { sheet: '.sheet-approve', price: '.price-approve,.price-review-toggle', receipt: '.receipt-approve,.receipt-review-toggle',
-    ps: '.ps-approve,.ps-review-toggle' };
-  const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, chats: { state: 'idle', read: 'findChats' } };
+  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau; DASH-05 (4): "Trong hạn" chỉ cho tiền.
+  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' };
+  const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
   const thisMonth = () => monthKey(ctx.snapshot?.today_month) || liveOpenMonth;
   const tag = key => monthTag(`${key}-01`, Number(thisMonth().slice(0, 4)));
   // Số ngày thành chữ như Tổng quan (DashboardModel.ago): tới 90 ngày đếm ngày, lâu hơn đếm tháng.
-  const span = days => (days > 90 ? `${Math.floor(days / 30)} tháng` : `${days} ngày`);
-  const ago = days => (days ? `${span(days)} trước` : 'hôm nay');
   const shift = (key, by) => {
     const n = Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1 + by;
     return `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, '0')}`;
   };
   // Hạn trả (DASH-03 (1)): nợ tháng M đến hạn ngày cuối tháng M + due_after_months. Ngày đếm theo lịch (số ngày UTC).
   const dueDay = (key, after) => Date.UTC(Number(key.slice(0, 4)), Number(key.slice(5, 7)) + after, 0) / 86400000;
-  const day = iso => Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))) / 86400000;
   const endOf = key => { const date = new Date(dueDay(key, 0) * 86400000); return `${date.getUTCDate()}/${date.getUTCMonth() + 1}`; };
-  const card = (label, value, sub, tone = '') => `<div class="ov-card${tone}"><span class="ov-label">${label}</span>`
-    + `<b class="ov-value">${value}</b><span class="ov-sub">${sub}</span></div>`;
   // Nhãn đọc màn hình luôn bắt đầu bằng chữ trên nút (WCAG 2.5.3), `more` nói thêm nút mở gì.
   const button = (go, text, more = '', kind = 'ov-go') => `<button type="button" class="${kind}" data-go="${escape(go)}"`
     + `${more ? ` aria-label="${escape(`${text} — ${more}`)}"` : ''}>${escape(text)}</button>`;
@@ -54,63 +36,27 @@
         .finally(() => { item.at = Date.now(); paint(); });
     }
   }
-  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc.
+  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc — nút
+  // data-go, hoặc nút sang thẻ khác (data-the, có hai nút cùng thẻ nên nhớ cả thứ tự).
   function paint() {
     const pane = root.querySelector('#the-tinh-hinh');
     if (!pane || !ctx.snapshot) return;
-    const focus = pane.contains(document.activeElement) ? document.activeElement.dataset?.go : null;
+    const active = pane.contains(document.activeElement) ? document.activeElement : null;
+    const key = active?.dataset.go ? `[data-go="${CSS.escape(active.dataset.go)}"]` : active?.dataset.the ? `[data-the="${CSS.escape(active.dataset.the)}"]` : null;
+    const nth = key ? [...pane.querySelectorAll(key)].indexOf(active) : -1;
     pane.innerHTML = body(ctx.snapshot);
-    if (focus) pane.querySelector(`[data-go="${CSS.escape(focus)}"]`)?.focus();
+    if (key) (pane.querySelectorAll(key)[nth] ?? pane.querySelector(key))?.focus();
   }
 
-  // Khối 1. Còn nợ và Thu tháng này lấy ở sổ: đúng số đầu trang và dòng Tổng tháng (DA-THU-01). Quá hạn, Đến hạn và mức rủi ro
-  // lấy dòng của khách ở Tổng quan (dashboard/debt), cùng số với ngăn kéo Tổng quan. Khách đang dư (CAN-DU-01): không có quá hạn.
-  function owed(data, now) {
-    const month = `tháng ${Number(now.key.slice(5))}`;
-    const paid = card(`Thu ${month}`, full(now.receivedVnd ?? 0n),
-      now.present ? `phát sinh ${month}: ${full(now.chargesVnd ?? 0n)}` : `${month} chưa có chuyến hay phiếu thu`);
-    const credit = model.creditOf(data.total_outstanding_vnd);
-    if (credit > 0n) return block('Khách đang nợ mình bao nhiêu', `<div class="ov-cards">${card('Khách đang dư', full(credit), 'trả trước', ' wide')}${paid}</div>`);
-    const open = (data.months ?? []).filter(row => toBig(row.outstanding_vnd ?? '0') > 0n).map(row => monthKey(row.month)).sort();
-    const owing = card('Còn nợ', full(data.total_outstanding_vnd), open.length > 1 ? `${open.length} tháng còn nợ: ${tag(open[0])} → ${tag(open.at(-1))}`
-      : open.length ? `còn nợ ${tag(open[0])}` : 'không tháng nào còn nợ');
-    const debt = side.debt;
-    const middle = debt.state === 'error'
-      ? `<div class="ov-card wide ov-error" role="alert"><span>${escape(loadError('số quá hạn'))}</span>${button('retry:debt', 'Thử lại')}</div>`
-      : loaded(debt) ? due(debt.data, data.total_outstanding_vnd)
-        : card('Quá hạn', '…', 'Đang đọc số ở Tổng quan') + card('Đến hạn cuối tháng này', '…', '');
-    return block('Khách đang nợ mình bao nhiêu', `<div class="ov-cards">${owing}${middle}${paid}</div>${loaded(debt) && debt.data.row ? risk(debt.data.row) : ''}`);
+  // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được). Tháng đang
+  // chạy ghi thêm "đến dd/mm" (hôm nay, giờ VN): số của tháng đó chưa trọn tháng.
+  function monthRow(items, label) {
+    const today = todayIso(), running = today.slice(0, 7);
+    const sub = key => (key === running ? `<small>đến ${Number(today.slice(8))}/${Number(today.slice(5, 7))}</small>` : '');
+    return `<div class="ov-months" style="grid-template-columns:repeat(${items.length},1fr)">${items.map(item => (item.present
+      ? `<button type="button" class="ov-month" data-go="thang:${item.key}" aria-label="${escape(`${tag(item.key)} — ${label(item)}`)}">${tag(item.key)}${sub(item.key)}</button>`
+      : `<span class="ov-month off">${tag(item.key)}${sub(item.key)}</span>`)).join('')}</div>`;
   }
-  // Quá hạn: các tháng nợ đã quá hạn (nhóm 1–2, 3–6, trên 6 tháng của Tổng quan), lâu nhất bao nhiêu ngày; bấm thì sang thẻ Sổ ở
-  // tháng đó. Đến hạn: nhóm "đến hạn cuối tháng này", kèm khoản kế tiếp (nhóm chưa đến hạn, hạn cuối tháng sau).
-  function due({ asOf, rule, row }, total) {
-    if (!row) {   // Tổng quan chỉ có sổ đang nợ
-      const none = toBig(total) > 0n ? ['–', 'Tổng quan chưa có sổ này'] : ['0 đ', 'Không có nợ quá hạn'];
-      return card('Quá hạn', ...none) + card('Đến hạn cuối tháng này', none[0], '');
-    }
-    const after = rule.due_after_months ?? 1, now = asOf.slice(0, 7), overdue = toBig(row.overdue_vnd) > 0n;
-    const late = (row.months ?? []).filter(item => monthKey(item.month) <= shift(now, -1 - after) && toBig(item.outstanding_vnd) > 0n)
-      .map(item => monthKey(item.month)).sort();
-    const months = late.length > 3 ? `${late.length} tháng, từ ${tag(late[0])}` : late.map(tag).join(', ');
-    const lateSub = overdue && late.length ? button(`thang:${late[0]}`, `${months} · lâu nhất ${span(day(asOf) - dueDay(late[0], after))}`,
-      `mở sổ tháng ${monthLabel(late[0])}, tháng quá hạn lâu nhất`, 'ov-link') : 'Không có nợ quá hạn';
-    const [notDue, dueNow] = row.tiers_vnd ?? [];
-    const next = notDue && toBig(notDue) > 0n ? ` · kế tiếp ${short(notDue)} hạn ${endOf(shift(now, 1))}` : '';
-    return card('Quá hạn', full(row.overdue_vnd), lateSub, overdue ? ' late' : '')
-      + card(`Đến hạn ${endOf(now)}`, full(dueNow ?? '0'), `nợ ${tag(shift(now, -after))}${next}`);
-  }
-  // Mức rủi ro (DASH-03 (2)) kèm dữ kiện tạo ra nó: lần trả và lần đi hàng gần nhất. Dòng sổ gốc không ghi ngày thì chỉ biết tháng.
-  function risk(row) {
-    const when = (date, exact) => (exact ? dateText(date) : `trong tháng ${monthLabel(date)}`);
-    const facts = [row.last_receipt_date ? `Trả gần nhất ${when(row.last_receipt_date, row.last_receipt_exact)} · ${ago(row.pay_days)}` : 'Chưa trả lần nào',
-      row.last_trip_date ? `Đi hàng gần nhất ${when(row.last_trip_date, row.last_trip_exact)} · ${ago(row.trip_days)}` : 'Chưa có chuyến'];
-    return `<p class="ov-facts"><span class="ov-risk r-${escape(row.risk)}">${escape(RISK[row.risk] ?? row.risk)}</span>`
-      + `${facts.map(fact => `<span class="ov-fact">${escape(fact)}</span>`).join('')}</p>`;
-  }
-
-  // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được).
-  const monthRow = (items, label) => `<div class="ov-months" style="grid-template-columns:repeat(${items.length},1fr)">${items.map(item => (item.present
-    ? button(`thang:${item.key}`, tag(item.key), label(item), 'ov-month') : `<span class="ov-month off">${tag(item.key)}</span>`)).join('')}</div>`;
   // Khối 2: cột kép phát sinh (xám) và đã thu (navy), đường Còn nợ cuối tháng, ghi số ở điểm thấp nhất và điểm cuối. Tháng không có
   // dòng thì không có cột (không phải 0) và đường giữ số tháng trước. Bấm cột một tháng hoặc tên tháng thì sang thẻ Sổ tháng đó.
   function trend(series) {
@@ -130,12 +76,12 @@
     const dots = points.filter(([, item]) => !item.carried).map(([index, item]) => `<circle class="ov-point" data-go="thang:${item.key}" `
       + `data-month="${item.key}" data-vnd="${item.endVnd}" cx="${mid(index)}" cy="${y(item.endAt)}" r="5">`
       + `<title>Tháng ${monthLabel(item.key)} · còn nợ cuối tháng ${full(item.endVnd)}</title></circle>`).join('');
-    const labels = [...new Set([series.low, series.last])].filter(index => index !== null).map(index => {
+    const labels = [series.last].filter(index => index !== null).map(index => {
       const at = y(items[index].endAt), anchor = index === 0 ? 'start' : index === items.length - 1 ? 'end' : 'middle';
       return `<text class="ov-num" data-month="${items[index].key}" x="${mid(index)}" y="${at < TOP + 4 ? at + 24 : at - 12}" `
         + `text-anchor="${anchor}">${escape(short(items[index].endVnd))}</text>`;
     }).join('');
-    return block('Nợ đang tăng hay giảm?', `<p class="ov-note">${items.length} tháng gần nhất · bấm một tháng để mở sổ tháng đó</p>`
+    return block('Còn nợ 12 tháng', `<p class="ov-note">Bấm một tháng để mở sổ tháng đó</p>`
       + `<div class="ov-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Phát sinh, đã thu và còn nợ cuối tháng, ${items.length} tháng `
       + `tới tháng ${monthLabel(items.at(-1).key)}">${area}<line class="ov-zero" x1="0" x2="${W}" y1="${zero}" y2="${zero}"/>${columns}`
       + `<polyline class="ov-line" points="${line}"/>${dots}${labels}</svg>${monthRow(items, item => `mở sổ tháng ${monthLabel(item.key)}: phát sinh `
@@ -144,67 +90,87 @@
       + '<span><i class="ov-sw line"></i>Còn nợ cuối tháng</span></p>');
   }
 
-  // Khối 4: số chuyến mỗi tháng trong 6 tháng — dòng chuyến web (trừ đã xóa, đã loại và phí lẻ) và dòng chuyến sổ gốc chưa xóa;
-  // đếm dòng, không phải tiền (chuyến chưa có giá, chờ kiểm vẫn là chuyến đã chạy). Lần đi hàng gần nhất lấy ở Tổng quan như
-  // khối 1; sổ không có ở Tổng quan thì lấy ngày chuyến mới nhất trong sổ.
-  function trips(data, items) {
-    const counts = new Map(items.map(item => [item.key, 0]));
-    let latest = '';
-    const add = (month, date) => {
-      if (counts.has(monthKey(month))) counts.set(monthKey(month), counts.get(monthKey(month)) + 1);
-      if (/^\d{4}-\d\d-\d\d$/.test(date ?? '') && date > latest) latest = date;
-    };
-    for (const trip of data.trips ?? []) if (!trip.deleted && trip.status !== 'rejected' && !trip.is_fee_only) add(trip.month, trip.event_date);
-    for (const row of data.legacy_rows ?? []) if (row.kind !== 'receipt' && !row.current?.deleted) add(row.month, row.current?.event_date);
-    const row = loaded(side.debt) ? side.debt.data.row : null;
-    const last = row?.last_trip_date ? (row.last_trip_exact ? dateText(row.last_trip_date) : `trong tháng ${monthLabel(row.last_trip_date)}`) : dateText(latest);
-    // Khung hình gần bằng bề rộng khối ở màn 1280 (một phần ba trang) để số trên cột giữ cỡ chữ thật.
-    const top = Math.max(1, ...counts.values()), W = 380, H = 124, BASE = 108, col = W / items.length;
-    const bars = items.map((item, index) => {
-      const count = counts.get(item.key), h = Math.round(count / top * 80), x = col * index;
-      return `<g class="ov-col"${item.present ? ` data-go="thang:${item.key}"` : ''}><rect class="ov-hit" x="${x}" y="0" width="${col}" height="${H}"/>`
-        + `<rect class="ov-bar trip" data-month="${item.key}" data-count="${count}" x="${x + col / 2 - 16}" y="${BASE - h}" width="32" height="${h}"/>`
-        + `<text class="ov-num" x="${x + col / 2}" y="${BASE - h - 6}" text-anchor="middle">${count}</text></g>`;
-    }).join('');
-    return block('Khách còn đi hàng không?', `<p class="ov-note">Số chuyến mỗi tháng · ${last ? `đi hàng gần nhất ${last}` : 'chưa có chuyến'}</p>`
-      + `<div class="ov-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Số chuyến mỗi tháng, ${items.length} tháng tới tháng `
-      + `${monthLabel(items.at(-1).key)}"><line class="ov-zero" x1="0" x2="${W}" y1="${BASE}" y2="${BASE}"/>${bars}</svg>`
-      + `${monthRow(items, item => `mở sổ tháng ${monthLabel(item.key)}: ${counts.get(item.key)} chuyến`)}</div>`);
+  // ponytail: Chỉ hiện số ngày trả trễ khi API B1 có kết quả; thêm API đó sau migration B1.
+  function referenceHero(data) {
+    const debt = side.debt, row = loaded(debt) ? debt.data.row : null;
+    const riskCode = row?.risk ?? 'unknown';
+    const riskName = RISK[riskCode] ?? (debt.state === 'error' ? 'Chưa đọc được rủi ro' : 'Đang đọc rủi ro');
+    const pending = bookWork(data).reduce((sum, [count]) => sum + count, 0);
+    const tiers = row?.tiers_vnd ?? [];
+    const parts = row ? [
+      ['Quá hạn', row.overdue_vnd, 'late', row.oldest_open_month],
+      [`Đến hạn ${endOf(debt.data.asOf.slice(0, 7))}`, tiers[1], 'due', shift(debt.data.asOf.slice(0, 7), -(debt.data.rule.due_after_months ?? 1))],
+      ['Chưa đến hạn', tiers[0], 'future', null],
+    ].filter(([, value]) => value != null && toBig(value) > 0n) : [];
+    const total = toBig(data.total_outstanding_vnd), credit = model.creditOf(data.total_outstanding_vnd);
+    const positive = parts.reduce((sum, [, value]) => sum + toBig(value), 0n);
+    const segments = positive > 0n ? parts.map(([label, value, kind]) => `<span class="ov-segment ${kind}" style="flex:${toBig(value)}" title="${escape(label)} ${full(value)}"></span>`).join('') : '';
+    const partHtml = parts.map(([label, value, kind, month]) => `<div class="ov-part"><span><i class="ov-key ${kind}"></i>${escape(label)}</span>`
+      + `${month ? button(`thang:${monthKey(month)}`, short(toBig(value)), `mở sổ tháng ${monthLabel(monthKey(month))}`, 'ov-part-link') : `<b>${short(toBig(value))}</b>`}</div>`).join('');
+    const marks = loaded(side.marks) ? side.marks.data : [];
+    const promise = marks.find(mark => mark.kind === 'promise' && mark.status === 'pending');
+    const unavailable = side.marks.state === 'error' || debt.state === 'error';
+    const next = unavailable ? ['Chưa xác định việc tiếp theo', 'Kiểm tra dữ liệu rồi thử lại', 'unknown']
+      : !loaded(side.marks) || !loaded(debt) ? ['Đang đọc việc tiếp theo…', '', 'unknown']
+      : promise ? ['Chờ hứa trả', `${full(promise.amount_vnd)} · hẹn ${dateText(promise.on_date)}`, 'wait']
+      : row && toBig(row.overdue_vnd) > 0n ? ['Nhắc nợ ngay', 'Có nợ quá hạn · xem thẻ Trao đổi', 'remind']
+        : ['Chưa cần làm gì', 'Theo dõi hạn trả trong Sổ', 'ok'];
+    // Nút theo việc (canvas TinhHinh): nhắc ngay → nút chính Copy tin nhắc nợ; chờ hứa trả → Vẫn nhắc nợ là nút phụ. Cả hai cùng lệnh
+    // Copy tin nhắc của thẻ Trao đổi. Luôn kèm Xem Trao đổi.
+    const actions = { remind: button('copy', 'Copy tin nhắc nợ', 'chép tin nhắc để dán vào Zalo và ghi đã nhắc hôm nay', 'ov-copy primary'),
+      wait: button('copy', 'Vẫn nhắc nợ', 'copy tin nhắc và ghi đã nhắc hôm nay', 'ov-copy') };
+    return `<section class="ov-hero ${escape(riskCode)}" aria-label="Công nợ hôm nay"><div class="ov-hero-debt">`
+      + `<div class="ov-hero-label">${credit > 0n ? 'Khách trả trước' : 'Còn nợ'} ${credit > 0n ? '' : `<span class="ov-risk r-${escape(riskCode)}">${escape(riskName)}</span>`}`
+      + `${pending ? `<button type="button" class="ov-pending tab-go" data-the="so">+${pending} việc cần xem</button>` : ''}</div>`
+      + `<strong class="ov-total">${full(credit > 0n ? credit : total)}</strong><div class="ov-segments" aria-hidden="true">${segments}</div>`
+      + `<div class="ov-parts">${partHtml || (total < 0n ? '<span>Khách trả trước</span>' : debt.state === 'error' ? '' : '<span>Đang đọc cơ cấu nợ…</span>')}</div>`
+      + `${debt.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('số quá hạn'))} ${button('retry:debt', 'Thử lại')}</p>` : ''}</div>`
+      + `<div class="ov-next"><span class="ov-eyebrow">Việc tiếp theo</span><div class="ov-next-main"><span class="ov-next-icon" aria-hidden="true">${next[2] === 'wait' ? '◷' : next[2] === 'remind' ? '!' : '✓'}</span>`
+      + `<div><strong>${next[0]}</strong><small>${next[1]}</small></div></div>`
+      + `${side.marks.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hứa trả'))} ${button('retry:marks', 'Thử lại')}</p>` : ''}`
+      + `${promise ? `<p class="ov-countdown">Hẹn ${dateText(promise.on_date)} · ${escape(promise.status === 'pending' ? 'đang chờ' : promise.status)}</p>` : ''}`
+      + `<div class="ov-next-actions">${actions[next[2]] ?? ''}<button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button></div></div></section>`;
   }
 
-  // Khối 5: việc làm số chưa đúng. Chuyến chưa có giá, chờ kiểm và chuyến từ Sheet đếm như chấm cam trên chip tháng (bookWork của
-  // so-khach-v7-month-ui.js); lô giá, phiếu thu từ Sheet và phụ phí theo bảng PS như dải nút đầu thẻ Sổ. Mỗi dòng mở thẻ Sổ đúng
-  // chỗ: ?loc= tô dòng cần xử lý, lô thì tới nút của lô. Tách phụ phí theo PS không đổi tổng tiền nên không vào câu "chưa tính".
-  function todo(data) {
-    const lot = (item, what, kind, verb) => {
-      const parts = [[item?.ready_count ?? item?.ready?.length ?? 0, `chờ ${verb}`], [item?.review?.length ?? 0, 'cần xem']]
-        .filter(([count]) => count > 0).map(([count, text]) => `${count} ${text}`);
-      return parts.length ? [[`${what}: ${parts.join(', ')}`, `viec:${kind}`]] : [];
-    };
-    const rows = [...bookWork(data).map(([count, what, kind]) => [`${count} chuyến ${what}`, kind === 'sheet' ? 'viec:sheet' : `loc:${kind}`]),
-      ...lot(data.sheet_prices, 'Giá từ Sheet', 'price', 'ghi'), ...lot(data.sheet_receipts, 'Phiếu thu từ Sheet', 'receipt', 'ghi')];
-    const list = [...rows, ...lot(data.ps_fees, 'Phụ phí theo bảng PS', 'ps', 'tách')]
-      .map(([text, go]) => `<div class="ov-task"><span>${escape(text)}</span>${button(go, 'Xem trong sổ', text)}</div>`).join('');
-    return block('Còn gì làm số chưa đúng?', list
-      ? `${list}${rows.length ? '<p class="ov-note">Còn nợ ở trên chưa tính các dòng này.</p>' : ''}` : '<p>Sổ không còn việc chờ.</p>');
+  function referenceStats(data, series) {
+    const revenue = model.seriesCharges(series);
+    const months = series.items.slice(-6);
+    const counts = months.map(item => (data.trips ?? []).filter(trip => monthKey(trip.month) === item.key && !trip.deleted && trip.status !== 'rejected' && !trip.is_fee_only).length
+      + (data.legacy_rows ?? []).filter(row => monthKey(row.month) === item.key && row.kind !== 'receipt' && !row.current?.deleted).length);
+    const recent = loaded(side.debt) ? side.debt.data.row : null;
+    const last = recent?.last_trip_date ? (recent.last_trip_exact ? dateText(recent.last_trip_date) : `trong tháng ${monthLabel(recent.last_trip_date)}`)
+      : dateText([...(data.trips ?? []), ...(data.legacy_rows ?? [])].map(row => row.event_date ?? row.current?.event_date).filter(Boolean).sort().at(-1));
+    const max = Math.max(1, ...counts);
+    return `<div class="ov-stats"><section class="ov-stat"><span>Trễ trung bình sau hạn <small>12 tháng</small></span><strong>—</strong>`
+      + '<div class="ov-late-scale" aria-hidden="true"></div><p>Chưa đủ dữ liệu trả sau hạn</p></section>'
+      + `<section class="ov-stat"><span>Doanh thu <small>12 tháng</small></span><strong>${revenue === null ? '—' : short(revenue)}</strong>`
+      + '<p>Phát sinh đã ghi sổ trong 12 tháng</p></section>'
+      + `<section class="ov-stat"><span>Đi hàng <small>6 tháng</small></span><strong>${counts.at(-1)} chuyến tháng này</strong>`
+      + `<p>${last ? `gần nhất ${last}` : 'Chưa rõ chuyến gần nhất'}</p><div class="ov-spark" aria-hidden="true">`
+      + `${counts.map(count => `<i style="height:${Math.max(2, count / max * 44)}px" title="${count} chuyến"></i>`).join('')}</div></section></div>`;
   }
 
-  // Khối 6, phần A: lần nhắc gần nhất (reminder_log, NHAC-NO-01) và tin Zalo gần nhất của hội thoại tìm theo tên khách, như thẻ
-  // Trao đổi (PR A3). Hứa trả ở giai đoạn B2.
-  function talk() {
-    const item = side.reminders, chats = side.chats;
-    const line = item.state === 'error' ? `${escape(loadError('lần nhắc nợ'))} ${button('retry:reminders', 'Thử lại')}`
-      : !loaded(item) ? 'Đang đọc lần nhắc nợ…'
-        : item.data ? escape(`Nhắc gần nhất ${dateText(item.data.last_reminded)} · ${SOURCE[item.data.last_source] ?? item.data.last_source} · `
-          + `đã nhắc ${item.data.reminder_count} lần`) : 'Chưa nhắc lần nào.';
-    const latest = loaded(chats) ? (chats.data.conversations ?? []).find(row => row.last_message_at) : null;
-    const chat = chats.state === 'error' ? `${escape(loadError('hội thoại Zalo'))} ${button('retry:chats', 'Thử lại')}`
-      : !loaded(chats) ? 'Đang tìm hội thoại Zalo…' : chats.data.conversations === null ? 'Chưa có dữ liệu chat trên máy chủ.'
-        : latest ? escape(`Zalo gần nhất ${dateText(vnDay(latest.last_message_at))} · ${latest.display_name ?? 'hội thoại chưa rõ tên'}`)
-          : 'Không thấy hội thoại Zalo có tên khách.';
-    return block('Lần cuối nói chuyện với khách', `<p class="ov-talk"${item.state === 'error' ? ' role="alert"' : ''}>${line}</p>`
-      + `<p class="ov-chat"${chats.state === 'error' ? ' role="alert"' : ''}>${chat}</p>`
-      + '<button type="button" class="tab-go" data-the="trao-doi">Xem thẻ Trao đổi</button>');
+  function referenceActivity(data) {
+    const receipt = (data.receipts ?? []).filter(row => row.voided_by_event == null).map(row => ({ date: row.date, text: `Khách trả ${full(row.amount_vnd)}`, sub: row.method ?? '', kind: 'paid' }));
+    const tripGroups = new Map();
+    for (const row of data.trips ?? []) {
+      if (row.deleted || row.status !== 'confirmed' || row.is_fee_only) continue;
+      const key = `${row.event_date}|${row.destination ?? ''}`;
+      tripGroups.set(key, { date: row.event_date, destination: row.destination ?? '', count: (tripGroups.get(key)?.count ?? 0) + 1 });
+    }
+    const trip = [...tripGroups.values()].map(row => ({ date: row.date, text: `${row.count} chuyến đi hàng`, sub: row.destination, kind: 'trip' }));
+    const mark = (loaded(side.marks) ? side.marks.data : []).filter(row => row.status !== 'cancelled').map(row => ({ date: row.message_at ? vnDay(row.message_at) : String(row.created_on ?? '').slice(0, 10),
+      text: row.kind === 'promise' ? `Hứa trả ${full(row.amount_vnd)}` : row.kind === 'paid_claim' ? `Báo đã chuyển ${full(row.amount_vnd)}` : 'Ghi chú',
+      sub: row.kind === 'promise' ? `hẹn ${dateText(row.on_date)} · ${row.status === 'pending' ? 'đang chờ' : row.status}` : '', kind: 'mark' }));
+    const reminder = loaded(side.reminders) && side.reminders.data ? [{ date: side.reminders.data.last_reminded, text: 'Nhắc nợ gần nhất', sub: `đã nhắc ${side.reminders.data.reminder_count} lần`, kind: 'remind' }] : [];
+    const chats = loaded(side.chats) ? side.chats.data.conversations ?? [] : [];
+    const chat = chats.filter(row => row.last_message_at).map(row => ({ date: vnDay(row.last_message_at), text: 'Zalo gần nhất', sub: row.display_name ?? '', kind: 'remind' }));
+    const rows = [...receipt, ...trip, ...mark, ...reminder, ...chat].filter(row => /^\d{4}-\d\d-\d\d$/.test(row.date ?? '')).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+    return `<section class="ov-activity"><div class="ov-section-head"><h2>Hoạt động gần đây</h2><button type="button" class="tab-go" data-the="trao-doi">Tất cả ›</button></div>`
+      + `<ol>${rows.map(row => `<li><span class="ov-event ${row.kind}" aria-hidden="true">${row.kind === 'paid' ? 'đ' : row.kind === 'mark' ? '!' : row.kind === 'remind' ? '↗' : '▸'}</span>`
+        + `<span><b>${escape(row.text)}</b><small>${escape(row.sub)}</small></span><time>${dateText(row.date)}</time></li>`).join('') || '<li>Chưa có hoạt động gần đây.</li>'}</ol>`
+      + `${side.reminders.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('lần nhắc nợ'))} ${button('retry:reminders', 'Thử lại')}</p>` : ''}`
+      + `${side.chats.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hội thoại Zalo'))} ${button('retry:chats', 'Thử lại')}</p>` : ''}</section>`;
   }
 
   function content(data) {
@@ -213,8 +179,7 @@
         + '<button type="button" class="tab-go" data-the="so">Mở thẻ Sổ</button></div>';
     }
     const series = model.monthSeries(data.months ?? [], thisMonth());
-    return owed(data, series.items.at(-1)) + trend(series)
-      + `<div class="ov-row">${trips(data, series.items.slice(-6))}${todo(data)}${talk()}</div>`;
+    return referenceHero(data) + referenceStats(data, series) + `<div class="ov-main-row">${trend(series)}${referenceActivity(data)}</div>`;
   }
   // Dữ liệu lạ làm thẻ vẽ lỗi thì chỉ thẻ này báo, thẻ Sổ vẫn dùng được.
   function body(data) {
@@ -245,13 +210,10 @@
     if (!target) return;
     const [what, value] = target.dataset.go.split(':');
     if (what === 'retry') { wake(value); paint(); return; }
+    if (what === 'copy') { showTab('trao-doi'); root.querySelector('#the-trao-doi [data-go="copy"]')?.click(); return; }
     showTab('so');
     if (what === 'thang') openMonth(value);
     else if (what === 'loc') ctx.showLoc(value);
-    else {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-      root.querySelector(TASKS[value])?.focus({ preventScroll: true });
-    }
   });
 
   Object.assign(ctx, { overviewPane, tabShown });
