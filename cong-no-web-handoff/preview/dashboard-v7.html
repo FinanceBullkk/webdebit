@@ -3,35 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Tổng quan công nợ HTH: còn phải thu, nợ theo hạn trả, khách cần đòi trước.">
+  <meta name="description" content="Tổng quan công nợ HTH: còn phải thu, nợ theo hạn trả, thu tháng này, khách cần đòi trước theo mức rủi ro.">
   <title>Công nợ HTH · Tổng quan</title>
   <link rel="stylesheet" href="cong-no-theme.css">
   <link rel="stylesheet" href="dashboard-v7.css">
 <link rel="stylesheet" href="presence.css">
 </head>
-<body data-presence="dashboard">
+<body class="tq" data-presence="dashboard">
   <div id="demo-banner" hidden role="status"></div>
-  <header class="topbar">
-    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
-    <nav aria-label="Điều hướng chính"><a class="active" href="/dashboard-v7.html" aria-current="page">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a href="/doi-no.html">Đòi nợ</a><a href="/viec-can-lam.html">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
-    <label class="search"><span aria-hidden="true">⌕</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách để mở sổ" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
-    <time class="asof" id="as-of"></time>
-  </header>
-  <main class="page">
-    <div class="page-head">
+  <aside class="todo-nav">
+    <button type="button" id="nav-toggle" aria-label="Mở menu" aria-expanded="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+    <label class="search"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg><span class="search-label">Tìm khách</span><input id="customer-search" type="search" aria-label="Tìm khách" placeholder="Tìm khách" autocomplete="off"><div id="customer-results" role="listbox" hidden></div></label>
+    <nav aria-label="Điều hướng chính">
+      <a class="active" href="/dashboard-v7.html" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"></rect><rect x="13" y="4" width="7" height="7" rx="1"></rect><rect x="4" y="13" width="7" height="7" rx="1"></rect><rect x="13" y="13" width="7" height="7" rx="1"></rect></svg>Tổng quan</a>
+      <a href="/cong-no-theo-thang.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M4 10h16M9 3v4M15 3v4"></path></svg>Công nợ theo tháng</a>
+      <a href="/so-khach-v7-live.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"></path><path d="M5 17a3 3 0 0 1 3-3h11"></path></svg>Sổ khách</a>
+      <a href="/doi-no.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1"></path></svg>Đòi nợ</a>
+      <a href="/viec-can-lam.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"></path><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"></path></svg>Việc cần làm<span class="badge" id="todo-badge" hidden></span></a>
+    </nav>
+  </aside>
+  <main class="page tq-page">
+    <div class="page-head topbar">
       <h1>Tổng quan công nợ</h1>
-      <div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div>
+      <div class="live-controls"><time class="clock" id="as-of" tabindex="0">—</time><span id="updated-at" class="sr-only" aria-live="polite">Tự cập nhật mỗi 60 giây</span><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại từ Sheet và tính lại số"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
     </div>
     <div id="error" role="alert" hidden></div>
     <div id="dashboard" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
   <div class="tip" id="tip" role="tooltip" hidden></div>
-  <div class="scrim" id="scrim" hidden></div>
-  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="d-name" hidden>
-    <header><div><h2 id="d-name"></h2><p id="d-sub"></p></div><button type="button" class="x" id="d-close" aria-label="Đóng">✕</button></header>
-    <div class="body" id="d-body"></div>
-    <footer><a class="primary" id="d-open" href="/so-khach-v7-live.html">Mở sổ khách</a><a class="secondary" id="d-page" href="/so-khach-v7-live.html">Trang khách</a><a class="secondary" id="d-matrix" href="/cong-no-theo-thang.html">Xem ở ma trận</a></footer>
-  </aside>
   <script src="cong-no-format.js"></script>
   <script src="dashboard-v7-model.js"></script>
   <script src="sheet-refresh.js"></script>

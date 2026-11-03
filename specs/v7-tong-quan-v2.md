@@ -1,5 +1,7 @@
 # V7 — Tổng quan v2: mỗi câu hỏi một hình (đổi cách trình bày DASH-03)
 
+> Cách trình bày thay bởi [`v7-tong-quan-v3.md`](v7-tong-quan-v3.md) (`DASH-05`, 2/11/2026): chip mức rủi ro thay ma trận 2×2, bỏ ngăn kéo, bảng triệu. Quy tắc tính vẫn như dưới.
+
 Trạng thái: **ĐÃ CHỐT** ([`DASH-04`](../docs/decisions/dash-04.md), người dùng 30/10/2026: "Theo v2, viết spec" sau khi xem layout thử). Nguồn: góp ý người dùng trong chat 30/10/2026 — Tổng quan "ghi nhiều thông tin quá, thay vì biểu diễn thì chọn ghi chữ, nhìn vào full of text"; yêu cầu thiết kế lại ở mức kiến trúc: nên biểu diễn dữ liệu gì, kiểu gì. Layout thử dữ liệu giả: [`preview/mockups/tong-quan-v2/`](../cong-no-web-handoff/preview/mockups/tong-quan-v2/index.html).
 
 Spec này **thay cách trình bày** của [`v7-tong-quan-quan-ly-no.md`](v7-tong-quan-quan-ly-no.md) (DASH-03) và **giữ nguyên** mọi quy tắc tính ở đó: hạn trả, 5 nhóm, mức rủi ro, lần trả/đi hàng gần nhất, thu/phát sinh tháng này, API `get_dashboard_debt()`. Không đổi backend.
