@@ -14,8 +14,6 @@
 .empty{margin:0;color:var(--ink-3)}
 
 /* Số việc trên thanh điều hướng: người nhập thấy ngay khi vào web */
-.topbar nav .badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;margin-left:8px;padding:0 7px;border-radius:11px;background:var(--critical);color:#fff;font-size:12.5px;font-weight:700}
-.topbar nav .badge[hidden]{display:none}
 
 /* Việc cần làm (tab riêng) */
 .todo-group+.todo-group{margin-top:14px}
@@ -79,7 +77,7 @@
 .auto-done .tiny{margin:6px 0 0;font-size:13.5px;color:var(--ink-3)}
 
 /* ---- Tổng quan (DASH-05, 2/11/2026): bản ít chữ của canvas TongQuanGon. Màu, cỡ và khoảng cách lấy theo canvas; menu trái
-   chép từ viec-can-lam.css (cùng lớp .todo-nav) — gom thành file chung khi trang thứ ba theo menu trái. ---- */
+   dùng chung app-nav.css. ---- */
 html:has(body.tq){background:#f3f5f8}
 body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#b42318;--amber:#8a5300;--teal:#0f766e;
   --ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;
@@ -87,25 +85,8 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .tq [hidden]{display:none!important}
 .tq svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
 .tq .sr-only{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
-.todo-nav{position:fixed;inset:0 auto 0 0;z-index:45;width:76px;padding:8px 0;background:#16324f;color:#c3d1e0;overflow:visible}
-.todo-nav svg{width:22px;height:22px;stroke-width:2}
-.todo-nav>button{display:flex;align-items:center;justify-content:center;width:64px;min-height:48px;margin:0 6px 8px;border:0;border-radius:8px;background:#21405f;color:#fff;cursor:pointer}
-.todo-nav nav{display:flex;flex-direction:column;gap:2px;margin-top:2px}
-.todo-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:72px;margin:2px 6px;padding:6px 2px;border-radius:8px;font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;color:#c3d1e0}
-.todo-nav nav a:hover,.todo-nav nav a.active{background:#2a5179;color:#fff}
-.todo-nav .badge{position:absolute;top:4px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
-.todo-nav .search{margin:2px 6px;padding:6px 2px;width:64px;min-width:0;height:76px;border:0;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:text}
-.todo-nav .search-label{font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
-.todo-nav .search input{position:absolute;inset:0;opacity:0;padding:0;font-size:11.5px;font-weight:600;color:#c3d1e0}
-.todo-nav .search input::-webkit-search-cancel-button{display:none}
-.todo-nav .search:focus-within{width:280px;padding:8px 12px;flex-direction:row;background:#16324f;border-radius:8px}
-.todo-nav .search:focus-within .search-label{display:none}
-.todo-nav .search:focus-within input{position:static;opacity:1;font-size:15px;text-align:left}
-.todo-nav .search #customer-results{left:0;top:64px;min-width:300px}
-.todo-nav.menu-open{width:210px;box-shadow:6px 0 20px #16324f33}
-.todo-nav.menu-open nav a{flex-direction:row;justify-content:flex-start;gap:12px;padding:10px;font-size:14px;text-align:left}
 
-.tq-page,.tq #demo-banner{margin:0 0 0 76px}
+.tq-page{margin:0 0 0 76px}
 .tq-page{padding:0 0 32px;max-width:none}
 .tq .page-head.topbar{position:relative;z-index:auto;min-height:53px;height:53px;margin:0;padding:0 28px;gap:10px;border-bottom:1px solid var(--edge);background:#fff;color:var(--ink-1)}
 .tq .page-head h1{font-size:18px}
@@ -224,8 +205,7 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .tq .tip{max-width:300px;background:#16324f}
 .tq .tip b{font-size:14px}
 @media (max-width:700px){
-  .todo-nav{width:64px}.todo-nav>button,.todo-nav .search{width:52px}
-  .tq-page,.tq #demo-banner{margin-left:64px}
+  .tq-page{margin-left:64px}
   .tq .page-head.topbar{padding:0 12px}
   #dashboard{padding:12px 12px 0}
   .strip{padding:12px}

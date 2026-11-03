@@ -36,13 +36,16 @@
         .finally(() => { item.at = Date.now(); paint(); });
     }
   }
-  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc.
+  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc — nút
+  // data-go, hoặc nút sang thẻ khác (data-the, có hai nút cùng thẻ nên nhớ cả thứ tự).
   function paint() {
     const pane = root.querySelector('#the-tinh-hinh');
     if (!pane || !ctx.snapshot) return;
-    const focus = pane.contains(document.activeElement) ? document.activeElement.dataset?.go : null;
+    const active = pane.contains(document.activeElement) ? document.activeElement : null;
+    const key = active?.dataset.go ? `[data-go="${CSS.escape(active.dataset.go)}"]` : active?.dataset.the ? `[data-the="${CSS.escape(active.dataset.the)}"]` : null;
+    const nth = key ? [...pane.querySelectorAll(key)].indexOf(active) : -1;
     pane.innerHTML = body(ctx.snapshot);
-    if (focus) pane.querySelector(`[data-go="${CSS.escape(focus)}"]`)?.focus();
+    if (key) (pane.querySelectorAll(key)[nth] ?? pane.querySelector(key))?.focus();
   }
 
   // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được). Tháng đang
