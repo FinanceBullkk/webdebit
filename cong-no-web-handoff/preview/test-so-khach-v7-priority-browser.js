@@ -17,7 +17,7 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     assert.ok(geometry.card >= 180 && geometry.card <= 210, 'khối số dư đủ chỗ theo font, không cắt chữ hoặc số');
-    assert.deepEqual({ ...geometry, card: 0 }, { nav: 76, header: 67, card: 0, gap: 10, toolbar: 48, row: 35, pay: 33, overflow: 0 });
+    assert.deepEqual({ ...geometry, card: 0 }, { nav: 76, header: 52, card: 0, gap: 10, toolbar: 48, row: 35, pay: 33, overflow: 0 });
     const attachments = page.locator('.receipt-money>.image-clip');
     assert.deepEqual(await attachments.allTextContents(), ['📎', '📎']);
     for (const button of await attachments.all()) {
@@ -37,6 +37,10 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
     assert.equal(await page.locator('.history-toggle').isVisible(), false);
     assert.equal(await page.locator('.month-chip.on .chip-name').innerText(), 'Tháng 11/2026');
     assert.equal(await page.locator('.subtotal .unit-total').innerText(), '57.000.000');
+    // Thành tiền ở dòng cộng là phát sinh tháng của GET (months[].charges_vnd), bằng tổng Thành tiền các dòng có giá.
+    const rows = await page.locator('.trip-list td.trip-amount').allInnerTexts();
+    const sum = rows.map(text => text.replace(/\D/g, '')).filter(Boolean).reduce((total, digits) => total + BigInt(digits), 0n);
+    assert.deepEqual([await page.locator('.subtotal .amount-total').innerText(), sum], ['58.750.000', 58750000n]);
     assert.equal(await page.locator('.subtotal').innerText().then(text => text.includes('Cộng cột')), false);
     const colors = await page.locator('.ledger-head th:is(.unit-h,.fee-h,.amount-h)').evaluateAll(nodes =>
       nodes.map(node => getComputedStyle(node).backgroundColor));

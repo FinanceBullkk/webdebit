@@ -3,7 +3,7 @@
  * B1 chưa có API trả sau hạn nên ô đó hiện “—”. Trường ctx: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).overview = ctx => {
   'use strict';
-  const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork } = ctx;
+  const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork, todayIso } = ctx;
   const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
   // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau.
   const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
@@ -45,9 +45,15 @@
     if (focus) pane.querySelector(`[data-go="${CSS.escape(focus)}"]`)?.focus();
   }
 
-  // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được).
-  const monthRow = (items, label) => `<div class="ov-months" style="grid-template-columns:repeat(${items.length},1fr)">${items.map(item => (item.present
-    ? button(`thang:${item.key}`, tag(item.key), label(item), 'ov-month') : `<span class="ov-month off">${tag(item.key)}</span>`)).join('')}</div>`;
+  // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được). Tháng đang
+  // chạy ghi thêm "đến dd/mm" (hôm nay, giờ VN): số của tháng đó chưa trọn tháng.
+  function monthRow(items, label) {
+    const today = todayIso(), running = today.slice(0, 7);
+    const sub = key => (key === running ? `<small>đến ${Number(today.slice(8))}/${Number(today.slice(5, 7))}</small>` : '');
+    return `<div class="ov-months" style="grid-template-columns:repeat(${items.length},1fr)">${items.map(item => (item.present
+      ? `<button type="button" class="ov-month" data-go="thang:${item.key}" aria-label="${escape(`${tag(item.key)} — ${label(item)}`)}">${tag(item.key)}${sub(item.key)}</button>`
+      : `<span class="ov-month off">${tag(item.key)}${sub(item.key)}</span>`)).join('')}</div>`;
+  }
   // Khối 2: cột kép phát sinh (xám) và đã thu (navy), đường Còn nợ cuối tháng, ghi số ở điểm thấp nhất và điểm cuối. Tháng không có
   // dòng thì không có cột (không phải 0) và đường giữ số tháng trước. Bấm cột một tháng hoặc tên tháng thì sang thẻ Sổ tháng đó.
   function trend(series) {
@@ -106,6 +112,10 @@
       : promise ? ['Chờ hứa trả', `${full(promise.amount_vnd)} · hẹn ${dateText(promise.on_date)}`, 'wait']
       : row && toBig(row.overdue_vnd) > 0n ? ['Nhắc nợ ngay', 'Có nợ quá hạn · xem thẻ Trao đổi', 'remind']
         : ['Chưa cần làm gì', 'Theo dõi hạn trả trong Sổ', 'ok'];
+    // Nút theo việc (canvas TinhHinh): nhắc ngay → nút chính Copy tin nhắc nợ; chờ hứa trả → Vẫn nhắc nợ là nút phụ. Cả hai cùng lệnh
+    // Copy tin nhắc của thẻ Trao đổi. Luôn kèm Xem Trao đổi.
+    const actions = { remind: button('copy', 'Copy tin nhắc nợ', 'chép tin nhắc để dán vào Zalo và ghi đã nhắc hôm nay', 'ov-copy primary'),
+      wait: button('copy', 'Vẫn nhắc nợ', 'copy tin nhắc và ghi đã nhắc hôm nay', 'ov-copy') };
     return `<section class="ov-hero ${escape(riskCode)}" aria-label="Công nợ hôm nay"><div class="ov-hero-debt">`
       + `<div class="ov-hero-label">${credit > 0n ? 'Khách trả trước' : 'Còn nợ'} ${credit > 0n ? '' : `<span class="ov-risk r-${escape(riskCode)}">${escape(riskName)}</span>`}`
       + `${pending ? `<button type="button" class="ov-pending tab-go" data-the="so">+${pending} việc cần xem</button>` : ''}</div>`
@@ -116,9 +126,7 @@
       + `<div><strong>${next[0]}</strong><small>${next[1]}</small></div></div>`
       + `${side.marks.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hứa trả'))} ${button('retry:marks', 'Thử lại')}</p>` : ''}`
       + `${promise ? `<p class="ov-countdown">Hẹn ${dateText(promise.on_date)} · ${escape(promise.status === 'pending' ? 'đang chờ' : promise.status)}</p>` : ''}`
-      + `<div class="ov-next-actions">${promise ? button('copy', 'Vẫn nhắc nợ', 'copy tin nhắc và ghi đã nhắc hôm nay', 'ov-copy')
-        : '<button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button>'}`
-      + `${promise ? '<button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button>' : ''}</div></div></section>`;
+      + `<div class="ov-next-actions">${actions[next[2]] ?? ''}<button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button></div></div></section>`;
   }
 
   function referenceStats(data, series) {

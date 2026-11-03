@@ -62,7 +62,7 @@ test('Phần dính đầu trang ≤ 180px khi cuộn (trừ băng dữ liệu gi
     chips: document.querySelector('.month-chips').getBoundingClientRect().top, bottom: document.querySelector('.ledger-head').getBoundingClientRect().bottom,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
   assert.ok(geo.bottom - geo.banner <= 180, `phần dính ${geo.bottom - geo.banner}px`);
-  assert.ok(Math.abs(geo.chips - geo.banner - 67) <= 2, 'thanh chip dính ngay dưới đầu trang (TRANG-KHACH-01: 44px)');
+  assert.ok(Math.abs(geo.chips - geo.banner - 52) <= 2, 'thanh chip dính ngay dưới đầu trang 52px (canvas UuTien 3/11/2026)');
   assert.equal(geo.overflow, 0);
 }, nineMonths));
 
