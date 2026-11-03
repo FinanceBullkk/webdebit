@@ -180,6 +180,20 @@ def _road_text(value: Any) -> str:
     return "" if text in ROAD_BLANK else text
 
 
+def _road_container(value: Any) -> str:
+    """Số cont CONT_BO; số 0 gõ nhầm trong 4 chữ cái đầu (mã chủ cont ISO 6346 chỉ có chữ) thành chữ O.
+
+    Kiểm Sheet 3/11/2026: "BM0U9231830" ở CONT_BO là BMOU9231830 trên tab khách, nên chuyến không ghép được tab nào.
+    Chỉ sửa ở chuyến bộ (chưa có chuyến bộ nào lên web với mã gõ nhầm); số đuôi và mã khác giữ nguyên.
+    """
+    container = normalize_container(_road_text(value))
+    if re.fullmatch(r"[A-Z0-9]{3}[UJZ0][0-9]{7}", container) and "0" in container[:4]:
+        fixed = container[:4].replace("0", "O") + container[4:]
+        if re.fullmatch(r"[A-Z]{3}[UJZ][0-9]{7}", fixed):
+            return fixed
+    return container
+
+
 def parse_road_values(values: list[list[Any]]) -> list[dict[str, Any]]:
     """CONT_BO rows (NGUON-CHUYEN-01 GĐ2). Columns by header text, so the Sheet may add or reorder columns.
 
@@ -203,7 +217,7 @@ def parse_road_values(values: list[list[Any]]) -> list[dict[str, Any]]:
         event_date = parse_date(packed) or parse_date(departed)
         item = {
             "source_row": row_number,
-            "container": normalize_container(_road_text(cell["container"])),
+            "container": _road_container(cell["container"]),
             "event_date": event_date,
             "source_date": packed if parse_date(packed) else departed,
             "plate": _road_text(cell["plate"]),

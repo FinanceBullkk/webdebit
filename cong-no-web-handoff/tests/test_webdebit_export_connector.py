@@ -217,6 +217,17 @@ class WebdebitExportConnectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "CONT_BO empty"):
             connector.parse_road_values([])
 
+    def test_road_container_zero_in_owner_code_reads_as_letter_o(self):
+        # Kiểm Sheet 3/11/2026: CONT_BO ghi "BM0U…" (số 0) cho BMOU… trên tab khách; mã chủ cont ISO chỉ có chữ.
+        header = list(connector.ROAD_COLUMNS.values())
+
+        def line(cont):
+            return [cont, "99Z-00001", "KHÁCH A", "CHIMA", "/", "/", "/", "16/10/2026"]
+        rows = connector.parse_road_values([header, line("BM0U9231830"), line(" bm0u 9231831 "), line("FAKU1000001"),
+                                            line("ABC09231830"), line("A0C1234567")])
+        self.assertEqual([r["container"] for r in rows],
+                         ["BMOU9231830", "BMOU9231831", "FAKU1000001", "ABC09231830", "A0C1234567"])
+
     def test_read_road_hashes_the_tab(self):
         header = list(connector.ROAD_COLUMNS.values())
         tab = [header, ["FAKU1000001", "99Z-00001", "KHÁCH A", "CHIMA", "/", "/", "/", "2/10/2026"]]

@@ -71,6 +71,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
   - Đã code 3/11/2026. Tám cột theo tên: SỐ CONT, SỐ XE, CHỦ HÀNG, CỬA KHẨU, KHO, SHIPPER, NGÀY ĐÓNG HÀNG, NGÀY KHỞI HÀNH. "/" là ô trống. Ngày là ngày đóng hàng, không có thì ngày khởi hành.
   - Dòng thiếu số xe hoặc cửa khẩu cũng là `INVALID`, vì `paste_trips` bắt buộc xe và nơi đến. Trùng container + ngày là `DUPLICATE`.
   - Đọc `CONT_BO` lỗi thì `snapshot.json` vẫn ghi, `road.json` giữ bản trước, runner thoát mã 1.
+  - Số 0 gõ nhầm trong 4 chữ cái đầu của số cont (mã chủ cont ISO chỉ có chữ) đọc thành chữ O, ví dụ `BM0U…` thành `BMOU…`. Kiểm Sheet 3/11/2026 thấy một chuyến tháng 10 của HOA HANH rơi vì lỗi này. Chỉ áp cho `CONT_BO`, vì chuyến biển đã dán theo mã cũ, đổi chung có thể làm dán trùng.
 - **Booking 2025:** chưa làm (chỉ cần cho lịch sử trước 10/2026, `trip_dup`, `source_only`).
 - **Booking 2025:** công cụ đọc một lần bằng tài khoản dịch vụ chỉ đọc, ghi `booking-2025.json` kèm sha256. Theo phiên khác, tài khoản này đã đọc được file; nếu không thì người dùng chia sẻ thêm. Chỉ đọc lại khi người dùng báo file đổi.
 - **Báo phía Sheet:** giữ `CONT_BO` và dòng tiêu đề hiện có.

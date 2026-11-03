@@ -50,7 +50,7 @@ Sổ khách có nút "Ghi N phiếu thu từ Sheet" khi Sheet có phiếu chưa 
 
 Theo từng khách (tab ↔ sổ như đường giá: tên hoặc tên phụ, bỏ ký tự Excel cấm):
 1. Bỏ tab có lỗi cấu trúc (`issues` của `scan_tabs` khác rỗng): tiền thu không chắc thì không đưa lên.
-2. **Ngày thu**: ô ngày (số sê-ri) hoặc `dd/mm/yyyy` ở đầu ô chữ (`.`/`-` cũng được), hoặc `yyyy-mm-dd`. Khác thì không có ngày.
+2. **Ngày thu**: ô ngày (số sê-ri) hoặc `dd/mm/yyyy` ở đầu ô chữ (`.`/`-` cũng được), hoặc `yyyy-mm-dd`; không có thì `dd/mm/yyyy` đầu tiên nằm giữa ô chữ, không dính chữ số phía trước (từ 3/11/2026, kiểm Sheet thấy "DA TT 30/10/2026"; "22210/2026" vẫn là không ngày). Khác thì không có ngày. Người vẫn bấm xác nhận từng phiếu, khung xác nhận hiện ngày thu.
 3. Ghép **dòng thu sổ gốc** chưa xóa: cùng tháng khối, cùng số tiền, cùng chữ ngày thu (gộp khoảng trắng, không phân biệt hoa thường). Trùng dòng sổ gốc đã xóa thì `WEB_DELETED`.
 4. Ghép **phiếu web** chưa hủy: cùng số tiền, cùng ngày; rồi cùng số tiền lệch ngày ≤ 3 ngày (người nhập gõ ngày khác chút). Mỗi phiếu web chỉ ghép một lần.
 5. Còn lại: không ngày → `NO_DATE`; ngày sau hôm nay (giờ VN) → `FUTURE_DATE`; tháng khối có dòng thu sổ gốc chưa ghép ở bước 3 → `SHEET_EDITED`; còn lại `READY`.

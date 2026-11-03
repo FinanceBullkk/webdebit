@@ -46,6 +46,18 @@ def sheet_rows(xlsx: Path) -> list[dict]:
     return rows_from_scan(loader.scan_workbook(xlsx))
 
 
+def sheet_fee(unit: int | None, total: int | None, typed_fee: int | None) -> int | None:
+    """Phụ phí của dòng tab = TỔNG − đơn giá khi Sheet có cả hai (GIA-NGUON-01: tổng phụ phí theo sổ gốc).
+
+    Bộ quét chỉ cộng cột tiêu đề "OTHER FEE"/"PHU PHI"; cột BAO HIEM, cột không tiêu đề, cột tiếng Trung, "Neo / Phi dien /
+    Dong ghep" bị bỏ (kiểm Sheet 3/11/2026). Theo PHU-PHI-01 (8) mọi cột phí trên tab đều là "Khác", nên lấy phần TỔNG vượt
+    đơn giá thì web tính đúng số Sheet tính. Thiếu TỔNG hoặc đơn giá thì giữ số bộ quét đọc được; TỔNG bằng đơn giá là không phí.
+    """
+    if unit is None or total is None:
+        return typed_fee
+    return (total - unit) or None
+
+
 def rows_from_scan(scan: dict[str, dict]) -> list[dict]:
     """Trip rows of customer tabs from `scan_tabs` output, whichever reader produced the cells."""
     rows = []
@@ -57,7 +69,8 @@ def rows_from_scan(scan: dict[str, dict]) -> list[dict]:
             rows.append({"customer_tab": tab, "source_row": record["row"], "debt_month": record["month"],
                          "container": queue.container_key(record.get("container")), "date": record.get("date"),
                          "sheet_unit_price_vnd": details.get("unit_price"),
-                         "sheet_other_fee_vnd": details.get("fee"), "sheet_total_vnd": record.get("amount")})
+                         "sheet_other_fee_vnd": sheet_fee(details.get("unit_price"), record.get("amount"), details.get("fee")),
+                         "sheet_total_vnd": record.get("amount")})
     return rows
 
 
