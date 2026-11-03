@@ -25,6 +25,8 @@ REVIEW = ("NO_DATE", "FUTURE_DATE", "SHEET_EDITED", "WEB_DELETED")
 METHOD = "THU TIỀN"
 SERIAL = re.compile(r"[0-9]{5}(?:\.0+)?")
 DAY_FIRST = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)")
+# Ngày nằm giữa ghi chú ("DA TT 30/10/2026", kiểm Sheet 3/11/2026); không nhận khi dính chữ số phía trước ("22210/2026").
+DAY_FIRST_ANYWHERE = re.compile(r"(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)")
 ISO = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 
 
@@ -36,14 +38,17 @@ def note_key(value: Any) -> str:
 
 
 def pay_date(note: Any) -> dt.date | None:
-    """Date cell (serial) or a date at the start of the note; anything else is no date."""
+    """Date cell (serial), a date at the start of the note, else the first dd/mm/yyyy inside it; anything else is no date.
+
+    Người nhập vẫn bấm xác nhận từng phiếu (HANG-CHO-01 Q3), nên ngày đọc từ giữa ghi chú chỉ đưa phiếu vào "sẵn sàng".
+    """
     text = str(note or "").strip()
     try:
         if SERIAL.fullmatch(text):
             return dt.date(1899, 12, 30) + dt.timedelta(days=int(text.split(".")[0]))
         if match := ISO.match(text):
             year, month, day = map(int, match.groups())
-        elif match := DAY_FIRST.match(text):
+        elif match := DAY_FIRST.match(text) or DAY_FIRST_ANYWHERE.search(text):
             day, month, year = map(int, match.groups())
         else:
             return None

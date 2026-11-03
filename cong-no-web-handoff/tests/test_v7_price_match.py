@@ -83,6 +83,24 @@ class PriceMatchTest(unittest.TestCase):
         # A dated Sheet row never falls back to container alone.
         self.assertEqual(status([sheet(date="2026-01-01")], {"Khach gia A": book([trip()])}), ["NOT_FOUND"])
 
+    def test_fee_is_total_minus_unit_price_when_the_sheet_has_both(self):
+        # Kiểm Sheet 3/11/2026: cột BAO HIEM, cột không tiêu đề, tiêu đề tiếng Trung không qua bộ quét "OTHER FEE";
+        # TỔNG vẫn cộng chúng. GIA-NGUON-01: tổng phụ phí theo sổ gốc, nên phụ phí = TỔNG − đơn giá.
+        self.assertEqual(pm.sheet_fee(85000000, 88365691, None), 3365691)
+        self.assertEqual(pm.sheet_fee(45000000, 48600000, 3600000), 3600000)
+        self.assertEqual(pm.sheet_fee(55000000, 22092549, None), -32907451)    # giảm trừ âm
+        self.assertIsNone(pm.sheet_fee(45000000, 45000000, None))
+        self.assertIsNone(pm.sheet_fee(45000000, 45000000, 1500000))           # phí ngoài công thức TỔNG: Sheet không tính
+        self.assertEqual(pm.sheet_fee(None, 45000000, 1500000), 1500000)        # thiếu đơn giá: giữ số bộ quét đọc
+        self.assertEqual(pm.sheet_fee(45000000, None, 1500000), 1500000)        # thiếu TỔNG: như trên
+        scan = {"KHACH A": {"records": [
+            {"kind": "trip", "row": 7, "month": "2026-10", "container": "FAKEU0000001", "date": "2026-10-03",
+             "amount": 88365691, "details": {"unit_price": 85000000, "fee": None}},
+            {"kind": "receipt", "row": 8, "month": "2026-10", "amount": 1000}]}}
+        rows = pm.rows_from_scan(scan)
+        self.assertEqual([(r["source_row"], r["sheet_unit_price_vnd"], r["sheet_other_fee_vnd"], r["sheet_total_vnd"])
+                          for r in rows], [(7, 85000000, 3365691, 88365691)])
+
     def test_original_book_row_compares_charged_total_not_fee(self):
         legacy = {"id": 21, "kind": "trip", "month": "2026-10-01", "current": {
             "container": "FAKEU0000001", "event_date": "2026-10-03", "unit_price_vnd": "50000000",

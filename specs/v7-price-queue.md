@@ -197,3 +197,22 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - Unittest `test_v7_price_queue`: trường `month` của chuyến web và dòng sổ gốc.
 - Playwright: "Máy đã tự làm" hiện dòng giá, nhãn tháng khóa, chip Máy.
 - Thử trên bản sao DB của `hao` trước khi bật: tổng nợ tăng đúng bằng tổng giá máy ghi, mọi tháng máy mở đã khóa lại ([runbook](../docs/v7-deploy-runbook.md#máy-tự-ghi-giá-sheet-may-gia-01)).
+
+## Phụ phí theo cột TỔNG (3/11/2026)
+
+**Vì sao:** Claude Chat kiểm Sheet trực tiếp (chỉ đọc) và thấy bộ quét tab chỉ cộng phụ phí ở cột có tiêu đề bắt đầu "OTHER FEE"/"PHU PHI". Các cột sau bị bỏ, dù cột TỔNG của Sheet có cộng:
+- BAO HIEM (FENG JIE);
+- cột không tiêu đề (FANYA);
+- tiêu đề tiếng Trung (YOUHE);
+- "Neo / Phi dien / Dong ghep" (TAM XUYEN từ tháng 10).
+
+Vì vậy web tính thiếu so với Sheet.
+
+**Luật** (`tools/v7_price_match.sheet_fee`, chỉ ở dòng giá của hàng chờ; bộ quét dùng chung với bộ nạp sổ gốc giữ nguyên):
+- Sheet có cả đơn giá và TỔNG: phụ phí = TỔNG − đơn giá (bằng 0 thì không phí, âm là giảm trừ). Đúng [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md) (tổng phụ phí theo sổ gốc) và [`PHU-PHI-01`](../docs/decisions/phu-phi-01.md) (8) (cột phí trên tab đều là "Khác").
+- Thiếu một trong hai: giữ số bộ quét đọc như trước.
+
+**Đo chỉ đọc trước khi lên** (bản tải Sheet 3/11 22:15 VN, sổ `hao`):
+- 361/10.630 dòng tab đổi phụ phí;
+- máy ghi giá không có dòng nào tự ghi thêm;
+- dòng "giá khác web" để người từ 64 lên 71, đều là chuyến web thiếu đúng phần phí trên.

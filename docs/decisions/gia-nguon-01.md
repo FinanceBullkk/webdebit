@@ -17,3 +17,5 @@ Phương án đã cân nhắc: lấy giá từ `CONT_MASTER` để bill và web 
 ## Trạng thái
 
 ĐÃ CHỐT. Đúng với cách web đang chạy (runner giá đọc sổ gốc từ 28/10/2026), không đổi code.
+
+Cập nhật 3/11/2026: kiểm Sheet trực tiếp cho thấy hàng chờ giá chỉ cộng phụ phí ở cột tiêu đề "OTHER FEE"/"PHU PHI", nên thiếu các cột phí khác mà cột TỔNG có cộng. Từ nay phụ phí của dòng tab là **TỔNG − đơn giá** ([spec](../../specs/v7-price-queue.md#phụ-phí-theo-cột-tổng-3112026)). Làm cho đủ "tổng phụ phí theo sổ gốc" của quyết định này, không đổi luật.

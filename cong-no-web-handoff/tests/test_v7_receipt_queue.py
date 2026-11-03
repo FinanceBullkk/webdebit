@@ -58,9 +58,14 @@ class PayDateTest(unittest.TestCase):
         self.assertEqual(pay_date("2026-10-21"), dt.date(2026, 10, 21))
         self.assertEqual(pay_date("46316.0"), dt.date(2026, 10, 21))
         self.assertEqual(pay_date("46315"), dt.date(2026, 10, 20))
+        # Ngày nằm giữa ghi chú (kiểm Sheet 3/11/2026): vào "sẵn sàng", người vẫn bấm xác nhận từng phiếu.
+        self.assertEqual(pay_date("DA TT 30/10/2026"), dt.date(2026, 10, 30))
+        self.assertEqual(pay_date("tt 23/10/2026"), dt.date(2026, 10, 23))
+        self.assertEqual(pay_date("Coco Ai tt HD so 164 ngày 30.09.2026"), dt.date(2026, 9, 30))
 
     def test_anything_else_has_no_date(self):
-        for note in ("da tt", "", None, "138/2026 tt", "31/02/2026 tt", "tt 23/10/2026", "123/10/2026"):
+        for note in ("da tt", "", None, "138/2026 tt", "31/02/2026 tt", "123/10/2026", "22210/2026 CAN TRU USD",
+                     "1138/2026 tt", "tt 31/02/2026"):
             with self.subTest(note=note):
                 self.assertIsNone(pay_date(note))
 
