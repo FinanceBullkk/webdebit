@@ -93,15 +93,16 @@ def targets(ledger: dict) -> list[dict]:
         out.append({"kind": "trip", "id": trip.get("id"), "container": container_key(trip.get("container")),
                     "date": iso(trip.get("event_date")), "price": money(trip.get("unit_price_vnd")),
                     "fee": money(trip.get("other_fee_vnd")), "typed_fee": bool(trip.get("has_typed_fee")), "locked": locked(trip.get("month")),
-                    "total": None, "pending": trip.get("status") == "pending_review"})
+                    "month": str(trip.get("month") or "")[:7], "total": None, "pending": trip.get("status") == "pending_review"})
     for row in ledger.get("legacy_rows", []):
         current = row.get("current") or {}
         if row.get("kind") != "trip" or current.get("deleted"):
             continue
+        month = current.get("month") or row.get("month")
         out.append({"kind": "legacy", "id": row.get("id"), "container": container_key(current.get("container")),
                     "date": iso(current.get("event_date")), "price": money(current.get("unit_price_vnd")),
-                    "fee": money(current.get("other_fee_vnd")), "typed_fee": bool(current.get("has_typed_fee", row.get("has_typed_fee"))), "locked": locked(current.get("month") or row.get("month")),
-                    "total": money(current.get("counted_vnd")), "pending": False})
+                    "fee": money(current.get("other_fee_vnd")), "typed_fee": bool(current.get("has_typed_fee", row.get("has_typed_fee"))), "locked": locked(month),
+                    "month": str(month or "")[:7], "total": money(current.get("counted_vnd")), "pending": False})
     return [target for target in out if target["container"]]
 
 
@@ -197,6 +198,7 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
                ((None if result[k] is None else str(result[k])) if k in money_fields else result[k]) for k in keep}
         row["source_fingerprint"] = price_identity(result)
         row["month_locked"] = target["locked"] if target else True
+        row["month"] = target["month"] if target else ""   # yyyy-mm của chuyến đích: máy mở đúng tháng đó (MAY-GIA-01)
         return row
     ready = [public(r) for r in results if r["status"] == "READY"]
     review = [public(r) for r in results if r["status"] in REVIEW]

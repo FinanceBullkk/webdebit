@@ -1687,6 +1687,15 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-
 2. **Bật máy đưa chuyến (chỉ khi người dùng đồng ý):** sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips`, `daemon-reload`, restart. Đo trước/sau: số chuyến mới đủ điều kiện (`NEW`, `COMMODITY_OK`, tháng mở, không ngày tương lai), số event `paste` của `may-theo-sheet`, số dư 236 khách (phải bằng nhau: chuyến vào chưa có giá).
 3. **Tắt máy đưa chuyến:** bỏ `trips` khỏi biến, restart. Chuyến máy đã đưa vào vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai.
 
+## Máy tự ghi giá Sheet (MAY-GIA-01)
+
+Không có SQL: `Deploy hao` tự lên khi PR merge ([`MAY-GIA-01`](decisions/may-gia-01.md), [spec](../specs/v7-price-queue.md#máy-tự-ghi-giá-sheet-may-gia-01-3112026)). Công tắc tắt thì release mới không ghi gì thêm. Máy này **ghi tiền**, nên tổng nợ đổi sau khi bật.
+
+1. **Đo trước (chỉ đọc):** với cả 236 sổ, đếm dòng `sheet_prices` mà máy ghi được (`READY` và `MONTH_LOCKED`, tháng từ 10/2026) và tổng tiền sẽ cộng (đơn giá + phụ phí của dòng web chưa có giá). Ghi lại tổng nợ từng khách.
+2. **Thử trên bản sao:** dump `webdebit_v7`, restore vào DB tạm. Chạy một lượt `Inbox.refresh_all` của release mới trên DB tạm với `WEBDEBIT_AUTO_SHEET=prices`, đọc đúng các bản chụp Sheet đang dùng. Đạt khi: không lỗi; tổng nợ từng khách sau trừ trước bằng tổng giá máy ghi ở khách đó; khách không có dòng máy ghi giữ nguyên số dư; mọi tháng máy mở đã khóa lại; dòng `CONFLICT`/`AMBIGUOUS`/`MANUAL` còn nguyên. Xóa DB tạm.
+3. **Bật (người dùng đã chốt 3/11/2026):** sao lưu như mọi lần trước khi đổi; sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices`, `daemon-reload`, restart. Lượt hộp việc đầu tiên sau khởi động chạy máy. Đo sau như bước 2 trên DB thật, cộng số event sửa giá của `may-theo-sheet`; chạy đối soát cuối ngày.
+4. **Tắt:** bỏ `prices` khỏi biến, restart. Giá máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay tại ô nếu sai (tháng khóa: mở khóa trước).
+
 ## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026; máy đã bật)
 
 Đã nâng DB và đổi release 1/11/2026, xem [nhật ký](deploys/2026-11-01-khoa-chu.md). Bước 2 (bật máy) chạy 19:22 cùng ngày: lệch chữ 944 → 0, số dư không đổi.

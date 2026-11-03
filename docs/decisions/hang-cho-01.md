@@ -21,7 +21,7 @@ Người dùng chốt ba câu Q1–Q3 của [UX bước 02](../ux-luong-du-lieu.
 4. **Q5 · Chuyến tự vào sổ khi chưa có giá** (người dùng chọn "A: vào sổ, chưa giá", 1/11/2026). Chuyến đủ (a)(b)(d)(e) tự vào sổ dù chưa có đơn giá.
    - Có bảng giá thì giá lấy từ bảng; không có thì chuyến ở trạng thái "chưa có giá".
    - Chuyến chưa có giá **không cộng vào nợ** (NULL không phải 0) cho tới khi có giá có nguồn: hàng chờ giá từ Sheet, bảng giá hoặc gõ tay, đều ghi Lịch sử.
-   - Giá từ Sheet vẫn do người bấm ghi ở hộp chung, như phiếu thu ở Q3: đây là chỗ tiền vào sổ (M3).
+   - Giá từ Sheet vẫn do người bấm ghi ở hộp chung, như phiếu thu ở Q3: đây là chỗ tiền vào sổ (M3). **Thay bởi [`MAY-GIA-01`](may-gia-01.md) (3/11/2026):** máy tự ghi giá Sheet đã chắc chắn, kể cả ở tháng khóa; phiếu thu vẫn do người bấm.
    - Lý do: đo 1/11/2026 chỉ 1/236 sổ có bảng giá, nên giữ điều kiện (c) thì Q2 hầu như không có tác dụng.
 
 **Điều kiện an toàn Claude thêm cho Q2 khi viết bước 03:** khách có nhiều sổ theo mặt hàng ([`V7-MH`](v7-mh.md)) chỉ được tự vào sổ khi dòng booking đã gán đúng sổ theo mặt hàng (Q4 của bước 02). Trước đó, dòng của khách nhiều sổ đi vào hộp ngoại lệ. Lý do: hàng chờ hôm nay gán theo tên khách, nên chuyến dừa thật sự mới của một khách có sổ dừa riêng sẽ rơi vào sổ chính. Lớp chặn trùng không bắt được trường hợp này, vì container chưa có ở đâu.

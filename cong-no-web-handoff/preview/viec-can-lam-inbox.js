@@ -58,10 +58,18 @@
   // L2 của UX bước 03 (P3a): máy đã tự lấy chữ theo Sheet hôm nay, mỗi dòng có đường mở sổ để sửa lại tại ô.
   const AUTO_FIELD = { carrier: 'hãng tàu', shipper: 'shipper', origin: 'nơi đi', destination: 'nơi đến' };
   // P3b: chuyến mới máy đã đưa vào sổ hôm nay (chưa có giá); chuyến nghi trùng nằm ở "chờ kiểm" của sổ.
+  // MAY-GIA-01: giá Sheet máy đã ghi hôm nay (tiền vào sổ), tháng khóa thì máy đã mở rồi khóa lại.
   function autoHtml(auto, esc, label, href) {
+    const million = value => globalThis.InboxTable.million(value);
     const text = (auto?.items ?? []).map(item => `<li><span class="auto-kind">Sửa chữ</span><strong>${esc(label(item))}</strong><span>${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → ${esc(item.after)}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
     const trips = (auto?.trip_items ?? []).map(item => `<li><span class="auto-kind">Chuyến mới</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.event_date))}${item.pending ? ' · chờ kiểm' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
-    return auto?.today_count || auto?.today_trips ? `<ul aria-label="Việc máy làm hôm nay">${text}${trips}</ul>` : '';
+    // Trước → sau: chuyến chưa giá nhận giá Sheet; chuyến đã có giá chỉ đổi giảm trừ (phụ phí âm), đơn giá giữ nguyên.
+    const fee = value => value != null && value !== '0';
+    const priceChange = item => item.before_unit_price_vnd == null
+      ? `chưa giá → ${million(item.unit_price_vnd)} tr${fee(item.other_fee_vnd) ? `, phụ phí ${million(item.other_fee_vnd)} tr` : ''}`
+      : `${million(item.unit_price_vnd)} tr, phụ phí ${million(item.before_other_fee_vnd ?? '0')} → ${million(item.other_fee_vnd ?? '0')} tr`;
+    const prices = (auto?.price_items ?? []).map(item => `<li><span class="auto-kind">Giá</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.date))} · ${esc(priceChange(item))}${item.locked ? ' · tháng khóa' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
+    return auto?.today_count || auto?.today_trips || auto?.today_prices ? `<ul aria-label="Việc máy làm hôm nay">${text}${trips}${prices}</ul>` : '';
   }
 
   const changePreview = (total, before, after) => (BigInt(total) - BigInt(before) + BigInt(after)).toString();

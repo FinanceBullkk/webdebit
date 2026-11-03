@@ -65,7 +65,18 @@ class SummarizeTests(unittest.TestCase):
             "trips_check": {"count": 3, "reasons": {"FIELDS": 1, "OTHER_BOOK_LEGACY": 2}},
             "text_diff": 1,
             "prices": {"ready": 0, "review": 1},
+            "prices_auto": 0,
             "ps": {"ready": 1, "review": 2}})
+
+    def test_machine_price_rows_from_october_open_or_locked(self):
+        prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
+                  "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},
+                             {"status": "CONFLICT", "month": "2026-10"}, {"status": "MANUAL", "month": "2026-10"},
+                             {"status": "AMBIGUOUS", "month": "2026-10"}]}
+        # Trước 10/2026 sổ gốc là chuẩn; giá khác web, phụ phí gõ tay, nhiều chuyến khớp để người quyết.
+        self.assertEqual([r["month"] for r in v7_inbox.auto_prices(prices)], ["2026-11", "2026-10"])
+        book = v7_inbox.summarize(7, projection(sheet_prices=prices))
+        self.assertEqual((book["prices"], book["prices_auto"]), ({"ready": 2, "review": 5}, 2))
 
     def test_receipt_details_for_writing_at_the_inbox(self):
         ledger = projection(sheet_receipts={"snapshot_sha256": "b" * 64,
@@ -357,6 +368,132 @@ class AutoTripsTests(unittest.TestCase):
         # Lệnh dán lỗi trong tháng khóa: máy vẫn khóa lại tháng đã mở rồi mới dừng sổ.
         last = [(c[0], c[1].get("locked")) for c in self.calls if c[0] in ("paste_trips", "set_month_lock")][-3:]
         self.assertEqual(last, [("set_month_lock", False), ("paste_trips", None), ("set_month_lock", True)])
+
+
+def price_row(kind, target, month, status="READY", fee=None, web=None):
+    return {"target_kind": kind, "target_id": target, "month": month, "status": status, "container": f"CONT{target}",
+            "date": f"{month}-05", "source_row": target, "sheet_unit_price_vnd": "50000000", "sheet_other_fee_vnd": fee,
+            "web_unit_price_vnd": web, "web_other_fee_vnd": None, "month_locked": month != "2026-11"}
+
+
+class AutoPricesTests(unittest.TestCase):
+    """MAY-GIA-01: máy ghi giá Sheet sẵn sàng như nút "Ghi N giá từ Sheet", tháng khóa thì mở, ghi, khóa lại."""
+
+    NOW = 1793595600.0   # 2/11/2026 12:00 giờ VN
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = Path(self.dir.name) / "p.json"
+        self.path.write_text("{}", encoding="utf-8")
+        self.calls, self.written, self.fail = [], False, None
+        self.ready = [price_row("trip", 11, "2026-11"), price_row("trip", 12, "2026-09")]   # T9: trước mốc, để người
+        self.review = [price_row("trip", 21, "2026-10", "MONTH_LOCKED"),
+                       price_row("legacy", 22, "2026-10", "MONTH_LOCKED", fee="300000"),
+                       price_row("trip", 23, "2026-09", "MONTH_LOCKED"),
+                       price_row("trip", 24, "2026-10", "CONFLICT", web="49000000")]
+
+        def project(runner, ledger, actor):
+            if self.written:
+                return projection(sheet_prices={"ready": [self.ready[1]], "review": self.review[2:]})
+            return projection(sheet_prices={"ready": self.ready, "review": self.review})
+        self.inbox = v7_inbox.Inbox(project, lambda: (str(self.path),), clock=lambda: self.NOW)
+        test = self
+
+        class Runner:
+            version = 3
+
+            def run(self, function, payload, actor):
+                test.calls.append((function, payload, actor))
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "status": "active"}]}
+                if function == "get_ledger":
+                    return {"customer_id": 1, "version": self.version, "today_month": "2026-11-01", "month_locks": []}
+                if function in ("set_month_lock", "edit_trip_price", "edit_legacy_trip"):
+                    if function == "edit_trip_price" and payload["trip_id"] == test.fail:
+                        raise ApiError(409, "STALE_LEDGER", "x")
+                    test.written = function != "set_month_lock" or test.written
+                    self.version += 1
+                    return {"version": self.version}
+                raise AssertionError(function)
+        self.runner = Runner()
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_once(self):
+        prices = {"snapshot_sha256": "f" * 64, "ready": self.ready, "review": self.review}
+        with patch.object(v7_inbox, "price_projection", return_value=prices):
+            self.inbox.start(self.runner)
+            wait_idle(self.inbox)
+        return self.inbox.view(self.runner)
+
+    def writes(self):
+        out = []
+        for function, payload, actor in self.calls:
+            if function == "set_month_lock":
+                out.append((function, payload["month"], payload["locked"], payload["expected_version"], actor))
+            elif function in ("edit_trip_price", "edit_legacy_trip"):
+                out.append((function, payload.get("trip_id") or payload.get("legacy_row_id"), payload.get("field"),
+                            payload["expected_version"], actor))
+        return out
+
+    def test_off_by_default(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "text,trips"}):
+            view = self.run_once()
+        self.assertEqual(self.writes(), [])
+        self.assertEqual((view["auto"]["prices_enabled"], view["books"][0]["prices_auto"]), (False, 3))
+
+    def test_writes_ready_and_locked_rows_from_october(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "prices"}):
+            view = self.run_once()
+        machine = v7_inbox.AUTO_ACTOR
+        # Tháng 10 khóa: mở một lần, ghi chuyến web và dòng sổ gốc (đơn giá rồi phụ phí), khóa lại; tháng 11 mở ghi thẳng.
+        self.assertEqual(self.writes(), [
+            ("set_month_lock", "2026-10-01", False, 3, machine),
+            ("edit_trip_price", 21, None, 4, machine),
+            ("edit_legacy_trip", 22, "unit_price_vnd", 5, machine),
+            ("edit_legacy_trip", 22, "other_fee_vnd", 6, machine),
+            ("set_month_lock", "2026-10-01", True, 7, machine),
+            ("edit_trip_price", 11, None, 8, machine)])
+        trip_21 = next(c[1] for c in self.calls if c[0] == "edit_trip_price" and c[1]["trip_id"] == 21)
+        self.assertEqual((trip_21["unit_price_vnd"], trip_21["other_fee_vnd"]), ("50000000", None))
+        auto = view["auto"]
+        self.assertEqual((auto["prices_enabled"], auto["today_prices"], auto["today_price_books"], auto["errors"]),
+                         (True, 3, 1, 0))
+        self.assertEqual({(i["container"], i["locked"], i["month"]) for i in auto["price_items"]},
+                         {("CONT21", True, "2026-10"), ("CONT22", True, "2026-10"), ("CONT11", False, "2026-11")})
+        self.assertEqual((auto["today_count"], auto["today_trips"]), (0, 0))   # giá đếm riêng, không vào ô chữ hay chuyến
+        self.assertEqual(view["books"][0]["prices_auto"], 0)
+
+    def test_same_keys_on_rerun_and_error_relocks_then_stops_book(self):
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "prices"}):
+            self.run_once()
+            self.written, self.inbox.key = False, None
+            self.run_once()
+        keys = [c[1]["idempotency_key"] for c in self.calls if c[0] in ("edit_trip_price", "edit_legacy_trip")]
+        self.assertEqual((len(keys), len(set(keys))), (8, 4))   # cùng bản chụp giá, cùng đích và ô: DB trả lại kết quả cũ
+        self.calls, self.fail, self.written, self.inbox.key = [], 21, False, None
+        with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "prices"}):
+            view = self.run_once()
+        # Lệnh ghi lỗi trong tháng khóa: vẫn khóa lại tháng đã mở, rồi dừng sổ (tháng 11 chờ lượt sau).
+        self.assertEqual([(w[0], w[1], w[2]) for w in self.writes()],
+                         [("set_month_lock", "2026-10-01", False), ("edit_trip_price", 21, None),
+                          ("set_month_lock", "2026-10-01", True)])
+        self.assertEqual((view["auto"]["errors"], view["auto"]["today_prices"]), (1, 6))
+
+    def test_prices_follow_machine_trips_in_the_same_pass(self):
+        self.inbox.project = lambda runner, ledger, actor: projection(
+            sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []})
+        order = []
+        with patch.object(v7_inbox.Inbox, "_auto_trips", lambda inbox, runner, c: order.append("trips")), \
+                patch.object(v7_inbox.Inbox, "_auto_prices", lambda inbox, runner, c: order.append("prices")):
+            with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "prices"}):
+                self.run_once()
+            self.assertEqual(order, [])   # chưa có giá máy ghi được, máy không dán chuyến: không chạy
+            self.inbox.key = None
+            with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": "trips,prices"}):
+                self.run_once()
+        self.assertEqual(order, ["trips", "prices"])
 
 
 class AutoDateFillTests(unittest.TestCase):

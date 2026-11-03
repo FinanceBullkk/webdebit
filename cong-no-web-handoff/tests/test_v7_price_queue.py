@@ -56,6 +56,9 @@ class ProjectionTest(unittest.TestCase):
         self.assertEqual([(r["target_kind"], r["target_id"]) for r in result["ready"]], [("trip", 11), ("legacy", 21), ("trip", 14)])
         self.assertEqual([r["status"] for r in result["review"]], ["MONTH_LOCKED"])
         self.assertEqual((result["ready_count"], result["review_count"]), (3, 1))
+        # Tháng nợ của chuyến đích (yyyy-mm), cả chuyến web lẫn dòng sổ gốc: máy mở đúng tháng đó (MAY-GIA-01).
+        self.assertEqual([r["month"] for r in result["ready"]] + [result["review"][0]["month"]],
+                         ["2026-10", "2026-10", "2026-10", "2026-09"])
 
     def test_typed_fee_is_manual_even_when_price_missing(self):
         book = ledger(trips=[trip() | {"has_typed_fee": True}])
