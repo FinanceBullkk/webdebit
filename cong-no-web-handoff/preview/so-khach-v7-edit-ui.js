@@ -355,10 +355,19 @@
     // ---- Bàn phím trong bảng chuyến (SO-GON-04, L5) ----
     // Một ô nhận ra bằng thẻ + lớp đầu + các thuộc tính data-*: sổ vẽ lại (thay cả #app) sau mỗi lệnh vẫn tìm lại đúng ô đó.
     // Ô chỉ đọc không có data-*: nhận ra bằng dòng (data-row) + vị trí cột.
+    // Nút giống hệt nhau (thẻ Tình hình có hai nút sang Trao đổi) nhớ thêm thứ tự và số nút cùng dạng lúc ghi.
     function markOf(el) {
       const row = el.matches('td') && !Object.keys(el.dataset).length ? el.closest('tr[data-row]') : null;
-      return row ? { row: row.dataset.row, index: el.cellIndex }
-        : { tag: el.tagName.toLowerCase(), cls: el.classList[0] ?? '', data: Object.entries(el.dataset) };
+      if (row) return { row: row.dataset.row, index: el.cellIndex };
+      const mark = { tag: el.tagName.toLowerCase(), cls: el.classList[0] ?? '', data: Object.entries(el.dataset) };
+      const same = sameAs(mark);
+      return Object.assign(mark, { nth: same.indexOf(el), count: same.length });
+    }
+    function sameAs(mark) {
+      if (!mark.cls && !mark.data.length) return [];
+      const attr = name => `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
+      const selector = mark.tag + (mark.cls ? `.${CSS.escape(mark.cls)}` : '') + mark.data.map(([name, value]) => `[${attr(name)}="${CSS.escape(value)}"]`).join('');
+      return [...root.querySelectorAll(selector)].filter(el => Object.keys(el.dataset).length === mark.data.length);
     }
     function findMark(mark) {
       if (mark?.row) {
@@ -366,11 +375,11 @@
         if (cell && !cell.hasAttribute('tabindex')) cell.tabIndex = -1;
         return cell ?? null;
       }
-      if (!mark || (!mark.cls && !mark.data.length)) return null;   // không có gì để nhận ra: không đoán
-      const attr = name => `data-${name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`;
-      const selector = mark.tag + (mark.cls ? `.${CSS.escape(mark.cls)}` : '') + mark.data.map(([name, value]) => `[${attr(name)}="${CSS.escape(value)}"]`).join('');
-      const found = [...root.querySelectorAll(selector)].filter(el => Object.keys(el.dataset).length === mark.data.length);
-      return found.length === 1 ? found[0] : null;   // hai ô giống hệt: không đoán
+      if (!mark) return null;
+      const found = sameAs(mark);   // không có gì để nhận ra thì rỗng: không đoán
+      if (found.length === 1) return found[0];
+      // Nhiều nút giống hệt: chỉ lấy theo thứ tự khi số nút cùng dạng không đổi, khác thì không đoán.
+      return found.length > 1 && found.length === mark.count && mark.nth >= 0 ? found[mark.nth] : null;
     }
     // Ô cùng cột ở hàng chuyến trên/dưới, qua các tháng đang mở; ô chỉ đọc vẫn đứng được (tabindex -1) như ô Sheet.
     function stepRow(td, delta) {
