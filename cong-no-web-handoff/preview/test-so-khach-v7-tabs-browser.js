@@ -78,30 +78,36 @@ test('Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải chuyển thẻ, 
   await page.keyboard.press('End');
   assert.equal(await focused(page), 'tab-ho-so');
   await page.keyboard.press('Tab');
-  assert.equal(await focused(page), 'tab-go', 'Tab rời thanh thẻ tới hành động trong Tình hình');
+  assert.equal(await page.evaluate(() => document.activeElement.matches('.page-more>summary')), true, 'Tab rời thanh thẻ tới nút ⋯ (có ở mọi thẻ)');
+  await page.keyboard.press('Tab');
+  assert.equal(await focused(page), 'tab-go', 'rồi tới hành động trong Tình hình');
   const small = await page.evaluate(() => [...document.querySelectorAll('.book-head :is(a,button)')].map(node => [node.id || node.className, node.getBoundingClientRect()])
     .filter(([, box]) => box.height > 0 && (box.height < 40 || box.width < 40)).map(([name, box]) => `${name} ${box.width}×${box.height}`));
   assert.deepEqual(small, []);
 }));
 
 const LONG = 'CÔNG TY TNHH NÔNG SẢN XUẤT KHẨU GIẢ MIỀN TÂY';
-test('Đầu trang một dòng ≤ 44px, tên khách dài không bị cắt; thẻ Sổ: phần dính ≤ 180px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
-  const head = await page.evaluate(() => {
-    const box = selector => document.querySelector(selector).getBoundingClientRect();
-    const bar = box('.book-head'), who = box('.page-who');
-    return { height: bar.height, inside: who.top >= bar.top && who.bottom <= bar.bottom - 2 && who.right <= box('.page-tabs').left,
-      name: document.querySelector('.page-name').innerText, meta: document.querySelector('.page-meta').innerText };
-  });
-  assert.ok(head.height <= 67, `đầu trang ${head.height}px`);
-  assert.ok(head.inside, 'tên khách và mặt hàng nằm gọn trong đầu trang, không chờm sang thanh thẻ');
-  assert.deepEqual([head.name, head.meta], [LONG, 'Sầu riêng · đường cảng']);
+test('Đầu trang 52px giống nhau ở bốn thẻ: "Sổ khách / Tên ▾" · bốn thẻ · ⋯, tên dài không bị cắt; thẻ Sổ: phần dính ≤ 180px, không cuộn ngang ở 1280', async () => withPage(async ({ page }) => {
+  const heads = [];
+  for (const tab of ['tinh-hinh', 'trao-doi', 'ho-so', 'so']) {
+    await page.locator(`#tab-${tab}`).click();
+    heads.push(await page.evaluate(() => {
+      const box = selector => document.querySelector(selector).getBoundingClientRect();
+      const bar = box('.book-head'), who = box('.page-who'), more = box('.page-more>summary');
+      return { height: bar.height, inside: who.top >= bar.top && who.bottom <= bar.bottom - 2 && who.right <= box('.page-tabs').left,
+        more: more.width > 0 && more.right <= bar.right, who: document.querySelector('.customer-switch').innerText.replace(/\s+/g, ' ').trim(),
+        meta: document.querySelectorAll('.book-head .page-meta').length };
+    }));
+  }
+  const want = { height: 52, inside: true, more: true, who: `Sổ khách / ${LONG}`, meta: 0 };
+  assert.deepEqual(heads, [want, want, want, want], 'cùng một đầu trang; mặt hàng không lặp ở đầu trang');
   assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '12.345.678.900 đ');
   await page.evaluate(() => window.scrollTo({ top: 1200, behavior: 'instant' }));
   const geo = await page.evaluate(() => ({ banner: document.querySelector('#demo-banner').offsetHeight,
     chips: document.querySelector('.month-chips').getBoundingClientRect().top, bottom: document.querySelector('.ledger-head').getBoundingClientRect().bottom,
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
   assert.ok(geo.bottom - geo.banner <= 180, `phần dính ${geo.bottom - geo.banner}px`);
-  assert.ok(Math.abs(geo.chips - geo.banner - 67) <= 2, 'thanh tháng dính ngay dưới đầu trang');
+  assert.ok(Math.abs(geo.chips - geo.banner - 52) <= 2, 'thanh tháng dính ngay dưới đầu trang');
   assert.equal(geo.overflow, 0);
 }, world => {
   world.trips.push(...Array.from({ length: 40 }, (_, index) => trip(300 + index, '2026-09-01')));

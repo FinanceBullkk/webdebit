@@ -83,6 +83,7 @@ test('Hình 12 tháng dùng months[]; tháng thiếu không thành 0; mở đún
   assert.deepEqual(chart.end, Object.fromEntries(shown.map(([key, row]) => [key, row.end_of_month_vnd])));
   assert.equal(chart.ps['2026-05'], undefined);
   assert.deepEqual(chart.names.filter(([, go]) => !go).map(([text]) => text), ['T5']);
+  assert.deepEqual(chart.names.at(-1), ['T11đến 15/11', 'thang:2026-11'], 'tháng đang chạy ghi tới hôm nay');
   await page.locator('.ov-month[data-go="thang:2026-08"]').first().click();
   assert.deepEqual(await state(page), ['so', '?customer=1&month=2026-08']);
   await page.locator('#thang-2026-08 .month-body').waitFor();
@@ -97,8 +98,28 @@ test('Việc chờ không tính vào nợ; mở thẻ Sổ để xử lý', asyn
   assert.deepEqual(await state(page), ['so', '?customer=1']);
   assert.equal(world.requests.length, 0);
 }, debtor));
+const actions = page => page.locator('.ov-next-actions button').evaluateAll(nodes => nodes.map(node => [node.innerText, node.classList.contains('primary')]));
+test('Nhắc nợ ngay: nút chính Copy tin nhắc nợ (lệnh của thẻ Trao đổi) và Xem Trao đổi', async () => withPage(async ({ page, world }) => {
+  await ready(page);
+  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  assert.deepEqual(await actions(page), [['Copy tin nhắc nợ', true], ['Xem Trao đổi', false]]);
+  assert.equal(world.requests.length, 0);
+  await page.locator('.ov-copy').click();
+  await page.locator('#the-trao-doi .ct-note', { hasText: 'đã nhắc' }).waitFor();
+  assert.equal(world.reminderLog.length, 1, 'Copy tin nhắc nợ dùng lệnh của thẻ Trao đổi');
+}, debtor));
+
+test('Không có nợ quá hạn: không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
+  await page.locator('.ov-next-main strong', { hasText: 'Chưa cần làm gì' }).waitFor();
+  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
+}, world => {
+  debtor(world);
+  Object.assign(world.debt.customers[0], { overdue_vnd: '0', long_overdue_vnd: '0', tiers_vnd: [M(50), M(200), '0', '0', '0'], risk: 'ok' });
+}));
+
 test('Hứa trả đang chờ hiện việc tiếp theo, không ghi tiền', async () => withPage(async ({ page, world }) => {
   await page.locator('.ov-next-main strong', { hasText: 'Chờ hứa trả' }).waitFor();
+  assert.deepEqual(await actions(page), [['Vẫn nhắc nợ', false], ['Xem Trao đổi', false]], 'chờ hứa trả: Vẫn nhắc nợ là nút phụ');
   assert.match(await page.locator('.ov-next').innerText(), /44.400.000 đ · hẹn 20\/11\/2026/);
   await page.locator('.ov-next-actions .tab-go').first().click();
   assert.equal((await state(page))[0], 'trao-doi');
