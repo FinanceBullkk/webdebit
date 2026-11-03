@@ -9,20 +9,16 @@
   <link rel="stylesheet" href="dashboard-v7.css">
   <link rel="stylesheet" href="zalo-chat.css">
 <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
 </head>
 <body data-presence="zalo-chat">
   <div id="demo-banner" hidden role="status"></div>
-  <header class="topbar">
-    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
-    <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a class="active" href="/doi-no.html" aria-current="page">Đòi nợ</a><a href="/viec-can-lam.html">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
-    <time class="asof" id="as-of"></time>
-  </header>
-  <main class="page chat-page">
-    <div class="page-head">
+  <aside class="app-nav" data-active="doi-no"></aside>
+  <main class="page app-page chat-page">
+    <div class="page-head topbar">
       <a class="btn back" href="/doi-no.html">← Đòi nợ</a>
       <h1>Chat Zalo</h1>
-      <p class="summary" id="summary" aria-live="polite">Đang tải…</p>
-    </div>
+      <p class="summary" id="summary" aria-live="polite">Đang tải…</p><time class="asof" id="as-of"></time></div>
     <div id="error" role="alert" hidden></div>
     <div id="chat" class="chat" hidden>
       <section class="pane list-pane" aria-label="Hội thoại">
@@ -94,6 +90,9 @@
     <img alt="Ảnh trong tin, cỡ lớn">
   </dialog>
   <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
   <script src="zalo-chat.js"></script>
   <script src="presence.js"></script>
 </body>

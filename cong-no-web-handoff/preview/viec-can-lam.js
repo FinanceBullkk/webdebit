@@ -4,11 +4,10 @@
   const F = CongNoFormat;
   const M = DashboardModel;
   const root = document.querySelector('#todo-root');
-  const { esc, foldText, customerLabels } = F;
+  const { esc, customerLabels } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   let loading = false;
   let sheetRefresh = null;
-  let searchReady = false;
   let currentCustomers = [];
   let dashboard = null;
   let unsorted = null;
@@ -17,30 +16,6 @@
   let inboxTimer = null;
   let inboxLoading = false;
   const markUpdated = () => { const node = document.querySelector('#updated-at'); if (node) node.textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} · tự tải mỗi 60 giây`; sheetRefresh?.paint(); };
-
-  function setupSearch(customers) {
-    currentCustomers = customers;
-    if (searchReady) return;
-    searchReady = true;
-    const input = document.querySelector('#customer-search');
-    const results = document.querySelector('#customer-results');
-    const draw = () => {
-      const query = foldText(input.value).trim();
-      const labels = customerLabels(currentCustomers);
-      const found = currentCustomers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
-        .some(value => foldText(value).includes(query))).slice(0, 20);
-      results.innerHTML = found.map(item => `<a role="option" href="${ledgerHref(item.id)}">${esc(labels.get(String(item.id)))}</a>`).join('');
-      results.hidden = !query || !found.length;
-    };
-    input.addEventListener('input', draw);
-    input.addEventListener('focus', draw);
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { results.hidden = true; return; }
-      if (event.key === 'ArrowDown' && !results.hidden) { event.preventDefault(); results.querySelector('a')?.focus(); }
-      if (event.key === 'Enter' && !results.hidden) results.querySelector('a')?.click();
-    });
-    document.addEventListener('click', event => { if (!event.target.closest('.search')) results.hidden = true; });
-  }
 
   const json = async url => {
     const response = await fetch(url, { cache: 'no-store' });
@@ -71,7 +46,7 @@
         .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity })) : null;
       dashboard = data;
       root.replaceChildren();
-      if (customers) setupSearch(customers);
+      if (customers) { currentCustomers = customers; globalThis.AppNav?.setCustomers(customers); }
       paintInbox();
       document.querySelector('#error').hidden = true;
       markUpdated();
@@ -110,11 +85,7 @@
       dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '', 
     });
-    const badge = document.querySelector('#todo-badge');
-    const n = globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length;
-    badge.textContent = String(n);
-    badge.hidden = !n;
-    badge.setAttribute('aria-label', String(n) + ' sổ còn việc');
+    globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
     const sheetAt = inbox.data?.sheet_at;
     document.querySelector('#sheet-clock').textContent = sheetAt ? new Date(sheetAt).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' }) : '—';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
@@ -560,12 +531,6 @@
     if (inbox.action?.unknown || inbox.result?.unknown) return;
     inbox.review = null; inbox.action = null; paintInbox();
     inboxRoot.querySelector('[data-review]')?.focus();
-  });
-  document.querySelector('#nav-toggle').addEventListener('click', event => {
-    const button = event.currentTarget;
-    const expanded = button.getAttribute('aria-expanded') !== 'true';
-    button.setAttribute('aria-expanded', String(expanded));
-    button.closest('.todo-nav').classList.toggle('menu-open', expanded);
   });
 
   load();

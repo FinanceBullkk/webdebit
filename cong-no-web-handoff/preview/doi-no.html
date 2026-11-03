@@ -9,19 +9,15 @@
   <link rel="stylesheet" href="dashboard-v7.css">
   <link rel="stylesheet" href="doi-no.css">
 <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
 </head>
 <body data-presence="doi-no">
   <div id="demo-banner" hidden role="status"></div>
-  <header class="topbar">
-    <a class="brand" href="/dashboard-v7.html">Công nợ HTH</a>
-    <nav aria-label="Điều hướng chính"><a href="/dashboard-v7.html">Tổng quan</a><a href="/cong-no-theo-thang.html">Công nợ theo tháng</a><a href="/so-khach-v7-live.html">Sổ khách</a><a class="active" href="/doi-no.html" aria-current="page">Đòi nợ</a><a href="/viec-can-lam.html">Việc cần làm<span class="badge" id="todo-badge" hidden></span></a></nav>
-    <time class="asof" id="as-of"></time>
-  </header>
-  <main class="page">
-    <div class="page-head">
+  <aside class="app-nav" data-active="doi-no"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
       <h1>Đòi nợ</h1>
-      <div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div>
-    </div>
+      <time class="asof" id="as-of"></time><div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div></div>
     <div id="error" role="alert" hidden></div>
     <div id="doi-no" aria-live="polite"><p class="loading">Đang tải số liệu…</p></div>
   </main>
@@ -32,6 +28,9 @@
     <form method="dialog" class="actions"><button type="button" class="btn primary" id="pending-write">Ghi phiếu trước</button><button type="button" class="btn" id="pending-copy">Vẫn copy</button><button class="btn" value="cancel">Thôi</button></form>
   </dialog>
   <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
   <script src="doi-no.js"></script>
   <script src="presence.js"></script>
 </body>

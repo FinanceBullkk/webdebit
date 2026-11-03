@@ -1,5 +1,5 @@
 /* ZALO-CHAT-01: tab Chat Zalo (con của Đòi nợ). Dùng nền/thẻ của cong-no-theme.css + dashboard-v7.css. */
-.chat-page { display: flex; flex-direction: column; min-height: calc(100vh - 56px); }
+.chat-page { display: flex; flex-direction: column; min-height: 100vh; }
 .chat-page .page-head .summary { margin: 0 0 0 auto; font-size: 13.5px; color: var(--ink-3); }
 .chat-page .page-head .back { white-space: nowrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -9,7 +9,7 @@
 .chat {
   flex: none; min-height: 0; display: grid; gap: 16px;
   grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
-  height: calc(100vh - 56px - 20px - 36px - 16px - 40px);
+  height: calc(100vh - 52px - 16px - 40px);
 }
 .chat[hidden] { display: none; }
 .pane { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -124,7 +124,7 @@
 @media (max-width: 760px) {
   .chat-page .page-head { flex-wrap: wrap; gap: 8px 12px; }
   .chat-page .page-head .summary { flex-basis: 100%; margin-left: 0; }
-  .chat { grid-template-columns: 1fr; height: calc(100vh - 56px - 20px - 76px - 16px - 20px); }
+  .chat { grid-template-columns: 1fr; height: calc(100vh - 76px - 16px - 20px); }
   .chat .detail-pane { display: none; }
   .chat.show-detail .list-pane { display: none; }
   .chat.show-detail .detail-pane { display: flex; }
