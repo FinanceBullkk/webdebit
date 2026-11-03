@@ -37,7 +37,9 @@ TICK_SECONDS = 60   # nhịp nền: xem bản chụp Sheet đã đổi chưa (ru
 # WEBDEBIT_AUTO_SHEET=text trên `hao`; mặc định tắt. Người làm trong Lịch sử là AUTO_ACTOR ("Máy (theo Sheet)").
 AUTO_ACTOR = "may-theo-sheet"
 AUTO_FIELDS = {"carrier", "shipper", "origin", "destination"}
-AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm"
+# Số việc máy vừa làm giữ trong RAM để hiện "Máy đã tự làm". Thử bản sao 3/11/2026: lượt đầu bật chuyến bộ có 195 chuyến
+# + 195 giá, trần 300 cũ làm rơi 90 chuyến khỏi số đếm hôm nay.
+AUTO_LOG = 2000
 # P3b (HANG-CHO-01 Q2 theo Q5 A, specs/v7-hop-ngoai-le-p3b.md): máy bấm thay "Duyệt" cho chuyến mới khớp đúng sổ theo
 # mặt hàng, tháng mở, ngày không sau hôm nay. Bật bằng WEBDEBIT_AUTO_SHEET=trips (gộp được: "text,trips").
 # MAY-KHOA-01 (3/11/2026): khóa tháng chỉ chặn người. Máy mở tháng khóa, ghi, khóa lại ngay (ba lệnh có sẵn, đều vào
