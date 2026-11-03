@@ -118,7 +118,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 ## Tiêu chí nghiệm thu
 
 GĐ1:
-- [ ] Unit `tests/test_v7_trip_source_match.py`:
+- [x] Unit `tests/test_v7_trip_source_match.py` (6 test, kèm trường hợp có chuyến nguồn còn trống gần đó thì không coi là trùng đảo ngày):
   - ghép một-một: cặp lệch ít ngày thắng; container dùng lại lệch hơn 3 ngày không ghép;
   - dòng thứ hai của một chuyến nguồn vào nhóm trùng cả khi lệch 1–3 ngày và khi phải đảo ngày/tháng mới trùng;
   - dòng không ngày ghép khi cùng tháng;
@@ -126,8 +126,9 @@ GĐ1:
   - đọc ngày kiểu ngày trước tháng, và "dd/mm" khi có năm gợi ý;
   - tên chủ hàng bỏ dấu;
   - phân nhóm trùng, chưa có trên sổ, không có nguồn.
-- [ ] Chạy trên bản tải ngày 3/11 (ngoài Git) ra lại số của quyết định: 9.416/9.710 dòng khớp từ 01/2025; 28 nhóm trùng cùng ngày; 381 chuyến chưa có trên sổ. Thêm 5 dòng trùng lệch 1–3 ngày và 4 dòng trùng khi đảo ngày/tháng, trong đó có ca phiên khác báo.
-- [ ] `npm run check` xanh.
+- [x] Chạy trên bản tải ngày 3/11 (ngoài Git) ra lại số của quyết định: 9.416/9.710 dòng khớp từ 01/2025; 28 nhóm trùng cùng ngày; 381 chuyến chưa có trên sổ. Thêm 5 dòng trùng lệch 1–3 ngày và 4 dòng trùng khi đảo ngày/tháng, trong đó có ca phiên khác báo.
+  - Kết quả: nhóm trùng ra lại đúng (32 nhóm, 28 nhóm nguồn một chuyến; 5 dòng lệch 1–3 ngày). Ba số khác vì công cụ theo đúng luật (1), chặt hơn bản đo đầu; giải thích từng dòng ở mục Bằng chứng.
+- [x] `npm run check` xanh: CI của PR GĐ1 (ở máy, bước ruff chạy riêng bằng `.venv` vì worktree không có ruff trên PATH).
 
 GĐ2:
 - [ ] Test bộ đọc `CONT_BO` theo tên cột: đảo cột vẫn đọc được, thiếu cột thì dừng. `road.json` có `runner.created_at` và mode 600.
@@ -180,6 +181,33 @@ GĐ1 (các giai đoạn sau ghi phạm vi trong PR của từng giai đoạn):
 | Năm 2024 (mọi loại) | 573 | gần 0 | gần 0 (không có nguồn) |
 
 Cặp ghép được mà ô ngày của sổ đọc được: trùng đúng ngày ở 99,2% (biển) và 97,1% (bộ). Script đo, danh sách cần xem và các bản tải (có tên khách) nằm ở `captures/2026-11-03-khop-booking/`, ngoài Git.
+
+**GĐ1, cùng dữ liệu 3/11, bằng `tools/v7_trip_source_match.py`** (`--end-month 2026-10`):
+- Nguồn sau khi gom: 10.860 chuyến biển, 2.847 chuyến bộ. Bỏ 2.401 dòng lặp chuyến của tab trước, gần như toàn bộ là phần file 2025 lặp lại nguồn mới: các tháng biển 12/2025–02/2026 lặp `CONT_NGUON`, chuyến bộ 08–12/2025 lặp `CONT_BO`. Bỏ thêm 636 dòng thiếu container hoặc ngày.
+- **Từ 01/2025 tới 10/2026:** ghép được 9.341/9.710 dòng (96,2% dòng, 98,2% tiền). Ngày trùng đúng ngày ở 99,4% cặp biển và 98,1% cặp bộ. Hai tỷ lệ này cao hơn bản đo đầu vì nay chỉ cặp ≤ 3 ngày mới được ghép.
+- **Vì sao 9.341 chứ không phải 9.416:** bản đo đầu tính là khớp cả hai loại cặp mà luật (1) không nhận:
+  - 24 dòng lệch 4–31 ngày, nay vào nhóm lệch ngày để người xem;
+  - 53 dòng không có ngày mà ngày nguồn ở tháng khác (bản đầu cho phép cách giữa tháng 20 ngày).
+
+  Ngoài ra 1 dòng mất và 3 dòng được thêm, do cách gom dòng nguồn lặp và vì `CONT_BO` nay lấy ngày đóng hàng trước ngày khởi hành.
+- **Danh sách cần xem:**
+
+  | Nhóm | Số | Ghi chú |
+  | --- | ---: | --- |
+  | Nghi trùng cùng ngày | 67 dòng (32 nhóm) | Ra lại đúng bản đầu |
+  | Nghi trùng lệch 1–3 ngày | 5 | Ra lại đúng bản đầu |
+  | Nghi trùng đảo ngày/tháng | 5 | Bản đầu 4. Thêm 1 dòng bộ: chuyến nguồn gần nhất đã tính ở sổ khách khác, còn ngày đảo trùng một chuyến đã tính ngay trong sổ đó |
+  | Có trong nguồn, chưa có trên sổ | 446 | Bản đầu 381. 75 chuyến từng được bản đầu ghép lệch hơn 3 ngày; 7 chuyến do cách gom nguồn |
+  | Tháng cuối chưa lên sổ | 53 | |
+  | Trước khi khách có sổ | 3.064 | |
+  | Chủ hàng chưa ghép sổ nào | 624 | |
+  | Không có nguồn | 44 | Bản đầu 122 vì tính cả 78 dòng bán cước, loại không có booking |
+  | Lệch ngày | 101 | Gồm cặp lệch 1–3 ngày và dòng chưa ghép có chuyến nguồn trống cách 4–31 ngày |
+  | Ngày lấy từ nguồn | 243 | Bản đầu 319, vì 53 + 26 dòng nay không còn ghép |
+  | Khác khách | 26 | |
+  | Giá khác | 587 | 273 dòng theo `CONT_NGUON`, 314 dòng theo giá chữ của booking 2025 |
+
+Đầu vào đã đổi sang dạng `{"tabs": …}` và kết quả nằm ở `captures/2026-11-03-khop-booking/gd1/`, ngoài Git.
 
 ## Câu hỏi mở
 
