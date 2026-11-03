@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 // ZALO-CHAT-01: tab Chat Zalo — danh sách hội thoại, tin theo trang (trang 0 mới nhất), tìm, lỗi 503.
 // Máy chủ giả trả JSON theo đúng hợp đồng /api/v7/zalo/*; dữ liệu bịa, không có nội dung chat thật.
@@ -146,7 +146,7 @@ function makeServer({ unavailable = false, requests = [], drop = new Set(), bund
 async function withPage(options, fn, { query = '', viewport = { width: 1280, height: 720 } } = {}) {
   const server = makeServer(options);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const context = await browser.newContext({ viewport });
     const tab = await context.newPage();
