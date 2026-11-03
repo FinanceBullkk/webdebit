@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const sha = 'c'.repeat(64);
 const book = (id, extra = {}) => ({ customer_id: id, version: 3, outstanding_vnd: '1000000000',
@@ -59,7 +59,7 @@ function serverFor(opts = {}) {
 async function withPage(opts, fn) {
   const server = serverFor(opts);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch();
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 560 } });
     await page.goto(`http://127.0.0.1:${server.address().port}/viec-can-lam.html`);

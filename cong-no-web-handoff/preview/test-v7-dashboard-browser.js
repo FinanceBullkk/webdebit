@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const dashboard = { as_of: '2026-10-29', demo: true, receivable: { total_vnd: '2480000000', customers: 4 }, credit: { total_vnd: '-125000000', customers: 3 }, by_commodity: [], aging: [], top_debtors: [], todo: { missing_price: [{ customer_id: 2, name: 'Khách C', count: 3 }], pending_review: [], no_baseline: [], credit: [{ customer_id: 3, name: 'Khách K', credit_vnd: '-45000000' }] }, today: { trips: 12, receipts: 4, received_vnd: '186000000', voids: 1, by_actor: [{ actor: 'Người nhập 1', trips: 7, receipts: 3, received_vnd: '120000000', voids: 1 }] } };
 
@@ -70,7 +70,7 @@ function makeServer({ payload = dashboard, debtPayload = debt, dashboardStatus =
 async function withPage(options, fn, page = '/dashboard-v7.html') {
   const server = makeServer(options);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const tab = await browser.newPage({ viewport: options?.viewport ?? { width: 1280, height: 720 } });
     await tab.goto(`http://127.0.0.1:${server.address().port}${page}`);
