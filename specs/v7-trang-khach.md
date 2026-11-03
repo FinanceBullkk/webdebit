@@ -205,6 +205,39 @@ Dòng thời gian của một khách, mới nhất ở trên. Lọc theo loại:
 
 ### Thẻ Hồ sơ
 
+**Bản HoSoV4** ([`HO-SO-01`](../docs/decisions/ho-so-01.md), người dùng chốt 2/11/2026 trên canvas; code giai đoạn A ngày 3/11/2026) thay bố cục bốn khối 2×2 của PR A3 dưới đây.
+
+Câu hỏi của thẻ: khách là ai, đang làm theo thỏa thuận nào (giá, phụ phí, hạn trả), liên lạc qua đâu. Không có số nợ (số nợ ở Tình hình và Sổ, mỗi số một chỗ).
+
+Bố cục, nhìn từ trên xuống ở 1280×560:
+
+1. **Đầu hồ sơ** (dưới thanh đầu trang chung): ô chữ viết tắt 88px, tên khách 30px đậm (to nhất trang), dòng **mặt hàng · đường cảng/bộ** (chỗ duy nhất trên trang khách có dòng này), nút **Chỉnh sửa hồ sơ**. Đường kẻ mảnh phía dưới.
+2. **Hai cột 62/38** liền mạch, phân cách bằng đường kẻ mảnh, không card:
+   - trái: **Thông tin doanh nghiệp** → **Thỏa thuận làm việc** (Thanh toán · Hạn mức công nợ · Hợp đồng) → **Giá và phụ phí áp dụng**;
+   - phải: **Người liên hệ** → **Nhóm trao đổi** (chỉ khi đã gắn group) → **Ghi chú khi làm việc** → **Tài liệu**.
+3. Cảnh báo gắn đúng dòng: giá hết hạn chưa có giá mới, nơi đi chưa có giá (cam). Không có dải cảnh báo đầu trang.
+4. Chữ thân 15px, chữ phụ ≥ 13px chỉ cho dòng giải thích; nút và link bấm ≥ 40px; không cuộn ngang ở 1280 (và 1265 có thanh cuộn).
+
+Nút của tính năng chưa có backend vẫn hiện (người dùng thấy chỗ sẽ có), bấm thì một thông báo ở đáy trang: "‹Việc›: chưa lưu được trên web — cần thêm chức năng (giai đoạn B)." kèm nút Đóng. Không mở khung nhập giả, không ghi gì.
+
+| Mục | Hiện gì ở giai đoạn A | Nguồn | Giai đoạn B cần |
+| --- | --- | --- | --- |
+| Đầu hồ sơ: tên, chữ viết tắt | tên sổ (`name`, cũng là tên tab Sheet), chữ viết tắt tự tính từ hai chữ cuối của tên | `GET /api/v7/customers` | chữ viết tắt, tên giao dịch riêng |
+| Mặt hàng · vận chuyển | có | `commodity`, `transport_mode` | khu vực |
+| Loại khách, hạng khách, tín dụng, hợp tác từ, phụ trách, câu tóm tắt | ẩn | — | bảng hồ sơ + quy tắc 1–2 của HO-SO-01 (doanh thu 12 tháng, K5 trả trễ) |
+| Thông tin doanh nghiệp | một dòng "Tên pháp lý, mã số thuế, khu vực chưa lưu trên web." (tên sổ đã ở đầu hồ sơ, không lặp) | — | tên pháp lý, MST, khu vực |
+| Thanh toán | "Cuối tháng kế tiếp" (theo `due_after_months`) + ví dụ "Công nợ tháng M đến hạn dd/mm/yyyy · quy tắc chung mọi khách" | `GET /api/v7/dashboard/debt` `rule` | hạn trả riêng (C) |
+| Hạn mức công nợ | "Chưa đặt hạn mức" + "Chưa đặt nghĩa là chưa giới hạn, không phải 0 đ." + nút Đặt hạn mức (báo chưa hỗ trợ) | — | bảng hạn mức (giá trị, người đặt, lý do, lịch sử), quy tắc 3–4 |
+| Hợp đồng | "Chưa lưu hợp đồng trên web" + nút Tải hợp đồng lên (báo) | — | lưu hợp đồng, ngày hết hạn, cảnh báo sắp hết |
+| Giá và phụ phí | bảng Nơi đi · Giá khách · Giá TT · Hiệu lực: dòng giá đang áp hôm nay (giờ VN), dòng giá sắp áp (xanh, "giá mới từ dd/mm/yyyy"), nơi đi có trong danh mục mà chưa có giá (cam); giá hết hạn chưa có giá mới (cam); đơn vị đồng/chuyến ghi một lần; shipper áp giá TT; **Phụ phí riêng trên sổ** + nút Cài đặt phụ phí; link **Xem bảng giá ›** | `GET /api/v7/price-table`, `fee_columns` của GET sổ | — |
+| Người liên hệ | "Chưa có người liên hệ…" + nút + Thêm (báo) | — | bảng người liên hệ (dữ liệu cá nhân, chỉ trong DB trên `hao`) |
+| Nhóm trao đổi | mỗi group đã gắn: tên group, "Zalo · tin cuối dd/mm/yyyy", link Mở nhóm; chưa gắn thì ẩn mục | `GET /api/v7/zalo/links` + tên từ `GET /api/v7/zalo/conversations` | — |
+| Ghi chú khi làm việc | "Chưa có ghi chú." + nút + Thêm ghi chú (báo) | — | bảng ghi chú (người, ngày) |
+| Tài liệu | "Chưa có tài liệu…" + nút Tải tài liệu lên (báo) | — | lưu tệp |
+| Ảnh chứng từ | **bỏ khỏi Hồ sơ**, xem ở phiếu thu thẻ Sổ | — | — |
+
+Kiểm: test trình duyệt mới cho thẻ Hồ sơ (thứ tự mục, giá đang áp/sắp áp/chưa có giá/hết hạn, phụ phí, group đã gắn và chưa gắn, nút chưa hỗ trợ báo rõ và không gửi request, nút mở Bảng giá/Cài đặt phụ phí ở thẻ Sổ, 1280 không cuộn ngang, nút ≥ 40px, chữ ≥ 14px).
+
 | Khối | Nguồn | Giai đoạn |
 | --- | --- | --- |
 | Mặt hàng, cảng/bộ | `list_customers` (`commodity`, `transport_mode`) | A |

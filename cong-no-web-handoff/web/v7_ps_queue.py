@@ -9,14 +9,12 @@ ban đầu). Money never comes from PS; every other case is listed for review or
 
 from __future__ import annotations
 
-import json
-import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
-from v7_sheet_queue import _name
+from v7_sheet_queue import _name, read_snapshot
 
 UNCLASSIFIED = ("other", "discount", "initial")
 FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm"}
@@ -27,16 +25,8 @@ REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ER
 
 
 def load_ps_snapshot(path: str | Path) -> dict[str, Any]:
-    try:
-        with open(path, encoding="utf-8") as stream:
-            snapshot = json.load(stream)
-    except (OSError, ValueError) as exc:
-        raise ValueError("PS snapshot unavailable") from exc
-    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("PS snapshot invalid")
-    if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("PS snapshot hash missing")
-    if snapshot.get("row_count") != len(snapshot["rows"]) or not isinstance(snapshot.get("customer_aliases"), dict):
+    snapshot = read_snapshot(path, "PS snapshot")
+    if not isinstance(snapshot.get("customer_aliases"), dict):
         raise ValueError("PS snapshot row count mismatch")
     return snapshot
 

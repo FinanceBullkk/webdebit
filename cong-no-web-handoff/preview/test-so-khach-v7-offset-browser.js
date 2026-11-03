@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const shots = process.env.SHOTS_DIR;
 const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -215,7 +215,7 @@ async function withPage(fn) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];

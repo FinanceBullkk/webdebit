@@ -5,7 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const shots = process.env.SHOTS_DIR;
 const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -447,7 +447,7 @@ async function withPage(fn, setup = () => {}) {
     res.end(fs.readFileSync(file));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     const errors = [];

@@ -17,13 +17,13 @@ exactly as the Sheet shows it.
 from __future__ import annotations
 
 import datetime as dt
-import json
 import re
 from collections import Counter
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from v7_sheet_queue import read_snapshot
 from v7_sheet_task_keep import kept, price_identity
 
 DATE_WINDOW_DAYS = 3
@@ -61,18 +61,7 @@ def money(value: Any) -> int | None:
 
 
 def load_price_snapshot(path: str | Path) -> dict[str, Any]:
-    try:
-        with open(path, encoding="utf-8") as stream:
-            snapshot = json.load(stream)
-    except (OSError, ValueError) as exc:
-        raise ValueError("Sheet price snapshot unavailable") from exc
-    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("Sheet price snapshot invalid")
-    if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("Sheet price snapshot hash missing")
-    if snapshot.get("row_count") != len(snapshot["rows"]):
-        raise ValueError("Sheet price snapshot row count mismatch")
-    return snapshot
+    return read_snapshot(path, "Sheet price snapshot")
 
 
 def owners(customers: list[dict]) -> dict[str, tuple[Any, str]]:
