@@ -109,8 +109,9 @@ test('Nhắc nợ ngay: nút chính Copy tin nhắc nợ (lệnh của thẻ Tra
   assert.equal(world.reminderLog.length, 1, 'Copy tin nhắc nợ dùng lệnh của thẻ Trao đổi');
 }, debtor));
 
-test('Không có nợ quá hạn: không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
+test('Không có nợ quá hạn: nhãn như Tổng quan, không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
   await page.locator('.ov-next-main strong', { hasText: 'Chưa cần làm gì' }).waitFor();
+  assert.equal(await page.locator('.ov-risk').innerText(), 'Không quá hạn', 'DASH-05 (4): cùng chữ DashboardModel.RISK.ok');
   assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
 }, world => {
   debtor(world);
