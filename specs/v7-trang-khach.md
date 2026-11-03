@@ -9,6 +9,7 @@ Người dùng đưa bản xem `TinhHinh.dc.html` và yêu cầu code theo đún
 - Tiền và rủi ro lấy từ API sổ/Tổng quan, hứa trả từ dấu Zalo, không dùng các số và tên giả trong bản xem. Nhãn **Doanh thu** ghi rõ bên dưới là phát sinh đã ghi sổ trong 12 tháng; không suy ra doanh thu từ chuyến chưa giá hoặc chờ kiểm. Tháng thiếu dữ liệu không biến thành 0.
 - **Trễ trung bình sau hạn** hiện `—` cho tới khi B1 có API; không dựng số từ ví dụ. Khi không đọc được dấu hứa trả, Việc tiếp theo ghi chưa xác định và có Thử lại, không tự bảo nhắc ngay.
 - **Vẫn nhắc nợ** dùng đúng lệnh Copy tin nhắc sẵn có ở thẻ Trao đổi. Bấm tháng mở Sổ đúng tháng, không tải lại. Không đổi đường ghi tiền, Sheet hay DB.
+- **Nút của Việc tiếp theo** (sửa sau review 3/11/2026, bản đầu bị đảo): *Nhắc nợ ngay* → nút chính xanh **Copy tin nhắc nợ** + **Xem Trao đổi**; *Chờ hứa trả* → **Vẫn nhắc nợ** (nút phụ) + **Xem Trao đổi**; *Chưa cần làm gì* hoặc chưa xác định → chỉ **Xem Trao đổi**. Copy tin nhắc nợ và Vẫn nhắc nợ cùng một lệnh của thẻ Trao đổi. Tháng đang chạy dưới hình 12 tháng ghi thêm "đến dd/mm" (hôm nay, giờ VN).
 - Kiểm trên máy chủ giả: số Còn nợ/cơ cấu, thiếu opening, khách trả trước, dấu hứa trả, lỗi nguồn phụ, 1280×720 và màn hẹp; ảnh chụp chỉ dùng khách và số giả. Đây là tiêu chí cho code giao diện, không là bằng chứng đã triển khai `hao`.
 
 Thời điểm: [PLAN](../PLAN.md) đang tạm dừng tính năng mới cho tới khi chạy song song; quyết định này chốt hướng, chưa code. Thẻ Sổ chính là sổ khách của [`SO-GON-04`](../docs/decisions/so-gon-04.md) (UX đợt 2, đang làm), nên giai đoạn A chỉ bắt đầu sau PR 2c của đợt đó (cùng sửa đầu sổ).
@@ -112,6 +113,8 @@ Mặt hàng, cảng/bộ, giá đang áp, cột phụ phí riêng, ảnh chứng
 3. **Không đổi:** ô tìm khách (`?customer=`), Việc cần làm (`loc=`), ô tháng và ngăn kéo ma trận (`month=`), nút Chat ở Đòi nợ.
 
 ### Đầu trang (dính, một dòng, cao ≤ 44px)
+
+**Thay bằng chuẩn chung 3/11/2026** (canvas Claude Design, khung UuTien; phiên điều phối review thấy bốn thẻ mỗi thẻ một kiểu đầu trang): mọi thẻ dùng một thanh trắng cao 52px — **Sổ khách / Tên ▾** (bấm mở hộp đổi khách) · bốn thẻ · nút **⋯** ở phải (Lịch sử, Cài đặt, Tổng còn nợ mọi tháng). Không còn dòng mặt hàng dưới tên: mặt hàng · vận chuyển chỉ ở đầu thẻ Hồ sơ. Menu trái 76px và đầu trang giống nhau ở bốn thẻ, thẻ Tình hình không có kiểu riêng. Phần dưới đây là bản A1, giữ để biết lịch sử.
 
 - Một dòng, từ trái sang phải:
   - **← Quay lại**, theo trang vừa đến (audit 4.1);

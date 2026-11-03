@@ -43,6 +43,24 @@ function makeWorld() {
   };
 }
 
+// months[] mặc định khớp các dòng như server: phát sinh = Thành tiền chuyến đã duyệt + dòng sổ gốc + điều chỉnh của tháng, đã thu
+// = phiếu chưa hủy theo ngày thu; nợ đầu/cuối tháng cộng dồn từ tháng đầu (sổ giả không có số dư đầu). world.monthValues ghi đè.
+function monthsOf(world, keys, trips, legacy) {
+  const sum = values => values.reduce((total, value) => total + BigInt(value ?? 0), 0n);
+  let prior = 0n;
+  return keys.map(month => {
+    const charges = sum([...trips.filter(trip => trip.month === month && trip.status === 'confirmed').map(trip => trip.amount_vnd),
+      ...legacy.filter(row => row.current.month === month && row.kind !== 'receipt').map(row => row.current.counted_vnd),
+      ...world.adjustments.filter(row => row.month === month).map(row => row.amount_vnd)]);
+    const received = sum(world.receipts.filter(row => row.voided_by_event == null && `${row.date.slice(0, 7)}-01` === month).map(row => row.amount_vnd));
+    const end = prior + charges - received;
+    const row = { month, prior_months_vnd: String(prior), charges_vnd: String(charges), received_vnd: String(received),
+      end_of_month_vnd: String(end), outstanding_vnd: '0', ...world.monthValues?.[month] };
+    prior = end;
+    return row;
+  });
+}
+
 // world.todayMonth (tháng hiện tại của server), world.months (cả months[]), world.status và world.total (null khi chưa có số dư
 // đầu) để test thẻ Tình hình dựng sổ nhiều tháng; mặc định như trước.
 function ledger(world) {
@@ -54,8 +72,7 @@ function ledger(world) {
   return { status: world.status ?? 'active', customer_id: 1, version: world.version, demo: true, today_month: today,
     fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })),
     month_locks: world.locks,
-    months: world.months ?? keys.map(month => ({ month, prior_months_vnd: '0', charges_vnd: '0', received_vnd: '0', end_of_month_vnd: '0', outstanding_vnd: '0',
-      ...world.monthValues?.[month] })),
+    months: world.months ?? monthsOf(world, keys, trips, legacy),
     total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,

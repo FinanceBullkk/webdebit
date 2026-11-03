@@ -195,7 +195,7 @@
   function renderShell(view) {
     const scrollY = window.scrollY;
     // Một thanh đầu sổ (góp ý người dùng 23/10/2026): tên khách, Lịch sử, tổng còn nợ.
-    // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = ← Quay lại, tên khách, mặt hàng, thanh bốn thẻ
+    // Bản live là trang khách (TRANG-KHACH-01, A1): đầu trang một dòng = Sổ khách / tên khách ▾, thanh bốn thẻ
     // (so-khach-v7-tabs-ui.js, phần đó cũng dời ô tìm khách lên thanh trên), Tổng còn nợ, nút chính "Ghi phiếu thu" và nút phụ
     // Lịch sử (SO-GON-04 L7). Phần còn lại của sổ — dải nút việc chờ và "Làm mới" (không dính), các bảng tháng — là thẻ Sổ
     // (#the-so); khung các thẻ khác nằm sau.
