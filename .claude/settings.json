@@ -29,7 +29,8 @@
       "Bash(gh repo create*)",
       "Bash(rm *)",
       "Bash(del *)",
-      "Bash(Remove-Item*)"
+      "Bash(Remove-Item*)",
+      "Read(//d/webdebit/captures/**)"
     ],
     "deny": [
       "Bash(git push --force*)",
@@ -41,7 +42,6 @@
       "Bash(rm -rf*)",
       "Read(./.env)",
       "Read(./.env.*)",
-      "Read(//d/webdebit/captures/**)",
       "Read(//d/webdebit/.codex/**)"
     ]
   }
