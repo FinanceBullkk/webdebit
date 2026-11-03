@@ -273,6 +273,7 @@ class RemovedSheetTripTests(unittest.TestCase):
         result = self.project([self.ready("KEEP1", "2026-10-20")], [
             self.trip(9, "GONE1", "2026-09-10", info_editable=False),
             self.trip(10, "KEEP1", "2026-10-20")])
+        self.assertRegex(result["removed_items"][0].pop("source_fingerprint"), r"^[0-9a-f]{64}$")
         self.assertEqual(result["removed_items"], [{"trip_id": 9, "container": "GONE1", "event_date": "2026-09-10",
             "month": "2026-09-01", "status": "confirmed", "amount_vnd": "5000000", "month_locked": True}])
         self.assertEqual(result["removed_count"], 1)

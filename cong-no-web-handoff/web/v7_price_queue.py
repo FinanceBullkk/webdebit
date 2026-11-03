@@ -24,6 +24,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from v7_sheet_task_keep import kept, price_identity
+
 DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
 XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
@@ -180,7 +182,7 @@ def mark_shared(results: list[dict]) -> list[dict]:
             for r in results]
 
 
-def project_prices(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
+def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
     customer = ledger.get("customer_id")
@@ -202,9 +204,15 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict]) -> dict:
         batchable = (result["status"] == "CONFLICT" and target is not None and not target["locked"] and changed
                      and total_matches and (target["kind"] == "trip" or (target["total"] is not None
                          and sheet_total is not None)))
-        return {k: batchable if k == "batchable" else
-                ((None if result[k] is None else str(result[k])) if k in money_fields else result[k]) for k in keep}
+        row = {k: batchable if k == "batchable" else
+               ((None if result[k] is None else str(result[k])) if k in money_fields else result[k]) for k in keep}
+        row["source_fingerprint"] = price_identity(result)
+        row["month_locked"] = target["locked"] if target else True
+        return row
     ready = [public(r) for r in results if r["status"] == "READY"]
     review = [public(r) for r in results if r["status"] in REVIEW]
+    if not include_kept:
+        review = [r for r in review if not kept(ledger, "price", r["target_kind"], r["target_id"],
+                  r["source_fingerprint"], {"unit_price_vnd": r["web_unit_price_vnd"], "other_fee_vnd": r["web_other_fee_vnd"]})]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}

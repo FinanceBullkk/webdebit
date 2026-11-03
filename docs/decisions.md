@@ -81,6 +81,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="hang-cho-01"></a>[HANG-CHO-01](decisions/hang-cho-01.md) | Hàng chờ Sheet → web: máy tự lấy chữ mô tả theo Sheet khi tiền không đổi (Q1), chuyến mới đủ điều kiện tự vào sổ kể cả chưa có giá, chưa giá thì không cộng nợ (Q2, Q5), phiếu thu và giá từ Sheet người xác nhận ở hộp chung (Q3) | Chưa triển khai; Q2 cho khách nhiều sổ chờ Q4 |
 | <a id="khoa-chu-01"></a>[KHOA-CHU-01](decisions/khoa-chu-01.md) | Tháng khóa vẫn sửa được bốn ô chữ (nơi đi, nơi đến, shipper, hãng tàu), có Lịch sử; tiền, ngày, container, xóa vẫn khóa | Migration 2026-11-01-v7-khoa-chu.sql |
 | <a id="zalo-group-01"></a>[ZALO-GROUP-01](decisions/zalo-group-01.md) | Theo dõi nợ trong group Zalo: dựng lại tin có ảnh, đánh dấu tin (hứa trả, khách báo đã chuyển, ghi chú), nối vào thẻ Trao đổi; chỉ group được chọn lên `hao` | G1–G3 đã lên `hao` 1/11/2026 (bảng và API có, `hao` chưa có gói chat); G4 giao diện đánh dấu; G5 đường đẩy gói có trên `hao`, chờ người dùng chọn group |
+| <a id="vcl-giu-01"></a>[VCL-GIU-01](decisions/vcl-giu-01.md) | Giữ giá web và giữ chuyến tới khi dòng Sheet liên quan đổi; lưu server và Lịch sử | Chốt 2/11/2026; chưa triển khai |
 
 ## Cập nhật khóa tháng 24/10/2026
 

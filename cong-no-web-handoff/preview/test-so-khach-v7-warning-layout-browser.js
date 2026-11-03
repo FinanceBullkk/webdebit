@@ -30,8 +30,9 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
   assert.equal(await page.locator('.delete-prompt .confirm-delete').count(), 1);
   await page.locator('.delete-prompt .cancel-delete').click();
   await page.locator('.sheet-removed-keep').first().click();
-  assert.equal(await page.locator('.sheet-removed-notice').count(), 5);
-  assert.deepEqual(world.requests, []);
+  await page.waitForFunction(() => document.querySelectorAll('.sheet-removed-notice').length === 5);
+  assert.equal(world.requests.length, 1);
+  assert.equal(world.requests[0].path, '/api/v7/sheet/tasks/keep');
 }, world => {
   handoff(world);
   world.feeColumns = [1, 2, 3];
@@ -40,7 +41,7 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
     month.end_of_month_vnd = '28123456789';
   }
   world.sheetSync = { ...world.sheetSync, removed_count: 6, removed_items: world.trips.slice(0, 6).map(trip => ({
-    trip_id: trip.id, container: trip.container, month: trip.month, event_date: trip.event_date,
+    source_fingerprint: 'c'.repeat(64), trip_id: trip.id, container: trip.container, month: trip.month, event_date: trip.event_date,
     status: trip.status, amount_vnd: trip.amount_vnd, month_locked: false,
   })) };
 }));

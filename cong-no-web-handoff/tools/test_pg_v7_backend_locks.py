@@ -228,6 +228,10 @@ def check_csm_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql"):
+        source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
+        copy.sql(source)
+        copy.sql(source)
     catalog = "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
     # Từ 29/10/2026 file chuẩn có cả resolve_sheet_conflict, nên so đủ mọi hàm, không loại trừ.
     migrated = json.loads(copy.value(catalog))
@@ -293,8 +297,9 @@ def check_csm_migration(pg: Pg) -> None:
         "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND "
         "(prosrc ~* 'INSERT[[:space:]]+INTO[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd' "
         "OR prosrc ~* 'UPDATE[[:space:]]+sokhach\\.(trip_price_rev|legacy_trip_rev)[^;]*other_fee_vnd')"))
-    # Historical sheet conflict command copies unchanged legacy fee for an information edit.
-    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict"],
+    # Historical sheet conflict command copies unchanged legacy fee for an information edit; batch undo copies the
+    # current fee unchanged when it restores an original-book TOTAL that differs from price + fee.
+    require(writers == ["_change_legacy", "_sync_trip_fee", "resolve_sheet_conflict", "undo_sheet_batch"],
             f"unexpected fee cache writers: {writers}")
     check_csm_reference(copy)
     check_csm_locks(copy)

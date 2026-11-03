@@ -44,6 +44,8 @@ def page_assets(pages: dict[str, str]) -> dict[str, tuple[str, str]]:
 
 ASSETS = page_assets(PAGES)
 ROUTES = {
+    "/api/v7/sheet/batch/undo": ("undo_sheet_batch", {"command_keys"}),
+    "/api/v7/customers/commodity": ("set_customer_commodity", {"commodity_name"}),
     "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"}),
     "/api/v7/offsets/void": ("void_offset", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"}),
     "/api/v7/offsets/date": ("edit_offset_date", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"}),
@@ -168,9 +170,14 @@ SQL = {
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",
     "list_legacy_trip_refs": "SELECT sokhach.list_legacy_trip_refs(:'payload'::jsonb->'containers');",
+    "apply_sheet_price": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.apply_sheet_price((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'target_kind',(p->>'target_id')::bigint,p->>'source_fingerprint',p->'web_value',p->'sheet_price') FROM j;",
+    "assign_sheet_trip": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.assign_sheet_trip((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',(p->>'target_customer_id')::bigint,(p->>'target_version')::bigint,p->>'source_fingerprint',p->'source_row') FROM j;",
+    "keep_sheet_task": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.keep_sheet_task((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'task_kind',p->>'target_kind',(p->>'target_id')::bigint,p->>'source_fingerprint',p->'web_value') FROM j;",
     "resolve_sheet_conflict": "WITH j AS (SELECT :'payload'::jsonb AS p) SELECT sokhach.resolve_sheet_conflict((p->>'customer_id')::bigint,(p->>'expected_version')::bigint,p->>'idempotency_key',p->>'snapshot_sha256',(p->>'source_row')::bigint,p->>'target_kind',(p->>'target_id')::bigint,p->>'field',p->>'target_value',p->>'sheet_value',p->>'decision') FROM j;",
 }
 ARGUMENTS = {
+    "undo_sheet_batch": ("command_keys",),
+    "set_customer_commodity": ("commodity_name",),
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
     "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
     "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),
@@ -203,7 +210,7 @@ ARGUMENTS = {
     "save_price_table": ("price_table",),
     "apply_price_table": ("trip_ids",),
 }
-CAST = {"debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
+CAST = {"command_keys": "jsonb", "debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",
         "legacy_row_id": "bigint", "adjustment_id": "bigint",
         "target_customer_id": "bigint", "target_version": "bigint", "source_customer_id": "bigint", "source_version": "bigint",
         "customer_id": "bigint", "expected_version": "bigint", "other_version": "bigint", "offset_pair_id": "bigint",

@@ -163,6 +163,14 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     key = body["idempotency_key"]
     if not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key):
         bad()
+    if function == "undo_sheet_batch":
+        commands = body.get("command_keys")
+        if (not isinstance(commands, list) or not 1 <= len(commands) <= 1000
+                or any(not isinstance(k, str) or not re.fullmatch(r"[0-9a-f]{64}", k) for k in commands)
+                or len(set(commands)) != len(commands)):
+            bad()
+    if function == "set_customer_commodity" and body.get("commodity_name") not in ("Sầu riêng", "Thanh long", "Chuối", "Mít", "Dừa"):
+        bad()
     for name in ("trip_id", "legacy_row_id", "adjustment_id"):
         if name in fields and (name not in body or not positive_int(body[name])):
             bad()

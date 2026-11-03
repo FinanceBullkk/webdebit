@@ -27,7 +27,7 @@ from v7_price_queue import load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
-from v7_receipt_queue import load_receipt_snapshot, project_receipts
+from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_reference
 from v7_receipt_queue import reference as receipt_reference
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
 
@@ -183,6 +183,18 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
         if ref["customer_id"] != ledger.get("customer_id"):
             other_containers.add("".join(ref["container"].upper().split()))
     queue = cached_queue(snapshot, customers, baseline)
+    current = next((c for c in customers if c["id"] == ledger["customer_id"]), {})
+    family = current.get("display_name") or current.get("name")
+    candidates = [c for c in customers if c.get("status") == "active" and c.get("transport_mode") != "BO"
+                  and (c.get("display_name") or c.get("name")) == family]
+    # Show an unmapped family row once, in its first book, for explicit human choice.
+    if candidates and ledger["customer_id"] == min(c["id"] for c in candidates):
+        from v7_sheet_queue import _name
+        aliases = snapshot.get("customer_aliases") or {}
+        queue = {**queue, "items": [{**row, "customer_id": ledger["customer_id"], "review_status": "NEEDS_PRICE", "book_match": "COMMODITY_UNKNOWN"}
+                 if row.get("customer_id") is None and row.get("review_status") == "NEEDS_CUSTOMER"
+                 and _name(aliases.get(_name(row.get("customer_name")), row.get("customer_name"))) == _name(family)
+                 else row for row in queue["items"]]}
     waiting = sorted({"".join(str(row.get("container") or "").upper().split()) for row in queue["items"]
                       if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"} - {""})
     other_legacy = []
@@ -195,7 +207,26 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                 raise ValueError("legacy trip references invalid")
             if ref["customer_id"] != ledger.get("customer_id"):
                 other_legacy.append(ref)
-    return project_customer(queue, ledger, other_containers, other_legacy)
+    result = project_customer(queue, ledger, other_containers, other_legacy)
+    from v7_sheet_task_keep import trip_identity
+    assigned = {}
+    for event in ledger.get("events", []):
+        after = event.get("after") or {}
+        if event.get("kind") != "sheet_conflict_resolved" or after.get("field") != "task_assignment":
+            continue
+        target_customer = after.get("target_customer_id")
+        target = ledger if target_customer == ledger["customer_id"] else runner.run("get_ledger", {"customer_id": target_customer}, actor)
+        if any(t.get("id") == after.get("target", {}).get("id") and not t.get("deleted") for t in target.get("trips", [])):
+            assigned[after.get("sheet_value")] = True
+    items = []
+    for row in result["items"]:
+        source = trip_identity(row)
+        if source in assigned:
+            continue
+        items.append({**row, "source_fingerprint": source,
+                      "candidate_books": [{k: c.get(k) for k in ("id", "name", "display_name", "commodity", "transport_mode", "version")} for c in candidates]})
+    return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" for r in items),
+            "conflict_count": sum(r["sync_state"] == "CONFLICT" for r in items)}
 
 
 def approve_request(raw: bytes, runner: Psql, actor: str) -> tuple[int, int, str, str, dict]:
@@ -285,15 +316,16 @@ def paste_sheet_rows(runner: Psql, customer: int, version: int, digest: str, key
             "review_count": len(pending), "pending_review": pending, "pasted": pasted}
 
 
-def price_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+def price_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False) -> dict:
     snapshot = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
-    return project_prices(snapshot, ledger, customers)
+    return project_prices(snapshot, ledger, customers, include_kept=include_kept)
 
 
 def write_price_items(items: list[dict], customer: int, version: int, digest: str, key: str,
                       runner: Psql, actor: str, *, conflict: bool = False) -> tuple[int, dict]:
+    undo_keys = []
     written = commands_done = 0
     for item in items:
         price, fee = str(item["sheet_unit_price_vnd"]), item["sheet_other_fee_vnd"]
@@ -327,8 +359,9 @@ def write_price_items(items: list[dict], customer: int, version: int, digest: st
                              "complete": False, "error": exc.code}
             version = result["version"] if type(result.get("version")) is int else                 runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
             commands_done += 1
+            undo_keys.append(command_key)
         written += 1
-    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version, "undo_keys": undo_keys}
 
 
 def approve_prices(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
@@ -393,6 +426,7 @@ def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         raise ApiError(503, "SHEET_RECEIPTS_UNAVAILABLE", "Không đọc được phiếu thu từ Sheet.") from exc
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi ghi.")
+    undo_keys = []
     written = 0
     for item in projection["ready"]:
         # One key per Sheet receipt: a repeated click replays the stored result, never a second receipt.
@@ -411,8 +445,9 @@ def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
                          "complete": False, "error": exc.code}
         version = result["version"] if type(result.get("version")) is int else \
             runner.run("get_ledger", {"customer_id": customer}, actor)["version"]
+        undo_keys.append(command_key)
         written += 1
-    return 200, {"written": written, "remaining": 0, "complete": True, "version": version}
+    return 200, {"written": written, "remaining": 0, "complete": True, "version": version, "undo_keys": undo_keys}
 
 
 def ps_projection(runner: Psql, ledger: dict, actor: str) -> dict:
@@ -526,6 +561,149 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
         "target_value": target_value, "sheet_value": sheet_value}, actor)
     return 200, {"resolved": True, "decision": request["decision"], "field": request["field"],
                  "version": result["version"]}
+
+
+def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) -> tuple[int, dict]:
+    """Acknowledge a current Sheet difference without changing financial state."""
+    from v7_sheet_task_keep import web_value
+
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad("INVALID_SHEET_RESOLUTION")
+    required = {"customer_id", "expected_version", "idempotency_key", "task_kind", "target_kind", "target_id", "source_fingerprint"}
+    if not isinstance(request, dict) or set(request) != required:
+        bad("INVALID_SHEET_RESOLUTION")
+    key = request["idempotency_key"]
+    if (not positive_int(request["customer_id"]) or not positive_int(request["target_id"])
+            or type(request["expected_version"]) is not int or not 0 <= request["expected_version"] <= MAX_BIGINT
+            or request["task_kind"] not in ("price", "removed") or request["target_kind"] not in ("trip", "legacy")
+            or (request["task_kind"] == "removed" and request["target_kind"] != "trip")
+            or (apply_price and request["task_kind"] != "price")
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key)):
+        bad("INVALID_SHEET_RESOLUTION")
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    command = "apply_sheet_price" if apply_price else "keep_sheet_task"
+    decision = "use_sheet" if apply_price else "keep_web"
+    target = {"kind": request["target_kind"], "id": request["target_id"]}
+    for event in ledger.get("events", []):
+        after = event.get("after") or {}
+        if after.get("request_key") != key:
+            continue
+        if (event.get("kind") != "sheet_conflict_resolved" or after.get("target") != target
+                or after.get("decision") != decision
+                or after.get("field") != "task_" + request["task_kind"]
+                or after.get("sheet_value") != request["source_fingerprint"]):
+            raise ApiError(409, "IDEMPOTENCY_CONFLICT", ERRORS["IDEMPOTENCY_CONFLICT"][1])
+        payload = {**request, "web_value": after.get("web_value") if apply_price else after["target_value"]}
+        if apply_price:
+            payload["sheet_price"] = after["requested_price"]
+        return 200, runner.run(command, payload, actor)
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        if request["task_kind"] == "price":
+            rows = price_projection(runner, ledger, actor, include_kept=True)["review"]
+            rows = [r for r in rows if r["status"] == "CONFLICT" and r["target_kind"] == target["kind"] and r["target_id"] == target["id"]]
+            current = {"unit_price_vnd": rows[0]["web_unit_price_vnd"], "other_fee_vnd": rows[0]["web_other_fee_vnd"]} if len(rows) == 1 else None
+        else:
+            rows = [r for r in sheet_projection(runner, ledger, actor)["removed_items"] if r["trip_id"] == target["id"]]
+            trip = next((r for r in ledger.get("trips", []) if r["id"] == target["id"]), {})
+            current = web_value("removed", trip)
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Không đọc được Sheet để đối chiếu.") from exc
+    if len(rows) != 1 or rows[0].get("source_fingerprint") != request["source_fingerprint"]:
+        raise ApiError(409, "STALE_SHEET", "Dòng Sheet đã đổi. Tải lại rồi thử lại.")
+    payload = {**request, "web_value": current}
+    if apply_price:
+        payload["sheet_price"] = {"unit_price_vnd": rows[0]["sheet_unit_price_vnd"], "other_fee_vnd": rows[0]["sheet_other_fee_vnd"]}
+    return 200, runner.run(command, payload, actor)
+
+
+def apply_sheet_price(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    return keep_sheet_task(raw, runner, actor, apply_price=True)
+
+
+def assign_sheet_trip(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    required = {"customer_id", "expected_version", "idempotency_key", "target_customer_id", "target_version", "source_fingerprint"}
+    if not isinstance(request, dict) or set(request) != required:
+        bad()
+    if (any(not positive_int(request[k]) for k in ("customer_id", "target_customer_id"))
+            or any(type(request[k]) is not int or not 0 <= request[k] <= MAX_BIGINT for k in ("expected_version", "target_version"))
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(request["idempotency_key"], str) or not 1 <= len(request["idempotency_key"]) <= 128
+            or not request["idempotency_key"].strip() or any(ord(c) < 32 for c in request["idempotency_key"])):
+        bad()
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    for event in ledger.get("events", []):
+        after = event.get("after") or {}
+        if after.get("field") == "task_assignment" and after.get("request_key") == request["idempotency_key"]:
+            args = after.get("arguments") or {}
+            if any(args.get(k) != v for k, v in request.items()):
+                raise ApiError(409, "IDEMPOTENCY_CONFLICT", ERRORS["IDEMPOTENCY_CONFLICT"][1])
+            return 200, runner.run("assign_sheet_trip", args, actor)
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        rows = [r for r in sheet_projection(runner, ledger, actor)["items"]
+                if r.get("source_fingerprint") == request["source_fingerprint"] and r.get("sync_state") == "NEW"]
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Không đọc được chuyến Sheet.") from exc
+    if len(rows) != 1 or request["target_customer_id"] not in [c["id"] for c in rows[0].get("candidate_books", [])]:
+        raise ApiError(409, "STALE_SHEET", "Dòng Sheet hoặc sổ được chọn đã đổi. Tải lại rồi thử lại.")
+    row = {k: rows[0].get(k) for k in ("source_row", "container", "carrier", "shipper", "event_date", "origin", "destination", "booking")}
+    return 200, runner.run("assign_sheet_trip", {**request, "source_row": row}, actor)
+
+
+def review_sheet_receipt(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
+    """Supply a missing receipt date; link the written receipt to its source row content."""
+    from datetime import date
+
+    try:
+        request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeError, ValueError, TypeError):
+        bad()
+    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "idempotency_key", "source_fingerprint", "date"}:
+        bad()
+    if (not positive_int(request["customer_id"]) or type(request["expected_version"]) is not int
+            or not 0 <= request["expected_version"] <= MAX_BIGINT
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(request["idempotency_key"], str) or not 1 <= len(request["idempotency_key"]) <= 128
+            or not request["idempotency_key"].strip() or any(ord(c) < 32 for c in request["idempotency_key"])
+            or not isinstance(request["date"], str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", request["date"])):
+        bad()
+    try:
+        chosen = date.fromisoformat(request["date"])
+    except ValueError:
+        bad()
+    if chosen > datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date():
+        bad("FUTURE_DATE")
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    prefix = review_reference(request["source_fingerprint"])
+    existing = [r for r in ledger.get("receipts", []) if not r.get("voided_by_event") and (r.get("reference") or "").startswith(prefix)]
+    if existing:
+        if len(existing) != 1 or existing[0].get("date") != request["date"]:
+            raise ApiError(409, "STALE_LEDGER", "Phiếu đã ghi với ngày khác. Mở sổ đối chiếu.")
+        return 200, {"written": 1, "complete": True, "receipt_id": existing[0]["id"], "version": ledger["version"]}
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        rows = [r for r in receipt_projection(runner, ledger, actor)["review"]
+                if r["status"] == "NO_DATE" and r.get("source_fingerprint") == request["source_fingerprint"]]
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_RECEIPTS_UNAVAILABLE", "Không đọc được phiếu Sheet.") from exc
+    if len(rows) != 1:
+        raise ApiError(409, "STALE_SHEET", "Phiếu Sheet đã đổi. Tải lại rồi thử lại.")
+    row = rows[0]
+    result = runner.run("record_receipt", {"customer_id": request["customer_id"], "expected_version": request["expected_version"],
+        "idempotency_key": request["idempotency_key"], "date": request["date"], "method": RECEIPT_METHOD,
+        "amount_vnd": row["amount_vnd"], "reference": (prefix + row["note"])[:500]}, actor)
+    return 200, {**result, "written": 1, "complete": True}
 
 
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
