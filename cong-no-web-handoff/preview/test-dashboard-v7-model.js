@@ -1,7 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('./dashboard-v7-model.js');
-const F = require('./cong-no-format.js');
 
 const rule = { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 };
 const customer = (id, name, tiers, extra = {}) => {
@@ -33,13 +32,13 @@ const debt = {
   ],
 };
 
-test('tierLabels names each due tier with its debt months, across a year boundary', () => {
-  assert.deepEqual(M.tierLabels('2026-10-29', rule).map(t => [t.label, t.span]), [
-    ['Chưa đến hạn', 'nợ T10'], ['Đến hạn 31/10', 'nợ T9'], ['Quá hạn 1–2 tháng', 'nợ T7–T8'],
-    ['Quá hạn 3–6 tháng', 'nợ T3–T6'], ['Quá hạn trên 6 tháng', 'nợ T2 trở về trước']]);
+test('tierLabels names each due tier with a short tile label and its debt months, across a year boundary', () => {
+  assert.deepEqual(M.tierLabels('2026-10-29', rule).map(t => [t.label, t.tile, t.span]), [
+    ['Chưa đến hạn', 'Chưa đến hạn', 'nợ T10'], ['Đến hạn 31/10', 'Hạn 31/10', 'nợ T9'], ['Quá hạn 1–2 tháng', '1–2 tháng', 'nợ T7–T8'],
+    ['Quá hạn 3–6 tháng', '3–6 tháng', 'nợ T3–T6'], ['Quá hạn trên 6 tháng', '> 6 tháng', 'nợ T2 trở về trước']]);
   assert.deepEqual(M.tierLabels('2027-02-10', rule).map(t => t.span), [
     'nợ T2', 'nợ T1', 'nợ T11/2026–T12/2026', 'nợ T7/2026–T10/2026', 'nợ T6/2026 trở về trước']);
-  assert.equal(M.tierLabels('2026-02-03', rule)[1].label, 'Đến hạn 28/2');
+  assert.equal(M.tierLabels('2026-02-03', rule)[1].tile, 'Hạn 28/2');
 });
 
 test('tierOfMonth matches the server rule: due end of next month', () => {
@@ -48,66 +47,55 @@ test('tierOfMonth matches the server rule: due end of next month', () => {
   assert.equal(M.tierOfMonth('2026-11-01', '2026-10-29', rule), 0);
 });
 
-test('debtors keep server money as BigInt and add the matrix cell and commodity of each customer', () => {
+test('debtors keep server money as BigInt, the server risk level and the commodity of each customer', () => {
   const rows = M.debtors(debt);
-  assert.deepEqual(rows.map(r => [r.id, r.total, r.overdue, r.mx, r.com]), [
-    [1, 400n, 300n, 'p0t0', 'Sầu riêng cảng'],
-    [2, 400n, 400n, 'p1t1', 'Chuối'],
-    [3, 500n, 400n, 'p0t0', M.UNSORTED],
-    [4, 300n, 0n, 'p1t0', 'Mít']]);
-  assert.deepEqual(rows[0].months.map(m => [m.key, m.value, m.tier]), [['2025-12-01', 100n, 4], ['2026-08-01', 200n, 2], ['2026-10-01', 100n, 0]]);
+  assert.deepEqual(rows.map(r => [r.id, r.total, r.overdue, r.risk, r.com]), [
+    [1, 400n, 300n, 'high', 'Sầu riêng cảng'],
+    [2, 400n, 400n, 'high', 'Chuối'],
+    [3, 500n, 400n, 'watch', M.UNSORTED],
+    [4, 300n, 0n, 'ok', 'Mít']]);
   assert.equal(M.totalsMatch(rows, debt), true);
   assert.equal(M.totalsMatch(rows, { ...debt, receivable_vnd: '1601' }), false);
   assert.equal(M.totalsMatch(rows, { ...debt, due_tiers: debt.due_tiers.map(t => (t.tier === 'late_3_6' ? { ...t, receivable_vnd: '399' } : t)) }), false);
 });
 
-test('reason lines say why: risk signals first, otherwise which month is late and the last payment', () => {
+test('reason lines say why: risk signals first, otherwise which month is late and the last payment; customers without overdue are "Không quá hạn"', () => {
   const rows = M.debtors(debt);
   assert.equal(rows[0].why, 'Nợ từ T12/2025 · vẫn đi hàng');
   assert.equal(rows[1].why, 'Nợ từ T5/2026 · 7 tháng chưa trả · ngừng đi hàng');
   assert.equal(rows[2].why, 'Nợ T8/2026 quá hạn · có trả khoảng T9/2026');
-  assert.equal(rows[3].why, 'Trong hạn · chưa trả lần nào');
-  assert.deepEqual(M.reasons(rows[1], rule), ['Còn 400 đ quá hạn từ 3 tháng trở lên (nợ từ tháng 5/2026)',
-    'Trả gần nhất 02/04/2026 — 7 tháng trước', 'Đi hàng gần nhất trong tháng 3/2026 — đã ngừng đi hàng']);
-  assert.deepEqual(M.reasons(rows[3], rule), ['Chưa có nợ quá hạn', 'Chưa trả lần nào', 'Đi hàng gần nhất 20/10/2026 — vẫn đi hàng']);
+  assert.equal(rows[3].why, 'Không quá hạn · chưa trả lần nào');
+  assert.deepEqual(M.RISK, { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' });
 });
 
-test('matrix splits only overdue customers by pay × trip thresholds; null days count as the bad side; totals match', () => {
+test('risks: three chips count every debtor once and sum overdue per level; they match the server summary', () => {
   const rows = M.debtors(debt);
-  const mx = M.matrix(rows, rule);
-  assert.deepEqual(mx.cols, ['Có trả trong 60 ngày', 'Trên 60 ngày chưa trả']);
-  assert.deepEqual(mx.lines, ['Còn đi hàng', 'Ngừng đi hàng > 90 ngày']);
-  // Khách D chưa trả lần nào nhưng không có nợ quá hạn: không vào ma trận.
-  assert.deepEqual(mx.cells.map(c => [c.key, c.bad, c.count, c.overdue, c.total]), [
-    ['p0t0', 0, 2, 700n, 900n], ['p1t0', 1, 0, 0n, 0n], ['p0t1', 1, 0, 0n, 0n], ['p1t1', 2, 1, 400n, 400n]]);
-  assert.equal(mx.cells[3].label, 'Trên 60 ngày chưa trả · ngừng đi hàng > 90 ngày');
-  assert.equal(mx.count, 3);
-  assert.equal(mx.overdue, F.toBig(debt.summary.overdue_vnd));
-  assert.equal(F.sum(mx.cells.map(c => c.overdue)), mx.overdue);
+  const rk = M.risks(rows);
+  assert.deepEqual(rk.groups.map(g => [g.key, g.label, g.count, g.overdue]), [
+    ['high', 'Rủi ro cao', 2, 700n], ['watch', 'Theo dõi', 1, 400n], ['ok', 'Không quá hạn', 1, 0n]]);
+  assert.equal(rk.groups.reduce((n, g) => n + g.count, 0), rows.length);
+  assert.deepEqual(rk.credit, { count: 0, overdue: 0n });
+  assert.equal(M.riskMatches(rk, debt.summary), true);
+  assert.equal(M.riskMatches(rk, { ...debt.summary, high_customers: 3 }), false);
+  assert.equal(M.riskMatches(rk, { ...debt.summary, high_overdue_vnd: '699' }), false);
+  assert.equal(M.riskMatches(rk, { ...debt.summary, overdue_customers: 4 }), false);
+  assert.equal(M.riskMatches(rk, { ...debt.summary, overdue_vnd: '1101' }), false);
+  assert.equal(M.riskMatches(null, debt.summary), false);
 });
 
-test('matrixMatches: matrix totals must equal summary (server sums negative overdue too)', () => {
-  const mx = M.matrix(M.debtors(debt), rule);
-  assert.equal(M.matrixMatches(mx, debt.summary), true);
-  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_vnd: String(F.toBig(debt.summary.overdue_vnd) - 100n) }), false);
-  assert.equal(M.matrixMatches(mx, { ...debt.summary, overdue_customers: debt.summary.overdue_customers + 1 }), false);
-  assert.equal(M.matrixMatches(null, debt.summary), false);
-});
-
-test('matrixMatches: khách quá hạn âm (dư ở nợ cũ) không vào ô nhưng được trừ đúng vào summary thì vẫn khớp', () => {
+test('risks: khách quá hạn âm (dư ở nợ cũ) là Không quá hạn; phần âm cộng vào chip đó nên ba chip vẫn bằng summary', () => {
   // Khách F: dư 50 ở nợ 3–6 tháng, còn nợ mới 250 → quá hạn −50, còn nợ 200; server cộng −50 vào overdue_vnd.
   const withCredit = { ...debt, receivable_vnd: '1800',
     due_tiers: debt.due_tiers.map(t => (t.tier === 'not_due' ? { ...t, receivable_vnd: '550' } : t.tier === 'late_3_6' ? { ...t, receivable_vnd: '350' } : t)),
     summary: { ...debt.summary, overdue_vnd: '1050' },
-    customers: [...debt.customers, customer(6, 'Khách F', ['250', '0', '0', '-50', '0'])] };
+    customers: [...debt.customers, customer(6, 'Khách F', ['250', '0', '0', '-50', '0'], { risk: 'ok' })] };
   const rows = M.debtors(withCredit);
   assert.equal(M.totalsMatch(rows, withCredit), true);
-  const mx = M.matrix(rows, rule);
-  assert.equal(mx.count, 3);
-  assert.equal(mx.overdue, 1100n);
-  assert.deepEqual(mx.credit, { count: 1, overdue: -50n });
-  assert.equal(M.matrixMatches(mx, withCredit.summary), true);
-  assert.equal(M.matrixMatches(mx, { ...withCredit.summary, overdue_vnd: '1049' }), false);
+  const rk = M.risks(rows);
+  assert.deepEqual(rk.groups.map(g => [g.count, g.overdue]), [[2, 700n], [1, 400n], [2, -50n]]);
+  assert.deepEqual(rk.credit, { count: 1, overdue: -50n });
+  assert.equal(M.riskMatches(rk, withCredit.summary), true);
+  assert.equal(M.riskMatches(rk, { ...withCredit.summary, overdue_vnd: '1100' }), false);
 });
 
 test('commodities: under 1% folds into Khác, unsorted last, bigger first', () => {
@@ -119,34 +107,35 @@ test('commodities: under 1% folds into Khác, unsorted last, bigger first', () =
   assert.deepEqual(M.commodities(M.debtors(debt)).map(g => g.key), ['Chuối', 'Sầu riêng cảng', 'Mít', M.UNSORTED]);
 });
 
-test('monthProgress: received over charges, today within the month; charges 0 has no ratio; over 100% caps the fill', () => {
+test('monthProgress: received over charges, today and days left in the month; charges 0 has no ratio; over 100% caps the fill', () => {
   const p = M.monthProgress('2026-10-29', { charges_vnd: '700000000', received_vnd: '186000000' });
-  assert.deepEqual([p.month, p.day, p.days, p.dayPct, p.fill, p.percent], [10, 29, 31, 94, 26.6, '26,6%']);
+  assert.deepEqual([p.month, p.day, p.days, p.left, p.dayPct, p.fill, p.percent], [10, 29, 31, 2, 94, 26.6, '26,6%']);
   const none = M.monthProgress('2026-02-01', { charges_vnd: '0', received_vnd: '5' });
-  assert.deepEqual([none.days, none.dayPct, none.fill, none.percent, none.received], [28, 4, 0, null, 5n]);
+  assert.deepEqual([none.days, none.left, none.dayPct, none.fill, none.percent, none.received], [28, 27, 4, 0, null, 5n]);
   const over = M.monthProgress('2026-10-31', { charges_vnd: '100', received_vnd: '250' });
-  assert.deepEqual([over.dayPct, over.fill, over.percent], [100, 100, '250%']);
+  assert.deepEqual([over.left, over.dayPct, over.fill, over.percent], [0, 100, 100, '250%']);
   assert.deepEqual(M.monthProgress('2026-10-29', undefined).charges, 0n);
 });
 
-test('dayCell: short text and tone by threshold; null is "chưa …", never 0', () => {
-  assert.deepEqual(M.dayCell(27, 60, 30, 'chưa trả'), { text: '27 ngày', tone: '' });
-  assert.deepEqual(M.dayCell(45, 60, 30, 'chưa trả'), { text: '45 ngày', tone: 'warn' });
-  assert.deepEqual(M.dayCell(92, 60, 30, 'chưa trả'), { text: '3 tháng', tone: 'bad' });
-  assert.deepEqual(M.dayCell(61, 60, 30, 'chưa trả'), { text: '61 ngày', tone: 'bad' });
-  assert.deepEqual(M.dayCell(null, 90, 30, 'chưa có'), { text: 'chưa có', tone: 'bad' });
-  assert.deepEqual(M.dayCell(0, 90, 30, 'chưa có'), { text: '0 ngày', tone: '' });
+test('dayCell: the number only (unit sits in the column head) and tone by threshold; null is "chưa", never 0', () => {
+  assert.deepEqual(M.dayCell(27, 60, 30), { text: '27', tone: '' });
+  assert.deepEqual(M.dayCell(30, 60, 30), { text: '30', tone: '' });
+  assert.deepEqual(M.dayCell(45, 60, 30), { text: '45', tone: 'warn' });
+  assert.deepEqual(M.dayCell(61, 60, 30), { text: '61', tone: 'bad' });
+  assert.deepEqual(M.dayCell(963, 90, 30), { text: '963', tone: 'bad' });
+  assert.deepEqual(M.dayCell(null, 90, 30), { text: 'chưa', tone: 'bad' });
+  assert.deepEqual(M.dayCell(0, 90, 30), { text: '0', tone: '' });
 });
 
-test('filterRows filters by due tier, matrix cell and commodity; sorts by first column, total, or days with null first', () => {
+test('filterRows filters by due tier, risk level and commodity; sorts by first column, total, or days with null first', () => {
   const rows = M.debtors(debt);
   assert.deepEqual(M.filterRows(rows).map(x => [x.row.id, x.first]), [[3, 400n], [2, 400n], [1, 300n], [4, 0n]]);
   assert.deepEqual(M.filterRows(rows, { sort: 'total' }).map(x => x.row.id), [3, 2, 1, 4]);
   assert.deepEqual(M.filterRows(rows, { tier: 2 }).map(x => [x.row.id, x.first]), [[3, 400n], [1, 200n]]);
-  assert.deepEqual(M.filterRows(rows, { tier: 2, cls: { dim: 'mx', key: 'p0t0' } }).map(x => x.row.id), [3, 1]);
-  assert.deepEqual(M.filterRows(rows, { cls: { dim: 'mx', key: 'p1t1' } }).map(x => x.row.id), [2]);
-  // Khách D nằm ở p1t0 theo ngày nhưng không có nợ quá hạn: ô ma trận không lọc ra.
-  assert.deepEqual(M.filterRows(rows, { cls: { dim: 'mx', key: 'p1t0' } }).map(x => x.row.id), []);
+  assert.deepEqual(M.filterRows(rows, { tier: 2, risk: 'high' }).map(x => x.row.id), [1]);
+  assert.deepEqual(M.filterRows(rows, { risk: 'high' }).map(x => x.row.id), [2, 1]);
+  assert.deepEqual(M.filterRows(rows, { risk: 'ok' }).map(x => x.row.id), [4]);
+  assert.deepEqual(M.filterRows(rows, { risk: 'high', com: 'Chuối' }).map(x => x.row.id), [2]);
   assert.deepEqual(M.filterRows(rows, { com: M.UNSORTED }).map(x => x.row.id), [3]);
   assert.deepEqual(M.filterRows(rows, { sort: 'pay' }).map(x => x.row.id), [4, 2, 3, 1]);
   assert.deepEqual(M.filterRows(rows, { sort: 'trip' }).map(x => x.row.id), [2, 3, 4, 1]);
