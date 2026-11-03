@@ -5,8 +5,8 @@
   'use strict';
   const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork, todayIso } = ctx;
   const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
-  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau.
-  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
+  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau; DASH-05 (4): "Trong hạn" chỉ cho tiền.
+  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' };
   const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
