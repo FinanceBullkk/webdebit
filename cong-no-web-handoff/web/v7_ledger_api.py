@@ -79,7 +79,9 @@ PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến 
 INBOX = v7_inbox.Inbox(
     ledger_projections,
     lambda: (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH,
-             v7_api_sheet.RECEIPT_SNAPSHOT_PATH, v7_api_sheet.PS_SNAPSHOT_PATH),
+             v7_api_sheet.RECEIPT_SNAPSHOT_PATH, v7_api_sheet.PS_SNAPSHOT_PATH)
+    # road.json (chuyến bộ, NGUON-CHUYEN-01) chỉ có khi runner bật: thiếu file không được làm hộp thành "chưa đọc được".
+    + tuple(path for path in (v7_api_sheet.ROAD_SNAPSHOT_PATH,) if os.path.exists(path)),
     lambda: v7_sheet_refresh.status(v7_api_sheet.SHEET_REFRESH_PATH,
                                     (v7_api_sheet.SHEET_SNAPSHOT_PATH, v7_api_sheet.PRICE_SNAPSHOT_PATH), time.time()))
 STREAM_PING = 15.0

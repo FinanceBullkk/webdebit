@@ -62,7 +62,7 @@
   function autoHtml(auto, esc, label, href) {
     const million = value => globalThis.InboxTable.million(value);
     const text = (auto?.items ?? []).map(item => `<li><span class="auto-kind">Sửa chữ</span><strong>${esc(label(item))}</strong><span>${esc(AUTO_FIELD[item.field] ?? item.field)}: ${esc(item.before ?? '—')} → ${esc(item.after)}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
-    const trips = (auto?.trip_items ?? []).map(item => `<li><span class="auto-kind">Chuyến mới</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.event_date))}${item.pending ? ' · chờ kiểm' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
+    const trips = (auto?.trip_items ?? []).map(item => `<li><span class="auto-kind">${item.road ? 'Chuyến bộ' : 'Chuyến mới'}</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.event_date))}${item.pending ? ' · chờ kiểm' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
     // Trước → sau: chuyến chưa giá nhận giá Sheet; chuyến đã có giá chỉ đổi giảm trừ (phụ phí âm), đơn giá giữ nguyên.
     const fee = value => value != null && value !== '0';
     const priceChange = item => item.before_unit_price_vnd == null

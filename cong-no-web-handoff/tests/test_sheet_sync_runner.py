@@ -30,6 +30,50 @@ class SheetSyncRunnerTests(unittest.TestCase):
             self.assertEqual(json.loads(output_path.read_text(encoding="utf-8"))["row_count"], 2)
             self.assertFalse((output_path.with_name("snapshot.json.tmp")).exists())
 
+    def test_road_output_is_atomic_mode_600_and_a_failed_read_keeps_the_previous_file(self):
+        # GĐ2 NGUON-CHUYEN-01: road.json cạnh snapshot.json, cùng lượt timer.
+        with tempfile.TemporaryDirectory() as directory:
+            credential_path = Path(directory) / "credential.json"
+            credential_path.write_text(json.dumps({
+                "type": "service_account", "client_email": "reader@example.com", "private_key": "unused",
+            }), encoding="utf-8")
+            road_path = Path(directory) / "out" / "road.json"
+            with patch.object(runner, "read_road", lambda sheet, token: {
+                    "row_count": 1, "sha256": "c" * 64, "rows": [{"container": "EMCU5321485"}], "source": {}}):
+                road = runner.run_road_once(str(credential_path), "sheet-id", str(road_path), lambda _: "token")
+            saved = json.loads(road_path.read_text(encoding="utf-8"))
+            self.assertEqual((road["runner"]["source"], saved["row_count"], saved["runner"]["mode"]), ("cont_bo", 1, "read-only"))
+            self.assertTrue(saved["runner"]["created_at"])
+            if sys.platform != "win32":
+                self.assertEqual(road_path.stat().st_mode & 0o777, 0o600)
+
+            def broken(sheet, token):
+                raise ValueError("CONT_BO header mismatch")
+            with patch.object(runner, "read_road", broken), self.assertRaisesRegex(ValueError, "header mismatch"):
+                runner.run_road_once(str(credential_path), "sheet-id", str(road_path), lambda _: "token")
+            self.assertEqual(json.loads(road_path.read_text(encoding="utf-8"))["sha256"], "c" * 64)
+
+    def test_main_reads_road_only_when_asked_and_exits_1_when_it_fails(self):
+        calls = []
+        sea = {"row_count": 0, "sha256": "a" * 64}
+        argv = ["runner", "--credentials", "c.json", "--spreadsheet-id", "sheet-id", "--output", "s.json"]
+        with patch.object(runner, "run_once", lambda *a, **k: calls.append("sea") or sea), \
+                patch.object(runner, "run_road_once", lambda *a, **k: calls.append("road") or {"row_count": 2, "sha256": "b" * 64}), \
+                patch("sys.stdout", io.StringIO()):
+            with patch.dict("os.environ", {}, clear=True), patch.object(sys, "argv", argv):
+                self.assertEqual(runner.main(), 0)
+            with patch.object(sys, "argv", argv + ["--road-output", "road.json"]):
+                self.assertEqual(runner.main(), 0)
+        self.assertEqual(calls, ["sea", "sea", "road"])
+
+        def broken(*args, **kwargs):
+            raise ValueError("CONT_BO header mismatch")
+        with patch.object(runner, "run_once", lambda *a, **k: sea), patch.object(runner, "run_road_once", broken), \
+                patch.object(sys, "argv", argv + ["--road-output", "road.json"]), \
+                patch("sys.stdout", io.StringIO()), patch("sys.stderr", io.StringIO()) as err:
+            self.assertEqual(runner.main(), 1)
+        self.assertIn("CONT_BO", err.getvalue())
+
     def test_source_option_picks_the_central_tab_and_rejects_unknown(self):
         with tempfile.TemporaryDirectory() as directory:
             credential_path = Path(directory) / "credential.json"

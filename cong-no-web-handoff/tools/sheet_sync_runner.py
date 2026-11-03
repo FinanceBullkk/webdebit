@@ -18,7 +18,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
-from webdebit_export_connector import read_export, read_source
+from webdebit_export_connector import read_export, read_road, read_source
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
@@ -128,6 +128,23 @@ def run_once(credentials_path: str, spreadsheet_id: str, output_path: str,
 
     snapshot = with_timeout_retry(read, sleep=sleep)
     snapshot["runner"] = {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only", "source": source}
+    write_snapshot(snapshot, output_path)
+    return snapshot
+
+
+def run_road_once(credentials_path: str, spreadsheet_id: str, output_path: str,
+                  token_exchange: Callable[[dict[str, str]], str] = exchange_token,
+                  sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """CONT_BO into `road.json` (NGUON-CHUYEN-01 GĐ2). A failed read leaves the previous file as it was."""
+    credentials = load_credentials(credentials_path)
+    snapshot = with_timeout_retry(lambda: read_road(spreadsheet_id, token_exchange(credentials)), sleep=sleep)
+    snapshot["runner"] = {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only", "source": "cont_bo"}
+    write_snapshot(snapshot, output_path)
+    return snapshot
+
+
+def write_snapshot(snapshot: dict[str, Any], output_path: str) -> None:
+    """Atomic replace, mode 600: the API never reads a half-written file."""
     destination = pathlib.Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
@@ -140,7 +157,6 @@ def run_once(credentials_path: str, spreadsheet_id: str, output_path: str,
         os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
-    return snapshot
 
 
 def main() -> int:
@@ -150,12 +166,23 @@ def main() -> int:
     parser.add_argument("--output", default=os.getenv("WEBDEBIT_SNAPSHOT_PATH", "sheet-snapshot.json"))
     parser.add_argument("--source", choices=SOURCES, default=os.getenv("WEBDEBIT_SHEET_SOURCE", DEFAULT_SOURCE),
                         help="which tab(s) to read; env WEBDEBIT_SHEET_SOURCE")
+    parser.add_argument("--road-output", default=os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH"),
+                        help="also read CONT_BO into this file (road.json); env WEBDEBIT_ROAD_SNAPSHOT_PATH, unset = skip")
     args = parser.parse_args()
     if not args.credentials or not args.spreadsheet_id:
         parser.error("set --credentials/WEBDEBIT_GOOGLE_CREDENTIALS and --spreadsheet-id/WEBDEBIT_SHEET_ID")
     snapshot = run_once(args.credentials, args.spreadsheet_id, args.output, source=args.source)
     print(json.dumps({"output": args.output, "source": args.source, "row_count": snapshot["row_count"],
                       "sha256": snapshot["sha256"]}))
+    if args.road_output:
+        try:
+            road = run_road_once(args.credentials, args.spreadsheet_id, args.road_output)
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            # Bản chụp biển đã ghi; road.json giữ bản trước. Thoát lỗi để unit báo failed.
+            print(f"sheet-sync: đọc CONT_BO lỗi: {exc}", file=sys.stderr, flush=True)
+            return 1
+        print(json.dumps({"output": args.road_output, "source": "cont_bo", "row_count": road["row_count"],
+                          "sha256": road["sha256"]}))
     return 0
 
 

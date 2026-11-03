@@ -86,7 +86,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="vcl-giu-01"></a>[VCL-GIU-01](decisions/vcl-giu-01.md) | Giữ giá web và giữ chuyến tới khi dòng Sheet liên quan đổi; lưu server và Lịch sử | Chốt 2/11/2026; lên `hao` 3/11/2026 ([nhật ký](deploys/2026-11-03-viec-can-lam.md)) |
 | <a id="may-khoa-01"></a>[MAY-KHOA-01](decisions/may-khoa-01.md) | Khóa tháng chỉ chặn người: máy (theo Sheet) mở, ghi, khóa lại để điền ngày cho dòng sổ gốc không ngày cùng tháng, và đưa chuyến mới vào tháng khóa từ 10/2026 | Chốt 3/11/2026; chỉ đổi code app |
 | <a id="may-gia-01"></a>[MAY-GIA-01](decisions/may-gia-01.md) | Máy tự ghi giá Sheet đã chắc chắn ở mọi tháng từ 10/2026, tháng khóa thì mở, ghi, khóa lại; thay vế "người bấm ghi giá" của HANG-CHO-01 Q5 | Chốt 3/11/2026; chỉ đổi code app, bật bằng `WEBDEBIT_AUTO_SHEET=prices` |
-| <a id="nguon-chuyen-01"></a>[NGUON-CHUYEN-01](decisions/nguon-chuyen-01.md) | Chuyến theo booking (ngày; khách, mặt hàng với chuyến biển), tiền theo sổ gốc; lệch vào hộp ngoại lệ; nguồn `CONT_NGUON`, `CONT_BO` (giữ tab), booking 2025 | Chốt 3/11/2026; chưa triển khai, giai đoạn ở [spec](../specs/v7-chuyen-theo-nguon.md) |
+| <a id="nguon-chuyen-01"></a>[NGUON-CHUYEN-01](decisions/nguon-chuyen-01.md) | Chuyến theo booking (ngày; khách, mặt hàng với chuyến biển), tiền theo sổ gốc; lệch vào hộp ngoại lệ; nguồn `CONT_NGUON`, `CONT_BO` (giữ tab), booking 2025; chuyến bộ mới tự vào sổ theo tab khách trên Sheet | Chốt 3/11/2026; GĐ1, GĐ2 `CONT_BO` và chuyến bộ mới (bật bằng `road`) đã code, phần khác chưa, giai đoạn ở [spec](../specs/v7-chuyen-theo-nguon.md) |
 
 ## Cập nhật khóa tháng 24/10/2026
 

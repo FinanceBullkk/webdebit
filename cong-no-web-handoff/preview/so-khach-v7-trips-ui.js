@@ -98,7 +98,7 @@
     const number = sttBase + index + 1;
     const stt = info ? deleteCell('trip', trip.id, trip.is_fee_only ? '–' : number, `chuyến ${what}`, feePick(`trip:${trip.id}`, what, feeEditable))
       : trip && !trip.is_fee_only ? cell(number) : empty();
-    const priceText = trip?.is_missing_price ? trip.note === 'Chuyến đồng bộ' ? '' : 'chưa có giá' : fmt(trip?.unit_price_vnd);
+    const priceText = trip?.is_missing_price ? ['Chuyến đồng bộ', 'Chuyến bộ đồng bộ'].includes(trip.note) ? '' : 'chưa có giá' : fmt(trip?.unit_price_vnd);
     const price = pending || trip?.status === 'rejected' || locked ? num(priceText)
       : trip ? `<td class="num editable ${trip.is_missing_price ? 'missing' : ''}" data-trip="${trip.id}" data-field="unit_price_vnd" tabindex="0" `
         + `role="button" aria-label="Sửa đơn giá chuyến ${index + 1}">${priceText}</td>` : empty('num');

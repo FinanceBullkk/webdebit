@@ -1696,6 +1696,21 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([`MAY-GIA-01`](decisions/ma
 3. **Bật (người dùng đã chốt 3/11/2026):** sao lưu như mọi lần trước khi đổi; sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices`, `daemon-reload`, restart. Lượt hộp việc đầu tiên sau khởi động chạy máy. Đo sau như bước 2 trên DB thật, cộng số event sửa giá của `may-theo-sheet`; chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `prices` khỏi biến, restart. Giá máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay tại ô nếu sai (tháng khóa: mở khóa trước).
 
+## Chuyến bộ từ `CONT_BO` (NGUON-CHUYEN-01 GĐ2–GĐ3)
+
+Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions/nguon-chuyen-01.md), [spec](../specs/v7-chuyen-theo-nguon.md)). Chưa có `road.json` và công tắc `road` tắt thì release mới không đổi gì. Bật máy là **ghi tiền**: chuyến vào sổ chưa có giá, rồi máy ghi giá (`prices`) cộng giá tab vào nợ.
+
+1. **Runner đọc `CONT_BO` (không ghi DB):** thêm `WEBDEBIT_ROAD_SNAPSHOT_PATH=/var/lib/webdebit-sheet-sync/road.json` vào `/etc/webdebit/sheet-sync.env`. Unit `webdebit-sheet-sync` đã được ghi vào thư mục này. API mặc định đọc `road.json` cạnh `snapshot.json`.
+   - Đạt khi lượt timer kế tiếp thoát 0 và in hai dòng JSON (`cont_nguon`, `cont_bo`); `road.json` mode 600, có `runner.created_at`, số dòng không ít hơn số đo ở spec.
+   - Việc cần làm hiện chuyến bộ ở các sổ liên quan, chưa ghi gì.
+   - Đọc lỗi thì unit `failed`, `road.json` giữ bản trước. Bỏ dòng env là về như cũ.
+2. **Thử trên bản sao** (cách làm như mục MAY-GIA-01): DB tạm, `Inbox.refresh_all` của release mới với `WEBDEBIT_AUTO_SHEET=road,prices`, đọc đúng các bản chụp đang dùng kể cả `road.json`. Đạt khi:
+   - không lỗi; số chuyến dán bằng số dòng NEW của `sheet_road`;
+   - tổng nợ mỗi sổ tăng đúng bằng giá tab của các chuyến đã dán (dòng tab chưa có giá không cộng); sổ khác giữ nguyên;
+   - mọi tháng máy mở đã khóa lại; số chuyến vào "chờ kiểm" được giải thích.
+3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
+4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
+
 ## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026; máy đã bật)
 
 Đã nâng DB và đổi release 1/11/2026, xem [nhật ký](deploys/2026-11-01-khoa-chu.md). Bước 2 (bật máy) chạy 19:22 cùng ngày: lệch chữ 944 → 0, số dư không đổi.

@@ -310,6 +310,19 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
       assert.equal(posted[1].route, '/api/v7/customers/commodity'); assert.equal(posted[1].body.commodity_name, 'Chuối');
     });
+    // NGUON-CHUYEN-01: chuyến bộ (sheet_road) hiện cùng chỗ chuyến mới, kèm lời nhắn; máy đưa vào, người chỉ mở sổ.
+    const road = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
+      { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
+      { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' }] } };
+    await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      const rows = page.locator('.detail-group', { hasText: 'Chuyến mới / ở sổ khác' }).locator('li');
+      assert.equal(await rows.count(), 2);
+      assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
+      assert.match(await rows.nth(1).innerText(), /MAUU0000022[\s\S]*Container ở khách khác/);
+      assert.equal(await page.locator('[data-trip-book]').count(), 0);
+      assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 2);
+    });
     const undoPosts = [];
     await withPage({ posted: undoPosts, post: route => ({ status: 200, json: route.endsWith('/undo')
       ? { complete: true, undone: 1, version: 5 } : { complete: true, written: 1, version: 4, undo_keys: [sha] } }) }, async page => {
