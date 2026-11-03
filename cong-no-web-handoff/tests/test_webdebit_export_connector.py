@@ -223,10 +223,10 @@ class WebdebitExportConnectorTests(unittest.TestCase):
 
         def line(cont):
             return [cont, "99Z-00001", "KHÁCH A", "CHIMA", "/", "/", "/", "16/10/2026"]
-        rows = connector.parse_road_values([header, line("BM0U9231830"), line(" bm0u 9231831 "), line("FAKU1000001"),
-                                            line("ABC09231830"), line("A0C1234567")])
+        rows = connector.parse_road_values([header, line("F0KU1000001"), line(" f0ku 1000002 "), line("FAKU1000001"),
+                                            line("FAK01000003"), line("F0K1234567")])
         self.assertEqual([r["container"] for r in rows],
-                         ["BMOU9231830", "BMOU9231831", "FAKU1000001", "ABC09231830", "A0C1234567"])
+                         ["FOKU1000001", "FOKU1000002", "FAKU1000001", "FAK01000003", "F0K1234567"])
 
     def test_read_road_hashes_the_tab(self):
         header = list(connector.ROAD_COLUMNS.values())
