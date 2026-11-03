@@ -74,7 +74,10 @@ def _pick_book(name: str, commodity: str, names: dict[str, list[dict[str, Any]]]
     """
     exact = names.get(name, [])
     match = exact[0] if len(exact) == 1 and exact[0].get("status") == "active" else None
-    family = {c["id"]: c for c in exact + owners.get(name, []) if c.get("status") == "active"}
+    # Tên Sheet có thể nối thẳng tới tên một sổ (bí danh "KHÁCH H HTH1" → sổ "KHÁCH H-SR"): nhóm theo tên khách của sổ đó.
+    owner = _name(match.get("display_name")) if match and match.get("display_name") else ""
+    family = {c["id"]: c for c in exact + owners.get(name, []) + names.get(owner, []) + owners.get(owner, [])
+              if c.get("status") == "active"}
     if len(family) == 1:
         match = next(iter(family.values()))
     elif family and commodity:
@@ -155,11 +158,14 @@ def _same_legacy_trip(ref: dict[str, Any], container: str, date: dt.date) -> boo
 
 
 def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None,
-                     other_legacy: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                     other_legacy: list[dict[str, Any]] | None = None,
+                     family_ids: set[int] | None = None) -> dict[str, Any]:
     """Show only new or changed Sheet rows inside one customer ledger.
 
     `other_legacy` holds original-book rows of other books for the containers waiting here (list_legacy_trip_refs).
     A row that is already one of them is not offered as new (docs/ux-luong-du-lieu.md 3.3: same customer, other commodity book).
+    When that book is one of `family_ids` (same customer, e.g. the old Sheet kept durian in the dragon fruit book) the trip
+    is already counted there: nothing to do, the row is not shown at all.
     """
     existing = []
     for trip in ledger.get("trips", []):
@@ -244,7 +250,9 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
             state = "CONFLICT"
             reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
             changed = []
-        elif any(_same_legacy_trip(ref, container, date) for ref in other_legacy or ()):
+        elif same_legacy := [ref for ref in other_legacy or () if _same_legacy_trip(ref, container, date)]:
+            if all(ref.get("customer_id") in (family_ids or ()) for ref in same_legacy):
+                continue
             state = "CONFLICT"
             reason = "OTHER_BOOK_LEGACY"
             changed = []

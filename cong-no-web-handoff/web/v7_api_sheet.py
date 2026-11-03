@@ -207,7 +207,9 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
                 raise ValueError("legacy trip references invalid")
             if ref["customer_id"] != ledger.get("customer_id"):
                 other_legacy.append(ref)
-    result = project_customer(queue, ledger, other_containers, other_legacy)
+    # Sổ cùng khách (cùng tên khách), kể cả sổ đường bộ: chuyến đã ở sổ gốc của chúng là đã tính, không hiện.
+    family_ids = {c["id"] for c in customers if (c.get("display_name") or c.get("name")) == family} - {ledger["customer_id"]}
+    result = project_customer(queue, ledger, other_containers, other_legacy, family_ids)
     from v7_sheet_task_keep import trip_identity
     assigned = {}
     for event in ledger.get("events", []):
