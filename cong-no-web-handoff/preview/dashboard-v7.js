@@ -6,7 +6,7 @@
   const M = DashboardModel;
   const root = document.querySelector('#dashboard');
   const $ = id => document.getElementById(id);
-  const { esc, fold, commodityText, customerLabels } = F;
+  const { esc, commodityText } = F;
   const ledgerHref = id => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}`;
   // DASH-05 (2): bấm tên khách mở trang khách ở thẻ Tình hình; ô tìm khách vẫn mở thẻ Sổ.
   const pageHref = id => `${ledgerHref(id)}&the=tinh-hinh`;
@@ -45,8 +45,6 @@
   let loading = false;
   // Nút Làm mới đọc Sheet ngay (specs/v7-sheet-refresh.md); chữ trạng thái chỉ hiện khi đang lấy hoặc lỗi.
   let sheetRefresh = null;
-  let searchReady = false;
-  let currentCustomers = [];
   // tier: nhóm hạn trả đang lọc (0–4); risk: mức rủi ro; com: mặt hàng; sort: cột xếp; all: đã mở hết danh sách.
   const state = { tier: null, risk: null, com: null, sort: 'overdue', all: false, data: null, debt: null, rows: null, ready: false,
     tiers: [], rk: null, coms: [], names: new Map() };
@@ -277,36 +275,6 @@
   addEventListener('scroll', hideTip, { passive: true });
   window.addEventListener('popstate', () => { readUrl(); if (state.data) { dropStale(); paint(); } });
 
-  function setupSearch(customers) {
-    currentCustomers = customers;
-    if (searchReady) return;
-    searchReady = true;
-    const input = $('customer-search');
-    const results = $('customer-results');
-    const draw = () => {
-      const query = fold(input.value);
-      const labels = customerLabels(currentCustomers);
-      const found = currentCustomers.filter(item => [item.name, item.display_name, item.label, item.commodity, ...(item.aliases ?? [])]
-        .some(value => fold(value).includes(query))).slice(0, 20);
-      results.innerHTML = found.map(item => `<a role="option" href="${ledgerHref(item.id)}">${esc(labels.get(String(item.id)))}</a>`).join('');
-      results.hidden = !query || !found.length;
-    };
-    input.addEventListener('input', draw);
-    input.addEventListener('focus', draw);
-    document.addEventListener('click', event => { if (!event.target.closest('.search')) results.hidden = true; });
-  }
-
-  // Số trên mục "Việc cần làm": khách có chuyến thiếu giá/chờ kiểm, chưa có số dư đầu, cần gán mặt hàng.
-  function paintTodoBadge(data, rows) {
-    const badge = $('todo-badge');
-    if (!badge) return;
-    const ids = new Set([...data.todo.missing_price, ...data.todo.pending_review, ...data.todo.no_baseline].map(item => item.customer_id));
-    for (const row of rows ?? []) if (row.com === M.UNSORTED) ids.add(row.id);
-    badge.textContent = ids.size ? String(ids.size) : '';
-    badge.hidden = !ids.size;
-    badge.setAttribute('aria-label', `${ids.size} khách cần xem`);
-  }
-
   const json = async url => {
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw Error(url);
@@ -344,8 +312,7 @@
       state.coms = state.rows ? M.commodities(state.rows) : [];
       dropStale();
       render(data, debt, customers);
-      setupSearch(customers);
-      paintTodoBadge(data, state.rows);
+      globalThis.AppNav?.setCustomers(customers);
       $('error').hidden = true;
       markUpdated(data.as_of);
     } catch {
@@ -367,12 +334,6 @@
     sheetRefresh.load();
   }
   button?.addEventListener('click', () => { load(); sheetRefresh?.trigger(); });
-  $('nav-toggle').addEventListener('click', event => {
-    const toggle = event.currentTarget;
-    const expanded = toggle.getAttribute('aria-expanded') !== 'true';
-    toggle.setAttribute('aria-expanded', String(expanded));
-    toggle.closest('.todo-nav').classList.toggle('menu-open', expanded);
-  });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

@@ -3,22 +3,6 @@ html{background:#f3f5f8;scrollbar-gutter:auto}
 body{background:#f3f5f8;font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 [hidden]{display:none!important}
 svg{flex:none;vertical-align:middle}
-.todo-nav{position:fixed;inset:0 auto 0 0;z-index:45;width:76px;padding:8px 0;background:#16324f;color:#c3d1e0;overflow:visible}
-.todo-nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.todo-nav>button{display:flex;align-items:center;justify-content:center;width:64px;min-height:48px;margin:0 6px 8px;border:0;border-radius:8px;background:#21405f;color:#fff;cursor:pointer}
-.todo-nav nav{display:flex;flex-direction:column;gap:2px}
-.todo-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:72px;margin:2px 6px;padding:6px 2px;border-radius:8px;font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;color:#c3d1e0}
-.todo-nav nav a:hover,.todo-nav nav a.active{background:#2a5179;color:#fff}
-.todo-nav nav a.active{min-height:72px}
-.todo-nav .badge{position:absolute;top:4px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
-.todo-nav .search{margin:2px 6px;padding:6px 2px;width:64px;min-width:0;height:76px;border:0;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:text}
-.todo-nav .search input{font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;min-width:0;color:#c3d1e0}
-.todo-nav .search input::placeholder{color:#c3d1e0;opacity:1}
-.todo-nav .search:focus-within{width:280px;padding:8px 12px;flex-direction:row;background:#16324f;border-radius:8px}
-.todo-nav .search:focus-within input{font-size:15px;text-align:left}
-.todo-nav .search #customer-results{left:0;top:64px;min-width:300px}
-.todo-nav.menu-open{width:210px;box-shadow:6px 0 20px #16324f33}
-.todo-nav.menu-open nav a{flex-direction:row;justify-content:flex-start;gap:12px;padding:10px;font-size:14px;text-align:left}
 .todo-page{margin:0 0 0 76px;padding:0 0 32px;max-width:none}
 .page-head.topbar{position:relative;min-height:53px;height:53px;margin:0 0 16px;padding:0 28px;border-bottom:1px solid #e3e7ec;background:#fff;color:#1a1a19;gap:10px;flex-wrap:wrap}
 .page-head h1{font-size:18px}
@@ -96,10 +80,8 @@ svg{flex:none;vertical-align:middle}
 .row-error,.inbox-error{color:#b42318}.row-error{font-size:13px;font-weight:400}.action-description{white-space:pre-line}.inbox-note{font-size:13px;color:#52514e}
 .empty{display:flex;align-items:center;gap:12px;margin:18px 6px 10px;color:#0f5f58;font-size:16px;font-weight:600}
 .sr-only{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
-@media(max-width:700px){.todo-nav{width:64px}.todo-nav>button{width:52px}.todo-nav .search{width:52px}.todo-page{margin-left:64px}.page-head.topbar{padding:0 12px}#inbox-root,#todo-root,#error{margin:0 12px 12px}.work-band,.work-card{padding:12px}.band-count strong{font-size:28px}.work-toolbar h2{width:100%}.work-toolbar>[data-review]{margin-left:0}.today-inline{margin-left:0}.filter-chip{padding:0 10px}}
+@media(max-width:700px){.todo-page{margin-left:64px}.page-head.topbar{padding:0 12px}#inbox-root,#todo-root,#error{margin:0 12px 12px}.work-band,.work-card{padding:12px}.band-count strong{font-size:28px}.work-toolbar h2{width:100%}.work-toolbar>[data-review]{margin-left:0}.today-inline{margin-left:0}.filter-chip{padding:0 10px}}
 .review-reason{grid-column:3/-1;display:flex;align-items:center;gap:8px;padding:6px 0;color:#52514e}.review-reason input{flex:1;min-width:0;height:38px;padding:0 10px;border:1px solid #b9c3cf;border-radius:8px;background:white}.receipt-review .num{text-align:right}
 
-.todo-nav .search input::-webkit-search-cancel-button{display:none}
 
-.todo-nav .search-label{font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}.todo-nav .search input{position:absolute;inset:0;opacity:0;padding:0}.todo-nav .search:focus-within .search-label{display:none}.todo-nav .search:focus-within input{position:static;opacity:1}.detail-items li+li{min-height:51px}
-.page-head .presence:empty{display:none}.todo-nav nav{margin-top:2px}
+.page-head .presence:empty{display:none}
