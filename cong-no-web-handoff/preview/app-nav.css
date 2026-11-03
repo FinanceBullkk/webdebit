@@ -1,0 +1,57 @@
+/* Menu trái dùng chung cho mọi trang (gom từ viec-can-lam.css và dashboard-v7.css ngày 3/11/2026): dải 76px biểu tượng + chữ
+   nhỏ, ☰ bung 210px đè lên nội dung, ô Tìm khách, số "sổ còn việc" trên mục Việc cần làm. Markup do app-nav.js vẽ vào
+   <aside class="app-nav">. */
+.app-nav{position:fixed;inset:0 auto 0 0;z-index:45;width:76px;padding:8px 0;background:#16324f;color:#c3d1e0;overflow:visible;
+  font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+.app-nav svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+.app-nav>button{display:flex;align-items:center;justify-content:center;width:64px;min-height:48px;margin:0 6px 8px;border:0;border-radius:8px;background:#21405f;color:#fff;cursor:pointer}
+.app-nav nav{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+.app-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:72px;margin:2px 6px;padding:6px 2px;border-radius:8px;font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;color:#c3d1e0;text-decoration:none}
+.app-nav nav a:hover{background:#21405f;color:#fff}
+.app-nav nav a.active{background:#2a5179;color:#fff}
+.app-nav nav a:focus-visible,.app-nav>button:focus-visible{outline:2px solid #6da7ec;outline-offset:2px}
+.app-nav .badge{position:absolute;top:4px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.app-nav .badge[hidden]{display:none}
+.app-nav .search{position:relative;margin:2px 6px;padding:6px 2px;width:64px;min-width:0;height:76px;border:0;border-radius:8px;background:transparent;display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:text;color:#c3d1e0}
+.app-nav .search:hover{background:#21405f}
+.page.app-page > .page-head.topbar .asof{margin-left:auto}
+.page.app-page > .page-head.topbar .asof + .live-controls{margin-left:0}
+.app-nav .search-label{font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
+.app-nav .search input{position:absolute;inset:0;width:100%;border:0;outline:0;opacity:0;padding:0;background:transparent;font:inherit;font-size:11.5px;font-weight:600;color:#c3d1e0}
+.app-nav .search input::-webkit-search-cancel-button{display:none}
+.app-nav .search:focus-within{width:280px;padding:8px 12px;flex-direction:row;background:#16324f;box-shadow:6px 0 20px #16324f33}
+.app-nav .search:focus-within .search-label{display:none}
+.app-nav .search:focus-within input{position:static;opacity:1;font-size:15px;text-align:left;color:#fff}
+.app-nav .search #customer-results{position:absolute;z-index:5;left:0;top:64px;min-width:300px;max-height:300px;overflow:auto;background:#fff;border:1px solid #d7dce3;border-radius:8px;box-shadow:0 8px 24px #1f293733}
+.app-nav .search #customer-results a{display:block;padding:10px 12px;color:#1a1a19;border-bottom:1px solid #eef0f3;text-decoration:none;font-size:14px;font-weight:400}
+.app-nav .search #customer-results a:hover,.app-nav .search #customer-results a:focus{background:#eaf2fc;outline:none}
+.app-nav.menu-open{width:240px;box-shadow:6px 0 24px #0d1b2a40}
+.app-nav.menu-open nav a{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;margin:2px 8px;padding:0 14px;font-size:15px;text-align:left}
+.app-nav.menu-open .badge{position:static;margin-left:auto}
+
+/* Trang dùng .page của cong-no-theme.css: thêm .app-page để lùi khỏi dải menu; dải dữ liệu thử cũng lùi theo.
+   Thanh đầu trang là .page-head.topbar (presence.js gắn người đang xem vào .topbar) kéo tràn hết bề ngang, nền trắng 52px. */
+.page.app-page{margin:0 0 0 76px;width:auto;max-width:none}
+body:has(> .app-nav) > #demo-banner{margin-left:76px}
+.page.app-page > .page-head.topbar{position:relative;top:auto;z-index:auto;height:auto;min-height:52px;margin:-20px -24px 16px;padding:0 28px;
+  gap:12px;flex-wrap:wrap;border-bottom:1px solid #e3e7ec;background:#fff;color:#1a1a19}
+.page.app-page > .page-head.topbar h1{font-size:18px}
+.page.app-page > .page-head.topbar .asof{color:#6f6d67;font-size:13px;white-space:nowrap}
+.page.app-page > .page-head.topbar .live-controls{margin-left:auto}
+.page.app-page > .page-head.topbar .filter{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid #c9d0d8;border-radius:8px;background:#fff;color:#52514e}
+.page.app-page > .page-head.topbar .filter input{width:200px;border:0;outline:0;background:transparent;font:inherit;color:#1a1a19}
+.page.app-page > .page-head.topbar .filter:focus-within{border-color:#2a78d6}
+
+@media (max-width:700px){
+  .app-nav{width:64px}.app-nav>button,.app-nav .search{width:52px}
+  .page.app-page{margin-left:64px}
+  body:has(> .app-nav) > #demo-banner{margin-left:64px}
+  .page.app-page > .page-head.topbar .filter input{width:140px}
+}
+/* cong-no-theme.css: dưới 760px .page đệm 16px 12px, thanh đầu trang kéo tràn theo đúng khoảng đó. */
+@media (max-width:760px){
+  .page.app-page > .page-head.topbar{margin:-16px -12px 12px;padding:8px 12px}
+  .page.app-page > .page-head.topbar .asof,.page.app-page > .page-head.topbar .live-controls{margin-left:0;white-space:normal;flex-wrap:wrap}
+  .page.app-page > .page-head.topbar .filter{flex:1 1 100%}
+  .page.app-page > .page-head.topbar .filter input{width:100%}
+}
