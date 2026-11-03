@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { launchShared } = require('./shared-browser.js');
 
 const root = __dirname;
 const currentYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));
@@ -44,7 +44,7 @@ function server({ matrixStatus = 200, matrixPayload = matrix, detail = month => 
 test('real matrix page loads API data, validates totals, changes year, filters and opens ledger detail', async () => {
   const app = server();
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
@@ -168,7 +168,7 @@ test('drawer explains credit applied from or to other months', async () => {
     ? month('-02-01', { outstanding_vnd: '0', charges_vnd: '-271000', credit_applied_vnd: '-271000' })
     : month('-03-01', { outstanding_vnd: '129000', charges_vnd: '300000', credit_applied_vnd: '171000' }) });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
@@ -188,7 +188,7 @@ test('drawer explains credit applied from or to other months', async () => {
 test('matrix rejects missing money evidence from API', async () => {
   const app = server({ matrixPayload: year => ({ ...matrix(year), customers: [{ ...matrix(year).customers[0], months: {} }] }) });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
@@ -202,7 +202,7 @@ test('matrix rejects missing money evidence from API', async () => {
 test('matrix network error: Vietnamese sentence, never the browser string; Thử lại loads the table', async () => {
   const app = server();
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     await page.route('**/api/v7/receivables/matrix*', route => route.abort('failed'));
@@ -230,7 +230,7 @@ test('matrix refresh reads new data while preserving selected year', async () =>
     return data;
   } });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage();
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
@@ -249,7 +249,7 @@ test('mở từ Tổng quan (?tuoi=&con-no=1): tô cột tháng của nhóm tu�
   const age = diff <= 0 ? 0 : diff <= 2 ? 1 : diff <= 6 ? 2 : 3;
   const app = server();
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html?tuoi=' + age + '&con-no=1');
@@ -279,7 +279,7 @@ test('mở từ Tổng quan (?xep=con-no&khach=): bỏ nhóm mặt hàng, nợ n
     grand_total_year_vnd: year === currentYear ? '160000' : '0', grand_total_all_vnd: year === currentYear ? '160000' : '0' });
   const app = server({ matrixPayload: payload });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchShared();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html?con-no=1&xep=con-no&khach=3');

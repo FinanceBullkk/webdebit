@@ -36,19 +36,24 @@ def _row_year(value: Any) -> int | None:
         return None
 
 
-def load_snapshot(path: str | Path) -> dict[str, Any]:
+def read_snapshot(path: str | Path, label: str = "Sheet snapshot") -> dict[str, Any]:
+    """One runner snapshot file: rows, a sha256 and a matching row_count. `label` starts every error message."""
     try:
         with open(path, encoding="utf-8") as stream:
             snapshot = json.load(stream)
     except (OSError, ValueError) as exc:
-        raise ValueError("Sheet snapshot unavailable") from exc
+        raise ValueError(f"{label} unavailable") from exc
     if not isinstance(snapshot, dict) or not isinstance(snapshot.get("rows"), list):
-        raise ValueError("Sheet snapshot invalid")
+        raise ValueError(f"{label} invalid")
     if not isinstance(snapshot.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", snapshot["sha256"]):
-        raise ValueError("Sheet snapshot hash missing")
+        raise ValueError(f"{label} hash missing")
     if snapshot.get("row_count") != len(snapshot["rows"]):
-        raise ValueError("Sheet snapshot row count mismatch")
+        raise ValueError(f"{label} row count mismatch")
     return snapshot
+
+
+def load_snapshot(path: str | Path) -> dict[str, Any]:
+    return read_snapshot(path)
 
 
 def load_baseline(path: str | Path) -> dict[str, Any]:

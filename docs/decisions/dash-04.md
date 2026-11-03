@@ -15,3 +15,5 @@ Mọi quy tắc tính của [`DASH-03`](dash-03.md) (hạn trả, 5 nhóm, mức
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT. Thay phần trình bày của `DASH-03` (các câu "một câu kết luận", "một câu lý do", 5 tiêu chí phân loại); phần quy tắc của `DASH-03` vẫn hiệu lực. Ma trận 2×2 còn chờ người dùng tự nhìn trên bản thử; nếu không đọc hiểu, lùi về 4 thanh ngang cùng nhãn (không đổi dữ liệu). Trạng thái triển khai ghi theo lượt `Deploy hao` và nhật ký trong [`docs/deploys/`](../deploys/README.md).
+
+**Cập nhật 3/11/2026:** phần trình bày thay bởi [`DASH-05`](dash-05.md) (người dùng chốt 2/11/2026 trên canvas): ma trận 2×2 bỏ, thay bằng chip mức rủi ro; bảng ghi triệu; bỏ ngăn kéo.
