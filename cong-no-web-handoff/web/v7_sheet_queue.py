@@ -189,7 +189,8 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                          "carrier": current.get("carrier") or display.get("carrier"),
                          "shipper": current.get("shipper") or display.get("shipper"),
                          "origin": current.get("origin") or display.get("from"),
-                         "destination": current.get("destination") or display.get("to")})
+                         "destination": current.get("destination") or display.get("to"),
+                         "debt_month": current.get("debt_month") or legacy.get("month")})
     resolved = {}
     for event in ledger.get("events", []):
         if event.get("kind") != "sheet_conflict_resolved":
@@ -226,6 +227,12 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 continue
             if (booking and old.get("booking") and booking == _container(old["booking"])) or abs((date - old_date).days) <= 3:
                 matches.append(old)
+        if not matches:
+            # Dòng sổ gốc không ngày, cùng container, cùng tháng nợ là chuyến này (như BASELINE_UNDATED_MONTH của paste_trips):
+            # hiện là lệch ngày để máy điền ngày theo Sheet, không phải "container đã dùng" (đo 3/11/2026: 57 dòng).
+            undated = [old for old in same_container if old["kind"] == "legacy" and not old.get("event_date")
+                       and str(old.get("debt_month") or "")[:7] == date.isoformat()[:7]]
+            matches = undated if len(undated) == 1 else []
         if container in (other_customer_containers or set()):
             state = "CONFLICT"
             reason = "OTHER_CUSTOMER"
@@ -269,6 +276,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                         "changed_fields": changed,
                         "existing_kind": old["kind"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_id": old["id"] if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
+                        "existing_debt_month": old.get("debt_month") if len(matches) == 1 and reason == "DIFFERENT_FIELDS" else None,
                         "existing_values": {field: (old.get("shipper") or
                                                     (old.get("carrier") if old["kind"] == "legacy" else None))
                                             if field == "shipper" else old.get(field)
