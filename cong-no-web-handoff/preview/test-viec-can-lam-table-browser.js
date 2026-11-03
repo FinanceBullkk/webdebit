@@ -315,7 +315,10 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
       { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' }] } };
     await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
+      // Sổ tải chậm như trên máy CI (lần đầu đếm ngay sau khi bấm nên ra 0 dòng ở CI, xanh ở máy nhanh).
+      await page.route('**/api/v7/ledger*', async route => { await new Promise(done => setTimeout(done, 500)); await route.continue(); });
       await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('.work-detail .loading').waitFor({ state: 'hidden' });
       const rows = page.locator('.detail-group', { hasText: 'Chuyến mới / ở sổ khác' }).locator('li');
       assert.equal(await rows.count(), 2);
       assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
