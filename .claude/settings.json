@@ -25,7 +25,6 @@
       "Bash(gh run watch*)"
     ],
     "ask": [
-      "Bash(git merge*)",
       "Bash(git init*)",
       "Bash(gh repo create*)",
       "Bash(rm *)",

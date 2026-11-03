@@ -6,12 +6,15 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .topbar .brand{display:none}
 .nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:48px;margin:0 6px 8px;padding:0;border:0;border-radius:8px;background:#21405f;color:#fff;font:inherit;cursor:pointer}
 .topbar>nav{display:flex;flex-direction:column;align-self:auto;gap:2px}
-.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-height:60px;margin:2px 6px;padding:6px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-height:72px;margin:2px 6px;padding:6px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
 .topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
 .topbar>nav a.active{background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{background:#21405f}
 .topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}
 .topbar.expanded>nav a,.topbar.expanded .picker-open{flex-direction:row;justify-content:flex-start;gap:12px;min-height:48px;padding:0 14px;margin:2px 8px}
 .topbar.expanded>nav a span,.topbar.expanded .picker-open span{font-size:15px;white-space:nowrap;max-width:none}
+/* Số "sổ còn việc" trên mục Việc cần làm: cùng chỗ, cùng màu với app-nav.css (app-nav.js đếm). */
+.topbar>nav a span.badge{position:absolute;top:4px;right:8px;width:auto;max-width:none;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:9px;background:#e8a33d;color:#1a1a19;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.topbar>nav a span.badge[hidden]{display:none}.topbar.expanded>nav a span.badge{position:static;margin-left:auto;font-size:11px}
 .topbar .presence{margin:8px auto;flex-wrap:wrap;max-width:60px}.topbar .presence-tip{left:40px;right:auto;top:0;pointer-events:none}
 /* Đầu trang chung của bốn thẻ (canvas UuTien 3/11/2026): thanh trắng 52px "Sổ khách / Tên ▾" · bốn thẻ · ⋯. */
 .book-head{position:sticky;top:var(--banner);height:var(--head);margin:0 -16px;padding:0 28px;gap:16px;border-bottom:1px solid #e3e7ec;background:#fff;box-shadow:none}

@@ -109,8 +109,9 @@ test('Nhắc nợ ngay: nút chính Copy tin nhắc nợ (lệnh của thẻ Tra
   assert.equal(world.reminderLog.length, 1, 'Copy tin nhắc nợ dùng lệnh của thẻ Trao đổi');
 }, debtor));
 
-test('Không có nợ quá hạn: không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
+test('Không có nợ quá hạn: nhãn như Tổng quan, không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
   await page.locator('.ov-next-main strong', { hasText: 'Chưa cần làm gì' }).waitFor();
+  assert.equal(await page.locator('.ov-risk').innerText(), 'Không quá hạn', 'DASH-05 (4): cùng chữ DashboardModel.RISK.ok');
   assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
 }, world => {
   debtor(world);
@@ -160,6 +161,22 @@ test('Lỗi Tổng quan không đổi số sổ; thử lại đọc được cơ
   assert.match(await error.innerText(), /Không tải được số quá hạn/);
   await error.locator('button').click();
   await page.locator('.ov-part-link').first().waitFor();
+}, debtor));
+
+// CI 3/11/2026: hứa trả về sau khi người dùng đã Tab tới nút sang thẻ khác (data-the) — vẽ lại thẻ không được làm rơi tiêu điểm.
+test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác', async () => withPage(async ({ page }) => {
+  await ready(page);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route(/\/api\/v7\/marks\?/, async route => { await held; await route.continue(); }, { times: 1 });
+  await page.reload();
+  const go = page.locator('#the-tinh-hinh .tab-go').last();
+  await go.waitFor();
+  await go.focus();
+  const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
+  release();
+  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
 }, debtor));
 
 test('Không đọc được hứa trả thì không tự quyết định nhắc nợ', async () => withPage(async ({ page }) => {

@@ -345,6 +345,12 @@ const PSQL_ALLOWED = {
     "case harness V7 (opening/cutover, golden) dùng psql trực tiếp để kiểm khóa và một transaction lớn",
   "cong-no-web-handoff/tools/test_pg_v7_backend_schema.py":
     "case harness V7 (SCHEMA, evidence) dùng psql trực tiếp để kiểm DML đồng thời",
+  // 3/11/2026: kênh `docker exec` của harness V7 nay giữ một kết nối psql cho lệnh phải thành công,
+  // nên nó chọn lệnh theo tên chương trình psql; cùng loại hạ tầng harness với pg_v7_harness.py.
+  "cong-no-web-handoff/tools/docker_exec_channel.py":
+    "kênh docker exec dùng chung của harness V7 trong Docker, giữ kết nối psql cho lệnh phải thành công",
+  "cong-no-web-handoff/tests/test_docker_exec_channel.py":
+    "test của kênh harness V7, kiểm chọn đường cho argv psql giả bằng lớp thay thế, không có Docker",
   "cong-no-web-handoff/tools/test_pg_v7_matrix.py":
     "harness review SQL get_receivables_matrix trong Docker dùng một lần, cùng loại harness V7 ở trên (thêm 24/10/2026, spec v7-cong-no-theo-thang)",
   "cong-no-web-handoff/tools/v7_load_real_copy.py":

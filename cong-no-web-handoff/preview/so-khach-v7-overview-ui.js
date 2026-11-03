@@ -5,8 +5,8 @@
   'use strict';
   const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork, todayIso } = ctx;
   const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
-  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau.
-  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Trong hạn' };
+  // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau; DASH-05 (4): "Trong hạn" chỉ cho tiền.
+  const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' };
   const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
@@ -36,13 +36,16 @@
         .finally(() => { item.at = Date.now(); paint(); });
     }
   }
-  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc.
+  // Nguồn phụ về sau lần vẽ sổ: chỉ vẽ lại khung thẻ Tình hình; tiêu điểm đang ở một nút của thẻ thì về nút cùng việc — nút
+  // data-go, hoặc nút sang thẻ khác (data-the, có hai nút cùng thẻ nên nhớ cả thứ tự).
   function paint() {
     const pane = root.querySelector('#the-tinh-hinh');
     if (!pane || !ctx.snapshot) return;
-    const focus = pane.contains(document.activeElement) ? document.activeElement.dataset?.go : null;
+    const active = pane.contains(document.activeElement) ? document.activeElement : null;
+    const key = active?.dataset.go ? `[data-go="${CSS.escape(active.dataset.go)}"]` : active?.dataset.the ? `[data-the="${CSS.escape(active.dataset.the)}"]` : null;
+    const nth = key ? [...pane.querySelectorAll(key)].indexOf(active) : -1;
     pane.innerHTML = body(ctx.snapshot);
-    if (focus) pane.querySelector(`[data-go="${CSS.escape(focus)}"]`)?.focus();
+    if (key) (pane.querySelectorAll(key)[nth] ?? pane.querySelector(key))?.focus();
   }
 
   // Tên tháng dưới hình, thẳng cột với hình: tháng có trong sổ là nút mở thẻ Sổ tháng đó (vùng bấm 40px, Tab tới được). Tháng đang
