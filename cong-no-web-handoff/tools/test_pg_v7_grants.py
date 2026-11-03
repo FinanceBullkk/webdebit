@@ -120,6 +120,8 @@ KNOWN_FUNCTIONS.update({'record_reminder', 'get_reminders'})  # NHAC-NO-01
 KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01
+KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'assign_sheet_trip',
+                        'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026
 
 
 def check_catalog(pg, *, extra_functions=frozenset(), extra_app=frozenset()):
