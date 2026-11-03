@@ -46,6 +46,7 @@ Số đo (chỉ số đếm; danh sách có tên khách giữ ngoài Git):
 - **Nguồn xác nhận bộ nạp đọc ngày đúng:** 1.870/1.877 ngày mà bộ nạp tự đảo ngày/tháng trùng đúng ngày booking.
 - **Cần người xem:**
   - 28 nhóm có từ hai dòng có tiền cùng ghép một chuyến nguồn;
+  - thêm 9 dòng nghi trùng lệch 1–3 ngày hoặc phải đảo ngày/tháng mới trùng (ca đảo ngày do phiên khác phát hiện cùng ngày);
   - 381 chuyến nguồn không thấy trên sổ dù khách đã có sổ;
   - 293 dòng sổ không đọc được ngày mà nguồn có ngày.
 

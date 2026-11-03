@@ -53,7 +53,11 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 - **Đọc ngày nguồn** theo kiểu ngày trước tháng (đo 3/11: không ô nào có số thứ hai lớn hơn 12). Dạng "dd/mm" không năm chỉ có ở hai tab bộ của booking 2025, năm lấy là 2025.
 - **So tên chủ hàng** sau khi bỏ dấu, chữ số và mã HTH/TTH. Ví dụ "NGUYỄN VĂN A" và "NGUYEN VAN A 123" là một chủ hàng.
 - **Phân nhóm:**
-  - trùng;
+  - trùng, gồm ba trường hợp:
+    - cùng container và cùng ngày, có tiền ở hai dòng trở lên;
+    - dòng không ghép được mà ngày của nó cách không quá 3 ngày một chuyến nguồn đã ghép dòng khác;
+    - dòng không ghép được mà **đảo ngày/tháng** thì trùng (±3 ngày) một chuyến nguồn đã ghép dòng khác. Phiên khác phát hiện ca này ngày 3/11/2026: một chuyến booking 6/3 được tính ở hai sổ, một sổ ghi 6/3, sổ kia ghi 3/6.
+    Dòng còn lại cùng container nhưng xa ngày là container dùng lại, không báo;
   - chưa có trên sổ, tách ba trường hợp: tháng hiện tại; trước khi khách có sổ; chủ hàng chưa ghép được sổ nào;
   - khách khác;
   - không có nguồn;
@@ -64,7 +68,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 ### GĐ2 — Bản chụp nguồn trên `hao`
 
 - **`CONT_BO`:** runner đọc theo tên cột như `CONT_NGUON`; thiếu cột thì dừng với lỗi rõ. Ghi `road.json` (mode 600, cùng thư mục, cùng timer). Dòng thiếu container hoặc ngày là `INVALID`.
-- **Booking 2025:** công cụ đọc một lần bằng tài khoản dịch vụ chỉ đọc (người dùng chia sẻ file cho tài khoản này), ghi `booking-2025.json` kèm sha256. Chỉ đọc lại khi người dùng báo file đổi.
+- **Booking 2025:** công cụ đọc một lần bằng tài khoản dịch vụ chỉ đọc, ghi `booking-2025.json` kèm sha256. Theo phiên khác, tài khoản này đã đọc được file; nếu không thì người dùng chia sẻ thêm. Chỉ đọc lại khi người dùng báo file đổi.
 - **Báo phía Sheet:** giữ `CONT_BO` và dòng tiêu đề hiện có.
 
 ### GĐ3 — Ghép trong hộp việc
@@ -73,7 +77,7 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 - **Ghép một-một**, cặp lệch ít ngày nhất trước. Giữ các luật đang có (trùng booking thì ghép).
 - **Điền ngày** (việc A của `MAY-KHOA-01`): áp cho cả hai nguồn mới.
 - **Kết quả mới của mỗi sổ:**
-  - `trip_dup`: nhóm dòng có tiền cùng một chuyến nguồn;
+  - `trip_dup`: nhóm dòng có tiền cùng một chuyến nguồn, theo ba trường hợp trùng của GĐ1, kể cả trường hợp đảo ngày/tháng;
   - `source_only`: chuyến nguồn trước 10/2026 không ghép dòng nào, kèm gợi ý sổ.
   - Lệch ngày giữ ở nhóm chuyến cần kiểm như hiện nay.
 - **Gợi ý sổ cho chuyến bộ:** sổ mà các chuyến khác cùng CHỦ HÀNG đã ghép nhiều nhất. Chỉ để hiện, không dùng để ghi.
@@ -116,12 +120,13 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
 GĐ1:
 - [ ] Unit `tests/test_v7_trip_source_match.py`:
   - ghép một-một: cặp lệch ít ngày thắng; container dùng lại lệch hơn 3 ngày không ghép;
+  - dòng thứ hai của một chuyến nguồn vào nhóm trùng cả khi lệch 1–3 ngày và khi phải đảo ngày/tháng mới trùng;
   - dòng không ngày ghép khi cùng tháng;
   - gom dòng trùng giữa các bảng nguồn;
   - đọc ngày kiểu ngày trước tháng, và "dd/mm" khi có năm gợi ý;
   - tên chủ hàng bỏ dấu;
   - phân nhóm trùng, chưa có trên sổ, không có nguồn.
-- [ ] Chạy trên bản tải ngày 3/11 (ngoài Git) ra lại số của quyết định: 9.416/9.710 dòng khớp từ 01/2025; 28 nhóm trùng; 381 chuyến chưa có trên sổ.
+- [ ] Chạy trên bản tải ngày 3/11 (ngoài Git) ra lại số của quyết định: 9.416/9.710 dòng khớp từ 01/2025; 28 nhóm trùng cùng ngày; 381 chuyến chưa có trên sổ. Thêm 5 dòng trùng lệch 1–3 ngày và 4 dòng trùng khi đảo ngày/tháng, trong đó có ca phiên khác báo.
 - [ ] `npm run check` xanh.
 
 GĐ2:
@@ -178,6 +183,6 @@ Cặp ghép được mà ô ngày của sổ đọc được: trùng đúng ngà
 
 ## Câu hỏi mở
 
-- File booking 2025: người dùng chia sẻ cho tài khoản dịch vụ trên `hao`, hay Claude chép bản chụp từ máy làm việc lên?
+- File booking 2025: theo báo cáo của phiên khác ngày 3/11/2026, tài khoản dịch vụ của runner trên `hao` đã đọc được file. GĐ2 kiểm lại trước khi dựa vào.
 - Có file booking năm 2024 không? Nếu có, phần lịch sử 2024 cũng ghép được.
 - Các mục CÒN MỞ của quyết định: hỏi khi tới giai đoạn liên quan.
