@@ -12,6 +12,8 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `.claude/agents/` | `planner.md` (chỉ đọc), `implementer.md` (sửa theo phạm vi), `reviewer.md` (review, không sửa) |
 | `.claude/skills/kiem-tra-truoc-pr/` | Quy trình kiểm trước khi mở PR |
 | `.claude/skills/thiet-ke-ux/` | Quy trình thiết kế, sửa, review giao diện: bài toán → cấu trúc → thị giác → trạng thái → kiểm bản render |
+| `.claude/skills/go-loi-co-he-thong/` | Gỡ lỗi: nguyên nhân gốc → so mẫu → giả thuyết → test đỏ rồi sửa; bẫy môi trường đã biết (phỏng theo obra/superpowers, MIT) |
+| `.claude/skills/kiem-chung-truoc-khi-bao-xong/` | Cổng bằng chứng trước mỗi câu báo xong/xanh/đã triển khai (phỏng theo obra/superpowers, MIT) |
 | `scripts/check-secrets.js` | Quét secrets nhẹ (stdlib Node) trên diff đã stage hoặc toàn bộ file đã theo dõi |
 | `scripts/sheet-capture/` | Apps Script chỉ ghi vết sửa Sheet nguồn vào log riêng (`Code.gs`) và test giả lập (`test.js`); spec `specs/sheet-capture.md` |
 | `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), luật nghiệp vụ; `agent-run.ps1` (giao Codex/Gemini) chỉ còn là lịch sử từ 29/10/2026 theo `CLAUDE-ALL-01` |
