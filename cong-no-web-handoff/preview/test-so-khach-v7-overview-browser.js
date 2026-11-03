@@ -179,6 +179,24 @@ test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác'
   assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
 }, debtor));
 
+// CI 3/11/2026 lần 2: loại phụ phí (hay danh sách khách) về sau thì cả sổ vẽ lại (renderSnapshot), không chỉ khung Tình hình.
+// Thẻ có hai nút giống hệt sang Trao đổi — nút thứ hai vẫn giữ tiêu điểm.
+test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', async () => withPage(async ({ page }) => {
+  await ready(page);
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route(/\/api\/v7\/fee-types$/, async route => { await held; await route.continue(); }, { times: 1 });
+  await page.reload();
+  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  const go = page.locator('#the-tinh-hinh .tab-go[data-the="trao-doi"]').last();
+  await go.focus();
+  const old = await go.elementHandle();
+  const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
+  release();
+  await page.waitForFunction(node => !node.isConnected, old);
+  assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
+}, debtor));
+
 test('Không đọc được hứa trả thì không tự quyết định nhắc nợ', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/marks\?/, route => route.abort(), { times: 1 });
