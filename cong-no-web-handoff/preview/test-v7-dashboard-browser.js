@@ -492,3 +492,34 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
     assert.equal(await done.locator('li').count(), 2);
   }, '/viec-can-lam.html');
 });
+
+test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet máy đã ghi, ghi rõ tháng khóa; chip Máy đếm giá riêng', async () => {
+  const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
+    today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
+    today_prices: 3, today_price_books: 1,
+    price_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'price', customer_id: 2, container: 'MAUU0000004', date: '2026-10-28', month: '2026-10',
+      unit_price_vnd: '52500000', other_fee_vnd: '300000', before_unit_price_vnd: null, before_other_fee_vnd: null, locked: true },
+    { at: '2026-11-01T12:00:00+00:00', kind: 'price', customer_id: 2, container: 'MAUU0000005', date: '2026-11-01', month: '2026-11',
+      unit_price_vnd: '50000000', other_fee_vnd: null, before_unit_price_vnd: null, before_other_fee_vnd: null, locked: false },
+    { at: '2026-11-01T12:00:00+00:00', kind: 'price', customer_id: 2, container: 'MAUU0000006', date: '2026-11-01', month: '2026-11',
+      unit_price_vnd: '50000000', other_fee_vnd: '-500000', before_unit_price_vnd: '50000000', before_other_fee_vnd: '-300000', locked: false }] };
+  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
+    const chip = page.locator('.actor-chip', { hasText: 'Máy' });
+    assert.equal(await chip.getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 3 giá');
+    await page.locator('[data-auto]').click();
+    const done = page.locator('.auto-list');
+    await done.waitFor();
+    assert.equal(await done.locator('li').count(), 3);
+    // Đụng tiền nên ghi trước → sau: chuyến chưa giá nhận giá Sheet; chuyến đã có giá chỉ đổi giảm trừ.
+    assert.match(await done.locator('li').nth(0).innerText(), /Khách C[\s\S]*MAUU0000004 · 28\/10\/2026 · chưa giá → 52,5 tr, phụ phí 0,3 tr · tháng khóa/);
+    const open = await done.locator('li').nth(1).innerText();
+    assert.match(open, /MAUU0000005 · 01\/11\/2026 · chưa giá → 50 tr/);
+    assert.doesNotMatch(open, /phụ phí|tháng khóa/);
+    assert.match(await done.locator('li').nth(2).innerText(), /MAUU0000006 · 01\/11\/2026 · 50 tr, phụ phí −0,3 → −0,5 tr/);
+    if (process.env.SHOTS_DIR) {
+      fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'viec-can-lam-may-ghi-gia.png') });
+    }
+    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  }, '/viec-can-lam.html');
+});

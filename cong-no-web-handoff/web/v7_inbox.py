@@ -19,7 +19,9 @@ from typing import Any
 from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
     SharedReads,
     paste_sheet_rows,
+    price_projection,
     sheet_projection,
+    write_price_items,
 )
 from v7_api_validate import ApiError
 
@@ -41,6 +43,18 @@ AUTO_LOG = 300   # số việc máy vừa làm giữ trong RAM để hiện "Má
 # Lịch sử) để điền ngày cho dòng sổ gốc không ngày ở mọi tháng, và đưa chuyến mới vào tháng khóa từ tháng này trở đi
 # (trước đó sổ gốc là chuẩn).
 AUTO_LOCKED_TRIPS_FROM = "2026-10"
+# MAY-GIA-01 (3/11/2026): máy ghi giá Sheet sẵn sàng (READY, và dòng chỉ vướng tháng khóa) như nút "Ghi N giá từ Sheet",
+# ở mọi tháng nợ từ mốc này, tháng mở hay khóa; tháng khóa thì mở, ghi, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=prices.
+AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
+
+
+def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
+    """Dòng giá Sheet máy được ghi (MAY-GIA-01): READY và MONTH_LOCKED, tháng nợ từ AUTO_PRICES_FROM.
+
+    Giá khác web, nhiều chuyến khớp, phụ phí gõ tay, chuyến chờ kiểm vẫn ở "Cần xem" cho người quyết.
+    """
+    rows = list(prices.get("ready") or []) + [row for row in prices.get("review") or [] if row.get("status") == "MONTH_LOCKED"]
+    return [row for row in rows if str(row.get("month") or "") >= AUTO_PRICES_FROM]
 
 
 def date_fill(item: dict[str, Any]) -> bool:
@@ -130,6 +144,7 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
         "trips_check": {"count": sum(check_reasons.values()), "reasons": check_reasons},
         "text_diff": text_diff,
         "prices": {"ready": len(prices.get("ready") or []), "review": len(prices.get("review") or [])},
+        "prices_auto": len(auto_prices(prices)),   # phần của hai nhóm trên máy ghi được; không cộng vào `busy`
         "ps": {"ready": len(ps.get("ready") or []), "review": len(ps.get("review") or [])},
     }
     busy = (book["receipts"]["ready"] + book["receipts"]["review"] + book["removed"]["count"] + trips_new
@@ -206,8 +221,9 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
-        text, trips = auto_enabled("text"), auto_enabled("trips")
-        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or (trips and book["trips_new"]))
+        text, trips, prices = auto_enabled("text"), auto_enabled("trips"), auto_enabled("prices")
+        todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or (trips and book["trips_new"])
+                      or (prices and book["prices_auto"]))
         if todo and key is not None:
             for customer_id in todo:
                 if text and books[customer_id]["text_diff"]:
@@ -215,6 +231,9 @@ class Inbox:
                 if trips and books[customer_id]["trips_new"]:
                     # Đọc lại chuyến web mọi sổ cho từng sổ: chuyến máy vừa thêm ở sổ trước phải chặn được ở sổ sau.
                     self._auto_trips(SharedReads(shared.runner), customer_id)
+                if prices and (books[customer_id]["prices_auto"] or (trips and books[customer_id]["trips_new"])):
+                    # Sau lượt dán: chuyến máy vừa đưa vào sổ (chưa giá) nhận giá Sheet ngay trong lượt này.
+                    self._auto_prices(shared, customer_id)
                 result = self._one(shared, customer_id)
                 if result[2]:
                     books.pop(customer_id, None)
@@ -369,6 +388,51 @@ class Inbox:
                 self.auto_errors += 1
                 return
 
+    def _auto_prices(self, runner, customer_id: int) -> None:
+        """Ghi giá Sheet của một sổ bằng đúng đường của nút "Ghi N giá từ Sheet" (`write_price_items`), MAY-GIA-01.
+
+        Chỉ dòng `auto_prices`; gom theo tháng nợ của chuyến, tháng khóa chỉ mở rồi khóa lại một lần cho cả tháng. Khóa chống ghi
+        trùng cố định theo (bản chụp giá, đích, ô) như nút. Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            projection = price_projection(runner, ledger, AUTO_ACTOR)
+        except (ApiError, ValueError):
+            self.auto_errors += 1
+            return
+        rows = auto_prices(projection)
+        if not rows:
+            return
+        digest, key = projection.get("snapshot_sha256"), f"{AUTO_ACTOR}:prices:{customer_id}"
+        months: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            months.setdefault(row["month"], []).append(row)
+        version = ledger.get("version")
+        for month in sorted(months):
+            batch, out = months[month], {}
+
+            def write(at, batch=batch, out=out):
+                out.update(write_price_items(batch, customer_id, at, digest, key, runner, AUTO_ACTOR)[1])
+                return out["version"] if out.get("complete") else \
+                    runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            try:
+                version = self._in_month(runner, customer_id, version, ledger, month, key, write)
+            except ApiError:
+                self.auto_errors += 1
+                return
+            with self.lock:
+                for row in batch[:out.get("written", 0)]:
+                    self.auto_log.appendleft({"at": self.clock(), "kind": "price", "customer_id": customer_id,
+                                              "container": row.get("container"), "date": row.get("date"), "month": month,
+                                              "unit_price_vnd": row.get("sheet_unit_price_vnd"),
+                                              "other_fee_vnd": row.get("sheet_other_fee_vnd"),
+                                              "before_unit_price_vnd": row.get("web_unit_price_vnd"),
+                                              "before_other_fee_vnd": row.get("web_other_fee_vnd"),
+                                              "locked": bool(row.get("month_locked"))})
+            if not out.get("complete"):
+                self.auto_errors += 1
+                return
+
     def start(self, runner) -> bool:
         with self.lock:
             if self.running:
@@ -423,15 +487,19 @@ class Inbox:
             iso = lambda t: None if t is None else datetime.fromtimestamp(t, UTC).isoformat()  # noqa: E731
             today = _vn_day(self.clock())
             done_today = [entry for entry in self.auto_log if _vn_day(entry["at"]) == today]
-            text_done = [entry for entry in done_today if entry.get("kind") != "trip"]
+            text_done = [entry for entry in done_today if "kind" not in entry]
             trip_done = [entry for entry in done_today if entry.get("kind") == "trip"]
+            price_done = [entry for entry in done_today if entry.get("kind") == "price"]
             auto = {"text_enabled": auto_enabled("text"), "trips_enabled": auto_enabled("trips"),
+                    "prices_enabled": auto_enabled("prices"),
                     "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
                     "today_count": len(text_done), "today_books": len({entry["customer_id"] for entry in text_done}),
                     "today_trips": len(trip_done), "today_trip_books": len({entry["customer_id"] for entry in trip_done}),
                     "today_trips_pending": sum(1 for entry in trip_done if entry.get("pending")),
+                    "today_prices": len(price_done), "today_price_books": len({entry["customer_id"] for entry in price_done}),
                     "items": [{**entry, "at": iso(entry["at"])} for entry in text_done[:100]],
-                    "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]]}
+                    "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]],
+                    "price_items": [{**entry, "at": iso(entry["at"])} for entry in price_done[:100]]}
             return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),

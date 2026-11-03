@@ -179,3 +179,21 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - `NO_CUSTOMER` trước sửa 157 dòng ở 9 tab, sau sửa 149 dòng ở 7 tab. 8 dòng ở 2 tab về đúng sổ; không dòng nào đổi sổ.
 - 8 dòng đó hôm nay là `NOT_FOUND` vì hai sổ chưa có dòng nào trên web (lịch sử nằm trong số dư đầu). Sửa để giá của chuyến mới ở hai sổ này vào được hàng chờ.
 - 149 dòng còn lại trùng đúng số đo 27/10 ở mục "Số đo thật" (đo trên bản tải, tên hai phía khớp). Cả 7 tab không có sổ web: 5 tab không có trên TONG nên không nạp ở mốc (147 dòng), 1 tab có trên TONG nhưng không có trong bản nạp `clean-v2` (1 dòng), 1 tab tạo sau mốc (1 dòng). Đây là việc thêm sổ hoặc tên phụ, **CÒN MỞ**, không sửa ở đây.
+
+## Máy tự ghi giá Sheet (MAY-GIA-01, 3/11/2026)
+
+**Vì sao:** từ 1/11 tháng 10 khóa, nên 53 dòng giá Sheet của tháng 10 (11 sổ) nằm ở "Cần xem" với lý do `MONTH_LOCKED`; người nhập phải mở khóa từng tháng mới ghi được, và đối soát 3/11 lệch ở 9 khách vì thế. Người dùng chốt máy tự ghi ở mọi tháng ([`MAY-GIA-01`](../docs/decisions/may-gia-01.md)).
+
+**Luật** (`web/v7_inbox.py`, công tắc `WEBDEBIT_AUTO_SHEET=prices`, mặc định tắt):
+- Máy ghi đúng các dòng `READY` cộng các dòng `MONTH_LOCKED`, với tháng nợ của chuyến đích từ 10/2026 (`AUTO_PRICES_FROM`). Mỗi dòng giá mang tháng đó ở trường `month` (yyyy-mm).
+- Máy đi chung đường `write_price_items` với nút "Ghi N giá từ Sheet". Khóa chống ghi trùng theo (bản chụp giá, đích, ô), nên chạy lại cùng bản chụp không ghi hai lần.
+- Gom theo tháng. Tháng khóa thì mở một lần, ghi cả tháng, khóa lại; lệnh ghi lỗi vẫn khóa lại rồi dừng sổ đó tới lượt sau. Người làm trong Lịch sử là "Máy (theo Sheet)".
+- `CONFLICT`, `AMBIGUOUS`, `MANUAL`, `PENDING_REVIEW`, dòng đã "Giữ giá web" và tháng trước 10/2026 không đổi: vẫn để người.
+- Chạy sau bước đưa chuyến mới (P3b) trong cùng lượt hộp việc, nên chuyến máy vừa dán nhận giá ngay.
+- `GET /api/v7/inbox` thêm `auto.prices_enabled`, `today_prices`, `today_price_books`, `price_items`. Mỗi sổ thêm `prices_auto` (số dòng máy ghi được). Tab Việc cần làm liệt kê giá máy đã ghi ở "Máy đã tự làm" (container, ngày, giá trước → sau: "chưa giá → 52,5 tr" hoặc phụ phí trước → sau khi chỉ đổi giảm trừ, nhãn "tháng khóa"), và chip "Máy" đếm giá riêng.
+
+**Kiểm:**
+- Unittest `test_v7_inbox.AutoPricesTests`: tắt thì không ghi; ghi tháng mở thẳng, tháng 10 khóa thì mở một lần, ghi chuyến web và dòng sổ gốc, khóa lại; bỏ qua tháng 9, `CONFLICT`; chạy lại cùng khóa; lỗi vẫn khóa lại; chạy sau P3b.
+- Unittest `test_v7_price_queue`: trường `month` của chuyến web và dòng sổ gốc.
+- Playwright: "Máy đã tự làm" hiện dòng giá, nhãn tháng khóa, chip Máy.
+- Thử trên bản sao DB của `hao` trước khi bật: tổng nợ tăng đúng bằng tổng giá máy ghi, mọi tháng máy mở đã khóa lại ([runbook](../docs/v7-deploy-runbook.md#máy-tự-ghi-giá-sheet-may-gia-01)).
