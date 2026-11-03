@@ -230,9 +230,9 @@ class Inbox:
         """Lấy theo Sheet mọi ô chữ lệch của một sổ, bằng đúng lệnh giải quyết lệch người dùng bấm (decision use_sheet).
 
         Chỉ dòng lệch toàn ô chữ (AUTO_FIELDS), cộng ngày của dòng sổ gốc không ngày cùng tháng nợ (`date_fill`, sửa bằng
-        `edit_legacy_trip`, tháng khóa thì máy mở rồi khóa lại); lệch ngày khác, container, booking, khách khác để người quyết.
-        Mỗi ô một khóa chống ghi trùng cố định theo (bản chụp, dòng Sheet, đích, ô, giá trị Sheet). Lỗi ở một sổ dừng sổ đó,
-        lượt sau thử lại.
+        `edit_legacy_trip`); lệch ngày khác, container, booking, khách khác để người quyết. Ngày điền gom theo tháng: tháng khóa
+        chỉ mở rồi khóa lại một lần cho mọi dòng của tháng đó. Mỗi ô một khóa chống ghi trùng cố định theo (bản chụp, dòng
+        Sheet, đích, ô, giá trị Sheet). Lỗi ở một sổ dừng sổ đó, lượt sau thử lại.
         """
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
@@ -241,6 +241,7 @@ class Inbox:
             self.auto_errors += 1
             return
         version, digest = ledger.get("version"), projection.get("snapshot_sha256")
+        fills: dict[str, list[tuple[dict[str, Any], str]]] = {}
         for item in projection.get("items") or []:
             fields = item.get("changed_fields") or []
             fill = date_fill(item)
@@ -271,21 +272,27 @@ class Inbox:
                                               "field": field, "before": target_value, "after": sheet_value.strip()})
             if fill:
                 day = str(item["event_date"])[:10]
-                key = f"auto:{digest}:{item.get('source_row')}:legacy:{item.get('existing_id')}:event_date:{day}"
-
-                def edit(at, item=item, day=day, key=key):
-                    return runner.run("edit_legacy_trip", {
+                fills.setdefault(day[:7], []).append((item, day))
+        # Gom theo tháng (đo 3/11/2026: điền từng dòng thì 57 dòng thành 76 cặp mở/khóa trên 28 sổ–tháng, Lịch sử rối).
+        for month in sorted(fills):
+            def edit_all(at, rows=fills[month]):
+                for item, day in rows:
+                    key = f"auto:{digest}:{item.get('source_row')}:legacy:{item.get('existing_id')}:event_date:{day}"
+                    at = runner.run("edit_legacy_trip", {
                         "customer_id": customer_id, "expected_version": at,
                         "idempotency_key": hashlib.sha256(key.encode()).hexdigest(), "legacy_row_id": item.get("existing_id"),
                         "field": "event_date", "value": day}, AUTO_ACTOR).get("version", at)
-                try:
-                    version = self._in_month(runner, customer_id, version, ledger, day[:7], key, edit)
-                except ApiError:
-                    self.auto_errors += 1
-                    return
-                with self.lock:
-                    self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id, "container": item.get("container"),
-                                              "field": "event_date", "before": None, "after": day})
+                    with self.lock:
+                        self.auto_log.appendleft({"at": self.clock(), "customer_id": customer_id,
+                                                  "container": item.get("container"), "field": "event_date",
+                                                  "before": None, "after": day})
+                return at
+            try:
+                version = self._in_month(runner, customer_id, version, ledger, month,
+                                         f"auto:{digest}:{customer_id}:event_date", edit_all)
+            except ApiError:
+                self.auto_errors += 1
+                return
 
     def _in_month(self, runner, customer_id: int, version: int, ledger: dict[str, Any], month: str, key: str,
                   action: Callable[[int], int]) -> int:
