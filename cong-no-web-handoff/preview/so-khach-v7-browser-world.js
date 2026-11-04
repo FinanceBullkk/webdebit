@@ -75,7 +75,7 @@ function ledger(world) {
     months: world.months ?? monthsOf(world, keys, trips, legacy),
     total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
     legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
-      counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
+      counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     ...(world.psFees ? { ps_fees: world.psFees } : {}) };
@@ -369,6 +369,13 @@ async function withPage(fn, setup = () => {}) {
       return;
     }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
+    // MO-SO-NHANH-02: Lịch sử đọc riêng như server thật. world.eventsFail: lỗi một lần để thử nút Thử lại.
+    if (url.pathname === '/api/v7/ledger/events') {
+      world.eventReads = (world.eventReads ?? 0) + 1;
+      if (world.eventsFail) { world.eventsFail = false; send(503, { error: 'DB_UNAVAILABLE', message: 'Sổ tạm thời không truy cập được.' }); return; }
+      send(200, { customer_id: 1, version: world.version, events: world.events });
+      return;
+    }
     // Thẻ Tình hình (TRANG-KHACH-01): dòng Tổng quan của sổ giả do test đặt, mặc định sổ không nợ. Vẫn ghi sideReads cho
     // /reminders để test bắt được nếu trang khách đọc lại lần nhắc khi nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026).
     if (url.pathname === '/api/v7/dashboard/debt' || (url.pathname === '/api/v7/reminders' && req.method === 'GET')) {

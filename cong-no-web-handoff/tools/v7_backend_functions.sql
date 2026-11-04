@@ -991,6 +991,32 @@ BEGIN
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
 END $$;
 
+CREATE OR REPLACE FUNCTION sokhach._ledger_events(p_customer bigint) RETURNS jsonb
+LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
+    SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
+        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
+            WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
+        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+            THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
+            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+            ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
+                ELSE p.source_customer_id END
+            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+        'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
+            'price',"before"->'price' || jsonb_build_object(
+                'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
+                'other_fee_vnd',"before"->'price'->>'other_fee_vnd')) ELSE "before" END,
+        'after',CASE WHEN kind='price_edit' THEN "after" || jsonb_build_object(
+            'price',"after"->'price' || jsonb_build_object(
+                'unit_price_vnd',"after"->'price'->>'unit_price_vnd',
+                'other_fee_vnd',"after"->'price'->>'other_fee_vnd')) ELSE "after" END)
+        ORDER BY at DESC,id DESC),'[]'::jsonb)
+ FROM sokhach.event WHERE event.customer_id=p_customer
+$$;
+
 CREATE OR REPLACE FUNCTION sokhach.get_ledger(customer_id bigint) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_version bigint; v_active boolean; v_months jsonb; v_trips jsonb;
@@ -1146,28 +1172,7 @@ BEGIN
     JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id)
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
     WHERE l.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active' AND NOT (cur.data->>'deleted')::boolean;
-    SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
-        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
-            WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
-            THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
-            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
-            ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
-                ELSE p.source_customer_id END
-            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
-            'price',"before"->'price' || jsonb_build_object(
-                'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
-                'other_fee_vnd',"before"->'price'->>'other_fee_vnd')) ELSE "before" END,
-        'after',CASE WHEN kind='price_edit' THEN "after" || jsonb_build_object(
-            'price',"after"->'price' || jsonb_build_object(
-                'unit_price_vnd',"after"->'price'->>'unit_price_vnd',
-                'other_fee_vnd',"after"->'price'->>'other_fee_vnd')) ELSE "after" END)
-        ORDER BY at DESC,id DESC),'[]'::jsonb)
-    INTO v_events FROM sokhach.event WHERE event.customer_id=get_ledger.customer_id;
+    v_events:=sokhach._ledger_events(get_ledger.customer_id);
     -- Cờ khóa đã ghi của mọi tháng (kể cả tháng không chuyến); thiếu hàng thì
     -- chỉ today_month mở. Giao diện dùng hai trường này, không đoán theo đồng hồ máy.
     SELECT coalesce(jsonb_agg(jsonb_build_object('month',ms.month,'locked',ms.locked)
@@ -1187,6 +1192,22 @@ BEGIN
             'counterparty_name',c.name) ORDER BY p.date,p.source_pid COLLATE "C")
             FROM sokhach.offset_pair p JOIN sokhach.customer c ON c.id=p.target_customer_id
             WHERE p.source_customer_id=get_ledger.customer_id),'[]'::jsonb));
+END $$;
+
+CREATE OR REPLACE FUNCTION sokhach.get_ledger_events(customer_id bigint) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+-- MO-SO-NHANH-02: khung Lịch sử đọc riêng, không dựng cả sổ. Một câu lệnh nên version và events cùng một ảnh dữ liệu.
+-- Sổ chưa có mốc active không có Lịch sử, như get_ledger trả NO_BASELINE không kèm events.
+DECLARE v_result jsonb;
+BEGIN
+    PERFORM sokhach._actor();
+    SELECT jsonb_build_object('customer_id',c.id,'version',c.version,'events',
+        CASE WHEN EXISTS (SELECT 1 FROM sokhach.cutover_customer cc JOIN sokhach.cutover x ON x.id=cc.cutover_id
+            WHERE cc.customer_id=c.id AND cc.status='active' AND x.status='active')
+        THEN sokhach._ledger_events(c.id) ELSE '[]'::jsonb END)
+    INTO v_result FROM sokhach.customer c WHERE c.id=get_ledger_events.customer_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
+    RETURN v_result;
 END $$;
 
 CREATE OR REPLACE FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint,
@@ -3154,6 +3175,7 @@ GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.get_ledger_events(bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.list_offset_sources(bigint) TO sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.list_customers() TO sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.get_dashboard() TO sokhach_app, sokhach_reader;

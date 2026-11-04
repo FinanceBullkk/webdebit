@@ -3,7 +3,7 @@
  * Tách từ so-khach-v7-ui.js (29/10/2026) để các PR ít đụng nhau; trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).history = ctx => {
   'use strict';
-  const { root, escape, dateText, fmt, monthKey, monthLabel, model } = ctx;
+  const { root, api, escape, dateText, fmt, monthKey, monthLabel, model } = ctx;
     const eventLabels = { paste: 'Dán lô chuyến', price_edit: 'Sửa giá', adjust_trip: 'Điều chỉnh chuyến',
       adjust_month: 'Điều chỉnh cả tháng', receipt: 'Ghi phiếu thu', receipt_edit: 'Sửa thông tin phiếu', month_lock: 'Mở/khóa tháng',
       void: 'Hủy phiếu', reallocation: 'Phân bổ lại', import: 'Nhập số dư đầu', trip_review: 'Kết luận CHỜ KIỂM',
@@ -211,7 +211,7 @@
     const actorName = event => String(event.actor_name || String(event.actor ?? '').split('@')[0] || 'Chưa rõ người làm').slice(0, 40);
     // Khung Lịch sử (nút "Lịch sử" ở đầu sổ). Bộ lọc giữ qua các lần vẽ lại; bấm lọc chỉ đổi thuộc tính, không vẽ lại sổ.
     let filter = 'all';
-    function historyList(events) {
+    function listHtml(events) {
       if (!events.length) return '<p>Chưa có thay đổi nào</p>';
       const groups = events.map(groupOf);
       const count = key => key === 'all' ? events.length : groups.filter(group => group === key).length;
@@ -224,6 +224,50 @@
       return `<div class="history-filter" role="group" aria-label="Lọc Lịch sử theo loại">${buttons}</div>`
         + `<ol class="history-items" data-filter="${filter}">${items}</ol><p class="history-none"${count(filter) ? ' hidden' : ''}>Không có thay đổi loại này.</p>`;
     }
+    // MO-SO-NHANH-02: thân GET sổ không có events; khung mở mới nạp, giữ theo version của bản GET đang vẽ. Sổ đổi là nạp lại,
+    // đóng rồi mở lại khi sổ chưa đổi thì không gọi nữa. Nhận về thì chỉ thay thân khung, không vẽ lại cả sổ.
+    let held = null;      // { version, events } đã nạp
+    let asked = null;     // version đang nạp
+    let failed = null;    // version nạp lỗi; chỉ thử lại khi bấm Thử lại hoặc sổ đổi
+    const body = html => `<div class="history-body">${html}</div>`;
+    const waiting = () => '<p class="history-wait" role="status">Đang tải lịch sử…</p>';
+    const failure = () => '<div class="load-error" role="alert"><p>Không tải được lịch sử.</p><button type="button" class="history-retry">Thử lại</button></div>';
+    function paint(html) {
+      const area = root.querySelector('.history-body');
+      if (!area) return;
+      const keepFocus = area.contains(document.activeElement);
+      area.innerHTML = html;
+      if (keepFocus) root.querySelector('.history-close')?.focus();
+    }
+    function load(version) {
+      if (asked === version) return;
+      asked = version;
+      failed = null;
+      api.readEvents().then(data => {
+        if (asked !== version) return;
+        asked = null;
+        held = { version, events: data.events };
+        paint(listHtml(data.events));
+      }, () => {
+        if (asked !== version) return;
+        asked = null;
+        failed = version;
+        paint(failure());
+      });
+    }
+    function historyList(data) {
+      if (Array.isArray(data.events)) return body(listHtml(data.events));   // server chưa tách Lịch sử
+      if (held?.version === data.version) return body(listHtml(held.events));
+      if (!ctx.historyOpen) return body('');
+      if (failed === data.version) return body(failure());
+      load(data.version);
+      return body(waiting());
+    }
+    root.addEventListener('click', event => {
+      if (!event.target.closest('.history-retry') || !ctx.snapshot) return;
+      paint(waiting());
+      load(ctx.snapshot.version);
+    });
     root.addEventListener('click', event => {
       const button = event.target.closest('.history-filter button');
       if (!button) return;

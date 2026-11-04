@@ -52,6 +52,19 @@ test('first read takes the prefetched ledger response once; other customer or la
   } finally { delete global.window; }
 });
 
+// MO-SO-NHANH-02: Lịch sử đọc riêng, không đụng bản sổ đang giữ; thân sai khách hay lỗi thì ném để khung Lịch sử báo.
+test('readEvents gọi đúng đường, không đổi bản sổ, từ chối thân sai khách và lỗi', async () => {
+  const calls = [], snapshots = [];
+  const body = { customer_id: 7, version: 3, events: [{ id: 1, kind: 'import' }] };
+  const responses = [reply(200, body), reply(200, { ...body, customer_id: 8 }), reply(200, { customer_id: 7, version: 3 }), reply(503, {})];
+  const api = create({ customerId: 7, fetcher: async (...args) => { calls.push(args); return responses.shift(); }, onSnapshot: next => snapshots.push(next) });
+  assert.deepEqual(await api.readEvents(), body);
+  assert.deepEqual(calls[0], ['/api/v7/ledger/events?customer=7', { cache: 'no-store' }]);
+  assert.deepEqual(snapshots, []);
+  for (let tries = 0; tries < 3; tries++) await assert.rejects(api.readEvents());
+  assert.equal(api.hasPending(), false);
+});
+
 // Tệp tải sớm chạy trong vm của livePage (tên khớp so-khach-v7-*.js): lần đọc đầu của trang không gọi fetch thêm lần nữa.
 test('live page: the prefetch script runs before the API file and its response feeds the first read', async () => {
   const { context } = await livePage(ledger(1));

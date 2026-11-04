@@ -157,6 +157,19 @@ def with_actor_names(ledger: dict) -> dict:
                                  for event in events]}
 
 
+def public_ledger(ledger: dict) -> dict:
+    """MO-SO-NHANH-02: thân GET sổ không có Lịch sử (nạp riêng khi mở khung) và ô Sheet thô `display.cells` (không màn nào đọc).
+
+    Chỉ cắt ở tầng HTTP, sau khi chiếu hàng chờ: `sheet_projection` cần `events`, công cụ đọc `cells` qua runner. Không sửa dict vào.
+    """
+    body = {key: value for key, value in ledger.items() if key != "events"}
+    rows = ledger.get("legacy_rows")
+    if isinstance(rows, list):
+        body["legacy_rows"] = [{**row, "display": {key: value for key, value in row["display"].items() if key != "cells"}}
+                               if isinstance(row, dict) and isinstance(row.get("display"), dict) else row for row in rows]
+    return body
+
+
 # MO-SO-NHANH-01 (4/11/2026): file JS/CSS đọc một lần rồi giữ (nguyên bản, bản gzip, ETag) trong tiến trình; đọc lại khi
 # mtime hoặc kích thước đổi. Deploy thay cả thư mục release và khởi động lại dịch vụ nên bộ nhớ này không giữ bản cũ.
 GZIP_MIN_BYTES = 1024
@@ -321,7 +334,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     if parts.path == "/api/v7/sheet-queue":
         return 200, sheet_queue(result, parts.query)
     if function == "get_ledger":
-        result = with_actor_names(ledger_projections(runner, result, actor))
+        result = public_ledger(ledger_projections(runner, result, actor))
+    if function == "get_ledger_events":
+        result = with_actor_names(result)
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in FLAGGED_READS:

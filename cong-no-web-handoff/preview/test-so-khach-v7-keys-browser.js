@@ -155,11 +155,63 @@ test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu đi�
     allocations: [{ id: 1, month: '2026-09-01', kind: 'debt', amount_vnd: '1000000', superseded_by_event: null }] });
 }));
 
+// MO-SO-NHANH-02: thân GET sổ không có Lịch sử; khung mở mới nạp, theo version của sổ.
+test('Lịch sử nạp riêng: mở sổ không gọi; mở khung gọi một lần; đóng mở lại không gọi; sổ đổi khi khung mở thì nạp lại, giữ bộ lọc', async () => withPage(async ({ page, world }) => {
+  assert.equal(world.eventReads ?? 0, 0);
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+  await page.locator('.history-toggle').click();
+  const panel = page.locator('#history-panel');
+  await panel.locator('.history-items').waitFor();
+  assert.equal(world.eventReads, 1);
+  await panel.locator('.history-filter button', { hasText: 'Chuyến' }).click();
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
+  await page.keyboard.press('Enter');
+  await panel.locator('.history-items').waitFor();
+  assert.equal(world.eventReads, 1);
+  assert.equal(await panel.locator('.history-items > li:visible').count(), 1);
+
+  await tripCell(page, 'carrier').click();
+  await page.locator('.info-input').fill('Tàu đổi');
+  await page.keyboard.press('Enter');
+  await panel.locator('.history-items > li', { hasText: 'Hãng tàu: Tàu thử → Tàu đổi' }).waitFor();
+  assert.equal(world.eventReads, 2);
+  assert.equal(await panel.locator('.history-items > li:visible').count(), 2);
+  assert.match(await panel.locator('.history-filter button[aria-pressed="true"]').innerText(), /^Chuyến \(2\)$/);
+}, world => {
+  world.events.push({ kind: 'month_lock', actor: 'khoa@example.test', at: '2026-10-02T01:00:00Z', before: { month: '2026-08-01', locked: false }, after: { month: '2026-08-01', locked: true } },
+    { kind: 'trip_edit', actor: 'nhap@example.test', at: '2026-09-20T08:30:00Z', before: { trip: { id: 11, field: 'carrier', value: 'Tàu cũ' } },
+      after: { trip: { id: 11, field: 'carrier', value: 'Tàu thử' } } });
+}));
+
+test('Lịch sử nạp lỗi: câu lỗi và Thử lại trong khung, sổ không đổi; không tự gọi lại khi đóng mở; Thử lại thì hiện đủ', async () => withPage(async ({ page, world }) => {
+  world.eventsFail = true;
+  const rows = await page.locator('tr[data-row]').count();
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+  await page.locator('.history-toggle').click();
+  const panel = page.locator('#history-panel');
+  await panel.locator('.history-retry').waitFor();
+  assert.match(await panel.innerText(), /Không tải được lịch sử\./);
+  assert.equal(await page.locator('tr[data-row]').count(), rows);
+  await page.locator('.history-close').click();
+  await page.locator('.history-toggle').click();
+  await panel.locator('.history-retry').waitFor();
+  assert.equal(world.eventReads, 1);
+  await panel.locator('.history-retry').focus();
+  await page.keyboard.press('Enter');
+  await panel.locator('.history-items').waitFor();
+  assert.equal(world.eventReads, 2);
+  assert.equal(await page.evaluate(() => document.activeElement?.className), 'history-close');
+  assert.equal(await page.locator('.load-error').count(), 0);
+}, world => {
+  world.events.push({ kind: 'month_lock', actor: 'khoa@example.test', at: '2026-10-02T01:00:00Z', before: { month: '2026-08-01', locked: false }, after: { month: '2026-08-01', locked: true } });
+}));
+
 test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; lý do chỉ khi có; lọc theo loại giữ qua lần mở lại; Esc về nút', async () => withPage(async ({ page }) => {
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
   const panel = page.locator('#history-panel');
-  await panel.waitFor();
+  await panel.locator('.history-items').waitFor();
   const lines = () => panel.locator('.history-items > li:visible').evaluateAll(items => items.map(item => item.innerText.replace(/\s+/g, ' ').trim()));
   assert.deepEqual(await lines(), [
     '15/10/2026 10:12 · Thu · Ghi phiếu thu PH-001: 200.000.000 đ ngày 15/10/2026 · CHUYỂN KHOẢN (trừ T8 1.000.000 · T9 199.000.000)',

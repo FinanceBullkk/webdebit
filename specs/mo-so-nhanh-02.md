@@ -1,6 +1,6 @@
 # Mở Sổ khách nhanh hơn, bước 2: Lịch sử nạp khi mở khung, bỏ ô Sheet thô khỏi bản đọc mặc định (MO-SO-NHANH-02)
 
-Trạng thái: ĐỀ XUẤT (Claude, 4/11/2026; chờ người dùng chốt các câu hỏi ở cuối; phạm vi thân JSON của `GET /api/v7/ledger`, khung Lịch sử của trang Sổ khách, không đổi luật tiền, không đổi `get_ledger`)
+Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, "Chốt theo đề xuất": phương án A, bỏ `display.cells`, chấp nhận giảm 2,5 lần, khung đang mở không tự tải; phạm vi thân JSON của `GET /api/v7/ledger`, khung Lịch sử của trang Sổ khách, không đổi luật tiền, kết quả `get_ledger` giữ nguyên)
 
 Tiếp [MO-SO-NHANH-01](mo-so-nhanh-01.md) (ETag/304, gzip, đọc sổ song song với tải JS; lên `hao` 4/11/2026, bản `473bb0a`). Bước 1 không đổi thời gian server của GET sổ; bước này giảm kích thước thân GET và việc trình duyệt phải nhận, giải nén, phân tích mỗi 60 giây.
 
@@ -46,6 +46,7 @@ Riêng trong SQL (đo tách từ thân `get_ledger` đang chạy, giao dịch ch
 | `web/v7_api_sheet.py` `keep_sheet_task` (688), `assign_sheet_trip` (741) | khóa idempotency theo `request_key` | tự gọi `get_ledger` trong POST | Không đổi |
 | `web/v7_ledger_api.py` `with_actor_names` | gắn `actor_name` theo bảng tên PRESENCE-01 | kết quả GET | Chuyển sang gắn cho thân của route events |
 | `web/v7_inbox.py` (161, 183), `web/v7_sheet_queue.py` (217, 329), `web/v7_sheet_task_keep.py` (20), `tools/v7_reconcile_auto.py`, `tools/v7_fill_fee_gap.py` | tháng máy mở, việc máy làm, hàng chờ, gán việc | `runner.run("get_ledger")` trực tiếp | Không đổi |
+| `preview/viec-can-lam.js`, `tools/v7_price_match.py`, `tools/v7_reconcile_sheet.py`, `tools/rehearse_v7_deploy.py` | đọc sổ qua HTTP nhưng không đọc `events` hay `display.cells` (kiểm bằng `grep` khi code) | `GET /api/v7/ledger` | Không đổi |
 | UI `so-khach-v7-history-ui.js` `historyList(events)` | vẽ khung Lịch sử | `renderSnapshot` của `so-khach-v7-ui.js` dòng 418: `historyList(data.events ?? [])` | **Đổi**: nạp riêng theo `historyOpen` và `version` |
 | UI `so-khach-v7-edit-ui.js` | không đọc `events`; chỉ bật/tắt `ctx.historyOpen` rồi `redraw()` (dòng 145–149) | — | Không đổi |
 | UI `so-khach-v7-sheet-ui.js`, `-model.js`, các phần khác | không đọc `events` (đọc `snapshot.sheet_sync`, `sheet_prices`, `version`) | — | Không đổi |
@@ -76,7 +77,7 @@ Phần `legacy_rows` còn lại sau khi bỏ `cells` là bảng người dùng �
 - Thân 200: `{"customer_id": 14, "version": 123, "events": [...]}`; mỗi sự kiện đúng các khóa `get_ledger` đang trả (`id, kind, actor, label, counterparty_customer_id, counterparty_name, at, before, after`) cộng `actor_name` (chuyển `with_actor_names` sang đây). Sổ chưa có số dư đầu (`status = NO_BASELINE`) trả `events: []`, `version` như `get_ledger` trả.
 - `Cache-Control: no-store`, gzip khi ≥ 1 KB (đã có từ bước 1). Không gắn `demo`/`real_copy` (không phải màn hình riêng).
 - Nguồn dữ liệu, **hai phương án** (câu hỏi 1):
-  - **A — hàm SQL riêng (đề xuất):** `sokhach.get_ledger_events(customer_id bigint) RETURNS jsonb`, `SECURITY DEFINER`, cùng kiểm `sokhach.actor` và quyền như `get_ledger`, trả `{customer_id, version, events}`; biểu thức dựng `events` tách thành `sokhach._ledger_events(customer_id)` và `get_ledger` gọi lại hàm này (kết quả `get_ledger` **giống hệt byte** — kiểm bằng băm JSON cả 238 sổ trước/sau trên bản sao, như đợt #317). Thêm `"get_ledger_events"` vào `SQL` của `web/v7_api_tables.py` và `GET_ROUTES`. Chi phí mở Lịch sử: 10–33 ms SQL + một lần psql (~50 ms) ≈ 100 ms. Là thay đổi SQL: một migration `tools/migrations/2026-11-xx-v7-ledger-events.sql` (chỉ thêm hàm và thay thân `get_ledger` bằng lời gọi, không đổi bảng/cột/dữ liệu/quyền ngoài `GRANT EXECUTE` cho app), cập nhật `specs/v7-backend/schema-draft.sql` và `tools/v7_backend_functions.sql`, chạy harness PostgreSQL ở máy, tự triển khai theo [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md) (backup, `ON_ERROR_STOP`, `v7_post_deploy_check.sql`, đối soát tổng khách, nhật ký `docs/deploys/`). Thứ tự: DB trước (bản app cũ vẫn chạy vì `get_ledger` không đổi kết quả), rồi release.
+  - **A — hàm SQL riêng (đề xuất):** `sokhach.get_ledger_events(customer_id bigint) RETURNS jsonb`, `SECURITY DEFINER`, cùng kiểm `sokhach.actor` và quyền như `get_ledger`, trả `{customer_id, version, events}`; biểu thức dựng `events` tách thành `sokhach._ledger_events(customer_id)` và `get_ledger` gọi lại hàm này (kết quả `get_ledger` **giống hệt byte** — kiểm bằng băm JSON cả 238 sổ trước/sau trên bản sao, như đợt #317). Thêm `"get_ledger_events"` vào `SQL` của `web/v7_api_tables.py` và `GET_ROUTES`. Chi phí mở Lịch sử: 10–33 ms SQL + một lần psql (~50 ms) ≈ 100 ms. Là thay đổi SQL: một migration `tools/migrations/2026-11-04-v7-ledger-events.sql` (chỉ thêm hàm và thay thân `get_ledger` bằng lời gọi, không đổi bảng/cột/dữ liệu/quyền ngoài `GRANT EXECUTE` cho app), cập nhật `specs/v7-backend/schema-draft.sql` và `tools/v7_backend_functions.sql`, chạy harness PostgreSQL ở máy, tự triển khai theo [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md) (backup, `ON_ERROR_STOP`, `v7_post_deploy_check.sql`, đối soát tổng khách, nhật ký `docs/deploys/`). Thứ tự: DB trước (bản app cũ vẫn chạy vì `get_ledger` không đổi kết quả), rồi release.
   - **B — không đổi SQL:** route gọi lại `get_ledger` và chỉ trả `{customer_id, version, events}`. Không migration, không harness. Nhược: mở Lịch sử ở sổ lớn tốn cả một lần `get_ledger` (sổ 79: ~1,2 giây SQL, hôm nay mở là có ngay), và mỗi lần `version` đổi khi khung đang mở lại thêm một lần đọc cả sổ.
 
 **Hợp đồng ctx (`so-khach-v7-ctx.js`)** — đổi ba dòng FIELDS, không thêm phần:
@@ -107,7 +108,7 @@ Phần `legacy_rows` còn lại sau khi bỏ `cells` là bảng người dùng �
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tests/test_v7_ledger_api.py`: GET `/api/v7/ledger` không có `events`, không có `display.cells`, các khóa khác bằng kết quả trước khi cắt; `ledger_projections` nhận bản còn đủ `events` (patch và soi tham số); `public_ledger` không sửa dict vào (tránh đụng bộ nhớ dùng chung). GET `/api/v7/ledger/events`: 200 đúng thân, `actor_name` theo bảng tên (chuyển ca `test_ledger_history_names_actor_by_short_name_not_login`), 422 khi thiếu/sai `customer`, không gắn `demo`/`real_copy`. `tests/test_v7_ledger_read_cost.py`: GET sổ không thêm lần gọi psql nào.
+- [ ] `tests/test_v7_ledger_api.py`: GET `/api/v7/ledger` không có `events`, không có `display.cells`, các khóa khác bằng kết quả trước khi cắt; `ledger_projections` nhận bản còn đủ `events` (patch và soi tham số); `public_ledger` không sửa dict vào (tránh đụng bộ nhớ dùng chung). GET `/api/v7/ledger/events`: 200 đúng thân, `actor_name` theo bảng tên (chuyển ca `test_ledger_history_names_actor_by_short_name_not_login`), 422 khi thiếu/sai `customer`, không gắn `demo`/`real_copy`. GET sổ không thêm lần gọi psql nào (thân và `ledger_projections` không đổi đường đọc; `test_v7_ledger_read_cost.py` giữ xanh).
 - [ ] Phương án A: `tools/test_pg_v7_backend.py` (và `--migration-test`) xanh ở máy; ca mới: `get_ledger_events` trả đúng `events` của `get_ledger` cùng `version`, sổ `NO_BASELINE` trả `[]`, reader không gọi được; `get_ledger` trước/sau migration giống hệt trên fixture harness.
 - [ ] `preview/test-so-khach-v7-api.js`: `readEvents()` gọi đúng đường, từ chối thân sai khách; trang không có `events` trong thân: mở khung → gọi events một lần, đóng/mở lại không gọi thêm, `version` đổi thì gọi lại, lỗi thì có Thử lại; các ca đang truyền `events` trong thân vẫn xanh (đường fixture/server cũ).
 - [ ] `preview/test-so-khach-v7-ctx.js` xanh với ba dòng FIELDS mới.
@@ -122,12 +123,12 @@ Phần `legacy_rows` còn lại sau khi bỏ `cells` là bảng người dùng �
 - Review: sonnet medium (không đụng phân bổ, opening, quyền ghi tiền); nếu phương án A thì phần SQL review opus
 - Được sửa:
   - `cong-no-web-handoff/web/v7_ledger_api.py`
-  - `cong-no-web-handoff/web/v7_api_validate.py`, `cong-no-web-handoff/web/v7_api_tables.py`
-  - `cong-no-web-handoff/preview/so-khach-v7-api.js`, `so-khach-v7-history-ui.js`, `so-khach-v7-ui.js` (một dòng gọi `historyList`), `so-khach-v7-ctx.js`, `so-khach-v7-browser-world.js`
-  - `cong-no-web-handoff/tests/test_v7_ledger_api.py`, `tests/test_v7_ledger_read_cost.py`
-  - `cong-no-web-handoff/preview/test-so-khach-v7-api.js`, `test-so-khach-v7-keys-browser.js`, `test-so-khach-v7-edit-browser.js`, `test-so-khach-v7-offset-browser.js`
-  - Phương án A thêm: `cong-no-web-handoff/tools/migrations/2026-11-xx-v7-ledger-events.sql`, `specs/v7-backend/schema-draft.sql`, `cong-no-web-handoff/tools/v7_backend_functions.sql`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, `docs/v7-deploy-runbook.md`, `docs/deploys/2026-11-xx-ledger-events.md`
-- Ngân sách diff: 450 dòng (A), 300 dòng (B)
+  - `cong-no-web-handoff/web/v7_api_validate.py`, `cong-no-web-handoff/web/v7_api_tables.py`, `cong-no-web-handoff/web/v7_psql.py` (câu lỗi khi hết giờ đọc)
+  - `cong-no-web-handoff/preview/so-khach-v7-api.js`, `so-khach-v7-history-ui.js`, `so-khach-v7-ui.js` (một dòng gọi `historyList`), `so-khach-v7-ctx.js`, `so-khach-v7-browser-world.js`, `so-khach-v7.css` (nút Thử lại)
+  - `cong-no-web-handoff/tests/test_v7_ledger_api.py`
+  - `cong-no-web-handoff/preview/test-so-khach-v7-api.js`, `test-so-khach-v7-keys-browser.js`, `test-so-khach-v7-edit-browser.js` (`offset-browser` có máy chủ giả riêng trả `events` trong thân, giữ làm ca đường server cũ)
+  - Phương án A thêm: `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` và `.rollback.sql`, `specs/v7-backend/schema-draft.sql`, `specs/v7-backend/ket-noi-giao-dien.md`, `cong-no-web-handoff/tools/v7_backend_functions.sql`, `cong-no-web-handoff/tools/v7_post_deploy_check.sql`, `cong-no-web-handoff/tools/test_pg_v7_backend.py`, `test_pg_v7_backend_ledger_events.py`, `test_pg_v7_backend_schema.py`, `test_pg_v7_backend_locks.py`, `test_pg_v7_backend_price.py` (chuỗi migration), `cong-no-web-handoff/tests/test_v7_fee_sql_sync.py`, `docs/v7-deploy-runbook.md`, `docs/deploys/2026-11-04-ledger-events.md`
+- Ngân sách diff: 450 dòng (A), 300 dòng (B); không tính phần migration chép lại nguyên thân `get_ledger` và rollback (khoảng 420 dòng), do sync test bắt buộc
 - Lệnh kiểm: `npm run check`; phương án A thêm `tools/test_pg_v7_backend.py` ở máy
 - Cấm: đổi `current`/`display` ngoài `cells`; đổi luật tiền; đổi thân `get_ledger` ngoài việc gọi `_ledger_events` (A); thêm dependency.
 
@@ -139,7 +140,7 @@ Revert PR. Phương án A: release cũ chạy được với DB đã có hàm m�
 
 - 4/11/2026, `hao` bản `473bb0a`: số đo ở bảng trên. Trình duyệt: 5 lần GET mỗi sổ qua `fetch` + `performance.getEntriesByType('resource')` (`encodedBodySize`, `decodedBodySize`, `responseStart`); cả 238 sổ quét một lượt 3 luồng song song. Server: script chỉ đọc chạy bằng `sudo -u v7app python3 -B -I -` với `SET LOCAL transaction_read_only=on` (đo `get_ledger`, `ledger_projections`, `json.dumps/loads`, `gzip.compress`, kích thước thân sau khi bỏ `events` + `cells`); phần SQL tách riêng chạy trong giao dịch chỉ đọc bằng `psql` với `\timing`. Không ghi gì, không chép dữ liệu khách ra ngoài `hao`.
 
-## Câu hỏi mở (người dùng chốt trước khi code)
+## Câu hỏi đã chốt (người dùng, 4/11/2026: theo cả bốn đề xuất)
 
 1. **Nguồn cho route Lịch sử:** A — thêm hàm SQL `get_ledger_events` (một migration nhỏ, Claude tự triển khai theo DEPLOY-CLAUDE-01, mở Lịch sử ~100 ms kể cả sổ lớn) hay B — không đổi SQL, route gọi lại cả `get_ledger` (mở Lịch sử sổ 79 mất ~1,2 giây, sổ thường ~0,1–0,2 giây)? **Đề xuất A.**
 2. **Bỏ `display.cells` khỏi thân GET sổ** (27 ô Sheet thô mỗi dòng sổ gốc, không màn nào đọc; công cụ vẫn đọc qua runner): đồng ý? **Đề xuất có.**

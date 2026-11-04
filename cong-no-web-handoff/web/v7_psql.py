@@ -86,10 +86,10 @@ class _PsqlRunner:
             raise ApiError(
                 503,
                 "DB_UNAVAILABLE"
-                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
+                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
                 else "RESULT_UNKNOWN",
                 "Sổ tạm thời không truy cập được."
-                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
+                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
                 else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
             ) from exc
         except OSError as exc:
