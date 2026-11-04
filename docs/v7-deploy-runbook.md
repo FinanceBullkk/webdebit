@@ -1759,9 +1759,9 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
-## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB đang có
+## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB (ĐÃ CHẠY trên hao 4/11/2026)
 
-Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).
 
 Thứ tự với release: **chạy migration trước.** Release cũ chạy được với DB mới vì `get_ledger` không đổi kết quả. Release mới trên DB cũ thì mở Lịch sử báo "Không tải được lịch sử", sổ vẫn đọc được.
 
