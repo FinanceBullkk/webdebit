@@ -251,28 +251,7 @@
     writeUrl(); paint();
   });
 
-  // Ô chú thích khi rê chuột hoặc focus bàn phím: dòng đầu đậm, các dòng sau là chi tiết.
-  const tip = $('tip');
-  const hideTip = () => { tip.hidden = true; };
-  function showTip(el) {
-    if (el.disabled || !el.dataset.tip) return hideTip();
-    tip.replaceChildren(...el.dataset.tip.split('\n').map((line, index) => {
-      const node = document.createElement(index === 0 ? 'b' : 'span');
-      node.textContent = line;
-      return node;
-    }));
-    tip.hidden = false;
-    const box = el.getBoundingClientRect();
-    const left = Math.min(Math.max(8, box.left + box.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - 8);
-    const above = box.top - tip.offsetHeight - 8;
-    tip.style.left = `${left}px`;
-    tip.style.top = `${above > 8 ? above : box.bottom + 8}px`;
-  }
-  const tipOf = target => target.closest?.('.tq-page [data-tip]');
-  document.addEventListener('pointerover', event => { const el = tipOf(event.target); if (el) showTip(el); else hideTip(); });
-  document.addEventListener('focusin', event => { const el = tipOf(event.target); if (el) showTip(el); else hideTip(); });
-  document.addEventListener('focusout', hideTip);
-  addEventListener('scroll', hideTip, { passive: true });
+  globalThis.DataTip.mount('.tq-page');
   window.addEventListener('popstate', () => { readUrl(); if (state.data) { dropStale(); paint(); } });
 
   const json = async url => {
