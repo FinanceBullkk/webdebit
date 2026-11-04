@@ -23,11 +23,14 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
     cached_load,
     paste_sheet_rows,
     price_projection,
+    ps_projection,
     road_projection,
     sheet_projection,
     write_price_items,
+    write_ps_items,
 )
 from v7_api_validate import ApiError
+from v7_ps_queue import auto_ps, best_columns
 from v7_road_queue import NOTE as ROAD_NOTE
 
 ACTOR = "hop-viec"   # đọc nền, không phải người; hàm đọc chỉ cần sokhach.actor khác rỗng
@@ -55,6 +58,8 @@ AUTO_LOCKED_TRIPS_FROM = "2026-10"
 AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
 # NGUON-CHUYEN-01 GĐ3 (3/11/2026): máy đưa chuyến bộ mới (CONT_BO) vào sổ của tab khách trên Sheet, bằng đúng đường dán của
 # chuyến biển, chưa có giá; tháng khóa thì mở, dán, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=road.
+# MAY-PS-01 (4/11/2026): máy tự tách phụ phí theo bảng PS và tự chọn cột, ở mọi tháng vì không đổi tiền; tháng khóa thì mở,
+# ghi, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=ps.
 # Rà máy tự ghi 4/11/2026: mở–ghi–khóa là ba lệnh riêng, API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở. Lượt sau
 # khóa lại tháng máy đã mở mà chưa khóa, khi lần mở cũ hơn chừng này (không giành tháng của một lượt máy khác đang ghi dở).
 RELOCK_AFTER_SECONDS = 600
@@ -217,6 +222,12 @@ def machine_entries(customer_id: int, ledger: dict[str, Any], day: str) -> list[
                                    "other_fee_vnd": new.get("other_fee_vnd"),
                                    "before_unit_price_vnd": old.get("unit_price_vnd"),
                                    "before_other_fee_vnd": old.get("other_fee_vnd"), "locked": locked(month, at)})
+        elif kind == "rewrite_trip_fees":
+            for target in after.get("targets") or []:
+                row = trips.get(target.get("trip_id")) or legacy.get(target.get("legacy_row_id")) or {}
+                month = str(row.get("month") or "")[:7]
+                entries.append(base | {"kind": "ps", "container": row.get("container"), "date": row.get("event_date"),
+                                       "month": month, "locked": locked(month, at)})
         elif kind == "paste":
             for row in after.get("trips") or []:
                 entries.append(base | {"kind": "trip", "container": row.get("container"), "event_date": row.get("event_date"),
@@ -296,6 +307,7 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
         "prices_auto": len(auto_prices(prices)),   # phần của hai nhóm trên máy ghi được; không cộng vào `busy`
         "prices_conflict": sum(row.get("status") == "CONFLICT" for row in prices.get("review") or []),   # không cộng vào `busy`
         "ps": {"ready": len(ps.get("ready") or []), "review": len(ps.get("review") or [])},
+        "ps_auto": len(auto_ps(ps)),   # phần của nhóm trên máy tách được; không cộng vào `busy`
     }
     busy = (book["receipts"]["ready"] + book["receipts"]["review"] + book["removed"]["count"] + trips_new
             + book["trips_check"]["count"] + text_diff + sum(book["prices"].values()) + sum(book["ps"].values()))
@@ -428,12 +440,12 @@ class Inbox:
                     self.done += 1
         self._seed_log()   # trước các bước máy của lượt này, để RAM chưa có việc nào của lượt
         self._relock(shared)
-        text, trips, prices, road = (auto_enabled(kind) for kind in ("text", "trips", "prices", "road"))
+        text, trips, prices, road, ps = (auto_enabled(kind) for kind in ("text", "trips", "prices", "road", "ps"))
 
         def pasting(book: dict) -> bool:
             return bool((trips and book["trips_new"] - book["road_new"]) or (road and book["road_new"]))
         todo = sorted(cid for cid, book in books.items() if (text and book["text_diff"]) or pasting(book)
-                      or (prices and book["prices_auto"]))
+                      or (prices and book["prices_auto"]) or (ps and book["ps_auto"]))
         if todo and key is not None:
             for customer_id in todo:
                 book = books[customer_id]
@@ -447,6 +459,8 @@ class Inbox:
                 if prices and (book["prices_auto"] or pasting(book)):
                     # Sau lượt dán: chuyến máy vừa đưa vào sổ (chưa giá) nhận giá Sheet ngay trong lượt này.
                     self._auto_prices(shared, customer_id)
+                if ps and book["ps_auto"]:
+                    self._auto_ps(shared, customer_id)
                 result = self._one(shared, customer_id)
                 if result[2]:
                     books.pop(customer_id, None)
@@ -645,6 +659,64 @@ class Inbox:
                 self._error("ghi giá", customer_id, out.get("error") or "INCOMPLETE")
                 return
 
+    def _auto_ps(self, runner, customer_id: int) -> None:
+        """Tách phụ phí theo PS của một sổ bằng đúng đường của nút Tách (`write_ps_items`), rồi chọn cột (MAY-PS-01).
+
+        Gom theo tháng, tháng khóa chỉ mở rồi khóa lại một lần. Lệnh tách không đổi tổng còn nợ. Lỗi ở một sổ dừng sổ đó,
+        lượt sau thử lại; đã tách được chuyến nào thì vẫn chọn cột.
+        """
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            projection = ps_projection(runner, ledger, AUTO_ACTOR)
+        except (ApiError, ValueError) as exc:
+            self._error("đọc PS", customer_id, exc)
+            return
+        rows = auto_ps(projection)
+        if not rows:
+            return
+        digest, key = projection.get("snapshot_sha256"), f"{AUTO_ACTOR}:ps:{customer_id}"
+        months: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            months.setdefault(str(row["month"])[:7], []).append(row)
+        version, total = ledger.get("version"), 0
+        locked_months = set(_locked_months(ledger, set(months)))
+        for month in sorted(months):
+            batch, out = months[month], {}
+
+            def write(at, batch=batch, out=out):
+                out.update(write_ps_items(batch, customer_id, at, digest, key, runner, AUTO_ACTOR)[1])
+                return out["version"] if out.get("complete") else \
+                    runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            try:
+                version = in_month(runner, customer_id, version, ledger, month, key, write)
+            except ApiError as exc:
+                self._error("tách phụ phí", customer_id, exc)
+                break
+            total += out.get("written", 0)
+            with self.lock:
+                for row in batch[:out.get("written", 0)]:
+                    self.auto_log.appendleft({"at": self.clock(), "kind": "ps", "customer_id": customer_id,
+                                              "container": row.get("container"), "date": row.get("date"), "month": month,
+                                              "locked": month in locked_months})
+            if not out.get("complete"):
+                self._error("tách phụ phí", customer_id, out.get("error") or "INCOMPLETE")
+                break
+        if total:
+            self._auto_columns(runner, customer_id)
+
+    def _auto_columns(self, runner, customer_id: int) -> None:
+        """Đưa các loại nhiều tiền nhất của sổ lên cột riêng; không đổi tiền, không vướng khóa tháng (MAY-PS-01)."""
+        try:
+            ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+            columns = best_columns(ledger, runner.run("get_fee_types", {}, AUTO_ACTOR).get("fee_types", []))
+            if columns is None:
+                return
+            digest = hashlib.sha256(f"{AUTO_ACTOR}:cot:{customer_id}:{ledger['version']}:{columns}".encode()).hexdigest()
+            runner.run("set_book_fee_columns", {"customer_id": customer_id, "expected_version": ledger["version"],
+                                                "idempotency_key": digest, "fee_type_ids": columns}, AUTO_ACTOR)
+        except ApiError as exc:
+            self._error("chọn cột phụ phí", customer_id, exc)
+
     def start(self, runner) -> bool:
         with self.lock:
             if self.running:
@@ -702,16 +774,19 @@ class Inbox:
             text_done = [entry for entry in done_today if "kind" not in entry]
             trip_done = [entry for entry in done_today if entry.get("kind") == "trip"]
             price_done = [entry for entry in done_today if entry.get("kind") == "price"]
+            ps_done = [entry for entry in done_today if entry.get("kind") == "ps"]
             auto = {"text_enabled": auto_enabled("text"), "trips_enabled": auto_enabled("trips"),
-                    "prices_enabled": auto_enabled("prices"),
+                    "prices_enabled": auto_enabled("prices"), "ps_enabled": auto_enabled("ps"),
                     "last_run": iso(self.auto_run_at), "errors": self.auto_errors,
                     "today_count": len(text_done), "today_books": len({entry["customer_id"] for entry in text_done}),
                     "today_trips": len(trip_done), "today_trip_books": len({entry["customer_id"] for entry in trip_done}),
                     "today_trips_pending": sum(1 for entry in trip_done if entry.get("pending")),
                     "today_prices": len(price_done), "today_price_books": len({entry["customer_id"] for entry in price_done}),
+                    "today_ps": len(ps_done), "today_ps_books": len({entry["customer_id"] for entry in ps_done}),
                     "items": [{**entry, "at": iso(entry["at"])} for entry in text_done[:100]],
                     "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]],
-                    "price_items": [{**entry, "at": iso(entry["at"])} for entry in price_done[:100]]}
+                    "price_items": [{**entry, "at": iso(entry["at"])} for entry in price_done[:100]],
+                    "ps_items": [{**entry, "at": iso(entry["at"])} for entry in ps_done[:100]]}
             # Sổ đã khớp Sheet ở lượt đối soát gần nhất và tổng chưa đổi từ đó: việc còn treo của sổ không làm số đúng hơn. Riêng giá
             # khác giá Sheet vẫn hiện: tổng khớp mà giá từng chuyến lệch là hai chỗ bù trừ nhau, phép khớp tổng không thấy.
             reconcile = reconcile_result()

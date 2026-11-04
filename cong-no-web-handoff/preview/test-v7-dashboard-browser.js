@@ -502,6 +502,21 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
   }, '/viec-can-lam.html');
 });
 
+test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí máy đã phân loại, ghi rõ tổng không đổi và tháng khóa', async () => {
+  const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, ps_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
+    today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
+    today_prices: 0, today_price_books: 0, price_items: [], today_ps: 1, today_ps_books: 1,
+    ps_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'ps', customer_id: 2, container: 'MAUU0000004', date: '2026-06-11', month: '2026-06', locked: true }] };
+  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
+    assert.equal(await page.locator('.actor-chip', { hasText: 'Máy' }).getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 0 giá, 1 phụ phí phân loại');
+    await page.locator('[data-auto]').click();
+    const done = page.locator('.auto-list');
+    await done.waitFor();
+    assert.equal(await done.locator('.auto-kind').innerText(), 'Phụ phí');
+    assert.match(await done.locator('li').innerText(), /MAUU0000004 · 11\/06\/2026 · phân loại theo PS, tổng không đổi · tháng khóa/);
+  }, '/viec-can-lam.html');
+});
+
 test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet máy đã ghi, ghi rõ tháng khóa; chip Máy đếm giá riêng', async () => {
   const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
     today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],

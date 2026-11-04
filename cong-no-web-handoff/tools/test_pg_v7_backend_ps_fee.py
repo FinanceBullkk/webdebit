@@ -13,12 +13,17 @@ from pg_v7_harness import (
 )
 
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
+GOP = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql"
 
 
 def check_ps_fee(pg):
     # Earlier cases reapply older migrations that rebuild the event constraints; rerunning also proves idempotency.
     pg.sql(MIGRATION.read_text(encoding="utf-8"))
     pg.sql(MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(GOP.read_text(encoding="utf-8"))
+    pg.sql(GOP.read_text(encoding="utf-8"))
+    require(pg.value("SELECT count(*) FROM sokhach.fee_type WHERE name='Health + KĐ' AND sign='positive' AND active") == "1",
+            "combined fee type")
     fee = {name: int(pg.value(f"SELECT id FROM sokhach.fee_type WHERE {cond}")) for name, cond in (
         ("neo", "name='Neo'"), ("dien", "name='Điện'"), ("other", "system_key='other'"),
         ("initial", "system_key='initial'"), ("discount", "system_key='discount'"))}
@@ -123,6 +128,27 @@ def check_ps_fee(pg):
     require(row["current"]["counted_vnd"] == "999" and row["counted_differs"] is True, "legacy TOTAL changed")
     require([(x["fee_type_id"], x["amount_vnd"]) for x in row["fee_lines"]] == [(fee["neo"], "5")], "legacy lines")
     require(pg.value(legacy_money) == before_legacy, "legacy rewrite wrote money rows")
+
+    # MAY-PS-01: bổ sung tới đúng TOTAL - đơn giá. TOTAL, số dư và phân bổ giữ nguyên; lệch một đồng vẫn bị từ chối.
+    now_lines = json.dumps([x["id"] for x in row["fee_lines"]])
+    target_legacy = json.dumps({"legacy_row_id": int(legacy)})
+    combined = int(pg.value("SELECT id FROM sokhach.fee_type WHERE name='Health + KĐ'"))
+    reject_call(pg, "rewrite_trip_fees", book, version(pg, book), "ps-fill-off", target_legacy, now_lines,
+                json.dumps([{"fee_type_id": combined, "amount_vnd": "898"}]), source, error="FEE_TOTAL_CHANGED")
+    balances_book = f"SELECT jsonb_agg(to_jsonb(v) ORDER BY debt_month) FROM sokhach.v_outstanding_month v WHERE customer_id={book}"
+    adjustments = f"SELECT count(*) FROM sokhach.adjustment WHERE legacy_row_id={legacy}"
+    before_fill, before_adjust = pg.value(balances_book), pg.value(adjustments)
+    filled = call(pg, "rewrite_trip_fees", book, version(pg, book), "ps-fill", target_legacy, now_lines,
+                  json.dumps([{"fee_type_id": fee["neo"], "amount_vnd": "5"}, {"fee_type_id": combined, "amount_vnd": "894"}]), source)
+    row = legacy_row()
+    require(row["current"]["counted_vnd"] == "999" and row["current"]["other_fee_vnd"] == "899"
+            and row["counted_differs"] is False, "fill changed TOTAL or left the row flagged")
+    require(pg.value(balances_book) == before_fill and pg.value(adjustments) == before_adjust, "fill moved money")
+    require(sorted((x["fee_type_id"], x["amount_vnd"]) for x in row["fee_lines"]) == sorted([(fee["neo"], "5"), (combined, "894")]),
+            "fill lines")
+    require(call(pg, "rewrite_trip_fees", book, version(pg, book) - 1, "ps-fill", target_legacy, now_lines,
+                 json.dumps([{"fee_type_id": fee["neo"], "amount_vnd": "5"}, {"fee_type_id": combined, "amount_vnd": "894"}]), source) == filled,
+            "fill retry changed")
     pg.true("(SELECT has_function_privilege('v7_app','sokhach.rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)','EXECUTE')"
             " AND NOT has_function_privilege('v7_app','sokhach._rewrite_trip_fees(bigint,bigint,text,jsonb,jsonb,jsonb,jsonb)','EXECUTE'))",
             "rewrite grants")

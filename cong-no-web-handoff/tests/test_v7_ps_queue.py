@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 import v7_ps_snapshot as reader  # noqa: E402
-from v7_ps_queue import load_ps_snapshot, project_ps  # noqa: E402
+from v7_ps_queue import auto_ps, best_columns, load_ps_snapshot, project_ps  # noqa: E402
 
 HEADER = ["Khóa", "Số cont", "Ngày đóng", "Tháng bill", "Chủ hàng", "Mặt hàng", "Kho", "Cảng đến", "Hãng tàu",
           "Booking", "Tab nguồn", "Dòng nguồn", "Giá+phí ghi trên booking", "Giá WeChat", "PS: số dòng khớp",
@@ -47,7 +47,8 @@ TYPES = [{"id": 1, "name": "Khác", "system_key": "other", "active": True},
          {"id": 6, "name": "Ghép", "system_key": None, "active": True},
          {"id": 7, "name": "Bảo hiểm", "system_key": None, "active": True},
          {"id": 8, "name": "Health cert", "system_key": None, "active": True},
-         {"id": 9, "name": "Kiểm định", "system_key": None, "active": True}]
+         {"id": 9, "name": "Kiểm định", "system_key": None, "active": True},
+         {"id": 10, "name": "Health + KĐ", "system_key": None, "active": True}]
 CUSTOMERS = [{"id": 7, "name": "KHACH A"}, {"id": 8, "name": "KHACH B"}]
 ALIASES = {"CHU HANG A 101": "KHACH A", "CHU HANG B": "KHACH B"}
 
@@ -156,8 +157,10 @@ class QueueTest(unittest.TestCase):
              ledger([trip(date="2026-09-20", month="2026-09-01", lines=[line(91, 1, 1500000)])]), "MONTH_LOCKED", "Tháng 09/2026 đang khóa"),
             (ps_row(neo="1500000") | {"problems": [{"field": "ghep", "code": "PS_TYPO", "value": "1"}]},
              ledger([trip(lines=[line(91, 1, 1500000)])]), "PS_TYPO", "Ghép = 1 trên PS, có thể gõ sai"),
-            (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip()]), "PS_COMBINED",
-             "PS gộp Health+KĐ 3.000.000 đ, cần tách tay"),
+            (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip()]), "WEB_NO_FEE",
+             "PS 4.500.000 đ · web chưa có phụ phí"),
+            (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip(lines=[line(91, 3, 3000000)])]), "TOTAL_DIFF",
+             "Web 3.000.000 đ · PS 4.500.000 đ"),
             (ps_row(neo="1500000") | {"source_error": "B4 PS trùng dòng", "ps_match_count": 2}, ledger([trip()]),
              "PS_SOURCE_ERROR", "Bộ lập bill báo lỗi: B4 PS trùng dòng"),
             (ps_row(neo="1500000"), ledger([trip(), trip(12)]), "AMBIGUOUS", "Cont khớp nhiều chuyến hoặc nhiều dòng PS cùng một chuyến"),
@@ -196,12 +199,92 @@ class QueueTest(unittest.TestCase):
         flag_only = ps_row() | {"kd": True}
         self.assertEqual([r["status"] for r in project([flag_only], ledger([trip()]))["review"]], ["NEED_KD"])
 
+    def test_combined_cell_becomes_one_line_of_the_combined_type(self):
+        only = project([ps_row() | {"combined_vnd": "3000000"}], ledger([trip(lines=[line(91, 3, 3000000)])]))
+        self.assertEqual([(x["fee_type_id"], x["amount_vnd"]) for x in only["ready"][0]["after"]], [(10, "3000000")])
+        self.assertIs(only["ready"][0]["fill"], False)
+        both = project([ps_row(neo="1500000") | {"combined_vnd": "3000000"}], ledger([trip(lines=[line(91, 3, 4500000)])]))
+        self.assertEqual({(x["fee_type_id"], x["amount_vnd"]) for x in both["ready"][0]["after"]},
+                         {(4, "1500000"), (10, "3000000")})
+        done = project([ps_row() | {"combined_vnd": "3000000"}], ledger([trip(lines=[line(92, 10, 3000000)])]))
+        self.assertEqual((done["ready_count"], done["review_count"]), (0, 0))
+        types = [t for t in TYPES if t["id"] != 10]
+        snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [ps_row() | {"combined_vnd": "3000000"}], "customer_aliases": ALIASES}
+        missing = project_ps(snapshot, ledger([trip(lines=[line(91, 3, 3000000)])]), CUSTOMERS, types)
+        self.assertEqual([(r["status"], r["message"]) for r in missing["review"]],
+                         [("FEE_TYPE_MISSING", "Danh mục chưa có loại Health + KĐ")])
+
+    def test_marks_are_covered_by_the_combined_line(self):
+        row = ps_row() | {"combined_vnd": "3000000", "health": True, "kd": True}
+        self.assertEqual(project([row], ledger([trip(lines=[line(92, 10, 3000000)])]))["review_count"], 0)
+
+    def legacy(self, lines, unit="80000000", counted="93500000", month="2026-10-01"):
+        return {"id": 21, "kind": "trip", "month": month, "fee_lines": lines, "current": {
+            "container": "FAKEU0000001", "event_date": "2026-10-03", "unit_price_vnd": unit, "counted_vnd": counted,
+            "month": month, "deleted": False}}
+
+    def test_fill_only_when_total_minus_unit_equals_ps(self):
+        row = ps_row(neo="3500000") | {"combined_vnd": "10000000"}
+        item = project([row], ledger(legacy=[self.legacy([line(91, 3, 3500000)])]))["ready"][0]
+        self.assertEqual((item["fill"], item["web_total"], item["ps_total"]), (True, "3500000", "13500000"))
+        self.assertEqual({(x["fee_type_id"], x["amount_vnd"]) for x in item["after"]}, {(4, "3500000"), (10, "10000000")})
+        kept = project([row], ledger(legacy=[self.legacy([line(91, 4, 3500000, "giữ")])]))["ready"][0]
+        self.assertEqual({(x["fee_type_id"], x["amount_vnd"], x["note"]) for x in kept["after"]},
+                         {(4, "3500000", "giữ"), (10, "10000000", None)})
+        no_lines = project([row], ledger(legacy=[self.legacy([])]))["ready"][0]
+        self.assertIs(no_lines["fill"], True)
+        other = project([row], ledger(legacy=[self.legacy([line(91, 3, 3500000)], counted="93000000")]))
+        self.assertEqual([r["status"] for r in other["review"]], ["TOTAL_DIFF"])
+        no_price = project([row], ledger(legacy=[self.legacy([line(91, 3, 3500000)], unit=None)]))
+        self.assertEqual([r["status"] for r in no_price["review"]], ["TOTAL_DIFF"])
+        # Chuyến web không có ô TOTAL riêng nên không có ngoại lệ này.
+        web = project([row], ledger([trip(lines=[line(91, 3, 3500000)])]))
+        self.assertEqual([r["status"] for r in web["review"]], ["TOTAL_DIFF"])
+
+    def test_auto_ps_takes_ready_and_locked_but_keeps_notes(self):
+        ready = {"before": [{"note": None}], "after": [{"note": None}]}
+        locked = {"status": "MONTH_LOCKED", "before": [], "after": []}
+        other = {"status": "TOTAL_DIFF", "before": [], "after": []}
+        noted = {"before": [{"note": "gõ tay"}], "after": [{"note": None}]}
+        kept = {"before": [{"note": "gõ tay"}], "after": [{"note": "gõ tay"}]}
+        self.assertEqual(auto_ps({"ready": [ready, noted, kept], "review": [locked, other]}), [ready, kept, locked])
+        # Ghi chú do migration phụ phí tự sinh trên mọi khoản "Phụ phí ban đầu" không phải ghi chú của người.
+        for note in ("migration: legacy fee", "migration: initial fee"):
+            generated = {"before": [{"note": note}], "after": [{"note": None}]}
+            self.assertEqual(auto_ps({"ready": [generated]}), [generated])
+
     def test_missing_fee_type(self):
         types = [t for t in TYPES if t["name"] != "Điện"]
         snapshot = {"sha256": "a" * 64, "row_count": 1, "rows": [ps_row(dien="500000")], "customer_aliases": ALIASES}
         result = project_ps(snapshot, ledger([trip(lines=[line(91, 1, 500000)])]), CUSTOMERS, types)
         self.assertEqual([(r["status"], r["message"]) for r in result["review"]],
                          [("FEE_TYPE_MISSING", "Danh mục chưa có loại Điện")])
+
+
+class BestColumnsTest(unittest.TestCase):
+    def columns(self, current, lines, rows_key="trips"):
+        rows = [{"fee_lines": [line(i, t, a) for i, (t, a) in enumerate(lines)], "kind": "trip"}]
+        book = {"fee_columns": [{"fee_type_id": c, "position": i + 1} for i, c in enumerate(current)], rows_key: rows}
+        return best_columns(book, TYPES)
+
+    def test_replaces_only_columns_outside_the_top_last_first(self):
+        self.assertEqual(self.columns([4, 6, 5], [(4, 1500000), (10, 3000000)]), [4, 6, 10])
+        self.assertEqual(self.columns([4, 6, 5], [(10, 3000000), (8, 2000000), (4, 1)]), [4, 8, 10])
+
+    def test_appends_when_there_is_room_and_ignores_system_types(self):
+        self.assertEqual(self.columns([], [(10, 10000000), (4, 3500000), (3, 99000000)]), [10, 4])
+        self.assertIsNone(self.columns([], [(3, 99000000), (1, 5)]))
+
+    def test_keeps_columns_in_the_top_and_order(self):
+        self.assertIsNone(self.columns([6, 4], [(4, 1000), (6, 500)]))
+        self.assertIsNone(self.columns([4, 6, 5], [(4, 1000)]))
+        self.assertEqual(self.columns([4, 6, 5], [(4, 5), (6, 6), (5, 7), (10, 8)]), [10, 6, 5])
+        self.assertEqual(self.columns([4], [(10, 5)], rows_key="legacy_rows"), [4, 10])
+
+    def test_deleted_and_rejected_rows_do_not_count(self):
+        book = {"fee_columns": [], "trips": [{"status": "rejected", "fee_lines": [line(1, 4, 5)]}, {"deleted": True, "fee_lines": [line(2, 5, 5)]}],
+                "legacy_rows": [{"kind": "trip", "current": {"deleted": True}, "fee_lines": [line(3, 6, 5)]}]}
+        self.assertIsNone(best_columns(book, TYPES))
 
 
 class Runner:

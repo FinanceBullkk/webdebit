@@ -1781,6 +1781,17 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
 
+## Loại gộp Health + KĐ và máy tự tách theo PS (MAY-PS-01) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql` ([`MAY-PS-01`](decisions/may-ps-01.md), [spec](../specs/v7-phu-phi-tu-ps.md#máy-tự-làm-may-ps-01-4112026)) thêm một dòng `fee_type` và thay thân `_rewrite_trip_fees`. Không đổi bảng, ràng buộc, loại event, quyền hay số dư. Chạy lại được. Chạy sau `2026-10-29-v7-ps-fee.sql`; chạy lại migration đó thì phải chạy lại migration này.
+
+1. **Bản sao trước, cửa sổ dừng ghi, đổi release:** như mục "Chặn tính trùng" (dump, restore, migration hai lượt, dấu vân tay và số dư không đổi, checker; dừng API và đợi `v7-reconcile-auto` xong, áp một transaction, bật API, `webdebit-release.sh deploy`). Dấu vân tay `fee_type` tăng đúng một dòng.
+2. **Thử máy trên bản sao:** DB tạm, `Inbox.refresh_all` của release mới với `WEBDEBIT_AUTO_SHEET=ps`, đọc đúng `ps.json` đang dùng. Đạt khi: không lỗi; số dư từng khách và `counted_vnd` mọi dòng sổ gốc không đổi; mọi tháng máy mở đã khóa lại; `TOTAL_DIFF`, `TYPED_CONFLICT` còn nguyên; cột riêng chỉ đổi ở sổ máy vừa tách. Xóa DB tạm.
+3. **Bật máy:** drop-in `auto-sheet.conf` thêm `ps` vào `WEBDEBIT_AUTO_SHEET`, `daemon-reload`, restart. Lượt hộp việc đầu tiên chạy máy. Đo như bước 2 trên DB thật, đếm event `rewrite_trip_fees` và `set_book_fee_columns` của `may-theo-sheet`.
+4. **Tắt máy:** bỏ `ps` khỏi drop-in, restart. Việc đã làm giữ trong Lịch sử; đổi lại loại trong khung chi tiết phụ phí nếu cần.
+
+Rollback DB: lấy thân `_rewrite_trip_fees` ở `main` trước PR này, chạy dưới `sokhach_owner` trong một transaction; loại phí đã dùng thì giữ, chưa dùng thì tắt bằng `set_fee_type_active`. Release cũ chạy được với DB mới.
+
 ## Sửa chữ ở tháng khóa (KHOA-CHU-01) và máy lấy chữ theo Sheet — nâng DB đang có (ĐÃ CHẠY trên hao 1/11/2026; máy đã bật)
 
 Đã nâng DB và đổi release 1/11/2026, xem [nhật ký](deploys/2026-11-01-khoa-chu.md). Bước 2 (bật máy) chạy 19:22 cùng ngày: lệch chữ 944 → 0, số dư không đổi.

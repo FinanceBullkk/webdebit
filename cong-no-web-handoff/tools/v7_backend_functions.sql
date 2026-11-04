@@ -2572,6 +2572,7 @@ DECLARE v_payload jsonb:=jsonb_build_object('command','rewrite_trip_fees','targe
  'expected_line_ids',p_expected,'lines',p_lines,'source',p_source);
  v_retry jsonb; v_before jsonb; v_after jsonb; v_line jsonb; v_new jsonb:='[]'; v_type sokhach.fee_type%ROWTYPE;
  v_amount bigint; v_old_total bigint; v_new_total bigint:=0; v_event bigint; v_trip bigint; v_legacy bigint;
+ v_cur jsonb; v_fill boolean:=false;
 BEGIN
  BEGIN v_retry:=sokhach._begin_command(p_customer,p_version,p_key,v_payload);
  EXCEPTION WHEN raise_exception THEN
@@ -2606,7 +2607,14 @@ BEGIN
    v_new:=v_new||jsonb_build_array(jsonb_build_object('fee_type_id',v_type.id,'amount_vnd',v_amount::text,
      'note',nullif(btrim(coalesce(v_line->>'note','')),'')));
  END LOOP;
- IF v_new_total IS DISTINCT FROM v_old_total THEN RAISE EXCEPTION 'FEE_TOTAL_CHANGED'; END IF;
+ IF v_new_total IS DISTINCT FROM v_old_total THEN
+   -- MAY-PS-01: ô TOTAL của dòng sổ gốc đã gồm phí mà các khoản chưa đủ: được bổ sung tới đúng TOTAL - đơn giá, TOTAL không đổi.
+   IF v_legacy IS NOT NULL THEN
+     v_cur:=sokhach._legacy_current(v_legacy);
+     v_fill:=v_new_total=(v_cur->>'counted_vnd')::bigint-(v_cur->>'unit_price_vnd')::bigint;
+   END IF;
+   IF NOT v_fill THEN RAISE EXCEPTION 'FEE_TOTAL_CHANGED'; END IF;
+ END IF;
  IF (SELECT jsonb_agg(x-'id' ORDER BY x->>'fee_type_id',x->>'amount_vnd',x->>'note') FROM jsonb_array_elements(v_before->'fee_lines') x)
    = (SELECT jsonb_agg(x ORDER BY x->>'fee_type_id',x->>'amount_vnd',x->>'note') FROM jsonb_array_elements(v_new) x)
  THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
@@ -2621,6 +2629,8 @@ BEGIN
  SELECT p_customer,v_trip,v_legacy,(x->>'fee_type_id')::bigint,(x->>'amount_vnd')::bigint,x->>'note',v_event
  FROM jsonb_array_elements(v_new) x;
  IF v_trip IS NOT NULL THEN PERFORM sokhach._sync_trip_fee(v_trip,v_event); END IF;
+ -- _change_legacy tính lại TOTAL = đơn giá + tổng mới, đúng bằng TOTAL cũ nên không sinh điều chỉnh.
+ IF v_fill THEN PERFORM sokhach._change_legacy(p_customer,p_version,p_key,v_legacy,'other_fee_vnd',v_new_total::text,false,v_event); END IF;
  RETURN sokhach._finish_command(p_customer,p_key,v_payload,jsonb_build_object('event_id',v_event,
    'targets',jsonb_build_array(sokhach._fee_target(p_customer,p_target))));
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'FEE_AMOUNT_INVALID';

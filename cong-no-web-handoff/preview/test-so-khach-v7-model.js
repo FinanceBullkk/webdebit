@@ -697,11 +697,15 @@ test("tách phụ phí theo bảng PS: chỉ ghi 'Tổng tiền không đổi' k
   const ready = [
     { before: [{ fee_type_id: 9, amount_vnd: "2000000" }], after: [{ fee_type_id: 1, amount_vnd: "1500000" }, { fee_type_id: 2, amount_vnd: "500000" }] },
     { before: [{ fee_type_id: 7, amount_vnd: "800000" }], after: [{ fee_type_id: 3, amount_vnd: "800000" }] }];
-  assert.deepEqual(model.planPsFees(ready), { count: 2, totalVnd: 2800000n, same: true });
+  assert.deepEqual(model.planPsFees(ready), { count: 2, totalVnd: 2800000n, same: true, fills: 0 });
   const changed = [...ready, { before: [{ fee_type_id: 7, amount_vnd: "100" }], after: [{ fee_type_id: 1, amount_vnd: "101" }] }];
-  assert.deepEqual(model.planPsFees(changed), { count: 3, totalVnd: null, same: false });
-  assert.deepEqual(model.planPsFees([{ before: [], after: [] }]), { count: 1, totalVnd: null, same: false });
-  assert.deepEqual(model.planPsFees([]), { count: 0, totalVnd: 0n, same: false });
+  assert.deepEqual(model.planPsFees(changed), { count: 3, totalVnd: null, same: false, fills: 0 });
+  assert.deepEqual(model.planPsFees([{ before: [], after: [] }]), { count: 1, totalVnd: null, same: false, fills: 0 });
+  assert.deepEqual(model.planPsFees([]), { count: 0, totalVnd: 0n, same: false, fills: 0 });
+  // MAY-PS-01: dòng sổ gốc ghi đủ khoản đã tính trong TOTAL thì khác tổng khoản mà vẫn được, chỉ khi server đánh dấu `fill`.
+  const fill = { fill: true, before: [{ amount_vnd: '3500000' }], after: [{ amount_vnd: '3500000' }, { amount_vnd: '10000000' }] };
+  assert.deepEqual(model.planPsFees([fill]), { count: 1, totalVnd: 13500000n, same: true, fills: 1 });
+  assert.deepEqual(model.planPsFees([{ ...fill, fill: false }]), { count: 1, totalVnd: null, same: false, fills: 0 });
   const names = { 1: "Neo", 2: "Điện" };
   assert.equal(model.feeLinesText(ready[0].after, id => names[id]), "Neo 1.500.000 + Điện 500.000");
 });
