@@ -33,7 +33,7 @@ Trang `/bang-thu.html`, mục thứ tư trên menu trái, đọc `GET /api/v7/re
 | --- | --- | --- |
 | Phiếu web | `sokhach.receipt` (một bảng chung, có `customer_id`) | Ngày, hình thức, tham chiếu, số tiền. 37 phiếu chưa hủy lúc đo, tăng dần vì máy và người đang ghi |
 | Khoản thu trước mốc | `sokhach.legacy_row` kind `receipt`: 1.227 dòng, 354,64 tỷ | Tổng dòng bằng `source_receipt_vnd` ở 877/877 khách-tháng, kể cả sau khi trừ 2 khoản đã xóa |
-| Ngày của khoản Sheet | `display.raw_date`, chữ tự do | 719 dòng đọc được ngày theo luật `pay_date` của hàng chờ phiếu; khoảng 510 dòng (gần 103 tỷ) không đọc được hoặc ngày vô lý |
+| Ngày của khoản Sheet | `display.raw_date`, chữ tự do | 719 dòng đọc được ngày theo luật `pay_date` của hàng chờ phiếu; 512 dòng (103,56 tỷ, đo trên bản sao 4/11/2026) không đọc được hoặc ngày vô lý |
 | Trừ nợ tháng nào | `v_receipt_line_active` với phiếu web; `debt_month` với dòng Sheet | Dòng Sheet không có phân bổ riêng: hiện tháng của khối |
 | Cấn trừ | `offset_pair`; phiếu đích nằm trong `receipt` | Không phải tiền mới vào. 0 khoản đang có hiệu lực lúc đo |
 | Phiếu Sheet chưa ghi | `GET /api/v7/inbox`: `books[].receipts`, `sheet_matched` | Như tab Đòi nợ |
