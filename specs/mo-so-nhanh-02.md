@@ -1,6 +1,6 @@
 # Mở Sổ khách nhanh hơn, bước 2: Lịch sử nạp khi mở khung, bỏ ô Sheet thô khỏi bản đọc mặc định (MO-SO-NHANH-02)
 
-Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, "Chốt theo đề xuất": phương án A, bỏ `display.cells`, chấp nhận giảm 2,5 lần, khung đang mở không tự tải; phạm vi thân JSON của `GET /api/v7/ledger`, khung Lịch sử của trang Sổ khách, không đổi luật tiền, kết quả `get_ledger` giữ nguyên)
+Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, "Chốt theo đề xuất": phương án A, bỏ `display.cells`, chấp nhận giảm 2,5 lần, khung đang mở không tự tải; phạm vi thân JSON của `GET /api/v7/ledger`, khung Lịch sử của trang Sổ khách, không đổi luật tiền, kết quả `get_ledger` giữ nguyên). ĐÃ TRIỂN KHAI trên `hao` 4/11/2026, bản `943d8f2`, [nhật ký](../docs/deploys/2026-11-04-ledger-events.md).
 
 Tiếp [MO-SO-NHANH-01](mo-so-nhanh-01.md) (ETag/304, gzip, đọc sổ song song với tải JS; lên `hao` 4/11/2026, bản `473bb0a`). Bước 1 không đổi thời gian server của GET sổ; bước này giảm kích thước thân GET và việc trình duyệt phải nhận, giải nén, phân tích mỗi 60 giây.
 
@@ -108,13 +108,13 @@ Phần `legacy_rows` còn lại sau khi bỏ `cells` là bảng người dùng �
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tests/test_v7_ledger_api.py`: GET `/api/v7/ledger` không có `events`, không có `display.cells`, các khóa khác bằng kết quả trước khi cắt; `ledger_projections` nhận bản còn đủ `events` (patch và soi tham số); `public_ledger` không sửa dict vào (tránh đụng bộ nhớ dùng chung). GET `/api/v7/ledger/events`: 200 đúng thân, `actor_name` theo bảng tên (chuyển ca `test_ledger_history_names_actor_by_short_name_not_login`), 422 khi thiếu/sai `customer`, không gắn `demo`/`real_copy`. GET sổ không thêm lần gọi psql nào (thân và `ledger_projections` không đổi đường đọc; `test_v7_ledger_read_cost.py` giữ xanh).
-- [ ] Phương án A: `tools/test_pg_v7_backend.py` (và `--migration-test`) xanh ở máy; ca mới: `get_ledger_events` trả đúng `events` của `get_ledger` cùng `version`, sổ `NO_BASELINE` trả `[]`, reader không gọi được; `get_ledger` trước/sau migration giống hệt trên fixture harness.
-- [ ] `preview/test-so-khach-v7-api.js`: `readEvents()` gọi đúng đường, từ chối thân sai khách; trang không có `events` trong thân: mở khung → gọi events một lần, đóng/mở lại không gọi thêm, `version` đổi thì gọi lại, lỗi thì có Thử lại; các ca đang truyền `events` trong thân vẫn xanh (đường fixture/server cũ).
-- [ ] `preview/test-so-khach-v7-ctx.js` xanh với ba dòng FIELDS mới.
-- [ ] Test trình duyệt: `so-khach-v7-browser-world.js` bỏ `events` khỏi thân GET sổ và thêm route `GET /api/v7/ledger/events` trả `world.events`; các ca ở `keys-browser` (bộ lọc, đếm, thêm sự kiện rồi làm mới), `edit-browser`, `offset-browser` đọc `#history-panel` **sau khi** danh sách về (chờ `.history-items`), không đọc ngay sau click; tải lại trang bằng `reload(page)` của world. Thêm ca: mở sổ không gọi route events; mở khung thì gọi; đóng/mở lại không gọi; sau một lệnh khi khung mở thì gọi lại.
-- [ ] `npm run check` xanh; `.venv/Scripts/python.exe -m ruff check .` sạch; `node scripts/check-secrets.js` sạch.
-- [ ] Trên `hao` sau deploy: đo lại sổ 14, 176, 79 bằng `performance.getEntriesByType('resource')`: thân GET sổ 14 ≤ 165 KB, GET không chậm hơn bảng trên; mở Lịch sử sổ 79 ≤ 300 ms (A) và danh sách khớp số sự kiện; ghi số vào PR.
+- [x] `tests/test_v7_ledger_api.py`: GET `/api/v7/ledger` không có `events`, không có `display.cells`, các khóa khác bằng kết quả trước khi cắt; `ledger_projections` nhận bản còn đủ `events` (patch và soi tham số); `public_ledger` không sửa dict vào (tránh đụng bộ nhớ dùng chung). GET `/api/v7/ledger/events`: 200 đúng thân, `actor_name` theo bảng tên (chuyển ca `test_ledger_history_names_actor_by_short_name_not_login`), 422 khi thiếu/sai `customer`, không gắn `demo`/`real_copy`. GET sổ không thêm lần gọi psql nào (thân và `ledger_projections` không đổi đường đọc; `test_v7_ledger_read_cost.py` giữ xanh).
+- [x] Phương án A: `tools/test_pg_v7_backend.py` (và `--migration-test`) xanh ở máy; ca mới: `get_ledger_events` trả đúng `events` của `get_ledger` cùng `version`, sổ `NO_BASELINE` trả `[]`, reader không gọi được; `get_ledger` trước/sau migration giống hệt trên fixture harness.
+- [x] `preview/test-so-khach-v7-api.js`: `readEvents()` gọi đúng đường, từ chối thân sai khách; trang không có `events` trong thân: mở khung → gọi events một lần, đóng/mở lại không gọi thêm, `version` đổi thì gọi lại, lỗi thì có Thử lại; các ca đang truyền `events` trong thân vẫn xanh (đường fixture/server cũ).
+- [x] `preview/test-so-khach-v7-ctx.js` xanh với ba dòng FIELDS mới.
+- [x] Test trình duyệt: `so-khach-v7-browser-world.js` bỏ `events` khỏi thân GET sổ và thêm route `GET /api/v7/ledger/events` trả `world.events`; các ca ở `keys-browser` (bộ lọc, đếm, thêm sự kiện rồi làm mới), `edit-browser`, `offset-browser` đọc `#history-panel` **sau khi** danh sách về (chờ `.history-items`), không đọc ngay sau click; tải lại trang bằng `reload(page)` của world. Thêm ca: mở sổ không gọi route events; mở khung thì gọi; đóng/mở lại không gọi; sau một lệnh khi khung mở thì gọi lại.
+- [x] `npm run check` xanh; `.venv/Scripts/python.exe -m ruff check .` sạch; `node scripts/check-secrets.js` sạch.
+- [x] Trên `hao` sau deploy: đo lại sổ 14, 176, 79 bằng `performance.getEntriesByType('resource')`: thân GET sổ 14 ≤ 165 KB, GET không chậm hơn bảng trên; mở Lịch sử sổ 79 ≤ 300 ms (A) và danh sách khớp số sự kiện; ghi số vào PR.
 - [ ] Người dùng tự mở Lịch sử trên `hao` ở một sổ lớn, lọc, làm một lệnh rồi thấy dòng mới trong khung.
 
 ## Phạm vi agent
@@ -139,6 +139,8 @@ Revert PR. Phương án A: release cũ chạy được với DB đã có hàm m�
 ## Bằng chứng
 
 - 4/11/2026, `hao` bản `473bb0a`: số đo ở bảng trên. Trình duyệt: 5 lần GET mỗi sổ qua `fetch` + `performance.getEntriesByType('resource')` (`encodedBodySize`, `decodedBodySize`, `responseStart`); cả 238 sổ quét một lượt 3 luồng song song. Server: script chỉ đọc chạy bằng `sudo -u v7app python3 -B -I -` với `SET LOCAL transaction_read_only=on` (đo `get_ledger`, `ledger_projections`, `json.dumps/loads`, `gzip.compress`, kích thước thân sau khi bỏ `events` + `cells`); phần SQL tách riêng chạy trong giao dịch chỉ đọc bằng `psql` với `\timing`. Không ghi gì, không chép dữ liệu khách ra ngoài `hao`.
+
+- 4/11/2026, sau triển khai `943d8f2`: thân sổ 14 163,3 KB, GET 408–458 ms; sổ 79 607 KB, 1.854–1.889 ms; sổ 176 23,2 KB, 216–236 ms; mở Lịch sử sổ 79 225 ms, 658 dòng. Chi tiết ở [nhật ký](../docs/deploys/2026-11-04-ledger-events.md). Tích kiểm: harness máy 78 đạt, 2 bỏ qua; `npm run check` xanh trừ ruff báo giả trong worktree, chạy riêng sạch; CI 14/14. Mục người dùng tự thử còn mở.
 
 ## Câu hỏi đã chốt (người dùng, 4/11/2026: theo cả bốn đề xuất)
 
