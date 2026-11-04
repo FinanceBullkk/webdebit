@@ -78,6 +78,10 @@
   const REASON_TEXT = {
     WEB_AHEAD: 'Web đi trước Sheet: chuyến đã có giá trên web, Sheet chưa ghi. Không cần làm gì.',
     WOULD_FIX: 'Máy sửa được khi bật ghi, khớp đúng tới từng đồng.',
+    BOOK_CREATED: 'Máy đã tạo sổ mới theo TONG và đưa đủ các dòng của tab vào. Khớp tới từng đồng.',
+    WOULD_CREATE_BOOK: 'Máy tạo được sổ mới khi bật ghi.',
+    BOOK_OVERLAP: 'Tab có container đã nằm ở sổ khác, có thể là đổi tên hoặc tách sổ, nên máy không tự tạo sổ.',
+    TOO_MANY_NEW_BOOKS: 'Quá nhiều tab mới cùng lúc, máy chỉ báo, không tạo sổ.',
     NO_EXACT_FIX: 'Máy không tìm được cách khớp đúng tới từng đồng, nên chưa ghi gì.',
     SHEET_SHUFFLED: 'Trên Sheet đơn giá của vài chuyến đổi chỗ cho nhau, có thể do xếp lệch cột, nên máy không ghi.',
     AMBIGUOUS_FIX: 'Có nhiều cách khớp, máy không tự chọn.',
@@ -92,6 +96,7 @@
     CHI_CO_WEB: 'Có sổ trên web, không thấy trên Sheet.',
     THIEU_SO: 'Một bên chưa có tổng.',
   };
+  const OUTSIDE_TEXT = { NOT_ON_TONG: 'chưa có trên TONG', TONG_DIFFERS: 'số trên TONG khác số trên tab', TAB_UNREADABLE: 'tab có chỗ máy chưa đọc được' };
   const isAhead = row => row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP');
   const clock = iso => new Date(iso).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' });
   const vnDay = ms => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
@@ -122,13 +127,14 @@
     if (!result.checked_at) return `<section class="reconcile warn" aria-label="Đối soát với Sheet">${failed}</section>`;
     const rows = result.customers ?? [];
     const fixed = rows.filter(row => row.reason === 'FIXED');
+    const created = rows.filter(row => row.reason === 'BOOK_CREATED');
     const ahead = rows.filter(isAhead);
-    const would = rows.filter(row => row.reason === 'WOULD_FIX');
-    const open = rows.filter(row => row.reason !== 'FIXED' && row.reason !== 'WOULD_FIX' && !isAhead(row));
+    const would = rows.filter(row => row.reason === 'WOULD_FIX' || row.reason === 'WOULD_CREATE_BOOK');
+    const open = rows.filter(row => !fixed.includes(row) && !created.includes(row) && !would.includes(row) && !isAhead(row));
     const old = reconcileOld(result.checked_at, now);
-    const outside = result.outside_tabs ?? [];   // còn nợ mà ngoài TONG: tỷ lệ khớp ở dưới chưa tính tới, phải luôn thấy
+    const outside = result.outside_tabs ?? [];   // còn nợ mà chưa có sổ: tỷ lệ khớp ở dưới chưa tính tới, phải luôn thấy
     const tone = rows.some(row => row.reason === 'VERIFY_FAILED') ? 'danger' : open.length || would.length || outside.length || failed || old ? 'warn' : '';
-    const parts = [fixed.length && `hôm nay máy đã sửa ${fixed.length} khách`, would.length && `${would.length} khách máy sửa được`, ahead.length && `${ahead.length} khách web đi trước Sheet`].filter(Boolean);
+    const parts = [fixed.length && `hôm nay máy đã sửa ${fixed.length} khách`, created.length && `hôm nay máy đã tạo ${created.length} sổ mới`, would.length && `${would.length} khách máy sửa được`, ahead.length && `${ahead.length} khách web đi trước Sheet`].filter(Boolean);
     const big = value => { const n = BigInt(value ?? 0); return n < 0n ? -n : n; };
     // Nợ tập trung ở vài khách lớn: đếm khách một mình dễ tưởng gần xong, nên kèm tỷ lệ theo tiền.
     // Còn khách lệch thì chưa phải 100%: khách lệch có thể đang 0 đồng trên web, phép chia theo tổng web không thấy phần đó.
@@ -138,7 +144,7 @@
     const sorted = [...rows].sort((a, b) => rank(a) - rank(b) || (big(b.difference_vnd) > big(a.difference_vnd) ? 1 : big(b.difference_vnd) < big(a.difference_vnd) ? -1 : 0));
     const line = row => `<tr><th scope="row">${esc(row.customer)}</th><td class="num money">${row.difference_vnd == null ? '—' : esc(million(row.difference_vnd))}</td><td>${esc(reconcileRowText(row, million))}</td><td>${row.customer_id ? `<a href="${href(row.customer_id)}">Mở sổ</a>` : ''}</td></tr>`;
     const months = result.months_differ?.length ? `<p class="inbox-note">${result.months_differ.length} khách khớp tổng nhưng chia theo tháng khác Sheet (web trừ nợ cũ trước).</p>` : '';
-    const outsideNote = outside.length ? `<p class="reconcile-outside">${outside.length} tab khách trên Sheet còn nợ mà chưa có trên TONG và chưa có sổ web, nên chưa nằm trong số khớp này: ${outside.map(row => `${esc(row.customer)} (${esc(million(row.sheet_total_vnd))} tr)`).join(', ')}.</p>` : '';
+    const outsideNote = outside.length ? `<p class="reconcile-outside">${outside.length} tab khách trên Sheet còn nợ mà máy chưa tạo được sổ, nên chưa nằm trong số khớp này: ${outside.map(row => `${esc(row.customer)} (${esc(million(row.sheet_total_vnd))} tr${OUTSIDE_TEXT[row.reason] ? `, ${OUTSIDE_TEXT[row.reason]}` : ''})`).join('; ')}.</p>` : '';
     const list = show && rows.length ? `<div class="reconcile-list"><table><thead><tr><th scope="col">Khách</th><th scope="col" class="num">Web − Sheet <span class="muted">tr</span></th><th scope="col">Kết luận</th><th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${sorted.map(line).join('')}</tbody></table>${months}</div>` : '';
     return `<section class="reconcile ${tone}" aria-label="Đối soát với Sheet">${failed}<div class="reconcile-line"><span>Đối soát với Sheet lúc ${esc(when(result.checked_at))}${old ? ' · có thể cũ' : ''}</span><strong>${result.counts?.KHOP ?? 0}/${result.total ?? 0} khách khớp${share}</strong>${parts.map(text => `<span>${esc(text)}</span>`).join('')}${open.length ? `<strong class="reconcile-open">${open.length} khách cần xem</strong>` : ''}${rows.length ? `<button class="btn" type="button" data-reconcile aria-expanded="${!!show}">${show ? 'Thu gọn' : 'Xem'}</button>` : ''}</div>${outsideNote}${list}</section>`;
   }
