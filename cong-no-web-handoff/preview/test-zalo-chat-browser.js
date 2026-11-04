@@ -168,7 +168,8 @@ test('Chat Zalo: danh sách hội thoại có tên, số tin, ngày tin cuối; 
     assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Hoàng Vũ', `Chưa rõ tên · ${CONV_B.slice(0, 8)}`]);
     assert.deepEqual(await page.locator('.conv .last').allInnerTexts(), ['10/10/2025', '09/10/2025']);
     assert.match(await page.locator('.conv .sub').first().innerText(), /7 tin · Mình nhắn gần nhất 10\/10\/2025/);
-    assert.equal(await page.locator('nav a.active').innerText(), 'Đòi nợ');
+    assert.equal(await page.locator('nav a.active').innerText(), 'Sổ khách');
+    assert.equal(await page.locator('a.back').getAttribute('href'), '/so-khach-v7-live.html');
     await page.locator('#conversation-search').fill('hoang vu');
     assert.deepEqual(await page.locator('.conv .nm').allInnerTexts(), ['Nguyễn Hoàng Vũ']);
     assert.equal(await page.locator('#conversation-count').innerText(), '1 / 2');
@@ -237,7 +238,7 @@ test('Chat Zalo: nút Tải tin cũ hơn ghép trang cũ lên trên, giữ thứ
   });
 });
 
-test('Chat Zalo: ?q= từ tab Đòi nợ lọc sẵn và tự mở khi chỉ còn một hội thoại', async () => {
+test('Chat Zalo: ?q= từ thẻ Trao đổi lọc sẵn và tự mở khi chỉ còn một hội thoại', async () => {
   await withPage({}, async page => {
     await page.locator('.msg').first().waitFor();
     assert.equal(await page.locator('#conversation-search').inputValue(), 'Nguyễn Hoàng Vũ');
