@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho thẻ Tình hình của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A2): bốn số và mức
  * rủi ro bằng đúng sổ và Tổng quan, hình 12 tháng bằng months[] và bấm tháng sang thẻ Sổ, số chuyến 6 tháng, việc chờ mở thẻ Sổ
- * với loc=, khách chưa có số dư đầu, khách dư, Tổng quan và lần nhắc đọc lỗi. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang
+ * với loc=, khách chưa có số dư đầu, khách dư, Tổng quan đọc lỗi. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang
  * ghim 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -39,7 +39,6 @@ function debtor(world) {
     long_overdue_vnd: M(8), oldest_open_month: '2026-07-01', last_receipt_date: '2026-11-05', last_receipt_exact: true, pay_days: 10,
     last_trip_date: '2026-11-12', last_trip_exact: true, trip_days: 3, risk: 'high',
     months: Object.entries(OPEN).map(([key, value]) => ({ month: `${key}-01`, outstanding_vnd: M(value) })) }] };
-  world.reminders = [{ customer_id: 1, last_reminded: '2026-11-10', reminder_count: 3, last_source: 'copy-button' }];
 }
 
 const state = page => page.evaluate(() => [document.body.dataset.the, location.search]);
@@ -55,7 +54,7 @@ test('Bố cục và số của Tình hình lấy từ sổ, Tổng quan; mở t
   assert.equal(await page.locator('.ov-stat').nth(0).locator('strong').innerText(), '—');
   assert.match(await page.locator('.ov-stat').nth(1).innerText(), /Phát sinh đã ghi sổ trong 12 tháng/);
   assert.match(await page.locator('.ov-stat').nth(2).innerText(), /2 chuyến tháng này/);
-  assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Nhắc nợ ngay');
+  assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Liên hệ khách');
   assert.equal(await page.locator('.ov-activity li').count(), 4);
   const layout = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -63,7 +62,7 @@ test('Bố cục và số của Tình hình lấy từ sổ, Tổng quan; mở t
     font: getComputedStyle(document.querySelector('#the-tinh-hinh')).fontSize
   }));
   assert.deepEqual(layout, { overflow: 0, small: [], font: '16px' });
-  assert.deepEqual([...new Set(world.sideReads)].sort(), ['/api/v7/dashboard/debt', '/api/v7/reminders']);
+  assert.deepEqual([...new Set(world.sideReads)].sort(), ['/api/v7/dashboard/debt'], 'nhắc nợ đang ẩn: không đọc lần nhắc');
   const reads = world.reads;
   await page.locator('.ov-part-link').first().click();
   assert.deepEqual(await state(page), ['so', '?customer=1&month=2026-07']);
@@ -99,17 +98,15 @@ test('Việc chờ không tính vào nợ; mở thẻ Sổ để xử lý', asyn
   assert.equal(world.requests.length, 0);
 }, debtor));
 const actions = page => page.locator('.ov-next-actions button').evaluateAll(nodes => nodes.map(node => [node.innerText, node.classList.contains('primary')]));
-test('Nhắc nợ ngay: nút chính Copy tin nhắc nợ (lệnh của thẻ Trao đổi) và Xem Trao đổi', async () => withPage(async ({ page, world }) => {
+test('Có nợ quá hạn: gợi ý Liên hệ khách, nhắc nợ đang ẩn nên chỉ có Xem Trao đổi', async () => withPage(async ({ page, world }) => {
   await ready(page);
-  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
-  assert.deepEqual(await actions(page), [['Copy tin nhắc nợ', true], ['Xem Trao đổi', false]]);
+  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
+  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
+  assert.doesNotMatch(await page.locator('#the-tinh-hinh').innerText(), /nhắc/i);
   assert.equal(world.requests.length, 0);
-  await page.locator('.ov-copy').click();
-  await page.locator('#the-trao-doi .ct-note', { hasText: 'đã nhắc' }).waitFor();
-  assert.equal(world.reminderLog.length, 1, 'Copy tin nhắc nợ dùng lệnh của thẻ Trao đổi');
 }, debtor));
 
-test('Không có nợ quá hạn: nhãn như Tổng quan, không nút nhắc, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
+test('Không có nợ quá hạn: nhãn như Tổng quan, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
   await page.locator('.ov-next-main strong', { hasText: 'Chưa cần làm gì' }).waitFor();
   assert.equal(await page.locator('.ov-risk').innerText(), 'Không quá hạn', 'DASH-05 (4): cùng chữ DashboardModel.RISK.ok');
   assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
@@ -120,15 +117,11 @@ test('Không có nợ quá hạn: nhãn như Tổng quan, không nút nhắc, ch
 
 test('Hứa trả đang chờ hiện việc tiếp theo, không ghi tiền', async () => withPage(async ({ page, world }) => {
   await page.locator('.ov-next-main strong', { hasText: 'Chờ hứa trả' }).waitFor();
-  assert.deepEqual(await actions(page), [['Vẫn nhắc nợ', false], ['Xem Trao đổi', false]], 'chờ hứa trả: Vẫn nhắc nợ là nút phụ');
+  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
   assert.match(await page.locator('.ov-next').innerText(), /44.400.000 đ · hẹn 20\/11\/2026/);
   await page.locator('.ov-next-actions .tab-go').first().click();
   assert.equal((await state(page))[0], 'trao-doi');
   assert.equal(world.requests.length, 0);
-  await page.locator('#tab-tinh-hinh').click();
-  await page.locator('.ov-copy').click();
-  await page.locator('#the-trao-doi .ct-note', { hasText: 'đã nhắc' }).waitFor();
-  assert.equal(world.reminderLog.length, 1, 'Vẫn nhắc nợ dùng lệnh của thẻ Trao đổi');
 }, world => {
   debtor(world);
   world.marks = [{ id: 1, kind: 'promise', amount_vnd: '44400000', on_date: '2026-11-20',
@@ -175,7 +168,7 @@ test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác'
   await go.focus();
   const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
   release();
-  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
   assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
 }, debtor));
 
@@ -187,7 +180,7 @@ test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', 
   const held = new Promise(resolve => { release = resolve; });
   await page.route(/\/api\/v7\/fee-types$/, async route => { await held; await route.continue(); }, { times: 1 });
   await page.reload();
-  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
   const go = page.locator('#the-tinh-hinh .tab-go[data-the="trao-doi"]').last();
   await go.focus();
   const old = await go.elementHandle();
@@ -197,7 +190,7 @@ test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', 
   assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
 }, debtor));
 
-test('Không đọc được hứa trả thì không tự quyết định nhắc nợ', async () => withPage(async ({ page }) => {
+test('Không đọc được hứa trả thì không tự quyết định việc tiếp theo', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/marks\?/, route => route.abort(), { times: 1 });
   await page.reload();
@@ -206,7 +199,7 @@ test('Không đọc được hứa trả thì không tự quyết định nhắc
   assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Chưa xác định việc tiếp theo');
   assert.match(await error.innerText(), /Không tải được hứa trả/);
   await error.locator('button').click();
-  await page.locator('.ov-next-main strong', { hasText: 'Nhắc nợ ngay' }).waitFor();
+  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
 }, debtor));
 
 test('Tình hình trên màn hẹp không cuộn ngang', async () => withPage(async ({ page }) => {

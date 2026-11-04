@@ -284,15 +284,7 @@
       if (!data || !Array.isArray(data.customers) || !/^\d{4}-\d\d-\d\d$/.test(data.as_of ?? '')) throw Error('Số quá hạn không hợp lệ.');
       return { asOf: data.as_of, rule: data.rule ?? {}, row: data.customers.find(row => Number(row.customer_id) === customerId) ?? null };
     }
-    // Lần nhắc gần nhất của sổ (NHAC-NO-01, reminder_log); chưa nhắc lần nào thì null.
-    async function readReminders() {
-      const response = await fetcher('/api/v7/reminders', { cache: 'no-store' });
-      if (!response.ok) throw Error('Không đọc được lần nhắc nợ.');
-      const data = await response.json();
-      if (!data || !Array.isArray(data.reminders)) throw Error('Lần nhắc nợ không hợp lệ.');
-      return data.reminders.find(row => Number(row.customer_id) === customerId) ?? null;
-    }
-    // Thẻ Trao đổi và Tình hình: hội thoại Zalo có tên khớp tên Sheet của sổ (ZALO-CHAT-01, tìm như nút Chat ở Đòi nợ). Máy chủ
+    // Thẻ Trao đổi và Tình hình: hội thoại Zalo có tên khớp tên Sheet của sổ (ZALO-CHAT-01). Máy chủ
     // chưa có bản xuất chat (503 ZALO_EXPORT_UNAVAILABLE, như hao hiện nay) thì conversations = null, không phải lỗi.
     async function findChats() {
       await customersLoaded;
@@ -339,16 +331,8 @@
       if (!Array.isArray(data?.price_table?.periods)) throw Error('Bảng giá không hợp lệ.');
       return data.price_table;
     }
-    // Copy tin nhắc (NHAC-NO-01): ghi "đã nhắc" hôm nay như Đòi nợ, ngoài đường tiền (không version sổ). Bấm lặp trong ngày thì
-    // server không thêm dòng (reminder_log UNIQUE theo khách, nguồn, ngày).
-    async function remind() {
-      const response = await fetcher('/api/v7/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: customerId, source: 'copy-button' }) });
-      if (!response.ok) throw Error('Chưa ghi được lần nhắc.');
-      return response.json();
-    }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, readReminders, findChats, readPrices, remind,
+    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }

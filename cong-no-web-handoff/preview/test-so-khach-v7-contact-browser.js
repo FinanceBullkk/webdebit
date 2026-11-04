@@ -1,11 +1,11 @@
 /* Trình duyệt (Playwright) cho thẻ Trao đổi và thẻ Hồ sơ của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A3): phiếu thu
- * và cấn trừ đúng ngày, số tiền, tháng trừ nợ theo phân bổ còn hiệu lực, phiếu hủy gạch có lý do; lần nhắc, hội thoại Zalo tìm theo
- * tên, lọc; Copy tin nhắc ghi một dòng "đã nhắc" mỗi ngày; Hồ sơ theo HO-SO-01: giá đang áp bằng dòng "Đang dùng" của Bảng giá,
+ * và cấn trừ đúng ngày, số tiền, tháng trừ nợ theo phân bổ còn hiệu lực, phiếu hủy gạch có lý do; hội thoại Zalo tìm theo
+ * tên, lọc; nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026); Hồ sơ theo HO-SO-01: giá đang áp bằng dòng "Đang dùng" của Bảng giá,
  * giá sắp áp, chưa có giá, cột phụ phí bằng cột của sổ, group Zalo đã gắn, nút chưa có backend báo rõ; nguồn phụ lỗi thì chỉ khối đó báo. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang ghim
  * 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -28,7 +28,6 @@ function talking(world) {
     receipt(4, '2026-11-10', 12, [line(6, '2026-11', 10), line(7, '2026-11', 2, null, 'advance')]));
   world.outgoing = [{ offset_pair_id: 7, pid: 'PH-009', date: '2026-09-28', method: 'CẤN TRỪ', amount_vnd: '-5000000', void_reason: null, voided_by_event: null,
     counterparty_customer_id: 3, counterparty_name: 'Sổ Khác' }];
-  world.reminders = [{ customer_id: 1, last_reminded: '2026-11-10', reminder_count: 3, last_source: 'copy-button' }];
   world.chats = [{ conversation_id: CHAT, display_name: 'Khách Thử Sửa', message_count: 120, last_message_at: Date.parse('2026-11-12T09:30:00+07:00'),
     last_own_message_at: Date.parse('2026-11-11T08:00:00+07:00'), participant_count: 2 },
   { conversation_id: 'b'.repeat(64), display_name: 'Nhóm giả khác', message_count: 5, last_message_at: Date.parse('2026-11-14T09:00:00+07:00') }];
@@ -57,12 +56,11 @@ const layout = (page, pane) => page.evaluate(selector => ({ overflow: document.d
   named: [...document.querySelectorAll(`${selector} button[aria-label]`)].filter(node => !node.ariaLabel.startsWith(node.textContent)).map(node => node.textContent),
   font: getComputedStyle(document.querySelector(selector)).fontSize }), pane);
 
-test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng trừ nợ hiện hành; phiếu hủy gạch có lý do; lần nhắc, Zalo; lọc theo loại', async () => withPage(async ({ page, world, shot }) => {
+test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng trừ nợ hiện hành; phiếu hủy gạch có lý do; Zalo; lọc theo loại', async () => withPage(async ({ page, world, shot }) => {
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
   await shot('trao-doi');
   assert.deepEqual(await items(page), [
     ['12/11/2026', 'Zalo · tin cuối trong “Khách Thử Sửa”', '120 tin · mình nhắn gần nhất 11/11/2026 · Mở hội thoại'],
-    ['10/11/2026', 'Nhắc nợ · bấm Copy tin nhắc', 'Lần nhắc gần nhất · đã nhắc 3 lần'],
     ['10/11/2026', 'Thu tiền 12.000.000 đ', 'Trừ nợ T11/2026 10.000.000 đ · ứng trước 2.000.000 đ'],
     ['05/11/2026', 'Thu tiền 30.000.000 đ', 'Trừ nợ T7/2026 8.000.000 đ · T8/2026 22.000.000 đ', 'Tham chiếu: CK ngân hàng thử'],
     ['20/10/2026', 'Cấn trừ từ Sổ Bên Kia 157.000.000 đ', 'Trừ nợ T10/2026'],
@@ -73,19 +71,19 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Sổ Bên Kia' }).getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   // Cùng nguồn với thẻ Sổ: phần trừ nợ của PH-003 ở danh sách phiếu tháng 11 ghi đúng các tháng đó.
   assert.equal(await page.locator('#thang-2026-11 tr:has([data-pid="PH-003"]) .receipt-allocation').innerText(), 'Trừ nợ T7/2026 8.000.000 · T8/2026 22.000.000');
-  // Hội thoại tìm theo tên Sheet của sổ như nút Chat ở Đòi nợ; hội thoại khác tên không hiện. Mở chat mở trang Chat Zalo lọc theo tên.
+  // Hội thoại tìm theo tên Sheet của sổ; hội thoại khác tên không hiện. Mở chat mở trang Chat Zalo lọc theo tên.
   assert.deepEqual(world.chatReads, ['Khách Thử Sửa']);
   const name = encodeURIComponent('Khách Thử Sửa');
   assert.equal(await page.locator('#the-trao-doi .ct-bar a.ov-go').getAttribute('href'), `/zalo-chat.html?q=${name}`);
   assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Mở hội thoại' }).getAttribute('href'), `/zalo-chat.html?q=${name}&c=${CHAT}`);
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
-  assert.deepEqual(await page.locator('#the-trao-doi .ct-chip').allInnerTexts(), ['Tất cả 7', 'Hứa trả 0', 'Nhắc và Zalo 2', 'Thu tiền 5']);
+  assert.deepEqual(await page.locator('#the-trao-doi .ct-chip').allInnerTexts(), ['Tất cả 6', 'Hứa trả 0', 'Zalo 1', 'Thu tiền 5']);
   await page.locator('#the-trao-doi .ct-chip', { hasText: 'Thu tiền' }).click();
   assert.deepEqual(await page.locator('#the-trao-doi .ct-item').evaluateAll(nodes => nodes.map(node => node.dataset.kind)), Array(5).fill('thu'));
   assert.equal(await page.locator('#the-trao-doi .ct-chip[aria-pressed="true"]').innerText(), 'Thu tiền 5');
   assert.equal(await page.evaluate(() => document.activeElement.dataset.go), 'loai:thu', 'tiêu điểm còn ở nút lọc sau khi vẽ lại');
-  await page.locator('#the-trao-doi .ct-chip', { hasText: 'Nhắc và Zalo' }).click();
-  assert.deepEqual((await items(page)).map(([date, title]) => `${date} ${title}`), ['12/11/2026 Zalo · tin cuối trong “Khách Thử Sửa”', '10/11/2026 Nhắc nợ · bấm Copy tin nhắc']);
+  await page.locator('#the-trao-doi .ct-chip', { hasText: 'Zalo' }).click();
+  assert.deepEqual((await items(page)).map(([date, title]) => `${date} ${title}`), ['12/11/2026 Zalo · tin cuối trong “Khách Thử Sửa”']);
   assert.deepEqual(await layout(page, '#the-trao-doi'), { overflow: 0, small: [], named: [], font: '16px' });
   // Thẻ Tình hình, khối 6: tin Zalo gần nhất cùng hội thoại tìm theo tên.
   await page.locator('#tab-tinh-hinh').click();
@@ -126,29 +124,11 @@ test('Trao đổi: dấu tin Zalo ở đúng ngày, trạng thái, Mở tin; l�
   assert.deepEqual(world.requests, [], 'xem dấu không gửi lệnh nào');
 }, marked));
 
-test('Copy tin nhắc: chép đúng tin của Đòi nợ, ghi một dòng "đã nhắc"; bấm lặp trong ngày không thêm dòng', async () => withPage(async ({ page, world }) => {
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.locator('#the-trao-doi .ct-item', { hasText: 'Nhắc nợ' }).waitFor();
-  const copy = page.locator('#the-trao-doi [data-go="copy"]');
-  const reread = () => page.waitForResponse(response => response.url().endsWith('/api/v7/reminders') && response.request().method() === 'GET');
-  await Promise.all([reread(), copy.click()]);
-  const note = page.locator('#the-trao-doi .ct-note');
-  await note.filter({ hasText: 'Đã copy tin nhắc' }).waitFor();
-  assert.equal(await note.innerText(), 'Đã copy tin nhắc và ghi “đã nhắc” hôm nay. Dán vào Zalo của khách.');
-  // Bộ nhớ tạm của Windows đổi xuống dòng thành \r\n khi đọc lại.
-  assert.equal((await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n'), 'Kính gửi Khách Thử Sửa,\nTổng công nợ còn lại: 241.000.000 đ\n'
-    + 'Trong đó quá hạn: 148.000.000 đ\nChi tiết nợ theo tháng:\n- Tháng 07/2026: 8.000.000 đ\n- Tháng 08/2026: 140.000.000 đ\n'
-    + '- Tháng 10/2026: 50.000.000 đ\n- Tháng 11/2026: 43.000.000 đ\nKính nhờ anh/chị sắp xếp thanh toán giúp. Xin cảm ơn!');
-  const reminded = page.locator('#the-trao-doi .ct-item', { hasText: 'Nhắc nợ' });
-  await reminded.filter({ hasText: 'đã nhắc 4 lần' }).waitFor();
-  assert.equal(await reminded.locator('time').innerText(), '15/11/2026');
-  // Bấm lần hai cùng ngày: gửi cùng lệnh, server không thêm dòng (reminder_log UNIQUE theo khách, nguồn, ngày), số lần giữ nguyên.
-  await Promise.all([reread(), copy.click()]);
-  await note.filter({ hasText: 'Đã copy tin nhắc' }).waitFor();
-  assert.equal(await reminded.locator('.ct-sub').innerText(), 'Lần nhắc gần nhất · đã nhắc 4 lần');
-  assert.deepEqual(posts(world), [['/api/v7/reminders', { customer_id: 1, source: 'copy-button' }], ['/api/v7/reminders', { customer_id: 1, source: 'copy-button' }]]);
-  assert.deepEqual(world.reminderLog, [{ customer_id: 1, source: 'copy-button', reminded_at: TODAY }]);
-  assert.equal(world.version, 1, 'ghi "đã nhắc" không đổi phiên bản sổ');
+test('Nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026): không có Copy tin nhắc, không đọc lần nhắc; Mở chat vẫn còn', async () => withPage(async ({ page, world }) => {
+  await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
+  assert.deepEqual(await page.locator('#the-trao-doi .ct-bar :is(button:not(.ct-chip),a)').allInnerTexts(), ['Mở chat']);
+  assert.doesNotMatch(await page.locator('#the-trao-doi').innerText(), /nhắc/i);
+  assert.equal((world.sideReads ?? []).includes('/api/v7/reminders'), false);
 }, talking));
 
 test('Hồ sơ (HO-SO-01): đầu hồ sơ, hai cột đúng thứ tự mục; hạn trả; giá đang áp bằng dòng "Đang dùng" của Bảng giá, giá sắp áp; phụ phí bằng cột của sổ; không còn khối ảnh chứng từ', async () => withPage(async ({ page, world, shot }) => {
@@ -237,17 +217,16 @@ test('Hồ sơ: nơi đi chưa có giá và giá hết hạn ghi cam ở đúng 
   world.priceTable.periods = world.priceTable.periods.slice(0, 1);
 }));
 
-test('Nguồn phụ lỗi: lần nhắc, chat, bảng giá lỗi thì chỉ khối đó báo kèm Thử lại; máy chủ chưa có bản xuất chat thì ghi rõ', async () => withPage(async ({ page, world }) => {
+test('Nguồn phụ lỗi: chat, bảng giá lỗi thì chỉ khối đó báo kèm Thử lại; máy chủ chưa có bản xuất chat thì ghi rõ', async () => withPage(async ({ page, world }) => {
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
-  await page.route(/\/api\/v7\/reminders$/, route => route.abort(), { times: 1 });
+  await page.route(/\/api\/v7\/zalo\/conversations\?/, route => route.abort(), { times: 1 });
   await page.reload();
   const error = page.locator('#the-trao-doi .ct-status .ct-error');
   await error.waitFor();
-  assert.equal(await text(error), 'Không tải được lần nhắc nợ. Kiểm tra mạng rồi bấm Thử lại. Thử lại');
-  await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
+  assert.equal(await text(error), 'Không tải được hội thoại Zalo. Kiểm tra mạng rồi bấm Thử lại. Thử lại');
   assert.equal(await page.locator('#the-trao-doi .ct-item[data-kind="thu"]').count(), 5, 'phiếu thu vẫn hiện');
   await error.locator('button').click();
-  await page.locator('#the-trao-doi .ct-item', { hasText: 'Nhắc nợ' }).waitFor();
+  await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
   // Máy chủ chưa có bản xuất chat (như hao): thẻ Trao đổi báo rõ.
   delete world.chats;

@@ -20,7 +20,9 @@ Người dùng chốt cùng ngày trong chat ("tính năng đòi nợ đang khô
 
 ## Sửa đổi 4/11/2026: ẩn tab Đòi nợ khỏi menu
 
-Người dùng chốt trong chat ("ẩn giúp mình tính năng đòi nợ vì cái đó chưa có dùng dc"). Bỏ mục **Đòi nợ** khỏi cả hai menu (menu trái chung và menu riêng của Sổ khách); trang Chat Zalo chuyển về dưới **Sổ khách** (mục sáng, nút quay lại). Chỉ ẩn đường vào: `/doi-no.html`, `GET /api/v7/reminders`, `reminder_log` giữ nguyên, không migration; mở lại bằng cách trả mục về hai menu. Không đổi: Copy tin nhắc, "Nhắc nợ ngay" và Mở chat ở trang khách vẫn dùng (`TRANG-KHACH-01`, `HO-SO-01`). Không đổi quy tắc tiền.
+Người dùng chốt trong chat ("ẩn giúp mình tính năng đòi nợ vì cái đó chưa có dùng dc"). Bỏ mục **Đòi nợ** khỏi cả hai menu (menu trái chung và menu riêng của Sổ khách); trang Chat Zalo chuyển về dưới **Sổ khách** (mục sáng, nút quay lại). Chỉ ẩn đường vào: `/doi-no.html`, `GET /api/v7/reminders`, `reminder_log` giữ nguyên, không migration; mở lại bằng cách trả mục về hai menu. Không đổi quy tắc tiền.
+
+Cùng ngày, người dùng chốt thêm "Ẩn luôn" phần nhắc nợ ở trang khách (`TRANG-KHACH-01`): bỏ nút Copy tin nhắc ở thẻ Trao đổi; bỏ "Copy tin nhắc nợ", "Vẫn nhắc nợ" ở thẻ Tình hình; việc tiếp theo khi quá hạn đổi từ "Nhắc nợ ngay" thành "Liên hệ khách"; dòng lịch sử lần nhắc không còn hiện, nên lọc "Nhắc và Zalo" đổi thành "Zalo". Trang khách không đọc `GET /api/v7/reminders` nữa. Mở chat, hứa trả và dấu tin Zalo giữ nguyên. API và `reminder_log` trên máy chủ giữ nguyên, không migration; muốn mở lại thì hoàn tác PR này.
 
 ## Hiệu lực và giới hạn
 
