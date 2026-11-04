@@ -105,7 +105,7 @@
     if (row.reason === 'FIXED') {
       const w = row.written ?? {};
       const parts = [w.receipts && `${w.receipts} phiếu thu`, w.legacy_deleted && `thay ${w.legacy_deleted} khoản thu cũ`, w.prices && `${w.prices} giá`, w.fee_rows && `${w.fee_rows} dòng điều chỉnh`, w.fee_undone && `hủy ${w.fee_undone} dòng điều chỉnh Sheet không còn`].filter(Boolean);
-      return `Máy đã sửa ${parts.join(', ')}. ${row.status === 'KHOP' ? 'Khớp tới từng đồng.' : 'Phần còn lại là web đi trước Sheet.'}${shuffledText(row)}`;
+      return `Máy đã sửa ${parts.join(', ')}${row.fixed_at ? ` lúc ${clock(row.fixed_at)}` : ''}. ${row.status === 'KHOP' ? 'Khớp tới từng đồng.' : 'Phần còn lại là web đi trước Sheet.'}${shuffledText(row)}`;
     }
     const base = REASON_TEXT[row.reason] ?? row.reason;
     const shown = (row.groups ?? []).filter(g => row.reason !== 'WOULD_FIX' || g.chosen);
@@ -127,7 +127,7 @@
     const open = rows.filter(row => row.reason !== 'FIXED' && row.reason !== 'WOULD_FIX' && !isAhead(row));
     const old = reconcileOld(result.checked_at, now);
     const tone = rows.some(row => row.reason === 'VERIFY_FAILED') ? 'danger' : open.length || would.length || failed || old ? 'warn' : '';
-    const parts = [fixed.length && `máy vừa sửa ${fixed.length} khách`, would.length && `${would.length} khách máy sửa được`, ahead.length && `${ahead.length} khách web đi trước Sheet`].filter(Boolean);
+    const parts = [fixed.length && `hôm nay máy đã sửa ${fixed.length} khách`, would.length && `${would.length} khách máy sửa được`, ahead.length && `${ahead.length} khách web đi trước Sheet`].filter(Boolean);
     const big = value => { const n = BigInt(value ?? 0); return n < 0n ? -n : n; };
     // Nợ tập trung ở vài khách lớn: đếm khách một mình dễ tưởng gần xong, nên kèm tỷ lệ theo tiền.
     const share = BigInt(result.all_web_vnd ?? 0) > 0n ? ` (${BigInt(result.matched_web_vnd ?? 0) * 100n / BigInt(result.all_web_vnd)}% số nợ)` : '';

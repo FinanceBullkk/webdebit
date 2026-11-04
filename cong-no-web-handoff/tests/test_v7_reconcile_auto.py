@@ -113,6 +113,25 @@ class ReconcileAutoTest(unittest.TestCase):
                          ("FIXED", "KHOP", str(FAKE_AMOUNT - PAID), "0", {"receipts": 1, "prices": 0, "legacy_deleted": 0, "fee_rows": 0, "fee_undone": 0}))
         self.assertEqual(result["matched"], {"1": str(FAKE_AMOUNT - PAID)})
 
+    def test_fix_stays_listed_for_the_rest_of_the_day(self):
+        self.undated_receipt_book()
+        db = Db()
+        first_hour = job.now_vn().replace(hour=9, minute=5, second=0, microsecond=0)
+
+        def run_at(moment):
+            with patch.object(job, "now_vn", return_value=moment):
+                self.assertEqual(self.run_job(db, "--fix")[0], 0)
+            return self.result()
+        first = run_at(first_hour)["customers"][0]
+        self.assertEqual((first["reason"], first["fixed_at"]), ("FIXED", first_hour.isoformat(timespec="seconds")))
+        result = run_at(first_hour + job.dt.timedelta(hours=1))   # lượt sau cùng ngày: không ghi thêm, vẫn còn trên danh sách
+        self.assertEqual(len(db.writes), 1)
+        self.assertEqual(result["counts"], {"KHOP": 1})
+        self.assertEqual([(r["reason"], r["fixed_at"]) for r in result["customers"]], [("FIXED", first["fixed_at"])])
+        log = self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual([json.loads(line)["fixed"] for line in log], [1, 0])
+        self.assertEqual(run_at(first_hour + job.dt.timedelta(days=1))["customers"], [])   # sang ngày mới thì hết
+
     def test_no_exact_fix_writes_nothing(self):
         self.undated_receipt_book()
         db = Db(total=FAKE_AMOUNT + 1)   # lệch thêm 1 đồng: phiếu không đưa về đúng tổng Sheet

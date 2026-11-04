@@ -22,7 +22,7 @@ Vẫn để người xem: tổng PS khác tổng web (`TOTAL_DIFF`), web đã ph
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Thay vế "cần tách tay" của `PS_COMBINED` trong spec. [`PHU-PHI-01`](phu-phi-01.md) (10) vẫn giữ: loại riêng Health cert và Kiểm định vẫn dùng khi có giá riêng; cờ Health/KĐ vẫn chỉ nhắc, không tạo tiền, và không nhắc nữa khi chuyến đã có khoản gộp.
+ĐÃ CHỐT; ĐÃ TRIỂN KHAI trên `hao` 4/11/2026, máy đã bật ([nhật ký](../deploys/2026-11-04-ps-gop.md)). Thay vế "cần tách tay" của `PS_COMBINED` trong spec. [`PHU-PHI-01`](phu-phi-01.md) (10) vẫn giữ: loại riêng Health cert và Kiểm định vẫn dùng khi có giá riêng; cờ Health/KĐ vẫn chỉ nhắc, không tạo tiền, và không nhắc nữa khi chuyến đã có khoản gộp.
 
 Đổi DB: thêm loại phí "Health + KĐ" và nới `_rewrite_trip_fees` cho việc 2, migration [`2026-11-04-v7-ps-gop.sql`](../../cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql). Bật máy bằng `WEBDEBIT_AUTO_SHEET` có `ps`, mặc định tắt.
 
