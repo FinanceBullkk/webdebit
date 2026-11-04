@@ -57,10 +57,16 @@ Dump, restore vào DB tạm, vào bằng `postgres` rồi `SET ROLE v7_app`, ch�
 - Tổng nợ 67.199.805.665 → 68.402.305.665 đ, đổi +1.202.500.000 đ, bằng đúng tổng các event trên. Không tháng nào máy bỏ mở.
 - Đối soát độc lập theo tháng, trên bản tải sau lượt 10:30: 233 khớp, 1 khách chia tháng khác Sheet vì web trừ nợ cũ trước.
 
-Hai khách còn lệch, máy không ghi gì:
+Hai khách còn lệch, máy không ghi gì, đã tìm ra nguyên nhân:
 
-- Lệch +40 triệu: phiếu 40 triệu đang chờ đúng bằng phần lệch, nhưng `web_ahead` tính thừa 181 triệu vì không biết dòng điều chỉnh tay đã trừ đúng 4 chuyến đó. Máy dừng là đúng phía an toàn, nhưng đây là lỗi của `web_ahead`. CHƯA sửa.
-- Lệch −49,5 triệu: Sheet có một dòng tháng 10 đủ container và giá mà sổ này trên web không có chuyến của container đó; 3 chuyến tháng 10 trên web lại chưa có trên tab. CHƯA rõ nguyên nhân.
+- Lệch +40 triệu: phiếu 40 triệu đang chờ đúng bằng phần lệch, nhưng `web_ahead` tính thừa 181 triệu vì không biết dòng điều chỉnh tay đã trừ đúng 4 chuyến đó (chuyến dời sổ theo booking ngày 3/11). Máy dừng là đúng phía an toàn, nhưng đây là lỗi cách tính, đã sửa ở PR sau. Người dùng tự ghi phiếu lúc 11:39, sổ đã khớp.
+- Lệch −49,5 triệu: bảng booking ghi một chuyến tháng 10 dưới một tên khách không có trong bảng ghép tên, còn một tab khách đã tính tiền chuyến đó. Chuyến nằm ở hàng chờ "chưa rõ khách" nên sổ không có chuyến để ghi giá; máy không đoán khách là đúng. Cần người trả lời tên đó là khách nào.
+
+Lượt 12:05–12:12: 235 khớp, 1 lệch (khách −49,5 triệu ở trên), không sửa gì. Tổng nợ 68.362.305.665 đ, giảm đúng 40 triệu của phiếu người dùng ghi.
+
+## Điểm mù tìm thêm sau lượt đầu
+
+Phép so chỉ thấy khách có trên TONG. Đo trên `hao` 4/11/2026: 13 tab khách không có trên TONG, 7 tab có dòng tiền; đa số là bản sao, tab cũ đã xem lúc nạp, nhưng **2 tab mới có phát sinh tháng 10/2026, còn nợ hơn 330 triệu**, không nằm trong tổng Sheet lẫn tổng web. Hai con số khớp với nhau nên đối soát không báo. Từ PR sau, mỗi lượt báo các tab này ở đầu tab Việc cần làm (`outside_tabs`), không đổi tiền.
 
 ## Rollback
 
@@ -72,3 +78,5 @@ Hai khách còn lệch, máy không ghi gì:
 - Cảnh báo khi máy lỗi: hiện chỉ thấy ở đầu tab Việc cần làm và journal; chưa có kênh đẩy (audit DevOps #2). Khi không còn người nhập thì đây là chỗ thiếu quan trọng nhất.
 - Kiểu lệch cột ở chuyến web chưa có giá thì máy không bắt được; máy ghi theo Sheet vì Sheet là sổ chính thức.
 - Chủ sổ chưa tự đi hết luồng trên `hao`.
+- Khách mới: từ mốc nạp 21/10 web chưa có lệnh tạo sổ mới, mọi sổ đều từ lần nạp đó. Tab mới vào TONG thì đối soát báo `CHI_CO_SHEET`, máy không tự làm được. Cần người dùng chốt cách làm.
+- Tên trong bảng booking chưa có trong bảng ghép tên: chuyến chờ ở hàng "chưa rõ khách" tới khi có người trả lời.

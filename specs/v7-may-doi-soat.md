@@ -6,7 +6,7 @@ Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, [`MAY-DOI-SOAT-01`](../do
 
 Chủ sổ (trên 40 tuổi, laptop 1280×720) mở tab Việc cần làm, mang theo ba câu hỏi: web có đúng với Sheet không; máy vừa tự sửa gì; còn gì mình phải quyết.
 
-1. Đầu tab có một dòng: lần đối soát gần nhất lúc mấy giờ, bao nhiêu khách khớp và chiếm bao nhiêu phần trăm số nợ, hôm nay máy đã sửa bao nhiêu khách, bao nhiêu khách web đi trước Sheet, bao nhiêu khách cần xem. Xanh khi không còn gì phải xem; vàng khi có khách cần xem, lần chạy lỗi, hoặc kết quả đã cũ; đỏ khi máy ghi xong mà không khớp.
+1. Đầu tab có một dòng: lần đối soát gần nhất lúc mấy giờ, bao nhiêu khách khớp và chiếm bao nhiêu phần trăm số nợ, hôm nay máy đã sửa bao nhiêu khách, bao nhiêu khách web đi trước Sheet, bao nhiêu khách cần xem. Xanh khi không còn gì phải xem; vàng khi có khách cần xem, có tab khách còn nợ mà chưa có trên TONG, lần chạy lỗi, hoặc kết quả đã cũ; đỏ khi máy ghi xong mà không khớp. Tab ngoài TONG luôn hiện thành một câu ngay dưới dòng này, kèm tên tab và số còn nợ, vì tỷ lệ khớp chưa tính tới chúng.
 2. Bấm "Xem": danh sách các khách đó, khách cần xem trước, mỗi dòng có số lệch (web − Sheet, triệu), một câu kết luận và đường mở sổ.
 3. Bảng việc bên dưới mặc định ẩn sổ đã khớp Sheet, có dòng báo đã ẩn bao nhiêu sổ và nút hiện lại. Chờ kiểm, số dư đầu, mặt hàng vẫn hiện.
 4. Việc máy đã ghi hiện ở "Máy đã tự làm hôm nay" và trong Lịch sử từng sổ, người làm "Máy (theo Sheet)".
@@ -47,24 +47,27 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
   "customers": [{"customer": "…", "customer_id": 2, "status": "LECH_TONG", "reason": "NO_EXACT_FIX", "sheet_total_vnd": "…",
                  "web_total_vnd": "…", "difference_vnd": "…", "web_ahead_vnd": "0",
                  "groups": [{"kind": "receipts_edited", "month": "2026-07", "count": 8, "delta_vnd": "-117", "chosen": false}]}],
-  "months_differ": [], "last_error": {"at": "…", "reason": "HTTPError"}},
+  "months_differ": [], "outside_tabs": [{"customer": "…", "sheet_total_vnd": "…", "last_month": "2026-10"}],
+  "last_error": {"at": "…", "reason": "HTTPError"}},
  "books": [{"customer_id": 1, "sheet_matched": true}]}
 ```
 
 - `reconcile` là `null` khi chưa có lượt nào hoặc file hỏng; hộp việc vẫn chạy.
 - `customers` gồm khách chưa khớp và mọi khách máy đã sửa trong ngày (`fixed_at`). Tiền là chuỗi số nguyên; chưa biết là `null`, không phải 0.
 - `reason`: `FIXED`, `WOULD_FIX`, `WEB_AHEAD`, `NO_EXACT_FIX`, `SHEET_SHUFFLED`, `AMBIGUOUS_FIX`, `NOTHING_TO_WRITE`, `TOO_MANY_GROUPS`, `TOO_MANY_DIFFERENT`, `WRITE_ERROR`, `CHECK_ERROR`, `VERIFY_FAILED`, `HELD`, `CHI_CO_SHEET`, `CHI_CO_WEB`, `THIEU_SO`. `FIXED` với `status` `LECH_TONG` là đã sửa, phần còn lại là web đi trước Sheet.
+- `outside_tabs`: tab khách chưa có trên TONG, còn nợ, có phát sinh (tiền chuyến hoặc tiền thu) từ tháng 10/2026, tức từ tháng nạp V7. Tab cũ hơn là bản sao, tab nháp đã xem lúc nạp. Bản `reconcile.json` trước khi có trường này thì coi như rỗng.
 - `last_error`: lần chạy mới nhất hỏng, phần còn lại là kết quả lần đạt trước.
 - `sheet_matched`: sổ có trong `matched` của lượt gần nhất, tổng hiện tại bằng tổng lúc đó, và không còn dòng giá khác giá Sheet (`prices_conflict`).
 
 ## Nguồn quyết định
 
 - [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md), [`SONG-SONG-01`](../docs/decisions/song-song-01.md), [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md), [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md), [`VCL-GIU-01`](../docs/decisions/vcl-giu-01.md), [`XOA-THU-GOC-01`](../docs/decisions/xoa-thu-goc-01.md), [`CAN-DU-01`](../docs/decisions/can-du-01.md).
-- CÒN MỞ: cách chuyển hẳn khi Sheet vẫn là nơi nhập (mục F4 của [checklist](../docs/song-song-checklist.md)).
+- CÒN MỞ: cách chuyển hẳn khi Sheet vẫn là nơi nhập (mục F4 của [checklist](../docs/song-song-checklist.md)); khách mới sau mốc nạp 21/10, vì web chưa có lệnh tạo sổ; kênh cảnh báo khi máy lỗi.
 
 ## Hành vi và bất biến
 
 - Chỉ ghi khi đúng một tổ hợp nhóm có tổng đổi bằng đúng `tổng Sheet + web đi trước − tổng web`. Lệch 1 đồng là không ghi. Nhóm không đổi tiền không ghi.
+- Web đi trước không tính tháng có dòng điều chỉnh trừ đúng bằng phần đó, vì tiền đã ra khỏi sổ. Trừ không đúng bằng thì không suy ra được dòng điều chỉnh là của chuyến nào, tính như thường.
 - Tháng có đơn giá đổi chỗ vòng tròn (`shuffled_months`) không có nhóm giá: khớp tổng không phân biệt được giá của container nào, nên không ghi và báo `SHEET_SHUFFLED`. Kiểu này chỉ bắt được khi web đã có giá để so.
 - Không ghi Sheet. Không đổi hàm SQL, quyền, luật phân bổ. Mọi lệnh có `expected_version`: người vừa sửa sổ thì lệnh lỗi `STALE_LEDGER`, lượt sau tính lại.
 - Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu lượt; phiếu đã ghi thì hàng chờ đã ghép, không chọn lại.
@@ -80,6 +83,6 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
 - [x] `preview/test-viec-can-lam-table-browser.js`: dải kết quả, thứ tự danh sách, ẩn và hiện sổ đã khớp, sổ ẩn không bị chọn ngầm, các trạng thái xanh, vàng, đỏ, lỗi, cũ, chưa có lượt nào; không tràn ngang ở 1280.
-- [ ] Thử trên bản sao DB của `hao`: tổng khách sửa khớp đúng, khách khác không đổi, mọi tháng máy mở đã khóa lại, chạy lại không ghi thêm, checker đạt.
-- [ ] Bật trên `hao`, đối soát chính thức sau lượt đầu cho kết quả như dự kiến.
+- [x] Thử trên bản sao DB của `hao`: tổng khách sửa khớp đúng, khách khác không đổi, mọi tháng máy mở đã khóa lại, chạy lại không ghi thêm, checker đạt ([nhật ký](../docs/deploys/2026-11-04-may-doi-soat.md)).
+- [x] Bật trên `hao`, đối soát chính thức sau lượt đầu cho kết quả như dự kiến (cùng nhật ký).
 - [ ] Chủ sổ tự đi hết luồng trên `hao`: đọc dải, mở danh sách, mở sổ, soát phiếu máy ghi.

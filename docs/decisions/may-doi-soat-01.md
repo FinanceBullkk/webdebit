@@ -15,7 +15,7 @@ Người dùng chốt hướng: **web tự chạy theo Sheet, không cần ngư�
    - giá Sheet: dòng sẵn sàng, dòng vướng tháng khóa, và **giá Sheet khác giá web, ở mọi tháng**, trừ dòng đã bấm "Giữ giá web" ([`VCL-GIU-01`](vcl-giu-01.md));
    - dòng Sheet có TỔNG mà đơn giá trống, chuyến web chưa có giá và chưa tính đồng nào: **lấy TỔNG làm đơn giá**;
    - dòng Sheet có tiền mà không có container: **ghi thành dòng điều chỉnh của tháng đó**, ghi rõ số dòng trên Sheet. Dòng như vậy có thể chỉ là chuyến chưa nhập xong, nên khi Sheet không còn dòng đó, dòng điều chỉnh của máy thành một việc hủy, cũng theo điều kiện khớp tổng (Claude thêm, sau khi đo trên `hao` 4/11/2026: một dòng có container sau vài giờ và máy đưa thành chuyến thật).
-4. **Web đi trước Sheet tính riêng.** Chuyến web đã có giá mà Sheet chưa ghi (dòng Sheet chưa có giá lẫn TỔNG, hoặc chưa có dòng của container đó) là phần đã giải thích: cộng vào tổng Sheet khi xét khớp, và được liệt kê. Khách lệch đúng bằng phần này thì không có gì để làm.
+4. **Web đi trước Sheet tính riêng.** Chuyến web đã có giá mà Sheet chưa ghi (dòng Sheet chưa có giá lẫn TỔNG, hoặc chưa có dòng của container đó) là phần đã giải thích: cộng vào tổng Sheet khi xét khớp, và được liệt kê. Khách lệch đúng bằng phần này thì không có gì để làm. Tháng có dòng điều chỉnh trừ đúng bằng phần này thì tiền đã ra khỏi sổ, không tính là đi trước (Claude thêm 4/11/2026, sửa lỗi cách tính: một sổ thật có 4 chuyến dời sổ theo booking, trừ bằng một dòng điều chỉnh tay, nên máy bỏ qua một phiếu đúng).
 5. **Sổ đã khớp Sheet thì ẩn việc còn treo khỏi Việc cần làm**, khi tổng sổ chưa đổi từ lượt đối soát đó: việc từ Sheet và "chưa giá" ở đó không làm số đúng hơn. Chờ kiểm, số dư đầu, mặt hàng vẫn hiện. Sổ còn dòng giá khác giá Sheet thì không ẩn dù tổng khớp, vì đó là hai chỗ bù trừ nhau. Có nút hiện lại.
 
 Tháng khóa làm như [`MAY-KHOA-01`](may-khoa-01.md): máy mở, ghi, khóa lại. Mọi lệnh đi qua các lệnh ghi có sẵn và vào Lịch sử với người làm "Máy (theo Sheet)".
@@ -46,5 +46,7 @@ Vế 5 (ẩn sổ đã khớp) do Claude đề xuất trong cùng hướng, khô
 ĐÃ CHỐT. Chi tiết ở [spec](../../specs/v7-may-doi-soat.md), cách cài ở [runbook](../v7-deploy-runbook.md#máy-tự-đối-soát-may-doi-soat-01--timer-v7-reconcile-auto). Không đổi DB, quyền, luật phân bổ. Không ghi Sheet.
 
 Lưới an toàn là đúng tổng từng khách: hai lỗi bù trừ nhau trong cùng khách thì không lộ, như đối soát chính thức. Máy chỉ bắt được kiểu đổi chỗ khi web đã có giá để so; Sheet xếp lệch cột ở chuyến web chưa có giá thì máy ghi theo Sheet, vì Sheet là sổ chính thức. So từng tháng theo [`CAN-DU-01`](can-du-01.md) chạy kèm ở mỗi lượt để báo khách lệch tháng.
+
+Phép so chỉ thấy khách có trên TONG: tab chưa có trên TONG thì tổng Sheet lẫn tổng web đều chưa tính, hai bên vẫn khớp. Từ 4/11/2026 mỗi lượt báo các tab còn nợ có phát sinh từ tháng 10/2026 (Claude thêm, chỉ báo, không đổi tiền). Máy không tự gắn tab vào sổ nào. CÒN MỞ: khách mới vào web bằng cách nào, vì từ mốc nạp 21/10 chưa có lệnh tạo sổ.
 
 Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet". Câu hỏi "chuyển hẳn thế nào khi không còn người nhập trên web" CÒN MỞ: hướng này giữ Sheet làm nơi nhập, nên mục chuyển hẳn F4 của [checklist](../song-song-checklist.md) cần chủ sổ xem lại.

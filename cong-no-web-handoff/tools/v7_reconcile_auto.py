@@ -44,6 +44,8 @@ ACTOR = "doi-soat-tu-dong"   # chỉ đọc; lệnh ghi dùng AUTO_ACTOR ("Máy 
 MAX_DIFFERENT = 40
 OUTPUT = "/var/lib/webdebit-sheet-sync/reconcile.json"
 WORK = "/var/lib/webdebit-sheet-sync/reconcile-work"
+# Tab ngoài TONG: trước tháng nạp V7 là bản sao, tab nháp đã xem lúc nạp; có phát sinh từ tháng này là khách mới chưa vào sổ.
+OUTSIDE_FROM = "2026-10"
 
 
 def now_vn() -> dt.datetime:
@@ -61,13 +63,24 @@ def download(spreadsheet_id: str, credentials: str, output: Path) -> Path:
     return output
 
 
-def read_sheet(xlsx: Path, source_dir: Path, out: Path) -> tuple[dict, list[dict]]:
+def outside_tabs(books: list[dict]) -> list[dict]:
+    """Tab khách chưa có trên TONG, còn nợ và có phát sinh từ tháng nạp V7. Tổng Sheet lẫn web đều chưa tính nên phép so từng khách
+    không thấy (đo trên `hao` 4/11/2026: một tab mới còn nợ hơn 300 triệu). Máy chỉ báo, không tự gắn vào sổ nào."""
+    rows = []
+    for book in books:
+        active = [str(check["debt_month"])[:7] for check in book["checks"] if check.get("source_charge_vnd") or check.get("source_receipt_vnd")]
+        if not book["in_summary"] and book["anchor"] and active and max(active) >= OUTSIDE_FROM:
+            rows.append({"customer": rec.name(book["name"]), "sheet_total_vnd": str(book["anchor"]), "last_month": max(active)})
+    return rows
+
+
+def read_sheet(xlsx: Path, source_dir: Path, out: Path) -> tuple[dict, list[dict], list[dict]]:
     """Đúng các bước của `v7_export_clean --hold-out` rồi `v7_reconcile_sheet`; khách bị giữ không có tổng Sheet."""
     books, digests = clean.build_books(source_dir, xlsx, ())
     held = [book for book in books if book["in_summary"] and book["reasons"]]
     clean.export([book for book in books if book not in held], digests, out, xlsx, ())
     sheet, _ = rec.read_sheet(out)
-    return sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"])} for book in held]
+    return sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"])} for book in held], outside_tabs(books)
 
 
 def read_web(db) -> tuple[list[dict], dict, dict]:
@@ -141,7 +154,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
         work = Path(folder)
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
-        sheet, held = read_sheet(Path(xlsx), args.source_dir, work / "sach")
+        sheet, held, outside = read_sheet(Path(xlsx), args.source_dir, work / "sach")
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
         rows, web, ids = read_web(db)
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
@@ -183,7 +196,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ,
+        "months_differ": months_differ, "outside_tabs": outside,
     }
 
 
