@@ -1,5 +1,6 @@
 """Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): gom nhóm, tính nền, tính lại sổ vừa ghi."""
 
+import json
 import os
 import sys
 import tempfile
@@ -193,6 +194,26 @@ class InboxTests(unittest.TestCase):
         wait_idle(self.inbox)
         self.assertEqual(self.inbox.books, {})
         self.assertEqual(runner.calls.count("list_customers"), 2)
+
+    def test_view_carries_last_reconcile_and_marks_books_still_matching(self):
+        reconcile = Path(self.dir.name) / "reconcile.json"
+        runner = Runner([1, 2])
+        self.outputs[1].update(total_outstanding_vnd="500")
+        self.outputs[2] = projection(sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}, total_outstanding_vnd="700")
+        with patch.object(v7_inbox, "RECONCILE_PATH", str(reconcile)):
+            self.inbox.start(runner)
+            wait_idle(self.inbox)
+            self.assertIsNone(self.inbox.view(runner)["reconcile"])   # chưa có lượt nào: không làm hỏng hộp việc
+            reconcile.write_text(json.dumps({"version": 1, "checked_at": "2026-11-04T08:05:00+07:00", "counts": {"KHOP": 2},
+                                             "matched": {"1": "500", "2": "650"}, "customers": []}), encoding="utf-8")
+            view = self.inbox.view(runner)
+            self.assertEqual((view["reconcile"]["checked_at"], view["reconcile"]["matched_ids"]), ("2026-11-04T08:05:00+07:00", [1, 2]))
+            self.assertNotIn("matched", view["reconcile"])
+            # Sổ 2 đã đổi tổng từ lúc đối soát: việc của sổ vẫn phải hiện.
+            self.assertEqual({b["customer_id"]: b["sheet_matched"] for b in view["books"]}, {1: True, 2: False})
+            reconcile.write_text("hỏng", encoding="utf-8")
+            os.utime(reconcile, (1, 1))
+            self.assertIsNone(self.inbox.view(runner)["reconcile"])
 
     def test_missing_snapshot_is_unavailable(self):
         for path in self.paths:

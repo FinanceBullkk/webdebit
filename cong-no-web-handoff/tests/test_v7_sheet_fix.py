@@ -1,0 +1,258 @@
+"""Máy tự sửa sổ lệch Sheet (MAY-DOI-SOAT-01): chỉ ghi khi đúng một tổ hợp đưa tổng về đúng tổng Sheet. Dữ liệu giả."""
+
+import datetime as dt
+import sys
+import unittest
+from pathlib import Path
+from typing import ClassVar
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
+import v7_sheet_fix as fix
+from v7_api_validate import ApiError
+from v7_inbox import AUTO_ACTOR
+from v7_receipt_queue import project_receipts
+
+TODAY = dt.date(2026, 11, 4)
+
+
+def receipt(status, amount, month="2026-08", source_row=30, **extra):
+    return {"customer_tab": "KHACH A", "source_row": source_row, "debt_month": month, "amount_vnd": str(amount), "note": "da tt",
+            "date": extra.pop("date", None), "status": status, **extra}
+
+
+def price(status, month="2026-10", kind="trip", target=11, sheet=("100", None), web=(None, None), total=None):
+    return {"status": status, "month": month, "target_kind": kind, "target_id": target, "container": f"C{target}",
+            "sheet_unit_price_vnd": sheet[0], "sheet_other_fee_vnd": sheet[1],
+            "web_unit_price_vnd": web[0], "web_other_fee_vnd": web[1], "web_total_vnd": total}
+
+
+class HelperTests(unittest.TestCase):
+    def test_month_end_never_after_today(self):
+        self.assertEqual(fix.month_end("2026-08", TODAY), "2026-08-31")
+        self.assertEqual(fix.month_end("2024-02-01", TODAY), "2024-02-29")
+        self.assertEqual(fix.month_end("2026-11", TODAY), "2026-11-04")
+
+    def test_receipt_groups_by_kind_and_month(self):
+        orphans = [{"id": 5, "amount_vnd": "300"}, {"id": 6, "amount_vnd": "100"}]
+        receipts = {"ready": [receipt("READY", 70, date="2026-10-02"), receipt("READY", 30, date="2026-10-03")],
+                    "review": [receipt("NO_DATE", 500, source_fingerprint="a" * 64),
+                               receipt("NO_DATE", 11, month="2026-07", source_fingerprint="b" * 64),
+                               receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=orphans),
+                               receipt("FUTURE_DATE", 9), receipt("WEB_DELETED", 8)]}
+        groups = fix.receipt_groups(receipts, {"legacy_rows": []})
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], len(g["rows"])) for g in groups],
+                         [("receipts", None, -100, 2),
+                          ("receipts_edited", "2026-07", 400 - 461, 2),   # phiếu không ngày cùng tháng đi chung nhóm thay phiếu
+                          ("receipts_no_date", "2026-08", -500, 1)])     # phiếu ngày tương lai, phiếu web đã xóa không phải việc của máy
+
+    def test_edited_month_is_left_when_booked_amount_differs_from_sheet(self):
+        receipts = {"ready": [], "review": [receipt("SHEET_EDITED", 450, date="2026-08-02", web_legacy=[{"id": 5, "amount_vnd": "300"}])]}
+        self.assertEqual(fix.receipt_groups(receipts, {"legacy_rows": [{"id": 5, "counted_differs": True}]}), [])
+
+    def test_price_delta_matches_what_will_be_written(self):
+        self.assertEqual(fix.price_delta(price("READY", sheet=("100", "7"))), 107)                       # chưa giá: chưa tính nợ
+        self.assertEqual(fix.price_delta(price("CONFLICT", sheet=("100", None), web=("90", "5"))), 5)     # phụ phí trống là 0
+        self.assertEqual(fix.price_delta(price("CONFLICT", sheet=("90", "3"), web=("90", None))), 3)
+        legacy = {"kind": "legacy", "target": 22}
+        self.assertEqual(fix.price_delta(price("MONTH_LOCKED", sheet=("100", None), total="40", **legacy)), 60)   # đã có tổng
+        self.assertEqual(fix.price_delta(price("READY", sheet=("100", None), web=(None, "5"), total="0", **legacy)), 105)   # không ghi phụ phí
+        self.assertEqual(fix.price_delta(price("CONFLICT", sheet=("100", None), web=("100", "5"), total="105", **legacy)), -5)
+        self.assertIsNone(fix.price_delta(price("CONFLICT", sheet=("100", "5"), web=("100", "5"), total="90", **legacy)))    # không có lệnh nào
+        self.assertIsNone(fix.price_delta(price("CONFLICT", sheet=("100", None), web=("90", None), total=None, **legacy)))
+
+    def test_price_groups_only_rows_the_machine_may_write(self):
+        prices = {"ready": [price("READY", month="2026-11")],
+                  "review": [price("CONFLICT", sheet=("100", None), web=("90", None)), price("MONTH_LOCKED", month="2026-09"),
+                             price("AMBIGUOUS"), price("MANUAL"), price("PENDING_REVIEW")]}
+        total_only = [price("READY", month="2026-09", sheet=("45", None))]
+        self.assertEqual([(g["month"], g["delta_vnd"], len(g["rows"])) for g in fix.price_groups(prices, total_only)],
+                         [("2026-09", 145, 2), ("2026-10", 10, 1), ("2026-11", 100, 1)])
+
+
+def sheet_row(source_row, container, unit=None, total=None, month="2026-11", tab="KHACH A"):
+    return {"customer_tab": tab, "source_row": source_row, "debt_month": month, "container": container, "date": month + "-01",
+            "sheet_unit_price_vnd": unit, "sheet_other_fee_vnd": None, "sheet_total_vnd": total}
+
+
+def web_trip(trip_id, container, unit=None, fee=None, status="confirmed", month="2026-11"):
+    return {"id": trip_id, "container": container, "unit_price_vnd": unit, "other_fee_vnd": fee, "status": status,
+            "month": month + "-01", "event_date": month + "-01"}
+
+
+class PlanTests(unittest.TestCase):
+    CUSTOMERS = ({"id": 7, "name": "KHACH A"}, {"id": 8, "name": "KHACH B"})
+
+    def plan(self, rows, trips=(), legacy=(), adjustments=(), locks=()):
+        ledger = {"customer_id": 7, "today_month": "2026-11-01", "trips": list(trips), "legacy_rows": list(legacy),
+                  "adjustments": list(adjustments), "month_locks": list(locks), "receipts": [], "events": []}
+        prices = {"rows": list(rows), "sha256": "a" * 64}
+        return fix.plan(prices, {"rows": [], "sha256": "b" * 64}, ledger, list(self.CUSTOMERS), TODAY)
+
+    def test_web_ahead_is_priced_web_trips_the_sheet_has_not_priced(self):
+        rows = [sheet_row(1, "AAAA1"), sheet_row(2, "AAAA2"), sheet_row(3, "AAAA3", unit=5, total=5), sheet_row(4, "AAAA4", total=0),
+                sheet_row(5, "AAAA5", tab="KHACH B")]
+        trips = [web_trip(1, "AAAA1", unit="100", fee="7"),         # Sheet có dòng, chưa giá: đi trước
+                 web_trip(2, "AAAA2"),                              # hai bên chưa giá
+                 web_trip(3, "AAAA3", unit="900"),                  # hai bên có giá: việc của hàng chờ giá
+                 web_trip(4, "AAAA4", unit="11"),                   # TỔNG 0 cũng là chưa ghi giá
+                 web_trip(5, "AAAA6", unit="20"),                   # chưa có dòng nào trên tab của khách này
+                 web_trip(6, "AAAA7", unit="30", status="pending_review")]   # chờ kiểm chưa tính nợ
+        legacy = [{"id": 40, "kind": "trip", "month": "2026-11-01",
+                   "current": {"container": "AAAA8", "event_date": "2026-11-01", "unit_price_vnd": "50", "counted_vnd": "50", "month": "2026-11-01"}}]
+        self.assertEqual(self.plan(rows, trips, legacy)[1], 107 + 11 + 20)   # dòng sổ gốc không tính
+
+    def test_total_without_unit_price_becomes_the_price_of_an_unpriced_trip(self):
+        rows = [sheet_row(1, "AAAA1", total=45), sheet_row(2, "AAAA2", total=46), sheet_row(3, "AAAA3", total=47), sheet_row(4, "AAAA4", total=0)]
+        trips = [web_trip(1, "AAAA1"), web_trip(2, "AAAA2", unit="9"), web_trip(3, "AAAA3", status="pending_review"), web_trip(4, "AAAA4")]
+        legacy = [{"id": 40, "kind": "trip", "month": "2026-11-01",   # sổ gốc đã tính 30: tiền đã ở trong sổ, không ghi thêm
+                   "current": {"container": "AAAA5", "event_date": "2026-11-01", "unit_price_vnd": None, "counted_vnd": "30", "month": "2026-11-01"}}]
+        rows.append(sheet_row(5, "AAAA5", total=48))
+        groups, ahead = self.plan(rows, trips, legacy)
+        self.assertEqual(ahead, 0)   # dòng 2 có TỔNG trên Sheet, web không đi trước
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"]) for g in groups], [("prices", "2026-11", 45)])
+        row = groups[0]["rows"][0]
+        self.assertEqual((row["target_id"], row["sheet_unit_price_vnd"], row["status"]), (1, "45", "READY"))
+
+    def test_money_row_without_container_unless_already_booked(self):
+        rows = [sheet_row(10, "", unit=43, total=43, month="2026-10"), sheet_row(11, "", total=0, month="2026-10"),
+                sheet_row(12, "", unit=5, total=5, month="2026-09"), sheet_row(13, "", unit=6, total=6, month="2026-09"),
+                sheet_row(14, "", unit=-2, total=-2, month="2026-08")]
+        legacy = [{"id": 50, "kind": "trip", "month": "2026-09-01", "current": {"container": None, "counted_vnd": "5", "month": "2026-09-01"}}]
+        adjustments = [{"month": "2026-09-01", "amount_vnd": "6", "note": fix.FEE_NOTE + ", dòng 13"},
+                       {"month": "2026-10-01", "amount_vnd": "43", "note": "dòng người ghi"}]
+        groups, _ = self.plan(rows, legacy=legacy, adjustments=adjustments)
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], [r["source_row"] for r in g["rows"]]) for g in groups],
+                         [("fee_rows", "2026-08", -2, [14]), ("fee_rows", "2026-10", 43, [10])])
+
+
+class FeeUndoTests(unittest.TestCase):
+    def test_machine_adjustment_whose_sheet_row_is_gone_becomes_an_undo_group(self):
+        rows = [sheet_row(10, "", unit=43, total=43, month="2026-10")]
+        adjustments = [{"id": 1, "month": "2026-10-01", "amount_vnd": "43", "note": fix.FEE_NOTE + ", dòng 10"},   # dòng còn: đã ghi rồi
+                       {"id": 2, "month": "2026-09-01", "amount_vnd": "6", "note": fix.FEE_NOTE + ", dòng 13"},    # Sheet không còn dòng này
+                       {"id": 3, "month": "2026-09-01", "amount_vnd": "7", "note": "dòng người ghi"}]               # của người: không đụng
+        groups = fix.fee_groups([{"status": "NO_CONTAINER", "debt_month": r["debt_month"], "sheet_total_vnd": r["sheet_total_vnd"], "source_row": 10} for r in rows],
+                                {"legacy_rows": [], "adjustments": adjustments})
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], [r["id"] for r in g["rows"]]) for g in groups],
+                         [("fee_undo", "2026-09", -6, [2])])
+
+
+class ChooseTests(unittest.TestCase):
+    def group(self, delta, kind="prices"):
+        return {"kind": kind, "month": "2026-10", "rows": [], "delta_vnd": delta}
+
+    def test_nothing_to_write(self):
+        self.assertEqual(fix.choose([], -5), ("NOTHING_TO_WRITE", []))
+        self.assertEqual(fix.choose([self.group(0)], -5), ("NOTHING_TO_WRITE", []))
+
+    def test_exact_combination_only(self):
+        a, b, c = self.group(-700), self.group(+5), self.group(-3)
+        self.assertEqual(fix.choose([a, b, c], -700), ("FIX", [a]))
+        self.assertEqual(fix.choose([a, b, c], -698), ("FIX", [a, b, c]))
+        self.assertEqual(fix.choose([a, b, c], -699), ("NO_EXACT_FIX", []))   # lệch 1 đồng cũng không ghi
+
+    def test_two_combinations_are_left_for_the_owner(self):
+        self.assertEqual(fix.choose([self.group(-5), self.group(-5)], -5), ("AMBIGUOUS_FIX", []))
+
+    def test_group_without_money_is_never_written(self):
+        zero, real = self.group(0), self.group(-9)
+        self.assertEqual(fix.choose([zero, real], -9), ("FIX", [real]))
+
+    def test_too_many_groups_are_not_searched(self):
+        self.assertEqual(fix.choose([self.group(i + 1) for i in range(fix.MAX_GROUPS + 1)], 3), ("TOO_MANY_GROUPS", []))
+
+
+class Db:
+    def __init__(self, fail=None):
+        self.calls, self.version, self.fail = [], 9, fail
+
+    def run(self, function, payload, actor):
+        self.calls.append((function, payload, actor))
+        if function == "get_ledger":
+            return {"version": self.version}
+        if function == self.fail:
+            raise ApiError(409, "STALE_LEDGER", "x")
+        self.version += 1
+        return {"version": self.version}
+
+    def writes(self):
+        return [c for c in self.calls if c[0] != "get_ledger"]
+
+
+class ApplyTests(unittest.TestCase):
+    LEDGER: ClassVar[dict] = {"version": 9, "today_month": "2026-11-01", "month_locks": []}   # không có cờ: chỉ tháng hiện tại mở
+
+    def test_edited_month_opens_deletes_relocks_then_writes_receipts_and_prices(self):
+        db = Db()
+        groups = [{"kind": "prices", "month": "2026-11", "rows": [price("READY", month="2026-11")], "delta_vnd": 100},
+                  {"kind": "receipts_no_date", "month": "2026-08", "delta_vnd": -500,
+                   "rows": [receipt("NO_DATE", 500, source_fingerprint="a" * 64)]},
+                  {"kind": "receipts_edited", "month": "2026-07", "delta_vnd": -50, "orphans": [{"id": 5, "amount_vnd": "400"}],
+                   "rows": [receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=[])]},
+                  {"kind": "fee_rows", "month": "2026-11", "delta_vnd": 43, "rows": [{"source_row": 457, "amount_vnd": "43"}]}]
+        done = fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY)
+        self.assertEqual([(c[0], c[1]["expected_version"]) for c in db.writes()], [
+            ("set_month_lock", 9), ("delete_legacy_trip", 10), ("set_month_lock", 11),   # tháng 7 khóa: mở, xóa, khóa lại
+            ("record_receipt", 12), ("record_receipt", 13),                              # phiếu thay rồi phiếu không ngày
+            ("edit_trip_price", 14),                                                     # tháng 11 đang mở: ghi thẳng
+            ("adjust_month", 15)])
+        self.assertTrue(all(c[2] == AUTO_ACTOR for c in db.calls))
+        self.assertEqual(done, {"receipts": 2, "prices": 1, "legacy_deleted": 1, "fee_rows": 1, "fee_undone": 0})
+        adjust = db.writes()[-1][1]
+        self.assertEqual((adjust["debt_month"], adjust["amount_vnd"], adjust["note"]), ("2026-11-01", "43", fix.FEE_NOTE + ", dòng 457"))
+        records = [c[1] for c in db.writes() if c[0] == "record_receipt"]
+        self.assertEqual([(r["date"], r["amount_vnd"], r["method"]) for r in records],
+                         [("2026-08-02", "450", "THU TIỀN"), ("2026-08-31", "500", "THU TIỀN")])
+        self.assertEqual(records[0]["reference"], "Sheet: da tt")
+        self.assertTrue(records[1]["reference"].startswith("Sheet #" + "a" * 64 + ": da tt"))
+        keys = [c[1]["idempotency_key"] for c in db.writes()]
+        self.assertEqual(len(keys), len(set(keys)))
+
+    def test_undated_receipt_written_by_machine_leaves_the_queue(self):
+        rows = [{"customer_tab": "KHACH A", "source_row": 30, "debt_month": "2026-08", "amount_vnd": 500, "note": "da tt"}]
+        snapshot = {"rows": rows, "sha256": "e" * 64}
+        customers = [{"id": 7, "name": "KHACH A"}]
+        ledger = {"customer_id": 7, "version": 9, "legacy_rows": [], "receipts": []}
+        queue = project_receipts(snapshot, ledger, customers, TODAY)
+        self.assertEqual([r["status"] for r in queue["review"]], ["NO_DATE"])
+        db = Db()
+        fix.apply_fix(db, 7, ledger, fix.receipt_groups(queue, ledger), "d" * 64, TODAY)
+        written = db.writes()[0][1]
+        ledger["receipts"] = [{"date": written["date"], "amount_vnd": written["amount_vnd"], "reference": written["reference"]}]
+        queue = project_receipts(snapshot, ledger, customers, TODAY)
+        self.assertEqual((queue["ready"], queue["review"]), ([], []))
+
+    def test_money_row_in_locked_month_opens_writes_relocks(self):
+        db = Db()
+        fix.apply_fix(db, 7, self.LEDGER, [{"kind": "fee_rows", "month": "2026-10", "delta_vnd": 43,
+                                            "rows": [{"source_row": 457, "amount_vnd": "43"}]}], "d" * 64, TODAY)
+        self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "adjust_month", "set_month_lock"])
+
+    def test_undo_deletes_machine_adjustment_inside_locked_month(self):
+        db = Db()
+        done = fix.apply_fix(db, 7, self.LEDGER, [{"kind": "fee_undo", "month": "2026-10", "delta_vnd": -43, "rows": [{"id": 77, "amount_vnd": "43"}]}], "d" * 64, TODAY)
+        self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "delete_month_adjustment", "set_month_lock"])
+        self.assertEqual(db.writes()[1][1]["adjustment_id"], 77)
+        self.assertEqual(done["fee_undone"], 1)
+
+    def test_conflict_rows_go_through_conflict_write_inside_locked_month(self):
+        db = Db()
+        row = price("CONFLICT", month="2026-10", sheet=("100", "7"), web=("100", None))
+        fix.apply_fix(db, 7, self.LEDGER, [{"kind": "prices", "month": "2026-10", "rows": [row], "delta_vnd": 7}], "d" * 64, TODAY)
+        self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "edit_trip_price", "set_month_lock"])
+        edit = db.writes()[1][1]
+        self.assertEqual((edit["trip_id"], edit["unit_price_vnd"], edit["other_fee_vnd"]), (11, "100", "7"))
+
+    def test_write_error_relocks_and_stops(self):
+        db = Db(fail="delete_legacy_trip")
+        groups = [{"kind": "receipts_edited", "month": "2026-07", "delta_vnd": -50, "orphans": [{"id": 5, "amount_vnd": "400"}],
+                   "rows": [receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=[])]}]
+        with self.assertRaises(ApiError):
+            fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY)
+        self.assertEqual([(c[0], c[1].get("locked")) for c in db.calls if c[0] != "get_ledger"],
+                         [("set_month_lock", False), ("delete_legacy_trip", None), ("set_month_lock", True)])
+        self.assertFalse([c for c in db.calls if c[0] == "record_receipt"])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3,6 +3,7 @@
 Usage: --sheet-dir CLEAN --ledger-json JSON --out NEW
 Add --brief for a count/status-only stdout summary and customer row numbers.
 Add --totals-only for SONG-SONG-01/02 daily checks; month buckets are ignored.
+Add --can-du-months to compare months the way the web states them (CAN-DU-01, below).
 reconcile_index.csv maps those numbers to names; existing CSV columns stay fixed.
 Or replace --ledger-json JSON with --api http://127.0.0.1:8780.
 
@@ -196,11 +197,30 @@ def read_api(value, serve_hosts=()):
 def diff(sheet, web):
     return None if sheet is None or web is None else web - sheet
 
-def reconcile(sheet, web, compare_months=True):
+def can_du_months(months):
+    """Sheet buckets as the web states them (CAN-DU-01): a month in credit pays the oldest month still owing, and credit
+    left over sits in the last month. Blank cells stay as they are, so they still read as unknown."""
+    if None in months.values():
+        return dict(months)
+    out = {mon: max(value, 0) for mon, value in months.items()}
+    credit = -sum(value for value in months.values() if value < 0)
+    for mon in sorted(out):
+        taken = min(out[mon], credit)
+        out[mon] -= taken
+        credit -= taken
+    if credit:
+        out[max(out)] -= credit
+    return out
+
+def reconcile(sheet, web, compare_months=True, can_du=False):
     customers, months = ([], [])
     for key in sorted(sheet.keys() | web.keys()):
         left, right = (sheet.get(key), web.get(key))
         sm, wm = ((left or {}).get('months', {}), (right or {}).get('months', {}))
+        if can_du:
+            # A month at 0 and a month not listed owe the same; only the bucket that still owes is compared.
+            sm = {mon: value for mon, value in can_du_months(sm).items() if value != 0}
+            wm = {mon: value for mon, value in wm.items() if value != 0}
         st, wt = ((left or {}).get('total'), (right or {}).get('total'))
         if left is None:
             status = 'CHI_CO_WEB'
@@ -302,6 +322,8 @@ def main(argv=None):
     parser.add_argument('--brief', action='store_true', help='print counts, statuses and customer row numbers only')
     parser.add_argument('--totals-only', action='store_true',
                         help='compare customer totals only; month differences do not affect status')
+    parser.add_argument('--can-du-months', action='store_true',
+                        help='apply CAN-DU-01 to Sheet buckets before comparing months; ignored with --totals-only')
     args = parser.parse_args(argv)
     try:
         out = output_path(args.out)
@@ -309,8 +331,9 @@ def main(argv=None):
             api_base(args.api, args.serve_host)
         sheet, sh = read_sheet(args.sheet_dir)
         web, wh = read_ledgers(args.ledger_json) if args.ledger_json else read_api(args.api, args.serve_host)
-        customers, months, summary = reconcile(sheet, web, compare_months=not args.totals_only)
-        summary['comparison_scope'] = 'customer_totals' if args.totals_only else 'customer_totals_and_months'
+        customers, months, summary = reconcile(sheet, web, compare_months=not args.totals_only, can_du=args.can_du_months)
+        summary['comparison_scope'] = ('customer_totals' if args.totals_only else
+                                       'customer_totals_and_can_du_months' if args.can_du_months else 'customer_totals_and_months')
         summary['input_sha256'] = {'sheet': sh, 'web': wh}
         out.mkdir(parents=True)
         write_csv(out / 'reconcile_customer.csv', ['customer', 'sheet_total_vnd', 'web_total_vnd', 'difference_vnd', 'status'], customers)

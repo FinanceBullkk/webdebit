@@ -13,3 +13,5 @@ Phiếu thu trên Sheet lên web bằng hàng chờ, như giá: runner đọc ta
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT hướng; quy tắc ghép là ĐỀ XUẤT tới khi người dùng đi hết luồng trên sổ thật. Không đổi luật tiền, không migration. Áp dụng trong thời gian chạy song song ([`SONG-SONG-01`](song-song-01.md)); xét lại khi chuyển hẳn sang web.
+
+**Cập nhật 4/11/2026:** [`MAY-DOI-SOAT-01`](may-doi-soat-01.md) cho máy tự ghi cả phiếu sẵn sàng, phiếu không ngày (ngày cuối tháng của khối Sheet) và phiếu Sheet đã sửa, khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet. Luật ghép phiếu không đổi.

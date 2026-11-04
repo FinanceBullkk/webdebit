@@ -31,6 +31,12 @@ svg{flex:none;vertical-align:middle}
 .auto-toggle{height:36px;padding:0 12px}.auto-toggle[aria-expanded=true]{background:#eef3f9}
 .auto-list{flex-basis:100%;margin-top:-4px;padding:10px 14px;background:#fff;border:1px solid #e3e7ec;border-radius:10px}
 .auto-list ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}.auto-list li{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.auto-list .auto-kind{padding:0 8px;border-radius:10px;background:#eef1f5;color:#52514e;font-size:12.5px;font-weight:600}.auto-list a{margin-left:auto;color:#1c5cab;font-weight:600}
+.reconcile{margin-bottom:14px;padding:8px 20px;border:1px solid #cfe9e2;border-radius:14px;background:#eef8f5;color:#0f5f58}
+.reconcile.warn{border-color:#f1dfb8;background:#fdf6e7;color:#6e4300}.reconcile.danger{border-color:#f0c4bf;background:#fdecea;color:#8f1d14}
+.reconcile-line{display:flex;align-items:center;flex-wrap:wrap;gap:4px 14px;min-height:36px}.reconcile-line strong{font-size:15px}.reconcile-line .btn{height:36px;margin-left:auto;padding:0 12px;border-color:currentColor;color:inherit;background:transparent}
+.reconcile-error{margin:0 0 4px;font-weight:600}.reconcile-open{color:#8f1d14}
+.reconcile-list{margin:6px 0 4px;padding:6px 12px;overflow-x:auto;border:1px solid #e3e7ec;border-radius:10px;background:#fff;color:#1a1a19}.reconcile-list table{width:100%;min-width:640px;border-collapse:collapse;font-variant-numeric:tabular-nums}.reconcile-list th,.reconcile-list td{padding:6px 8px;border-bottom:1px solid #eef0f3;text-align:left;font-weight:400}.reconcile-list thead th{font-size:13px;font-weight:600;color:#52514e}.reconcile-list tbody th{font-weight:700;max-width:230px}.reconcile-list tr:last-child>*{border-bottom:0}.reconcile-list .num{text-align:right;white-space:nowrap}.reconcile-list a{color:#1c5cab;font-weight:600;white-space:nowrap}.reconcile-list .inbox-note{margin:6px 8px 2px}
+.matched-note{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:10px 0 2px}.matched-note .btn{height:36px;padding:0 12px}
 .computing{padding:4px 12px;border:1px solid #f1dfb8;border-radius:15px;background:#fdf0d8;color:#8a5300;font-weight:700}
 .work-card{min-width:0;padding:12px 20px;border:1px solid #e3e7ec;border-radius:12px;background:#fff}
 .work-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px}

@@ -32,13 +32,16 @@ globalThis.InboxTable = (() => {
     const n = BigInt(value), fraction = (n % 1000000n).toString().padStart(6, '0').replace(/0+$/, '');
     return `${n / 1000000n}${fraction ? ',' + fraction : ''}`;
   }
-  function books(data, dashboard, unsorted = []) {
-    const map = new Map((data?.books ?? []).map(b => [b.customer_id, { ...b }]));
+  // MAY-DOI-SOAT-01: sổ đã khớp Sheet ở lượt đối soát gần nhất, tổng chưa đổi từ đó: việc từ Sheet và "chưa giá" còn treo không làm số
+  // đúng hơn nên mặc định ẩn. Chờ kiểm, số dư đầu, mặt hàng vẫn hiện vì chỉ người quyết được.
+  function books(data, dashboard, unsorted = [], showMatched = false) {
+    const map = new Map((data?.books ?? []).filter(b => showMatched || !b.sheet_matched).map(b => [b.customer_id, { ...b }]));
     const add = (items, key) => (items ?? []).forEach(item => {
       if (!map.has(item.customer_id)) map.set(item.customer_id, { customer_id: item.customer_id });
       map.get(item.customer_id)[key] = item.count ?? 1;
     });
-    add(dashboard?.todo.missing_price, 'missing'); add(dashboard?.todo.pending_review, 'pending');
+    const settled = new Set(showMatched ? [] : data?.reconcile?.matched_ids ?? []);
+    add(dashboard?.todo.missing_price.filter(item => !settled.has(item.customer_id)), 'missing'); add(dashboard?.todo.pending_review, 'pending');
     add(dashboard?.todo.no_baseline, 'baseline'); add(unsorted, 'commodity');
     return [...map.values()].filter(b => groups.some(g => g.keys.some(key => count(b, key))));
   }
@@ -46,7 +49,7 @@ globalThis.InboxTable = (() => {
     const { F, esc, label, href, dashboard, unsorted, selected = new Set(), selectedPrices = new Set(), review, result, busy, filter, open, details } = opts;
     const old = globalThis.InboxCard;
     const rank = b => (count(b, 'removed') ? 1000000 : 0) + Number(BigInt(b.receipts?.ready_amount_vnd ?? '0') / 100000n) + count(b, 'missing') + (groups[0].keys.some(k => count(b, k)) ? 1 : 0);
-    const list = books(data, dashboard, unsorted ?? []).sort((a, b) => rank(b) - rank(a) || label(a).localeCompare(label(b), 'vi'));
+    const list = books(data, dashboard, unsorted ?? [], opts.showMatched).sort((a, b) => rank(b) - rank(a) || label(a).localeCompare(label(b), 'vi'));
     const ready = list.filter(b => b.receipts && old.canWrite(b));
     const selectedCount = list.reduce((n, b) => n + (selected.has(b.customer_id) ? b.receipts.ready : 0) + (selectedPrices.has(b.customer_id) ? b.prices.ready : 0), 0);
     const hasReady = ready.length || list.some(b => b.prices?.ready);
@@ -88,9 +91,11 @@ globalThis.InboxTable = (() => {
       return `${n} ${{ missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư đầu', commodity: 'mặt hàng', ps: 'PS', text_diff: 'ô chữ' }[key]}`;
     };
     const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">Cộng</th>${columns.map((keys, i) => `<td${dim(i)}>${keys.map(footPart).filter(Boolean).join(' · ')}</td>`).join('')}<td></td></tr></tfoot></table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
+    const matchedCount = (data?.books ?? []).filter(b => b.sheet_matched).length;
+    const matchedNote = matchedCount ? `<p class="inbox-note matched-note">${opts.showMatched ? `Đang hiện cả ${matchedCount} sổ đã khớp Sheet.` : `Đã ẩn ${matchedCount} sổ đã khớp Sheet tới từng đồng: việc còn treo ở đó không làm số đúng hơn.`} <button type="button" class="btn" data-show-matched aria-pressed="${!!opts.showMatched}">${opts.showMatched ? 'Ẩn lại' : 'Hiện'}</button></p>` : '';
     const textCount = totalCount('text_diff');
     const textNote = textCount ? `<p class="inbox-note">Lệch chữ: ${textCount} chỗ ở ${list.filter(b => b.text_diff > 0).length} sổ. Không đụng tiền; ${data?.auto?.text_enabled ? 'máy lấy theo Sheet ở lượt tính tới.' : 'máy chưa bật tự lấy theo Sheet.'}</p>` : '';
-    return `${band}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar">${chips}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div>${errors}${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}</section>`;
+    return `${old.reconcileHtml(data?.reconcile, { esc, href, show: opts.showReconcile, now: opts.now })}${band}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar">${chips}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div>${errors}${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}${matchedNote}</section>`;
   }
   function detailHtml(book, ledger, opts) {
     const { F, esc, href, action } = opts;
@@ -102,11 +107,11 @@ globalThis.InboxTable = (() => {
       return `<li class="${pending ? 'pending-action' : ''}"${key ? ` data-detail-key="${key}"` : ''}><b title="${esc(obj)}">${esc(obj)}</b><span>${esc(day(date))}</span><span class="detail-description${pending ? ' action-description' : ''}" title="${esc(pending ? action.text : desc)}">${pending ? `<span id="h-action">${esc(action.inlineText ?? action.text)}</span>` : esc(desc)}</span><b class="money" title="${amount == null ? '' : esc(F.full(amount))}">${amount == null ? '' : million(amount)}</b><div class="detail-actions">${pending ? `${action.path ? btn(action.unknown ? 'Thử lại' : 'Xác nhận', 'data-action-write', 'primary') : ''}${action.unknown ? '' : btn('Thôi', 'data-action-cancel')}` : buttons}</div>${pending && action.reasonRequired ? `<label class="review-reason">Lý do kết luận <input data-action-reason maxlength="500" required aria-label="Lý do kết luận ${esc(obj)}" value="${esc(action.body.reason)}"${action.unknown ? ' disabled' : ''}></label>` : ''}${pending && action.error ? `<p class="row-error" role="alert">${esc(action.error)}</p>` : ''}</li>`;
     };
     const section = (label, rows, hint, tone = '') => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${rows.length} ${label === 'Phiếu cần xem' ? 'phiếu' : 'chuyến'}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
-    const receiptRows = (ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy không ghi phiếu thiếu ngày; đối chiếu chứng từ trong sổ', r.amount_vnd,
+    const receiptRows = (ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy chưa tự khớp được phiếu này; đối chiếu chứng từ trong sổ', r.amount_vnd,
       r.status === 'NO_DATE' && r.source_fingerprint && r.debt_month
         ? `<input class="inline-price" data-receipt-date="${r.source_fingerprint}" placeholder="ngày dd/mm" aria-label="Ngày phiếu thu năm ${esc(r.debt_month.slice(0, 4))}">${btn('Ghi phiếu', `data-record-sheet-receipt="${r.source_fingerprint}"`)}`
         : link('Xem phiếu trong sổ'), `receipt:${r.source_fingerprint}`));
-    if (ledger === undefined || ledger === null) return section('Phiếu cần xem', receiptRows, 'máy không ghi phiếu thiếu ngày', 'warn') + (ledger === undefined ? '<p class="loading">Đang tải chi tiết sổ…</p>' : `<p role="alert">Không tải được chi tiết sổ. ${btn('Thử lại', `data-detail-retry="${book.customer_id}"`)}</p>`);
+    if (ledger === undefined || ledger === null) return section('Phiếu cần xem', receiptRows, 'máy chỉ tự ghi khi khớp đúng tổng Sheet', 'warn') + (ledger === undefined ? '<p class="loading">Đang tải chi tiết sổ…</p>' : `<p role="alert">Không tải được chi tiết sổ. ${btn('Thử lại', `data-detail-retry="${book.customer_id}"`)}</p>`);
     const removed = (ledger.sheet_sync?.removed_items ?? []).map(r => item(r.container, r.event_date ?? r.date, `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · Sheet không còn dòng này`, r.amount_vnd,
       r.month_locked ? link('Mở trong sổ') : `${btn('Xóa chuyến', `data-remove-trip="${r.trip_id}"`, 'danger')}${btn('Giữ', `data-keep-trip="${r.trip_id}"`)}`, `removed:${r.trip_id}`));
     const prices = (ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, r.status === 'CONFLICT' ? `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}` : 'Cần đối chiếu giá trong sổ', null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : link('Mở để đối chiếu'), `sheet-price:${r.target_kind}:${r.target_id}`));
@@ -127,7 +132,7 @@ globalThis.InboxTable = (() => {
     const setup = [book.baseline ? item('Số dư đầu kỳ', null, 'Chưa có · đối chiếu sổ gốc rồi nhập', null, link('Mở sổ để nhập')) : '', book.commodity ? item('Mặt hàng', null, 'Chưa gán mặt hàng chính của sổ', null, `<select class="inline-price" data-commodity="${book.customer_id}" aria-label="Mặt hàng của sổ"><option value="">Chọn mặt hàng</option>${['Sầu riêng', 'Thanh long', 'Chuối', 'Mít', 'Dừa'].map(name => `<option>${name}</option>`).join('')}</select>${btn('Lưu', 'data-save-commodity')}`, 'commodity') : ''].filter(Boolean);
     // ponytail: phụ phí PS và số dư đầu chưa có lệnh xử lý tại dòng; hai nhóm này vẫn mở sổ thật.
     return section('Sheet đã xóa', removed, 'đang tính nợ nhưng Sheet không còn, nợ có thể thừa', 'danger')
-      + section('Phiếu cần xem', receiptRows, 'máy không ghi phiếu thiếu ngày', 'warn')
+      + section('Phiếu cần xem', receiptRows, 'máy chỉ tự ghi khi khớp đúng tổng Sheet', 'warn')
       + section('Giá khác', prices, 'hai giá cho cùng chuyến, chọn một', 'warn')
       + section('Chưa giá', missing, 'chưa cộng vào nợ', 'warn')
       + section('Chờ kiểm', pending, 'nghi trùng, chưa cộng vào nợ', 'warn')

@@ -1687,6 +1687,63 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-
 2. **Bật máy đưa chuyến (chỉ khi người dùng đồng ý):** sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips`, `daemon-reload`, restart. Đo trước/sau: số chuyến mới đủ điều kiện (`NEW`, `COMMODITY_OK`, tháng mở, không ngày tương lai), số event `paste` của `may-theo-sheet`, số dư 236 khách (phải bằng nhau: chuyến vào chưa có giá).
 3. **Tắt máy đưa chuyến:** bỏ `trips` khỏi biến, restart. Chuyến máy đã đưa vào vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai.
 
+## Máy tự đối soát (MAY-DOI-SOAT-01) — timer `v7-reconcile-auto`
+
+Không có SQL: mã lên bằng `Deploy hao` ([quyết định](decisions/may-doi-soat-01.md), [spec](../specs/v7-may-doi-soat.md)). Chưa cài timer thì release mới không đổi gì; API thấy chưa có `reconcile.json` thì không hiện dải đối soát. Có `--fix` là **ghi tiền**.
+
+Unit chạy dưới `v7app`, đọc bản tải Sheet bằng tài khoản dịch vụ như runner giá, vào DB như API. Cần thêm bộ CSV mốc sổ gốc mà `v7_export_clean` dùng (`loader.FILES`, trừ xlsx) ở `/srv/v7/so-goc-20261020`, chủ `root:v7app`, thư mục 750, file 640, ngoài Git.
+
+`/etc/systemd/system/v7-reconcile-auto.service`:
+
+```ini
+[Unit]
+Description=V7 may tu doi soat Sheet-web va tu sua khi khop (MAY-DOI-SOAT-01)
+After=network-online.target tailscaled.service postgresql@18-main.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=v7app
+Group=v7app
+EnvironmentFile=/etc/webdebit/sheet-sync.env
+EnvironmentFile=/etc/webdebit/sheet-prices.env
+Environment=WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH=/srv/v7/customer-name-mapping.json
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_reconcile_auto.py --source-dir /srv/v7/so-goc-20261020 --fix
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/webdebit-sheet-sync
+TimeoutStartSec=1500
+```
+
+`/etc/systemd/system/v7-reconcile-auto.timer` (phút :05, tránh phút :00 của `v7-backup-hourly`):
+
+```ini
+[Unit]
+Description=V7 may tu doi soat moi gio 7-22 gio VN
+
+[Timer]
+OnCalendar=*-*-* 07..22:05:00 Asia/Ho_Chi_Minh
+
+[Install]
+WantedBy=timers.target
+```
+
+1. **Chỉ báo trên DB thật:** chạy unit tạm không có `--fix`, `--output` trỏ chỗ khác. Đọc từng khách `WOULD_FIX`, nhóm nào được chọn, có đúng dự tính không.
+2. **Thử trên bản sao:** dump `webdebit_v7`, restore vào DB tạm (vào bằng `postgres` rồi `SET ROLE v7_app`, vì `pg_hba` không mở cho bản sao), chạy với `--fix` trên cùng một bản tải (`--xlsx`). Đạt khi:
+   - khách `FIXED` khớp đúng tổng Sheet (hoặc tổng Sheet cộng phần web đi trước); tổng nợ đổi đúng bằng tổng các nhóm đã chọn; khách khác giữ nguyên;
+   - mọi tháng máy mở đã khóa lại; `v7_post_deploy_check.sql` đạt;
+   - chạy lại lần hai trên cùng bản tải không còn `WOULD_FIX` ở các khách đã sửa. Xóa DB tạm.
+3. **Bật:** sao lưu như mọi lần trước khi đổi; đặt hai unit, `systemd-analyze verify`, `daemon-reload`, `systemctl start v7-reconcile-auto.service` chạy lượt đầu, đo như bước 2 trên DB thật, rồi `systemctl enable --now v7-reconcile-auto.timer`.
+4. **Theo dõi:** tab Việc cần làm, `reconcile-log.jsonl`, `journalctl -u v7-reconcile-auto`. Stdout của unit chỉ có số đếm.
+5. **Tắt:** `systemctl disable --now v7-reconcile-auto.timer`. Muốn vẫn đối soát mà không ghi thì bỏ `--fix` khỏi `ExecStart`, `daemon-reload`, rồi bật lại timer. Việc máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay nếu sai: hủy phiếu, xóa dòng điều chỉnh, sửa giá tại ô (tháng khóa: mở khóa trước).
+
+Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
+
 ## Máy tự ghi giá Sheet (MAY-GIA-01)
 
 Không có SQL: `Deploy hao` tự lên khi PR merge ([`MAY-GIA-01`](decisions/may-gia-01.md), [spec](../specs/v7-price-queue.md#máy-tự-ghi-giá-sheet-may-gia-01-3112026)). Công tắc tắt thì release mới không ghi gì thêm. Máy này **ghi tiền**, nên tổng nợ đổi sau khi bật.
