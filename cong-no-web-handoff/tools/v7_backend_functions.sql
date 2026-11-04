@@ -3572,7 +3572,7 @@ GRANT EXECUTE ON FUNCTION sokhach.undo_sheet_batch(bigint,bigint,text,jsonb) TO 
 RESET ROLE;
 COMMIT;
 
--- Bảng thu (BANG-THU-01, 4/11/2026): chỉ đọc; bản nâng DB đang có ở migrations/2026-11-04-v7-bang-thu.sql.
+-- Bảng thu (BANG-THU-01, 4/11/2026): chỉ đọc; bản nâng DB đang có ở migrations/2026-11-04-v7-bang-thu.sql và -2.sql.
 BEGIN;
 SET ROLE sokhach_owner;
 CREATE OR REPLACE FUNCTION sokhach._legacy_pay_date(p_text text) RETURNS date
@@ -3594,7 +3594,7 @@ CREATE OR REPLACE FUNCTION sokhach.get_receipt_book(p_month date) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
 -- BANG-THU-01. Tháng tính theo ngày tiền về, khác "Đã thu" của sổ ở tháng có dòng Sheet (DA-THU-01 giữ nguyên): Sheet ghi khoản thu
 -- ở khối tháng nợ. Gồm phiếu web chưa hủy và dòng thu sổ gốc chưa xóa; cấn trừ không phải tiền mới vào nên liệt kê riêng.
--- Không rõ ngày (date NULL, nằm ở tháng của khối, không cộng vào tổng tháng): Sheet không đọc được ngày; ngày sau lúc nạp sổ hoặc sau
+-- Dòng Sheet số tiền 0 là ô công thức trống, không liệt kê. Không rõ ngày (date NULL, nằm ở tháng của khối, không cộng vào tổng tháng): Sheet không đọc được ngày; ngày sau lúc nạp sổ hoặc sau
 -- hôm nay; ngày trước tháng của khối hơn 12 tháng; phiếu đặt ngày cuối tháng khối vì Sheet không ghi ngày (MAY-DOI-SOAT-01).
 -- Mọi tháng cộng lại, mọi sổ cộng lại bằng đúng tổng received_vnd của get_ledger: dòng chỉ đổi tháng, không thêm bớt tiền.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; v_this date := date_trunc('month', d)::date;
@@ -3621,7 +3621,7 @@ BEGIN
         CROSS JOIN LATERAL (SELECT coalesce(sokhach._legacy_date(l.display->>'date'),sokhach._legacy_pay_date(t.raw)) AS dt) p
         CROSS JOIN LATERAL (SELECT CASE WHEN p.dt BETWEEN (l.debt_month-interval '12 months')::date AND least(a.frozen,d) THEN p.dt END AS dt) q
         LEFT JOIN LATERAL (SELECT r.deleted FROM sokhach.legacy_trip_rev r WHERE r.legacy_row_id=l.id ORDER BY r.id DESC LIMIT 1) rev ON true
-       WHERE l.kind='receipt' AND l.source_total_vnd IS NOT NULL AND NOT coalesce(rev.deleted,false)),
+       WHERE l.kind='receipt' AND l.source_total_vnd IS NOT NULL AND l.source_total_vnd<>0 AND NOT coalesce(rev.deleted,false)),
     web AS (
       SELECT r.id,r.pid,r.customer_id,a.name,date_trunc('month',r.date)::date AS book_month,r.amount_vnd AS amount,r.method,
         CASE WHEN r.reference ~ '( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$' THEN NULL ELSE r.date END AS dt,
@@ -3633,7 +3633,8 @@ BEGIN
       SELECT 'sheet'::text AS source,s.id,NULL::text AS pid,s.customer_id,s.name,s.debt_month AS book_month,s.amount,s.dt,NULL::text AS method,s.note FROM sheet s
       UNION ALL
       SELECT 'web',w.id,w.pid,w.customer_id,w.name,w.book_month,w.amount,w.dt,w.method,
-        CASE WHEN w.note ~ '^[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{4}$' AND sokhach._legacy_pay_date(w.note)=w.dt THEN NULL ELSE nullif(w.note,'') END
+        CASE WHEN w.note ~ '^([0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{4}|[0-9]{5}(\.0+)?)$' AND sokhach._legacy_pay_date(w.note)=w.dt THEN NULL
+             WHEN w.note ~ '^[0-9]{5}(\.0+)?$' THEN to_char(sokhach._legacy_pay_date(w.note),'DD/MM/YYYY') ELSE nullif(w.note,'') END
         FROM web w),
     placed AS (SELECT i.*,date_trunc('month',coalesce(i.dt,i.book_month))::date AS month FROM items i),
     idx AS (
@@ -3662,7 +3663,7 @@ BEGIN
       'undated',(SELECT coalesce(jsonb_agg(c.js ORDER BY c.amount DESC,c.name COLLATE "C",c.source,c.id),'[]'::jsonb) FROM cur c WHERE c.dt IS NULL),
       'customers',(SELECT coalesce(jsonb_agg(jsonb_build_object('customer_id',g.customer_id,'name',g.name,'total_vnd',g.total::text,'count',g.n,
           'undated_vnd',g.undated::text,'undated_count',g.undated_n,'last_date',g.last_date,'book_month',g.book_month)
-          ORDER BY g.total+g.undated DESC,g.name COLLATE "C",g.customer_id),'[]'::jsonb)
+          ORDER BY g.total DESC,g.undated DESC,g.name COLLATE "C",g.customer_id),'[]'::jsonb)
         FROM (SELECT c.customer_id,c.name,coalesce(sum(c.amount) FILTER (WHERE c.dt IS NOT NULL),0) AS total,count(*) FILTER (WHERE c.dt IS NOT NULL) AS n,
                      coalesce(sum(c.amount) FILTER (WHERE c.dt IS NULL),0) AS undated,count(*) FILTER (WHERE c.dt IS NULL) AS undated_n,
                      max(c.dt) AS last_date,max(c.book_month) AS book_month

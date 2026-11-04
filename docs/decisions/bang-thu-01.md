@@ -19,4 +19,4 @@ Không đổi [`DA-THU-01`](da-thu-01.md): "Đã thu" trong sổ vẫn như Shee
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Chỉ đọc: migration thêm hai hàm đọc, không đổi luật tiền, phân bổ, số nợ hay dữ liệu. Có migration nên triển khai tay theo [`DEPLOY-CLAUDE-01`](deploy-claude-01.md). Bước nghiệm thu cuối là người dùng tự mở trang trên `hao`. CÒN MỞ: bổ sung ngày cho khoảng 510 dòng Sheet không rõ ngày; đối chiếu sao kê ngân hàng ([`CHUNG-TU-01`](chung-tu-01.md)).
+ĐÃ CHỐT. ĐÃ TRIỂN KHAI trên `hao` 4/11/2026 ([nhật ký](../deploys/2026-11-04-bang-thu.md)). Chỉ đọc: migration thêm hai hàm đọc, không đổi luật tiền, phân bổ, số nợ hay dữ liệu. Bước nghiệm thu cuối là người dùng tự mở trang trên `hao`, chưa làm. CÒN MỞ: bổ sung ngày cho gần 500 dòng Sheet không rõ ngày; đối chiếu sao kê ngân hàng ([`CHUNG-TU-01`](chung-tu-01.md)).

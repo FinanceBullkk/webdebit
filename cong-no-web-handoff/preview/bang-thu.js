@@ -112,6 +112,7 @@
 
   function pendingLine() {
     const pending = state.pending;
+    if (pending === 'computing') return '<p class="pending unknown" id="pending">Đang kiểm phiếu thu trên Sheet chờ ghi: số ở đây có thể còn thiếu.</p>';
     if (pending === 'unknown') return '<p class="pending unknown" id="pending">Chưa kiểm được phiếu thu trên Sheet chờ ghi: số ở đây có thể còn thiếu.</p>';
     if (!pending) return '';
     return `<a class="pending" id="pending" href="/viec-can-lam.html">Còn ${esc(count(pending.count))} trên Sheet chưa ghi vào web · ${esc(full(pending.amount))} <span aria-hidden="true">›</span></a>`;
@@ -164,6 +165,7 @@
   }
 
   function readPending(inbox) {
+    if (inbox?.state === 'computing') return 'computing';   // vài phút đầu sau khi API khởi động lại
     if (inbox?.state !== 'ready') return 'unknown';
     const books = (inbox.books ?? []).filter(book => !book.sheet_matched && book.receipts.ready + book.receipts.review > 0);
     if (!books.length) return null;

@@ -217,9 +217,14 @@ test('Bảng thu: không còn phiếu chờ thì không có dòng; không đọc
     await page.locator('tr.pay').first().waitFor();
     assert.match(await page.locator('p#pending').innerText(), /Chưa kiểm được phiếu thu trên Sheet chờ ghi/);
   });
-  await withPage({ book: byMonth, inbox: { state: 'building' } }, async page => {
+  await withPage({ book: byMonth, inbox: { state: 'unavailable' } }, async page => {
     await page.locator('tr.pay').first().waitFor();
     assert.match(await page.locator('p#pending').innerText(), /Chưa kiểm được/);
+  });
+  // Vài phút đầu sau khi API khởi động lại: đang tính, không phải lỗi.
+  await withPage({ book: byMonth, inbox: { state: 'computing', books: [] } }, async page => {
+    await page.locator('tr.pay').first().waitFor();
+    assert.match(await page.locator('p#pending').innerText(), /^Đang kiểm phiếu thu trên Sheet chờ ghi/);
   });
 });
 
