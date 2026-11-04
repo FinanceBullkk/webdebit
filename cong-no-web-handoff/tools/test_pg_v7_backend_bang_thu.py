@@ -87,6 +87,7 @@ def check_bang_thu(pg: Pg) -> None:
         ("2026-08-01", 70, "45870", "2025-08-01 00:00:00"),    # serial 01/08/2025: đúng 12 tháng trước khối, vẫn nhận
         ("2026-08-01", 80, "10/08/2026", "ghi chu rieng"),
         ("2026-08-01", 90, "11/08/2026", "11/08/2026"),        # sẽ xóa
+        ("2026-08-01", 0, "", ""),                             # ô công thức trống trên Sheet, không phải khoản thu
     ], [1000] * 9)
 
     october = _book(pg, "2026-10-01")
@@ -102,6 +103,7 @@ def check_bang_thu(pg: Pg) -> None:
     dated = {row["amount_vnd"]: row for day in august["days"] for row in day["rows"] if row["customer_id"] == sheet}
     undated = {row["amount_vnd"]: row for row in august["undated"] if row["customer_id"] == sheet}
     require(set(dated) == {"80", "90"} and dated["80"]["note"] == "ghi chu rieng" and dated["90"]["note"] is None, f"dated rows: {dated}")
+    require("0" not in undated, f"a zero-amount Sheet cell is not a receipt: {undated}")
     require({amount: row["note"] for amount, row in undated.items()}
             == {"30": "da tt", "40": None, "50": "03/07/2099", "60": "01/01/2020 tt"},
             f"undated rows keep what was typed and never count as a date: {undated}")
@@ -136,13 +138,19 @@ def check_bang_thu(pg: Pg) -> None:
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r4", day, "THU TIỀN", 11, "Sheet")
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r5", day, "THU TIỀN", 13, None)
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r6", day, "THU TIỀN", 17, review_reference("def456") + "chuyen khoan (ngày tượng trưng)")
+    serial = (today - date(1899, 12, 30)).days
+    call(pg, "record_receipt", web, version(pg, web), "bang-thu-r7", day, "THU TIỀN", 19, reference(str(serial)))
+    call(pg, "record_receipt", web, version(pg, web), "bang-thu-r8", day, "THU TIỀN", 23, reference(f"{serial - 1}.0"))
     gone = next(item["pid"] for item in call(pg, "get_ledger", web)["receipts"] if item["amount_vnd"] == "13")
     call(pg, "void_receipt", web, version(pg, web), "bang-thu-void", gone, "nhập trùng")
 
     now = _book(pg)
     rows = {row["amount_vnd"]: row for row in _rows(now) if row["customer_id"] == web}
-    require(set(rows) == {"600", "50", "70", "11", "17"}, f"voided receipt must leave the list: {rows}")
+    require(set(rows) == {"600", "50", "70", "11", "17", "19", "23"}, f"voided receipt must leave the list: {rows}")
     require(rows["17"]["date"] is None and rows["17"]["note"] == "chuyen khoan", f"symbolic date is not a money date: {rows['17']}")
+    # Ghi chú chỉ là số serial ngày của Sheet: trùng ngày dòng thì không lặp, khác ngày thì đổi ra ngày.
+    require(rows["19"]["note"] is None, f"serial equal to the row date is not repeated: {rows['19']}")
+    require(rows["23"]["note"] == (today - timedelta(days=1)).strftime("%d/%m/%Y"), f"other serial reads as a date: {rows['23']}")
     require(rows["600"]["note"] == "23/10/2026 tt" and rows["600"]["date"] == day and rows["600"]["source"] == "web" and rows["600"]["pid"], f"web row: {rows['600']}")
     require(rows["600"]["allocations"] == [{"month": "2026-08-01", "kind": "debt", "amount_vnd": "500"}, {"month": "2026-09-01", "kind": "debt", "amount_vnd": "100"}],
             f"allocations: {rows['600']}")
@@ -152,11 +160,18 @@ def check_bang_thu(pg: Pg) -> None:
     require(not any("abc123" in json.dumps(row) or "def456" in json.dumps(row) for row in rows.values()), "row fingerprint must not reach the page")
     voided = [row for row in now["voided"] if row["customer_id"] == web]
     require(len(voided) == 1 and voided[0]["amount_vnd"] == "13" and voided[0]["void_reason"] == "nhập trùng" and voided[0]["voided_on"], f"voided: {voided}")
-    require(int(now["summary"]["today_vnd"]) - int(before["summary"]["today_vnd"]) == 661 and now["summary"]["today_count"] - before["summary"]["today_count"] == 3,
+    require(int(now["summary"]["today_vnd"]) - int(before["summary"]["today_vnd"]) == 703 and now["summary"]["today_count"] - before["summary"]["today_count"] == 5,
             f"today: {now['summary']}")
     who = [item for item in now["customers"] if item["customer_id"] == web]
     require(len(who) == 1 and (who[0]["total_vnd"], who[0]["count"], who[0]["undated_vnd"], who[0]["undated_count"], who[0]["last_date"], who[0]["book_month"])
-            == ("661", 3, "87", 2, day, this_month), f"customer row: {who}")
+            == ("703", 5, "87", 2, day, this_month), f"customer row: {who}")
+
+    # Theo khách xếp theo cột Đã trả: phần không rõ ngày không đẩy khách lên trên.
+    small = new_book(pg, ("2026-08-01", 5000))
+    call(pg, "record_receipt", small, version(pg, small), "bang-thu-small-1", day, "THU TIỀN", 5)
+    call(pg, "record_receipt", small, version(pg, small), "bang-thu-small-2", day, "THU TIỀN", 2000, review_reference("ab99") + "da tt (ngày tượng trưng)")
+    order = [item["customer_id"] for item in _book(pg)["customers"]]
+    require(order.index(web) < order.index(small), f"customers must sort by the dated total: {order}")
 
     # Cấn trừ: không phải tiền mới vào, hai đầu đều không có dòng riêng, liệt kê riêng.
     source = new_book(pg, ("2026-08-01", 100))

@@ -55,16 +55,9 @@
     const title = lines.map(line => `${line.kind === 'advance' ? 'Ứng trước' : `T${F.monthLabel(line.month)}`} ${number(line.amount_vnd)}`).join(' · ');
     return `<td class="debt" title="${esc(title)}">${esc(parts.join(', '))}</td>`;
   }
-  // Ô ngày của Sheet có thể là số serial (46327): trùng ngày của dòng thì không lặp lại, khác thì đổi ra ngày để đọc được.
-  function plainNote(row) {
-    const note = row.note ?? '';
-    if (!/^\d{5}(\.0+)?$/.test(note)) return note;
-    const iso = new Date(Date.UTC(1899, 11, 30) + parseInt(note, 10) * 86400000).toISOString().slice(0, 10);
-    return iso === row.date ? '' : dateText(iso);
-  }
   function noteText(row) {
     const method = row.method && row.method !== PLAIN_METHOD ? row.method : '';
-    return [method, plainNote(row)].filter(Boolean).join(' · ');
+    return [method, row.note ?? ''].filter(Boolean).join(' · ');
   }
   function receiptRow(row, year) {
     const label = nameOf(row);

@@ -33,7 +33,7 @@ Trang `/bang-thu.html`, mục thứ tư trên menu trái, đọc `GET /api/v7/re
 | --- | --- | --- |
 | Phiếu web | `sokhach.receipt` (một bảng chung, có `customer_id`) | Ngày, hình thức, tham chiếu, số tiền. 37 phiếu chưa hủy lúc đo, tăng dần vì máy và người đang ghi |
 | Khoản thu trước mốc | `sokhach.legacy_row` kind `receipt`: 1.227 dòng, 354,64 tỷ | Tổng dòng bằng `source_receipt_vnd` ở 877/877 khách-tháng, kể cả sau khi trừ 2 khoản đã xóa |
-| Ngày của khoản Sheet | `display.raw_date`, chữ tự do | 719 dòng đọc được ngày theo luật `pay_date` của hàng chờ phiếu; 512 dòng (103,56 tỷ, đo trên bản sao 4/11/2026) không đọc được hoặc ngày vô lý |
+| Ngày của khoản Sheet | `display.raw_date`, chữ tự do | 719 dòng đọc được ngày theo luật `pay_date` của hàng chờ phiếu; 497 dòng (103,56 tỷ, đo trên bản sao 4/11/2026) không đọc được hoặc ngày vô lý, thêm 15 dòng số tiền 0 |
 | Trừ nợ tháng nào | `v_receipt_line_active` với phiếu web; `debt_month` với dòng Sheet | Dòng Sheet không có phân bổ riêng: hiện tháng của khối |
 | Cấn trừ | `offset_pair`; phiếu đích nằm trong `receipt` | Không phải tiền mới vào. 0 khoản đang có hiệu lực lúc đo |
 | Phiếu Sheet chưa ghi | `GET /api/v7/inbox`: `books[].receipts`, `sheet_matched` | Như tab Đòi nợ |
@@ -86,7 +86,7 @@ Mọi số tiền và phép cộng ở SQL; trang chỉ định dạng. Riêng t
    - ngày sau lúc nạp sổ hoặc sau hôm nay (5 dòng, ví dụ năm 2028);
    - ngày trước tháng của khối hơn 12 tháng (ví dụ năm 2020);
    - phiếu đặt ngày cuối tháng khối vì Sheet không ghi ngày: tham chiếu kết thúc bằng ` · ngày theo cuối tháng khối Sheet` (máy) hoặc ` (ngày tượng trưng)` (ghi tay 4/11/2026, 6 phiếu, 2,39 tỷ).
-3. **Không tính:** phiếu đã hủy (liệt kê riêng khi bấm Xem), khoản thu sổ gốc đã xóa, cấn trừ hai đầu (liệt kê riêng).
+3. **Không tính:** phiếu đã hủy (liệt kê riêng khi bấm Xem), khoản thu sổ gốc đã xóa, cấn trừ hai đầu (liệt kê riêng). Dòng Sheet số tiền 0 (15 dòng, ô công thức trống) không liệt kê.
 4. **Đẳng thức cả đời:** tổng `total_vnd + undated_vnd` của mọi tháng, cộng mọi sổ, bằng tổng `received_vnd` của `get_ledger`. Dòng chỉ đổi tháng, không thêm bớt tiền.
 5. **Đẳng thức tháng hiện tại:** khi tháng không có khối Sheet, `total_vnd + undated_vnd` bằng `this_month.received_vnd` của Tổng quan.
 6. Không đổi luật tiền, phân bổ, số nợ hay dữ liệu. Migration chỉ thêm hai hàm đọc.
@@ -116,6 +116,6 @@ Xem PR và [nhật ký triển khai](../docs/deploys/README.md).
 
 ## Câu hỏi mở
 
-- CÒN MỞ: khoảng 510 dòng Sheet không rõ ngày có đáng cho người bổ sung ngày không. Hiện để nguyên, không đoán.
+- CÒN MỞ: gần 500 dòng Sheet không rõ ngày có đáng cho người bổ sung ngày không. Hiện để nguyên, không đoán.
 - CÒN MỞ: đối chiếu sao kê ngân hàng ([`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md)) có thể dựng trên bảng này sau.
 - CÒN MỞ: phiếu nhãn `KHÁC` có thể không phải tiền thật (ví dụ khoản giảm bảo hiểm ghi ngày 4/11/2026). Hiện vẫn cộng để khớp "Đã thu" và Tổng quan, nhãn hiện ở cột Ghi chú. Dòng Sheet cũ loại này không phân biệt được.

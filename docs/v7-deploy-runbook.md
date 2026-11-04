@@ -1700,6 +1700,8 @@ Thứ tự với release: chạy migration trước. Release cũ không gọi h�
 
 Rollback: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pay_date(text);` dưới `sokhach_owner`; không gì tham chiếu tới. App: quay về release trước.
 
+**Lần 2** (`2026-11-04-v7-bang-thu-2.sql`): chỉ thay `get_receipt_book`, giữ quyền EXECUTE: bỏ dòng Sheet số tiền 0, Theo khách xếp theo cột Đã trả, ghi chú không hiện số serial ngày. Các bước như trên. Quay lại: chạy lại `2026-11-04-v7-bang-thu.sql`.
+
 ## Máy tự đối soát (MAY-DOI-SOAT-01) — timer `v7-reconcile-auto`
 
 Không có SQL: mã lên bằng `Deploy hao` ([quyết định](decisions/may-doi-soat-01.md), [spec](../specs/v7-may-doi-soat.md)). Chưa cài timer thì release mới không đổi gì; API thấy chưa có `reconcile.json` thì không hiện dải đối soát. Có `--fix` là **ghi tiền**.

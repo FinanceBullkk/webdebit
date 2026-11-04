@@ -228,15 +228,6 @@ test('Bảng thu: không còn phiếu chờ thì không có dòng; không đọc
   });
 });
 
-test('Bảng thu: ghi chú chỉ là số serial ngày của Sheet thì không hiện số: trùng ngày dòng để trống, khác ngày đổi ra ngày', () => withPage({ book: () => {
-  const book = november();
-  book.days[2].rows = [web(50, 7, 'SỔ A', '2026-11-01', '10000000', '46327', []), web(51, 8, 'SỔ B', '2026-11-01', '20000000', '46330.0', []), web(52, 9, 'SỔ C', '2026-11-01', '30000000', '12345 tt', [])];
-  return book;
-} }, async page => {
-  await page.locator('tr.pay').first().waitFor();
-  assert.deepEqual(await page.locator('tbody.day').nth(2).locator('tr.pay .note').allInnerTexts(), ['', '04/11/2026', '12345 tt']);
-}));
-
 test('Bảng thu: hôm nay chưa có phiếu thì nói chữ, không hiện 0 đ', () => withPage({ book: () => {
   const book = november();
   book.summary = { ...book.summary, today_vnd: '0', today_count: 0 };
