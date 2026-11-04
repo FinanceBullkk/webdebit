@@ -69,7 +69,8 @@ class SummarizeTests(unittest.TestCase):
             "prices": {"ready": 0, "review": 1},
             "prices_auto": 0,
             "prices_conflict": 0,
-            "ps": {"ready": 1, "review": 2}})
+            "ps": {"ready": 1, "review": 2},
+            "ps_auto": 1})
 
     def test_road_trips_count_as_new_and_checks(self):
         road = {"items": [{"sync_state": "NEW"}, {"sync_state": "NEW"}, {"sync_state": "CONFLICT", "sync_reason": "MONTH_DIFFERS"}]}

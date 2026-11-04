@@ -547,8 +547,14 @@ def approve_ps_fees(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         raise ApiError(503, "PS_FEES_UNAVAILABLE", "Không đọc được bảng PS.") from exc
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Bảng PS đã đổi. Tải lại rồi tách.")
+    return write_ps_items(projection["ready"], customer, version, digest, key, runner, actor)
+
+
+def write_ps_items(items: list[dict], customer: int, version: int, digest: str, key: str,
+                   runner: Psql, actor: str) -> tuple[int, dict]:
+    """One total-preserving command per target; the split button and the machine (MAY-PS-01) share this path."""
     written = 0
-    for item in projection["ready"]:
+    for item in items:
         target = {"trip_id" if item["target_kind"] == "trip" else "legacy_row_id": item["target_id"]}
         # One key per target: a repeated click replays the stored result, never a second split.
         command_key = hashlib.sha256(f"{key}:{digest}:{item['target_kind']}:{item['target_id']}".encode()).hexdigest()
@@ -562,7 +568,7 @@ def approve_ps_fees(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             if not written:
                 raise   # nothing written yet: a plain error, same as one fee edit
             # Every split keeps totals, so stopping half way leaves no money wrong; the rest stays READY.
-            return 200, {"written": written, "remaining": len(projection["ready"]) - written,
+            return 200, {"written": written, "remaining": len(items) - written,
                          "complete": False, "error": exc.code}
         version = result["version"] if type(result.get("version")) is int else \
             runner.run("get_ledger", {"customer_id": customer}, actor)["version"]

@@ -69,7 +69,8 @@
       ? `chưa giá → ${million(item.unit_price_vnd)} tr${fee(item.other_fee_vnd) ? `, phụ phí ${million(item.other_fee_vnd)} tr` : ''}`
       : `${million(item.unit_price_vnd)} tr, phụ phí ${million(item.before_other_fee_vnd ?? '0')} → ${million(item.other_fee_vnd ?? '0')} tr`;
     const prices = (auto?.price_items ?? []).map(item => `<li><span class="auto-kind">Giá</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.date))} · ${esc(priceChange(item))}${item.locked ? ' · tháng khóa' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
-    return auto?.today_count || auto?.today_trips || auto?.today_prices ? `<ul aria-label="Việc máy làm hôm nay">${text}${trips}${prices}</ul>` : '';
+    const fees = (auto?.ps_items ?? []).map(item => `<li><span class="auto-kind">Phụ phí</span><strong>${esc(label(item))}</strong><span>${esc(item.container ?? '')} · ${esc(dayText(item.date))} · phân loại theo PS, tổng không đổi${item.locked ? ' · tháng khóa' : ''}</span><a href="${href(item.customer_id)}">Mở sổ</a></li>`).join('');
+    return auto?.today_count || auto?.today_trips || auto?.today_prices || auto?.today_ps ? `<ul aria-label="Việc máy làm hôm nay">${text}${trips}${prices}${fees}</ul>` : '';
   }
 
   // MAY-DOI-SOAT-01: kết quả lượt máy tự đối soát gần nhất, trả lời "web có đúng với Sheet không, máy vừa sửa gì, còn gì phải quyết".
