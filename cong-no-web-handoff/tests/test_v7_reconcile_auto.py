@@ -79,7 +79,7 @@ class ReconcileAutoTest(unittest.TestCase):
         code, printed = self.run_job(db, "--fix")
         self.assertEqual(code, 0)
         result = self.result()
-        self.assertEqual((result["counts"], result["customers"], result["months_differ"]), ({"KHOP": 1}, [], []))
+        self.assertEqual((result["counts"], result["customers"], result["months_differ"], result["outside_tabs"]), ({"KHOP": 1}, [], [], []))
         self.assertEqual(result["matched"], {"1": str(FAKE_AMOUNT)})
         self.assertEqual((result["matched_web_vnd"], result["all_web_vnd"]), (str(FAKE_AMOUNT), str(FAKE_AMOUNT)))
         self.assertEqual(db.writes, [])
@@ -183,6 +183,18 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["status"], row["web_ahead_vnd"]), ("FIXED", "KHOP", "0"))
+
+    def test_only_recent_tabs_with_debt_outside_the_summary_are_named(self):
+        def book(name, anchor, on_summary=False, **months):
+            checks = [{"debt_month": f"{month[1:5]}-{month[5:]}-01", "source_charge_vnd": charge, "source_receipt_vnd": 0} for month, charge in months.items()]
+            return {"name": name, "anchor": anchor, "in_summary": on_summary, "checks": checks}
+        books = [book("Tab mới", 500, m202609=0, m202610=500),
+                 book("Bản sao cũ", 400, m202508=400, m202610=0),      # tháng mới chỉ là khối trống: vẫn là tab cũ
+                 book("Đã trả hết", 0, m202610=300),
+                 book("Không đọc được số dư", None, m202610=300),
+                 book("Có trên TONG", 700, on_summary=True, m202610=700),
+                 book("Tab trống", 900)]
+        self.assertEqual(job.outside_tabs(books), [{"customer": "Tab mới", "sheet_total_vnd": "500", "last_month": "2026-10"}])
 
     def test_held_customer_is_named_with_reason_and_never_touched(self):
         fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])   # chuỗi số dư trên Sheet không khớp

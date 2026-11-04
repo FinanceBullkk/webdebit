@@ -8,7 +8,8 @@ So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ t
 
 | # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
-| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | 234/236 khớp. 1 khách web đi trước Sheet (đã giải thích, tự hết khi Sheet ghi giá). 1 khách bị giữ vì 8 dòng tháng 11 trên Sheet có đơn giá mà chưa có cột TỔNG: người nhập điền trên Sheet | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
+| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 12:05: 235/236 khớp. Khách còn lệch có một chuyến tháng 10 mang tên khách lạ trong bảng booking, chờ người trả lời tên đó là ai | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
+| Khách mới | Tab mới còn nợ mà chưa có trên TONG, chưa có sổ web: tổng Sheet lẫn tổng web đều chưa tính | Chủ sổ chốt cách làm, Claude làm | CHƯA: 2 tab, hơn 330 triệu. Máy báo ở đầu tab Việc cần làm; web chưa có lệnh tạo sổ từ mốc nạp 21/10 | Quyết định mới; tab vào sổ, đối soát khớp |
 | Cảnh báo | Máy lỗi hoặc dừng thì có người biết (audit DevOps #2) | Chủ sổ chọn kênh, Claude cài | CHƯA: hiện chỉ thấy ở đầu tab Việc cần làm và journal | Một lần thử cảnh báo tới được người nhận |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
 | F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐỀ XUẤT: tính cả tháng 11 | Dòng cập nhật `SONG-SONG-02` |

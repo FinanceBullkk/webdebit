@@ -47,4 +47,6 @@ Vế 5 (ẩn sổ đã khớp) do Claude đề xuất trong cùng hướng, khô
 
 Lưới an toàn là đúng tổng từng khách: hai lỗi bù trừ nhau trong cùng khách thì không lộ, như đối soát chính thức. Máy chỉ bắt được kiểu đổi chỗ khi web đã có giá để so; Sheet xếp lệch cột ở chuyến web chưa có giá thì máy ghi theo Sheet, vì Sheet là sổ chính thức. So từng tháng theo [`CAN-DU-01`](can-du-01.md) chạy kèm ở mỗi lượt để báo khách lệch tháng.
 
+Phép so chỉ thấy khách có trên TONG: tab chưa có trên TONG thì tổng Sheet lẫn tổng web đều chưa tính, hai bên vẫn khớp. Từ 4/11/2026 mỗi lượt báo các tab còn nợ có phát sinh từ tháng 10/2026 (Claude thêm, chỉ báo, không đổi tiền). Máy không tự gắn tab vào sổ nào. CÒN MỞ: khách mới vào web bằng cách nào, vì từ mốc nạp 21/10 chưa có lệnh tạo sổ.
+
 Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet". Câu hỏi "chuyển hẳn thế nào khi không còn người nhập trên web" CÒN MỞ: hướng này giữ Sheet làm nơi nhập, nên mục chuyển hẳn F4 của [checklist](../song-song-checklist.md) cần chủ sổ xem lại.
