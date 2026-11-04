@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess  # noqa: F401  test vá `api.subprocess.run`; lệnh psql dựng ở v7_psql
 import sys
 import time
@@ -87,6 +88,19 @@ INBOX = v7_inbox.Inbox(
 STREAM_PING = 15.0
 STREAM_MAX_SECONDS = 600.0          # luồng SSE tự đóng, trình duyệt tự nối lại
 STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
+# Từ chối mà chưa đọc thân lệnh: đóng socket ngay thì phần thân tới sau làm Windows hủy luôn phản hồi lỗi đang
+# chờ ở client (WinError 10053). Nên trả lời, gửi FIN rồi xả bỏ thân, có trần để từ chối không tốn tài nguyên.
+DISCARD_MAX_BYTES = MAX_IMAGE_BODY  # thân hợp lệ lớn nhất vẫn nhận được phản hồi
+DISCARD_SECONDS = 2.0               # hạn tổng, client nhỏ giọt cũng không giữ luồng lâu hơn
+DISCARD_CHUNK = 64 * 1024
+
+
+def declared_length(value: str, limit: int) -> int | None:
+    """Content-Length đã kiểm: sai thì None; vượt `limit` thì limit + 1, không đổi chuỗi số dài thành int."""
+    if not value.isascii() or not value.isdecimal():
+        return None
+    digits = value.lstrip("0")
+    return int(digits or "0") if len(digits) <= len(str(limit)) else limit + 1
 
 
 def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
@@ -293,6 +307,41 @@ class Handler(BaseHTTPRequestHandler):
     localapi = None
     demo = False
     real_copy = False
+    body_taken = False
+
+    def unread_body_bytes(self) -> int:
+        headers = getattr(self, "headers", None)  # dòng đầu hoặc header hỏng: chưa từng có headers
+        if self.body_taken or headers is None:
+            return 0
+        lengths = headers.get_all("Content-Length", [])
+        if headers.get("Transfer-Encoding") or len(lengths) > 1:
+            return DISCARD_MAX_BYTES
+        if not lengths:
+            return 0
+        declared = declared_length(lengths[0], DISCARD_MAX_BYTES)
+        return DISCARD_MAX_BYTES if declared is None else min(declared, DISCARD_MAX_BYTES)
+
+    def discard_unread_body(self) -> None:
+        remaining = self.unread_body_bytes()
+        if not remaining:
+            return
+        deadline = time.monotonic() + DISCARD_SECONDS
+        try:
+            self.connection.shutdown(socket.SHUT_WR)
+            while remaining > 0 and (left := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(left)
+                # read1 chứ không recv: một phần thân có thể đã nằm trong buffer của rfile lúc đọc header.
+                chunk = self.rfile.read1(min(remaining, DISCARD_CHUNK))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
+        except OSError:
+            pass  # client đã đi hoặc hết hạn: phản hồi đã gửi xong, không còn gì để làm
+
+    def finish(self) -> None:
+        # Ở đây chứ không ở request(): cả phản hồi của lớp cha (501 khi không có do_X) cũng đi qua.
+        self.discard_unread_body()
+        super().finish()
 
     def asset(self) -> bool:
         route = urlsplit(self.path).path
@@ -408,13 +457,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             raw = b""
             if self.command == "POST":
-                length = self.headers.get("Content-Length", "")
-                if not length.isascii() or not length.isdecimal():
-                    bad()
                 limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
-                length_value = int(length.lstrip("0") or "0") if len(length.lstrip("0")) <= len(str(limit)) else limit + 1
+                length_value = declared_length(self.headers.get("Content-Length", ""), limit)
+                if length_value is None:
+                    bad()
                 if length_value > limit:
                     raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
+                self.body_taken = True  # kể cả khi đọc hết giờ (408): client chậm không được giữ thêm luồng để xả
                 raw = self.rfile.read(length_value)
                 if len(raw) != length_value:
                     bad()
