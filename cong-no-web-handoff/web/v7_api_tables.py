@@ -47,6 +47,7 @@ ASSETS = page_assets(PAGES)
 ROUTES = {
     "/api/v7/sheet/batch/undo": ("undo_sheet_batch", {"command_keys"}),
     "/api/v7/customers/commodity": ("set_customer_commodity", {"commodity_name"}),
+    "/api/v7/customers/transport": ("set_customer_transport", {"transport_mode"}),
     "/api/v7/offsets": ("record_offset", {"target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"}),
     "/api/v7/offsets/void": ("void_offset", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"}),
     "/api/v7/offsets/date": ("edit_offset_date", {"customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"}),
@@ -185,6 +186,7 @@ SQL = {
 ARGUMENTS = {
     "undo_sheet_batch": ("command_keys",),
     "set_customer_commodity": ("commodity_name",),
+    "set_customer_transport": ("transport_mode",),
     "record_offset": ("target_customer_id", "target_version", "source_customer_id", "source_version", "idempotency_key", "date", "amount_vnd", "reference"),
     "void_offset": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "reason"),
     "edit_offset_date": ("customer_id", "expected_version", "other_version", "idempotency_key", "offset_pair_id", "date"),

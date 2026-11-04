@@ -35,6 +35,7 @@ Người dùng yêu cầu giống toàn bộ package, không chỉ dùng bố c�
 | Lấy giá Sheet (một dòng) | `/sheet/tasks/price` | `apply_sheet_price` · `2026-11-02-v7-lay-gia-sheet.sql` | Có, qua lệnh sửa giá sẵn có |
 | Ghi phiếu thiếu ngày | `/sheet/receipts/review` | `record_receipt` sẵn có; tham chiếu `Sheet #<hash>` nối phiếu với dòng nguồn | Có |
 | Gán mặt hàng cho sổ chưa có | `/customers/commodity` | `set_customer_commodity` · `2026-11-02-v7-gan-mat-hang.sql` | Không |
+| Gán cảng/bộ cho sổ Sầu riêng đã có mặt hàng (thêm 4/11) | `/customers/transport` | `set_customer_transport` · `2026-11-04-v7-gan-cang-bo.sql` | Không |
 | Chọn sổ cho một chuyến | `/sheet/trips/assign` | `assign_sheet_trip` · `2026-11-02-v7-chon-so-chuyen.sql` | Chuyến vào sổ đích chưa có giá, chưa cộng nợ |
 | Hoàn tác lô giá/phiếu vừa ghi | `/sheet/batch/undo` | `undo_sheet_batch` · `2026-11-02-v7-hoan-tac-lo.sql` | Có: hủy phiếu, trả giá cũ; dòng sổ gốc trả cả TOTAL cũ bằng revision + điều chỉnh |
 

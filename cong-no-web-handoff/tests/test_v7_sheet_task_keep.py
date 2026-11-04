@@ -111,6 +111,9 @@ class SheetTaskKeepTests(unittest.TestCase):
         migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-gan-mat-hang.sql").read_text(encoding="utf-8")
         self.assertEqual(definition(migration, "FUNCTION", "set_customer_commodity"),
                          definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "set_customer_commodity"))
+        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-gan-cang-bo.sql").read_text(encoding="utf-8")
+        self.assertEqual(definition(migration, "FUNCTION", "set_customer_transport"),
+                         definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "set_customer_transport"))
 
     def test_commodity_request_only_accepts_approved_choices(self):
         from v7_api_validate import validate
@@ -119,6 +122,16 @@ class SheetTaskKeepTests(unittest.TestCase):
         for value in (None, "", "UNKNOWN", [], True):
             with self.subTest(value=value), self.assertRaises(ApiError):
                 validate("/api/v7/customers/commodity", json.dumps({**request, "commodity_name": value}).encode())
+
+    def test_transport_request_only_accepts_cang_or_bo(self):
+        from v7_api_validate import validate
+        request = {"customer_id": 1, "expected_version": 0, "idempotency_key": "transport", "transport_mode": "BO"}
+        for mode in ("BO", "CANG"):
+            body = json.dumps({**request, "transport_mode": mode}).encode()
+            self.assertEqual(validate("/api/v7/customers/transport", body)[0], "set_customer_transport")
+        for value in (None, "", "bo", "cảng", [], True):
+            with self.subTest(value=value), self.assertRaises(ApiError):
+                validate("/api/v7/customers/transport", json.dumps({**request, "transport_mode": value}).encode())
 
     def test_assignment_validates_candidate_and_retries_saved_source(self):
         request = {"customer_id": 1, "expected_version": 3, "idempotency_key": "assign", "target_customer_id": 9,

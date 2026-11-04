@@ -143,6 +143,7 @@
     function describeEvent(event) {
       const before = event.before ?? {}, after = event.after ?? {};
       if (event.kind === 'customer_attr' && after.commodity_name) return `Mặt hàng: ${after.commodity_name} · nợ không đổi`;
+      if (event.kind === 'customer_attr' && after.transport_mode) return `Cảng/bộ: ${{ CANG: 'Cảng', BO: 'Bộ' }[after.transport_mode] ?? '—'} · nợ không đổi`;
       if (event.kind === 'sheet_conflict_resolved') {
         if (after.field === 'task_assignment') return `Chọn sổ nhận chuyến · chưa giá, nợ không đổi`;
         if (after.field === 'task_price') return after.decision === 'use_sheet'
