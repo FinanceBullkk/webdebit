@@ -166,7 +166,7 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 
 ## Máy tự làm (MAY-PS-01, 4/11/2026)
 
-Theo [`MAY-PS-01`](../docs/decisions/may-ps-01.md). Mục này thay các ý "bấm nút", "giữ khóa tháng" và "không đè khi tổng khác" ở trên trong đúng ba điểm dưới; nút Tách vẫn còn cho lúc máy tắt.
+Theo [`MAY-PS-01`](../docs/decisions/may-ps-01.md); ĐÃ TRIỂN KHAI trên `hao` 4/11/2026 ([nhật ký](../docs/deploys/2026-11-04-ps-gop.md)). Mục này thay các ý "bấm nút", "giữ khóa tháng" và "không đè khi tổng khác" ở trên trong đúng ba điểm dưới; nút Tách vẫn còn cho lúc máy tắt.
 
 - **Loại gộp:** migration thêm loại "Health + KĐ". `combined_vnd` là một ô như Neo hay Điện trong `plan`; thiếu loại trong danh mục thì `FEE_TYPE_MISSING`. Cờ Health/KĐ không nhắc nữa khi chuyến đã có khoản gộp.
 - **Bổ sung ở dòng sổ gốc (`fill`):** tổng PS khác tổng khoản trên web, nhưng bằng đúng ô TOTAL trừ đơn giá. Vẫn là `READY`/`MONTH_LOCKED`, kèm cờ `fill`. `_rewrite_trip_fees` nhận tổng mới đúng bằng `counted_vnd - unit_price_vnd`, ghi thêm một `legacy_trip_rev` có `other_fee_vnd` mới và `counted_vnd` cũ, không ghi `adjustment`, không phân bổ lại. Chuyến web không có ngoại lệ này. Khung xác nhận của nút ghi "Tổng còn nợ giữ nguyên" thay vì "phụ phí vẫn là".
