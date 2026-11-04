@@ -1759,7 +1759,9 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
-## Đọc dòng sổ gốc theo container — nâng DB đang có
+## Đọc dòng sổ gốc theo container — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026)
+
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-index-container.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql` thêm hai index biểu thức (`legacy_row_container_key`, `legacy_trip_rev_container_key`), chạy `ANALYZE` hai bảng và thay thân `list_legacy_trip_refs` (`IN (SELECT ...)` thành `= ANY(mảng)`). Kết quả hàm giữ nguyên từng byte. Không đổi cột, ràng buộc, loại event, dữ liệu hay quyền. Chạy lại được. **Chạy sau `2026-11-01-v7-chan-trung-hang-cho.sql`; chạy lại migration đó thì phải chạy lại file này**, vì nó trả về thân hàm cũ (vẫn đúng kết quả, chỉ chậm).
 
