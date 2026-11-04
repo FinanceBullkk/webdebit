@@ -5,6 +5,7 @@ import http.client
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1213,6 +1214,153 @@ class LedgerHttpTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(timeout=3)
+
+
+class RejectedBodyTest(unittest.TestCase):
+    """Từ chối trước khi đọc thân lệnh: thân tới sau lúc server đóng socket thì Windows hủy luôn phản hồi (10053)."""
+
+    def serve(self, *, dev=True, whois_error=None):
+        finished = threading.Event()
+
+        class TrialHandler(api.Handler):
+            runner = FakePsql()
+            default_actor = "rejected-body"
+            dev_actor_mode = dev
+            localapi = Mock()
+
+            def finish(self):
+                super().finish()
+                finished.set()
+
+        TrialHandler.localapi.whois.side_effect = whois_error
+        server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
+        TrialHandler.port = server.server_port
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+
+        def stop():
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
+
+        self.addCleanup(stop)
+        return server.server_port, TrialHandler, finished
+
+    @staticmethod
+    def head(port, method="POST", path="/api/v7/receipts", fields=("Content-Length: 150",), host=None):
+        lines = [f"{method} {path} HTTP/1.1", f"Host: {host or f'127.0.0.1:{port}'}",
+                 f"Origin: http://127.0.0.1:{port}", "Content-Type: application/json", *fields]
+        return ("\r\n".join(lines) + "\r\n\r\n").encode()
+
+    @staticmethod
+    def read_response(sock):
+        blob = b""
+        while chunk := sock.recv(65536):
+            blob += chunk
+        head, _, body = blob.partition(b"\r\n\r\n")
+        return int(head.split()[1]), body
+
+    def late_body(self, port, head, size=150):
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(head)
+            time.sleep(0.1)  # server đã trả lời; trước bản sửa socket đã đóng ở thời điểm này
+            sock.sendall(b"x" * size)
+            return self.read_response(sock)
+
+    def test_response_survives_body_sent_after_rejection(self):
+        port, _, _ = self.serve()
+        cases = (
+            ("quá lớn", {"fields": (f"Content-Length: {api.MAX_BODY + 1}",)}, 413, "BODY_TOO_LARGE"),
+            ("Content-Length sai", {"fields": ("Content-Length: abc",)}, 422, "INVALID_REQUEST"),
+            ("Content-Length lặp", {"fields": ("Content-Length: 150", "Content-Length: 150")}, 400, "INVALID_REQUEST"),
+            ("Transfer-Encoding", {"fields": ("Transfer-Encoding: chunked",)}, 400, "INVALID_REQUEST"),
+            ("Host sai", {"host": "evil.example.test:1"}, 400, "INVALID_HOST"),
+            ("healthz", {"path": "/healthz"}, 403, "HEALTHZ_LOOPBACK_ONLY"),
+            ("PUT", {"method": "PUT"}, 405, "METHOD_NOT_ALLOWED"),
+            ("OPTIONS", {"method": "OPTIONS"}, 501, None),
+            ("GET có thân", {"method": "GET", "path": "/api/v7/ledger?customer=1"}, 200, None),
+        )
+        for label, fields, status, code in cases:
+            with self.subTest(label):
+                result_status, body = self.late_body(port, self.head(port, **fields))
+                self.assertEqual(result_status, status)
+                if code:
+                    self.assertEqual(json.loads(body)["error"], code)
+
+    def test_identity_rejection_survives_late_body(self):
+        for error, code in ((TimeoutError(), "LOCALAPI_TIMEOUT"), (OSError(), "LOCALAPI_ERROR"),
+                            (api.v7_identity.IdentityError("NOT_TAILNET"), "NOT_TAILNET")):
+            with self.subTest(code):
+                port, _, _ = self.serve(dev=False, whois_error=error)
+                status, body = self.late_body(port, self.head(port))
+                self.assertEqual((status, json.loads(body)), (403, {"error": code}))
+
+    def test_largest_legal_body_is_discarded_whole(self):
+        port, _, _ = self.serve(dev=False, whois_error=OSError())
+        size = api.MAX_IMAGE_BODY
+        head = self.head(port, path=api.IMAGE_PATH, fields=(f"Content-Length: {size}",))
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(head + b"x" * (size - 1024))
+            time.sleep(0.1)  # phần cuối tới sau: trần nhỏ hơn thân hợp lệ thì lúc này socket đã đóng
+            sock.sendall(b"x" * 1024)
+            status, body = self.read_response(sock)
+        self.assertEqual((status, json.loads(body)), (403, {"error": "LOCALAPI_ERROR"}))
+
+    def test_response_does_not_wait_for_discard(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port))
+            self.assertEqual(self.read_response(sock)[0], 403)  # có FIN ngay dù chưa gửi thân
+            self.assertFalse(finished.is_set())
+            sock.close()
+            self.assertTrue(finished.wait(3), "client đóng thì phải ngừng xả ngay")
+
+    def test_discard_deadline_is_total_not_per_read(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 0.2), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=("Content-Length: 60000",)))
+            give_up = time.monotonic() + 3
+            try:
+                while not finished.is_set() and time.monotonic() < give_up:
+                    sock.sendall(b"x")  # nhỏ giọt: mỗi lần đọc đều có dữ liệu, chỉ hạn tổng mới dừng được
+                    time.sleep(0.02)
+            except OSError:
+                finished.wait(1)  # server đã đóng giữa lúc gửi, luồng sắp kết thúc
+            # Không chờ thêm khi đã ngừng gửi: hạn tính theo từng lần đọc cũng tự hết nếu client im.
+            self.assertTrue(finished.is_set(), "client nhỏ giọt không được giữ luồng quá hạn")
+
+    def test_discard_stops_at_byte_cap(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 30), patch.object(api, "DISCARD_MAX_BYTES", 1024), \
+             socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=("Content-Length: 60000",)) + b"x" * 2048)
+            self.assertTrue(finished.wait(3), "đủ trần byte thì phải ngừng dù client còn mở")
+
+    def test_accepted_post_does_not_wait(self):
+        port, _, finished = self.serve()
+        body = json.dumps({"customer_id": 1, "expected_version": 0, "idempotency_key": "accepted",
+                           "date": "2026-10-20", "method": "THU TIỀN", "amount_vnd": "10"}).encode()
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=(f"Content-Length: {len(body)}",)) + body)
+            self.assertEqual(self.read_response(sock)[0], 200)
+            self.assertTrue(finished.wait(3), "lệnh đã đọc hết thân thì không có gì để xả")
+
+    def test_slow_body_gets_no_extra_discard(self):
+        port, handler, finished = self.serve()
+        spy = Mock()
+        spy.read.side_effect = TimeoutError()
+
+        def slow_read(request):
+            request.rfile = spy
+            api.Handler._request(request)
+
+        handler._request = slow_read
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port))
+            status, body = self.read_response(sock)
+            self.assertEqual((status, json.loads(body)["error"]), (408, "REQUEST_TIMEOUT"))
+            self.assertTrue(finished.wait(3))
+        spy.read1.assert_not_called()
 
 
 @unittest.skipUnless(os.getenv("V7_API_DOCKER_TEST") == "1", "set V7_API_DOCKER_TEST=1 for fake Docker harness")

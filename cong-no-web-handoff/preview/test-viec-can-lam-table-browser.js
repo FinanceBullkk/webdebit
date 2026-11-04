@@ -478,18 +478,20 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     // NGUON-CHUYEN-01: chuyến bộ (sheet_road) hiện cùng chỗ chuyến mới, kèm lời nhắn; máy đưa vào, người chỉ mở sổ.
     const road = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
       { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
-      { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' }] } };
+      { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' },
+      { sync_state: 'CONFLICT', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
     await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
       // Sổ tải chậm như trên máy CI (lần đầu đếm ngay sau khi bấm nên ra 0 dòng ở CI, xanh ở máy nhanh).
       await page.route('**/api/v7/ledger*', async route => { await new Promise(done => setTimeout(done, 500)); await route.continue(); });
       await page.locator('[data-book="2"] .book-name').click();
       await page.locator('.work-detail .loading').waitFor({ state: 'hidden' });
       const rows = page.locator('.detail-group', { hasText: 'Chuyến mới / ở sổ khác' }).locator('li');
-      assert.equal(await rows.count(), 2);
+      assert.equal(await rows.count(), 3);
       assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
       assert.match(await rows.nth(1).innerText(), /MAUU0000022[\s\S]*Container ở khách khác/);
+      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Container đã có trong sổ · tab khách chưa có dòng riêng/);
       assert.equal(await page.locator('[data-trip-book]').count(), 0);
-      assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 2);
+      assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 3);
     });
     const undoPosts = [];
     await withPage({ posted: undoPosts, post: route => ({ status: 200, json: route.endsWith('/undo')
@@ -520,6 +522,103 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await withPage({ dashboard: emptyDash, inbox: { state: 'ready', books: [] } }, async page => {
       await page.waitForFunction(() => document.querySelector('.band-count')?.textContent.includes('Hết việc'));
       assert.equal(await page.locator('#todo-badge').isHidden(), true);
+    });
+  });
+  // Tự tải lại (60 giây, quay lại tab) chạy nền, người dùng đang làm việc trên bảng: không được sập dòng, nhảy trang, mất ô đang gõ.
+  const openForTyping = async page => {
+    await page.locator('[data-book="2"] .row-toggle').click();
+    const input = page.locator('[data-manual-price="1"]');
+    await input.click();
+    await input.fill('');
+    await page.keyboard.type('9,5');
+    await page.evaluate(() => {
+      const root = document.querySelector('#inbox-root');
+      window.seen = { replaced: 0, loading: 0, input: document.activeElement };
+      new MutationObserver(records => {
+        window.seen.replaced += records.length;
+        if (root.querySelector('.work-detail .loading')) window.seen.loading += 1;
+      }).observe(root, { childList: true });
+      document.scrollingElement.scrollTop = 200;
+      window.seen.scroll = document.scrollingElement.scrollTop;
+    });
+  };
+  const backgroundRefresh = async page => {
+    const finished = Promise.all(['/api/v7/price-table/status', '/api/v7/dashboard/debt', '/api/v7/inbox'].map(url => page.waitForResponse(response => response.url().includes(url))));
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await finished;
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+  };
+  test('tự tải lại khi dữ liệu không đổi: không đụng tới bảng, dòng mở và ô đang gõ còn nguyên', async () => withPage(designFixture(), async page => {
+    await openForTyping(page);
+    assert.ok(await page.evaluate(() => window.seen.scroll > 0), 'cần cuộn được để kiểm nhảy trang');
+    await backgroundRefresh(page);
+    const state = await page.evaluate(() => ({ replaced: window.seen.replaced, loading: window.seen.loading, sameNode: window.seen.input.isConnected,
+      focused: document.activeElement === window.seen.input, value: window.seen.input.value, scrolled: document.scrollingElement.scrollTop === window.seen.scroll }));
+    assert.deepEqual(state, { replaced: 0, loading: 0, sameNode: true, focused: true, value: '9,5', scrolled: true });
+  }));
+  test('tự tải lại khi dữ liệu đổi: chi tiết cập nhật tại chỗ, không hiện đang tải, ô đang gõ giữ con trỏ', async () => {
+    const opts = designFixture();
+    await withPage(opts, async page => {
+      await openForTyping(page);
+      await page.evaluate(() => document.activeElement.setSelectionRange(1, 1));
+      const extra = { ...opts.ledger.trips[0], id: 3, container: 'MAUU0000003' };
+      opts.ledger = { ...opts.ledger, version: 8, trips: [...opts.ledger.trips, extra] };
+      await backgroundRefresh(page);
+      await page.locator('[data-manual-price="3"]').waitFor();
+      const state = await page.evaluate(() => { const active = document.activeElement; return { loading: window.seen.loading, trip: active.dataset.manualPrice, value: active.value, caret: active.selectionStart, scrolled: document.scrollingElement.scrollTop === window.seen.scroll }; });
+      assert.deepEqual(state, { loading: 0, trip: '1', value: '9,5', caret: 1, scrolled: true });
+    });
+  });
+  test('tự tải lại khi đọc sổ lỗi: giữ chi tiết đang hiện, nhịp sau đọc được thì cập nhật', async () => {
+    const opts = designFixture();
+    await withPage(opts, async page => {
+      await openForTyping(page);
+      opts.ledgerStatus = 503;
+      const failed = page.waitForResponse(response => response.url().includes('/api/v7/ledger'));
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await failed;
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 80)));
+      assert.equal(await page.locator('.work-detail [role=alert]').count(), 0);
+      assert.equal(await page.locator('[data-manual-price="1"]').inputValue(), '9,5');
+      opts.ledgerStatus = 200;
+      opts.ledger = { ...opts.ledger, version: 8, trips: opts.ledger.trips.slice(1) };
+      await backgroundRefresh(page);
+      assert.equal(await page.locator('[data-manual-price="1"]').count(), 0);
+      assert.equal(await page.locator('[data-manual-price="2"]').count(), 1);
+    });
+  });
+  test('tự tải lại: bản đọc về muộn không đè việc đang xem lại, không đè bản đọc sau khi ghi', async () => {
+    const opts = designFixture();
+    const posted = [];
+    opts.posted = posted;
+    opts.post = () => ({ status: 200, json: { complete: true, version: 8 } });
+    await withPage(opts, async page => {
+      await openForTyping(page);
+      // Giữ bản đọc nền (phiên bản 7, trip 1 chưa giá) tới khi người dùng đã ghi xong.
+      let release;
+      const held = new Promise(resolve => { release = resolve; });
+      let holdNext = true;
+      await page.route('**/api/v7/ledger*', async route => {
+        if (!holdNext) return route.continue();
+        holdNext = false;
+        const response = await route.fetch();
+        await held;
+        await route.fulfill({ response });
+      });
+      const reading = page.waitForRequest(request => request.url().includes('/api/v7/ledger'));
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await reading;
+      await page.locator('[data-command="price"][data-trip="1"]').click();
+      await page.locator('[data-action-write]').waitFor();
+      assert.equal(await page.locator('[data-detail-key="price:1"] [data-action-write]').count(), 1);
+      // Bản sau khi ghi: trip 1 đã có giá nên không còn trong nhóm chưa giá.
+      opts.ledger = { ...opts.ledger, version: 8, trips: opts.ledger.trips.slice(1) };
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => document.querySelector('[data-manual-price="2"]') && !document.querySelector('[data-manual-price="1"]'));
+      assert.equal(posted.at(-1).body.expected_version, 7);
+      release();
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 150)));
+      assert.equal(await page.locator('[data-manual-price="1"]').count(), 0, 'bản đọc cũ về muộn không được đè lại');
     });
   });
   test('soát máy: chữ trước/sau, chuyến chờ kiểm, đường mở đúng sổ; tìm khách và bàn phím', async () => withPage({}, async page => {

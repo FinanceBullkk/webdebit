@@ -295,6 +295,119 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(plan_shipper_backfill(queue, ledger), [])
 
 
+class ReusedContainerTests(unittest.TestCase):
+    """CONTAINER-DUNG-LAI-01: container đã có trong sổ chỉ là chuyến mới khi tab khách ghi riêng chuyến đó."""
+
+    def item(self, event_date, old_dates, tab_dates, **kwargs):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 500, "customer_id": 7, "container": "reuse 1",
+                 "event_date": event_date, "booking": "BK-MOI", "review_status": "NEEDS_PRICE"}]}
+        legacy = [{"id": n, "kind": "trip", "month": "2026-01-01",
+                   "current": {"container": "REUSE1", "event_date": old, "debt_month": "2026-01-01"}}
+                  for n, old in enumerate(old_dates, 1)]
+        tab = [{"customer_tab": "Khách mẫu", "container": "REUSE1", "date": date} for date in tab_dates]
+        return project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": legacy}, tab_rows=tab, **kwargs)["items"][0]
+
+    def assert_held(self, item):
+        self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED"))
+
+    def test_tab_has_its_own_row_for_the_new_trip(self):
+        item = self.item("2026-10-31", ["2026-02-01"], ["2026-02-01", "2026-10-31"])
+        self.assertEqual((item["sync_state"], item["sync_reason"]), ("NEW", ""))
+        near = self.item("2026-10-31", ["2026-02-01"], ["2026-02-01", "2026-10-28"])
+        self.assertEqual(near["sync_state"], "NEW")
+
+    def test_same_trip_with_another_date_stays_held(self):
+        """Đo trên `hao` 4/11/2026: 15/17 dòng là một chuyến, nguồn và tab khác ngày; xét theo khoảng cách ngày sẽ cộng trùng."""
+        cases = {"lệch vài tuần": ("2026-03-28", ["2026-03-10"], ["2026-03-10"]),
+                 "tab sai năm": ("2026-01-04", ["2025-01-04"], ["2025-01-04"]),
+                 "tab ngày lạ": ("2026-07-31", ["1909-01-29"], ["1909-01-29"]),
+                 "tab không ngày": ("2026-08-18", [None], [None])}
+        for name, case in cases.items():
+            with self.subTest(name):
+                self.assert_held(self.item(*case))
+
+    def test_tab_without_the_new_row_yet_stays_held_then_passes(self):
+        self.assert_held(self.item("2026-11-04", ["2026-04-20", "2026-07-19"], ["2026-04-20", "2026-07-19"]))
+        item = self.item("2026-11-04", ["2026-04-20", "2026-07-19"], ["2026-04-20", "2026-07-19", "2026-11-04"])
+        self.assertEqual(item["sync_state"], "NEW")
+
+    def test_date_corrected_on_tab_is_not_a_second_trip(self):
+        """Tab sửa đúng ngày mà sổ còn ngày cũ: vẫn một dòng tab, một dòng sổ."""
+        self.assert_held(self.item("2026-07-31", ["1909-01-29"], ["2026-07-31"]))
+
+    def test_tab_row_must_be_a_trip_of_its_own(self):
+        cases = {"dòng lặp ở ngày cũ": ("2026-07-17", ["2026-07-27"], ["2026-07-27", "2026-07-27"]),
+                 "dòng tab sát dòng sổ": ("2026-10-31", ["2026-10-25"], ["2026-10-25", "2026-10-28"]),
+                 "dòng tab không ngày": ("2026-10-31", ["2026-02-01"], ["2026-02-01", None]),
+                 "ngày tab đọc không được": ("2026-10-31", ["2026-02-01"], ["2026-02-01", "31/10"])}
+        for name, case in cases.items():
+            with self.subTest(name):
+                self.assert_held(self.item(*case))
+
+    def test_no_tab_data_keeps_the_old_rule(self):
+        self.assert_held(self.item("2026-10-31", ["2026-02-01"], []))
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 500, "customer_id": 7, "container": "REUSE1",
+                 "event_date": "2026-10-31", "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "trips": [{"id": 1, "container": "REUSE1", "event_date": "2026-02-01"}], "legacy_rows": []}
+        self.assert_held(project_customer(queue, ledger)["items"][0])
+
+    def test_other_rows_of_the_tab_do_not_count(self):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 500, "customer_id": 7, "container": "REUSE1",
+                 "event_date": "2026-10-31", "review_status": "NEEDS_PRICE"}]}
+        ledger = {"customer_id": 7, "trips": [{"id": 1, "container": "REUSE1", "event_date": "2026-02-01"}], "legacy_rows": []}
+        tab = [{"container": "KHAC1", "date": "2026-10-31"}, {"container": "KHAC2", "date": "2026-10-31"}]
+        self.assert_held(project_customer(queue, ledger, tab_rows=tab)["items"][0])
+
+    def test_other_book_checks_still_apply_to_a_new_trip(self):
+        tab = ["2026-02-01", "2026-10-31"]
+        near = {"customer_id": 8, "container": "REUSE1", "event_date": "2026-10-30", "debt_month": "2026-10-01"}
+        item = self.item("2026-10-31", ["2026-02-01"], tab, other_legacy=[near])
+        self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", "OTHER_BOOK_LEGACY"))
+        item = self.item("2026-10-31", ["2026-02-01"], tab, other_customer_containers={"REUSE1"})
+        self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", "OTHER_CUSTOMER"))
+
+
+PROJECTION_SNAPSHOT = {"sha256": "c" * 64, "row_count": 1, "rows": [
+    {"source_row": 500, "container": "REUSE1", "event_date": "2026-10-31", "status": "READY", "customer_name": "Khách mẫu",
+     "carrier": "WH", "origin": "A", "destination": "B"}]}
+PROJECTION_BASELINE = {"cutover_id": 1, "count": 0, "refs": []}
+PROJECTION_LEDGER = {"customer_id": 7, "legacy_rows": [], "events": [],
+                     "trips": [{"id": 1, "container": "REUSE1", "event_date": "2026-02-01"}]}
+PROJECTION_CUSTOMERS = [{"id": 7, "name": "KHÁCH MẪU", "status": "active"}, {"id": 8, "name": "KHÁCH KHÁC", "status": "active"}]
+
+
+class SheetProjectionTabRowsTests(unittest.TestCase):
+    """sheet_projection lấy dòng tab đúng của sổ từ bản chụp giá; bản chụp hỏng thì giữ luật cũ, không làm hỏng hàng chờ."""
+
+    def project(self, prices):
+        import v7_api_sheet
+        from v7_price_queue import load_price_snapshot
+
+        class Runner:
+            def run(self, function, payload, actor):
+                return {"customers": PROJECTION_CUSTOMERS} if function == "list_customers" else {"items": []}
+
+        def load(loader, path):
+            if loader is load_price_snapshot:
+                if prices is None:
+                    raise ValueError("Sheet price snapshot unavailable")
+                return {"sha256": "d" * 64, "rows": prices}
+            return PROJECTION_SNAPSHOT if loader is sheet_queue.load_snapshot else PROJECTION_BASELINE
+
+        with patch.object(v7_api_sheet, "cached_load", load), patch.object(v7_api_sheet, "customer_name_mapping", return_value={}), \
+                patch.object(v7_api_sheet, "other_book_checks", return_value=(set(), [])):
+            return v7_api_sheet.sheet_projection(Runner(), PROJECTION_LEDGER, "test")["items"][0]
+
+    def test_rows_come_from_this_book_tab_only(self):
+        mine = [{"customer_tab": "KHÁCH MẪU", "container": "REUSE1", "date": day} for day in ("2026-02-01", "2026-10-31")]
+        self.assertEqual(self.project(mine)["sync_state"], "NEW")
+        other = [{**row, "customer_tab": "KHÁCH KHÁC"} for row in mine]
+        self.assertEqual(self.project(other)["sync_reason"], "CONTAINER_REUSED_OR_CHANGED")
+
+    def test_broken_price_snapshot_keeps_the_old_rule(self):
+        self.assertEqual(self.project(None)["sync_reason"], "CONTAINER_REUSED_OR_CHANGED")
+
+
 class RemovedSheetTripTests(unittest.TestCase):
     def ready(self, container, date, booking=None, customer_id=7):
         return {"source_row": 2, "customer_id": customer_id, "container": container, "event_date": date,
