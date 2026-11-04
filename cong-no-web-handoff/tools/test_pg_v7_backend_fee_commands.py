@@ -126,6 +126,7 @@ def check_fee_catalog(pg):
     pg.sql(chung_tu)  # PR-B dựng lại ràng buộc event; CHUNG-TU-01 phải chạy sau như khi triển khai
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql").read_text(encoding="utf-8"))  # XOA-DC-THANG-01 dựng lại ràng buộc event sau CHUNG-TU-01
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql").read_text(encoding="utf-8"))  # tách phụ phí PS chạy sau cùng
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql").read_text(encoding="utf-8"))  # ps-fee trả _rewrite_trip_fees cũ; MAY-PS-01 trả về bản 4/11
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql").read_text(encoding="utf-8"))  # bảng giá cũ thay apply_price_table; trả về bản 29/10
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql").read_text(encoding="utf-8"))  # ra-ghi-tien trả record_receipt cũ; CAN-DU-01 trả về bản 30/10
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql").read_text(encoding="utf-8"))  # paste_trips hiện hành (1/11)

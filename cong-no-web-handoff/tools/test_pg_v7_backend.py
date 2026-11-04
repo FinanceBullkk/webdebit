@@ -134,6 +134,7 @@ from test_pg_v7_backend_sheet_fee import (
     check_sheet_cross_customer,
 )
 from test_pg_v7_backend_sheet_keep import check_sheet_keep
+from test_pg_v7_backend_tao_so import check_tao_so
 from test_pg_v7_backend_trips import (
     check_adjustment_source,
     check_dedup,
@@ -257,13 +258,14 @@ CASES.append(case("KHOA-CHU.01", "BEHAVIOR", "Locked month: four text fields edi
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
 
+CASES.append(case("MAY-TAO-SO.01", "BEHAVIOR", "Create one book from a Sheet tab atomically through the cutover gates", check="tao_so", functions=("create_book_from_sheet",)))
 CASES.append(case("VCL-GIU.01", "BEHAVIOR", "Keep one Sheet task with audit, unchanged money, retry and validation", check="sheet_keep", functions=("keep_sheet_task",)))
 
 # BANG-THU-01 4/11/2026: tiền về theo ngày qua mọi sổ, chỉ đọc; không đổi số nợ.
 CASES.append(case("BANG-THU.01", "BEHAVIOR", "Receipt book: money by payment date, undated rows apart, totals equal the ledgers, read only",
                   check="bang_thu", functions=("get_receipt_book", "_legacy_pay_date")))
 
-CHECKS = {"bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -299,8 +301,10 @@ def check_migration(pg: Pg) -> None:
     old_schema = re.sub(r"^CREATE ROLE .*;\n", "", old_schema, flags=re.M)
     db = "webdebit_v7_migration_test"
     pg.sql(f"CREATE DATABASE {db}", database="postgres")
+    applied: set[str] = set()
     class CopyPg(Pg):
         def sql(self, sql, **kwargs):
+            applied.add(sql)
             return super().sql(sql, **{**kwargs, "database": db})
     copy = CopyPg(pg.name, pg.run_id)
     copy.sql(old_schema)
@@ -361,6 +365,19 @@ def check_migration(pg: Pg) -> None:
     matrix = MATRIX_MIGRATION.read_text(encoding="utf-8")
     copy.sql(matrix)
     copy.sql(matrix)
+    # Cùng thứ tự với CSM.03: mỗi file chạy hai lần để chứng minh chạy lại được.
+    for filename in ("2026-10-26-v7-receivables-detail.sql", "2026-10-27-v7-shipper-write-sync.sql",
+                     "2026-10-28-v7-legacy-receipt-delete.sql", "2026-10-25-v7-sheet-conflict.sql",
+                     "2026-10-27-v7-sheet-conflict-date-booking.sql", "2026-10-28-v7-phu-phi-core-a.sql",
+                     "2026-10-28-v7-da-thu-theo-ngay-thu.sql", "2026-10-29-v7-phu-phi-b.sql",
+                     "2026-10-29-v7-phu-phi-b-p2.sql", "2026-10-29-v7-matrix-drawer-so-goc.sql",
+                     "2026-10-29-v7-matrix-drawer-receipts.sql", "2026-10-29-v7-bang-gia.sql",
+                     "2026-10-29-v7-chung-tu.sql", "2026-10-29-v7-xoa-dieu-chinh-thang.sql",
+                     "2026-10-29-v7-ps-fee.sql", "2026-10-29-v7-tong-quan-quan-ly-no.sql",
+                     "2026-10-29-v7-ra-ghi-tien.sql", "2026-10-30-v7-can-du.sql"):
+        source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
+        copy.sql(source)
+        copy.sql(source)
     doi_no = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8")
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01: idempotent
@@ -370,20 +387,39 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
+    # Chuỗi trên viết tay nên dễ thiếu file mới; migration chỉ đổi dữ liệu thì so catalog không phát hiện được.
+    outside_chain = {"2026-10-16-ledger-f2f3.sql",  # DB legacy webdebit_ledger, không thuộc V7
+                     "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql"}  # chạy ở cuối hàm này
+    migrations = (ROOT / "cong-no-web-handoff/tools/migrations").glob("*.sql")
+    not_applied = sorted(p.name for p in migrations if p.name not in outside_chain
+                         and not p.name.endswith(".rollback.sql")
+                         and p.read_text(encoding="utf-8") not in applied)
+    require(not not_applied, f"add to the check_migration chain in deploy order: {not_applied}")
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
-    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
-    require(copy.value(catalog) == pg.value(catalog), "migration function definitions differ from fresh schema")
-    cols = "SELECT jsonb_agg(row_to_json(s)) FROM (SELECT table_name,column_name,data_type,is_nullable,column_default "
-    cols += "FROM information_schema.columns WHERE table_schema='sokhach' ORDER BY table_name,column_name) s"
-    require(copy.value(cols) == pg.value(cols), "migration columns differ")
-    views = "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"
-    require(copy.value(views) == pg.value(views), "migration views differ")
+    for what, query in (
+        ("function definitions", "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) "
+                                 "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"),
+        ("columns", "SELECT jsonb_object_agg(table_name||'.'||column_name,jsonb_build_array(data_type,is_nullable,column_default)) "
+                    "FROM information_schema.columns WHERE table_schema='sokhach'"),
+        ("views", "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"),
+        ("constraints", "SELECT jsonb_object_agg(conrelid::regclass::text||'.'||conname,pg_get_constraintdef(oid)) "
+                        "FROM pg_constraint WHERE connamespace='sokhach'::regnamespace"),
+    ):
+        migrated, fresh = json.loads(copy.value(query)), json.loads(pg.value(query))
+        if what == "views":
+            # SELECT * trong LATERAL của v_trip_current bung theo thứ tự cột vật lý: cột thêm bằng ALTER nằm cuối,
+            # schema mới có thể đặt giữa. View bên ngoài đọc theo tên nên chỉ so tập cột của danh sách bung đó.
+            migrated, fresh = ({k: re.sub(r"SELECT (?:x\.\w+,\s+)+x\.\w+",
+                                          lambda m: "SELECT " + ",".join(sorted(re.findall(r"x\.\w+", m[0]))), v)
+                                for k, v in side.items()} for side in (migrated, fresh))
+        differ = sorted(k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k))
+        require(not differ, f"migration {what} differ from fresh schema: {differ}")
     copy.sql("CREATE ROLE v7_loader LOGIN IN ROLE sokhach_owner; "
              f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC; GRANT CONNECT ON DATABASE {db} TO v7_loader,v7_app")
     checker = (ROOT / "cong-no-web-handoff/tools/v7_post_deploy_check.sql").read_text(encoding="utf-8")
@@ -461,6 +497,7 @@ def main() -> int:
     ap.add_argument("--fee-migration-only", action="store_true", help="focused PR-A migration checks")
     ap.add_argument("--sheet-keep-only", action="store_true", help="focused row-scoped Sheet keep checks")
     ap.add_argument("--bang-thu-only", action="store_true", help="focused receipt book checks")
+    ap.add_argument("--tao-so-only", action="store_true", help="focused machine-created book checks")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--expect-red", action="store_true", default=True,
                       help="default: missing command functions may fail")
@@ -469,6 +506,7 @@ def main() -> int:
     selected = [c for c in CASES if (not args.m2_11_only or c["id"] == "7.24")
                 and (not args.sheet_keep_only or c["id"] == "VCL-GIU.01")
                 and (not args.bang_thu_only or c["id"] == "BANG-THU.01")
+                and (not args.tao_so_only or c["id"] == "MAY-TAO-SO.01")
                 and (not args.fee_migration_only or c["id"] == "CSM.03")]
     if args.list:
         for c in CASES:

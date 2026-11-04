@@ -155,6 +155,7 @@ cho mọi PR. Ở máy chỉ chạy tay harness của phạm vi đang sửa:
 | UI, preview, model JS, tài liệu | `npm run check`, không chạy harness |
 | Python ngoài SQL (adapter, công cụ nạp) | `npm run check`; harness chỉ khi đụng câu SQL gửi đi |
 | `v7_backend_functions.sql`, schema, migration, đường ghi tiền | harness V7 liên quan (`test_pg_v7_backend.py`, thêm `test_pg_v7_p0_harness.py`/`test_pg_v7_grants.py` nếu đụng quyền) |
+| Migration mới | `test_pg_v7_backend.py --migration-test` (CI chạy lệnh này): nâng từ schema cũ, so hàm/cột/view/ràng buộc với khởi tạo mới trước mọi case. Thêm file vào chuỗi `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file |
 
 Từ 29/10/2026 `test_pg_v7_backend.py` chỉ giữ danh sách case (`CASES`), bảng `CHECKS`, `check_migration`
 và `main`; lệnh chạy không đổi (vẫn một container cho mọi case). Phần dựng PostgreSQL dùng một lần và

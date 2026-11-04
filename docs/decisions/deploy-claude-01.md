@@ -8,7 +8,7 @@ Người dùng chốt: **Claude tự triển khai cả phần SQL/migration lên
 
 Điều kiện bắt buộc cho mỗi đợt (thiếu một điều thì dừng và báo người dùng, không né):
 
-1. Mọi check bắt buộc trên GitHub xanh, gồm harness PostgreSQL. Ở máy đã chạy lượt nâng migration so catalog với khởi tạo mới, theo đúng thứ tự runbook ghi.
+1. Mọi check bắt buộc trên GitHub xanh, gồm harness PostgreSQL. Ở máy đã chạy lượt nâng migration so catalog với khởi tạo mới (`test_pg_v7_backend.py --migration-test`), theo đúng thứ tự runbook ghi.
 2. Backup toàn phần `webdebit_v7` trước khi ghi (runbook mục 2), và kiểm đọc lại được trước khi chạy migration.
 3. Chạy bằng `psql -X -v ON_ERROR_STOP=1`, migration theo thứ tự runbook. Xong chạy `v7_post_deploy_check.sql`, đối soát tổng từng khách trước/sau (migration không đổi dữ liệu thì tổng phải giữ nguyên), đặt `.release-sha` để `Deploy hao` có mốc diff đúng.
 4. Lỗi hoặc lệch thì quay lại theo runbook mục 7 (mức A/B), giữ backup, báo người dùng kèm bằng chứng.
