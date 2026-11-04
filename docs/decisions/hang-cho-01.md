@@ -16,7 +16,7 @@ Người dùng chốt ba câu Q1–Q3 của [UX bước 02](../ux-luong-du-lieu.
    - (e) ngày không sau hôm nay.
 
    Chuyến tự vào được liệt kê ở mục "Máy đã tự làm hôm nay" để người nhập soát; sai thì xóa chuyến như hiện nay. Dòng thiếu một điều kiện vào hộp ngoại lệ. Thay vế "người nhập duyệt trên sổ" của [`NHAP-SHEET-02`](nhap-sheet-02.md) cho các dòng đủ điều kiện; [`NEWTRIP-01`](newtrip-01.md) giữ nguyên.
-3. **Q3 · Phiếu thu từ Sheet** vẫn do người bấm xác nhận (tiền vào, chỉ số M4 của [`UX-NEN-01`](ux-nen-01.md)), nhưng ở hộp chung. Có thể chọn nhiều phiếu của nhiều sổ rồi ghi một lần; mỗi phiếu vẫn đi lệnh ghi phiếu thu có sẵn của sổ đó. Thay chỗ bấm của [`THU-SHEET-01`](thu-sheet-01.md), không đổi luật ghép phiếu.
+3. **Q3 · Phiếu thu từ Sheet** vẫn do người bấm xác nhận (tiền vào, chỉ số M4 của [`UX-NEN-01`](ux-nen-01.md)), nhưng ở hộp chung. Có thể chọn nhiều phiếu của nhiều sổ rồi ghi một lần; mỗi phiếu vẫn đi lệnh ghi phiếu thu có sẵn của sổ đó. Thay chỗ bấm của [`THU-SHEET-01`](thu-sheet-01.md), không đổi luật ghép phiếu. **Thay bởi [`MAY-DOI-SOAT-01`](may-doi-soat-01.md) (4/11/2026):** máy tự ghi phiếu khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet; nút ở hộp chung vẫn còn cho trường hợp máy không tự khớp được.
 
 4. **Q5 · Chuyến tự vào sổ khi chưa có giá** (người dùng chọn "A: vào sổ, chưa giá", 1/11/2026). Chuyến đủ (a)(b)(d)(e) tự vào sổ dù chưa có đơn giá.
    - Có bảng giá thì giá lấy từ bảng; không có thì chuyến ở trạng thái "chưa có giá".

@@ -65,7 +65,7 @@
   }
 
   // Hộp P2 (specs/v7-hop-ngoai-le-p2.md): sổ đã chọn, khung xem lại, kết quả lần ghi; giữ qua các lần tự tải lại.
-  const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), showAuto: false, action: null };
+  const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), showAuto: false, showReconcile: false, showMatched: false, action: null };
   const inboxLabel = book => {
     const row = currentCustomers.find(c => c.id === book.customer_id);
     if (!row) return `Sổ #${book.customer_id}`;
@@ -77,12 +77,12 @@
   function paintInbox() {
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-review'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched', 'data-review'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     inboxRoot.innerHTML = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
+      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, showReconcile: inbox.showReconcile, showMatched: inbox.showMatched, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '', 
     });
     globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
@@ -405,9 +405,12 @@
       inbox.filter = inbox.filter === button.dataset.filter ? '' : button.dataset.filter; paintInbox(); return;
     }
     if (button.hasAttribute('data-auto')) { inbox.showAuto = !inbox.showAuto; paintInbox(); return; }
+    if (button.hasAttribute('data-reconcile')) { inbox.showReconcile = !inbox.showReconcile; paintInbox(); return; }
+    if (button.hasAttribute('data-show-matched')) { inbox.showMatched = !inbox.showMatched; paintInbox(); return; }
     if (button.hasAttribute('data-pick-ready')) {
-      inbox.selected = new Set((inbox.data?.books ?? []).filter(globalThis.InboxCard.canWrite).map(b => b.customer_id));
-      inbox.selectedPrices = new Set((inbox.data?.books ?? []).filter(b => b.prices?.ready).map(b => b.customer_id));
+      const shown = (inbox.data?.books ?? []).filter(b => inbox.showMatched || !b.sheet_matched);   // sổ đang ẩn không được chọn ngầm
+      inbox.selected = new Set(shown.filter(globalThis.InboxCard.canWrite).map(b => b.customer_id));
+      inbox.selectedPrices = new Set(shown.filter(b => b.prices?.ready).map(b => b.customer_id));
       if (inbox.selectedPrices.size) { await reviewCombined(); return; }
       inbox.review = (inbox.data?.books ?? []).filter(b => inbox.selected.has(b.customer_id));
       inbox.result = null; paintInbox(); inboxRoot.querySelector('[data-write]')?.focus(); return;

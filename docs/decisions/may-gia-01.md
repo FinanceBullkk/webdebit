@@ -32,3 +32,5 @@ Bật bằng `WEBDEBIT_AUTO_SHEET` có `prices` (gộp được với `text,trip
 Giá máy đã ghi hiện ở mục "Máy đã tự làm hôm nay" của tab Việc cần làm để người nhập soát. Ghi sai thì sửa giá tại ô như hiện nay (tháng khóa: mở khóa trước).
 
 Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet".
+
+**Cập nhật 4/11/2026:** máy ghi giá 15 phút một lần giữ nguyên phạm vi trên. [`MAY-DOI-SOAT-01`](may-doi-soat-01.md) thêm một đường riêng theo giờ: giá Sheet khác giá web ở mọi tháng được ghi khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet.

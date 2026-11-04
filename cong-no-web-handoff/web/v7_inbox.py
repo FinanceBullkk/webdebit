@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 import sys
 import threading
@@ -19,6 +20,7 @@ from typing import Any
 
 from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần mỗi lượt
     SharedReads,
+    cached_load,
     paste_sheet_rows,
     price_projection,
     road_projection,
@@ -56,6 +58,8 @@ AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
 # Rà máy tự ghi 4/11/2026: mở–ghi–khóa là ba lệnh riêng, API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở. Lượt sau
 # khóa lại tháng máy đã mở mà chưa khóa, khi lần mở cũ hơn chừng này (không giành tháng của một lượt máy khác đang ghi dở).
 RELOCK_AFTER_SECONDS = 600
+# MAY-DOI-SOAT-01: kết quả lượt đối soát gần nhất của máy (tools/v7_reconcile_auto.py, timer mỗi giờ), API chỉ đọc.
+RECONCILE_PATH = os.getenv("WEBDEBIT_RECONCILE_PATH") or "/var/lib/webdebit-sheet-sync/reconcile.json"
 
 
 def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
@@ -94,6 +98,46 @@ def _locked_months(ledger: dict[str, Any], months: set[str]) -> list[str]:
     flags = {str(row.get("month") or "")[:7]: row.get("locked") for row in ledger.get("month_locks") or []}
     today = str(ledger.get("today_month") or "")[:7]
     return sorted(m for m in months if (flags[m] is True if m in flags else m != today))
+
+
+def in_month(runner, customer_id: int, version: int, ledger: dict[str, Any], month: str, key: str,
+             action: Callable[[int], int]) -> int:
+    """Chạy `action(version)`; tháng `month` (yyyy-mm) đang khóa thì máy mở, chạy, khóa lại (MAY-KHOA-01).
+
+    Khóa chống ghi trùng của lệnh mở/khóa gắn phiên bản sổ lúc đó, nên mỗi lần là một lệnh mới. Lệnh chính lỗi thì vẫn
+    khóa lại rồi ném lỗi.
+    """
+    if not _locked_months(ledger, {month}):
+        return action(version)
+
+    def lock(locked: bool, at: int) -> int:
+        digest = hashlib.sha256(f"{key}:khoa:{month}:{locked}:{at}".encode()).hexdigest()
+        return runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": at, "idempotency_key": digest,
+                                             "month": month + "-01", "locked": locked}, AUTO_ACTOR).get("version", at + 1)
+
+    version = lock(False, version)
+    try:
+        version = action(version)
+    finally:
+        current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+        version = lock(True, current)
+    return version
+
+
+def _read_reconcile(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as stream:
+        data = json.load(stream)
+    if not isinstance(data, dict) or data.get("version") != 1:
+        raise ValueError("reconcile file invalid")
+    return data
+
+
+def reconcile_result() -> dict[str, Any] | None:
+    """Kết quả máy đối soát gần nhất; chưa có file hoặc file hỏng thì None, không làm hỏng hộp việc."""
+    try:
+        return cached_load(_read_reconcile, RECONCILE_PATH)
+    except (OSError, ValueError):
+        return None
 
 
 def _epoch(at: Any) -> float | None:
@@ -475,34 +519,11 @@ class Inbox:
                                                   "before": None, "after": day})
                 return at
             try:
-                version = self._in_month(runner, customer_id, version, ledger, month,
+                version = in_month(runner, customer_id, version, ledger, month,
                                          f"auto:{digest}:{customer_id}:event_date", edit_all)
             except ApiError as exc:
                 self._error("điền ngày", customer_id, exc)
                 return
-
-    def _in_month(self, runner, customer_id: int, version: int, ledger: dict[str, Any], month: str, key: str,
-                  action: Callable[[int], int]) -> int:
-        """Chạy `action(version)`; tháng `month` (yyyy-mm) đang khóa thì máy mở, chạy, khóa lại (MAY-KHOA-01).
-
-        Khóa chống ghi trùng của lệnh mở/khóa gắn phiên bản sổ lúc đó, nên mỗi lần là một lệnh mới. Lệnh chính lỗi thì vẫn
-        khóa lại rồi ném lỗi.
-        """
-        if not _locked_months(ledger, {month}):
-            return action(version)
-
-        def lock(locked: bool, at: int) -> int:
-            digest = hashlib.sha256(f"{key}:khoa:{month}:{locked}:{at}".encode()).hexdigest()
-            return runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": at, "idempotency_key": digest,
-                                                 "month": month + "-01", "locked": locked}, AUTO_ACTOR).get("version", at + 1)
-
-        version = lock(False, version)
-        try:
-            version = action(version)
-        finally:
-            current = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
-            version = lock(True, current)
-        return version
 
     def _auto_trips(self, runner, customer_id: int) -> None:
         """Dán chuyến mới đủ điều kiện Q2 của một sổ bằng đúng đường của nút "Duyệt" (`paste_sheet_rows`), chưa có giá.
@@ -561,7 +582,7 @@ class Inbox:
                 return runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
             step = "dán chuyến bộ" if road else "dán chuyến mới"
             try:
-                version = self._in_month(runner, customer_id, version, ledger, month, key, paste)
+                version = in_month(runner, customer_id, version, ledger, month, key, paste)
             except ApiError as exc:
                 self._error(step, customer_id, exc)
                 return
@@ -606,7 +627,7 @@ class Inbox:
                 return out["version"] if out.get("complete") else \
                     runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
             try:
-                version = self._in_month(runner, customer_id, version, ledger, month, key, write)
+                version = in_month(runner, customer_id, version, ledger, month, key, write)
             except ApiError as exc:
                 self._error("ghi giá", customer_id, exc)
                 return
@@ -690,7 +711,13 @@ class Inbox:
                     "items": [{**entry, "at": iso(entry["at"])} for entry in text_done[:100]],
                     "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]],
                     "price_items": [{**entry, "at": iso(entry["at"])} for entry in price_done[:100]]}
+            # Sổ đã khớp Sheet ở lượt đối soát gần nhất và tổng chưa đổi từ đó: việc còn treo của sổ không làm đổi được gì đúng hơn.
+            reconcile = reconcile_result()
+            matched = (reconcile or {}).get("matched") or {}
             return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
                     "sheet_at": self.sheet_status().get("sheet_at"), "refreshing": self.running,
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),
-                    "books": sorted(self.books.values(), key=lambda b: b["customer_id"])}
+                    "reconcile": None if reconcile is None else {**{k: v for k, v in reconcile.items() if k != "matched"},
+                                                                  "matched_ids": sorted(int(key) for key in matched)},
+                    "books": [{**book, "sheet_matched": matched.get(str(book["customer_id"])) == book.get("outstanding_vnd")}
+                              for book in sorted(self.books.values(), key=lambda b: b["customer_id"])]}

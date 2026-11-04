@@ -1,6 +1,8 @@
 # Đối soát cuối ngày Sheet – web
 
-Dành cho người nhập, chạy **mỗi cuối ngày** trong thời gian chạy song song ([`SONG-SONG-01`](decisions.md#song-song-01), [`SONG-SONG-02`](decisions.md#song-song-02)). Mục đích: biết tổng nợ từng khách trên web có bằng trên Sheet không. Sheet là sổ chính thức, nên lệch thì **sửa trên web**.
+**Từ 4/11/2026 máy tự chạy đối soát này mỗi giờ từ 7 tới 22 giờ** và tự sửa khi khớp đúng tới từng đồng ([`MAY-DOI-SOAT-01`](decisions/may-doi-soat-01.md)); kết quả ở đầu tab Việc cần làm. Trang này là cách chạy tay để kiểm chéo, hoặc khi máy báo lỗi.
+
+Mục đích: biết tổng nợ từng khách trên web có bằng trên Sheet không ([`SONG-SONG-01`](decisions.md#song-song-01), [`SONG-SONG-02`](decisions.md#song-song-02)). Sheet là sổ chính thức, nên lệch thì **sửa trên web**.
 
 Chi tiết kỹ thuật của hai công cụ ở [runbook, mục đối soát cuối ngày](v7-deploy-runbook.md#đối-soát-tổng-khách-cuối-ngày--song-song-02). Trang này chỉ là các bước làm.
 

@@ -412,7 +412,7 @@ test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; s
     await group.locator('.work-row').first().waitFor();
     assert.equal(await group.locator('[data-book="7"] input').count(), 0);   // phiếu cần xem: không chọn được
     await group.locator('[data-book="7"] .book-name').click();
-    assert.match(await group.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*máy không ghi phiếu thiếu ngày/i);
+    assert.match(await group.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*máy chỉ tự ghi khi khớp đúng tổng Sheet/i);
     assert.equal(await group.locator('[data-review]').count(), 0);
     await page.locator('[data-pick-ready]').click();
     // Chọn hết mở ngay bước xem lại như bản thiết kế đã chọn.

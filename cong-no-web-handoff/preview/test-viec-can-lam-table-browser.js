@@ -107,6 +107,93 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.deepEqual(await page.evaluate(() => ['9,2', '9.2', '0,000001'].map(v => globalThis.InboxTable.parseMillions(v))), ['9200000', '9200000', '1']);
     for (const value of ['', '0', '-1', '9x', '9.200.000', '0,0000001', '9223372036855']) assert.equal(await page.evaluate(v => { try { globalThis.InboxTable.parseMillions(v); return false; } catch { return true; } }, value), true);
   }));
+  const reconcile = { version: 1, checked_at: '2026-11-04T08:05:00+07:00', mode: 'fix', counts: { KHOP: 233, LECH_TONG: 3 }, total: 236, months_differ: [], matched_ids: [1, 3, 4, 5],
+    customers: [
+      { customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'KHOP', reason: 'FIXED', difference_vnd: '0', written: { receipts: 2, prices: 1, legacy_deleted: 1, fee_rows: 1 } },
+      { customer: 'Mẫu Minh Châu 明珠 · tên khách dài để kiểm bố cục', customer_id: 2, status: 'LECH_TONG', reason: 'NO_EXACT_FIX', difference_vnd: '130800000', web_ahead_vnd: '20000000', groups: [{ kind: 'receipts_edited', month: '2026-07', count: 8, delta_vnd: '-117100000', chosen: false }] },
+      { customer: 'Công ty Mẫu Phú Gia', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [] },
+      { customer: 'Tab mới chưa có sổ', customer_id: null, status: 'CHI_CO_SHEET', reason: 'CHI_CO_SHEET', difference_vnd: null, sheet_total_vnd: '5' }] };
+  const matchedSample = () => ({ ...sample, reconcile, books: sample.books.map(b => ({ ...b, sheet_matched: [1, 3, 4, 5].includes(b.customer_id) })) });
+
+  test('đối soát: dải kết quả, danh sách theo mức cần xem, ẩn sổ đã khớp, sổ đang ẩn không bị chọn ngầm', async () => withPage({ inbox: matchedSample() }, async page => {
+    await page.clock.setFixedTime(new Date('2026-11-04T08:30:00+07:00'));
+    await page.reload(); await page.locator('.reconcile').waitFor();
+    const line = await page.locator('.reconcile-line').innerText();
+    assert.match(line, /Đối soát với Sheet lúc 08:05/);
+    assert.match(line, /233\/236 khách khớp/);
+    assert.match(line, /máy vừa sửa 1 khách/);
+    assert.match(line, /1 khách web đi trước Sheet/);
+    assert.match(line, /2 khách cần xem/);
+    assert.ok(await page.locator('.reconcile.warn').count());
+    await page.locator('.work-row').first().waitFor();
+    // Sổ 1, 3, 4, 5 đã khớp: chỉ còn sổ 2, 6, 7 (và sổ 8 số dư đầu); việc chưa giá của sổ 2 vẫn hiện vì sổ 2 chưa khớp.
+    assert.deepEqual((await page.locator('.work-row').evaluateAll(rows => rows.map(r => Number(r.dataset.book)))).sort(), [2, 6, 7, 8]);
+    assert.match(await page.locator('.matched-note').innerText(), /Đã ẩn 4 sổ đã khớp Sheet/);
+    await page.locator('[data-reconcile]').click();
+    const rows = await page.locator('.reconcile-list tbody tr').allInnerTexts();
+    assert.match(rows[0], /Minh Châu 明珠[\s\S]*130,8[\s\S]*không tìm được cách khớp[\s\S]*8 phiếu Sheet đã sửa \(−117,1 tr\)\.[\s\S]*Trong số lệch có 20 tr web đi trước Sheet\./);
+    assert.match(rows[1], /Tab mới chưa có sổ[\s\S]*—[\s\S]*chưa có sổ trên web/);
+    assert.match(rows[2], /Phú Gia[\s\S]*600[\s\S]*Web đi trước Sheet/);
+    assert.match(rows[3], /An Phát[\s\S]*Máy đã sửa 2 phiếu thu, thay 1 khoản thu cũ, 1 giá, 1 dòng điều chỉnh\. Khớp tới từng đồng\./);
+    assert.equal(await page.locator('.reconcile-list tbody tr').nth(1).locator('a').count(), 0);   // chưa có sổ thì không có đường mở
+    assert.equal(await page.locator('.reconcile-list tbody tr').first().locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.locator('[data-show-matched]').click();
+    await page.locator('.work-row[data-book="1"]').waitFor();
+    assert.match(await page.locator('.matched-note').innerText(), /Đang hiện cả 4 sổ/);
+    await page.locator('[data-show-matched]').click();
+    await page.locator('.work-row[data-book="1"]').waitFor({ state: 'detached' });
+    await page.locator('[data-pick-ready]').click();
+    await page.locator('.action-panel,[data-action-write],[data-write]').first().waitFor();
+    assert.equal(await page.locator('.action-panel,.receipt-review').filter({ hasText: 'Công ty Mẫu An Phát' }).count(), 0);
+  }));
+
+  test('đối soát: khớp hết thì xanh; lần chạy lỗi và bản cũ thì báo; chưa có lượt nào thì không hiện', async () => {
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T09:00:00+07:00'));
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      assert.equal(await page.locator('.reconcile.warn,.reconcile.danger').count(), 0);
+      assert.equal(await page.locator('[data-reconcile]').count(), 0);
+    });
+    await withPage({ inbox: { ...sample, reconcile: { ...reconcile, last_error: { at: '2026-11-04T09:05:00+07:00', reason: 'HTTPError' } } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T09:10:00+07:00'));
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      assert.match(await page.locator('.reconcile-error').innerText(), /Lần đối soát lúc 09:05 chưa chạy được \(HTTPError\)\. Số dưới đây là của lần trước\./);
+    });
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T15:00:00+07:00'));   // trong giờ chạy mà đã 7 giờ chưa có lượt mới
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      assert.match(await page.locator('.reconcile-line').innerText(), /có thể cũ/);
+      assert.equal(await page.locator('.reconcile.warn').count(), 1);
+    });
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-05T06:30:00+07:00'));   // sáng hôm sau, trước lượt đầu: không phải cũ, ghi rõ ngày
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      const text = await page.locator('.reconcile-line').innerText();
+      assert.match(text, /lúc 08:05 ngày 04\/11/);
+      assert.doesNotMatch(text, /có thể cũ/);
+    });
+    await withPage({ inbox: sample }, async page => { assert.equal(await page.locator('.reconcile').count(), 0); });
+  });
+
+  test('đối soát: máy ghi xong mà không khớp thì đỏ, ở chế độ chỉ báo thì nói sẽ ghi gì', async () => {
+    const verify = { ...reconcile, customers: [{ customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'LECH_TONG', reason: 'VERIFY_FAILED', difference_vnd: '7', groups: [] }] };
+    await withPage({ inbox: { ...sample, reconcile: verify } }, async page => {
+      await page.locator('.reconcile.danger').waitFor();
+      await page.locator('[data-reconcile]').click();
+      assert.match(await page.locator('.reconcile-list').innerText(), /Máy đã ghi nhưng tổng chưa khớp\. Cần xem ngay\./);
+    });
+    const report = { ...reconcile, mode: 'report', customers: [{ customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'LECH_TONG', reason: 'WOULD_FIX', difference_vnd: '750000000',
+      groups: [{ kind: 'receipts_no_date', month: '2026-08', count: 1, delta_vnd: '-750000000', chosen: true }, { kind: 'prices', month: '2026-09', count: 2, delta_vnd: '5', chosen: false }] }] };
+    await withPage({ inbox: { ...sample, reconcile: report } }, async page => {
+      await page.locator('[data-reconcile]').click();
+      assert.match(await page.locator('.reconcile-line').innerText(), /1 khách máy sửa được/);
+      const row = await page.locator('.reconcile-list tbody tr').innerText();
+      assert.match(row, /Sẽ ghi: 1 phiếu không ngày \(−750 tr\)\./);
+      assert.doesNotMatch(row, /2 giá/);
+    });
+  });
+
   test('bảng bốn cột: gộp đúng ID, lọc sổ, chữ Hán/tên dài, 1280 có scrollbar và màn hẹp', async () => withPage({}, async page => {
     await page.waitForFunction(() => document.querySelectorAll('.work-row').length === 8);
     assert.deepEqual(await page.locator('.work-table thead th').allTextContents(), ['Khách', 'Phiếu thu tr', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ', 'Mở']);
@@ -132,7 +219,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
   test('phiếu: chỉ mục READY được chọn, xem lại nợ trước/sau, tháng khóa và khách dư, hủy không ghi', async () => withPage({ inbox: { ...sample, books: [writable(1, { outstanding_vnd: '30000000' }), book(2, { receipts: { ready: 0, review: 1, amount_vnd: '9000000', items: [{ status: 'NO_DATE', date: null, amount_vnd: null }] } })] } }, async page => {
     assert.equal(await page.locator('[data-book="2"] input').count(), 0);
     await page.locator('[data-book="2"] .book-name').click();
-    assert.match(await page.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*—[\s\S]*máy không ghi phiếu thiếu ngày/i);
+    assert.match(await page.locator('.work-detail').innerText(), /Phiếu cần xem[\s\S]*—[\s\S]*Máy chưa tự khớp được phiếu này/i);
     await page.locator('[data-pick="1"]').check();
     assert.equal(await page.locator('[data-pick="1"]').evaluate(e => e === document.activeElement), true);
     await page.locator('[data-review]').click();

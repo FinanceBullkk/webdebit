@@ -84,6 +84,41 @@ class ReconcileSheetTest(unittest.TestCase):
     def summary(self):
         return json.loads((self.out / "summary.json").read_text(encoding="utf-8"))
 
+    def test_can_du_months_pays_oldest_owing_then_leaves_credit_in_last_month(self):
+        self.assertEqual(tool.can_du_months({"2026-02": -271, "2026-09": 309, "2026-10": 282}),
+                         {"2026-02": 0, "2026-09": 38, "2026-10": 282})
+        self.assertEqual(tool.can_du_months({"2026-01": -50, "2026-02": 20, "2026-03": 0}),
+                         {"2026-01": 0, "2026-02": 0, "2026-03": -30})
+        self.assertEqual(tool.can_du_months({"2026-01": 10, "2026-02": 20}), {"2026-01": 10, "2026-02": 20})
+        self.assertEqual(tool.can_du_months({"2026-01": -5, "2026-02": None}), {"2026-01": -5, "2026-02": None})   # ô trống vẫn là chưa biết
+
+    def test_can_du_mode_matches_what_plain_months_call_different(self):
+        self.sheet_books = {"Khach gia A": [-271, 309, 282]}
+        self.web_books = {"Khach gia A": [0, 38, 282]}
+        self.inputs()
+        self.assertEqual(self.run_tool(), 0)
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "CHI_LECH_THANG")
+        self.out = self.root / "result-can-du"
+        self.assertEqual(self.run_tool("--ledger-json", str(self.web), "--can-du-months"), 0)
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "KHOP")
+        self.assertEqual(self.summary()["comparison_scope"], "customer_totals_and_can_du_months")
+
+    def test_can_du_mode_still_reports_debt_in_another_month_and_ignores_zero_months(self):
+        self.sheet_books = {"Khach gia A": [100, 200]}
+        self.web_books = {"Khach gia A": [200, 100]}
+        self.inputs()
+        self.assertEqual(self.run_tool("--ledger-json", str(self.web), "--can-du-months"), 0)
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "CHI_LECH_THANG")
+        self.out = self.root / "result-zero"
+        self.sheet_books = {"Khach gia A": [0, 300]}
+        self.web_books = {"Khach gia A": [None, 300]}
+        self.inputs()
+        months = json.loads((self.web / "Khach gia A.json").read_text(encoding="utf-8"))
+        months["months"], months["total_outstanding_vnd"] = [{"month": "2026-02-01", "outstanding_vnd": "300"}], "300"
+        self.write_ledger("Khach gia A", months)
+        self.assertEqual(self.run_tool("--ledger-json", str(self.web), "--can-du-months"), 0)
+        self.assertEqual(self.report("reconcile_customer.csv")[0]["status"], "KHOP")
+
     def test_exact_match_and_input_hashes(self):
         self.inputs()
         self.assertEqual(self.run_tool(), 0)
