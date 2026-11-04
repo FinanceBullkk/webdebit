@@ -13,6 +13,8 @@ Web có một **Bảng thu** gom phiếu thu của mọi sổ, chỉ để xem, 
 
 Không đổi [`DA-THU-01`](da-thu-01.md): "Đã thu" trong sổ vẫn như Sheet. Bảng thu trả lời câu hỏi khác: tiền về khi nào.
 
+Cách xem và trình bày (năm tab, bộ lọc mặt hàng, chip thay dòng cảnh báo) mở rộng ở [`BANG-THU-02`](bang-thu-02.md); cách tính tháng ở đây không đổi.
+
 ## Ngày / nguồn
 
 4/11/2026, chat. Người dùng hỏi "chưa có 1 bảng thu tổng hợp nhỉ", chọn mục đích "Xem thu theo ngày" trong ba hướng (xem theo ngày, đối chiếu sao kê, nhập tại bảng). Sau khi Claude đo trên `hao` và báo Sheet ghi khoản thu ở khối tháng nợ, người dùng chọn "Danh sách theo ngày" và "Theo ngày tiền về". Quy tắc nhóm "Không rõ ngày" (ngày sau lúc nạp sổ, trước tháng của khối hơn 12 tháng, phiếu đặt ngày cuối tháng hoặc "ngày tượng trưng") do Claude đề xuất trong [spec](../../specs/v7-bang-thu.md) theo [`CLAUDE-ALL-01`](claude-all-01.md).
