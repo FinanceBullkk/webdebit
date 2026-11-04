@@ -170,15 +170,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         elif row["status"] != "LECH_TONG":
             row.setdefault("reason", row["status"])
     matched = [row for row in results if row["status"] == "KHOP"]
+    checked_at = now_vn().isoformat(timespec="seconds")
+    for row in results:
+        if row.get("reason") == "FIXED":
+            row["fixed_at"] = checked_at
+    listed = [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") == "FIXED"]
+    named = {row["customer"] for row in listed}
     return {
-        "version": 1, "checked_at": now_vn().isoformat(timespec="seconds"), "mode": "fix" if args.fix else "report",
+        "version": 1, "checked_at": checked_at, "mode": "fix" if args.fix else "report",
         "counts": dict(Counter(row["status"] for row in results)), "total": len(results),
         "matched_web_vnd": str(sum(row["web_total_vnd"] for row in matched)),
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
-        "customers": [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") == "FIXED"],
+        "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
         "months_differ": months_differ,
     }
+
+
+def fixed_earlier_today(output: Path, day: str) -> list[dict[str, Any]]:
+    """Khách máy đã sửa ở các lượt trước trong ngày: giữ trên danh sách để chủ sổ soát đủ việc của cả ngày, không chỉ lượt cuối."""
+    try:
+        previous = json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [row for row in previous.get("customers", []) if row.get("reason") == "FIXED"] if str(previous.get("checked_at"))[:10] == day else []
 
 
 def record_failure(output: Path, reason: str) -> None:
@@ -194,7 +209,7 @@ def record_failure(output: Path, reason: str) -> None:
 def append_log(output: Path, result: dict[str, Any]) -> None:
     """Sổ theo dõi: mỗi lượt một dòng, chỉ số đếm và tổng tiền, không có tên khách."""
     line = {key: result[key] for key in ("checked_at", "mode", "counts", "total", "matched_web_vnd", "all_web_vnd")}
-    line["fixed"] = sum(row.get("reason") == "FIXED" for row in result["customers"])
+    line["fixed"] = sum(row.get("fixed_at") == result["checked_at"] for row in result["customers"])
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")

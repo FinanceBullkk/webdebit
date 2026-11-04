@@ -109,7 +109,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
   }));
   const reconcile = { version: 1, checked_at: '2026-11-04T08:05:00+07:00', mode: 'fix', counts: { KHOP: 233, LECH_TONG: 3 }, total: 236, matched_web_vnd: '45000000000', all_web_vnd: '100000000000', months_differ: [], matched_ids: [1, 3, 4, 5],
     customers: [
-      { customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'KHOP', reason: 'FIXED', difference_vnd: '0', written: { receipts: 2, prices: 1, legacy_deleted: 1, fee_rows: 1 } },
+      { customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'KHOP', reason: 'FIXED', fixed_at: '2026-11-04T08:05:00+07:00', difference_vnd: '0', written: { receipts: 2, prices: 1, legacy_deleted: 1, fee_rows: 1 } },
       { customer: 'Mẫu Minh Châu 明珠 · tên khách dài để kiểm bố cục', customer_id: 2, status: 'LECH_TONG', reason: 'NO_EXACT_FIX', difference_vnd: '130800000', web_ahead_vnd: '20000000', groups: [{ kind: 'receipts_edited', month: '2026-07', count: 8, delta_vnd: '-117100000', chosen: false }] },
       { customer: 'Công ty Mẫu Phú Gia', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [] },
       { customer: 'Công ty Mẫu Lộc Phát', customer_id: 7, status: 'LECH_TONG', reason: 'SHEET_SHUFFLED', difference_vnd: '5000000', shuffled_months: ['2026-10'], groups: [] },
@@ -122,7 +122,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     const line = await page.locator('.reconcile-line').innerText();
     assert.match(line, /Đối soát với Sheet lúc 08:05/);
     assert.match(line, /233\/236 khách khớp \(45% số nợ\)/);
-    assert.match(line, /máy vừa sửa 1 khách/);
+    assert.match(line, /hôm nay máy đã sửa 1 khách/);
     assert.match(line, /1 khách web đi trước Sheet/);
     assert.match(line, /3 khách cần xem/);
     assert.ok(await page.locator('.reconcile.warn').count());
@@ -136,7 +136,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.match(rows[1], /Lộc Phát[\s\S]*5[\s\S]*đổi chỗ cho nhau, có thể do xếp lệch cột, nên máy không ghi\. Tháng có đơn giá đổi chỗ: T10\./);
     assert.match(rows[2], /Tab mới chưa có sổ[\s\S]*—[\s\S]*chưa có sổ trên web/);
     assert.match(rows[3], /Phú Gia[\s\S]*600[\s\S]*Web đi trước Sheet/);
-    assert.match(rows[4], /An Phát[\s\S]*Máy đã sửa 2 phiếu thu, thay 1 khoản thu cũ, 1 giá, 1 dòng điều chỉnh\. Khớp tới từng đồng\./);
+    assert.match(rows[4], /An Phát[\s\S]*Máy đã sửa 2 phiếu thu, thay 1 khoản thu cũ, 1 giá, 1 dòng điều chỉnh lúc 08:05\. Khớp tới từng đồng\./);
     assert.equal(await page.locator('.reconcile-list tbody tr').nth(2).locator('a').count(), 0);   // chưa có sổ thì không có đường mở
     assert.equal(await page.locator('.reconcile-list tbody tr').first().locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
@@ -149,6 +149,20 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await page.locator('.action-panel,[data-action-write],[data-write]').first().waitFor();
     assert.equal(await page.locator('.action-panel,.receipt-review').filter({ hasText: 'Công ty Mẫu An Phát' }).count(), 0);
   }));
+
+  test('đã ghi hôm nay: máy chỉ một chip, không hiện tên kỹ thuật', async () => {
+    const machine = { actor: 'may-theo-sheet', trips: 13, receipts: 0, voids: 0, received_vnd: '0' };
+    const today = { ...dashboard.today, by_actor: [dashboard.today.by_actor[0], machine] };
+    await withPage({ dashboard: { ...dashboard, today } }, async page => {
+      const chips = await page.locator('.actor-chip').allInnerTexts();
+      assert.equal(chips.length, 2);
+      assert.doesNotMatch(chips.join(' '), /may-theo-sheet/);
+      assert.equal(chips.filter(text => /Máy/.test(text)).length, 1);
+    });
+    await withPage({ dashboard: { ...dashboard, today }, inbox: { ...sample, auto: {} } }, async page => {   // API vừa khởi động, chưa có chip máy
+      assert.match((await page.locator('.actor-chip').allInnerTexts()).join(' '), /Máy[\s\S]*13/);
+    });
+  });
 
   test('đối soát: khớp hết thì xanh; lần chạy lỗi và bản cũ thì báo; chưa có lượt nào thì không hiện', async () => {
     await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [] } } }, async page => {
