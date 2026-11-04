@@ -87,6 +87,10 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
     SELECT upper(regexp_replace(coalesce(p_value,''),
         U&'[\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]', '', 'g'))
 $$;
+-- Hai index này lưu kết quả của _normalize_key: đổi thân hàm thì phải REINDEX cả hai trong cùng migration.
+-- Đặt ở đây, không ở schema-draft.sql, vì hàm chỉ có sau khi nạp file này.
+CREATE INDEX IF NOT EXISTS legacy_row_container_key ON sokhach.legacy_row (sokhach._normalize_key(display->>'container'));
+CREATE INDEX IF NOT EXISTS legacy_trip_rev_container_key ON sokhach.legacy_trip_rev (sokhach._normalize_key(container));
 CREATE FUNCTION sokhach._booking_key(p_booking text,p_container text,p_date date) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
     SELECT CASE WHEN sokhach._normalize_key(p_booking) ~ '[[:alnum:]]'
@@ -273,18 +277,21 @@ $$;
 -- API chỉ hỏi container của các dòng Sheet đang chờ ở một sổ, nên không trả cả sổ gốc mỗi lần mở sổ.
 CREATE OR REPLACE FUNCTION sokhach.list_legacy_trip_refs(containers jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_keys text[];
 BEGIN
     PERFORM sokhach._actor();
     IF jsonb_typeof(containers) IS DISTINCT FROM 'array' OR jsonb_array_length(containers)>2000
        OR EXISTS (SELECT 1 FROM jsonb_array_elements(containers) c WHERE jsonb_typeof(c)<>'string')
     THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+    SELECT coalesce(array_agg(DISTINCT sokhach._normalize_key(c#>>'{}')),'{}') INTO v_keys FROM jsonb_array_elements(containers) c;
     -- Lọc theo container trước (dòng gốc hoặc bản sửa), rồi mới đọc bản sửa mới nhất của dòng ứng viên.
-    RETURN (WITH want AS (SELECT DISTINCT sokhach._normalize_key(c#>>'{}') AS k FROM jsonb_array_elements(containers) c),
-        cand AS (SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip'
-                   AND sokhach._normalize_key(l.display->>'container') IN (SELECT k FROM want)
+    -- Giữ = ANY(mảng), đừng đổi về IN (SELECT ...): với hash semi join planner gần như không tính chi phí _normalize_key
+    -- nên quét tuần tự cả hai bảng và bỏ qua index container_key (đo trên bản sao thật 4/11/2026: 169 ms so với 9 ms).
+    RETURN (WITH cand AS (SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip'
+                   AND sokhach._normalize_key(l.display->>'container') = ANY(v_keys)
                  UNION
                  SELECT y.legacy_row_id FROM sokhach.legacy_trip_rev y
-                  WHERE sokhach._normalize_key(y.container) IN (SELECT k FROM want)),
+                  WHERE sokhach._normalize_key(y.container) = ANY(v_keys)),
         x AS (SELECT l.id,l.customer_id,
                 CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END AS container,
                 CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS event_date,
@@ -297,7 +304,7 @@ BEGIN
         SELECT jsonb_build_object('items',coalesce(jsonb_agg(jsonb_build_object(
             'customer_id',x.customer_id,'container',x.container,'event_date',x.event_date,'debt_month',x.debt_month)
             ORDER BY x.customer_id,x.id),'[]'::jsonb))
-        FROM x WHERE sokhach._normalize_key(x.container) IN (SELECT k FROM want) AND sokhach._normalize_key(x.container)<>'');
+        FROM x WHERE sokhach._normalize_key(x.container) = ANY(v_keys) AND sokhach._normalize_key(x.container)<>'');
 END;
 $$;
 

@@ -1759,6 +1759,23 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
+## Đọc dòng sổ gốc theo container — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql` thêm hai index biểu thức (`legacy_row_container_key`, `legacy_trip_rev_container_key`), chạy `ANALYZE` hai bảng và thay thân `list_legacy_trip_refs` (`IN (SELECT ...)` thành `= ANY(mảng)`). Kết quả hàm giữ nguyên từng byte. Không đổi cột, ràng buộc, loại event, dữ liệu hay quyền. Chạy lại được. **Chạy sau `2026-11-01-v7-chan-trung-hang-cho.sql`; chạy lại migration đó thì phải chạy lại file này**, vì nó trả về thân hàm cũ (vẫn đúng kết quả, chỉ chậm).
+
+Dùng `CREATE INDEX` thường trong transaction, không `CONCURRENTLY`: hai bảng nhỏ, mỗi index dưới 0,2 giây, chỉ chặn ghi và đã nằm trong cửa sổ dừng ghi. Đổi thân `_normalize_key` về sau thì phải `REINDEX` hai index này trong cùng migration, nếu không index giữ khóa cũ và hàm trả thiếu dòng.
+
+Thứ tự với release: độc lập, release cũ và mới đều gọi cùng một hàm. Chạy migration rồi đổi release.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử. Ghi đầu vào thật của hàm ở mọi sổ (chỉ đọc), thêm bộ đầu vào lạ (mọi container của sổ gốc, chữ thường, có khoảng trắng và NBSP, chuỗi rỗng, lặp, số không tồn tại). Băm JSON trên bản cũ, chạy migration hai lượt, băm lại: phải trùng. Dump DB thử đã có index rồi restore sang DB thử thứ hai, phải thành công (index biểu thức gọi hàm người dùng là chỗ dễ hỏng khi restore). Checker đạt.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** phát lại cùng đầu vào trên DB thật, chỉ đọc. So băm với lần đo trước cửa sổ nếu chưa có event mới; ghi thời gian trước và sau vào nhật ký `docs/deploys/`.
+
+Sau khi restore DB, chạy `ANALYZE` (hoặc đợi autovacuum): `pg_dump` không mang thống kê, chưa có thống kê thì planner quét tuần tự và hàm chậm hơn cả bản cũ (đo 4/11/2026: 234 ms so với 159 ms; sau `ANALYZE` còn dưới 20 ms). Kết quả vẫn đúng, chỉ chậm.
+
+Rollback: chạy lại `2026-11-01-v7-chan-trung-hang-cho.sql` (trả thân hàm cũ, hai hàm còn lại trong file trùng bản hiện hành), rồi `DROP INDEX sokhach.legacy_row_container_key, sokhach.legacy_trip_rev_container_key;` dưới `sokhach_owner` nếu muốn bỏ index. Release cũ chạy được với DB mới.
+
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
 Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).

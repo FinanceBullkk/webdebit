@@ -17,6 +17,8 @@ AUDIT_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-
 CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 # Chặn trùng hàng chờ 1/11/2026: paste_trips và hai hàm mới bằng migration mới nhất thay chúng.
 CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql"
+# Đọc theo container 4/11/2026: list_legacy_trip_refs bằng migration mới nhất thay nó.
+CONTAINER_INDEX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql"
 # KHOA-CHU-01 1/11/2026: edit_trip_info, _change_legacy, resolve_sheet_conflict bằng migration mới nhất thay chúng.
 KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
@@ -46,9 +48,16 @@ class FeeSqlSync(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
-        for name in ("_legacy_undated_match", "paste_trips", "list_legacy_trip_refs"):
+        for name in ("_legacy_undated_match", "paste_trips"):
             with self.subTest(name=name):
                 self.assertEqual(definition(chan_trung, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        container_index = CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertEqual(definition(container_index, "FUNCTION", "list_legacy_trip_refs"),
+                         definition(canonical, "FUNCTION", "list_legacy_trip_refs"))
+        indexes = re.findall(r"(?m)^CREATE INDEX IF NOT EXISTS .*_container_key .*;$", container_index)
+        self.assertEqual(len(indexes), 2)
+        for index in indexes:
+            self.assertIn(index, canonical)
         khoa_chu = KHOA_CHU_MIGRATION.read_text(encoding="utf-8")
         for name in ("edit_trip_info", "resolve_sheet_conflict"):
             with self.subTest(name=name):
