@@ -168,6 +168,7 @@ for _code in ("INVALID_VND", "INVALID_ADJUSTMENT", "INVALID_COMMAND", "INVALID_M
 SQL = {
     "list_offset_sources": "SELECT sokhach.list_offset_sources((:'payload'::jsonb->>'target_customer_id')::bigint);",
     "get_ledger": "SELECT sokhach.get_ledger((:'payload'::jsonb->>'customer_id')::bigint);",
+    "get_ledger_events": "SELECT sokhach.get_ledger_events((:'payload'::jsonb->>'customer_id')::bigint);",
     "list_customers": "SELECT sokhach.list_customers();",
     "get_fee_types": "SELECT sokhach.get_fee_types();",
     "get_price_table": "SELECT sokhach.get_price_table((:'payload'::jsonb->>'customer_id')::bigint);",

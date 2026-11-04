@@ -373,6 +373,7 @@ GET_ROUTES = {
     "/api/v7/receipt-image": lambda parts_query: _receipt_images(parts_query, with_id=True),
     "/api/v7/receipt-images/find": _find_image,
     "/api/v7/ledger": _by_customer("get_ledger", "customer_id"),
+    "/api/v7/ledger/events": _by_customer("get_ledger_events", "customer_id"),
     "/api/v7/offset-sources": _by_customer("list_offset_sources", "target_customer_id"),
     "/api/v7/price-table": _by_customer("get_price_table", "customer_id"),
     "/api/v7/price-table/status": _by_customer("get_price_status", "customer_id"),

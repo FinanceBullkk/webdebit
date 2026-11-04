@@ -247,7 +247,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

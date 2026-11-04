@@ -102,6 +102,7 @@ test('chuyến web tháng mở: sửa ô bằng Enter, Esc trả lại, Tab lưu
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
+  await page.locator('#history-panel .history-items').waitFor();
   assert.match(await page.locator('#history-panel').innerText(), /Sửa ô chuyến[\s\S]*Chuyến DEMU1234567 · Hãng tàu: Tàu thử → Tàu đổi/);
   await shot('sua-o-chuyen-web');
 }));
@@ -188,6 +189,7 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
+  await page.locator('#history-panel .history-items').waitFor();
   assert.match(await page.locator('#history-panel').innerText(), /Sửa dòng sổ gốc[\s\S]*Dòng sổ gốc OLDU0000002 · Đơn giá: 90\.000\.000 → 85\.000\.000 · Số tính: 93\.000\.000 → 88\.000\.000/);
   await shot('sua-dong-so-goc');
 }));

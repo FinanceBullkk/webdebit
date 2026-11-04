@@ -7,8 +7,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-28-v7-phu-phi-core-a.sql"
 PR_B_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b.sql"
-# Bản chuẩn get_ledger phải bằng migration mới nhất thay nó (PR-B P2 sau DA-THU-01, PR-B).
+# PR-B P2 sau DA-THU-01, PR-B: bản chuẩn _change_trip_fees; get_ledger của nó là bản rollback của MO-SO-NHANH-02 phải trả về.
 LEDGER_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-phu-phi-b-p2.sql"
+# MO-SO-NHANH-02 4/11/2026: bản chuẩn get_ledger và hai hàm Lịch sử bằng migration mới nhất thay chúng.
+LEDGER_EVENTS_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql"
+LEDGER_EVENTS_ROLLBACK = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql"
 # v_adjustment_current: bản chuẩn bằng migration mới nhất thay nó (XOA-DC-THANG-01 sau PR-A).
 VIEW_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-xoa-dieu-chinh-thang.sql"
 # Rà đường ghi tiền 29/10/2026: bản chuẩn của sáu hàm này bằng migration mới nhất thay chúng.
@@ -70,9 +73,15 @@ class FeeSqlSync(unittest.TestCase):
                            ("VIEW", "v_outstanding_month_raw"), ("VIEW", "v_outstanding_month")):
             with self.subTest(name=name):
                 self.assertEqual(definition(can_du, kind, name), definition(canonical, kind, name))
-        with self.subTest(name="get_ledger"):
-            self.assertEqual(definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
-                             definition(canonical, "FUNCTION", "get_ledger"))
+        ledger_events = LEDGER_EVENTS_MIGRATION.read_text(encoding="utf-8")
+        schema_copy = SCHEMA.read_text(encoding="utf-8")
+        for name in ("_ledger_events", "get_ledger", "get_ledger_events"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(ledger_events, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+                self.assertEqual(definition(ledger_events, "FUNCTION", name), definition(schema_copy, "FUNCTION", name))
+        with self.subTest(name="get_ledger rollback"):
+            self.assertEqual(definition(LEDGER_EVENTS_ROLLBACK.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"),
+                             definition(LEDGER_MIGRATION.read_text(encoding="utf-8"), "FUNCTION", "get_ledger"))
         self.assertEqual(definition(VIEW_MIGRATION.read_text(encoding="utf-8"), "VIEW", "v_adjustment_current"),
                          definition(canonical, "VIEW", "v_adjustment_current"))
         schema = SCHEMA.read_text(encoding="utf-8")
@@ -106,7 +115,7 @@ class FeeSqlSync(unittest.TestCase):
         self.assertEqual(len(khoa_chu), 1)
         blocks = [m.group() for m in re.finditer(pattern, PR_B_MIGRATION.read_text(encoding="utf-8"))
                   if m.group(1) not in replaced and not (m.group(1) == "_change_legacy" and "p_fee_event bigint)" in m.group())]
-        blocks += [m.group() for m in re.finditer(pattern, later)] + khoa_chu
+        blocks += [m.group() for m in re.finditer(pattern, later) if m.group(1) != "get_ledger"] + khoa_chu
         self.assertGreaterEqual(len(blocks), 17)
         for block in blocks:
             with self.subTest(signature=block.split(" RETURNS")[0]):

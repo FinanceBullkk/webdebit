@@ -193,7 +193,7 @@ class LedgerApiTest(unittest.TestCase):
 
     def test_ledger_history_names_actor_by_short_name_not_login(self):
         # SO-GON-04 (L6): Lịch sử hiện tên ngắn theo bảng tên của PRESENCE-01; login không có trong bảng thì phần trước @.
-        ledger = {"customer_id": 7, "version": 3, "status": "active", "events": [
+        ledger = {"customer_id": 7, "version": 3, "events": [
             {"id": 2, "kind": "receipt", "actor": "Thu.Ke@example.test"},
             {"id": 1, "kind": "month_lock", "actor": "other@example.test"},
             {"id": 0, "kind": "import", "actor": None}]}
@@ -201,14 +201,50 @@ class LedgerApiTest(unittest.TestCase):
             names = Path(folder) / "names.json"
             names.write_text(json.dumps({"version": 1, "names": {"thu.ke@example.test": "Thu"}}), encoding="utf-8")
             with patch.object(api.PRESENCE, "names", api.v7_presence.NameTable(str(names))), \
-                    patch.object(api, "ledger_projections", side_effect=lambda runner, result, actor: result), \
-                    patch.object(self.runner, "run", return_value=ledger):
-                status, result = api.handle("GET", "/api/v7/ledger?customer=7", self.headers, b"", self.runner,
-                                            port=8780, host="127.0.0.1", actor="server")
+                    patch.object(self.runner, "run", return_value=ledger) as run:
+                status, result = api.handle("GET", "/api/v7/ledger/events?customer=7", self.headers, b"", self.runner,
+                                            port=8780, host="127.0.0.1", actor="server", demo=True, real_copy=True)
         self.assertEqual(status, 200)
+        run.assert_called_once_with("get_ledger_events", {"customer_id": 7}, "server")
         self.assertEqual([event.get("actor_name") for event in result["events"]], ["Thu", "other", None])
         self.assertEqual(result["events"][0]["actor"], "Thu.Ke@example.test")
+        self.assertEqual(set(result), {"customer_id", "version", "events"})   # không phải màn riêng: không gắn demo/real_copy
         self.assertEqual(api.with_actor_names({"version": 1}), {"version": 1})
+
+    def test_ledger_events_route_checks_customer_like_the_ledger(self):
+        for query in ("", "?customer=", "?customer=0", "?customer=x", "?customer=1&customer=2", "?customer=1&extra=1"):
+            with self.subTest(query=query), self.assertRaises(api.ApiError) as caught:
+                api.handle("GET", "/api/v7/ledger/events" + query, self.headers, b"", self.runner,
+                           port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual((caught.exception.status, caught.exception.code), (422, "INVALID_REQUEST"))
+
+    def test_ledger_body_leaves_out_history_and_raw_cells_after_projections(self):
+        # MO-SO-NHANH-02: chiếu hàng chờ vẫn thấy đủ events và cells; chỉ thân HTTP được cắt, các khóa khác giữ nguyên.
+        row = {"id": 5, "kind": "trip", "current": {"container": "FAKE1"}, "fee_lines": [],
+               "display": {"row": 13, "container": "FAKE1", "raw_date": "26/12/2025", "cells": {"A": "1.0", "B": ""}}}
+        ledger = {"customer_id": 7, "version": 3, "status": "active", "total_outstanding_vnd": "10", "legacy_rows": [row],
+                  "events": [{"id": 1, "kind": "import", "actor": "a"}]}
+        seen = {}
+
+        def projections(runner, result, actor):
+            seen.update(events=result["events"], cells=result["legacy_rows"][0]["display"]["cells"])
+            return {**result, "sheet_sync": {"items": []}}
+
+        with patch.object(api, "ledger_projections", side_effect=projections), patch.object(self.runner, "run", return_value=ledger):
+            status, result = api.handle("GET", "/api/v7/ledger?customer=7", self.headers, b"", self.runner,
+                                        port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual(status, 200)
+        self.assertEqual(seen, {"events": ledger["events"], "cells": {"A": "1.0", "B": ""}})
+        self.assertNotIn("events", result)
+        self.assertEqual(result["legacy_rows"], [{**row, "display": {"row": 13, "container": "FAKE1", "raw_date": "26/12/2025"}}])
+        self.assertEqual(result["sheet_sync"], {"items": []})
+        self.assertEqual({key: result[key] for key in ("customer_id", "version", "status", "total_outstanding_vnd")},
+                         {"customer_id": 7, "version": 3, "status": "active", "total_outstanding_vnd": "10"})
+        self.assertIn("cells", row["display"])   # không sửa dict vào
+        self.assertIn("events", ledger)
+        # Sổ chưa có mốc (không có hai khóa này) và dòng lạ: đi qua nguyên vẹn.
+        self.assertEqual(api.public_ledger({"status": "NO_BASELINE"}), {"status": "NO_BASELINE"})
+        self.assertEqual(api.public_ledger({"legacy_rows": [{"id": 1, "display": None}, 7]}), {"legacy_rows": [{"id": 1, "display": None}, 7]})
 
     def test_sheet_conflict_resolution_uses_server_values_and_rejects_stale(self):
         class Runner:

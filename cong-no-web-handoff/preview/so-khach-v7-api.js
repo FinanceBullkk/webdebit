@@ -178,6 +178,14 @@
       onSnapshot(next);
       return next;
     }
+    // MO-SO-NHANH-02: Lịch sử của sổ đọc riêng khi mở khung; không đụng bản sổ đang giữ, không cần lệnh đang chờ.
+    async function readEvents() {
+      const response = await fetcher(`/api/v7/ledger/events?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được lịch sử.');
+      const body = await response.json();
+      if (!body || body.customer_id !== customerId || !Array.isArray(body.events)) throw Error('Dữ liệu lịch sử không hợp lệ.');
+      return body;
+    }
     async function send() {
       try {
         const response = await fetcher(pending.path, {
@@ -341,7 +349,7 @@
       return data.price_table;
     }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
+    return { read, readEvents, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
