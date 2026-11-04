@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import sys
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -25,6 +26,7 @@ from v7_api_sheet import (  # hàm đọc dùng chung chỉ chạy một lần m
     write_price_items,
 )
 from v7_api_validate import ApiError
+from v7_road_queue import NOTE as ROAD_NOTE
 
 ACTOR = "hop-viec"   # đọc nền, không phải người; hàm đọc chỉ cần sokhach.actor khác rỗng
 WORKERS = 2   # đo trên `hao` 1/11/2026: 4 luồng làm mở sổ lúc đang tính chậm 1,36 s, 2 luồng 0,84 s (hộp 34 → 39 s)
@@ -51,6 +53,9 @@ AUTO_LOCKED_TRIPS_FROM = "2026-10"
 AUTO_PRICES_FROM = AUTO_LOCKED_TRIPS_FROM
 # NGUON-CHUYEN-01 GĐ3 (3/11/2026): máy đưa chuyến bộ mới (CONT_BO) vào sổ của tab khách trên Sheet, bằng đúng đường dán của
 # chuyến biển, chưa có giá; tháng khóa thì mở, dán, khóa lại. Bật bằng WEBDEBIT_AUTO_SHEET=road.
+# Rà máy tự ghi 4/11/2026: mở–ghi–khóa là ba lệnh riêng, API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở. Lượt sau
+# khóa lại tháng máy đã mở mà chưa khóa, khi lần mở cũ hơn chừng này (không giành tháng của một lượt máy khác đang ghi dở).
+RELOCK_AFTER_SECONDS = 600
 
 
 def auto_prices(prices: dict[str, Any]) -> list[dict[str, Any]]:
@@ -89,6 +94,91 @@ def _locked_months(ledger: dict[str, Any], months: set[str]) -> list[str]:
     flags = {str(row.get("month") or "")[:7]: row.get("locked") for row in ledger.get("month_locks") or []}
     today = str(ledger.get("today_month") or "")[:7]
     return sorted(m for m in months if (flags[m] is True if m in flags else m != today))
+
+
+def _epoch(at: Any) -> float | None:
+    try:
+        return datetime.fromisoformat(str(at)).timestamp()
+    except ValueError:
+        return None
+
+
+def machine_left_open(ledger: dict[str, Any], now: float) -> list[str]:
+    """Tháng (yyyy-mm) máy đã mở mà chưa khóa lại: cờ đang mở, không phải tháng hiện tại, và lần đổi khóa gần nhất của
+    tháng đó là máy mở, cũ hơn RELOCK_AFTER_SECONDS. Tháng người mở (lần đổi gần nhất là người) giữ nguyên."""
+    today = str(ledger.get("today_month") or "")[:7]
+    open_months = {str(row.get("month") or "")[:7] for row in ledger.get("month_locks") or [] if row.get("locked") is False}
+    latest: dict[str, dict] = {}
+    for event in ledger.get("events") or []:   # get_ledger trả mới nhất trước
+        month = str((event.get("after") or {}).get("month") or "")[:7]
+        if event.get("kind") == "month_lock" and month in open_months:
+            latest.setdefault(month, event)
+    left = []
+    for month, event in sorted(latest.items()):
+        at = _epoch(event.get("at"))
+        if (month != today and event.get("actor") == AUTO_ACTOR and (event.get("after") or {}).get("locked") is False
+                and at is not None and now - at >= RELOCK_AFTER_SECONDS):
+            left.append(month)
+    return left
+
+
+def machine_entries(customer_id: int, ledger: dict[str, Any], day: str) -> list[dict[str, Any]]:
+    """Việc máy đã làm ở một sổ trong ngày `day` (giờ VN), dựng lại từ Lịch sử theo đúng dạng của `auto_log`.
+
+    Danh sách trong RAM mất mỗi lần API khởi động lại (mỗi lần triển khai); lượt nền đầu tiên nạp lại từ đây, nên người
+    nhập vẫn soát được việc máy làm trước đó. Mới nhất trước.
+    """
+    trips = {trip.get("id"): trip for trip in ledger.get("trips") or []}
+    legacy = {row.get("id"): row.get("current") or {} for row in ledger.get("legacy_rows") or []}
+    events = []
+    for event in ledger.get("events") or []:
+        at = _epoch(event.get("at"))
+        if event.get("actor") == AUTO_ACTOR and at is not None and _vn_day(at) == day:
+            events.append((at, event.get("kind"), event.get("before") or {}, event.get("after") or {}))
+    unlocks = [(at, str(after.get("month") or "")[:7]) for at, kind, _, after in events
+               if kind == "month_lock" and after.get("locked") is False]
+
+    def locked(month: str, at: float) -> bool:   # máy vừa mở tháng này trong cùng lượt: tháng đang khóa
+        return any(m == month and 0 <= at - t <= RELOCK_AFTER_SECONDS for t, m in unlocks)
+    entries: list[dict[str, Any]] = []
+    legacy_prices: dict[Any, dict[str, Any]] = {}
+    for at, kind, before, after in reversed(events):   # cũ trước: gộp hai ô giá của cùng một dòng sổ gốc
+        base = {"at": at, "customer_id": customer_id}
+        if kind == "sheet_conflict_resolved" and after.get("decision") == "use_sheet":
+            target = after.get("target") or {}
+            row = trips.get(target.get("id")) if target.get("kind") == "trip" else legacy.get(target.get("id"))
+            entries.append(base | {"container": (row or {}).get("container"), "field": after.get("field"),
+                                   "before": before.get("value"), "after": str(after.get("sheet_value") or "").strip()})
+        elif kind == "legacy_edit" and isinstance(after.get("legacy"), dict):
+            new, old = after["legacy"], before.get("legacy") or {}
+            if new.get("field") == "event_date":
+                entries.append(base | {"container": new.get("container"), "field": "event_date",
+                                       "before": old.get("value"), "after": new.get("value")})
+            elif new.get("field") in ("unit_price_vnd", "other_fee_vnd"):
+                month = str(new.get("debt_month") or new.get("month") or "")[:7]
+                entry = legacy_prices.get(new.get("legacy_row_id"))
+                if entry is None:
+                    entry = legacy_prices[new.get("legacy_row_id")] = base | {
+                        "kind": "price", "container": new.get("container"), "date": new.get("event_date"), "month": month,
+                        "before_unit_price_vnd": old.get("unit_price_vnd"), "before_other_fee_vnd": old.get("other_fee_vnd"),
+                        "locked": locked(month, at)}
+                    entries.append(entry)
+                entry.update(at=at, unit_price_vnd=new.get("unit_price_vnd"), other_fee_vnd=new.get("other_fee_vnd"))
+        elif kind == "price_edit":
+            new, old = after.get("price") or {}, before.get("price") or {}
+            trip = trips.get(new.get("trip_id")) or {}
+            month = str(trip.get("month") or "")[:7]
+            entries.append(base | {"kind": "price", "container": trip.get("container"), "date": trip.get("event_date"),
+                                   "month": month, "unit_price_vnd": new.get("unit_price_vnd"),
+                                   "other_fee_vnd": new.get("other_fee_vnd"),
+                                   "before_unit_price_vnd": old.get("unit_price_vnd"),
+                                   "before_other_fee_vnd": old.get("other_fee_vnd"), "locked": locked(month, at)})
+        elif kind == "paste":
+            for row in after.get("trips") or []:
+                entries.append(base | {"kind": "trip", "container": row.get("container"), "event_date": row.get("event_date"),
+                                       "trip_id": row.get("trip_id"), "pending": row.get("status") != "confirmed",
+                                       **({"road": True} if row.get("note") == ROAD_NOTE else {})})
+    return sorted(entries, key=lambda entry: entry["at"], reverse=True)
 
 
 def _receipt_item(row: dict[str, Any], ready: bool) -> dict[str, Any]:
@@ -187,6 +277,9 @@ class Inbox:
         self.auto_log: deque = deque(maxlen=AUTO_LOG)
         self.auto_errors = 0
         self.auto_run_at: float | None = None
+        self.machine_open: dict[int, list[str]] = {}    # tháng máy đã mở mà chưa khóa, theo sổ (lượt nền vừa đọc)
+        self.machine_seen: dict[int, list[dict]] = {}   # việc máy làm hôm nay theo Lịch sử, chờ nạp vào auto_log
+        self.seeded_day: str | None = None
         self.stopped = threading.Event()   # đặt để dừng nhịp nền (test)
 
     def _key(self) -> tuple | None:
@@ -201,9 +294,61 @@ class Inbox:
     def _one(self, runner, customer_id: int) -> tuple[int, dict | None, bool]:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, ACTOR)
+            with contextlib.suppress(Exception):   # đọc Lịch sử của máy hỏng không làm sổ thành `failed`
+                self._note_machine(customer_id, ledger)
             return customer_id, summarize(customer_id, self.project(runner, ledger, ACTOR)), True
         except Exception:  # noqa: BLE001  một sổ lỗi không chặn sổ khác; sổ đó vào `failed`
             return customer_id, None, False
+
+    def _note_machine(self, customer_id: int, ledger: dict[str, Any]) -> None:
+        now = self.clock()
+        left = machine_left_open(ledger, now)
+        day = _vn_day(now)
+        seen = machine_entries(customer_id, ledger, day) if self.seeded_day != day else []
+        with self.lock:
+            if left:
+                self.machine_open[customer_id] = left
+            else:
+                self.machine_open.pop(customer_id, None)
+            if seen:
+                self.machine_seen[customer_id] = seen
+
+    def _error(self, step: str, customer_id: int, error: Any) -> None:
+        """Một lỗi của máy: đếm cho Việc cần làm và ghi một dòng journal, để còn thấy sau khi API khởi động lại."""
+        self.auto_errors += 1
+        code = getattr(error, "code", None) or (error if isinstance(error, str) else type(error).__name__)
+        print(f"V7 máy (theo Sheet): {step} sổ {customer_id} lỗi {code}", file=sys.stderr, flush=True)
+
+    def _relock(self, runner) -> None:
+        """Khóa lại tháng máy đã mở mà chưa khóa (API tắt giữa lúc mở–ghi–khóa, hoặc lệnh khóa lại lỗi)."""
+        with self.lock:
+            todo = sorted((customer_id, months) for customer_id, months in self.machine_open.items() if months)
+        for customer_id, months in todo:
+            for month in months:
+                try:
+                    ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
+                    if month not in machine_left_open(ledger, self.clock()):
+                        continue
+                    key = hashlib.sha256(f"{AUTO_ACTOR}:khoa-lai:{customer_id}:{month}:{ledger['version']}".encode()).hexdigest()
+                    runner.run("set_month_lock", {"customer_id": customer_id, "expected_version": ledger["version"],
+                                                  "idempotency_key": key, "month": month + "-01", "locked": True}, AUTO_ACTOR)
+                    print(f"V7 máy (theo Sheet): khóa lại tháng {month} sổ {customer_id} (máy đã mở mà chưa khóa)",
+                          file=sys.stderr, flush=True)
+                except ApiError as exc:
+                    self._error("khóa lại tháng", customer_id, exc)
+
+    def _seed_log(self) -> None:
+        """Lượt đầu mỗi ngày, gồm lượt đầu sau khi API khởi động: RAM chưa có việc nào của hôm nay thì nạp từ Lịch sử."""
+        day = _vn_day(self.clock())
+        with self.lock:
+            if self.seeded_day == day:
+                return
+            if not any(_vn_day(entry["at"]) == day for entry in self.auto_log):
+                self.auto_log.clear()   # chỉ còn việc của ngày trước, view không hiện nữa
+                self.auto_log.extend(sorted((entry for items in self.machine_seen.values() for entry in items),
+                                            key=lambda entry: entry["at"], reverse=True))   # mới nhất ở đầu, như appendleft
+            self.machine_seen.clear()
+            self.seeded_day = day
 
     def _apply(self, customer_id: int, book: dict | None, ok: bool) -> None:
         self.books.pop(customer_id, None)
@@ -236,6 +381,8 @@ class Inbox:
                     books[customer_id] = book
                 with self.lock:
                     self.done += 1
+        self._seed_log()   # trước các bước máy của lượt này, để RAM chưa có việc nào của lượt
+        self._relock(shared)
         text, trips, prices, road = (auto_enabled(kind) for kind in ("text", "trips", "prices", "road"))
 
         def pasting(book: dict) -> bool:
@@ -277,8 +424,8 @@ class Inbox:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
             projection = sheet_projection(runner, ledger, AUTO_ACTOR)
-        except (ApiError, ValueError):
-            self.auto_errors += 1
+        except (ApiError, ValueError) as exc:
+            self._error("đọc chữ", customer_id, exc)
             return
         version, digest = ledger.get("version"), projection.get("snapshot_sha256")
         fills: dict[str, list[tuple[dict[str, Any], str]]] = {}
@@ -303,8 +450,8 @@ class Inbox:
                         "snapshot_sha256": digest, "source_row": item.get("source_row"), "target_kind": item["existing_kind"],
                         "target_id": item.get("existing_id"), "field": field, "target_value": target_value,
                         "sheet_value": sheet_value, "decision": "use_sheet"}, AUTO_ACTOR)
-                except ApiError:
-                    self.auto_errors += 1
+                except ApiError as exc:
+                    self._error("lấy chữ", customer_id, exc)
                     return
                 version = result.get("version", version)
                 with self.lock:
@@ -330,8 +477,8 @@ class Inbox:
             try:
                 version = self._in_month(runner, customer_id, version, ledger, month,
                                          f"auto:{digest}:{customer_id}:event_date", edit_all)
-            except ApiError:
-                self.auto_errors += 1
+            except ApiError as exc:
+                self._error("điền ngày", customer_id, exc)
                 return
 
     def _in_month(self, runner, customer_id: int, version: int, ledger: dict[str, Any], month: str, key: str,
@@ -367,8 +514,8 @@ class Inbox:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
             projection = sheet_projection(runner, ledger, AUTO_ACTOR)
-        except (ApiError, ValueError):
-            self.auto_errors += 1
+        except (ApiError, ValueError) as exc:
+            self._error("đọc chuyến mới", customer_id, exc)
             return
         today = _vn_day(self.clock())
         rows = [item for item in projection.get("items") or []
@@ -390,8 +537,8 @@ class Inbox:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
             projection = road_projection(runner, ledger, AUTO_ACTOR)
-        except (ApiError, ValueError):
-            self.auto_errors += 1
+        except (ApiError, ValueError) as exc:
+            self._error("đọc chuyến bộ", customer_id, exc)
             return
         today = _vn_day(self.clock())
         rows = [item for item in projection.get("items") or [] if item.get("sync_state") == "NEW"
@@ -412,10 +559,11 @@ class Inbox:
             def paste(at, batch=batch, out=out):
                 out.update(paste_sheet_rows(runner, customer_id, at, digest, key, batch, AUTO_ACTOR))
                 return runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
+            step = "dán chuyến bộ" if road else "dán chuyến mới"
             try:
                 version = self._in_month(runner, customer_id, version, ledger, month, key, paste)
-            except ApiError:
-                self.auto_errors += 1
+            except ApiError as exc:
+                self._error(step, customer_id, exc)
                 return
             pending = {entry.get("trip_id") for entry in out.get("pending_review") or []}
             by_row = {item["source_row"]: item for item in batch}
@@ -427,7 +575,7 @@ class Inbox:
                                               "trip_id": entry["trip_id"], "pending": entry["trip_id"] in pending,
                                               **({"road": True} if road else {})})
             if not out.get("complete"):
-                self.auto_errors += 1
+                self._error(step, customer_id, out.get("error") or "INCOMPLETE")
                 return
 
     def _auto_prices(self, runner, customer_id: int) -> None:
@@ -439,8 +587,8 @@ class Inbox:
         try:
             ledger = runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)
             projection = price_projection(runner, ledger, AUTO_ACTOR)
-        except (ApiError, ValueError):
-            self.auto_errors += 1
+        except (ApiError, ValueError) as exc:
+            self._error("đọc giá", customer_id, exc)
             return
         rows = auto_prices(projection)
         if not rows:
@@ -459,8 +607,8 @@ class Inbox:
                     runner.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["version"]
             try:
                 version = self._in_month(runner, customer_id, version, ledger, month, key, write)
-            except ApiError:
-                self.auto_errors += 1
+            except ApiError as exc:
+                self._error("ghi giá", customer_id, exc)
                 return
             with self.lock:
                 for row in batch[:out.get("written", 0)]:
@@ -472,7 +620,7 @@ class Inbox:
                                               "before_other_fee_vnd": row.get("web_other_fee_vnd"),
                                               "locked": bool(row.get("month_locked"))})
             if not out.get("complete"):
-                self.auto_errors += 1
+                self._error("ghi giá", customer_id, out.get("error") or "INCOMPLETE")
                 return
 
     def start(self, runner) -> bool:

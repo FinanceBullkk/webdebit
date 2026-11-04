@@ -29,6 +29,8 @@ Người dùng chọn "Cả nhóm A và B". Sau đó người dùng nói "bỏ k
 
 Cùng đợt sửa luật "container ở khách khác": chỉ báo khi chuyến web của khách kia **cách dòng Sheet không quá 3 ngày** (cùng luật ±3 ngày với sổ gốc). Trước đó luật chỉ so container, nên mỗi chuyến máy dán có container dùng lại làm dòng cũ ở sổ khác bật đỏ nhầm.
 
+**Rà máy tự ghi 4/11/2026 (Claude, không đổi luật):** mở, ghi, khóa lại là ba lệnh riêng. API tắt giữa chừng (mỗi lần triển khai) thì tháng nằm mở, và lượt sau thấy tháng đang mở nên không khóa lại. Từ nay lượt nền khóa lại tháng mà lần đổi khóa gần nhất là máy mở, cũ hơn 10 phút; tháng người mở giữ nguyên. Đo trên `hao` lúc rà: 99/99 lần máy mở đã khóa lại, chưa tháng nào bị bỏ mở. Cùng đợt: "Máy đã tự làm hôm nay" nạp lại từ Lịch sử ở lượt đầu sau khi API khởi động lại (trước đó chỉ ở RAM, mất mỗi lần triển khai), và mỗi lỗi của máy ghi một dòng journal.
+
 **Thử trên bản sao DB của `hao` (3/11/2026):** chạy máy cho cả 236 sổ.
 - Không lỗi; tổng nợ mọi sổ 64.729.039.261 trước và sau, không sổ nào đổi số dư.
 - Mọi tháng máy mở đã khóa lại; tháng đang mở sẵn giữ nguyên.

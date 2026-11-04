@@ -673,6 +673,129 @@ class AutoDateFillTests(unittest.TestCase):
         self.assertEqual([i["container"] for i in self.inbox.auto_log if i["field"] == "event_date"], ["D1"])
 
 
+class MachineAfterRestartTests(unittest.TestCase):
+    """Rà máy tự ghi 4/11/2026: tháng máy mở mà chưa khóa thì lượt sau khóa lại; "Máy đã tự làm hôm nay" nạp lại từ Lịch sử."""
+
+    NOW = 1793595600.0   # 2/11/2026 12:00 giờ VN
+    MACHINE = v7_inbox.AUTO_ACTOR
+
+    @staticmethod
+    def at(minutes_ago):   # dạng `at` của get_ledger (timestamptz, giờ VN)
+        from datetime import UTC, datetime, timedelta, timezone
+        moment = datetime.fromtimestamp(MachineAfterRestartTests.NOW, UTC) - timedelta(minutes=minutes_ago)
+        return moment.astimezone(timezone(timedelta(hours=7))).isoformat()
+
+    def lock_event(self, month, locked, actor, minutes_ago):
+        return {"kind": "month_lock", "actor": actor, "at": self.at(minutes_ago),
+                "before": {"month": month + "-01", "locked": not locked}, "after": {"month": month + "-01", "locked": locked}}
+
+    def test_left_open_only_when_machine_opened_last_and_long_enough(self):
+        ledger = {"today_month": "2026-11-01",
+                  "month_locks": [{"month": m + "-01", "locked": locked} for m, locked in
+                                  (("2026-08", False), ("2026-09", False), ("2026-10", False), ("2026-07", True),
+                                   ("2026-11", False))],
+                  "events": [   # mới nhất trước, như get_ledger
+                      self.lock_event("2026-11", False, self.MACHINE, 30),   # tháng hiện tại: mở là thường
+                      self.lock_event("2026-10", False, self.MACHINE, 3),    # máy đang ghi dở: chưa giành
+                      self.lock_event("2026-09", False, "nguoi@vi.du", 40),   # người mở sau máy: giữ
+                      self.lock_event("2026-09", False, self.MACHINE, 50),
+                      self.lock_event("2026-08", False, self.MACHINE, 45),   # máy mở rồi tắt giữa chừng
+                      self.lock_event("2026-07", False, self.MACHINE, 60)]}  # đã khóa lại (cờ khóa)
+        self.assertEqual(v7_inbox.machine_left_open(ledger, self.NOW), ["2026-08"])
+        self.assertEqual(v7_inbox.machine_left_open(ledger, self.NOW + 600), ["2026-08", "2026-10"])
+
+    def history(self):
+        """Lịch sử một sổ: đủ các loại việc máy làm hôm nay, một việc hôm qua và một việc của người."""
+        def ev(kind, minutes_ago, before, after, actor=self.MACHINE):
+            return {"kind": kind, "actor": actor, "at": self.at(minutes_ago), "before": before, "after": after}
+        legacy = {"legacy_row_id": 22, "container": "CONT22", "debt_month": "2026-10-01", "event_date": "2026-10-05"}
+        return {"customer_id": 1, "today_month": "2026-11-01", "month_locks": [],
+                "trips": [{"id": 21, "container": "CONT21", "month": "2026-10-01", "event_date": "2026-10-03"},
+                          {"id": 31, "container": "CONT31", "month": "2026-11-01", "event_date": "2026-11-01"}],
+                "legacy_rows": [{"id": 40, "current": {"container": "CONT40"}}],
+                "events": list(reversed([
+                    ev("paste", 60 * 24, {}, {"trips": [{"trip_id": 30, "container": "HOMQUA", "status": "confirmed"}]}),
+                    ev("month_lock", 10, {"month": "2026-10-01", "locked": True}, {"month": "2026-10-01", "locked": False}),
+                    ev("price_edit", 10, {"price": {"trip_id": 21, "unit_price_vnd": None, "other_fee_vnd": None}},
+                       {"price": {"trip_id": 21, "unit_price_vnd": "50000000", "other_fee_vnd": None}}),
+                    ev("legacy_edit", 10, {"legacy": {**legacy, "field": "unit_price_vnd", "unit_price_vnd": None, "other_fee_vnd": None}},
+                       {"legacy": {**legacy, "field": "unit_price_vnd", "unit_price_vnd": "45000000", "other_fee_vnd": None}}),
+                    ev("legacy_edit", 10, {"legacy": {**legacy, "field": "other_fee_vnd", "unit_price_vnd": "45000000", "other_fee_vnd": None}},
+                       {"legacy": {**legacy, "field": "other_fee_vnd", "unit_price_vnd": "45000000", "other_fee_vnd": "300000"}}),
+                    ev("month_lock", 10, {"month": "2026-10-01", "locked": False}, {"month": "2026-10-01", "locked": True}),
+                    ev("legacy_edit", 8, {"legacy": {**legacy, "legacy_row_id": 23, "container": "D1", "field": "event_date", "value": None}},
+                       {"legacy": {**legacy, "legacy_row_id": 23, "container": "D1", "field": "event_date", "value": "2026-10-07"}}),
+                    ev("sheet_conflict_resolved", 6, {"field": "origin", "value": "KHO A"},
+                       {"field": "origin", "decision": "use_sheet", "sheet_value": " KHO B ", "target": {"kind": "legacy", "id": 40}}),
+                    ev("paste", 5, {}, {"trips": [{"trip_id": 31, "container": "CONT31", "event_date": "2026-11-01", "status": "confirmed"},
+                                                  {"trip_id": 32, "container": "CONT32", "event_date": "2026-11-02",
+                                                   "status": "pending_review", "note": "Chuyến bộ đồng bộ"}]}),
+                    ev("price_edit", 4, {"price": {"trip_id": 31}}, {"price": {"trip_id": 31, "unit_price_vnd": "1"}},
+                       actor="nguoi@vi.du")]))}
+
+    def test_entries_rebuilt_from_history_in_auto_log_shape(self):
+        entries = v7_inbox.machine_entries(1, self.history(), "2026-11-02")
+        brief = [(e.get("kind"), e["container"]) for e in entries]
+        self.assertEqual(brief, [("trip", "CONT31"), ("trip", "CONT32"), (None, "CONT40"), (None, "D1"),
+                                 ("price", "CONT21"), ("price", "CONT22")])
+        text, date, trip, road = entries[2], entries[3], entries[0], entries[1]
+        self.assertEqual((text["field"], text["before"], text["after"]), ("origin", "KHO A", "KHO B"))
+        self.assertEqual((date["field"], date["before"], date["after"]), ("event_date", None, "2026-10-07"))
+        self.assertEqual((trip["trip_id"], trip["pending"], "road" in trip), (31, False, False))
+        self.assertEqual((road["pending"], road["road"]), (True, True))
+        legacy_price = entries[5]   # hai ô giá của cùng dòng sổ gốc gộp một dòng, tháng 10 máy vừa mở nên "tháng khóa"
+        self.assertEqual({k: legacy_price[k] for k in ("unit_price_vnd", "other_fee_vnd", "before_unit_price_vnd",
+                                                        "before_other_fee_vnd", "month", "date", "locked")},
+                         {"unit_price_vnd": "45000000", "other_fee_vnd": "300000", "before_unit_price_vnd": None,
+                          "before_other_fee_vnd": None, "month": "2026-10", "date": "2026-10-05", "locked": True})
+        self.assertEqual((entries[4]["unit_price_vnd"], entries[4]["month"], entries[4]["locked"]), ("50000000", "2026-10", True))
+
+    def runner(self, ledger, calls):
+        class Runner:
+            def run(self, function, payload, actor):
+                calls.append((function, payload, actor))
+                if function == "list_customers":
+                    return {"customers": [{"id": 1, "status": "active"}]}
+                if function == "get_ledger":
+                    return {**ledger, "version": 9}
+                if function == "set_month_lock":
+                    return {"version": 10}
+                raise AssertionError(function)
+        return Runner()
+
+    def test_first_pass_after_restart_reloads_today_and_relocks_month_left_open(self):
+        ledger = self.history()
+        ledger["month_locks"] = [{"month": "2026-09-01", "locked": False}]
+        ledger["events"] = [self.lock_event("2026-09", False, self.MACHINE, 30)] + ledger["events"]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "s.json"
+            path.write_text("{}", encoding="utf-8")
+            inbox = v7_inbox.Inbox(lambda runner, ledger, actor: projection(), lambda: (str(path),), clock=lambda: self.NOW)
+            calls = []
+            with patch.dict(os.environ, {"WEBDEBIT_AUTO_SHEET": ""}), patch("sys.stderr"):
+                inbox.start(self.runner(ledger, calls))
+                wait_idle(inbox)
+                auto = inbox.view(self.runner(ledger, calls))["auto"]
+                self.assertEqual((auto["today_trips"], auto["today_trips_pending"], auto["today_count"], auto["today_prices"]),
+                                 (2, 1, 2, 2))
+                locks = [(c[1]["month"], c[1]["locked"], c[1]["expected_version"], c[2]) for c in calls if c[0] == "set_month_lock"]
+                self.assertEqual(locks, [("2026-09-01", True, 9, self.MACHINE)])
+                inbox.key = None   # lượt sau cùng ngày: không nạp trùng
+                inbox.start(self.runner(ledger, calls))
+                wait_idle(inbox)
+                self.assertEqual(inbox.view(self.runner(ledger, calls))["auto"]["today_trips"], 2)
+
+    def test_error_counts_and_writes_one_journal_line(self):
+        inbox = v7_inbox.Inbox(lambda runner, ledger, actor: projection(), lambda: ())
+        with patch("sys.stderr") as stderr:
+            inbox._error("ghi giá", 7, ApiError(409, "STALE_LEDGER", "x"))
+            inbox._error("dán chuyến mới", 8, "INCOMPLETE")
+        self.assertEqual(inbox.auto_errors, 2)
+        lines = "".join(call.args[0] for call in stderr.write.call_args_list if call.args[0].strip())
+        self.assertIn("ghi giá sổ 7 lỗi STALE_LEDGER", lines)
+        self.assertIn("dán chuyến mới sổ 8 lỗi INCOMPLETE", lines)
+
+
 class ApiInboxRoute(unittest.TestCase):
     def call(self, method, target, raw=b""):
         headers = {"Host": "127.0.0.1:8780"}
