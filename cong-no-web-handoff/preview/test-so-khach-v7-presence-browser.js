@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho PRESENCE-01 mức 1 trên sổ khách V7: người khác đang ở đâu, ô đang chọn/đang sửa,
  * câu báo sổ vừa đổi kèm tên. Máy chủ giả không có SSE nên trang hỏi định kỳ. Dữ liệu giả. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage, tripCell } = require('./so-khach-v7-browser-world');
 

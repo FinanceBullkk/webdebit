@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho thanh chip tháng và tháng đang xem của sổ khách V7 (SO-GON-05: một tháng trên màn hình,
  * specs/v7-so-khach-mot-thang.md; thay phần thu gọn tháng của SO-GON-04).
  * Sổ giả 9 tháng × 30 chuyến tính lùi từ tháng hiện tại (giờ VN), máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { todayMonth, withPage } = require('./so-khach-v7-browser-world');
 

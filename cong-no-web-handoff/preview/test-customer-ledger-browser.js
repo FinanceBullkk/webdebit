@@ -1,6 +1,5 @@
-const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const url=pathToFileURL(path.join(__dirname,'customer-ledger-workbench.html')).href;

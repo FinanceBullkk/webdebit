@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho bàn phím trong bảng chuyến và Lịch sử viết thành câu (SO-GON-04, L5–L6 — PR 2d).
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
 

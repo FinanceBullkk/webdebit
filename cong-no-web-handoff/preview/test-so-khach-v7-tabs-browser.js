@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho vỏ trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A1): tham số the=, thẻ mặc định K2,
  * đổi thẻ không tải lại trang và không thêm lịch sử, bàn phím, đầu trang ≤ 44px, chữ đang gõ còn nguyên khi đổi thẻ.
  * Máy chủ giả, dữ liệu giả, 1280×720; không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { todayMonth, withPage } = require('./so-khach-v7-browser-world');
 

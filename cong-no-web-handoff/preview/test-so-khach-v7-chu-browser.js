@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho cỡ chữ, "+ thêm", nhãn trạng thái dòng và đầu sổ của sổ khách V7 (SO-GON-04, PR 2c).
  * Máy chủ giả, dữ liệu giả, 1280×720; không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
 

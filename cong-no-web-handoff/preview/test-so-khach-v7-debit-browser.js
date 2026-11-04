@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho Debit Note theo tháng công nợ (DEBIT-NOTE-01, mẫu v3 DEBIT-NOTE-02) trên sổ khách V7 bản live,
  * theo specs/v7-debit-note.md. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { withPage } = require('./so-khach-v7-browser-world');

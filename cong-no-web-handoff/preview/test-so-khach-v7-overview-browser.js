@@ -2,7 +2,7 @@
  * rủi ro bằng đúng sổ và Tổng quan, hình 12 tháng bằng months[] và bấm tháng sang thẻ Sổ, số chuyến 6 tháng, việc chờ mở thẻ Sổ
  * với loc=, khách chưa có số dư đầu, khách dư, Tổng quan đọc lỗi. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang
  * ghim 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
 

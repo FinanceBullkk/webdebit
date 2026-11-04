@@ -1,9 +1,8 @@
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 // ZALO-CHAT-01: tab Chat Zalo — danh sách hội thoại, tin theo trang (trang 0 mới nhất), tìm, lỗi 503.
 // Máy chủ giả trả JSON theo đúng hợp đồng /api/v7/zalo/*; dữ liệu bịa, không có nội dung chat thật.

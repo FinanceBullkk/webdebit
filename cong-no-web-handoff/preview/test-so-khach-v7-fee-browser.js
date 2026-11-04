@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho phụ phí nhiều loại (PHU-PHI-01) trên sổ khách V7 bản live, theo tiêu chí frontend của
  * specs/v7-phu-phi-nhieu-loai.md. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
 

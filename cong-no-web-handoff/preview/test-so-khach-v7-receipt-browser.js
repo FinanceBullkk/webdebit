@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho ghi phiếu thu từ Sheet (THU-SHEET-01, specs/v7-receipt-queue.md). Máy chủ giả, tiền giả, không chạm DB. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage, posts } = require('./so-khach-v7-browser-world');
 

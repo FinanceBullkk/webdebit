@@ -25,7 +25,7 @@ description: Quy trình gỡ lỗi trong repo webdebit: tìm nguyên nhân gốc
 **Bẫy đã biết của repo (kiểm trước khi kết luận là lỗi code)**
 - Worktree thiếu `.venv`: unittest/viewer đỏ giả (thiếu `tzdata`), ruff FAIL giả. Đặt `VIRTUAL_ENV` và `WEBDEBIT_PYTHON`.
 - Test đỏ quanh 17:00 UTC hoặc ngày 1 hằng tháng: ranh giới tháng giờ VN; truyền `today_month`, ghim `page.clock`.
-- `ERR_NO_BUFFER_SPACE` trên runner Windows: lỗi mạng của runner, chạy lại job.
+- `ERR_NO_BUFFER_SPACE` trên runner Windows: `connect()` của Chromium thỉnh thoảng trả 10055, chưa rõ gốc, không phải cạn cổng. `test` ở `shared-browser.js` đã tự chạy lại ca một lần và ghi `Thử lại ca này vì ...`. Rơi vào CSS/JS thì triệu chứng là bố cục sai hoặc chờ quá 30 giây, không hiện mã lỗi này.
 - Test mất mạng bằng Playwright: Chrome tự gửi lại GET khi socket bị cắt một lần; dùng `page.route` abort `{times: 1}`.
 - Số tiền lệch: đối chiếu quy tắc ở `AGENTS.md` (NULL không phải 0, pending ngoài số dư, thu theo nợ cũ trước, opening không cộng lại lịch sử) trước khi nghi phép tính.
 
