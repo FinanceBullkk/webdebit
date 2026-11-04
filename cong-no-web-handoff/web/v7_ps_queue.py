@@ -5,6 +5,9 @@ original-book row of the same customer by the price queue's rule (container, exa
 within 3 days; a different booking never matches). A split only reclassifies: READY requires the
 PS total to equal the web fee total and at least one unclassified line (Khác, Giảm trừ, Phụ phí
 ban đầu). Money never comes from PS; every other case is listed for review or left out.
+
+MAY-PS-01: the Health+KĐ cell is one more fee of the combined type. A `fill` is the one case where lines may grow:
+an original-book row whose TOTAL minus unit price already equals the PS total keeps that TOTAL (no money moves).
 """
 
 from __future__ import annotations
@@ -17,11 +20,11 @@ from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
 from v7_sheet_queue import _name, read_snapshot
 
 UNCLASSIFIED = ("other", "discount", "initial")
-FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm"}
+FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
-LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health+KĐ"}
+LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT",
-          "PS_COMBINED", "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
+          "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
 
 
 def load_ps_snapshot(path: str | Path) -> dict[str, Any]:
@@ -70,7 +73,10 @@ def pool(ledger: dict) -> list[dict]:
     out = []
     for target in targets(ledger):
         lines, booking, month = extra[(target["kind"], target["id"])]
-        out.append({**target, "lines": lines, "booking": booking, "month": str(month or "")[:7]})
+        counted = None
+        if target["kind"] == "legacy" and target["total"] is not None and target["price"] is not None:
+            counted = target["total"] - target["price"]
+        out.append({**target, "lines": lines, "booking": booking, "month": str(month or "")[:7], "counted_fee": counted})
     return out
 
 
@@ -86,19 +92,24 @@ def match(row: dict, candidates: list[dict]) -> tuple[list[dict], str]:
     return [t for t in same if t["date"] and abs((t["date"] - day).days) <= DATE_WINDOW_DAYS], "near_date"
 
 
+def row_fees(row: dict) -> dict[str, Any]:
+    return {**row["fees"], "combined": row.get("combined_vnd")}
+
+
 def plan(row: dict, target: dict, ids: dict) -> tuple[str, dict]:
     """Status and the line set a split would write; money stays exactly as on the web."""
-    fees = {field: int(value) for field, value in row["fees"].items() if value is not None}
+    fees = {field: int(value) for field, value in row_fees(row).items() if value is not None}
     ps_total = sum(fees.values())
     lines = [{"id": x["id"], "fee_type_id": x["fee_type_id"], "amount_vnd": str(x["amount_vnd"]), "note": x.get("note")}
              for x in target["lines"]]
     web_total = sum(int(x["amount_vnd"]) for x in lines) if lines else None
-    info = {"ps_total": ps_total, "web_total": web_total, "before": lines, "after": []}
+    fill = web_total != ps_total and target.get("counted_fee") == ps_total
+    info = {"ps_total": ps_total, "web_total": web_total, "before": lines, "after": [], "fill": fill}
     if target["pending"]:
         return "PENDING_REVIEW", info
-    if web_total is None:
+    if not fill and web_total is None:
         return "WEB_NO_FEE", info
-    if web_total != ps_total:
+    if not fill and web_total != ps_total:
         return "TOTAL_DIFF", info
     missing = [field for field in fees if ids.get(field) is None]
     if missing:
@@ -116,8 +127,8 @@ def plan(row: dict, target: dict, ids: dict) -> tuple[str, dict]:
     after = kept + [{"fee_type_id": type_id, "amount_vnd": str(value), "note": None}
                     for (type_id, value), count in sorted(wanted.items()) for _ in range(count)]
     info["after"] = after
-    if len(kept) == len(lines) or Counter((x["fee_type_id"], x["amount_vnd"]) for x in after) == Counter(
-            (x["fee_type_id"], x["amount_vnd"]) for x in lines):
+    if not fill and (len(kept) == len(lines) or Counter((x["fee_type_id"], x["amount_vnd"]) for x in after) == Counter(
+            (x["fee_type_id"], x["amount_vnd"]) for x in lines)):
         return "DONE", info
     return ("MONTH_LOCKED" if target["locked"] else "READY"), info
 
@@ -133,7 +144,6 @@ def message(status: str, row: dict, info: dict) -> str:
         "PS_SOURCE_ERROR": f"Bộ lập bill báo lỗi: {row.get('source_error')}",
         "PS_TYPO": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} trên PS, có thể gõ sai",
         "PS_BAD_AMOUNT": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} không đọc được",
-        "PS_COMBINED": f"PS gộp Health+KĐ {vnd_text(int(row.get('combined_vnd') or 0))}, cần tách tay",
         "TYPED_CONFLICT": "Web đã phân loại khác PS",
         "FEE_TYPE_MISSING": "Danh mục chưa có loại " + ", ".join(LABELS[f] for f in info.get("missing", [])),
         "NEED_HEALTH": "PS đánh dấu Health cert — nhập giá tay",
@@ -161,11 +171,9 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
             status = "AMBIGUOUS"
         elif row.get("problems"):
             status = row["problems"][0]["code"]
-        elif row.get("combined_vnd"):
-            status = "PS_COMBINED"
         elif target is None:
             status = "NOT_FOUND"
-        elif not any(v is not None for v in row["fees"].values()):
+        elif not any(v is not None for v in row_fees(row).values()):
             status = "PS_EMPTY"
         else:
             status, info = plan(row, target, ids)
@@ -184,7 +192,7 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
                 "month": info["month"], "status": status, "message": message(status, row, info),
                 "ps_total": None if info["ps_total"] is None else str(info["ps_total"]),
                 "web_total": None if info["web_total"] is None else str(info["web_total"]),
-                "before": info["before"], "after": info["after"]}
+                "before": info["before"], "after": info["after"], "fill": bool(info.get("fill"))}
     ready = [public(r, r["status"]) for r in results if r["status"] == "READY"]
     review = [public(r, r["status"]) for r in results if r["status"] in REVIEW]
     for result in results:   # Health/KĐ marks only remind; they never create money.
@@ -192,7 +200,43 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
         if target is None or result["status"] in ("AMBIGUOUS", "PS_SOURCE_ERROR"):
             continue
         for field, status in (("health", "NEED_HEALTH"), ("kd", "NEED_KD")):
-            if result["row"].get(field) and not any(x.get("fee_type_id") == ids.get(field) for x in target["lines"]):
+            covered = {ids.get(field), ids.get("combined")} - {None}
+            if result["row"].get(field) and not any(x.get("fee_type_id") in covered for x in target["lines"]):
                 review.append(public(result, status))
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}
+
+
+def auto_ps(ps: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rows the machine may split (MAY-PS-01): READY and month-locked ones, unless replacing lines would lose a note."""
+    def keeps_notes(row: dict) -> bool:
+        notes = Counter(x.get("note") for x in row.get("before") or [] if x.get("note"))
+        return not notes - Counter(x.get("note") for x in row.get("after") or [] if x.get("note"))
+    rows = list(ps.get("ready") or []) + [row for row in ps.get("review") or [] if row.get("status") == "MONTH_LOCKED"]
+    return [row for row in rows if keeps_notes(row)]
+
+
+def best_columns(ledger: dict, fee_types: list[dict], limit: int = 3) -> list[int] | None:
+    """Own columns after a machine split (MAY-PS-01): the book's largest typed fees, moving as few columns as possible.
+
+    Only columns outside that group are replaced, last first. None when nothing changes.
+    """
+    typed = {t["id"] for t in fee_types if t.get("active") and not t.get("system_key")}
+    money: Counter = Counter()
+    rows = [t for t in ledger.get("trips") or [] if not t.get("deleted") and t.get("status") != "rejected"]
+    rows += [r for r in ledger.get("legacy_rows") or [] if r.get("kind") == "trip" and not (r.get("current") or {}).get("deleted")]
+    for row in rows:
+        for fee in row.get("fee_lines") or []:
+            if fee.get("fee_type_id") in typed:
+                money[fee["fee_type_id"]] += abs(int(fee["amount_vnd"]))
+    top = sorted(money, key=lambda type_id: (-money[type_id], type_id))[:limit]
+    current = [c["fee_type_id"] for c in sorted(ledger.get("fee_columns") or [], key=lambda c: c.get("position") or 0)]
+    columns = list(current)
+    for type_id in top:
+        if type_id in columns:
+            continue
+        if len(columns) < limit:
+            columns.append(type_id)
+        else:
+            columns[max(i for i, column in enumerate(columns) if column not in top)] = type_id
+    return None if columns == current else columns

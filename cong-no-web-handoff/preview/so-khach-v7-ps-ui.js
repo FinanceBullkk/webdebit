@@ -14,12 +14,11 @@
   // Nhóm theo việc người nhập phải làm (bảng "Không tự tách" ở bước 1 của spec).
   const GROUPS = [
     ['Mở khóa tháng là tách được', ['MONTH_LOCKED']],
-    ['Sửa trên web (bấm ô Khác của chuyến để mở chi tiết phụ phí)', ['TOTAL_DIFF', 'PS_COMBINED', 'NEED_HEALTH', 'NEED_KD', 'AMBIGUOUS', 'TYPED_CONFLICT', 'FEE_TYPE_MISSING']],
+    ['Sửa trên web (bấm ô Khác của chuyến để mở chi tiết phụ phí)', ['TOTAL_DIFF', 'NEED_HEALTH', 'NEED_KD', 'AMBIGUOUS', 'TYPED_CONFLICT', 'FEE_TYPE_MISSING']],
     ['Sửa ở Sheet hoặc bộ lập bill (lần đọc sau tự cập nhật)', ['WEB_NO_FEE', 'PS_TYPO', 'PS_BAD_AMOUNT', 'PS_SOURCE_ERROR']],
   ];
   const HINTS = {
     TOTAL_DIFF: 'Kiểm tab khách trên Sheet (sổ chính thức). Web sai thì sửa trong chi tiết phụ phí.',
-    PS_COMBINED: 'Chia ra Health cert và Kiểm định trong chi tiết phụ phí.',
     NEED_HEALTH: 'Thêm khoản Health cert trong chi tiết phụ phí. Ghi xong thì dòng này tự hết.',
     NEED_KD: 'Thêm khoản Kiểm định trong chi tiết phụ phí. Ghi xong thì dòng này tự hết.',
     AMBIGUOUS: 'Phân loại tay ở đúng chuyến.',
@@ -40,7 +39,7 @@
       const plan = model.planPsFees(ready);
       const items = ready.map(item => `<li><div class="what">${what(item)} · ${linesText(item.before)}<span class="ps-arrow">→</span>${linesText(item.after)}</div></li>`).join('');
       const same = plan.same
-        ? `<span class="ps-same">Tổng tiền không đổi: phụ phí ${plan.count} chuyến vẫn là ${model.formatVnd(plan.totalVnd)} đ, tổng còn nợ giữ nguyên.</span>`
+        ? `<span class="ps-same">${plan.fills ? `Tổng còn nợ giữ nguyên: ${plan.fills} chuyến chỉ ghi đủ khoản đã tính sẵn trong Thành tiền.` : `Tổng tiền không đổi: phụ phí ${plan.count} chuyến vẫn là ${model.formatVnd(plan.totalVnd)} đ, tổng còn nợ giữ nguyên.`}</span>`
         : '<p role="alert"><strong>Kế hoạch tách làm đổi tổng tiền nên không tách.</strong> Tải lại sổ.</p>';
       return `<div class="price-panel confirm ps-panel" role="region" aria-label="Xác nhận tách phụ phí theo bảng PS"><p><strong>Tách phụ phí theo bảng PS cho ${plan.count} chuyến ${escape(months(ready))}?</strong></p><ul class="ps-list">${items}</ul>${same}<div class="price-actions"><button type="button" class="ps-write primary" ${plan.same ? '' : 'disabled'}>Tách ${plan.count} chuyến</button><button type="button" class="ps-cancel">Thôi</button></div></div>`;
     }

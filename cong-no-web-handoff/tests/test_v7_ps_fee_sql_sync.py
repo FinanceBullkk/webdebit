@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ps-fee.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
-NAMES = ("_rewrite_trip_fees", "rewrite_trip_fees")
+GOP = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql"
 
 
 def text(path: Path) -> str:
@@ -24,10 +24,15 @@ def function(source: str, name: str) -> str:
 
 class PsFeeSqlSync(unittest.TestCase):
     def test_functions_match_canonical(self):
-        migration, canonical = text(MIGRATION), text(FUNCTIONS)
-        for name in NAMES:
+        canonical = text(FUNCTIONS)
+        # MAY-PS-01 thay riêng hàm trong; hàm mở cho app vẫn là bản của migration đầu.
+        for name, migration in (("_rewrite_trip_fees", GOP), ("rewrite_trip_fees", MIGRATION)):
             with self.subTest(name=name):
-                self.assertEqual(function(migration, name), function(canonical, name))
+                self.assertEqual(function(text(migration), name), function(canonical, name))
+
+    def test_combined_fee_type_is_in_migration_and_schema(self):
+        self.assertIn("('Health + KĐ','service','positive',NULL,7)", text(SCHEMA))
+        self.assertIn("VALUES('Health + KĐ','service','positive',NULL,7)", text(GOP))
 
     def test_event_constraints_match_schema(self):
         # The newest migration that rewrites the event constraints carries the whole schema list.

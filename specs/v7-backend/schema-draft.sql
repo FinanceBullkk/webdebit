@@ -312,6 +312,8 @@ CREATE INDEX IF NOT EXISTS trip_fee_line_legacy_active ON sokhach.trip_fee_line(
 CREATE INDEX IF NOT EXISTS trip_fee_line_customer ON sokhach.trip_fee_line(customer_id,id);
 INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
  ('Neo','service','positive',NULL,1),('Điện','service','positive',NULL,2),('Ghép','service','positive',NULL,3),('Bảo hiểm','service','positive',NULL,4),('Kiểm định','service','positive',NULL,5),('Health cert','service','positive',NULL,6),('Khác','service','positive','other',100),('Giảm trừ','service','negative','discount',101),('Phụ phí ban đầu','service','any','initial',102) ON CONFLICT(name_key) DO NOTHING;
+-- MAY-PS-01: ô Health+KĐ của bảng PS chỉ có một số gộp.
+INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES('Health + KĐ','service','positive',NULL,7) ON CONFLICT(name_key) DO NOTHING;
 
 CREATE TABLE sokhach.receipt (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

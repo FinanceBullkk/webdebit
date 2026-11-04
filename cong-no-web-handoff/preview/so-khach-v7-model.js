@@ -625,12 +625,16 @@ const SoKhachV7Model = (() => {
   function planPsFees(ready) {
     const list = Array.isArray(ready) ? ready : [];
     let totalVnd = 0n;
+    let fills = 0;
     for (const item of list) {
       const before = feeSum(item.before ?? []);
-      if (before === null || before !== feeSum(item.after ?? [])) return { count: list.length, totalVnd: null, same: false };
+      const after = feeSum(item.after ?? []);
+      // MAY-PS-01: dòng sổ gốc chỉ ghi đủ khoản đã tính sẵn trong TOTAL, server giữ nguyên TOTAL.
+      if (item.fill === true && after !== null) { fills += 1; totalVnd += after; continue; }
+      if (before === null || before !== after) return { count: list.length, totalVnd: null, same: false, fills: 0 };
       totalVnd += before;
     }
-    return { count: list.length, totalVnd, same: list.length > 0 };
+    return { count: list.length, totalVnd, same: list.length > 0, fills };
   }
   const feeLinesText = (lines, nameOf) => (lines ?? []).map(line => `${nameOf(line.fee_type_id)} ${formatVnd(vnd(String(line.amount_vnd), true))}`).join(" + ");
   // Số phụ phí gõ tay: trống → null (chỉ ô cột riêng: xóa trắng); khác 0; dấu theo loại (fee_type.sign).
