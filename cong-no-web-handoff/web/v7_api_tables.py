@@ -28,6 +28,7 @@ PAGES = {
     "/cong-no-theo-thang.html": "cong-no-theo-thang.html",
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/doi-no.html": "doi-no.html",
+    "/bang-thu.html": "bang-thu.html",
     "/zalo-chat.html": "zalo-chat.html",
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }
@@ -239,6 +240,8 @@ SQL["find_receipt_image"] = "SELECT sokhach.find_receipt_image(:'payload'::jsonb
 # NHAC-NO-01: nhắc nợ là ghi chú ngoài đường tiền, không dùng COMMON (version/idempotency); POST đặc biệt.
 SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.record_reminder((j->>'customer_id')::bigint, j->>'source') FROM b;"
 SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
+# BANG-THU-01: tháng trống là tháng hiện tại giờ VN, do hàm SQL tính.
+SQL["get_receipt_book"] = "SELECT sokhach.get_receipt_book((:'payload'::jsonb->>'month')::date);"
 # ZALO-GROUP-01: gắn group ↔ sổ và dấu tin, cũng ngoài đường tiền; POST đặc biệt (v7_api_zalo kiểm thân lệnh).
 SQL["link_zalo"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.link_zalo(j->>'conversation_id', (j->>'customer_id')::bigint) FROM b;"
 SQL["unlink_zalo"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "

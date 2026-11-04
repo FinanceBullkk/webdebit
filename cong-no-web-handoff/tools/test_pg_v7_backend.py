@@ -56,6 +56,7 @@ from pg_v7_harness import (
     trip_json,
     version,
 )
+from test_pg_v7_backend_bang_thu import check_bang_thu
 from test_pg_v7_backend_can_du import check_can_du
 from test_pg_v7_backend_chan_trung import check_chan_trung
 from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
@@ -258,7 +259,11 @@ CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message mar
 
 CASES.append(case("VCL-GIU.01", "BEHAVIOR", "Keep one Sheet task with audit, unchanged money, retry and validation", check="sheet_keep", functions=("keep_sheet_task",)))
 
-CHECKS = {"sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+# BANG-THU-01 4/11/2026: tiền về theo ngày qua mọi sổ, chỉ đọc; không đổi số nợ.
+CASES.append(case("BANG-THU.01", "BEHAVIOR", "Receipt book: money by payment date, undated rows apart, totals equal the ledgers, read only",
+                  check="bang_thu", functions=("get_receipt_book", "_legacy_pay_date")))
+
+CHECKS = {"bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -365,7 +370,7 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-bang-thu.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
@@ -455,6 +460,7 @@ def main() -> int:
     ap.add_argument("--m2-11-only", action="store_true", help="focused development checks")
     ap.add_argument("--fee-migration-only", action="store_true", help="focused PR-A migration checks")
     ap.add_argument("--sheet-keep-only", action="store_true", help="focused row-scoped Sheet keep checks")
+    ap.add_argument("--bang-thu-only", action="store_true", help="focused receipt book checks")
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--expect-red", action="store_true", default=True,
                       help="default: missing command functions may fail")
@@ -462,6 +468,7 @@ def main() -> int:
     args = ap.parse_args()
     selected = [c for c in CASES if (not args.m2_11_only or c["id"] == "7.24")
                 and (not args.sheet_keep_only or c["id"] == "VCL-GIU.01")
+                and (not args.bang_thu_only or c["id"] == "BANG-THU.01")
                 and (not args.fee_migration_only or c["id"] == "CSM.03")]
     if args.list:
         for c in CASES:

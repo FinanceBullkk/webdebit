@@ -306,6 +306,16 @@ def _detail(parts_query: str) -> tuple[str, dict]:
     return "get_receivables_detail", {"customer_id": int(query["customer"][0]), "month": query["month"][0]}
 
 
+def _receipt_book(parts_query: str) -> tuple[str, dict]:
+    """BANG-THU-01: không có tham số là tháng hiện tại; có thì đúng một `month` là ngày đầu tháng."""
+    query = parse_qs(parts_query, keep_blank_values=True)
+    if not parts_query:
+        return "get_receipt_book", {"month": None}
+    if set(query) != {"month"} or len(query["month"]) != 1 or not valid_date(query["month"][0], month=True):
+        bad("INVALID_MONTH", ERRORS["INVALID_MONTH"][1])
+    return "get_receipt_book", {"month": query["month"][0]}
+
+
 def _sheet_queue(parts_query: str) -> tuple[str, dict]:
     query = parse_qs(parts_query, keep_blank_values=True)
     if parts_query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
@@ -355,6 +365,7 @@ GET_ROUTES = {
     "/api/v7/customers": _no_query("list_customers"),
     "/api/v7/receivables/matrix": _matrix,
     "/api/v7/receivables/detail": _detail,
+    "/api/v7/receipt-book": _receipt_book,
     "/api/v7/sheet-queue": _sheet_queue,
     "/api/v7/receipt-images": lambda parts_query: _receipt_images(parts_query, with_id=False),
     "/api/v7/receipt-image": lambda parts_query: _receipt_images(parts_query, with_id=True),
