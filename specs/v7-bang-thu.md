@@ -112,7 +112,7 @@ Revert PR. DB: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pa
 
 ## Bằng chứng
 
-Xem PR và [nhật ký triển khai](../docs/deploys/README.md).
+FinanceBullkk/webdebit#296, FinanceBullkk/webdebit#299; nhật ký [đợt 1](../docs/deploys/2026-11-04-bang-thu.md), [đợt 2](../docs/deploys/2026-11-04-bang-thu-2.md).
 
 ## Câu hỏi mở
 
