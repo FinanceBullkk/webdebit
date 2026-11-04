@@ -19,7 +19,7 @@ B1, B2 (mỗi người nhập một tài khoản) và C4 (người nhập tự c
 
 ## Không chặn — làm trong lúc chạy song song, xong trước ngày chuyển hẳn
 
-- Người dùng tự đi hết luồng trên web thật: tab Đòi nợ (`NHAC-NO-01`), xuất Debit Note đối chiếu mẫu (`DEBIT-NOTE-02`), xóa một dòng điều chỉnh (`XOA-DC-THANG-01`).
+- Người dùng tự đi hết luồng trên web thật: xuất Debit Note đối chiếu mẫu (`DEBIT-NOTE-02`), xóa một dòng điều chỉnh (`XOA-DC-THANG-01`).
 - Khách còn mở của `SONG-SONG-03` (2): chủ nghiệp vụ xác định số phải thu trước F4.
 - Chép bản xuất chat Zalo lên `hao` để trang Chat Zalo có dữ liệu (`NHAC-NO-01`, sửa đổi ZALO-CHAT-01).
 - Bỏ đường export cũ khi Sheet xóa ba tab (sau khi đồng bộ chuyến đã đọc `CONT_NGUON` ổn định).
