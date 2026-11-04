@@ -155,7 +155,8 @@
   function byCommodityTable(scoped) {
     const groups = M.byCommodity(scoped, state.coms);
     const showUndated = groups.some(group => group.undatedCount > 0);
-    const body = groups.map(group => `<tbody class="group">${groupHead(group, group.key, '', showUndated)}${group.rows.map(row => customerLine(row, showUndated, { inGroup: true, hideCommodity: true })).join('')}</tbody>`).join('');
+    // Tên nhóm đã nói mặt hàng nên dòng sổ không lặp lại; riêng "Chưa phân loại" giữ chữ để thấy vì sao (ví dụ sầu riêng chưa ghi cảng/bộ).
+    const body = groups.map(group => `<tbody class="group">${groupHead(group, group.key, '', showUndated)}${group.rows.map(row => customerLine(row, showUndated, { inGroup: true, hideCommodity: group.key !== F.UNSORTED })).join('')}</tbody>`).join('');
     return `<table class="thu by-commodity">${groupedHead('Mặt hàng · khách', showUndated)}${body}</table>`;
   }
   function debtGroupLabel(group, year) {

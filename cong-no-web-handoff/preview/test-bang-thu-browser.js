@@ -51,7 +51,7 @@ const customers = [{ id: 7, name: 'SỔ A', commodity: 'Sầu riêng', transport
 const box = (id, ready, review, amount, extra) => ({ customer_id: id, receipts: { ready, review, amount_vnd: amount }, ...extra });
 const inboxReady = { state: 'ready', books: [box(7, 2, 0, '50000000'), box(8, 0, 1, '35000000'), box(9, 5, 0, '1000', { sheet_matched: true })] };
 
-function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customersStatus = () => 200, calls = [] }) {
+function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customersStatus = () => 200, calls = [], customerRows = customers }) {
   return http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     const route = url.pathname;
@@ -62,7 +62,7 @@ function makeServer({ book, inbox = inboxReady, bookStatus = () => 200, customer
       const status = bookStatus();
       return status === 200 ? out(book(url.searchParams.get('month'))) : out({ error: 'X' }, status);
     }
-    if (route === '/api/v7/customers') return customersStatus() === 200 ? out({ customers }) : out({}, 503);
+    if (route === '/api/v7/customers') return customersStatus() === 200 ? out({ customers: customerRows }) : out({}, 503);
     if (route === '/api/v7/inbox') return inbox ? out(inbox) : out({}, 503);
     if (route.startsWith('/api/v7/presence')) return out({ people: [] });
     if (route.startsWith('/api/')) return out({}, 404);
@@ -208,6 +208,14 @@ test('Bảng thu: Theo mặt hàng gom sổ theo mặt hàng, nhóm nhiều ti�
   // Nhóm và sổ chung một thước: sổ duy nhất của nhóm dài bằng thanh nhóm.
   const widths = await page.locator('.by-commodity .share').evaluateAll(nodes => nodes.map(node => node.style.width));
   assert.deepEqual(widths, ['100%', '100%', '30%', '30%', '22.1%', '22.1%']);
+}));
+
+test('Bảng thu: Theo mặt hàng, sổ trùng tên giữ số sổ; sầu riêng chưa ghi cảng/bộ nằm "Chưa phân loại" và giữ chữ để thấy vì sao', () => withPage({ book: byMonth, search: '?xem=mat-hang', customerRows: [
+  { id: 7, name: 'SỔ A', commodity: 'Chuối', transport_mode: null }, { id: 8, name: 'SỔ A', commodity: 'Chuối', transport_mode: null }, { id: 9, name: 'SỔ C', commodity: 'Sầu riêng', transport_mode: null },
+] }, async page => {
+  await page.locator('.by-commodity tr.pay').first().waitFor();
+  assert.deepEqual((await page.locator('.group-head th').allInnerTexts()).map(clean), ['Chuối 2 khách', 'Chưa phân loại 1 khách']);
+  assert.deepEqual((await page.locator('tr.pay .row-link').allInnerTexts()).map(clean), ['SỔ A sổ 8', 'SỔ A sổ 7', 'SỔ C Sầu riêng']);
 }));
 
 test('Bảng thu: Theo tháng nợ tách đúng phần tiền, nợ cũ trước, ứng trước cuối; dòng mở sổ đúng tháng', () => withPage({ book: byMonth, search: '?xem=thang-no' }, async page => {
