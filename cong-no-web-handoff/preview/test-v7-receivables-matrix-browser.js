@@ -1,9 +1,8 @@
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 const root = __dirname;
 const currentYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric' }).format(new Date()));

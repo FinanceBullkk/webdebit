@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho sửa/xóa tại ô (NHAP-SHEET-01) trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth } = require('./so-khach-v7-browser-world');
 
@@ -15,9 +15,11 @@ test('Phiếu thu là khối ở đầu tháng, trên bảng chuyến; không ch
     const pay = section.querySelector('.pay-block'), trips = section.querySelector('.trip-list'), bar = document.querySelector('.month-chips');
     return { order: bar.getBoundingClientRect().bottom <= pay.getBoundingClientRect().top && pay.getBoundingClientRect().bottom <= trips.getBoundingClientRect().top,
       inTrips: Boolean(pay.closest('.trip-list')), trips: trips.getBoundingClientRect().width,
-      book: document.querySelector('#the-so .ledger-book').clientWidth };
+      book: document.querySelector('#the-so .ledger-book').clientWidth,
+      // Ca này từng đỏ ngẫu nhiên trên Windows mà không có lỗi mạng: ghi số đo để lần sau biết khối nào lệch.
+      tops: { scrollY: window.scrollY, bar: bar.getBoundingClientRect().bottom, payTop: pay.getBoundingClientRect().top, payBottom: pay.getBoundingClientRect().bottom, tripsTop: trips.getBoundingClientRect().top } };
   });
-  assert.ok(geo.order, 'thanh tháng → khối phiếu thu → bảng chuyến');
+  assert.ok(geo.order, `thanh tháng → khối phiếu thu → bảng chuyến ${JSON.stringify(geo.tops)}`);
   assert.equal(geo.inTrips, false);
   assert.ok(geo.book - geo.trips <= 30, `bảng chuyến ${geo.trips}px / vùng sổ ${geo.book}px`);
   assert.match(await sept.locator('.pay-head').innerText(), /^Khách trả trong tháng\s*· 1 phiếu\s*\+ Ghi phiếu thu$/);

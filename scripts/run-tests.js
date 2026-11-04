@@ -7,7 +7,8 @@
 //   node scripts/run-tests.js viewer    tests/test-viewer-browser.js
 //
 // Thêm test mới: đặt tên `test-<tên>.js` (hoặc `test-<tên>-browser.js` nếu cần Chromium)
-// trong cong-no-web-handoff/preview/ là được chạy, không sửa file này.
+// trong cong-no-web-handoff/preview/ là được chạy, không sửa file này. File `-browser.js` lấy `test` từ
+// ./shared-browser.js (thử lại khi Chromium báo ERR_NO_BUFFER_SPACE); test-shared-browser.js chặn file quên điều này.
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");

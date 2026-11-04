@@ -3,7 +3,7 @@
  * tên, lọc; nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026); Hồ sơ theo HO-SO-01: giá đang áp bằng dòng "Đang dùng" của Bảng giá,
  * giá sắp áp, chưa có giá, cột phụ phí bằng cột của sổ, group Zalo đã gắn, nút chưa có backend báo rõ; nguồn phụ lỗi thì chỉ khối đó báo. Máy chủ giả, dữ liệu giả, 1280×720, đồng hồ trang ghim
  * 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
 

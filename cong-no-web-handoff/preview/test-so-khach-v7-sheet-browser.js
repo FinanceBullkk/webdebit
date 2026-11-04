@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho đối chiếu Sheet, ghi giá từ Sheet và Làm mới trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { clock, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {

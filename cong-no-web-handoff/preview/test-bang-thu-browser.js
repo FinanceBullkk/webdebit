@@ -1,9 +1,8 @@
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 // BANG-THU-01, BANG-THU-02: Bảng thu — tiền về theo ngày, gom mọi sổ, chỉ xem, năm cách xem. Dữ liệu giả; số không lọc lấy nguyên từ API.
 const AS_OF = '2026-11-04';

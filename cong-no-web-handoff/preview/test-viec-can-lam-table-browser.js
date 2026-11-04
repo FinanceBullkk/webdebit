@@ -1,9 +1,8 @@
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 const sha = 'c'.repeat(64);
 const book = (id, extra = {}) => ({ customer_id: id, version: 3, outstanding_vnd: '1000000000',
@@ -126,7 +125,8 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.match(line, /1 khách web đi trước Sheet/);
     assert.match(line, /3 khách cần xem/);
     assert.ok(await page.locator('.reconcile.warn').count());
-    await page.locator('.work-row').first().waitFor();
+    // Sổ 8 đến từ /api/v7/dashboard, về độc lập với /api/v7/inbox: chờ đúng dòng của nó, dòng đầu tiên hiện chưa đủ.
+    await page.locator('.work-row[data-book="8"]').waitFor();
     // Sổ 1, 3, 4, 5 đã khớp: chỉ còn sổ 2, 6, 7 (và sổ 8 số dư đầu); việc chưa giá của sổ 2 vẫn hiện vì sổ 2 chưa khớp.
     assert.deepEqual((await page.locator('.work-row').evaluateAll(rows => rows.map(r => Number(r.dataset.book)))).sort(), [2, 6, 7, 8]);
     assert.match(await page.locator('.matched-note').innerText(), /Đã ẩn 4 sổ đã khớp Sheet/);

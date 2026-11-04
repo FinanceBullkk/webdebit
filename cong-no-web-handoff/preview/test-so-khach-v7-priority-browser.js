@@ -1,4 +1,4 @@
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
