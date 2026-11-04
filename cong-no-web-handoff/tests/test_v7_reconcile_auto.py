@@ -126,6 +126,16 @@ class ReconcileAutoTest(unittest.TestCase):
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["error"], row["web_total_vnd"]), ("WRITE_ERROR", "STALE_LEDGER", str(FAKE_AMOUNT)))
 
+    def test_shuffled_prices_are_named_and_nothing_is_written(self):
+        self.undated_receipt_book()
+        db = Db()
+        group = {"kind": "receipts_no_date", "month": "2026-10", "rows": [{}], "delta_vnd": -5}
+        with patch.object(job.fix, "plan", return_value=([group], 0, ["2026-10"])):
+            self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(db.writes, [])
+        row = self.result()["customers"][0]
+        self.assertEqual((row["reason"], row["shuffled_months"]), ("SHEET_SHUFFLED", ["2026-10"]))
+
     def test_error_on_one_book_does_not_stop_the_run(self):
         self.undated_receipt_book()
         db = Db()

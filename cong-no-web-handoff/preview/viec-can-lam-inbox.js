@@ -79,6 +79,7 @@
     WEB_AHEAD: 'Web đi trước Sheet: chuyến đã có giá trên web, Sheet chưa ghi. Không cần làm gì.',
     WOULD_FIX: 'Máy sửa được khi bật ghi, khớp đúng tới từng đồng.',
     NO_EXACT_FIX: 'Máy không tìm được cách khớp đúng tới từng đồng, nên chưa ghi gì.',
+    SHEET_SHUFFLED: 'Trên Sheet đơn giá của vài chuyến đổi chỗ cho nhau, có thể do xếp lệch cột, nên máy không ghi.',
     AMBIGUOUS_FIX: 'Có nhiều cách khớp, máy không tự chọn.',
     NOTHING_TO_WRITE: 'Trên Sheet không có việc nào giải thích được số lệch.',
     TOO_MANY_GROUPS: 'Quá nhiều loại việc, máy không dò.',
@@ -99,18 +100,19 @@
     const hour = Number(new Date(now).toLocaleString('en-GB', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', hour12: false }));
     return hour >= 10 && hour <= 22 && now - Date.parse(checkedAt) > 3 * 3600_000;
   }
+  const shuffledText = row => (row.shuffled_months?.length ? ` Tháng có đơn giá đổi chỗ: ${row.shuffled_months.map(monthShort).join(', ')}.` : '');
   function reconcileRowText(row, million) {
     if (row.reason === 'FIXED') {
       const w = row.written ?? {};
       const parts = [w.receipts && `${w.receipts} phiếu thu`, w.legacy_deleted && `thay ${w.legacy_deleted} khoản thu cũ`, w.prices && `${w.prices} giá`, w.fee_rows && `${w.fee_rows} dòng điều chỉnh`, w.fee_undone && `hủy ${w.fee_undone} dòng điều chỉnh Sheet không còn`].filter(Boolean);
-      return `Máy đã sửa ${parts.join(', ')}. ${row.status === 'KHOP' ? 'Khớp tới từng đồng.' : 'Phần còn lại là web đi trước Sheet.'}`;
+      return `Máy đã sửa ${parts.join(', ')}. ${row.status === 'KHOP' ? 'Khớp tới từng đồng.' : 'Phần còn lại là web đi trước Sheet.'}${shuffledText(row)}`;
     }
     const base = REASON_TEXT[row.reason] ?? row.reason;
     const shown = (row.groups ?? []).filter(g => row.reason !== 'WOULD_FIX' || g.chosen);
     const money = value => `${BigInt(value) > 0n ? '+' : ''}${million(value)} tr`;
     const work = shown.length ? ` ${row.reason === 'WOULD_FIX' ? 'Sẽ ghi' : 'Việc đang chờ'}: ${shown.map(g => `${g.count} ${GROUP_WORD[g.kind] ?? g.kind} (${money(g.delta_vnd)})`).join(', ')}.` : '';
     const ahead = row.reason !== 'WEB_AHEAD' && BigInt(row.web_ahead_vnd ?? 0) > 0n ? ` Trong số lệch có ${million(row.web_ahead_vnd)} tr web đi trước Sheet.` : '';
-    return `${base}${work}${ahead}`;
+    return `${base}${work}${ahead}${shuffledText(row)}`;
   }
   function reconcileHtml(result, { esc, href, show, now = Date.now() }) {
     if (!result) return '';
@@ -127,12 +129,14 @@
     const tone = rows.some(row => row.reason === 'VERIFY_FAILED') ? 'danger' : open.length || would.length || failed || old ? 'warn' : '';
     const parts = [fixed.length && `máy vừa sửa ${fixed.length} khách`, would.length && `${would.length} khách máy sửa được`, ahead.length && `${ahead.length} khách web đi trước Sheet`].filter(Boolean);
     const big = value => { const n = BigInt(value ?? 0); return n < 0n ? -n : n; };
+    // Nợ tập trung ở vài khách lớn: đếm khách một mình dễ tưởng gần xong, nên kèm tỷ lệ theo tiền.
+    const share = BigInt(result.all_web_vnd ?? 0) > 0n ? ` (${BigInt(result.matched_web_vnd ?? 0) * 100n / BigInt(result.all_web_vnd)}% số nợ)` : '';
     const rank = row => (open.includes(row) ? 0 : would.includes(row) ? 1 : isAhead(row) && row.reason !== 'FIXED' ? 2 : 3);
     const sorted = [...rows].sort((a, b) => rank(a) - rank(b) || (big(b.difference_vnd) > big(a.difference_vnd) ? 1 : big(b.difference_vnd) < big(a.difference_vnd) ? -1 : 0));
     const line = row => `<tr><th scope="row">${esc(row.customer)}</th><td class="num money">${row.difference_vnd == null ? '—' : esc(million(row.difference_vnd))}</td><td>${esc(reconcileRowText(row, million))}</td><td>${row.customer_id ? `<a href="${href(row.customer_id)}">Mở sổ</a>` : ''}</td></tr>`;
     const months = result.months_differ?.length ? `<p class="inbox-note">${result.months_differ.length} khách khớp tổng nhưng chia theo tháng khác Sheet (web trừ nợ cũ trước).</p>` : '';
     const list = show && rows.length ? `<div class="reconcile-list"><table><thead><tr><th scope="col">Khách</th><th scope="col" class="num">Web − Sheet <span class="muted">tr</span></th><th scope="col">Kết luận</th><th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${sorted.map(line).join('')}</tbody></table>${months}</div>` : '';
-    return `<section class="reconcile ${tone}" aria-label="Đối soát với Sheet">${failed}<div class="reconcile-line"><span>Đối soát với Sheet lúc ${esc(when(result.checked_at))}${old ? ' · có thể cũ' : ''}</span><strong>${result.counts?.KHOP ?? 0}/${result.total ?? 0} khách khớp</strong>${parts.map(text => `<span>${esc(text)}</span>`).join('')}${open.length ? `<strong class="reconcile-open">${open.length} khách cần xem</strong>` : ''}${rows.length ? `<button class="btn" type="button" data-reconcile aria-expanded="${!!show}">${show ? 'Thu gọn' : 'Xem'}</button>` : ''}</div>${list}</section>`;
+    return `<section class="reconcile ${tone}" aria-label="Đối soát với Sheet">${failed}<div class="reconcile-line"><span>Đối soát với Sheet lúc ${esc(when(result.checked_at))}${old ? ' · có thể cũ' : ''}</span><strong>${result.counts?.KHOP ?? 0}/${result.total ?? 0} khách khớp${share}</strong>${parts.map(text => `<span>${esc(text)}</span>`).join('')}${open.length ? `<strong class="reconcile-open">${open.length} khách cần xem</strong>` : ''}${rows.length ? `<button class="btn" type="button" data-reconcile aria-expanded="${!!show}">${show ? 'Thu gọn' : 'Xem'}</button>` : ''}</div>${list}</section>`;
   }
 
   const changePreview = (total, before, after) => (BigInt(total) - BigInt(before) + BigInt(after)).toString();

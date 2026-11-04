@@ -99,7 +99,17 @@ class PlanTests(unittest.TestCase):
                  web_trip(6, "AAAA7", unit="30", status="pending_review")]   # chờ kiểm chưa tính nợ
         legacy = [{"id": 40, "kind": "trip", "month": "2026-11-01",
                    "current": {"container": "AAAA8", "event_date": "2026-11-01", "unit_price_vnd": "50", "counted_vnd": "50", "month": "2026-11-01"}}]
-        self.assertEqual(self.plan(rows, trips, legacy)[1], 107 + 11 + 20)   # dòng sổ gốc không tính
+        _, ahead, shuffled = self.plan(rows, trips, legacy)
+        self.assertEqual((ahead, shuffled), (107 + 11 + 20, []))   # dòng sổ gốc không tính
+
+    def test_plan_reports_shuffled_month_and_leaves_its_prices_out(self):
+        rows = [sheet_row(1, "AAAA1", unit=75, total=75, month="2026-10"), sheet_row(2, "AAAA2", unit=50, total=50, month="2026-10"),
+                sheet_row(3, "AAAA3", unit=90, total=90, month="2026-09")]
+        trips = [web_trip(1, "AAAA1", unit="50", month="2026-10"), web_trip(2, "AAAA2", unit="75", month="2026-10"),
+                 web_trip(3, "AAAA3", unit="80", month="2026-09")]
+        groups, _, shuffled = self.plan(rows, trips)
+        self.assertEqual(shuffled, ["2026-10"])
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"]) for g in groups], [("prices", "2026-09", 10)])
 
     def test_total_without_unit_price_becomes_the_price_of_an_unpriced_trip(self):
         rows = [sheet_row(1, "AAAA1", total=45), sheet_row(2, "AAAA2", total=46), sheet_row(3, "AAAA3", total=47), sheet_row(4, "AAAA4", total=0)]
@@ -107,7 +117,7 @@ class PlanTests(unittest.TestCase):
         legacy = [{"id": 40, "kind": "trip", "month": "2026-11-01",   # sổ gốc đã tính 30: tiền đã ở trong sổ, không ghi thêm
                    "current": {"container": "AAAA5", "event_date": "2026-11-01", "unit_price_vnd": None, "counted_vnd": "30", "month": "2026-11-01"}}]
         rows.append(sheet_row(5, "AAAA5", total=48))
-        groups, ahead = self.plan(rows, trips, legacy)
+        groups, ahead, _ = self.plan(rows, trips, legacy)
         self.assertEqual(ahead, 0)   # dòng 2 có TỔNG trên Sheet, web không đi trước
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"]) for g in groups], [("prices", "2026-11", 45)])
         row = groups[0]["rows"][0]
@@ -120,9 +130,36 @@ class PlanTests(unittest.TestCase):
         legacy = [{"id": 50, "kind": "trip", "month": "2026-09-01", "current": {"container": None, "counted_vnd": "5", "month": "2026-09-01"}}]
         adjustments = [{"month": "2026-09-01", "amount_vnd": "6", "note": fix.FEE_NOTE + ", dòng 13"},
                        {"month": "2026-10-01", "amount_vnd": "43", "note": "dòng người ghi"}]
-        groups, _ = self.plan(rows, legacy=legacy, adjustments=adjustments)
+        groups, _, _ = self.plan(rows, legacy=legacy, adjustments=adjustments)
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], [r["source_row"] for r in g["rows"]]) for g in groups],
                          [("fee_rows", "2026-08", -2, [14]), ("fee_rows", "2026-10", 43, [10])])
+
+
+class ShuffledTests(unittest.TestCase):
+    @staticmethod
+    def conflict(web, sheet, month="2026-10", fee=None):
+        return price("CONFLICT", month=month, sheet=(sheet, fee), web=(web, None))
+
+    def months(self, *rows):
+        return fix.shuffled_months({"ready": [], "review": list(rows)})
+
+    def test_prices_changing_places_in_a_circle(self):
+        # Đúng ca đo trên `hao`: 50→75, 75→65, 65→50 là vòng; 55→50 đứng ngoài vòng vẫn không che được.
+        self.assertEqual(self.months(self.conflict("55", "50"), self.conflict("50", "75"), self.conflict("75", "65"), self.conflict("65", "50")), ["2026-10"])
+        self.assertEqual(self.months(self.conflict("50", "75"), self.conflict("75", "50")), ["2026-10"])
+
+    def test_ordinary_corrections_are_not_a_circle(self):
+        self.assertEqual(self.months(self.conflict("55", "50")), [])
+        self.assertEqual(self.months(self.conflict("55", "50"), self.conflict("56", "50"), self.conflict("50", "45")), [])
+        self.assertEqual(self.months(self.conflict("50", "50", fee="7")), [])   # chỉ khác phụ phí
+        self.assertEqual(self.months(price("READY", sheet=("50", None))), [])   # web chưa có giá: không có gì để so
+        self.assertEqual(self.months(self.conflict("50", "75"), self.conflict("75", "50", month="2026-09")), [])   # khác tháng
+
+    def test_month_with_shuffled_prices_gives_no_price_group(self):
+        prices = {"ready": [price("READY", month="2026-11")],
+                  "review": [self.conflict("50", "75"), self.conflict("75", "50"), price("MONTH_LOCKED", month="2026-10")]}
+        shuffled = fix.shuffled_months(prices)
+        self.assertEqual([g["month"] for g in fix.price_groups(prices, [price("READY", month="2026-10", sheet=("45", None))], shuffled)], ["2026-11"])
 
 
 class FeeUndoTests(unittest.TestCase):

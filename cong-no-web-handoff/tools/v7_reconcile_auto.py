@@ -97,8 +97,10 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     if total == sheet:   # ai đó vừa sửa sau lúc đọc
         row.update(status="KHOP", reason="KHOP")
         return
-    groups, ahead = fix.plan(prices, receipts, ledger, customers, today)
+    groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
     row["web_ahead_vnd"] = ahead
+    if shuffled:
+        row["shuffled_months"] = shuffled
     target = sheet + ahead
     if total == target:
         row.update(reason="WEB_AHEAD", groups=[brief(group, []) for group in groups])
@@ -106,7 +108,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     verdict, chosen = fix.choose(groups, target - total)
     row["groups"] = [brief(group, chosen) for group in groups]
     if verdict != "FIX":
-        row["reason"] = verdict
+        row["reason"] = "SHEET_SHUFFLED" if shuffled else verdict
         return
     if not write:
         row["reason"] = "WOULD_FIX"

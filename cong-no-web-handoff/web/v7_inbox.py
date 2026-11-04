@@ -305,6 +305,7 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
         "text_diff": text_diff,
         "prices": {"ready": len(prices.get("ready") or []), "review": len(prices.get("review") or [])},
         "prices_auto": len(auto_prices(prices)),   # phần của hai nhóm trên máy ghi được; không cộng vào `busy`
+        "prices_conflict": sum(row.get("status") == "CONFLICT" for row in prices.get("review") or []),   # không cộng vào `busy`
         "ps": {"ready": len(ps.get("ready") or []), "review": len(ps.get("review") or [])},
         "ps_auto": len(auto_ps(ps)),   # phần của nhóm trên máy tách được; không cộng vào `busy`
     }
@@ -786,7 +787,8 @@ class Inbox:
                     "trip_items": [{**entry, "at": iso(entry["at"])} for entry in trip_done[:100]],
                     "price_items": [{**entry, "at": iso(entry["at"])} for entry in price_done[:100]],
                     "ps_items": [{**entry, "at": iso(entry["at"])} for entry in ps_done[:100]]}
-            # Sổ đã khớp Sheet ở lượt đối soát gần nhất và tổng chưa đổi từ đó: việc còn treo của sổ không làm đổi được gì đúng hơn.
+            # Sổ đã khớp Sheet ở lượt đối soát gần nhất và tổng chưa đổi từ đó: việc còn treo của sổ không làm số đúng hơn. Riêng giá
+            # khác giá Sheet vẫn hiện: tổng khớp mà giá từng chuyến lệch là hai chỗ bù trừ nhau, phép khớp tổng không thấy.
             reconcile = reconcile_result()
             matched = (reconcile or {}).get("matched") or {}
             return {"state": state, "computed_at": iso(self.computed_at), "auto": auto,
@@ -794,5 +796,6 @@ class Inbox:
                     "books_total": self.total, "books_done": self.done, "failed": sorted(self.failed),
                     "reconcile": None if reconcile is None else {**{k: v for k, v in reconcile.items() if k != "matched"},
                                                                   "matched_ids": sorted(int(key) for key in matched)},
-                    "books": [{**book, "sheet_matched": matched.get(str(book["customer_id"])) == book.get("outstanding_vnd")}
+                    "books": [{**book, "sheet_matched": matched.get(str(book["customer_id"])) == book.get("outstanding_vnd")
+                               and not book.get("prices_conflict")}
                               for book in sorted(self.books.values(), key=lambda b: b["customer_id"])]}

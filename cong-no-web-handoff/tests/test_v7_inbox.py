@@ -68,6 +68,7 @@ class SummarizeTests(unittest.TestCase):
             "text_diff": 1,
             "prices": {"ready": 0, "review": 1},
             "prices_auto": 0,
+            "prices_conflict": 0,
             "ps": {"ready": 1, "review": 2},
             "ps_auto": 1})
 
@@ -212,6 +213,12 @@ class InboxTests(unittest.TestCase):
             self.assertNotIn("matched", view["reconcile"])
             # Sổ 2 đã đổi tổng từ lúc đối soát: việc của sổ vẫn phải hiện.
             self.assertEqual({b["customer_id"]: b["sheet_matched"] for b in view["books"]}, {1: True, 2: False})
+            # Tổng khớp mà giá từng chuyến khác Sheet: hai chỗ bù trừ nhau, không ẩn.
+            self.outputs[1].update(sheet_prices={"ready": [], "review": [{"status": "CONFLICT", "month": "2026-10"}]})
+            self.inbox.key = None
+            self.inbox.start(runner)
+            wait_idle(self.inbox)
+            self.assertEqual({b["customer_id"]: b["sheet_matched"] for b in self.inbox.view(runner)["books"]}, {1: False, 2: False})
             reconcile.write_text("hỏng", encoding="utf-8")
             os.utime(reconcile, (1, 1))
             self.assertIsNone(self.inbox.view(runner)["reconcile"])
