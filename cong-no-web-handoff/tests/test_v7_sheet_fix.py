@@ -102,6 +102,19 @@ class PlanTests(unittest.TestCase):
         _, ahead, shuffled = self.plan(rows, trips, legacy)
         self.assertEqual((ahead, shuffled), (107 + 11 + 20, []))   # dòng sổ gốc không tính
 
+    def test_web_ahead_leaves_out_trips_an_adjustment_already_took_off_the_book(self):
+        rows = [sheet_row(1, "AAAA1", unit=5, total=5, month="2026-03")]
+        trips = [web_trip(1, "BBBB1", unit="46", month="2026-03"), web_trip(2, "BBBB2", unit="43", fee="1", month="2026-03"),
+                 web_trip(3, "BBBB3", unit="20", month="2026-04")]
+        moved = {"id": 61, "month": "2026-03-01", "amount_vnd": "-90", "note": "4 chuyến dời sang sổ khác"}
+        self.assertEqual(self.plan(rows, trips, adjustments=[moved])[1], 20)   # tháng 3 đã trừ hết, tháng 4 vẫn đi trước
+        pair = [{"id": 62, "month": "2026-03-01", "amount_vnd": "7"}, {"id": 63, "month": "2026-03-01", "amount_vnd": "-7"}]
+        self.assertEqual(self.plan(rows, trips, adjustments=[moved, *pair])[1], 20)   # cặp tự triệt tiêu không làm đổi kết luận
+        partly = {"id": 64, "month": "2026-03-01", "amount_vnd": "-50"}
+        self.assertEqual(self.plan(rows, trips, adjustments=[partly])[1], 110)  # trừ không đúng bằng: không suy ra được, tính như thường
+        other_month = {"id": 65, "month": "2026-04-01", "amount_vnd": "-90"}
+        self.assertEqual(self.plan(rows, trips, adjustments=[other_month])[1], 110)  # khác tháng không liên quan
+
     def test_plan_reports_shuffled_month_and_leaves_its_prices_out(self):
         rows = [sheet_row(1, "AAAA1", unit=75, total=75, month="2026-10"), sheet_row(2, "AAAA2", unit=50, total=50, month="2026-10"),
                 sheet_row(3, "AAAA3", unit=90, total=90, month="2026-09")]

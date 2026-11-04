@@ -23,16 +23,18 @@ PAID = 1000
 class Db:
     """Một sổ khớp bản tải giả: chuyến FAKE-CONT-XY đã có giá; phiếu thu ghi xong thì tổng giảm."""
 
-    def __init__(self, total=FAKE_AMOUNT, unit_price=FAKE_AMOUNT, fail=None):
+    def __init__(self, total=FAKE_AMOUNT, unit_price=FAKE_AMOUNT, fail=None, moved_trips=(), adjustments=()):
         self.total, self.unit_price, self.fail, self.version = total, unit_price, fail, 4
         self.receipts, self.writes = [], []
+        self.moved_trips, self.adjustments = list(moved_trips), list(adjustments)
 
     def ledger(self):
         return {"customer_id": 1, "status": "active", "version": self.version, "total_outstanding_vnd": str(self.total),
                 "months": [{"month": "2026-10-01", "outstanding_vnd": str(self.total)}], "today_month": "2026-11-01",
-                "month_locks": [], "legacy_rows": [], "events": [], "receipts": self.receipts,
+                "month_locks": [], "legacy_rows": [], "events": [], "receipts": self.receipts, "adjustments": self.adjustments,
                 "trips": [{"id": 3, "status": "confirmed", "container": "FAKE-CONT-XY", "event_date": "2026-10-03", "month": "2026-10-01",
-                           "unit_price_vnd": None if self.unit_price is None else str(self.unit_price), "other_fee_vnd": None}]}
+                           "unit_price_vnd": None if self.unit_price is None else str(self.unit_price), "other_fee_vnd": None},
+                          *self.moved_trips]}
 
     def run(self, function, payload, actor):
         if function == "list_customers":
@@ -152,6 +154,16 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(db.writes, [])
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["web_ahead_vnd"], row["difference_vnd"]), ("WEB_AHEAD", "500", "500"))
+
+    def test_trip_an_adjustment_took_off_the_book_does_not_block_a_right_receipt(self):
+        self.undated_receipt_book()
+        moved = {"id": 9, "status": "confirmed", "container": "MOVED-CONT-XY", "event_date": "2026-03-18", "month": "2026-03-01",
+                 "unit_price_vnd": "181", "other_fee_vnd": None}
+        db = Db(moved_trips=[moved], adjustments=[{"id": 61, "month": "2026-03-01", "amount_vnd": "-181", "note": "dời sang sổ khác"}])
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        row = self.result()["customers"][0]
+        self.assertEqual((row["reason"], row["status"], row["web_ahead_vnd"]), ("FIXED", "KHOP", "0"))
 
     def test_held_customer_is_named_with_reason_and_never_touched(self):
         fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT + 1)])   # chuỗi số dư trên Sheet không khớp
