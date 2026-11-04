@@ -44,6 +44,7 @@ READ.add('get_fee_types()')
 READ.update({'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)'})
 READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 READ.add('get_reminders()')  # NHAC-NO-01: ai vào app cũng xem được mốc đã nhắc
+READ.add('get_receipt_book(date)')  # BANG-THU-01: ai vào app cũng xem được bảng thu
 READ.update({'get_zalo_links()', 'get_marks(bigint,text)'})  # ZALO-GROUP-01: ai vào app cũng xem được gắn sổ và dấu
 WRITE = {
     # Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md): giữ, lấy giá Sheet, gán mặt hàng, chọn sổ, hoàn tác lô.
@@ -117,6 +118,7 @@ KNOWN_FUNCTIONS.update({'_price_key', '_price_table', '_lookup_price', '_price_t
 KNOWN_FUNCTIONS.update({'_rewrite_trip_fees', 'rewrite_trip_fees'})
 KNOWN_FUNCTIONS.add('resolve_sheet_conflict')  # gộp vào file chuẩn 29/10/2026
 KNOWN_FUNCTIONS.update({'record_reminder', 'get_reminders'})  # NHAC-NO-01
+KNOWN_FUNCTIONS.update({'get_receipt_book', '_legacy_pay_date'})  # BANG-THU-01
 KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01

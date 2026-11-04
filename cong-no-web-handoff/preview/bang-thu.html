@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Bảng thu: tiền về theo ngày, gom phiếu thu của mọi sổ khách. Chỉ xem.">
+  <title>Công nợ HTH · Bảng thu</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="bang-thu.css">
+  <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body data-presence="bang-thu">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="bang-thu"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Bảng thu</h1>
+      <time class="asof" id="as-of"></time><div class="live-controls"><time id="updated-at" aria-live="polite">Tự cập nhật mỗi 60 giây</time><button id="refresh-data" class="btn" type="button">Làm mới</button></div></div>
+    <div id="error" role="alert" hidden></div>
+    <div id="bang-thu"><p class="loading">Đang tải bảng thu…</p></div>
+  </main>
+  <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="bang-thu.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>
