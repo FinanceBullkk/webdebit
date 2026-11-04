@@ -32,6 +32,7 @@ DECLARE
     privilege text;
     expected text[] := ARRAY[
       -- Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md, năm migration 2026-11-02).
+      'create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)',
       'keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)', 'apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb)',
       'set_customer_commodity(bigint,bigint,text,text)', 'assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb)',
       'undo_sheet_batch(bigint,bigint,text,jsonb)',

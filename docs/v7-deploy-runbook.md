@@ -1759,6 +1759,19 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
+## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-tao-so.sql` ([quyết định](decisions/may-tao-so-01.md), [spec](../specs/v7-may-tao-so.md)) chỉ THÊM một hàm ghi `create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)`, cấp cho app, không cấp reader. Không đổi bảng, view, hàm cũ, quyền cũ hay dữ liệu. Chạy lại được.
+
+Thứ tự với release: chạy migration trước. Release mới mà chưa có hàm thì lúc gặp tab mới, máy báo lỗi ở dòng khách đó, không ghi gì; các khách khác không ảnh hưởng.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Chạy mã của nhánh với `--fix` trên DB thử: sổ mới đúng như dự kiến, tổng nợ tăng đúng bằng tổng các tab mới, sổ khác không đổi, lượt thứ hai không ghi thêm, `v7_post_deploy_check.sql` đạt, dán thử chuyến vào sổ mới được.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** lượt đối soát kế tiếp (hoặc `systemctl start v7-reconcile-auto.service`) tạo sổ. Kiểm tổng tăng đúng bằng tổng tab, đọc lại Lịch sử sổ mới, mở sổ trên web.
+
+Rollback: dừng tạo sổ bằng cách bỏ `--fix` như mục máy đối soát. Sổ đã tạo là sổ thật, không xóa được bằng lệnh nào của app; muốn về hẳn thì restore bản dump vào DB mới (quy trình M2-11). Bỏ hàm: `DROP FUNCTION sokhach.create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text);` dưới `sokhach_owner`, không gì tham chiếu tới.
+
 ## Máy tự ghi giá Sheet (MAY-GIA-01)
 
 Không có SQL: `Deploy hao` tự lên khi PR merge ([`MAY-GIA-01`](decisions/may-gia-01.md), [spec](../specs/v7-price-queue.md#máy-tự-ghi-giá-sheet-may-gia-01-3112026)). Công tắc tắt thì release mới không ghi gì thêm. Máy này **ghi tiền**, nên tổng nợ đổi sau khi bật.

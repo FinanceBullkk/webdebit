@@ -171,16 +171,30 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await page.locator('.reconcile.warn,.reconcile.danger').count(), 0);
       assert.equal(await page.locator('[data-reconcile]').count(), 0);
     });
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [
+      { customer: 'Công ty Mẫu Tân Phú', customer_id: 9, status: 'KHOP', reason: 'BOOK_CREATED', difference_vnd: '0', fixed_at: '2026-11-04T08:05:00+07:00' },
+      { customer: 'Tab mẫu trùng container', customer_id: null, status: 'CHI_CO_SHEET', reason: 'BOOK_OVERLAP', difference_vnd: null, overlap_ids: [1] }] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T09:00:00+07:00'));
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      const line = await page.locator('.reconcile-line').innerText();
+      assert.match(line, /hôm nay máy đã tạo 1 sổ mới/);
+      assert.match(line, /1 khách cần xem/);   // sổ vừa tạo không tính là việc cần xem, tab đụng sổ khác thì có
+      await page.locator('[data-reconcile]').click();
+      const rows = await page.locator('.reconcile-list tbody tr').allInnerTexts();
+      assert.match(rows[0], /trùng container[\s\S]*có thể là đổi tên hoặc tách sổ/);
+      assert.match(rows[1], /Tân Phú[\s\S]*Máy đã tạo sổ mới theo TONG/);
+      assert.equal(await page.locator('.reconcile-list tbody tr').nth(1).locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=9');
+    });
     await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 235, LECH_TONG: 1 }, matched_web_vnd: '100000000000', customers: [{ customer: 'Công ty Mẫu Bình An', customer_id: 8, status: 'LECH_TONG', reason: 'NOTHING_TO_WRITE', difference_vnd: '-5', groups: [] }] } } }, async page => {
       await page.clock.setFixedTime(new Date('2026-11-04T09:00:00+07:00'));
       await page.reload(); await page.locator('.reconcile').waitFor();
       assert.match(await page.locator('.reconcile-line').innerText(), /235\/236 khách khớp \(gần 100% số nợ\)/);   // khách lệch đang 0 đồng trên web: không ghi tròn 100
     });
-    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [], outside_tabs: [{ customer: 'TAB MẪU <101>', sheet_total_vnd: '120500000', last_month: '2026-10' }, { customer: 'TAB MẪU 202', sheet_total_vnd: '7000000', last_month: '2026-10' }] } } }, async page => {
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 236 }, customers: [], outside_tabs: [{ customer: 'TAB MẪU <101>', sheet_total_vnd: '120500000', last_month: '2026-10', reason: 'NOT_ON_TONG' }, { customer: 'TAB MẪU 202', sheet_total_vnd: '7000000', last_month: '2026-10', reason: 'TONG_DIFFERS' }, { customer: 'TAB MẪU 303', sheet_total_vnd: '1000000', last_month: '2026-10', reason: 'TAB_UNREADABLE' }] } } }, async page => {
       await page.clock.setFixedTime(new Date('2026-11-04T09:00:00+07:00'));
       await page.reload(); await page.locator('.reconcile').waitFor();
       assert.equal(await page.locator('.reconcile.warn').count(), 1);   // tab ngoài TONG: tổng khách khớp hết vẫn chưa xanh
-      assert.match(await page.locator('.reconcile-outside').innerText(), /2 tab khách trên Sheet còn nợ mà chưa có trên TONG và chưa có sổ web, nên chưa nằm trong số khớp này: TAB MẪU <101> \(120,5 tr\), TAB MẪU 202 \(7 tr\)\./);
+      assert.match(await page.locator('.reconcile-outside').innerText(), /3 tab khách trên Sheet còn nợ mà máy chưa tạo được sổ, nên chưa nằm trong số khớp này: TAB MẪU <101> \(120,5 tr, chưa có trên TONG\); TAB MẪU 202 \(7 tr, số trên TONG khác số trên tab\); TAB MẪU 303 \(1 tr, tab có chỗ máy chưa đọc được\)\./);
     });
     await withPage({ inbox: { ...sample, reconcile: { ...reconcile, last_error: { at: '2026-11-04T09:05:00+07:00', reason: 'HTTPError' } } } }, async page => {
       await page.clock.setFixedTime(new Date('2026-11-04T09:10:00+07:00'));
