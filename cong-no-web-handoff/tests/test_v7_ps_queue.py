@@ -248,6 +248,10 @@ class QueueTest(unittest.TestCase):
         noted = {"before": [{"note": "gõ tay"}], "after": [{"note": None}]}
         kept = {"before": [{"note": "gõ tay"}], "after": [{"note": "gõ tay"}]}
         self.assertEqual(auto_ps({"ready": [ready, noted, kept], "review": [locked, other]}), [ready, kept, locked])
+        # Ghi chú do migration phụ phí tự sinh trên mọi khoản "Phụ phí ban đầu" không phải ghi chú của người.
+        for note in ("migration: legacy fee", "migration: initial fee"):
+            generated = {"before": [{"note": note}], "after": [{"note": None}]}
+            self.assertEqual(auto_ps({"ready": [generated]}), [generated])
 
     def test_missing_fee_type(self):
         types = [t for t in TYPES if t["name"] != "Điện"]

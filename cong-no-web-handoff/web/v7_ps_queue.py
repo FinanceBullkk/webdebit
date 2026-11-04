@@ -20,6 +20,8 @@ from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
 from v7_sheet_queue import _name, read_snapshot
 
 UNCLASSIFIED = ("other", "discount", "initial")
+# The fee migration (2026-10-28) stamped these on every "Phụ phí ban đầu" line; nobody typed them, and the event keeps them.
+GENERATED_NOTES = {"migration: legacy fee", "migration: initial fee"}
 FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
 LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
@@ -210,7 +212,7 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
 def auto_ps(ps: dict[str, Any]) -> list[dict[str, Any]]:
     """Rows the machine may split (MAY-PS-01): READY and month-locked ones, unless replacing lines would lose a note."""
     def keeps_notes(row: dict) -> bool:
-        notes = Counter(x.get("note") for x in row.get("before") or [] if x.get("note"))
+        notes = Counter(x.get("note") for x in row.get("before") or [] if x.get("note") and x["note"] not in GENERATED_NOTES)
         return not notes - Counter(x.get("note") for x in row.get("after") or [] if x.get("note"))
     rows = list(ps.get("ready") or []) + [row for row in ps.get("review") or [] if row.get("status") == "MONTH_LOCKED"]
     return [row for row in rows if keeps_notes(row)]

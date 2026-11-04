@@ -170,11 +170,11 @@ Theo [`MAY-PS-01`](../docs/decisions/may-ps-01.md). Mục này thay các ý "b�
 
 - **Loại gộp:** migration thêm loại "Health + KĐ". `combined_vnd` là một ô như Neo hay Điện trong `plan`; thiếu loại trong danh mục thì `FEE_TYPE_MISSING`. Cờ Health/KĐ không nhắc nữa khi chuyến đã có khoản gộp.
 - **Bổ sung ở dòng sổ gốc (`fill`):** tổng PS khác tổng khoản trên web, nhưng bằng đúng ô TOTAL trừ đơn giá. Vẫn là `READY`/`MONTH_LOCKED`, kèm cờ `fill`. `_rewrite_trip_fees` nhận tổng mới đúng bằng `counted_vnd - unit_price_vnd`, ghi thêm một `legacy_trip_rev` có `other_fee_vnd` mới và `counted_vnd` cũ, không ghi `adjustment`, không phân bổ lại. Chuyến web không có ngoại lệ này. Khung xác nhận của nút ghi "Tổng còn nợ giữ nguyên" thay vì "phụ phí vẫn là".
-- **Máy:** công tắc `WEBDEBIT_AUTO_SHEET=ps`, `Inbox._auto_ps` trong `web/v7_inbox.py`, chạy ở lượt hộp việc. Lấy `READY` + `MONTH_LOCKED` (`auto_ps`), bỏ dòng mà việc thay khoản làm mất ghi chú; gom theo tháng, tháng khóa mở–ghi–khóa một lần (`in_month`); khóa chống ghi trùng cố định theo (bản chụp, đích) như nút.
+- **Máy:** công tắc `WEBDEBIT_AUTO_SHEET=ps`, `Inbox._auto_ps` trong `web/v7_inbox.py`, chạy ở lượt hộp việc. Lấy `READY` + `MONTH_LOCKED` (`auto_ps`), bỏ dòng mà việc thay khoản làm mất ghi chú người đã gõ (ghi chú do migration tự sinh không tính); gom theo tháng, tháng khóa mở–ghi–khóa một lần (`in_month`); khóa chống ghi trùng cố định theo (bản chụp, đích) như nút.
 - **Cột:** ngay sau khi máy vừa ghi ở một sổ, `best_columns` lấy tối đa 3 loại nhiều tiền nhất của sổ (bỏ loại hệ thống). Cột đang có mà nằm trong nhóm thì giữ chỗ; loại mới thêm vào chỗ trống, hết chỗ thì thay cột cuối cùng không nằm trong nhóm. Không đổi thì không ghi. Lệnh `set_book_fee_columns` có sẵn.
 - **Soát:** tab Việc cần làm, mục máy đã làm hôm nay có dòng "Phụ phí" kèm cont và ngày; số trước → sau ở Lịch sử sổ khách.
 
-**Tiêu chí riêng:** unit gồm loại gộp, `fill`, giữ ghi chú, chọn cột, máy tắt không ghi, tháng khóa mở–ghi–khóa; harness `PS-FEE.01` gồm `fill` giữ `counted_vnd` và số dư, tổng khác vẫn `FEE_TOTAL_CHANGED`, chuyến web không được `fill`; thử trên bản sao: số dư 236 khách không đổi; đo trên `hao`: 4 cont được ghi, 3 cont còn `TOTAL_DIFF`.
+**Tiêu chí riêng:** unit gồm loại gộp, `fill`, giữ ghi chú, chọn cột, máy tắt không ghi, tháng khóa mở–ghi–khóa; harness `PS-FEE.01` gồm `fill` giữ `counted_vnd` và số dư, tổng khác vẫn `FEE_TOTAL_CHANGED`, chuyến web không được `fill`; thử trên bản sao: số dư 236 khách không đổi; đo trên `hao`: trong 7 cont có Health+KĐ, 4 cont được ghi, 3 cont còn `TOTAL_DIFF`.
 
 ## Hoàn tác
 

@@ -12,7 +12,7 @@ Máy (người làm trong Lịch sử là "Máy (theo Sheet)") tự làm ba vi�
 2. **Bổ sung khoản còn thiếu ở dòng sổ gốc:** khi ô TOTAL trừ đơn giá bằng đúng tổng PS mà các khoản trên web chưa đủ, máy ghi đủ khoản theo PS. Ô TOTAL giữ nguyên.
 3. **Tự chọn cột:** sau khi tách ở một sổ, máy đưa các loại nhiều tiền nhất của sổ đó lên cột riêng (tối đa 3). Cột đang không nằm trong nhóm này mới bị thay, thay từ cột cuối; thứ tự các cột còn lại giữ nguyên. Khoản không có cột vẫn nằm ở cột Khác. Chỉ chạy khi máy vừa tách ở sổ đó, nên không đè lại lựa chọn của người ở các lần sau.
 
-Vẫn để người xem: tổng PS khác tổng web (`TOTAL_DIFF`), web đã phân loại khác PS (`TYPED_CONFLICT`), bộ lập bill báo lỗi, ô PS gõ sai, nhiều chuyến khớp. Máy cũng không tự tách khi việc thay khoản làm mất một ghi chú đang có; dòng đó chờ người bấm nút Tách.
+Vẫn để người xem: tổng PS khác tổng web (`TOTAL_DIFF`), web đã phân loại khác PS (`TYPED_CONFLICT`), bộ lập bill báo lỗi, ô PS gõ sai, nhiều chuyến khớp. Máy cũng không tự tách khi việc thay khoản làm mất một ghi chú người đã gõ; dòng đó chờ người bấm nút Tách. Ghi chú do migration phụ phí tự sinh (`migration: legacy fee`, `migration: initial fee`) không tính, trước → sau vẫn nằm trong Lịch sử.
 
 **Khác `MAY-GIA-01`:** không có mốc 10/2026, vì việc này chỉ phân loại, không đổi tiền. Bảng PS hiện có tiền ở các tháng từ 5/2026.
 
