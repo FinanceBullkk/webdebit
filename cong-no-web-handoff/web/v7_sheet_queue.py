@@ -162,15 +162,37 @@ def _same_legacy_trip(ref: dict[str, Any], container: str, date: dt.date) -> boo
     return str(ref.get("debt_month") or "")[:7] == date.isoformat()[:7]
 
 
+def _day(value: Any) -> dt.date | None:
+    try:
+        return dt.date.fromisoformat(str(value or "")[:10])
+    except ValueError:
+        return None
+
+
+def _tab_has_own_row(tab_rows: list[dict[str, Any]] | None, container: str, date: dt.date, same_container: list[dict[str, Any]]) -> bool:
+    """CONTAINER-DUNG-LAI-01: container đã có trong sổ là chuyến mới chỉ khi tab khách ghi riêng chuyến đó.
+
+    Tab có nhiều dòng container này hơn số dòng trong sổ, và có một dòng cách dòng Sheet không quá 3 ngày mà không sát dòng
+    nào trong sổ. Không xét theo khoảng cách ngày: đo 4/11/2026, 15/17 dòng là một chuyến, nguồn và tab khác ngày, sai năm.
+    """
+    rows = [row for row in tab_rows or () if _container(row.get("container")) == container]
+    if len(rows) <= len(same_container):
+        return False
+    old_days = [day for day in (_day(old.get("event_date")) for old in same_container) if day]
+    days = [day for day in (_day(row.get("date")) for row in rows) if day]
+    return any(abs((day - date).days) <= 3 and all(abs((day - old).days) > 3 for old in old_days) for day in days)
+
+
 def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_customer_containers: set[str] | None = None,
                      other_legacy: list[dict[str, Any]] | None = None,
-                     family_ids: set[int] | None = None) -> dict[str, Any]:
+                     family_ids: set[int] | None = None, tab_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Show only new or changed Sheet rows inside one customer ledger.
 
     `other_legacy` holds original-book rows of other books for the containers waiting here (list_legacy_trip_refs).
     A row that is already one of them is not offered as new (docs/ux-luong-du-lieu.md 3.3: same customer, other commodity book).
     When that book is one of `family_ids` (same customer, e.g. the old Sheet kept durian in the dragon fruit book) the trip
     is already counted there: nothing to do, the row is not shown at all.
+    `tab_rows` holds the rows of this book's customer tab (price snapshot), which tell a reused container from the same trip.
     """
     existing = []
     for trip in ledger.get("trips", []):
@@ -258,7 +280,7 @@ def project_customer(queue: dict[str, Any], ledger: dict[str, Any], other_custom
                 continue
             state = "CONFLICT"
             reason = "DIFFERENT_FIELDS"
-        elif matches or same_container:
+        elif matches or (same_container and not _tab_has_own_row(tab_rows, container, date, same_container)):
             state = "CONFLICT"
             reason = "AMBIGUOUS_MATCH" if matches else "CONTAINER_REUSED_OR_CHANGED"
             changed = []

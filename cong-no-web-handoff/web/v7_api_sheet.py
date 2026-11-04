@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
-from v7_price_queue import load_price_snapshot, project_prices
+from v7_price_queue import book_rows, load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
@@ -230,6 +230,14 @@ def family_book_ids(customers: list[dict], ledger: dict) -> set[int]:
     return {c["id"] for c in customers if (c.get("display_name") or c.get("name")) == family} - {ledger["customer_id"]}
 
 
+def tab_rows_of_book(ledger: dict, customers: list[dict]) -> list[dict]:
+    """Dòng tab khách của sổ (CONTAINER-DUNG-LAI-01). Bản chụp giá hỏng thì không có dòng nào: chuyến vẫn chờ người xem."""
+    try:
+        return book_rows(cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH), ledger["customer_id"], customers)
+    except ValueError:
+        return []
+
+
 def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
     baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
@@ -252,7 +260,8 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     waiting = [row for row in queue["items"]
                if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"]
     other_containers, other_legacy = other_book_checks(runner, ledger, waiting, actor)
-    result = project_customer(queue, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    result = project_customer(queue, ledger, other_containers, other_legacy, family_book_ids(customers, ledger),
+                              tab_rows_of_book(ledger, customers))
     from v7_sheet_task_keep import trip_identity
     assigned = {}
     for event in ledger.get("events", []):

@@ -478,18 +478,20 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     // NGUON-CHUYEN-01: chuyến bộ (sheet_road) hiện cùng chỗ chuyến mới, kèm lời nhắn; máy đưa vào, người chỉ mở sổ.
     const road = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
       { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
-      { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' }] } };
+      { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' },
+      { sync_state: 'CONFLICT', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
     await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
       // Sổ tải chậm như trên máy CI (lần đầu đếm ngay sau khi bấm nên ra 0 dòng ở CI, xanh ở máy nhanh).
       await page.route('**/api/v7/ledger*', async route => { await new Promise(done => setTimeout(done, 500)); await route.continue(); });
       await page.locator('[data-book="2"] .book-name').click();
       await page.locator('.work-detail .loading').waitFor({ state: 'hidden' });
       const rows = page.locator('.detail-group', { hasText: 'Chuyến mới / ở sổ khác' }).locator('li');
-      assert.equal(await rows.count(), 2);
+      assert.equal(await rows.count(), 3);
       assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
       assert.match(await rows.nth(1).innerText(), /MAUU0000022[\s\S]*Container ở khách khác/);
+      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Container đã có trong sổ · tab khách chưa có dòng riêng/);
       assert.equal(await page.locator('[data-trip-book]').count(), 0);
-      assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 2);
+      assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 3);
     });
     const undoPosts = [];
     await withPage({ posted: undoPosts, post: route => ({ status: 200, json: route.endsWith('/undo')

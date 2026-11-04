@@ -172,11 +172,15 @@ def mark_shared(results: list[dict]) -> list[dict]:
             for r in results]
 
 
+def book_rows(snapshot: dict, customer: Any, customers: list[dict]) -> list[dict]:
+    """Rows of the customer tab that belongs to this book."""
+    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
+    return [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == customer]
+
+
 def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
-    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
-    customer = ledger.get("customer_id")
-    rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == customer]
+    rows = book_rows(snapshot, ledger.get("customer_id"), customers)
     pool = targets(ledger)
     by_target = {(target["kind"], target["id"]): target for target in pool}
     results = mark_shared([classify(row, pool) for row in rows])
