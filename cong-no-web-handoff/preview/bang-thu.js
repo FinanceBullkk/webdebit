@@ -55,9 +55,16 @@
     const title = lines.map(line => `${line.kind === 'advance' ? 'Ứng trước' : `T${F.monthLabel(line.month)}`} ${number(line.amount_vnd)}`).join(' · ');
     return `<td class="debt" title="${esc(title)}">${esc(parts.join(', '))}</td>`;
   }
+  // Ô ngày của Sheet có thể là số serial (46327): trùng ngày của dòng thì không lặp lại, khác thì đổi ra ngày để đọc được.
+  function plainNote(row) {
+    const note = row.note ?? '';
+    if (!/^\d{5}(\.0+)?$/.test(note)) return note;
+    const iso = new Date(Date.UTC(1899, 11, 30) + parseInt(note, 10) * 86400000).toISOString().slice(0, 10);
+    return iso === row.date ? '' : dateText(iso);
+  }
   function noteText(row) {
     const method = row.method && row.method !== PLAIN_METHOD ? row.method : '';
-    return [method, row.note ?? ''].filter(Boolean).join(' · ');
+    return [method, plainNote(row)].filter(Boolean).join(' · ');
   }
   function receiptRow(row, year) {
     const label = nameOf(row);
@@ -112,6 +119,7 @@
 
   function pendingLine() {
     const pending = state.pending;
+    if (pending === 'computing') return '<p class="pending unknown" id="pending">Đang kiểm phiếu thu trên Sheet chờ ghi: số ở đây có thể còn thiếu.</p>';
     if (pending === 'unknown') return '<p class="pending unknown" id="pending">Chưa kiểm được phiếu thu trên Sheet chờ ghi: số ở đây có thể còn thiếu.</p>';
     if (!pending) return '';
     return `<a class="pending" id="pending" href="/viec-can-lam.html">Còn ${esc(count(pending.count))} trên Sheet chưa ghi vào web · ${esc(full(pending.amount))} <span aria-hidden="true">›</span></a>`;
@@ -164,6 +172,7 @@
   }
 
   function readPending(inbox) {
+    if (inbox?.state === 'computing') return 'computing';   // vài phút đầu sau khi API khởi động lại
     if (inbox?.state !== 'ready') return 'unknown';
     const books = (inbox.books ?? []).filter(book => !book.sheet_matched && book.receipts.ready + book.receipts.review > 0);
     if (!books.length) return null;

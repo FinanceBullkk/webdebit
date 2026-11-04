@@ -90,20 +90,20 @@ Mọi số tiền và phép cộng ở SQL; trang chỉ định dạng. Riêng t
 4. **Đẳng thức cả đời:** tổng `total_vnd + undated_vnd` của mọi tháng, cộng mọi sổ, bằng tổng `received_vnd` của `get_ledger`. Dòng chỉ đổi tháng, không thêm bớt tiền.
 5. **Đẳng thức tháng hiện tại:** khi tháng không có khối Sheet, `total_vnd + undated_vnd` bằng `this_month.received_vnd` của Tổng quan.
 6. Không đổi luật tiền, phân bổ, số nợ hay dữ liệu. Migration chỉ thêm hai hàm đọc.
-7. Ghi chú đã bỏ tiền tố kỹ thuật (`Sheet:`, `Sheet #<dấu dòng>:`) và đuôi của máy; ngày đứng một mình trùng ngày của dòng thì không lặp lại. Không hiện dấu dòng lên màn.
+7. Ghi chú đã bỏ tiền tố kỹ thuật (`Sheet:`, `Sheet #<dấu dòng>:`) và đuôi của máy; ngày đứng một mình trùng ngày của dòng thì không lặp lại, số serial ngày của Sheet không hiện nguyên số. Không hiện dấu dòng lên màn.
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `test_pg_v7_backend.py` case `BANG-THU.01`: mọi quy tắc ngày, loại trừ và hai đẳng thức; chữ `_legacy_pay_date` cho cùng kết quả với `pay_date` trên bộ ví dụ.
-- [ ] `check_migration` và `test_pg_v7_grants.py`: migration chạy hai lượt, catalog bằng khởi tạo mới; app và reader gọi được `get_receipt_book`, không gọi được `_legacy_pay_date`.
-- [ ] `test_v7_bang_thu.py`: route, tháng sai bị từ chối, trang và tài nguyên được phục vụ, chuỗi đuôi của máy khớp `v7_sheet_fix`.
-- [ ] `test-bang-thu-browser.js`: đủ trạng thái tải, trống, lỗi, thử lại; gom theo ngày, tổng ngày; Theo khách; đổi tháng và giữ qua Back; bấm dòng mở đúng sổ, đúng tháng; nhóm không rõ ngày; cảnh báo phiếu chờ; menu sáu mục không tràn ở 1280×560; không cuộn ngang ở 1280.
-- [ ] Trên `hao`: tổng T11 của trang bằng "Thu tháng" ở Tổng quan; đẳng thức cả đời đúng trên dữ liệu thật.
+- [x] `test_pg_v7_backend.py` case `BANG-THU.01`: mọi quy tắc ngày, loại trừ và hai đẳng thức; `_legacy_pay_date` cho cùng kết quả với `pay_date` trên bộ ví dụ.
+- [x] Case `CSM.03` và `test_pg_v7_grants.py`: migration chạy hai lượt, catalog bằng khởi tạo mới; app và reader gọi được `get_receipt_book`, không gọi được `_legacy_pay_date`.
+- [x] `test_v7_bang_thu.py`: route, tháng sai bị từ chối, trang và tài nguyên được phục vụ, chuỗi đuôi của máy khớp `v7_sheet_fix`.
+- [x] `test-bang-thu-browser.js`: đủ trạng thái tải, trống, lỗi, thử lại; gom theo ngày, tổng ngày; Theo khách; đổi tháng và giữ qua Back; bấm dòng mở đúng sổ, đúng tháng; nhóm không rõ ngày; cảnh báo phiếu chờ; menu sáu mục không tràn ở 1280×560; không cuộn ngang ở 1280.
+- [x] Trên `hao`: tổng T11 của trang bằng "Thu tháng" ở Tổng quan; đẳng thức cả đời đúng trên dữ liệu thật ([nhật ký](../docs/deploys/2026-11-04-bang-thu.md)).
 - [ ] Người dùng tự mở trang trên `hao` và xác nhận.
 
 ## Phạm vi
 
-- Được sửa: `tools/v7_backend_functions.sql`, migration mới `2026-11-04-v7-bang-thu.sql`, `tools/v7_post_deploy_check.sql`, harness và grants trong `tools/`, `web/v7_api_tables.py`, `web/v7_api_validate.py`, `web/v7_presence.py`, `preview/bang-thu.*`, `preview/app-nav.*`, menu của `so-khach-v7-live.html`, thẻ Thu tháng của `dashboard-v7.js`, tài liệu quyết định và runbook.
+- Được sửa: `tools/v7_backend_functions.sql`, migration mới `2026-11-04-v7-bang-thu.sql`, `tools/v7_post_deploy_check.sql`, harness và grants trong `tools/`, `web/v7_api_tables.py`, `web/v7_api_validate.py`, `web/v7_ledger_api.py`, `web/v7_presence.py`, `preview/bang-thu.*`, `preview/app-nav.*`, `preview/presence.js`, menu của `so-khach-v7-live.html` và `so-khach-v7-priority.css`, thẻ Thu tháng của `dashboard-v7.js`, tài liệu quyết định và runbook.
 - Cấm: đổi hàm ghi, view nợ, bảng tiền; nạp dữ liệu; ghi Sheet.
 
 ## Hoàn tác
