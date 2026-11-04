@@ -1298,7 +1298,11 @@ class RejectedBodyTest(unittest.TestCase):
         port, _, _ = self.serve(dev=False, whois_error=OSError())
         size = api.MAX_IMAGE_BODY
         head = self.head(port, path=api.IMAGE_PATH, fields=(f"Content-Length: {size}",))
-        status, body = self.late_body(port, head, size)
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(head + b"x" * (size - 1024))
+            time.sleep(0.1)  # phần cuối tới sau: trần nhỏ hơn thân hợp lệ thì lúc này socket đã đóng
+            sock.sendall(b"x" * 1024)
+            status, body = self.read_response(sock)
         self.assertEqual((status, json.loads(body)), (403, {"error": "LOCALAPI_ERROR"}))
 
     def test_response_does_not_wait_for_discard(self):
@@ -1314,14 +1318,15 @@ class RejectedBodyTest(unittest.TestCase):
         port, _, finished = self.serve(dev=False, whois_error=OSError())
         with patch.object(api, "DISCARD_SECONDS", 0.2), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
             sock.sendall(self.head(port, fields=("Content-Length: 60000",)))
-            give_up = time.monotonic() + 5
+            give_up = time.monotonic() + 3
             try:
                 while not finished.is_set() and time.monotonic() < give_up:
                     sock.sendall(b"x")  # nhỏ giọt: mỗi lần đọc đều có dữ liệu, chỉ hạn tổng mới dừng được
                     time.sleep(0.02)
             except OSError:
-                pass
-            self.assertTrue(finished.wait(1), "client nhỏ giọt không được giữ luồng quá hạn")
+                finished.wait(1)  # server đã đóng giữa lúc gửi, luồng sắp kết thúc
+            # Không chờ thêm khi đã ngừng gửi: hạn tính theo từng lần đọc cũng tự hết nếu client im.
+            self.assertTrue(finished.is_set(), "client nhỏ giọt không được giữ luồng quá hạn")
 
     def test_discard_stops_at_byte_cap(self):
         port, _, finished = self.serve(dev=False, whois_error=OSError())
