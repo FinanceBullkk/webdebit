@@ -85,7 +85,7 @@ Mọi số tiền và phép cộng ở SQL; trang chỉ định dạng. Riêng t
    - không đọc được ngày;
    - ngày sau lúc nạp sổ hoặc sau hôm nay (5 dòng, ví dụ năm 2028);
    - ngày trước tháng của khối hơn 12 tháng (ví dụ năm 2020);
-   - phiếu máy đặt cuối tháng khối vì Sheet không ghi ngày (tham chiếu kết thúc bằng ` · ngày theo cuối tháng khối Sheet`).
+   - phiếu đặt ngày cuối tháng khối vì Sheet không ghi ngày: tham chiếu kết thúc bằng ` · ngày theo cuối tháng khối Sheet` (máy) hoặc ` (ngày tượng trưng)` (ghi tay 4/11/2026, 6 phiếu, 2,39 tỷ).
 3. **Không tính:** phiếu đã hủy (liệt kê riêng khi bấm Xem), khoản thu sổ gốc đã xóa, cấn trừ hai đầu (liệt kê riêng).
 4. **Đẳng thức cả đời:** tổng `total_vnd + undated_vnd` của mọi tháng, cộng mọi sổ, bằng tổng `received_vnd` của `get_ledger`. Dòng chỉ đổi tháng, không thêm bớt tiền.
 5. **Đẳng thức tháng hiện tại:** khi tháng không có khối Sheet, `total_vnd + undated_vnd` bằng `this_month.received_vnd` của Tổng quan.
@@ -118,3 +118,4 @@ Xem PR và [nhật ký triển khai](../docs/deploys/README.md).
 
 - CÒN MỞ: khoảng 510 dòng Sheet không rõ ngày có đáng cho người bổ sung ngày không. Hiện để nguyên, không đoán.
 - CÒN MỞ: đối chiếu sao kê ngân hàng ([`CHUNG-TU-01`](../docs/decisions/chung-tu-01.md)) có thể dựng trên bảng này sau.
+- CÒN MỞ: phiếu nhãn `KHÁC` có thể không phải tiền thật (ví dụ khoản giảm bảo hiểm ghi ngày 4/11/2026). Hiện vẫn cộng để khớp "Đã thu" và Tổng quan, nhãn hiện ở cột Ghi chú. Dòng Sheet cũ loại này không phân biệt được.

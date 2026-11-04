@@ -70,8 +70,8 @@ class SqlTextTest(unittest.TestCase):
     def test_machine_strings_match_the_sql(self):
         """SQL nhận phiếu máy đặt ngày và bỏ tiền tố kỹ thuật bằng đúng chuỗi mà máy ghi; đổi một bên thì test này đỏ."""
         sql = definition(MIGRATION.read_text(encoding="utf-8"), "get_receipt_book")
-        self.assertIn(f"LIKE '%{NO_DATE_NOTE}'", sql)
-        self.assertIn(f"'{NO_DATE_NOTE}$'", sql)
+        marker = rf"( \(ngày tượng trưng\)|{NO_DATE_NOTE})$"
+        self.assertEqual(sql.count(f"'{marker}'"), 2, "cả chỗ nhận phiếu đặt ngày lẫn chỗ bỏ đuôi khỏi ghi chú")
         self.assertIn(f'NO_DATE_NOTE = "{NO_DATE_NOTE}"', HARNESS.read_text(encoding="utf-8"))
         prefix = re.compile(r"^Sheet( #[^:]*)?(: ?|$)")
         for text, left in ((reference("23/10/2026 tt"), "23/10/2026 tt"), (reference(""), ""), (review_reference("ab12") + "da tt", "da tt")):

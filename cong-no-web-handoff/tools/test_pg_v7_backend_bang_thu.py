@@ -135,26 +135,28 @@ def check_bang_thu(pg: Pg) -> None:
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r3", day, "THU TIỀN", 70, no_date)
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r4", day, "THU TIỀN", 11, "Sheet")
     call(pg, "record_receipt", web, version(pg, web), "bang-thu-r5", day, "THU TIỀN", 13, None)
+    call(pg, "record_receipt", web, version(pg, web), "bang-thu-r6", day, "THU TIỀN", 17, review_reference("def456") + "chuyen khoan (ngày tượng trưng)")
     gone = next(item["pid"] for item in call(pg, "get_ledger", web)["receipts"] if item["amount_vnd"] == "13")
     call(pg, "void_receipt", web, version(pg, web), "bang-thu-void", gone, "nhập trùng")
 
     now = _book(pg)
     rows = {row["amount_vnd"]: row for row in _rows(now) if row["customer_id"] == web}
-    require(set(rows) == {"600", "50", "70", "11"}, f"voided receipt must leave the list: {rows}")
+    require(set(rows) == {"600", "50", "70", "11", "17"}, f"voided receipt must leave the list: {rows}")
+    require(rows["17"]["date"] is None and rows["17"]["note"] == "chuyen khoan", f"symbolic date is not a money date: {rows['17']}")
     require(rows["600"]["note"] == "23/10/2026 tt" and rows["600"]["date"] == day and rows["600"]["source"] == "web" and rows["600"]["pid"], f"web row: {rows['600']}")
     require(rows["600"]["allocations"] == [{"month": "2026-08-01", "kind": "debt", "amount_vnd": "500"}, {"month": "2026-09-01", "kind": "debt", "amount_vnd": "100"}],
             f"allocations: {rows['600']}")
     require(rows["50"]["note"] is None and rows["50"]["method"] == "KHÁC", f"date-only reference equal to the row date is not repeated: {rows['50']}")
     require(rows["70"]["date"] is None and rows["70"]["note"] == "da tt" and rows["70"]["book_month"] == this_month, f"machine date is not a money date: {rows['70']}")
     require(rows["11"]["note"] is None, f"bare Sheet reference: {rows['11']}")
-    require(not any("abc123" in json.dumps(row) for row in rows.values()), "row fingerprint must not reach the page")
+    require(not any("abc123" in json.dumps(row) or "def456" in json.dumps(row) for row in rows.values()), "row fingerprint must not reach the page")
     voided = [row for row in now["voided"] if row["customer_id"] == web]
     require(len(voided) == 1 and voided[0]["amount_vnd"] == "13" and voided[0]["void_reason"] == "nhập trùng" and voided[0]["voided_on"], f"voided: {voided}")
     require(int(now["summary"]["today_vnd"]) - int(before["summary"]["today_vnd"]) == 661 and now["summary"]["today_count"] - before["summary"]["today_count"] == 3,
             f"today: {now['summary']}")
     who = [item for item in now["customers"] if item["customer_id"] == web]
     require(len(who) == 1 and (who[0]["total_vnd"], who[0]["count"], who[0]["undated_vnd"], who[0]["undated_count"], who[0]["last_date"], who[0]["book_month"])
-            == ("661", 3, "70", 1, day, this_month), f"customer row: {who}")
+            == ("661", 3, "87", 2, day, this_month), f"customer row: {who}")
 
     # Cấn trừ: không phải tiền mới vào, hai đầu đều không có dòng riêng, liệt kê riêng.
     source = new_book(pg, ("2026-08-01", 100))

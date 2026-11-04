@@ -3585,7 +3585,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- BANG-THU-01. Tháng tính theo ngày tiền về, khác "Đã thu" của sổ ở tháng có dòng Sheet (DA-THU-01 giữ nguyên): Sheet ghi khoản thu
 -- ở khối tháng nợ. Gồm phiếu web chưa hủy và dòng thu sổ gốc chưa xóa; cấn trừ không phải tiền mới vào nên liệt kê riêng.
 -- Không rõ ngày (date NULL, nằm ở tháng của khối, không cộng vào tổng tháng): Sheet không đọc được ngày; ngày sau lúc nạp sổ hoặc sau
--- hôm nay; ngày trước tháng của khối hơn 12 tháng; phiếu máy đặt cuối tháng khối vì Sheet không ghi ngày (MAY-DOI-SOAT-01).
+-- hôm nay; ngày trước tháng của khối hơn 12 tháng; phiếu đặt ngày cuối tháng khối vì Sheet không ghi ngày (MAY-DOI-SOAT-01).
 -- Mọi tháng cộng lại, mọi sổ cộng lại bằng đúng tổng received_vnd của get_ledger: dòng chỉ đổi tháng, không thêm bớt tiền.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; v_this date := date_trunc('month', d)::date;
         v_month date := coalesce(p_month, v_this);
@@ -3614,9 +3614,9 @@ BEGIN
        WHERE l.kind='receipt' AND l.source_total_vnd IS NOT NULL AND NOT coalesce(rev.deleted,false)),
     web AS (
       SELECT r.id,r.pid,r.customer_id,a.name,date_trunc('month',r.date)::date AS book_month,r.amount_vnd AS amount,r.method,
-        CASE WHEN r.reference LIKE '% · ngày theo cuối tháng khối Sheet' THEN NULL ELSE r.date END AS dt,
-        -- Tiền tố và đuôi kỹ thuật của máy (reference, review_reference, NO_DATE_NOTE) không lên màn.
-        regexp_replace(regexp_replace(coalesce(r.reference,''),'^Sheet( #[^:]*)?(: ?|$)',''),' · ngày theo cuối tháng khối Sheet$','') AS note
+        CASE WHEN r.reference ~ '( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$' THEN NULL ELSE r.date END AS dt,
+        -- Tiền tố và đuôi kỹ thuật (reference, review_reference, NO_DATE_NOTE, ghi tay "ngày tượng trưng") không lên màn.
+        regexp_replace(regexp_replace(coalesce(r.reference,''),'^Sheet( #[^:]*)?(: ?|$)',''),'( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$','') AS note
         FROM sokhach.receipt r JOIN act a ON a.id=r.customer_id
        WHERE r.voided_on IS NULL AND NOT EXISTS (SELECT 1 FROM sokhach.offset_pair o WHERE o.target_receipt_id=r.id)),
     items AS (
