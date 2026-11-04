@@ -204,7 +204,7 @@ POST_HANDLERS = {
     "/api/v7/marks/cancel": v7_api_zalo.handle_cancel,
 }
 # Kết quả đọc được gắn cờ demo/real_copy để giao diện ghi rõ nguồn dữ liệu.
-FLAGGED_READS = ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix")
+FLAGGED_READS = ("get_ledger", "list_customers", "list_offset_sources", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix", "get_receipt_book")
 
 
 def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner: Psql, *,

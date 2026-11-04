@@ -6,7 +6,8 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .topbar .brand{display:none}
 .nav-toggle{display:flex;flex:none;align-items:center;justify-content:center;gap:12px;min-height:48px;margin:0 6px 8px;padding:0;border:0;border-radius:8px;background:#21405f;color:#fff;font:inherit;cursor:pointer}
 .topbar>nav{display:flex;flex-direction:column;align-self:auto;gap:2px}
-.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-height:72px;margin:2px 6px;padding:6px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar>nav a,.topbar .picker-open{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;min-height:64px;margin:2px 6px;padding:5px 2px;border:0;border-radius:8px;background:transparent;color:#c3d1e0;text-decoration:none}
+.topbar .picker-open{min-height:58px;padding:4px 2px}
 .topbar>nav a span,.picker-open span{position:static;width:auto;height:auto;max-width:68px;overflow:visible;clip-path:none;white-space:normal;font-size:11.5px;font-weight:600;line-height:1.2;text-align:center}
 .topbar>nav a.active{background:#2a5179;color:#fff}.topbar>nav a:hover,.picker-open:hover{background:#21405f}
 .topbar.expanded{width:240px;box-shadow:6px 0 24px #0d1b2a40}.topbar.expanded .brand{display:block;padding:0 16px}

@@ -120,6 +120,7 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   // Thu tháng: đã thu / phát sinh, vạch hôm nay 29/31, còn 2 ngày.
   const month = page.locator('.month-card');
   assert.match(await month.locator('.m-nums').innerText(), /186 tr\s+đã thu\s+700 tr\s+phát sinh/);
+  assert.equal(await month.locator('a.m-link').getAttribute('href'), '/bang-thu.html');
   assert.equal(await month.locator('.meter .fill').evaluate(el => el.style.width), '26.6%');
   assert.equal(await month.locator('.meter .today').evaluate(el => el.style.left), '94%');
   assert.equal(await month.locator('.left').innerText(), 'còn 2 ngày');

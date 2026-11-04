@@ -96,7 +96,7 @@
   // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng.
   function monthPart(data, debt) {
     const p = M.monthProgress(debt?.as_of ?? data.as_of, debt?.this_month);
-    const head = `<h2 id="h-month">Thu tháng ${p.month}</h2>`;
+    const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
     if (!debt) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
     const ratio = p.percent ? `Đã thu ${p.percent} phát sinh tháng ${p.month}` : `Tháng ${p.month} chưa phát sinh`;
     return `${head}<div class="m-nums"><span class="got"><b tabindex="0"${tipAttr(['Đã thu', F.full(p.received)])}>${esc(short(p.received))}</b><small>đã thu</small></span>
