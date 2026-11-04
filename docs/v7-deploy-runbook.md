@@ -1700,7 +1700,7 @@ Thứ tự với release: chạy migration trước. Release cũ không gọi h�
 
 Rollback: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pay_date(text);` dưới `sokhach_owner`; không gì tham chiếu tới. App: quay về release trước.
 
-**Lần 2** (`2026-11-04-v7-bang-thu-2.sql`): chỉ thay `get_receipt_book`, giữ quyền EXECUTE: bỏ dòng Sheet số tiền 0, Theo khách xếp theo cột Đã trả, ghi chú không hiện số serial ngày. Các bước như trên. Quay lại: chạy lại `2026-11-04-v7-bang-thu.sql`.
+**Lần 2** (`2026-11-04-v7-bang-thu-2.sql`, ĐÃ CHẠY trên hao 4/11/2026, [nhật ký](deploys/2026-11-04-bang-thu-2.md)): chỉ thay `get_receipt_book`, giữ quyền EXECUTE: bỏ dòng Sheet số tiền 0, Theo khách xếp theo cột Đã trả, ghi chú không hiện số serial ngày. Các bước như trên. Quay lại: chạy lại `2026-11-04-v7-bang-thu.sql`.
 
 ## Máy tự đối soát (MAY-DOI-SOAT-01) — timer `v7-reconcile-auto`
 
@@ -1783,7 +1783,9 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
 
-## Loại gộp Health + KĐ và máy tự tách theo PS (MAY-PS-01) — nâng DB đang có
+## Loại gộp Health + KĐ và máy tự tách theo PS (MAY-PS-01) — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026; máy đã bật)
+
+Đã nâng DB, đổi release và bật máy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ps-gop.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ps-gop.sql` ([`MAY-PS-01`](decisions/may-ps-01.md), [spec](../specs/v7-phu-phi-tu-ps.md#máy-tự-làm-may-ps-01-4112026)) thêm một dòng `fee_type` và thay thân `_rewrite_trip_fees`. Không đổi bảng, ràng buộc, loại event, quyền hay số dư. Chạy lại được. Chạy sau `2026-10-29-v7-ps-fee.sql`; chạy lại migration đó thì phải chạy lại migration này.
 
