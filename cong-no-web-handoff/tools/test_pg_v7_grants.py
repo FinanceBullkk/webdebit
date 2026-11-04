@@ -51,6 +51,7 @@ WRITE = {
     'keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)',
     'apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb)',
     'set_customer_commodity(bigint,bigint,text,text)',
+    'set_customer_transport(bigint,bigint,text,text)',
     'assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb)',
     'undo_sheet_batch(bigint,bigint,text,jsonb)',
     'record_reminder(bigint,text)',  # NHAC-NO-01: ghi "đã nhắc", app ghi
@@ -122,7 +123,7 @@ KNOWN_FUNCTIONS.update({'get_receipt_book', '_legacy_pay_date'})  # BANG-THU-01
 KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # chặn trùng hàng chờ 1/11/2026
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01
-KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'assign_sheet_trip',
+KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'set_customer_transport', 'assign_sheet_trip',
                         'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026
 
 
