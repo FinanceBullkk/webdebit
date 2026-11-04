@@ -1,6 +1,6 @@
 """Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): việc của hàng chờ Sheet ở mọi sổ, chỉ đọc.
 
-Mỗi sổ chiếu bằng đúng `ledger_projections` như khi mở sổ (khoảng 0,75 giây/sổ trên `hao`), nên API tính nền và giữ kết
+Mỗi sổ chiếu bằng đúng `ledger_projections` như khi mở sổ (trung vị khoảng 0,3 giây/sổ trên `hao`, đo 4/11/2026), nên API tính nền và giữ kết
 quả trong bộ nhớ: lúc khởi động, khi bản chụp Sheet đổi, và từng sổ ngay sau một lệnh ghi lên sổ đó. Không gọi hàm ghi.
 """
 

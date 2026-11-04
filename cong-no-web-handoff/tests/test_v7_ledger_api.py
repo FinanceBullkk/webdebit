@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
+import v7_psql  # noqa: E402
 
 
 class FeeApiTest(unittest.TestCase):
@@ -1589,6 +1590,92 @@ class LedgerSpeed(unittest.TestCase):
     def test_listen_queue_fits_a_page_of_assets(self):
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, 128)
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, len(api.ASSETS) // 2)
+
+PROBE_OK = subprocess.CompletedProcess([], 0, "t|t\n", "")
+BINARY = "/usr/lib/postgresql/18/bin/psql"
+
+
+def server(version="18|5432\n", direct=PROBE_OK, seen=None):
+    """Giả psql: hỏi phiên bản thì trả `version`, câu kiểm đầu vào qua binary thật thì trả `direct`."""
+    def run(argv, **_):
+        if seen is not None:
+            seen.append(argv)
+        if "server_version_num" in argv[-1]:
+            return subprocess.CompletedProcess([], 0, version, "")
+        return direct if argv[0] == BINARY else PROBE_OK
+    return run
+
+
+class DebianWrapperTests(unittest.TestCase):
+    """`/usr/bin/psql` trên Debian/Ubuntu là script Perl: 57 ms mỗi lần gọi so với 11 ms của binary thật."""
+
+    def setUp(self):
+        for target, value in (("shutil.which", "/usr/bin/psql"),
+                              ("os.path.realpath", "/usr/share/postgresql-common/pg_wrapper")):
+            started = patch(f"v7_psql.{target}", return_value=value)
+            started.start()
+            self.addCleanup(started.stop)
+        clean = patch.dict(os.environ, {}, clear=True)
+        clean.start()
+        self.addCleanup(clean.stop)
+
+    def direct(self, run):
+        with patch.object(v7_psql.subprocess, "run", side_effect=run):
+            return v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app")
+
+    def test_skips_wrapper_when_real_binary_reaches_same_cluster(self):
+        seen = []
+        runner = self.direct(server(seen=seen))
+        self.assertEqual(runner.psql_command, [BINARY])
+        self.assertEqual(seen[0][0], "psql")           # câu kiểm đầu vào gốc vẫn chạy trước
+        self.assertEqual(seen[-1][0], BINARY)           # binary thật cũng phải qua đúng câu kiểm đó
+        self.assertEqual(seen[-1][1:], seen[0][1:])
+
+    def test_run_uses_the_real_binary_with_the_same_arguments(self):
+        runner = self.direct(server())
+        with patch.object(v7_psql.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "{}", "")) as run:
+            runner.run("get_ledger", {"customer_id": 1}, "fake")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], BINARY)
+        self.assertNotIn("-p", argv)
+        self.assertEqual(argv[argv.index("-h") + 1], "/var/run/postgresql")
+
+    def test_keeps_wrapper_when_binary_cannot_be_proven_equal(self):
+        cases = {
+            "cluster on another port": server(version="18|5433\n"),
+            "unexpected answer": server(version="không rõ\n"),
+            "real binary refused": server(direct=subprocess.CompletedProcess([], 2, "", "lỗi")),
+            "real binary wrong database": server(direct=subprocess.CompletedProcess([], 0, "t|f\n", "")),
+        }
+        for label, run in cases.items():
+            with self.subTest(label):
+                self.assertEqual(self.direct(run).psql_command, ["psql"])
+
+    def test_keeps_wrapper_when_real_binary_missing(self):
+        def run(argv, **_):
+            if argv[0] == BINARY:
+                raise FileNotFoundError(BINARY)
+            return server()(argv)
+        self.assertEqual(self.direct(run).psql_command, ["psql"])
+
+    def test_port_from_environment_still_counts_as_same_cluster(self):
+        with patch.dict(os.environ, {"PGPORT": "5433"}):
+            self.assertEqual(self.direct(server(version="18|5433\n")).psql_command, [BINARY])
+            self.assertEqual(self.direct(server(version="18|5432\n")).psql_command, ["psql"])
+
+    def test_explicit_command_is_never_replaced(self):
+        with patch.object(v7_psql.subprocess, "run", side_effect=server()) as run:
+            runner = v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app", psql_command=["docker", "exec", "psql"])
+        self.assertEqual(runner.psql_command, ["docker", "exec", "psql"])
+        self.assertEqual(run.call_count, 1)
+
+    def test_plain_psql_binary_is_left_alone(self):
+        with (patch("v7_psql.os.path.realpath", return_value="/usr/local/bin/psql"),
+              patch.object(v7_psql.subprocess, "run", side_effect=server()) as run):
+            runner = v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app")
+        self.assertEqual(runner.psql_command, ["psql"])
+        self.assertEqual(run.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

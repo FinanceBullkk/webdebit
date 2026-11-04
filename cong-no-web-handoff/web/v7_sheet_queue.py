@@ -304,10 +304,11 @@ def removed_trips(queue: dict[str, Any], ledger: dict[str, Any], *, include_kept
     if not ready:
         return []
     from v7_sheet_task_keep import trip_identity
-    source_ids = {trip_identity(row) for row in queue["items"]}
-    assigned = {(event.get("after") or {}).get("target", {}).get("id") for event in ledger.get("events", [])
-                if event.get("kind") == "sheet_conflict_resolved" and (event.get("after") or {}).get("field") == "task_assignment"
-                and (event.get("after") or {}).get("sheet_value") in source_ids}
+    assignments = [event.get("after") or {} for event in ledger.get("events", [])
+                   if event.get("kind") == "sheet_conflict_resolved" and (event.get("after") or {}).get("field") == "task_assignment"]
+    # Băm cả hàng chờ (5.172 dòng, 210 ms mỗi lần mở sổ, đo trên `hao` 4/11/2026) chỉ để so với việc đã gán sang sổ khác.
+    source_ids = {trip_identity(row) for row in queue["items"]} if assignments else set()
+    assigned = {after.get("target", {}).get("id") for after in assignments if after.get("sheet_value") in source_ids}
     rows = []
     for row in ready:
         # An unmapped row (name not matched) still exists on the Sheet: it keeps the trip, not flags it.
