@@ -20,6 +20,7 @@ import datetime as dt
 import re
 from collections import Counter
 from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +33,14 @@ XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
 NUMBER_CELL = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:E\+?[0-9]{1,2})?")
 
 
+@lru_cache(maxsize=4096)
+def _normal_name(text: str) -> str:
+    return " ".join(text.translate(XLSX_DROPPED).split())
+
+
 def name_key(value: Any) -> str:
-    return " ".join(str(value or "").translate(XLSX_DROPPED).split())
+    # Mở một sổ gọi hơn 11.000 lần cho vài trăm tên tab, nên nhớ kết quả theo chuỗi (hàm thuần).
+    return _normal_name(str(value or ""))
 
 
 def container_key(value: Any) -> str:
