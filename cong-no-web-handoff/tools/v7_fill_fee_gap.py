@@ -21,6 +21,7 @@ import re
 import sys
 from collections import Counter
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,13 @@ def _write(runner, customer: int, version: int, plan: dict[str, Any]) -> int:
     return result["version"] if type(result.get("version")) is int else runner.run("get_ledger", {"customer_id": customer}, ACTOR)["version"]
 
 
+def _write_all(runner, customer: int, plans: list[dict[str, Any]], result: dict[str, Any], version: int) -> int:
+    for plan in plans:
+        version = _write(runner, customer, version, plan)
+        result["written"] += 1
+    return version
+
+
 def run(runner, apply: bool, customers: list[int] | None = None) -> dict[str, Any]:
     types = {row["system_key"]: row["id"] for row in runner.run("get_fee_types", {}, ACTOR)["fee_types"] if row.get("system_key")}
     ids = customers if customers is not None else [row["id"] for row in runner.run("list_customers", {}, ACTOR)["customers"]]
@@ -112,13 +120,9 @@ def run(runner, apply: bool, customers: list[int] | None = None) -> dict[str, An
         version = ledger["version"]
         try:
             for month in sorted({plan["month"] for plan in ready}):
-                def action(at: int, month: str = month) -> int:
-                    for plan in ready:
-                        if plan["month"] == month:
-                            at = _write(runner, customer, at, plan)
-                            result["written"] += 1
-                    return at
-                version = in_month(runner, customer, version, ledger, month, f"bu-phu-phi:{customer}", action)
+                plans_of_month = [plan for plan in ready if plan["month"] == month]
+                version = in_month(runner, customer, version, ledger, month, f"bu-phu-phi:{customer}",
+                                   partial(_write_all, runner, customer, plans_of_month, result))
         except ApiError as exc:   # in_month đã khóa lại; dòng còn lại của sổ này để lần chạy sau, sổ khác vẫn chạy.
             errors[exc.code] += 1
     result["errors"] = dict(errors)
