@@ -21,7 +21,9 @@ from v7_sheet_queue import _name, read_snapshot
 
 UNCLASSIFIED = ("other", "discount", "initial")
 # The fee migration (2026-10-28) stamped these on every "Phụ phí ban đầu" line; nobody typed them, and the event keeps them.
-GENERATED_NOTES = {"migration: legacy fee", "migration: initial fee"}
+# PHU-PHI-BU-01: công cụ bù ghi GAP_NOTE trên phần thiếu so với TOTAL; máy PS vẫn được tách các khoản này.
+GAP_NOTE = "Theo TOTAL Sheet: cột không tiêu đề"
+GENERATED_NOTES = {"migration: legacy fee", "migration: initial fee", GAP_NOTE}
 FEE_NAMES = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
 LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}

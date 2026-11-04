@@ -17,6 +17,7 @@
     const counterparty = event => event.counterparty_name ?? event.after?.counterparty_name;
     const labelOf = event => event.kind === 'month_lock' && typeof event.after?.locked === 'boolean' ? event.after.locked ? 'Khóa tháng' : 'Mở khóa tháng'
       : event.kind === 'receipt' && counterparty(event) != null ? 'Cấn trừ'
+        : event.kind === 'rewrite_trip_fees' && event.after?.source?.kind === 'sheet_total' ? 'Bù phụ phí theo Sheet'
         : Object.hasOwn(eventLabels, event.kind) ? eventLabels[event.kind] : 'Thao tác khác';
     // Lọc theo loại: Thu · Chuyến · Giá/phụ phí · Khóa tháng · Tất cả. Nhập số dư đầu và thao tác lạ chỉ ở Tất cả.
     const GROUPS = [['thu', 'Thu'], ['chuyen', 'Chuyến'], ['gia', 'Giá/phụ phí'], ['khoa', 'Khóa tháng'], ['all', 'Tất cả']];
