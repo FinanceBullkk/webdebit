@@ -1772,6 +1772,8 @@ Thứ tự với release: độc lập, release cũ và mới đều gọi cùng
 3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
 4. **Sau:** phát lại cùng đầu vào trên DB thật, chỉ đọc. So băm với lần đo trước cửa sổ nếu chưa có event mới; ghi thời gian trước và sau vào nhật ký `docs/deploys/`.
 
+Sau khi restore DB, chạy `ANALYZE` (hoặc đợi autovacuum): `pg_dump` không mang thống kê, chưa có thống kê thì planner quét tuần tự và hàm chậm hơn cả bản cũ (đo 4/11/2026: 234 ms so với 159 ms; sau `ANALYZE` còn dưới 20 ms). Kết quả vẫn đúng, chỉ chậm.
+
 Rollback: chạy lại `2026-11-01-v7-chan-trung-hang-cho.sql` (trả thân hàm cũ, hai hàm còn lại trong file trùng bản hiện hành), rồi `DROP INDEX sokhach.legacy_row_container_key, sokhach.legacy_trip_rev_container_key;` dưới `sokhach_owner` nếu muốn bỏ index. Release cũ chạy được với DB mới.
 
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
