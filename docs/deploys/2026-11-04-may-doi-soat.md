@@ -50,6 +50,18 @@ Dump, restore vào DB tạm, vào bằng `postgres` rồi `SET ROLE v7_app`, ch�
 - Đối soát độc lập từ máy khác, qua API và đúng các bước của [hướng dẫn tay](../doi-soat-cuoi-ngay.md), trên bản tải sau lượt đầu: 234 khớp, 1 lệch tổng, 1 bị giữ, trùng kết quả của máy.
 - Tab Việc cần làm trên `hao`: dải đối soát hiện đúng, còn 5 sổ có việc thay vì 50, 41 sổ đã khớp được ẩn, không lỗi JS.
 
+## Lượt timer đầu tiên (11:05–11:12)
+
+- `Result=success`, 463 giây. 234 khớp, 2 lệch. Theo tiền, khách khớp chiếm 99,6% số nợ (lượt 10:30 là 45%): hai khách lớn đã khớp sau khi Sheet được điền thêm.
+- Máy sửa 3 khách: 2 phiếu −100.000.000 đ, 15 giá +672.500.000 đ. Ngoài lượt đối soát, lúc 10:49–10:56 cùng tên máy có 7 giá +630.000.000 đ ở 4 khách (đúng kiểu `MAY-GIA-01`, chưa đọc log runner để xác nhận).
+- Tổng nợ 67.199.805.665 → 68.402.305.665 đ, đổi +1.202.500.000 đ, bằng đúng tổng các event trên. Không tháng nào máy bỏ mở.
+- Đối soát độc lập theo tháng, trên bản tải sau lượt 10:30: 233 khớp, 1 khách chia tháng khác Sheet vì web trừ nợ cũ trước.
+
+Hai khách còn lệch, máy không ghi gì:
+
+- Lệch +40 triệu: phiếu 40 triệu đang chờ đúng bằng phần lệch, nhưng `web_ahead` tính thừa 181 triệu vì không biết dòng điều chỉnh tay đã trừ đúng 4 chuyến đó. Máy dừng là đúng phía an toàn, nhưng đây là lỗi của `web_ahead`. CHƯA sửa.
+- Lệch −49,5 triệu: Sheet có một dòng tháng 10 đủ container và giá mà sổ này trên web không có chuyến của container đó; 3 chuyến tháng 10 trên web lại chưa có trên tab. CHƯA rõ nguyên nhân.
+
 ## Rollback
 
 - Dừng máy: `systemctl disable --now v7-reconcile-auto.timer`. Muốn đối soát mà không ghi thì bỏ `--fix` khỏi `ExecStart`, `daemon-reload`, bật lại timer.
