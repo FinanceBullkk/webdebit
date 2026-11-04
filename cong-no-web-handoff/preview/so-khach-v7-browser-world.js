@@ -146,19 +146,6 @@ function apply(world, url, body) {
     }
     return [200, { ok: true }];
   }
-  // NHAC-NO-01: Copy tin nhắc ghi "đã nhắc" ngoài đường tiền (không version sổ). Như reminder_log: UNIQUE(khách, nguồn, ngày giờ
-  // VN) nên bấm lặp trong ngày không thêm dòng; world.reminders là kết quả get_reminders gộp theo khách.
-  if (url === '/api/v7/reminders') {
-    const day = (world.clock ?? clock).slice(0, 10);
-    const log = (world.reminderLog ??= []);
-    if (!log.some(row => row.customer_id === body.customer_id && row.source === body.source && row.reminded_at === day)) {
-      log.push({ customer_id: body.customer_id, source: body.source, reminded_at: day });
-      const rows = (world.reminders ??= []);
-      const row = rows.find(item => item.customer_id === body.customer_id) ?? rows[rows.push({ customer_id: body.customer_id, reminder_count: 0 }) - 1];
-      Object.assign(row, { last_reminded: day, last_source: body.source, reminder_count: row.reminder_count + 1 });
-    }
-    return [200, { customer_id: body.customer_id, source: body.source, reminded_at: day }];
-  }
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
   if (url.startsWith('/api/v7/trips/fees/')) return applyFee(world, url, body);
   if (url === '/api/v7/books/fee-columns') {
@@ -382,10 +369,11 @@ async function withPage(fn, setup = () => {}) {
       return;
     }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
-    // Thẻ Tình hình (TRANG-KHACH-01): dòng Tổng quan và lần nhắc của sổ giả do test đặt; mặc định sổ không nợ, chưa nhắc.
+    // Thẻ Tình hình (TRANG-KHACH-01): dòng Tổng quan của sổ giả do test đặt, mặc định sổ không nợ. Vẫn ghi sideReads cho
+    // /reminders để test bắt được nếu trang khách đọc lại lần nhắc khi nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026).
     if (url.pathname === '/api/v7/dashboard/debt' || (url.pathname === '/api/v7/reminders' && req.method === 'GET')) {
       (world.sideReads ??= []).push(url.pathname);
-      send(200, url.pathname.endsWith('/reminders') ? { reminders: world.reminders ?? [] } : world.debt ?? { as_of: clock,
+      send(200, url.pathname.endsWith('/reminders') ? { reminders: [] } : world.debt ?? { as_of: clock,
         rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 }, receivable_vnd: '0', customers: [] });
       return;
     }

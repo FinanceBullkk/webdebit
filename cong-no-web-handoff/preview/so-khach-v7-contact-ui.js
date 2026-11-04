@@ -1,43 +1,41 @@
 /* Sổ khách V7 bản live — thẻ Trao đổi và thẻ Hồ sơ của trang khách (TRANG-KHACH-01, specs/v7-trang-khach.md, PR A3), phần A:
  *   Trao đổi: dòng thời gian của sổ, mới nhất ở trên — phiếu thu và cấn trừ (tháng trừ nợ theo dòng phân bổ còn hiệu lực, phiếu
- *     hủy gạch kèm lý do), lần nhắc gần nhất, hội thoại Zalo tìm theo tên như nút Chat ở Đòi nợ, dấu tin Zalo (ZALO-GROUP-01: hứa
- *     trả, khách báo đã chuyển, ghi chú); lọc Tất cả · Hứa trả · Nhắc và Zalo · Thu tiền (Debit note là giai đoạn B); Copy tin nhắc
- *     (cùng tin, cùng lệnh ghi reminder_log với Đòi nợ) và Mở chat (group đã gắn trước, tìm theo tên sau).
+ *     hủy gạch kèm lý do), hội thoại Zalo tìm theo tên, dấu tin Zalo (ZALO-GROUP-01: hứa trả, khách báo đã chuyển, ghi chú); lọc
+ *     Tất cả · Hứa trả · Zalo · Thu tiền (Debit note là giai đoạn B); Mở chat (group đã gắn trước, tìm theo tên sau). Nhắc nợ đang
+ *     ẩn (NHAC-NO-01, sửa đổi 4/11/2026).
  *   Hồ sơ (HO-SO-01, khung HoSoV4): đầu hồ sơ (chữ viết tắt, tên, mặt hàng · vận chuyển) rồi hai cột 62/38 — thỏa thuận làm việc
  *     (hạn trả theo quy tắc chung DASH-03), giá và phụ phí đang áp theo bảng giá của sổ; group Zalo đã gắn. Mục cần backend (hạn
  *     mức, hợp đồng, người liên hệ, ghi chú, tài liệu) hiện trạng thái trống, nút của chúng báo rõ chưa lưu được.
- * Hai thẻ không ghi tiền (Copy tin nhắc chỉ ghi "đã nhắc", ngoài đường tiền); số tiền lấy nguyên từ GET, chỉ định dạng (ARCH-03).
- * Lần nhắc, chat, Tổng quan và bảng giá chỉ đọc khi thẻ cần chúng đang mở, đọc lại khi sổ đổi phiên bản hoặc lần đọc đã quá 60
+ * Hai thẻ không ghi tiền; số tiền lấy nguyên từ GET, chỉ định dạng (ARCH-03).
+ * Chat, Tổng quan và bảng giá chỉ đọc khi thẻ cần chúng đang mở, đọc lại khi sổ đổi phiên bản hoặc lần đọc đã quá 60
  * giây (như thẻ Tình hình); nguồn nào lỗi thì chỉ khối đó báo lỗi kèm Thử lại. Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).contact = ctx => {
   'use strict';
   const { root, api, live, customerId, escape, dateText, monthKey, monthLabel, showTab, todayIso } = ctx;
-  const { full, toBig, commodityText, transportText, vnDay, loadError, reminderText } = CongNoFormat;
-  const SOURCE = { 'copy-button': 'bấm Copy tin nhắc', zalo: 'Zalo', manual: 'ghi tay' };
-  const FILTERS = [['all', 'Tất cả'], ['hua', 'Hứa trả'], ['lienlac', 'Nhắc và Zalo'], ['thu', 'Thu tiền']];
-  // ZALO-GROUP-01: dấu tin Zalo — hứa trả và khách báo đã chuyển vào lọc "Hứa trả", ghi chú vào "Nhắc và Zalo".
+  const { full, toBig, commodityText, transportText, vnDay, loadError } = CongNoFormat;
+  const FILTERS = [['all', 'Tất cả'], ['hua', 'Hứa trả'], ['lienlac', 'Zalo'], ['thu', 'Thu tiền']];
+  // ZALO-GROUP-01: dấu tin Zalo — hứa trả và khách báo đã chuyển vào lọc "Hứa trả", ghi chú vào "Zalo".
   const MARK = { promise: 'Hứa trả', paid_claim: 'Khách báo đã chuyển', note: 'Ghi chú' };
   const MARK_STATUS = { pending: 'đang chờ', kept: 'giữ lời', missed: 'lỡ hẹn', waiting: 'chờ đối chiếu',
     received: 'đã có phiếu thu', not_seen: 'chưa thấy phiếu thu' };
   // Nút ở thẻ Sổ mà thẻ Hồ sơ mở tới: bảng giá và cột phụ phí sửa ở thẻ Sổ (SO-GON-04 L7).
   const OPEN = { 'bang-gia': '.price-table-open', 'phu-phi': '.fee-settings-open' };
   // Nguồn phụ đọc qua so-khach-v7-api.js và thẻ cần chúng; `what` là chữ trong câu đang đọc, câu lỗi.
-  const side = { reminders: { read: 'readReminders', what: 'lần nhắc nợ' }, chats: { read: 'findChats', what: 'hội thoại Zalo' },
+  const side = { chats: { read: 'findChats', what: 'hội thoại Zalo' },
     marks: { read: 'readMarks', what: 'dấu tin Zalo' }, links: { read: 'readZaloLinks', what: 'group Zalo đã gắn' },
     debt: { read: 'readDebt', what: 'hạn trả' }, prices: { read: 'readPrices', what: 'bảng giá' },
     groups: { read: 'readZaloGroups', what: 'group Zalo đã gắn' } };
-  const NEEDS = { 'trao-doi': ['reminders', 'chats', 'marks', 'links'], 'ho-so': ['debt', 'prices', 'groups'] };
+  const NEEDS = { 'trao-doi': ['chats', 'marks', 'links'], 'ho-so': ['debt', 'prices', 'groups'] };
   // HO-SO-01: nút của mục cần backend (giai đoạn B) bấm thì báo rõ, không mở khung nhập giả, không ghi gì.
   const SOON = { 'sua-ho-so': 'Chỉnh sửa hồ sơ', 'han-muc': 'Đặt hạn mức', 'hop-dong': 'Tải hợp đồng lên', 'lien-he': 'Thêm người liên hệ',
     'ghi-chu': 'Thêm ghi chú', 'tai-lieu': 'Tải tài liệu lên' };
   for (const item of Object.values(side)) item.state = 'idle';
-  let filter = 'all', note = '', copying = false, soon = '';
+  let filter = 'all', soon = '';
   const shown = () => document.body?.dataset.the;
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
   // Nhãn đọc màn hình bắt đầu bằng chữ trên nút (WCAG 2.5.3), `more` nói thêm nút làm gì.
   const button = (go, text, more = '') => `<button type="button" class="ov-go" data-go="${escape(go)}"`
     + `${more ? ` aria-label="${escape(`${text} — ${more}`)}"` : ''}>${escape(text)}</button>`;
-  const say = (text, bad = false) => `<p class="ct-note${bad ? ' bad' : ''}" role="${bad ? 'alert' : 'status'}">${escape(text)}</p>`;
   const sentence = text => { const low = String(text ?? '').toLocaleLowerCase('vi'); return low.charAt(0).toLocaleUpperCase('vi') + low.slice(1); };
   // Khối đọc từ một nguồn phụ: đang đọc, lỗi kèm Thử lại, hoặc nội dung.
   const source = (name, render) => {
@@ -103,17 +101,13 @@
       [row.voided_by_event != null ? killed(row) : ''], row.voided_by_event != null));
     return [...paid, ...sent].reverse();
   }
-  // Lần nhắc gần nhất (reminder_log; từng lần nhắc có ghi chú là giai đoạn B4) và hội thoại Zalo tìm theo tên: mỗi hội thoại một mục
-  // ở ngày tin cuối, ba hội thoại có tin mới nhất.
+  // Hội thoại Zalo tìm theo tên: mỗi hội thoại một mục ở ngày tin cuối, ba hội thoại có tin mới nhất.
   function talks() {
-    const last = loaded(side.reminders) ? side.reminders.data : null;
     const chats = loaded(side.chats) ? side.chats.data.conversations ?? [] : [];
-    return [...(last ? [entry(last.last_reminded, 'lienlac', `<b>Nhắc nợ · ${escape(SOURCE[last.last_source] ?? last.last_source)}</b>`,
-      [`Lần nhắc gần nhất · đã nhắc ${escape(last.reminder_count)} lần`])] : []),
-    ...chats.filter(row => row.last_message_at).slice(0, 3).map(row => entry(vnDay(row.last_message_at), 'lienlac',
+    return chats.filter(row => row.last_message_at).slice(0, 3).map(row => entry(vnDay(row.last_message_at), 'lienlac',
       `<b>Zalo · tin cuối trong “${escape(row.display_name ?? 'hội thoại chưa rõ tên')}”</b>`, [`${escape(row.message_count)} tin · `
         + `${row.last_own_message_at ? `mình nhắn gần nhất ${dateText(vnDay(row.last_own_message_at))}` : 'mình chưa nhắn'} · `
-        + `<a href="${escape(chatHref(row))}">Mở hội thoại</a>`]))];
+        + `<a href="${escape(chatHref(row))}">Mở hội thoại</a>`]));
   }
   // Dấu tin Zalo của sổ (ZALO-GROUP-01), ở ngày của tin được đánh dấu; trạng thái do máy chủ tính từ phiếu thu chưa hủy. Dấu đã bỏ
   // gạch kèm lý do như phiếu hủy. "Mở tin" sang trang Chat đúng group, cuộn tới đúng tin.
@@ -154,38 +148,12 @@
       + `${label} <b>${count(key)}</b></button>`).join('');
     const rows = items.filter(item => filter === 'all' || item.kind === filter).map(item => `<li class="ct-item${item.voided ? ' voided' : ''}" `
       + `data-kind="${item.kind}"><time datetime="${escape(item.date)}">${escape(dateText(item.date))}</time><div>${item.html}</div></li>`).join('');
-    const status = [source('reminders', () => ''), source('chats', chatStatus), source('marks', () => ''), source('links', linkStatus)]
+    const status = [source('chats', chatStatus), source('marks', () => ''), source('links', linkStatus)]
       .filter(Boolean).map(line => `<p class="ct-status">${line}</p>`).join('');
     return `<div class="ct-bar"><div class="ct-chips" role="group" aria-label="Lọc theo loại">${chips}</div>`
-      + `${button('copy', copying ? 'Đang soạn tin…' : 'Copy tin nhắc', 'chép tin nhắc nợ để dán vào Zalo và ghi “đã nhắc” hôm nay')}`
-      + `<a class="ov-go" href="${escape(chatHref())}">Mở chat</a></div>${note}${status}`
+      + `<a class="ov-go" href="${escape(chatHref())}">Mở chat</a></div>${status}`
       + `<ol class="ov-block ct-list">${rows || '<li class="ct-item"><span></span><div>Chưa có mục nào.</div></li>'}</ol>`
       + '<p class="ov-note">Khoản thu trước khi lên web (sổ gốc) xem ở thẻ Sổ.</p>';
-  }
-
-  // Copy tin nhắc như Đòi nợ: tin soạn từ dòng của khách ở Tổng quan, đọc ngay lúc bấm để số gửi khách là số mới nhất; chép vào bộ
-  // nhớ tạm rồi ghi "đã nhắc" (POST /api/v7/reminders, source copy-button) và đọc lại lần nhắc để dòng thời gian theo số server.
-  async function remindNote() {
-    const { row } = await api.readDebt();
-    if (!row) return say('Khách không còn nợ nên không có tin nhắc.');
-    const text = reminderText(live.sheetName(customerId) || 'quý khách', row);
-    const copied = await Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => true, () => false);
-    try { await api.remind(); } catch {
-      return say(`${copied ? 'Đã copy tin nhưng chưa' : 'Chưa copy và chưa'} ghi được “đã nhắc”. Bấm Copy tin nhắc lần nữa.`, true);
-    }
-    wake('reminders');
-    return copied ? say('Đã copy tin nhắc và ghi “đã nhắc” hôm nay. Dán vào Zalo của khách.')
-      : `${say('Đã ghi “đã nhắc” hôm nay nhưng chưa copy được: chọn tin dưới đây rồi copy tay.')}`
-        + `<textarea class="ct-text" readonly rows="7" aria-label="Tin nhắc nợ">${escape(text)}</textarea>`;
-  }
-  async function copy() {
-    if (copying) return;
-    copying = true;
-    note = '';
-    paint();
-    note = await remindNote().catch(() => say(loadError('số nợ để soạn tin nhắc'), true));
-    copying = false;
-    paint();
   }
 
   // Hạn trả (DASH-03 (1)): nợ tháng M đến hạn ngày cuối tháng M + due_after_months; kèm ví dụ bằng tháng hiện tại (giờ VN).
@@ -305,7 +273,6 @@
     const [what, value] = target.dataset.go.split(':');
     if (what === 'retry') { wake(value); paint(); }
     else if (what === 'loai') { filter = value; paint(); }
-    else if (what === 'copy') copy();
     else if (what === 'mo') { soon = ''; showTab('so'); root.querySelector(OPEN[value])?.click(); }
     else if (what === 'chua') { soon = `${SOON[value]}: chưa lưu được trên web — cần thêm chức năng (giai đoạn B).`; paint(); }
     else if (what === 'dong') { soon = ''; paint(); }

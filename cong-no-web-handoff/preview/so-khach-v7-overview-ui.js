@@ -7,7 +7,7 @@
   const { toBig, full, short, monthTag, dateText, vnDay, loadError } = CongNoFormat;
   // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau; DASH-05 (4): "Trong hạn" chỉ cho tiền.
   const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' };
-  const side = { debt: { state: 'idle', read: 'readDebt' }, reminders: { state: 'idle', read: 'readReminders' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
+  const side = { debt: { state: 'idle', read: 'readDebt' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
   const thisMonth = () => monthKey(ctx.snapshot?.today_month) || liveOpenMonth;
@@ -113,23 +113,19 @@
     const next = unavailable ? ['Chưa xác định việc tiếp theo', 'Kiểm tra dữ liệu rồi thử lại', 'unknown']
       : !loaded(side.marks) || !loaded(debt) ? ['Đang đọc việc tiếp theo…', '', 'unknown']
       : promise ? ['Chờ hứa trả', `${full(promise.amount_vnd)} · hẹn ${dateText(promise.on_date)}`, 'wait']
-      : row && toBig(row.overdue_vnd) > 0n ? ['Nhắc nợ ngay', 'Có nợ quá hạn · xem thẻ Trao đổi', 'remind']
+      : row && toBig(row.overdue_vnd) > 0n ? ['Liên hệ khách', 'Có nợ quá hạn · xem thẻ Trao đổi', 'overdue']
         : ['Chưa cần làm gì', 'Theo dõi hạn trả trong Sổ', 'ok'];
-    // Nút theo việc (canvas TinhHinh): nhắc ngay → nút chính Copy tin nhắc nợ; chờ hứa trả → Vẫn nhắc nợ là nút phụ. Cả hai cùng lệnh
-    // Copy tin nhắc của thẻ Trao đổi. Luôn kèm Xem Trao đổi.
-    const actions = { remind: button('copy', 'Copy tin nhắc nợ', 'chép tin nhắc để dán vào Zalo và ghi đã nhắc hôm nay', 'ov-copy primary'),
-      wait: button('copy', 'Vẫn nhắc nợ', 'copy tin nhắc và ghi đã nhắc hôm nay', 'ov-copy') };
     return `<section class="ov-hero ${escape(riskCode)}" aria-label="Công nợ hôm nay"><div class="ov-hero-debt">`
       + `<div class="ov-hero-label">${credit > 0n ? 'Khách trả trước' : 'Còn nợ'} ${credit > 0n ? '' : `<span class="ov-risk r-${escape(riskCode)}">${escape(riskName)}</span>`}`
       + `${pending ? `<button type="button" class="ov-pending tab-go" data-the="so">+${pending} việc cần xem</button>` : ''}</div>`
       + `<strong class="ov-total">${full(credit > 0n ? credit : total)}</strong><div class="ov-segments" aria-hidden="true">${segments}</div>`
       + `<div class="ov-parts">${partHtml || (total < 0n ? '<span>Khách trả trước</span>' : debt.state === 'error' ? '' : '<span>Đang đọc cơ cấu nợ…</span>')}</div>`
       + `${debt.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('số quá hạn'))} ${button('retry:debt', 'Thử lại')}</p>` : ''}</div>`
-      + `<div class="ov-next"><span class="ov-eyebrow">Việc tiếp theo</span><div class="ov-next-main"><span class="ov-next-icon" aria-hidden="true">${next[2] === 'wait' ? '◷' : next[2] === 'remind' ? '!' : '✓'}</span>`
+      + `<div class="ov-next"><span class="ov-eyebrow">Việc tiếp theo</span><div class="ov-next-main"><span class="ov-next-icon" aria-hidden="true">${next[2] === 'wait' ? '◷' : next[2] === 'overdue' ? '!' : '✓'}</span>`
       + `<div><strong>${next[0]}</strong><small>${next[1]}</small></div></div>`
       + `${side.marks.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hứa trả'))} ${button('retry:marks', 'Thử lại')}</p>` : ''}`
       + `${promise ? `<p class="ov-countdown">Hẹn ${dateText(promise.on_date)} · ${escape(promise.status === 'pending' ? 'đang chờ' : promise.status)}</p>` : ''}`
-      + `<div class="ov-next-actions">${actions[next[2]] ?? ''}<button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button></div></div></section>`;
+      + `<div class="ov-next-actions"><button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button></div></div></section>`;
   }
 
   function referenceStats(data, series) {
@@ -162,14 +158,12 @@
     const mark = (loaded(side.marks) ? side.marks.data : []).filter(row => row.status !== 'cancelled').map(row => ({ date: row.message_at ? vnDay(row.message_at) : String(row.created_on ?? '').slice(0, 10),
       text: row.kind === 'promise' ? `Hứa trả ${full(row.amount_vnd)}` : row.kind === 'paid_claim' ? `Báo đã chuyển ${full(row.amount_vnd)}` : 'Ghi chú',
       sub: row.kind === 'promise' ? `hẹn ${dateText(row.on_date)} · ${row.status === 'pending' ? 'đang chờ' : row.status}` : '', kind: 'mark' }));
-    const reminder = loaded(side.reminders) && side.reminders.data ? [{ date: side.reminders.data.last_reminded, text: 'Nhắc nợ gần nhất', sub: `đã nhắc ${side.reminders.data.reminder_count} lần`, kind: 'remind' }] : [];
     const chats = loaded(side.chats) ? side.chats.data.conversations ?? [] : [];
     const chat = chats.filter(row => row.last_message_at).map(row => ({ date: vnDay(row.last_message_at), text: 'Zalo gần nhất', sub: row.display_name ?? '', kind: 'remind' }));
-    const rows = [...receipt, ...trip, ...mark, ...reminder, ...chat].filter(row => /^\d{4}-\d\d-\d\d$/.test(row.date ?? '')).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+    const rows = [...receipt, ...trip, ...mark, ...chat].filter(row => /^\d{4}-\d\d-\d\d$/.test(row.date ?? '')).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
     return `<section class="ov-activity"><div class="ov-section-head"><h2>Hoạt động gần đây</h2><button type="button" class="tab-go" data-the="trao-doi">Tất cả ›</button></div>`
       + `<ol>${rows.map(row => `<li><span class="ov-event ${row.kind}" aria-hidden="true">${row.kind === 'paid' ? 'đ' : row.kind === 'mark' ? '!' : row.kind === 'remind' ? '↗' : '▸'}</span>`
         + `<span><b>${escape(row.text)}</b><small>${escape(row.sub)}</small></span><time>${dateText(row.date)}</time></li>`).join('') || '<li>Chưa có hoạt động gần đây.</li>'}</ol>`
-      + `${side.reminders.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('lần nhắc nợ'))} ${button('retry:reminders', 'Thử lại')}</p>` : ''}`
       + `${side.chats.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hội thoại Zalo'))} ${button('retry:chats', 'Thử lại')}</p>` : ''}</section>`;
   }
 
@@ -210,7 +204,6 @@
     if (!target) return;
     const [what, value] = target.dataset.go.split(':');
     if (what === 'retry') { wake(value); paint(); return; }
-    if (what === 'copy') { showTab('trao-doi'); root.querySelector('#the-trao-doi [data-go="copy"]')?.click(); return; }
     showTab('so');
     if (what === 'thang') openMonth(value);
     else if (what === 'loc') ctx.showLoc(value);
