@@ -33,7 +33,7 @@ DECLARE
     expected text[] := ARRAY[
       -- Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md, năm migration 2026-11-02).
       'keep_sheet_task(bigint,bigint,text,text,text,bigint,text,jsonb)', 'apply_sheet_price(bigint,bigint,text,text,bigint,text,jsonb,jsonb)',
-      'set_customer_commodity(bigint,bigint,text,text)', 'assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb)',
+      'set_customer_commodity(bigint,bigint,text,text)', 'set_customer_transport(bigint,bigint,text,text)', 'assign_sheet_trip(bigint,bigint,text,bigint,bigint,text,jsonb)',
       'undo_sheet_batch(bigint,bigint,text,jsonb)',
       'edit_trip_info(bigint,bigint,text,bigint,text,text)',
       'delete_trip(bigint,bigint,text,bigint)',

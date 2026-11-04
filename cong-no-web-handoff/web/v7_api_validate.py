@@ -171,6 +171,8 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
             bad()
     if function == "set_customer_commodity" and body.get("commodity_name") not in ("Sầu riêng", "Thanh long", "Chuối", "Mít", "Dừa"):
         bad()
+    if function == "set_customer_transport" and body.get("transport_mode") not in ("CANG", "BO"):
+        bad()
     for name in ("trip_id", "legacy_row_id", "adjustment_id"):
         if name in fields and (name not in body or not positive_int(body[name])):
             bad()
