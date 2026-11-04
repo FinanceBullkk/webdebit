@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import ipaddress
 import json
 import os
@@ -10,6 +12,7 @@ import re
 import socket
 import subprocess  # noqa: F401  test vá `api.subprocess.run`; lệnh psql dựng ở v7_psql
 import sys
+import threading
 import time
 from datetime import datetime  # noqa: F401  test đọc `api.datetime`
 from http.server import BaseHTTPRequestHandler
@@ -152,6 +155,39 @@ def with_actor_names(ledger: dict) -> dict:
     return {**ledger, "events": [{**event, "actor_name": v7_presence.display_name(event["actor"], names)}
                                  if isinstance(event, dict) and isinstance(event.get("actor"), str) else event
                                  for event in events]}
+
+
+# MO-SO-NHANH-01 (4/11/2026): file JS/CSS đọc một lần rồi giữ (nguyên bản, bản gzip, ETag) trong tiến trình; đọc lại khi
+# mtime hoặc kích thước đổi. Deploy thay cả thư mục release và khởi động lại dịch vụ nên bộ nhớ này không giữ bản cũ.
+GZIP_MIN_BYTES = 1024
+_ASSET_CACHE: dict[str, tuple[tuple[int, int], bytes, bytes, str]] = {}
+_ASSET_LOCK = threading.Lock()
+
+
+def accepts_gzip(accept_encoding: str | None) -> bool:
+    """`Accept-Encoding` có gzip và không bị tắt bằng q=0."""
+    for token in (accept_encoding or "").split(","):
+        name, _, params = token.strip().partition(";")
+        if name.strip().lower() == "gzip" and not re.search(r"q\s*=\s*0(?:\.0+)?\s*$", params):
+            return True
+    return False
+
+
+def asset_versions(name: str) -> tuple[bytes, bytes, str]:
+    """(nguyên bản, bản gzip, ETag) của một file preview; file dưới GZIP_MIN_BYTES giữ bản gzip bằng nguyên bản."""
+    path = PREVIEW / name
+    stat = path.stat()
+    key = (stat.st_mtime_ns, stat.st_size)
+    with _ASSET_LOCK:
+        held = _ASSET_CACHE.get(name)
+        if held is not None and held[0] == key:
+            return held[1:]
+    data = path.read_bytes()
+    packed = gzip.compress(data, compresslevel=6, mtime=0) if len(data) >= GZIP_MIN_BYTES else data
+    etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+    with _ASSET_LOCK:
+        _ASSET_CACHE[name] = (key, data, packed, etag)
+    return data, packed, etag
 
 
 def presence_tab(query: str) -> str:
@@ -350,10 +386,24 @@ class Handler(BaseHTTPRequestHandler):
         checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                      self.behind_tailscale_serve, self.serve_hosts)
         name, kind = ASSETS[route]
-        data = (PREVIEW / name).read_bytes()
+        data, packed, etag = asset_versions(name)
+        # MO-SO-NHANH-01 (4/11/2026): trình duyệt giữ file và chỉ hỏi "còn mới không" (ETag → 304) thay vì tải lại
+        # 650 KB JS/CSS mỗi lần mở sổ; no-cache (không phải no-store) nên sau deploy lượt mở kế đã lấy bản mới.
+        # Bản gzip có ETag riêng vì là một biểu diễn khác (Vary: Accept-Encoding).
+        gz = len(packed) < len(data) and accepts_gzip(self.headers.get("Accept-Encoding"))
+        if gz:
+            data, etag = packed, etag[:-1] + '-gz"'
+        caching = (("ETag", etag), ("Cache-Control", "private, no-cache"), ("Vary", "Accept-Encoding"))
+        if etag in [tag.strip() for tag in self.headers.get("If-None-Match", "").split(",")]:
+            self.send_response(304)
+            for header, value in caching:
+                self.send_header(header, value)
+            self.end_headers()
+            return True
         self.send_response(200)
         for header, value in (("Content-Type", kind), ("Content-Length", str(len(data))),
-                              ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                              *((("Content-Encoding", "gzip"),) if gz else ()), *caching,
+                              ("X-Content-Type-Options", "nosniff"),
                               ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY"),
                               ("Content-Security-Policy", "default-src 'none'; script-src 'self'; "
                                "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; base-uri 'none'; frame-ancestors 'none'")):
@@ -364,8 +414,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, status: int, value: dict) -> None:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        # JSON lớn (sổ 400 KB) nén nhanh khi trình duyệt nhận gzip: mức 1 đủ nhỏ 5–8 lần, vài mili giây.
+        gz = len(data) >= GZIP_MIN_BYTES and accepts_gzip(self.headers.get("Accept-Encoding"))
+        if gz:
+            data = gzip.compress(data, compresslevel=1, mtime=0)
         self.send_response(status)
         for name, field in (("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(data))),
+                            *((("Content-Encoding", "gzip"),) if gz else ()), ("Vary", "Accept-Encoding"),
                             ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")):
             self.send_header(name, field)
         self.end_headers()
