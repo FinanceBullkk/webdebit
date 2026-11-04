@@ -58,8 +58,11 @@ class ReceiptBookRouteTest(unittest.TestCase):
 
     def test_page_and_assets_are_served(self):
         self.assertEqual(ASSETS["/bang-thu.html"][0], "bang-thu.html")
-        for asset in ("/bang-thu.js", "/bang-thu.css", "/cong-no-format.js", "/app-nav.js", "/presence.js"):
+        for asset in ("/bang-thu-ui.js", "/bang-thu-model.js", "/bang-thu.css", "/cong-no-format.js", "/dashboard-v7-model.js", "/data-tip.js", "/app-nav.js", "/presence.js"):
             self.assertIn(asset, ASSETS)
+        self.assertNotIn("/bang-thu.js", ASSETS)
+        dashboard = (ROOT / "preview/dashboard-v7.html").read_text(encoding="utf-8")
+        self.assertIn('<script src="data-tip.js"></script>', dashboard, "Tổng quan nạp ô chú thích dùng chung")
 
 
 class SqlTextTest(unittest.TestCase):

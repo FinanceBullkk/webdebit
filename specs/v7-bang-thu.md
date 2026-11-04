@@ -1,6 +1,6 @@
 # Bảng thu: tiền về theo ngày, gom mọi sổ
 
-Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, [`BANG-THU-01`](../docs/decisions/bang-thu-01.md))
+Trạng thái: ĐÃ CHỐT (người dùng, 4/11/2026, [`BANG-THU-01`](../docs/decisions/bang-thu-01.md), [`BANG-THU-02`](../docs/decisions/bang-thu-02.md))
 
 ## Người dùng và luồng (bước 1, bắt buộc với frontend)
 
@@ -9,21 +9,43 @@ Người mở: sếp, chủ sổ, người đòi nợ (trên 40 tuổi, Chrome t
 1. Hôm nay thu được bao nhiêu, ai trả?
 2. Tháng này thu được bao nhiêu, ai trả bao nhiêu?
 3. Một khoản cụ thể trừ nợ tháng nào, xem ở đâu?
-4. Tháng trước, tháng khác tiền về bao nhiêu?
+4. Tiền về tháng này trừ vào nợ những tháng nào?
+5. Mặt hàng nào thu được bao nhiêu?
+6. Tháng trước, tháng khác tiền về bao nhiêu?
 
 Luồng:
 
 1. Mở mục Bảng thu ở menu trái, hoặc bấm "Bảng thu" ở thẻ Thu tháng của Tổng quan. Mặc định là tháng hiện tại, xem theo ngày.
-2. Nhìn thứ nhất: số hôm nay và số tháng. Thứ hai: danh sách phiếu mới nhất trên cùng, gom theo ngày, mỗi ngày có tổng. Thứ ba: dòng cảnh báo khi Sheet còn phiếu chưa ghi.
+2. Nhìn thứ nhất: số tháng, số hôm nay và chip cảnh báo khi Sheet còn phiếu chưa ghi. Thứ hai: dải ngày, bấm một cột thì tới đúng ngày đó. Thứ ba: danh sách phiếu mới nhất trên cùng, gom theo ngày, mỗi ngày có tổng.
 3. Bấm một dòng: mở sổ khách đúng tháng chứa khoản đó. Sửa hay hủy đều làm ở sổ.
-4. Bấm "Theo khách": mỗi khách một dòng, nhiều tiền nhất trên cùng.
-5. Đổi tháng bằng ‹ › hoặc ô chọn tháng. Quay lại từ sổ thì giữ đúng tháng và cách xem.
+4. Bấm tab ngay trên bảng để đổi cách xem (xem bảng dưới). Chọn mặt hàng ở bộ lọc thì số tháng, số hôm nay, dải ngày và bảng cùng lọc theo.
+5. Đổi tháng bằng ‹ › hoặc ô chọn tháng ở thanh đầu. Quay lại từ sổ thì giữ đúng tháng, tab và bộ lọc. Gửi link cho người khác thì thấy đúng như vậy.
 
 Không có điều kiện bị chặn vì trang không ghi gì.
 
 ## Đầu ra
 
 Trang `/bang-thu.html`, mục thứ tư trên menu trái, đọc `GET /api/v7/receipt-book`. Tháng tính theo **ngày tiền về**. Khoản không rõ ngày nằm nhóm riêng, không cộng vào tổng tháng.
+
+## Các cách xem (BANG-THU-02)
+
+Địa chỉ trang: `?month=YYYY-MM&xem=<tab>&mh=<mặt hàng>`. Tab mặc định và bộ lọc trống không ghi lên địa chỉ.
+
+| Tab (`xem`) | Trả lời | Gom từ | Một dòng là |
+| --- | --- | --- | --- |
+| Theo ngày (mặc định) | Ngày nào thu bao nhiêu, ai trả | `days[]`, `undated[]` | Một phiếu. Bấm mở sổ ở tháng chứa khoản đó |
+| Theo khách (`khach`) | Cả tháng ai trả bao nhiêu | `customers[]`, giữ thứ tự server | Một sổ |
+| Theo mặt hàng (`mat-hang`) | Mặt hàng nào thu được bao nhiêu | `customers[]` ghép mặt hàng của `GET /api/v7/customers` | Nhóm mặt hàng, trong đó từng sổ. Nhóm nhiều tiền trước |
+| Theo tháng nợ (`thang-no`) | Tiền về tháng này trừ vào nợ tháng nào | `days[].rows[]`, `undated[]` | Nhóm tháng nợ, trong đó từng sổ. Tháng cũ trước, Ứng trước cuối |
+| 12 tháng (`12-thang`) | Tiền về từng tháng | `months[]` của tháng đang xem, 12 tháng liền tới tháng hiện tại | Một tháng. Bấm mở Theo ngày của tháng đó |
+
+Quy tắc gom:
+
+1. **Mặt hàng** dùng `DashboardModel.commodityKey` như bộ lọc Tổng quan: chỉ sầu riêng tách cảng/bộ; thiếu mặt hàng, hoặc sầu riêng chưa ghi cảng/bộ, là "Chưa phân loại". Không đọc được `GET /api/v7/customers` thì ẩn bộ lọc, tab Theo mặt hàng báo rõ, các tab khác vẫn đúng số.
+2. **Tháng nợ:** phiếu web đọc `allocations[]`, `kind = advance` vào nhóm Ứng trước. Dòng Sheet không có phân bổ riêng nên đọc `book_month`. Phiếu chia nhiều tháng tách đúng phần tiền vào từng nhóm và được đếm ở mỗi nhóm. Nếu phân bổ không đủ số tiền của phiếu, phần còn lại vào nhóm "Chưa phân bổ" để tổng vẫn khớp. Số của phiếu web có thể đổi khi sổ được điều chỉnh, vì phiếu được phân bổ lại theo nợ cũ trước.
+3. **Đẳng thức:** ở mọi tab và mọi bộ lọc, tổng các nhóm bằng số tháng đang hiện; phần không rõ ngày tính riêng, không cộng vào.
+4. **Bộ lọc** áp lên mọi tab trừ 12 tháng, vì `months[]` chỉ có tổng từng tháng. Chip phiếu Sheet chờ, phiếu đã hủy và cấn trừ cũng lọc theo sổ thuộc mặt hàng đó.
+5. **Thanh "Phần trong tháng":** nhóm và sổ trong cùng bảng dùng chung một thước, nên thanh so được với nhau.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2, bắt buộc với frontend)
 
@@ -68,11 +90,12 @@ Khối lượng: khoảng 3–4 phiếu mỗi ngày, nhiều nhất khoảng 100
 //       "allocations": [{"month": "2026-09-01", "kind": "debt"|"advance", "amount_vnd": "…"}]}
 ```
 
-Mọi số tiền và phép cộng ở SQL; trang chỉ định dạng. Riêng tổng phiếu Sheet chưa ghi cộng bằng `CongNoFormat.sum` từ `inbox`.
+Số tháng khi không lọc lấy nguyên từ SQL. Lọc, gom nhóm, tổng phiếu Sheet chưa ghi và thanh tỷ lệ tính ở `preview/bang-thu-model.js` bằng BigInt, có test riêng (ARCH-03); `preview/bang-thu-ui.js` chỉ định dạng. Năm cách xem không cần API mới.
 
 ## Nguồn quyết định
 
 - [`BANG-THU-01`](../docs/decisions/bang-thu-01.md): bố cục và cách tính tháng.
+- [`BANG-THU-02`](../docs/decisions/bang-thu-02.md): năm cách xem, bộ lọc mặt hàng, ngôn ngữ trình bày.
 - [`DA-THU-01`](../docs/decisions/da-thu-01.md): Đã thu của sổ, không đổi.
 - [`THU-SHEET-01`](../docs/decisions/thu-sheet-01.md), [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md): nguồn phiếu từ Sheet và phiếu máy đặt ngày cuối tháng khối.
 - [`XOA-THU-GOC-01`](../docs/decisions/xoa-thu-goc-01.md): khoản thu sổ gốc đã xóa.
@@ -98,21 +121,25 @@ Mọi số tiền và phép cộng ở SQL; trang chỉ định dạng. Riêng t
 - [x] Case `CSM.03` và `test_pg_v7_grants.py`: migration chạy hai lượt, catalog bằng khởi tạo mới; app và reader gọi được `get_receipt_book`, không gọi được `_legacy_pay_date`.
 - [x] `test_v7_bang_thu.py`: route, tháng sai bị từ chối, trang và tài nguyên được phục vụ, chuỗi đuôi của máy khớp `v7_sheet_fix`.
 - [x] `test-bang-thu-browser.js`: đủ trạng thái tải, trống, lỗi, thử lại; gom theo ngày, tổng ngày; Theo khách; đổi tháng và giữ qua Back; bấm dòng mở đúng sổ, đúng tháng; nhóm không rõ ngày; cảnh báo phiếu chờ; menu sáu mục không tràn ở 1280×560; không cuộn ngang ở 1280.
+- [x] `test-bang-thu-model.js` (BANG-THU-02): lọc mặt hàng, gom mặt hàng, gom tháng nợ, 12 tháng, dải ngày, phiếu chờ; tổng các nhóm bằng tổng tháng ở mọi cách gom.
+- [x] `test-bang-thu-browser.js` (BANG-THU-02): năm tab và địa chỉ trang; bộ lọc lọc cả số tháng, hôm nay, dải ngày, bảng; không đọc được mặt hàng; bấm dải ngày tới đúng ngày; chip không rõ ngày từ tab khác; bấm tháng ở 12 tháng; số lớn rút gọn và số đúng ở chú thích.
 - [x] Trên `hao`: tổng T11 của trang bằng "Thu tháng" ở Tổng quan; đẳng thức cả đời đúng trên dữ liệu thật ([nhật ký](../docs/deploys/2026-11-04-bang-thu.md)).
+- [ ] Sau khi merge, trên `hao`, chỉ đọc: năm tab chạy không lỗi; tổng các nhóm ở Theo mặt hàng và Theo tháng nợ bằng tổng tháng trên dữ liệu thật.
 - [ ] Người dùng tự mở trang trên `hao` và xác nhận.
 
 ## Phạm vi
 
-- Được sửa: `tools/v7_backend_functions.sql`, migration mới `2026-11-04-v7-bang-thu.sql`, `tools/v7_post_deploy_check.sql`, harness và grants trong `tools/`, `web/v7_api_tables.py`, `web/v7_api_validate.py`, `web/v7_ledger_api.py`, `web/v7_presence.py`, `preview/bang-thu.*`, `preview/app-nav.*`, `preview/presence.js`, menu của `so-khach-v7-live.html` và `so-khach-v7-priority.css`, thẻ Thu tháng của `dashboard-v7.js`, tài liệu quyết định và runbook.
+- BANG-THU-01 được sửa: `tools/v7_backend_functions.sql`, migration mới `2026-11-04-v7-bang-thu.sql`, `tools/v7_post_deploy_check.sql`, harness và grants trong `tools/`, `web/v7_api_tables.py`, `web/v7_api_validate.py`, `web/v7_ledger_api.py`, `web/v7_presence.py`, `preview/bang-thu.*`, `preview/app-nav.*`, `preview/presence.js`, menu của `so-khach-v7-live.html` và `so-khach-v7-priority.css`, thẻ Thu tháng của `dashboard-v7.js`, tài liệu quyết định và runbook.
+- BANG-THU-02 được sửa: `preview/bang-thu*`, `preview/test-bang-thu-*`, `preview/data-tip.js` mới cùng chỗ gọi trong `dashboard-v7.{html,js}`, chú thích trong `cong-no-theme.css` và `dashboard-v7.css`, `tests/test_v7_bang_thu.py`, spec và quyết định.
 - Cấm: đổi hàm ghi, view nợ, bảng tiền; nạp dữ liệu; ghi Sheet.
 
 ## Hoàn tác
 
-Revert PR. DB: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pay_date(text);` dưới `sokhach_owner`. Không có dữ liệu mới.
+Revert PR. BANG-THU-02 không có migration. BANG-THU-01 thêm DB: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pay_date(text);` dưới `sokhach_owner`. Không có dữ liệu mới.
 
 ## Bằng chứng
 
-FinanceBullkk/webdebit#296, FinanceBullkk/webdebit#299; nhật ký [đợt 1](../docs/deploys/2026-11-04-bang-thu.md), [đợt 2](../docs/deploys/2026-11-04-bang-thu-2.md).
+FinanceBullkk/webdebit#296, FinanceBullkk/webdebit#299; nhật ký [đợt 1](../docs/deploys/2026-11-04-bang-thu.md), [đợt 2](../docs/deploys/2026-11-04-bang-thu-2.md). BANG-THU-02: PR của nhánh `feat/bang-thu-view` và lượt `Deploy hao` sau khi merge.
 
 ## Câu hỏi mở
 

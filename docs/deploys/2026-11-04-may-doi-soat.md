@@ -66,7 +66,9 @@ Lượt 12:05–12:12: 235 khớp, 1 lệch (khách −49,5 triệu ở trên), 
 
 ## Điểm mù tìm thêm sau lượt đầu
 
-Phép so chỉ thấy khách có trên TONG. Đo trên `hao` 4/11/2026: 13 tab khách không có trên TONG, 7 tab có dòng tiền; đa số là bản sao, tab cũ đã xem lúc nạp, nhưng **2 tab mới có phát sinh tháng 10/2026, còn nợ hơn 330 triệu**, không nằm trong tổng Sheet lẫn tổng web. Hai con số khớp với nhau nên đối soát không báo. Từ PR sau, mỗi lượt báo các tab này ở đầu tab Việc cần làm (`outside_tabs`), không đổi tiền.
+Phép so chỉ thấy khách trong danh sách đóng băng từ mốc 20/10. Đo trên `hao` 4/11/2026: 13 tab ngoài danh sách đó, 7 tab có dòng tiền; đa số là bản sao, tab cũ đã xem lúc nạp, nhưng **2 tab mới có phát sinh tháng 10/2026, còn nợ hơn 330 triệu**, không nằm trong tổng Sheet lẫn tổng web. Hai con số khớp với nhau nên đối soát không báo. Từ FinanceBullkk/webdebit#301, mỗi lượt báo các tab này ở đầu tab Việc cần làm (`outside_tabs`), không đổi tiền.
+
+**Đính chính cùng ngày:** bản đầu của mục này và câu trên web ghi 2 tab đó "chưa có trên TONG". Sai: `in_summary` của bộ đọc sổ gốc so với CSV đóng băng chứ không so với TONG thật. Đọc TONG thật thì cả 2 tab đã có ở khối tháng 10/2026 và số khớp tab. Đã sửa ở [`MAY-TAO-SO-01`](../decisions/may-tao-so-01.md).
 
 ## Rollback
 
@@ -78,5 +80,5 @@ Phép so chỉ thấy khách có trên TONG. Đo trên `hao` 4/11/2026: 13 tab k
 - Cảnh báo khi máy lỗi: hiện chỉ thấy ở đầu tab Việc cần làm và journal; chưa có kênh đẩy (audit DevOps #2). Khi không còn người nhập thì đây là chỗ thiếu quan trọng nhất.
 - Kiểu lệch cột ở chuyến web chưa có giá thì máy không bắt được; máy ghi theo Sheet vì Sheet là sổ chính thức.
 - Chủ sổ chưa tự đi hết luồng trên `hao`.
-- Khách mới: từ mốc nạp 21/10 web chưa có lệnh tạo sổ mới, mọi sổ đều từ lần nạp đó. Tab mới vào TONG thì đối soát báo `CHI_CO_SHEET`, máy không tự làm được. Cần người dùng chốt cách làm.
+- Khách mới: từ mốc nạp 21/10 web chưa có lệnh tạo sổ, mọi sổ đều từ lần nạp đó. Người dùng đã chốt máy tự tạo sổ ([`MAY-TAO-SO-01`](../decisions/may-tao-so-01.md)).
 - Tên trong bảng booking chưa có trong bảng ghép tên: chuyến chờ ở hàng "chưa rõ khách" tới khi có người trả lời.

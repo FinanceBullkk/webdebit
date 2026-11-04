@@ -6,8 +6,8 @@ Chạy trên hao dưới user runner (timer v7-reconcile-auto, mỗi giờ từ 
     v7_reconcile_auto.py --source-dir /srv/v7/so-goc-20261020 [--fix]
 
 Mỗi lượt: tải bản xlsx sổ gốc (chỉ đọc), làm sạch đúng như đối soát chính thức, đọc tổng từng khách trên web. Khách lệch thì tìm đúng
-một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Không có
---fix thì chỉ báo sẽ ghi gì. Kết quả ghi vào reconcile.json (mode 600, có tên khách và số tiền) để API hiện ở Việc cần làm; bản tải
+một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Khách có
+trên Sheet mà chưa có sổ web thì tạo sổ khi đủ điều kiện (MAY-TAO-SO-01). Không có --fix thì chỉ báo sẽ ghi gì. Kết quả ghi vào reconcile.json (mode 600, có tên khách và số tiền) để API hiện ở Việc cần làm; bản tải
 và bản làm sạch xóa ngay sau lượt. Stdout chỉ có số đếm, không có tên khách hay số tiền.
 """
 
@@ -17,6 +17,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -37,6 +38,7 @@ import v7_sheet_fix as fix  # tools may use the web layer; never the reverse
 from v7_api_sheet import customer_name_mapping, named_customer
 from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR
+from v7_price_queue import container_key, iso, targets
 from v7_psql import PsqlDirect
 
 ACTOR = "doi-soat-tu-dong"   # chỉ đọc; lệnh ghi dùng AUTO_ACTOR ("Máy (theo Sheet)")
@@ -44,8 +46,11 @@ ACTOR = "doi-soat-tu-dong"   # chỉ đọc; lệnh ghi dùng AUTO_ACTOR ("Máy 
 MAX_DIFFERENT = 40
 OUTPUT = "/var/lib/webdebit-sheet-sync/reconcile.json"
 WORK = "/var/lib/webdebit-sheet-sync/reconcile-work"
-# Tab ngoài TONG: trước tháng nạp V7 là bản sao, tab nháp đã xem lúc nạp; có phát sinh từ tháng này là khách mới chưa vào sổ.
+# Tab ngoài danh sách mốc 20/10: có phát sinh trước tháng nạp V7 là bản sao, tab nháp đã xem lúc nạp; từ tháng này là khách mới.
 OUTSIDE_FROM = "2026-10"
+# MAY-TAO-SO-01: hơn chừng này tab mới một lượt thì có thể Sheet đang đổi tên hàng loạt: chỉ báo, không tạo sổ.
+NEW_BOOKS_MAX = 5
+DONE_REASONS = ("FIXED", "BOOK_CREATED")   # việc máy đã làm: ở lại danh sách tới hết ngày để chủ sổ soát
 
 
 def now_vn() -> dt.datetime:
@@ -63,36 +68,156 @@ def download(spreadsheet_id: str, credentials: str, output: Path) -> Path:
     return output
 
 
-def outside_tabs(books: list[dict]) -> list[dict]:
-    """Tab khách chưa có trên TONG, còn nợ và có phát sinh từ tháng nạp V7. Tổng Sheet lẫn web đều chưa tính nên phép so từng khách
-    không thấy (đo trên `hao` 4/11/2026: một tab mới còn nợ hơn 300 triệu). Máy chỉ báo, không tự gắn vào sổ nào."""
+def live_tong(xlsx: Path) -> dict[str, Any]:
+    """Khối mới nhất (ngoài cùng bên phải) của tab TONG thật trong bản tải: tháng và số cuối tháng theo tên đã chuẩn hóa.
+
+    `in_summary` của bộ đọc sổ gốc chỉ so với CSV đóng băng từ mốc 20/10, không thấy tab mới. Bố cục lạ thì trả rỗng; tên trùng hay ô
+    không phải số thì số là None. Cả hai đều không có tab nào được nhận.
+    """
+    empty: dict[str, Any] = {"month": None, "rows": {}}
+    for tab, data in loader.workbook_rows(xlsx):
+        if loader.normalized(tab) != "TONG":
+            continue
+        rows = list(data)
+        header = next(((number, cells) for number, cells in rows if any(loader.normalized(value) == "LOAI HANG" for value in cells.values())), None)
+        if header is None:
+            return empty
+        heads = {col: loader.normalized(value) for col, value in header[1].items()}
+        names = [col for col in heads if heads[col] == "TEN KHACH HANG" and heads.get(loader.col_name(loader.col_num(col) - 1)) == "LOAI HANG"]
+        if not names:
+            return empty
+        name_col = max(names, key=loader.col_num)
+        after = sorted((col for col in heads if loader.col_num(col) > loader.col_num(name_col)), key=loader.col_num)
+        balance_col = next((col for col in after if heads[col] == "SO CON PHAI THU CUOI THANG"), None)
+        title = next((match for col in after if (match := re.search(r"THANG (\d{1,2}) (20\d{2})", heads[col]))), None)
+        if balance_col is None or title is None:
+            return empty
+        found: dict[str, int | None] = {}
+        for number, cells in rows:
+            key = loader.normalized(cells.get(name_col, ""))
+            if number > header[0] and key:
+                found[key] = None if key in found else loader.integer(cells.get(balance_col))
+        return {"month": f"{title.group(2)}-{int(title.group(1)):02d}", "rows": found}
+    return empty
+
+
+def tong_agrees(book: dict, tong: dict[str, Any]) -> bool:
+    """Tab có ở khối mới nhất của TONG và số cuối tháng đó trên TONG bằng số trên tab tới từng đồng."""
+    expected = tong["rows"].get(loader.normalized(book["name"]))
+    check = next((item for item in book["checks"] if str(item["debt_month"])[:7] == tong["month"]), None)
+    return expected is not None and check is not None and check["source_cumulative_vnd"] == expected
+
+
+def admit_new_tabs(books: list[dict], tong: dict[str, Any], known: set[str]) -> None:
+    """Tab ngoài danh sách mốc 20/10 được so như mọi khách khi đã có sổ web, hoặc khi đủ điều kiện tạo sổ (MAY-TAO-SO-01). Sửa `books`
+    tại chỗ. Mỗi tab kiểm riêng trước khi nhận, để một tab mới lỗi không làm hỏng cả lượt."""
+    for book in books:
+        if book["in_summary"]:
+            continue
+        name = rec.name(book["name"])
+        others = set(book["reasons"]) - {"NOT_ON_TONG"}
+        if name not in known and (others or not tong_agrees(book, tong)):
+            continue
+        book["in_summary"] = True
+        del book["reasons"]["NOT_ON_TONG"]
+        if others:
+            continue   # đã có sổ mà tab đọc không được: thành khách bị giữ như mọi khách
+        try:
+            loader.validate_books([book], book["anchor"])
+        except loader.LoadError as exc:
+            book["reasons"][str(exc)] += 1
+            if name not in known:
+                book["in_summary"] = False
+
+
+def outside_tabs(books: list[dict], tong: dict[str, Any]) -> list[dict]:
+    """Tab khách còn nợ, có phát sinh từ tháng nạp V7 mà máy chưa nhận được: tổng Sheet lẫn web đều chưa tính nên phép so từng khách
+    không thấy (đo trên `hao` 4/11/2026: một tab mới còn nợ hơn 300 triệu). Chỉ báo kèm lý do, không tự gắn vào sổ nào."""
     rows = []
     for book in books:
         active = [str(check["debt_month"])[:7] for check in book["checks"] if check.get("source_charge_vnd") or check.get("source_receipt_vnd")]
         if not book["in_summary"] and book["anchor"] and active and max(active) >= OUTSIDE_FROM:
-            rows.append({"customer": rec.name(book["name"]), "sheet_total_vnd": str(book["anchor"]), "last_month": max(active)})
+            on_tong = loader.normalized(book["name"]) in tong["rows"]
+            reason = "NOT_ON_TONG" if not on_tong else "TAB_UNREADABLE" if set(book["reasons"]) - {"NOT_ON_TONG"} else "TONG_DIFFERS"
+            rows.append({"customer": rec.name(book["name"]), "sheet_total_vnd": str(book["anchor"]), "last_month": max(active), "reason": reason})
     return rows
 
 
-def read_sheet(xlsx: Path, source_dir: Path, out: Path) -> tuple[dict, list[dict], list[dict]]:
+def read_sheet(xlsx: Path, source_dir: Path, out: Path, known: set[str]) -> tuple[dict, list[dict], list[dict], list[dict], str]:
     """Đúng các bước của `v7_export_clean --hold-out` rồi `v7_reconcile_sheet`; khách bị giữ không có tổng Sheet."""
     books, digests = clean.build_books(source_dir, xlsx, ())
+    tong = live_tong(xlsx)
+    admit_new_tabs(books, tong, known)
     held = [book for book in books if book["in_summary"] and book["reasons"]]
     clean.export([book for book in books if book not in held], digests, out, xlsx, ())
     sheet, _ = rec.read_sheet(out)
-    return sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"])} for book in held], outside_tabs(books)
+    return (sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"])} for book in held], outside_tabs(books, tong),
+            [book for book in books if book["in_summary"] and not book["reasons"]], digests["source-google-export.xlsx"])
 
 
-def read_web(db) -> tuple[list[dict], dict, dict]:
-    rows = db.run("list_customers", {}, ACTOR).get("customers", [])
-    web, ids = {}, {}
+def read_web(db, rows: list[dict]) -> tuple[dict, dict, dict]:
+    """(tổng từng sổ, id theo tên, chuyến mọi sổ theo container để kiểm tab mới có đụng sổ khác không)."""
+    web, ids, seen = {}, {}, {}
     for row in rows:
         key = rec.name(row["name"])
         if key in web:
             raise rec.InputError("duplicate web customer")
-        web[key] = rec.ledger(db.run("get_ledger", {"customer_id": row["id"]}, ACTOR))
+        ledger = db.run("get_ledger", {"customer_id": row["id"]}, ACTOR)
+        web[key] = rec.ledger(ledger)
         ids[key] = row["id"]
-    return rows, web, ids
+        for target in targets(ledger):
+            seen.setdefault(target["container"], []).append((row["id"], target["date"], target["month"]))
+    return web, ids, seen
+
+
+def overlap_ids(book: dict, seen: dict) -> list[int]:
+    """Sổ khác đã có chuyến của tab này: cùng container, cách không quá 3 ngày, dòng không ngày thì cùng tháng. Khách mới thật thì không
+    có; có là dấu hiệu đổi tên hay tách sổ."""
+    found = set()
+    for row in book["legacy"]:
+        container = container_key(row["display"].get("container")) if row["kind"] == "trip" else ""
+        if not container:
+            continue
+        day, month = iso(row["display"].get("date")), str(row["debt_month"])[:7]
+        for customer_id, other_day, other_month in seen.get(container, ()):
+            if abs((day - other_day).days) <= 3 if day and other_day else month == other_month:
+                found.add(customer_id)
+    return sorted(found)
+
+
+def create_new_books(db, rows: list[dict], books: dict[str, dict], seen: dict, digest: str, ids: dict, *, write: bool) -> None:
+    """Khách có trên Sheet mà chưa có sổ web: tạo sổ theo đúng đường nạp mốc (MAY-TAO-SO-01). Cập nhật `rows` và `ids` tại chỗ."""
+    for row in rows:
+        book = books.get(row["customer"])
+        if book is None:
+            continue
+        if len(rows) > NEW_BOOKS_MAX:
+            row["reason"] = "TOO_MANY_NEW_BOOKS"
+            continue
+        others = overlap_ids(book, seen)
+        if others:
+            row.update(reason="BOOK_OVERLAP", overlap_ids=others)
+            continue
+        if not write:
+            row["reason"] = "WOULD_CREATE_BOOK"
+            continue
+        try:
+            created = db.run("create_book_from_sheet", {
+                "book_name": row["customer"], "commodity_name": book.get("commodity"), "book_mode": book.get("transport_mode"),
+                "openings": book["openings"], "legacy": book["legacy"], "month_checks": book["checks"],
+                "control_total": book["anchor"], "report_sha256": digest}, AUTO_ACTOR)
+        except ApiError as exc:
+            print(f"V7 đối soát máy: lỗi {exc.code} khi tạo sổ", file=sys.stderr, flush=True)
+            row.update(reason="WRITE_ERROR", error=exc.code)
+            continue
+        ids[row["customer"]] = created["customer_id"]
+        total = int(db.run("get_ledger", {"customer_id": created["customer_id"]}, AUTO_ACTOR)["total_outstanding_vnd"])
+        row.update(web_total_vnd=total, difference_vnd=total - row["sheet_total_vnd"])
+        if total == row["sheet_total_vnd"]:
+            row.update(status="KHOP", reason="BOOK_CREATED")
+        else:
+            print(f"V7 đối soát máy: sổ {created['customer_id']} tạo xong mà không khớp", file=sys.stderr, flush=True)
+            row["reason"] = "VERIFY_FAILED"
 
 
 def brief(group: dict[str, Any], chosen: list[dict[str, Any]]) -> dict[str, Any]:
@@ -154,9 +279,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
         work = Path(folder)
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
-        sheet, held, outside = read_sheet(Path(xlsx), args.source_dir, work / "sach")
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
-        rows, web, ids = read_web(db)
+        rows = db.run("list_customers", {}, ACTOR).get("customers", [])
+        sheet, held, outside, books, digest = read_sheet(Path(xlsx), args.source_dir, work / "sach", {rec.name(row["name"]) for row in rows})
+        web, ids, seen = read_web(db, rows)
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
         by_month, _, _ = rec.reconcile(sheet, web, compare_months=True, can_du=True)
         months_differ = [row["customer"] for row in by_month if row["status"] == "CHI_LECH_THANG"]
@@ -173,6 +299,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     code = failure_code(exc)
                     print(f"V7 đối soát máy: sổ {ids[row['customer']]} lỗi {code} khi kiểm", file=sys.stderr, flush=True)
                     row.update(reason="CHECK_ERROR", error=code)
+        if not too_many:
+            create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
+                             seen, digest, ids, write=args.fix)
     held_names = {item["name"]: item["reasons"] for item in held}
     for row in results:
         row["customer_id"] = ids.get(row["customer"])
@@ -185,9 +314,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     matched = [row for row in results if row["status"] == "KHOP"]
     checked_at = now_vn().isoformat(timespec="seconds")
     for row in results:
-        if row.get("reason") == "FIXED":
+        if row.get("reason") in DONE_REASONS:
             row["fixed_at"] = checked_at
-    listed = [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") == "FIXED"]
+    listed = [money_fields(row) for row in results if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS]
     named = {row["customer"] for row in listed}
     return {
         "version": 1, "checked_at": checked_at, "mode": "fix" if args.fix else "report",
@@ -206,7 +335,7 @@ def fixed_earlier_today(output: Path, day: str) -> list[dict[str, Any]]:
         previous = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return [row for row in previous.get("customers", []) if row.get("reason") == "FIXED"] if str(previous.get("checked_at"))[:10] == day else []
+    return [row for row in previous.get("customers", []) if row.get("reason") in DONE_REASONS] if str(previous.get("checked_at"))[:10] == day else []
 
 
 def record_failure(output: Path, reason: str) -> None:
@@ -222,7 +351,9 @@ def record_failure(output: Path, reason: str) -> None:
 def append_log(output: Path, result: dict[str, Any]) -> None:
     """Sổ theo dõi: mỗi lượt một dòng, chỉ số đếm và tổng tiền, không có tên khách."""
     line = {key: result[key] for key in ("checked_at", "mode", "counts", "total", "matched_web_vnd", "all_web_vnd")}
-    line["fixed"] = sum(row.get("fixed_at") == result["checked_at"] for row in result["customers"])
+    today = [row for row in result["customers"] if row.get("fixed_at") == result["checked_at"]]
+    line["fixed"] = sum(row["reason"] == "FIXED" for row in today)
+    line["created"] = sum(row["reason"] == "BOOK_CREATED" for row in today)
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")

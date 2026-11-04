@@ -80,6 +80,12 @@ ROUTES = {
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
 TRIP_FIELDS = {"date", "booking", "container", "carrier", "shipper", "from", "to", "note", "src", "unitPriceVnd", "otherFeeVnd", "fees"}
 ERRORS = {
+    "BOOK_EXISTS": (409, "Sổ tên này đã có."),
+    "INVALID_BOOK_NAME": (422, "Tên sổ không hợp lệ."),
+    "INVALID_CUTOVER_INPUT": (422, "Dữ liệu sổ mới không hợp lệ."),
+    "CUTOVER_CUSTOMER_TOTAL_MISMATCH": (422, "Tổng số dư đầu của sổ mới không khớp."),
+    "CUTOVER_SOURCE_INCOMPLETE": (422, "Dữ liệu sổ mới thiếu tháng."),
+    "CUTOVER_ANCHOR_MISMATCH": (422, "Số cuối tháng của sổ mới không khớp."),
     "INVALID_SHEET_RESOLUTION": (422, "Không thể xử lý ô này."),
     "INVALID_FIELD": (422, "Ô không được sửa."),
     "LEGACY_NO_UNIT_PRICE": (422, "Dòng sổ gốc chưa có đơn giá. Bổ sung đơn giá trước khi sửa phụ phí; số tiền hiện tại được giữ nguyên."),
@@ -253,5 +259,9 @@ SQL["record_mark"] = "SELECT sokhach.record_mark(:'payload'::jsonb);"
 SQL["cancel_mark"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.cancel_mark((j->>'id')::bigint, j->>'reason') FROM b;"
 SQL["get_marks"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "
                     "SELECT sokhach.get_marks((j->>'customer_id')::bigint, j->>'conversation_id') FROM b;")
+# MAY-TAO-SO-01: máy đối soát tạo sổ khách mới; không có route, API không gọi.
+SQL["create_book_from_sheet"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.create_book_from_sheet("
+                                 "j->>'book_name', j->>'commodity_name', j->>'book_mode', j->'openings', j->'legacy', j->'month_checks', "
+                                 "(j->>'control_total')::bigint, j->>'report_sha256') FROM b;")
 # /healthz: chỉ chứng minh đường psql của app tới DB còn chạy (audit DevOps 31/10, #6); không đọc sổ.
 SQL["healthz"] = "SELECT 1;"

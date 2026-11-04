@@ -50,6 +50,7 @@ module.exports = [
     files: ["cong-no-web-handoff/preview/**/*.js"],
     languageOptions: {
       globals: {
+        BangThuModel: "readonly",
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
         DebitNoteXlsx: "readonly",
