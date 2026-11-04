@@ -62,9 +62,9 @@ Không thêm route. `GET /api/v7/inbox` trả nguyên `reconcile`:
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tools/test_pg_v7_backend_tao_so.py`: tạo sổ đủ trạng thái, Lịch sử, tham chiếu, dán chuyến được; tên trùng, đầu vào sai, cổng kiểm không đạt thì không để lại gì; quyền app và reader; migration chạy lại không đổi hàm.
-- [ ] `tests/test_v7_reconcile_auto.py`: đọc TONG; tạo sổ khi đủ điều kiện rồi lượt sau khớp; chỉ báo không ghi; container ở sổ khác; TONG lệch tab; chưa có trên TONG; quá nhiều sổ mới; lỗi ghi.
-- [ ] `preview/test-viec-can-lam-table-browser.js`: số sổ đã tạo, các lý do mới, lý do của tab chưa nhận được; không tràn ngang ở 1280.
-- [ ] Thử trên bản sao DB của `hao`: đúng 2 sổ mới, tổng tăng đúng bằng tổng 2 tab, sổ khác giữ nguyên, lượt sau không ghi thêm, checker đạt, dán thử chuyến vào sổ mới được.
-- [ ] Bật trên `hao`, đối soát cho kết quả như bản thử; sổ mới mở được trên web.
+- [x] `tools/test_pg_v7_backend_tao_so.py`: tạo sổ đủ trạng thái, Lịch sử, tham chiếu, dán chuyến được; tên trùng, đầu vào sai, cổng kiểm không đạt thì không để lại gì; quyền app và reader; migration chạy lại không đổi hàm.
+- [x] `tests/test_v7_reconcile_auto.py`: đọc TONG; tạo sổ khi đủ điều kiện rồi lượt sau khớp; chỉ báo không ghi; container ở sổ khác; TONG lệch tab; chưa có trên TONG; quá nhiều sổ mới; lỗi ghi.
+- [x] `preview/test-viec-can-lam-table-browser.js`: số sổ đã tạo, các lý do mới, lý do của tab chưa nhận được; không tràn ngang ở 1280.
+- [x] Thử trên bản sao DB của `hao`: đúng 2 sổ mới, tổng tăng đúng bằng tổng 2 tab, sổ khác giữ nguyên, lượt sau không ghi thêm, checker đạt, dán thử chuyến vào sổ mới được ([nhật ký](../docs/deploys/2026-11-04-may-tao-so.md)).
+- [x] Bật trên `hao`, đối soát cho kết quả như bản thử; sổ mới mở được trên web (cùng nhật ký).
 - [ ] Chủ sổ mở sổ mới đầu tiên và xác nhận đúng khách.

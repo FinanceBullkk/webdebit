@@ -32,7 +32,7 @@ Claude đặt các điều kiện 1–5 và cách làm (đường nạp mốc th
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Chi tiết ở [spec](../../specs/v7-may-tao-so.md). Thêm một hàm SQL `create_book_from_sheet` cấp cho app, không có route trên web, chỉ máy đối soát gọi. Không đổi quy tắc tiền hay phân bổ. Không ghi Sheet.
+ĐÃ CHỐT. ĐÃ TRIỂN KHAI trên `hao` 4/11/2026 ([nhật ký](../deploys/2026-11-04-may-tao-so.md)). Chi tiết ở [spec](../../specs/v7-may-tao-so.md). Thêm một hàm SQL `create_book_from_sheet` cấp cho app, không có route trên web, chỉ máy đối soát gọi. Không đổi quy tắc tiền hay phân bổ. Không ghi Sheet.
 
 Giới hạn:
 

@@ -8,8 +8,7 @@ So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ t
 
 | # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
-| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 12:05: 235/236 khớp. Khách còn lệch có một chuyến tháng 10 mang tên khách lạ trong bảng booking, người dùng xác nhận và phiên khác gán tay lúc 13:25 | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
-| Khách mới | Máy tự tạo sổ cho tab mới đã có trên TONG ([`MAY-TAO-SO-01`](docs/decisions/may-tao-so-01.md)) | Máy, mỗi giờ | Người dùng chốt 4/11. Đo được 2 tab đủ điều kiện, hơn 330 triệu | Sổ mới khớp Sheet trong đối soát |
+| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 14:45: 238/238 khớp, gồm 2 sổ mới máy vừa tạo ([`MAY-TAO-SO-01`](docs/decisions/may-tao-so-01.md), [nhật ký](docs/deploys/2026-11-04-may-tao-so.md)) | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
 | Cảnh báo | Máy lỗi hoặc dừng thì có người biết (audit DevOps #2) | Chủ sổ chọn kênh, Claude cài | CHƯA: hiện chỉ thấy ở đầu tab Việc cần làm và journal | Một lần thử cảnh báo tới được người nhận |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
 | F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐỀ XUẤT: tính cả tháng 11 | Dòng cập nhật `SONG-SONG-02` |
