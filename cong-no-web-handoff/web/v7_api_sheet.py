@@ -91,12 +91,14 @@ class SharedReads:
     SHARED = ("list_customers", "get_fee_types", "list_sheet_trip_refs")
 
     def __init__(self, runner):
-        self.runner, self.cache, self.lock = runner, {}, threading.Lock()
+        # Mỗi hàm một khóa: một khóa chung làm ba lượt đọc khác nhau chạy nối tiếp (đo trên `hao` 4/11/2026: 136–539 ms).
+        self.runner, self.cache = runner, {}
+        self.locks = {function: threading.Lock() for function in self.SHARED}
 
     def run(self, function: str, payload: dict, actor: str) -> dict:
         if function not in self.SHARED:
             return self.runner.run(function, payload, actor)
-        with self.lock:
+        with self.locks[function]:
             if function not in self.cache:
                 self.cache[function] = self.runner.run(function, payload, actor)
             return self.cache[function]
