@@ -1783,6 +1783,15 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
 
+## Bù phụ phí theo TOTAL Sheet (PHU-PHI-BU-01) — ghi dữ liệu một lần
+
+Công cụ `cong-no-web-handoff/tools/v7_fill_fee_gap.py` ([`PHU-PHI-BU-01`](decisions/phu-phi-bu-01.md)) không đổi schema hay hàm. Mặc định chỉ đếm, `--apply` mới ghi; chạy lại an toàn vì dòng đã bù không còn lệch.
+
+1. **Bản sao trước:** dump, restore vào DB tạm, chạy `--apply`. Đạt khi: số dư từng khách, `counted_vnd` mọi dòng sổ gốc, bảng `adjustment`, `receipt_line` có hiệu lực không đổi; dòng lệch giải thích được về 0; tháng đang mở giữ nguyên; checker OK. Xóa DB tạm.
+2. **Cửa sổ dừng ghi:** kiểm phiên khác, dừng `v7-reconcile-auto.timer`, đợi lượt đang chạy xong, dừng API, dump kèm hash, chạy `--apply` với `--customer` đã đếm, đo như bước 1, bật lại API và timer.
+
+Rollback: mỗi dòng có event `rewrite_trip_fees` kèm `before`; sửa lại khoản phụ phí trong khung chi tiết, hoặc restore dump nếu cần cả đợt.
+
 ## Gán cảng/bộ tại Việc cần làm — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026)
 
 Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-gan-cang-bo.md).

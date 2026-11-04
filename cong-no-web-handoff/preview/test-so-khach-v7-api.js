@@ -184,6 +184,12 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     assert.ok(!fee.root.innerHTML.includes(kind), kind);
     assert.match(fee.root.innerHTML, kind === 'set_book_fee_columns' ? /Cột riêng: chỉ Khác → Loại #7/ : /#4: phụ phí 500 → 1\.700 \(Loại #7 1\.200 \(neo&lt;1&gt;\)\)/, kind);
   }
+  // PHU-PHI-BU-01: cùng lệnh rewrite_trip_fees nhưng không phải tách theo PS thì không ghi nhãn PS.
+  const gapFill = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'rewrite_trip_fees', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
+    before: { targets: [{ legacy_row_id: 4, fee_lines: [] }], batch_count: 1, source: { kind: 'sheet_total' } },
+    after: { targets: [{ legacy_row_id: 4, fee_lines: [{ fee_type_id: 7, amount_vnd: '500' }] }], batch_count: 1, source: { kind: 'sheet_total' } } }] });
+  assert.ok(gapFill.root.innerHTML.includes('Bù phụ phí theo Sheet'));
+  assert.ok(!gapFill.root.innerHTML.includes('Tách phụ phí theo PS'));
   // BANG-GIA-01: sửa bảng giá (cả bảng trước → sau) và áp giá theo bảng (từng chuyến).
   const PENDING_UI_EVENT_KINDS = [];
   const priceEdit = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'price_table_edit', actor: 'Người thử', at: '2026-10-20T01:02:00Z',
