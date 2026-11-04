@@ -3,7 +3,7 @@
  * Máy chủ giả, dữ liệu giả, 1280×720; không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { todayMonth, withPage } = require('./so-khach-v7-browser-world');
+const { todayMonth, withPage, reload } = require('./so-khach-v7-browser-world');
 
 // Thẻ đang mở: thẻ được chọn trên thanh thẻ, khung đang hiện, địa chỉ.
 const state = page => page.evaluate(() => ({
@@ -178,7 +178,7 @@ test('Ô tìm khách ở thanh trên như các trang khác: gõ thì hiện danh
   await page.locator('#tab-tinh-hinh').click();
   assert.equal(await list.isVisible(), false);
   await page.route(/\/api\/v7\/ledger\?/, route => route.abort());
-  await page.reload();
+  await reload(page);
   await page.locator('.load-error').waitFor();
   await page.locator('.picker-open').click();
   assert.equal(await search.isVisible(), true);

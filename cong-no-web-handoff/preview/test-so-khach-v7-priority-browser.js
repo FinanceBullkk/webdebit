@@ -1,12 +1,12 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, reload } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
   for (const width of [1280, 1895]) {
     await page.setViewportSize({ width, height: 848 });
-    await page.reload();
+    await reload(page);
     await page.locator('.month-card').waitFor();
     const geometry = await page.evaluate(() => {
       const box = selector => document.querySelector(selector).getBoundingClientRect();

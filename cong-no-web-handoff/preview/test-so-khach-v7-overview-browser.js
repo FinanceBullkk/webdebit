@@ -4,7 +4,7 @@
  * ghim 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, reload } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -147,7 +147,7 @@ test('Thiếu opening giữ trạng thái chưa biết; khách trả trước kh
 test('Lỗi Tổng quan không đổi số sổ; thử lại đọc được cơ cấu nợ', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/dashboard\/debt$/, route => route.abort(), { times: 1 });
-  await page.reload();
+  await reload(page);
   const error = page.locator('.ov-error');
   await error.waitFor();
   assert.equal(await page.locator('.ov-total').innerText(), '491.000.000 đ');
@@ -162,7 +162,7 @@ test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác'
   let release;
   const held = new Promise(resolve => { release = resolve; });
   await page.route(/\/api\/v7\/marks\?/, async route => { await held; await route.continue(); }, { times: 1 });
-  await page.reload();
+  await reload(page);
   const go = page.locator('#the-tinh-hinh .tab-go').last();
   await go.waitFor();
   await go.focus();
@@ -179,7 +179,7 @@ test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', 
   let release;
   const held = new Promise(resolve => { release = resolve; });
   await page.route(/\/api\/v7\/fee-types$/, async route => { await held; await route.continue(); }, { times: 1 });
-  await page.reload();
+  await reload(page);
   await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
   const go = page.locator('#the-tinh-hinh .tab-go[data-the="trao-doi"]').last();
   await go.focus();
@@ -193,7 +193,7 @@ test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', 
 test('Không đọc được hứa trả thì không tự quyết định việc tiếp theo', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/marks\?/, route => route.abort(), { times: 1 });
-  await page.reload();
+  await reload(page);
   const error = page.locator('.ov-next .ov-error');
   await error.waitFor();
   assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Chưa xác định việc tiếp theo');

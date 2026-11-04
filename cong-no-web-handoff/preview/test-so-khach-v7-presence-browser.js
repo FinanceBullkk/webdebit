@@ -2,7 +2,7 @@
  * câu báo sổ vừa đổi kèm tên. Máy chủ giả không có SSE nên trang hỏi định kỳ. Dữ liệu giả. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, reload } = require('./so-khach-v7-browser-world');
 
 const lan = { id: 'p1', name: 'Lan', color: 0, page: 'so-khach', customer_id: 1, month: '2026-09', cell: { row: 'trip:11', col: 'c2', editing: true }, pointer: null };
 const hoa = { id: 'p2', name: 'Hoa', color: 2, page: 'dashboard', customer_id: null, month: null, cell: null, pointer: null };
@@ -73,7 +73,7 @@ test('mũi tên chuột người khác nằm đúng ô ở mọi cỡ màn hình
   assert.equal(await page.locator('.book-settings[open]').count(), 0, 'bấm một mục thì menu đóng');
   assert.equal(await page.locator('.presence-pointer').count(), 0);
   assert.equal(await page.locator('tr[data-row="trip-11"] > td').nth(2).getAttribute('data-presence'), 'Lan');   // vẫn thấy ô họ chọn
-  await page.reload();
+  await reload(page);
   await page.locator('.presence-avatar').first().waitFor();
   assert.equal(await page.locator('.settings-menu .presence-toggle').textContent(), 'Hiện con trỏ');
   await page.waitForTimeout(500);

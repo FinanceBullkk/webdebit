@@ -1,6 +1,7 @@
 """V7 HTTP boundary checks; Docker case runs only on an isolated fake harness."""
 
 import base64
+import gzip
 import http.client
 import io
 import json
@@ -1155,6 +1156,89 @@ class LedgerHttpTest(unittest.TestCase):
             finally:
                 server.shutdown()
                 worker.join(timeout=3)
+
+    def test_assets_revalidate_by_etag_and_gzip_when_accepted(self):
+        """MO-SO-NHANH-01: file JS/CSS giữ ở trình duyệt (ETag → 304), bản gzip có ETag riêng; JSON lớn gzip khi được nhận."""
+        self.assertTrue(api.accepts_gzip("gzip, deflate, br"))
+        self.assertTrue(api.accepts_gzip("deflate;q=0.5, GZIP;q=0.8"))
+        self.assertFalse(api.accepts_gzip("gzip;q=0, identity"))
+        self.assertFalse(api.accepts_gzip(None))
+        self.assertFalse(api.accepts_gzip("br"))
+
+        class TrialHandler(api.Handler):
+            runner = FakePsql()
+            demo = True
+            default_actor = "fake-demo"
+            dev_actor_mode = True
+            localapi = Mock()
+
+        server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
+        TrialHandler.port = server.server_port
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+
+        def get(path, **headers):
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            conn.request("GET", path, headers=headers)
+            response = conn.getresponse()
+            body = response.read()
+            conn.close()
+            return response, body
+
+        try:
+            raw = (api.PREVIEW / "so-khach-v7-ui.js").read_bytes()
+            response, body = get("/so-khach-v7-ui.js")
+            etag = response.getheader("ETag")
+            self.assertEqual((response.status, body), (200, raw))
+            self.assertRegex(etag, r'^"[0-9a-f]{32}"$')
+            self.assertEqual(response.getheader("Cache-Control"), "private, no-cache")
+            self.assertEqual(response.getheader("Vary"), "Accept-Encoding")
+            self.assertIsNone(response.getheader("Content-Encoding"))
+            self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy"))
+            # Trình duyệt hỏi lại với ETag đã có: 304, không thân, ETag giữ nguyên.
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": etag})
+            self.assertEqual((response.status, body, response.getheader("ETag")), (304, b"", etag))
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": '"stale", ' + etag})
+            self.assertEqual(response.status, 304)
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": '"stale"'})
+            self.assertEqual((response.status, body), (200, raw))
+            # Nhận gzip: thân nén, ETag riêng cho biểu diễn gzip, hỏi lại bằng ETag đó cũng 304.
+            response, body = get("/so-khach-v7-ui.js", **{"Accept-Encoding": "gzip, deflate"})
+            self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, "gzip"))
+            self.assertEqual(gzip.decompress(body), raw)
+            self.assertLess(len(body), len(raw) // 2)
+            self.assertEqual(response.getheader("Content-Length"), str(len(body)))
+            self.assertEqual(response.getheader("ETag"), etag[:-1] + '-gz"')
+            response, body = get("/so-khach-v7-ui.js", **{"Accept-Encoding": "gzip", "If-None-Match": etag[:-1] + '-gz"'})
+            self.assertEqual((response.status, body), (304, b""))
+            # File đổi nội dung thì ETag đổi và thân mới được gửi (bộ nhớ theo mtime + kích thước).
+            with tempfile.TemporaryDirectory() as folder:
+                page = Path(folder) / "trial.js"
+                page.write_bytes(b"// v1\n" * 300)
+                with patch.object(api, "PREVIEW", Path(folder)), patch.dict(api.ASSETS, {"/trial.js": ("trial.js", "text/javascript; charset=utf-8")}):
+                    first = get("/trial.js")[0].getheader("ETag")
+                    self.assertEqual(get("/trial.js", **{"If-None-Match": first})[0].status, 304)
+                    page.write_bytes(b"// v2\n" * 300 + "// khác\n".encode())
+                    response, body = get("/trial.js", **{"If-None-Match": first})
+                    self.assertEqual((response.status, body), (200, page.read_bytes()))
+                    self.assertNotEqual(response.getheader("ETag"), first)
+            # JSON: nhỏ thì không nén; lớn thì nén khi trình duyệt nhận; không nhận thì để nguyên. Cache-Control vẫn no-store.
+            response, body = get("/api/v7/fee-types", **{"Accept-Encoding": "gzip"})
+            self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, None))
+            self.assertEqual(response.getheader("Cache-Control"), "no-store")
+            big = {"fee_types": [{"id": i, "name": f"Loại phí số {i}", "kind": "charge", "active": True} for i in range(400)]}
+            with patch.object(TrialHandler.runner, "run", return_value=big):
+                response, body = get("/api/v7/fee-types", **{"Accept-Encoding": "gzip"})
+                self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, "gzip"))
+                self.assertEqual(json.loads(gzip.decompress(body)), big)
+                self.assertEqual(response.getheader("Content-Length"), str(len(body)))
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                response, body = get("/api/v7/fee-types")
+                self.assertEqual((response.status, response.getheader("Content-Encoding"), json.loads(body)), (200, None, big))
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
 
     def test_bounded_http_with_fake_psql(self):
         class TrialHandler(api.Handler):

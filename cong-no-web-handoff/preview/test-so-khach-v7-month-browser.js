@@ -3,7 +3,7 @@
  * Sổ giả 9 tháng × 30 chuyến tính lùi từ tháng hiện tại (giờ VN), máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { todayMonth, withPage } = require('./so-khach-v7-browser-world');
+const { todayMonth, withPage, reload } = require('./so-khach-v7-browser-world');
 
 const shift = (key, back) => {
   let year = Number(key.slice(0, 4)), month = Number(key.slice(5, 7)) - back;
@@ -68,7 +68,7 @@ test('Phần dính đầu trang ≤ 180px khi cuộn (trừ băng dữ liệu gi
 
 test('Màn 1280 trên Chrome Windows (thanh cuộn dọc 15px, khung nhìn 1265): không cuộn ngang; cột tiền giữ khổ 1280', async () => withPage(async ({ page }) => {
   await page.setViewportSize({ width: 1265, height: 720 });
-  await page.reload();
+  await reload(page);
   await page.locator('.ledger-book > section .month-body').waitFor({ state: 'attached' });
   await page.waitForFunction(() => {
     const book = document.querySelector('#the-so .ledger-book').clientWidth;

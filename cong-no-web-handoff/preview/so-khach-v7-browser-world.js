@@ -446,12 +446,21 @@ async function withPage(fn, setup = () => {}) {
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head');
-    // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
-    await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+    await customersLoaded(page);
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
     await fn({ page, world, shot });
     assert.deepEqual(errors, []);
   } finally { await browser.close(); server.close(); }
+}
+
+// Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ (redraw trong loadCustomers), xóa ô đang gõ và tách phần tử
+// vừa lấy khỏi DOM (rect = 0). Chờ nó xong (#customer-count có chữ) mới thao tác hay đo. Từ MO-SO-NHANH-01 GET sổ bắt đầu ở đầu
+// <head> nên sổ gần như luôn vẽ trước danh sách khách; CI windows 4/11/2026 đỏ đúng cửa sổ này sau page.reload() (tái hiện
+// tại máy khi /api/v7/customers chậm 30 ms). Vì vậy mọi test tải lại trang bằng reload() dưới đây, không gọi page.reload() thẳng.
+const customersLoaded = page => page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+async function reload(page) {
+  await page.reload();
+  await customersLoaded(page);
 }
 
 const tripCell = (page, field, id = 11) => page.locator(`.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
@@ -466,4 +475,4 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth };
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };
