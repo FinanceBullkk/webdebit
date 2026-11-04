@@ -73,7 +73,7 @@
     return currentCustomers.filter(c => (c.display_name ?? c.name) === name).length === 1 ? name : customerLabels(currentCustomers).get(String(row.id));
   };
   const drafts = new Map();
-  const draftKey = input => input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
+  const draftKey = input => input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-transport') ? `transport:${input.dataset.transport}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
   function paintInbox() {
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
@@ -88,7 +88,7 @@
     globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
     const sheetAt = inbox.data?.sheet_at;
     document.querySelector('#sheet-clock').textContent = sheetAt ? new Date(sheetAt).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' }) : '—';
-    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
+    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
     if (focusAttr) inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`)?.focus({ preventScroll: true });
@@ -366,7 +366,7 @@
 
   inboxRoot.addEventListener('input', event => {
     if (event.target.matches('[data-action-reason]')) { event.target.setCustomValidity(''); return; }
-    const input = event.target.closest('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-trip-book]');
+    const input = event.target.closest('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]');
     if (input) { input.setCustomValidity(''); drafts.set(draftKey(input), input.value); if (input.hasAttribute('data-manual-price')) setPriceValidity(input); }
   });
   function setPriceValidity(input) {
@@ -463,6 +463,18 @@
         text: `Gán mặt hàng ${commodity} cho sổ này. Nợ không đổi; không chuyển chuyến hoặc gộp sổ.`,
         inlineText: `Gán mặt hàng ${commodity} · nợ không đổi`, path: '/api/v7/customers/commodity',
         body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID(), commodity_name: commodity } };
+      paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus(); return;
+    }
+    if (button.hasAttribute('data-save-transport')) {
+      if (inbox.action || inbox.review) return;
+      const ledger = inbox.details.get(inbox.open);
+      const mode = inboxRoot.querySelector('[data-transport]')?.value;
+      if (!mode || !Number.isInteger(ledger?.version)) return;
+      const word = { CANG: 'Cảng', BO: 'Bộ' }[mode];
+      inbox.action = { id: inbox.open, title: `Gán ${word}`, rowKey: 'transport',
+        text: `Ghi sổ này đi ${word}. Nợ không đổi; không chuyển chuyến hoặc gộp sổ.`,
+        inlineText: `Gán ${word} · nợ không đổi`, path: '/api/v7/customers/transport',
+        body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID(), transport_mode: mode } };
       paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus(); return;
     }
     if (button.hasAttribute('data-record-sheet-receipt')) {

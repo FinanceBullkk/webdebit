@@ -45,7 +45,7 @@ function serverFor(opts = {}) {
     }
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? sample));
     if (route === '/api/v7/dashboard') return send(opts.dashboardStatus ?? 200, opts.dashboard ?? dashboard);
-    if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: opts.unsorted ?? [] });
+    if (route === '/api/v7/dashboard/debt') return send(opts.debtStatus ?? 200, { customers: value(opts.unsorted ?? []) });
     if (route === '/api/v7/customers') return send(200, { customers: opts.customers ?? customers });
     if (route === '/api/v7/price-table/status') return send(200, opts.priceStatus ?? { trips: [] });
     if (route === '/api/v7/ledger') return send(opts.ledgerStatus ?? 200, value(opts.ledger ?? ledger));
@@ -406,6 +406,43 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(posted[1].route, '/api/v7/sheet/receipts/review');
       assert.equal(posted[1].body.date, '2026-01-02');
       assert.equal(posted[1].body.amount_vnd, undefined);
+    });
+  });
+  // Lỗi 4/11: sổ Sầu riêng đã có mặt hàng nhưng thiếu cảng/bộ vẫn bị hỏi mặt hàng; lưu thành công mà việc còn nguyên, bấm lại báo "Sổ đã thay đổi".
+  test('Sầu riêng thiếu cảng/bộ: hỏi cảng/bộ, không hỏi lại mặt hàng', async () => {
+    const posted = [];
+    await withPage({ posted, inbox: { ...sample, books: [] }, dashboard: emptyDash, unsorted: [{ customer_id: 2, name: 'Mẫu', commodity: 'Sầu riêng', transport_mode: null }] }, async page => {
+      await page.locator('[data-book="2"]').waitFor();
+      assert.match(await page.locator('[data-book="2"] .work-pill').innerText(), /cảng\/bộ/);
+      assert.match(await page.locator('tfoot').innerText(), /1 cảng\/bộ/);
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-transport]').waitFor();
+      assert.equal(await page.locator('[data-commodity]').count(), 0);
+      assert.match(await page.locator('.detail-group h3').innerText(), /Thiết lập sổ\s*1 việc/);
+      await page.locator('[data-save-transport]').click();
+      assert.equal(await page.locator('[data-action-write]').count(), 0); // chưa chọn thì không mở xác nhận
+      await page.locator('[data-transport]').selectOption('BO');
+      await page.locator('[data-save-transport]').click();
+      assert.match(await page.locator('.action-description').innerText(), /Gán Bộ · nợ không đổi/);
+      await page.locator('[data-action-write]').click(); await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[0].route, '/api/v7/customers/transport');
+      assert.equal(posted[0].body.transport_mode, 'BO'); assert.equal(posted[0].body.expected_version, 7); assert.equal(posted[0].body.customer_id, 2);
+    });
+  });
+  test('sổ chưa có mặt hàng: gán Sầu riêng xong dòng chuyển sang hỏi cảng/bộ; đủ cả hai thì hết việc', async () => {
+    const posted = [];
+    const unsorted = () => [{ customer_id: 2, name: 'Mẫu', commodity: posted.some(p => p.route.endsWith('/commodity')) ? 'Sầu riêng' : null,
+      transport_mode: posted.find(p => p.route.endsWith('/transport'))?.body.transport_mode ?? null }];
+    await withPage({ posted, inbox: { ...sample, books: [] }, dashboard: emptyDash, unsorted }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-commodity]').selectOption('Sầu riêng'); await page.locator('[data-save-commodity]').click();
+      await page.locator('[data-action-write]').click();
+      await page.locator('[data-transport]').waitFor();
+      assert.equal(await page.locator('[data-commodity]').count(), 0);
+      await page.locator('[data-transport]').selectOption('CANG'); await page.locator('[data-save-transport]').click();
+      await page.locator('[data-action-write]').click();
+      await page.locator('[data-book="2"]').waitFor({ state: 'detached' });
+      assert.deepEqual(posted.map(p => p.route), ['/api/v7/customers/commodity', '/api/v7/customers/transport']);
     });
   });
   test('chọn sổ cho riêng chuyến; gán mặt hàng riêng; hoàn tác đúng khóa lô vừa ghi', async () => {

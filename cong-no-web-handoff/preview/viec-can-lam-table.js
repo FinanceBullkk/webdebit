@@ -5,7 +5,7 @@ globalThis.InboxTable = (() => {
   const groups = [
     { key: 'money', label: 'Tiền vào sổ', keys: ['receipts', 'prices', 'missing', 'removed'] },
     { key: 'trips', label: 'Chuyến', keys: ['trips_new', 'trips_check', 'pending'] },
-    { key: 'setup', label: 'Thiết lập sổ', keys: ['baseline', 'commodity', 'ps', 'text_diff'] },
+    { key: 'setup', label: 'Thiết lập sổ', keys: ['baseline', 'commodity', 'transport', 'ps', 'text_diff'] },
   ];
   const paths = {
     book: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11',
@@ -43,7 +43,9 @@ globalThis.InboxTable = (() => {
     });
     const settled = new Set(showMatched ? [] : data?.reconcile?.matched_ids ?? []);
     add(dashboard?.todo.missing_price.filter(item => !settled.has(item.customer_id)), 'missing'); add(dashboard?.todo.pending_review, 'pending');
-    add(dashboard?.todo.no_baseline, 'baseline'); add(unsorted, 'commodity');
+    add(dashboard?.todo.no_baseline, 'baseline');
+    // Sổ đã có mặt hàng mà vẫn "chưa phân loại" là Sầu riêng thiếu cảng/bộ: chỉ hỏi đúng phần còn thiếu.
+    add(unsorted.filter(item => !item.commodity), 'commodity'); add(unsorted.filter(item => item.commodity), 'transport');
     return [...map.values()].filter(b => groups.some(g => g.keys.some(key => count(b, key))));
   }
   function render(data, opts) {
@@ -73,10 +75,10 @@ globalThis.InboxTable = (() => {
       const n = count(b, key); if (!n) return '';
       if (key === 'receipts') return `${old.canWrite(b) ? `<label class="ready-pick" title="${b.receipts.ready} phiếu sẵn sàng · ${esc(F.full(b.receipts.ready_amount_vnd))}"><input type="checkbox" data-pick="${b.customer_id}" aria-label="Chọn phiếu thu của ${esc(label(b))}"${selected.has(b.customer_id) ? ' checked' : ''}${busy ? ' disabled' : ''}>${million(b.receipts.ready_amount_vnd)} tr</label>` : b.receipts.ready ? pill(b, b.receipts.ready, 'chưa đủ dữ liệu', 'warn') : ''}${b.receipts.review ? pill(b, old.canWrite(b) ? `+${b.receipts.review}` : b.receipts.review, old.canWrite(b) ? '' : 'cần xem', 'warn') : ''}`;
       if (key === 'prices') return `${b.prices.ready ? `<label class="ready-pick"><input type="checkbox" data-pick-price="${b.customer_id}" aria-label="Chọn giá Sheet của ${esc(label(b))}"${selectedPrices.has(b.customer_id) ? ' checked' : ''}${busy ? ' disabled' : ''}>${b.prices.ready} giá Sheet</label>` : ''}${b.prices.review ? pill(b, b.prices.review, 'giá khác', 'warn') : ''}`;
-      const words = { missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư', commodity: 'mặt hàng', ps: 'PS', text_diff: 'ô chữ' };
-      return pill(b, ['baseline', 'commodity'].includes(key) ? '' : n, words[key], key === 'removed' ? 'danger' : key === 'missing' ? 'warn' : '');
+      const words = { missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư', commodity: 'mặt hàng', transport: 'cảng/bộ', ps: 'PS', text_diff: 'ô chữ' };
+      return pill(b, ['baseline', 'commodity', 'transport'].includes(key) ? '' : n, words[key], key === 'removed' ? 'danger' : key === 'missing' ? 'warn' : '');
     };
-    const columns = [['receipts'], ['prices', 'missing'], ['removed', 'checks', 'trips_new'], ['baseline', 'commodity', 'ps', 'text_diff']];
+    const columns = [['receipts'], ['prices', 'missing'], ['removed', 'checks', 'trips_new'], ['baseline', 'commodity', 'transport', 'ps', 'text_diff']];
     const dim = i => filter && (i < 2 ? 'money' : i === 2 ? 'trips' : 'setup') !== filter ? ' class="dimmed"' : '';
     const shown = list.filter(b => !filter || groups.find(g => g.key === filter)?.keys.some(key => count(b, key)));
     const rows = shown.map(b => {
@@ -91,7 +93,7 @@ globalThis.InboxTable = (() => {
       if (!n) return '';
       if (key === 'receipts') return `${million(F.sum(ready.map(b => b.receipts.ready_amount_vnd)))} tr${list.reduce((s, b) => s + (b.receipts?.review ?? 0), 0) ? ` +${list.reduce((s, b) => s + (b.receipts?.review ?? 0), 0)}` : ''}`;
       if (key === 'prices') return [list.reduce((s, b) => s + (b.prices?.ready ?? 0), 0), list.reduce((s, b) => s + (b.prices?.review ?? 0), 0)].map((n, i) => n ? `${n} ${i ? 'giá khác' : 'giá Sheet'}` : '').filter(Boolean).join(' · ');
-      return `${n} ${{ missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư đầu', commodity: 'mặt hàng', ps: 'PS', text_diff: 'ô chữ' }[key]}`;
+      return `${n} ${{ missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư đầu', commodity: 'mặt hàng', transport: 'cảng/bộ', ps: 'PS', text_diff: 'ô chữ' }[key]}`;
     };
     const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">Cộng</th>${columns.map((keys, i) => `<td${dim(i)}>${keys.map(footPart).filter(Boolean).join(' · ')}</td>`).join('')}<td></td></tr></tfoot></table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
     const matchedCount = (data?.books ?? []).filter(b => b.sheet_matched).length;
@@ -109,7 +111,7 @@ globalThis.InboxTable = (() => {
       const pending = action?.rowKey === key;
       return `<li class="${pending ? 'pending-action' : ''}"${key ? ` data-detail-key="${key}"` : ''}><b title="${esc(obj)}">${esc(obj)}</b><span>${esc(day(date))}</span><span class="detail-description${pending ? ' action-description' : ''}" title="${esc(pending ? action.text : desc)}">${pending ? `<span id="h-action">${esc(action.inlineText ?? action.text)}</span>` : esc(desc)}</span><b class="money" title="${amount == null ? '' : esc(F.full(amount))}">${amount == null ? '' : million(amount)}</b><div class="detail-actions">${pending ? `${action.path ? btn(action.unknown ? 'Thử lại' : 'Xác nhận', 'data-action-write', 'primary') : ''}${action.unknown ? '' : btn('Thôi', 'data-action-cancel')}` : buttons}</div>${pending && action.reasonRequired ? `<label class="review-reason">Lý do kết luận <input data-action-reason maxlength="500" required aria-label="Lý do kết luận ${esc(obj)}" value="${esc(action.body.reason)}"${action.unknown ? ' disabled' : ''}></label>` : ''}${pending && action.error ? `<p class="row-error" role="alert">${esc(action.error)}</p>` : ''}</li>`;
     };
-    const section = (label, rows, hint, tone = '') => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${rows.length} ${label === 'Phiếu cần xem' ? 'phiếu' : 'chuyến'}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
+    const section = (label, rows, hint, tone = '') => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${rows.length} ${{ 'Phiếu cần xem': 'phiếu', 'Thiết lập sổ': 'việc' }[label] ?? 'chuyến'}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
     const receiptRows = (ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy chưa tự khớp được phiếu này; đối chiếu chứng từ trong sổ', r.amount_vnd,
       r.status === 'NO_DATE' && r.source_fingerprint && r.debt_month
         ? `<input class="inline-price" data-receipt-date="${r.source_fingerprint}" placeholder="ngày dd/mm" aria-label="Ngày phiếu thu năm ${esc(r.debt_month.slice(0, 4))}">${btn('Ghi phiếu', `data-record-sheet-receipt="${r.source_fingerprint}"`)}`
@@ -132,7 +134,8 @@ globalThis.InboxTable = (() => {
         ? `<select class="inline-price" data-trip-book="${r.source_fingerprint}" aria-label="Sổ nhận chuyến ${esc(r.container)}"><option value="">Chọn sổ</option>${r.candidate_books.map(c => `<option value="${c.id}">${esc(c.commodity ? `Sổ ${c.commodity}` : c.display_name ?? c.name)}</option>`).join('')}</select>${btn('Vào sổ', `data-assign-trip="${r.source_fingerprint}"`)}`
         : link('Mở trong sổ'), `assignment:${r.source_fingerprint}`));
     const ps = [...(ledger.ps_fees?.ready ?? []), ...(ledger.ps_fees?.review ?? [])].map(r => item(r.container || 'Dòng PS', r.event_date ?? r.date, 'Tách vào cột phụ phí · không đổi tổng tiền', null, link('Mở trong sổ')));
-    const setup = [book.baseline ? item('Số dư đầu kỳ', null, 'Chưa có · đối chiếu sổ gốc rồi nhập', null, link('Mở sổ để nhập')) : '', book.commodity ? item('Mặt hàng', null, 'Chưa gán mặt hàng chính của sổ', null, `<select class="inline-price" data-commodity="${book.customer_id}" aria-label="Mặt hàng của sổ"><option value="">Chọn mặt hàng</option>${['Sầu riêng', 'Thanh long', 'Chuối', 'Mít', 'Dừa'].map(name => `<option>${name}</option>`).join('')}</select>${btn('Lưu', 'data-save-commodity')}`, 'commodity') : ''].filter(Boolean);
+    const setup = [book.baseline ? item('Số dư đầu kỳ', null, 'Chưa có · đối chiếu sổ gốc rồi nhập', null, link('Mở sổ để nhập')) : '', book.commodity ? item('Mặt hàng', null, 'Chưa gán mặt hàng chính của sổ', null, `<select class="inline-price" data-commodity="${book.customer_id}" aria-label="Mặt hàng của sổ"><option value="">Chọn mặt hàng</option>${['Sầu riêng', 'Thanh long', 'Chuối', 'Mít', 'Dừa'].map(name => `<option>${name}</option>`).join('')}</select>${btn('Lưu', 'data-save-commodity')}`, 'commodity') : '',
+      book.transport ? item('Cảng/bộ', null, 'Sổ sầu riêng chưa rõ đi cảng hay đi bộ', null, `<select class="inline-price" data-transport="${book.customer_id}" aria-label="Cảng hay bộ của sổ"><option value="">Chọn cảng/bộ</option><option value="CANG">Cảng</option><option value="BO">Bộ</option></select>${btn('Lưu', 'data-save-transport')}`, 'transport') : ''].filter(Boolean);
     // ponytail: phụ phí PS và số dư đầu chưa có lệnh xử lý tại dòng; hai nhóm này vẫn mở sổ thật.
     return section('Sheet đã xóa', removed, 'đang tính nợ nhưng Sheet không còn, nợ có thể thừa', 'danger')
       + section('Phiếu cần xem', receiptRows, 'máy chỉ tự ghi khi khớp đúng tổng Sheet', 'warn')

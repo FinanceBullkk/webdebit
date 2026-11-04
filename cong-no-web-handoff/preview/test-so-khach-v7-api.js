@@ -244,6 +244,9 @@ test('history formats every SQL event kind, snapshots and VN timestamp; hides un
     ({ group, line: `20/10/2026 08:02 · Thu · ${kinds[kind]} ${text}`, note })),
   { group: '', line: '20/10/2026 08:01 · Chưa rõ người làm · Thao tác khác', note: '' }]);
   assert.doesNotMatch(root.innerHTML, /private_new_code|unknown_key|private_value|\[object Object\]|"amount_vnd"|sha256|aaaa|bbbb|Ghi chú\/lý do|nguoi\.thu/);
+  const transport = await livePage({ ...ledger(1), events: [{ id: 1, kind: 'customer_attr', actor: 'nguoi.thu@example.test', actor_name: 'Thu', at: '2026-10-20T01:02:00Z',
+    before: { customer: { id: 1, transport_mode: null } }, after: { customer: { id: 1, transport_mode: 'BO' }, transport_mode: 'BO' } }] });
+  assert.equal(historyItems(transport.root.innerHTML)[0].line, '20/10/2026 08:02 · Thu · Gán mặt hàng Cảng/bộ: Bộ · nợ không đổi');
   // Bộ lọc theo loại: Thu · Chuyến · Giá/phụ phí · Khóa tháng · Tất cả, kèm số mục; mặc định Tất cả.
   assert.deepEqual([...root.innerHTML.matchAll(/<button type="button" data-filter="([a-z]+)" aria-pressed="(true|false)">([^<]+)<\/button>/g)].map(match => match.slice(1)),
     [['thu', 'false', 'Thu (6)'], ['chuyen', 'false', 'Chuyến (2)'], ['gia', 'false', 'Giá/phụ phí (6)'], ['khoa', 'false', 'Khóa tháng (1)'], ['all', 'true', 'Tất cả (18)']]);

@@ -1783,6 +1783,12 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
 
+## Gán cảng/bộ tại Việc cần làm — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-gan-cang-bo.sql` ([spec](../specs/v7-viec-can-lam-bang.md#xử-lý-tại-dòng-codex-làm-211-claude-rà-và-hoàn-tất)) chỉ THÊM một hàm ghi `set_customer_transport`, cấp cho `sokhach_app`, thu hồi từ `PUBLIC` và `sokhach_reader`. Không đổi bảng, ràng buộc, loại event, số dư hay hàm cũ. Chạy lại được. Chạy sau `2026-11-02-v7-gan-mat-hang.sql`.
+
+Các bước như mục "Chặn tính trùng": bản sao thử hai lượt, cửa sổ dừng ghi, checker, đổi release, đặt `.release-sha`. Đổi DB trước rồi mới đổi release, vì trang mới gọi hàm mới. Rollback: `DROP FUNCTION sokhach.set_customer_transport(bigint,bigint,text,text)` dưới `sokhach_owner`, gỡ hàm khỏi checker; cảng/bộ đã gán giữ trong Lịch sử.
+
 ## Loại gộp Health + KĐ và máy tự tách theo PS (MAY-PS-01) — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026; máy đã bật)
 
 Đã nâng DB, đổi release và bật máy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ps-gop.md).
