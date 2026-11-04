@@ -75,9 +75,10 @@ a.pill:hover{text-decoration:underline}
 .thu .c-note{width:auto}
 .thu .c-debt{width:120px}
 .thu .c-share{width:20%}
-.thu .c-count{width:88px}
-.thu .c-und{width:140px}
-.thu .c-last{width:120px}
+/* Đủ chỗ cho tiêu đề cả khi máy không có Segoe UI (font thay thế rộng hơn). */
+.thu .c-count{width:96px}
+.thu .c-und{width:160px}
+.thu .c-last{width:128px}
 .thu .c-month{width:130px}
 .thu .c-go{width:30px;padding:0}
 .by-day .c-who{width:40%}

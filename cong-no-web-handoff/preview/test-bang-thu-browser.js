@@ -474,9 +474,6 @@ test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn:
     await page.locator(`#view-${view}`).click();
     const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
     assert.ok(size.scroll <= size.client, `cuộn ngang ở ${view}: ${JSON.stringify(size)}`);
-    // Tiêu đề cột không bị cắt chữ.
-    const cut = await page.locator('.thu thead th').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth).map(node => node.innerText));
-    assert.deepEqual(cut, [], `cắt chữ tiêu đề ở ${view}`);
   }
   await page.locator('#view-ngay').click();
   const overflow = await page.locator('tr.pay .note').last().evaluate(node => ({ height: node.closest('tr').getBoundingClientRect().height }));
@@ -485,14 +482,34 @@ test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn:
   assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Đòi nợ', 'Việc cần làm']);
   const last = await links.last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
-  // Vùng bấm của nút và dòng đủ lớn.
-  for (const id of ['#month-older', '#month-pick', '#refresh-data', '#view-ngay', '#view-khach', '#view-mat-hang', '#view-thang-no', '#view-12-thang', '#com-pick']) {
-    assert.ok((await page.locator(id).boundingBox()).height >= 40, id);
+  // Đo với font mặc định, rồi với font rộng hơn như máy không có Segoe UI.
+  for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+    if (font) await page.addStyleTag({ content: `body.bt, body.bt * { font-family: ${font} !important; }` });
+    // Vùng bấm của nút và dòng đủ lớn.
+    for (const id of ['#month-older', '#month-pick', '#refresh-data', '#view-ngay', '#view-khach', '#view-mat-hang', '#view-thang-no', '#view-12-thang', '#com-pick']) {
+      assert.ok((await page.locator(id).boundingBox()).height >= 40, `${id}, font ${font ?? 'mặc định'}`);
+    }
+    assert.ok((await page.locator('tr.pay').first().boundingBox()).height >= 40);
+    // Trong khung thấy thật, sau khối tiền về còn thấy được các dòng đầu của danh sách.
+    const first = (await page.locator('tr.pay').first().boundingBox()).y;
+    assert.ok(first < 360, `dòng đầu ở ${first}, font ${font ?? 'mặc định'}`);
+    assert.ok((await page.locator('tr.pay').nth(2).boundingBox()).y + 44 <= 560, `thấy ít nhất ba dòng đầu, font ${font ?? 'mặc định'}`);
   }
-  assert.ok((await page.locator('tr.pay').first().boundingBox()).height >= 40);
-  // Trong khung thấy thật, sau khối tiền về còn thấy được các dòng đầu của danh sách.
-  assert.ok((await page.locator('tr.pay').first().boundingBox()).y < 360);
-  assert.ok((await page.locator('tr.pay').nth(2).boundingBox()).y + 44 <= 560, 'thấy ít nhất ba dòng đầu');
+}));
+
+test('Bảng thu: tiêu đề cột không bị cắt chữ ở mọi tab, kể cả máy không có Segoe UI (font rộng hơn, như máy Ubuntu của CI)', () => withPage({ book: byMonth, search: '?month=2026-07' }, async page => {
+  await page.locator('tr.pay').first().waitFor();
+  await page.setViewportSize({ width: 1265, height: 560 });
+  for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+    if (font) await page.addStyleTag({ content: `body.bt, body.bt * { font-family: ${font} !important; }` });
+    for (const view of ['ngay', 'khach', 'mat-hang', 'thang-no', '12-thang']) {
+      await page.locator(`#view-${view}`).click();
+      const cut = await page.locator('.thu thead th').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth).map(node => node.innerText));
+      assert.deepEqual(cut, [], `cắt chữ tiêu đề ở ${view}, font ${font ?? 'mặc định'}`);
+      const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+      assert.ok(size.scroll <= size.client, `cuộn ngang ở ${view}, font ${font ?? 'mặc định'}: ${JSON.stringify(size)}`);
+    }
+  }
 }));
 
 test('Bảng thu: màn hẹp không cuộn cả trang', () => withPage({ book: byMonth, search: '?month=2026-07' }, async page => {
