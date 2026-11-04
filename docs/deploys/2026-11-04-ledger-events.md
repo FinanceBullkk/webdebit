@@ -28,7 +28,7 @@
 ## Trước
 
 - `hao` chạy `473bb0a`. DB `webdebit_v7`: 238 sổ, 9.373 event. Không có kết nối khác.
-- Có DB `webdebit_v7_try_split` và một tiến trình `reconcile-try` chiếm một lõi CPU trong lúc đo, không thuộc đợt này, không đụng. Tiến trình đã tự kết thúc lúc đo chốt. DB tạm đó vẫn còn.
+- Có DB `webdebit_v7_try_split` và một tiến trình `reconcile-try` chiếm một lõi CPU trong lúc đo, không thuộc đợt này, không đụng. Lúc đo chốt tiến trình đã kết thúc, sau đó DB tạm cũng không còn.
 
 ## Bản sao thử
 
