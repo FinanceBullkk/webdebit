@@ -40,6 +40,7 @@ Không thêm route. `GET /api/v7/ledger` giữ nguyên tham số và thân; ch�
 
 - [x] `tests/test_v7_ledger_api.py::LedgerHttpTest::test_assets_revalidate_by_etag_and_gzip_when_accepted`: ETag, 304, gzip có ETag riêng, file đổi thì ETag đổi, JSON nhỏ không nén, JSON lớn nén khi nhận.
 - [x] `preview/test-so-khach-v7-api.js`: lần đọc đầu dùng bản tải sớm một lần; khác mã khách thì không; tải sớm lỗi thì Thử lại fetch thường; trang live nạp prefetch trước api.
+- [x] Test trình duyệt tải lại trang bằng `reload(page)` của `so-khach-v7-browser-world.js` (chờ danh sách khách về) thay vì `page.reload()` thẳng: CI windows 4/11/2026 đỏ vì `loadCustomers()` vẽ lại cả sổ đúng giữa lúc test lấy phần tử và đo (rect = 0); tái hiện tại máy 5/6 lần khi `/api/v7/customers` chậm 30 ms, có chờ 0/12.
 - [ ] `npm run check` xanh; `node scripts/check-secrets.js` sạch.
 - [ ] Sau deploy lên `hao`: đo lại cùng hai sổ, lần mở thứ hai tải file trả 304, GET sổ bắt đầu trước khi tải hết JS; ghi số vào PR.
 

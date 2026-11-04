@@ -5,7 +5,7 @@
  * 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, reload } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -220,7 +220,7 @@ test('Hồ sơ: nơi đi chưa có giá và giá hết hạn ghi cam ở đúng 
 test('Nguồn phụ lỗi: chat, bảng giá lỗi thì chỉ khối đó báo kèm Thử lại; máy chủ chưa có bản xuất chat thì ghi rõ', async () => withPage(async ({ page, world }) => {
   await page.locator('#the-trao-doi .ct-item', { hasText: 'Zalo' }).waitFor();
   await page.route(/\/api\/v7\/zalo\/conversations\?/, route => route.abort(), { times: 1 });
-  await page.reload();
+  await reload(page);
   const error = page.locator('#the-trao-doi .ct-status .ct-error');
   await error.waitFor();
   assert.equal(await text(error), 'Không tải được hội thoại Zalo. Kiểm tra mạng rồi bấm Thử lại. Thử lại');
@@ -230,7 +230,7 @@ test('Nguồn phụ lỗi: chat, bảng giá lỗi thì chỉ khối đó báo k
   assert.equal(await page.locator('#the-trao-doi .ct-status').count(), 0);
   // Máy chủ chưa có bản xuất chat (như hao): thẻ Trao đổi báo rõ.
   delete world.chats;
-  await page.reload();
+  await reload(page);
   const none = page.locator('#the-trao-doi .ct-status', { hasText: 'Chưa có dữ liệu chat' });
   await none.waitFor();
   assert.equal(await none.innerText(), 'Chưa có dữ liệu chat trên máy chủ.');
@@ -238,7 +238,7 @@ test('Nguồn phụ lỗi: chat, bảng giá lỗi thì chỉ khối đó báo k
   // Bảng giá lỗi: chỉ khối giá báo lỗi, khối khác của thẻ Hồ sơ vẫn hiện; Thử lại thì có bảng.
   await page.locator('#tab-ho-so').click();
   await page.route(/\/api\/v7\/price-table\?/, route => route.abort(), { times: 1 });
-  await page.reload();
+  await reload(page);
   const priceError = page.locator('#the-ho-so .ct-error');
   await priceError.waitFor();
   assert.equal(await text(priceError), 'Không tải được bảng giá. Kiểm tra mạng rồi bấm Thử lại. Thử lại');

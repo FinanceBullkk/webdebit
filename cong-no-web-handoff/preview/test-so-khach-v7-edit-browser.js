@@ -1,14 +1,14 @@
 /* Trình duyệt (Playwright) cho sửa/xóa tại ô (NHAP-SHEET-01) trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth, reload } = require('./so-khach-v7-browser-world');
 
 // SO-GON-06: phiếu thu là khối riêng ở đầu tháng (ngay dưới thanh tháng, trên bảng chuyến); không chung hàng với chuyến;
 // tiêu đề cột không còn ba cột thu, bảng chuyến dùng hết bề ngang.
 test('Phiếu thu là khối ở đầu tháng, trên bảng chuyến; không chung hàng với chuyến; bảng chuyến dùng hết bề ngang', async () => withPage(async ({ page, world }) => {
   world.receipts.push({ id: 1, pid: 'PH-001', date: '2026-09-11', method: 'THU TIỀN', amount_vnd: '2000000', reference: null,
     voided_by_event: null, void_reason: null, allocations: [{ id: 1, month: '2026-09-01', kind: 'debt', amount_vnd: '2000000', superseded_by_event: null }] });
-  await page.reload();
+  await reload(page);
   const sept = page.locator('#thang-2026-09');
   await sept.locator('.pay-list tr.pay-row').first().waitFor();
   const geo = await sept.evaluate(section => {
@@ -313,7 +313,7 @@ test('sổ khách 1280×720: không ô nào chữ dưới 14px, hàng chuyến �
 // Audit UX 31/10/2026 (P1-6): mất mạng khi đọc sổ chỉ hiện câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
 test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page }) => {
   await page.route('**/api/v7/ledger?*', route => route.abort('failed'), { times: 1 });
-  await page.reload();
+  await reload(page);
   const alert = page.locator('.load-error');
   await alert.waitFor();
   assert.match(await alert.innerText(), /^Không tải được sổ khách\. Kiểm tra mạng rồi bấm Thử lại\.\s*Thử lại$/);
@@ -366,7 +366,7 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
     display: { row: 5, raw_date: '46032.0', note: '2026-01-10 00:00:00' } });
   world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-09-11', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-09-12', '3000000'),
     webReceipt('PH-003', '2026-09-01', '2026-09-13', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('#thang-2026-09');
   // Tháng 9: khoản thu Sheet rồi ba phiếu web.
   const sept = await payRows(page, '2026-09');
@@ -404,7 +404,7 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
   await shot('phieu-thu-hang-ke-tiep');
   // Tháng chưa có phiếu: danh sách trống.
   world.receipts.length = 0; world.legacy.pop();
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('#thang-2026-09');
   assert.equal((await payRows(page, '2026-09')).length, 0);
   assert.equal((await payRows(page, todayMonth.slice(0, 7))).length, 0);
