@@ -2048,7 +2048,9 @@ Kiểm bản sao (chạy qua orchestrator, dữ liệu giả, Docker `--network 
 py -3.13 cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test --report <outside_repo_report>.json
 ```
 
-Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view với khởi tạo mới; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
+Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view/ràng buộc với khởi tạo mới ngay trên DB chưa chạy case nào; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
+
+Từ 4/11/2026 job CI `postgres-v7-backend` chạy lệnh này, nên đỏ ở máy trong khi `main` xanh thì thay đổi đang làm là nguyên nhân. Migration mới phải thêm vào chuỗi trong `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file.
 # PR-B phụ phí nhiều loại — runbook kiểm chứng (chưa triển khai)
 
 ĐÃ CODE: migration `2026-10-29-v7-phu-phi-b.sql`, hàm/API PR-B, danh mục và cột phí.
