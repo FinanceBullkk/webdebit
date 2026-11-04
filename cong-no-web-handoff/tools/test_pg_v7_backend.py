@@ -301,8 +301,10 @@ def check_migration(pg: Pg) -> None:
     old_schema = re.sub(r"^CREATE ROLE .*;\n", "", old_schema, flags=re.M)
     db = "webdebit_v7_migration_test"
     pg.sql(f"CREATE DATABASE {db}", database="postgres")
+    applied: set[str] = set()
     class CopyPg(Pg):
         def sql(self, sql, **kwargs):
+            applied.add(sql)
             return super().sql(sql, **{**kwargs, "database": db})
     copy = CopyPg(pg.name, pg.run_id)
     copy.sql(old_schema)
@@ -363,6 +365,19 @@ def check_migration(pg: Pg) -> None:
     matrix = MATRIX_MIGRATION.read_text(encoding="utf-8")
     copy.sql(matrix)
     copy.sql(matrix)
+    # Cùng thứ tự với CSM.03: mỗi file chạy hai lần để chứng minh chạy lại được.
+    for filename in ("2026-10-26-v7-receivables-detail.sql", "2026-10-27-v7-shipper-write-sync.sql",
+                     "2026-10-28-v7-legacy-receipt-delete.sql", "2026-10-25-v7-sheet-conflict.sql",
+                     "2026-10-27-v7-sheet-conflict-date-booking.sql", "2026-10-28-v7-phu-phi-core-a.sql",
+                     "2026-10-28-v7-da-thu-theo-ngay-thu.sql", "2026-10-29-v7-phu-phi-b.sql",
+                     "2026-10-29-v7-phu-phi-b-p2.sql", "2026-10-29-v7-matrix-drawer-so-goc.sql",
+                     "2026-10-29-v7-matrix-drawer-receipts.sql", "2026-10-29-v7-bang-gia.sql",
+                     "2026-10-29-v7-chung-tu.sql", "2026-10-29-v7-xoa-dieu-chinh-thang.sql",
+                     "2026-10-29-v7-ps-fee.sql", "2026-10-29-v7-tong-quan-quan-ly-no.sql",
+                     "2026-10-29-v7-ra-ghi-tien.sql", "2026-10-30-v7-can-du.sql"):
+        source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
+        copy.sql(source)
+        copy.sql(source)
     doi_no = (ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql").read_text(encoding="utf-8")
     copy.sql(doi_no)
     copy.sql(doi_no)  # NHAC-NO-01: idempotent
@@ -372,20 +387,39 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
+    # Chuỗi trên viết tay nên dễ thiếu file mới; migration chỉ đổi dữ liệu thì so catalog không phát hiện được.
+    outside_chain = {"2026-10-16-ledger-f2f3.sql",  # DB legacy webdebit_ledger, không thuộc V7
+                     "2026-10-24-v7-shipper.sql", "2026-10-26-v7-ledger-shipper-read.sql"}  # chạy ở cuối hàm này
+    migrations = (ROOT / "cong-no-web-handoff/tools/migrations").glob("*.sql")
+    not_applied = sorted(p.name for p in migrations if p.name not in outside_chain
+                         and not p.name.endswith(".rollback.sql")
+                         and p.read_text(encoding="utf-8") not in applied)
+    require(not not_applied, f"add to the check_migration chain in deploy order: {not_applied}")
     require(copy.value("SELECT jsonb_agg(row_to_json(s)) FROM (SELECT c.id,v.debt_month,v.outstanding_vnd "
                        "FROM sokhach.customer c LEFT JOIN sokhach.v_outstanding_month v ON v.customer_id=c.id ORDER BY c.id,v.debt_month) s") == snapshot,
             "migration changed fake 236-customer balances")
-    catalog = "SELECT jsonb_object_agg(proname,pg_get_functiondef(oid)) FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"
-    require(copy.value(catalog) == pg.value(catalog), "migration function definitions differ from fresh schema")
-    cols = "SELECT jsonb_agg(row_to_json(s)) FROM (SELECT table_name,column_name,data_type,is_nullable,column_default "
-    cols += "FROM information_schema.columns WHERE table_schema='sokhach' ORDER BY table_name,column_name) s"
-    require(copy.value(cols) == pg.value(cols), "migration columns differ")
-    views = "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"
-    require(copy.value(views) == pg.value(views), "migration views differ")
+    for what, query in (
+        ("function definitions", "SELECT jsonb_object_agg(oid::regprocedure::text,pg_get_functiondef(oid)) "
+                                 "FROM pg_proc WHERE pronamespace='sokhach'::regnamespace"),
+        ("columns", "SELECT jsonb_object_agg(table_name||'.'||column_name,jsonb_build_array(data_type,is_nullable,column_default)) "
+                    "FROM information_schema.columns WHERE table_schema='sokhach'"),
+        ("views", "SELECT jsonb_object_agg(viewname,definition) FROM pg_views WHERE schemaname='sokhach'"),
+        ("constraints", "SELECT jsonb_object_agg(conrelid::regclass::text||'.'||conname,pg_get_constraintdef(oid)) "
+                        "FROM pg_constraint WHERE connamespace='sokhach'::regnamespace"),
+    ):
+        migrated, fresh = json.loads(copy.value(query)), json.loads(pg.value(query))
+        if what == "views":
+            # SELECT * trong LATERAL của v_trip_current bung theo thứ tự cột vật lý: cột thêm bằng ALTER nằm cuối,
+            # schema mới có thể đặt giữa. View bên ngoài đọc theo tên nên chỉ so tập cột của danh sách bung đó.
+            migrated, fresh = ({k: re.sub(r"SELECT (?:x\.\w+,\s+)+x\.\w+",
+                                          lambda m: "SELECT " + ",".join(sorted(re.findall(r"x\.\w+", m[0]))), v)
+                                for k, v in side.items()} for side in (migrated, fresh))
+        differ = sorted(k for k in migrated.keys() | fresh.keys() if migrated.get(k) != fresh.get(k))
+        require(not differ, f"migration {what} differ from fresh schema: {differ}")
     copy.sql("CREATE ROLE v7_loader LOGIN IN ROLE sokhach_owner; "
              f"REVOKE CONNECT ON DATABASE {db} FROM PUBLIC; GRANT CONNECT ON DATABASE {db} TO v7_loader,v7_app")
     checker = (ROOT / "cong-no-web-handoff/tools/v7_post_deploy_check.sql").read_text(encoding="utf-8")
