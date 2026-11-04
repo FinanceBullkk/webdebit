@@ -107,11 +107,12 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     assert.deepEqual(await page.evaluate(() => ['9,2', '9.2', '0,000001'].map(v => globalThis.InboxTable.parseMillions(v))), ['9200000', '9200000', '1']);
     for (const value of ['', '0', '-1', '9x', '9.200.000', '0,0000001', '9223372036855']) assert.equal(await page.evaluate(v => { try { globalThis.InboxTable.parseMillions(v); return false; } catch { return true; } }, value), true);
   }));
-  const reconcile = { version: 1, checked_at: '2026-11-04T08:05:00+07:00', mode: 'fix', counts: { KHOP: 233, LECH_TONG: 3 }, total: 236, months_differ: [], matched_ids: [1, 3, 4, 5],
+  const reconcile = { version: 1, checked_at: '2026-11-04T08:05:00+07:00', mode: 'fix', counts: { KHOP: 233, LECH_TONG: 3 }, total: 236, matched_web_vnd: '45000000000', all_web_vnd: '100000000000', months_differ: [], matched_ids: [1, 3, 4, 5],
     customers: [
       { customer: 'Công ty Mẫu An Phát', customer_id: 1, status: 'KHOP', reason: 'FIXED', difference_vnd: '0', written: { receipts: 2, prices: 1, legacy_deleted: 1, fee_rows: 1 } },
       { customer: 'Mẫu Minh Châu 明珠 · tên khách dài để kiểm bố cục', customer_id: 2, status: 'LECH_TONG', reason: 'NO_EXACT_FIX', difference_vnd: '130800000', web_ahead_vnd: '20000000', groups: [{ kind: 'receipts_edited', month: '2026-07', count: 8, delta_vnd: '-117100000', chosen: false }] },
       { customer: 'Công ty Mẫu Phú Gia', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [] },
+      { customer: 'Công ty Mẫu Lộc Phát', customer_id: 7, status: 'LECH_TONG', reason: 'SHEET_SHUFFLED', difference_vnd: '5000000', shuffled_months: ['2026-10'], groups: [] },
       { customer: 'Tab mới chưa có sổ', customer_id: null, status: 'CHI_CO_SHEET', reason: 'CHI_CO_SHEET', difference_vnd: null, sheet_total_vnd: '5' }] };
   const matchedSample = () => ({ ...sample, reconcile, books: sample.books.map(b => ({ ...b, sheet_matched: [1, 3, 4, 5].includes(b.customer_id) })) });
 
@@ -120,10 +121,10 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await page.reload(); await page.locator('.reconcile').waitFor();
     const line = await page.locator('.reconcile-line').innerText();
     assert.match(line, /Đối soát với Sheet lúc 08:05/);
-    assert.match(line, /233\/236 khách khớp/);
+    assert.match(line, /233\/236 khách khớp \(45% số nợ\)/);
     assert.match(line, /máy vừa sửa 1 khách/);
     assert.match(line, /1 khách web đi trước Sheet/);
-    assert.match(line, /2 khách cần xem/);
+    assert.match(line, /3 khách cần xem/);
     assert.ok(await page.locator('.reconcile.warn').count());
     await page.locator('.work-row').first().waitFor();
     // Sổ 1, 3, 4, 5 đã khớp: chỉ còn sổ 2, 6, 7 (và sổ 8 số dư đầu); việc chưa giá của sổ 2 vẫn hiện vì sổ 2 chưa khớp.
@@ -132,10 +133,11 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     await page.locator('[data-reconcile]').click();
     const rows = await page.locator('.reconcile-list tbody tr').allInnerTexts();
     assert.match(rows[0], /Minh Châu 明珠[\s\S]*130,8[\s\S]*không tìm được cách khớp[\s\S]*8 phiếu Sheet đã sửa \(−117,1 tr\)\.[\s\S]*Trong số lệch có 20 tr web đi trước Sheet\./);
-    assert.match(rows[1], /Tab mới chưa có sổ[\s\S]*—[\s\S]*chưa có sổ trên web/);
-    assert.match(rows[2], /Phú Gia[\s\S]*600[\s\S]*Web đi trước Sheet/);
-    assert.match(rows[3], /An Phát[\s\S]*Máy đã sửa 2 phiếu thu, thay 1 khoản thu cũ, 1 giá, 1 dòng điều chỉnh\. Khớp tới từng đồng\./);
-    assert.equal(await page.locator('.reconcile-list tbody tr').nth(1).locator('a').count(), 0);   // chưa có sổ thì không có đường mở
+    assert.match(rows[1], /Lộc Phát[\s\S]*5[\s\S]*đổi chỗ cho nhau, có thể do xếp lệch cột, nên máy không ghi\. Tháng có đơn giá đổi chỗ: T10\./);
+    assert.match(rows[2], /Tab mới chưa có sổ[\s\S]*—[\s\S]*chưa có sổ trên web/);
+    assert.match(rows[3], /Phú Gia[\s\S]*600[\s\S]*Web đi trước Sheet/);
+    assert.match(rows[4], /An Phát[\s\S]*Máy đã sửa 2 phiếu thu, thay 1 khoản thu cũ, 1 giá, 1 dòng điều chỉnh\. Khớp tới từng đồng\./);
+    assert.equal(await page.locator('.reconcile-list tbody tr').nth(2).locator('a').count(), 0);   // chưa có sổ thì không có đường mở
     assert.equal(await page.locator('.reconcile-list tbody tr').first().locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.locator('[data-show-matched]').click();

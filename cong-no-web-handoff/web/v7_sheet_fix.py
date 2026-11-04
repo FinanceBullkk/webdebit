@@ -111,11 +111,38 @@ def total_only_rows(results: list[dict[str, Any]], by_target: dict) -> list[dict
     return rows
 
 
-def price_groups(prices: dict[str, Any], total_only: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def shuffled_months(prices: dict[str, Any]) -> list[str]:
+    """Tháng có đơn giá đổi chỗ vòng tròn giữa các chuyến: Sheet xếp lại một phần cột (container đi một đằng, giá ở lại) thì tổng
+    vẫn đúng mà giá từng container sai, phép khớp tổng không thấy (đo trên `hao` 4/11/2026: một sổ có 3 đơn giá đổi vòng).
+
+    Mỗi dòng giá khác đơn giá là một cạnh từ giá web sang giá Sheet; có vòng là có đổi chỗ. Web chưa có giá thì không có gì để so.
+    """
+    graphs: dict[str, dict[str, set[str]]] = {}
+    for row in prices.get("review") or []:
+        web, sheet = row["web_unit_price_vnd"], row["sheet_unit_price_vnd"]
+        if row["status"] == "CONFLICT" and row.get("month") and web is not None and web != sheet:
+            graphs.setdefault(row["month"], {}).setdefault(web, set()).add(sheet)
+
+    def has_cycle(graph: dict[str, set[str]]) -> bool:
+        done: set[str] = set()
+
+        def visit(node: str, path: set[str]) -> bool:
+            if node in path:
+                return True
+            if node in done:
+                return False
+            found = any(visit(next_node, path | {node}) for next_node in graph.get(node, ()))
+            done.add(node)
+            return found
+        return any(visit(node, set()) for node in graph)
+    return sorted(month for month, graph in graphs.items() if has_cycle(graph))
+
+
+def price_groups(prices: dict[str, Any], total_only: list[dict[str, Any]], skip_months: tuple | list = ()) -> list[dict[str, Any]]:
     """Giá Sheet theo tháng nợ của chuyến đích, mọi tháng (chủ sổ chốt 4/11/2026); dòng đã bấm "Giữ giá web" không có ở đây."""
     months: dict[str, dict[str, Any]] = {}
     for row in list(prices.get("ready") or []) + list(prices.get("review") or []) + total_only:
-        delta = price_delta(row) if row["status"] in PRICE_STATUSES and row.get("month") else None
+        delta = price_delta(row) if row["status"] in PRICE_STATUSES and row.get("month") and row["month"] not in skip_months else None
         if delta is not None:
             group = months.setdefault(row["month"], {"kind": "prices", "month": row["month"], "rows": [], "delta_vnd": 0})
             group["rows"].append(row)
@@ -179,13 +206,16 @@ def web_ahead(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_targ
 
 
 def plan(prices: dict[str, Any], receipts: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],
-         today: dt.date) -> tuple[list[dict[str, Any]], int]:
-    """(các nhóm việc của sổ, tiền web đi trước Sheet), từ hai bản chụp của cùng bản tải với tổng Sheet."""
+         today: dt.date) -> tuple[list[dict[str, Any]], int, list[str]]:
+    """(các nhóm việc của sổ, tiền web đi trước Sheet, tháng có đơn giá đổi chỗ), từ hai bản chụp của cùng bản tải với tổng Sheet.
+    Tháng có đơn giá đổi chỗ thì không có nhóm giá: tổng có khớp cũng không ghi giá theo Sheet đang xếp lệch."""
     results, pool, by_target = _sheet_rows(prices, ledger, customers)
+    projected = project_prices(prices, ledger, customers)
+    shuffled = shuffled_months(projected)
     groups = receipt_groups(project_receipts(receipts, ledger, customers, today), ledger)
-    groups += price_groups(project_prices(prices, ledger, customers), total_only_rows(results, by_target))
+    groups += price_groups(projected, total_only_rows(results, by_target), shuffled)
     groups += fee_groups(results, ledger)
-    return groups, web_ahead(results, pool, by_target)
+    return groups, web_ahead(results, pool, by_target), shuffled
 
 
 def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str, Any]]]:
