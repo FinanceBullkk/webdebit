@@ -14,6 +14,7 @@ from v7_sheet_fix import NO_DATE_NOTE  # noqa: E402
 
 FUNCTIONS = ROOT / "tools/v7_backend_functions.sql"
 MIGRATION = ROOT / "tools/migrations/2026-11-04-v7-bang-thu.sql"
+LATEST = ROOT / "tools/migrations/2026-11-04-v7-bang-thu-2.sql"   # bản mới nhất của get_receipt_book
 HARNESS = ROOT / "tools/test_pg_v7_backend_bang_thu.py"
 
 
@@ -63,13 +64,13 @@ class ReceiptBookRouteTest(unittest.TestCase):
 
 class SqlTextTest(unittest.TestCase):
     def test_migration_matches_canonical_file(self):
-        migration, functions = MIGRATION.read_text(encoding="utf-8"), FUNCTIONS.read_text(encoding="utf-8")
-        for name in ("_legacy_pay_date", "get_receipt_book"):
-            self.assertEqual(definition(migration, name), definition(functions, name), name)
+        functions = FUNCTIONS.read_text(encoding="utf-8")
+        self.assertEqual(definition(MIGRATION.read_text(encoding="utf-8"), "_legacy_pay_date"), definition(functions, "_legacy_pay_date"))
+        self.assertEqual(definition(LATEST.read_text(encoding="utf-8"), "get_receipt_book"), definition(functions, "get_receipt_book"))
 
     def test_machine_strings_match_the_sql(self):
         """SQL nhận phiếu máy đặt ngày và bỏ tiền tố kỹ thuật bằng đúng chuỗi mà máy ghi; đổi một bên thì test này đỏ."""
-        sql = definition(MIGRATION.read_text(encoding="utf-8"), "get_receipt_book")
+        sql = definition(LATEST.read_text(encoding="utf-8"), "get_receipt_book")
         marker = rf"( \(ngày tượng trưng\)|{NO_DATE_NOTE})$"
         self.assertEqual(sql.count(f"'{marker}'"), 2, "cả chỗ nhận phiếu đặt ngày lẫn chỗ bỏ đuôi khỏi ghi chú")
         self.assertIn(f'NO_DATE_NOTE = "{NO_DATE_NOTE}"', HARNESS.read_text(encoding="utf-8"))
@@ -79,8 +80,8 @@ class SqlTextTest(unittest.TestCase):
         self.assertIn("'^Sheet( #[^:]*)?(: ?|$)'", sql)
 
     def test_function_is_read_only(self):
-        sql = definition(MIGRATION.read_text(encoding="utf-8"), "get_receipt_book")
-        self.assertIsNone(re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE)\b", sql))
+        for path in (MIGRATION, LATEST):
+            self.assertIsNone(re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE)\b", definition(path.read_text(encoding="utf-8"), "get_receipt_book")))
 
 
 if __name__ == "__main__":

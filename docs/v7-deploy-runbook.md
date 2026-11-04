@@ -1687,7 +1687,7 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-
 2. **Bật máy đưa chuyến (chỉ khi người dùng đồng ý):** sửa drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips`, `daemon-reload`, restart. Đo trước/sau: số chuyến mới đủ điều kiện (`NEW`, `COMMODITY_OK`, tháng mở, không ngày tương lai), số event `paste` của `may-theo-sheet`, số dư 236 khách (phải bằng nhau: chuyến vào chưa có giá).
 3. **Tắt máy đưa chuyến:** bỏ `trips` khỏi biến, restart. Chuyến máy đã đưa vào vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai.
 
-## Bảng thu (BANG-THU-01) — nâng DB đang có
+## Bảng thu (BANG-THU-01) — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026, [nhật ký](deploys/2026-11-04-bang-thu.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-bang-thu.sql` ([`BANG-THU-01`](decisions/bang-thu-01.md), spec [`v7-bang-thu`](../specs/v7-bang-thu.md)) chỉ THÊM hai hàm đọc: `get_receipt_book(date)` cấp cho app và reader, `_legacy_pay_date(text)` nội bộ. Không đổi bảng, view, hàm ghi, loại event, phân bổ, dữ liệu hay quyền cũ. Chạy lại được. **Chạy sau `2026-11-02-v7-hoan-tac-lo.sql`.**
 
@@ -1699,6 +1699,8 @@ Thứ tự với release: chạy migration trước. Release cũ không gọi h�
 4. **Sau:** `/bang-thu.html` trả 200. `GET /api/v7/receipt-book` trả tháng hiện tại. Tổng tháng hiện tại cộng không rõ ngày bằng `this_month.received_vnd` của `GET /api/v7/dashboard/debt`.
 
 Rollback: `DROP FUNCTION sokhach.get_receipt_book(date), sokhach._legacy_pay_date(text);` dưới `sokhach_owner`; không gì tham chiếu tới. App: quay về release trước.
+
+**Lần 2** (`2026-11-04-v7-bang-thu-2.sql`): chỉ thay `get_receipt_book`, giữ quyền EXECUTE: bỏ dòng Sheet số tiền 0, Theo khách xếp theo cột Đã trả, ghi chú không hiện số serial ngày. Các bước như trên. Quay lại: chạy lại `2026-11-04-v7-bang-thu.sql`.
 
 ## Máy tự đối soát (MAY-DOI-SOAT-01) — timer `v7-reconcile-auto`
 
