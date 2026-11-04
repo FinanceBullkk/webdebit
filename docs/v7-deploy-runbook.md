@@ -1798,6 +1798,15 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 3. **Bật (chỉ khi người dùng đồng ý):** sao lưu; drop-in `auto-sheet.conf` thành `Environment=WEBDEBIT_AUTO_SHEET=text,trips,prices,road`, `daemon-reload`, restart. Đo sau như bước 2 trên DB thật, đếm event `paste` của `may-theo-sheet`, rồi chạy đối soát cuối ngày.
 4. **Tắt:** bỏ `road` khỏi biến, restart. Chuyến đã dán vẫn nằm trong sổ và Lịch sử; xóa tay nếu sai (tháng khóa: mở khóa trước).
 
+## Bù phụ phí theo TOTAL Sheet (PHU-PHI-BU-01) — ghi dữ liệu một lần
+
+Công cụ `cong-no-web-handoff/tools/v7_fill_fee_gap.py` ([`PHU-PHI-BU-01`](decisions/phu-phi-bu-01.md)) không đổi schema hay hàm. Mặc định chỉ đếm, `--apply` mới ghi; chạy lại an toàn vì dòng đã bù không còn lệch.
+
+1. **Bản sao trước:** dump, restore vào DB tạm, chạy `--apply`. Đạt khi: số dư từng khách, `counted_vnd` mọi dòng sổ gốc, bảng `adjustment`, `receipt_line` có hiệu lực không đổi; dòng lệch giải thích được về 0; tháng đang mở giữ nguyên; checker OK. Xóa DB tạm.
+2. **Cửa sổ dừng ghi:** kiểm phiên khác, dừng `v7-reconcile-auto.timer`, đợi lượt đang chạy xong, dừng API, dump kèm hash, chạy `--apply` với `--customer` đã đếm, đo như bước 1, bật lại API và timer.
+
+Rollback: mỗi dòng có event `rewrite_trip_fees` kèm `before`; sửa lại khoản phụ phí trong khung chi tiết, hoặc restore dump nếu cần cả đợt.
+
 ## Gán cảng/bộ tại Việc cần làm — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026)
 
 Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-gan-cang-bo.md).
@@ -2050,7 +2059,9 @@ Kiểm bản sao (chạy qua orchestrator, dữ liệu giả, Docker `--network 
 py -3.13 cong-no-web-handoff/tools/test_pg_v7_backend.py --migration-test --report <outside_repo_report>.json
 ```
 
-Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view với khởi tạo mới; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
+Harness cần đối tượng Git `460882d9d5d60c3fc8eeac5161a0058219dc09d4` để dựng đúng schema/hàm CŨ; thiếu đối tượng thì dừng, không thay bằng schema mới. So catalog hàm/cột/view/ràng buộc với khởi tạo mới ngay trên DB chưa chạy case nào; checker 14 quyền; migration chạy hai lần; loader dùng role thật trên DB giả. Peer/systemd/hao và số dư thật còn gate triển khai.
+
+Từ 4/11/2026 job CI `postgres-v7-backend` chạy lệnh này, nên đỏ ở máy trong khi `main` xanh thì thay đổi đang làm là nguyên nhân. Migration mới phải thêm vào chuỗi trong `check_migration` theo thứ tự triển khai; thiếu thì lệnh báo tên file.
 # PR-B phụ phí nhiều loại — runbook kiểm chứng (chưa triển khai)
 
 ĐÃ CODE: migration `2026-10-29-v7-phu-phi-b.sql`, hàm/API PR-B, danh mục và cột phí.
