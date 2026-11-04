@@ -1761,6 +1761,8 @@ Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-r
 
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
+Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).
+
 Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-tao-so.sql` ([quyết định](decisions/may-tao-so-01.md), [spec](../specs/v7-may-tao-so.md)) chỉ THÊM một hàm ghi `create_book_from_sheet(text,text,text,jsonb,jsonb,jsonb,bigint,text)`, cấp cho app, không cấp reader. Không đổi bảng, view, hàm cũ, quyền cũ hay dữ liệu. Chạy lại được.
 
 Thứ tự với release: chạy migration trước. Release mới mà chưa có hàm thì lúc gặp tab mới, máy báo lỗi ở dòng khách đó, không ghi gì; các khách khác không ảnh hưởng.
