@@ -1,6 +1,7 @@
 /* Giá trị và hành vi thị giác theo package Việc cần làm bốn cột ngày 2/11. */
 globalThis.InboxTable = (() => {
   'use strict';
+  const MACHINE_LOGIN = 'may-theo-sheet';
   const groups = [
     { key: 'money', label: 'Tiền vào sổ', keys: ['receipts', 'prices', 'missing', 'removed'] },
     { key: 'trips', label: 'Chuyến', keys: ['trips_new', 'trips_check', 'pending'] },
@@ -58,8 +59,10 @@ globalThis.InboxTable = (() => {
     const progress = data?.state === 'computing' ? `<span class="computing">đang tính việc từ Sheet ${data.books_done ?? 0}/${data.books_total ?? '—'} sổ</span>` : '';
     const person = (name, trips, second, index, tip, machine = false, prices = 0) => `<span class="actor-chip actor-${index % 3}" title="${esc(tip)}"><i aria-hidden="true">${esc(name.slice(0, 1))}</i><b>${esc(name)}</b><span>${icon('truck')}<strong>${trips}</strong></span><span>${icon(machine ? 'pencil' : 'receipt')}<strong>${second}</strong></span>${prices ? `<span>${icon('tag')}<strong>${prices}</strong></span>` : ''}</span>`;
     const bot = data?.auto ?? {};
-    const people = (dashboard?.today.by_actor ?? []).map((p, i) => person(p.actor, p.trips, p.receipts, i, `${p.actor}: ${p.trips} chuyến, ${p.receipts} phiếu thu ${F.full(p.received_vnd)}, hủy ${p.voids} phiếu`)).join('')
-      + (bot.today_count || bot.today_trips || bot.today_prices || bot.today_ps ? person('Máy', bot.today_trips ?? 0, bot.today_count ?? 0, 2, `Máy theo Sheet hôm nay: ${bot.today_trips ?? 0} chuyến mới, ${bot.today_count ?? 0} ô chữ, ${bot.today_prices ?? 0} giá${bot.today_ps ? `, ${bot.today_ps} phụ phí phân loại` : ''}`, true, bot.today_prices ?? 0) : '');
+    // Máy có chip riêng với chi tiết chữ, chuyến, giá; dòng của máy trong số liệu hôm nay chỉ dùng khi chưa có chip đó, và không hiện tên kỹ thuật.
+    const botChip = bot.today_count || bot.today_trips || bot.today_prices || bot.today_ps;
+    const people = (dashboard?.today.by_actor ?? []).filter(p => p.actor !== MACHINE_LOGIN || !botChip).map((p, i) => { const name = p.actor === MACHINE_LOGIN ? 'Máy' : p.actor; return person(name, p.trips, p.receipts, i, `${name}: ${p.trips} chuyến, ${p.receipts} phiếu thu ${F.full(p.received_vnd)}, hủy ${p.voids} phiếu`); }).join('')
+      + (botChip ? person('Máy', bot.today_trips ?? 0, bot.today_count ?? 0, 2, `Máy theo Sheet hôm nay: ${bot.today_trips ?? 0} chuyến mới, ${bot.today_count ?? 0} ô chữ, ${bot.today_prices ?? 0} giá${bot.today_ps ? `, ${bot.today_ps} phụ phí phân loại` : ''}`, true, bot.today_prices ?? 0) : '');
     const auto = old.autoHtml(data?.auto, esc, label, href);
     const band = `<section class="work-band" aria-label="Còn việc và đã ghi hôm nay"><div class="band-count">${total}</div>${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${progress}<div class="today-inline"><span>Đã ghi hôm nay</span>${people || '<span class="muted">Chưa có giao dịch nào hôm nay.</span>'}${auto ? `<button class="btn auto-toggle" type="button" data-auto aria-expanded="${!!opts.showAuto}">Soát ${icon(opts.showAuto ? 'up' : 'down')}</button>` : ''}</div>${auto && opts.showAuto ? `<div class="auto-list">${auto}</div>` : ''}</section>`;
     const errors = !data ? `<p class="inbox-error" role="alert">${esc(opts.failedText)} <button type="button" class="btn" data-inbox-retry>Thử lại</button></p>` : data.state === 'unavailable' ? '<p class="inbox-note warn">Chưa đọc được bản lấy từ Sheet. Bấm Làm mới để lấy lại; việc dưới đây có thể thiếu.</p>' : data.failed?.length ? `<p class="inbox-note warn">${data.failed.length} sổ chưa tính được, việc của các sổ này có thể thiếu.</p>` : '';

@@ -1,18 +1,20 @@
-# PLAN — hiện tại (31/10/2026)
+# PLAN — hiện tại (4/11/2026)
 
-Mục tiêu gần nhất: **bắt đầu chạy song song Sheet–web chính thức** theo [`SONG-SONG-01`](docs/decisions/song-song-01.md)/[`SONG-SONG-02`](docs/decisions/song-song-02.md). ĐỀ XUẤT (Claude, 31/10/2026): ngày bắt đầu **1/11/2026** để trọn tháng 11 là tháng song song; chuyển hẳn sau khi đối soát cuối tháng 11 khớp (mục F4 của [checklist](docs/song-song-checklist.md)). Ngày bắt đầu do chủ nghiệp vụ chốt (F2, CÒN MỞ).
+Mục tiêu gần nhất: **web tự chạy theo Sheet, không cần người nhập thao tác trên web** ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md), người dùng chốt 4/11/2026), và giữ đối soát khớp liền một tháng theo [`SONG-SONG-01`](docs/decisions/song-song-01.md). ĐỀ XUẤT (Claude): đối soát cuối tháng 11 là mốc xét đầu tiên. Ngày tính tháng song song do chủ nghiệp vụ chốt (F2, CÒN MỞ).
 
-So với bản 22/10: Harness, V7 trên `hao` (tự deploy khi merge `main`), capture-only Sheet, backup hằng ngày + phục hồi thử (C1, C2 ĐẠT), hai khách bị giữ sau mốc (A3 ĐẠT, [`SONG-SONG-03`](docs/decisions/song-song-03.md)), đường Sheet → web cho chuyến (`CONT_NGUON`), giá, phiếu thu ([`THU-SHEET-01`](docs/decisions/thu-sheet-01.md)) và phụ phí PS, nút kết luận CHỜ KIỂM, tab Đòi nợ, Debit Note v3 đều đã trên `main`. Việc chặn còn lại là **vận hành**, không phải tính năng.
+So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ trên `hao`, và tự sửa khi đúng một tổ hợp việc đưa tổng khách về đúng tổng Sheet tới từng đồng; kết quả ở đầu tab Việc cần làm ([nhật ký](docs/deploys/2026-11-04-may-doi-soat.md)). Việc còn lại chủ yếu là **vận hành và quyết định của chủ sổ**.
 
-## Việc chặn ngày bắt đầu (theo checklist)
+## Việc còn lại trước khi coi là chạy được không cần người
 
-| # | Việc | Ai | Trạng thái 31/10 | Bằng chứng cần |
+| # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
-| A2 | Web khớp tổng từng khách với Sheet (dán bù sau mốc) | Người nhập bấm các nút ghi từ Sheet; Claude đối soát | **3/11** (bằng chứng chính thức, chỉ đọc): `KHONG DAT`, 213/236 khớp, 19 lệch, 4 khách bị giữ vì số dư chuyển tháng trên Sheet. Ngoài việc người nhập (phiếu thu Sheet thiếu ngày, giá lệch, Sheet sửa phiếu cũ) có hai lỗ hổng hệ thống: giá chuyến tháng trước bị kẹt `MONTH_LOCKED` sau khi sang tháng, và chuyến tháng 10 của 3 khách không vào hàng chờ; chi tiết ở checklist A2 | `DOI SOAT: DAT` trên bản xuất ngày bắt đầu |
-| B1, B2 | Mỗi người nhập một tài khoản Tailscale; hai người mở/khóa một tháng ra hai tên trong Lịch sử | Admin (người dùng) mời vào tailnet; người nhập thao tác | CHƯA (tailnet một tài khoản) | Danh sách tailnet ngoài Git; hai cặp dòng Lịch sử |
-| E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Người nhập | Nút "Tính vào sổ"/"Loại" đã trên `hao`; hiện không có chuyến CHỜ KIỂM nên chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
-| C4 | Người nhập tự chạy đối soát cuối ngày một lần theo [hướng dẫn](docs/doi-soat-cuoi-ngay.md) | Người nhập | CHƯA; Claude đã chạy 29, 30, 31/10 và 3/11 (lần 3/11 sửa thư mục kết quả trong hướng dẫn) | Một lần chạy có mã thoát và số đếm |
-| F2 | Chốt ngày bắt đầu song song | Chủ nghiệp vụ | ĐỀ XUẤT 1/11/2026 | Dòng cập nhật `SONG-SONG-02` |
+| A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | 234/236 khớp. 1 khách web đi trước Sheet (đã giải thích, tự hết khi Sheet ghi giá). 1 khách bị giữ vì 8 dòng tháng 11 trên Sheet có đơn giá mà chưa có cột TỔNG: người nhập điền trên Sheet | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
+| Cảnh báo | Máy lỗi hoặc dừng thì có người biết (audit DevOps #2) | Chủ sổ chọn kênh, Claude cài | CHƯA: hiện chỉ thấy ở đầu tab Việc cần làm và journal | Một lần thử cảnh báo tới được người nhận |
+| E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
+| F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐỀ XUẤT: tính cả tháng 11 | Dòng cập nhật `SONG-SONG-02` |
+| F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | CÒN MỞ từ [`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md) | Quyết định mới |
+
+B1, B2 (mỗi người nhập một tài khoản) và C4 (người nhập tự chạy đối soát) không còn chặn theo hướng này; xem [checklist](docs/song-song-checklist.md). Sếp hay ai khác muốn tự xem web thì cần thêm login vào danh sách cho phép ([`ACCESS-01`](docs/decisions/access-01.md)).
 
 ## Không chặn — làm trong lúc chạy song song, xong trước ngày chuyển hẳn
 
@@ -20,6 +22,7 @@ So với bản 22/10: Harness, V7 trên `hao` (tự deploy khi merge `main`), ca
 - Khách còn mở của `SONG-SONG-03` (2): chủ nghiệp vụ xác định số phải thu trước F4.
 - Chép bản xuất chat Zalo lên `hao` để trang Chat Zalo có dữ liệu (`NHAC-NO-01`, sửa đổi ZALO-CHAT-01).
 - Bỏ đường export cũ khi Sheet xóa ba tab (sau khi đồng bộ chuyến đã đọc `CONT_NGUON` ổn định).
-- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)); 3/11/2026: chuyến theo nguồn booking ([`NGUON-CHUYEN-01`](docs/decisions/nguon-chuyen-01.md), bốn giai đoạn trong [spec](specs/v7-chuyen-theo-nguon.md)).
+- Tạm dừng thêm tính năng mới cho tới khi song song đã chạy. Ngoại lệ do người dùng chốt 1/11/2026: group Zalo trên web ([`ZALO-GROUP-01`](docs/decisions/zalo-group-01.md)); 3/11/2026: chuyến theo nguồn booking ([`NGUON-CHUYEN-01`](docs/decisions/nguon-chuyen-01.md), bốn giai đoạn trong [spec](specs/v7-chuyen-theo-nguon.md)); 4/11/2026: máy tự đối soát ([`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md)).
+- Chủ sổ tự đi hết luồng đối soát trên `hao` ([spec](specs/v7-may-doi-soat.md)); khóa lại các tháng cũ đang để mở.
 
 Cập nhật bảng khi trạng thái đổi; lộ trình ở `docs/roadmap.md`, điều kiện khởi động ở `docs/song-song-checklist.md`.
