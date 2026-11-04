@@ -5,6 +5,7 @@ import json
 
 from pg_v7_harness import (
     CHAN_TRUNG_MIGRATION,
+    CONTAINER_INDEX_MIGRATION,
     call,
     fixture_open_month,
     lit,
@@ -19,13 +20,13 @@ CATALOG = ("SELECT jsonb_object_agg(p.oid::regprocedure::text,pg_get_functiondef
            "WHERE p.pronamespace='sokhach'::regnamespace")
 
 
-def _legacy(pg, customer: int, month: str, display: dict, row: int) -> int:
+def _legacy(pg, customer: int, month: str, display: dict, row: int, kind: str = "trip") -> int:
     cutover = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={customer}")
     event = pg.value(f"SELECT id FROM sokhach.event WHERE customer_id={customer} AND kind='import'")
     return int(pg.value("BEGIN; SET LOCAL ROLE sokhach_owner; "
         "ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard; "
         "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
-        f"VALUES({customer},{cutover},{lit(month)},'trip',{lit(json.dumps(display))},50,'FAKE',{row},{event}) RETURNING id; "
+        f"VALUES({customer},{cutover},{lit(month)},{lit(kind)},{lit(json.dumps(display))},50,'FAKE',{row},{event}) RETURNING id; "
         "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard; COMMIT").splitlines()[0])
 
 
@@ -42,6 +43,9 @@ def check_chan_trung(pg) -> str:
     migration = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
     pg.sql(migration)
     pg.sql(migration)
+    container_index = CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8")
+    pg.sql(container_index)  # chan-trung trả list_legacy_trip_refs cũ
+    pg.sql(container_index)
     require(pg.value(CATALOG) == fresh, "chan-trung migration rerun changed function catalog")
     for name, allowed in (("list_legacy_trip_refs", True), ("_legacy_undated_match", False)):
         require(pg.value(f"SELECT bool_and(has_function_privilege('v7_app',oid,'EXECUTE')) FROM pg_proc "
@@ -85,4 +89,26 @@ def check_chan_trung(pg) -> str:
     require(call(pg, "list_legacy_trip_refs", "[]") == {"items": []}, "empty container list")
     reject_call(pg, "list_legacy_trip_refs", '{"a":1}', error="INVALID_COMMAND")
     reject_call(pg, "list_legacy_trip_refs", "[1]", error="INVALID_COMMAND")
+
+    # 6. Đầu vào chuẩn hóa như dòng sổ: hoa/thường, khoảng trắng kể cả NBSP, lặp; một dòng chỉ ra một lần; chuỗi rỗng không khớp gì.
+    same = call(pg, "list_legacy_trip_refs", json.dumps(["und 1", "UND1", "\u00a0Und\u202f1 "]))["items"]
+    require([r["container"] for r in same] == ["UND 1"], f"normalized input wrong: {same}")
+    _legacy(pg, other, "2026-01-01", {"date": None}, 14)
+    require(call(pg, "list_legacy_trip_refs", json.dumps(["", " "])) == {"items": []}, "blank input matched a row without container")
+
+    # 7. Bản sửa mới nhất quyết định: đổi container thì tìm được theo số mới, không còn theo số cũ. Dòng thu không phải chuyến.
+    moved = _legacy(pg, other, "2026-01-01", {"container": "OLD-1", "date": "2026-01-07"}, 15)
+    call(pg, "edit_legacy_trip", other, version(pg, other), "ct-move", moved, "container", "NEW-1")
+    require(call(pg, "list_legacy_trip_refs", json.dumps(["OLD-1"])) == {"items": []}, "old container still listed after edit")
+    require([r["container"] for r in call(pg, "list_legacy_trip_refs", json.dumps([" new-1"]))["items"]] == ["NEW-1"],
+            "edited container not found by its new number")
+    _legacy(pg, other, "2026-01-01", {"container": "PAY-1", "date": None}, 16, kind="receipt")
+    require(call(pg, "list_legacy_trip_refs", json.dumps(["PAY-1"])) == {"items": []}, "receipt row listed as a trip")
+
+    # 8. Biểu thức của index phải trùng điều kiện lọc trong hàm, nếu không index nằm đó mà không bao giờ được dùng.
+    for table, column, index in (("legacy_row", "display->>'container'", "legacy_row_container_key"),
+                                 ("legacy_trip_rev", "container", "legacy_trip_rev_container_key")):
+        plan = pg.value(f"BEGIN; SET LOCAL enable_seqscan=off; EXPLAIN (COSTS OFF) SELECT 1 FROM sokhach.{table} "
+                        f"WHERE sokhach._normalize_key({column}) = ANY('{{A,B}}'::text[]); ROLLBACK")
+        require(index in plan, f"{index} not usable: {plan}")
     return "undated original row holds same-month paste; reuse, dated and deleted rows pass; legacy refs by container"
