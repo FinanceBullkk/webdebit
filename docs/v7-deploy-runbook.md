@@ -1689,12 +1689,12 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([spec P3b](../specs/v7-hop-
 
 ## Bảng thu (BANG-THU-01) — nâng DB đang có
 
-Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-bang-thu.sql` ([`BANG-THU-01`](decisions/bang-thu-01.md), spec [`v7-bang-thu`](../specs/v7-bang-thu.md)) chỉ THÊM hai hàm đọc: `get_receipt_book(date)` cấp cho app và reader, `_legacy_pay_date(text)` nội bộ. Không đổi bảng, view, hàm ghi, loại event, phân bổ, dữ liệu hay quyền cũ; không cần dừng ghi vì không khóa bảng tiền. Chạy lại được. **Chạy sau `2026-11-02-v7-hoan-tac-lo.sql`.**
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-bang-thu.sql` ([`BANG-THU-01`](decisions/bang-thu-01.md), spec [`v7-bang-thu`](../specs/v7-bang-thu.md)) chỉ THÊM hai hàm đọc: `get_receipt_book(date)` cấp cho app và reader, `_legacy_pay_date(text)` nội bộ. Không đổi bảng, view, hàm ghi, loại event, phân bổ, dữ liệu hay quyền cũ. Chạy lại được. **Chạy sau `2026-11-02-v7-hoan-tac-lo.sql`.**
 
 Thứ tự với release: chạy migration trước. Release cũ không gọi hàm mới. Nếu release lên trước migration, riêng trang Bảng thu báo lỗi đọc kèm nút Thử lại; sổ và tiền không ảnh hưởng.
 
 1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Số dư từng khách/tháng, số dòng mọi bảng và số event không đổi. `v7_post_deploy_check.sql` OK. Gọi thử `get_receipt_book` dưới `v7_app`; đẳng thức: mọi tháng cộng lại, mọi sổ cộng lại bằng tổng `received_vnd` của `get_ledger`.
-2. **Trên `webdebit_v7`:** backup toàn phần kèm sha256, áp migration một transaction, đối soát tổng từng khách và số event trước bằng sau, chạy checker.
+2. **Cửa sổ dừng ghi:** như các đợt trước, thêm kiểm không có lượt máy nào đang chạy (`v7-reconcile-auto` đi thẳng vào DB, không dừng theo API): dừng API, dump kèm hash, áp migration một transaction, đối soát tổng từng khách và số event trước bằng sau, chạy checker, bật lại API.
 3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
 4. **Sau:** `/bang-thu.html` trả 200. `GET /api/v7/receipt-book` trả tháng hiện tại. Tổng tháng hiện tại cộng không rõ ngày bằng `this_month.received_vnd` của `GET /api/v7/dashboard/debt`.
 
