@@ -70,7 +70,9 @@ test('Đòi nợ: liệt kê khách quá hạn, trạng thái nhắc, lọc chư
   assert.deepEqual(await page.locator('.rrow .nm').allInnerTexts(), ['Khách C', 'Khách D', 'Khách E']);
   assert.match(await page.getByRole('heading', { name: /Khách quá hạn cần đòi/ }).innerText(), /3 khách · 2 chưa nhắc/);
   assert.deepEqual(await page.locator('.rrow .st').allInnerTexts(), ['Đã nhắc 9 ngày, chưa trả', 'Chưa nhắc', 'Chưa nhắc']);
-  assert.equal(await page.locator('nav a.active').innerText(), 'Đòi nợ');
+  // Tab đang ẩn khỏi menu (NHAC-NO-01, sửa đổi 4/11/2026): trang vẫn mở được bằng địa chỉ, menu không có mục nào sáng.
+  assert.equal(await page.locator('nav a.active').count(), 0);
+  assert.equal(await page.locator('nav a', { hasText: 'Đòi nợ' }).count(), 0);
   // Lọc "Chưa nhắc" còn 2 khách.
   await page.locator('[data-filter="chua-nhac"]').click();
   assert.deepEqual(await page.locator('.rrow .nm').allInnerTexts(), ['Khách D', 'Khách E']);

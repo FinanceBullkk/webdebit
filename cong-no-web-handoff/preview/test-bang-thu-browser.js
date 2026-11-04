@@ -479,7 +479,7 @@ test('Bảng thu: bố cục ở khung thấy thật 1280×560 có thanh cuộn:
   const overflow = await page.locator('tr.pay .note').last().evaluate(node => ({ height: node.closest('tr').getBoundingClientRect().height }));
   assert.ok(overflow.height <= 48, `dòng cao ${overflow.height}`);
   const links = page.locator('.app-nav nav a');
-  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Đòi nợ', 'Việc cần làm']);
+  assert.deepEqual((await links.allInnerTexts()).map(text => text.split('\n')[0]), ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Việc cần làm']);
   const last = await links.last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
   // Đo với font mặc định, rồi với font rộng hơn như máy không có Segoe UI.
@@ -540,10 +540,10 @@ test('Bảng thu: dữ liệu thử có băng báo', () => withPage({ book: () =
   assert.match(await page.locator('#demo-banner').innerText(), /Dữ liệu thử/);
 }));
 
-test('Menu riêng của Sổ khách cũng có Bảng thu và sáu mục lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
+test('Menu riêng của Sổ khách cũng có Bảng thu và năm mục lọt khung 1280×560', () => withPage({ book: byMonth }, async (page, base) => {
   const html = fs.readFileSync(path.join(__dirname, 'so-khach-v7-live.html'), 'utf8');
   const order = [...html.match(/<nav aria-label="Điều hướng chính">.*?<\/nav>/s)[0].matchAll(/<span>([^<]+)<\/span>/g)].map(match => match[1]);
-  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Đòi nợ', 'Việc cần làm']);
+  assert.deepEqual(order, ['Tổng quan', 'Công nợ theo tháng', 'Sổ khách', 'Bảng thu', 'Việc cần làm']);
   await page.goto(`${base}/test-fixture-none`);
   await page.setContent(`<!doctype html><link rel="stylesheet" href="${base}/so-khach-v7.css"><link rel="stylesheet" href="${base}/so-khach-v7-priority.css">${html.match(/<header class="topbar">.*?<\/header>/s)[0]}`);
   await page.waitForLoadState('load');
