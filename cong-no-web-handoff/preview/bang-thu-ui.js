@@ -13,6 +13,9 @@
   const svg = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   const ICON = {
     prev: svg('<path d="M15 6l-6 6 6 6"/>'),
+    down: svg('<path d="M6 9l6 6 6-6"/>'),
+    up: svg('<path d="M6 15l6-6 6 6"/>'),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
     next: svg('<path d="M9 6l6 6-6 6"/>'),
     people: svg('<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/>'),
     receipt: svg('<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>'),
@@ -42,6 +45,7 @@
     month: /^\d{4}-(0[1-9]|1[0-2])$/.test(query.get('month') ?? '') ? query.get('month') : null,
     view: VIEWS.some(view => view.id === query.get('xem')) ? query.get('xem') : DEFAULT_VIEW,
     com: query.get('mh') || null,
+    day: /^\d{4}-\d{2}-\d{2}$/.test(query.get('ngay') ?? '') ? query.get('ngay') : null, open: null,
     book: null, inbox: null, customers: null, labels: null, coms: null, options: [], showVoided: false, painted: null,
   };
   let turn = 0;
@@ -57,6 +61,9 @@
   const ledgerHref = (id, month) => `/so-khach-v7-live.html?customer=${encodeURIComponent(id)}&amp;month=${esc(monthKey(month))}`;
   // Bộ lọc chỉ có tác dụng khi đã biết mặt hàng của sổ và không ở tab 12 tháng (dữ liệu tháng chỉ có tổng).
   const activeCom = () => (state.coms && state.view !== YEAR_VIEW ? state.com : null);
+  // TUONG-TAC-01: ngày đang lọc chỉ có hiệu lực trong đúng tháng đang xem và không ở tab 12 tháng.
+  const activeDay = book => (state.view !== YEAR_VIEW && state.day?.slice(0, 7) === book.month.slice(0, 7) ? state.day : null);
+  const openCustomer = () => state.open?.slice(state.open.lastIndexOf('|') + 1) ?? null;
 
   // Tên sổ tách hai phần: tên đậm, mặt hàng nhỏ bên cạnh. Sổ trùng tên giữ " · sổ <id>" của customerLabels để phân biệt.
   function whoOf(id, fallback) {
@@ -88,21 +95,21 @@
   }
 
   // Cột Trừ nợ. Phiếu web: các tháng đang được trừ. Dòng Sheet không có phân bổ riêng: tháng của khối ghi nó.
-  function debtCell(row, year) {
-    if (row.source === 'sheet') {
-      const tag = monthTag(row.book_month, year);
-      return `<td class="debt" title="Ghi ở khối ${esc(monthLabel(row.book_month))} trên Sheet">${esc(tag)}</td>`;
-    }
+  function debtInfo(row, year) {
+    if (row.source === 'sheet') return { text: monthTag(row.book_month, year), title: `Ghi ở khối ${monthLabel(row.book_month)} trên Sheet` };
     const lines = row.allocations ?? [];
-    if (!lines.length) return '<td class="debt">—</td>';
+    if (!lines.length) return { text: '—', title: '' };
     const seen = new Set();
     const parts = [];
     for (const line of lines) {
       const text = line.kind === 'advance' ? 'ứng trước' : monthTag(line.month, year);
       if (!seen.has(text)) { seen.add(text); parts.push(text); }
     }
-    const title = lines.map(line => `${line.kind === 'advance' ? 'Ứng trước' : `T${monthLabel(line.month)}`} ${number(line.amount_vnd)}`).join(' · ');
-    return `<td class="debt" title="${esc(title)}">${esc(parts.join(', '))}</td>`;
+    return { text: parts.join(', '), title: lines.map(line => `${line.kind === 'advance' ? 'Ứng trước' : `T${monthLabel(line.month)}`} ${number(line.amount_vnd)}`).join(' · ') };
+  }
+  function debtCell(row, year) {
+    const { text, title } = debtInfo(row, year);
+    return `<td class="debt"${title ? ` title="${esc(title)}"` : ''}>${esc(text)}</td>`;
   }
   function noteText(row) {
     const method = row.method && row.method !== PLAIN_METHOD ? row.method : '';
@@ -110,7 +117,7 @@
   }
   function receiptRow(row, year) {
     const note = noteText(row);
-    return `<tr class="pay">${whoCell(row.customer_id, row.name, row.book_month)}<td class="num amt">${esc(number(row.amount_vnd))}</td>`
+    return `<tr class="pay" data-customer="${esc(row.customer_id)}">${whoCell(row.customer_id, row.name, row.book_month)}<td class="num amt">${esc(number(row.amount_vnd))}</td>`
       + `<td class="note"${note ? ` title="${esc(note)}"` : ''}>${esc(note)}</td>${debtCell(row, year)}${goCell}</tr>`;
   }
 
@@ -118,7 +125,8 @@
   function byDayTable(scoped, book, year) {
     const head = `<thead><tr><th scope="col" class="c-who">Khách</th><th scope="col" class="num c-amt" title="Đồng, chính xác tới từng đồng">Số tiền <small>đ</small></th>`
       + `<th scope="col" class="c-note">Ghi chú</th><th scope="col" class="c-debt" title="Tháng nợ mà khoản này trừ vào">Trừ nợ</th>${goHead}</tr></thead>`;
-    const days = scoped.days.map(day => `<tbody class="day"><tr class="group-head" id="ngay-${Number(day.date.slice(8, 10))}"><th scope="rowgroup">${esc(dayLabel(day.date, book.as_of))} <small>${esc(count(day.count))}</small></th>`
+    const picked = activeDay(book);
+    const days = scoped.days.map(day => `<tbody class="day"><tr class="group-head"><th scope="rowgroup"><button type="button" class="day-pick" id="head-${esc(day.date)}" data-day="${esc(day.date)}" aria-pressed="${picked === day.date}" title="${picked === day.date ? 'Bỏ lọc ngày này' : 'Chỉ xem ngày này'}">${esc(dayLabel(day.date, book.as_of))}</button> <small>${esc(count(day.count))}</small></th>`
       + `<td class="num">${esc(number(day.total_vnd))}</td><td colspan="3"></td></tr>${day.rows.map(row => receiptRow(row, year)).join('')}</tbody>`).join('');
     const undated = scoped.undated.length ? `<tbody class="day undated"><tr class="group-head undated-head" id="khong-ro-ngay"><th scope="rowgroup">Không rõ ngày thu <small>${esc(count(scoped.undated.length))}</small></th>`
       + `<td class="num">${esc(number(scoped.summary.undated_vnd))}</td><td colspan="3" class="hint">chưa cộng vào tổng tháng</td></tr>${scoped.undated.map(row => receiptRow(row, year)).join('')}</tbody>` : '';
@@ -133,12 +141,37 @@
       + `${showUndated ? '<th scope="col" class="num c-und" title="Đồng, chưa cộng vào Đã trả">Không rõ ngày <small>đ</small></th>' : ''}`
       + `<th scope="col" class="c-last">Trả gần nhất</th>${goHead}</tr></thead>`;
   }
-  function customerLine(row, showUndated, { inGroup = false, hideCommodity = false } = {}) {
-    return `<tr class="pay${inGroup ? ' in-group' : ''}">${whoCell(row.id, row.name, row.month, { hideCommodity })}`
+  // TUONG-TAC-01: bấm tên mở phiếu ngay tại dòng, mũi tên cuối dòng mới mở sổ. Cả dòng là vùng bấm của nút tên, như link tên ở tab Theo ngày.
+  function toggleCell(row, key, open, { hideCommodity = false } = {}) {
+    const { name, label, extra } = whoOf(row.id, row.name);
+    const shown = hideCommodity ? /(?:^| · )(sổ \d+)$/.exec(extra)?.[1] ?? '' : extra;
+    return `<td class="who"><button type="button" class="row-link" id="open-${esc(key)}" data-open="${esc(key)}" aria-expanded="${open}" title="${esc(open ? `Thu lại phiếu của ${label}` : `Xem phiếu của ${label}`)}">`
+      + `<span class="caret">${open ? ICON.up : ICON.down}</span><span class="nm">${esc(name)}</span>${shown ? ` <small>${esc(shown)}</small>` : ''}</button></td>`;
+  }
+  function openedLines(scoped, row, showUndated, year, debtKey, inGroup) {
+    const blank = `<td class="td-count"></td>${showUndated ? '<td class="num"></td>' : ''}<td class="when"></td><td class="go"></td>`;
+    const lines = M.receiptsOf(scoped, row.id, debtKey).map(item => {
+      const debt = debtInfo(item.row, year);
+      const note = noteText(item.row);
+      const money = esc(number(String(item.amount)));
+      return `<tr class="sub${inGroup ? ' in-group' : ''}"><td class="who">${esc(item.dated ? dateText(item.row.date) : 'Không rõ ngày')}${note ? ` <small title="${esc(note)}">${esc(note)}</small>` : ''}</td>`
+        + `<td class="td-share debt"${debt.title ? ` title="${esc(debt.title)}"` : ''}>Trừ ${esc(debt.text)}</td>`
+        + `<td class="num amt">${item.dated ? money : ''}</td><td class="td-count"></td>${showUndated ? `<td class="num und-amt">${item.dated ? '' : money}</td>` : ''}<td class="when"></td><td class="go"></td></tr>`;
+    }).join('');
+    return `${lines}<tr class="sub sub-open${inGroup ? ' in-group' : ''}"><td class="who"><a href="${ledgerHref(row.id, row.month)}">Mở sổ khách này ${ICON.next}</a></td><td class="td-share"></td><td class="num"></td>${blank}</tr>`;
+  }
+  function customerLine(row, showUndated, ctx) {
+    const { scoped, year, group, debtKey = null, inGroup = false, hideCommodity = false } = ctx;
+    const key = `${group}|${row.id}`;
+    const open = state.open === key;
+    const { label } = whoOf(row.id, row.name);
+    return `<tr class="pay${inGroup ? ' in-group' : ''}${open ? ' open' : ''}" data-customer="${esc(row.id)}">${toggleCell(row, key, open, { hideCommodity })}`
       + `<td class="td-share">${shareBar(row.pct)}</td>`
       + `<td class="num amt">${moneyOr(row.count, row.total)}</td><td class="num td-count">${row.count || DASH}</td>`
       + `${showUndated ? `<td class="num und-amt">${moneyOr(row.undatedCount, row.undated)}</td>` : ''}`
-      + `<td class="when">${row.lastDate ? esc(dateText(row.lastDate)) : DASH}</td>${goCell}</tr>`;
+      + `<td class="when">${row.lastDate ? esc(dateText(row.lastDate)) : DASH}</td>`
+      + `<td class="go"><a class="go-link" href="${ledgerHref(row.id, row.month)}" aria-label="${esc(`Mở sổ ${label}`)}" title="${esc(`Mở sổ ${label}, tháng ${monthLabel(row.month)}`)}">${ICON.next}</a></td></tr>`
+      + (open ? openedLines(scoped, row, showUndated, year, debtKey, inGroup) : '');
   }
   function groupHead(group, label, tip, showUndated) {
     return `<tr class="group-head"${tip ? ` title="${esc(tip)}"` : ''}><th scope="rowgroup">${esc(label)} <small>${esc(count(group.rows.length, 'khách'))}</small></th>`
@@ -147,16 +180,16 @@
       + `${showUndated ? `<td class="num">${moneyOr(group.undatedCount, group.undated)}</td>` : ''}<td colspan="2"></td></tr>`;
   }
 
-  function byCustomerTable(scoped) {
+  function byCustomerTable(scoped, year) {
     const rows = M.byCustomer(scoped);
     const showUndated = rows.some(row => row.undatedCount > 0);
-    return `<table class="thu by-customer">${groupedHead('Khách', showUndated)}<tbody>${rows.map(row => customerLine(row, showUndated)).join('')}</tbody></table>`;
+    return `<table class="thu by-customer">${groupedHead('Khách', showUndated)}<tbody>${rows.map(row => customerLine(row, showUndated, { scoped, year, group: 'khach' })).join('')}</tbody></table>`;
   }
-  function byCommodityTable(scoped) {
+  function byCommodityTable(scoped, year) {
     const groups = M.byCommodity(scoped, state.coms);
     const showUndated = groups.some(group => group.undatedCount > 0);
     // Tên nhóm đã nói mặt hàng nên dòng sổ không lặp lại; riêng "Chưa phân loại" giữ chữ để thấy vì sao (ví dụ sầu riêng chưa ghi cảng/bộ).
-    const body = groups.map(group => `<tbody class="group">${groupHead(group, group.key, '', showUndated)}${group.rows.map(row => customerLine(row, showUndated, { inGroup: true, hideCommodity: group.key !== F.UNSORTED })).join('')}</tbody>`).join('');
+    const body = groups.map(group => `<tbody class="group">${groupHead(group, group.key, '', showUndated)}${group.rows.map(row => customerLine(row, showUndated, { scoped, year, group: group.key, inGroup: true, hideCommodity: group.key !== F.UNSORTED })).join('')}</tbody>`).join('');
     return `<table class="thu by-commodity">${groupedHead('Mặt hàng · khách', showUndated)}${body}</table>`;
   }
   function debtGroupLabel(group, year) {
@@ -169,7 +202,7 @@
     const showUndated = groups.some(group => group.undatedCount > 0);
     const body = groups.map(group => {
       const { label, tip } = debtGroupLabel(group, year);
-      return `<tbody class="group">${groupHead(group, label, tip, showUndated)}${group.rows.map(row => customerLine(row, showUndated, { inGroup: true })).join('')}</tbody>`;
+      return `<tbody class="group">${groupHead(group, label, tip, showUndated)}${group.rows.map(row => customerLine(row, showUndated, { scoped, year, group: group.key, debtKey: group.key, inGroup: true })).join('')}</tbody>`;
     }).join('');
     return `<table class="thu by-debt">${groupedHead('Tháng nợ · khách', showUndated)}${body}</table>`;
   }
@@ -204,34 +237,63 @@
     }
     return `<a class="pill warn" id="pending" href="/viec-can-lam.html"${tipAttr([`Còn ${count(pending.count)} trên Sheet chưa ghi vào web`, `${full(pending.amount)} · số ở đây có thể còn thiếu`, 'Bấm để mở Việc cần làm'])}>${ICON.sheet}${pending.count} · ${esc(short(pending.amount))}<span class="sr-only"> phiếu trên Sheet chưa ghi</span></a>`;
   }
-  function stripPart(scoped, book) {
+  // TUONG-TAC-01: cột là nút lọc một ngày, bong bóng nằm dưới dải để không che số lớn. Dải luôn vẽ cả tháng, kể cả khi đang lọc.
+  function stripPart(monthScoped, book, picked) {
     const mm = book.month.slice(5, 7);
-    const cells = M.dayStrip(scoped, book).map(cell => {
+    const strip = M.dayStrip(monthScoped, book);
+    state.shares = new Map(strip.map(cell => [cell.date, cell.shares]));
+    const cells = strip.map(cell => {
       const name = `${String(cell.day).padStart(2, '0')}/${mm}`;
-      const look = `${cell.today ? ' is-today' : ''}${cell.future ? ' is-future' : ''}`;
-      const label = cell.day === 1 || cell.day % 5 === 0 || cell.today ? cell.day : '';
+      const on = picked === cell.date;
+      const look = `${cell.today ? ' is-today' : ''}${cell.future ? ' is-future' : ''}${on ? ' is-picked' : ''}`;
+      const label = cell.day === 1 || cell.day % 5 === 0 || cell.today || on ? cell.day : '';
       const mark = `<span class="lab">${label}</span>`;
-      if (cell.total == null) return `<div class="${look.trim()}"${tipAttr([name, cell.future ? 'Chưa tới' : 'Không có phiếu'])}>${mark}</div>`;
-      const text = `${name}: ${full(cell.total)} · ${count(cell.count)}`;
-      return `<a class="${look.trim()}" href="#ngay-${cell.day}" aria-label="${esc(text)}"${tipAttr([name, `${full(cell.total)} · ${count(cell.count)}`, 'Bấm để tới ngày này'])}><span class="bar" style="--h:${cell.pct}"></span>${mark}</a>`;
+      if (cell.total == null) return `<div class="${look.trim()}" data-tip-side="below"${tipAttr([name, cell.future ? 'Chưa tới' : 'Không có phiếu'])}>${mark}</div>`;
+      const text = `${name}: ${full(cell.total)} · ${count(cell.count)} · ${count(cell.customers, 'khách')}`;
+      return `<button type="button" class="${look.trim()}" id="day-${esc(cell.date)}" data-day="${esc(cell.date)}" aria-pressed="${on}" aria-label="${esc(text)}" data-tip-side="below"`
+        + `${tipAttr([name, `${full(cell.total)} · ${count(cell.count)} · ${count(cell.customers, 'khách')}`, on ? 'Bấm để bỏ lọc' : 'Bấm để chỉ xem ngày này'])}><span class="bar" style="--h:${cell.pct}"><i></i></span>${mark}</button>`;
     });
-    return `<div class="day-strip" id="day-strip" style="--days:${cells.length}">${cells.join('')}</div>`;
+    return `<div class="day-strip${picked ? ' has-pick' : ''}" id="day-strip" style="--days:${cells.length}">${cells.join('')}</div>`;
   }
-  function bandPart(scoped, book, pending) {
+  // Tô phần tiền của một khách trên dải ngày; không vẽ lại trang.
+  let lit = null;
+  function highlight(id) {
+    const strip = $('day-strip');
+    lit = id;
+    if (!strip) return;
+    strip.classList.toggle('picking', id != null);
+    for (const col of strip.querySelectorAll('[data-day]')) {
+      col.querySelector('.bar').style.setProperty('--p', id == null ? 0 : state.shares?.get(col.dataset.day)?.[id] ?? 0);
+    }
+  }
+  function todayCard(monthly, book, picked) {
+    if (book.month !== book.today_month) return '';
+    const name = `Hôm nay ${dayMonth(book.as_of)}`;
+    if (!monthly.today_count) return `<div class="today-card" id="fig-today"><span class="lbl">${esc(name)}</span><span class="none">Chưa có phiếu</span></div>`;
+    const on = picked === book.as_of;
+    return `<button type="button" class="today-card" id="fig-today" data-day="${esc(book.as_of)}" aria-pressed="${on}"${tipAttr([name, full(monthly.today_vnd), on ? 'Bấm để bỏ lọc' : 'Bấm để chỉ xem hôm nay'])}><span class="lbl">${esc(name)}</span>`
+      + `<b>${esc(short(monthly.today_vnd))}</b><small>${ICON.receipt}${esc(count(monthly.today_count))}</small></button>`;
+  }
+  function bandPart(scoped, monthScoped, book, pending) {
     const s = scoped.summary;
+    const monthly = monthScoped.summary;
     const com = activeCom();
+    const picked = activeDay(book);
     const hasMoney = F.toBig(s.total_vnd) !== 0n;
     const year = book.month.slice(0, 4);
-    const label = `Thu tháng ${Number(book.month.slice(5, 7))}${year === book.as_of.slice(0, 4) ? '' : `/${year}`}${com ? ` · ${com}` : ''}`;
-    const counts = s.count ? `<span class="pill" id="pill-customers" tabindex="0"${tipAttr([`${count(s.customers, 'khách')} trả trong tháng`])}>${ICON.people}${s.customers}<span class="sr-only"> khách</span></span>`
-      + `<span class="pill" id="pill-receipts" tabindex="0"${tipAttr([`${count(s.count)} có ngày thu trong tháng`])}>${ICON.receipt}${s.count}<span class="sr-only"> phiếu</span></span>` : '';
-    const undated = s.undated_count ? `<a class="pill undated" id="fig-undated" href="#khong-ro-ngay"${tipAttr([`${count(s.undated_count)} không rõ ngày thu`, `${full(s.undated_vnd)} · chưa cộng vào tổng tháng`, 'Sheet không ghi ngày hoặc ngày vô lý', 'Bấm để xem'])}>Không rõ ngày ${esc(short(s.undated_vnd))}</a>` : '';
-    const strip = state.view === DEFAULT_VIEW && (scoped.days.length || scoped.undated.length) ? stripPart(scoped, book) : '';
-    const today = book.month === book.today_month ? `<div class="today-card" id="fig-today"><span class="lbl">Hôm nay ${esc(dayMonth(book.as_of))}</span>`
-      + (s.today_count ? `<b tabindex="0"${tipAttr([`Hôm nay ${dayMonth(book.as_of)}`, full(s.today_vnd)])}>${esc(short(s.today_vnd))}</b><small>${ICON.receipt}${esc(count(s.today_count))}</small>` : '<span class="none">Chưa có phiếu</span>')
-      + '</div>' : '';
-    return `<section class="band" aria-label="Tiền về trong tháng"><div class="band-main" id="fig-month"><span class="lbl">${esc(label)}</span><div class="band-row">`
-      + `<b class="big-money${hasMoney ? '' : ' zero'}" tabindex="0"${tipAttr([label, full(s.total_vnd)])}>${esc(short(s.total_vnd))}</b>${counts}${pendingPill(pending)}${undated}</div>${strip}</div>${today}</section>`;
+    const monthName = `tháng ${Number(book.month.slice(5, 7))}${year === book.as_of.slice(0, 4) ? '' : `/${year}`}`;
+    const dayName = picked ? dayLabel(picked, book.as_of) : '';
+    const label = `Thu ${picked ? dayName.charAt(0).toLowerCase() + dayName.slice(1) : monthName}${com ? ` · ${com}` : ''}`;
+    const where = picked ? 'trong ngày' : 'trong tháng';
+    const pill = (id, view, icon, value, what, tip) => `<button type="button" class="pill" id="${id}" data-view="${view}" aria-pressed="${state.view === view}"${tipAttr(tip)}>${icon}${value}<span class="sr-only"> ${what}</span></button>`;
+    const counts = s.count ? pill('pill-customers', 'khach', ICON.people, s.customers, 'khách', [`${count(s.customers, 'khách')} trả ${where}`, 'Bấm để xem theo khách'])
+      + pill('pill-receipts', DEFAULT_VIEW, ICON.receipt, s.count, 'phiếu', [`${count(s.count)} có ngày thu ${where}`, 'Bấm để xem từng phiếu']) : '';
+    const dayChip = picked ? `<button type="button" class="pill picked" id="chip-day" aria-label="${esc(`Bỏ lọc ngày ${dayMonth(picked)}`)}">${esc(dayMonth(picked))}${ICON.close}</button>` : '';
+    const undated = monthly.undated_count ? `<a class="pill undated" id="fig-undated" href="#khong-ro-ngay"${tipAttr([`${count(monthly.undated_count)} không rõ ngày thu`, `${full(monthly.undated_vnd)} · chưa cộng vào tổng tháng`, 'Sheet không ghi ngày hoặc ngày vô lý', 'Bấm để xem'])}>Không rõ ngày ${esc(short(monthly.undated_vnd))}</a>` : '';
+    const strip = state.view !== YEAR_VIEW && (monthScoped.days.length || monthScoped.undated.length) ? stripPart(monthScoped, book, picked) : '';
+    const ofMonth = picked ? `<small class="of-month">trong ${esc(short(monthly.total_vnd))} của ${esc(monthName)}</small>` : '';
+    return `<section class="band" aria-label="Tiền về trong tháng"><div class="band-main" id="fig-month"><span class="lbl">${esc(label)}</span>${ofMonth}<div class="band-row">`
+      + `<b class="big-money${hasMoney ? '' : ' zero'}" tabindex="0"${tipAttr([label, full(s.total_vnd)])}>${esc(short(s.total_vnd))}</b>${counts}${dayChip}${pendingPill(pending)}${undated}</div>${strip}</div>${todayCard(monthly, book, picked)}</section>`;
   }
 
   // ---- Hàng tab và bộ lọc ----
@@ -269,10 +331,12 @@
     if (state.view === 'mat-hang' && !state.coms) return '<p class="empty" id="no-commodity">Chưa tải được danh sách mặt hàng. Bấm Làm mới để thử lại.</p>';
     if (!scoped.days.length && !scoped.undated.length) {
       const com = activeCom();
+      const day = activeDay(book);
+      if (day) return `<p class="empty" id="empty">${esc(`Không có phiếu ${com ? `${com} ` : ''}ngày ${dayMonth(day)}.`)}</p>`;
       return `<p class="empty" id="empty">${esc(com ? `Không có phiếu ${com} trong ${monthTitle(book.month).toLowerCase()}.` : `${monthTitle(book.month)} chưa có phiếu thu.`)}</p>`;
     }
-    if (state.view === 'khach') return byCustomerTable(scoped);
-    if (state.view === 'mat-hang') return byCommodityTable(scoped);
+    if (state.view === 'khach') return byCustomerTable(scoped, year);
+    if (state.view === 'mat-hang') return byCommodityTable(scoped, year);
     if (state.view === 'thang-no') return byDebtTable(scoped, year);
     return byDayTable(scoped, book, year);
   }
@@ -296,17 +360,21 @@
     if (!book) return;
     const com = activeCom();
     const pending = M.pending(state.inbox, com, state.coms);
-    const signature = JSON.stringify([book, pending, state.view, com, state.options, state.showVoided, state.labels ? [...state.labels] : null]);
+    const signature = JSON.stringify([book, pending, state.view, com, state.day, state.open, state.options, state.showVoided, state.labels ? [...state.labels] : null]);
     if (signature === state.painted) return;
     state.painted = signature;
     const focused = document.activeElement?.id;
-    const scoped = M.scope(book, com, state.coms);
+    const monthScoped = M.scope(book, com, state.coms);
+    const scoped = M.scopeDay(monthScoped, activeDay(book));
     paintMonthNav(book);
-    root.innerHTML = `${bandPart(scoped, book, pending)}<section class="list" aria-label="Danh sách phiếu thu">${barPart()}${listBody(scoped, book)}${footPart(scoped)}</section>`;
+    $('tip').hidden = true;  // phần tử dưới chuột vừa thay: chú thích cũ không còn đúng
+    root.innerHTML = `${bandPart(scoped, monthScoped, book, pending)}<section class="list" aria-label="Danh sách phiếu thu">${barPart()}${listBody(scoped, book)}${footPart(scoped)}</section>`;
     // Vẽ lại không làm mất tiêu điểm; nút đổi tháng vừa bị khóa (hết tháng) thì chuyển sang nút còn lại.
     const again = focused ? $(focused) : null;
     if (again?.disabled) $(focused === 'month-older' ? 'month-newer' : 'month-older')?.focus();
+    else if (focused === 'chip-day' && !again) $('pill-receipts')?.focus();
     else again?.focus();
+    highlight(lit ?? openCustomer());
   }
 
   // Giữ tháng, tab và bộ lọc trên địa chỉ để bấm Back từ sổ về đúng chỗ và gửi link được.
@@ -315,6 +383,7 @@
     if (state.month) params.set('month', state.month);
     if (state.view !== DEFAULT_VIEW) params.set('xem', state.view);
     if (state.com) params.set('mh', state.com);
+    if (state.day) params.set('ngay', state.day);
     const text = params.toString();
     history.replaceState(null, '', `${location.pathname}${text ? `?${text}` : ''}`);
   }
@@ -367,6 +436,9 @@
   function showMonth(month) {
     state.month = month;
     state.showVoided = false;
+    state.day = null;
+    state.open = null;
+    lit = null;
     syncAddress();
     if (state.book) root.querySelector('.list')?.setAttribute('aria-busy', 'true');
     load();
@@ -377,12 +449,18 @@
     const step = event.target.closest('.step');
     if (step?.dataset.month) { showMonth(step.dataset.month); return; }
     const view = event.target.closest('[data-view]');
-    if (view) { state.view = view.dataset.view; syncAddress(); paint(); return; }
+    if (view) { state.view = view.dataset.view; state.open = null; lit = null; syncAddress(); paint(); return; }
+    const day = event.target.closest('[data-day]');
+    if (day) { state.day = activeDay(state.book) === day.dataset.day ? null : day.dataset.day; syncAddress(); paint(); return; }
+    if (event.target.closest('#chip-day')) { state.day = null; syncAddress(); paint(); return; }
+    const opener = event.target.closest('[data-open]');
+    if (opener) { state.open = state.open === opener.dataset.open ? null : opener.dataset.open; lit = null; paint(); return; }
     if (event.target.closest('#void-toggle')) { state.showVoided = !state.showVoided; paint(); return; }
     // Chip Không rõ ngày ở tab khác: sang Theo ngày rồi mới tới được nhóm đó.
-    if (event.target.closest('#fig-undated') && state.view !== DEFAULT_VIEW) {
+    if (event.target.closest('#fig-undated') && (state.view !== DEFAULT_VIEW || state.day)) {
       event.preventDefault();
       state.view = DEFAULT_VIEW;
+      state.day = null;
       syncAddress();
       paint();
       $('khong-ro-ngay')?.scrollIntoView();
@@ -390,10 +468,18 @@
   });
   page.addEventListener('change', event => {
     if (event.target.id === 'month-pick') showMonth(event.target.value);
-    if (event.target.id === 'com-filter') { state.com = event.target.value || null; syncAddress(); paint(); }
+    if (event.target.id === 'com-filter') { state.com = event.target.value || null; state.open = null; lit = null; syncAddress(); paint(); }
   });
   $('error').addEventListener('click', event => { if (event.target.id === 'retry') load(); });
   $('refresh-data').addEventListener('click', load);
+  // Rê hoặc Tab tới một dòng: dải ngày chỉ ngày khách đó trả; rời bảng thì về khách đang mở.
+  const pointRow = event => {
+    const row = event.target.closest?.('tr[data-customer]');
+    const id = row?.dataset.customer ?? openCustomer();
+    if (id !== lit) highlight(id);
+  };
+  root.addEventListener('pointerover', pointRow);
+  root.addEventListener('focusin', pointRow);
   globalThis.DataTip.mount('main.page');
 
   load();

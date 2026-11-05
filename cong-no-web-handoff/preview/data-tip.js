@@ -1,5 +1,5 @@
 /* Ô chú thích khi rê chuột hoặc focus bàn phím, dùng chung cho Tổng quan và Bảng thu (gom từ dashboard-v7.js 4/11/2026): phần tử có
-   data-tip nằm trong `scope`, dòng đầu đậm, các dòng sau là chi tiết. Trang đặt sẵn <div class="tip" id="tip" role="tooltip" hidden></div>. */
+   data-tip nằm trong `scope`, dòng đầu đậm, các dòng sau là chi tiết; data-tip-side="below" để không che phần phía trên. Trang đặt sẵn <div class="tip" id="tip" role="tooltip" hidden></div>. */
 globalThis.DataTip = (() => {
   'use strict';
   function mount(scope) {
@@ -17,7 +17,7 @@ globalThis.DataTip = (() => {
       const left = Math.min(Math.max(8, box.left + box.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - 8);
       const above = box.top - tip.offsetHeight - 8;
       tip.style.left = `${left}px`;
-      tip.style.top = `${above > 8 ? above : box.bottom + 8}px`;
+      tip.style.top = `${above > 8 && el.dataset.tipSide !== 'below' ? above : box.bottom + 8}px`;
     }
     const tipOf = target => target.closest?.(`${scope} [data-tip]`);
     document.addEventListener('pointerover', event => { const el = tipOf(event.target); if (el) show(el); else hide(); });

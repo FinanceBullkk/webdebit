@@ -102,7 +102,7 @@ test('Bảng thu: hôm nay, tháng này, gom theo ngày, mới nhất trên cùn
   assert.match(today, /Hôm nay 04\/11/);
   assert.match(today, /120 tr/);
   assert.match(today, /1 phiếu/);
-  assert.match(await page.locator('#fig-today b').getAttribute('data-tip'), /120\.000\.000 đ/);
+  assert.match(await page.locator('#fig-today').getAttribute('data-tip'), /120\.000\.000 đ/);
   assert.match(await page.locator('#fig-month .lbl').innerText(), /^Thu tháng 11$/);
   assert.equal(await page.locator('.big-money').innerText(), '608,5 tr');
   assert.match(await page.locator('.big-money').getAttribute('data-tip'), /608\.500\.000 đ/);
@@ -137,12 +137,10 @@ test('Bảng thu: rê chuột vào số lớn thấy số đúng tới đồng; 
   assert.match(clean(await page.locator('#tip').innerText()), /Số liệu đến 04\/11\/2026/);
 }));
 
-test('Bảng thu: bấm một dòng mở sổ đúng khách, đúng tháng; Back về đúng tháng, tab và bộ lọc', () => withPage({ book: byMonth, search: `?month=2026-07&xem=khach&mh=${encodeURIComponent('Sầu riêng cảng')}` }, async (page, base) => {
+test('Bảng thu: mũi tên cuối dòng mở sổ đúng khách, đúng tháng; Back về đúng tháng, tab và bộ lọc', () => withPage({ book: byMonth, search: `?month=2026-07&xem=khach&mh=${encodeURIComponent('Sầu riêng cảng')}` }, async (page, base) => {
   await page.locator('tr.pay').first().waitFor();
   assert.equal(await page.locator('#view-khach').getAttribute('aria-pressed'), 'true');
-  // Bấm ô số tiền bằng chuột như người thật: cả dòng là vùng bấm của link tên khách.
-  const cell = await page.locator('tr.pay').first().locator('td.num').first().boundingBox();
-  await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2);
+  await page.locator('tr.pay').first().locator('.go-link').click();
   await page.waitForURL('**/so-khach-v7-live.html**');
   assert.equal(page.url(), `${base}/so-khach-v7-live.html?customer=7&month=2026-06`);
   await page.goBack();
@@ -275,7 +273,7 @@ test('Bảng thu: bộ lọc mặt hàng lọc cả số tháng, hôm nay, dải
   assert.equal(await page.locator('.big-money').innerText(), '120 tr');
   assert.match(await page.locator('#fig-today').innerText(), /120 tr/);
   assert.equal(await page.locator('tr.pay').count(), 1);
-  assert.equal(await page.locator('#day-strip a').count(), 1);
+  assert.equal(await page.locator('#day-strip button').count(), 1);
   assert.equal(clean(await page.locator('a#pending').innerText()), '2 · 50 tr phiếu trên Sheet chưa ghi');
   assert.equal(new URL(page.url()).searchParams.get('mh'), 'Sầu riêng cảng');
   assert.equal(await page.locator('#com-filter').evaluate(node => node === document.activeElement), true, 'giữ tiêu điểm ở ô lọc');
@@ -321,7 +319,7 @@ test('Bảng thu: không đọc được danh sách khách thì số vẫn đún
   });
 });
 
-test('Bảng thu: dải ngày chỉ ở Theo ngày; đủ ngày của tháng, bấm cột tới đúng ngày, không bị đầu bảng che', () => withPage({ book: () => {
+test('Bảng thu: dải ngày đủ ngày của tháng, cột cao theo tiền, bong bóng nằm dưới dải; có ở mọi tab trừ 12 tháng', () => withPage({ book: () => {
   const book = july();
   const rows = Array.from({ length: 14 }, (_, i) => sheet(100 + i, 7, 'SỔ A', '2026-07-15', '1000000', `dòng ${i}`, '2026-06-01'));
   book.days = [{ date: '2026-07-20', total_vnd: '300000000', count: 1, rows: [sheet(99, 8, 'SỔ B', '2026-07-20', '300000000', '', '2026-06-01')] },
@@ -331,32 +329,32 @@ test('Bảng thu: dải ngày chỉ ở Theo ngày; đủ ngày của tháng, b�
   await page.locator('tr.pay').first().waitFor();
   const strip = page.locator('#day-strip');
   assert.equal(await strip.locator('> *').count(), 31);
-  assert.equal(await strip.locator('a').count(), 3);
-  assert.equal(await strip.locator('a').nth(0).getAttribute('href'), '#ngay-2');
-  assert.match(await strip.locator('a[href="#ngay-20"]').getAttribute('data-tip'), /300\.000\.000 đ · 1 phiếu/);
-  assert.match(await strip.locator('a[href="#ngay-20"]').getAttribute('aria-label'), /^20\/07: 300\.000\.000 đ · 1 phiếu$/);
+  assert.equal(await strip.locator('button').count(), 3);
+  const col20 = strip.locator('[data-day="2026-07-20"]');
+  assert.match(await col20.getAttribute('data-tip'), /300\.000\.000 đ · 1 phiếu · 1 khách/);
+  assert.equal(await col20.getAttribute('aria-label'), '20/07: 300.000.000 đ · 1 phiếu · 1 khách');
   // Cột cao theo ngày nhiều tiền nhất; ngày ít tiền vẫn thấy được.
-  const heights = await strip.locator('a .bar').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+  const heights = await strip.locator('button .bar').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
   assert.equal(heights[0], 4);
   assert.equal(heights[2], 27);
-  await strip.locator('a[href="#ngay-2"]').click();
-  await page.waitForFunction(() => location.hash === '#ngay-2');
-  const rows = await page.evaluate(() => {
-    const row = document.getElementById('ngay-2').getBoundingClientRect();
-    const head = document.querySelector('.thu thead th').getBoundingClientRect();
-    return { rowTop: row.top, headBottom: head.bottom, viewport: innerHeight };
-  });
-  assert.ok(rows.rowTop >= rows.headBottom - 1, `đầu bảng che dòng ngày: ${JSON.stringify(rows)}`);
-  assert.ok(rows.rowTop < rows.viewport);
-  await page.locator('#view-khach').click();
+  // Bong bóng không được che số lớn phía trên dải.
+  await col20.hover();
+  const tip = await page.locator('#tip').boundingBox();
+  const big = await page.locator('.big-money').boundingBox();
+  assert.ok(tip.y >= big.y + big.height, `bong bóng che số lớn: ${JSON.stringify({ tip, big })}`);
+  for (const view of ['khach', 'mat-hang', 'thang-no']) {
+    await page.locator(`#view-${view}`).click();
+    assert.equal(await page.locator('#day-strip').count(), 1, view);
+  }
+  await page.locator('#view-12-thang').click();
   assert.equal(await page.locator('#day-strip').count(), 0);
 }));
 
 test('Bảng thu: dải ngày đánh dấu hôm nay, ngày chưa tới không bấm được', () => withPage({ book: byMonth }, async page => {
   await page.locator('#day-strip').waitFor();
   assert.equal(await page.locator('#day-strip > *').count(), 30);
-  assert.equal(await page.locator('#day-strip .is-today').getAttribute('href'), '#ngay-4');
-  assert.equal(await page.locator('#day-strip a.is-future').count(), 0);
+  assert.equal(await page.locator('#day-strip .is-today').getAttribute('data-day'), '2026-11-04');
+  assert.equal(await page.locator('#day-strip button.is-future').count(), 0);
   assert.match(await page.locator('#day-strip .is-future').first().getAttribute('data-tip'), /05\/11\nChưa tới/);
   assert.match(await page.locator('#day-strip > div').first().getAttribute('data-tip'), /02\/11\nKhông có phiếu/);
 }));
@@ -548,4 +546,208 @@ test('Menu riêng của Sổ khách cũng có Bảng thu và năm mục lọt kh
   await page.waitForLoadState('load');
   const last = await page.locator('.topbar > nav a').last().boundingBox();
   assert.ok(last.y + last.height <= 560, `mục cuối ra ngoài khung 560: ${last.y + last.height}`);
+}));
+
+// ---- TUONG-TAC-01 ----
+test('Lọc một ngày: số lớn, chip, bảng theo ngày đó, vẫn thấy tổng tháng; bấm lại hoặc ✕ để bỏ; địa chỉ giữ ngày', () => withPage({ book: byMonth }, async page => {
+  await page.locator('tr.pay').first().waitFor();
+  const col = page.locator('#day-2026-11-03');
+  await col.click();
+  await page.locator('#chip-day').waitFor();
+  assert.equal(await page.locator('#fig-month .lbl').innerText(), 'Thu hôm qua 03/11');
+  assert.equal(await page.locator('.of-month').innerText(), 'trong 608,5 tr của tháng 11');
+  assert.equal(await page.locator('.big-money').innerText(), '400 tr');
+  assert.match(clean(await page.locator('#pill-customers').innerText()), /^1/);
+  assert.match(await page.locator('#pill-customers').getAttribute('data-tip'), /1 khách trả trong ngày/);
+  assert.match(clean(await page.locator('#pill-receipts').innerText()), /^1/);
+  assert.equal(await page.locator('tr.pay').count(), 1);
+  assert.equal(await page.locator('#day-2026-11-03').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#day-2026-11-03').evaluate(node => node === document.activeElement), true, 'giữ tiêu điểm ở cột vừa bấm');
+  assert.match(await page.locator('#fig-today').innerText(), /120 tr/, 'thẻ Hôm nay vẫn là số của hôm nay');
+  assert.equal(new URL(page.url()).searchParams.get('ngay'), '2026-11-03');
+  await page.locator('#day-2026-11-03').click();
+  await page.locator('#chip-day').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.big-money').innerText(), '608,5 tr');
+  assert.equal(new URL(page.url()).searchParams.has('ngay'), false);
+  await page.locator('#head-2026-11-01').click();
+  await page.locator('#chip-day').waitFor();
+  assert.equal(await page.locator('.big-money').innerText(), '88,5 tr', 'bấm đầu nhóm ngày cũng lọc');
+  await page.locator('#chip-day').click();
+  await page.locator('#chip-day').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('#pill-receipts').evaluate(node => node === document.activeElement), true, 'chip vừa mất thì tiêu điểm về chip phiếu');
+  await page.locator('#fig-today').click();
+  await page.locator('#fig-month .lbl', { hasText: 'Thu hôm nay 04/11' }).waitFor();
+  assert.equal(await page.locator('#fig-today').getAttribute('aria-pressed'), 'true');
+}));
+
+test('Lọc ngày giữ qua các tab, không áp ở 12 tháng; đổi tháng thì bỏ; link có ngày mở đúng, ngày khác tháng bỏ qua', async () => {
+  await withPage({ book: byMonth, search: '?ngay=2026-11-03&xem=khach' }, async page => {
+    await page.locator('#chip-day').waitFor();
+    assert.equal(await page.locator('tr.pay').count(), 1);
+    assert.deepEqual(await cells(page.locator('tr.pay').first()), ['SỔ B Chuối', '', '400.000.000', '1', '03/11/2026', '']);
+    await page.locator('#view-thang-no').click();
+    assert.deepEqual((await page.locator('.group-head th').allInnerTexts()).map(clean), ['Nợ T12/2025 1 khách']);
+    await page.locator('#view-12-thang').click();
+    assert.equal(await page.locator('#chip-day').count(), 0);
+    assert.equal(await page.locator('.big-money').innerText(), '608,5 tr');
+    await page.locator('#view-ngay').click();
+    await page.locator('#chip-day').waitFor();
+    await page.locator('#month-pick').selectOption('2026-07');
+    await page.locator('#fig-month .lbl', { hasText: 'tháng 7' }).waitFor();
+    assert.equal(await page.locator('#chip-day').count(), 0);
+    assert.equal(new URL(page.url()).searchParams.has('ngay'), false);
+  });
+  await withPage({ book: byMonth, search: '?month=2026-07&ngay=2026-11-03' }, async page => {
+    await page.locator('tr.pay').first().waitFor();
+    assert.equal(await page.locator('#chip-day').count(), 0);
+    assert.equal(await page.locator('.big-money').innerText(), '150 tr');
+  });
+});
+
+test('Lọc ngày ẩn phần thuộc cả tháng nhưng chip Không rõ ngày vẫn còn, bấm thì bỏ lọc và tới nhóm đó; không còn phiếu thì báo rõ', () => withPage({ book: byMonth, search: '?month=2026-07&ngay=2026-07-15' }, async page => {
+  await page.locator('#chip-day').waitFor();
+  assert.equal(await page.locator('tbody.undated').count(), 0);
+  assert.equal(await page.locator('#offsets').count(), 0);
+  assert.equal(await page.locator('#voided').count(), 0);
+  assert.match(await page.locator('#sheet-note').innerText(), /khác "Đã thu"/, 'dòng Sheet trong ngày vẫn có ghi chú');
+  // Sổ A là Sầu riêng cảng: lọc Chuối thì ngày này không còn phiếu.
+  await page.locator('#com-filter').selectOption('Chuối');
+  await page.locator('#empty').waitFor();
+  assert.equal(await page.locator('#empty').innerText(), 'Không có phiếu Chuối ngày 15/07.');
+  assert.equal(await page.locator('#chip-day').count(), 1);
+  await page.locator('#com-filter').selectOption('');
+  await page.locator('tr.pay').first().waitFor();
+  await page.locator('#fig-undated').click();
+  await page.locator('#khong-ro-ngay').waitFor();
+  assert.equal(await page.locator('#chip-day').count(), 0);
+}));
+
+test('Chip khách, chip phiếu chuyển tab và báo đang chọn', () => withPage({ book: byMonth }, async page => {
+  await page.locator('tr.pay').first().waitFor();
+  assert.equal(await page.locator('#pill-receipts').getAttribute('aria-pressed'), 'true');
+  await page.locator('#pill-customers').click();
+  await page.locator('.by-customer').waitFor();
+  assert.equal(await page.locator('#pill-customers').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#pill-receipts').getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.locator('#view-khach').getAttribute('aria-pressed'), 'true');
+  await page.locator('#pill-receipts').click();
+  await page.locator('.by-day').waitFor();
+}));
+
+const manyPayments = () => {
+  const book = november();
+  book.days[0].rows.push(web(4, 8, 'SỔ B', '2026-11-04', '30000000', 'CK thêm', [debt('2026-01-01', '30000000')]));
+  book.days[0].total_vnd = '150000000';
+  book.days[0].count = 2;
+  book.customers[0] = { ...book.customers[0], total_vnd: '430000000', count: 2, last_date: '2026-11-04' };
+  return book;
+};
+
+test('Bấm tên khách mở phiếu tại dòng, số cộng bằng dòng khách; một lúc một dòng; link mở sổ; không gọi thêm API', () => {
+  const calls = [];
+  return withPage({ book: manyPayments, calls, search: '?xem=khach' }, async (page, base) => {
+    await page.locator('.by-customer tr.pay').first().waitFor();
+    const first = page.locator('tr.pay').first();
+    assert.equal(await first.locator('.row-link').getAttribute('aria-expanded'), 'false');
+    await first.locator('.row-link').click();
+    await page.locator('tr.sub').first().waitFor();
+    assert.equal(await page.locator('tr.pay').first().locator('.row-link').getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('tr.sub:not(.sub-open)').count(), 2);
+    assert.deepEqual((await page.locator('tr.sub:not(.sub-open) td.amt').allInnerTexts()), ['30.000.000', '400.000.000']);
+    assert.match(clean(await page.locator('tr.sub').first().innerText()), /^04\/11\/2026 CK thêm/);
+    assert.match(clean(await page.locator('tr.sub').first().locator('.debt').innerText()), /^Trừ T1$/);
+    // Dải ngày tô phần của khách đang mở, kể cả khi đã rời chuột khỏi bảng.
+    await page.locator('.big-money').hover();
+    assert.equal(await page.locator('#day-strip').evaluate(node => node.classList.contains('picking')), true);
+    assert.equal(await page.locator('#day-2026-11-03 .bar').evaluate(node => node.style.getPropertyValue('--p')), '100');
+    assert.equal(await page.locator('#day-2026-11-04 .bar').evaluate(node => node.style.getPropertyValue('--p')), '20');
+    assert.equal(await page.locator('#day-2026-11-01 .bar').evaluate(node => node.style.getPropertyValue('--p')), '0');
+    // Mở dòng khác thì dòng trước đóng.
+    await page.locator('tr.pay').nth(1).locator('.row-link').click();
+    await page.locator('tr.pay.open').first().locator('.nm', { hasText: 'SỔ A' }).waitFor();
+    assert.equal(await page.locator('tr.pay.open').count(), 1);
+    assert.equal(await page.locator('tr.sub:not(.sub-open)').count(), 1);
+    assert.equal(calls.length, 1, 'mở phiếu không gọi API');
+    assert.match(await page.locator('.sub-open a').getAttribute('href'), /customer=7&month=2026-11$/);
+    // Đóng dòng đang mở: hết tô.
+    await page.locator('tr.pay.open .row-link').click();
+    await page.locator('tr.sub').first().waitFor({ state: 'detached' });
+    await page.locator('.big-money').hover();
+    assert.equal(await page.locator('#day-strip').evaluate(node => node.classList.contains('picking')), false);
+    await page.locator('tr.pay').first().locator('.go-link').click();
+    await page.waitForURL(`${base}/so-khach-v7-live.html?customer=8&month=2026-11`);
+  });
+});
+
+test('Theo tháng nợ: mở phiếu chỉ hiện phần tiền của nhóm, khách ở hai nhóm mở riêng từng nhóm; Theo mặt hàng cũng mở được', async () => {
+  await withPage({ book: byMonth, search: '?xem=thang-no' }, async page => {
+    await page.locator('.by-debt tr.pay').first().waitFor();
+    await page.locator('tr.pay').nth(2).locator('.row-link').click();
+    await page.locator('tr.sub').first().waitFor();
+    assert.equal(await page.locator('tr.pay.open').count(), 1);
+    assert.deepEqual(await page.locator('tr.sub:not(.sub-open) td.amt').allInnerTexts(), ['50.000.000'], 'SỔ A phần Nợ T9 của phiếu 120 triệu');
+    assert.equal(await page.locator('tr.sub').first().evaluate(node => node.classList.contains('in-group')), true);
+  });
+  await withPage({ book: byMonth, search: '?xem=mat-hang' }, async page => {
+    await page.locator('.by-commodity tr.pay').first().waitFor();
+    await page.locator('tr.pay').first().locator('.row-link').click();
+    await page.locator('tr.sub').first().waitFor();
+    assert.deepEqual(await page.locator('tr.sub:not(.sub-open) td.amt').allInnerTexts(), ['400.000.000']);
+  });
+});
+
+test('Mở phiếu có khoản không rõ ngày: số nằm đúng cột, không cộng vào Đã trả', () => withPage({ book: byMonth, search: '?month=2026-07&xem=khach' }, async page => {
+  await page.locator('.by-customer tr.pay').first().waitFor();
+  await page.locator('tr.pay').nth(1).locator('.row-link').click();
+  await page.locator('tr.sub').first().waitFor();
+  assert.deepEqual(await cells(page.locator('tr.sub').first()), ['Không rõ ngày da tt', 'Trừ T7', '', '', '30.000.000', '', '']);
+}));
+
+test('Rê một dòng phiếu: dải ngày tô ngày khách đó trả; rời dòng thì hết; Tab tới dòng cũng vậy', () => withPage({ book: manyPayments }, async page => {
+  await page.locator('tr.pay').first().waitFor();
+  const strip = page.locator('#day-strip');
+  assert.equal(await strip.evaluate(node => node.classList.contains('picking')), false);
+  await page.locator('tr.pay[data-customer="8"]').first().hover();
+  assert.equal(await strip.evaluate(node => node.classList.contains('picking')), true);
+  assert.equal(await page.locator('#day-2026-11-03 .bar').evaluate(node => node.style.getPropertyValue('--p')), '100');
+  await page.locator('.big-money').hover();
+  assert.equal(await strip.evaluate(node => node.classList.contains('picking')), false);
+  await page.locator('tr.pay[data-customer="7"] .row-link').focus();
+  assert.equal(await strip.evaluate(node => node.classList.contains('picking')), true);
+  assert.equal(await page.locator('#day-2026-11-04 .bar').evaluate(node => node.style.getPropertyValue('--p')), '80');
+}));
+
+test('Tự tải lại không làm mất ngày đang lọc và phiếu đang mở', () => {
+  const calls = [];
+  return withPage({ book: byMonth, calls, search: '?xem=khach&ngay=2026-11-03' }, async page => {
+    await page.locator('.by-customer tr.pay').first().waitFor();
+    await page.locator('tr.pay').first().locator('.row-link').click();
+    await page.locator('tr.sub').first().waitFor();
+    const before = calls.length;
+    await page.locator('#refresh-data').click();
+    for (let tries = 0; calls.length === before && tries < 50; tries += 1) await page.waitForTimeout(20);
+    assert.ok(calls.length > before, 'có đọc lại');
+    await page.locator('tr.sub').first().waitFor();
+    assert.equal(await page.locator('#chip-day').count(), 1);
+    assert.equal(await page.locator('tr.pay.open').count(), 1);
+  });
+});
+
+test('Tương tác ở 1265×560, cả font rộng hơn: không cuộn ngang; chip đủ vùng bấm; màn hẹp vẫn còn link mở sổ trong phần mở', () => withPage({ book: manyPayments, search: '?xem=khach&ngay=2026-11-04' }, async page => {
+  await page.locator('.by-customer tr.pay').first().waitFor();
+  await page.locator('tr.pay').first().locator('.row-link').click();
+  await page.locator('tr.sub').first().waitFor();
+  await page.setViewportSize({ width: 1265, height: 560 });
+  for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+    if (font) await page.addStyleTag({ content: `body.bt, body.bt * { font-family: ${font} !important; }` });
+    const size = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+    assert.ok(size.scroll <= size.client, `cuộn ngang, font ${font ?? 'mặc định'}: ${JSON.stringify(size)}`);
+    assert.ok((await page.locator('tr.pay').first().boundingBox()).height >= 40);
+    assert.ok((await page.locator('#day-strip button').first().boundingBox()).height >= 40);
+    assert.ok((await page.locator('.sub-open a').boundingBox()).height >= 40);
+    assert.deepEqual(await page.locator('td.go').evaluateAll(nodes => nodes.filter(node => node.scrollWidth > node.clientWidth).length), 0, 'mũi tên không bị cắt thành dấu ba chấm');
+  }
+  await page.setViewportSize({ width: 420, height: 800 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'màn hẹp không cuộn cả trang');
+  assert.equal(await page.locator('.sub-open a').isVisible(), true);
 }));

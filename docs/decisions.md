@@ -96,6 +96,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="nguon-chuyen-01"></a>[NGUON-CHUYEN-01](decisions/nguon-chuyen-01.md) | Chuyến theo booking (ngày; khách, mặt hàng với chuyến biển), tiền theo sổ gốc; lệch vào hộp ngoại lệ; nguồn `CONT_NGUON`, `CONT_BO` (giữ tab), booking 2025; chuyến bộ mới tự vào sổ theo tab khách trên Sheet | Chốt 3/11/2026; GĐ1, GĐ2 `CONT_BO` và chuyến bộ mới (bật bằng `road`) đã code, phần khác chưa, giai đoạn ở [spec](../specs/v7-chuyen-theo-nguon.md) |
 | <a id="bang-thu-01"></a>[BANG-THU-01](decisions/bang-thu-01.md) | Bảng thu gom phiếu mọi sổ, chỉ xem: danh sách theo ngày, tháng tính theo ngày tiền về, khoản không rõ ngày nằm riêng và không cộng vào tháng | Chốt 4/11/2026; thêm hai hàm đọc, không đổi luật tiền |
 | <a id="bang-thu-02"></a>[BANG-THU-02](decisions/bang-thu-02.md) | Bảng thu có năm cách xem dạng tab (theo ngày, khách, mặt hàng, tháng nợ, 12 tháng) và bộ lọc mặt hàng; trang theo ngôn ngữ Tổng quan bản ít chữ | Chốt 4/11/2026; chỉ đổi trình bày, không có migration |
+| <a id="tuong-tac-01"></a>[TUONG-TAC-01](decisions/tuong-tac-01.md) | Bảng thu và Tình hình: bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ; ghim tháng trên hình, mở phiếu tại dòng khách, dải ngày ở mọi tab trừ 12 tháng | Chốt 5/11/2026; chỉ đổi trang, không có migration |
 
 ## Cập nhật khóa tháng 24/10/2026
 
