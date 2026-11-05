@@ -1,5 +1,7 @@
 """Bảng chi tiết từ tab "CHI TIET ..." (SO-CHI-TIET-01). Dữ liệu giả; không ghi gì vào sổ."""
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -74,6 +76,16 @@ class Rows(unittest.TestCase):
         scan = loader.scan_tabs([(name, rows) for name, rows in TABS if name != "KHACH A"])
         for result in scan.values():
             self.assertEqual((result["records"], result["blocks"]), ([], {}))
+
+    def test_script_import_duoc_nhu_khi_chay_tren_hao(self):
+        """Tiến trình test đã có thư mục web trên đường dẫn nên không thấy lỗi thứ tự import; systemd chạy script thì chỉ có thư mục tools."""
+        done = subprocess.run([sys.executable, "-c", "import v7_price_snapshot, v7_reconcile_auto"], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", check=False, cwd=str(ROOT.parent), env={**os.environ, "PYTHONPATH": str(ROOT / "tools")})
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_with_details_doc_ca_ban_chi_tiet(self):
+        prices, receipts, detail = snapshots.with_details(TABS, {"kind": "test"})
+        self.assertEqual((prices["row_count"], receipts["row_count"], detail["row_count"]), (0, 0, 5))
 
     def test_mot_lan_doc_ghi_ca_ban_chup_chi_tiet(self):
         made = [snapshots.snapshot([], {"kind": "test"}), snapshots.snapshot([], {"kind": "test"}), snapshots.snapshot(self.rows, {"kind": "test"})]

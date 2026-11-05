@@ -27,7 +27,6 @@ import pathlib
 import tempfile
 
 import sheet_sync_runner as runner
-import v7_detail_queue as details  # web layer, on the path through v7_price_match
 import v7_load_real_copy as loader
 import v7_price_match as match
 import v7_receipt_queue as receipt_queue  # web layer, on the path through v7_price_match
@@ -56,18 +55,20 @@ def build_all_from_api(spreadsheet_id: str, credentials_path: str, token_exchang
     return snapshots(loader.scan_tabs(tabs), {"kind": "sheets_api"})
 
 
-def build_with_details(xlsx: pathlib.Path) -> tuple[dict, dict, dict]:
-    tabs = list(loader.workbook_rows(xlsx))
-    source = {"kind": "xlsx", "xlsx_sha256": hashlib.sha256(xlsx.read_bytes()).hexdigest()}
+def with_details(tabs: list, source: dict) -> tuple[dict, dict, dict]:
+    """(prices, receipts, details) from one read. Imported here because the web layer joins the path only through v7_price_match."""
+    import v7_detail_queue as details
     return (*snapshots(loader.scan_tabs(tabs), source), snapshot(details.rows_from_tabs(tabs), source))
+
+
+def build_with_details(xlsx: pathlib.Path) -> tuple[dict, dict, dict]:
+    return with_details(list(loader.workbook_rows(xlsx)), {"kind": "xlsx", "xlsx_sha256": hashlib.sha256(xlsx.read_bytes()).hexdigest()})
 
 
 def build_with_details_from_api(spreadsheet_id: str, credentials_path: str, token_exchange=runner.exchange_token,
                                 opener=None) -> tuple[dict, dict, dict]:
     token = token_exchange(runner.load_credentials(credentials_path))
-    tabs = list(sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {})))
-    source = {"kind": "sheets_api"}
-    return (*snapshots(loader.scan_tabs(tabs), source), snapshot(details.rows_from_tabs(tabs), source))
+    return with_details(list(sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {}))), {"kind": "sheets_api"})
 
 
 def build(xlsx: pathlib.Path) -> dict:
