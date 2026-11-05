@@ -3007,13 +3007,49 @@ BEGIN
  RETURN v;
 END $$;
 
--- Thay cả bảng giá của sổ trong một lệnh; không đổi giá chuyến nào đã ghi (affected_trips chỉ đếm để mời áp lại).
+-- BANG-GIA-02 (5/11/2026): chuyến đang theo bảng, đã tính vào sổ, tháng mở, tra được giá thì đổi sang giá bảng. Giá gõ tay
+-- hoặc từ Sheet (from_table=false) không đụng. Một event, phân bổ lại một lần; không có chuyến nào thì không ghi gì.
+CREATE OR REPLACE FUNCTION sokhach._reprice_from_table(p_customer bigint,p_key text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
+DECLARE v_before jsonb; v_after jsonb; v_trips jsonb; v_delta bigint; v_item jsonb; v_event bigint; v_rev bigint; v_changes jsonb;
+BEGIN
+ SELECT jsonb_agg(jsonb_build_object('trip_id',x.trip_id,'container',t.container,
+     'unit_price_vnd',x.unit_price_vnd::text,'other_fee_vnd',x.other_fee_vnd::text) ORDER BY x.trip_id),
+   jsonb_agg(jsonb_build_object('trip_id',x.trip_id,'container',t.container,
+     'unit_price_vnd',x.lookup->>'unit_price_vnd','other_fee_vnd',x.other_fee_vnd::text,'rate',x.lookup) ORDER BY x.trip_id),
+   jsonb_agg(jsonb_build_object('trip_id',x.trip_id,'container',t.container,
+     'before_vnd',x.unit_price_vnd::text,'after_vnd',x.lookup->>'unit_price_vnd') ORDER BY x.trip_id),
+   sum((x.lookup->>'unit_price_vnd')::bigint-x.unit_price_vnd)
+  INTO v_before,v_after,v_trips,v_delta
+  FROM sokhach._price_trip_rows(p_customer) x JOIN sokhach.v_trip_current t ON t.id=x.trip_id
+  WHERE x.from_table AND x.status='confirmed' AND x.month_open AND x.lookup ? 'unit_price_vnd'
+    AND x.unit_price_vnd::text<>x.lookup->>'unit_price_vnd';
+ IF v_after IS NULL THEN RETURN jsonb_build_object('trips','[]'::jsonb,'delta_vnd','0','reallocated','[]'::jsonb); END IF;
+ INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+ VALUES(p_customer,'price_table_apply',sokhach._actor(),jsonb_build_object('trips',v_before),
+   jsonb_build_object('trips',v_after),p_key) RETURNING id INTO v_event;
+ FOR v_item IN SELECT x FROM jsonb_array_elements(v_after) x LOOP
+   INSERT INTO sokhach.trip_price_rev(trip_id,customer_id,unit_price_vnd,created_by_event)
+   VALUES((v_item->>'trip_id')::bigint,p_customer,(v_item->>'unit_price_vnd')::bigint,v_event)
+   RETURNING id INTO v_rev;
+   INSERT INTO sokhach.trip_price_source(price_rev_id,customer_id,rate,created_by_event)
+   VALUES(v_rev,p_customer,v_item->'rate',v_event);
+   -- Phụ phí chỉ do _sync_trip_fee ghi lại từ dòng phụ phí (PHU-PHI-01), như apply_price_table.
+   PERFORM sokhach._sync_trip_fee((v_item->>'trip_id')::bigint,v_event);
+ END LOOP;
+ v_changes:=sokhach.reallocate(p_customer,p_key);
+ RETURN jsonb_build_object('trips',v_trips,'delta_vnd',v_delta::text,'reallocated',v_changes);
+END $$;
+
+-- Thay cả bảng giá của sổ trong một lệnh; chuyến đang theo bảng tự đổi theo giá mới (BANG-GIA-02), trừ tháng khóa và chuyến
+-- bảng mới không còn giá. affected_trips = chuyến đang theo bảng vẫn lệch sau lệnh này (locked_trips + no_price_trips).
 CREATE OR REPLACE FUNCTION sokhach.save_price_table(customer_id bigint,expected_version bigint,idempotency_key text,
  price_table jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,sokhach,pg_temp AS $$
 DECLARE v_payload jsonb:=jsonb_build_object('command','save_price_table','price_table',price_table);
  v_retry jsonb; v_before jsonb; v_after jsonb; v_item jsonb; v_alias jsonb; v_rate jsonb;
- v_name text; v_key text; v_loc bigint; v_period bigint; v_from date; v_to date; v_amount bigint; v_affected bigint;
+ v_name text; v_key text; v_loc bigint; v_period bigint; v_from date; v_to date; v_amount bigint; v_repriced jsonb;
+ v_locked bigint; v_no_price bigint;
 BEGIN
  v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
@@ -3093,10 +3129,14 @@ BEGIN
  INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
  VALUES(customer_id,'price_table_edit',sokhach._actor(),jsonb_build_object('price_table',v_before),
    jsonb_build_object('price_table',v_after),idempotency_key);
- SELECT count(*) INTO v_affected FROM sokhach._price_trip_rows(save_price_table.customer_id) x
+ v_repriced:=sokhach._reprice_from_table(customer_id,idempotency_key);
+ SELECT count(*) FILTER (WHERE x.lookup ? 'unit_price_vnd'),count(*) FILTER (WHERE NOT x.lookup ? 'unit_price_vnd')
+   INTO v_locked,v_no_price FROM sokhach._price_trip_rows(save_price_table.customer_id) x
    WHERE x.from_table AND x.unit_price_vnd::text IS DISTINCT FROM x.lookup->>'unit_price_vnd';
  RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,
-   jsonb_build_object('price_table',v_after,'affected_trips',v_affected));
+   jsonb_build_object('price_table',v_after,'affected_trips',v_locked+v_no_price,'repriced_trips',v_repriced->'trips',
+     'repriced_delta_vnd',v_repriced->'delta_vnd','locked_trips',v_locked,'no_price_trips',v_no_price,
+     'reallocated',v_repriced->'reallocated'));
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'PRICE_INVALID_AMOUNT';
 END $$;
 

@@ -66,6 +66,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="da-thu-01"></a>[DA-THU-01](decisions/da-thu-01.md) | Đã thu theo ngày thu, như Sheet |  |
 | <a id="claude-all-01"></a>[CLAUDE-ALL-01](decisions/claude-all-01.md) | Claude làm hết, bỏ bắt buộc mockup Penpot |  |
 | <a id="bang-gia-01"></a>[BANG-GIA-01](decisions/bang-gia-01.md) | Bảng giá theo ngày hiệu lực, giá TT/giá khách |  |
+| <a id="bang-gia-02"></a>[BANG-GIA-02](decisions/bang-gia-02.md) | Lưu bảng giá thì chuyến đang theo bảng tự đổi giá | Thay nguyên tắc "không tự đổi" của BANG-GIA-01 |
 | <a id="chung-tu-01"></a>[CHUNG-TU-01](decisions/chung-tu-01.md) | Dán chứng từ vào phiếu thu |  |
 | <a id="presence-01"></a>[PRESENCE-01](decisions/presence-01.md) | Thấy ai đang online, ô đang chọn, con trỏ chuột |  |
 | <a id="debit-note-01"></a>[DEBIT-NOTE-01](decisions/debit-note-01.md) | Xuất debit note theo tháng công nợ (Excel + PDF) |  |

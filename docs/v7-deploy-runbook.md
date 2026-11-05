@@ -1777,6 +1777,14 @@ Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-lo
 4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
 5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
 
+## Lưu bảng giá tự đổi giá chuyến (BANG-GIA-02) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql` ([`BANG-GIA-02`](decisions/bang-gia-02.md)) thay thân `save_price_table` và thêm `_reprice_from_table` (không cấp cho ai). Không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền app. Bản thân migration không đổi giá chuyến nào, nên số dư từng khách phải giữ nguyên; giá chỉ đổi khi có người lưu bảng giá. Chạy lại được. **Chạy sau `2026-11-04-v7-ledger-events.sql`. Chạy lại `2026-10-29-v7-bang-gia.sql` thì phải chạy lại file này**, vì nó trả `save_price_table` về thân cũ.
+
+Đổi release cùng đợt: giao diện mới đọc `repriced_trips`. Release cũ chạy được với DB mới (vẫn có `affected_trips`) nhưng thông báo sẽ nói sai là giá không tự đổi, nên không để lệch lâu.
+
+Rollback: áp lại `save_price_table` từ `2026-10-29-v7-bang-gia.sql`, `DROP FUNCTION sokhach._reprice_from_table(bigint,text)` dưới `sokhach_owner`, trỏ release về bản trước. Giá đã tự đổi là `trip_price_rev` bình thường: giữ trong Lịch sử, sửa bằng lệnh sửa giá nếu cần.
+
 ## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB (ĐÃ CHẠY trên hao 4/11/2026)
 
 Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).

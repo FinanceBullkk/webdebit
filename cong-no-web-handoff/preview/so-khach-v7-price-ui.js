@@ -297,7 +297,7 @@
       <table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
       <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
       <tr><td class="s">10/10/2026</td><td class="s"></td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">66,000,000</td><td class="g"></td><td class="o"></td></tr></table></div>` : '';
-    dialog.innerHTML = `<div class="price-table-panel"><header><h2 class="price-grid-title" tabindex="-1">Bảng giá · ${escape(live.customerName?.(customerId) ?? 'sổ khách')}</h2><span class="price-dirty" hidden>Chưa lưu</span><span class="price-grow"></span>
+    dialog.innerHTML = `<div class="price-table-panel"><header><h2 class="price-grid-title" tabindex="-1">Bảng giá · ${escape(live.customerName?.(customerId) ?? 'sổ khách')}</h2><span class="price-dirty" hidden>Chưa lưu. Lưu xong, chuyến đang theo bảng tự đổi giá.</span><span class="price-grow"></span>
         ${hasRows ? '<button type="button" class="price-new-open">Đổi giá từ ngày…</button>' : ''}<button type="button" class="price-table-save primary">Lưu bảng giá</button><button type="button" class="price-table-close">Đóng</button></header>
       <div class="price-bar"></div>
       <div class="price-body">${help}<div class="price-grids">
@@ -428,10 +428,25 @@
           : outcome.result.message || 'Chưa lưu được bảng giá.');
       return;
     }
-    const affected = outcome.result.affected_trips ?? 0;
+    root.querySelector('.page-more')?.removeAttribute('open');   // menu ⋯ còn mở sẽ che thông báo trước → sau
     closeDialog();
     try { await api.read(); } catch { showNotice('Đã lưu bảng giá; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
-    showNotice(`Đã lưu bảng giá. Giá các chuyến đã ghi không tự đổi.${affected ? ` ${affected} chuyến đang ghi theo giá cũ của bảng: bấm "Áp lại giá mới" nếu muốn đổi.` : ''}`);
+    showNotice(savedNotice(outcome.result));
+  }
+  // BANG-GIA-02: server đã đổi giá ngay trong lệnh lưu; thao tác đụng tiền phải cho thấy trước → sau.
+  function savedNotice(result) {
+    const trips = result.repriced_trips ?? [], locked = result.locked_trips ?? 0, noPrice = result.no_price_trips ?? 0;
+    const parts = ['Đã lưu bảng giá.'];
+    if (trips.length) {
+      const shown = trips.slice(0, 3).map(trip => `${trip.container} ${fmt(trip.before_vnd)} → ${fmt(trip.after_vnd)}`).join('; ');
+      const more = trips.length > 3 ? ` và ${trips.length - 3} chuyến khác (xem Lịch sử)` : '';
+      const delta = BigInt(result.repriced_delta_vnd ?? 0);
+      parts.push(`Đã đổi giá ${trips.length} chuyến: ${shown}${more}.`,
+        delta === 0n ? 'Tổng tiền các chuyến không đổi.' : `Tổng tiền các chuyến ${delta > 0n ? 'tăng' : 'giảm'} ${fmt(String(delta < 0n ? -delta : delta))} đ.`);
+    }
+    if (locked) parts.push(`${locked} chuyến ở tháng khóa chưa đổi: mở khóa tháng rồi bấm "Áp lại giá mới".`);
+    if (noPrice) parts.push(`${noPrice} chuyến không còn giá trong bảng mới, giữ giá đang ghi.`);
+    return parts.join(' ');
   }
 
   dialog.addEventListener('input', event => {

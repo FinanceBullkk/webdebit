@@ -345,6 +345,8 @@ CONTAINER_INDEX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11
 KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
 # ZALO-GROUP-01 1/11/2026: chỉ thêm bảng/hàm ghi chú; chuỗi nâng từ lược đồ cũ chạy nó sau chặn trùng.
 ZALO_GROUP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-zalo-group.sql"
+# BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
+GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 
 def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
     p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)

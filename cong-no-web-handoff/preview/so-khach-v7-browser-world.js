@@ -322,7 +322,9 @@ function apply(world, url, body) {
     world.priceTable = body.price_table;
     event('price_table_edit', { price_table: before }, { price_table: body.price_table });
     world.version += 1;
-    return [200, { price_table: body.price_table, affected_trips: world.affectedTrips ?? 0, version: world.version }];
+    const locked = world.lockedTrips ?? 0, noPrice = world.noPriceTrips ?? 0;
+    return [200, { price_table: body.price_table, affected_trips: locked + noPrice, repriced_trips: world.repricedTrips ?? [],
+      repriced_delta_vnd: world.repricedDelta ?? '0', locked_trips: locked, no_price_trips: noPrice, reallocated: [], version: world.version }];
   } else if (url === '/api/v7/price-table/apply') {
     const status = world.priceStatus;
     const rows = body.trip_ids.map(id => status.trips.find(row => row.trip_id === id));
