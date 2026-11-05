@@ -69,9 +69,9 @@ Runbook cấm ghi phiếu thử trên dữ liệu thật, nên mục D nghiệm 
 | # | Việc | Ai | Bằng chứng |
 | --- | --- | --- | --- |
 | F1 | Xác nhận mọi mục **Chặn** ở A–E đạt | Claude | Bảng này cập nhật, có link bằng chứng |
-| F2 | Chốt ngày bắt đầu song song chính thức | Chủ NV | Dòng cập nhật `SONG-SONG-02` |
+| F2 | Chốt ngày bắt đầu song song chính thức. **ĐÃ CHỐT 5/11:** tính cả tháng 11, từ 1/11/2026 | Chủ NV | [`SONG-SONG-02`](decisions/song-song-02.md) |
 | F3 | Từ ngày đó: đối soát cuối mỗi ngày (Người nhập), xem tổng kết cuối tuần và cuối tháng (Chủ NV) | Người nhập, Chủ NV | Báo cáo đối soát ngoài Git |
-| F4 | Chuyển hẳn: ít nhất một lần cuối tháng khớp, Chủ NV duyệt, khóa Sheet chỉ xem ([`SONG-SONG-01`](decisions.md#song-song-01)). **CÒN MỞ từ 4/11:** hướng [`MAY-DOI-SOAT-01`](decisions/may-doi-soat-01.md) giữ Sheet làm nơi nhập, nên "khóa Sheet chỉ xem" cần chủ NV xem lại | Chủ NV | Quyết định chuyển hẳn trong `decisions.md` |
+| F4 | Chuyển hẳn: ít nhất một lần cuối tháng khớp, Chủ NV duyệt, khóa Sheet chỉ xem ([`SONG-SONG-01`](decisions.md#song-song-01)). **ĐÃ CHỐT 5/11:** chưa chuyển, chưa khóa Sheet, xét lại sau đối soát cuối tháng 11 ([`CHUYEN-HAN-01`](decisions/chuyen-han-01.md)) | Chủ NV | Quyết định chuyển hẳn trong `decisions.md` |
 
 ## Cách cập nhật
 
