@@ -32,6 +32,7 @@ import v7_load_real_copy as loader
 import v7_price_snapshot as snapshots
 import v7_reconcile_sheet as rec
 import v7_sheet_export_xlsx as exporter
+import v7_sheet_log as edit_log
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
 import v7_sheet_fix as fix  # tools may use the web layer; never the reverse
@@ -272,8 +273,26 @@ def money_fields(row: dict[str, Any]) -> dict[str, Any]:
     return {key: (str(value) if key.endswith("_vnd") and value is not None else value) for key, value in row.items()}
 
 
+def note_sheet_edits(args: argparse.Namespace, results: list[dict[str, Any]], downloaded_at: dt.datetime) -> dict[str, Any]:
+    """Khách chưa khớp mà tab vừa sửa: đánh dấu để Việc cần làm không báo "cần xem" (SHEET-LOG-01). Đọc cuối lượt để thấy cả lần sửa lúc
+    lượt đang chạy. Chỉ để giải thích, không đổi tiền hay kết luận, nên đọc log lỗi không làm hỏng lượt."""
+    if not args.edit_log_id or not args.credentials:
+        return {"status": "OFF"}
+    try:
+        token = sheet_sync_runner.exchange_token(sheet_sync_runner.load_credentials(args.credentials))
+        events = sheet_sync_runner.with_timeout_retry(lambda: edit_log.read_tail(args.edit_log_id, token))
+    except Exception as exc:  # noqa: BLE001
+        code = str(getattr(exc, "code", "") or type(exc).__name__)
+        print(f"V7 đối soát máy: không đọc được log sửa Sheet ({code})", file=sys.stderr, flush=True)
+        return {"status": "UNAVAILABLE", "reason": code}
+    state, last_edits = edit_log.summarize(events, now_vn())
+    edit_log.annotate(results, last_edits, downloaded_at)
+    return state
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    today = now_vn().date()
+    downloaded_at = now_vn()
+    today = downloaded_at.date()
     work_root = Path(args.work_dir)
     work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
@@ -311,6 +330,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             row.update(reason="HELD", held_reasons=held_names[row["customer"]])
         elif row["status"] != "LECH_TONG":
             row.setdefault("reason", row["status"])
+    edit_state = note_sheet_edits(args, results, downloaded_at)
     matched = [row for row in results if row["status"] == "KHOP"]
     checked_at = now_vn().isoformat(timespec="seconds")
     for row in results:
@@ -325,7 +345,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ, "outside_tabs": outside,
+        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state,
     }
 
 
@@ -354,6 +374,8 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     today = [row for row in result["customers"] if row.get("fixed_at") == result["checked_at"]]
     line["fixed"] = sum(row["reason"] == "FIXED" for row in today)
     line["created"] = sum(row["reason"] == "BOOK_CREATED" for row in today)
+    line["edit_log"] = result["edit_log"]["status"]
+    line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -367,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--xlsx", type=Path, help="dùng bản tải có sẵn thay vì tải Sheet")
     parser.add_argument("--spreadsheet-id", default=os.getenv("WEBDEBIT_SHEET_ID"))
     parser.add_argument("--credentials", default=os.getenv("WEBDEBIT_GOOGLE_CREDENTIALS"))
+    parser.add_argument("--edit-log-id", default=os.getenv("WEBDEBIT_EDIT_LOG_ID"), help="file log sửa Sheet (SHEET-LOG-01); không có thì bỏ qua")
     parser.add_argument("--socket-dir", default="/var/run/postgresql")
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
@@ -386,7 +409,8 @@ def main(argv: list[str] | None = None) -> int:
     append_log(args.output, result)
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
-                      "months_differ": len(result["months_differ"]), "seconds": round(time.monotonic() - started)}))
+                      "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
+                      "seconds": round(time.monotonic() - started)}))
     return 0
 
 

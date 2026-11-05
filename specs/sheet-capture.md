@@ -106,3 +106,10 @@ Còn mở, chưa sửa:
   chỉ gồm chữ số); `sheet_id` và payload JSON vẫn giữ đúng giá trị.
 - Snapshot chỉ là bản chụp thô. Chưa có công cụ so snapshot với bản mốc để tìm
   dòng cũ bị sửa (CÒN MỞ của `SONG-SONG-02`).
+
+## Đọc log (5/11/2026)
+
+Phía đọc nằm ở `cong-no-web-handoff/tools/v7_sheet_log.py`, theo
+[`SHEET-LOG-01`](../docs/decisions/sheet-log-01.md) và
+[spec](sheet-log-doi-soat.md). Đổi tiêu đề cột ở `CAPTURE_HEADERS` thì sửa `HEADERS`
+bên đó, nếu không máy đối soát báo `EDIT_LOG_FORMAT` và thôi đọc log.

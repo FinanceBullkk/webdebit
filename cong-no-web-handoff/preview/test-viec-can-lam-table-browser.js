@@ -185,6 +185,34 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.match(rows[1], /Tân Phú[\s\S]*Máy đã tạo sổ mới theo TONG/);
       assert.equal(await page.locator('.reconcile-list tbody tr').nth(1).locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=9');
     });
+    // SHEET-LOG-01: tab vừa sửa không tính là việc cần xem, không làm dải vàng; lần sửa cuối cũ hơn chỉ là thông tin kèm theo.
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 235, CHI_CO_WEB: 1 }, customers: [
+      { customer: 'Công ty Mẫu Đang Nhập', customer_id: 5, status: 'CHI_CO_WEB', reason: 'HELD', difference_vnd: null, sheet_editing: true, sheet_last_edit_at: '2026-11-04T07:58:00+07:00' }] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T08:30:00+07:00'));
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      const text = await page.locator('.reconcile-line').innerText();
+      assert.match(text, /1 khách Sheet vừa sửa, chờ lượt sau/);
+      assert.doesNotMatch(text, /khách cần xem/);
+      assert.equal(await page.locator('.reconcile.warn,.reconcile.danger').count(), 0);
+      await page.locator('[data-reconcile]').click();
+      assert.match(await page.locator('.reconcile-list tbody tr').first().innerText(), /Đang Nhập[\s\S]*Tab này vừa được sửa lúc 07:58, máy xem lại ở lượt sau\. Sheet của khách này có chỗ máy chưa đọc được/);
+    });
+    await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 233, LECH_TONG: 3 }, customers: [
+      { customer: 'Công ty Mẫu Web Trước', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [], sheet_last_edit_at: '2026-11-04T07:00:00+07:00' },
+      { customer: 'Công ty Mẫu Đang Nhập', customer_id: 5, status: 'LECH_TONG', reason: 'NO_EXACT_FIX', difference_vnd: '900000000', groups: [], sheet_editing: true, sheet_last_edit_at: '2026-11-04T07:58:00+07:00' },
+      { customer: 'Công ty Mẫu Lệch Cũ', customer_id: 8, status: 'LECH_TONG', reason: 'NOTHING_TO_WRITE', difference_vnd: '5000000', groups: [], sheet_last_edit_at: '2026-11-03T14:20:00+07:00' }] } } }, async page => {
+      await page.clock.setFixedTime(new Date('2026-11-04T08:30:00+07:00'));
+      await page.reload(); await page.locator('.reconcile').waitFor();
+      assert.match(await page.locator('.reconcile-line').innerText(), /1 khách cần xem/);
+      assert.equal(await page.locator('.reconcile.warn').count(), 1);
+      await page.locator('[data-reconcile]').click();
+      const rows = await page.locator('.reconcile-list tbody tr').allInnerTexts();
+      assert.match(rows[0], /Lệch Cũ[\s\S]*giải thích được số lệch\. Sheet sửa lần cuối lúc 14:20 ngày 03\/11\./);   // cần xem lên trước, dù lệch ít hơn
+      assert.match(rows[1], /Đang Nhập/);
+      assert.match(rows[2], /Web Trước/);
+      assert.doesNotMatch(rows[2], /sửa lần cuối/);   // web đi trước không cần làm gì: giờ sửa chỉ thêm chữ
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    });
     await withPage({ inbox: { ...sample, books: [], reconcile: { ...reconcile, counts: { KHOP: 235, LECH_TONG: 1 }, matched_web_vnd: '100000000000', customers: [{ customer: 'Công ty Mẫu Bình An', customer_id: 8, status: 'LECH_TONG', reason: 'NOTHING_TO_WRITE', difference_vnd: '-5', groups: [] }] } } }, async page => {
       await page.clock.setFixedTime(new Date('2026-11-04T09:00:00+07:00'));
       await page.reload(); await page.locator('.reconcile').waitFor();
