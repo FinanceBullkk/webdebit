@@ -8,6 +8,7 @@ ban đầu). Money never comes from PS; every other case is listed for review or
 
 MAY-PS-01: the Health+KĐ cell is one more fee of the combined type. A `fill` is the one case where lines may grow:
 an original-book row whose TOTAL minus unit price already equals the PS total keeps that TOTAL (no money moves).
+A PS smaller than the web fee splits its named cells and leaves the rest in Khác (`plan_part`).
 """
 
 from __future__ import annotations
@@ -100,6 +101,40 @@ def row_fees(row: dict) -> dict[str, Any]:
     return {**row["fees"], "combined": row.get("combined_vnd")}
 
 
+def plan_part(fees: dict, lines: list[dict], target: dict, ids: dict, info: dict) -> tuple[str, dict]:
+    """PS names only part of a larger web fee (MAY-PS-01, 5/11/2026): named cells get their type, the rest stays Khác.
+
+    PS smaller than the web means no money question, because the Sheet total stands. Left for review: a discount line,
+    an original-book row whose TOTAL is not its fee lines, a PS with only Khác, typed lines that leave too little to split.
+    """
+    named = Counter((ids.get(field), value) for field, value in fees.items() if field != "khac")
+    web_total, consistent = info["web_total"], target["kind"] != "legacy" or target.get("counted_fee") == info["web_total"]
+    if (info["ps_total"] > web_total or not named or not consistent or ids["khac"] is None
+            or any(int(line["amount_vnd"]) < 0 for line in lines)):
+        return "TOTAL_DIFF", info
+    missing = [field for field in fees if field != "khac" and ids.get(field) is None]
+    if missing:
+        return "FEE_TYPE_MISSING", {**info, "missing": missing}
+    kept, free = [], 0
+    for line in lines:
+        if line["fee_type_id"] in ids["unclassified"]:
+            free += int(line["amount_vnd"])
+            continue
+        kept.append({k: line[k] for k in ("fee_type_id", "amount_vnd", "note")})
+        named[(line["fee_type_id"], int(line["amount_vnd"]))] -= 1
+    wanted = +named
+    if not wanted:
+        return "DONE", info
+    rest = free - sum(value * count for (_, value), count in wanted.items())
+    if rest < 0:
+        return "TOTAL_DIFF", info
+    after = kept + [{"fee_type_id": type_id, "amount_vnd": str(value), "note": None}
+                    for (type_id, value), count in sorted(wanted.items()) for _ in range(count)]
+    if rest:
+        after.append({"fee_type_id": ids["khac"], "amount_vnd": str(rest), "note": None})
+    return ("MONTH_LOCKED" if target["locked"] else "READY"), {**info, "after": after}
+
+
 def plan(row: dict, target: dict, ids: dict) -> tuple[str, dict]:
     """Status and the line set a split would write; money stays exactly as on the web."""
     fees = {field: int(value) for field, value in row_fees(row).items() if value is not None}
@@ -114,7 +149,7 @@ def plan(row: dict, target: dict, ids: dict) -> tuple[str, dict]:
     if not fill and web_total is None:
         return "WEB_NO_FEE", info
     if not fill and web_total != ps_total:
-        return "TOTAL_DIFF", info
+        return plan_part(fees, lines, target, ids, info)
     missing = [field for field in fees if ids.get(field) is None]
     if missing:
         return "FEE_TYPE_MISSING", {**info, "missing": missing}
@@ -175,6 +210,11 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
             status = "AMBIGUOUS"
         elif row.get("problems"):
             status = row["problems"][0]["code"]
+            # PHU-PHI-01 (11): a typo cell is no money. When the readable cells already equal the web fee, it blocks nothing.
+            if target and all(p.get("code") == "PS_TYPO" for p in row["problems"]):
+                exact, exact_info = plan(row, target, ids)
+                if exact in ("READY", "MONTH_LOCKED", "DONE") and exact_info["web_total"] == exact_info["ps_total"]:
+                    status, info = exact, exact_info
         elif target is None:
             status = "NOT_FOUND"
         elif not any(v is not None for v in row_fees(row).values()):
