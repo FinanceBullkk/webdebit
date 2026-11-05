@@ -152,6 +152,13 @@ class Rehearsal:
             time.sleep(.25)
         else:
             raise HarnessError('readiness timeout')
+        # The init marker precedes the final restart; wait until the server accepts connections.
+        while time.monotonic() < deadline:
+            if run(['docker', 'exec', self.name, 'pg_isready', '-U', 'postgres'], check=False, timeout=10).returncode == 0:
+                break
+            time.sleep(.25)
+        else:
+            raise HarnessError('PostgreSQL readiness timed out')
         self.sql('CREATE DATABASE webdebit_ledger', 'postgres')
         self.sql((TOOLS / 'pg_ledger_schema.sql').read_text(encoding='utf-8'), 'webdebit_ledger')
         self.sql("INSERT INTO ledger.customer(customer) VALUES ('FAKE BASELINE');"
