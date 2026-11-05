@@ -1759,6 +1759,56 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
+## Máy canh báo email (CANH-BAO-01) — timer `v7-watchdog`
+
+Không có SQL: mã lên bằng `Deploy hao` ([quyết định](decisions/canh-bao-01.md), [spec](../specs/v7-canh-bao.md)). Chưa cài timer thì release mới không đổi gì.
+
+`/etc/systemd/system/v7-watchdog.service`:
+
+```ini
+[Unit]
+Description=V7 may canh: bao email khi may cong no loi hoac dung (CANH-BAO-01)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=v7app
+Group=v7app
+EnvironmentFile=-/etc/webdebit/alert.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_watchdog.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+TimeoutStartSec=180
+```
+
+`/etc/systemd/system/v7-watchdog.timer`:
+
+```ini
+[Unit]
+Description=V7 may canh moi 15 phut (CANH-BAO-01)
+
+[Timer]
+OnCalendar=*:02/15
+AccuracySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+```
+
+Cài: đặt hai file, `systemd-analyze verify`, `daemon-reload`, `systemctl enable --now v7-watchdog.timer`. Chưa có link thì máy canh chỉ ghi journal: `journalctl -u v7-watchdog.service -n 5 -o cat`.
+
+**Bật email (chủ sổ làm):** tạo tài khoản healthchecks.io bằng email nhận cảnh báo. Thêm một check: chu kỳ 15 phút, thời gian chờ 45 phút. Sao chép link ping, đặt vào `/etc/webdebit/alert.env` dòng `WEBDEBIT_ALERT_PING_URL=…`, `root:v7app`, quyền 640. Không đưa link vào Git hay nhật ký.
+
+**Thử:** chạy `v7_watchdog.py --test-fail` dưới `v7app` với cùng biến môi trường: email tới trong vài phút; lượt timer kế gửi email hết lỗi. Dừng thử: `systemctl stop v7-watchdog.timer` quá 60 phút thì có email, `start` lại thì hết.
+
+**Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
+
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
 Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).
