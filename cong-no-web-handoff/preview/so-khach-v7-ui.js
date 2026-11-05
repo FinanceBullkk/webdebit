@@ -45,11 +45,19 @@
     showShipper = shipper;
     ownCount = ownNames.length;
     labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
-    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownNames.map(() => 88), 82, 120];
-    const extra = Math.max(0, Math.floor(fitWidth) - 28 - wide.reduce((sum, value) => sum + value, 0));
+    // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên. Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
+    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownNames.map(() => 100), 100, 120];
+    const route = labels.indexOf('Tuyến');
+    const spare = Math.floor(fitWidth) - 28 - wide.reduce((sum, value) => sum + value, 0);
+    const extra = Math.max(0, spare);
     const share = shipper ? Math.floor(extra / 2.4 + 10) : 0;
     if (shipper) wide[3] += share;
-    wide[labels.indexOf('Tuyến')] += extra - share;
+    wide[route] += extra - share;
+    if (fitWidth && spare < 0) {
+      const fromRoute = Math.min(-spare, wide[route] - 110);
+      wide[route] -= fromRoute;
+      if (shipper) wide[3] -= Math.min(-spare - fromRoute, wide[3] - 70);
+    }
     widths = colTags(0, wide.length);
   }
   let fitWidth = 0;

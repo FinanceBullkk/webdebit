@@ -201,10 +201,10 @@ test('DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền, gh
   }
   const block = key => blocks[key];
   assert.doesNotMatch(block('2026-08'), /data-pid="PH-/);
-  assert.match(block('2026-09'), /class="receipt-allocation">Trừ nợ T8\/2026<\/small>/);
+  assert.match(block('2026-09'), /<span class="alloc-label">Trừ nợ<\/span> <span class="alloc-lines"><span class="alloc-line"><span>T8\/2026<\/span><\/span><\/span><\/small>/);
   assert.match(block('2026-09'), /data-pid="PH-001"[^>]*><span class="receipt-money"><span class="receipt-sum">30<\/span>/);
   assert.doesNotMatch(block('2026-09'), /PH-002/);
-  assert.match(block('2026-10'), /class="receipt-allocation">Trừ nợ T8\/2026 70 · T9\/2026 30<\/small>/);
+  assert.match(block('2026-10'), /<span>T8\/2026<\/span> <span class="alloc-sum">70<\/span><\/span> <span class="alloc-line"><span>T9\/2026<\/span> <span class="alloc-sum">30<\/span>/);
   assert.match(block('2026-10'), /data-pid="PH-002"[^>]*><span class="receipt-money"><span class="receipt-sum">100<\/span>/);
   // Phiếu trừ đúng nợ tháng của mình: không ghi thêm chữ.
   assert.match(block('2026-10'), /data-pid="PH-003"[^>]*><span class="receipt-money"><span class="receipt-sum">5<\/span>/);
