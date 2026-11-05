@@ -34,7 +34,7 @@ SNAPSHOT_DIR = "/var/lib/webdebit-sheet-sync"
 SNAPSHOTS = ("snapshot.json", "prices.json", "receipts.json", "road.json", "ps.json", "details.json")
 SNAPSHOT_MAX_MINUTES = 60   # runner 15 phút một lần, lỗi lẻ tự lành ở lượt sau (audit DevOps #14: 5 lần trong 2 ngày)
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
-TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
+TIMERS: dict[str, int | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,
                                    "webdebit-ps-snapshot": None, "v7-backup-hourly": 12, "v7-backup-daily": 26,
                                    "v7-backup-config": 26, "v7-backup-offsite": 26}
 DISKS = ("/", "/srv", "/var/lib/postgresql")
@@ -116,7 +116,7 @@ def check_units(show: Callable[..., dict[str, str]], now: float) -> list[str]:
         if result != "success":
             found.append(f"Sao lưu {name} lỗi ({result}).")
         last = timer.get("LastTriggerUSec", "")
-        if last.startswith("@") and (now - float(last[1:])) / 3600 > max_hours:
+        if last.startswith("@") and (now - int(last[1:])) / 3600 > max_hours:
             found.append(f"Sao lưu {name} đã hơn {max_hours} giờ chưa chạy.")
     return found
 

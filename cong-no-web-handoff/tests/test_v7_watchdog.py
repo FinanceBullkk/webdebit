@@ -36,7 +36,7 @@ class Response:
 
 def healthy_units(unit, *properties):
     if unit.endswith(".timer"):
-        return {"ActiveState": "active", "LastTriggerUSec": f"@{NOON.timestamp() - 3600}"}
+        return {"ActiveState": "active", "LastTriggerUSec": f"@{int(NOON.timestamp()) - 3600}"}
     return {"Result": "success"}
 
 
@@ -126,7 +126,7 @@ class UnitTests(unittest.TestCase):
             if unit == "v7-backup-daily.service":
                 return {"Result": "exit-code"}
             if unit == "v7-backup-offsite.timer":
-                return {"ActiveState": "active", "LastTriggerUSec": f"@{NOON.timestamp() - 27 * 3600}"}
+                return {"ActiveState": "active", "LastTriggerUSec": f"@{int(NOON.timestamp()) - 27 * 3600}"}
             return healthy_units(unit, *properties)
         self.assertEqual(dog.check_units(show, NOON.timestamp()),
                          ["Timer v7-reconcile-auto không chạy.", "Sao lưu v7-backup-daily lỗi (exit-code).", "Sao lưu v7-backup-offsite đã hơn 26 giờ chưa chạy."])
@@ -204,11 +204,11 @@ class MainTests(Base):
         self.assertEqual(json.loads(printed), {"ok": False, "problems": ["Web báo lỗi (503)."], "configured": False})
 
     def test_with_url_problems_go_out_and_url_is_never_printed(self):
-        secret = "https://ping.test/bi-mat"
-        code, send, printed = self.run_main(url=secret)
+        link = "https://ping.test/rieng-tu"
+        code, send, printed = self.run_main(url=link)
         self.assertEqual(code, 0)
-        send.assert_called_once_with(secret, "Web báo lỗi (503).", failed=True)
-        self.assertNotIn("bi-mat", printed)
+        send.assert_called_once_with(link, "Web báo lỗi (503).", failed=True)
+        self.assertNotIn("rieng-tu", printed)
 
     def test_dry_run_and_non_https_url_send_nothing(self):
         self.assertEqual(self.run_main("--dry-run", url="https://ping.test/x")[1].call_count, 0)
