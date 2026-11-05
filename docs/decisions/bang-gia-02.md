@@ -22,7 +22,7 @@ Mọi chuyến đang theo bảng và lệch giá đều được đổi khi lưu
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Migration `2026-11-05-v7-gia-tu-doi.sql` thay thân `save_price_table`, thêm hàm nội bộ `_reprice_from_table`; không đổi bảng, ràng buộc, loại event hay quyền. Trạng thái triển khai ghi ở nhật ký `docs/deploys/`.
+ĐÃ CHỐT. Migration `2026-11-05-v7-gia-tu-doi.sql` thay thân `save_price_table`, thêm hàm nội bộ `_reprice_from_table`; không đổi bảng, ràng buộc, loại event hay quyền. ĐÃ TRIỂN KHAI trên `hao` 5/11/2026, xem [nhật ký](../deploys/2026-11-05-gia-tu-doi.md).
 
 Khác Sheet: công thức Sheet tính lại mọi chuyến kể cả tháng cũ và giá đã sửa tay; web giữ tháng khóa và giá gõ tay. Trong lúc chạy song song (`SONG-SONG-01`) giá tự đổi trên web không ghi ngược lên Sheet; nếu Sheet giữ giá khác thì lệch được đối soát như mọi lệch khác.
 
