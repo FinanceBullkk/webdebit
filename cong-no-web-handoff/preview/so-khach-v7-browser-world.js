@@ -78,7 +78,7 @@ function ledger(world) {
       counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
-    ...(world.psFees ? { ps_fees: world.psFees } : {}) };
+    ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}) };
 }
 
 // Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.

@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
+from v7_detail_queue import load_detail_snapshot, project_details
 from v7_price_queue import book_rows, load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
@@ -39,6 +40,8 @@ PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdeb
 PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/ps.json")
 # Runner giá ghi phiếu thu cạnh prices.json (THU-SHEET-01), nên mặc định đi theo đường giá.
 RECEIPT_SNAPSHOT_PATH = os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("receipts.json"))
+# SO-CHI-TIET-01: bảng chi tiết từ tab "CHI TIET ...", runner giá ghi cạnh prices.json; chưa có file thì sổ không có bảng chi tiết.
+DETAIL_SNAPSHOT_PATH = os.getenv("WEBDEBIT_DETAIL_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("details.json"))
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
@@ -804,6 +807,10 @@ def review_sheet_receipt(raw: bytes, runner: Psql, actor: str) -> tuple[int, dic
     return 200, {**result, "written": 1, "complete": True}
 
 
+def detail_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
+    return project_details(cached_load(load_detail_snapshot, DETAIL_SNAPSHOT_PATH), ledger)
+
+
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
     """`GET /api/v7/ledger`: gắn các hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
 
@@ -818,6 +825,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
+        ("sheet_details", detail_projection, {"unavailable": True, "rows": [], "months": {}}),
     )
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]
