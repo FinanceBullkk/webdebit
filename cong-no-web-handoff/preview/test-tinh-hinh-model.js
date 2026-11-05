@@ -55,11 +55,13 @@ const LEDGER = () => ({
     { id: 15, month: '2026-11-01', event_date: '2026-11-05', container: 'AAAU5', destination: 'Cát Lái', amount_vnd: M1(8), status: 'rejected', deleted: false, is_fee_only: false },
   ],
   legacy_rows: [
-    { id: 21, kind: 'receipt', month: '2026-09-01', display: { date: null }, current: { month: '2026-09-01', counted_vnd: M1(20), deleted: false } },
+    // Đúng dạng API thật trên hao 5/11/2026: khoản thu sổ gốc chưa sửa có current null, số ở source_total_vnd.
+    { id: 21, kind: 'receipt', month: '2026-09-01', source_total_vnd: M1(20), display: { date: null, raw_date: 'da tt' }, current: null },
     { id: 22, kind: 'trip', month: '2026-09-01', display: { date: '2026-09-03' }, current: { month: '2026-09-01', event_date: '2026-09-03', container: 'OLDU1', destination: 'Nơi D', unit_price_vnd: M1(9), counted_vnd: M1(9), deleted: false } },
     { id: 23, kind: 'trip', month: '2026-09-01', display: { date: '2026-09-03' }, current: { month: '2026-09-01', event_date: '2026-09-03', container: 'OLDU2', destination: 'Nơi D', unit_price_vnd: null, counted_vnd: '0', deleted: false } },
     { id: 24, kind: 'receipt', month: '2026-08-01', display: {}, current: { month: '2026-08-01', counted_vnd: M1(5), deleted: true } },
-    { id: 25, kind: 'receipt', month: '2026-08-01', display: {}, current: { month: '2026-08-01', counted_vnd: '0', deleted: false } },
+    { id: 25, kind: 'receipt', month: '2026-08-01', source_total_vnd: '0', display: {}, current: null },
+    { id: 27, kind: 'receipt', month: '2026-08-01', display: {}, current: null },
     { id: 26, kind: 'trip', month: '2026-08-01', display: {}, current: { month: '2026-08-01', container: 'OLDU3', destination: 'Nơi E', unit_price_vnd: M1(9), counted_vnd: M1(9), deleted: true } },
   ],
 });
@@ -100,6 +102,18 @@ test('Hoạt động: khoản không ngày của tháng đang chạy không xế
   assert.equal(rows.filter(M.KINDS.paid).length, 1);
   assert.equal(rows.filter(M.KINDS.trip).length, 0);
   assert.equal(rows.filter(M.KINDS.all).length, 3);
+});
+
+test('Hoạt động: dòng sổ gốc đã sửa lấy số đã sửa; dòng chuyến không có current đọc display, không thành chưa giá', () => {
+  const rows = M.activity({ legacy_rows: [
+    { id: 1, kind: 'receipt', month: '2026-09-01', source_total_vnd: M1(20), display: {}, current: { month: '2026-09-01', counted_vnd: M1(25), deleted: false } },
+    { id: 2, kind: 'trip', month: '2026-08-01', source_total_vnd: M1(9), display: { date: '2026-08-03', container: 'SHTU1', to: 'Nơi F', unit_price: M1(9) }, current: null },
+    { id: 3, kind: 'trip', month: '2026-07-01', source_total_vnd: '0', display: { date: '2026-07-03', container: 'SHTU2', to: 'Nơi G', unit_price: null }, current: null },
+  ] }, { today: '2026-11-15' });
+  assert.deepEqual(rows.map(row => row.title), ['Khách trả 25.000.000 đ', '1 chuyến đi hàng', '1 chuyến đi hàng']);
+  assert.equal(rows[1].sub, 'Nơi F');
+  assert.deepEqual(rows[1].lines, [['SHTU1', '9.000.000 đ']]);
+  assert.deepEqual(rows[2].lines, [['SHTU2', 'chưa giá']]);
 });
 
 test('Đếm chuyến: bỏ đã xóa, đã loại, phí lẻ; tính dòng chuyến sổ gốc chưa xóa', () => {

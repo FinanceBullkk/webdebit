@@ -50,7 +50,7 @@ function monthsOf(world, keys, trips, legacy) {
   let prior = 0n;
   return keys.map(month => {
     const charges = sum([...trips.filter(trip => trip.month === month && trip.status === 'confirmed').map(trip => trip.amount_vnd),
-      ...legacy.filter(row => row.current.month === month && row.kind !== 'receipt').map(row => row.current.counted_vnd),
+      ...legacy.filter(row => (row.current?.month ?? row.month) === month && row.kind !== 'receipt').map(row => row.current?.counted_vnd ?? row.source_total_vnd),
       ...world.adjustments.filter(row => row.month === month).map(row => row.amount_vnd)]);
     const received = sum(world.receipts.filter(row => row.voided_by_event == null && `${row.date.slice(0, 7)}-01` === month).map(row => row.amount_vnd));
     const end = prior + charges - received;
@@ -65,7 +65,7 @@ function monthsOf(world, keys, trips, legacy) {
 // đầu) để test thẻ Tình hình dựng sổ nhiều tháng; mặc định như trước.
 function ledger(world) {
   const trips = world.trips.filter(trip => !trip.deleted);
-  const legacy = world.legacy.filter(row => !row.current.deleted);
+  const legacy = world.legacy.filter(row => !row.current?.deleted);
   const today = world.todayMonth ?? todayMonth;
   const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(today))].sort();
   const feeSum = lines => lines.reduce((sum, line) => sum + BigInt(line.amount_vnd), 0n);
@@ -74,8 +74,8 @@ function ledger(world) {
     month_locks: world.locks,
     months: world.months ?? monthsOf(world, keys, trips, legacy),
     total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
-    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
-      counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
+    legacy_rows: legacy.map(row => ({ ...row, month: row.current?.month ?? row.month, fee_lines: row.fee_lines ?? [],
+      counted_differs: row.current?.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}) };
