@@ -16,7 +16,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 ## Đầu ra
 
 - `tools/v7_reconcile_auto.py`: mỗi giờ từ 7 tới 22 giờ VN (timer `v7-reconcile-auto` trên `hao`) tải xlsx sổ gốc, làm sạch, so tổng từng khách, tự sửa khách lệch khi khớp đúng. Không có `--fix` thì chỉ báo sẽ ghi gì.
-- `web/v7_sheet_fix.py`: gom việc thành nhóm, chọn tổ hợp, ghi bằng lệnh có sẵn.
+- `web/v7_sheet_fix.py`: gom việc thành nhóm, chọn tổ hợp, ghi bằng lệnh có sẵn. `apply_fix` bắt buộc chỉ rõ người làm: lượt đối soát là `may-theo-sheet`, gọi tay là người ra lệnh; mở/khóa tháng vẫn ghi là máy để lượt nền khóa lại được nếu nơi gọi chết giữa chừng.
 - `reconcile.json` (mode 600, có tên khách và số tiền) và `reconcile-log.jsonl` (mỗi lượt một dòng, chỉ số đếm và tổng tiền) trong `/var/lib/webdebit-sheet-sync/`.
 - `GET /api/v7/inbox` thêm `reconcile` và `sheet_matched` của từng sổ; tab Việc cần làm hiện kết quả.
 - `v7_reconcile_sheet.py --can-du-months`: so từng tháng theo cách web tính ([`CAN-DU-01`](../docs/decisions/can-du-01.md)).
@@ -79,7 +79,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 
 ## Tiêu chí nghiệm thu
 
-- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ.
+- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng.
 - [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
