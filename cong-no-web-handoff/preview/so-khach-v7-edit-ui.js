@@ -302,7 +302,8 @@
       const row = button.closest('tr'), item = button.closest('li');
       if (row) row.insertAdjacentHTML('afterend', `<tr class="lock-ask"><td colspan="${spanOf(row)}">${body}</td></tr>`);
       else if (item) item.insertAdjacentHTML('afterend', `<li class="lock-ask">${body}</li>`);
-      else button.insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
+      // Ổ khóa nằm trong nhóm nút icon (.trip-tools, nút rộng cố định): dòng hỏi đứng riêng dưới cả thanh công cụ.
+      else (button.closest('.trip-toolbar') || button).insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
       lockFrom = { button, spot: markOf(button) };
       root.querySelector('.lock-ask .lock-yes')?.focus();
     }
