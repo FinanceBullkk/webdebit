@@ -181,7 +181,8 @@ def _port(value: Any) -> str:
 
 
 def short_day(value: Any, month: str) -> str:
-    """Ngày trên bảng kê → dd/mm. Số ngày bị đảo ngày/tháng (ô hiểu theo tháng/ngày) thì đọc lại theo tháng của sổ và tháng sau đó."""
+    """Ngày trên bảng kê → dd/mm. Số ngày bị đảo ngày/tháng (ô hiểu theo tháng/ngày) thì đọc lại theo tháng của sổ và tháng sau đó.
+    Ô không đọc được thì trả nguyên văn, không đoán ngày: màn hình báo để người sửa trên Sheet."""
     text = str(value or "").strip()
     day = _serial_date(text)
     if day is not None:
@@ -190,7 +191,7 @@ def short_day(value: Any, month: str) -> str:
             return f"{day.month:02d}/{day.day:02d}"
         return f"{day.day:02d}/{day.month:02d}"
     found = re.fullmatch(r"(\d{1,2})/(\d{1,2})/\d+(?:\s.*)?", text)
-    return f"{int(found.group(1)):02d}/{int(found.group(2)):02d}" if found else text[:10]
+    return f"{int(found.group(1)):02d}/{int(found.group(2)):02d}" if found else text
 
 
 def _legacy_items(ledger: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
