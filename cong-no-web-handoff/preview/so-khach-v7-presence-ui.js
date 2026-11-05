@@ -7,23 +7,28 @@
     if (!window.Presence) return;
 
     // Vị trí của mình: khóa dòng (trip:11, legacy:21) + cột theo thứ tự ô, không theo tọa độ màn hình.
+    // Chưa bấm ô nào thì vẫn báo tháng đang xem: khác tháng thì không thấy mũi tên của nhau, chú thích vòng tròn nói rõ tháng.
     function position() {
       const active = document.activeElement;
-      if (!active || !root.contains(active)) return { month: null, cell: null };
-      const month = active.closest('section[id^="thang-"]')?.id.match(/^thang-(\d{4}-\d{2})/)?.[1] ?? null;
-      const td = active.closest('td');
-      if (!td) return { month, cell: null };
-      const col = `c${td.cellIndex}`;
-      const row = rowKey(td);
+      const inRoot = active && root.contains(active);
+      const section = (inRoot && active.closest('section[id^="thang-"]')) || root.querySelector('section[id^="thang-"]');
+      const month = section?.id.match(/^thang-(\d{4}-\d{2})/)?.[1] ?? null;
+      const td = inRoot ? active.closest('td') : null;
+      const row = td && rowKey(td);
       if (!row) return { month, cell: null };
-      return { month, cell: { row, col, editing: active !== td && active.matches('input,textarea,select') } };
+      return { month, cell: { row, col: colKey(td), editing: active !== td && active.matches('input,textarea,select') } };
     }
 
-    // Khóa dòng ổn định từ data-row (trip-11 → trip:11); hàng nháp, dòng cộng, phiếu rời không có khóa.
+    // Khóa dòng ổn định từ data-row của bảng sổ hoặc data-detail của bảng chi tiết (trip-11 → trip:11), hai bảng dùng chung mã dòng.
+    // Hàng nháp, dòng cộng, phiếu rời không có khóa.
     function rowKey(td) {
-      const key = td.closest('tr[data-row]')?.dataset.row.match(/^([a-z]+)-([0-9]+)$/);
+      const row = td.closest('tr[data-row],tr[data-detail]');
+      const key = (row?.dataset.row ?? row?.dataset.detail)?.match(/^([a-z]+)-([0-9]+)$/);
       return key ? `${key[1]}:${key[2]}` : null;
     }
+
+    // Ba bảng có cột khác nhau nên cột kèm chữ cho biết bảng: c = bảng sổ, g = chi tiết gọn, d = chi tiết đủ cột.
+    const colKey = td => `${td.closest('.dt-gon') ? 'g' : td.closest('.dt-du') ? 'd' : 'c'}${td.cellIndex}`;
 
     // Mức 2: chuột của mình trên bảng sổ, quy về ô + phần nghìn trong ô.
     let mouse = null;
@@ -36,15 +41,19 @@
         return;
       }
       const box = td.getBoundingClientRect();
-      mouse = { row, col: `c${td.cellIndex}`, fx: permille(event.clientX - box.left, box.width), fy: permille(event.clientY - box.top, box.height) };
+      mouse = { row, col: colKey(td), fx: permille(event.clientX - box.left, box.width), fy: permille(event.clientY - box.top, box.height) };
       presence?.move();
     });
     root.addEventListener('mouseleave', () => { if (mouse) { mouse = null; presence?.move(); } });
 
     function target(cell) {
       const [kind, id] = cell.row.split(':');
-      const row = root.querySelector(`tr[data-row="${CSS.escape(`${kind}-${id}`)}"]`);
-      return row?.cells[Number(cell.col.slice(1))] ?? null;
+      const key = CSS.escape(`${kind}-${id}`);
+      const row = root.querySelector(`tr[data-row="${key}"],tr[data-detail="${key}"]`);
+      if (!row) return null;
+      // Người kia xem bảng khác thì cột của họ không có nghĩa ở đây: chỉ ô container của đúng dòng (cột 1 ở cả ba bảng).
+      const sameTable = colKey(row.cells[0])[0] === cell.col[0];
+      return row.cells[sameTable ? Number(cell.col.slice(1)) : 1] ?? null;
     }
 
     function decorate(people, colors) {

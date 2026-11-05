@@ -211,6 +211,11 @@
     }
     document.addEventListener('focusin', report);
     document.addEventListener('focusout', report);
+    // Rời tab: mũi tên biến ngay. Quay lại: báo ngay, không đợi nhịp; tab ẩn lâu bị trình duyệt làm chậm hẹn giờ nên đừng coi là mất kết nối.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) lastOk = Date.now();
+      send();
+    });
     addEventListener('pagehide', () => {
       try { fetch('/api/v7/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body(null), keepalive: true }).catch(() => {}); } catch { /* đóng tab */ }
     });
