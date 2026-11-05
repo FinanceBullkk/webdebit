@@ -44,6 +44,28 @@ const BangThuModel = (() => {
       } };
   }
 
+  /**
+   * Thu của một ngày, cùng dạng `scoped` (TUONG-TAC-01). Không lọc thì trả nguyên. Không rõ ngày, cấn trừ, phiếu hủy thuộc cả tháng nên để trống.
+   * Khách cộng lại từ dòng trong ngày, nhiều tiền trước, cùng trường với customers[] của server.
+   */
+  function scopeDay(scoped, date) {
+    if (date == null) return scoped;
+    const days = scoped.days.filter(day => day.date === date);
+    const rows = days.flatMap(day => day.rows);
+    const who = new Map();
+    for (const row of rows) {
+      const line = who.get(row.customer_id) ?? { customer_id: row.customer_id, name: row.name, total: 0n, count: 0, undated_vnd: '0', undated_count: 0, last_date: date, book_month: row.book_month };
+      line.total += toBig(row.amount_vnd);
+      line.count += 1;
+      if (row.book_month > line.book_month) line.book_month = row.book_month;
+      who.set(row.customer_id, line);
+    }
+    const customers = [...who.values()].sort((a, b) => compare(a.total, b.total)).map(({ total, ...row }) => ({ ...row, total_vnd: String(total) }));
+    return { ...scoped, days, undated: [], customers, offsets: [], voided: [],
+      summary: { ...scoped.summary, total_vnd: String(sum(days.map(day => day.total_vnd))), count: rows.length, customers: customers.length,
+        undated_vnd: '0', undated_count: 0, has_sheet: rows.some(row => row.source === 'sheet') } };
+  }
+
   const widest = rows => rows.reduce((top, row) => (row.total > top ? row.total : top), 0n);
   const fromServer = row => ({ id: row.customer_id, name: row.name, month: row.book_month, total: toBig(row.total_vnd), count: row.count,
     undated: toBig(row.undated_vnd), undatedCount: row.undated_count, lastDate: row.last_date });
@@ -86,6 +108,17 @@ const BangThuModel = (() => {
   }
 
   const KIND_ORDER = { debt: 0, advance: 1, none: 2 };
+  const partKey = part => (part.kind === 'debt' ? part.month : part.kind);
+
+  /**
+   * Phiếu của một khách để mở tại dòng: có ngày trước (mới nhất lên trên), không rõ ngày sau. `debtKey` là nhóm của tab Theo tháng nợ:
+   * chỉ lấy phần tiền của nhóm đó, để số mở ra cộng bằng số trên dòng khách.
+   */
+  function receiptsOf(scoped, id, debtKey = null) {
+    const amount = row => (debtKey == null ? toBig(row.amount_vnd) : sum(receiptParts(row).filter(part => partKey(part) === debtKey).map(part => part.amount)));
+    const mine = (rows, dated) => rows.filter(row => row.customer_id === id).map(row => ({ row, dated, amount: amount(row) })).filter(item => item.amount !== 0n);
+    return [...mine(scoped.days.flatMap(day => day.rows), true), ...mine(scoped.undated, false)];
+  }
 
   /**
    * Theo tháng nợ: nợ cũ lên trước, rồi Ứng trước, rồi Chưa phân bổ. Phiếu chia nhiều tháng đếm ở mỗi nhóm nên tổng "Số lần" các nhóm
@@ -95,7 +128,7 @@ const BangThuModel = (() => {
     const groups = new Map();
     const add = (row, dated) => {
       for (const part of receiptParts(row)) {
-        const key = part.kind === 'debt' ? part.month : part.kind;
+        const key = partKey(part);
         if (!groups.has(key)) groups.set(key, { key, kind: part.kind, month: part.kind === 'debt' ? part.month : null, who: new Map() });
         const who = groups.get(key).who;
         if (!who.has(row.customer_id)) who.set(row.customer_id, { id: row.customer_id, name: row.name, month: part.month, total: 0n, count: 0, undated: 0n, undatedCount: 0, lastDate: null });
@@ -138,7 +171,7 @@ const BangThuModel = (() => {
     return rows.map(row => ({ ...row, pct: barWidth(row.total, top), undatedPct: barWidth(row.undated, top) }));
   }
 
-  /** Dải ngày: mỗi ngày của tháng một cột, cột cao theo ngày nhiều tiền nhất; `total` null là ngày không có phiếu. */
+  /** Dải ngày: mỗi ngày của tháng một cột, cột cao theo ngày nhiều tiền nhất; `total` null là ngày không có phiếu; `shares` là phần trăm của từng khách trong cột. */
   function dayStrip(scoped, book) {
     const year = Number(book.month.slice(0, 4));
     const month = Number(book.month.slice(5, 7));
@@ -148,7 +181,10 @@ const BangThuModel = (() => {
     return Array.from({ length: count }, (_, index) => {
       const date = `${book.month.slice(0, 8)}${String(index + 1).padStart(2, '0')}`;
       const day = byDate.get(date);
+      const who = {};
+      for (const row of day?.rows ?? []) who[row.customer_id] = (who[row.customer_id] ?? 0n) + toBig(row.amount_vnd);
       return { day: index + 1, date, total: day?.total_vnd ?? null, count: day?.count ?? 0, pct: day ? barWidth(day.total_vnd, top) : 0,
+        customers: Object.keys(who).length, shares: Object.fromEntries(Object.entries(who).map(([id, value]) => [id, barWidth(value, toBig(day.total_vnd))])),
         today: date === book.as_of, future: date > book.as_of };
     });
   }
@@ -166,6 +202,6 @@ const BangThuModel = (() => {
     return { count: books.reduce((total, book) => total + book.receipts.ready + book.receipts.review, 0), amount: String(sum(books.map(book => book.receipts.amount_vnd))) };
   }
 
-  return { commodityMap, commodityOptions, scope, byCustomer, byCommodity, receiptParts, byDebtMonth, lastYear, dayStrip, pending };
+  return { commodityMap, commodityOptions, scope, scopeDay, receiptsOf, byCustomer, byCommodity, receiptParts, byDebtMonth, lastYear, dayStrip, pending };
 })();
 if (typeof module !== 'undefined') module.exports = BangThuModel;

@@ -8,7 +8,7 @@ Người dùng đưa bản xem `TinhHinh.dc.html` và yêu cầu code theo đún
 
 - Tiền và rủi ro lấy từ API sổ/Tổng quan, hứa trả từ dấu Zalo, không dùng các số và tên giả trong bản xem. Nhãn **Doanh thu** ghi rõ bên dưới là phát sinh đã ghi sổ trong 12 tháng; không suy ra doanh thu từ chuyến chưa giá hoặc chờ kiểm. Tháng thiếu dữ liệu không biến thành 0.
 - **Trễ trung bình sau hạn** hiện `—` cho tới khi B1 có API; không dựng số từ ví dụ. Khi không đọc được dấu hứa trả, Việc tiếp theo ghi chưa xác định và có Thử lại, không tự bảo nhắc ngay.
-- **Vẫn nhắc nợ** dùng đúng lệnh Copy tin nhắc sẵn có ở thẻ Trao đổi. Bấm tháng mở Sổ đúng tháng, không tải lại. Không đổi đường ghi tiền, Sheet hay DB.
+- **Vẫn nhắc nợ** dùng đúng lệnh Copy tin nhắc sẵn có ở thẻ Trao đổi. Bấm tháng ghim tại chỗ rồi mới có nút Mở sổ ([`TUONG-TAC-01`](../docs/decisions/tuong-tac-01.md), thay cách cũ mở Sổ ngay), không tải lại. Không đổi đường ghi tiền, Sheet hay DB.
 - **Nút của Việc tiếp theo** (sửa sau review 3/11/2026, bản đầu bị đảo): *Nhắc nợ ngay* → nút chính xanh **Copy tin nhắc nợ** + **Xem Trao đổi**; *Chờ hứa trả* → **Vẫn nhắc nợ** (nút phụ) + **Xem Trao đổi**; *Chưa cần làm gì* hoặc chưa xác định → chỉ **Xem Trao đổi**. Copy tin nhắc nợ và Vẫn nhắc nợ cùng một lệnh của thẻ Trao đổi. Tháng đang chạy dưới hình 12 tháng ghi thêm "đến dd/mm" (hôm nay, giờ VN).
 - Kiểm trên máy chủ giả: số Còn nợ/cơ cấu, thiếu opening, khách trả trước, dấu hứa trả, lỗi nguồn phụ, 1280×720 và màn hẹp; ảnh chụp chỉ dùng khách và số giả. Đây là tiêu chí cho code giao diện, không là bằng chứng đã triển khai `hao`.
 
@@ -43,8 +43,8 @@ Tất cả trên 40 tuổi, màn 1280×720 (khoảng 1280×560 nhìn thấy tron
 1. Ở Tổng quan, bấm tên khách: ngăn kéo mở như hiện nay ([`DASH-01`](../docs/decisions/dash-01.md)). Ngăn kéo có thêm nút **"Trang khách"** cạnh "Mở sổ", mở `?customer=<id>&the=tinh-hinh`. Hoặc gõ tên ở ô tìm khách rồi bấm thẻ Tình hình.
 2. Thẻ Tình hình trả lời sáu câu, đọc từ trên xuống (bảng ở mục Kiến trúc trang).
 3. Muốn xem nguồn một con số:
-   - bấm một tháng trên hình 12 tháng: sang thẻ Sổ đúng tháng đó (`month=`);
-   - bấm "Quá hạn": sang thẻ Sổ ở tháng nợ cũ nhất;
+   - bấm một tháng trên hình 12 tháng: ghim tháng đó, nút Mở sổ sang thẻ Sổ đúng tháng (`month=`), theo [`TUONG-TAC-01`](../docs/decisions/tuong-tac-01.md);
+   - bấm "Quá hạn": mở từng tháng nợ ngay tại chỗ, bấm dòng để sang thẻ Sổ tháng đó;
    - bấm một việc chờ: sang thẻ Sổ với `loc=`.
 4. Muốn biết đã đòi tới đâu: sang thẻ Trao đổi.
 
@@ -155,7 +155,7 @@ Theo tinh thần [`DASH-03`](../docs/decisions/dash-03.md): mỗi tab một mụ
 | # | Tiêu đề khối (câu hỏi) | Hiện gì | Giai đoạn |
 | --- | --- | --- | --- |
 | 1 | Khách đang nợ mình bao nhiêu | Bốn số: Còn nợ · Quá hạn (các tháng, lâu nhất N ngày) · Đến hạn cuối tháng này · Thu tháng này trên phát sinh tháng này. Nhãn mức rủi ro kèm dữ kiện tạo ra nhãn ("trả gần nhất 15/10", "đi hàng gần nhất 29/10") | A |
-| 2 | Nợ đang tăng hay giảm? | 12 tháng gần nhất: cột kép phát sinh (xám) và đã thu (navy), đường Còn nợ cuối tháng; ghi số ở điểm thấp nhất và điểm cuối. Bấm một tháng thì sang Sổ tháng đó | A |
+| 2 | Nợ đang tăng hay giảm? | 12 tháng gần nhất: cột kép phát sinh (xám) và đã thu (navy), đường Còn nợ cuối tháng; ghi số ở điểm thấp nhất và điểm cuối. Bấm một tháng thì ghim, có nút Mở sổ ([`TUONG-TAC-01`](../docs/decisions/tuong-tac-01.md)) | A |
 | 3 | Khách trả có chậm dần không? | Số ngày trả sau hạn của từng tháng nợ trong 12 tháng. Tháng chưa trả đủ ghi "N+ · chưa trả" (đỏ) | B1 |
 | 4 | Khách còn đi hàng không? | Số chuyến mỗi tháng trong 6 tháng, lần đi hàng gần nhất | A |
 | 5 | Còn gì làm số chưa đúng? | Chuyến chưa có giá, chờ kiểm, chuyến/giá/phiếu thu từ Sheet đang chờ, phụ phí PS cần xem. Mỗi dòng mở Sổ đúng chỗ. Kèm câu "Còn nợ ở trên chưa tính các dòng này" | A |
