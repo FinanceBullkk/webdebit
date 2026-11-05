@@ -37,7 +37,7 @@ Cam nền chỉ dành cho chưa có giá. Dòng `differs` mà các khoản cũng
 
 Lọc: Chưa có giá (`no_price`), Đối chiếu bảng kê (`differs`, `no_add`), Chưa có trên bảng kê (`no_detail`). Không có chip "Tất cả"; số 0 thì ẩn; tháng đủ số không hiện chip; lọc không đánh lại STT; lọc thuộc tháng đang xem; hết dòng khớp thì về đủ bảng. Khi lọc Đối chiếu có một dòng báo phần chênh, không gồm chuyến chưa giá. Tự tải lại giữ lọc và dòng đang mở; mỗi lúc mở một dòng.
 
-Chế độ Đủ cột: 15 cột theo thứ tự file, cùng chip lọc; dòng khác `ok` ghi trạng thái bằng chữ thay năm cột tiền, không bung, số bảng kê ở chữ rê chuột.
+Chế độ Đủ cột: 15 cột theo thứ tự file, cùng chip lọc; dòng khác `ok` ghi trạng thái bằng chữ thay năm cột tiền, không bung, số bảng kê ở chữ rê chuột. Ô ETD, ETA không đọc được ngày (gõ nhầm trên bảng kê) hiện dấu `?` viền cam, chữ rê chuột ghi nguyên văn và nhắc sửa trên Sheet; máy không đoán ngày và không cắt bớt chữ, vì `5/110/2026` cắt còn `5/11` là đọc thành ngày khác. Bảng gọn ghi nguyên văn trong phần bung.
 
 `so-khach-bang` trong trình duyệt: `gon` (mặc định, cả giá trị cũ `chi-tiet`), `du`, `so`.
 
@@ -83,8 +83,8 @@ Runner giá ghi `details.json` cạnh `prices.json` từ cùng một lần đọ
 
 ## Tiêu chí nghiệm thu
 
-- [x] `tests/test_v7_detail_queue.py`: hai mẫu, OF trong/ngoài Tổng, dòng tổng, ghép dòng, dùng lại container, ngày đảo, tab không sinh dòng tiền, đủ sáu `state`, cộng được lệch 1đ, phần chênh tháng không gồm chuyến chưa giá.
-- [x] `preview/test-so-khach-v7-detail-browser.js`: cột, màu, chữ từng trạng thái, bung dòng, chip lọc, nhãn "N chưa giá", tháng đủ số, cộng lệch Phát sinh, Đủ cột, nhớ lựa chọn, tự tải lại giữ lọc và dòng mở, đầu bảng dính, `?loc=`, sổ không có bảng.
+- [x] `tests/test_v7_detail_queue.py`: hai mẫu, OF trong/ngoài Tổng, dòng tổng, ghép dòng, dùng lại container, ngày đảo, ô ngày không đọc được giữ nguyên văn, tab không sinh dòng tiền, đủ sáu `state`, cộng được lệch 1đ, phần chênh tháng không gồm chuyến chưa giá.
+- [x] `preview/test-so-khach-v7-detail-browser.js`: cột, màu, chữ từng trạng thái, bung dòng, chip lọc, nhãn "N chưa giá", tháng đủ số, cộng lệch Phát sinh, Đủ cột, ngày gõ nhầm không đè cột, nhớ lựa chọn, tự tải lại giữ lọc và dòng mở, đầu bảng dính, `?loc=`, sổ không có bảng.
 - [x] Khung 1280 và 1265 (thanh cuộn 15px), cả font Verdana: không cuộn ngang, số không tràn cột, vùng bấm ≥40px, dòng ≥44px; đã xem ảnh render dữ liệu giả.
 - [ ] Sau deploy: `details.json` có trên `hao`, sổ thật hiện đúng cột, số nợ không đổi, đối soát không đổi.
 - [ ] Người dùng tự đi hết luồng bảng gọn trên `hao` và xác nhận.

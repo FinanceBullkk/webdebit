@@ -159,8 +159,14 @@
     ? moneyCell(row.fee_vnd, 'dt-own') + moneyCell(row.service_vnd, 'dt-own') + moneyCell(row.truck_vnd, 'dt-own') + ofCell(row) + moneyCell(row.vat_vnd, 'dt-own')
     : statusCell(row, 5);
   const text = value => `<td class="dt-text" title="${escape(value)}">${escape(value)}</td>`;
+  // Cột ngày chỉ đủ chỗ cho dd/mm. Ô gõ nhầm không cắt bớt vì 5/110/2026 cắt còn 5/11 là đọc thành ngày khác.
+  const dayCell = value => {
+    if (!value || /^\d{1,2}\/\d{1,2}$/.test(value)) return `<td>${escape(value)}</td>`;
+    const message = escape(`${KE} ghi ${value}, chưa đọc được ngày. Sửa trên Sheet.`);
+    return `<td class="dt-day-bad" title="${message}" aria-label="${message}">?</td>`;
+  };
   const fullRow = (row, number) => `<tr data-detail="${escape(rowKey(row))}"><td>${row.container ? number : '–'}</td>${containerCell(row)}${text(row.bill)}${text(row.ship)}`
-    + `<td>${escape(row.day)}</td><td>${escape(row.etd)}</td><td>${escape(row.eta)}</td>${text(row.from)}${text(row.to)}${moneyCells(row)}${totalCell(row)}</tr>`;
+    + `<td>${escape(row.day)}</td>${dayCell(row.etd)}${dayCell(row.eta)}${text(row.from)}${text(row.to)}${moneyCells(row)}${totalCell(row)}</tr>`;
   function fullTable(rows, summary, numbered) {
     const legend = `<span><i class="dt-swatch own" aria-hidden="true"></i>Mình thu, tính vào Tổng</span><span><i class="dt-swatch customer" aria-hidden="true"></i>Khách tự trả ${money(summary.of_customer_vnd)}, không tính</span>`;
     return '<table class="detail-table dt-du" aria-label="Bảng chi tiết của tháng"><colgroup><col class="c-stt"><col class="c-cont"><col class="c-bill"><col class="c-ship">'
