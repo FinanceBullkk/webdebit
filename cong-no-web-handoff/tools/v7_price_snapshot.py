@@ -7,7 +7,8 @@ Usage: (--spreadsheet-id ID --credentials SERVICE_ACCOUNT.json | --xlsx SHEET.xl
 
 The runner path reads every tab through the Sheets API (spreadsheets.readonly, the same service
 account as sheet_sync_runner.py); --xlsx builds the same snapshot from a manual export. One read
-feeds both snapshots; the receipt file defaults to receipts.json beside the price file.
+feeds both snapshots; the receipt file defaults to receipts.json beside the price file. The same read also writes details.json
+beside it from the "CHI TIET ..." tabs (SO-CHI-TIET-01, display only).
 
 Read-only on the Sheet side. The price snapshot holds customer-tab trip rows (tab, row, container,
 date, unit price, fees, TOTAL), the receipt snapshot the payment rows (tab, row, month, amount,
@@ -26,6 +27,7 @@ import pathlib
 import tempfile
 
 import sheet_sync_runner as runner
+import v7_detail_queue as details  # web layer, on the path through v7_price_match
 import v7_load_real_copy as loader
 import v7_price_match as match
 import v7_receipt_queue as receipt_queue  # web layer, on the path through v7_price_match
@@ -52,6 +54,20 @@ def build_all_from_api(spreadsheet_id: str, credentials_path: str, token_exchang
     token = token_exchange(runner.load_credentials(credentials_path))
     tabs = sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {}))
     return snapshots(loader.scan_tabs(tabs), {"kind": "sheets_api"})
+
+
+def build_with_details(xlsx: pathlib.Path) -> tuple[dict, dict, dict]:
+    tabs = list(loader.workbook_rows(xlsx))
+    source = {"kind": "xlsx", "xlsx_sha256": hashlib.sha256(xlsx.read_bytes()).hexdigest()}
+    return (*snapshots(loader.scan_tabs(tabs), source), snapshot(details.rows_from_tabs(tabs), source))
+
+
+def build_with_details_from_api(spreadsheet_id: str, credentials_path: str, token_exchange=runner.exchange_token,
+                                opener=None) -> tuple[dict, dict, dict]:
+    token = token_exchange(runner.load_credentials(credentials_path))
+    tabs = list(sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {})))
+    source = {"kind": "sheets_api"}
+    return (*snapshots(loader.scan_tabs(tabs), source), snapshot(details.rows_from_tabs(tabs), source))
 
 
 def build(xlsx: pathlib.Path) -> dict:
@@ -87,18 +103,23 @@ def main(argv=None) -> int:
                         default=pathlib.Path(os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "sheet-prices.json")))
     parser.add_argument("--receipts-output", type=pathlib.Path,
                         default=os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or None)
+    parser.add_argument("--details-output", type=pathlib.Path,
+                        default=os.getenv("WEBDEBIT_DETAIL_SNAPSHOT_PATH") or None)
     args = parser.parse_args(argv)
     if args.spreadsheet_id and not args.credentials:
         parser.error("set --credentials/WEBDEBIT_GOOGLE_CREDENTIALS with --spreadsheet-id")
     try:
-        prices, receipts = build_all(args.xlsx) if args.xlsx else build_all_from_api(args.spreadsheet_id, args.credentials)
+        prices, receipts, detail = (build_with_details(args.xlsx) if args.xlsx
+                                    else build_with_details_from_api(args.spreadsheet_id, args.credentials))
     except (OSError, ValueError, KeyError) as exc:
         print(json.dumps({"ok": False, "reason": type(exc).__name__}))
         return 2
     write(prices, args.output)
     write(receipts, pathlib.Path(args.receipts_output or args.output.with_name("receipts.json")))
+    write(detail, pathlib.Path(args.details_output or args.output.with_name("details.json")))
     print(json.dumps({"ok": True, "row_count": prices["row_count"], "sha256": prices["sha256"],
-                      "receipt_row_count": receipts["row_count"], "receipt_sha256": receipts["sha256"]}))
+                      "receipt_row_count": receipts["row_count"], "receipt_sha256": receipts["sha256"],
+                      "detail_row_count": detail["row_count"]}))
     return 0
 
 

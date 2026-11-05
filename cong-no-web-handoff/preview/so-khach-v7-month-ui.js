@@ -181,21 +181,23 @@
       + `<div class="pay-head">Khách trả trong tháng <span class="pay-count">· ${legacy.filter(line => line.receipt).length + receipts.filter(row => row.voided_by_event == null).length} phiếu</span>${pays ? '' : '<span class="pay-empty">Chưa có phiếu thu</span>'}</div>`
       + `<table class="ledger-inner pay-list${pays ? '' : ' empty'}" aria-label="Tiền khách trả tháng ${monthLabel(key)}">`
       + `<colgroup><col style="width:84px"><col style="width:104px"><col><col style="width:112px"><col style="width:104px"></colgroup><tbody>${pays}</tbody></table></div></td></tr>`;
-    const missing = trips.filter(row => row.is_missing_price && row.status === 'confirmed').length
+    // SO-CHI-TIET-01: sổ có bảng chi tiết thì bảng đó thay bảng chuyến, chỉ để xem; sửa ở bảng sổ (nút trên thanh chuyến).
+    const detailed = ctx.detailOn(data);
+    const missing = detailed ? ctx.detailMissing(data, key) : trips.filter(row => row.is_missing_price && row.status === 'confirmed').length
       + legacy.filter(line => line.trip && line.trip.current?.unit_price_vnd == null && (line.trip.d.flags ?? []).includes('MISSING_PRICE')).length;
     const badge = missing ? `<button type="button" class="month-missing" data-missing-month="${escape(key)}" title="Xem ${missing} chuyến chưa có giá">ⓘ ${missing} chưa giá</button>` : '';
-    const toolbar = `<div class="trip-toolbar"><h3>Chuyến trong tháng <span>· ${sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3><div class="trip-tools"></div></div>`;
+    const toolbar = `<div class="trip-toolbar"><h3>Chuyến trong tháng <span>· ${detailed ? ctx.detailCount(data, key) : sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3>${ctx.detailToggle(data)}<div class="trip-tools"></div></div>`;
     const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
-      + `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
-      + `<tbody>${tripRows}</tbody></table></td></tr>`;
+      + (detailed ? ctx.detailTable(data, key) : `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
+      + `<tbody>${tripRows}</tbody></table>`) + '</td></tr>';
     const feeTotals = model.feeColumnTotals([...legacyRows.filter(row => row.kind === 'trip'),
       ...trips.filter(trip => trip.status === 'confirmed')].map(row => row.fee_lines ?? []), ctx.feeColumnIds);
     const feeTotalCells = [...feeTotals.own, feeTotals.otherVnd].map(value => num(value === null ? '' : model.formatVnd(value), 'fee')).join('');
     return [`<section id="thang-${escape(key)}"><table class="ledger${locked ? ' locked' : ''}" aria-label="Sổ khách tháng ${monthLabel(key)}">`
       + `<colgroup>${columns.all()}</colgroup><tbody>`,
     monthBar(item, key, { locked, active, debit, totals }).replace('Phát sinh <b>', `Phát sinh ${badge}<b>`),
-    `${body}${sheetPendingRows(sheetRows)}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
-    `${subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
+    detailed ? body : `${body}${sheetPendingRows(sheetRows)}${adjustmentRows(adjustments, openHere)}${ghostRows(key)}`,
+    `${detailed ? '' : subtotalRow(item, key, { locked, active, feeTotalCells, totals })}</tbody></table>${toolbar}</section>`].join(GAP);
   }
 
   // Chip một tháng trên thanh tháng: "T9" (ghi năm khi khác năm hiện tại), còn nợ cuối tháng rút gọn, dấu khóa chỉ để xem
