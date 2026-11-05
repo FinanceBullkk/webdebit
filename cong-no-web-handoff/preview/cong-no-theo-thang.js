@@ -254,7 +254,7 @@
     if (!receipts.length) return ledger.opening ? '' : '<p class="note">Không có phiếu thu trên web; đã thu ' + esc(signed(received)) + ' là số theo sổ gốc (Sheet) hoặc cấn trừ — xem sổ khách.</p>';
     const total = F.sum(receipts.map(receipt => receipt.amount_vnd));
     const row = receipt => {
-      const what = [receipt.pid, receipt.reference, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
+      const what = [receipt.pid, CongNoFormat.receiptNote(receipt.reference, receipt.date).label, receipt.counterparty_name ? 'cấn trừ từ ' + receipt.counterparty_name : ''].filter(Boolean).join(' · ');
       const into = (receipt.allocations || []).map(line => line.kind === 'advance' ? 'trả trước' : monthTag(line.month, state.year)).join(', ') || '—';
       return '<tr><td>' + dayMonth(receipt.date) + '</td><td class="wrap">' + esc(what || '—') + '</td><td class="money">' + plain(receipt.amount_vnd) + '</td><td class="wrap">' + esc(into) + '</td></tr>';
     };

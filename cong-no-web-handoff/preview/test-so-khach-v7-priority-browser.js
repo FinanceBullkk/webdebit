@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, viewMonth } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
@@ -151,3 +151,94 @@ test('Ưu tiên: 1265px có ba cột phí; màn hẹp chỉ cuộn ngang trong v
   }
   await shot('uu-tien-390');
 }, world => { world.feeColumns = [1, 2, 3]; }));
+
+// Dữ liệu giả cho danh sách phiếu: ô ngày Sheet lẫn chữ, phiếu chia ba tháng, phiếu máy đặt ngày có mã kỹ thuật.
+const HASH_REF = 'Sheet #' + '5bd3cb'.repeat(10) + ': da tt · ngày theo cuối tháng khối Sheet';
+function payWorld(world) {
+  const debt = (month, amount_vnd) => ({ month, amount_vnd, kind: 'debt', superseded_by_event: null });
+  const sheetPay = (id, raw_date, amount) => ({ id, month: '2026-09-01', kind: 'receipt', source_total_vnd: amount, editable: false,
+    display: { row: id, raw_date, note: raw_date }, current: { counted_vnd: '-' + amount, month: '2026-09-01', deleted: false } });
+  world.locks = [{ month: '2026-09-01', locked: true }];
+  world.legacy.push(sheetPay(41, '16/9/2026 tt', '211000000'), sheetPay(42, 'đã tt', '12000000'), sheetPay(43, '', '3000000'));
+  world.receipts = [
+    { id: 1, pid: 'PH-001', date: '2026-09-30', method: 'THU TIỀN', amount_vnd: '333333333', reference: 'Sheet: 46295', voided_by_event: null,
+      allocations: [debt('2026-04-01', '100000000'), debt('2026-05-01', '200000000'), debt('2026-06-01', '33333333')] },
+    { id: 2, pid: 'PH-002', date: '2026-09-30', method: 'THU TIỀN', amount_vnd: '11000000', reference: HASH_REF, voided_by_event: null, allocations: [debt('2026-04-01', '11000000')] },
+    { id: 3, pid: 'PH-003', date: '2026-09-04', method: 'THU TIỀN', amount_vnd: '5500000000', reference: 'Sheet: 4/9/2026 TT', voided_by_event: null,
+      allocations: [debt('2026-06-01', '1500000'), debt('2026-07-01', '2000000000'), debt('2026-08-01', '3498500000')] },
+  ];
+}
+
+test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi tháng một dòng, số tiền thẳng cột, không hiện mã máy', async () => withPage(async ({ page }) => {
+  for (const width of [1280, 1895]) {
+    await page.setViewportSize({ width, height: 848 });
+    await reload(page);
+    await viewMonth(page, '2026-09');
+    const rows = await page.locator('.pay-list tr').evaluateAll(all => all.map(row => {
+      const cells = [...row.children];
+      const money = cells[4].querySelector('.receipt-sum') ?? cells[4];
+      const range = document.createRange();
+      range.selectNodeContents(money);
+      return { day: cells[0].innerText, note: cells[2].innerText, height: row.getBoundingClientRect().height, right: Math.round(range.getBoundingClientRect().right),
+        clipped: cells.map(cell => cell.scrollWidth > cell.clientWidth).some(Boolean) };
+    }));
+    assert.deepEqual(rows.map(row => [row.day, row.note]), [
+      ['16/09/2026', 'tt'], ['–', 'đã tt'], ['–', ''], ['30/09/2026', '+'], ['30/09/2026', 'da tt · ngày tượng trưng'], ['04/09/2026', 'TT']]);
+    assert.deepEqual(rows.filter(row => row.clipped), [], 'không ô nào bị cắt chữ');
+    assert.equal(new Set(rows.map(row => row.right)).size, 1, 'số tiền sổ gốc và phiếu web thẳng một cột: ' + rows.map(row => row.right));
+    assert.ok(rows[3].height <= 76, 'phiếu chia ba tháng cao ba dòng chữ, không bẻ tháng và số: ' + rows[3].height);
+    assert.equal(rows[4].height, 33, 'phiếu một tháng giữ một dòng');
+    const pairs = await page.locator('tr:has([data-pid="PH-001"]) .alloc-sum').evaluateAll(all => all.map(sum => {
+      const box = sum.getBoundingClientRect(), month = sum.previousElementSibling.getBoundingClientRect();
+      return { right: Math.round(box.right), sameLine: Math.abs(box.top - month.top) < 2 };
+    }));
+    assert.equal(pairs.length, 3);
+    assert.ok(pairs.every(pair => pair.sameLine && pair.right === pairs[0].right), 'tháng và số cùng dòng, số thẳng cột phải');
+    assert.doesNotMatch(await page.locator('.pay-block').innerText(), /Sheet|5bd3cb|46295/);
+  }
+}, payWorld));
+
+test('Sửa tham chiếu phiếu máy ghi: ô sửa không có mã, lưu vẫn giữ mã để máy nhận ra phiếu', async () => withPage(async ({ page }) => {
+  await viewMonth(page, '2026-09');
+  const reference = page.locator('.receipt-ref[data-pid="PH-002"][data-field="reference"]');
+  await reference.click();
+  const input = reference.locator('input');
+  assert.equal(await input.inputValue(), 'da tt');
+  await input.fill('khách chuyển thiếu');
+  const saved = page.waitForRequest(request => request.url().endsWith('/api/v7/receipts/meta'));
+  await input.press('Enter');
+  const sent = (await saved).postDataJSON();
+  assert.equal(sent.pid, 'PH-002');
+  assert.equal(sent.reference, 'Sheet #' + '5bd3cb'.repeat(10) + ': khách chuyển thiếu · ngày theo cuối tháng khối Sheet');
+}, world => {
+  payWorld(world);
+  world.locks = [{ month: '2026-09-01', locked: false }];
+}));
+
+test('Bảng chuyến 1280: tổng phụ phí đậm không dính mép, sổ có Shipper và ba cột riêng không tràn ngang', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await reload(page);
+  await viewMonth(page, '2026-09');
+  const fee = page.locator('.ledger tr.subtotal td.fee').last();
+  assert.match(await fee.innerText(), /^17\.000\.000$/);
+  const fit = await fee.evaluate(cell => {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const text = range.getBoundingClientRect(), box = cell.getBoundingClientRect();
+    return { left: text.left - box.left, right: box.right - text.right, width: box.width };
+  });
+  assert.ok(fit.width >= 100, 'cột Khác đủ rộng: ' + fit.width);
+  // Máy CI Ubuntu không có Segoe UI, chữ đậm rộng hơn hẳn: đo sát mép ở nơi có font thật của người dùng.
+  if (process.platform === 'win32') assert.ok(fit.left >= 4 && fit.right >= 8, 'số không dính mép: ' + JSON.stringify(fit));
+  const widths = await page.evaluate(() => ({ page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    table: document.querySelector('.ledger-head').getBoundingClientRect().right - document.querySelector('.trip-card').getBoundingClientRect().right }));
+  assert.equal(widths.page, 0);
+  assert.ok(widths.table <= 0, 'bảng nằm trong thẻ: ' + widths.table);
+}, world => {
+  world.feeTypes.push({ id: 20, name: 'Neo', kind: 'service', sign: 'positive', active: true, sort: 20 },
+    { id: 21, name: 'Ghép', kind: 'service', sign: 'positive', active: true, sort: 21 },
+    { id: 22, name: 'Health + KĐ', kind: 'service', sign: 'positive', active: true, sort: 22 });
+  world.feeColumns = [20, 21, 22];
+  world.legacy[1].fee_lines = [{ id: 501, fee_type_id: 9, amount_vnd: '17000000', note: null }];
+  world.legacy[1].current.other_fee_vnd = '17000000';
+}));

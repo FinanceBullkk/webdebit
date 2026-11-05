@@ -70,7 +70,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   assert.deepEqual(await page.locator('#the-trao-doi .ct-item.voided s').allInnerTexts(), ['50.000.000 đ']);
   assert.equal(await page.locator('#the-trao-doi .ct-item a', { hasText: 'Sổ Bên Kia' }).getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   // Cùng nguồn với thẻ Sổ: phần trừ nợ của PH-003 ở danh sách phiếu tháng 11 ghi đúng các tháng đó.
-  assert.equal(await page.locator('#thang-2026-11 tr:has([data-pid="PH-003"]) .receipt-allocation').innerText(), 'Trừ nợ T7/2026 8.000.000 · T8/2026 22.000.000');
+  assert.equal(await page.locator('#thang-2026-11 tr:has([data-pid="PH-003"]) .receipt-allocation').innerText().then(text => text.replace(/\s+/g, ' ')), 'Trừ nợ T7/2026 8.000.000 T8/2026 22.000.000');
   // Hội thoại tìm theo tên Sheet của sổ; hội thoại khác tên không hiện. Mở chat mở trang Chat Zalo lọc theo tên.
   assert.deepEqual(world.chatReads, ['Khách Thử Sửa']);
   const name = encodeURIComponent('Khách Thử Sửa');
