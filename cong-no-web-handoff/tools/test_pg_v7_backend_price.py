@@ -6,6 +6,7 @@ from pg_v7_harness import (
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
+    GIA_TU_DOI_MIGRATION,
     KHOA_CHU_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
@@ -169,23 +170,63 @@ def check_price_table(pg):
     require(status[ids["D"]]["from_table"] and not status[ids["B"]]["from_table"] and status[ids["B"]]["differs"],
             "price source after fee/manual edit wrong")
 
-    # Editing the table never rewrites a recorded trip; it only counts table-priced trips to re-apply.
-    saved = call(pg, "save_price_table", c, version(pg, c), "price-save-2", json.dumps(_table(p2_khach_daklak="76")))
-    require(saved["affected_trips"] == 2, f"affected trips wrong: {saved['affected_trips']}")
+    # BANG-GIA-02: saving the table reprices table-priced trips in the same command; typed prices and other periods stay.
+    before_total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
+    v = version(pg, c)
+    table_76 = json.dumps(_table(p2_khach_daklak="76"))
+    saved = call(pg, "save_price_table", c, v, "price-save-2", table_76)
+    require(call(pg, "save_price_table", c, v, "price-save-2", table_76) == saved, "reprice retry changed")
+    require(saved["version"] == v + 1, "reprice bumped the version more than once")
+    require([(t["trip_id"], t["container"], t["before_vnd"], t["after_vnd"]) for t in saved["repriced_trips"]]
+            == [(ids["C"], "PRICE-C", "75", "76"), (ids["D"], "PRICE-D", "75", "76")],
+            f"repriced trips wrong: {saved['repriced_trips']}")
+    require((saved["repriced_delta_vnd"], saved["affected_trips"], saved["locked_trips"], saved["no_price_trips"])
+            == ("2", 0, 0, 0), f"reprice summary wrong: {saved}")
     ledger = {t["id"]: t for t in call(pg, "get_ledger", c)["trips"]}
-    require(ledger[ids["C"]]["unit_price_vnd"] == "75", "table edit rewrote a trip")
-    require(call(pg, "get_price_status", c)["reapply_count"] == 2, "reapply count wrong")
+    require([(ledger[ids[k]]["unit_price_vnd"], ledger[ids[k]]["other_fee_vnd"]) for k in "ABCDG"]
+            == [("95", None), ("86", None), ("76", "5"), ("76", "7"), ("100", None)],
+            "reprice changed the wrong trips or lost a fee")
+    require(int(call(pg, "get_ledger", c)["total_outstanding_vnd"]) == before_total + 2, "reprice balance wrong")
+    status = {t["trip_id"]: t for t in call(pg, "get_price_status", c)["trips"]}
+    require(status[ids["C"]]["from_table"] and not status[ids["C"]]["differs"]
+            and call(pg, "get_price_status", c)["reapply_count"] == 0, "repriced trip must stay a table price")
+    require(pg.value(f"SELECT string_agg(kind,',' ORDER BY id) FROM sokhach.event WHERE customer_id={c} "
+                     "AND idempotency_key='price-save-2'") == "price_table_edit,price_table_apply",
+            "reprice must write the table edit then one apply event")
+
+    # Locked month: nothing changes, the count says why, and re-apply still works once unlocked.
+    pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-01-01'")
+    saved = call(pg, "save_price_table", c, version(pg, c), "price-save-locked", json.dumps(_table(p2_khach_daklak="77")))
+    require((saved["repriced_trips"], saved["repriced_delta_vnd"], saved["locked_trips"], saved["affected_trips"])
+            == ([], "0", 2, 2), f"locked save summary wrong: {saved}")
+    fixture_open_month(pg, c, "2026-01-01")
+    ledger = {t["id"]: t for t in call(pg, "get_ledger", c)["trips"]}
+    require(ledger[ids["C"]]["unit_price_vnd"] == "76", "save rewrote a locked month")
+    require(call(pg, "get_price_status", c)["reapply_count"] == 2, "unlocked month must offer re-apply")
+    call(pg, "apply_price_table", c, version(pg, c), "price-reapply", json.dumps([ids["C"], ids["D"]]))
+
+    # A reprice reallocates receipts like any price edit: overpayment moves onto the higher price.
+    total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
+    call(pg, "record_receipt", c, version(pg, c), "price-receipt", "2026-01-15", "THU TIỀN", total + 10)
+    saved = call(pg, "save_price_table", c, version(pg, c), "price-save-receipt", json.dumps(_table(p2_khach_daklak="78")))
+    require(len(saved["repriced_trips"]) == 2 and len(saved["reallocated"]) == 1,
+            f"reprice did not reallocate the receipt: {saved['reallocated']}")
     edit = pg.value(f"SELECT (\"before\"->'price_table'->'periods'->1->'rates'->0->>'unit_price_vnd') || '>' || "
                     f"(\"after\"->'price_table'->'periods'->1->'rates'->0->>'unit_price_vnd') FROM sokhach.event "
                     f"WHERE customer_id={c} AND kind='price_table_edit' ORDER BY id DESC LIMIT 1")
-    require(edit == "75>76", f"price table event before/after wrong: {edit}")
+    require(edit == "77>78", f"price table event before/after wrong: {edit}")
     pg.rejects(f"DELETE FROM sokhach.trip_price_source WHERE customer_id={c}", message="immutable row")
 
     # An empty table removes the book's table; lookups say so instead of guessing.
-    call(pg, "save_price_table", c, version(pg, c), "price-clear",
-         json.dumps({"tt_shippers": [], "locations": [], "periods": []}))
+    prices = {t["id"]: t["unit_price_vnd"] for t in call(pg, "get_ledger", c)["trips"]}
+    saved = call(pg, "save_price_table", c, version(pg, c), "price-clear",
+                 json.dumps({"tt_shippers": [], "locations": [], "periods": []}))
     require(all(t["lookup"] == {"reason": "NO_TABLE"} for t in call(pg, "get_price_status", c)["trips"]),
             "cleared table still prices")
+    # BANG-GIA-02: no price in the new table keeps the recorded price (never blank, never 0) and says how many.
+    require((saved["repriced_trips"], saved["no_price_trips"], saved["locked_trips"], saved["affected_trips"]) == ([], 3, 0, 3),
+            f"cleared table summary wrong: {saved}")
+    require({t["id"]: t["unit_price_vnd"] for t in call(pg, "get_ledger", c)["trips"]} == prices, "cleared table changed a price")
     reject_call(pg, "get_price_status", 10 ** 12, error="CUSTOMER_NOT_FOUND")
     check_price_migration(pg)
     return "price table lookup, save guards, batch apply, source tracking and migration passed"
@@ -210,6 +251,7 @@ def check_price_migration(pg):
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # bản paste_trips hiện hành (1/11)
     pg.sql(CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8"))  # bản list_legacy_trip_refs hiện hành (4/11)
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8"))  # bản save_price_table hiện hành (5/11)
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -247,7 +289,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

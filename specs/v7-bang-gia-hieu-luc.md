@@ -1,6 +1,6 @@
 # V7: bảng giá theo ngày hiệu lực
 
-Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Claude làm cả backend và giao diện theo [`CLAUDE-ALL-01`](../docs/decisions.md#claude-all-01); không cần mockup Penpot. Chưa code, chưa đổi schema.
+Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Claude làm cả backend và giao diện theo [`CLAUDE-ALL-01`](../docs/decisions.md#claude-all-01); không cần mockup Penpot. **Từ 5/11/2026 theo [`BANG-GIA-02`](../docs/decisions.md#bang-gia-02): lưu bảng giá thì chuyến đang theo bảng tự đổi giá**, các mục dưới đã sửa theo; phần lịch sử giai đoạn 2 giữ nguyên như đã làm lúc đó.
 
 ## Vì sao làm
 
@@ -17,7 +17,7 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 | Kho chỉ có giá TT, trống giá khách: chuyến shipper khác ra ô trống/0 | Thiếu giá là NULL, cờ thiếu giá như hiện nay |
 | Hai dòng chồng ngày: dòng trên thắng, không báo | Chặn lưu khi chồng ngày |
 | Vùng tra cố định theo số dòng; thêm dòng ngoài vùng bị bỏ | Bảng giá là dữ liệu riêng, không giới hạn số dòng |
-| Sửa bảng giá là tính lại giá mọi chuyến cũ | Giá đã ghi vào chuyến giữ nguyên; sửa bảng chỉ tạo đề xuất áp lại |
+| Sửa bảng giá là tính lại giá mọi chuyến cũ, kể cả tháng cũ và giá đã sửa tay | Chỉ chuyến đang theo bảng ở tháng mở tự đổi (`BANG-GIA-02`); tháng khóa và giá gõ tay giữ nguyên |
 
 ## Người dùng và luồng (bước 1)
 
@@ -34,7 +34,8 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 | Nhập/dán chuyến | Như [`v7-nhap-kieu-sheet.md`](v7-nhap-kieu-sheet.md). Ô Đơn giá trống thì web **tự điền giá theo bảng**, chữ nghiêng kèm nhãn "theo bảng" cho đến khi Lưu | 0 thêm |
 | Áp giá cho chuyến đã có mà chưa có giá | Đầu sổ: "**Áp giá theo bảng cho N chuyến**" → khung xác nhận dưới đầu sổ (số chuyến, tổng tăng, tháng bị ảnh hưởng) → **Ghi** | 2 |
 | Thấy chuyến lệch bảng giá | Ô Đơn giá tô màu kèm chữ "khác bảng giá: 85.000.000"; bấm thì thấy dòng bảng giá đã tra | 1 |
-| Sửa bảng giá sau khi đã ghi chuyến | Lưu bảng giá → web báo "N chuyến đã ghi theo giá cũ" → **Áp lại giá mới cho N chuyến** hoặc **Giữ giá đã ghi** | 2 |
+| Sửa bảng giá sau khi đã ghi chuyến | **Lưu bảng giá** → chuyến đang theo bảng ở tháng mở tự đổi; web báo từng chuyến giá cũ → mới và tổng tiền đổi (`BANG-GIA-02`) | 1 |
+| Áp giá cho chuyến theo bảng còn lệch (tháng vừa mở khóa, chuyến vừa sửa ngày/nơi đi/shipper) | Đầu sổ: **Áp lại giá mới** → khung hỏi lại → **Áp N giá** | 2 |
 
 **Kết quả:** chuyến của khách có bảng giá được điền đúng giá theo kho, ngày xe nhập kho và nhóm shipper, không phải gõ lại; mọi chỗ không chắc chắn để trống và hiện lý do.
 
@@ -56,7 +57,7 @@ Công thức Sheet hiện có mấy chỗ dễ sai, web phải tránh (đọc c�
 
 - Mỗi sổ khách có thể có **một bảng giá**: các đợt giá (hiệu lực từ, hiệu lực đến), mỗi đợt nhiều dòng kho đi × nhóm giá; danh sách shipper theo nhóm; tên khác của kho.
 - Khi nhập/dán chuyến, đơn giá trống được điền theo bảng; đơn giá người nhập gõ hoặc dán luôn thắng.
-- Chuyến ghi giá theo bảng lưu kèm **nguồn** (dòng bảng giá đã dùng); sửa bảng giá không đổi chuyến đã ghi, chỉ tạo đề xuất áp lại.
+- Chuyến ghi giá theo bảng lưu kèm **nguồn** (dòng bảng giá đã dùng); lưu bảng giá thì các chuyến này tự đổi theo giá mới (`BANG-GIA-02`).
 - Sổ khách hiện cờ "khác bảng giá" khi đơn giá đang ghi khác giá tra được; cờ chỉ tô màu, không chặn (như các cờ V7-BE).
 - Lịch sử ghi mọi thay đổi bảng giá (trước → sau, người làm) và mọi lần áp giá ("Nguồn: bảng giá, đợt từ …").
 - Trong lúc chạy song song: hàng chờ giá từ Sheet ([`v7-price-queue.md`](v7-price-queue.md)) hiện thêm giá theo bảng khi khác giá Sheet, để bắt lỗi shipper/ngày trên Sheet.
@@ -107,7 +108,7 @@ Tra giá là hàm đọc thuần ở DB (`sokhach._lookup_price`), dùng chung c
 ## Hành vi và bất biến
 
 - **Gõ tay thắng.** Đơn giá người nhập gõ/dán, hoặc ghi từ Sheet, không bao giờ bị bảng giá ghi đè; chỉ ô trống mới được điền.
-- **Không tự sửa chuyến đã ghi.** Sửa/xóa đợt giá không đổi `trip_price_rev` nào. Web chỉ đếm chuyến ghi theo dòng bị đổi và mời áp lại; áp lại là một lệnh ghi giá bình thường (phân bổ lại phiếu theo nợ cũ trước, Lịch sử, chặn tháng khóa).
+- **Chuyến đang theo bảng tự đổi khi lưu bảng** (`BANG-GIA-02`, thay "không tự sửa chuyến đã ghi"). Trong cùng lệnh `save_price_table`: chuyến đang theo bảng, đã tính vào sổ, tháng mở, tra được giá mới thì đổi; một event `price_table_apply`, phân bổ lại phiếu theo nợ cũ trước. Tháng khóa không đổi, chỉ đếm; mở khóa rồi bấm "Áp lại giá mới". Bảng mới không còn giá thì giữ giá đang ghi, không thành trống hay 0, chỉ đếm.
 - **NULL không phải 0.** Không tra được → đơn giá NULL, cờ thiếu giá như hiện nay; không điền 0. Giá 0 trong bảng là giá thật 0 (theo `PRICE-ZERO` chỉ cảnh báo).
 - Ngày tra là **ngày xe nhập kho** (`DATE`), không phải ngày ghi sổ hay ngày dán. Đổi ngày chuyến (sang tháng khác theo `NHAP-SHEET-01`) mà giá đang là giá theo bảng: web tra lại và hiện đề xuất, không tự đổi.
 - Không áp lên opening/lịch sử (`legacy_row`) và không phân bổ lại opening.
@@ -120,7 +121,7 @@ Tra giá là hàm đọc thuần ở DB (`sokhach._lookup_price`), dùng chung c
 Mọi lệnh ghi theo khuôn V7: `customer_id`, `expected_version`, `idempotency_key`, người làm lấy từ phiên máy chủ; lệnh ghi tăng `version` của sổ.
 
 - `GET /api/v7/price-table?customer=` → `get_price_table`: `{customer_id, version, price_table, book_shippers}`. `price_table` = `{tt_shippers: [tên], locations: [{name, aliases: [tên]}], periods: [{valid_from, valid_to, rates: [{location, tier, unit_price_vnd}]}]}` (tiền là chuỗi). `book_shippers` = shipper đang có trong sổ kèm `tier` đang áp và số chuyến, để soát tên viết lệch.
-- `POST /api/v7/price-table` → `save_price_table(customer_id, expected_version, idempotency_key, price_table)`: thay cả bảng, đúng hình dạng như `GET` trả (`valid_to` null được; `aliases` tùy chọn; `rates[].location` là tên kho chuẩn). Bảng rỗng là xóa bảng giá của sổ. Trả `{price_table, affected_trips, version}`; `affected_trips` = chuyến đang theo bảng mà giá tra mới khác đơn giá đang ghi (không đổi chuyến nào). Lỗi: `INVALID_PRICE_TABLE`, `PRICE_INVALID_PERIOD`, `PRICE_INVALID_AMOUNT`, `PRICE_UNKNOWN_LOCATION`, `PRICE_DUPLICATE_ALIAS`, `PRICE_DUPLICATE_SHIPPER`, `PRICE_DUPLICATE_RATE`, `PRICE_PERIOD_OVERLAP`, `NO_CHANGE`, `STALE_LEDGER`, `IDEMPOTENCY_CONFLICT`.
+- `POST /api/v7/price-table` → `save_price_table(customer_id, expected_version, idempotency_key, price_table)`: thay cả bảng, đúng hình dạng như `GET` trả (`valid_to` null được; `aliases` tùy chọn; `rates[].location` là tên kho chuẩn). Bảng rỗng là xóa bảng giá của sổ. Trả `{price_table, repriced_trips, repriced_delta_vnd, locked_trips, no_price_trips, affected_trips, reallocated, version}` (`BANG-GIA-02`): `repriced_trips` = `[{trip_id, container, before_vnd, after_vnd}]` chuyến vừa tự đổi, `repriced_delta_vnd` = tổng đơn giá đổi (chuỗi, có thể âm), `locked_trips`/`no_price_trips` = chuyến đang theo bảng vẫn lệch vì tháng khóa/bảng mới không còn giá, `affected_trips` = tổng hai số đó (giữ cho release cũ đọc được). Lỗi: `INVALID_PRICE_TABLE`, `PRICE_INVALID_PERIOD`, `PRICE_INVALID_AMOUNT`, `PRICE_UNKNOWN_LOCATION`, `PRICE_DUPLICATE_ALIAS`, `PRICE_DUPLICATE_SHIPPER`, `PRICE_DUPLICATE_RATE`, `PRICE_PERIOD_OVERLAP`, `NO_CHANGE`, `STALE_LEDGER`, `IDEMPOTENCY_CONFLICT`.
 - `GET /api/v7/price-table/status?customer=` → `get_price_status`: `{customer_id, version, has_table, trips: [{trip_id, unit_price_vnd, from_table, lookup, ready, differs}], ready_count, ready_total_vnd, ready_months, reapply_count}`. `lookup` là `{unit_price_vnd, tier, location, valid_from, valid_to}` hoặc `{reason}` với `NO_TABLE`, `NO_DATE`, `NO_ORIGIN`, `UNKNOWN_LOCATION`, `NO_PERIOD`, `NO_RATE`. `ready` = chuyến đã tính vào sổ, tháng mở, chưa có đơn giá, tra được. `differs` = đơn giá đang ghi khác giá tra được (cờ "khác bảng giá"). `ready_total_vnd` = tổng tăng thêm khi áp (đơn giá + phụ phí, phụ phí trống tính 0 theo `V7-BE`).
 - `POST /api/v7/price-table/apply` → `apply_price_table(customer_id, expected_version, idempotency_key, trip_ids)`: 1–500 chuyến, tất cả hoặc không. Server tra lại, không nhận giá từ client; giữ nguyên phụ phí; một `event`, phân bổ lại một lần. Lỗi: `TRIP_NOT_FOUND` (kể cả dòng phí lẻ không container), `TRIP_PENDING_REVIEW`, `MONTH_LOCKED`, `PRICE_NOT_FOUND`, `NO_CHANGE`, `INVALID_TRIPS`, `STALE_LEDGER`.
 - Không đổi `get_ledger` và `paste_trips`. Dán lô để trống đơn giá như hiện nay; giao diện gọi `apply_price_table` cho các chuyến mới chưa có giá (ô người gõ giữ nguyên vì chuyến đó đã có giá). Thay cho cờ `price_from_table` trong bản đề xuất.
@@ -156,7 +157,7 @@ Người dùng trả lời trong chat 29/10/2026; ghi ở [`BANG-GIA-01`](../doc
 
 - [x] Harness PostgreSQL: tra đúng theo đợt ở hai đầu ngày (`valid_from`, `valid_to`, `valid_to` NULL); shipper của TT ra giá TT, shipper khác và shipper trống ra giá khách, tên viết khác khoảng trắng/hoa thường vẫn khớp; tên khác kho; mỗi lý do không có giá ra đúng mã và đơn giá NULL.
 - [x] Lưu bảng giá chồng ngày bị `PRICE_PERIOD_OVERLAP`; bảng giữ nguyên.
-- [x] Sửa đợt giá không đổi `trip_price_rev` nào; `affected_trips` đếm đúng.
+- [x] (`BANG-GIA-02`) Lưu bảng: chuyến đang theo bảng ở tháng mở đổi giá, giữ phụ phí, phân bổ lại phiếu, Lịch sử có hai event cùng khóa lệnh; gọi lặp không ghi hai lần. Giá gõ tay và chuyến ở đợt khác không đổi; tháng khóa không đổi và `locked_trips` đếm đúng, mở khóa áp lại được; bảng mới không còn giá thì giữ giá và `no_price_trips` đếm đúng (harness `BANG-GIA.01`).
 - [x] `apply_price_table`: ghi giá, phân bổ lại phiếu theo nợ cũ trước, Lịch sử có nguồn; chặn CHỜ KIỂM, tháng khóa; gọi lặp cùng `idempotency_key` không ghi hai lần.
 - [x] Dán lô (giai đoạn 2): ô gõ tay giữ nguyên; chuyến mới chưa có giá vào nút "Áp giá theo bảng" sau khi lưu lô (test trình duyệt, máy chủ giả).
 - [ ] `npm run check` xanh.
