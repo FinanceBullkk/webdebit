@@ -191,8 +191,9 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .ledger tr.just-saved td{background:#d6f5df!important;transition:background .6s}
 /* SO-GON-04 (H6): hỏi một câu trước khi khóa/mở khóa tháng, ngay dưới nút đã bấm. */
 .lock-ask td,div.lock-ask,li.lock-ask{padding:8px 10px;background:#fff3c4;color:#452600;font-size:15px;font-weight:600}
-li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-.lock-ask button{min-height:36px;margin-left:8px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;cursor:pointer}
+div.lock-ask,li.lock-ask{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.lock-ask button{min-height:36px;margin-left:8px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;white-space:nowrap;cursor:pointer}
+div.lock-ask button,li.lock-ask button{margin-left:0}
 .lock-ask .lock-yes{border-color:#145fa9;background:#145fa9;color:#fff}
 .lock-ask button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .pay-list .void-prompt td{height:auto;padding:6px;background:transparent}
