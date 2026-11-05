@@ -27,7 +27,7 @@ const SoKhachV7Ctx = (() => {
     empty: ['core', 'hàm', 'trips', 'ô <td> trống'],
     spanOf: ['core', 'hàm', 'edit offset sheet', 'số cột của bảng chứa một hàng (để chèn hàng trải hết bảng)'],
     dateText: ['core', 'hàm', 'contact edit entry fee history images month offset pay price ps sheet trips', 'yyyy-mm-dd → dd/mm/yyyy'],
-    sheetDay: ['core', 'hàm', 'pay trips', 'ngày trong ô Sheet (số ngày Excel, ISO có giờ) → dd/mm/yyyy'],
+    sheetDay: ['core', 'hàm', 'trips', 'ngày trong ô Sheet (số ngày Excel, ISO có giờ) → dd/mm/yyyy'],
     dateInput: ['core', 'hàm', 'edit offset', 'dd/mm/yyyy gõ vào → yyyy-mm-dd'],
     monthKey: ['core', 'hàm', 'contact edit entry fee history loc month overview pay price ps receipts sheet', 'ngày/tháng → "yyyy-mm"'],
     monthLabel: ['core', 'hàm', 'contact debit edit entry history month overview pay price ps sheet', '"yyyy-mm" → "7/2026"'],

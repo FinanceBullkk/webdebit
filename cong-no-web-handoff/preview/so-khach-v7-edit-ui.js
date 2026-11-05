@@ -247,7 +247,7 @@
             + `<div class="void-actions"><button type="button" class="cancel-void">Bỏ qua</button><button type="button" class="confirm-void">Hủy phiếu</button></div></div></td></tr>`);
           row.nextElementSibling.querySelector('input').focus(); return;
         }
-        receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(ctx.snapshot.receipts.find(item => item.pid === pid)?.reference)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
+        receipt.innerHTML = field === 'reference' ? `<input class="saved-receipt-input" aria-label="Sửa tham chiếu" maxlength="500" value="${escape(CongNoFormat.receiptNote(ctx.snapshot.receipts.find(item => item.pid === pid)?.reference).text)}">` : field === 'date' ? `<input class="saved-receipt-input" aria-label="Sửa ngày trả" value="${escape(receipt.textContent)}"><span class="cell-error receipt-date-error" role="status"></span>` :
           `<select class="saved-receipt-input" aria-label="Sửa hình thức">${methods.map(method => `<option${method === receipt.textContent ? ' selected' : ''}>${method}</option>`).join('')}</select>`;
         const input = receipt.querySelector('.saved-receipt-input'); input.focus();
         receipt.classList.add?.('receipt-cancel-edit');
@@ -256,7 +256,9 @@
           if (keyEvent.key === 'Escape') { receipt.innerHTML = original; receipt.classList.remove?.('receipt-cancel-edit'); receipt.focus?.(); return; }
           if (keyEvent.key === 'Enter') {
             keyEvent.preventDefault();
-            const result = await submit('receiptMeta', { pid, [field]: field === 'date' ? dateInput(input.value) : input.value });
+            const value = field === 'date' ? dateInput(input.value)
+              : field === 'reference' ? CongNoFormat.receiptReference(ctx.snapshot.receipts.find(item => item.pid === pid)?.reference, input.value) : input.value;
+            const result = await submit('receiptMeta', { pid, [field]: value });
             if (field === 'date' && result?.message) receipt.querySelector('.receipt-date-error').textContent = result.message;
           }
         }); return;
@@ -300,7 +302,8 @@
       const row = button.closest('tr'), item = button.closest('li');
       if (row) row.insertAdjacentHTML('afterend', `<tr class="lock-ask"><td colspan="${spanOf(row)}">${body}</td></tr>`);
       else if (item) item.insertAdjacentHTML('afterend', `<li class="lock-ask">${body}</li>`);
-      else button.insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
+      // Ổ khóa nằm trong nhóm nút icon (.trip-tools, nút rộng cố định): dòng hỏi đứng riêng dưới cả thanh công cụ.
+      else (button.closest('.trip-toolbar') || button).insertAdjacentHTML('afterend', `<div class="lock-ask">${body}</div>`);
       lockFrom = { button, spot: markOf(button) };
       root.querySelector('.lock-ask .lock-yes')?.focus();
     }

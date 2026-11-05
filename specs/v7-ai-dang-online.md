@@ -56,7 +56,7 @@ Module mới `web/v7_presence.py` (thuần Python, không DB), hai route mới t
 - `tab`: chuỗi ngẫu nhiên tạo một lần mỗi tab. `page` ∈ `dashboard | cong-no-theo-thang | so-khach | sheet-queue`. `cell`, `pointer` có thể `null`. `fx`, `fy` là vị trí trong ô tính theo phần nghìn (số nguyên 0–1000, không dùng số thực).
 - Server tự gắn `actor` và giờ nhận; bỏ trường lạ; thân > 2 KB hoặc sai kiểu → 400. Trả `200` kèm danh sách người khác như luồng SSE (`{"people": […]}`), nên nhịp giữ chỗ cũng là đường dự phòng khi mất SSE. Một actor tối đa 20 tab, cả server 200 tab; vượt thì `429`.
 - Gửi khi: mở trang; đổi ô chọn / bắt đầu hoặc thôi gõ (ngay, gộp 150 ms); chuột di trên bảng (tối đa 5 lần/giây, chỉ khi có di chuyển); nhịp giữ chỗ mỗi 10 giây; `pagehide` gửi `page: null` qua `sendBeacon`.
-- Tab ẩn (`document.hidden`) thì bỏ `pointer`, giữ nhịp 10 giây.
+- Tab ẩn (`document.hidden`) thì bỏ `pointer`, giữ nhịp 10 giây (trình duyệt có thể làm chậm tới một phút). Đổi giữa ẩn và hiện thì báo ngay.
 
 **`GET /api/v7/presence/stream`** — SSE, server đẩy danh sách người khác.
 
@@ -69,7 +69,9 @@ data: {"people":[{"id":"a1","name":"lan","color":3,"page":"so-khach","customer_i
 - Mỗi lần đẩy là **toàn bộ** danh sách (không gửi phần chênh), nên mất một gói không sao. `id` là mã ổn định theo actor + tab, không lộ login; `name` là tên hiển thị; `color` là chỉ số 0–7 tính từ actor.
 - Người mở sổ khách nhận `cell`/`pointer` của người cùng sổ; người ở trang khác chỉ nhận `page`, `customer_id`, `month`.
 - Tối đa 10 lần đẩy/giây mỗi luồng (gộp thay đổi). Không có gì mới thì 15 giây gửi một dòng chú thích `: ping` để giữ kết nối.
-- Hết hạn: không nghe báo 30 giây thì người đó biến mất; `pointer` cũ hơn 3 giây thì ẩn mũi tên.
+- Hết hạn: không nghe báo 90 giây thì người đó biến mất; `pointer` cũ hơn 15 giây thì ẩn mũi tên, chuột đứng yên vẫn được nhịp 10 giây giữ lại. Sửa 5/11/2026: số cũ 30 giây và 3 giây làm tab ẩn lâu có 30 giây, mất 30 giây (Chrome chạy hẹn giờ của tab đó mỗi phút một lần, đo trên `hao` chu kỳ đúng 60 giây) và mũi tên đứng yên hiện 3 giây, tắt 7 giây.
+- Danh sách theo thứ tự vào web, không theo lần báo gần nhất, để dãy vòng tròn không xáo khi có người di chuột.
+- Cột của `cell`/`pointer` kèm chữ cho biết bảng: `c` bảng sổ, `g` chi tiết gọn, `d` chi tiết đủ cột. Hai người xem hai bảng khác nhau thì mũi tên chỉ về ô container của đúng dòng. Khác tháng thì không có dòng trên màn nên không có mũi tên; chú thích vòng tròn ghi tháng họ đang xem.
 - Giới hạn 40 luồng SSE cả server, 6 luồng mỗi actor; vượt thì trả `503`. Trình duyệt mất SSE thì chuyển sang hỏi `GET /api/v7/presence?tab=…` (cùng dữ liệu, JSON) mỗi 2 giây, chỉ còn mức 1, thử nối lại SSE sau 30 giây.
 - Luồng SSE là luồng daemon; tắt server không chờ chúng.
 
@@ -92,7 +94,7 @@ data: {"people":[{"id":"a1","name":"lan","color":3,"page":"so-khach","customer_i
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tests/test_v7_presence.py`: hết hạn 30 giây/3 giây; gộp theo actor + tab; lọc `cell`/`pointer` theo sổ; bỏ trường lạ, chặn thân lớn; giới hạn luồng SSE trả 503; actor lấy từ server dù thân gửi kèm tên.
+- [ ] `tests/test_v7_presence.py`: hết hạn 90 giây/15 giây; gộp theo actor + tab; lọc `cell`/`pointer` theo sổ; bỏ trường lạ, chặn thân lớn; giới hạn luồng SSE trả 503; actor lấy từ server dù thân gửi kèm tên.
 - [ ] Test luồng SSE trên server thật cục bộ: hai client, một bên POST, bên kia nhận `event: presence` ≤ 1 giây; ngắt client không giữ luồng quá 15 giây.
 - [ ] Test trình duyệt (Playwright, máy chủ giả): hai trang cùng sổ, khác cỡ cửa sổ (1280×720 và 1920×1080) và vị trí cuộn; mũi tên và viền ô của trang A hiện đúng ô ở trang B; tháng đang thu gọn ở B thì hiện ở tiêu đề tháng; nút Ẩn con trỏ nhớ sau tải lại; mất SSE chuyển sang hỏi định kỳ.
 - [ ] `npm run check` xanh.

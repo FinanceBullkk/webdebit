@@ -143,6 +143,59 @@ const CongNoFormat = (() => {
    *  Không bao giờ hiện chữ của trình duyệt ("Failed to fetch") hay mã lỗi (audit UX 31/10/2026). */
   const loadError = what => `Không tải được ${what}. Kiểm tra mạng rồi bấm Thử lại.`;
 
+  /** Đọc ngày trong ô chữ của Sheet, cùng luật với pay_date (web/v7_receipt_queue.py) và sokhach._legacy_pay_date: số ngày Excel
+   *  cả ô, ISO ở đầu, dd/mm/yyyy ở đầu hoặc giữa chữ. Trả { day: "dd/mm/yyyy", rest: chữ còn lại, serial: ô là số ngày Excel };
+   *  ngày không có thật hoặc không đọc được thì day rỗng và rest là nguyên chữ: không đoán, không mất chữ người gõ. */
+  function sheetDate(value) {
+    const text = String(value ?? '').trim();
+    const pad = number => String(number).padStart(2, '0');
+    const read = (year, month, day, rest, serial = false) => {
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return { day: '', rest: text, serial: false };
+      return { day: pad(day) + '/' + pad(month) + '/' + year, rest: rest.replace(/\s+/g, ' ').replace(/^[\s\-–:,·]+|[\s\-–:,·]+$/g, ''), serial };
+    };
+    const whole = /^(\d{5})(?:\.0+)?$/.exec(text);
+    if (whole && Number(whole[1]) >= 20000 && Number(whole[1]) <= 80000) {
+      const date = new Date(Date.UTC(1899, 11, 30) + Number(whole[1]) * 86400000);
+      return read(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), '', true);
+    }
+    const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)(?:[ T]\d\d:\d\d(?::\d\d(?:\.\d+)?)?)?/.exec(text);
+    if (iso) return read(Number(iso[1]), Number(iso[2]), Number(iso[3]), text.slice(iso[0].length));
+    const dmy = /(?<!\d)(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)/.exec(text);
+    if (dmy) return read(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]), text.slice(0, dmy.index) + ' ' + text.slice(dmy.index + dmy[0].length));
+    return { day: '', rest: text, serial: false };
+  }
+
+  // Tiền tố và đuôi máy ghi vào tham chiếu phiếu (reference, review_reference, NO_DATE_NOTE ở web/; "ngày tượng trưng" ghi tay),
+  // cùng chuỗi với get_receipt_book của Bảng thu.
+  const MACHINE_PREFIX = /^Sheet( #[^:]*)?(: ?|$)/;
+  const SYMBOLIC_TAIL = /( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$/;
+
+  /** Tham chiếu phiếu thu để đọc: bỏ tiền tố và mã kỹ thuật, không lặp lại ngày của phiếu, số ngày Excel đổi ra ngày. Phiếu máy đặt ngày
+   *  giữ chữ "ngày tượng trưng" vì ngày đó không phải ngày tiền về. Chỉ đổi cách hiện: giá trị lưu giữ nguyên, máy so mã để biết dòng
+   *  Sheet đã ghi rồi. Trả { prefix, tail, text: chữ người sửa được, label: chữ lên màn }. */
+  function receiptNote(reference, date) {
+    const raw = String(reference ?? '');
+    const prefix = MACHINE_PREFIX.exec(raw)?.[0] ?? '';
+    const tail = SYMBOLIC_TAIL.exec(raw)?.[0] ?? '';
+    const text = raw.slice(prefix.length, raw.length - tail.length).trim();
+    const read = sheetDate(text);
+    // Số 5 chữ số người tự gõ có thể là số ủy nhiệm chi: chỉ coi là ngày khi chữ chép từ Sheet.
+    const dated = read.day && (prefix || !read.serial);
+    const note = !dated ? text : read.day === dateText(date) ? read.rest : read.serial ? read.day : text;
+    return { prefix, tail, text, label: [note, tail ? 'ngày tượng trưng' : ''].filter(Boolean).join(' · ') };
+  }
+
+  /** Giá trị lưu khi người dùng sửa tham chiếu: giữ tiền tố và đuôi của máy quanh chữ mới. Server cắt khoảng trắng cuối nên
+   *  "Sheet #mã: " trơ không còn khớp tiền tố máy tìm và dòng Sheet sẽ bị đề nghị ghi lại: xóa hết chữ của phiếu đó thì giữ giá trị cũ. */
+  function receiptReference(reference, text) {
+    const { prefix, tail } = receiptNote(reference);
+    const next = String(text ?? '').trim();
+    if (!prefix && !tail) return next;
+    if (prefix.includes('#') && !next && !tail) return reference;
+    return (prefix ? prefix.replace(/:? ?$/, ': ') : '') + next + tail;
+  }
+
   /** Tin nhắc nợ để dán vào Zalo (NHAC-NO-01), dùng chung cho tab Đòi nợ và thẻ Trao đổi của trang khách: tổng nợ, phần quá hạn,
    *  nợ từng tháng còn lại, số đồng chính xác. `row` là dòng của khách ở Tổng quan (`GET /api/v7/dashboard/debt`). */
   function reminderText(name, row) {
@@ -155,6 +208,6 @@ const CongNoFormat = (() => {
 
   return { toBig, full, short, billions, millions, percent, barWidth, sum, heatStep,
     UNSORTED, esc, foldText, fold, transportText, commodityText, customerLabel, customerLabels, monthLabel, monthTitle, monthTag,
-    dateText, vnDay, loadError, reminderText };
+    dateText, sheetDate, receiptNote, receiptReference, vnDay, loadError, reminderText };
 })();
 if (typeof module !== 'undefined') module.exports = CongNoFormat;

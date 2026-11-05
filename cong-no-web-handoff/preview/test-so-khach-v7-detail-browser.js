@@ -3,7 +3,7 @@ const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { todayMonth, withPage } = require('./so-khach-v7-browser-world');
+const { todayMonth, viewMonth, withPage } = require('./so-khach-v7-browser-world');
 
 const KEY = todayMonth.slice(0, 7);
 // Dòng khách tự trả cước, cộng được; mỗi trạng thái khác ghi đè phần của nó.
@@ -393,6 +393,61 @@ test('Sổ không có bảng chi tiết: giữ nguyên bảng sổ, không có n
   assert.equal(await page.locator('.detail-toggle, .detail-table, .dt-mode, .dt-chip').count(), 0);
   assert.match(await page.locator('.trip-toolbar h3').innerText(), /Chuyến trong tháng · \d+ chuyến/);
 }, world => { world.month = null; world.details = { rows: [], months: {} }; }));
+
+// Dòng hỏi khóa tháng nằm dưới thanh công cụ, không lọt vào nhóm nút icon (.trip-tools button rộng cố định 36–40px).
+async function assertLockAskLayout(page) {
+  const lock = page.locator(`.month-lock[data-month="${todayMonth}"]`);
+  const measureAsk = () => page.evaluate(() => {
+    const ask = document.querySelector('.lock-ask');
+    const card = ask.closest('.trip-card').getBoundingClientRect();
+    const tools = document.querySelector('.trip-tools').getBoundingClientRect();
+    const box = ask.getBoundingClientRect();
+    return {
+      inTools: Boolean(ask.closest('.trip-tools')),
+      belowTools: box.top >= tools.bottom,
+      fullWidth: Math.abs(box.width - card.width) <= 2,
+      fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      buttons: [...ask.querySelectorAll('button')].map(button => {
+        const range = document.createRange();
+        range.selectNodeContents(button);
+        return { text: button.innerText, lines: range.getClientRects().length, height: button.getBoundingClientRect().height, clipped: button.scrollWidth > button.clientWidth };
+      }),
+    };
+  });
+  for (const width of [1280, 1265]) {
+    await page.setViewportSize({ width, height: 720 });
+    await lock.click();
+    const usual = await measureAsk();
+    const wide = await page.addStyleTag({ content: 'body,body *{font-family:Verdana,"DejaVu Sans",sans-serif !important}' });
+    const wider = await measureAsk();
+    await wide.evaluate(node => node.remove());
+    for (const result of [usual, wider]) {
+      assert.equal(result.inTools, false, `${width}: dòng hỏi lọt vào nhóm nút icon`);
+      assert.equal(result.belowTools, true, `${width}: dòng hỏi không nằm dưới thanh công cụ`);
+      assert.equal(result.fullWidth, true, `${width}: dòng hỏi không rộng hết khung bảng`);
+      assert.equal(result.fits, true, `${width}: cuộn ngang`);
+      assert.equal(result.buttons.length, 2);
+      for (const button of result.buttons) {
+        assert.equal(button.lines, 1, `${width}: nút "${button.text}" xuống dòng`);
+        assert.equal(button.clipped, false, `${width}: nút "${button.text}" bị cắt`);
+        assert.ok(button.height >= 36, `${width}: nút "${button.text}" thấp ${button.height}px`);
+      }
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.lock-ask').count(), 0);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+}
+
+test('Dòng hỏi khóa tháng ở bảng chi tiết: riêng một dòng dưới thanh công cụ, nút không bị bóp', async () => withPage(async ({ page }) => {
+  await page.locator('.dt-gon').waitFor();
+  await assertLockAskLayout(page);
+}, withDetails));
+
+test('Dòng hỏi khóa tháng ở bảng chuyến thường: riêng một dòng dưới thanh công cụ, nút không bị bóp', async () => withPage(async ({ page }) => {
+  await viewMonth(page, KEY);
+  await assertLockAskLayout(page);
+}, world => { world.locks = [{ month: todayMonth, locked: false }]; }));
 
 test('Tên gọi bảng kê chỉ đặt một chỗ để đổi được', () => {
   const code = fs.readFileSync(path.join(__dirname, 'so-khach-v7-detail-ui.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

@@ -107,9 +107,9 @@
       const head = [after.pid, `${fmt(after.amount_vnd)} đ ngày ${day(after.date)}`].filter(Boolean).join(': ');
       if (counterparty(event) != null) return `${head} · sổ bên kia ${counterparty(event)}`;
       const alloc = allocText(after.allocations, String(after.date ?? '').slice(0, 4));
-      return `${head}${after.method ? ` · ${after.method}` : ''}${after.reference ? ` · tham chiếu ${after.reference}` : ''}${alloc ? ` (${alloc})` : ''}`;
+      return `${head}${after.method ? ` · ${after.method}` : ''}${after.reference ? ` · tham chiếu ${CongNoFormat.receiptNote(after.reference, after.date).label}` : ''}${alloc ? ` (${alloc})` : ''}`;
     }
-    const metaFields = [['date', 'ngày', day], ['method', 'hình thức', String], ['reference', 'tham chiếu', String]];
+    const metaFields = [['date', 'ngày', day], ['method', 'hình thức', String], ['reference', 'tham chiếu', value => CongNoFormat.receiptNote(value).label || '–']];
     function receiptEditText(event) {
       const before = event.before ?? {}, after = event.after ?? {};
       const show = (value, format) => value === null || value === undefined || value === '' ? '–' : format(value);

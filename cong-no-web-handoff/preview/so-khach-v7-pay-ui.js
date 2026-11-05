@@ -4,7 +4,8 @@
  * chỉ định dạng (ARCH-03). Trường ctx đọc/ghi: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).pay = ctx => {
   'use strict';
-  const { root, escape, fmt, cell, num, dateText, sheetDay, monthKey, monthLabel, redraw } = ctx;
+  const { root, escape, fmt, cell, num, dateText, monthKey, monthLabel, redraw } = ctx;
+  const { sheetDate, receiptNote } = CongNoFormat;
   // Tháng (yyyy-mm) đang mở danh sách phiếu đã hủy; chỉ sống trong tab.
   const openVoided = new Set();
   const offsetAttrs = receipt => receipt.offset_pair_id == null ? ''
@@ -13,22 +14,25 @@
   const offsetLink = receipt => receipt.offset_pair_id == null || receipt.voided_by_event != null ? ''
     : `<a class="offset-link" href="/so-khach-v7-live.html?customer=${encodeURIComponent(receipt.counterparty_customer_id)}">`
       + `${receipt.outgoing ? 'sang' : 'từ'} ${escape(receipt.counterparty_name)}</a>`;
-  // Phiếu chưa có tham chiếu chỉ còn dấu "+" nhỏ để thêm (bấm như cũ); có thì ghi "Tham chiếu: …".
+  // Phiếu chưa có tham chiếu chỉ còn dấu "+" nhỏ để thêm (bấm như cũ); có thì ghi chữ đọc được (receiptNote), không có mã máy.
   const referenceInline = receipt => {
     const voided = receipt.voided_by_event != null;
-    return receipt.reference
+    const { label } = receiptNote(receipt.reference, receipt.date);
+    return label
       ? `<small class="receipt receipt-edit receipt-ref${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" `
-        + `tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">${escape(receipt.reference)}</small>`
+        + `tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">${escape(label)}</small>`
       : `<small class="receipt receipt-edit receipt-ref empty" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="0" role="button" `
         + `aria-label="Thêm tham chiếu ${escape(receipt.pid)}" title="Thêm tham chiếu">+</small>`;
   };
   // DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền một lần (như Sheet); phần trừ nợ từng tháng chỉ ghi chữ nhỏ,
-  // và chỉ ghi khi phiếu trừ nợ tháng khác tháng của ngày thu hoặc chia nhiều tháng.
+  // và chỉ ghi khi phiếu trừ nợ tháng khác tháng của ngày thu hoặc chia nhiều tháng. Mỗi tháng một dòng, số thẳng cột để cộng nhẩm.
   const allocationInline = (receipt, key) => {
     const lines = receipt.voided_by_event == null ? receipt.lines ?? [] : [];
     if (!lines.length || lines.every(line => monthKey(line.month) === key)) return '';
-    const parts = lines.map(line => `T${monthLabel(monthKey(line.month))}${lines.length > 1 ? ` ${fmt(line.amount_vnd)}` : ''}`);
-    return `<small class="receipt-allocation">Trừ nợ ${parts.map(escape).join(' · ')}</small>`;
+    const part = line => `<span class="alloc-line"><span>${line.kind === 'advance' ? 'Ứng trước' : `T${escape(monthLabel(monthKey(line.month)))}`}</span>`
+      + `${lines.length > 1 ? ` <span class="alloc-sum">${fmt(line.amount_vnd)}</span>` : ''}</span>`;
+    const label = lines.some(line => line.kind !== 'advance') ? '<span class="alloc-label">Trừ nợ</span> ' : '';
+    return `<small class="receipt-allocation">${label}<span class="alloc-lines">${lines.map(part).join(' ')}</span></small>`;
   };
   const methodText = (receipt, voided, plain) => voided ? 'ĐÃ HỦY' : receipt.line.kind === 'advance' ? 'ỨNG TRƯỚC' : plain;
   function payCells(receipt, key) {
@@ -46,18 +50,21 @@
       + `<td class="pay pay-reference">${receipt.outgoing ? '' : referenceInline(receipt)}</td>`
       + `<td class="pay pay-allocation">${allocationInline(receipt, key)}</td>` + amountCell;
   }
-  // Khoản thu Sheet (dòng sổ gốc): ngày Sheet, ghi chú, số tiền. Hình thức thu không suy từ ghi chú (V7-MIG còn mở);
-  // ghi chú chỉ hiện khi không lặp lại cùng ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
+  // Khoản thu Sheet (dòng sổ gốc): ngày, ghi chú, số tiền. Ô ngày trên Sheet hay gõ lẫn chữ ("16/9/2026 tt", "đã tt"): ngày vào cột ngày,
+  // chữ vào cột ghi chú; không đọc được ngày thì cột ngày ghi "–". Hình thức thu không suy từ ghi chú (V7-MIG còn mở);
+  // ghi chú chỉ hiện khi không lặp lại ô ngày. XOA-THU-GOC-01: tháng mở thì bấm số tiền để xóa hẳn.
   function legacyPayRow(receipt, locked) {
     const r = receipt.d;
-    const day = sheetDay(r.raw_date);
-    const noteText = r.note && r.note !== r.raw_date && sheetDay(r.note) !== day ? r.note : '';
+    const read = sheetDate(r.raw_date);
+    const day = r.date ? dateText(r.date) : read.day;
+    const note = sheetDate(r.note);
+    const noteText = [read.rest, r.note && r.note !== r.raw_date && (note.day !== day || note.rest) ? r.note : ''].filter(Boolean).join(' · ');
     const payAmount = !locked
       ? `<td class="pay num row-delete" data-kind="legacy" data-id="${escape(receipt.id)}" tabindex="0" role="button" `
         + `aria-label="Xóa hẳn khoản thu sổ gốc ${escape(fmt(receipt.source_total_vnd))}" title="Bấm để xóa hẳn khoản thu này">`
         + `${fmt(receipt.source_total_vnd)}</td>`
       : num(fmt(receipt.source_total_vnd), 'pay');
-    return `<tr class="pay-row legacy-pay">${cell(day, 'pay pay-start')}${cell('–', 'pay')}${cell(noteText, 'pay pay-reference')}${cell('', 'pay pay-allocation')}${payAmount}</tr>`;
+    return `<tr class="pay-row legacy-pay">${cell(day || '–', 'pay pay-start')}${cell('–', 'pay')}${cell(noteText, 'pay pay-reference')}${cell('', 'pay pay-allocation')}${payAmount}</tr>`;
   }
   // Audit P0 29/10/2026: phiếu đã hủy không chiếm chỗ phiếu thật — gom một dòng mờ, bấm Xem mới hiện từng phiếu.
   function voidRows(key, voided) {
