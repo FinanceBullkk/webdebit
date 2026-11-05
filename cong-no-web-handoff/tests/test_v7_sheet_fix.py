@@ -240,7 +240,7 @@ class ApplyTests(unittest.TestCase):
                   {"kind": "receipts_edited", "month": "2026-07", "delta_vnd": -50, "orphans": [{"id": 5, "amount_vnd": "400"}],
                    "rows": [receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=[])]},
                   {"kind": "fee_rows", "month": "2026-11", "delta_vnd": 43, "rows": [{"source_row": 457, "amount_vnd": "43"}]}]
-        done = fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY)
+        done = fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY, actor=AUTO_ACTOR)
         self.assertEqual([(c[0], c[1]["expected_version"]) for c in db.writes()], [
             ("set_month_lock", 9), ("delete_legacy_trip", 10), ("set_month_lock", 11),   # tháng 7 khóa: mở, xóa, khóa lại
             ("record_receipt", 12), ("record_receipt", 13),                              # phiếu thay rồi phiếu không ngày
@@ -266,7 +266,7 @@ class ApplyTests(unittest.TestCase):
         queue = project_receipts(snapshot, ledger, customers, TODAY)
         self.assertEqual([r["status"] for r in queue["review"]], ["NO_DATE"])
         db = Db()
-        fix.apply_fix(db, 7, ledger, fix.receipt_groups(queue, ledger), "d" * 64, TODAY)
+        fix.apply_fix(db, 7, ledger, fix.receipt_groups(queue, ledger), "d" * 64, TODAY, actor=AUTO_ACTOR)
         written = db.writes()[0][1]
         ledger["receipts"] = [{"date": written["date"], "amount_vnd": written["amount_vnd"], "reference": written["reference"]}]
         queue = project_receipts(snapshot, ledger, customers, TODAY)
@@ -275,12 +275,12 @@ class ApplyTests(unittest.TestCase):
     def test_money_row_in_locked_month_opens_writes_relocks(self):
         db = Db()
         fix.apply_fix(db, 7, self.LEDGER, [{"kind": "fee_rows", "month": "2026-10", "delta_vnd": 43,
-                                            "rows": [{"source_row": 457, "amount_vnd": "43"}]}], "d" * 64, TODAY)
+                                            "rows": [{"source_row": 457, "amount_vnd": "43"}]}], "d" * 64, TODAY, actor=AUTO_ACTOR)
         self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "adjust_month", "set_month_lock"])
 
     def test_undo_deletes_machine_adjustment_inside_locked_month(self):
         db = Db()
-        done = fix.apply_fix(db, 7, self.LEDGER, [{"kind": "fee_undo", "month": "2026-10", "delta_vnd": -43, "rows": [{"id": 77, "amount_vnd": "43"}]}], "d" * 64, TODAY)
+        done = fix.apply_fix(db, 7, self.LEDGER, [{"kind": "fee_undo", "month": "2026-10", "delta_vnd": -43, "rows": [{"id": 77, "amount_vnd": "43"}]}], "d" * 64, TODAY, actor=AUTO_ACTOR)
         self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "delete_month_adjustment", "set_month_lock"])
         self.assertEqual(db.writes()[1][1]["adjustment_id"], 77)
         self.assertEqual(done["fee_undone"], 1)
@@ -288,7 +288,7 @@ class ApplyTests(unittest.TestCase):
     def test_conflict_rows_go_through_conflict_write_inside_locked_month(self):
         db = Db()
         row = price("CONFLICT", month="2026-10", sheet=("100", "7"), web=("100", None))
-        fix.apply_fix(db, 7, self.LEDGER, [{"kind": "prices", "month": "2026-10", "rows": [row], "delta_vnd": 7}], "d" * 64, TODAY)
+        fix.apply_fix(db, 7, self.LEDGER, [{"kind": "prices", "month": "2026-10", "rows": [row], "delta_vnd": 7}], "d" * 64, TODAY, actor=AUTO_ACTOR)
         self.assertEqual([c[0] for c in db.writes()], ["set_month_lock", "edit_trip_price", "set_month_lock"])
         edit = db.writes()[1][1]
         self.assertEqual((edit["trip_id"], edit["unit_price_vnd"], edit["other_fee_vnd"]), (11, "100", "7"))
@@ -298,10 +298,36 @@ class ApplyTests(unittest.TestCase):
         groups = [{"kind": "receipts_edited", "month": "2026-07", "delta_vnd": -50, "orphans": [{"id": 5, "amount_vnd": "400"}],
                    "rows": [receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=[])]}]
         with self.assertRaises(ApiError):
-            fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY)
+            fix.apply_fix(db, 7, self.LEDGER, groups, "d" * 64, TODAY, actor=AUTO_ACTOR)
         self.assertEqual([(c[0], c[1].get("locked")) for c in db.calls if c[0] != "get_ledger"],
                          [("set_month_lock", False), ("delete_legacy_trip", None), ("set_month_lock", True)])
         self.assertFalse([c for c in db.calls if c[0] == "record_receipt"])
+
+    # Đủ mọi loại lệnh ghi; tháng 7 và 10 đang khóa nên có cả mở/khóa tháng.
+    ALL_KINDS: ClassVar[list] = [
+        {"kind": "receipts_edited", "month": "2026-07", "delta_vnd": -50, "orphans": [{"id": 5, "amount_vnd": "400"}],
+         "rows": [receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=[])]},
+        {"kind": "prices", "month": "2026-10", "delta_vnd": 100, "rows": [price("READY", month="2026-10")]},
+        {"kind": "fee_rows", "month": "2026-10", "delta_vnd": 43, "rows": [{"source_row": 457, "amount_vnd": "43"}]},
+        {"kind": "fee_undo", "month": "2026-10", "delta_vnd": -43, "rows": [{"id": 77, "amount_vnd": "43"}]}]
+
+    def test_manual_call_writes_under_the_person_and_keeps_month_locks_as_machine(self):
+        db = Db()
+        fix.apply_fix(db, 7, self.LEDGER, self.ALL_KINDS, "d" * 64, TODAY, actor="claude")
+        money = [c for c in db.writes() if c[0] != "set_month_lock"]
+        self.assertEqual({c[0] for c in money}, {"delete_legacy_trip", "record_receipt", "edit_trip_price", "adjust_month", "delete_month_adjustment"})
+        self.assertEqual({c[2] for c in money}, {"claude"})
+        self.assertEqual({c[2] for c in db.writes() if c[0] == "set_month_lock"}, {AUTO_ACTOR})   # lượt nền khóa lại được nếu nơi gọi chết
+
+    def test_same_work_keeps_the_same_idempotency_keys_whoever_calls(self):
+        machine, person = Db(), Db()
+        fix.apply_fix(machine, 7, self.LEDGER, self.ALL_KINDS, "d" * 64, TODAY, actor=AUTO_ACTOR)
+        fix.apply_fix(person, 7, self.LEDGER, self.ALL_KINDS, "d" * 64, TODAY, actor="claude")
+        self.assertEqual([c[1]["idempotency_key"] for c in machine.writes()], [c[1]["idempotency_key"] for c in person.writes()])
+
+    def test_caller_must_name_the_actor(self):
+        with self.assertRaises(TypeError):
+            fix.apply_fix(Db(), 7, self.LEDGER, [], "d" * 64, TODAY)
 
 
 if __name__ == "__main__":
