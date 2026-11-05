@@ -9,7 +9,7 @@ So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ t
 | # | Việc | Ai | Trạng thái 4/11 | Bằng chứng cần |
 | --- | --- | --- | --- | --- |
 | A2 | Web khớp tổng từng khách với Sheet | Máy, mỗi giờ | Lượt 14:45: 238/238 khớp, gồm 2 sổ mới máy vừa tạo ([`MAY-TAO-SO-01`](docs/decisions/may-tao-so-01.md), [nhật ký](docs/deploys/2026-11-04-may-tao-so.md)) | `reconcile-log.jsonl` trên `hao`; đối soát cuối tháng khớp |
-| Cảnh báo | Máy lỗi hoặc dừng thì có người biết (audit DevOps #2) | Chủ sổ chọn kênh, Claude cài | CHƯA: hiện chỉ thấy ở đầu tab Việc cần làm và journal | Một lần thử cảnh báo tới được người nhận |
+| Cảnh báo | Máy lỗi hoặc dừng thì có email ([`CANH-BAO-01`](docs/decisions/canh-bao-01.md)) | Chủ sổ tạo tài khoản và đặt link, Claude cài | Người dùng chọn email 4/11. Máy canh đã có; chờ link ping | Một lần thử cảnh báo tới được hộp thư |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
 | F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐỀ XUẤT: tính cả tháng 11 | Dòng cập nhật `SONG-SONG-02` |
 | F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | CÒN MỞ từ [`MAY-DOI-SOAT-01`](docs/decisions/may-doi-soat-01.md) | Quyết định mới |

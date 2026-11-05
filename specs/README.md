@@ -6,6 +6,7 @@ Một spec cho một thay đổi: đầu ra, phạm vi, nguồn quyết định,
 
 Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng spec.
 
+- [Máy tự đối soát](v7-may-doi-soat.md): so Sheet–web mỗi giờ, chỉ ghi khi đúng một tổ hợp việc khớp đúng tổng; [tự tạo sổ khách mới](v7-may-tao-so.md); [cảnh báo email khi máy lỗi hoặc dừng](v7-canh-bao.md).
 - [Bảng thu](v7-bang-thu.md): tiền về theo ngày, gom phiếu mọi sổ, chỉ xem; tháng tính theo ngày tiền về, khoản không rõ ngày nằm riêng; năm cách xem dạng tab (`BANG-THU-01`, `BANG-THU-02`, ĐÃ CHỐT 4/11/2026).
 - [Tương tác Bảng thu và Tình hình](v7-tuong-tac.md): bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ (`TUONG-TAC-01`, ĐÃ CHỐT 5/11/2026).
 - [Sổ khách V7](v7-so-khach-theo-sheet.md): prototype fixture; [backend đề xuất](v7-backend-so-khach.md), [API thử](v7-backend/ket-noi-giao-dien.md).
