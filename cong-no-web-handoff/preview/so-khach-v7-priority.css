@@ -60,7 +60,7 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .ledger td.missing{background:#fdf3e1;color:#6b4000;font-size:13px;font-weight:600}
 .route-cell{white-space:nowrap;overflow:hidden!important;text-overflow:ellipsis}.route-cell .info-edit{display:inline;padding:0;cursor:pointer}.route-cell .info-edit:focus-visible{outline:2px solid #2a78d6}.route-cell input.info-input{display:inline-block;width:45%;min-width:70px}.route-arrow{color:#52514e}
 .ledger tr.spacer{display:none}.ledger .fee-other{background:#fff}.ledger .fee-h{color:#52514e}
-@media(max-width:1100px){.month-stats{flex-basis:100%;max-width:none;border-right:0}.month-pay-slot{overflow-x:auto}.pay-list{min-width:620px}.book-head{height:auto;min-height:61px;flex-wrap:wrap}.page-more{margin-left:auto}#the-so .layout{overflow-x:auto}.ledger-book section{min-width:0}.trip-card{overflow-x:auto}.trip-card>.ledger{min-width:980px}.ledger-head{position:static}.month-chips{position:static}.month-summary-layout{flex-direction:column}.month-card{width:100%}.month-stats{min-width:0}.book-head{position:static}.page-tabs{order:3;width:100%;margin-left:0}}
+@media(max-width:1100px){.month-stats{flex-basis:100%;max-width:none;border-right:0}.month-pay-slot{overflow-x:auto}.pay-list{min-width:760px}.book-head{height:auto;min-height:61px;flex-wrap:wrap}.page-more{margin-left:auto}#the-so .layout{overflow-x:auto}.ledger-book section{min-width:0}.trip-card{overflow-x:auto}.trip-card>.ledger{min-width:980px}.ledger-head{position:static}.month-chips{position:static}.month-summary-layout{flex-direction:column}.month-card{width:100%}.month-stats{min-width:0}.book-head{position:static}.page-tabs{order:3;width:100%;margin-left:0}}
 @media(max-width:700px){body{padding-left:76px}.topbar{width:76px;padding:8px 0}.topbar>nav{width:auto;gap:2px;min-height:0}.topbar>nav a{padding:6px 2px}body:has(#demo-banner:not([hidden])){--banner:0px}#demo-banner:not([hidden]){position:static}.month-stats{padding:12px 10px}.month-end{flex-wrap:wrap}.month-pay-slot{padding:10px}.pay-head{flex-wrap:wrap}.book-head .page-name{font-size:16px}}
 
 /* Handoff dùng khoảng đệm ngang 14px và hàng 34px cộng đường kẻ 1px. */
@@ -68,7 +68,7 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}
-.pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}.pay-list col:nth-child(4){width:122px!important}
+.pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}.pay-list col:nth-child(4){width:1%!important}
 .pay-list td.receipt{ text-align:right }.pay-list td:first-child,.pay-list td:nth-child(2){text-align:left}
 .trip-tools #live-controls{display:none}.trip-tools #live-controls:has(.sheet-error,.sheet-busy){display:flex}
 .trip-tools #live-controls #refresh-data{display:none}
@@ -117,3 +117,13 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .month-stats{grid-template-rows:34px 34px 34px minmax(48px,auto)}
 .month-stats .month-end{flex-wrap:wrap;white-space:nowrap;gap:0 12px}
 .month-stats .month-end b{margin-left:auto}
+/* Cột Trừ nợ: mỗi tháng một dòng, tháng và số không bị bẻ đôi; các ô trong hàng thẳng theo dòng đầu. Cột co theo nội dung, tham chiếu dùng phần còn lại. */
+.pay-block .pay-list{table-layout:auto}
+.pay-list .receipt-allocation{display:inline-flex;align-items:baseline;gap:8px;line-height:18px;white-space:nowrap;text-align:left}
+.alloc-lines{display:grid;grid-template-columns:max-content max-content;gap:0 8px}.alloc-line{display:contents}.alloc-sum{text-align:right;font-variant-numeric:tabular-nums}
+.pay-list tr.pay-row td{height:33px;vertical-align:baseline;line-height:18px;padding-top:7px;padding-bottom:5px}
+.pay-list .receipt .receipt-money>.image-clip{box-sizing:border-box;width:28px;margin:-4px 0;padding:0}
+/* Khoản thu sổ gốc không có nút ảnh: chừa chỗ để số tiền thẳng cột với phiếu web. */
+.pay-list td.num:not(.receipt){text-align:right;padding-right:36px;font-variant-numeric:tabular-nums}
+/* Tham chiếu dài xuống dòng thay vì "…": dấu "ngày tượng trưng" đứng cuối chữ, cắt mất thì ngày máy đặt trông như ngày tiền về. */
+.pay-list tr.pay-row td.pay-reference{white-space:normal;overflow-wrap:anywhere}

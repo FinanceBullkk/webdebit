@@ -77,7 +77,7 @@ test('Màn 1280 trên Chrome Windows (thanh cuộn dọc 15px, khung nhìn 1265)
   const geo = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     money: [...document.querySelectorAll('.ledger-head col')].slice(-3).map(col => parseInt(col.style.width, 10)) }));
   assert.equal(geo.overflow, 0);
-  assert.deepEqual(geo.money, [108, 82, 120]);   // Đơn giá, Khác, Thành tiền giữ khổ 1280 (SO-GON-06: không còn cột thu)
+  assert.deepEqual(geo.money, [108, 100, 120]);   // Đơn giá, Khác, Thành tiền giữ khổ 1280 (SO-GON-06: không còn cột thu); Khác 82 từng làm tổng đậm dính mép
 }, nineMonths));
 
 test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần dính, chip được tô; không gọi API', async () => withPage(async ({ page, world }) => {

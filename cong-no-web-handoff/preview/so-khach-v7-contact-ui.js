@@ -95,7 +95,7 @@
       const voided = row.voided_by_event != null;
       const what = row.offset_pair_id != null ? `Cấn trừ từ ${other(row)}` : escape(sentence(row.method));
       return entry(row.date, 'thu', `<b>${what} ${amount(row, voided)}</b>${clip(row)}`, [voided ? killed(row)
-        : share((row.allocations ?? []).filter(line => line.superseded_by_event == null)), row.reference ? `Tham chiếu: ${escape(row.reference)}` : ''], voided);
+        : share((row.allocations ?? []).filter(line => line.superseded_by_event == null)), (note => note ? `Tham chiếu: ${escape(note)}` : '')(CongNoFormat.receiptNote(row.reference, row.date).label)], voided);
     });
     const sent = (data.outgoing_offsets ?? []).map(row => entry(row.date, 'thu', `<b>Cấn trừ sang ${other(row)} ${amount(row, row.voided_by_event != null)}</b>`,
       [row.voided_by_event != null ? killed(row) : ''], row.voided_by_event != null));

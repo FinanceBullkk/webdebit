@@ -131,3 +131,48 @@ test('dateText writes dd/mm/yyyy from ISO dates and keeps any other text', () =>
 test('loadError says what failed and what to do, never a browser string', () => {
   assert.equal(F.loadError('ma trận công nợ'), 'Không tải được ma trận công nợ. Kiểm tra mạng rồi bấm Thử lại.');
 });
+
+test('sheetDate tách ngày khỏi chữ người gõ trong ô Sheet, ngày không có thật thì giữ nguyên chữ', () => {
+  const read = text => { const { day, rest } = F.sheetDate(text); return [day, rest]; };
+  assert.deepEqual(read('16/9/2026 tt'), ['16/09/2026', 'tt']);
+  assert.deepEqual(read('da tt16/9/2026'), ['16/09/2026', 'da tt']);
+  assert.deepEqual(read('4/11/2026 - TT'), ['04/11/2026', 'TT']);
+  assert.deepEqual(read('46325'), ['30/10/2026', '']);
+  assert.deepEqual(read('46325.0'), ['30/10/2026', '']);
+  assert.deepEqual(read('2026-10-30 00:00:00'), ['30/10/2026', '']);
+  assert.deepEqual(read('đã tt'), ['', 'đã tt']);
+  assert.deepEqual(read('1612/2025 tt'), ['', '1612/2025 tt'], 'gõ thiếu dấu: không đoán');
+  assert.deepEqual(read('31/9/2026 tt'), ['', '31/9/2026 tt'], 'không có ngày 31/9');
+  assert.deepEqual(read('1/2 bảo hiểm'), ['', '1/2 bảo hiểm']);
+  assert.deepEqual(read(null), ['', '']);
+});
+
+test('receiptNote hiện chữ đọc được: không mã máy, không lặp ngày phiếu, giữ dấu ngày tượng trưng', () => {
+  const label = (reference, date) => F.receiptNote(reference, date).label;
+  const hash = 'Sheet #' + '5bd3cb'.repeat(10) + ': ';
+  assert.equal(label('Sheet: 46325', '2026-10-30'), '', 'số ngày Excel trùng ngày phiếu');
+  assert.equal(label('Sheet: 46325', '2026-10-29'), '30/10/2026', 'khác ngày phiếu thì đổi ra ngày');
+  assert.equal(label('Sheet: 4/11/2026 TT', '2026-11-04'), 'TT');
+  assert.equal(label('Sheet: 3/11/2026 TT', '2026-11-04'), '3/11/2026 TT', 'khác ngày phiếu thì giữ để đối chiếu');
+  assert.equal(label('Sheet', '2026-11-04'), '');
+  assert.equal(label(hash + 'da tt · ngày theo cuối tháng khối Sheet', '2026-05-31'), 'da tt · ngày tượng trưng');
+  assert.equal(label(hash + 'da tt', '2026-05-31'), 'da tt');
+  assert.equal(label('UNC 123 (ngày tượng trưng)', '2026-05-31'), 'UNC 123 · ngày tượng trưng');
+  assert.equal(label('46325', '2026-10-30'), '46325', 'số người tự gõ có thể là số ủy nhiệm chi');
+  assert.equal(label('Sheetxyz', '2026-10-30'), 'Sheetxyz');
+  assert.equal(label(null), '');
+});
+
+test('receiptReference giữ tiền tố và đuôi của máy khi sửa chữ, máy vẫn nhận ra phiếu', () => {
+  const hash = 'Sheet #abc: ';
+  const tail = ' · ngày theo cuối tháng khối Sheet';
+  assert.equal(F.receiptReference(hash + 'da tt' + tail, 'mới'), hash + 'mới' + tail);
+  assert.equal(F.receiptReference(hash + 'da tt', ' mới '), hash + 'mới');
+  assert.equal(F.receiptReference(hash + 'da tt', ''), hash + 'da tt', 'xóa hết chữ thì giữ nguyên, không mất mã');
+  assert.equal(F.receiptReference('Sheet #abc:', 'mới'), hash + 'mới', 'server đã cắt khoảng trắng cuối');
+  assert.equal(F.receiptReference('Sheet: 46325', 'mới'), 'Sheet: mới');
+  assert.equal(F.receiptReference('Sheet', 'mới'), 'Sheet: mới');
+  assert.equal(F.receiptReference('REF-A', 'REF-B'), 'REF-B');
+  assert.equal(F.receiptReference('REF-A', ''), '');
+  assert.equal(F.receiptReference(null, 'mới'), 'mới');
+});
