@@ -1,39 +1,106 @@
-/* Bảng chi tiết của sổ (SO-CHI-TIET-01): theo cột bảng kê gửi khách, xanh là mình thu, cam là khách tự trả. Màu còn đi kèm chú thích
-   và dòng chữ cuối bảng, không để người đọc đoán tiền theo màu. */
-.trip-toolbar .detail-toggle{min-height:32px;padding:0 12px;border:1px solid #9fb0c2;border-radius:6px;background:#fff;color:#1a1a19;font:inherit;font-size:14px;cursor:pointer}
-.trip-toolbar .detail-toggle:hover{background:#f3f5f8}
+/* Bảng chi tiết của sổ (SO-CHI-TIET-01). Xanh là mình thu, vàng nhạt là cước khách tự trả. Nền cam chỉ dành cho chưa có giá; khác sổ và
+   không cộng ra Tổng dùng viền cam trên nền xám, luôn kèm chữ, không để người đọc đoán tiền theo màu. */
 .trip-card:has(.detail-table)>.ledger-head{display:none}
-.trip-side:has(.detail-table){padding:0 14px 10px}
-.detail-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13.5px;color:#52514e}
-.detail-legend span{display:inline-flex;align-items:center;gap:6px}
-.dt-swatch{width:14px;height:14px;border:1px solid}
-.dt-swatch.own{background:#e4eefa;border-color:#8fb4dc}
-.dt-swatch.customer{background:#fce9c4;border-color:#d9a441}
-.detail-note{margin:0 0 6px;padding:5px 10px;border-radius:6px;background:#fdf3e1;color:#5c3b00;font-size:14px}
-.detail-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;background:#fff}
-/* Cột tiền đủ chỗ cho số chân bảng (hàng trăm triệu, cột Tổng hàng tỷ); cột chữ có dấu … và chữ rê chuột nên nhường bề ngang. */
-.detail-table .c-stt{width:38px}.detail-table .c-cont{width:94px}.detail-table .c-bill{width:76px}.detail-table .c-ship{width:70px}
-.detail-table .c-pack{width:50px}.detail-table .c-day{width:44px}.detail-table .c-to{width:68px}.detail-table .c-fee{width:80px}.detail-table .c-service{width:88px}.detail-table .c-truck{width:88px}
-.detail-table .c-of{width:88px}.detail-table .c-vat{width:84px}.detail-table .c-total{width:120px}
-.detail-table th{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:20;padding:6px 5px;background:#f3f5f8;border-bottom:1px solid #d7dce3;color:#3f3e3b;font-weight:700;line-height:1.2;text-align:left;vertical-align:middle}
+.trip-side:has(.detail-table){padding:0}
+.trip-toolbar:has(.dt-views){flex-wrap:wrap;gap:8px 12px;min-height:56px;padding:8px 12px;box-sizing:border-box;border-bottom:1px solid #e9ecf0}
+.trip-toolbar:has(.dt-views) .trip-tools{margin-left:0;gap:4px}
+.trip-toolbar:has(.dt-views) .trip-tools button,.trip-toolbar:has(.dt-views) .trip-tools #refresh-data{width:40px;min-width:40px;height:40px;min-height:40px;border-radius:6px}
+.trip-toolbar .detail-toggle{min-height:40px;padding:0 12px;border:1px solid #9fb0c2;border-radius:6px;background:#fff;color:#1a1a19;font:inherit;font-size:14px;cursor:pointer}
+.trip-toolbar .detail-toggle:hover,.dt-chip:hover,.dt-mode:hover{background:#f3f5f8}
+.trip-toolbar .dt-edit{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border-color:#d7dce3;color:#16324f}
+.dt-edit svg,.dt-arrow svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.dt-chips{display:flex;flex-wrap:wrap;gap:6px}
+.dt-chip{min-height:40px;padding:0 14px;border:1px solid #7d8a98;border-radius:20px;background:#fff;color:#1a1a19;font:inherit;font-size:14px;cursor:pointer}
+.dt-chip[aria-pressed=true]{border:2px solid #1c5cab;background:#eaf2fc;color:#16324f;font-weight:700}
+.dt-chip[aria-pressed=true]:hover{background:#dbe9fa}
+.dt-views{display:flex;align-items:center;gap:8px;margin:0 -8px 0 auto}
+.dt-modes{display:flex;border:1px solid #7d8a98;border-radius:6px;overflow:hidden}
+.dt-mode{min-height:40px;padding:0 12px;border:0;background:#fff;color:#1a1a19;font:inherit;font-size:14px;cursor:pointer}
+.dt-mode[aria-pressed=true]{background:#16324f;color:#fff;font-weight:600}
+.dt-mode[aria-pressed=true]:hover{background:#16324f}
+.dt-chip:focus-visible,.dt-edit:focus-visible{outline:2px solid #1c5cab;outline-offset:2px}
+.dt-mode:focus-visible{outline:2px solid #1c5cab;outline-offset:-3px}
+.detail-note{margin:0;padding:8px 14px;background:#f3f5f8;color:#1a1a19;font-size:14px}
+
+.detail-table{width:100%;table-layout:fixed;border-collapse:collapse;font-variant-numeric:tabular-nums;background:#fff}
+.detail-table th{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:20;background:#f3f5f8;border-bottom:1px solid #d7dce3;color:#3f3e3b;font-weight:700;line-height:1.2;text-align:left;vertical-align:middle}
 .detail-table th.num,.detail-table td.num{text-align:right}
-.detail-table th.dt-own{background:#e4eefa}
-.detail-table td{height:34px;padding:2px 5px;border-bottom:1px solid #e9ecf0;white-space:nowrap}
-.detail-table .dt-text{overflow:hidden;text-overflow:ellipsis}
-.detail-table .dt-cont{font-family:Consolas,'Cascadia Mono',monospace;font-size:12.5px}
-.detail-table td.dt-own{background:#f2f7fd}
-.detail-table td.dt-of-own{background:#e4eefa;font-weight:600}
-.detail-table td.dt-of-customer{background:#fce9c4;color:#5c3b00}
-.detail-table .dt-missing{background:#fdf3e1;color:#7a4700;font-weight:600;text-align:center}
-.detail-table .dt-no-detail{color:#6f6d67;text-align:center}
+.detail-table td{border-bottom:1px solid #e9ecf0}
+.detail-table th.dt-own{background:#eaf2fc}
+.detail-table .dt-cont{font-family:Consolas,'Cascadia Mono',monospace}
+.detail-table td.num{white-space:nowrap}
 .detail-table .dt-total{font-weight:700}
 .detail-table .dt-differs{outline:2px solid #c77700;outline-offset:-2px}
-.detail-table tfoot td{height:40px;background:#f3f5f8;border-top:2px solid #d7dce3;border-bottom:0;font-weight:700}
-/* Chân bảng: chỉ ô Tổng đậm vì đó là số của sổ; cột phí chữ thường 12px cho vừa số hàng trăm triệu. */
-.detail-table tfoot td.num:not(.dt-foot-total){font-size:12px;font-weight:400}
-.detail-table tfoot td.dt-foot-total{font-size:13px}
-.detail-table td.dt-foot-note{white-space:normal;font-weight:400}
-.dt-customer-sum{margin-right:14px;color:#5c3b00}
-.dt-customer-sum b{font-weight:700}
-.dt-differs-key{display:inline-flex;align-items:center;gap:6px;color:#5c3b00}
-.dt-swatch.differs{border:2px solid #c77700;background:#fff}
+.detail-table .dt-status{text-align:center;font-size:14px}
+.detail-table .dt-status-no_price{background:#fdf3e1;color:#7a4700;font-weight:700}
+.detail-table .dt-status-differs,.detail-table .dt-status-no_add{background:#f8f9fb;color:#1a1a19;font-weight:600}
+.detail-table .dt-status-no_detail,.detail-table .dt-status-loose{color:#6f6d67}
+.detail-table tfoot td{background:#f3f5f8;border-top:2px solid #d7dce3;border-bottom:0}
+
+/* Bảng gọn: chữ 15px, tên kho xuống dòng thay vì bị cắt. Cột tiền đủ chỗ cho số hàng tỷ ở dòng cuối, kể cả font rộng. */
+.dt-gon{font-size:15px;line-height:1.3}
+.dt-gon .c-stt{width:48px}.dt-gon .c-cont{width:118px}.dt-gon .c-pack{width:66px}.dt-gon .c-phi{width:118px}.dt-gon .c-of{width:118px}
+.dt-gon .c-total{width:160px}.dt-gon .c-customer{width:134px}.dt-gon .c-arrow{width:44px}
+.dt-gon th{height:44px;padding:4px 8px 4px 0;font-size:14px}
+.dt-gon th.num{padding:4px 10px}
+.dt-gon th.dt-customer{background:#fce9c4;color:#5c3b00;border-left:3px solid #fff}
+.dt-gon .dt-stt{padding-left:12px}
+.dt-gon td{height:44px;padding:2px 8px 2px 0;font-size:15px;overflow-wrap:anywhere}
+.dt-gon td.dt-stt{padding-left:12px}
+/* Bảng nằm trong .ledger: quy tắc cỡ chữ và lề ô số của bảng sổ (kể cả khi sổ "tight") mạnh hơn nên phải ghi đủ đường dẫn. */
+.ledger-book .ledger .dt-gon td.num{padding:2px 10px;font-size:15px}
+.dt-gon .dt-cont{font-size:14px}
+.dt-gon td.dt-mine{background:#f8f9fb}
+.dt-gon td.dt-of-mine{color:#3f3e3b}
+.dt-gon td.dt-customer{background:#fdf3e1;color:#5c3b00;border-left:3px solid #fff}
+.dt-gon td.dt-status{padding:2px 8px}
+.dt-gon tr.dt-row{cursor:pointer}
+.dt-gon tr.dt-row:hover td:not(.dt-customer,.dt-status-no_price),.dt-gon tr.dt-open td:not(.dt-customer,.dt-status-no_price){background:#eaf2fc}
+.dt-gon tr.dt-row:has(.dt-arrow:focus-visible){outline:2px solid #1c5cab;outline-offset:-2px}
+.dt-gon td.dt-arrow-cell{padding:0}
+.dt-arrow{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;padding:0;border:0;background:transparent;color:#1c5cab;cursor:pointer}
+.dt-arrow:focus-visible{outline:none}
+.dt-gon tr.dt-more>td{height:auto;padding:12px 20px 16px 60px;background:#f8f9fb;font-size:14px;overflow-wrap:normal}
+.dt-more-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px}
+.dt-infos{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 12px;align-content:start;margin:0}
+.dt-infos dt{color:#52514e}
+.dt-infos dd{margin:0;overflow-wrap:anywhere}
+.dt-line{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:6px;padding:3px 0}
+.dt-line span:last-child{white-space:nowrap}
+.dt-line-plain span:first-child{color:#52514e}
+.dt-line-plain span:nth-child(2){color:#3f3e3b}
+.dt-line-total{padding:6px 0;border-top:2px solid #1a1a19;font-size:15px;font-weight:700}
+.dt-line-strong{font-weight:700}
+.dt-line-outside{margin-top:6px;padding:6px 8px 6px 0;background:#fdf3e1;color:#5c3b00}
+.dt-hint{margin:8px 0 0;color:#3f3e3b}
+.dt-gon tfoot td{height:46px;padding:2px 10px}
+.dt-gon tfoot .dt-foot-label{padding-left:12px;font-weight:700;overflow-wrap:normal}
+.dt-gon tfoot .dt-foot-total{font-size:15px;font-weight:700;color:#16324f}
+.dt-gon tfoot .dt-foot-customer{color:#5c3b00}
+
+/* Đủ cột: cột chữ có dấu … và chữ rê chuột nên nhường bề ngang cho cột tiền. */
+.dt-du{font-size:13px}
+.dt-du .c-stt{width:34px}.dt-du .c-cont{width:106px}.dt-du .c-bill{width:66px}.dt-du .c-ship{width:64px}
+.dt-du .c-pack{width:48px}.dt-du .c-day{width:48px}.dt-du .c-to{width:62px}.dt-du .c-fee{width:78px}.dt-du .c-service{width:88px}.dt-du .c-truck{width:88px}
+.dt-du .c-of{width:104px}.dt-du .c-vat{width:78px}.dt-du .c-total{width:106px}
+.dt-du th{padding:6px 5px;font-size:13px}
+.dt-du td{height:36px;padding:2px 5px;font-size:13px;white-space:nowrap}
+.ledger-book .ledger .dt-du td.num{padding:2px 5px;font-size:13px}
+.dt-du .dt-text{overflow:hidden;text-overflow:ellipsis}
+.dt-du td.dt-day-bad{outline:2px solid #c77700;outline-offset:-2px;background:#f8f9fb;font-weight:700;text-align:center;cursor:help}
+.dt-du .dt-cont{font-size:12.5px}
+.dt-du td.dt-own{background:#f8f9fb}
+.dt-du td.dt-of-own{background:#eaf2fc;font-weight:600}
+.dt-du td.dt-of-customer{background:#fce9c4;color:#5c3b00}
+.detail-table.dt-du td.dt-status{font-size:13px;white-space:normal;line-height:1.2}
+.dt-du tfoot td{height:44px;padding:2px 6px}
+.dt-foot-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:14px}
+.dt-foot-row span{display:inline-flex;align-items:center;gap:6px}
+.dt-foot-row .dt-foot-total{margin-left:auto;font-size:15px;color:#16324f}
+.dt-swatch{width:14px;height:14px;border:1px solid}
+.dt-swatch.own{background:#eaf2fc;border-color:#8fb4dc}
+.dt-swatch.customer{background:#fce9c4;border-color:#d9a441}
+
+/* Nhãn "N chưa giá" ở đầu tháng cao 26px cho khối tháng khỏi cao thêm; vùng bấm vẫn đủ 40px. */
+.month-missing{position:relative}
+.month-missing::after{content:"";position:absolute;inset:-7px 0}

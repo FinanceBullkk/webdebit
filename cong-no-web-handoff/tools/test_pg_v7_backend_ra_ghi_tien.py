@@ -108,9 +108,8 @@ def check_ra_ghi_tien(pg) -> str:
     def price_of(trip_id):
         return next(t for t in call(pg, "get_ledger", c3)["trips"] if t["id"] == trip_id)["unit_price_vnd"]
     require(price_of(empty) == "75" and price_of(typed) == "100", "apply changed the typed trip or skipped the empty one")
-    call(pg, "save_price_table", c3, version(pg, c3), "price-table-2", table("80"))
-    call(pg, "apply_price_table", c3, version(pg, c3), "apply-reapply", json.dumps([empty]))
-    require(price_of(empty) == "80", "table-priced trip could not be re-applied")
+    call(pg, "save_price_table", c3, version(pg, c3), "price-table-2", table("80"))  # BANG-GIA-02: lưu bảng là đổi giá
+    require(price_of(empty) == "80" and price_of(typed) == "100", "save must reprice the table trip and keep the typed one")
     call(pg, "edit_trip_price", c3, version(pg, c3), "manual-empty", empty, 90, None)
     reject_call(pg, "apply_price_table", c3, version(pg, c3), "apply-after-manual", json.dumps([empty]), error="PRICE_TYPED_PRICE")
     require(price_of(empty) == "90", "manual price overwritten by table")

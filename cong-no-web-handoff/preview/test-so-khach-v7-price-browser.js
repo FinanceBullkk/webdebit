@@ -137,6 +137,56 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
   world.bookShippers = [{ name: 'TT CHUẨN', tier: 'khach', trip_count: 4 }];
 }));
 
+const saveEditedTable = async (page, price) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+  await page.locator('.book-settings > summary').click();
+  await page.click('.price-table-open');
+  const dialog = page.locator('.price-table-dialog');
+  await dialog.locator('.price-grid-main').waitFor();
+  await page.fill(cell(0, 3), price);
+  return dialog;
+};
+const savedTable = { tt_shippers: [], locations: [{ name: 'DAK LAK', aliases: [] }], periods: [
+  { valid_from: '2026-09-11', valid_to: null, rates: [{ location: 'DAK LAK', tier: 'khach', unit_price_vnd: '75000000' }] }] };
+
+test('BANG-GIA-02: lưu bảng giá báo trước khi lưu; sau khi lưu báo từng chuyến giá cũ → mới, tháng khóa và chuyến hết giá; chỉ gửi một lệnh', async () => withPage(async ({ page, world, shot }) => {
+  const dialog = await saveEditedTable(page, '76000000');
+  assert.match(await dialog.locator('.price-dirty').innerText(), /Lưu xong, chuyến đang theo bảng tự đổi giá/);
+  await shot('bang-gia-chua-luu');
+  await dialog.locator('header .price-table-save').click();
+  await page.waitForFunction(() => /Đã lưu bảng giá/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  const notice = await page.locator('.live-notice').innerText();
+  assert.match(notice, /Đã đổi giá 4 chuyến: FAKE-1 75\.000\.000 → 76\.000\.000; FAKE-2 75\.000\.000 → 76\.000\.000; FAKE-3 77\.000\.000 → 76\.000\.000 và 1 chuyến khác \(xem Lịch sử\)\./);
+  assert.match(notice, /Tổng tiền các chuyến tăng 2\.000\.000 đ\./);
+  assert.match(notice, /2 chuyến ở tháng khóa chưa đổi: mở khóa tháng rồi bấm "Áp lại giá mới"\./);
+  assert.match(notice, /1 chuyến không còn giá trong bảng mới, giữ giá đang ghi\./);
+  assert.doesNotMatch(notice, /không tự đổi/);
+  assert.equal(await page.locator('.page-more').evaluate(node => node.open), false, 'menu ⋯ không che thông báo');
+  await shot('bang-gia-da-doi');
+  assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table'], 'đổi giá nằm trong lệnh lưu, không gửi lệnh áp riêng');
+}, world => {
+  world.priceTable = savedTable;
+  world.repricedTrips = ['1', '2', '3', '4'].map((n, index) => ({ trip_id: index + 1, container: `FAKE-${n}`, before_vnd: index === 2 ? '77000000' : '75000000', after_vnd: '76000000' }));
+  world.repricedDelta = '2000000';
+  world.lockedTrips = 2;
+  world.noPriceTrips = 1;
+}));
+
+test('BANG-GIA-02: giá giảm thì báo giảm; không có chuyến nào đổi thì chỉ báo đã lưu', async () => withPage(async ({ page, world }) => {
+  const dialog = await saveEditedTable(page, '74000000');
+  await dialog.locator('header .price-table-save').click();
+  await page.waitForFunction(() => /Tổng tiền các chuyến giảm 1\.000\.000 đ\./.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  world.repricedTrips = [];
+  world.repricedDelta = '0';
+  const again = await saveEditedTable(page, '73000000');
+  await again.locator('header .price-table-save').click();
+  await page.waitForFunction(() => document.querySelector('.live-notice')?.textContent === 'Đã lưu bảng giá.');
+}, world => {
+  world.priceTable = savedTable;
+  world.repricedTrips = [{ trip_id: 1, container: 'FAKE-1', before_vnd: '75000000', after_vnd: '74000000' }];
+  world.repricedDelta = '-1000000';
+}));
+
 test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi đi giữ nguyên; lỗi server giữ bảng đang sửa; đóng khi chưa lưu thì hỏi', async () => withPage(async ({ page, world }) => {
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾

@@ -159,6 +159,56 @@ class Project(unittest.TestCase):
         self.assertEqual([(row["container"], row["total_vnd"]) for row in out["rows"]][3:], [("NEWU0000001", None), ("NEWU0000002", "5000000")])
         self.assertEqual(out["months"]["2026-03"]["no_detail"], 2)
 
+    def reading(self, detail, ledger_vnd, container="FAKU0000011"):
+        """Một dòng của sổ một container, ghép với một dòng bảng kê."""
+        row = {"container": container, "of_counted": False, "of_vnd": None, "fee_vnd": None, "service_vnd": None, "truck_vnd": None, "vat_vnd": None, "total_vnd": None, **detail}
+        out = project_details({"rows": [row]}, self.ledger([legacy(1, 12, "2026-03-01", container, ledger_vnd)], charges=str(ledger_vnd)))
+        return out["rows"][0], out["months"]["2026-03"]
+
+    def test_dong_cong_duoc_phi_va_cuoc_cong_ra_tong(self):
+        row, _ = self.reading({"fee_vnd": "500000", "service_vnd": "6000000", "truck_vnd": "13000000", "vat_vnd": "1560000", "of_vnd": "12000000", "of_counted": True, "total_vnd": "33060000"}, 33060000)
+        self.assertEqual((row["state"], row["adds_up"], row["phi_vnd"], row["parts_vnd"], row["adds_diff_vnd"], row["sheet_diff_vnd"]),
+                         ("ok", True, "21060000", "33060000", None, "0"))
+
+    def test_cuoc_khach_tra_khong_nam_trong_phep_cong(self):
+        row, _ = self.reading({"service_vnd": "6000000", "vat_vnd": "480000", "of_vnd": "21000000", "total_vnd": "6480000"}, 6480000)
+        self.assertEqual((row["state"], row["adds_up"], row["phi_vnd"], row["parts_vnd"]), ("ok", True, "6480000", "6480000"))
+
+    def test_lech_1_dong_do_lam_tron_vat_van_cong_duoc(self):
+        row, _ = self.reading({"service_vnd": "6000000", "vat_vnd": "480000", "total_vnd": "6480001"}, 6480001)
+        self.assertEqual((row["state"], row["adds_up"], row["adds_diff_vnd"]), ("ok", True, None))
+
+    def test_khong_cong_ra_tong_khi_tong_chi_tinh_mot_phan_cuoc(self):
+        """Tổng khớp sổ nhưng các khoản cộng không ra: báo phần chênh, không kết luận bên nào sai."""
+        row, month = self.reading({"service_vnd": "6000000", "vat_vnd": "480000", "of_vnd": "12000000", "of_counted": True, "total_vnd": "16410000"}, 16410000)
+        self.assertEqual((row["state"], row["adds_up"], row["parts_vnd"], row["adds_diff_vnd"], row["sheet_diff_vnd"], row["differs"]),
+                         ("no_add", False, "18480000", "2070000", "0", False))
+        self.assertEqual((month["compare_no_add"], month["compare_differs"], month["compare_diff_vnd"]), (1, 0, "0"))
+
+    def test_bang_ke_khong_ghi_tong_khong_tinh_duoc_phan_chenh(self):
+        row, _ = self.reading({"service_vnd": "6000000", "total_vnd": None}, 6000000)
+        self.assertEqual((row["state"], row["adds_up"], row["adds_diff_vnd"], row["sheet_diff_vnd"]), ("no_add", False, None, None))
+
+    def test_khac_so_dung_truoc_khong_cong_ra_tong(self):
+        row, month = self.reading({"service_vnd": "6000000", "of_vnd": "12000000", "of_counted": True, "total_vnd": "20000000"}, 19000000)
+        self.assertEqual((row["state"], row["adds_up"], row["sheet_diff_vnd"], row["adds_diff_vnd"]), ("differs", False, "1000000", "-2000000"))
+        self.assertEqual((month["compare_differs"], month["compare_diff_vnd"], month["compare_no_add"]), (1, "1000000", 0))
+
+    def test_so_chua_gia_khong_tinh_vao_doi_chieu(self):
+        """Chuyến chưa giá nằm ở chip Chưa có giá; phần chênh của Đối chiếu không gồm số bảng kê của nó."""
+        row, month = self.reading({"service_vnd": "6000000", "total_vnd": "6000000"}, 0)
+        self.assertEqual((row["state"], row["total_vnd"], row["differs"]), ("no_price", None, True))
+        self.assertEqual((month["compare_differs"], month["compare_diff_vnd"], month["sheet_diff_vnd"], month["differs"]), (0, "0", "6000000", ["FAKU0000011"]))
+
+    def test_chua_co_tren_bang_ke_va_phi_le(self):
+        trips = [{"id": 9, "month": "2026-03-01", "container": "NEWU0000001", "event_date": "2026-03-09", "amount_vnd": "5000000", "status": "confirmed"},
+                 {"id": 10, "month": "2026-03-01", "container": "NEWU0000002", "event_date": "2026-03-09", "amount_vnd": None, "status": "confirmed"}]
+        rows = [legacy(1, 12, "2026-03-01", "FAKU0000001", 43320000), legacy(2, 20, "2026-03-01", "FAKU0000002", 21060001), legacy(3, 40, "2026-03-01", "", 700000)]
+        out = project_details(self.snapshot, self.ledger(rows, trips))
+        self.assertEqual([(row["container"], row["state"], row["phi_vnd"], row["adds_up"]) for row in out["rows"]],
+                         [("FAKU0000001", "ok", "31320000", True), ("FAKU0000002", "ok", "21060001", True), ("NEWU0000001", "no_detail", None, False),
+                          ("NEWU0000002", "no_price", None, False), ("", "loose", None, False)])
+
     def test_cang_den_bo_chu_han(self):
         self.assertEqual(_port("SHEKOU- 蛇口"), "SHEKOU")
         self.assertEqual(_port("NANSHA-南沙"), "NANSHA")
@@ -170,6 +220,8 @@ class Project(unittest.TestCase):
         self.assertEqual(short_day("46090", "2026-03"), "09/03")      # đúng tháng thì giữ
         self.assertEqual(short_day("20/2/2026", "2026-02"), "20/02")
         self.assertEqual(short_day("3/10//2026", "2026-10"), "3/10//2026")
+        # Ô không đọc được giữ nguyên văn, không cắt: 24/12//202 làm người đọc không biết bảng kê ghi gì.
+        self.assertEqual(short_day("24/12//2025", "2025-12"), "24/12//2025")
         self.assertEqual(short_day("", "2026-10"), "")
 
 

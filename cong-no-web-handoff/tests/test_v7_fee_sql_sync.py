@@ -24,6 +24,8 @@ CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v
 CONTAINER_INDEX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql"
 # KHOA-CHU-01 1/11/2026: edit_trip_info, _change_legacy, resolve_sheet_conflict bằng migration mới nhất thay chúng.
 KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
+# BANG-GIA-02 5/11/2026: save_price_table và hàm phụ của nó bằng migration mới nhất thay chúng.
+GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -50,6 +52,10 @@ class FeeSqlSync(unittest.TestCase):
         for name in ("apply_price_table", "list_sheet_trip_refs", "guard_sheet_cross_customer"):
             with self.subTest(name=name):
                 self.assertEqual(definition(audit, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        gia_tu_doi = GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8")
+        for name in ("_reprice_from_table", "save_price_table"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(gia_tu_doi, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
         for name in ("_legacy_undated_match", "paste_trips"):
             with self.subTest(name=name):
