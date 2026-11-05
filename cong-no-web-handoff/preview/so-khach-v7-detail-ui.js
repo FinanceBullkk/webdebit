@@ -32,19 +32,22 @@
   const text = value => `<td class="dt-text" title="${escape(value)}">${escape(value)}</td>`;
 
   function rowHtml(row, number) {
-    const differs = row.differs ? ` title="Sổ đang ghi ${fmt(row.ledger_vnd)}"` : '';
+    const differs = !row.differs ? '' : ` title="${row.total_vnd == null ? 'Sổ chưa có giá, b' : 'B'}ảng kê ghi ${fmt(row.sheet_total_vnd)}"`;
     return `<tr data-detail="${escape(`${row.kind}-${row.id}`)}"><td>${row.container ? number : '–'}</td>${label(row)}${text(row.bill)}${text(row.ship)}`
       + `<td>${escape(row.day)}</td><td>${escape(row.etd)}</td><td>${escape(row.eta)}</td>${text(row.from)}${text(row.to)}${moneyCells(row)}`
       + `<td class="num dt-total${row.differs ? ' dt-differs' : ''}"${differs}>${row.total_vnd == null ? '–' : fmt(row.total_vnd)}</td></tr>`;
   }
 
-  // Bảng kê khác sổ thì chỉ báo; số nợ vẫn theo tab sổ.
+  // Bảng kê khác sổ thì chỉ báo; cột Tổng và số nợ vẫn theo tab sổ.
   function noteHtml(summary) {
     const parts = [];
-    if (summary.diff_vnd != null && !/^0+$/.test(summary.diff_vnd)) {
-      parts.push(`Cộng bảng kê ${fmt(summary.total_vnd)}, sổ ${fmt(summary.charges_vnd)}: lệch ${fmt(summary.diff_vnd)}. Số nợ theo sổ.`);
+    if (summary.differs.length) {
+      const over = summary.sheet_diff_vnd.startsWith('-') ? 'kém' : 'hơn';
+      parts.push(`Bảng kê khác sổ ở ${summary.differs.length} container (${summary.differs.map(escape).join(', ')}), bảng kê ${over} sổ ${fmt(summary.sheet_diff_vnd.replace('-', ''))}. Cột Tổng theo sổ.`);
     }
-    if (summary.differs.length) parts.push(`Khác sổ: ${summary.differs.map(escape).join(', ')}.`);
+    if (summary.diff_vnd != null && !/^0+$/.test(summary.diff_vnd)) {
+      parts.push(`Cộng các dòng ${fmt(summary.total_vnd)}, Phát sinh của sổ ${fmt(summary.charges_vnd)}: lệch ${fmt(summary.diff_vnd)}.`);
+    }
     if (summary.no_detail) parts.push(`${summary.no_detail} chuyến chưa có trên bảng kê.`);
     return parts.length ? `<p class="detail-note" role="status">${parts.join(' ')}</p>` : '';
   }
@@ -57,6 +60,7 @@
     const body = rows.map(row => rowHtml(row, row.container ? ++number : 0)).join('');
     const customer = /^0+$/.test(summary.of_customer_vnd) ? ''
       : `<span class="dt-customer-sum">Khách tự trả cước tàu: <b>${fmt(summary.of_customer_vnd)}</b>, không tính vào Tổng</span>`;
+    const differsKey = summary.differs.length ? '<span class="dt-differs-key"><i class="dt-swatch differs" aria-hidden="true"></i>Bảng kê khác sổ, Tổng theo sổ</span>' : '';
     return noteHtml(summary)
       + '<table class="detail-table" aria-label="Bảng chi tiết của tháng"><colgroup><col class="c-stt"><col class="c-cont"><col class="c-bill"><col class="c-ship">'
       + '<col class="c-pack"><col class="c-day"><col class="c-day"><col class="c-from"><col class="c-to"><col class="c-fee"><col class="c-service"><col class="c-truck"><col class="c-of"><col class="c-vat"><col class="c-total"></colgroup>'
@@ -64,8 +68,8 @@
       + '<th scope="col">ETD</th><th scope="col">ETA</th><th scope="col">Nơi đóng hàng</th><th scope="col">Cảng đến</th><th scope="col" class="num dt-own">Phí phát sinh</th>'
       + '<th scope="col" class="num dt-own">Phí DV hải quan</th><th scope="col" class="num dt-own">Cước nội địa</th><th scope="col" class="num">Cước tàu OF</th>'
       + `<th scope="col" class="num dt-own">VAT 8%</th><th scope="col" class="num">Tổng</th></tr></thead><tbody>${body}</tbody>`
-      + `<tfoot><tr><td colspan="9">${customer}</td>${moneyCell(summary.fee_vnd, '')}${moneyCell(summary.service_vnd, '')}${moneyCell(summary.truck_vnd, '')}`
-      + `${moneyCell(summary.of_counted_vnd, '')}${moneyCell(summary.vat_vnd, '')}${moneyCell(summary.total_vnd, '')}</tr></tfoot></table>`;
+      + `<tfoot><tr><td colspan="9" class="dt-foot-note">${customer}${differsKey}</td>${moneyCell(summary.fee_vnd, '')}${moneyCell(summary.service_vnd, '')}${moneyCell(summary.truck_vnd, '')}`
+      + `${moneyCell(summary.of_counted_vnd, '')}${moneyCell(summary.vat_vnd, '')}${moneyCell(summary.charges_vnd ?? summary.total_vnd, 'dt-foot-total')}</tr></tfoot></table>`;
   }
 
   root.addEventListener('click', event => {

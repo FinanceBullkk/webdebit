@@ -120,10 +120,20 @@ class Project(unittest.TestCase):
                 legacy(3, 14, "2026-03-01", "", 20000000), legacy(4, 15, "2026-03-01", "FAKU0000002", 0)]           # dòng dưới có cont, lệch sổ
         out = project_details(self.snapshot, self.ledger(rows, charges="63320000"))
         self.assertEqual([row["container"] for row in out["rows"]], ["FAKU0000001", "FAKU0000002"])
-        self.assertEqual([(row["ledger_vnd"], row["differs"]) for row in out["rows"]], [("43320000", False), ("20000000", True)])
+        self.assertEqual([(row["total_vnd"], row["sheet_total_vnd"], row["differs"]) for row in out["rows"]],
+                         [("43320000", "43320000", False), ("20000000", "21060001", True)])
         summary = out["months"]["2026-03"]
-        self.assertEqual((summary["total_vnd"], summary["of_counted_vnd"], summary["of_customer_vnd"], summary["differs"], summary["diff_vnd"]),
-                         ("64380001", "12000000", "21000000", ["FAKU0000002"], "-1060001"))
+        self.assertEqual((summary["total_vnd"], summary["of_counted_vnd"], summary["of_customer_vnd"], summary["differs"], summary["sheet_diff_vnd"], summary["diff_vnd"]),
+                         ("63320000", "12000000", "21000000", ["FAKU0000002"], "1060001", "0"))
+
+    def test_tong_theo_so_khi_bang_ke_cu_hoac_so_chua_gia(self):
+        rows = [legacy(1, 12, "2026-03-01", "FAKU0000001", 20000000), legacy(2, 20, "2026-03-01", "FAKU0000002", 0), legacy(3, 30, "2026-03-01", "FAKU0000004", 23760001)]
+        out = project_details(self.snapshot, self.ledger(rows, charges="43760001"))
+        self.assertEqual([(row["total_vnd"], row["differs"]) for row in out["rows"]],
+                         [("20000000", True), (None, True), ("23760001", False)])     # lệch 1đ do làm tròn VAT thì không báo, vẫn hiện số sổ
+        summary = out["months"]["2026-03"]
+        self.assertEqual((summary["total_vnd"], summary["diff_vnd"], summary["sheet_diff_vnd"], summary["differs"]),
+                         ("43760001", "0", str(43320000 - 20000000 + 21060001), ["FAKU0000001", "FAKU0000002"]))
 
     def test_dong_khong_container_khong_ke_ben_giu_rieng(self):
         rows = [legacy(1, 12, "2026-03-01", "FAKU0000001", 43320000), legacy(2, 30, "2026-03-01", "", 5000000)]

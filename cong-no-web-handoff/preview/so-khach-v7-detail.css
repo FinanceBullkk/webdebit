@@ -11,9 +11,10 @@
 .dt-swatch.customer{background:#fce9c4;border-color:#d9a441}
 .detail-note{margin:0 0 6px;padding:5px 10px;border-radius:6px;background:#fdf3e1;color:#5c3b00;font-size:14px}
 .detail-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;background:#fff}
-.detail-table .c-stt{width:38px}.detail-table .c-cont{width:94px}.detail-table .c-bill{width:96px}.detail-table .c-ship{width:88px}
-.detail-table .c-pack{width:52px}.detail-table .c-day{width:44px}.detail-table .c-to{width:68px}.detail-table .c-fee{width:76px}.detail-table .c-service{width:82px}.detail-table .c-truck{width:88px}
-.detail-table .c-of{width:84px}.detail-table .c-vat{width:80px}.detail-table .c-total{width:92px}
+/* Cột tiền đủ chỗ cho số chân bảng (hàng trăm triệu, cột Tổng hàng tỷ); cột chữ có dấu … và chữ rê chuột nên nhường bề ngang. */
+.detail-table .c-stt{width:38px}.detail-table .c-cont{width:94px}.detail-table .c-bill{width:76px}.detail-table .c-ship{width:70px}
+.detail-table .c-pack{width:50px}.detail-table .c-day{width:44px}.detail-table .c-to{width:68px}.detail-table .c-fee{width:80px}.detail-table .c-service{width:88px}.detail-table .c-truck{width:88px}
+.detail-table .c-of{width:88px}.detail-table .c-vat{width:84px}.detail-table .c-total{width:120px}
 .detail-table th{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:20;padding:6px 5px;background:#f3f5f8;border-bottom:1px solid #d7dce3;color:#3f3e3b;font-weight:700;line-height:1.2;text-align:left;vertical-align:middle}
 .detail-table th.num,.detail-table td.num{text-align:right}
 .detail-table th.dt-own{background:#e4eefa}
@@ -28,5 +29,11 @@
 .detail-table .dt-total{font-weight:700}
 .detail-table .dt-differs{outline:2px solid #c77700;outline-offset:-2px}
 .detail-table tfoot td{height:40px;background:#f3f5f8;border-top:2px solid #d7dce3;border-bottom:0;font-weight:700}
-.dt-customer-sum{font-weight:400;color:#5c3b00}
+/* Chân bảng: chỉ ô Tổng đậm vì đó là số của sổ; cột phí chữ thường 12px cho vừa số hàng trăm triệu. */
+.detail-table tfoot td.num:not(.dt-foot-total){font-size:12px;font-weight:400}
+.detail-table tfoot td.dt-foot-total{font-size:13px}
+.detail-table td.dt-foot-note{white-space:normal;font-weight:400}
+.dt-customer-sum{margin-right:14px;color:#5c3b00}
 .dt-customer-sum b{font-weight:700}
+.dt-differs-key{display:inline-flex;align-items:center;gap:6px;color:#5c3b00}
+.dt-swatch.differs{border:2px solid #c77700;background:#fff}
