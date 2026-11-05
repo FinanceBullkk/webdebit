@@ -19,7 +19,7 @@
     const voided = receipt.voided_by_event != null;
     const { label } = receiptNote(receipt.reference, receipt.date);
     return label
-      ? `<small class="receipt receipt-edit receipt-ref${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" title="${escape(label)}" `
+      ? `<small class="receipt receipt-edit receipt-ref${voided ? ' voided' : ''}" data-pid="${escape(receipt.pid)}" data-field="reference" `
         + `tabindex="${voided ? '-1' : '0'}" role="button" aria-label="Sửa tham chiếu ${escape(receipt.pid)}">${escape(label)}</small>`
       : `<small class="receipt receipt-edit receipt-ref empty" data-pid="${escape(receipt.pid)}" data-field="reference" tabindex="0" role="button" `
         + `aria-label="Thêm tham chiếu ${escape(receipt.pid)}" title="Thêm tham chiếu">+</small>`;

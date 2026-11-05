@@ -166,6 +166,8 @@ function payWorld(world) {
     { id: 2, pid: 'PH-002', date: '2026-09-30', method: 'THU TIỀN', amount_vnd: '11000000', reference: HASH_REF, voided_by_event: null, allocations: [debt('2026-04-01', '11000000')] },
     { id: 3, pid: 'PH-003', date: '2026-09-04', method: 'THU TIỀN', amount_vnd: '5500000000', reference: 'Sheet: 4/9/2026 TT', voided_by_event: null,
       allocations: [debt('2026-06-01', '1500000'), debt('2026-07-01', '2000000000'), debt('2026-08-01', '3498500000')] },
+    { id: 4, pid: 'PH-004', date: '2026-09-30', method: 'THU TIỀN', amount_vnd: '7000000', voided_by_event: null, allocations: [debt('2026-04-01', '7000000')],
+      reference: 'Sheet #' + 'ab12'.repeat(16) + ': khách chuyển thay cho công ty bên kia đợt hai · ngày theo cuối tháng khối Sheet' },
   ];
 }
 
@@ -183,11 +185,15 @@ test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi thán
         clipped: cells.map(cell => cell.scrollWidth > cell.clientWidth).some(Boolean) };
     }));
     assert.deepEqual(rows.map(row => [row.day, row.note]), [
-      ['16/09/2026', 'tt'], ['–', 'đã tt'], ['–', ''], ['30/09/2026', '+'], ['30/09/2026', 'da tt · ngày tượng trưng'], ['04/09/2026', 'TT']]);
+      ['16/09/2026', 'tt'], ['–', 'đã tt'], ['–', ''], ['30/09/2026', '+'], ['30/09/2026', 'da tt · ngày tượng trưng'], ['04/09/2026', 'TT'],
+      ['30/09/2026', 'khách chuyển thay cho công ty bên kia đợt hai · ngày tượng trưng']]);
     assert.deepEqual(rows.filter(row => row.clipped), [], 'không ô nào bị cắt chữ');
     assert.equal(new Set(rows.map(row => row.right)).size, 1, 'số tiền sổ gốc và phiếu web thẳng một cột: ' + rows.map(row => row.right));
     assert.ok(rows[3].height <= 76, 'phiếu chia ba tháng cao ba dòng chữ, không bẻ tháng và số: ' + rows[3].height);
-    assert.equal(rows[4].height, 33, 'phiếu một tháng giữ một dòng');
+    assert.equal(rows[0].height, 33, 'khoản thu ghi chú ngắn giữ một dòng');
+    // Ghi chú dài xuống dòng, không cắt: dấu "ngày tượng trưng" đứng cuối vẫn phải thấy đủ.
+    const long = page.locator('td:has(>.receipt-ref[data-pid="PH-004"])');
+    assert.ok(await long.evaluate(cell => cell.scrollHeight <= cell.clientHeight && cell.scrollWidth <= cell.clientWidth), 'ghi chú dài hiện đủ');
     const pairs = await page.locator('tr:has([data-pid="PH-001"]) .alloc-sum').evaluateAll(all => all.map(sum => {
       const box = sum.getBoundingClientRect(), month = sum.previousElementSibling.getBoundingClientRect();
       return { right: Math.round(box.right), sameLine: Math.abs(box.top - month.top) < 2 };

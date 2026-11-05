@@ -124,3 +124,5 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .pay-list .receipt .receipt-money>.image-clip{margin:-4px 0}
 /* Khoản thu sổ gốc không có nút ảnh: chừa chỗ để số tiền thẳng cột với phiếu web. */
 .pay-list td.num:not(.receipt){text-align:right;padding-right:36px;font-variant-numeric:tabular-nums}
+/* Tham chiếu dài xuống dòng thay vì "…": dấu "ngày tượng trưng" đứng cuối chữ, cắt mất thì ngày máy đặt trông như ngày tiền về. */
+.pay-list tr.pay-row td.pay-reference{white-space:normal;overflow-wrap:anywhere}
