@@ -15,8 +15,11 @@ import threading
 import time
 from pathlib import Path
 
-TTL = 30.0            # không nghe báo 30 giây thì người đó biến mất
-POINTER_TTL = 3.0     # mũi tên chuột cũ hơn 3 giây thì ẩn
+# Trang báo mỗi 10 giây, nhưng Chrome cho tab ẩn lâu chạy hẹn giờ một lần mỗi phút: hạn ngắn hơn 60 giây
+# làm người đó có 30 giây, mất 30 giây. Đóng tab đã có báo rời trang nên hạn dài không giữ người cũ lại.
+TTL = 90.0
+# Lớn hơn nhịp 10 giây: chuột đứng yên vẫn thấy; trang ngừng báo (máy ngủ, mất mạng) thì mũi tên mới ẩn.
+POINTER_TTL = 15.0
 MAX_BODY = 2048
 MAX_STREAMS = 40
 MAX_STREAMS_PER_ACTOR = 6
@@ -178,7 +181,8 @@ class Presence:
             book = me["customer_id"] if me and me["page"] == "so-khach" else None
             names = self.names()
             people = []
-            for (other, other_tab), entry in sorted(self.entries.items(), key=lambda item: item[1]["at"]):
+            # Theo thứ tự vào web (dict giữ chỗ khi báo lại), không theo lần báo gần nhất: dãy vòng tròn không xáo khi có người di chuột.
+            for (other, other_tab), entry in self.entries.items():
                 if (other, other_tab) == (actor, tab):
                     continue
                 person = {"id": self._id(other, other_tab), "name": self._name(other, other_tab, names),

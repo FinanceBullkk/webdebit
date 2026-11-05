@@ -98,6 +98,37 @@ class PresenceTest(unittest.TestCase):
         self.p.report("minh@example.test", book(TAB_B))
         self.assertEqual(self.p.view("minh@example.test", TAB_B), [])
 
+    def test_still_mouse_keeps_pointer_between_heartbeats(self):
+        # Chuột đứng yên, tab vẫn báo nhịp 10 giây: mũi tên không được tắt rồi hiện lại theo từng nhịp.
+        self.p.report("minh@example.test", book(TAB_B))
+        for _ in range(3):
+            self.p.report("lan@example.test", book(TAB_A, pointer=POINTER))
+            for _ in range(10):
+                self.assertEqual(self.p.view("minh@example.test", TAB_B)[0]["pointer"], POINTER)
+                self.clock.now += 1.0
+            self.p.report("minh@example.test", book(TAB_B))
+
+    def test_background_tab_stays_listed_when_browser_slows_its_timers(self):
+        # Chrome cho tab ẩn lâu chạy hẹn giờ một lần mỗi phút: người đó không được biến mất rồi hiện lại.
+        self.p.report("minh@example.test", book(TAB_B))
+        for _ in range(3):
+            self.p.report("lan@example.test", book(TAB_A))
+            for _ in range(60):
+                self.assertEqual(len(self.p.view("minh@example.test", TAB_B)), 1)
+                self.clock.now += 1.0
+                self.p.report("minh@example.test", book(TAB_B))
+
+    def test_order_does_not_follow_latest_report(self):
+        # Thứ tự đổi theo lần báo thì dãy vòng tròn vẽ lại liên tục và chú thích đang mở bị chớp.
+        self.p.report("lan@example.test", book(TAB_A))
+        self.p.report("hoa@example.test", book(TAB_C))
+        self.p.report("minh@example.test", book(TAB_B))
+        names = [person["name"] for person in self.p.view("minh@example.test", TAB_B)]
+        for actor, tab in (("lan@example.test", TAB_A), ("hoa@example.test", TAB_C), ("lan@example.test", TAB_A)):
+            self.clock.now += 1.0
+            self.p.report(actor, book(tab))
+            self.assertEqual([person["name"] for person in self.p.view("minh@example.test", TAB_B)], names)
+
     def test_leaving_removes_entry(self):
         self.p.report("lan@example.test", book(TAB_A))
         self.p.report("lan@example.test", presence.parse(body(TAB_A, page=None)))
