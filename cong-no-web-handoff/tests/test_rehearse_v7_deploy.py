@@ -81,5 +81,75 @@ class RehearsalTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
 
+# Runs in a fresh interpreter: tools/ and tests/ both have a test_pg_v7_grants module.
+STARTUP_DRIVER = r'''
+import contextlib, importlib, io, itertools, json, subprocess, sys
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, sys.argv[1])
+ready_on_poll = int(sys.argv[3])  # 0: the server never accepts connections
+import pg_v7_harness
+harness = importlib.import_module(sys.argv[2])
+events, polls = [], itertools.count(1)
+
+def fake_run(args, input_text=None, **_):
+    stdout = ''
+    code = 0
+    if 'logs' in args:
+        stdout = 'PostgreSQL init process complete; ready for start up.'
+    elif 'pg_isready' in args:
+        code = 0 if next(polls) == ready_on_poll else 1
+        events.append('rejected' if code else 'ready')
+    elif input_text is not None:  # only SQL statements are sent on stdin
+        events.append('sql')
+        raise harness.HarnessError('stop after first SQL')
+    return subprocess.CompletedProcess(args, code, stdout, '')
+
+clock = itertools.count()
+out = io.StringIO()
+error = None
+with patch.object(harness, 'run', fake_run), patch.object(pg_v7_harness, 'run', fake_run), \
+     patch.object(harness, 'inspect_owned', lambda *a: 'cid'), \
+     patch.object(harness, 'inspect_volume', lambda *a: None), \
+     patch('time.sleep', lambda _: None), patch('time.monotonic', lambda: next(clock)), \
+     patch.object(sys, 'argv', [sys.argv[2]]), contextlib.redirect_stdout(out):
+    if hasattr(harness, 'Rehearsal'):
+        try:
+            harness.Rehearsal({'run_id': 'fake', 'executed_commands': []}, Path('.')).start()
+        except harness.HarnessError as exc:
+            error = str(exc)
+    else:
+        harness.main()
+        error = json.loads(out.getvalue())['error']
+print(json.dumps({'events': events, 'error': error}))
+'''
+
+
+class StartupReadinessTests(unittest.TestCase):
+    """The init marker precedes the final restart, so SQL must wait for pg_isready."""
+
+    HARNESSES = ('rehearse_v7_deploy', 'test_pg_v7_direct', 'test_pg_v7_grants')
+
+    def drive(self, harness, ready_on_poll):
+        result = subprocess.run(
+            [sys.executable, '-c', STARTUP_DRIVER, str(ROOT / 'tools'), harness, str(ready_on_poll)],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout.splitlines()[-1])
+
+    def test_first_sql_waits_until_server_accepts_connections(self):
+        for harness in self.HARNESSES:
+            with self.subTest(harness=harness):
+                self.assertEqual(self.drive(harness, 3)['events'], ['rejected', 'rejected', 'ready', 'sql'])
+
+    def test_server_that_never_starts_times_out_without_sql(self):
+        for harness in self.HARNESSES:
+            with self.subTest(harness=harness):
+                state = self.drive(harness, 0)
+                self.assertNotIn('sql', state['events'])
+                self.assertEqual(state['error'], 'PostgreSQL readiness timed out')
+
+
 if __name__ == '__main__':
     unittest.main()
