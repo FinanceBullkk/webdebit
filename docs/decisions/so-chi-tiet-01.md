@@ -7,7 +7,7 @@
 Sổ mà Sheet ghi mỗi container hai dòng hiện theo đúng cột bảng kê gửi khách, mỗi container một dòng, tô màu thay cho tách dòng (spec [`v7-so-chi-tiet.md`](../../specs/v7-so-chi-tiet.md)):
 
 1. **Nguồn là Sheet, tab riêng.** Bảng kê được chép sang tab `CHI TIET ...` trên Sheet sổ chính, không thêm cột vào tab sổ và không nạp file lên web.
-2. **Chỉ để xem.** Số nợ vẫn theo tab sổ. Tab chi tiết không vào tiền; khác sổ thì web báo lệch, không tự sửa.
+2. **Chỉ để xem.** Số nợ vẫn theo tab sổ. Tab chi tiết không vào tiền; khác sổ thì web báo lệch, không tự sửa. Cột Tổng và dòng cộng luôn hiện số của sổ; ô khác bảng kê có viền cam, rê chuột thấy số của bảng kê (chủ nghiệp vụ chốt 5/11/2026 sau khi xem một tháng thật có dòng cộng theo bảng kê cũ cao hơn sổ).
 3. **Nghĩa của cước tàu.** Có trong Tổng thì mình thu (xanh); ngoài Tổng là khách tự trả (cam), không cộng vào nợ.
 4. **Sửa ở bảng sổ.** Bảng chi tiết không có ô sửa; nút trên thanh chuyến đổi về bảng sổ.
 

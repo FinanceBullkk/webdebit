@@ -32,15 +32,16 @@ Hai mẫu: bảng kê (một hoặc hai dòng mỗi container; dòng chưa có p
 
 `GET /api/v7/ledger` thêm `sheet_details`: `{rows: [...], months: {"yyyy-mm": {...}}}`, chỉ đọc. Hỏng file thì `{unavailable: true, rows: [], months: {}}`, không chặn đọc sổ. Sổ không đủ điều kiện: `rows` rỗng.
 
-- Dòng: `kind`, `id`, `month`, `container` (rỗng: Phí lẻ), `has_detail`, `day`, `bill`, `ship`, `etd`, `eta`, `from`, `to`, `of_counted`, `differs`, `fee_vnd`, `service_vnd`, `truck_vnd`, `of_vnd`, `vat_vnd`, `total_vnd`, `ledger_vnd`.
-- Tháng: cộng từng cột, `of_counted_vnd`, `of_customer_vnd`, `total_vnd`, `no_detail`, `differs`, `charges_vnd`, `diff_vnd`.
+- Dòng: `kind`, `id`, `month`, `container` (rỗng: Phí lẻ), `has_detail`, `day`, `bill`, `ship`, `etd`, `eta`, `from`, `to`, `of_counted`, `differs`, `fee_vnd`, `service_vnd`, `truck_vnd`, `of_vnd`, `vat_vnd`, `total_vnd` (số của sổ, chưa có giá thì null), `sheet_total_vnd` (Tổng trên bảng kê, null nếu không có), `ledger_vnd`.
+- Tháng: cộng từng cột, `of_counted_vnd`, `of_customer_vnd`, `total_vnd` (cộng số của sổ các dòng), `no_detail`, `differs`, `sheet_diff_vnd` (bảng kê trừ sổ ở các dòng khác sổ), `charges_vnd`, `diff_vnd` (`charges_vnd` trừ `total_vnd`).
 
 Runner giá ghi `details.json` cạnh `prices.json` từ cùng một lần đọc (`WEBDEBIT_DETAIL_SNAPSHOT_PATH` nếu cần đổi). Không có lệnh ghi mới.
 
 ## Hành vi và bất biến
 
 - Không có đường nào từ tab chi tiết vào tiền: `scan_tabs` không đọc được tab này thành khối tháng, không lệnh ghi nào dùng `details.json`.
-- Khác sổ chỉ báo: dòng tóm tắt "Cộng bảng kê … sổ … lệch …" và viền ở ô Tổng. Số nợ theo sổ.
+- Cột Tổng theo sổ: mọi dòng hiện số của sổ; dòng cộng là Phát sinh của tháng, cùng số với đầu tháng. Các cột phí vẫn theo bảng kê, nên dòng khác sổ không cộng ngang được; dòng cộng cũng vậy khi có dòng chưa có trên bảng kê.
+- Khác sổ chỉ báo: dòng tóm tắt nêu các container và phần chênh, viền cam ở ô Tổng kèm chữ giải thích ở chân bảng, rê chuột thấy số của bảng kê. Sổ chưa có giá mà bảng kê có giá: Tổng "–", tính là chưa giá, viền cam. Cộng các dòng khác Phát sinh (điều chỉnh tháng) thì dòng tóm tắt báo riêng.
 - Trống không phải 0: chuyến chưa có giá hiện "chưa có giá", Tổng "–"; chuyến chưa có trên bảng kê ghi rõ.
 - VAT lẻ trên bảng kê làm tròn đồng để hiện; lệch tới 1đ không báo.
 - Container dùng lại: lần cuối trong sổ ứng với lần cuối trên bảng kê.
@@ -55,7 +56,7 @@ Runner giá ghi `details.json` cạnh `prices.json` từ cùng một lần đọ
 
 - [x] `tests/test_v7_detail_queue.py`: hai mẫu, OF trong/ngoài Tổng, dòng tổng, ghép dòng, dùng lại container, ngày đảo, tab không sinh dòng tiền.
 - [x] `preview/test-so-khach-v7-detail-browser.js`: cột, màu, thiếu dữ liệu, báo lệch, đổi bảng, nhớ lựa chọn, `?loc=`, sổ không có bảng.
-- [x] Khung 1280: không cuộn ngang; đã xem ảnh render dữ liệu giả.
+- [x] Khung 1280: không cuộn ngang; đã xem ảnh render dữ liệu giả; số ở chân bảng không tràn cột.
 - [ ] Sau deploy: `details.json` có trên `hao`, sổ thật hiện đúng cột, số nợ không đổi, đối soát không đổi.
 - [ ] Người dùng tự xem các tháng trên `hao` và xác nhận.
 
