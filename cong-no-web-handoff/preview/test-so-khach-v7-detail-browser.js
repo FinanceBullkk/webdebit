@@ -206,6 +206,36 @@ test('Đủ cột: 15 cột theo file, có chip lọc, trạng thái ghi bằng 
   assert.equal(await page.locator('.dt-mode[data-mode="du"]').getAttribute('aria-pressed'), 'true');
 }, withDetails));
 
+test('Ngày gõ nhầm trên bảng kê: Đủ cột hiện dấu ?, rê chuột thấy nguyên văn, không đè cột bên cạnh; bảng gọn ghi nguyên văn', async () => withPage(async ({ page }) => {
+  await page.locator('.dt-gon').waitFor();
+  await row(page, 1).click();
+  assert.deepEqual((await texts(page.locator('tr.dt-more .dt-infos dd')))[2], '5/110/2026 · 10/09');
+  await page.locator('.dt-mode[data-mode="du"]').click();
+  await page.locator('.dt-du').waitFor();
+  // Cột ETD là cột thứ 6, ETA thứ 7.
+  const cells = row(page, 1).locator('td');
+  const etd = cells.nth(5);
+  assert.equal(await etd.innerText(), '?');
+  assert.equal(await etd.getAttribute('title'), 'Bảng kê ghi 5/110/2026, chưa đọc được ngày. Sửa trên Sheet.');
+  assert.equal(await etd.getAttribute('aria-label'), 'Bảng kê ghi 5/110/2026, chưa đọc được ngày. Sửa trên Sheet.');
+  assert.equal(await etd.evaluate(cell => getComputedStyle(cell).outlineColor), 'rgb(199, 119, 0)');
+  assert.equal(await cells.nth(6).innerText(), '10/09');
+  // Không đè cột: nội dung nằm gọn trong ô, cả với font rộng.
+  const fits = locator => locator.evaluate(cell => {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    return range.getBoundingClientRect().right <= cell.getBoundingClientRect().right;
+  });
+  assert.equal(await fits(etd), true);
+  await page.addStyleTag({ content: 'body,body *{font-family:Verdana,"DejaVu Sans",sans-serif !important}' });
+  assert.equal(await fits(etd), true);
+  // Ngày đọc được và ngày ngắn không năm vẫn hiện bình thường; ô trống vẫn trống.
+  assert.equal(await row(page, 2).locator('td').nth(5).innerText(), '3/10');
+  assert.equal(await row(page, 2).locator('td').nth(5).getAttribute('title'), null);
+  assert.equal(await row(page, 3).locator('td').nth(5).innerText(), '');
+  assert.equal(await row(page, 3).locator('td').nth(5).getAttribute('title'), null);
+}, world => withDetails(world, { ...CLEAN, rows: [base(1, 'ABCU2000011', { etd: '5/110/2026' }), base(2, 'ABCU2000026', { etd: '3/10' }), base(3, 'ABCU2000032', { etd: '' })] })));
+
 // Số giả cỡ một tháng lớn và chữ dài: hàng trăm triệu ở dòng, hàng tỷ ở dòng cộng.
 const BIG = { rows: [
   base(1, 'ABCU2000011', { state: 'no_price', differs: true, total_vnd: null, ledger_vnd: '0', sheet_total_vnd: '44111222' }),
