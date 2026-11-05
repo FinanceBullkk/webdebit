@@ -57,6 +57,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - `reason`: `FIXED`, `WOULD_FIX`, `WEB_AHEAD`, `NO_EXACT_FIX`, `SHEET_SHUFFLED`, `AMBIGUOUS_FIX`, `NOTHING_TO_WRITE`, `TOO_MANY_GROUPS`, `TOO_MANY_DIFFERENT`, `WRITE_ERROR`, `CHECK_ERROR`, `VERIFY_FAILED`, `HELD`, `CHI_CO_SHEET`, `CHI_CO_WEB`, `THIEU_SO`. `FIXED` với `status` `LECH_TONG` là đã sửa, phần còn lại là web đi trước Sheet.
 - `outside_tabs`: tab khách còn nợ, có phát sinh (tiền chuyến hoặc tiền thu) từ tháng 10/2026, tức từ tháng nạp V7, mà máy chưa tạo được sổ ([`MAY-TAO-SO-01`](../docs/decisions/may-tao-so-01.md)). `reason` là `NOT_ON_TONG`, `TONG_DIFFERS` hoặc `TAB_UNREADABLE`. Tab cũ hơn là bản sao, tab nháp đã xem lúc nạp. Bản `reconcile.json` trước khi có trường này thì coi như rỗng.
 - `last_error`: lần chạy mới nhất hỏng, phần còn lại là kết quả lần đạt trước.
+- `edit_log`, và `sheet_last_edit_at`, `sheet_editing` ở từng khách: tab vừa được sửa thì không tính "cần xem", xem [`SHEET-LOG-01`](../docs/decisions/sheet-log-01.md) và [spec](sheet-log-doi-soat.md).
 - `sheet_matched`: sổ có trong `matched` của lượt gần nhất, tổng hiện tại bằng tổng lúc đó, và không còn dòng giá khác giá Sheet (`prices_conflict`).
 
 ## Nguồn quyết định
