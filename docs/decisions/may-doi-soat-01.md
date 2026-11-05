@@ -49,4 +49,4 @@ Lưới an toàn là đúng tổng từng khách: hai lỗi bù trừ nhau trong
 
 Phép so chỉ thấy khách đã có trong phép so: tab mới mà chưa vào thì tổng Sheet lẫn tổng web đều chưa tính, hai bên vẫn khớp. Từ 4/11/2026 tab mới đủ điều kiện được máy tạo sổ ([`MAY-TAO-SO-01`](may-tao-so-01.md)); tab chưa đủ điều kiện, còn nợ, có phát sinh từ tháng 10/2026 thì mỗi lượt báo kèm lý do.
 
-Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet". Câu hỏi "chuyển hẳn thế nào khi không còn người nhập trên web" CÒN MỞ: hướng này giữ Sheet làm nơi nhập, nên mục chuyển hẳn F4 của [checklist](../song-song-checklist.md) cần chủ sổ xem lại.
+Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ chính, không còn "theo Sheet". Câu hỏi "chuyển hẳn thế nào khi không còn người nhập trên web": từ 5/11/2026 chưa chuyển, giữ Sheet làm nơi nhập, xét lại sau đối soát cuối tháng 11 ([`CHUYEN-HAN-01`](chuyen-han-01.md)).
