@@ -1,0 +1,32 @@
+/* Bảng chi tiết của sổ (SO-CHI-TIET-01): theo cột bảng kê gửi khách, xanh là mình thu, cam là khách tự trả. Màu còn đi kèm chú thích
+   và dòng chữ cuối bảng, không để người đọc đoán tiền theo màu. */
+.trip-toolbar .detail-toggle{min-height:32px;padding:0 12px;border:1px solid #9fb0c2;border-radius:6px;background:#fff;color:#1a1a19;font:inherit;font-size:14px;cursor:pointer}
+.trip-toolbar .detail-toggle:hover{background:#f3f5f8}
+.trip-card:has(.detail-table)>.ledger-head{display:none}
+.trip-side:has(.detail-table){padding:0 14px 10px}
+.detail-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13.5px;color:#52514e}
+.detail-legend span{display:inline-flex;align-items:center;gap:6px}
+.dt-swatch{width:14px;height:14px;border:1px solid}
+.dt-swatch.own{background:#e4eefa;border-color:#8fb4dc}
+.dt-swatch.customer{background:#fce9c4;border-color:#d9a441}
+.detail-note{margin:0 0 6px;padding:5px 10px;border-radius:6px;background:#fdf3e1;color:#5c3b00;font-size:14px}
+.detail-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;background:#fff}
+.detail-table .c-stt{width:38px}.detail-table .c-cont{width:94px}.detail-table .c-bill{width:96px}.detail-table .c-ship{width:88px}
+.detail-table .c-pack{width:52px}.detail-table .c-day{width:44px}.detail-table .c-to{width:68px}.detail-table .c-fee{width:76px}.detail-table .c-service{width:82px}.detail-table .c-truck{width:88px}
+.detail-table .c-of{width:84px}.detail-table .c-vat{width:80px}.detail-table .c-total{width:92px}
+.detail-table th{position:sticky;top:calc(var(--banner) + var(--head) + var(--chips));z-index:20;padding:6px 5px;background:#f3f5f8;border-bottom:1px solid #d7dce3;color:#3f3e3b;font-weight:700;line-height:1.2;text-align:left;vertical-align:middle}
+.detail-table th.num,.detail-table td.num{text-align:right}
+.detail-table th.dt-own{background:#e4eefa}
+.detail-table td{height:34px;padding:2px 5px;border-bottom:1px solid #e9ecf0;white-space:nowrap}
+.detail-table .dt-text{overflow:hidden;text-overflow:ellipsis}
+.detail-table .dt-cont{font-family:Consolas,'Cascadia Mono',monospace;font-size:12.5px}
+.detail-table td.dt-own{background:#f2f7fd}
+.detail-table td.dt-of-own{background:#e4eefa;font-weight:600}
+.detail-table td.dt-of-customer{background:#fce9c4;color:#5c3b00}
+.detail-table .dt-missing{background:#fdf3e1;color:#7a4700;font-weight:600;text-align:center}
+.detail-table .dt-no-detail{color:#6f6d67;text-align:center}
+.detail-table .dt-total{font-weight:700}
+.detail-table .dt-differs{outline:2px solid #c77700;outline-offset:-2px}
+.detail-table tfoot td{height:40px;background:#f3f5f8;border-top:2px solid #d7dce3;border-bottom:0;font-weight:700}
+.dt-customer-sum{font-weight:400;color:#5c3b00}
+.dt-customer-sum b{font-weight:700}

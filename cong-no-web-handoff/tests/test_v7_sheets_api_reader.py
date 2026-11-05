@@ -111,7 +111,7 @@ class ReaderTest(unittest.TestCase):
             self.assertEqual(from_api["sha256"], snapshot_tool.build(xlsx)["sha256"])
             self.assertEqual(receipts["sha256"], snapshot_tool.build_all(xlsx)[1]["sha256"])
             self.assertEqual(from_api["source"], {"kind": "sheets_api"})
-            with patch.object(snapshot_tool, "build_all_from_api", side_effect=KeyError("sheets")):
+            with patch.object(snapshot_tool, "build_with_details_from_api", side_effect=KeyError("sheets")):
                 self.assertEqual(snapshot_tool.main(["--spreadsheet-id", SHEET_ID, "--credentials", str(credentials),
                                                      "--output", str(Path(temp) / "p.json")]), 2)
 
