@@ -356,6 +356,63 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(self.run_job(Db())[0], 0)
         self.assertNotIn("last_error", self.result())
 
+    def run_with_log(self, db, *extra, read=None):
+        """Lượt có đọc log sửa Sheet (SHEET-LOG-01); `read` trả các sự kiện hoặc ném lỗi."""
+        with (patch.object(job.sheet_sync_runner, "load_credentials", return_value={}),
+              patch.object(job.sheet_sync_runner, "exchange_token", return_value="token"),
+              patch.object(job.edit_log, "read_tail", side_effect=read)):
+            return self.run_job(db, "--edit-log-id", "fake-log", "--credentials", "c.json", *extra)
+
+    def edit_at(self, minutes_ago):
+        at = job.now_vn() - job.dt.timedelta(minutes=minutes_ago)
+        return lambda *_: [{"row": 2, "at": at, "kind": "EDIT", "tab": FAKE_NAME, "range": "M5"}]
+
+    def test_edit_log_is_off_without_config_and_the_result_says_so(self):
+        fixture(self.source)
+        self.assertEqual(self.run_job(Db())[0], 0)
+        self.assertEqual(self.result()["edit_log"], {"status": "OFF"})
+
+    def test_unmatched_book_with_a_fresh_edit_is_marked_but_its_conclusion_stays(self):
+        fixture(self.source)
+        db = Db(total=FAKE_AMOUNT + 5)
+        code, printed = self.run_with_log(db, "--fix", read=self.edit_at(5))
+        self.assertEqual((code, db.writes), (0, []))
+        result = self.result()
+        row = result["customers"][0]
+        self.assertEqual((row["status"], row["reason"], row["sheet_editing"]), ("LECH_TONG", "NOTHING_TO_WRITE", True))
+        self.assertEqual(row["difference_vnd"], "5")
+        self.assertEqual(result["edit_log"]["status"], "OK")
+        self.assertEqual(json.loads(printed)["edit_log"], "OK")
+        self.assertEqual(json.loads(self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8"))["editing"], 1)
+
+    def test_old_edit_is_only_a_note_and_the_book_still_needs_a_person(self):
+        fixture(self.source)
+        self.assertEqual(self.run_with_log(Db(total=FAKE_AMOUNT + 5), read=self.edit_at(120))[0], 0)
+        row = self.result()["customers"][0]
+        self.assertNotIn("sheet_editing", row)
+        self.assertTrue(row["sheet_last_edit_at"])
+
+    def test_a_fresh_edit_does_not_stop_the_exact_fix(self):
+        self.undated_receipt_book()
+        db = Db()
+        self.assertEqual(self.run_with_log(db, "--fix", read=self.edit_at(1))[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])   # chốt khớp tổng vẫn là thứ quyết định ghi
+        row = self.result()["customers"][0]
+        self.assertEqual(row["reason"], "FIXED")
+        self.assertNotIn("sheet_editing", row)
+
+    def test_log_failure_keeps_the_run_and_only_reports_a_code(self):
+        fixture(self.source)
+        error = job.sheet_sync_runner.urllib.error.HTTPError("https://x", 403, "Forbidden", {}, None)
+        self.addCleanup(error.close)
+        code, printed = self.run_with_log(Db(total=FAKE_AMOUNT + 5), read=error)
+        self.assertEqual(code, 0)
+        result = self.result()
+        self.assertEqual(result["edit_log"], {"status": "UNAVAILABLE", "reason": "403"})
+        self.assertEqual(result["customers"][0]["reason"], "NOTHING_TO_WRITE")
+        self.assertNotIn("sheet_editing", result["customers"][0])
+        self.assertEqual(json.loads(printed)["edit_log"], "UNAVAILABLE")
+
 
 if __name__ == "__main__":
     unittest.main()
