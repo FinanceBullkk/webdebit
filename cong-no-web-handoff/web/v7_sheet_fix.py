@@ -2,7 +2,8 @@
 
 Gom việc Sheet → web đang chờ của một sổ (phiếu thu, giá) thành nhóm; mỗi nhóm biết trước làm tổng nợ đổi bao nhiêu. Tìm đúng một
 tổ hợp nhóm đưa tổng web về tổng Sheet: có thì ghi bằng các lệnh có sẵn như nút bấm; không có, hoặc có nhiều tổ hợp, thì không ghi
-gì và để lại lý do. Người làm trong Lịch sử là "Máy (theo Sheet)". Tổng Sheet và hàng chờ phải đọc từ cùng một bản tải Sheet.
+gì và để lại lý do. Tổng Sheet và hàng chờ phải đọc từ cùng một bản tải Sheet. Người làm trong Lịch sử do nơi gọi `apply_fix` chỉ rõ:
+lượt đối soát là "Máy (theo Sheet)", gọi tay thì là người ra lệnh.
 """
 
 from __future__ import annotations
@@ -252,11 +253,15 @@ def _version(runner, customer_id: int, result: dict[str, Any]) -> int:
 
 
 def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dict[str, Any]], digest: str,
-              today: dt.date) -> dict[str, int]:
+              today: dt.date, *, actor: str) -> dict[str, int]:
     """Ghi các nhóm đã chọn bằng lệnh có sẵn; tháng khóa thì mở, ghi, khóa lại. Lệnh lỗi thì dừng sổ và ném lỗi, lượt sau tính lại.
 
     Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu: cùng một lượt chạy lại trả kết quả cũ, lượt sau là lệnh mới, còn phiếu đã ghi
     thì hàng chờ đã ghép và không chọn lại.
+
+    `actor` bắt buộc để lần gọi tay không mang tên máy trong Lịch sử (5/11/2026: một lần gọi tay ở sổ thật hiện thành "Máy (theo Sheet)").
+    Khóa chống ghi trùng không theo `actor`, để cùng một việc không ghi hai lần dù ai gọi. Mở/khóa tháng của `in_month` vẫn ghi là máy,
+    như `v7_fill_fee_gap`: lượt nền chỉ khóa lại tháng máy đã mở, nên nơi gọi chết giữa chừng thì tháng không nằm mở.
     """
     version = ledger["version"]
     base = f"{AUTO_ACTOR}:doi-soat:{customer_id}:{version}"
@@ -270,7 +275,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
         result = runner.run("record_receipt", {
             "customer_id": customer_id, "expected_version": at, "date": day, "method": METHOD, "amount_vnd": row["amount_vnd"],
             "idempotency_key": _sha(f"{base}:{row['customer_tab']}:{row['source_row']}:{row['amount_vnd']}:{day}"),
-            "reference": text}, AUTO_ACTOR)
+            "reference": text}, actor)
         done["receipts"] += 1
         return _version(runner, customer_id, result)
 
@@ -280,7 +285,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                 for orphan in orphans:
                     result = runner.run("delete_legacy_trip", {"customer_id": customer_id, "expected_version": at,
                                                                "idempotency_key": _sha(f"{base}:xoa:{orphan['id']}"),
-                                                               "legacy_row_id": orphan["id"]}, AUTO_ACTOR)
+                                                               "legacy_row_id": orphan["id"]}, actor)
                     done["legacy_deleted"] += 1
                     at = _version(runner, customer_id, result)
                 return at
@@ -290,7 +295,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                 for conflict in (False, True):
                     batch = [row for row in rows if (row["status"] == "CONFLICT") is conflict]
                     if batch:
-                        out = write_price_items(batch, customer_id, at, digest, f"{base}:gia", runner, AUTO_ACTOR, conflict=conflict)[1]
+                        out = write_price_items(batch, customer_id, at, digest, f"{base}:gia", runner, actor, conflict=conflict)[1]
                         done["prices"] += out.get("written", 0)
                         if not out.get("complete"):
                             raise ApiError(409, str(out.get("error") or "INCOMPLETE"), "Máy chưa ghi hết giá của tháng.")
@@ -303,7 +308,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                     result = runner.run("adjust_month", {
                         "customer_id": customer_id, "expected_version": at, "debt_month": month + "-01", "amount_vnd": row["amount_vnd"],
                         "idempotency_key": _sha(f"{base}:phi:{month}:{row['source_row']}:{row['amount_vnd']}"),
-                        "note": f"{FEE_NOTE}, dòng {row['source_row']}"}, AUTO_ACTOR)
+                        "note": f"{FEE_NOTE}, dòng {row['source_row']}"}, actor)
                     done["fee_rows"] += 1
                     at = _version(runner, customer_id, result)
                 return at
@@ -313,7 +318,7 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                 for row in rows:
                     result = runner.run("delete_month_adjustment", {"customer_id": customer_id, "expected_version": at,
                                                                     "idempotency_key": _sha(f"{base}:huy-phi:{row['id']}"),
-                                                                    "adjustment_id": row["id"]}, AUTO_ACTOR)
+                                                                    "adjustment_id": row["id"]}, actor)
                     done["fee_undone"] += 1
                     at = _version(runner, customer_id, result)
                 return at
