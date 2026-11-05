@@ -81,17 +81,18 @@ const TinhHinhModel = (() => {
       addTrip(key, isDate(row.event_date) ? row.event_date : null, row.destination ?? '', tripLine(row.container, row.amount_vnd, row.amount_vnd != null));
     }
     for (const row of data.legacy_rows ?? []) {
+      // Dòng chưa sửa có thể không có `current` (khoản thu sổ gốc luôn vậy): số ở source_total_vnd, chữ ở display.
       const current = row.current ?? {};
       if (current.deleted) continue;
       const key = monthKey(row.month ?? current.month);
       const display = typeof row.display === 'object' && row.display !== null ? row.display : {};
       const date = [current.event_date, display.date].find(isDate) ?? null;
+      const amount = toBig(current.counted_vnd ?? row.source_total_vnd ?? '0');
       if (row.kind === 'receipt') {
-        const amount = toBig(current.counted_vnd ?? '0');
         if (amount !== 0n) push('paid', `sheet-${row.id}`, key, date, `Khách trả ${full(amount)}`, 'theo sổ gốc', [['Ghi ở khối', `T${monthLabel(key)}`]], `thang:${key}`);
       } else {
-        const priced = current.unit_price_vnd != null || toBig(current.counted_vnd ?? '0') !== 0n;
-        addTrip(key, date, current.destination ?? '', tripLine(current.container, current.counted_vnd, priced));
+        const priced = (current.unit_price_vnd ?? display.unit_price) != null || amount !== 0n;
+        addTrip(key, date, current.destination ?? display.to ?? '', tripLine(current.container ?? display.container, amount, priced));
       }
     }
     for (const [id, group] of trips) {

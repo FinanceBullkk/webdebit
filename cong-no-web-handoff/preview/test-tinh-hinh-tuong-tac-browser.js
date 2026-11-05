@@ -26,7 +26,8 @@ function world(state) {
   state.trips.push(trip(31, '2026-07', '10', 'Nơi B'), trip(32, '2026-07', '10', 'Nơi B'), trip(33, '2026-08', '12', 'Nơi C'),
     trip(34, '2026-10', '05', 'Nơi B'), trip(35, '2026-10', '20', 'Nơi C'),
     trip(41, '2026-11', '12', 'Nơi B', { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }), trip(42, '2026-11', '13', 'Nơi B'));
-  state.legacy.push(legacy(51, 'receipt', '2026-02', { counted_vnd: M(40) }), legacy(52, 'trip', '2026-03', { event_date: '2026-03-09', container: 'OLDU0000052', destination: 'Nơi Cũ', unit_price_vnd: M(9), counted_vnd: M(9) }, { date: '2026-03-09' }));
+  // Khoản thu sổ gốc chưa sửa đúng dạng API thật: current null, số ở source_total_vnd.
+  state.legacy.push({ id: 51, kind: 'receipt', month: '2026-02-01', source_total_vnd: M(40), display: { row: 51, flags: [], date: null }, current: null }, legacy(52, 'trip', '2026-03', { event_date: '2026-03-09', container: 'OLDU0000052', destination: 'Nơi Cũ', unit_price_vnd: M(9), counted_vnd: M(9) }, { date: '2026-03-09' }));
   state.receipts.push({ id: 61, pid: 'PH-61', date: '2026-10-18', amount_vnd: M(157), method: 'CK', voided_by_event: null, allocations: [{ month: '2026-07-01', kind: 'debt', amount_vnd: M(92) }, { month: '2026-06-01', kind: 'debt', amount_vnd: M(65) }] });
   state.debt = { as_of: TODAY, month: '2026-11-01', rule: RULE, receivable_vnd: M(491), customers: [{ customer_id: 1, name: 'Khách Thử Sửa',
     commodity: null, transport_mode: null, outstanding_vnd: M(491), tiers_vnd: [M(50), M(200), M(233), M(8), '0'], overdue_vnd: M(241),

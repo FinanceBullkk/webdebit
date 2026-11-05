@@ -59,7 +59,7 @@ Dữ liệu:
 | Dữ kiện nhãn | `oldest_open_month`, `last_receipt_*`, `last_trip_*` cùng dòng | Không có ngày đúng thì ghi "trong tháng M". |
 | Hình 12 tháng | `months[]` của sổ qua `monthSeries` | Không đổi. |
 | Chuyến mỗi tháng | `trips` + `legacy_rows` | Cùng cách đếm thẻ Đi hàng đang có. |
-| Hoạt động | `receipts`, `trips`, `legacy_rows`, dấu Zalo, hội thoại Zalo | Thêm dòng sổ gốc. Khoản thu sổ gốc thường không có ngày: ghi tháng của khối, xếp ở cuối tháng đó (cùng cách `pay_last` của `get_dashboard_debt`), không đoán ngày. |
+| Hoạt động | `receipts`, `trips`, `legacy_rows`, dấu Zalo, hội thoại Zalo | Thêm dòng sổ gốc. Dòng chưa sửa có thể không có `current` (khoản thu sổ gốc luôn vậy): số ở `source_total_vnd`, chữ ở `display`. Khoản thu sổ gốc thường không có ngày: ghi tháng của khối, xếp ở cuối tháng đó (cùng cách `pay_last` của `get_dashboard_debt`), không đoán ngày. |
 
 Trễ trung bình sau hạn giữ `—`, không bấm được, chờ B1.
 
@@ -69,3 +69,4 @@ Trễ trung bình sau hạn giữ `—`, không bấm được, chờ B1.
 - `test-tinh-hinh-model.js`: xếp tháng theo hạn, cộng bằng `tiers_vnd`, lệch thì báo; Hoạt động có dòng sổ gốc, không đoán ngày, dòng đã xóa không hiện; đếm chuyến.
 - `test-bang-thu-browser.js`, `test-so-khach-v7-overview-browser.js`: các thao tác ở hai bảng trên, giữ trạng thái khi vẽ lại, Back từ sổ, 1265×560 và màn hẹp không cuộn ngang, vùng bấm ≥ 40px, font rộng hơn.
 - Máy chủ giả, dữ liệu giả. Không phải bằng chứng live; người dùng tự đi hết luồng trên `hao` là bước cuối.
+- Kiểm chỉ đọc trên `hao` 5/11/2026 (`b6d6ef5`): từng tháng cộng bằng `tiers_vnd` ở cả 69 sổ đang nợ; sổ lớn nhất không có lỗi trên trang. Lần này cũng bắt được lỗi khoản thu sổ gốc không lên Hoạt động vì dữ liệu giả khác dạng API thật; đã sửa ở PR sau.
