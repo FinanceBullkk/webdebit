@@ -415,7 +415,7 @@
       const active = data.status === 'active';
       const head = headView(data, active);
       const { sections, chips, work } = monthSections(data, active);
-      renderShell({ ...head, sections, chips, pageHead: ctx.pageHead(work), panes: ctx.tabPanes(), history: historyList(data.events ?? []) });
+      renderShell({ ...head, sections, chips, pageHead: ctx.pageHead(work), panes: ctx.tabPanes(), history: historyList(data) });
       conflictsAfterRender(data);
       decoratePrices(data, active);
       ctx.removedAfterRender?.(data, active);

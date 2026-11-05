@@ -1,6 +1,6 @@
 /* Trình duyệt (Playwright) cho khung "Ghi phiếu thu" có bước xem lại, băng kết quả, "Hủy phiếu vừa ghi" và câu hỏi trước khi
  * khóa/mở khóa tháng (SO-GON-04, specs/v7-so-khach-ux-dot-2.md, PR 2b). Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
 

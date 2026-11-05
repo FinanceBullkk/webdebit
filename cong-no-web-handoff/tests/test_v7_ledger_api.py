@@ -1,10 +1,12 @@
 """V7 HTTP boundary checks; Docker case runs only on an isolated fake harness."""
 
 import base64
+import gzip
 import http.client
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "web"))
 import v7_api_sheet  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
+import v7_psql  # noqa: E402
 
 
 class FeeApiTest(unittest.TestCase):
@@ -190,7 +193,7 @@ class LedgerApiTest(unittest.TestCase):
 
     def test_ledger_history_names_actor_by_short_name_not_login(self):
         # SO-GON-04 (L6): Lịch sử hiện tên ngắn theo bảng tên của PRESENCE-01; login không có trong bảng thì phần trước @.
-        ledger = {"customer_id": 7, "version": 3, "status": "active", "events": [
+        ledger = {"customer_id": 7, "version": 3, "events": [
             {"id": 2, "kind": "receipt", "actor": "Thu.Ke@example.test"},
             {"id": 1, "kind": "month_lock", "actor": "other@example.test"},
             {"id": 0, "kind": "import", "actor": None}]}
@@ -198,14 +201,50 @@ class LedgerApiTest(unittest.TestCase):
             names = Path(folder) / "names.json"
             names.write_text(json.dumps({"version": 1, "names": {"thu.ke@example.test": "Thu"}}), encoding="utf-8")
             with patch.object(api.PRESENCE, "names", api.v7_presence.NameTable(str(names))), \
-                    patch.object(api, "ledger_projections", side_effect=lambda runner, result, actor: result), \
-                    patch.object(self.runner, "run", return_value=ledger):
-                status, result = api.handle("GET", "/api/v7/ledger?customer=7", self.headers, b"", self.runner,
-                                            port=8780, host="127.0.0.1", actor="server")
+                    patch.object(self.runner, "run", return_value=ledger) as run:
+                status, result = api.handle("GET", "/api/v7/ledger/events?customer=7", self.headers, b"", self.runner,
+                                            port=8780, host="127.0.0.1", actor="server", demo=True, real_copy=True)
         self.assertEqual(status, 200)
+        run.assert_called_once_with("get_ledger_events", {"customer_id": 7}, "server")
         self.assertEqual([event.get("actor_name") for event in result["events"]], ["Thu", "other", None])
         self.assertEqual(result["events"][0]["actor"], "Thu.Ke@example.test")
+        self.assertEqual(set(result), {"customer_id", "version", "events"})   # không phải màn riêng: không gắn demo/real_copy
         self.assertEqual(api.with_actor_names({"version": 1}), {"version": 1})
+
+    def test_ledger_events_route_checks_customer_like_the_ledger(self):
+        for query in ("", "?customer=", "?customer=0", "?customer=x", "?customer=1&customer=2", "?customer=1&extra=1"):
+            with self.subTest(query=query), self.assertRaises(api.ApiError) as caught:
+                api.handle("GET", "/api/v7/ledger/events" + query, self.headers, b"", self.runner,
+                           port=8780, host="127.0.0.1", actor="server")
+            self.assertEqual((caught.exception.status, caught.exception.code), (422, "INVALID_REQUEST"))
+
+    def test_ledger_body_leaves_out_history_and_raw_cells_after_projections(self):
+        # MO-SO-NHANH-02: chiếu hàng chờ vẫn thấy đủ events và cells; chỉ thân HTTP được cắt, các khóa khác giữ nguyên.
+        row = {"id": 5, "kind": "trip", "current": {"container": "FAKE1"}, "fee_lines": [],
+               "display": {"row": 13, "container": "FAKE1", "raw_date": "26/12/2025", "cells": {"A": "1.0", "B": ""}}}
+        ledger = {"customer_id": 7, "version": 3, "status": "active", "total_outstanding_vnd": "10", "legacy_rows": [row],
+                  "events": [{"id": 1, "kind": "import", "actor": "a"}]}
+        seen = {}
+
+        def projections(runner, result, actor):
+            seen.update(events=result["events"], cells=result["legacy_rows"][0]["display"]["cells"])
+            return {**result, "sheet_sync": {"items": []}}
+
+        with patch.object(api, "ledger_projections", side_effect=projections), patch.object(self.runner, "run", return_value=ledger):
+            status, result = api.handle("GET", "/api/v7/ledger?customer=7", self.headers, b"", self.runner,
+                                        port=8780, host="127.0.0.1", actor="server")
+        self.assertEqual(status, 200)
+        self.assertEqual(seen, {"events": ledger["events"], "cells": {"A": "1.0", "B": ""}})
+        self.assertNotIn("events", result)
+        self.assertEqual(result["legacy_rows"], [{**row, "display": {"row": 13, "container": "FAKE1", "raw_date": "26/12/2025"}}])
+        self.assertEqual(result["sheet_sync"], {"items": []})
+        self.assertEqual({key: result[key] for key in ("customer_id", "version", "status", "total_outstanding_vnd")},
+                         {"customer_id": 7, "version": 3, "status": "active", "total_outstanding_vnd": "10"})
+        self.assertIn("cells", row["display"])   # không sửa dict vào
+        self.assertIn("events", ledger)
+        # Sổ chưa có mốc (không có hai khóa này) và dòng lạ: đi qua nguyên vẹn.
+        self.assertEqual(api.public_ledger({"status": "NO_BASELINE"}), {"status": "NO_BASELINE"})
+        self.assertEqual(api.public_ledger({"legacy_rows": [{"id": 1, "display": None}, 7]}), {"legacy_rows": [{"id": 1, "display": None}, 7]})
 
     def test_sheet_conflict_resolution_uses_server_values_and_rejects_stale(self):
         class Runner:
@@ -1154,6 +1193,89 @@ class LedgerHttpTest(unittest.TestCase):
                 server.shutdown()
                 worker.join(timeout=3)
 
+    def test_assets_revalidate_by_etag_and_gzip_when_accepted(self):
+        """MO-SO-NHANH-01: file JS/CSS giữ ở trình duyệt (ETag → 304), bản gzip có ETag riêng; JSON lớn gzip khi được nhận."""
+        self.assertTrue(api.accepts_gzip("gzip, deflate, br"))
+        self.assertTrue(api.accepts_gzip("deflate;q=0.5, GZIP;q=0.8"))
+        self.assertFalse(api.accepts_gzip("gzip;q=0, identity"))
+        self.assertFalse(api.accepts_gzip(None))
+        self.assertFalse(api.accepts_gzip("br"))
+
+        class TrialHandler(api.Handler):
+            runner = FakePsql()
+            demo = True
+            default_actor = "fake-demo"
+            dev_actor_mode = True
+            localapi = Mock()
+
+        server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
+        TrialHandler.port = server.server_port
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+
+        def get(path, **headers):
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            conn.request("GET", path, headers=headers)
+            response = conn.getresponse()
+            body = response.read()
+            conn.close()
+            return response, body
+
+        try:
+            raw = (api.PREVIEW / "so-khach-v7-ui.js").read_bytes()
+            response, body = get("/so-khach-v7-ui.js")
+            etag = response.getheader("ETag")
+            self.assertEqual((response.status, body), (200, raw))
+            self.assertRegex(etag, r'^"[0-9a-f]{32}"$')
+            self.assertEqual(response.getheader("Cache-Control"), "private, no-cache")
+            self.assertEqual(response.getheader("Vary"), "Accept-Encoding")
+            self.assertIsNone(response.getheader("Content-Encoding"))
+            self.assertIn("default-src 'none'", response.getheader("Content-Security-Policy"))
+            # Trình duyệt hỏi lại với ETag đã có: 304, không thân, ETag giữ nguyên.
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": etag})
+            self.assertEqual((response.status, body, response.getheader("ETag")), (304, b"", etag))
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": '"stale", ' + etag})
+            self.assertEqual(response.status, 304)
+            response, body = get("/so-khach-v7-ui.js", **{"If-None-Match": '"stale"'})
+            self.assertEqual((response.status, body), (200, raw))
+            # Nhận gzip: thân nén, ETag riêng cho biểu diễn gzip, hỏi lại bằng ETag đó cũng 304.
+            response, body = get("/so-khach-v7-ui.js", **{"Accept-Encoding": "gzip, deflate"})
+            self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, "gzip"))
+            self.assertEqual(gzip.decompress(body), raw)
+            self.assertLess(len(body), len(raw) // 2)
+            self.assertEqual(response.getheader("Content-Length"), str(len(body)))
+            self.assertEqual(response.getheader("ETag"), etag[:-1] + '-gz"')
+            response, body = get("/so-khach-v7-ui.js", **{"Accept-Encoding": "gzip", "If-None-Match": etag[:-1] + '-gz"'})
+            self.assertEqual((response.status, body), (304, b""))
+            # File đổi nội dung thì ETag đổi và thân mới được gửi (bộ nhớ theo mtime + kích thước).
+            with tempfile.TemporaryDirectory() as folder:
+                page = Path(folder) / "trial.js"
+                page.write_bytes(b"// v1\n" * 300)
+                with patch.object(api, "PREVIEW", Path(folder)), patch.dict(api.ASSETS, {"/trial.js": ("trial.js", "text/javascript; charset=utf-8")}):
+                    first = get("/trial.js")[0].getheader("ETag")
+                    self.assertEqual(get("/trial.js", **{"If-None-Match": first})[0].status, 304)
+                    page.write_bytes(b"// v2\n" * 300 + "// khác\n".encode())
+                    response, body = get("/trial.js", **{"If-None-Match": first})
+                    self.assertEqual((response.status, body), (200, page.read_bytes()))
+                    self.assertNotEqual(response.getheader("ETag"), first)
+            # JSON: nhỏ thì không nén; lớn thì nén khi trình duyệt nhận; không nhận thì để nguyên. Cache-Control vẫn no-store.
+            response, body = get("/api/v7/fee-types", **{"Accept-Encoding": "gzip"})
+            self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, None))
+            self.assertEqual(response.getheader("Cache-Control"), "no-store")
+            big = {"fee_types": [{"id": i, "name": f"Loại phí số {i}", "kind": "charge", "active": True} for i in range(400)]}
+            with patch.object(TrialHandler.runner, "run", return_value=big):
+                response, body = get("/api/v7/fee-types", **{"Accept-Encoding": "gzip"})
+                self.assertEqual((response.status, response.getheader("Content-Encoding")), (200, "gzip"))
+                self.assertEqual(json.loads(gzip.decompress(body)), big)
+                self.assertEqual(response.getheader("Content-Length"), str(len(body)))
+                self.assertEqual(response.getheader("Cache-Control"), "no-store")
+                response, body = get("/api/v7/fee-types")
+                self.assertEqual((response.status, response.getheader("Content-Encoding"), json.loads(body)), (200, None, big))
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
+
     def test_bounded_http_with_fake_psql(self):
         class TrialHandler(api.Handler):
             runner = FakePsql()
@@ -1212,6 +1334,153 @@ class LedgerHttpTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(timeout=3)
+
+
+class RejectedBodyTest(unittest.TestCase):
+    """Từ chối trước khi đọc thân lệnh: thân tới sau lúc server đóng socket thì Windows hủy luôn phản hồi (10053)."""
+
+    def serve(self, *, dev=True, whois_error=None):
+        finished = threading.Event()
+
+        class TrialHandler(api.Handler):
+            runner = FakePsql()
+            default_actor = "rejected-body"
+            dev_actor_mode = dev
+            localapi = Mock()
+
+            def finish(self):
+                super().finish()
+                finished.set()
+
+        TrialHandler.localapi.whois.side_effect = whois_error
+        server = api.ThreadingHTTPServer(("127.0.0.1", 0), TrialHandler)
+        TrialHandler.port = server.server_port
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+
+        def stop():
+            server.shutdown()
+            server.server_close()
+            worker.join(timeout=3)
+
+        self.addCleanup(stop)
+        return server.server_port, TrialHandler, finished
+
+    @staticmethod
+    def head(port, method="POST", path="/api/v7/receipts", fields=("Content-Length: 150",), host=None):
+        lines = [f"{method} {path} HTTP/1.1", f"Host: {host or f'127.0.0.1:{port}'}",
+                 f"Origin: http://127.0.0.1:{port}", "Content-Type: application/json", *fields]
+        return ("\r\n".join(lines) + "\r\n\r\n").encode()
+
+    @staticmethod
+    def read_response(sock):
+        blob = b""
+        while chunk := sock.recv(65536):
+            blob += chunk
+        head, _, body = blob.partition(b"\r\n\r\n")
+        return int(head.split()[1]), body
+
+    def late_body(self, port, head, size=150):
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(head)
+            time.sleep(0.1)  # server đã trả lời; trước bản sửa socket đã đóng ở thời điểm này
+            sock.sendall(b"x" * size)
+            return self.read_response(sock)
+
+    def test_response_survives_body_sent_after_rejection(self):
+        port, _, _ = self.serve()
+        cases = (
+            ("quá lớn", {"fields": (f"Content-Length: {api.MAX_BODY + 1}",)}, 413, "BODY_TOO_LARGE"),
+            ("Content-Length sai", {"fields": ("Content-Length: abc",)}, 422, "INVALID_REQUEST"),
+            ("Content-Length lặp", {"fields": ("Content-Length: 150", "Content-Length: 150")}, 400, "INVALID_REQUEST"),
+            ("Transfer-Encoding", {"fields": ("Transfer-Encoding: chunked",)}, 400, "INVALID_REQUEST"),
+            ("Host sai", {"host": "evil.example.test:1"}, 400, "INVALID_HOST"),
+            ("healthz", {"path": "/healthz"}, 403, "HEALTHZ_LOOPBACK_ONLY"),
+            ("PUT", {"method": "PUT"}, 405, "METHOD_NOT_ALLOWED"),
+            ("OPTIONS", {"method": "OPTIONS"}, 501, None),
+            ("GET có thân", {"method": "GET", "path": "/api/v7/ledger?customer=1"}, 200, None),
+        )
+        for label, fields, status, code in cases:
+            with self.subTest(label):
+                result_status, body = self.late_body(port, self.head(port, **fields))
+                self.assertEqual(result_status, status)
+                if code:
+                    self.assertEqual(json.loads(body)["error"], code)
+
+    def test_identity_rejection_survives_late_body(self):
+        for error, code in ((TimeoutError(), "LOCALAPI_TIMEOUT"), (OSError(), "LOCALAPI_ERROR"),
+                            (api.v7_identity.IdentityError("NOT_TAILNET"), "NOT_TAILNET")):
+            with self.subTest(code):
+                port, _, _ = self.serve(dev=False, whois_error=error)
+                status, body = self.late_body(port, self.head(port))
+                self.assertEqual((status, json.loads(body)), (403, {"error": code}))
+
+    def test_largest_legal_body_is_discarded_whole(self):
+        port, _, _ = self.serve(dev=False, whois_error=OSError())
+        size = api.MAX_IMAGE_BODY
+        head = self.head(port, path=api.IMAGE_PATH, fields=(f"Content-Length: {size}",))
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(head + b"x" * (size - 1024))
+            time.sleep(0.1)  # phần cuối tới sau: trần nhỏ hơn thân hợp lệ thì lúc này socket đã đóng
+            sock.sendall(b"x" * 1024)
+            status, body = self.read_response(sock)
+        self.assertEqual((status, json.loads(body)), (403, {"error": "LOCALAPI_ERROR"}))
+
+    def test_response_does_not_wait_for_discard(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port))
+            self.assertEqual(self.read_response(sock)[0], 403)  # có FIN ngay dù chưa gửi thân
+            self.assertFalse(finished.is_set())
+            sock.close()
+            self.assertTrue(finished.wait(3), "client đóng thì phải ngừng xả ngay")
+
+    def test_discard_deadline_is_total_not_per_read(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 0.2), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=("Content-Length: 60000",)))
+            give_up = time.monotonic() + 3
+            try:
+                while not finished.is_set() and time.monotonic() < give_up:
+                    sock.sendall(b"x")  # nhỏ giọt: mỗi lần đọc đều có dữ liệu, chỉ hạn tổng mới dừng được
+                    time.sleep(0.02)
+            except OSError:
+                finished.wait(1)  # server đã đóng giữa lúc gửi, luồng sắp kết thúc
+            # Không chờ thêm khi đã ngừng gửi: hạn tính theo từng lần đọc cũng tự hết nếu client im.
+            self.assertTrue(finished.is_set(), "client nhỏ giọt không được giữ luồng quá hạn")
+
+    def test_discard_stops_at_byte_cap(self):
+        port, _, finished = self.serve(dev=False, whois_error=OSError())
+        with patch.object(api, "DISCARD_SECONDS", 30), patch.object(api, "DISCARD_MAX_BYTES", 1024), \
+             socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=("Content-Length: 60000",)) + b"x" * 2048)
+            self.assertTrue(finished.wait(3), "đủ trần byte thì phải ngừng dù client còn mở")
+
+    def test_accepted_post_does_not_wait(self):
+        port, _, finished = self.serve()
+        body = json.dumps({"customer_id": 1, "expected_version": 0, "idempotency_key": "accepted",
+                           "date": "2026-10-20", "method": "THU TIỀN", "amount_vnd": "10"}).encode()
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port, fields=(f"Content-Length: {len(body)}",)) + body)
+            self.assertEqual(self.read_response(sock)[0], 200)
+            self.assertTrue(finished.wait(3), "lệnh đã đọc hết thân thì không có gì để xả")
+
+    def test_slow_body_gets_no_extra_discard(self):
+        port, handler, finished = self.serve()
+        spy = Mock()
+        spy.read.side_effect = TimeoutError()
+
+        def slow_read(request):
+            request.rfile = spy
+            api.Handler._request(request)
+
+        handler._request = slow_read
+        with patch.object(api, "DISCARD_SECONDS", 30), socket.create_connection(("127.0.0.1", port), timeout=3) as sock:
+            sock.sendall(self.head(port))
+            status, body = self.read_response(sock)
+            self.assertEqual((status, json.loads(body)["error"]), (408, "REQUEST_TIMEOUT"))
+            self.assertTrue(finished.wait(3))
+        spy.read1.assert_not_called()
 
 
 @unittest.skipUnless(os.getenv("V7_API_DOCKER_TEST") == "1", "set V7_API_DOCKER_TEST=1 for fake Docker harness")
@@ -1589,6 +1858,92 @@ class LedgerSpeed(unittest.TestCase):
     def test_listen_queue_fits_a_page_of_assets(self):
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, 128)
         self.assertGreaterEqual(api.ThreadingHTTPServer.request_queue_size, len(api.ASSETS) // 2)
+
+PROBE_OK = subprocess.CompletedProcess([], 0, "t|t\n", "")
+BINARY = "/usr/lib/postgresql/18/bin/psql"
+
+
+def server(version="18|5432\n", direct=PROBE_OK, seen=None):
+    """Giả psql: hỏi phiên bản thì trả `version`, câu kiểm đầu vào qua binary thật thì trả `direct`."""
+    def run(argv, **_):
+        if seen is not None:
+            seen.append(argv)
+        if "server_version_num" in argv[-1]:
+            return subprocess.CompletedProcess([], 0, version, "")
+        return direct if argv[0] == BINARY else PROBE_OK
+    return run
+
+
+class DebianWrapperTests(unittest.TestCase):
+    """`/usr/bin/psql` trên Debian/Ubuntu là script Perl: 57 ms mỗi lần gọi so với 11 ms của binary thật."""
+
+    def setUp(self):
+        for target, value in (("shutil.which", "/usr/bin/psql"),
+                              ("os.path.realpath", "/usr/share/postgresql-common/pg_wrapper")):
+            started = patch(f"v7_psql.{target}", return_value=value)
+            started.start()
+            self.addCleanup(started.stop)
+        clean = patch.dict(os.environ, {}, clear=True)
+        clean.start()
+        self.addCleanup(clean.stop)
+
+    def direct(self, run):
+        with patch.object(v7_psql.subprocess, "run", side_effect=run):
+            return v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app")
+
+    def test_skips_wrapper_when_real_binary_reaches_same_cluster(self):
+        seen = []
+        runner = self.direct(server(seen=seen))
+        self.assertEqual(runner.psql_command, [BINARY])
+        self.assertEqual(seen[0][0], "psql")           # câu kiểm đầu vào gốc vẫn chạy trước
+        self.assertEqual(seen[-1][0], BINARY)           # binary thật cũng phải qua đúng câu kiểm đó
+        self.assertEqual(seen[-1][1:], seen[0][1:])
+
+    def test_run_uses_the_real_binary_with_the_same_arguments(self):
+        runner = self.direct(server())
+        with patch.object(v7_psql.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "{}", "")) as run:
+            runner.run("get_ledger", {"customer_id": 1}, "fake")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], BINARY)
+        self.assertNotIn("-p", argv)
+        self.assertEqual(argv[argv.index("-h") + 1], "/var/run/postgresql")
+
+    def test_keeps_wrapper_when_binary_cannot_be_proven_equal(self):
+        cases = {
+            "cluster on another port": server(version="18|5433\n"),
+            "unexpected answer": server(version="không rõ\n"),
+            "real binary refused": server(direct=subprocess.CompletedProcess([], 2, "", "lỗi")),
+            "real binary wrong database": server(direct=subprocess.CompletedProcess([], 0, "t|f\n", "")),
+        }
+        for label, run in cases.items():
+            with self.subTest(label):
+                self.assertEqual(self.direct(run).psql_command, ["psql"])
+
+    def test_keeps_wrapper_when_real_binary_missing(self):
+        def run(argv, **_):
+            if argv[0] == BINARY:
+                raise FileNotFoundError(BINARY)
+            return server()(argv)
+        self.assertEqual(self.direct(run).psql_command, ["psql"])
+
+    def test_port_from_environment_still_counts_as_same_cluster(self):
+        with patch.dict(os.environ, {"PGPORT": "5433"}):
+            self.assertEqual(self.direct(server(version="18|5433\n")).psql_command, [BINARY])
+            self.assertEqual(self.direct(server(version="18|5432\n")).psql_command, ["psql"])
+
+    def test_explicit_command_is_never_replaced(self):
+        with patch.object(v7_psql.subprocess, "run", side_effect=server()) as run:
+            runner = v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app", psql_command=["docker", "exec", "psql"])
+        self.assertEqual(runner.psql_command, ["docker", "exec", "psql"])
+        self.assertEqual(run.call_count, 1)
+
+    def test_plain_psql_binary_is_left_alone(self):
+        with (patch("v7_psql.os.path.realpath", return_value="/usr/local/bin/psql"),
+              patch.object(v7_psql.subprocess, "run", side_effect=server()) as run):
+            runner = v7_psql.PsqlDirect("/var/run/postgresql", "fake_v7", "v7_app")
+        self.assertEqual(runner.psql_command, ["psql"])
+        self.assertEqual(run.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

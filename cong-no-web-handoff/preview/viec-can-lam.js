@@ -74,24 +74,35 @@
   };
   const drafts = new Map();
   const draftKey = input => input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-transport') ? `transport:${input.dataset.transport}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
+  // Tự tải lại chạy nền mỗi 60 giây và mỗi lần quay lại tab: dữ liệu không đổi thì không đụng DOM, để người đang làm không mất
+  // ô đang gõ, danh sách đang mở hay cú bấm rơi đúng lúc thay DOM.
+  let paintedHtml = null;
   function paintInbox() {
-    const active = document.activeElement;
-    const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched', 'data-review'].find(attr => active.hasAttribute(attr));
-    const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
-    inboxRoot.innerHTML = globalThis.InboxTable.render(inbox.data, {
+    const html = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
       dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, showReconcile: inbox.showReconcile, showMatched: inbox.showMatched, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
-      undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '', 
+      undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
     });
     globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
     const sheetAt = inbox.data?.sheet_at;
     document.querySelector('#sheet-clock').textContent = sheetAt ? new Date(sheetAt).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' }) : '—';
+    if (html === paintedHtml) return;
+    paintedHtml = html;
+    const active = document.activeElement;
+    const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
+    const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
+    const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
+    inboxRoot.innerHTML = html;
     for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
-    if (focusAttr) inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`)?.focus({ preventScroll: true });
+    if (focusAttr) {
+      const again = inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`);
+      again?.focus({ preventScroll: true });
+      if (caret !== null) again?.setSelectionRange(caret, caret);
+    }
     const scroller = inboxRoot.querySelector('.work-scroll:has(.work-table)');
     if (scroller) scroller.scrollLeft = scrollLeft;
   }
@@ -109,24 +120,42 @@
       const writable = new Set((data.books ?? []).filter(globalThis.InboxCard.canWrite).map(book => book.customer_id));
       for (const id of inbox.selected) if (!writable.has(id)) inbox.selected.delete(id);
       for (const id of inbox.selectedPrices) if (!data.books?.some(b => b.customer_id === id && b.prices.ready)) inbox.selectedPrices.delete(id);
-      inbox.details.clear();
+      // Sổ đang đóng mở lại thì đọc mới; sổ đang mở giữ bản đang hiện tới khi refreshDetail có bản mới.
+      for (const id of inbox.details.keys()) if (id !== inbox.open) inbox.details.delete(id);
     } catch { inbox.data = null; }
     paintInbox();
     if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
-    if (inbox.open !== null) loadDetail(inbox.open);
+    if (inbox.open !== null) refreshDetail(inbox.open);
   }
+
+  const readDetail = async id => {
+    const ledger = await json(`/api/v7/ledger?customer=${id}`);
+    ledger.price_status = await json(`/api/v7/price-table/status?customer=${id}`).catch(() => null);
+    return ledger;
+  };
+  // Lần đọc mới nhất mới được vẽ: bản đọc nền về muộn không đè bản đọc ngay sau khi ghi.
+  let detailRead = 0;
 
   async function loadDetail(id, force = false) {
     if (!force && inbox.details.has(id)) return;
+    const read = ++detailRead;
     inbox.details.delete(id);
     paintInbox();
-    try {
-      const ledger = await json(`/api/v7/ledger?customer=${id}`);
-      ledger.price_status = await json(`/api/v7/price-table/status?customer=${id}`).catch(() => null);
-      inbox.details.set(id, ledger);
-    }
-    catch { inbox.details.set(id, null); }
+    const ledger = await readDetail(id).catch(() => null);
+    if (read !== detailRead) return;
+    inbox.details.set(id, ledger);
+    paintInbox();
+  }
+
+  // Đọc nền cho sổ đang mở: không hiện "đang tải". Đọc lỗi thì giữ bản đang hiện, nhịp sau đọc lại; lệnh ghi đã kèm phiên bản sổ nên
+  // bản cũ không ghi sai được. Đang xem lại hoặc đang ghi thì bỏ bản vừa đọc để số đang xem lại không đổi dưới tay người dùng.
+  async function refreshDetail(id) {
+    if (!inbox.details.get(id)) { await loadDetail(id, true); return; }
+    const read = ++detailRead;
+    const ledger = await readDetail(id).catch(() => null);
+    if (!ledger || read !== detailRead || inbox.open !== id || inbox.busy || inbox.review || inbox.action) return;
+    inbox.details.set(id, ledger);
     paintInbox();
   }
 

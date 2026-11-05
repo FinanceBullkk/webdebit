@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 HEALTHZ = "http://127.0.0.1:8780/healthz"
 RECONCILE = "/var/lib/webdebit-sheet-sync/reconcile.json"
 SNAPSHOT_DIR = "/var/lib/webdebit-sheet-sync"
-SNAPSHOTS = ("snapshot.json", "prices.json", "receipts.json", "road.json", "ps.json")
+SNAPSHOTS = ("snapshot.json", "prices.json", "receipts.json", "road.json", "ps.json", "details.json")
 SNAPSHOT_MAX_MINUTES = 60   # runner 15 phút một lần, lỗi lẻ tự lành ở lượt sau (audit DevOps #14: 5 lần trong 2 ngày)
 # Timer phải còn bật. Sao lưu có thêm số giờ tối đa từ lần chạy trước; các job 15 phút và đối soát đã có kiểm riêng theo kết quả.
 TIMERS: dict[str, float | None] = {"v7-reconcile-auto": None, "webdebit-sheet-sync": None, "webdebit-sheet-prices": None,

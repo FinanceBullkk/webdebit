@@ -339,6 +339,8 @@ RA_GHI_TIEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-
 CAN_DU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql"
 # Chặn trùng hàng chờ 1/11/2026.
 CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql"
+# Đọc theo container 4/11/2026: bản list_legacy_trip_refs hiện hành; ai chạy lại CHAN_TRUNG_MIGRATION thì chạy file này sau.
+CONTAINER_INDEX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql"
 # KHOA-CHU-01 1/11/2026: migration cuối hiện nay, chuỗi nâng nào so với file chuẩn cũng chạy nó sau cùng.
 KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
 # ZALO-GROUP-01 1/11/2026: chỉ thêm bảng/hàm ghi chú; chuỗi nâng từ lược đồ cũ chạy nó sau chặn trùng.

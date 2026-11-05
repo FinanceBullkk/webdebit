@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho tách phụ phí theo bảng PS (specs/v7-phu-phi-tu-ps.md, PR-2). Máy chủ giả, số giả, không chạm DB. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage, posts } = require('./so-khach-v7-browser-world');
 

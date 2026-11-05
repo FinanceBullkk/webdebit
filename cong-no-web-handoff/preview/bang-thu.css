@@ -38,21 +38,38 @@ body.bt{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9
 a.pill{cursor:pointer}
 .pill.undated{border:1px dashed #b9a06a;color:var(--amber)}
 a.pill:hover{text-decoration:underline}
+button.pill{position:relative;font:inherit;font-weight:700;cursor:pointer}
+button.pill::before{content:"";position:absolute;inset:-5px -2px}
+button.pill:hover{border-color:var(--blue)}
+button.pill[aria-pressed="true"]{background:#e4eefb;border-color:var(--blue)}
+.pill.picked{background:#dbe9f9;border-color:#dbe9f9;color:#0d366b}
+.pill.picked svg{width:14px;height:14px;color:currentColor}
+.of-month{margin-left:8px;color:var(--ink-l);font-size:13px;font-variant-numeric:tabular-nums}
 .today-card{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:10px 20px;border-radius:12px;background:#fff;box-shadow:0 1px 3px #1f29371f}
 .today-card .lbl{color:var(--ink-m);font-weight:600}
+button.today-card{border:2px solid transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+button.today-card:hover{box-shadow:0 2px 8px #1f293733}
+button.today-card[aria-pressed="true"]{border-color:var(--blue)}
 .today-card b{font-size:30px;font-weight:800;line-height:1.15;color:var(--teal);font-variant-numeric:tabular-nums}
 .today-card .none{font-size:16px;font-weight:600;color:var(--ink-l)}
 .today-card small{display:inline-flex;align-items:center;gap:5px;color:var(--ink-m);font-size:13px}
 
-/* Dải ngày: mỗi ngày một cột, bấm cột tới nhóm của ngày đó. */
+/* Dải ngày: mỗi ngày một cột, bấm cột để chỉ xem ngày đó (TUONG-TAC-01). */
 .day-strip{display:grid;grid-template-columns:repeat(var(--days),minmax(0,1fr));gap:2px;margin-top:6px}
 .day-strip>*{display:flex;flex-direction:column;justify-content:flex-end;height:44px;border-radius:4px 4px 0 0;color:var(--ink-l)}
-.day-strip .bar{display:block;height:max(4px,calc(var(--h)*.27px));margin:0 2px;border-radius:2px 2px 0 0;background:var(--bar)}
+.day-strip button{min-width:0;padding:0;border:0;background:none;font:inherit;cursor:pointer}
+.day-strip .bar{position:relative;display:block;height:max(4px,calc(var(--h)*.27px));margin:0 2px;overflow:hidden;border-radius:2px 2px 0 0;background:var(--bar)}
+.day-strip .bar i{position:absolute;right:0;bottom:0;left:0;height:calc(var(--p,0)*1%);background:#0f766e}
+.day-strip.has-pick .bar{background:#a8d5cb}
+.day-strip.picking .bar{background:#bfe0d9}
+.day-strip .is-picked .bar{background:#0f766e}
 .day-strip .lab{display:block;height:15px;border-top:1px solid var(--ctl);font-size:11px;line-height:15px;text-align:center;font-variant-numeric:tabular-nums}
 .day-strip .is-today{background:#e3f0ec;color:var(--ink-1)}
 .day-strip .is-today .lab{font-weight:800}
 .day-strip .is-future{color:#8a8880}
-.day-strip a:hover{background:#eef3f9}
+.day-strip button:hover{background:#e9eff6}
+.day-strip .is-picked,.day-strip .is-picked:hover{background:#dbe9f9;color:#0d366b}
+.day-strip .is-picked .lab{font-weight:800}
 
 /* Bảng: hàng tab và bộ lọc ngay trên bảng. */
 #bang-thu .list{background:#fff;border:1px solid var(--edge);border-radius:12px}
@@ -92,7 +109,23 @@ a.pill:hover{text-decoration:underline}
 .group-head .hint{font-size:13px;font-weight:400}
 .pay{position:relative}
 .pay td,.idle td{height:44px;padding:0 14px;border-bottom:1px solid #eef0f3}
-.pay:hover td{background:#f6f8fb}
+.pay:hover td,.pay.open td{background:#f2f6fb}
+.day-pick{min-height:36px;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;cursor:pointer}
+.day-pick:hover{text-decoration:underline}
+.day-pick[aria-pressed="true"]{color:var(--blue)}
+button.row-link{display:inline-flex;align-items:baseline;gap:4px;max-width:100%;min-height:40px;padding:0;border:0;background:none;font:inherit;line-height:40px;text-align:left;white-space:nowrap;cursor:pointer}
+.row-link .caret{align-self:center;display:inline-flex;flex:none;width:16px;color:var(--ink-m)}
+.row-link .caret svg{width:14px;height:14px}
+.go-link{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:24px;height:44px;color:inherit}
+.go-link:hover{color:var(--blue)}
+.sub td{height:36px;padding:0 14px;background:#f7f9fb;border-bottom:1px solid #eef0f3;font-size:13.5px}
+.sub .who{padding-left:34px}
+.sub.in-group .who{padding-left:50px}
+.sub small{margin-left:8px;font-size:13px;color:var(--ink-l)}
+.sub .amt{font-weight:600}
+.sub-open a{display:inline-flex;align-items:center;gap:4px;min-height:40px;color:var(--blue);font-weight:600}
+.sub-open a:hover{text-decoration:underline}
+.sub-open svg{width:14px;height:14px}
 .pay.in-group .who{padding-left:30px}
 .pay .amt{font-weight:600}
 .row-link{color:var(--ink-1)}
@@ -137,6 +170,7 @@ tr.current td{background:#eef3f9}
   /* Màn hẹp: bỏ các cột phụ, còn tràn thì cuộn ngay trong bảng, không cuộn cả trang. */
   #bang-thu .list{overflow-x:auto}
   .by-day .c-who{width:auto}
+  .sub td:empty{display:none}
   .thu .c-note,.thu .c-debt,.thu .c-share,.thu .c-last,.thu .c-go,.thu .c-count,.by-day .note,.by-day .debt,.go,.td-share,.when,.td-count,.group-head td:empty{display:none}
   .thu .c-amt,.thu .c-und{width:118px}
   .thu .c-month{width:90px}

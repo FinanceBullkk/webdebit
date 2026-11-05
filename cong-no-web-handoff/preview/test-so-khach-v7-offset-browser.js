@@ -1,10 +1,9 @@
 /* Trình duyệt (Playwright) cho cấn trừ hai sổ trên sổ khách V7. Máy chủ giả tự dựng, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 const shots = process.env.SHOTS_DIR;
 const clock = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

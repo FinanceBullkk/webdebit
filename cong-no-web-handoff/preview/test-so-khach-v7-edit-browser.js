@@ -1,23 +1,25 @@
 /* Trình duyệt (Playwright) cho sửa/xóa tại ô (NHAP-SHEET-01) trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth, reload } = require('./so-khach-v7-browser-world');
 
 // SO-GON-06: phiếu thu là khối riêng ở đầu tháng (ngay dưới thanh tháng, trên bảng chuyến); không chung hàng với chuyến;
 // tiêu đề cột không còn ba cột thu, bảng chuyến dùng hết bề ngang.
 test('Phiếu thu là khối ở đầu tháng, trên bảng chuyến; không chung hàng với chuyến; bảng chuyến dùng hết bề ngang', async () => withPage(async ({ page, world }) => {
   world.receipts.push({ id: 1, pid: 'PH-001', date: '2026-09-11', method: 'THU TIỀN', amount_vnd: '2000000', reference: null,
     voided_by_event: null, void_reason: null, allocations: [{ id: 1, month: '2026-09-01', kind: 'debt', amount_vnd: '2000000', superseded_by_event: null }] });
-  await page.reload();
+  await reload(page);
   const sept = page.locator('#thang-2026-09');
   await sept.locator('.pay-list tr.pay-row').first().waitFor();
   const geo = await sept.evaluate(section => {
     const pay = section.querySelector('.pay-block'), trips = section.querySelector('.trip-list'), bar = document.querySelector('.month-chips');
     return { order: bar.getBoundingClientRect().bottom <= pay.getBoundingClientRect().top && pay.getBoundingClientRect().bottom <= trips.getBoundingClientRect().top,
       inTrips: Boolean(pay.closest('.trip-list')), trips: trips.getBoundingClientRect().width,
-      book: document.querySelector('#the-so .ledger-book').clientWidth };
+      book: document.querySelector('#the-so .ledger-book').clientWidth,
+      // Ca này từng đỏ ngẫu nhiên trên Windows mà không có lỗi mạng: ghi số đo để lần sau biết khối nào lệch.
+      tops: { scrollY: window.scrollY, bar: bar.getBoundingClientRect().bottom, payTop: pay.getBoundingClientRect().top, payBottom: pay.getBoundingClientRect().bottom, tripsTop: trips.getBoundingClientRect().top } };
   });
-  assert.ok(geo.order, 'thanh tháng → khối phiếu thu → bảng chuyến');
+  assert.ok(geo.order, `thanh tháng → khối phiếu thu → bảng chuyến ${JSON.stringify(geo.tops)}`);
   assert.equal(geo.inTrips, false);
   assert.ok(geo.book - geo.trips <= 30, `bảng chuyến ${geo.trips}px / vùng sổ ${geo.book}px`);
   assert.match(await sept.locator('.pay-head').innerText(), /^Khách trả trong tháng\s*· 1 phiếu\s*\+ Ghi phiếu thu$/);
@@ -100,6 +102,7 @@ test('chuyến web tháng mở: sửa ô bằng Enter, Esc trả lại, Tab lưu
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
+  await page.locator('#history-panel .history-items').waitFor();
   assert.match(await page.locator('#history-panel').innerText(), /Sửa ô chuyến[\s\S]*Chuyến DEMU1234567 · Hãng tàu: Tàu thử → Tàu đổi/);
   await shot('sua-o-chuyen-web');
 }));
@@ -186,6 +189,7 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.history-toggle').click();
+  await page.locator('#history-panel .history-items').waitFor();
   assert.match(await page.locator('#history-panel').innerText(), /Sửa dòng sổ gốc[\s\S]*Dòng sổ gốc OLDU0000002 · Đơn giá: 90\.000\.000 → 85\.000\.000 · Số tính: 93\.000\.000 → 88\.000\.000/);
   await shot('sua-dong-so-goc');
 }));
@@ -311,7 +315,7 @@ test('sổ khách 1280×720: không ô nào chữ dưới 14px, hàng chuyến �
 // Audit UX 31/10/2026 (P1-6): mất mạng khi đọc sổ chỉ hiện câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
 test('đọc sổ bị mất mạng: câu tiếng Việt và nút Thử lại đọc lại sổ', async () => withPage(async ({ page }) => {
   await page.route('**/api/v7/ledger?*', route => route.abort('failed'), { times: 1 });
-  await page.reload();
+  await reload(page);
   const alert = page.locator('.load-error');
   await alert.waitFor();
   assert.match(await alert.innerText(), /^Không tải được sổ khách\. Kiểm tra mạng rồi bấm Thử lại\.\s*Thử lại$/);
@@ -364,7 +368,7 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
     display: { row: 5, raw_date: '46032.0', note: '2026-01-10 00:00:00' } });
   world.receipts.push(webReceipt('PH-001', '2026-09-01', '2026-09-11', '2000000', 'REF-A'), webReceipt('PH-002', '2026-09-01', '2026-09-12', '3000000'),
     webReceipt('PH-003', '2026-09-01', '2026-09-13', '4000000'), webReceipt('PH-004', todayMonth, clock, '5000000'));
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('#thang-2026-09');
   // Tháng 9: khoản thu Sheet rồi ba phiếu web.
   const sept = await payRows(page, '2026-09');
@@ -402,7 +406,7 @@ test('danh sách phiếu thu: khoản thu Sheet trước, phiếu web sau; ngày
   await shot('phieu-thu-hang-ke-tiep');
   // Tháng chưa có phiếu: danh sách trống.
   world.receipts.length = 0; world.legacy.pop();
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('#thang-2026-09');
   assert.equal((await payRows(page, '2026-09')).length, 0);
   assert.equal((await payRows(page, todayMonth.slice(0, 7))).length, 0);

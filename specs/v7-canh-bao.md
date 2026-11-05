@@ -15,7 +15,7 @@ Trạng thái: ĐÃ CHỐT (người dùng chọn email, 4/11/2026, [`CANH-BAO-0
 | Web và DB | `GET /healthz` trên loopback, chạy `SELECT 1` qua đường psql của app | Khác 200 |
 | Lượt đối soát còn mới | `checked_at`, `last_error` trong `reconcile.json` | Từ 10 tới 22 giờ VN quá 3 giờ, lúc nào cũng quá 14 giờ. Cùng luật với `reconcileOld` của tab Việc cần làm |
 | Máy ghi có vấn đề | `customers[].reason` trong `reconcile.json` | `VERIFY_FAILED`; `WRITE_ERROR`, `CHECK_ERROR` trừ `STALE_LEDGER` (người vừa sửa sổ, lượt sau tính lại) |
-| Bản chụp Sheet | Giờ sửa của `snapshot.json`, `prices.json`, `receipts.json`, `road.json`, `ps.json` | Quá 60 phút. Runner 15 phút một lần, lỗi lẻ tự lành (audit DevOps mục 14: 5 lần trong 2 ngày) |
+| Bản chụp Sheet | Giờ sửa của `snapshot.json`, `prices.json`, `receipts.json`, `road.json`, `ps.json`, `details.json` | Quá 60 phút. Runner 15 phút một lần, lỗi lẻ tự lành (audit DevOps mục 14: 5 lần trong 2 ngày) |
 | Timer | `systemctl show`: đối soát, đồng bộ Sheet, giá Sheet, PS, 4 sao lưu | Không `active` |
 | Sao lưu | `Result` của service; `LastTriggerUSec` của timer | `Result` khác `success`; hourly quá 12 giờ, ba loại còn lại quá 26 giờ |
 | Đĩa | `/`, `/srv`, `/var/lib/postgresql` | Dưới 10% trống |

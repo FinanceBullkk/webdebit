@@ -16,7 +16,7 @@ Bản chia sẻ đã lọc từ `codex/v7-opening-read` tại `011819e`, bổ su
 
 ## HTTP
 
-- GET `/api/v7/customers`, `/api/v7/ledger?customer=<id>`.
+- GET `/api/v7/customers`, `/api/v7/ledger?customer=<id>` (thân không có `events` và `display.cells`, MO-SO-NHANH-02), `/api/v7/ledger/events?customer=<id>` (Lịch sử của sổ, nạp khi mở khung).
 - POST `/api/v7/trips/paste`, `/api/v7/trips/price`, `/api/v7/trips/adjust`, `/api/v7/months/adjust`, `/api/v7/receipts`, `/api/v7/receipts/meta`, `/api/v7/receipts/void`, `/api/v7/months/lock`.
 - POST chỉ gửi ý định, `customer_id`, `expected_version`, `idempotency_key`; VND dạng chuỗi, `null` khác `"0"`. Không gửi actor, tổng hay phân bổ. Vẽ lại sau GET thành công.
 - `STALE_LEDGER`: GET lại và yêu cầu xem dữ liệu mới, không phát lại ý định cũ. Lỗi mạng/`RESULT_UNKNOWN`: giữ cùng payload/key để thử lại, không tạo key mới trước khi biết kết quả.

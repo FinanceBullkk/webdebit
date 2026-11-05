@@ -194,8 +194,9 @@ test('Dải ngày: đủ ngày của tháng, cột theo ngày nhiều tiền nh�
   const data = book();
   const strip = M.dayStrip(data, data);
   assert.equal(strip.length, 31);
-  assert.deepEqual(strip[29], { day: 30, date: '2026-10-30', total: '600000000', count: 2, pct: 100, today: true, future: false });
-  assert.deepEqual(strip[30], { day: 31, date: '2026-10-31', total: null, count: 0, pct: 0, today: false, future: true });
+  const plain = ({ customers: _customers, shares: _shares, ...cell }) => cell;
+  assert.deepEqual(plain(strip[29]), { day: 30, date: '2026-10-30', total: '600000000', count: 2, pct: 100, today: true, future: false });
+  assert.deepEqual(plain(strip[30]), { day: 31, date: '2026-10-31', total: null, count: 0, pct: 0, today: false, future: true });
   assert.equal(strip[15].pct, F.barWidth('20700000', '600000000'));
   const february = { ...data, month: '2028-02-01', days: [] };
   assert.equal(M.dayStrip(february, february).length, 29);
@@ -217,4 +218,47 @@ test('Số tiền sai dạng từ API thì báo lỗi, không cộng bừa', () 
   const data = book();
   data.days[0].rows[0].allocations = [{ month: '2026-07-01', kind: 'debt', amount_vnd: 'abc' }];
   assert.throws(() => M.byDebtMonth(data), /không hợp lệ/);
+});
+
+// ---- TUONG-TAC-01 ----
+test('scopeDay: không lọc trả nguyên; lọc thì số cộng lại từ dòng trong ngày, bỏ phần thuộc cả tháng', () => {
+  const whole = book();
+  assert.equal(M.scopeDay(whole, null), whole);
+  const day = M.scopeDay(whole, '2026-10-30');
+  assert.deepEqual(day.days.map(item => item.date), ['2026-10-30']);
+  assert.equal(day.summary.total_vnd, '600000000');
+  assert.equal(day.summary.count, 2);
+  assert.equal(day.summary.customers, 2);
+  assert.equal(day.summary.undated_count, 0);
+  assert.equal(day.summary.has_sheet, false);
+  assert.deepEqual([day.undated, day.offsets, day.voided], [[], [], []]);
+  assert.deepEqual(day.customers.map(row => [row.customer_id, row.total_vnd, row.count, row.last_date]), [[1, '420000000', 1, '2026-10-30'], [3, '180000000', 1, '2026-10-30']]);
+  assert.equal(M.scopeDay(whole, '2026-10-14').summary.has_sheet, true);
+});
+
+test('scopeDay: ngày không có phiếu thì mọi số bằng 0, không lỗi; gom theo khách và tháng nợ giữ đẳng thức', () => {
+  const none = M.scopeDay(book(), '2026-10-02');
+  assert.deepEqual([none.days, none.customers, none.summary.total_vnd, none.summary.count], [[], [], '0', 0]);
+  const day = M.scopeDay(book(), '2026-10-30');
+  const shown = F.sum(M.byDebtMonth(day).map(group => group.total));
+  assert.equal(String(shown), day.summary.total_vnd);
+  assert.equal(String(F.sum(M.byCustomer(day).map(row => row.total))), day.summary.total_vnd);
+});
+
+test('receiptsOf: có ngày trước, không rõ ngày sau; nhóm tháng nợ chỉ lấy phần của nhóm', () => {
+  const whole = book();
+  const items = M.receiptsOf(whole, 2);
+  assert.deepEqual(items.map(item => [item.dated, String(item.amount)]), [[true, '20700000'], [false, '39000000']]);
+  assert.deepEqual(M.receiptsOf(whole, 2, '2026-09-01').map(item => String(item.amount)), ['15000000'], 'chỉ phần trừ nợ T9');
+  assert.deepEqual(M.receiptsOf(whole, 2, 'advance').map(item => String(item.amount)), ['5700000']);
+  assert.deepEqual(M.receiptsOf(whole, 2, '2026-01-01'), []);
+  assert.deepEqual(M.receiptsOf(whole, 999), []);
+});
+
+test('dayStrip: phần trăm của từng khách trong cột, số khách trong ngày', () => {
+  const cell = M.dayStrip(book(), book()).find(item => item.date === '2026-10-30');
+  assert.equal(cell.customers, 2);
+  assert.deepEqual(cell.shares, { 1: 70, 3: 30 });
+  const none = M.dayStrip(book(), book()).find(item => item.date === '2026-10-02');
+  assert.deepEqual([none.customers, none.shares], [0, {}]);
 });

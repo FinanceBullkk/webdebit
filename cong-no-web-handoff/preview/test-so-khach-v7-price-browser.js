@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho bảng giá theo ngày hiệu lực (BANG-GIA-01, giai đoạn 2). Máy chủ giả, giá giả, không chạm DB. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { withPage, posts } = require('./so-khach-v7-browser-world');
 

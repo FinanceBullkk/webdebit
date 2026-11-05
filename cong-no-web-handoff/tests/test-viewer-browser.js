@@ -1,6 +1,7 @@
 // Browser checks against the real read-only viewer: ledger_app.LedgerHandler served over HTTP
 // by tests/viewer_fixture_server.py with FakeLedger/FakeHistory (fake data, no database).
-const {test, before, after} = require('node:test');
+const {before, after} = require('node:test');
+const {test, watchNetwork} = require('../preview/shared-browser.js');
 const assert = require('node:assert/strict');
 const {chromium} = require('playwright');
 const {spawn} = require('node:child_process');
@@ -82,7 +83,7 @@ function url(scenario, route) {
 }
 
 async function withPage(viewport, fn) {
-  const context = await browser.newContext({viewport: VIEWPORTS[viewport], locale: 'vi-VN'});
+  const context = watchNetwork(await browser.newContext({viewport: VIEWPORTS[viewport], locale: 'vi-VN'}));
   try {
     const page = await context.newPage();
     const errors = [];

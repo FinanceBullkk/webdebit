@@ -27,6 +27,52 @@ test('reference remains text; duplicate warning follows successful save and refr
   assert.equal(sent[1].reference, '');
 });
 
+// MO-SO-NHANH-01: so-khach-v7-prefetch.js đã bắt đầu GET sổ lúc trang mở; lần đọc đầu dùng phản hồi đó một lần, đúng mã khách.
+test('first read takes the prefetched ledger response once; other customer or later reads fetch normally', async () => {
+  const calls = [];
+  const fetcher = async url => { calls.push(url); return reply(200, ledger(2)); };
+  global.window = { SoKhachV7Prefetch: { customerId: '7', response: Promise.resolve(reply(200, ledger(1))) } };
+  try {
+    const api = create({ customerId: 7, fetcher });
+    assert.equal((await api.read()).version, 1);
+    assert.deepEqual(calls, []);
+    assert.equal(global.window.SoKhachV7Prefetch.response, null);
+    assert.equal((await api.read()).version, 2);
+    assert.deepEqual(calls, ['/api/v7/ledger?customer=7']);
+    // Mã khách khác (đổi khách trong trang) không lấy bản đã tải sớm.
+    global.window.SoKhachV7Prefetch = { customerId: '8', response: Promise.resolve(reply(200, ledger(9))) };
+    assert.equal((await create({ customerId: 7, fetcher }).read()).version, 2);
+    assert.equal(calls.length, 2);
+    // Tải sớm lỗi: lần đọc đầu báo lỗi như mọi lần đọc, lần Thử lại gọi fetch như thường.
+    global.window.SoKhachV7Prefetch = { customerId: '7', response: Promise.reject(new TypeError('offline')) };
+    const retry = create({ customerId: 7, fetcher });
+    await assert.rejects(retry.read(), TypeError);
+    assert.equal((await retry.read()).version, 2);
+    assert.equal(calls.length, 3);
+  } finally { delete global.window; }
+});
+
+// MO-SO-NHANH-02: Lịch sử đọc riêng, không đụng bản sổ đang giữ; thân sai khách hay lỗi thì ném để khung Lịch sử báo.
+test('readEvents gọi đúng đường, không đổi bản sổ, từ chối thân sai khách và lỗi', async () => {
+  const calls = [], snapshots = [];
+  const body = { customer_id: 7, version: 3, events: [{ id: 1, kind: 'import' }] };
+  const responses = [reply(200, body), reply(200, { ...body, customer_id: 8 }), reply(200, { customer_id: 7, version: 3 }), reply(503, {})];
+  const api = create({ customerId: 7, fetcher: async (...args) => { calls.push(args); return responses.shift(); }, onSnapshot: next => snapshots.push(next) });
+  assert.deepEqual(await api.readEvents(), body);
+  assert.deepEqual(calls[0], ['/api/v7/ledger/events?customer=7', { cache: 'no-store' }]);
+  assert.deepEqual(snapshots, []);
+  for (let tries = 0; tries < 3; tries++) await assert.rejects(api.readEvents());
+  assert.equal(api.hasPending(), false);
+});
+
+// Tệp tải sớm chạy trong vm của livePage (tên khớp so-khach-v7-*.js): lần đọc đầu của trang không gọi fetch thêm lần nữa.
+test('live page: the prefetch script runs before the API file and its response feeds the first read', async () => {
+  const { context } = await livePage(ledger(1));
+  assert.ok(liveScripts.indexOf('so-khach-v7-prefetch.js') < liveScripts.indexOf('so-khach-v7-api.js'));
+  assert.equal(context.window.SoKhachV7Prefetch.customerId, '7');
+  assert.equal(context.window.SoKhachV7Prefetch.response, null, 'bản tải sớm đã được lần đọc đầu dùng');
+});
+
 // Lịch sử (SO-GON-04, L6): mỗi mục một dòng "giờ · người làm · tên thao tác câu", ghi chú/lý do ở <small> khi có. Bỏ thẻ, giữ &lt;…&gt;.
 const historyItems = html => [...html.matchAll(/<li data-group="([a-z]*)">(.*?)<\/li>/gs)].map(([, group, body]) => {
   const [line, note = ''] = body.split('<small>');

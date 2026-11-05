@@ -87,6 +87,10 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
     SELECT upper(regexp_replace(coalesce(p_value,''),
         U&'[\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]', '', 'g'))
 $$;
+-- Hai index này lưu kết quả của _normalize_key: đổi thân hàm thì phải REINDEX cả hai trong cùng migration.
+-- Đặt ở đây, không ở schema-draft.sql, vì hàm chỉ có sau khi nạp file này.
+CREATE INDEX IF NOT EXISTS legacy_row_container_key ON sokhach.legacy_row (sokhach._normalize_key(display->>'container'));
+CREATE INDEX IF NOT EXISTS legacy_trip_rev_container_key ON sokhach.legacy_trip_rev (sokhach._normalize_key(container));
 CREATE FUNCTION sokhach._booking_key(p_booking text,p_container text,p_date date) RETURNS text
 LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, sokhach, pg_temp AS $$
     SELECT CASE WHEN sokhach._normalize_key(p_booking) ~ '[[:alnum:]]'
@@ -273,18 +277,21 @@ $$;
 -- API chỉ hỏi container của các dòng Sheet đang chờ ở một sổ, nên không trả cả sổ gốc mỗi lần mở sổ.
 CREATE OR REPLACE FUNCTION sokhach.list_legacy_trip_refs(containers jsonb) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+DECLARE v_keys text[];
 BEGIN
     PERFORM sokhach._actor();
     IF jsonb_typeof(containers) IS DISTINCT FROM 'array' OR jsonb_array_length(containers)>2000
        OR EXISTS (SELECT 1 FROM jsonb_array_elements(containers) c WHERE jsonb_typeof(c)<>'string')
     THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
+    SELECT coalesce(array_agg(DISTINCT sokhach._normalize_key(c#>>'{}')),'{}') INTO v_keys FROM jsonb_array_elements(containers) c;
     -- Lọc theo container trước (dòng gốc hoặc bản sửa), rồi mới đọc bản sửa mới nhất của dòng ứng viên.
-    RETURN (WITH want AS (SELECT DISTINCT sokhach._normalize_key(c#>>'{}') AS k FROM jsonb_array_elements(containers) c),
-        cand AS (SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip'
-                   AND sokhach._normalize_key(l.display->>'container') IN (SELECT k FROM want)
+    -- Giữ = ANY(mảng), đừng đổi về IN (SELECT ...): với hash semi join planner gần như không tính chi phí _normalize_key
+    -- nên quét tuần tự cả hai bảng và bỏ qua index container_key (đo trên bản sao thật 4/11/2026: 169 ms so với 9 ms).
+    RETURN (WITH cand AS (SELECT l.id FROM sokhach.legacy_row l WHERE l.kind='trip'
+                   AND sokhach._normalize_key(l.display->>'container') = ANY(v_keys)
                  UNION
                  SELECT y.legacy_row_id FROM sokhach.legacy_trip_rev y
-                  WHERE sokhach._normalize_key(y.container) IN (SELECT k FROM want)),
+                  WHERE sokhach._normalize_key(y.container) = ANY(v_keys)),
         x AS (SELECT l.id,l.customer_id,
                 CASE WHEN r.id IS NULL THEN l.display->>'container' ELSE r.container END AS container,
                 CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS event_date,
@@ -297,7 +304,7 @@ BEGIN
         SELECT jsonb_build_object('items',coalesce(jsonb_agg(jsonb_build_object(
             'customer_id',x.customer_id,'container',x.container,'event_date',x.event_date,'debt_month',x.debt_month)
             ORDER BY x.customer_id,x.id),'[]'::jsonb))
-        FROM x WHERE sokhach._normalize_key(x.container) IN (SELECT k FROM want) AND sokhach._normalize_key(x.container)<>'');
+        FROM x WHERE sokhach._normalize_key(x.container) = ANY(v_keys) AND sokhach._normalize_key(x.container)<>'');
 END;
 $$;
 
@@ -984,6 +991,32 @@ BEGIN
 EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'INVALID_VND';
 END $$;
 
+CREATE OR REPLACE FUNCTION sokhach._ledger_events(p_customer bigint) RETURNS jsonb
+LANGUAGE sql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
+    SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
+        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
+            WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
+        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
+            THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
+            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
+            ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
+                ELSE p.source_customer_id END
+            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
+               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
+        'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
+            'price',"before"->'price' || jsonb_build_object(
+                'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
+                'other_fee_vnd',"before"->'price'->>'other_fee_vnd')) ELSE "before" END,
+        'after',CASE WHEN kind='price_edit' THEN "after" || jsonb_build_object(
+            'price',"after"->'price' || jsonb_build_object(
+                'unit_price_vnd',"after"->'price'->>'unit_price_vnd',
+                'other_fee_vnd',"after"->'price'->>'other_fee_vnd')) ELSE "after" END)
+        ORDER BY at DESC,id DESC),'[]'::jsonb)
+ FROM sokhach.event WHERE event.customer_id=p_customer
+$$;
+
 CREATE OR REPLACE FUNCTION sokhach.get_ledger(customer_id bigint) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
 DECLARE v_version bigint; v_active boolean; v_months jsonb; v_trips jsonb;
@@ -1139,28 +1172,7 @@ BEGIN
     JOIN sokhach.cutover_customer cc ON (cc.customer_id,cc.cutover_id)=(l.customer_id,l.cutover_id)
     JOIN sokhach.cutover c ON c.id=cc.cutover_id
     WHERE l.customer_id=get_ledger.customer_id AND cc.status='active' AND c.status='active' AND NOT (cur.data->>'deleted')::boolean;
-    SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'actor',actor,
-        'label',CASE kind WHEN 'fee_migration' THEN 'Tách phụ phí' WHEN 'trip_edit' THEN 'Sửa chuyến' WHEN 'trip_delete' THEN 'Xóa chuyến'
-            WHEN 'legacy_edit' THEN 'Sửa dòng sổ gốc' WHEN 'legacy_delete' THEN 'Xóa dòng sổ gốc' ELSE kind END,
-        'counterparty_customer_id',(SELECT CASE WHEN p.source_customer_id=event.customer_id
-            THEN p.target_customer_id ELSE p.source_customer_id END FROM sokhach.offset_pair p
-            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'counterparty_name',(SELECT c.name FROM sokhach.offset_pair p JOIN sokhach.customer c
-            ON c.id=CASE WHEN p.source_customer_id=event.customer_id THEN p.target_customer_id
-                ELSE p.source_customer_id END
-            WHERE (p.source_customer_id=event.customer_id AND p.source_pid=event."after"->>'receipt')
-               OR (p.target_customer_id=event.customer_id AND p.target_receipt_id::text=event."after"->>'receipt')),
-        'at',at,'before',CASE WHEN kind='price_edit' THEN "before" || jsonb_build_object(
-            'price',"before"->'price' || jsonb_build_object(
-                'unit_price_vnd',"before"->'price'->>'unit_price_vnd',
-                'other_fee_vnd',"before"->'price'->>'other_fee_vnd')) ELSE "before" END,
-        'after',CASE WHEN kind='price_edit' THEN "after" || jsonb_build_object(
-            'price',"after"->'price' || jsonb_build_object(
-                'unit_price_vnd',"after"->'price'->>'unit_price_vnd',
-                'other_fee_vnd',"after"->'price'->>'other_fee_vnd')) ELSE "after" END)
-        ORDER BY at DESC,id DESC),'[]'::jsonb)
-    INTO v_events FROM sokhach.event WHERE event.customer_id=get_ledger.customer_id;
+    v_events:=sokhach._ledger_events(get_ledger.customer_id);
     -- Cờ khóa đã ghi của mọi tháng (kể cả tháng không chuyến); thiếu hàng thì
     -- chỉ today_month mở. Giao diện dùng hai trường này, không đoán theo đồng hồ máy.
     SELECT coalesce(jsonb_agg(jsonb_build_object('month',ms.month,'locked',ms.locked)
@@ -1180,6 +1192,22 @@ BEGIN
             'counterparty_name',c.name) ORDER BY p.date,p.source_pid COLLATE "C")
             FROM sokhach.offset_pair p JOIN sokhach.customer c ON c.id=p.target_customer_id
             WHERE p.source_customer_id=get_ledger.customer_id),'[]'::jsonb));
+END $$;
+
+CREATE OR REPLACE FUNCTION sokhach.get_ledger_events(customer_id bigint) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp AS $$
+-- MO-SO-NHANH-02: khung Lịch sử đọc riêng, không dựng cả sổ. Một câu lệnh nên version và events cùng một ảnh dữ liệu.
+-- Sổ chưa có mốc active không có Lịch sử, như get_ledger trả NO_BASELINE không kèm events.
+DECLARE v_result jsonb;
+BEGIN
+    PERFORM sokhach._actor();
+    SELECT jsonb_build_object('customer_id',c.id,'version',c.version,'events',
+        CASE WHEN EXISTS (SELECT 1 FROM sokhach.cutover_customer cc JOIN sokhach.cutover x ON x.id=cc.cutover_id
+            WHERE cc.customer_id=c.id AND cc.status='active' AND x.status='active')
+        THEN sokhach._ledger_events(c.id) ELSE '[]'::jsonb END)
+    INTO v_result FROM sokhach.customer c WHERE c.id=get_ledger_events.customer_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_NOT_FOUND'; END IF;
+    RETURN v_result;
 END $$;
 
 CREATE OR REPLACE FUNCTION sokhach.record_receipt(customer_id bigint, expected_version bigint,
@@ -3147,6 +3175,7 @@ GRANT EXECUTE ON FUNCTION sokhach.record_offset(bigint,bigint,bigint,bigint,text
 GRANT EXECUTE ON FUNCTION sokhach.void_offset(bigint,bigint,bigint,text,bigint,text) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.edit_offset_date(bigint,bigint,bigint,text,bigint,date) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.get_ledger(bigint) TO sokhach_app, sokhach_reader;
+GRANT EXECUTE ON FUNCTION sokhach.get_ledger_events(bigint) TO sokhach_app;
 GRANT EXECUTE ON FUNCTION sokhach.list_offset_sources(bigint) TO sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.list_customers() TO sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.get_dashboard() TO sokhach_app, sokhach_reader;

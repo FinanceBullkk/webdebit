@@ -1,9 +1,8 @@
-const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { launchShared } = require('./shared-browser.js');
+const { launchShared, test } = require('./shared-browser.js');
 
 // NHAC-NO-01: tab Đòi nợ — khách quá hạn + mốc "đã nhắc", nút Copy tin nhắc ghi reminder_log.
 const rule = { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 };

@@ -154,8 +154,17 @@
     let snapshot = null;
     let pending = null;
     let outcome = null;
+    // MO-SO-NHANH-01: so-khach-v7-prefetch.js (đầu <head>) đã bắt đầu GET sổ của ?customer= lúc trang mở; lần đọc đầu
+    // lấy phản hồi đó (một lần, đúng mã khách) thay vì gọi lại. Lỗi hay đổi khách thì fetch như thường.
+    const prefetched = () => {
+      const early = typeof window !== 'undefined' ? window.SoKhachV7Prefetch : null;
+      if (!early?.response || String(early.customerId) !== String(customerId)) return null;
+      const { response } = early;
+      early.response = null;
+      return response;
+    };
     async function read() {
-      const response = await fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      const response = await (prefetched() ?? fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' }));
       if (!response.ok) throw Error('Không đọc được sổ khách.');
       const next = await response.json();
       if (!next || next.customer_id !== customerId || !Number.isSafeInteger(next.version)) throw Error('Dữ liệu sổ không hợp lệ.');
@@ -168,6 +177,14 @@
 
       onSnapshot(next);
       return next;
+    }
+    // MO-SO-NHANH-02: Lịch sử của sổ đọc riêng khi mở khung; không đụng bản sổ đang giữ, không cần lệnh đang chờ.
+    async function readEvents() {
+      const response = await fetcher(`/api/v7/ledger/events?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' });
+      if (!response.ok) throw Error('Không đọc được lịch sử.');
+      const body = await response.json();
+      if (!body || body.customer_id !== customerId || !Array.isArray(body.events)) throw Error('Dữ liệu lịch sử không hợp lệ.');
+      return body;
     }
     async function send() {
       try {
@@ -332,7 +349,7 @@
       return data.price_table;
     }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
+    return { read, readEvents, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }

@@ -1,12 +1,12 @@
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, reload } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không vỡ chữ, không ép cột container', async () => withPage(async ({ page, world, shot }) => {
   for (const width of [1895, 1280, 390]) {
     await page.setViewportSize({ width, height: 848 });
-    await page.reload();
+    await reload(page);
     await page.locator('.sheet-removed-notice').first().waitFor();
     const geometry = await page.evaluate(() => {
       const line = document.querySelector('.sheet-removed-notice');

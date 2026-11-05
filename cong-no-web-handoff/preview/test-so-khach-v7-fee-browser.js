@@ -1,8 +1,8 @@
 /* Trình duyệt (Playwright) cho phụ phí nhiều loại (PHU-PHI-01) trên sổ khách V7 bản live, theo tiêu chí frontend của
  * specs/v7-phu-phi-nhieu-loai.md. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, reload } = require('./so-khach-v7-browser-world');
 
 const feePosts = world => world.requests.filter(item => /\/fees\/|fee-columns/.test(item.path)).map(item => [item.path, item.body]);
 const own = (page, target, type) => page.locator(`td.fee.own[data-fee-target="${target}"][data-fee-type="${type}"]`);
@@ -18,7 +18,7 @@ test('sổ mặc định chỉ có cột Khác; ba cột riêng vẫn vừa 1280
   assert.equal(await other(page, 'legacy:22').getAttribute('title'), 'Phụ phí khác (1 khoản)');
   world.feeColumns = [1, 2, 3];
   world.version += 1;
-  await page.reload();
+  await reload(page);
   await page.locator('td.fee.own').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
@@ -111,7 +111,7 @@ test('tháng khóa: ô cột riêng chỉ đọc, khung không có form, không 
   assert.equal(await page.locator('.fee-pick[data-fee-target="legacy:21"]').count(), 0);
   world.locks = [{ month: '2026-09-01', locked: true }];
   world.version += 1;
-  await page.reload();
+  await reload(page);
   await other(page, 'trip:11').waitFor();
   assert.equal(await page.locator('#thang-2026-09 .fee-pick').count(), 0);
   assert.equal(await own(page, 'trip:11', 1).getAttribute('tabindex'), null);

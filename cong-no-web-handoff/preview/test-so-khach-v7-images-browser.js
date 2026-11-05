@@ -1,5 +1,5 @@
 /* Trình duyệt (Playwright) cho ảnh chứng từ phiếu thu (CHUNG-TU-01). Máy chủ giả, ảnh giả vẽ bằng canvas, không chạm DB. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const { clock, todayMonth, withPage, viewMonth } = require('./so-khach-v7-browser-world');
 

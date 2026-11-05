@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho đối chiếu Sheet, ghi giá từ Sheet và Làm mới trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
-const { test } = require('node:test');
+const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts, viewMonth } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, viewMonth, reload } = require('./so-khach-v7-browser-world');
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
   // Chuyến mới ở tháng hiện tại, dòng lệch ở tháng 9 (đang xem): mỗi tháng một màn (SO-GON-05).
   await viewMonth(page, clock);
@@ -278,14 +278,14 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ l�
   assert.equal(await page.locator('.sheet-removed-strip').count(), 0);
   assert.equal(posts(world).length, 2, 'Giữ lưu trên server');
   assert.equal(posts(world)[1][0], '/api/v7/sheet/tasks/keep');
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('.book-head');
   assert.equal(await page.locator('.sheet-removed').count(), 0, 'Giữ nhớ qua lần tải lại cùng bản chụp');
   world.sheetSync = { ...world.sheetSync, snapshot_sha256: 'b'.repeat(64) };
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('.book-head');
   assert.equal(await page.locator('.sheet-removed').count(), 0);
   removedTrip(world, { source_fingerprint: 'd'.repeat(64) });
-  await page.reload();
+  await reload(page);
   await page.waitForSelector('[data-row="trip-11"].sheet-removed');
 }, world => removedTrip(world, { month_locked: true })));

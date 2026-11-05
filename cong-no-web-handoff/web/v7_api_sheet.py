@@ -23,7 +23,8 @@ from zoneinfo import ZoneInfo
 import v7_sheet_refresh
 from v7_api_tables import ERRORS, MAX_BIGINT
 from v7_api_validate import ApiError, bad, no_duplicates, positive_int
-from v7_price_queue import load_price_snapshot, project_prices
+from v7_detail_queue import load_detail_snapshot, project_details
+from v7_price_queue import book_rows, load_price_snapshot, project_prices
 from v7_ps_queue import load_ps_snapshot, project_ps
 from v7_psql import Psql
 from v7_receipt_queue import METHOD as RECEIPT_METHOD
@@ -39,6 +40,8 @@ PRICE_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PRICE_SNAPSHOT_PATH", "/var/lib/webdeb
 PS_SNAPSHOT_PATH = os.getenv("WEBDEBIT_PS_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/ps.json")
 # Runner giá ghi phiếu thu cạnh prices.json (THU-SHEET-01), nên mặc định đi theo đường giá.
 RECEIPT_SNAPSHOT_PATH = os.getenv("WEBDEBIT_RECEIPT_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("receipts.json"))
+# SO-CHI-TIET-01: bảng chi tiết từ tab "CHI TIET ...", runner giá ghi cạnh prices.json; chưa có file thì sổ không có bảng chi tiết.
+DETAIL_SNAPSHOT_PATH = os.getenv("WEBDEBIT_DETAIL_SNAPSHOT_PATH") or str(Path(PRICE_SNAPSHOT_PATH).with_name("details.json"))
 SHEET_REFRESH_PATH = os.getenv("WEBDEBIT_SHEET_REFRESH_PATH")   # chưa đặt: nút Làm mới không đọc Sheet
 SHEET_BASELINE_PATH = os.getenv("WEBDEBIT_BASELINE_REFS_PATH", "/var/lib/webdebit-sheet-sync/baseline-refs.json")
 CUSTOMER_NAME_MAPPING_PATH = os.getenv("WEBDEBIT_CUSTOMER_NAME_MAPPING_PATH")
@@ -91,12 +94,14 @@ class SharedReads:
     SHARED = ("list_customers", "get_fee_types", "list_sheet_trip_refs")
 
     def __init__(self, runner):
-        self.runner, self.cache, self.lock = runner, {}, threading.Lock()
+        # Mỗi hàm một khóa: một khóa chung làm ba lượt đọc khác nhau chạy nối tiếp (đo trên `hao` 4/11/2026: 136–539 ms).
+        self.runner, self.cache = runner, {}
+        self.locks = {function: threading.Lock() for function in self.SHARED}
 
     def run(self, function: str, payload: dict, actor: str) -> dict:
         if function not in self.SHARED:
             return self.runner.run(function, payload, actor)
-        with self.lock:
+        with self.locks[function]:
             if function not in self.cache:
                 self.cache[function] = self.runner.run(function, payload, actor)
             return self.cache[function]
@@ -230,6 +235,14 @@ def family_book_ids(customers: list[dict], ledger: dict) -> set[int]:
     return {c["id"] for c in customers if (c.get("display_name") or c.get("name")) == family} - {ledger["customer_id"]}
 
 
+def tab_rows_of_book(ledger: dict, customers: list[dict]) -> list[dict]:
+    """Dòng tab khách của sổ (CONTAINER-DUNG-LAI-01). Bản chụp giá hỏng thì không có dòng nào: chuyến vẫn chờ người xem."""
+    try:
+        return book_rows(cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH), ledger["customer_id"], customers)
+    except ValueError:
+        return []
+
+
 def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
     baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
@@ -252,7 +265,8 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     waiting = [row for row in queue["items"]
                if row.get("customer_id") == ledger.get("customer_id") and row.get("review_status") == "NEEDS_PRICE"]
     other_containers, other_legacy = other_book_checks(runner, ledger, waiting, actor)
-    result = project_customer(queue, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
+    result = project_customer(queue, ledger, other_containers, other_legacy, family_book_ids(customers, ledger),
+                              tab_rows_of_book(ledger, customers))
     from v7_sheet_task_keep import trip_identity
     assigned = {}
     for event in ledger.get("events", []):
@@ -793,6 +807,10 @@ def review_sheet_receipt(raw: bytes, runner: Psql, actor: str) -> tuple[int, dic
     return 200, {**result, "written": 1, "complete": True}
 
 
+def detail_projection(_runner: Psql, ledger: dict, _actor: str) -> dict:
+    return project_details(cached_load(load_detail_snapshot, DETAIL_SNAPSHOT_PATH), ledger)
+
+
 def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
     """`GET /api/v7/ledger`: gắn các hàng chờ Sheet/PS vào sổ; nguồn nào hỏng chỉ đánh dấu `unavailable`, không chặn đọc sổ.
 
@@ -807,6 +825,7 @@ def ledger_projections(runner: Psql, ledger: dict, actor: str) -> dict:
         ("sheet_receipts", receipt_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("ps_fees", ps_projection, {"unavailable": True, "ready": [], "review": [], "ready_count": 0, "review_count": 0}),
         ("sheet_road", road_projection, {"unavailable": True, "items": [], "new_count": 0, "conflict_count": 0}),
+        ("sheet_details", detail_projection, {"unavailable": True, "rows": [], "months": {}}),
     )
     with ThreadPoolExecutor(max_workers=len(parts)) as pool:
         futures = [(key, pool.submit(project, shared, ledger, actor), empty) for key, project, empty in parts]

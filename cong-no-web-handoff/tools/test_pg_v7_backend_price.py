@@ -5,6 +5,7 @@ import re
 from pg_v7_harness import (
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
+    CONTAINER_INDEX_MIGRATION,
     KHOA_CHU_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
@@ -207,6 +208,7 @@ def check_price_migration(pg):
     pg.sql(RA_GHI_TIEN_MIGRATION.read_text(encoding="utf-8"))  # bản apply_price_table hiện hành (29/10)
     pg.sql(CAN_DU_MIGRATION.read_text(encoding="utf-8"))  # bản record_receipt/get_receivables_detail hiện hành (30/10)
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # bản paste_trips hiện hành (1/11)
+    pg.sql(CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8"))  # bản list_legacy_trip_refs hiện hành (4/11)
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
@@ -245,7 +247,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

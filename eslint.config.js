@@ -51,6 +51,7 @@ module.exports = [
     languageOptions: {
       globals: {
         BangThuModel: "readonly",
+        TinhHinhModel: "readonly",
         CongNoFormat: "readonly",
         DashboardModel: "readonly",
         DebitNoteXlsx: "readonly",

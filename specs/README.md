@@ -8,6 +8,7 @@ Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng s
 
 - [Máy tự đối soát](v7-may-doi-soat.md): so Sheet–web mỗi giờ, chỉ ghi khi đúng một tổ hợp việc khớp đúng tổng; [tự tạo sổ khách mới](v7-may-tao-so.md); [cảnh báo email khi máy lỗi hoặc dừng](v7-canh-bao.md).
 - [Bảng thu](v7-bang-thu.md): tiền về theo ngày, gom phiếu mọi sổ, chỉ xem; tháng tính theo ngày tiền về, khoản không rõ ngày nằm riêng; năm cách xem dạng tab (`BANG-THU-01`, `BANG-THU-02`, ĐÃ CHỐT 4/11/2026).
+- [Tương tác Bảng thu và Tình hình](v7-tuong-tac.md): bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ (`TUONG-TAC-01`, ĐÃ CHỐT 5/11/2026).
 - [Sổ khách V7](v7-so-khach-theo-sheet.md): prototype fixture; [backend đề xuất](v7-backend-so-khach.md), [API thử](v7-backend/ket-noi-giao-dien.md).
 - [Sổ khách: một sổ, một tháng đang làm (UX đợt 2)](v7-so-khach-ux-dot-2.md): thanh tháng dính và gập tháng cũ, `?month=`, một nút "Ghi phiếu thu" có bước xem lại, hỏi khi khóa/mở tháng và duyệt chuyến mới, chữ bảng 16px, "+ thêm" chỉ khi rê chuột, Lịch sử thành câu, bàn phím; chia 4 PR (`SO-GON-04`, ĐÃ CHỐT 31/10/2026 theo [audit UX](../docs/ux-audit-2026-10-31.md); chưa code).
 - [Group Zalo trên web](v7-zalo-group-web.md): dựng lại tin của các group được chọn (có ảnh) trên trang Chat Zalo, đánh dấu tin là hứa trả, khách báo đã chuyển hoặc ghi chú, nối dấu vào thẻ Trao đổi; gói web dựng ở máy có Zalo, chỉ gồm group đã chọn (`ZALO-GROUP-01`, ĐÃ CHỐT 1/11/2026; G1 công cụ gói đã code).

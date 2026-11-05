@@ -130,5 +130,7 @@ def check_fee_catalog(pg):
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-29-v7-ra-ghi-tien.sql").read_text(encoding="utf-8"))  # bảng giá cũ thay apply_price_table; trả về bản 29/10
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-10-30-v7-can-du.sql").read_text(encoding="utf-8"))  # ra-ghi-tien trả record_receipt cũ; CAN-DU-01 trả về bản 30/10
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-chan-trung-hang-cho.sql").read_text(encoding="utf-8"))  # paste_trips hiện hành (1/11)
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql").read_text(encoding="utf-8"))  # chan-trung trả list_legacy_trip_refs cũ
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql").read_text(encoding="utf-8"))  # p2 trả get_ledger cũ; MO-SO-NHANH-02 trả về bản hiện hành
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")

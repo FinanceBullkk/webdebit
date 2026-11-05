@@ -50,7 +50,7 @@ function monthsOf(world, keys, trips, legacy) {
   let prior = 0n;
   return keys.map(month => {
     const charges = sum([...trips.filter(trip => trip.month === month && trip.status === 'confirmed').map(trip => trip.amount_vnd),
-      ...legacy.filter(row => row.current.month === month && row.kind !== 'receipt').map(row => row.current.counted_vnd),
+      ...legacy.filter(row => (row.current?.month ?? row.month) === month && row.kind !== 'receipt').map(row => row.current?.counted_vnd ?? row.source_total_vnd),
       ...world.adjustments.filter(row => row.month === month).map(row => row.amount_vnd)]);
     const received = sum(world.receipts.filter(row => row.voided_by_event == null && `${row.date.slice(0, 7)}-01` === month).map(row => row.amount_vnd));
     const end = prior + charges - received;
@@ -65,7 +65,7 @@ function monthsOf(world, keys, trips, legacy) {
 // đầu) để test thẻ Tình hình dựng sổ nhiều tháng; mặc định như trước.
 function ledger(world) {
   const trips = world.trips.filter(trip => !trip.deleted);
-  const legacy = world.legacy.filter(row => !row.current.deleted);
+  const legacy = world.legacy.filter(row => !row.current?.deleted);
   const today = world.todayMonth ?? todayMonth;
   const keys = [...new Set([...trips, ...legacy].map(row => row.month).concat(today))].sort();
   const feeSum = lines => lines.reduce((sum, line) => sum + BigInt(line.amount_vnd), 0n);
@@ -74,11 +74,11 @@ function ledger(world) {
     month_locks: world.locks,
     months: world.months ?? monthsOf(world, keys, trips, legacy),
     total_outstanding_vnd: world.total === undefined ? '0' : world.total, trips: trips.map(trip => ({ ...trip, fee_lines: trip.fee_lines ?? [] })), adjustments: world.adjustments, opening: [], source_exceptions: [], receipts: world.receipts, outgoing_offsets: world.outgoing ?? [],
-    legacy_rows: legacy.map(row => ({ ...row, month: row.current.month, fee_lines: row.fee_lines ?? [],
-      counted_differs: row.current.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), events: world.events, sheet_sync: world.sheetSync,
+    legacy_rows: legacy.map(row => ({ ...row, month: row.current?.month ?? row.month, fee_lines: row.fee_lines ?? [],
+      counted_differs: row.current?.unit_price_vnd != null && BigInt(row.current.counted_vnd) !== BigInt(row.current.unit_price_vnd) + feeSum(row.fee_lines ?? []) })), sheet_sync: world.sheetSync,
     sheet_prices: world.sheetPrices ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
     sheet_receipts: world.sheetReceipts ?? { ready: [], review: [], ready_count: 0, review_count: 0 },
-    ...(world.psFees ? { ps_fees: world.psFees } : {}) };
+    ...(world.psFees ? { ps_fees: world.psFees } : {}), ...(world.details ? { sheet_details: world.details } : {}) };
 }
 
 // Lệnh phụ phí giả: một đích (chuyến web / dòng sổ gốc); tháng khóa và dòng sổ gốc chưa có đơn giá bị chặn như server.
@@ -369,6 +369,13 @@ async function withPage(fn, setup = () => {}) {
       return;
     }
     if (url.pathname === '/api/v7/ledger') { world.reads++; send(200, ledger(world)); return; }
+    // MO-SO-NHANH-02: Lịch sử đọc riêng như server thật. world.eventsFail: lỗi một lần để thử nút Thử lại.
+    if (url.pathname === '/api/v7/ledger/events') {
+      world.eventReads = (world.eventReads ?? 0) + 1;
+      if (world.eventsFail) { world.eventsFail = false; send(503, { error: 'DB_UNAVAILABLE', message: 'Sổ tạm thời không truy cập được.' }); return; }
+      send(200, { customer_id: 1, version: world.version, events: world.events });
+      return;
+    }
     // Thẻ Tình hình (TRANG-KHACH-01): dòng Tổng quan của sổ giả do test đặt, mặc định sổ không nợ. Vẫn ghi sideReads cho
     // /reminders để test bắt được nếu trang khách đọc lại lần nhắc khi nhắc nợ đang ẩn (NHAC-NO-01, sửa đổi 4/11/2026).
     if (url.pathname === '/api/v7/dashboard/debt' || (url.pathname === '/api/v7/reminders' && req.method === 'GET')) {
@@ -446,12 +453,21 @@ async function withPage(fn, setup = () => {}) {
     if (world.clock) await page.clock.setFixedTime(world.clock);   // ghim đồng hồ trang (giờ VN) cho test theo ngày
     await page.goto(`http://127.0.0.1:${server.address().port}/so-khach-v7-live.html?customer=1${month}${world.query ?? ''}`);
     await page.waitForSelector('.book-head');
-    // Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ, xóa ô đang gõ. Chờ nó xong (#customer-count có chữ) mới thao tác.
-    await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+    await customersLoaded(page);
     const shot = async name => { if (shots) { fs.mkdirSync(shots, { recursive: true }); await page.screenshot({ path: path.join(shots, `${name}.png`), fullPage: true }); } };
     await fn({ page, world, shot });
     assert.deepEqual(errors, []);
   } finally { await browser.close(); server.close(); }
+}
+
+// Danh sách khách tải song song với sổ; về sau thì vẽ lại cả sổ (redraw trong loadCustomers), xóa ô đang gõ và tách phần tử
+// vừa lấy khỏi DOM (rect = 0). Chờ nó xong (#customer-count có chữ) mới thao tác hay đo. Từ MO-SO-NHANH-01 GET sổ bắt đầu ở đầu
+// <head> nên sổ gần như luôn vẽ trước danh sách khách; CI windows 4/11/2026 đỏ đúng cửa sổ này sau page.reload() (tái hiện
+// tại máy khi /api/v7/customers chậm 30 ms). Vì vậy mọi test tải lại trang bằng reload() dưới đây, không gọi page.reload() thẳng.
+const customersLoaded = page => page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+async function reload(page) {
+  await page.reload();
+  await customersLoaded(page);
 }
 
 const tripCell = (page, field, id = 11) => page.locator(`.info-edit[data-kind="trip"][data-id="${id}"][data-field="${field}"]`);
@@ -466,4 +482,4 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, tripCell, legacyCell, posts, viewMonth };
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };

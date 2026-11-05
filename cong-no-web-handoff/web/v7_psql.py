@@ -9,11 +9,40 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 from v7_api_tables import BASE64, ERRORS, IMAGE_MARK, SQL
 from v7_api_validate import ApiError, no_duplicates, vnd
+
+
+def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[str]:
+    """Lệnh psql nhanh nhất mà vẫn chắc chắn tới đúng cluster.
+
+    `psql` trên Debian/Ubuntu là script Perl `pg_wrapper`: chọn cluster rồi `exec` binary thật. Đo trên `hao` 4/11/2026:
+    57 ms mỗi lần gọi so với 11 ms của binary, mà mở một sổ gọi ít nhất 4 lần. Lệnh của API đã có `-X -h -U -d` nên wrapper
+    chỉ còn đóng góp cổng: đi thẳng binary khi cổng của server đúng là cổng binary sẽ dùng và binary qua được đúng câu kiểm
+    đầu vào. Không chứng minh được thì giữ wrapper, không bao giờ làm hỏng lúc khởi động.
+    """
+    found = shutil.which("psql")
+    if not found or os.path.basename(os.path.realpath(found)) != "pg_wrapper":
+        return ["psql"]
+    try:
+        server = subprocess.run(
+            ["psql", *connect, "SELECT current_setting('server_version_num')::int/10000, current_setting('port')"],
+            capture_output=True, text=True, timeout=10, check=False, env=env,
+        )
+        match = re.fullmatch(r"([0-9]+)\|([0-9]+)", server.stdout.strip())
+        if server.returncode or not match or match[2] != os.environ.get("PGPORT", "5432"):
+            return ["psql"]
+        binary = f"/usr/lib/postgresql/{match[1]}/bin/psql"
+        check = subprocess.run(
+            [binary, *connect, check_sql], capture_output=True, text=True, timeout=10, check=False, env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ["psql"]
+    return [binary] if check.returncode == 0 and check.stdout.strip() == "t|t" else ["psql"]
 
 
 class _PsqlRunner:
@@ -57,10 +86,10 @@ class _PsqlRunner:
             raise ApiError(
                 503,
                 "DB_UNAVAILABLE"
-                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
+                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
                 else "RESULT_UNKNOWN",
                 "Sổ tạm thời không truy cập được."
-                if function in ("get_ledger", "list_offset_sources", "get_price_table", "get_price_status")
+                if function in ("get_ledger", "get_ledger_events", "list_offset_sources", "get_price_table", "get_price_status")
                 else "Chưa rõ lệnh đã lưu. Thử lại với cùng mã yêu cầu.",
             ) from exc
         except OSError as exc:
@@ -192,7 +221,7 @@ class PsqlDirect(_PsqlRunner):
                 raise ValueError("invalid PGPASSFILE")
         self.socket_dir, self.database, self.user = socket_dir, database, role
         self.psql_command = list(psql_command or ["psql"])
-        probe = self.psql_command + [
+        connect = [
             "-X",
             "-qAt",
             "-v",
@@ -204,23 +233,28 @@ class PsqlDirect(_PsqlRunner):
             "-d",
             database,
             "-c",
+        ]
+        check_sql = (
             "SELECT current_user='"
             + role
-            + "' AND current_user=(SELECT rolname FROM pg_roles WHERE rolname=current_user AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls), EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='get_ledger')",
-        ]
+            + "' AND current_user=(SELECT rolname FROM pg_roles WHERE rolname=current_user AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls), EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='sokhach'::regnamespace AND proname='get_ledger')"
+        )
+        env = {**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"}
         try:
             check = subprocess.run(
-                probe,
+                self.psql_command + connect + [check_sql],
                 capture_output=True,
                 text=True,
                 timeout=10,
                 check=False,
-                env={**os.environ, "PGOPTIONS": "-c statement_timeout=15000 -c lock_timeout=12000"},
+                env=env,
             )
         except (OSError, subprocess.SubprocessError) as exc:
             raise ValueError("direct database unavailable") from exc
         if check.returncode or check.stdout.strip() != "t|t":
             raise ValueError("direct database preflight rejected")
+        if psql_command is None:
+            self.psql_command = _real_psql(connect, check_sql, env)
 
     def run(self, function: str, payload: dict, actor: str) -> dict:
         return self._run_psql(

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess  # noqa: F401  test vá `api.subprocess.run`; lệnh psql dựng ở v7_psql
 import sys
+import threading
 import time
 from datetime import datetime  # noqa: F401  test đọc `api.datetime`
 from http.server import BaseHTTPRequestHandler
@@ -87,6 +91,19 @@ INBOX = v7_inbox.Inbox(
 STREAM_PING = 15.0
 STREAM_MAX_SECONDS = 600.0          # luồng SSE tự đóng, trình duyệt tự nối lại
 STREAM_MIN_GAP = 0.1                # tối đa 10 lần đẩy mỗi giây
+# Từ chối mà chưa đọc thân lệnh: đóng socket ngay thì phần thân tới sau làm Windows hủy luôn phản hồi lỗi đang
+# chờ ở client (WinError 10053). Nên trả lời, gửi FIN rồi xả bỏ thân, có trần để từ chối không tốn tài nguyên.
+DISCARD_MAX_BYTES = MAX_IMAGE_BODY  # thân hợp lệ lớn nhất vẫn nhận được phản hồi
+DISCARD_SECONDS = 2.0               # hạn tổng, client nhỏ giọt cũng không giữ luồng lâu hơn
+DISCARD_CHUNK = 64 * 1024
+
+
+def declared_length(value: str, limit: int) -> int | None:
+    """Content-Length đã kiểm: sai thì None; vượt `limit` thì limit + 1, không đổi chuỗi số dài thành int."""
+    if not value.isascii() or not value.isdecimal():
+        return None
+    digits = value.lstrip("0")
+    return int(digits or "0") if len(digits) <= len(str(limit)) else limit + 1
 
 
 def checked_host(value, port, host, behind_tailscale_serve=False, serve_hosts=()):
@@ -138,6 +155,52 @@ def with_actor_names(ledger: dict) -> dict:
     return {**ledger, "events": [{**event, "actor_name": v7_presence.display_name(event["actor"], names)}
                                  if isinstance(event, dict) and isinstance(event.get("actor"), str) else event
                                  for event in events]}
+
+
+def public_ledger(ledger: dict) -> dict:
+    """MO-SO-NHANH-02: thân GET sổ không có Lịch sử (nạp riêng khi mở khung) và ô Sheet thô `display.cells` (không màn nào đọc).
+
+    Chỉ cắt ở tầng HTTP, sau khi chiếu hàng chờ: `sheet_projection` cần `events`, công cụ đọc `cells` qua runner. Không sửa dict vào.
+    """
+    body = {key: value for key, value in ledger.items() if key != "events"}
+    rows = ledger.get("legacy_rows")
+    if isinstance(rows, list):
+        body["legacy_rows"] = [{**row, "display": {key: value for key, value in row["display"].items() if key != "cells"}}
+                               if isinstance(row, dict) and isinstance(row.get("display"), dict) else row for row in rows]
+    return body
+
+
+# MO-SO-NHANH-01 (4/11/2026): file JS/CSS đọc một lần rồi giữ (nguyên bản, bản gzip, ETag) trong tiến trình; đọc lại khi
+# mtime hoặc kích thước đổi. Deploy thay cả thư mục release và khởi động lại dịch vụ nên bộ nhớ này không giữ bản cũ.
+GZIP_MIN_BYTES = 1024
+_ASSET_CACHE: dict[str, tuple[tuple[int, int], bytes, bytes, str]] = {}
+_ASSET_LOCK = threading.Lock()
+
+
+def accepts_gzip(accept_encoding: str | None) -> bool:
+    """`Accept-Encoding` có gzip và không bị tắt bằng q=0."""
+    for token in (accept_encoding or "").split(","):
+        name, _, params = token.strip().partition(";")
+        if name.strip().lower() == "gzip" and not re.search(r"q\s*=\s*0(?:\.0+)?\s*$", params):
+            return True
+    return False
+
+
+def asset_versions(name: str) -> tuple[bytes, bytes, str]:
+    """(nguyên bản, bản gzip, ETag) của một file preview; file dưới GZIP_MIN_BYTES giữ bản gzip bằng nguyên bản."""
+    path = PREVIEW / name
+    stat = path.stat()
+    key = (stat.st_mtime_ns, stat.st_size)
+    with _ASSET_LOCK:
+        held = _ASSET_CACHE.get(name)
+        if held is not None and held[0] == key:
+            return held[1:]
+    data = path.read_bytes()
+    packed = gzip.compress(data, compresslevel=6, mtime=0) if len(data) >= GZIP_MIN_BYTES else data
+    etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+    with _ASSET_LOCK:
+        _ASSET_CACHE[name] = (key, data, packed, etag)
+    return data, packed, etag
 
 
 def presence_tab(query: str) -> str:
@@ -271,7 +334,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     if parts.path == "/api/v7/sheet-queue":
         return 200, sheet_queue(result, parts.query)
     if function == "get_ledger":
-        result = with_actor_names(ledger_projections(runner, result, actor))
+        result = public_ledger(ledger_projections(runner, result, actor))
+    if function == "get_ledger_events":
+        result = with_actor_names(result)
     if function == "list_offset_sources":
         result = {"sources": result}
     if demo and function in FLAGGED_READS:
@@ -293,6 +358,41 @@ class Handler(BaseHTTPRequestHandler):
     localapi = None
     demo = False
     real_copy = False
+    body_taken = False
+
+    def unread_body_bytes(self) -> int:
+        headers = getattr(self, "headers", None)  # dòng đầu hoặc header hỏng: chưa từng có headers
+        if self.body_taken or headers is None:
+            return 0
+        lengths = headers.get_all("Content-Length", [])
+        if headers.get("Transfer-Encoding") or len(lengths) > 1:
+            return DISCARD_MAX_BYTES
+        if not lengths:
+            return 0
+        declared = declared_length(lengths[0], DISCARD_MAX_BYTES)
+        return DISCARD_MAX_BYTES if declared is None else min(declared, DISCARD_MAX_BYTES)
+
+    def discard_unread_body(self) -> None:
+        remaining = self.unread_body_bytes()
+        if not remaining:
+            return
+        deadline = time.monotonic() + DISCARD_SECONDS
+        try:
+            self.connection.shutdown(socket.SHUT_WR)
+            while remaining > 0 and (left := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(left)
+                # read1 chứ không recv: một phần thân có thể đã nằm trong buffer của rfile lúc đọc header.
+                chunk = self.rfile.read1(min(remaining, DISCARD_CHUNK))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
+        except OSError:
+            pass  # client đã đi hoặc hết hạn: phản hồi đã gửi xong, không còn gì để làm
+
+    def finish(self) -> None:
+        # Ở đây chứ không ở request(): cả phản hồi của lớp cha (501 khi không có do_X) cũng đi qua.
+        self.discard_unread_body()
+        super().finish()
 
     def asset(self) -> bool:
         route = urlsplit(self.path).path
@@ -301,10 +401,24 @@ class Handler(BaseHTTPRequestHandler):
         checked_host(self.headers.get("Host", ""), self.port, self.bind_host,
                      self.behind_tailscale_serve, self.serve_hosts)
         name, kind = ASSETS[route]
-        data = (PREVIEW / name).read_bytes()
+        data, packed, etag = asset_versions(name)
+        # MO-SO-NHANH-01 (4/11/2026): trình duyệt giữ file và chỉ hỏi "còn mới không" (ETag → 304) thay vì tải lại
+        # 650 KB JS/CSS mỗi lần mở sổ; no-cache (không phải no-store) nên sau deploy lượt mở kế đã lấy bản mới.
+        # Bản gzip có ETag riêng vì là một biểu diễn khác (Vary: Accept-Encoding).
+        gz = len(packed) < len(data) and accepts_gzip(self.headers.get("Accept-Encoding"))
+        if gz:
+            data, etag = packed, etag[:-1] + '-gz"'
+        caching = (("ETag", etag), ("Cache-Control", "private, no-cache"), ("Vary", "Accept-Encoding"))
+        if etag in [tag.strip() for tag in self.headers.get("If-None-Match", "").split(",")]:
+            self.send_response(304)
+            for header, value in caching:
+                self.send_header(header, value)
+            self.end_headers()
+            return True
         self.send_response(200)
         for header, value in (("Content-Type", kind), ("Content-Length", str(len(data))),
-                              ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                              *((("Content-Encoding", "gzip"),) if gz else ()), *caching,
+                              ("X-Content-Type-Options", "nosniff"),
                               ("Referrer-Policy", "no-referrer"), ("X-Frame-Options", "DENY"),
                               ("Content-Security-Policy", "default-src 'none'; script-src 'self'; "
                                "style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' blob:; media-src 'self'; base-uri 'none'; frame-ancestors 'none'")):
@@ -315,8 +429,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def reply(self, status: int, value: dict) -> None:
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        # JSON lớn (sổ 400 KB) nén nhanh khi trình duyệt nhận gzip: mức 1 đủ nhỏ 5–8 lần, vài mili giây.
+        gz = len(data) >= GZIP_MIN_BYTES and accepts_gzip(self.headers.get("Accept-Encoding"))
+        if gz:
+            data = gzip.compress(data, compresslevel=1, mtime=0)
         self.send_response(status)
         for name, field in (("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(data))),
+                            *((("Content-Encoding", "gzip"),) if gz else ()), ("Vary", "Accept-Encoding"),
                             ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff")):
             self.send_header(name, field)
         self.end_headers()
@@ -408,13 +527,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             raw = b""
             if self.command == "POST":
-                length = self.headers.get("Content-Length", "")
-                if not length.isascii() or not length.isdecimal():
-                    bad()
                 limit = MAX_IMAGE_BODY if urlsplit(self.path).path == IMAGE_PATH else MAX_BODY
-                length_value = int(length.lstrip("0") or "0") if len(length.lstrip("0")) <= len(str(limit)) else limit + 1
+                length_value = declared_length(self.headers.get("Content-Length", ""), limit)
+                if length_value is None:
+                    bad()
                 if length_value > limit:
                     raise ApiError(413, "BODY_TOO_LARGE", "Dữ liệu gửi quá lớn.")
+                self.body_taken = True  # kể cả khi đọc hết giờ (408): client chậm không được giữ thêm luồng để xả
                 raw = self.rfile.read(length_value)
                 if len(raw) != length_value:
                     bad()

@@ -16,8 +16,8 @@ Người mở: sếp, chủ sổ, người đòi nợ (trên 40 tuổi, Chrome t
 Luồng:
 
 1. Mở mục Bảng thu ở menu trái, hoặc bấm "Bảng thu" ở thẻ Thu tháng của Tổng quan. Mặc định là tháng hiện tại, xem theo ngày.
-2. Nhìn thứ nhất: số tháng, số hôm nay và chip cảnh báo khi Sheet còn phiếu chưa ghi. Thứ hai: dải ngày, bấm một cột thì tới đúng ngày đó. Thứ ba: danh sách phiếu mới nhất trên cùng, gom theo ngày, mỗi ngày có tổng.
-3. Bấm một dòng: mở sổ khách đúng tháng chứa khoản đó. Sửa hay hủy đều làm ở sổ.
+2. Nhìn thứ nhất: số tháng, số hôm nay và chip cảnh báo khi Sheet còn phiếu chưa ghi. Thứ hai: dải ngày, bấm một cột thì chỉ xem ngày đó ([`TUONG-TAC-01`](../docs/decisions/tuong-tac-01.md)). Thứ ba: danh sách phiếu mới nhất trên cùng, gom theo ngày, mỗi ngày có tổng.
+3. Tab Theo ngày, bấm một dòng: mở sổ khách đúng tháng chứa khoản đó. Các tab gom nhóm, bấm tên khách: mở phiếu tại dòng, mũi tên cuối dòng mới mở sổ ([spec tương tác](v7-tuong-tac.md)). Sửa hay hủy đều làm ở sổ.
 4. Bấm tab ngay trên bảng để đổi cách xem (xem bảng dưới). Chọn mặt hàng ở bộ lọc thì số tháng, số hôm nay, dải ngày và bảng cùng lọc theo.
 5. Đổi tháng bằng ‹ › hoặc ô chọn tháng ở thanh đầu. Quay lại từ sổ thì giữ đúng tháng, tab và bộ lọc. Gửi link cho người khác thì thấy đúng như vậy.
 

@@ -1809,6 +1809,56 @@ Cài: đặt hai file, `systemd-analyze verify`, `daemon-reload`, `systemctl ena
 
 **Tắt:** `systemctl disable --now v7-watchdog.timer`, rồi tắt hoặc xóa check trên healthchecks.io để không báo nhầm là máy dừng. Khi bảo trì `hao` lâu thì bấm Pause trên trang của check.
 
+## Log sửa Sheet (SHEET-LOG-01)
+
+Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-log-01.md), [spec](../specs/sheet-log-doi-soat.md)). Mã lên bằng `Deploy hao`; chưa đặt biến thì `edit_log.status` là `OFF`, màn như cũ.
+
+1. **Quyền:** chủ file log chia sẻ quyền **xem** cho tài khoản dịch vụ (cùng địa chỉ đang đọc Sheet sổ gốc). Không đổi quyền nào khác.
+2. **Biến:** thêm `WEBDEBIT_EDIT_LOG_ID=<id file log>` vào `/etc/webdebit/sheet-sync.env`. ID không vào repo. Runner khác đọc cùng file không dùng biến này.
+3. **Thử:**
+
+   ```text
+   sudo systemd-run --quiet --wait --pipe --collect -p User=v7app -p Group=v7app \
+     -p EnvironmentFile=/etc/webdebit/sheet-sync.env -p ProtectHome=true \
+     /usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_sheet_log.py --hours 4
+   ```
+
+   Dòng đầu phải là `Log: OK`. Lệnh in tên tab, thêm `--tab` thì in cả số tiền: chỉ xem tại terminal, không chép ra ngoài.
+4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
+5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
+
+## Lịch sử đọc riêng (MO-SO-NHANH-02) — nâng DB (ĐÃ CHẠY trên hao 4/11/2026)
+
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-ledger-events.md). Spec [`mo-so-nhanh-02`](../specs/mo-so-nhanh-02.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql` tách biểu thức `events` của `get_ledger` thành `_ledger_events` (không cấp cho ai) và thêm `get_ledger_events` (cấp cho app, không cấp reader). Kết quả `get_ledger` giữ nguyên từng byte. Không đổi bảng, view, loại event, hàm ghi, dữ liệu hay quyền cũ. Chạy lại được. **Chạy lại `2026-10-29-v7-phu-phi-b-p2.sql` thì phải chạy lại file này**, vì nó trả `get_ledger` về thân cũ (kết quả vẫn đúng).
+
+Thứ tự với release: **chạy migration trước.** Release cũ chạy được với DB mới vì `get_ledger` không đổi kết quả. Release mới trên DB cũ thì mở Lịch sử báo "Không tải được lịch sử", sổ vẫn đọc được.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, `ANALYZE`. Băm JSON của `get_ledger` mọi sổ trên bản cũ, chạy migration hai lượt, băm lại: phải trùng từng sổ. `get_ledger_events` trả đúng `events` và `version` của `get_ledger` ở mọi sổ. Chạy rollback rồi nâng lại, băm vẫn trùng. Checker đạt.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** đo lại thân và thời gian GET sổ từ trình duyệt, mở Lịch sử một sổ lớn; ghi vào nhật ký `docs/deploys/`.
+
+Rollback: release cũ trước (`webdebit-release.sh deploy <sha>`), rồi nếu muốn gỡ hàm thì chạy `2026-11-04-v7-ledger-events.rollback.sql` (`get_ledger` về bản `2026-10-29-v7-phu-phi-b-p2.sql`, bỏ hai hàm mới). Không đụng dữ liệu.
+
+## Đọc dòng sổ gốc theo container — nâng DB đang có (ĐÃ CHẠY trên hao 4/11/2026)
+
+Đã chạy 4/11/2026, xem [nhật ký](deploys/2026-11-04-index-container.md).
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql` thêm hai index biểu thức (`legacy_row_container_key`, `legacy_trip_rev_container_key`), chạy `ANALYZE` hai bảng và thay thân `list_legacy_trip_refs` (`IN (SELECT ...)` thành `= ANY(mảng)`). Kết quả hàm giữ nguyên từng byte. Không đổi cột, ràng buộc, loại event, dữ liệu hay quyền. Chạy lại được. **Chạy sau `2026-11-01-v7-chan-trung-hang-cho.sql`; chạy lại migration đó thì phải chạy lại file này**, vì nó trả về thân hàm cũ (vẫn đúng kết quả, chỉ chậm).
+
+Dùng `CREATE INDEX` thường trong transaction, không `CONCURRENTLY`: hai bảng nhỏ, mỗi index dưới 0,2 giây, chỉ chặn ghi và đã nằm trong cửa sổ dừng ghi. Đổi thân `_normalize_key` về sau thì phải `REINDEX` hai index này trong cùng migration, nếu không index giữ khóa cũ và hàm trả thiếu dòng.
+
+Thứ tự với release: độc lập, release cũ và mới đều gọi cùng một hàm. Chạy migration rồi đổi release.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử. Ghi đầu vào thật của hàm ở mọi sổ (chỉ đọc), thêm bộ đầu vào lạ (mọi container của sổ gốc, chữ thường, có khoảng trắng và NBSP, chuỗi rỗng, lặp, số không tồn tại). Băm JSON trên bản cũ, chạy migration hai lượt, băm lại: phải trùng. Dump DB thử đã có index rồi restore sang DB thử thứ hai, phải thành công (index biểu thức gọi hàm người dùng là chỗ dễ hỏng khi restore). Checker đạt.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** phát lại cùng đầu vào trên DB thật, chỉ đọc. So băm với lần đo trước cửa sổ nếu chưa có event mới; ghi thời gian trước và sau vào nhật ký `docs/deploys/`.
+
+Sau khi restore DB, chạy `ANALYZE` (hoặc đợi autovacuum): `pg_dump` không mang thống kê, chưa có thống kê thì planner quét tuần tự và hàm chậm hơn cả bản cũ (đo 4/11/2026: 234 ms so với 159 ms; sau `ANALYZE` còn dưới 20 ms). Kết quả vẫn đúng, chỉ chậm.
+
+Rollback: chạy lại `2026-11-01-v7-chan-trung-hang-cho.sql` (trả thân hàm cũ, hai hàm còn lại trong file trùng bản hiện hành), rồi `DROP INDEX sokhach.legacy_row_container_key, sokhach.legacy_trip_rev_container_key;` dưới `sokhach_owner` nếu muốn bỏ index. Release cũ chạy được với DB mới.
+
 ## Máy tự tạo sổ cho khách mới (MAY-TAO-SO-01) — nâng DB đang có
 
 Đã nâng DB, đổi release và cho máy tạo sổ 4/11/2026, xem [nhật ký](deploys/2026-11-04-may-tao-so.md).
