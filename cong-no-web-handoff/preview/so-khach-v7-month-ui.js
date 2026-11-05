@@ -186,7 +186,9 @@
     const missing = detailed ? ctx.detailMissing(data, key) : trips.filter(row => row.is_missing_price && row.status === 'confirmed').length
       + legacy.filter(line => line.trip && line.trip.current?.unit_price_vnd == null && (line.trip.d.flags ?? []).includes('MISSING_PRICE')).length;
     const badge = missing ? `<button type="button" class="month-missing" data-missing-month="${escape(key)}" title="Xem ${missing} chuyến chưa có giá">ⓘ ${missing} chưa giá</button>` : '';
-    const toolbar = `<div class="trip-toolbar"><h3>Chuyến trong tháng <span>· ${detailed ? ctx.detailCount(data, key) : sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3>${ctx.detailToggle(data)}<div class="trip-tools"></div></div>`;
+    const heading = detailed ? `<h3>${ctx.detailCount(data, key)} chuyến trong tháng</h3>`
+      : `<h3>Chuyến trong tháng <span>· ${sttBase + trips.filter(row => !row.deleted).length} chuyến</span></h3>`;
+    const toolbar = `<div class="trip-toolbar">${heading}${ctx.detailTools(data, key)}<div class="trip-tools"></div></div>`;
     const body = `${payBlock}<tr class="month-body"><td class="trip-side" colspan="${columns.trip()}">`
       + (detailed ? ctx.detailTable(data, key) : `<table class="ledger-inner trip-list${columns.shipper() ? '' : ' no-shipper'}"><colgroup>${columns.tags(0, columns.trip())}</colgroup>`
       + `<tbody>${tripRows}</tbody></table>`) + '</td></tr>';
@@ -256,7 +258,12 @@
   }
   root.addEventListener('click', event => {
     const missing = event.target.closest('.month-missing');
-    if (missing) { ctx.showLoc('thieu-gia'); return; }
+    if (missing) {
+      // Bảng chi tiết tự lọc được tại chỗ, không phải rời sang bảng sổ.
+      if (ctx.detailOn(ctx.snapshot)) ctx.detailShowMissing(missing.dataset.missingMonth);
+      else ctx.showLoc('thieu-gia');
+      return;
+    }
     const chip = event.target.closest('.month-chip');
     if (!chip) return;
     event.preventDefault();

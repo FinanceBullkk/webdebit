@@ -59,7 +59,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="so-gon-04"></a>[SO-GON-04](decisions/so-gon-04.md) | Sổ khách một tháng đang làm: thanh tháng, gập tháng cũ, một nút Ghi phiếu thu có xem lại, hỏi khi khóa/mở tháng | Đầu sổ sửa 31/10/2026 khi code PR 2c (người dùng đồng ý); PR 2d (Lịch sử, bàn phím) thêm trường đọc `actor_name` vào GET sổ; H1 thay bởi [SO-GON-05](#so-gon-05) |
 | <a id="so-gon-05"></a>[SO-GON-05](decisions/so-gon-05.md) | Sổ khách một tháng trên màn hình, chip tháng là chỗ chọn tháng duy nhất, dòng tóm tắt tháng, bảng co giãn | Thay H1 của [SO-GON-04](#so-gon-04) |
 | <a id="so-gon-06"></a>[SO-GON-06](decisions/so-gon-06.md) | Sổ khách: phiếu thu thành khối ở đầu tháng, một thanh việc ở đầu sổ | Thay vế phiếu thu bên phải của [SO-GON-02](#so-gon-02)/[SO-GON-04](#so-gon-04) và sửa (a) của SO-GON-04 |
-| <a id="so-chi-tiet-01"></a>[SO-CHI-TIET-01](decisions/so-chi-tiet-01.md) | Sổ hai dòng hiện theo cột bảng kê, tô màu, chỉ xem; nguồn là tab `CHI TIET ...` trên Sheet |  |
+| <a id="so-chi-tiet-01"></a>[SO-CHI-TIET-01](decisions/so-chi-tiet-01.md) | Sổ hai dòng hiện một dòng mỗi container, chỉ xem; mặc định bảng gọn (phí + cước mình thu = Tổng), có chế độ Đủ cột theo file; nguồn là tab `CHI TIET ...` trên Sheet |  |
 | <a id="ct-2so"></a>[CT-2SO](decisions/ct-2so.md) | Cấn trừ giữa hai sổ |  |
 | <a id="phu-phi-01"></a>[PHU-PHI-01](decisions/phu-phi-01.md) | Phụ phí nhiều loại |  |
 | <a id="xoa-thu-goc-01"></a>[XOA-THU-GOC-01](decisions/xoa-thu-goc-01.md) | Xóa khoản thu sổ gốc |  |

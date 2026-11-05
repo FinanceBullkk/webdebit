@@ -218,6 +218,37 @@ def _legacy_items(ledger: dict[str, Any]) -> tuple[list[dict[str, Any]], list[di
               "ledger_vnd": money(row) + taken.get(row["id"], 0)} for row in rows if has_container(row)], loose)
 
 
+def _reading(detail: dict[str, Any] | None, sheet_total: str | None, ledger_vnd: int, container: str) -> dict[str, Any]:
+    """Phần trang cần để đọc một dòng mà không tự cộng tiền (ARCH-03). Chỉ để xem, không vào nợ.
+
+    `state` xếp mỗi dòng vào đúng một trạng thái: chưa giá đứng trước khác sổ vì người đọc cần giá trước đã; khác sổ đứng trước
+    không cộng ra Tổng vì lệch với số nợ quan trọng hơn lệch trong nội bộ bảng kê. Lệch tới 1đ là làm tròn VAT, không báo.
+    """
+    phi = parts = None
+    adds_up = False
+    if detail:
+        phi = sum(int(detail.get(f"{key}_vnd") or 0) for key in ("fee", "service", "truck", "vat"))
+        parts = phi + (int(detail.get("of_vnd") or 0) if detail.get("of_counted") else 0)
+        adds_up = sheet_total is not None and abs(parts - int(sheet_total)) <= 1
+    sheet_diff = None if sheet_total is None else int(sheet_total) - ledger_vnd
+    if not ledger_vnd:
+        state = "no_price"
+    elif not detail:
+        state = "no_detail" if container else "loose"
+    elif sheet_diff is not None and abs(sheet_diff) > 1:
+        state = "differs"
+    else:
+        state = "ok" if adds_up else "no_add"
+    return {"state": state, "adds_up": adds_up, "phi_vnd": None if phi is None else str(phi), "parts_vnd": None if parts is None else str(parts),
+            "adds_diff_vnd": None if adds_up or parts is None or sheet_total is None else str(parts - int(sheet_total)),
+            "sheet_diff_vnd": None if sheet_diff is None else str(sheet_diff)}
+
+
+def _month_summary() -> dict[str, Any]:
+    return {"fee": 0, "service": 0, "truck": 0, "vat": 0, "of_counted": 0, "of_customer": 0, "total": 0, "sheet_diff": 0, "no_detail": 0, "differs": [],
+            "compare_diff": 0, "compare_differs": 0, "compare_no_add": 0}
+
+
 def project_details(snapshot: dict[str, Any], ledger: dict[str, Any]) -> dict[str, Any]:
     """`sheet_details` của GET sổ: bảng theo tháng cho sổ có tab chi tiết; sổ khác rỗng. Mọi số là chuỗi VND nguyên."""
     by_container: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -252,16 +283,16 @@ def project_details(snapshot: dict[str, Any], ledger: dict[str, Any]) -> dict[st
         # Cột Tổng luôn là số của sổ (SO-CHI-TIET-01); bảng kê cũ không được làm người đọc tưởng đó là nợ.
         shown = str(ledger_vnd) if ledger_vnd else None
         differs = sheet_total is not None and abs(int(sheet_total) - ledger_vnd) > 1
+        reading = _reading(detail, sheet_total, ledger_vnd, item["container"])
         rows.append({"kind": item["kind"], "id": item["id"], "month": month, "container": item["container"], "has_detail": detail is not None,
                      "day": short_day(item["date"], "") if item["date"] and len(str(item["date"])) != 10 else _iso_day(item["date"]),
                      "bill": detail.get("bill", "") if detail else "", "ship": (detail.get("ship") or item["carrier"] or "") if detail else (item["carrier"] or ""),
                      "etd": short_day(detail.get("etd"), month) if detail else "", "eta": short_day(detail.get("eta"), month) if detail else "",
                      "from": (detail.get("from") or item["origin"] or "") if detail else (item["origin"] or ""),
                      "to": _port((detail.get("to") or item["destination"]) if detail else item["destination"]),
-                     "of_counted": bool(detail and detail.get("of_counted")), "total_vnd": shown, "sheet_total_vnd": sheet_total, "ledger_vnd": str(ledger_vnd), "differs": differs,
+                     "of_counted": bool(detail and detail.get("of_counted")), "total_vnd": shown, "sheet_total_vnd": sheet_total, "ledger_vnd": str(ledger_vnd), "differs": differs, **reading,
                      **{f"{key}_vnd": detail.get(f"{key}_vnd") if detail else None for key in ("fee", "service", "truck", "of", "vat")}})
-        summary = months.setdefault(month, {"fee": 0, "service": 0, "truck": 0, "vat": 0, "of_counted": 0, "of_customer": 0, "total": 0,
-                                            "sheet_diff": 0, "no_detail": 0, "differs": []})
+        summary = months.setdefault(month, _month_summary())
         if detail:
             for key in ("fee", "service", "truck", "vat"):
                 summary[key] += int(detail.get(f"{key}_vnd") or 0)
@@ -272,17 +303,23 @@ def project_details(snapshot: dict[str, Any], ledger: dict[str, Any]) -> dict[st
         if differs:
             summary["differs"].append(item["container"])
             summary["sheet_diff"] += int(sheet_total) - ledger_vnd
+        if reading["state"] == "differs":
+            summary["compare_differs"] += 1
+            summary["compare_diff"] += int(reading["sheet_diff_vnd"])
+        elif reading["state"] == "no_add":
+            summary["compare_no_add"] += 1
     for row in loose:
         current = row["current"]
         month = str(current.get("month") or row.get("month"))[:7]
         rows.append({"kind": "legacy", "id": row["id"], "month": month, "container": "", "has_detail": False, "day": _iso_day(current.get("event_date")),
                      "bill": "", "ship": "", "etd": "", "eta": "", "from": "", "to": "", "of_counted": False, "total_vnd": str(current["counted_vnd"]),
-                     "sheet_total_vnd": None, "ledger_vnd": str(current["counted_vnd"]), "differs": False, **{f"{key}_vnd": None for key in ("fee", "service", "truck", "of", "vat")}})
-        summary = months.setdefault(month, {"fee": 0, "service": 0, "truck": 0, "vat": 0, "of_counted": 0, "of_customer": 0, "total": 0,
-                                            "sheet_diff": 0, "no_detail": 0, "differs": []})
+                     "sheet_total_vnd": None, "ledger_vnd": str(current["counted_vnd"]), "differs": False, **_reading(None, None, int(current["counted_vnd"]), ""),
+                     **{f"{key}_vnd": None for key in ("fee", "service", "truck", "of", "vat")}})
+        summary = months.setdefault(month, _month_summary())
         summary["total"] += int(current["counted_vnd"])
-    return {"rows": rows, "months": {month: {**{f"{key}_vnd": str(value[key]) for key in ("fee", "service", "truck", "vat", "of_counted", "of_customer", "total", "sheet_diff")},
-                                             "no_detail": value["no_detail"], "differs": value["differs"], "charges_vnd": charges.get(month),
+    return {"rows": rows, "months": {month: {**{f"{key}_vnd": str(value[key]) for key in ("fee", "service", "truck", "vat", "of_counted", "of_customer", "total", "sheet_diff", "compare_diff")},
+                                             "no_detail": value["no_detail"], "differs": value["differs"], "compare_differs": value["compare_differs"],
+                                             "compare_no_add": value["compare_no_add"], "charges_vnd": charges.get(month),
                                              "diff_vnd": None if charges.get(month) is None else str(int(charges[month]) - value["total"])}
                                      for month, value in months.items()}}
 
