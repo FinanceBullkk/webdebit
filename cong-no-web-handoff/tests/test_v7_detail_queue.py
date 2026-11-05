@@ -220,6 +220,8 @@ class Project(unittest.TestCase):
         self.assertEqual(short_day("46090", "2026-03"), "09/03")      # đúng tháng thì giữ
         self.assertEqual(short_day("20/2/2026", "2026-02"), "20/02")
         self.assertEqual(short_day("3/10//2026", "2026-10"), "3/10//2026")
+        # Ô không đọc được giữ nguyên văn, không cắt: 24/12//202 làm người đọc không biết bảng kê ghi gì.
+        self.assertEqual(short_day("24/12//2025", "2025-12"), "24/12//2025")
         self.assertEqual(short_day("", "2026-10"), "")
 
 
