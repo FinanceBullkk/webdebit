@@ -156,7 +156,7 @@ class QueueTest(unittest.TestCase):
             (ps_row(neo="1500000", date="2026-09-20"),
              ledger([trip(date="2026-09-20", month="2026-09-01", lines=[line(91, 1, 1500000)])]), "MONTH_LOCKED", "Tháng 09/2026 đang khóa"),
             (ps_row(neo="1500000") | {"problems": [{"field": "ghep", "code": "PS_TYPO", "value": "1"}]},
-             ledger([trip(lines=[line(91, 1, 1500000)])]), "PS_TYPO", "Ghép = 1 trên PS, có thể gõ sai"),
+             ledger([trip(lines=[line(91, 1, 1000000)])]), "PS_TYPO", "Ghép = 1 trên PS, có thể gõ sai"),
             (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip()]), "WEB_NO_FEE",
              "PS 4.500.000 đ · web chưa có phụ phí"),
             (ps_row(neo="1500000") | {"combined_vnd": "3000000"}, ledger([trip(lines=[line(91, 3, 3000000)])]), "TOTAL_DIFF",
@@ -195,7 +195,7 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(result["ready_count"], 1)
         self.assertEqual([r["status"] for r in result["review"]], ["NEED_HEALTH"])
         done = project([row], ledger([trip(lines=[line(91, 4, 1500000), line(92, 8, 500000)])]))
-        self.assertEqual([r["status"] for r in done["review"]], ["TOTAL_DIFF"])
+        self.assertEqual((done["ready_count"], done["review"]), (0, []))
         flag_only = ps_row() | {"kd": True}
         self.assertEqual([r["status"] for r in project([flag_only], ledger([trip()]))["review"]], ["NEED_KD"])
 
@@ -240,6 +240,81 @@ class QueueTest(unittest.TestCase):
         # Chuyến web không có ô TOTAL riêng nên không có ngoại lệ này.
         web = project([row], ledger([trip(lines=[line(91, 3, 3500000)])]))
         self.assertEqual([r["status"] for r in web["review"]], ["TOTAL_DIFF"])
+
+    def fees(self, item):
+        return [(x["fee_type_id"], x["amount_vnd"]) for x in item["after"]]
+
+    def test_ps_smaller_than_web_names_its_part_and_leaves_the_rest_in_khac(self):
+        item = project([ps_row(neo="1500000")], ledger([trip(lines=[line(91, 3, 4500000, "migration: legacy fee")])]))["ready"][0]
+        self.assertEqual(self.fees(item), [(4, "1500000"), (1, "3000000")])
+        self.assertEqual((item["ps_total"], item["web_total"], item["fill"]), ("1500000", "4500000", False))
+        self.assertEqual(auto_ps({"ready": [item]}), [item])
+        both = project([ps_row(neo="3500000") | {"combined_vnd": "3000000"}], ledger([trip(lines=[line(91, 3, 8500000)])]))
+        self.assertEqual(self.fees(both["ready"][0]), [(4, "3500000"), (10, "3000000"), (1, "2000000")])
+        whole_lines = project([ps_row(neo="1500000", dien="3000000")], ledger([trip(lines=[line(91, 1, 2000000), line(92, 3, 2500000), line(93, 1, 100000)])]))
+        self.assertEqual(self.fees(whole_lines["ready"][0]), [(4, "1500000"), (5, "3000000"), (1, "100000")])
+
+    def test_ps_khac_stays_inside_the_rest(self):
+        item = project([ps_row(neo="1500000", khac="500000")], ledger([trip(lines=[line(91, 3, 4500000)])]))["ready"][0]
+        self.assertEqual(self.fees(item), [(4, "1500000"), (1, "3000000")])
+
+    def test_partial_split_in_a_locked_month_goes_to_the_machine(self):
+        book = ledger([trip(date="2026-09-20", month="2026-09-01", lines=[line(91, 3, 4500000)])])
+        result = project([ps_row(neo="1500000", date="2026-09-20")], book)
+        self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["MONTH_LOCKED"]))
+        self.assertEqual(self.fees(auto_ps(result)[0]), [(4, "1500000"), (1, "3000000")])
+
+    def test_after_the_partial_split_nothing_is_left_to_show(self):
+        for lines in ([line(91, 4, 1500000), line(92, 1, 3000000)],   # as the machine wrote it
+                      [line(91, 4, 1500000), line(92, 5, 3000000)],   # the rest typed by a person later
+                      [line(91, 4, 1500000, "giữ"), line(92, 3, 3000000)]):
+            with self.subTest(lines=lines):
+                result = project([ps_row(neo="1500000")], ledger([trip(lines=lines)]))
+                self.assertEqual((result["ready_count"], result["review_count"]), (0, 0))
+
+    def test_partial_split_keeps_typed_lines_outside_ps(self):
+        book = ledger([trip(lines=[line(91, 5, 3000000, "giữ"), line(92, 3, 2000000)])])
+        item = project([ps_row(neo="1500000")], book)["ready"][0]
+        self.assertEqual(item["after"], [{"fee_type_id": 5, "amount_vnd": "3000000", "note": "giữ"},
+                                         {"fee_type_id": 4, "amount_vnd": "1500000", "note": None},
+                                         {"fee_type_id": 1, "amount_vnd": "500000", "note": None}])
+
+    def test_partial_split_refuses_what_it_cannot_be_sure_of(self):
+        cases = {
+            "giảm trừ": ledger([trip(lines=[line(91, 3, 5000000), line(92, 2, -500000)])]),
+            "TOTAL khác tổng khoản": ledger(legacy=[self.legacy([line(91, 3, 4500000)], counted="84000000")]),
+            "dòng sổ gốc thiếu đơn giá": ledger(legacy=[self.legacy([line(91, 3, 4500000)], unit=None)]),
+            "khoản đã phân loại chiếm hết": ledger([trip(lines=[line(91, 5, 4000000), line(92, 3, 500000)])]),
+        }
+        for name, book in cases.items():
+            with self.subTest(name):
+                result = project([ps_row(neo="1500000")], book)
+                self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["TOTAL_DIFF"]))
+        only_khac = project([ps_row(khac="500000")], ledger([trip(lines=[line(91, 3, 4500000)])]))
+        self.assertEqual([r["status"] for r in only_khac["review"]], ["TOTAL_DIFF"])
+        fine = project([ps_row(neo="1500000")], ledger(legacy=[self.legacy([line(91, 3, 4500000)], counted="84500000")]))
+        self.assertEqual(self.fees(fine["ready"][0]), [(4, "1500000"), (1, "3000000")])
+
+    def test_typo_cell_does_not_block_when_the_rest_equals_the_web(self):
+        typo = {"problems": [{"field": "ghep", "code": "PS_TYPO", "value": "1"}]}
+        item = project([ps_row(neo="1500000") | typo], ledger([trip(lines=[line(91, 3, 1500000)])]))["ready"][0]
+        self.assertEqual(self.fees(item), [(4, "1500000")])
+        done = project([ps_row(neo="1500000") | typo], ledger([trip(lines=[line(91, 4, 1500000)])]))
+        self.assertEqual((done["ready_count"], done["review_count"]), (0, 0))
+        locked = ledger([trip(date="2026-09-20", month="2026-09-01", lines=[line(91, 3, 1500000)])])
+        self.assertEqual([r["status"] for r in project([ps_row(neo="1500000", date="2026-09-20") | typo], locked)["review"]], ["MONTH_LOCKED"])
+
+    def test_typo_or_bad_cell_still_shows_otherwise(self):
+        typo = {"problems": [{"field": "ghep", "code": "PS_TYPO", "value": "1"}]}
+        for lines in ([], [line(91, 3, 4500000)], [line(91, 3, 1000000)]):   # no fee, PS smaller, PS larger
+            with self.subTest(lines=lines):
+                result = project([ps_row(neo="1500000") | typo], ledger([trip(lines=lines)]))
+                self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["PS_TYPO"]))
+        only_typo = project([ps_row() | typo], ledger([trip(lines=[line(91, 3, 1500000)])]))
+        self.assertEqual([r["status"] for r in only_typo["review"]], ["PS_TYPO"])
+        bad = {"problems": [{"field": "khac", "code": "PS_BAD_AMOUNT", "value": "315789.5"}]}
+        result = project([ps_row(neo="1500000") | bad], ledger([trip(lines=[line(91, 3, 1500000)])]))
+        self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["PS_BAD_AMOUNT"]))
 
     def test_auto_ps_takes_ready_and_locked_but_keeps_notes(self):
         ready = {"before": [{"note": None}], "after": [{"note": None}]}
