@@ -51,6 +51,8 @@ module.exports = [
     languageOptions: {
       globals: {
         BangThuModel: "readonly",
+        MayChayModel: "readonly",
+        MayChayOffice: "readonly",
         TinhHinhModel: "readonly",
         CongNoFormat: "readonly",
         DashboardModel: "readonly",

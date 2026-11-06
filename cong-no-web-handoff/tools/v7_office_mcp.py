@@ -24,7 +24,7 @@ SERVER = {"name": "webdebit-office", "version": "1"}
 DEFAULT_PROTOCOL = "2025-06-18"
 LEVELS = ("info", "warn", "urgent")
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-MAX_TITLE, MAX_BODY, MAX_OPEN = 120, 600, 50
+MAX_TITLE, MAX_BODY, MAX_OPEN = 120, 600, 30
 # Tiền và số đếm do code tính; model chỉ viết lời. Chuỗi trông như số tiền thì từ chối, để thẻ không mang số do model tự nghĩ ra.
 MONEY = re.compile(r"\d{7,}|\d{1,3}(?:[.,]\d{3}){2,}")
 
@@ -156,6 +156,9 @@ def handle(message: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def main() -> int:
+    # MCP là UTF-8; không theo bảng mã của máy, nếu không tiếng Việt làm hỏng lượt trả lời.
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
     for line in sys.stdin:
         if not line.strip():
             continue

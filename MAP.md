@@ -15,6 +15,7 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `.claude/skills/go-loi-co-he-thong/` | Gỡ lỗi: nguyên nhân gốc → so mẫu → giả thuyết → test đỏ rồi sửa; bẫy môi trường đã biết (phỏng theo obra/superpowers, MIT) |
 | `.claude/skills/kiem-chung-truoc-khi-bao-xong/` | Cổng bằng chứng trước mỗi câu báo xong/xanh/đã triển khai (phỏng theo obra/superpowers, MIT) |
 | `scripts/check-secrets.js` | Quét secrets nhẹ (stdlib Node) trên diff đã stage hoặc toàn bộ file đã theo dõi |
+| `scripts/hermes-office/` | Quản lý Hermes của tab Máy chạy (`MAY-CHAY-01`): cấu hình container khóa, cổng ra danh sách trắng, script kiểm cách ly, dữ liệu mẫu |
 | `scripts/sheet-capture/` | Apps Script chỉ ghi vết sửa Sheet nguồn vào log riêng (`Code.gs`) và test giả lập (`test.js`); spec `specs/sheet-capture.md` |
 | `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), luật nghiệp vụ; `agent-run.ps1` (giao Codex/Gemini) chỉ còn là lịch sử từ 29/10/2026 theo `CLAUDE-ALL-01` |
 | `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`; `multi-agent.md` chỉ còn là lịch sử) |

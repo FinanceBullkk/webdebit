@@ -1,6 +1,6 @@
 # Tab Máy chạy: xem máy đối soát đang làm gì (MAY-CHAY-01)
 
-Trạng thái: ĐỀ XUẤT (Claude, 6/11/2026). Người dùng chọn phương án hình C, văn phòng nhân viên (chat, 6/11/2026); chưa code trong web.
+Trạng thái: ĐÃ CHỐT hình C và vai trò Hermes ([`MAY-CHAY-01`](../docs/decisions/may-chay-01.md), 6/11/2026). Phần còn mở ghi ở dưới.
 
 ## Người dùng và luồng (bước 1, bắt buộc với frontend)
 
@@ -47,11 +47,10 @@ Bẫy khi đọc dữ liệu:
 
 ## Giao tiếp frontend–backend (bước 5, khi có)
 
-ĐỀ XUẤT, sẽ chốt sau khi chọn phương án:
-
-- Job ghi `reconcile-run.jsonl` (mode 600, cùng thư mục `reconcile.json`): mỗi sự kiện gồm `run_id`, `at`, `stage`, `done`, `total`, và với khách thì `customer_id`, `reason`, các trường `_vnd`.
-- `GET` trạng thái lượt đang chạy và danh sách lượt, cùng đăng nhập với các API đọc khác; tên khách lấy theo `customer_id` ở tầng API.
-- Trình duyệt hỏi lại mỗi 2–3 giây khi tab đang mở và có lượt chạy, 60 giây khi máy nghỉ; tab ẩn thì không hỏi.
+- Job (`tools/v7_run_trace.py`) ghi `reconcile-run.json` và `reconcile-run-history.jsonl`, mode 600: trạm, số đã qua, khách theo `customer_id`, lý do, tiền `_vnd` dạng chuỗi. Không có tên khách.
+- `GET /api/v7/machine` (lượt đang chạy, các lượt, job, bảng việc), `GET /api/v7/machine/now` (phần đổi nhanh), `GET /api/v7/machine/summary` (bản cho Hermes), cùng đăng nhập với các API đọc khác, không qua DB. Trang tự đổi `customer_id` thành tên qua `/api/v7/customers`.
+- `POST /api/v7/machine/office` nhận tình trạng và thẻ của quản lý, ghi `office/state.json`. Kiểm khóa thẻ, độ dài, từ chối chữ trông như số tiền; lỗi ghi trả 503.
+- Trình duyệt hỏi lại mỗi 3 giây khi có lượt chạy, 30 giây khi máy nghỉ; tab ẩn thì không hỏi.
 
 ## Quản lý Hermes (ĐỀ XUẤT)
 
