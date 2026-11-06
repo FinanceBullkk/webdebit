@@ -311,6 +311,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         rows = db.run("list_customers", {}, ACTOR).get("customers", [])
         trace.stage("sach")
         sheet, held, outside, books, digest = read_sheet(Path(xlsx), args.source_dir, work / "sach", {rec.name(row["name"]) for row in rows})
+        trace.mark(books=len(rows))
         trace.stage("doc", total=len(rows))
         web, ids, seen = read_web(db, rows, trace.tick)
         trace.stage("so", total=len(rows))

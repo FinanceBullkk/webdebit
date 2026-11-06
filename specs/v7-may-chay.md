@@ -37,7 +37,7 @@ Số đo thời lượng:
 
 - Lượt không có khách lệch: 288–300 giây. Lượt có khách lệch: khoảng 7,5 phút, kết thúc lúc :12–:13 thay vì :09–:10, vì có thêm `snapshots.build_all`. Ghi chú cũ "8–9 phút" đã lỗi thời.
 - Bản chụp Sheet 4 giây, giá Sheet 13 giây, sao lưu giờ 11 giây, gói cấu hình 4 giây.
-- Thời lượng từng trạm **chưa đo được**; bản thử dùng ước tính và ghi rõ trên màn.
+- Thời lượng từng trạm, lượt thật đầu tiên có tín hiệu (6/11/2026 12:05, có một khách lệch, 447 giây, journal 446): tải 11 giây, làm sạch 250 giây, đọc sổ 29 giây, so dưới 1 giây, tìm cách sửa 154 giây, lưu 3 giây. Lượt trước đó chỉ có số đếm nên chia trạm theo các số này, trang ghi rõ ước tính.
 
 Bẫy khi đọc dữ liệu:
 
@@ -96,8 +96,8 @@ Người dùng muốn Hermes Agent làm quản lý công việc của văn phòn
 
 Cách giữ ranh giới bằng quyền, không bằng lời dặn:
 
-- **Chỉ gọi model khi có việc:** cron job có `script` chạy trước, in `{"wakeAgent": false}` khi lượt không có gì mới.
-- **Công cụ tối thiểu:** cron job đặt `enabled_toolsets` chỉ gồm `mcp-webdebit-office`; MCP server dùng `tools.include`. Tắt `terminal`, `file`, `delegation`. Tài liệu chưa xác nhận agent chỉ có MCP chạy được: phải thử trước.
+- **Chỉ gọi model khi có việc:** `scripts/hermes-office/pump.py` chạy ngoài container theo lịch trên PC, so dấu của phần đáng quan tâm (khách mở, lý do, job hỏng); không đổi thì không gọi. Hết việc thì code tự dọn thẻ, không cần AI. Không dùng cron và gateway của Hermes, để bớt một tiến trình nền trong container.
+- **Công cụ tối thiểu:** `platform_toolsets` chỉ có `mcp-office`, `tools.tool_search.enabled: "off"`, MCP server dùng `tools.include`. Đã đo: model thấy đúng bốn công cụ.
 - **Không dùng công nhân kanban của Hermes:** tài liệu ghi worker có toàn quyền file và terminal dưới user đang chạy, và route kanban không có đăng nhập.
 - **Profile riêng:** `hermes profile create` tách cấu hình, trí nhớ, khóa, nhưng tài liệu ghi profile không phải sandbox; muốn chạy lệnh thì phải có `terminal.backend: docker`. Không dùng lại bản đã xuất chat Zalo.
 - **Không dùng model phụ mặc định:** đặt rõ model phụ, vì mặc định có thể đi qua OpenRouter.

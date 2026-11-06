@@ -365,6 +365,7 @@ class ReconcileAutoTest(unittest.TestCase):
         trace = self.trace()
         self.assertEqual((trace["state"], trace["stage"], trace["counts"], trace["books"], trace["fixed"], trace["customers"]), ("done", None, {"KHOP": 1}, 1, 0, {}))
         self.assertEqual([item["stage"] for item in trace["segments"]], ["tai", "sach", "doc", "so", "luu"])
+        self.assertEqual(trace["books"], 1)
         self.assertTrue(trace["finished_at"])
         history = self.output.with_name("reconcile-run-history.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(history), 1)
