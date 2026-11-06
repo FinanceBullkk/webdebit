@@ -18,6 +18,8 @@ Tổng quan là màn để **C-level theo dõi công nợ của công ty**, khô
 
 ĐỀ XUẤT, chờ người dùng xem bản xem: hình 12 tháng thay chỗ thẻ Thu tháng ở dải đầu, vẽ thành hai hình chồng (đường còn phải thu ở trên, cột phát sinh / đã thu ở dưới, mỗi hình một thang); số thu / phát sinh tháng này còn ở dòng dưới hình. Chi tiết ở spec [`specs/v7-tong-quan-v4.md`](../../specs/v7-tong-quan-v4.md); bản xem dữ liệu giả [`preview/mockups/tong-quan-v4/`](../../cong-no-web-handoff/preview/mockups/tong-quan-v4/index.html).
 
+CÒN MỞ: người dùng chốt khi chỉ thấy khách mẫu. Đo trên `hao` cùng ngày, sau khi chốt: nhóm Vẫn trả, quá hạn ngắn giữ 48% tiền quá hạn (bản xem 2%), riêng 2 sổ khoảng 43%. Cần người dùng xem lại trước PR frontend ([spec, mục Số thật](../../specs/v7-tong-quan-v4.md#số-thật-trên-hao-6112026-chỉ-đọc-sau-khi-người-dùng-chốt)).
+
 ## Ngày / nguồn
 
 6/11/2026, chat. Người dùng gửi hai bản "Khách cần đòi trước" team đề xuất và nói chưa ưng: "Dashboard này là để C-level theo dõi tình hình công nợ của cty". Claude chỉ ra hai bản vẫn trả lời câu "gọi ai trước": nhãn Rủi ro cao gom 10/12 khách mẫu (trên `hao` ngày 4/11 là 50/63 khách) vì chỉ cần một khoản quá hạn từ 3 tháng; bản chia theo chuyến cuối để khách vẫn chạy hàng mà không trả nằm ở ô xanh; Tổng quan không có chỗ trả lời nợ tăng hay giảm. Claude đưa phác thảo bốn nhóm, hỏi ba điểm trên; người dùng trả lời "ok theo bạn đề xuất".

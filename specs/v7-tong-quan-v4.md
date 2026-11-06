@@ -19,7 +19,8 @@ Mỗi nhóm ứng với một loại việc sếp tự quyết; màn không ghi 
 - **Vẫn đi hàng, không trả**: tiền nợ vẫn đang tăng thêm → có cho nợ tiếp không.
 - **Ngừng đi hàng, không trả**: khách đã đi, còn nợ → thu hồi thế nào.
 - **Vẫn trả, còn nợ cũ**: khách trả nhưng chậm hơn phát sinh, nợ dồn từ 3 tháng → có siết lịch trả không.
-- **Vẫn trả, quá hạn ngắn** và **Không quá hạn**: thường không cần sếp.
+- **Vẫn trả, quá hạn ngắn**: khách trả đều, nợ quá hạn dưới 3 tháng → từng khách thường không cần sếp, nhưng sếp vẫn cần thấy tổng tiền: trên `hao` đây là nhóm giữ nhiều tiền quá hạn nhất (mục Số thật).
+- **Không quá hạn**: không cần sếp.
 
 Vấn đề của bản đang chạy (v3) và hai bản team đề xuất ngày 6/11/2026:
 
@@ -29,6 +30,25 @@ Vấn đề của bản đang chạy (v3) và hai bản team đề xuất ngày 
 - Bản team chia theo ngày từ chuyến cuối thì khách vẫn chạy hàng mà không trả nằm ở ô xanh "Đang đi hàng"; nhãn "Khó đòi" trùng từ kế toán (nợ quá hạn từ 6 tháng, Thông tư 48/2019) nhưng tính theo chuyến cuối; "% kẹt" và "thường 80%" không có định nghĩa.
 
 Đã biết: dữ kiện để chia nhóm đã có ở API (`pay_days`, `trip_days`, `overdue_vnd`, `long_overdue_vnd`); số 12 tháng từng sổ đã có ở `get_ledger`. Giả định: C-level xem cùng khung 1280×560 như người dùng khác (CÒN MỞ, xem cuối spec).
+
+## Số thật trên `hao` (6/11/2026, chỉ đọc, sau khi người dùng chốt)
+
+Áp quy tắc tình trạng lên `get_dashboard_debt` trong giao dịch chỉ đọc; số khách cộng đủ 69, tiền quá hạn cộng đủ tổng của `summary`. Bản xem giữ 12 khách của bản team đề xuất, nên **tỷ trọng trên bản xem khác hẳn dữ liệu thật**:
+
+| Tình trạng | Khách (thật) | % tiền quá hạn (thật) | Khách (bản xem) | % tiền quá hạn (bản xem) |
+| --- | --- | --- | --- | --- |
+| Vẫn đi hàng, không trả | 3 | 2% | 2 | 21% |
+| Ngừng đi hàng, không trả | 27 | 22% | 5 | 20% |
+| Vẫn trả, còn nợ cũ | 10 | 28% | 3 | 57% |
+| Vẫn trả, quá hạn ngắn | 12 | 48% | 1 | 2% |
+| Không quá hạn | 17 | – | 1 | – |
+
+- Bốn nhóm có tách được: 40 khách Rủi ro cao thành 3 / 27 / 10; hôm đo, 12 khách Theo dõi trùng đúng nhóm Vẫn trả, quá hạn ngắn.
+- **Tiền tập trung:** 2 sổ chiếm 90% tiền quá hạn của nhóm Vẫn trả, quá hạn ngắn, tức khoảng 43% tiền quá hạn cả công ty; 11/12 khách của nhóm còn đi hàng trong 30 ngày. Theo thứ tự bảng, hai sổ này nằm gần cuối và nhóm đó mang màu xám (CÒN MỞ, cuối spec).
+- Mốc 30 ngày ít ảnh hưởng hôm nay: chỉ 2 khách đang nợ có chuyến cách 31–60 ngày, 1 khách trong số đó ở nhóm Ngừng đi hàng.
+- 20/69 khách có ngày trả là ngày tạm (`last_receipt_exact = false`): 13 ở hai nhóm "không trả", 3 ở Vẫn trả, quá hạn ngắn, 4 ở Không quá hạn. Tình trạng của các khách này có thể lệch khi có ngày thật.
+
+Số đổi theo ngày; đo lại trước khi dùng. Spec chỉ ghi tỷ lệ và số khách, không ghi tên hay số tiền từng khách.
 
 ## Bố cục (bước 2) — thứ tự nhìn trong 1280×560
 
@@ -51,7 +71,7 @@ Vấn đề của bản đang chạy (v3) và hai bản team đề xuất ngày 
 
 Luôn hiện: dải đầu, thẻ 12 tháng, hàng ô tình trạng, đầu bảng. Chỉ mở khi cần: số từng tháng (chú thích), dòng thứ 6 trở đi của mỗi nhóm, trang khách.
 
-Số đo trên bản xem (Chromium headless, font thay thế rộng hơn Segoe UI, khung 1280×560 và 1265×560 cho thanh cuộn Windows): dải đầu y 73–298, hàng ô y 379–441, đầu bảng y 447–496, dòng tiêu đề nhóm đầu y 496–533; không cuộn ngang ở cả hai bề rộng; tên năm ô không bị cắt.
+Số đo trên bản xem (Chromium headless, font thay thế rộng hơn Segoe UI, khung 1280×560 và 1265×560 cho thanh cuộn Windows): dải đầu y 73–298, hàng ô y 379–441, đầu bảng y 447–496, dòng tiêu đề nhóm đầu y 496–533; không cuộn ngang ở cả hai bề rộng; tên năm ô không bị cắt. Đo lại bằng Segoe UI thật trên Windows: cùng vị trí, chênh tối đa 1px.
 
 ### Mỗi số một chỗ
 
@@ -71,9 +91,9 @@ Số đo trên bản xem (Chromium headless, font thay thế rộng hơn Segoe U
   - còn lại, `pay_days` null hoặc > `no_pay_days` (60): `trip_days` không null và ≤ `active_trip_days` (30) → `ship_unpaid` (**Vẫn đi hàng, không trả**); ngược lại → `stop_unpaid` (**Ngừng đi hàng, không trả**);
   - còn lại, `long_overdue_vnd` > 0 (quá hạn từ `long_overdue_months` = 3 tháng) → `pay_old` (**Vẫn trả, còn nợ cũ**);
   - còn lại → `pay_recent` (**Vẫn trả, quá hạn ngắn**).
-- Ngày trả và ngày đi hàng giữ cách đọc của DASH-03 mục 3 (ngày tiền về thật, PR #344). NULL là "chưa", không phải 0, và coi là lâu nhất khi xếp.
+- Ngày trả và ngày đi hàng giữ cách đọc của DASH-03 mục 3 (ngày tiền về thật, PR #344). NULL là "chưa", không phải 0, và coi là lâu nhất khi xếp. Ngày tạm (`last_receipt_exact`, `last_trip_exact` là false) vẫn dùng để chia nhóm như DASH-03, nhưng chú thích dòng ghi "khoảng T…" như v3, không ghi như ngày chắc chắn.
 - **Quá hạn lâu nhất** = nhóm hạn trả của tháng nợ cũ nhất còn tiền (`oldest_open_month`, cùng hàm `tierOfMonth`), ghi bằng tên ngắn của 5 ô ("1–2 tháng", "3–6 tháng", "> 6 tháng") kèm ô vuông màu nhóm; chú thích ghi tháng nợ. Không quá hạn ghi "–".
-- **12 tháng:** 12 tháng lịch tới tháng của `as_of` (giờ VN), tháng này tính tới hôm nay. Phát sinh và đã thu từng tháng = cộng `charges_vnd`, `received_vnd` trong `months[]` của `get_ledger` qua mọi sổ đang hoạt động (cùng số hình 12 tháng của thẻ Tình hình; "đã thu" theo [`DA-THU-01`](../docs/decisions/da-thu-01.md)). Còn phải thu cuối tháng = cộng phần dương của `end_of_month_vnd` từng sổ (khách trả thừa tính riêng, như dải đầu); sổ không có dòng tháng đó lấy số cuối tháng gần nhất trước đó, không cộng phát sinh / đã thu giả bằng 0.
+- **12 tháng:** 12 tháng lịch tới tháng của `as_of` (giờ VN), tháng này tính tới hôm nay. Phát sinh và đã thu từng tháng = cộng `charges_vnd`, `received_vnd` trong `months[]` của `get_ledger` qua mọi sổ đang hoạt động (cùng số hình 12 tháng của thẻ Tình hình; "đã thu" theo [`DA-THU-01`](../docs/decisions/da-thu-01.md)). Còn phải thu cuối tháng = cộng phần dương của `end_of_month_vnd` từng sổ (khách trả thừa tính riêng, như dải đầu); sổ không có dòng tháng đó lấy số cuối tháng gần nhất trước đó, không cộng phát sinh / đã thu giả bằng 0. Vì chỉ cộng phần dương, "cuối tháng trước + phát sinh − đã thu = cuối tháng" không còn đúng ở tháng có sổ đổi dấu hoặc đang dư; bản xem kiểm được đẳng thức này chỉ vì dữ liệu giả không có sổ dư. Màn không hiện phép cộng đó và không kiểm nó trên số thật.
 - Tiền: dải đầu, nhãn hình và dòng dưới hình `F.short(…, 'tr')`; hàng ô tình trạng `F.billions` + " tỷ" (một đơn vị, hai số lẻ cho cả hàng); bảng `F.millions`, đơn vị ở đầu cột.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
@@ -107,13 +127,13 @@ Bản xem dùng bộ khách giả trong [`data.js`](../cong-no-web-handoff/previ
 - **API 12 tháng lỗi hoặc chậm**: thẻ ghi "Chưa tải được số 12 tháng. Bấm Làm mới để thử lại."; dòng thu / phát sinh tháng này vẫn hiện từ `this_month`. Tháng không có số: không có cột, tên tháng xám.
 - **API debt lỗi**: như v3 (dải đầu chỉ còn số tổng, bảng báo chưa tải được, ẩn ô và select).
 - **Khách quá hạn âm** (dư ở nợ cũ, còn nợ mới): ở Không quá hạn như v3; chú thích ngoặc Quá hạn giữ.
-- **Dữ liệu dài**: tên khách dài hoặc có chữ Hán cắt bằng dấu "…" và có chú thích tên đủ; ô tình trạng không xuống dòng ở 1265px. Dưới 700px: ô tình trạng hai cột, thẻ 12 tháng xuống dưới dải trái, bảng cuộn ngang trong khung như v3.
+- **Dữ liệu dài**: tên khách dài hoặc có chữ Hán cắt bằng dấu "…" và có chú thích tên đủ; ô tình trạng không xuống dòng ở 1265px. Dưới 700px: ô tình trạng hai cột và tên ô được xuống dòng (cắt tên thì "Vẫn trả, còn nợ cũ" và "Vẫn trả, quá hạn ngắn" khó phân biệt), thẻ 12 tháng xuống dưới dải trái, bảng cuộn ngang trong khung như v3.
 - Tự tải mỗi 60 giây, PRESENCE-01, số trên mục Việc cần làm: giữ.
 - **Thẻ Tình hình** của trang khách: nhãn chữ đổi từ Rủi ro cao / Theo dõi / Không quá hạn sang tên tình trạng, cùng màu chấm với Tổng quan; dải bốn dữ kiện đã có đủ dữ kiện tạo ra nhãn nên không đổi.
 
 ## Tiêu chí nghiệm thu
 
-- [ ] Harness PostgreSQL: `situation` đúng ở các biên (trả đúng 60 / 61 ngày, chưa trả lần nào, đi hàng đúng 30 / 31 ngày, chưa có chuyến, quá hạn ≤ 0, có / không nợ từ 3 tháng); `summary.situations` cộng về `overdue_customers` và `overdue_vnd`; `get_dashboard_months` bằng cộng `months[]` của `get_ledger` mọi sổ trên fixture, tháng cuối bằng `this_month`, điểm cuối bằng `receivable_vnd`.
+- [ ] Harness PostgreSQL: `situation` đúng ở các biên (trả đúng 60 / 61 ngày, chưa trả lần nào, đi hàng đúng 30 / 31 ngày, chưa có chuyến, quá hạn ≤ 0, có / không nợ từ 3 tháng); `summary.situations` cộng về `overdue_customers` và `overdue_vnd`; `get_dashboard_months` bằng cộng `months[]` của `get_ledger` mọi sổ trên fixture, tháng cuối bằng `this_month`, điểm cuối bằng `receivable_vnd`; có ca sổ đổi dấu giữa hai tháng và sổ đang dư (phần âm không trừ vào đường còn phải thu).
 - [ ] `test-dashboard-v7-model.js`: gom ô tình trạng, đối chiếu với `summary.situations`, lọc kết hợp và xếp trong nhóm, nhãn Quá hạn lâu nhất, chuỗi 12 tháng (null không thành 0).
 - [ ] `test-v7-dashboard-browser.js` ở 1280×560 và 1265×560: dải đầu, thẻ 12 tháng, hàng ô tình trạng và đầu bảng nằm trọn trong khung; số trên trang bằng số API; không cuộn ngang ở 1280 và 390; nút ≥ 40px; chú thích tháng; API 12 tháng lỗi; link cũ `?muc=`.
 - [ ] Thẻ Tình hình hiện tên tình trạng đúng với dòng của khách ở Tổng quan.
@@ -136,3 +156,4 @@ Revert PR frontend; revert PR backend bằng migration chạy lại bản `get_d
 - CÒN MỞ: C-level xem trên máy nào (cùng màn 1280×720 logic, điện thoại hay màn họp) và bao lâu một lần; nếu xem trên điện thoại cần bố cục riêng.
 - CÒN MỞ: cột "Đã thu" theo DA-THU-01, nên các tháng còn khối Sheet là số ĐÃ THU của khối tháng, không phải tiền về theo ngày ([`BANG-THU-01`](../docs/decisions/bang-thu-01.md)); từ T11/2026 hai cách bằng nhau. Mặc định giữ DA-THU-01 cho khớp thẻ Tình hình.
 - ĐỀ XUẤT, chờ người dùng xem bản xem: hình 12 tháng thay chỗ thẻ Thu tháng, vẽ hai hình chồng.
+- CÒN MỞ, chờ người dùng: 2 sổ giữ khoảng 43% tiền quá hạn cả công ty nhưng thuộc nhóm màu xám, xếp gần cuối bảng (mục Số thật). Người dùng chốt bốn nhóm khi chưa thấy tỷ trọng này. Cần quyết có làm sự tập trung này hiện rõ trên màn không, trước PR frontend.

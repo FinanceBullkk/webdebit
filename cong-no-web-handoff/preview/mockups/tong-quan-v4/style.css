@@ -1,6 +1,7 @@
 /* Bản xem Tổng quan v4 (DASH-06): chỉ phần mới so với dashboard-v7.css — thẻ 12 tháng thay thẻ Thu tháng, ô tình trạng, bảng chia
    nhóm. Màu và cỡ chữ theo token Tổng quan (body.tq); cột phát sinh xám đậm hơn trang khách một bậc (#8494a9, 3,09:1 trên nền trắng). */
 .strip .owe{flex:3 1 520px}
+.mock-note{margin:0 auto 0 12px;padding:2px 10px;border-radius:999px;background:#fff4dc;color:#7a4a00;font-size:13px;font-weight:600;white-space:nowrap}
 
 /* Thẻ 12 tháng: hai hình chồng, mỗi hình một thang (không hai trục trên một hình). */
 .trend-card{flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:6px;padding:12px 16px 10px;border-radius:12px;background:#fff;box-shadow:0 1px 3px #1f29371f}
@@ -62,4 +63,4 @@
 .age{display:inline-flex;align-items:center;gap:6px;color:var(--ink-m)}
 .age.hot{color:var(--red);font-weight:700}
 .age.none{color:var(--ink-l)}
-@media (max-width:700px){.sit-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-card{flex-basis:100%}}
+@media (max-width:700px){.sit-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-card{flex-basis:100%}.sit .sl{white-space:normal}.tr-head{flex-wrap:wrap}.tr-months{font-size:11px}.mock-note{position:fixed;right:8px;bottom:8px;z-index:5;margin:0;box-shadow:0 1px 3px #1f29371f}}
