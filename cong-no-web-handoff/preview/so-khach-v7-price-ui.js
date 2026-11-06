@@ -38,7 +38,8 @@
       if (shape(data) === shape(status)) return;
       status = data;
       if (confirm && !confirmIds(confirm.kind).length) confirm = null;
-      ctx.redraw();
+      // Khung hỏi áp giá đang mở thì vẽ ngay để số chuyến trong khung đúng với lệnh sắp gửi.
+      if (confirm) ctx.redraw(); else ctx.redrawWhenFree();
     } catch { /* giữ trạng thái cũ; lần đọc sổ sau thử lại */ }
   }
   const tripsOf = () => new Map((ctx.snapshot?.trips ?? []).map(trip => [trip.id, trip]));

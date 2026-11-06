@@ -253,8 +253,10 @@ def _version(runner, customer_id: int, result: dict[str, Any]) -> int:
 
 
 def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dict[str, Any]], digest: str,
-              today: dt.date, *, actor: str) -> dict[str, int]:
+              today: dt.date, *, actor: str, undo_keys: list[str] | None = None) -> dict[str, int]:
     """Ghi các nhóm đã chọn bằng lệnh có sẵn; tháng khóa thì mở, ghi, khóa lại. Lệnh lỗi thì dừng sổ và ném lỗi, lượt sau tính lại.
+
+    `undo_keys`: nơi gọi muốn hoàn tác (VIEC-DOI-CHIEU-01) thì nhận khóa lệnh của giá và phiếu vào đây, đúng thứ tự đã ghi.
 
     Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu: cùng một lượt chạy lại trả kết quả cũ, lượt sau là lệnh mới, còn phiếu đã ghi
     thì hàng chờ đã ghép và không chọn lại.
@@ -272,11 +274,13 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
             day, text = month_end(str(row["debt_month"]), today), (review_reference(row["source_fingerprint"]) + row["note"] + NO_DATE_NOTE)[:500]
         else:
             day, text = row["date"], reference(row["note"])
+        command_key = _sha(f"{base}:{row['customer_tab']}:{row['source_row']}:{row['amount_vnd']}:{day}")
         result = runner.run("record_receipt", {
             "customer_id": customer_id, "expected_version": at, "date": day, "method": METHOD, "amount_vnd": row["amount_vnd"],
-            "idempotency_key": _sha(f"{base}:{row['customer_tab']}:{row['source_row']}:{row['amount_vnd']}:{day}"),
-            "reference": text}, actor)
+            "idempotency_key": command_key, "reference": text}, actor)
         done["receipts"] += 1
+        if undo_keys is not None:
+            undo_keys.append(command_key)
         return _version(runner, customer_id, result)
 
     for group in sorted(groups, key=lambda item: (APPLY_ORDER[item["kind"]], item["month"] or "")):
@@ -299,6 +303,8 @@ def apply_fix(runner, customer_id: int, ledger: dict[str, Any], groups: list[dic
                         done["prices"] += out.get("written", 0)
                         if not out.get("complete"):
                             raise ApiError(409, str(out.get("error") or "INCOMPLETE"), "Máy chưa ghi hết giá của tháng.")
+                        if undo_keys is not None:
+                            undo_keys.extend(out.get("undo_keys") or [])
                         at = out["version"]
                 return at
             version = in_month(runner, customer_id, version, ledger, group["month"], base, write)

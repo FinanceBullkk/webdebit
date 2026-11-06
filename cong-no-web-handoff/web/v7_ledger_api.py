@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
 import v7_identity
@@ -257,6 +258,9 @@ POST_HANDLERS = {
     "/api/v7/sheet/resolve": resolve_sheet_conflict,
     "/api/v7/sheet/prices": approve_prices,
     "/api/v7/sheet/prices/conflicts": approve_price_conflicts,
+    "/api/v7/sheet/doi-chieu/ghi": v7_api_doi_chieu.write,
+    "/api/v7/sheet/doi-chieu/giu": v7_api_doi_chieu.keep,
+    "/api/v7/sheet/doi-chieu/hoan-tac": v7_api_doi_chieu.undo,
     "/api/v7/sheet/receipts": approve_receipts,
     "/api/v7/ps/fees": approve_ps_fees,
     "/api/v7/sheet/refresh": lambda raw, runner, actor: refresh_sheet("POST", raw, actor),
@@ -323,6 +327,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, MACHINE_READS[parts.path]()
+    elif parts.path == "/api/v7/sheet/doi-chieu":
+        _, payload = validate_get("/api/v7/ledger", parts.query)
+        return 200, v7_api_doi_chieu.statement(payload["customer_id"], runner, actor)
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":
