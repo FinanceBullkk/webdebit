@@ -58,7 +58,7 @@ globalThis.InboxTable = (() => {
     const hasReady = ready.length || list.some(b => b.prices?.ready);
     const partial = !data || ['computing', 'unavailable'].includes(data.state) || data.failed?.length || !dashboard || opts.unsorted === null;
     const total = list.length ? `<strong>${list.length}</strong><span>sổ còn việc</span>` : partial ? '<strong>Chưa đủ dữ liệu</strong>' : '<strong class="all-done">Hết việc</strong>';
-    const progress = data?.state === 'computing' ? `<span class="computing">đang tính việc từ Sheet ${data.books_done ?? 0}/${data.books_total ?? '—'} sổ</span>` : '';
+    const progress = opts.stale ? '<span class="muted refreshing" role="status">Đang cập nhật…</span>' : data?.state === 'computing' ? `<span class="computing">đang tính việc từ Sheet ${data.books_done ?? 0}/${data.books_total ?? '—'} sổ</span>` : '';
     const person = (name, trips, second, index, tip, machine = false, prices = 0) => `<span class="actor-chip actor-${index % 3}" title="${esc(tip)}"><i aria-hidden="true">${esc(name.slice(0, 1))}</i><b>${esc(name)}</b><span>${icon('truck')}<strong>${trips}</strong></span><span>${icon(machine ? 'pencil' : 'receipt')}<strong>${second}</strong></span>${prices ? `<span>${icon('tag')}<strong>${prices}</strong></span>` : ''}</span>`;
     const bot = data?.auto ?? {};
     // Máy có chip riêng với chi tiết chữ, chuyến, giá; dòng của máy trong số liệu hôm nay chỉ dùng khi chưa có chip đó, và không hiện tên kỹ thuật.
