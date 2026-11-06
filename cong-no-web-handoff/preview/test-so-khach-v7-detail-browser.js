@@ -415,7 +415,11 @@ async function assertLockAskLayout(page) {
     };
   });
   for (const width of [1280, 1265]) {
+    // Đổi khổ thì sổ vẽ lại sau một nhịp: chờ xong mới bấm, để đo đúng bố cục người dùng thấy và không bấm vào nút sắp bị thay.
+    const book = await page.locator('#the-so .ledger-book').elementHandle();
+    const before = await book.evaluate(node => node.clientWidth);
     await page.setViewportSize({ width, height: 720 });
+    if (await book.evaluate(node => node.clientWidth) !== before) await page.waitForFunction(node => !node.isConnected, book);
     await lock.click();
     const usual = await measureAsk();
     const wide = await page.addStyleTag({ content: 'body,body *{font-family:Verdana,"DejaVu Sans",sans-serif !important}' });

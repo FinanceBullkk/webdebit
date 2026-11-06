@@ -38,7 +38,7 @@
       const ids = map => JSON.stringify([...map].map(([pid, list]) => [pid, list.map(image => image.id)]));
       if (ids(next) === ids(saved)) return;
       saved = next;
-      ctx.redraw();
+      ctx.redrawWhenFree();
       renderView();
     } catch { /* giữ danh sách cũ; lần đọc sổ sau thử lại */ }
   }
