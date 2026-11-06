@@ -8,7 +8,7 @@ Tổng quan chỉ phục vụ một mục tiêu: bức tranh công nợ. Còn b�
 
 1. **Hạn trả:** nợ tháng M đến hạn cuối tháng M+1, một quy tắc chung cho mọi sổ. Nhóm theo tháng nợ (giờ VN): chưa đến hạn · đến hạn cuối tháng này · quá hạn 1–2 tháng · 3–6 tháng · trên 6 tháng.
 2. **Rủi ro cao** = có nợ quá hạn và ít nhất một: quá hạn từ 3 tháng, hơn 60 ngày chưa trả (hoặc chưa trả lần nào), hơn 90 ngày không đi hàng (hoặc chưa có chuyến). Có nợ quá hạn còn lại là **theo dõi**; không có nợ quá hạn là **trong hạn**. Chỉ tô màu và lọc, không chặn thao tác.
-3. **Lần trả gần nhất** tính cả phiếu cấn trừ (sổ đó đã được trừ nợ) và dòng thu sổ gốc chưa xóa; dòng không có ngày lấy cuối tháng của dòng.
+3. **Lần trả gần nhất** tính cả phiếu cấn trừ (sổ đó đã được trừ nợ) và dòng thu sổ gốc chưa xóa; dòng không có ngày lấy cuối tháng của dòng. Từ 6/11/2026 ngày trả là ngày tiền về, đọc cùng luật với [`BANG-THU-01`](bang-thu-01.md): dòng số tiền 0 không phải khoản thu; ngày trước tháng nợ hơn 12 tháng hoặc sau lúc nạp sổ coi như không có ngày; phiếu web đặt ngày tạm giữ ngày phiếu nhưng hiện "trong tháng". Lấy ngày muộn nhất, kể cả ngày tạm. Sửa cách đọc, không đổi ngưỡng ở mục 2.
 4. **Đã thu / phát sinh tháng này** đúng như dòng Tổng tháng của sổ khách ([`DA-THU-01`](da-thu-01.md)) cộng qua mọi sổ; chỉ số của tháng hiện tại, không so tháng trước.
 
 Giữ các điểm tương tác đã chốt ở [`DASH-01`](dash-01.md) ngày 29/10/2026: bấm nhóm để lọc danh sách khách tại chỗ, bấm khách mở ngăn kéo, soi sâu ở Công nợ theo tháng. Spec: [`specs/v7-tong-quan-quan-ly-no.md`](../../specs/v7-tong-quan-quan-ly-no.md).

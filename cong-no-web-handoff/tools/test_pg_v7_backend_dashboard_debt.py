@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 from pg_v7_harness import (
     Pg,
@@ -24,15 +25,97 @@ def _month(pg: Pg, back: int) -> str:
     return pg.value(f"SELECT (date_trunc('month',now() AT TIME ZONE 'Asia/Ho_Chi_Minh')-interval '{back} months')::date")
 
 
-def _legacy(pg: Pg, customer: int, month: str, kind: str, date: str | None, row: int) -> int:
+def _legacy(pg: Pg, customer: int, month: str, kind: str, date: str | None, row: int,
+            *, raw: str | None = None, amount: int | None = None) -> int:
     cutover = pg.value(f"SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={customer}")
     event = pg.value(f"SELECT id FROM sokhach.event WHERE customer_id={customer} AND kind='import'")
-    display = json.dumps({"fake": True, "date": date, "pid": f"PH-9{row:02d}" if kind == "receipt" else None})
+    display = json.dumps({"fake": True, "date": date, "raw_date": raw, "pid": f"PH-9{row:02d}" if kind == "receipt" else None})
+    total = "NULL" if amount is None else amount
     return int(pg.value(
         "ALTER TABLE sokhach.legacy_row DISABLE TRIGGER legacy_row_insert_guard; "
-        "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_tab,source_row,created_by_event) "
-        f"VALUES ({customer},{cutover},{lit(month)},{lit(kind)},{lit(display)}::jsonb,'FAKE-DASH',{row},{event}) RETURNING id; "
+        "INSERT INTO sokhach.legacy_row(customer_id,cutover_id,debt_month,kind,display,source_total_vnd,source_tab,source_row,created_by_event) "
+        f"VALUES ({customer},{cutover},{lit(month)},{lit(kind)},{lit(display)}::jsonb,{total},'FAKE-DASH',{row},{event}) RETURNING id; "
         "ALTER TABLE sokhach.legacy_row ENABLE TRIGGER legacy_row_insert_guard"))
+
+
+def _month_end(pg: Pg, month: str) -> str:
+    return pg.value(f"SELECT ({lit(month)}::date+interval '1 month')::date-1")
+
+
+def check_pay_date_rule(pg: Pg, m0: str, m1: str, m2: str, m3: str, m8: str, today: str) -> None:
+    """Ngày trả là ngày tiền về thật, cùng luật ngày với get_receipt_book; ngưỡng 60 ngày đọc theo ngày đó."""
+    now = date.fromisoformat(today)
+
+    def ago(days: int) -> str:
+        return (now - timedelta(days=days)).isoformat()
+
+    def vn(day: str) -> str:
+        return f"{day[8:10]}/{day[5:7]}/{day[:4]}"
+
+    def overdue_active(key: str) -> int:
+        """Quá hạn 1–2 tháng, vẫn đi hàng: nhãn chỉ còn phụ thuộc số ngày chưa trả."""
+        book = new_book(pg, (m2, 100))
+        call(pg, "paste_trips", book, version(pg, book), f"dash3-{key}-trip", m0, trip_json(month=m0, container=f"FAKE-DASH-{key}"))
+        return book
+
+    serial = str((now - timedelta(days=10) - date(1899, 12, 30)).days)
+    # Khối tháng cũ, tiền về 10 ngày trước (số serial Excel): cuối tháng khối thì quá 60 ngày, ngày thật thì không.
+    recent_cash = overdue_active("h")
+    _legacy(pg, recent_cash, m8, "receipt", None, 11, raw=serial, amount=1000)
+    # Khối tháng trước, tiền về 70 ngày trước: cuối tháng khối thì chưa quá 60 ngày, ngày thật thì quá.
+    old_cash = overdue_active("i")
+    _legacy(pg, old_cash, m1, "receipt", None, 12, raw=f"CK {vn(ago(70))} VCB", amount=1000)
+    # Ngày ngoài khoảng nhận: trước tháng nợ hơn 12 tháng; sau lúc nạp sổ dù chưa qua hôm nay (Sheet đảo ngày tháng).
+    too_old = overdue_active("j")
+    _legacy(pg, too_old, m1, "receipt", None, 13, raw="01/01/2020 tt", amount=1000)
+    after_load = overdue_active("k")
+    _legacy(pg, after_load, m2, "receipt", None, 14, raw=vn(ago(2)), amount=1000)
+    pg.sql("ALTER TABLE sokhach.cutover DISABLE TRIGGER cutover_status_guard; "
+           "UPDATE sokhach.cutover SET frozen_at=now()-interval '5 days' WHERE id="
+           f"(SELECT cutover_id FROM sokhach.cutover_customer WHERE customer_id={after_load}); "
+           "ALTER TABLE sokhach.cutover ENABLE TRIGGER cutover_status_guard")
+    # display.date đọc trước raw_date.
+    both = overdue_active("l")
+    _legacy(pg, both, m2, "receipt", vn(ago(20)), 15, raw=vn(ago(5)), amount=1000)
+    # Dòng số tiền 0 hay trống không phải khoản thu, dù ghi ngày mới hơn.
+    zero = overdue_active("m")
+    _legacy(pg, zero, m2, "receipt", None, 16, raw=vn(ago(20)), amount=1000)
+    _legacy(pg, zero, m0, "receipt", None, 17, raw=today, amount=0)
+    _legacy(pg, zero, m1, "receipt", None, 18, raw=vn(ago(1)))
+    # Ngày thật muộn hơn ngày tạm của khối cũ thì lấy ngày thật.
+    real_wins = overdue_active("n")
+    _legacy(pg, real_wins, m3, "receipt", None, 19, raw="da tt", amount=1000)
+    _legacy(pg, real_wins, m3, "receipt", None, 20, raw=vn(ago(5)), amount=1000)
+    # Phiếu web đuôi ngày tạm: giữ ngày phiếu, không rõ ngày; vượt ngày thật cũ hơn; bằng ngày thì dòng rõ ngày thắng.
+    symbolic = []
+    for key, tail in (("p", " (ngày tượng trưng)"), ("q", " · ngày theo cuối tháng khối Sheet")):
+        book = overdue_active(key)
+        call(pg, "record_receipt", book, version(pg, book), f"dash3-{key}-r", today, "THU TIỀN", 10, f"Sheet: da tt{tail}")
+        _legacy(pg, book, m2, "receipt", None, 21, raw=vn(ago(5)), amount=1000)
+        symbolic.append(book)
+    tie = overdue_active("r")
+    call(pg, "record_receipt", tie, version(pg, tie), "dash3-r-1", today, "THU TIỀN", 10, "CK (ngày tượng trưng)")
+    call(pg, "record_receipt", tie, version(pg, tie), "dash3-r-2", today, "THU TIỀN", 10, "CK ngân hàng")
+
+    rows = {x["customer_id"]: x for x in call(pg, "get_dashboard_debt")["customers"]}
+
+    def expect(book: int, name: str, day: str, exact: bool, risk: str) -> None:
+        row = rows[book]
+        days = max((now - date.fromisoformat(day)).days, 0)
+        require((row["last_receipt_date"], row["last_receipt_exact"], row["pay_days"], row["risk"]) == (day, exact, days, risk),
+                f"{name}: {row}")
+
+    expect(recent_cash, "real date beats old block", ago(10), True, "watch")
+    expect(old_cash, "real date older than block month", ago(70), True, "high")
+    expect(too_old, "date over 12 months before block", _month_end(pg, m1), False, "watch")
+    m2_end_age = (now - date.fromisoformat(_month_end(pg, m2))).days
+    expect(after_load, "date after load", _month_end(pg, m2), False, "high" if m2_end_age > 60 else "watch")
+    expect(both, "display date first", ago(20), True, "watch")
+    expect(zero, "zero or blank amount is not a payment", ago(20), True, "watch")
+    expect(real_wins, "real date later than placeholder", ago(5), True, "watch")
+    for book in symbolic:
+        expect(book, "placeholder web date", today, False, "watch")
+    expect(tie, "same day prefers the exact receipt", today, True, "watch")
 
 
 def _flow(pg: Pg, month: str) -> tuple[int, int]:
@@ -62,9 +145,9 @@ def check_dashboard_debt(pg: Pg) -> None:
     d = new_book(pg, (m1, 100))
     # E: dòng sổ gốc — ngày hợp lệ, ô ngày sai (lấy cuối tháng), dòng đã xóa không tính.
     e = new_book(pg, (m2, 100))
-    _legacy(pg, e, m2, "receipt", f"15/{m2[5:7]}/{m2[:4]}", 1)
-    _legacy(pg, e, m1, "receipt", "không rõ", 2)
-    deleted = _legacy(pg, e, m0, "receipt", m0, 3)
+    _legacy(pg, e, m2, "receipt", f"15/{m2[5:7]}/{m2[:4]}", 1, amount=1000)
+    _legacy(pg, e, m1, "receipt", "không rõ", 2, amount=1000)
+    deleted = _legacy(pg, e, m0, "receipt", m0, 3, amount=5)
     _legacy(pg, e, m2, "trip", f"{m2[:8]}20", 4)
     call(pg, "delete_legacy_trip", e, version(pg, e), "dash3-e-del", deleted)
     # G: tháng này có số Sheet trong mốc → phát sinh/đã thu lấy số Sheet như get_ledger (DA-THU-01).
@@ -126,7 +209,9 @@ def check_dashboard_debt(pg: Pg) -> None:
     charges, received = _flow(pg, m0)
     require((int(month["charges_vnd"]), int(month["received_vnd"])) == (charges, received),
             f"this_month differs from get_ledger: {month} vs {(charges, received)}")
-    # Phát sinh: A mở 50 + B chuyến 100 + G số Sheet 120; đã thu: A 10 + B cấn trừ 10 + G Sheet 50.
+    # Phát sinh: A mở 50 + B chuyến 100 + G số Sheet 120; đã thu: A 10 + B cấn trừ 10 + G Sheet 50 − E xóa khoản thu 5.
     delta = (int(month["charges_vnd"]) - int(before["this_month"]["charges_vnd"]),
              int(month["received_vnd"]) - int(before["this_month"]["received_vnd"]))
-    require(delta == (270, 70), f"this_month delta: {delta}")
+    require(delta == (270, 65), f"this_month delta: {delta}")
+
+    check_pay_date_rule(pg, m0, m1, m2, _month(pg, 3), m8, today)
