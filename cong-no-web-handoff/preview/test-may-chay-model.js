@@ -71,7 +71,7 @@ const writing = () => trace({
 
 // Giữa lượt có khách lệch mà chưa xét xong: không được nói khớp hết, trạm sau chưa phải bỏ qua, mẫu số theo job báo.
 {
-  const live = M.fromTrace(trace({ state: 'running', finished_at: null, books: 10, counts: null, stage: 'tim', done: 0, total: 1, different: 1, too_many: false, customers: {},
+  const live = M.fromTrace(trace({ state: 'running', finished_at: null, books: 10, counts: null, stage: 'tim', done: 0, total: 1, different: 1, too_many: false, customers: { 5: { customer_id: 5, difference_vnd: '1000' } },
     segments: [{ stage: 'tai', at: at(9, 5) }, { stage: 'doc', at: at(9, 7) }, { stage: 'so', at: at(9, 9) }, { stage: 'chot', at: at(9, 9) }, { stage: 'tim', at: at(9, 9) }] }));
   live.sec = 245;
   live.stages.tim.to = 260;
