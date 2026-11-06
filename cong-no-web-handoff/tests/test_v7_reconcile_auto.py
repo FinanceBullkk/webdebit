@@ -383,6 +383,34 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertTrue(row["decided_at"] and row["done_at"])
         self.assertNotIn(FAKE_NAME, self.output.with_name("reconcile-run.json").read_text(encoding="utf-8"))
 
+    def test_trace_reports_each_step_while_the_run_is_still_going(self):
+        """Xem trực tiếp cần biết sớm: khớp bao nhiêu, ai đang chờ, ai đang ghi, kết luận từng khách trước khi lượt xong."""
+        self.undated_receipt_book()
+        snapshots = []
+        write = job.run_trace.RunTrace._write
+
+        def keep(trace):
+            snapshots.append(json.loads(json.dumps(trace.data)))
+            write(trace)
+
+        with patch.object(job.run_trace.RunTrace, "_write", keep):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        at_stage = lambda stage: [item for item in snapshots if item["stage"] == stage]  # noqa: E731
+        self.assertEqual(at_stage("chot")[0]["books"], 1)
+        self.assertEqual(at_stage("chot")[0]["counts"], {"KHOP": 0})
+        waiting = at_stage("tim")[0]["customers"]
+        self.assertEqual(list(waiting), [])
+        waiting = next(item for item in at_stage("tim") if item["customers"])["customers"]["1"]
+        self.assertNotIn("reason", waiting)
+        self.assertNotIn("decided_at", waiting)
+        writing = next(item for item in at_stage("ghi") if item["customers"]["1"].get("writing"))["customers"]["1"]
+        self.assertNotIn("done_at", writing)
+        self.assertNotIn("reason", writing)
+        self.assertEqual(at_stage("tim")[-1]["customers"]["1"]["reason"], "FIXED")
+        self.assertEqual(at_stage("tim")[-1]["done"], 1)
+        self.assertEqual(at_stage("tim")[-1]["total"], 1)
+        self.assertEqual(self.trace()["customers"]["1"]["reason"], "FIXED")
+
     def test_trace_failure_changes_nothing_in_the_run(self):
         self.undated_receipt_book()
         db_ok = Db()

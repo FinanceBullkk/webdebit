@@ -38,6 +38,25 @@ class RunTraceTests(unittest.TestCase):
         self.assertEqual((final["state"], final["stage"], final["unlinked"], final["fixed"]), ("done", None, {"CHI_CO_SHEET": 1}, 1))
         self.assertEqual(len(self.path.with_name("reconcile-run-history.jsonl").read_text(encoding="utf-8").splitlines()), 1)
 
+    def test_returning_to_the_running_stage_only_moves_the_count(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            trace = run_trace.RunTrace(Path(folder) / "reconcile-run.json")
+            trace.stage("tim", total=3)
+            trace.stage("tim", total=3, done=1)
+            trace.stage("ghi")
+            trace.stage("tim", total=3, done=2)
+            self.assertEqual([item["stage"] for item in trace.data["segments"]], ["tim", "ghi", "tim"])
+            self.assertEqual((trace.data["done"], trace.data["total"]), (2, 3))
+
+    def test_customer_without_a_conclusion_is_not_a_result_of_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            trace = run_trace.RunTrace(Path(folder) / "reconcile-run.json")
+            trace.customer(7, difference_vnd=5)
+            trace.customer(9, difference_vnd=6)
+            trace.customer(9, reason="NO_EXACT_FIX")
+            trace.finish(ok=True)
+            self.assertEqual(list(trace.data["customers"]), ["9"])
+
     def test_tick_does_not_write_every_time(self) -> None:
         trace = run_trace.RunTrace(self.path)
         trace.stage("doc", total=100)
