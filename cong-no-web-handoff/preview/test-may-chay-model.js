@@ -84,6 +84,16 @@ const writing = () => trace({
   assert.equal(M.stationInfo(live, 245, 'tim', 'tim').text, '0/1 khách');
 }
 
+// Đang quét file để tìm cách sửa: khách chưa vào danh sách nhưng job đã báo số lệch, không được hiện 0/0.
+{
+  const live = M.fromTrace(trace({ state: 'running', finished_at: null, books: 10, counts: null, stage: 'tim', done: 0, total: 1, different: 1, customers: {},
+    segments: [{ stage: 'tai', at: at(9, 5) }, { stage: 'tim', at: at(9, 9) }] }));
+  live.sec = 245;
+  live.stages.tim.to = 260;
+  live.stages.tim.d = 20;
+  assert.equal(M.stationInfo(live, 245, 'tim', 'tim').text, '0/1 khách');
+}
+
 // Lượt lỗi nói rõ mã lỗi.
 {
   const run = M.fromTrace(trace({ state: 'failed', reason: 'HTTP_503', counts: null }));
