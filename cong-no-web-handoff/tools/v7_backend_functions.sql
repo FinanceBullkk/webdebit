@@ -2221,13 +2221,17 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- hơn 90 ngày không đi hàng hay chưa có chuyến); còn nợ quá hạn khác là theo dõi. Lần trả: phiếu chưa hủy
 -- (cả cấn trừ) và dòng thu sổ gốc chưa xóa; lần đi hàng: chuyến chưa xóa, không tính đã loại, và dòng chuyến
 -- sổ gốc chưa xóa. Ngày của dòng không có ngày lấy cuối tháng của dòng (exact=false).
+-- Ngày trả là ngày tiền về, đọc cùng luật với get_receipt_book (BANG-THU-01): dòng thu sổ gốc lấy display.date rồi raw_date, chỉ nhận
+-- ngày từ 12 tháng trước tháng nợ tới lúc nạp sổ và hôm nay, bỏ dòng số tiền 0 hoặc trống; phiếu web có đuôi ngày tạm giữ ngày phiếu
+-- nhưng exact=false. Lấy ngày muộn nhất, cả ngày tạm; bằng ngày thì ưu tiên dòng rõ ngày.
 -- Thu/phát sinh tháng này cộng đúng dòng Tổng tháng của get_ledger (DA-THU-01) qua mọi sổ đang hoạt động.
 -- Tổng cộng bằng numeric (không ép bigint) để không tràn số khi cộng nhiều sổ.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; m date := date_trunc('month', d)::date;
 BEGIN
   PERFORM sokhach._actor();
   RETURN (WITH act AS (
-      SELECT c.id,c.name,c.commodity_id,c.transport_mode,cc.cutover_id FROM sokhach.customer c
+      SELECT c.id,c.name,c.commodity_id,c.transport_mode,cc.cutover_id,(x.frozen_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS frozen
+        FROM sokhach.customer c
         JOIN sokhach.cutover_customer cc ON cc.customer_id=c.id AND cc.status='active'
         JOIN sokhach.cutover x ON x.id=cc.cutover_id AND x.status='active'
        WHERE NOT c.archived),
@@ -2248,18 +2252,25 @@ BEGIN
         coalesce(jsonb_agg(jsonb_build_object('month',om.debt_month,'outstanding_vnd',om.outstanding_vnd::text)
           ORDER BY om.debt_month) FILTER (WHERE om.outstanding_vnd<>0),'[]'::jsonb) AS months
         FROM om JOIN debtor b ON b.id=om.customer_id GROUP BY om.customer_id),
-    leg AS (SELECT l.customer_id,l.kind,coalesce(r.debt_month,l.debt_month) AS mon,
+    leg_trip AS (SELECT l.customer_id,coalesce(r.debt_month,l.debt_month) AS mon,
         CASE WHEN r.id IS NULL THEN sokhach._legacy_date(l.display->>'date') ELSE r.event_date END AS dt
         FROM sokhach.legacy_row l JOIN debtor b ON (b.id,b.cutover_id)=(l.customer_id,l.cutover_id)
         LEFT JOIN LATERAL (SELECT x.id,x.debt_month,x.event_date,x.deleted FROM sokhach.legacy_trip_rev x
             WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
-       WHERE NOT coalesce(r.deleted,false)),
+       WHERE l.kind='trip' AND NOT coalesce(r.deleted,false)),
+    leg_pay AS (SELECT l.customer_id,l.debt_month AS mon,
+        CASE WHEN p.dt BETWEEN (l.debt_month-interval '12 months')::date AND least(b.frozen,d) THEN p.dt END AS dt
+        FROM sokhach.legacy_row l JOIN debtor b ON (b.id,b.cutover_id)=(l.customer_id,l.cutover_id)
+        CROSS JOIN LATERAL (SELECT coalesce(sokhach._legacy_date(l.display->>'date'),sokhach._legacy_pay_date(l.display->>'raw_date')) AS dt) p
+        LEFT JOIN LATERAL (SELECT x.deleted FROM sokhach.legacy_trip_rev x WHERE x.legacy_row_id=l.id ORDER BY x.id DESC LIMIT 1) r ON true
+       WHERE l.kind='receipt' AND l.source_total_vnd IS NOT NULL AND l.source_total_vnd<>0 AND NOT coalesce(r.deleted,false)),
     pay_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM (
-        SELECT r.customer_id,r.date AS dt,true AS exact FROM sokhach.receipt r
-          JOIN debtor b ON b.id=r.customer_id WHERE r.voided_on IS NULL
+        SELECT r.customer_id,r.date AS dt,
+               coalesce(r.reference !~ '( \(ngày tượng trưng\)| · ngày theo cuối tháng khối Sheet)$',true) AS exact
+          FROM sokhach.receipt r JOIN debtor b ON b.id=r.customer_id WHERE r.voided_on IS NULL
         UNION ALL
-        SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL
-          FROM leg WHERE kind='receipt') p ORDER BY customer_id,dt DESC,exact DESC),
+        SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL FROM leg_pay) p
+        ORDER BY customer_id,dt DESC,exact DESC),
     trip_last AS (SELECT DISTINCT ON (customer_id) customer_id,dt,exact FROM (
         SELECT t.customer_id,coalesce(t.event_date,least((t.debt_month+interval '1 month')::date-1,d)) AS dt,
                t.event_date IS NOT NULL AS exact
@@ -2267,7 +2278,7 @@ BEGIN
          WHERE NOT t.deleted AND t.status<>'rejected'
         UNION ALL
         SELECT customer_id,coalesce(dt,least((mon+interval '1 month')::date-1,d)),dt IS NOT NULL
-          FROM leg WHERE kind='trip') p ORDER BY customer_id,dt DESC,exact DESC),
+          FROM leg_trip) p ORDER BY customer_id,dt DESC,exact DESC),
     base AS (SELECT b.id,b.name,cm.name AS commodity,b.transport_mode,b.total,t.t0,t.t1,t.t2,t.t3,t.t4,
         t.t2+t.t3+t.t4 AS overdue,t.t3+t.t4 AS long_overdue,t.oldest,t.months,
         p.dt AS pay_day,p.exact AS pay_exact,CASE WHEN p.dt IS NOT NULL THEN greatest(d-p.dt,0) END AS pay_days,
