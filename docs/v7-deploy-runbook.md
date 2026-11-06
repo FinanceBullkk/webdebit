@@ -1908,6 +1908,8 @@ Không có SQL: `Deploy hao` tự lên khi PR merge ([quyết định](decisions
 
 ## Bù phụ phí theo TOTAL Sheet (PHU-PHI-BU-01) — ghi dữ liệu một lần
 
+Đã chạy trên `hao` 6/11/2026, xem [nhật ký](deploys/2026-11-06-bu-phu-phi.md).
+
 Công cụ `cong-no-web-handoff/tools/v7_fill_fee_gap.py` ([`PHU-PHI-BU-01`](decisions/phu-phi-bu-01.md)) không đổi schema hay hàm. Mặc định chỉ đếm, `--apply` mới ghi; chạy lại an toàn vì dòng đã bù không còn lệch.
 
 1. **Bản sao trước:** dump, restore vào DB tạm, chạy `--apply`. Đạt khi: số dư từng khách, `counted_vnd` mọi dòng sổ gốc, bảng `adjustment`, `receipt_line` có hiệu lực không đổi; dòng lệch giải thích được về 0; tháng đang mở giữ nguyên; checker OK. Xóa DB tạm.
