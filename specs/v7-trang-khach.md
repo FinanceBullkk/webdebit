@@ -2,6 +2,26 @@
 
 Trạng thái: **ĐÃ CHỐT** kiến trúc và tám lựa chọn K1–K8 (người dùng, 31/10/2026, chat: "Chốt theo đề xuất"), xem [`TRANG-KHACH-01`](../docs/decisions/trang-khach-01.md). **PR A1 (vỏ trang khách) đã code** và lên `hao` (1/11/2026, mục Bằng chứng); **PR A2 (thẻ Tình hình) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#236); **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** và lên `hao` cùng ngày (FinanceBullkk/webdebit#237); **PR A4 (đường vào) đã code** (1/11/2026, kiểm trên máy chủ giả), nên giai đoạn A đã code xong. Người dùng yêu cầu viết spec trong chat ngày 31/10/2026, sau khi xem bản xem bấm thử. Nhu cầu gốc: sếp muốn cải thiện luồng người dùng, nhất là khi một người quản lý mở một khách thì xem được gì. Spec do Claude viết theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Bản xem dữ liệu giả: [`preview/mockups/trang-khach`](../cong-no-web-handoff/preview/mockups/trang-khach/index.html).
 
+### Bản đọc để quyết, chốt 06/11/2026
+
+[`TINH-HINH-01`](../docs/decisions/tinh-hinh-01.md) thay bố cục dưới đây. Người xem chính là sếp hoặc người quản lý; câu hỏi theo thứ tự: nợ bao nhiêu, có đang trả không, còn đi hàng không, nợ tăng hay giảm. Đọc xong tự quyết, màn không gợi ý việc. Từ trên xuống, tất cả trong 1265×560 (đầu trang 52px):
+
+| # | Khối | Nội dung | Nguồn |
+| --- | --- | --- | --- |
+| 1 | Dải nợ | Còn nợ, nhãn rủi ro (chữ, không bấm), "Số trên web lúc hh:mm" (lúc đọc Tổng quan, giờ VN); thanh ba đoạn và Quá hạn, Đến hạn, Chưa đến hạn bấm mở từng tháng tại chỗ | `ledger`, `dashboard/debt` |
+| 2 | Chưa tính | Chỉ khi có việc: "Còn nợ chưa tính: 2 chuyến chưa có giá · 1 chuyến chờ kiểm", mỗi mục là nút tới đúng chỗ ở thẻ Sổ (`showLoc`) | `bookWork` |
+| 3 | Bốn dữ kiện | **Trả gần nhất** (ngày, số tiền của ngày đó, cách mấy ngày) · **Thu T11** (đã thu, phát sinh tháng) · **Đi hàng gần nhất** (ngày, số chuyến tháng này và tháng trước) · **Quá hạn lâu nhất** (tháng, số ngày, số còn nợ) | `dashboard/debt`, `months[]`, `tripCount` |
+| 4 | Nợ 12 tháng | Hình cũ, thấp hơn; rê xem số, bấm ghim, Mở sổ | `months[]` |
+| 5 | Tiền về và hứa trả | Hứa trả đang chờ đứng đầu, rồi tiền về mới nhất trước, 4 dòng và Xem thêm; bấm mở chi tiết. Ghim tháng thì chỉ còn tháng đó | `receipts`, `legacy_rows`, `marks` |
+
+- **Trả gần nhất:** ngày lấy ở Tổng quan như ngăn kéo; số tiền là tổng các khoản đúng ngày đó, không tìm được thì chỉ ghi ngày. Chỉ biết tháng thì ghi "trong tháng M", không ghi cách mấy ngày. Khoản thu sổ gốc không có ngày cộng theo tháng của khối.
+- **Thu tháng này** lấy đúng dòng Tổng tháng (`DA-THU-01`); tháng chưa có dòng thì 0 đ kèm "chưa có chuyến hay phiếu thu".
+- **Chưa đọc được Tổng quan:** ba dữ kiện cần Tổng quan ghi `—`, Thu tháng này vẫn hiện; lỗi kèm Thử lại ở dải nợ. **Không đọc được hứa trả:** báo tại khối 5, tiền về vẫn hiện.
+- **Khách trả trước:** không có nhãn, thanh và khung; Quá hạn lâu nhất ghi "Không có".
+- Bỏ Việc tiếp theo, ba thẻ chỉ số, đổi hình, tab lọc Hoạt động và dòng chuyến, dòng Zalo trong thẻ này. Không đọc `zalo/conversations` ở thẻ này nữa. Không có câu kết luận.
+
+Bảng "Thẻ Tình hình" và mục "Giao diện Tình hình" bên dưới là lịch sử của các bản trước.
+
 ### Giao diện Tình hình theo bản HTML người dùng cấp 02/11/2026
 
 Người dùng đưa bản xem `TinhHinh.dc.html` và yêu cầu code theo đúng thiết kế. Bố cục mới của thẻ Tình hình: thanh sổ/khách và bốn thẻ ở trên; dải **Còn nợ** + cơ cấu theo hạn trả + **Việc tiếp theo**; ba thẻ chỉ số; hình **Còn nợ 12 tháng** cạnh **Hoạt động gần đây**. Việc chờ là nút mở thẻ Sổ. Nội dung khối 5–6 của bản A2 chuyển vào việc chờ và hoạt động; thẻ Trao đổi vẫn giữ chi tiết.

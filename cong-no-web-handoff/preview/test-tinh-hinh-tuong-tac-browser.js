@@ -1,4 +1,4 @@
-/* TUONG-TAC-01: thẻ Tình hình — mở tại chỗ, ghim tháng, đổi hình, lọc Hoạt động. Máy chủ giả, dữ liệu giả, đồng hồ trang ghim 15/11/2026;
+/* TUONG-TAC-01, TINH-HINH-01: thẻ Tình hình — mở tại chỗ, ghim tháng, dòng tiền về. Máy chủ giả, dữ liệu giả, đồng hồ trang ghim 15/11/2026;
  * không chạm DB hay Sheet. Bố cục và số gốc đã có ở test-so-khach-v7-overview-browser.js. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
@@ -21,7 +21,7 @@ const legacy = (id, kind, month, current, display = {}) => ({ id, kind, month: `
 
 function world(state) {
   Object.assign(state, { clock: `${TODAY}T10:00:00+07:00`, todayMonth: '2026-11-01', month: null, query: '&the=tinh-hinh', months: MONTHS, total: M(491) });
-  // Bỏ dòng mặc định của máy chủ giả để đếm chuyến và Hoạt động chỉ theo dữ liệu dưới đây.
+  // Bỏ dòng mặc định của máy chủ giả để đếm chuyến và tiền về chỉ theo dữ liệu dưới đây.
   for (const list of [state.trips, state.legacy, state.receipts]) list.length = 0;
   state.trips.push(trip(31, '2026-07', '10', 'Nơi B'), trip(32, '2026-07', '10', 'Nơi B'), trip(33, '2026-08', '12', 'Nơi C'),
     trip(34, '2026-10', '05', 'Nơi B'), trip(35, '2026-10', '20', 'Nơi C'),
@@ -61,11 +61,12 @@ test('Bấm số nợ mở từng tháng tại chỗ, cộng bằng số trên t
   assert.equal(server.reads, reads);
 }, world));
 
-test('Nhãn rủi ro cho thấy dữ kiện, không có câu kết luận; ngày không chắc nói rõ', () => withPage(async ({ page }) => {
+test('Nhãn rủi ro là chữ; dữ kiện luôn hiện, ngày không chắc nói rõ; số tiền của lần trả cộng đúng ngày', () => withPage(async ({ page }) => {
   await ready(page);
-  await page.locator('.ov-risk-btn').click();
-  const facts = await page.locator('#ov-panel .ov-fact').allInnerTexts();
-  assert.deepEqual(facts.map(clean), ['Quá hạn lâu nhất T7 · 76 ngày', 'Trả gần nhất 18/10/2026', 'Đi hàng gần nhất trong tháng 10/2026']);
+  assert.equal(await page.locator('.ov-hero button.ov-risk, .ov-risk-btn').count(), 0);
+  assert.deepEqual((await page.locator('.ov-keyfact').allInnerTexts()).map(clean), [
+    'Trả gần nhất 18/10/2026 157 triệu · 28 ngày trước', 'Thu T11 30 triệu phát sinh 50 triệu',
+    'Đi hàng gần nhất trong tháng 10/2026 T11: 2 chuyến · T10: 2', 'Quá hạn lâu nhất T7 · 76 ngày còn 8 triệu']);
 }, world));
 
 test('Số từng tháng lệch Tổng quan thì không hiện từng tháng, chỉ cho mở ở Sổ', () => withPage(async ({ page }) => {
@@ -96,7 +97,7 @@ test('Rê một tháng hiện bốn số, không đổi trang; Tab tới cũng v
   assert.equal(server.requests.length, 0);
 }, world));
 
-test('Ghim tháng: dải số, Hoạt động chỉ còn tháng đó, chip bỏ; bấm lại hoặc ✕ để bỏ; bấm cột nhỏ Đi hàng cũng ghim; Mở sổ đúng tháng', () => withPage(async ({ page }) => {
+test('Ghim tháng: dải số, Tiền về chỉ còn tháng đó, chip bỏ; bấm lại hoặc ✕ để bỏ; Mở sổ đúng tháng', () => withPage(async ({ page }) => {
   await ready(page);
   const column = page.locator('.ov-month[data-key="2026-10"]');
   await column.click();
@@ -105,84 +106,53 @@ test('Ghim tháng: dải số, Hoạt động chỉ còn tháng đó, chip bỏ;
   assert.equal(await page.locator('.ov-month[data-key="2026-10"]').getAttribute('aria-pressed'), 'true');
   assert.deepEqual((await page.locator('#ov-pin span').allInnerTexts()).map(clean).slice(0, 2), ['Phát sinh 200 triệu', 'Đã thu 157 triệu']);
   assert.equal(await page.locator('.ov-month[data-key="2026-10"]').evaluate(node => node === document.activeElement), true, 'giữ tiêu điểm');
-  assert.deepEqual((await page.locator('.ov-event-row time').allInnerTexts()), ['20/10/2026', '18/10/2026', '05/10/2026']);
-  assert.match(clean(await page.locator('.ov-kind').first().innerText()), /Tất cả 3/);
-  // Bỏ bằng chip ở Hoạt động: tiêu điểm về cột của tháng đó.
+  assert.deepEqual(await page.locator('.ov-event-row time').allInnerTexts(), ['18/10/2026']);
+  // Bỏ bằng chip ở Tiền về: tiêu điểm về cột của tháng đó.
   await page.locator('.ov-activity .ov-chip').click();
   await page.locator('#ov-pin').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.ov-month[data-key="2026-10"]').evaluate(node => node === document.activeElement), true);
-  assert.equal(await page.locator('.ov-event-row').count(), 5);
+  assert.equal(await page.locator('.ov-event-row').count(), 2);
+  // Tháng không có khoản thu thì nói rõ.
+  await page.locator('.ov-month[data-key="2026-08"]').click();
+  await pinned(page).waitFor();
+  assert.equal(await page.locator('.ov-none').innerText(), 'Không có khoản thu trong T8.');
   // Bấm lại đúng cột là bỏ.
   await page.locator('.ov-month[data-key="2026-08"]').click();
-  await pinned(page).waitFor();
-  await page.locator('.ov-month[data-key="2026-08"]').click();
   await page.locator('#ov-pin').waitFor({ state: 'detached' });
-  await page.locator('.ov-spark-bar[data-key="2026-08"]').click();
-  await pinned(page).waitFor();
-  assert.equal(await pinned(page).innerText(), 'T8');
-  assert.equal(await page.locator('.ov-spark-bar[data-key="2026-08"]').getAttribute('aria-pressed'), 'true');
+  await page.locator('.ov-month[data-key="2026-08"]').click();
   await page.locator('.ov-pin-open').click();
   assert.equal(await the(page), 'so');
   assert.equal(new URL(page.url()).searchParams.get('month'), '2026-08');
 }, world));
 
-test('Thẻ Doanh thu, Đi hàng đổi hình và đưa hình vào màn; bấm lại hoặc Về Còn nợ để trở về; tháng đang ghim vẫn giữ', () => withPage(async ({ page }) => {
+test('Tiền về chỉ có tiền, không có chuyến; mở chi tiết tại dòng; khoản không ngày ghi tháng; Xem ở Sổ', () => withPage(async ({ page }) => {
   await ready(page);
-  await page.setViewportSize({ width: 1280, height: 560 });
-  assert.equal(await page.locator('#ov-trend h2').innerText(), 'Còn nợ 12 tháng');
-  assert.ok(await page.locator('.ov-lines').count() === 1);
-  await page.locator('.ov-stat-btn').click();
-  assert.equal(await page.locator('#ov-trend h2').innerText(), 'Doanh thu 12 tháng');
-  assert.equal(await page.locator('.ov-stat-btn').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.locator('.ov-lines').count(), 0);
-  assert.equal(await page.locator('.ov-month[data-key="2026-10"] .ov-val').innerText(), '200 tr');
-  assert.equal(await page.locator('.ov-month.off .ov-val').first().innerText(), '—', 'tháng không có dòng không thành 0');
-  const box = await page.locator('#ov-trend').boundingBox();
-  assert.ok(box.y + box.height <= 561 && box.y >= 0, `hình phải nằm trong màn: ${JSON.stringify(box)}`);
-  await page.locator('.ov-month[data-key="2026-10"]').click();
-  await pinned(page).waitFor();
-  await page.locator('.ov-stat-main').click();
-  assert.equal(await page.locator('#ov-trend h2').innerText(), 'Đi hàng 12 tháng');
-  assert.equal(await page.locator('.ov-month[data-key="2026-07"] .ov-val').innerText(), '2');
-  assert.equal(await pinned(page).innerText(), 'T10', 'đổi hình không bỏ tháng đang ghim');
-  await page.locator('#ov-trend .ov-chip').click();
-  assert.equal(await page.locator('#ov-trend h2').innerText(), 'Còn nợ 12 tháng');
-  await page.locator('.ov-stat-btn').click();
-  await page.locator('.ov-stat-btn').click();
-  assert.equal(await page.locator('#ov-trend h2').innerText(), 'Còn nợ 12 tháng');
-}, world));
-
-test('Hoạt động có dòng sổ gốc, lọc theo loại, mở chi tiết; khoản không ngày ghi tháng; Xem thêm trong khối', () => withPage(async ({ page }) => {
-  await ready(page);
-  const tabs = page.locator('.ov-kind');
-  assert.deepEqual((await tabs.allInnerTexts()).map(clean), ['Tất cả 9', 'Thu 2', 'Chuyến 7', 'Trao đổi 0']);
-  assert.equal(await page.locator('.ov-event-row').count(), 5);
-  await page.locator('.ov-more').click();
-  assert.equal(await page.locator('.ov-event-row').count(), 9);
+  assert.deepEqual((await page.locator('.ov-event-row').allInnerTexts()).map(clean), ['18/10/2026 157.000.000 đ', 'T2/2026 40.000.000 đ']);
   assert.equal(await page.locator('.ov-more').count(), 0);
-  await tabs.nth(1).click();
-  assert.equal(await tabs.nth(1).getAttribute('aria-pressed'), 'true');
-  assert.deepEqual((await page.locator('.ov-event-row time').allInnerTexts()), ['18/10/2026', 'T2/2026']);
   await page.locator('.ov-event-row').nth(1).click();
-  assert.match(clean(await page.locator('.ov-event-detail').innerText()), /Ghi ở khối T2\/2026/);
+  assert.match(clean(await page.locator('.ov-event-detail').innerText()), /Theo sổ gốc, ghi ở khối T2\/2026/);
   await page.locator('.ov-event-row').first().click();
   assert.match(clean(await page.locator('.ov-event-detail').innerText()), /Trừ nợ T7\/2026 92\.000\.000 đ Trừ nợ T6\/2026 65\.000\.000 đ/);
   assert.equal(await page.locator('.ov-event-detail').count(), 1, 'một lúc một dòng');
-  await tabs.nth(2).click();
-  await page.locator('.ov-event-row').first().click();
-  assert.match(clean(await page.locator('.ov-event-detail').innerText()), /TINH0000042 1\.000\.000 đ/);
-  await tabs.nth(3).click();
-  assert.equal(await page.locator('.ov-none').innerText(), 'Không có trao đổi.');
-  await tabs.first().click();
-  await page.locator('.ov-event-row').nth(1).click();
   await page.locator('.ov-event-go').click();
   assert.equal(await the(page), 'so');
 }, world));
 
-test('Rê dòng Hoạt động: tháng của dòng sáng trên hình', () => withPage(async ({ page }) => {
+test('Nhiều khoản thu: 4 dòng rồi Xem thêm ngay trong khối', () => withPage(async ({ page }) => {
+  await ready(page);
+  assert.equal(await page.locator('.ov-event-row').count(), 4);
+  await page.locator('.ov-more').click();
+  assert.equal(await page.locator('.ov-event-row').count(), 6);
+  assert.equal(await page.locator('.ov-more').count(), 0);
+}, state => {
+  world(state);
+  for (let id = 71; id <= 74; id += 1) state.receipts.push({ id, pid: `PH-${id}`, date: `2026-09-${id - 60}`, amount_vnd: M(1), method: 'CK', voided_by_event: null, allocations: [] });
+}));
+
+test('Rê dòng tiền về: tháng của dòng sáng trên hình', () => withPage(async ({ page }) => {
   await ready(page);
   await page.locator('.ov-event-row').first().hover();
-  assert.equal(await page.locator('.ov-month.hot').getAttribute('data-key'), '2026-11');
+  assert.equal(await page.locator('.ov-month.hot').getAttribute('data-key'), '2026-10');
 }, world));
 
 test('Nguồn phụ về sau không làm mất tháng đang ghim, khung đang mở hay tiêu điểm', () => withPage(async ({ page }) => {
@@ -222,13 +192,9 @@ test('Bố cục khi mở hết ở 1265×560 và màn hẹp: không cuộn ngan
     const layout = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       small: [...document.querySelectorAll('#the-tinh-hinh button')].filter(node => node.getBoundingClientRect().height < 40).map(node => node.className),
-      cut: [...document.querySelectorAll('.ov-stat-main strong, .ov-part b, .ov-kind')].filter(node => node.getBoundingClientRect().right > node.closest('.ov-stat, .ov-hero, .ov-activity').getBoundingClientRect().right).map(node => node.innerText),
+      cut: [...document.querySelectorAll('.ov-keyfact b, .ov-keyfact small, .ov-part b')].filter(node => node.getBoundingClientRect().right > node.closest('.ov-keyfact, .ov-hero').getBoundingClientRect().right).map(node => node.innerText),
     }));
     assert.deepEqual(layout, { overflow: 0, small: [], cut: [] }, `font ${font ?? 'mặc định'}`);
-    // Chữ Đi hàng không đè lên cột nhỏ.
-    const text = await page.locator('.ov-stat-main strong').evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().right; });
-    const spark = await page.locator('.ov-spark').boundingBox();
-    assert.ok(text <= spark.x, `Đi hàng đè cột nhỏ, font ${font ?? 'mặc định'}: ${text} > ${spark.x}`);
   }
   await page.setViewportSize({ width: 390, height: 720 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);

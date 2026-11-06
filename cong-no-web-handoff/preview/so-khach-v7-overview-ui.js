@@ -1,6 +1,6 @@
-/* Tình hình trang khách: bố cục theo mockup TinhHinh.dc.html người dùng đưa 02/11/2026, tương tác theo TUONG-TAC-01.
- * Số từ sổ, Tổng quan và dấu hứa trả; không dùng số mẫu. Dữ liệu phụ đọc khi mở thẻ. Bấm là mở hoặc ghim tại chỗ, không gọi API;
- * chỉ các nút data-go mới sang thẻ Sổ. B1 chưa có API trả sau hạn nên ô đó hiện “—”. Trường ctx: so-khach-v7-ctx.js. */
+/* Tình hình trang khách: bản đọc để quyết cho sếp (TINH-HINH-01), tương tác theo TUONG-TAC-01. Một màn 1265×560 trả lời nợ bao nhiêu,
+ * có đang trả không, còn đi hàng không, nợ tăng hay giảm; không gợi ý việc. Số từ sổ, Tổng quan và dấu hứa trả; dữ liệu phụ đọc khi mở thẻ.
+ * Bấm là mở hoặc ghim tại chỗ, không gọi API; chỉ các nút data-go mới sang thẻ Sổ. Trường ctx: so-khach-v7-ctx.js. */
 (window.SoKhachV7LiveParts ??= {}).overview = ctx => {
   'use strict';
   const { root, model, api, escape, monthKey, monthLabel, liveOpenMonth, showTab, showMonth, bookWork, todayIso } = ctx;
@@ -8,10 +8,10 @@
   const M = TinhHinhModel;
   // Cùng chữ với Tổng quan (DashboardModel.RISK, reasons) để hai nơi gọi một khách như nhau; DASH-05 (4): "Trong hạn" chỉ cho tiền.
   const RISK = { high: 'Rủi ro cao', watch: 'Theo dõi', ok: 'Không quá hạn' };
-  const side = { debt: { state: 'idle', read: 'readDebt' }, marks: { state: 'idle', read: 'readMarks' }, chats: { state: 'idle', read: 'findChats' } };
+  const side = { debt: { state: 'idle', read: 'readDebt' }, marks: { state: 'idle', read: 'readMarks' } };
   // Trạng thái bấm của thẻ: giữ qua các lần vẽ lại (nguồn phụ về sau, ghi sổ), không ghi lên địa chỉ.
-  const ui = { detail: null, mode: 'no', pin: null, kind: 'all', open: null, limit: 5 };
-  const LIMIT = 5, MORE = 10, PLOT = 150, CHART_H = 180;
+  const ui = { detail: null, pin: null, open: null, limit: 4 };
+  const LIMIT = 4, MORE = 10, PLOT = 112, CHART_H = 136;
   let view = { series: null, counts: null };
   const shown = () => document.body?.dataset.the === 'tinh-hinh';
   const loaded = item => item.state !== 'error' && Object.hasOwn(item, 'data');
@@ -56,7 +56,7 @@
     (again ?? (focusTo && active ? pane.querySelector(focusTo) : null))?.focus();
   }
 
-  // ---- Dải đầu: nợ theo hạn, nhãn rủi ro, việc chờ; ba khung mở ngay bên dưới ----
+  // ---- Dải đầu: nợ theo hạn, nhãn rủi ro; bấm một phần nợ mở từng tháng ngay bên dưới ----
   function tierRows(key, tiers) {
     const rows = tiers.groups[key];
     const top = rows.reduce((max, row) => (row.amount > max ? row.amount : max), 0n);
@@ -67,37 +67,22 @@
         + `<strong>${escape(short(row.amount))}</strong><small class="${key === 'late' ? 'late' : ''}">${escape(note)}</small>${NEXT}</button>`;
     }).join('');
   }
-  function detailPanel(data, row, tiers, parts) {
-    if (!ui.detail) return '';
+  function detailPanel(tiers, parts) {
+    const part = parts.find(([, , kind]) => kind === ui.detail);
+    if (!part) return '';
+    const [label, value, kind, month] = part;
     const head = (title, sub) => `<div class="ov-panel-head"><strong>${escape(title)}</strong><span>${escape(sub)}</span>`
       + `<button type="button" class="ov-close" data-ui="close" aria-label="Đóng">${CLOSE}</button></div>`;
-    let inner = null;
-    const part = parts.find(([, , kind]) => kind === ui.detail);
-    if (part) {
-      const [label, value, kind, month] = part;
-      inner = tiers?.matches ? head(`${label} · ${short(toBig(value))}`, 'theo tháng nợ, bấm dòng để mở sổ') + tierRows(kind, tiers)
-        : head(label, 'chưa tách được theo tháng') + (month ? button(`thang:${monthKey(month)}`, 'Mở ở Sổ', '', 'ov-link-btn') : '');
-    } else if (ui.detail === 'risk' && row) {
-      const oldest = tiers?.groups.late.find(item => item.amount > 0n);
-      const facts = [['Quá hạn lâu nhất', oldest ? `${tag(oldest.key)} · ${M.ago(oldest.days)}` : 'Không có nợ quá hạn'],
-        ['Trả gần nhất', M.factDate(row.last_receipt_date, row.last_receipt_exact)], ['Đi hàng gần nhất', M.factDate(row.last_trip_date, row.last_trip_exact)]];
-      inner = head(RISK[row.risk] ?? '', 'dữ kiện tạo ra nhãn') + facts.map(([label, value]) => `<div class="ov-fact"><span>${escape(label)}</span><b>${escape(value)}</b></div>`).join('');
-    } else if (ui.detail === 'work') {
-      const rows = bookWork(data);
-      if (rows.length) {
-        inner = head('Việc cần xem', 'Còn nợ ở trên chưa tính các dòng này') + rows.map(([count, what, kind]) => `<button type="button" class="ov-row ov-work" data-go="loc:${escape(kind)}">`
-          + `<b>${escape(`${count} ${what}`)}</b><em>Mở ở Sổ</em>${NEXT}</button>`).join('');
-      }
-    }
-    return inner ? `<div class="ov-panel" id="ov-panel">${inner}</div>` : '';
+    const inner = tiers?.matches ? head(`${label} · ${short(toBig(value))}`, 'theo tháng nợ, bấm dòng để mở sổ') + tierRows(kind, tiers)
+      : head(label, 'chưa tách được theo tháng') + (month ? button(`thang:${monthKey(month)}`, 'Mở ở Sổ', '', 'ov-link-btn') : '');
+    return `<div class="ov-panel" id="ov-panel">${inner}</div>`;
   }
 
-  function referenceHero(data) {
+  const clock = at => new Date(at).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', hour12: false });
+  function referenceHero(data, months) {
     const debt = side.debt, row = loaded(debt) ? debt.data.row : null;
     const riskCode = row?.risk ?? 'unknown';
     const riskName = RISK[riskCode] ?? (debt.state === 'error' ? 'Chưa đọc được rủi ro' : 'Đang đọc rủi ro');
-    const work = bookWork(data);
-    const pending = work.reduce((sum, [count]) => sum + count, 0);
     const tiers = row?.tiers_vnd ?? [];
     const asOf = loaded(debt) ? debt.data.asOf : null;
     const parts = row ? [
@@ -105,66 +90,70 @@
       [`Đến hạn ${endOf(asOf.slice(0, 7))}`, tiers[1], 'due', shift(asOf.slice(0, 7), -(debt.data.rule.due_after_months ?? 1))],
       ['Chưa đến hạn', tiers[0], 'future', null],
     ].filter(([, value]) => value != null && toBig(value) > 0n) : [];
-    const months = row ? M.debtTiers(row, asOf, debt.data.rule.due_after_months ?? 1) : null;
     const total = toBig(data.total_outstanding_vnd), credit = model.creditOf(data.total_outstanding_vnd);
     const positive = parts.reduce((sum, [, value]) => sum + toBig(value), 0n);
     const hot = parts.some(([, , kind]) => kind === ui.detail) ? ` data-hot="${ui.detail}"` : '';
     const segments = positive > 0n ? parts.map(([label, value, kind]) => `<span class="ov-segment ${kind}" data-ui="detail:${kind}" data-tier="${kind}" style="flex:${toBig(value)}" title="${escape(label)} ${full(value)}"><i class="ov-key ${kind}"></i></span>`).join('') : '';
     const partHtml = parts.map(([label, value, kind]) => `<button type="button" class="ov-part" data-ui="detail:${kind}" data-tier="${kind}" aria-expanded="${ui.detail === kind}">`
       + `<span><i class="ov-key ${kind}"></i>${escape(label)}</span><b>${short(toBig(value))}${CARET(ui.detail === kind)}</b></button>`).join('');
-    const marks = loaded(side.marks) ? side.marks.data : [];
-    const promise = marks.find(mark => mark.kind === 'promise' && mark.status === 'pending');
-    const unavailable = side.marks.state === 'error' || debt.state === 'error';
-    const next = unavailable ? ['Chưa xác định việc tiếp theo', 'Kiểm tra dữ liệu rồi thử lại', 'unknown']
-      : !loaded(side.marks) || !loaded(debt) ? ['Đang đọc việc tiếp theo…', '', 'unknown']
-      : promise ? ['Chờ hứa trả', `${full(promise.amount_vnd)} · hẹn ${CongNoFormat.dateText(promise.on_date)}`, 'wait']
-      : row && toBig(row.overdue_vnd) > 0n ? ['Liên hệ khách', 'Có nợ quá hạn · xem thẻ Trao đổi', 'overdue']
-        : ['Chưa cần làm gì', 'Theo dõi hạn trả trong Sổ', 'ok'];
-    const riskChip = `<span class="ov-risk r-${escape(riskCode)}">${escape(riskName)}${row ? CARET(ui.detail === 'risk') : ''}</span>`;
-    const riskHtml = credit > 0n ? '' : row ? `<button type="button" class="ov-risk-btn" data-ui="detail:risk" aria-expanded="${ui.detail === 'risk'}" title="Vì sao có nhãn này">${riskChip}</button>` : riskChip;
+    const riskHtml = credit > 0n ? '' : `<span class="ov-risk r-${escape(riskCode)}">${escape(riskName)}</span>`;
+    // Lúc web đọc số, không phải độ mới của Sheet: chưa có API cho độ mới (TINH-HINH-01).
+    const when = loaded(debt) && debt.at ? `<small class="ov-as-of">Số trên web lúc ${clock(debt.at)}</small>` : '';
     return `<section class="ov-hero ${escape(riskCode)}" aria-label="Công nợ hôm nay"><div class="ov-hero-debt">`
-      + `<div class="ov-hero-label">${credit > 0n ? 'Khách trả trước' : 'Còn nợ'} ${riskHtml}`
-      + `${pending ? `<button type="button" class="ov-pending" data-ui="detail:work" aria-expanded="${ui.detail === 'work'}" title="Chưa tính vào số còn nợ"><span>+${pending} việc cần xem${CARET(ui.detail === 'work')}</span></button>` : ''}</div>`
-      + `<strong class="ov-total">${full(credit > 0n ? credit : total)}</strong><div class="ov-segments" id="ov-segments" aria-hidden="true"${hot}>${segments}</div>`
-      + `<div class="ov-parts">${partHtml || (total < 0n ? '<span>Khách trả trước</span>' : debt.state === 'error' ? '' : '<span>Đang đọc cơ cấu nợ…</span>')}</div>`
+      + `<div class="ov-hero-label">${credit > 0n ? 'Khách trả trước' : 'Còn nợ'} ${riskHtml}</div>`
+      + `<strong class="ov-total">${full(credit > 0n ? credit : total)}</strong>${when}</div>`
+      + `<div class="ov-hero-split"><div class="ov-segments" id="ov-segments" aria-hidden="true"${hot}>${segments}</div>`
+      + `<div class="ov-parts">${partHtml || (total < 0n ? '<span>Khách trả trước</span>' : debt.state === 'error' ? '' : '<span>Đang đọc cơ cấu nợ…</span>')}</div></div>`
       + `${debt.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('số quá hạn'))} ${button('retry:debt', 'Thử lại')}</p>` : ''}`
-      + `${detailPanel(data, row, months, parts)}</div>`
-      + `<div class="ov-next"><span class="ov-eyebrow">Việc tiếp theo</span><div class="ov-next-main"><span class="ov-next-icon" aria-hidden="true">${next[2] === 'wait' ? '◷' : next[2] === 'overdue' ? '!' : '✓'}</span>`
-      + `<div><strong>${next[0]}</strong><small>${next[1]}</small></div></div>`
-      + `${side.marks.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hứa trả'))} ${button('retry:marks', 'Thử lại')}</p>` : ''}`
-      + `${promise ? `<p class="ov-countdown">Hẹn ${CongNoFormat.dateText(promise.on_date)} · ${escape(promise.status === 'pending' ? 'đang chờ' : promise.status)}</p>` : ''}`
-      + `<div class="ov-next-actions"><button type="button" class="tab-go" data-the="trao-doi">Xem Trao đổi</button></div></div></section>`;
+      + `${pendingLine(data)}${detailPanel(months, parts)}</section>`;
+  }
+  // Chuyến chưa vào số nợ: nói rõ loại và số lượng, bấm là tới đúng chỗ ở thẻ Sổ (cùng số với chấm cam trên chip tháng).
+  function pendingLine(data) {
+    const work = bookWork(data);
+    if (!work.length) return '';
+    return `<p class="ov-pending-line"><span>Còn nợ chưa tính:</span>${work.map(([count, what, kind]) => button(`loc:${kind}`, `${count} chuyến ${what}`, 'mở ở thẻ Sổ', 'ov-pending-go')).join('')}</p>`;
   }
 
-  // ---- Ba thẻ chỉ số: Doanh thu, Đi hàng đổi hình bên dưới; cột nhỏ của Đi hàng ghim tháng ----
-  function referenceStats(data, series) {
-    const revenue = model.seriesCharges(series);
-    const months = series.items.slice(-6);
-    const counts = months.map(item => view.counts.get(item.key));
-    const recent = loaded(side.debt) ? side.debt.data.row : null;
-    const last = recent?.last_trip_date ? M.factDate(recent.last_trip_date, recent.last_trip_exact)
-      : CongNoFormat.dateText([...(data.trips ?? []), ...(data.legacy_rows ?? [])].map(row => row.event_date ?? row.current?.event_date).filter(Boolean).sort().at(-1));
-    const max = Math.max(1, ...counts);
-    const bars = svg('M4 20V10M10 20V4M16 20v-8M3 20h18');
-    const spark = months.map((item, index) => (item.present
-      ? `<button type="button" class="ov-spark-bar${ui.pin === item.key ? ' on' : ''}" data-ui="spark:${item.key}" data-key="${item.key}" aria-pressed="${ui.pin === item.key}" aria-label="${escape(`${tag(item.key)} — ${counts[index]} chuyến`)}"><i style="height:${Math.max(2, counts[index] / max * 44)}px"></i></button>`
-      : `<span class="ov-spark-bar off" title="${escape(`${tag(item.key)}: không có dòng`)}"><i style="height:2px"></i></span>`)).join('');
-    return `<div class="ov-stats"><section class="ov-stat" title="Chưa có dữ liệu ngày trả theo từng tháng nợ"><span>Trễ trung bình sau hạn <small>12 tháng</small></span><strong>—</strong>`
-      + '<div class="ov-late-scale" aria-hidden="true"></div><p>Chưa đủ dữ liệu trả sau hạn</p></section>'
-      + `<button type="button" class="ov-stat ov-stat-btn${ui.mode === 'dt' ? ' on' : ''}" data-ui="mode:dt" aria-pressed="${ui.mode === 'dt'}"><span><em>Doanh thu${bars}</em><small>12 tháng</small></span><strong>${revenue === null ? '—' : short(revenue)}</strong>`
-      + '<small class="ov-stat-sub">Phát sinh đã ghi sổ trong 12 tháng</small></button>'
-      + `<section class="ov-stat ov-stat-trip${ui.mode === 'chuyen' ? ' on' : ''}"><button type="button" class="ov-stat-main" data-ui="mode:chuyen" aria-pressed="${ui.mode === 'chuyen'}"><span><em>Đi hàng${bars}</em><small>6 tháng</small></span>`
-      + `<strong>${counts.at(-1)} chuyến tháng này</strong><small class="ov-stat-sub">${last ? `gần nhất ${last}` : 'Chưa rõ chuyến gần nhất'}</small></button>`
-      + `<div class="ov-spark">${spark}</div></section></div>`;
+  // ---- Bốn dữ kiện: khách có đang trả không, còn đi hàng không, nợ cũ tới đâu ----
+  function factCell(label, value, sub, kind = '') {
+    return `<div class="ov-keyfact${kind ? ` ${kind}` : ''}"><span>${escape(label)}</span><b>${escape(value)}</b><small>${escape(sub)}</small></div>`;
+  }
+  function referenceFacts(data, series, months, events) {
+    const debt = side.debt, row = loaded(debt) ? debt.data.row : null;
+    const failed = debt.state === 'error';
+    const waitText = failed ? '—' : loaded(debt) ? 'Chưa có' : 'Đang đọc…';
+    const key = thisMonth();
+    const item = series.items.find(entry => entry.key === key);
+    const thu = item?.present
+      ? factCell(`Thu ${tag(key)}`, short(item.receivedVnd ?? 0n), `phát sinh ${short(item.chargesVnd ?? 0n)}`)
+      : factCell(`Thu ${tag(key)}`, '0 đ', 'chưa có chuyến hay phiếu thu');
+    // Trả gần nhất: ngày theo Tổng quan; sổ không có dòng ở Tổng quan (không nợ) thì lấy khoản mới nhất trong sổ.
+    const lastPaid = events.find(entry => entry.kind === 'paid');
+    const paidDate = row ? row.last_receipt_date : lastPaid?.date ?? null;
+    const paidExact = row ? row.last_receipt_exact : true;
+    const paid = paidDate ? M.factDate(paidDate, paidExact) : lastPaid ? `T${monthLabel(lastPaid.key)}` : waitText;
+    const paidAmount = paidDate ? M.paidOn(events, paidDate, paidExact) : lastPaid?.amount ?? null;
+    const paidAgo = row && paidExact && row.pay_days != null ? (row.pay_days === 0 ? 'hôm nay' : `${M.ago(row.pay_days)} trước`) : '';
+    const paidSub = [paidAmount === null ? '' : short(paidAmount), paidAgo].filter(Boolean).join(' · ');
+    // Đi hàng: cùng chữ với Tổng quan; sổ không có ở Tổng quan thì lấy ngày chuyến mới nhất trong sổ.
+    const newestTrip = [...(data.trips ?? []), ...(data.legacy_rows ?? []).filter(line => line.kind !== 'receipt')].map(line => line.event_date ?? line.current?.event_date).filter(Boolean).sort().at(-1);
+    const tripDate = row?.last_trip_date ? M.factDate(row.last_trip_date, row.last_trip_exact) : newestTrip ? CongNoFormat.dateText(newestTrip) : waitText;
+    const before = shift(key, -1);
+    const tripSub = `${tag(key)}: ${view.counts.get(key) ?? 0} chuyến · ${tag(before)}: ${view.counts.get(before) ?? 0}`;
+    // Quá hạn lâu nhất: tháng nợ cũ nhất còn tiền; số tiền chỉ ghi khi từng tháng cộng khớp Tổng quan.
+    const oldest = months?.groups.late.find(entry => entry.amount > 0n);
+    const lateCell = oldest ? factCell('Quá hạn lâu nhất', `${tag(oldest.key)} · ${M.ago(oldest.days)}`, months.matches ? `còn ${short(oldest.amount)}` : '', 'late')
+      : factCell('Quá hạn lâu nhất', failed ? '—' : loaded(debt) ? 'Không có' : 'Đang đọc…', '');
+    return `<div class="ov-keyfacts" role="group" aria-label="Dữ kiện của khách">${factCell('Trả gần nhất', paid, paidSub)}${thu}${factCell('Đi hàng gần nhất', tripDate, tripSub)}${lateCell}</div>`;
   }
 
   // ---- Hình 12 tháng ----
   const px = at => Math.round(at * PLOT * 10) / 10;
-  function barHtml(item, kind, at, value, zero, wide, what) {
+  function barHtml(item, kind, at, value, zero, what) {
     if (at === null) return '';
     const bottom = Math.min(px(at), px(zero));
     const height = Math.max(Math.abs(px(at) - px(zero)), value === 0n ? 0 : 1);
-    return `<span class="ov-bar ${kind}${wide ? ' wide' : ''}" data-month="${item.key}" data-vnd="${value}" data-what="${what}" style="bottom:${bottom}px;height:${height}px"></span>`;
+    return `<span class="ov-bar ${kind}" data-month="${item.key}" data-vnd="${value}" data-what="${what}" style="bottom:${bottom}px;height:${height}px"></span>`;
   }
   function columnHtml(item, plot) {
     const on = ui.pin === item.key;
@@ -178,24 +167,11 @@
     return `<button type="button" class="ov-month${on ? ' on' : ''}" data-ui="pin:${item.key}" data-key="${item.key}" aria-pressed="${on}" aria-label="${escape(label)}">${inner}</button>`;
   }
   function chartColumns(series) {
-    if (ui.mode === 'no') {
-      return series.items.map(item => columnHtml(item, barHtml(item, 'ps', item.chargesAt, item.chargesVnd, series.zeroAt, false, 'phát sinh')
-        + barHtml(item, 'thu', item.receivedAt, item.receivedVnd, series.zeroAt, false, 'đã thu')
-        + (item.endAt === null || item.carried ? '' : `<span class="ov-point" data-month="${item.key}" data-vnd="${item.endVnd}" style="bottom:${px(item.endAt)}px"></span>`))).join('');
-    }
-    const isTrips = ui.mode === 'chuyen';
-    const values = series.items.map(item => (!item.present ? null : isTrips ? view.counts.get(item.key) : item.chargesVnd));
-    const scale = M.scale(values);
-    return series.items.map((item, index) => {
-      const value = values[index];
-      const text = value === null ? '—' : isTrips ? String(value) : short(value, 'tr');
-      const top = value === null ? px(scale.zeroAt) : Math.max(px(scale.at(value)), px(scale.zeroAt));
-      return columnHtml(item, `${value === null ? '' : barHtml(item, isTrips ? 'trip' : 'ps', scale.at(value), BigInt(value), scale.zeroAt, true, isTrips ? 'chuyến' : 'phát sinh')}`
-        + `<span class="ov-val" style="bottom:${top + 2}px">${escape(text)}</span>`);
-    }).join('');
+    return series.items.map(item => columnHtml(item, barHtml(item, 'ps', item.chargesAt, item.chargesVnd, series.zeroAt, 'phát sinh')
+      + barHtml(item, 'thu', item.receivedAt, item.receivedVnd, series.zeroAt, 'đã thu')
+      + (item.endAt === null || item.carried ? '' : `<span class="ov-point" data-month="${item.key}" data-vnd="${item.endVnd}" style="bottom:${px(item.endAt)}px"></span>`))).join('');
   }
   function chartLine(series) {
-    if (ui.mode !== 'no') return '';
     const { items } = series;
     const y = at => Math.round((CHART_H - at * PLOT) * 10) / 10;
     const points = items.map((item, index) => [index, item]).filter(([, item]) => item.endAt !== null);
@@ -208,8 +184,7 @@
     return `<svg class="ov-lines" viewBox="0 0 ${items.length * 100} ${CHART_H}" preserveAspectRatio="none" aria-hidden="true">${area}<polyline class="ov-line" points="${line}"/></svg>`
       + `<span class="ov-num" data-month="${last.key}" style="left:${left}%;top:${Math.max(0, y(last.endAt) - 30)}px">${escape(short(last.endVnd))}</span>`;
   }
-  const TITLES = { no: 'Còn nợ 12 tháng', dt: 'Doanh thu 12 tháng', chuyen: 'Đi hàng 12 tháng' };
-  const LEGEND = { no: [['ps', 'Phát sinh'], ['thu', 'Đã thu'], ['line', 'Còn nợ cuối tháng']], dt: [['ps strong', 'Phát sinh đã ghi sổ']], chuyen: [['trip', 'Số chuyến']] };
+  const LEGEND = [['ps', 'Phát sinh'], ['thu', 'Đã thu'], ['line', 'Còn nợ cuối tháng']];
   function figures(key) {
     const item = view.series.items.find(row => row.key === key);
     return [['Phát sinh', item.chargesVnd], ['Đã thu', item.receivedVnd], ['Còn nợ cuối tháng', item.endVnd]].map(([label, value]) => [label, value === null ? '—' : value])
@@ -222,36 +197,29 @@
       + `<button type="button" class="ov-close" data-ui="unpin" aria-label="${escape(`Bỏ ghim ${tag(ui.pin)}`)}">${CLOSE}</button></div>`;
   }
   function trend(series) {
-    const legend = LEGEND[ui.mode].map(([kind, text]) => `<span><i class="ov-sw ${kind}"></i>${escape(text)}</span>`).join('');
-    const back = ui.mode === 'no' ? '' : `<button type="button" class="ov-chip" data-ui="mode:no"><span>Về Còn nợ${CLOSE}</span></button>`;
-    return `<section class="ov-block" id="ov-trend" aria-labelledby="ov-trend-title"><div class="ov-chart-head"><h2 id="ov-trend-title">${TITLES[ui.mode]}</h2>${back}<p class="ov-legend">${legend}</p></div>`
+    const legend = LEGEND.map(([kind, text]) => `<span><i class="ov-sw ${kind}"></i>${escape(text)}</span>`).join('');
+    return `<section class="ov-block" id="ov-trend" aria-labelledby="ov-trend-title"><div class="ov-chart-head"><h2 id="ov-trend-title">Còn nợ 12 tháng</h2><p class="ov-legend">${legend}</p></div>`
       + `<div class="ov-chart" id="ov-chart"><div class="ov-columns" style="--months:${series.items.length}">${chartColumns(series)}</div>${chartLine(series)}<div class="ov-tip" id="ov-tip" role="status" hidden></div></div>${pinBar()}</section>`;
   }
 
-  // ---- Hoạt động ----
-  const ICONS = { paid: 'đ', mark: '!', remind: '↗', trip: '▸' };
-  const KIND_TABS = [['all', 'Tất cả'], ['paid', 'Thu'], ['trip', 'Chuyến'], ['talk', 'Trao đổi']];
-  const KIND_WORD = { all: 'hoạt động', paid: 'phiếu thu', trip: 'chuyến', talk: 'trao đổi' };
+  // ---- Tiền về và hứa trả ----
   function eventHtml(row) {
     const open = ui.open === row.id;
     const when = row.date ? CongNoFormat.dateText(row.date) : `T${monthLabel(row.key)}`;
     const go = row.go === 'trao-doi' ? '<button type="button" class="tab-go ov-event-go" data-the="trao-doi">Mở thẻ Trao đổi</button>'
-      : button(row.go, row.kind === 'paid' ? `Xem ở Sổ ${tag(row.key)}` : `Mở sổ ${tag(row.key)}`, '', 'ov-event-go');
+      : button(row.go, `Xem ở Sổ ${tag(row.key)}`, '', 'ov-event-go');
     const detail = open ? `<div class="ov-event-detail">${row.lines.map(([label, value]) => `<div><span>${escape(label)}</span><b>${escape(value)}</b></div>`).join('')}${go}</div>` : '';
-    return `<li><button type="button" class="ov-event-row" data-ui="event:${escape(row.id)}" data-key="${row.key}" aria-expanded="${open}"><span class="ov-event ${row.kind}" aria-hidden="true">${ICONS[row.kind]}</span>`
-      + `<span><b>${escape(row.title)}</b><small>${escape(row.sub)}</small></span><time>${escape(when)}</time>${CARET(open)}</button>${detail}</li>`;
+    return `<li><button type="button" class="ov-event-row ${row.kind}" data-ui="event:${escape(row.id)}" data-key="${row.key}" aria-expanded="${open}"><time>${escape(when)}</time>`
+      + `<span><b>${escape(row.title)}</b>${row.sub ? `<small>${escape(row.sub)}</small>` : ''}</span>${CARET(open)}</button>${detail}</li>`;
   }
-  function referenceActivity(data) {
-    const all = M.activity(data, { marks: loaded(side.marks) ? side.marks.data : [], chats: loaded(side.chats) ? side.chats.data.conversations ?? [] : [], today: todayIso() });
-    const scoped = ui.pin ? all.filter(row => row.key === ui.pin) : all;
-    const rows = scoped.filter(M.KINDS[ui.kind]);
-    const tabs = KIND_TABS.map(([kind, label]) => `<button type="button" class="ov-kind" data-ui="kind:${kind}" aria-pressed="${ui.kind === kind}">${label} <small>${scoped.filter(M.KINDS[kind]).length}</small></button>`).join('');
+  function referenceActivity(events) {
+    const rows = ui.pin ? events.filter(row => row.key === ui.pin) : events;
     const chip = ui.pin ? `<button type="button" class="ov-chip" data-ui="unpin" aria-label="${escape(`Bỏ lọc ${tag(ui.pin)}`)}"><span>${escape(tag(ui.pin))}${CLOSE}</span></button>` : '';
-    const empty = `Không có ${KIND_WORD[ui.kind]}${ui.pin ? ` trong ${tag(ui.pin)}` : ''}.`;
+    const empty = ui.pin ? `Không có khoản thu trong ${tag(ui.pin)}.` : 'Chưa có khoản thu nào trên sổ.';
     const more = rows.length > ui.limit ? `<button type="button" class="ov-more" data-ui="more">Xem thêm ${Math.min(MORE, rows.length - ui.limit)}</button>` : '';
-    return `<section class="ov-activity"><div class="ov-section-head"><h2>Hoạt động</h2>${chip}</div><div class="ov-kinds" role="group" aria-label="Loại hoạt động">${tabs}</div>`
+    return `<section class="ov-activity"><div class="ov-section-head"><h2>Tiền về và hứa trả</h2>${chip}</div>`
       + `<ol>${rows.slice(0, ui.limit).map(eventHtml).join('') || `<li class="ov-none">${escape(empty)}</li>`}</ol>${more}`
-      + `${side.chats.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hội thoại Zalo'))} ${button('retry:chats', 'Thử lại')}</p>` : ''}</section>`;
+      + `${side.marks.state === 'error' ? `<p class="ov-error" role="alert">${escape(loadError('hứa trả'))} ${button('retry:marks', 'Thử lại')}</p>` : ''}</section>`;
   }
 
   function content(data) {
@@ -262,7 +230,10 @@
     const series = model.monthSeries(data.months ?? [], thisMonth());
     view = { series, counts: new Map(series.items.map(item => [item.key, M.tripCount(data, item.key)])) };
     if (ui.pin && !series.items.some(item => item.key === ui.pin && item.present)) ui.pin = null;
-    return referenceHero(data) + referenceStats(data, series) + `<div class="ov-main-row">${trend(series)}${referenceActivity(data)}</div>`;
+    const debt = side.debt, row = loaded(debt) ? debt.data.row : null;
+    const months = row ? M.debtTiers(row, debt.data.asOf, debt.data.rule.due_after_months ?? 1) : null;
+    const events = M.moneyEvents(data, { marks: loaded(side.marks) ? side.marks.data : [], today: todayIso() });
+    return referenceHero(data, months) + referenceFacts(data, series, months, events) + `<div class="ov-main-row">${trend(series)}${referenceActivity(events)}</div>`;
   }
   // Dữ liệu lạ làm thẻ vẽ lỗi thì chỉ thẻ này báo, thẻ Sổ vẫn dùng được.
   function body(data) {
@@ -297,15 +268,13 @@
     let focusTo = null;
     if (what === 'detail') ui.detail = ui.detail === value ? null : value;
     else if (what === 'close') { focusTo = `button[data-ui="detail:${ui.detail}"]`; ui.detail = null; }
-    else if (what === 'mode') ui.mode = ui.mode === value ? 'no' : value;
-    else if (what === 'pin' || what === 'spark') pin(value);
+    else if (what === 'pin') pin(value);
     else if (what === 'unpin') { focusTo = `[data-ui="pin:${ui.pin}"]`; pin(ui.pin); }
-    else if (what === 'kind') { ui.kind = value; ui.open = null; ui.limit = LIMIT; }
     else if (what === 'event') ui.open = ui.open === value ? null : value;
     else if (what === 'more') { focusTo = '.ov-activity ol li:last-child button'; ui.limit += MORE; }
     paint(focusTo);
-    // Hình nằm dưới mép màn 1280×560: bấm thẻ chỉ số hay cột nhỏ mà không thấy hình đổi thì như chưa bấm.
-    if ((what === 'mode' && ui.mode !== 'no') || (what === 'spark' && ui.pin)) root.querySelector('#ov-trend')?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+    // Có dòng Chưa tính thì dải số của tháng ghim có thể rơi dưới mép màn 1280×560: bấm mà không thấy nút Mở sổ thì như chưa bấm.
+    if (what === 'pin' && ui.pin) root.querySelector('#ov-pin')?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
   }
   root.addEventListener('click', event => {
     const local = event.target.closest?.('#the-tinh-hinh [data-ui]');

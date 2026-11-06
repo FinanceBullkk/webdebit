@@ -51,11 +51,11 @@ test('Bố cục và số của Tình hình lấy từ sổ, Tổng quan; mở t
   assert.deepEqual(await page.locator('.ov-part').evaluateAll(nodes => nodes.map(node => node.innerText)),
     ['Quá hạn\n241 triệu', 'Đến hạn 30/11\n200 triệu', 'Chưa đến hạn\n50 triệu']);
   assert.equal(await page.locator('.ov-risk').innerText(), 'Rủi ro cao');
-  assert.equal(await page.locator('.ov-stat').nth(0).locator('strong').innerText(), '—');
-  assert.match(await page.locator('.ov-stat').nth(1).innerText(), /Phát sinh đã ghi sổ trong 12 tháng/);
-  assert.match(await page.locator('.ov-stat').nth(2).innerText(), /2 chuyến tháng này/);
-  assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Liên hệ khách');
-  assert.equal(await page.locator('.ov-activity li').count(), 5);
+  const facts = await page.locator('.ov-keyfact').evaluateAll(nodes => nodes.map(node => node.innerText.split('\n')));
+  assert.deepEqual(facts, [['Trả gần nhất', '05/11/2026', '10 ngày trước'], ['Thu T11', '30 triệu', 'phát sinh 50 triệu'],
+    ['Đi hàng gần nhất', '12/11/2026', 'T11: 2 chuyến · T10: 3'], ['Quá hạn lâu nhất', 'T7 · 76 ngày', 'còn 8 triệu']]);
+  assert.equal(await page.locator('.ov-next, .ov-stat, .ov-kind').count(), 0, 'TINH-HINH-01: không còn Việc tiếp theo, ba thẻ, tab lọc');
+  assert.match(await page.locator('.ov-as-of').innerText(), /^Số trên web lúc \d\d:\d\d$/);
   const layout = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     small: [...document.querySelectorAll('#the-tinh-hinh button')].filter(node => node.getBoundingClientRect().height < 40).map(node => node.textContent),
@@ -96,40 +96,31 @@ test('Hình 12 tháng dùng months[]; tháng thiếu không thành 0; ghim rồi
 
 test('Việc chờ không tính vào nợ; mở thẻ Sổ để xử lý', async () => withPage(async ({ page, world }) => {
   await ready(page);
-  assert.equal(await page.locator('.ov-pending').innerText(), '+3 việc cần xem');
+  assert.equal((await page.locator('.ov-pending-line').innerText()).replace(/\s+/g, ' '), 'Còn nợ chưa tính: 1 chuyến chưa có giá 1 chuyến chờ kiểm 1 chuyến từ Sheet cần xem');
   assert.equal(await page.locator('.ov-total').innerText(), '491.000.000 đ');
-  await page.locator('.ov-pending').click();
-  await page.locator('#ov-panel').waitFor();
-  assert.match(await page.locator('#ov-panel').innerText(), /Còn nợ ở trên chưa tính các dòng này/);
-  assert.equal((await state(page))[0], 'tinh-hinh');
-  await page.locator('#ov-panel .ov-work[data-go="loc:thieu-gia"]').click();
+  await page.locator('.ov-pending-go[data-go="loc:thieu-gia"]').click();
   assert.deepEqual(await state(page), ['so', '?customer=1&loc=thieu-gia']);
   assert.equal(world.requests.length, 0);
 }, debtor));
-const actions = page => page.locator('.ov-next-actions button').evaluateAll(nodes => nodes.map(node => [node.innerText, node.classList.contains('primary')]));
-test('Có nợ quá hạn: gợi ý Liên hệ khách, nhắc nợ đang ẩn nên chỉ có Xem Trao đổi', async () => withPage(async ({ page, world }) => {
-  await ready(page);
-  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
-  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
-  assert.doesNotMatch(await page.locator('#the-tinh-hinh').innerText(), /nhắc/i);
-  assert.equal(world.requests.length, 0);
-}, debtor));
-
-test('Không có nợ quá hạn: nhãn như Tổng quan, chỉ Xem Trao đổi', async () => withPage(async ({ page }) => {
-  await page.locator('.ov-next-main strong', { hasText: 'Chưa cần làm gì' }).waitFor();
+test('Không có nợ quá hạn: nhãn như Tổng quan, dữ kiện nói không có', async () => withPage(async ({ page }) => {
+  await page.locator('.ov-risk.r-ok').waitFor();
   assert.equal(await page.locator('.ov-risk').innerText(), 'Không quá hạn', 'DASH-05 (4): cùng chữ DashboardModel.RISK.ok');
-  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
+  assert.equal(await page.locator('.ov-keyfact').nth(3).locator('b').innerText(), 'Không có');
+  assert.equal(await page.locator('.ov-keyfact.late').count(), 0);
 }, world => {
   debtor(world);
-  Object.assign(world.debt.customers[0], { overdue_vnd: '0', long_overdue_vnd: '0', tiers_vnd: [M(50), M(200), '0', '0', '0'], risk: 'ok' });
+  Object.assign(world.debt.customers[0], { overdue_vnd: '0', long_overdue_vnd: '0', tiers_vnd: [M(50), M(200), '0', '0', '0'], risk: 'ok', months: [{ month: '2026-10-01', outstanding_vnd: M(200) }, { month: '2026-11-01', outstanding_vnd: M(50) }] });
 }));
 
-test('Hứa trả đang chờ hiện việc tiếp theo, không ghi tiền', async () => withPage(async ({ page, world }) => {
-  await page.locator('.ov-next-main strong', { hasText: 'Chờ hứa trả' }).waitFor();
-  assert.deepEqual(await actions(page), [['Xem Trao đổi', false]]);
-  assert.match(await page.locator('.ov-next').innerText(), /44.400.000 đ · hẹn 20\/11\/2026/);
-  await page.locator('.ov-next-actions .tab-go').first().click();
+test('Hứa trả đang chờ đứng đầu Tiền về; nút chi tiết sang Trao đổi, tiêu điểm về thẻ đó; không ghi tiền', async () => withPage(async ({ page, world }) => {
+  const first = page.locator('.ov-event-row.mark').first();
+  await first.waitFor();
+  assert.equal(await page.locator('.ov-activity li').first().locator('.ov-event-row').getAttribute('data-ui'), 'event:mark:mark-1');
+  assert.match((await first.innerText()).replace(/\s+/g, ' '), /Hứa trả 44\.400\.000 đ hẹn 20\/11\/2026 · đang chờ/);
+  await first.click();
+  await page.locator('.ov-event-detail .tab-go').click();
   assert.equal((await state(page))[0], 'trao-doi');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'tab-trao-doi');
   assert.equal(world.requests.length, 0);
 }, world => {
   debtor(world);
@@ -165,50 +156,32 @@ test('Lỗi Tổng quan không đổi số sổ; thử lại đọc được cơ
   await page.locator('.ov-part').first().waitFor();
 }, debtor));
 
-// CI 3/11/2026: hứa trả về sau khi người dùng đã Tab tới nút sang thẻ khác (data-the) — vẽ lại thẻ không được làm rơi tiêu điểm.
-test('Nguồn phụ về sau thì tiêu điểm vẫn ở nút sang thẻ khác', async () => withPage(async ({ page }) => {
-  await ready(page);
-  let release;
-  const held = new Promise(resolve => { release = resolve; });
-  await page.route(/\/api\/v7\/marks\?/, async route => { await held; await route.continue(); }, { times: 1 });
-  await reload(page);
-  const go = page.locator('#the-tinh-hinh .tab-go').last();
-  await go.waitFor();
-  await go.focus();
-  const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
-  release();
-  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
-  assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
-}, debtor));
-
-// CI 3/11/2026 lần 2: loại phụ phí (hay danh sách khách) về sau thì cả sổ vẽ lại (renderSnapshot), không chỉ khung Tình hình.
-// Nút sang Trao đổi vẫn giữ tiêu điểm.
-test('Cả sổ vẽ lại thì tiêu điểm vẫn ở nút sang thẻ khác', async () => withPage(async ({ page }) => {
-  await ready(page);
-  let release;
-  const held = new Promise(resolve => { release = resolve; });
-  await page.route(/\/api\/v7\/fee-types$/, async route => { await held; await route.continue(); }, { times: 1 });
-  await reload(page);
-  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
-  const go = page.locator('#the-tinh-hinh .tab-go[data-the="trao-doi"]').last();
-  await go.focus();
-  const old = await go.elementHandle();
-  const before = await go.evaluate(node => [node.dataset.the, node.innerText]);
-  release();
-  await page.waitForFunction(node => !node.isConnected, old);
-  assert.deepEqual(await page.evaluate(() => [document.activeElement.dataset.the, document.activeElement.innerText]), before);
-}, debtor));
-
-test('Không đọc được hứa trả thì không tự quyết định việc tiếp theo', async () => withPage(async ({ page }) => {
+test('Không đọc được hứa trả: báo tại khối Tiền về, tiền vẫn hiện; Thử lại đọc được', async () => withPage(async ({ page }) => {
   await ready(page);
   await page.route(/\/api\/v7\/marks\?/, route => route.abort(), { times: 1 });
   await reload(page);
-  const error = page.locator('.ov-next .ov-error');
+  const error = page.locator('.ov-activity .ov-error');
   await error.waitFor();
-  assert.equal(await page.locator('.ov-next-main strong').innerText(), 'Chưa xác định việc tiếp theo');
   assert.match(await error.innerText(), /Không tải được hứa trả/);
+  assert.equal(await page.locator('.ov-total').innerText(), '491.000.000 đ');
   await error.locator('button').click();
-  await page.locator('.ov-next-main strong', { hasText: 'Liên hệ khách' }).waitFor();
+  await error.waitFor({ state: 'detached' });
+}, debtor));
+
+// TINH-HINH-01: câu hỏi của sếp phải trả lời được trong màn đầu, cả khi có dòng Chưa tính, cả font rộng hơn của CI.
+test('Khung 1265×560: dải nợ, bốn dữ kiện, hình và Tiền về nằm trong màn', async () => withPage(async ({ page }) => {
+  await ready(page);
+  await page.setViewportSize({ width: 1265, height: 560 });
+  for (const font of [null, 'Verdana, "DejaVu Sans", sans-serif']) {
+    if (font) await page.addStyleTag({ content: `#the-tinh-hinh, #the-tinh-hinh * { font-family: ${font} !important; }` });
+    // Băng "Dữ liệu thử" chỉ có trên máy chủ giả: trừ ra để đo đúng như màn thật, đầu trang kết thúc ở 52px.
+    const bottoms = await page.evaluate(() => {
+      const banner = document.querySelector('.book-head').getBoundingClientRect().bottom - 52;
+      return Object.fromEntries(['.ov-hero', '.ov-keyfacts', '#ov-chart', '.ov-activity ol'].map(selector => [selector, Math.round(document.querySelector(selector).getBoundingClientRect().bottom - banner)]));
+    });
+    for (const [selector, bottom] of Object.entries(bottoms)) assert.ok(bottom <= 560, `${selector} tràn mép màn, font ${font ?? 'mặc định'}: ${JSON.stringify(bottoms)}`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
+  }
 }, debtor));
 
 test('Tình hình trên màn hẹp không cuộn ngang', async () => withPage(async ({ page }) => {
