@@ -100,15 +100,16 @@ button.today-card[aria-pressed="true"]{border-color:var(--blue)}
 .thu .c-go{width:30px;padding:0}
 .by-day .c-who{width:40%}
 
-.group-head th,.group-head td{height:36px;padding:0 14px;background:#f7f9fb;border-top:1px solid #d7dce3;border-bottom:1px solid #eef0f3;font-weight:700;text-align:left}
+/* Nền nhóm đậm hẳn so với dòng trắng và đường kẻ thấy rõ (góp ý 6/11/2026): nhìn lướt vẫn tách được từng ngày, từng dòng. */
+.group-head th,.group-head td{height:36px;padding:0 14px;background:#e3ecf5;border-top:1px solid #b4c3d3;border-bottom:1px solid #b4c3d3;font-weight:700;text-align:left}
 .group-head td.num{text-align:right}
-.group-head small{margin-left:6px;font-size:13px;font-weight:400;color:var(--ink-l)}
+.group-head small{margin-left:6px;font-size:13px;font-weight:400;color:var(--ink-m)}
 .group-head[id]{scroll-margin-top:36px}
 .undated-head th,.undated-head td{background:#fdf0d8;border-color:#f1dfb8;color:var(--amber)}
 .undated-head small{color:var(--amber)}
 .group-head .hint{font-size:13px;font-weight:400}
 .pay{position:relative}
-.pay td,.idle td{height:44px;padding:0 14px;border-bottom:1px solid #eef0f3}
+.pay td,.idle td{height:44px;padding:0 14px;border-bottom:1px solid #d7dce3}
 .pay:hover td,.pay.open td{background:#f2f6fb}
 .day-pick{min-height:36px;padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:700;cursor:pointer}
 .day-pick:hover{text-decoration:underline}

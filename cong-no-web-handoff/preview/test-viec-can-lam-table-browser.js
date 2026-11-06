@@ -534,6 +534,90 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.deepEqual(undoPosts[1].body.command_keys, [sha]); assert.equal(undoPosts[1].body.expected_version, 4);
     });
   });
+  // Giữ các request API tới khi gọi release(): thấy đúng màn trong lúc đang tải.
+  const holdApi = async (page, pattern) => {
+    let release = () => {};
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route(pattern, async route => { await gate; await route.continue(); });
+    return release;
+  };
+  const inboxOrDash = /\/api\/v7\/(inbox|dashboard|dashboard\/debt|customers)$/;
+  test('vào lại trang: thấy bảng ngay từ bản gần nhất của tab, nút ghi khóa tới khi có bản mới', async () => {
+    await withPage({ dashboard: emptyDash }, async page => {
+      await page.locator('.work-row').first().waitFor();
+      const rows = await page.locator('.work-row').count();
+      const release = await holdApi(page, inboxOrDash);
+      await page.reload();
+      await page.locator('.refreshing').waitFor();
+      assert.equal(await page.locator('.work-row').count(), rows, 'bảng hiện ngay khi API chưa trả lời');
+      assert.equal(await page.locator('.loading').count(), 0, 'không còn dòng Đang tải');
+      assert.equal(await page.locator('[data-pick-ready]').isDisabled(), true, 'bản cũ không chọn ghi được');
+      assert.equal(await page.locator('[data-pick]').first().isDisabled(), true);
+      assert.equal(await page.locator('[data-open-book]').first().isDisabled(), false, 'vẫn mở xem được');
+      release();
+      await page.locator('.refreshing').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('[data-pick-ready]').isDisabled(), false, 'có bản mới thì ghi được');
+      assert.equal(await page.locator('.work-row').count(), rows);
+    });
+  });
+  test('vào lại trang mà không đọc được bản mới: bỏ bản cũ, báo lỗi, không giả làm số hiện tại', async () => {
+    const drop = new Set();
+    await withPage({ drop, dashboard: emptyDash }, async page => {
+      await page.locator('.work-row').first().waitFor();
+      drop.add('/api/v7/inbox');
+      await page.reload();
+      await page.locator('.inbox-error').waitFor();
+      assert.equal(await page.locator('.refreshing').count(), 0);
+      assert.match(await page.locator('.band-count').innerText(), /Chưa đủ dữ liệu/);
+    });
+  });
+  test('bản lưu hỏng hay quá 8 tiếng thì đợi tải như thường', async () => {
+    await withPage({ dashboard: emptyDash }, async page => {
+      await page.locator('.work-row').first().waitFor();
+      for (const change of ['saved.at -= 9 * 3600000', 'saved.inbox = { books: 5 }']) {
+        await page.evaluate(code => {
+          const saved = JSON.parse(sessionStorage.getItem('webdebit.todoSnapshot.v1'));
+          new Function('saved', code)(saved);
+          sessionStorage.setItem('webdebit.todoSnapshot.v1', JSON.stringify(saved));
+        }, change);
+        const release = await holdApi(page, inboxOrDash);
+        await page.reload();
+        await page.locator('.loading').waitFor();
+        assert.equal(await page.locator('.work-row').count(), 0, change);
+        release();
+        await page.locator('.work-row').first().waitFor();
+        await page.unroute(inboxOrDash);
+      }
+    });
+  });
+  test('lần mở đầu: chờ đủ hai nguồn, không chớp "Chưa đủ dữ liệu", ba nguồn số liệu đọc cùng lúc', async () => {
+    await withPage({ dashboard: emptyDash }, async page => {
+      await page.locator('.work-row').first().waitFor();
+      await page.evaluate(() => sessionStorage.clear());
+      const started = [];
+      page.on('request', request => { if (/\/api\/v7\/(dashboard|dashboard\/debt|customers)$/.test(request.url())) started.push(new URL(request.url()).pathname); });
+      const release = await holdApi(page, /\/api\/v7\/dashboard$/);
+      await page.reload();
+      await page.waitForResponse(/\/api\/v7\/inbox$/);
+      await page.waitForFunction(() => document.querySelector('.loading'));
+      assert.equal(await page.locator('.band-count').count(), 0, 'việc từ Sheet đã về nhưng số Tổng quan chưa về thì chưa vẽ');
+      assert.deepEqual(started.sort(), ['/api/v7/customers', '/api/v7/dashboard', '/api/v7/dashboard/debt'], 'không chờ dashboard xong mới đọc hai nguồn kia');
+      release();
+      await page.locator('.work-row').first().waitFor();
+      assert.equal(await page.locator('.loading').count(), 0);
+    });
+  });
+  test('trang khác đọc số đếm cho menu đã để sẵn bản gần nhất: lần đầu bấm sang Việc cần làm cũng thấy bảng ngay', async () => {
+    await withPage({ dashboard: emptyDash }, async page => {
+      await page.evaluate(() => sessionStorage.clear());
+      await page.goto(`${page.url().replace(/\/[^/]*$/, '')}/doi-no.html`);
+      await page.waitForFunction(() => sessionStorage.getItem('webdebit.todoSnapshot.v1'));
+      await holdApi(page, inboxOrDash);
+      await page.goto(`${page.url().replace(/\/[^/]*$/, '')}/viec-can-lam.html`);
+      await page.locator('.refreshing').waitFor();
+      assert.ok(await page.locator('.work-row').count() > 0, 'có bảng khi API chưa trả lời');
+    });
+  });
   test('lỗi nguồn/đang tính/thiếu baseline không kết luận hết việc; retry tải được', async () => {
     const drop = new Set(['/api/v7/inbox']);
     await withPage({ drop, dashboard: emptyDash }, async page => {

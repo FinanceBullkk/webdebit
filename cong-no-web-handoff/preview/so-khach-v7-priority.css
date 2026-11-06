@@ -68,7 +68,7 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}
-.pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}.pay-list col:nth-child(4){width:1%!important}
+.pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}
 .pay-list td.receipt{ text-align:right }.pay-list td:first-child,.pay-list td:nth-child(2){text-align:left}
 .trip-tools #live-controls{display:none}.trip-tools #live-controls:has(.sheet-error,.sheet-busy){display:flex}
 .trip-tools #live-controls #refresh-data{display:none}
@@ -114,11 +114,15 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .sheet-removed-content .sheet-removed-tag{font-size:14px;font-weight:400}
 .sheet-removed-content .sheet-removed-actions{flex-wrap:wrap;margin:0;gap:8px}
 .sheet-removed-content button{white-space:nowrap;min-height:32px}
-.month-stats{grid-template-rows:34px 34px 34px minmax(48px,auto)}
-.month-stats .month-end{flex-wrap:wrap;white-space:nowrap;gap:0 12px}
-.month-stats .month-end b{margin-left:auto}
+/* Còn nợ cuối tháng: nhãn và số cùng một hàng như ba dòng trên, không bẻ số xuống dòng dưới (góp ý 6/11/2026). Cột 420px đủ cho số hàng chục tỷ; thiếu chỗ thật mới xuống dòng. */
+.month-stats{flex-basis:420px;grid-template-rows:34px 34px 34px minmax(48px,auto)}
+.month-stats .month-end{flex-wrap:wrap;white-space:nowrap;gap:0 12px;font-size:14px}
+.month-stats .month-end b{margin-left:auto;font-size:20px}
 /* Cột Trừ nợ: mỗi tháng một dòng, tháng và số không bị bẻ đôi; các ô trong hàng thẳng theo dòng đầu. Cột co theo nội dung, tham chiếu dùng phần còn lại. */
+/* Khối phiếu ôm theo nội dung (góp ý 6/11/2026): ghi chú, trừ nợ và số tiền đứng gần nhau, mắt không phải đi qua khoảng trống; nút Ghi phiếu thu thẳng mép phải danh sách. */
+.pay-block{width:fit-content;min-width:min(640px,100%);max-width:100%}
 .pay-block .pay-list{table-layout:auto}
+.pay-list tr.pay-row td.pay-reference{padding-right:24px}
 .pay-list .receipt-allocation{display:inline-flex;align-items:baseline;gap:8px;line-height:18px;white-space:nowrap;text-align:left}
 .alloc-lines{display:grid;grid-template-columns:max-content max-content;gap:0 8px}.alloc-line{display:contents}.alloc-sum{text-align:right;font-variant-numeric:tabular-nums}
 .pay-list tr.pay-row td{height:33px;vertical-align:baseline;line-height:18px;padding-top:7px;padding-bottom:5px}
@@ -127,3 +131,20 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .pay-list td.num:not(.receipt){text-align:right;padding-right:36px;font-variant-numeric:tabular-nums}
 /* Tham chiếu dài xuống dòng thay vì "…": dấu "ngày tượng trưng" đứng cuối chữ, cắt mất thì ngày máy đặt trông như ngày tiền về. */
 .pay-list tr.pay-row td.pay-reference{white-space:normal;overflow-wrap:anywhere}
+
+/* Trang chọn khách (chưa mở sổ, góp ý 6/11/2026): đầu trang 52px như các thẻ của sổ, một ô tìm lớn, mọi sổ theo nhóm mặt hàng. Danh sách tự cuộn để ô tìm luôn thấy trên màn 1280×560. */
+.picker-head{display:flex;align-items:baseline;gap:12px;box-sizing:border-box;height:var(--head);margin:0 -16px;padding:13px 28px 0;background:#fff;border-bottom:1px solid #e3e7ec}
+.picker-head h1{margin:0;font-size:18px;font-weight:700;color:#1a1a19}.picker-head p{margin:0;font-size:14px;color:#52514e}
+body.picker-home #live-controls,body.picker-home .dashboard-link{display:none}
+body.picker-home #customer-picker{display:grid;grid-template-columns:auto minmax(0,520px) minmax(0,1fr);align-items:center;gap:12px;padding:12px 12px 0;background:none;border:0}
+body.picker-home #customer-picker label{font-size:15px;font-weight:700}
+body.picker-home #customer-search{box-sizing:border-box;width:100%;min-width:0;height:44px;margin:0;padding:0 14px;border:2px solid #2a78d6;border-radius:8px;background:#fff;color:#1a1a19;font-size:16px}
+body.picker-home #customer-search:focus{outline:2px solid #2a78d6;outline-offset:1px}
+body.picker-home #customer-count{color:#52514e;font-size:14px}
+body.picker-home #customer-list{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));align-content:start;box-sizing:border-box;max-width:none;max-height:calc(100vh - var(--banner,0px) - var(--head) - 94px);margin:0;overflow-y:auto;background:#fff;border:1px solid #d7dce3;border-radius:10px}
+body.picker-home #customer-list:empty{display:none}
+body.picker-home #customer-list .customer-group{grid-column:1/-1;position:static;padding:7px 14px;background:#e3ecf5;border-bottom:1px solid #c6d4e2;font-size:14px}
+body.picker-home #customer-list a{display:flex;align-items:center;box-sizing:border-box;min-height:40px;padding:6px 14px;border-bottom:1px solid #eef0f3;color:#1a1a19;line-height:1.3;overflow-wrap:anywhere}
+/* Đang gõ: tô dòng đầu, là dòng Enter sẽ mở. */
+body.picker-home #customer-search:not(:placeholder-shown)~#customer-list a:first-of-type{background:#eaf2fc;font-weight:600}
+@media(max-width:700px){body.picker-home #customer-picker{grid-template-columns:minmax(0,1fr)}body.picker-home #customer-list{max-height:none}}

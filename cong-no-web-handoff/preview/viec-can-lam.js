@@ -23,13 +23,21 @@
     return response.json();
   };
 
+  // Danh sách khách dùng chung cho hai lượt đọc đang chạy cùng lúc (số Tổng quan và việc từ Sheet): chỉ một request.
+  let customersRead = null;
+  const readCustomers = () => (customersRead ??= json('/api/v7/customers').then(body => body.customers ?? []).finally(() => { customersRead = null; }));
+
   async function load() {
     if (loading || inbox.busy || inbox.review || inbox.action) return;
     loading = true;
     try {
-      const response = await fetch('/api/v7/dashboard', { cache: 'no-store' });
-      if (!response.ok) throw Error('Không tải được việc cần làm.');
-      const data = await response.json();
+      // Đọc cùng lúc ba nguồn: đọc nối tiếp làm mở trang chậm thêm thời gian của /dashboard (0,25 giây trên hao).
+      // Sổ cần gán mặt hàng lấy từ danh sách khách đang nợ của Tổng quan; danh sách nào lỗi thì chỉ bỏ nhóm đó.
+      const [data, customers, debt] = await Promise.all([
+        json('/api/v7/dashboard'),
+        readCustomers().catch(() => null),
+        json('/api/v7/dashboard/debt').catch(() => null),
+      ]);
       const [year, month, day] = data.as_of.split('-');
       document.querySelector('#as-of').textContent = `Số liệu đến ${day}/${month}/${year}`;
       const banner = document.querySelector('#demo-banner');
@@ -37,16 +45,12 @@
         banner.hidden = false;
         banner.textContent = data.real_copy ? 'Dữ liệu thật · bản sao cô lập, chưa phải prod' : 'Dữ liệu thử · DỮ LIỆU GIẢ · Không phải sổ thật';
       }
-      // Sổ cần gán mặt hàng lấy từ danh sách khách đang nợ của Tổng quan; lỗi thì chỉ bỏ nhóm đó.
-      const [customers, debt] = await Promise.all([
-        json('/api/v7/customers').then(body => body.customers ?? []).catch(() => null),
-        json('/api/v7/dashboard/debt').catch(() => null),
-      ]);
       unsorted = debt ? (debt.customers ?? []).filter(row => M.commodityKey(row.commodity, row.transport_mode) === M.UNSORTED)
         .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity })) : null;
       dashboard = data;
-      root.replaceChildren();
+      firstLoadDone = true;
       if (customers) { currentCustomers = customers; globalThis.AppNav?.setCustomers(customers); }
+      markFresh('dashboard');
       paintInbox();
       document.querySelector('#error').hidden = true;
       markUpdated();
@@ -61,6 +65,10 @@
       // Audit UX 31/10/2026 (P1-6): một câu tiếng Việt "chuyện gì · cần làm gì" và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
       alert.innerHTML = `${esc(F.loadError('việc cần làm'))} <button type="button" class="btn" data-retry>Thử lại</button>`;
       root.replaceChildren();
+      // Không đọc được bản mới thì không để bản cũ giả làm số hiện tại.
+      if (inbox.stale) { dashboard = null; unsorted = null; inbox.stale = false; }
+      firstLoadDone = true;
+      paintInbox();
     } finally { loading = false; }
   }
 
@@ -77,13 +85,25 @@
   // Tự tải lại chạy nền mỗi 60 giây và mỗi lần quay lại tab: dữ liệu không đổi thì không đụng DOM, để người đang làm không mất
   // ô đang gõ, danh sách đang mở hay cú bấm rơi đúng lúc thay DOM.
   let paintedHtml = null;
+  // Lần mở đầu chờ đủ cả hai bên (số Tổng quan và việc từ Sheet) rồi mới vẽ, để không chớp "Chưa đủ dữ liệu" trong lúc đang tải.
+  let firstLoadDone = false;
+  const fresh = { dashboard: false, inbox: false };
+  function markFresh(part) {
+    fresh[part] = true;
+    if (fresh.dashboard && fresh.inbox) inbox.stale = false;
+    if (!inbox.stale) globalThis.AppNav?.saveTodoSnapshot({ inbox: inbox.data, dashboard, unsorted, customers: currentCustomers });
+  }
+  // Đang hiện bản cũ của tab: xem được, mở dòng được; mọi nút ghi khóa tới khi có bản mới (thường dưới 1 giây).
+  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched'];
   function paintInbox() {
+    if (!firstLoadDone || inbox.data === undefined) return;
     const html = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, showReconcile: inbox.showReconcile, showMatched: inbox.showMatched, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
+      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, showReconcile: inbox.showReconcile, showMatched: inbox.showMatched, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
     });
+    root.replaceChildren();
     globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
     const sheetAt = inbox.data?.sheet_at;
     document.querySelector('#sheet-clock').textContent = sheetAt ? new Date(sheetAt).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -98,6 +118,7 @@
     for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
+    if (inbox.stale) for (const control of inboxRoot.querySelectorAll('button,input,select')) if (!VIEW_ONLY.some(attr => control.hasAttribute(attr))) control.disabled = true;
     if (focusAttr) {
       const again = inboxRoot.querySelector(`[${focusAttr}="${CSS.escape(focusValue)}"]:not(:disabled)`);
       again?.focus({ preventScroll: true });
@@ -113,7 +134,7 @@
     clearTimeout(inboxTimer);
     try {
       const [data, customers] = await Promise.all([json('/api/v7/inbox'),
-        currentCustomers.length ? currentCustomers : json('/api/v7/customers').then(body => body.customers ?? []).catch(() => [])]);
+        currentCustomers.length ? currentCustomers : readCustomers().catch(() => [])]);
       inbox.data = data;
       if (!currentCustomers.length) currentCustomers = customers;
       // Bỏ chọn sổ không còn ghi được (đã ghi xong, phiếu đổi sang cần xem…).
@@ -122,7 +143,8 @@
       for (const id of inbox.selectedPrices) if (!data.books?.some(b => b.customer_id === id && b.prices.ready)) inbox.selectedPrices.delete(id);
       // Sổ đang đóng mở lại thì đọc mới; sổ đang mở giữ bản đang hiện tới khi refreshDetail có bản mới.
       for (const id of inbox.details.keys()) if (id !== inbox.open) inbox.details.delete(id);
-    } catch { inbox.data = null; }
+      markFresh('inbox');
+    } catch { inbox.data = null; inbox.stale = false; }
     paintInbox();
     if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
@@ -577,6 +599,25 @@
     inboxRoot.querySelector('[data-review]')?.focus();
   });
 
+  // Có bản gần nhất của tab thì vẽ ngay, rồi đọc lại như thường: lần vào trang không còn phải ngồi đợi.
+  function showSnapshot(saved) {
+    if (!saved?.inbox || !saved.dashboard || !Array.isArray(saved.unsorted) || !Array.isArray(saved.customers)) return;
+    try {
+      Object.assign(inbox, { data: saved.inbox, stale: true });
+      dashboard = saved.dashboard;
+      unsorted = saved.unsorted;
+      currentCustomers = saved.customers;
+      firstLoadDone = true;
+      globalThis.AppNav?.setCustomers(saved.customers);
+      paintInbox();
+    } catch {
+      // Bản lưu từ phiên bản web cũ không vẽ được: quay về đợi tải như thường.
+      Object.assign(inbox, { data: undefined, stale: false });
+      dashboard = null; unsorted = null; currentCustomers = []; firstLoadDone = false; paintedHtml = null;
+      inboxRoot.replaceChildren();
+    }
+  }
+  showSnapshot(globalThis.AppNav?.readTodoSnapshot());
   load();
   loadInbox();
   const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); sheetRefresh?.load(); };

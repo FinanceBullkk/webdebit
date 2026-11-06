@@ -95,6 +95,18 @@ const byMonth = month => (month === '2026-07-01' ? july() : month === '2026-10-0
 const clean = text => text.replace(/\s+/g, ' ').trim();
 const cells = async row => (await row.locator('td').allInnerTexts()).map(clean);
 
+test('Bảng thu: dòng tiêu đề nhóm và đường kẻ tách rõ khỏi dòng trắng', () => withPage({ book: byMonth }, async page => {
+  await page.locator('tr.pay').first().waitFor();
+  const look = await page.evaluate(() => {
+    const dark = text => text.match(/\d+/g).slice(0, 3).reduce((sum, part) => sum + 255 - Number(part), 0);
+    const head = getComputedStyle(document.querySelector('.group-head th')), row = getComputedStyle(document.querySelector('tr.pay td'));
+    return { head: dark(head.backgroundColor), headLine: dark(head.borderTopColor), rowLine: dark(row.borderBottomColor) };
+  });
+  assert.ok(look.head >= 50, `nền nhóm khác hẳn dòng trắng: ${look.head}`);
+  assert.ok(look.headLine >= 150, `đường kẻ nhóm thấy rõ: ${look.headLine}`);
+  assert.ok(look.rowLine >= 90, `đường kẻ dòng thấy rõ: ${look.rowLine}`);
+}));
+
 test('Bảng thu: hôm nay, tháng này, gom theo ngày, mới nhất trên cùng, tổng từng ngày', () => withPage({ book: byMonth }, async page => {
   await page.locator('tr.pay').first().waitFor();
   assert.equal(await page.locator('nav a.active').innerText(), 'Bảng thu');
