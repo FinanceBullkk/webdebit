@@ -41,11 +41,6 @@ test('Bấm thẻ: địa chỉ đổi, trang không tải lại, không thêm l
     await page.locator(`#tab-${tab}`).click();
     assert.deepEqual(await state(page), { selected: [tab], shown: [`the-${tab}`], search });
   }
-  // Nút trong một thẻ đưa sang thẻ khác (Tình hình → Trao đổi): tiêu điểm về thẻ đó trên thanh.
-  await page.locator('#tab-tinh-hinh').click();
-  await page.locator('#the-tinh-hinh .ov-next-actions .tab-go').first().click();
-  assert.deepEqual((await state(page)).selected, ['trao-doi']);
-  assert.equal(await focused(page), 'tab-trao-doi');
   await page.locator('#tab-so').click();
   assert.deepEqual(await page.evaluate(() => [window.sameDocument, history.length]), [true, before]);
   assert.equal(world.reads, reads, 'đổi thẻ không đọc lại sổ');
@@ -80,7 +75,7 @@ test('Bàn phím: Tab tới thanh thẻ, mũi tên trái/phải chuyển thẻ, 
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement.matches('.page-more>summary')), true, 'Tab rời thanh thẻ tới nút ⋯ (có ở mọi thẻ)');
   await page.keyboard.press('Tab');
-  assert.equal(await focused(page), 'tab-go', 'rồi tới hành động trong Tình hình');
+  assert.equal(await page.evaluate(() => Boolean(document.activeElement.closest('#the-tinh-hinh'))), true, 'rồi tới hành động trong Tình hình');
   const small = await page.evaluate(() => [...document.querySelectorAll('.book-head :is(a,button)')].map(node => [node.id || node.className, node.getBoundingClientRect()])
     .filter(([, box]) => box.height > 0 && (box.height < 40 || box.width < 40)).map(([name, box]) => `${name} ${box.width}×${box.height}`));
   assert.deepEqual(small, []);

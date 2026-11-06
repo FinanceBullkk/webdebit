@@ -35,18 +35,16 @@ Dữ liệu: tất cả tính trên trang từ `days[].rows`, `customers[]`, `un
 
 ## Thẻ Tình hình
 
+Sửa theo [`TINH-HINH-01`](../docs/decisions/tinh-hinh-01.md) (6/11/2026): bỏ đổi hình, cột nhỏ Đi hàng, khung dữ kiện của nhãn rủi ro, khung việc cần xem và tab lọc Hoạt động.
+
 | Thao tác | Kết quả |
 | --- | --- |
 | Quá hạn, Đến hạn, Chưa đến hạn, hoặc đoạn trên thanh màu | Mở khung ngay dưới: từng tháng nợ, số còn nợ, số ngày quá hạn hoặc còn lại tới hạn. Bấm dòng thì sang thẻ Sổ tháng đó. Một lúc một khung, có nút Đóng. |
-| Nhãn rủi ro | Cùng khung: quá hạn lâu nhất, trả gần nhất, đi hàng gần nhất. Không có câu kết luận. |
-| `+N việc cần xem` | Cùng khung: từng loại việc, câu "Còn nợ ở trên chưa tính các dòng này", nút mở ở Sổ. |
-| Thẻ Doanh thu, Đi hàng | Đổi hình bên dưới sang phát sinh hoặc số chuyến, ghi số trên từng cột, đưa hình vào màn. Bấm lại hoặc "Về Còn nợ" để trở về. |
-| Cột nhỏ của Đi hàng | Ghim tháng đó. |
+| Mục ở dòng "Còn nợ chưa tính" | Sang thẻ Sổ đúng chỗ (`loc=`). |
 | Rê hoặc Tab tới một tháng trên hình | Bong bóng bốn số: phát sinh, đã thu, còn nợ cuối tháng, chuyến. |
-| Bấm một tháng | Ghim: tô cột, dải số của tháng, nút "Mở sổ T9", nút bỏ. Hoạt động chỉ còn tháng đó, có chip `T9 ✕`. Bấm lại để bỏ. |
-| Tab Tất cả, Thu, Chuyến, Trao đổi | Lọc Hoạt động, kèm số đếm theo tháng đang ghim. |
-| Bấm một dòng Hoạt động | Mở chi tiết: container và tiền từng chuyến, phần trừ nợ của phiếu, số tiền và ngày hẹn. Nút mở Sổ tháng đó hoặc thẻ Trao đổi. |
-| Rê dòng Hoạt động | Tháng của dòng sáng trên hình. |
+| Bấm một tháng | Ghim: tô cột, dải số của tháng, nút "Mở sổ T9", nút bỏ. Tiền về và hứa trả chỉ còn tháng đó, có chip `T9 ✕`. Bấm lại để bỏ. |
+| Bấm một dòng Tiền về và hứa trả | Mở chi tiết: phần trừ nợ của phiếu, số tiền và ngày hẹn. Nút mở Sổ tháng đó hoặc thẻ Trao đổi. |
+| Rê dòng Tiền về và hứa trả | Tháng của dòng sáng trên hình. |
 | Xem thêm | Thêm 10 dòng ngay trong khối. |
 
 Trạng thái: chưa đọc được Tổng quan thì nhãn và ba số giữ cách báo cũ, không có khung. Tháng không có dòng không bấm được, không thành 0. Khách trả trước không có nhãn và khung. Lọc không còn gì thì ghi "Không có … trong T9". Vẽ lại do nguồn phụ về sau hoặc khi ghi sổ không làm mất tháng đang ghim hay tiêu điểm; đổi khách thì bỏ hết. Bốn phần trên không gọi thêm API.
@@ -61,7 +59,7 @@ Dữ liệu:
 | Chuyến mỗi tháng | `trips` + `legacy_rows` | Cùng cách đếm thẻ Đi hàng đang có. |
 | Hoạt động | `receipts`, `trips`, `legacy_rows`, dấu Zalo, hội thoại Zalo | Thêm dòng sổ gốc. Dòng chưa sửa có thể không có `current` (khoản thu sổ gốc luôn vậy): số ở `source_total_vnd`, chữ ở `display`. Khoản thu sổ gốc thường không có ngày: ghi tháng của khối, xếp ở cuối tháng đó (cùng cách `pay_last` của `get_dashboard_debt`), không đoán ngày. |
 
-Trễ trung bình sau hạn giữ `—`, không bấm được, chờ B1.
+Trễ trung bình sau hạn đã bỏ khỏi thẻ ([`TINH-HINH-01`](../docs/decisions/tinh-hinh-01.md)), trở lại khi có B1.
 
 ## Kiểm
 

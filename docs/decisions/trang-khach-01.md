@@ -39,6 +39,10 @@ Người dùng lấy đúng phương án Claude đề xuất cho tám câu:
 
 Người dùng chốt trong chat ("Ẩn luôn"): thẻ Tình hình và Trao đổi không còn nút hay dòng lịch sử nhắc nợ; chi tiết ở [`NHAC-NO-01`](nhac-no-01.md). Khi quá hạn, việc tiếp theo là "Liên hệ khách". Các mục dưới đây nói về Copy tin nhắc là lịch sử của bản trước.
 
+## Sửa đổi 6/11/2026: thẻ Tình hình
+
+[`TINH-HINH-01`](tinh-hinh-01.md) đổi thẻ Tình hình thành bản đọc để quyết cho sếp: bỏ Việc tiếp theo và ba thẻ chỉ số; "lần cuối nói chuyện với khách" chỉ còn ở thẻ Trao đổi. Kiến trúc bốn thẻ và K1–K8 giữ nguyên.
+
 ## Hiệu lực và giới hạn
 
 ĐÃ CHỐT. **PR A1 (vỏ trang khách) đã code** ngày 1/11/2026: đầu trang có thanh bốn thẻ, tham số `the=`, K2; ba thẻ ngoài Sổ hiện câu "đang làm" tới PR A2, A3. Kiểm trên máy chủ giả (spec, mục Bằng chứng); đã lên `hao` cùng ngày (FinanceBullkk/webdebit#235). **PR A2 (thẻ Tình hình) đã code** ngày 1/11/2026: khối 1, 2, 4, 5 và phần A của khối 6, chỉ đọc API có sẵn; kiểm trên máy chủ giả; đã lên `hao` cùng ngày (FinanceBullkk/webdebit#236). **PR A3 (thẻ Trao đổi và Hồ sơ) đã code** ngày 1/11/2026: dòng thời gian phiếu thu, cấn trừ, lần nhắc, hội thoại Zalo tìm theo tên; Copy tin nhắc cùng tin và cùng lệnh với Đòi nợ; giá đang áp, cột phụ phí, ảnh chứng từ, hạn trả; tin Zalo gần nhất ở khối 6 của thẻ Tình hình. Chỉ đọc API có sẵn, không đổi DB; kiểm trên máy chủ giả; đã lên `hao` cùng ngày (FinanceBullkk/webdebit#237). **PR A4 (đường vào) đã code** ngày 1/11/2026: ngăn kéo Tổng quan có nút "Trang khách" mở thẻ Tình hình; tên khách ở ma trận mở thẻ Tình hình, ở Đòi nợ mở thẻ Trao đổi; số quá hạn ở Đòi nợ mở Sổ ở tháng nợ cũ nhất, thay cho tên khách; các link khác giữ nguyên. Kiểm trên máy chủ giả. Giai đoạn A đã code xong; giai đoạn B và C chưa code.

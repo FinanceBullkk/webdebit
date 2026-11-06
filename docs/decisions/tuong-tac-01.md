@@ -12,10 +12,14 @@ Khối Thu tháng của Bảng thu và thẻ Tình hình của trang khách dùn
 
 Chi tiết hành vi và trạng thái ở [spec](../../specs/v7-tuong-tac.md). Không đổi số tiền, luật phân bổ, cách tính tháng của [`BANG-THU-01`](bang-thu-01.md) hay luật rủi ro của [`DASH-03`](dash-03.md).
 
+## Sửa đổi 6/11/2026
+
+[`TINH-HINH-01`](tinh-hinh-01.md) đổi bố cục thẻ Tình hình. Hành vi 1 (ghim tháng) giữ nguyên. Bỏ các cách bấm đi cùng khối đã bỏ: thẻ Doanh thu, Đi hàng đổi hình, cột nhỏ Đi hàng, khung dữ kiện của nhãn rủi ro, khung việc cần xem, tab lọc Hoạt động. Hành vi 2, 3 của Bảng thu không đổi.
+
 ## Ngày / nguồn
 
 5/11/2026, chat. Người dùng đưa ảnh hai khối, nói "chưa có interactive", yêu cầu dựng lại bằng Claude Design. Sau khi xem trang Tương tác của canvas, người dùng chọn đủ ba hành vi trên theo đề xuất của Claude. Hướng chung nối tiếp lựa chọn 29/10/2026 cho Tổng quan: lọc tại chỗ có chip ✕, xem nhanh trước khi Mở sổ.
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Triển khai tự động khi merge qua `Deploy hao`. Chỉ đổi trang, không có migration, không ghi tiền. Trễ trung bình sau hạn vẫn hiện `—` và không bấm được cho tới khi có B1 ([`TRANG-KHACH-01`](trang-khach-01.md)). CÒN MỞ: người dùng tự đi hết luồng trên `hao`.
+ĐÃ CHỐT. Triển khai tự động khi merge qua `Deploy hao`. Chỉ đổi trang, không có migration, không ghi tiền. CÒN MỞ: người dùng tự đi hết luồng trên `hao`.
