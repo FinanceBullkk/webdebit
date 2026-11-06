@@ -91,6 +91,13 @@ test('Máy chạy: lượt có ghi hiện trước → sau đúng từng đồng
   assert.ok((await now(page)).includes('máy đã ghi 1 khách'));
 }));
 
+test('Máy chạy: bảng phải xuống dòng, không cắt chữ; tên dài không đè nhãn', () => withPage({}, async page => {
+  await page.locator('.slot.wrote').first().click();
+  await page.locator('#scrub').evaluate(node => { node.value = 1000; node.dispatchEvent(new Event('input')); });
+  const cut = await page.evaluate(() => [...document.querySelectorAll('#cards .card, #cards .why, #log li span')].filter(node => node.scrollWidth > node.clientWidth + 1 || getComputedStyle(node).whiteSpace === 'nowrap').map(node => node.textContent.slice(0, 30)));
+  assert.deepEqual(cut, []);
+}));
+
 test('Máy chạy: lượt cũ chỉ có số đếm thì nói rõ, không dựng thẻ khách giả', () => withPage({}, async page => {
   await page.locator('.day').last().locator('.slot').first().click();
   await page.locator('#scrub').evaluate(node => { node.value = 1000; node.dispatchEvent(new Event('input')); });

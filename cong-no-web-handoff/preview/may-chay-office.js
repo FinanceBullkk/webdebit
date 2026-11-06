@@ -215,7 +215,7 @@ const MayChayOffice = (() => {
       R(320, 10, 84, 28, COL.screen); txt(M.clockOf(clock), 362, 29, { color: '#eaf2fc', weight: 600, size: 15, halo: false });
       if (info.luu.f >= 1 && !view.idleNext) { R(698, 15, 11, 10, '#fff'); R(713, 15, 11, 10, '#fff'); R(728, 15, 11, 10, '#fff'); R(698, 28, 11, 8, '#fff6c9'); }
 
-      const pending = run.customers.length + (run.tooMany ? (run.different ?? 0) : 0) + (run.countsOnly ? Math.max((run.total ?? 0) - (run.khop ?? 0) + run.fixed + run.created, 0) : 0);
+      const pending = Math.max(run.customers.length, run.different ?? 0) + (run.countsOnly ? Math.max((run.total ?? 0) - (run.khop ?? 0) + run.fixed + run.created, 0) : 0);
       const startMatched = Math.max((run.total ?? 0) - pending, 0);
       const soF = info.so.f, extra = run.customers.filter(item => ['FIXED', 'BOOK_CREATED'].includes(item.reason) && t >= item.done).length + (run.countsOnly && over ? run.fixed + run.created : 0);
       const pile = Math.round(soF * 26);
@@ -315,7 +315,7 @@ const MayChayOffice = (() => {
         if (run.tooMany || t < run.stages.so.to) continue;
         let px, py, tone = 'move';
         if (t < run.stages.chot.to) { px = gx; py = gy - 46 - nextRank('gate') * 24; }
-        else if (t < item.decided || !item.wrote) { const rank = nextRank('tim'); if (rank > 1) { overflow('tim', 2, SEATS.tim.x + 36, SEATS.tim.y - 65); continue; } px = SEATS.tim.x - 30 + rank * 112; py = SEATS.tim.y - 41; tone = t >= item.decided ? (item.info.tone === 'bad' ? 'bad' : 'warn') : 'move'; }
+        else if (t < item.decided || !item.wrote) { const rank = nextRank('tim'); if (rank > 1) { overflow('tim', 2, SEATS.tim.x + 36, SEATS.tim.y - 65); continue; } px = SEATS.tim.x + 4 + rank * 112; py = SEATS.tim.y - 41; tone = t >= item.decided ? (item.info.tone === 'bad' ? 'bad' : 'warn') : 'move'; }
         else if (t < item.done) { if (writing === item && walkers.ghi) continue; px = SEATS.ghi.x + nextRank('ghi') * 24; py = SEATS.ghi.y - 41; }
         else if (item.info.tone === 'bad') { px = SEATS.ghi.x; py = SEATS.ghi.y - 41; tone = 'bad'; }
         else { const rank = nextRank('luu'); if (rank > 3) { overflow('luu', 4, SEATS.luu.x, 176 + 4 * 24); continue; } px = SEATS.luu.x; py = 176 + rank * 24; tone = 'ok'; }

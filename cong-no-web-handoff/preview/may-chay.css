@@ -30,7 +30,7 @@
 .mc .who{position:absolute;left:10px;bottom:32px;width:min(340px,calc(100% - 20px));background:var(--surface);border:1.5px solid var(--accent);border-radius:8px;padding:7px 10px;font-size:13px;box-shadow:0 4px 14px #1f293733}
 .mc .who #who-close{float:right;margin-left:8px;min-height:24px;font-size:12px;padding:0 8px}
 .mc .who .tag{float:none;margin-left:4px}
-.mc .money{display:flex;flex-direction:column;min-height:0;overflow:hidden auto;contain:size}
+.mc .mc-side{display:flex;flex-direction:column;min-height:0;overflow:hidden auto;contain:size}
 .mc .tabs{display:flex;gap:2px;padding:5px 8px 0;border-bottom:1px solid var(--line-soft);position:sticky;top:0;background:var(--surface);z-index:1}
 .mc .tabs button{background:transparent;border:0;border-bottom:2px solid transparent;padding:3px 6px 5px;font:inherit;font-size:13.5px;color:var(--ink-2);cursor:pointer}
 .mc .tabs button[aria-pressed="true"]{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
@@ -89,7 +89,7 @@
 .mc .job-running td:last-child{color:var(--accent-ink);font-weight:600}
 @media (max-width:980px){
   .mc-main{grid-template-columns:minmax(0,1fr)}
-  .mc .money{contain:none;overflow:visible}
+  .mc .mc-side{contain:none;overflow:visible}
   .mc .stage-head{flex-wrap:wrap}
   .mc .page.app-page > .page-head.topbar{flex-wrap:wrap;padding:8px 12px}
   .mc .day-name{width:100%;flex-wrap:wrap}
