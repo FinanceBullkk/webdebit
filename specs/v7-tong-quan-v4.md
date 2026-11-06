@@ -33,18 +33,19 @@ Vấn đề của bản đang chạy (v3) và hai bản team đề xuất ngày 
 
 ## Số thật trên `hao` (6/11/2026, chỉ đọc, sau khi người dùng chốt)
 
-Áp quy tắc tình trạng lên `get_dashboard_debt` trong giao dịch chỉ đọc; số khách cộng đủ 69, tiền quá hạn cộng đủ tổng của `summary`. Bản xem giữ 12 khách của bản team đề xuất, nên **tỷ trọng trên bản xem khác hẳn dữ liệu thật**:
+Áp quy tắc tình trạng lên `get_dashboard_debt` trong giao dịch chỉ đọc; số khách cộng đủ 69, tiền quá hạn cộng đủ tổng của `summary`. Bản xem đầu tiên dùng 12 khách của bản team đề xuất nên tỷ trọng khác hẳn (nhóm Vẫn trả, quá hạn ngắn chỉ 2%). Từ 6/11/2026 bản xem dùng dữ liệu giả theo đúng tỷ trọng dưới đây:
 
-| Tình trạng | Khách (thật) | % tiền quá hạn (thật) | Khách (bản xem) | % tiền quá hạn (bản xem) |
-| --- | --- | --- | --- | --- |
-| Vẫn đi hàng, không trả | 3 | 2% | 2 | 21% |
-| Ngừng đi hàng, không trả | 27 | 22% | 5 | 20% |
-| Vẫn trả, còn nợ cũ | 10 | 28% | 3 | 57% |
-| Vẫn trả, quá hạn ngắn | 12 | 48% | 1 | 2% |
-| Không quá hạn | 17 | – | 1 | – |
+| Tình trạng | Khách | % tiền quá hạn |
+| --- | --- | --- |
+| Vẫn đi hàng, không trả | 3 | 2% |
+| Ngừng đi hàng, không trả | 27 | 22% |
+| Vẫn trả, còn nợ cũ | 10 | 28% |
+| Vẫn trả, quá hạn ngắn | 12 | 48% |
+| Không quá hạn | 17 | – |
 
 - Bốn nhóm có tách được: 40 khách Rủi ro cao thành 3 / 27 / 10; hôm đo, 12 khách Theo dõi trùng đúng nhóm Vẫn trả, quá hạn ngắn.
-- **Tiền tập trung:** 2 sổ chiếm 90% tiền quá hạn của nhóm Vẫn trả, quá hạn ngắn, tức khoảng 43% tiền quá hạn cả công ty; 11/12 khách của nhóm còn đi hàng trong 30 ngày. Theo thứ tự bảng, hai sổ này nằm gần cuối và nhóm đó mang màu xám (CÒN MỞ, cuối spec).
+- **Tiền tập trung:** 3 sổ có quá hạn từ 10% tổng quá hạn giữ 61% tiền quá hạn cả công ty: 33% và 11% ở nhóm Vẫn trả, quá hạn ngắn, 17% ở nhóm Vẫn trả, còn nợ cũ. Hai sổ của nhóm đầu chiếm 90% tiền nhóm đó; 11/12 khách của nhóm còn đi hàng trong 30 ngày. Theo thứ tự bảng, ba sổ này nằm sau hai nhóm "không trả" (CÒN MỞ, cuối spec).
+- **Luật "nợ cũ" còn bắt khoản rất nhỏ:** sổ 17% vào nhóm Vẫn trả, còn nợ cũ chỉ vì 1% nợ của nó đã từ 3 tháng, trong khi nhóm này có khách 74%. Đây cùng dạng lỗi của nhãn Rủi ro cao: chỉ cần một khoản (CÒN MỞ, cuối spec).
 - Mốc 30 ngày ít ảnh hưởng hôm nay: chỉ 2 khách đang nợ có chuyến cách 31–60 ngày, 1 khách trong số đó ở nhóm Ngừng đi hàng.
 - 20/69 khách có ngày trả là ngày tạm (`last_receipt_exact = false`): 13 ở hai nhóm "không trả", 3 ở Vẫn trả, quá hạn ngắn, 4 ở Không quá hạn. Tình trạng của các khách này có thể lệch khi có ngày thật.
 
@@ -108,7 +109,7 @@ Số đo trên bản xem (Chromium headless, font thay thế rộng hơn Segoe U
 | Đã thu, phát sinh tháng này | `dashboard/debt` `.this_month` | Có |
 | Ngưỡng 60 / 30 ngày, 3 tháng | `dashboard/debt` `.rule` (`no_pay_days`, `active_trip_days`, `long_overdue_months`) | Có |
 
-Bản xem dùng bộ khách giả trong [`data.js`](../cong-no-web-handoff/preview/mockups/tong-quan-v4/data.js): 12 khách "Mẫu …" với đúng quá hạn, còn nợ, số ngày trả và đi hàng của bản team đề xuất 6/11/2026; tháng nợ và số 12 tháng thêm vào, bản xem tự kiểm 5 nhóm = còn phải thu = điểm cuối hình và mỗi tháng = cuối tháng trước + phát sinh − đã thu. Kết quả: còn phải thu 49,24 tỷ (quá hạn 38,09 tỷ); bốn nhóm 7,98 tỷ (2 khách) · 7,67 tỷ (5) · 21,80 tỷ (3) · 0,64 tỷ (1), 1 khách không quá hạn; đường 12 tháng từ 36,98 lên 49,24 tỷ. Không có số thật.
+Bản xem dùng bộ khách giả trong [`data.js`](../cong-no-web-handoff/preview/mockups/tong-quan-v4/data.js): 69 khách "Mẫu …", tên và số tiền hư cấu, chỉ giữ tỷ trọng ở mục Số thật. Bản xem tự kiểm 5 nhóm = còn phải thu = điểm cuối hình, mỗi tháng = cuối tháng trước + phát sinh − đã thu, tiền các nhóm tình trạng = tổng quá hạn. Tab trên đầu trang chuyển giữa bản đã chốt và ba phương án (`?pa=A|B|C`); tab không thuộc màn thật.
 
 ## Giao tiếp frontend–backend (bước 5, ĐỀ XUẤT)
 
@@ -156,4 +157,8 @@ Revert PR frontend; revert PR backend bằng migration chạy lại bản `get_d
 - CÒN MỞ: C-level xem trên máy nào (cùng màn 1280×720 logic, điện thoại hay màn họp) và bao lâu một lần; nếu xem trên điện thoại cần bố cục riêng.
 - CÒN MỞ: cột "Đã thu" theo DA-THU-01, nên các tháng còn khối Sheet là số ĐÃ THU của khối tháng, không phải tiền về theo ngày ([`BANG-THU-01`](../docs/decisions/bang-thu-01.md)); từ T11/2026 hai cách bằng nhau. Mặc định giữ DA-THU-01 cho khớp thẻ Tình hình.
 - ĐỀ XUẤT, chờ người dùng xem bản xem: hình 12 tháng thay chỗ thẻ Thu tháng, vẽ hai hình chồng.
-- CÒN MỞ, chờ người dùng: 2 sổ giữ khoảng 43% tiền quá hạn cả công ty nhưng thuộc nhóm màu xám, xếp gần cuối bảng (mục Số thật). Người dùng chốt bốn nhóm khi chưa thấy tỷ trọng này. Cần quyết có làm sự tập trung này hiện rõ trên màn không, trước PR frontend.
+- CÒN MỞ, chờ người dùng chọn trên bản xem, trước PR frontend: 3 sổ giữ 61% tiền quá hạn nhưng không nổi trên màn (mục Số thật). "Sổ lớn" là quá hạn từ 10% tổng quá hạn (ĐỀ XUẤT). Ba phương án, đều ĐỀ XUẤT:
+  - **A, đánh dấu trong ô:** giữ thứ tự nhóm; ô ghi "2 sổ lớn · 91%", dòng bảng có nhãn "Sổ lớn 33%". Ít đổi nhất, nhưng phải đọc số phụ và tên sổ vẫn nằm dưới mép 560px.
+  - **B, sổ lớn lên đầu** (Claude đề xuất): hàng thẻ sổ lớn trên ô tình trạng, mỗi thẻ có tên, tiền quá hạn, tỷ lệ, tình trạng, ngày trả và đi hàng; các nhóm và bảng không kể sổ lớn nên mỗi số vẫn ở một chỗ. Thấy ngay tên sổ trong màn đầu; đổi lại ô tình trạng nhỏ đi về tiền, bảng xuống dưới mép 560px (đầu bảng vẫn thấy), và một sổ có thể ra vào hàng này khi tỷ lệ qua mốc 10%.
+  - **C, xếp theo tiền:** nhóm nhiều tiền đứng đầu, ô có thanh tỷ trọng, phần đậm là sổ lớn. Một hàng dễ đọc, nhưng thứ tự nhóm đổi theo ngày và nhóm "không trả" bị đẩy xuống.
+- CÒN MỞ, chờ người dùng: có đổi luật "còn nợ cũ" không (đang là chỉ cần có nợ từ 3 tháng, sổ 17% bị xếp vào nhóm này chỉ vì 1% nợ). Ví dụ: tính khi nợ từ 3 tháng chiếm từ một tỷ lệ tiền quá hạn trở lên. Đổi luật thì `DASH-06` điểm 1 phải ghi lại.

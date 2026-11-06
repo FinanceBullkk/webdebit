@@ -1,6 +1,7 @@
 /* Bản xem Tổng quan v4 (DASH-06, ĐỀ XUẤT bố cục): dải đầu giữ như DASH-05; thẻ "Còn phải thu 12 tháng" thay thẻ Thu tháng;
    khối "Nợ quá hạn nằm ở đâu" chia khách theo còn đi hàng × còn trả. Dữ liệu giả ở data.js (triệu đồng); mọi số tính từ đó và
-   phải cộng về cùng một tổng trước khi vẽ. Nhãn nhóm hạn trả, tên tháng dùng đúng hàm của Tổng quan thật (DashboardModel). */
+   phải cộng về cùng một tổng trước khi vẽ. Nhãn nhóm hạn trả, tên tháng dùng đúng hàm của Tổng quan thật (DashboardModel).
+   Ba phương án (?pa=A|B|C, ĐỀ XUẤT) làm sổ lớn hiện rõ; không có tham số là bản đã chốt. Sổ lớn: quá hạn từ big_share_pct % tổng quá hạn. */
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -12,6 +13,8 @@
   const short = value => F.short(value, 'tr');
   const ty = value => `${F.billions(value)} tỷ`;
   const sum = list => list.reduce((total, value) => total + value, 0n);
+  // Tỷ lệ phần trăm làm tròn, chỉ để hiển thị.
+  const pct = (part, whole) => `${whole > 0n ? (part * 200n + whole) / (whole * 2n) : 0n}%`;
   const tip = lines => ` data-tip="${F.esc(lines.filter(Boolean).join('\n'))}"`;
   const svg = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   const ICON = {
@@ -26,6 +29,14 @@
   const tag = key => F.monthTag(`${key}-01`, year);
   const dayMonth = iso => `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}`;
   const labels = M.tierLabels(asOf, R);
+  const PAS = [
+    { key: '', short: 'Đã chốt', label: 'Đã chốt', tip: 'Bản đã chốt ở DASH-06, chưa đánh dấu sổ lớn' },
+    { key: 'A', short: 'A', label: 'A · Đánh dấu trong ô', tip: 'Giữ thứ tự nhóm; ô và dòng ghi sổ lớn' },
+    { key: 'B', short: 'B', label: 'B · Sổ lớn lên đầu', tip: 'Sổ lớn thành hàng riêng; các nhóm chỉ còn khách còn lại' },
+    { key: 'C', short: 'C', label: 'C · Xếp theo tiền', tip: 'Nhóm nhiều tiền đứng đầu; ô có thanh tỷ trọng' },
+  ];
+  const PA = PAS.find(p => p.key && p.key === new URLSearchParams(location.search).get('pa'))?.key ?? '';
+  document.getElementById('pa-tabs').innerHTML = PAS.map(p => `<a href="${p.key ? `?pa=${p.key}` : '?'}"${p.key === PA ? ' aria-current="page"' : ''}${tip([p.tip])}><span class="long">${F.esc(p.label)}</span><span class="short">${F.esc(p.short)}</span></a>`).join('');
 
   // Bốn tình trạng + Không quá hạn (DASH-06). Chưa trả lần nào tính là không trả; chưa có chuyến tính là không đi hàng.
   const GROUPS = [
@@ -60,9 +71,16 @@
   const tierTotals = [0, 1, 2, 3, 4].map(i => sum(rows.map(row => row.tiers[i])));
   const overdue = tierTotals[2] + tierTotals[3] + tierTotals[4];
   const series = D.months.map(m => ({ ...m, ch: vnd(m.charges), got: vnd(m.received), end: vnd(m.end) }));
-  // Kiểm cộng của bản xem: 5 nhóm = còn phải thu = điểm cuối hình 12 tháng; mỗi tháng = cuối tháng trước + phát sinh − đã thu.
+  for (const row of rows) row.big = row.overdue * 100n >= overdue * BigInt(R.big_share_pct);
+  const bigRows = rows.filter(row => row.big).sort((a, b) => (b.overdue > a.overdue ? 1 : -1));
+  // Phương án B tách sổ lớn khỏi các nhóm: mỗi số chỉ ở một chỗ, sổ lớn cộng bốn ô vẫn bằng tổng quá hạn.
+  const inGroup = row => !(PA === 'B' && row.big);
+  const lateOf = key => sum(rows.filter(row => row.sit === key && inGroup(row)).map(row => row.overdue));
+  // Kiểm cộng của bản xem: 5 nhóm = còn phải thu = điểm cuối hình 12 tháng; mỗi tháng = cuối tháng trước + phát sinh − đã thu;
+  // tiền các nhóm tình trạng (và sổ lớn nếu tách) = tổng quá hạn.
   const consistent = sum(tierTotals) === receivable && series.at(-1).end === receivable
-    && series.every((m, i) => i === 0 || series[i - 1].end + m.ch - m.got === m.end);
+    && series.every((m, i) => i === 0 || series[i - 1].end + m.ch - m.got === m.end)
+    && sum(GROUPS.map(g => lateOf(g.key))) + (PA === 'B' ? sum(bigRows.map(row => row.overdue)) : 0n) === overdue;
   if (!consistent) throw Error('Dữ liệu giả của bản xem không cộng về cùng tổng.');
 
   const state = { tier: null, sit: null, com: '', sort: 'overdue', all: new Set() };
@@ -122,16 +140,36 @@
 
   // 3. Nợ quá hạn nằm ở đâu: ô tình trạng (lọc bảng), bảng chia nhóm theo tình trạng, trong nhóm xếp theo cột đang chọn.
   const groupOf = key => GROUPS.find(g => g.key === key);
+  // Phương án C: nhóm nhiều tiền đứng đầu, Không quá hạn luôn cuối. Bản khác giữ thứ tự theo tình trạng.
+  const ordered = PA === 'C'
+    ? [...GROUPS.filter(g => g.key !== 'ok').sort((a, b) => (lateOf(b.key) > lateOf(a.key) ? 1 : -1)), groupOf('ok')]
+    : GROUPS;
   function cards() {
-    return GROUPS.map(g => {
-      const members = rows.filter(row => row.sit === g.key);
+    return ordered.map(g => {
+      const members = rows.filter(row => row.sit === g.key && inGroup(row));
       const late = sum(members.map(row => row.overdue));
+      const bigs = members.filter(row => row.big);
+      const bigLate = sum(bigs.map(row => row.overdue));
       const amount = g.key === 'ok' ? '' : `<b class="amt">${ty(late)}</b>`;
       const share = g.key === 'ok' ? '' : `Tiền quá hạn ${ty(late)} · ${F.percent(late, overdue)} tổng quá hạn`;
-      return `<button type="button" class="sit s-${g.key}" data-sit="${g.key}" aria-pressed="${state.sit === g.key}"${tip([`${g.label}: ${members.length} khách`, g.full, share, 'Bấm để lọc bảng, bấm lại để bỏ'])}>
+      const extra = PA === 'B' && g.key !== 'ok' ? 'Không kể sổ lớn ở hàng trên' : bigs.length && PA ? `${bigs.length} sổ lớn giữ ${pct(bigLate, late)} tiền của ô này` : '';
+      const mark = PA === 'A' && bigs.length ? `<span class="bigs">${bigs.length} sổ lớn · ${pct(bigLate, late)}</span>` : PA === 'C' && g.key !== 'ok' ? `<span class="bigs">${pct(late, overdue)}</span>` : '';
+      const fill = PA === 'C' && g.key !== 'ok' ? `<span class="fill" aria-hidden="true"><i style="width:${F.barWidth(late, overdue)}%"><b style="width:${late > 0n ? F.barWidth(bigLate, late) : 0}%"></b></i></span>` : '';
+      return `<button type="button" class="sit s-${g.key}" data-sit="${g.key}" aria-pressed="${state.sit === g.key}"${tip([`${g.label}: ${members.length} khách`, g.full, share, extra, 'Bấm để lọc bảng, bấm lại để bỏ'])}>
         <span class="sl"><i class="rdot" aria-hidden="true"></i>${g.label}</span>
-        <span class="sv"><span class="n">${ICON.people}${members.length}<span class="sr-only"> khách</span></span>${amount}</span></button>`;
+        <span class="sv"><span class="n">${ICON.people}${members.length}<span class="sr-only"> khách</span></span>${amount}${mark}</span>${fill}</button>`;
     }).join('');
+  }
+  // Phương án B: mỗi sổ lớn một thẻ, không lặp lại ở bảng. Thẻ đủ dữ kiện của dòng bảng, trừ Còn nợ ở chú thích.
+  function bigPart() {
+    if (PA !== 'B') return '';
+    const shown = bigRows.filter(keep);
+    if (!shown.length) return '';
+    const dayText = (value, word) => (value == null ? `chưa ${word}` : `${word} ${value} ngày`);
+    return `<div class="big-row" role="group" aria-label="Sổ lớn"><div class="big-lbl" tabindex="0"${tip(['Sổ lớn', `Quá hạn từ ${R.big_share_pct}% tổng quá hạn`, `${bigRows.length} sổ giữ ${pct(sum(bigRows.map(row => row.overdue)), overdue)} tiền quá hạn`])}><b>Sổ lớn</b><small>từ ${R.big_share_pct}% quá hạn</small></div>
+      ${shown.map(row => `<a class="big-card s-${row.sit}" href="#"${tip([row.name, `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
+        <span class="bc1"><span class="nm">${F.esc(row.name)}</span><b class="amt">${ty(row.overdue)}</b><span class="pct">${pct(row.overdue, overdue)}</span></span>
+        <span class="bc2"><i class="rdot" aria-hidden="true"></i><span class="st">${groupOf(row.sit).label}</span><span class="dd">${dayText(row.payDays, 'trả')} · ${dayText(row.tripDays, 'đi')}</span></span></a>`).join('')}</div>`;
   }
   const days = value => (value == null ? Infinity : value);
   const cmp = (a, b) => (b > a ? 1 : b < a ? -1 : 0);
@@ -149,7 +187,7 @@
       ? `<span class="age${row.sit === 'old' ? ' hot' : ''}"><i class="sw t${row.oldestTier}" aria-hidden="true"></i>${F.esc(labels[row.oldestTier].tile)}</span>` : '<span class="age none">–</span>';
     const oldTip = row.oldest && row.oldestTier >= 2 ? `Quá hạn lâu nhất: nợ ${tag(row.oldest)}, ${labels[row.oldestTier].label.toLowerCase()}` : 'Không có nợ quá hạn';
     return `<tr data-id="${row.id}"${tip([row.name, `${groupOf(row.sit).label} · ${oldTip}`, `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
-      <td class="who"><a href="#"><span class="nm">${F.esc(row.name)}</span></a></td>
+      <td class="who"><a href="#"><span class="nm">${F.esc(row.name)}</span></a>${PA === 'A' && row.big ? `<span class="bigtag">Sổ lớn ${pct(row.overdue, overdue)}</span>` : ''}</td>
       <td class="num od${first > 0n ? (late ? ' red' : '') : ' zero'}">${first > 0n ? F.millions(first) : '–'}</td>
       <td class="agec">${age}</td>
       <td class="d">${day(row.payDays, unpaid)}</td>
@@ -157,11 +195,13 @@
       <td class="num tot">${F.millions(row.total)}</td>
       <td class="go" aria-hidden="true">${ICON.next}</td></tr>`;
   }
+  function keep(row) {
+    return (state.tier == null || row.tiers[state.tier] > 0n) && (!state.com || row.com === state.com);
+  }
   function body() {
     const LIMIT = 5;
-    const keep = row => (state.tier == null || row.tiers[state.tier] > 0n) && (!state.com || row.com === state.com);
-    const html = GROUPS.filter(g => !state.sit || state.sit === g.key).map(g => {
-      const list = sorted(rows.filter(row => row.sit === g.key && keep(row)));
+    const html = ordered.filter(g => !state.sit || state.sit === g.key).map(g => {
+      const list = sorted(rows.filter(row => row.sit === g.key && inGroup(row) && keep(row)));
       if (!list.length) return '';
       const shown = state.all.has(g.key) ? list : list.slice(0, LIMIT);
       const more = list.length > shown.length ? `<tr class="grp-more"><td colspan="7"><button type="button" class="btn" data-more="${g.key}">Hiện cả ${list.length} khách</button></td></tr>` : '';
@@ -179,7 +219,7 @@
         <label class="com-pick">${ICON.funnel}<span class="sr-only">Mặt hàng</span><select id="com-filter" aria-label="Lọc theo mặt hàng">
           <option value="">Mọi mặt hàng</option>${coms.map(c => `<option value="${F.esc(c.key)}">${F.esc(c.key)}</option>`).join('')}</select></label>
         <a class="btn icon-btn" href="#" aria-label="Mở Công nợ theo tháng"${tip(['Công nợ theo tháng', 'Soi nợ từng khách theo tháng'])}>${ICON.calendar}</a></div>
-      <div class="sit-cards" id="cards" role="group" aria-label="Lọc theo tình trạng khách">${cards()}</div>
+      ${bigPart()}<div class="sit-cards" id="cards" role="group" aria-label="Lọc theo tình trạng khách">${cards()}</div>
       <div class="tbl-wrap"><table class="dtable gtable"><thead><tr><th scope="col" class="who-h">Khách</th>
         ${th('overdue', state.tier == null ? 'Quá hạn' : 'Nhóm này', 'triệu')}<th scope="col" class="age-h">Quá hạn lâu nhất</th>
         ${th('pay', 'Trả gần nhất', 'ngày trước')}${th('trip', 'Đi hàng gần nhất', 'ngày trước')}${th('total', 'Còn nợ', 'triệu')}

@@ -18,7 +18,7 @@ Tổng quan là màn để **C-level theo dõi công nợ của công ty**, khô
 
 ĐỀ XUẤT, chờ người dùng xem bản xem: hình 12 tháng thay chỗ thẻ Thu tháng ở dải đầu, vẽ thành hai hình chồng (đường còn phải thu ở trên, cột phát sinh / đã thu ở dưới, mỗi hình một thang); số thu / phát sinh tháng này còn ở dòng dưới hình. Chi tiết ở spec [`specs/v7-tong-quan-v4.md`](../../specs/v7-tong-quan-v4.md); bản xem dữ liệu giả [`preview/mockups/tong-quan-v4/`](../../cong-no-web-handoff/preview/mockups/tong-quan-v4/index.html).
 
-CÒN MỞ: người dùng chốt khi chỉ thấy khách mẫu. Đo trên `hao` cùng ngày, sau khi chốt: nhóm Vẫn trả, quá hạn ngắn giữ 48% tiền quá hạn (bản xem 2%), riêng 2 sổ khoảng 43%. Cần người dùng xem lại trước PR frontend ([spec, mục Số thật](../../specs/v7-tong-quan-v4.md#số-thật-trên-hao-6112026-chỉ-đọc-sau-khi-người-dùng-chốt)).
+CÒN MỞ: người dùng chốt khi chỉ thấy khách mẫu. Đo trên `hao` cùng ngày, sau khi chốt: nhóm Vẫn trả, quá hạn ngắn giữ 48% tiền quá hạn (bản xem lúc đó 2%), và 3 sổ có quá hạn từ 10% tổng giữ 61%. Bản xem nay dùng dữ liệu giả đúng tỷ trọng, có ba phương án làm sổ lớn hiện rõ (ĐỀ XUẤT); cần người dùng chọn, và quyết có đổi luật "còn nợ cũ" không, trước PR frontend ([spec, mục Số thật](../../specs/v7-tong-quan-v4.md#số-thật-trên-hao-6112026-chỉ-đọc-sau-khi-người-dùng-chốt)).
 
 ## Ngày / nguồn
 

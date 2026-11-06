@@ -1,53 +1,58 @@
-// Bản xem Tổng quan v4 (DASH-06) — dữ liệu giả: tên "Mẫu …" và mọi số tiền đều hư cấu. Mười hai khách lấy đúng số trên bản đề xuất
-// "Khách cần đòi trước" của team ngày 6/11/2026 (quá hạn, còn nợ, số ngày trả và đi hàng); phần tháng nợ và 12 tháng thêm vào để mọi
-// khối cộng về cùng một tổng. Đơn vị: triệu đồng. Hôm nay 06/11/2026; hạn trả: nợ tháng M đến hạn cuối tháng M+1 (DASH-03).
+// Bản xem Tổng quan v4 (DASH-06) — dữ liệu giả: tên "Mẫu …" và mọi số tiền đều hư cấu, tổng tiền khác số thật. Chỉ tỷ trọng theo số đo
+// trên `hao` ngày 6/11/2026 (spec, mục Số thật): 69 khách, chia 3 / 27 / 10 / 12 / 17; tiền quá hạn 2% / 22% / 28% / 48%; ba sổ từ 10%
+// tiền quá hạn giữ 61%. Đơn vị: triệu đồng. Hôm nay 06/11/2026; hạn trả: nợ tháng M đến hạn cuối tháng M+1 (DASH-03).
 // months: còn nợ theo tháng nợ "YYYY-MM" sau khi tiền thu đã trừ nợ cũ trước. payDays / tripDays: số ngày từ lần trả / chuyến
-// gần nhất, null = chưa trả lần nào / chưa có chuyến. Chuyến 20 ngày trước của Mẫu Tân Tiến chưa có giá nên không có trong months.
-window.MOCK = {
-  asOf: '2026-11-06',
-  updatedAt: '10:05',
-  rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, active_trip_days: 30 },
-  missingPriceTrips: 3,
-  customers: [
-    { id: 1, name: 'Mẫu Đông Á', commodity: 'Sầu riêng cảng', payDays: 3, tripDays: 2,
-      months: { '2026-02': 1500, '2026-03': 1800, '2026-05': 1500, '2026-06': 2000, '2026-07': 2500, '2026-08': 2400, '2026-09': 3000, '2026-10': 3900, '2026-11': 900 } },
-    { id: 2, name: 'Mẫu Gia Lai', commodity: 'Sầu riêng bộ', payDays: 95, tripDays: 0,
-      months: { '2026-03': 1500, '2026-05': 1500, '2026-07': 1600, '2026-08': 1500, '2026-09': 1800, '2026-10': 2200, '2026-11': 600 } },
-    { id: 3, name: 'Mẫu An Phát', commodity: 'Thanh long', payDays: 7, tripDays: 5,
-      months: { '2026-02': 750, '2026-06': 750, '2026-07': 1200, '2026-08': 1000, '2026-09': 1300, '2026-10': 2000, '2026-11': 400 } },
-    { id: 4, name: 'Mẫu Cửu Long', commodity: 'Sầu riêng cảng', payDays: 215, tripDays: 170,
-      months: { '2026-02': 1100, '2026-03': 1000, '2026-05': 1100 } },
-    { id: 5, name: 'Hộ KD Mẫu Hòa Bình', commodity: 'Chuối', payDays: 70, tripDays: 80,
-      months: { '2026-06': 950, '2026-07': 1200, '2026-08': 250 } },
-    { id: 6, name: 'Mẫu Bình Minh', commodity: 'Thanh long', payDays: 8, tripDays: 2,
-      months: { '2026-07': 800, '2026-08': 500, '2026-09': 800, '2026-10': 700, '2026-11': 200 } },
-    { id: 7, name: 'Mẫu Kim Ngân', commodity: 'Dừa', payDays: 125, tripDays: 85,
-      months: { '2026-07': 470, '2026-08': 300 } },
-    { id: 8, name: 'Mẫu Lộc Phát', commodity: 'Chuối', payDays: 95, tripDays: 95,
-      months: { '2026-07': 400, '2026-08': 270 } },
-    { id: 9, name: 'Mẫu Minh Châu', commodity: 'Xoài', payDays: 40, tripDays: 20,
-      months: { '2026-08': 240, '2026-09': 400, '2026-10': 90 } },
-    { id: 10, name: 'Mẫu Nam Việt', commodity: 'Dừa', payDays: 300, tripDays: 325,
-      months: { '2025-12': 631 } },
-    { id: 11, name: 'Mẫu Tân Tiến', commodity: 'Bán cước', payDays: null, tripDays: 20,
-      months: { '2026-09': 83 } },
-    { id: 12, name: 'Mẫu Thái Bình', commodity: 'Xoài', payDays: 9, tripDays: 4,
-      months: { '2026-11': 160 } },
-  ],
-  // 12 tháng cả công ty: phát sinh, đã thu (cộng dòng Tổng tháng của mọi sổ, DA-THU-01) và còn phải thu cuối tháng; tháng 11 tính tới 06/11.
-  // Còn phải thu cuối tháng 11/2025 (trước cửa sổ) là 36.684; mỗi tháng: cuối tháng trước + phát sinh − đã thu.
-  months: [
-    { month: '2025-12', charges: 7800, received: 7500, end: 36984 },
-    { month: '2026-01', charges: 8200, received: 7900, end: 37284 },
-    { month: '2026-02', charges: 7400, received: 6100, end: 38584 },
-    { month: '2026-03', charges: 8100, received: 8600, end: 38084 },
-    { month: '2026-04', charges: 7600, received: 7400, end: 38284 },
-    { month: '2026-05', charges: 8300, received: 7200, end: 39384 },
-    { month: '2026-06', charges: 8800, received: 7600, end: 40584 },
-    { month: '2026-07', charges: 9600, received: 7900, end: 42284 },
-    { month: '2026-08', charges: 9200, received: 7700, end: 43784 },
-    { month: '2026-09', charges: 9900, received: 7800, end: 45884 },
-    { month: '2026-10', charges: 10400, received: 8100, end: 48184 },
-    { month: '2026-11', charges: 2260, received: 1200, end: 49244 },
-  ],
-};
+// gần nhất, null = chưa trả lần nào / chưa có chuyến.
+(() => {
+  // Mười sổ lớn nhất, đúng hình dạng đo được: sổ thứ hai có tình trạng "còn nợ cũ" chỉ vì 1% nợ từ 3 tháng.
+  const top = [
+    { name: 'Mẫu Đại Dương', commodity: 'Sầu riêng cảng', payDays: 12, tripDays: 3, months: { '2026-08': 5000, '2026-09': 8000, '2026-10': 4800, '2026-11': 1000 } },
+    { name: 'Mẫu Hoàn Cầu', commodity: 'Sầu riêng cảng', payDays: 45, tripDays: 5, months: { '2026-07': 70, '2026-08': 2770, '2026-09': 4000, '2026-10': 2800, '2026-11': 510 } },
+    { name: 'Mẫu Thái Dương', commodity: 'Sầu riêng bộ', payDays: 8, tripDays: 2, months: { '2026-08': 1400, '2026-09': 3000, '2026-10': 2300, '2026-11': 425 } },
+    { name: 'Mẫu Cửu Long', commodity: 'Thanh long', payDays: 215, tripDays: 170, months: { '2026-03': 1000, '2026-05': 1000, '2026-06': 800 } },
+    { name: 'Hộ KD Mẫu Hòa Bình', commodity: 'Chuối', payDays: 130, tripDays: 95, months: { '2026-06': 1400, '2026-08': 720 } },
+    { name: 'Mẫu An Phát', commodity: 'Thanh long', payDays: 14, tripDays: 4, months: { '2026-06': 620, '2026-08': 560, '2026-09': 700, '2026-10': 900, '2026-11': 120 } },
+    { name: 'Mẫu Nam Việt', commodity: 'Dừa', payDays: 300, tripDays: 325, months: { '2026-03': 600, '2026-08': 80 } },
+    { name: 'Mẫu Lộc Phát', commodity: 'Chuối', payDays: 50, tripDays: 40, months: { '2026-05': 440, '2026-09': 160 } },
+    { name: 'Mẫu Gia Lai', commodity: 'Sầu riêng bộ', payDays: 95, tripDays: 6, months: { '2026-06': 340, '2026-08': 220, '2026-10': 120 } },
+    { name: 'Mẫu Kim Ngân', commodity: 'Dừa', payDays: 310, tripDays: 280, months: { '2025-12': 560 } },
+  ];
+  const COMMODITIES = ['Thanh long', 'Chuối', 'Dừa', 'Xoài', 'Bán cước'];
+  const filler = (count, make) => Array.from({ length: count }, (_, i) => ({ commodity: COMMODITIES[i % COMMODITIES.length], ...make(i) }));
+  const name = (kind, i) => `Mẫu ${kind} ${String(i + 1).padStart(2, '0')}`;
+  const customers = [
+    ...top,
+    // Vẫn trả, quá hạn ngắn: thêm 10 khách, 180 triệu mỗi khách; một khách đã hơn 30 ngày không đi hàng.
+    ...filler(10, i => ({ name: name('Bình An', i), payDays: 5 + i * 5, tripDays: i === 9 ? 40 : 3 + i * 2, months: { '2026-09': 180, '2026-10': 120 } })),
+    // Vẫn trả, còn nợ cũ: thêm 7 khách.
+    ...filler(7, i => ({ name: name('Hưng Thịnh', i), payDays: 10 + i * 6, tripDays: 7 + i * 8, months: { '2026-06': 100, '2026-09': i === 6 ? 160 : 170 } })),
+    // Ngừng đi hàng, không trả: thêm 23 khách; 4 khách chưa trả lần nào, phần lớn đã hơn 180 ngày không đi hàng.
+    ...filler(23, i => ({ name: name('Phú Quý', i), payDays: i < 4 ? null : 70 + i * 14, tripDays: 35 + i * 20, months: { [i % 2 ? '2026-03' : '2026-05']: i === 22 ? 110 : 115 } })),
+    // Vẫn đi hàng, không trả: thêm 2 khách.
+    { name: 'Mẫu Tân Tiến', commodity: 'Bán cước', payDays: null, tripDays: 22, months: { '2026-08': 120 } },
+    { name: 'Mẫu Trường Sơn', commodity: 'Xoài', payDays: 70, tripDays: 10, months: { '2026-08': 120 } },
+    // Không quá hạn: 17 khách.
+    ...filler(17, i => ({ name: name('Thuận Lợi', i), payDays: i < 2 ? null : 4 + i * 3, tripDays: 2 + i, months: { '2026-10': 200 } })),
+  ].map((customer, i) => ({ id: i + 1, ...customer }));
+
+  // 12 tháng cả công ty: phát sinh, đã thu; còn phải thu cuối tháng tính lùi từ tổng còn nợ nên điểm cuối luôn bằng tổng (DA-THU-01).
+  const flows = [['2025-12', 9000, 8700], ['2026-01', 9400, 9100], ['2026-02', 8500, 7000], ['2026-03', 9300, 9900], ['2026-04', 8700, 8500], ['2026-05', 9500, 8300],
+    ['2026-06', 10100, 8700], ['2026-07', 11000, 9100], ['2026-08', 10600, 8900], ['2026-09', 11400, 9000], ['2026-10', 12000, 9300], ['2026-11', 2055, 1400]];
+  const receivable = customers.reduce((sum, c) => sum + Object.values(c.months).reduce((a, b) => a + b, 0), 0);
+  let end = receivable;
+  const months = flows.map(([month, charges, received]) => ({ month, charges, received })).reverse().map(row => {
+    const out = { ...row, end };
+    end -= row.charges - row.received;
+    return out;
+  }).reverse();
+
+  window.MOCK = {
+    asOf: '2026-11-06',
+    updatedAt: '10:05',
+    // big_share_pct: mốc "sổ lớn" của các phương án, ĐỀ XUẤT.
+    rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, active_trip_days: 30, big_share_pct: 10 },
+    missingPriceTrips: 3,
+    customers,
+    months,
+  };
+})();
