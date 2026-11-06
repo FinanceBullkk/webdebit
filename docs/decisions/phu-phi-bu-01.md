@@ -24,4 +24,4 @@ Người dùng, chat 4/11/2026: "Có, bù 293 dòng", sau khi Claude báo đo tr
 
 ## Trạng thái
 
-ĐÃ CHỐT. CÒN MỞ: 14 dòng ở 3 sổ chưa rõ nguyên nhân, để nguyên.
+ĐÃ CHỐT; ĐÃ TRIỂN KHAI trên `hao` 6/11/2026: 295 dòng ở 42 sổ, số dư không đổi ([nhật ký](../deploys/2026-11-06-bu-phu-phi.md)). CÒN MỞ: 14 dòng ở 3 sổ chưa rõ nguyên nhân, để nguyên.
