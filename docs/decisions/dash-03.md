@@ -22,3 +22,5 @@ Giữ các điểm tương tác đã chốt ở [`DASH-01`](dash-01.md) ngày 29
 ĐÃ CHỐT. Thay nội dung sáu khối của `DASH-01` (tương tác giữ nguyên). Từ 30/10/2026 phần **trình bày** (câu kết luận, câu lý do, khối Phân loại 5 tiêu chí) bị [`DASH-04`](dash-04.md) thay; các quy tắc 1–4 ở trên vẫn hiệu lực. Chưa có hạn trả riêng từng khách, hạn mức nợ, gộp nhiều sổ của một công ty — không có dữ liệu, để sau. Trạng thái triển khai ghi theo lượt `Deploy hao` và nhật ký trong [`docs/deploys/`](../deploys/README.md).
 
 **Cập nhật 30/10/2026:** ĐÃ TRIỂN KHAI trên `hao` bằng đợt tay (release `5f04bc4`, [nhật ký](../deploys/2026-10-30-tong-quan-quan-ly-no.md)): migration áp trong cửa sổ dừng ghi, số dư 236/236 khách không đổi, checker OK. CÒN MỞ: người dùng tự đi hết luồng trên web thật.
+
+**Cập nhật 6/11/2026:** mục 2 (mức rủi ro) và mục 4 (không so tháng trước) bị [`DASH-06`](dash-06.md) thay: chia khách theo bốn tình trạng, Tổng quan có hình 12 tháng. Chưa code; trang đang chạy vẫn theo mục 2 và 4 tới khi PR của DASH-06 lên `hao`.

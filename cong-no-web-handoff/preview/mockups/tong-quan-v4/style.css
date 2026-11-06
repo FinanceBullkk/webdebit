@@ -1,0 +1,66 @@
+/* Bản xem Tổng quan v4 (DASH-06): chỉ phần mới so với dashboard-v7.css — thẻ 12 tháng thay thẻ Thu tháng, ô tình trạng, bảng chia
+   nhóm. Màu và cỡ chữ theo token Tổng quan (body.tq); cột phát sinh xám đậm hơn trang khách một bậc (#8494a9, 3,09:1 trên nền trắng). */
+.strip .owe{flex:3 1 520px}
+.mock-note{margin:0 auto 0 12px;padding:2px 10px;border-radius:999px;background:#fff4dc;color:#7a4a00;font-size:13px;font-weight:600;white-space:nowrap}
+
+/* Thẻ 12 tháng: hai hình chồng, mỗi hình một thang (không hai trục trên một hình). */
+.trend-card{flex:2 1 420px;min-width:0;display:flex;flex-direction:column;gap:6px;padding:12px 16px 10px;border-radius:12px;background:#fff;box-shadow:0 1px 3px #1f29371f}
+.tr-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.tr-head h2{margin:0;color:var(--ink-m);font-size:14px;font-weight:600;white-space:nowrap}
+.tr-legend{display:flex;gap:12px;color:var(--ink-m);font-size:13px;white-space:nowrap}
+.tr-sw{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:2px;vertical-align:-1px}
+.tr-sw.ps,.tr-bar.ps{background:#8494a9}
+.tr-sw.thu,.tr-bar.thu{background:#1e4e8c}
+.tr-plot{position:relative;height:84px}
+.tq .tr-plot svg.tr-line{position:absolute;left:0;top:0;width:100%;height:46px;overflow:visible;stroke:none}
+.tr-area{fill:#e8edf3;stroke:none}
+.tr-l{fill:none;stroke:#162d48;stroke-width:2;vector-effect:non-scaling-stroke}
+.tr-sep{position:absolute;left:0;right:0;top:46px;border-top:1px solid #e3e7ec}
+.tr-dot{position:absolute;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:#162d48;box-shadow:0 0 0 2px #fff}
+.tr-num{position:absolute;color:var(--ink-1);font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;pointer-events:none}
+.tr-cols{position:absolute;inset:0;display:grid;grid-template-columns:repeat(12,minmax(0,1fr))}
+.tr-col{display:flex;align-items:flex-end;justify-content:center;gap:2px;border-radius:4px}
+.tr-col:hover,.tr-col:focus-visible{background:#1c5cab14}
+.tr-bar{display:block;width:9px;border-radius:3px 3px 0 0}
+.tr-months{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));margin-top:-2px;color:var(--ink-m);font-size:12.5px;text-align:center}
+.tr-now{display:flex;align-items:baseline;gap:5px;flex-wrap:wrap;margin:0;color:var(--ink-m);font-size:13px}
+.tr-now b{color:var(--ink-1);font-size:14px;font-variant-numeric:tabular-nums}
+.tr-now a{margin-left:auto;color:var(--blue);font-weight:600}
+.tr-now a:hover{text-decoration:underline}
+
+/* Ô tình trạng: thay chip mức rủi ro; bấm = lọc bảng, bấm lại = bỏ. Cùng một đơn vị tỷ, hai số lẻ cho cả hàng. */
+.sit-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,.7fr);gap:8px;margin-top:10px}
+.sit{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-width:0;min-height:58px;padding:6px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;color:var(--ink-1);font:inherit;text-align:left;cursor:pointer}
+.sit:hover{border-color:#a9b3c0}
+.sit .sl{display:flex;align-items:center;gap:7px;max-width:100%;overflow:hidden;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
+.sit .sv{display:flex;align-items:baseline;gap:10px;font-variant-numeric:tabular-nums}
+.sit .n{display:inline-flex;align-items:center;gap:3px;color:var(--ink-m);font-weight:700}
+.sit .n svg{width:14px;height:14px;stroke-width:2.4}
+.sit .amt{font-size:18px;font-weight:700}
+.sit[aria-pressed="true"]{padding:5px 11px;border:2px solid var(--blue);background:#eef3f9}
+.s-ship .rdot{background:#d64541}
+.s-stop .rdot{background:#9b1c1c}
+.s-old .rdot{background:#e8a33d}
+.s-short .rdot{background:#8a96a6}
+.s-ok .rdot{background:#2f9e8a}
+.s-ship .amt,.s-stop .amt{color:var(--red)}
+.s-old .amt{color:var(--amber)}
+
+/* Bảng chia nhóm: mỗi tình trạng một dòng tiêu đề nhóm; ô dữ kiện làm khách vào nhóm được tô. */
+.gtable{min-width:860px}
+.gtable .who-h{width:25%}
+.gtable .age-h{width:15%}
+.gtable thead th{vertical-align:bottom}
+.gtable thead th button{flex-direction:column;align-items:flex-end;gap:0;line-height:1.25}
+.gtable thead th small{font-size:12px}
+.gtable tbody tr.grp,.gtable tbody tr.grp-more{cursor:default}
+.gtable tbody tr.grp:hover,.gtable tbody tr.grp-more:hover{background:none}
+.gtable tr.grp th{padding:10px 6px 6px;border-bottom:1px solid var(--edge);background:#f7f9fb;color:var(--ink-1);font-size:14px;font-weight:700;text-align:left;white-space:normal}
+.gtable tr.grp small{margin-left:10px;color:var(--ink-m);font-size:13px;font-weight:400}
+.gtable tr.grp .rdot{margin-right:8px;vertical-align:1px}
+.gtable .grp-more td{padding:8px 6px;text-align:center}
+.gtable .agec{white-space:nowrap}
+.age{display:inline-flex;align-items:center;gap:6px;color:var(--ink-m)}
+.age.hot{color:var(--red);font-weight:700}
+.age.none{color:var(--ink-l)}
+@media (max-width:700px){.sit-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-card{flex-basis:100%}.sit .sl{white-space:normal}.tr-head{flex-wrap:wrap}.tr-months{font-size:11px}.mock-note{position:fixed;right:8px;bottom:8px;z-index:5;margin:0;box-shadow:0 1px 3px #1f29371f}}
