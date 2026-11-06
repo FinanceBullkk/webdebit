@@ -102,7 +102,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="bang-thu-02"></a>[BANG-THU-02](decisions/bang-thu-02.md) | Bảng thu có năm cách xem dạng tab (theo ngày, khách, mặt hàng, tháng nợ, 12 tháng) và bộ lọc mặt hàng; trang theo ngôn ngữ Tổng quan bản ít chữ | Chốt 4/11/2026; chỉ đổi trình bày, không có migration |
 | <a id="tuong-tac-01"></a>[TUONG-TAC-01](decisions/tuong-tac-01.md) | Bảng thu và Tình hình: bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ; ghim tháng trên hình, mở phiếu tại dòng khách, dải ngày ở mọi tab trừ 12 tháng | Chốt 5/11/2026; chỉ đổi trang, không có migration |
 | <a id="tinh-hinh-01"></a>[TINH-HINH-01](decisions/tinh-hinh-01.md) | Thẻ Tình hình là bản đọc để quyết cho sếp: bỏ Việc tiếp theo và ba thẻ chỉ số, thêm dải bốn dữ kiện, Hoạt động thành Tiền về và hứa trả | Chốt 6/11/2026; chỉ đổi trang, không có migration |
-| <a id="dash-06"></a>[DASH-06](decisions/dash-06.md) | Tổng quan cho C-level: chia khách theo bốn tình trạng (còn đi hàng × còn trả, nợ cũ) thay mức rủi ro, hình 12 tháng cả công ty, mốc vẫn đi hàng 30 ngày | Chốt 6/11/2026; chưa code; bố cục hình 12 tháng còn ĐỀ XUẤT |
+| <a id="dash-06"></a>[DASH-06](decisions/dash-06.md) | Tổng quan cho C-level: chia khách theo bốn tình trạng (còn đi hàng × còn trả, nợ cũ) thay mức rủi ro, hình 12 tháng cả công ty, mốc vẫn đi hàng 30 ngày, hàng sổ lớn lên đầu khối khách | Chốt 6/11/2026; chưa code; bố cục hình 12 tháng và mốc sổ lớn còn ĐỀ XUẤT; luật "còn nợ cũ" CÒN MỞ |
 | <a id="viec-doi-chieu-01"></a>[VIEC-DOI-CHIEU-01](decisions/viec-doi-chieu-01.md) | Việc cần làm trả lời "số nợ có đúng không": ba tab, bảng đối chiếu; người xác nhận thì tháng khóa mở, ghi, khóa lại | Chốt 6/11/2026; triển khai qua `Deploy hao` |
 
 ## Cập nhật khóa tháng 24/10/2026

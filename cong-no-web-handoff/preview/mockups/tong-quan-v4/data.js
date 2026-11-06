@@ -49,8 +49,8 @@
   window.MOCK = {
     asOf: '2026-11-06',
     updatedAt: '10:05',
-    // big_share_pct: mốc "sổ lớn" của các phương án, ĐỀ XUẤT.
-    rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, active_trip_days: 30, big_share_pct: 10 },
+    // big_share_pct, big_max: mốc và số thẻ tối đa của hàng Sổ lớn (DASH-06).
+    rule: { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, active_trip_days: 30, big_share_pct: 10, big_max: 4 },
     missingPriceTrips: 3,
     customers,
     months,
