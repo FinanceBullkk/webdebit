@@ -33,3 +33,5 @@ CÒN MỞ:
 - Sếp tự đi hết luồng trên `hao`.
 - Phương án B (bàn làm việc đòi nợ: ghi lần liên hệ, hứa trả, người liên hệ) chưa làm; xét lại khi có người đòi nợ dùng web hằng ngày.
 - Thẻ Trao đổi vẫn liệt kê phiếu đã hủy và không có khoản thu sổ gốc, nên danh sách thu của nó khác "Tiền về và hứa trả".
+
+**Cập nhật 6/11/2026:** nhãn mức rủi ro của thẻ đổi thành tên tình trạng theo [`DASH-06`](dash-06.md). Chưa code.

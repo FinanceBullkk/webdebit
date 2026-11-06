@@ -73,9 +73,9 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="xoa-dc-thang-01"></a>[XOA-DC-THANG-01](decisions/xoa-dc-thang-01.md) | Xóa dòng điều chỉnh cả tháng |  |
 | <a id="deploy-claude-01"></a>[DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md) | Claude tự triển khai SQL/migration lên hao |  |
 | <a id="gia-nguon-01"></a>[GIA-NGUON-01](decisions/gia-nguon-01.md) | Đơn giá web lấy từ sổ gốc tới ngày chuyển hẳn |  |
-| <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04) rồi [DASH-05](#dash-05); quy tắc giữ |
+| <a id="dash-03"></a>[DASH-03](decisions/dash-03.md) | Tổng quan quản lý công nợ: hạn trả, rủi ro, tab Việc cần làm | Cách trình bày thay bởi [DASH-04](#dash-04) rồi [DASH-05](#dash-05); mục 2 (mức rủi ro) và mục 4 (không so tháng trước) thay bởi [DASH-06](#dash-06), quy tắc khác giữ |
 | <a id="dash-04"></a>[DASH-04](decisions/dash-04.md) | Tổng quan v2: mỗi câu hỏi một hình, không câu kết luận | Cách trình bày thay bởi [DASH-05](#dash-05) |
-| <a id="dash-05"></a>[DASH-05](decisions/dash-05.md) | Tổng quan ít chữ theo canvas: chip mức rủi ro thay ma trận, bấm tên mở Tình hình, bảng triệu, nhãn "Không quá hạn" |  |
+| <a id="dash-05"></a>[DASH-05](decisions/dash-05.md) | Tổng quan ít chữ theo canvas: chip mức rủi ro thay ma trận, bấm tên mở Tình hình, bảng triệu, nhãn "Không quá hạn" | Chip mức rủi ro thay bởi ô tình trạng của [DASH-06](#dash-06) |
 | <a id="can-du-01"></a>[CAN-DU-01](decisions/can-du-01.md) | Nợ từng tháng theo chuẩn tuổi nợ: khoản dư cấn vào tháng nợ cũ nhất | Thay vế số nợ từng tháng của [V7-BE](#v7-be) (6) |
 | <a id="debit-note-02"></a>[DEBIT-NOTE-02](decisions/debit-note-02.md) | Mẫu Debit Note v3 sếp duyệt: bố cục, 8 loại phí, quy tắc tính, kiểm tra trước phát hành | Thay bố cục và điểm (3) thiếu giá của [DEBIT-NOTE-01](#debit-note-01) |
 | <a id="nhac-no-01"></a>[NHAC-NO-01](decisions/nhac-no-01.md) | Theo dõi đòi nợ: tab Đòi nợ + nút Copy tin nhắc; sửa đổi 30/10/2026: trang Chat Zalo đọc nội dung từ bản xuất (ZALO-CHAT-01); sửa đổi 4/11/2026: ẩn tab Đòi nợ khỏi menu và nhắc nợ ở trang khách, API và dữ liệu vẫn còn | Đã code; bản xuất chat chưa đặt lên `hao` |
@@ -102,6 +102,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="bang-thu-02"></a>[BANG-THU-02](decisions/bang-thu-02.md) | Bảng thu có năm cách xem dạng tab (theo ngày, khách, mặt hàng, tháng nợ, 12 tháng) và bộ lọc mặt hàng; trang theo ngôn ngữ Tổng quan bản ít chữ | Chốt 4/11/2026; chỉ đổi trình bày, không có migration |
 | <a id="tuong-tac-01"></a>[TUONG-TAC-01](decisions/tuong-tac-01.md) | Bảng thu và Tình hình: bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ; ghim tháng trên hình, mở phiếu tại dòng khách, dải ngày ở mọi tab trừ 12 tháng | Chốt 5/11/2026; chỉ đổi trang, không có migration |
 | <a id="tinh-hinh-01"></a>[TINH-HINH-01](decisions/tinh-hinh-01.md) | Thẻ Tình hình là bản đọc để quyết cho sếp: bỏ Việc tiếp theo và ba thẻ chỉ số, thêm dải bốn dữ kiện, Hoạt động thành Tiền về và hứa trả | Chốt 6/11/2026; chỉ đổi trang, không có migration |
+| <a id="dash-06"></a>[DASH-06](decisions/dash-06.md) | Tổng quan cho C-level: chia khách theo bốn tình trạng (còn đi hàng × còn trả, nợ cũ) thay mức rủi ro, hình 12 tháng cả công ty, mốc vẫn đi hàng 30 ngày | Chốt 6/11/2026; chưa code; bố cục hình 12 tháng còn ĐỀ XUẤT |
 | <a id="viec-doi-chieu-01"></a>[VIEC-DOI-CHIEU-01](decisions/viec-doi-chieu-01.md) | Việc cần làm trả lời "số nợ có đúng không": ba tab, bảng đối chiếu; người xác nhận thì tháng khóa mở, ghi, khóa lại | Chốt 6/11/2026; triển khai qua `Deploy hao` |
 
 ## Cập nhật khóa tháng 24/10/2026

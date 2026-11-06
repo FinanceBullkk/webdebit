@@ -1,5 +1,7 @@
 # V7 — Tổng quan v3: bản ít chữ theo canvas (DASH-05)
 
+> Khối khách (chip mức rủi ro, bảng) và thẻ Thu tháng sẽ thay theo [`v7-tong-quan-v4.md`](v7-tong-quan-v4.md) (`DASH-06`, 6/11/2026). Chưa code: trang đang chạy vẫn theo spec này.
+
 Trạng thái: **ĐÃ CHỐT** ([`DASH-05`](../docs/decisions/dash-05.md), người dùng 2/11/2026 qua chat và canvas Claude Design, khung `TongQuanGon` là bản chính). Spec này **thay cách trình bày** của [`v7-tong-quan-v2.md`](v7-tong-quan-v2.md) (DASH-04) và **giữ nguyên** mọi quy tắc tính của [`v7-tong-quan-quan-ly-no.md`](v7-tong-quan-quan-ly-no.md) (DASH-03). Không đổi backend, không SQL mới.
 
 ## Bài toán (bước 1)
