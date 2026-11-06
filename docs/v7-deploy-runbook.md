@@ -2007,6 +2007,21 @@ Migration `cong-no-web-handoff/tools/migrations/2026-10-30-v7-doi-no.sql` ([`NHA
 
 Rollback: `DROP TABLE sokhach.reminder_log; DROP FUNCTION sokhach.record_reminder(bigint,text), sokhach.get_reminders();` dưới `sokhach_owner` (không gì tham chiếu tới); release app cũ chạy được dù DB có bảng/hàm mới.
 
+## Tab Máy chạy (MAY-CHAY-01) — bảng việc của quản lý
+
+Trang và job tự lên qua `Deploy hao`, không có migration. Job tự tạo `reconcile-run.json` và `reconcile-run-history.jsonl` (mode 600) cạnh `reconcile.json`; unit của job đã có `ReadWritePaths` cho thư mục đó. Tab đọc được ngay.
+
+Riêng API phải ghi được bảng việc, mà API chạy `ProtectSystem=strict`. Thêm một lần, trong drop-in của `v7-ledger-api.service`, chỉ mở đúng một thư mục:
+
+```ini
+[Service]
+ReadWritePaths=/var/lib/webdebit-sheet-sync/office
+```
+
+Tạo thư mục trước khi restart, chủ `v7app`, mode 700, rồi `daemon-reload` và restart API. Chưa làm bước này thì `POST /api/v7/machine/office` trả 503 `OFFICE_UNAVAILABLE`, mọi phần đọc vẫn chạy.
+
+**Kiểm:** `/may-chay.html` trả 200; `GET /api/v7/machine/summary` không có tên khách và số tiền; bảng job có tình trạng, không phải toàn `—` (API đọc bằng `systemctl show`).
+
 ## Rà đường ghi tiền 29/10 — nâng DB đang có (ĐÃ CHẠY trên hao 30/10/2026)
 
 Đã chạy 30/10/2026, xem [nhật ký](deploys/2026-10-30-ra-ghi-tien.md).

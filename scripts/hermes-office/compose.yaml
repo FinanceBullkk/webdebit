@@ -1,0 +1,59 @@
+# Quản lý Hermes chạy thử trên PC (MAY-CHAY-01). Container là bức tường thật: không mount ổ đĩa máy, không khóa SSH, mạng internal,
+# chỉ ra ngoài qua egress với danh sách trắng. Bản thử dùng dữ liệu mẫu, không có dữ liệu khách.
+name: hermes-office
+
+x-locked: &locked
+  image: nousresearch/hermes-agent@sha256:adb7890916de63245523492be8f68f9d2095fecbec4e2a6dab7960381f0fc002
+  user: "10000:10000"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  mem_limit: 2g
+  tmpfs: [/tmp]
+
+services:
+  egress:
+    <<: *locked
+    entrypoint: ["/opt/hermes/.venv/bin/python3", "/office/egress_proxy.py"]
+    environment:
+      # Chỉ giữ máy của nhà cung cấp đã chọn.
+      EGRESS_ALLOW: ${EGRESS_ALLOW:-auth.openai.com,chatgpt.com}
+    volumes:
+      - ./egress_proxy.py:/office/egress_proxy.py:ro
+    networks: [office-internal, office-out]
+    restart: unless-stopped
+
+  hermes:
+    <<: *locked
+    profiles: [run]
+    entrypoint: ["/opt/hermes/.venv/bin/hermes"]
+    environment:
+      HERMES_HOME: /opt/data
+      HOME: /tmp
+      PYTHONUTF8: "1"
+      HTTPS_PROXY: http://egress:3128
+      HTTP_PROXY: http://egress:3128
+      # Gateway nội bộ của Hermes nói chuyện qua 127.0.0.1, không đi qua cổng ra.
+      NO_PROXY: 127.0.0.1,localhost
+      no_proxy: 127.0.0.1,localhost
+    volumes:
+      - hermes-office-home:/opt/data
+      - ./config.yaml:/opt/data/config.yaml:ro
+      - ./SOUL.md:/opt/data/SOUL.md:ro
+      - ../../cong-no-web-handoff/tools/v7_office_mcp.py:/office/v7_office_mcp.py:ro
+      - ./check_tools.py:/office/check_tools.py:ro
+      - ./check_egress.py:/office/check_egress.py:ro
+      - ./summary.sample.json:/office/feed/summary.json:ro
+    networks: [office-internal]
+    depends_on: [egress]
+
+networks:
+  office-internal:
+    internal: true
+  office-out: {}
+
+volumes:
+  hermes-office-home:
+    external: true
