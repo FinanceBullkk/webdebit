@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Máy chạy: xem máy đối soát đang làm gì, đã đụng vào tiền của ai, và bảng việc của quản lý. Chỉ xem.">
+  <meta name="description" content="Máy chạy: xem trực tiếp máy đối soát đang làm gì, hôm nay đã đụng vào tiền của ai, và bảng việc của quản lý. Chỉ xem.">
   <title>Công nợ HTH · Máy chạy</title>
   <link rel="stylesheet" href="cong-no-theme.css">
   <link rel="stylesheet" href="may-chay.css">
@@ -18,14 +18,14 @@
       <h1>Máy chạy</h1>
       <div class="status" id="status"><span class="lamp" id="lamp"></span><span id="now" aria-live="polite">Đang tải…</span></div>
       <div class="live-controls">
-        <button class="ctrl" id="go-live" type="button" hidden>Xem trực tiếp</button>
-        <button class="ctrl" id="back-latest" type="button" hidden>Về lượt mới nhất</button>
+        <button class="ctrl" id="go-live" type="button" hidden>Về trực tiếp</button>
         <button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại số mới nhất từ máy chủ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
       </div>
     </div>
     <div class="mc-main">
       <section class="panel">
         <div class="stage-head">
+          <span class="live-pill" id="live-pill">Trực tiếp</span>
           <h2 id="run-title">Máy chạy</h2>
           <button class="ctrl" id="play" type="button">Phát lại</button>
           <select class="ctrl" id="speed" aria-label="Tốc độ phát lại"><option value="10">×10</option><option value="30">×30</option><option value="1">×1</option></select>
@@ -58,8 +58,8 @@
       </section>
     </div>
     <section class="panel runs">
+      <div class="key"><b>Xem lại lượt đã chạy</b><span><i class="k1"></i>có ghi vào sổ</span><span><i class="k2"></i>còn khách lệch, không ghi</span><span><i class="k4"></i>lượt lỗi</span><span><i class="k3"></i>ngoài lịch</span><span><i></i>khớp hết</span></div>
       <div id="days"></div>
-      <div class="key"><span><i class="k1"></i>có ghi vào sổ</span><span><i class="k2"></i>còn khách lệch, không ghi</span><span><i class="k4"></i>lượt lỗi</span><span><i class="k3"></i>ngoài lịch</span><span><i></i>khớp hết</span></div>
       <div class="drills"><b>Diễn tập chốt an toàn (giả lập, không chạm dữ liệu):</b>
         <button class="ctrl" type="button" data-drill="many">Hơn 40 khách lệch</button>
         <button class="ctrl" type="button" data-drill="two">Hai tổ hợp cùng khớp</button>

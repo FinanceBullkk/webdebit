@@ -704,6 +704,13 @@ class Inbox:
         if total:
             self._auto_columns(runner, customer_id)
 
+    def auto_today(self) -> list[dict[str, Any]]:
+        """Việc máy đã ghi hôm nay qua hộp chờ, mới trước, cho tab Máy chạy (MAY-CHAY-01). Chỉ đọc trong RAM, không chạm DB. Giờ theo VN."""
+        today = _vn_day(self.clock())
+        with self.lock:
+            rows = [entry for entry in self.auto_log if _vn_day(entry["at"]) == today]
+        return [{**entry, "at": datetime.fromtimestamp(entry["at"] + 7 * 3600, UTC).strftime("%Y-%m-%dT%H:%M:%S+07:00")} for entry in rows]
+
     def _auto_columns(self, runner, customer_id: int) -> None:
         """Đưa các loại nhiều tiền nhất của sổ lên cột riêng; không đổi tiền, không vướng khóa tháng (MAY-PS-01)."""
         try:

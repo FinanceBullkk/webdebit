@@ -14,6 +14,7 @@ Cách làm do Claude đặt:
 4. **Bản tóm tắt cho Hermes chỉ có mã khách, mã lý do và số đếm.** Không tên, không tiền, không chữ tự do lấy từ Sheet hay Zalo. Web đổi mã thành tên khi hiện cho người xem.
 5. **Bảng việc tách khỏi DB sổ.** Lỗi ở bảng việc không đụng được tiền.
 6. **Tín hiệu từng bước lỗi thì mất tín hiệu, không làm hỏng lượt ghi tiền.** Có test ép lỗi: lượt vẫn ghi đúng y hệt.
+7. **Trực tiếp là mặc định, xem lại là phụ** (người dùng, chat, 6/11/2026: "muốn real time, không hẳn chỉ để xem lại"). Mở tab là thấy máy lúc này; xem lại chỉ khi bấm một lượt, có nút về trực tiếp. Hình vẫn chỉ cử động theo việc thật: máy nghỉ thì đồng hồ chạy, nhân viên ngồi yên.
 
 **Vì sao không làm 3D, không cho AI quyết tiền:** xem [spec](../../specs/v7-may-chay.md). Máy hiện an toàn vì chỉ ghi khi có đúng một tổ hợp khớp tới từng đồng; phép đó tính ra được, không đoán.
 

@@ -51,11 +51,12 @@ class RunTrace:
         self._write()
 
     @_safe
-    def stage(self, name: str, total: int | None = None) -> None:
+    def stage(self, name: str, total: int | None = None, done: int = 0) -> None:
         if name not in STAGES:
             raise ValueError(name)
-        self.data.update(stage=name, done=0 if total is not None else None, total=total)
-        self.data["segments"].append({"stage": name, "at": _now()})
+        if self.data["stage"] != name:   # quay lại đúng trạm đang chạy chỉ đổi số đếm, không mở đoạn mới
+            self.data["segments"].append({"stage": name, "at": _now()})
+        self.data.update(stage=name, done=done if total is not None else None, total=total)
         self._write()
 
     @_safe
@@ -87,6 +88,8 @@ class RunTrace:
     @_safe
     def finish(self, *, ok: bool, reason: str | None = None, counts: dict[str, int] | None = None, books: int | None = None, fixed: int | None = None, created: int | None = None) -> None:
         self.data.update(state="done" if ok else "failed", finished_at=_now(), stage=None, done=None, total=None, reason=reason, counts=counts, books=books, fixed=fixed, created=created)
+        # Khách đang xét dở mà chưa có kết luận (ví dụ người khác vừa sửa nên hết lệch) không phải một kết quả của lượt.
+        self.data["customers"] = {key: row for key, row in self.data["customers"].items() if row.get("reason")}
         self._write()
         self._append_history()
 

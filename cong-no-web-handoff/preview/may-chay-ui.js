@@ -1,11 +1,12 @@
 /* Trang Máy chạy (MAY-CHAY-01): chỉ xem. Đọc /api/v7/machine, vẽ văn phòng, danh sách việc đụng vào tiền, bảng việc của Hermes, các lượt, lịch job.
- * Có lượt đang chạy thì theo trực tiếp; không có thì hình đứng yên ở lượt gần nhất. Mất kết nối thì báo và đứng yên, không vẽ tiếp. */
+ * Mở ra là trực tiếp: đồng hồ theo giờ máy chủ, nhân viên chỉ cử động khi job đó thật sự chạy. Xem lại là việc người xem tự bấm, có nút về trực tiếp.
+ * Mất kết nối thì báo và đứng yên, không vẽ tiếp. */
 (() => {
   'use strict';
   const M = MayChayModel, F = CongNoFormat, $ = id => document.getElementById(id);
   const esc = F.esc;
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const POLL_RUNNING = 3000, POLL_IDLE = 30000, STALE_SECONDS = 20;
+  const POLL_LIVE = 2000, POLL_HIDDEN = 30000, FETCH_TIMEOUT = 8000, STALE_SECONDS = 15, STAGE_PAD = 20, PAINT_GAP = 500, FEED_KEPT = 60, FEED_SHOWN = 40;
   const WHO = {
     hermes: ['Hermes, quản lý', 'Chỉ đọc', 'Nhân viên duy nhất là AI; các nhân viên khác là script chạy theo luật. Chỉ đọc bản tóm tắt có mã khách và số đếm, gom việc thành thẻ cho chủ sổ. Không có chìa khóa phòng ghi và không có đường nào để ghi sổ. Lượt không có gì mới thì không gọi AI.'],
     tai: ['Tải Sheet', 'Chỉ đọc', 'Tải bản xlsx của sổ gốc từ Google với quyền chỉ đọc. Bản tải bị xóa ngay sau lượt.'],
@@ -21,34 +22,37 @@
   const JOB_STATE = { ok: 'Bình thường', running: 'Đang chạy', late: 'Trễ lịch', failed: 'Lần trước lỗi', off: 'Đang tắt', unknown: '—' };
 
   const state = {
-    data: null, labels: new Map(), mode: 'latest', run: null, t: 0, playing: false, speed: 10, camOn: true, selected: null, tab: 'money', day: null,
-    offline: false, serverOffset: 0, seenAt: 0, wall: 0, lastFrame: 0, cardsKey: null, tasksKey: null, runningId: null,
+    data: null, labels: new Map(), mode: 'live', run: null, t: 0, playing: false, speed: 10, camOn: true, selected: null, tab: 'money', day: null,
+    offline: false, seenAt: 0, wall: 0, lastFrame: 0, lastTick: 0, cardsKey: null, tasksKey: null, jobsKey: null, feed: new Map(), feedHtml: null, liveHtml: null, paintedAt: 0, fullFinished: null, wasRunning: false,
   };
   const office = MayChayOffice.create($('office'), { reduce, onPick: key => openWho(key) });
   office.onRedraw(() => draw());
   const labelOf = id => state.labels.get(String(id));
 
   // ----- Thời gian -----
-  const nowSec = () => M.secOfDay(state.data.now) + (performance.now() - state.seenAt) / 1000;
+  // Giờ máy chủ cộng thời gian từ lần đọc cuối. Không đọc được quá lâu thì đồng hồ dừng ở đó, không chạy tiếp bằng đồng hồ của trình duyệt.
+  const sinceSeen = () => Math.min((performance.now() - state.seenAt) / 1000, STALE_SECONDS);
+  const nowSec = () => M.secOfDay(state.data.now) + sinceSeen();
+  const liveTime = () => Math.max(nowSec() - state.run.start, 0);
+  const isRunning = () => state.data?.run?.state === 'running';
 
-  function liveTime() {
-    const run = state.run;
-    const fresh = nowSec() - run.start;
-    // Không nhận tín hiệu mới quá lâu thì đứng yên ở mốc cuối, không vẽ tiếp bằng đồng hồ của trình duyệt.
-    const seen = M.secOfDay(state.data.now) - run.start + Math.min((performance.now() - state.seenAt) / 1000, STALE_SECONDS);
-    return Math.max(Math.min(fresh, seen), 0);
-  }
-
-  function refreshLive(trace) {
-    const run = M.fromTrace(trace);
-    run.sec = Math.max(M.secOfDay(state.data.now) - run.start, 1);
-    const stageKey = run.stage;
-    if (stageKey && run.stages[stageKey]) {   // trạm đang chạy kéo dài theo thời gian thật, đoạn cuối chưa có mốc kết thúc
-      run.stages[stageKey].to = run.sec + STALE_SECONDS;
-      run.stages[stageKey].d = Math.max(run.stages[stageKey].to - run.stages[stageKey].from, 0.001);
+  // Lượt để hiện khi xem trực tiếp: đang chạy thì theo tín hiệu; không thì kết quả lượt gần nhất.
+  function setLiveRun() {
+    const trace = state.data?.run, rows = state.data?.runs ?? [], last = rows[rows.length - 1];
+    if (trace?.state === 'running') {
+      const run = M.fromTrace(trace);
+      run.sec = Math.max(M.secOfDay(state.data.now) - run.start, 1);
+      if (run.stage && run.stages[run.stage]) {   // trạm đang chạy kéo dài theo thời gian thật, đoạn cuối chưa có mốc kết thúc
+        run.stages[run.stage].to = run.sec + STAGE_PAD;
+        run.stages[run.stage].d = Math.max(run.stages[run.stage].to - run.stages[run.stage].from, 0.001);
+      }
+      state.run = run;
+      return;
     }
-    state.run = run;
-    state.cardsKey = null;
+    // Lượt chết giữa chừng không có dòng trong sổ theo dõi, và lượt vừa xong có thể chưa kịp đọc lại danh sách.
+    const newer = trace?.finished_at && (!last || trace.finished_at > last.finished_at);
+    state.run = newer ? M.fromTrace(trace) : last ? M.fromRow(last) : null;
+    state.t = state.run?.sec ?? 0;
   }
 
   // ----- Chọn lượt -----
@@ -57,17 +61,9 @@
     state.t = play && !reduce ? 0 : run.sec; state.playing = play && !reduce; state.cardsKey = null;
     paintSlots(); draw();
   }
-  function followLive() {
-    const trace = state.data?.run;
-    if (trace?.state !== 'running') return;
-    state.mode = 'live'; state.day = null; state.playing = false; refreshLive(trace); paintSlots(); draw();
-  }
-  function showLatest() {
-    state.mode = 'latest'; state.day = null; state.playing = false;
-    const rows = state.data?.runs ?? [];
-    state.run = rows.length ? M.fromRow(rows[rows.length - 1]) : null;
-    state.t = state.run?.sec ?? 0; state.cardsKey = null;
-    paintSlots(); draw();
+  function goLive() {
+    state.mode = 'live'; state.day = null; state.playing = false; state.liveHtml = null; state.feedHtml = null;
+    setLiveRun(); paintSlots(); draw();
   }
   function startDay(entry) {
     const runs = [...entry.runs].sort((a, b) => a.start - b.start), first = runs[0], lastRun = runs[runs.length - 1];
@@ -108,62 +104,82 @@
   function draw() {
     const run = state.run;
     if (!run) { paintEmpty(); return; }
-    const t = state.mode === 'live' ? liveTime() : state.t, cur = M.stageNow(run, t), over = t >= run.sec && !run.live;
-    const clock = state.mode === 'day' ? state.day.clock : state.mode === 'live' || state.mode === 'latest' && !over ? run.start + t : run.start + Math.min(t, run.sec);
-    const jobs = jobsById();
+    const live = state.mode === 'live', running = live && run.live;
+    const t = running ? liveTime() : state.t, cur = M.stageNow(run, t), over = t >= run.sec && !run.live;
+    const clock = state.mode === 'day' ? state.day.clock : live ? nowSec() : run.start + Math.min(t, run.sec);
+    const jobs = jobsById(), next = jobs.get('reconcile')?.next;
     const hermes = run.drill ? { state: 'idle', tasks: {} } : state.data?.office ?? { state: 'off', tasks: {} };
-    const idleNext = state.mode === 'day' && state.day.idle ? (state.day.next ? `Máy nghỉ, lượt kế ${M.clockOf(state.day.next).slice(0, 5)}` : 'Hết lượt trong ngày') : '';
+    const idleNext = state.mode === 'day' && state.day.idle ? (state.day.next ? `Máy nghỉ, lượt kế ${M.clockOf(state.day.next).slice(0, 5)}` : 'Hết lượt trong ngày')
+      : live && !running ? (next ? `Máy nghỉ, lượt kế ${M.hhmm(next)}` : 'Máy nghỉ') : '';
     office.draw({
-      run, t, cur, clock, wall: state.wall, labelOf, hermes, idleNext, camOn: state.camOn,
-      rate: state.mode === 'day' ? dayRate(cur) : state.mode === 'live' ? 1 : state.speed,
-      jobActive: id => (state.mode === 'live' || state.mode === 'latest' ? jobs.get(id)?.state === 'running' : scheduleActive(id, clock)),
-      jobState: id => (state.mode === 'latest' || state.mode === 'live' ? jobs.get(id)?.state : null),
+      run, t, cur, clock, wall: state.wall, labelOf, hermes, idleNext, camOn: state.camOn && (running || !live), sideBubbles: live,
+      rate: state.mode === 'day' ? dayRate(cur) : live ? 1 : state.speed,
+      jobActive: id => (live ? jobs.get(id)?.state === 'running' : scheduleActive(id, clock)),
+      jobState: id => (live ? jobs.get(id)?.state : null),
     });
     paintStatus(run, t, cur, over);
-    paintCards(run, t, over);
+    if (live) paintLive(run, t); else paintCards(run, t, over);
     paintTasks();
     if (state.selected) paintWhoState(run, t, cur);
   }
 
+  function setText(id, value) { const node = $(id); if (node.textContent !== value) node.textContent = value; }
+
   function paintEmpty() {
-    $('now').textContent = state.offline ? 'Mất kết nối máy chủ.' : 'Chưa có lượt nào để xem.';
-    $('run-title').textContent = 'Máy chạy';
+    setText('now', state.offline ? 'Mất kết nối máy chủ.' : state.data ? M.idleLine({ run: null, next: jobsById().get('reconcile')?.next, now: state.data.now, jobs: state.data.jobs ?? [] }) : 'Đang tải…');
+    setText('run-title', 'Máy chạy');
+    paintPill();
+  }
+
+  function paintPill() {
+    const live = state.mode === 'live', pill = $('live-pill');
+    const busy = live && (isRunning() || (state.data?.jobs ?? []).some(job => job.state === 'running'));
+    const [kind, label] = live ? (state.offline ? ['lost', 'Mất tín hiệu'] : [busy ? 'busy' : '', 'Trực tiếp']) : ['replay', state.run?.drill ? 'Diễn tập' : 'Đang xem lại'];
+    pill.className = `live-pill ${kind}`;
+    setText('live-pill', label);
+  }
+
+  function countdown(next) {
+    if (!next) return '';
+    const left = Math.floor((Date.parse(next) - Date.parse(state.data.now)) / 1000 - sinceSeen());
+    if (left <= 0) return 'lượt kế sắp chạy';
+    const h = Math.floor(left / 3600), m = Math.floor(left / 60) % 60, s = left % 60;
+    return h ? `lượt kế còn ${h} giờ ${m} phút` : `lượt kế còn ${m}:${String(s).padStart(2, '0')}`;
   }
 
   function paintStatus(run, t, cur, over) {
-    const idle = state.mode === 'day' && state.day.idle;
-    const next = jobsById().get('reconcile')?.next;
+    const live = state.mode === 'live', running = live && run.live, idle = state.mode === 'day' && state.day.idle;
+    const jobs = state.data?.jobs ?? [], next = jobsById().get('reconcile')?.next;
     let line;
     if (state.offline) line = 'Mất kết nối máy chủ. Số dưới đây có thể cũ, hình đứng yên.';
+    else if (live && !running) line = M.idleLine({ run, next, now: state.data.now, jobs });
     else if (idle) {
       const done = state.day.runs.filter(item => item.start + item.sec <= state.day.clock).pop();
       line = `${state.day.next ? `Máy đang nghỉ. Lượt kế lúc ${M.clockOf(state.day.next).slice(0, 5)}.` : 'Hết lượt trong ngày.'}${done ? ` Lượt trước: ${done.khop ?? '—'}/${done.total ?? '—'} khớp.` : ''}`;
     } else line = M.sentence(run, t, cur);
-    if (state.mode === 'latest' && over && next) line += ` Lượt kế lúc ${M.hhmm(next)}.`;
-    $('now').textContent = line;
-    const bad = state.offline || run.failed || run.tooMany || run.customers.some(item => item.info.tone === 'bad');
-    $('lamp').className = `lamp ${idle ? '' : !over ? 'run' : bad ? 'bad' : run.khop !== null && run.total !== null && run.khop < run.total ? 'warn' : 'ok'}`;
+    setText('now', line);
+    const bad = state.offline || run.failed || run.tooMany || run.customers.some(item => item.info.tone === 'bad') || (live && jobs.some(job => ['failed', 'late', 'off'].includes(job.state)));
+    const busy = live ? running || jobs.some(job => job.state === 'running') : !over;
+    $('lamp').className = `lamp ${idle ? '' : busy && !state.offline ? 'run' : bad ? 'bad' : run.khop !== null && run.total !== null && run.khop < run.total ? 'warn' : 'ok'}`;
     $('status').classList.toggle('drill', Boolean(run.drill));
     const dayText = run.day === (state.data?.now ?? '').slice(0, 10) ? 'hôm nay' : `${Number(run.day.slice(8))}/${Number(run.day.slice(5, 7))}`;
-    $('run-title').textContent = run.drill ? `Diễn tập: ${run.drill} (giả lập)` : state.mode === 'day' ? `Cả ngày ${state.day.label}` : `${state.mode === 'live' ? 'Đang chạy: lượt' : 'Lượt'} ${M.clockOf(run.start).slice(0, 5)} ${dayText}`;
-    $('clock').textContent = state.mode === 'day' ? M.clockOf(state.day.clock) : state.mode === 'live' ? `đã chạy ${Math.floor(t)} giây` : `${Math.floor(Math.min(t, run.sec))}/${run.sec}s${run.estimated ? ' ước tính' : ''}`;
+    const startText = `${M.clockOf(run.start).slice(0, 5)} ${dayText}`;
+    setText('run-title', run.drill ? `Diễn tập: ${run.drill} (giả lập)` : state.mode === 'day' ? `Cả ngày ${state.day.label}` : running ? `Đang chạy lượt ${startText}` : live ? `Đang nghỉ, số của lượt ${startText}` : `Lượt ${startText}`);
+    setText('clock', state.offline && live ? '' : state.mode === 'day' ? M.clockOf(state.day.clock) : running ? `đã chạy ${M.duration(t)}` : live ? countdown(next) : `${Math.floor(Math.min(t, run.sec))}/${run.sec}s${run.estimated ? ' ước tính' : ''}`);
     const scrub = $('scrub');
-    scrub.disabled = state.mode === 'live';
-    scrub.value = state.mode === 'day' ? Math.round(((state.day.clock - state.day.from) / (state.day.to - state.day.from)) * 1000) : Math.round((Math.min(t, run.sec) / run.sec) * 1000);
-    const replayable = state.mode !== 'live';
-    $('play').hidden = !replayable;
-    $('play').textContent = state.playing ? 'Dừng' : (state.mode === 'day' ? state.day.clock >= state.day.to : over) ? 'Phát lại' : 'Phát';
-    const running = state.data?.run?.state === 'running';
-    $('go-live').hidden = !running || state.mode === 'live';
-    $('back-latest').hidden = running || state.mode === 'latest';
+    scrub.hidden = live; $('speed').hidden = live; $('play').hidden = live;
+    if (!live) {
+      scrub.value = state.mode === 'day' ? Math.round(((state.day.clock - state.day.from) / (state.day.to - state.day.from)) * 1000) : Math.round((Math.min(t, run.sec) / run.sec) * 1000);
+      setText('play', state.playing ? 'Dừng' : (state.mode === 'day' ? state.day.clock >= state.day.to : over) ? 'Phát lại' : 'Phát');
+    }
+    $('go-live').hidden = live;
+    setText('go-live', isRunning() ? 'Đang chạy: xem trực tiếp' : 'Về trực tiếp');
+    paintPill();
   }
 
-  function paintCards(run, t, over) {
+  // Thẻ của một lượt ở giây t: dùng chung cho xem lại và phần đang chạy của xem trực tiếp.
+  function runCards(run, t) {
     const seen = run.customers.filter(item => t >= item.decided);
-    const lines = M.logLines(run, t);
-    const key = [run.id, seen.map(item => `${item.id}${t >= item.done ? 1 : 0}`).join(), lines.length, run.tooMany && t >= run.stages.chot.to, over].join('|');
-    if (key === state.cardsKey) return;
-    state.cardsKey = key;
     const name = item => (run.drill ? 'Khách A' : labelOf(item.id) ?? `Sổ ${item.id}`);
     const cards = [];
     if (run.tooMany && t >= run.stages.chot.to) cards.push(`<div class="card"><span class="tag t-bad">Dừng</span><b>${esc(run.different ?? 'Nhiều')} khách lệch</b><div class="why">Vượt ngưỡng. Máy không ghi khách nào, chỉ báo ở Việc cần làm.</div></div>`);
@@ -180,6 +196,37 @@
     for (const [reason, count] of Object.entries(run.unlinked ?? {})) {
       if (t >= run.stages.so.to) cards.push(`<div class="card"><span class="tag t-${M.resultOf(reason).tone}">${esc(M.resultOf(reason).tag)}</span><b>${esc(count)} khách chưa có sổ</b><div class="why">${esc(M.resultOf(reason).why ?? 'Có trên Sheet, chưa có sổ web.')}</div></div>`);
     }
+    return cards;
+  }
+
+  // Trực tiếp: phần đang chạy ở trên, dưới là mọi việc hôm nay máy đã đụng vào tiền, rồi nhật ký theo giờ thật.
+  function paintLive(run, t) {
+    const at = performance.now();
+    if (state.liveHtml !== null && at - state.paintedAt < PAINT_GAP) return;
+    state.paintedAt = at;
+    const day = (state.data?.now ?? '').slice(0, 10);
+    const money = M.todayMoney(state.data?.runs, state.data?.auto, day);
+    const today = money.items.map(item => `<div class="card"><span class="tag t-${esc(item.tone)}">${esc(item.tag)}</span><b><a href="/so-khach-v7-live.html?customer=${encodeURIComponent(item.id)}">${esc(labelOf(item.id) ?? `Sổ ${item.id}`)}</a></b>${item.amt ? `<div class="amt">${esc(item.amt)}</div>` : ''}<div class="why">${esc(M.hhmm(item.at))} · ${esc(item.why ?? '')}</div></div>`);
+    const parts = [...(run.live ? runCards(run, t) : []), `<div class="today-head">${today.length ? `Hôm nay máy đã ghi ${today.length} việc` : 'Hôm nay máy chưa ghi gì vào sổ'}</div>`, ...today];
+    if (money.countsOnly) parts.push(`<div class="none">Lượt cũ hôm nay còn ${money.countsOnly} khách đã ghi, chỉ lưu số đếm.</div>`);
+    const html = parts.join('');
+    if (html !== state.liveHtml) { $('cards').innerHTML = html; state.liveHtml = html; }
+    const isoOf = sec => `${run.day}T${M.clockOf(run.start + sec)}+07:00`;
+    const own = !run.live ? [] : [...M.logLines(run, t).map(item => ({ at: isoOf(item.at), text: item.text })),
+      ...run.customers.filter(item => t >= item.done && item.reason).map(item => ({ at: isoOf(item.done), text: `${labelOf(item.id) ?? `Sổ ${item.id}`}: ${(item.info.tag ?? '').toLowerCase()}.` }))];
+    const lines = [...own, ...state.feed.values()].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, FEED_SHOWN);
+    const feed = lines.map(item => `<li${item.bad ? ' class="bad"' : ''}><time>${esc(String(item.at).slice(11, 19))}</time><span>${esc(item.text)}</span></li>`).join('');
+    if (feed !== state.feedHtml) { $('log').innerHTML = feed; state.feedHtml = feed; }
+  }
+
+  function paintCards(run, t, over) {
+    const lines = M.logLines(run, t);
+    const seen = run.customers.filter(item => t >= item.decided);
+    const key = [run.id, seen.map(item => `${item.id}${t >= item.done ? 1 : 0}`).join(), lines.length, run.tooMany && t >= run.stages.chot.to, over].join('|');
+    if (key === state.cardsKey) return;
+    state.cardsKey = key; state.liveHtml = null; state.feedHtml = null;
+    const name = item => (run.drill ? 'Khách A' : labelOf(item.id) ?? `Sổ ${item.id}`);
+    const cards = runCards(run, t);
     if (run.countsOnly) cards.push(`<div class="none">Lượt này trước khi có tín hiệu từng bước nên chỉ còn số đếm: sửa ${run.fixed}, tạo sổ ${run.created}. Thời lượng từng trạm là ước tính.</div>`);
     else if (!cards.length) cards.push(`<div class="none">${over ? 'Lượt này máy không ghi gì vào sổ.' : 'Chưa có gì. Trạm Ghi chỉ chạy khi có khách lệch.'}</div>`);
     $('cards').innerHTML = cards.join('');
@@ -208,20 +255,24 @@
   }
 
   function paintSlots() {
-    const rows = state.data?.runs ?? [];
+    const rows = state.data?.runs ?? [], today = (state.data?.now ?? '').slice(0, 10), running = isRunning();
     const days = M.byDay(rows);
+    if (running && !days.some(entry => entry.day === today)) days.unshift({ day: today, runs: [], fixed: 0, created: 0, label: `${Number(today.slice(8))}/${Number(today.slice(5, 7))}` });
     const shown = days.slice(0, 3);
-    $('days').innerHTML = shown.map((entry, dayIndex) => `<div class="day"><div class="day-name"><button class="ctrl whole" type="button" data-day="${dayIndex}">Tua cả ngày</button><span><b>${esc(entry.label)}</b> · ${entry.runs.length} lượt · sửa ${entry.fixed}${entry.created ? `, tạo ${entry.created}` : ''}</span></div>`
+    const nowSlot = entry => (running && entry.day === today ? `<button type="button" class="slot now" data-live="1" aria-current="${state.mode === 'live' ? 'true' : 'false'}">${M.hhmm(state.data.run.started_at)} đang chạy</button>` : '');
+    $('days').innerHTML = shown.map((entry, dayIndex) => `<div class="day"><div class="day-name">${entry.runs.length ? `<button class="ctrl whole" type="button" data-day="${dayIndex}">Tua cả ngày</button>` : ''}<span><b>${esc(entry.label)}</b> · ${entry.runs.length} lượt · sửa ${entry.fixed}${entry.created ? `, tạo ${entry.created}` : ''}</span></div>`
       + entry.runs.map((run, index) => {
         const title = `Xong ${M.clockOf(run.end)}: ${run.khop ?? '—'}/${run.total ?? '—'} khớp, sửa ${run.fixed}, tạo sổ ${run.created}${run.countsOnly ? '. Chỉ có số đếm' : ''}`;
         const offSchedule = run.countsOnly && run.onSchedule === false;
         return `<button type="button" class="slot ${M.slotKind(run)}${offSchedule ? ' offs' : ''}" data-day="${dayIndex}" data-run="${index}" title="${esc(title)}" aria-label="${esc(title)}" aria-current="${state.run?.id === run.id ? 'true' : 'false'}">${M.clockOf(run.start).slice(0, 5)}</button>`;
-      }).join('') + '</div>').join('') || '<p class="none">Chưa có lượt nào trong sổ theo dõi.</p>';
+      }).join('') + nowSlot(entry) + '</div>').join('') || '<p class="none">Chưa có lượt nào trong sổ theo dõi.</p>';
     state.shownDays = shown;
   }
 
   function paintJobs() {
-    const jobs = state.data?.jobs ?? [];
+    const jobs = state.data?.jobs ?? [], key = JSON.stringify(jobs);
+    if (key === state.jobsKey) return;
+    state.jobsKey = key;
     $('jobs-body').innerHTML = jobs.map(job => `<tr class="job-${esc(job.state)}"><td>${esc(job.name)}</td><td>${esc(job.does)}</td><td>${esc(job.every)}</td><td>${job.last ? esc(`${M.hhmm(job.last)} ${Number(job.last.slice(8, 10))}/${Number(job.last.slice(5, 7))}`) : '—'}</td><td>${job.next ? esc(`${M.hhmm(job.next)} ${Number(job.next.slice(8, 10))}/${Number(job.next.slice(5, 7))}`) : '—'}</td><td>${esc(JOB_STATE[job.state] ?? job.state)}</td></tr>`).join('');
   }
 
@@ -254,44 +305,51 @@
       const body = await response.json();
       globalThis.AppNav?.setCustomers(body.customers ?? []);
       state.labels = F.customerLabels(body.customers ?? []);
-      state.cardsKey = null; state.tasksKey = null;
+      state.cardsKey = null; state.tasksKey = null; state.liveHtml = null; state.feedHtml = null;
     } catch { /* không có tên thì hiện "Sổ <id>" */ }
   }
+  function rememberJobRuns() {
+    for (const job of state.data.jobs ?? []) {
+      const event = M.jobEvent(job);
+      if (event) state.feed.set(event.key, event);
+    }
+    while (state.feed.size > FEED_KEPT) state.feed.delete([...state.feed.values()].sort((a, b) => (a.at < b.at ? -1 : 1))[0].key);
+  }
+  // Trả true khi có lượt vừa xong mà danh sách các lượt chưa có: cần đọc lại bản đầy đủ.
   function applyData(body, full) {
-    const hadRun = state.data?.run?.state === 'running';
-    const previous = state.data;
-    state.data = full ? body : { ...previous, ...body };
+    state.data = full ? body : { ...state.data, ...body };
     state.seenAt = performance.now();
     state.offline = false;
-    const running = state.data.run?.state === 'running';
-    if (full) { paintSlots(); paintJobs(); }
-    else paintJobs();
-    if (running && (state.mode === 'latest' || state.mode === 'live')) { state.mode = 'live'; refreshLive(state.data.run); return false; }
-    return hadRun && !running;
+    rememberJobRuns();
+    paintJobs();
+    const running = isRunning(), finished = state.data.run?.finished_at ?? null;
+    if (full) state.fullFinished = finished;
+    if (state.mode === 'live') setLiveRun();
+    if (full || running !== state.wasRunning) paintSlots();
+    state.wasRunning = running;
+    return !full && finished !== null && finished !== state.fullFinished;
   }
   let timer = null;
   async function poll(full = false) {
     clearTimeout(timer);
-    if (document.hidden && !full) { timer = setTimeout(poll, POLL_IDLE); return; }
+    if (document.hidden && !full) { timer = setTimeout(poll, POLL_HIDDEN); return; }
     try {
-      const response = await fetch(full ? '/api/v7/machine' : '/api/v7/machine/now', { cache: 'no-store' });
+      const response = await fetch(full ? '/api/v7/machine' : '/api/v7/machine/now', { cache: 'no-store', signal: AbortSignal.timeout(FETCH_TIMEOUT) });
       if (!response.ok) throw new Error(String(response.status));
-      const justEnded = applyData(await response.json(), full);
-      if (justEnded) { await poll(true); return; }
-      if (full && state.mode !== 'live' && state.mode === 'latest') showLatest();
-      if (state.mode === 'latest' && !state.run) showLatest();
+      if (applyData(await response.json(), full)) { await poll(true); return; }
     } catch {
       state.offline = true;
     }
     draw();
-    timer = setTimeout(poll, state.data?.run?.state === 'running' ? POLL_RUNNING : POLL_IDLE);
+    timer = setTimeout(poll, POLL_LIVE);
   }
 
   // ----- Vòng khung hình -----
   function frame(now) {
     const dt = state.lastFrame ? Math.min(now - state.lastFrame, 200) : 0;
     state.lastFrame = now; state.wall = now;
-    const live = state.mode === 'live' && !state.offline && !document.hidden;
+    const live = state.mode === 'live';
+    const moving = live && !state.offline && !document.hidden && (state.run?.live || (state.data?.jobs ?? []).some(job => job.state === 'running'));
     const working = state.data?.office?.state === 'working';
     if (state.playing && state.run) {
       if (state.mode === 'day') {
@@ -303,14 +361,14 @@
         if (state.t >= state.run.sec) { state.t = state.run.sec; state.playing = false; }
       }
       draw();
-    } else if (live || working) draw();
+    } else if (moving || working) draw();
+    else if (live && state.data && now - state.lastTick >= 1000) { state.lastTick = now; draw(); }   // máy nghỉ: chỉ đồng hồ và đếm ngược đổi, mỗi giây một lần là đủ
     requestAnimationFrame(frame);
   }
 
   // ----- Điều khiển -----
   $('play').addEventListener('click', () => {
     if (!state.run) return;
-    if (state.mode === 'latest') state.mode = 'replay';
     if (state.mode === 'day') { if (state.day.clock >= state.day.to) state.day.clock = state.day.from; syncDay(); } else if (state.t >= state.run.sec) { state.t = 0; state.cardsKey = null; }
     state.playing = !state.playing; draw();
   });
@@ -319,20 +377,20 @@
     if (!state.run) return;
     state.playing = false; state.cardsKey = null;
     if (state.mode === 'day') { state.day.clock = state.day.from + (event.target.value / 1000) * (state.day.to - state.day.from); syncDay(); }
-    else { if (state.mode === 'latest') state.mode = 'replay'; state.t = (event.target.value / 1000) * state.run.sec; }
+    else state.t = (event.target.value / 1000) * state.run.sec;
     draw();
   });
   $('cam').addEventListener('click', () => { state.camOn = !state.camOn; $('cam').setAttribute('aria-pressed', String(state.camOn)); $('cam').textContent = `Máy quay: ${state.camOn ? 'bật' : 'tắt'}`; draw(); });
   $('who-pick').addEventListener('change', event => openWho(event.target.value || null));
   $('who-close').addEventListener('click', () => openWho(null));
-  $('go-live').addEventListener('click', followLive);
-  $('back-latest').addEventListener('click', showLatest);
+  $('go-live').addEventListener('click', goLive);
   const showTab = which => { $('tab-money').setAttribute('aria-pressed', String(which === 'money')); $('tab-tasks').setAttribute('aria-pressed', String(which === 'tasks')); $('money-box').hidden = which !== 'money'; $('tasks-box').hidden = which !== 'tasks'; };
   $('tab-money').addEventListener('click', () => showTab('money'));
   $('tab-tasks').addEventListener('click', () => showTab('tasks'));
   $('days').addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button) return;
+    if (button.dataset.live) { goLive(); return; }
     const entry = state.shownDays?.[Number(button.dataset.day)];
     if (!entry) return;
     if (button.classList.contains('whole')) startDay(entry);
@@ -343,7 +401,7 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
   $('refresh-data').addEventListener('click', () => poll(true));
 
-  loadCustomers().then(() => { state.cardsKey = null; state.tasksKey = null; if (state.run) draw(); });
+  loadCustomers().then(() => { if (state.run) draw(); });
   poll(true);
   requestAnimationFrame(frame);
 })();

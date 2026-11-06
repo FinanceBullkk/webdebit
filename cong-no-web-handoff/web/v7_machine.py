@@ -22,7 +22,8 @@ from v7_api_validate import ApiError
 
 VN = ZoneInfo("Asia/Ho_Chi_Minh")
 RUNS_KEPT = 120         # khoảng một tuần theo nhịp 16 lượt mỗi ngày
-JOBS_TTL = 20.0
+JOBS_TTL = 2.0          # trang hỏi mỗi 2 giây; job Sheet chỉ chạy 4–13 giây nên cache dài hơn là không thấy; systemctl đo 27 ms trên hao
+LOST_SIGNAL = 300       # job báo đang chạy mà systemd thấy đã tắt và file đứng yên chừng này giây thì coi như chết giữa chừng
 WORKING_STALE = 900     # Hermes báo đang làm quá 15 phút mà không báo xong thì coi như đã dừng
 LEVELS = ("info", "warn", "urgent")
 KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -152,7 +153,7 @@ def jobs(now: float | None = None) -> list[dict[str, Any]]:
         return _jobs_cache["rows"]
     names = [f"{job['unit']}.{kind}" for job in JOBS for kind in ("timer", "service")]
     try:
-        done = subprocess.run(["systemctl", "show", "--property=Id,ActiveState,Result,LastTriggerUSec,NextElapseUSecRealtime", *names],
+        done = subprocess.run(["systemctl", "show", "--property=Id,ActiveState,Result,LastTriggerUSec,NextElapseUSecRealtime,InactiveExitTimestamp,InactiveEnterTimestamp", *names],
                       capture_output=True, text=True, timeout=5, check=False)
         units = _parse_show(done.stdout) if done.returncode == 0 else {}
     except (OSError, subprocess.SubprocessError):
@@ -164,7 +165,7 @@ def jobs(now: float | None = None) -> list[dict[str, Any]]:
         state = "unknown"
         if timer:
             last_at = _when(last) if last else None
-            if service.get("ActiveState") == "activating":
+            if service.get("ActiveState") in ("activating", "active"):
                 state = "running"
             elif service.get("Result") not in (None, "", "success"):
                 state = "failed"
@@ -174,7 +175,11 @@ def jobs(now: float | None = None) -> list[dict[str, Any]]:
                 state = "late"
             else:
                 state = "ok"
-        out.append({"id": job["id"], "name": job["name"], "does": job["does"], "every": job["every"], "last": last, "next": _systemd_time(timer.get("NextElapseUSecRealtime", "")) if timer else None, "state": state})
+        started, ended = _systemd_time(service.get("InactiveExitTimestamp", "")), _systemd_time(service.get("InactiveEnterTimestamp", ""))
+        if started and ended and ended < started:   # đang chạy: lần kết thúc còn lại là của lần trước
+            ended = None
+        out.append({"id": job["id"], "name": job["name"], "does": job["does"], "every": job["every"], "last": last, "next": _systemd_time(timer.get("NextElapseUSecRealtime", "")) if timer else None,
+                    "state": state, "started": started, "ended": ended})
     _jobs_cache.update(at=now, rows=out)
     return out
 
@@ -190,12 +195,29 @@ def _office(folder: Path, now: float) -> dict[str, Any]:
     return {"state": state, "tasks": data.get("tasks") or {}, "updated_at": data.get("updated_at"), "model_called_at": data.get("model_called_at")}
 
 
+def _current_run(folder: Path, rows: list[dict[str, Any]], now: float) -> Any:
+    """Lượt đang chạy hoặc vừa xong. Job bị giết thì file đứng mãi ở "running": systemd đã tắt và file cũ thì báo là lượt đã chết, không vẽ tiếp."""
+    path = folder / "reconcile-run.json"
+    run = _read_json(path)
+    if not isinstance(run, dict) or run.get("state") != "running":
+        return run
+    state = next((row["state"] for row in rows if row["id"] == "reconcile"), "unknown")
+    try:
+        changed = path.stat().st_mtime
+    except OSError:
+        return run
+    if state in ("running", "unknown") or now - changed < LOST_SIGNAL:
+        return run
+    return {**run, "state": "failed", "stage": None, "reason": "MAT_TIN_HIEU", "finished_at": datetime.fromtimestamp(changed, VN).isoformat(timespec="seconds")}
+
+
 def now_view(now: float | None = None) -> dict[str, Any]:
-    """Phần đổi nhanh, gọi vài giây một lần khi tab đang mở."""
+    """Phần đổi nhanh, gọi 2 giây một lần khi tab đang mở."""
     now = time.time() if now is None else now
     folder = base_dir()
-    return {"now": datetime.fromtimestamp(now, VN).isoformat(timespec="seconds"), "run": _read_json(folder / "reconcile-run.json"),
-            "jobs": jobs(now), "office": _office(folder, now)}
+    rows = jobs(now)
+    return {"now": datetime.fromtimestamp(now, VN).isoformat(timespec="seconds"), "run": _current_run(folder, rows, now),
+            "jobs": rows, "office": _office(folder, now)}
 
 
 def view(now: float | None = None) -> dict[str, Any]:

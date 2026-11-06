@@ -326,7 +326,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         # MAY-CHAY-01: đọc file của job, không qua DB; vẫn sau xác thực danh tính như mọi route.
         if parts.query:
             bad()
-        return 200, MACHINE_READS[parts.path]()
+        body = MACHINE_READS[parts.path]()
+        # Bản cho Hermes không được có chữ lấy từ Sheet, nên việc của hộp chờ chỉ đi cùng hai route cho trang.
+        return 200, body if parts.path == "/api/v7/machine/summary" else {**body, "auto": INBOX.auto_today()}
     elif parts.path == "/api/v7/sheet/doi-chieu":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_api_doi_chieu.statement(payload["customer_id"], runner, actor)
