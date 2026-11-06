@@ -1,4 +1,4 @@
-/* Phép tính cho thẻ Tình hình (TUONG-TAC-01): từng tháng nợ theo hạn, dòng Hoạt động, số chuyến mỗi tháng, thước của hình.
+/* Phép tính cho thẻ Tình hình (TUONG-TAC-01, TINH-HINH-01): từng tháng nợ theo hạn, dòng tiền về và hứa trả, số tiền của lần trả gần nhất, số chuyến mỗi tháng.
    Không vẽ gì; số tiền cộng bằng BigInt, render (so-khach-v7-overview-ui.js) chỉ định dạng (ARCH-03). */
 const TinhHinhModel = (() => {
   'use strict';
@@ -39,7 +39,7 @@ const TinhHinhModel = (() => {
     return exact ? dateText(date) : `trong tháng ${monthLabel(date)}`;
   }
 
-  /** Chuyến của một tháng: dòng web (trừ đã xóa, đã loại, phí lẻ) và dòng chuyến sổ gốc chưa xóa, cùng cách đếm thẻ Đi hàng. */
+  /** Chuyến của một tháng: dòng web (trừ đã xóa, đã loại, phí lẻ) và dòng chuyến sổ gốc chưa xóa. */
   function tripCount(data, key) {
     return (data.trips ?? []).filter(trip => monthKey(trip.month) === key && !trip.deleted && trip.status !== 'rejected' && !trip.is_fee_only).length
       + (data.legacy_rows ?? []).filter(row => monthKey(row.month) === key && row.kind !== 'receipt' && !row.current?.deleted).length;
@@ -51,36 +51,23 @@ const TinhHinhModel = (() => {
     return last < today ? last : today;
   }
 
-  function tripLine(container, amount, priced) {
-    return [container || 'Không có container', priced ? full(amount) : 'chưa giá'];
-  }
-
   /**
-   * Dòng Hoạt động, mới nhất trước. Gồm phiếu web, khoản thu và chuyến sổ gốc, dấu Zalo, hội thoại Zalo. Khoản sổ gốc không có ngày ghi tháng của khối
-   * (`date` null), xếp ở cuối tháng đó, không đoán ngày. Mỗi dòng: kind (paid, trip, mark, remind), key (tháng), title, sub, lines [nhãn, giá trị], go.
+   * Dòng "Tiền về và hứa trả": phiếu web, khoản thu sổ gốc, hứa trả, báo đã chuyển. Hứa trả đang chờ đứng đầu, còn lại mới nhất trước. Khoản sổ gốc không có ngày
+   * ghi tháng của khối (`date` null), xếp ở cuối tháng đó, không đoán ngày. Mỗi dòng: kind (paid, mark), key (tháng), title, sub, lines [nhãn, giá trị], go;
+   * dòng tiền có `amount` (BigInt) để cộng số của một ngày.
    */
-  function activity(data, { marks = [], chats = [], today }) {
+  function moneyEvents(data, { marks = [], today }) {
     const out = [];
-    const push = (kind, id, key, date, title, sub, lines, go) => out.push({ id: `${kind}:${id}`, kind, key, date, sort: date ?? endOfMonth(key, today), title, sub, lines, go });
+    const push = (kind, id, key, date, title, sub, lines, go, extra = {}) => out.push({ id: `${kind}:${id}`, kind, key, date, sort: date ?? endOfMonth(key, today), title, sub, lines, go, ...extra });
 
     for (const row of data.receipts ?? []) {
       if (row.voided_by_event != null || !isDate(row.date)) continue;
       const key = monthKey(row.date);
       const lines = (row.allocations ?? []).map(line => [line.kind === 'advance' ? 'Ứng trước' : `Trừ nợ T${monthLabel(line.month)}`, full(line.amount_vnd)]);
-      push('paid', `web-${row.id ?? row.pid}`, key, row.date, `Khách trả ${full(row.amount_vnd)}`, row.method ?? '', lines, `thang:${key}`);
-    }
-    const trips = new Map();
-    const addTrip = (key, date, destination, line) => {
-      const id = `${date ?? key}|${destination}`;
-      if (!trips.has(id)) trips.set(id, { key, date, destination, lines: [] });
-      trips.get(id).lines.push(line);
-    };
-    for (const row of data.trips ?? []) {
-      if (row.deleted || row.status !== 'confirmed' || row.is_fee_only) continue;
-      const key = monthKey(row.month ?? row.event_date);
-      addTrip(key, isDate(row.event_date) ? row.event_date : null, row.destination ?? '', tripLine(row.container, row.amount_vnd, row.amount_vnd != null));
+      push('paid', `web-${row.id ?? row.pid}`, key, row.date, full(row.amount_vnd), '', lines, `thang:${key}`, { amount: toBig(row.amount_vnd) });
     }
     for (const row of data.legacy_rows ?? []) {
+      if (row.kind !== 'receipt') continue;
       // Dòng chưa sửa có thể không có `current` (khoản thu sổ gốc luôn vậy): số ở source_total_vnd, chữ ở display.
       const current = row.current ?? {};
       if (current.deleted) continue;
@@ -88,45 +75,33 @@ const TinhHinhModel = (() => {
       const display = typeof row.display === 'object' && row.display !== null ? row.display : {};
       const date = [current.event_date, display.date].find(isDate) ?? null;
       const amount = toBig(current.counted_vnd ?? row.source_total_vnd ?? '0');
-      if (row.kind === 'receipt') {
-        if (amount !== 0n) push('paid', `sheet-${row.id}`, key, date, `Khách trả ${full(amount)}`, 'theo sổ gốc', [['Ghi ở khối', `T${monthLabel(key)}`]], `thang:${key}`);
-      } else {
-        const priced = (current.unit_price_vnd ?? display.unit_price) != null || amount !== 0n;
-        addTrip(key, date, current.destination ?? display.to ?? '', tripLine(current.container ?? display.container, amount, priced));
-      }
-    }
-    for (const [id, group] of trips) {
-      push('trip', id, group.key, group.date, `${group.lines.length} chuyến đi hàng`, group.destination, group.lines, `thang:${group.key}`);
+      if (amount !== 0n) push('paid', `sheet-${row.id}`, key, date, full(amount), '', [['Theo sổ gốc, ghi ở khối', `T${monthLabel(key)}`]], `thang:${key}`, { amount });
     }
     for (const row of marks) {
-      if (row.status === 'cancelled') continue;
+      if (row.status === 'cancelled' || (row.kind !== 'promise' && row.kind !== 'paid_claim')) continue;
       const date = row.message_at ? vnDay(row.message_at) : String(row.created_on ?? '').slice(0, 10);
       if (!isDate(date)) continue;
       const waiting = row.status === 'pending' ? 'đang chờ' : row.status;
-      const title = row.kind === 'promise' ? `Hứa trả ${full(row.amount_vnd)}` : row.kind === 'paid_claim' ? `Báo đã chuyển ${full(row.amount_vnd)}` : 'Ghi chú';
+      const promise = row.kind === 'promise';
       const lines = [row.amount_vnd != null ? ['Số tiền', full(row.amount_vnd)] : null, row.on_date ? ['Hẹn trả', dateText(row.on_date)] : null,
-        row.kind === 'promise' ? ['Trạng thái', waiting] : null].filter(Boolean);
-      push('mark', `mark-${row.id}`, monthKey(date), date, title, row.kind === 'promise' ? `hẹn ${dateText(row.on_date)} · ${waiting}` : '', lines, 'trao-doi');
+        promise ? ['Trạng thái', waiting] : null].filter(Boolean);
+      const amountText = row.amount_vnd != null ? ` ${full(row.amount_vnd)}` : '';
+      push('mark', `mark-${row.id}`, monthKey(date), date, `${promise ? 'Hứa trả' : 'Báo đã chuyển'}${amountText}`, promise ? `hẹn ${dateText(row.on_date)} · ${waiting}` : '', lines, 'trao-doi',
+        { waiting: promise && row.status === 'pending' });
     }
-    for (const row of chats) {
-      if (!row.last_message_at) continue;
-      const date = vnDay(row.last_message_at);
-      if (isDate(date)) push('remind', `zalo-${row.id ?? row.display_name}`, monthKey(date), date, 'Zalo gần nhất', row.display_name ?? '', [['Hội thoại', row.display_name ?? '']], 'trao-doi');
-    }
-    return out.sort((a, b) => b.sort.localeCompare(a.sort) || (a.date === null) - (b.date === null));
+    return out.sort((a, b) => Boolean(b.waiting) - Boolean(a.waiting) || b.sort.localeCompare(a.sort) || (a.date === null) - (b.date === null));
   }
 
-  const KINDS = { all: () => true, paid: row => row.kind === 'paid', trip: row => row.kind === 'trip', talk: row => row.kind === 'mark' || row.kind === 'remind' };
-
-  /** Thước của hình: vị trí 0–1 của một giá trị, gồm cả số 0 để cột âm không tràn. */
-  function scale(values) {
-    const known = values.filter(value => value !== null).map(value => BigInt(value));
-    const bottom = known.reduce((min, value) => (value < min ? value : min), 0n);
-    const top = known.reduce((max, value) => (value > max ? value : max), 0n);
-    const at = value => (value === null ? null : top === bottom ? 0 : Number((BigInt(value) - bottom) * 10000n / (top - bottom)) / 10000);
-    return { at, zeroAt: at(0n) };
+  /**
+   * Số tiền của lần trả gần nhất Tổng quan báo: tổng các khoản đúng ngày đó; chỉ biết tháng thì tổng các khoản không ngày của tháng đó.
+   * Không có khoản nào khớp thì null (không đoán số): Tổng quan còn tính cả nguồn sổ không có ở đây.
+   */
+  function paidOn(events, date, exact) {
+    if (!date) return null;
+    const rows = events.filter(row => row.kind === 'paid' && (exact ? row.date === date : row.date === null && row.key === monthKey(date)));
+    return rows.length ? sum(rows.map(row => row.amount)) : null;
   }
 
-  return { ago, debtTiers, factDate, tripCount, activity, KINDS, scale };
+  return { ago, debtTiers, factDate, tripCount, moneyEvents, paidOn };
 })();
 if (typeof module !== 'undefined') module.exports = TinhHinhModel;

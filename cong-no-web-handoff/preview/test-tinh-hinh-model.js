@@ -1,4 +1,4 @@
-/* TUONG-TAC-01: phép tính của thẻ Tình hình. Dữ liệu giả cùng dạng GET /api/v7/ledger và dashboard/debt. */
+/* TUONG-TAC-01, TINH-HINH-01: phép tính của thẻ Tình hình. Dữ liệu giả cùng dạng GET /api/v7/ledger và dashboard/debt. */
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('./so-khach-v7-tinh-hinh-model.js');
@@ -66,73 +66,65 @@ const LEDGER = () => ({
   ],
 });
 
-test('Hoạt động có cả dòng sổ gốc, mới nhất trước; phiếu hủy, dòng đã xóa, khoản 0 đồng không lên', () => {
-  const rows = M.activity(LEDGER(), { today: '2026-11-15' });
+test('Tiền về chỉ có tiền, có cả sổ gốc, mới nhất trước; phiếu hủy, dòng đã xóa, khoản 0 đồng, chuyến không lên', () => {
+  const rows = M.moneyEvents(LEDGER(), { today: '2026-11-15' });
   assert.deepEqual(rows.map(row => [row.kind, row.key, row.date, row.title]), [
-    ['trip', '2026-11', '2026-11-04', '2 chuyến đi hàng'],
-    ['paid', '2026-10', '2026-10-18', 'Khách trả 15.000.000 đ'],
-    ['paid', '2026-09', null, 'Khách trả 20.000.000 đ'],
-    ['trip', '2026-09', '2026-09-03', '2 chuyến đi hàng'],
+    ['paid', '2026-10', '2026-10-18', '15.000.000 đ'],
+    ['paid', '2026-09', null, '20.000.000 đ'],
   ]);
 });
 
-test('Hoạt động: khoản sổ gốc không có ngày không bị gán ngày, xếp ở cuối tháng của khối; chi tiết đúng từng dòng', () => {
-  const rows = M.activity(LEDGER(), { today: '2026-11-15' });
-  const [webTrip, webPay, sheetPay, sheetTrip] = rows;
+test('Tiền về: khoản sổ gốc không có ngày không bị gán ngày, xếp ở cuối tháng của khối; chi tiết đúng từng dòng', () => {
+  const [webPay, sheetPay] = M.moneyEvents(LEDGER(), { today: '2026-11-15' });
   assert.equal(sheetPay.date, null);
   assert.equal(sheetPay.sort, '2026-09-30');
-  assert.equal(sheetPay.sub, 'theo sổ gốc');
-  assert.deepEqual(sheetPay.lines, [['Ghi ở khối', 'T9/2026']]);
-  assert.deepEqual(webTrip.lines, [['AAAU1', 'chưa giá'], ['AAAU2', '8.000.000 đ']]);
-  assert.deepEqual(sheetTrip.lines, [['OLDU1', '9.000.000 đ'], ['OLDU2', 'chưa giá']]);
+  assert.deepEqual(sheetPay.lines, [['Theo sổ gốc, ghi ở khối', 'T9/2026']]);
   assert.deepEqual(webPay.lines, [['Trừ nợ T7/2026', '10.000.000 đ'], ['Ứng trước', '5.000.000 đ']]);
   assert.equal(webPay.go, 'thang:2026-10');
 });
 
-test('Hoạt động: khoản không ngày của tháng đang chạy không xếp vượt hôm nay; hứa trả và Zalo mở Trao đổi; lọc theo loại', () => {
+test('Hứa trả đang chờ đứng đầu dù cũ hơn; hứa đã xong xếp theo ngày; ghi chú và dấu đã bỏ không lên; khoản không ngày không vượt hôm nay', () => {
   const data = { legacy_rows: [{ id: 1, kind: 'receipt', month: '2026-11-01', display: {}, current: { month: '2026-11-01', counted_vnd: M1(1), deleted: false } }] };
   const marks = [{ id: 1, kind: 'promise', amount_vnd: M1(44), on_date: '2026-11-20', created_on: '2026-10-30', status: 'pending' },
-    { id: 2, kind: 'promise', amount_vnd: M1(1), on_date: '2026-11-20', created_on: '2026-10-29', status: 'cancelled' }];
-  const chats = [{ display_name: 'Nhóm thử', last_message_at: Date.UTC(2026, 9, 28, 3) }, { display_name: 'Không tin', last_message_at: null }];
-  const rows = M.activity(data, { marks, chats, today: '2026-11-15' });
-  assert.deepEqual(rows.map(row => [row.kind, row.sort]), [['paid', '2026-11-15'], ['mark', '2026-10-30'], ['remind', '2026-10-28']]);
-  assert.equal(rows[1].go, 'trao-doi');
-  assert.deepEqual(rows[1].lines, [['Số tiền', '44.000.000 đ'], ['Hẹn trả', '20/11/2026'], ['Trạng thái', 'đang chờ']]);
-  assert.equal(rows.filter(M.KINDS.talk).length, 2);
-  assert.equal(rows.filter(M.KINDS.paid).length, 1);
-  assert.equal(rows.filter(M.KINDS.trip).length, 0);
-  assert.equal(rows.filter(M.KINDS.all).length, 3);
+    { id: 2, kind: 'promise', amount_vnd: M1(1), on_date: '2026-11-20', created_on: '2026-10-29', status: 'cancelled' },
+    { id: 3, kind: 'note', created_on: '2026-11-02', status: 'noted' },
+    { id: 4, kind: 'promise', amount_vnd: M1(5), on_date: '2026-10-01', created_on: '2026-09-20', status: 'kept' },
+    { id: 5, kind: 'paid_claim', amount_vnd: M1(7), created_on: '2026-10-29', status: 'matched' },
+    { id: 6, kind: 'paid_claim', amount_vnd: null, created_on: '2026-10-28', status: 'matched' }];
+  const rows = M.moneyEvents(data, { marks, today: '2026-11-15' });
+  assert.deepEqual(rows.map(row => [row.id, row.sort]), [['mark:mark-1', '2026-10-30'], ['paid:sheet-1', '2026-11-15'], ['mark:mark-5', '2026-10-29'], ['mark:mark-6', '2026-10-28'], ['mark:mark-4', '2026-09-20']]);
+  assert.equal(rows[0].go, 'trao-doi');
+  assert.equal(rows[0].title, 'Hứa trả 44.000.000 đ');
+  assert.deepEqual(rows[0].lines, [['Số tiền', '44.000.000 đ'], ['Hẹn trả', '20/11/2026'], ['Trạng thái', 'đang chờ']]);
+  assert.equal(rows[2].title, 'Báo đã chuyển 7.000.000 đ');
+  assert.equal(rows[3].title, 'Báo đã chuyển', 'không biết số tiền thì không ghi số');
 });
 
-test('Hoạt động: dòng sổ gốc đã sửa lấy số đã sửa; dòng chuyến không có current đọc display, không thành chưa giá', () => {
-  const rows = M.activity({ legacy_rows: [
+test('Tiền về: dòng sổ gốc đã sửa lấy số đã sửa', () => {
+  const rows = M.moneyEvents({ legacy_rows: [
     { id: 1, kind: 'receipt', month: '2026-09-01', source_total_vnd: M1(20), display: {}, current: { month: '2026-09-01', counted_vnd: M1(25), deleted: false } },
-    { id: 2, kind: 'trip', month: '2026-08-01', source_total_vnd: M1(9), display: { date: '2026-08-03', container: 'SHTU1', to: 'Nơi F', unit_price: M1(9) }, current: null },
-    { id: 3, kind: 'trip', month: '2026-07-01', source_total_vnd: '0', display: { date: '2026-07-03', container: 'SHTU2', to: 'Nơi G', unit_price: null }, current: null },
   ] }, { today: '2026-11-15' });
-  assert.deepEqual(rows.map(row => row.title), ['Khách trả 25.000.000 đ', '1 chuyến đi hàng', '1 chuyến đi hàng']);
-  assert.equal(rows[1].sub, 'Nơi F');
-  assert.deepEqual(rows[1].lines, [['SHTU1', '9.000.000 đ']]);
-  assert.deepEqual(rows[2].lines, [['SHTU2', 'chưa giá']]);
+  assert.deepEqual(rows.map(row => [row.title, row.amount]), [['25.000.000 đ', 25000000n]]);
+});
+
+test('Số tiền lần trả gần nhất: cộng các khoản đúng ngày; chỉ biết tháng thì cộng khoản không ngày của tháng; không khớp thì null, không đoán', () => {
+  const events = M.moneyEvents({ receipts: [
+    { id: 1, date: '2026-10-18', amount_vnd: M1(15), voided_by_event: null },
+    { id: 2, date: '2026-10-18', amount_vnd: M1(5), voided_by_event: null },
+    { id: 3, date: '2026-10-17', amount_vnd: M1(9), voided_by_event: null },
+  ], legacy_rows: [{ id: 21, kind: 'receipt', month: '2026-09-01', source_total_vnd: M1(20), display: {}, current: null },
+    { id: 22, kind: 'receipt', month: '2026-09-01', source_total_vnd: M1(2), display: {}, current: null }] }, { today: '2026-11-15' });
+  assert.equal(M.paidOn(events, '2026-10-18', true), 20000000n);
+  assert.equal(M.paidOn(events, '2026-09-30', false), 22000000n);
+  assert.equal(M.paidOn(events, '2026-10-01', true), null);
+  assert.equal(M.paidOn(events, '2026-08-31', false), null);
+  assert.equal(M.paidOn(events, null, false), null);
 });
 
 test('Đếm chuyến: bỏ đã xóa, đã loại, phí lẻ; tính dòng chuyến sổ gốc chưa xóa', () => {
   const data = LEDGER();
-  assert.equal(M.tripCount(data, '2026-11'), 3, 'cả chờ kiểm và thiếu giá, như thẻ Đi hàng');
+  assert.equal(M.tripCount(data, '2026-11'), 3, 'cả chờ kiểm và thiếu giá');
   assert.equal(M.tripCount(data, '2026-09'), 2);
   assert.equal(M.tripCount(data, '2026-08'), 0);
   assert.equal(M.tripCount(data, '2026-01'), 0);
-});
-
-test('Thước của hình gồm số 0; toàn số 0 hoặc không có gì thì không chia cho 0', () => {
-  const a = M.scale([10n, 5n, null]);
-  assert.equal(a.at(10n), 1);
-  assert.equal(a.at(5n), 0.5);
-  assert.equal(a.zeroAt, 0);
-  assert.equal(a.at(null), null);
-  const b = M.scale([-5n, 15n]);
-  assert.equal(b.zeroAt, 0.25);
-  assert.equal(M.scale([3, 6]).at(3), 0.5, 'nhận cả số đếm');
-  assert.equal(M.scale([0, null]).at(0), 0);
-  assert.equal(M.scale([]).zeroAt, 0);
 });
