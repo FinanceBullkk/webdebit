@@ -320,6 +320,7 @@
     state.data = full ? body : { ...state.data, ...body };
     state.seenAt = performance.now();
     state.offline = false;
+    state.paintedAt = 0;   // số mới thì vẽ ngay, khoảng giãn chỉ để khung hình không dựng lại HTML liên tục
     rememberJobRuns();
     paintJobs();
     const running = isRunning(), finished = state.data.run?.finished_at ?? null;

@@ -50,7 +50,7 @@ Bẫy khi đọc dữ liệu:
 - Job (`tools/v7_run_trace.py`) ghi `reconcile-run.json` và `reconcile-run-history.jsonl`, mode 600: trạm, số đã qua, khách theo `customer_id`, lý do, tiền `_vnd` dạng chuỗi. Không có tên khách.
 - `GET /api/v7/machine` (lượt đang chạy, các lượt, job, bảng việc), `GET /api/v7/machine/now` (phần đổi nhanh), `GET /api/v7/machine/summary` (bản cho Hermes), cùng đăng nhập với các API đọc khác, không qua DB. Trang tự đổi `customer_id` thành tên qua `/api/v7/customers`.
 - `POST /api/v7/machine/office` nhận tình trạng và thẻ của quản lý, ghi `office/state.json`. Kiểm khóa thẻ, độ dài, từ chối chữ trông như số tiền; lỗi ghi trả 503.
-- Trình duyệt hỏi lại mỗi 2 giây lúc tab đang mở; tab ẩn thì 30 giây (mục Trực tiếp).
+- Trình duyệt hỏi lại mỗi 2 giây lúc tab đang hiện; tab ẩn thì không hỏi, hiện lại là đọc ngay (mục Trực tiếp).
 
 ## Trực tiếp là mặc định, xem lại là phụ
 
@@ -78,7 +78,7 @@ Cách làm và lý do:
 - **Job báo sớm hơn, không đổi quyết định nào:** số khớp ngay sau khi so, khách chờ xét, khách đang ghi, kết luận từng khách ngay khi có. Vẫn qua `_safe`: lỗi tín hiệu không làm hỏng lượt.
 - **Việc của hộp chờ chỉ đi cùng route cho trang**, không vào `summary` của Hermes vì có chữ lấy từ Sheet.
 
-Giới hạn: nhật ký job chỉ có lần chạy gần nhất của mỗi job lúc mở trang, các lần sau tích lũy trong tab đó; đóng tab là mất. Việc hộp chờ theo RAM của API, API khởi động lại thì dựng lại từ Lịch sử theo `v7_inbox.py`.
+Giới hạn: nhật ký job chỉ có lần chạy gần nhất của mỗi job lúc mở trang, các lần sau tích lũy trong tab đó; đóng tab là mất, và lần chạy lúc tab ẩn cũng không vào nhật ký, trừ lần gần nhất. Việc hộp chờ theo RAM của API, API khởi động lại thì dựng lại từ Lịch sử theo `v7_inbox.py`.
 
 ## Quản lý Hermes (ĐỀ XUẤT)
 
