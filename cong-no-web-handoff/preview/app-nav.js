@@ -2,7 +2,8 @@
  * script của trang. File vẽ nút ☰, ô Tìm khách, năm mục điều hướng và số "sổ còn việc" trên mục Việc cần làm — cùng cách đếm
  * với trang Việc cần làm (InboxTable.books: việc từ Sheet + chuyến thiếu giá, chờ kiểm, số dư đầu, sổ chưa gán mặt hàng).
  * Trang đã có số liệu thì báo qua AppNav.setCustomers / AppNav.setTodoCount (data-count="page") để khỏi đọc API hai lần;
- * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage). */
+ * trang khác thì file tự đọc. Không ghi gì lên server; chỉ lưu số đếm gần nhất trên máy (localStorage) và bản số liệu Việc cần
+ * làm gần nhất trong tab (sessionStorage, đóng tab là hết) để bấm sang trang đó thấy bảng ngay. */
 globalThis.AppNav = (() => {
   'use strict';
   // cong-no-format.js khai báo CongNoFormat bằng const ở tầm script: dùng tên trực tiếp, không có trên globalThis.
@@ -97,6 +98,19 @@ globalThis.AppNav = (() => {
     } catch { /* không có số đệm thì để trống */ }
   }
 
+  // Bản số liệu Việc cần làm gần nhất trong tab. Trang đó vẽ bản này ngay rồi đọc lại; bản cũ quá 8 tiếng (một ngày làm việc) thì bỏ. Bản cũ chỉ hiện tới khi đọc xong và nút ghi khóa trong lúc đó.
+  const SNAPSHOT = 'webdebit.todoSnapshot.v1';
+  function saveTodoSnapshot({ inbox, dashboard, unsorted, customers: list }) {
+    if (!inbox || !dashboard || !unsorted || !list?.length || ['computing', 'unavailable'].includes(inbox.state) || inbox.failed?.length) return;
+    try { sessionStorage.setItem(SNAPSHOT, JSON.stringify({ inbox, dashboard, unsorted, customers: list, at: Date.now() })); } catch { /* đầy hoặc bị chặn: lần sau đợi tải như thường */ }
+  }
+  function readTodoSnapshot() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(SNAPSHOT) ?? 'null');
+      return saved && Date.now() - saved.at < 8 * 3_600_000 ? saved : null;
+    } catch { return null; }
+  }
+
   // Trang không tự đếm: đọc ba nguồn như trang Việc cần làm; nguồn nào lỗi thì giữ số cũ, không báo lỗi trên menu.
   async function loadTodoCount() {
     if (!globalThis.InboxTable) return;
@@ -105,8 +119,13 @@ globalThis.AppNav = (() => {
     if (!inbox && !dashboard) return;
     const key = typeof DashboardModel === 'undefined' ? null : DashboardModel.commodityKey;
     const unsorted = (debt?.customers ?? []).filter(row => (key ? key(row.commodity, row.transport_mode) === F.UNSORTED : !row.commodity))
-      .map(row => ({ customer_id: row.customer_id }));
+      .map(row => ({ customer_id: row.customer_id, name: row.name, commodity: row.commodity }));
     setTodoCount(globalThis.InboxTable.books(inbox, dashboard, unsorted).length);
+    // Sẵn ba nguồn rồi thì giữ lại: lần đầu bấm sang Việc cần làm cũng khỏi đợi.
+    if (inbox && dashboard && debt) {
+      customers ??= await json('/api/v7/customers').then(body => body?.customers ?? null);
+      saveTodoSnapshot({ inbox, dashboard, unsorted, customers });
+    }
   }
 
   // Sổ khách còn menu riêng (cùng số đo): không có <aside class="app-nav"> thì chỉ hiện số đệm, không đọc API.
@@ -117,5 +136,5 @@ globalThis.AppNav = (() => {
     loadTodoCount();
     setInterval(() => { if (!document.hidden) loadTodoCount(); }, 120_000);
   }
-  return { setCustomers, setTodoCount, loadTodoCount };
+  return { setCustomers, setTodoCount, loadTodoCount, saveTodoSnapshot, readTodoSnapshot };
 })();

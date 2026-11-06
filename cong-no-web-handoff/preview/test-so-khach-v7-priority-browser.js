@@ -204,6 +204,67 @@ test('Phiếu thu: ngày và ghi chú tách đúng cột, Trừ nợ mỗi thán
   }
 }, payWorld));
 
+test('Còn nợ cuối tháng cùng một hàng với nhãn; ghi chú, trừ nợ và số tiền của phiếu đứng gần nhau', async () => withPage(async ({ page }) => {
+  for (const width of [1280, 1895]) {
+    await page.setViewportSize({ width, height: 848 });
+    await reload(page);
+    await viewMonth(page, '2026-09');
+    const line = await page.locator('.month-end').evaluate(node => {
+      const range = document.createRange();
+      range.selectNodeContents(node.firstChild);
+      const label = range.getBoundingClientRect(), money = node.querySelector('b').getBoundingClientRect();
+      const up = document.querySelector('.month-received b').getBoundingClientRect();
+      return { sameLine: label.bottom > money.top && money.bottom > label.top, right: Math.round(money.right - up.right) };
+    });
+    assert.deepEqual(line, { sameLine: true, right: 0 }, `${width}px: số không rơi xuống dòng dưới, thẳng mép phải với các số trên`);
+    const gaps = await page.locator('.pay-row:has(.alloc-lines)').first().evaluate(row => {
+      const box = selector => row.querySelector(selector).getBoundingClientRect();
+      const block = document.querySelector('.pay-block').getBoundingClientRect(), entry = document.querySelector('.pay-head .entry-open').getBoundingClientRect();
+      return { note: box('.alloc-label').left - box('.receipt-ref').right, money: box('.receipt-sum').left - box('.alloc-lines').right, entryEdge: Math.round(block.right - entry.right), block: block.width };
+    });
+    assert.ok(gaps.note < 120, `${width}px: từ ghi chú sang Trừ nợ không phải đi qua khoảng trống: ${gaps.note}`);
+    assert.ok(gaps.money < 120, `${width}px: từ Trừ nợ sang số tiền: ${gaps.money}`);
+    assert.equal(gaps.entryEdge, 0, 'nút Ghi phiếu thu thẳng mép phải khối phiếu');
+    assert.ok(gaps.block <= 860, `${width}px: khối phiếu ôm theo nội dung: ${gaps.block}`);
+  }
+}, world => {
+  world.monthValues = { '2026-09-01': { prior_months_vnd: '25334328759', charges_vnd: '860000000', received_vnd: '6594000000', end_of_month_vnd: '19600328759' } };
+  world.receipts = [{ id: 3, pid: 'PH-003', date: '2026-09-04', method: 'THU TIỀN', amount_vnd: '6594000000', reference: 'CK', voided_by_event: null,
+    allocations: ['2026-06-01', '2026-07-01', '2026-08-01'].map(month => ({ month, amount_vnd: '2198000000', kind: 'debt', superseded_by_event: null })) }];
+}));
+
+test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm, không lặp mặt hàng, gõ thì lọc, Enter mở dòng đầu', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await page.goto(new URL('/so-khach-v7-live.html', page.url()).href);
+  await page.waitForFunction(() => document.querySelector('#customer-count')?.textContent);
+  assert.equal(await page.locator('.picker-head h1').innerText(), 'Sổ khách');
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search');
+  assert.equal(await page.locator('#customer-count').innerText(), '60 khách');
+  assert.equal(await page.locator('#customer-list a').count(), 60, 'trang chọn khách không dừng ở 50 dòng');
+  assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['Dừa (30)', 'Thanh long (30)']);
+  assert.equal(await page.locator('#customer-list a').first().innerText(), 'Khách 2');
+  assert.equal(await page.locator('#live-controls').isVisible(), false, 'chưa có sổ thì không có Làm mới');
+  assert.equal(await page.locator('.dashboard-link').isVisible(), false, 'menu trái đã có Tổng quan');
+  const geometry = await page.evaluate(() => ({ overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    page: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    searchTop: document.querySelector('#customer-search').getBoundingClientRect().top,
+    list: document.querySelector('#customer-list').scrollHeight > document.querySelector('#customer-list').clientHeight }));
+  assert.deepEqual({ overflow: geometry.overflow, page: geometry.page, list: geometry.list }, { overflow: 0, page: 0, list: true }, 'danh sách tự cuộn, ô tìm không trôi khỏi màn');
+  await page.locator('#customer-search').fill('khong co ai');
+  assert.equal(await page.locator('#customer-count').innerText(), 'Không có khách nào khớp “khong co ai”');
+  assert.equal(await page.locator('#customer-list').isVisible(), false);
+  await page.locator('#customer-search').fill('thanh long');
+  assert.equal(await page.locator('#customer-list a').count(), 30);
+  assert.notEqual(await page.locator('#customer-list a').first().evaluate(node => getComputedStyle(node).backgroundColor), 'rgba(0, 0, 0, 0)', 'tô dòng Enter sẽ mở');
+  await page.locator('#customer-search').blur();
+  await page.locator('.picker-open').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'customer-search', 'nút Tìm khách của menu đưa con trỏ về ô tìm');
+  await page.locator('#customer-search').press('Enter');
+  await page.waitForURL(/customer=1$/);
+}, world => {
+  world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
+}));
+
 test('Sửa tham chiếu phiếu máy ghi: ô sửa không có mã, lưu vẫn giữ mã để máy nhận ra phiếu', async () => withPage(async ({ page }) => {
   await viewMonth(page, '2026-09');
   const reference = page.locator('.receipt-ref[data-pid="PH-002"][data-field="reference"]');

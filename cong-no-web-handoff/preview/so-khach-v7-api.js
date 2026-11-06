@@ -110,7 +110,8 @@
         const grouped = groupCustomers(customers, query);
         found = grouped.found;
         // Before typing, list everyone only when no customer is open yet or the search box is in use.
-        const shown = new Set(query || listAll ? found.slice(0, 50) : []);
+        // Trang chọn khách (chưa mở sổ) đủ chỗ nên hiện mọi sổ; hộp đổi khách nhỏ chỉ hiện 50 dòng đầu.
+        const shown = new Set(query || listAll ? (current ? found.slice(0, 50) : found) : []);
         const items = [];
         for (const group of grouped.groups) {
           const rows = group.rows.filter(row => shown.has(row));
@@ -124,16 +125,20 @@
           for (const row of rows) {
             const link = document.createElement('a');
             link.href = href(row);
-            const display = customerNames.get(String(row.id));
+            // Dòng đã nằm dưới nhóm mặt hàng: bỏ phần mặt hàng lặp lại, giữ " · sổ <id>" để phân biệt sổ trùng tên.
+            const label = customerNames.get(String(row.id));
+            const display = grouped.labelled ? label.replace(` · ${group.label}`, '') : label;
             link.textContent = row.status === 'active' ? display : `${display} (chưa có số dư đầu)`;
             if (String(row.id) === current) link.setAttribute('aria-current', 'page');
             items.push(link);
           }
         }
         list.replaceChildren(...items);
-        document.querySelector('#customer-count').textContent = query || listAll
-          ? `${found.length} khách${found.length > shown.length ? ` · hiện ${shown.length}, gõ thêm để lọc` : ''}`
-          : `${customers.length} khách · gõ tên để đổi khách`;
+        document.querySelector('#customer-count').textContent = query && !found.length
+          ? `Không có khách nào khớp “${query}”`
+          : query || listAll
+            ? `${found.length} khách${found.length > shown.size ? ` · hiện ${shown.size}, gõ thêm để lọc` : ''}`
+            : `${customers.length} khách · gõ tên để đổi khách`;
       };
       search.addEventListener('input', render);
       search.addEventListener('focus', () => { listAll = true; render(); });

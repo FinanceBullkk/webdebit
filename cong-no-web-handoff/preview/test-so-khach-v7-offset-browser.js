@@ -259,12 +259,12 @@ test('MH-01: ô chọn khách nhóm theo mặt hàng, tìm không dấu theo m�
   await search.fill('');
   await page.locator('#customer-list .customer-group').first().waitFor();
   assert.deepEqual(await page.locator('#customer-list .customer-group').allInnerTexts(), ['chuối (1)', 'sầu riêng (1)', 'sầu riêng · bộ (1)']);
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Ba · chuối', 'Khách Thử Hai · sầu riêng', 'Khách Thử Một · sầu riêng · bộ']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Ba', 'Khách Thử Hai', 'Khách Thử Một']);
   await shot('0-chon-khach-theo-mat-hang');
   await search.fill('sau rieng bo');
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Một · sầu riêng · bộ']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Một']);
   await search.fill('SẦU RIÊNG');
-  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Hai · sầu riêng', 'Khách Thử Một · sầu riêng · bộ']);
+  assert.deepEqual(await page.locator('#customer-list a').allInnerTexts(), ['Khách Thử Hai', 'Khách Thử Một']);
   await search.press('Enter');
   await page.waitForURL(/customer=2$/);
 }));

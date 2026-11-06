@@ -331,11 +331,19 @@
   function initLive() {
     const customerId = Number(new URLSearchParams(location.search).get('customer'));
     if (!Number.isSafeInteger(customerId) || customerId < 1) {
-      root.innerHTML = '<p role="status" style="padding:16px;font-size:18px">Gõ tên khách vào ô “Tìm khách” phía trên rồi bấm vào tên để mở sổ.</p>';
+      // Trang chọn khách: một việc là tìm rồi mở sổ. Ô tìm nằm trong trang (có sổ thì lên thanh trên, so-khach-v7-tabs-ui.js),
+      // con trỏ đặt sẵn; chưa có sổ nên không có gì để Làm mới.
+      document.body?.classList?.add('picker-home');
+      root.innerHTML = '<div class="picker-head"><h1>Sổ khách</h1><p>Chọn khách để mở sổ</p></div>';
+      const picker = document.querySelector('#customer-picker');
+      const search = document.querySelector('#customer-search');
+      if (picker?.id === 'customer-picker') root.append(picker);
+      if (search?.id === 'customer-search') {
+        search.focus();
+        document.querySelector('.picker-open')?.addEventListener?.('click', () => search.focus());
+      }
       const button = document.querySelector('#refresh-data');
       if (button?.id === 'refresh-data') button.disabled = true;
-      const updated = document.querySelector('#updated-at');
-      if (updated?.id === 'updated-at') updated.textContent = 'Chọn khách để xem dữ liệu';
       return;
     }
     let snapshot = null;
