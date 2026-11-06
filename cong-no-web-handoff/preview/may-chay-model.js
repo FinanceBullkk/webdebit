@@ -4,6 +4,8 @@ const MayChayModel = (() => {
   'use strict';
   const ORDER = ['tai', 'sach', 'doc', 'so', 'chot', 'tim', 'ghi', 'luu'];
   const NAMES = { tai: 'Tải Sheet', sach: 'Làm sạch', doc: 'Đọc sổ web', so: 'So tổng', chot: 'Chốt 1', tim: 'Tìm cách sửa', ghi: 'Ghi và đọc lại', luu: 'Lưu kết quả' };
+  // Nhịp đi lại của nhân vật khi xem trực tiếp, tính bằng giây. Chỉ để vẽ: trạm chưa xong thì không biết còn bao lâu, nên không suy ra tiến độ từ đây.
+  const BEAT = { tai: 12, sach: 40, doc: 40, so: 8, chot: 4, tim: 40, ghi: 8, luu: 6 };
   // wrote: lý do này nghĩa là đã có lệnh ghi vào sổ.
   const RESULT = {
     FIXED: { tag: 'Đã ghi', tone: 'ok', wrote: true },
@@ -66,8 +68,9 @@ const MayChayModel = (() => {
     const customers = Object.values(trace.customers ?? {}).map(item => {
       const info = resultOf(item.reason);
       const decided = item.decided_at ? secOfDay(item.decided_at) - start : stages.tim.d ? stages.tim.from : stages.luu.from;
-      const done = item.done_at ? secOfDay(item.done_at) - start : decided;
-      return { id: item.customer_id, reason: item.reason ?? null, info: item.reason ? info : { tag: 'Đang xét', tone: 'info' }, wrote: Boolean(info.wrote && item.reason), before: item.before_vnd ?? null, after: item.after_vnd ?? null, target: item.target_vnd ?? null, difference: item.difference_vnd ?? null, decided, done };
+      const writing = Boolean(item.writing && !item.reason && !item.done_at);   // đang ghi dở, chỉ có khi xem trực tiếp
+      const done = item.done_at ? secOfDay(item.done_at) - start : writing ? Infinity : decided;
+      return { id: item.customer_id, reason: item.reason ?? null, info: item.reason ? info : writing ? { tag: 'Đang ghi', tone: 'ok' } : { tag: 'Đang xét', tone: 'info' }, wrote: Boolean(info.wrote && item.reason) || writing, before: item.before_vnd ?? null, after: item.after_vnd ?? null, target: item.target_vnd ?? null, difference: item.difference_vnd ?? null, decided, done, judged: Boolean(item.decided_at || item.reason) };
     }).sort((a, b) => a.decided - b.decided);
     return {
       id: trace.started_at, day: String(trace.started_at).slice(0, 10), start, sec, end, segments, stages, customers, live, failed: trace.state === 'failed', failReason: trace.reason ?? null,
@@ -124,14 +127,16 @@ const MayChayModel = (() => {
     else if (t >= s.to) state = 'done';
     if (state === 'skip') text = key === 'chot' ? 'không cần' : run.tooMany ? 'không chạy' : 'bỏ qua';
     if (key === 'tai' && f > 0) text = 'chỉ đọc';
+    const elapsed = run.live && cur === key ? Math.floor(Math.max(t - s.from, 0)) : null;
     if (['sach', 'doc', 'so'].includes(key) && f > 0) {
       // Trạm đang chạy trực tiếp đếm theo job báo; xem lại thì suy theo thời gian của trạm.
       const reported = run.live && cur === key && run.count;
       const whole = reported ? run.count : run.total;
       if (whole) text = `${reported ? (run.done ?? 0) : Math.floor(f * whole)}/${whole}`;
+      else if (elapsed !== null) text = duration(elapsed);   // job chưa báo được số đếm ở trạm này: chỉ nói số giây đã qua, không vẽ tỉ lệ giả
     }
     if (key === 'chot' && s.d && f >= 1) { text = run.tooMany ? 'dừng' : 'qua'; if (run.tooMany) state = 'stop'; }
-    if (key === 'tim' && s.d && f > 0 && !run.countsOnly) text = `${run.customers.filter(c => c.reason || t >= c.decided).length}/${Math.max(run.different ?? 0, run.customers.length)} khách`;
+    if (key === 'tim' && s.d && f > 0 && !run.countsOnly) text = run.live ? `${run.customers.filter(c => c.judged).length}/${run.customers.length} khách` : `${run.customers.filter(c => t >= c.decided).length}/${run.customers.length} khách`;
     if (key === 'ghi' && s.d && f > 0 && !run.countsOnly) {
       const list = run.customers.filter(c => c.wrote);
       text = `${list.filter(c => t >= c.done).length}/${list.length} khách`;
@@ -156,6 +161,7 @@ const MayChayModel = (() => {
   function sentence(run, t, cur) {
     const over = t >= run.sec && !run.live;
     if (over) {
+      if (run.failed && run.failReason === 'MAT_TIN_HIEU') return `Lượt ${clockOf(run.start).slice(0, 5)} dừng giữa chừng: job không còn chạy mà chưa báo xong. Máy canh sẽ báo email.`;
       if (run.failed) return `Lượt ${clockOf(run.start).slice(0, 5)} dừng vì lỗi (${run.failReason ?? 'không rõ'}). Máy canh sẽ báo email.`;
       if (run.customers.some(c => c.reason === 'VERIFY_FAILED')) return 'Lượt xong, có lỗi: ghi xong đọc lại không khớp. Máy canh gửi email.';
       if (run.tooMany) return `Lượt xong, không ghi: ${run.different ?? 'nhiều'} khách lệch vượt ngưỡng.`;
@@ -165,9 +171,9 @@ const MayChayModel = (() => {
     const info = key => stationInfo(run, t, key, cur).text;
     switch (cur) {
       case 'tai': return 'Đang tải bản Sheet. Chỉ đọc.';
-      case 'sach': return `Đang làm sạch tab khách${info('sach') ? `: ${info('sach')}` : ''}`;
+      case 'sach': return run.live ? 'Đang làm sạch các tab khách.' : `Đang làm sạch tab khách${info('sach') ? `: ${info('sach')}` : ''}`;
       case 'doc': return `Đang đọc tổng từng sổ web: ${info('doc')}`;
-      case 'so': return `Đang so tổng Sheet với web: ${info('so')}`;
+      case 'so': return run.live ? 'Đang so tổng Sheet với web.' : `Đang so tổng Sheet với web: ${info('so')}`;
       case 'chot': return 'Đang kiểm chốt 1: số khách lệch có vượt ngưỡng không.';
       case 'tim': return 'Đang tìm đúng một tổ hợp bằng số lệch.';
       case 'ghi': return 'Đang ghi vào sổ rồi đọc lại để kiểm.';
@@ -189,6 +195,66 @@ const MayChayModel = (() => {
     return lines.sort((a, b) => b.at - a.at);
   }
 
+  // ----- Trực tiếp -----
+  // Dòng trạng thái lúc đối soát nghỉ. Không có số giây đếm ngược ở đây vì dòng này được đọc cho trình đọc màn hình (aria-live).
+  function idleLine({ run, next, now, jobs }) {
+    const day = String(now).slice(0, 10);
+    const parts = [`Đối soát đang nghỉ, ${next ? `lượt kế ${hhmm(next)}${String(next).slice(0, 10) === day ? '' : ' ngày mai'}` : 'chưa thấy lịch lượt kế'}.`];
+    if (run) {
+      const label = `Lượt trước ${clockOf(run.start).slice(0, 5)}${run.day === day ? '' : ` ngày ${Number(run.day.slice(8))}/${Number(run.day.slice(5, 7))}`}`;
+      const wrote = run.fixed + run.created, left = run.total !== null && run.khop !== null ? run.total - run.khop : 0;
+      if (run.failed) parts.push(run.failReason === 'MAT_TIN_HIEU' ? `${label} dừng giữa chừng.` : `${label} dừng vì lỗi.`);
+      else parts.push(`${label}: ${run.khop ?? '—'}/${run.total ?? '—'} khớp${wrote ? `, ghi ${wrote} khách` : ', không ghi gì'}${left ? `, ${left} chờ người xem` : ''}.`);
+    }
+    const busy = jobs.filter(job => job.state === 'running' && job.id !== 'reconcile').map(job => job.name);
+    if (busy.length) parts.push(`${busy.join(', ')} đang chạy.`);
+    const bad = jobs.filter(job => ['failed', 'late', 'off'].includes(job.state)).map(job => job.name);
+    if (bad.length) parts.push(`Cần xem: ${bad.join(', ')}.`);
+    return parts.join(' ');
+  }
+
+  const WROTE_AUTO = { price: ['Ghi giá', 'chuyến'], ps: ['Tách phụ phí', 'chuyến'], trip: ['Thêm chuyến', 'chuyến'], event_date: ['Điền ngày', 'chuyến'] };
+  function autoCards(entries) {
+    const groups = new Map();
+    for (const entry of entries) {
+      const kind = entry.kind ?? (entry.field === 'event_date' ? 'event_date' : 'text');
+      const key = `${entry.customer_id}|${kind}`;
+      if (!groups.has(key)) groups.set(key, { kind, id: entry.customer_id, list: [] });
+      groups.get(key).list.push(entry);
+    }
+    return [...groups.values()].map(({ kind, id, list }) => {
+      const [tag, unit] = WROTE_AUTO[kind] ?? ['Điền chữ', 'chỗ'];
+      const pending = list.filter(entry => entry.pending).length, one = list.length === 1 ? list[0] : null;
+      const amt = kind === 'price' && one ? `${money(one.before_unit_price_vnd)} → ${money(one.unit_price_vnd)}` : null;
+      return { at: list.reduce((acc, entry) => (entry.at > acc ? entry.at : acc), ''), id, tag, tone: 'ok', amt, why: `${list.length} ${unit} theo Sheet${one?.container ? `, cont ${one.container}` : ''}${pending ? `; ${pending} chưa có giá nên chưa cộng nợ` : ''}.` };
+    });
+  }
+  // Hôm nay máy đã đụng vào tiền của ai, cả qua lượt đối soát lẫn qua hộp chờ trong API; mới trước.
+  function todayMoney(rows, auto, day) {
+    const items = [...autoCards(auto ?? [])];
+    let countsOnly = 0;
+    for (const row of rows ?? []) {
+      if (String(row.finished_at).slice(0, 10) !== day) continue;
+      if (!row.detail) { countsOnly += (row.fixed ?? 0) + (row.created ?? 0); continue; }
+      for (const item of Object.values(row.detail.customers ?? {})) {
+        const info = resultOf(item.reason);
+        if (!item.reason || !info.wrote) continue;
+        items.push({ at: item.done_at ?? row.finished_at, id: item.customer_id, tag: info.tag, tone: info.tone, amt: item.before_vnd || item.after_vnd ? `${money(item.before_vnd)} → ${money(item.after_vnd)}` : null, why: item.reason === 'FIXED' ? 'Đúng một tổ hợp bằng số lệch. Đọc lại sổ: bằng đích.' : info.why });
+      }
+    }
+    return { items: items.sort((a, b) => (a.at < b.at ? 1 : -1)), countsOnly };
+  }
+
+  const duration = seconds => { const s = Math.max(0, Math.round(seconds)); return s < 60 ? `${s} giây` : `${Math.floor(s / 60)} phút${s % 60 ? ` ${s % 60} giây` : ''}`; };
+  // Một dòng nhật ký cho lần chạy gần nhất của job, theo giờ thật systemd báo.
+  function jobEvent(job) {
+    if (!job.started) return null;
+    if (job.state === 'running' && !job.ended) return { key: `${job.id}@${job.started}`, at: job.started, text: `${job.name} đang chạy.` };
+    if (!job.ended) return null;
+    const took = duration((Date.parse(job.ended) - Date.parse(job.started)) / 1000);
+    return { key: `${job.id}@${job.started}`, at: job.ended, text: job.state === 'failed' ? `${job.name} lỗi sau ${took}.` : `${job.name} xong, ${took}.`, bad: job.state === 'failed' };
+  }
+
   const withNames = (text, labelOf) => String(text ?? '').replace(/\bkh-(\d+)\b/gi, (whole, id) => labelOf(id) ?? whole);
   const taskCustomer = key => { const hit = /^kh-(\d+)/.exec(key); return hit ? hit[1] : null; };
 
@@ -205,6 +271,6 @@ const MayChayModel = (() => {
     return { ...fromTrace({ ...common, finished_at: iso(base + 450), different: 1, books: 239, counts: { KHOP: 238 }, customers: { 0: customer }, segments: segs(list) }), drill: kind === 'two' ? 'Hai tổ hợp cùng khớp' : 'Đọc lại không khớp' };
   }
 
-  return { ORDER, NAMES, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
+  return { ORDER, NAMES, BEAT, idleLine, todayMoney, jobEvent, duration, RESULT, resultOf, secOfDay, clockOf, hhmm, money, millions, fromTrace, fromCounts, fromRow, slotKind, byDay, stageNow, stationInfo, gateMarks, sentence, logLines, withNames, taskCustomer, drill };
 })();
 if (typeof module !== 'undefined') module.exports = MayChayModel;

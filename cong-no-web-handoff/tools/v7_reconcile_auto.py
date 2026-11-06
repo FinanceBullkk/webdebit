@@ -257,6 +257,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "WOULD_FIX"
         return
     trace.stage("ghi")
+    trace.customer(customer_id, writing=True)
     try:
         row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR)
     except ApiError as exc:
@@ -319,6 +320,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         months_differ = [row["customer"] for row in by_month if row["status"] == "CHI_LECH_THANG"]
         different = [row for row in results if row["status"] == "LECH_TONG"]
         too_many = len(different) > MAX_DIFFERENT
+        trace.mark(books=len(results), counts={"KHOP": sum(row["status"] == "KHOP" for row in results)})
         if different:
             trace.stage("chot")
             trace.mark(too_many=too_many, different=len(different))
@@ -328,9 +330,14 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
             mapping = customer_name_mapping()
             customers = [named_customer(row, mapping) for row in rows]
             for row in different:
+                if row["customer"] in ids:
+                    trace.customer(ids[row["customer"]], difference_vnd=row.get("difference_vnd"))
+            for index, row in enumerate(different, 1):
                 try:
                     settle(db, row, ids[row["customer"]], customers, prices, receipts, today, write=args.fix, trace=trace)
-                    trace.stage("tim", total=len(different))
+                    if row.get("reason") not in (None, "KHOP"):   # báo ngay, không đợi cuối lượt; cuối lượt vẫn ghi lại bản đầy đủ
+                        trace.customer(ids[row["customer"]], reason=row["reason"], difference_vnd=row.get("difference_vnd"))
+                    trace.stage("tim", total=len(different), done=index)
                 except Exception as exc:  # noqa: BLE001  một sổ lỗi không chặn sổ khác; lượt sau tính lại
                     code = failure_code(exc)
                     print(f"V7 đối soát máy: sổ {ids[row['customer']]} lỗi {code} khi kiểm", file=sys.stderr, flush=True)

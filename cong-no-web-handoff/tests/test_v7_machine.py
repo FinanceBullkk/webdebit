@@ -151,6 +151,47 @@ class MachineTests(unittest.TestCase):
         self.assertEqual(rows["backup-hourly"]["state"], "late")
         self.assertEqual(rows["ps"]["state"], "unknown")
 
+    def job_rows(self, *blocks):
+        done = subprocess.CompletedProcess([], 0, stdout="\n\n".join(blocks))
+        with mock.patch.object(machine.subprocess, "run", return_value=done), mock.patch.dict(machine._jobs_cache, {"at": 0.0, "rows": []}):
+            return {job["id"]: job for job in machine.jobs(machine._when("2026-11-06T09:40:00+07:00").timestamp())}
+
+    def test_job_gets_real_start_and_end_even_when_it_ran_between_two_reads(self):
+        rows = self.job_rows("Id=webdebit-sheet-sync.timer\nActiveState=active\nLastTriggerUSec=Fri 2026-11-06 02:30:00 UTC",
+                             "Id=webdebit-sheet-sync.service\nActiveState=inactive\nResult=success\nInactiveExitTimestamp=Fri 2026-11-06 02:30:01 UTC\nInactiveEnterTimestamp=Fri 2026-11-06 02:30:05 UTC")
+        self.assertEqual(rows["sheet"]["started"], "2026-11-06T09:30:01+07:00")
+        self.assertEqual(rows["sheet"]["ended"], "2026-11-06T09:30:05+07:00")
+        self.assertEqual(rows["sheet"]["state"], "ok")
+
+    def test_running_job_has_no_end_time_from_its_previous_run(self):
+        rows = self.job_rows("Id=webdebit-sheet-sync.timer\nActiveState=active\nLastTriggerUSec=Fri 2026-11-06 02:39:00 UTC",
+                             "Id=webdebit-sheet-sync.service\nActiveState=activating\nResult=success\nInactiveExitTimestamp=Fri 2026-11-06 02:39:58 UTC\nInactiveEnterTimestamp=Fri 2026-11-06 02:30:05 UTC")
+        self.assertEqual(rows["sheet"]["state"], "running")
+        self.assertEqual(rows["sheet"]["started"], "2026-11-06T09:39:58+07:00")
+        self.assertIsNone(rows["sheet"]["ended"])
+
+    def run_file(self, state="running", age=0):
+        path = self.dir / "reconcile-run.json"
+        path.write_text(json.dumps({"state": state, "started_at": T0, "stage": "doc", "segments": []}), encoding="utf-8")
+        stamp = machine.time.time() - age
+        os.utime(path, (stamp, stamp))
+        return stamp
+
+    def test_run_killed_midway_stops_showing_as_running(self):
+        stamp = self.run_file(age=machine.LOST_SIGNAL + 60)
+        with mock.patch.object(machine, "jobs", return_value=[{"id": "reconcile", "state": "ok"}]):
+            run = machine.now_view(stamp + machine.LOST_SIGNAL + 60)["run"]
+        self.assertEqual(run["state"], "failed")
+        self.assertEqual(run["reason"], "MAT_TIN_HIEU")
+        self.assertIsNone(run["stage"])
+        self.assertTrue(run["finished_at"])
+
+    def test_run_is_not_called_dead_while_systemd_runs_it_or_the_file_is_fresh_or_systemd_is_unknown(self):
+        for job_state, age in (("running", machine.LOST_SIGNAL + 60), ("ok", 5), ("unknown", machine.LOST_SIGNAL + 60)):
+            stamp = self.run_file(age=age)
+            with mock.patch.object(machine, "jobs", return_value=[{"id": "reconcile", "state": job_state}]):
+                self.assertEqual(machine.now_view(stamp + age)["run"]["state"], "running", (job_state, age))
+
     def post(self, body):
         return machine.handle_office(json.dumps(body).encode(), None, "x")
 
@@ -188,6 +229,16 @@ class MachineTests(unittest.TestCase):
         result = api.handle(method, target, headers, raw, runner, port=8780, host="127.0.0.1", actor="nguoi@test")
         runner.run.assert_not_called()
         return result
+
+    def test_page_routes_carry_inbox_writes_but_the_hermes_summary_does_not(self):
+        entry = {"at": "2026-11-06T09:30:00+07:00", "kind": "price", "customer_id": 7, "container": NAME}
+        with mock.patch.object(api.INBOX, "auto_today", return_value=[entry]):
+            for path in ("/api/v7/machine", "/api/v7/machine/now"):
+                self.assertEqual(self.request("GET", path)[1]["auto"], [entry])
+            status, body = self.request("GET", "/api/v7/machine/summary")
+        self.assertEqual(status, 200)
+        self.assertNotIn("auto", body)
+        self.assertNotIn(NAME, json.dumps(body, ensure_ascii=False))
 
     def test_routes_never_touch_the_database(self):
         self.assertEqual(self.request("GET", "/api/v7/machine")[0], 200)

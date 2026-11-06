@@ -62,10 +62,16 @@ async function withPage(state, fn, viewport = { width: 1265, height: 560 }) {
 }
 const now = page => page.locator('#now').innerText();
 
-test('Máy chạy: mở trang thấy lượt mới nhất, đứng yên, có lượt kế, không tràn ngang, dải lượt lọt khung', () => withPage({}, async page => {
-  await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Lượt xong'));
-  assert.equal(await now(page), 'Lượt xong lúc 09:10: 10/10 khớp, không ghi gì. Lượt kế lúc 10:05.');
-  assert.equal(await page.locator('#cards').innerText(), 'Lượt này máy không ghi gì vào sổ.');
+test('Máy chạy: mở trang là trực tiếp, không có nút phát lại, thấy lượt kế và việc hôm nay; không tràn ngang, dải lượt lọt khung', () => withPage({}, async page => {
+  await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Đối soát đang nghỉ'));
+  assert.equal(await now(page), 'Đối soát đang nghỉ, lượt kế 10:05. Lượt trước 09:05: 10/10 khớp, không ghi gì. Cần xem: Giá Sheet.');
+  assert.equal(await page.locator('#live-pill').innerText(), 'Trực tiếp');
+  for (const id of ['#play', '#speed', '#scrub', '#go-live']) assert.equal(await page.locator(id).isVisible(), false, id);
+  assert.match(await page.locator('#clock').innerText(), /^lượt kế còn \d+:\d\d$/);
+  const cards = await page.locator('#cards').innerText();
+  assert.ok(cards.includes('Hôm nay máy đã ghi 1 việc'), cards);
+  assert.ok(cards.includes('248.300.000đ → 260.800.000đ'), cards);
+  assert.ok((await page.locator('#cards a').first().getAttribute('href')).includes('customer=7'));
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
   const lastDay = await page.locator('.day').last().boundingBox();
   assert.ok(lastDay.y + lastDay.height <= 560, `dải lượt lọt khung 560: ${lastDay.y + lastDay.height}`);
@@ -112,20 +118,75 @@ test('Máy chạy: có lượt đang chạy thì tự theo, đếm đúng số j
   assert.equal(await now(page), 'Đang đọc tổng từng sổ web: 4/10');
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Đang chạy'));
   assert.equal(await page.locator('#play').isVisible(), false);
-  assert.ok(await page.locator('#scrub').isDisabled());
+  assert.equal(await page.locator('#scrub').isVisible(), false);
+  assert.match(await page.locator('#clock').innerText(), /^đã chạy /);
+  assert.equal(await page.locator('.slot.now').innerText(), '10:05 đang chạy');
   state.down = true;
   await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Mất kết nối'), null, { timeout: 8000 });
   assert.ok((await now(page)).includes('đứng yên'));
+  assert.equal(await page.locator('#live-pill').innerText(), 'Mất tín hiệu');
+}));
+
+test('Máy chạy: đang mở trang mà lượt bắt đầu thì tự vào trực tiếp không cần bấm; lượt xong tự đọc lại danh sách, có thêm ô lượt mới', () => {
+  let phase = 'idle';
+  const done = () => ({ ...quiet(), started_at: at(10, 5), finished_at: at(10, 10), segments: segments([['tai', 10, 5, 0], ['luu', 10, 9, 50]]) });
+  const data = () => (phase === 'idle' ? base() : phase === 'run' ? { ...base(), now: at(10, 7, 30), run: running() } : { ...base(), now: at(10, 11), run: done(), runs: [...base().runs, row(done())] });
+  return withPage({ data }, async page => {
+    await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Đối soát đang nghỉ'));
+    const before = await page.locator('.slot').count();
+    phase = 'run';
+    await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Đang đọc'), null, { timeout: 6000 });
+    phase = 'done';
+    await page.waitForFunction(() => document.getElementById('now').textContent.includes('Lượt trước 10:05'), null, { timeout: 6000 });
+    assert.equal(await page.locator('.slot').count(), before + 1);
+    assert.equal(await page.locator('.slot.now').count(), 0);
+    assert.ok((await page.locator('#run-title').innerText()).includes('10:05'));
+  });
+});
+
+test('Máy chạy: đồng hồ chạy theo giờ máy chủ khi máy nghỉ; job phụ đang chạy thì nói ngay, xong thì vào nhật ký kèm số giây thật', () => {
+  let jobs = JOBS;
+  return withPage({ data: () => ({ ...base(), jobs }) }, async page => {
+    await page.waitForFunction(() => document.getElementById('clock').textContent.startsWith('lượt kế còn'));
+    const first = await page.locator('#clock').innerText();
+    await page.waitForFunction(text => document.getElementById('clock').textContent !== text, first, { timeout: 4000 });
+    jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'running', started: at(9, 45, 0), ended: null } : job));
+    await page.waitForFunction(() => document.getElementById('now').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 6000 });
+    assert.ok(await page.locator('#live-pill').evaluate(node => node.classList.contains('busy')));
+    await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 3000 });
+    jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'ok', started: at(9, 45, 0), ended: at(9, 45, 4) } : job));
+    await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet xong, 4 giây'), null, { timeout: 6000 });
+    assert.ok(!(await now(page)).includes('đang chạy'));
+    assert.ok(!(await page.locator('#log').innerText()).includes('đang chạy'), 'cùng một lần chạy chỉ còn một dòng');
+  });
+});
+
+test('Máy chạy: việc máy ghi qua hộp chờ cũng hiện trong "hôm nay", gom theo sổ, nói rõ chuyến chưa có giá', () => withPage({ data: () => ({ ...base(), auto: [
+  { at: at(9, 31), kind: 'price', customer_id: 9, container: 'CONT1', unit_price_vnd: '12000000', before_unit_price_vnd: null },
+  { at: at(9, 32), kind: 'trip', customer_id: 7, container: 'CONT2', pending: true },
+  { at: at(9, 33), kind: 'trip', customer_id: 7, container: 'CONT3', pending: false },
+] }) }, async page => {
+  await page.waitForFunction(() => document.getElementById('cards').textContent.includes('Thêm chuyến'));
+  const text = await page.locator('#cards').innerText();
+  assert.ok(text.includes('Hôm nay máy đã ghi 3 việc'), text);
+  assert.ok(text.includes('— → 12.000.000đ'), text);
+  assert.ok(text.includes('2 chuyến theo Sheet; 1 chưa có giá nên chưa cộng nợ'), text);
+  assert.ok(text.indexOf('Thêm chuyến') < text.indexOf('Ghi giá'), 'mới nhất lên trên');
+  const cut = await page.evaluate(() => [...document.querySelectorAll('#cards .card, #cards .why, #log span')].filter(node => node.scrollWidth > node.clientWidth + 1 && node.clientWidth > 0).map(node => node.textContent.slice(0, 40)));
+  assert.deepEqual(cut, [], 'chữ trong khung bên phải xuống dòng, không bị cắt');
 }));
 
 test('Máy chạy: xem lại lượt cũ khi đang có lượt chạy thì có nút về trực tiếp, không tự kéo đi', () => withPage({ data: () => ({ ...base(), now: at(10, 7, 30), run: running() }) }, async page => {
   await page.waitForFunction(() => document.getElementById('now').textContent.startsWith('Đang đọc'));
   await page.locator('.slot.wrote').first().click();
   assert.equal(await page.locator('#go-live').isVisible(), true);
+  assert.equal(await page.locator('#go-live').innerText(), 'Đang chạy: xem trực tiếp');
+  assert.equal(await page.locator('#live-pill').innerText(), 'Đang xem lại');
   await page.waitForTimeout(3500);
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Lượt 08:05'));
   await page.locator('#go-live').click();
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Đang chạy'));
+  assert.equal(await page.locator('#live-pill').innerText(), 'Trực tiếp');
 }));
 
 test('Máy chạy: bảng việc đổi mã khách thành tên, có link sổ, báo do AI viết; đếm và màu trên nhãn', () => withPage({}, async page => {
@@ -169,8 +230,8 @@ test('Máy chạy: chọn nhân viên hiện việc của họ; bấm vào hình
   await page.mouse.click(box.x + (306 / 860) * box.width, box.y + (190 / 860) * box.width);
   assert.ok((await page.locator('#who').innerText()).includes('Hermes'));
   await page.locator('#who-close').click();
-  await page.locator('#speed').selectOption('30');
   await page.locator('.whole').first().click();
+  await page.locator('#speed').selectOption('30');
   assert.ok((await page.locator('#run-title').innerText()).startsWith('Cả ngày 6/11'));
   const first = await page.locator('#clock').innerText();
   await page.waitForTimeout(800);

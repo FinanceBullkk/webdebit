@@ -232,7 +232,8 @@ const MayChayOffice = (() => {
       else { R(566, 240, 8, 44, '#7d6146'); R(568, 258, 4, 6, '#e0b64a'); }
 
       walkers = {};
-      const fCur = cur ? info[cur].f : 0;
+      // Trực tiếp không biết trạm còn bao lâu nên nhân vật đi theo nhịp đều; xem lại thì theo tỉ lệ của trạm.
+      const fCur = !cur ? 0 : run.live ? (Math.max(t - run.stages[cur].from, 0) / M.BEAT[cur]) % 1 : info[cur].f;
       const frameOf = moving => (moving && !reduce ? (Math.floor(wall / 170) % 2 ? 'a' : 'b') : 'stand');
       if (cur === 'tai') {
         const g = fCur < 0.45 ? fCur / 0.45 : fCur < 0.55 ? 1 : (1 - fCur) / 0.45, back = fCur >= 0.55;
@@ -245,9 +246,9 @@ const MayChayOffice = (() => {
       let writing = null;
       if (cur === 'ghi') {
         const list = run.customers.filter(item => item.wrote);
-        const n = Math.max(list.length, 1), s = run.stages.ghi, slot = Math.max(s.d / n, 0.001);
+        const n = Math.max(list.length, 1), s = run.stages.ghi, slot = run.live ? M.BEAT.ghi : Math.max(s.d / n, 0.001);
         const idx = Math.min(n - 1, Math.floor(Math.max(t - s.from, 0) / slot)), g = ((t - s.from) / slot) % 1;
-        writing = list[idx] ?? null;
+        writing = run.live ? list.find(item => t < item.done) ?? null : list[idx] ?? null;
         const q = g < 0.42 ? g / 0.42 : g < 0.58 ? 1 : (1 - g) / 0.42, back = g >= 0.58;
         walkers.ghi = { ...walkPose([[684, 208], [684, 186], [640, 186], [628, 206]], q, back), moving: g < 0.42 || back, carry: g < 0.42 };
         if (g >= 0.42 && g < 0.58) walkers.ghi.dir = 'left';
@@ -299,7 +300,7 @@ const MayChayOffice = (() => {
         if (info[key].text) txt(info[key].text, seat.x, seat.y + 60, { size: 12.5, color: COL.ink2 });
         if (skip && !over && !walkers[key]) txt('z z', seat.x - 6, seat.y - 28, { size: 12.5, color: COL.ink3 });
       }
-      txt(soF > 0 && run.total !== null ? `Khớp ${Math.floor(soF * startMatched) + extra}` : 'Khớp —', TRAY.x, TRAY.y + 43, { weight: 600, size: 13.5 });
+      txt(run.live ? `Khớp ${run.khop ?? '—'}` : soF > 0 && run.total !== null ? `Khớp ${Math.floor(soF * startMatched) + extra}` : 'Khớp —', TRAY.x, TRAY.y + 43, { weight: 600, size: 13.5 });
       txt('Chốt 1', gx, gy + 34, { weight: 600, size: 13.5, color: chotState === 'skip' ? COL.ink3 : COL.ink });
       if (info.chot.text) txt(info.chot.text, gx, gy + 50, { size: 12.5, color: COL.ink2 });
       txt('Sổ web', KHO.x + KHO.w / 2, KHO.y + KHO.h + 19, { weight: 600, size: 13.5 });
@@ -308,6 +309,7 @@ const MayChayOffice = (() => {
       const taskCount = Object.keys(hermes?.tasks ?? {}).length;
       txt(hermes?.state === 'off' ? 'chưa chạy' : hermesWorking ? 'đang đọc tóm tắt' : 'quản lý · AI', HERMES.x, HERMES.y + 60, { size: 12.5, color: COL.ink2 });
       for (const job of SIDE_JOBS) txt(job.name, job.x, 256, { size: 12, color: COL.ink2 });
+      if (view.sideBubbles) SIDE_JOBS.filter(job => view.jobActive?.(job.id)).forEach((job, index) => bubble(`${job.name} đang chạy`, job.x + 8, 170 - index * 26));
 
       const ranks = {}, nextRank = key => { ranks[key] = (ranks[key] || 0) + 1; return ranks[key] - 1; };
       const overflow = (key, limit, x, y) => { if (ranks[key] === limit + 1) plaque(`+${run.customers.length - limit} khách`, x, y, COL.line, COL.surface, COL.ink2); };

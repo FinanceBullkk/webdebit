@@ -140,4 +140,58 @@ const writing = () => trace({
   assert.equal(M.taskCustomer('kh-7-lech'), '7');
   assert.equal(M.taskCustomer('sao-luu-tre'), null);
 }
+const test = (_name, fn) => fn();
+
+test('trực tiếp: trạm chưa có số đếm chỉ nói số giây đã qua, không vẽ tỉ lệ giả', () => {
+  const trace = { state: 'running', started_at: '2026-11-06T09:05:00+07:00', stage: 'sach', segments: [{ stage: 'tai', at: '2026-11-06T09:05:00+07:00' }, { stage: 'sach', at: '2026-11-06T09:05:12+07:00' }], customers: {}, unlinked: {} };
+  const run = M.fromTrace(trace);
+  run.stages.sach.to = 100; run.stages.sach.d = 88;
+  assert.equal(M.stationInfo(run, 57, 'sach', 'sach').text, '45 giây');
+  assert.equal(M.sentence(run, 57, 'sach'), 'Đang làm sạch các tab khách.');
+});
+
+test('trực tiếp: khách đang ghi dở chưa tính là xong; có lý do thì theo lý do', () => {
+  const base = { state: 'running', started_at: '2026-11-06T09:05:00+07:00', segments: [], unlinked: {} };
+  const writing = M.fromTrace({ ...base, customers: { 7: { customer_id: 7, decided_at: '2026-11-06T09:06:00+07:00', writing: true } } }).customers[0];
+  assert.equal(writing.wrote, true);
+  assert.equal(writing.judged, true);
+  assert.equal(M.fromTrace({ ...base, customers: { 8: { customer_id: 8, difference_vnd: '5' } } }).customers[0].judged, false, 'đang chờ xét chưa tính là đã xét');
+  assert.equal(writing.done, Infinity);
+  assert.equal(writing.info.tag, 'Đang ghi');
+  const fixed = M.fromTrace({ ...base, customers: { 7: { customer_id: 7, decided_at: '2026-11-06T09:06:00+07:00', done_at: '2026-11-06T09:06:20+07:00', writing: true, reason: 'FIXED' } } }).customers[0];
+  assert.equal(fixed.info.tag, 'Đã ghi');
+  assert.equal(fixed.done, 80);
+});
+
+test('trực tiếp: dòng nghỉ nêu lượt kế, lượt trước, job đang chạy, job cần xem; lịch sang ngày mai nói rõ', () => {
+  const run = M.fromCounts({ finished_at: '2026-11-06T09:10:00+07:00', counts: { KHOP: 8 }, total: 10, fixed: 1, created: 0 });
+  const now = '2026-11-06T09:40:00+07:00';
+  assert.equal(M.idleLine({ run, next: '2026-11-06T10:05:00+07:00', now, jobs: [] }), 'Đối soát đang nghỉ, lượt kế 10:05. Lượt trước 09:05: 8/10 khớp, ghi 1 khách, 2 chờ người xem.');
+  const jobs = [{ id: 'sheet', name: 'Bản chụp Sheet', state: 'running' }, { id: 'reconcile', name: 'Đối soát', state: 'running' }, { id: 'ps', name: 'Phí PS', state: 'failed' }];
+  assert.equal(M.idleLine({ run: null, next: '2026-11-07T07:05:00+07:00', now, jobs }), 'Đối soát đang nghỉ, lượt kế 07:05 ngày mai. Bản chụp Sheet đang chạy. Cần xem: Phí PS.');
+  assert.equal(M.idleLine({ run: null, next: null, now, jobs: [] }), 'Đối soát đang nghỉ, chưa thấy lịch lượt kế.');
+});
+
+test('trực tiếp: "hôm nay" chỉ tính việc đã ghi trong ngày, lượt cũ chỉ còn số đếm thì đếm riêng', () => {
+  const rows = [
+    { finished_at: '2026-11-05T09:10:00+07:00', fixed: 9, created: 0, detail: null },
+    { finished_at: '2026-11-06T08:10:00+07:00', fixed: 2, created: 1, detail: null },
+    { finished_at: '2026-11-06T09:10:00+07:00', fixed: 1, created: 0, detail: { customers: { 7: { customer_id: 7, reason: 'FIXED', done_at: '2026-11-06T09:09:00+07:00', before_vnd: '100', after_vnd: '200' }, 8: { customer_id: 8, reason: 'NO_EXACT_FIX' } } } },
+  ];
+  const { items, countsOnly } = M.todayMoney(rows, [], '2026-11-06');
+  assert.equal(countsOnly, 3);
+  assert.deepEqual(items.map(item => item.id), [7]);
+  assert.equal(items[0].amt, '100đ → 200đ');
+});
+
+test('trực tiếp: nhật ký job theo giờ systemd; đang chạy một dòng, xong một dòng cùng khóa', () => {
+  const job = { id: 'sheet', name: 'Bản chụp Sheet', state: 'running', started: '2026-11-06T09:45:00+07:00', ended: null };
+  const running = M.jobEvent(job), done = M.jobEvent({ ...job, state: 'ok', ended: '2026-11-06T09:47:05+07:00' });
+  assert.equal(running.text, 'Bản chụp Sheet đang chạy.');
+  assert.equal(done.text, 'Bản chụp Sheet xong, 2 phút 5 giây.');
+  assert.equal(done.key, running.key);
+  assert.equal(M.jobEvent({ ...job, state: 'failed', ended: '2026-11-06T09:45:03+07:00' }).text, 'Bản chụp Sheet lỗi sau 3 giây.');
+  assert.equal(M.jobEvent({ id: 'x', name: 'X', state: 'unknown', started: null }), null);
+});
+
 console.log('may-chay-model: OK');
