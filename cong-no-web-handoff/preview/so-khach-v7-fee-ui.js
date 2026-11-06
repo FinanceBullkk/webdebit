@@ -411,6 +411,6 @@
     if (!settingsEl.hidden) closeSettings(); else if (drawer) closeDrawer();
   });
   // Danh mục dùng tên cho cột riêng và ô chọn loại; đọc lỗi thì cột hiện "Loại #id" và khung báo lỗi, sổ vẫn dùng được.
-  api.loadFeeTypes().then(list => { ctx.feeTypes = list; typesError = ''; redraw(); })
+  api.loadFeeTypes().then(list => { ctx.feeTypes = list; typesError = ''; ctx.redrawWhenFree(); })
     .catch(() => { typesError = 'Không đọc được danh mục phụ phí. Tải lại trang.'; });
 };

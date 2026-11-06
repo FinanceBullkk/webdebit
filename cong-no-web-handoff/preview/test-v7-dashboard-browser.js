@@ -200,7 +200,7 @@ test('lỗi API tổng quan: báo lỗi, không để chữ đang tải', async 
 // Audit UX 31/10/2026 (P1-6): mất mạng khi tải trang chỉ hiện một câu tiếng Việt và nút Thử lại; không bao giờ hiện chữ của trình duyệt.
 test('mất mạng khi tải Tổng quan và Việc cần làm: câu tiếng Việt, nút Thử lại tải lại', async () => {
   for (const [page, sentence, ready] of [['/dashboard-v7.html', 'Không tải được tổng quan công nợ', '.strip .big-money'],
-    ['/viec-can-lam.html', 'Không tải được việc cần làm', '.work-row']]) {
+    ['/viec-can-lam.html', 'Không tải được việc cần làm', '.viec-status']]) {
     const drop = new Set(['/api/v7/dashboard']);
     await withPage({ drop }, async tab => {
       await tab.locator('#error').waitFor({ state: 'visible' });
@@ -210,7 +210,7 @@ test('mất mạng khi tải Tổng quan và Việc cần làm: câu tiếng Vi�
       drop.clear();
       await tab.locator('#error').getByRole('button', { name: 'Thử lại' }).click();
       await tab.locator(ready).first().waitFor();
-      assert.equal(await tab.locator('#error').isHidden(), true);
+      await tab.locator('#error').waitFor({ state: 'hidden' });
     }, page);
   }
 });
@@ -408,6 +408,7 @@ test('Việc cần làm P2: chọn sổ, xem lại nợ trước → sau, ghi; s
   await withPage({ viewport: { width: 1280, height: 560 }, posted, inbox: () => ({ ...INBOX_EMPTY, books: books() }),
     receiptPost: body => (body.customer_id === 1 ? (written = true, { status: 200, json: { written: 2, remaining: 0, complete: true, version: 5 } })
       : { status: 409, json: { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' } }) }, async page => {
+    await page.locator('[data-tab="don"]').click();
     const group = page.locator('.inbox');
     await group.locator('.work-row').first().waitFor();
     assert.equal(await group.locator('[data-book="7"] input').count(), 0);   // phiếu cần xem: không chọn được
@@ -441,6 +442,7 @@ test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đ�
     // Cắt ngay trong trình duyệt (cắt socket ở server thì Chrome tự gửi lại): lần gửi đầu mất kết nối, ghi lại khóa đã gửi.
     const lost = [];
     await page.route('**/api/v7/sheet/receipts', route => { lost.push(route.request().postDataJSON()); return route.abort(); }, { times: 1 });
+    await page.locator('[data-tab="don"]').click();
     const group = page.locator('.inbox');
     await group.locator('[data-pick="1"]').check();
     await group.locator('[data-review]').click();
@@ -463,14 +465,16 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
     items: [{ at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'destination', before: 'CANG C', after: 'CANG D' },
       { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
-    await page.locator('[data-auto]').click();
+    await page.locator('[data-tab="may"]').click();
     const done = page.locator('.auto-list');
     await done.waitFor();
     assert.match(await done.innerText(), /Khách C[\s\S]*nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
     assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+    await page.locator('[data-tab="don"]').click();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /3 chỗ ở 1 sổ\. Không đụng tiền; máy lấy theo Sheet ở lượt tính tới/);
   }, '/viec-can-lam.html');
   await withPage({ inbox: { ...INBOX_EMPTY, auto: { ...auto, text_enabled: false, today_count: 0, items: [] }, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
+    await page.locator('[data-tab="don"]').click();
     await page.locator('.inbox .inbox-note').waitFor();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /máy chưa bật tự lấy theo Sheet/);
     assert.equal(await page.locator('.auto-list').count(), 0);
@@ -483,7 +487,7 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
     trip_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000002', event_date: '2026-11-01', trip_id: 9, pending: false },
       { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
-    await page.locator('[data-auto]').click();
+    await page.locator('[data-tab="may"]').click();
     const done = page.locator('.auto-list');
     await done.waitFor();
     assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
@@ -495,7 +499,7 @@ test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chu
   // NGUON-CHUYEN-01: chuyến bộ máy đưa vào sổ ghi rõ "Chuyến bộ".
   const road = { ...auto, trip_items: [{ ...auto.trip_items[0], road: true }], today_trips: 1, today_trips_pending: 0 };
   await withPage({ inbox: { ...INBOX_EMPTY, auto: road, books: [] } }, async page => {
-    await page.locator('[data-auto]').click();
+    await page.locator('[data-tab="may"]').click();
     await page.locator('.auto-list').waitFor();
     assert.equal(await page.locator('.auto-list .auto-kind').innerText(), 'Chuyến bộ');
   }, '/viec-can-lam.html');
@@ -507,8 +511,8 @@ test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí m
     today_prices: 0, today_price_books: 0, price_items: [], today_ps: 1, today_ps_books: 1,
     ps_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'ps', customer_id: 2, container: 'MAUU0000004', date: '2026-06-11', month: '2026-06', locked: true }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
+    await page.locator('[data-tab="may"]').click();
     assert.equal(await page.locator('.actor-chip', { hasText: 'Máy' }).getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 0 giá, 1 phụ phí phân loại');
-    await page.locator('[data-auto]').click();
     const done = page.locator('.auto-list');
     await done.waitFor();
     assert.equal(await done.locator('.auto-kind').innerText(), 'Phụ phí');
@@ -527,9 +531,9 @@ test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet 
     { at: '2026-11-01T12:00:00+00:00', kind: 'price', customer_id: 2, container: 'MAUU0000006', date: '2026-11-01', month: '2026-11',
       unit_price_vnd: '50000000', other_fee_vnd: '-500000', before_unit_price_vnd: '50000000', before_other_fee_vnd: '-300000', locked: false }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
+    await page.locator('[data-tab="may"]').click();
     const chip = page.locator('.actor-chip', { hasText: 'Máy' });
     assert.equal(await chip.getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 3 giá');
-    await page.locator('[data-auto]').click();
     const done = page.locator('.auto-list');
     await done.waitFor();
     assert.equal(await done.locator('li').count(), 3);

@@ -43,6 +43,7 @@ const SoKhachV7Ctx = (() => {
     showNotice: ['core', 'hàm', 'edit entry fee images month offset price ps receipts sheet', 'băng thông báo trên sổ'],
     renderSnapshot: ['core', 'hàm', 'ps receipts sheet', 'vẽ cả sổ từ một bản GET'],
     redraw: ['core', 'hàm', 'detail edit fee images loc month pay price', 'vẽ lại từ bản đang có (không tải lại)'],
+    redrawWhenFree: ['core', 'hàm', 'fee images price', 'vẽ lại vì dữ liệu về muộn: trong #app đang có dòng hỏi hay ô đang gõ thì hoãn tới khi hết'],
     submit: ['core', 'hàm', 'edit entry fee images ps sheet', 'gửi lệnh; lỗi thì hiện ở băng thông báo'],
     columns: ['core', 'giá trị', 'edit month price trips', 'khung cột hiện tại: count, trip, feeStart, unitPrice, tags, all, shipper, shipperCell'],
     feeTypeName: ['core', 'hàm', 'contact fee history ps trips', 'mã loại phụ phí → tên'],

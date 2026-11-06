@@ -384,6 +384,18 @@
     function redraw() {
       if (snapshot) renderSnapshot(snapshot);
     }
+    // Vẽ lại vì việc nền (đổi cỡ màn, danh sách khách hay dữ liệu phụ về muộn), không phải vì người dùng vừa bấm. Vẽ lại thay cả
+    // #app nên xóa dòng hỏi, ô đang gõ, chi tiết đang mở trong #app: có những thứ đó thì hoãn, hết mới vẽ. Khung nằm ngoài #app
+    // (Ghi phiếu thu, phụ phí, bảng giá) không mất gì nên không phải chờ. Lần vẽ khác chen vào trong lúc hoãn đã dùng bố cục và
+    // dữ liệu mới nhất nên không vẽ thêm.
+    let redrawDue = false;
+    let redrawWait = 0;
+    function redrawWhenFree() {
+      clearTimeout(redrawWait);
+      redrawDue = true;
+      if (openInBook()) redrawWait = setTimeout(() => { if (redrawDue) redrawWhenFree(); }, 300);
+      else redraw();
+    }
     // Đầu trang: tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của các phần ngay
     // dưới đầu trang ở thẻ Sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7. Tên khách và thanh thẻ:
     // so-khach-v7-tabs-ui.js.
@@ -409,6 +421,7 @@
     // (bảng chuyến: trips-ui, phiếu thu: pay-ui); Lịch sử: history-ui; thanh ?loc: loc-ui; móc sau khi vẽ của các phần khác.
     function renderSnapshot(data) {
       const focus = ctx.focusMark();   // vẽ lại thay cả #app: giữ tiêu điểm ở đúng ô (so-khach-v7-edit-ui.js)
+      redrawDue = false;
       snapshot = data;
       ctx.imagesOnSnapshot?.(data);
       ctx.priceOnSnapshot?.(data);
@@ -463,7 +476,7 @@
         clearTimeout(resizing);
         resizing = setTimeout(() => {
           const width = root.querySelector('#the-so .ledger-book')?.clientWidth ?? 0;
-          if (width && Math.abs(width - fitWidth) > 1) redraw();
+          if (width && Math.abs(width - fitWidth) > 1) redrawWhenFree();
         }, 150);
       });
     }
@@ -475,8 +488,8 @@
       const retry = root.querySelector('.retry-command');
       if (retry) retry.hidden = !api.hasPending();
     }
-    // Danh sách khách về sau sổ thì vẽ lại qua redraw để không xóa ô ghi thu/CẤN TRỪ đang gõ dở.
-    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redraw(), onNotice: showNotice });
+    // Danh sách khách về sau sổ thì vẽ lại từ bản đang có, không xóa ô đang gõ dở hay dòng hỏi đang mở.
+    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
@@ -496,7 +509,7 @@
     // trình nghe của lõi bên dưới; phần đọc trường chưa có hoặc ghi trường không khai thì dừng ngay.
     const ctx = { root, model, api, live, customerId, escape, fmt, cell, num, empty, spanOf, dateText, sheetDay, dateInput, monthKey, monthLabel,
       liveOpenMonth, methods, fieldNames, moved, ghosts, sheetFieldLabel, resolvableSheetFields, moneyText, referenceFields,
-      showNotice, renderSnapshot, redraw, submit, columns, feeTypeName,
+      showNotice, renderSnapshot, redraw, redrawWhenFree, submit, columns, feeTypeName,
       get feeTypes() { return feeTypes; }, set feeTypes(value) { feeTypes = value; },
       get feeColumnIds() { return feeColumnIds; }, get snapshot() { return snapshot; },
       get historyOpen() { return historyOpen; }, set historyOpen(value) { historyOpen = value; },
@@ -504,7 +517,7 @@
     SoKhachV7Ctx.install(ctx, window.SoKhachV7LiveParts ?? {});
     const { monthSections, monthsAfterRender, historyList, conflictsAfterRender, decoratePrices, locAfterRender } = ctx;
     // Đổi khổ màn qua mốc 1878px thì bề rộng cột tính lại (cột phụ phí riêng lấy chỗ khác nhau ở hai khổ).
-    if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redraw());
+    if (typeof matchMedia === 'function') matchMedia('(max-width:1877px)').addEventListener?.('change', () => redrawWhenFree());
     // Audit UX 31/10/2026 (P1-6): đọc sổ lỗi thì một câu tiếng Việt và nút Thử lại; không hiện chữ của trình duyệt.
     let refreshing = false;
     const firstRead = () => {
@@ -520,8 +533,9 @@
     // Đang nhập hoặc đang mở chi tiết thì không tự cập nhật (vẽ lại sẽ xóa ô đang gõ hoặc đóng khung đang xem).
     const BUSY_OPEN = 'input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,'
       + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden])';
-    const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || root.querySelector(BUSY_OPEN)
+    const openInBook = () => root.querySelector(`${BUSY_OPEN},.fee-own-input`)
       || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
+    const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || openInBook();
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {
