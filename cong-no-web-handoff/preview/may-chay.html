@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Máy chạy: xem máy đối soát đang làm gì, đã đụng vào tiền của ai, và bảng việc của quản lý. Chỉ xem.">
+  <title>Công nợ HTH · Máy chạy</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="may-chay.css">
+  <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body class="mc" data-presence="may-chay">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="may-chay"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Máy chạy</h1>
+      <div class="status" id="status"><span class="lamp" id="lamp"></span><span id="now" aria-live="polite">Đang tải…</span></div>
+      <div class="live-controls">
+        <button class="ctrl" id="go-live" type="button" hidden>Xem trực tiếp</button>
+        <button class="ctrl" id="back-latest" type="button" hidden>Về lượt mới nhất</button>
+        <button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại số mới nhất từ máy chủ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      </div>
+    </div>
+    <div class="mc-main">
+      <section class="panel">
+        <div class="stage-head">
+          <h2 id="run-title">Máy chạy</h2>
+          <button class="ctrl" id="play" type="button">Phát lại</button>
+          <select class="ctrl" id="speed" aria-label="Tốc độ phát lại"><option value="10">×10</option><option value="30">×30</option><option value="1">×1</option></select>
+          <select class="ctrl" id="who-pick" aria-label="Xem một nhân viên làm gì">
+            <option value="">Nhân viên...</option>
+            <option value="hermes">Hermes, quản lý</option><option value="tai">Tải Sheet</option><option value="sach">Làm sạch</option><option value="doc">Đọc sổ web</option><option value="so">So tổng</option><option value="chot">Chốt 1</option><option value="tim">Tìm cách sửa</option><option value="ghi">Ghi và đọc lại</option><option value="luu">Lưu kết quả</option>
+            <option value="job-sheet">Bản chụp Sheet</option><option value="job-prices">Giá Sheet</option><option value="job-ps">Phí PS</option><option value="job-watchdog">Máy canh</option><option value="job-backup-hourly">Sao lưu giờ</option>
+          </select>
+          <button class="ctrl" id="cam" type="button" aria-pressed="true">Máy quay: bật</button>
+          <input id="scrub" type="range" min="0" max="1000" value="1000" aria-label="Tua trong lượt">
+          <span id="clock"></span>
+        </div>
+        <div class="stagewrap">
+          <div class="officebox"><canvas id="office" role="img" aria-label="Văn phòng: mỗi nhân viên là một trạm của lượt đối soát"></canvas></div>
+          <div id="who" class="who" hidden>
+            <button id="who-close" class="ctrl" type="button" aria-label="Đóng">Đóng</button>
+            <b id="who-name"></b> <span id="who-badge" class="tag"></span>
+            <div id="who-state" class="why"></div>
+            <div id="who-body"></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel money">
+        <div class="tabs" role="group" aria-label="Nội dung bên phải">
+          <button id="tab-money" type="button" aria-pressed="true">Đụng vào tiền</button>
+          <button id="tab-tasks" type="button" aria-pressed="false">Bảng việc <span id="task-n"></span></button>
+        </div>
+        <div id="money-box"><div id="cards"></div><ul id="log" aria-label="Nhật ký lượt"></ul></div>
+        <div id="tasks-box" hidden><div id="tasks"></div></div>
+      </section>
+    </div>
+    <section class="panel runs">
+      <div id="days"></div>
+      <div class="key"><span><i class="k1"></i>có ghi vào sổ</span><span><i class="k2"></i>còn khách lệch, không ghi</span><span><i class="k4"></i>lượt lỗi</span><span><i class="k3"></i>ngoài lịch</span><span><i></i>khớp hết</span></div>
+      <div class="drills"><b>Diễn tập chốt an toàn (giả lập, không chạm dữ liệu):</b>
+        <button class="ctrl" type="button" data-drill="many">Hơn 40 khách lệch</button>
+        <button class="ctrl" type="button" data-drill="two">Hai tổ hợp cùng khớp</button>
+        <button class="ctrl" type="button" data-drill="verify">Ghi xong đọc lại không khớp</button>
+      </div>
+    </section>
+    <section class="panel jobs">
+      <h2>Các job trên máy chủ</h2>
+      <div class="jobwrap"><table>
+        <thead><tr><th>Job</th><th>Làm gì</th><th>Lịch</th><th>Lần trước</th><th>Lần kế</th><th>Tình trạng</th></tr></thead>
+        <tbody id="jobs-body"></tbody>
+      </table></div>
+    </section>
+  </main>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+  <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="data-tip.js"></script>
+  <script src="may-chay-model.js"></script>
+  <script src="may-chay-office.js"></script>
+  <script src="may-chay-ui.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

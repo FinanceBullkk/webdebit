@@ -1,0 +1,36 @@
+# Cấu hình quản lý Hermes (MAY-CHAY-01). Không chứa khóa; đăng nhập model nằm trong volume.
+_config_version: 52
+
+model:
+  provider: openai-codex
+  default: gpt-5.6-luna
+
+mcp_servers:
+  office:
+    command: /opt/hermes/.venv/bin/python3
+    args: [/office/v7_office_mcp.py]
+    env:
+      OFFICE_FEED_DIR: /office/feed
+      OFFICE_TASK_DIR: /opt/data/office-tasks
+      PYTHONUTF8: "1"
+    tools:
+      include: [office_get_summary, office_list_tasks, office_upsert_task, office_close_task]
+
+# Chỉ có công cụ văn phòng, ở mọi nơi Hermes có thể chạy. Không terminal, file, web, trí nhớ, kanban, cron, delegation.
+platform_toolsets:
+  cli: [mcp-office]
+  cron: [mcp-office]
+
+# Tắt cầu nối tool_search/tool_call để model thấy đúng bốn công cụ, không có đường gọi vòng.
+tools:
+  tool_search:
+    enabled: "off"
+
+approvals:
+  mode: manual
+  cron_mode: deny
+  unattended_mode: deny
+  single_query_mode: deny
+
+security:
+  allow_private_urls: false

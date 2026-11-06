@@ -1,0 +1,14 @@
+{
+  "sample": true,
+  "day": "2000-01-15",
+  "books_total": 100,
+  "runs": [
+    {"at": "14:12", "matched": 99, "different": 1, "fixed": 1},
+    {"at": "15:12", "matched": 99, "different": 1, "fixed": 0}
+  ],
+  "open": [
+    {"customer": "kh-042", "reason": "AMBIGUOUS_FIX", "runs_in_a_row": 3, "note": "Có 2 tổ hợp cùng ra đúng số lệch"}
+  ],
+  "resolved_since_last_summary": ["kh-017"],
+  "jobs": {"sheet_snapshot": "ok", "backup_hourly": "ok", "watchdog": "ok"}
+}

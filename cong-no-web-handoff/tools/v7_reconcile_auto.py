@@ -31,6 +31,7 @@ import v7_export_clean as clean
 import v7_load_real_copy as loader
 import v7_price_snapshot as snapshots
 import v7_reconcile_sheet as rec
+import v7_run_trace as run_trace
 import v7_sheet_export_xlsx as exporter
 import v7_sheet_log as edit_log
 
@@ -156,10 +157,11 @@ def read_sheet(xlsx: Path, source_dir: Path, out: Path, known: set[str]) -> tupl
             [book for book in books if book["in_summary"] and not book["reasons"]], digests["source-google-export.xlsx"])
 
 
-def read_web(db, rows: list[dict]) -> tuple[dict, dict, dict]:
+def read_web(db, rows: list[dict], on_row=lambda _done: None) -> tuple[dict, dict, dict]:
     """(tổng từng sổ, id theo tên, chuyến mọi sổ theo container để kiểm tab mới có đụng sổ khác không)."""
     web, ids, seen = {}, {}, {}
-    for row in rows:
+    for done, row in enumerate(rows):
+        on_row(done)
         key = rec.name(row["name"])
         if key in web:
             raise rec.InputError("duplicate web customer")
@@ -227,8 +229,9 @@ def brief(group: dict[str, Any], chosen: list[dict[str, Any]]) -> dict[str, Any]
 
 
 def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], prices: dict, receipts: dict, today: dt.date,
-           *, write: bool) -> None:
+           *, write: bool, trace: run_trace.RunTrace | None = None) -> None:
     """Kết luận cho một khách lệch; `write` thì ghi đúng tổ hợp đã chọn rồi đọc lại sổ để kiểm. Cập nhật `row` tại chỗ."""
+    trace = trace or run_trace.RunTrace(None)
     ledger = db.run("get_ledger", {"customer_id": customer_id}, ACTOR)
     sheet, total = row["sheet_total_vnd"], int(ledger["total_outstanding_vnd"])
     row["web_total_vnd"] = total
@@ -246,12 +249,14 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         return
     verdict, chosen = fix.choose(groups, target - total)
     row["groups"] = [brief(group, chosen) for group in groups]
+    trace.customer(customer_id, decided=True, before_vnd=total, target_vnd=target)
     if verdict != "FIX":
         row["reason"] = "SHEET_SHUFFLED" if shuffled else verdict
         return
     if not write:
         row["reason"] = "WOULD_FIX"
         return
+    trace.stage("ghi")
     try:
         row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR)
     except ApiError as exc:
@@ -261,6 +266,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     finally:
         row["web_total_vnd"] = int(db.run("get_ledger", {"customer_id": customer_id}, AUTO_ACTOR)["total_outstanding_vnd"])
         row["difference_vnd"] = row["web_total_vnd"] - sheet
+        trace.customer(customer_id, done=True, after_vnd=row["web_total_vnd"])
     if row["web_total_vnd"] != target:
         print(f"V7 đối soát máy: sổ {customer_id} ghi xong mà không khớp", file=sys.stderr, flush=True)
         row["reason"] = "VERIFY_FAILED"
@@ -290,30 +296,40 @@ def note_sheet_edits(args: argparse.Namespace, results: list[dict[str, Any]], do
     return state
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
+def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> dict[str, Any]:
+    trace = trace or run_trace.RunTrace(None)
     downloaded_at = now_vn()
     today = downloaded_at.date()
     work_root = Path(args.work_dir)
     work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
         work = Path(folder)
+        trace.stage("tai")
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
         rows = db.run("list_customers", {}, ACTOR).get("customers", [])
+        trace.stage("sach")
         sheet, held, outside, books, digest = read_sheet(Path(xlsx), args.source_dir, work / "sach", {rec.name(row["name"]) for row in rows})
-        web, ids, seen = read_web(db, rows)
+        trace.stage("doc", total=len(rows))
+        web, ids, seen = read_web(db, rows, trace.tick)
+        trace.stage("so", total=len(rows))
         results, _, _ = rec.reconcile(sheet, web, compare_months=False)
         by_month, _, _ = rec.reconcile(sheet, web, compare_months=True, can_du=True)
         months_differ = [row["customer"] for row in by_month if row["status"] == "CHI_LECH_THANG"]
         different = [row for row in results if row["status"] == "LECH_TONG"]
         too_many = len(different) > MAX_DIFFERENT
+        if different:
+            trace.stage("chot")
+            trace.mark(too_many=too_many, different=len(different))
         if different and not too_many:
+            trace.stage("tim", total=len(different))
             prices, receipts = snapshots.build_all(Path(xlsx))
             mapping = customer_name_mapping()
             customers = [named_customer(row, mapping) for row in rows]
             for row in different:
                 try:
-                    settle(db, row, ids[row["customer"]], customers, prices, receipts, today, write=args.fix)
+                    settle(db, row, ids[row["customer"]], customers, prices, receipts, today, write=args.fix, trace=trace)
+                    trace.stage("tim", total=len(different))
                 except Exception as exc:  # noqa: BLE001  một sổ lỗi không chặn sổ khác; lượt sau tính lại
                     code = failure_code(exc)
                     print(f"V7 đối soát máy: sổ {ids[row['customer']]} lỗi {code} khi kiểm", file=sys.stderr, flush=True)
@@ -321,6 +337,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if not too_many:
             create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
                              seen, digest, ids, write=args.fix)
+    trace.stage("luu")
     held_names = {item["name"]: item["reasons"] for item in held}
     for row in results:
         row["customer_id"] = ids.get(row["customer"])
@@ -331,6 +348,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         elif row["status"] != "LECH_TONG":
             row.setdefault("reason", row["status"])
     edit_state = note_sheet_edits(args, results, downloaded_at)
+    for row in results:
+        if row["status"] != "KHOP" or row.get("reason") in DONE_REASONS:
+            trace.customer(row.get("customer_id"), done=row.get("reason") in DONE_REASONS, reason=row.get("reason") or row["status"], status=row["status"], difference_vnd=row.get("difference_vnd"))
     matched = [row for row in results if row["status"] == "KHOP"]
     checked_at = now_vn().isoformat(timespec="seconds")
     for row in results:
@@ -398,15 +418,19 @@ def main(argv: list[str] | None = None) -> int:
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()
+    trace = run_trace.RunTrace(args.output.with_name("reconcile-run.json"), "fix" if args.fix else "report")
     try:
-        result = run(args)
+        result = run(args, trace)
     except Exception as exc:  # noqa: BLE001  (lỗi thành mã, không in dữ liệu)
         reason = failure_code(exc)
         record_failure(args.output, reason)
+        trace.finish(ok=False, reason=reason)
         print(json.dumps({"ok": False, "reason": reason}))
         return 2
     snapshots.write(result, args.output)
     append_log(args.output, result)
+    today = [row for row in result["customers"] if row.get("fixed_at") == result["checked_at"]]
+    trace.finish(ok=True, counts=result["counts"], books=result["total"], fixed=sum(row["reason"] == "FIXED" for row in today), created=sum(row["reason"] == "BOOK_CREATED" for row in today))
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],

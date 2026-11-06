@@ -356,6 +356,67 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(self.run_job(Db())[0], 0)
         self.assertNotIn("last_error", self.result())
 
+    def trace(self):
+        return json.loads(self.output.with_name("reconcile-run.json").read_text(encoding="utf-8"))
+
+    def test_trace_of_a_quiet_run_has_stages_and_no_customer(self):
+        fixture(self.source)
+        self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        trace = self.trace()
+        self.assertEqual((trace["state"], trace["stage"], trace["counts"], trace["books"], trace["fixed"], trace["customers"]), ("done", None, {"KHOP": 1}, 1, 0, {}))
+        self.assertEqual([item["stage"] for item in trace["segments"]], ["tai", "sach", "doc", "so", "luu"])
+        self.assertTrue(trace["finished_at"])
+        history = self.output.with_name("reconcile-run-history.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(history), 1)
+
+    def test_trace_of_a_write_has_before_and_after_and_no_name(self):
+        self.undated_receipt_book()
+        self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        trace = self.trace()
+        stages = [item["stage"] for item in trace["segments"]]
+        self.assertEqual(stages[:6], ["tai", "sach", "doc", "so", "chot", "tim"])
+        self.assertIn("ghi", stages)
+        self.assertEqual(stages[-1], "luu")
+        row = trace["customers"]["1"]
+        self.assertEqual((row["reason"], row["before_vnd"], row["after_vnd"], row["target_vnd"], trace["fixed"]),
+                         ("FIXED", str(FAKE_AMOUNT), str(FAKE_AMOUNT - PAID), str(FAKE_AMOUNT - PAID), 1))
+        self.assertTrue(row["decided_at"] and row["done_at"])
+        self.assertNotIn(FAKE_NAME, self.output.with_name("reconcile-run.json").read_text(encoding="utf-8"))
+
+    def test_trace_failure_changes_nothing_in_the_run(self):
+        self.undated_receipt_book()
+        db_ok = Db()
+        self.assertEqual(self.run_job(db_ok, "--fix")[0], 0)
+        expected = {key: value for key, value in self.result().items() if key != "checked_at"}
+        expected["customers"] = [{key: value for key, value in row.items() if key != "fixed_at"} for row in expected["customers"]]
+        self.output.unlink()
+        self.undated_receipt_book()
+        db_broken = Db()
+        with patch.object(job.run_trace.RunTrace, "_write", side_effect=OSError("đĩa đầy")), patch.object(job.run_trace.RunTrace, "_append_history", side_effect=OSError("đĩa đầy")):
+            self.assertEqual(self.run_job(db_broken, "--fix")[0], 0)
+        self.assertEqual(db_broken.writes, db_ok.writes)
+        result = {key: value for key, value in self.result().items() if key != "checked_at"}
+        result["customers"] = [{key: value for key, value in row.items() if key != "fixed_at"} for row in result["customers"]]
+        self.assertEqual(result, expected)
+
+    def test_too_many_differences_are_in_the_trace_and_nothing_is_written(self):
+        self.undated_receipt_book()
+        db = Db()
+        with patch.object(job, "MAX_DIFFERENT", 0):
+            self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        trace = self.trace()
+        self.assertTrue(trace["too_many"])
+        self.assertNotIn("tim", [item["stage"] for item in trace["segments"]])
+        self.assertEqual(db.writes, [])
+
+    def test_failed_run_is_marked_in_the_trace(self):
+        fixture(self.source)
+        (self.source / "trips_so_goc.csv").unlink()
+        self.assertEqual(self.run_job(Db())[0], 2)
+        trace = self.trace()
+        self.assertEqual(trace["state"], "failed")
+        self.assertTrue(trace["reason"])
+
     def run_with_log(self, db, *extra, read=None):
         """Lượt có đọc log sửa Sheet (SHEET-LOG-01); `read` trả các sự kiện hoặc ném lỗi."""
         with (patch.object(job.sheet_sync_runner, "load_credentials", return_value={}),
