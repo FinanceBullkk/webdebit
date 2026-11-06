@@ -1,6 +1,7 @@
-/* Bản xem Tổng quan v4 (DASH-06, ĐỀ XUẤT bố cục): dải đầu giữ như DASH-05; thẻ "Còn phải thu 12 tháng" thay thẻ Thu tháng;
-   khối "Nợ quá hạn nằm ở đâu" chia khách theo còn đi hàng × còn trả. Dữ liệu giả ở data.js (triệu đồng); mọi số tính từ đó và
-   phải cộng về cùng một tổng trước khi vẽ. Nhãn nhóm hạn trả, tên tháng dùng đúng hàm của Tổng quan thật (DashboardModel). */
+/* Bản xem Tổng quan v4 (DASH-06): dải đầu giữ như DASH-05; thẻ "Còn phải thu 12 tháng" thay thẻ Thu tháng (ĐỀ XUẤT);
+   khối "Nợ quá hạn nằm ở đâu": hàng sổ lớn, rồi các khách còn lại chia theo còn đi hàng × còn trả. Dữ liệu giả ở data.js (triệu đồng);
+   mọi số tính từ đó và phải cộng về cùng một tổng trước khi vẽ. Nhãn nhóm hạn trả, tên tháng dùng đúng hàm của Tổng quan thật (DashboardModel).
+   Sổ lớn: quá hạn từ big_share_pct % tổng quá hạn, tối đa big_max sổ nhiều tiền nhất; sổ không vào hàng này vẫn ở nhóm của nó. */
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -12,6 +13,8 @@
   const short = value => F.short(value, 'tr');
   const ty = value => `${F.billions(value)} tỷ`;
   const sum = list => list.reduce((total, value) => total + value, 0n);
+  // Tỷ lệ phần trăm làm tròn, chỉ để hiển thị.
+  const pct = (part, whole) => `${whole > 0n ? (part * 200n + whole) / (whole * 2n) : 0n}%`;
   const tip = lines => ` data-tip="${F.esc(lines.filter(Boolean).join('\n'))}"`;
   const svg = body => `<svg viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
   const ICON = {
@@ -60,9 +63,17 @@
   const tierTotals = [0, 1, 2, 3, 4].map(i => sum(rows.map(row => row.tiers[i])));
   const overdue = tierTotals[2] + tierTotals[3] + tierTotals[4];
   const series = D.months.map(m => ({ ...m, ch: vnd(m.charges), got: vnd(m.received), end: vnd(m.end) }));
-  // Kiểm cộng của bản xem: 5 nhóm = còn phải thu = điểm cuối hình 12 tháng; mỗi tháng = cuối tháng trước + phát sinh − đã thu.
+  const bigRows = rows.filter(row => row.overdue * 100n >= overdue * BigInt(R.big_share_pct))
+    .sort((a, b) => (b.overdue > a.overdue ? 1 : -1)).slice(0, R.big_max);
+  for (const row of bigRows) row.big = true;
+  // Sổ lớn tách khỏi các nhóm: mỗi số chỉ ở một chỗ, sổ lớn cộng bốn ô vẫn bằng tổng quá hạn.
+  const inGroup = row => !row.big;
+  const lateOf = key => sum(rows.filter(row => row.sit === key && inGroup(row)).map(row => row.overdue));
+  // Kiểm cộng của bản xem: 5 nhóm = còn phải thu = điểm cuối hình 12 tháng; mỗi tháng = cuối tháng trước + phát sinh − đã thu;
+  // tiền các nhóm tình trạng + sổ lớn = tổng quá hạn.
   const consistent = sum(tierTotals) === receivable && series.at(-1).end === receivable
-    && series.every((m, i) => i === 0 || series[i - 1].end + m.ch - m.got === m.end);
+    && series.every((m, i) => i === 0 || series[i - 1].end + m.ch - m.got === m.end)
+    && sum(GROUPS.map(g => lateOf(g.key))) + sum(bigRows.map(row => row.overdue)) === overdue;
   if (!consistent) throw Error('Dữ liệu giả của bản xem không cộng về cùng tổng.');
 
   const state = { tier: null, sit: null, com: '', sort: 'overdue', all: new Set() };
@@ -124,14 +135,25 @@
   const groupOf = key => GROUPS.find(g => g.key === key);
   function cards() {
     return GROUPS.map(g => {
-      const members = rows.filter(row => row.sit === g.key);
+      const members = rows.filter(row => row.sit === g.key && inGroup(row));
       const late = sum(members.map(row => row.overdue));
       const amount = g.key === 'ok' ? '' : `<b class="amt">${ty(late)}</b>`;
       const share = g.key === 'ok' ? '' : `Tiền quá hạn ${ty(late)} · ${F.percent(late, overdue)} tổng quá hạn`;
-      return `<button type="button" class="sit s-${g.key}" data-sit="${g.key}" aria-pressed="${state.sit === g.key}"${tip([`${g.label}: ${members.length} khách`, g.full, share, 'Bấm để lọc bảng, bấm lại để bỏ'])}>
+      const extra = g.key !== 'ok' && bigRows.length ? 'Không kể sổ lớn ở hàng trên' : '';
+      return `<button type="button" class="sit s-${g.key}" data-sit="${g.key}" aria-pressed="${state.sit === g.key}"${tip([`${g.label}: ${members.length} khách`, g.full, share, extra, 'Bấm để lọc bảng, bấm lại để bỏ'])}>
         <span class="sl"><i class="rdot" aria-hidden="true"></i>${g.label}</span>
         <span class="sv"><span class="n">${ICON.people}${members.length}<span class="sr-only"> khách</span></span>${amount}</span></button>`;
     }).join('');
+  }
+  // Mỗi sổ lớn một thẻ, không lặp lại ở bảng. Thẻ đủ dữ kiện của dòng bảng, trừ Còn nợ ở chú thích.
+  function bigPart() {
+    const shown = bigRows.filter(keep);
+    if (!shown.length) return '';
+    const dayText = (value, word) => (value == null ? `chưa ${word}` : `${word} ${value} ngày`);
+    return `<div class="big-row" role="group" aria-label="Sổ lớn"><div class="big-lbl" tabindex="0"${tip(['Sổ lớn', `Quá hạn từ ${R.big_share_pct}% tổng quá hạn`, `${bigRows.length} sổ giữ ${pct(sum(bigRows.map(row => row.overdue)), overdue)} tiền quá hạn`])}><b>Sổ lớn</b><small>từ ${R.big_share_pct}% quá hạn</small></div>
+      ${shown.map(row => `<a class="big-card s-${row.sit}" href="#"${tip([row.name, `Còn nợ ${F.full(row.total)}`, 'Bấm để mở Tình hình'])}>
+        <span class="bc1"><span class="nm">${F.esc(row.name)}</span><b class="amt">${ty(row.overdue)}</b><span class="pct">${pct(row.overdue, overdue)}</span></span>
+        <span class="bc2"><i class="rdot" aria-hidden="true"></i><span class="st">${groupOf(row.sit).label}</span><span class="dd">${dayText(row.payDays, 'trả')} · ${dayText(row.tripDays, 'đi')}</span></span></a>`).join('')}</div>`;
   }
   const days = value => (value == null ? Infinity : value);
   const cmp = (a, b) => (b > a ? 1 : b < a ? -1 : 0);
@@ -157,15 +179,17 @@
       <td class="num tot">${F.millions(row.total)}</td>
       <td class="go" aria-hidden="true">${ICON.next}</td></tr>`;
   }
+  function keep(row) {
+    return (state.tier == null || row.tiers[state.tier] > 0n) && (!state.com || row.com === state.com);
+  }
   function body() {
     const LIMIT = 5;
-    const keep = row => (state.tier == null || row.tiers[state.tier] > 0n) && (!state.com || row.com === state.com);
     const html = GROUPS.filter(g => !state.sit || state.sit === g.key).map(g => {
-      const list = sorted(rows.filter(row => row.sit === g.key && keep(row)));
+      const list = sorted(rows.filter(row => row.sit === g.key && inGroup(row) && keep(row)));
       if (!list.length) return '';
       const shown = state.all.has(g.key) ? list : list.slice(0, LIMIT);
       const more = list.length > shown.length ? `<tr class="grp-more"><td colspan="7"><button type="button" class="btn" data-more="${g.key}">Hiện cả ${list.length} khách</button></td></tr>` : '';
-      return `<tbody data-sit="${g.key}"><tr class="grp s-${g.key}"><th colspan="7" scope="rowgroup"><i class="rdot" aria-hidden="true"></i>${g.label}<small>${g.rule}</small></th></tr>
+      return `<tbody data-sit="${g.key}"><tr class="grp s-${g.key}"><th colspan="7" scope="rowgroup"><i class="rdot" aria-hidden="true"></i>${g.label}<small>${g.rule}${g.key !== 'ok' && bigRows.length ? ' · không kể sổ lớn' : ''}</small></th></tr>
         ${shown.map(rowHtml).join('')}${more}</tbody>`;
     }).join('');
     return html || '<tbody><tr class="grp-more"><td colspan="7" class="empty">Không có khách nào khớp bộ lọc.</td></tr></tbody>';
@@ -179,7 +203,7 @@
         <label class="com-pick">${ICON.funnel}<span class="sr-only">Mặt hàng</span><select id="com-filter" aria-label="Lọc theo mặt hàng">
           <option value="">Mọi mặt hàng</option>${coms.map(c => `<option value="${F.esc(c.key)}">${F.esc(c.key)}</option>`).join('')}</select></label>
         <a class="btn icon-btn" href="#" aria-label="Mở Công nợ theo tháng"${tip(['Công nợ theo tháng', 'Soi nợ từng khách theo tháng'])}>${ICON.calendar}</a></div>
-      <div class="sit-cards" id="cards" role="group" aria-label="Lọc theo tình trạng khách">${cards()}</div>
+      ${bigPart()}<div class="sit-cards" id="cards" role="group" aria-label="Lọc theo tình trạng khách">${cards()}</div>
       <div class="tbl-wrap"><table class="dtable gtable"><thead><tr><th scope="col" class="who-h">Khách</th>
         ${th('overdue', state.tier == null ? 'Quá hạn' : 'Nhóm này', 'triệu')}<th scope="col" class="age-h">Quá hạn lâu nhất</th>
         ${th('pay', 'Trả gần nhất', 'ngày trước')}${th('trip', 'Đi hàng gần nhất', 'ngày trước')}${th('total', 'Còn nợ', 'triệu')}
