@@ -69,6 +69,21 @@ const writing = () => trace({
   assert.ok(M.sentence(live, 130, 'doc').startsWith('Đang đọc'));
 }
 
+// Giữa lượt có khách lệch mà chưa xét xong: không được nói khớp hết, trạm sau chưa phải bỏ qua, mẫu số theo job báo.
+{
+  const live = M.fromTrace(trace({ state: 'running', finished_at: null, books: 10, counts: null, stage: 'tim', done: 0, total: 1, different: 1, too_many: false, customers: { 5: { customer_id: 5, difference_vnd: '1000' } },
+    segments: [{ stage: 'tai', at: at(9, 5) }, { stage: 'doc', at: at(9, 7) }, { stage: 'so', at: at(9, 9) }, { stage: 'chot', at: at(9, 9) }, { stage: 'tim', at: at(9, 9) }] }));
+  live.sec = 245;
+  live.stages.tim.to = 260;
+  live.stages.tim.d = 20;
+  const text = M.logLines(live, 245).map(item => item.text).join(' ');
+  assert.ok(text.includes('1 khách cần xét'), text);
+  assert.ok(!text.includes('khớp hết'), text);
+  assert.equal(M.stationInfo(live, 245, 'ghi', 'tim').state, '');
+  assert.equal(M.stationInfo(live, 245, 'luu', 'tim').state, '');
+  assert.equal(M.stationInfo(live, 245, 'tim', 'tim').text, '0/1 khách');
+}
+
 // Lượt lỗi nói rõ mã lỗi.
 {
   const run = M.fromTrace(trace({ state: 'failed', reason: 'HTTP_503', counts: null }));

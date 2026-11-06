@@ -45,7 +45,9 @@ services:
       - ../../cong-no-web-handoff/tools/v7_office_mcp.py:/office/v7_office_mcp.py:ro
       - ./check_tools.py:/office/check_tools.py:ro
       - ./check_egress.py:/office/check_egress.py:ro
-      - ./summary.sample.json:/office/feed/summary.json:ro
+      # Thư mục ngoài repo, do pump.py ghi. Tóm tắt chỉ đọc; thẻ ghi được nhưng pump.py và API kiểm lại.
+      - ${OFFICE_DATA:?đặt OFFICE_DATA}/feed:/office/feed:ro
+      - ${OFFICE_DATA:?đặt OFFICE_DATA}/tasks:/office/tasks
     networks: [office-internal]
     depends_on: [egress]
 

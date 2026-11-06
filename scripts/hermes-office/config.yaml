@@ -11,7 +11,7 @@ mcp_servers:
     args: [/office/v7_office_mcp.py]
     env:
       OFFICE_FEED_DIR: /office/feed
-      OFFICE_TASK_DIR: /opt/data/office-tasks
+      OFFICE_TASK_DIR: /office/tasks
       PYTHONUTF8: "1"
     tools:
       include: [office_get_summary, office_list_tasks, office_upsert_task, office_close_task]

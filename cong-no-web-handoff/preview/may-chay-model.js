@@ -85,7 +85,7 @@ const MayChayModel = (() => {
     const touched = total - khop + (row.fixed ?? 0) + (row.created ?? 0) > 0;
     const onSchedule = minute >= 5 && minute <= 14;
     const sec = Math.max(onSchedule ? end - (end - (end % 3600)) - 300 : touched ? 450 : 292, 30);
-    const weights = [['tai', 12], ['sach', 135], ['doc', 125], ['so', 8], ...(touched ? [['chot', 2], ['tim', 140], ['ghi', 25]] : []), ['luu', 5]];
+    const weights = [['tai', 11], ['sach', 250], ['doc', 29], ['so', 1], ...(touched ? [['chot', 1], ['tim', 154], ['ghi', 25]] : []), ['luu', 3]];
     const sum = weights.reduce((acc, item) => acc + item[1], 0);
     let t = 0;
     const segments = weights.map(([stage, weight]) => { const item = { stage, t }; t += (weight / sum) * sec; return item; });
@@ -122,7 +122,7 @@ const MayChayModel = (() => {
     const f = s.d ? Math.min(1, Math.max(0, (t - s.from) / s.d)) : 0;
     let state = '', text = '';
     const passed = run.stages.so.d ? t >= run.stages.so.to : false;
-    if (!s.d) { if (passed || (t >= run.sec && !run.live)) state = 'skip'; }
+    if (!s.d) { if (!run.live && (passed || t >= run.sec)) state = 'skip'; }   // đang chạy thì chưa biết trạm sau có cần không
     else if (cur === key) state = 'run';
     else if (t >= s.to) state = 'done';
     if (state === 'skip') text = key === 'chot' ? 'không cần' : run.tooMany ? 'không chạy' : 'bỏ qua';
@@ -188,7 +188,7 @@ const MayChayModel = (() => {
     const ends = { tai: 'Tải xong bản Sheet. Chỉ đọc, không sửa gì trên Sheet.', sach: 'Làm sạch xong các tab khách.', doc: 'Đọc xong tổng từng sổ trên web.', luu: 'Lưu kết quả cho tab Việc cần làm.' };
     for (const key of ['tai', 'sach', 'doc', 'luu']) if (run.stages[key].d && t >= run.stages[key].to && (!run.live || key !== 'luu')) add(run.stages[key].to, ends[key]);
     if (run.stages.so.d && t >= run.stages.so.to) {
-      const open = run.tooMany ? run.different : run.customers.length;
+      const open = run.tooMany ? run.different : Math.max(run.different ?? 0, run.customers.length);   // khách chỉ vào danh sách sau khi xét xong; số lệch job báo trước đó
       add(run.stages.so.to, run.countsOnly ? `So xong: ${run.khop ?? '—'}/${run.total ?? '—'} khớp sau lượt.` : open ? `So xong: ${open} khách cần xét.` : 'So xong: khớp hết, không có việc gì để ghi.');
     }
     if (run.tooMany && t >= run.stages.chot.to) add(run.stages.chot.to, 'Chốt 1 chặn: quá nhiều khách lệch, có thể Sheet đang sửa hàng loạt. Lượt này không ghi.');
