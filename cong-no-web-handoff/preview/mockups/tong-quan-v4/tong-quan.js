@@ -1,7 +1,7 @@
 /* Bản xem Tổng quan v4 (DASH-06, ĐỀ XUẤT bố cục): dải đầu giữ như DASH-05; thẻ "Còn phải thu 12 tháng" thay thẻ Thu tháng;
    khối "Nợ quá hạn nằm ở đâu" chia khách theo còn đi hàng × còn trả. Dữ liệu giả ở data.js (triệu đồng); mọi số tính từ đó và
    phải cộng về cùng một tổng trước khi vẽ. Nhãn nhóm hạn trả, tên tháng dùng đúng hàm của Tổng quan thật (DashboardModel).
-   Ba phương án (?pa=A|B|C, ĐỀ XUẤT) làm sổ lớn hiện rõ; không có tham số là bản đã chốt. Sổ lớn: quá hạn từ big_share_pct % tổng quá hạn. */
+   Ba phương án (#pa-a, #pa-b, #pa-c, ĐỀ XUẤT) làm sổ lớn hiện rõ; không có hash hoặc #da-chot là bản đã chốt. Sổ lớn: quá hạn từ big_share_pct % tổng quá hạn. */
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -35,8 +35,14 @@
     { key: 'B', short: 'B', label: 'B · Sổ lớn lên đầu', tip: 'Sổ lớn thành hàng riêng; các nhóm chỉ còn khách còn lại' },
     { key: 'C', short: 'C', label: 'C · Xếp theo tiền', tip: 'Nhóm nhiều tiền đứng đầu; ô có thanh tỷ trọng' },
   ];
-  const PA = PAS.find(p => p.key && p.key === new URLSearchParams(location.search).get('pa'))?.key ?? '';
-  document.getElementById('pa-tabs').innerHTML = PAS.map(p => `<a href="${p.key ? `?pa=${p.key}` : '?'}"${p.key === PA ? ' aria-current="page"' : ''}${tip([p.tip])}><span class="long">${F.esc(p.label)}</span><span class="short">${F.esc(p.short)}</span></a>`).join('');
+  // Địa chỉ dùng #pa-a, #pa-b, #pa-c, #da-chot để gửi link đúng phương án; đổi phương án chỉ vẽ lại khối khách.
+  const hashOf = key => (key ? `#pa-${key.toLowerCase()}` : '#da-chot');
+  const paOf = hash => PAS.find(p => hashOf(p.key) === hash)?.key;
+  let PA = paOf(location.hash) ?? '';
+  const paTabs = document.getElementById('pa-tabs');
+  function renderTabs() {
+    paTabs.innerHTML = PAS.map(p => `<button type="button" data-pa="${p.key}" aria-pressed="${p.key === PA}"${tip([p.tip])}><span class="long">${F.esc(p.label)}</span><span class="short">${F.esc(p.short)}</span></button>`).join('');
+  }
 
   // Bốn tình trạng + Không quá hạn (DASH-06). Chưa trả lần nào tính là không trả; chưa có chuyến tính là không đi hàng.
   const GROUPS = [
@@ -141,11 +147,11 @@
   // 3. Nợ quá hạn nằm ở đâu: ô tình trạng (lọc bảng), bảng chia nhóm theo tình trạng, trong nhóm xếp theo cột đang chọn.
   const groupOf = key => GROUPS.find(g => g.key === key);
   // Phương án C: nhóm nhiều tiền đứng đầu, Không quá hạn luôn cuối. Bản khác giữ thứ tự theo tình trạng.
-  const ordered = PA === 'C'
+  const ordered = () => (PA === 'C'
     ? [...GROUPS.filter(g => g.key !== 'ok').sort((a, b) => (lateOf(b.key) > lateOf(a.key) ? 1 : -1)), groupOf('ok')]
-    : GROUPS;
+    : GROUPS);
   function cards() {
-    return ordered.map(g => {
+    return ordered().map(g => {
       const members = rows.filter(row => row.sit === g.key && inGroup(row));
       const late = sum(members.map(row => row.overdue));
       const bigs = members.filter(row => row.big);
@@ -200,7 +206,7 @@
   }
   function body() {
     const LIMIT = 5;
-    const html = ordered.filter(g => !state.sit || state.sit === g.key).map(g => {
+    const html = ordered().filter(g => !state.sit || state.sit === g.key).map(g => {
       const list = sorted(rows.filter(row => row.sit === g.key && inGroup(row) && keep(row)));
       if (!list.length) return '';
       const shown = state.all.has(g.key) ? list : list.slice(0, LIMIT);
@@ -233,6 +239,7 @@
   }
 
   function paint() {
+    renderTabs();
     document.querySelectorAll('[data-tier]').forEach(el => {
       const on = Number(el.dataset.tier) === state.tier;
       if (el.classList.contains('tile')) el.setAttribute('aria-pressed', String(on));
@@ -250,6 +257,25 @@
       <div class="trend-card" role="group" aria-labelledby="h-trend">${trendPart()}</div></section>
     <section class="debtors" id="list-root" aria-labelledby="h-list"></section>`;
   paint();
+
+  // Đổi phương án thì bỏ lọc tình trạng: tiền trong ô và nhóm khác đi giữa các phương án.
+  function choosePa(key) {
+    if (key === PA) return;
+    PA = key;
+    state.sit = null;
+    paint();
+  }
+  paTabs.addEventListener('click', event => {
+    const button = event.target.closest('[data-pa]');
+    if (!button) return;
+    choosePa(button.dataset.pa);
+    location.hash = hashOf(button.dataset.pa);
+  });
+  // Bấm link trống của bản xem làm hash rỗng: giữ nguyên phương án đang xem.
+  addEventListener('hashchange', () => {
+    const key = paOf(location.hash);
+    if (key !== undefined) choosePa(key);
+  });
 
   root.addEventListener('click', event => {
     const tier = event.target.closest('[data-tier]');

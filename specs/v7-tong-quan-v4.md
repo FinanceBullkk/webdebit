@@ -109,7 +109,7 @@ Số đo trên bản xem (Chromium headless, font thay thế rộng hơn Segoe U
 | Đã thu, phát sinh tháng này | `dashboard/debt` `.this_month` | Có |
 | Ngưỡng 60 / 30 ngày, 3 tháng | `dashboard/debt` `.rule` (`no_pay_days`, `active_trip_days`, `long_overdue_months`) | Có |
 
-Bản xem dùng bộ khách giả trong [`data.js`](../cong-no-web-handoff/preview/mockups/tong-quan-v4/data.js): 69 khách "Mẫu …", tên và số tiền hư cấu, chỉ giữ tỷ trọng ở mục Số thật. Bản xem tự kiểm 5 nhóm = còn phải thu = điểm cuối hình, mỗi tháng = cuối tháng trước + phát sinh − đã thu, tiền các nhóm tình trạng = tổng quá hạn. Tab trên đầu trang chuyển giữa bản đã chốt và ba phương án (`?pa=A|B|C`); tab không thuộc màn thật.
+Bản xem dùng bộ khách giả trong [`data.js`](../cong-no-web-handoff/preview/mockups/tong-quan-v4/data.js): 69 khách "Mẫu …", tên và số tiền hư cấu, chỉ giữ tỷ trọng ở mục Số thật. Bản xem tự kiểm 5 nhóm = còn phải thu = điểm cuối hình, mỗi tháng = cuối tháng trước + phát sinh − đã thu, tiền các nhóm tình trạng = tổng quá hạn. Tab trên đầu trang chuyển giữa bản đã chốt và ba phương án (`#pa-a`, `#pa-b`, `#pa-c`); tab không thuộc màn thật.
 
 ## Giao tiếp frontend–backend (bước 5, ĐỀ XUẤT)
 

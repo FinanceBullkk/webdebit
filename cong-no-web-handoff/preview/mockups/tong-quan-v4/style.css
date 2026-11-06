@@ -5,9 +5,10 @@
 
 /* Chuyển phương án: chỉ có ở bản xem, không thuộc màn thật. */
 .pa-tabs{display:flex;gap:4px;margin-right:12px;padding:3px;border-radius:10px;background:#eef1f5;white-space:nowrap}
-.topbar .pa-tabs a{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border-radius:7px;background:none;color:#4b5563;font-size:13px;font-weight:600;opacity:1}
-.topbar .pa-tabs a:hover{color:#111827}
-.topbar .pa-tabs a[aria-current="page"]{background:#fff;color:#111827;box-shadow:0 1px 2px #1f29372e}
+.pa-tabs button{display:inline-flex;align-items:center;min-height:30px;padding:0 10px;border:0;border-radius:7px;background:none;color:#4b5563;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.pa-tabs button:hover{color:#111827}
+.pa-tabs button[aria-pressed="true"]{background:#fff;color:#111827;box-shadow:0 1px 2px #1f29372e}
+.pa-tabs button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 .pa-tabs .short{display:none}
 
 /* A: dấu sổ lớn trong ô và trong dòng; C: tỷ trọng trong ô. Cùng một chỗ trên hàng số của ô. */
