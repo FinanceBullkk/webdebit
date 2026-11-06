@@ -1,4 +1,4 @@
-// Việc cần làm: bảng bốn cột đã chọn 2/11; nguồn việc Sheet + sổ web, ghi qua API hiện hành.
+// Việc cần làm (VIEC-DOI-CHIEU-01): số nợ lệch, dọn chi tiết, máy đã làm; nguồn việc Sheet + sổ web, ghi qua API hiện hành.
 (() => {
   'use strict';
   const F = CongNoFormat;
@@ -73,7 +73,11 @@
   }
 
   // Hộp P2 (specs/v7-hop-ngoai-le-p2.md): sổ đã chọn, khung xem lại, kết quả lần ghi; giữ qua các lần tự tải lại.
-  const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), showAuto: false, showReconcile: false, showMatched: false, action: null };
+  const TAB_KEY = 'webdebit.todoTab';
+  const savedTab = () => { try { const tab = sessionStorage.getItem(TAB_KEY); return ['lech', 'don', 'may'].includes(tab) ? tab : 'lech'; } catch { return 'lech'; } };
+  const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
+    // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
+    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() } };
   const inboxLabel = book => {
     const row = currentCustomers.find(c => c.id === book.customer_id);
     if (!row) return `Sổ #${book.customer_id}`;
@@ -94,13 +98,13 @@
     if (!inbox.stale) globalThis.AppNav?.saveTodoSnapshot({ inbox: inbox.data, dashboard, unsorted, customers: currentCustomers });
   }
   // Đang hiện bản cũ của tab: xem được, mở dòng được; mọi nút ghi khóa tới khi có bản mới (thường dưới 1 giây).
-  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched'];
+  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry'];
   function paintInbox() {
     if (!firstLoadDone || inbox.data === undefined) return;
     const html = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, showAuto: inbox.showAuto, showReconcile: inbox.showReconcile, showMatched: inbox.showMatched, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
+      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
     });
     root.replaceChildren();
@@ -111,7 +115,7 @@
     paintedHtml = html;
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-auto', 'data-reconcile', 'data-show-matched', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
     inboxRoot.innerHTML = html;
@@ -149,6 +153,77 @@
     if (inbox.data && (inbox.data.state === 'computing' || inbox.data.refreshing)) inboxTimer = setTimeout(loadInbox, 5_000);
     inboxLoading = false;
     if (inbox.open !== null) refreshDetail(inbox.open);
+    syncStatement();
+  }
+
+  // Bảng đối chiếu: khách lệch lớn nhất mở sẵn; đóng tay thì để đóng. Khách hết lệch thì đóng.
+  const Doi = globalThis.DoiChieuModel;
+  function syncStatement() {
+    const dc = inbox.dc;
+    const ids = Doi.openRows(inbox.data?.reconcile).map(row => row.customer_id).filter(Boolean);
+    if (dc.open !== null && !ids.includes(dc.open)) dc.open = null;
+    if (dc.open === null && !dc.closed && ids.length) dc.open = ids[0];
+    if (dc.open !== null) refreshStatement(dc.open);
+    paintInbox();
+  }
+  let statementRead = 0;
+  // Tải nền không đè lựa chọn; khoản hay chuyến không còn thì bỏ khỏi lựa chọn. Đọc lỗi thì giữ số đang hiện, chưa có số thì báo.
+  async function refreshStatement(id) {
+    const read = ++statementRead;
+    const dc = inbox.dc;
+    const statement = await json(`/api/v7/sheet/doi-chieu?customer=${id}`).catch(() => null);
+    if (read !== statementRead || inbox.action || inbox.busy) return;
+    if (statement === null && dc.data.get(id)) return;
+    dc.data.set(id, statement);
+    if (statement) {
+      const groups = new Set(statement.groups.map(group => group.id));
+      const rows = new Set(statement.groups.flatMap(group => group.kind === 'prices' ? group.rows.map(row => row.key) : []));
+      for (const key of dc.sel.get(id) ?? []) if (!groups.has(key)) dc.sel.get(id).delete(key);
+      for (const key of dc.off.get(id) ?? []) if (!rows.has(key)) dc.off.get(id).delete(key);
+    }
+    paintInbox();
+  }
+  const dcSet = (map, id) => { if (!map.has(id)) map.set(id, new Set()); return map.get(id); };
+  function reviewStatement(id) {
+    const dc = inbox.dc, statement = dc.data.get(id);
+    if (!statement || inbox.action) return;
+    const sum = Doi.summarize(statement, dc.sel.get(id), dc.off.get(id));
+    if (!sum.items.length) return;
+    const gap = sum.remaining === null ? 'Chưa so được với Sheet. ' : sum.remaining === '0' ? 'Sau khi ghi khớp Sheet tới từng đồng. ' : `Sau khi ghi vẫn lệch Sheet ${globalThis.DoiChieuView.money(sum.remaining, F)} tr. `;
+    const locked = sum.lockedMonths.length ? `Tháng đang khóa (${sum.lockedMonths.map(month => `T${Number(month.slice(5, 7))}`).join(', ')}): web mở, ghi, rồi khóa lại. ` : '';
+    inbox.action = { id, rowKey: `dc:${id}`, doiChieu: 'ghi', count: sum.items.length, title: 'Ghi đối chiếu', path: '/api/v7/sheet/doi-chieu/ghi',
+      text: `Ghi ${sum.items.length} khoản. Còn nợ ${F.full(sum.web)} → ${F.full(sum.after)}. ${gap}${locked}Có ghi Lịch sử.`,
+      body: { customer_id: id, expected_version: statement.version, prices_sha256: statement.prices_sha256, receipts_sha256: statement.receipts_sha256, items: sum.items } };
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+  function reviewKeep(id, rows) {
+    const statement = inbox.dc.data.get(id);
+    if (!statement || inbox.action || !rows.length) return;
+    inbox.action = { id, rowKey: `dc:${id}`, doiChieu: 'giu', count: rows.length, title: 'Giữ số web', path: '/api/v7/sheet/doi-chieu/giu',
+      text: `Giữ số web cho ${rows.length} chuyến. Nợ không đổi, vẫn lệch Sheet. Việc này ẩn đi tới khi dòng trên Sheet đổi. Có ghi Lịch sử.`,
+      body: { customer_id: id, expected_version: statement.version, idempotency_key: crypto.randomUUID(),
+        rows: rows.map(row => { const [kind, target] = row.key.split(':'); return { target_kind: kind, target_id: Number(target), source_fingerprint: row.source_fingerprint }; }) } };
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+  function reviewUndo(id) {
+    const undo = inbox.dc.undo.get(id);
+    if (!undo?.keys || inbox.action) return;
+    inbox.action = { id, rowKey: `dc:${id}`, doiChieu: 'hoan-tac', title: 'Hoàn tác', path: '/api/v7/sheet/doi-chieu/hoan-tac',
+      text: `Hoàn tác lần vừa ghi. Còn nợ ${F.full(undo.after)} → ${F.full(undo.before)}. Có ghi Lịch sử.`,
+      body: { customer_id: id, expected_version: undo.version, idempotency_key: crypto.randomUUID(), command_keys: undo.keys, months: undo.months } };
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+  function statementWritten(a, body) {
+    const dc = inbox.dc, id = a.id;
+    if (a.doiChieu === 'ghi') {
+      dc.sel.delete(id); dc.off.delete(id);
+      dc.undo.set(id, { text: `Đã ghi ${a.count} khoản. Còn nợ ${F.full(body.before_vnd)} → ${F.full(body.after_vnd)}.`, keys: body.undo?.command_keys ?? null, months: body.undo?.months ?? [],
+        version: body.version, before: body.before_vnd, after: body.after_vnd, note: body.undo ? '' : 'Muốn sửa thì mở sổ.' });
+    } else if (a.doiChieu === 'giu') {
+      dcSet(dc.kept, id).clear();
+      for (const row of a.body.rows) dc.kept.get(id).add(`${row.target_kind}:${row.target_id}`);
+      dc.undo.delete(id);
+    } else dc.undo.set(id, { text: 'Đã hoàn tác lần vừa ghi.', keys: null, note: '' });
   }
 
   const readDetail = async id => {
@@ -323,9 +398,12 @@
       } else {
         inbox.action = null;
         if (a.body.trip_id) { drafts.delete(`price:${a.body.trip_id}`); drafts.delete(`reason:${a.body.trip_id}`); }
-        inbox.details.delete(a.id);
-        inbox.notice = body.complete === false ? `Đã ghi ${body.written ?? body.approved}; còn ${body.remaining} mục chưa ghi. Mở lại sổ để kiểm tra.` : `Đã xử lý: ${a.title}. Mở sổ xem Lịch sử nếu cần kiểm tra.`;
-        await loadDetail(a.id, true);
+        if (a.doiChieu) statementWritten(a, body);
+        else {
+          inbox.details.delete(a.id);
+          inbox.notice = body.complete === false ? `Đã ghi ${body.written ?? body.approved}; còn ${body.remaining} mục chưa ghi. Mở lại sổ để kiểm tra.` : `Đã xử lý: ${a.title}. Mở sổ xem Lịch sử nếu cần kiểm tra.`;
+          await loadDetail(a.id, true);
+        }
       }
     } catch {
       a.unknown = true;
@@ -428,6 +506,18 @@
   }
   inboxRoot.addEventListener('change', event => {
     if (inbox.busy || inbox.review || inbox.action) return;
+    const dcPick = event.target.closest('[data-dc-pick]');
+    if (dcPick && inbox.dc.open !== null) {
+      const set = dcSet(inbox.dc.sel, inbox.dc.open);
+      if (dcPick.checked) set.add(dcPick.dataset.dcPick); else set.delete(dcPick.dataset.dcPick);
+      paintInbox(); return;
+    }
+    const dcRow = event.target.closest('[data-dc-row]');
+    if (dcRow && inbox.dc.open !== null) {
+      const set = dcSet(inbox.dc.off, inbox.dc.open);
+      if (dcRow.checked) set.delete(dcRow.dataset.dcRow); else set.add(dcRow.dataset.dcRow);
+      paintInbox(); return;
+    }
     const price = event.target.closest('[data-pick-price]');
     if (price) {
       const id = Number(price.dataset.pickPrice);
@@ -455,11 +545,36 @@
     if (button.hasAttribute('data-filter')) {
       inbox.filter = inbox.filter === button.dataset.filter ? '' : button.dataset.filter; paintInbox(); return;
     }
-    if (button.hasAttribute('data-auto')) { inbox.showAuto = !inbox.showAuto; paintInbox(); return; }
-    if (button.hasAttribute('data-reconcile')) { inbox.showReconcile = !inbox.showReconcile; paintInbox(); return; }
-    if (button.hasAttribute('data-show-matched')) { inbox.showMatched = !inbox.showMatched; paintInbox(); return; }
+    if (button.hasAttribute('data-tab')) {
+      inbox.tab = button.dataset.tab;
+      try { sessionStorage.setItem(TAB_KEY, inbox.tab); } catch { /* chỉ để nhớ tab, không có cũng được */ }
+      paintInbox(); return;
+    }
+    if (button.hasAttribute('data-dc-open')) {
+      const id = Number(button.dataset.dcOpen), dc = inbox.dc;
+      dc.closed = dc.open === id;
+      dc.open = dc.open === id ? null : id;
+      paintInbox();
+      if (dc.open !== null) await refreshStatement(dc.open);
+      return;
+    }
+    if (button.hasAttribute('data-dc-retry')) { inbox.dc.data.delete(Number(button.dataset.dcRetry)); paintInbox(); await refreshStatement(Number(button.dataset.dcRetry)); return; }
+    if (button.hasAttribute('data-dc-xem')) {
+      const set = inbox.dc.xem, key = button.dataset.dcXem;
+      if (set.has(key)) set.delete(key); else set.add(key);
+      paintInbox(); return;
+    }
+    if (button.hasAttribute('data-dc-ghi')) { reviewStatement(Number(button.dataset.dcGhi)); return; }
+    if (button.hasAttribute('data-dc-undo')) { reviewUndo(Number(button.dataset.dcUndo)); return; }
+    if (button.hasAttribute('data-dc-giu') || button.hasAttribute('data-dc-giu-row')) {
+      const id = inbox.dc.open, rows = (inbox.dc.data.get(id)?.groups ?? []).flatMap(group => group.rows.filter(row => row.status === 'CONFLICT' && row.source_fingerprint
+        && (button.dataset.dcGiuRow ? row.key === button.dataset.dcGiuRow : group.id === button.dataset.dcGiu)));
+      reviewKeep(id, rows);
+      return;
+    }
     if (button.hasAttribute('data-pick-ready')) {
-      const shown = (inbox.data?.books ?? []).filter(b => inbox.showMatched || !b.sheet_matched);   // sổ đang ẩn không được chọn ngầm
+      const hidden = Doi.openIds(inbox.data?.reconcile);   // khoản của khách lệch ghi ở bảng đối chiếu, không chọn ngầm ở đây
+      const shown = (inbox.data?.books ?? []).filter(b => !hidden.has(b.customer_id));
       inbox.selected = new Set(shown.filter(globalThis.InboxCard.canWrite).map(b => b.customer_id));
       inbox.selectedPrices = new Set(shown.filter(b => b.prices?.ready).map(b => b.customer_id));
       if (inbox.selectedPrices.size) { await reviewCombined(); return; }

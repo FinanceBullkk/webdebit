@@ -1,4 +1,4 @@
-/* Giá trị và hành vi thị giác theo package Việc cần làm bốn cột ngày 2/11. */
+/* Bảng sổ × loại việc của tab Dọn chi tiết (package 2/11, VIEC-DOI-CHIEU-01); render gom cả ba tab. */
 globalThis.InboxTable = (() => {
   'use strict';
   const MACHINE_LOGIN = 'may-theo-sheet';
@@ -34,7 +34,7 @@ globalThis.InboxTable = (() => {
     return `${n / 1000000n}${fraction ? ',' + fraction : ''}`;
   }
   // MAY-DOI-SOAT-01: sổ đã khớp Sheet ở lượt đối soát gần nhất, tổng chưa đổi từ đó: việc từ Sheet và "chưa giá" còn treo không làm số
-  // đúng hơn nên mặc định ẩn. Chờ kiểm, số dư đầu, mặt hàng vẫn hiện vì chỉ người quyết được.
+  // đúng hơn nên không tính vào số trên menu. Chờ kiểm, số dư đầu, mặt hàng vẫn tính vì chỉ người quyết được. Tab Dọn chi tiết hiện hết.
   function books(data, dashboard, unsorted = [], showMatched = false) {
     const map = new Map((data?.books ?? []).filter(b => showMatched || !b.sheet_matched).map(b => [b.customer_id, { ...b }]));
     const add = (items, key) => (items ?? []).forEach(item => {
@@ -49,26 +49,32 @@ globalThis.InboxTable = (() => {
     return [...map.values()].filter(b => groups.some(g => g.keys.some(key => count(b, key))));
   }
   function render(data, opts) {
-    const { F, esc, label, href, dashboard, unsorted, selected = new Set(), selectedPrices = new Set(), review, result, busy, filter, open, details } = opts;
+    const { F, esc, label, href, dashboard, unsorted, selected = new Set(), selectedPrices = new Set(), review, result, busy, filter, open, details, tab = 'lech', dc } = opts;
     const old = globalThis.InboxCard;
+    const view = globalThis.DoiChieuView;
+    const now = opts.now ?? Date.now();
+    const reconcile = data?.reconcile;
+    // Khoản của khách lệch nằm ở bảng đối chiếu; ở đây chỉ còn phần không làm số nợ đúng hơn (VIEC-DOI-CHIEU-01).
+    const inStatement = globalThis.DoiChieuModel.openIds(reconcile);
+    const strip = b => (inStatement.has(b.customer_id) ? { ...b, inStatement: true, receipts: { ready: 0, review: 0 }, prices: { ready: 0, review: 0 } } : b);
     const rank = b => (count(b, 'removed') ? 1000000 : 0) + Number(BigInt(b.receipts?.ready_amount_vnd ?? '0') / 100000n) + count(b, 'missing') + (groups[0].keys.some(k => count(b, k)) ? 1 : 0);
-    const list = books(data, dashboard, unsorted ?? [], opts.showMatched).sort((a, b) => rank(b) - rank(a) || label(a).localeCompare(label(b), 'vi'));
+    const list = books(data, dashboard, unsorted ?? [], true).map(strip).filter(b => groups.some(g => g.keys.some(key => count(b, key)))).sort((a, b) => rank(b) - rank(a) || label(a).localeCompare(label(b), 'vi'));
     const ready = list.filter(b => b.receipts && old.canWrite(b));
     const selectedCount = list.reduce((n, b) => n + (selected.has(b.customer_id) ? b.receipts.ready : 0) + (selectedPrices.has(b.customer_id) ? b.prices.ready : 0), 0);
     const hasReady = ready.length || list.some(b => b.prices?.ready);
     const partial = !data || ['computing', 'unavailable'].includes(data.state) || data.failed?.length || !dashboard || opts.unsorted === null;
     const total = list.length ? `<strong>${list.length}</strong><span>sổ còn việc</span>` : partial ? '<strong>Chưa đủ dữ liệu</strong>' : '<strong class="all-done">Hết việc</strong>';
-    const progress = opts.stale ? '<span class="muted refreshing" role="status">Đang cập nhật…</span>' : data?.state === 'computing' ? `<span class="computing">đang tính việc từ Sheet ${data.books_done ?? 0}/${data.books_total ?? '—'} sổ</span>` : '';
+    const computing = data?.state === 'computing' ? `đang tính việc từ Sheet ${data.books_done ?? 0}/${data.books_total ?? '—'} sổ` : '';
     const person = (name, trips, second, index, tip, machine = false, prices = 0) => `<span class="actor-chip actor-${index % 3}" title="${esc(tip)}"><i aria-hidden="true">${esc(name.slice(0, 1))}</i><b>${esc(name)}</b><span>${icon('truck')}<strong>${trips}</strong></span><span>${icon(machine ? 'pencil' : 'receipt')}<strong>${second}</strong></span>${prices ? `<span>${icon('tag')}<strong>${prices}</strong></span>` : ''}</span>`;
     const bot = data?.auto ?? {};
     // Máy có chip riêng với chi tiết chữ, chuyến, giá; dòng của máy trong số liệu hôm nay chỉ dùng khi chưa có chip đó, và không hiện tên kỹ thuật.
     const botChip = bot.today_count || bot.today_trips || bot.today_prices || bot.today_ps;
     const people = (dashboard?.today.by_actor ?? []).filter(p => p.actor !== MACHINE_LOGIN || !botChip).map((p, i) => { const name = p.actor === MACHINE_LOGIN ? 'Máy' : p.actor; return person(name, p.trips, p.receipts, i, `${name}: ${p.trips} chuyến, ${p.receipts} phiếu thu ${F.full(p.received_vnd)}, hủy ${p.voids} phiếu`); }).join('')
       + (botChip ? person('Máy', bot.today_trips ?? 0, bot.today_count ?? 0, 2, `Máy theo Sheet hôm nay: ${bot.today_trips ?? 0} chuyến mới, ${bot.today_count ?? 0} ô chữ, ${bot.today_prices ?? 0} giá${bot.today_ps ? `, ${bot.today_ps} phụ phí phân loại` : ''}`, true, bot.today_prices ?? 0) : '');
-    const auto = old.autoHtml(data?.auto, esc, label, href);
-    const band = `<section class="work-band" aria-label="Còn việc và đã ghi hôm nay"><div class="band-count">${total}</div>${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${progress}<div class="today-inline"><span>Đã ghi hôm nay</span>${people || '<span class="muted">Chưa có giao dịch nào hôm nay.</span>'}${auto ? `<button class="btn auto-toggle" type="button" data-auto aria-expanded="${!!opts.showAuto}">Soát ${icon(opts.showAuto ? 'up' : 'down')}</button>` : ''}</div>${auto && opts.showAuto ? `<div class="auto-list">${auto}</div>` : ''}</section>`;
     const errors = !data ? `<p class="inbox-error" role="alert">${esc(opts.failedText)} <button type="button" class="btn" data-inbox-retry>Thử lại</button></p>` : data.state === 'unavailable' ? '<p class="inbox-note warn">Chưa đọc được bản lấy từ Sheet. Bấm Làm mới để lấy lại; việc dưới đây có thể thiếu.</p>' : data.failed?.length ? `<p class="inbox-note warn">${data.failed.length} sổ chưa tính được, việc của các sổ này có thể thiếu.</p>` : '';
-    const chips = `<h2 id="h-inbox">Việc chờ theo sổ</h2><button type="button" class="filter-chip" data-filter="" aria-pressed="${!filter}">Tất cả</button>${groups.map(g => `<button type="button" class="filter-chip" data-filter="${g.key}" aria-pressed="${filter === g.key}" title="Một sổ có thể có nhiều loại việc · bấm để lọc"><span>${g.label}</span><b>${icon('book')}${list.filter(b => g.keys.some(key => count(b, key))).length}</b></button>`).join('')}`;
+    const nothing = !data || !dashboard ? 'Chưa đủ dữ liệu' : undefined;
+    const showFilters = list.length >= 5;
+    const chips = !showFilters ? '' : `<button type="button" class="filter-chip" data-filter="" aria-pressed="${!filter}">Tất cả</button>${groups.map(g => `<button type="button" class="filter-chip" data-filter="${g.key}" aria-pressed="${filter === g.key}" title="Một sổ có thể có nhiều loại việc · bấm để lọc"><span>${g.label}</span><b>${icon('book')}${list.filter(b => g.keys.some(key => count(b, key))).length}</b></button>`).join('')}`;
     const toggle = b => `data-open-book="${b.customer_id}" aria-expanded="${open === b.customer_id}" aria-controls="book-detail-${b.customer_id}"`;
     const pill = (b, n, text, tone = '') => `<button type="button" class="work-pill ${tone}" ${toggle(b)} title="Bấm để xử lý ngay tại dòng"><strong>${n}</strong>${text}</button>`;
     const cell = (b, key) => {
@@ -95,12 +101,15 @@ globalThis.InboxTable = (() => {
       if (key === 'prices') return [list.reduce((s, b) => s + (b.prices?.ready ?? 0), 0), list.reduce((s, b) => s + (b.prices?.review ?? 0), 0)].map((n, i) => n ? `${n} ${i ? 'giá khác' : 'giá Sheet'}` : '').filter(Boolean).join(' · ');
       return `${n} ${{ missing: 'chưa giá', removed: 'Sheet xóa', trips_new: 'mới', baseline: 'số dư đầu', commodity: 'mặt hàng', transport: 'cảng/bộ', ps: 'PS', text_diff: 'ô chữ' }[key]}`;
     };
-    const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th scope="row">Cộng</th>${columns.map((keys, i) => `<td${dim(i)}>${keys.map(footPart).filter(Boolean).join(' · ')}</td>`).join('')}<td></td></tr></tfoot></table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
-    const matchedCount = (data?.books ?? []).filter(b => b.sheet_matched).length;
-    const matchedNote = matchedCount ? `<p class="inbox-note matched-note">${opts.showMatched ? `Đang hiện cả ${matchedCount} sổ đã khớp Sheet.` : `Đã ẩn ${matchedCount} sổ đã khớp Sheet tới từng đồng: việc còn treo ở đó không làm số đúng hơn.`} <button type="button" class="btn" data-show-matched aria-pressed="${!!opts.showMatched}">${opts.showMatched ? 'Ẩn lại' : 'Hiện'}</button></p>` : '';
+    const foot = showFilters ? `<tfoot><tr><th scope="row">Cộng</th>${columns.map((keys, i) => `<td${dim(i)}>${keys.map(footPart).filter(Boolean).join(' · ')}</td>`).join('')}<td></td></tr></tfoot>` : '';
+    const table = shown.length ? `<div class="work-scroll"><table class="work-table"><thead><tr><th scope="col">Khách</th>${['Phiếu thu <span class="muted">tr</span>', 'Giá chuyến', 'Chuyến cần xử lý', 'Thiết lập sổ'].map((text, i) => `<th scope="col"${dim(i)}>${text}</th>`).join('')}<th scope="col"><span class="sr-only">Mở</span></th></tr></thead><tbody>${rows}</tbody>${foot}</table></div>` : `<p class="empty">${icon('check', 28)}${filter ? 'Không có sổ nào có việc loại này.' : partial ? 'Đang chờ đủ dữ liệu để tính việc.' : 'Hôm nay không còn việc.'}</p>`;
     const textCount = totalCount('text_diff');
     const textNote = textCount ? `<p class="inbox-note">Lệch chữ: ${textCount} chỗ ở ${list.filter(b => b.text_diff > 0).length} sổ. Không đụng tiền; ${data?.auto?.text_enabled ? 'máy lấy theo Sheet ở lượt tính tới.' : 'máy chưa bật tự lấy theo Sheet.'}</p>` : '';
-    return `${old.reconcileHtml(data?.reconcile, { esc, href, show: opts.showReconcile, now: opts.now })}${band}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar">${chips}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div>${errors}${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}${matchedNote}</section>`;
+    const don = `<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar"><h2 id="h-inbox" class="band-count">${total}</h2>${chips}${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div><p class="dc-lead">Các việc này không làm tổng nợ lệch Sheet. Làm khi rảnh; để đó số nợ vẫn đúng.</p>${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}</section>`;
+    const lech = view.lechHtml(reconcile, dc, { F, esc, href, now, action: opts.action, busy, nothing });
+    const may = view.mayHtml(bot, reconcile, people, { esc, label, href });
+    const counts = { lech: globalThis.DoiChieuModel.openRows(reconcile).length + (reconcile?.outside_tabs?.length ?? 0), don: list.length, may: view.machineCount(bot, reconcile) };
+    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
   }
   function detailHtml(book, ledger, opts) {
     const { F, esc, href, action } = opts;
@@ -112,14 +121,16 @@ globalThis.InboxTable = (() => {
       return `<li class="${pending ? 'pending-action' : ''}"${key ? ` data-detail-key="${key}"` : ''}><b title="${esc(obj)}">${esc(obj)}</b><span>${esc(day(date))}</span><span class="detail-description${pending ? ' action-description' : ''}" title="${esc(pending ? action.text : desc)}">${pending ? `<span id="h-action">${esc(action.inlineText ?? action.text)}</span>` : esc(desc)}</span><b class="money" title="${amount == null ? '' : esc(F.full(amount))}">${amount == null ? '' : million(amount)}</b><div class="detail-actions">${pending ? `${action.path ? btn(action.unknown ? 'Thử lại' : 'Xác nhận', 'data-action-write', 'primary') : ''}${action.unknown ? '' : btn('Thôi', 'data-action-cancel')}` : buttons}</div>${pending && action.reasonRequired ? `<label class="review-reason">Lý do kết luận <input data-action-reason maxlength="500" required aria-label="Lý do kết luận ${esc(obj)}" value="${esc(action.body.reason)}"${action.unknown ? ' disabled' : ''}></label>` : ''}${pending && action.error ? `<p class="row-error" role="alert">${esc(action.error)}</p>` : ''}</li>`;
     };
     const section = (label, rows, hint, tone = '') => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${rows.length} ${{ 'Phiếu cần xem': 'phiếu', 'Thiết lập sổ': 'việc' }[label] ?? 'chuyến'}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
-    const receiptRows = (ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy chưa tự khớp được phiếu này; đối chiếu chứng từ trong sổ', r.amount_vnd,
+    const receiptRows = (book.inStatement ? [] : ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy chưa tự khớp được phiếu này; đối chiếu chứng từ trong sổ', r.amount_vnd,
       r.status === 'NO_DATE' && r.source_fingerprint && r.debt_month
         ? `<input class="inline-price" data-receipt-date="${r.source_fingerprint}" placeholder="ngày dd/mm" aria-label="Ngày phiếu thu năm ${esc(r.debt_month.slice(0, 4))}">${btn('Ghi phiếu', `data-record-sheet-receipt="${r.source_fingerprint}"`)}`
         : link('Xem phiếu trong sổ'), `receipt:${r.source_fingerprint}`));
     if (ledger === undefined || ledger === null) return section('Phiếu cần xem', receiptRows, 'máy chỉ tự ghi khi khớp đúng tổng Sheet', 'warn') + (ledger === undefined ? '<p class="loading">Đang tải chi tiết sổ…</p>' : `<p role="alert">Không tải được chi tiết sổ. ${btn('Thử lại', `data-detail-retry="${book.customer_id}"`)}</p>`);
     const removed = (ledger.sheet_sync?.removed_items ?? []).map(r => item(r.container, r.event_date ?? r.date, `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · Sheet không còn dòng này`, r.amount_vnd,
       r.month_locked ? link('Mở trong sổ') : `${btn('Xóa chuyến', `data-remove-trip="${r.trip_id}"`, 'danger')}${btn('Giữ', `data-keep-trip="${r.trip_id}"`)}`, `removed:${r.trip_id}`));
-    const prices = (ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, r.status === 'CONFLICT' ? `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}` : 'Cần đối chiếu giá trong sổ', null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : link('Mở để đối chiếu'), `sheet-price:${r.target_kind}:${r.target_id}`));
+    const fee = value => (value == null ? 'trống' : million(value));
+    const conflictText = r => (r.web_unit_price_vnd === r.sheet_unit_price_vnd ? `Đơn giá ${million(r.web_unit_price_vnd)} · phụ phí web ${fee(r.web_other_fee_vnd)} → Sheet ${fee(r.sheet_other_fee_vnd)}` : `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}`);
+    const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, r.status === 'CONFLICT' ? conflictText(r) : 'Cần đối chiếu giá trong sổ', null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : link('Mở để đối chiếu'), `sheet-price:${r.target_kind}:${r.target_id}`));
     const missing = (ledger.trips ?? []).filter(r => r.unit_price_vnd == null && r.status === 'confirmed').map(r => {
       const rate = ledger.price_status?.trips?.find(p => p.trip_id === r.id && p.ready)?.lookup?.unit_price_vnd;
       const suggested = rate == null ? '' : millionInput(rate);
