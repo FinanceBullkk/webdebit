@@ -141,6 +141,11 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .meter .today{position:absolute;top:-5px;width:3px;height:22px;margin-left:-1px;border-radius:2px;background:var(--ink-1)}
 .tq .month-card .left{display:inline-flex;align-items:center;gap:6px;align-self:flex-end;color:var(--ink-m);font-size:13px}
 
+/* Lọc chéo (DASH-08): nhãn phạm vi cạnh tên khối khi số của khối đang tính theo lọc; "cả công ty" xám ở thẻ chưa tách. */
+.scope-tag{display:inline-block;max-width:420px;margin:-3px 0 -3px 8px;padding:0 8px;border:1px solid #c9d8ea;border-radius:10px;background:#eef3f9;color:var(--blue);font-size:12.5px;font-weight:700;line-height:17px;vertical-align:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scope-tag.all{border-color:#dde1e6;background:#f1f2f4;color:var(--ink-m);font-weight:600}
+.com-line.none .cn{color:var(--ink-l);font-weight:400}
+
 /* Công nợ theo mặt hàng (DASH-07): mỗi mặt hàng một dòng là nút lọc; thanh xanh trong hạn, đỏ quá hạn (cùng màu ngoặc
    Trong hạn / Quá hạn của dải đầu). Hai cột, dưới 700px một cột. */
 .com-band{padding:12px 20px 10px;border-radius:12px;background:#fff;border:1px solid var(--edge)}

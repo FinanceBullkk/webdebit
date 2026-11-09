@@ -65,25 +65,42 @@
     sheetRefresh?.paint();
   }
 
-  // 1. Dải đầu: Còn phải thu + nút đếm; ngoặc Trong hạn/Quá hạn, thanh 5 đoạn chỉ là hình, số ở 5 ô.
+  // Lọc chéo (DASH-08): bộ lọc hiện tại và tên của nó cho nhãn "đang lọc" trên các khối.
+  const filter = () => ({ tier: state.tier, risk: state.risk, com: state.com });
+  const scopeName = skip => [skip !== 'com' && state.com, skip !== 'risk' && state.risk && M.RISK[state.risk],
+    skip !== 'tier' && state.tier != null && state.tiers[state.tier].label].filter(Boolean).join(' · ');
+  const scopeTag = (skip, tip) => {
+    const name = state.ready ? scopeName(skip) : '';
+    return name ? `<span class="scope-tag" tabindex="0"${tipAttr([`Đang lọc: ${name}`, tip])}>${esc(name)}</span>` : '';
+  };
+
+  // 1. Dải đầu: Còn phải thu + nút đếm; ngoặc Trong hạn/Quá hạn, thanh 5 đoạn chỉ là hình, số ở 5 ô. Đang lọc mức rủi
+  // ro hoặc mặt hàng thì mọi số tính lại cho phạm vi đó; lọc hạn trả chỉ tô ô đang chọn (chiều của chính khối).
   function owePart(data, debt) {
-    const total = data.receivable.total_vnd;
+    const scoped = state.ready && (state.risk != null || state.com != null);
+    const sc = scoped ? M.totals(M.scope(state.rows, filter(), 'tier')) : null;
+    const total = scoped ? sc.total : data.receivable.total_vnd;
+    const people = scoped ? sc.count : data.receivable.customers;
     const missing = data.todo.missing_price.reduce((count, item) => count + item.count, 0);
     const credit = data.credit.customers ? short(positive(data.credit.total_vnd)) : null;
-    const pills = `<span class="pill" tabindex="0"${tipAttr([`${data.receivable.customers} khách đang nợ`])}>${ICON.people}${data.receivable.customers}<span class="sr-only"> khách đang nợ</span></span>`
-      + (missing ? `<a class="pill warn" id="missing-price" href="/viec-can-lam.html"${tipAttr([`${missing} chuyến chưa có đơn giá`, 'Chưa tính vào số Còn phải thu · bấm để mở Việc cần làm'])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span></a>` : '')
-      + (credit ? `<span class="pill credit" id="credit" tabindex="0"${tipAttr([`${data.credit.customers} khách trả thừa ${credit}`, 'Tính riêng, không trừ vào số Còn phải thu'])}>${ICON.wallet}${esc(credit)}<span class="sr-only"> khách trả thừa</span></span>` : '');
-    const head = `<span class="lbl" id="h-owe">Còn phải thu</span><div class="owe-row"><b class="big-money" tabindex="0"${tipAttr(['Còn phải thu', F.full(total)])}>${esc(short(total))}</b>${pills}</div>`;
+    // Chuyến chưa giá và khách trả thừa là số cả công ty, không tách theo lọc: ẩn khi đang lọc.
+    const pills = `<span class="pill" tabindex="0"${tipAttr([`${people} khách đang nợ`])}>${ICON.people}${people}<span class="sr-only"> khách đang nợ</span></span>`
+      + (missing && !scoped ? `<a class="pill warn" id="missing-price" href="/viec-can-lam.html"${tipAttr([`${missing} chuyến chưa có đơn giá`, 'Chưa tính vào số Còn phải thu · bấm để mở Việc cần làm'])}>${ICON.tag}${missing}<span class="sr-only"> chuyến chưa giá</span></a>` : '')
+      + (credit && !scoped ? `<span class="pill credit" id="credit" tabindex="0"${tipAttr([`${data.credit.customers} khách trả thừa ${credit}`, 'Tính riêng, không trừ vào số Còn phải thu'])}>${ICON.wallet}${esc(credit)}<span class="sr-only"> khách trả thừa</span></span>` : '');
+    const head = `<span class="lbl" id="h-owe">Còn phải thu${scopeTag('tier', 'Số của dải đầu chỉ tính khách trong phạm vi lọc')}</span><div class="owe-row"><b class="big-money" tabindex="0"${tipAttr(['Còn phải thu', F.full(total)])}>${esc(short(total))}</b>${pills}</div>`;
     if (!debt) return `${head}<p class="empty">Chưa tải được phần quá hạn. Bấm Làm mới để thử lại.</p>`;
-    const whole = debt.receivable_vnd;
+    const whole = scoped ? sc.total : debt.receivable_vnd;
+    if (scoped && !sc.count) return `${head}<p class="empty">Không có khách nào khớp bộ lọc.</p>`;
     if (F.toBig(whole) <= 0n) return `${head}<p class="empty">Chưa có khách đang nợ.</p>`;
-    const values = M.TIERS.map((_, i) => tierValue(i));
+    const values = scoped ? sc.tiers : M.TIERS.map((_, i) => tierValue(i));
     const inTerm = F.sum(values.slice(0, 2));
-    const late = debt.summary.overdue_vnd;
-    const credited = state.rk?.credit.count ? `Đã trừ ${state.rk.credit.count} khách dư ở nợ cũ ${short(-state.rk.credit.overdue)}` : '';
+    const late = scoped ? sc.overdue : debt.summary.overdue_vnd;
+    const cr = scoped ? sc.credit : state.rk?.credit;
+    const credited = cr?.count ? `Đã trừ ${cr.count} khách dư ở nợ cũ ${short(-cr.overdue)}` : '';
     const brk = `<div class="brk"><div class="in" style="width:max(${F.barWidth(inTerm, whole)}%,9.5em)" tabindex="0"${tipAttr(['Trong hạn: chưa quá hạn', `${short(inTerm)} · ${F.percent(inTerm, whole)} còn phải thu`, F.full(inTerm)])}>Trong hạn <strong>${esc(short(inTerm))}</strong></div>`
       + `<div class="late" tabindex="0"${tipAttr(['Quá hạn', `${short(late)} · ${F.percent(late, whole)} còn phải thu`, credited, F.full(late)])}>Quá hạn <strong>${esc(short(late))}</strong></div></div>`;
-    const count = i => (state.ready ? state.rows.filter(row => row.tiers[i] > 0n).length : null);
+    const inScope = state.ready ? M.scope(state.rows, filter(), 'tier') : null;
+    const count = i => (inScope ? inScope.filter(row => row.tiers[i] > 0n).length : null);
     const tip = i => [`${state.tiers[i].label} (${state.tiers[i].span})`,
       `${short(values[i])}${count(i) == null ? '' : ` · ${count(i)} khách`} · ${F.percent(values[i], whole)} còn phải thu`, F.full(values[i]), 'Bấm để lọc bảng'];
     const bar = `<div class="age-bar">${values.map((value, i) => (F.toBig(value) > 0n
@@ -95,8 +112,15 @@
 
   // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng.
   function monthPart(data, debt) {
-    const p = M.monthProgress(debt?.as_of ?? data.as_of, debt?.this_month);
-    const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
+    // Lọc chéo (DASH-08): có số từng sổ (this_month.customers) thì thẻ tính theo cả ba lọc; API cũ chưa có thì thẻ giữ số cả
+    // công ty và ghi rõ "cả công ty" khi đang lọc.
+    const filtered = state.ready && (state.tier != null || state.risk != null || state.com != null);
+    const flow = filtered ? M.monthFlow(debt?.this_month, state.rows, state.coms, filter()) : null;
+    const p = M.monthProgress(debt?.as_of ?? data.as_of, flow ?? debt?.this_month);
+    const only = state.tier != null || state.risk != null ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
+    const whole = !filtered ? '' : flow ? scopeTag(null, only)
+      : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
+    const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}${whole}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
     if (!debt) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
     const ratio = p.percent ? `Đã thu ${p.percent} phát sinh tháng ${p.month}` : `Tháng ${p.month} chưa phát sinh`;
     return `${head}<div class="m-nums"><span class="got"><b tabindex="0"${tipAttr(['Đã thu', F.full(p.received)])}>${esc(short(p.received))}</b><small>đã thu</small></span>
@@ -108,25 +132,29 @@
   // 2. Công nợ theo mặt hàng (DASH-07): mỗi mặt hàng một dòng, chia hai cột; thanh dài theo còn phải thu (cùng thang =
   // mặt hàng nhiều nhất), phần xanh trong hạn, phần đỏ quá hạn. Bấm dòng = lọc bảng khách. Chỉ hiện khi số từng khách
   // khớp tổng server, nên các dòng cộng lại đúng bằng Còn phải thu của dải đầu.
+  // Lọc chéo (DASH-08): đang lọc hạn trả hoặc mức rủi ro thì mỗi dòng chỉ còn khách và tiền trong phạm vi đó; lọc hạn trả
+  // thì cột tiền là tiền của nhóm hạn trả ("Nhóm này"), như cột đầu của bảng khách. Nhóm và thứ tự dòng giữ nguyên.
   function comPart() {
     if (!state.ready || !state.coms.length) return '';
-    const whole = F.toBig(state.debt.receivable_vnd);
-    const max = state.coms.reduce((top, item) => (item.total > top ? item.total : top), 0n);
-    const line = item => `<button type="button" class="com-line" data-com="${esc(item.key)}" aria-pressed="false" aria-label="Lọc khách: ${esc(item.label)}"${tipAttr([
-        item.label, `Còn phải thu ${short(item.total)} · ${F.percent(item.total, whole)} tổng`,
+    const view = M.comView(M.scope(state.rows, filter(), 'com'), state.coms, state.tier);
+    const whole = F.sum(view.map(item => item.total));
+    const max = view.reduce((top, item) => (item.total > top ? item.total : top), 0n);
+    const what = state.tier == null ? 'Còn phải thu' : state.tiers[state.tier].label;
+    const line = item => `<button type="button" class="com-line${item.count ? '' : ' none'}" data-com="${esc(item.key)}" aria-pressed="false" aria-label="Lọc khách: ${esc(item.label)}"${tipAttr([
+        item.label, `${what} ${short(item.total)} · ${F.percent(item.total, whole)} tổng`,
         item.late > 0n ? `Quá hạn ${short(item.late)}` : 'Không có nợ quá hạn', `${item.count} khách`,
         item.members.length ? `Gồm: ${item.members.join(', ')}` : '',
         item.key === M.UNSORTED ? 'Sổ chưa gán mặt hàng, hoặc sầu riêng chưa ghi cảng/bộ' : '', 'Bấm để lọc bảng khách'])}>
         <span class="cn${item.tone === 'grey' ? ' grey' : ''}">${esc(item.label)}</span>
         <span class="cbar" aria-hidden="true"><span style="width:${F.barWidth(item.total, max)}%"><i class="in" style="flex:${F.barWidth(item.total - item.late, item.total)} 1 0"></i>${item.late > 0n
           ? `<i class="late" style="flex:${F.barWidth(item.late, item.total)} 1 0"></i>` : ''}</span></span>
-        <b class="ct">${esc(short(item.total))}</b><span class="co">${item.late > 0n ? esc(short(item.late)) : '–'}</span>
+        <b class="ct">${item.count ? esc(short(item.total)) : '–'}</b><span class="co">${item.late > 0n ? esc(short(item.late)) : '–'}</span>
         <span class="cc">${ICON.people}${item.count}<span class="sr-only"> khách</span></span></button>`;
-    const half = Math.ceil(state.coms.length / 2);
-    const col = list => (list.length ? `<div class="com-col"><div class="com-th" aria-hidden="true"><span>Mặt hàng</span><span></span><span>Còn phải thu</span><span>Quá hạn</span><span>Khách</span></div>${list.map(line).join('')}</div>` : '');
-    return `<section class="com-band" aria-labelledby="h-com"><div class="com-head"><h2 id="h-com">Công nợ theo mặt hàng</h2>
+    const half = Math.ceil(view.length / 2);
+    const col = list => (list.length ? `<div class="com-col"><div class="com-th" aria-hidden="true"><span>Mặt hàng</span><span></span><span>${state.tier == null ? 'Còn phải thu' : 'Nhóm này'}</span><span>Quá hạn</span><span>Khách</span></div>${list.map(line).join('')}</div>` : '');
+    return `<section class="com-band" aria-labelledby="h-com"><div class="com-head"><h2 id="h-com">Công nợ theo mặt hàng</h2>${scopeTag('com', 'Mỗi dòng chỉ tính khách trong phạm vi lọc')}
         <span class="legend" aria-hidden="true"><i class="in"></i>Trong hạn<i class="late"></i>Quá hạn</span></div>
-      <div class="com-grid">${col(state.coms.slice(0, half))}${col(state.coms.slice(half))}</div></section>`;
+      <div class="com-grid">${col(view.slice(0, half))}${col(view.slice(half))}</div></section>`;
   }
 
   function paintComs() {
@@ -161,16 +189,21 @@
     const off = state.ready ? '' : ' disabled';
     const tips = { high: `Có quá hạn và: quá hạn từ 3 tháng, hoặc trên ${state.debt.rule.no_pay_days} ngày chưa trả, hoặc trên ${state.debt.rule.no_trip_days} ngày không đi hàng`,
       watch: 'Có quá hạn, chưa tới mức rủi ro cao', ok: 'Không có nợ quá hạn' };
+    // Lọc chéo (DASH-08): số khách và tiền tính trong phạm vi lọc hạn trả + mặt hàng; lọc hạn trả thì tiền là tiền nhóm đó.
+    const groups = state.ready ? M.riskView(M.scope(state.rows, filter(), 'risk'), state.tier)
+      : state.rk.groups.map(group => ({ ...group, amount: group.overdue }));
+    const what = state.tier == null ? 'Tiền quá hạn' : state.tiers[state.tier].label;
+    const showAmt = group => group.count > 0 && (state.tier != null ? group.amount !== 0n : group.key !== 'ok');
     const chip = group => `<button type="button" class="rchip r-${group.key}" data-risk="${group.key}" aria-pressed="${state.risk === group.key}"${off}${tipAttr([
-      `${group.label}: ${group.count} khách`, tips[group.key], group.key === 'ok' ? '' : `Tiền quá hạn ${short(group.overdue)}`, 'Bấm để lọc bảng'])}>
-        <i class="rdot" aria-hidden="true"></i><span class="rl">${esc(group.label)}</span><span class="n">${ICON.people}${group.count}<span class="sr-only"> khách</span></span>${group.key !== 'ok' && group.count
-          ? `<span class="amt">${esc(short(group.overdue))}</span>` : ''}</button>`;
+      `${group.label}: ${group.count} khách`, tips[group.key], showAmt(group) ? `${what} ${short(group.amount)}` : '', 'Bấm để lọc bảng'])}>
+        <i class="rdot" aria-hidden="true"></i><span class="rl">${esc(group.label)}</span><span class="n">${ICON.people}${group.count}<span class="sr-only"> khách</span></span>${showAmt(group)
+          ? `<span class="amt">${esc(short(group.amount))}</span>` : ''}</button>`;
     const tier = state.tier == null ? '' : `<button type="button" class="rchip tier-x" data-clear="tier" aria-label="Bỏ lọc ${esc(state.tiers[state.tier].label)}"${tipAttr([`Đang lọc: ${state.tiers[state.tier].label} (${state.tiers[state.tier].span})`, 'Bấm để bỏ lọc'])}>
         <i class="sw t${state.tier}" aria-hidden="true"></i>${esc(state.tiers[state.tier].tile)}${ICON.close}</button>`;
     // Đang lọc mặt hàng (bấm dòng ở khối Công nợ theo mặt hàng hoặc link ?mh=): chip bỏ lọc cùng hàng, như chip hạn trả.
     const com = state.com == null ? '' : `<button type="button" class="rchip tier-x com-x" data-clear="com" aria-label="Bỏ lọc mặt hàng ${esc(state.com)}"${tipAttr([`Đang lọc mặt hàng: ${state.com}`, 'Bấm để bỏ lọc'])}>
         ${esc(state.com)}${ICON.close}</button>`;
-    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${state.rk.groups.map(chip).join('')}${tier}${com}`;
+    node.innerHTML = `<button type="button" class="rchip all" data-risk="" aria-pressed="${state.risk == null}"${off}>Tất cả</button>${groups.map(chip).join('')}${tier}${com}`;
   }
 
   function paintList() {
@@ -215,12 +248,29 @@
     });
   }
 
-  function paint() { paintTiers(); paintComs(); paintChips(); paintList(); }
+  // Lọc chéo (DASH-08): mỗi lần đổi lọc vẽ lại dải đầu, thẻ tháng và khối mặt hàng theo phạm vi mới; nút đang được focus
+  // (ô hạn trả, dòng mặt hàng, chip) được focus lại sau khi vẽ để người dùng bàn phím không mất chỗ.
+  function repaintBlocks() {
+    const focused = document.activeElement?.closest?.('#dashboard [data-tier], #dashboard [data-com], #dashboard [data-risk], #dashboard [data-clear]');
+    const key = focused ? ['data-tier', 'data-com', 'data-risk', 'data-clear'].map(name => [name, focused.getAttribute(name)]).find(([, value]) => value != null) : null;
+    const tag = focused?.tagName;
+    root.querySelector('.owe').innerHTML = owePart(state.data, state.debt);
+    root.querySelector('.month-card').innerHTML = monthPart(state.data, state.debt);
+    const band = root.querySelector('.com-band');
+    if (band) band.outerHTML = comPart();
+    return () => {
+      if (!key) return;
+      const again = [...root.querySelectorAll(`[${key[0]}]`)].find(el => el.getAttribute(key[0]) === key[1] && el.tagName === tag);
+      again?.focus();
+    };
+  }
+
+  function paint() { const refocus = repaintBlocks(); paintTiers(); paintComs(); paintChips(); paintList(); refocus(); }
 
   function render(data, debt, customers = []) {
     state.names = shortLabels(customers);
-    root.innerHTML = `<section class="strip" aria-labelledby="h-owe"><div class="owe">${owePart(data, debt)}</div>
-      <div class="month-card" role="group" aria-labelledby="h-month">${monthPart(data, debt)}</div></section>${comPart()}${listPart()}`;
+    root.innerHTML = `<section class="strip" aria-labelledby="h-owe"><div class="owe"></div>
+      <div class="month-card" role="group" aria-labelledby="h-month"></div></section>${comPart()}${listPart()}`;
     paint();
   }
 
