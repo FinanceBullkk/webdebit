@@ -333,6 +333,27 @@ class ReconcileAutoTest(unittest.TestCase):
         row = self.result()["customers"][0]
         self.assertEqual((row["status"], row["reason"]), ("CHI_CO_WEB", "HELD"))
         self.assertTrue(row["held_reasons"])
+        self.assertEqual(row["hints"], [{"kind": "chain_break", "month": "2026-10", "sheet_end_vnd": str(FAKE_AMOUNT + 1),
+                                         "expected_end_vnd": str(FAKE_AMOUNT), "delta_vnd": "1"}])   # CHAN-DOAN-LECH-01
+
+    def test_unexplained_gap_names_a_slip_written_twice_and_writes_nothing(self):
+        fixture(self.source)
+        db = Db(total=FAKE_AMOUNT - 5)
+        db.receipts = [{"pid": f"PH-00{n}", "date": "2026-10-31", "amount_vnd": "5", "reference": "tay", "voided_on": None} for n in (1, 2)]
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(db.writes, [])
+        row = self.result()["customers"][0]
+        self.assertEqual((row["reason"], row["hints_explain"]), ("NOTHING_TO_WRITE", True))
+        self.assertEqual(row["hints"], [{"kind": "receipt_twice", "date": "2026-10-31", "amount_vnd": "5", "pids": ["PH-001", "PH-002"],
+                                         "delta_vnd": "5"}])
+
+    def test_hint_failure_keeps_the_conclusion(self):
+        fixture(self.source)
+        with patch.object(job.hints, "for_book", side_effect=RuntimeError("x")):
+            self.assertEqual(self.run_job(Db(total=FAKE_AMOUNT + 5), "--fix")[0], 0)
+        row = self.result()["customers"][0]
+        self.assertEqual(row["reason"], "NOTHING_TO_WRITE")
+        self.assertNotIn("hints", row)
 
     def test_too_many_differences_only_reports(self):
         self.undated_receipt_book()

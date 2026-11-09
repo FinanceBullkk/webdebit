@@ -89,3 +89,21 @@ test('chỉ khác phụ phí khi mọi dòng cùng đơn giá; web chưa có gi�
   assert.equal(M.isFeeOnly({ kind: 'prices', rows: [{ web_unit_price_vnd: null, sheet_unit_price_vnd: '65' }] }), false);
   assert.equal(M.isFeeOnly(statement.groups[1]), false);
 });
+
+test('máy đoán chỗ lệch: mỗi kiểu một câu, tiền theo hàm truyền vào, kiểu lạ bỏ qua (CHAN-DOAN-LECH-01)', () => {
+  const say = value => `[${value}]`;
+  const row = { hints: [
+    { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+    { kind: 'price_review', status: 'MANUAL', row: 231, container: 'MAUU0000231', sheet_vnd: '101500000', web_vnd: '98000000', delta_vnd: '3500000' },
+    { kind: 'sheet_row_missing', row: 284, container: 'MAUU0000284 取消', sheet_vnd: '7700000', delta_vnd: '7700000' },
+    { kind: 'chain_break', month: '2026-10', sheet_end_vnd: '95000000', expected_end_vnd: '95000500', delta_vnd: '-500' },
+    { kind: 'moi_la' },
+  ] };
+  assert.deepEqual(M.hintTexts(row, say), [
+    'Phiếu PH-001 và PH-002 cùng ngày 31/10, cùng [8300000]: có thể ghi trùng. Hủy phiếu thừa thì nợ web tăng [8300000].',
+    'Dòng 231 (MAUU0000231): Sheet [101500000], web [98000000]. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ.',
+    'Dòng 284 (MAUU0000284 取消) trên Sheet có [7700000] mà web không có dòng nào. Xem có tính cho khách không.',
+    'Khối tháng 10 trên Sheet: số cuối tháng thiếu [-500] so với tháng trước chuyển sang + phát sinh − thu. Thường do ô số dư chuyển sang đầu khối trống hoặc trỏ sai dòng.',
+  ]);
+  assert.deepEqual(M.hintTexts({}, say), []);
+});

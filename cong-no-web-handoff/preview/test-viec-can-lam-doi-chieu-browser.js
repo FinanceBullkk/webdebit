@@ -241,6 +241,31 @@ if (process.argv.includes('--preview')) {
     });
   });
 
+  test('máy đoán chỗ lệch: câu ở cột Vì sao, đủ danh sách khi mở; khách bị giữ nói khối tháng (CHAN-DOAN-LECH-01)', async () => {
+    const hints = [
+      { kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000', pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' },
+      { kind: 'sheet_row_missing', row: 284, container: 'MAUU0000284 取消', sheet_vnd: '7700000', delta_vnd: '7700000' },
+      { kind: 'price_review', status: 'MANUAL', row: 231, container: 'MAUU0000231', sheet_vnd: '101500000', web_vnd: '98000000', delta_vnd: '3500000' },
+    ];
+    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, difference_vnd: '-16000000', groups: [], hints, hints_explain: true };
+    const held = { customer: 'Mẫu Kim Long', customer_id: 9, status: 'CHI_CO_WEB', reason: 'HELD', difference_vnd: null, web_total_vnd: '95000500', sheet_total_vnd: null,
+      held_reasons: { ANCHOR_CHAIN_MISMATCH: 2 }, hints: [{ kind: 'chain_break', month: '2026-10', sheet_end_vnd: '95000000', expected_end_vnd: '95000500', delta_vnd: '-500' }] };
+    await withPage({ inbox: inbox({ reconcile: { ...reconcile, customers: [guess, held] } }), statement: statement({ sheet_total_vnd: '5226033039', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false }) }, async page => {
+      await opened(page);
+      const why = await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-why').innerText();
+      assert.match(why, /^Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: Phiếu PH-001 và PH-002 cùng ngày 31\/10, cùng 8,3 tr: có thể ghi trùng\./);
+      assert.match(why, /Còn 1 chỗ nữa, mở để xem\./);
+      assert.doesNotMatch(why, /không có việc nào giải thích/);
+      assert.match(await page.locator('.dc-left').innerText(), /Các chỗ máy tìm ra ở dưới/);
+      const items = await page.locator('.dc-hints li').allInnerTexts();
+      assert.equal(items.length, 3);
+      assert.match(items[2], /Dòng 231 \(MAUU0000231\): Sheet 101,5 tr, web 98 tr\. Máy không tự sửa vì dòng có phụ phí chia theo loại, sửa trên Sổ\./);
+      const kept = await page.locator('.dc-customer', { hasText: 'Kim Long' }).locator('.dc-why').innerText();
+      assert.match(kept, /^Sheet có chỗ máy chưa đọc được, chưa so được\. Khối tháng 10 trên Sheet: số cuối tháng thiếu 500 đ so với/);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
+    });
+  });
+
   test('nhiều khách: lệch lớn mở sẵn, đổi khách một bấm, đóng tay thì để đóng; tab chưa có sổ và web đi trước tính riêng', async () => {
     const rec = { ...reconcile, counts: { KHOP: 234, LECH_TONG: 3, CHI_CO_SHEET: 1 }, outside_tabs: [{ customer: 'TAB MẪU <101>', sheet_total_vnd: '120500000', last_month: '2026-10', reason: 'NOT_ON_TONG' }], customers: [
       { customer: 'Mẫu Lộc Phát', customer_id: 8, status: 'LECH_TONG', reason: 'SHEET_SHUFFLED', difference_vnd: '5000000', web_total_vnd: '100', sheet_total_vnd: '95', shuffled_months: ['2026-10'], groups: [] }, lech,
