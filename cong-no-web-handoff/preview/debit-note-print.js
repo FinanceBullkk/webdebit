@@ -53,7 +53,7 @@ const DebitNotePrint = (() => {
           <div class="dn-muted">Please pay by this date  ·  请于此日期前付款</div></div></div>
       <div class="dn-sumhead"><span class="dn-sec">CHARGE SUMMARY  ·  费用汇总</span><span class="dn-unit">Amounts in VND  ·  金额单位：越南盾</span></div>
       <table class="dn-sum"><thead><tr><th>DESTINATION PORT<br><span>目的港</span></th><th class="num">CONTAINERS<br><span>柜数</span></th>
-        <th class="num">LUMP-SUM<br><span>单价合计</span></th><th class="num">OTHER FEES<br><span>其他费用</span></th></tr></thead>
+        <th class="num">UNIT PRICE<br><span>单价合计</span></th><th class="num">OTHER FEES<br><span>其他费用</span></th></tr></thead>
         <tbody>${ports}${extra}<tr class="dn-sub"><td>Subtotal  小计</td><td class="num">${note.containerCount}</td><td class="num">${money(note.lumpSumVnd)}</td><td class="num">${money(note.otherVnd)}</td></tr></tbody></table>
       <div class="dn-totalbar"><span>TOTAL DUE  ·  应付总额</span><span>${money(note.subtotalVnd) || '—'} VND</span></div>
       <div class="dn-words"><span>Amount in words  英文大写</span><b>${escape(d.words)}</b></div>
