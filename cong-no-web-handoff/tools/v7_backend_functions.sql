@@ -2226,6 +2226,8 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sokhach, pg_temp
 -- nhưng exact=false. Lấy ngày muộn nhất, cả ngày tạm; bằng ngày thì ưu tiên dòng rõ ngày.
 -- Thu/phát sinh tháng này cộng đúng dòng Tổng tháng của get_ledger (DA-THU-01) qua mọi sổ đang hoạt động.
 -- Tổng cộng bằng numeric (không ép bigint) để không tràn số khi cộng nhiều sổ.
+-- DASH-08 (9/11/2026): this_month.customers là thu/phát sinh tháng này từng sổ có số khác 0 (cả sổ đã hết nợ), để Tổng quan
+-- lọc thẻ Thu tháng theo mặt hàng / nhóm khách; cộng các sổ đúng bằng charges_vnd / received_vnd của this_month.
 DECLARE d date := (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date; m date := date_trunc('month', d)::date;
 BEGIN
   PERFORM sokhach._actor();
@@ -2295,8 +2297,8 @@ BEGIN
         OR EXISTS (SELECT 1 FROM sokhach.v_trip_current t WHERE NOT t.deleted AND t.customer_id=a.id AND t.debt_month=m)
         OR EXISTS (SELECT 1 FROM sokhach.receipt r WHERE r.customer_id=a.id AND r.voided_on IS NULL
           AND date_trunc('month',r.date)::date=m)),
-    flow AS (SELECT
-        coalesce(sum(coalesce(s.source_charge_vnd,(SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
+    flow_c AS (SELECT k.id,
+        coalesce(s.source_charge_vnd,(SELECT sum(o.amount_vnd) FROM sokhach.opening_balance o
             WHERE o.customer_id=k.id AND o.cutover_id=k.cutover_id AND o.debt_month=m),0)
           +coalesce((SELECT sum(CASE WHEN p.unit_price_vnd IS NOT NULL THEN p.unit_price_vnd+coalesce(p.other_fee_vnd,0)
               WHEN t.container IS NULL OR t.container='' THEN p.other_fee_vnd END)
@@ -2306,19 +2308,20 @@ BEGIN
               WHERE t.customer_id=k.id AND t.debt_month=m AND NOT t.deleted AND t.status='confirmed'),0)
           +coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
               LEFT JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id
-              WHERE a.customer_id=k.id AND a.debt_month=m AND lr.kind IS DISTINCT FROM 'receipt'),0)),0) AS charges,
-        coalesce(sum(coalesce(s.source_receipt_vnd,0)
+              WHERE a.customer_id=k.id AND a.debt_month=m AND lr.kind IS DISTINCT FROM 'receipt'),0) AS charges,
+        coalesce(s.source_receipt_vnd,0)
           +coalesce((SELECT sum(r.amount_vnd) FROM sokhach.receipt r
               WHERE r.customer_id=k.id AND r.voided_on IS NULL AND date_trunc('month',r.date)::date=m),0)
           -coalesce((SELECT sum(o.amount_vnd) FROM sokhach.v_offset_outgoing o
               WHERE o.customer_id=k.id AND o.debt_month=m),0)
           -coalesce((SELECT sum(a.amount_vnd) FROM sokhach.v_adjustment_current a
               JOIN sokhach.legacy_row lr ON lr.id=a.legacy_row_id AND lr.kind='receipt'
-              WHERE a.customer_id=k.id AND a.debt_month=m),0)),0) AS received
+              WHERE a.customer_id=k.id AND a.debt_month=m),0) AS received
         FROM keyed k LEFT JOIN LATERAL (SELECT mc.source_charge_vnd,mc.source_receipt_vnd
             FROM sokhach.cutover_month_check mc
            WHERE mc.customer_id=k.id AND mc.cutover_id=k.cutover_id AND mc.debt_month=m
-             AND mc.source_charge_vnd IS NOT NULL AND mc.source_receipt_vnd IS NOT NULL) s ON true)
+             AND mc.source_charge_vnd IS NOT NULL AND mc.source_receipt_vnd IS NOT NULL) s ON true),
+    flow AS (SELECT coalesce(sum(charges),0) AS charges,coalesce(sum(received),0) AS received FROM flow_c)
   SELECT jsonb_build_object('as_of',d::text,'month',m::text,
     'rule',jsonb_build_object('due_after_months',1,'long_overdue_months',3,'no_pay_days',60,'no_trip_days',90,'active_trip_days',30),
     'receivable_vnd',(SELECT coalesce(sum(total),0)::text FROM ranked),
@@ -2332,7 +2335,11 @@ BEGIN
         'long_overdue_vnd',coalesce(sum(long_overdue),0)::text,
         'overdue_customers',count(*) FILTER (WHERE overdue>0),'high_customers',count(*) FILTER (WHERE risk='high'),
         'high_overdue_vnd',coalesce(sum(overdue) FILTER (WHERE risk='high'),0)::text) FROM ranked),
-    'this_month',(SELECT jsonb_build_object('month',m::text,'charges_vnd',charges::text,'received_vnd',received::text) FROM flow),
+    'this_month',(SELECT jsonb_build_object('month',m::text,'charges_vnd',charges::text,'received_vnd',received::text,
+        'customers',(SELECT coalesce(jsonb_agg(jsonb_build_object('customer_id',f.id,'commodity',cm.name,
+            'transport_mode',a.transport_mode,'charges_vnd',f.charges::text,'received_vnd',f.received::text) ORDER BY f.id),'[]'::jsonb)
+          FROM flow_c f JOIN act a ON a.id=f.id LEFT JOIN sokhach.commodity cm ON cm.id=a.commodity_id
+         WHERE f.charges<>0 OR f.received<>0)) FROM flow),
     'customers',coalesce((SELECT jsonb_agg(jsonb_build_object('customer_id',id,'name',name,'commodity',commodity,
         'transport_mode',transport_mode,'outstanding_vnd',total::text,
         'tiers_vnd',jsonb_build_array(t0::text,t1::text,t2::text,t3::text,t4::text),

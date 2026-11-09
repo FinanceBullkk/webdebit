@@ -128,6 +128,15 @@ def _flow(pg: Pg, month: str) -> tuple[int, int]:
     return int(charges), int(received)
 
 
+def _flow_by_book(pg: Pg, month: str) -> dict[int, tuple[int, int]]:
+    """Như _flow nhưng từng sổ, chỉ sổ có số khác 0 — chuẩn để so this_month.customers (DASH-08)."""
+    value = pg.value(actor_sql(
+        "SELECT coalesce(json_agg(json_build_array(a.id,(m->>'charges_vnd')::bigint,(m->>'received_vnd')::bigint)),'[]')::text "
+        f"FROM ({ACTIVE}) a CROSS JOIN LATERAL jsonb_array_elements(sokhach.get_ledger(a.id)->'months') m "
+        f"WHERE m->>'month'={lit(month)} AND ((m->>'charges_vnd')::bigint<>0 OR (m->>'received_vnd')::bigint<>0)"))
+    return {int(book): (int(charges), int(received)) for book, charges, received in json.loads(value)}
+
+
 def check_dashboard_debt(pg: Pg) -> None:
     m0, m1, m2, m4, m8 = (_month(pg, n) for n in (0, 1, 2, 4, 8))
     today = pg.value("SELECT (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date")
@@ -213,5 +222,16 @@ def check_dashboard_debt(pg: Pg) -> None:
     delta = (int(month["charges_vnd"]) - int(before["this_month"]["charges_vnd"]),
              int(month["received_vnd"]) - int(before["this_month"]["received_vnd"]))
     require(delta == (270, 65), f"this_month delta: {delta}")
+    # DASH-08: từng sổ khớp dòng tháng của get_ledger, cộng lại đúng tổng; sổ số 0 không có; mặt hàng lấy theo sổ.
+    books = {x["customer_id"]: x for x in month["customers"]}
+    require({book: (int(x["charges_vnd"]), int(x["received_vnd"])) for book, x in books.items()} == _flow_by_book(pg, m0),
+            f"this_month.customers differs from get_ledger: {month['customers']}")
+    require((sum(int(x["charges_vnd"]) for x in books.values()), sum(int(x["received_vnd"]) for x in books.values()))
+            == (int(month["charges_vnd"]), int(month["received_vnd"])), "this_month.customers does not add up to the total")
+    require([x["customer_id"] for x in month["customers"]] == sorted(books), "this_month.customers is not ordered by id")
+    for book, x in books.items():
+        if book in rows:
+            require((x["commodity"], x["transport_mode"]) == (rows[book]["commodity"], rows[book]["transport_mode"]),
+                    f"commodity of book {book}: {x} vs {rows[book]}")
 
     check_pay_date_rule(pg, m0, m1, m2, _month(pg, 3), m8, today)
