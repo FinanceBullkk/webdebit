@@ -18,7 +18,7 @@
 
   <section class="card summary" aria-label="Tổng công nợ">
     <div><div class="label">Còn phải thu</div><div class="value money" id="scope-receivable"></div></div>
-    <div><div class="label">Khách đang dư</div><div class="value money credit" id="scope-credit"></div></div>
+    <div><div class="label">Khách trả trước</div><div class="value money credit" id="scope-credit"></div></div>
     <div><div class="label" id="scope-other-label">Nợ ngoài năm</div><div class="value money" id="scope-other"></div></div>
     <div class="status" id="scope-status"></div>
   </section>
@@ -34,7 +34,7 @@
     <select id="sort" aria-label="Thứ tự khách"><option value="group">Nhóm theo mặt hàng</option><option value="debt">Nợ nhiều nhất trước</option></select>
     <label><input type="checkbox" id="only-open"> Chỉ khách còn nợ</label>
     <span class="hint">Bấm ô để xem chi tiết tháng</span>
-    <span class="legend" aria-hidden="true"><span>ít</span><i style="background:var(--heat-1)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-5)"></i><i style="background:var(--heat-6)"></i><span>nhiều</span><i style="background:var(--credit-soft);margin-left:12px"></i><span>dư</span></span>
+    <span class="legend" aria-hidden="true"><span>ít</span><i style="background:var(--heat-1)"></i><i style="background:var(--heat-3)"></i><i style="background:var(--heat-5)"></i><i style="background:var(--heat-6)"></i><span>nhiều</span><i style="background:var(--credit-soft);margin-left:12px"></i><span>trả thừa</span></span>
   </div>
   <div class="age-pick" id="age-pick" role="status" hidden></div>
   <div class="table-wrap">
@@ -46,7 +46,7 @@
     </table>
   </div>
   <p class="recon" id="recon" role="status">Đang tải số liệu…</p>
-  <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng bằng 0. Ô “dư” là tháng đang dư tiền; thu phân bổ theo tháng, không theo container.</p>
+  <p class="rule-note">Mọi khách có tháng còn số dư ở bất kỳ năm nào đều hiện, kể cả tổng bằng 0. Số trong ngoặc, ví dụ (65), là khách trả trước hoặc tháng trả thừa; dòng Trừ: khách trả trước đặt riêng như sổ kế toán, không bù vào Phải thu; thu phân bổ theo tháng, không theo container.</p>
 </main>
 
 <!-- Ngăn kéo không chặn trang: bảng vẫn bấm được, bấm ô khác thì ngăn kéo đổi theo. -->

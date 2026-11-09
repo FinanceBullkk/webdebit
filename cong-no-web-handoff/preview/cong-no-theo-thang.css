@@ -65,7 +65,12 @@
 .heat td.empty-message{padding:20px;text-align:left;color:var(--ink-3)}
 .heat tfoot td{position:sticky;bottom:0;z-index:3;padding:10px 6px;background:var(--nav);color:#fff;border:0;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .heat tfoot td.khach{z-index:4;padding:8px 12px;background:var(--nav);text-align:left;border-bottom-left-radius:var(--radius)}
-.heat tfoot td:last-child{border-bottom-right-radius:var(--radius)}
+.heat tfoot tr.net td:last-child{border-bottom-right-radius:var(--radius)}
+.heat tfoot tr.sub td{padding:6px;font-weight:600;color:var(--nav-ink);border-bottom:1px solid rgba(255,255,255,.12)}
+.heat tfoot tr.sub td.khach{padding:6px 12px;font-weight:600;border-bottom-left-radius:0}
+.heat tfoot td.khach{white-space:normal}
+.heat tfoot td.khach small{font-size:12px;font-weight:400;color:var(--nav-ink);white-space:nowrap}
+.heat tfoot tr.net td.khach small{display:block;font-size:12.5px}
 .heat tfoot td.khach span{display:block;font-size:12.5px;font-weight:400;color:var(--nav-ink)}
 .recon{margin:10px 2px 0;font-size:13.5px;color:var(--ink-3)}
 .recon b{color:var(--credit);font-weight:600}

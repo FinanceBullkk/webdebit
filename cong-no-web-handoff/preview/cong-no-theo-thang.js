@@ -25,6 +25,8 @@
   // Audit UX 31/10/2026 (P0-6): ô, cột tổng và dòng tổng ghi số triệu đồng không kèm đơn vị (không còn "tr");
   // "Đơn vị: triệu đồng" ghi một lần ở tiêu đề cột Khách, cho 12 cột tháng vừa màn 1280 không cuộn ngang.
   const inMillions = value => F.millions(value);
+  // Chuẩn kế toán: số âm (khách trả trước, tháng trả thừa) ghi trong ngoặc "(0,02)", không dùng dấu trừ hay chữ "dư".
+  const signedMillions = value => (value < 0n ? '(' + inMillions(-value) + ')' : inMillions(value));
   const yearMin = 2000;
   const yearMax = currentYear + 1;
   const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -60,16 +62,16 @@
 
   function heatCell(customer, month) {
     const value = monthValue(customer, month);
-    const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' (dư)' : '') + '"';
+    const attrs = 'data-id="' + esc(customer.customer_id) + '" data-month="' + month + '" type="button" title="' + esc(fmt(value < 0n ? -value : value)) + (value < 0n ? ' trả thừa' : '') + '"';
     if (value === 0n) return '<td class="' + monthClass(month) + '"></td>';
-    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>dư ' + esc(inMillions(-value)) + '</button></td>';
+    if (value < 0n) return '<td class="' + monthClass(month) + '"><button class="cell-btn neg money" ' + attrs + '>' + esc(signedMillions(value)) + '</button></td>';
     const step = F.heatStep(value);
     return '<td class="' + monthClass(month) + '"><button class="cell-btn money" ' + attrs + ' style="background:var(--heat-' + step + ');color:' + (step >= 5 ? '#fff' : 'var(--ink)') + '">' + esc(inMillions(value)) + '</button></td>';
   }
 
   function totalCell(value, cls) {
     if (value === 0n) return '<td class="tot ' + cls + ' muted">—</td>';
-    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + (value < 0n ? 'dư ' + esc(inMillions(-value)) : esc(inMillions(value))) + '</td>';
+    return '<td class="tot ' + cls + (value < 0n ? ' neg' : '') + '" title="' + esc(fmt(value < 0n ? -value : value)) + '">' + esc(signedMillions(value)) + '</td>';
   }
 
   function renderSummary(data) {
@@ -84,7 +86,32 @@
     put('#scope-other', other);
     $('#scope-other-label').textContent = state.year === currentYear ? 'Trong đó nợ từ trước ' + state.year : 'Trong đó nợ ngoài năm ' + state.year;
     const closed = data.customers.length - debtors.length - creditors.length;
-    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' đang dư · ' + closed + ' đã tất toán</span>';
+    $('#scope-status').innerHTML = '<span><b>' + debtors.length + '</b> khách còn nợ</span><span class="muted">' + creditors.length + ' trả trước · ' + closed + ' đã tất toán</span>';
+  }
+
+  // Dòng chân theo chuẩn kế toán (VAS 21/IAS 1 không bù trừ phải thu với người mua trả trước): khi có khách trả trước
+  // thì ghi ba dòng — Phải thu (khách tổng Mọi năm dương), Trừ: khách trả trước, Còn phải thu ròng; không có thì một dòng.
+  // Dòng Phải thu cột Mọi năm bằng đúng số Còn phải thu ở dải đầu khi không lọc.
+  function footRows(rows) {
+    const cell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(signedMillions(value))) + '</td>';
+    const sums = list => [...MONTHS.map(month => F.sum(list.map(customer => monthValue(customer, month)))),
+      F.sum(list.map(customer => customer.total_year_vnd)), F.sum(list.map(customer => customer.total_all_vnd))].map(cell).join('');
+    const prepaid = rows.filter(customer => allTotal(customer) < 0n);
+    if (!prepaid.length) return '<tr class="net"><td class="khach">Tổng ' + rows.length + ' khách</td>' + sums(rows) + '</tr>';
+    const owing = rows.filter(customer => allTotal(customer) >= 0n);
+    const label = (text, count, full) => '<td class="khach" title="' + esc(full + ' · ' + count + ' khách') + '">' + text + ' <small>' + count + ' khách</small></td>';
+    return '<tr class="sub">' + label('Phải thu', owing.length, 'Phải thu khách hàng') + sums(owing) + '</tr>'
+      + '<tr class="sub">' + label('Trừ: trả trước', prepaid.length, 'Trừ: khách trả trước') + sums(prepaid) + '</tr>'
+      + '<tr class="net">' + label('Còn phải thu ròng', rows.length, 'Còn phải thu ròng') + sums(rows) + '</tr>';
+  }
+
+  // Các dòng chân cùng dính đáy màn: dòng trên đặt bottom bằng chiều cao các dòng dưới nó.
+  function stackFoot() {
+    let below = 0;
+    [...document.querySelectorAll('#heat-foot tr')].reverse().forEach(row => {
+      row.querySelectorAll('td').forEach(td => { td.style.bottom = below + 'px'; });
+      below += row.getBoundingClientRect().height;
+    });
   }
 
   function paintAgePick() {
@@ -144,10 +171,8 @@
       });
     }
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
-    const monthSums = MONTHS.map(month => F.sum(rows.map(customer => monthValue(customer, month))));
-    const footCell = value => '<td title="' + esc(fmt(value)) + '">' + (value === 0n ? '—' : esc(inMillions(value))) + '</td>';
-    $('#heat-foot').innerHTML = '<tr><td class="khach">Tổng ' + rows.length + ' khách<span>đã trừ tiền khách dư</span></td>' + monthSums.map(footCell).join('') +
-      footCell(F.sum(rows.map(customer => customer.total_year_vnd))) + footCell(F.sum(rows.map(customer => customer.total_all_vnd))) + '</tr>';
+    $('#heat-foot').innerHTML = footRows(rows);
+    stackFoot();
 
     renderSummary(data);
     $('#year-cur').textContent = state.year;
