@@ -29,8 +29,8 @@ const activityDays = {
       { id: 29, customer_id: 3, customer: 'Mẫu Phú Gia', kind: 'price_edit', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:50:00+00:00',
         before: { price: { trip_id: 41, unit_price_vnd: null, other_fee_vnd: null } }, after: { price: { trip_id: 41, unit_price_vnd: '42000000', other_fee_vnd: null } } },
       { id: 28, customer_id: 1, customer: 'Mẫu An Phát', kind: 'paste', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:05:00+00:00', before: {},
-        after: { trips: [{ trip_id: 40, container: 'MAUU0000002', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed' }] } }],
-    trips: [{ id: 40, container: 'MAUU0000002' }, { id: 41, container: 'MAUU0000003' }], receipts: [], legacy_rows: [], fee_types: [] },
+        after: { trips: [{ trip_id: 40, container: 'MAUU0000002', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed', note: 'Chuyến đồng bộ' }, { trip_id: 42, container: 'MAUU0000004', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed', note: 'Chuyến đồng bộ' }] } }],
+    trips: [{ id: 40, container: 'MAUU0000002' }, { id: 42, container: 'MAUU0000004' }, { id: 41, container: 'MAUU0000003' }], receipts: [], legacy_rows: [], fee_types: [] },
   '2026-11-03': { day: '2026-11-03', today: '2026-11-06', prev_day: null, next_day: '2026-11-06', total: 1,
     events: [{ id: 5, customer_id: 7, customer: 'Mẫu Đông Á', kind: 'void', actor: 'ke.toan@example.test', actor_name: 'Kế toán', at: '2026-11-03T08:00:00+00:00',
       before: { pid: 'PH-002', amount_vnd: '1000000' }, after: { pid: 'PH-002', void_reason: 'ghi trùng' } }],
@@ -378,22 +378,25 @@ if (process.argv.includes('--preview')) {
 
   test('đã làm: hôm nay cả máy lẫn người, mới nhất trước, câu như Lịch sử, lọc máy/người; nhớ tab khi tải lại', async () => withPage({}, async page => {
     await page.locator('[data-tab="may"]').click();
-    await page.locator('.act-list').waitFor();
-    const items = await page.locator('.act-list li').allInnerTexts();
-    assert.equal(items.length, 3);
-    assert.match(items[0], /10:20[\s\S]*Thu[\s\S]*Mẫu An Phát[\s\S]*Ghi phiếu thu PH-007: 5\.000\.000 đ ngày 05\/11\/2026/);
-    assert.match(items[1], /09:50[\s\S]*Máy[\s\S]*Mẫu Phú Gia[\s\S]*Sửa giá Chuyến MAUU0000003 · Đơn giá: – → 42\.000\.000/);
-    assert.match(items[2], /09:05[\s\S]*Máy[\s\S]*Dán lô chuyến 1 chuyến: MAUU0000002 \(05\/11\/2026\)/);
-    assert.equal(await page.locator('.act-list li a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+    await page.locator('.act-table').waitFor();
+    // Bảng có cột, chia nhóm theo loại việc (Chuyến · Thu tiền · Giá và phụ phí …), mỗi nhóm có tiêu đề kèm số việc.
+    assert.deepEqual((await page.locator('.act-table thead th').allInnerTexts()).slice(0, 6), ['Giờ', 'Người làm', 'Sổ', 'Việc', 'Chi tiết', 'Ghi chú']);
+    assert.deepEqual((await page.locator('.act-group-title').allInnerTexts()).map(text => text.replace(/\s+/g, ' ')), ['Chuyến 1', 'Thu tiền 1', 'Giá và phụ phí 1']);
+    const cells = async group => page.locator(`[data-act-group="${group}"] tr:not(.act-group-head)`).first().locator('td,th').allInnerTexts();
+    assert.deepEqual((await cells('chuyen')).slice(0, 6), ['09:05', 'Máy', 'Mẫu An Phát', 'Dán lô chuyến', '2 chuyến: MAUU0000002 (05/11/2026) · MAUU0000004 (05/11/2026)', 'Chuyến đồng bộ']);
+    assert.deepEqual((await cells('thu')).slice(0, 4), ['10:20', 'Thu', 'Mẫu An Phát', 'Ghi phiếu thu']);
+    assert.match((await cells('thu'))[4], /^PH-007: 5\.000\.000 đ ngày 05\/11\/2026/);
+    assert.deepEqual((await cells('gia')).slice(0, 5), ['09:50', 'Máy', 'Mẫu Phú Gia', 'Sửa giá', 'Chuyến MAUU0000003 · Đơn giá: – → 42.000.000']);
+    assert.equal(await page.locator('.act-table a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
     assert.match(await page.locator('.today-inline').innerText(), /Người nhập mẫu/);
     assert.deepEqual((await page.locator('[data-act-filter]').allInnerTexts()).map(text => text.replace(/\s+/g, ' ')), ['Tất cả 3', 'Máy 2', 'Người 1']);
     await page.locator('[data-act-filter="nguoi"]').click();
-    assert.equal(await page.locator('.act-list li').count(), 1);
+    assert.equal(await page.locator('.act-table tbody tr:not(.act-group-head)').count(), 1);
     await page.locator('[data-act-filter="may"]').click();
-    assert.equal(await page.locator('.act-list li').count(), 2);
+    assert.equal(await page.locator('.act-table tbody tr:not(.act-group-head)').count(), 2);
     assert.equal(await page.locator('[data-act-day]', { hasText: 'Sau' }).isDisabled(), true, 'hôm nay không có ngày sau');
     await page.reload();
-    await page.locator('.act-list').waitFor();
+    await page.locator('.act-table').waitFor();
     assert.equal(await page.locator('[data-tab="may"]').getAttribute('aria-selected'), 'true');
   }));
 
@@ -401,11 +404,11 @@ if (process.argv.includes('--preview')) {
     const opts = { activityAsked: [] };
     await withPage(opts, async page => {
       await page.locator('[data-tab="may"]').click();
-      await page.locator('.act-list').waitFor();
+      await page.locator('.act-table').waitFor();
       await page.locator('[data-act-day="2026-11-03"]').click();
-      await page.waitForFunction(() => document.querySelector('[data-act-date]')?.value === '2026-11-03' && document.querySelector('.act-list'));
-      const item = await page.locator('.act-list li').innerText();
-      assert.match(item, /15:00[\s\S]*Kế toán[\s\S]*Mẫu Đông Á[\s\S]*Hủy phiếu PH-002: 1\.000\.000 đ[\s\S]*Lý do hủy: ghi trùng/);
+      await page.waitForFunction(() => document.querySelector('[data-act-date]')?.value === '2026-11-03' && document.querySelector('.act-table'));
+      const item = await page.locator('.act-table tbody tr:not(.act-group-head)').innerText();
+      assert.match(item, /15:00[\s\S]*Kế toán[\s\S]*Mẫu Đông Á[\s\S]*Hủy phiếu\tPH-002: 1\.000\.000 đ\tLý do hủy: ghi trùng/);
       assert.equal(await page.locator('.today-inline').count(), 0, 'ngày cũ không có dòng Đã ghi hôm nay');
       assert.ok(opts.activityAsked.includes('2026-11-03'));
       await page.locator('[data-act-date]').fill('2026-11-04');

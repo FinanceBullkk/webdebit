@@ -186,11 +186,24 @@ globalThis.DoiChieuView = (() => {
       monthLabel: CongNoFormat.monthLabel, model: SoKhachV7Model,
       feeTypeName: id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`, snapshot: () => lookup });
   }
+  // Cột Ghi chú đã có tiêu đề nên bỏ chữ "Ghi chú:" đầu câu; lô nhiều chuyến cùng ghi chú thì chỉ hiện một lần.
+  const noteCell = note => [...new Set(String(note ?? '').replace(/^Ghi chú:\s*/, '').split('; ').filter(Boolean))].join('; ');
   function activityItems(body, filter) {
     const cau = sentences(body);
     return (body.events ?? []).filter(event => filter === 'may' ? isMachine(event) : filter === 'nguoi' ? !isMachine(event) : true)
-      .map(event => ({ event, label: cau.labelOf(event), text: cau.describeEvent(event), note: cau.noteOf(event),
-        who: isMachine(event) ? 'Máy' : cau.actorName(event) }));
+      .map(event => ({ event, label: cau.labelOf(event), text: cau.describeEvent(event), note: noteCell(cau.noteOf(event)),
+        who: isMachine(event) ? 'Máy' : cau.actorName(event), group: cau.groupOf(event) }));
+  }
+  // Nhóm theo loại việc, cùng nhóm với bộ lọc Lịch sử của sổ; trong nhóm, cùng việc đứng liền nhau (việc có lần mới nhất lên trước),
+  // mỗi việc mới nhất trước.
+  const ACT_GROUPS = [['chuyen', 'Chuyến'], ['thu', 'Thu tiền'], ['gia', 'Giá và phụ phí'], ['khoa', 'Khóa tháng'], ['', 'Việc khác']];
+  function activityGroups(items) {
+    return ACT_GROUPS.map(([key, title]) => {
+      const rows = items.filter(item => item.group === key);
+      const labels = [...new Set(rows.map(item => item.label))];
+      return { key, title, labels: labels.map(label => [label, rows.filter(item => item.label === label).length]),
+        rows: labels.flatMap(label => rows.filter(item => item.label === label)) };
+    }).filter(group => group.rows.length);
   }
   function mayHtml(act, people, { esc, href }) {
     const { day, today, filter, body } = act;
@@ -211,7 +224,13 @@ globalThis.DoiChieuView = (() => {
     else {
       const items = activityItems(body, filter);
       const more = body.total > events.length ? `<p class="inbox-note">Ngày này có ${body.total} việc, đang hiện ${events.length} việc mới nhất.</p>` : '';
-      list = items.length ? `<div class="auto-list act-list"><ul aria-label="Việc đã ghi ngày ${esc(dayText(day))}">${items.map(({ event, label, text, note, who }) => `<li><time>${esc(clock(event.at))}</time><span class="auto-kind${isMachine(event) ? ' machine' : ''}">${esc(who)}</span><strong>${esc(event.customer ?? `Sổ #${event.customer_id}`)}</strong><span class="act-what"><b>${esc(label)}</b>${text ? ` ${esc(text)}` : ''}${note ? `<small>${esc(note)}</small>` : ''}</span>${event.customer_id ? `<a href="${href(event.customer_id)}">Mở sổ</a>` : ''}</li>`).join('')}</ul></div>${more}`
+      const row = ({ event, label, text, note, who }) => `<tr><td class="act-time"><time>${esc(clock(event.at))}</time></td><td><span class="auto-kind${isMachine(event) ? ' machine' : ''}">${esc(who)}</span></td>`
+        + `<th scope="row" class="act-book" title="${esc(event.customer ?? '')}">${esc(event.customer ?? `Sổ #${event.customer_id}`)}</th><td class="act-label">${esc(label)}</td>`
+        + `<td class="act-what">${text ? esc(text) : '<span class="muted">—</span>'}</td><td class="act-note">${note ? esc(note) : ''}</td>`
+        + `<td class="act-open">${event.customer_id ? `<a href="${href(event.customer_id)}">Mở sổ</a>` : ''}</td></tr>`;
+      const group = ({ key, title, labels, rows }) => `<tbody class="act-group" data-act-group="${key || 'khac'}"><tr class="act-group-head"><th scope="rowgroup" colspan="7">`
+        + `<span class="act-group-title">${esc(title)} <b>${rows.length}</b></span>${labels.length > 1 ? `<span class="act-group-kinds">${labels.map(([label, n]) => `${esc(label)} ${n}`).join(' · ')}</span>` : ''}</th></tr>${rows.map(row).join('')}</tbody>`;
+      list = items.length ? `<div class="work-scroll act-scroll"><table class="act-table" aria-label="Việc đã ghi ngày ${esc(dayText(day))}"><thead><tr><th scope="col">Giờ</th><th scope="col">Người làm</th><th scope="col">Sổ</th><th scope="col">Việc</th><th scope="col">Chi tiết</th><th scope="col">Ghi chú</th><th scope="col"><span class="sr-only">Mở sổ</span></th></tr></thead>${activityGroups(items).map(group).join('')}</table></div>${more}`
         : `<p class="dc-empty">${events.length ? 'Không có việc nào của nhóm này.' : isToday ? 'Hôm nay chưa ai ghi gì.' : `Ngày ${esc(dayText(day))} không ai ghi gì.`}</p>`;
     }
     return `<section class="may-panel" aria-label="Việc đã ghi"><p class="dc-lead">Mọi lần ghi vào sổ, của máy và của người, theo ngày. Máy chỉ ghi tiền khi tổng khách khớp Sheet tới từng đồng. Thấy sai thì mở sổ sửa lại.</p>${bar}${head}${list}</section>`;
