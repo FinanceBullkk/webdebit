@@ -590,12 +590,8 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await page.locator('[data-manual-price="1"]').count(), 0, 'bản đọc cũ về muộn không được đè lại');
     });
   });
-  test('soát máy: chữ trước/sau, chuyến chờ kiểm, đường mở đúng sổ; tìm khách và bàn phím', async () => withPage({}, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const machine = await page.locator('.auto-list').innerText();
-    assert.match(machine, /nơi đi: — →\s*KHO MẪU/);
-    assert.match(machine, /chờ kiểm/);
-    assert.equal(await page.locator('.auto-list li', { hasText: 'KHO MẪU' }).locator('a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
+  // Việc máy đã ghi xem ở tab Đã làm, đọc từ Lịch sử DB (HOAT-DONG-01, test-viec-can-lam-doi-chieu-browser.js).
+  test('tìm khách và bàn phím', async () => withPage({}, async page => {
     await page.locator('#customer-search').fill('明珠'); await page.locator('#customer-results a').waitFor();
     assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   }));

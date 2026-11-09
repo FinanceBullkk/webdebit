@@ -24,7 +24,6 @@ globalThis.DoiChieuView = (() => {
     THIEU_SO: 'Một bên chưa có tổng.',
   };
   const OUTSIDE_TEXT = { NOT_ON_TONG: 'Tab còn nợ, chưa có trên TONG, máy chưa tạo được sổ.', TONG_DIFFERS: 'Số trên TONG khác số trên tab, máy chưa tạo được sổ.', TAB_UNREADABLE: 'Tab có chỗ máy chưa đọc được, chưa tạo được sổ.' };
-  const AUTO_FIELD = { carrier: 'hãng tàu', shipper: 'shipper', origin: 'nơi đi', destination: 'nơi đến' };
   const clock = iso => new Date(iso).toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' });
   const vnDay = ms => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
   const dayShort = iso => (iso ? `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}` : '—');
@@ -66,13 +65,6 @@ globalThis.DoiChieuView = (() => {
     return `${editing}${lead ?? REASON_TEXT[row.reason] ?? row.reason}${shuffled}${lastEdit}`;
   }
 
-  function fixedText(row) {
-    if (row.reason === 'BOOK_CREATED') return REASON_TEXT.BOOK_CREATED;
-    const w = row.written ?? {};
-    const parts = [w.receipts && `${w.receipts} phiếu thu`, w.legacy_deleted && `thay ${w.legacy_deleted} khoản thu cũ`, w.prices && `${w.prices} giá`, w.fee_rows && `${w.fee_rows} dòng điều chỉnh`, w.fee_undone && `hủy ${w.fee_undone} dòng điều chỉnh Sheet không còn`].filter(Boolean);
-    return `Máy đã sửa ${parts.join(', ')}. ${row.status === 'KHOP' ? 'Khớp tới từng đồng.' : 'Phần còn lại là web đi trước Sheet.'}`;
-  }
-
   // Dòng đầu trang: câu trả lời cho "số nợ có đúng không".
   function statusHtml(reconcile, { esc, now, stale, computing, nothing }) {
     const refreshing = stale ? '<span class="muted refreshing" role="status">Đang cập nhật…</span>' : '';
@@ -90,7 +82,7 @@ globalThis.DoiChieuView = (() => {
   }
 
   function tabsHtml(current, counts) {
-    const tabs = [['lech', 'Số nợ lệch', counts.lech], ['don', 'Dọn chi tiết', counts.don], ['may', 'Máy đã làm', counts.may]];
+    const tabs = [['lech', 'Số nợ lệch', counts.lech], ['don', 'Dọn chi tiết', counts.don], ['may', 'Đã làm', counts.may]];
     return `<div class="viec-tabs" role="tablist" aria-label="Khu việc">${tabs.map(([key, text, n]) => `<button type="button" role="tab" data-tab="${key}" aria-selected="${current === key}">${text} <span>${n}</span></button>`).join('')}</div>`;
   }
 
@@ -178,26 +170,51 @@ globalThis.DoiChieuView = (() => {
     return `${empty}${table}${aheadNote}${months}`;
   }
 
-  function machineItems(auto, reconcile) {
-    const fee = value => value != null && value !== '0';
-    const day = globalThis.InboxCard.dayText;
-    const priceChange = item => (item.before_unit_price_vnd == null
-      ? `chưa giá → ${million(item.unit_price_vnd)} tr${fee(item.other_fee_vnd) ? `, phụ phí ${million(item.other_fee_vnd)} tr` : ''}`
-      : `${million(item.unit_price_vnd)} tr, phụ phí ${million(item.before_other_fee_vnd ?? '0')} → ${million(item.other_fee_vnd ?? '0')} tr`);
-    return [
-      ...(auto?.items ?? []).map(item => ({ at: item.at, kind: 'Sửa chữ', item, text: `${AUTO_FIELD[item.field] ?? item.field}: ${item.before ?? '—'} → ${item.after}` })),
-      ...(auto?.trip_items ?? []).map(item => ({ at: item.at, kind: item.road ? 'Chuyến bộ' : 'Chuyến mới', item, text: `${item.container ?? ''} · ${day(item.event_date)}${item.pending ? ' · chờ kiểm' : ''}` })),
-      ...(auto?.price_items ?? []).map(item => ({ at: item.at, kind: 'Giá', item, text: `${item.container ?? ''} · ${day(item.date)} · ${priceChange(item)}${item.locked ? ' · tháng khóa' : ''}` })),
-      ...(auto?.ps_items ?? []).map(item => ({ at: item.at, kind: 'Phụ phí', item, text: `${item.container ?? ''} · ${day(item.date)} · phân loại theo PS, tổng không đổi${item.locked ? ' · tháng khóa' : ''}` })),
-      ...M.fixedRows(reconcile).map(row => ({ at: row.fixed_at, kind: 'Đối soát', item: row, name: row.customer, text: fixedText(row) })),
-    ].sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? '')));
-  }
   const machineCount = (auto, reconcile) => (auto?.today_count ?? 0) + (auto?.today_trips ?? 0) + (auto?.today_prices ?? 0) + (auto?.today_ps ?? 0) + M.fixedRows(reconcile).length;
 
-  function mayHtml(auto, reconcile, people, { esc, label, href }) {
-    const items = machineItems(auto, reconcile);
-    const list = items.length ? `<div class="auto-list"><ul aria-label="Việc máy làm hôm nay">${items.map(({ at, kind, item, name, text }) => `<li>${at ? `<time>${esc(clock(at))}</time>` : ''}<span class="auto-kind">${esc(kind)}</span><strong>${esc(name ?? label(item))}</strong><span>${esc(text)}</span>${item.customer_id ? `<a href="${href(item.customer_id)}">Mở sổ</a>` : ''}</li>`).join('')}</ul></div>` : '<p class="dc-empty">Hôm nay máy chưa ghi gì.</p>';
-    return `<section class="may-panel" aria-label="Máy đã làm hôm nay"><p class="dc-lead">Máy chỉ ghi tiền khi tổng khách khớp Sheet tới từng đồng. Thấy sai thì mở sổ sửa lại.</p><div class="today-inline"><span>Đã ghi hôm nay</span>${people || '<span class="muted">Chưa có giao dịch nào hôm nay.</span>'}</div>${list}</section>`;
+  // Tab Đã làm (HOAT-DONG-01): việc đã ghi của một ngày, mọi sổ, cả máy lẫn người, đọc từ Lịch sử trong DB (GET /api/v7/activity).
+  // Câu chữ dùng chung với khung Lịch sử của sổ (so-khach-v7-lich-su-cau.js). Hôm nay thêm dòng "Đã ghi hôm nay" như trước.
+  const MACHINE_ACTORS = new Set(['may-theo-sheet']);
+  const isMachine = event => MACHINE_ACTORS.has(event.actor);
+  const dayText = iso => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+  const VND = value => (value === null || value === undefined ? '–' : BigInt(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'));
+  const isoDay = value => (/^\d{4}-\d\d-\d\d$/.test(value ?? '') ? `${value.slice(8)}/${value.slice(5, 7)}/${value.slice(0, 4)}` : (value ?? ''));
+  function sentences(body) {
+    const feeTypes = body.fee_types ?? [];
+    const lookup = { trips: body.trips ?? [], receipts: body.receipts ?? [], legacy_rows: body.legacy_rows ?? [] };
+    return globalThis.LichSuCau.create({ fmt: VND, dateText: isoDay, monthKey: value => (typeof value === 'string' ? value.slice(0, 7) : ''),
+      monthLabel: CongNoFormat.monthLabel, model: SoKhachV7Model,
+      feeTypeName: id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`, snapshot: () => lookup });
+  }
+  function activityItems(body, filter) {
+    const cau = sentences(body);
+    return (body.events ?? []).filter(event => filter === 'may' ? isMachine(event) : filter === 'nguoi' ? !isMachine(event) : true)
+      .map(event => ({ event, label: cau.labelOf(event), text: cau.describeEvent(event), note: cau.noteOf(event),
+        who: isMachine(event) ? 'Máy' : cau.actorName(event) }));
+  }
+  function mayHtml(act, people, { esc, href }) {
+    const { day, today, filter, body } = act;
+    const isToday = day === today;
+    const prev = body?.prev_day, next = isToday ? null : body?.next_day && body.next_day <= today ? body.next_day : today;
+    const events = body?.events ?? [];
+    const machine = events.filter(isMachine).length;
+    const chip = (key, text, n) => `<button type="button" class="filter-chip" data-act-filter="${key}" aria-pressed="${filter === key}">${text} <b>${n}</b></button>`;
+    const chips = body ? `<div class="act-filter" role="group" aria-label="Lọc theo người làm">${chip('all', 'Tất cả', events.length)}${chip('may', 'Máy', machine)}${chip('nguoi', 'Người', events.length - machine)}</div>` : '';
+    const bar = `<div class="act-bar"><button type="button" class="btn" data-act-day="${prev ?? ''}"${prev ? '' : ' disabled'} title="${prev ? `Ngày gần nhất có việc: ${esc(dayText(prev))}` : 'Không có ngày trước có việc'}">${icon('left', 16)}${prev ? esc(dayText(prev).slice(0, 5)) : 'Trước'}</button>`
+      + `<label class="act-date">Ngày <input type="date" data-act-date value="${esc(day)}" max="${esc(today)}"></label>`
+      + `<button type="button" class="btn" data-act-day="${next ?? ''}"${next ? '' : ' disabled'}>${next && next !== today ? esc(dayText(next).slice(0, 5)) : 'Sau'}${icon('right', 16)}</button>`
+      + `${isToday ? '' : '<button type="button" class="btn" data-act-day="today">Hôm nay</button>'}${chips}</div>`;
+    const head = isToday ? `<div class="today-inline"><span>Đã ghi hôm nay</span>${people || '<span class="muted">Chưa có giao dịch nào hôm nay.</span>'}</div>` : '';
+    let list;
+    if (body === undefined) list = '<p class="loading dc-loading">Đang tải việc đã ghi…</p>';
+    else if (body === null) list = `<p class="dc-failed" role="alert">Không tải được việc đã ghi ngày ${esc(dayText(day))}. <button type="button" class="btn" data-act-retry>Thử lại</button></p>`;
+    else {
+      const items = activityItems(body, filter);
+      const more = body.total > events.length ? `<p class="inbox-note">Ngày này có ${body.total} việc, đang hiện ${events.length} việc mới nhất.</p>` : '';
+      list = items.length ? `<div class="auto-list act-list"><ul aria-label="Việc đã ghi ngày ${esc(dayText(day))}">${items.map(({ event, label, text, note, who }) => `<li><time>${esc(clock(event.at))}</time><span class="auto-kind${isMachine(event) ? ' machine' : ''}">${esc(who)}</span><strong>${esc(event.customer ?? `Sổ #${event.customer_id}`)}</strong><span class="act-what"><b>${esc(label)}</b>${text ? ` ${esc(text)}` : ''}${note ? `<small>${esc(note)}</small>` : ''}</span>${event.customer_id ? `<a href="${href(event.customer_id)}">Mở sổ</a>` : ''}</li>`).join('')}</ul></div>${more}`
+        : `<p class="dc-empty">${events.length ? 'Không có việc nào của nhóm này.' : isToday ? 'Hôm nay chưa ai ghi gì.' : `Ngày ${esc(dayText(day))} không ai ghi gì.`}</p>`;
+    }
+    return `<section class="may-panel" aria-label="Việc đã ghi"><p class="dc-lead">Mọi lần ghi vào sổ, của máy và của người, theo ngày. Máy chỉ ghi tiền khi tổng khách khớp Sheet tới từng đồng. Thấy sai thì mở sổ sửa lại.</p>${bar}${head}${list}</section>`;
   }
 
   return { statusHtml, tabsHtml, lechHtml, mayHtml, machineCount, money };

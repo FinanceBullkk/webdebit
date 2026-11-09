@@ -77,7 +77,9 @@
   const savedTab = () => { try { const tab = sessionStorage.getItem(TAB_KEY); return ['lech', 'don', 'may'].includes(tab) ? tab : 'lech'; } catch { return 'lech'; } };
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
-    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() } };
+    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() },
+    // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
+    act: { day: null, filter: 'all', data: new Map(), loading: null } };
   const inboxLabel = book => {
     const row = currentCustomers.find(c => c.id === book.customer_id);
     if (!row) return `Sổ #${book.customer_id}`;
@@ -98,13 +100,13 @@
     if (!inbox.stale) globalThis.AppNav?.saveTodoSnapshot({ inbox: inbox.data, dashboard, unsorted, customers: currentCustomers });
   }
   // Đang hiện bản cũ của tab: xem được, mở dòng được; mọi nút ghi khóa tới khi có bản mới (thường dưới 1 giây).
-  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry'];
+  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry', 'data-act-day', 'data-act-date', 'data-act-filter', 'data-act-retry'];
   function paintInbox() {
     if (!firstLoadDone || inbox.data === undefined) return;
     const html = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
+      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, act: actView(), action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
     });
     root.replaceChildren();
@@ -115,7 +117,7 @@
     paintedHtml = html;
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
     inboxRoot.innerHTML = html;
@@ -130,6 +132,29 @@
     }
     const scroller = inboxRoot.querySelector('.work-scroll:has(.work-table)');
     if (scroller) scroller.scrollLeft = scrollLeft;
+  }
+
+  // Tab Đã làm: đọc theo ngày khi tab mở; hôm nay đọc lại mỗi lần tự tải, ngày cũ đọc một lần (Lịch sử chỉ thêm, không sửa).
+  const vnToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' });
+  const actDay = () => inbox.act.day ?? vnToday();
+  const actView = () => ({ day: actDay(), today: vnToday(), filter: inbox.act.filter, body: inbox.act.data.get(actDay()) });
+  async function loadActivity(force = false) {
+    const day = actDay(), act = inbox.act;
+    if (inbox.tab !== 'may' || act.loading === day || (!force && act.data.get(day) && day !== vnToday())) return;
+    act.loading = day;
+    try {
+      const body = await json(day === vnToday() ? '/api/v7/activity' : `/api/v7/activity?day=${encodeURIComponent(day)}`);
+      act.data.set(day, body);
+    } catch { if (!act.data.get(day)) act.data.set(day, null); }
+    if (act.loading === day) act.loading = null;
+    if (actDay() === day) paintInbox();
+  }
+  function showActivityDay(day) {
+    const today = vnToday();
+    inbox.act.day = !day || day === 'today' || day >= today ? null : day;
+    if (inbox.act.data.get(actDay()) === null) inbox.act.data.delete(actDay());
+    paintInbox();
+    loadActivity();
   }
 
   async function loadInbox() {
@@ -505,6 +530,8 @@
     catch { button.disabled = true; }
   }
   inboxRoot.addEventListener('change', event => {
+    const actDate = event.target.closest('[data-act-date]');
+    if (actDate) { if (/^\d{4}-\d\d-\d\d$/.test(actDate.value)) showActivityDay(actDate.value); return; }
     if (inbox.busy || inbox.review || inbox.action) return;
     const dcPick = event.target.closest('[data-dc-pick]');
     if (dcPick && inbox.dc.open !== null) {
@@ -548,8 +575,11 @@
     if (button.hasAttribute('data-tab')) {
       inbox.tab = button.dataset.tab;
       try { sessionStorage.setItem(TAB_KEY, inbox.tab); } catch { /* chỉ để nhớ tab, không có cũng được */ }
-      paintInbox(); return;
+      paintInbox(); loadActivity(); return;
     }
+    if (button.hasAttribute('data-act-day')) { showActivityDay(button.dataset.actDay); return; }
+    if (button.hasAttribute('data-act-filter')) { inbox.act.filter = button.dataset.actFilter; paintInbox(); return; }
+    if (button.hasAttribute('data-act-retry')) { inbox.act.data.delete(actDay()); paintInbox(); loadActivity(true); return; }
     if (button.hasAttribute('data-dc-open')) {
       const id = Number(button.dataset.dcOpen), dc = inbox.dc;
       dc.closed = dc.open === id;
@@ -735,14 +765,15 @@
   showSnapshot(globalThis.AppNav?.readTodoSnapshot());
   load();
   loadInbox();
-  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); sheetRefresh?.load(); };
+  loadActivity();
+  const refresh = () => { if (document.activeElement?.id === 'customer-search') return; load(); loadInbox(); loadActivity(); sheetRefresh?.load(); };
   document.querySelector('#error').addEventListener('click', event => { if (event.target.closest('[data-retry]')) load(); });
   const button = document.querySelector('#refresh-data');
   if (globalThis.SheetRefresh) {
     sheetRefresh = globalThis.SheetRefresh.create({ node: document.querySelector('#updated-at'), button, onDone: () => { load(); loadInbox(); } });
     sheetRefresh.load();
   }
-  button?.addEventListener('click', () => { load(); loadInbox(); sheetRefresh?.trigger(); });
+  button?.addEventListener('click', () => { load(); loadInbox(); loadActivity(true); sheetRefresh?.trigger(); });
   setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

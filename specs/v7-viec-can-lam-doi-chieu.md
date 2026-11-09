@@ -10,7 +10,7 @@ Chủ sổ (trên 40 tuổi, màn thấy 1280×560) mở tab khi được báo c
 2. Khách nào lệch, bao nhiêu, vì sao? → tab Số nợ lệch, bảng khách.
 3. Do khoản nào, ghi khoản đó thì còn lệch bao nhiêu? → bảng đối chiếu.
 4. Tiền đúng rồi còn gì chưa gọn? → tab Dọn chi tiết.
-5. Máy vừa ghi gì? → tab Máy đã làm.
+5. Máy và người đã ghi gì, hôm nay hay ngày khác? → tab Đã làm ([`HOAT-DONG-01`](../docs/decisions/hoat-dong-01.md)).
 
 Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → tích khoản, số Còn lệch đổi ngay → Ghi → xem nợ trước → sau và tháng khóa → Xác nhận → số mới, có Hoàn tác. Không làm gì thì máy xem lại ở lượt sau.
 
@@ -26,7 +26,8 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 | Ghi | `v7_sheet_fix.apply_fix(..., actor=người bấm)` | Tháng khóa: `in_month` mở, ghi, khóa lại |
 | Giữ số web | `keep_sheet_task` từng dòng | Nợ không đổi |
 | Hoàn tác | `undo_sheet_batch` trong `in_month` | Chỉ giá và phiếu; không thêm hàm SQL |
-| Máy đã làm | `inbox.auto.*_items` có `at`, `reconcile` khách `FIXED` | Đã có |
+| Đã làm (HOAT-DONG-01) | `GET /api/v7/activity?day=` → `get_activity(date)`: event của ngày (giờ VN), mọi sổ, kèm tên sổ, container, số phiếu, tên loại phụ phí | Thêm 9/11/2026 |
+| Số trên nhãn tab Đã làm | `inbox.auto.today_*`, `reconcile` khách `FIXED` | Đã có, giữ |
 
 ## Đầu ra
 
@@ -64,6 +65,13 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - Đang hiện bản gần nhất của tab thì mọi nút ghi khóa, vẫn xem và đổi tab được.
 - Tải nền không đè lựa chọn đang tích; khoản không còn thì bỏ khỏi lựa chọn.
 - Trạng thái: chưa có lượt đối soát, máy lỗi, kết quả cũ, ghi xong không khớp, tab chưa có sổ, không có khách lệch, đọc khoản lỗi có Thử lại.
+
+## Tab Đã làm (HOAT-DONG-01)
+
+- `GET /api/v7/activity` (hôm nay) hoặc `?day=yyyy-mm-dd`; sai dạng hoặc ngày sau hôm nay → 422 `INVALID_DAY`. Trả `{day, today, prev_day, next_day, total, events[], trips[], legacy_rows[], receipts[], fee_types[]}`; `events` mới trước, tối đa 2.000, cùng hình dạng Lịch sử của sổ, thêm `customer`, `actor_name`. `prev_day`/`next_day` là ngày gần nhất có việc.
+- Lô dán chỉ giữ `trip_id, container, event_date, date, unitPriceVnd, status, note` từng chuyến.
+- Câu chữ dùng chung `preview/so-khach-v7-lich-su-cau.js` với khung Lịch sử của sổ.
+- Tab đọc khi mở; hôm nay đọc lại theo nhịp tự tải 60 giây, ngày cũ đọc một lần. Lỗi đọc có Thử lại.
 
 ## Tiêu chí nghiệm thu
 

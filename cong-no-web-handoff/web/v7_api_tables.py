@@ -139,6 +139,7 @@ ERRORS = {
     "OFFSET_ALREADY_VOID": (409, "Cặp cấn trừ đã hủy."),
     "FUTURE_DATE": (422, "Ngày không được sau hôm nay."),
     "INVALID_DATE": (422, "Ngày không hợp lệ."),
+    "INVALID_DAY": (422, "Ngày không hợp lệ hoặc chưa tới."),
     "INVALID_YEAR": (422, "Năm không hợp lệ."),
     "INVALID_MONTH": (422, "Tháng không hợp lệ."),
     "IMAGE_INVALID": (422, "File không phải ảnh PNG, JPG hoặc WebP."),
@@ -252,6 +253,8 @@ SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokha
 SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
 # BANG-THU-01: tháng trống là tháng hiện tại giờ VN, do hàm SQL tính.
 SQL["get_receipt_book"] = "SELECT sokhach.get_receipt_book((:'payload'::jsonb->>'month')::date);"
+# HOAT-DONG-01: ngày trống là hôm nay giờ VN, do hàm SQL tính.
+SQL["get_activity"] = "SELECT sokhach.get_activity((:'payload'::jsonb->>'day')::date);"
 # ZALO-GROUP-01: gắn group ↔ sổ và dấu tin, cũng ngoài đường tiền; POST đặc biệt (v7_api_zalo kiểm thân lệnh).
 SQL["link_zalo"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokhach.link_zalo(j->>'conversation_id', (j->>'customer_id')::bigint) FROM b;"
 SQL["unlink_zalo"] = ("WITH b AS (SELECT :'payload'::jsonb AS j) "

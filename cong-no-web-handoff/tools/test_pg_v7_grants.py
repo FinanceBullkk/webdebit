@@ -46,6 +46,7 @@ READ.update({'get_price_table(bigint)', 'get_price_status(bigint)'})
 READ.add('get_reminders()')  # NHAC-NO-01: ai vào app cũng xem được mốc đã nhắc
 READ.add('get_receipt_book(date)')  # BANG-THU-01: ai vào app cũng xem được bảng thu
 APP_READ.add('get_ledger_events(bigint)')  # MO-SO-NHANH-02: khung Lịch sử của trang, không cấp reader
+APP_READ.add('get_activity(date)')  # HOAT-DONG-01: việc đã ghi theo ngày, có trước → sau như Lịch sử, không cấp reader
 READ.update({'get_zalo_links()', 'get_marks(bigint,text)'})  # ZALO-GROUP-01: ai vào app cũng xem được gắn sổ và dấu
 WRITE = {
     # Việc cần làm xử lý tại dòng (specs/v7-viec-can-lam-bang.md): giữ, lấy giá Sheet, gán mặt hàng, chọn sổ, hoàn tác lô.
@@ -126,6 +127,7 @@ KNOWN_FUNCTIONS.update({'_legacy_undated_match', 'list_legacy_trip_refs'})  # ch
 KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_json', 'record_mark', 'cancel_mark',
                         'get_marks'})  # ZALO-GROUP-01
 KNOWN_FUNCTIONS.add('create_book_from_sheet')  # MAY-TAO-SO-01
+KNOWN_FUNCTIONS.add('get_activity')  # HOAT-DONG-01
 KNOWN_FUNCTIONS.update({'get_ledger_events', '_ledger_events'})  # MO-SO-NHANH-02
 KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'set_customer_transport', 'assign_sheet_trip',
                         'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026

@@ -67,7 +67,7 @@ DECLARE
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
       'get_price_table(bigint)', 'get_price_status(bigint)',
-      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)',
+      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_activity(date)',
       'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)', 'get_zalo_links()',
       'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)'];
     actual text[];

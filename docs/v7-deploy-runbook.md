@@ -1777,6 +1777,19 @@ Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-lo
 4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
 5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
 
+## Việc đã ghi theo ngày (HOAT-DONG-01) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-hoat-dong.sql` ([`HOAT-DONG-01`](decisions/hoat-dong-01.md)) chỉ THÊM hàm đọc `get_activity(date)` cấp cho app (không cấp reader). Không đổi bảng, view, hàm ghi, loại event, phân bổ, dữ liệu hay quyền cũ. Chạy lại được. **Chạy sau `2026-11-09-v7-thu-thang-theo-so.sql`.**
+
+Thứ tự với release: độc lập. Release cũ không gọi hàm; release mới trên DB cũ thì tab Đã làm báo không tải được, có Thử lại.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử, chạy migration hai lượt. Số dư từng khách, số dòng mọi bảng và số event không đổi; checker đạt. Gọi `get_activity(NULL)` và một ngày cũ dưới `v7_app`: số event bằng `count(*)` của `sokhach.event` trong ngày đó (giờ VN); `v7_reader` bị từ chối; đo thời gian (bảng event không có chỉ mục theo giờ, quét cả bảng).
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+4. **Sau:** `GET /api/v7/activity` trả hôm nay, `?day=` một ngày cũ trả đúng số event của ngày đó.
+
+Rollback: `DROP FUNCTION sokhach.get_activity(date);` dưới `sokhach_owner`; không gì tham chiếu tới. App: quay về release trước.
+
 ## Thu tháng theo từng sổ (DASH-08) — nâng DB đang có (ĐÃ CHẠY trên hao 9/11/2026)
 
 Đã chạy 9/11/2026, xem [nhật ký](deploys/2026-11-09-thu-thang-theo-so.md).

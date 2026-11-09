@@ -533,16 +533,11 @@ test('Việc cần làm P2: mất kết nối khi ghi thì Thử lại gửi đ�
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt kê ô đã đổi, mở đúng sổ; lệch chữ còn lại ghi rõ máy bật hay chưa', async () => {
+test('Việc cần làm P3a: lệch chữ còn lại ghi rõ máy bật hay chưa (việc máy đã ghi xem ở tab Đã làm, HOAT-DONG-01)', async () => {
   const auto = { text_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 2, today_books: 1,
     items: [{ at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'destination', before: 'CANG C', after: 'CANG D' },
       { at: '2026-11-01T12:00:00+00:00', customer_id: 2, container: 'MAUU0000001', field: 'origin', before: null, after: 'KHO B' }] };
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [inboxBook(1, { text_diff: 3 })] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.match(await done.innerText(), /Khách C[\s\S]*nơi đến: CANG C → CANG D[\s\S]*nơi đi: — → KHO B/);
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
     await page.locator('[data-tab="don"]').click();
     assert.match(await page.locator('.inbox .inbox-note').innerText(), /3 chỗ ở 1 sổ\. Không đụng tiền; máy lấy theo Sheet ở lượt tính tới/);
   }, '/viec-can-lam.html');
@@ -554,31 +549,7 @@ test('Việc cần làm P3a: "Máy đã tự lấy theo Sheet hôm nay" liệt k
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm P3b: "Máy đã đưa vào sổ hôm nay" liệt kê chuyến mới, đánh dấu chuyến chờ kiểm, mở đúng sổ', async () => {
-  const auto = { text_enabled: true, trips_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0, today_count: 0, today_books: 0,
-    items: [], today_trips: 2, today_trip_books: 1, today_trips_pending: 1,
-    trip_items: [{ at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000002', event_date: '2026-11-01', trip_id: 9, pending: false },
-      { at: '2026-11-01T12:00:00+00:00', kind: 'trip', customer_id: 2, container: 'MAUU0000003', event_date: '2026-10-31', trip_id: 10, pending: true }] };
-  await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.count(), 1);   // không có ô chữ thì chỉ một khối
-    assert.match(await done.innerText(), /Khách C[\s\S]*MAUU0000002 · 01\/11\/2026[\s\S]*MAUU0000003 · 31\/10\/2026 · chờ kiểm/);
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
-    assert.equal(await done.locator('li').count(), 2);
-    assert.equal(await done.locator('.auto-kind', { hasText: 'Chuyến mới' }).count(), 2);
-  }, '/viec-can-lam.html');
-  // NGUON-CHUYEN-01: chuyến bộ máy đưa vào sổ ghi rõ "Chuyến bộ".
-  const road = { ...auto, trip_items: [{ ...auto.trip_items[0], road: true }], today_trips: 1, today_trips_pending: 0 };
-  await withPage({ inbox: { ...INBOX_EMPTY, auto: road, books: [] } }, async page => {
-    await page.locator('[data-tab="may"]').click();
-    await page.locator('.auto-list').waitFor();
-    assert.equal(await page.locator('.auto-list .auto-kind').innerText(), 'Chuyến bộ');
-  }, '/viec-can-lam.html');
-});
-
-test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí máy đã phân loại, ghi rõ tổng không đổi và tháng khóa', async () => {
+test('Việc cần làm MAY-PS-01: chip Máy đếm phụ phí đã phân loại hôm nay', async () => {
   const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, ps_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
     today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
     today_prices: 0, today_price_books: 0, price_items: [], today_ps: 1, today_ps_books: 1,
@@ -586,14 +557,10 @@ test('Việc cần làm MAY-PS-01: "Máy đã tự làm" liệt kê phụ phí m
   await withPage({ inbox: { ...INBOX_EMPTY, auto, books: [] } }, async page => {
     await page.locator('[data-tab="may"]').click();
     assert.equal(await page.locator('.actor-chip', { hasText: 'Máy' }).getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 0 giá, 1 phụ phí phân loại');
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.locator('.auto-kind').innerText(), 'Phụ phí');
-    assert.match(await done.locator('li').innerText(), /MAUU0000004 · 11\/06\/2026 · phân loại theo PS, tổng không đổi · tháng khóa/);
   }, '/viec-can-lam.html');
 });
 
-test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet máy đã ghi, ghi rõ tháng khóa; chip Máy đếm giá riêng', async () => {
+test('Việc cần làm MAY-GIA-01: chip Máy đếm giá riêng', async () => {
   const auto = { text_enabled: true, trips_enabled: true, prices_enabled: true, last_run: '2026-11-01T12:00:00+00:00', errors: 0,
     today_count: 0, today_books: 0, items: [], today_trips: 0, today_trip_books: 0, today_trips_pending: 0, trip_items: [],
     today_prices: 3, today_price_books: 1,
@@ -607,19 +574,5 @@ test('Việc cần làm MAY-GIA-01: "Máy đã tự làm" liệt kê giá Sheet 
     await page.locator('[data-tab="may"]').click();
     const chip = page.locator('.actor-chip', { hasText: 'Máy' });
     assert.equal(await chip.getAttribute('title'), 'Máy theo Sheet hôm nay: 0 chuyến mới, 0 ô chữ, 3 giá');
-    const done = page.locator('.auto-list');
-    await done.waitFor();
-    assert.equal(await done.locator('li').count(), 3);
-    // Đụng tiền nên ghi trước → sau: chuyến chưa giá nhận giá Sheet; chuyến đã có giá chỉ đổi giảm trừ.
-    assert.match(await done.locator('li').nth(0).innerText(), /Khách C[\s\S]*MAUU0000004 · 28\/10\/2026 · chưa giá → 52,5 tr, phụ phí 0,3 tr · tháng khóa/);
-    const open = await done.locator('li').nth(1).innerText();
-    assert.match(open, /MAUU0000005 · 01\/11\/2026 · chưa giá → 50 tr/);
-    assert.doesNotMatch(open, /phụ phí|tháng khóa/);
-    assert.match(await done.locator('li').nth(2).innerText(), /MAUU0000006 · 01\/11\/2026 · 50 tr, phụ phí −0,3 → −0,5 tr/);
-    if (process.env.SHOTS_DIR) {
-      fs.mkdirSync(process.env.SHOTS_DIR, { recursive: true });
-      await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'viec-can-lam-may-ghi-gia.png') });
-    }
-    assert.equal(await done.locator('a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=2');
   }, '/viec-can-lam.html');
 });
