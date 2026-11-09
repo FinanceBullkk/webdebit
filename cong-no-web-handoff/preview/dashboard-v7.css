@@ -141,14 +141,38 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
 .meter .today{position:absolute;top:-5px;width:3px;height:22px;margin-left:-1px;border-radius:2px;background:var(--ink-1)}
 .tq .month-card .left{display:inline-flex;align-items:center;gap:6px;align-self:flex-end;color:var(--ink-m);font-size:13px}
 
+/* Công nợ theo mặt hàng (DASH-07): mỗi mặt hàng một dòng là nút lọc; thanh xanh trong hạn, đỏ quá hạn (cùng màu ngoặc
+   Trong hạn / Quá hạn của dải đầu). Hai cột, dưới 700px một cột. */
+.com-band{padding:12px 20px 10px;border-radius:12px;background:#fff;border:1px solid var(--edge)}
+.com-head{display:flex;align-items:center;gap:12px}
+.com-head h2{margin:0;font-size:16px}
+.com-head .legend{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--ink-m);font-size:12.5px}
+.com-head .legend i{display:inline-block;width:14px;height:8px;margin-left:8px;border-radius:2px}
+.com-head .legend i.in,.cbar i.in{background:var(--blue)}
+.com-head .legend i.late,.cbar i.late{background:var(--t3)}
+.com-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;margin-top:4px}
+.com-th,.com-line{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) 76px 70px 46px;align-items:center;gap:10px}
+.com-th{padding:4px 6px;border-bottom:1px solid var(--edge);color:var(--ink-m);font-size:12.5px;font-weight:600}
+.com-th span:nth-child(n+3){text-align:right}
+.com-line{width:100%;min-height:40px;padding:0 6px;border:0;border-bottom:1px solid #eef0f3;background:transparent;color:var(--ink-1);font:inherit;text-align:left;cursor:pointer;font-variant-numeric:tabular-nums}
+.com-line:hover{background:#f6f8fb}
+.com-line[aria-pressed="true"]{background:#eef3f9;box-shadow:inset 3px 0 0 var(--blue)}
+.com-line.dim{opacity:.45}
+.com-line .cn{overflow:hidden;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.com-line .cn.grey{color:var(--ink-m);font-weight:400}
+.cbar{display:block;height:12px}
+.cbar>span{display:flex;gap:1px;height:12px;border-radius:3px;overflow:hidden}
+.cbar i{display:block;min-width:2px}
+.com-line .ct{text-align:right;font-weight:700}
+.com-line .co{text-align:right;color:var(--red);font-weight:600}
+.com-line .cc{display:inline-flex;align-items:center;justify-content:flex-end;gap:3px;color:var(--ink-m)}
+.com-line .cc svg{width:13px;height:13px}
+
 /* Bảng khách: chip mức rủi ro lọc bảng; tiền bằng triệu, ô ngày là viên màu theo ngưỡng. */
 .tq .debtors{padding:14px 20px 12px;border-radius:12px;background:#fff;border:1px solid var(--edge)}
 .list-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .list-head h2{margin:0;font-size:16px}
-.com-pick{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:40px;box-sizing:border-box;padding:0 4px 0 10px;border:1px solid var(--ctl);border-radius:8px;background:#fff;color:var(--ink-m)}
-.com-pick select{height:36px;border:0;background:transparent;color:var(--ink-1);font:inherit;cursor:pointer}
-.com-pick select:disabled{cursor:not-allowed;color:var(--ink-l)}
-.com-pick[hidden]+.icon-btn{margin-left:auto}
+.list-head .icon-btn{margin-left:auto}
 .risk-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
 .rchip{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:1px solid #d7dce3;border-radius:20px;background:#fff;color:var(--ink-1);font:inherit;cursor:pointer;font-variant-numeric:tabular-nums}
 .rchip:disabled{cursor:not-allowed;opacity:.6}
@@ -209,6 +233,13 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
   .owe,.month-card{flex-basis:100%}
   .big-money{font-size:30px}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .com-band{padding:12px}
+  .com-grid{grid-template-columns:1fr}
+  .com-col+.com-col .com-th{display:none}
+  /* Màn hẹp: bỏ thanh và chú giải để tên mặt hàng đọc đủ; số vẫn đủ ba cột. */
+  .com-th,.com-line{grid-template-columns:minmax(0,1fr) 64px 62px 34px;gap:6px}
+  .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
+  .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
 }
 @media (prefers-reduced-motion:reduce){.age-bar button{transition:none}}

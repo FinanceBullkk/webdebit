@@ -105,6 +105,20 @@ test('commodities: under 1% folds into Khác, unsorted last, bigger first', () =
   const coms = M.commodities(M.debtors(big));
   assert.deepEqual(coms.map(g => [g.key, g.count, g.total, g.tone]), [['Dừa', 1, 98400n, ''], [M.OTHER, 3, 1100n, 'grey'], [M.UNSORTED, 1, 500n, 'grey']]);
   assert.deepEqual(M.commodities(M.debtors(debt)).map(g => g.key), ['Chuối', 'Sầu riêng cảng', 'Mít', M.UNSORTED]);
+  // DASH-07: "Khác" kể tên các mặt hàng đã gộp (chú thích dòng); nhóm khác không có danh sách.
+  const F = require('./cong-no-format.js');
+  const other = coms.find(g => g.key === M.OTHER);
+  const names = M.debtors(big).filter(row => row.com === M.OTHER).map(row => F.commodityText(row.commodity, row.transportMode));
+  assert.deepEqual(other.members, [...new Set(names)].sort((a, b) => a.localeCompare(b, 'vi')));
+  assert.equal(other.members.length, 3);
+  assert.deepEqual(coms.find(g => g.key === 'Dừa').members, []);
+});
+
+test('commodities: late is the positive overdue, so a credit in old debt never makes the bar longer than the total', () => {
+  const credit = { ...debt, customers: [customer(1, 'Khách A', ['500', '0', '0', '-50', '0'], { commodity: 'Mít' }),
+    customer(2, 'Khách B', ['100', '0', '300', '0', '0'], { commodity: 'Chuối' })] };
+  const coms = M.commodities(M.debtors(credit));
+  assert.deepEqual(coms.map(g => [g.key, g.total, g.overdue, g.late]), [['Mít', 450n, -50n, 0n], ['Chuối', 400n, 300n, 300n]]);
 });
 
 test('monthProgress: received over charges, today and days left in the month; charges 0 has no ratio; over 100% caps the fill', () => {
