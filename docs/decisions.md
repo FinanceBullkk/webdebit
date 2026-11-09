@@ -109,6 +109,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="chan-doan-lech-01"></a>[CHAN-DOAN-LECH-01](decisions/chan-doan-lech-01.md) | Khách lệch mà máy không tự sửa được thì máy đoán chỗ gây lệch (phiếu ghi hai lần, dòng giá cần người, dòng Sheet web không có, ô số dư chuyển sang hỏng) và nói ra ở Việc cần làm; không ghi theo lời đoán | Chốt 9/11/2026; chỉ đổi phần giải thích, không đổi luật tiền hay điều kiện ghi |
 | <a id="hoat-dong-01"></a>[HOAT-DONG-01](decisions/hoat-dong-01.md) | Tab Đã làm của Việc cần làm: việc đã ghi theo ngày, mọi sổ, cả máy lẫn người, câu như Lịch sử | Chốt 9/11/2026; migration chỉ thêm hàm đọc `get_activity` |
 | <a id="ps-hoi-01"></a>[PS-HOI-01](decisions/ps-hoi-01.md) | "Phụ phí PS cần xem" thành câu hỏi có nút trả lời; "hết báo" chỉ ghi Lịch sử, không đổi tiền | Migration chỉ nới `keep_sheet_task` |
+| <a id="duyet-tai-hang-01"></a>[DUYET-TAI-HANG-01](decisions/duyet-tai-hang-01.md) | Duyệt chuyến mới từ Sheet tại hàng | Thay khung L4 của SO-GON-04 |
 
 ## Cập nhật khóa tháng 24/10/2026
 

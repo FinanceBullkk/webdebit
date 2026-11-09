@@ -323,17 +323,21 @@ def road_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     return project_road({**queue, "items": mine}, ledger, other_containers, other_legacy, family_book_ids(customers, ledger))
 
 
-def approve_request(raw: bytes, runner: Psql, actor: str) -> tuple[int, int, str, str, dict]:
+APPROVE_KEYS = {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}
+
+
+def approve_request(raw: bytes, runner: Psql, actor: str, optional: frozenset = frozenset()
+                    ) -> tuple[int, int, str, str, dict]:
     """Phần chung của bốn lệnh duyệt theo lô: đọc thân JSON, kiểm đúng bốn trường, đọc sổ, so trạng thái và phiên bản.
 
     Trả (customer_id, expected_version, snapshot_sha256, idempotency_key, sổ); mọi lỗi ném `ApiError`
-    đúng như bốn bản chép tay trước khi gộp (31/10/2026).
+    đúng như bốn bản chép tay trước khi gộp (31/10/2026). `optional`: trường thêm mà lệnh đó nhận, lệnh tự kiểm.
     """
     try:
         request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
     except (UnicodeError, ValueError, TypeError):
         bad()
-    if not isinstance(request, dict) or set(request) != {"customer_id", "expected_version", "snapshot_sha256", "idempotency_key"}:
+    if not isinstance(request, dict) or not APPROVE_KEYS <= set(request) <= APPROVE_KEYS | optional:
         bad()
     customer, version = request["customer_id"], request["expected_version"]
     digest, key = request["snapshot_sha256"], request["idempotency_key"]
@@ -351,7 +355,13 @@ def approve_request(raw: bytes, runner: Psql, actor: str) -> tuple[int, int, str
 
 
 def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
-    customer, version, digest, key, ledger = approve_request(raw, runner, actor)
+    """Duyệt chuyến mới từ Sheet. Có `source_rows` thì chỉ duyệt các dòng đó (nút "Duyệt" tại hàng, DUYET-TAI-HANG-01);
+    dòng không còn là chuyến mới thì báo STALE_SHEET, không duyệt dòng khác thay."""
+    customer, version, digest, key, ledger = approve_request(raw, runner, actor, frozenset({"source_rows"}))
+    wanted = json.loads(raw.decode("utf-8")).get("source_rows")
+    if wanted is not None and (not isinstance(wanted, list) or not 1 <= len(wanted) <= 200
+                               or not all(positive_int(row) for row in wanted) or len(set(wanted)) != len(wanted)):
+        bad()
     try:
         projection = sheet_projection(runner, ledger, actor)
     except ValueError as exc:
@@ -359,6 +369,10 @@ def approve_sheet(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     if projection["snapshot_sha256"] != digest:
         raise ApiError(409, "STALE_SHEET", "Sheet đã đổi. Tải lại rồi duyệt.")
     rows = [item for item in projection["items"] if item["sync_state"] == "NEW"]
+    if wanted is not None:
+        rows = [item for item in rows if item.get("source_row") in wanted]
+        if len(rows) != len(wanted):
+            raise ApiError(409, "STALE_SHEET", "Chuyến này không còn chờ duyệt. Tải lại sổ.")
     if not rows:
         return 200, {"approved": 0, "remaining": 0}
     return 200, paste_sheet_rows(runner, customer, version, digest, key, rows, actor)

@@ -1777,7 +1777,9 @@ Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-lo
 4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
 5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
 
-## Việc đã ghi theo ngày (HOAT-DONG-01) — nâng DB đang có (CHƯA CHẠY)
+## Việc đã ghi theo ngày (HOAT-DONG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 9/11/2026)
+
+Đã chạy 9/11/2026, xem [nhật ký](deploys/2026-11-09-hoat-dong.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-hoat-dong.sql` ([`HOAT-DONG-01`](decisions/hoat-dong-01.md)) chỉ THÊM hàm đọc `get_activity(date)` cấp cho app (không cấp reader). Không đổi bảng, view, hàm ghi, loại event, phân bổ, dữ liệu hay quyền cũ. Chạy lại được. **Chạy sau `2026-11-09-v7-thu-thang-theo-so.sql`.**
 
