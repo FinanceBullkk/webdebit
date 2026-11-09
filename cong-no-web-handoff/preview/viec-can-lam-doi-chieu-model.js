@@ -77,5 +77,18 @@
   // Chỉ khác phụ phí khi mọi dòng cùng đơn giá hai bên; web chưa có đơn giá thì là giá.
   const isFeeOnly = group => group.kind === 'prices' && group.rows.every(row => row.web_unit_price_vnd !== null && row.web_unit_price_vnd === row.sheet_unit_price_vnd);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead };
+  // Máy đoán chỗ gây lệch (CHAN-DOAN-LECH-01): mỗi gợi ý một câu. `say` đổi chuỗi tiền thành chữ có đơn vị, không dấu.
+  const HINT_WHY = { MANUAL: ' vì dòng có phụ phí chia theo loại', CONFLICT: ' vì web đã có giá khác Sheet', MONTH_LOCKED: ' vì tháng đang khóa' };
+  const dayText = iso => (iso ? `${String(iso).slice(8, 10)}/${String(iso).slice(5, 7)}` : '');
+  function hintText(hint, say) {
+    const where = hint.container ? ` (${hint.container})` : '';
+    if (hint.kind === 'receipt_twice') return `Phiếu ${hint.pids.join(' và ')} cùng ngày ${dayText(hint.date)}, cùng ${say(hint.amount_vnd)}: có thể ghi trùng. Hủy phiếu thừa thì nợ web tăng ${say(hint.delta_vnd)}.`;
+    if (hint.kind === 'price_review') return `Dòng ${hint.row}${where}: Sheet ${say(hint.sheet_vnd)}, web ${say(hint.web_vnd)}. Máy không tự sửa${HINT_WHY[hint.status] ?? ''}, sửa trên Sổ.`;
+    if (hint.kind === 'sheet_row_missing') return `Dòng ${hint.row}${where} trên Sheet có ${say(hint.sheet_vnd)} mà web không có dòng nào. Xem có tính cho khách không.`;
+    if (hint.kind === 'chain_break') return `Khối tháng ${Number(String(hint.month).slice(5, 7))} trên Sheet: số cuối tháng ${big(hint.delta_vnd) < 0n ? 'thiếu' : 'thừa'} ${say(hint.delta_vnd)} so với tháng trước chuyển sang + phát sinh − thu. Thường do ô số dư chuyển sang đầu khối trống hoặc trỏ sai dòng.`;
+    return null;
+  }
+  const hintTexts = (row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
+
+  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, hintText, hintTexts };
 }));

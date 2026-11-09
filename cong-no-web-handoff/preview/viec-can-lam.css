@@ -114,6 +114,7 @@ svg{flex:none;vertical-align:middle}
 .dc-link{height:36px;padding:0 8px;border:0;background:transparent;color:#1c5cab;font:inherit;font-weight:700;cursor:pointer}.dc-link.quiet{color:#52514e;font-weight:600;text-decoration:underline}.dc-link:disabled{opacity:.55;cursor:default}
 .dc-left{min-height:44px;padding-block:4px;background:#fdf6e7;color:#6e4300}.dc-left strong:first-child{font-size:15px}.dc-left .dc-hint{flex:1 1 240px;min-width:0}.dc-left .dc-num{font-size:17px}
 .dc-left.ok{background:#dff3ee;color:#0f5f58}.dc-left.unknown{background:#f3f5f8;color:#3a3936}
+.dc-hints{margin-top:8px;padding:10px 14px;border:1px solid #e5c98d;border-radius:10px;background:#fffaf0;color:#3a3936}.dc-hints p{margin:0}.dc-hints ul{margin:6px 0 0;padding-left:20px}.dc-hints li{margin-top:4px;line-height:1.45}
 .dc-rows{overflow:auto;max-height:260px;border-bottom:1px solid #e9edf1;background:#fafbfc}
 .dc-rows table{width:100%;min-width:820px;border-collapse:collapse;font-variant-numeric:tabular-nums}.dc-rows th,.dc-rows td{padding:4px 8px;text-align:left;font-weight:400;white-space:nowrap}
 .dc-rows thead th{position:sticky;top:0;background:#fafbfc;color:#52514e;font-size:13px;font-weight:600}.dc-rows tbody tr{border-top:1px solid #eef0f3}.dc-rows tbody th{font-weight:600}.dc-rows .num{text-align:right}.dc-rows input{width:18px;height:18px;margin:0;accent-color:#1c5cab}

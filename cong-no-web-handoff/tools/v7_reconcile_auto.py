@@ -36,11 +36,12 @@ import v7_sheet_export_xlsx as exporter
 import v7_sheet_log as edit_log
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
+import v7_reconcile_hints as hints  # dùng v7_price_queue của lớp web
 import v7_sheet_fix as fix  # tools may use the web layer; never the reverse
 from v7_api_sheet import customer_name_mapping, named_customer
 from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR
-from v7_price_queue import container_key, iso, targets
+from v7_price_queue import book_rows, container_key, iso, targets
 from v7_psql import PsqlDirect
 
 ACTOR = "doi-soat-tu-dong"   # chỉ đọc; lệnh ghi dùng AUTO_ACTOR ("Máy (theo Sheet)")
@@ -153,7 +154,8 @@ def read_sheet(xlsx: Path, source_dir: Path, out: Path, known: set[str]) -> tupl
     held = [book for book in books if book["in_summary"] and book["reasons"]]
     clean.export([book for book in books if book not in held], digests, out, xlsx, ())
     sheet, _ = rec.read_sheet(out)
-    return (sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"])} for book in held], outside_tabs(books, tong),
+    return (sheet, [{"name": rec.name(book["name"]), "reasons": dict(book["reasons"]), "chain_break": hints.chain_break(book["checks"])}
+                    for book in held], outside_tabs(books, tong),
             [book for book in books if book["in_summary"] and not book["reasons"]], digests["source-google-export.xlsx"])
 
 
@@ -252,6 +254,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     trace.customer(customer_id, decided=True, before_vnd=total, target_vnd=target)
     if verdict != "FIX":
         row["reason"] = "SHEET_SHUFFLED" if shuffled else verdict
+        attach_hints(row, ledger, prices, receipts, customers, target - total)
         return
     if not write:
         row["reason"] = "WOULD_FIX"
@@ -273,6 +276,18 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
         row["reason"] = "VERIFY_FAILED"
     else:
         row.update(reason="FIXED", status="KHOP" if target == sheet else "LECH_TONG")
+
+
+def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict, customers: list[dict], needed: int) -> None:
+    """Máy đoán chỗ gây lệch để người sửa (CHAN-DOAN-LECH-01). Chỉ để giải thích: lỗi ở đây không đổi kết luận hay làm hỏng lượt."""
+    try:
+        book = ledger.get("customer_id")
+        found, explained = hints.for_book(ledger, book_rows(prices, book, customers), needed, book_rows(receipts, book, customers))
+    except Exception as exc:  # noqa: BLE001
+        print(f"V7 đối soát máy: không đoán được lý do lệch ({type(exc).__name__})", file=sys.stderr, flush=True)
+        return
+    if found:
+        row.update(hints=[hints.money_fields(hint) for hint in found], hints_explain=explained)
 
 
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:
@@ -346,13 +361,16 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
             create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
                              seen, digest, ids, write=args.fix)
     trace.stage("luu")
-    held_names = {item["name"]: item["reasons"] for item in held}
+    held_names = {item["name"]: item for item in held}
     for row in results:
         row["customer_id"] = ids.get(row["customer"])
         if row["status"] == "LECH_TONG" and too_many:
             row["reason"] = "TOO_MANY_DIFFERENT"
         elif row["customer"] in held_names:
-            row.update(reason="HELD", held_reasons=held_names[row["customer"]])
+            item = held_names[row["customer"]]
+            row.update(reason="HELD", held_reasons=item["reasons"])
+            if item["chain_break"]:
+                row["hints"] = [hints.money_fields(item["chain_break"])]
         elif row["status"] != "LECH_TONG":
             row.setdefault("reason", row["status"])
     edit_state = note_sheet_edits(args, results, downloaded_at)

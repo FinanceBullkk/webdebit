@@ -20,6 +20,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - `reconcile.json` (mode 600, có tên khách và số tiền) và `reconcile-log.jsonl` (mỗi lượt một dòng, chỉ số đếm và tổng tiền) trong `/var/lib/webdebit-sheet-sync/`.
 - `GET /api/v7/inbox` thêm `reconcile` và `sheet_matched` của từng sổ; tab Việc cần làm hiện kết quả.
 - `v7_reconcile_sheet.py --can-du-months`: so từng tháng theo cách web tính ([`CAN-DU-01`](../docs/decisions/can-du-01.md)).
+- `tools/v7_reconcile_hints.py`: máy đoán chỗ gây lệch khi không tự sửa được ([`CHAN-DOAN-LECH-01`](../docs/decisions/chan-doan-lech-01.md)), mục dưới.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2, bắt buộc với frontend)
 
@@ -58,7 +59,25 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - `outside_tabs`: tab khách còn nợ, có phát sinh (tiền chuyến hoặc tiền thu) từ tháng 10/2026, tức từ tháng nạp V7, mà máy chưa tạo được sổ ([`MAY-TAO-SO-01`](../docs/decisions/may-tao-so-01.md)). `reason` là `NOT_ON_TONG`, `TONG_DIFFERS` hoặc `TAB_UNREADABLE`. Tab cũ hơn là bản sao, tab nháp đã xem lúc nạp. Bản `reconcile.json` trước khi có trường này thì coi như rỗng.
 - `last_error`: lần chạy mới nhất hỏng, phần còn lại là kết quả lần đạt trước.
 - `edit_log`, và `sheet_last_edit_at`, `sheet_editing` ở từng khách: tab vừa được sửa thì không tính "cần xem", xem [`SHEET-LOG-01`](../docs/decisions/sheet-log-01.md) và [spec](sheet-log-doi-soat.md).
+- `hints`, `hints_explain` ở từng khách: xem mục "Máy đoán chỗ lệch" dưới. Bản cũ không có thì màn hiện như trước.
 - `sheet_matched`: sổ có trong `matched` của lượt gần nhất, tổng hiện tại bằng tổng lúc đó, và không còn dòng giá khác giá Sheet (`prices_conflict`).
+
+## Máy đoán chỗ lệch (CHAN-DOAN-LECH-01)
+
+Khách `LECH_TONG` mà kết luận không phải `FIX` hay `WEB_AHEAD`, và khách `HELD`, có thêm `hints` (tối đa 8, gần số cần đổi nhất lên trước). `hints_explain` là `true` khi có tổ hợp `delta_vnd` cộng đúng bằng `tổng Sheet + web đi trước − tổng web` (dò khi không quá 12 gợi ý). `delta_vnd` là số nợ web đổi nếu sửa chỗ đó theo Sheet; tiền là chuỗi số nguyên.
+
+| `kind` | Lấy từ | Trường |
+| --- | --- | --- |
+| `receipt_twice` | `receipts` của sổ: chưa hủy, không phải cấn trừ, cùng ngày, cùng số; tab Sheet có ít khoản thu số đó hơn web (khách trả hai lần cùng số thì Sheet cũng có hai dòng) | `date`, `amount_vnd`, `pids`, `delta_vnd` = số × (số phiếu − 1) |
+| `price_review` | Dòng Sheet của sổ qua `v7_price_queue.classify`, trạng thái `MANUAL`, `CONFLICT`, `MONTH_LOCKED`, Sheet tính khác web | `status`, `row`, `container`, `date`, `sheet_vnd`, `web_vnd` |
+| `sheet_row_missing` | Như trên, trạng thái `NOT_FOUND`, có tiền | `row`, `container`, `date`, `sheet_vnd` |
+| `chain_break` | `checks` của sổ bị giữ: tháng đầu tiên `source_cumulative_vnd` ≠ `replay_cumulative_vnd` | `month`, `sheet_end_vnd`, `expected_end_vnd` |
+
+Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì bỏ qua, in mã lỗi ra stderr, lượt chạy tiếp. Màn: cột "Vì sao" hiện tối đa hai câu và số chỗ còn lại; bảng đối chiếu khi mở có khung "Chỗ máy tìm ra" với đủ các câu.
+
+Đo trên bản tải và sổ thật 9/11/2026 (chỉ đọc): khách thứ nhất ra `receipt_twice` + `sheet_row_missing`, cộng đúng bằng số lệch; khách thứ hai ra `price_review` đúng bằng số lệch; khách bị giữ ra `chain_break` đúng tháng và đúng số đồng Sheet bỏ mất.
+
+Độ nhiễu, đo cùng ngày trên cả 239 sổ thật (đều đang khớp): nếu sổ nào cũng bị coi là lệch, chỉ 3 sổ có gợi ý, cả 6 gợi ý là `sheet_row_missing` (dòng tháng 3 không ở sổ này, phí hủy cont đã tính kiểu khác). Không có `receipt_twice` thừa: điều kiện so với Sheet loại 4 cặp phiếu thật của 2 sổ. Gợi ý chỉ hiện ở sổ đang lệch, và `hints_explain` cho người đọc biết lời đoán có đủ hay không.
 
 ## Nguồn quyết định
 
@@ -83,6 +102,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
+- [x] `tests/test_v7_reconcile_hints.py`, `tests/test_v7_reconcile_auto.py`: bốn kiểu đoán, lệch 1 đồng thì không "giải thích được", khách bị giữ, đoán lỗi không đổi kết luận; `preview/test-viec-can-lam-doi-chieu*.js`: câu từng kiểu, cột Vì sao, khung khi mở, không tràn ở 1280.
 - [x] `preview/test-viec-can-lam-table-browser.js`: dải kết quả, thứ tự danh sách, ẩn và hiện sổ đã khớp, sổ ẩn không bị chọn ngầm, các trạng thái xanh, vàng, đỏ, lỗi, cũ, chưa có lượt nào; không tràn ngang ở 1280.
 - [x] Thử trên bản sao DB của `hao`: tổng khách sửa khớp đúng, khách khác không đổi, mọi tháng máy mở đã khóa lại, chạy lại không ghi thêm, checker đạt ([nhật ký](../docs/deploys/2026-11-04-may-doi-soat.md)).
 - [x] Bật trên `hao`, đối soát chính thức sau lượt đầu cho kết quả như dự kiến (cùng nhật ký).

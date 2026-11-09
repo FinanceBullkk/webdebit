@@ -43,11 +43,27 @@ globalThis.DoiChieuView = (() => {
     return `${sign}${million(size.toString())}`;
   }
 
-  function whyText(row, now) {
+  // Tiền trong câu chữ: số nhỏ ghi đủ đồng, số lớn ghi triệu; không dấu vì câu đã nói chiều.
+  function say(value, F) {
+    const n = BigInt(value), size = n < 0n ? -n : n;
+    return n !== 0n && size < 50000n ? F.full(size.toString()) : `${million(size.toString())} tr`;   // F.full đã có " đ"
+  }
+
+  // Câu ở cột "Vì sao": có gợi ý thì nói chỗ máy tìm ra, tối đa hai câu; đủ cả thì ở bảng đối chiếu khi mở.
+  function hintLead(row, F) {
+    const texts = M.hintTexts(row, value => say(value, F));
+    if (!texts.length) return null;
+    const head = row.reason === 'HELD' ? 'Sheet có chỗ máy chưa đọc được, chưa so được. ' : row.hints_explain ? 'Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: ' : 'Máy chưa chắc, có thể do: ';
+    const more = texts.length > 2 ? ` Còn ${texts.length - 2} chỗ nữa, mở để xem.` : '';
+    return `${head}${texts.slice(0, 2).join(' ')}${more}`;
+  }
+
+  function whyText(row, now, F) {
     const shuffled = row.shuffled_months?.length ? ` Tháng có đơn giá đổi chỗ: ${monthsShort(row.shuffled_months)}.` : '';
     const editing = row.sheet_editing ? `Sheet vừa sửa lúc ${when(row.sheet_last_edit_at, now)}, máy xem lại ở lượt sau. ` : '';
     const lastEdit = !row.sheet_editing && row.sheet_last_edit_at && !/^WOULD_/.test(row.reason) ? ` Sheet sửa lần cuối lúc ${when(row.sheet_last_edit_at, now)}.` : '';
-    return `${editing}${REASON_TEXT[row.reason] ?? row.reason}${shuffled}${lastEdit}`;
+    const lead = hintLead(row, F);
+    return `${editing}${lead ?? REASON_TEXT[row.reason] ?? row.reason}${shuffled}${lastEdit}`;
   }
 
   function fixedText(row) {
@@ -107,7 +123,7 @@ globalThis.DoiChieuView = (() => {
   }
 
   // Bảng đối chiếu của một khách: số web ± từng khoản = số Sheet, phần chưa giải thích hiện riêng.
-  function statementHtml(id, statement, state, { F, esc, href, now, action, busy }) {
+  function statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints = [] }) {
     const link = `<a class="dc-open-book" href="${href(id)}">Mở cả sổ ${icon('right')}</a>`;
     if (statement === undefined) return '<p class="loading dc-loading">Đang tính các khoản…</p>';
     if (statement === null) return `<p class="dc-failed" role="alert">Không đọc được các khoản từ Sheet. <button type="button" class="btn" data-dc-retry="${id}">Thử lại</button> ${link}</p>`;
@@ -132,12 +148,13 @@ globalThis.DoiChieuView = (() => {
       ? `<div class="dc-row dc-left unknown"><strong>Chưa so được</strong><span class="dc-hint">Lượt đối soát chưa có tổng Sheet của khách này.</span><strong class="dc-num">—</strong></div>`
       : remaining === 0n
         ? `<div class="dc-row dc-left ok"><strong>Khớp</strong><span class="dc-hint">Khớp tới từng đồng${sum.items.length ? ' sau khi ghi' : ''}.</span><strong class="dc-num">0</strong></div>`
-        : `<div class="dc-row dc-left"><strong>Còn lệch</strong><span class="dc-hint">${sum.items.length ? 'Sau khi ghi vẫn lệch. Xem lại tab khách trên Sheet.' : statement.groups.length ? 'Chọn khoản để xem còn lệch bao nhiêu.' : 'Không có khoản nào giải thích được. Xem tab khách trên Sheet.'}</span><strong class="dc-num" title="${esc(F.full(sum.remaining))}">${money(sum.remaining, F, true)}</strong></div>`;
+        : `<div class="dc-row dc-left"><strong>Còn lệch</strong><span class="dc-hint">${sum.items.length ? 'Sau khi ghi vẫn lệch. Xem lại tab khách trên Sheet.' : statement.groups.length ? 'Chọn khoản để xem còn lệch bao nhiêu.' : hints.length ? 'Máy chưa ghi được khoản nào. Các chỗ máy tìm ra ở dưới.' : 'Không có khoản nào giải thích được. Xem tab khách trên Sheet.'}</span><strong class="dc-num" title="${esc(F.full(sum.remaining))}">${money(sum.remaining, F, true)}</strong></div>`;
     const confirm = pending ? `<div class="dc-confirm" role="group" aria-labelledby="h-action"><p id="h-action" class="action-description">${esc(action.text)}</p>${action.error ? `<p role="alert" class="row-error">${esc(action.error)}</p>` : ''}${action.path ? `<button type="button" class="btn primary" data-action-write${busy ? ' disabled' : ''}>${busy ? 'Đang ghi…' : action.unknown ? 'Thử lại' : 'Xác nhận'}</button>` : ''}${action.unknown ? '' : `<button type="button" class="btn" data-action-cancel${busy ? ' disabled' : ''}>Thôi</button>`}</div>` : '';
     const undo = state.undo.get(id);
     const done = undo ? `<p class="dc-done" role="status">${esc(undo.text)}${undo.keys ? ` <button type="button" class="btn" data-dc-undo="${id}"${locked ? ' disabled' : ''}>Hoàn tác</button>` : undo.note ? ` ${esc(undo.note)}` : ''}</p>` : '';
     const buttons = pending ? '' : `<div class="dc-actions">${statement.groups.length ? `<button type="button" class="btn primary" data-dc-ghi="${id}"${sum.items.length && !locked ? '' : ' disabled'}>${sum.items.length ? `Ghi ${sum.items.length} khoản đã chọn` : 'Chọn khoản để ghi'}</button>` : ''}${statement.sheet_editing ? `<span class="dc-note">Không chọn gì thì máy xem lại lúc ${esc(M.nextCheck(now))}.</span>` : ''}${kept.size ? `<span class="dc-note">Đã giữ số web ${kept.size} dòng.</span>` : ''}${link}</div>`;
-    return `<div class="dc-sheet">${done}<div class="dc-table"><div class="dc-row"><span class="dc-label">Số nợ trên web</span><span class="dc-num" title="${esc(F.full(sum.web))}">${money(sum.web, F)}</span></div>${groups}${sum.items.length ? `<div class="dc-row dc-sub"><span class="dc-label">Số nợ web sau khi ghi</span><span class="dc-num" title="${esc(F.full(sum.after))}">${money(sum.after, F)}</span></div>` : ''}${ahead}<div class="dc-row dc-sheet-total"><span class="dc-label">Số nợ trên Sheet${statement.checked_at ? ` <span class="dc-note">· lúc ${esc(when(statement.checked_at, now))}</span>` : ''}</span><span class="dc-num"${sum.sheet ? ` title="${esc(F.full(sum.sheet))}"` : ''}>${money(sum.sheet, F)}</span></div>${left}</div>${confirm}${buttons}</div>`;
+    const found = hints.length ? `<div class="dc-hints"><p><strong>Chỗ máy tìm ra</strong> <span class="dc-note">· máy không tự sửa, người sửa trên Sổ hoặc Sheet</span></p><ul>${hints.map(text => `<li>${esc(text)}</li>`).join('')}</ul></div>` : '';
+    return `<div class="dc-sheet">${done}<div class="dc-table"><div class="dc-row"><span class="dc-label">Số nợ trên web</span><span class="dc-num" title="${esc(F.full(sum.web))}">${money(sum.web, F)}</span></div>${groups}${sum.items.length ? `<div class="dc-row dc-sub"><span class="dc-label">Số nợ web sau khi ghi</span><span class="dc-num" title="${esc(F.full(sum.after))}">${money(sum.after, F)}</span></div>` : ''}${ahead}<div class="dc-row dc-sheet-total"><span class="dc-label">Số nợ trên Sheet${statement.checked_at ? ` <span class="dc-note">· lúc ${esc(when(statement.checked_at, now))}</span>` : ''}</span><span class="dc-num"${sum.sheet ? ` title="${esc(F.full(sum.sheet))}"` : ''}>${money(sum.sheet, F)}</span></div>${left}</div>${found}${confirm}${buttons}</div>`;
   }
 
   function lechHtml(reconcile, state, { F, esc, href, now, action, busy, nothing }) {
@@ -151,7 +168,7 @@ globalThis.DoiChieuView = (() => {
       const statement = open ? state.data.get(id) : undefined;
       const live = open && statement?.sheet_total_vnd != null ? M.summarize(statement).now : item.difference_vnd;
       const web = open && statement ? statement.web_vnd : item.web_total_vnd;
-      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${esc(whyText(item, now))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy })}</td></tr>` : ''}`;
+      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints: M.hintTexts(item, value => say(value, F)) })}</td></tr>` : ''}`;
     };
     const outsideRows = outside.map(tab => `<tr class="dc-customer"><th scope="row">${esc(tab.customer)}</th><td class="num">—</td><td class="num">${money(tab.sheet_total_vnd, F)}</td><td class="num dc-gap">—</td><td class="dc-why">${esc(OUTSIDE_TEXT[tab.reason] ?? 'Tab còn nợ, máy chưa tạo được sổ.')}</td><td></td></tr>`).join('');
     const empty = !rows.length && !outside.length ? `<div class="dc-empty ok"><p><strong>Không có khách nào lệch. Chưa cần làm gì.</strong></p><p>Máy kiểm lại lúc ${esc(M.nextCheck(now))}. Có khách lệch thì máy gửi email.</p></div>` : '';
