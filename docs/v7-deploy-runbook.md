@@ -1777,6 +1777,18 @@ Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-lo
 4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
 5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
 
+## Thu tháng theo từng sổ (DASH-08) — nâng DB đang có (CHƯA CHẠY)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql` chỉ thay thân hàm đọc `get_dashboard_debt` (`DASH-08`): `this_month` có thêm `customers` (thu và phát sinh tháng này từng sổ có số khác 0, kèm mặt hàng và cảng/bộ) để thẻ Thu tháng của Tổng quan lọc được. Mọi trường khác giữ nguyên từng byte; tổng `this_month` không đổi vì là tổng của các sổ. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu, quyền hay ngưỡng. Chạy lại được. **Chạy sau `2026-11-06-v7-ngay-tra-that.sql`. Chạy lại file đó hoặc `2026-10-29-v7-tong-quan-quan-ly-no.sql` thì phải chạy lại file này**, vì chúng trả hàm về thân cũ.
+
+Thứ tự với release: độc lập. Release cũ bỏ qua trường mới; release mới trên DB cũ thì thẻ Thu tháng giữ nhãn "cả công ty" khi lọc.
+
+1. **Bản sao trước:** dump `webdebit_v7`, restore vào DB thử. Lưu `get_dashboard_debt` trước, chạy migration hai lượt, so sau: bỏ `this_month.customers` thì JSON trùng; cộng `this_month.customers` bằng `charges_vnd` / `received_vnd`; từng sổ bằng dòng tháng này của `get_ledger`. Checker đạt.
+2. **Cửa sổ dừng ghi:** dừng timer `v7-reconcile-auto` và đợi lượt đang chạy xong, dừng API, dump kèm hash, áp migration với `ON_ERROR_STOP`, đối soát tổng từng khách và số event trước và sau, checker, bật lại API và timer.
+3. **Đổi release:** `Deploy hao` dừng ở cổng SQL là chủ ý; đưa release tay và đặt `.release-sha` như các đợt trước.
+
+Rollback: chạy lại `2026-11-06-v7-ngay-tra-that.sql`: hàm về thân trước, dữ liệu và quyền giữ nguyên.
+
 ## Ngày trả gần nhất là ngày tiền về (DASH-03) — nâng DB đang có (ĐÃ CHẠY trên hao 6/11/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql` chỉ thay thân hàm đọc `get_dashboard_debt` ([`DASH-03`](decisions/dash-03.md) mục 3). Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu, quyền hay ngưỡng 60/90 ngày; tiền trên Tổng quan phải giữ nguyên, chỉ ngày trả và nhãn rủi ro đổi. Chạy lại được. **Chạy sau `2026-11-04-v7-bang-thu.sql`. Chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql` thì phải chạy lại file này**, vì nó trả hàm về thân cũ.
