@@ -26,3 +26,5 @@ Mọi quy tắc tính của [`DASH-03`](dash-03.md) giữ nguyên (hạn trả c
 ĐÃ CHỐT. Thay phần trình bày của `DASH-04` (bốn khối, ma trận 2×2, bảng tỷ, chú giải chấm màu) và tương tác ngăn kéo của `DASH-01`/`DASH-03`; quy tắc tính của `DASH-03` vẫn hiệu lực. Lọc tại chỗ (nhóm hạn trả, mức rủi ro, mặt hàng) và soi sâu ở Công nợ theo tháng giữ. Trạng thái triển khai ghi theo lượt `Deploy hao`. CÒN MỞ: người dùng tự đi hết luồng trên `hao`.
 
 **Cập nhật 6/11/2026:** điểm 1 (chip mức rủi ro) bị [`DASH-06`](dash-06.md) thay bằng ô tình trạng; thẻ Thu tháng ĐỀ XUẤT thay bằng hình 12 tháng. Chưa code.
+
+**Cập nhật 9/11/2026:** [`DASH-07`](dash-07.md) thêm khối Công nợ theo mặt hàng giữa dải đầu và bảng khách, bỏ phễu chọn mặt hàng; bảng khách không còn nằm trọn trong 1280×560.

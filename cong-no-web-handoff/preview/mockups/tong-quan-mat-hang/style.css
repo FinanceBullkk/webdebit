@@ -1,0 +1,5 @@
+/* Bản xem Tổng quan + khối Công nợ theo mặt hàng (DASH-07): giao diện là CSS thật (dashboard-v7.css); ở đây chỉ nhãn
+   "bản xem" và vạch mép màn 560px (Chrome trên màn 1280×720 thấy khoảng 1280×560). */
+.mock-note{margin:0 auto 0 12px;padding:2px 10px;border-radius:999px;background:#fff4dc;color:#7a4a00;font-size:13px;font-weight:600;white-space:nowrap}
+.tq-page{position:relative}
+.tq-page::after{content:"mép màn 1280×560";position:absolute;left:0;right:0;top:560px;z-index:15;padding:0 12px;border-top:2px dashed #d64541;color:#d64541;font-size:12px;font-weight:600;text-align:right;pointer-events:none}

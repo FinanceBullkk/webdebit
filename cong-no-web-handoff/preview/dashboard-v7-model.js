@@ -130,10 +130,20 @@ const DashboardModel = (() => {
       && F.sum(rk.groups.map(group => group.overdue)) === F.toBig(summary.overdue_vnd);
   }
 
-  /** Nhóm mặt hàng để lọc bảng: nhiều tiền trước, "Khác" rồi "Chưa phân loại" cuối. */
+  /**
+   * Khối Công nợ theo mặt hàng (DASH-07): mỗi nhóm số khách, còn phải thu, quá hạn; nhiều tiền trước, "Khác" rồi
+   * "Chưa phân loại" cuối. `late` là phần quá hạn dương (khách dư ở nợ cũ không làm thanh dài quá còn phải thu);
+   * `members` là tên các mặt hàng đã gộp vào "Khác".
+   */
   function commodities(rows) {
     return [...new Set(rows.map(row => row.com))]
-      .map(key => summarize({ key, label: key, tone: key === OTHER || key === UNSORTED ? 'grey' : '' }, rows.filter(row => row.com === key)))
+      .map(key => {
+        const members = rows.filter(row => row.com === key);
+        const group = summarize({ key, label: key, tone: key === OTHER || key === UNSORTED ? 'grey' : '' }, members);
+        group.late = group.overdue > 0n ? group.overdue : 0n;
+        group.members = key === OTHER ? [...new Set(members.map(row => F.commodityText(row.commodity, row.transportMode)))].sort((a, b) => a.localeCompare(b, 'vi')) : [];
+        return group;
+      })
       .sort((a, b) => ((a.tone === 'grey') - (b.tone === 'grey')) || ((a.key === UNSORTED) - (b.key === UNSORTED))
         || compare(a.total, b.total) || a.key.localeCompare(b.key, 'vi'));
   }

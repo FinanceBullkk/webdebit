@@ -138,15 +138,26 @@ test('Tổng quan DASH-05: dải đầu, 5 ô hạn trả, thu tháng, chip mứ
   assert.equal(await page.locator('#list .rdot.r-high').count(), 2);
   assert.deepEqual(await tipLines(page.locator('#list tr').nth(1)), ['Khách D', 'Rủi ro cao — Nợ từ T5/2026 · chưa trả lần nào · ngừng đi hàng',
     'Còn nợ 600.000.000 đ', 'Bấm để mở Tình hình']);
-  assert.deepEqual(await page.locator('#com-filter option').allInnerTexts(), ['Mọi mặt hàng', 'Chuối', 'Sầu riêng cảng', 'Chưa phân loại']);
+  // Công nợ theo mặt hàng (DASH-07): nhiều tiền trước, Chưa phân loại cuối; quá hạn 0 là "–"; các dòng cộng = Còn phải thu.
+  const band = page.locator('.com-band');
+  assert.deepEqual(await band.locator('.com-line .cn').allInnerTexts(), ['Chuối', 'Sầu riêng cảng', 'Chưa phân loại']);
+  assert.deepEqual(await band.locator('.com-line .ct').allInnerTexts(), ['1,25 tỷ', '380 tr', '850 tr']);
+  assert.deepEqual(await band.locator('.com-line .co').allInnerTexts(), ['950 tr', '–', '850 tr']);
+  assert.deepEqual(await band.locator('.com-line .cc').allTextContents(), ['1 khách', '1 khách', '2 khách']);
+  assert.equal(await band.locator('.com-col').count(), 2);
+  assert.equal(await band.locator('.com-line[data-com="Sầu riêng cảng"] .cbar i.late').count(), 0);
+  assert.deepEqual(await tipLines(band.locator('.com-line').first()), ['Chuối', 'Còn phải thu 1,25 tỷ · 50,4% tổng', 'Quá hạn 950 tr', '1 khách', 'Bấm để lọc bảng khách']);
+  assert.match((await tipLines(band.locator('.com-line').last())).join('\n'), /chưa gán mặt hàng/);
+  assert.equal(await page.locator('#com-filter').count(), 0);
   assert.equal(await page.locator('#list-more').innerText(), '');
   assert.equal(await page.locator('#todo-badge').innerText(), '3');
-  // 1280×720 (thấy ~1280×560): dải đầu và dòng khách đầu nằm trong màn; không cuộn ngang; nút bấm cao ≥ 40px.
+  // 1280×720 (thấy ~1280×560): dải đầu và khối mặt hàng nằm trong màn (DASH-07 chấp nhận bảng khách xuống dưới mép);
+  // không cuộn ngang; nút bấm cao ≥ 40px.
   const layout = await page.evaluate(() => ({ stripBottom: document.querySelector('.strip').getBoundingClientRect().bottom,
-    firstRow: document.querySelector('#list tr').getBoundingClientRect().bottom,
-    small: [...document.querySelectorAll('#refresh-data, .tile, .rchip, .com-pick, .list-head .icon-btn, .who a')]
+    bandBottom: document.querySelector('.com-band').getBoundingClientRect().bottom,
+    small: [...document.querySelectorAll('#refresh-data, .tile, .rchip, .com-line, .list-head .icon-btn, .who a')]
       .filter(el => el.getBoundingClientRect().height < 40).map(el => el.className || el.id) }));
-  assert.equal(layout.stripBottom <= 560 && layout.firstRow <= 560 && layout.small.length === 0, true, JSON.stringify(layout));
+  assert.equal(layout.stripBottom <= 560 && layout.bandBottom <= 560 && layout.small.length === 0, true, JSON.stringify(layout));
   assert.equal(await noSideScroll(page), true);
   await page.locator('#customer-search').fill('Khách C');
   assert.equal(await page.locator('#customer-results a').getAttribute('href'), '/so-khach-v7-live.html?customer=2');
@@ -223,7 +234,7 @@ test('chưa có phần quá hạn (API debt lỗi) hay tìm khách lỗi: số t
     assert.match(await page.locator('.month-card').innerText(), /Thu tháng 10[\s\S]*Chưa tải được số thu tháng này/);
     assert.equal(await page.locator('#list-empty').innerText(), 'Chưa tải được danh sách khách. Bấm Làm mới để thử lại.');
     assert.equal(await page.locator('#chips').isHidden(), true);
-    assert.equal(await page.locator('#com-pick').isHidden(), true);
+    assert.equal(await page.locator('.com-band').count(), 0);
     assert.equal(await page.locator('#error').isHidden(), true);
   });
   await withDashboard({ customerStatus: 503 }, async page => {
@@ -282,9 +293,13 @@ test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết 
   assert.equal(await page.locator('th[data-col="total"]').getAttribute('aria-sort'), 'descending');
   assert.match(await page.evaluate(() => location.search), /xep=tong/);
   // Lọc mặt hàng cộng thêm vào mức rủi ro; xếp theo cột ngày: chưa trả / chưa có chuyến coi là lâu nhất.
-  await page.locator('#com-filter').selectOption('Chưa phân loại');
+  await page.locator('.com-line[data-com="Chưa phân loại"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
   assert.match(await page.evaluate(() => location.search), /mh=Ch/);
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('.com-line.dim').count(), 2);
+  assert.equal(await page.locator('#chips .com-x').innerText(), 'Chưa phân loại');
+  assert.equal(await page.locator('.owe-row').innerText(), owe);
   await page.locator('[data-sort="pay"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách D', 'Khách E']);
   await page.locator('[data-sort="trip"]').click();
@@ -292,8 +307,14 @@ test('lọc tại chỗ: nhóm hạn trả + mức rủi ro + mặt hàng kết 
   assert.match(await page.evaluate(() => location.search), /xep=di-hang/);
   await page.locator('#chips [data-risk="ok"]').click();
   assert.equal(await page.locator('#list tr').count(), 0);
-  await page.locator('#com-filter').selectOption('');
+  await page.locator('#chips .com-x').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A']);
+  assert.equal(await page.locator('.com-line.dim').count(), 0);
+  // Bấm lại dòng đang chọn cũng bỏ lọc.
+  await page.locator('.com-line[data-com="Sầu riêng cảng"]').click();
+  assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A']);
+  await page.locator('.com-line[data-com="Sầu riêng cảng"]').click();
+  assert.equal(await page.locator('#chips .com-x').count(), 0);
   await page.locator('#chips .rchip.all').click();
   assert.equal(await page.locator('#list tr').count(), 4);
   assert.equal(await page.evaluate(() => location.search), '?xep=di-hang');
@@ -318,7 +339,7 @@ test('số từng khách lệch tổng server: không lọc tại chỗ, bấm n
 }, async page => {
   await page.locator('#list tr').first().waitFor();
   assert.equal(await page.locator('#chips [data-risk="high"]').isDisabled(), true);
-  assert.equal(await page.locator('#com-filter').isDisabled(), true);
+  assert.equal(await page.locator('.com-band').count(), 0);
   assert.equal(await page.locator('#list-note').innerText(), 'Số từng khách chưa khớp tổng; xem chi tiết ở Công nợ theo tháng.');
   await page.locator('.tile[data-tier="2"]').click();
   await page.waitForURL(/cong-no-theo-thang\.html\?con-no=1&xep=con-no$/);
@@ -342,7 +363,9 @@ test('khách quá hạn âm (dư ở nợ cũ) được trừ đúng vào summar
   await page.locator('#list tr').first().waitFor();
   assert.equal(await page.locator('#list-note').isHidden(), true);
   assert.match(await page.locator('.brk .late').getAttribute('data-tip'), /Đã trừ 1 khách dư ở nợ cũ 30 tr/);
-  assert.equal(await page.locator('#com-filter').isDisabled(), false);
+  // Khối mặt hàng: Chưa phân loại = D 600 + E 250 + F (200 − 30) = 1,02 tỷ; quá hạn 600 + 250 − 30 = 820 tr.
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"] .ct').innerText(), '1,02 tỷ');
+  assert.equal(await page.locator('.com-line[data-com="Chưa phân loại"] .co').innerText(), '820 tr');
   await page.locator('#chips [data-risk="ok"]').click();
   assert.deepEqual(await page.locator('#list .nm').allInnerTexts(), ['Khách A', 'Khách F']);
   assert.deepEqual(await page.locator('#list .num.od').allInnerTexts(), ['–', '−30']);
@@ -350,7 +373,8 @@ test('khách quá hạn âm (dư ở nợ cũ) được trừ đúng vào summar
 
 test('link cũ ?nhom=com: mở lọc mặt hàng, ?xem= cũ bị xóa khỏi địa chỉ', async () => withDashboard({}, async page => {
   await page.locator('#list tr').first().waitFor();
-  assert.equal(await page.locator('#com-filter').inputValue(), 'Chuối');
+  assert.equal(await page.locator('.com-line[data-com="Chuối"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#chips .com-x').innerText(), 'Chuối');
   assert.equal(await page.locator('#list tr').count(), 1);
   await page.locator('[data-sort="total"]').click();
   assert.doesNotMatch(await page.evaluate(() => location.search), /xem=|nhom=/);
