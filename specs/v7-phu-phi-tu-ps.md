@@ -159,7 +159,7 @@ Khi spec này được duyệt thì sửa mục tương ứng ở spec cha cho k
 **ĐÃ CODE** theo mockup đã duyệt: `preview/so-khach-v7-ps-ui.js` + `so-khach-v7-ps.css` (phần mới, nối bằng một dòng `ctx.psAfterRender` trong `so-khach-v7-ui.js`), `planPsFees`/`feeLinesText` trong model.
 - Nút "Tách N phụ phí theo bảng PS" ở đầu sổ; chuyến tách được tô vàng ở cụm cột phụ phí.
 - Khung xác nhận dưới đầu sổ: mỗi chuyến một dòng trước → sau, ô trong sổ hiện kết quả dự kiến. Nhãn "Tổng tiền không đổi" chỉ hiện khi model thấy mọi chuyến giữ tổng; lệch thì khóa nút Tách. Danh sách dài tự cuộn.
-- "Phụ phí PS cần xem" chung dải với "Giá từ Sheet cần xem", chia ba nhóm theo việc phải làm, có câu hướng dẫn, nút "Mở khóa tháng N" và "Xem dòng" (chỉ khi chuyến có trên sổ).
+- (Thay 9/11/2026 bởi [`PS-HOI-01`](../docs/decisions/ps-hoi-01.md): thành câu hỏi có nút "… hết báo".) "Phụ phí PS cần xem" chung dải với "Giá từ Sheet cần xem", chia ba nhóm theo việc phải làm, có câu hướng dẫn, nút "Mở khóa tháng N" và "Xem dòng" (chỉ khi chuyến có trên sổ).
 - `STALE_SHEET`/`STALE_LEDGER`: khung đỏ "Chưa tách chuyến nào" + Tải lại sổ. Mất mạng giữa chừng: giữ khóa lệnh để bấm lại không tách trùng. Thiếu bản chụp: dải báo, nút ẩn.
 
 **ĐÃ KIỂM CHỨNG (máy dev, máy chủ giả):** `test-so-khach-v7-ps-browser.js` 4 ca (1280×720), unit model; `npm run check`. **CÒN MỞ:** chưa thử tay trên sổ thật ở `hao`; tháng 5–6 đang khóa nên phải mở khóa mới tách được.

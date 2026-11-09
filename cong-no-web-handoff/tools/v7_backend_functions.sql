@@ -3434,7 +3434,7 @@ BEGIN
  v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
  PERFORM sokhach._baseline(customer_id);
- IF task_kind IS NULL OR task_kind NOT IN ('price','removed')
+ IF task_kind IS NULL OR task_kind NOT IN ('price','removed','ps')
   OR target_kind IS NULL OR target_kind NOT IN ('trip','legacy') OR target_id IS NULL OR target_id<=0
   OR source_fingerprint !~ '^[0-9a-f]{64}$' OR source_fingerprint IS NULL
   OR (task_kind='removed' AND target_kind<>'trip') OR web_value IS NULL
@@ -3450,7 +3450,7 @@ BEGIN
      AND cc.status='active' AND c.status='active';
  END IF;
  IF v_row IS NULL OR coalesce((v_row->>'deleted')::boolean,false) THEN RAISE EXCEPTION 'TRIP_NOT_FOUND'; END IF;
- v_current:=CASE WHEN task_kind='price' THEN jsonb_build_object(
+ v_current:=CASE WHEN task_kind IN ('price','ps') THEN jsonb_build_object(
   'unit_price_vnd',v_row->>'unit_price_vnd','other_fee_vnd',v_row->>'other_fee_vnd')
  ELSE jsonb_build_object('container',v_row->>'container','event_date',v_row->>'event_date',
   'status',v_row->>'status','booking',v_row->>'booking') END;

@@ -30,6 +30,23 @@ def price_identity(row: dict) -> str:
         "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd", "sheet_total_vnd")})
 
 
+def ps_identity(row: dict) -> str:
+    """Nội dung một dòng PS (PS-HOI-01): ô phí, cờ, lỗi nguồn. Ô PS đổi thì dòng đã giữ hỏi lại."""
+    return fingerprint({key: row.get(key) for key in (
+        "container", "date", "fees", "combined_vnd", "health", "kd", "source_error", "problems", "ps_match_count")})
+
+
+def ps_web_value(ledger: dict, target_kind: str, target_id) -> dict | None:
+    """Đơn giá và phụ phí đang tính của chuyến đích, cùng dạng `keep_sheet_task` đọc trong DB; web đổi thì hỏi lại."""
+    if target_kind == "trip":
+        row = next((t for t in ledger.get("trips", []) if t.get("id") == target_id and not t.get("deleted")), None)
+    else:
+        row = next(((r.get("current") or {}) for r in ledger.get("legacy_rows", []) if r.get("id") == target_id), None)
+    if row is None:
+        return None
+    return {field: None if row.get(field) is None else str(row.get(field)) for field in ("unit_price_vnd", "other_fee_vnd")}
+
+
 def trip_identity(row: dict) -> str:
     return fingerprint({key: row.get(key) for key in ("container", "carrier", "shipper", "event_date", "origin",
                        "destination", "booking", "customer_name", "commodity", "durian_type", "source_date")})

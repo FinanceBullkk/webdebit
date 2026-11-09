@@ -559,11 +559,12 @@ def approve_receipts(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
     return 200, {"written": written, "remaining": 0, "complete": True, "version": version, "undo_keys": undo_keys}
 
 
-def ps_projection(runner: Psql, ledger: dict, actor: str) -> dict:
+def ps_projection(runner: Psql, ledger: dict, actor: str, *, include_kept=False) -> dict:
     snapshot = cached_load(load_ps_snapshot, PS_SNAPSHOT_PATH)
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
-    return project_ps(snapshot, ledger, customers, runner.run("get_fee_types", {}, actor).get("fee_types", []))
+    return project_ps(snapshot, ledger, customers, runner.run("get_fee_types", {}, actor).get("fee_types", []),
+                      include_kept=include_kept)
 
 
 def approve_ps_fees(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
@@ -692,7 +693,7 @@ def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) 
     key = request["idempotency_key"]
     if (not positive_int(request["customer_id"]) or not positive_int(request["target_id"])
             or type(request["expected_version"]) is not int or not 0 <= request["expected_version"] <= MAX_BIGINT
-            or request["task_kind"] not in ("price", "removed") or request["target_kind"] not in ("trip", "legacy")
+            or request["task_kind"] not in ("price", "removed", "ps") or request["target_kind"] not in ("trip", "legacy")
             or (request["task_kind"] == "removed" and request["target_kind"] != "trip")
             or (apply_price and request["task_kind"] != "price")
             or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
@@ -722,6 +723,13 @@ def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) 
             rows = price_projection(runner, ledger, actor, include_kept=True)["review"]
             rows = [r for r in rows if r["status"] == "CONFLICT" and r["target_kind"] == target["kind"] and r["target_id"] == target["id"]]
             current = {"unit_price_vnd": rows[0]["web_unit_price_vnd"], "other_fee_vnd": rows[0]["web_other_fee_vnd"]} if len(rows) == 1 else None
+        elif request["task_kind"] == "ps":
+            # PS-HOI-01: "Không thu, hết báo" — chỉ dòng PS cần xem còn hiện, có chuyến đích, là câu hỏi về tiền.
+            from v7_sheet_task_keep import ps_web_value
+            rows = [r for r in ps_projection(runner, ledger, actor, include_kept=True)["review"]
+                    if r.get("keepable") and r["target_kind"] == target["kind"] and r["target_id"] == target["id"]
+                    and r.get("source_fingerprint") == request["source_fingerprint"]][:1]   # một chuyến có thể có vài câu cùng dòng PS
+            current = ps_web_value(ledger, target["kind"], target["id"])
         else:
             rows = [r for r in sheet_projection(runner, ledger, actor)["removed_items"] if r["trip_id"] == target["id"]]
             trip = next((r for r in ledger.get("trips", []) if r["id"] == target["id"]), {})

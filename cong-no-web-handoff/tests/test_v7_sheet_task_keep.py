@@ -102,7 +102,7 @@ class SheetTaskKeepTests(unittest.TestCase):
 
     def test_sql_copies_match(self):
         from test_v7_fee_sql_sync import FUNCTIONS, ROOT, definition
-        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-giu-viec-sheet.sql").read_text(encoding="utf-8")
+        migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-09-v7-ps-khong-thu.sql").read_text(encoding="utf-8")
         self.assertEqual(definition(migration, "FUNCTION", "keep_sheet_task"),
                          definition(FUNCTIONS.read_text(encoding="utf-8"), "FUNCTION", "keep_sheet_task"))
         migration = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-02-v7-lay-gia-sheet.sql").read_text(encoding="utf-8")
