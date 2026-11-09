@@ -300,7 +300,7 @@ if (process.argv.includes('--preview')) {
     await withPage({ inbox: inbox({ reconcile: all }) }, async page => {
       assert.equal(await page.locator('.viec-status.warn,.viec-status.danger').count(), 0);
       assert.match(await statusLine(page), /239\/239 khách khớp Sheet[\s\S]*100% số nợ/);
-      assert.match(await page.locator('.dc-empty').innerText(), /Không có khách nào lệch\. Chưa cần làm gì\.[\s\S]*Máy kiểm lại lúc 11:05/);
+      assert.match(await page.locator('.dc-empty').innerText(), /Không có khách nào lệch\. Chưa cần làm gì\.[\s\S]*Máy kiểm lại lúc 11:05\. Email chỉ gửi khi máy lỗi hoặc dừng; khách lệch hiện ở đây\./);   // CANH-BAO-01 không email khách lệch
     });
     await withPage({ inbox: inbox({ reconcile: { ...all, last_error: { at: '2026-11-06T10:05:00+07:00', reason: 'HTTPError' } } }) }, async page => {
       assert.match(await page.locator('.status-error').innerText(), /Lần đối soát lúc 10:05 chưa chạy được \(HTTPError\)\. Số dưới đây là của lần trước\./);
