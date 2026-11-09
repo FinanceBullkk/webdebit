@@ -668,7 +668,7 @@ const SoKhachV7Model = (() => {
   // Danh mục loại phí in trên chứng từ, đúng thứ tự cột. Tám loại đầu theo đặc tả v3; bốn loại sau là loại phụ phí sổ web
   // đang có mà danh mục v3 chưa có, chỉ thành cột khi phát sinh (CÒN MỞ: sếp gán vào tám loại hay giữ).
   const DN_FEES = [
-    { code: "LUMP_SUM", en: "LUMP-SUM", cn: "单价" }, { code: "STORAGE", en: "STORAGE", cn: "早装产生费用" },
+    { code: "LUMP_SUM", en: "UNIT PRICE", cn: "单价" }, { code: "STORAGE", en: "STORAGE", cn: "早装产生费用" },
     { code: "TRUCKING", en: "TRUCKING", cn: "拼柜" }, { code: "GENSET", en: "GENERATOR / ELECTRICITY FEE", cn: "发电机/电费" },
     { code: "OVERSTAY", en: "OVERSTAY", cn: "押车" }, { code: "HC_FEE", en: "HC FEE", cn: "卫生证" },
     { code: "CANCELLATION", en: "CANCELLATION FEE", cn: "取消订柜费" }, { code: "AMENDMENT", en: "AMD FEE", cn: "改单费" },
@@ -865,7 +865,7 @@ const SoKhachV7Model = (() => {
     const twice = [...seen].filter(([, count]) => count > 1).map(([id]) => id);
     if (twice.length) block(`Container trùng trong chứng từ: ${twice.join(", ")}.`);
     const off = note.rows.filter(row => row.mismatch);
-    if (off.length) block(`Thành tiền LUMP-SUM + phí khác số trên sổ ở container: ${off.map(row => row.container).join(", ")}.`);
+    if (off.length) block(`Thành tiền đơn giá + phí khác số trên sổ ở container: ${off.map(row => row.container).join(", ")}.`);
     if (note.subtotalVnd !== null && note.totalVnd !== null && note.subtotalVnd !== note.totalVnd) block("Subtotal trang 1 khác TOTAL DUE.");
     const missing = [["Số debit note", doc.number], ["Dịch vụ", doc.service], ["Tên bên phát hành", doc.issuer?.name], ["MST bên phát hành", doc.issuer?.taxId],
       ["Tên pháp lý của khách", doc.buyer?.legal], ["Địa chỉ của khách", doc.buyer?.address], ["Người nhận tiền", doc.payment?.beneficiary],
@@ -885,7 +885,7 @@ const SoKhachV7Model = (() => {
     if (places.length) warn(`Nơi đóng hàng ngoài danh mục: ${places.join(", ")}.`);
     if (ports.length) warn(`Cảng đến ngoài danh mục: ${ports.join(", ")}.`);
     const zero = note.rows.filter(row => row.lumpSumVnd === 0n);
-    if (zero.length) warn(`${zero.length} container có LUMP-SUM bằng 0.`);
+    if (zero.length) warn(`${zero.length} container có đơn giá bằng 0.`);
     const thin = note.rows.filter(row => blank(row.carrier) || blank(row.shipper) || !validDay(row.date));
     if (thin.length) warn(`${thin.length} container thiếu hãng tàu, shipper hoặc ngày đóng hàng.`);
     if (note.pendingCount) info(`${note.pendingCount} chuyến đang CHỜ KIỂM không lên chứng từ.`);

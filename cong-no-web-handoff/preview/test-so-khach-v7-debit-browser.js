@@ -37,7 +37,7 @@ test('Debit note: thiếu giá thì chặn và chỉ ra bản nháp; xem trướ
   assert.deepEqual(rows[0].slice(7), ['', '', '', '']);
   assert.deepEqual(rows[1].slice(7), ['90,000,000', '', '3,000,000', '93,000,000']);
   assert.deepEqual(rows[2], ['3', 'DEMU1234567', 'Tàu thử', '', '15 Sep 2026', 'Nơi A', 'Nơi B', '50,000,000', '2,000,000', '', '52,000,000']);
-  assert.deepEqual(await view.locator('.dn-colhead th.num').evaluateAll(list => list.map(cell => cell.firstChild.textContent)), ['LUMP-SUM', 'OVERSTAY', 'OTHER FEES', 'AMOUNT']);
+  assert.deepEqual(await view.locator('.dn-colhead th.num').evaluateAll(list => list.map(cell => cell.firstChild.textContent)), ['UNIT PRICE', 'OVERSTAY', 'OTHER FEES', 'AMOUNT']);
   assert.match(await view.locator('.dn-total').innerText(), /TOTAL · 合计\s+3 containers · 3个柜/);
   assert.match(await view.locator('.dn-cust').innerText(), /Khách Thử Sửa/);
   assert.equal(await view.locator('.dn-amount').innerText(), '— VND');   // thiếu giá: không in số, không coi là 0
@@ -68,7 +68,7 @@ test('Debit note: đủ thông tin thì hết chặn; cảnh báo cần xác nh�
   await fill('payment.swift', 'BANKXXXX');
   const checks = await dialog.locator('.debit-checks').innerText();
   assert.doesNotMatch(checks, /Chặn:/);
-  assert.match(checks, /Cảnh báo: 1 container có LUMP-SUM bằng 0\./);
+  assert.match(checks, /Cảnh báo: 1 container có đơn giá bằng 0\./);
   assert.match(checks, /Lưu ý: 1 chuyến đang CHỜ KIỂM không lên chứng từ\./);
   assert.equal(await dialog.locator('.debit-print').innerText(), 'In bản nháp');
   await dialog.locator('.debit-ack input').check();

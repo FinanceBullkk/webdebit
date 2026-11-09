@@ -32,9 +32,9 @@ Dòng chứng từ lấy từ `GET /api/v7/ledger` trang sổ đã tải; tên k
 | LINE, SHIPPER | `carrier`, `shipper` | `current.*` / `display.carrier`, `display.shipper` |
 | LOADING DATE | `event_date` | `current.event_date` / `display.date` |
 | LOADING PLACE, POD | `origin`, `destination`, chuẩn theo danh mục nơi/cảng | `current.*` / `display.from`, `display.to` |
-| LUMP-SUM | `unit_price_vnd`; `is_missing_price` → thiếu | `current.unit_price_vnd` / số trong `display.unit_price` |
+| UNIT PRICE 单价 | `unit_price_vnd`; `is_missing_price` → thiếu | `current.unit_price_vnd` / số trong `display.unit_price` |
 | 7 loại phí còn lại và loại ngoài danh mục | `fee_lines` gom theo mã loại phí (bảng ánh xạ ở `DEBIT-NOTE-02`) | như chuyến web |
-| AMOUNT | LUMP-SUM + phí của dòng; khác `amount_vnd` của sổ thì chặn | khác `current.counted_vnd` / `source_total_vnd` thì chặn |
+| AMOUNT | UNIT PRICE + phí của dòng; khác `amount_vnd` của sổ thì chặn | khác `current.counted_vnd` / `source_total_vnd` thì chặn |
 | Dòng ADDITIONAL CHARGES | chuyến `is_fee_only`: mỗi khoản phí một dòng (loại, ngày, ghi chú, số tiền) | dòng không có số container, như chuyến web |
 
 Lấy chuyến web `status='confirmed'`, chưa xóa; dòng sổ gốc chưa xóa. Tháng = tháng công nợ (`month`). Thứ tự theo ngày đóng hàng, cùng ngày giữ thứ tự sổ (sổ gốc trước, web sau). Thông tin cấp chứng từ (số, ngày, bên phát hành, khách, thanh toán, tỷ giá) không có trên sổ: người lập điền ở form.
