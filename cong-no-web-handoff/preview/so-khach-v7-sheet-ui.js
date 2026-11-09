@@ -8,12 +8,11 @@
     let priceView = null;
     let priceApproval = null;
     const conflictSelection = new Set();
-    // Khung hỏi lại trước khi duyệt chuyến mới từ Sheet đang mở (SO-GON-04); giữ qua lần vẽ lại.
-    let approveAsk = false;
-    function approvePanel(data, active) {
-      const count = active ? data.sheet_sync?.new_count ?? 0 : 0;
-      if (!count) approveAsk = false;
-      return approveAsk ? `<div class="price-panel confirm sheet-approve-panel" role="region" aria-label="Xác nhận duyệt chuyến mới"><p><strong>Duyệt ${count} chuyến mới từ Sheet?</strong> Chuyến có giá tính tiền ngay; chuyến chưa có giá chưa tính; chuyến nghi trùng thành chờ kiểm.</p><div class="price-actions"><button type="button" class="sheet-approve-write primary">Duyệt ${count} chuyến</button><button type="button" class="sheet-approve-cancel">Thôi</button></div></div>` : '';
+    // DUYET-TAI-HANG-01 (9/11/2026): chuyến mới duyệt ngay ở hàng của nó; thanh việc chỉ báo số và nút "Đến chuyến".
+    const newRows = data => (data.sheet_sync?.items ?? []).filter(item => item.sync_state === 'NEW' && item.source_row != null);
+    function newStrip(data, active) {
+      const count = active ? newRows(data).length : 0;
+      return count ? `<div class="price-strip sheet-new-strip"><span><strong>${count}</strong> chuyến mới từ Sheet chờ duyệt</span><button type="button" class="sheet-new-next">Đến chuyến${count > 1 ? ' tiếp' : ''}</button></div>` : '';
     }
     // ---- Ghi giá từ Sheet: server chọn dòng chắc chắn (READY), trang chỉ hiện và gửi một lệnh cho cả lô ----
     const priceRows = data => new Map([...(data.trips ?? []).map(row => [`trip-${row.id}`, row]),
@@ -73,8 +72,9 @@
       if (!review.length && priceView === 'review') priceView = null;
       const strip = review.length ? `<div class="price-strip">Giá từ Sheet cần xem: <strong>${review.length}</strong> <button type="button" class="price-review-toggle" aria-expanded="${priceView === 'review'}">${priceView === 'review' ? 'Đóng' : 'Xem'}</button></div>` : '';
       // SO-GON-06: dải "cần xem" là một ô trong thanh việc; khung mở ra nằm ngay dưới thanh.
+      root.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', newStrip(data, active));
       root.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', strip);
-      root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', pricePanel(data) + approvePanel(data, active));
+      root.querySelector('.book-bar')?.insertAdjacentHTML('afterend', pricePanel(data));
     }
     const openSheetDetail = button => {
       const trip = ctx.snapshot.sheet_sync.items[Number(button.dataset.index)];
@@ -91,7 +91,7 @@
         const webValue = field === 'event_date' ? dateText(trip.existing_values?.[field]) : trip.existing_values?.[field] || '–';
         // BOOKING-EDIT-01: booking đã ghi giữ nguyên, chỉ ghi nhận đã xem.
         const actions = !changed ? '' : field === 'booking'
-          ? `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="booking">Giữ booking đã ghi</button></div>`
+          ? `<small class="sheet-choice-hint">Sheet sửa booking sau khi chuyến đã vào sổ. Sổ giữ booking cũ, tiền không đổi.</small><div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="booking">Đã xem, hết báo</button></div>`
           : `<div class="sheet-choice-actions"><button type="button" data-sheet-decision="keep_web" data-sheet-field="${escape(field)}">Giữ web</button><button type="button" data-sheet-decision="use_sheet" data-sheet-field="${escape(field)}">Lấy Sheet</button></div>`;
         return `<div class="sheet-detail-field${changed ? ' sheet-value-conflict' : ''}"><span class="sheet-detail-label">${escape(sheetFieldLabel(field))}</span>${changed ? `<span class="sheet-detail-web">Web: ${escape(webValue)}</span><strong>Sheet: ${escape(value)}</strong>${actions}` : `<strong>${escape(value)}</strong>`}</div>`;
       }).join('');
@@ -263,35 +263,56 @@
         ? `Đã ghi ${result.written} giá; còn ${result.remaining} giá chưa ghi. Bấm "Ghi … giá từ Sheet" để ghi tiếp.`
         : `Đã ghi ${result.written} giá từ Sheet.`);
     });
-    let sheetApproval = null;
-    // SO-GON-04 (L4): "Duyệt n chuyến mới" hỏi lại một bước trước khi gửi lệnh; Thôi không gửi gì.
-    root.addEventListener('click', event => {
-      const ask = event.target.closest('.sheet-approve,.sheet-approve-cancel');
-      if (!ask || ask.disabled || !ctx.snapshot) return;
-      approveAsk = ask.matches('.sheet-approve');
-      renderSnapshot(ctx.snapshot);
-      root.querySelector(approveAsk ? '.sheet-approve-write' : '.sheet-approve')?.focus();
-    });
+    // Duyệt một chuyến tại hàng: cùng lệnh /api/v7/sheet/approve, chỉ dòng đó (source_rows). Chưa rõ kết quả thì bấm lại
+    // gửi đúng khóa cũ để không dán trùng. Chuyến vào sổ chưa có giá nên tổng còn nợ không đổi lúc duyệt.
+    const rowApprovals = new Map();
+    let newJump = 0;
+    const flash = row => { row.classList.remove('ps-flash'); void row.offsetWidth; row.classList.add('ps-flash'); };
     root.addEventListener('click', async event => {
-      const button = event.target.closest('.sheet-approve-write');
-      if (!button || button.disabled) return;
+      const button = event.target.closest('.sheet-row-approve,.sheet-new-next');
+      if (!button || button.disabled || !ctx.snapshot) return;
+      const items = newRows(ctx.snapshot);
+      if (button.matches('.sheet-new-next')) {
+        if (!items.length) return;
+        const item = items[newJump++ % items.length];
+        ctx.showMonth(monthKey(item.event_date));
+        const row = root.querySelector(`tr[data-sheet-new="${CSS.escape(String(item.source_row))}"]`);
+        if (!row) return;
+        row.scrollIntoView({ block: 'center' });
+        flash(row);
+        row.querySelector('.sheet-row-approve')?.focus();
+        return;
+      }
       if (api.hasPending()) { showNotice('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.'); return; }
-      approveAsk = false;
-      sheetApproval ??= { customer_id: customerId, expected_version: ctx.snapshot.version,
-        snapshot_sha256: ctx.snapshot.sheet_sync.snapshot_sha256, idempotency_key: crypto.randomUUID() };
+      const sourceRow = Number(button.dataset.sourceRow);
+      const item = items.find(entry => entry.source_row === sourceRow);
+      if (!item) return;
+      let body = rowApprovals.get(sourceRow);
+      if (!body) {
+        body = { customer_id: customerId, expected_version: ctx.snapshot.version, snapshot_sha256: ctx.snapshot.sheet_sync.snapshot_sha256,
+          idempotency_key: crypto.randomUUID(), source_rows: [sourceRow] };
+        rowApprovals.set(sourceRow, body);
+      }
       button.disabled = true;
+      button.textContent = 'Đang duyệt…';
+      const what = `chuyến ${item.container} ngày ${dateText(item.event_date)}`;
+      let response, result;
       try {
-        const response = await fetch('/api/v7/sheet/approve', { method: 'POST',
-          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sheetApproval) });
-        const result = await response.json();
-        sheetApproval = null;
-        try { await api.read(); } catch { showNotice('Đã xử lý lô duyệt; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
-        showNotice(response.ok
-          ? result.complete === false ? `Đã duyệt ${result.approved} chuyến; còn ${result.remaining} chuyến chưa duyệt (${result.error}).`
-            : `Đã duyệt ${result.approved} chuyến${result.review_count ? `; ${result.review_count} chuyến nghi trùng cần kiểm` : ''}. Chuyến thiếu giá vẫn chưa tính tiền.`
-          : result.message || 'Không duyệt được chuyến mới.');
-      } catch { showNotice('Chưa rõ kết quả duyệt. Tải lại sổ để kiểm tra trước khi thử lại.'); }
-      button.disabled = false;
+        response = await fetch('/api/v7/sheet/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        result = await response.json();
+      } catch {
+        button.disabled = false;
+        button.textContent = 'Duyệt';
+        showNotice(`Chưa rõ đã duyệt ${what} chưa. Bấm Duyệt lần nữa để thử lại đúng thao tác đó.`);
+        return;
+      }
+      rowApprovals.delete(sourceRow);
+      try { await api.read(); } catch { showNotice('Đã gửi lệnh duyệt; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
+      const added = [...root.querySelectorAll('tr[data-row^="trip-"]')].find(row => row.children[1]?.textContent.startsWith(item.container));
+      if (added) { added.scrollIntoView({ block: 'center' }); flash(added); }
+      showNotice(!response.ok ? result.message || `Không duyệt được ${what}.`
+        : result.review_count ? `Đã duyệt ${what}, nhưng nghi trùng với chuyến đã có nên thành "chờ kiểm": bấm nhãn chờ kiểm ở hàng đó để kết luận.`
+          : `Đã duyệt ${what} vào tháng ${monthLabel(monthKey(item.event_date))}. Chưa có giá nên chưa tính tiền; có giá trên Sheet thì máy tự điền.`);
     });
     // ---- Sheet không còn dòng này (specs/v7-sheet-removed-trips.md): chỉ báo; xóa qua lệnh xóa chuyến có sẵn ----
     const removedRows = data => data.sheet_sync?.removed_items ?? [];

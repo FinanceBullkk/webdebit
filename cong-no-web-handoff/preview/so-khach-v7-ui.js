@@ -405,12 +405,11 @@
       const text = message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.');
       const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
         + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
-      const newCount = data.sheet_sync?.new_count ?? 0;
       // SO-GON-06: một thanh việc — bên trái việc cần làm (nút ghi/duyệt và các ô "cần xem" phần khác chèn vào), bên phải giờ
       // Sheet, Làm mới và menu "Cài đặt ▾" (cài đặt phụ phí, bảng giá, ẩn con trỏ).
       const price = ctx.priceButtons?.(active) ?? { task: '', setting: '' };
-      const barButtons = (newCount ? `<button class="sheet-approve" ${active ? '' : 'disabled'}>Duyệt ${newCount} chuyến mới</button>` : '')
-        + (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
+      // Chuyến mới từ Sheet duyệt tại hàng (DUYET-TAI-HANG-01); dải "n chuyến mới chờ duyệt" do so-khach-v7-sheet-ui.js chèn.
+      const barButtons = (active && data.sheet_prices?.ready_count ? `<button class="price-approve">Ghi ${data.sheet_prices.ready_count} giá từ Sheet</button>` : '')
         + (ctx.receiptButton?.(data, active) ?? '') + price.task;
       const settings = '<details class="book-settings"><summary>Cài đặt</summary><div class="settings-menu" role="group" aria-label="Cài đặt sổ">'
         + `<button class="fee-settings-open" aria-haspopup="dialog">Cài đặt phụ phí</button>${price.setting}</div></details>`;

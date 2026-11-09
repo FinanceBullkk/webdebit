@@ -30,18 +30,17 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(world.requests.at(-1).body.target_id, 21);
   assert.equal(world.requests.at(-1).body.decision, 'keep_web');
   assert.equal(await page.locator('.info-input').count(), 0);
-  assert.match(await page.locator('.sheet-approve').innerText(), /Duyệt 1 chuyến mới/);
-  // SO-GON-04 (L4): hỏi lại một bước; Thôi không gửi lệnh, "Duyệt 1 chuyến" mới gửi.
-  const before = world.requests.length;
-  await page.locator('.sheet-approve').click();
-  assert.match(await page.locator('.sheet-approve-panel').innerText(), /Duyệt 1 chuyến mới từ Sheet\?[\s\S]*chuyến nghi trùng thành chờ kiểm/);
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('sheet-approve-write')), true);
-  await page.locator('.sheet-approve-cancel').click();
-  assert.equal(await page.locator('.sheet-approve-panel').count(), 0);
-  assert.equal(world.requests.length, before);
-  await page.locator('.sheet-approve').click();
-  await page.locator('.sheet-approve-write').click();
-  await page.waitForFunction(() => !document.querySelector('.sheet-approve'));
+  // DUYET-TAI-HANG-01: thanh việc chỉ báo số và đưa tới hàng; duyệt ở chính hàng đó, hàng ghi vì sao máy chưa duyệt.
+  assert.match(await page.locator('.sheet-new-strip').innerText(), /1 chuyến mới từ Sheet chờ duyệt/);
+  await page.locator('.sheet-new-next').click();
+  await page.waitForFunction(() => document.querySelector('tr.sheet-new .sheet-row-approve') === document.activeElement);
+  assert.match(await page.locator('tr.sheet-new').innerText(), /CHỜ DUYỆT[\s\S]*Sheet chưa ghi mặt hàng/);
+  assert.match(await page.locator('tr.sheet-new .sheet-why').getAttribute('title'), /Đúng khách này thì bấm Duyệt/);
+  await shot('duyet-tai-hang');
+  await page.locator('tr.sheet-new .sheet-row-approve').click();
+  await page.waitForFunction(() => !document.querySelector('.sheet-new-strip'));
+  assert.deepEqual(world.requests.at(-1).body.source_rows, [5]);
+  assert.match(await page.locator('.live-notice').innerText(), /Đã duyệt chuyến NEWU1234567[\s\S]*Chưa có giá nên chưa tính tiền/);
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/approve');
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
@@ -50,7 +49,7 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), '0 đ');
 }, world => {
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 1, conflict_count: 1, items: [
-    { sync_state: 'NEW', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
+    { sync_state: 'NEW', source_row: 5, book_match: 'COMMODITY_UNKNOWN', event_date: clock, container: 'NEWU1234567', carrier: 'WH', origin: 'A', destination: 'B' },
     { sync_state: 'CONFLICT', source_row: 8, event_date: '2026-09-02', container: 'OLDU0000001', carrier: 'WH', shipper: 'Xe 2', origin: 'Nơi C',
       destination: 'Nơi D', existing_kind: 'legacy', existing_id: 21, changed_fields: ['shipper', 'origin'], existing_values: { shipper: 'Xe 1', origin: 'Nơi Cũ' } },
   ] };

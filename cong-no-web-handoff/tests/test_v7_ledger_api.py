@@ -470,6 +470,27 @@ class LedgerApiTest(unittest.TestCase):
         self.assertEqual((status, result["approved"]), (200, 1))
         self.assertEqual([call[1]["debt_month"] for call in runner.calls if call[0] == "paste_trips"],
                          ["2026-09-01"])
+        # DUYET-TAI-HANG-01: nút "Duyệt" tại hàng chỉ duyệt đúng dòng đã chọn.
+        runner.calls.clear()
+        runner.version = 3
+        with patch.object(v7_api_sheet, "sheet_projection", return_value=projection):
+            status, result = api.approve_sheet(json.dumps(body | {"source_rows": [4]}).encode(), runner, "tester")
+        writes = [call for call in runner.calls if call[0] == "paste_trips"]
+        self.assertEqual((status, result["approved"], len(writes)), (200, 1, 1))
+        self.assertEqual(writes[0][1]["trips"][0]["container"], "FAKE2")
+        for rows in ([3], [2, 99]):
+            runner.calls.clear()
+            runner.version = 3
+            with self.subTest(rows=rows), patch.object(v7_api_sheet, "sheet_projection", return_value=projection),                     self.assertRaises(api.ApiError) as caught:
+                api.approve_sheet(json.dumps(body | {"source_rows": rows}).encode(), runner, "tester")
+            self.assertEqual(caught.exception.code, "STALE_SHEET")
+            self.assertFalse(any(call[0] == "paste_trips" for call in runner.calls))
+        for rows in ([], [0], ["2"], [2, 2], 2):
+            with self.subTest(rows=rows), self.assertRaises(api.ApiError) as caught:
+                api.approve_sheet(json.dumps(body | {"source_rows": rows}).encode(), runner, "tester")
+            self.assertEqual(caught.exception.code, "INVALID_REQUEST")
+        with self.assertRaises(api.ApiError):
+            api.approve_prices(json.dumps(body | {"source_rows": [2]}).encode(), runner, "tester")
 
     def test_review_trip_boundary(self):
         body = self.common | {"trip_id": 7, "decision": "confirm", "reason": "đã đối chiếu sổ gốc"}
