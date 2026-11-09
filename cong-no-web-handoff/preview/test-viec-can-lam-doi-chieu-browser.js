@@ -20,6 +20,22 @@ const inbox = (extra = {}) => ({ state: 'ready', sheet_at: '2026-11-06T03:15:00Z
     trip_items: [{ customer_id: 1, container: 'MAUU0000002', event_date: '2026-11-05', at: '2026-11-06T03:05:00+00:00' }],
     price_items: [{ customer_id: 3, container: 'MAUU0000003', date: '2026-11-04', before_unit_price_vnd: null, unit_price_vnd: '42000000', at: '2026-11-06T02:50:00+00:00' }] },
   books: [book(7, { prices: { ready: 0, review: 18 }, receipts: { ready: 0, review: 1, amount_vnd: '6100000', items: [] }, ps: { ready: 0, review: 1 } }), book(1, { sheet_matched: true, trips_check: { count: 3, reasons: {} } }), book(3, { sheet_matched: true, ps: { ready: 0, review: 6 } })], ...extra });
+// HOAT-DONG-01: việc đã ghi theo ngày (GET /api/v7/activity), cùng hình dạng với Lịch sử của sổ.
+const activityDays = {
+  '2026-11-06': { day: '2026-11-06', today: '2026-11-06', prev_day: '2026-11-03', next_day: null, total: 3,
+    events: [
+      { id: 30, customer_id: 1, customer: 'Mẫu An Phát', kind: 'receipt', actor: 'thu.ke@example.test', actor_name: 'Thu', at: '2026-11-06T03:20:00+00:00', before: {},
+        after: { pid: 'PH-007', date: '2026-11-05', method: 'CK', amount_vnd: '5000000', allocations: [] } },
+      { id: 29, customer_id: 3, customer: 'Mẫu Phú Gia', kind: 'price_edit', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:50:00+00:00',
+        before: { price: { trip_id: 41, unit_price_vnd: null, other_fee_vnd: null } }, after: { price: { trip_id: 41, unit_price_vnd: '42000000', other_fee_vnd: null } } },
+      { id: 28, customer_id: 1, customer: 'Mẫu An Phát', kind: 'paste', actor: 'may-theo-sheet', actor_name: 'Máy (theo Sheet)', at: '2026-11-06T02:05:00+00:00', before: {},
+        after: { trips: [{ trip_id: 40, container: 'MAUU0000002', event_date: '2026-11-05', unitPriceVnd: null, status: 'confirmed' }] } }],
+    trips: [{ id: 40, container: 'MAUU0000002' }, { id: 41, container: 'MAUU0000003' }], receipts: [], legacy_rows: [], fee_types: [] },
+  '2026-11-03': { day: '2026-11-03', today: '2026-11-06', prev_day: null, next_day: '2026-11-06', total: 1,
+    events: [{ id: 5, customer_id: 7, customer: 'Mẫu Đông Á', kind: 'void', actor: 'ke.toan@example.test', actor_name: 'Kế toán', at: '2026-11-03T08:00:00+00:00',
+      before: { pid: 'PH-002', amount_vnd: '1000000' }, after: { pid: 'PH-002', void_reason: 'ghi trùng' } }],
+    trips: [], receipts: [], legacy_rows: [], fee_types: [] },
+};
 const fees = [[34, 95], [32, 20], [29, 135], [21, 60], [null, 40], [18, 32], [25, 10], [null, 24], [31, 8], [14, 15], [22, 21], [40, 12], [null, 26], [27, 14], [19, 19], [33, 9], [12, 20], [26, 24]];
 const priceRows = fees.map(([web, delta], i) => ({ key: `legacy:${i + 1}`, status: 'CONFLICT', container: `MAUU ${100101 + i * 37}-${i % 9}`, date: `2026-10-${String(3 + i).padStart(2, '0')}`, source_row: 412 + i * 3,
   web_unit_price_vnd: '60000000', sheet_unit_price_vnd: '60000000', web_other_fee_vnd: web === null ? null : String(web * 100000), sheet_other_fee_vnd: String(((web ?? 0) + delta) * 100000), delta_vnd: String(delta * 100000), source_fingerprint: sha }));
@@ -46,6 +62,11 @@ function serverFor(opts = {}) {
       return;
     }
     if (route === '/api/v7/inbox') return send(200, value(opts.inbox ?? inbox()));
+    if (route === '/api/v7/activity') {
+      const day = new URL(req.url, 'http://x').searchParams.get('day') ?? '2026-11-06';
+      opts.activityAsked?.push(day);
+      return opts.activityStatus ? send(opts.activityStatus, {}) : send(200, activityDays[day] ?? { day, today: '2026-11-06', prev_day: '2026-11-03', next_day: '2026-11-06', total: 0, events: [], trips: [], receipts: [], legacy_rows: [], fee_types: [] });
+    }
     if (route === '/api/v7/sheet/doi-chieu') return send(opts.statementStatus ?? 200, value(opts.statement ?? statement()));
     if (route === '/api/v7/dashboard') return send(200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(200, { customers: [] });
@@ -85,7 +106,7 @@ if (process.argv.includes('--preview')) {
     assert.match(line, /88% số nợ · 1 khách lệch/);
     assert.match(line, /Đối soát lúc 10:12 · lần tới 11:05/);
     assert.ok(await page.locator('.viec-status.warn').count());
-    assert.deepEqual(await page.locator('[data-tab]').allInnerTexts(), ['Số nợ lệch 1', 'Dọn chi tiết 3', 'Máy đã làm 3']);
+    assert.deepEqual(await page.locator('[data-tab]').allInnerTexts(), ['Số nợ lệch 1', 'Dọn chi tiết 3', 'Đã làm 3']);
     assert.equal(await page.locator('[data-tab="lech"]').getAttribute('aria-selected'), 'true');
     const row = await page.locator('.dc-customer').innerText();
     assert.match(row, /Mẫu Đông Á[\s\S]*5\.210[\s\S]*5\.274,2[\s\S]*−64,2[\s\S]*Sheet vừa sửa lúc 10:00, máy xem lại ở lượt sau/);
@@ -355,18 +376,51 @@ if (process.argv.includes('--preview')) {
     });
   });
 
-  test('máy đã làm: mới nhất trước, có giờ và đường mở sổ; nhớ tab khi tải lại', async () => withPage({}, async page => {
+  test('đã làm: hôm nay cả máy lẫn người, mới nhất trước, câu như Lịch sử, lọc máy/người; nhớ tab khi tải lại', async () => withPage({}, async page => {
     await page.locator('[data-tab="may"]').click();
-    const items = await page.locator('.auto-list li').allInnerTexts();
-    assert.match(items[0], /10:05[\s\S]*Chuyến mới[\s\S]*MAUU0000002 · 05\/11\/2026/);
-    assert.match(items[1], /09:50[\s\S]*Giá[\s\S]*chưa giá → 42 tr/);
-    assert.match(items[2], /09:05[\s\S]*Sửa chữ[\s\S]*nơi đi: — → KHO MẪU/);
-    assert.equal(await page.locator('.auto-list li a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
+    await page.locator('.act-list').waitFor();
+    const items = await page.locator('.act-list li').allInnerTexts();
+    assert.equal(items.length, 3);
+    assert.match(items[0], /10:20[\s\S]*Thu[\s\S]*Mẫu An Phát[\s\S]*Ghi phiếu thu PH-007: 5\.000\.000 đ ngày 05\/11\/2026/);
+    assert.match(items[1], /09:50[\s\S]*Máy[\s\S]*Mẫu Phú Gia[\s\S]*Sửa giá Chuyến MAUU0000003 · Đơn giá: – → 42\.000\.000/);
+    assert.match(items[2], /09:05[\s\S]*Máy[\s\S]*Dán lô chuyến 1 chuyến: MAUU0000002 \(05\/11\/2026\)/);
+    assert.equal(await page.locator('.act-list li a').first().getAttribute('href'), '/so-khach-v7-live.html?customer=1');
     assert.match(await page.locator('.today-inline').innerText(), /Người nhập mẫu/);
+    assert.deepEqual((await page.locator('[data-act-filter]').allInnerTexts()).map(text => text.replace(/\s+/g, ' ')), ['Tất cả 3', 'Máy 2', 'Người 1']);
+    await page.locator('[data-act-filter="nguoi"]').click();
+    assert.equal(await page.locator('.act-list li').count(), 1);
+    await page.locator('[data-act-filter="may"]').click();
+    assert.equal(await page.locator('.act-list li').count(), 2);
+    assert.equal(await page.locator('[data-act-day]', { hasText: 'Sau' }).isDisabled(), true, 'hôm nay không có ngày sau');
     await page.reload();
-    await page.locator('.auto-list').waitFor();
+    await page.locator('.act-list').waitFor();
     assert.equal(await page.locator('[data-tab="may"]').getAttribute('aria-selected'), 'true');
   }));
+
+  test('đã làm: lùi về ngày gần nhất có việc, chọn ngày bằng ô ngày, ngày trống nói rõ, lỗi có Thử lại', async () => {
+    const opts = { activityAsked: [] };
+    await withPage(opts, async page => {
+      await page.locator('[data-tab="may"]').click();
+      await page.locator('.act-list').waitFor();
+      await page.locator('[data-act-day="2026-11-03"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-act-date]')?.value === '2026-11-03' && document.querySelector('.act-list'));
+      const item = await page.locator('.act-list li').innerText();
+      assert.match(item, /15:00[\s\S]*Kế toán[\s\S]*Mẫu Đông Á[\s\S]*Hủy phiếu PH-002: 1\.000\.000 đ[\s\S]*Lý do hủy: ghi trùng/);
+      assert.equal(await page.locator('.today-inline').count(), 0, 'ngày cũ không có dòng Đã ghi hôm nay');
+      assert.ok(opts.activityAsked.includes('2026-11-03'));
+      await page.locator('[data-act-date]').fill('2026-11-04');
+      await page.locator('.dc-empty', { hasText: 'Ngày 04/11/2026 không ai ghi gì.' }).waitFor();
+      await page.locator('[data-act-day="today"]').click();
+      await page.locator('.today-inline').waitFor();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      opts.activityStatus = 503;
+      await page.locator('[data-act-date]').fill('2026-11-01');
+      await page.locator('[data-act-retry]').waitFor();
+      opts.activityStatus = 0;
+      await page.locator('[data-act-retry]').click();
+      await page.locator('.dc-empty', { hasText: 'Ngày 01/11/2026 không ai ghi gì.' }).waitFor();
+    });
+  });
 
   test('bản gần nhất của tab: xem và đổi tab được, ô chọn và nút ghi khóa tới khi có bản mới', async () => withPage({}, async page => {
     await opened(page);

@@ -11,7 +11,7 @@ globalThis.InboxTable = (() => {
     book: 'M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11',
     truck: 'M3 7h11v9H3zM14 10h4l3 3v3h-7z', receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
     pencil: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4', pick: 'M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zM7.5 12.5l3 3 6-7',
-    down: 'M6 9l6 6 6-6', up: 'M6 15l6-6 6 6', right: 'M9 6l6 6-6 6', check: 'M5 12.5l4.5 4.5L19 7',
+    down: 'M6 9l6 6 6-6', up: 'M6 15l6-6 6 6', right: 'M9 6l6 6-6 6', left: 'M15 6l-6 6 6 6', check: 'M5 12.5l4.5 4.5L19 7',
     tag: 'M3 12V4h8l10 10-8 8zM7.5 7.5h.01',
   };
   const icon = (name, size = 14) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]}"/>${name === 'truck' ? '<circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>' : ''}</svg>`;
@@ -107,7 +107,7 @@ globalThis.InboxTable = (() => {
     const textNote = textCount ? `<p class="inbox-note">Lệch chữ: ${textCount} chỗ ở ${list.filter(b => b.text_diff > 0).length} sổ. Không đụng tiền; ${data?.auto?.text_enabled ? 'máy lấy theo Sheet ở lượt tính tới.' : 'máy chưa bật tự lấy theo Sheet.'}</p>` : '';
     const don = `<section class="inbox work-card" aria-labelledby="h-inbox"><div class="work-toolbar"><h2 id="h-inbox" class="band-count">${total}</h2>${chips}${hasReady ? `<button class="btn pick-ready" type="button" data-pick-ready${busy ? ' disabled' : ''}>${icon('pick', 17)}Chọn hết mục sẵn sàng ghi</button>` : ''}${selectedCount ? `<button class="btn primary" type="button" data-review${busy ? ' disabled' : ''}>Xem lại ${selectedCount} mục ${icon('right', 16)}</button>` : ''}</div><p class="dc-lead">Các việc này không làm tổng nợ lệch Sheet. Làm khi rảnh; để đó số nợ vẫn đúng.</p>${review?.length ? `<div class="work-scroll">${old.reviewHtml(review, F, esc, label, busy)}</div>` : ''}${opts.actionHtml ?? ''}${opts.undoHtml ?? ''}${table}${textNote}</section>`;
     const lech = view.lechHtml(reconcile, dc, { F, esc, href, now, action: opts.action, busy, nothing });
-    const may = view.mayHtml(bot, reconcile, people, { esc, label, href });
+    const may = view.mayHtml(opts.act, people, { esc, href });
     const counts = { lech: globalThis.DoiChieuModel.openRows(reconcile).length + (reconcile?.outside_tabs?.length ?? 0), don: list.length, may: view.machineCount(bot, reconcile) };
     return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
   }

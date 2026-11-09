@@ -318,6 +318,17 @@ def _receipt_book(parts_query: str) -> tuple[str, dict]:
     return "get_receipt_book", {"month": query["month"][0]}
 
 
+
+def _activity(parts_query: str) -> tuple[str, dict]:
+    """HOAT-DONG-01: không có tham số là hôm nay; có thì đúng một `day` dạng yyyy-mm-dd (ngày tương lai do SQL chặn)."""
+    query = parse_qs(parts_query, keep_blank_values=True)
+    if not parts_query:
+        return "get_activity", {"day": None}
+    if set(query) != {"day"} or len(query["day"]) != 1 or not valid_date(query["day"][0]):
+        bad("INVALID_DAY", ERRORS["INVALID_DAY"][1])
+    return "get_activity", {"day": query["day"][0]}
+
+
 def _sheet_queue(parts_query: str) -> tuple[str, dict]:
     query = parse_qs(parts_query, keep_blank_values=True)
     if parts_query and (set(query) != {"customer"} or len(query["customer"]) != 1 or
@@ -368,6 +379,7 @@ GET_ROUTES = {
     "/api/v7/receivables/matrix": _matrix,
     "/api/v7/receivables/detail": _detail,
     "/api/v7/receipt-book": _receipt_book,
+    "/api/v7/activity": _activity,
     "/api/v7/sheet-queue": _sheet_queue,
     "/api/v7/receipt-images": lambda parts_query: _receipt_images(parts_query, with_id=False),
     "/api/v7/receipt-image": lambda parts_query: _receipt_images(parts_query, with_id=True),

@@ -352,7 +352,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return 200, sheet_queue(result, parts.query)
     if function == "get_ledger":
         result = public_ledger(ledger_projections(runner, result, actor))
-    if function == "get_ledger_events":
+    if function in ("get_ledger_events", "get_activity"):
         result = with_actor_names(result)
     if function == "list_offset_sources":
         result = {"sources": result}
