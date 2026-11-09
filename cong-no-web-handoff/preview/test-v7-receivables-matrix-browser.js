@@ -64,8 +64,10 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     assert.deepEqual(await page.locator('#heat-body tr[data-row="1"] td.tot').allInnerTexts(), ['0,08', '0,08']);
     assert.match(await page.locator('#scope-receivable').innerText(), /80\.000 đ/);
     assert.match(await page.locator('#recon').innerText(), /Khớp/);
-    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), 'dư 0,02');
-    assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ (dư)');
+    assert.equal(await page.locator('.neg[data-id="1"]').innerText(), '(0,02)');
+    assert.equal(await page.locator('.neg[data-id="1"]').getAttribute('title'), '20.000 đ trả thừa');
+    // Không có khách trả trước: chân bảng một dòng tổng.
+    assert.deepEqual(await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => row.className)), ['net']);
     assert.match(await page.locator('#heat-body .group').first().innerText(), /Sầu riêng · cảng/);
     // TRANG-KHACH-01 (PR A4): tên khách mở trang khách ở thẻ Tình hình.
     assert.equal(await page.locator('#heat-body a[href="/so-khach-v7-live.html?customer=1&the=tinh-hinh"]').count(), 1);
@@ -240,6 +242,43 @@ test('matrix refresh reads new data while preserving selected year', async () =>
     assert.equal(await page.locator('#year-cur').innerText(), String(currentYear));
     assert.match(await page.locator('#updated-at').innerText(), /Cập nhật .* tự tải mỗi 60 giây/);
   } finally { await browser.close(); app.close(); }
+});
+
+// Chuẩn kế toán (VAS 21/IAS 1): phải thu và khách trả trước không bù trừ — dải đầu tách hai số, chân bảng ba dòng
+// Phải thu / Trừ: khách trả trước / Còn phải thu ròng; số âm ghi trong ngoặc; ba dòng cùng dính đáy màn, không chồng nhau.
+test('khách trả trước: chân bảng ba dòng như sổ kế toán, số âm trong ngoặc', async () => {
+  const zero = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), '0']));
+  const one = (id, name, value) => ({ customer_id: id, name, commodity: 'Sầu riêng', transport_mode: 'CẢNG',
+    months: { ...zero, '1': value }, total_year_vnd: value, total_all_vnd: value, oldest_open_month: currentYear + '-01-01' });
+  const many = Array.from({ length: 30 }, (_, i) => one(10 + i, 'Khách N' + i, '1000000'));
+  const payload = year => year !== currentYear ? { as_of: currentYear + '-10-26', year, years_available: [currentYear], customers: [], grand_total_year_vnd: '0', grand_total_all_vnd: '0' }
+    : { as_of: currentYear + '-10-26', year, years_available: [currentYear],
+      customers: [one(1, 'Khách A', '80000000'), one(2, 'Khách C', '-30000000'), ...many],
+      grand_total_year_vnd: '80000000', grand_total_all_vnd: '80000000' };
+  const app = server({ matrixPayload: payload });
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const browser = await launchShared();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    await page.goto('http://127.0.0.1:' + app.address().port + '/cong-no-theo-thang.html');
+    await page.locator('#heat-body .khach').first().waitFor();
+    assert.match(await page.locator('.summary').innerText(), /Khách trả trước/);
+    assert.match(await page.locator('#scope-receivable').innerText(), /110 triệu/);
+    assert.match(await page.locator('#scope-credit').innerText(), /30 triệu/);
+    assert.match(await page.locator('#scope-status').innerText(), /1 trả trước/);
+    const foot = await page.locator('#heat-foot tr').evaluateAll(rows => rows.map(row => [row.className, row.cells[0].innerText, row.cells[row.cells.length - 1].innerText]));
+    assert.deepEqual(foot, [['sub', 'Phải thu 31 khách', '110'], ['sub', 'Trừ: trả trước 1 khách', '(30)'], ['net', 'Còn phải thu ròng' + String.fromCharCode(10) + '32 khách', '80']]);
+    assert.equal(await page.locator('#heat-body tr[data-row="2"] td.tot.all').innerText(), '(30)');
+    assert.match(await page.locator('#recon').innerText(), /Khớp/);
+    // Ba dòng dính đáy khi bảng dài hơn màn: dòng ròng sát đáy, hai dòng trên xếp liền, không chồng lên nhau.
+    const clipped = await page.locator('#heat-foot td.khach').evaluateAll(cells => cells.filter(cell => cell.scrollWidth > cell.clientWidth + 1).length);
+    assert.equal(clipped, 0);
+    const boxes = await page.locator('#heat-foot tr td.khach').evaluateAll(cells => cells.map(cell => { const r = cell.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; }));
+    assert.equal(Math.abs(boxes[2][1] - 720) <= 1 && Math.abs(boxes[1][1] - boxes[2][0]) <= 1 && Math.abs(boxes[0][1] - boxes[1][0]) <= 1, true, JSON.stringify(boxes));
+  } finally {
+    await browser.close();
+    app.close();
+  }
 });
 
 test('mở từ Tổng quan (?tuoi=&con-no=1): tô cột tháng của nhóm tuổi, chỉ khách còn nợ, bỏ chọn nhóm', async () => {
