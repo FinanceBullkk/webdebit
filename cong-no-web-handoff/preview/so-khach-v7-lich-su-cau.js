@@ -152,6 +152,7 @@ globalThis.LichSuCau = (() => {
           ? `Lấy giá Sheet: đơn giá ${fmt(before.value?.unit_price_vnd)} → ${fmt(after.target_value?.unit_price_vnd)}, phụ phí ${fmt(before.value?.other_fee_vnd)} → ${fmt(after.target_value?.other_fee_vnd)}`
           : `Giữ giá web: đơn giá ${fmt(after.target_value?.unit_price_vnd)}, phụ phí ${fmt(after.target_value?.other_fee_vnd)} · nợ không đổi`;
         if (after.field === 'task_removed') return `Giữ chuyến ${after.target_value?.container || ''} · nợ không đổi`;
+        if (after.field === 'task_ps') return `Phụ phí PS: trả lời hết báo, giữ phụ phí web ${fmt(after.target_value?.other_fee_vnd)} · nợ không đổi`;
 
         const label = { carrier: 'Hãng tàu', shipper: 'Shipper', origin: 'Điểm đi', destination: 'Điểm đến' }[after.field] ?? 'Ô';
         return `${label}: ${cellText(after.field, before.value)} → ${cellText(after.field, after.target_value)} · ${after.decision === 'use_sheet' ? 'Lấy Sheet' : 'Giữ web'}`;

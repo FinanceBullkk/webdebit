@@ -6,12 +6,12 @@ const { withPage, posts } = require('./so-khach-v7-browser-world');
 const sha = 'b'.repeat(64);
 const item = (fields) => ({ key: `${fields.container}|${fields.date}`, source_row: 3, bill_month: '09/2026', ps_source: 'PS T9',
   ps_total: null, web_total: null, before: [], after: [], message: '', ...fields });
-// Sổ bật ba cột riêng Neo, Điện, Ghép. Chuyến web 11 và dòng sổ gốc 22 tách được; bốn dòng cần xem.
+// Sổ bật ba cột riêng Neo, Điện, Ghép. Chuyến web 11 và dòng sổ gốc 22 tách được; năm dòng cần trả lời.
 function setup(world) {
   world.feeColumns = [1, 2, 3];
   world.trips[0].fee_lines = [{ id: 601, fee_type_id: 9, amount_vnd: '2000000', note: null }];
   Object.assign(world.trips[0], { other_fee_vnd: '2000000', amount_vnd: '52000000' });
-  world.psFees = { snapshot_sha256: sha, ready_count: 2, review_count: 4,
+  world.psFees = { snapshot_sha256: sha, ready_count: 2, review_count: 5,
     ready: [
       item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'READY',
         before: [{ id: 601, fee_type_id: 9, amount_vnd: '2000000', note: null }],
@@ -20,8 +20,11 @@ function setup(world) {
         before: [{ id: 501, fee_type_id: 9, amount_vnd: '3000000', note: null }], after: [{ fee_type_id: 3, amount_vnd: '3000000', note: null }] })],
     review: [
       item({ container: 'DEMU0800001', date: '2026-08-20', target_kind: 'trip', target_id: 99, month: '2026-08', status: 'MONTH_LOCKED', message: 'Tháng 08/2026 đang khóa' }),
-      item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'NEED_HEALTH', message: 'PS đánh dấu Health cert — nhập giá tay' }),
-      item({ container: 'OLDU0000001', date: '2026-09-02', target_kind: 'legacy', target_id: 21, month: '2026-09', status: 'WEB_NO_FEE', message: 'PS 1.200.000 đ · web chưa có phụ phí' }),
+      item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'NEED_HEALTH', keepable: true, source_fingerprint: 'e'.repeat(64), message: 'PS đánh dấu Health cert — nhập giá tay' }),
+      item({ container: 'OLDU0000001', date: '2026-09-02', target_kind: 'legacy', target_id: 21, month: '2026-09', status: 'PS_BAD_AMOUNT', keepable: true,
+        source_fingerprint: 'c'.repeat(64), message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
+      item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'PS_BAD_AMOUNT', keepable: true,
+        source_fingerprint: 'd'.repeat(64), message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
       item({ container: 'DEMU0900009', date: '2026-09-25', target_kind: '', target_id: '', month: '', status: 'PS_SOURCE_ERROR', message: 'Bộ lập bill báo lỗi: PS trùng dòng' })] };
 }
 const ownCells = async (page, row) => page.locator(`[data-row="${row}"] td.fee.own`).allInnerTexts();
@@ -64,25 +67,34 @@ test('tách PS: nút đúng số, khung xác nhận "Tổng tiền không đổi
   await shot('ps-da-tach');
 }, setup));
 
-test('PS cần xem: chia nhóm theo việc phải làm, mở khóa tháng, Xem dòng chỉ khi chuyến có trên sổ', async () => withPage(async ({ page, world, shot }) => {
+test('PS cần trả lời: mỗi câu một nút, cùng câu gom một nút cho cả nhóm, hết báo không đổi tiền', async () => withPage(async ({ page, world, shot }) => {
   await page.waitForSelector('.ps-review-toggle');
-  assert.match(await page.locator('.price-strip').innerText(), /Phụ phí PS cần xem:\s*4/);
+  assert.match(await page.locator('.price-strip').innerText(), /Phụ phí PS cần trả lời:\s*5/);
   await page.click('.ps-review-toggle');
   const panel = page.locator('.ps-review');
-  assert.deepEqual(await panel.locator('h3').allInnerTexts(), ['Mở khóa tháng là tách được',
-    'Sửa trên web (bấm ô Khác của chuyến để mở chi tiết phụ phí)', 'Sửa ở Sheet hoặc bộ lập bill (lần đọc sau tự cập nhật)']);
-  const items = await panel.locator('li').allInnerTexts();
-  assert.match(items[0], /DEMU0800001 · 20\/08\/2026 · Tháng 08\/2026 đang khóa/);
-  assert.match(items[1], /PS đánh dấu Health cert — nhập giá tay[\s\S]*Thêm khoản Health cert/);
-  assert.match(items[2], /web chưa có phụ phí[\s\S]*Ghi phí trên tab khách/);
-  assert.match(items[3], /Bộ lập bill báo lỗi: PS trùng dòng[\s\S]*Sửa trong bộ lập bill/);
-  assert.equal(await panel.locator('li').nth(0).locator('.ps-jump').count(), 0, 'chuyến không có trên sổ: không có Xem dòng');
-  assert.equal(await panel.locator('li').nth(3).locator('.ps-jump').count(), 0);
-  await shot('ps-can-xem');
-  await panel.locator('li').nth(2).locator('.ps-jump').click();
+  assert.match(await panel.locator('.ps-intro').innerText(), /Tiền trên web chưa đổi/);
+  const asks = await panel.locator('.ps-ask').allInnerTexts();
+  assert.equal(asks.length, 2);
+  assert.match(asks[0], /PS đánh dấu Health cert[\s\S]*Chuyến này có tính Health cert không\?[\s\S]*Không tính, hết báo[\s\S]*thêm khoản Health cert/);
+  assert.match(asks[1], /Khác = 315789\.5[\s\S]*· 2 cont[\s\S]*OLDU0000001[\s\S]*DEMU1234567[\s\S]*Khoản này có thu khách không\?[\s\S]*Không thu, hết báo \(2 cont\)/);
+  const rest = await panel.locator('h3 + ul li').allInnerTexts();
+  assert.match(rest[0], /DEMU0800001 · 20\/08\/2026 · Tháng 08\/2026 đang khóa[\s\S]*Máy tự tách ở lượt chạy sau/);
+  assert.match(rest[1], /Bộ lập bill báo lỗi: PS trùng dòng/);
+  assert.equal(await panel.locator('h3 + ul li').nth(0).locator('.ps-jump').count(), 0, 'chuyến không có trên sổ: không có Xem dòng');
+  await shot('ps-can-tra-loi');
+  await panel.locator('.ps-ask').nth(1).locator('.ps-jump').first().click();
   assert.equal(await page.locator('[data-row="legacy-21"]').evaluate(row => row.classList.contains('ps-flash')), true);
-  await Promise.all([page.waitForResponse(response => response.url().endsWith('/api/v7/months/lock')), panel.locator('.ps-unlock').click()]);
-  assert.deepEqual(posts(world).map(([path, body]) => [path, body.month, body.locked]), [['/api/v7/months/lock', '2026-08-01', false]]);
+  const total = await page.locator('.book-head .head-item.total strong').textContent();
+  await panel.locator('.ps-ask').nth(1).locator('.ps-keep').click();
+  await page.waitForFunction(() => /Đã ghi câu trả lời cho 2 cont/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  const keeps = posts(world).filter(([path]) => path === '/api/v7/sheet/tasks/keep').map(([, body]) => body);
+  assert.deepEqual(keeps.map(body => [body.task_kind, body.target_kind, body.target_id, body.source_fingerprint]),
+    [['ps', 'legacy', 21, 'c'.repeat(64)], ['ps', 'trip', 11, 'd'.repeat(64)]]);
+  assert.equal(keeps[1].expected_version, keeps[0].expected_version + 1, 'lệnh sau dùng version mới');
+  assert.match(await page.locator('.price-strip').innerText(), /Phụ phí PS cần trả lời:\s*3/);
+  assert.equal(await page.locator('.book-head .head-item.total strong').textContent(), total, 'tiền không đổi');
+  await Promise.all([page.waitForResponse(response => response.url().endsWith('/api/v7/months/lock')), page.locator('.ps-unlock').click()]);
+  assert.deepEqual(posts(world).filter(([path]) => path === '/api/v7/months/lock').map(([, body]) => [body.month, body.locked]), [['2026-08-01', false]]);
 }, setup));
 
 test('bảng PS đổi sau khi mở sổ: không tách chuyến nào, Tải lại sổ', async () => withPage(async ({ page, world }) => {

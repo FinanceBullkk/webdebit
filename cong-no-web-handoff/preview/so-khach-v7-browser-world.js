@@ -229,6 +229,14 @@ function apply(world, url, body) {
     world.version += 1;
     return [200, { written, remaining: 0, complete: true, version: world.version }];
   }
+  if (url === '/api/v7/sheet/tasks/keep' && body.task_kind === 'ps') {
+    const item = world.psFees?.review.find(row => row.keepable && row.target_kind === body.target_kind && row.target_id === body.target_id
+      && row.source_fingerprint === body.source_fingerprint);
+    if (!item || body.expected_version !== world.version) return [409, { error: 'STALE_SHEET', message: 'Dòng PS đã đổi.' }];
+    world.psFees.review = world.psFees.review.filter(row => row !== item);
+    world.psFees.review_count = world.psFees.review.length;
+    return [200, { kept: true, version: ++world.version }];
+  }
   if (url === '/api/v7/sheet/tasks/keep') {
     const item = world.sheetSync.removed_items?.find(row => row.trip_id === body.target_id);
     if (!item || item.source_fingerprint !== body.source_fingerprint) return [409, { error: 'STALE_SHEET' }];

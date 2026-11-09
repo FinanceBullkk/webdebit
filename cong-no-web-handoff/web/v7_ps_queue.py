@@ -19,6 +19,7 @@ from typing import Any
 
 from v7_price_queue import DATE_WINDOW_DAYS, container_key, iso, targets
 from v7_sheet_queue import _name, read_snapshot
+from v7_sheet_task_keep import kept, ps_identity, ps_web_value
 
 UNCLASSIFIED = ("other", "discount", "initial")
 # The fee migration (2026-10-28) stamped these on every "Phụ phí ban đầu" line; nobody typed them, and the event keeps them.
@@ -30,6 +31,9 @@ FLAG_NAMES = {"health": "Health cert", "kd": "Kiểm định"}
 LABELS = {"neo": "Neo", "dien": "Điện", "ghep": "Ghép", "khac": "Khác", "bao_hiem": "Bảo hiểm", "combined": "Health + KĐ"}
 REVIEW = ("MONTH_LOCKED", "TOTAL_DIFF", "WEB_NO_FEE", "AMBIGUOUS", "PS_SOURCE_ERROR", "PS_TYPO", "PS_BAD_AMOUNT",
           "TYPED_CONFLICT", "FEE_TYPE_MISSING", "NEED_HEALTH", "NEED_KD")
+# Dòng người trả lời được "Không thu, hết báo" (PS-HOI-01): có chuyến đích và là câu hỏi về tiền, không phải việc máy
+# tự làm (tháng khóa) hay cấu hình (thiếu loại phí).
+KEEPABLE = ("TOTAL_DIFF", "WEB_NO_FEE", "PS_TYPO", "PS_BAD_AMOUNT", "PS_SOURCE_ERROR", "TYPED_CONFLICT", "NEED_HEALTH", "NEED_KD")
 
 
 def load_ps_snapshot(path: str | Path) -> dict[str, Any]:
@@ -177,12 +181,12 @@ def message(status: str, row: dict, info: dict) -> str:
     month = info.get("month") or ""
     return {
         "MONTH_LOCKED": f"Tháng {month[5:7]}/{month[:4]} đang khóa",
-        "TOTAL_DIFF": f"Web {vnd_text(info.get('web_total') or 0)} · PS {vnd_text(info.get('ps_total') or 0)}",
-        "WEB_NO_FEE": f"PS {vnd_text(info.get('ps_total') or 0)} · web chưa có phụ phí",
+        "TOTAL_DIFF": f"Sổ khách tính {vnd_text(info.get('web_total') or 0)} phụ phí, PS ghi {vnd_text(info.get('ps_total') or 0)}",
+        "WEB_NO_FEE": f"PS ghi {vnd_text(info.get('ps_total') or 0)} phụ phí, sổ khách chưa thu",
         "AMBIGUOUS": "Cont khớp nhiều chuyến hoặc nhiều dòng PS cùng một chuyến",
         "PS_SOURCE_ERROR": f"Bộ lập bill báo lỗi: {row.get('source_error')}",
         "PS_TYPO": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} trên PS, có thể gõ sai",
-        "PS_BAD_AMOUNT": f"{LABELS.get(problem.get('field'), '')} = {problem.get('value')} không đọc được",
+        "PS_BAD_AMOUNT": f"PS ghi {LABELS.get(problem.get('field'), '')} = {problem.get('value')}, không phải số đồng nguyên nên máy không đọc",
         "TYPED_CONFLICT": "Web đã phân loại khác PS",
         "FEE_TYPE_MISSING": "Danh mục chưa có loại " + ", ".join(LABELS[f] for f in info.get("missing", [])),
         "NEED_HEALTH": "PS đánh dấu Health cert — nhập giá tay",
@@ -190,7 +194,7 @@ def message(status: str, row: dict, info: dict) -> str:
     }.get(status, "")
 
 
-def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: list[dict]) -> dict:
+def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the split button, review for "PS cần xem"."""
     customer = ledger.get("customer_id")
     aliases = {_name(k): v for k, v in snapshot.get("customer_aliases", {}).items()}
@@ -236,7 +240,8 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
                 "month": info["month"], "status": status, "message": message(status, row, info),
                 "ps_total": None if info["ps_total"] is None else str(info["ps_total"]),
                 "web_total": None if info["web_total"] is None else str(info["web_total"]),
-                "before": info["before"], "after": info["after"], "fill": bool(info.get("fill"))}
+                "before": info["before"], "after": info["after"], "fill": bool(info.get("fill")),
+                "source_fingerprint": ps_identity(row), "keepable": bool(target) and status in KEEPABLE}
     ready = [public(r, r["status"]) for r in results if r["status"] == "READY"]
     review = [public(r, r["status"]) for r in results if r["status"] in REVIEW]
     for result in results:   # Health/KĐ marks only remind; they never create money.
@@ -247,6 +252,10 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
             covered = {ids.get(field), ids.get("combined")} - {None}
             if result["row"].get(field) and not any(x.get("fee_type_id") in covered for x in target["lines"]):
                 review.append(public(result, status))
+    # PS-HOI-01: dòng người đã trả lời "Không thu, hết báo" không hiện nữa tới khi ô PS hoặc tiền chuyến trên web đổi.
+    if not include_kept:
+        review = [r for r in review if not (r["keepable"] and kept(ledger, "ps", r["target_kind"], r["target_id"],
+                  r["source_fingerprint"], ps_web_value(ledger, r["target_kind"], r["target_id"])))]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
             "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}
 

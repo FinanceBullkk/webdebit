@@ -17,3 +17,13 @@
 .ledger tr.ps-flash td{animation:ps-flash 1.6s ease-out}
 @keyframes ps-flash{0%,40%{background:#ffd27a}}
 @media (prefers-reduced-motion:reduce){.ledger tr.ps-flash td{animation:none;background:#ffd27a}}
+/* PS-HOI-01: mỗi câu hỏi một khối: PS ghi gì, cont nào, hỏi gì, nút trả lời và cách làm nếu trả lời ngược lại. */
+.ps-intro{margin:0 0 8px;color:#3e5871}
+.ps-ask{margin:0 0 10px;padding:8px 10px;border:1px solid #e3c98f;border-radius:6px;background:#fffdf6}
+.ps-says{margin:0;font-weight:600;color:#3d2a00}.ps-count{font-weight:400;color:#6b5a2f}
+.ps-panel ul.ps-conts{margin:4px 0;max-height:150px;overflow-y:auto}.ps-panel ul.ps-conts li{min-height:30px}
+.ps-q{margin:6px 0 4px}
+.ps-answer{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.ps-answer small{color:#475d73;font-size:14px}
+.ps-panel .ps-keep{min-height:34px;padding:2px 12px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.ps-panel .ps-keep:disabled{opacity:.6;cursor:default}.ps-panel .ps-keep:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
