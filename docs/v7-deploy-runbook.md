@@ -1777,7 +1777,9 @@ Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-lo
 4. **Theo dõi:** lượt sau, journal `v7-reconcile-auto` có `"edit_log": "OK"`, `reconcile-log.jsonl` có `editing`. `UNAVAILABLE` là đọc lỗi (mã ở `edit_log.reason` và journal, 403 là chưa chia sẻ), `STALE` là bộ ghi Apps Script không còn dòng mới quá 26 giờ: xem Executions ở project Apps Script. Cả hai đều không hỏng lượt.
 5. **Tắt:** bỏ dòng biến. Lượt sau là `OFF`.
 
-## Thu tháng theo từng sổ (DASH-08) — nâng DB đang có (CHƯA CHẠY)
+## Thu tháng theo từng sổ (DASH-08) — nâng DB đang có (ĐÃ CHẠY trên hao 9/11/2026)
+
+Đã chạy 9/11/2026, xem [nhật ký](deploys/2026-11-09-thu-thang-theo-so.md).
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-09-v7-thu-thang-theo-so.sql` chỉ thay thân hàm đọc `get_dashboard_debt` (`DASH-08`): `this_month` có thêm `customers` (thu và phát sinh tháng này từng sổ có số khác 0, kèm mặt hàng và cảng/bộ) để thẻ Thu tháng của Tổng quan lọc được. Mọi trường khác giữ nguyên từng byte; tổng `this_month` không đổi vì là tổng của các sổ. Không đổi bảng, view, hàm ghi, phân bổ, dữ liệu, quyền hay ngưỡng. Chạy lại được. **Chạy sau `2026-11-06-v7-ngay-tra-that.sql`. Chạy lại file đó hoặc `2026-10-29-v7-tong-quan-quan-ly-no.sql` thì phải chạy lại file này**, vì chúng trả hàm về thân cũ.
 
