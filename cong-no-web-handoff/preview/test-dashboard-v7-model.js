@@ -148,6 +148,23 @@ test('lọc chéo (DASH-08): scope bỏ chiều của chính khối; totals/risk
   assert.deepEqual(late.filter(g => g.count).map(g => [g.key, g.total, g.late]), [['Chuối', 400n, 400n]]);
 });
 
+test('monthFlow (DASH-08): cộng sổ trong phạm vi; sổ hết nợ chỉ khớp lọc mặt hàng; API cũ hay không lọc thì null', () => {
+  const rows = M.debtors(debt);
+  const coms = M.commodities(rows);
+  const book = (id, commodity, mode, charges, received) => ({ customer_id: id, commodity, transport_mode: mode, charges_vnd: charges, received_vnd: received });
+  const month = { charges_vnd: '0', received_vnd: '0', customers: [book(1, 'Sầu riêng', 'CANG', '10', '1'), book(2, 'Chuối', null, '20', '2'),
+    book(8, 'Chuối', null, '30', '3'), book(9, 'Bơ', null, '40', '4'), book(10, null, null, '50', '5')] };
+  assert.equal(M.monthFlow({ charges_vnd: '1', received_vnd: '1' }, rows, coms, { com: 'Chuối' }), null);
+  assert.equal(M.monthFlow(month, rows, coms, {}), null);
+  const pick = filter => { const f = M.monthFlow(month, rows, coms, filter); return [f.charges_vnd, f.received_vnd, f.books]; };
+  assert.deepEqual(pick({ com: 'Chuối' }), [50n, 5n, 2]);
+  assert.deepEqual(pick({ com: M.UNSORTED }), [50n, 5n, 1]);
+  assert.deepEqual(pick({ risk: 'high' }), [30n, 3n, 2]);
+  assert.deepEqual(pick({ tier: 3, com: 'Chuối' }), [20n, 2n, 1]);
+  // Mặt hàng không có sổ đang nợ (Bơ) không có dòng riêng: chỉ khớp "Khác".
+  assert.deepEqual(pick({ com: 'Bơ' }), [0n, 0n, 0]);
+});
+
 test('monthProgress: received over charges, today and days left in the month; charges 0 has no ratio; over 100% caps the fill', () => {
   const p = M.monthProgress('2026-10-29', { charges_vnd: '700000000', received_vnd: '186000000' });
   assert.deepEqual([p.month, p.day, p.days, p.left, p.dayPct, p.fill, p.percent], [10, 29, 31, 2, 94, 26.6, '26,6%']);

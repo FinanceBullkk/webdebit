@@ -392,6 +392,34 @@ test('khách quá hạn âm (dư ở nợ cũ) được trừ đúng vào summar
   assert.deepEqual(await page.locator('#list .num.od').allInnerTexts(), ['–', '−30']);
 }));
 
+test('Thu tháng theo lọc (DASH-08): API có số từng sổ thì thẻ tính lại, kể cả sổ đã hết nợ khi lọc mặt hàng', async () => withDashboard({
+  // C (Chuối) 300/80, A (Sầu riêng cảng) 250/50, sổ 9 Chuối đã hết nợ 150/56: cộng = 700/186 như this_month.
+  debtPayload: { ...debt, this_month: { ...debt.this_month, customers: [
+    { customer_id: 1, commodity: 'Sầu riêng', transport_mode: 'CANG', charges_vnd: '250000000', received_vnd: '50000000' },
+    { customer_id: 2, commodity: 'Chuối', transport_mode: null, charges_vnd: '300000000', received_vnd: '80000000' },
+    { customer_id: 9, commodity: 'Chuối', transport_mode: null, charges_vnd: '150000000', received_vnd: '56000000' }] } },
+}, async page => {
+  await page.locator('#list tr').first().waitFor();
+  const nums = async () => page.locator('.month-card .m-nums b').allInnerTexts();
+  assert.deepEqual(await nums(), ['186 tr', '700 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').count(), 0);
+  await page.locator('.com-line[data-com="Chuối"]').click();
+  assert.deepEqual(await nums(), ['136 tr', '450 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').innerText(), 'Chuối');
+  assert.match(await page.locator('.month-card .scope-tag').getAttribute('data-tip'), /cả sổ đã hết nợ/);
+  // Thêm ô 1–2 tháng: chỉ sổ đang nợ có nợ nhóm đó (C), sổ 9 đã hết nợ không còn.
+  await page.locator('.tile[data-tier="2"]').click();
+  assert.deepEqual(await nums(), ['80 tr', '300 tr']);
+  assert.equal(await page.locator('.month-card .scope-tag').innerText(), 'Chuối · Quá hạn 1–2 tháng');
+  await page.locator('#chips .com-x').click();
+  await page.locator('#chips .tier-x').click();
+  // Rủi ro cao (D, E) không có thu/phát sinh tháng này.
+  await page.locator('#chips [data-risk="high"]').click();
+  assert.deepEqual(await nums(), ['0 đ', '0 đ']);
+  await page.locator('#chips [data-risk="high"]').click();
+  assert.deepEqual(await nums(), ['186 tr', '700 tr']);
+}));
+
 test('link cũ ?nhom=com: mở lọc mặt hàng, ?xem= cũ bị xóa khỏi địa chỉ', async () => withDashboard({}, async page => {
   await page.locator('#list tr').first().waitFor();
   assert.equal(await page.locator('.com-line[data-com="Chuối"]').getAttribute('aria-pressed'), 'true');

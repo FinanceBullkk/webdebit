@@ -112,10 +112,14 @@
 
   // Thẻ Thu tháng: đã thu (xanh lá) / phát sinh, thước có vạch hôm nay, số ngày còn lại của tháng.
   function monthPart(data, debt) {
-    const p = M.monthProgress(debt?.as_of ?? data.as_of, debt?.this_month);
-    // Chưa có số thu/phát sinh theo từng khách: đang lọc thì ghi rõ thẻ vẫn là số cả công ty.
-    const whole = state.ready && (state.tier != null || state.risk != null || state.com != null)
-      ? `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>` : '';
+    // Lọc chéo (DASH-08): có số từng sổ (this_month.customers) thì thẻ tính theo cả ba lọc; API cũ chưa có thì thẻ giữ số cả
+    // công ty và ghi rõ "cả công ty" khi đang lọc.
+    const filtered = state.ready && (state.tier != null || state.risk != null || state.com != null);
+    const flow = filtered ? M.monthFlow(debt?.this_month, state.rows, state.coms, filter()) : null;
+    const p = M.monthProgress(debt?.as_of ?? data.as_of, flow ?? debt?.this_month);
+    const only = state.tier != null || state.risk != null ? 'Chỉ tính sổ đang nợ trong phạm vi; sổ đã hết nợ không có nhóm hạn trả hay mức rủi ro' : 'Gồm cả sổ đã hết nợ của mặt hàng này';
+    const whole = !filtered ? '' : flow ? scopeTag(null, only)
+      : `<span class="scope-tag all" tabindex="0"${tipAttr(['Số cả công ty', 'Thẻ này chưa tính theo lọc'])}>cả công ty</span>`;
     const head = `<div class="m-head"><h2 id="h-month">Thu tháng ${p.month}${whole}</h2><a class="m-link" href="/bang-thu.html">Bảng thu ›</a></div>`;
     if (!debt) return `${head}<p class="empty">Chưa tải được số thu tháng này.</p>`;
     const ratio = p.percent ? `Đã thu ${p.percent} phát sinh tháng ${p.month}` : `Tháng ${p.month} chưa phát sinh`;

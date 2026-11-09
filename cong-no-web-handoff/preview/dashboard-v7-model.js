@@ -195,6 +195,29 @@ const DashboardModel = (() => {
   }
 
   /**
+   * Thu tháng theo lọc (DASH-08): cộng `this_month.customers` (thu/phát sinh tháng này từng sổ, cả sổ đã hết nợ) của các sổ
+   * trong phạm vi. Lọc hạn trả / mức rủi ro chỉ khớp sổ đang nợ (sổ hết nợ không có nhóm); lọc mặt hàng khớp cả sổ hết nợ,
+   * mặt hàng không có trong `coms` gộp "Khác". API chưa có `customers` hoặc không lọc gì thì trả null (dùng tổng của server).
+   */
+  function monthFlow(thisMonth, rows, coms, { tier = null, risk = null, com = null } = {}) {
+    if (!Array.isArray(thisMonth?.customers) || (tier == null && risk == null && com == null)) return null;
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const keys = new Set(coms.map(item => item.key));
+    const comOf = book => {
+      const row = byId.get(book.customer_id);
+      if (row) return row.com;
+      const key = commodityKey(book.commodity, book.transport_mode);
+      return key === UNSORTED || (keys.has(key) && key !== OTHER) ? key : OTHER;
+    };
+    const books = thisMonth.customers.filter(book => {
+      const row = byId.get(book.customer_id);
+      if ((tier != null || risk != null) && !row) return false;
+      return (tier == null || row.tiers[tier] > 0n) && (risk == null || row.risk === risk) && (com == null || comOf(book) === com);
+    });
+    return { charges_vnd: F.sum(books.map(book => book.charges_vnd)), received_vnd: F.sum(books.map(book => book.received_vnd)), books: books.length };
+  }
+
+  /**
    * Thước đo tháng: đã thu so với phát sinh tháng này, hôm nay là ngày mấy và còn mấy ngày tới cuối tháng (theo `as_of`,
    * giờ VN). Phát sinh 0 thì không có tỉ lệ (`percent` null, `fill` 0); thu vượt phát sinh thì thước đầy, % vẫn đúng.
    */
@@ -230,6 +253,6 @@ const DashboardModel = (() => {
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, RISKS, commodityKey, monthName, tierLabels, tierOfMonth, reason, ago,
-    debtors, totalsMatch, risks, riskMatches, commodities, scope, totals, riskView, comView, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, risks, riskMatches, commodities, scope, totals, riskView, comView, monthFlow, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;
