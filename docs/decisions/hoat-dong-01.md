@@ -8,7 +8,7 @@ Tab **"Máy đã làm"** của Việc cần làm đổi thành **"Đã làm"**: 
 
 1. Nguồn là Lịch sử trong DB (bảng `sokhach.event`): mọi hàm ghi đều chèn một dòng có người làm, giờ, trước → sau. Không đọc nhật ký trong RAM của hộp việc nữa (chỉ có hôm nay và mất khi API khởi động lại).
 2. Mặc định là hôm nay (giờ VN). Thanh chọn ngày: nút về **ngày gần nhất trước đó có việc**, ô chọn ngày (không quá hôm nay), nút ngày sau, nút "Hôm nay". Lọc **Tất cả / Máy / Người**, kèm số việc.
-3. Mỗi dòng: giờ · người làm (máy là "Máy", người là tên ngắn theo PRESENCE-01) · sổ · câu **giống hệt khung Lịch sử của sổ** (cùng file `so-khach-v7-lich-su-cau.js`) · ghi chú/lý do · Mở sổ. Hôm nay giữ dòng "Đã ghi hôm nay" như trước.
+3. Hiện thành **bảng có cột**: Giờ · Người làm (máy là "Máy", người là tên ngắn theo PRESENCE-01) · Sổ · Việc · Chi tiết (câu **giống hệt khung Lịch sử của sổ**, cùng file `so-khach-v7-lich-su-cau.js`) · Ghi chú/lý do · Mở sổ. **Chia nhóm theo loại việc** như bộ lọc Lịch sử của sổ: Chuyến, Thu tiền, Giá và phụ phí, Khóa tháng, Việc khác; tiêu đề nhóm có số việc. Hôm nay giữ dòng "Đã ghi hôm nay" như trước.
 4. Số trên nhãn tab vẫn là số việc máy làm hôm nay như trước.
 5. Một ngày hiện tối đa 2.000 việc mới nhất; ngày nhiều hơn thì ghi rõ tổng.
 
@@ -16,7 +16,7 @@ Backend: hàm đọc `get_activity(date)` cấp cho app (không cấp reader, nh
 
 ## Ngày / nguồn
 
-9/11/2026, người dùng trong chat: hỏi tab Máy đã làm "có thể check toàn bộ lịch sử các ngày khác luôn không, để sếp biết là đã có những gì được nhập và sửa vào"; chọn "Làm, cả máy và người". Cách hiện (ngày gần nhất có việc, lọc, dùng chung câu chữ Lịch sử) do Claude quyết theo [`CLAUDE-ALL-01`](claude-all-01.md).
+9/11/2026, người dùng trong chat: hỏi tab Máy đã làm "có thể check toàn bộ lịch sử các ngày khác luôn không, để sếp biết là đã có những gì được nhập và sửa vào"; chọn "Làm, cả máy và người". Cùng ngày người dùng yêu cầu "format lại theo các column … group theo dán chuyến, sửa, thêm giá" nên đổi danh sách thành bảng chia nhóm. Cách hiện (ngày gần nhất có việc, lọc, dùng chung câu chữ Lịch sử) do Claude quyết theo [`CLAUDE-ALL-01`](claude-all-01.md).
 
 ## Hiệu lực và giới hạn
 

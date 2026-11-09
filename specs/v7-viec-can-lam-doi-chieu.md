@@ -71,6 +71,7 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - `GET /api/v7/activity` (hôm nay) hoặc `?day=yyyy-mm-dd`; sai dạng hoặc ngày sau hôm nay → 422 `INVALID_DAY`. Trả `{day, today, prev_day, next_day, total, events[], trips[], legacy_rows[], receipts[], fee_types[]}`; `events` mới trước, tối đa 2.000, cùng hình dạng Lịch sử của sổ, thêm `customer`, `actor_name`. `prev_day`/`next_day` là ngày gần nhất có việc.
 - Lô dán chỉ giữ `trip_id, container, event_date, date, unitPriceVnd, status, note` từng chuyến.
 - Câu chữ dùng chung `preview/so-khach-v7-lich-su-cau.js` với khung Lịch sử của sổ.
+- Hiện thành bảng cột Giờ · Người làm · Sổ · Việc · Chi tiết · Ghi chú · Mở sổ, chia nhóm theo loại việc như bộ lọc Lịch sử của sổ (`groupOf`): Chuyến, Thu tiền, Giá và phụ phí, Khóa tháng, Việc khác. Tiêu đề nhóm có số việc và số từng việc; trong nhóm, cùng việc đứng liền nhau, mới nhất trước. Cột Ghi chú bỏ chữ "Ghi chú:" và gộp ghi chú trùng của lô nhiều chuyến (9/11/2026, người dùng yêu cầu).
 - Tab đọc khi mở; hôm nay đọc lại theo nhịp tự tải 60 giây, ngày cũ đọc một lần. Lỗi đọc có Thử lại.
 
 ## Tiêu chí nghiệm thu

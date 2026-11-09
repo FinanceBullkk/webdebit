@@ -129,10 +129,22 @@ svg{flex:none;vertical-align:middle}
 .act-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}.act-bar .btn{display:inline-flex;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
 .act-date{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:#52514e}.act-date input{height:36px;padding:0 8px;border:1px solid #d7dce3;border-radius:8px;font:inherit;color:#1a1a19}
 .act-filter{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}.act-filter .filter-chip{height:36px}
-.act-list li{align-items:baseline;flex-wrap:nowrap;padding:4px 0;border-bottom:1px solid #f0f2f5}.act-list li:last-child{border-bottom:0}
-.act-list .auto-kind{flex:none;min-width:44px;text-align:center}.act-list .auto-kind.machine{background:#dbe8f7;color:#1c5cab}
-.act-list strong{flex:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.act-list .act-what{flex:1;min-width:0}.act-list .act-what small{display:block;color:#52514e}.act-list a{flex:none}
+.act-scroll{background:#fff;border:1px solid #e3e7ec;border-radius:10px}
+.act-table{width:100%;min-width:900px;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.act-table thead th{padding:7px 8px;background:#f7f9fb;border-bottom:1px solid #d7dce3;color:#3a3936;font-size:13.5px;text-align:left;white-space:nowrap}
+.act-table thead th:first-child,.act-table td:first-child{padding-left:14px}
+.act-table td,.act-table tbody th{padding:6px 8px;border-bottom:1px solid #f0f2f5;text-align:left;vertical-align:top;font-weight:400}
+.act-group-head th{padding:12px 14px 6px!important;background:#fff;border-bottom:1px solid #d7dce3!important}
+.act-group+.act-group .act-group-head th{border-top:6px solid #f3f5f8}
+.act-group-title{font-size:15px;font-weight:700;color:#1a1a19}.act-group-title b{margin-left:4px;color:#1c5cab}
+.act-group-kinds{margin-left:12px;font-size:13px;color:#52514e;font-weight:400}
+.act-time{width:52px;color:#52514e;white-space:nowrap}
+.act-table .auto-kind{display:inline-block;min-width:44px;padding:0 8px;border-radius:10px;background:#eef1f5;color:#52514e;font-size:12.5px;font-weight:600;text-align:center;white-space:nowrap}
+.act-table .auto-kind.machine{background:#dbe8f7;color:#1c5cab}
+.act-book{width:190px;max-width:190px;font-weight:600!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-label{width:150px;font-weight:600;white-space:nowrap}
+.act-what{min-width:260px;overflow-wrap:anywhere}.act-note{width:170px;color:#52514e;font-size:13px}
+.act-open{width:64px;text-align:right!important;white-space:nowrap}.act-open a{color:#1c5cab;font-weight:600}
 
 
 .page-head .presence:empty{display:none}
