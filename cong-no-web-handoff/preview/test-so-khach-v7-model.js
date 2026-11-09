@@ -669,13 +669,13 @@ test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc ch�
   for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: BM0U9231830/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
     /^block: Còn thiếu: Tên pháp lý của khách, Địa chỉ của khách\.$/, /^block: Bật quy đổi USD nhưng thiếu/, /^block: Mô tả hoặc ghi chú có chuỗi giống số điện thoại/,
     /^warn: Chủ tài khoản nhận tiền khác bên phát hành/, /^warn: Ngày phát hành sớm hơn ngày đóng hàng cuối cùng \(13 Sep 2026\)/,
-    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Lao Cai/, /^warn: 1 container có LUMP-SUM bằng 0/])
+    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Lao Cai/, /^warn: 1 container có đơn giá bằng 0/])
     assert.ok(texts.some(text => pattern.test(text)), `${pattern} trong\n${texts.join("\n")}`);
   // Tổng thiếu giá thì để trống, không coi là 0.
   assert.deepEqual([note.totalVnd, note.subtotalVnd, note.complete], [null, null, false]);
   // Thành tiền dòng khác số trên sổ thì chặn (kiểm tra chéo cách cộng).
   const off = model.debitNote({ trips: [dnTrip("2026-09", "02", "XIAMEN", 100, [], { amount_vnd: "101" })] }, "2026-09", dnFeeTypes);
-  assert.match(model.debitNoteChecks(off, dnDoc()).map(item => item.text).join(" "), /Thành tiền LUMP-SUM \+ phí khác số trên sổ/);
+  assert.match(model.debitNoteChecks(off, dnDoc()).map(item => item.text).join(" "), /Thành tiền đơn giá \+ phí khác số trên sổ/);
 });
 
 test("DEBIT-NOTE-02 dòng sổ gốc không có bản sửa đọc theo Sheet; dòng không container thành ADDITIONAL CHARGES", () => {

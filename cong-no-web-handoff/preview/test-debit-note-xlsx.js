@@ -52,7 +52,7 @@ test('DEBIT-NOTE-02 Excel đối chiếu: tiêu đề cố định hàng 9, đ�
   assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
   const sheet = files['xl/worksheets/sheet1.xml'];
   const heads = [...sheet.matchAll(/<c r="([A-Z]+)9" s="\d+" t="inlineStr"><is><t xml:space="preserve">([^<]*)<\/t>/g)].map(match => [match[1], match[2].split('\n')[0]]);
-  assert.deepEqual(heads, [['A', 'NO.'], ['B', 'CONTAINER NO.'], ['C', 'SHIPPER'], ['D', 'DATE'], ['E', 'FROM'], ['F', 'TO'], ['G', 'LUMP-SUM'], ['H', 'STORAGE'],
+  assert.deepEqual(heads, [['A', 'NO.'], ['B', 'CONTAINER NO.'], ['C', 'SHIPPER'], ['D', 'DATE'], ['E', 'FROM'], ['F', 'TO'], ['G', 'UNIT PRICE'], ['H', 'STORAGE'],
     ['I', 'TRUCKING'], ['J', 'GENERATOR / ELECTRICITY FEE'], ['K', 'OVERSTAY'], ['L', 'HC FEE'], ['M', 'CANCELLATION FEE'], ['N', 'AMD FEE'], ['O', 'TOTAL (VND)']]);
   assert.match(sheet, /<pane ySplit="9" topLeftCell="A10" activePane="bottomLeft" state="frozen"\/>/);
   assert.doesNotMatch(sheet, /mergeCell/);
@@ -97,7 +97,7 @@ test('DEBIT-NOTE-02 bản in: trang 1 tóm tắt, trang chi tiết chỉ hiện 
   assert.match(html, /<td>Subtotal {2}小计<\/td><td class="num">2<\/td><td class="num">155,000,000<\/td><td class="num">27,000,000<\/td>/);
   assert.match(html, /Payment Ref\. {2}<span>汇款附言<\/span><\/th><td class="b">HTH\/2609-001<\/td>/);
   const heads = [...html.matchAll(/<th class="num">([^<]+)<br>/g)].map(match => match[1]);
-  assert.deepEqual(heads.slice(-4), ['LUMP-SUM', 'OVERSTAY', 'CANCELLATION FEE', 'AMOUNT']);
+  assert.deepEqual(heads.slice(-4), ['UNIT PRICE', 'OVERSTAY', 'CANCELLATION FEE', 'AMOUNT']);
   assert.doesNotMatch(html, /STORAGE<br>/);
   assert.doesNotMatch(html, /B\/L NO\./);   // chưa dòng nào có số B/L
   assert.match(html, /<tr class="dn-charge"><td><\/td><td colspan="3">CANCELLATION FEE {2}· {2}取消订柜费<\/td><td>10 Sep 2026<\/td>\s*<td colspan="2">BK-001<\/td>/);
