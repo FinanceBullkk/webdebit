@@ -20,4 +20,4 @@ Backend: hàm đọc `get_activity(date)` cấp cho app (không cấp reader, nh
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT. Chỉ đọc: không đổi bảng, hàm ghi, tiền hay quyền cũ. Trạng thái triển khai ghi theo lượt `Deploy hao` (frontend) và nhật ký `docs/deploys/` (migration). Release mới trên DB chưa có hàm thì tab báo không tải được và có Thử lại. CÒN MỞ: người dùng tự đi hết luồng trên `hao`.
+ĐÃ CHỐT. ĐÃ TRIỂN KHAI trên `hao` 9/11/2026 14:15 (migration và release `451b5c2`, [nhật ký](../deploys/2026-11-09-hoat-dong.md)). Chỉ đọc: không đổi bảng, hàm ghi, tiền hay quyền cũ. Trạng thái triển khai ghi theo lượt `Deploy hao` (frontend) và nhật ký `docs/deploys/` (migration). Release mới trên DB chưa có hàm thì tab báo không tải được và có Thử lại. CÒN MỞ: người dùng tự đi hết luồng trên `hao`.
