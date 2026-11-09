@@ -149,6 +149,52 @@ const DashboardModel = (() => {
   }
 
   /**
+   * Lọc chéo (DASH-08): khách theo các lọc đang chọn, bỏ chiều `skip` của chính khối đang vẽ ('tier' | 'risk' | 'com'),
+   * để khối vẫn hiện đủ lựa chọn của mình (ô đang chọn chỉ được tô) mà số tính lại theo các lọc còn lại.
+   */
+  function scope(rows, { tier = null, risk = null, com = null } = {}, skip = null) {
+    const t = skip === 'tier' ? null : tier;
+    const r = skip === 'risk' ? null : risk;
+    const c = skip === 'com' ? null : com;
+    return rows.filter(row => (t == null || row.tiers[t] > 0n) && (r == null || row.risk === r) && (c == null || row.com === c));
+  }
+
+  /** Dải đầu của một phạm vi khách: còn phải thu, 5 nhóm hạn trả, quá hạn (kể phần âm như server), khách dư ở nợ cũ. */
+  function totals(rows) {
+    const credit = rows.filter(row => row.overdue < 0n);
+    return { count: rows.length, total: F.sum(rows.map(row => row.total)), tiers: TIERS.map((_, i) => F.sum(rows.map(row => row.tiers[i]))),
+      overdue: F.sum(rows.map(row => row.overdue)), credit: { count: credit.length, overdue: F.sum(credit.map(row => row.overdue)) } };
+  }
+
+  /** Tiền của một khách cho khối đang lọc nhóm hạn trả: có nhóm thì tiền nhóm đó, không thì `field`. */
+  const amountOf = (row, tier, field) => (tier == null ? row[field] : row.tiers[tier]);
+
+  /**
+   * Ba chip mức rủi ro của một phạm vi: số khách và tiền. Không lọc nhóm hạn trả: tiền quá hạn (như `risks`); có lọc:
+   * tiền thuộc nhóm đó, cho cả chip Không quá hạn.
+   */
+  function riskView(rows, tier = null) {
+    return RISKS.map(key => {
+      const members = rows.filter(row => row.risk === key);
+      return { key, label: RISK[key], count: members.length, amount: F.sum(members.map(row => amountOf(row, tier, 'overdue'))) };
+    });
+  }
+
+  /**
+   * Dòng mặt hàng của một phạm vi, giữ nhóm và thứ tự của `coms` (bố cục không nhảy khi lọc). Không lọc nhóm hạn trả:
+   * còn phải thu và phần quá hạn dương; có lọc: tiền nhóm đó, cả là quá hạn khi nhóm đã quá hạn (từ 1–2 tháng).
+   */
+  function comView(rows, coms, tier = null) {
+    return coms.map(item => {
+      const members = rows.filter(row => row.com === item.key);
+      const total = F.sum(members.map(row => amountOf(row, tier, 'total')));
+      const overdue = F.sum(members.map(row => row.overdue));
+      const late = tier == null ? (overdue > 0n ? overdue : 0n) : tier >= 2 ? total : 0n;
+      return { ...item, count: members.length, total, late };
+    });
+  }
+
+  /**
    * Thước đo tháng: đã thu so với phát sinh tháng này, hôm nay là ngày mấy và còn mấy ngày tới cuối tháng (theo `as_of`,
    * giờ VN). Phát sinh 0 thì không có tỉ lệ (`percent` null, `fill` 0); thu vượt phát sinh thì thước đầy, % vẫn đúng.
    */
@@ -184,6 +230,6 @@ const DashboardModel = (() => {
   }
 
   return { UNSORTED, OTHER, TIERS, RISK, RISKS, commodityKey, monthName, tierLabels, tierOfMonth, reason, ago,
-    debtors, totalsMatch, risks, riskMatches, commodities, monthProgress, dayCell, filterRows };
+    debtors, totalsMatch, risks, riskMatches, commodities, scope, totals, riskView, comView, monthProgress, dayCell, filterRows };
 })();
 if (typeof module !== 'undefined') module.exports = DashboardModel;

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const M = require('./dashboard-v7-model.js');
+const F = require('./cong-no-format.js');
 
 const rule = { due_after_months: 1, long_overdue_months: 3, no_pay_days: 60, no_trip_days: 90, active_trip_days: 30 };
 const customer = (id, name, tiers, extra = {}) => {
@@ -106,7 +107,6 @@ test('commodities: under 1% folds into Khác, unsorted last, bigger first', () =
   assert.deepEqual(coms.map(g => [g.key, g.count, g.total, g.tone]), [['Dừa', 1, 98400n, ''], [M.OTHER, 3, 1100n, 'grey'], [M.UNSORTED, 1, 500n, 'grey']]);
   assert.deepEqual(M.commodities(M.debtors(debt)).map(g => g.key), ['Chuối', 'Sầu riêng cảng', 'Mít', M.UNSORTED]);
   // DASH-07: "Khác" kể tên các mặt hàng đã gộp (chú thích dòng); nhóm khác không có danh sách.
-  const F = require('./cong-no-format.js');
   const other = coms.find(g => g.key === M.OTHER);
   const names = M.debtors(big).filter(row => row.com === M.OTHER).map(row => F.commodityText(row.commodity, row.transportMode));
   assert.deepEqual(other.members, [...new Set(names)].sort((a, b) => a.localeCompare(b, 'vi')));
@@ -119,6 +119,33 @@ test('commodities: late is the positive overdue, so a credit in old debt never m
     customer(2, 'Khách B', ['100', '0', '300', '0', '0'], { commodity: 'Chuối' })] };
   const coms = M.commodities(M.debtors(credit));
   assert.deepEqual(coms.map(g => [g.key, g.total, g.overdue, g.late]), [['Mít', 450n, -50n, 0n], ['Chuối', 400n, 300n, 300n]]);
+});
+
+test('lọc chéo (DASH-08): scope bỏ chiều của chính khối; totals/riskView/comView tính lại trong phạm vi', () => {
+  const rows = M.debtors(debt);
+  const f = { tier: 3, risk: 'high', com: 'Chuối' };
+  // Khách A: Sầu riêng cảng, rủi ro cao, có nợ trên 6 tháng nhưng không có nợ 3–6 tháng; Khách B: Chuối, rủi ro cao, 3–6 tháng.
+  assert.deepEqual(M.scope(rows, f).map(row => row.id), [2]);
+  assert.deepEqual(M.scope(rows, f, 'com').map(row => row.id), [2]);
+  assert.deepEqual(M.scope(rows, { ...f, tier: null }, 'com').map(row => row.id).sort(), [1, 2]);
+  assert.equal(M.scope(rows, f, 'tier').length, M.scope(rows, { com: 'Chuối', risk: 'high' }).length);
+  // Không lọc gì: totals = tổng server.
+  const all = M.totals(M.scope(rows, {}));
+  assert.equal(all.total, 1600n);
+  assert.deepEqual(all.tiers, [300n, 200n, 600n, 400n, 100n]);
+  assert.equal(all.overdue, 1100n);
+  // Chip trong nhóm 3–6 tháng: tiền là tiền nhóm đó.
+  assert.deepEqual(M.riskView(M.scope(rows, { tier: 3 }, 'risk'), 3).map(g => [g.key, g.count, g.amount]),
+    [['high', 1, 400n], ['watch', 0, 0n], ['ok', 0, 0n]]);
+  assert.deepEqual(M.riskView(rows).map(g => g.amount), M.risks(rows).groups.map(g => g.overdue));
+  // Khối mặt hàng giữ thứ tự nhóm; nhóm không còn khách là 0; lọc nhóm chưa quá hạn thì không có phần quá hạn.
+  const coms = M.commodities(rows);
+  const notDue = M.comView(M.scope(rows, { tier: 0 }, 'com'), coms, 0);
+  assert.deepEqual(notDue.map(g => g.key), coms.map(g => g.key));
+  assert.ok(notDue.every(g => g.late === 0n));
+  assert.equal(F.sum(notDue.map(g => g.total)), 300n);
+  const late = M.comView(M.scope(rows, { tier: 3 }, 'com'), coms, 3);
+  assert.deepEqual(late.filter(g => g.count).map(g => [g.key, g.total, g.late]), [['Chuối', 400n, 400n]]);
 });
 
 test('monthProgress: received over charges, today and days left in the month; charges 0 has no ratio; over 100% caps the fill', () => {
