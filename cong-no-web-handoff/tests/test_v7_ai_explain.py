@@ -61,6 +61,12 @@ class AiTests(unittest.TestCase):
             network.assert_not_called()
         self.assertEqual(caught.exception.status, 409)
 
+    def test_report_and_statement_total_must_match(self):
+        changed = {**REPORT, "customers": [{**REPORT["customers"][0], "web_total_vnd": "999"}]}
+        with patch.object(ai, "reconcile_result", return_value=changed), self.assertRaises(ApiError) as caught:
+            ai.preview(7, self.runner, "actor")
+        self.assertEqual(caught.exception.status, 409)
+
     def test_missing_key_disables_preview_and_send(self):
         with patch.object(ai, "_key", return_value=None), patch.object(ai, "urlopen") as network:
             self.assertFalse(ai.preview(7, self.runner, "actor")["enabled"])

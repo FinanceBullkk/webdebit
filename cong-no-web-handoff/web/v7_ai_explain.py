@@ -41,11 +41,16 @@ def _packet(customer: int, runner, actor: str) -> dict:
     report = reconcile_result() or {}
     if not report.get("checked_at"):
         raise ApiError(503, "AI_REPORT_UNAVAILABLE", "Chưa có lượt đối soát để giải thích.")
-    row = next((item for item in report.get("customers") or [] if item.get("customer_id") == customer), None)
-    if row is None:
+    rows = [item for item in report.get("customers") or [] if item.get("customer_id") == customer]
+    if not rows:
         raise ApiError(404, "AI_CASE_NOT_FOUND", "Khách này chưa có ngoại lệ trong lượt đối soát.")
+    if len(rows) != 1:
+        raise ApiError(409, "AI_CASE_AMBIGUOUS", "Báo cáo có nhiều dòng cùng khách. Cần kiểm lại đối soát.")
+    row = rows[0]
     statement = v7_api_doi_chieu.statement(customer, runner, actor)
-    if statement.get("checked_at") != report.get("checked_at"):
+    if statement.get("customer_id") != customer or statement.get("checked_at") != report.get("checked_at") \
+            or (row.get("sheet_total_vnd") is not None and str(row["sheet_total_vnd"]) != str(statement.get("sheet_total_vnd"))) \
+            or (row.get("web_total_vnd") is not None and str(row["web_total_vnd"]) != str(statement.get("web_vnd"))):
         raise ApiError(409, "AI_CASE_STALE", "Bảng đối chiếu vừa đổi. Tải lại rồi xem trước lần nữa.")
     evidence = []
     partial = len(statement["groups"]) > MAX_GROUPS or len(row.get("hints") or []) > 8
