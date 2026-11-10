@@ -251,3 +251,20 @@ test('Excel v4: cột tiền đủ rộng cho số lớn nhất (không ra ####)
   assert.ok(lines.join(' ').startsWith('FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司 Room 1203'), lines.join(' | '));
   assert.doesNotMatch(xmlText, /<row r="(7|8|9|10)" ht="(?!15")/);   // các hàng của khối DOCUMENT không bị kéo cao
 });
+
+test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 chỉ in khi cấu hình show_place_cn bật; cột Excel rộng theo chữ', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const placeCells = on => {
+    const doc = v4.fromLedger(ledger(), '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config: { ...config, show_place_cn: on },
+      form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
+    const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
+    const second = rowOf(sheet.find('Amount\n金额')) + 2;   // dòng 2: TGHU2222222, Tien Giang → Qingdao
+    return { excel: [sheet.text(`F${second}`), sheet.text(`G${second}`)], widths: sheet.widths, html: v4.pageHtml(doc, 'single', doc.rows) };
+  };
+  const off = placeCells(false), on = placeCells(true);
+  assert.deepEqual(off.excel, ['Tien Giang', 'Qingdao']);
+  assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
+  assert.ok(on.widths[5] > off.widths[5] && on.widths[6] > off.widths[6]);
+  assert.doesNotMatch(off.html, /青岛港/);
+  assert.match(on.html, /Qingdao<br>青岛港/);
+});

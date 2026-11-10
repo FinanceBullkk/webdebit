@@ -95,6 +95,8 @@ const DebitNoteV4Xlsx = (() => {
     const R = side ? 6 : 5;
     return { n, last, side, R, leftField: side ? 2 : 0, leftValue: side ? 4 : 2, rightField: side ? R + 2 : R };
   }
+  // Ô Loading place / POD: tên tiếng Trung theo cùng cờ show_place_cn với bản in (DEBIT-NOTE-03, DIA-DIEM-01).
+  const placeText = (doc, place) => (doc.showPlaceCn && place.cn ? `${place.text}  ${place.cn}` : place.text);
   // Độ rộng ước lượng của một chuỗi theo đơn vị cột Excel (chữ Hán rộng gần gấp đôi).
   const textWidth = text => [...String(text ?? '')].reduce((sum, ch) => sum + (/[⺀-￯]/.test(ch) ? 1.9 : 1), 0);
   // Bề rộng cột (đơn vị Excel ≈ một chữ số Times 10pt). Cột chữ theo tỉ lệ px của trang mẫu; cột tiền đủ cho số lớn nhất
@@ -102,6 +104,9 @@ const DebitNoteV4Xlsx = (() => {
   // (cột co giãn) để cả bảng rộng như một trang A4 ngang.
   function widths(doc, lay = layout(doc)) {
     const cols = [5, 16, 8, 18, 13, 13.5, 11.5];
+    // Loading place / POD: rộng theo chữ dài nhất (có tên tiếng Trung khi show_place_cn bật), để chữ không bị cắt.
+    for (const [col, key] of [[5, 'place'], [6, 'pod']])
+      cols[col] = Math.max(cols[col], ...doc.rows.filter(row => !row.feeOnly).map(row => Math.ceil(textWidth(placeText(doc, row[key])) + 2)));
     const moneyWidth = (values, en, cn, px) => Math.ceil(Math.max(px / 5.8, ...values.map(value => money(value).length * 1.05 + 2.5), en.length * 0.95 + 2, textWidth(cn) + 1.5));
     for (const column of doc.columns) cols.push(moneyWidth([...doc.rows.map(row => row.cells[column.code] ?? null), doc.total.cells[column.code]], column.en, column.cn, column.width));
     cols.push(moneyWidth([...doc.rows.map(row => row.amount), doc.total.amount, doc.account?.opening, doc.account?.outstanding,
@@ -201,7 +206,7 @@ const DebitNoteV4Xlsx = (() => {
         cell.num(r, 0, item.no, `no${end}`); cell.text(r, 1, item.container, `container${end}`); cell.text(r, 2, item.line, `text${end}`); cell.text(r, 3, item.shipper, `text${end}`);
       }
       cell.date(r, 4, item.date, `date${end}`);
-      cell.text(r, 5, item.feeOnly ? '' : item.place.text, `text${end}`); cell.text(r, 6, item.feeOnly ? '' : item.pod.text, `text${end}`);
+      cell.text(r, 5, item.feeOnly ? '' : placeText(doc, item.place), `text${end}`); cell.text(r, 6, item.feeOnly ? '' : placeText(doc, item.pod), `text${end}`);
       doc.columns.forEach((column, k) => cell.num(r, 7 + k, item.cells[column.code] ?? (item.feeOnly && column.code === 'LUMP_SUM' ? null : 0n), `money${end}`));
       cell.num(r, amountCol, item.amount, `money${end}`);
       g.height(r, 18);
