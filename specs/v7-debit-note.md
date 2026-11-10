@@ -1,6 +1,6 @@
 # Debit note theo tháng công nợ
 
-Trạng thái: ĐÃ CHỐT. Chọn theo tháng công nợ, xuất PDF và Excel: người dùng, 29/10/2026, [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md). Bố cục và quy tắc theo mẫu Debit Note v3 sếp duyệt 30/10/2026: [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md). Các điểm Claude chọn và điểm CÒN MỞ ghi trong hai file quyết định.
+Trạng thái: ĐÃ CHỐT. Chọn theo tháng công nợ, xuất PDF và Excel: người dùng, 29/10/2026, [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md). Bố cục và quy tắc theo mẫu Debit Note v3 sếp duyệt 30/10/2026: [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md). Các điểm Claude chọn và điểm CÒN MỞ ghi trong hai file quyết định. Mẫu v4 một trang A4 ngang (10/11/2026, [`DEBIT-NOTE-03`](../docs/decisions/debit-note-03.md)): mục [Mẫu v4](#mẫu-v4-debit-note-03).
 
 ## Người dùng và luồng (bước 1, bắt buộc với frontend)
 
@@ -76,6 +76,51 @@ Không có lệnh mới. Chứng từ dựng từ bản sổ trang đã tải (`
 - [x] Các trường hợp kiểm thử của đặc tả v3: 409,500,000; 8,309,100,000 và tổng từng loại phí tháng 8; 320,196.53 / 322,683.50 USD; ba câu số bằng chữ; hạn 14 Nov 2026.
 - [x] Hộp mở/đóng bằng bàn phím, Esc trả focus về nút; tải Excel ra file mở được; In dựng đủ dòng.
 - [ ] Người dùng xuất một tháng của sổ thật trên `hao`, đối chiếu với bản v3 đã duyệt (CÒN MỞ).
+
+## Mẫu v4 (DEBIT-NOTE-03)
+
+Trạng thái: ĐÃ CHỐT 10/11/2026 ([`DEBIT-NOTE-03`](../docs/decisions/debit-note-03.md)), ĐÃ CODE; mặc định vẫn mẫu v3 tới khi team duyệt. Thiết kế: [`docs/debit-note-v4/SPEC.md`](../docs/debit-note-v4/SPEC.md) và trang mẫu `docs/debit-note-v4/reference/*.html` (CSS chép gần như nguyên văn).
+
+### Luồng
+
+1. Bấm **Debit note** ở tiêu đề tháng như v3. Trang đọc `GET /api/v7/debit-note/config`: `template` là `v4` (hoặc địa chỉ trang có `?debit=v4`) thì mở hộp v4.
+2. Bên trái người lập điền số debit note (gợi ý `HTH-yymm-001`), ngày phát hành (trống thì in `[Issue date]`), tên khách Latin và tiếng Trung, tên pháp lý và địa chỉ, người liên hệ; trình duyệt nhớ phần khách theo sổ. Công ty, ngân hàng, tên phí lấy từ cấu hình, không điền ở hộp.
+3. Bên phải là danh sách **Chặn / Cảnh báo / Lưu ý** và bản xem trước đã chia trang. Còn **Chặn** (một trong 6 phép kiểm sai, thiếu giá, thiếu số tháng của máy chủ, không đọc được cấu hình) thì **In / Lưu PDF** và **Tải Excel** bị khóa. Còn **Cảnh báo** thì tích "Tôi đã xem các cảnh báo, cho xuất".
+4. **In / Lưu PDF** chia trang lại trong khung in rồi mở hộp in (A4 ngang, lề 0); **Tải Excel** tải `<số>_<khách>_<yyyy-mm>.xlsx`.
+
+### Đối chiếu dữ liệu
+
+| Trên chứng từ | Nguồn |
+| --- | --- |
+| Dòng container | như v3: chuyến web `confirmed` chưa xóa + dòng sổ gốc `kind='trip'` của tháng công nợ; xếp theo ngày đóng hàng rồi số container |
+| Cột phí | `LUMP_SUM` (Unit price) + các cột riêng của sổ (`fee_columns`, theo thứ tự) + Khác (mọi loại còn lại); mã loại qua `dnFeeCode`, tên Anh/Trung và bề rộng ở `config.fees[mã]`; cột chỉ hiện khi có ô khác 0 trên cả chứng từ |
+| Amount của dòng | thành tiền của sổ (`amount_vnd`, `counted_vnd`, `source_total_vnd`); phép 1 so với Unit price + phí |
+| B/L no. | không có (sổ chưa có số B/L) |
+| Opening balance | `months[].prior_months_vnd` của tháng |
+| This debit note | Total Amount |
+| Payments received | `received_vnd − (charges_vnd − Total)`: thu + cấn trừ + điều chỉnh của tháng; ngày = phiếu thu/cấn trừ đi muộn nhất trong tháng |
+| Outstanding balance | `months[].end_of_month_vnd` |
+| Công ty, ngân hàng, tên phí | `GET /api/v7/debit-note/config` (`web/debit-note-config.default.json` + file `WEBDEBIT_DEBIT_NOTE_CONFIG` ngoài repo) |
+
+### Module và kiểm
+
+| Thao tác | Module | Kiểm |
+| --- | --- | --- |
+| Dựng chứng từ, 6 phép kiểm, HTML trang, chia trang | `preview/debit-note-v4.js` | `test-debit-note-v4.js` |
+| Excel v4 | `preview/debit-note-v4-xlsx.js` | `test-debit-note-v4.js` |
+| PDF bằng Chromium headless (dữ liệu mẫu, `--repeat`, `--long`) | `tools/debit-note-v4-pdf.js` | `test-debit-note-v4-browser.js` |
+| Cấu hình | `web/v7_debit_note_config.py`, route trong `web/v7_ledger_api.py` | `tests/test_v7_debit_note_config.py` |
+| Hộp v4, công tắc v3/v4 | `preview/so-khach-v7-debit-ui.js` | `test-so-khach-v7-debit-v4-browser.js` |
+
+### Tiêu chí nghiệm thu (SPEC mục 9)
+
+- [x] `data/sample-14.json` 1 trang, Total 1,070,000,000, Outstanding 19,882,128,759; `sample-30.json` 20 + 10, trang 1 "Continued on next page"; `sample-8-an-cot.json` ẩn HC fee.
+- [x] Chia trang 16 → 1, 17 → 14 + 3, 30 → 20 + 10, 60 → 20 + 23 + 17; khách tên/địa chỉ dài 15 container một trang.
+- [x] PDF A4 ngang (841.9 × 595.0 pt như PDF chuẩn của gói), không trang trắng, font serif đã nhúng.
+- [x] 6 phép kiểm chặn ca cố tình sai; phép sai thì không ra PDF.
+- [ ] So ảnh trên dữ liệu thật và team duyệt mẫu (CÒN MỞ); bật `"template": "v4"` trên `hao`.
+
+Lệnh xuất thử: `node cong-no-web-handoff/tools/debit-note-v4-pdf.js docs/debit-note-v4/data/sample-14.json ra.pdf --png ra-trang`.
 
 ## Hoàn tác
 

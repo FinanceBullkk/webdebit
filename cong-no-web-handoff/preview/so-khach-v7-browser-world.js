@@ -406,6 +406,12 @@ async function withPage(fn, setup = () => {}) {
     if (url.pathname === '/api/v7/marks' && req.method === 'GET') { send(200, { marks: world.marks ?? [] }); return; }
     if (url.pathname === '/api/v7/zalo/links' && req.method === 'GET') { send(200, { links: world.zaloLinks ?? [] }); return; }
     if (url.pathname === '/api/v7/fee-types' && req.method === 'GET') { send(200, { fee_types: world.feeTypes }); return; }
+    // DEBIT-NOTE-03: cấu hình debit note do test đặt (world.debitConfig); không đặt thì như máy chủ cũ chưa có route.
+    if (url.pathname === '/api/v7/debit-note/config' && req.method === 'GET') {
+      (world.debitConfigReads ??= []).push(url.search);
+      if (world.debitConfig) send(200, { config: world.debitConfig }); else send(404, { error: 'NOT_FOUND' });
+      return;
+    }
     if (url.pathname === '/api/v7/receipt-images') {
       send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });
       return;

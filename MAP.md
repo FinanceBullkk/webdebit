@@ -18,7 +18,7 @@ Cập nhật file này mỗi khi cấu trúc hoặc thành phần Harness thay �
 | `scripts/hermes-office/` | Quản lý Hermes của tab Máy chạy (`MAY-CHAY-01`): cấu hình container khóa, cổng ra danh sách trắng, script kiểm cách ly, dữ liệu mẫu |
 | `scripts/sheet-capture/` | Apps Script chỉ ghi vết sửa Sheet nguồn vào log riêng (`Code.gs`) và test giả lập (`test.js`); spec `specs/sheet-capture.md` |
 | `scripts/` (còn lại) | `check.js` (`npm run check`), `run-tests.js` (bộ test JS theo tên file), luật nghiệp vụ; `agent-run.ps1` (giao Codex/Gemini) chỉ còn là lịch sử từ 29/10/2026 theo `CLAUDE-ALL-01` |
-| `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`; `multi-agent.md` chỉ còn là lịch sử) |
+| `docs/` | Nghiệp vụ, quyết định (`decisions.md` mục lục + `decisions/<id>.md`), nhật ký triển khai tay (`deploys/`), quy trình (`development.md`; `multi-agent.md` chỉ còn là lịch sử), gói thiết kế debit note v4 (`debit-note-v4/`: SPEC, trang mẫu, dữ liệu mẫu) |
 | `specs/` | Spec từng thay đổi, theo `specs/_template.md` |
 | `cong-no-web-handoff/` | Mã web/tools/tests (Python + JS) đang phát triển |
 | `.github/workflows/test.yml` | CI chạy `npm run check` |

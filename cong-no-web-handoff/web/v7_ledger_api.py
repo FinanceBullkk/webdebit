@@ -24,6 +24,7 @@ import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
+import v7_debit_note_config
 import v7_identity
 import v7_inbox
 import v7_machine
@@ -339,6 +340,12 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/ai/preview":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_ai_explain.preview(payload["customer_id"], runner, actor)
+    elif parts.path == "/api/v7/debit-note/config":
+        # DEBIT-NOTE-03: file cấu hình ngoài DB (mẫu, công ty, ngân hàng, tên phí); vẫn sau xác thực danh tính.
+        try:
+            return v7_debit_note_config.handle_get(parts.query)
+        except v7_debit_note_config.ConfigError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":

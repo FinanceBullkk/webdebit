@@ -112,6 +112,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="hoat-dong-01"></a>[HOAT-DONG-01](decisions/hoat-dong-01.md) | Tab Đã làm của Việc cần làm: việc đã ghi theo ngày, mọi sổ, cả máy lẫn người, câu như Lịch sử | Chốt 9/11/2026; migration chỉ thêm hàm đọc `get_activity` |
 | <a id="ps-hoi-01"></a>[PS-HOI-01](decisions/ps-hoi-01.md) | "Phụ phí PS cần xem" thành câu hỏi có nút trả lời; "hết báo" chỉ ghi Lịch sử, không đổi tiền | Migration chỉ nới `keep_sheet_task` |
 | <a id="duyet-tai-hang-01"></a>[DUYET-TAI-HANG-01](decisions/duyet-tai-hang-01.md) | Duyệt chuyến mới từ Sheet tại hàng | Thay khung L4 của SO-GON-04 |
+| <a id="debit-note-03"></a>[DEBIT-NOTE-03](decisions/debit-note-03.md) | Debit note mẫu v4: một trang A4 ngang, cột phí theo cột của sổ, ACCOUNT STATUS tham khảo, 6 phép kiểm chặn xuất, cấu hình công ty/ngân hàng/tên phí | Chốt 10/11/2026; mẫu v3 ([DEBIT-NOTE-02](#debit-note-02)) vẫn mặc định tới khi team duyệt, bật v4 bằng cấu hình |
 
 ## Cập nhật khóa tháng 24/10/2026
 
