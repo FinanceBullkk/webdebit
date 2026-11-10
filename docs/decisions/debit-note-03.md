@@ -22,7 +22,7 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 - Cột phí **hiện khi có ô khác 0** trên cả chứng từ (SPEC ghi "tổng ≠ 0"; chọn vậy để khoản +x/−x không bị ẩn làm sai phép 1), như mẫu v3.
 - **Phí không gắn container** là dòng không đánh số "Additional charge · 附加费用" cuối bảng, không tính vào số container.
 - **Ngày ở Payments received** là ngày phiếu thu hoặc cấn trừ đi muộn nhất trong tháng; tháng không có thì để trống.
-- **Không in tiếng Việt**: chữ Latin bỏ dấu khi in; tên tiếng Trung của nơi/cảng ([DIA-DIEM-01](dia-diem-01.md)) chỉ in khi cấu hình `show_place_cn` bật, vì trang mẫu v4 chỉ có tên Latin và dòng hai hàng làm một trang chứa ít container hơn.
+- **Không in tiếng Việt**: chữ Latin bỏ dấu khi in; tên tiếng Trung của nơi/cảng ([DIA-DIEM-01](dia-diem-01.md)) chỉ in khi cấu hình `show_place_cn` bật, vì trang mẫu v4 chỉ có tên Latin và dòng hai hàng làm một trang chứa ít container hơn. Bản in và Excel v4 cùng theo cờ này. Người dùng muốn debit note có tên tiếng Trung (chat 11/11/2026), nên cờ đã bật trên `hao` ngày 11/11/2026; tắt lại là sửa file cấu hình riêng, không cần deploy.
 - Ngày phát hành để trống thì in `[Issue date]` (SPEC mục 8 đang chờ team), người lập điền thì in ngày đó.
 
 ## Ngày / nguồn
@@ -31,4 +31,4 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT các điểm 1–5. ĐÃ CODE, mặc định vẫn mẫu v3: bật v4 là đặt `"template": "v4"` trong file cấu hình riêng trên `hao` (chưa đặt). CÒN MỞ theo SPEC mục 8 (không tự điền): người thụ hưởng và nhãn `USD Account` khi tiền là VND; Issue date, Tax ID, Phone, tên pháp lý và địa chỉ khách, người liên hệ; địa chỉ HTH; tên phí tiếng Trung. Thêm: có in tên tiếng Trung của nơi/cảng trên mẫu v4 không; xuất PDF phía máy chủ `hao` (cần cài Chromium); team duyệt mẫu v4 trên dữ liệu thật.
+ĐÃ CHỐT các điểm 1–5. ĐÃ CODE, mặc định vẫn mẫu v3: bật v4 là đặt `"template": "v4"` trong file cấu hình riêng trên `hao` (chưa đặt). CÒN MỞ theo SPEC mục 8 (không tự điền): người thụ hưởng và nhãn `USD Account` khi tiền là VND; Issue date, Tax ID, Phone, tên pháp lý và địa chỉ khách, người liên hệ; địa chỉ HTH; tên phí tiếng Trung. Thêm: xuất PDF phía máy chủ `hao` (cần cài Chromium); team duyệt mẫu v4 trên dữ liệu thật.
