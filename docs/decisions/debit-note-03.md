@@ -12,7 +12,7 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 2. **Lump-sum đổi thành Unit price** `单价`, như [#364](https://github.com/FinanceBullkk/webdebit/pull/364) đã đổi ở mẫu v3.
 3. **Không có cột B/L no.** (sổ chưa có số B/L); cột Shipper rộng ra.
 4. **ACCOUNT STATUS**: Opening balance = nợ trước tháng công nợ; Payments received = phiếu thu, cấn trừ và điều chỉnh trong tháng; Outstanding balance = còn nợ cuối tháng. Số lấy nguyên từ `months[]` của `GET /api/v7/ledger`: Payments = `received_vnd − (charges_vnd − Total)`, Outstanding = `end_of_month_vnd`. Chỉ để tham khảo, không cộng vào số phải trả. Điểm (5) "không ghi nợ cũ" của [DEBIT-NOTE-01](debit-note-01.md) vẫn đúng cho số phải trả.
-5. **Xuất cả Excel** cùng cột với PDF.
+5. **Xuất cả Excel** cùng cột với PDF. 11/11/2026 người dùng chê file Excel "format bị lỗi, xấu, không giống design": Excel làm lại theo bố cục PDF (thanh navy, đầu trang, BILL TO | DOCUMENT, bảng tiêu đề nền #E6EBF2 chữ Anh đậm trên chữ Trung thường dưới, Total kẻ đơn trên kẻ đôi dưới, PAYMENT | ACCOUNT STATUS với số thẳng cột Amount, chân trang; Times New Roman). Bảng vẫn không gộp ô; bỏ bộ lọc và cố định hàng tiêu đề vì nút lọc che chữ tiêu đề (Claude chọn).
 
 ## Claude chọn (theo `CLAUDE-ALL-01`, người dùng sửa được khi xem bản thử)
 
@@ -31,4 +31,4 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT các điểm 1–5. ĐÃ CODE, mặc định vẫn mẫu v3: bật v4 là đặt `"template": "v4"` trong file cấu hình riêng trên `hao` (chưa đặt). CÒN MỞ theo SPEC mục 8 (không tự điền): người thụ hưởng và nhãn `USD Account` khi tiền là VND; Issue date, Tax ID, Phone, tên pháp lý và địa chỉ khách, người liên hệ; địa chỉ HTH; tên phí tiếng Trung. Thêm: có in tên tiếng Trung của nơi/cảng trên mẫu v4 không; xuất PDF phía máy chủ `hao` (cần cài Chromium); team duyệt mẫu v4 trên dữ liệu thật.
+ĐÃ CHỐT các điểm 1–5. ĐÃ CODE, mặc định trong code vẫn mẫu v3. ĐÃ TRIỂN KHAI trên `hao` 11/11/2026 theo lời người dùng "Bật v4 ngay": `/etc/webdebit/debit-note.json` = `{"template": "v4"}` (chưa có ngân hàng, bản in ghi `[Tên trường]`) và drop-in `v7-ledger-api.service.d/debit-note.conf` đặt `WEBDEBIT_DEBIT_NOTE_CONFIG`. Về v3 hoặc thêm ngân hàng: sửa file JSON, không cần khởi động lại. CÒN MỞ theo SPEC mục 8 (không tự điền): người thụ hưởng và nhãn `USD Account` khi tiền là VND; Issue date, Tax ID, Phone, tên pháp lý và địa chỉ khách, người liên hệ; địa chỉ HTH; tên phí tiếng Trung. Thêm: có in tên tiếng Trung của nơi/cảng trên mẫu v4 không; xuất PDF phía máy chủ `hao` (cần cài Chromium); team duyệt mẫu v4 trên dữ liệu thật.
