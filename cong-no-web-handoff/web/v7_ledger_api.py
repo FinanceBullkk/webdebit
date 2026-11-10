@@ -20,6 +20,7 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer as HTTPServer
 from urllib.parse import parse_qs, urlsplit
 
+import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
@@ -307,6 +308,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         actor = v7_identity.resolve_actor(source_ip, headers, localapi, source_port=source_port,
                                           behind_tailscale_serve=behind_tailscale_serve, allowed_logins=allowed_logins)
     if method == "POST":
+        if parts.path == "/api/v7/ai/explain":
+            return v7_ai_explain.explain(raw, runner, actor)
         special = POST_HANDLERS.get(parts.path)
         if special is not None:
             status, body = special(raw, runner, actor)
@@ -333,6 +336,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/sheet/doi-chieu":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_api_doi_chieu.statement(payload["customer_id"], runner, actor)
+    elif parts.path == "/api/v7/ai/preview":
+        _, payload = validate_get("/api/v7/ledger", parts.query)
+        return 200, v7_ai_explain.preview(payload["customer_id"], runner, actor)
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)
     elif parts.path.startswith("/api/v7/zalo/") and parts.path != "/api/v7/zalo/links":

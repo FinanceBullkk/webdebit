@@ -77,7 +77,7 @@
   const savedTab = () => { try { const tab = sessionStorage.getItem(TAB_KEY); return ['lech', 'don', 'may'].includes(tab) ? tab : 'lech'; } catch { return 'lech'; } };
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
-    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() },
+    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map(), ai: new Map() },
     // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
     act: { day: null, filter: 'all', data: new Map(), loading: null } };
   const inboxLabel = book => {
@@ -206,6 +206,27 @@
       for (const key of dc.sel.get(id) ?? []) if (!groups.has(key)) dc.sel.get(id).delete(key);
       for (const key of dc.off.get(id) ?? []) if (!rows.has(key)) dc.off.get(id).delete(key);
     }
+    paintInbox();
+  }
+  async function previewAi(id) {
+    inbox.dc.ai.set(id, { loading: true }); paintInbox();
+    try {
+      const preview = await json(`/api/v7/ai/preview?customer=${id}`);
+      inbox.dc.ai.set(id, { preview });
+    } catch { inbox.dc.ai.set(id, { error: 'Không tải được bản xem trước AI. Thử lại sau.' }); }
+    paintInbox();
+  }
+  async function explainAi(id) {
+    const state = inbox.dc.ai.get(id), preview = state?.preview;
+    if (!preview?.enabled || state.sending) return;
+    inbox.dc.ai.set(id, { preview, sending: true }); paintInbox();
+    try {
+      const response = await fetch('/api/v7/ai/explain', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: id, fingerprint: preview.fingerprint, consent: true }) });
+      const body = await response.json();
+      if (!response.ok) throw Error(body.message ?? 'Claude chưa trả lời được.');
+      inbox.dc.ai.set(id, { preview, result: body });
+    } catch (error) { inbox.dc.ai.set(id, { preview, error: error.message ?? 'Claude chưa trả lời được.' }); }
     paintInbox();
   }
   const dcSet = (map, id) => { if (!map.has(id)) map.set(id, new Set()); return map.get(id); };
@@ -589,6 +610,9 @@
       return;
     }
     if (button.hasAttribute('data-dc-retry')) { inbox.dc.data.delete(Number(button.dataset.dcRetry)); paintInbox(); await refreshStatement(Number(button.dataset.dcRetry)); return; }
+    if (button.hasAttribute('data-ai-preview')) { await previewAi(Number(button.dataset.aiPreview)); return; }
+    if (button.hasAttribute('data-ai-send')) { await explainAi(Number(button.dataset.aiSend)); return; }
+    if (button.hasAttribute('data-ai-close')) { inbox.dc.ai.delete(Number(button.dataset.aiClose)); paintInbox(); return; }
     if (button.hasAttribute('data-dc-xem')) {
       const set = inbox.dc.xem, key = button.dataset.dcXem;
       if (set.has(key)) set.delete(key); else set.add(key);
