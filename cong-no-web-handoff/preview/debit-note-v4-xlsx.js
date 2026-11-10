@@ -56,6 +56,8 @@ const DebitNoteV4Xlsx = (() => {
       const cell = index === 1 ? (doc.issueDate ? date(2, number, doc.issueDate, style) : text(2, number, '[Issue date]', S.value)) : text(2, number, value, style);
       row(number, [text(0, number, label, S.label), cell]);
     });
+    // Tên tiếng Trung theo cùng cờ show_place_cn với bản in (DEBIT-NOTE-03, DIA-DIEM-01).
+    const placeText = place => (doc.showPlaceCn && place.cn ? `${place.text}  ${place.cn}` : place.text);
     const HEADER = 10;
     const head = [['No.', '序号'], ['Container no.', '柜号'], ['Line', '船东'], ['Shipper', '发货人'], ['Loading date', '装柜日期'], ['Loading place', '装柜地点'],
       ['POD', '目的港'], ...fees.map(fee => [fee.en, fee.cn]), ['Amount', '金额']];
@@ -66,7 +68,7 @@ const DebitNoteV4Xlsx = (() => {
       const lead = item.feeOnly
         ? [empty(0, number, S.num), empty(1, number, S.text), empty(2, number, S.text), text(3, number, 'Additional charge · 附加费用', S.text)]
         : [num(0, number, item.no, S.num), text(1, number, item.container, S.text), text(2, number, item.line, S.text), text(3, number, item.shipper, S.text)];
-      row(number, [...lead, date(4, number, item.date, S.date), text(5, number, item.feeOnly ? '' : item.place.text, S.text), text(6, number, item.feeOnly ? '' : item.pod.text, S.text),
+      row(number, [...lead, date(4, number, item.date, S.date), text(5, number, item.feeOnly ? '' : placeText(item.place), S.text), text(6, number, item.feeOnly ? '' : placeText(item.pod), S.text),
         ...fees.map((fee, k) => num(7 + k, number, item.cells[fee.code] ?? (item.feeOnly && fee.code === 'LUMP_SUM' ? null : 0n), S.money)), num(amountCol, number, item.amount, S.money)]);
     }
     const lastData = number;

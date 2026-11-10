@@ -193,3 +193,19 @@ test('Excel v4: cùng cột với PDF, số thật, Total và ACCOUNT STATUS là
   assert.doesNotMatch(sheet, /HC fee/);
   assert.equal(xlsx.baseName(doc), 'HTH-2611-001_FANYA_2026-11');
 });
+
+test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 chỉ in khi cấu hình show_place_cn bật', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const placeCells = on => {
+    const doc = v4.fromLedger(ledger(), '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config: { ...config, show_place_cn: on },
+      form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
+    const sheet = unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml'];
+    const cell = ref => (sheet.match(new RegExp(`<c r="${ref}"[^>]*><is><t[^>]*>([^<]*)</t></is>`)) ?? [])[1];
+    return { excel: [cell('F12'), cell('G12')], html: v4.pageHtml(doc, 'single', doc.rows) };
+  };
+  const off = placeCells(false), on = placeCells(true);
+  assert.deepEqual(off.excel, ['Tien Giang', 'Qingdao']);
+  assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
+  assert.doesNotMatch(off.html, /青岛港/);
+  assert.match(on.html, /Qingdao<br>青岛港/);
+});
