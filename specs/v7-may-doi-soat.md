@@ -89,6 +89,8 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 - Chỉ ghi khi đúng một tổ hợp nhóm có tổng đổi bằng đúng `tổng Sheet + web đi trước − tổng web`. Lệch 1 đồng là không ghi. Nhóm không đổi tiền không ghi.
 - Web đi trước không tính tháng có dòng điều chỉnh trừ đúng bằng phần đó, vì tiền đã ra khỏi sổ. Trừ không đúng bằng thì không suy ra được dòng điều chỉnh là của chuyến nào, tính như thường.
 - Tháng có đơn giá đổi chỗ vòng tròn (`shuffled_months`) không có nhóm giá: khớp tổng không phân biệt được giá của container nào, nên không ghi và báo `SHEET_SHUFFLED`. Kiểu này chỉ bắt được khi web đã có giá để so.
+- Đơn giá trượt qua một ô trống (`handed_on_months`) cũng vào `shuffled_months` của kết quả: chuyến web có giá mà dòng Sheet của nó trống giá lẫn TỔNG, và cùng tháng có dòng `CONFLICT` mà giá Sheet bằng đúng giá web của chuyến đó. Không có luật này thì phần hở của vòng được tính là web đi trước và tổ hợp vẫn khớp.
+- Dòng Sheet có tiền mà không container, trùng tháng và trùng số với một chuyến web có giá mà tab không còn container đó (`lost_container_money`), là cùng một khoản tiền: mỗi dòng ghép một chuyến, chuyến không tính là đi trước, dòng không thành `fee_rows`. Dòng điều chỉnh máy đã ghi cho dòng đó thành `fee_undo`. Khác tháng hoặc khác số thì vẫn là hai việc riêng.
 - Không ghi Sheet. Không đổi hàm SQL, quyền, luật phân bổ. Mọi lệnh có `expected_version`: người vừa sửa sổ thì lệnh lỗi `STALE_LEDGER`, lượt sau tính lại.
 - Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu lượt; phiếu đã ghi thì hàng chờ đã ghép, không chọn lại.
 - Tháng khóa: mở, ghi, khóa lại; lệnh lỗi vẫn khóa lại; API tắt giữa chừng thì lượt nền của API khóa lại sau 10 phút (`machine_left_open`).
@@ -98,7 +100,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 
 ## Tiêu chí nghiệm thu
 
-- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng.
+- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng; đơn giá trượt qua ô trống không có nhóm giá (trước và sau khi máy giá ghi dòng sẵn sàng), dòng mất container ghép với chuyến web cùng tháng cùng số.
 - [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.

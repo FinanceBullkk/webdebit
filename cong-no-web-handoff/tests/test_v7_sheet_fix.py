@@ -147,6 +147,35 @@ class PlanTests(unittest.TestCase):
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], [r["source_row"] for r in g["rows"]]) for g in groups],
                          [("fee_rows", "2026-08", -2, [14]), ("fee_rows", "2026-10", 43, [10])])
 
+    def test_price_handed_on_through_a_blank_cell_gives_no_price_group(self):
+        # Thật: AAAA1=100, AAAA2=70, AAAA3 chưa giá. Sheet xếp lại container mà cột giá đứng yên: AAAA1 trống, AAAA2=100, AAAA3=70.
+        rows = [sheet_row(1, "AAAA1"), sheet_row(2, "AAAA2", unit=100, total=100), sheet_row(3, "AAAA3", unit=70, total=70)]
+        priced = [web_trip(1, "AAAA1", unit="100"), web_trip(2, "AAAA2", unit="70")]
+        for last in (web_trip(3, "AAAA3"), web_trip(3, "AAAA3", unit="70")):   # trước và sau khi máy giá 15 phút ghi dòng sẵn sàng
+            groups, ahead, shuffled = self.plan(rows, [*priced, last])
+            self.assertEqual((shuffled, groups, ahead), (["2026-11"], [], 100))
+            self.assertNotEqual(fix.choose(groups, 30)[0], "FIX")
+        # Sửa giá thường, cùng tháng có chuyến web đi trước ở giá khác: vẫn là việc của máy.
+        rows[1] = sheet_row(2, "AAAA2", unit=90, total=90)
+        groups, ahead, shuffled = self.plan(rows, [*priced, web_trip(3, "AAAA3", unit="70")])
+        self.assertEqual((shuffled, [(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([], [("prices", 20)], 100))
+
+    def test_sheet_row_that_lost_its_container_is_the_web_trip_not_a_new_fee(self):
+        rows = [sheet_row(1, "", unit=100, total=100)]
+        trips = [web_trip(1, "AAAA1", unit="100")]
+        self.assertEqual(self.plan(rows, trips)[:2], ([], 0))   # trước đây: một dòng phí +100 và web đi trước 100
+        # Lượt trước đã lỡ ghi dòng điều chỉnh cho dòng này: thành nhóm hủy, tổng về đúng Sheet.
+        wrong = {"id": 90, "month": "2026-11-01", "amount_vnd": "100", "note": fix.FEE_NOTE + ", dòng 1"}
+        groups, ahead, _ = self.plan(rows, trips, adjustments=[wrong])
+        self.assertEqual(([(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([("fee_undo", -100)], 0))
+        # Khác số tiền hoặc khác tháng thì vẫn là hai việc riêng: dòng phí mới và chuyến web đi trước.
+        for other in (web_trip(1, "AAAA1", unit="99"), web_trip(1, "AAAA1", unit="100", month="2026-10")):
+            groups, ahead, _ = self.plan(rows, [other])
+            self.assertEqual(([(g["kind"], g["delta_vnd"]) for g in groups], ahead), ([("fee_rows", 100)], int(other["unit_price_vnd"])))
+        # Hai dòng mất container mà web chỉ có một chuyến trùng: ghép một, dòng còn lại vẫn là dòng phí.
+        groups, ahead, _ = self.plan([*rows, sheet_row(2, "", unit=100, total=100)], trips)
+        self.assertEqual(([(g["kind"], g["delta_vnd"], len(g["rows"])) for g in groups], ahead), ([("fee_rows", 100, 1)], 0))
+
 
 class ShuffledTests(unittest.TestCase):
     @staticmethod

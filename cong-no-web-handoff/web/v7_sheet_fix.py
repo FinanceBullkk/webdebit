@@ -139,6 +139,37 @@ def shuffled_months(prices: dict[str, Any]) -> list[str]:
     return sorted(month for month, graph in graphs.items() if has_cycle(graph))
 
 
+def handed_on_months(prices: dict[str, Any], results: list[dict[str, Any]], by_target: dict) -> list[str]:
+    """Tháng có đơn giá trượt qua một ô trống: một chuyến web có giá mà dòng Sheet của nó đang trống giá, và cùng tháng có dòng khác
+    được Sheet ghi đúng giá web của chuyến đó. Vòng đổi chỗ đi qua ô trống thì không khép kín nên `shuffled_months` không thấy, còn
+    phần hở lại được tính là web đi trước; coi như tháng đổi chỗ, không ghi giá."""
+    left: dict[str, set[str]] = {}
+    for result in results:
+        target = by_target.get((result["target_kind"], result["target_id"]))
+        if (result["status"] == "SHEET_NO_PRICE" and target and target["kind"] == "trip" and target["price"] is not None
+                and not target["pending"] and not result.get("sheet_total_vnd")):
+            left.setdefault(target["month"], set()).add(str(target["price"]))
+    return sorted({row["month"] for row in prices.get("review") or []
+                   if row["status"] == "CONFLICT" and row.get("month") and row["web_unit_price_vnd"] != row["sheet_unit_price_vnd"]
+                   and row["sheet_unit_price_vnd"] in left.get(row["month"], ())})
+
+
+def lost_container_money(results: list[dict[str, Any]], pool: list[dict[str, Any]]) -> Counter[tuple[str, int]]:
+    """Dòng Sheet có tiền mà không container, trùng tháng và trùng số với một chuyến web có giá mà tab không còn container đó: cùng
+    một khoản tiền (ô container trên Sheet bị xóa hoặc đang gõ lại), không phải một dòng phí mới cộng một chuyến web đi trước.
+    Mỗi dòng ghép một chuyến; số trả về là số cặp theo (tháng, số tiền)."""
+    on_sheet = {container_key(result.get("container")) for result in results}
+    loose = Counter((target["month"], target["price"] + (target["fee"] or 0)) for target in pool
+                    if target["kind"] == "trip" and target["price"] is not None and not target["pending"] and target["container"] not in on_sheet)
+    pairs: Counter[tuple[str, int]] = Counter()
+    for result in results:
+        total = result.get("sheet_total_vnd")
+        key = (str(result.get("debt_month") or "")[:7], total)
+        if result["status"] == "NO_CONTAINER" and type(total) is int and total and pairs[key] < loose[key]:
+            pairs[key] += 1
+    return pairs
+
+
 def price_groups(prices: dict[str, Any], total_only: list[dict[str, Any]], skip_months: tuple | list = ()) -> list[dict[str, Any]]:
     """Giá Sheet theo tháng nợ của chuyến đích, mọi tháng (chủ sổ chốt 4/11/2026); dòng đã bấm "Giữ giá web" không có ở đây."""
     months: dict[str, dict[str, Any]] = {}
@@ -151,7 +182,7 @@ def price_groups(prices: dict[str, Any], total_only: list[dict[str, Any]], skip_
     return [months[month] for month in sorted(months)]
 
 
-def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any]) -> list[dict[str, Any]]:
+def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any], same_money: Counter | None = None) -> list[dict[str, Any]]:
     """Dòng Sheet có tiền mà không có container theo tháng, ghi thành dòng điều chỉnh (chủ sổ chốt 4/11/2026). Dòng đã có trong sổ gốc
     (dòng không container cùng tháng, cùng số) hoặc đã có dòng điều chỉnh của máy cùng tháng, cùng số thì không phải việc.
 
@@ -168,6 +199,7 @@ def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any]) -> list[di
         if str(row.get("note") or "").startswith(FEE_NOTE):
             written.setdefault((str(row.get("month"))[:7], str(row.get("amount_vnd"))), []).append(row)
     months: dict[tuple[str, str], dict[str, Any]] = {}
+    paired = Counter(same_money or {})
 
     def add(kind: str, month: str, row: dict[str, Any], delta: int) -> None:
         group = months.setdefault((month, kind), {"kind": kind, "month": month, "rows": [], "delta_vnd": 0})
@@ -178,7 +210,9 @@ def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any]) -> list[di
         if result["status"] != "NO_CONTAINER" or type(total) is not int or total == 0:
             continue
         key = (str(result.get("debt_month") or "")[:7], str(total))
-        if booked[key] > 0:
+        if paired[(key[0], total)] > 0:   # tiền này web đang giữ ở một chuyến mà Sheet vừa mất container: không phải dòng phí mới
+            paired[(key[0], total)] -= 1
+        elif booked[key] > 0:
             booked[key] -= 1
         elif written.get(key):
             written[key].pop()
@@ -191,7 +225,7 @@ def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any]) -> list[di
 
 
 def web_ahead(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_target: dict,
-              adjustments: list[dict[str, Any]] | tuple = ()) -> int:
+              adjustments: list[dict[str, Any]] | tuple = (), same_money: Counter | None = None) -> int:
     """Tiền của chuyến web đã có giá mà Sheet chưa ghi: dòng Sheet chưa có giá lẫn TỔNG, hoặc chưa có dòng nào của container đó. Web
     đi trước Sheet, không có gì để ghi; số này cộng vào tổng Sheet khi xét khớp (chủ sổ chốt 4/11/2026). Dòng sổ gốc không tính.
 
@@ -206,9 +240,14 @@ def web_ahead(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_targ
                 and not target["pending"] and not result.get("sheet_total_vnd")):
             months[target["month"]] += target["price"] + (target["fee"] or 0)
     on_sheet = {container_key(result.get("container")) for result in results}
+    paired = Counter(same_money or {})
     for target in pool:
         if target["kind"] == "trip" and target["price"] is not None and not target["pending"] and target["container"] not in on_sheet:
-            months[target["month"]] += target["price"] + (target["fee"] or 0)
+            amount = target["price"] + (target["fee"] or 0)
+            if paired[(target["month"], amount)] > 0:   # Sheet vẫn tính tiền này ở một dòng mất container: không phải đi trước
+                paired[(target["month"], amount)] -= 1
+            else:
+                months[target["month"]] += amount
     adjusted: Counter[str] = Counter()
     for row in adjustments:
         adjusted[str(row.get("month"))[:7]] += int(row["amount_vnd"])
@@ -221,11 +260,12 @@ def plan(prices: dict[str, Any], receipts: dict[str, Any], ledger: dict[str, Any
     Tháng có đơn giá đổi chỗ thì không có nhóm giá: tổng có khớp cũng không ghi giá theo Sheet đang xếp lệch."""
     results, pool, by_target = _sheet_rows(prices, ledger, customers)
     projected = project_prices(prices, ledger, customers)
-    shuffled = shuffled_months(projected)
+    shuffled = sorted({*shuffled_months(projected), *handed_on_months(projected, results, by_target)})
+    same_money = lost_container_money(results, pool)
     groups = receipt_groups(project_receipts(receipts, ledger, customers, today), ledger)
     groups += price_groups(projected, total_only_rows(results, by_target), shuffled)
-    groups += fee_groups(results, ledger)
-    return groups, web_ahead(results, pool, by_target, ledger.get("adjustments") or ()), shuffled
+    groups += fee_groups(results, ledger, same_money)
+    return groups, web_ahead(results, pool, by_target, ledger.get("adjustments") or (), same_money), shuffled
 
 
 def choose(groups: list[dict[str, Any]], need: int) -> tuple[str, list[dict[str, Any]]]:
