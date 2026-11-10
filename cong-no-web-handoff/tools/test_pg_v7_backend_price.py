@@ -3,6 +3,7 @@ import json
 import re
 
 from pg_v7_harness import (
+    BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
@@ -34,23 +35,23 @@ def _table(p1_tt_daklak="95", p2_khach_daklak="75"):
                       {"name": "VINH LONG"}],
         "periods": [
             {"valid_from": "2026-01-02", "valid_to": "2026-01-09", "rates": [
-                {"location": "DAK LAK", "tier": "khach", "unit_price_vnd": "75"},
-                {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": p1_tt_daklak},
-                {"location": "LAM DONG", "tier": "khach", "unit_price_vnd": "70"},
-                {"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "90"}]},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "75"},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": p1_tt_daklak},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "70"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "90"}]},
             {"valid_from": "2026-01-10", "valid_to": None, "rates": [
-                {"location": "dak lak", "tier": "khach", "unit_price_vnd": p2_khach_daklak},
-                {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "85"},
-                {"location": "LAM DONG", "tier": "khach", "unit_price_vnd": "70"},
-                {"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "80"},
-                {"location": "VINH LONG", "tier": "tt", "unit_price_vnd": "75"}]},
+                {"location": "dak lak", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": p2_khach_daklak},
+                {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "85"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "70"},
+                {"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "80"},
+                {"location": "VINH LONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "75"}]},
         ],
     }
 
 
-def _row(container, day, origin, shipper, price=None):
+def _row(container, day, origin, shipper, price=None, destination="FAKE-B"):
     return {"container": container, "booking": container, "carrier": "FAKE", "date": f"{day:02d}/01/2026",
-            "from": origin, "to": "FAKE-B", "unitPriceVnd": price, "otherFeeVnd": None, "note": "",
+            "from": origin, "to": destination, "unitPriceVnd": price, "otherFeeVnd": None, "note": "",
             "src": "FAKE", "shipper": shipper}
 
 
@@ -74,29 +75,29 @@ def check_price_table(pg):
     bad_cases = [
         ("overlap", {**_table(), "periods": _table()["periods"] + [
             {"valid_from": "2026-01-09", "valid_to": "2026-01-10",
-             "rates": [{"location": "LAM DONG", "tier": "tt", "unit_price_vnd": "1"}]}]}, "PRICE_PERIOD_OVERLAP"),
+             "rates": [{"location": "LAM DONG", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"}]}]}, "PRICE_PERIOD_OVERLAP"),
         ("reverse", {**_table(), "periods": [{"valid_from": "2026-01-05", "valid_to": "2026-01-04", "rates": []}]},
          "PRICE_INVALID_PERIOD"),
         ("calendar", {**_table(), "periods": [{"valid_from": "2026-02-30", "valid_to": None, "rates": []}]},
          "PRICE_INVALID_PERIOD"),
         ("unknown", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None,
-                     "rates": [{"location": "CAN THO", "tier": "khach", "unit_price_vnd": "1"}]}]}, "PRICE_UNKNOWN_LOCATION"),
+                     "rates": [{"location": "CAN THO", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "1"}]}]}, "PRICE_UNKNOWN_LOCATION"),
         ("alias", {**_table(), "locations": [{"name": "DAK LAK"}, {"name": "LAM DONG", "aliases": ["dak  lak"]}]},
          "PRICE_DUPLICATE_ALIAS"),
         ("shipper", {**_table(), "tt_shippers": ["FAKE TT SHIP", "fake tt ship"]}, "PRICE_DUPLICATE_SHIPPER"),
         ("rate", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "1"},
-            {"location": "DAKLAK", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_UNKNOWN_LOCATION"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"},
+            {"location": "DAKLAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_UNKNOWN_LOCATION"),
         ("rate-twice", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "tt", "unit_price_vnd": "1"},
-            {"location": "dak lak", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_DUPLICATE_RATE"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "1"},
+            {"location": "dak lak", "destination": "FAKE-B", "tier": "tt", "unit_price_vnd": "2"}]}]}, "PRICE_DUPLICATE_RATE"),
         ("tier", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None, "rates": [
-            {"location": "DAK LAK", "tier": "vip", "unit_price_vnd": "1"}]}]}, "INVALID_PRICE_TABLE"),
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "vip", "unit_price_vnd": "1"}]}]}, "INVALID_PRICE_TABLE"),
         ("extra", {**_table(), "note": "x"}, "INVALID_PRICE_TABLE"),
     ]
     for amount in ("-1", "1.5", "01", "9223372036854775808", 5):
         bad_cases.append((f"amount-{amount}", {**_table(), "periods": [{"valid_from": "2026-01-01", "valid_to": None,
-                          "rates": [{"location": "DAK LAK", "tier": "khach", "unit_price_vnd": amount}]}]},
+                          "rates": [{"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": amount}]}]},
                           "PRICE_INVALID_AMOUNT"))
     for key, table, error in bad_cases:
         reject_call(pg, "save_price_table", c, version(pg, c), "price-bad-" + key, json.dumps(table), error=error)
@@ -228,8 +229,39 @@ def check_price_table(pg):
             f"cleared table summary wrong: {saved}")
     require({t["id"]: t["unit_price_vnd"] for t in call(pg, "get_ledger", c)["trips"]} == prices, "cleared table changed a price")
     reject_call(pg, "get_price_status", 10 ** 12, error="CUSTOMER_NOT_FOUND")
+    check_destination(pg)
     check_price_migration(pg)
     return "price table lookup, save guards, batch apply, source tracking and migration passed"
+
+
+def check_destination(pg):
+    c = new_book(pg, ("2026-01-01", 0))
+    fixture_open_month(pg, c, "2026-01-01")
+    rows = [_row("DEST-A", 10, "DAK LAK", "OTHER", destination="FAKE-A"),
+            _row("DEST-B", 10, "DAK LAK", "OTHER")]
+    ids = call(pg, "paste_trips", c, version(pg, c), "dest-paste", "2026-01-01", json.dumps(rows))["trip_ids"]
+    table = {"tt_shippers": [], "locations": [{"name": "DAK LAK"}], "periods": [
+        {"valid_from": "2026-01-01", "valid_to": None, "rates": [
+            {"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "75"}]}]}
+    call(pg, "save_price_table", c, version(pg, c), "dest-old-save", json.dumps(table))
+    # Simulate old rows upgraded with blank destination: they must not match any trip.
+    pg.sql(f"UPDATE sokhach.price_rate SET destination='',destination_key='' WHERE customer_id={c}")
+    status = {row["trip_id"]: row["lookup"].get("reason") for row in call(pg, "get_price_status", c)["trips"]}
+    require([status[i] for i in ids] == ["UNKNOWN_DESTINATION", "UNKNOWN_DESTINATION"]
+            and pg.value(f"SELECT sokhach._lookup_price({c},'2026-01-10','DAK LAK',NULL,'OTHER')->>'reason'") == "NO_DESTINATION",
+            f"blank destination applied an old rate: {status}")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank",
+                json.dumps({**table, "periods": [{**table["periods"][0], "rates": [
+                    {**table["periods"][0]["rates"][0], "destination": ""}]}]}), error="INVALID_PRICE_TABLE")
+    rates = table["periods"][0]["rates"]
+    rates.append({"location": "DAK LAK", "destination": "FAKE-A", "tier": "khach", "unit_price_vnd": "70"})
+    call(pg, "save_price_table", c, version(pg, c), "dest-both", json.dumps(table))
+    status = {row["trip_id"]: row["lookup"].get("unit_price_vnd") for row in call(pg, "get_price_status", c)["trips"]}
+    require([status[i] for i in ids] == ["70", "75"], f"destination lookup mixed prices: {status}")
+    overlap = {**table, "periods": table["periods"] + [
+        {"valid_from": "2026-01-10", "valid_to": None, "rates": [rates[0]]}]}
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-overlap", json.dumps(overlap),
+                error="PRICE_PERIOD_OVERLAP")
 
 
 def check_price_migration(pg):
@@ -252,6 +284,7 @@ def check_price_migration(pg):
     pg.sql(CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8"))  # bản list_legacy_trip_refs hiện hành (4/11)
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8"))  # bản save_price_table hiện hành (5/11)
+    pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -289,7 +322,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

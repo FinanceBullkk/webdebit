@@ -6,7 +6,7 @@ const { withPage, posts } = require('./so-khach-v7-browser-world');
 const status = trips => ({ customer_id: 1, version: 1, has_table: true, trips,
   ready_count: trips.filter(row => row.ready).length, ready_total_vnd: '85000000', ready_months: ['2026-09-01'],
   reapply_count: trips.filter(row => row.differs && row.from_table).length });
-const lookup = (price, tier = 'khach') => ({ unit_price_vnd: price, tier, location: 'DAK LAK', valid_from: '2026-09-10', valid_to: null });
+const lookup = (price, tier = 'khach') => ({ unit_price_vnd: price, tier, location: 'DAK LAK', destination: 'CẢNG B', valid_from: '2026-09-10', valid_to: null });
 const missingTrip = { id: 12, month: '2026-09-01', container: 'NEWU0000012', carrier: 'Tàu thử', shipper: 'TT GIẢ', event_date: '2026-09-16',
   origin: 'DAK LAK', destination: 'Cảng B', unit_price_vnd: null, other_fee_vnd: null, amount_vnd: null, status: 'confirmed',
   is_missing_price: true, is_fee_only: false, editable: true, info_editable: true, deleted: false };
@@ -88,12 +88,14 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
     '10/10/2026\t\tVINH LONG\t\t75,000,000'].join('\n'));
   assert.match(await dialog.locator('.price-msg').innerText(), /Đã dán 4 dòng giá và 1 shipper áp giá TT/);
   assert.equal(await page.inputValue(cell(0, 1)), '09/10/2026');
-  assert.equal(await page.inputValue(cell(0, 3)), '75.000.000');
-  assert.equal(await page.inputValue(cell(3, 3)), '');
+  assert.equal(await page.inputValue(cell(0, 4)), '75.000.000');
+  assert.equal(await page.inputValue(cell(3, 4)), '');
   assert.equal(await page.inputValue('.price-table-dialog input[data-s="0"]'), 'TT CHUẨN');
   assert.match(await dialog.locator('.price-grid-ship').innerText(), /4 chuyến/);
   assert.equal(await dialog.locator('.price-grid-main tbody tr').count(), 7, '4 dòng + 3 hàng trống');
   assert.equal(await dialog.locator('.price-dirty').isVisible(), true);
+  assert.equal(await rowStatus(page, 0), 'Thiếu nơi đến', 'bảng giá Sheet cũ không tự áp mọi nơi đến');
+  for (let row = 0; row < 4; row += 1) await page.fill(cell(row, 3), 'CẢNG B');
 
   // Ngày sai báo ngay tại dòng; Lưu bị chặn, chưa gửi gì.
   await page.fill(cell(2, 0), '32/10/2026');
@@ -116,8 +118,8 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
   assert.equal(await dialog.locator('tr.fresh').count(), 2);
   assert.equal(await page.inputValue(cell(2, 1)), '31/10/2026');
   assert.equal(await page.inputValue(cell(4, 0)), '01/11/2026');
-  assert.equal(await page.inputValue(cell(4, 4)), '85.000.000');
-  await page.fill(cell(4, 4), '80000000');
+  assert.equal(await page.inputValue(cell(4, 5)), '85.000.000');
+  await page.fill(cell(4, 5), '80000000');
   await shot('bang-gia-khung');
   await dialog.locator('header .price-table-save').click();
   await page.waitForFunction(() => /Đã lưu bảng giá/.test(document.querySelector('.live-notice')?.textContent ?? ''));
@@ -131,8 +133,8 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
   assert.deepEqual(table.periods.map(period => [period.valid_from, period.valid_to, period.rates.length]),
     [['2026-09-11', '2026-10-09', 4], ['2026-10-10', '2026-10-31', 3], ['2026-11-01', null, 3]]);
   assert.deepEqual(table.periods[2].rates, [
-    { location: 'DAK LAK', tier: 'khach', unit_price_vnd: '75000000' }, { location: 'DAK LAK', tier: 'tt', unit_price_vnd: '80000000' },
-    { location: 'VINH LONG', tier: 'tt', unit_price_vnd: '75000000' }]);
+    { location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }, { location: 'DAK LAK', destination: 'CẢNG B', tier: 'tt', unit_price_vnd: '80000000' },
+    { location: 'VINH LONG', destination: 'CẢNG B', tier: 'tt', unit_price_vnd: '75000000' }]);
 }, world => {
   world.bookShippers = [{ name: 'TT CHUẨN', tier: 'khach', trip_count: 4 }];
 }));
@@ -143,11 +145,29 @@ const saveEditedTable = async (page, price) => {
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
   await dialog.locator('.price-grid-main').waitFor();
-  await page.fill(cell(0, 3), price);
+  await page.fill(cell(0, 4), price);
   return dialog;
 };
 const savedTable = { tt_shippers: [], locations: [{ name: 'DAK LAK', aliases: [] }], periods: [
-  { valid_from: '2026-09-11', valid_to: null, rates: [{ location: 'DAK LAK', tier: 'khach', unit_price_vnd: '75000000' }] }] };
+  { valid_from: '2026-09-11', valid_to: null, rates: [{ location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }] }] };
+
+test('cùng nơi đi, hai nơi đến giữ hai dòng giá riêng khi mở và lưu', async () => withPage(async ({ page, world }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+  await page.locator('.book-settings > summary').click();
+  await page.click('.price-table-open');
+  await page.locator('.price-grid-main').waitFor();
+  assert.deepEqual(await page.locator('.price-grid-main input[data-c="3"]').first().inputValue(), 'CẢNG A');
+  assert.deepEqual(await page.locator('.price-grid-main input[data-c="3"]').nth(1).inputValue(), 'CẢNG B');
+  await page.fill(cell(0, 4), '71000000');
+  await page.locator('.price-table-dialog header .price-table-save').click();
+  await page.waitForFunction(() => /Đã lưu bảng giá/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  const rates = posts(world)[0][1].price_table.periods[0].rates;
+  assert.deepEqual(rates.map(rate => [rate.destination, rate.unit_price_vnd]), [['CẢNG A', '71000000'], ['CẢNG B', '75000000']]);
+}, world => {
+  world.priceTable = { ...savedTable, periods: [{ valid_from: '2026-09-11', valid_to: null, rates: [
+    { location: 'DAK LAK', destination: 'CẢNG A', tier: 'khach', unit_price_vnd: '70000000' },
+    { location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }] }] };
+}));
 
 test('BANG-GIA-02: lưu bảng giá báo trước khi lưu; sau khi lưu báo từng chuyến giá cũ → mới, tháng khóa và chuyến hết giá; chỉ gửi một lệnh', async () => withPage(async ({ page, world, shot }) => {
   const dialog = await saveEditedTable(page, '76000000');
@@ -194,20 +214,20 @@ test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi �
   const dialog = page.locator('.price-table-dialog');
   await dialog.locator('.price-grid-main').waitFor();
   assert.equal(await page.inputValue(cell(0, 2)), 'DAK LAK');
-  assert.equal(await page.inputValue(cell(0, 4)), '95.000.000');
+  assert.equal(await page.inputValue(cell(0, 5)), '95.000.000');
   assert.equal(await page.inputValue(cell(1, 0)), '10/10/2026');
-  assert.equal(await page.inputValue(cell(1, 3)), '75.000.000');
-  assert.equal(await page.inputValue(cell(1, 4)), '');
+  assert.equal(await page.inputValue(cell(1, 4)), '75.000.000');
+  assert.equal(await page.inputValue(cell(1, 5)), '');
   assert.equal(await rowStatus(page, 0), 'Hết hạn');
   assert.equal(await rowStatus(page, 1), 'Đang dùng');
   assert.equal(await dialog.locator('.price-help').count(), 0);
   assert.equal(await dialog.locator('.price-dirty').isVisible(), false);
 
-  await page.fill(cell(1, 4), '85.000.000');
+  await page.fill(cell(1, 5), '85.000.000');
   world.failNext = { error: 'PRICE_PERIOD_OVERLAP', message: 'Hai đợt giá trùng ngày ở cùng kho và cùng loại giá.' };
   await dialog.locator('header .price-table-save').click();
   await dialog.locator('.price-msg.bad', { hasText: 'trùng ngày' }).waitFor();
-  assert.equal(await page.inputValue(cell(1, 4)), '85.000.000');
+  assert.equal(await page.inputValue(cell(1, 5)), '85.000.000');
   await dialog.locator('header .price-table-save').click();
   await page.waitForFunction(() => /Đã lưu bảng giá/.test(document.querySelector('.live-notice')?.textContent ?? ''));
   const [, body] = posts(world).at(-1);
@@ -218,13 +238,13 @@ test('bảng giá đã lưu hiện lại thành lưới; tên khác của nơi �
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   await dialog.locator('.price-grid-main').waitFor();
-  await page.fill(cell(0, 3), '1');
+  await page.fill(cell(0, 4), '1');
   await page.keyboard.press('Escape');
   assert.match(await dialog.locator('.price-msg.ask').innerText(), /thay đổi chưa lưu/);
   await dialog.locator('.price-discard').click();
   assert.equal(await dialog.isVisible(), false);
 }, world => {
   world.priceTable = { tt_shippers: ['TT CHUẨN'], locations: [{ name: 'DAK LAK', aliases: ['DAKLAK'] }], periods: [
-    { valid_from: '2026-09-11', valid_to: '2026-10-09', rates: [{ location: 'DAK LAK', tier: 'khach', unit_price_vnd: '75000000' }, { location: 'DAK LAK', tier: 'tt', unit_price_vnd: '95000000' }] },
-    { valid_from: '2026-10-10', valid_to: null, rates: [{ location: 'DAK LAK', tier: 'khach', unit_price_vnd: '75000000' }] }] };
+    { valid_from: '2026-09-11', valid_to: '2026-10-09', rates: [{ location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }, { location: 'DAK LAK', destination: 'CẢNG B', tier: 'tt', unit_price_vnd: '95000000' }] },
+    { valid_from: '2026-10-10', valid_to: null, rates: [{ location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }] }] };
 }));

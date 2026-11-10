@@ -1816,6 +1816,12 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Bảng giá theo Nơi đến (BANG-GIA-03) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql` chạy sau `2026-11-05-v7-gia-tu-doi.sql`. Thêm `destination` và `destination_key` vào `price_rate`, đổi khóa chính, cập nhật hàm tra/lưu/áp giá. Dòng cũ giữ nơi đến trống nên chỉ áp giá sau khi người dùng bổ sung nơi đến. Migration không đổi giá chuyến hay số dư. Release mới cần migration này trước khi phục vụ bảng giá; giữ API dừng đến lúc kiểm xong.
+
+Theo [DEPLOY-CLAUDE-01](decisions/deploy-claude-01.md): chạy `test_pg_v7_backend.py --migration-test` trên PostgreSQL dùng một lần, backup toàn phần và kiểm đọc lại, thử migration trên bản sao, dừng writer/API, chụp tổng từng khách trước, áp bằng `psql -X -v ON_ERROR_STOP=1`, chạy `v7_post_deploy_check.sql`, so tổng sau, rồi đổi release và đặt `.release-sha`. Ghi bằng chứng vào file mới trong `docs/deploys/`. Nếu bước nào lỗi, giữ writer dừng và theo mục rollback 7.
+
 ## Lưu bảng giá tự đổi giá chuyến (BANG-GIA-02) — nâng DB đang có (ĐÃ CHẠY trên hao 5/11/2026)
 
 Đã chạy 5/11/2026, xem [nhật ký](deploys/2026-11-05-gia-tu-doi.md). Migration `cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql` ([`BANG-GIA-02`](decisions/bang-gia-02.md)) thay thân `save_price_table` và thêm `_reprice_from_table` (không cấp cho ai). Không đổi bảng, ràng buộc, loại event, dữ liệu hay quyền app. Bản thân migration không đổi giá chuyến nào, nên số dư từng khách phải giữ nguyên; giá chỉ đổi khi có người lưu bảng giá. Chạy lại được. **Chạy sau `2026-11-04-v7-ledger-events.sql`. Chạy lại `2026-10-29-v7-bang-gia.sql` thì phải chạy lại file này**, vì nó trả `save_price_table` về thân cũ.

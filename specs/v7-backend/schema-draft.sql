@@ -1685,8 +1685,9 @@ CREATE TABLE IF NOT EXISTS sokhach.price_period(
  valid_from date NOT NULL,valid_to date,CHECK(valid_to IS NULL OR valid_to>=valid_from),UNIQUE(id,customer_id));
 CREATE TABLE IF NOT EXISTS sokhach.price_rate(
  period_id bigint NOT NULL,location_id bigint NOT NULL,customer_id bigint NOT NULL,
+ destination text NOT NULL DEFAULT '',destination_key text NOT NULL DEFAULT '',
  tier text NOT NULL CHECK(tier IN('khach','tt')),unit_price_vnd bigint NOT NULL CHECK(unit_price_vnd>=0),
- PRIMARY KEY(period_id,location_id,tier),
+ PRIMARY KEY(period_id,location_id,destination_key,tier),
  FOREIGN KEY(period_id,customer_id) REFERENCES sokhach.price_period(id,customer_id) ON DELETE CASCADE,
  FOREIGN KEY(location_id,customer_id) REFERENCES sokhach.price_location(id,customer_id) ON DELETE CASCADE);
 -- Revision giá ghi từ bảng giá; dòng gõ tay/dán/Sheet không có hàng ở đây.

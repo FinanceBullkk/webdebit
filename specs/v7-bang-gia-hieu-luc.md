@@ -1,5 +1,7 @@
 # V7: bảng giá theo ngày hiệu lực
 
+**Cập nhật 10/11/2026:** [BANG-GIA-03](v7-bang-gia-noi-den.md) thêm Nơi đến vào lưới và khóa tra; các mô tả cũ “không xét nơi đến” bên dưới là lịch sử trước thay đổi này.
+
 Trạng thái: chính sách **ĐÃ CHỐT** ở [`BANG-GIA-01`](../docs/decisions.md#bang-gia-01) (người dùng trả lời Q1–Q6 trong chat 29/10/2026, xem [Câu đã chốt](#câu-đã-chốt-2910)). Thiết kế màn hình và backend là **ĐỀ XUẤT** (Claude, 29/10/2026). Claude làm cả backend và giao diện theo [`CLAUDE-ALL-01`](../docs/decisions.md#claude-all-01); không cần mockup Penpot. **Từ 5/11/2026 theo [`BANG-GIA-02`](../docs/decisions.md#bang-gia-02): lưu bảng giá thì chuyến đang theo bảng tự đổi giá**, các mục dưới đã sửa theo; phần lịch sử giai đoạn 2 giữ nguyên như đã làm lúc đó.
 
 ## Vì sao làm
