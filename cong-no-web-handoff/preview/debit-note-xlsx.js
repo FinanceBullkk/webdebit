@@ -63,7 +63,7 @@ const DebitNoteXlsx = (() => {
     for (const item of note.rows) {
       number++;
       row(number, [num(0, number, item.no, S.center), text(1, number, item.container, S.text), text(2, number, item.shipper ?? '', S.text), date(3, number, item.date, S.date),
-        text(4, number, item.place.text, S.text), text(5, number, item.port.text, S.text), ...fees.map((fee, k) => num(6 + k, number, model.dnCell(fee.code, item), S.money)),
+        text(4, number, model.dnPlaceText(item.place), S.text), text(5, number, model.dnPlaceText(item.port), S.text), ...fees.map((fee, k) => num(6 + k, number, model.dnCell(fee.code, item), S.money)),
         num(totalCol, number, item.amountVnd, S.money)]);
     }
     for (const item of note.charges) {

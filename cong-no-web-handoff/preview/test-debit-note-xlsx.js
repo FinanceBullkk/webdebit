@@ -59,7 +59,8 @@ test('DEBIT-NOTE-02 Excel đối chiếu: tiêu đề cố định hàng 9, đ�
   assert.match(sheet, /<c r="B10" s="6" t="inlineStr"><is><t xml:space="preserve">CSQU3054383<\/t>/);
   assert.match(sheet, /<c r="C10" s="6" t="inlineStr"><is><t xml:space="preserve">Chủ hàng &lt;A&amp;B&gt;<\/t>/);
   assert.match(sheet, /<c r="D10" s="8"><v>46268<\/v><\/c>/);   // 03 Sep 2026 là ngày thật
-  assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">Dak Lak<\/t>/);
+  assert.match(sheet, /<c r="E10" s="6" t="inlineStr"><is><t xml:space="preserve">Dak Lak {2}多乐省<\/t>/);   // DIA-DIEM-01
+  assert.match(sheet, /<c r="F10" s="6" t="inlineStr"><is><t xml:space="preserve">Xiamen {2}厦门港<\/t>/);
   assert.match(sheet, /<c r="G10" s="7"><v>80000000<\/v><\/c>/);
   assert.match(sheet, /<c r="K10" s="7"><v>2000000<\/v><\/c>/);
   assert.match(sheet, /<c r="O10" s="7"><v>82000000<\/v><\/c>/);
@@ -92,7 +93,8 @@ test('DEBIT-NOTE-02 bản in: trang 1 tóm tắt, trang chi tiết chỉ hiện 
   assert.match(html, /Net 15 days/);
   assert.match(html, /SAY VIETNAM DONG ONE HUNDRED EIGHTY-TWO MILLION ONLY/);
   assert.match(html, /Equivalent {2}折合美元<\/span><b>7,013.49 USD at 25,950 VND\/USD/);
-  assert.match(html, /<td>Xiamen<\/td><td class="num">1<\/td><td class="num">80,000,000<\/td><td class="num">2,000,000<\/td>/);
+  assert.match(html, /<td>Xiamen {2}<span class="dn-cn">厦门港<\/span><\/td><td class="num">1<\/td><td class="num">80,000,000<\/td><td class="num">2,000,000<\/td>/);
+  assert.match(html, /<td>Dak Lak<br><span class="dn-cn">多乐省<\/span><\/td><td>Xiamen<br><span class="dn-cn">厦门港<\/span><\/td>/);   // DIA-DIEM-01
   assert.match(html, /<td>Additional charges {2}附加费用<\/td><td class="num">–<\/td><td class="num">–<\/td><td class="num">25,000,000<\/td>/);
   assert.match(html, /<td>Subtotal {2}小计<\/td><td class="num">2<\/td><td class="num">155,000,000<\/td><td class="num">27,000,000<\/td>/);
   assert.match(html, /Payment Ref\. {2}<span>汇款附言<\/span><\/th><td class="b">HTH\/2609-001<\/td>/);
