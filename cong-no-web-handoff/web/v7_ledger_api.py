@@ -10,7 +10,8 @@ import json
 import os
 import re
 import socket
-import subprocess  # noqa: F401  test vá `api.subprocess.run`; lệnh psql dựng ở v7_psql
+import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -599,13 +600,16 @@ class ThreadingHTTPServer(HTTPServer):
     request_queue_size = 128
 
     def __init__(self, server_address, handler, *, default_actor=None, dev_actor_mode=None,
-                 bind_and_activate=True):
+                 bind_and_activate=True, tailnet_https=False):
         name = handler.default_actor if default_actor is None else default_actor
         mode = handler.dev_actor_mode if dev_actor_mode is None else dev_actor_mode
         # ponytail: legacy local tools opt in by named actor; remove after callers pass explicit mode.
         enabled = name is not None if mode is None else mode
-        if (enabled or handler.behind_tailscale_serve) and not loopback(server_address[0]):
+        if (enabled or handler.behind_tailscale_serve) and not loopback(server_address[0]) and not tailnet_https:
             raise ValueError("dev actor and Tailscale Serve require a loopback bind")
+        if tailnet_https and (enabled or not handler.behind_tailscale_serve or
+                             ipaddress.ip_address(server_address[0]) not in ipaddress.ip_network("100.64.0.0/10")):
+            raise ValueError("tailnet HTTPS requires verified identity and no dev actor")
         self.dev_actor = None
         if enabled:
             if not isinstance(name, str) or not name.strip() or len(name) > 252 or any(ord(c) < 32 for c in name):
@@ -639,6 +643,12 @@ def main() -> None:
     )
     parser.add_argument("--serve-host", action="append", default=[],
                         help="Exact Host value accepted from Tailscale Serve; requires --behind-tailscale-serve")
+    parser.add_argument("--tailnet-https-ip", default=os.getenv("V7_TAILNET_HTTPS_IP"),
+                        help="Bind a second HTTPS listener to this node's Tailscale IPv4")
+    parser.add_argument("--tailnet-https-port", type=int, default=8445)
+    parser.add_argument("--tailnet-https-host", default=os.getenv("V7_TAILNET_HTTPS_HOST"))
+    parser.add_argument("--tailnet-tls-cert", default=os.getenv("V7_TAILNET_TLS_CERT"))
+    parser.add_argument("--tailnet-tls-key", default=os.getenv("V7_TAILNET_TLS_KEY"))
     parser.add_argument("--allowed-login", action="append", default=[],
                         help="Tailscale login allowed to use the ledger (ACCESS-01); repeatable, merged with "
                              "WEBDEBIT_ALLOWED_LOGINS (comma/space separated). Serve mode requires at least one")
@@ -654,13 +664,30 @@ def main() -> None:
     args = parser.parse_args()
     if args.serve_host and not args.behind_tailscale_serve:
         parser.error("--serve-host requires --behind-tailscale-serve")
-    for value in args.serve_host:
+    if any((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
+        if not all((args.tailnet_https_ip, args.tailnet_https_host, args.tailnet_tls_cert, args.tailnet_tls_key)):
+            parser.error("tailnet HTTPS requires IP, host, certificate and key")
+        if not args.behind_tailscale_serve or args.insecure_dev_actor is not None:
+            parser.error("tailnet HTTPS requires Serve mode and no dev actor")
+        if not 1 <= args.tailnet_https_port <= 65535:
+            parser.error("invalid tailnet HTTPS port")
+        try:
+            node_ip = subprocess.run(["tailscale", "ip", "-4"], check=True, capture_output=True,
+                                     text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            parser.error(f"cannot verify Tailscale IP: {type(exc).__name__}")
+        if args.tailnet_https_ip != node_ip:
+            parser.error("tailnet HTTPS IP does not match this Tailscale node")
+    accepted_hosts = args.serve_host + ([args.tailnet_https_host] if args.tailnet_https_host else [])
+    for value in accepted_hosts:
         try:
             port_value = urlsplit("//" + value).port or 443
         except ValueError:
             port_value = 0
         if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]*(?::[1-9][0-9]{0,4})?", value) or not 1 <= port_value <= 65535:
             parser.error("--serve-host requires lowercase fqdn[:port]")
+    if args.tailnet_https_host and not args.tailnet_https_host.endswith(f":{args.tailnet_https_port}"):
+        parser.error("tailnet HTTPS host must include the listener port")
     # ACCESS-01: the allowlist lives in the unit drop-in on the host, never in Git. Serve mode without it
     # must not start: every tailnet identity reaching Serve would otherwise be a valid ledger actor.
     allowed_env = os.getenv("WEBDEBIT_ALLOWED_LOGINS")
@@ -688,9 +715,9 @@ def main() -> None:
         args.db_user = args.db_user or os.getenv("V7_API_DB_USER", "postgres")
     if args.port == 8777:
         parser.error("port 8777 belongs to the read-only opening app")
-    # Trial API (DB user postgres) stays loopback-only; real access goes through tailscale serve -> loopback.
+    # API HTTP stays loopback-only; optional HTTPS binds only this node's Tailscale IPv4.
     if not loopback(args.host):
-        parser.error("V7 trial API only binds loopback; expose it with tailscale serve")
+        parser.error("V7 API HTTP only binds loopback; expose it with tailscale serve")
     Handler.runner = (
         PsqlDirect(args.direct_socket_dir, args.database, args.db_user)
         if args.direct_socket_dir
@@ -700,14 +727,24 @@ def main() -> None:
     Handler.default_actor = args.insecure_dev_actor
     Handler.dev_actor_mode = args.insecure_dev_actor is not None
     Handler.behind_tailscale_serve = args.behind_tailscale_serve
-    Handler.serve_hosts = tuple(args.serve_host)
+    Handler.serve_hosts = tuple(accepted_hosts)
     Handler.allowed_logins = allowed_logins
     Handler.demo = args.demo
     Handler.real_copy = args.real_copy
     v7_zalo_chat.warm()
+    secure = None
+    if args.tailnet_https_ip:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(args.tailnet_tls_cert, args.tailnet_tls_key)
+        secure = ThreadingHTTPServer((args.tailnet_https_ip, args.tailnet_https_port), Handler, tailnet_https=True)
+        secure.socket = context.wrap_socket(secure.socket, server_side=True)
+    plain = ThreadingHTTPServer((args.host, args.port), Handler)
     INBOX.start(Handler.runner)   # tính sẵn hộp ngoại lệ ở nền ngay khi khởi động
     INBOX.keep_fresh(Handler.runner)   # rồi tính lại theo từng đợt Sheet, kể cả khi không ai mở Việc cần làm
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    if secure is not None:
+        threading.Thread(target=secure.serve_forever, daemon=True).start()
+    plain.serve_forever()
 
 
 if __name__ == "__main__":
