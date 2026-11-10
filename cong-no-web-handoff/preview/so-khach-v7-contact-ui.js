@@ -171,10 +171,12 @@
     const places = (period, extra) => {
       const found = new Map();
       for (const rate of period.rates ?? []) {
-        if (!found.has(keyOf(rate.location))) found.set(keyOf(rate.location), { key: keyOf(rate.location), place: rate.location, ...extra });
-        found.get(keyOf(rate.location))[rate.tier] = rate.unit_price_vnd;
+        const key = `${keyOf(rate.location)}|${keyOf(rate.destination)}`;
+        if (!found.has(key)) found.set(key, { key, place: rate.location, destination: rate.destination || 'Chưa có nơi đến', ...extra,
+          ...(!keyOf(rate.destination) ? { when: 'Thiếu nơi đến · chưa áp dụng', kind: 'warn' } : {}) });
+        found.get(key)[rate.tier] = rate.unit_price_vnd;
       }
-      return [...found.values()].sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
+      return [...found.values()].sort((a, b) => (order.get(keyOf(a.place)) ?? 0) - (order.get(keyOf(b.place)) ?? 0) || a.destination.localeCompare(b.destination));
     };
     const periods = [...table.periods].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
     const rows = [];
@@ -185,19 +187,20 @@
     // Nơi đi chưa có giá hôm nay: lấy giá của đợt hết hạn gần nhất có nơi đó (ghi ngày hết hạn), không có thì "chưa có giá".
     const expired = periods.filter(item => item.valid_to && item.valid_to < today).reverse();
     const missing = new Map();
-    for (const row of [...expired.flatMap(item => places(item, { when: `hết hạn ${dateText(item.valid_to)} · chưa có giá mới`, kind: 'warn' })),
-      ...(table.locations ?? []).map(item => ({ key: keyOf(item.name), place: item.name, when: 'chưa có giá', kind: 'warn' }))]) {
+    const expiredRows = expired.flatMap(item => places(item, { when: `hết hạn ${dateText(item.valid_to)} · chưa có giá mới`, kind: 'warn' }));
+    for (const row of [...expiredRows,
+      ...(table.locations ?? []).filter(item => ![...rows, ...expiredRows].some(row => keyOf(row.place) === keyOf(item.name))).map(item => ({ key: keyOf(item.name) + '|', place: item.name, destination: '–', when: 'chưa có giá', kind: 'warn' }))]) {
       if (!rows.some(now => now.key === row.key) && !missing.has(row.key)) missing.set(row.key, row);
     }
-    rows.push(...[...missing.values()].sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0)));
+    rows.push(...[...missing.values()].sort((a, b) => (order.get(keyOf(a.place)) ?? 0) - (order.get(keyOf(b.place)) ?? 0)));
     const next = periods.find(item => item.valid_from > today);
     if (next) rows.push(...places(next, { when: `giá mới từ ${dateText(next.valid_from)}`, kind: 'next' }));
     const vnd = value => (value == null ? '–' : toBig(value).toLocaleString('vi-VN'));
     const ships = table.tt_shippers ?? [];
-    return (rows.length ? '<table class="hs-prices"><thead><tr><th scope="col">Nơi đi</th><th scope="col" class="num">Giá khách</th>'
+    return (rows.length ? '<div class="hs-prices-scroll"><table class="hs-prices"><thead><tr><th scope="col">Nơi đi</th><th scope="col">Nơi đến</th><th scope="col" class="num">Giá khách</th>'
       + `<th scope="col" class="num">Giá TT</th><th scope="col">Hiệu lực</th></tr></thead><tbody>${rows.map(row => `<tr class="${row.kind}">`
-        + `<td>${escape(row.place)}</td><td class="num">${vnd(row.khach)}</td><td class="num">${vnd(row.tt)}</td><td>${escape(row.when)}</td></tr>`).join('')}`
-      + '</tbody></table>' : '<p class="hs-empty">Sổ chưa có bảng giá.</p>')
+        + `<td>${escape(row.place)}</td><td>${escape(row.destination)}</td><td class="num">${vnd(row.khach)}</td><td class="num">${vnd(row.tt)}</td><td>${escape(row.when)}</td></tr>`).join('')}`
+      + '</tbody></table></div>' : '<p class="hs-empty">Sổ chưa có bảng giá.</p>')
       + `<p class="hs-hint">Đơn vị: đồng/chuyến. ${escape(ships.length ? `Giá TT áp cho shipper ${ships.join(', ')}; shipper khác lấy giá khách.` : 'Mọi shipper lấy giá khách.')}</p>`;
   }
   // Nút dạng chữ xanh (vùng bấm 40px); `go` như các nút khác của thẻ.

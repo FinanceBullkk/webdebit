@@ -6,8 +6,8 @@
   'use strict';
   const { root, model, api, live, customerId, escape, fmt, dateText, monthKey, monthLabel, showNotice } = ctx;
   const TIER = { khach: 'giá khách', tt: 'giá TT' };
-  const FIELDS = ['from', 'to', 'kho', 'khach', 'tt'];
-  const LABELS = ['Từ ngày', 'Đến ngày', 'Nơi đi', 'Giá khách', 'Giá TT'];
+  const FIELDS = ['from', 'to', 'kho', 'den', 'khach', 'tt'];
+  const LABELS = ['Từ ngày', 'Đến ngày', 'Nơi đi', 'Nơi đến', 'Giá khách', 'Giá TT'];
   let status = null;            // GET /api/v7/price-table/status của phiên bản sổ đang vẽ
   let loadedVersion = null;
   let confirm = null;           // { kind: 'ready'|'reapply', ids }
@@ -60,8 +60,8 @@
   };
 
   // Sau khi vẽ sổ: chữ nhỏ ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
-  const REASONS = { UNKNOWN_LOCATION: ['ngoài bảng giá', 'Nơi đi chưa có trong bảng giá'], NO_PERIOD: ['ngoài ngày có giá', 'Bảng giá chưa có giá cho ngày chuyến này'],
-    NO_DATE: ['thiếu ngày', 'Chuyến thiếu ngày nên chưa tra được giá'], NO_ORIGIN: ['thiếu nơi đi', 'Chuyến thiếu nơi đi nên chưa tra được giá'] };
+  const REASONS = { UNKNOWN_LOCATION: ['ngoài bảng giá', 'Nơi đi chưa có trong bảng giá'], UNKNOWN_DESTINATION: ['chưa có đích', 'Cặp nơi đi và nơi đến chưa có trong bảng giá'], NO_PERIOD: ['ngoài ngày có giá', 'Bảng giá chưa có giá cho ngày chuyến này'],
+    NO_DATE: ['thiếu ngày', 'Chuyến thiếu ngày nên chưa tra được giá'], NO_ORIGIN: ['thiếu nơi đi', 'Chuyến thiếu nơi đi nên chưa tra được giá'], NO_DESTINATION: ['thiếu nơi đến', 'Chuyến thiếu nơi đến nên chưa tra được giá'] };
   ctx.priceAfterRender = active => {
     if (!active || !status) return;
     for (const row of status.trips) {
@@ -73,7 +73,7 @@
       if (row.ready) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-ready'; title = `Theo bảng: ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''})`; }
       else if (row.differs) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-diff'; title = `Khác bảng giá: bảng ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''})`; }
       else if (row.from_table) { note = 'theo bảng'; title = `Giá ghi theo bảng (${TIER[lookup.tier] ?? ''})`; }
-      else if (row.unit_price_vnd == null && lookup.reason === 'NO_RATE') { note = `thiếu ${TIER[lookup.tier] ?? 'giá'}`; title = `Bảng giá có ${lookup.location ?? 'nơi đi này'} nhưng chưa có ${TIER[lookup.tier] ?? 'giá'}`; }
+      else if (row.unit_price_vnd == null && lookup.reason === 'NO_RATE') { note = `thiếu ${TIER[lookup.tier] ?? 'giá'}`; title = `Bảng giá có chuyến từ ${lookup.location ?? 'nơi đi này'} đến ${lookup.destination ?? 'nơi đến này'} nhưng chưa có ${TIER[lookup.tier] ?? 'giá'}`; }
       else if (row.unit_price_vnd == null && REASONS[lookup.reason]) [note, title] = REASONS[lookup.reason];
       if (!note) continue;
       cell.insertAdjacentHTML('beforeend', `<small class="${cls}">${escape(note)}</small>`);
@@ -98,11 +98,11 @@
     const rows = confirm.ids.map(id => {
       const trip = trips.get(id) ?? {};
       const lookup = lookupOf(id);
-      return `<tr><td>${escape(trip.container ?? '')}</td><td>${trip.event_date ? escape(dateText(trip.event_date)) : ''}</td><td>${escape(trip.origin ?? '')}</td><td>${escape(trip.shipper || '–')}</td>
+      return `<tr><td>${escape(trip.container ?? '')}</td><td>${trip.event_date ? escape(dateText(trip.event_date)) : ''}</td><td>${escape(trip.origin ?? '')}</td><td>${escape(trip.destination ?? '')}</td><td>${escape(trip.shipper || '–')}</td>
         ${confirm.kind === 'reapply' ? `<td class="num">${fmt(trip.unit_price_vnd)}</td>` : ''}<td class="num">${fmt(lookup.unit_price_vnd)}</td><td>${TIER[lookup.tier] ?? ''}</td></tr>`;
     }).join('');
     return `<div class="price-panel confirm" role="region" aria-label="Xác nhận điền giá theo bảng"><p>${head} Phiếu thu tự phân bổ lại theo nợ cũ trước.</p>
-      <div class="price-confirm-list"><table><thead><tr><th>Số container</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Shipper</th>${confirm.kind === 'reapply' ? '<th class="num">Đang ghi</th>' : ''}<th class="num">Đơn giá theo bảng</th><th>Loại giá</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="price-confirm-list"><table><thead><tr><th>Số container</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Nơi đến</th><th>Shipper</th>${confirm.kind === 'reapply' ? '<th class="num">Đang ghi</th>' : ''}<th class="num">Đơn giá theo bảng</th><th>Loại giá</th></tr></thead><tbody>${rows}</tbody></table></div>
       <div class="price-actions"><button type="button" class="price-table-write primary">${confirm.kind === 'ready' ? `Điền ${count} giá` : `Áp ${count} giá`}</button><button type="button" class="price-table-cancel">Thôi</button></div></div>`;
   }
   async function post(path, body) {
@@ -171,9 +171,9 @@
     const text = String(value ?? '').trim();
     if (field === 'from' || field === 'to') { const iso = isoOf(text); return iso ? dmy(iso) : text; }
     if (field === 'khach' || field === 'tt') { try { const price = priceOf(text); return price == null ? text : fmt(price); } catch { return text; } }
-    return field === 'kho' ? keyOf(text) : text;
+    return field === 'kho' || field === 'den' ? keyOf(text) : text;
   }
-  const blankRow = () => ({ uid: nextUid++, from: '', to: '', kho: '', khach: '', tt: '', fresh: false });
+  const blankRow = () => ({ uid: nextUid++, from: '', to: '', kho: '', den: '', khach: '', tt: '', fresh: false });
   const filled = row => FIELDS.some(field => String(row[field]).trim());
   // Luôn còn 3 hàng trống cuối lưới giá và 2 ô trống cuối cột shipper (như lưới nhập chuyến).
   function pad() {
@@ -192,11 +192,11 @@
     for (const period of [...(table?.periods ?? [])].sort((a, b) => String(a.valid_from).localeCompare(String(b.valid_from)))) {
       const byLocation = new Map();
       for (const rate of period.rates ?? []) {
-        const key = keyOf(rate.location);
-        if (!byLocation.has(key)) byLocation.set(key, { uid: nextUid++, from: dmy(period.valid_from), to: dmy(period.valid_to), kho: rate.location, khach: '', tt: '', fresh: false });
+        const key = `${keyOf(rate.location)}|${keyOf(rate.destination)}`;
+        if (!byLocation.has(key)) byLocation.set(key, { uid: nextUid++, from: dmy(period.valid_from), to: dmy(period.valid_to), kho: rate.location, den: rate.destination ?? '', khach: '', tt: '', fresh: false });
         byLocation.get(key)[rate.tier] = fmt(rate.unit_price_vnd);
       }
-      rows.push(...[...byLocation.entries()].sort(([a], [b]) => (order.get(a) ?? 0) - (order.get(b) ?? 0)).map(([, row]) => row));
+      rows.push(...[...byLocation.entries()].sort(([a], [b]) => (order.get(a.split('|')[0]) ?? 0) - (order.get(b.split('|')[0]) ?? 0) || a.localeCompare(b)).map(([, row]) => row));
     }
     const result = { rows, ships: (table?.tt_shippers ?? []).map(name => ({ uid: nextUid++, name })), aliases };
     return result;
@@ -218,15 +218,16 @@
       if (to === null) flag(row, 'to', 'Đến ngày sai');
       else if (from && to && to < from) flag(row, 'to', 'Đến trước Từ ngày');
       if (!keyOf(row.kho)) flag(row, 'kho', 'Thiếu nơi đi');
+      if (!keyOf(row.den)) flag(row, 'den', 'Thiếu nơi đến');
       if (!priceOk(row.khach)) flag(row, 'khach', 'Giá khách sai');
       if (!priceOk(row.tt)) flag(row, 'tt', 'Giá TT sai');
-      if (!errors.has(row.uid)) good.push({ row, n: index + 1, from, to, key: keyOf(row.kho), khach: priceOf(row.khach), tt: priceOf(row.tt) });
+      if (!errors.has(row.uid)) good.push({ row, n: index + 1, from, to, key: keyOf(row.kho), destination: keyOf(row.den), khach: priceOf(row.khach), tt: priceOf(row.tt) });
     });
     for (let i = 0; i < good.length; i += 1) {
       for (let j = i + 1; j < good.length; j += 1) {
         const [a, b] = [good[i], good[j]];
         const sameTier = (a.khach != null && b.khach != null) || (a.tt != null && b.tt != null) || (a.khach == null && a.tt == null && b.khach == null && b.tt == null);
-        if (a.key !== b.key || !sameTier || !(a.from <= (b.to || '9999-12-31') && b.from <= (a.to || '9999-12-31'))) continue;
+        if (a.key !== b.key || a.destination !== b.destination || !sameTier || !(a.from <= (b.to || '9999-12-31') && b.from <= (a.to || '9999-12-31'))) continue;
         flag(b.row, 'from', `Trùng ngày dòng ${a.n}`); flag(b.row, 'to', '');
         flag(a.row, 'from', `Trùng ngày dòng ${b.n}`); flag(a.row, 'to', '');
       }
@@ -289,12 +290,12 @@
       const error = errors.get(row.uid);
       const [state, text] = rowState(row, errors);
       return `<tr data-uid="${row.uid}" class="${row.fresh ? 'fresh' : ''}${state === 'old' ? ' old' : ''}"><td class="rn">${r + 1}</td>${FIELDS.map((field, c) =>
-        `<td data-f="${field}" class="${error?.fields.has(field) ? 'bad' : ''}"><input data-r="${r}" data-c="${c}" class="${c >= 3 ? 'num' : ''}" value="${escape(row[field])}" ${c >= 3 && filled(row) ? 'placeholder="–"' : ''} aria-label="${LABELS[c]} dòng ${r + 1}" autocomplete="off" spellcheck="false"></td>`).join('')}
+        `<td data-f="${field}" class="${error?.fields.has(field) ? 'bad' : ''}"><input data-r="${r}" data-c="${c}" class="${c >= 4 ? 'num' : ''}" value="${escape(row[field])}" ${c >= 4 && filled(row) ? 'placeholder="–"' : ''} aria-label="${LABELS[c]} dòng ${r + 1}" autocomplete="off" spellcheck="false"></td>`).join('')}
         <td class="st st-${state}">${escape(text)}</td><td class="xc">${filled(row) ? `<button type="button" class="price-row-drop" data-r="${r}" aria-label="Bỏ dòng ${r + 1}">×</button>` : ''}</td></tr>`;
     }).join('');
     const ships = form.ships.map((ship, s) => `<tr><td class="ship-cell"><input data-s="${s}" value="${escape(ship.name)}" list="price-ship-list" aria-label="Shipper áp giá TT dòng ${s + 1}" autocomplete="off" spellcheck="false">${shipNote(ship.name)}</td>
       <td class="xc">${ship.name.trim() ? `<button type="button" class="price-ship-drop" data-s="${s}" aria-label="Bỏ shipper ${escape(ship.name)}">×</button>` : ''}</td></tr>`).join('');
-    const help = empty ? `<div class="price-help"><p>Trên Sheet, bôi đen vùng bảng giá như hình rồi Ctrl+C. Bấm vào ô dòng 1 bên dưới, Ctrl+V.</p>
+    const help = empty ? `<div class="price-help"><p>Dán cột giá từ Sheet rồi bổ sung Nơi đến cho từng dòng trước khi lưu. Dòng chưa có Nơi đến không áp giá.</p>
       <table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
       <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
       <tr><td class="s">10/10/2026</td><td class="s"></td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">66,000,000</td><td class="g"></td><td class="o"></td></tr></table></div>` : '';
@@ -303,7 +304,7 @@
       <div class="price-bar"></div>
       <div class="price-body">${help}<div class="price-grids">
         <div><p class="price-hint-line">Dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay. Ô giá để trống là chưa có giá.</p>
-          <table class="price-grid price-grid-main"><thead><tr><th class="rn"></th><th class="w-date">Từ ngày</th><th class="w-date">Đến ngày</th><th class="w-kho">Nơi đi</th><th class="num w-price">Giá khách</th><th class="num w-price">Giá TT</th><th class="w-st">Tình trạng</th><th class="xc"></th></tr></thead><tbody>${rows}</tbody></table></div>
+          <table class="price-grid price-grid-main"><thead><tr><th class="rn"></th><th class="w-date">Từ ngày</th><th class="w-date">Đến ngày</th><th class="w-kho">Nơi đi</th><th class="w-den">Nơi đến</th><th class="num w-price">Giá khách</th><th class="num w-price">Giá TT</th><th class="w-st">Tình trạng</th><th class="xc"></th></tr></thead><tbody>${rows}</tbody></table></div>
         <div><p class="price-hint-line">&nbsp;</p><table class="price-grid price-grid-ship"><thead><tr><th class="w-ship">Shipper áp giá TT</th><th class="xc"></th></tr></thead><tbody>${ships}</tbody></table>
           <p class="price-ship-note">Shipper không có trong cột này lấy giá khách.</p></div>
       </div></div></div>
@@ -348,18 +349,20 @@
     }
     return added;
   }
-  // Dán khối từ Sheet bắt đầu tại ô (r, c): 5 cột giá; cột thứ 7 tính từ Từ ngày (sau một cột trống) là shipper áp giá TT. Dòng tiêu đề tự bỏ.
+  // Sheet cũ có 5 cột giá và shipper ở cột 7; lưới mới có thêm Nơi đến sau Nơi đi.
   function pasteBlock(r0, c0, text) {
     const lines = String(text).replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n').map(line => line.split('\t').map(cell => cell.trim()));
     const names = [];
     let r = r0, count = 0;
     for (const cells of lines) {
-      if (cells[6 - c0]) names.push(cells[6 - c0]);
+      const shipperColumn = cells.length >= 8 - c0 ? 7 - c0 : 6 - c0;
+      if (cells[shipperColumn]) names.push(cells[shipperColumn]);
       if (c0 === 0 && cells[0] && !/\d/.test(cells[0])) continue;
-      const values = cells.slice(0, 5 - c0);
+      const values = cells.slice(0, 6 - c0);
       if (!values.some(Boolean)) continue;
       while (form.rows.length <= r) form.rows.push(blankRow());
-      values.forEach((value, k) => { form.rows[r][FIELDS[c0 + k]] = tidy(FIELDS[c0 + k], value); });
+      const pastedFields = c0 === 0 && (cells.length === 5 || cells.length === 7) ? ['from', 'to', 'kho', 'khach', 'tt'] : FIELDS.slice(c0);
+      values.slice(0, pastedFields.length).forEach((value, k) => { form.rows[r][pastedFields[k]] = tidy(pastedFields[k], value); });
       r += 1; count += 1;
     }
     const added = addShips(names);
@@ -386,7 +389,7 @@
     bar = null;
     render();
     setBar('info', `Đã thêm ${copies.length} dòng giá từ ${dmy(iso)} (tô vàng), giá chép từ giá cũ. Giá cũ dùng tới ${end}. Sửa giá rồi bấm Lưu bảng giá.`);
-    const input = $(`input[data-r="${at}"][data-c="3"]`);
+    const input = $(`input[data-r="${at}"][data-c="4"]`);
     input?.focus();
     input?.scrollIntoView?.({ block: 'center' });
   }
@@ -397,7 +400,7 @@
       if (!locations.has(item.key)) locations.set(item.key, { name: item.key, aliases: form.aliases.get(item.key) ?? [] });
       const periodKey = `${item.from}|${item.to}`;
       if (!periods.has(periodKey)) periods.set(periodKey, { valid_from: item.from, valid_to: item.to || null, rates: [] });
-      for (const tier of ['khach', 'tt']) if (item[tier] != null) periods.get(periodKey).rates.push({ location: item.key, tier, unit_price_vnd: item[tier] });
+      for (const tier of ['khach', 'tt']) if (item[tier] != null) periods.get(periodKey).rates.push({ location: item.key, destination: item.destination, tier, unit_price_vnd: item[tier] });
     }
     return { tt_shippers: [...new Set(form.ships.map(ship => keyOf(ship.name)).filter(Boolean))], locations: [...locations.values()],
       periods: [...periods.values()].sort((a, b) => a.valid_from.localeCompare(b.valid_from)) };

@@ -325,7 +325,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-panel.confirm .price-actions{margin-top:12px}
 .price-table-dialog{position:fixed;inset:0;z-index:80;display:flex;align-items:flex-start;justify-content:center;padding-top:20px;background:#162d4860}
 .price-table-dialog[hidden]{display:none}
-.price-table-panel{width:1214px;max-width:calc(100vw - 24px);max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 10px 32px #0005;font-size:16px;color:#162d48}
+.price-table-panel{width:1360px;max-width:calc(100vw - 24px);max-height:calc(100vh - 32px);display:flex;flex-direction:column;background:#fff;border-radius:8px;box-shadow:0 10px 32px #0005;font-size:16px;color:#162d48}
 .price-table-panel header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 16px;background:#eaf1fa;border-bottom:1px solid #9eb4ca;border-radius:8px 8px 0 0}
 .price-table-panel h2{margin:0;font-size:19px}
 .price-dirty{display:inline-flex;align-items:center;min-height:24px;padding:0 10px;border-radius:12px;background:#fff3d1;color:#7a4f00;font-size:13px;font-weight:700}
@@ -359,7 +359,7 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-grid th.num{text-align:right}
 .price-grid td{height:40px;padding:0;border-right:1px solid #d8e1ec;border-bottom:1px solid #d8e1ec;background:#fff}
 .price-grid .rn{width:40px;text-align:center;color:#5d6f82;font-size:13px;background:#f6f9fc}
-.price-grid .w-date{width:124px}.price-grid .w-kho{width:160px}.price-grid .w-price{width:138px}.price-grid .w-st{width:124px}.price-grid .w-ship{width:220px}.price-grid .xc{width:40px;text-align:center}
+.price-grid .w-date{width:110px}.price-grid .w-kho,.price-grid .w-den{width:135px}.price-grid .w-price{width:125px}.price-grid .w-st{width:115px}.price-grid .w-ship{width:220px}.price-grid .xc{width:40px;text-align:center}
 .price-grid input{display:block;width:100%;height:39px;box-sizing:border-box;border:0;padding:0 8px;background:transparent;color:#162d48;font:inherit;font-size:16px}
 .price-grid input:focus{outline:2px solid #145fa9;outline-offset:-2px;background:#fff}
 .price-grid input.num{text-align:right;font-variant-numeric:tabular-nums}

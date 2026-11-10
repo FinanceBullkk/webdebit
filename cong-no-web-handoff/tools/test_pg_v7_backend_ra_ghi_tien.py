@@ -4,6 +4,7 @@ Run only through disposable test_pg_v7_backend.py harness."""
 import json
 
 from pg_v7_harness import (
+    BANG_GIA_NOI_DEN_MIGRATION,
     CAN_DU_MIGRATION,
     CHAN_TRUNG_MIGRATION,
     CONTAINER_INDEX_MIGRATION,
@@ -40,7 +41,9 @@ def check_ra_ghi_tien(pg) -> str:
     pg.sql(CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8"))  # chặn trùng hàng chờ thay paste_trips sau bản 29/10
     pg.sql(CONTAINER_INDEX_MIGRATION.read_text(encoding="utf-8"))  # chan-trung trả list_legacy_trip_refs cũ
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
-    require(pg.value(CATALOG) == fresh, "ra-ghi-tien migration rerun changed function catalog")
+    pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
+    after = pg.value(CATALOG)
+    require(after == fresh, f"ra-ghi-tien migration rerun changed function catalog: {[k for k in json.loads(after).keys() | json.loads(fresh).keys() if json.loads(after).get(k) != json.loads(fresh).get(k)]}")
     pg.true("EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='sokhach.trip'::regclass AND tgname='trip_sheet_cross_customer')",
             "sheet cross-customer trigger missing from canonical schema")
     for name, allowed in (("list_sheet_trip_refs", True), ("resolve_sheet_conflict", True), ("guard_sheet_cross_customer", False)):
@@ -95,7 +98,7 @@ def check_ra_ghi_tien(pg) -> str:
     def table(price):
         return json.dumps({"tt_shippers": [], "locations": [{"name": "DAK LAK"}],
                            "periods": [{"valid_from": "2026-01-01", "valid_to": None,
-                                        "rates": [{"location": "DAK LAK", "tier": "khach", "unit_price_vnd": price}]}]})
+                                        "rates": [{"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": price}]}]})
     call(pg, "save_price_table", c3, version(pg, c3), "price-table-1", table("75"))
     v = version(pg, c3)
     before = call(pg, "get_ledger", c3)

@@ -49,10 +49,11 @@ body[data-the=ho-so]{background:#fff}
 .hs-action{display:inline-flex;flex:none;align-items:center;min-height:40px;padding:0 8px;border:0;border-radius:8px;background:none;color:#1c5cab;font:inherit;font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer}
 .hs-action:hover{background:#eaf2fb}
 .hs-action.outline{padding:0 16px;border:1px solid #1c5cab;background:#fff}
+.hs-prices-scroll{max-width:100%;overflow-x:auto}
 .hs-prices{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 .hs-prices th{padding:6px 8px 6px 0;border-bottom:1px solid #e3e7ec;color:#52514e;font-size:14px;font-weight:600;text-align:left}
 .hs-prices td{height:40px;padding:0 8px 0 0;border-bottom:1px solid #f0f2f5}
-.hs-prices .num{width:130px;text-align:right;white-space:nowrap}.hs-prices td.num:nth-child(2){font-weight:600}.hs-prices td.num:nth-child(3){color:#52514e}
+.hs-prices .num{width:130px;text-align:right;white-space:nowrap}.hs-prices td.num:nth-child(3){font-weight:600}.hs-prices td.num:nth-child(4){color:#52514e}
 .hs-prices th:last-child,.hs-prices td:last-child{padding-left:16px;font-size:14px}
 .hs-prices tr.now td:last-child{color:#52514e}.hs-prices tr.next td:last-child{color:#1c5cab}
 .hs-prices tr.warn td:last-child{color:#9a5b00;font-weight:600}
@@ -64,4 +65,4 @@ body[data-the=ho-so]{background:#fff}
 .hs-toast .hs-action{border:1px solid #ffffff66;color:#fff}.hs-toast .hs-action:hover{background:#ffffff1a}
 .hs-action:focus-visible,.hs-link:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 @media(max-width:900px){.hs-side{padding-left:0;border-left:0;border-top:1px solid #e3e7ec}.hs-id{flex-wrap:wrap}}
-@media(max-width:600px){.hs-term{grid-template-columns:1fr}.hs-initials{flex-basis:56px;width:56px;height:56px;font-size:20px}.hs-name{font-size:24px}.hs-prices th:last-child,.hs-prices td:last-child{display:none}}
+@media(max-width:600px){.hs-term{grid-template-columns:1fr}.hs-initials{flex-basis:56px;width:56px;height:56px;font-size:20px}.hs-name{font-size:24px}.hs-prices th:last-child,.hs-prices td:last-child{display:none}.hs-prices .num{width:110px}.hs-prices th,.hs-prices td{padding-right:4px}}
