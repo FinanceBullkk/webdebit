@@ -52,7 +52,8 @@ globalThis.DoiChieuView = (() => {
   function hintLead(row, F) {
     const texts = M.hintTexts(row, value => say(value, F));
     if (!texts.length) return null;
-    const head = row.reason === 'HELD' ? 'Sheet có chỗ máy chưa đọc được, chưa so được. ' : row.hints_explain ? 'Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: ' : 'Máy chưa chắc, có thể do: ';
+    const aheadOnly = M.aheadToCheck(row) && (row.reason === 'WEB_AHEAD' || row.reason === 'FIXED');
+    const head = row.reason === 'HELD' ? 'Sheet có chỗ máy chưa đọc được, chưa so được. ' : aheadOnly ? 'Web đi trước Sheet, có chuyến cần xem: ' : row.hints_explain ? 'Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: ' : 'Máy chưa chắc, có thể do: ';
     const more = texts.length > 2 ? ` Còn ${texts.length - 2} chỗ nữa, mở để xem.` : '';
     return `${head}${texts.slice(0, 2).join(' ')}${more}`;
   }
@@ -115,7 +116,7 @@ globalThis.DoiChieuView = (() => {
   }
 
   // Bảng đối chiếu của một khách: số web ± từng khoản = số Sheet, phần chưa giải thích hiện riêng.
-  function statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints = [] }) {
+  function statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints = [], aheadCheck = false }) {
     const link = `<a class="dc-open-book" href="${href(id)}">Mở cả sổ ${icon('right')}</a>`;
     if (statement === undefined) return '<p class="loading dc-loading">Đang tính các khoản…</p>';
     if (statement === null) return `<p class="dc-failed" role="alert">Không đọc được các khoản từ Sheet. <button type="button" class="btn" data-dc-retry="${id}">Thử lại</button> ${link}</p>`;
@@ -134,10 +135,12 @@ globalThis.DoiChieuView = (() => {
       const note = partial ? `đã chọn ${group.rows.filter(row => !off.has(row.key)).length}/${group.count} chuyến` : groupNote(group, group.delta_vnd);
       return `<div class="dc-row dc-item${on ? ' on' : ''}" data-dc-group="${esc(group.id)}"><label class="dc-pick"><input type="checkbox" data-dc-pick="${esc(group.id)}"${on ? ' checked' : ''}${locked ? ' disabled' : ''} aria-label="Ghi khoản ${esc(groupTitle(group))}"><span><strong>${esc(groupTitle(group))}</strong>${note ? ` <span class="dc-note">· ${esc(note)}</span>` : ''}${group.locked ? ' <span class="dc-note">· tháng khóa</span>' : ''}</span></label><button type="button" class="dc-link" data-dc-xem="${esc(group.id)}" aria-expanded="${open}">${open ? 'Thu gọn' : group.kind === 'prices' ? 'Xem từng chuyến' : 'Xem chi tiết'}</button>${canKeep ? `<button type="button" class="dc-link quiet" data-dc-giu="${esc(group.id)}"${locked ? ' disabled' : ''}>Giữ số web</button>` : ''}<span class="dc-num" title="${esc(F.full(delta))}">${money(delta, F, true)}</span></div>${open ? rowsTable(group, off, { F, esc, locked }) : ''}`;
     }).join('');
-    const ahead = BigInt(statement.web_ahead_vnd ?? 0) > 0n ? `<div class="dc-row"><span class="dc-label">Web đi trước Sheet <span class="dc-note">· chuyến Sheet chưa ghi giá, không phải lệch</span></span><span class="dc-num" title="${esc(F.full(statement.web_ahead_vnd))}">${money(statement.web_ahead_vnd, F)}</span></div>` : '';
+    const ahead = BigInt(statement.web_ahead_vnd ?? 0) > 0n ? `<div class="dc-row"><span class="dc-label">Web đi trước Sheet <span class="dc-note">${aheadCheck ? '· có chuyến cần xem ở dưới' : '· chuyến Sheet chưa ghi giá, không phải lệch'}</span></span><span class="dc-num" title="${esc(F.full(statement.web_ahead_vnd))}">${money(statement.web_ahead_vnd, F)}</span></div>` : '';
     const remaining = sum.remaining === null ? null : BigInt(sum.remaining);
     const left = remaining === null
       ? `<div class="dc-row dc-left unknown"><strong>Chưa so được</strong><span class="dc-hint">Lượt đối soát chưa có tổng Sheet của khách này.</span><strong class="dc-num">—</strong></div>`
+      : remaining === 0n && aheadCheck
+        ? `<div class="dc-row dc-left"><strong>Cần xem</strong><span class="dc-hint">Số khớp nếu tính phần web đi trước. Xem các chuyến ở dưới.</span><strong class="dc-num">0</strong></div>`
       : remaining === 0n
         ? `<div class="dc-row dc-left ok"><strong>Khớp</strong><span class="dc-hint">Khớp tới từng đồng${sum.items.length ? ' sau khi ghi' : ''}.</span><strong class="dc-num">0</strong></div>`
         : `<div class="dc-row dc-left"><strong>Còn lệch</strong><span class="dc-hint">${sum.items.length ? 'Sau khi ghi vẫn lệch. Xem lại tab khách trên Sheet.' : statement.groups.length ? 'Chọn khoản để xem còn lệch bao nhiêu.' : hints.length ? 'Máy chưa ghi được khoản nào. Các chỗ máy tìm ra ở dưới.' : 'Không có khoản nào giải thích được. Xem tab khách trên Sheet.'}</span><strong class="dc-num" title="${esc(F.full(sum.remaining))}">${money(sum.remaining, F, true)}</strong></div>`;
@@ -161,9 +164,11 @@ globalThis.DoiChieuView = (() => {
       const id = item.customer_id;
       const open = id && state.open === id;
       const statement = open ? state.data.get(id) : undefined;
-      const live = open && statement?.sheet_total_vnd != null ? M.summarize(statement).now : item.difference_vnd;
+      // Khách có chuyến đi trước cần xem: cột Lệch giữ nguyên web − Sheet, không trừ phần đi trước, để không hiện 0 ở một khách phải xem.
+      const live = open && statement?.sheet_total_vnd != null
+        ? (M.aheadToCheck(item) ? (BigInt(statement.web_vnd) - BigInt(statement.sheet_total_vnd)).toString() : M.summarize(statement).now) : item.difference_vnd;
       const web = open && statement ? statement.web_vnd : item.web_total_vnd;
-      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints: M.hintTexts(item, value => say(value, F)) })}</td></tr>` : ''}`;
+      return `<tr class="dc-customer${open ? ' expanded' : ''}" data-customer="${id ?? ''}"><th scope="row">${id ? `<button type="button" class="book-name" data-dc-open="${id}" aria-expanded="${open}" title="Mở đối chiếu ${esc(item.customer)}">${esc(item.customer)}</button>` : esc(item.customer)}</th><td class="num">${money(web, F)}</td><td class="num">${money(item.sheet_total_vnd, F)}</td><td class="num dc-gap" title="${live === null || live === undefined ? '' : esc(F.full(live))}">${money(live, F, true)}</td><td class="dc-why">${esc(whyText(item, now, F))}</td><td class="dc-toggle">${id ? `<button type="button" class="row-toggle" data-dc-open="${id}" aria-expanded="${open}" aria-label="${open ? 'Đóng' : 'Mở'} đối chiếu ${esc(item.customer)}">${icon(open ? 'up' : 'down', 16)}</button>` : ''}</td></tr>${open ? `<tr class="dc-detail"><td colspan="6">${statementHtml(id, statement, state, { F, esc, href, now, action, busy, hints: M.hintTexts(item, value => say(value, F)), aheadCheck: M.aheadToCheck(item) })}</td></tr>` : ''}`;
     };
     const outsideRows = outside.map(tab => `<tr class="dc-customer"><th scope="row">${esc(tab.customer)}</th><td class="num">—</td><td class="num">${money(tab.sheet_total_vnd, F)}</td><td class="num dc-gap">—</td><td class="dc-why">${esc(OUTSIDE_TEXT[tab.reason] ?? 'Tab còn nợ, máy chưa tạo được sổ.')}</td><td></td></tr>`).join('');
     const empty = !rows.length && !outside.length ? `<div class="dc-empty ok"><p><strong>Không có khách nào lệch. Chưa cần làm gì.</strong></p><p>Máy kiểm lại lúc ${esc(M.nextCheck(now))}. Email chỉ gửi khi máy lỗi hoặc dừng; khách lệch hiện ở đây.</p></div>` : '';

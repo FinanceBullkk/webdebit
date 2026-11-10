@@ -245,6 +245,8 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     row["web_ahead_vnd"] = ahead
     if shuffled:
         row["shuffled_months"] = shuffled
+    if ahead:
+        attach_ahead_check(row, ledger, prices, customers, today)
     target = sheet + ahead
     if total == target:
         row.update(reason="WEB_AHEAD", groups=[brief(group, []) for group in groups])
@@ -286,8 +288,20 @@ def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict
     except Exception as exc:  # noqa: BLE001
         print(f"V7 đối soát máy: không đoán được lý do lệch ({type(exc).__name__})", file=sys.stderr, flush=True)
         return
+    if found:   # chuyến đi trước cần xem (nếu có) đứng sau các chỗ gây lệch
+        row.update(hints=[*(hints.money_fields(hint) for hint in found), *(row.get("hints") or [])], hints_explain=explained)
+
+
+def attach_ahead_check(row: dict[str, Any], ledger: dict, prices: dict, customers: list[dict], today: dt.date) -> None:
+    """Chuyến web đi trước để lâu hoặc Sheet ghi ở tab sổ khác: thêm câu để người xem (MAY-DOI-SOAT-01, 10/11/2026). Không đổi phép
+    tính hay kết luận; lỗi ở đây không làm hỏng lượt."""
+    try:
+        found = fix.ahead_to_check(prices, ledger, customers, today)
+    except Exception as exc:  # noqa: BLE001
+        print(f"V7 đối soát máy: không xét được chuyến đi trước ({type(exc).__name__})", file=sys.stderr, flush=True)
+        return
     if found:
-        row.update(hints=[hints.money_fields(hint) for hint in found], hints_explain=explained)
+        row["hints"] = [hints.money_fields(hint) for hint in found]
 
 
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:

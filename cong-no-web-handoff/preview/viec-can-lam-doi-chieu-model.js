@@ -6,17 +6,20 @@
 }(typeof self !== 'undefined' ? self : this, () => {
   const big = value => (value === null || value === undefined ? null : BigInt(value));
 
-  const isAhead = row => row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP');
+  // Web đi trước mà có chuyến để lâu hoặc Sheet ghi ở tab sổ khác (MAY-DOI-SOAT-01, 10/11/2026): số vẫn giải thích được, nhưng người phải xem.
+  const AHEAD_CHECK = new Set(['ahead_old', 'ahead_other_book']);
+  const aheadToCheck = row => (row.hints ?? []).some(hint => AHEAD_CHECK.has(hint.kind));
+  const isAhead = row => (row.reason === 'WEB_AHEAD' || (row.reason === 'FIXED' && row.status !== 'KHOP')) && !aheadToCheck(row);
   const isDone = row => row.reason === 'FIXED' || row.reason === 'BOOK_CREATED';
   const abs = value => { const n = big(value); return n === null ? null : n < 0n ? -n : n; };
 
   // Khách phải xem, lệch lớn trước; máy ghi xong mà không khớp đứng đầu; chưa biết số lệch xếp sau cùng.
   function openRows(reconcile) {
-    const rows = (reconcile?.customers ?? []).filter(row => !isDone(row) && !isAhead(row));
+    const rows = (reconcile?.customers ?? []).filter(row => aheadToCheck(row) || (!isDone(row) && !isAhead(row)));
     const rank = row => (row.reason === 'VERIFY_FAILED' ? 0 : row.difference_vnd === null || row.difference_vnd === undefined ? 2 : 1);
     return [...rows].sort((a, b) => rank(a) - rank(b) || (abs(b.difference_vnd) > abs(a.difference_vnd) ? 1 : abs(b.difference_vnd) < abs(a.difference_vnd) ? -1 : 0));
   }
-  const aheadRows = reconcile => (reconcile?.customers ?? []).filter(row => row.reason === 'WEB_AHEAD');
+  const aheadRows = reconcile => (reconcile?.customers ?? []).filter(row => row.reason === 'WEB_AHEAD' && !aheadToCheck(row));
   const fixedRows = reconcile => (reconcile?.customers ?? []).filter(isDone);
   const openIds = reconcile => new Set(openRows(reconcile).map(row => row.customer_id).filter(Boolean));
 
@@ -86,9 +89,11 @@
     if (hint.kind === 'price_review') return `Dòng ${hint.row}${where}: Sheet ${say(hint.sheet_vnd)}, web ${say(hint.web_vnd)}. Máy không tự sửa${HINT_WHY[hint.status] ?? ''}, sửa trên Sổ.`;
     if (hint.kind === 'sheet_row_missing') return `Dòng ${hint.row}${where} trên Sheet có ${say(hint.sheet_vnd)} mà web không có dòng nào. Xem có tính cho khách không.`;
     if (hint.kind === 'chain_break') return `Khối tháng ${Number(String(hint.month).slice(5, 7))} trên Sheet: số cuối tháng ${big(hint.delta_vnd) < 0n ? 'thiếu' : 'thừa'} ${say(hint.delta_vnd)} so với tháng trước chuyển sang + phát sinh − thu. Thường do ô số dư chuyển sang đầu khối trống hoặc trỏ sai dòng.`;
+    if (hint.kind === 'ahead_other_book') return `Chuyến ${hint.container} ngày ${dayText(hint.date)} (${say(hint.amount_vnd)}) web ghi ở sổ này, còn Sheet ghi ở tab ${hint.other}. Xem chuyến thuộc khách nào.`;
+    if (hint.kind === 'ahead_old') return `Chuyến ${hint.container} ngày ${dayText(hint.date)} (${say(hint.amount_vnd)}) có giá trên web đã ${hint.days} ngày mà tab Sheet chưa có. Xem Sheet đã bỏ chuyến này chưa.`;
     return null;
   }
-  const hintTexts = (row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
+  const hintTexts =(row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, hintText, hintTexts };
+  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts };
 }));

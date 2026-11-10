@@ -64,6 +64,23 @@ test('khách phải xem: bỏ máy đã sửa và web đi trước, máy ghi sai
   assert.deepEqual([...M.openIds({ customers: [{ customer_id: null, reason: 'CHI_CO_SHEET' }, { customer_id: 9, reason: 'HELD' }] })], [9]);
 });
 
+test('web đi trước có chuyến cần xem thì thành khách phải xem, câu nói rõ chuyến nào (MAY-DOI-SOAT-01, 10/11/2026)', () => {
+  const old = { kind: 'ahead_old', container: 'MAUU0000001', date: '2026-10-03', amount_vnd: '70000000', days: 38 };
+  const moved = { kind: 'ahead_other_book', container: 'MAUU0000002', date: '2026-11-04', amount_vnd: '41000000', other: 'Mẫu Khác' };
+  const reconcile = { customers: [
+    { customer_id: 3, reason: 'WEB_AHEAD', status: 'LECH_TONG', difference_vnd: '600' },
+    { customer_id: 4, reason: 'WEB_AHEAD', status: 'LECH_TONG', difference_vnd: '70000000', hints: [old] },
+    { customer_id: 5, reason: 'FIXED', status: 'LECH_TONG', difference_vnd: '41000000', hints: [moved] },
+    { customer_id: 6, reason: 'FIXED', status: 'LECH_TONG', difference_vnd: '9' },
+  ] };
+  assert.deepEqual(M.openRows(reconcile).map(row => row.customer_id), [4, 5]);
+  assert.deepEqual(M.aheadRows(reconcile).map(row => row.customer_id), [3]);   // chỉ khách không có gì phải xem mới nằm ở "không cần làm gì"
+  assert.deepEqual(reconcile.customers.map(M.aheadToCheck), [false, true, true, false]);
+  const say = value => `[${value}]`;
+  assert.deepEqual(M.hintTexts(reconcile.customers[1], say), ['Chuyến MAUU0000001 ngày 03/10 ([70000000]) có giá trên web đã 38 ngày mà tab Sheet chưa có. Xem Sheet đã bỏ chuyến này chưa.']);
+  assert.deepEqual(M.hintTexts(reconcile.customers[2], say), ['Chuyến MAUU0000002 ngày 04/11 ([41000000]) web ghi ở sổ này, còn Sheet ghi ở tab Mẫu Khác. Xem chuyến thuộc khách nào.']);
+});
+
 test('tỷ lệ số nợ: còn khách lệch thì không ghi tròn 100; chưa có tổng thì không có tỷ lệ', () => {
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '88', counts: { KHOP: 1 }, total: 2 }), '88');
   assert.equal(M.share({ all_web_vnd: '100', matched_web_vnd: '100', counts: { KHOP: 1 }, total: 2 }), 'gần 100');

@@ -72,6 +72,10 @@ Khách `LECH_TONG` mà kết luận không phải `FIX` hay `WEB_AHEAD`, và kh�
 | `price_review` | Dòng Sheet của sổ qua `v7_price_queue.classify`, trạng thái `MANUAL`, `CONFLICT`, `MONTH_LOCKED`, Sheet tính khác web | `status`, `row`, `container`, `date`, `sheet_vnd`, `web_vnd` |
 | `sheet_row_missing` | Như trên, trạng thái `NOT_FOUND`, có tiền | `row`, `container`, `date`, `sheet_vnd` |
 | `chain_break` | `checks` của sổ bị giữ: tháng đầu tiên `source_cumulative_vnd` ≠ `replay_cumulative_vnd` | `month`, `sheet_end_vnd`, `expected_end_vnd` |
+| `ahead_other_book` | Chuyến đang tính là web đi trước mà Sheet ghi ở tab của sổ khác: cùng container, lệch không quá 3 ngày (thiếu ngày thì cùng tháng) | `container`, `date`, `amount_vnd`, `other` (tên sổ kia, hoặc tên tab nếu chưa có sổ) |
+| `ahead_old` | Chuyến đang tính là web đi trước, quá 14 ngày kể từ ngày chuyến mà tab của sổ vẫn chưa có | `container`, `date`, `amount_vnd`, `days` |
+
+Hai kiểu `ahead_*` (từ 10/11/2026) không phải lời đoán chỗ lệch: không có `delta_vnd`, không tính vào `hints_explain`, và có ở mọi khách có tiền web đi trước, kể cả `WEB_AHEAD` và `FIXED`. Tối đa 8, chuyến ở tab sổ khác lên trước rồi tới chuyến để lâu nhất, đứng sau các lời đoán khác. Khách có gợi ý kiểu này thì màn xếp vào "Số nợ lệch" thay vì "web đi trước, không cần làm gì"; cột Lệch giữ nguyên web − Sheet.
 
 Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì bỏ qua, in mã lỗi ra stderr, lượt chạy tiếp. Màn: cột "Vì sao" hiện tối đa hai câu và số chỗ còn lại; bảng đối chiếu khi mở có khung "Chỗ máy tìm ra" với đủ các câu.
 
@@ -88,6 +92,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 
 - Chỉ ghi khi đúng một tổ hợp nhóm có tổng đổi bằng đúng `tổng Sheet + web đi trước − tổng web`. Lệch 1 đồng là không ghi. Nhóm không đổi tiền không ghi.
 - Web đi trước không tính tháng có dòng điều chỉnh trừ đúng bằng phần đó, vì tiền đã ra khỏi sổ. Trừ không đúng bằng thì không suy ra được dòng điều chỉnh là của chuyến nào, tính như thường.
+- Chuyến web đi trước để quá 14 ngày, hoặc Sheet ghi ở tab của sổ khác, vẫn được cộng vào đích như cũ (máy vẫn ghi việc đúng khác của khách), nhưng khách có thêm gợi ý `ahead_old` / `ahead_other_book` và màn xếp là phải xem (`ahead_to_check`). Container dùng lại ở chuyến khác, cách xa ngày, không tính là "ở tab sổ khác".
 - Tháng có đơn giá đổi chỗ vòng tròn (`shuffled_months`) không có nhóm giá: khớp tổng không phân biệt được giá của container nào, nên không ghi và báo `SHEET_SHUFFLED`. Kiểu này chỉ bắt được khi web đã có giá để so.
 - Đơn giá trượt qua một ô trống (`handed_on_months`) cũng vào `shuffled_months` của kết quả: chuyến web có giá mà dòng Sheet của nó trống giá lẫn TỔNG, và cùng tháng có dòng `CONFLICT` mà giá Sheet bằng đúng giá web của chuyến đó. Không có luật này thì phần hở của vòng được tính là web đi trước và tổ hợp vẫn khớp.
 - Dòng Sheet có tiền mà không container, trùng tháng và trùng số với một chuyến web có giá mà tab không còn container đó (`lost_container_money`), là cùng một khoản tiền: mỗi dòng ghép một chuyến, chuyến không tính là đi trước, dòng không thành `fee_rows`. Dòng điều chỉnh máy đã ghi cho dòng đó thành `fee_undo`. Khác tháng hoặc khác số thì vẫn là hai việc riêng.
@@ -101,7 +106,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 
 ## Tiêu chí nghiệm thu
 
-- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng; đơn giá trượt qua ô trống không có nhóm giá (trước và sau khi máy giá ghi dòng sẵn sàng), dòng mất container ghép với chuyến web cùng tháng cùng số.
+- [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng; đơn giá trượt qua ô trống không có nhóm giá (trước và sau khi máy giá ghi dòng sẵn sàng), dòng mất container ghép với chuyến web cùng tháng cùng số; chuyến đi trước cần xem (để lâu, ở tab sổ khác, đúng 14 ngày thì chưa hỏi, container dùng lại, tiền đã trừ bằng điều chỉnh). `preview/test-viec-can-lam-doi-chieu*.js`: khách có gợi ý `ahead_*` nằm ở "Số nợ lệch", câu từng kiểu, khung khi mở không tô "Khớp".
 - [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ, phiếu máy ghi bị người hủy thì lượt sau không ghi lại.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
