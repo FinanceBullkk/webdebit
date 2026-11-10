@@ -22,7 +22,7 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 - Cột phí **hiện khi có ô khác 0** trên cả chứng từ (SPEC ghi "tổng ≠ 0"; chọn vậy để khoản +x/−x không bị ẩn làm sai phép 1), như mẫu v3.
 - **Phí không gắn container** là dòng không đánh số "Additional charge · 附加费用" cuối bảng, không tính vào số container.
 - **Ngày ở Payments received** là ngày phiếu thu hoặc cấn trừ đi muộn nhất trong tháng; tháng không có thì để trống.
-- **Không in tiếng Việt**: chữ Latin bỏ dấu khi in; tên tiếng Trung của nơi/cảng ([DIA-DIEM-01](dia-diem-01.md)) chỉ in khi cấu hình `show_place_cn` bật, vì trang mẫu v4 chỉ có tên Latin và dòng hai hàng làm một trang chứa ít container hơn. Bản in và Excel v4 cùng theo cờ này. Người dùng muốn debit note có tên tiếng Trung (chat 11/11/2026), nên cờ đã bật trên `hao` ngày 11/11/2026; tắt lại là sửa file cấu hình riêng, không cần deploy.
+- **Không in tiếng Việt**: chữ Latin bỏ dấu khi in; tên tiếng Trung của nơi/cảng ([DIA-DIEM-01](dia-diem-01.md)) chỉ in khi cấu hình `show_place_cn` bật, vì trang mẫu v4 chỉ có tên Latin. Khi bật, tên Trung nằm cùng dòng bên phải tên Latin, không xuống dòng (người dùng 11/11/2026); cột Loading place / POD nới theo tên dài nhất của chứng từ, Shipper co lại tới 60px, còn thiếu chỗ thì chữ hai cột này thu nhỏ, không dưới 9px. Bản in và Excel v4 cùng theo cờ này. Người dùng muốn debit note có tên tiếng Trung (chat 11/11/2026), nên cờ đã bật trên `hao` ngày 11/11/2026; tắt lại là sửa file cấu hình riêng, không cần deploy.
 - Ngày phát hành để trống thì in `[Issue date]` (SPEC mục 8 đang chờ team), người lập điền thì in ngày đó.
 
 ## Ngày / nguồn

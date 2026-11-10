@@ -67,8 +67,8 @@ const DebitNotePrint = (() => {
     </section>`;
   }
 
-  // Ô nơi đóng hàng / cảng đến: tên chuẩn, dòng dưới là tên tiếng Trung (DIA-DIEM-01).
-  const placeCell = place => `${escape(place.text)}${place.cn ? `<br><span class="dn-cn">${escape(place.cn)}</span>` : ''}`;
+  // Ô nơi đóng hàng / cảng đến: tên chuẩn, tên tiếng Trung cùng dòng bên phải (DIA-DIEM-01).
+  const placeCell = place => `${escape(place.text)}${place.cn ? ` <span class="dn-cn">${escape(place.cn)}</span>` : ''}`;
 
   function detailPage(note, doc, model) {
     const withBl = note.rows.some(row => row.bl);

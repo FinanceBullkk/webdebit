@@ -94,7 +94,7 @@ test('DEBIT-NOTE-02 bản in: trang 1 tóm tắt, trang chi tiết chỉ hiện 
   assert.match(html, /SAY VIETNAM DONG ONE HUNDRED EIGHTY-TWO MILLION ONLY/);
   assert.match(html, /Equivalent {2}折合美元<\/span><b>7,013.49 USD at 25,950 VND\/USD/);
   assert.match(html, /<td>Xiamen {2}<span class="dn-cn">厦门港<\/span><\/td><td class="num">1<\/td><td class="num">80,000,000<\/td><td class="num">2,000,000<\/td>/);
-  assert.match(html, /<td>Dak Lak<br><span class="dn-cn">多乐省<\/span><\/td><td>Xiamen<br><span class="dn-cn">厦门港<\/span><\/td>/);   // DIA-DIEM-01
+  assert.match(html, /<td>Dak Lak <span class="dn-cn">多乐省<\/span><\/td><td>Xiamen <span class="dn-cn">厦门港<\/span><\/td>/);   // DIA-DIEM-01
   assert.match(html, /<td>Additional charges {2}附加费用<\/td><td class="num">–<\/td><td class="num">–<\/td><td class="num">25,000,000<\/td>/);
   assert.match(html, /<td>Subtotal {2}小计<\/td><td class="num">2<\/td><td class="num">155,000,000<\/td><td class="num">27,000,000<\/td>/);
   assert.match(html, /Payment Ref\. {2}<span>汇款附言<\/span><\/th><td class="b">HTH\/2609-001<\/td>/);

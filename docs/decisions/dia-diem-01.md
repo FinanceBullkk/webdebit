@@ -10,7 +10,7 @@ Debit note in **tên tiếng Trung** kèm tên chuẩn chữ Latin cho nơi đó
 2. **Tên Trung lấy theo nguồn bên Trung**: Bộ Thương mại TQ (hướng dẫn đầu tư Việt Nam 2025) cho tỉnh và cặp cửa khẩu lớn; Baidu Baike cho huyện; chính quyền Quảng Tây và báo TQ cho cửa khẩu nhỏ. Hai cách viết thì lấy tên mục chính của Baidu (Phan Thiết 潘切, không 藩切; Hóc Môn 福门). Huyện chưa có nguồn Trung (Hớn Quản, Buôn Hồ, Cao Lãnh, Tân Châu) hoặc chữ Nôm hiếm máy không hiện được (Chợ Gạo, Cái Bè) chỉ in tên tỉnh.
 3. **Cửa khẩu** in theo cặp tên kiểu văn bản bên Trung, bên Trung trước: `Ta Lung  水口—驮隆口岸`, `Lao Cai  河口—老街口岸`.
 4. **Tên kho** (ví dụ `KIM CƯƠNG TB`, `CỬU LONG - BẾN TRE`) vẫn giữ chữ gốc và vẫn cảnh báo "ngoài danh mục" như trước; nếu đầu hoặc cuối tên là địa danh (tên đủ hoặc viết tắt TB, ĐQ, BP, VT, TG, PT, BD, DN, TN, LA, DT) thì kèm tên Trung của địa danh đó. Địa danh nằm giữa tên công ty (`KHO BINH THUAN PHAT`) không tính; `BT` không đoán vì vừa là Bến Tre vừa là Bình Thuận.
-5. **Cách in**: PDF trang 1 `Shanghai  上海港`, trang chi tiết tên Trung xuống dòng dưới chữ nhỏ màu xám; Excel ô FROM/TO là `Dak Lak  多乐省`.
+5. **Cách in**: PDF trang 1 `Shanghai  上海港`, trang chi tiết tên Trung cùng dòng, bên phải tên chuẩn, chữ nhỏ màu xám (người dùng 11/11/2026: không xuống dòng); mẫu v4 cũng cùng dòng `Qingdao 青岛港`; Excel ô FROM/TO là `Dak Lak  多乐省`.
 
 ## Ngày / nguồn
 
