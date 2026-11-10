@@ -58,6 +58,8 @@ module.exports = [
         DashboardModel: "readonly",
         DebitNoteXlsx: "readonly",
         DebitNotePrint: "readonly",
+        DebitNoteV4: "readonly",
+        DebitNoteV4Xlsx: "readonly",
         CustomerLedgerWorkbench: "readonly",
         LedgerPreview: "readonly",
         LedgerV5Model: "readonly",
