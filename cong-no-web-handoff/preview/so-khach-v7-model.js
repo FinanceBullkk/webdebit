@@ -754,21 +754,80 @@ const SoKhachV7Model = (() => {
     return date.toISOString().slice(0, 10);
   }
 
-  // Danh mục nơi đóng hàng và cảng đến (bản đầu, CÒN MỞ: bộ lập bill bổ sung). Chuẩn chính tả: "Dak Lak", không "DAKLAK".
-  const DN_PLACES = ["Dak Lak", "Dak Nong", "Gia Lai", "Kon Tum", "Lam Dong", "Binh Phuoc", "Binh Duong", "Dong Nai", "Long Khanh",
-    "Tay Ninh", "Ho Chi Minh", "Long An", "Tien Giang", "Ben Tre", "Vinh Long", "Tra Vinh", "Dong Thap", "An Giang", "Can Tho",
-    "Hau Giang", "Soc Trang", "Kien Giang", "Bac Lieu", "Ca Mau", "Khanh Hoa", "Phu Yen", "Binh Dinh", "Quang Nam", "Quang Ngai",
-    "Binh Thuan", "Ninh Thuan", "Ba Ria - Vung Tau"];
-  const DN_PORTS = ["Xiamen", "Nansha", "Qingdao", "Shanghai", "Shekou", "Shenzhen", "Yantian", "Guangzhou", "Huangpu", "Ningbo",
-    "Tianjin", "Dalian", "Hong Kong", "Lianyungang", "Qinzhou", "Fangcheng", "Haikou", "Pingxiang", "Dongxing", "Hekou"];
+  // Danh mục nơi đóng hàng và cảng đến (DIA-DIEM-01): tên chuẩn chữ Latin kèm tên tiếng Trung đã đối chiếu nguồn bên Trung
+  // (Bộ Thương mại TQ, Baidu Baike, chính quyền Quảng Tây). Tỉnh theo ranh giới trước 7/2025 cho khớp Sheet. Huyện chưa có
+  // nguồn Trung hoặc tên Nôm hiếm (Chợ Gạo, Cái Bè) chỉ in tên tỉnh. Chuẩn chính tả: "Dak Lak", không "DAKLAK".
+  const DN_PLACES = [
+    { en: "Dak Lak", cn: "多乐省", aliases: ["Daklak"] }, { en: "Dak Nong", cn: "得农省", aliases: ["Daknong"] }, { en: "Gia Lai", cn: "嘉莱省" }, { en: "Kon Tum", cn: "昆嵩省", aliases: ["Kontum"] },
+    { en: "Lam Dong", cn: "林同省" }, { en: "Binh Phuoc", cn: "平福省" }, { en: "Binh Duong", cn: "平阳省" }, { en: "Dong Nai", cn: "同奈省" },
+    { en: "Tay Ninh", cn: "西宁省" }, { en: "Ho Chi Minh", cn: "胡志明市", aliases: ["TP HCM", "HCM"] }, { en: "Long An", cn: "隆安省" },
+    { en: "Tien Giang", cn: "前江省" }, { en: "Ben Tre", cn: "槟椥省" }, { en: "Vinh Long", cn: "永隆省" }, { en: "Tra Vinh", cn: "茶荣省" },
+    { en: "Dong Thap", cn: "同塔省" }, { en: "An Giang", cn: "安江省" }, { en: "Can Tho", cn: "芹苴市" }, { en: "Hau Giang", cn: "后江省" },
+    { en: "Soc Trang", cn: "朔庄省" }, { en: "Kien Giang", cn: "坚江省" }, { en: "Bac Lieu", cn: "薄辽省" }, { en: "Ca Mau", cn: "金瓯省" },
+    { en: "Khanh Hoa", cn: "庆和省" }, { en: "Phu Yen", cn: "富安省" }, { en: "Binh Dinh", cn: "平定省" }, { en: "Quang Nam", cn: "广南省" },
+    { en: "Quang Ngai", cn: "广义省" }, { en: "Binh Thuan", cn: "平顺省" }, { en: "Ninh Thuan", cn: "宁顺省" },
+    { en: "Ba Ria - Vung Tau", cn: "巴地头顿省", aliases: ["Vung Tau", "V Tau"] },
+    { en: "Phan Thiet", cn: "平顺省潘切市" }, { en: "Tanh Linh", cn: "平顺省性灵县" }, { en: "Bac Binh", cn: "平顺省北平县" },
+    { en: "Trang Bom", cn: "同奈省壮奔县", aliases: ["Bau Ham"] }, { en: "Dinh Quan", cn: "同奈省定贯县", aliases: ["D Quan"] }, { en: "Tan Phu", cn: "同奈省新富县" },
+    { en: "Cam My", cn: "同奈省锦美县" }, { en: "Long Thanh", cn: "同奈省隆城县" }, { en: "Long Khanh", cn: "同奈省隆庆市" },
+    { en: "Dong Xoai", cn: "平福省同帅市" }, { en: "Hon Quan", cn: "平福省" }, { en: "Tan Uyen", cn: "平阳省新渊市" },
+    { en: "Phu Giao", cn: "平阳省富教县" }, { en: "Dau Tieng", cn: "平阳省油汀县" }, { en: "Cu Chi", cn: "胡志明市古芝县" },
+    { en: "Hoc Mon", cn: "胡志明市福门县" }, { en: "Chau Duc", cn: "巴地头顿省周德县" }, { en: "Bao Loc", cn: "林同省保禄市" },
+    { en: "Buon Ho", cn: "多乐省" }, { en: "Krong Pac", cn: "多乐省克容帕县", aliases: ["Krong Pak"] }, { en: "Tan An", cn: "隆安省新安市" }, { en: "Tam Vu", cn: "隆安省" },
+    { en: "Cao Lanh", cn: "同塔省" }, { en: "Tan Chau", cn: "西宁省" }, { en: "Cho Gao", cn: "前江省" }, { en: "Cai Be", cn: "前江省" },
+  ];
+  // Viết tắt tỉnh/huyện ở cuối tên kho trên Sheet ("KIM CƯƠNG TB"). BT bỏ ngoài vì vừa là Bến Tre vừa là Bình Thuận.
+  const DN_PLACE_ABBR = { tb: "Trang Bom", dq: "Dinh Quan", bp: "Binh Phuoc", vt: "Ba Ria - Vung Tau", tg: "Tien Giang", pt: "Phan Thiet",
+    bd: "Binh Duong", dn: "Dong Nai", tn: "Tay Ninh", la: "Long An", dt: "Dong Thap" };
+  // Cảng đến của chuyến cảng và cửa khẩu của chuyến bộ. Cửa khẩu in theo cặp tên Trung "bên Trung—bên Việt" như văn bản bên Trung.
+  const DN_PORTS = [
+    { en: "Shanghai", cn: "上海港" }, { en: "Shekou", cn: "深圳蛇口港" }, { en: "Zhapu", cn: "嘉兴乍浦港" }, { en: "Qingdao", cn: "青岛港" },
+    { en: "Dalian", cn: "大连港" }, { en: "Xiamen", cn: "厦门港" }, { en: "Hong Kong", cn: "香港" },
+    { en: "Kaohsiung", cn: "高雄港", aliases: ["Kaohsiung - Taiwan"] }, { en: "Tianjin", cn: "天津港" }, { en: "Nansha", cn: "广州南沙港" },
+    { en: "Port Klang", cn: "巴生港" }, { en: "Port Klang North Port", cn: "巴生北港", aliases: ["N-Port Klang"] },
+    { en: "Port Klang Westport", cn: "巴生西港", aliases: ["W-Port Klang"] }, { en: "Singapore", cn: "新加坡港" }, { en: "Qinzhou", cn: "钦州港" },
+    { en: "Ningbo", cn: "宁波港" }, { en: "Qinhuangdao", cn: "秦皇岛港" }, { en: "Lianyungang", cn: "连云港" }, { en: "Taicang", cn: "太仓港" },
+    { en: "Humen", cn: "东莞虎门港" }, { en: "Shenzhen", cn: "深圳港" }, { en: "Yantian", cn: "深圳盐田港" }, { en: "Guangzhou", cn: "广州港" },
+    { en: "Huangpu", cn: "广州黄埔港" }, { en: "Fangcheng", cn: "防城港" }, { en: "Haikou", cn: "海口港" },
+    { en: "Pingxiang", cn: "凭祥" }, { en: "Dongxing", cn: "东兴" }, { en: "Hekou", cn: "河口" },
+    { en: "Lao Cai", cn: "河口—老街口岸" }, { en: "Thanh Thuy", cn: "天保—清水口岸" }, { en: "Huu Nghi", cn: "友谊关—友谊口岸" },
+    { en: "Chi Ma", cn: "爱店—支码口岸" }, { en: "Ta Lung", cn: "水口—驮隆口岸" }, { en: "Coc Nam", cn: "弄尧—谷南口岸" },
+    { en: "Mong Cai", cn: "东兴—芒街口岸", aliases: ["Mong Cai - Dong Hung"] }, { en: "Tan Thanh", cn: "浦寨—新清口岸" },
+  ];
   const titleCase = text => String(text ?? "").trim().replace(/\s+/g, " ").toLowerCase().replace(/(^|[\s(\-/])([a-z])/g, (_, lead, char) => lead + char.toUpperCase());
-  // Một tên nơi (có thể "GIA LAI + DAK LAK") → chữ chuẩn và cờ có trong danh mục.
+  const dnWords = text => String(text ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[đĐ]/g, "d").toLowerCase().split(/[^a-z0-9&]+/).filter(Boolean);
+  const entryOf = item => typeof item === "string" ? { en: item, cn: "" } : item;
+  // Tên kho có địa danh ở đầu hoặc cuối ("CỬU LONG - BẾN TRE", "KIM CƯƠNG TB") → mục danh mục của địa danh đó. Địa danh nằm giữa
+  // tên ("KHO BÌNH THUẬN PHÁT") không tính: đó là tên công ty.
+  function placeInside(words, entries) {
+    const phrases = entries.flatMap(entry => [entry.en, ...(entry.aliases ?? [])].map(name => ({ words: dnWords(name), entry })))
+      .sort((a, b) => b.words.length - a.words.length);
+    const same = (list, at, words) => words.every((word, index) => list[at + index] === word);
+    const core = words.slice();
+    while (core.length > 1 && /^\d+$/.test(core.at(-1))) core.pop();
+    const abbr = core.length > 1 ? DN_PLACE_ABBR[core.at(-1)] : undefined;
+    for (const list of abbr ? [core, core.slice(0, -1)] : [core]) {
+      const fits = phrase => phrase.words.length <= list.length;
+      const found = [phrases.find(phrase => fits(phrase) && same(list, list.length - phrase.words.length, phrase.words)),
+        phrases.find(phrase => fits(phrase) && same(list, 0, phrase.words))].filter(Boolean);
+      // Có cả hai đầu ("KRÔNG PẮC-DAK LAK") thì lấy địa danh cụ thể hơn: tên Trung dài hơn là có cả huyện.
+      if (found.length) return found.map(phrase => phrase.entry).sort((a, b) => b.cn.length - a.cn.length)[0];
+    }
+    return abbr ? entries.find(entry => entry.en === abbr) ?? null : null;
+  }
+  // Một tên nơi (có thể "GIA LAI + DAK LAK") → chữ chuẩn, tên tiếng Trung và cờ có trong danh mục. Ngoài danh mục thì giữ chữ
+  // gốc; nếu đọc được địa danh trong tên kho thì vẫn kèm tên Trung của địa danh đó.
   function dnPlace(raw, list) {
-    const catalog = new Map(list.map(name => [dnFold(name), name]));
+    const entries = list.map(entryOf);
+    const catalog = new Map(entries.flatMap(entry => [entry.en, ...(entry.aliases ?? [])].map(name => [dnFold(name), entry])));
     const parts = String(raw ?? "").split("+").map(part => part.trim()).filter(Boolean);
     const named = parts.map(part => catalog.get(dnFold(part)) ?? null);
-    return { text: parts.map((part, index) => named[index] ?? titleCase(part)).join(" + "), known: parts.length > 0 && named.every(Boolean) };
+    const cn = parts.map((part, index) => named[index]?.cn || (list === DN_PLACES ? placeInside(dnWords(part), entries)?.cn ?? "" : ""));
+    return { text: parts.map((part, index) => named[index]?.en ?? titleCase(part)).join(" + "), cn: cn.filter(Boolean).join(" + "),
+      known: parts.length > 0 && named.every(Boolean) };
   }
+  // Chữ in trên chứng từ: tên chuẩn rồi tên Trung ("Shanghai  上海港").
+  const dnPlaceText = place => [place.text, place.cn].filter(Boolean).join("  ");
 
   // Ô tiền của một dòng ở cột loại phí `code`: dòng container có LUMP-SUM và phí theo loại; dòng phí không gắn container
   // chỉ có số tiền ở đúng cột loại của nó. null = không có khoản.
@@ -831,11 +890,12 @@ const SoKhachV7Model = (() => {
     const totalVnd = sumOrNull([...rows.map(row => row.amountVnd), additionalVnd]);
     const groups = new Map();
     for (const row of rows) {
-      const item = groups.get(row.port.text) ?? { port: row.port.text, containers: 0, lumps: [], otherVnd: 0n };
+      const item = groups.get(row.port.text) ?? { port: row.port.text, portCn: row.port.cn, containers: 0, lumps: [], otherVnd: 0n };
       item.containers++; item.lumps.push(row.lumpSumVnd); item.otherVnd += row.feesVnd;
       groups.set(row.port.text, item);
     }
-    const summary = [...groups.values()].map(item => ({ port: item.port, containers: item.containers, lumpSumVnd: sumOrNull(item.lumps), otherVnd: item.otherVnd }))
+    const summary = [...groups.values()].map(item => ({ port: item.port, portCn: item.portCn, containers: item.containers,
+      lumpSumVnd: sumOrNull(item.lumps), otherVnd: item.otherVnd }))
       .sort((a, b) => b.containers - a.containers || a.port.localeCompare(b.port));
     const otherVnd = additionalVnd === null ? null : containerFeesVnd + additionalVnd;
     const subtotalVnd = lumpSumVnd === null || otherVnd === null ? null : lumpSumVnd + otherVnd;
@@ -912,6 +972,6 @@ const SoKhachV7Model = (() => {
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
     sheetPriceAmount, sheetVnd, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
-    parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnCell, debitNote, debitNoteChecks, suggestNumber };
+    parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();
 if (typeof module !== "undefined") module.exports = SoKhachV7Model;

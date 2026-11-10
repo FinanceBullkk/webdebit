@@ -598,8 +598,8 @@ test("DEBIT-NOTE-02 tháng 12/2025: 5 container, tóm tắt theo cảng, TOTAL D
   assert.equal(note.rows[0].place.text, "Dak Lak");   // DAKLAK chuẩn thành "Dak Lak"
   assert.equal(note.totalVnd, 409500000n);
   assert.equal(note.subtotalVnd, note.totalVnd);
-  assert.deepEqual(note.summary, [{ port: "Xiamen", containers: 4, lumpSumVnd: 310000000n, otherVnd: 15000000n },
-    { port: "Nansha", containers: 1, lumpSumVnd: 80000000n, otherVnd: 4500000n }]);
+  assert.deepEqual(note.summary, [{ port: "Xiamen", portCn: "厦门港", containers: 4, lumpSumVnd: 310000000n, otherVnd: 15000000n },
+    { port: "Nansha", portCn: "广州南沙港", containers: 1, lumpSumVnd: 80000000n, otherVnd: 4500000n }]);
   assert.deepEqual([note.lumpSumVnd, note.otherVnd, note.additionalVnd, note.containerCount], [390000000n, 19500000n, null, 5]);
   assert.deepEqual(note.feeColumns.map(fee => [fee.code, fee.totalVnd]), [["LUMP_SUM", 390000000n], ["OTHER", 19500000n]]);
   assert.deepEqual(note.excelColumns.map(fee => fee.code), ["LUMP_SUM", "STORAGE", "TRUCKING", "GENSET", "OVERSTAY", "HC_FEE", "CANCELLATION", "AMENDMENT", "OTHER"]);
@@ -647,8 +647,48 @@ test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí,
   assert.deepEqual(dnFeeTypes.map(type => model.dnFeeCode(type.name)), ["OVERSTAY", "GENSET", "TRUCKING", "INSURANCE", "INSPECTION", "HC_FEE", "OTHER", "DISCOUNT",
     "OTHER", "STORAGE", "CANCELLATION"]);
   assert.equal(model.dnFeeCode("Nâng hạ"), "OTHER");
-  assert.deepEqual(model.dnPlace("GIA LAI + DAKLAK", model.DN_PLACES), { text: "Gia Lai + Dak Lak", known: true });
-  assert.deepEqual(model.dnPlace("KHO MOI", model.DN_PLACES), { text: "Kho Moi", known: false });
+  assert.deepEqual(model.dnPlace("GIA LAI + DAKLAK", model.DN_PLACES), { text: "Gia Lai + Dak Lak", cn: "嘉莱省 + 多乐省", known: true });
+  assert.deepEqual(model.dnPlace("KHO MOI", model.DN_PLACES), { text: "Kho Moi", cn: "", known: false });
+});
+
+test("DIA-DIEM-01: tên tiếng Trung của nơi đóng hàng, cảng đến và cửa khẩu theo cách ghi thật trên Sheet", () => {
+  const place = raw => model.dnPlace(raw, model.DN_PLACES);
+  const port = raw => model.dnPlace(raw, model.DN_PORTS);
+  // Tỉnh, huyện viết đủ: có trong danh mục, không còn cảnh báo.
+  assert.deepEqual(place("PHAN THIET"), { text: "Phan Thiet", cn: "平顺省潘切市", known: true });
+  assert.deepEqual(place("TIEN GIANG"), { text: "Tien Giang", cn: "前江省", known: true });
+  assert.deepEqual(place("CỦ CHI"), { text: "Cu Chi", cn: "胡志明市古芝县", known: true });
+  // Tên kho: giữ chữ gốc, ngoài danh mục, nhưng kèm tên Trung của địa danh ở đầu/cuối tên.
+  assert.deepEqual(place("KIM CƯƠNG TB"), { text: "Kim Cương Tb", cn: "同奈省壮奔县", known: false });
+  assert.equal(place("A TẮC - Đ.QUÁN 119").cn, "同奈省定贯县");
+  assert.equal(place("LÂM THUẬN 3 - ĐQ").cn, "同奈省定贯县");
+  assert.equal(place("CỬU LONG - BẾN TRE").cn, "槟椥省");
+  assert.equal(place("FARM 3 DẦU TIẾNG BD").cn, "平阳省油汀县");
+  assert.equal(place("KRÔNG PẮC-DAK LAK").cn, "多乐省克容帕县");
+  assert.equal(place("BUÔN HỒ - DAKLAK").cn, "多乐省");
+  assert.equal(place("TÂY NINH 2").cn, "西宁省");
+  assert.equal(place("CÙ BỊ - VŨNG TÀU").cn, "巴地头顿省");
+  assert.equal(place("T&T LA + CỬU LONG BT").cn, "隆安省");   // BT vừa là Bến Tre vừa là Bình Thuận: không đoán
+  // Địa danh nằm giữa tên công ty, hoặc không có địa danh: không có tên Trung.
+  assert.equal(place("KHO BINH THUAN PHAT").cn, "");
+  assert.equal(place("HƯNG THỊNH").cn, "");
+  assert.equal(place("—").cn, "");
+  // Cảng đến.
+  assert.deepEqual(port("SHANGHAI"), { text: "Shanghai", cn: "上海港", known: true });
+  assert.deepEqual(port("QINGDAO "), { text: "Qingdao", cn: "青岛港", known: true });
+  assert.deepEqual(port("HONGKONG"), { text: "Hong Kong", cn: "香港", known: true });
+  assert.deepEqual(port("KAOHSIUNG - TAIWAN"), { text: "Kaohsiung", cn: "高雄港", known: true });
+  assert.deepEqual(port("N-PORT KLANG"), { text: "Port Klang North Port", cn: "巴生北港", known: true });
+  assert.deepEqual(port("ZHAPU"), { text: "Zhapu", cn: "嘉兴乍浦港", known: true });
+  // Cửa khẩu chuyến bộ: chữ Hán sẵn trong ô không làm lệch, in cặp tên bên Trung—bên Việt.
+  assert.deepEqual(port("TÀ LÙNG (水口)"), { text: "Ta Lung", cn: "水口—驮隆口岸", known: true });
+  assert.deepEqual(port("TÂN THANH (蒲寨)"), { text: "Tan Thanh", cn: "浦寨—新清口岸", known: true });
+  assert.deepEqual(port("CHIMA"), { text: "Chi Ma", cn: "爱店—支码口岸", known: true });
+  assert.deepEqual(port("THANH THUỶ"), { text: "Thanh Thuy", cn: "天保—清水口岸", known: true });
+  assert.deepEqual(port("MÓNG CÁI - ĐÔNG HƯNG"), { text: "Mong Cai", cn: "东兴—芒街口岸", known: true });
+  assert.equal(port("THIÊN BẢO").known, false);   // chưa xác nhận có trùng Thanh Thủy không
+  assert.equal(model.dnPlaceText(port("SHANGHAI")), "Shanghai  上海港");
+  assert.equal(model.dnPlaceText(place("KHO MOI")), "Kho Moi");
   assert.deepEqual(["25,950", "25950", "25.950", "0", ""].map(model.parseRate), [25950n, 25950n, null, null, null]);
   assert.equal(model.usdCents(1n, 3n), 33n);   // 1 VND ÷ 3 = 0.33 USD
   assert.equal(model.usdCents(5n, 1000n), 1n);   // 0.005 làm tròn lên 0.01
@@ -658,7 +698,7 @@ test("DEBIT-NOTE-02 số container ISO 6346, số bằng chữ, mã loại phí,
 
 test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc chắn, cảnh báo điểm bất thường", () => {
   const dup = dnTrip("2026-09", "02", "XIAMEN", 80000000);
-  const trips = [dup, { ...dup, id: ++dnSerial }, dnTrip("2026-09", "10", "XIAMEN", 0), dnTrip("2026-09", "11", "LAO CAI", 1, [], { origin: "KHO MOI" }),
+  const trips = [dup, { ...dup, id: ++dnSerial }, dnTrip("2026-09", "10", "XIAMEN", 0), dnTrip("2026-09", "11", "THIEN BAO", 1, [], { origin: "KHO MOI" }),
     dnTrip("2026-09", "12", "XIAMEN", 1, [], { container: "BM0U9231830" }), dnTrip("2026-09", "13", "XIAMEN", 1, [], { unit_price_vnd: null, amount_vnd: null, is_missing_price: true }),
     { id: ++dnSerial, month: "2026-09-01", container: null, event_date: "2026-09-14", status: "confirmed", is_fee_only: true, unit_price_vnd: null, amount_vnd: "100",
       fee_lines: [{ fee_type_id: 7, amount_vnd: "100", note: "Gọi 0912 345 678" }] }];
@@ -669,7 +709,7 @@ test("DEBIT-NOTE-02 kiểm tra trước khi phát hành: chặn lỗi chắc ch�
   for (const pattern of [/^block: 1 dòng chưa có giá/, /^block: Số container sai theo ISO 6346: BM0U9231830/, new RegExp(`^block: Container trùng trong chứng từ: ${dup.container}`),
     /^block: Còn thiếu: Tên pháp lý của khách, Địa chỉ của khách\.$/, /^block: Bật quy đổi USD nhưng thiếu/, /^block: Mô tả hoặc ghi chú có chuỗi giống số điện thoại/,
     /^warn: Chủ tài khoản nhận tiền khác bên phát hành/, /^warn: Ngày phát hành sớm hơn ngày đóng hàng cuối cùng \(13 Sep 2026\)/,
-    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Lao Cai/, /^warn: 1 container có đơn giá bằng 0/])
+    /^warn: Nơi đóng hàng ngoài danh mục: Kho Moi/, /^warn: Cảng đến ngoài danh mục: Thien Bao/, /^warn: 1 container có đơn giá bằng 0/])
     assert.ok(texts.some(text => pattern.test(text)), `${pattern} trong\n${texts.join("\n")}`);
   // Tổng thiếu giá thì để trống, không coi là 0.
   assert.deepEqual([note.totalVnd, note.subtotalVnd, note.complete], [null, null, false]);

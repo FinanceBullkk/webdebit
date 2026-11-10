@@ -30,7 +30,7 @@ const DebitNotePrint = (() => {
       ['Payment Terms', '付款条件', Number.isInteger(doc.paymentDays) ? `Net ${doc.paymentDays} days` : ''], ['Service', '服务', doc.service],
       ['VAT Invoice No.', '发票号码', doc.vatNo]];
     if (d.rate !== null) info.push(['Exchange Rate', '汇率', d.rateText]);
-    const ports = note.summary.map(item => `<tr><td>${escape(item.port || '–')}</td><td class="num">${item.containers}</td><td class="num">${money(item.lumpSumVnd)}</td><td class="num">${money(item.otherVnd)}</td></tr>`).join('');
+    const ports = note.summary.map(item => `<tr><td>${escape(item.port || '–')}${item.portCn ? `  <span class="dn-cn">${escape(item.portCn)}</span>` : ''}</td><td class="num">${item.containers}</td><td class="num">${money(item.lumpSumVnd)}</td><td class="num">${money(item.otherVnd)}</td></tr>`).join('');
     const extra = note.additionalVnd !== null || note.charges.length
       ? `<tr><td>Additional charges  附加费用</td><td class="num">–</td><td class="num">–</td><td class="num">${money(note.additionalVnd)}</td></tr>` : '';
     const account = pay.currency === 'VND' ? ['VND Account', '越南盾账号'] : ['USD Account', '美元账号'];
@@ -67,6 +67,9 @@ const DebitNotePrint = (() => {
     </section>`;
   }
 
+  // Ô nơi đóng hàng / cảng đến: tên chuẩn, dòng dưới là tên tiếng Trung (DIA-DIEM-01).
+  const placeCell = place => `${escape(place.text)}${place.cn ? `<br><span class="dn-cn">${escape(place.cn)}</span>` : ''}`;
+
   function detailPage(note, doc, model) {
     const withBl = note.rows.some(row => row.bl);
     const fees = note.feeColumns;
@@ -84,7 +87,7 @@ const DebitNotePrint = (() => {
       <tr class="dn-colhead">${textCols.map(([en, cn, key]) => `<th class="h-${key}">${en}<br><span>${cn}</span></th>`).join('')}${fees.map(fee =>
         `<th class="num">${escape(fee.en)}<br><span>${escape(fee.cn)}</span></th>`).join('')}<th class="num">AMOUNT<br><span>金额</span></th></tr>`;
     const containerRow = row => `<tr><td class="no">${row.no}</td><td class="b">${escape(row.container)}</td>${withBl ? `<td>${escape(row.bl ?? '')}</td>` : ''}
-      <td>${escape(row.carrier ?? '')}</td><td>${escape(row.shipper ?? '')}</td><td>${escape(model.dnDate(row.date))}</td><td>${escape(row.place.text)}</td><td>${escape(row.port.text)}</td>
+      <td>${escape(row.carrier ?? '')}</td><td>${escape(row.shipper ?? '')}</td><td>${escape(model.dnDate(row.date))}</td><td>${placeCell(row.place)}</td><td>${placeCell(row.port)}</td>
       ${fees.map(fee => `<td class="num">${money(model.dnCell(fee.code, row))}</td>`).join('')}<td class="num b">${money(row.amountVnd)}</td></tr>`;
     const label = code => { const fee = model.DN_FEES.find(item => item.code === code); return `${fee.en}  ·  ${fee.cn}`; };
     const chargeRow = item => `<tr class="dn-charge"><td></td><td colspan="${withBl ? 4 : 3}">${escape(label(item.code))}</td><td>${escape(model.dnDate(item.date))}</td>
@@ -108,7 +111,7 @@ const DebitNotePrint = (() => {
   // Kiểu chung cho hộp xem trước và bản in (cỡ chữ, màu theo đặc tả v3).
   const SHEET_CSS = `.dn{font:9pt/1.35 Arial,Helvetica,sans-serif;color:#1F2933;position:relative}.dn *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .dn table{border-collapse:collapse}.dn .num{text-align:right;font-variant-numeric:tabular-nums}.dn .b{font-weight:700}
-    .dn-sec{font-size:7.5pt;font-weight:700;color:#97A1AD;letter-spacing:.2px;text-transform:none}.dn-muted{color:#5F6B7A;font-size:8pt}.dn-right{text-align:right}
+    .dn-cn{color:#5F6B7A;font-size:7.5pt}.dn-sec{font-size:7.5pt;font-weight:700;color:#97A1AD;letter-spacing:.2px;text-transform:none}.dn-muted{color:#5F6B7A;font-size:8pt}.dn-right{text-align:right}
     .dn-summary{display:flex;flex-direction:column}.dn-summary>*{flex-shrink:0}.dn-bar{height:5px;background:#14304F;margin-bottom:16px}
     .dn-top{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:2px solid #14304F}
     .dn-issuer{font-size:13pt;font-weight:700;color:#14304F;margin-bottom:3px}.dn-docname{text-align:right}.dn-title{font-size:20pt;font-weight:700;color:#14304F;line-height:1.1}

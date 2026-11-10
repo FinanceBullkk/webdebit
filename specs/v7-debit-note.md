@@ -31,7 +31,7 @@ Dòng chứng từ lấy từ `GET /api/v7/ledger` trang sổ đã tải; tên k
 | B/L NO. | chưa có trên sổ: cột ẩn | như chuyến web |
 | LINE, SHIPPER | `carrier`, `shipper` | `current.*` / `display.carrier`, `display.shipper` |
 | LOADING DATE | `event_date` | `current.event_date` / `display.date` |
-| LOADING PLACE, POD | `origin`, `destination`, chuẩn theo danh mục nơi/cảng | `current.*` / `display.from`, `display.to` |
+| LOADING PLACE, POD | `origin`, `destination`, chuẩn theo danh mục nơi/cảng, kèm tên tiếng Trung ([`DIA-DIEM-01`](../docs/decisions/dia-diem-01.md)) | `current.*` / `display.from`, `display.to` |
 | UNIT PRICE 单价 | `unit_price_vnd`; `is_missing_price` → thiếu | `current.unit_price_vnd` / số trong `display.unit_price` |
 | 7 loại phí còn lại và loại ngoài danh mục | `fee_lines` gom theo mã loại phí (bảng ánh xạ ở `DEBIT-NOTE-02`) | như chuyến web |
 | AMOUNT | UNIT PRICE + phí của dòng; khác `amount_vnd` của sổ thì chặn | khác `current.counted_vnd` / `source_total_vnd` thì chặn |
@@ -50,6 +50,7 @@ Không có lệnh mới. Chứng từ dựng từ bản sổ trang đã tải (`
 - [`DEBIT-NOTE-01`](../docs/decisions/debit-note-01.md): theo tháng công nợ, PDF + Excel, chỉ chuyến của tháng.
 - [`DEBIT-NOTE-02`](../docs/decisions/debit-note-02.md): mẫu Debit Note v3 sếp duyệt (bố cục, danh mục phí, quy tắc tính, kiểm tra trước phát hành).
 - [`PHU-PHI-01`](../docs/decisions/phu-phi-01.md) (2): chứng từ gửi khách hiện từng khoản phụ phí.
+- [`DIA-DIEM-01`](../docs/decisions/dia-diem-01.md): tên tiếng Trung của nơi đóng hàng, cảng đến, cửa khẩu.
 
 ## Hành vi và bất biến
 
