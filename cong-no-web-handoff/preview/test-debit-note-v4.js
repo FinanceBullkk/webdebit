@@ -153,3 +153,43 @@ test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường]
   assert.match(first, /Continued on next page · 续下页<\/span><span>Page 1 of 2/);
   assert.match(v4.pageHtml(doc, 'middle', doc.rows.slice(2, 3), 2, 3), /Debit Note No\. 账单号 HTH-2611-001 · Bill to 客户 FANYA 泛亚 · Billing Period 账单期间 Nov 2026 · Currency 币种 VND/);
 });
+
+// Đọc lại zip "stored": kiểm chữ ký, CRC, lấy nội dung từng file.
+function unzip(bytes) {
+  const zlib = require('node:zlib');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.length - 22;
+  assert.equal(view.getUint32(end, true), 0x06054b50);
+  let at = view.getUint32(end + 16, true);
+  const files = {};
+  for (let index = 0; index < view.getUint16(end + 10, true); index++) {
+    const size = view.getUint32(at + 20, true), nameLength = view.getUint16(at + 28, true), local = view.getUint32(at + 42, true);
+    const name = Buffer.from(bytes.subarray(at + 46, at + 46 + nameLength)).toString('utf8');
+    const start = local + 30 + view.getUint16(local + 26, true);
+    const data = Buffer.from(bytes.subarray(start, start + size));
+    assert.equal(zlib.crc32(data), view.getUint32(at + 16, true), name);
+    files[name] = data.toString('utf8');
+    at += 46 + nameLength;
+  }
+  return files;
+}
+
+test('Excel v4: cùng cột với PDF, số thật, Total và ACCOUNT STATUS là số, ô trống in [Tên trường], tên file theo số chứng từ', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const doc = v4.fromSample(sample('sample-8-an-cot'), config);
+  const files = unzip(xlsx.xlsx(doc));
+  assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
+  const sheet = files['xl/worksheets/sheet1.xml'];
+  const cell = ref => (sheet.match(new RegExp(`<c r="${ref}"[^>]*>(?:<v>([^<]*)</v>|<is><t[^>]*>([^<]*)</t></is>)`)) ?? []).slice(1).find(value => value !== undefined);
+  assert.deepEqual(['A10', 'B10', 'H10', 'I10', 'J10', 'K10', 'L10'].map(cell), ['No.\n序号', 'Container no.\n柜号', 'Unit price\n单价', 'Storage\n早装产生费用',
+    'Generator / electricity fee\n发电机/电费', 'Overstay\n押车', 'Amount\n金额']);
+  assert.deepEqual(['A11', 'B11', 'H11', 'I11', 'L11'].map(cell), ['1', 'HTHU2611078', '70000000', '2500000', '72500000']);
+  assert.equal(cell('E11'), String((Date.UTC(2026, 10, 2) - Date.UTC(1899, 11, 30)) / 86400000));   // ngày thật
+  assert.equal(cell('A19'), 'Total, 8 containers · 合计');
+  assert.deepEqual(['H19', 'L19'].map(cell), ['570000000', '585000000']);
+  assert.deepEqual(['L22', 'L23', 'L24', 'L25'].map(cell), ['25406128759', '585000000', '-6594000000', '19397128759']);
+  for (const label of ['[Issue date]', '[Customer legal name &amp; address]', '[Contact]', '[Beneficiary]', '[Account no.]']) assert.ok(sheet.includes(label), label);
+  assert.match(files['xl/styles.xml'], /Times New Roman/);
+  assert.doesNotMatch(sheet, /HC fee/);
+  assert.equal(xlsx.baseName(doc), 'HTH-2611-001_FANYA_2026-11');
+});

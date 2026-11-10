@@ -353,9 +353,16 @@
       if (!Array.isArray(data?.price_table?.periods)) throw Error('Bảng giá không hợp lệ.');
       return data.price_table;
     }
+    // Debit note (DEBIT-NOTE-03): mẫu đang dùng (v3/v4), thông tin công ty, ngân hàng, tên phí Anh/Trung; file cấu hình máy chủ.
+    async function readDebitConfig() {
+      const response = await fetcher('/api/v7/debit-note/config', { cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.config || !['v3', 'v4'].includes(data.config.template)) throw Error(data?.message || 'Không đọc được cấu hình debit note.');
+      return data.config;
+    }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, readEvents, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
-      readMarks, readZaloLinks, readZaloGroups,
+      readMarks, readZaloLinks, readZaloGroups, readDebitConfig,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),

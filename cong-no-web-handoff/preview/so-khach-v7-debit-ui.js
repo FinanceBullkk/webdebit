@@ -7,7 +7,7 @@
   'use strict';
   const { root, model, live, customerId, escape, monthLabel } = ctx;
   if (typeof document.createElement !== 'function') return;   // trang thử không có DOM thật
-  const printer = DebitNotePrint, writer = DebitNoteXlsx;     // debit-note-print.js, debit-note-xlsx.js nạp trước
+  const printer = DebitNotePrint, writer = DebitNoteXlsx;     // debit-note-print.js, debit-note-xlsx.js (và debit-note-v4*.js) nạp trước
   // Bên phát hành chọn được; chỉ điền sẵn thông tin công khai, phần còn lại người lập điền một lần, trình duyệt nhớ.
   const ISSUERS = [
     { code: 'HTH', label: 'HTH Logistics', issuer: { name: 'HTH LOGISTICS DV TM CO.,LTD',
@@ -116,7 +116,7 @@
     write(CUSTOMER_KEY, { issuerCode: state.issuerCode, buyer: state.buyer, paymentDays: state.paymentDays, service: state.service, usd: { on: state.usd.on, source: state.usd.source } });
   }
 
-  function show(monthKey, opener) {
+  function showV3(monthKey, opener) {
     const note = model.debitNote(ctx.snapshot ?? {}, monthKey, ctx.feeTypes ?? []);
     const saved = read(CUSTOMER_KEY);
     const issuerCode = ISSUERS.some(item => item.code === saved.issuerCode) ? saved.issuerCode : 'HTH';
@@ -135,6 +135,110 @@
     refresh();
     dialog.querySelector('.debit-print').focus();
   }
+  // ---- Mẫu v4 (DEBIT-NOTE-03, docs/debit-note-v4/SPEC.md): một trang A4 ngang, 6 phép kiểm, sai thì không xuất. ----
+  // Mẫu nào do cấu hình máy chủ quyết (GET /api/v7/debit-note/config, mặc định v3); ?debit=v4 hoặc ?debit=v3 trên địa chỉ trang
+  // để xem thử mẫu kia. Công ty, ngân hàng và tên phí lấy từ cấu hình; người lập chỉ điền số, ngày và thông tin khách.
+  const V4_CUSTOMER_KEY = `debit-note:v4:customer:${customerId}`;
+  let configLoad = null;
+  function formV4(state) {
+    const c = state.customer;
+    return `<form class="debit-form" novalidate>
+      <fieldset><legend>Chứng từ</legend>${field('number', 'Số debit note', state.number)}${field('issueDate', 'Ngày phát hành', state.issueDate,
+        { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}</fieldset>
+      <fieldset><legend>Khách (BILL TO)</legend>${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
+        ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}
+        ${field('customer.contact', 'Người liên hệ (Attn)', c.contact)}</fieldset>
+      <p class="debit-note-v4">Công ty, ngân hàng và tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
+  }
+  function readFormV4() {
+    const state = { customer: {} };
+    for (const input of dialog.querySelectorAll('.debit-form [name]')) {
+      const [head, tail] = input.name.split('.');
+      if (tail) state[head][tail] = input.value.trim(); else state[head] = input.value.trim();
+    }
+    return state;
+  }
+  // Dựng chứng từ, kiểm, chia trang (đo trong khung xem trước) rồi vẽ; nút xuất khóa khi còn phép kiểm sai.
+  function refreshV4() {
+    const state = readFormV4();
+    const doc = DebitNoteV4.fromLedger(ctx.snapshot ?? {}, open.monthKey, { model, feeTypes: ctx.feeTypes ?? [], feeColumnIds: ctx.feeColumnIds ?? [],
+      config: open.config, form: state });
+    const checks = [...(open.configError ? [{ level: 'block', text: `Không đọc được cấu hình debit note: ${open.configError}` }] : []), ...DebitNoteV4.checks(doc)];
+    const blocks = checks.filter(item => item.level === 'block').length, warns = checks.filter(item => item.level === 'warn').length;
+    const ack = dialog.querySelector('.debit-ack input');
+    const ready = blocks === 0 && (warns === 0 || ack?.checked === true);
+    Object.assign(open, { state, doc, ready });
+    dialog.querySelector('.debit-checks').innerHTML = checks.length ? checks.map(item => `<li class="is-${item.level}"><b>${LEVEL[item.level]}:</b> ${escape(item.text)}</li>`).join('')
+      : '<li class="is-ok">Đủ 6 phép kiểm, xuất được.</li>';
+    dialog.querySelector('.debit-ack').hidden = blocks > 0 || warns === 0;
+    for (const button of dialog.querySelectorAll('.debit-print, .debit-excel')) button.disabled = !ready;
+    const target = dialog.querySelector('.debit-preview')?.contentDocument;
+    if (target) {
+      if (!target.querySelector('.debit-root')) {
+        target.open();
+        target.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#e6e9ee}body{padding:12px}'
+          + '.debit-root{zoom:.6}.debit-root [data-page]{margin:0 auto 16px;box-shadow:0 1px 6px #0003}</style></head><body><div class="debit-root"></div></body></html>');
+        target.close();
+      }
+      open.pages = DebitNoteV4.split(doc, target);
+      target.querySelector('.debit-root').innerHTML = DebitNoteV4.pagesHtml(doc, open.pages);
+    }
+    const count = open.pages?.length ?? 0;
+    dialog.querySelector('.debit-status').textContent = `${doc.total.count} container · ${count} trang · ${blocks ? 'chưa xuất được' : 'mẫu v4'}`;
+    write(V4_CUSTOMER_KEY, { customer: state.customer });
+  }
+  function showV4(monthKey, opener, config, configError = '') {
+    const saved = read(V4_CUSTOMER_KEY).customer ?? {};
+    const name = DebitNoteV4.splitName(defaultDisplay());
+    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '',
+      customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '', contact: saved.contact ?? '' } };
+    open = { v4: true, monthKey, opener, config, configError };
+    dialog.innerHTML = `<div class="debit-panel"><header><h2>Debit note tháng ${escape(monthLabel(monthKey))}<small class="debit-status"></small></h2>
+      <button type="button" class="debit-print">In / Lưu PDF</button><button type="button" class="debit-excel">Tải Excel</button><button type="button" class="debit-close">Đóng</button></header>
+      <div class="debit-main">${formV4(state)}<div class="debit-side"><div class="debit-review" role="status"><ul class="debit-checks"></ul>
+        <label class="debit-ack" hidden><input type="checkbox"> Tôi đã xem các cảnh báo, cho xuất</label></div>
+        <div class="debit-body"><iframe class="debit-preview" title="Xem trước debit note"></iframe></div></div></div></div>`;
+    dialog.hidden = false;
+    refreshV4();
+    dialog.querySelector('.debit-close').focus();
+  }
+  function downloadV4() {
+    if (!open.ready) return;
+    const bytes = DebitNoteV4Xlsx.xlsx(open.doc);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = `${DebitNoteV4Xlsx.baseName(open.doc)}.xlsx`;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  // In bằng khung ẩn: chia trang lại trong chính khung in (cùng bề ngang 297mm), khổ A4 ngang lề 0 theo @page.
+  function printV4() {
+    if (!open.ready) return;
+    const frame = document.createElement('iframe');
+    frame.className = 'debit-print-frame';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;width:297mm;height:210mm;border:0;right:0;bottom:0;visibility:hidden';
+    document.body.append(frame);
+    const target = frame.contentDocument;
+    target.open();
+    target.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escape(DebitNoteV4Xlsx.baseName(open.doc))}</title><style>${DebitNoteV4.PRINT_CSS}</style></head><body></body></html>`);
+    target.close();
+    const pages = DebitNoteV4.split(open.doc, target);
+    target.body.innerHTML = DebitNoteV4.pagesHtml(open.doc, pages);
+    frame.contentWindow.focus();
+    frame.contentWindow.print();
+    setTimeout(() => frame.remove(), 60000);
+  }
+  async function show(monthKey, opener) {
+    configLoad ??= ctx.api.readDebitConfig();
+    let config = null, configError = '';
+    try { config = await configLoad; } catch (error) { configError = error.message; configLoad = null; }
+    const asked = new URLSearchParams(location.search).get('debit');
+    const template = ['v3', 'v4'].includes(asked) ? asked : config?.template ?? 'v3';
+    if (template === 'v4') showV4(monthKey, opener, config ?? {}, configError);
+    else showV3(monthKey, opener);
+  }
+
   function close() {
     const opener = open?.opener;
     dialog.hidden = true; dialog.innerHTML = ''; open = null;
@@ -172,16 +276,17 @@
   });
   dialog.addEventListener('click', event => {
     if (event.target.closest('.debit-close') || event.target === dialog) close();
-    else if (event.target.closest('.debit-excel')) download();
-    else if (event.target.closest('.debit-print')) print();
+    else if (event.target.closest('.debit-excel')) (open?.v4 ? downloadV4 : download)();
+    else if (event.target.closest('.debit-print')) (open?.v4 ? printV4 : print)();
   });
   dialog.addEventListener('input', event => {
     if (!open || !event.target.closest('.debit-form, .debit-ack') || event.target.name === 'issuerCode') return;   // đổi công ty xử lý ở change
     if (event.target.name === 'number') event.target.dataset.touched = '1';
-    refresh();
+    (open.v4 ? refreshV4 : refresh)();
   });
   dialog.addEventListener('change', event => {
     if (!open) return;
+    if (open.v4) { if (event.target.closest('.debit-form, .debit-ack')) refreshV4(); return; }
     if (event.target.name === 'issuerCode') {   // đổi bên phát hành: điền lại thông tin công ty và gợi ý số mới
       const company = profile(event.target.value);
       for (const [group, values] of Object.entries(company))

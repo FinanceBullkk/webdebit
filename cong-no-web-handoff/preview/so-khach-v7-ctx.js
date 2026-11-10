@@ -17,7 +17,7 @@ const SoKhachV7Ctx = (() => {
     // Lõi: dữ liệu và hàm dùng chung.
     root: ['core', 'giá trị', 'detail contact debit edit entry fee history loc month offset overview pay presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit entry fee history month offset overview price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
-    api: ['core', 'giá trị', 'contact edit entry fee history images offset overview price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
+    api: ['core', 'giá trị', 'contact debit edit entry fee history images offset overview price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
     live: ['core', 'giá trị', 'contact debit edit entry offset presence price tabs', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
     customerId: ['core', 'giá trị', 'contact debit entry images offset presence price ps receipts sheet tabs', 'mã khách của sổ đang mở'],
     escape: ['core', 'hàm', 'detail contact debit edit entry fee history images month offset overview pay price ps receipts sheet tabs trips', 'thoát HTML (CongNoFormat.esc)'],
@@ -48,7 +48,7 @@ const SoKhachV7Ctx = (() => {
     columns: ['core', 'giá trị', 'edit month price trips', 'khung cột hiện tại: count, trip, feeStart, unitPrice, tags, all, shipper, shipperCell'],
     feeTypeName: ['core', 'hàm', 'contact fee history ps trips', 'mã loại phụ phí → tên'],
     feeTypes: ['core+fee', 'đọc/ghi', 'debit fee', 'danh mục loại phụ phí (fee nạp)'],
-    feeColumnIds: ['core', 'đọc', 'contact fee month ps trips', 'loại phụ phí có cột riêng của sổ, theo bản GET đang vẽ'],
+    feeColumnIds: ['core', 'đọc', 'contact debit fee month ps trips', 'loại phụ phí có cột riêng của sổ, theo bản GET đang vẽ'],
     snapshot: ['core', 'đọc', 'contact debit edit entry fee history images month offset overview price ps receipts sheet', 'bản GET đang vẽ'],
     historyOpen: ['core+edit', 'đọc/ghi', 'edit history', 'khung Lịch sử đang mở'],
     busyChecks: ['core', 'danh sách', 'core debit entry fee images price', 'hàm báo đang mở khung/nhập dở → tạm dừng tự cập nhật'],
