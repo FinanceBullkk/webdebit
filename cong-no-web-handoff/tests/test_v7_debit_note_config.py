@@ -54,7 +54,7 @@ class DebitNoteConfigTest(unittest.TestCase):
 
     def test_route_returns_config_and_rejects_query(self):
         runner = Mock()
-        args = dict(port=8780, host="127.0.0.1", actor="nguoi-thu")
+        args = {"port": 8780, "host": "127.0.0.1", "actor": "nguoi-thu"}
         status, body = api.handle("GET", "/api/v7/debit-note/config", {"Host": "127.0.0.1:8780"}, b"", runner, **args)
         self.assertEqual(status, 200)
         self.assertIn(body["config"]["template"], ("v3", "v4"))
