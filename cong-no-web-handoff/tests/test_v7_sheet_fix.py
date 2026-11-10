@@ -88,6 +88,30 @@ class PlanTests(unittest.TestCase):
         prices = {"rows": list(rows), "sha256": "a" * 64}
         return fix.plan(prices, {"rows": [], "sha256": "b" * 64}, ledger, list(self.CUSTOMERS), TODAY)
 
+    def check(self, rows, trips, adjustments=(), today=TODAY):
+        ledger = {"customer_id": 7, "today_month": "2026-11-01", "trips": list(trips), "legacy_rows": [],
+                  "adjustments": list(adjustments), "month_locks": [], "receipts": [], "events": []}
+        return fix.ahead_to_check({"rows": list(rows), "sha256": "a" * 64}, ledger, list(self.CUSTOMERS), today)
+
+    def test_web_ahead_trips_a_person_should_look_at(self):
+        fresh = web_trip(1, "AAAA1", unit="100")                         # 3 ngày: Sheet chưa kịp nhập
+        old = web_trip(2, "AAAA2", unit="70", fee="5", month="2026-10")  # ngày 01/10: 34 ngày
+        moved = web_trip(3, "AAAA3", unit="20")                          # Sheet ghi đúng chuyến này ở tab khách B
+        reused = web_trip(4, "AAAA4", unit="30")                         # tab B có container này từ tháng 8: container dùng lại, chuyến khác
+        rows = [sheet_row(9, "AAAA3", unit=20, total=20, tab="KHACH B"), sheet_row(8, "AAAA4", unit=30, total=30, month="2026-08", tab="KHACH B")]
+        self.assertEqual(self.check(rows, [fresh, old, moved, reused]), [
+            {"kind": "ahead_other_book", "container": "AAAA3", "date": "2026-11-01", "amount_vnd": 20, "other": "KHACH B"},
+            {"kind": "ahead_old", "container": "AAAA2", "date": "2026-10-01", "amount_vnd": 75, "days": 34}])
+        # Đúng 14 ngày thì chưa hỏi, sang ngày 15 mới hỏi.
+        self.assertEqual(self.check([], [fresh], today=dt.date(2026, 11, 15)), [])
+        self.assertEqual([hint["days"] for hint in self.check([], [fresh], today=dt.date(2026, 11, 16))], [15])
+        # Dòng Sheet có container mà trống giá cũng tính tuổi như chuyến không có trên tab.
+        self.assertEqual([hint["kind"] for hint in self.check([sheet_row(1, "AAAA2", month="2026-10")], [old])], ["ahead_old"])
+        # Tiền đã ra khỏi sổ bằng dòng điều chỉnh, hoặc là dòng Sheet mất container: không tính đi trước nên không hỏi.
+        gone = {"id": 61, "month": "2026-10-01", "amount_vnd": "-75", "note": "dời sang sổ khác"}
+        self.assertEqual(self.check([], [old], adjustments=[gone]), [])
+        self.assertEqual(self.check([sheet_row(5, "", unit=75, total=75, month="2026-10")], [old]), [])
+
     def test_web_ahead_is_priced_web_trips_the_sheet_has_not_priced(self):
         rows = [sheet_row(1, "AAAA1"), sheet_row(2, "AAAA2"), sheet_row(3, "AAAA3", unit=5, total=5), sheet_row(4, "AAAA4", total=0),
                 sheet_row(5, "AAAA5", tab="KHACH B")]

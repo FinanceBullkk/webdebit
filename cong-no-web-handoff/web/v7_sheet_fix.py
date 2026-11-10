@@ -19,8 +19,10 @@ from v7_api_sheet import write_price_items
 from v7_api_validate import ApiError
 from v7_inbox import AUTO_ACTOR, in_month
 from v7_price_queue import (
+    DATE_WINDOW_DAYS,
     classify,
     container_key,
+    iso,
     mark_shared,
     name_key,
     owners,
@@ -33,6 +35,9 @@ MAX_GROUPS = 16   # 65.535 tổ hợp; sổ nhiều nhóm hơn thì để chủ 
 PRICE_STATUSES = ("READY", "MONTH_LOCKED", "CONFLICT")   # nhiều chuyến khớp, phụ phí gõ tay, chờ kiểm, "Giữ giá web" vẫn để người
 NO_DATE_NOTE = " · ngày theo cuối tháng khối Sheet"
 FEE_NOTE = "Theo Sheet: dòng có tiền, không container"
+# Chuyến web đi trước lâu hơn chừng này (theo ngày chuyến) thì hỏi người. Đo trên `hao` 10/11/2026: 6 chuyến đi trước thật đều 0–5 ngày.
+AHEAD_MAX_DAYS = 14
+AHEAD_HINTS_MAX = 8
 APPLY_ORDER = {"receipts_edited": 0, "receipts": 1, "receipts_no_date": 2, "prices": 3, "fee_rows": 4, "fee_undo": 5}
 
 
@@ -224,6 +229,34 @@ def fee_groups(results: list[dict[str, Any]], ledger: dict[str, Any], same_money
     return [months[key] for key in sorted(months)]
 
 
+def ahead_trips(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_target: dict,
+                adjustments: list[dict[str, Any]] | tuple = (), same_money: Counter | None = None) -> list[dict[str, Any]]:
+    """Các chuyến web được tính là đi trước Sheet (xem `web_ahead`), sau khi bỏ cặp dòng mất container và tháng đã có dòng điều chỉnh
+    trừ đúng bằng."""
+    found = []
+    for result in results:
+        target = by_target.get((result["target_kind"], result["target_id"]))
+        if (result["status"] == "SHEET_NO_PRICE" and target and target["kind"] == "trip" and target["price"] is not None
+                and not target["pending"] and not result.get("sheet_total_vnd")):
+            found.append(target)
+    on_sheet = {container_key(result.get("container")) for result in results}
+    paired = Counter(same_money or {})
+    for target in pool:
+        if target["kind"] == "trip" and target["price"] is not None and not target["pending"] and target["container"] not in on_sheet:
+            amount = target["price"] + (target["fee"] or 0)
+            if paired[(target["month"], amount)] > 0:   # Sheet vẫn tính tiền này ở một dòng mất container: không phải đi trước
+                paired[(target["month"], amount)] -= 1
+            else:
+                found.append(target)
+    months: Counter[str] = Counter()
+    for target in found:
+        months[target["month"]] += target["price"] + (target["fee"] or 0)
+    adjusted: Counter[str] = Counter()
+    for row in adjustments:
+        adjusted[str(row.get("month"))[:7]] += int(row["amount_vnd"])
+    return [target for target in found if adjusted[target["month"]] != -months[target["month"]]]
+
+
 def web_ahead(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_target: dict,
               adjustments: list[dict[str, Any]] | tuple = (), same_money: Counter | None = None) -> int:
     """Tiền của chuyến web đã có giá mà Sheet chưa ghi: dòng Sheet chưa có giá lẫn TỔNG, hoặc chưa có dòng nào của container đó. Web
@@ -233,25 +266,43 @@ def web_ahead(results: list[dict[str, Any]], pool: list[dict[str, Any]], by_targ
     chuyến dời sổ theo booking, trừ bằng một dòng điều chỉnh tay; tính cả thì máy bỏ qua một phiếu đúng). Trừ không đúng bằng thì
     không suy ra được dòng điều chỉnh là của chuyến nào, tính như thường.
     """
-    months: Counter[str] = Counter()
-    for result in results:
-        target = by_target.get((result["target_kind"], result["target_id"]))
-        if (result["status"] == "SHEET_NO_PRICE" and target and target["kind"] == "trip" and target["price"] is not None
-                and not target["pending"] and not result.get("sheet_total_vnd")):
-            months[target["month"]] += target["price"] + (target["fee"] or 0)
-    on_sheet = {container_key(result.get("container")) for result in results}
-    paired = Counter(same_money or {})
-    for target in pool:
-        if target["kind"] == "trip" and target["price"] is not None and not target["pending"] and target["container"] not in on_sheet:
-            amount = target["price"] + (target["fee"] or 0)
-            if paired[(target["month"], amount)] > 0:   # Sheet vẫn tính tiền này ở một dòng mất container: không phải đi trước
-                paired[(target["month"], amount)] -= 1
-            else:
-                months[target["month"]] += amount
-    adjusted: Counter[str] = Counter()
-    for row in adjustments:
-        adjusted[str(row.get("month"))[:7]] += int(row["amount_vnd"])
-    return sum(amount for month, amount in months.items() if adjusted[month] != -amount)
+    return sum(target["price"] + (target["fee"] or 0) for target in ahead_trips(results, pool, by_target, adjustments, same_money))
+
+
+def ahead_to_check(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]], today: dt.date) -> list[dict[str, Any]]:
+    """Chuyến web đi trước mà người nên xem (chủ sổ chốt 10/11/2026). Phép tính đi trước giữ nguyên; đây chỉ là danh sách để hỏi:
+
+    - `ahead_other_book`: Sheet ghi đúng chuyến đó ở tab của sổ khác (cùng container, lệch không quá 3 ngày; thiếu ngày thì cùng tháng).
+      Container dùng lại ở chuyến khác, cách xa ngày, không tính.
+    - `ahead_old`: đã có giá trên web quá AHEAD_MAX_DAYS ngày kể từ ngày chuyến mà tab của sổ vẫn chưa có.
+
+    Chuyến ở tab sổ khác lên trước, rồi chuyến để lâu nhất.
+    """
+    results, pool, by_target = _sheet_rows(prices, ledger, customers)
+    trips = ahead_trips(results, pool, by_target, ledger.get("adjustments") or (), lost_container_money(results, pool))
+    if not trips:
+        return []
+    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
+    names = {c["id"]: c["name"] for c in customers if type(c.get("id")) is int}
+    wanted = {target["container"] for target in trips}
+    elsewhere: dict[str, list[tuple]] = {}
+    for row in prices["rows"]:
+        key = container_key(row.get("container"))
+        owner = owned.get(name_key(row.get("customer_tab")), (None,))[0]
+        if key in wanted and owner != ledger.get("customer_id"):
+            elsewhere.setdefault(key, []).append((iso(row.get("date")), str(row.get("debt_month") or "")[:7],
+                                                  names.get(owner) or str(row.get("customer_tab") or "")))
+    moved, old = [], []
+    for target in trips:
+        day = target["date"]
+        base = {"container": target["container"], "date": day.isoformat() if day else None, "amount_vnd": target["price"] + (target["fee"] or 0)}
+        other = next((name for sheet_day, month, name in elsewhere.get(target["container"], ())
+                      if (abs((sheet_day - day).days) <= DATE_WINDOW_DAYS if sheet_day and day else month == target["month"])), None)
+        if other is not None:
+            moved.append({"kind": "ahead_other_book", **base, "other": other})
+        elif day and (today - day).days > AHEAD_MAX_DAYS:
+            old.append({"kind": "ahead_old", **base, "days": (today - day).days})
+    return (moved + sorted(old, key=lambda hint: -hint["days"]))[:AHEAD_HINTS_MAX]
 
 
 def plan(prices: dict[str, Any], receipts: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]],

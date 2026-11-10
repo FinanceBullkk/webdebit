@@ -222,6 +222,21 @@ class ReconcileAutoTest(unittest.TestCase):
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["web_ahead_vnd"], row["difference_vnd"]), ("WEB_AHEAD", "500", "500"))
 
+    def test_old_web_ahead_trip_is_named_for_a_person_and_the_sum_stays(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", 0, 0)], missing_price=True)
+
+        def run_on(month, day):
+            db = Db(total=500, unit_price=500)
+            with patch.object(job, "now_vn", return_value=job.now_vn().replace(year=2026, month=month, day=day, hour=9)):
+                self.assertEqual(self.run_job(db, "--fix")[0], 0)
+            self.assertEqual(db.writes, [])
+            return self.result()["customers"][0]
+        fresh = run_on(10, 10)   # chuyến ngày 03/10 mới 7 ngày: Sheet chưa kịp nhập
+        self.assertEqual((fresh["reason"], fresh["web_ahead_vnd"], fresh.get("hints")), ("WEB_AHEAD", "500", None))
+        old = run_on(11, 10)     # 38 ngày: phép tính giữ nguyên, thêm câu để người xem
+        self.assertEqual((old["reason"], old["web_ahead_vnd"], old["difference_vnd"]), ("WEB_AHEAD", "500", "500"))
+        self.assertEqual(old["hints"], [{"kind": "ahead_old", "container": "FAKE-CONT-XY", "date": "2026-10-03", "amount_vnd": "500", "days": 38}])
+
     def test_trip_an_adjustment_took_off_the_book_does_not_block_a_right_receipt(self):
         self.undated_receipt_book()
         moved = {"id": 9, "status": "confirmed", "container": "MOVED-CONT-XY", "event_date": "2026-03-18", "month": "2026-03-01",

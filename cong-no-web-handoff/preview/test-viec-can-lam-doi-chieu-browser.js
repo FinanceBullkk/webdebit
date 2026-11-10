@@ -306,6 +306,34 @@ if (process.argv.includes('--preview')) {
     });
   });
 
+  test('web đi trước có chuyến để lâu hoặc nằm ở tab sổ khác: khách thành phải xem, câu nói rõ chuyến nào', async () => {
+    const hints = [
+      { kind: 'ahead_other_book', container: 'MAUU0000002', date: '2026-11-04', amount_vnd: '41000000', other: 'Mẫu An Phát' },
+      { kind: 'ahead_old', container: 'MAUU0000001', date: '2026-09-29', amount_vnd: '70000000', days: 38 },
+    ];
+    const check = { ...lech, reason: 'WEB_AHEAD', sheet_editing: false, sheet_last_edit_at: null, difference_vnd: '111000000', web_ahead_vnd: '111000000', sheet_total_vnd: '5099000000', groups: [], hints };
+    const fine = { customer: 'Mẫu Phú Gia', customer_id: 3, status: 'LECH_TONG', reason: 'WEB_AHEAD', difference_vnd: '600000000', web_ahead_vnd: '600000000', groups: [] };
+    await withPage({ inbox: inbox({ reconcile: { ...reconcile, counts: { KHOP: 237, LECH_TONG: 2 }, customers: [check, fine] } }),
+      statement: statement({ sheet_total_vnd: '5099000000', web_ahead_vnd: '111000000', groups: [], reason: 'WEB_AHEAD', sheet_editing: false, sheet_last_edit_at: null }) }, async page => {
+      await opened(page);
+      assert.match(await statusLine(page), /1 khách lệch/);
+      const why = await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-why').innerText();
+      assert.match(why, /^Web đi trước Sheet, có chuyến cần xem: Chuyến MAUU0000002 ngày 04\/11 \(41 tr\) web ghi ở sổ này, còn Sheet ghi ở tab Mẫu An Phát\. Xem chuyến thuộc khách nào\./);
+      assert.match(why, /Chuyến MAUU0000001 ngày 29\/09 \(70 tr\) có giá trên web đã 38 ngày mà tab Sheet chưa có\. Xem Sheet đã bỏ chuyến này chưa\./);
+      assert.doesNotMatch(why, /Không cần làm gì/);
+      const panel = await page.locator('.dc-sheet').innerText();
+      assert.match(panel, /Web đi trước Sheet\s*· có chuyến cần xem ở dưới/);
+      assert.doesNotMatch(panel, /không phải lệch/);
+      assert.match(await page.locator('.dc-left').innerText(), /^Cần xem\s+Số khớp nếu tính phần web đi trước\. Xem các chuyến ở dưới\./);
+      assert.equal(await page.locator('.dc-left.ok').count(), 0);   // không tô xanh "Khớp" ở khách phải xem
+      assert.match(await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-gap').innerText(), /^\+111$/);   // web − Sheet, không trừ phần đi trước
+      assert.equal(await page.locator('.dc-hints li').count(), 2);
+      assert.match(await page.locator('.dc-side summary').innerText(), /1 khách web đi trước Sheet, không cần làm gì/);   // khách không có gì phải xem vẫn ở đây
+      if (process.env.UX_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.UX_SCREENSHOTS, 'viec-web-di-truoc-can-xem-1280.png') });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'không tràn ngang ở 1280');
+    });
+  });
+
   test('nhiều khách: lệch lớn mở sẵn, đổi khách một bấm, đóng tay thì để đóng; tab chưa có sổ và web đi trước tính riêng', async () => {
     const rec = { ...reconcile, counts: { KHOP: 234, LECH_TONG: 3, CHI_CO_SHEET: 1 }, outside_tabs: [{ customer: 'TAB MẪU <101>', sheet_total_vnd: '120500000', last_month: '2026-10', reason: 'NOT_ON_TONG' }], customers: [
       { customer: 'Mẫu Lộc Phát', customer_id: 8, status: 'LECH_TONG', reason: 'SHEET_SHUFFLED', difference_vnd: '5000000', web_total_vnd: '100', sheet_total_vnd: '95', shuffled_months: ['2026-10'], groups: [] }, lech,
