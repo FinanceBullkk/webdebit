@@ -68,6 +68,7 @@ function serverFor(opts = {}) {
       return opts.activityStatus ? send(opts.activityStatus, {}) : send(200, activityDays[day] ?? { day, today: '2026-11-06', prev_day: '2026-11-03', next_day: '2026-11-06', total: 0, events: [], trips: [], receipts: [], legacy_rows: [], fee_types: [] });
     }
     if (route === '/api/v7/sheet/doi-chieu') return send(opts.statementStatus ?? 200, value(opts.statement ?? statement()));
+    if (route === '/api/v7/ai/preview') return send(200, opts.aiPreview ?? { enabled: true, fingerprint: 'f'.repeat(64), packet: { customer_id: 7, customer: 'Mẫu Đông Á', checked_at: reconcile.checked_at, groups: [], partial: false } });
     if (route === '/api/v7/dashboard') return send(200, opts.dashboard ?? dashboard);
     if (route === '/api/v7/dashboard/debt') return send(200, { customers: [] });
     if (route === '/api/v7/customers') return send(200, { customers });
@@ -99,6 +100,24 @@ if (process.argv.includes('--preview')) {
   const port = Number(process.env.UX_PREVIEW_PORT ?? 18768);
   serverFor({}).listen(port, '127.0.0.1', () => process.stdout.write(`Fixture preview: http://127.0.0.1:${port}/viec-can-lam.html\n`));
 } else {
+  test('AI: chỉ gửi sau khi xem trước và đồng ý; câu trả lời không ghi sổ', async () => {
+    const posted = [];
+    await withPage({ posted, post: route => route === '/api/v7/ai/explain'
+      ? { status: 200, json: { text: 'Cần kiểm dòng Sheet.', usage: { input_tokens: 10, output_tokens: 5 } } }
+      : { status: 400, json: { message: 'Không được ghi.' } } }, async page => {
+      await opened(page);
+      await page.locator('[data-ai-preview="7"]').click();
+      await page.locator('[data-ai-send="7"]').waitFor();
+      assert.equal(posted.length, 0, 'xem trước không gọi Claude');
+      assert.match(await page.locator('.dc-ai-preview').innerText(), /Dữ liệu sẽ gửi Anthropic/);
+      await page.locator('[data-ai-send="7"]').click();
+      await page.getByText('Cần kiểm dòng Sheet.').waitFor();
+      assert.equal(posted.length, 1);
+      assert.equal(posted[0].route, '/api/v7/ai/explain');
+      assert.deepEqual(posted[0].body, { customer_id: 7, fingerprint: 'f'.repeat(64), consent: true });
+      assert.equal(await page.locator('.dc-ai-preview pre').evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'bản xem trước tự xuống dòng');
+    }, { width: 390, height: 720 });
+  });
   test('mở trang: trả lời số nợ có đúng không, khách lệch mở sẵn, đọc phụ phí thay vì hai số bằng nhau', async () => withPage({}, async page => {
     await opened(page);
     const line = await statusLine(page);

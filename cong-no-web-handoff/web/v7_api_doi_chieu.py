@@ -34,9 +34,9 @@ UNDOABLE = {"prices", "receipts", "receipts_no_date"}   # `undo_sheet_batch` chá
 MAX_ROWS = 500
 SHA = re.compile(r"[0-9a-f]{64}")
 MONTH = re.compile(r"[0-9]{4}-[0-9]{2}")
-PRICE_FIELDS = ("status", "container", "date", "source_row", "web_unit_price_vnd", "web_other_fee_vnd",
+PRICE_FIELDS = ("customer_tab", "status", "container", "date", "source_row", "web_unit_price_vnd", "web_other_fee_vnd",
                 "sheet_unit_price_vnd", "sheet_other_fee_vnd", "source_fingerprint")
-RECEIPT_FIELDS = ("status", "source_row", "date", "debt_month", "amount_vnd", "note")
+RECEIPT_FIELDS = ("customer_tab", "status", "source_row", "date", "debt_month", "amount_vnd", "note")
 
 
 def _today():
