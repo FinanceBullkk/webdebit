@@ -344,6 +344,10 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual(db.writes, [])
         row = self.result()["customers"][0]
         self.assertEqual((row["reason"], row["hints_explain"]), ("NOTHING_TO_WRITE", True))
+        self.assertEqual(row["hints_basis"]["version"], db.version)
+        prices, receipts = job.snapshots.build_all(self.source / "source-google-export.xlsx")
+        self.assertEqual(row["hints_basis"], {"version": db.version, "prices_sha256": prices["sha256"], "receipts_sha256": receipts["sha256"],
+                                              "web_total_vnd": str(row["web_total_vnd"]), "sheet_total_vnd": str(row["sheet_total_vnd"])})
         self.assertEqual(row["hints"], [{"kind": "receipt_twice", "date": "2026-10-31", "amount_vnd": "5", "pids": ["PH-001", "PH-002"],
                                          "delta_vnd": "5"}])
 
