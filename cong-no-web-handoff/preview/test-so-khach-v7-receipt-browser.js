@@ -51,16 +51,18 @@ test('Ghi phiếu thu từ Sheet: Sheet đổi giữa chừng thì không ghi g�
   assert.equal(await page.locator('.receipt-approve').count(), 0);
 }, withReceipts));
 
-test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xóa, Sheet sửa phiếu cũ có nút tới khoản cũ', async () => withPage(async ({ page, world, shot }) => {
+test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xóa, phiếu đã hủy, Sheet sửa phiếu cũ có nút tới khoản cũ', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.receipt-approve').count(), 0);
   const strip = page.locator('.receipt-strip');
-  assert.match(await strip.innerText(), /Phiếu thu Sheet cần xem:\s*4/);
+  assert.match(await strip.innerText(), /Phiếu thu Sheet cần xem:\s*5/);
   await strip.locator('.receipt-review-toggle').click();
   const panel = page.locator('.receipt-panel');
   const text = await panel.innerText();
   assert.match(text, /Sheet không ghi ngày thu\./);
   assert.match(text, /Ngày thu 05\/11\/2026 sau hôm nay\./);
   assert.match(text, /Web đã xóa khoản thu sổ gốc này/);
+  assert.match(text, /Phiếu ghi từ dòng này đã bị hủy trên web, Sheet vẫn còn\. Máy không ghi lại\./);
+  assert.equal(await panel.locator('.receipt-goto').count(), 1);   // phiếu đã hủy không mượn câu và nút của "Sheet sửa phiếu cũ"
   assert.match(text, /Sheet đã sửa phiếu thu tháng 9\/2026: web còn khoản thu sổ gốc 48\.000\.000 đ không thấy trên Sheet\./);
   await shot('thu-sheet-3-can-xem');
   await panel.locator('.receipt-goto').click();
@@ -69,8 +71,8 @@ test('Phiếu thu Sheet cần xem: không ngày, ngày tương lai, web đã xó
 }, world => {
   world.legacy.push({ id: 31, month: '2026-09-01', kind: 'receipt', source_total_vnd: '48000000', editable: false,
     display: { row: 5, raw_date: '14/10/2026 tt' }, current: { month: '2026-09-01', deleted: false } });
-  world.sheetReceipts = { snapshot_sha256: 'f'.repeat(64), ready: [], ready_count: 0, review_count: 4, review: [
+  world.sheetReceipts = { snapshot_sha256: 'f'.repeat(64), ready: [], ready_count: 0, review_count: 5, review: [
     item(null, '65000000', { status: 'NO_DATE' }), item('2026-11-05', '1000000', { status: 'FUTURE_DATE' }),
-    item('2026-09-03', '5000000', { status: 'WEB_DELETED' }),
+    item('2026-09-03', '5000000', { status: 'WEB_DELETED' }), item('2026-10-20', '7000000', { status: 'WEB_VOIDED' }),
     item('2026-10-14', '47000000', { status: 'SHEET_EDITED', web_legacy: [{ id: 31, amount_vnd: '48000000' }] })] };
 }));

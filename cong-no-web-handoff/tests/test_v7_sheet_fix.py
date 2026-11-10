@@ -38,12 +38,12 @@ class HelperTests(unittest.TestCase):
                     "review": [receipt("NO_DATE", 500, source_fingerprint="a" * 64),
                                receipt("NO_DATE", 11, month="2026-07", source_fingerprint="b" * 64),
                                receipt("SHEET_EDITED", 450, month="2026-07", date="2026-08-02", web_legacy=orphans),
-                               receipt("FUTURE_DATE", 9), receipt("WEB_DELETED", 8)]}
+                               receipt("FUTURE_DATE", 9), receipt("WEB_DELETED", 8), receipt("WEB_VOIDED", 7, date="2026-10-04")]}
         groups = fix.receipt_groups(receipts, {"legacy_rows": []})
         self.assertEqual([(g["kind"], g["month"], g["delta_vnd"], len(g["rows"])) for g in groups],
                          [("receipts", None, -100, 2),
                           ("receipts_edited", "2026-07", 400 - 461, 2),   # phiếu không ngày cùng tháng đi chung nhóm thay phiếu
-                          ("receipts_no_date", "2026-08", -500, 1)])     # phiếu ngày tương lai, phiếu web đã xóa không phải việc của máy
+                          ("receipts_no_date", "2026-08", -500, 1)])     # phiếu ngày tương lai, web đã xóa, phiếu người đã hủy: không phải việc của máy
 
     def test_edited_month_is_left_when_booked_amount_differs_from_sheet(self):
         receipts = {"ready": [], "review": [receipt("SHEET_EDITED", 450, date="2026-08-02", web_legacy=[{"id": 5, "amount_vnd": "300"}])]}

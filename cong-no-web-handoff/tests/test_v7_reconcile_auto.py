@@ -168,6 +168,18 @@ class ReconcileAutoTest(unittest.TestCase):
         self.assertEqual([json.loads(line)["fixed"] for line in log], [1, 0])
         self.assertEqual(run_at(first_hour + job.dt.timedelta(days=1))["customers"], [])   # sang ngày mới thì hết
 
+    def test_receipt_a_person_voided_is_not_written_again(self):
+        self.undated_receipt_book()
+        db = Db()
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        db.receipts[0]["voided_by_event"] = 77   # người hủy phiếu máy vừa ghi; Sheet vẫn còn dòng thu
+        db.total += PAID
+        self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual(len(db.writes), 1)      # trước đây: lượt sau ghi lại đúng phiếu đó
+        row = next(r for r in self.result()["customers"] if r["status"] == "LECH_TONG")
+        self.assertEqual((row["reason"], row["difference_vnd"]), ("NOTHING_TO_WRITE", str(PAID)))
+
     def test_no_exact_fix_writes_nothing(self):
         self.undated_receipt_book()
         db = Db(total=FAKE_AMOUNT + 1)   # lệch thêm 1 đồng: phiếu không đưa về đúng tổng Sheet
