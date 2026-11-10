@@ -49,6 +49,7 @@ body[data-the=ho-so]{background:#fff}
 .hs-action{display:inline-flex;flex:none;align-items:center;min-height:40px;padding:0 8px;border:0;border-radius:8px;background:none;color:#1c5cab;font:inherit;font-size:14px;font-weight:600;white-space:nowrap;cursor:pointer}
 .hs-action:hover{background:#eaf2fb}
 .hs-action.outline{padding:0 16px;border:1px solid #1c5cab;background:#fff}
+.hs-prices-scroll{max-width:100%;overflow-x:auto}
 .hs-prices{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
 .hs-prices th{padding:6px 8px 6px 0;border-bottom:1px solid #e3e7ec;color:#52514e;font-size:14px;font-weight:600;text-align:left}
 .hs-prices td{height:40px;padding:0 8px 0 0;border-bottom:1px solid #f0f2f5}

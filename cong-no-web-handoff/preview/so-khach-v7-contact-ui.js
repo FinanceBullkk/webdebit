@@ -197,10 +197,10 @@
     if (next) rows.push(...places(next, { when: `giá mới từ ${dateText(next.valid_from)}`, kind: 'next' }));
     const vnd = value => (value == null ? '–' : toBig(value).toLocaleString('vi-VN'));
     const ships = table.tt_shippers ?? [];
-    return (rows.length ? '<table class="hs-prices"><thead><tr><th scope="col">Nơi đi</th><th scope="col">Nơi đến</th><th scope="col" class="num">Giá khách</th>'
+    return (rows.length ? '<div class="hs-prices-scroll"><table class="hs-prices"><thead><tr><th scope="col">Nơi đi</th><th scope="col">Nơi đến</th><th scope="col" class="num">Giá khách</th>'
       + `<th scope="col" class="num">Giá TT</th><th scope="col">Hiệu lực</th></tr></thead><tbody>${rows.map(row => `<tr class="${row.kind}">`
         + `<td>${escape(row.place)}</td><td>${escape(row.destination)}</td><td class="num">${vnd(row.khach)}</td><td class="num">${vnd(row.tt)}</td><td>${escape(row.when)}</td></tr>`).join('')}`
-      + '</tbody></table>' : '<p class="hs-empty">Sổ chưa có bảng giá.</p>')
+      + '</tbody></table></div>' : '<p class="hs-empty">Sổ chưa có bảng giá.</p>')
       + `<p class="hs-hint">Đơn vị: đồng/chuyến. ${escape(ships.length ? `Giá TT áp cho shipper ${ships.join(', ')}; shipper khác lấy giá khách.` : 'Mọi shipper lấy giá khách.')}</p>`;
   }
   // Nút dạng chữ xanh (vùng bấm 40px); `go` như các nút khác của thẻ.
