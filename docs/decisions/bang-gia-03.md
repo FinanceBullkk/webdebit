@@ -14,4 +14,4 @@ Quy tắc giữ nguyên: giá gõ tay/giá Sheet không bị ghi đè; tháng kh
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT chính sách. ĐÃ CODE trong worktree từ `3e90f28`; ĐÃ KIỂM CHỨNG cục bộ 10/11/2026: `npm run check` qua 8/8 bước; PostgreSQL dùng một lần qua 10 ca lược đồ, 69 ca hành vi, 2 mục mở được bỏ qua, 0 lỗi. [Spec](../../specs/v7-bang-gia-noi-den.md) nêu phạm vi. Chưa triển khai `hao`, chưa nạp hay sửa bảng giá thật.
+ĐÃ CHỐT chính sách. ĐÃ TRIỂN KHAI trên `hao` 10/11/2026 tại `8d94e49` ([nhật ký](../deploys/2026-11-10-bang-gia-noi-den.md)). ĐÃ KIỂM CHỨNG: `npm run check`, CI gồm PostgreSQL, migration trên bản sao và DB thật; số dư từng khách không đổi. [Spec](../../specs/v7-bang-gia-noi-den.md) nêu phạm vi. Chưa nạp hay sửa bảng giá thật; lần lưu thật đầu tiên và thao tác UI có đăng nhập còn cần người dùng kiểm.
