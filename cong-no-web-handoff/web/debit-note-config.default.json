@@ -1,0 +1,33 @@
+{
+  "template": "v3",
+  "company": {
+    "name": "HTH LOGISTICS DV TM CO.,LTD",
+    "address": "20/21/15 Le Cong Phap, An Lac Ward, Binh Tan District, Ho Chi Minh City, Vietnam",
+    "tax_id": null,
+    "tel": null,
+    "email": "hth.logs@gmail.com"
+  },
+  "payment": {
+    "beneficiary": null,
+    "bank": null,
+    "account_label_en": "USD Account",
+    "account_label_cn": "美元账号",
+    "account": null,
+    "swift": null
+  },
+  "fees": {
+    "LUMP_SUM": { "en": "Unit price", "cn": "单价", "width": 78 },
+    "STORAGE": { "en": "Storage", "cn": "早装产生费用", "width": 76 },
+    "TRUCKING": { "en": "Trucking", "cn": "拼柜", "width": 68 },
+    "GENSET": { "en": "Generator / electricity fee", "cn": "发电机/电费", "width": 129 },
+    "OVERSTAY": { "en": "Overstay", "cn": "押车", "width": 68 },
+    "HC_FEE": { "en": "HC fee", "cn": "卫生证", "width": 62 },
+    "CANCELLATION": { "en": "Cancellation fee", "cn": "取消订柜费", "width": 104 },
+    "AMENDMENT": { "en": "AMD fee", "cn": "改单费", "width": 68 },
+    "INSURANCE": { "en": "Insurance", "cn": "保险", "width": 72 },
+    "INSPECTION": { "en": "Inspection (O+CD+VS)", "cn": "检验费", "width": 132 },
+    "DISCOUNT": { "en": "Discount", "cn": "折扣", "width": 72 },
+    "OTHER": { "en": "Other fees", "cn": "其他费用", "width": 76 }
+  },
+  "show_place_cn": false
+}
