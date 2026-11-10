@@ -174,38 +174,97 @@ function unzip(bytes) {
   return files;
 }
 
-test('Excel v4: cùng cột với PDF, số thật, Total và ACCOUNT STATUS là số, ô trống in [Tên trường], tên file theo số chứng từ', () => {
+// Đọc sheet: ô → chữ (gộp mọi đoạn <t>) hoặc số, có chữ đậm không; vùng gộp; bề rộng cột; tìm ô theo chữ.
+function readSheet(xmlText) {
+  const cells = new Map();
+  for (const match of xmlText.matchAll(/<c r="([A-Z]+\d+)" s="\d+"(?: t="inlineStr")?(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const [, ref, inner = ''] = match;
+    const texts = [...inner.matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map(item => item[1]);
+    const value = /<v>([^<]*)<\/v>/.exec(inner)?.[1];
+    cells.set(ref, { text: texts.length ? texts.join('') : value ?? '', bold: /<b\/>/.test(inner) });
+  }
+  const merges = [...xmlText.matchAll(/<mergeCell ref="([^"]+)"\/>/g)].map(item => item[1]);
+  const widths = [...xmlText.matchAll(/<col min="\d+" max="\d+" width="([\d.]+)"/g)].map(item => Number(item[1]));
+  const find = text => [...cells].find(([, item]) => item.text === text)?.[0];
+  return { cells, merges, widths, find, text: ref => cells.get(ref)?.text };
+}
+const rowOf = ref => Number(ref.replace(/[A-Z]+/, ''));
+
+test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng không gộp ô, Total và ACCOUNT STATUS thẳng cột Amount, chỉ Times New Roman', () => {
   const xlsx = require('./debit-note-v4-xlsx.js');
   const doc = v4.fromSample(sample('sample-8-an-cot'), config);
   const files = unzip(xlsx.xlsx(doc));
   assert.deepEqual(Object.keys(files).sort(), ['[Content_Types].xml', '_rels/.rels', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/workbook.xml', 'xl/worksheets/sheet1.xml']);
-  const sheet = files['xl/worksheets/sheet1.xml'];
-  const cell = ref => (sheet.match(new RegExp(`<c r="${ref}"[^>]*>(?:<v>([^<]*)</v>|<is><t[^>]*>([^<]*)</t></is>)`)) ?? []).slice(1).find(value => value !== undefined);
-  assert.deepEqual(['A10', 'B10', 'H10', 'I10', 'J10', 'K10', 'L10'].map(cell), ['No.\n序号', 'Container no.\n柜号', 'Unit price\n单价', 'Storage\n早装产生费用',
+  const xmlText = files['xl/worksheets/sheet1.xml'], sheet = readSheet(xmlText);
+  // 12 cột: No. … POD, Unit price, Storage, Generator, Overstay, Amount (không HC fee, không B/L).
+  assert.equal(sheet.widths.length, 12);
+  assert.equal(sheet.text('A3'), 'HTH LOGISTICS DV TM CO.,LTD');
+  assert.equal(sheet.text('H3'), 'DEBIT NOTE  账单');
+  for (const range of ['A3:G3', 'H3:L3', 'A4:L4']) assert.ok(sheet.merges.includes(range), range);
+  assert.deepEqual(['A7', 'A8', 'C7', 'C8', 'C9', 'E9'].map(sheet.text), ['BILL TO', '客户', 'FANYA 泛亚', '[Customer legal name &amp; address]', 'Attn 联系人', '[Contact]']);
+  assert.ok(sheet.cells.get('C7').bold);
+  assert.deepEqual(['G7', 'G8', 'I7'].map(sheet.text), ['DOCUMENT', '单据信息', 'Debit Note No. 账单号']);
+  // Bảng: tiếng Anh đậm + tiếng Trung thường trong cùng ô; dữ liệu là số và ngày thật; trong bảng không gộp ô.
+  const header = rowOf(sheet.find('Amount\n金额'));
+  assert.deepEqual(['A', 'B', 'H', 'I', 'J', 'K', 'L'].map(col => sheet.text(`${col}${header}`)), ['No.\n序号', 'Container no.\n柜号', 'Unit price\n单价', 'Storage\n早装产生费用',
     'Generator / electricity fee\n发电机/电费', 'Overstay\n押车', 'Amount\n金额']);
-  assert.deepEqual(['A11', 'B11', 'H11', 'I11', 'L11'].map(cell), ['1', 'HTHU2611078', '70000000', '2500000', '72500000']);
-  assert.equal(cell('E11'), String((Date.UTC(2026, 10, 2) - Date.UTC(1899, 11, 30)) / 86400000));   // ngày thật
-  assert.equal(cell('A19'), 'Total, 8 containers · 合计');
-  assert.deepEqual(['H19', 'L19'].map(cell), ['570000000', '585000000']);
-  assert.deepEqual(['L22', 'L23', 'L24', 'L25'].map(cell), ['25406128759', '585000000', '-6594000000', '19397128759']);
-  for (const label of ['[Issue date]', '[Customer legal name &amp; address]', '[Contact]', '[Beneficiary]', '[Account no.]']) assert.ok(sheet.includes(label), label);
-  assert.match(files['xl/styles.xml'], /Times New Roman/);
-  assert.doesNotMatch(sheet, /HC fee/);
+  assert.match(xmlText, /<r><rPr><b\/><sz val="9"\/>[^<]*<color [^>]*\/><rFont [^>]*\/><\/rPr><t xml:space="preserve">Storage<\/t><\/r><r><rPr><sz val="9"\/>/);
+  const first = header + 1, total = header + 9;
+  assert.deepEqual(['A', 'B', 'H', 'I', 'L'].map(col => sheet.text(`${col}${first}`)), ['1', 'HTHU2611078', '70000000', '2500000', '72500000']);
+  assert.equal(sheet.text(`E${first}`), String((Date.UTC(2026, 10, 2) - Date.UTC(1899, 11, 30)) / 86400000));
+  assert.ok(sheet.merges.every(range => range.match(/\d+/g).map(Number).every(row => row < header || row >= total)), sheet.merges.join(' '));
+  assert.equal(sheet.text(`A${total}`), 'Total, 8 containers · 合计');
+  assert.deepEqual(['H', 'L'].map(col => sheet.text(`${col}${total}`)), ['570000000', '585000000']);
+  // ACCOUNT STATUS: số ở cột Amount (L); PAYMENT bên trái cùng hàng; chân trang.
+  const opening = rowOf(sheet.find('Opening balance · 期初余额'));
+  assert.deepEqual([0, 1, 2, 3].map(k => sheet.text(`L${opening + k}`)), ['25406128759', '585000000', '-6594000000', '19397128759']);
+  assert.equal(rowOf(sheet.find('PAYMENT')), opening);
+  for (const label of ['INFORMATION', '付款信息', 'ACCOUNT STATUS', 'For reference only', '[Beneficiary]', '[Bank]', '[Account no.]', '[SWIFT code]', '[Issue date]',
+    'Debit Note HTH-2611-001 · Billing queries 账单查询: hth.logs@gmail.com']) assert.ok(sheet.find(label), label);
+  // Kiểu: chỉ Times New Roman, nền tiêu đề #E6EBF2; in A4 ngang vừa bề ngang, lặp hàng tiêu đề bảng.
+  assert.deepEqual([...new Set([...files['xl/styles.xml'].matchAll(/<name val="([^"]+)"/g)].map(item => item[1]))], ['Times New Roman']);
+  assert.match(files['xl/styles.xml'], /FFE6EBF2/);
+  assert.match(xmlText, /<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"\/>/);
+  assert.ok(files['xl/workbook.xml'].includes(`'Debit Note'!$${header}:$${header}`));
+  assert.doesNotMatch(xmlText, /HC fee/);
   assert.equal(xlsx.baseName(doc), 'HTH-2611-001_FANYA_2026-11');
 });
 
-test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 chỉ in khi cấu hình show_place_cn bật', () => {
+test('Excel v4: cột tiền đủ rộng cho số lớn nhất (không ra ####); chỉ có Unit price thì tên khối thành hàng riêng; tên dài tự ngắt hàng', () => {
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const doc = v4.fromSample(sample('sample-30'), config);
+  const widths = xlsx.widths(doc);
+  doc.columns.forEach((column, k) => assert.ok(widths[7 + k] >= v4.money(doc.total.cells[column.code]).length + 2, column.code));
+  assert.ok(widths.at(-1) >= v4.money(doc.account.outstanding).length + 2);
+  const only = sample('sample-14');
+  only.containers = only.containers.map(item => ({ ...item, storage: 0, generator_electricity: 0, overstay: 0, hc_fee: 0, amount: item.lump_sum }));
+  const thin = readSheet(unzip(xlsx.xlsx(v4.fromSample(only, config)))['xl/worksheets/sheet1.xml']);
+  assert.equal(thin.widths.length, 9);
+  assert.deepEqual(['A7', 'F7'].map(thin.text), ['BILL TO · 客户', 'DOCUMENT · 单据信息']);
+  assert.ok(thin.find('PAYMENT INFORMATION · 付款信息') && thin.find('ACCOUNT STATUS · 账户情况 · For reference only 仅供参考'));
+  const long = sample('sample-14');
+  long.customer = { ...long.customer, name_en: 'FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD', name_zh: '泛亚国际物流（深圳）有限公司',
+    legal_name_address: 'Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China' };
+  const xmlText = unzip(xlsx.xlsx(v4.fromSample(long, config)))['xl/worksheets/sheet1.xml'], wide = readSheet(xmlText);
+  const lines = [7, 8, 9, 10, 11].map(row => wide.text(`C${row}`)).filter(Boolean);
+  assert.ok(lines.length >= 3);
+  assert.ok(lines.join(' ').startsWith('FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司 Room 1203'), lines.join(' | '));
+  assert.doesNotMatch(xmlText, /<row r="(7|8|9|10)" ht="(?!15")/);   // các hàng của khối DOCUMENT không bị kéo cao
+});
+
+test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 chỉ in khi cấu hình show_place_cn bật; cột Excel rộng theo chữ', () => {
   const xlsx = require('./debit-note-v4-xlsx.js');
   const placeCells = on => {
     const doc = v4.fromLedger(ledger(), '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config: { ...config, show_place_cn: on },
       form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
-    const sheet = unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml'];
-    const cell = ref => (sheet.match(new RegExp(`<c r="${ref}"[^>]*><is><t[^>]*>([^<]*)</t></is>`)) ?? [])[1];
-    return { excel: [cell('F12'), cell('G12')], html: v4.pageHtml(doc, 'single', doc.rows) };
+    const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
+    const second = rowOf(sheet.find('Amount\n金额')) + 2;   // dòng 2: TGHU2222222, Tien Giang → Qingdao
+    return { excel: [sheet.text(`F${second}`), sheet.text(`G${second}`)], widths: sheet.widths, html: v4.pageHtml(doc, 'single', doc.rows) };
   };
   const off = placeCells(false), on = placeCells(true);
   assert.deepEqual(off.excel, ['Tien Giang', 'Qingdao']);
   assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
+  assert.ok(on.widths[5] > off.widths[5] && on.widths[6] > off.widths[6]);
   assert.doesNotMatch(off.html, /青岛港/);
   assert.match(on.html, /Qingdao<br>青岛港/);
 });
