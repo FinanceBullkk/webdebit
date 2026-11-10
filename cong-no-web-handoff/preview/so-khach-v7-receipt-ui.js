@@ -31,6 +31,7 @@
       if (item.status === 'NO_DATE') return `<li><div class="what">${what}<small>Sheet không ghi ngày thu. Hỏi ngày thu rồi nhập tay ở hàng phiếu thu.</small></div></li>`;
       if (item.status === 'FUTURE_DATE') return `<li><div class="what">${what}<small>Ngày thu ${day(item.date)} sau hôm nay. Sửa ngày trên Sheet.</small></div></li>`;
       if (item.status === 'WEB_DELETED') return `<li><div class="what">${what}<small>Web đã xóa khoản thu sổ gốc này, Sheet vẫn còn. Muốn trừ lại thì nhập phiếu tay.</small></div></li>`;
+      if (item.status === 'WEB_VOIDED') return `<li><div class="what">${what}<small>Phiếu ghi từ dòng này đã bị hủy trên web, Sheet vẫn còn. Máy không ghi lại. Hủy đúng thì xóa dòng thu trên Sheet; muốn trừ lại thì nhập phiếu tay.</small></div></li>`;
       const old = (item.web_legacy ?? []).map(entry => `${money(entry.amount_vnd)} đ`).join(', ');
       const first = item.web_legacy?.[0]?.id;
       return `<li><div class="what">${what}<small>Sheet đã sửa phiếu thu tháng ${month(item.debt_month)}: web còn khoản thu sổ gốc ${old} không thấy trên Sheet. Xóa khoản cũ (bấm ô số tiền của nó) thì lần lấy Sheet sau phiếu này vào lô ghi.</small></div>${first == null ? '' : `<button type="button" class="receipt-goto" data-id="${escape(first)}">Xem khoản cũ</button>`}</li>`;

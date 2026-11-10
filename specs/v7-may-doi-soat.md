@@ -93,6 +93,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 - Dòng Sheet có tiền mà không container, trùng tháng và trùng số với một chuyến web có giá mà tab không còn container đó (`lost_container_money`), là cùng một khoản tiền: mỗi dòng ghép một chuyến, chuyến không tính là đi trước, dòng không thành `fee_rows`. Dòng điều chỉnh máy đã ghi cho dòng đó thành `fee_undo`. Khác tháng hoặc khác số thì vẫn là hai việc riêng.
 - Không ghi Sheet. Không đổi hàm SQL, quyền, luật phân bổ. Mọi lệnh có `expected_version`: người vừa sửa sổ thì lệnh lỗi `STALE_LEDGER`, lượt sau tính lại.
 - Khóa chống ghi trùng gắn phiên bản sổ lúc bắt đầu lượt; phiếu đã ghi thì hàng chờ đã ghép, không chọn lại.
+- Phiếu ghi từ một dòng Sheet rồi bị hủy trên web: hàng chờ phiếu xếp dòng đó là `WEB_VOIDED` ([spec hàng chờ phiếu](v7-receipt-queue.md)), không vào nhóm nào, nên máy không ghi lại. Khách lệch đúng bằng số đó và hiện là cần xem.
 - Tháng khóa: mở, ghi, khóa lại; lệnh lỗi vẫn khóa lại; API tắt giữa chừng thì lượt nền của API khóa lại sau 10 phút (`machine_left_open`).
 - Stdout không có tên khách hay số tiền. Bản tải và bản làm sạch nằm trong thư mục tạm, xóa ngay sau lượt.
 - Lần chạy lỗi không xóa kết quả cũ, chỉ thêm `last_error`; unit thoát khác 0.
@@ -101,7 +102,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 ## Tiêu chí nghiệm thu
 
 - [x] `tests/test_v7_sheet_fix.py`: nhóm việc, số tổng đổi, chọn tổ hợp (lệch 1 đồng, nhiều tổ hợp, nhóm không đổi tiền), đơn giá đổi chỗ, thứ tự ghi, tháng khóa, phiếu không ngày ghi xong rời hàng chờ, gọi tay ghi đúng người làm và giữ nguyên khóa chống ghi trùng; đơn giá trượt qua ô trống không có nhóm giá (trước và sau khi máy giá ghi dòng sẵn sàng), dòng mất container ghép với chuyến web cùng tháng cùng số.
-- [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ.
+- [x] `tests/test_v7_reconcile_auto.py`: cả lượt từ xlsx giả: khớp, chỉ báo, sửa rồi khớp, không khớp thì không ghi, lỗi ghi, web đi trước, khách bị giữ, quá nhiều khách lệch, lần chạy lỗi giữ kết quả cũ, phiếu máy ghi bị người hủy thì lượt sau không ghi lại.
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
 - [x] `tests/test_v7_reconcile_hints.py`, `tests/test_v7_reconcile_auto.py`: bốn kiểu đoán, lệch 1 đồng thì không "giải thích được", khách bị giữ, đoán lỗi không đổi kết luận; `preview/test-viec-can-lam-doi-chieu*.js`: câu từng kiểu, cột Vì sao, khung khi mở, không tràn ở 1280.

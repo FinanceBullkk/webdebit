@@ -20,7 +20,7 @@ Người dùng chốt hướng: **web tự chạy theo Sheet, không cần ngư�
 
 Tháng khóa làm như [`MAY-KHOA-01`](may-khoa-01.md): máy mở, ghi, khóa lại. Mọi lệnh đi qua các lệnh ghi có sẵn và vào Lịch sử với người làm "Máy (theo Sheet)".
 
-Vẫn để người: nhiều chuyến khớp một dòng giá, phụ phí gõ tay, chuyến chờ kiểm, phiếu ngày tương lai, phiếu web đã xóa, Sheet xóa dòng chuyến, khách bị giữ vì số dư trên Sheet tự lệch.
+Vẫn để người: nhiều chuyến khớp một dòng giá, phụ phí gõ tay, chuyến chờ kiểm, phiếu ngày tương lai, phiếu web đã xóa, phiếu ghi từ Sheet đã bị người hủy (từ 10/11/2026), Sheet xóa dòng chuyến, khách bị giữ vì số dư trên Sheet tự lệch.
 
 ## Thay thế
 
@@ -60,4 +60,6 @@ Hết hiệu lực khi chuyển hẳn khỏi Sheet, vì lúc đó web là sổ c
 
 Giới hạn: hai ca ghi sai mới tái hiện trên dữ liệu giả. Đo chỉ đọc trên `hao` 10/11/2026 (một lượt không `--fix` bằng code mới, rồi so cách tính cũ với mới trên cùng bản tải và cùng lần đọc sổ): cả 239 sổ cho kết quả giống hệt, 3 khách web đi trước giữ nguyên kết luận, không lệnh ghi nào được gọi. Lúc đo không sổ nào có nhóm giá hay dòng tiền không container đang chờ, nên số đo chỉ cho biết luật mới không đổi gì ở trạng thái hôm đó, chưa cho biết tỷ lệ báo nhầm về lâu dài. Luật thứ nhất có thể báo đổi chỗ nhầm khi người sửa giá một chuyến về đúng bằng giá một chuyến web đi trước cùng tháng; báo nhầm thì máy chỉ không ghi giá tháng đó. Bản hai dòng (một chuyến bị trống giá, một chuyến chưa giá nhận đúng giá đó) không phân biệt được với ca bình thường nên vẫn không bắt. Không đổi DB, quyền, hàm SQL, luật phân bổ.
 
-CÒN MỞ từ lượt review này, chưa đổi: web đi trước không có giới hạn thời gian, nên chuyến Sheet đã xóa hoặc đổi container vẫn hiện là "không cần làm gì"; phiếu máy ghi bị người hủy mà Sheet còn dòng thu thì lượt sau máy ghi lại.
+CÒN MỞ từ lượt review này, chưa đổi: web đi trước không có giới hạn thời gian, nên chuyến Sheet đã xóa hoặc đổi container vẫn hiện là "không cần làm gì".
+
+**Cập nhật 10/11/2026 (phiếu người đã hủy):** cùng lượt review thấy phiếu máy ghi bị người hủy mà Sheet còn dòng thu thì lượt sau tổng lại khớp và máy ghi lại đúng phiếu đó, mỗi giờ một lần. Claude hỏi "phiếu người đã hủy thì máy không tự ghi lại?", người dùng chọn "Sửa F4". Từ nay dòng Sheet mà phiếu ghi từ chính nó đã bị hủy trên web là việc của người: máy đối soát và nút "Ghi N phiếu thu từ Sheet" đều không ghi lại, dòng hiện ở "Phiếu thu Sheet cần xem". Luật nhận ra ở [spec hàng chờ phiếu](../../specs/v7-receipt-queue.md). Hệ quả: khách đó lệch đúng bằng số tiền phiếu cho tới khi người xóa dòng thu trên Sheet hoặc nhập lại phiếu tay, và trong lúc đó máy không tự sửa việc khác của khách này, vì không còn tổ hợp nào đưa tổng về đúng Sheet. Hoàn tác ở tab đối chiếu ([`VIEC-DOI-CHIEU-01`](viec-doi-chieu-01.md)) hủy phiếu bằng đúng lệnh đó, nên phiếu đã hoàn tác không bị máy ghi lại; giá đã hoàn tác thì máy vẫn có thể ghi lại khi tổng khớp. Không đổi DB, quyền, hàm SQL. Đo chỉ đọc trên `hao` 10/11/2026 (so hàng chờ phiếu cũ với mới trên cùng bản tải và cùng lần đọc sổ): 239 sổ, 1.264 dòng thu trên Sheet, không dòng nào đổi trạng thái; cả hệ thống có 7 phiếu đã hủy, 2 trong đó ghi từ Sheet và dòng Sheet của chúng không còn chờ.

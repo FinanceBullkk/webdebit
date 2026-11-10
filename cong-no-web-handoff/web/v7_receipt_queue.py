@@ -6,7 +6,9 @@ payment cells of a trip row: a free-text or date cell for the payment date ("23/
 original-book receipt row (same block month, amount and payment-date text) or a web receipt
 (same amount, same date, else within 3 days). What is left is READY when its date reads and
 is not in the future, and its month has no original-book receipt the Sheet no longer shows
-(the Sheet edited an old receipt: writing the new one would count both).
+(the Sheet edited an old receipt: writing the new one would count both). A row whose own
+receipt was written from the Sheet and then voided on the web is WEB_VOIDED: a person undid
+it, so neither the batch button nor the machine writes it again (MAY-DOI-SOAT-01, 10/11/2026).
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from v7_sheet_queue import read_snapshot
 from v7_sheet_task_keep import fingerprint
 
 DATE_WINDOW_DAYS = 3
-REVIEW = ("NO_DATE", "FUTURE_DATE", "SHEET_EDITED", "WEB_DELETED")
+REVIEW = ("NO_DATE", "FUTURE_DATE", "SHEET_EDITED", "WEB_DELETED", "WEB_VOIDED")
 METHOD = "THU TIỀN"
 SERIAL = re.compile(r"[0-9]{5}(?:\.0+)?")
 DAY_FIRST = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?!\d)")
@@ -80,9 +82,26 @@ def load_receipt_snapshot(path: str | Path) -> dict[str, Any]:
     return read_snapshot(path, "Sheet receipt snapshot")
 
 
+def iso_day(value: Any) -> dt.date | None:
+    try:
+        return dt.date.fromisoformat(str(value or "")[:10])
+    except ValueError:
+        return None
+
+
 def _int(value: Any) -> int | None:
     text = str(value if value is not None else "").strip()
     return int(text) if re.fullmatch(r"-?[0-9]+", text) else None
+
+
+def _written_from(row: dict, receipt: dict) -> bool:
+    """Phiếu web này được ghi từ đúng dòng Sheet này: cùng số tiền và mang chứng từ do đường ghi từ Sheet đặt (dòng có ngày thì
+    thêm cùng ngày). Phiếu nhập tay có chứng từ khác nên không bao giờ khớp."""
+    if receipt["amount"] != row["amount_vnd"]:
+        return False
+    if row["date"] is None:
+        return receipt["reference"].startswith(review_reference(row["source_fingerprint"]))
+    return receipt["date"] == row["date"] and receipt["reference"].strip() == reference(row["note"]).strip()
 
 
 def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
@@ -142,12 +161,19 @@ def classify(rows: list[dict], ledger: dict, today: dt.date) -> list[dict]:
             if found:
                 web.remove(min(found, key=lambda w: abs((w["date"] - result["date"]).days)))
                 result["status"] = "MATCHED_WEB"
+    # Phiếu ghi từ Sheet rồi bị hủy trên web: người đã gỡ, không ghi lại. Mỗi phiếu hủy chỉ giữ một dòng Sheet.
+    voided = [{"date": iso_day(r.get("date")), "amount": _int(r.get("amount_vnd")), "reference": r.get("reference") or ""}
+              for r in ledger.get("receipts", []) if r.get("voided_by_event")]
     for result in results:
         if result["status"]:
             continue
         month = str(result["debt_month"])[:7]
+        undone = next((v for v in voided if _written_from(result, v)), None)
         if (month, result["amount_vnd"], note_key(result["note"])) in deleted:
             result["status"] = "WEB_DELETED"
+        elif undone is not None:
+            voided.remove(undone)
+            result["status"] = "WEB_VOIDED"
         elif result["date"] is None:
             result["status"] = "NO_DATE"
         elif result["date"] > today:

@@ -22,6 +22,7 @@ from v7_receipt_queue import (  # noqa: E402
     pay_date,
     project_receipts,
     reference,
+    review_reference,
     rows_from_scan,
 )
 
@@ -97,6 +98,27 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(statuses([row()], ledger(receipts=[receipt(date="2026-10-27")])), ["READY"])
         self.assertEqual(statuses([row()], ledger(receipts=[receipt(voided=True)])), ["READY"])
         self.assertEqual(statuses([row()], ledger(receipts=[receipt(amount=50000001)])), ["READY"])
+
+    def test_receipt_written_from_this_row_then_voided_is_left_to_a_person(self):
+        written = receipt(voided=True) | {"reference": reference("23/10/2026 tt")}
+        self.assertEqual(statuses([row()], ledger(receipts=[written])), ["WEB_VOIDED"])
+        # Hủy rồi ghi lại (tay hoặc nút): phiếu đang còn ghép trước, không còn gì phải xem.
+        self.assertEqual(statuses([row()], ledger(receipts=[written, receipt()])), ["MATCHED_WEB"])
+        # Một phiếu hủy chỉ giữ một dòng; dòng thứ hai y hệt vẫn sẵn sàng.
+        self.assertEqual(statuses([row(source_row=40), row(source_row=41)], ledger(receipts=[written])), ["WEB_VOIDED", "READY"])
+        # Sheet sửa số tiền, ngày hoặc ghi chú là thông tin mới: lại sẵn sàng.
+        for changed in (row(amount=50000001), row(note="24/10/2026 tt"), row(note="23/10/2026 ck")):
+            with self.subTest(changed=changed):
+                self.assertEqual(statuses([changed], ledger(receipts=[written])), ["READY"])
+        # Phiếu nhập tay rồi hủy (chứng từ không phải do đường ghi từ Sheet đặt) không giữ dòng Sheet.
+        self.assertEqual(statuses([row()], ledger(receipts=[receipt(voided=True) | {"reference": "UNC 123"}])), ["READY"])
+
+    def test_undated_receipt_written_then_voided_is_left_to_a_person(self):
+        undated = row(note="da tt")
+        fingerprint = classify([undated], ledger(), TODAY)[0]["source_fingerprint"]
+        written = receipt(date="2026-09-30", voided=True) | {"reference": review_reference(fingerprint) + "da tt · ngày theo cuối tháng khối Sheet"}
+        self.assertEqual(statuses([undated], ledger(receipts=[written])), ["WEB_VOIDED"])
+        self.assertEqual(statuses([row(note="da tt", amount=49000000)], ledger(receipts=[written])), ["NO_DATE"])   # dòng khác: dấu vân khác
 
     def test_near_match_never_takes_an_exact_one(self):
         rows = [row(source_row=40, note="22/10/2026 tt"), row(source_row=41, note="23/10/2026 tt")]
