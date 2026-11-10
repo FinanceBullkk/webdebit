@@ -268,13 +268,14 @@ if (process.argv.includes('--preview')) {
       { kind: 'sheet_row_missing', row: 284, container: 'MAUU0000284 取消', sheet_vnd: '7700000', delta_vnd: '7700000' },
       { kind: 'price_review', status: 'MANUAL', row: 231, container: 'MAUU0000231', sheet_vnd: '101500000', web_vnd: '98000000', delta_vnd: '3500000' },
     ];
-    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, difference_vnd: '-16000000', groups: [], hints, hints_explain: true };
+    const guess = { ...lech, reason: 'NOTHING_TO_WRITE', sheet_editing: false, sheet_total_vnd: '5226000000', difference_vnd: '-16000000', groups: [], hints, hints_explain: true,
+      hints_basis: { version: 12, prices_sha256: sha, receipts_sha256: 'd'.repeat(64), web_total_vnd: '5210000000', sheet_total_vnd: '5226000000' } };
     const held = { customer: 'Mẫu Kim Long', customer_id: 9, status: 'CHI_CO_WEB', reason: 'HELD', difference_vnd: null, web_total_vnd: '95000500', sheet_total_vnd: null,
       held_reasons: { ANCHOR_CHAIN_MISMATCH: 2 }, hints: [{ kind: 'chain_break', month: '2026-10', sheet_end_vnd: '95000000', expected_end_vnd: '95000500', delta_vnd: '-500' }] };
-    await withPage({ inbox: inbox({ reconcile: { ...reconcile, customers: [guess, held] } }), statement: statement({ sheet_total_vnd: '5226033039', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false }) }, async page => {
+    await withPage({ inbox: inbox({ reconcile: { ...reconcile, customers: [guess, held] }, books: [book(7, { version: 12 })] }), statement: statement({ sheet_total_vnd: '5226000000', groups: [], reason: 'NOTHING_TO_WRITE', sheet_editing: false }) }, async page => {
       await opened(page);
       const why = await page.locator('.dc-customer', { hasText: 'Đông Á' }).locator('.dc-why').innerText();
-      assert.match(why, /^Máy tìm ra chỗ lệch, cộng lại đúng bằng số lệch: Phiếu PH-001 và PH-002 cùng ngày 31\/10, cùng 8,3 tr: có thể ghi trùng\./);
+      assert.match(why, /^Có tổ hợp gợi ý khớp số tiền lệch, cần kiểm chứng: Phiếu PH-001 và PH-002 cùng ngày 31\/10, cùng 8,3 tr: có thể ghi trùng\./);
       assert.match(why, /Còn 1 chỗ nữa, mở để xem\./);
       assert.doesNotMatch(why, /không có việc nào giải thích/);
       assert.match(await page.locator('.dc-left').innerText(), /Các chỗ máy tìm ra ở dưới/);
@@ -440,4 +441,40 @@ if (process.argv.includes('--preview')) {
     await opened(page);
     assert.equal(await page.locator('[data-dc-pick="prices:2026-10"]').isDisabled(), false);
   }));
+
+  const hinted = () => {
+    const row = { ...lech, sheet_editing: false, sheet_total_vnd: '5218300000', difference_vnd: '-8300000',
+      reason: 'NOTHING_TO_WRITE', hints_explain: true,
+      hints_basis: { version: 12, prices_sha256: sha, receipts_sha256: 'd'.repeat(64),
+        web_total_vnd: '5210000000', sheet_total_vnd: '5218300000' },
+      hints: [{ kind: 'receipt_twice', date: '2026-10-31', amount_vnd: '8300000',
+        pids: ['PH-001', 'PH-002'], delta_vnd: '8300000' }] };
+    return { inbox: inbox({ reconcile: { ...reconcile, customers: [row] }, books: [book(7, { version: 12 })] }),
+      statement: statement({ sheet_total_vnd: row.sheet_total_vnd, groups: [], sheet_editing: false }) };
+  };
+
+  test('tổng Sheet đổi: gợi ý cũ biến mất dù sổ và hai nguồn chi tiết giữ nguyên', async () => {
+    const opts = hinted();
+    opts.statement.sheet_total_vnd = opts.statement.web_vnd;
+    await withPage(opts, async page => {
+      await opened(page);
+      assert.equal(await page.locator('.dc-left.ok').count(), 1);
+      assert.equal(await page.locator('.dc-hints').count(), 0);
+    });
+  });
+
+  test('tải lại chi tiết lỗi và inbox báo phiên bản mới: giữ số xem, ẩn gợi ý cũ', async () => {
+    const opts = hinted();
+    await withPage(opts, async page => {
+      await opened(page);
+      await page.locator('.dc-hints').waitFor();
+      opts.inbox.books[0].version = 13;
+      opts.statementStatus = 503;
+      const response = page.waitForResponse(r => r.url().includes('/api/v7/sheet/doi-chieu?'));
+      await page.locator('#refresh-data').click();
+      assert.equal((await response).status(), 503);
+      await page.locator('.dc-hints').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.dc-table').count(), 1);
+    });
+  });
 }

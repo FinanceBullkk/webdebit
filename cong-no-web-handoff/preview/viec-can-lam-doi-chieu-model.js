@@ -90,5 +90,15 @@
   }
   const hintTexts = (row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, hintText, hintTexts };
+  function currentHints(row, statement, bookVersion, unverified = false) {
+    if (!row.hints?.length || row.reason === 'HELD') return row;
+    const basis = row.hints_basis;
+    if (!unverified && Number.isInteger(basis?.version) && basis.version === statement?.version && basis.version === bookVersion
+        && ['prices_sha256', 'receipts_sha256'].every(key => /^[0-9a-f]{64}$/.test(basis[key] ?? '') && basis[key] === statement?.[key])
+        && ['web_total_vnd', 'sheet_total_vnd'].every(key => basis[key] !== null && basis[key] !== undefined
+          && String(basis[key]) === String(row[key]) && String(basis[key]) === String(statement?.[key === 'web_total_vnd' ? 'web_vnd' : key]))) return row;
+    return { ...row, hints: [], hints_explain: false, hints_stale: true };
+  }
+
+  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, hintText, hintTexts, currentHints };
 }));

@@ -287,7 +287,11 @@ def attach_hints(row: dict[str, Any], ledger: dict, prices: dict, receipts: dict
         print(f"V7 đối soát máy: không đoán được lý do lệch ({type(exc).__name__})", file=sys.stderr, flush=True)
         return
     if found:
-        row.update(hints=[hints.money_fields(hint) for hint in found], hints_explain=explained)
+        row.update(hints=[hints.money_fields(hint) for hint in found], hints_explain=explained,
+                   hints_basis={"version": ledger.get("version"), "prices_sha256": prices["sha256"],
+                                "receipts_sha256": receipts["sha256"],
+                                "web_total_vnd": str(row["web_total_vnd"]),
+                                "sheet_total_vnd": str(row["sheet_total_vnd"]) if row["sheet_total_vnd"] is not None else None})
 
 
 def money_fields(row: dict[str, Any]) -> dict[str, Any]:

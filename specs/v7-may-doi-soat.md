@@ -64,16 +64,18 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 
 ## Máy đoán chỗ lệch (CHAN-DOAN-LECH-01)
 
-Khách `LECH_TONG` mà kết luận không phải `FIX` hay `WEB_AHEAD`, và khách `HELD`, có thêm `hints` (tối đa 8, gần số cần đổi nhất lên trước). `hints_explain` là `true` khi có tổ hợp `delta_vnd` cộng đúng bằng `tổng Sheet + web đi trước − tổng web` (dò khi không quá 12 gợi ý). `delta_vnd` là số nợ web đổi nếu sửa chỗ đó theo Sheet; tiền là chuỗi số nguyên.
+Khách `LECH_TONG` mà kết luận không phải `FIX` hay `WEB_AHEAD`, và khách `HELD`, có thêm `hints` (tối đa 8, gần số cần đổi nhất lên trước). `hints_explain` là `true` khi có tổ hợp trong **danh sách trả về** có `delta_vnd` cộng đúng bằng `tổng Sheet + web đi trước − tổng web`. Giao diện nói “Có tổ hợp gợi ý khớp số tiền lệch, cần kiểm chứng”: khớp số học chưa xác nhận nguyên nhân, cũng không khẳng định mọi gợi ý cộng lại khớp. `delta_vnd` là số nợ web đổi nếu giả thuyết đúng; tiền là chuỗi số nguyên.
+
+Gợi ý về sổ có `hints_basis = {version, prices_sha256, receipts_sha256, web_total_vnd, sheet_total_vnd}` từ chính dữ liệu dùng chẩn đoán. Giao diện chỉ hiện khi mở đối chiếu, phiên bản sổ trong inbox và dữ liệu chi tiết khớp, hai hash nguồn khớp, cả tổng web và tổng Sheet của báo cáo khớp dữ liệu chi tiết đang hiện. Tổng NULL hoặc thiếu bằng chứng giữ là chưa biết, không xác nhận gợi ý. Khi tải lại đang chờ hoặc lỗi, giữ số đang xem nhưng ẩn gợi ý cho tới khi đọc thành công; dữ liệu đổi thì chờ lượt đối soát mới. Gợi ý `chain_break` của khách `HELD` chỉ mô tả chuỗi số trên Sheet ở lượt đã ghi thời điểm, không phụ thuộc phiên bản sổ web.
 
 | `kind` | Lấy từ | Trường |
 | --- | --- | --- |
-| `receipt_twice` | `receipts` của sổ: chưa hủy, không phải cấn trừ, cùng ngày, cùng số; tab Sheet có ít khoản thu số đó hơn web (khách trả hai lần cùng số thì Sheet cũng có hai dòng) | `date`, `amount_vnd`, `pids`, `delta_vnd` = số × (số phiếu − 1) |
+| `receipt_twice` | `receipts` của sổ: chưa hủy, không phải cấn trừ, cùng ngày, cùng số; Sheet có ngày đọc được thì so đúng ngày bằng bộ đọc ngày của hàng chờ phiếu; số phiếu chưa rõ ngày được tính là khả năng đối ứng cho mỗi nhóm để tránh báo nhầm | `date`, `amount_vnd`, `pids`, `delta_vnd` = số × (số phiếu web − max(1, số phiếu Sheet đúng ngày + số phiếu Sheet chưa rõ ngày)); chỉ báo khi dương |
 | `price_review` | Dòng Sheet của sổ qua `v7_price_queue.classify`, trạng thái `MANUAL`, `CONFLICT`, `MONTH_LOCKED`, Sheet tính khác web | `status`, `row`, `container`, `date`, `sheet_vnd`, `web_vnd` |
 | `sheet_row_missing` | Như trên, trạng thái `NOT_FOUND`, có tiền | `row`, `container`, `date`, `sheet_vnd` |
 | `chain_break` | `checks` của sổ bị giữ: tháng đầu tiên `source_cumulative_vnd` ≠ `replay_cumulative_vnd` | `month`, `sheet_end_vnd`, `expected_end_vnd` |
 
-Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì bỏ qua, in mã lỗi ra stderr, lượt chạy tiếp. Màn: cột "Vì sao" hiện tối đa hai câu và số chỗ còn lại; bảng đối chiếu khi mở có khung "Chỗ máy tìm ra" với đủ các câu.
+Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì bỏ qua, in mã lỗi ra stderr, lượt chạy tiếp. Giá Sheet rõ là 0 vẫn so với web; chỉ số chưa biết mới bỏ qua. Màn: cột "Vì sao" hiện tối đa hai câu và số chỗ còn lại; bảng đối chiếu khi mở có khung "Chỗ máy tìm ra" với đủ các câu còn hiệu lực.
 
 Đo trên bản tải và sổ thật 9/11/2026 (chỉ đọc): khách thứ nhất ra `receipt_twice` + `sheet_row_missing`, cộng đúng bằng số lệch; khách thứ hai ra `price_review` đúng bằng số lệch; khách bị giữ ra `chain_break` đúng tháng và đúng số đồng Sheet bỏ mất.
 
@@ -103,6 +105,7 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 - [x] `tests/test_v7_reconcile_sheet.py`: `--can-du-months`.
 - [x] `tests/test_v7_inbox.py`: `reconcile`, `sheet_matched`, file hỏng.
 - [x] `tests/test_v7_reconcile_hints.py`, `tests/test_v7_reconcile_auto.py`: bốn kiểu đoán, lệch 1 đồng thì không "giải thích được", khách bị giữ, đoán lỗi không đổi kết luận; `preview/test-viec-can-lam-doi-chieu*.js`: câu từng kiểu, cột Vì sao, khung khi mở, không tràn ở 1280.
+- [x] Hồi quy 10/11/2026: `tests/test_v7_reconcile_hints_regression.py` kiểm số phiếu thừa, phiếu khác ngày, thiếu ngày/số, giá 0 và tổ hợp sau giới hạn danh sách; `preview/test-viec-can-lam-hints-browser.js` kiểm phiên bản sổ, hash nguồn, tổng web/Sheet, thiếu bằng chứng và đang tải; `preview/test-viec-can-lam-doi-chieu-browser.js` kiểm luồng tải đầy đủ khi tổng Sheet đổi hoặc request mới lỗi; `tests/test_v7_reconcile_auto.py` kiểm nguồn chẩn đoán và không phát sinh lệnh ghi. ĐÃ KIỂM CHỨNG cục bộ trên nhánh `codex/fix-reconcile-hints`, nền `3e90f28`: `npm run check` đạt (Python 907 đạt, 8 skip; JS unit 195, browser 336, viewer 11 đạt, không skip). Dữ liệu giả, chưa xác nhận CI hay `hao` cho bản sửa này.
 - [x] `preview/test-viec-can-lam-table-browser.js`: dải kết quả, thứ tự danh sách, ẩn và hiện sổ đã khớp, sổ ẩn không bị chọn ngầm, các trạng thái xanh, vàng, đỏ, lỗi, cũ, chưa có lượt nào; không tràn ngang ở 1280.
 - [x] Thử trên bản sao DB của `hao`: tổng khách sửa khớp đúng, khách khác không đổi, mọi tháng máy mở đã khóa lại, chạy lại không ghi thêm, checker đạt ([nhật ký](../docs/deploys/2026-11-04-may-doi-soat.md)).
 - [x] Bật trên `hao`, đối soát chính thức sau lượt đầu cho kết quả như dự kiến (cùng nhật ký).

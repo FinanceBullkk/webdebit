@@ -3,8 +3,8 @@
 Chỉ đọc, không ghi gì. Mỗi gợi ý là một chỗ cụ thể trên web hay trên Sheet, kèm số tiền web đổi nếu sửa chỗ đó theo Sheet
 (`delta_vnd`, cùng chiều với `tổng Sheet − tổng web`). Bốn kiểu, đều gặp thật ngày 9/11/2026:
 
-- `receipt_twice`: hai phiếu chưa hủy cùng ngày, cùng số tiền, mà tab Sheet có ít khoản thu số đó hơn (phiếu ghi tay rồi Sheet dời
-  ô, máy ghi thêm phiếu mới). Khách trả hai lần cùng số trong một ngày thì Sheet cũng có hai dòng, không báo.
+- `receipt_twice`: phiếu chưa hủy cùng ngày, cùng số tiền vượt số phiếu Sheet có thể đối ứng (phiếu ghi tay rồi Sheet dời ô).
+  Phiếu Sheet có ngày so đúng ngày; phiếu chưa rõ ngày được giữ làm khả năng đối ứng để tránh báo hủy nhầm.
 - `price_review`: dòng hàng giá cần người (`MANUAL`, `CONFLICT`, `MONTH_LOCKED`) mà Sheet tính khác web.
 - `sheet_row_missing`: dòng Sheet có tiền và có chữ ở ô container mà web không có dòng nào (ví dụ "… 取消").
 - `chain_break`: khách bị giữ vì số cuối một tháng trên Sheet khác số tháng trước chuyển sang + phát sinh − thu.
@@ -18,6 +18,7 @@ from collections import defaultdict
 from itertools import combinations
 
 import v7_price_queue as pq
+from v7_receipt_queue import pay_date
 
 REVIEW = ("MANUAL", "CONFLICT", "MONTH_LOCKED")   # AMBIGUOUS: không biết dòng web nào nên không tính được chênh
 MAX_HINTS = 8          # sổ có quá nhiều chỗ thì danh sách không còn giúp người đọc
@@ -26,12 +27,13 @@ _int = pq.money        # chuỗi số nguyên hoặc int; khác thì None (NULL 
 
 
 def receipt_twice(ledger: dict, sheet_receipts: list[dict] | None = None) -> list[dict]:
-    """Phiếu chưa hủy, không phải cấn trừ, trùng cả ngày lẫn số tiền. Có `sheet_receipts` (khoản thu của tab, bản chụp phiếu) thì bỏ
-    nhóm mà Sheet có đủ số dòng cùng số tiền: Sheet hay thiếu ngày nên chỉ so số tiền."""
-    on_sheet: dict[int, int] = defaultdict(int)
+    """Phiếu cùng ngày và số tiền; chỉ phần vượt số phiếu Sheet có thể đối ứng mới là nghi trùng."""
+    on_sheet: dict[tuple[str | None, int], int] = defaultdict(int)
     for row in sheet_receipts or []:
-        if _int(row.get("amount_vnd")):
-            on_sheet[_int(row["amount_vnd"])] += 1
+        amount = _int(row.get("amount_vnd"))
+        if amount is not None and amount > 0:
+            date = pay_date(row.get("note"))
+            on_sheet[(date.isoformat() if date else None, amount)] += 1
     same: dict[tuple[str, int], list[dict]] = defaultdict(list)
     for receipt in ledger.get("receipts") or []:
         amount = _int(receipt.get("amount_vnd"))
@@ -39,9 +41,10 @@ def receipt_twice(ledger: dict, sheet_receipts: list[dict] | None = None) -> lis
             continue
         same[(str(receipt["date"])[:10], amount)].append(receipt)
     return [{"kind": "receipt_twice", "date": date, "amount_vnd": amount, "pids": [r.get("pid") for r in group],
-             "delta_vnd": amount * (len(group) - 1)}
+             "delta_vnd": amount * (len(group) - max(1, on_sheet[(date, amount)] + on_sheet[(None, amount)]))}
             for (date, amount), group in sorted(same.items())
-            if len(group) > 1 and (sheet_receipts is None or on_sheet[amount] < len(group))]
+            # ponytail: undated receipts may support any date; narrow only with source evidence.
+            if len(group) > 1 and on_sheet[(date, amount)] + on_sheet[(None, amount)] < len(group)]
 
 
 def _sheet_total(row: dict) -> int | None:
@@ -55,13 +58,14 @@ def _sheet_total(row: dict) -> int | None:
 def price_rows(snapshot_rows: list[dict], ledger: dict) -> list[dict]:
     """`price_review` và `sheet_row_missing` từ các dòng Sheet của sổ, so với chuyến và dòng sổ gốc trên web."""
     out = []
-    for result in pq.mark_shared([pq.classify(row, pq.targets(ledger)) for row in snapshot_rows]):
+    pool = pq.targets(ledger)
+    for result in pq.mark_shared([pq.classify(row, pool) for row in snapshot_rows]):
         sheet = _sheet_total(result)
-        if not sheet:
+        if sheet is None:
             continue
         base = {"row": result.get("source_row"), "container": result.get("container") or "", "date": result.get("date"),
                 "sheet_vnd": sheet}
-        if result["status"] == "NOT_FOUND":
+        if result["status"] == "NOT_FOUND" and sheet != 0:
             out.append({"kind": "sheet_row_missing", **base, "delta_vnd": sheet})
         elif result["status"] in REVIEW:
             web = _int(result.get("web_total_vnd"))
@@ -83,7 +87,8 @@ def for_book(ledger: dict, snapshot_rows: list[dict], needed: int, sheet_receipt
     """Gợi ý cho một sổ lệch: (danh sách, có tổ hợp cộng đúng bằng `needed` không). Gợi ý gần số cần đổi nhất lên trước."""
     hints = receipt_twice(ledger, sheet_receipts) + price_rows(snapshot_rows, ledger)
     hints.sort(key=lambda hint: abs(abs(needed) - abs(hint["delta_vnd"])))
-    return hints[:MAX_HINTS], explains(hints, needed)
+    visible = hints[:MAX_HINTS]
+    return visible, explains(visible, needed)
 
 
 def chain_break(checks: list[dict]) -> dict | None:

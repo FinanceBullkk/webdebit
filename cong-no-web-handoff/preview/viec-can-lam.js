@@ -77,7 +77,7 @@
   const savedTab = () => { try { const tab = sessionStorage.getItem(TAB_KEY); return ['lech', 'don', 'may'].includes(tab) ? tab : 'lech'; } catch { return 'lech'; } };
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
-    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() },
+    dc: { open: null, closed: false, data: new Map(), hintsUnverified: new Set(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map() },
     // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
     act: { day: null, filter: 'all', data: new Map(), loading: null } };
   const inboxLabel = book => {
@@ -196,11 +196,14 @@
   async function refreshStatement(id) {
     const read = ++statementRead;
     const dc = inbox.dc;
+    dc.hintsUnverified.add(id);
+    paintInbox();
     const statement = await json(`/api/v7/sheet/doi-chieu?customer=${id}`).catch(() => null);
     if (read !== statementRead || inbox.action || inbox.busy) return;
     if (statement === null && dc.data.get(id)) return;
     dc.data.set(id, statement);
     if (statement) {
+      dc.hintsUnverified.delete(id);
       const groups = new Set(statement.groups.map(group => group.id));
       const rows = new Set(statement.groups.flatMap(group => group.kind === 'prices' ? group.rows.map(row => row.key) : []));
       for (const key of dc.sel.get(id) ?? []) if (!groups.has(key)) dc.sel.get(id).delete(key);
