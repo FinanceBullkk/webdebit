@@ -25,7 +25,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | # | Kiểm gì | Đạt khi | Máy | Trạng thái 11/11/2026 |
 | --- | --- | --- | --- | --- |
 | A1 | Tổng nợ từng khách web bằng Sheet lúc cuối tháng | Mọi khách khớp hoặc lệch đã giải thích; báo cả theo tiền | có | Chưa tới ngày xét. Lượt 17:12: 236/239 khớp, 3 khách web đi trước Sheet, lệch chưa giải thích bằng 0 |
-| A2 | Tab TONG cộng đủ các tab khách | Mọi dòng TONG khớp sổ; không sổ nào còn số dư mà TONG để trống | có | **KHÔNG ĐẠT.** Khối tháng 10: 64 dòng có số đều khớp, nhưng 14 sổ còn số dư bị để trống (11 nợ, 3 dư). Chờ chủ sổ kết luận từng khách |
+| A2 | Tab TONG cộng đủ các tab khách | Mọi dòng TONG khớp sổ; không sổ nào còn số dư mà TONG để trống | có, mỗi giờ | **KHÔNG ĐẠT.** Khối tháng 10: 64 dòng có số đều khớp, nhưng 14 sổ còn số dư bị để trống (11 nợ, 3 dư). Chờ chủ sổ kết luận từng khách. Máy đối soát kiểm mỗi giờ theo [`KIEM-TONG-01`](decisions/kiem-tong-01.md); lượt đo 19:13 bằng mã đó ra đúng danh sách như lệnh audit trên cùng bản tải |
 | A3 | Từng dòng và từng tháng, không chỉ tổng | Không còn dòng, tháng hay tổng thu nào `CHUA_GIAI_THICH` | có | ĐẠT cho lượt đo: 9.526/10.521 dòng khớp tuyệt đối, 0 dòng lệch giá; 7 tháng và 3 tổng thu khác nhau đều có lời giải; 17 dòng một bên có đều có lời giải |
 | A4 | Các lời giải thích có người chốt | Mỗi nhóm có kết luận của chủ sổ | một phần | CÒN MỞ: 3 dòng bù số dư chuyển năm chưa ai xác nhận; 2 dòng lặp trên Sheet chưa xóa; 6 tab không có sổ chưa kết luận |
 | A5 | Lệnh máy đã ghi | Không phiếu máy ghi nào bị hủy; không giá nào đè rồi phải quay lại; tháng máy mở đều đã khóa | có | ĐẠT cho 1–11/11: 2.883 lệnh; 20 phiếu, 0 bị hủy; 0 lần đè rồi quay lại; 17 dòng điều chỉnh máy ghi rồi tự xóa hết sau chưa đầy một ngày |
@@ -87,6 +87,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 - **Tháng và thu:** 7 tháng khác phát sinh ở 7 sổ (3 web đi trước, 2 dòng lặp trên Sheet, 1 tổng trải đều lúc nạp, 1 dòng bù chuyển năm). 3 sổ khác tổng thu (2 dòng bù chuyển năm, 1 làm tròn 2 đồng).
 - **Dòng một bên có:** 17 (8 dời sang sổ khác, 6 web đi trước, 2 khác chữ ở ô container, 1 đã ghi bằng dòng điều chỉnh).
 - **TONG:** khối mới nhất là tháng 10/2026, chưa có khối tháng 11. 64 dòng có số, đều khớp. 14 sổ còn số dư để trống. Một dòng TONG tự không cân (số chuyển sang trống).
+- **TONG trong máy đối soát** ([`KIEM-TONG-01`](decisions/kiem-tong-01.md)), 19:13–19:26 cùng ngày, chỉ đọc: lượt không `--fix` bằng mã mới và lệnh audit chạy trên cùng một bản tải ra giống hệt nhau: 63 dòng khớp, 15 sổ để trống, 1 tên trên TONG không ứng sổ nào. Tên đó là tên khác của một trong 15 sổ, số khớp tới từng đồng; khai `--tong-alias` cho nó thì ra đúng 64 và 14 như trên. Máy không dùng `--tong-alias`.
 - **Máy:** 2.883 lệnh; 297 lần điền giá, 8 lần đè (6 lần chỉ thêm phụ phí); 346 chuyến dán, 1 bị xóa; mọi tháng máy mở đều đã khóa.
 - **Người:** 1 login, 422 lệnh từ 22/10. Ngày 25/10 API nhật ký chỉ trả 2.000/3.107 dòng nên con số này là mức tối thiểu. 28 chuyến người dán đã phải xóa lại.
 - **Sổ:** 15 tháng cũ đang mở ở 8 sổ; 73 chuyến chưa giá (69 của tháng 11); 0 chuyến chờ kiểm; 69 phiếu web, 7 đã hủy; 0 cấn trừ hai sổ.

@@ -23,7 +23,7 @@ Khi hỏi, Claude đã nói trước rằng lúc khối tháng mới của TONG 
 
 ĐÃ CHỐT. Chi tiết ở [spec máy đối soát](../../specs/v7-may-doi-soat.md#kiểm-tab-tong-kiem-tong-01). Không đổi DB, quyền, luật tiền hay điều kiện ghi. Các giới hạn dưới đây do Claude ghi khi làm, không phải lựa chọn của người dùng:
 
-- Tên trên TONG ghép với tên sổ bằng chữ và số đã bỏ dấu, không dùng bảng tên khác hay `--tong-alias` của audit. Tên trên TONG khác hẳn tên sổ thì hiện thành một tên không ứng với sổ nào, và sổ đó nằm ở danh sách để trống.
+- Tên trên TONG ghép với tên sổ bằng chữ và số đã bỏ dấu, không dùng bảng tên khác hay `--tong-alias` của audit. Tên trên TONG khác hẳn tên sổ thì hiện thành một tên không ứng với sổ nào, và sổ đó nằm ở danh sách để trống. Lượt đo 11/11/2026 có đúng 1 tên như vậy, số khớp tới từng đồng.
 - Sổ đang lệch Sheet thì số kỳ vọng vẫn tính theo web, như audit. Dòng TONG "lệch" của sổ đó có thể do sổ web chứ không do TONG: xem dòng đối soát của khách đó trước.
 - Lượt có hơn 40 khách lệch thì không kiểm TONG, vì phần web đi trước chưa được tính.
 - Lượt mà mọi khách đều khớp phải dựng thêm bản chụp giá và phiếu (đo trên `hao` 11/11/2026: lượt có bước này 449 giây, lượt không có 288 giây). Ở 46/48 lượt gần nhất bản chụp đã được dựng sẵn cho việc tìm cách sửa, nên phép kiểm dùng lại, không tốn thêm.
