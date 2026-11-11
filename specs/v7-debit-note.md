@@ -107,7 +107,7 @@ Trạng thái: ĐÃ CHỐT 10/11/2026 ([`DEBIT-NOTE-03`](../docs/decisions/debit
 | Thao tác | Module | Kiểm |
 | --- | --- | --- |
 | Dựng chứng từ, 6 phép kiểm, HTML trang, chia trang | `preview/debit-note-v4.js` | `test-debit-note-v4.js` |
-| Excel v4 | `preview/debit-note-v4-xlsx.js` | `test-debit-note-v4.js` |
+| Excel v4, bố cục theo PDF (hai khối cạnh nhau; tháng chỉ có Unit price thì tên khối thành hàng riêng; tên/địa chỉ dài tự ngắt hàng) | `preview/debit-note-v4-xlsx.js` | `test-debit-note-v4.js`; mở bằng Excel thật, xuất PDF xem không có ô `###` |
 | PDF bằng Chromium headless (dữ liệu mẫu, `--repeat`, `--long`) | `tools/debit-note-v4-pdf.js` | `test-debit-note-v4-browser.js` |
 | Cấu hình | `web/v7_debit_note_config.py`, route trong `web/v7_ledger_api.py` | `tests/test_v7_debit_note_config.py` |
 | Hộp v4, công tắc v3/v4 | `preview/so-khach-v7-debit-ui.js` | `test-so-khach-v7-debit-v4-browser.js` |
