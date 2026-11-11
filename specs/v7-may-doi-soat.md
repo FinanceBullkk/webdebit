@@ -21,6 +21,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - `GET /api/v7/inbox` thêm `reconcile` và `sheet_matched` của từng sổ; tab Việc cần làm hiện kết quả.
 - `v7_reconcile_sheet.py --can-du-months`: so từng tháng theo cách web tính ([`CAN-DU-01`](../docs/decisions/can-du-01.md)).
 - `tools/v7_reconcile_hints.py`: máy đoán chỗ gây lệch khi không tự sửa được ([`CHAN-DOAN-LECH-01`](../docs/decisions/chan-doan-lech-01.md)), mục dưới.
+- Mỗi lượt kiểm thêm tab TONG có cộng đủ các tab khách không ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md)), mục dưới. Chỉ báo.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2, bắt buộc với frontend)
 
@@ -49,6 +50,8 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
                  "web_total_vnd": "…", "difference_vnd": "…", "web_ahead_vnd": "0",
                  "groups": [{"kind": "receipts_edited", "month": "2026-07", "count": 8, "delta_vnd": "-117", "chosen": false}]}],
   "months_differ": [], "outside_tabs": [{"customer": "…", "sheet_total_vnd": "…", "last_month": "2026-10", "reason": "TONG_DIFFERS"}],
+  "tong": {"month": "2026-10", "matched": 64, "blank_on_tong": [{"book": 7, "name": "…", "expected_vnd": "…"}], "differs": [],
+           "unknown_names": [{"name": "…", "end_vnd": "…"}], "tong_sum_vnd": "…", "expected_sum_vnd": "…", "gap_vnd": "…"},
   "last_error": {"at": "…", "reason": "HTTPError"}},
  "books": [{"customer_id": 1, "sheet_matched": true}]}
 ```
@@ -57,6 +60,7 @@ Không còn gì cần xem thì chủ sổ không phải làm gì.
 - `customers` gồm khách chưa khớp và mọi khách máy đã sửa trong ngày (`fixed_at`). Tiền là chuỗi số nguyên; chưa biết là `null`, không phải 0.
 - `reason`: `FIXED`, `WOULD_FIX`, `WEB_AHEAD`, `NO_EXACT_FIX`, `SHEET_SHUFFLED`, `AMBIGUOUS_FIX`, `NOTHING_TO_WRITE`, `TOO_MANY_GROUPS`, `TOO_MANY_DIFFERENT`, `WRITE_ERROR`, `CHECK_ERROR`, `VERIFY_FAILED`, `HELD`, `CHI_CO_SHEET`, `CHI_CO_WEB`, `THIEU_SO`. `FIXED` với `status` `LECH_TONG` là đã sửa, phần còn lại là web đi trước Sheet.
 - `outside_tabs`: tab khách còn nợ, có phát sinh (tiền chuyến hoặc tiền thu) từ tháng 10/2026, tức từ tháng nạp V7, mà máy chưa tạo được sổ ([`MAY-TAO-SO-01`](../docs/decisions/may-tao-so-01.md)). `reason` là `NOT_ON_TONG`, `TONG_DIFFERS` hoặc `TAB_UNREADABLE`. Tab cũ hơn là bản sao, tab nháp đã xem lúc nạp. Bản `reconcile.json` trước khi có trường này thì coi như rỗng.
+- `tong`: phép kiểm tab TONG ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md)), mục dưới. `month` là tháng (yyyy-mm) của khối TONG mới nhất; `matched` là số dòng TONG bằng đúng số kỳ vọng của sổ; `blank_on_tong` (`book`, `name`, `expected_vnd`) là sổ có số kỳ vọng khác 0 mà TONG không có số; `differs` (`name` trên TONG, `book`, `tong_vnd`, `expected_vnd`) là dòng TONG khác số kỳ vọng; `unknown_names` (`name`, `end_vnd`) là tên có số mà không ứng với đúng một sổ; `gap_vnd` là cộng TONG trừ cộng số kỳ vọng. Không kiểm được thì chỉ có `month: null` và `skipped`. Bản `reconcile.json` trước khi có trường này thì coi như chưa kiểm.
 - `last_error`: lần chạy mới nhất hỏng, phần còn lại là kết quả lần đạt trước.
 - `edit_log`, và `sheet_last_edit_at`, `sheet_editing` ở từng khách: tab vừa được sửa thì không tính "cần xem", xem [`SHEET-LOG-01`](../docs/decisions/sheet-log-01.md) và [spec](sheet-log-doi-soat.md).
 - `hints`, `hints_explain` ở từng khách: xem mục "Máy đoán chỗ lệch" dưới. Bản cũ không có thì màn hiện như trước.
@@ -83,9 +87,21 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 
 Độ nhiễu, đo cùng ngày trên cả 239 sổ thật (đều đang khớp): nếu sổ nào cũng bị coi là lệch, chỉ 3 sổ có gợi ý, cả 6 gợi ý là `sheet_row_missing` (dòng tháng 3 không ở sổ này, phí hủy cont đã tính kiểu khác). Không có `receipt_twice` thừa: điều kiện so với Sheet loại 4 cặp phiếu thật của 2 sổ. Gợi ý chỉ hiện ở sổ đang lệch, và `hints_explain` cho người đọc biết lời đoán có đủ hay không.
 
+## Kiểm tab TONG (KIEM-TONG-01)
+
+Mỗi lượt, sau khi máy sửa và tạo sổ, máy đọc khối mới nhất của tab TONG trong cùng bản tải và so với từng sổ web bằng đúng `read_tong`, `audit_tong` của lệnh audit chuyển hẳn ([spec](v7-cutover-audit.md)). Phát sinh và thu từng tháng của tab lấy từ bản chụp giá và phiếu dựng từ cùng bản tải, qua `sheet_months`, cũng dùng chung với audit.
+
+- Số kỳ vọng của một sổ ở cuối tháng TONG = tổng web lúc lưu − web đi trước − phát sinh các tháng sau trên tab + thu ghi ở khối các tháng sau. Web đi trước chỉ tính khi nó giải thích trọn chỗ lệch của khách ở lượt này (`difference_vnd` bằng `web_ahead_vnd`): như audit đọc `reconcile.json`, thêm khách máy vừa sửa mà còn phần đi trước.
+- Tên trên TONG ghép bằng chữ và số đã bỏ dấu, không dùng bảng tên khác. Sổ máy vừa tạo ở lượt này cũng được so.
+- Không ghi gì. Không đổi `live_tong`, `tong_agrees`, `admit_new_tabs` hay điều kiện máy ghi.
+- Không có tab TONG hoặc bố cục lạ: `skipped` là `TONG_KHONG_DOC_DUOC`, không dựng bản chụp. Hơn 40 khách lệch: `TOO_MANY_DIFFERENT`. Lỗi bất kỳ: `ERROR` kèm `error` là mã (tên loại lỗi), stderr có một dòng mã; lượt vẫn lưu kết quả đối soát như thường.
+- Bản chụp giá và phiếu dựng một lần cho cả lượt: lượt có khách lệch dùng lại bản đã dựng cho việc tìm cách sửa, lượt mọi khách khớp thì dựng riêng.
+- `reconcile-log.jsonl` và stdout chỉ thêm `tong` là số đếm (`month`, `matched`, `blank`, `differs`, `unknown_names`), hoặc `skipped` và `error`.
+- Sổ đang lệch Sheet thì số kỳ vọng vẫn tính theo web, nên dòng TONG "lệch" của sổ đó có thể do sổ web; màn hình nên dẫn tới dòng đối soát của khách đó.
+
 ## Nguồn quyết định
 
-- [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md), [`SONG-SONG-01`](../docs/decisions/song-song-01.md), [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md), [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md), [`VCL-GIU-01`](../docs/decisions/vcl-giu-01.md), [`XOA-THU-GOC-01`](../docs/decisions/xoa-thu-goc-01.md), [`CAN-DU-01`](../docs/decisions/can-du-01.md).
+- [`MAY-DOI-SOAT-01`](../docs/decisions/may-doi-soat-01.md), [`SONG-SONG-01`](../docs/decisions/song-song-01.md), [`GIA-NGUON-01`](../docs/decisions/gia-nguon-01.md), [`MAY-KHOA-01`](../docs/decisions/may-khoa-01.md), [`VCL-GIU-01`](../docs/decisions/vcl-giu-01.md), [`XOA-THU-GOC-01`](../docs/decisions/xoa-thu-goc-01.md), [`CAN-DU-01`](../docs/decisions/can-du-01.md), [`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md).
 - CÒN MỞ: cách chuyển hẳn khi Sheet vẫn là nơi nhập (mục F4 của [checklist](../docs/song-song-checklist.md)); kênh cảnh báo khi máy lỗi.
 
 ## Hành vi và bất biến
@@ -115,3 +131,6 @@ Lời đoán không đổi `reason`, không làm máy ghi. Đoán lỗi thì b�
 - [x] Thử trên bản sao DB của `hao`: tổng khách sửa khớp đúng, khách khác không đổi, mọi tháng máy mở đã khóa lại, chạy lại không ghi thêm, checker đạt ([nhật ký](../docs/deploys/2026-11-04-may-doi-soat.md)).
 - [x] Bật trên `hao`, đối soát chính thức sau lượt đầu cho kết quả như dự kiến (cùng nhật ký).
 - [ ] Chủ sổ tự đi hết luồng trên `hao`: đọc dải, mở danh sách, mở sổ, soát phiếu máy ghi.
+- [x] `tests/test_v7_reconcile_auto.py`, kiểm TONG: khớp (tên khác dấu, gạch, khoảng trắng vẫn ghép), quy các tháng sau về tháng TONG, để trống (ô trống và không có dòng), tên không ứng sổ nào, dòng lệch, so với tổng sau khi máy sửa và dựng bản chụp một lần, trừ web đi trước, sổ vừa tạo, bố cục lạ thì bỏ qua và không dựng bản chụp, lỗi chỉ thành mã, hơn 40 khách lệch thì bỏ qua; số đếm ra log và stdout không có tên. Phá từng luật trong bộ nhớ (bỏ phần đi trước, không trừ tháng sau, dùng tổng trước khi sửa, bỏ sổ vừa tạo, dựng bản chụp hai lần, để lỗi lọt ra) thì test đỏ.
+- [ ] Đo chỉ đọc trên `hao`: lượt không `--fix` cho đúng danh sách sổ TONG để trống như `v7_cutover_audit.py` trên cùng bản tải.
+- [ ] Đầu tab Việc cần làm hiện kết quả kiểm TONG (PR giao diện riêng).
