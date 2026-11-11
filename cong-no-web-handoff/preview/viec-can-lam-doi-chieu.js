@@ -66,8 +66,46 @@ globalThis.DoiChieuView = (() => {
     return `${editing}${lead ?? REASON_TEXT[row.reason] ?? row.reason}${shuffled}${lastEdit}`;
   }
 
+  // Tab TONG (KIEM-TONG-01): khớp thì chỉ là một ý trong dòng đầu trang; có chỗ thiếu thì thêm một dòng, bấm ra danh sách. Việc sửa
+  // nằm trên Sheet, web không ghi gì.
+  const TONG_SKIPPED = { TONG_KHONG_DOC_DUOC: 'chưa đọc được tab TONG', ERROR: 'lượt này chưa kiểm được tab TONG' };
+  const TONG_TODO = {
+    differs: 'Ô TONG khác số theo sổ: sửa ô TONG.',
+    blank: 'Ô TONG trống: điền số theo sổ.',
+    unknown: 'Tên này không ứng sổ nào: sửa tên cho giống tên tab khách.',
+    renamed: 'Số khớp, chỉ khác tên: sửa tên trên TONG cho giống tên tab.',
+  };
+  function tongFact(tong) {
+    if (!tong) return '';
+    if (tong.skipped) return TONG_SKIPPED[tong.skipped] ?? TONG_SKIPPED.ERROR;
+    if (tong.problems) return '';
+    return `TONG ${monthWord(tong.month)} khớp${tong.counts.renamed ? `, ${tong.counts.renamed} tên khác tên tab` : ''}`;
+  }
+  function tongHtml(tong, open, { F, esc, href }) {
+    if (!tong?.problems) return '';
+    const month = monthWord(tong.month);
+    const { counts } = tong;
+    // Câu trả lời trước (TONG thiếu hay thừa bao nhiêu so với các sổ), rồi đếm từng loại chỗ phải sửa; vừa một dòng ở 1280.
+    const head = tong.gap_sign ? `Tab TONG ${month} ${tong.gap_sign < 0 ? 'thiếu' : 'thừa'} ${say(tong.gap_vnd, F)} so với các sổ` : `Tab TONG ${month} chưa khớp các sổ`;
+    const parts = [counts.blank && `${counts.blank} sổ để trống`, counts.differs && `${counts.differs} dòng khác sổ`,
+      counts.unknown && `${counts.unknown} tên lạ`, counts.renamed && `${counts.renamed} tên khác tên tab`].filter(Boolean);
+    const line = `<div class="status-line tong-line"><i aria-hidden="true"></i><strong>${esc(head)}</strong><span>${esc(parts.join(' · '))}</span>`
+      + `<button type="button" class="dc-link" data-tong-toggle aria-expanded="${open}" aria-controls="tong-list">${open ? 'Thu gọn' : `Xem ${tong.rows.length} dòng`}</button></div>`;
+    if (!open) return line;
+    const cell = value => (value === null || value === undefined ? '<span class="muted">trống</span>' : `<span title="${esc(F.full(value))}">${money(value, F)}</span>`);
+    const row = item => `<tr data-tong-kind="${item.kind}"><th scope="row">${item.book ? `<a href="${href(item.book)}">${esc(item.name)}</a>` : esc(item.name)}`
+      + `${item.kind === 'renamed' ? `<span class="tong-alias">Trên TONG: ${esc(item.tong_name)}</span>` : ''}</th>`
+      + `<td class="num">${cell(item.tong_vnd)}</td><td class="num">${item.expected_vnd === null ? '—' : cell(item.expected_vnd)}</td>`
+      + `<td class="dc-why">${esc(item.book_differs ? 'Sổ này đang lệch Sheet nên số theo sổ có thể chưa đúng: xem khách này ở bảng dưới trước.' : TONG_TODO[item.kind])}</td></tr>`;
+    const sums = tong.tong_sum_vnd !== null && tong.expected_sum_vnd !== null
+      ? `<p class="inbox-note">Cộng TONG ${esc(month)}: ${esc(money(tong.tong_sum_vnd, F))} tr. Cộng các sổ quy về cuối ${esc(month)}: ${esc(money(tong.expected_sum_vnd, F))} tr. ${tong.matched} dòng TONG khớp sổ tới từng đồng.</p>` : '';
+    return `${line}<div class="tong-list" id="tong-list"><div class="work-scroll"><table class="dc-customers tong-table"><thead><tr><th scope="col">Khách</th>`
+      + `<th scope="col" class="num">Trên TONG <span class="muted">tr</span></th><th scope="col" class="num">Theo sổ, cuối ${esc(month)} <span class="muted">tr</span></th>`
+      + `<th scope="col">Cần làm trên Sheet</th></tr></thead><tbody>${tong.rows.map(row).join('')}</tbody></table></div>${sums}</div>`;
+  }
+
   // Dòng đầu trang: câu trả lời cho "số nợ có đúng không".
-  function statusHtml(reconcile, { esc, now, stale, computing, nothing }) {
+  function statusHtml(reconcile, { esc, now, stale, computing, nothing, F, href, tongOpen = false }) {
     const refreshing = stale ? '<span class="muted refreshing" role="status">Đang cập nhật…</span>' : '';
     const working = computing ? `<span class="computing">${esc(computing)}</span>` : '';
     const failed = reconcile?.last_error ? `<p class="status-error" role="alert">Lần đối soát lúc ${esc(when(reconcile.last_error.at, now))} chưa chạy được (${esc(reconcile.last_error.reason)}).${reconcile.checked_at ? ' Số dưới đây là của lần trước.' : ''}</p>` : '';
@@ -78,8 +116,9 @@ globalThis.DoiChieuView = (() => {
     const verify = rows.some(row => row.reason === 'VERIFY_FAILED');
     const tone = verify ? 'danger' : rows.length || outside.length || failed || old ? 'warn' : '';
     const share = M.share(reconcile);
-    const facts = [share !== null && `${share}% số nợ`, rows.length && `${rows.length} khách lệch`, outside.length && `${outside.length} tab chưa có sổ`, old && 'có thể cũ'].filter(Boolean).join(' · ');
-    return `<section class="viec-status ${tone}" aria-label="Đối soát với Sheet"><div class="status-line"><i aria-hidden="true"></i><strong>${reconcile.counts?.KHOP ?? 0}/${reconcile.total ?? 0} khách khớp Sheet</strong><span>${esc(facts)}</span>${working}${refreshing}<span class="status-time">Đối soát lúc ${esc(when(reconcile.checked_at, now))} · lần tới ${esc(M.nextCheck(now))}</span></div>${failed}</section>`;
+    const tong = M.tongView(reconcile);
+    const facts = [share !== null && `${share}% số nợ`, rows.length && `${rows.length} khách lệch`, outside.length && `${outside.length} tab chưa có sổ`, tongFact(tong), old && 'có thể cũ'].filter(Boolean).join(' · ');
+    return `<section class="viec-status ${tone}" aria-label="Đối soát với Sheet"><div class="status-line"><i aria-hidden="true"></i><strong>${reconcile.counts?.KHOP ?? 0}/${reconcile.total ?? 0} khách khớp Sheet</strong><span>${esc(facts)}</span>${working}${refreshing}<span class="status-time">Đối soát lúc ${esc(when(reconcile.checked_at, now))} · lần tới ${esc(M.nextCheck(now))}</span></div>${tongHtml(tong, tongOpen, { F, esc, href })}${failed}</section>`;
   }
 
   function tabsHtml(current, counts) {

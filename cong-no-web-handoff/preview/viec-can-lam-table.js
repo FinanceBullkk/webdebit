@@ -109,7 +109,7 @@ globalThis.InboxTable = (() => {
     const lech = view.lechHtml(reconcile, dc, { F, esc, href, now, action: opts.action, busy, nothing });
     const may = view.mayHtml(opts.act, people, { esc, href });
     const counts = { lech: globalThis.DoiChieuModel.openRows(reconcile).length + (reconcile?.outside_tabs?.length ?? 0), don: list.length, may: view.machineCount(bot, reconcile) };
-    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
+    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing, F, href, tongOpen: opts.tongOpen })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
   }
   function detailHtml(book, ledger, opts) {
     const { F, esc, href, action } = opts;
