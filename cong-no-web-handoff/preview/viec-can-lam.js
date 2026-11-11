@@ -76,6 +76,7 @@
   const TAB_KEY = 'webdebit.todoTab';
   const savedTab = () => { try { const tab = sessionStorage.getItem(TAB_KEY); return ['lech', 'don', 'may'].includes(tab) ? tab : 'lech'; } catch { return 'lech'; } };
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
+    tongOpen: false,   // danh sách chỗ tab TONG chưa cộng đủ (KIEM-TONG-01) đang mở; giữ qua các lần tự tải lại
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
     dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map(), ai: new Map() },
     // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
@@ -100,13 +101,13 @@
     if (!inbox.stale) globalThis.AppNav?.saveTodoSnapshot({ inbox: inbox.data, dashboard, unsorted, customers: currentCustomers });
   }
   // Đang hiện bản cũ của tab: xem được, mở dòng được; mọi nút ghi khóa tới khi có bản mới (thường dưới 1 giây).
-  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry', 'data-act-day', 'data-act-date', 'data-act-filter', 'data-act-retry'];
+  const VIEW_ONLY = ['data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-xem', 'data-dc-retry', 'data-act-day', 'data-act-date', 'data-act-filter', 'data-act-retry', 'data-tong-toggle'];
   function paintInbox() {
     if (!firstLoadDone || inbox.data === undefined) return;
     const html = globalThis.InboxTable.render(inbox.data, {
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
-      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, act: actView(), action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice,
+      stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, act: actView(), action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice, tongOpen: inbox.tongOpen,
       undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
     });
     root.replaceChildren();
@@ -117,7 +118,7 @@
     paintedHtml = html;
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book', 'data-tong-toggle'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
     inboxRoot.innerHTML = html;
@@ -598,6 +599,7 @@
       try { sessionStorage.setItem(TAB_KEY, inbox.tab); } catch { /* chỉ để nhớ tab, không có cũng được */ }
       paintInbox(); loadActivity(); return;
     }
+    if (button.hasAttribute('data-tong-toggle')) { inbox.tongOpen = !inbox.tongOpen; paintInbox(); return; }
     if (button.hasAttribute('data-act-day')) { showActivityDay(button.dataset.actDay); return; }
     if (button.hasAttribute('data-act-filter')) { inbox.act.filter = button.dataset.actFilter; paintInbox(); return; }
     if (button.hasAttribute('data-act-retry')) { inbox.act.data.delete(actDay()); paintInbox(); loadActivity(true); return; }

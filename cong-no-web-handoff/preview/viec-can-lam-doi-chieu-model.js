@@ -77,6 +77,42 @@
       lockedMonths: (statement.groups ?? []).filter(group => group.locked && items.some(item => item.id === group.id)).map(group => group.month) };
   }
 
+  // Tab TONG có cộng đủ các tab khách không (KIEM-TONG-01), từ `reconcile.tong` của lượt đối soát. null: lượt đó không có kết quả
+  // (file cũ, hoặc quá nhiều khách lệch nên máy bỏ qua). Dòng TONG khác sổ trước, rồi sổ để trống, rồi tên lạ, mỗi nhóm số lớn trước.
+  // Tên trên TONG không ứng sổ nào mà số bằng đúng số của đúng một sổ để trống (và không tên lạ nào khác cùng số) thì gộp thành một
+  // dòng "chỉ khác tên": đẳng thức tới từng đồng, như cách máy nhận lời giải thích. Số kỳ vọng của sổ đang lệch Sheet tính theo web,
+  // nên dòng của sổ đó được đánh dấu để người xem khách đó trước.
+  function tongView(reconcile) {
+    const tong = reconcile?.tong;
+    if (!tong || tong.skipped === 'TOO_MANY_DIFFERENT') return null;
+    if (!tong.month) return { skipped: tong.skipped ?? 'ERROR' };
+    const blanks = [...(tong.blank_on_tong ?? [])];
+    const unknown = [...(tong.unknown_names ?? [])];
+    const renamed = [];
+    for (const item of [...unknown]) {
+      const value = big(item.end_vnd);
+      const books = blanks.filter(row => big(row.expected_vnd) === value);
+      if (!value || books.length !== 1 || unknown.filter(row => big(row.end_vnd) === value).length !== 1) continue;
+      renamed.push({ kind: 'renamed', book: books[0].book, name: books[0].name, tong_name: item.name, tong_vnd: item.end_vnd, expected_vnd: books[0].expected_vnd });
+      blanks.splice(blanks.indexOf(books[0]), 1);
+      unknown.splice(unknown.indexOf(item), 1);
+    }
+    const bigFirst = key => (a, b) => { const x = abs(a[key]), y = abs(b[key]); return x > y ? -1 : x < y ? 1 : 0; };
+    const open = openIds(reconcile);
+    const rows = [
+      ...(tong.differs ?? []).map(row => ({ kind: 'differs', book: row.book, name: row.name, tong_vnd: row.tong_vnd, expected_vnd: row.expected_vnd,
+        gap_vnd: (big(row.tong_vnd) - big(row.expected_vnd)).toString() })).sort(bigFirst('gap_vnd')),
+      ...blanks.map(row => ({ kind: 'blank', book: row.book, name: row.name, tong_vnd: null, expected_vnd: row.expected_vnd })).sort(bigFirst('expected_vnd')),
+      ...unknown.map(row => ({ kind: 'unknown', book: null, name: row.name, tong_vnd: row.end_vnd, expected_vnd: null })).sort(bigFirst('tong_vnd')),
+      ...renamed,
+    ].map(row => ({ ...row, book_differs: row.book !== null && open.has(row.book) }));
+    const counts = Object.fromEntries(['differs', 'blank', 'unknown', 'renamed'].map(kind => [kind, rows.filter(row => row.kind === kind).length]));
+    const gap = big(tong.gap_vnd);   // cộng TONG − cộng số kỳ vọng: âm là TONG ghi ít hơn các sổ
+    return { month: tong.month, matched: tong.matched ?? 0, rows, counts, problems: counts.differs + counts.blank + counts.unknown,
+      gap_vnd: tong.gap_vnd ?? null, gap_sign: gap === null ? 0 : gap > 0n ? 1 : gap < 0n ? -1 : 0,
+      tong_sum_vnd: tong.tong_sum_vnd ?? null, expected_sum_vnd: tong.expected_sum_vnd ?? null };
+  }
+
   // Chỉ khác phụ phí khi mọi dòng cùng đơn giá hai bên; web chưa có đơn giá thì là giá.
   const isFeeOnly = group => group.kind === 'prices' && group.rows.every(row => row.web_unit_price_vnd !== null && row.web_unit_price_vnd === row.sheet_unit_price_vnd);
 
@@ -95,5 +131,5 @@
   }
   const hintTexts =(row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts };
+  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, tongView };
 }));
