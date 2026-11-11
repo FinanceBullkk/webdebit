@@ -47,7 +47,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="song-song-01"></a>[SONG-SONG-01](decisions/song-song-01.md) | Chạy song song Sheet và web |  |
 | <a id="song-song-02"></a>[SONG-SONG-02](decisions/song-song-02.md) | Mốc nạp clean-v2 và ngày song song |  |
 | <a id="song-song-03"></a>[SONG-SONG-03](decisions/song-song-03.md) | Hai khách bị giữ sau mốc (A3) |  |
-| <a id="chuyen-han-01"></a>[CHUYEN-HAN-01](decisions/chuyen-han-01.md) | Chưa chuyển hẳn khỏi Sheet: người nhập vẫn ghi Sheet, chưa khóa; xét lại sau đối soát cuối tháng 11/2026 | Chốt 5/11/2026; không đổi code |
+| <a id="chuyen-han-01"></a>[CHUYEN-HAN-01](decisions/chuyen-han-01.md) | Chưa chuyển hẳn khỏi Sheet: người nhập vẫn ghi Sheet, chưa khóa; xét lại sau đối soát cuối tháng 11/2026. Phạm vi thay là Sheet sổ nợ (11/11/2026) | Chốt 5/11/2026; không đổi code. [Checklist chuyển hẳn](chuyen-han-checklist.md) là ĐỀ XUẤT |
 | <a id="nhap-sheet-01"></a>[NHAP-SHEET-01](decisions/nhap-sheet-01.md) | Nhập và sửa chuyến kiểu Sheet | Vế (1) bảng nhập thay bởi [NHAP-SHEET-02](#nhap-sheet-02) |
 | <a id="nhap-sheet-02"></a>[NHAP-SHEET-02](decisions/nhap-sheet-02.md) | Bỏ bảng nhập chuyến; chuyến lấy từ Sheet |  |
 | <a id="thu-sheet-01"></a>[THU-SHEET-01](decisions/thu-sheet-01.md) | Phiếu thu từ Sheet lên web bằng hàng chờ |  |
