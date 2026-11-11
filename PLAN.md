@@ -12,7 +12,7 @@ So với bản 31/10: máy tự đối soát mỗi giờ từ 7 tới 22 giờ t
 | Cảnh báo | Máy lỗi hoặc dừng thì có email ([`CANH-BAO-01`](docs/decisions/canh-bao-01.md)) | Chủ sổ tạo tài khoản và đặt link, Claude cài | Người dùng chọn email 4/11. Máy canh đã có; chờ link ping | Một lần thử cảnh báo tới được hộp thư |
 | E1 | Một lần kết luận CHỜ KIỂM thật trên `hao` | Chủ sổ | Nút đã có; chờ lần phát sinh đầu | Dòng Lịch sử của lần kết luận |
 | F2 | Chốt ngày tính tháng song song | Chủ nghiệp vụ | ĐÃ CHỐT 5/11: tính cả tháng 11, từ 1/11/2026 | [`SONG-SONG-02`](docs/decisions/song-song-02.md) |
-| F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | Chưa chuyển, giữ Sheet; xét lại sau đối soát cuối tháng 11 | [`CHUYEN-HAN-01`](docs/decisions/chuyen-han-01.md); quyết định chuyển hẳn sau lần xét |
+| F4 | Cách chuyển hẳn khi Sheet vẫn là nơi nhập | Chủ nghiệp vụ | Chưa chuyển, giữ Sheet; xét lại sau đối soát cuối tháng 11. Lượt audit chỉ đọc 11/11: web khớp Sheet tới từng dòng, tab TONG để trống 14 khách còn số dư, 6 việc chủ sổ phải quyết | [`CHUYEN-HAN-01`](docs/decisions/chuyen-han-01.md); [checklist chuyển hẳn](docs/chuyen-han-checklist.md); quyết định chuyển hẳn sau lần xét |
 
 B1, B2 (mỗi người nhập một tài khoản) và C4 (người nhập tự chạy đối soát) không còn chặn theo hướng này; xem [checklist](docs/song-song-checklist.md). Sếp hay ai khác muốn tự xem web thì cần thêm login vào danh sách cho phép ([`ACCESS-01`](docs/decisions/access-01.md)).
 
