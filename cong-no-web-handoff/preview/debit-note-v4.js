@@ -214,13 +214,39 @@ const DebitNoteV4 = (() => {
   // Loading date, Loading place, POD.
   const TEXT_COLUMNS = [['No.', '序号', '28px', 'text-align: right'], ['Container no.', '柜号', '94px', 'padding-left: 10px'], ['Line', '船东', '40px', ''],
     ['Shipper', '发货人', '1fr', ''], ['Loading date', '装柜日期', '74px', ''], ['Loading place', '装柜地点', '76px', ''], ['POD', '目的港', '66px', '']];
-  const gridOf = doc => [...TEXT_COLUMNS.map(column => column[2]), ...doc.columns.map(column => `${column.width}px`), '84px'].join(' ');
+  // Tên tiếng Trung nằm cùng dòng, bên phải tên Latin (người dùng 11/11/2026): cột Loading place / POD nới theo tên dài nhất
+  // của chứng từ (serif 12px đo được: chữ Latin ~6px, chữ Hán 12px; ước 6.2px cho dư). Cột Shipper nhắm tối thiểu 60px; không đủ chỗ
+  // thì chữ hai cột này thu nhỏ đều, nhỏ nhất 75% (9px); còn thiếu thì Shipper hẹp lại (tên shipper xuống dòng), tên nơi/cảng vẫn một dòng.
+  const placeLine = place => [place.text, place.cn].filter(Boolean).join(' ');
+  const textWidth = text => [...text].reduce((sum, ch) => sum + (/[\p{Script=Han}—（）]/u.test(ch) ? 12 : 6.2), 0);
+  const ROW_WIDTH = 1034, SHIPPER_MIN = 60, PLACE_BASE = { place: 76, pod: 66 };
+  const layouts = new WeakMap();
+  const placeLayout = doc => {
+    if (!doc.showPlaceCn) return { place: PLACE_BASE.place, pod: PLACE_BASE.pod, scale: 1 };
+    if (layouts.has(doc)) return layouts.get(doc);
+    const rows = doc.rows.filter(row => !row.feeOnly);
+    const natural = key => Math.max(PLACE_BASE[key], ...rows.map(row => Math.ceil(textWidth(placeLine(row[key]))) + 8));
+    const fixed = [28, 94, 40, 74, 84, ...doc.columns.map(column => column.width)].reduce((sum, width) => sum + width, 0);
+    const room = ROW_WIDTH - fixed - SHIPPER_MIN, need = natural('place') + natural('pod');
+    const scale = need > room ? Math.max(0.75, room / need) : 1;
+    const layout = { place: Math.ceil(natural('place') * scale), pod: Math.ceil(natural('pod') * scale), scale };
+    layouts.set(doc, layout);
+    return layout;
+  };
+  const gridOf = doc => {
+    const layout = placeLayout(doc);
+    return [...TEXT_COLUMNS.slice(0, 5).map(column => column[2]), `${layout.place}px`, `${layout.pod}px`, ...doc.columns.map(column => `${column.width}px`), '84px'].join(' ');
+  };
   const moneySpan = (value, extra = '') => `<span style="${NUM}${value !== null && value < 0n ? '; margin-right: -0.333em' : ''}${extra}">${money(value)}</span>`;
   const pair = (label, value, bold = false) => `<div style="display: flex; align-items: baseline"><span style="width: 136px; flex: none; color: #5F6B7A">${esc(label)}</span>`
     + `<span${bold ? ' style="font-weight: 700"' : ''}>${esc(value)}</span></div>`;
   const section = (lines, body) => `<div style="display: grid; grid-template-columns: 120px 1fr; align-items: baseline"><div style="${LABEL}">${lines.map((line, index) =>
     `<div${line.bold ? ` style="${SEC}"` : ''}${index === 0 ? ' data-lab' : ''}>${esc(line.text)}</div>`).join('')}</div><div>${body}</div></div>`;
-  const placeText = (doc, place) => `${esc(place.text)}${doc.showPlaceCn && place.cn ? `<br>${esc(place.cn)}` : ''}`;
+  const placeText = (doc, place) => {
+    if (!doc.showPlaceCn) return esc(place.text);
+    const scale = placeLayout(doc).scale;
+    return `<span style="white-space: nowrap${scale < 1 ? `; font-size: ${Math.round(120 * scale) / 10}px` : ''}">${esc(placeLine(place))}</span>`;
+  };
 
   function letterhead(doc, compact) {
     const c = doc.company;

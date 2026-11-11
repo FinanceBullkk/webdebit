@@ -266,5 +266,16 @@ test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 
   assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
   assert.ok(on.widths[5] > off.widths[5] && on.widths[6] > off.widths[6]);
   assert.doesNotMatch(off.html, /青岛港/);
-  assert.match(on.html, /Qingdao<br>青岛港/);
+  assert.match(on.html, /white-space: nowrap">Qingdao 青岛港</);
+});
+
+test('Tên tiếng Trung cùng dòng (người dùng 11/11/2026): nhiều cột phí và tên dài thì chữ hai cột nơi/cảng thu nhỏ, không dưới 9px, không xuống dòng', () => {
+  const doc = v4.fromSample(sample('sample-14'), { ...config, show_place_cn: true });
+  doc.rows.forEach(row => { if (!row.feeOnly) { row.place = { text: 'Kim Cuong Tb', cn: '同奈省壮奔县', known: true }; row.pod = { text: 'Mong Cai', cn: '东兴—芒街口岸', known: true }; } });
+  const html = v4.pageHtml(doc, 'single', doc.rows);
+  const size = Number(html.match(/white-space: nowrap; font-size: ([\d.]+)px">Kim Cuong Tb 同奈省壮奔县</)[1]);
+  assert.ok(size >= 9 && size < 12, String(size));
+  assert.doesNotMatch(html, /Kim Cuong Tb<br>/);
+  const off = v4.pageHtml(v4.fromSample(sample('sample-14'), config), 'single', v4.fromSample(sample('sample-14'), config).rows);
+  assert.doesNotMatch(off, /white-space: nowrap; font-size/);   // cờ tắt: bố cục v4 như cũ
 });
