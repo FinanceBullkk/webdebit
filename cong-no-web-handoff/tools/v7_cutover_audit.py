@@ -160,6 +160,17 @@ def sheet_money(row: dict) -> int | None:
     return total
 
 
+def sheet_months(rows: list[dict], receipt_rows: list[dict]) -> tuple[dict[str, int], dict[str, int]]:
+    """Phát sinh và thu của một tab theo tháng nợ; ô trống tính 0 trong phép cộng. Phép kiểm TONG của máy đối soát dùng chung (KIEM-TONG-01)."""
+    charge: Counter[str] = Counter()
+    for row in rows:
+        charge[month_key(row.get("debt_month"))] += sheet_money(row) or 0
+    paid: Counter[str] = Counter()
+    for row in receipt_rows:
+        paid[month_key(row.get("debt_month"))] += row.get("amount_vnd") or 0
+    return dict(charge), dict(paid)
+
+
 def target_money(target: dict) -> int | None:
     if target["kind"] == "legacy":
         return target["total"]
@@ -201,11 +212,10 @@ def audit_book(customer: dict, ledger: dict, rows: list[dict], receipt_rows: lis
     shared_sheet: Counter[tuple] = Counter()
     shared_month: dict[tuple, str] = {}
     spread_diff: Counter[str] = Counter()
-    sheet_charge: Counter[str] = Counter()
+    sheet_charge, sheet_paid = sheet_months(rows, receipt_rows)
     for row, result in zip(rows, results, strict=True):
         money, month = sheet_money(row), month_key(row.get("debt_month"))
         statuses[result["status"]] += 1
-        sheet_charge[month] += money or 0
         found = candidates(row, pool) if pq.container_key(row.get("container")) else []
         touched.update((target["kind"], target["id"]) for target in found)
         if result["status"] == "NOT_FOUND":
@@ -245,9 +255,6 @@ def audit_book(customer: dict, ledger: dict, rows: list[dict], receipt_rows: lis
         elif FLAG_CARRY in marks:
             carry_charge[month_key(current.get("month") or row.get("month"))] += as_int(current.get("counted_vnd"))
     web_charge = {month_key(month["month"]): as_int(month.get("charges_vnd")) for month in ledger.get("months", [])}
-    sheet_paid: Counter[str] = Counter()
-    for row in receipt_rows:
-        sheet_paid[month_key(row.get("debt_month"))] += row.get("amount_vnd") or 0
     month_adjustments: dict[str, list[int]] = defaultdict(list)
     for item in ledger.get("adjustments", []):
         if item.get("legacy_row_id") is None and item.get("trip_id") is None:
@@ -257,7 +264,7 @@ def audit_book(customer: dict, ledger: dict, rows: list[dict], receipt_rows: lis
         "ambiguous": ambiguous, "not_found": not_found, "web_only": web_only, "row_diffs": row_diffs,
         "month_diffs": [{"month": month, "sheet_vnd": sheet_charge.get(month, 0), "web_vnd": web_charge.get(month, 0), "diff_vnd": web_charge.get(month, 0) - sheet_charge.get(month, 0)}
                         for month in sorted(set(sheet_charge) | set(web_charge)) if sheet_charge.get(month, 0) != web_charge.get(month, 0)],
-        "sheet_charge": dict(sheet_charge), "sheet_paid": dict(sheet_paid), "sheet_receipt_rows": len(receipt_rows),
+        "sheet_charge": sheet_charge, "sheet_paid": sheet_paid, "sheet_receipt_rows": len(receipt_rows),
         "paid_diff_vnd": sum(as_int(month.get("received_vnd")) for month in ledger.get("months", [])) - sum(sheet_paid.values()),
         "duplicate_extra": {month: value for month, value in duplicate_extra.items() if value}, "spread_diff": dict(spread_diff),
         "carry_charge": dict(carry_charge), "carry_receipt_vnd": carry_receipt, "rounded_rows": rounded, "month_adjustments": dict(month_adjustments),
@@ -335,6 +342,8 @@ def audit_rows(customers: list[dict], ledgers: dict[int, dict], prices: dict, re
 # ---------------------------------------------------------------- phép kiểm TONG
 
 def audit_tong(tong: dict, books: list[dict], ahead: dict[int, int], aliases: dict[str, str]) -> dict[str, Any]:
+    """Khối TONG với từng sổ. `books` chỉ cần id, name, web_total_vnd, sheet_charge, sheet_paid. Máy đối soát mỗi giờ gọi đúng hàm này
+    (KIEM-TONG-01): sửa ở đây là sửa cả hai."""
     month = tong.get("month")
     if not month:
         return {"month": None, "skipped": "TONG_KHONG_DOC_DUOC"}
