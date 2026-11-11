@@ -39,7 +39,7 @@ Báo cáo có tên khách và số tiền ghi vào thư mục `--out` ngoài m�
 | `KHAC_CHU_O_CONTAINER` | dòng chỉ một bên có | cùng sổ, cùng tháng, cùng tiền, chỉ khác chữ ở ô container |
 | `DA_GHI_BANG_DIEU_CHINH` | dòng chỉ Sheet có | sổ có dòng điều chỉnh cả tháng đúng số tiền đó, cùng tháng; mỗi dòng điều chỉnh chỉ dùng một lần |
 
-- **Phép kiểm TONG.** Với khối mới nhất (ngoài cùng bên phải) của tab TONG: `TONG cuối tháng = tổng nợ web hôm nay − web đi trước − phát sinh các tháng sau trên Sheet + thu ghi ở khối các tháng sau`. Tên trên TONG so bằng chữ và số đã bỏ dấu; tên không tự ghép được thì khai `--tong-alias`. Sổ còn số kỳ vọng khác 0 mà TONG để trống thì nêu ra.
+- **Phép kiểm TONG.** Với khối mới nhất (ngoài cùng bên phải) của tab TONG: `TONG cuối tháng = tổng nợ web hôm nay − web đi trước − phát sinh các tháng sau trên Sheet + thu ghi ở khối các tháng sau`. Tên trên TONG so bằng chữ và số đã bỏ dấu; tên không tự ghép được thì khai `--tong-alias`. Sổ còn số kỳ vọng khác 0 mà TONG để trống thì nêu ra. Máy đối soát mỗi giờ chạy đúng phép kiểm này ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md)): `read_tong`, `audit_tong`, `sheet_months` là mã dùng chung, sửa ở đây là sửa cả hai.
 - **Nhật ký.** Người là actor có `@`; máy là `may-theo-sheet`. Danh sách thao tác (`OPERATIONS`) được test đối chiếu với mọi loại lệnh mà `tools/v7_backend_functions.sql` ghi vào `sokhach.event`. Ngày mà API trả ít dòng hơn `total` được báo là bị cắt bớt. Cấn trừ hai sổ đếm theo trạng thái sổ (`offset_pair_id`, `outgoing_offsets`), không dựa vào nhật ký.
 - **Mã thoát.** 0: không còn mục tiền nào phải có người xem. 1: còn (dòng, tháng, tổng thu chưa giải thích; tab không có sổ; TONG lệch, tên lạ hoặc để trống; phiếu máy ghi bị hủy; giá máy đè rồi bị quay lại; tháng máy mở chưa khóa). 2: lỗi đầu vào, không ghi gì. Tháng cũ đang mở, chuyến chưa giá và thao tác chưa ai dùng chỉ được đếm, không đổi mã thoát.
 - Login của người không ra stdout và không ra báo cáo; chỉ có số login.
@@ -78,5 +78,5 @@ Revert PR. Công cụ không chạy trong service nào và không ghi dữ liệ
 
 ## Câu hỏi mở
 
-- Lệch giữa TONG và các tab hiện không lượt đối soát nào báo. Có nên đưa phép kiểm TONG vào máy đối soát mỗi giờ (chỉ báo, không ghi) không: chưa hỏi người dùng.
+- Đưa phép kiểm TONG vào máy đối soát mỗi giờ: **đã trả lời** 11/11/2026. Người dùng chọn kiểm mỗi giờ, chỉ báo, kết quả hiện ở đầu tab Việc cần làm ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md)).
 - Phép kiểm "Sheet tự nó có đúng không" (so với booking, sao kê, xác nhận của khách) nằm ngoài công cụ này.

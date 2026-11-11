@@ -1756,7 +1756,7 @@ WantedBy=timers.target
    - mọi tháng máy mở đã khóa lại; `v7_post_deploy_check.sql` đạt;
    - chạy lại lần hai trên cùng bản tải không còn `WOULD_FIX` ở các khách đã sửa. Xóa DB tạm.
 3. **Bật:** sao lưu như mọi lần trước khi đổi; đặt hai unit, `systemd-analyze verify`, `daemon-reload`, `systemctl start v7-reconcile-auto.service` chạy lượt đầu, đo như bước 2 trên DB thật, rồi `systemctl enable --now v7-reconcile-auto.timer`.
-4. **Theo dõi:** tab Việc cần làm, `reconcile-log.jsonl`, `journalctl -u v7-reconcile-auto`. Stdout của unit chỉ có số đếm.
+4. **Theo dõi:** tab Việc cần làm, `reconcile-log.jsonl`, `journalctl -u v7-reconcile-auto`. Stdout của unit chỉ có số đếm. Phép kiểm tab TONG ([`KIEM-TONG-01`](decisions/kiem-tong-01.md)) nằm ở khối `tong` của `reconcile.json`; log và journal chỉ có số đếm `tong`. `skipped: ERROR` là lượt đó không kiểm được TONG (mã ở `error`, journal có một dòng), phần đối soát vẫn đạt.
 5. **Tắt:** `systemctl disable --now v7-reconcile-auto.timer`. Muốn vẫn đối soát mà không ghi thì bỏ `--fix` khỏi `ExecStart`, `daemon-reload`, rồi bật lại timer. Việc máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay nếu sai: hủy phiếu, xóa dòng điều chỉnh, sửa giá tại ô (tháng khóa: mở khóa trước).
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.

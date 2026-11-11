@@ -262,6 +262,122 @@ class ReconcileAutoTest(unittest.TestCase):
         fixture(self.source, tong={6: {"D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG", "F": "SỐ CÒN PHẢI THU CUỐI THÁNG"}, 7: {"E": "A", "F": "5"}})
         self.assertEqual(job.live_tong(self.source / "source-google-export.xlsx"), empty)   # không biết tháng nào
 
+    def tong_rows(self, *names_and_ends):
+        """Tab TONG thật: tiêu đề hai khối (tháng 9, tháng 10), các dòng (tên, số cuối tháng) ở khối tháng 10; số None là ô trống."""
+        rows = {6: TONG_TITLES}
+        for number, (name, end) in enumerate(names_and_ends, 7):
+            rows[number] = {"M": name} | ({} if end is None else {"Q": str(end)})
+        return rows
+
+    def test_tong_rows_equal_to_the_books_are_counted_and_only_counts_leave_the_file(self):
+        """KIEM-TONG-01: lượt mọi khách khớp vẫn kiểm TONG; tên trên TONG khác dấu, gạch, khoảng trắng vẫn ghép được."""
+        fixture(self.source, tong=self.tong_rows(("fake private - customer  zxq", FAKE_AMOUNT)))
+        db = Db()
+        with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+            code, printed = self.run_job(db, "--fix")
+        self.assertEqual((code, db.writes), (0, []))
+        build.assert_called_once()   # không khách nào lệch: dựng bản chụp riêng cho TONG
+        tong = self.result()["tong"]
+        self.assertEqual((tong["month"], tong["matched"], tong["differs"], tong["unknown_names"], tong["blank_on_tong"]), ("2026-10", 1, [], [], []))
+        self.assertEqual((tong["tong_sum_vnd"], tong["expected_sum_vnd"], tong["gap_vnd"]), (str(FAKE_AMOUNT), str(FAKE_AMOUNT), "0"))
+        counts = {"month": "2026-10", "matched": 1, "blank": 0, "differs": 0, "unknown_names": 0}
+        self.assertEqual(json.loads(printed)["tong"], counts)
+        log = self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(log)["tong"], counts)
+        for secret in (FAKE_NAME, "zxq", str(FAKE_AMOUNT)):
+            self.assertNotIn(secret, printed)
+        self.assertNotIn("zxq", log)
+
+    def test_tong_month_end_takes_later_months_of_the_tab_off_the_book(self):
+        later = 5000
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT), ("2026-11", "04/11/2026", later, FAKE_AMOUNT + later)],
+                tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT)))
+        self.assertEqual(self.run_job(Db(total=FAKE_AMOUNT + later), "--fix")[0], 0)
+        result = self.result()
+        self.assertEqual(result["counts"], {"KHOP": 1})
+        self.assertEqual((result["tong"]["matched"], result["tong"]["differs"]), (1, []))   # sổ hôm nay A + B; cuối tháng 10 là A
+
+    def test_blank_tong_cell_and_a_name_without_book_are_named(self):
+        for label, rows in (("ô trống", ((FAKE_NAME, None), ("KHACH KHONG CO SO", 5))), ("không có dòng", (("KHACH KHONG CO SO", 5),))):
+            with self.subTest(label):
+                fixture(self.source, tong=self.tong_rows(*rows))
+                code, printed = self.run_job(Db(), "--fix")
+                self.assertEqual(code, 0)
+                tong = self.result()["tong"]
+                self.assertEqual(tong["blank_on_tong"], [{"book": 1, "name": FAKE_NAME, "expected_vnd": str(FAKE_AMOUNT)}])
+                self.assertEqual(tong["unknown_names"], [{"name": "KHACH KHONG CO SO", "end_vnd": "5"}])
+                self.assertEqual((tong["matched"], tong["differs"], tong["gap_vnd"]), (0, [], str(5 - FAKE_AMOUNT)))
+                self.assertEqual(json.loads(printed)["tong"], {"month": "2026-10", "matched": 0, "blank": 1, "differs": 0, "unknown_names": 1})
+                self.assertNotIn("KHACH KHONG CO SO", printed)
+
+    def test_tong_cell_that_differs_from_the_book_is_named(self):
+        fixture(self.source, tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT + 7)))
+        self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        tong = self.result()["tong"]
+        self.assertEqual(tong["differs"], [{"name": FAKE_NAME, "book": 1, "tong_vnd": str(FAKE_AMOUNT + 7), "expected_vnd": str(FAKE_AMOUNT)}])
+        self.assertEqual((tong["matched"], tong["blank_on_tong"], tong["gap_vnd"]), (0, [], "7"))
+
+    def test_tong_is_compared_with_the_total_after_the_fix_and_snapshots_are_built_once(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", FAKE_AMOUNT, FAKE_AMOUNT - PAID)], receipt=str(PAID), receipt_date="da tt",
+                tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT - PAID)))
+        db = Db()
+        with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+            self.assertEqual(self.run_job(db, "--fix")[0], 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        build.assert_called_once()   # tìm cách sửa và kiểm TONG dùng chung một bản chụp
+        tong = self.result()["tong"]
+        self.assertEqual((tong["matched"], tong["differs"]), (1, []))
+
+    def test_web_ahead_part_is_taken_off_before_comparing_with_tong(self):
+        fixture(self.source, months=[("2026-10", "03/10/2026", 0, 0)], missing_price=True, tong=self.tong_rows((FAKE_NAME, 0)))
+        self.assertEqual(self.run_job(Db(total=500, unit_price=500), "--fix")[0], 0)
+        result = self.result()
+        self.assertEqual(result["customers"][0]["reason"], "WEB_AHEAD")
+        self.assertEqual((result["tong"]["matched"], result["tong"]["differs"]), (1, []))   # web 500 đều là phần Sheet chưa ghi: cuối tháng 0
+
+    def test_book_created_in_the_run_is_compared_with_its_tong_row(self):
+        self.new_tab()
+        self.assertEqual(self.run_job(NewBookDb(), "--fix")[0], 0)
+        tong = self.result()["tong"]
+        self.assertEqual((tong["matched"], tong["unknown_names"], tong["blank_on_tong"]), (1, [], []))
+
+    def test_unreadable_tong_is_skipped_without_building_snapshots(self):
+        layouts = {"không có tab TONG": None,
+                   "không có cột cuối tháng": {6: {"D": "LOAI HANG", "E": "TÊN KHÁCH HÀNG", "F": "CÔNG NỢ PHÁT SINH TRONG THÁNG 10.2026"},
+                                               7: {"E": FAKE_NAME, "F": "5"}}}
+        for label, tong in layouts.items():
+            with self.subTest(label):
+                fixture(self.source, tong=tong)
+                with patch.object(job.snapshots, "build_all", wraps=job.snapshots.build_all) as build:
+                    code, printed = self.run_job(Db(), "--fix")
+                self.assertEqual(code, 0)
+                result = self.result()
+                self.assertEqual((result["tong"], result["counts"]), ({"month": None, "skipped": "TONG_KHONG_DOC_DUOC"}, {"KHOP": 1}))
+                self.assertEqual(json.loads(printed)["tong"], {"skipped": "TONG_KHONG_DOC_DUOC"})
+                build.assert_not_called()
+
+    def test_tong_failure_is_only_a_code_and_the_run_keeps_its_work(self):
+        self.undated_receipt_book()
+        db = Db()
+        with patch.object(job.audit, "read_tong", side_effect=RuntimeError("đọc hỏng")):
+            code, printed = self.run_job(db, "--fix")
+        self.assertEqual(code, 0)
+        self.assertEqual([w[0] for w in db.writes], ["record_receipt"])
+        result = self.result()
+        self.assertEqual((result["customers"][0]["reason"], result["counts"]), ("FIXED", {"KHOP": 1}))
+        self.assertEqual(result["tong"], {"month": None, "skipped": "ERROR", "error": "RuntimeError"})
+        self.assertEqual(json.loads(printed)["tong"], {"skipped": "ERROR", "error": "RuntimeError"})
+        fixture(self.source, tong=self.tong_rows((FAKE_NAME, FAKE_AMOUNT)))   # mọi khách khớp, dựng bản chụp riêng cho TONG thì hỏng
+        with patch.object(job.snapshots, "build_all", side_effect=OSError("đĩa đầy")):
+            self.assertEqual(self.run_job(Db())[0], 0)
+        self.assertEqual((self.result()["tong"], self.result()["counts"]), ({"month": None, "skipped": "ERROR", "error": "OSError"}, {"KHOP": 1}))
+
+    def test_too_many_differences_skip_the_tong_check(self):
+        self.undated_receipt_book()
+        with patch.object(job, "MAX_DIFFERENT", 0):
+            self.assertEqual(self.run_job(Db(), "--fix")[0], 0)
+        self.assertEqual(self.result()["tong"], {"month": None, "skipped": "TOO_MANY_DIFFERENT"})
+
     def test_new_tab_on_real_tong_gets_a_book_through_the_cutover_path_then_matches(self):
         self.new_tab()
         db = NewBookDb()

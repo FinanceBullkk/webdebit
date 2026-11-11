@@ -9,12 +9,15 @@ Mỗi lượt: tải bản xlsx sổ gốc (chỉ đọc), làm sạch đúng nh
 một tổ hợp việc đang chờ (phiếu thu, giá) đưa tổng web về tổng Sheet tới từng đồng, tổng và việc đều lấy từ cùng bản tải. Khách có
 trên Sheet mà chưa có sổ web thì tạo sổ khi đủ điều kiện (MAY-TAO-SO-01). Không có --fix thì chỉ báo sẽ ghi gì. Kết quả ghi vào reconcile.json (mode 600, có tên khách và số tiền) để API hiện ở Việc cần làm; bản tải
 và bản làm sạch xóa ngay sau lượt. Stdout chỉ có số đếm, không có tên khách hay số tiền.
+
+Mỗi lượt cũng kiểm tab TONG có cộng đủ các tab khách không (KIEM-TONG-01), bằng đúng phép so của audit chuyển hẳn. Chỉ báo, không ghi.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import json
 import os
 import re
@@ -22,11 +25,13 @@ import sys
 import tempfile
 import time
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import sheet_sync_runner
+import v7_cutover_audit as audit
 import v7_export_clean as clean
 import v7_load_real_copy as loader
 import v7_price_snapshot as snapshots
@@ -309,6 +314,46 @@ def money_fields(row: dict[str, Any]) -> dict[str, Any]:
     return {key: (str(value) if key.endswith("_vnd") and value is not None else value) for key, value in row.items()}
 
 
+def check_tong(xlsx: Path, results: list[dict[str, Any]], ids: dict[str, int], rows: list[dict],
+               sheet_snapshots: Callable[[], tuple[dict, dict]]) -> dict[str, Any]:
+    """Tab TONG có cộng đủ các tab khách không (KIEM-TONG-01): khối mới nhất của TONG so với từng sổ web bằng đúng phép so của audit
+    chuyển hẳn (`v7_cutover_audit.read_tong`, `audit_tong`). Chỉ báo: không đổi kết luận, không làm máy ghi; lỗi ở đây không làm hỏng lượt."""
+    try:
+        tong = audit.read_tong(xlsx)
+        if not tong["month"]:
+            return audit.audit_tong(tong, [], {}, {})   # không có tab TONG hoặc bố cục lạ: bỏ qua, khỏi dựng bản chụp
+        prices, receipts = sheet_snapshots()
+        mapping = customer_name_mapping()
+        known = {row["id"] for row in rows}
+        customers = [named_customer(row, mapping) for row in rows]
+        customers += [{"id": book, "name": name} for name, book in ids.items() if book not in known]   # sổ máy vừa tạo ở lượt này
+        names = {customer["id"]: customer["name"] for customer in customers}
+        # Phần web đi trước giải thích trọn chỗ lệch: như audit đọc reconcile.json, thêm khách máy vừa sửa ở lượt này mà còn phần đi trước.
+        ahead = {ids[row["customer"]]: row["web_ahead_vnd"] for row in results if row["customer"] in ids and row["status"] == "LECH_TONG"
+                 and row.get("web_ahead_vnd") and row.get("difference_vnd") == row["web_ahead_vnd"]}
+        books = []
+        for row in results:
+            book = ids.get(row["customer"])
+            if book is None or row.get("web_total_vnd") is None:
+                continue   # chưa có sổ web, hoặc chưa biết tổng web: không so
+            charge, paid = audit.sheet_months(book_rows(prices, book, customers), book_rows(receipts, book, customers))
+            books.append({"id": book, "name": names[book], "web_total_vnd": row["web_total_vnd"], "sheet_charge": charge, "sheet_paid": paid})
+        found = audit.audit_tong(tong, books, ahead, {})
+    except Exception as exc:  # noqa: BLE001
+        code = failure_code(exc)
+        print(f"V7 đối soát máy: không kiểm được tab TONG ({code})", file=sys.stderr, flush=True)
+        return {"month": None, "skipped": "ERROR", "error": code}
+    return {key: [money_fields(item) for item in value] if isinstance(value, list) else value for key, value in money_fields(found).items()}
+
+
+def tong_counts(tong: dict[str, Any]) -> dict[str, Any]:
+    """Số đếm của phép kiểm TONG cho sổ theo dõi và stdout: không tên khách, không số tiền."""
+    if not tong.get("month"):
+        return {key: tong[key] for key in ("skipped", "error") if key in tong}
+    return {"month": tong["month"], "matched": tong["matched"], "blank": len(tong["blank_on_tong"]), "differs": len(tong["differs"]),
+            "unknown_names": len(tong["unknown_names"])}
+
+
 def note_sheet_edits(args: argparse.Namespace, results: list[dict[str, Any]], downloaded_at: dt.datetime) -> dict[str, Any]:
     """Khách chưa khớp mà tab vừa sửa: đánh dấu để Việc cần làm không báo "cần xem" (SHEET-LOG-01). Đọc cuối lượt để thấy cả lần sửa lúc
     lượt đang chạy. Chỉ để giải thích, không đổi tiền hay kết luận, nên đọc log lỗi không làm hỏng lượt."""
@@ -350,12 +395,13 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         different = [row for row in results if row["status"] == "LECH_TONG"]
         too_many = len(different) > MAX_DIFFERENT
         trace.mark(books=len(results), counts={"KHOP": sum(row["status"] == "KHOP" for row in results)})
+        sheet_snapshots = functools.cache(lambda: snapshots.build_all(Path(xlsx)))   # dựng một lần cho cả lượt: tìm cách sửa và kiểm TONG
         if different:
             trace.stage("chot")
             trace.mark(too_many=too_many, different=len(different))
         if different and not too_many:
             trace.stage("tim", total=len(different))
-            prices, receipts = snapshots.build_all(Path(xlsx))
+            prices, receipts = sheet_snapshots()
             mapping = customer_name_mapping()
             customers = [named_customer(row, mapping) for row in rows]
             for row in different:
@@ -374,6 +420,8 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         if not too_many:
             create_new_books(db, [row for row in results if row["status"] == "CHI_CO_SHEET"], {rec.name(book["name"]): book for book in books},
                              seen, digest, ids, write=args.fix)
+        # Sau khi máy sửa và tạo sổ, để tổng web là tổng lúc lưu. Hơn 40 khách lệch thì phần đi trước chưa tính, số so không có nghĩa.
+        tong = {"month": None, "skipped": "TOO_MANY_DIFFERENT"} if too_many else check_tong(Path(xlsx), results, ids, rows, sheet_snapshots)
     trace.stage("luu")
     held_names = {item["name"]: item for item in held}
     for row in results:
@@ -405,7 +453,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state,
+        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong,
     }
 
 
@@ -436,6 +484,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     line["created"] = sum(row["reason"] == "BOOK_CREATED" for row in today)
     line["edit_log"] = result["edit_log"]["status"]
     line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
+    line["tong"] = tong_counts(result["tong"])
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -474,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
-                      "seconds": round(time.monotonic() - started)}))
+                      "tong": tong_counts(result["tong"]), "seconds": round(time.monotonic() - started)}))
     return 0
 
 
