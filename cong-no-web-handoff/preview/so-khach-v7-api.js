@@ -360,9 +360,16 @@
       if (!response.ok || !data?.config || !['v3', 'v4'].includes(data.config.template)) throw Error(data?.message || 'Không đọc được cấu hình debit note.');
       return data.config;
     }
+    // THONG-TIN-CTY-01: danh bạ cho hộp debit note v4; chưa bật job thì available: false.
+    async function readCompanyInfo() {
+      const response = await fetcher('/api/v7/company-info', { cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data || typeof data.available !== 'boolean') throw Error(data?.message || 'Không đọc được Thông tin cty.');
+      return data;
+    }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, readEvents, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
-      readMarks, readZaloLinks, readZaloGroups, readDebitConfig,
+      readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
       lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),

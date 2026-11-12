@@ -24,6 +24,7 @@ import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
+import v7_company_info
 import v7_debit_note_config
 import v7_identity
 import v7_inbox
@@ -345,6 +346,12 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         try:
             return v7_debit_note_config.handle_get(parts.query)
         except v7_debit_note_config.ConfigError as exc:
+            raise ApiError(exc.status, exc.code, exc.message) from exc
+    elif parts.path == "/api/v7/company-info":
+        # THONG-TIN-CTY-01: bản chụp Sheet thông tin khách hàng do timer ghi, ngoài DB; vẫn sau xác thực danh tính.
+        try:
+            return v7_company_info.handle_get(parts.query)
+        except v7_company_info.InfoError as exc:
             raise ApiError(exc.status, exc.code, exc.message) from exc
     elif parts.path == "/api/v7/marks":
         function, payload = v7_api_zalo.parse_marks(parts.query)

@@ -97,3 +97,64 @@ test('Debit note v4: ?debit=v4 khi máy chủ chưa có cấu hình thì chặn 
   await page.locator('#thang-2026-09 .debit-open').click();
   await page.frameLocator('.debit-preview').locator('.dn-items').waitFor();
 }, world => { world.query = '&debit=v4'; }));
+
+// THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền từ Sheet thông tin khách hàng (dữ liệu giả).
+const COMPANY = {
+  available: true, read_at: '2026-11-12T07:05:00+00:00', counts: {},
+  accounts: [
+    { id: 'a000000000001', title: '(VND) NGAN HANG GIA', label: 'VND · NGAN HANG GIA', currency: 'VND', beneficiary: 'CONG TY GIA', address: null, bank: 'TEST BANK',
+      bank_address: null, account: '1234567890', swift: null, lines: [] },
+    { id: 'a000000000002', title: '(USD) BANK B', label: 'USD · BANK B', currency: 'USD', beneficiary: 'TEST CO', address: null, bank: 'BANK B',
+      bank_address: null, account: '000123', swift: 'TESTVNVX', lines: [] },
+  ],
+  customers: [{ name: 'Khach Thu Sua Co', company: 'KHACH THU SUA CO.,LTD', rows: [21, 27], shipper: 'KHACH THU SUA CO.,LTD', invoice: 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia', bank: '' }],
+};
+
+test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; chọn tài khoản thì PAYMENT in theo tài khoản; chưa chọn thì cảnh báo; nhớ theo sổ', async () => withPage(async ({ page, world }) => {
+  await page.locator('#thang-2026-09 .debit-open').click();
+  const dialog = page.locator('.debit-dialog');
+  const view = page.frameLocator('.debit-preview');
+  await view.locator('[data-page]').first().waitFor();
+  assert.deepEqual(world.companyInfoReads, ['']);
+  assert.match(await dialog.locator('.debit-checks').innerText(), /Cảnh báo: Chưa chọn tài khoản nhận tiền: chứng từ in \[Account no\.\]\./);
+  assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn', 'VND · NGAN HANG GIA · CONG TY GIA · …7890', 'USD · BANK B · TEST CO · …0123']);
+
+  await dialog.locator('[name="pick"]').fill('Khach Thu Sua Co');
+  assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia');
+  await dialog.locator('[name="customer.legal"]').fill('KHACH THU SUA CO.,LTD (sua tay)');   // vẫn sửa tay được, không bị điền đè
+  await dialog.locator('[name="account"]').selectOption('a000000000002');
+  const bottom = await view.locator('[data-blk="BOTTOM"]').innerText();
+  assert.match(bottom, /Beneficiary 收款人\s+TEST CO/);
+  assert.match(bottom, /Bank 开户银行\s+BANK B/);
+  assert.match(bottom, /USD Account 美元账号\s+000123/);
+  assert.match(bottom, /SWIFT Code SWIFT代码\s+TESTVNVX/);
+  assert.doesNotMatch(await dialog.locator('.debit-checks').innerText(), /Chưa chọn tài khoản/);
+  await dialog.locator('[name="account"]').selectOption('a000000000001');
+  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /VND Account 越南盾账号\s+1234567890/);
+  await dialog.locator('.debit-close').click();
+
+  await page.locator('#thang-2026-09 .debit-open').click();
+  await view.locator('[data-page]').first().waitFor();
+  assert.equal(await dialog.locator('[name="account"]').inputValue(), 'a000000000001');
+  assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), 'KHACH THU SUA CO.,LTD (sua tay)');
+  await dialog.locator('.debit-close').click();
+
+  // Tài khoản đã nhớ mà Sheet bỏ đi thì coi như chưa chọn.
+  world.companyInfo = { ...COMPANY, accounts: COMPANY.accounts.slice(1) };
+  await page.locator('#thang-2026-09 .debit-open').click();
+  await view.locator('[data-page]').first().waitFor();
+  assert.equal(await dialog.locator('[name="account"]').inputValue(), '');
+  assert.match(await dialog.locator('.debit-checks').innerText(), /Chưa chọn tài khoản nhận tiền/);
+  assert.deepEqual(world.requests, []);   // chỉ đọc
+}, world => { priced(world); world.companyInfo = COMPANY; }));
+
+test('Debit note v4: chưa bật Thông tin cty thì ô chọn khách khóa và nêu lý do; hộp vẫn xuất được như trước', async () => withPage(async ({ page }) => {
+  await page.locator('#thang-2026-09 .debit-open').click();
+  const dialog = page.locator('.debit-dialog');
+  await page.frameLocator('.debit-preview').locator('[data-page]').first().waitFor();
+  assert.equal(await dialog.locator('[name="pick"]').isDisabled(), true);
+  assert.match(await dialog.locator('.debit-field', { has: page.locator('[name="pick"]') }).innerText(), /Máy chủ chưa đọc Sheet thông tin khách hàng\./);
+  assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn']);
+  await dialog.locator('.debit-ack input').check();
+  assert.equal(await dialog.locator('.debit-print').isDisabled(), false);
+}, priced));

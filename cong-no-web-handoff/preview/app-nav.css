@@ -5,9 +5,9 @@
   font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
 .app-nav svg{flex:none;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
 .app-nav>button{display:flex;align-items:center;justify-content:center;width:64px;min-height:48px;margin:0 6px 8px;border:0;border-radius:8px;background:#21405f;color:#fff;cursor:pointer}
-.app-nav nav{display:flex;flex-direction:column;gap:2px;margin-top:2px}
-/* Sáu mục phải lọt khung thấy thật 1280×560 (BANG-THU-01): mục cao 64px, ô Tìm khách 58px. */
-.app-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:64px;margin:2px 6px;padding:5px 2px;border-radius:8px;font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;color:#c3d1e0;text-decoration:none}
+.app-nav nav{display:flex;flex-direction:column;gap:0;margin-top:2px}
+/* Bảy mục phải lọt khung thấy thật 1280×560 (BANG-THU-01, THONG-TIN-CTY-01): mục cao tối thiểu 56px, nhãn hai dòng 59px, ô Tìm khách 58px. */
+.app-nav nav a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:56px;margin:1px 6px;padding:3px 2px;border-radius:8px;font-size:11.5px;line-height:1.2;font-weight:600;text-align:center;color:#c3d1e0;text-decoration:none}
 .app-nav nav a:hover{background:#21405f;color:#fff}
 .app-nav nav a.active{background:#2a5179;color:#fff}
 .app-nav nav a:focus-visible,.app-nav>button:focus-visible{outline:2px solid #6da7ec;outline-offset:2px}

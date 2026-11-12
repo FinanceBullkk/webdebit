@@ -1761,6 +1761,55 @@ WantedBy=timers.target
 
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
+## Thông tin cty (THONG-TIN-CTY-01) — timer `webdebit-company-info`
+
+Không có SQL, không ghi DB: mã lên bằng `Deploy hao` ([quyết định](decisions/thong-tin-cty-01.md), [spec](../specs/v7-thong-tin-cty.md)). Chưa cài timer thì tab Thông tin cty báo "Chưa có bản đọc từ Sheet", hộp debit note dùng như cũ.
+
+1. **Chia sẻ Sheet:** chủ Sheet "thông tin khách hàng" thêm `client_email` của tài khoản dịch vụ (trong file `WEBDEBIT_GOOGLE_CREDENTIALS`) với quyền **Viewer**. Người dùng không phải chủ Sheet gốc nên từ 12/11/2026 job đọc **Sheet cầu** "Thông tin cty – cho web" trong Drive của người dùng: hai tab cùng tên, ô A1 mỗi tab là `IMPORTRANGE` cả tab gốc (`A1:AA`), lưới đủ rộng (3000 và 2000 dòng, 30 cột); người dùng bấm "Cho phép truy cập" một lần, Sheet cầu chia sẻ Viewer cho tài khoản dịch vụ. `WEBDEBIT_COMPANY_SHEET_ID` là mã Sheet cầu. In email chỉ bằng `sudo python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' <file>`; không in cả file.
+2. **Biến môi trường** `/etc/webdebit/company-info.env`, chủ `root:v7app`, mode 640: `WEBDEBIT_COMPANY_SHEET_ID=<mã Sheet>`. Mã Sheet không ghi vào repo. Credentials lấy từ `sheet-sync.env` như runner giá.
+3. **Unit** `/etc/systemd/system/webdebit-company-info.service`:
+
+```ini
+[Unit]
+Description=V7 Thong tin cty: doc Sheet thong tin khach hang (read-only Sheets API, THONG-TIN-CTY-01)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=v7app
+Group=v7app
+EnvironmentFile=/etc/webdebit/sheet-sync.env
+EnvironmentFile=/etc/webdebit/company-info.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/srv/v7/auto-releases/current
+ExecStart=/usr/bin/python3 /srv/v7/auto-releases/current/cong-no-web-handoff/tools/v7_company_info_snapshot.py --output /var/lib/webdebit-sheet-sync/company-info.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/webdebit-sheet-sync
+TimeoutStartSec=300
+```
+
+   `/etc/systemd/system/webdebit-company-info.timer` (phút :20, tránh :00 sao lưu và :05 đối soát):
+
+```ini
+[Unit]
+Description=V7 Thong tin cty moi gio
+
+[Timer]
+OnCalendar=*-*-* *:20:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+4. **Bật:** `systemd-analyze verify`, `daemon-reload`, `systemctl start webdebit-company-info.service`; journal chỉ có một dòng số đếm (`accounts`, `customers`, `skipped_*`). Thoát mã 1 kèm "Sheet sai cấu trúc" là không thấy tiêu đề `SHIPPER` hoặc không có khối tài khoản nào có số tài khoản: file cũ giữ nguyên. Rồi `systemctl enable --now webdebit-company-info.timer`.
+5. **Kiểm:** `/thong-tin-cty.html` trả 200; `GET /api/v7/company-info` có `available: true` và số đếm bằng journal (chỉ đọc số đếm, không chép nội dung ra ngoài).
+6. **Tắt:** `systemctl disable --now webdebit-company-info.timer`; xóa `company-info.json` thì trang về "Chưa có bản đọc".
+
 ## Log sửa Sheet (SHEET-LOG-01)
 
 Không có SQL, không ghi tiền theo log ([quyết định](decisions/sheet-log-01.md), [spec](../specs/sheet-log-doi-soat.md)). Mã lên bằng `Deploy hao`; chưa đặt biến thì `edit_log.status` là `OFF`, màn như cũ.
