@@ -25,6 +25,7 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 - **Không in tiếng Việt**: chữ Latin bỏ dấu khi in; tên tiếng Trung của nơi/cảng ([DIA-DIEM-01](dia-diem-01.md)) chỉ in khi cấu hình `show_place_cn` bật, vì trang mẫu v4 chỉ có tên Latin. Khi bật, tên Trung nằm cùng dòng bên phải tên Latin, không xuống dòng (người dùng 11/11/2026); cột Loading place / POD nới theo tên dài nhất của chứng từ, Shipper co lại tới 60px, còn thiếu chỗ thì chữ hai cột này thu nhỏ, không dưới 9px. Bản in và Excel v4 cùng theo cờ này. Người dùng muốn debit note có tên tiếng Trung (chat 11/11/2026), nên cờ đã bật trên `hao` ngày 11/11/2026; tắt lại là sửa file cấu hình riêng, không cần deploy.
 - Ngày phát hành để trống thì in `[Issue date]` (SPEC mục 8 đang chờ team), người lập điền thì in ngày đó.
 - **Bỏ dòng `Attn 联系人`** ở BILL TO (người dùng 12/11/2026, chat, gửi ảnh dòng `Attn 联系人 [Contact]` kèm "bỏ cái này"): không in ở PDF và Excel, hộp không còn ô Người liên hệ. Người liên hệ nếu có thì nằm trong ô Tên pháp lý và địa chỉ (lấy từ Thông tin cty). Khách tên dài vì thế chứa được 16 container một trang thay vì 15.
+- **Tự cân bố cục** (người dùng 12/11/2026, chat, gửi ảnh: "chưa cân xứng lắm ở cái document, ở các hàng thì dính cột với nhau, tìm cách để tự cân"): cột chữ của bảng rộng theo chữ dài nhất, đo thật trước khi chia trang, có khoảng hở 12px, chỗ dư chia đều; khối DOCUMENT sát lề phải, thẳng mép cột Amount. Excel: cột Container no. và Line rộng theo chữ. Chi tiết ở SPEC mục 4.2.
 
 ## Ngày / nguồn
 

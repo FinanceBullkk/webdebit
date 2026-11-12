@@ -107,6 +107,9 @@ const DebitNoteV4Xlsx = (() => {
     // Loading place / POD: rộng theo chữ dài nhất (có tên tiếng Trung khi show_place_cn bật), để chữ không bị cắt.
     for (const [col, key] of [[5, 'place'], [6, 'pod']])
       cols[col] = Math.max(cols[col], ...doc.rows.filter(row => !row.feeOnly).map(row => Math.ceil(textWidth(placeText(doc, row[key])) + 2)));
+    // Container no. và Line cũng rộng theo chữ dài nhất (người dùng 12/11/2026: cột cố định làm chữ dính/cắt); chữ hoa rộng hơn chữ số.
+    for (const [col, key] of [[1, 'container'], [2, 'line']])
+      cols[col] = Math.max(cols[col], ...doc.rows.filter(row => !row.feeOnly).map(row => Math.ceil(textWidth(row[key]) * 1.15 + 3)));
     const moneyWidth = (values, en, cn, px) => Math.ceil(Math.max(px / 5.8, ...values.map(value => money(value).length * 1.05 + 2.5), en.length * 0.95 + 2, textWidth(cn) + 1.5));
     for (const column of doc.columns) cols.push(moneyWidth([...doc.rows.map(row => row.cells[column.code] ?? null), doc.total.cells[column.code]], column.en, column.cn, column.width));
     cols.push(moneyWidth([...doc.rows.map(row => row.amount), doc.total.amount, doc.account?.opening, doc.account?.outstanding,
