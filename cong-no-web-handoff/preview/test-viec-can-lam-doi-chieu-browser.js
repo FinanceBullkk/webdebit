@@ -447,6 +447,22 @@ if (process.argv.includes('--preview')) {
     assert.equal(await page.locator('[data-tab="may"]').getAttribute('aria-selected'), 'true');
   }));
 
+  // DIEN-THOAI-SEP-01: trên điện thoại mỗi việc là một khối nhiều dòng; cột Việc và Chi tiết nằm trong màn, không cuộn ngang.
+  test('đã làm trên điện thoại 390px: việc và chi tiết nằm trong màn, không cuộn ngang', async () => withPage({}, async page => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('[data-tab="may"]').click();
+    await page.locator('.act-table').waitFor();
+    const layout = await page.evaluate(() => ({
+      side: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      wrap: [...document.querySelectorAll('.act-scroll')].every(el => el.scrollWidth <= el.clientWidth),
+      outside: [...document.querySelectorAll('.act-table .act-label, .act-table .act-what, .act-table .act-open a')]
+        .filter(el => el.getBoundingClientRect().right > innerWidth).length,
+    }));
+    assert.deepEqual(layout, { side: 0, wrap: true, outside: 0 });
+    const item = await page.locator('[data-act-group="chuyen"] tr:not(.act-group-head)').first().innerText();
+    assert.match(item, /09:05[\s\S]*Máy[\s\S]*Mẫu An Phát[\s\S]*Dán lô chuyến[\s\S]*2 chuyến: MAUU0000002/);
+  }));
+
   test('đã làm: lùi về ngày gần nhất có việc, chọn ngày bằng ô ngày, ngày trống nói rõ, lỗi có Thử lại', async () => {
     const opts = { activityAsked: [] };
     await withPage(opts, async page => {

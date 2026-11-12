@@ -129,6 +129,17 @@
     });
   }
 
+  // Điện thoại (DIEN-THOAI-SEP-01): ma trận rộng hơn màn nhiều lần, mở sẵn ở tháng hiện tại thay vì Tháng 1. Chỉ một lần mỗi năm
+  // đang xem, để lượt tự tải mỗi 60 giây không kéo người xem về chỗ cũ.
+  let shownYear = null;
+  function showCurrentMonth() {
+    const cur = document.querySelector('#heat-head th.cur');
+    const wrap = cur?.closest('.table-wrap');
+    if (!cur || !wrap || shownYear === state.year || typeof matchMedia !== 'function' || !matchMedia('(max-width: 760px)').matches) return;
+    const name = document.querySelector('#heat-head th.khach')?.offsetWidth ?? 0;
+    wrap.scrollLeft = Math.max(0, cur.offsetLeft - name - cur.offsetWidth * 2);
+    shownYear = state.year;
+  }
   function render() {
     const data = state.data;
     if (!data) return;
@@ -173,6 +184,7 @@
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
     $('#heat-foot').innerHTML = footRows(rows);
     stackFoot();
+    showCurrentMonth();
 
     renderSummary(data);
     $('#year-cur').textContent = state.year;

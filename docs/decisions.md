@@ -115,6 +115,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="debit-note-03"></a>[DEBIT-NOTE-03](decisions/debit-note-03.md) | Debit note mẫu v4: một trang A4 ngang, cột phí theo cột của sổ, ACCOUNT STATUS tham khảo, 6 phép kiểm chặn xuất, cấu hình công ty/ngân hàng/tên phí | Chốt 10/11/2026; mẫu v3 ([DEBIT-NOTE-02](#debit-note-02)) vẫn mặc định tới khi team duyệt, bật v4 bằng cấu hình |
 | <a id="kiem-tong-01"></a>[KIEM-TONG-01](decisions/kiem-tong-01.md) | Máy đối soát mỗi giờ kiểm thêm tab TONG có cộng đủ các tab khách không (sổ còn số dư mà TONG để trống, dòng TONG lệch sổ, tên lạ), bằng đúng phép so của audit chuyển hẳn; chỉ báo, hiện ở đầu tab Việc cần làm | Chốt 11/11/2026; không đổi điều kiện máy ghi; màn hình là PR riêng |
 | <a id="dien-thoai-chuyen-01"></a>[DIEN-THOAI-CHUYEN-01](decisions/dien-thoai-chuyen-01.md) | Bảng chuyến Sổ khách trên điện thoại: ba cột, bấm hàng mở khung chi tiết, chỉ để xem |  |
+| <a id="dien-thoai-sep-01"></a>[DIEN-THOAI-SEP-01](decisions/dien-thoai-sep-01.md) | Màn sếp xem trên điện thoại: Tổng quan, Tình hình, Đã làm, Công nợ theo tháng, Bảng thu bớt cột, giữ số |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 
