@@ -476,9 +476,21 @@ test('điện thoại 390px: menu thu về nút ☰, năm người online nằm 
   assert.equal(main.left, 0);
   assert.equal(await page.locator('.app-nav nav').isVisible(), false);
   assert.equal(await noSideScroll(page), true);
+  // DIEN-THOAI-SEP-01: bảng khách chỉ Khách · Quá hạn · Còn nợ, số nằm trong màn (không phải vuốt ngang trong khung bảng);
+  // ba viên số cạnh Còn phải thu ghi chữ ngay.
+  await page.locator('#list tr').first().waitFor();
+  const table = await page.evaluate(() => {
+    const shown = el => getComputedStyle(el).display !== 'none';
+    const row = document.querySelector('#list tr');
+    return { cells: [...row.cells].filter(shown).map(td => td.className.split(' ')[0]), inside: row.querySelector('.tot').getBoundingClientRect().right <= innerWidth,
+      wrap: document.querySelector('.tbl-wrap').scrollWidth <= document.querySelector('.tbl-wrap').clientWidth };
+  });
+  assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
+  assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
   await page.locator('#nav-toggle').click();
   assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);
   await page.setViewportSize({ width: 1280, height: 720 });
+  assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
   await page.locator('#nav-toggle').click();
   assert.deepEqual(await Promise.all([box('aside.app-nav'), box('main')]).then(([nav, m]) => [nav.width, m.left]), [76, 76]);
 }));

@@ -157,3 +157,21 @@ svg{flex:none;vertical-align:middle}
 .tong-list{margin:2px 0 8px}.tong-list .work-scroll{margin-top:0;border:1px solid #d7dce3;border-radius:10px;background:#fff}.tong-list .inbox-note{margin:6px 2px 0}
 .tong-table{min-width:720px}.tong-table tbody>tr>*{padding:7px 8px;border-top:1px solid #e9edf1;vertical-align:top}.tong-table td.num{white-space:nowrap}
 .tong-table tbody th{padding-left:14px;max-width:260px;font-size:15px;text-align:left;overflow-wrap:anywhere}.tong-alias{display:block;font-size:13px;font-weight:400;color:#52514e}
+/* Tab Đã làm trên điện thoại (DIEN-THOAI-SEP-01): bảng 7 cột rộng 900px làm cột Việc ra ngoài màn. Mỗi việc thành một khối:
+   dòng 1 giờ · người làm · sổ · Mở sổ; dòng 2 việc và chi tiết; dòng 3 ghi chú. */
+@media (max-width:760px){
+  .act-table{min-width:0}
+  .act-table,.act-table tbody{display:block}
+  .act-table thead{display:none}
+  .act-table tr.act-group-head{display:block}
+  .act-table tr.act-group-head th{display:block}
+  .act-table tbody tr:not(.act-group-head){display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:baseline;gap:4px 8px;padding:10px 12px;border-bottom:1px solid #f0f2f5}
+  .act-table tbody tr:not(.act-group-head)>*{display:block;padding:0!important;border:0}
+  .act-table .act-book{white-space:normal;overflow-wrap:anywhere;font-weight:700}
+  .act-table .act-label{grid-column:1/-1;grid-row:2;font-weight:600}
+  .act-table .act-what{grid-column:1/-1;grid-row:3}
+  .act-table .act-note{grid-column:1/-1;grid-row:4}
+  .act-table .act-note:empty{display:none}
+  .act-table .act-open{width:auto;text-align:right}
+  .act-table .act-open a{display:inline-flex;align-items:center;min-height:32px}
+}

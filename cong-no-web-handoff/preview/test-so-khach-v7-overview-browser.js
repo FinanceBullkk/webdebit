@@ -190,6 +190,15 @@ test('Tình hình trên màn hẹp không cuộn ngang', async () => withPage(as
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
   assert.equal(await page.locator('.ov-total').isVisible(), true);
   assert.equal(await page.locator('.ov-activity').isVisible(), true);
+  // DIEN-THOAI-SEP-01: nhãn tháng của biểu đồ một dòng, không đè nhau (bỏ phần năm và "đến ngày" trên điện thoại).
+  const labels = await page.locator('.ov-name').evaluateAll(nodes => nodes.map(node => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    const rects = [...range.getClientRects()].filter(rect => rect.width > 0);
+    return { lines: new Set(rects.map(rect => Math.round(rect.top))).size, left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)) };
+  }));
+  assert.ok(labels.every(label => label.lines === 1), JSON.stringify(labels));
+  assert.ok(labels.every((label, index) => index === 0 || labels[index - 1].right <= label.left + 1), JSON.stringify(labels));
 }, debtor));
 
 test('Đổi khách trên Tình hình mở ô tìm khách', async () => withPage(async ({ page }) => {

@@ -173,7 +173,10 @@ tr.current td{background:#eef3f9}
   .by-day .c-who{width:auto}
   .sub td:empty{display:none}
   .thu .c-note,.thu .c-debt,.thu .c-share,.thu .c-last,.thu .c-go,.thu .c-count,.by-day .note,.by-day .debt,.go,.td-share,.when,.td-count,.group-head td:empty{display:none}
-  .thu .c-amt,.thu .c-und{width:118px}
+  .thu .c-amt,.thu .c-und{width:132px}
+  /* DIEN-THOAI-SEP-01: năm cách xem trên một hàng, vuốt ngang trong hàng thay vì chiếm ba dòng. */
+  .views{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .views>*{flex:none}
   .thu .c-month{width:90px}
   .thu .c-who{width:auto}
   .by-year th:nth-child(2),.by-year td:nth-child(2){display:none}

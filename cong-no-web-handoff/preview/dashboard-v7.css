@@ -246,5 +246,12 @@ body.tq{--t0:#a9cdf5;--t1:#1c5cab;--t2:#e8a33d;--t3:#d64541;--t4:#9b1c1c;--red:#
   .com-th span:nth-child(2),.com-line .cbar,.com-head .legend{display:none}
   .com-line .cn{white-space:normal;overflow-wrap:anywhere}
   .tq .debtors{padding:12px}
+  /* Điện thoại (DIEN-THOAI-SEP-01): bảng khách chỉ còn Khách · Quá hạn · Còn nợ, vừa màn, không cuộn ngang. Thanh hạn trả
+     chỉ có số khi rê chuột nên bỏ; hai cột ngày Trả, Đi hàng bỏ vì chấm màu trước tên đã gộp mức rủi ro. */
+  .dtable{min-width:0}
+  .dtable th.bar-h,.dtable td.bar,.dtable th[data-col="pay"],.dtable th[data-col="trip"],.dtable td.d{display:none}
+  .dtable td.who{width:auto}
+  /* Ba viên số cạnh Còn phải thu ghi chữ ngay (trên máy tính chữ nằm ở chú thích rê chuột). */
+  .owe-row .pill .sr-only{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:nowrap}
 }
 @media (prefers-reduced-motion:reduce){.age-bar button{transition:none}}

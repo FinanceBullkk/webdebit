@@ -146,3 +146,5 @@
   .summary{flex-wrap:wrap}
   .summary .status{margin-left:0}
 }
+/* Điện thoại (DIEN-THOAI-SEP-01): bỏ dòng "Cập nhật … tự tải mỗi 60 giây" ở đầu trang, còn "Số liệu đến" và nút Làm mới. */
+@media (max-width:760px){#updated-at{display:none}}
