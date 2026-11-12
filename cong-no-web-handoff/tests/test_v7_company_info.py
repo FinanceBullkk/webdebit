@@ -101,6 +101,46 @@ class ParseTest(unittest.TestCase):
         again, _ = job.parse_accounts(ACCOUNTS)
         self.assertEqual([item["id"] for item in again], [first["id"], second["id"]])   # id bền qua các lần đọc
 
+    def test_bank_column_accounts_belong_to_their_block(self):
+        # TAI-KHOAN-COT-E-01: cột E cùng khối là tài khoản của chính công ty; dòng sau chỗ hở vẫn của khối đó.
+        customers, _ = job.parse_customers(CUSTOMERS)
+        a, b, c, _d = customers
+        self.assertEqual([(item["beneficiary"], item["bank"], item["account"]) for item in a["accounts"]],
+                         [("THU A COMPANY LIMITED", "NH GIA A", "111")])
+        self.assertEqual([(item["beneficiary"], item["account"]) for item in b["accounts"]], [("THU B CO.,LTD", "222")])
+        self.assertEqual(c["accounts"], [])
+
+    def test_bank_column_handwritten_labels(self):
+        # Các kiểu viết đo trên Sheet thật ngày 12/11/2026, dữ liệu giả.
+        two_with_gap = ["THU M COMPANY LIMITED", "ADD: 1 FAKE ST", "ACCOUNT NUMBER: 1000 0001", "ACCOUNT CURRENCY: USD",
+                        "NAME OF BANK: NH GIA M1, CHI NHANH A", "BANK'S ADDRESS: 2 DUONG NGAN HANG", "SWIFT CODE: GIAMVNVX",
+                        "", "-THU M COMPANY LIMITED", "-ADD: 1 FAKE ST", "-BANK NAME: NH GIA M2", "-BANK ADDRESS:3 DUONG",
+                        "-ACCOUNT NUMBER :20000002  (USD)", "-SWIFTCODE:GIAM2VNX"]
+        first, second = job.parse_bank_column(two_with_gap, "THU M CO")
+        self.assertEqual((first["beneficiary"], first["address"], first["bank"], first["bank_address"], first["account"], first["currency"], first["swift"]),
+                         ("THU M COMPANY LIMITED", "1 FAKE ST", "NH GIA M1, CHI NHANH A", "2 DUONG NGAN HANG", "1000 0001", "USD", "GIAMVNVX"))
+        self.assertEqual((second["bank"], second["bank_address"], second["account"], second["currency"]), ("NH GIA M2", "3 DUONG", "20000002", "USD"))
+        self.assertRegex(first["id"], r"^e[0-9a-f]{12}$")
+        self.assertNotEqual(first["id"], second["id"])
+
+        # Không chỗ hở: ACC NAME lặp lại là tài khoản mới; BENEFICIARY’S BANK là ngân hàng; ADD sau ngân hàng là địa chỉ ngân hàng.
+        repeated = ["GHI CHU KHACH X DUNG TK NAY:", "ACC NAME : THU N CO", "5 FAKE RD", "TEL/FAX : 000 / 111", "TAX CODE : 0 0 0",
+                    "BENEFICIARY’S BANK: NH GIA N1", "ADDRESS : 6 DUONG, PHUONG A", "QUAN B, THANH PHO C", "USD ACCOUNT NUMBER: 3000003",
+                    "SWIFT CODE: GIANVNVX", "ACC NAME: CONG TY THU N", "BANK NAME: NH GIA N2", "ADD: 7 DUONG", "ACCOUNT NO.:4000004",
+                    "SWIFT CODE: GIAN2VNX", "RMB ACCOUNT", "NEW UPDATE 3/11/2026"]
+        n1, n2 = job.parse_bank_column(repeated, "THU N CO")
+        self.assertEqual((n1["beneficiary"], n1["address"], n1["bank"], n1["bank_address"], n1["account"], n1["currency"]),
+                         ("THU N CO", "5 FAKE RD", "NH GIA N1", "6 DUONG, PHUONG A QUAN B, THANH PHO C", "3000003", "USD"))
+        self.assertEqual((n2["beneficiary"], n2["bank_address"], n2["account"], n2["currency"]), ("CONG TY THU N", "7 DUONG", "4000004", "CNY"))
+
+        # Không có tên người nhận thì lấy tên công ty; NEW ADD thay địa chỉ cũ; ACOUNT viết sai vẫn nhận; dòng không có số bị bỏ.
+        bare = ["ACC NAME: THU P CO", "1 DUONG CU", "NEW ADD: 2 DUONG MOI", "ACOUNT NUMBER (USD): 0500  0000  0005", "BANK: NH GIA P"]
+        (p,) = job.parse_bank_column(bare, "THU P CO")
+        self.assertEqual((p["address"], p["account"], p["currency"], p["bank"]), ("2 DUONG MOI", "0500 0000 0005", "USD", "NH GIA P"))
+        (q,) = job.parse_bank_column(["ACCOUNT NO.: 5000005", "BANK: NH GIA Q"], "THU Q CO")
+        self.assertEqual((q["beneficiary"], q["currency"]), ("THU Q CO", None))
+        self.assertEqual(job.parse_bank_column(["ACC NAME: THU R", "BANK NAME: NH GIA R", "VND ACCOUNT NO:"], "THU R"), [])
+
     def test_no_account_number_anywhere_is_a_shape_error(self):
         with self.assertRaises(job.SheetShapeError):
             job.parse_accounts([["", "KHOI", "BANK NAME", "X"]])
@@ -191,6 +231,19 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(body["read_at"], snapshot["runner"]["created_at"])
         self.assertEqual([item["label"] for item in body["accounts"]], ["VND · NGAN HANG GIA", "USD · BANK B"])
         self.assertEqual((body["customers"][0]["name"], body["customers"][0]["rows"]), ("THU A", [3, 9]))
+        own = body["customers"][0]["accounts"]
+        self.assertEqual([(item["beneficiary"], item["bank"], item["account"]) for item in own], [("THU A COMPANY LIMITED", "NH GIA A", "111")])
+        self.assertNotIn("lines", own[0])
+
+    def test_old_snapshot_without_own_accounts_still_served(self):
+        snapshot = job.build(CUSTOMERS, ACCOUNTS)
+        for item in snapshot["customers"]:
+            del item["accounts"]
+        _, body = served.handle_get("", self.write(snapshot))
+        self.assertEqual([item["accounts"] for item in body["customers"]], [[], [], [], []])
+        snapshot["customers"][0]["accounts"] = "x"
+        with self.assertRaises(served.InfoError):
+            served.handle_get("", self.write(snapshot))
 
     def test_route_goes_through_api_without_db(self):
         runner = Mock()

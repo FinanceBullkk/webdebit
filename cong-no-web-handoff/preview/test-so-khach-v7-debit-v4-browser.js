@@ -165,6 +165,11 @@ test('Debit note v4: ba ô gõ tìm tên từ Thông tin cty (Đứng tên, Nh�
   assert.match(head, /^PHAT HANH CO.,LTD/);
   assert.match(head, /9 Duong Gia, Phuong Gia · Tax ID 税号: 0000000009 · Tel 电话: 028 000 000 · Email 邮箱: ph@thu.test/);
   assert.match(await view.locator('[data-blk="INFO"]').innerText(), /\[Customer legal name & address\]/);   // không đụng BILL TO
+  // Công ty đứng tên không có tài khoản ở cột ngân hàng: tài khoản cũ (của công ty khác) bỏ chọn và nêu lý do.
+  assert.equal(await page.locator('#dn4-account').inputValue(), 'Chưa chọn');
+  assert.equal(await box(page, 'account').locator('.dn4-note').innerText(),
+    'Cong Ty Phat Hanh chưa có tài khoản ở cột ngân hàng trên Sheet. Chứng từ in [Account no.]');
+  await pick(page, 'account', 'gia', 'CONG TY GIA');
   await page.locator('#dn4-bill').click();
   await page.locator('#dn4-bill').fill('khong co');
   assert.equal(await box(page, 'bill').locator('.dn4-empty').innerText(), 'Không có tên này trong Thông tin cty.');
@@ -186,6 +191,49 @@ test('Debit note v4: ba ô gõ tìm tên từ Thông tin cty (Đứng tên, Nh�
   assert.equal(await page.locator('#dn4-account').inputValue(), 'Chưa chọn');
   assert.deepEqual(world.requests, []);   // chỉ đọc
 }, world => { priced(world); world.companyInfo = COMPANY; }));
+
+// TAI-KHOAN-COT-E-01: tài khoản ở cột ngân hàng cùng khối là tài khoản của chính công ty đứng tên (dữ liệu giả).
+const OWN = [
+  { id: 'e000000000001', currency: 'CNY', beneficiary: 'MINI CO', address: null, bank: 'NH GIA CNY', bank_address: null, account: '7000007', swift: 'GIACVNVX' },
+  { id: 'e000000000002', currency: 'USD', beneficiary: 'MINI COMPANY LIMITED', address: '1 FAKE ST', bank: 'NH GIA USD', bank_address: '2 DUONG',
+    account: '8000 008', swift: 'GIAUVNVX' },
+  { id: 'e000000000003', currency: 'USD', beneficiary: 'MINI CO', address: null, bank: 'BANK B HUNG VUONG', bank_address: null, account: '000 123', swift: 'TESTVNVX' },
+];
+const WITH_OWN = { ...COMPANY, customers: [...COMPANY.customers, { name: 'MINI', company: 'MINI COMPANY LIMITED', rows: [3, 16], shipper: 'MINI COMPANY LIMITED',
+  invoice: 'CONG TY TNHH MINI', bank: '', header: { name: 'MINI COMPANY LIMITED', address: '1 Fake St', tax_id: '0000000011', tel: null, email: null }, accounts: OWN }] };
+
+test('Debit note v4: chọn công ty đứng tên thì Nhận tiền vào tự lấy tài khoản USD cùng khối trên Sheet; tài khoản của khối lên đầu, bỏ số trùng; vẫn đổi được; nhớ theo sổ', async () => withPage(async ({ page }) => {
+  await page.locator('#thang-2026-09 .debit-open').click();
+  const dialog = page.locator('.debit-dialog');
+  const view = page.frameLocator('.debit-preview');
+  await view.locator('[data-page]').first().waitFor();
+  await pick(page, 'issuer', 'mini', 'MINI');
+  assert.equal(await page.locator('#dn4-account').inputValue(), 'MINI COMPANY LIMITED');   // USD đầu tiên, bỏ qua CNY đứng trước
+  assert.equal(await box(page, 'account').locator('.dn4-note').innerText(), 'NH GIA USD · USD · STK 8000 008 · SWIFT GIAUVNVX');
+  const bottom = await view.locator('[data-blk="BOTTOM"]').innerText();
+  assert.match(bottom, /Beneficiary 收款人\s+MINI COMPANY LIMITED/);
+  assert.match(bottom, /USD Account 美元账号\s+8000 008/);
+  assert.match(await view.locator('[data-blk="LH"]').innerText(), /^MINI COMPANY LIMITED/);
+
+  await page.locator('#dn4-account').click();
+  assert.deepEqual(await options(page, 'account'), ['Chưa chọn', 'MINI CO', 'MINI COMPANY LIMITED', 'MINI CO', 'CONG TY GIA']);   // TEST CO trùng số …123 nên ẩn
+  assert.deepEqual((await box(page, 'account').locator('.dn4-opt span').allInnerTexts()).slice(1, 3),
+    ['NH GIA CNY · CNY · …0007 · của MINI', 'NH GIA USD · USD · …0008 · của MINI']);   // đuôi theo chữ số, bỏ dấu cách
+  await page.keyboard.press('Escape');
+  await pick(page, 'account', 'cny', 'NH GIA CNY');   // vẫn đổi được
+  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /CNY Account 人民币账号\s+7000007/);
+  await dialog.locator('.debit-close').click();
+
+  await page.locator('#thang-2026-09 .debit-open').click();
+  await view.locator('[data-page]').first().waitFor();
+  assert.deepEqual(await Promise.all(['issuer', 'account'].map(kind => page.locator(`#dn4-${kind}`).inputValue())), ['MINI', 'MINI CO']);   // nhớ theo sổ
+
+  // Về công ty theo cấu hình: tài khoản về theo cấu hình.
+  await page.locator('#dn4-issuer').click();
+  await box(page, 'issuer').locator('.dn4-opt').first().dispatchEvent('mousedown');
+  assert.equal(await page.locator('#dn4-account').inputValue(), 'Chưa chọn');
+  assert.equal(await box(page, 'account').locator('.dn4-note').innerText(), 'Chứng từ in [Account no.]');
+}, world => { priced(world); world.companyInfo = WITH_OWN; }));
 
 test('Debit note v4: chưa bật Thông tin cty thì nêu lý do, ô chỉ còn lựa chọn theo cấu hình; vẫn xuất được', async () => withPage(async ({ page }) => {
   await page.locator('#thang-2026-09 .debit-open').click();
