@@ -188,7 +188,7 @@ def parse_bank_column(lines: list[str], company: str) -> list[dict]:
     gap = False
 
     def start() -> dict:
-        item = {key: None for key in KEYS} | {"currency": None, "lines": []}
+        item = dict.fromkeys(KEYS) | {"currency": None, "lines": []}
         accounts.append(item)
         return item
 
