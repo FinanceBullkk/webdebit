@@ -40,4 +40,13 @@ Không thêm API. Khung chi tiết đọc nguyên chữ của các ô đã vẽ 
 
 ## Ngoài phạm vi
 
-Sổ có bảng chi tiết theo bảng kê (`SO-CHI-TIET-01`); khối tổng tháng; phiếu thu; Tình hình, Trao đổi, Hồ sơ.
+Khối tổng tháng; Tình hình, Trao đổi, Hồ sơ. (Bảng kê và phiếu thu: xem phần mở rộng bên dưới.)
+
+## Mở rộng 12/11/2026: bảng kê và phiếu thu
+
+Quyết định: ý 6–7 của `DIEN-THOAI-CHUYEN-01`. Không thêm API, không đổi số.
+
+- Bảng kê (`SO-CHI-TIET-01`) dưới 760px: luôn bảng gọn (`so-khach-v7-detail-ui.js` không vẽ "Đủ cột", lựa chọn đã nhớ giữ nguyên cho máy tính); ba cột Số container · Ngày đóng · = Tổng; nhãn tình trạng dưới container; bấm dòng bung tại chỗ; dòng cộng ghi cả cước khách tự trả (không tính).
+- Phiếu thu: mỗi phiếu hai dòng (ngày, số tiền; rồi hình thức · tham chiếu · phân bổ).
+
+Tiêu chí: 390×844 không cuộn ngang, không ô nào của bảng kê ra ngoài màn, hàng ≥ 44px, không gửi lệnh khi bấm dòng; số tiền phiếu thu nằm trong màn, cùng dòng với ngày; 1280 giữ bảng như cũ. Test: `test-so-khach-v7-phone-browser.js`.

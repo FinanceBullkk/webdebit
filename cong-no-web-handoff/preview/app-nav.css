@@ -56,6 +56,6 @@ body:has(> .app-nav) > #demo-banner{margin-left:76px}
   .page.app-page > .page-head.topbar{margin:-16px -12px 12px}
   .app-nav ~ .page > .page-head.topbar{height:auto;min-height:60px;flex-wrap:wrap;padding:8px 12px 8px 64px}
   .page.app-page > .page-head.topbar .asof,.page.app-page > .page-head.topbar .live-controls{margin-left:0;white-space:normal;flex-wrap:wrap}
-  .page.app-page > .page-head.topbar .filter{flex:1 1 100%}
-  .page.app-page > .page-head.topbar .filter input{width:100%}
+  .page.app-page > .page-head.topbar .filter{flex:1 1 100%;height:44px}
+  .page.app-page > .page-head.topbar .filter input{width:100%;height:100%}
 }

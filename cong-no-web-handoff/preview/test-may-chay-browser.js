@@ -247,4 +247,8 @@ test('Máy chạy: bảng job hiện tình trạng, thiếu lịch là gạch; k
   assert.ok(rows[2].includes('—'));
   const wide = await page.evaluate(() => { const limit = document.documentElement.clientWidth; return document.documentElement.scrollWidth <= limit ? [] : [...document.querySelectorAll('body *')].filter(node => node.getBoundingClientRect().right > limit + 1 && !node.closest('.officebox, .jobwrap')).map(node => `${node.tagName}#${node.id}.${node.className}:${(node.textContent ?? '').slice(0, 30)}:${node.parentElement.className}`).slice(0, 8); });
   assert.deepEqual(wide, [], 'khổ điện thoại không tràn ngang');
+  // DIEN-THOAI-NUT-01: nút chọn người, máy quay, hai tab, ô giờ lượt và Làm mới cao ít nhất 40px trên điện thoại.
+  const low = await page.evaluate(() => [...document.querySelectorAll('.mc .ctrl, .mc .tabs button, .mc .slot, .mc #refresh-data')]
+    .filter(el => el.getClientRects().length && el.getBoundingClientRect().height < 40).map(el => `${el.className}:${el.textContent.trim().slice(0, 20)}`));
+  assert.deepEqual(low, []);
 }, { width: 420, height: 800 }));

@@ -13,6 +13,10 @@
   const remember = value => { try { localStorage.setItem(STORE, value); } catch { /* không lưu được thì chỉ đổi trong phiên */ } };
   let ledgerView = remembered() === 'so';
   let mode = remembered() === 'du' ? 'du' : 'gon';
+  // Điện thoại (dưới 760px) luôn bảng gọn: 15 cột theo file không đọc được ở bề ngang 390px; phần bung đã có Bill, tàu, ETD/ETA.
+  const phone = typeof matchMedia === 'function' ? matchMedia('(max-width: 760px)') : null;
+  const shownMode = () => (phone?.matches ? 'gon' : mode);
+  phone?.addEventListener?.('change', () => { if (mode === 'du') redraw(); });
   // Lọc và dòng đang mở sống qua các lần vẽ lại, nên tự tải lại không làm mất.
   let filter = null;
   let openRow = null;
@@ -146,7 +150,7 @@
       + '<th scope="col" class="num dt-own">+ Cước tàu mình thu</th><th scope="col" class="num dt-own">= Tổng</th><th scope="col" class="num dt-customer">Cước khách tự trả (không tính)</th><th scope="col" aria-label="Mở dòng"></th></tr></thead>'
       + `<tbody>${rows.map(row => compactRow(row, numbered.get(row))).join('')}</tbody>`
       + `<tfoot><tr><td colspan="6" class="dt-foot-label">${footLabel(summary)}</td><td class="num dt-foot-total">${fmt(summary.charges_vnd ?? summary.total_vnd)}</td>`
-      + `<td class="num dt-foot-customer">${money(summary.of_customer_vnd)}</td><td></td></tr></tfoot></table>`;
+      + `<td class="num dt-foot-customer"><span class="ph-only">Cước khách tự trả, không tính: </span>${money(summary.of_customer_vnd)}</td><td></td></tr></tfoot></table>`;
   }
 
   // ---- Đủ cột: 15 cột theo thứ tự file ----
@@ -202,7 +206,7 @@
     const group = activeGroup(all, key);
     const rows = group ? all.filter(row => inGroup(row, group)) : all;
     const note = group?.id === 'doi-chieu' ? compareNote(summary) : '';
-    return monthNote(summary) + note + (mode === 'du' ? fullTable(rows, summary, numbered) : compactTable(rows, summary, numbered));
+    return monthNote(summary) + note + (shownMode() === 'du' ? fullTable(rows, summary, numbered) : compactTable(rows, summary, numbered));
   }
 
   function setFilter(month, id) {
