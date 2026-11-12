@@ -158,3 +158,39 @@ test('Debit note v4: chưa bật Thông tin cty thì ô chọn khách khóa và 
   await dialog.locator('.debit-ack input').check();
   assert.equal(await dialog.locator('.debit-print').isDisabled(), false);
 }, priced));
+
+// DIEN-THOAI-DEBIT-01: dưới 760px hộp phủ cả màn, một cột (kiểm → form → xem trước), bản xem trước thu vừa khung; 1280 giữ như cũ.
+test('Debit note trên điện thoại 390px: một cột, đọc được dòng Chặn/Cảnh báo, nút khóa nhìn ra khóa, xem trước không cuộn ngang', async () => withPage(async ({ page, shot }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#thang-2026-09 .debit-open').click();
+  const dialog = page.locator('.debit-dialog');
+  const view = page.frameLocator('.debit-preview');
+  await view.locator('[data-page]').first().waitFor();
+  const box = selector => dialog.locator(selector).first().boundingBox();
+  assert.deepEqual(await box('.debit-panel'), { x: 0, y: 0, width: 390, height: 844 });
+  for (const name of ['.debit-print', '.debit-excel', '.debit-close']) {
+    const item = await box(name);
+    assert.ok(item.height >= 44 && item.x >= 0 && item.x + item.width <= 390, `${name} ${JSON.stringify(item)}`);
+  }
+  const [review, form, body] = [await box('.debit-review'), await box('.debit-form'), await box('.debit-body')];
+  assert.equal(review.width, 390);   // màn rộng hai cột thì cột này chỉ còn 46px
+  assert.equal(form.width, 390);
+  assert.ok(review.y < form.y && form.y < body.y, 'thứ tự: kiểm, form, xem trước');
+  assert.equal(await page.evaluate(() => document.querySelector('.debit-main').scrollWidth <= 390), true);
+  // Còn cảnh báo: nút In khóa và nhìn ra khóa; xác nhận thì mở.
+  assert.equal(await dialog.locator('.debit-print').isDisabled(), true);
+  assert.equal(await dialog.locator('.debit-print').evaluate(el => getComputedStyle(el).opacity), '0.45');
+  await dialog.locator('.debit-ack input').check();
+  assert.equal(await dialog.locator('.debit-print').isDisabled(), false);
+  assert.equal(await dialog.locator('.debit-print').evaluate(el => getComputedStyle(el).opacity), '1');
+  assert.equal(await dialog.locator('[name="number"]').evaluate(el => getComputedStyle(el).fontSize), '16px');   // Safari không tự phóng to
+  const fit = () => view.locator('.debit-root').evaluate(el => ({ zoom: el.style.zoom, fits: document.documentElement.scrollWidth <= document.documentElement.clientWidth }));
+  const narrow = await fit();
+  assert.ok(Number(narrow.zoom) > 0.2 && Number(narrow.zoom) < 0.6 && narrow.fits, JSON.stringify(narrow));
+  await dialog.locator('.debit-body').scrollIntoViewIfNeeded();
+  await shot('debit-note-dien-thoai-390');
+  // Xoay ngang / màn rộng: về cỡ xem trước cũ (.6 trong CSS khung), hai cột như trước.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.waitForFunction(() => document.querySelector('.debit-preview').contentDocument.querySelector('.debit-root').style.zoom === '');
+  assert.equal((await box('.debit-form')).width, 320);
+}, priced));

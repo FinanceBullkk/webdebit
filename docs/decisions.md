@@ -119,6 +119,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dien-thoai-thang-01"></a>[DIEN-THOAI-THANG-01](decisions/dien-thoai-thang-01.md) | Công nợ theo tháng trên điện thoại: danh sách theo khách thay ma trận, chạm khách bung các tháng còn nợ |  |
 | <a id="thong-tin-cty-01"></a>[THONG-TIN-CTY-01](decisions/thong-tin-cty-01.md) | Tab Thông tin cty chỉ xem, đọc mỗi giờ từ Sheet thông tin khách hàng (shipper, thông tin xuất hóa đơn, tài khoản nhận tiền); debit note v4 chọn khách và tài khoản từ đó | Chốt 12/11/2026; bổ sung cấu hình ngân hàng của [DEBIT-NOTE-03](#debit-note-03) |
 | <a id="dien-thoai-nut-01"></a>[DIEN-THOAI-NUT-01](decisions/dien-thoai-nut-01.md) | Nút trên điện thoại: vùng bấm ít nhất 40px (44px với ô lọc, ô chọn) ở Sổ, Công nợ theo tháng, Máy chạy |  |
+| <a id="dien-thoai-debit-01"></a>[DIEN-THOAI-DEBIT-01](decisions/dien-thoai-debit-01.md) | Hộp Debit note trên điện thoại: phủ cả màn, một cột (Chặn/Cảnh báo → form → xem trước vừa khung); nút xuất khóa thì mờ |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 
