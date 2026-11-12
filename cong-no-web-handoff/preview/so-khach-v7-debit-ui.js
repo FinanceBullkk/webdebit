@@ -137,18 +137,50 @@
   }
   // ---- Mẫu v4 (DEBIT-NOTE-03, docs/debit-note-v4/SPEC.md): một trang A4 ngang, 6 phép kiểm, sai thì không xuất. ----
   // Mẫu nào do cấu hình máy chủ quyết (GET /api/v7/debit-note/config, mặc định v3); ?debit=v4 hoặc ?debit=v3 trên địa chỉ trang
-  // để xem thử mẫu kia. Công ty, ngân hàng và tên phí lấy từ cấu hình; người lập chỉ điền số, ngày và thông tin khách.
+  // để xem thử mẫu kia. Công ty và tên phí lấy từ cấu hình; tài khoản nhận tiền và thông tin khách chọn từ Thông tin cty (THONG-TIN-CTY-01) hoặc theo cấu hình.
   const V4_CUSTOMER_KEY = `debit-note:v4:customer:${customerId}`;
   let configLoad = null;
+  // THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền đọc từ Sheet thông tin khách hàng (GET /api/v7/company-info).
+  const ACCOUNT_CN = { USD: '美元账号', VND: '越南盾账号', CNY: '人民币账号', EUR: '欧元账号' };
+  const tail = number => `…${String(number ?? '').slice(-4)}`;
+  const accountsOf = directory => (directory?.available ? directory.accounts : []);
+  const customersOf = directory => (directory?.available ? directory.customers : []);
+  // Tài khoản chọn ở hộp ghi đè phần ngân hàng của cấu hình máy chủ cho riêng chứng từ này; không chọn thì theo cấu hình.
+  function effectiveConfig(config, account) {
+    if (!account) return config;
+    const payment = { ...(config?.payment ?? {}), beneficiary: account.beneficiary, bank: account.bank, account: account.account, swift: account.swift };
+    if (account.currency) Object.assign(payment, { account_label_en: `${account.currency} Account`, account_label_cn: ACCOUNT_CN[account.currency] ?? '账号' });
+    return { ...config, payment };
+  }
   function formV4(state) {
-    const c = state.customer;
+    const c = state.customer, directory = open.directory, accounts = accountsOf(directory);
+    const pickHint = open.directoryError ? `Chưa đọc được Thông tin cty: ${open.directoryError}` : directory?.available
+      ? 'Chọn một khách thì ô Tên pháp lý và địa chỉ lấy theo thông tin xuất hóa đơn.' : 'Máy chủ chưa đọc Sheet thông tin khách hàng.';
+    const configured = open.config?.payment?.account;
+    const accountOptions = [`<option value="">${escape(configured ? `Theo cấu hình máy chủ (${tail(configured)})` : 'Chưa chọn')}</option>`,
+      ...accounts.map(item => `<option value="${escape(item.id)}"${item.id === state.account ? ' selected' : ''}>${escape(`${item.label} · ${tail(item.account)}`)}</option>`)];
     return `<form class="debit-form" novalidate>
       <fieldset><legend>Chứng từ</legend>${field('number', 'Số debit note', state.number)}${field('issueDate', 'Ngày phát hành', state.issueDate,
         { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}</fieldset>
-      <fieldset><legend>Khách (BILL TO)</legend>${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
+      <fieldset><legend>Khách (BILL TO)</legend><label class="debit-field"><span>Chọn từ Thông tin cty</span><input name="pick" list="debit-company-list"
+        value="${escape(state.pick)}" placeholder="Gõ tên shipper" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
+        customersOf(directory).map(item => `<option value="${escape(item.shipper)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label>
+        ${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
         ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}
         ${field('customer.contact', 'Người liên hệ (Attn)', c.contact)}</fieldset>
-      <p class="debit-note-v4">Công ty, ngân hàng và tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
+      <fieldset><legend>Tài khoản nhận tiền</legend><label class="debit-field"><span>Tài khoản in trên chứng từ</span><select name="account">${accountOptions.join('')}</select>
+        <small>Danh sách theo tab Thông tin cty.</small></label></fieldset>
+      <p class="debit-note-v4">Công ty và tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
+  }
+  // Chọn đúng tên một shipper trong danh sách thì điền ô pháp lý (một lần cho mỗi lần chọn; người lập vẫn sửa tay được).
+  function applyPick() {
+    const input = dialog.querySelector('[name="pick"]');
+    const name = input?.value.trim();
+    if (!name || name === open.appliedPick) return;
+    const found = customersOf(open.directory).find(item => item.shipper === name);
+    if (!found) return;
+    open.appliedPick = name;
+    dialog.querySelector('[name="customer.legal"]').value = found.invoice;
   }
   function readFormV4() {
     const state = { customer: {} };
@@ -161,9 +193,12 @@
   // Dựng chứng từ, kiểm, chia trang (đo trong khung xem trước) rồi vẽ; nút xuất khóa khi còn phép kiểm sai.
   function refreshV4() {
     const state = readFormV4();
+    const account = accountsOf(open.directory).find(item => item.id === state.account) ?? null;
+    const config = effectiveConfig(open.config, account);
     const doc = DebitNoteV4.fromLedger(ctx.snapshot ?? {}, open.monthKey, { model, feeTypes: ctx.feeTypes ?? [], feeColumnIds: ctx.feeColumnIds ?? [],
-      config: open.config, form: state });
-    const checks = [...(open.configError ? [{ level: 'block', text: `Không đọc được cấu hình debit note: ${open.configError}` }] : []), ...DebitNoteV4.checks(doc)];
+      config, form: state });
+    const checks = [...(open.configError ? [{ level: 'block', text: `Không đọc được cấu hình debit note: ${open.configError}` }] : []),
+      ...(config?.payment?.account ? [] : [{ level: 'warn', text: 'Chưa chọn tài khoản nhận tiền: chứng từ in [Account no.].' }]), ...DebitNoteV4.checks(doc)];
     const blocks = checks.filter(item => item.level === 'block').length, warns = checks.filter(item => item.level === 'warn').length;
     const ack = dialog.querySelector('.debit-ack input');
     const ready = blocks === 0 && (warns === 0 || ack?.checked === true);
@@ -185,14 +220,16 @@
     }
     const count = open.pages?.length ?? 0;
     dialog.querySelector('.debit-status').textContent = `${doc.total.count} container · ${count} trang · ${blocks ? 'chưa xuất được' : 'mẫu v4'}`;
-    write(V4_CUSTOMER_KEY, { customer: state.customer });
+    write(V4_CUSTOMER_KEY, { customer: state.customer, pick: state.pick ?? '', account: state.account ?? '' });
   }
-  function showV4(monthKey, opener, config, configError = '') {
-    const saved = read(V4_CUSTOMER_KEY).customer ?? {};
+  function showV4(monthKey, opener, config, configError = '', directory = null, directoryError = '') {
+    const remembered = read(V4_CUSTOMER_KEY), saved = remembered.customer ?? {};
     const name = DebitNoteV4.splitName(defaultDisplay());
-    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '',
+    // Tài khoản đã nhớ mà không còn trên Sheet thì coi như chưa chọn.
+    const account = accountsOf(directory).some(item => item.id === remembered.account) ? remembered.account : '';
+    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', pick: remembered.pick ?? '', account,
       customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '', contact: saved.contact ?? '' } };
-    open = { v4: true, monthKey, opener, config, configError };
+    open = { v4: true, monthKey, opener, config, configError, directory, directoryError, appliedPick: remembered.pick ?? '' };
     dialog.innerHTML = `<div class="debit-panel"><header><h2>Debit note tháng ${escape(monthLabel(monthKey))}<small class="debit-status"></small></h2>
       <button type="button" class="debit-print">In / Lưu PDF</button><button type="button" class="debit-excel">Tải Excel</button><button type="button" class="debit-close">Đóng</button></header>
       <div class="debit-main">${formV4(state)}<div class="debit-side"><div class="debit-review" role="status"><ul class="debit-checks"></ul>
@@ -235,8 +272,11 @@
     try { config = await configLoad; } catch (error) { configError = error.message; configLoad = null; }
     const asked = new URLSearchParams(location.search).get('debit');
     const template = ['v3', 'v4'].includes(asked) ? asked : config?.template ?? 'v3';
-    if (template === 'v4') showV4(monthKey, opener, config ?? {}, configError);
-    else showV3(monthKey, opener);
+    if (template !== 'v4') { showV3(monthKey, opener); return; }
+    // Danh bạ đọc lại mỗi lần mở hộp (Sheet sửa xong thì lần mở sau thấy); lỗi thì hộp vẫn dùng như trước.
+    let directory = null, directoryError = '';
+    try { directory = await (ctx.api.readCompanyInfo?.() ?? null); } catch (error) { directoryError = error.message; }
+    showV4(monthKey, opener, config ?? {}, configError, directory, directoryError);
   }
 
   function close() {
@@ -282,6 +322,7 @@
   dialog.addEventListener('input', event => {
     if (!open || !event.target.closest('.debit-form, .debit-ack') || event.target.name === 'issuerCode') return;   // đổi công ty xử lý ở change
     if (event.target.name === 'number') event.target.dataset.touched = '1';
+    if (open.v4 && event.target.name === 'pick') applyPick();
     (open.v4 ? refreshV4 : refresh)();
   });
   dialog.addEventListener('change', event => {

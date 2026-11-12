@@ -412,6 +412,12 @@ async function withPage(fn, setup = () => {}) {
       if (world.debitConfig) send(200, { config: world.debitConfig }); else send(404, { error: 'NOT_FOUND' });
       return;
     }
+    // THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền do test đặt (world.companyInfo); không đặt thì như chưa bật job.
+    if (url.pathname === '/api/v7/company-info' && req.method === 'GET') {
+      (world.companyInfoReads ??= []).push(url.search);
+      send(200, world.companyInfo ?? { available: false });
+      return;
+    }
     if (url.pathname === '/api/v7/receipt-images') {
       send(200, { images: world.images.filter(image => !image.removed).map(({ id, pid, sha256, content_type }) => ({ id, pid, sha256, content_type })) });
       return;

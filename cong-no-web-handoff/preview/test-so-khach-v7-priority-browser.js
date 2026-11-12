@@ -171,7 +171,7 @@ test('Ưu tiên: điện thoại 390px, khối tổng tháng không có khoảng
   });
   assert.ok(geo.rail <= 60 && geo.app === 0 && geo.who >= geo.toggle && !geo.navShown, JSON.stringify(geo));
   await page.locator('.nav-toggle').first().click();
-  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);
+  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 7);
 }));
 
 // Dữ liệu giả cho danh sách phiếu: ô ngày Sheet lẫn chữ, phiếu chia ba tháng, phiếu máy đặt ngày có mã kỹ thuật.

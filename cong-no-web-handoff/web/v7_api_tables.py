@@ -30,6 +30,7 @@ PAGES = {
     "/doi-no.html": "doi-no.html",
     "/bang-thu.html": "bang-thu.html",
     "/may-chay.html": "may-chay.html",
+    "/thong-tin-cty.html": "thong-tin-cty.html",
     "/zalo-chat.html": "zalo-chat.html",
     "/sheet-trip-queue.html": "sheet-trip-queue-live.html",
 }

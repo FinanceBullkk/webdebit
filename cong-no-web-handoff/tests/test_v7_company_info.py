@@ -1,0 +1,174 @@
+"""THONG-TIN-CTY-01: job đọc Sheet thông tin khách hàng và route GET /api/v7/company-info. Dữ liệu giả."""
+
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "web"))
+import v7_company_info as served  # noqa: E402
+import v7_company_info_snapshot as job  # noqa: E402
+import v7_ledger_api as api  # noqa: E402
+
+CUSTOMERS = [
+    [],
+    ["", "", "SHIPPER", "THONG TIN XUAT HOA DON", "THONG TIN NGAN HANG"],
+    ["1", "", "Cong Ty Thu A", "CONG TY TNHH THU A\r\nMST: 0000000001\nDia chi gia 1", "NH Gia A\nSTK 111"],
+    ["", "", "", "dong mo coi khong ten", ""],
+    ["", "", "", "", ""],
+    ["3", "", "  Cong   Ty Thu B ", "THU B CO.,LTD"],
+]
+ACCOUNTS = [
+    [],
+    ["", "收款人资料\nACCOUNT NUMBER INFORMATION\n(VND)\nNGAN HANG GIA", "公司全称 \nACC NAME", "CONG TY GIA"],
+    ["", "", "公司地址\nADDRESS", "1 DUONG GIA"],
+    ["", "", "银行名称\nBANK NAME", "TEST BANK"],
+    ["", "", "银行地址\nBANK ADDRESS", "2 DUONG NGAN HANG GIA"],
+    ["", "", "银行账户\nACCOUNT NUMBER", "1,234,567,890"],
+    [],
+    ["", "收款人资料\nACCOUNT NUMBER INFORMATION\n(USD)\nBANK B", "ACC NAME", "TEST CO"],
+    ["", "", "BANK NAME", "BANK B"],
+    ["", "", "ACCOUNT NUMBER", "000123"],
+    ["", "", "SWIFT CODE", "TESTVNVX"],
+    ["", "", "GHI CHU", "chi de doc"],
+    ["", "KHOI KHONG SO", "BANK NAME", "BANK C"],
+]
+
+
+class ParseTest(unittest.TestCase):
+    def test_customers_header_found_by_name_rows_cleaned_and_orphans_counted(self):
+        customers, skipped = job.parse_customers(CUSTOMERS)
+        self.assertEqual(customers, [
+            {"shipper": "Cong Ty Thu A", "invoice": "CONG TY TNHH THU A\nMST: 0000000001\nDia chi gia 1", "bank": "NH Gia A\nSTK 111"},
+            {"shipper": "Cong Ty Thu B", "invoice": "THU B CO.,LTD", "bank": ""}])
+        self.assertEqual(skipped, 1)
+
+    def test_customers_without_header_is_a_shape_error(self):
+        with self.assertRaises(job.SheetShapeError):
+            job.parse_customers([["", "", "TEN", "HOA DON"]])
+        with self.assertRaises(job.SheetShapeError):
+            job.parse_customers([["SHIPPER", "GHI CHU"]])
+
+    def test_accounts_split_by_title_column_and_labels_read_in_english(self):
+        accounts, skipped = job.parse_accounts(ACCOUNTS)
+        self.assertEqual(skipped, 1)   # khối không có số tài khoản
+        first, second = accounts
+        self.assertEqual((first["label"], first["currency"], first["beneficiary"], first["address"], first["bank"], first["bank_address"],
+                          first["account"], first["swift"]),
+                         ("VND · NGAN HANG GIA", "VND", "CONG TY GIA", "1 DUONG GIA", "TEST BANK", "2 DUONG NGAN HANG GIA", "1234567890", None))
+        self.assertEqual((second["label"], second["account"], second["swift"]), ("USD · BANK B", "000123", "TESTVNVX"))
+        self.assertEqual(second["lines"][-1], {"label": "GHI CHU", "value": "chi de doc"})   # nhãn lạ vẫn hiện ở tab
+        self.assertRegex(first["id"], r"^a[0-9a-f]{12}$")
+        self.assertNotEqual(first["id"], second["id"])
+        again, _ = job.parse_accounts(ACCOUNTS)
+        self.assertEqual([item["id"] for item in again], [first["id"], second["id"]])   # id bền qua các lần đọc
+
+    def test_no_account_number_anywhere_is_a_shape_error(self):
+        with self.assertRaises(job.SheetShapeError):
+            job.parse_accounts([["", "KHOI", "BANK NAME", "X"]])
+
+    def test_fold_ignores_nfd_and_case(self):
+        self.assertEqual(job.fold("TÀI KHOẢN usd"), job.fold("TÀI KHOẢN USD"))
+        self.assertEqual(job.fold("Đường"), "DUONG")
+
+
+class RunTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = Path(directory.name)
+        self.credentials = self.dir / "sa.json"
+        self.credentials.write_text(json.dumps({"type": "service_account", "client_email": "x@y", "private_key": "k"}), encoding="utf-8")
+        self.output = self.dir / "company-info.json"
+
+    def opener(self, customers, accounts, titles=("THÔNG TIN CTY", "TÀI KHOẢN USD", "KHAC")):
+        seen = []
+
+        def open_(request, timeout):
+            seen.append(request.full_url)
+            if "values:batchGet" in request.full_url:
+                body = {"valueRanges": [{"range": "'THÔNG TIN CTY'!A1:Z9", "values": customers},
+                                        {"range": "'TÀI KHOẢN USD'!A1:Z9", "values": accounts}]}
+            else:
+                body = {"sheets": [{"properties": {"title": title}} for title in titles]}
+            return io.BytesIO(json.dumps(body).encode())
+        return open_, seen
+
+    def test_run_writes_snapshot_mode_600_and_reads_formatted_values(self):
+        opener, seen = self.opener(CUSTOMERS, ACCOUNTS)
+        snapshot = job.run_once(str(self.credentials), "s" * 30, str(self.output), token_exchange=lambda _c: "tok", opener=opener)
+        self.assertEqual(snapshot["counts"], {"accounts": 2, "customers": 2, "skipped_accounts": 1, "skipped_customers": 1})
+        self.assertIn("valueRenderOption=FORMATTED_VALUE", seen[-1])
+        self.assertIn("TA%CC%80I", seen[-1])   # dùng đúng tên tab trên Sheet (NFD), không tên gõ trong code
+        self.assertEqual(json.loads(self.output.read_text(encoding="utf-8"))["counts"]["accounts"], 2)
+        if os.name == "posix":
+            self.assertEqual(self.output.stat().st_mode & 0o777, 0o600)
+
+    def test_shape_error_keeps_previous_file(self):
+        self.output.write_text('{"old": true}', encoding="utf-8")
+        opener, _ = self.opener([["khong co tieu de"]], ACCOUNTS)
+        with self.assertRaises(job.SheetShapeError):
+            job.run_once(str(self.credentials), "s" * 30, str(self.output), token_exchange=lambda _c: "tok", opener=opener)
+        self.assertEqual(self.output.read_text(encoding="utf-8"), '{"old": true}')
+        opener, _ = self.opener(CUSTOMERS, ACCOUNTS, titles=("THÔNG TIN CTY",))
+        with self.assertRaises(job.SheetShapeError):
+            job.run_once(str(self.credentials), "s" * 30, str(self.output), token_exchange=lambda _c: "tok", opener=opener)
+
+    def test_main_prints_counts_only(self):
+        opener, _ = self.opener(CUSTOMERS, ACCOUNTS)
+        argv = ["v7_company_info_snapshot.py", "--credentials", str(self.credentials), "--spreadsheet-id", "s" * 30, "--output", str(self.output)]
+        real = job.run_once
+        with patch.object(sys, "argv", argv), patch("sys.stdout", new_callable=io.StringIO) as out, \
+                patch.object(job, "run_once", lambda *a: real(*a, token_exchange=lambda _c: "tok", opener=opener)):
+            self.assertEqual(job.main(), 0)
+        printed = out.getvalue()
+        self.assertIn('"accounts": 2', printed)
+        self.assertNotIn("1234567890", printed)
+        self.assertNotIn("Cong Ty Thu A", printed)
+
+
+class RouteTest(unittest.TestCase):
+    def write(self, data) -> str:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "company-info.json"
+        path.write_text(data if isinstance(data, str) else json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def test_missing_file_is_not_available_and_bad_file_is_503(self):
+        self.assertEqual(served.handle_get("", str(Path(tempfile.gettempdir()) / "khong-co-company-info.json")), (200, {"available": False}))
+        for data in ("{oops", {"accounts": "x", "customers": []}, {"accounts": [{"id": 1, "lines": []}], "customers": []}):
+            with self.subTest(data=data), self.assertRaises(served.InfoError) as caught:
+                served.handle_get("", self.write(data))
+            self.assertEqual((caught.exception.status, caught.exception.code), (503, "COMPANY_INFO_UNAVAILABLE"))
+        with self.assertRaises(served.InfoError) as caught:
+            served.handle_get("x=1", self.write({}))
+        self.assertEqual(caught.exception.status, 400)
+
+    def test_snapshot_from_job_is_served(self):
+        snapshot = job.build(CUSTOMERS, ACCOUNTS)
+        status, body = served.handle_get("", self.write(snapshot))
+        self.assertEqual(status, 200)
+        self.assertTrue(body["available"])
+        self.assertEqual(body["read_at"], snapshot["runner"]["created_at"])
+        self.assertEqual([item["label"] for item in body["accounts"]], ["VND · NGAN HANG GIA", "USD · BANK B"])
+        self.assertEqual(body["customers"][0]["shipper"], "Cong Ty Thu A")
+
+    def test_route_goes_through_api_without_db(self):
+        runner = Mock()
+        args = {"port": 8780, "host": "127.0.0.1", "actor": "nguoi-thu"}
+        with patch.dict(os.environ, {"WEBDEBIT_COMPANY_INFO_PATH": self.write(job.build(CUSTOMERS, ACCOUNTS))}):
+            status, body = api.handle("GET", "/api/v7/company-info", {"Host": "127.0.0.1:8780"}, b"", runner, **args)
+        self.assertEqual((status, body["counts"]["accounts"]), (200, 2))
+        runner.run.assert_not_called()
+        self.assertEqual(api.ASSETS["/thong-tin-cty.html"][0], "thong-tin-cty.html")
+
+
+if __name__ == "__main__":
+    unittest.main()

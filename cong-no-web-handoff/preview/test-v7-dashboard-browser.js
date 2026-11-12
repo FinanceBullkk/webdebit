@@ -488,7 +488,7 @@ test('điện thoại 390px: menu thu về nút ☰, năm người online nằm 
   assert.deepEqual(table, { cells: ['who', 'num', 'num', 'go'], inside: true, wrap: true });
   assert.match((await page.locator('.owe-row .pill').first().innerText()).replace(/\s+/g, ' ').trim(), /^\d+ khách đang nợ$/);
   await page.locator('#nav-toggle').click();
-  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 7);
   await page.setViewportSize({ width: 1280, height: 720 });
   assert.equal(await page.locator('.dtable td.bar').first().isVisible(), true, 'màn rộng vẫn có thanh hạn trả');
   await page.locator('#nav-toggle').click();
