@@ -15,9 +15,10 @@ const INFO = {
       account: '000123', swift: 'TESTVNVX', lines: [{ label: 'ACCOUNT NUMBER', value: '000123' }, { label: 'SWIFT CODE', value: 'TESTVNVX' }] },
   ],
   customers: [
-    { shipper: 'Công Ty Thử Một', invoice: 'CONG TY TNHH THU MOT\nMST: 0000000001\n' + 'Dia chi rat dai '.repeat(12), bank: 'NH Gia A\nSTK 111' },
-    { shipper: '测试贸易', invoice: 'CE SHI TRADING CO.,LTD', bank: '' },
-    ...Array.from({ length: 70 }, (_, index) => ({ shipper: `Khach Thu ${index + 3}`, invoice: `KHACH THU ${index + 3} CO.,LTD`, bank: '' })),
+    { name: 'Công Ty Thử Một', company: 'THU MOT COMPANY LIMITED', rows: [3, 9], shipper: 'THU MOT COMPANY LIMITED\n1 FAKE ST',
+      invoice: 'CONG TY TNHH THU MOT\nMST: 0000000001\n' + 'Dia chi rat dai '.repeat(12), bank: 'NH Gia A\nSTK 111' },
+    { name: '测试贸易', company: '测试贸易', rows: [11, 11], shipper: '', invoice: 'CE SHI TRADING CO.,LTD', bank: '' },
+    ...Array.from({ length: 70 }, (_, index) => ({ name: `Khach Thu ${index + 3}`, company: `Khach Thu ${index + 3}`, rows: [20 + index, 20 + index], shipper: '', invoice: `KHACH THU ${index + 3} CO.,LTD`, bank: '' })),
   ],
   counts: { accounts: 2, customers: 72 },
 };
@@ -63,8 +64,12 @@ async function withPage(state, fn, { viewport = { width: 1265, height: 560 }, qu
 
 test('Thông tin cty: thẻ tài khoản, danh sách khách giới hạn 60, tìm bỏ dấu và chữ Hán, chép, giờ đọc Sheet', () => withPage({}, async page => {
   assert.equal(await page.locator('#read-at').innerText(), 'Theo Sheet lúc 14:05 12/11');
-  assert.deepEqual(await page.locator('.ttc-account h3').allInnerTexts(), ['VND · NGAN HANG GIA', 'USD · BANK B']);
+  assert.deepEqual(await page.locator('.ttc-acc-head b').allInnerTexts(), ['VND · NGAN HANG GIA', 'USD · BANK B']);
+  assert.deepEqual(await page.locator('.ttc-acc-no').allInnerTexts(), ['1234567890', '000123']);   // thẻ gọn: số tài khoản thấy ngay
+  assert.equal(await page.locator('.ttc-account').first().locator('dl').isVisible(), false);
+  await page.locator('.ttc-account summary').first().click();   // bấm thì bung đủ các dòng như trên Sheet
   assert.deepEqual(await page.locator('.ttc-account').first().locator('dt').allInnerTexts(), ['ACC NAME', 'BANK NAME', 'ACCOUNT NUMBER']);
+  await page.locator('.ttc-account summary').first().click();
   assert.equal(await page.locator('.ttc-customer').count(), 60);
   assert.equal(await page.locator('#customer-count').innerText(), '60 / 72 khách, gõ để tìm');
   assert.match(await page.locator('.ttc-customer').first().innerText(), /CONG TY TNHH THU MOT\nMST: 0000000001/);   // giữ xuống dòng
@@ -75,6 +80,9 @@ test('Thông tin cty: thẻ tài khoản, danh sách khách giới hạn 60, tì
   assert.match(page.url(), /\?q=cong\+ty\+thu\+mot$/);
   await page.locator('#customer-filter').fill('0000000001');   // tìm cả trong khối hóa đơn (MST)
   assert.equal(await page.locator('.ttc-customer h3').innerText(), 'Công Ty Thử Một');
+  const who = await page.locator('.ttc-customer .ttc-who').innerText();
+  assert.match(who, /THU MOT COMPANY LIMITED\s+Dòng 3–9 trên Sheet/);   // tên công ty khác tên ngắn thì hiện thêm, kèm dòng trên Sheet
+  assert.match(await page.locator('.ttc-customer').innerText(), /Bản shipper\s+THU MOT COMPANY LIMITED\s+1 FAKE ST/);
   await page.locator('#customer-filter').fill('测试');
   assert.equal(await page.locator('.ttc-customer h3').innerText(), '测试贸易');
   assert.match(await page.locator('.ttc-customer').first().locator('.ttc-block').last().innerText(), /^Ngân hàng của khách\s+—$/);
@@ -84,6 +92,7 @@ test('Thông tin cty: thẻ tài khoản, danh sách khách giới hạn 60, tì
   await page.locator('.ttc-account .ttc-copy').first().click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '1234567890');
   assert.equal(await page.locator('.ttc-account .ttc-copy').first().innerText(), 'Đã chép');
+  assert.equal(await page.locator('.ttc-account').first().evaluate(node => node.open), false, 'bấm Chép không bung thẻ');
   assert.equal(await page.locator('.app-nav a.active').innerText(), 'Thông tin cty');
 }));
 

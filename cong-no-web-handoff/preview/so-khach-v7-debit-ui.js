@@ -144,7 +144,13 @@
   const ACCOUNT_CN = { USD: '美元账号', VND: '越南盾账号', CNY: '人民币账号', EUR: '欧元账号' };
   const tail = number => `…${String(number ?? '').slice(-4)}`;
   const accountsOf = directory => (directory?.available ? directory.accounts : []);
-  const customersOf = directory => (directory?.available ? directory.customers : []);
+  // Mỗi khách một nhãn để chọn: tên (cột A hoặc dòng đầu khối); trùng tên thì kèm dòng bắt đầu trên Sheet.
+  const customersOf = directory => {
+    const list = directory?.available ? directory.customers : [];
+    const count = new Map();
+    for (const item of list) count.set(item.name, (count.get(item.name) ?? 0) + 1);
+    return list.map(item => ({ ...item, pickLabel: count.get(item.name) > 1 ? `${item.name} · dòng ${item.rows[0]}` : item.name }));
+  };
   // Tài khoản chọn ở hộp ghi đè phần ngân hàng của cấu hình máy chủ cho riêng chứng từ này; không chọn thì theo cấu hình.
   function effectiveConfig(config, account) {
     if (!account) return config;
@@ -158,13 +164,13 @@
       ? 'Chọn một khách thì ô Tên pháp lý và địa chỉ lấy theo thông tin xuất hóa đơn.' : 'Máy chủ chưa đọc Sheet thông tin khách hàng.';
     const configured = open.config?.payment?.account;
     const accountOptions = [`<option value="">${escape(configured ? `Theo cấu hình máy chủ (${tail(configured)})` : 'Chưa chọn')}</option>`,
-      ...accounts.map(item => `<option value="${escape(item.id)}"${item.id === state.account ? ' selected' : ''}>${escape(`${item.label} · ${tail(item.account)}`)}</option>`)];
+      ...accounts.map(item => `<option value="${escape(item.id)}"${item.id === state.account ? ' selected' : ''}>${escape([item.label, item.beneficiary, tail(item.account)].filter(Boolean).join(' · '))}</option>`)];
     return `<form class="debit-form" novalidate>
       <fieldset><legend>Chứng từ</legend>${field('number', 'Số debit note', state.number)}${field('issueDate', 'Ngày phát hành', state.issueDate,
         { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}</fieldset>
       <fieldset><legend>Khách (BILL TO)</legend><label class="debit-field"><span>Chọn từ Thông tin cty</span><input name="pick" list="debit-company-list"
-        value="${escape(state.pick)}" placeholder="Gõ tên shipper" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
-        customersOf(directory).map(item => `<option value="${escape(item.shipper)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label>
+        value="${escape(state.pick)}" placeholder="Gõ tên khách" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
+        customersOf(directory).map(item => `<option value="${escape(item.pickLabel)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label>
         ${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
         ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}
         ${field('customer.contact', 'Người liên hệ (Attn)', c.contact)}</fieldset>
@@ -177,10 +183,10 @@
     const input = dialog.querySelector('[name="pick"]');
     const name = input?.value.trim();
     if (!name || name === open.appliedPick) return;
-    const found = customersOf(open.directory).find(item => item.shipper === name);
+    const found = customersOf(open.directory).find(item => item.pickLabel === name);
     if (!found) return;
     open.appliedPick = name;
-    dialog.querySelector('[name="customer.legal"]').value = found.invoice;
+    dialog.querySelector('[name="customer.legal"]').value = found.invoice || found.shipper;
   }
   function readFormV4() {
     const state = { customer: {} };

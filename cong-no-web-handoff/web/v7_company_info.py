@@ -47,8 +47,13 @@ def clean(raw: dict) -> dict:
                          **{key: _text(item.get(key), optional=True) for key in ACCOUNT_KEYS},
                          "lines": [{"label": _text(line.get("label")), "value": _text(line.get("value"))}
                                    for line in item["lines"] if isinstance(line, dict)]})
-    customers = [{"shipper": _text(item.get("shipper")), "invoice": _text(item.get("invoice")), "bank": _text(item.get("bank"))}
-                 for item in raw["customers"] if isinstance(item, dict)]
+    customers = []
+    for item in raw["customers"]:
+        rows = item.get("rows") if isinstance(item, dict) else None
+        if not isinstance(rows, list) or len(rows) != 2 or not all(isinstance(row, int) and not isinstance(row, bool) for row in rows):
+            raise _broken()
+        customers.append({"name": _text(item.get("name")), "company": _text(item.get("company")), "rows": rows,
+                          **{key: _text(item.get(key)) for key in ("shipper", "invoice", "bank")}})
     runner = raw.get("runner") if isinstance(raw.get("runner"), dict) else {}
     return {"available": True, "read_at": _text(runner.get("created_at"), optional=True), "accounts": accounts, "customers": customers,
             "counts": {key: value for key, value in (raw.get("counts") or {}).items() if isinstance(value, int)}}

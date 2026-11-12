@@ -107,7 +107,7 @@ const COMPANY = {
     { id: 'a000000000002', title: '(USD) BANK B', label: 'USD · BANK B', currency: 'USD', beneficiary: 'TEST CO', address: null, bank: 'BANK B',
       bank_address: null, account: '000123', swift: 'TESTVNVX', lines: [] },
   ],
-  customers: [{ shipper: 'Khach Thu Sua Co', invoice: 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia', bank: '' }],
+  customers: [{ name: 'Khach Thu Sua Co', company: 'KHACH THU SUA CO.,LTD', rows: [21, 27], shipper: 'KHACH THU SUA CO.,LTD', invoice: 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia', bank: '' }],
 };
 
 test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; chọn tài khoản thì PAYMENT in theo tài khoản; chưa chọn thì cảnh báo; nhớ theo sổ', async () => withPage(async ({ page, world }) => {
@@ -117,7 +117,7 @@ test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; ch�
   await view.locator('[data-page]').first().waitFor();
   assert.deepEqual(world.companyInfoReads, ['']);
   assert.match(await dialog.locator('.debit-checks').innerText(), /Cảnh báo: Chưa chọn tài khoản nhận tiền: chứng từ in \[Account no\.\]\./);
-  assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn', 'VND · NGAN HANG GIA · …7890', 'USD · BANK B · …0123']);
+  assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn', 'VND · NGAN HANG GIA · CONG TY GIA · …7890', 'USD · BANK B · TEST CO · …0123']);
 
   await dialog.locator('[name="pick"]').fill('Khach Thu Sua Co');
   assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia');

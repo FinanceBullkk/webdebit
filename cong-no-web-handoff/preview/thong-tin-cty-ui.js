@@ -21,26 +21,33 @@
     return `Theo Sheet lúc ${get('hour')}:${get('minute')} ${get('day')}/${get('month')}`;
   };
 
+  // Sheet có vài chục tài khoản: mỗi tài khoản một dòng gọn (loại tiền · ngân hàng, người thụ hưởng, số tài khoản + Chép),
+  // bấm vào mới bung đủ các dòng như trên Sheet.
   function drawAccounts() {
-    $('accounts').innerHTML = data.accounts.length ? data.accounts.map(account => `<article class="ttc-account">
-      <h3>${esc(account.label || account.bank || 'Tài khoản')}</h3>
-      <dl>${account.lines.map(line => `<div${line.value === account.account ? ' class="is-number"' : ''}><dt>${esc(latinLabel(line.label))}</dt><dd>${esc(line.value)}${
-        line.value === account.account ? copyButton(line.value, 'số tài khoản') : ''}</dd></div>`).join('')}</dl></article>`).join('')
+    $('accounts').innerHTML = data.accounts.length ? data.accounts.map(account => `<details class="ttc-account">
+      <summary><span class="ttc-acc-head"><b>${esc(account.label || account.bank || 'Tài khoản')}</b>${account.beneficiary ? `<span>${esc(account.beneficiary)}</span>` : ''}</span>
+        <span class="ttc-acc-no">${esc(account.account)}</span>${copyButton(account.account, `số tài khoản ${account.label}`)}</summary>
+      <dl>${account.lines.map(line => `<div><dt>${esc(latinLabel(line.label))}</dt><dd>${esc(line.value)}</dd></div>`).join('')}</dl></details>`).join('')
       : '<p class="empty">Sheet chưa có tài khoản nào.</p>';
   }
 
   function drawCustomers() {
     const raw = filter.value.trim();
     const loose = F.fold(raw), exact = F.foldText(raw);
-    const found = raw ? data.customers.filter(item => [item.shipper, item.invoice].some(value => (loose && F.fold(value).includes(loose)) || F.foldText(value).includes(exact)))
-      : data.customers;
+    const found = raw ? data.customers.filter(item => [item.name, item.company, item.invoice, item.shipper]
+      .some(value => (loose && F.fold(value).includes(loose)) || F.foldText(value).includes(exact))) : data.customers;
     const shown = found.slice(0, LIMIT);
     const total = data.customers.length.toLocaleString('vi-VN');
     $('customer-count').textContent = raw ? `${found.length.toLocaleString('vi-VN')} / ${total} khách` : found.length > LIMIT ? `${LIMIT} / ${total} khách, gõ để tìm` : `${total} khách`;
+    const block = (title, text, copyWhat = '') => `<div class="ttc-block"><span class="ttc-k">${title}</span>${text
+      ? `<p>${esc(text)}</p>${copyWhat ? copyButton(text, copyWhat) : ''}` : '<p class="muted">—</p>'}</div>`;
+    const rowsText = ([from, to]) => (from === to ? `Dòng ${from} trên Sheet` : `Dòng ${from}–${to} trên Sheet`);
+    // Mỗi khách là một khối nhiều dòng trên Sheet: bản xuất hóa đơn là bản dùng cho chứng từ; bản shipper và ngân hàng để tra.
     $('customers').innerHTML = shown.length ? `<ul class="ttc-list">${shown.map(item => `<li class="ttc-customer">
-      <h3>${esc(item.shipper)}</h3>
-      <div class="ttc-block"><span class="ttc-k">Thông tin xuất hóa đơn</span>${item.invoice ? `<p>${esc(item.invoice)}</p>${copyButton(item.invoice, `thông tin xuất hóa đơn ${item.shipper}`)}` : '<p class="muted">—</p>'}</div>
-      <div class="ttc-block"><span class="ttc-k">Ngân hàng của khách</span>${item.bank ? `<p>${esc(item.bank)}</p>` : '<p class="muted">—</p>'}</div></li>`).join('')}</ul>`
+      <div class="ttc-who"><h3>${esc(item.name)}</h3>${item.company && item.company !== item.name ? `<p>${esc(item.company)}</p>` : ''}<small>${rowsText(item.rows)}</small></div>
+      ${block('Thông tin xuất hóa đơn', item.invoice, `thông tin xuất hóa đơn ${item.name}`)}
+      ${block('Bản shipper', item.shipper)}
+      ${block('Ngân hàng của khách', item.bank)}</li>`).join('')}</ul>`
       : `<p class="empty">${raw ? `Không có khách nào khớp "${esc(raw)}".` : 'Sheet chưa có khách nào.'}</p>`;
   }
 
@@ -86,6 +93,7 @@
   document.addEventListener('click', async event => {
     const button = event.target.closest('.ttc-copy');
     if (!button) return;
+    event.preventDefault();   // nút nằm trong <summary>: chép không bung/thu thẻ tài khoản
     try { await navigator.clipboard.writeText(button.dataset.copy); button.textContent = 'Đã chép'; }
     catch { button.textContent = 'Không chép được'; }
     setTimeout(() => { button.textContent = 'Chép'; }, 1500);

@@ -24,8 +24,15 @@ body.ttc{background:#f3f5f8;font-size:14px}
 .ttc .empty,.ttc .loading{margin:0;padding:16px;border:1px dashed var(--line);border-radius:var(--radius);background:#fff;color:var(--ink-2)}
 
 .ttc-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.ttc-customer{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr) minmax(0,1.4fr);gap:6px 16px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+/* Ba cột: tên | bản xuất hóa đơn trên, bản shipper dưới | ngân hàng của khách. */
+.ttc-customer{display:grid;grid-template-columns:minmax(120px,.8fr) minmax(0,1.5fr) minmax(0,1.3fr);grid-template-areas:"who inv bank" "who ship bank";gap:6px 16px;padding:12px 16px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
 .ttc-block{position:relative;min-width:0}
+.ttc-who{min-width:0;grid-area:who}
+.ttc-customer>.ttc-block:nth-child(2){grid-area:inv}
+.ttc-customer>.ttc-block:nth-child(3){grid-area:ship}
+.ttc-customer>.ttc-block:nth-child(4){grid-area:bank}
+.ttc-who p{margin:2px 0 0;color:var(--ink-2);font-size:13px;overflow-wrap:anywhere}
+.ttc-who small{display:block;margin-top:4px;color:var(--ink-3);font-size:12px}
 .ttc-block p{margin:2px 0 0;white-space:pre-line;overflow-wrap:anywhere;line-height:1.45}
 .ttc-k{display:block;color:var(--ink-3);font-size:12px;font-weight:600}
 .ttc-copy{margin-top:6px;height:32px;padding:0 12px;border:1px solid #c9d0d8;border-radius:6px;background:#fff;color:var(--accent-ink);font-size:13px;font-weight:600;cursor:pointer}
@@ -34,21 +41,27 @@ body.ttc{background:#f3f5f8;font-size:14px}
 .ttc-block .ttc-copy{position:absolute;top:-6px;right:0;margin:0;height:28px}
 .ttc-block:has(.ttc-copy) .ttc-k{padding-right:64px}
 
-.ttc-accounts{position:sticky;top:12px;display:flex;flex-direction:column;gap:10px}
-#accounts{display:flex;flex-direction:column;gap:10px}
-.ttc-account{padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
-.ttc-account h3{margin-bottom:6px;color:var(--accent-ink)}
+.ttc-accounts{display:flex;flex-direction:column;gap:10px}
+#accounts{display:flex;flex-direction:column;gap:6px}
+.ttc-account{border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+.ttc-account summary{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head head" "no copy";align-items:center;gap:2px 8px;padding:8px 12px;cursor:pointer;list-style:none}
+.ttc-account summary::-webkit-details-marker{display:none}
+.ttc-account[open] summary{border-bottom:1px solid var(--line-soft)}
+.ttc-acc-head{grid-area:head;min-width:0;display:flex;flex-direction:column}
+.ttc-acc-head b{color:var(--accent-ink);font-size:14px}
+.ttc-acc-head span{color:var(--ink-2);font-size:12.5px;overflow-wrap:anywhere}
+.ttc-acc-no{grid-area:no;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.ttc-account summary .ttc-copy{grid-area:copy;margin:0;height:30px}
+.ttc-account dl{padding:8px 12px 12px}
 .ttc-account dl{margin:0;display:flex;flex-direction:column;gap:6px}
 .ttc-account dt{color:var(--ink-3);font-size:12px;font-weight:600}
 .ttc-account dd{margin:0;white-space:pre-line;overflow-wrap:anywhere}
-.ttc-account .is-number dd{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
-.ttc-account .is-number .ttc-copy{margin:0 0 0 10px;vertical-align:middle}
 .ttc-foot{max-width:1148px;margin:16px 0 0;color:var(--ink-3);font-size:13px}
 
 @media (max-width:900px){
   .ttc-main{grid-template-columns:minmax(0,1fr)}
   .ttc-accounts{position:static}
-  .ttc-customer{grid-template-columns:minmax(0,1fr)}
+  .ttc-customer{grid-template-columns:minmax(0,1fr);grid-template-areas:"who" "inv" "ship" "bank"}
 }
 @media (max-width:760px){
   .ttc .page.app-page{padding:16px 16px 24px}

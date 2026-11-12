@@ -5,8 +5,8 @@
 Usage: --spreadsheet-id ID --credentials SERVICE_ACCOUNT.json --output /var/lib/webdebit-sheet-sync/company-info.json
 
 Hai tab, chỉ đọc (`spreadsheets.readonly`, cùng tài khoản dịch vụ với sheet_sync_runner.py):
-- `THÔNG TIN CTY`: bảng, dòng tiêu đề có ô `SHIPPER`; cột thông tin xuất hóa đơn (tiêu đề có "HOA DON") và cột ngân hàng
-  của khách (tiêu đề có "NGAN HANG"), mỗi ô một khối nhiều dòng.
+- `THÔNG TIN CTY`: dòng tiêu đề có ô `SHIPPER`; mỗi khách là một khối nhiều dòng (xem parse_customers), ba cột shipper,
+  thông tin xuất hóa đơn (tiêu đề có "HOA DON") và ngân hàng của khách (tiêu đề có "NGAN HANG").
 - `TÀI KHOẢN USD`: mỗi tài khoản là một khối; cột B (gộp dọc) là tên khối, cột C nhãn song ngữ, cột D giá trị.
 Sai cấu trúc (không thấy tiêu đề, không có tài khoản nào có số tài khoản) thì thoát mã 1 và giữ nguyên file cũ.
 File đầu ra có tên khách và số tài khoản: ngoài Git, mode 600. Stdout chỉ có số đếm.
@@ -71,8 +71,21 @@ def _cell(row: list[Any], index: int | None) -> str:
     return clean(row[index]) if index is not None and index < len(row) else ""
 
 
+# Tab khách là các khối nhiều dòng, mỗi dòng một trường; ba cột C/D/E là ba bản của cùng trường (shipper, xuất hóa đơn,
+# ngân hàng). Phần đầu tab có tên ngắn ở cột A và nhãn ở cột B (COMPANY:, ADD, TAX CODE…); phần sau không có nhãn:
+# dòng tên công ty, địa chỉ, dòng thuế, rồi các dòng DIRECTOR/TEL/EMAIL… và nhiều dòng ngân hàng ở cột E.
+TAX_LINE = re.compile(r"^(TAX|MST|MA SO THUE|MA SO DN)\b")
+FOLLOW_LINE = re.compile(r"^(TEL|TELL|TELEPHONE|PHONE|SDT|FAX|DIRECTOR|GIAM DOC|EMAIL|E-MAIL|MAIL|REPRESENT|POSITION|CHUC VU|"
+                         r"GACC|MA SO CVNM|MA CVNM|HEAD OFFICE|UPDATE|CONTACT|ATTN|NGUOI DAI DIEN)")
+UNLABELED = {"COMPANY", "COMPANY:"}   # nhãn cột B không in lại (tên công ty là dòng đầu khối)
+
+
 def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
-    """(khách, số dòng bỏ vì thiếu tên shipper mà vẫn có chữ)."""
+    """(khách, số khối bỏ vì không có chữ ở cả ba cột). Một khối kết thúc khi:
+    - gặp dòng trống ở cả năm cột A–E;
+    - gặp dòng có tên ở cột A hoặc nhãn COMPANY ở cột B;
+    - ở phần không nhãn: gặp dòng cột C không phải dòng phụ (TEL, DIRECTOR…) khi khối đã có dòng thuế,
+      hoặc khi giữa dòng C trước và dòng này có dòng C trống (chỉ có D/E)."""
     at = next((index for index, row in enumerate(rows[:6]) if "SHIPPER" in [fold(cell) for cell in row]), None)
     if at is None:
         raise SheetShapeError(f"{CUSTOMERS_TAB}: không thấy dòng tiêu đề có SHIPPER trong 6 dòng đầu")
@@ -82,13 +95,46 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
     bank = next((i for i, head in enumerate(heads) if "NGAN HANG" in head), None)
     if invoice is None:
         raise SheetShapeError(f"{CUSTOMERS_TAB}: không thấy cột thông tin xuất hóa đơn")
-    customers, skipped = [], 0
-    for row in rows[at + 1:]:
-        name, invoice_text, bank_text = one_line(_cell(row, shipper)), _cell(row, invoice), _cell(row, bank)
-        if not name:
-            skipped += bool(invoice_text or bank_text)
+    name_col, label_col = (shipper - 2, shipper - 1) if shipper >= 2 else (None, None)
+    blocks: list[dict] = []
+    current: dict | None = None
+    for number, row in enumerate(rows[at + 1:], start=at + 2):
+        short, label = one_line(_cell(row, name_col)), one_line(_cell(row, label_col))
+        texts = {"shipper": _cell(row, shipper), "invoice": _cell(row, invoice), "bank": _cell(row, bank)}
+        if not (short or label or any(texts.values())):
+            current = None
             continue
-        customers.append({"shipper": name, "invoice": invoice_text, "bank": bank_text})
+        if current is None and blocks and not (short or label or texts["shipper"] or texts["invoice"]):
+            current = blocks[-1]   # dòng ngân hàng của khách trước, nằm sau một dòng trống
+        head = fold(texts["shipper"])
+        starts = current is None or bool(short) or fold(label) in UNLABELED
+        if not starts and not current["labeled"] and texts["shipper"] and not FOLLOW_LINE.match(head) and not TAX_LINE.match(head):
+            starts = current["tax"] or current["gap"]
+        if starts:
+            current = {"row": number, "short": short, "labeled": bool(short or label), "tax": False, "gap": False,
+                       "lines": {"shipper": [], "invoice": [], "bank": []}}
+            blocks.append(current)
+        if texts["shipper"]:
+            current["tax"] = current["tax"] or bool(TAX_LINE.match(head)) or fold(label).startswith("TAX")
+            current["gap"] = False
+        elif current["lines"]["shipper"]:
+            current["gap"] = True
+        prefix = f"{label}: " if label and fold(label) not in UNLABELED else ""
+        prefix = prefix.replace("::", ":")
+        for key, text in texts.items():
+            if text:
+                current["lines"][key].append(prefix + text if key != "bank" else text)
+        current["end"] = number
+    customers, skipped = [], 0
+    for block in blocks:
+        lines = block["lines"]
+        first = next((one_line(lines[key][0]) for key in ("shipper", "invoice") if lines[key]), "")
+        if not first:
+            skipped += 1
+            continue
+        name = block["short"] or first
+        customers.append({"name": name, "company": first, "rows": [block["row"], block["end"]],
+                          **{key: clean("\n".join(lines[key])) for key in lines}})
     return customers, skipped
 
 

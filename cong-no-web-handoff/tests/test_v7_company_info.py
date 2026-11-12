@@ -16,13 +16,29 @@ import v7_company_info as served  # noqa: E402
 import v7_company_info_snapshot as job  # noqa: E402
 import v7_ledger_api as api  # noqa: E402
 
+# Hình dạng như tab thật (đo trên bản đọc ngày 12/11/2026, chỉ số đếm): phần đầu có tên ở A và nhãn ở B, phần sau không nhãn,
+# dòng ngân hàng ở E có lúc nằm sau một dòng trống. Dữ liệu giả.
 CUSTOMERS = [
     [],
     ["", "", "SHIPPER", "THONG TIN XUAT HOA DON", "THONG TIN NGAN HANG"],
-    ["1", "", "Cong Ty Thu A", "CONG TY TNHH THU A\r\nMST: 0000000001\nDia chi gia 1", "NH Gia A\nSTK 111"],
-    ["", "", "", "dong mo coi khong ten", ""],
+    ["THU A", "COMPANY:", "THU A COMPANY LIMITED", "CONG TY TNHH THU A", "THU A COMPANY LIMITED"],   # dòng 3
+    ["", "ADD", "1 FAKE ST", "1 DUONG GIA", "1 FAKE ST"],
+    ["", "TAX CODE", "0000000001", "0000000001", ""],
+    ["", "PHONE/MAIL", "", "", "a@thu.test"],
+    ["", "", "", "", "BANK: NH GIA A"],
+    [],
+    ["", "", "", "", "ACC: 111"],                                                                  # dòng 9: ngân hàng của THU A
+    [],
+    ["", "", "THU B CO.,LTD", "CONG TY TNHH THU B", "THU B CO.,LTD"],                               # dòng 11: phần không nhãn
+    ["", "", "ADD: 2 FAKE RD", "DC: 2 DUONG GIA", ""],
+    ["", "", "TAX CODE: 0000000002", "MST: 0000000002", ""],
+    ["", "", "DIRECTOR: MR B", "GIAM DOC: ONG B", ""],
+    ["", "", "", "", "ACC: 222"],
+    ["", "", "THU C CO.,LTD", "CONG TY TNHH THU C", ""],                                           # dòng 16: liền sau, không dòng trống
+    ["", "", "ADD: 3 FAKE RD", "", ""],
+    ["", "", "", "D3", ""],
+    ["", "", "THU D CO.,LTD", "CONG TY TNHH THU D", ""],                                           # dòng 19: sau dòng chỉ có D
     ["", "", "", "", ""],
-    ["3", "", "  Cong   Ty Thu B ", "THU B CO.,LTD"],
 ]
 ACCOUNTS = [
     [],
@@ -42,12 +58,18 @@ ACCOUNTS = [
 
 
 class ParseTest(unittest.TestCase):
-    def test_customers_header_found_by_name_rows_cleaned_and_orphans_counted(self):
+    def test_customers_are_blocks_labeled_and_unlabeled(self):
         customers, skipped = job.parse_customers(CUSTOMERS)
-        self.assertEqual(customers, [
-            {"shipper": "Cong Ty Thu A", "invoice": "CONG TY TNHH THU A\nMST: 0000000001\nDia chi gia 1", "bank": "NH Gia A\nSTK 111"},
-            {"shipper": "Cong Ty Thu B", "invoice": "THU B CO.,LTD", "bank": ""}])
-        self.assertEqual(skipped, 1)
+        self.assertEqual(skipped, 0)
+        self.assertEqual([(item["name"], item["rows"]) for item in customers],
+                         [("THU A", [3, 9]), ("THU B CO.,LTD", [11, 15]), ("THU C CO.,LTD", [16, 18]), ("THU D CO.,LTD", [19, 19])])
+        a, b, c, _ = customers
+        self.assertEqual(a["company"], "THU A COMPANY LIMITED")
+        self.assertEqual(a["invoice"], "CONG TY TNHH THU A\nADD: 1 DUONG GIA\nTAX CODE: 0000000001")   # nhãn cột B in kèm, trừ COMPANY
+        self.assertEqual(a["bank"], "THU A COMPANY LIMITED\n1 FAKE ST\na@thu.test\nBANK: NH GIA A\nACC: 111")   # dòng sau dòng trống vẫn của A
+        self.assertEqual(b["invoice"], "CONG TY TNHH THU B\nDC: 2 DUONG GIA\nMST: 0000000002\nGIAM DOC: ONG B")
+        self.assertEqual(b["bank"], "THU B CO.,LTD\nACC: 222")
+        self.assertEqual(c["invoice"], "CONG TY TNHH THU C\nD3")
 
     def test_customers_without_header_is_a_shape_error(self):
         with self.assertRaises(job.SheetShapeError):
@@ -103,7 +125,7 @@ class RunTest(unittest.TestCase):
     def test_run_writes_snapshot_mode_600_and_reads_formatted_values(self):
         opener, seen = self.opener(CUSTOMERS, ACCOUNTS)
         snapshot = job.run_once(str(self.credentials), "s" * 30, str(self.output), token_exchange=lambda _c: "tok", opener=opener)
-        self.assertEqual(snapshot["counts"], {"accounts": 2, "customers": 2, "skipped_accounts": 1, "skipped_customers": 1})
+        self.assertEqual(snapshot["counts"], {"accounts": 2, "customers": 4, "skipped_accounts": 1, "skipped_customers": 0})
         self.assertIn("valueRenderOption=FORMATTED_VALUE", seen[-1])
         self.assertIn("TA%CC%80I", seen[-1])   # dùng đúng tên tab trên Sheet (NFD), không tên gõ trong code
         self.assertEqual(json.loads(self.output.read_text(encoding="utf-8"))["counts"]["accounts"], 2)
@@ -130,7 +152,7 @@ class RunTest(unittest.TestCase):
         printed = out.getvalue()
         self.assertIn('"accounts": 2', printed)
         self.assertNotIn("1234567890", printed)
-        self.assertNotIn("Cong Ty Thu A", printed)
+        self.assertNotIn("CONG TY TNHH THU A", printed)
 
 
 class RouteTest(unittest.TestCase):
@@ -158,7 +180,7 @@ class RouteTest(unittest.TestCase):
         self.assertTrue(body["available"])
         self.assertEqual(body["read_at"], snapshot["runner"]["created_at"])
         self.assertEqual([item["label"] for item in body["accounts"]], ["VND · NGAN HANG GIA", "USD · BANK B"])
-        self.assertEqual(body["customers"][0]["shipper"], "Cong Ty Thu A")
+        self.assertEqual((body["customers"][0]["name"], body["customers"][0]["rows"]), ("THU A", [3, 9]))
 
     def test_route_goes_through_api_without_db(self):
         runner = Mock()
