@@ -131,6 +131,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .debit-panel header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#eaf1fa;border-bottom:1px solid #9eb4ca}
 .debit-panel h2{margin:0 auto 0 0;font-size:16px}.debit-panel h2 small{display:block;color:#3e5871;font-size:13px;font-weight:400}
 .debit-panel header button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;cursor:pointer}.debit-panel header .debit-print{background:#173d65;border-color:#173d65;color:#fff}
+.debit-panel header button:disabled{opacity:.45;cursor:not-allowed}
 .debit-main{flex:1;display:flex;min-height:0}.debit-form{width:320px;flex:none;overflow:auto;padding:4px 12px 12px;border-right:1px solid #c9d6e3;background:#f7f9fb}
 .debit-form fieldset{margin:8px 0 0;padding:0;border:0}.debit-form legend{padding:6px 0 2px;font-weight:700;color:#173d65;font-size:14px}
 .debit-field{display:block;margin:6px 0}.debit-field span{display:block;font-size:13px;color:#3e5871;margin-bottom:2px}.debit-field small{display:block;font-size:12px;color:#5f6b7a}

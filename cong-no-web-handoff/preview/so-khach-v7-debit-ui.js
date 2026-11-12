@@ -106,11 +106,23 @@
     if (!target) return;
     if (!target.querySelector('.debit-root')) {
       target.open();
-      target.write(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#e6e9ee}body{padding:12px}${printer.SCREEN_CSS}.dn{zoom:.82}</style></head><body><div class="debit-root"></div></body></html>`);
+      target.write(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#e6e9ee}body{padding:12px}${printer.SCREEN_CSS}.debit-root{zoom:.82}</style></head><body><div class="debit-root"></div></body></html>`);
       target.close();
     }
     target.querySelector('.debit-root').innerHTML = html;
+    fitPreview();
   }
+  // Điện thoại (DIEN-THOAI-DEBIT-01): thu bản xem trước vừa bề ngang khung để thấy cả trang, không cuộn ngang trong khung.
+  // Màn rộng giữ cỡ cũ (v3 .82, v4 .6). Phép chia trang v4 đo ngoài .debit-root nên zoom không đổi số trang.
+  const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 760px)').matches;
+  function fitPreview() {
+    const target = dialog.querySelector('.debit-preview')?.contentDocument, box = target?.querySelector('.debit-root');
+    if (!box || !open) return;
+    const [max, pagePx] = open.v4 ? [0.6, 1123] : [0.82, 1209];   // v4: A4 ngang 297mm; v3: trang kê 297mm + lề 0,9in
+    const room = target.documentElement.clientWidth - 24;         // body padding 12px hai bên
+    box.style.zoom = narrow() && room > 0 ? String(Math.min(max, Math.floor((room / pagePx) * 100) / 100)) : '';
+  }
+  addEventListener('resize', () => { if (open) fitPreview(); });
   function remember(state) {
     write(PROFILE_KEY, { ...read(PROFILE_KEY), [state.issuerCode]: { issuer: state.issuer, payment: state.payment } });
     write(CUSTOMER_KEY, { issuerCode: state.issuerCode, buyer: state.buyer, paymentDays: state.paymentDays, service: state.service, usd: { on: state.usd.on, source: state.usd.source } });
@@ -226,6 +238,7 @@
       }
       open.pages = DebitNoteV4.split(doc, target);
       target.querySelector('.debit-root').innerHTML = DebitNoteV4.pagesHtml(doc, open.pages);
+      fitPreview();
     }
     const count = open.pages?.length ?? 0;
     dialog.querySelector('.debit-status').textContent = `${doc.total.count} container · ${count} trang · ${blocks ? 'chưa xuất được' : 'mẫu v4'}`;

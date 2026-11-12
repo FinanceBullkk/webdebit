@@ -50,3 +50,12 @@ Quyết định: ý 6–7 của `DIEN-THOAI-CHUYEN-01`. Không thêm API, không
 - Phiếu thu: mỗi phiếu hai dòng (ngày, số tiền; rồi hình thức · tham chiếu · phân bổ).
 
 Tiêu chí: 390×844 không cuộn ngang, không ô nào của bảng kê ra ngoài màn, hàng ≥ 44px, không gửi lệnh khi bấm dòng; số tiền phiếu thu nằm trong màn, cùng dòng với ngày; 1280 giữ bảng như cũ. Test: `test-so-khach-v7-phone-browser.js`.
+
+## Mở rộng 12/11/2026: hộp Debit note
+
+Quyết định: [`DIEN-THOAI-DEBIT-01`](../docs/decisions/dien-thoai-debit-01.md). Không thêm API, không đổi số hay chứng từ.
+
+- Dưới 760px hộp phủ cả màn, một cột cuộn dọc: dòng Chặn/Cảnh báo và ô xác nhận ngay dưới ba nút, rồi form, rồi bản xem trước thu vừa khung (`so-khach-v7-debit-ui.js` đặt zoom theo bề ngang khung; màn rộng giữ .6 cho v4, .82 cho v3).
+- Nút xuất đang khóa mờ đi ở mọi cỡ màn.
+
+Tiêu chí: 390×844 hộp đúng 390×844, ba nút ≥ 44px nằm trong màn, cột kiểm rộng 390px và nằm trên form, không cuộn ngang trong hộp lẫn trong khung xem trước; 1280 về hai cột, form 320px. Test: `test-so-khach-v7-debit-v4-browser.js`.
