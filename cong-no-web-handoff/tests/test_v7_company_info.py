@@ -141,6 +141,44 @@ class ParseTest(unittest.TestCase):
         self.assertEqual((q["beneficiary"], q["currency"]), ("THU Q CO", None))
         self.assertEqual(job.parse_bank_column(["ACC NAME: THU R", "BANK NAME: NH GIA R", "VND ACCOUNT NO:"], "THU R"), [])
 
+    def test_bank_column_more_handwritten_shapes(self):
+        # Đo lại trên toàn bộ Sheet thật sau khi bật (12/11/2026), dữ liệu giả.
+        def one(lines):
+            accounts = job.parse_bank_column(lines, "THU CO")
+            return [tuple(item[key] for key in ("beneficiary", "bank", "account", "currency", "swift")) for item in accounts]
+        # "Bank account (USD)：" là số tài khoản, "Bank number：" chỉ có chữ là SWIFT (dấu hai chấm full-width).
+        self.assertEqual(one(["THU S JSC", "1 DUONG", "Bank account (USD)：0700000001", "Bank name: NH GIA S", "Bank number：GIASVNVX"]),
+                         [("THU S JSC", "NH GIA S", "0700000001", "USD", "GIASVNVX")])
+        # Tên công ty / địa chỉ công ty có nhãn; "Bank Acc" là số; "SELLER BANK ACCOUNT" là số.
+        self.assertEqual(one(["Company name: THU T CO", "Company add: 2 DUONG", "Bank’s Name: NH GIA T", "Swift Code: GIATVNVX", "Bank Acc: 1100000002"]),
+                         [("THU T CO", "NH GIA T", "1100000002", None, "GIATVNVX")])
+        self.assertEqual(one(["SELLER BANK ACCOUNT : 1900000003", "BENEFICIARY NAME:  THU U"]), [("THU U", None, "1900000003", None, None)])
+        # Ngân hàng đại lý và SWIFT của nó bỏ qua; dòng điện thoại không là số tài khoản; nhãn dài trong ngoặc vẫn đọc.
+        self.assertEqual(one(["Bank name (Ngân hàng người nhận): NH GIA V", "Swift code: GIAVVNVX", "Correspondent bank (Ngân hàng đại lý): NH NUOC NGOAI",
+                              "Swift code: NGOAUS33", "Beneficiary name: THU V", "Beneficiary address, tell number (Địa chỉ, số điện thoại): 3 DUONG",
+                              "Tel Number: 0900000000", "Account number (Số tài khoản người hưởng tại Ngân hàng V): 0001000004"]),
+                         [("THU V", "NH GIA V", "0001000004", None, "GIAVVNVX")])
+        # Ba số dưới cùng một ngân hàng: ba tài khoản chung ngân hàng, người nhận, SWIFT.
+        self.assertEqual(one(["Beneficiary: THU W", "Bank name: NH GIA W", "Swiftcode: GIAWVNVX", "Account No - USD: 8600000005",
+                              "Account No - VND:  8600000006", "Account No – CNY: 8600000007"]),
+                         [("THU W", "NH GIA W", "8600000005", "USD", "GIAWVNVX"), ("THU W", "NH GIA W", "8600000006", "VND", "GIAWVNVX"),
+                          ("THU W", "NH GIA W", "8600000007", "CNY", "GIAWVNVX")])
+        # SWIFT hoặc số ghi lại y hệt không tách; dòng không nhãn giữa chừng không thành tên người nhận; "ACC WITH BANK" là ngân hàng.
+        self.assertEqual(one(["SWIFT Code: GIAXVNVX", "GHI CHU", "BANK NAME: NH GIA X", "ACCOUNT NAME: THU X", "ACCOUNT NUMBER: 0500000008 (USD)",
+                              "Account No.: 0500000008", "SWIFT CODE: GIAXVNVX", "COMPANY NAME: THU X ENGLISH"]),
+                         [("THU X", "NH GIA X", "0500000008", "USD", "GIAXVNVX")])
+        self.assertEqual(one(["BENEFICIARY: THU Y", "ACCOUNT NUMBER: 121.000.0009", "ACC WITH BANK: NH GIA Y"]), [("THU Y", "NH GIA Y", "121.000.0009", None, None)])
+        # Dòng ghi chú sau một số không mở tài khoản giả; tên ngân hàng không nhãn bị dòng có nhãn ghi đè, không tách.
+        self.assertEqual(one(["THU Z COMPANY LIMITED", "BANK NAME: NH GIA Z1", "USD ACCOUNT NUMBER: 1130000010", "Swiftcode: GIAZVNVX",
+                              "NH GIA Z2 BANK", "THU Z COMPANY LIMITED", "NEW ADD: 4 DUONG MOI", "Beneficiary’s bank: NH GIA Z2, CHI NHANH B",
+                              "USD ACCOUNT NUMBER: 1100000011", "Swift Code: GIAZ2VNX", "THU Z TK MOI", "Bank Code: 79310001", "Bank Branch: CN B"]),
+                         [("THU Z COMPANY LIMITED", "NH GIA Z1", "1130000010", "USD", "GIAZVNVX"),
+                          ("THU Z COMPANY LIMITED", "NH GIA Z2, CHI NHANH B", "1100000011", "USD", "GIAZ2VNX")])
+        # Nhãn không có dấu hai chấm; nhãn tiếng Việt; nhãn để trống.
+        self.assertEqual(one(["Name of customer CT TNHH THU AA", "BENEFICIARY BANK:", "Tên ngân hàng: NH GIA AA", "Số tài khoản tiền: 1100000012",
+                              "Currency: USD"]),
+                         [("CT TNHH THU AA", "NH GIA AA", "1100000012", "USD", None)])
+
     def test_no_account_number_anywhere_is_a_shape_error(self):
         with self.assertRaises(job.SheetShapeError):
             job.parse_accounts([["", "KHOI", "BANK NAME", "X"]])
