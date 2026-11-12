@@ -118,6 +118,17 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .month-stats{flex-basis:420px;grid-template-rows:34px 34px 34px minmax(48px,auto)}
 .month-stats .month-end{flex-wrap:wrap;white-space:nowrap;gap:0 12px;font-size:14px}
 .month-stats .month-end b{margin-left:auto;font-size:20px}
+/* Dưới 1100px khối tổng tháng xếp dọc (flex-direction:column): flex-basis 420px ở trên thành chiều CAO 420px, ô Còn nợ
+   cuối tháng bị kéo dãn và để trống khoảng 250px (đo 12/11/2026 ở 390px). Xếp dọc thì cao theo nội dung. */
+@media(max-width:1100px){.month-summary-layout>.month-stats{flex-basis:auto}}
+/* Điện thoại: như app-nav.css, dải menu thu về nút ☰ ở góc trái đầu sổ; bấm ☰ (.expanded) thì bung đủ menu, người online. */
+@media(max-width:760px){
+  body{padding-left:0}
+  .topbar:not(.expanded){position:absolute;bottom:auto;width:60px;padding:6px;background:transparent}
+  .topbar:not(.expanded)>:not(.nav-toggle:first-child){display:none}
+  .topbar:not(.expanded)>.nav-toggle:first-child{width:48px;margin:0}
+  .book-head{padding-left:64px}
+}
 /* Cột Trừ nợ: mỗi tháng một dòng, tháng và số không bị bẻ đôi; các ô trong hàng thẳng theo dòng đầu. Cột co theo nội dung, tham chiếu dùng phần còn lại. */
 /* Khối phiếu ôm theo nội dung (góp ý 6/11/2026): ghi chú, trừ nợ và số tiền đứng gần nhau, mắt không phải đi qua khoảng trống; nút Ghi phiếu thu thẳng mép phải danh sách. */
 .pay-block{width:fit-content;min-width:min(640px,100%);max-width:100%}

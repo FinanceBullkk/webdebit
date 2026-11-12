@@ -108,3 +108,5 @@
   .mc .day-name span{min-width:0;overflow-wrap:anywhere}
   .mc .status{flex-basis:100%;order:3}
 }
+/* Điện thoại: chừa chỗ cho nút ☰ của app-nav.css ở góc trái thanh đầu trang. */
+@media (max-width:760px){.mc .page.app-page > .page-head.topbar{padding-left:64px}}

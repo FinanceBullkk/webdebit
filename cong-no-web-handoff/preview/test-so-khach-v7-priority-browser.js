@@ -152,6 +152,28 @@ test('Ưu tiên: 1265px có ba cột phí; màn hẹp chỉ cuộn ngang trong v
   await shot('uu-tien-390');
 }, world => { world.feeColumns = [1, 2, 3]; }));
 
+// Đo 12/11/2026 trên hao ở 390px: khối tổng tháng xếp dọc nhưng flex-basis 420px thành chiều cao, Còn nợ cuối tháng cách
+// ba dòng trên ~250px; dải menu 76px ăn 1/5 bề ngang. Điện thoại: khối cao theo nội dung, menu chỉ còn nút ☰ ở đầu sổ.
+test('Ưu tiên: điện thoại 390px, khối tổng tháng không có khoảng trống, menu thu về nút ☰', async () => withPage(async ({ page }) => {
+  for (const width of [390, 900]) {
+    await page.setViewportSize({ width, height: 844 });
+    const gap = await page.evaluate(() => {
+      const stats = document.querySelector('.month-stats').getBoundingClientRect(), end = document.querySelector('.month-stats .month-end').getBoundingClientRect();
+      return { height: stats.height, below: stats.bottom - end.bottom };
+    });
+    assert.ok(gap.height < 260 && gap.below < 40, `${width}px ${JSON.stringify(gap)}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const geo = await page.evaluate(() => {
+    const r = el => document.querySelector(el).getBoundingClientRect();
+    return { rail: r('.topbar').width, app: r('#app').left, who: r('.page-who').left, toggle: r('.topbar>.nav-toggle').right,
+      navShown: getComputedStyle(document.querySelector('.topbar>nav')).display !== 'none' };
+  });
+  assert.ok(geo.rail <= 60 && geo.app === 0 && geo.who >= geo.toggle && !geo.navShown, JSON.stringify(geo));
+  await page.locator('.nav-toggle').first().click();
+  assert.equal(await page.locator('.topbar>nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);
+}));
+
 // Dữ liệu giả cho danh sách phiếu: ô ngày Sheet lẫn chữ, phiếu chia ba tháng, phiếu máy đặt ngày có mã kỹ thuật.
 const HASH_REF = 'Sheet #' + '5bd3cb'.repeat(10) + ': da tt · ngày theo cuối tháng khối Sheet';
 function payWorld(world) {
