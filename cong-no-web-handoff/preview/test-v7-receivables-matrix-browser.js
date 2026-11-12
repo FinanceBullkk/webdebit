@@ -145,13 +145,25 @@ test('real matrix page loads API data, validates totals, changes year, filters a
       nodes: [...document.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(el).position !== 'sticky').slice(0, 8).map(el => [el.tagName, el.className, Math.round(el.getBoundingClientRect().right)]) }));
     assert.equal(overflow.scrollWidth <= overflow.width, true, JSON.stringify(overflow));
     if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-matrix-390.png'), fullPage: true });
-    await page.locator('.table-wrap').evaluate(el => { el.scrollLeft = el.scrollWidth; });
-    const mobileTotals = await page.evaluate(() => {
-      const wrap = document.querySelector('.table-wrap').getBoundingClientRect();
-      const [year, all] = [...document.querySelectorAll('#heat-head th.tot')].map(th => th.getBoundingClientRect());
-      return { visible: year.left >= wrap.left && all.right <= wrap.right + 1, separated: year.right <= all.left + 1 };
-    });
-    assert.equal(mobileTotals.visible && mobileTotals.separated, true, JSON.stringify(mobileTotals));
+    // DIEN-THOAI-THANG-01: dưới 760px danh sách theo khách thay ma trận; cùng khách, cùng thứ tự; tổng cuối bằng dòng tổng
+    // ma trận; chạm khách bung các tháng còn số, chạm tháng mở đúng ngăn kéo, Esc trả tiêu điểm về tháng đó.
+    assert.equal(await page.locator('.table-wrap').isVisible(), false);
+    assert.deepEqual(await page.locator('.pl-name').allInnerTexts(), await page.locator('#heat-body tr[data-row] td.khach a').allTextContents());
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-since').innerText(), 'Nợ từ T1');
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-strip i').count(), 12);
+    assert.equal(await page.locator('.pl-foot.net b').innerText(), await page.locator('#heat-foot tr:last-child td:last-child').textContent());
+    assert.equal(await page.locator('.pl-item').first().locator('.pl-months').isVisible(), false);
+    await page.locator('.pl-row').first().click();
+    const months = await page.locator('.pl-item').first().locator('.pl-month').evaluateAll(nodes => nodes.map(node => node.innerText.replace(/\s+/g, ' ').trim()));
+    assert.deepEqual(months, [`Tháng 1/${currentYear} 0,1 ›`, `Tháng 2/${currentYear} · trả thừa (0,02) ›`]);
+    await page.locator('.pl-item').first().locator('.pl-month[data-month="2"]').click();
+    await page.locator('#drawer-body').getByText('FAKE-B').waitFor();
+    assert.equal(await page.locator('.pl-month.active').getAttribute('data-month'), '2');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.pl-month[data-month="2"]').first().evaluate(el => el === document.activeElement), true);
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'receivables-list-390.png'), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    assert.deepEqual([await page.locator('.table-wrap').isVisible(), await page.locator('.phone-list').isVisible()], [true, false]);
   } finally {
     await browser.close();
     app.close();

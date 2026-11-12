@@ -8,7 +8,9 @@
   const opened = new URLSearchParams(location.search);
   const state = { year: currentYear, data: null, query: '', commodity: '', onlyOpen: opened.get('con-no') === '1', request: 0, detail: 0, detailFocus: null, open: null,
     age: /^[0-3]$/.test(opened.get('tuoi') ?? '') ? Number(opened.get('tuoi')) : null,
-    sort: opened.get('xep') === 'con-no' ? 'debt' : 'group', focus: Number(opened.get('khach')) || null, scrolled: false };
+    sort: opened.get('xep') === 'con-no' ? 'debt' : 'group', focus: Number(opened.get('khach')) || null, scrolled: false, phoneOpen: new Set() };
+  // Khách được chỉ tới (?khach=) mở sẵn trên danh sách điện thoại (DIEN-THOAI-THANG-01).
+  if (state.focus != null) state.phoneOpen.add(state.focus);
   const AGES = ['Tháng này', '1–2 tháng trước', '3–6 tháng trước', 'Trên 6 tháng'];
   // Nhóm tuổi của một tháng như get_dashboard; tháng sau tháng hiện tại không thuộc nhóm nào trên ma trận.
   const ageOf = month => {
@@ -129,16 +131,51 @@
     });
   }
 
-  // Điện thoại (DIEN-THOAI-SEP-01): ma trận rộng hơn màn nhiều lần, mở sẵn ở tháng hiện tại thay vì Tháng 1. Chỉ một lần mỗi năm
-  // đang xem, để lượt tự tải mỗi 60 giây không kéo người xem về chỗ cũ.
-  let shownYear = null;
-  function showCurrentMonth() {
-    const cur = document.querySelector('#heat-head th.cur');
-    const wrap = cur?.closest('.table-wrap');
-    if (!cur || !wrap || shownYear === state.year || typeof matchMedia !== 'function' || !matchMedia('(max-width: 760px)').matches) return;
-    const name = document.querySelector('#heat-head th.khach')?.offsetWidth ?? 0;
-    wrap.scrollLeft = Math.max(0, cur.offsetLeft - name - cur.offsetWidth * 2);
-    shownYear = state.year;
+  // Điện thoại (DIEN-THOAI-THANG-01): ma trận 15 cột thành danh sách theo khách, cùng khách, cùng thứ tự, cùng số của bản GET.
+  // Mỗi khách: tổng Mọi năm, "Nợ từ T…", dải 12 ô cùng thang màu ô ma trận; chạm thì bung các tháng còn số, chạm tháng mở
+  // đúng ngăn kéo như bấm ô. CSS chỉ hiện danh sách dưới 760px; màn rộng giữ ma trận.
+  const heatStyle = value => 'background:var(--heat-' + F.heatStep(value) + ');color:' + (F.heatStep(value) >= 5 ? '#fff' : 'var(--ink)');
+  function phoneItem(customer) {
+    const id = customer.customer_id;
+    const total = allTotal(customer);
+    const outside = total - yearTotal(customer);
+    const debts = MONTHS.filter(month => monthValue(customer, month) > 0n);
+    const since = total < 0n ? 'Trả trước'
+      : outside > 0n && state.year === currentYear ? 'Nợ từ trước ' + state.year + (debts.length ? ' · ' + debts.length + ' tháng ' + state.year : '')
+        : debts.length ? 'Nợ từ T' + debts[0] + (debts.length > 1 ? ' · ' + debts.length + ' tháng' : '')
+          : outside !== 0n ? 'Nợ ngoài năm ' + state.year : 'Không còn nợ';
+    const strip = MONTHS.map(month => {
+      const value = monthValue(customer, month);
+      return value === 0n ? '<i></i>' : value < 0n ? '<i class="neg"></i>' : '<i style="background:var(--heat-' + F.heatStep(value) + ')"></i>';
+    }).join('');
+    const out = outside === 0n ? '' : '<div class="pl-month pl-out"><span>' + (state.year === currentYear ? 'Trước ' : 'Ngoài năm ') + state.year + '</span><b'
+      + (outside < 0n ? ' class="neg"' : '') + '>' + esc(signedMillions(outside)) + '</b></div>';
+    const months = MONTHS.filter(month => monthValue(customer, month) !== 0n).map(month => {
+      const value = monthValue(customer, month);
+      return '<button type="button" class="pl-month" data-id="' + esc(id) + '" data-month="' + month + '"><span>Tháng ' + month + '/' + state.year + (value < 0n ? ' · trả thừa' : '')
+        + '</span><b' + (value < 0n ? ' class="neg"' : ' style="' + heatStyle(value) + '"') + '>' + esc(signedMillions(value)) + '</b><span aria-hidden="true">›</span></button>';
+    }).join('');
+    const open = state.phoneOpen.has(id);
+    return '<div class="pl-item' + (id === state.focus ? ' focus' : '') + '" data-pl="' + esc(id) + '"><button type="button" class="pl-row" aria-expanded="' + open + '" aria-controls="pl-m-' + esc(id) + '">'
+      + '<span class="pl-name">' + esc(customer.name) + '</span><b class="pl-total' + (total < 0n ? ' neg' : '') + '">' + esc(signedMillions(total)) + '</b><span class="pl-caret" aria-hidden="true"></span>'
+      + '<span class="pl-line"><span class="pl-strip" aria-hidden="true">' + strip + '</span><span class="pl-since">' + esc(since) + '</span></span></button>'
+      + '<div class="pl-months" id="pl-m-' + esc(id) + '"' + (open ? '' : ' hidden') + '>' + out + months
+      + '<a class="pl-open" href="/so-khach-v7-live.html?customer=' + esc(id) + '&amp;the=tinh-hinh">Mở trang khách ›</a></div></div>';
+  }
+  function phoneFoot(rows) {
+    const total = list => F.sum(list.map(customer => customer.total_all_vnd));
+    const line = (label, count, value, cls = '') => '<div class="pl-foot' + cls + '"><span>' + label + ' <small>' + count + ' khách</small></span><b>' + esc(signedMillions(value)) + '</b></div>';
+    const prepaid = rows.filter(customer => allTotal(customer) < 0n);
+    if (!prepaid.length) return line('Tổng', rows.length, total(rows), ' net');
+    const owing = rows.filter(customer => allTotal(customer) >= 0n);
+    return line('Phải thu', owing.length, total(owing)) + line('Trừ: trả trước', prepaid.length, total(prepaid)) + line('Phải thu ròng', rows.length, total(rows), ' net');
+  }
+  function phoneList(ordered, rows) {
+    if (!rows.length) return '<p class="pl-empty">Không có khách phù hợp.</p>';
+    const groups = ordered.map(([key, members]) => (key === null ? '' : '<div class="pl-group"><span>' + esc(groupLabel(key)) + ' <small>(' + members.length + ')</small></span><b>'
+      + esc(signedMillions(F.sum(members.map(customer => customer.total_all_vnd)))) + '</b></div>') + members.map(phoneItem).join('')).join('');
+    return '<div class="pl-box">' + groups + phoneFoot(rows) + '</div><p class="pl-note">Dải 12 ô: tháng 1 → 12 năm ' + state.year
+      + ', đậm hơn là nợ nhiều hơn, xanh lá là tháng trả thừa. Chạm khách xem các tháng còn số; chạm tháng xem chi tiết.</p>';
   }
   function render() {
     const data = state.data;
@@ -183,8 +220,8 @@
     }
     $('#heat-body').innerHTML = parts.length ? parts.join('') : '<tr><td colspan="15" class="empty-message">Không có khách phù hợp.</td></tr>';
     $('#heat-foot').innerHTML = footRows(rows);
+    $('#phone-list').innerHTML = phoneList(ordered, rows);
     stackFoot();
-    showCurrentMonth();
 
     renderSummary(data);
     $('#year-cur').textContent = state.year;
@@ -203,6 +240,7 @@
     if (state.focus != null && !state.scrolled) {
       state.scrolled = true;
       document.querySelector('#heat-body tr[data-row="' + state.focus + '"]')?.scrollIntoView({ block: 'center' });
+      document.querySelector('.pl-item[data-pl="' + state.focus + '"]')?.scrollIntoView({ block: 'center' });
     }
   }
 
@@ -245,9 +283,10 @@
   const byDate = (a, b) => (a.event_date || '9999').localeCompare(b.event_date || '9999') || String(a.container || '').localeCompare(String(b.container || ''));
 
   function paintActive() {
-    document.querySelectorAll('.cell-btn.active').forEach(button => button.classList.remove('active'));
+    document.querySelectorAll('.cell-btn.active, .pl-month.active').forEach(button => button.classList.remove('active'));
     if (!state.open || $('#drawer').hidden) return;
-    document.querySelector('.cell-btn[data-id="' + state.open.id + '"][data-month="' + state.open.month + '"]')?.classList.add('active');
+    const at = '[data-id="' + state.open.id + '"][data-month="' + state.open.month + '"]';
+    document.querySelectorAll('.cell-btn' + at + ', .pl-month' + at).forEach(button => button.classList.add('active'));
   }
 
   function paintNav(month) {
@@ -366,12 +405,25 @@
 
   function closeDrawer() {
     state.detail++;
-    const active = document.querySelector('.cell-btn.active');
+    // Ô đang mở trên ma trận hoặc trên danh sách điện thoại, cái nào đang hiện thì trả tiêu điểm về đó.
+    const active = [...document.querySelectorAll('.cell-btn.active, .pl-month.active')].find(button => button.offsetParent !== null);
     $('#drawer').hidden = true; state.open = null; document.body.classList.remove('drawer-open');
     paintActive();
     (active || (state.detailFocus?.isConnected ? state.detailFocus : null))?.focus();
   }
   const step = delta => { if (state.open) openDetail(state.open.id, state.open.month + delta, null); };
+  $('#phone-list').addEventListener('click', event => {
+    const month = event.target.closest('.pl-month[data-month]');
+    if (month) { openDetail(Number(month.dataset.id), Number(month.dataset.month), month); return; }
+    const row = event.target.closest('.pl-row');
+    if (!row) return;
+    const item = row.closest('.pl-item');
+    const id = Number(item.dataset.pl);
+    const open = row.getAttribute('aria-expanded') !== 'true';
+    if (open) state.phoneOpen.add(id); else state.phoneOpen.delete(id);
+    row.setAttribute('aria-expanded', String(open));
+    item.querySelector('.pl-months').hidden = !open;
+  });
   $('#year-prev').addEventListener('click', () => load(state.year - 1));
   $('#year-next').addEventListener('click', () => load(state.year + 1));
   const refresh = () => { if ($('#drawer').hidden && !document.querySelector('input:focus,select:focus')) load(state.year); };
