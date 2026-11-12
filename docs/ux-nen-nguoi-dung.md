@@ -103,7 +103,7 @@ Mục tiêu phụ cho người xem: sếp trả lời được "tổng nợ, ai 
 | Người nhập | Làm trên Sheet, chưa dùng web | Đưa lô container từ booking sheet vào sổ khách | 35–40 chuyến/ngày, 40–65 khách/tháng | Trùng, sót container |
 | | | Gán giá: tự tính theo bảng giá hoặc nhập tay, tùy khách; thêm phụ phí | Theo từng chuyến | Sai đơn giá, thiếu/thừa phụ phí |
 | | | Ghi phiếu thu và khớp với nợ | 3–4 phiếu/ngày | Nhầm khách, nhầm tháng, nhầm số tiền |
-| | | Làm debit note gửi khách | Cuối tháng, mỗi khách có chuyến | Số không khớp sổ |
+| | | Làm debit note gửi khách (file Excel qua Zalo/WeChat) | Từng khách, rải rác khi khách hỏi (người dùng 12/11/2026) | Số không khớp sổ; chọn nhầm tài khoản nhận tiền |
 | | | Tra nợ khi khách hoặc sếp hỏi | Chưa đo | Trả lời theo số cũ |
 | Sếp | Mở xem web | Xem tổng nợ, khách nợ nhiều, nợ quá hạn, ai cần đòi | Chưa đo (không có nhật ký xem) | Tin vào số web khi web đang thiếu dữ liệu |
 | Người đòi nợ | Mở xem web | Lấy tin nhắc gửi khách | 1 lần ghi nhận (30/10) | Nhắc theo số chưa trừ phiếu thu mới |

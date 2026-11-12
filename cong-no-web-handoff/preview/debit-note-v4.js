@@ -86,25 +86,19 @@ const DebitNoteV4 = (() => {
       const info = { container: trip.container, carrier: trip.carrier, shipper: trip.shipper, date: trip.event_date, origin: trip.origin, destination: trip.destination };
       add(info, trip.fee_lines, trip.is_missing_price ? null : big(trip.unit_price_vnd), trip.is_missing_price ? null : big(trip.amount_vnd), trip.is_fee_only === true);
     }
-    const missing = rows.filter(row => row.missingPrice || row.amount === null).length;
-    if (missing) issues.push({ level: 'block', text: `${missing} dòng chưa có giá hoặc số tiền.` });
+    // Bảng có gì xuất nấy (người dùng 12/11/2026): chuyến chưa có giá không chặn, in Unit price và Amount trống.
     if (pendingCount) issues.push({ level: 'info', text: `${pendingCount} chuyến đang CHỜ KIỂM không lên chứng từ.` });
 
     const codes = ['LUMP_SUM', ...own, 'OTHER'];
     const doc = assemble({ rows, codes, config, monthKey, form });
     doc.issues.push(...issues);
-    const places = [...new Set(doc.rows.filter(row => !row.feeOnly && !row.place.known).map(row => row.place.text || '(trống)'))];
-    const ports = [...new Set(doc.rows.filter(row => !row.feeOnly && !row.pod.known).map(row => row.pod.text || '(trống)'))];
-    if (places.length) doc.issues.push({ level: 'warn', text: `Nơi đóng hàng ngoài danh mục: ${places.join(', ')}.` });
-    if (ports.length) doc.issues.push({ level: 'warn', text: `Cảng đến ngoài danh mục: ${ports.join(', ')}.` });
-    const bad = doc.rows.filter(row => !row.feeOnly && !model.containerCheck(row.container).valid).map(row => row.container || '(trống)');
-    if (bad.length) doc.issues.push({ level: 'warn', text: `Số container sai theo ISO 6346: ${bad.join(', ')}.` });
+    // Không còn cảnh báo nơi/cảng ngoài danh mục hay số container sai ISO 6346 (người dùng 12/11/2026: "bảng có gì thì xuất đó").
 
     // ACCOUNT STATUS: số của tháng lấy nguyên từ máy chủ (months[]). Opening = nợ trước tháng công nợ; Payments received =
     // phiếu thu, cấn trừ và điều chỉnh trong tháng = đã thu − (phát sinh của tháng − số của chứng từ); Outstanding = còn nợ
     // cuối tháng. Người dùng chốt 10/11/2026.
     const item = (ledger.months ?? []).find(row => month(row) === monthKey);
-    if (!item && doc.showAccount) doc.issues.push({ level: 'block', text: 'Máy chủ chưa trả số nợ của tháng này (ACCOUNT STATUS).' });
+    // Máy chủ không có số của tháng thì các ô ACCOUNT STATUS để trống, không chặn (12/11/2026).
     const opening = big(item?.prior_months_vnd), charges = big(item?.charges_vnd), received = big(item?.received_vnd), end = big(item?.end_of_month_vnd);
     const total = doc.total.amount;
     const adjustments = charges === null || total === null ? null : charges - total;
@@ -137,6 +131,11 @@ const DebitNoteV4 = (() => {
     return doc;
   }
 
+  // Số một dòng góp vào Total: Amount của sổ; dòng chưa có giá (Amount trống) góp các ô phí đang in (12/11/2026: Total cộng mọi ô in ra).
+  const rowTotal = row => row.amount ?? sum(Object.values(row.cells).filter(value => value !== null));
+  // Ô in ở một cột phí: ô Unit price của phí lẻ và của chuyến chưa có giá để trống, ô phí không có thì in "–" (0).
+  const cellValue = (row, code) => row.cells[code] ?? (code === 'LUMP_SUM' && (row.feeOnly || row.amount === null || row.missingPrice) ? null : 0n);
+
   // Phần chung: xếp dòng, đánh số, chọn cột (cột phí có ô khác 0 trên cả chứng từ mới hiện), cộng Total.
   function assemble({ rows, codes, config, monthKey, form }) {
     const key = row => row.date ?? '9999-99-99';
@@ -146,7 +145,6 @@ const DebitNoteV4 = (() => {
     const used = codes.filter(code => code === 'LUMP_SUM' || ordered.some(row => row.cells[code] != null && row.cells[code] !== 0n));
     const columns = used.map(code => feeLabel(config, code));
     const columnTotal = code => sum(ordered.map(row => row.cells[code] ?? 0n));
-    const amounts = ordered.map(row => row.amount);
     const customer = form.customer ?? {};
     const company = config?.company ?? {}, payment = config?.payment ?? {};
     return {
@@ -159,7 +157,7 @@ const DebitNoteV4 = (() => {
       // ACCOUNT STATUS tùy chọn (người dùng 12/11/2026: người xuất muốn thì tích). Không truyền thì in như trước.
       showAccount: form.accountStatus !== false,
       columns, rows: ordered,
-      total: { cells: Object.fromEntries(used.map(code => [code, columnTotal(code)])), amount: amounts.some(value => value === null) ? null : sum(amounts),
+      total: { cells: Object.fromEntries(used.map(code => [code, columnTotal(code)])), amount: sum(ordered.map(rowTotal)),
         count: containers.length },
       account: null, issues: [],
     };
@@ -173,14 +171,14 @@ const DebitNoteV4 = (() => {
     for (const row of doc.rows) {
       const parts = Object.values(row.cells).filter(value => value !== null);
       const expected = sum(parts);
-      if (row.amount === null || row.amount !== expected)
+      if (row.amount !== null && row.amount !== expected)
         fail(1, `dòng ${row.no ?? row.date ?? ''} ${row.container || 'phí lẻ'}: Amount ${money(row.amount) || '(trống)'} ≠ ${visible.filter(code => row.cells[code] != null).map(code => money(row.cells[code])).join(' + ')} = ${money(expected)}.`);
       const hidden = Object.keys(row.cells).filter(code => !visible.includes(code) && row.cells[code] !== null && row.cells[code] !== 0n);
       if (hidden.length) fail(1, `dòng ${row.no ?? ''} ${row.container}: có phí ở cột không hiện (${hidden.join(', ')}).`);
     }
-    const rowsTotal = doc.rows.some(row => row.amount === null) ? null : sum(doc.rows.map(row => row.amount));
-    if (doc.total.amount === null || rowsTotal === null || doc.total.amount !== rowsTotal)
-      fail(2, `Total Amount ${money(doc.total.amount) || '(trống)'} ≠ tổng Amount các dòng ${money(rowsTotal) || '(trống)'}.`);
+    const rowsTotal = sum(doc.rows.map(rowTotal));
+    if (doc.total.amount === null || doc.total.amount !== rowsTotal)
+      fail(2, `Total Amount ${money(doc.total.amount) || '(trống)'} ≠ tổng Amount các dòng ${money(rowsTotal)}.`);
     const columnsTotal = sum(visible.map(code => doc.total.cells[code] ?? 0n));
     for (const code of visible) {
       const real = sum(doc.rows.map(row => row.cells[code] ?? 0n));
@@ -195,7 +193,8 @@ const DebitNoteV4 = (() => {
     if (doc.showAccount !== false && (account.thisNote === null || account.thisNote === undefined || account.thisNote !== doc.total.amount))
       fail(5, `This debit note ${money(account.thisNote) || '(trống)'} ≠ Total Amount ${money(doc.total.amount) || '(trống)'}.`);
     const parts = [account.opening, account.thisNote, account.payments, account.outstanding];
-    if (doc.showAccount !== false && (parts.some(value => value === null || value === undefined) || account.opening + account.thisNote - account.payments !== account.outstanding))
+    // Máy chủ thiếu số của tháng (ô trống) thì không kiểm phép 6.
+    if (doc.showAccount !== false && !parts.some(value => value === null || value === undefined) && account.opening + account.thisNote - account.payments !== account.outstanding)
       fail(6, `Opening ${money(account.opening) || '(trống)'} + This debit note ${money(account.thisNote) || '(trống)'} − Payments ${money(account.payments) || '(trống)'}`
         + ` ≠ Outstanding ${money(account.outstanding) || '(trống)'}.`);
     if (!doc.rows.length) out.push({ level: 'block', rule: 0, text: 'Tháng này không có chuyến nào để lập chứng từ.' });
@@ -323,7 +322,7 @@ const DebitNoteV4 = (() => {
         : `<span style="text-align: right">${row.no}</span><span style="padding-left: 10px; ${CELL}">${esc(row.container)}</span><span style="${CELL}">${esc(row.line)}</span>`
           + `<span style="${CELL}">${esc(row.shipper)}</span><span style="${CELL}">${esc(dateText(row.date) ?? '')}</span><span style="${CELL}">${placeText(doc, row.place)}</span><span style="${CELL}">${placeText(doc, row.pod)}</span>`;
       return `<div data-row style="display: grid; grid-template-columns: ${grid}; align-items: baseline; padding: 3px 8px 3px 0${border}">${lead}`
-        + `${doc.columns.map(column => moneySpan(row.cells[column.code] ?? (row.feeOnly && column.code === 'LUMP_SUM' ? null : 0n))).join('')}${moneySpan(row.amount)}</div>`;
+        + `${doc.columns.map(column => moneySpan(cellValue(row, column.code))).join('')}${moneySpan(row.amount)}</div>`;
     };
     const body = rows.map((row, index) => line(row, index === rows.length - 1)).join('');
     const total = withTotal
@@ -415,7 +414,7 @@ const DebitNoteV4 = (() => {
   const documentHtml = (doc, pages, title = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title>`
     + `<style>${PRINT_CSS}</style></head><body>${pagesHtml(doc, pages)}</body></html>`;
 
-  return { fromLedger, fromSample, checks, pageHtml, paginate, measurer, split, columnLayout, fitColumns, pagesHtml, documentHtml, money, dateText, periodText, latin, splitName,
+  return { fromLedger, fromSample, checks, cellValue, rowTotal, pageHtml, paginate, measurer, split, columnLayout, fitColumns, pagesHtml, documentHtml, money, dateText, periodText, latin, splitName,
     PRINT_CSS, TEXT_COLUMNS };
 })();
 if (typeof module !== 'undefined') module.exports = DebitNoteV4;

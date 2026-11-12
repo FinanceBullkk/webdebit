@@ -159,4 +159,14 @@
   .debit-field input,.debit-field select,.debit-field textarea{min-height:44px;font-size:16px}
   .debit-check input{width:22px;height:22px}
   .debit-body{flex:none;height:60vh;min-height:300px;border-top:1px solid #c9d6e3}
+  /* Hộp v4 luồng D: một hàng đầu (tên, tháng, ✕), xem trước thu nhỏ ở trên, các ô chọn cuộn, nút Gửi Excel và PDF dính đáy. */
+  .dn4 header{flex-wrap:nowrap}.dn4-head{flex:1 1 auto}.dn4-head h2{font-size:15px}
+  .debit-panel.dn4 header .debit-close{flex:none;width:44px;min-height:44px}
+  .dn4-month{flex:none;max-width:40%;min-height:44px;font-size:16px}
+  .dn4 .debit-main{overflow:hidden}
+  .dn4 .debit-body{order:-1;flex:none;height:170px;min-height:0;border-top:0;border-bottom:1px solid #c9d6e3}
+  .dn4-side{width:auto;flex:1;border-right:0}
+  .dn4-combo input{min-height:48px;font-size:16px}.dn4-opt{padding:11px 12px}
+  .dn4-check{min-height:44px}.dn4-check input{width:22px;height:22px}
+  .dn4-actions{padding:8px 12px 12px}.dn4-actions button{min-height:48px}
 }
