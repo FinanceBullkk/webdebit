@@ -21,7 +21,8 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
         controlsFit: controls.every(button => button.scrollWidth <= button.clientWidth && getComputedStyle(button).whiteSpace === 'nowrap'),
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
-    assert.deepEqual(geometry, { rowHeight: 35, fullWidth: true, labelLines: 1, controlsFit: true, overflow: 0 });
+    // Dưới 760px hàng chuyến là hàng ba cột cao 48px (DIEN-THOAI-CHUYEN-01); dòng báo vẫn trải hết bảng.
+    assert.deepEqual(geometry, { rowHeight: width < 760 ? 48 : 35, fullWidth: true, labelLines: 1, controlsFit: true, overflow: 0 });
     await shot(`sheet-warning-${width}`);
   }
   await page.locator('.sheet-removed-next').click();

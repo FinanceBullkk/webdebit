@@ -1,0 +1,73 @@
+/* Bảng chuyến Sổ khách trên điện thoại (DIEN-THOAI-CHUYEN-01, specs/v7-so-khach-dien-thoai.md). Lớp ph-* do
+   so-khach-v7-phone-ui.js gắn sau mỗi lần vẽ; ngoài @media chúng không đổi gì, trừ nhãn phụ ẩn sẵn. */
+.ph-tag,.ph-only{display:none}
+.ph-sheet[hidden]{display:none}
+.ph-sheet{position:fixed;inset:0;z-index:90}
+.ph-veil{position:absolute;inset:0;background:rgba(13,27,42,.45)}
+.ph-panel{position:absolute;left:0;right:0;bottom:0;max-height:80vh;overflow-y:auto;box-sizing:border-box;padding:8px 16px 20px;background:#fff;
+  border-radius:16px 16px 0 0;box-shadow:0 -8px 28px rgba(13,27,42,.25);color:#1a1a19;font:15px/1.35 "Segoe UI",system-ui,-apple-system,sans-serif;font-variant-numeric:tabular-nums}
+.ph-grip{width:40px;height:4px;margin:0 auto 8px;border-radius:2px;background:#c3cad3}
+.ph-head{display:flex;align-items:center;gap:8px}
+.ph-name{flex:1 1 auto;min-width:0}
+.ph-title{margin:0;font:700 18px/1.25 Consolas,"Cascadia Mono",monospace;overflow-wrap:anywhere}
+.ph-sub{color:#52514e;font-size:14px}
+.ph-close{display:flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;padding:0;border:1px solid #d7dce3;border-radius:22px;background:#fff;color:#1a1a19;cursor:pointer}
+.ph-info{display:grid;grid-template-columns:104px minmax(0,1fr);gap:6px 10px;margin:12px 0}
+.ph-info dt{color:#52514e}.ph-info dd{margin:0;overflow-wrap:anywhere}
+.ph-line{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:6px;padding:5px 0}
+.ph-line>span:first-child{color:#52514e}.ph-line>span:nth-child(2){color:#3f3e3b}
+.ph-line.total{margin-top:2px;padding-top:8px;border-top:2px solid #1a1a19;font-size:17px;font-weight:700}
+.ph-line.total>span{color:#1a1a19}
+.ph-note{margin:10px 0 0;color:#3f3e3b;font-size:14px}
+.ph-desk{margin:6px 0 0;color:#52514e;font-size:14px}
+.ph-nav{display:flex;gap:8px;margin-top:16px}
+.ph-nav button{flex:1 1 0;min-height:44px;border:1px solid #7d8a98;border-radius:8px;background:#fff;color:#1a1a19;font:inherit;font-weight:600;cursor:pointer}
+.ph-nav button:disabled{opacity:.45;cursor:default}
+.ph-close:focus-visible,.ph-nav button:focus-visible{outline:3px solid #1c5cab;outline-offset:2px}
+.ph-lock,.ph-lock body{overflow:hidden}
+
+@media (max-width:760px){
+  #the-so .trip-card{overflow:visible}
+  #the-so .trip-card>.ledger,#the-so .trip-card>.ledger-head,#the-so .trip-card .trip-list{display:block;width:auto;min-width:0;margin:0;border:0}
+  #the-so .trip-card>.ledger>tbody,#the-so .trip-card>.ledger-head>thead,#the-so .trip-card .trip-list>tbody{display:block}
+  #the-so .trip-card colgroup,#the-so .trip-card tr.spacer{display:none}
+  #the-so .trip-card tr{display:block}
+  #the-so .trip-card tr.month-body>td.trip-side{display:block;padding:0;border:0}
+  /* Ba cột: ngày, container, thành tiền; mọi ô khác ẩn. */
+  #the-so .trip-card tr.columns,#the-so .trip-card tr.ph-row{display:grid;grid-template-columns:92px minmax(0,1fr) auto;align-items:center;column-gap:8px;padding:0 12px}
+  #the-so .trip-card tr.columns>th:not(.ph-date):not(.ph-cont):not(.ph-amt),
+  #the-so .trip-card tr.ph-row>td:not(.ph-date):not(.ph-cont):not(.ph-amt){display:none}
+  #the-so .trip-card tr.columns{min-height:36px;background:#f3f5f8;border-bottom:1px solid #d7dce3}
+  #the-so .trip-card tr.columns>th{position:static;padding:0;border:0;background:none;color:#3f3e3b;font-size:14px;font-weight:700;text-align:left}
+  #the-so .trip-card .ph-date{order:1}
+  #the-so .trip-card .ph-cont{order:2}
+  #the-so .trip-card .ph-amt{order:3;text-align:right}
+  #the-so .trip-card tr.ph-row{min-height:48px;border-bottom:1px solid #e9ecf0;cursor:pointer}
+  #the-so .trip-card tr.ph-row>td{display:flex;align-items:center;align-self:stretch;height:auto;min-height:0;padding:0;border:0;background:none;box-shadow:none;
+    font-size:15px;line-height:1.3;white-space:nowrap;overflow:hidden}
+  #the-so .trip-card tr.ph-row>td.ph-cont{font-family:Consolas,"Cascadia Mono",monospace}
+  #the-so .trip-card tr.ph-row>td.ph-amt{justify-content:flex-end;font-weight:600;overflow:visible}
+  /* Hàng Sheet mới / lệch: so-khach-v7.css tô từng ô (!important); trên điện thoại tô cả hàng cho liền. */
+  #the-so .trip-card tr.ph-row.sheet-new>td,#the-so .trip-card tr.ph-row.sheet-conflict>td{background:transparent!important}
+  #the-so .trip-card tr.ph-row.sheet-new{background:#fff1ad}
+  #the-so .trip-card tr.ph-row.sheet-conflict{background:#ffd6d6}
+  #the-so .trip-card tr.ph-row:active{background:#eaf2fc}
+  #the-so .trip-card .ph-cont small,#the-so .trip-card .ph-cont button,#the-so .trip-card .ph-cont input,
+  #the-so .trip-card .ph-amt small,#the-so .trip-card .ph-amt button:not(.row-tag){display:none}
+  #the-so .trip-card .ph-amt .row-tag{min-height:0;padding:2px 8px;font-size:14px}
+  #the-so .trip-card tr.ph-tagged>td.ph-amt>.ph-orig{display:none}
+  #the-so .trip-card .ph-tag{display:inline-block;padding:2px 8px;border:1px solid;border-radius:10px;font-size:14px;font-weight:700;line-height:1.3}
+  .ph-tag.chua{border-color:#d9a441;background:#fdf3e1;color:#7a4700}
+  .ph-tag.duyet{border-color:#8daac9;background:#eaf2fc;color:#173d65}
+  .ph-tag.khac{border-color:#b9a3dd;background:#f3edff;color:#4b2a7a}
+  /* Dòng điều chỉnh và dòng cộng tháng: nhãn trái, số phải. */
+  #the-so .trip-card tr.adjustment{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;min-height:44px;padding:0 12px;border-bottom:1px solid #e9ecf0}
+  #the-so .trip-card tr.adjustment>td{display:block;padding:0;border:0;background:none}
+  #the-so .trip-card tr.subtotal{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;min-height:52px;padding:0 12px;background:#f3f5f8;border-top:2px solid #d7dce3}
+  #the-so .trip-card tr.subtotal>td{display:none;padding:0;border:0;background:none}
+  #the-so .trip-card tr.subtotal>td:first-child,#the-so .trip-card tr.subtotal>td.amount-total{display:block}
+  #the-so .trip-card tr.subtotal>td.amount-total{font-size:17px;font-weight:700;color:#16324f}
+  #the-so .trip-card tr.subtotal .add-month-adjustment{display:none}
+  #the-so .trip-card tr.subtotal .ph-only{display:inline;font-weight:700}
+  #the-so .trip-card tr:not(.columns):not(.ph-row):not(.adjustment):not(.subtotal):not(.month-body)>td{display:block;height:auto;min-height:0;padding:8px 12px;white-space:normal}
+}
