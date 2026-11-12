@@ -11,7 +11,7 @@
   // Bên phát hành chọn được; chỉ điền sẵn thông tin công khai, phần còn lại người lập điền một lần, trình duyệt nhớ.
   const ISSUERS = [
     { code: 'HTH', label: 'HTH Logistics', issuer: { name: 'HTH LOGISTICS DV TM CO.,LTD',
-      address: '20/21/15 Le Cong Phap, An Lac Ward, Binh Tan District, Ho Chi Minh City, Vietnam', email: 'hth.logs@gmail.com' } },
+      address: '21/20/15 Le Cong Phep Street, An Lac Ward, Ho Chi Minh City, Vietnam', email: 'hth.logs@gmail.com' } },
     { code: 'NSX', label: 'Nông Sản Xanh', issuer: { name: 'GREEN AGRICULTURAL PRODUCTS EXPORT TRADING CO.,LTD', taxId: '0319147624' } },
     { code: 'DN', label: 'Công ty khác', issuer: {} },
   ];
@@ -137,7 +137,7 @@
   }
   // ---- Mẫu v4 (DEBIT-NOTE-03, docs/debit-note-v4/SPEC.md): một trang A4 ngang, 6 phép kiểm, sai thì không xuất. ----
   // Mẫu nào do cấu hình máy chủ quyết (GET /api/v7/debit-note/config, mặc định v3); ?debit=v4 hoặc ?debit=v3 trên địa chỉ trang
-  // để xem thử mẫu kia. Công ty và tên phí lấy từ cấu hình; tài khoản nhận tiền và thông tin khách chọn từ Thông tin cty (THONG-TIN-CTY-01) hoặc theo cấu hình.
+  // để xem thử mẫu kia. Tên phí lấy từ cấu hình; công ty phát hành (đầu trang) và tài khoản nhận tiền chọn từ Thông tin cty (THONG-TIN-CTY-01) hoặc theo cấu hình.
   const V4_CUSTOMER_KEY = `debit-note:v4:customer:${customerId}`;
   let configLoad = null;
   // THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền đọc từ Sheet thông tin khách hàng (GET /api/v7/company-info).
@@ -151,42 +151,43 @@
     for (const item of list) count.set(item.name, (count.get(item.name) ?? 0) + 1);
     return list.map(item => ({ ...item, pickLabel: count.get(item.name) > 1 ? `${item.name} · dòng ${item.rows[0]}` : item.name }));
   };
-  // Tài khoản chọn ở hộp ghi đè phần ngân hàng của cấu hình máy chủ cho riêng chứng từ này; không chọn thì theo cấu hình.
-  function effectiveConfig(config, account) {
-    if (!account) return config;
-    const payment = { ...(config?.payment ?? {}), beneficiary: account.beneficiary, bank: account.bank, account: account.account, swift: account.swift };
+  // Chữ Việt bỏ dấu khi in đầu trang (chứng từ không in tiếng Việt, DEBIT-NOTE-03).
+  const plain = value => (value == null ? value : String(value).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D'));
+  // Công ty phát hành chọn từ Thông tin cty thay cả đầu trang (tên, địa chỉ, MST, điện thoại, email) cho riêng chứng từ này;
+  // tài khoản chọn ở hộp thay phần ngân hàng. Không chọn thì theo cấu hình máy chủ.
+  function effectiveConfig(config, account, issuer) {
+    let out = config;
+    if (issuer) {
+      const h = issuer.header ?? {};
+      out = { ...out, company: { name: plain(h.name || issuer.company), address: plain(h.address), tax_id: plain(h.tax_id), tel: plain(h.tel), email: h.email } };
+    }
+    if (!account) return out;
+    const payment = { ...(out?.payment ?? {}), beneficiary: account.beneficiary, bank: account.bank, account: account.account, swift: account.swift };
     if (account.currency) Object.assign(payment, { account_label_en: `${account.currency} Account`, account_label_cn: ACCOUNT_CN[account.currency] ?? '账号' });
-    return { ...config, payment };
+    return { ...out, payment };
   }
+  const issuerOf = (directory, label) => (label ? customersOf(directory).find(item => item.pickLabel === label) ?? null : null);
   function formV4(state) {
     const c = state.customer, directory = open.directory, accounts = accountsOf(directory);
+    const company = open.config?.company?.name;
     const pickHint = open.directoryError ? `Chưa đọc được Thông tin cty: ${open.directoryError}` : directory?.available
-      ? 'Chọn một khách thì ô Tên pháp lý và địa chỉ lấy theo thông tin xuất hóa đơn.' : 'Máy chủ chưa đọc Sheet thông tin khách hàng.';
+      ? `Chọn một công ty thì đầu trang in tên, địa chỉ, MST, điện thoại, email theo Thông tin cty. Để trống thì theo cấu hình${company ? ` (${company})` : ''}.`
+      : 'Máy chủ chưa đọc Sheet thông tin khách hàng.';
     const configured = open.config?.payment?.account;
     const accountOptions = [`<option value="">${escape(configured ? `Theo cấu hình máy chủ (${tail(configured)})` : 'Chưa chọn')}</option>`,
       ...accounts.map(item => `<option value="${escape(item.id)}"${item.id === state.account ? ' selected' : ''}>${escape([item.label, item.beneficiary, tail(item.account)].filter(Boolean).join(' · '))}</option>`)];
     return `<form class="debit-form" novalidate>
       <fieldset><legend>Chứng từ</legend>${field('number', 'Số debit note', state.number)}${field('issueDate', 'Ngày phát hành', state.issueDate,
         { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}</fieldset>
-      <fieldset><legend>Khách (BILL TO)</legend><label class="debit-field"><span>Chọn từ Thông tin cty</span><input name="pick" list="debit-company-list"
-        value="${escape(state.pick)}" placeholder="Gõ tên khách" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
-        customersOf(directory).map(item => `<option value="${escape(item.pickLabel)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label>
-        ${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
+      <fieldset><legend>Công ty phát hành (đầu trang)</legend><label class="debit-field"><span>Chọn từ Thông tin cty</span><input name="issuer" list="debit-company-list"
+        value="${escape(state.issuer)}" placeholder="Gõ tên công ty" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
+        customersOf(directory).map(item => `<option value="${escape(item.pickLabel)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label></fieldset>
+      <fieldset><legend>Khách (BILL TO)</legend>${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
         ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}
         ${field('customer.contact', 'Người liên hệ (Attn)', c.contact)}</fieldset>
       <fieldset><legend>Tài khoản nhận tiền</legend><label class="debit-field"><span>Tài khoản in trên chứng từ</span><select name="account">${accountOptions.join('')}</select>
         <small>Danh sách theo tab Thông tin cty.</small></label></fieldset>
-      <p class="debit-note-v4">Công ty và tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
-  }
-  // Chọn đúng tên một shipper trong danh sách thì điền ô pháp lý (một lần cho mỗi lần chọn; người lập vẫn sửa tay được).
-  function applyPick() {
-    const input = dialog.querySelector('[name="pick"]');
-    const name = input?.value.trim();
-    if (!name || name === open.appliedPick) return;
-    const found = customersOf(open.directory).find(item => item.pickLabel === name);
-    if (!found) return;
-    open.appliedPick = name;
-    dialog.querySelector('[name="customer.legal"]').value = found.invoice || found.shipper;
+      <p class="debit-note-v4">Tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
   }
   function readFormV4() {
     const state = { customer: {} };
@@ -200,7 +201,7 @@
   function refreshV4() {
     const state = readFormV4();
     const account = accountsOf(open.directory).find(item => item.id === state.account) ?? null;
-    const config = effectiveConfig(open.config, account);
+    const config = effectiveConfig(open.config, account, issuerOf(open.directory, state.issuer));
     const doc = DebitNoteV4.fromLedger(ctx.snapshot ?? {}, open.monthKey, { model, feeTypes: ctx.feeTypes ?? [], feeColumnIds: ctx.feeColumnIds ?? [],
       config, form: state });
     const checks = [...(open.configError ? [{ level: 'block', text: `Không đọc được cấu hình debit note: ${open.configError}` }] : []),
@@ -226,16 +227,16 @@
     }
     const count = open.pages?.length ?? 0;
     dialog.querySelector('.debit-status').textContent = `${doc.total.count} container · ${count} trang · ${blocks ? 'chưa xuất được' : 'mẫu v4'}`;
-    write(V4_CUSTOMER_KEY, { customer: state.customer, pick: state.pick ?? '', account: state.account ?? '' });
+    write(V4_CUSTOMER_KEY, { customer: state.customer, issuer: state.issuer ?? '', account: state.account ?? '' });
   }
   function showV4(monthKey, opener, config, configError = '', directory = null, directoryError = '') {
     const remembered = read(V4_CUSTOMER_KEY), saved = remembered.customer ?? {};
     const name = DebitNoteV4.splitName(defaultDisplay());
     // Tài khoản đã nhớ mà không còn trên Sheet thì coi như chưa chọn.
     const account = accountsOf(directory).some(item => item.id === remembered.account) ? remembered.account : '';
-    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', pick: remembered.pick ?? '', account,
+    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', issuer: remembered.issuer ?? '', account,
       customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '', contact: saved.contact ?? '' } };
-    open = { v4: true, monthKey, opener, config, configError, directory, directoryError, appliedPick: remembered.pick ?? '' };
+    open = { v4: true, monthKey, opener, config, configError, directory, directoryError };
     dialog.innerHTML = `<div class="debit-panel"><header><h2>Debit note tháng ${escape(monthLabel(monthKey))}<small class="debit-status"></small></h2>
       <button type="button" class="debit-print">In / Lưu PDF</button><button type="button" class="debit-excel">Tải Excel</button><button type="button" class="debit-close">Đóng</button></header>
       <div class="debit-main">${formV4(state)}<div class="debit-side"><div class="debit-review" role="status"><ul class="debit-checks"></ul>
@@ -328,7 +329,6 @@
   dialog.addEventListener('input', event => {
     if (!open || !event.target.closest('.debit-form, .debit-ack') || event.target.name === 'issuerCode') return;   // đổi công ty xử lý ở change
     if (event.target.name === 'number') event.target.dataset.touched = '1';
-    if (open.v4 && event.target.name === 'pick') applyPick();
     (open.v4 ? refreshV4 : refresh)();
   });
   dialog.addEventListener('change', event => {

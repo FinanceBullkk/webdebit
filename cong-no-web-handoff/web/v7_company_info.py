@@ -12,6 +12,7 @@ import threading
 
 DEFAULT_PATH = "/var/lib/webdebit-sheet-sync/company-info.json"
 ACCOUNT_KEYS = ("beneficiary", "address", "bank", "bank_address", "account", "swift")
+HEADER_KEYS = ("name", "address", "tax_id", "tel", "email")   # đầu trang debit note khi chọn công ty phát hành
 _CACHE: dict = {}
 _LOCK = threading.Lock()
 
@@ -52,8 +53,10 @@ def clean(raw: dict) -> dict:
         rows = item.get("rows") if isinstance(item, dict) else None
         if not isinstance(rows, list) or len(rows) != 2 or not all(isinstance(row, int) and not isinstance(row, bool) for row in rows):
             raise _broken()
+        header = item.get("header") if isinstance(item.get("header"), dict) else {}
         customers.append({"name": _text(item.get("name")), "company": _text(item.get("company")), "rows": rows,
-                          **{key: _text(item.get(key)) for key in ("shipper", "invoice", "bank")}})
+                          **{key: _text(item.get(key)) for key in ("shipper", "invoice", "bank")},
+                          "header": {key: _text(header.get(key), optional=True) for key in HEADER_KEYS}})
     runner = raw.get("runner") if isinstance(raw.get("runner"), dict) else {}
     return {"available": True, "read_at": _text(runner.get("created_at"), optional=True), "accounts": accounts, "customers": customers,
             "counts": {key: value for key, value in (raw.get("counts") or {}).items() if isinstance(value, int)}}
