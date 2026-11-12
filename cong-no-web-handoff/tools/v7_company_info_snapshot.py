@@ -149,28 +149,49 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
 
 
 # TAI-KHOAN-COT-E-01: cột E (THONG TIN NGAN HANG) của một khối là các tài khoản nhận tiền của chính công ty đó, viết tay:
-# nhãn nằm trong ô và nhiều kiểu ("NAME OF BANK", "BANK'S ADDRESS", "BENEFICIARY’S BANK", "ACOUNT NUMBER (USD)"), có dòng
-# gạch đầu "-", địa chỉ xuống dòng, dòng "RMB ACCOUNT" ở cuối. Đọc theo thứ tự dòng: ADD/ADDRESS trước ngân hàng là địa chỉ
-# người nhận, sau ngân hàng là địa chỉ ngân hàng. Tài khoản mới bắt đầu khi một trường đã có lại xuất hiện, hoặc sau chỗ hở /
-# dòng không nhãn khi tài khoản đang đọc đã có số.
-BANK_LABEL = re.compile(r"^([^:：]{2,40}?)\s*[:：]\s*(.*)$")
+# nhãn nằm trong ô và nhiều kiểu ("NAME OF BANK", "BANK'S ADDRESS", "BENEFICIARY’S BANK", "Bank account (USD)：",
+# "ACOUNT NUMBER (USD)", "BEN’S NAME"), có dòng gạch đầu "-", địa chỉ xuống dòng, dòng "RMB ACCOUNT" ở cuối, ngân hàng đại lý.
+# Đọc theo thứ tự dòng: ADD/ADDRESS trước ngân hàng là địa chỉ người nhận, sau ngân hàng là địa chỉ ngân hàng. Tài khoản mới
+# bắt đầu khi một trường đã có lại xuất hiện với giá trị khác, hoặc sau chỗ hở / dòng không nhãn khi tài khoản đang đọc đã
+# có số. Hai số tài khoản liền dưới cùng một ngân hàng (USD, VND, CNY) là hai tài khoản chung ngân hàng, người nhận, SWIFT.
+BANK_LABEL = re.compile(r"^([^:：]{2,70}?)\s*[:：]\s*(.*)$")
 CURRENCY_ONLY = re.compile(r"^(USD|VND|CNY|RMB|EUR)\s+(ACCOUNT|ACC)$")
 SKIP_LINE = re.compile(r"^(NEW UPDATE|UPDATE|CAP NHAT)\b")
+SWIFT_VALUE = re.compile(r"[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?")
 SPLIT_KEYS = ("beneficiary", "bank", "account", "swift")
+COMPANY_WORDS = re.compile(r"\b(COMPANY|CO|CORP|CORPORATION|LTD|LIMITED|JSC|JOINT STOCK|CONG TY|CTY|TNHH|HTX|DNTN|HKD|GROUP|ENTERPRISE)\b")
+SHARED_KEYS = ("beneficiary", "address", "bank", "bank_address", "swift")
 
 
 def _bank_key(label: str, has_bank: bool) -> str | None:
-    """Trường của một nhãn trong ô cột E; None là dòng không dùng (TEL, TAX…) hoặc ghi chú."""
+    """Trường của một nhãn (đã fold) trong ô cột E. None: dòng không dùng (TEL, TAX, mã chi nhánh…) hoặc ghi chú;
+    "agent": ngân hàng đại lý (bỏ cả dòng SWIFT ngay sau); "soft_beneficiary": tên công ty, chỉ dùng khi chưa có người nhận;
+    "own_address": địa chỉ người nhận dù đứng sau ngân hàng."""
+    if re.match(r"^(TEL|TELL|PHONE|FAX|MOBILE|E-?MAIL|TAX|MST|MA SO)", label) or ("BRANCH" in label and "NAME" not in label):
+        return None   # "Bank Branch", "Branch code" không phải ngân hàng thứ hai
+    if re.search(r"CORRESPONDENT|INTERMEDIARY|DAI LY", label):
+        return "agent"
     if "SWIFT" in label:
         return "swift"
     if "CURRENCY" in label or "LOAI TIEN" in label:
         return "currency"
-    if "BANK" in label or "NGAN HANG" in label:
-        return "bank_address" if re.search(r"\bADD|DIA CHI", label) else "bank"
-    if re.search(r"\b(ACC|ACCOUNT|ACOUNT)\s*(NAME|HOLDER)\b|^BENEFICIARY$|^BENEFICIARY NAME", label):
-        return "beneficiary"
-    if re.search(r"\b(ACC|ACCOUNT|ACOUNT|A/C)\b|\bSTK\b|SO TK|SO TAI KHOAN", label):
+    if re.search(r"WITH BANK|BANK NAME|NAME OF BANK", label):   # "ACC WITH BANK: <ngân hàng>"
+        return "bank"
+    if re.search(r"\b(ACC|ACCOUNT|ACOUNT|A/C)\b|\bSTK\b|SO TK|SO TAI KHOAN", label) and not re.search(r"NAME|HOLDER|\bADD", label):
         return "account"
+    if re.search(r"^(THE )?(BENEFICIARY|BEN.?S|COMPANY|SELLER|ACCOUNT HOLDER|ACC HOLDER)\b.*\bADD", label):
+        return "own_address"
+    if "BANK" in label or "NGAN HANG" in label:
+        if re.search(r"\bADD|DIA CHI", label):
+            return "bank_address"
+        if "CODE" in label:
+            return "swift_or_none"   # "Bank Code": SWIFT nếu giống SWIFT, không thì bỏ
+        return "swift_or_bank" if "NUMBER" in label else "bank"
+    if re.search(r"\b(ACC|ACCOUNT|ACOUNT)\s*(NAME|HOLDER)\b|^(THE )?BENEFICIARY( NAME)?$|^BEN.?S NAME|^NAME( OF (THE )?(CUSTOMER|BENEFICIARY))?$"
+                 r"|TEN NGUOI (HUONG|THU HUONG)|TEN TAI KHOAN|CHU TAI KHOAN", label):
+        return "beneficiary"
+    if re.match(r"^(COMPANY )?NAME$|^COMPANY$", label):
+        return "soft_beneficiary"
     if re.match(r"^(NEW )?(ADD|ADDRESS|DIA CHI|DC)\b", label):
         return "bank_address" if has_bank else "address"
     return None
@@ -185,14 +206,17 @@ def parse_bank_column(lines: list[str], company: str) -> list[dict]:
     """Tài khoản trong cột E của một khối; chỉ giữ tài khoản có số. Người nhận trống thì lấy tên công ty của khối."""
     accounts: list[dict] = []
     current: dict | None = None
-    gap = False
+    gap = agent = False
+    last = None
 
-    def start() -> dict:
-        item = dict.fromkeys(KEYS) | {"currency": None, "lines": []}
+    def start(inherit: dict | None = None) -> dict:
+        item = dict.fromkeys(KEYS) | {"currency": None, "lines": [], "inherited": set()}
+        if inherit:   # số thứ hai dưới cùng ngân hàng: dùng chung các trường, ghi đè được mà không tách
+            item |= {key: inherit[key] for key in SHARED_KEYS}
+            item["inherited"] = {key for key in SHARED_KEYS if inherit[key] is not None}
         accounts.append(item)
         return item
 
-    last = None
     for raw in lines:
         line = one_line(raw).lstrip("-•*+ ").strip()
         if not line:
@@ -207,43 +231,85 @@ def parse_bank_column(lines: list[str], company: str) -> list[dict]:
         match = BANK_LABEL.match(line)
         key = _bank_key(fold(match.group(1)), bool(current and current["bank"])) if match else None
         value = match.group(2).strip() if match else line
+        if key == "agent" or (agent and key == "swift"):   # ngân hàng đại lý và SWIFT của nó không phải tài khoản nhận
+            agent = True
+            continue
+        agent = False
         if match is None and CURRENCY_ONLY.match(folded):
             if current is not None:
                 current["currency"] = current["currency"] or _currency(folded)
                 current["lines"].append(line)
             continue
+        if match is None and EMAIL.search(line):   # dòng email không phải trường tài khoản
+            continue
+        if match is not None and not value:   # nhãn để trống ("BENEFICIARY BANK:") hoặc dòng ghi chú kết thúc bằng ":"
+            continue
         if match is None:
-            if current is not None and last in ("address", "bank_address") and not current["account"]:
+            # Dòng không nhãn: tên công ty (người nhận), tên ngân hàng, địa chỉ ngay sau người nhận, địa chỉ xuống dòng;
+            # còn lại là ghi chú ("DTC TK MỚI", "SẦU ĐÔNG") và bỏ qua, không mở tài khoản mới.
+            company_like = bool(COMPANY_WORDS.search(folded))
+            bank_like = not company_like and bool(re.search(r"BANK|NGAN HANG", folded))
+            if (current is not None and last in ("address", "bank_address") and not current["account"]
+                    and not company_like and not bank_like):
                 current[last] = f"{current[last]} {line}"   # địa chỉ xuống dòng
                 current["lines"].append(line)
                 continue
-            if current is None or current["account"]:
-                current, last = start(), None
-            if current["beneficiary"] is None and current["bank"] is None:
-                key = "beneficiary"
-            elif current["address"] is None and current["bank"] is None:
+            if company_like or bank_like:
+                if current is None or current["account"]:
+                    current, last = start(), None
+                key = "beneficiary" if company_like else "bank"
+                if current[key] is not None:
+                    continue   # bản tên thứ hai (tiếng Anh/Việt) của cùng người nhận, ngân hàng
+                # Không nhãn là giá trị yếu: dòng có nhãn sau đó ghi đè được mà không mở tài khoản mới ("VIETTINBANK" rồi
+                # "Beneficiary’s bank: …"). Nhãn không có dấu hai chấm ("Name of customer CT TNHH …") thì bỏ phần nhãn.
+                value = re.sub(r"^(name of (the )?(customer|beneficiary)|acc(ount)? name|beneficiary( name)?)\s+", "", value, flags=re.I)
+                current[key] = value
+                current["inherited"].add(key)
+                current["lines"].append(line)
+                last = key
+                continue
+            elif current is not None and last == "beneficiary" and current["address"] is None and current["bank"] is None:
                 key = "address"
+            else:
+                continue
+        if key == "swift_or_none":   # "Bank Code: <mã>": chỉ nhận khi giống SWIFT
+            if not SWIFT_VALUE.fullmatch(value.replace(" ", "").upper()):
+                continue
+            key = "swift"
+        if key == "swift_or_bank":   # "Bank number: SGTTVNVX" là SWIFT; có chữ số thì là số tài khoản
+            key = "swift" if SWIFT_VALUE.fullmatch(value.replace(" ", "").upper()) else "account"
+        if key == "account" and value and not re.search(r"\d", value) and SWIFT_VALUE.fullmatch(value.replace(" ", "").upper()):
+            key = "swift"
         if current is None:
             current = start()
-        if key in SPLIT_KEYS and current[key] is not None:   # trường đã có: tài khoản mới
-            current = start()
-        if key in ("address", "bank_address") and current[key] is not None:
-            if match and fold(match.group(1)).startswith("NEW ADD") and value:   # NEW ADD thay địa chỉ cũ
-                current[key] = value
+        same = key in SPLIT_KEYS and current[key] is not None and fold(current[key]) == fold(value)
+        if (key in SPLIT_KEYS and current[key] is not None and key not in current["inherited"]
+                and (not same or (current["account"] and key not in ("swift", "account")))):   # trường đã có: tài khoản mới; số hay SWIFT ghi lại y hệt thì không
+            current = start(current if key == "account" and current["bank"] else None)
+        if key in ("address", "bank_address", "own_address"):
+            field = "address" if key == "own_address" else key
+            label = fold(match.group(1)) if match else ""
+            if value and (current[field] is None or field in current["inherited"] or label.startswith("NEW ADD")):
+                current[field] = value   # NEW ADD thay địa chỉ cũ
+                current["inherited"].discard(field)
             current["lines"].append(line)
-            last = key
+            last = field
             continue
-        if key == "currency":
+        if key == "soft_beneficiary":
+            current["beneficiary"] = current["beneficiary"] or value or None
+        elif key == "currency":
             current["currency"] = _currency(value) or current["currency"]
         elif key == "account":
-            current["currency"] = _currency(f"{match.group(1)} {value}") or current["currency"]
+            current["currency"] = _currency(f"{match.group(1)} {value}" if match else value) or current["currency"]
             current["account"] = re.sub(r"\s*\((USD|VND|CNY|RMB|EUR)\)\s*$", "", value, flags=re.I).strip() or None
         elif key in KEYS and value:
             current[key] = value
+            current["inherited"].discard(key)
         current["lines"].append(line)
         last = key
     out = []
     for item in accounts:
+        item.pop("inherited")
         if not item["account"] or not re.search(r"\d", item["account"]):
             continue
         item["beneficiary"] = item["beneficiary"] or company
