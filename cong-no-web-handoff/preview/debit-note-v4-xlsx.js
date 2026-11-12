@@ -182,14 +182,12 @@ const DebitNoteV4Xlsx = (() => {
       const r = at++;
       span(r, leftField, R - 1, col => cell.text(r, col, line.map(token => token.text).join(' '), 'value'), 'value');
     }
-    const attn = at;
-    pair(attn, leftField, leftField + 1, leftValue, R - 1, 'Attn 联系人', col => cell.text(attn, col, shown(cust.contact, 'Contact'), 'value'), 'value');
     const docRows = [['Debit Note No. 账单号', col => cell.text(docRow, col, shown(doc.number, 'Debit note no.'), 'valueBold'), 'valueBold'],
       ['Issue Date 开单日期', col => doc.issueDate ? cell.date(docRow + 1, col, doc.issueDate, 'valueDate') : cell.text(docRow + 1, col, '[Issue date]', 'value'), doc.issueDate ? 'valueDate' : 'value'],
       ['Billing Period 账单期间', col => cell.text(docRow + 2, col, doc.period, 'value'), 'value'],
       ['Currency 币种', col => cell.text(docRow + 3, col, doc.currency, 'value'), 'value']];
     docRows.forEach(([label, write, style], index) => pair(docRow + index, rightField, fieldEnd, fieldEnd + 1, last, label, write, style));
-    row = Math.max(attn + 1, docRow + 4) + 1;
+    row = Math.max(at, docRow + 4) + 1;   // BILL TO hết ở dòng tên pháp lý (đã bỏ dòng Attn)
     g.height(row - 1, 12);
 
     // Bảng container: tiêu đề hai dòng (Anh đậm, Trung thường), không gộp ô.

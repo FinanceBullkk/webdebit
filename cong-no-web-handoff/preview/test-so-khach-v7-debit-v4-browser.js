@@ -80,10 +80,12 @@ test('Debit note v4: đủ giá thì hết chặn; xác nhận cảnh báo mới
 
   // Thông tin khách người lập điền được trình duyệt nhớ theo sổ.
   await page.locator('#thang-2026-09 .debit-open').click();
-  await dialog.locator('[name="customer.contact"]').fill('Mr Li');
+  assert.equal(await dialog.locator('[name="customer.contact"]').count(), 0);   // bỏ ô Người liên hệ (Attn) 12/11/2026
+  assert.doesNotMatch(await view.locator('[data-blk="INFO"]').innerText(), /Attn|\[Contact\]/);
+  await dialog.locator('[name="customer.nameZh"]').fill('泛亚');
   await dialog.locator('.debit-close').click();
   await page.locator('#thang-2026-09 .debit-open').click();
-  assert.equal(await dialog.locator('[name="customer.contact"]').inputValue(), 'Mr Li');
+  assert.equal(await dialog.locator('[name="customer.nameZh"]').inputValue(), '泛亚');
   await dialog.locator('.debit-close').click();
 
   await page.goto(page.url().replace(/&debit=v4|$/, '&debit=v3'));
@@ -128,13 +130,13 @@ test('Debit note v4: chọn công ty từ Thông tin cty thay đầu trang, BILL
   assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn', 'VND · NGAN HANG GIA · CONG TY GIA · …7890', 'USD · BANK B · TEST CO · …0123']);
 
   assert.match(await view.locator('[data-blk="LH"]').innerText(), /^HTH LOGISTICS DV TM CO.,LTD[\s\S]*21\/20\/15 Le Cong Phep Street, An Lac Ward, Ho Chi Minh City/);   // chưa chọn: theo cấu hình
-  await dialog.locator('[name="customer.contact"]').fill('Mr Li');
+  await dialog.locator('[name="customer.nameZh"]').fill('泛亚');
   await dialog.locator('[name="issuer"]').fill('Cong Ty Phat Hanh');
   const head = await view.locator('[data-blk="LH"]').innerText();
   assert.match(head, /^PHAT HANH CO.,LTD/);
   assert.match(head, /9 Duong Gia, Phuong Gia · Tax ID 税号: 0000000009 · Tel 电话: 028 000 000 · Email 邮箱: ph@thu.test/);   // bỏ dấu khi in
   assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), '');   // không đụng BILL TO
-  assert.equal(await dialog.locator('[name="customer.contact"]').inputValue(), 'Mr Li');
+  assert.equal(await dialog.locator('[name="customer.nameZh"]').inputValue(), '泛亚');
   await dialog.locator('[name="account"]').selectOption('a000000000002');
   const bottom = await view.locator('[data-blk="BOTTOM"]').innerText();
   assert.match(bottom, /Beneficiary 收款人\s+TEST CO/);
