@@ -141,6 +141,35 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .debit-checks{margin:0;padding:0;list-style:none;font-size:14px}.debit-checks li{padding:3px 8px;margin:2px 0;border-radius:4px}
 .debit-checks .is-block{background:#fde7e7;color:#8a1f1f}.debit-checks .is-warn{background:#fff3d6;color:#7a4b00}.debit-checks .is-info{background:#eef2f7;color:#3e5871}.debit-checks .is-ok{background:#e6f4ec;color:#1e6b43}
 .debit-body{flex:1;position:relative;background:#e6e9ee}.debit-preview{position:absolute;inset:0;width:100%;height:100%;border:0}
+/* Hộp debit note v4 theo luồng D (DEBIT-NOTE-03, 12/11/2026): đầu hộp tên khách + tóm tắt + tháng + ✕; cột trái ba ô gõ tìm tên,
+   ô ACCOUNT STATUS, nút Tải Excel (chính) và PDF; bên phải bản xem trước. Xuất xong cột trái thành tên file + lời nhắn. */
+.dn4 header{gap:10px}.dn4-head{margin-right:auto;min-width:0}
+.dn4-head h2{margin:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dn4-head .debit-status{display:block;color:#3e5871;font-size:13px}
+.dn4-month{min-height:36px;padding:0 8px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600}
+.debit-panel.dn4 header .debit-close{width:40px;min-height:40px;padding:0;border:0;background:transparent;color:#3e5871;display:flex;align-items:center;justify-content:center}
+.dn4-side{width:380px;flex:none;display:flex;flex-direction:column;min-height:0;border-right:1px solid #c9d6e3;background:#f7f9fb}
+.dn4-form,.dn4-done{flex:1;min-height:0;overflow:auto;padding:4px 16px 12px}.dn4-form[hidden],.dn4-done[hidden],.dn4-actions[hidden]{display:none}
+.dn4-pick{margin-top:12px}.dn4-pick>label{display:block;margin-bottom:4px;font-weight:700;color:#173d65}
+.dn4-combo{position:relative}.dn4-combo>svg{position:absolute;right:11px;top:50%;margin-top:-8px;pointer-events:none}
+.dn4-combo input{width:100%;box-sizing:border-box;min-height:40px;padding:0 34px 0 10px;border:1px solid #9eb4ca;border-radius:6px;background:#fff;color:#1a1a19;font:inherit;font-weight:600}
+.dn4-combo input::placeholder{color:#5f6b7a;font-weight:400}
+.dn4-list{position:absolute;z-index:5;top:100%;left:0;right:0;margin-top:2px;max-height:260px;overflow:auto;background:#fff;border:1px solid #9eb4ca;border-radius:6px;box-shadow:0 6px 18px #0003}.dn4-list[hidden]{display:none}
+.dn4-opt{padding:7px 12px;border-bottom:1px solid #eef1f4;cursor:pointer}.dn4-opt b{display:block}.dn4-opt span{display:block;font-size:13px;color:#5f6b7a}
+.dn4-opt[aria-selected="true"]{background:#eef4fb}.dn4-opt.is-active,.dn4-opt:hover{background:#dce9f7}.dn4-empty{padding:10px 12px;font-size:13px;color:#5f6b7a}
+.dn4-note{display:block;margin-top:3px;font-size:13px;color:#4b5866;overflow-wrap:anywhere}
+.dn4-warn{margin:12px 0 0;padding:6px 10px;border-radius:4px;background:#fff3d6;color:#6b4200;font-size:13px}
+.dn4-check{display:flex;align-items:center;gap:8px;min-height:32px;margin-top:16px}.dn4-check input{width:18px;height:18px;margin:0}
+.dn4-actions{flex:none;display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px 12px;border-top:1px solid #c9d6e3;background:#fff}
+.dn4-actions .debit-checks{flex:1 1 100%;margin:0;padding:6px 10px;border-radius:4px;background:#fde7e7;color:#8a1f1f}.dn4-actions .debit-checks[hidden]{display:none}
+.dn4-actions button{min-height:44px;border-radius:6px;font:inherit;font-weight:600;cursor:pointer}
+.dn4-actions .dn4-primary{flex:1;border:1px solid #173d65;background:#173d65;color:#fff;font-size:15px}
+.dn4-actions .debit-print{padding:0 18px;border:1px solid #8daac9;background:#fff;color:#173d65}
+.dn4-actions button:disabled{cursor:not-allowed;border-color:#c9d0d8;background:#f1f3f5;color:#6b7785}
+.dn4-done-title{display:flex;align-items:center;gap:8px;margin:12px 0;color:#1e6b43;font-weight:700;font-size:16px}
+.dn4-file{margin:0 0 10px;padding:8px 10px;border:1px solid #c9d6e3;border-radius:6px;background:#fff;font-family:Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
+.dn4-msg{margin:0 0 12px;padding:8px 10px;border-radius:6px;background:#eaf1fa;white-space:pre-line}
+.dn4-done-actions{display:flex;flex-wrap:wrap;gap:8px}.dn4-done-actions button{min-height:44px;padding:0 16px;border:1px solid #8daac9;border-radius:6px;background:#fff;color:#173d65;font:inherit;cursor:pointer}
+.dn4-done-actions .dn4-copy{border-color:#173d65;background:#173d65;color:#fff;font-weight:600}
 .fee-types{width:100%;border-collapse:collapse}.fee-types th{text-align:left;font-size:13px;color:#3e5871;padding:6px;border-bottom:2px solid #d8e1ec}
 .fee-types td{padding:6px;border-bottom:1px solid #edf1f6;height:44px}.fee-types tr.off td{color:#8193a6}
 .fee-types .fee-name{font-weight:700}.fee-types .fee-name[data-id]{cursor:text}.fee-types .fee-name input{width:100%;height:32px;font:inherit}

@@ -8,6 +8,7 @@
 const DebitNoteV4Xlsx = (() => {
   'use strict';
   const base = typeof DebitNoteXlsx !== 'undefined' ? DebitNoteXlsx : require('./debit-note-xlsx.js');
+  const core = typeof DebitNoteV4 !== 'undefined' ? DebitNoteV4 : require('./debit-note-v4.js');   // ô phí in giống PDF (cellValue)
   const xml = text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const colName = index => (index >= 26 ? String.fromCharCode(64 + Math.floor(index / 26)) : '') + String.fromCharCode(65 + (index % 26));
   const shown = (value, label) => value === null || value === undefined || String(value).trim() === '' ? `[${label}]` : String(value);
@@ -208,7 +209,7 @@ const DebitNoteV4Xlsx = (() => {
       }
       cell.date(r, 4, item.date, `date${end}`);
       cell.text(r, 5, item.feeOnly ? '' : placeText(doc, item.place), `text${end}`); cell.text(r, 6, item.feeOnly ? '' : placeText(doc, item.pod), `text${end}`);
-      doc.columns.forEach((column, k) => cell.num(r, 7 + k, item.cells[column.code] ?? (item.feeOnly && column.code === 'LUMP_SUM' ? null : 0n), `money${end}`));
+      doc.columns.forEach((column, k) => cell.num(r, 7 + k, core.cellValue(item, column.code), `money${end}`));
       cell.num(r, amountCol, item.amount, `money${end}`);
       g.height(r, 18);
     });

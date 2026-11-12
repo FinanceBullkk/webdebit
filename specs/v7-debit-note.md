@@ -81,12 +81,21 @@ Không có lệnh mới. Chứng từ dựng từ bản sổ trang đã tải (`
 
 Trạng thái: ĐÃ CHỐT 10/11/2026 ([`DEBIT-NOTE-03`](../docs/decisions/debit-note-03.md)), ĐÃ CODE; mặc định vẫn mẫu v3 tới khi team duyệt. Thiết kế: [`docs/debit-note-v4/SPEC.md`](../docs/debit-note-v4/SPEC.md) và trang mẫu `docs/debit-note-v4/reference/*.html` (CSS chép gần như nguyên văn).
 
-### Luồng
+### Luồng (hộp theo luồng D, người dùng chốt 12/11/2026)
+
+Người dùng thật (chat 12/11/2026, thay giả định "cuối tháng làm cả loạt"): làm debit note **từng khách, rải rác** khi khách hỏi; công ty đứng tên, tài khoản nhận tiền và tên pháp lý khách **đổi theo từng lần**; xuất xong **gửi file Excel qua Zalo hoặc WeChat**. Thiết kế chọn trên canvas (trang "Debit note: hộp xuất", phương án D).
 
 1. Bấm **Debit note** ở tiêu đề tháng như v3. Trang đọc `GET /api/v7/debit-note/config`: `template` là `v4` (hoặc địa chỉ trang có `?debit=v4`) thì mở hộp v4.
-2. Bên trái người lập điền số debit note (gợi ý `HTH-yymm-001`), ngày phát hành (trống thì in `[Issue date]`), tên khách Latin và tiếng Trung, tên pháp lý và địa chỉ, người liên hệ; trình duyệt nhớ phần khách theo sổ. Công ty, ngân hàng, tên phí lấy từ cấu hình, không điền ở hộp.
-3. Bên phải là danh sách **Chặn / Cảnh báo / Lưu ý** và bản xem trước đã chia trang. Còn **Chặn** (một trong 6 phép kiểm sai, thiếu giá, thiếu số tháng của máy chủ, không đọc được cấu hình) thì **In / Lưu PDF** và **Tải Excel** bị khóa. Còn **Cảnh báo** thì tích "Tôi đã xem các cảnh báo, cho xuất".
-4. **In / Lưu PDF** chia trang lại trong khung in rồi mở hộp in (A4 ngang, lề 0); **Tải Excel** tải `<số>_<khách>_<yyyy-mm>.xlsx`.
+2. Đầu hộp: tên khách, một dòng tóm tắt (`N container · tổng đ`, thêm `· K chuyến chưa có giá` nếu có), ô **Tháng** (các tháng có nút Debit note trên sổ) để đổi tháng ngay trong hộp, nút ✕.
+3. Cột trái, ba ô gõ tìm tên (bấm vào là thả cả danh sách, gõ là lọc, bỏ dấu khi so) lấy từ tab Thông tin cty (`GET /api/v7/company-info`), mở hộp là đã chọn sẵn như lần trước của sổ này (trình duyệt nhớ):
+   - **Đứng tên**: công ty in ở đầu trang; dòng đầu "theo cấu hình" (công ty trong file cấu hình).
+   - **Nhận tiền vào**: tài khoản; dòng chính là **tên chủ tài khoản**, dòng phụ ngân hàng · loại tiền · 4 số cuối; dòng đầu "theo cấu hình" hoặc "Chưa chọn" (in `[Account no.]`).
+   - **Gửi cho**: công ty khách; in tên, địa chỉ, MST của công ty đó vào ô tên pháp lý ở BILL TO; "Chưa chọn" thì in `[Customer legal name & address]`.
+   - Dưới mỗi ô là thông tin đầy đủ của lựa chọn để nhìn lại. Ô **In thêm ACCOUNT STATUS** (mặc định không tích, nhớ theo sổ).
+4. Nút chính **Tải Excel**; trên điện thoại (dưới 760px) là **Gửi Excel**: trình duyệt hỗ trợ chia sẻ file thì mở khung chia sẻ của máy (chọn Zalo/WeChat), không thì tải về. Nút phụ **PDF** mở hộp in như trước.
+5. Xuất xong: cột trái hiện tên file, lời nhắn hai thứ tiếng (Việt, Trung) với tháng, số container, tổng tiền, nút **Copy lời nhắn** và **Sửa lại**.
+6. **Không có ô xác nhận, không chặn theo dữ liệu**: bảng có gì xuất nấy. Chuyến chưa có giá in ô Unit price và Amount trống; dòng Total cộng mọi ô đang in. Chỉ chặn khi không có chuyến, không đọc được cấu hình, hoặc phép kiểm cộng của chính chứng từ sai (lỗi code).
+7. Bỏ khỏi hộp: số debit note và ngày phát hành (giữ gợi ý `HTH-yymm-001`, ngày trống in `[Issue date]` như trước), tên khách Latin/Trung (lấy tên sổ hoặc giá trị đã nhớ), danh sách Chặn/Cảnh báo/Lưu ý.
 
 ### Đối chiếu dữ liệu
 
@@ -94,7 +103,8 @@ Trạng thái: ĐÃ CHỐT 10/11/2026 ([`DEBIT-NOTE-03`](../docs/decisions/debit
 | --- | --- |
 | Dòng container | như v3: chuyến web `confirmed` chưa xóa + dòng sổ gốc `kind='trip'` của tháng công nợ; xếp theo ngày đóng hàng rồi số container |
 | Cột phí | `LUMP_SUM` (Unit price) + các cột riêng của sổ (`fee_columns`, theo thứ tự) + Khác (mọi loại còn lại); mã loại qua `dnFeeCode`, tên Anh/Trung và bề rộng ở `config.fees[mã]`; cột chỉ hiện khi có ô khác 0 trên cả chứng từ |
-| Amount của dòng | thành tiền của sổ (`amount_vnd`, `counted_vnd`, `source_total_vnd`); phép 1 so với Unit price + phí |
+| Amount của dòng | thành tiền của sổ (`amount_vnd`, `counted_vnd`, `source_total_vnd`); phép 1 so với Unit price + phí; chuyến chưa có giá thì trống và phép 1 bỏ qua dòng đó |
+| Total Amount | cộng mọi ô phí đang in (= cộng Amount khi không có dòng trống) |
 | B/L no. | không có (sổ chưa có số B/L) |
 | Opening balance | `months[].prior_months_vnd` của tháng |
 | This debit note | Total Amount |
@@ -118,6 +128,7 @@ Trạng thái: ĐÃ CHỐT 10/11/2026 ([`DEBIT-NOTE-03`](../docs/decisions/debit
 - [x] Chia trang 16 → 1, 17 → 14 + 3, 30 → 20 + 10, 60 → 20 + 23 + 17; khách tên/địa chỉ dài 15 container một trang.
 - [x] PDF A4 ngang (841.9 × 595.0 pt như PDF chuẩn của gói), không trang trắng, font serif đã nhúng.
 - [x] 6 phép kiểm chặn ca cố tình sai; phép sai thì không ra PDF.
+- [ ] Hộp luồng D: khách quen mở hộp rồi bấm Tải Excel là xong; người dùng tự đi hết luồng trên `hao` (CÒN MỞ).
 - [ ] So ảnh trên dữ liệu thật và team duyệt mẫu (CÒN MỞ); bật `"template": "v4"` trên `hao`.
 
 Lệnh xuất thử: `node cong-no-web-handoff/tools/debit-note-v4-pdf.js docs/debit-note-v4/data/sample-14.json ra.pdf --png ra-trang`.

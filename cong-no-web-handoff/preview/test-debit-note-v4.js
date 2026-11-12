@@ -125,11 +125,27 @@ test('ACCOUNT STATUS từ months[] của máy chủ: Opening = nợ trước th�
   const off = ledger();
   off.trips[0].amount_vnd = '76000000';
   assert.ok(blocks(build(off)).some(item => item.rule === 1 && /TGHU1111111: Amount 76,000,000/.test(item.text)));
+  // Bảng có gì xuất nấy (12/11/2026): chuyến chưa có giá không chặn; Unit price và Amount trống (không in 0), phí vẫn in,
+  // Total cộng mọi ô đang in.
   const missing = ledger();
   Object.assign(missing.trips[0], { is_missing_price: true, unit_price_vnd: null });
-  assert.ok(blocks(build(missing)).some(item => /1 dòng chưa có giá/.test(item.text)));
-  // Không có số tháng của máy chủ: chặn.
-  assert.ok(blocks(build({ ...ledger(), months: [] })).some(item => /ACCOUNT STATUS/.test(item.text)));
+  const blank = build(missing);
+  assert.deepEqual(blocks(blank), []);
+  const row = blank.rows.find(item => item.container === 'TGHU1111111');
+  assert.equal(row.amount, null);
+  assert.equal(v4.cellValue(row, 'LUMP_SUM'), null);
+  assert.equal(v4.cellValue(row, 'OVERSTAY'), 5000000n);
+  assert.equal(blank.total.amount, 217300000n - 75000000n + 5000000n);
+  assert.equal(blank.total.amount, Object.values(blank.total.cells).reduce((a, b) => a + b, 0n));
+  assert.match(v4.pageHtml(blank, 'single', blank.rows), /TGHU1111111/);
+  // Không có số tháng của máy chủ: ô ACCOUNT STATUS trống, không chặn.
+  const noMonth = build({ ...ledger(), months: [] });
+  assert.deepEqual(blocks(noMonth), []);
+  assert.equal(noMonth.account.opening, null);
+  // Không còn cảnh báo nơi/cảng ngoài danh mục hay số container sai.
+  const odd = ledger();
+  Object.assign(odd.trips[0], { container: 'XXXX', origin: 'NOI LA' });
+  assert.deepEqual(v4.checks(build(odd)).filter(item => item.level === 'warn'), []);
 });
 
 test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường], không cột B/L, dòng cuối trang không kẻ, Total chữ navy', () => {

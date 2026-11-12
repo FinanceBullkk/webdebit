@@ -27,6 +27,14 @@ Người dùng chốt (chat 10/11/2026, trả lời câu hỏi của Claude sau 
 - **Bỏ dòng `Attn 联系人`** ở BILL TO (người dùng 12/11/2026, chat, gửi ảnh dòng `Attn 联系人 [Contact]` kèm "bỏ cái này"): không in ở PDF và Excel, hộp không còn ô Người liên hệ. Người liên hệ nếu có thì nằm trong ô Tên pháp lý và địa chỉ (lấy từ Thông tin cty). Khách tên dài vì thế chứa được 16 container một trang thay vì 15.
 - **Tự cân bố cục** (người dùng 12/11/2026, chat, gửi ảnh: "chưa cân xứng lắm ở cái document, ở các hàng thì dính cột với nhau, tìm cách để tự cân"): cột chữ của bảng rộng theo chữ dài nhất, đo thật trước khi chia trang, có khoảng hở 12px, chỗ dư chia đều; khối DOCUMENT sát lề phải, thẳng mép cột Amount. Excel: cột Container no. và Line rộng theo chữ. Chi tiết ở SPEC mục 4.2.
 
+## Hộp xuất theo luồng D (người dùng chốt 12/11/2026)
+
+Người dùng chê hộp xuất ("UI tệ", "nhiều chữ", "luồng xây dựng quá tệ"), trả lời cách làm thật: làm từng khách, rải rác; công ty đứng tên, tài khoản, tên pháp lý khách đổi theo từng lần; gửi file Excel qua Zalo hoặc WeChat. Chọn phương án D trên canvas sau bốn vòng sửa, rồi "Code theo D". Chi tiết: [`specs/v7-debit-note.md`](../../specs/v7-debit-note.md) mục Mẫu v4 → Luồng.
+
+- Đứng tên, Nhận tiền vào, Gửi cho là **ô gõ tìm tên** từ Thông tin cty ("chọn thì phải là drop down hoặc search tên"); tài khoản hiện **tên chủ tài khoản** làm dòng chính ("không thấy được tên của chủ tài khoản"). Giữ ô ACCOUNT STATUS tùy chọn.
+- **Bảng có gì xuất nấy** ("không cần mấy cái check đấy"; hỏi lại chặn thiếu giá thì "Bỏ luôn"): bỏ ô "Tôi đã xem các cảnh báo", bỏ cảnh báo nơi/cảng ngoài danh mục, số container sai ISO 6346, chưa chọn tài khoản; bỏ chặn chuyến chưa có giá và chặn máy chủ thiếu số tháng. Thay điểm "Cảnh báo cần tích xác nhận" và "chặn khi thiếu giá" ở mục Claude chọn bên dưới.
+- Claude chọn: chuyến chưa có giá in Unit price và Amount trống (không in 0, theo luật NULL không phải 0); **Total cộng mọi ô đang in**, nên khi có dòng trống Total thấp hơn nợ thật, và đầu hộp ghi `K chuyến chưa có giá` để người xuất biết. Các phép kiểm cộng của chứng từ (Total = cộng cột, số container) vẫn chặn vì chỉ sai khi code sai. Excel là nút chính, PDF phụ; điện thoại "Gửi Excel" mở khung chia sẻ của máy; xong hiện lời nhắn Việt/Trung để copy. Bỏ ô số debit note và ngày phát hành khỏi hộp (số theo gợi ý, ngày in `[Issue date]` như trước, vẫn CÒN MỞ theo SPEC mục 8).
+
 ## Ngày / nguồn
 
 10/11/2026, chat: người dùng gửi gói `debit-note-v4-handoff` (SPEC, trang HTML mẫu, ảnh PNG/PDF chuẩn, dữ liệu mẫu) và yêu cầu thay mẫu xuất; trả lời các câu hỏi về cột phí, Lump-sum, B/L, ACCOUNT STATUS và Excel. Gói trong repo đã bỏ thông tin ngân hàng; bản đầy đủ ở `D:\webdebit\design\debit-note-v4\` ngoài git.
