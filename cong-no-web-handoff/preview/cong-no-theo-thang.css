@@ -148,6 +148,13 @@
 }
 /* Điện thoại (DIEN-THOAI-SEP-01): bỏ dòng "Cập nhật … tự tải mỗi 60 giây" ở đầu trang, còn "Số liệu đến" và nút Làm mới. */
 @media (max-width:760px){#updated-at{display:none}}
+/* Điện thoại (DIEN-THOAI-NUT-01): nút năm, ô chọn và ô "Chỉ khách còn nợ" (bấm được cả nhãn) cao 44px. */
+@media (max-width:760px){
+  .toolbar label:has(#only-open){display:inline-flex;align-items:center;gap:8px;min-height:44px}
+  #only-open{width:22px;height:22px;margin:0}
+  .toolbar .years button{width:44px;height:44px}
+  .toolbar select,#refresh-data{min-height:44px}
+}
 /* Điện thoại (DIEN-THOAI-THANG-01): danh sách theo khách thay ma trận 15 cột. Màn rộng không hiện danh sách. */
 .phone-list{display:none}
 @media (max-width:760px){
