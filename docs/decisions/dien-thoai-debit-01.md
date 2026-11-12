@@ -15,6 +15,8 @@ Nút xuất đang khóa (còn dòng Chặn, hoặc còn Cảnh báo chưa xác n
 
 Không đổi: màn từ 760px trở lên (hai cột, cỡ xem trước .6/.82), nội dung chứng từ, phép kiểm, cách chia trang, file PDF/Excel.
 
+Bổ sung 12/11/2026 (ảnh iPhone của người dùng sau khi bản đầu lên `hao`): Safari trên iPhone tự phóng to chữ trong khung xem trước vì trang A4 rộng hơn khung, nên chữ đè nhau. Mọi khung xem trước và khung in của debit note đặt `text-size-adjust: 100%` để tắt việc này. Phép chia trang v4 đo ngay trong các khung đó nên cũng đo đúng cỡ chữ.
+
 ## Ngày / nguồn
 
 12/11/2026, chat: người dùng báo "UI trên điện thoại cho xuất debit note đang lỗi". Đo ở 390×844 với dữ liệu giả: hộp giữ bố cục màn rộng, form cố định 320px nên cột kiểm và xem trước chỉ còn 46px; nút In bị khóa nhưng trông như bấm được.

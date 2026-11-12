@@ -34,6 +34,9 @@
   document.body.append(dialog);
   let open = null;   // { note, monthKey, opener, state }
 
+  // Safari trên iPhone tự phóng to chữ khi khối nội dung rộng hơn khung (trang A4 1123px trong khung 390px), cột giữ bề rộng px
+  // nên chữ xuống dòng, đè lên nhau và phép chia trang đo sai. Mọi khung xem trước và khung in tắt việc này (DIEN-THOAI-DEBIT-01).
+  const NO_INFLATE = 'html{-webkit-text-size-adjust:100%;text-size-adjust:100%}';
   const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   // Dịch vụ mặc định theo sổ: cảng = Sea freight, bộ = Road freight; sầu riêng = Durian.
   function defaultService() {
@@ -106,7 +109,7 @@
     if (!target) return;
     if (!target.querySelector('.debit-root')) {
       target.open();
-      target.write(`<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#e6e9ee}body{padding:12px}${printer.SCREEN_CSS}.debit-root{zoom:.82}</style></head><body><div class="debit-root"></div></body></html>`);
+      target.write(`<!doctype html><html><head><meta charset="utf-8"><style>${NO_INFLATE}html,body{margin:0;background:#e6e9ee}body{padding:12px}${printer.SCREEN_CSS}.debit-root{zoom:.82}</style></head><body><div class="debit-root"></div></body></html>`);
       target.close();
     }
     target.querySelector('.debit-root').innerHTML = html;
@@ -231,7 +234,7 @@
     if (target) {
       if (!target.querySelector('.debit-root')) {
         target.open();
-        target.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#e6e9ee}body{padding:12px}'
+        target.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><style>${NO_INFLATE}html,body{margin:0;background:#e6e9ee}body{padding:12px}`
           + '.debit-root{zoom:.6}.debit-root [data-page]{margin:0 auto 16px;box-shadow:0 1px 6px #0003}</style></head><body><div class="debit-root"></div></body></html>');
         target.close();
       }
@@ -279,7 +282,7 @@
     document.body.append(frame);
     const target = frame.contentDocument;
     target.open();
-    target.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escape(DebitNoteV4Xlsx.baseName(open.doc))}</title><style>${DebitNoteV4.PRINT_CSS}</style></head><body></body></html>`);
+    target.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${escape(DebitNoteV4Xlsx.baseName(open.doc))}</title><style>${NO_INFLATE}${DebitNoteV4.PRINT_CSS}</style></head><body></body></html>`);
     target.close();
     const pages = DebitNoteV4.split(open.doc, target);
     target.body.innerHTML = DebitNoteV4.pagesHtml(open.doc, pages);
@@ -323,7 +326,7 @@
     frame.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
     document.body.append(frame);
     frame.contentDocument.open();
-    frame.contentDocument.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escape(baseName())}</title><style>${printer.printCss(open.state.issuer.name)}</style></head>
+    frame.contentDocument.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escape(baseName())}</title><style>${NO_INFLATE}${printer.printCss(open.state.issuer.name)}</style></head>
       <body>${printer.html(open.note, open.state, { model, draft: !open.official })}</body></html>`);
     frame.contentDocument.close();
     printer.fitSummary(frame.contentDocument);

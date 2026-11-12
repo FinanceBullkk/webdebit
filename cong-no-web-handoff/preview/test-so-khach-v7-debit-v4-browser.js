@@ -69,8 +69,9 @@ test('Debit note v4: đủ giá thì hết chặn; xác nhận cảnh báo mới
   assert.equal(await page.evaluate(() => window.__printed), 1);
   const printed = await page.evaluate(() => { const target = document.querySelector('.debit-print-frame').contentDocument;
     return { pages: target.querySelectorAll('[data-page]').length, kind: target.querySelector('[data-page]').dataset.page, title: target.title,
-      rows: target.querySelectorAll('[data-row]').length, page: target.styleSheets[0].cssRules[0].cssText }; });
-  assert.deepEqual(printed, { pages: 1, kind: 'single', title: 'HTH-2609-001_Khach-Thu-Sua_2026-09', rows: 3, page: '@page { size: a4 landscape; margin: 0px; }' });
+      rows: target.querySelectorAll('[data-row]').length, page: [...target.styleSheets[0].cssRules].find(rule => rule.cssText.startsWith('@page')).cssText,
+      inflate: target.querySelector('style').textContent.includes('html{-webkit-text-size-adjust:100%;text-size-adjust:100%}') }; });
+  assert.deepEqual(printed, { pages: 1, kind: 'single', title: 'HTH-2609-001_Khach-Thu-Sua_2026-09', rows: 3, page: '@page { size: a4 landscape; margin: 0px; }', inflate: true });
 
   const [download] = await Promise.all([page.waitForEvent('download'), dialog.locator('.debit-excel').click()]);
   assert.equal(download.suggestedFilename(), 'HTH-2609-001_Khach-Thu-Sua_2026-09.xlsx');
@@ -203,6 +204,8 @@ test('Debit note trên điện thoại 390px: một cột, đọc được dòng
   const narrow = await fit();
   assert.ok(Number(narrow.zoom) > 0.2 && Number(narrow.zoom) < 0.6 && narrow.fits, JSON.stringify(narrow));
   await dialog.locator('.debit-body').scrollIntoViewIfNeeded();
+  // Safari iPhone tự phóng chữ trong khung rộng hơn màn: khung xem trước tắt việc này, không thì chữ đè nhau (ảnh người dùng 12/11).
+  assert.equal(await view.locator('style').first().evaluate(el => el.textContent.startsWith('html{-webkit-text-size-adjust:100%;text-size-adjust:100%}')), true);
   await shot('debit-note-dien-thoai-390');
   // Xoay ngang / màn rộng: về cỡ xem trước cũ (.6 trong CSS khung), hai cột như trước.
   await page.setViewportSize({ width: 1280, height: 720 });
