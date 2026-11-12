@@ -50,7 +50,12 @@ test('Debit note v4: đủ giá thì hết chặn; xác nhận cảnh báo mới
   const head = await view.locator('[data-reftop] > span > span:first-child').allInnerTexts();
   assert.deepEqual(head, ['No.', 'Container no.', 'Line', 'Shipper', 'Loading date', 'Loading place', 'POD', 'Unit price', 'Other fees', 'Amount']);
   assert.match(await view.locator('[data-total]').innerText(), /Total, 3 containers · 合计\s+180,000,000\s+3,000,000\s+183,000,000/);
-  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /\[Beneficiary\][\s\S]*This debit note · 本期账单\s+\[Issue date\]\s+183,000,000/);
+  // ACCOUNT STATUS tùy chọn: mặc định không in; tích vào thì in và phép 5–6 kiểm số của khối đó.
+  assert.equal(await dialog.locator('[name="accountStatus"]').isChecked(), false);
+  assert.doesNotMatch(await view.locator('[data-blk="BOTTOM"]').innerText(), /ACCOUNT STATUS/);
+  await dialog.locator('[name="accountStatus"]').check();
+  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /\[Beneficiary\][\s\S]*ACCOUNT STATUS[\s\S]*This debit note · 本期账单\s+\[Issue date\]\s+183,000,000/);
+  assert.doesNotMatch(await dialog.locator('.debit-checks').innerText(), /Phép [56]/);
   assert.doesNotMatch(await view.locator('[data-page]').innerText(), /[À-ỹ]/u);
 
   await dialog.locator('[name="issueDate"]').fill('2026-10-05');
@@ -107,10 +112,12 @@ const COMPANY = {
     { id: 'a000000000002', title: '(USD) BANK B', label: 'USD · BANK B', currency: 'USD', beneficiary: 'TEST CO', address: null, bank: 'BANK B',
       bank_address: null, account: '000123', swift: 'TESTVNVX', lines: [] },
   ],
-  customers: [{ name: 'Khach Thu Sua Co', company: 'KHACH THU SUA CO.,LTD', rows: [21, 27], shipper: 'KHACH THU SUA CO.,LTD', invoice: 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia', bank: '' }],
+  customers: [{ name: 'Cong Ty Phat Hanh', company: 'PHAT HANH CO.,LTD', rows: [21, 27], shipper: 'PHAT HANH CO.,LTD\nADD: 9 FAKE ST\nTAX CODE: 0000000009',
+    invoice: 'CONG TY TNHH PHAT HANH', bank: '',
+    header: { name: 'PHAT HANH CO.,LTD', address: '9 Đường Giả, Phường Giả', tax_id: '0000000009', tel: '028 000 000', email: 'ph@thu.test' } }],
 };
 
-test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; chọn tài khoản thì PAYMENT in theo tài khoản; chưa chọn thì cảnh báo; nhớ theo sổ', async () => withPage(async ({ page, world }) => {
+test('Debit note v4: chọn công ty từ Thông tin cty thay đầu trang, BILL TO giữ nguyên; chọn tài khoản thì PAYMENT in theo tài khoản; chưa chọn thì cảnh báo; nhớ theo sổ', async () => withPage(async ({ page, world }) => {
   await page.locator('#thang-2026-09 .debit-open').click();
   const dialog = page.locator('.debit-dialog');
   const view = page.frameLocator('.debit-preview');
@@ -119,9 +126,14 @@ test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; ch�
   assert.match(await dialog.locator('.debit-checks').innerText(), /Cảnh báo: Chưa chọn tài khoản nhận tiền: chứng từ in \[Account no\.\]\./);
   assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn', 'VND · NGAN HANG GIA · CONG TY GIA · …7890', 'USD · BANK B · TEST CO · …0123']);
 
-  await dialog.locator('[name="pick"]').fill('Khach Thu Sua Co');
-  assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), 'KHACH THU SUA CO.,LTD\nMST: 0000000009\nDia chi gia');
-  await dialog.locator('[name="customer.legal"]').fill('KHACH THU SUA CO.,LTD (sua tay)');   // vẫn sửa tay được, không bị điền đè
+  assert.match(await view.locator('[data-blk="LH"]').innerText(), /^HTH LOGISTICS DV TM CO.,LTD[\s\S]*21\/20\/15 Le Cong Phep Street, An Lac Ward, Ho Chi Minh City/);   // chưa chọn: theo cấu hình
+  await dialog.locator('[name="customer.contact"]').fill('Mr Li');
+  await dialog.locator('[name="issuer"]').fill('Cong Ty Phat Hanh');
+  const head = await view.locator('[data-blk="LH"]').innerText();
+  assert.match(head, /^PHAT HANH CO.,LTD/);
+  assert.match(head, /9 Duong Gia, Phuong Gia · Tax ID 税号: 0000000009 · Tel 电话: 028 000 000 · Email 邮箱: ph@thu.test/);   // bỏ dấu khi in
+  assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), '');   // không đụng BILL TO
+  assert.equal(await dialog.locator('[name="customer.contact"]').inputValue(), 'Mr Li');
   await dialog.locator('[name="account"]').selectOption('a000000000002');
   const bottom = await view.locator('[data-blk="BOTTOM"]').innerText();
   assert.match(bottom, /Beneficiary 收款人\s+TEST CO/);
@@ -136,7 +148,8 @@ test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; ch�
   await page.locator('#thang-2026-09 .debit-open').click();
   await view.locator('[data-page]').first().waitFor();
   assert.equal(await dialog.locator('[name="account"]').inputValue(), 'a000000000001');
-  assert.equal(await dialog.locator('[name="customer.legal"]').inputValue(), 'KHACH THU SUA CO.,LTD (sua tay)');
+  assert.equal(await dialog.locator('[name="issuer"]').inputValue(), 'Cong Ty Phat Hanh');   // nhớ theo sổ
+  assert.match(await view.locator('[data-blk="LH"]').innerText(), /^PHAT HANH CO.,LTD/);
   await dialog.locator('.debit-close').click();
 
   // Tài khoản đã nhớ mà Sheet bỏ đi thì coi như chưa chọn.
@@ -148,12 +161,12 @@ test('Debit note v4: chọn khách từ Thông tin cty điền ô pháp lý; ch�
   assert.deepEqual(world.requests, []);   // chỉ đọc
 }, world => { priced(world); world.companyInfo = COMPANY; }));
 
-test('Debit note v4: chưa bật Thông tin cty thì ô chọn khách khóa và nêu lý do; hộp vẫn xuất được như trước', async () => withPage(async ({ page }) => {
+test('Debit note v4: chưa bật Thông tin cty thì ô chọn công ty khóa và nêu lý do; hộp vẫn xuất được như trước', async () => withPage(async ({ page }) => {
   await page.locator('#thang-2026-09 .debit-open').click();
   const dialog = page.locator('.debit-dialog');
   await page.frameLocator('.debit-preview').locator('[data-page]').first().waitFor();
-  assert.equal(await dialog.locator('[name="pick"]').isDisabled(), true);
-  assert.match(await dialog.locator('.debit-field', { has: page.locator('[name="pick"]') }).innerText(), /Máy chủ chưa đọc Sheet thông tin khách hàng\./);
+  assert.equal(await dialog.locator('[name="issuer"]').isDisabled(), true);
+  assert.match(await dialog.locator('.debit-field', { has: page.locator('[name="issuer"]') }).innerText(), /Máy chủ chưa đọc Sheet thông tin khách hàng\./);
   assert.deepEqual(await dialog.locator('[name="account"] option').allInnerTexts(), ['Chưa chọn']);
   await dialog.locator('.debit-ack input').check();
   assert.equal(await dialog.locator('.debit-print').isDisabled(), false);

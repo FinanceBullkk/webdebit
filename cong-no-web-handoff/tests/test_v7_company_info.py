@@ -70,6 +70,16 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(b["invoice"], "CONG TY TNHH THU B\nDC: 2 DUONG GIA\nMST: 0000000002\nGIAM DOC: ONG B")
         self.assertEqual(b["bank"], "THU B CO.,LTD\nACC: 222")
         self.assertEqual(c["invoice"], "CONG TY TNHH THU C\nD3")
+        self.assertEqual(a["header"], {"name": "THU A COMPANY LIMITED", "address": "1 FAKE ST", "tax_id": "0000000001", "tel": None, "email": None})
+        self.assertEqual(b["header"], {"name": "THU B CO.,LTD", "address": "2 FAKE RD", "tax_id": "0000000002", "tel": None, "email": None})
+
+    def test_header_fields_prefer_new_address_and_split_phone_mail(self):
+        self.assertEqual(job.header_fields("THU E CO.,LTD\nADD: cu\nNEW ADD: moi\nTAX CODE: 0000000005\nPHONE/MAIL: 0900 000 000 / e@thu.test"),
+                         {"name": "THU E CO.,LTD", "address": "moi", "tax_id": "0000000005", "tel": "0900 000 000", "email": "e@thu.test"})
+        # Không nhãn: dòng thứ hai là địa chỉ; nhãn MST, TEL viết trong ô.
+        self.assertEqual(job.header_fields("THU F CO.,LTD\n5 FAKE AVE, FAKE CITY\nMST: 0000000006\nTEL: 028 000"),
+                         {"name": "THU F CO.,LTD", "address": "5 FAKE AVE, FAKE CITY", "tax_id": "0000000006", "tel": "028 000", "email": None})
+        self.assertEqual(job.header_fields(""), dict.fromkeys(("name", "address", "tax_id", "tel", "email")))
 
     def test_customers_without_header_is_a_shape_error(self):
         with self.assertRaises(job.SheetShapeError):

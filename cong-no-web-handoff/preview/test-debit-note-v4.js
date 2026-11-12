@@ -279,3 +279,26 @@ test('Tên tiếng Trung cùng dòng (người dùng 11/11/2026): nhiều cột 
   const off = v4.pageHtml(v4.fromSample(sample('sample-14'), config), 'single', v4.fromSample(sample('sample-14'), config).rows);
   assert.doesNotMatch(off, /white-space: nowrap; font-size/);   // cờ tắt: bố cục v4 như cũ
 });
+
+test('ACCOUNT STATUS tùy chọn (người dùng 12/11/2026): không tích thì bản in và Excel không có khối, không chặn khi thiếu số tháng, phép 5–6 không chạy', () => {
+  const off = data => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
+    form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' }, accountStatus: false } });
+  const doc = off(ledger());
+  assert.equal(doc.showAccount, false);
+  assert.equal(build().showAccount, true);   // không truyền thì in như trước
+  const html = v4.pageHtml(doc, 'single', doc.rows, 1, 1);
+  assert.match(html, /PAYMENT/);
+  assert.doesNotMatch(html, /ACCOUNT STATUS|Opening balance|Outstanding balance/);
+  assert.ok(!v4.checks(doc).some(item => /điều chỉnh .*Payments received/.test(item.text)));
+  // Thiếu số tháng của máy chủ hay số cuối tháng lệch: không chặn vì không in khối đó.
+  assert.deepEqual(blocks(off({ ...ledger(), months: [] })), []);
+  const data = ledger();
+  data.months[0].end_of_month_vnd = '718300001';
+  assert.deepEqual(blocks(off(data)), []);
+  // Excel: không có khối, chân trang vẫn có.
+  const xlsx = require('./debit-note-v4-xlsx.js');
+  const sheet = readSheet(unzip(xlsx.xlsx(doc))['xl/worksheets/sheet1.xml']);
+  assert.ok(sheet.find('PAYMENT') && sheet.find('[Beneficiary]'));
+  for (const label of ['ACCOUNT STATUS', 'Opening balance · 期初余额', 'For reference only']) assert.ok(!sheet.find(label), label);
+  assert.ok(sheet.find('Debit Note HTH-2611-001 · Billing queries 账单查询: hth.logs@gmail.com'));
+});

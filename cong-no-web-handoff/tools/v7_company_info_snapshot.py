@@ -133,9 +133,46 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
             skipped += 1
             continue
         name = block["short"] or first
-        customers.append({"name": name, "company": first, "rows": [block["row"], block["end"]],
-                          **{key: clean("\n".join(lines[key])) for key in lines}})
+        texts = {key: clean("\n".join(lines[key])) for key in lines}
+        customers.append({"name": name, "company": first, "rows": [block["row"], block["end"]], **texts,
+                          "header": header_fields(texts["shipper"] or texts["invoice"])})
     return customers, skipped
+
+
+# Đầu trang debit note (tên, địa chỉ, MST, điện thoại, email) tách từ bản shipper (tiếng Anh). Nhãn có thể là cột B đã ghép
+# ("NEW ADD: …") hoặc nằm sẵn trong ô ("TAX CODE: …"); địa chỉ ưu tiên NEW ADD, rồi ADD/ADDRESS, không có nhãn thì dòng thứ hai.
+LABELED = re.compile(r"^\s*([A-Za-zĐđ ./-]{2,22}?)\s*[:：]\s*(.*)$")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def header_fields(text: str) -> dict:
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    out: dict[str, str | None] = dict.fromkeys(("name", "address", "tax_id", "tel", "email"))
+    addresses: dict[int, str] = {}
+    for index, line in enumerate(lines):
+        match = LABELED.match(line)
+        label, value = (fold(match.group(1)), match.group(2).strip()) if match else ("", line)
+        if index == 0:
+            out["name"] = value if label in {"COMPANY", "COMPANY NAME", "NAME"} else line
+            continue
+        if not label:
+            if index == 1 and not TAX_LINE.match(fold(line)):
+                addresses.setdefault(3, line)
+            continue
+        if label.startswith("NEW ADD"):
+            addresses.setdefault(0, value)
+        elif label in {"ADD", "ADDRESS", "DIA CHI", "DC", "HEAD OFFICE"} or label.startswith("ADDRESS"):
+            addresses.setdefault(1, value)
+        elif label.startswith("OLD ADD"):
+            addresses.setdefault(2, value)
+        elif TAX_LINE.match(label) and out["tax_id"] is None:
+            out["tax_id"] = value or None
+        elif re.match(r"^(TEL|TELL|TELEPHONE|PHONE|SDT|MOBILE|HOTLINE)", label) and out["tel"] is None:
+            out["tel"] = EMAIL.sub("", value).strip(" /,;") or None
+    out["address"] = addresses[min(addresses)] if addresses else None
+    email = EMAIL.search(text)
+    out["email"] = email.group(0) if email else None
+    return {key: one_line(value) if value else None for key, value in out.items()}
 
 
 def field_key(label: str) -> str | None:

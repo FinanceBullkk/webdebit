@@ -104,7 +104,7 @@ const DebitNoteV4 = (() => {
     // phiếu thu, cấn trừ và điều chỉnh trong tháng = đã thu − (phát sinh của tháng − số của chứng từ); Outstanding = còn nợ
     // cuối tháng. Người dùng chốt 10/11/2026.
     const item = (ledger.months ?? []).find(row => month(row) === monthKey);
-    if (!item) doc.issues.push({ level: 'block', text: 'Máy chủ chưa trả số nợ của tháng này (ACCOUNT STATUS).' });
+    if (!item && doc.showAccount) doc.issues.push({ level: 'block', text: 'Máy chủ chưa trả số nợ của tháng này (ACCOUNT STATUS).' });
     const opening = big(item?.prior_months_vnd), charges = big(item?.charges_vnd), received = big(item?.received_vnd), end = big(item?.end_of_month_vnd);
     const total = doc.total.amount;
     const adjustments = charges === null || total === null ? null : charges - total;
@@ -115,7 +115,7 @@ const DebitNoteV4 = (() => {
       .map(row => isoDay(row.date)).filter(Boolean).sort();
     doc.account = { opening, openingDate: `${monthKey}-01`, thisNote: total, payments, paymentsDate: paidDays.at(-1) ?? null, outstanding: end,
       received, adjustments };
-    if (adjustments !== null && adjustments !== 0n)
+    if (doc.showAccount && adjustments !== null && adjustments !== 0n)
       doc.issues.push({ level: 'info', text: `Tháng có điều chỉnh ${money(adjustments)} đ (phát sinh của sổ khác số chứng từ): đã tính vào Payments received.` });
     return doc;
   }
@@ -156,6 +156,8 @@ const DebitNoteV4 = (() => {
         accountLabelCn: payment.account_label_cn ?? '账号', account: payment.account, swift: payment.swift },
       customer: { nameEn: latin(customer.nameEn), nameZh: String(customer.nameZh ?? '').trim(), legal: latin(customer.legal), contact: latin(customer.contact) },
       showPlaceCn: config?.show_place_cn === true,
+      // ACCOUNT STATUS tùy chọn (người dùng 12/11/2026: người xuất muốn thì tích). Không truyền thì in như trước.
+      showAccount: form.accountStatus !== false,
       columns, rows: ordered,
       total: { cells: Object.fromEntries(used.map(code => [code, columnTotal(code)])), amount: amounts.some(value => value === null) ? null : sum(amounts),
         count: containers.length },
@@ -189,10 +191,11 @@ const DebitNoteV4 = (() => {
     const count = doc.rows.filter(row => !row.feeOnly).length;
     if (count !== doc.total.count) fail(4, `có ${count} dòng container nhưng dòng Total ghi ${doc.total.count} containers.`);
     const account = doc.account ?? {};
-    if (account.thisNote === null || account.thisNote === undefined || account.thisNote !== doc.total.amount)
+    // Phép 5 và 6 kiểm số của ACCOUNT STATUS: không in khối đó thì không kiểm.
+    if (doc.showAccount !== false && (account.thisNote === null || account.thisNote === undefined || account.thisNote !== doc.total.amount))
       fail(5, `This debit note ${money(account.thisNote) || '(trống)'} ≠ Total Amount ${money(doc.total.amount) || '(trống)'}.`);
     const parts = [account.opening, account.thisNote, account.payments, account.outstanding];
-    if (parts.some(value => value === null || value === undefined) || account.opening + account.thisNote - account.payments !== account.outstanding)
+    if (doc.showAccount !== false && (parts.some(value => value === null || value === undefined) || account.opening + account.thisNote - account.payments !== account.outstanding))
       fail(6, `Opening ${money(account.opening) || '(trống)'} + This debit note ${money(account.thisNote) || '(trống)'} − Payments ${money(account.payments) || '(trống)'}`
         + ` ≠ Outstanding ${money(account.outstanding) || '(trống)'}.`);
     if (!doc.rows.length) out.push({ level: 'block', rule: 0, text: 'Tháng này không có chuyến nào để lập chứng từ.' });
@@ -308,7 +311,7 @@ const DebitNoteV4 = (() => {
       + status('Outstanding balance<span style="font-weight: 400"> · 未结余额</span>', '', a.outstanding, '; margin-top: 3px; padding-top: 3px; border-top: 1px solid #5F6B7A; font-weight: 700');
     return '<div data-blk="BOTTOM" style="flex: none; padding: 0 40px; margin-top: -5.43px; margin-bottom: -4.95px"><div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; align-items: start">'
       + section([{ text: 'PAYMENT', bold: true }, { text: 'INFORMATION', bold: true }, { text: '付款信息' }], payment)
-      + section([{ text: 'ACCOUNT STATUS', bold: true }, { text: '账户情况' }, { text: 'For reference only' }, { text: '仅供参考' }], account) + '</div></div>';
+      + (doc.showAccount === false ? '' : section([{ text: 'ACCOUNT STATUS', bold: true }, { text: '账户情况' }, { text: 'For reference only' }, { text: '仅供参考' }], account)) + '</div></div>';
   }
 
   function footer(doc, last, page, pages) {
