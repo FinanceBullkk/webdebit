@@ -163,7 +163,7 @@
   let configLoad = null;
   // THONG-TIN-CTY-01: danh bạ khách và tài khoản nhận tiền đọc từ Sheet thông tin khách hàng (GET /api/v7/company-info).
   const ACCOUNT_CN = { USD: '美元账号', VND: '越南盾账号', CNY: '人民币账号', EUR: '欧元账号' };
-  const tail = number => `…${String(number ?? '').slice(-4)}`;
+  const tail = number => `…${(String(number ?? '').replace(/\D/g, '') || String(number ?? '')).slice(-4)}`;   // số viết có dấu cách: "1044 009 276"
   const accountsOf = directory => (directory?.available ? directory.accounts : []);
   // Mỗi khách một nhãn để chọn: tên (cột A hoặc dòng đầu khối); trùng tên thì kèm dòng bắt đầu trên Sheet.
   const customersOf = directory => {
@@ -188,6 +188,20 @@
     return { ...out, payment };
   }
   const issuerOf = (directory, label) => (label ? customersOf(directory).find(item => item.pickLabel === label) ?? null : null);
+  // TAI-KHOAN-COT-E-01: tài khoản ở cột E (THONG TIN NGAN HANG) cùng khối với công ty đứng tên là tài khoản của chính công ty đó.
+  // Chọn công ty đứng tên thì "Nhận tiền vào" tự chọn tài khoản USD đầu tiên của khối; danh sách để tài khoản của khối lên đầu,
+  // rồi tới các tài khoản ở tab TÀI KHOẢN USD (bỏ số trùng).
+  const digitsOf = number => String(number ?? '').replace(/\D/g, '');
+  function accountsFor(directory, issuerLabel) {
+    const issuer = issuerOf(directory, issuerLabel);
+    const own = (issuer?.accounts ?? []).map(item => ({ ...item, own: issuer.pickLabel }));
+    const seen = new Set(own.map(item => digitsOf(item.account)));
+    return [...own, ...accountsOf(directory).filter(item => !seen.has(digitsOf(item.account)))];
+  }
+  const ownDefault = issuer => {
+    const own = issuer?.accounts ?? [];
+    return (own.find(item => item.currency === 'USD') ?? own.find(item => !item.currency) ?? own[0])?.id ?? '';
+  };
   // ---- Hộp v4 theo luồng D (DEBIT-NOTE-03, người dùng chốt 12/11/2026; specs/v7-debit-note.md Mẫu v4 → Luồng). ----
   // Người dùng làm debit note từng khách, khi cần; công ty đứng tên, tài khoản và công ty khách đổi theo từng lần; gửi file Excel
   // qua Zalo hoặc WeChat. Nên: ba ô gõ tìm tên (chọn sẵn như lần trước của sổ), Excel là nút chính, không có ô xác nhận
@@ -209,7 +223,8 @@
         ? { id: '', main: pay.beneficiary || 'Tài khoản theo cấu hình', sub: [pay.bank, tail(pay.account), 'theo cấu hình'].filter(Boolean).join(' · ') }
         : { id: '', main: 'Chưa chọn', sub: 'Chứng từ in [Account no.]' };
       return [{ ...first, note: first.sub },
-        ...accountsOf(directory).map(item => ({ id: item.id, main: item.beneficiary || item.label, sub: [item.bank, item.currency, tail(item.account)].filter(Boolean).join(' · '),
+        ...accountsFor(directory, open.state.issuer).map(item => ({ id: item.id, main: item.beneficiary || item.label,
+          sub: [item.bank, item.currency, tail(item.account), item.own ? `của ${item.own}` : ''].filter(Boolean).join(' · '),
           note: [item.bank, item.currency, `STK ${item.account}`, item.swift ? `SWIFT ${item.swift}` : ''].filter(Boolean).join(' · ') }))];
     }
     const companies = customersOf(directory).map(item => ({ id: item.pickLabel, main: item.pickLabel, sub: item.header?.name || item.company || '', item }));
@@ -236,7 +251,9 @@
   function showPick(kind) {
     const box = comboOf(kind), option = chosen(kind);
     box.querySelector('input').value = option.main;
-    box.querySelector('.dn4-note').textContent = option.note;
+    const issuer = kind === 'account' && !open.state.account ? issuerOf(open.directory, open.state.issuer) : null;
+    box.querySelector('.dn4-note').textContent = issuer && !issuer.accounts?.length
+      ? `${issuer.pickLabel} chưa có tài khoản ở cột ngân hàng trên Sheet. ${option.note}` : option.note;
   }
   function openList(kind, query = '') {
     const box = comboOf(kind), input = box.querySelector('input'), list = box.querySelector('.dn4-list');
@@ -261,8 +278,13 @@
     showPick(kind);
   }
   function choose(kind, id) {
+    const changed = open.state[kind] !== id;
     open.state[kind] = id;
     closeList(kind);
+    if (kind === 'issuer' && changed) {   // đổi công ty đứng tên: tài khoản theo khối của công ty đó
+      open.state.account = ownDefault(issuerOf(open.directory, id));
+      showPick('account');
+    }
     refreshV4();
   }
   function moveActive(kind, step) {
@@ -279,7 +301,7 @@
   // Dựng chứng từ theo lựa chọn, chia trang (đo trong khung xem trước) rồi vẽ; nút xuất chỉ khóa khi còn chặn.
   function refreshV4() {
     const s = open.state;
-    const account = accountsOf(open.directory).find(item => item.id === s.account) ?? null;
+    const account = accountsFor(open.directory, s.issuer).find(item => item.id === s.account) ?? null;
     const bill = customersOf(open.directory).find(item => item.pickLabel === s.bill) ?? null;
     const config = effectiveConfig(open.config, account, issuerOf(open.directory, s.issuer));
     const form = { number: model.suggestNumber('HTH', open.monthKey), issueDate: '', accountStatus: s.accountStatus,
@@ -319,11 +341,12 @@
   function showV4(monthKey, opener, config, configError = '', directory = null, directoryError = '') {
     const remembered = read(V4_CUSTOMER_KEY), saved = remembered.customer ?? {};
     const name = DebitNoteV4.splitName(defaultDisplay());
-    const accounts = accountsOf(directory), companies = customersOf(directory);
+    const companies = customersOf(directory);
     // Lựa chọn đã nhớ mà không còn trên Sheet thì coi như chưa chọn.
     const keep = (value, list, key) => (list.some(item => item[key] === value) ? value : '');
+    const issuer = keep(remembered.issuer, companies, 'pickLabel');
     open = { v4: true, monthKey, opener, config, configError, directory, directoryError,
-      state: { issuer: keep(remembered.issuer, companies, 'pickLabel'), account: keep(remembered.account, accounts, 'id'), bill: keep(remembered.bill, companies, 'pickLabel'),
+      state: { issuer, account: keep(remembered.account, accountsFor(directory, issuer), 'id'), bill: keep(remembered.bill, companies, 'pickLabel'),
         accountStatus: remembered.accountStatus === true, nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh } };
     const months = [...new Set([monthKey, ...monthsOnBook()])].sort().reverse();
     dialog.innerHTML = `<div class="debit-panel dn4"><header><div class="dn4-head"><h2>Debit note · ${escape(defaultDisplay())}</h2><small class="debit-status"></small></div>`

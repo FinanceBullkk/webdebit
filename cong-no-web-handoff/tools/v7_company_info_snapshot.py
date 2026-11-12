@@ -102,6 +102,8 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
         short, label = one_line(_cell(row, name_col)), one_line(_cell(row, label_col))
         texts = {"shipper": _cell(row, shipper), "invoice": _cell(row, invoice), "bank": _cell(row, bank)}
         if not (short or label or any(texts.values())):
+            if current is not None and current.get("bank_lines") and current["bank_lines"][-1]:
+                current["bank_lines"].append("")
             current = None
             continue
         if current is None and blocks and not (short or label or texts["shipper"] or texts["invoice"]):
@@ -124,6 +126,12 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
         for key, text in texts.items():
             if text:
                 current["lines"][key].append(prefix + text if key != "bank" else text)
+        # Dòng ngân hàng giữ cả chỗ hở (dòng không có chữ ở cột E) để tách tài khoản: "" là một chỗ hở.
+        bank_lines = current.setdefault("bank_lines", [])
+        if texts["bank"]:
+            bank_lines.extend(texts["bank"].split("\n"))
+        elif bank_lines and bank_lines[-1]:
+            bank_lines.append("")
         current["end"] = number
     customers, skipped = [], 0
     for block in blocks:
@@ -134,9 +142,115 @@ def parse_customers(rows: list[list[Any]]) -> tuple[list[dict], int]:
             continue
         name = block["short"] or first
         texts = {key: clean("\n".join(lines[key])) for key in lines}
-        customers.append({"name": name, "company": first, "rows": [block["row"], block["end"]], **texts,
-                          "header": header_fields(texts["shipper"] or texts["invoice"])})
+        header = header_fields(texts["shipper"] or texts["invoice"])
+        customers.append({"name": name, "company": first, "rows": [block["row"], block["end"]], **texts, "header": header,
+                          "accounts": parse_bank_column(block.get("bank_lines", []), header["name"] or first)})
     return customers, skipped
+
+
+# TAI-KHOAN-COT-E-01: cột E (THONG TIN NGAN HANG) của một khối là các tài khoản nhận tiền của chính công ty đó, viết tay:
+# nhãn nằm trong ô và nhiều kiểu ("NAME OF BANK", "BANK'S ADDRESS", "BENEFICIARY’S BANK", "ACOUNT NUMBER (USD)"), có dòng
+# gạch đầu "-", địa chỉ xuống dòng, dòng "RMB ACCOUNT" ở cuối. Đọc theo thứ tự dòng: ADD/ADDRESS trước ngân hàng là địa chỉ
+# người nhận, sau ngân hàng là địa chỉ ngân hàng. Tài khoản mới bắt đầu khi một trường đã có lại xuất hiện, hoặc sau chỗ hở /
+# dòng không nhãn khi tài khoản đang đọc đã có số.
+BANK_LABEL = re.compile(r"^([^:：]{2,40}?)\s*[:：]\s*(.*)$")
+CURRENCY_ONLY = re.compile(r"^(USD|VND|CNY|RMB|EUR)\s+(ACCOUNT|ACC)$")
+SKIP_LINE = re.compile(r"^(NEW UPDATE|UPDATE|CAP NHAT)\b")
+SPLIT_KEYS = ("beneficiary", "bank", "account", "swift")
+
+
+def _bank_key(label: str, has_bank: bool) -> str | None:
+    """Trường của một nhãn trong ô cột E; None là dòng không dùng (TEL, TAX…) hoặc ghi chú."""
+    if "SWIFT" in label:
+        return "swift"
+    if "CURRENCY" in label or "LOAI TIEN" in label:
+        return "currency"
+    if "BANK" in label or "NGAN HANG" in label:
+        return "bank_address" if re.search(r"\bADD|DIA CHI", label) else "bank"
+    if re.search(r"\b(ACC|ACCOUNT|ACOUNT)\s*(NAME|HOLDER)\b|^BENEFICIARY$|^BENEFICIARY NAME", label):
+        return "beneficiary"
+    if re.search(r"\b(ACC|ACCOUNT|ACOUNT|A/C)\b|\bSTK\b|SO TK|SO TAI KHOAN", label):
+        return "account"
+    if re.match(r"^(NEW )?(ADD|ADDRESS|DIA CHI|DC)\b", label):
+        return "bank_address" if has_bank else "address"
+    return None
+
+
+def _currency(text: str) -> str | None:
+    match = CURRENCY.search(fold(text))
+    return None if match is None else ("CNY" if match.group(1) == "RMB" else match.group(1))
+
+
+def parse_bank_column(lines: list[str], company: str) -> list[dict]:
+    """Tài khoản trong cột E của một khối; chỉ giữ tài khoản có số. Người nhận trống thì lấy tên công ty của khối."""
+    accounts: list[dict] = []
+    current: dict | None = None
+    gap = False
+
+    def start() -> dict:
+        item = dict.fromkeys(KEYS) | {"currency": None, "lines": []}
+        accounts.append(item)
+        return item
+
+    last = None
+    for raw in lines:
+        line = one_line(raw).lstrip("-•*+ ").strip()
+        if not line:
+            gap = True
+            continue
+        folded = fold(line)
+        if SKIP_LINE.match(folded):
+            continue
+        if current is not None and current["account"] and gap:
+            current = None
+        gap = False
+        match = BANK_LABEL.match(line)
+        key = _bank_key(fold(match.group(1)), bool(current and current["bank"])) if match else None
+        value = match.group(2).strip() if match else line
+        if match is None and CURRENCY_ONLY.match(folded):
+            if current is not None:
+                current["currency"] = current["currency"] or _currency(folded)
+                current["lines"].append(line)
+            continue
+        if match is None:
+            if current is not None and last in ("address", "bank_address") and not current["account"]:
+                current[last] = f"{current[last]} {line}"   # địa chỉ xuống dòng
+                current["lines"].append(line)
+                continue
+            if current is None or current["account"]:
+                current, last = start(), None
+            if current["beneficiary"] is None and current["bank"] is None:
+                key = "beneficiary"
+            elif current["address"] is None and current["bank"] is None:
+                key = "address"
+        if current is None:
+            current = start()
+        if key in SPLIT_KEYS and current[key] is not None:   # trường đã có: tài khoản mới
+            current = start()
+        if key in ("address", "bank_address") and current[key] is not None:
+            if match and fold(match.group(1)).startswith("NEW ADD") and value:   # NEW ADD thay địa chỉ cũ
+                current[key] = value
+            current["lines"].append(line)
+            last = key
+            continue
+        if key == "currency":
+            current["currency"] = _currency(value) or current["currency"]
+        elif key == "account":
+            current["currency"] = _currency(f"{match.group(1)} {value}") or current["currency"]
+            current["account"] = re.sub(r"\s*\((USD|VND|CNY|RMB|EUR)\)\s*$", "", value, flags=re.I).strip() or None
+        elif key in KEYS and value:
+            current[key] = value
+        current["lines"].append(line)
+        last = key
+    out = []
+    for item in accounts:
+        if not item["account"] or not re.search(r"\d", item["account"]):
+            continue
+        item["beneficiary"] = item["beneficiary"] or company
+        digits = re.sub(r"\D", "", item["account"])
+        item["id"] = "e" + hashlib.sha256(f"{fold(item['bank'])}|{digits}".encode()).hexdigest()[:12]
+        out.append(item)
+    return out
 
 
 # Đầu trang debit note (tên, địa chỉ, MST, điện thoại, email) tách từ bản shipper (tiếng Anh). Nhãn có thể là cột B đã ghép

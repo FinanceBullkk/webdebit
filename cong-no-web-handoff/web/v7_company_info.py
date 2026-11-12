@@ -48,6 +48,15 @@ def clean(raw: dict) -> dict:
                          **{key: _text(item.get(key), optional=True) for key in ACCOUNT_KEYS},
                          "lines": [{"label": _text(line.get("label")), "value": _text(line.get("value"))}
                                    for line in item["lines"] if isinstance(line, dict)]})
+
+    def own_accounts(items) -> list[dict]:
+        """TAI-KHOAN-COT-E-01: tài khoản ở cột E của khối công ty; bản chụp cũ chưa có thì là danh sách rỗng."""
+        if items is None:
+            return []
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+            raise _broken()
+        return [{"id": _text(item.get("id")), "currency": _text(item.get("currency"), optional=True),
+                 **{key: _text(item.get(key), optional=True) for key in ACCOUNT_KEYS}} for item in items]
     customers = []
     for item in raw["customers"]:
         rows = item.get("rows") if isinstance(item, dict) else None
@@ -56,7 +65,8 @@ def clean(raw: dict) -> dict:
         header = item.get("header") if isinstance(item.get("header"), dict) else {}
         customers.append({"name": _text(item.get("name")), "company": _text(item.get("company")), "rows": rows,
                           **{key: _text(item.get(key)) for key in ("shipper", "invoice", "bank")},
-                          "header": {key: _text(header.get(key), optional=True) for key in HEADER_KEYS}})
+                          "header": {key: _text(header.get(key), optional=True) for key in HEADER_KEYS},
+                          "accounts": own_accounts(item.get("accounts"))})
     runner = raw.get("runner") if isinstance(raw.get("runner"), dict) else {}
     return {"available": True, "read_at": _text(runner.get("created_at"), optional=True), "accounts": accounts, "customers": customers,
             "counts": {key: value for key, value in (raw.get("counts") or {}).items() if isinstance(value, int)}}

@@ -1,0 +1,19 @@
+# TAI-KHOAN-COT-E-01
+
+[← Sổ quyết định](../decisions.md)
+
+## Quyết định
+
+Trên tab `THÔNG TIN CTY`, cột E (`THONG TIN NGAN HANG`) nằm trên cùng các dòng của một khối công ty là **tài khoản nhận tiền của chính công ty đó**. Trong hộp debit note mẫu v4, chọn công ty ở ô *Đứng tên* thì ô *Nhận tiền vào* tự chọn tài khoản ở cột E của khối đó. Quyết định này thay ý "không tự chọn tài khoản thay người lập" ở điểm 3 của [THONG-TIN-CTY-01](thong-tin-cty-01.md).
+
+1. **Đọc cột E thành từng tài khoản.** Một khối có thể có nhiều tài khoản. Máy đọc theo thứ tự dòng; nhãn nằm trong ô và viết nhiều kiểu (`NAME OF BANK`, `BANK'S ADDRESS`, `BENEFICIARY’S BANK`, `ACOUNT NUMBER (USD)`, dòng gạch đầu `-`, địa chỉ xuống dòng, dòng `RMB ACCOUNT` ở cuối). `ADD`/`ADDRESS` đứng trước dòng ngân hàng là địa chỉ người nhận, đứng sau là địa chỉ ngân hàng. Tài khoản mới bắt đầu khi tên người nhận, ngân hàng, số tài khoản hoặc SWIFT xuất hiện lần nữa; hoặc khi tài khoản đang đọc đã có số mà gặp dòng trống hay dòng không nhãn. Không có tên người nhận thì lấy tên công ty của khối. Chỉ giữ tài khoản có số. Cột khác (ví dụ cột G ghi tay tài khoản VND) không đọc.
+2. **Chọn mặc định.** Đổi *Đứng tên* thì *Nhận tiền vào* chuyển sang tài khoản USD đầu tiên của khối. Không có tài khoản USD thì lấy tài khoản đầu tiên chưa rõ loại tiền, rồi tới tài khoản đầu tiên. Danh sách *Nhận tiền vào* để tài khoản của khối lên đầu (ghi "của <tên>"), sau đó tới tài khoản ở tab `TÀI KHOẢN USD`, bỏ những số trùng. Người lập vẫn đổi được, và trình duyệt nhớ lựa chọn theo sổ như trước.
+3. **Công ty chưa có tài khoản ở cột E** thì bỏ tài khoản đang chọn (vì đó là tài khoản của công ty khác). Ô *Nhận tiền vào* ghi "<tên> chưa có tài khoản ở cột ngân hàng trên Sheet". Chứng từ in theo cấu hình máy chủ; không chặn xuất, theo luồng D của [DEBIT-NOTE-03](debit-note-03.md).
+
+## Ngày / nguồn
+
+12/11/2026, chat. Người dùng gửi link tab `THÔNG TIN CTY` và hỏi: "bạn thấy nó chung hàng k, ví dụ chọn <công ty> thì lấy thông tin ngân hàng ở cột bên phải luôn". Claude đề xuất 4 điểm: tách tài khoản ở cột E, tự chọn tài khoản đầu tiên của khối, báo khi công ty chưa có tài khoản, và tùy chọn đọc dòng ghi chú "… DÙNG TK NÀY". Người dùng trả lời "Làm luôn". Cách đọc nhãn và thứ tự ưu tiên USD do Claude chọn theo [`CLAUDE-ALL-01`](claude-all-01.md). Phần đọc dòng ghi chú để sau (CÒN MỞ).
+
+## Hiệu lực và giới hạn
+
+ĐÃ CHỐT. Lý do: tab `TÀI KHOẢN USD` không có tài khoản của mọi công ty đứng tên (ví dụ không có công ty đứng tên đầu tiên của tab), nên chọn công ty đó vẫn in tài khoản theo cấu hình, tức là tài khoản HTH. Đọc nhãn viết tay có thể sót kiểu viết mới: tab *Thông tin cty* vẫn hiện nguyên cột E để người lập so lại. CÒN MỞ: dòng ghi chú gắn tài khoản với khách cụ thể (ví dụ "<khách> DÙNG TK NÀY") chưa dùng để tự chọn tài khoản theo sổ.
