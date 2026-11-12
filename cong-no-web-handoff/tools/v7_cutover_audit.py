@@ -481,23 +481,32 @@ def audit_state(customers: list[dict], ledgers: dict[int, dict]) -> dict[str, An
             "receipts_voided": voided, "offsets": offsets, "queues": {key: value for key, value in queues.items() if value}}
 
 
+# Lý do mà phần web đi trước được nhận là giải thích trọn chỗ khách còn lệch. FIXED: máy vừa tự sửa khách đó ở chính lượt ấy và khách vẫn
+# còn đúng phần đi trước; `settle` của máy đối soát ghi FIXED đè lên WEB_AHEAD, con số thì như nhau.
+AHEAD_REASONS = frozenset({"WEB_AHEAD", "FIXED"})
+
+
 def audit_reconcile(reconcile: dict | None) -> dict[str, Any]:
     if not reconcile:
         return {"skipped": "KHONG_CO_RECONCILE", "ahead": {}}
-    ahead, unexplained, other = {}, 0, []
+    ahead, unexplained, other, earlier = {}, 0, [], 0
     for row in reconcile.get("customers", []):
+        if row.get("fixed_at") not in (None, reconcile.get("checked_at")):
+            earlier += 1   # việc máy làm ở lượt trước trong ngày, máy giữ lại cho chủ sổ soát: số của dòng là số lúc đó, không phải của lượt này
+            continue
         if row.get("status") == "KHOP":
             continue
-        gap = as_int(row.get("difference_vnd")) - as_int(row.get("web_ahead_vnd"))
-        if row.get("reason") == "WEB_AHEAD" and not gap and row.get("customer_id"):
-            ahead[row["customer_id"]] = as_int(row.get("web_ahead_vnd"))
+        web_ahead = as_int(row.get("web_ahead_vnd"))
+        gap = as_int(row.get("difference_vnd")) - web_ahead
+        if row.get("reason") in AHEAD_REASONS and web_ahead and not gap and row.get("customer_id"):
+            ahead[row["customer_id"]] = web_ahead
         else:
             unexplained += abs(gap)
             other.append({"customer_id": row.get("customer_id"), "customer": row.get("customer"), "status": row.get("status"), "reason": row.get("reason"), "gap_vnd": gap})
     return {"checked_at": reconcile.get("checked_at"), "mode": reconcile.get("mode"), "counts": reconcile.get("counts"), "total": reconcile.get("total"),
             "all_web_vnd": as_int(reconcile.get("all_web_vnd")), "ahead": ahead, "ahead_vnd": sum(ahead.values()), "unexplained_vnd": unexplained,
-            "not_matched": other, "months_differ": len(reconcile.get("months_differ") or []), "outside_tabs": len(reconcile.get("outside_tabs") or []),
-            "last_error": reconcile.get("last_error")}
+            "not_matched": other, "fixed_earlier": earlier, "months_differ": len(reconcile.get("months_differ") or []),
+            "outside_tabs": len(reconcile.get("outside_tabs") or []), "last_error": reconcile.get("last_error")}
 
 
 # ---------------------------------------------------------------- báo cáo
@@ -527,7 +536,7 @@ def summarize(result: dict[str, Any]) -> dict[str, Any]:
         "ok": not any(must_explain.values()), "books": len(books), "sheet_rows": sum(statuses.values()), "row_statuses": dict(statuses.most_common()),
         "month_diffs": dict(Counter(item["why"] for item in month_diffs)), "paid_diffs": dict(Counter(book["paid_why"] for book in books if book["paid_why"])),
         "row_items": dict(Counter(item["why"] for item in row_items)), "must_explain": must_explain,
-        "reconcile": {key: reconcile.get(key) for key in ("checked_at", "counts", "months_differ", "outside_tabs") if key in reconcile},
+        "reconcile": {key: reconcile.get(key) for key in ("checked_at", "counts", "months_differ", "outside_tabs", "fixed_earlier") if key in reconcile},
         "tong": {key: tong.get(key) for key in ("month", "matched", "skipped") if key in tong},
         "people": activity.get("people"), "never_by_person": len(activity.get("never_by_person", [])), "capped_days": len(activity.get("capped_days", [])),
         "open_old_months": len(state["open_old_months"]), "missing_price": sum(state["missing_price"].values()), "pending_review": state["pending_review"],
@@ -543,7 +552,8 @@ def render(result: dict[str, Any], summary: dict[str, Any]) -> str:
     books = {book["id"]: book for book in result["rows"]["books"]}
     reconcile, tong, activity, state = result["reconcile"], result["tong"], result["activity"], result["state"]
     lines = ["AUDIT TRƯỚC CHUYỂN HẲN (chỉ đọc). Có tên khách và số tiền: giữ ngoài Git.", f"Kết luận máy: {'không còn mục tiền nào phải có người xem' if summary['ok'] else 'CÒN mục phải có người xem'}", ""]
-    lines += ["== A1. Lượt đối soát gần nhất", f"  {reconcile.get('checked_at')} {reconcile.get('counts')} | web đi trước {money(reconcile.get('ahead_vnd', 0))} | chưa giải thích {money(reconcile.get('unexplained_vnd', 0))}"]
+    lines += ["== A1. Lượt đối soát gần nhất", f"  {reconcile.get('checked_at')} {reconcile.get('counts')} | web đi trước {money(reconcile.get('ahead_vnd', 0))} | chưa giải thích {money(reconcile.get('unexplained_vnd', 0))}"
+              f" | việc máy đã làm ở lượt trước trong ngày (không tính) {reconcile.get('fixed_earlier', 0)} dòng"]
     lines += [f"  CHƯA KHỚP sổ {row['customer_id']} {row['customer']}: {row['status']} {row['reason']} chênh {money(row['gap_vnd'])}" for row in reconcile.get("not_matched", [])]
     lines += ["", "== A3. Từng dòng", f"  {summary['sheet_rows']} dòng chuyến Sheet: {summary['row_statuses']}", "  Tháng mà phát sinh Sheet khác web:"]
     for book in books.values():

@@ -234,6 +234,27 @@ class ActivityAndStateTests(unittest.TestCase):
         self.assertEqual((result["ahead"], result["ahead_vnd"], result["unexplained_vnd"], [row["customer_id"] for row in result["not_matched"]]), ({1: 40}, 40, 15, [2]))
         self.assertEqual(audit.audit_reconcile(None)["ahead"], {})
 
+    def test_customer_the_machine_fixed_in_that_run_keeps_its_ahead(self):
+        # Lượt máy vừa tự sửa một khách còn chuyến đi trước: `settle` ghi FIXED đè lên WEB_AHEAD, khách vẫn LECH_TONG đúng bằng phần đi trước.
+        fixed = {"customer_id": 1, "customer": "Khách A", "status": "LECH_TONG", "reason": "FIXED", "difference_vnd": "40", "web_ahead_vnd": "40", "fixed_at": "10:05"}
+        result = audit.audit_reconcile({"checked_at": "10:05", "customers": [fixed]})
+        self.assertEqual((result["ahead"], result["not_matched"], result["unexplained_vnd"], result["fixed_earlier"]), ({1: 40}, [], 0, 0))
+        refused = ({"difference_vnd": "41"},                            # còn lệch ngoài phần đi trước
+                   {"reason": "WRITE_ERROR"}, {"reason": "VERIFY_FAILED"},  # máy tự báo lỗi: người phải xem, dù số có khớp
+                   {"difference_vnd": "0", "web_ahead_vnd": "0"},       # không có phần đi trước nào để nhận
+                   {"customer_id": None})                                # chưa biết sổ nào
+        for change in refused:
+            result = audit.audit_reconcile({"checked_at": "10:05", "customers": [fixed | change]})
+            self.assertEqual((result["ahead"], len(result["not_matched"])), ({}, 1), change)
+
+    def test_rows_the_machine_fixed_in_an_earlier_run_today_are_history_not_state(self):
+        # Máy giữ việc đã làm tới hết ngày (`fixed_earlier_today`). Dòng 09:05 mang số của lượt 09:05; ở lượt 10:05 khách đó đã khớp.
+        earlier = {"customer_id": 1, "customer": "Khách A", "status": "LECH_TONG", "reason": "FIXED", "difference_vnd": "40", "web_ahead_vnd": "40", "fixed_at": "09:05"}
+        created = {"customer_id": 3, "customer": "Khách C", "status": "KHOP", "reason": "BOOK_CREATED", "fixed_at": "09:05"}
+        now = {"customer_id": 2, "customer": "Khách B", "status": "LECH_TONG", "reason": "FIXED", "difference_vnd": "7", "web_ahead_vnd": "7", "fixed_at": "10:05"}
+        result = audit.audit_reconcile({"checked_at": "10:05", "matched": {"1": "100", "3": "5"}, "customers": [now, earlier, created]})
+        self.assertEqual((result["ahead"], result["not_matched"], result["unexplained_vnd"], result["fixed_earlier"]), ({2: 7}, [], 0, 2))
+
     def test_operations_cover_every_event_kind_the_backend_writes(self):
         sql = (ROOT / "tools" / "v7_backend_functions.sql").read_text(encoding="utf-8")
         written = set(re.findall(r"INSERT INTO sokhach\.event\([^)]*\)\s*VALUES\s*\(\s*[A-Za-z_]+\s*,\s*'([a-z_]+)'", sql))
@@ -278,6 +299,27 @@ class CliTests(unittest.TestCase):
         self.write(self.root / "lech.json", {"rows": [sheet(A, 10, "2026-10", "AAAU1111111", 100, day="2026-10-05"), sheet(A, 11, "2026-10", "LOSU0000009", 9, day="2026-10-09")]})
         code, printed = self.run_cli(self.root / "out", prices="lech.json")
         self.assertEqual((code, json.loads(printed)["must_explain"]["row_items"], json.loads(printed)["must_explain"]["month_diffs"]), (1, 1, 1))
+
+    def test_run_after_the_machine_fixed_a_customer_that_is_still_ahead_exits_zero(self):
+        # Web 140 = Sheet 100 + chuyến tháng 11 đi trước 40. Lượt đối soát vừa tự sửa khách này nên ghi FIXED, không phải WEB_AHEAD.
+        ledger = book(A, 140, [("2026-10", 100, 0), ("2026-11", 40, 0)], legacy_rows=[old(11, "AAAU1111111", "2026-10", 100, day="2026-10-05")],
+                      trips=[trip(21, "BBBU2222222", "2026-11", 40, day="2026-11-03")])
+        self.write(self.root / "web" / "ledgers" / "1.json", ledger)
+        self.write(self.root / "tong.json", {"month": "2026-10", "rows": [{"name": "Khách A", "end_vnd": 100}]})
+        row = {"customer_id": 1, "customer": "Khách A", "status": "LECH_TONG", "difference_vnd": "40", "web_ahead_vnd": "40"}
+        extra = ("--tong", str(self.root / "tong.json"), "--reconcile", str(self.root / "reconcile.json"))
+        for name, reconcile in (("vua-sua", {"checked_at": "10:05", "customers": [row | {"reason": "FIXED", "fixed_at": "10:05"}]}),
+                                ("di-truoc", {"checked_at": "10:05", "customers": [row | {"reason": "WEB_AHEAD"}]})):
+            self.write(self.root / "reconcile.json", reconcile)
+            code, printed = self.run_cli(self.root / name, *extra)
+            summary = json.loads(printed)
+            self.assertEqual((code, summary["ok"], summary["row_items"], summary["month_diffs"], summary["tong"]["matched"]),
+                             (0, True, {"WEB_DI_TRUOC": 1}, {"WEB_DI_TRUOC": 1}, 1), name)
+        # Cùng dòng đó nhưng là việc của lượt 09:05, nay khách đã khớp trên Sheet: không còn phần đi trước nào để trừ khỏi số so với TONG.
+        self.write(self.root / "web" / "ledgers" / "1.json", book(A, 100, [("2026-10", 100, 0)], legacy_rows=[old(11, "AAAU1111111", "2026-10", 100, day="2026-10-05")]))
+        self.write(self.root / "reconcile.json", {"checked_at": "10:05", "matched": {"1": "100"}, "customers": [row | {"reason": "FIXED", "fixed_at": "09:05"}]})
+        code, printed = self.run_cli(self.root / "luot-truoc", *extra)
+        self.assertEqual((code, json.loads(printed)["tong"]["matched"], json.loads(printed)["reconcile"]["fixed_earlier"]), (0, 1, 1))
 
     def test_bad_input_and_unsafe_output_exit_two_without_writing(self):
         self.assertEqual(self.run_cli(ROOT / "khong-duoc-ghi-vao-repo")[0], 2)

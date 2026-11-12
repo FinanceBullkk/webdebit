@@ -30,7 +30,7 @@ Báo cáo có tên khách và số tiền ghi vào thư mục `--out` ngoài m�
 
 | Mã | Áp cho | Điều kiện nhận |
 | --- | --- | --- |
-| `WEB_DI_TRUOC` | chuyến web có giá mà Sheet chưa có dòng hoặc dòng còn trống tiền; tháng của các chuyến đó | cộng các chuyến đó của sổ bằng đúng `web_ahead_vnd` mà lượt đối soát báo, và khách đó có lý do `WEB_AHEAD` với phần lệch còn lại bằng 0 |
+| `WEB_DI_TRUOC` | chuyến web có giá mà Sheet chưa có dòng hoặc dòng còn trống tiền; tháng của các chuyến đó | cộng các chuyến đó của sổ bằng đúng `web_ahead_vnd` mà lượt đối soát báo, và ở lượt đó khách còn lệch đúng bằng phần đi trước (phần lệch còn lại bằng 0) với lý do `WEB_AHEAD`, hoặc `FIXED` khi máy vừa tự sửa khách đó ở chính lượt ấy |
 | `DONG_LAP_TREN_SHEET` | tháng | nhiều dòng Sheet cùng trỏ một dòng web; phần Sheet ghi thừa bằng đúng phần lệch của tháng |
 | `TONG_TRAI_DEU_LUC_NAP` | dòng, tháng | dòng sổ gốc mang cờ `TOTAL_SPREAD_OVER_TRIPS`; cộng lệch các dòng đó bằng lệch của tháng |
 | `BU_SO_DU_CHUYEN_NAM` | tháng, tổng thu | dòng sổ gốc mang cờ `YEAR_END_CARRY_ADJUSTED`; số của dòng đó bằng đúng phần lệch |
@@ -39,6 +39,7 @@ Báo cáo có tên khách và số tiền ghi vào thư mục `--out` ngoài m�
 | `KHAC_CHU_O_CONTAINER` | dòng chỉ một bên có | cùng sổ, cùng tháng, cùng tiền, chỉ khác chữ ở ô container |
 | `DA_GHI_BANG_DIEU_CHINH` | dòng chỉ Sheet có | sổ có dòng điều chỉnh cả tháng đúng số tiền đó, cùng tháng; mỗi dòng điều chỉnh chỉ dùng một lần |
 
+- **Đọc `reconcile.json`.** Phần web đi trước của một khách chỉ được nhận khi dòng của khách đó mang lý do `WEB_AHEAD` hoặc `FIXED`, có `web_ahead_vnd` khác 0 và `difference_vnd` bằng đúng số đó. Lý do khác, kể cả `WRITE_ERROR` và `VERIFY_FAILED`, thì nêu ra cho người xem dù số có khớp. Dòng có `fixed_at` khác `checked_at` là việc máy đã làm ở lượt trước trong ngày, máy giữ lại tới hết ngày cho chủ sổ soát: số trên dòng là số lúc đó, nên lệnh chỉ đếm, không coi là trạng thái của lượt này.
 - **Phép kiểm TONG.** Với khối mới nhất (ngoài cùng bên phải) của tab TONG: `TONG cuối tháng = tổng nợ web hôm nay − web đi trước − phát sinh các tháng sau trên Sheet + thu ghi ở khối các tháng sau`. Tên trên TONG so bằng chữ và số đã bỏ dấu; tên không tự ghép được thì khai `--tong-alias`. Sổ còn số kỳ vọng khác 0 mà TONG để trống thì nêu ra. Máy đối soát mỗi giờ chạy đúng phép kiểm này ([`KIEM-TONG-01`](../docs/decisions/kiem-tong-01.md)): `read_tong`, `audit_tong`, `sheet_months` là mã dùng chung, sửa ở đây là sửa cả hai.
 - **Nhật ký.** Người là actor có `@`; máy là `may-theo-sheet`. Danh sách thao tác (`OPERATIONS`) được test đối chiếu với mọi loại lệnh mà `tools/v7_backend_functions.sql` ghi vào `sokhach.event`. Ngày mà API trả ít dòng hơn `total` được báo là bị cắt bớt. Cấn trừ hai sổ đếm theo trạng thái sổ (`offset_pair_id`, `outgoing_offsets`), không dựa vào nhật ký.
 - **Mã thoát.** 0: không còn mục tiền nào phải có người xem. 1: còn (dòng, tháng, tổng thu chưa giải thích; tab không có sổ; TONG lệch, tên lạ hoặc để trống; phiếu máy ghi bị hủy; giá máy đè rồi bị quay lại; tháng máy mở chưa khóa). 2: lỗi đầu vào, không ghi gì. Tháng cũ đang mở, chuyến chưa giá và thao tác chưa ai dùng chỉ được đếm, không đổi mã thoát.
@@ -49,6 +50,7 @@ Báo cáo có tên khách và số tiền ghi vào thư mục `--out` ngoài m�
 - [x] `cong-no-web-handoff/tests/test_v7_cutover_audit.py` xanh trong `npm run check`: mỗi mã giải thích có ca nhận và ca từ chối, phép kiểm TONG, nhật ký, trạng thái sổ, dòng lệnh (mã thoát 0, 1, 2; tên khách không ra stdout; không ghi vào thư mục trong repo).
 - [x] Phá từng luật trong bộ nhớ thì test đỏ: nhận bừa mọi lời giải thích, so tên TONG nguyên văn, tuổi thọ dòng điều chỉnh, bỏ cột TỔNG, ghép dòng bỏ qua ngày.
 - [x] Chạy trên dữ liệu thật của `hao` ngày 11/11/2026 ra đúng các số đã đo tay cùng ngày (mục Bằng chứng).
+- [x] Lượt máy vừa tự sửa một khách còn web đi trước (`FIXED`, còn lệch đúng phần đi trước) và dòng máy đã sửa ở lượt trước trong ngày: có ca nhận, ca từ chối và ca chạy cả lệnh. Phá từng điều kiện trong bộ nhớ thì test đỏ: chỉ nhận `WEB_AHEAD`, nhận mọi lý do, không bỏ dòng của lượt trước, nhận khi còn lệch, nhận khi không có phần đi trước, bỏ điều kiện biết sổ.
 - [ ] Chạy lại sau đối soát cuối tháng 11/2026 và ghi số đếm vào [checklist](../docs/chuyen-han-checklist.md).
 
 ## Phạm vi agent
@@ -75,6 +77,7 @@ Revert PR. Công cụ không chạy trong service nào và không ghi dữ liệ
 - Công cụ chạy trên chính bộ dữ liệu đó (thư mục JSON đã tải, bản chụp của runner giá, khối TONG chép tay có kiểm bằng dòng tổng): cùng số trạng thái dòng, cùng 7 tháng và 3 tổng thu có lời giải, cùng 17 dòng một bên có, cùng 14 sổ TONG để trống, cùng số lệnh máy và người.
 - Đường `--api` cùng `--xlsx`, chạy 11/11/2026 khoảng 18 giờ VN trên một bản tải mới (mã băm bản chép về khớp bản trên `hao`, bản trên `hao` đã xóa): 3 phút 21 giây cho 239 sổ, mã thoát 1, kết quả giống hệt lượt trên. Tab TONG do công cụ tự đọc từ xlsx cho đúng 64 dòng khớp và 14 sổ để trống như bản chép tay.
 - `npm run check` cục bộ (Windows) trên bản cuối: 8 bước đều OK; unittest Python 954 ca, 8 ca bỏ qua có sẵn (chỉ chạy trên Linux, cần quyền symlink hoặc cần bật harness Docker). `node scripts/check-secrets.js` sạch.
+- Sửa 12/11/2026, hai chỗ báo động giả khi đọc `reconcile.json` (phiên làm `KIEM-TONG-01` phát hiện chỗ đầu): lượt đối soát vừa tự sửa một khách còn web đi trước, và dòng máy đã sửa ở lượt trước trong ngày. Chạy lại bản đã sửa trên bộ dữ liệu 11/11 đã lưu (thư mục JSON, bản chụp của runner giá, khối TONG, `reconcile.json` thật): báo cáo giống hệt bản 11/11, chỉ thêm số đếm mới ở dòng A1. Trên bản sao `reconcile.json` đổi lý do của một khách đang đi trước thành `FIXED` của chính lượt đó: bản trước khi sửa báo thừa 6 mục (1 tháng, 3 dòng, 1 khách chưa khớp, 1 dòng TONG lệch), bản đã sửa ra như lượt gốc. Thêm một dòng `FIXED` của lượt trước cho một khách nay đã khớp: bản trước khi sửa báo thừa 1 khách chưa khớp, bản đã sửa chỉ đếm 1 dòng.
 
 ## Câu hỏi mở
 
