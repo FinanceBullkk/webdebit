@@ -50,7 +50,12 @@ test('Debit note v4: đủ giá thì hết chặn; xác nhận cảnh báo mới
   const head = await view.locator('[data-reftop] > span > span:first-child').allInnerTexts();
   assert.deepEqual(head, ['No.', 'Container no.', 'Line', 'Shipper', 'Loading date', 'Loading place', 'POD', 'Unit price', 'Other fees', 'Amount']);
   assert.match(await view.locator('[data-total]').innerText(), /Total, 3 containers · 合计\s+180,000,000\s+3,000,000\s+183,000,000/);
-  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /\[Beneficiary\][\s\S]*This debit note · 本期账单\s+\[Issue date\]\s+183,000,000/);
+  // ACCOUNT STATUS tùy chọn: mặc định không in; tích vào thì in và phép 5–6 kiểm số của khối đó.
+  assert.equal(await dialog.locator('[name="accountStatus"]').isChecked(), false);
+  assert.doesNotMatch(await view.locator('[data-blk="BOTTOM"]').innerText(), /ACCOUNT STATUS/);
+  await dialog.locator('[name="accountStatus"]').check();
+  assert.match(await view.locator('[data-blk="BOTTOM"]').innerText(), /\[Beneficiary\][\s\S]*ACCOUNT STATUS[\s\S]*This debit note · 本期账单\s+\[Issue date\]\s+183,000,000/);
+  assert.doesNotMatch(await dialog.locator('.debit-checks').innerText(), /Phép [56]/);
   assert.doesNotMatch(await view.locator('[data-page]').innerText(), /[À-ỹ]/u);
 
   await dialog.locator('[name="issueDate"]').fill('2026-10-05');

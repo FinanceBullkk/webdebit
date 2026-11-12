@@ -178,7 +178,8 @@
       ...accounts.map(item => `<option value="${escape(item.id)}"${item.id === state.account ? ' selected' : ''}>${escape([item.label, item.beneficiary, tail(item.account)].filter(Boolean).join(' · '))}</option>`)];
     return `<form class="debit-form" novalidate>
       <fieldset><legend>Chứng từ</legend>${field('number', 'Số debit note', state.number)}${field('issueDate', 'Ngày phát hành', state.issueDate,
-        { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}</fieldset>
+        { type: 'date', hint: 'Để trống thì in [Issue date] (đang chờ team chốt).' })}
+        <label class="debit-check"><input type="checkbox" name="accountStatus"${state.accountStatus ? ' checked' : ''}> In ACCOUNT STATUS (nợ đầu kỳ, đã thu, còn nợ; để tham khảo)</label></fieldset>
       <fieldset><legend>Công ty phát hành (đầu trang)</legend><label class="debit-field"><span>Chọn từ Thông tin cty</span><input name="issuer" list="debit-company-list"
         value="${escape(state.issuer)}" placeholder="Gõ tên công ty" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
         customersOf(directory).map(item => `<option value="${escape(item.pickLabel)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label></fieldset>
@@ -193,7 +194,8 @@
     const state = { customer: {} };
     for (const input of dialog.querySelectorAll('.debit-form [name]')) {
       const [head, tail] = input.name.split('.');
-      if (tail) state[head][tail] = input.value.trim(); else state[head] = input.value.trim();
+      const value = input.type === 'checkbox' ? input.checked : input.value.trim();
+      if (tail) state[head][tail] = value; else state[head] = value;
     }
     return state;
   }
@@ -227,14 +229,14 @@
     }
     const count = open.pages?.length ?? 0;
     dialog.querySelector('.debit-status').textContent = `${doc.total.count} container · ${count} trang · ${blocks ? 'chưa xuất được' : 'mẫu v4'}`;
-    write(V4_CUSTOMER_KEY, { customer: state.customer, issuer: state.issuer ?? '', account: state.account ?? '' });
+    write(V4_CUSTOMER_KEY, { customer: state.customer, issuer: state.issuer ?? '', account: state.account ?? '', accountStatus: state.accountStatus === true });
   }
   function showV4(monthKey, opener, config, configError = '', directory = null, directoryError = '') {
     const remembered = read(V4_CUSTOMER_KEY), saved = remembered.customer ?? {};
     const name = DebitNoteV4.splitName(defaultDisplay());
     // Tài khoản đã nhớ mà không còn trên Sheet thì coi như chưa chọn.
     const account = accountsOf(directory).some(item => item.id === remembered.account) ? remembered.account : '';
-    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', issuer: remembered.issuer ?? '', account,
+    const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', issuer: remembered.issuer ?? '', account, accountStatus: remembered.accountStatus === true,
       customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '', contact: saved.contact ?? '' } };
     open = { v4: true, monthKey, opener, config, configError, directory, directoryError };
     dialog.innerHTML = `<div class="debit-panel"><header><h2>Debit note tháng ${escape(monthLabel(monthKey))}<small class="debit-status"></small></h2>

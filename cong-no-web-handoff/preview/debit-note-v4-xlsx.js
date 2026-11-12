@@ -226,7 +226,9 @@ const DebitNoteV4Xlsx = (() => {
       span(row + 2, 0, 1, col => cell.text(row + 2, col, '付款信息', 'sectionCn'), 'sectionCn');
       return row;
     })() : blockStart(row, 0, R - 1, 'PAYMENT INFORMATION', '付款信息');
-    const statusStart = side ? (() => {
+    // ACCOUNT STATUS tùy chọn (doc.showAccount): không in thì không có khối bên phải.
+    const withStatus = doc.showAccount !== false;
+    const statusStart = !withStatus ? payStart : side ? (() => {
       ['ACCOUNT STATUS', '账户情况', 'For reference only', '仅供参考'].forEach((text, index) => {
         const style = index === 0 ? 'section' : 'sectionCn';
         span(row + index, R, R + 1, col => cell.text(row + index, col, text, style), style);
@@ -243,16 +245,19 @@ const DebitNoteV4Xlsx = (() => {
     const paid = a.payments === null || a.payments === undefined ? null : -a.payments;
     const status = [['Opening balance · 期初余额', a.openingDate, a.opening], ['This debit note · 本期账单', doc.issueDate ?? '[Issue date]', a.thisNote],
       ['Payments received · 本期已收款', a.paymentsDate, paid]];
-    status.forEach(([label, day, value], index) => {
-      const r = statusStart + index;
-      span(r, rightField, last - 2, col => cell.text(r, col, label, 'status'), 'status');
-      if (day && /^\d{4}-/.test(day)) cell.date(r, last - 1, day, 'statusDate'); else cell.text(r, last - 1, day ?? '', 'status');
-      cell.num(r, amountCol, value, 'statusMoney');
-    });
-    const out = statusStart + 3;
-    span(out, rightField, last - 2, col => cell.rich(out, col, [run('Outstanding balance', FONTS.bold), run(' · 未结余额', FONTS.body)], 'outText'), 'outText');
-    cell.blank(out, last - 1, 'outText');
-    cell.num(out, amountCol, a.outstanding, 'outMoney');
+    let out = payStart + 4;
+    if (withStatus) {
+      status.forEach(([label, day, value], index) => {
+        const r = statusStart + index;
+        span(r, rightField, last - 2, col => cell.text(r, col, label, 'status'), 'status');
+        if (day && /^\d{4}-/.test(day)) cell.date(r, last - 1, day, 'statusDate'); else cell.text(r, last - 1, day ?? '', 'status');
+        cell.num(r, amountCol, value, 'statusMoney');
+      });
+      out = statusStart + 3;
+      span(out, rightField, last - 2, col => cell.rich(out, col, [run('Outstanding balance', FONTS.bold), run(' · 未结余额', FONTS.body)], 'outText'), 'outText');
+      cell.blank(out, last - 1, 'outText');
+      cell.num(out, amountCol, a.outstanding, 'outMoney');
+    }
     for (let r = Math.min(payStart, statusStart); r <= Math.max(payStart + 4, out); r++) g.height(r, 15);
 
     // Chân trang.
