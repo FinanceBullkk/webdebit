@@ -66,7 +66,7 @@ test('Debit note v4: bảng có gì xuất nấy — chuyến chưa có giá kh�
     'Gửi anh/chị debit note tháng 9/2026: 3 container, tổng 143.000.000 đ.\n您好，附上2026年9月账单：3个柜，合计143,000,000越南盾。');
   assert.equal(await dialog.locator('.dn4-form').isHidden(), true);
   await dialog.locator('.dn4-copy').click();
-  assert.equal(await dialog.locator('.dn4-copy').innerText(), 'Đã copy');
+  await page.waitForFunction(() => document.querySelector('.dn4-copy').textContent === 'Đã copy');   // clipboard có thể treo tới 0,8 giây rồi chép dự phòng
   await dialog.locator('.dn4-back').click();
   assert.equal(await dialog.locator('.dn4-form').isVisible(), true);
   await page.keyboard.press('Escape');

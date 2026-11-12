@@ -382,8 +382,10 @@
   }
   async function copyMessage(button) {
     const text = messageOf(open.doc);
-    try { await navigator.clipboard.writeText(text); }
-    catch {   // trình duyệt chặn clipboard (trang không an toàn): chép bằng ô ẩn
+    // Clipboard của trình duyệt có thể treo khi chờ quyền (Chrome không giao diện trên Linux) thay vì báo lỗi: chờ tối đa 0,8 giây.
+    const wrote = await Promise.race([navigator.clipboard?.writeText(text).then(() => true, () => false) ?? Promise.resolve(false),
+      new Promise(resolve => { setTimeout(() => resolve(false), 800); })]);
+    if (!wrote) {   // trình duyệt chặn clipboard (trang không an toàn, chưa cho quyền): chép bằng ô ẩn
       const area = document.createElement('textarea');
       area.value = text; area.setAttribute('readonly', ''); area.style.cssText = 'position:fixed;left:-9999px';
       document.body.append(area); area.select(); document.execCommand?.('copy'); area.remove();
