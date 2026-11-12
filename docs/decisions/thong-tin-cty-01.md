@@ -6,7 +6,7 @@
 
 Web có tab **Thông tin cty**, chỉ xem, lấy dữ liệu từ Google Sheet "thông tin khách hàng" của công ty (tab `THÔNG TIN CTY`: shipper, thông tin xuất hóa đơn, ngân hàng của khách; tab `TÀI KHOẢN USD`: các tài khoản nhận tiền). Hộp debit note mẫu v4 chọn khách và tài khoản nhận tiền từ danh bạ này. Spec: [`specs/v7-thong-tin-cty.md`](../../specs/v7-thong-tin-cty.md).
 
-1. **Sheet là nơi sửa duy nhất.** Một job trên `hao` (`webdebit-company-info.timer`, mỗi giờ, user `v7app`, tài khoản dịch vụ chỉ đọc) đọc hai tab và ghi bản chụp ngoài repo; web chỉ đọc bản chụp. Mã Sheet chỉ nằm trong file biến môi trường trên `hao`.
+1. **Sheet là nơi sửa duy nhất.** Một job trên `hao` (`webdebit-company-info.timer`, mỗi giờ, user `v7app`, tài khoản dịch vụ chỉ đọc) đọc hai tab và ghi bản chụp ngoài repo; web chỉ đọc bản chụp. Mã Sheet chỉ nằm trong file biến môi trường trên `hao`. Người dùng không phải chủ Sheet gốc nên không chia sẻ được cho tài khoản dịch vụ; người dùng chọn (12/11/2026, "Tạo Sheet cầu") một Sheet cầu trong Drive của mình lấy hai tab bằng `IMPORTRANGE`, chia sẻ Viewer cho tài khoản dịch vụ, thay vì đặt tài khoản Gmail cá nhân lên `hao` (đọc được mọi Sheet của người dùng).
 2. **Dữ liệu không đi qua repo hay chat**: repo public chỉ có code và dữ liệu giả.
 3. **Debit note**: chọn khách thì điền khối thông tin xuất hóa đơn vào *Tên pháp lý và địa chỉ*; chọn tài khoản thì PAYMENT INFORMATION in theo tài khoản đó (ghi đè cấu hình máy chủ cho riêng chứng từ). Không tự chọn tài khoản thay người lập; chưa chọn thì cảnh báo cần xác nhận. Trình duyệt nhớ lựa chọn theo sổ.
 4. Ngân hàng của khách (cột E) chỉ hiện ở tab, không in lên debit note.

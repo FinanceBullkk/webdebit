@@ -1765,7 +1765,7 @@ Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-r
 
 Không có SQL, không ghi DB: mã lên bằng `Deploy hao` ([quyết định](decisions/thong-tin-cty-01.md), [spec](../specs/v7-thong-tin-cty.md)). Chưa cài timer thì tab Thông tin cty báo "Chưa có bản đọc từ Sheet", hộp debit note dùng như cũ.
 
-1. **Chia sẻ Sheet:** chủ Sheet "thông tin khách hàng" thêm `client_email` của tài khoản dịch vụ (trong file `WEBDEBIT_GOOGLE_CREDENTIALS`) với quyền **Viewer**. In email chỉ bằng `sudo python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' <file>`; không in cả file.
+1. **Chia sẻ Sheet:** chủ Sheet "thông tin khách hàng" thêm `client_email` của tài khoản dịch vụ (trong file `WEBDEBIT_GOOGLE_CREDENTIALS`) với quyền **Viewer**. Người dùng không phải chủ Sheet gốc nên từ 12/11/2026 job đọc **Sheet cầu** "Thông tin cty – cho web" trong Drive của người dùng: hai tab cùng tên, ô A1 mỗi tab là `IMPORTRANGE` cả tab gốc (`A1:AA`), lưới đủ rộng (3000 và 2000 dòng, 30 cột); người dùng bấm "Cho phép truy cập" một lần, Sheet cầu chia sẻ Viewer cho tài khoản dịch vụ. `WEBDEBIT_COMPANY_SHEET_ID` là mã Sheet cầu. In email chỉ bằng `sudo python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["client_email"])' <file>`; không in cả file.
 2. **Biến môi trường** `/etc/webdebit/company-info.env`, chủ `root:v7app`, mode 640: `WEBDEBIT_COMPANY_SHEET_ID=<mã Sheet>`. Mã Sheet không ghi vào repo. Credentials lấy từ `sheet-sync.env` như runner giá.
 3. **Unit** `/etc/systemd/system/webdebit-company-info.service`:
 
