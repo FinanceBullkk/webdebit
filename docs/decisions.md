@@ -116,6 +116,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="kiem-tong-01"></a>[KIEM-TONG-01](decisions/kiem-tong-01.md) | Máy đối soát mỗi giờ kiểm thêm tab TONG có cộng đủ các tab khách không (sổ còn số dư mà TONG để trống, dòng TONG lệch sổ, tên lạ), bằng đúng phép so của audit chuyển hẳn; chỉ báo, hiện ở đầu tab Việc cần làm | Chốt 11/11/2026; không đổi điều kiện máy ghi; màn hình là PR riêng |
 | <a id="dien-thoai-chuyen-01"></a>[DIEN-THOAI-CHUYEN-01](decisions/dien-thoai-chuyen-01.md) | Bảng chuyến Sổ khách trên điện thoại: ba cột, bấm hàng mở khung chi tiết, chỉ để xem |  |
 | <a id="dien-thoai-sep-01"></a>[DIEN-THOAI-SEP-01](decisions/dien-thoai-sep-01.md) | Màn sếp xem trên điện thoại: Tổng quan, Tình hình, Đã làm, Công nợ theo tháng, Bảng thu bớt cột, giữ số |  |
+| <a id="dien-thoai-thang-01"></a>[DIEN-THOAI-THANG-01](decisions/dien-thoai-thang-01.md) | Công nợ theo tháng trên điện thoại: danh sách theo khách thay ma trận, chạm khách bung các tháng còn nợ |  |
 
 ## Cập nhật khóa tháng 24/10/2026
 

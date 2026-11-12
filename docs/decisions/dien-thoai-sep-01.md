@@ -9,7 +9,7 @@ Các màn sếp xem ([`DASH-06`](dash-06.md), [`TINH-HINH-01`](tinh-hinh-01.md),
 1. **Tổng quan:** bảng "Khách cần đòi trước" chỉ còn Khách · Quá hạn · Còn nợ; bỏ thanh hạn trả (chỉ có số khi rê chuột) và hai cột ngày Trả, Đi hàng (chấm màu trước tên đã gộp mức rủi ro). Ba viên số cạnh Còn phải thu ghi chữ ("66 khách đang nợ", "83 chuyến chưa giá", "… khách trả thừa").
 2. **Tình hình:** câu dưới biểu đồ trên màn cảm ứng là "Chạm một tháng để xem số"; nhãn tháng chỉ ghi T1…T12, bỏ phần năm và "đến ngày" để không đè nhau.
 3. **Đã làm:** mỗi việc thành một khối: giờ · người làm · sổ · Mở sổ; việc; chi tiết; ghi chú.
-4. **Công nợ theo tháng:** ma trận mở sẵn ở tháng hiện tại (một lần mỗi năm đang xem, tự tải lại không kéo về); bỏ dòng "Cập nhật … tự tải mỗi 60 giây".
+4. **Công nợ theo tháng:** ma trận mở sẵn ở tháng hiện tại (một lần mỗi năm đang xem, tự tải lại không kéo về); bỏ dòng "Cập nhật … tự tải mỗi 60 giây". Từ 12/11/2026 màn hẹp thay ma trận bằng danh sách theo khách ([`DIEN-THOAI-THANG-01`](dien-thoai-thang-01.md)).
 5. **Bảng thu:** năm cách xem trên một hàng vuốt ngang; cột số tiền đủ chỗ cho số hàng tỷ.
 
 Màn rộng không đổi.
