@@ -454,6 +454,7 @@
       monthsAfterRender();
       locAfterRender(data);
       ctx.feeAfterRender?.();
+      ctx.phoneAfterRender?.();
       ctx.focusBack(focus);
       // SO-GON-05: cột chữ lấy phần bề ngang dư theo bề ngang thật của vùng sổ; lần đầu hoặc vừa đổi cỡ thì vẽ lại một lần.
       const width = root.querySelector('#the-so .ledger-book')?.clientWidth ?? 0;

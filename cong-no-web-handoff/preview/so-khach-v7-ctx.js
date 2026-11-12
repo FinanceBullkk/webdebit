@@ -15,12 +15,12 @@ const SoKhachV7Ctx = (() => {
   'use strict';
   const FIELDS = {
     // Lõi: dữ liệu và hàm dùng chung.
-    root: ['core', 'giá trị', 'detail contact debit edit entry fee history loc month offset overview pay presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
+    root: ['core', 'giá trị', 'detail contact debit edit entry fee history loc month offset overview pay phone presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit entry fee history month offset overview price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
     api: ['core', 'giá trị', 'contact debit edit entry fee history images offset overview price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
     live: ['core', 'giá trị', 'contact debit edit entry offset presence price tabs', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
     customerId: ['core', 'giá trị', 'contact debit entry images offset presence price ps receipts sheet tabs', 'mã khách của sổ đang mở'],
-    escape: ['core', 'hàm', 'detail contact debit edit entry fee history images month offset overview pay price ps receipts sheet tabs trips', 'thoát HTML (CongNoFormat.esc)'],
+    escape: ['core', 'hàm', 'detail contact debit edit entry fee history images month offset overview pay phone price ps receipts sheet tabs trips', 'thoát HTML (CongNoFormat.esc)'],
     fmt: ['core', 'hàm', 'detail edit entry history month pay price sheet trips', 'chuỗi VND nguyên → "1.234.567"; trống → "–"'],
     cell: ['core', 'hàm', 'pay trips', 'ô <td> chữ đã thoát'],
     num: ['core', 'hàm', 'month pay trips', 'ô <td> số, căn phải'],
@@ -111,8 +111,11 @@ const SoKhachV7Ctx = (() => {
     psAfterRender: ['ps', 'móc', 'core', 'nút và khung tách phụ phí theo PS sau khi vẽ'],
     receiptButton: ['receipts', 'móc', 'core', 'nút ghi phiếu thu từ Sheet ở đầu sổ'],
     receiptsAfterRender: ['receipts', 'móc', 'core', 'khung phiếu thu Sheet sau khi vẽ'],
+    phoneAfterRender: ['phone', 'móc', 'core', 'bảng chuyến ba cột và khung chi tiết trên điện thoại, sau khi vẽ (DIEN-THOAI-CHUYEN-01)'],
   };
   const PARTS = [
+    // phone đứng đầu: trình nghe pha capture của nó chặn sửa ô trên điện thoại trước mọi phần khác.
+    ['phone', 'so-khach-v7-phone-ui.js', []],
     ['tabs', 'so-khach-v7-tabs-ui.js', []],
     ['history', 'so-khach-v7-history-ui.js', []],
     ['sheet', 'so-khach-v7-sheet-ui.js', []],
