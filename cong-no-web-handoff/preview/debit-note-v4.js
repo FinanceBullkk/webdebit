@@ -49,7 +49,7 @@ const DebitNoteV4 = (() => {
   }
 
   // ---- Dựng chứng từ từ sổ V7 (bản GET đang vẽ) ----
-  // form: { number, issueDate, customer: { nameEn, nameZh, legal, contact } } do người lập điền ở hộp.
+  // form: { number, issueDate, customer: { nameEn, nameZh, legal } } do người lập điền ở hộp.
   function fromLedger(ledger, monthKey, { model, feeTypes = [], feeColumnIds = [], config, form = {} }) {
     const month = row => String(row.month ?? '').slice(0, 7);
     const names = new Map(feeTypes.map(type => [Number(type.id), type.name]));
@@ -129,7 +129,7 @@ const DebitNoteV4 = (() => {
     const period = data.document.billing_period, monthKey = `${/\d{4}/.exec(period)[0]}-${String(MONTHS.indexOf(period.slice(0, 3)) + 1).padStart(2, '0')}`;
     const doc = assemble({ rows, codes: Object.values(SAMPLE_KEYS), config, monthKey,
       form: { number: data.document.debit_note_no, issueDate: data.document.issue_date,
-        customer: { nameEn: data.customer.name_en, nameZh: data.customer.name_zh, legal: data.customer.legal_name_address, contact: data.customer.contact } } });
+        customer: { nameEn: data.customer.name_en, nameZh: data.customer.name_zh, legal: data.customer.legal_name_address } } });
     const status = data.account_status;
     const opening = big(status.opening_balance), payments = big(status.payments_received), total = doc.total.amount;
     doc.account = { opening, openingDate: parseDateText(status.opening_date), thisNote: total, payments, paymentsDate: parseDateText(status.payments_date),
@@ -154,7 +154,7 @@ const DebitNoteV4 = (() => {
       company: { name: company.name, address: company.address, taxId: company.tax_id, tel: company.tel, email: company.email },
       payment: { beneficiary: payment.beneficiary, bank: payment.bank, accountLabelEn: payment.account_label_en ?? 'Account',
         accountLabelCn: payment.account_label_cn ?? '账号', account: payment.account, swift: payment.swift },
-      customer: { nameEn: latin(customer.nameEn), nameZh: String(customer.nameZh ?? '').trim(), legal: latin(customer.legal), contact: latin(customer.contact) },
+      customer: { nameEn: latin(customer.nameEn), nameZh: String(customer.nameZh ?? '').trim(), legal: latin(customer.legal) },
       showPlaceCn: config?.show_place_cn === true,
       // ACCOUNT STATUS tùy chọn (người dùng 12/11/2026: người xuất muốn thì tích). Không truyền thì in như trước.
       showAccount: form.accountStatus !== false,
@@ -265,8 +265,7 @@ const DebitNoteV4 = (() => {
   function info(doc) {
     const cust = doc.customer;
     const billTo = `<div style="font-weight: 700">${esc(shown(cust.nameEn, 'Customer name'))}${cust.nameZh ? `<span style="font-weight: 400"> ${esc(cust.nameZh)}</span>` : ''}</div>`
-      + `<div>${esc(shown(cust.legal, 'Customer legal name & address'))}</div>`
-      + `<div style="display: flex; align-items: baseline"><span style="width: 136px; flex: none; color: #5F6B7A">Attn 联系人</span><span>${esc(shown(cust.contact, 'Contact'))}</span></div>`;
+      + `<div>${esc(shown(cust.legal, 'Customer legal name & address'))}</div>`;   // bỏ dòng Attn 联系人 (DEBIT-NOTE-03, 12/11/2026)
     const documentInfo = pair('Debit Note No. 账单号', shown(doc.number, 'Debit note no.'), true) + pair('Issue Date 开单日期', dateText(doc.issueDate) ?? '[Issue date]')
       + pair('Billing Period 账单期间', doc.period) + pair('Currency 币种', doc.currency);
     return '<div data-blk="INFO" style="flex: none; padding: 0 40px; margin-top: -5.43px; margin-bottom: -4.95px"><div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; align-items: start">'
