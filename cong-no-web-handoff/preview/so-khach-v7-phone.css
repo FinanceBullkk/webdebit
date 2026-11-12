@@ -69,5 +69,75 @@
   #the-so .trip-card tr.subtotal>td.amount-total{font-size:17px;font-weight:700;color:#16324f}
   #the-so .trip-card tr.subtotal .add-month-adjustment{display:none}
   #the-so .trip-card tr.subtotal .ph-only{display:inline;font-weight:700}
-  #the-so .trip-card tr:not(.columns):not(.ph-row):not(.adjustment):not(.subtotal):not(.month-body)>td{display:block;height:auto;min-height:0;padding:8px 12px;white-space:normal}
+  #the-so .trip-card tr:not(.columns):not(.ph-row):not(.adjustment):not(.subtotal):not(.month-body):not(.detail-table tr)>td{display:block;height:auto;min-height:0;padding:8px 12px;white-space:normal}
+}
+
+/* Bảng kê (SO-CHI-TIET-01) trên điện thoại — DIEN-THOAI-CHUYEN-01 mở rộng: luôn bảng gọn (so-khach-v7-detail-ui.js không vẽ
+   "Đủ cột" dưới 760px), ba cột Số container · Ngày đóng · Tổng, nhãn tình trạng xuống dòng dưới container; bấm dòng bung phép
+   cộng tại chỗ như màn rộng. Cột khác (STT, tuyến, phí, cước tàu, cước khách tự trả) chỉ còn trong phần bung. */
+@media (max-width:760px){
+  #the-so .trip-card:has(.detail-table)>.ledger-head,#the-so .trip-toolbar .dt-modes{display:none}
+  #the-so .trip-card .dt-gon{display:block;width:auto}
+  #the-so .trip-card .dt-gon>colgroup{display:none}
+  #the-so .trip-card .dt-gon>thead,#the-so .trip-card .dt-gon>tbody,#the-so .trip-card .dt-gon>tfoot{display:block}
+  #the-so .trip-card .dt-gon>thead>tr,#the-so .trip-card .dt-gon tr.dt-row{display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(118px,max-content) 28px;
+    grid-template-areas:"cont day total arrow" "status status status arrow";align-items:center;column-gap:8px;padding:0 0 0 12px}
+  #the-so .trip-card .dt-gon>thead>tr>th,#the-so .trip-card .dt-gon tr.dt-row>td{display:none;height:auto;min-height:0;padding:0;border:0;background:none}
+  #the-so .trip-card .dt-gon>thead>tr{min-height:36px;background:#f3f5f8;border-bottom:1px solid #d7dce3}
+  #the-so .trip-card .dt-gon>thead>tr>th{position:static;padding:4px 0;font-size:14px}
+  #the-so .trip-card .dt-gon>thead>tr>th:nth-child(2),#the-so .trip-card .dt-gon tr.dt-row>td:nth-child(2){display:block;grid-area:cont}
+  #the-so .trip-card .dt-gon>thead>tr>th:nth-child(3),#the-so .trip-card .dt-gon tr.dt-row>td:nth-child(3){display:block;grid-area:day}
+  #the-so .trip-card .dt-gon>thead>tr>th:nth-child(7),#the-so .trip-card .dt-gon tr.dt-row>td.dt-total{display:block;grid-area:total;text-align:right}
+  #the-so .trip-card .dt-gon tr.dt-row>td.dt-status{display:block;grid-area:status;justify-self:start;margin:0 0 8px;padding:0;font-size:14px;text-align:left}
+  #the-so .trip-card .dt-gon tr.dt-row>td.dt-arrow-cell{display:block;grid-area:arrow;align-self:stretch}
+  #the-so .trip-card .dt-gon tr.dt-row{min-height:52px;padding-top:8px;border-bottom:1px solid #e9ecf0}
+  #the-so .trip-card .dt-gon tr.dt-row:not(:has(.dt-status)){grid-template-areas:"cont day total arrow";padding-top:0}
+  #the-so .trip-card .dt-gon tr.dt-row>td{font-size:15px;line-height:1.3}
+  #the-so .ledger-book .trip-card .dt-gon tr.dt-row>td.num{padding:0;font-size:15px}
+  #the-so .trip-card .dt-gon tr.dt-row>td.dt-differs{outline:0;padding:2px 4px;box-shadow:inset 0 0 0 2px #c77700;border-radius:4px}
+  #the-so .trip-card .dt-gon tr.dt-open{background:#eaf2fc}
+  #the-so .trip-card .dt-gon .dt-arrow{height:100%;min-height:44px}
+  #the-so .trip-card .dt-gon tr.dt-more{display:block}
+  #the-so .trip-card .dt-gon tr.dt-more>td{display:block;padding:10px 12px 14px;border-bottom:1px solid #d7dce3}
+  #the-so .trip-card .dt-more-grid{grid-template-columns:minmax(0,1fr);gap:12px}
+  #the-so .trip-card .dt-infos{grid-template-columns:104px minmax(0,1fr)}
+  /* Dòng cộng: nhãn trái, số phải; cước khách tự trả (ngoài phép cộng) xuống dòng dưới. */
+  #the-so .trip-card .dt-gon>tfoot>tr{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;padding:8px 12px;background:#f3f5f8;border-top:2px solid #d7dce3}
+  #the-so .trip-card .dt-gon>tfoot td{display:block;height:auto;padding:0;border:0;background:none}
+  #the-so .ledger-book .trip-card .dt-gon>tfoot td.num{padding:0}
+  #the-so .trip-card .dt-gon>tfoot td:last-child{display:none}
+  #the-so .trip-card .dt-gon>tfoot td.dt-foot-total{font-size:17px}
+  #the-so .trip-card .dt-gon>tfoot td.dt-foot-customer{grid-column:1/-1;margin-top:4px;font-size:14px;text-align:right}
+  #the-so .trip-card .dt-gon>tfoot td.dt-foot-customer .ph-only{display:inline}
+}
+
+/* Phiếu thu trong khối tháng trên điện thoại: bảng năm cột (min-width 760px) đẩy số tiền ra khỏi màn. Mỗi phiếu thành hai dòng:
+   ngày và số tiền ở trên, hình thức · tham chiếu · phân bổ ở dưới. Bấm ô vẫn mở sửa như màn rộng. */
+@media (max-width:760px){
+  #the-so .month-pay-slot{overflow:visible}
+  #the-so .pay-list{display:block;min-width:0;width:100%}
+  #the-so .pay-list>colgroup{display:none}
+  #the-so .pay-list>tbody{display:block}
+  #the-so .pay-list tr.pay-row{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;padding:6px 0;border-bottom:1px solid #e9ecf0}
+  #the-so .pay-list tr.pay-row::after{content:"";order:3;flex-basis:100%}
+  #the-so .pay-list tr.pay-row>td{display:block;height:auto;min-height:0;padding:0;border:0;border-top:0!important;background:none!important;text-align:left;white-space:normal}
+  #the-so .pay-list tr.pay-row>td.pay-start{order:1;flex:1 1 auto;min-height:32px;line-height:32px;font-size:15px}
+  #the-so .pay-list tr.pay-row>td.num{order:2;padding:0;min-height:32px;text-align:right}
+  #the-so .pay-list tr.pay-row>td:not(.pay-start):not(.num){order:4;color:#52514e;font-size:14px}
+  #the-so .pay-list tr.pay-row>td.pay-allocation{flex-basis:100%}
+  #the-so .pay-list tr.pay-row>td:empty{display:none}
+  #the-so .pay-list .receipt-sum{font-size:16px;font-weight:700}
+  #the-so .pay-list tr.void-summary,#the-so .pay-list tr.void-trace{display:block}
+  #the-so .pay-list tr.void-summary>td,#the-so .pay-list tr.void-trace>td{display:block;height:auto;padding:6px 0}
+  #the-so .pay-list .void-toggle{min-height:40px}
+}
+
+/* Nút trên Sổ dưới 760px (DIEN-THOAI-NUT-01): thẻ tháng, nút trên thanh chuyến và nút Ghi phiếu thu cao ít nhất 40px. */
+@media (max-width:760px){
+  #the-so .month-chips{height:46px}
+  #the-so .month-chip,#the-so .month-chip.locked{height:40px}
+  #the-so .month-chip.on,#the-so .month-chip.locked.on{height:46px}
+  #the-so .trip-tools button,#the-so .trip-tools #refresh-data{width:40px;min-width:40px;height:40px;min-height:40px}
+  #the-so .pay-head .entry-open{height:44px;min-height:44px}
+  #the-so .price-strip button,#the-so .receipt-strip button{min-height:40px;padding:0 12px}
 }

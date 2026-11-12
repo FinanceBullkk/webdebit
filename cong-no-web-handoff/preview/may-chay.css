@@ -110,3 +110,12 @@
 }
 /* Điện thoại: chừa chỗ cho nút ☰ của app-nav.css ở góc trái thanh đầu trang. */
 @media (max-width:760px){.mc .page.app-page > .page-head.topbar{padding-left:64px}}
+/* Điện thoại (DIEN-THOAI-NUT-01): nút chọn người, máy quay, hai tab và ô giờ của lượt cao 40px cho ngón tay. Cảnh văn phòng vẫn
+   cuộn ngang (chữ trên tranh không đọc được khi thu nhỏ còn 360px); danh sách việc bên dưới đã đủ đọc. */
+@media (max-width:760px){
+  .mc .ctrl{min-height:40px;font-size:14px}
+  .mc #refresh-data{width:40px;height:40px}
+  .mc .tabs button{min-height:40px;padding:0 10px;font-size:14.5px}
+  .mc .slot{width:56px;height:40px;font-size:13px}
+  .mc .slot.now{width:auto}
+}

@@ -148,6 +148,11 @@ test('real matrix page loads API data, validates totals, changes year, filters a
     // DIEN-THOAI-THANG-01: dưới 760px danh sách theo khách thay ma trận; cùng khách, cùng thứ tự; tổng cuối bằng dòng tổng
     // ma trận; chạm khách bung các tháng còn số, chạm tháng mở đúng ngăn kéo, Esc trả tiêu điểm về tháng đó.
     assert.equal(await page.locator('.table-wrap').isVisible(), false);
+    // DIEN-THOAI-NUT-01: khung ô lọc (bấm đâu cũng vào ô), nút năm, ô chọn, Làm mới và ô "Chỉ khách còn nợ" (cả nhãn) cao ít nhất 44px.
+    const low = await page.evaluate(() => ['.filter:has(#find)', '#year-prev', '#year-next', '#commodity', '#sort', '#refresh-data', 'label:has(#only-open)']
+      .map(sel => [sel, Math.round(document.querySelector(sel)?.getBoundingClientRect().height ?? 0)]).filter(([, height]) => height < 44));
+    assert.deepEqual(low, []);
+    assert.deepEqual(await page.locator('#only-open').evaluate(el => [el.offsetWidth, el.offsetHeight]), [22, 22]);
     assert.deepEqual(await page.locator('.pl-name').allInnerTexts(), await page.locator('#heat-body tr[data-row] td.khach a').allTextContents());
     assert.equal(await page.locator('.pl-item').first().locator('.pl-since').innerText(), 'Nợ từ T1');
     assert.equal(await page.locator('.pl-item').first().locator('.pl-strip i').count(), 12);
