@@ -136,9 +136,10 @@ test('HTML trang: đủ 4 khối ở trang đơn, ô trống in [Tên trường]
   const doc = build();
   const html = v4.pageHtml(doc, 'single', doc.rows, 1, 1);
   for (const block of ['LH', 'INFO', 'TABLE', 'BOTTOM']) assert.match(html, new RegExp(`data-blk="${block}"`));
-  for (const label of ['[Issue date]', '[Tax ID]', '[Phone]', '[Customer legal name &amp; address]', '[Contact]', '[Beneficiary]', '[Bank]', '[Account no.]', '[SWIFT code]'])
+  for (const label of ['[Issue date]', '[Tax ID]', '[Phone]', '[Customer legal name &amp; address]', '[Beneficiary]', '[Bank]', '[Account no.]', '[SWIFT code]'])
     assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /B\/L no\./);
+  assert.doesNotMatch(html, /Attn|\[Contact\]/);   // bỏ dòng Attn 联系人 (12/11/2026)
   assert.match(html, /Total, 3 containers<span style="font-weight: 400"> · 合计<\/span>/);
   assert.match(html, /color: #14304F">217,300,000<\/span><\/div><\/div>/);
   const rows = html.match(/<div data-row [^>]*>/g);
@@ -201,7 +202,8 @@ test('Excel v4 theo thiết kế: đầu trang, hai khối cạnh nhau, bảng k
   assert.equal(sheet.text('A3'), 'HTH LOGISTICS DV TM CO.,LTD');
   assert.equal(sheet.text('H3'), 'DEBIT NOTE  账单');
   for (const range of ['A3:G3', 'H3:L3', 'A4:L4']) assert.ok(sheet.merges.includes(range), range);
-  assert.deepEqual(['A7', 'A8', 'C7', 'C8', 'C9', 'E9'].map(sheet.text), ['BILL TO', '客户', 'FANYA 泛亚', '[Customer legal name &amp; address]', 'Attn 联系人', '[Contact]']);
+  assert.deepEqual(['A7', 'A8', 'C7', 'C8'].map(sheet.text), ['BILL TO', '客户', 'FANYA 泛亚', '[Customer legal name &amp; address]']);
+  assert.ok(![...sheet.cells.keys()].some(ref => /Attn|Contact/.test(sheet.text(ref) ?? '')), 'không còn dòng Attn 联系人');
   assert.ok(sheet.cells.get('C7').bold);
   assert.deepEqual(['G7', 'G8', 'I7'].map(sheet.text), ['DOCUMENT', '单据信息', 'Debit Note No. 账单号']);
   // Bảng: tiếng Anh đậm + tiếng Trung thường trong cùng ô; dữ liệu là số và ngày thật; trong bảng không gộp ô.

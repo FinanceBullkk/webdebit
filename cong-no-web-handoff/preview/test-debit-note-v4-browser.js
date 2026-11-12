@@ -57,13 +57,13 @@ test('Dữ liệu mẫu: 14 → 1 trang, 30 → 20 + 10, 8 container ẩn cột 
   assert.deepEqual((await render(sample('sample-8-an-cot'), config, { browser })).columns, ['LUMP_SUM', 'STORAGE', 'GENSET', 'OVERSTAY']);
 }));
 
-test('Chia trang theo chiều cao đo thật: 16, 17, 30, 60 container và khách tên/địa chỉ dài (15 container một trang)', t => withBrowser(async browser => {
+test('Chia trang theo chiều cao đo thật: 16, 17, 30, 60 container và khách tên/địa chỉ dài (16 container một trang, từ khi bỏ dòng Attn)', t => withBrowser(async browser => {
   const base = sample('sample-14');
   const exact = hasSerifCjk(pdfInfo((await render(base, config, { browser })).pdf));
   if (!exact) t.diagnostic('máy thiếu font serif chữ Trung: chỉ kiểm quy tắc chia trang, không so số dòng mỗi trang của SPEC');
   const long = data => ({ ...data, customer: { ...data.customer, ...LONG } });
   const cases = [[repeat(base, 16), 16, 'single:16'], [repeat(base, 17), 17, 'first:14 + last:3'], [repeat(base, 30), 30, 'first:20 + last:10'],
-    [repeat(base, 60), 60, 'first:20 + middle:23 + last:17'], [long(repeat(base, 15)), 15, 'single:15'], [long(repeat(base, 16)), 16, 'first:13 + last:3']];
+    [repeat(base, 60), 60, 'first:20 + middle:23 + last:17'], [long(repeat(base, 16)), 16, 'single:16'], [long(repeat(base, 17)), 17, 'first:14 + last:3']];
   for (const [data, count, pages] of cases) {
     const result = await render(data, config, { browser });
     const label = `${count} container${data.customer.name_en === LONG.name_en ? ', tên dài' : ''}`;

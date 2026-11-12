@@ -45,7 +45,7 @@ Bốn khối, mỗi khối trả lời một câu hỏi:
 ### 4.1 Nhãn cố định (song ngữ, tiếng Anh trước)
 
 - Tiêu đề: `DEBIT NOTE` + `账单`.
-- BILL TO `客户`: dòng 1 tên khách (đậm) + tên tiếng Trung (thường); dòng 2 tên pháp lý và địa chỉ; dòng 3 `Attn 联系人` + người liên hệ.
+- BILL TO `客户`: dòng 1 tên khách (đậm) + tên tiếng Trung (thường); dòng 2 tên pháp lý và địa chỉ. Dòng 3 `Attn 联系人` + người liên hệ **đã bỏ** (người dùng 12/11/2026): người liên hệ, nếu cần, nằm trong tên pháp lý và địa chỉ lấy từ Thông tin cty; các file trong `reference/` vẫn còn dòng này, không theo phần đó.
 - DOCUMENT `单据信息`:
   - `Debit Note No. 账单号` (giá trị đậm)
   - `Issue Date 开单日期`
@@ -158,7 +158,7 @@ Kết quả mong đợi với dữ liệu mẫu (dòng một hàng chữ):
 | 30 | 20 + 10 |
 | 60 | 20 + 23 + 17 |
 
-Với tên và địa chỉ khách dài (xem `LONG` ở mục 9), một trang chỉ chứa 15 container.
+Với tên và địa chỉ khách dài (xem `LONG` ở mục 9), một trang chỉ chứa 15 container (16 từ khi bỏ dòng Attn, 12/11/2026).
 
 ## 7. Sáu phép kiểm tra tự động (chặn xuất nếu sai)
 
@@ -188,7 +188,7 @@ Chạy trước khi dựng PDF. Phép nào sai thì không xuất, báo lỗi n�
 - `data/sample-30.json` cho ra 2 trang (20 + 10), giống hai ảnh `30-container-trang-*.png`; trang 1 có "Continued on next page".
 - `data/sample-8-an-cot.json`: cột HC fee bị ẩn, Shipper rộng ra, giống `8-container-an-cot-HC-fee.png`.
 - Chia trang đúng bảng ở mục 6 cho 16, 17, 30, 60 container (nhân dữ liệu mẫu lên).
-- Dữ liệu dài (`LONG`): tên khách `FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司`; địa chỉ `Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China`. Vẫn vừa trang, 15 container một trang.
+- Dữ liệu dài (`LONG`): tên khách `FANYA INTERNATIONAL LOGISTICS (SHENZHEN) CO., LTD 泛亚国际物流（深圳）有限公司`; địa chỉ `Room 1203, Block B, Galaxy Century Building, No. 3069 Caitian Road, Futian District, Shenzhen, Guangdong, China`. Vẫn vừa trang, 15 container một trang (16 từ khi bỏ dòng Attn, 12/11/2026).
 - Mỗi trang PDF đúng A4 ngang (≈ 841.9 × 595.3 pt), không có trang trắng thừa, font được nhúng, không có font sans.
 - Cả 6 phép kiểm tra chạy và chặn được một ca cố tình sai (ví dụ sửa Amount một dòng).
 - Mọi số tiền trong một cột thẳng mép phải; số tiền ở ACCOUNT STATUS thẳng mép với cột Amount của bảng.

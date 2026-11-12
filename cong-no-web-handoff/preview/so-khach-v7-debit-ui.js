@@ -196,8 +196,7 @@
         value="${escape(state.issuer)}" placeholder="Gõ tên công ty" autocomplete="off"${customersOf(directory).length ? '' : ' disabled'}><datalist id="debit-company-list">${
         customersOf(directory).map(item => `<option value="${escape(item.pickLabel)}"></option>`).join('')}</datalist><small>${escape(pickHint)}</small></label></fieldset>
       <fieldset><legend>Khách (BILL TO)</legend>${field('customer.nameEn', 'Tên khách (chữ Latin)', c.nameEn)}${field('customer.nameZh', 'Tên tiếng Trung', c.nameZh)}
-        ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}
-        ${field('customer.contact', 'Người liên hệ (Attn)', c.contact)}</fieldset>
+        ${field('customer.legal', 'Tên pháp lý và địa chỉ', c.legal, { area: true, hint: 'Để trống thì in [Customer legal name & address].' })}</fieldset>
       <fieldset><legend>Tài khoản nhận tiền</legend><label class="debit-field"><span>Tài khoản in trên chứng từ</span><select name="account">${accountOptions.join('')}</select>
         <small>Danh sách theo tab Thông tin cty.</small></label></fieldset>
       <p class="debit-note-v4">Tên phí lấy theo cấu hình máy chủ. Chữ tiếng Việt được bỏ dấu khi in.</p></form>`;
@@ -250,7 +249,7 @@
     // Tài khoản đã nhớ mà không còn trên Sheet thì coi như chưa chọn.
     const account = accountsOf(directory).some(item => item.id === remembered.account) ? remembered.account : '';
     const state = { number: model.suggestNumber('HTH', monthKey), issueDate: '', issuer: remembered.issuer ?? '', account, accountStatus: remembered.accountStatus === true,
-      customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '', contact: saved.contact ?? '' } };
+      customer: { nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh, legal: saved.legal ?? '' } };
     open = { v4: true, monthKey, opener, config, configError, directory, directoryError };
     dialog.innerHTML = `<div class="debit-panel"><header><h2>Debit note tháng ${escape(monthLabel(monthKey))}<small class="debit-status"></small></h2>
       <button type="button" class="debit-print">In / Lưu PDF</button><button type="button" class="debit-excel">Tải Excel</button><button type="button" class="debit-close">Đóng</button></header>
