@@ -93,3 +93,37 @@ test('Phép kiểm sai thì không ra PDF: sửa Amount một dòng thì phép 1
   assert.deepEqual(result.problems, ['Phép 1: dòng 3 HTHU2611210: Amount 75,000,001 ≠ 70,000,000 + – + – + 5,000,000 + – = 75,000,000.',
     'Phép 3: tổng các cột phí 1,070,000,000 ≠ Total Amount 1,070,000,001.']);
 }));
+
+// Người dùng 12/11/2026: "các hàng thì dính cột với nhau" (Line COSCO sát Shipper, số container sát Line) và khối DOCUMENT
+// "chưa cân xứng". Cột chữ tự rộng theo chữ đo thật + khoảng hở 12px; DOCUMENT sát lề phải, thẳng mép cột Amount.
+test('Tự cân cột: chữ mọi ô cách ô bên phải ít nhất 10px; DOCUMENT thẳng mép phải với bảng; chỗ dư chia đều, không dồn sau Shipper', () => withBrowser(async browser => {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  try {
+    await page.setContent('<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0"></body></html>');
+    await page.addScriptTag({ path: path.join(__dirname, 'cong-no-format.js') });
+    await page.addScriptTag({ path: path.join(__dirname, 'debit-note-v4.js') });
+    const result = await page.evaluate(({ data, config }) => {
+      const doc = DebitNoteV4.fromSample(data, { ...config, show_place_cn: true });
+      const lines = [['COSCO', 'TRUONG THINH PHAT'], ['SNL', 'HOA HANH'], ['EVERGREEN', 'COSCO001 FRUIT']];
+      doc.rows.forEach((row, index) => { if (!row.feeOnly) [row.line, row.shipper] = lines[index % lines.length]; });
+      doc.columns = doc.columns.slice(0, 2);
+      document.body.innerHTML = DebitNoteV4.pagesHtml(doc, DebitNoteV4.split(doc, document));
+      const textRight = cell => { const range = document.createRange(); range.selectNodeContents(cell); return Math.max(...[...range.getClientRects()].map(rect => rect.right), -Infinity); };
+      let worst = Infinity, where = '';
+      for (const row of document.querySelectorAll('[data-row]')) {
+        const cells = [...row.children];
+        for (let i = 1; i < 7; i++) {
+          const gap = cells[i + 1].getBoundingClientRect().left - textRight(cells[i]);
+          if (gap < worst) { worst = gap; where = `${cells[1].textContent} cột ${i}: ${cells[i].textContent}`; }
+        }
+      }
+      const right = selector => document.querySelector(selector).getBoundingClientRect().right;
+      const shipper = document.querySelector('[data-row]').children[3].getBoundingClientRect().width;
+      const longestShipper = Math.max(...[...document.querySelectorAll('[data-row]')].map(row => textRight(row.children[3]) - row.children[3].getBoundingClientRect().left));
+      return { worst, where, doc: right('[data-doc]'), table: right('[data-row]'), shipperSpare: shipper - longestShipper };
+    }, { data: sample('sample-14'), config });
+    assert.ok(result.worst >= 10, `${result.where}: còn ${result.worst}px`);
+    assert.ok(Math.abs(result.doc - result.table) < 1, JSON.stringify(result));
+    assert.ok(result.shipperSpare < 120, `sau Shipper còn trống ${result.shipperSpare}px`);
+  } finally { await page.close(); }
+}));

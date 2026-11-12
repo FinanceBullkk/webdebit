@@ -46,7 +46,7 @@ Bốn khối, mỗi khối trả lời một câu hỏi:
 
 - Tiêu đề: `DEBIT NOTE` + `账单`.
 - BILL TO `客户`: dòng 1 tên khách (đậm) + tên tiếng Trung (thường); dòng 2 tên pháp lý và địa chỉ. Dòng 3 `Attn 联系人` + người liên hệ **đã bỏ** (người dùng 12/11/2026): người liên hệ, nếu cần, nằm trong tên pháp lý và địa chỉ lấy từ Thông tin cty; các file trong `reference/` vẫn còn dòng này, không theo phần đó.
-- DOCUMENT `单据信息`:
+- DOCUMENT `单据信息` (từ 12/11/2026 sát lề phải, mép phải thẳng cột Amount và chữ DEBIT NOTE; nhãn và giá trị là hai cột rộng theo chữ, BILL TO lấy phần còn lại):
   - `Debit Note No. 账单号` (giá trị đậm)
   - `Issue Date 开单日期`
   - `Billing Period 账单期间`
@@ -85,6 +85,7 @@ Bốn khối, mỗi khối trả lời một câu hỏi:
 | 14 | Amount | 金额 | 84px | phải | luôn |
 
 - Các cột số căn phải có `padding-left: 8px`. Mỗi hàng của bảng có `padding-right: 8px`.
+- **Tự cân cột chữ (người dùng 12/11/2026)**: bề rộng px ở bảng trên chỉ là bản thiết kế. Khi xuất, Container no., Line, Loading date, Loading place, POD rộng theo chữ dài nhất của chứng từ (cả tiêu đề), đo thật bằng font của trang trước khi chia trang, cộng khoảng hở 12px bên phải mỗi cột chữ (kể cả Shipper); chỗ còn dư khi Shipper đã đủ một dòng chia đều cho các cột chữ (mỗi cột tối đa 48px), phần lẻ cho Shipper. Không đủ chỗ thì như trước: chữ nơi/cảng thu nhỏ (khi in tên tiếng Trung) và Shipper xuống dòng. Cột phí giữ bề rộng theo cấu hình.
 - Thứ tự cột cố định, vì khách đối chiếu theo thứ tự này.
 - Cột phí hiện hay ẩn tính theo **toàn bộ chứng từ**: mọi trang có cùng bộ cột. Ẩn cột nào thì cột Shipper rộng ra.
 - Ô phí bằng 0 ghi `–` (gạch ngang ngắn, U+2013).

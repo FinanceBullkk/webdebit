@@ -213,32 +213,65 @@ const DebitNoteV4 = (() => {
   const NUM = 'text-align: right; padding-left: 8px';
   // Ô chữ: chữ dài xuống dòng trong ô (dòng cao lên, phép đo chia trang tính được), không tràn sang cột bên.
   const TEXT = 'min-width: 0; overflow-wrap: anywhere';
-  // Cột chữ cố định (SPEC 4.2, không có B/L no. theo người dùng 10/11/2026): No., Container no., Line, Shipper (co giãn),
-  // Loading date, Loading place, POD.
-  const TEXT_COLUMNS = [['No.', '序号', '28px', 'text-align: right'], ['Container no.', '柜号', '94px', 'padding-left: 10px'], ['Line', '船东', '40px', ''],
-    ['Shipper', '发货人', '1fr', ''], ['Loading date', '装柜日期', '74px', ''], ['Loading place', '装柜地点', '76px', ''], ['POD', '目的港', '66px', '']];
-  // Tên tiếng Trung nằm cùng dòng, bên phải tên Latin (người dùng 11/11/2026): cột Loading place / POD nới theo tên dài nhất
-  // của chứng từ (serif 12px đo được: chữ Latin ~6px, chữ Hán 12px; ước 6.2px cho dư). Cột Shipper nhắm tối thiểu 60px; không đủ chỗ
-  // thì chữ hai cột này thu nhỏ đều, nhỏ nhất 75% (9px); còn thiếu thì Shipper hẹp lại (tên shipper xuống dòng), tên nơi/cảng vẫn một dòng.
+  const COL_GAP = 12;   // khoảng hở bên phải mỗi cột chữ
+  const CELL = `${TEXT}; padding-right: ${COL_GAP}px`;
+  // Cột chữ (SPEC 4.2, không có B/L no. theo người dùng 10/11/2026): No., Container no., Line, Shipper (co giãn),
+  // Loading date, Loading place, POD. Bề rộng tự cân theo chữ dài nhất của chứng từ (người dùng 12/11/2026: cột cố định làm
+  // "COSCO" dính sang Shipper, số container dính sang Line), mỗi cột chữ chừa COL_GAP bên phải.
+  const TEXT_COLUMNS = [['No.', '序号', '28px', 'text-align: right'], ['Container no.', '柜号', 'auto', `padding-left: 10px; padding-right: ${COL_GAP}px`],
+    ['Line', '船东', 'auto', `padding-right: ${COL_GAP}px`], ['Shipper', '发货人', '1fr', `padding-right: ${COL_GAP}px`],
+    ['Loading date', '装柜日期', 'auto', `padding-right: ${COL_GAP}px`], ['Loading place', '装柜地点', 'auto', `padding-right: ${COL_GAP}px`],
+    ['POD', '目的港', 'auto', `padding-right: ${COL_GAP}px`]];
+  // Tên tiếng Trung nằm cùng dòng, bên phải tên Latin (người dùng 11/11/2026). Không đủ chỗ (Shipper dưới SHIPPER_MIN) thì
+  // chữ hai cột nơi/cảng thu nhỏ đều, nhỏ nhất 75% (9px), vẫn một dòng; cờ tắt thì hai cột này hẹp lại và chữ xuống dòng.
   const placeLine = place => [place.text, place.cn].filter(Boolean).join(' ');
-  const textWidth = text => [...text].reduce((sum, ch) => sum + (/[\p{Script=Han}—（）]/u.test(ch) ? 12 : 6.2), 0);
-  const ROW_WIDTH = 1034, SHIPPER_MIN = 60, PLACE_BASE = { place: 76, pod: 66 };
+  // Ước bề rộng chữ serif khi không có trình duyệt để đo (Node): chữ hoa ~0.67em, số 0.5em, chữ thường ~0.46em, chữ Hán 1em.
+  const estimate = (text, size = 12, bold = false) => [...String(text)].reduce((sum, ch) => sum + (/[\p{Script=Han}—（）]/u.test(ch) ? 1
+    : /[A-Z]/.test(ch) ? 0.67 : /\d/.test(ch) ? 0.5 : /[a-z]/.test(ch) ? 0.46 : /\s/.test(ch) ? 0.25 : 0.4), 0) * size * (bold ? 1.08 : 1);
+  const ROW_WIDTH = 1034, SHIPPER_MIN = 72, NO_WIDTH = 28, AMOUNT_WIDTH = 84, SPREAD_MAX = 48;
   const layouts = new WeakMap();
-  const placeLayout = doc => {
-    if (!doc.showPlaceCn) return { place: PLACE_BASE.place, pod: PLACE_BASE.pod, scale: 1 };
-    if (layouts.has(doc)) return layouts.get(doc);
+  // Bề rộng các cột chữ của một chứng từ. measure(text, size, bold) đo thật trong trình duyệt (split gọi trước khi chia trang);
+  // không có thì ước. Kết quả giữ theo doc để phép chia trang và bản in dùng cùng một bố cục.
+  function columnLayout(doc, measure = null) {
+    if (!measure && layouts.has(doc)) return layouts.get(doc);
+    const width = measure ?? estimate;
     const rows = doc.rows.filter(row => !row.feeOnly);
-    const natural = key => Math.max(PLACE_BASE[key], ...rows.map(row => Math.ceil(textWidth(placeLine(row[key]))) + 8));
-    const fixed = [28, 94, 40, 74, 84, ...doc.columns.map(column => column.width)].reduce((sum, width) => sum + width, 0);
-    const room = ROW_WIDTH - fixed - SHIPPER_MIN, need = natural('place') + natural('pod');
-    const scale = need > room ? Math.max(0.75, room / need) : 1;
-    const layout = { place: Math.ceil(natural('place') * scale), pod: Math.ceil(natural('pod') * scale), scale };
+    const head = ([en, cn]) => Math.max(width(en, 11, true), width(cn, 11));
+    const natural = (index, texts, extra = 0) => Math.ceil(Math.max(head(TEXT_COLUMNS[index]), ...texts.map(text => width(text, 12)))) + COL_GAP + extra;
+    const placeOf = place => (doc.showPlaceCn ? placeLine(place) : place.text) ?? '';
+    const layout = {
+      container: natural(1, rows.map(row => row.container ?? ''), 10), line: natural(2, rows.map(row => row.line ?? '')),
+      date: natural(4, doc.rows.map(row => dateText(row.date) ?? '')), place: natural(5, rows.map(row => placeOf(row.place))),
+      pod: natural(6, rows.map(row => placeOf(row.pod))), scale: 1,
+    };
+    const fixed = NO_WIDTH + layout.container + layout.line + layout.date + AMOUNT_WIDTH + doc.columns.reduce((sum, column) => sum + column.width, 0);
+    const room = ROW_WIDTH - fixed - SHIPPER_MIN, need = layout.place + layout.pod;
+    if (need > room) {
+      const ratio = Math.max(doc.showPlaceCn ? 0.75 : 0.5, room / need);
+      if (doc.showPlaceCn) layout.scale = ratio;
+      layout.place = Math.ceil((layout.place - COL_GAP) * ratio) + COL_GAP;
+      layout.pod = Math.ceil((layout.pod - COL_GAP) * ratio) + COL_GAP;
+    } else {
+      // Còn dư sau khi Shipper đủ một dòng: chia đều cho sáu cột chữ (tối đa SPREAD_MAX mỗi cột) để khoảng cách giữa các cột
+      // đều nhau, không dồn hết vào sau Shipper; phần lẻ còn lại Shipper (1fr) nhận.
+      const shipper = natural(3, rows.map(row => row.shipper ?? ''));
+      const spare = ROW_WIDTH - fixed - need - shipper;
+      const share = spare > 0 ? Math.min(SPREAD_MAX, Math.floor(spare / 6)) : 0;
+      for (const key of ['container', 'line', 'date', 'place', 'pod']) layout[key] += share;
+    }
     layouts.set(doc, layout);
     return layout;
-  };
+  }
+  // Đo bằng canvas của document đích (khung xem trước, khung in, trang Playwright): cùng font với trang.
+  function fitColumns(doc, target) {
+    const context = target.createElement?.('canvas')?.getContext?.('2d');
+    if (!context?.measureText) return columnLayout(doc);
+    return columnLayout(doc, (text, size, bold = false) => { context.font = `${bold ? '700 ' : ''}${size}px ${FONT}`; return context.measureText(String(text)).width; });
+  }
   const gridOf = doc => {
-    const layout = placeLayout(doc);
-    return [...TEXT_COLUMNS.slice(0, 5).map(column => column[2]), `${layout.place}px`, `${layout.pod}px`, ...doc.columns.map(column => `${column.width}px`), '84px'].join(' ');
+    const layout = columnLayout(doc);
+    return [`${NO_WIDTH}px`, `${layout.container}px`, `${layout.line}px`, '1fr', `${layout.date}px`, `${layout.place}px`, `${layout.pod}px`,
+      ...doc.columns.map(column => `${column.width}px`), `${AMOUNT_WIDTH}px`].join(' ');
   };
   const moneySpan = (value, extra = '') => `<span style="${NUM}${value !== null && value < 0n ? '; margin-right: -0.333em' : ''}${extra}">${money(value)}</span>`;
   const pair = (label, value, bold = false) => `<div style="display: flex; align-items: baseline"><span style="width: 136px; flex: none; color: #5F6B7A">${esc(label)}</span>`
@@ -247,7 +280,7 @@ const DebitNoteV4 = (() => {
     `<div${line.bold ? ` style="${SEC}"` : ''}${index === 0 ? ' data-lab' : ''}>${esc(line.text)}</div>`).join('')}</div><div>${body}</div></div>`;
   const placeText = (doc, place) => {
     if (!doc.showPlaceCn) return esc(place.text);
-    const scale = placeLayout(doc).scale;
+    const scale = columnLayout(doc).scale;
     return `<span style="white-space: nowrap${scale < 1 ? `; font-size: ${Math.round(120 * scale) / 10}px` : ''}">${esc(placeLine(place))}</span>`;
   };
 
@@ -266,10 +299,15 @@ const DebitNoteV4 = (() => {
     const cust = doc.customer;
     const billTo = `<div style="font-weight: 700">${esc(shown(cust.nameEn, 'Customer name'))}${cust.nameZh ? `<span style="font-weight: 400"> ${esc(cust.nameZh)}</span>` : ''}</div>`
       + `<div>${esc(shown(cust.legal, 'Customer legal name & address'))}</div>`;   // bỏ dòng Attn 联系人 (DEBIT-NOTE-03, 12/11/2026)
-    const documentInfo = pair('Debit Note No. 账单号', shown(doc.number, 'Debit note no.'), true) + pair('Issue Date 开单日期', dateText(doc.issueDate) ?? '[Issue date]')
-      + pair('Billing Period 账单期间', doc.period) + pair('Currency 币种', doc.currency);
-    return '<div data-blk="INFO" style="flex: none; padding: 0 40px; margin-top: -5.43px; margin-bottom: -4.95px"><div style="display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; align-items: start">'
-      + section([{ text: 'BILL TO', bold: true }, { text: '客户' }], billTo) + section([{ text: 'DOCUMENT', bold: true }, { text: '单据信息' }], documentInfo) + '</div></div>';
+    // DOCUMENT sát lề phải, thẳng mép với chữ DEBIT NOTE và cột Amount (người dùng 12/11/2026: khối này "chưa cân xứng" khi
+    // nằm ở nửa phải mà bỏ trống tới lề); nhãn và giá trị là hai cột tự rộng theo chữ, BILL TO lấy phần còn lại.
+    const documentInfo = [['Debit Note No. 账单号', shown(doc.number, 'Debit note no.'), true], ['Issue Date 开单日期', dateText(doc.issueDate) ?? '[Issue date]'],
+      ['Billing Period 账单期间', doc.period], ['Currency 币种', doc.currency]]
+      .map(([label, value, bold]) => `<span style="color: #5F6B7A">${esc(label)}</span><span${bold ? ' style="font-weight: 700"' : ''}>${esc(value)}</span>`).join('');
+    const right = `<div data-doc style="display: grid; grid-template-columns: auto auto; column-gap: 24px; align-items: baseline; padding-right: 8px"><div style="${LABEL}">`
+      + `<div style="${SEC}" data-lab>DOCUMENT</div><div>单据信息</div></div><div style="display: grid; grid-template-columns: auto auto; column-gap: 16px; align-items: baseline">${documentInfo}</div></div>`;
+    return '<div data-blk="INFO" style="flex: none; padding: 0 40px; margin-top: -5.43px; margin-bottom: -4.95px"><div style="display: grid; grid-template-columns: 1fr auto; column-gap: 40px; align-items: start">'
+      + section([{ text: 'BILL TO', bold: true }, { text: '客户' }], billTo) + right + '</div></div>';
   }
 
   function table(doc, rows, withTotal) {
@@ -281,9 +319,9 @@ const DebitNoteV4 = (() => {
     const line = (row, last) => {
       const border = last ? '' : '; border-bottom: 1px solid #B8C0CB';
       const lead = row.feeOnly
-        ? `<span style="text-align: right"></span><span style="grid-column: 2 / 5; padding-left: 10px; ${TEXT}">Additional charge · 附加费用</span><span>${esc(dateText(row.date) ?? '')}</span><span></span><span></span>`
-        : `<span style="text-align: right">${row.no}</span><span style="padding-left: 10px; ${TEXT}">${esc(row.container)}</span><span style="${TEXT}">${esc(row.line)}</span>`
-          + `<span style="${TEXT}">${esc(row.shipper)}</span><span>${esc(dateText(row.date) ?? '')}</span><span style="${TEXT}">${placeText(doc, row.place)}</span><span style="${TEXT}">${placeText(doc, row.pod)}</span>`;
+        ? `<span style="text-align: right"></span><span style="grid-column: 2 / 5; padding-left: 10px; ${CELL}">Additional charge · 附加费用</span><span style="${CELL}">${esc(dateText(row.date) ?? '')}</span><span></span><span></span>`
+        : `<span style="text-align: right">${row.no}</span><span style="padding-left: 10px; ${CELL}">${esc(row.container)}</span><span style="${CELL}">${esc(row.line)}</span>`
+          + `<span style="${CELL}">${esc(row.shipper)}</span><span style="${CELL}">${esc(dateText(row.date) ?? '')}</span><span style="${CELL}">${placeText(doc, row.place)}</span><span style="${CELL}">${placeText(doc, row.pod)}</span>`;
       return `<div data-row style="display: grid; grid-template-columns: ${grid}; align-items: baseline; padding: 3px 8px 3px 0${border}">${lead}`
         + `${doc.columns.map(column => moneySpan(row.cells[column.code] ?? (row.feeOnly && column.code === 'LUMP_SUM' ? null : 0n))).join('')}${moneySpan(row.amount)}</div>`;
     };
@@ -365,6 +403,7 @@ const DebitNoteV4 = (() => {
     };
   }
   function split(doc, target) {
+    fitColumns(doc, target);   // đo cột trước: chiều cao hàng (Shipper xuống dòng) phụ thuộc bề rộng cột
     const measure = measurer(target);
     try { return paginate(doc.rows, (kind, rows) => measure.fits(doc, kind, rows)); } finally { measure.done(); }
   }
@@ -376,7 +415,7 @@ const DebitNoteV4 = (() => {
   const documentHtml = (doc, pages, title = '') => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title>`
     + `<style>${PRINT_CSS}</style></head><body>${pagesHtml(doc, pages)}</body></html>`;
 
-  return { fromLedger, fromSample, checks, pageHtml, paginate, measurer, split, pagesHtml, documentHtml, money, dateText, periodText, latin, splitName,
+  return { fromLedger, fromSample, checks, pageHtml, paginate, measurer, split, columnLayout, fitColumns, pagesHtml, documentHtml, money, dateText, periodText, latin, splitName,
     PRINT_CSS, TEXT_COLUMNS };
 })();
 if (typeof module !== 'undefined') module.exports = DebitNoteV4;
