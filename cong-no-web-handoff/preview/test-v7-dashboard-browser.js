@@ -463,6 +463,26 @@ test('PRESENCE-01: chấm màu cạnh khách đang có người mở sổ, vòng
   assert.deepEqual(labels, ['Lan · đang mở sổ Khách A, tháng 10/2026', 'Tuấn · đang mở sổ Khách C, tháng 9/2026']);
 }));
 
+// Đo 12/11/2026 trên hao ở 390px: thanh đầu trang cao cố định 53px, hàng người online xuống dòng đè lên chữ bên dưới; dải
+// menu 64px ăn 1/5 bề ngang. Điện thoại: chỉ còn nút ☰, thanh đầu trang cao theo nội dung, bấm ☰ bung đủ menu.
+test('điện thoại 390px: menu thu về nút ☰, năm người online nằm trong thanh đầu trang', async () => withDashboard({ people: ['Lan', 'Tuấn', 'Hà', 'Minh', 'Phúc']
+  .map((name, i) => ({ id: `p${i}`, name, color: i, page: 'tong-quan', customer_id: null, month: null, cell: null, pointer: null })) }, async page => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.strip .big-money').waitFor();
+  await page.waitForFunction(() => document.querySelectorAll('.presence-avatar').length === 5);
+  const box = selector => page.locator(selector).first().evaluate(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }; });
+  const [head, bar, h1, main, toggle] = await Promise.all(['.page-head.topbar', '.presence', '.page-head.topbar h1', 'main', '#nav-toggle'].map(box));
+  assert.ok(bar.bottom <= head.bottom && h1.left >= toggle.right, JSON.stringify({ head, bar, h1, toggle }));
+  assert.equal(main.left, 0);
+  assert.equal(await page.locator('.app-nav nav').isVisible(), false);
+  assert.equal(await noSideScroll(page), true);
+  await page.locator('#nav-toggle').click();
+  assert.equal(await page.locator('.app-nav nav a').evaluateAll(links => links.filter(a => a.getBoundingClientRect().width > 0).length), 6);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.locator('#nav-toggle').click();
+  assert.deepEqual(await Promise.all([box('aside.app-nav'), box('main')]).then(([nav, m]) => [nav.width, m.left]), [76, 76]);
+}));
+
 // Bố cục nhóm cũ thay bằng bảng bốn cột; các ca tải/lọc/trống/lỗi/mở sổ nằm trong test-viec-can-lam-table-browser.js.
 const writable = (id, extra = {}) => inboxBook(id, { version: 3, outstanding_vnd: '1000000000', ...extra,
   receipts: { ready: 1, review: 0, amount_vnd: '50000000', ready_amount_vnd: '50000000', snapshot_sha256: 'c'.repeat(64), locked_months: [],

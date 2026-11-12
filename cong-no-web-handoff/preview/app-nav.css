@@ -43,15 +43,18 @@ body:has(> .app-nav) > #demo-banner{margin-left:76px}
 .page.app-page > .page-head.topbar .filter input{width:200px;border:0;outline:0;background:transparent;font:inherit;color:#1a1a19}
 .page.app-page > .page-head.topbar .filter:focus-within{border-color:#2a78d6}
 
-@media (max-width:700px){
-  .app-nav{width:64px}.app-nav>button,.app-nav .search{width:52px}
-  .page.app-page{margin-left:64px}
-  body:has(> .app-nav) > #demo-banner{margin-left:64px}
-  .page.app-page > .page-head.topbar .filter input{width:140px}
-}
-/* cong-no-theme.css: dưới 760px .page đệm 16px 12px, thanh đầu trang kéo tràn theo đúng khoảng đó. */
+/* cong-no-theme.css: dưới 760px .page đệm 16px 12px, thanh đầu trang kéo tràn theo đúng khoảng đó.
+   Điện thoại (đo 12/11/2026 ở 390px): dải menu 64–76px ăn 1/5 bề ngang, nên dưới 760px chỉ còn nút ☰ ở góc trái thanh đầu
+   trang (cuộn theo trang); bấm ☰ thì bung đủ menu 240px như màn rộng. Thanh đầu trang chừa 64px cho nút và cao theo nội dung:
+   cao cố định 53px làm hàng người online xuống dòng rồi đè lên chữ bên dưới. */
 @media (max-width:760px){
-  .page.app-page > .page-head.topbar{margin:-16px -12px 12px;padding:8px 12px}
+  .app-nav:not(.menu-open){position:absolute;bottom:auto;width:60px;padding:6px;background:transparent}
+  .app-nav:not(.menu-open) nav,.app-nav:not(.menu-open) .search{display:none}
+  .app-nav:not(.menu-open)>button{width:48px;margin:0}
+  .app-nav ~ .page{margin-left:0}
+  body:has(> .app-nav) > #demo-banner{margin-left:0}
+  .page.app-page > .page-head.topbar{margin:-16px -12px 12px}
+  .app-nav ~ .page > .page-head.topbar{height:auto;min-height:60px;flex-wrap:wrap;padding:8px 12px 8px 64px}
   .page.app-page > .page-head.topbar .asof,.page.app-page > .page-head.topbar .live-controls{margin-left:0;white-space:normal;flex-wrap:wrap}
   .page.app-page > .page-head.topbar .filter{flex:1 1 100%}
   .page.app-page > .page-head.topbar .filter input{width:100%}
