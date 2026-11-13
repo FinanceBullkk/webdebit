@@ -48,6 +48,14 @@
   const money = value => `${model.formatVnd(value)} đ`;
   const signed = value => `${value > 0n ? '+' : ''}${model.formatVnd(value)}`;
   const SHEET_HOW = 'Ghi phụ phí trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.';
+  // Ô PS số lẻ: nói đúng tab, dòng, số thật và số Sheet đang hiện để người dùng tìm được ô (model.psOddText).
+  function badAmountText(item) {
+    const odd = model.psOddText(item.ps_value);
+    const field = item.ps_field === 'Khác' ? 'Phí khác' : item.ps_field ? `Ô ${item.ps_field}` : 'Ô';
+    const where = item.ps_source ? ` ở ${item.ps_source}` : '';
+    if (odd) return `${field}${where} là ${odd.exact} đ (trên Sheet hiện tròn ${odd.shown}), không phải số đồng nguyên nên máy không đọc được.`;
+    return item.ps_value != null ? `${field}${where} ghi "${item.ps_value}", không phải số đồng nguyên nên máy không đọc được.` : item.message;
+  }
   function explain(item) {
     const ps = big(item.ps_total), web = big(item.web_total) ?? 0n;
     const nums = value => [['Bảng chi phí ghi', money(value)], ['Sổ khách đang tính', money(web)], ['Chênh', `${signed(value - web)} đ`, 'ps-diff']];
@@ -57,8 +65,8 @@
         no: 'Không tính khách', yes: 'Tính khách…', how: SHEET_HOW };
       case 'TOTAL_DIFF': return ps === null ? null : { chip: signed(ps - web), title: 'Phụ phí phát sinh khác sổ khách', nums: nums(ps),
         no: 'Sổ khách đúng', yes: 'Theo bảng chi phí…', how: 'Sửa phụ phí trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.' };
-      case 'PS_BAD_AMOUNT': return { chip: `${item.ps_value ?? 'số lẻ'} ?`, title: 'Bảng chi phí ghi số lẻ',
-        text: cell ? `Ô ${cell}: không phải số đồng nguyên nên máy không đọc được.` : item.message,
+      case 'PS_BAD_AMOUNT': return { chip: `${model.psOddText(item.ps_value)?.exact ?? item.ps_value ?? 'số lẻ'} ?`, title: 'Bảng chi phí ghi số lẻ',
+        text: badAmountText(item),
         ask: 'Khoản này có tính khách không?', no: 'Không tính khách', yes: 'Tính khách…',
         how: 'Ghi phụ phí (số đồng nguyên) trên tab khách ở Sheet; web tự cập nhật ở lần đọc Sheet sau.' };
       case 'PS_TYPO': return { chip: `${cell ?? 'số lạ'} ?`, title: 'Bảng chi phí có thể gõ sai',

@@ -22,9 +22,9 @@ function setup(world) {
       item({ container: 'OLDU0000002', date: '2026-09-03', target_kind: 'legacy', target_id: 22, month: '2026-09', status: 'MONTH_LOCKED', message: 'Tháng 09/2026 đang khóa' }),
       item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'NEED_HEALTH', keepable: true, source_fingerprint: 'e'.repeat(64), message: 'PS đánh dấu Health cert — nhập giá tay' }),
       item({ container: 'OLDU0000001', date: '2026-09-02', target_kind: 'legacy', target_id: 21, month: '2026-09', status: 'PS_BAD_AMOUNT', keepable: true,
-        source_fingerprint: 'c'.repeat(64), ps_field: 'Khác', ps_value: '315789.5', message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
+        source_fingerprint: 'c'.repeat(64), ps_field: 'Khác', ps_value: '315789.5', ps_source: 'CHI PHI PS THANG 9 · dòng 73', message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
       item({ container: 'DEMU1234567', date: '2026-09-15', target_kind: 'trip', target_id: 11, month: '2026-09', status: 'PS_BAD_AMOUNT', keepable: true,
-        source_fingerprint: 'd'.repeat(64), ps_field: 'Khác', ps_value: '315789.5', message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
+        source_fingerprint: 'd'.repeat(64), ps_field: 'Khác', ps_value: '315789.5', ps_source: 'CHI PHI PS THANG 9 · dòng 73', message: 'PS ghi Khác = 315789.5, không phải số đồng nguyên nên máy không đọc' }),
       item({ container: 'DEMU0900009', date: '2026-09-25', target_kind: '', target_id: '', month: '', status: 'PS_SOURCE_ERROR', message: 'Bộ lập bill báo lỗi: PS trùng dòng' })] };
 }
 const ownCells = async (page, row) => page.locator(`[data-row="${row}"] td.fee.own`).allInnerTexts();
@@ -75,7 +75,8 @@ test('phụ phí phát sinh trong ô Khác: nhãn cam, bấm mở hộp nhỏ, c
   assert.equal(await page.locator('tr.ps-ask-row').count(), 0, 'không chen hàng nào vào bảng chuyến');
   // PS-O-KHAC-01: nhãn nằm trong ô Khác của đúng chuyến.
   const chip = key => page.locator(`[data-row="${key}"] td.fee-other .ps-chip`);
-  assert.equal(await chip('legacy-21').innerText(), '315789.5 ?');
+  // Ô PS ghi =631579/2: Sheet hiện tròn 315.790 nên người dùng không tìm thấy "315789.5"; hộp chỉ đúng tab, dòng và cả hai số.
+  assert.equal(await chip('legacy-21').innerText(), '315.789,5 ?');
   assert.equal(await chip('legacy-22').innerText(), 'chờ tách');
   assert.equal(await chip('trip-11').innerText(), 'Health ? · 2', 'một chuyến hai câu: nhãn ghi số câu');
   await shot('ps-nhan-trong-o-khac');
@@ -87,7 +88,7 @@ test('phụ phí phát sinh trong ô Khác: nhãn cam, bấm mở hộp nhỏ, c
   const items = await pop.locator('.ps-pop-item').allInnerTexts();
   assert.equal(items.length, 2);
   assert.match(items[0], /Bảng chi phí đánh dấu Health cert[\s\S]*Chuyến này có tính Health cert không\?[\s\S]*Không tính[\s\S]*Có tính: nhập giá Health cert/);
-  assert.match(items[1], /Bảng chi phí ghi số lẻ[\s\S]*Ô Khác 315789\.5: không phải số đồng nguyên[\s\S]*Khoản này có tính khách không\?[\s\S]*Trả lời luôn cho OLDU0000001 \(cùng khoản\)[\s\S]*Không tính khách[\s\S]*Tính khách…/);
+  assert.match(items[1], /Bảng chi phí ghi số lẻ[\s\S]*Phí khác ở CHI PHI PS THANG 9 · dòng 73 là 315\.789,5 đ \(trên Sheet hiện tròn 315\.790\), không phải số đồng nguyên nên máy không đọc được\.[\s\S]*Khoản này có tính khách không\?[\s\S]*Trả lời luôn cho OLDU0000001 \(cùng khoản\)[\s\S]*Không tính khách[\s\S]*Tính khách…/);
   assert.equal(await pop.locator('.ps-how').first().isHidden(), true, 'cách làm khi có tính chỉ hiện khi bấm');
   await pop.locator('.ps-yes').click();
   assert.match(await pop.locator('.ps-how').first().innerText(), /Ghi phụ phí \(số đồng nguyên\) trên tab khách ở Sheet/);
