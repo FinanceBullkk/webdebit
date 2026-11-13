@@ -17,17 +17,29 @@
 .ledger tr.ps-flash td{animation:ps-flash 1.6s ease-out}
 @keyframes ps-flash{0%,40%{background:#ffd27a}}
 @media (prefers-reduced-motion:reduce){.ledger tr.ps-flash td{animation:none;background:#ffd27a}}
-/* PS-HOI-01, PS-TAI-HANG-01: câu hỏi nằm ngay dưới hàng chuyến (như "Sheet không còn dòng này"): PS ghi gì, hỏi gì, nút trả
-   lời, cách làm nếu trả lời ngược lại. Khung .ps-review chỉ còn cho dòng PS không gắn được chuyến. */
-.trip-list .ps-ask-row>td{padding:4px 10px 8px 40px;background:#fffbea;border-bottom:1px solid #e3c98f;height:auto}
-.ledger tr.ps-asked>td{border-bottom-color:transparent}
-.ps-ask-line{font-family:"Segoe UI",sans-serif;letter-spacing:normal;font-size:14px;color:#3d2a00}
-.ps-ask-line p{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin:0}.ps-ask-line p+p{margin-top:4px}
-.ps-ask-line+.ps-ask-line{margin-top:6px;padding-top:6px;border-top:1px dashed #e3c98f}
-.ps-tag{padding:1px 8px;border-radius:10px;background:#fbe7b5;color:#6b4a00;font-size:13px;font-weight:700;white-space:nowrap}
-.ps-says{font-weight:600}.ps-count{font-weight:400;color:#6b5a2f}
-.ps-q{font-weight:700;color:#1f2d3d}
-.ps-ask-line small{color:#475d73;font-size:13px}
-.ps-ask-line button{min-height:32px;white-space:nowrap}
-.ps-keep{padding:2px 12px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
-.ps-keep:disabled{opacity:.6;cursor:default}.ps-keep:focus-visible,.ps-unlock:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* PS-O-KHAC-01: nhãn cam trong ô Khác của chuyến có phụ phí phát sinh cần xem; bấm mở hộp nhỏ cạnh ô (vị trí cố định theo
+   nhãn, tính lại khi cuộn). Khung .ps-review chỉ còn cho dòng không gắn được chuyến. */
+.ledger tr.ps-asked>td{background:#fffbea}
+/* Nhãn thay chữ "–"/"+ thêm" của ô; ô đã có số thì nhãn nằm dòng trên, số dòng dưới (không tràn sang Thành tiền). */
+.trip-list tr td.fee-other:has(.ps-chip) :is(.fee-dash,.fee-plus){display:none}
+.trip-list td.fee-other:has(.fee-sum) .ps-chip{display:block;width:max-content;margin:0 0 2px auto}
+.ps-chip{display:inline-block;max-width:100%;min-height:26px;padding:1px 7px;border:1.5px dashed #c27a00;border-radius:4px;background:#fff;color:#9a4b00;font:inherit;font-weight:700;white-space:nowrap;cursor:pointer}
+.ps-chip:hover,.ps-chip[aria-expanded="true"]{background:#fff2c6;border-style:solid}
+.ps-chip:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.ps-pop{position:fixed;z-index:45;width:400px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow-y:auto;box-sizing:border-box;padding:12px 16px 14px;background:#fff;border:1px solid #c27a00;border-radius:8px;box-shadow:0 10px 30px #0003;font-family:"Segoe UI",sans-serif;letter-spacing:normal;font-size:15px;color:#1f2d3d;text-align:left}
+.ps-pop-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#3e5871;font-size:14px}
+.ps-pop-close{width:36px;height:36px;border:0;background:none;color:#475d73;font-size:22px;line-height:1;cursor:pointer}
+.ps-pop-item+.ps-pop-item{margin-top:12px;padding-top:12px;border-top:1px solid #e3e9ef}
+.ps-pop h3{margin:2px 0 8px;font-size:17px}
+.ps-pop p{margin:0 0 8px}
+.ps-nums{display:grid;row-gap:4px;margin:0 0 10px}.ps-nums div{display:flex;justify-content:space-between;gap:12px}
+.ps-nums dt{margin:0}.ps-nums dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.ps-nums .ps-diff{color:#9a4b00}
+.ps-q{font-weight:700}
+.ps-group{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;color:#3e5871}.ps-group input{width:18px;height:18px}
+.ps-pop-actions{display:flex;flex-wrap:wrap;gap:10px}
+.ps-pop-actions button{flex:1 1 150px;min-height:44px;padding:0 12px;border:1px solid #1e4e8c;border-radius:4px;background:#fff;color:#1e4e8c;font:inherit;font-weight:700;cursor:pointer}
+.ps-pop-actions button.primary{background:#1e4e8c;color:#fff}
+.ps-pop-actions button:disabled{opacity:.6;cursor:default}
+.ps-pop button:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+.ps-how{margin:10px 0 0;padding:8px 10px;border-radius:4px;background:#f4f7fa;font-size:14px;color:#3e5871}

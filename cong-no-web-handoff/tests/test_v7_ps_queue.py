@@ -330,6 +330,11 @@ class QueueTest(unittest.TestCase):
         bad = {"problems": [{"field": "khac", "code": "PS_BAD_AMOUNT", "value": "315789.5"}]}
         result = project([ps_row(neo="1500000") | bad], ledger([trip(lines=[line(91, 3, 1500000)])]))
         self.assertEqual((result["ready_count"], [r["status"] for r in result["review"]]), (0, ["PS_BAD_AMOUNT"]))
+        # PS-O-KHAC-01: trang hiện đúng ô và chữ bảng chi phí ghi; dòng khác không có hai trường này.
+        self.assertEqual((result["review"][0]["ps_field"], result["review"][0]["ps_value"]), ("Khác", "315789.5"))
+        self.assertEqual((only_typo["review"][0]["ps_field"], only_typo["review"][0]["ps_value"]), ("Ghép", "1"))
+        plain = project([ps_row(neo="1500000")], ledger([trip()]))["review"][0]
+        self.assertEqual((plain["status"], plain["ps_field"], plain["ps_value"]), ("WEB_NO_FEE", None, None))
 
     def test_auto_ps_takes_ready_and_locked_but_keeps_notes(self):
         ready = {"before": [{"note": None}], "after": [{"note": None}]}

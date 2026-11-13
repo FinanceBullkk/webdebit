@@ -20,4 +20,4 @@ Không đổi: câu chữ, nút, luật "hết báo" của PS-HOI-01, lệnh ghi
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT theo lựa chọn của người dùng. Chỉ đổi giao diện trang live (`so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css`); không đổi API, DB hay luật tiền. CÒN MỞ: người dùng tự đi hết luồng trên `hao`; có làm cùng cách cho các khung còn lại không.
+ĐÃ CHỐT theo lựa chọn của người dùng; mục 1–4 thay bởi [PS-O-KHAC-01](ps-o-khac-01.md) cùng ngày. Chỉ đổi giao diện trang live (`so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css`); không đổi API, DB hay luật tiền. CÒN MỞ: người dùng tự đi hết luồng trên `hao`; có làm cùng cách cho các khung còn lại không.

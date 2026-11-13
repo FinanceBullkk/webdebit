@@ -140,8 +140,8 @@
   #the-so .trip-tools button,#the-so .trip-tools #refresh-data{width:40px;min-width:40px;height:40px;min-height:40px}
   #the-so .pay-head .entry-open{height:44px;min-height:44px}
   #the-so .price-strip button,#the-so .receipt-strip button{min-height:40px;padding:0 12px}
-  #the-so .ps-ask-line button{min-height:40px}
-  #the-so .ps-ask-row>td{padding-left:10px}
+  /* Điện thoại chỉ để xem (DIEN-THOAI-CHUYEN-01): không có ô Khác nên không có nút đến cont. */
+  #the-so .ps-next{display:none}
 }
 
 /* Hộp Debit note dưới 760px (DIEN-THOAI-DEBIT-01): bản màn rộng hai cột (form 320px + cột kiểm/xem trước) bóp cột phải còn

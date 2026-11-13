@@ -79,7 +79,7 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-sheet-ui.js` | đối chiếu Sheet, ghi giá từ Sheet |
 | `so-khach-v7-offset-ui.js` | cấn trừ hai sổ (CT-2SO): ô chọn sổ nguồn trong khung Ghi phiếu thu, hộp xác nhận, hủy/đổi ngày cấn trừ |
 | `so-khach-v7-edit-ui.js` | CHỜ KIỂM, sửa ô chuyến/phiếu, xóa dòng, chuyển tháng, hỏi một câu trước khi khóa/mở khóa tháng (`askLock`) |
-| `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, "Phụ phí PS cần trả lời" tại hàng chuyến (PS-HOI-01, PS-TAI-HANG-01) |
+| `so-khach-v7-ps-ui.js`, `so-khach-v7-ps.css` | tách phụ phí theo bảng PS, phụ phí phát sinh cần xem: nhãn trong ô Khác và hộp nhỏ (PS-HOI-01, PS-O-KHAC-01) |
 | `so-khach-v7-debit-ui.js`, `debit-note-xlsx.js` | debit note theo tháng công nợ: hộp xem trước, in, ghi `.xlsx` (DEBIT-NOTE-01) |
 | `so-khach-v7.css` | CSS khung sổ live, tách nguyên văn khỏi khối `<style>` của `so-khach-v7-live.html` (31/10/2026), nạp trước `presence.css`; bản fixture `so-khach-v7.html` vẫn giữ `<style>` riêng vì offset sticky và bề rộng khác |
 
