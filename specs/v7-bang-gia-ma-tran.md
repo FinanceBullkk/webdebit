@@ -88,7 +88,9 @@ Người dùng thấy trước khi ghi: bảng giá đổi gì, số chuyến t�
 - Không đổi tầng psql của API (`ARCH-01`: mọi lệnh bọc `BEGIN … COMMIT`); gọi `save_price_table` rồi `ROLLBACK` ở API sẽ phải thêm một kiểu chạy riêng chỉ cho một route.
 - Kiểm được bằng harness PostgreSQL: gọi xem trước rồi so số dư, `version`, `event`, giá chuyến không đổi; rồi lưu thật và so kết quả trùng số xem trước.
 
-Lưu thật vẫn gửi `expected_version` của lúc xem; sổ đổi giữa chừng thì `STALE_LEDGER` như hiện nay. Cần migration nên triển khai tay theo [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md).
+Lưu thật vẫn gửi `expected_version` và đúng bảng của lúc xem; sổ đổi giữa chừng thì `STALE_LEDGER` như hiện nay. Cần migration nên triển khai tay theo [`DEPLOY-CLAUDE-01`](../docs/decisions/deploy-claude-01.md).
+
+Đã làm (PR b): `POST /api/v7/price-table/preview` cùng thân lệnh với lưu, trả `{price_table, version (không đổi), repriced_trips (+tier), repriced_delta_vnd, locked_trips, no_price_trips, typed_trips, ready_count, ready_total_vnd}`; lỗi bảng trả như lệnh lưu và trang quay về lưới kèm câu báo. Máy chủ chưa có hàm (DB chưa nâng) hoặc lỗi khác: bước xem lại vẫn hiện bảng đổi gì, ghi "Chưa tính được trước chuyến nào đổi giá" và cho lưu như trước. Nút trên thanh trên đổi thành **Xem lại và lưu**; Esc hoặc **Quay lại sửa** trở về lưới, bảng giữ nguyên. Phần "Bảng giá thay đổi gì" so bảng đã lưu với bảng sắp gửi tại trang (dữ liệu bảng, không phải tiền); đợt mới so với đợt liền trước.
 
 ## ĐỀ XUẤT chưa làm (Claude tự thêm trong mockup, người dùng chưa phản đối)
 
@@ -112,8 +114,8 @@ PR (a) — lưới ma trận, không đổi backend:
 - [ ] `npm run check`, `node scripts/check-secrets.js` xanh; Deploy hao xanh.
 
 PR (b) — xem lại trước khi lưu:
-- [ ] Harness PostgreSQL: xem trước không đổi `version`, `event`, giá chuyến, số dư; số xem trước trùng kết quả lưu thật; lỗi bảng (trùng ngày…) trả đúng mã; quyền app/reader đúng.
-- [ ] Test trình duyệt: Lưu mở bước xem lại với số từ server, "Quay lại sửa" giữ bảng, "Lưu và đổi giá N chuyến" gửi đúng một lệnh lưu.
+- [x] Harness PostgreSQL: xem trước không đổi `version`, `event`, giá chuyến, số dư; số xem trước trùng kết quả lưu thật; lỗi bảng (trùng ngày…) trả đúng mã; quyền app/reader đúng.
+- [x] Test trình duyệt: Lưu mở bước xem lại với số từ server, "Quay lại sửa" giữ bảng, "Lưu và đổi giá N chuyến" gửi đúng một lệnh lưu.
 - [ ] Migration triển khai tay trên `hao` theo runbook, nhật ký trong `docs/deploys/`.
 - [ ] Người dùng tự đi hết luồng trên bản thật: đổi giá từ ngày cho một sổ, xem lại, lưu.
 
@@ -130,3 +132,9 @@ PR (a), 13/11/2026, máy Windows, dữ liệu giả, không chạm DB:
 - `test-so-khach-v7-price-browser.js` 12 test (7 test mới cho ma trận: dán vùng phẳng vào bảng trống và dán đè, đợt không đều + đợt cũ ẩn + đổi giá từ ngày + dán một cột + sửa ngày đợt mới, lỗi tại ô/đầu cột/trùng ngày/thiếu nơi đi + bỏ đợt/bỏ hàng, shipper TT và tên gần giống, sổ chưa có shipper, lỗi server/`STALE_LEDGER`/Esc, bố cục 1265×560); sửa theo ma trận một test phím mũi tên (`test-so-khach-v7-keys-browser.js`) và một test Hồ sơ → Xem bảng giá (`test-so-khach-v7-contact-browser.js`).
 - Ảnh render 1280×720 và 1265×560 (giả lập thanh cuộn 15px) với 13 nơi đi giả, 4 đợt, một hàng có nơi đến riêng, tên dài có chữ Hán: 3 đợt vừa khung không cuộn ngang, khoảng 8 hàng thấy được, nút Lưu, đợt đang dùng và danh sách lỗi nằm trên mép 560. Đã sửa: cột rộng quá 10px ở 1265 (thu Nơi đến 104px, ô giá 108px); dải lỗi trùng lặp khi Lưu bị chặn.
 - `npm run check` xanh; `node scripts/check-secrets.js` sạch.
+
+PR (b), 13/11/2026, máy Windows, PostgreSQL 18.6 dùng một lần, dữ liệu giả:
+
+- `test_pg_v7_backend.py --migration-test`: migration đạt (nâng từ schema cũ ra đúng catalog khởi tạo mới), 69 BEHAVIOR + 10 SCHEMA đạt, 2 SKIPPED_OPEN như trước. `BANG-GIA.01` thêm: xem trước không đổi version, event, revision giá, khóa lệnh, bảng giá, số dư tháng, dòng phân bổ; gọi lại cho cùng kết quả; `STALE_LEDGER`, `PRICE_PERIOD_OVERLAP`, `NO_CHANGE` trả đúng mã và không ghi; số xem trước trùng lệnh lưu thật (chuyến, tổng, tháng khóa, hết giá) và `typed_trips` trùng trạng thái giá sau lưu; tháng khóa xem trước báo đúng; chạy lại migration trên schema chuẩn không đổi gì.
+- `test_pg_v7_grants.py --strict`: đạt (hàm mới chỉ `sokhach_app` gọi được).
+- Test trình duyệt 14 test (thêm 2: bước xem lại đủ số từ server, bảng đổi gì, quay lại/Esc giữ bảng, lưu đúng bảng và phiên bản đã xem; máy chủ chưa tính được vẫn lưu được). Ảnh 1265×560 của bước xem lại đã xem và sửa (ô số xuống dòng, danh sách chuyến bị cắt).

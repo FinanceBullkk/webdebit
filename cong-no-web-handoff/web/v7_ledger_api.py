@@ -365,7 +365,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     else:
         function, payload = validate_get(parts.path, parts.query)
     result = runner.run(function, payload, actor)
-    if method == "POST":
+    if method == "POST" and function != "preview_price_table":   # xem trước không ghi gì
         touch_inbox(raw)
     if function == "list_customers" and parts.path == "/api/v7/customers":
         result = with_display_names(result)

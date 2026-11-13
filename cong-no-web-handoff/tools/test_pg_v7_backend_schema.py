@@ -79,7 +79,7 @@ def check_roles(pg: Pg) -> None:
         pg.rejects("SELECT * FROM sokhach.v_outstanding_month", user=role)
     public_commands = ("create_book_from_sheet", "undo_sheet_batch", "assign_sheet_trip", "set_customer_commodity", "set_customer_transport", "keep_sheet_task", "apply_sheet_price", "add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee", "rewrite_trip_fees",
                        "add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "get_fee_types", "set_book_fee_columns",
-                       "save_price_table", "apply_price_table", "get_price_table", "get_price_status",
+                       "save_price_table", "preview_price_table", "apply_price_table", "get_price_table", "get_price_status",
                        "paste_trips", "edit_trip_price", "adjust_trip", "adjust_month", "delete_month_adjustment",
                        "record_receipt", "edit_receipt_meta", "void_receipt", "set_month_lock", "review_trip", "edit_trip_info", "delete_trip", "edit_legacy_trip", "delete_legacy_trip",
                        "get_ledger", "get_ledger_events", "list_customers", "get_dashboard", "get_dashboard_debt", "list_sheet_trip_refs", "list_legacy_trip_refs", "resolve_sheet_conflict", "record_offset", "void_offset",

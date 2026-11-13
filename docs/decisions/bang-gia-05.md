@@ -14,4 +14,4 @@ Chỉ đổi bố cục và luồng thao tác. Luật tiền giữ nguyên: [`BA
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT hướng bố cục. Chi tiết hành vi (lỗi tại ô, khối phải, dán gộp, số đợt hiện mặc định, cách server tính bước xem lại) là ĐỀ XUẤT của Claude theo `CLAUDE-ALL-01`, ghi ở [spec](../../specs/v7-bang-gia-ma-tran.md). Hai thứ Claude tự thêm trong mockup ("Cộng đều +N", dải nơi đi ngoài bảng) chưa làm, chờ người dùng xác nhận cần. Trạng thái triển khai ghi trong spec và `docs/deploys/`.
+ĐÃ CHỐT hướng bố cục. Lưới ma trận ĐÃ TRIỂN KHAI trên `hao` 13/11/2026 (PR #407, `Deploy hao` xanh). Bước xem lại trước khi lưu cần migration `2026-11-13-v7-xem-truoc-bang-gia.sql` (hàm `preview_price_table`, không đổi dữ liệu). Chi tiết hành vi (lỗi tại ô, khối phải, dán gộp, số đợt hiện mặc định, cách server tính bước xem lại) là ĐỀ XUẤT của Claude theo `CLAUDE-ALL-01`, ghi ở [spec](../../specs/v7-bang-gia-ma-tran.md). Hai thứ Claude tự thêm trong mockup ("Cộng đều +N", dải nơi đi ngoài bảng) chưa làm, chờ người dùng xác nhận cần. Trạng thái triển khai ghi trong spec và `docs/deploys/`.

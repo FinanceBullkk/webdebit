@@ -86,8 +86,11 @@ async function openTable(page) {
   await dialog.locator('.pm-grid, .price-help').first().waitFor();
   return dialog;
 }
+// BANG-GIA-05: "Xem lại và lưu" mở bước xem lại (server lưu thử rồi hoàn tác); nút ở bước đó mới lưu thật.
+const saves = world => posts(world).filter(([path]) => path === '/api/v7/price-table').map(([, body]) => body);
 async function saveAndWait(page) {
   await page.locator(`${D} header .price-table-save`).click();
+  await page.locator(`${D} .price-review-save:not([disabled])`).click();
   await page.waitForFunction(() => /Đã lưu bảng giá/.test(document.querySelector('.live-notice')?.textContent ?? ''));
 }
 
@@ -122,8 +125,8 @@ test('ma trận: dán vùng Sheet phẳng vào bảng trống (bỏ tiêu đề,
   assert.equal(await price(page, 0, 1).inputValue(), '76.000.000');
 
   await saveAndWait(page);
-  const [[path, body]] = posts(world);
-  assert.equal(path, '/api/v7/price-table');
+  assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview', '/api/v7/price-table']);
+  const [body] = saves(world);
   assert.equal(body.expected_version, 1);
   assert.deepEqual(body.price_table, { tt_shippers: ['TT CHUẨN'],
     locations: [{ name: 'DAK LAK', aliases: [] }, { name: 'LAM DONG', aliases: [] }, { name: 'VINH LONG', aliases: [] }],
@@ -198,7 +201,7 @@ test('ma trận: đợt không đều, đợt cũ ẩn; đổi giá từ ngày t
   await shot('bang-gia-dot-moi');
 
   await saveAndWait(page);
-  const table = posts(world)[0][1].price_table;
+  const table = saves(world)[0].price_table;
   assert.deepEqual(table.locations, uneven.locations);
   assert.deepEqual(table.tt_shippers, ['HOA SEN 88']);
   assert.deepEqual(table.periods.map(period => [period.valid_from, period.valid_to, period.rates.length]),
@@ -257,7 +260,7 @@ test('ma trận: lỗi hiện bằng chữ tại đầu cột và tại ô (ngà
   await dialog.locator('.price-period-drop').click();
   assert.match(await dialog.locator('.price-msg').innerText(), /Đã bỏ đợt 01\/08 – 14\/09\/2026/);
   await saveAndWait(page);
-  const table = posts(world)[0][1].price_table;
+  const table = saves(world)[0].price_table;
   assert.deepEqual(table.periods.map(period => period.valid_from), ['2026-06-01', '2026-09-15', '2026-10-10']);
   assert.deepEqual(table.locations.map(item => item.name), ['DAK LAK', 'LONG AN', 'CAN THO']);
   assert.deepEqual(table.periods[2].rates.filter(rate => rate.location !== 'DAK LAK'), [
@@ -279,7 +282,7 @@ test('ma trận: shipper áp giá TT ở khối phải — đếm chuyến, ship
   await side.locator('.price-ship-drop').first().click();
   assert.match(await dialog.locator('.price-dirty').innerText(), /^Chưa lưu$/);
   await saveAndWait(page);
-  assert.deepEqual(posts(world)[0][1].price_table.tt_shippers, ['HOASEN 88', 'SAO MAI']);
+  assert.deepEqual(saves(world)[0].price_table.tt_shippers, ['HOASEN 88', 'SAO MAI']);
 }, world => {
   world.priceTable = uneven;
   world.clock = NOW;
@@ -345,7 +348,7 @@ test('cùng nơi đi, hai nơi đến giữ hai hàng giá riêng khi mở và l
   assert.deepEqual([await place(page, 0, 'den').inputValue(), await place(page, 1, 'den').inputValue()], ['CẢNG A', 'CẢNG B']);
   await price(page, 0, 0).fill('71000000');
   await saveAndWait(page);
-  const rates = posts(world)[0][1].price_table.periods[0].rates;
+  const rates = saves(world)[0].price_table.periods[0].rates;
   assert.deepEqual(rates.map(rate => [rate.destination, rate.unit_price_vnd]), [['CẢNG A', '71000000'], ['CẢNG B', '75000000']]);
 }, world => {
   world.priceTable = { ...savedTable, periods: [{ valid_from: '2026-09-11', valid_to: null, rates: [
@@ -367,7 +370,7 @@ test('BANG-GIA-02: lưu bảng giá báo trước khi lưu; sau khi lưu báo t�
   assert.equal(await page.locator('.page-more').evaluate(node => node.open), false, 'menu ⋯ không che thông báo');
   assert.equal(await dialog.isVisible(), false, 'lưu xong thì đóng khung');
   await shot('bang-gia-da-doi');
-  assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table'], 'đổi giá nằm trong lệnh lưu, không gửi lệnh áp riêng');
+  assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview', '/api/v7/price-table'], 'đổi giá nằm trong lệnh lưu, không gửi lệnh áp riêng');
 }, world => {
   world.priceTable = savedTable;
   world.repricedTrips = ['1', '2', '3', '4'].map((n, index) => ({ trip_id: index + 1, container: `FAKE-${n}`, before_vnd: index === 2 ? '77000000' : '75000000', after_vnd: '76000000' }));
@@ -377,16 +380,78 @@ test('BANG-GIA-02: lưu bảng giá báo trước khi lưu; sau khi lưu báo t�
 }));
 
 test('BANG-GIA-02: giá giảm thì báo giảm; không có chuyến nào đổi thì chỉ báo đã lưu', async () => withPage(async ({ page, world }) => {
-  const dialog = await saveEditedTable(page, '74000000');
-  await dialog.locator('header .price-table-save').click();
+  await saveEditedTable(page, '74000000');
+  await saveAndWait(page);
   await page.waitForFunction(() => /Tổng tiền các chuyến giảm 1\.000\.000 đ\./.test(document.querySelector('.live-notice')?.textContent ?? ''));
   world.repricedTrips = [];
   world.repricedDelta = '0';
-  const again = await saveEditedTable(page, '73000000');
-  await again.locator('header .price-table-save').click();
+  await saveEditedTable(page, '73000000');
+  await saveAndWait(page);
   await page.waitForFunction(() => document.querySelector('.live-notice')?.textContent === 'Đã lưu bảng giá.');
 }, world => {
   world.priceTable = savedTable;
   world.repricedTrips = [{ trip_id: 1, container: 'FAKE-1', before_vnd: '75000000', after_vnd: '74000000' }];
   world.repricedDelta = '-1000000';
+}));
+
+test('BANG-GIA-05: Xem lại trước khi lưu — số chuyến đổi giá do server tính, bảng đổi gì, quay lại sửa giữ bảng; lưu đúng bảng đã xem', async () => withPage(async ({ page, world, shot }) => {
+  const dialog = await openTable(page);
+  await dialog.locator('.price-new-open').click();
+  await page.fill('.price-new-from', '10/11/2026');
+  await dialog.locator('.price-new-ok').click();
+  await price(page, 0, 2).fill('69,000,000');
+  await price(page, 0, 2).press('Enter');
+  await dialog.locator('header .price-table-save').click();
+  const review = page.locator(`${D} .price-review`);
+  await review.locator('.rv-tiles').waitFor();
+  await shot('bang-gia-xem-lai');
+  assert.equal(await review.locator('.price-review-save').innerText(), 'Lưu và đổi giá 2 chuyến');
+  assert.deepEqual(await review.locator('.rv-tile').evaluateAll(nodes => nodes.map(node => node.innerText.replace(/\s+/g, ' ').trim())),
+    ['2 chuyến tự đổi sang giá mới', '+4.000.000 đ còn nợ của khách tăng']);
+  assert.equal(await review.locator('.rv-kept').innerText(), 'Giữ nguyên giá: 1 chuyến giá gõ tay khác bảng; 3 chuyến ở tháng khóa.');
+  assert.match(await review.locator('.rv-trips').innerText(), /FAKE-1\s+[\s\S]*giá khách\s+67\.000\.000\s+69\.000\.000/);
+  const table = await review.locator('.rv-table').innerText();
+  assert.match(table, /Thêm đợt giá từ 10\/11\/2026\./);
+  assert.match(table, /Đợt 10\/10\/2026 kết thúc ngày 09\/11\/2026\./);
+  assert.match(table, /Đợt từ 10\/11\/2026\s+DAK LAK giá khách\s+67\.000\.000\s+69\.000\.000\s+\+2\.000\.000/);
+  assert.doesNotMatch(table, /LONG AN/, 'giá giữ như đợt trước không liệt kê');
+  assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview'], 'xem lại chưa ghi gì');
+  const previewed = posts(world)[0][1];
+
+  // Quay lại sửa (và Esc) giữ nguyên bảng đang sửa.
+  await review.locator('.price-review-back').click();
+  assert.equal(await price(page, 0, 2).inputValue(), '69.000.000');
+  await dialog.locator('header .price-table-save').click();
+  await review.locator('.rv-tiles').waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await review.count(), 0);
+  assert.equal(await dialog.locator('.pm-grid').isVisible(), true);
+
+  await saveAndWait(page);
+  const [body] = saves(world);
+  assert.deepEqual([body.expected_version, body.price_table], [previewed.expected_version, previewed.price_table], 'lưu đúng bảng và phiên bản đã xem');
+  assert.notEqual(body.idempotency_key, previewed.idempotency_key);
+  assert.equal(saves(world).length, 1);
+}, world => {
+  world.priceTable = uneven;
+  world.clock = NOW;
+  world.repricedTrips = [{ trip_id: 11, container: 'FAKE-1', before_vnd: '67000000', after_vnd: '69000000' }, { trip_id: 12, container: 'FAKE-2', before_vnd: '67000000', after_vnd: '69000000' }];
+  world.repricedDelta = '4000000';
+  world.typedTrips = 1;
+  world.lockedTrips = 3;
+}));
+
+test('BANG-GIA-05: máy chủ chưa tính được bước xem lại thì vẫn thấy bảng đổi gì và lưu được, lưu xong báo từng chuyến', async () => withPage(async ({ page }) => {
+  await saveEditedTable(page, '76000000');
+  await page.locator(`${D} header .price-table-save`).click();
+  const review = page.locator(`${D} .price-review`);
+  await review.locator('.rv-trips', { hasText: 'Chưa tính được trước chuyến nào đổi giá' }).waitFor();
+  assert.equal(await review.locator('.price-review-save').innerText(), 'Lưu bảng giá');
+  await review.locator('.price-review-save').click();
+  await page.waitForFunction(() => /Đã đổi giá 1 chuyến/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+}, world => {
+  world.priceTable = savedTable;
+  world.previewFail = true;
+  world.repricedTrips = [{ trip_id: 1, container: 'FAKE-1', before_vnd: '75000000', after_vnd: '76000000' }];
+  world.repricedDelta = '1000000';
 }));

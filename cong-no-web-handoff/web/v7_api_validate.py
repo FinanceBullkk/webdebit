@@ -260,7 +260,7 @@ def validate(path: str, raw: bytes) -> tuple[str, dict]:
     if function == "review_trip" and (not isinstance(body.get("reason"), str) or not body["reason"].strip()):
         bad("REVIEW_REASON_REQUIRED", "Cần ghi lý do kết luận chuyến CHỜ KIỂM.")
     # Bảng giá: chỉ kiểm hình dạng; nội dung (ngày, giá, kho, chồng ngày) do save_price_table kiểm.
-    if function == "save_price_table" and type(body.get("price_table")) is not dict:
+    if function in ("save_price_table", "preview_price_table") and type(body.get("price_table")) is not dict:
         bad()
     if function == "apply_price_table":
         ids = body.get("trip_ids")

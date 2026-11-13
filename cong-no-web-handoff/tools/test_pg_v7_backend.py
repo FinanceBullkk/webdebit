@@ -207,7 +207,7 @@ CASES = [
     case("PRB.01", "BEHAVIOR", "PR-B fee commands atomic batch, signs, locks, legacy delta and cache", check="fee_commands", functions=("add_trip_fees", "set_trip_fee_type", "replace_trip_fee", "void_trip_fee")),
     case("PRB.02", "BEHAVIOR", "PR-B catalog audit, columns, idempotency and grants", check="fee_catalog", functions=("add_fee_type", "rename_fee_type", "set_fee_type_kind", "set_fee_type_active", "set_book_fee_columns", "get_fee_types")),
     case("BANG-GIA.01", "BEHAVIOR", "Price table by effective date: lookup, save guards, batch apply, source, migration",
-         check="price_table", functions=("save_price_table", "apply_price_table", "get_price_table", "get_price_status")),
+         check="price_table", functions=("save_price_table", "preview_price_table", "apply_price_table", "get_price_table", "get_price_status")),
     case("DA-THU.01", "BEHAVIOR", "Month totals like the Sheet: received by receipt date, cumulative not rewritten", check="da_thu",
          functions=("get_ledger", "record_receipt", "void_receipt")),
 ]
@@ -397,7 +397,7 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
