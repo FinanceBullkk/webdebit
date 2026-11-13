@@ -26,12 +26,13 @@ Người nhập và chủ nghiệp vụ mở Tổng quan, Việc cần làm, S�
 
 ## Đầu ra
 
-1. **Hàm SQL `sokhach.get_read_stamp()`**: trả `{"as_of": "YYYY-MM-DD" (giờ VN), "stamp": "<md5>"}`. `stamp` là md5 của `(tên bảng, số dòng, tổng xmin)` của **mọi** bảng trong schema `sokhach` (lấy danh sách bảng từ `pg_class` lúc gọi, bảng mới tự vào). Mọi INSERT, UPDATE, DELETE đã commit ở bất kỳ bảng nào đều đổi `stamp` (UPDATE tạo bản dòng mới với xmin mới; DELETE đổi số dòng); khóa dòng (`FOR UPDATE`) và đọc không đổi. Đo trên `hao`: 29–42 ms trong DB.
-2. **Bộ nhớ đọc theo dấu (`web/v7_read_cache.py`)**: cho bốn hàm đọc nặng `get_ledger`, `get_dashboard`, `get_dashboard_debt`, `get_receivables_matrix`, ở đường GET: mỗi lượt đọc lấy dấu **mới** (một lần psql), khóa = `(as_of, stamp, hàm, tham số)`; có thì trả bản giữ, chưa có thì chạy hàm như nay rồi giữ. Hai lượt cùng khóa đến cùng lúc chỉ chạy hàm một lần. Giữ chữ JSON (không giữ dict), mỗi lượt trả một bản `json.loads` mới. Giới hạn 96 MB; đổi dấu thì bỏ hết bản của dấu cũ.
+1. **Hàm SQL `sokhach.get_read_stamp()`**: trả `{"as_of": "YYYY-MM-DD" (giờ VN), "stamp": "<md5>"}`. `stamp` là md5 của `(tên bảng, số dòng, tổng xmin)` của **mọi** bảng trong schema `sokhach` (lấy danh sách bảng từ `pg_class` lúc gọi, bảng mới tự vào). Mọi INSERT, UPDATE, DELETE đã commit ở bất kỳ bảng nào đều đổi `stamp` (UPDATE tạo bản dòng mới với xmin mới; DELETE đổi số dòng); khóa dòng (`FOR UPDATE`) và đọc không đổi. Cộng thêm số dòng và tổng xmin của dòng catalog hàm (`pg_proc`), view (`pg_rewrite`) và bảng (`pg_class`) trong schema: migration `CREATE OR REPLACE` thân `get_ledger` hay `v_outstanding_month` không đổi dòng dữ liệu nào nhưng đổi kết quả (review 13/11). Đo trên `hao`: 29–42 ms trong DB.
+2. **Bộ nhớ đọc theo dấu (`web/v7_read_cache.py`)**: cho bốn hàm đọc nặng `get_ledger`, `get_dashboard`, `get_dashboard_debt`, `get_receivables_matrix`, ở đường GET: mỗi lượt đọc lấy dấu **mới** (một lần psql), khóa = `(as_of, stamp, hàm, tham số)`; có thì trả bản giữ, chưa có thì chạy hàm như nay, lấy dấu lần nữa và chỉ giữ khi dấu chưa đổi trong lúc đọc. Hai lượt cùng khóa đến cùng lúc chỉ chạy hàm một lần. Giữ chữ JSON (không giữ dict), mỗi lượt trả một bản `json.loads` mới. Giới hạn 96 MB; đổi dấu thì bỏ hết bản của dấu cũ.
 3. **Đối chiếu ở Việc cần làm** (`GET /api/v7/sheet/doi-chieu`) đọc `get_ledger` qua cùng bộ nhớ.
-4. **Hộp thư**: các sổ vừa ghi (tối đa 5) tính lại **song song** thay vì lần lượt; hai lượt GET cùng lúc không tính trùng (lượt sau chờ lượt trước rồi dùng kết quả).
+4. **Hộp thư**: các sổ vừa ghi (tối đa 5) tính lại **song song** thay vì lần lượt; hai lượt GET cùng lúc không tính trùng (lượt sau chờ lượt trước rồi dùng kết quả); sau khi chờ mà quá 5 sổ thì giao lượt nền; sổ bị ghi tiếp trong lúc đang tính vẫn còn bẩn.
+5. Dấu hỏng (DB cũ, lỗi, sai dạng): ghi một dòng journal mỗi lần đổi trạng thái, đọc thẳng DB.
 
-Dự kiến (khi không có lệnh ghi giữa hai lượt đọc): `dashboard/debt` ~800 → ~60 ms, `dashboard` ~170 → ~60 ms, sổ 79 ~1,8 → ~0,7 giây (còn phần chiếu Sheet), đối chiếu sổ 79 ~1,4 → ~0,2 giây, hộp thư sau lệnh ghi ~3,6 → ~1 giây. Lượt đọc đầu tiên sau một lệnh ghi chậm hơn hôm nay ~45 ms (thêm lần lấy dấu).
+Dự kiến (khi không có lệnh ghi giữa hai lượt đọc): `dashboard/debt` ~800 → ~60 ms, `dashboard` ~170 → ~60 ms, sổ 79 ~1,8 → ~0,7 giây (còn phần chiếu Sheet), đối chiếu sổ 79 ~1,4 → ~0,2 giây, hộp thư sau lệnh ghi ~3,6 → ~1 giây. Lượt đọc đầu tiên sau một lệnh ghi chậm hơn hôm nay ~90 ms (lấy dấu trước và sau).
 
 ## Đối chiếu dữ liệu và code hiện có
 
@@ -50,7 +51,7 @@ Dự kiến (khi không có lệnh ghi giữa hai lượt đọc): `dashboard/de
 ## Hành vi và bất biến
 
 - **Đọc ngay sau ghi thấy bản mới**: lượt GET đến sau khi lệnh ghi trả về luôn lấy dấu mới trong một giao dịch mới, nên dấu khác và đọc lại DB. Không dùng chung lần lấy dấu giữa các lượt.
-- Dấu lấy **trước** khi đọc dữ liệu: bản giữ có thể mới hơn dấu của nó (lệnh ghi xen giữa), không bao giờ cũ hơn; lượt sau có dấu mới thì đọc lại.
+- Dấu lấy **trước** khi đọc dữ liệu và lấy lại **sau** khi đọc; chỉ giữ khi hai dấu trùng. Có lệnh ghi xen giữa thì không giữ (tránh trường hợp dữ liệu quay về đúng dấu cũ, như thêm rồi xóa tay); lượt đang chờ vẫn nhận bản vừa đọc vì nó không cũ hơn dấu của chúng.
 - Đổi ngày VN là đổi khóa (kết quả phụ thuộc ngày/tháng).
 - DB chưa có hàm dấu, hàm dấu lỗi hoặc trả sai dạng: đọc thẳng DB như hôm nay, không lỗi cho người dùng (release mới chạy được với DB cũ).
 - Lỗi của hàm đọc (ví dụ `CUSTOMER_NOT_FOUND`) không được giữ; mọi lượt đang chờ cùng khóa nhận đúng lỗi đó.
@@ -59,10 +60,10 @@ Dự kiến (khi không có lệnh ghi giữa hai lượt đọc): `dashboard/de
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tools/test_pg_v7_backend_read_stamp.py` (harness máy): dấu không đổi khi chỉ đọc (cả `get_ledger`, `get_dashboard_debt`), đổi sau ghi phiếu thu, sau đổi tên loại phí (lệnh không tăng `version`), sau xóa dòng; `as_of` là ngày VN; thiếu người làm thì `ACTOR_REQUIRED`; `v7_app` và `v7_reader` gọi được. `--migration-test` chạy migration mới trên bản sao, chạy lại được.
-- [ ] `tests/test_v7_read_cache.py`: trúng khi cùng dấu (hàm đọc chạy một lần), đổi dấu thì đọc lại và bỏ bản cũ, đổi ngày thì đọc lại, hàm không thuộc bốn hàm thì đi thẳng, dấu lỗi/sai dạng thì đi thẳng, lỗi hàm đọc không được giữ và truyền cho lượt chờ, hai lượt cùng khóa chạy hàm một lần, dict trả về sửa được mà không đổi bản giữ, vượt giới hạn byte thì bỏ bản cũ nhất.
+- [ ] `tools/test_pg_v7_backend_read_stamp.py` (harness máy): dấu không đổi khi chỉ đọc (cả `get_ledger`, `get_dashboard_debt`), khóa dòng hay hoàn tác; đổi sau ghi phiếu thu, sau đổi tên loại phí (lệnh không tăng `version`), sau UPDATE tại chỗ, sau xóa dòng, sau `CREATE OR REPLACE` hàm và view; `as_of` là ngày VN; thiếu người làm thì `ACTOR_REQUIRED`; `v7_app` và `v7_reader` gọi được. `--migration-test` chạy migration mới trên bản sao, chạy lại được.
+- [ ] `tests/test_v7_read_cache.py`: trúng khi cùng dấu (hàm đọc chạy một lần), đổi dấu thì đọc lại và bỏ bản cũ, đổi ngày thì đọc lại, hàm không thuộc bốn hàm thì đi thẳng, dấu lỗi/sai dạng thì đi thẳng và ghi journal một lần, dấu đổi trong lúc đọc thì không giữ, lỗi hàm đọc không được giữ và truyền cho lượt chờ, hai lượt cùng khóa chạy hàm một lần, dict trả về sửa được mà không đổi bản giữ, vượt giới hạn byte thì bỏ bản cũ nhất.
 - [ ] `tests/test_v7_ledger_api.py`: GET sổ, Tổng quan đi qua bộ nhớ; POST không; kết quả GET giống hệt khi không có bộ nhớ.
-- [ ] `tests/test_v7_inbox*.py`: sổ bẩn tính song song (barrier), hai GET cùng lúc không tính trùng.
+- [ ] `tests/test_v7_inbox*.py`: sổ bẩn tính song song (barrier), hai GET cùng lúc không tính trùng, sổ ghi tiếp lúc đang tính vẫn bẩn, quá 5 sổ sau khi chờ thì giao lượt nền.
 - [ ] `npm run check` xanh; `node scripts/check-secrets.js` sạch.
 - [ ] Sau triển khai trên `hao`: đo lại bảng trên cùng cách; dấu trước/sau một lệnh ghi đổi; ghi số vào nhật ký triển khai.
 

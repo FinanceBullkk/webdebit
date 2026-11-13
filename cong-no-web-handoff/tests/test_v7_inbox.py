@@ -207,6 +207,43 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(ledgers, [1])
         self.assertEqual(len(views), 2)
 
+    def test_book_written_again_while_recomputing_stays_dirty(self):
+        runner = Runner([1, 2])
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        plain = runner.run
+
+        def run(function, payload, actor):
+            if function == "get_ledger":
+                self.inbox.mark_dirty(payload["customer_id"])   # lệnh ghi khác vào đúng sổ đang tính
+            return plain(function, payload, actor)
+        runner.run = run
+        self.inbox.mark_dirty(1)
+        self.inbox.view(runner)
+        self.assertEqual(self.inbox.dirty, {1})
+
+    def test_too_many_dirty_books_after_waiting_go_to_background(self):
+        runner = Runner(list(range(1, 9)))
+        self.outputs.update({n: projection() for n in range(3, 9)})
+        self.inbox.start(runner)
+        wait_idle(self.inbox)
+        self.inbox.mark_dirty(1)
+        real_lock, inbox = self.inbox.dirty_lock, self.inbox
+
+        class Grow:
+            """Trong lúc lượt này chờ khóa, nhiều sổ khác vừa được ghi."""
+            def __enter__(self):
+                inbox.mark_dirty(*range(1, 9))
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                return real_lock.__exit__(*exc)
+        self.inbox.dirty_lock = Grow()
+        with patch.object(self.inbox, "start", wraps=self.inbox.start) as start:
+            self.inbox.view(runner)
+        start.assert_called_once()
+        wait_idle(self.inbox)
+
     def test_new_snapshot_refreshes_once_settled_and_keeps_old_result(self):
         runner = Runner([1])
         now = [time.time()]

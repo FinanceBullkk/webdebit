@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 from collections import OrderedDict
 from concurrent.futures import Future
@@ -20,7 +21,7 @@ from typing import Any
 from v7_api_validate import ApiError
 
 CACHED = frozenset({"get_ledger", "get_dashboard", "get_dashboard_debt", "get_receivables_matrix"})
-MAX_BYTES = 96 * 1024 * 1024
+MAX_BYTES = 96 * 1024 * 1024   # tính theo ký tự của chữ JSON (chữ có dấu trong RAM có thể gấp đôi)
 _STAMP = re.compile(r"[0-9a-f]{32}")
 _DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
@@ -41,18 +42,25 @@ class ReadCache:
         self.size = 0
         self.flights: dict[tuple, Future] = {}
         self.hits = self.misses = 0
+        self.broken: str | None = None   # lý do dấu hỏng gần nhất, để ghi journal một lần mỗi lần đổi trạng thái
+
+    def _note(self, problem: str | None) -> None:
+        if problem != self.broken:
+            print("V7 bộ nhớ đọc: " + (f"tắt, dấu dữ liệu hỏng ({problem})" if problem else "bật lại"), file=sys.stderr, flush=True)
+            self.broken = problem
 
     def current_stamp(self, runner, actor: str) -> str | None:
         """`as_of:stamp` mới đọc, hoặc None (DB cũ chưa có hàm, lỗi, sai dạng) để đọc thẳng."""
         try:
             body = runner.run("get_read_stamp", {}, actor)
-        except Exception:  # noqa: BLE001  dấu hỏng không được làm hỏng lượt đọc
+        except Exception as exc:  # noqa: BLE001  dấu hỏng không được làm hỏng lượt đọc
+            self._note(getattr(exc, "code", None) or type(exc).__name__)
             return None
-        if not isinstance(body, dict):
-            return None
-        day, stamp = body.get("as_of"), body.get("stamp")
+        day, stamp = (body.get("as_of"), body.get("stamp")) if isinstance(body, dict) else (None, None)
         if not (isinstance(day, str) and _DAY.fullmatch(day) and isinstance(stamp, str) and _STAMP.fullmatch(stamp)):
+            self._note("BAD_SHAPE")
             return None
+        self._note(None)
         return f"{day}:{stamp}"
 
     def run(self, runner, function: str, payload: dict, actor: str) -> Any:
@@ -86,9 +94,14 @@ class ReadCache:
                 self.flights.pop(key, None)
             flight.set_exception(exc)
             raise
+        # Chỉ giữ khi dấu chưa đổi trong lúc đọc: nếu có lệnh ghi xen giữa, bản vừa đọc có thể mới hơn dấu `stamp`, và nếu
+        # dữ liệu sau đó quay về đúng dấu cũ (thêm rồi xóa tay) thì bản giữ dưới dấu cũ sẽ sai. Lượt đang chờ vẫn nhận bản này:
+        # nó không cũ hơn dấu chúng đã lấy.
+        keep = self.current_stamp(runner, actor) == stamp
         with self.lock:
             self.flights.pop(key, None)
-            self._keep(key, text)
+            if keep:
+                self._keep(key, text)
         flight.set_result(text)
         return value
 

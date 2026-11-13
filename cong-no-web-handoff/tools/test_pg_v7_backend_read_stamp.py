@@ -54,6 +54,16 @@ def check_read_stamp(pg: Pg) -> None:
     pg.sql(f"BEGIN; UPDATE sokhach.fee_type SET name='FAKE STAMP ROLLED BACK' WHERE id={fee}; ROLLBACK")
     require(stamp(pg) == settled, "rolled back write changed the stamp")
 
+    # Migration thay thân hàm hay view (CREATE OR REPLACE, cùng thân) không đổi dòng dữ liệu nào nhưng phải đổi dấu.
+    body = pg.value("SELECT pg_get_functiondef('sokhach._legacy_date(text)'::regprocedure)")
+    pg.sql(body)
+    replaced = stamp(pg)
+    require(replaced != settled, "function replace did not change the stamp")
+    view = pg.value("SELECT pg_get_viewdef('sokhach.v_outstanding_month'::regclass)")
+    pg.sql(f"CREATE OR REPLACE VIEW sokhach.v_outstanding_month AS {view}")
+    settled = stamp(pg)
+    require(settled != replaced, "view replace did not change the stamp")
+
     # Quyền: thiếu người làm bị chặn; app và reader gọi được, cùng dấu.
     pg.rejects("SELECT sokhach.get_read_stamp()", message="ACTOR_REQUIRED")
     for user in ("v7_app", "v7_reader"):

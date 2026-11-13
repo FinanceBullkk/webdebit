@@ -1875,7 +1875,7 @@ Thứ tự: chạy migration rồi mới đổi release. Release mới với DB 
 
 Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, dấu vân tay không đổi, checker), gọi `get_read_stamp` hai lần liền trên bản sao (trùng) rồi sau một lệnh ghi thử trên bản sao (khác). Sau đổi release: đo lại `GET /api/v7/dashboard/debt` hai lần (lần hai nhanh), ghi một lệnh rồi đọc lại sổ đó (thấy ngay).
 
-**Sửa dữ liệu tay** (migration dữ liệu, `psql` trực tiếp): mọi INSERT/UPDATE/DELETE đều đổi dấu, nên API tự đọc lại; không cần khởi động lại dịch vụ.
+**Sửa tay** (migration dữ liệu, `psql` trực tiếp, `CREATE OR REPLACE` hàm hay view trong `sokhach`): đều đổi dấu, nên API tự đọc lại; không cần khởi động lại dịch vụ. Đổi thứ gì ngoài schema `sokhach` mà các hàm đọc phụ thuộc (hiện không có) thì phải khởi động lại API.
 
 Rollback: `DROP FUNCTION sokhach.get_read_stamp();` (không dữ liệu nào phụ thuộc); release mới khi đó tự đọc thẳng DB.
 

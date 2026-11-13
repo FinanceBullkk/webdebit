@@ -765,17 +765,21 @@ class Inbox:
             else:
                 # HIEU-NANG-01: các sổ vừa ghi tính song song (đo 13/11/2026: 5 sổ lần lượt 3,6 giây); hai GET cùng lúc
                 # (trang và menu) không tính trùng: lượt sau chờ lượt trước rồi chỉ tính sổ còn bẩn.
+                # Lấy sổ ra khỏi `dirty` trước khi đọc: sổ bị ghi tiếp trong lúc đang tính vẫn còn bẩn cho lượt sau.
                 with self.dirty_lock:
                     with self.lock:
                         dirty = sorted(self.dirty) if not self.running else []
-                    if dirty:
+                        if len(dirty) <= DIRTY_INLINE_LIMIT:
+                            self.dirty.difference_update(dirty)
+                    if len(dirty) > DIRTY_INLINE_LIMIT:
+                        self.start(runner)
+                    elif dirty:
                         shared = SharedReads(runner)
                         with ThreadPoolExecutor(max_workers=len(dirty)) as pool:
                             results = list(pool.map(lambda customer_id: self._one(shared, customer_id), dirty))
                         with self.lock:
                             for result in results:
                                 self._apply(*result)
-                            self.dirty.difference_update(dirty)
         with self.lock:
             if key is None and self.computed_at is None:
                 state = "unavailable"

@@ -47,7 +47,8 @@ class ReadCacheTests(unittest.TestCase):
         runner = Runner()
         first, second = self.read(runner), self.read(runner)
         self.assertEqual(first, second)
-        self.assertEqual((runner.reads("get_ledger"), runner.reads("get_read_stamp")), (1, 2))
+        # Lượt trượt lấy dấu hai lần (trước và sau khi đọc), lượt trúng một lần.
+        self.assertEqual((runner.reads("get_ledger"), runner.reads("get_read_stamp")), (1, 3))
         self.assertEqual((self.cache.hits, self.cache.misses), (1, 1))
 
     def test_new_stamp_reads_again_and_drops_old_entries(self):
@@ -58,6 +59,32 @@ class ReadCacheTests(unittest.TestCase):
         self.assertEqual(self.read(runner, 7)["version"], 2)
         self.assertEqual(runner.reads("get_ledger"), 3)
         self.assertEqual([key[0] for key in self.cache.entries], [f"2026-11-13:{STAMP_B}"])
+
+    def test_write_during_the_read_is_not_kept_under_the_old_stamp(self):
+        class Racing(Runner):
+            def run(self, function, payload, actor):
+                result = super().run(function, payload, actor)
+                if function == "get_ledger":
+                    self.stamp = STAMP_B   # lệnh ghi commit trong lúc đọc
+                return result
+        runner = Racing()
+        self.assertEqual(self.read(runner)["version"], 1)
+        self.assertEqual(len(self.cache.entries), 0)
+        runner.run = Runner.run.__get__(runner)   # hết ghi: lượt sau giữ dưới dấu mới
+        self.read(runner)
+        self.read(runner)
+        self.assertEqual(runner.reads("get_ledger"), 2)
+
+    def test_broken_stamp_is_logged_once_per_change(self):
+        runner = Runner(ApiError(503, "DB_UNAVAILABLE", "x"))
+        with patch("sys.stderr") as err:
+            for _ in range(3):
+                self.cache.run(runner, "get_dashboard", {}, "fake")
+            runner.stamp = STAMP_A
+            self.cache.run(runner, "get_dashboard", {}, "fake")
+        lines = "".join(call.args[0] for call in err.write.call_args_list).splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("DB_UNAVAILABLE", lines[0])
 
     def test_new_vn_day_reads_again(self):
         runner = Runner()
