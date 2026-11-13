@@ -33,6 +33,38 @@ globalThis.InboxTable = (() => {
     const n = BigInt(value), fraction = (n % 1000000n).toString().padStart(6, '0').replace(/0+$/, '');
     return `${n / 1000000n}${fraction ? ',' + fraction : ''}`;
   }
+  // Chuyến chưa giá theo server (`is_missing_price`: chưa đơn giá và không phải dòng phí lẻ không container). Bản thiếu trường đó
+  // thì tính theo cùng luật. Dòng phí lẻ đã tính nợ bằng phụ phí: ghi đơn giá vào đó là cộng nợ sai.
+  const isMissing = r => r.status === 'confirmed' && r.unit_price_vnd == null
+    && (typeof r.is_missing_price === 'boolean' ? r.is_missing_price : !(r.other_fee_vnd != null && !r.container));
+  // GIA-TUYEN-01: chuyến chưa giá sửa được, gom theo nơi đi → nơi đến + shipper (bảng giá tách giá TT theo shipper, BANG-GIA-01).
+  // Chuyến thiếu container, nơi đi hoặc nơi đến không gom. `last`: giá của chuyến đã có giá cùng khóa, ngày chuyến gần nhất; chỉ để gợi ý.
+  function priceGroups(ledger) {
+    const trips = ledger?.trips ?? [];
+    const key = r => (r.origin && r.destination ? JSON.stringify([r.origin, r.destination, r.shipper ?? '']) : null);
+    const last = new Map();
+    for (const r of trips) {
+      const k = key(r);
+      if (!k || r.status !== 'confirmed' || r.unit_price_vnd == null || BigInt(r.unit_price_vnd) <= 0n) continue;
+      const seen = last.get(k), date = r.event_date ?? '';
+      if (!seen || date > seen.date || (date === seen.date && r.id > seen.id)) last.set(k, { price: r.unit_price_vnd, date, id: r.id });
+    }
+    const groups = new Map();
+    for (const r of trips) {
+      const k = key(r);
+      if (!k || !r.container || !isMissing(r) || r.editable !== true) continue;
+      if (!groups.has(k)) groups.set(k, { key: k, origin: r.origin, destination: r.destination, shipper: r.shipper ?? '', trips: [], last: last.get(k) ?? null });
+      groups.get(k).trips.push(r);
+    }
+    const list = [...groups.values()];
+    for (const g of list) {
+      g.trips.sort((a, b) => (a.event_date ?? '').localeCompare(b.event_date ?? '') || a.id - b.id);
+      // Shipper chỉ ghi ra khi cùng tuyến có nhiều nhóm, để không thêm chữ thừa.
+      const twins = list.filter(o => o.origin === g.origin && o.destination === g.destination).length > 1;
+      g.label = `${g.origin} → ${g.destination}${twins ? ` · ${g.shipper || 'không shipper'}` : ''}`;
+    }
+    return list.sort((a, b) => b.trips.length - a.trips.length || (a.trips[0].event_date ?? '').localeCompare(b.trips[0].event_date ?? ''));
+  }
   // MAY-DOI-SOAT-01: sổ đã khớp Sheet ở lượt đối soát gần nhất, tổng chưa đổi từ đó: việc từ Sheet và "chưa giá" còn treo không làm số
   // đúng hơn nên không tính vào số trên menu. Chờ kiểm, số dư đầu, mặt hàng vẫn tính vì chỉ người quyết được. Tab Dọn chi tiết hiện hết.
   function books(data, dashboard, unsorted = [], showMatched = false) {
@@ -109,18 +141,19 @@ globalThis.InboxTable = (() => {
     const lech = view.lechHtml(reconcile, dc, { F, esc, href, now, action: opts.action, busy, nothing });
     const may = view.mayHtml(opts.act, people, { esc, href });
     const counts = { lech: globalThis.DoiChieuModel.openRows(reconcile).length + (reconcile?.outside_tabs?.length ?? 0), don: list.length, may: view.machineCount(bot, reconcile) };
-    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing, F, href, tongOpen: opts.tongOpen })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>` : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
+    return `${view.statusHtml(reconcile, { esc, now, stale: opts.stale, computing, nothing, F, href, tongOpen: opts.tongOpen })}${errors}${view.tabsHtml(tab, counts)}${old.resultHtml(result, F, esc, label, href)}${opts.notice ? (opts.notice.warn ? `<p class="inbox-result warn" role="alert">${esc(opts.notice.text)}</p>` : `<p class="inbox-result" role="status">${icon('check', 18)}${esc(opts.notice)}</p>`) : ''}<div class="viec-panel" role="tabpanel">${tab === 'don' ? don : tab === 'may' ? may : lech}</div>`;
   }
   function detailHtml(book, ledger, opts) {
     const { F, esc, href, action } = opts;
     const day = iso => iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '—';
     const link = text => `<a href="${href(book.customer_id)}">${text}${icon('right')}</a>`;
     const btn = (text, attrs, tone = '') => `<button type="button" class="btn ${tone}" ${attrs}${opts.busy ? ' disabled' : ''}>${text}</button>`;
-    const item = (obj, date, desc, amount, buttons, key = '') => {
+    // `more.cls`: lớp thêm cho dòng (hàng tuyến, chuyến trong tuyến); `more.dateText`: chữ ở cột ngày thay cho ngày của dòng.
+    const item = (obj, date, desc, amount, buttons, key = '', more = {}) => {
       const pending = action?.rowKey === key;
-      return `<li class="${pending ? 'pending-action' : ''}"${key ? ` data-detail-key="${key}"` : ''}><b title="${esc(obj)}">${esc(obj)}</b><span>${esc(day(date))}</span><span class="detail-description${pending ? ' action-description' : ''}" title="${esc(pending ? action.text : desc)}">${pending ? `<span id="h-action">${esc(action.inlineText ?? action.text)}</span>` : esc(desc)}</span><b class="money" title="${amount == null ? '' : esc(F.full(amount))}">${amount == null ? '' : million(amount)}</b><div class="detail-actions">${pending ? `${action.path ? btn(action.unknown ? 'Thử lại' : 'Xác nhận', 'data-action-write', 'primary') : ''}${action.unknown ? '' : btn('Thôi', 'data-action-cancel')}` : buttons}</div>${pending && action.reasonRequired ? `<label class="review-reason">Lý do kết luận <input data-action-reason maxlength="500" required aria-label="Lý do kết luận ${esc(obj)}" value="${esc(action.body.reason)}"${action.unknown ? ' disabled' : ''}></label>` : ''}${pending && action.error ? `<p class="row-error" role="alert">${esc(action.error)}</p>` : ''}</li>`;
+      return `<li class="${[pending ? 'pending-action' : '', more.cls ?? ''].join(' ').trim()}"${key ? ` data-detail-key="${esc(key)}"` : ''}><b title="${esc(obj)}">${esc(obj)}</b><span>${esc(more.dateText ?? day(date))}</span><span class="detail-description${pending ? ' action-description' : ''}" title="${esc(pending ? action.text : desc)}">${pending ? `<span id="h-action">${esc(action.inlineText ?? action.text)}</span>` : esc(desc)}</span><b class="money" title="${amount == null ? '' : esc(F.full(amount))}">${amount == null ? '' : million(amount)}</b><div class="detail-actions">${pending ? `${action.path ? btn(action.unknown ? 'Thử lại' : 'Xác nhận', 'data-action-write', 'primary') : ''}${action.unknown ? '' : btn('Thôi', 'data-action-cancel')}` : buttons}</div>${pending && action.reasonRequired ? `<label class="review-reason">Lý do kết luận <input data-action-reason maxlength="500" required aria-label="Lý do kết luận ${esc(obj)}" value="${esc(action.body.reason)}"${action.unknown ? ' disabled' : ''}></label>` : ''}${pending && action.error ? `<p class="row-error" role="alert">${esc(action.error)}</p>` : ''}</li>`;
     };
-    const section = (label, rows, hint, tone = '') => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${rows.length} ${{ 'Phiếu cần xem': 'phiếu', 'Thiết lập sổ': 'việc' }[label] ?? 'chuyến'}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
+    const section = (label, rows, hint, tone = '', countText = null) => rows.length ? `<section class="detail-group ${tone}"><h3><i></i>${label}<span>${countText ?? `${rows.length} ${{ 'Phiếu cần xem': 'phiếu', 'Thiết lập sổ': 'việc' }[label] ?? 'chuyến'}`}</span><small>· ${hint}</small></h3><ul class="detail-items">${rows.join('')}</ul></section>` : '';
     const receiptRows = (book.inStatement ? [] : ledger?.sheet_receipts?.review ?? book.receipts?.items?.filter(r => r.status !== 'READY') ?? []).map(r => item('Phiếu thu', r.date, r.note || 'Máy chưa tự khớp được phiếu này; đối chiếu chứng từ trong sổ', r.amount_vnd,
       r.status === 'NO_DATE' && r.source_fingerprint && r.debt_month
         ? `<input class="inline-price" data-receipt-date="${r.source_fingerprint}" placeholder="ngày dd/mm" aria-label="Ngày phiếu thu năm ${esc(r.debt_month.slice(0, 4))}">${btn('Ghi phiếu', `data-record-sheet-receipt="${r.source_fingerprint}"`)}`
@@ -131,12 +164,35 @@ globalThis.InboxTable = (() => {
     const fee = value => (value == null ? 'trống' : million(value));
     const conflictText = r => (r.web_unit_price_vnd === r.sheet_unit_price_vnd ? `Đơn giá ${million(r.web_unit_price_vnd)} · phụ phí web ${fee(r.web_other_fee_vnd)} → Sheet ${fee(r.sheet_other_fee_vnd)}` : `Trên web ${million(r.web_unit_price_vnd)} · trên Sheet ${million(r.sheet_unit_price_vnd)}`);
     const prices = (book.inStatement ? [] : ledger.sheet_prices?.review ?? []).map(r => item(r.container, r.date, r.status === 'CONFLICT' ? conflictText(r) : 'Cần đối chiếu giá trong sổ', null, r.status === 'CONFLICT' && r.source_fingerprint ? `${r.month_locked ? '' : btn('Lấy giá Sheet', `data-use-sheet-price="${r.target_kind}:${r.target_id}"`)}${btn('Giữ giá web', `data-keep-price="${r.target_kind}:${r.target_id}"`)}${link('Mở để đối chiếu')}` : link('Mở để đối chiếu'), `sheet-price:${r.target_kind}:${r.target_id}`));
-    const missing = (ledger.trips ?? []).filter(r => r.unit_price_vnd == null && r.status === 'confirmed').map(r => {
+    const suggestedOf = r => {
       const rate = ledger.price_status?.trips?.find(p => p.trip_id === r.id && p.ready)?.lookup?.unit_price_vnd;
-      const suggested = rate == null ? '' : millionInput(rate);
-      return item(r.container, r.event_date, `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · ${suggested ? `bảng giá gợi ý ${suggested}` : 'sổ chưa có giá gợi ý'}`, null,
-        r.editable === true ? `<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}" data-suggested-price="${suggested}" placeholder="giá, tr">${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `price:${r.id}`);
-    });
+      return rate == null ? '' : millionInput(rate);
+    };
+    const tripItem = (r, group = null) => {
+      const suggested = suggestedOf(r);
+      const hint = suggested ? `bảng giá gợi ý ${suggested}` : group ? '' : 'sổ chưa có giá gợi ý';
+      // Chuyến trong một tuyến: tuyến đã ở hàng trên, dòng chỉ còn gợi ý của bảng giá (nếu có).
+      const desc = group ? hint : `${r.origin ?? ''}${r.destination ? ` → ${r.destination}` : ''} · ${hint}`;
+      return item(r.container, r.event_date, desc, null,
+        r.editable === true ? `<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho ${esc(r.container)}" data-manual-price="${r.id}"${group ? ` data-price-route="${esc(group.key)}"` : ''} data-suggested-price="${suggested}" placeholder="giá, tr">${btn('Ghi giá', `data-command="price" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `price:${r.id}`, group ? { cls: 'price-child' } : {});
+    };
+    // Tuyến có từ hai chuyến: một hàng tuyến gõ giá một lần, điền xuống các chuyến bên dưới (GIA-TUYEN-01).
+    const groupItem = g => {
+      const shared = new Set(g.trips.map(suggestedOf));
+      const common = shared.size === 1 ? [...shared][0] : '';
+      const range = `${day(g.trips[0].event_date)}${g.trips.length > 1 && g.trips.at(-1).event_date !== g.trips[0].event_date ? `–${day(g.trips.at(-1).event_date)}` : ''}`;
+      // Giá gần nhất là nút điền (người bấm mới vào ô), đặt ở vùng thao tác để tên tuyến không bị cắt.
+      const last = g.last ? `<button type="button" class="use-last" data-use-last="${esc(g.key)}" data-last-price="${millionInput(g.last.price)}" title="Điền giá của chuyến gần nhất cùng tuyến đã có giá (${esc(F.dateText(g.last.date))})"${opts.busy ? ' disabled' : ''}>Giá gần nhất ${millionInput(g.last.price)} tr · ${esc(day(g.last.date))}</button>` : '';
+      return item(`${g.trips.length} chuyến`, null, `${g.label} · ${range}`, null,
+        `${last}<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr">${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}`,
+        `price-group:${g.key}`, { cls: 'price-group', dateText: '' });
+    };
+    const missingTrips = (ledger.trips ?? []).filter(isMissing);
+    const groups = priceGroups(ledger).filter(g => g.trips.length > 1);
+    const grouped = new Set(groups.flatMap(g => g.trips.map(r => r.id)));
+    const missing = [...groups.flatMap(g => [groupItem(g), ...g.trips.map(r => tripItem(r, g))]), ...missingTrips.filter(r => !grouped.has(r.id)).map(r => tripItem(r))];
+    const routeCount = groups.length + missingTrips.length - grouped.size;
+    const missingCount = `${missingTrips.length} chuyến${groups.length ? ` · ${routeCount} tuyến` : ''}`;
     const pending = (ledger.trips ?? []).filter(r => r.status === 'pending_review').map(r => item(r.container, r.event_date, r.review_reason || 'Nghi trùng, chưa cộng vào nợ', r.unit_price_vnd == null ? null : SoKhachV7Model.tripAmount({ unitPriceVnd: r.unit_price_vnd, otherFeeVnd: r.other_fee_vnd, container: r.container, status: 'confirmed' }).amountVnd?.toString(),
       r.editable === true ? `${btn(r.unit_price_vnd == null ? 'Đúng, giữ' : 'Đúng, tính nợ', `data-command="confirm" data-trip="${r.id}"`)}${btn('Trùng, bỏ', `data-command="reject" data-trip="${r.id}"`)}` : link('Mở trong sổ'), `review:${r.id}`));
     // Chuyến bộ (NGUON-CHUYEN-01): dòng của sheet_road mang sẵn `message`; máy đưa vào sổ, người mở sổ khi vướng.
@@ -151,7 +207,7 @@ globalThis.InboxTable = (() => {
     return section('Sheet đã xóa', removed, 'đang tính nợ nhưng Sheet không còn, nợ có thể thừa', 'danger')
       + section('Phiếu cần xem', receiptRows, 'máy chỉ tự ghi khi khớp đúng tổng Sheet', 'warn')
       + section('Giá khác', prices, 'hai giá cho cùng chuyến, chọn một', 'warn')
-      + section('Chưa giá', missing, 'chưa cộng vào nợ', 'warn')
+      + section('Chưa giá', missing, groups.length ? 'chưa cộng vào nợ · gõ giá ở hàng tuyến để điền cả tuyến' : 'chưa cộng vào nợ', 'warn', missingCount)
       + section('Chờ kiểm', pending, 'nghi trùng, chưa cộng vào nợ', 'warn')
       + section('Chuyến mới / ở sổ khác', sheet, 'máy chưa chắc vào sổ nào')
       + (ledger.sheet_sync?.items?.some(r => r.sync_state === 'NEW') ? btn('Vào sổ · chuyến mới', 'data-command="approve"') : '')
@@ -159,5 +215,5 @@ globalThis.InboxTable = (() => {
       + (ledger.ps_fees?.ready?.length ? btn(`Tách ${ledger.ps_fees.ready.length} dòng`, 'data-command="ps"') : '')
       + section('Thiết lập sổ', setup, 'cần đối chiếu sổ gốc');
   }
-  return { render, books, count, parseMillions, million, icon };
+  return { render, books, count, parseMillions, million, millionInput, priceGroups, icon };
 })();
