@@ -779,7 +779,7 @@
     const repriced = result?.repriced_trips ?? [];
     const delta = BigInt(result?.repriced_delta_vnd ?? 0);
     const signed = value => value > 0n ? `+${fmt(String(value))}` : value < 0n ? `−${fmt(String(-value))}` : '0';
-    const diff = row => row.was != null && row.is != null ? signed(BigInt(row.is) - BigInt(row.was)) : '';
+    const diff = row => { const change = model.priceTableChange(row.was, row.is); return change == null ? '' : signed(change); };
     const tiles = result ? [
       [`${repriced.length} chuyến`, 'tự đổi sang giá mới'],
       [delta === 0n ? '0 đ' : `${signed(delta)} đ`, delta === 0n ? 'còn nợ của khách không đổi' : `còn nợ của khách ${delta > 0n ? 'tăng' : 'giảm'}`],
