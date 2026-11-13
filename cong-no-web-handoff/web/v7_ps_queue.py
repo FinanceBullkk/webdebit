@@ -234,7 +234,10 @@ def project_ps(snapshot: dict, ledger: dict, customers: list[dict], fee_types: l
 
     def public(result: dict, status: str) -> dict:
         row, target, info = result["row"], result["target"], result["info"]
-        return {"key": row.get("key"), "source_row": row.get("source_row"), "container": row.get("container"),
+        # PS-O-KHAC-01: ô PS gõ sai hoặc số lẻ — trang hiện đúng chữ bảng chi phí ghi trong ô Khác, không tự đọc lại câu.
+        problem = (row.get("problems") or [{}])[0] if status in ("PS_TYPO", "PS_BAD_AMOUNT") else {}
+        return {"ps_field": LABELS.get(problem.get("field")) if problem else None,
+                "ps_value": None if problem.get("value") is None else str(problem["value"]),"key": row.get("key"), "source_row": row.get("source_row"), "container": row.get("container"),
                 "date": row.get("date"), "bill_month": row.get("bill_month"), "ps_source": row.get("ps_source"),
                 "target_kind": target["kind"] if target else "", "target_id": target["id"] if target else "",
                 "month": info["month"], "status": status, "message": message(status, row, info),
