@@ -156,10 +156,18 @@
   if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => { loadCustomers(); });
 
   // onRedraw: trang vẽ lại từ bản đang có mà giữ ô đang gõ; thiếu thì vẽ lại bằng onSnapshot.
-  function create({ customerId, fetcher = fetch, key = () => crypto.randomUUID(), onSnapshot = () => {}, onRedraw = null, onNotice = () => {} }) {
+  // NHAP-NHANH-01: onPatched nhận bản sổ đã vá (ô vừa gõ) hay bản đọc lại trong lúc hàng đợi ghi nền chạy — trang vẽ khi rảnh,
+  // không thay #app lúc đang gõ; thiếu thì vẽ bằng onSnapshot. onSaving: hàng đợi bắt đầu/xong (dòng "Đang lưu…" đầu sổ).
+  function create({ customerId, fetcher = fetch, key = () => crypto.randomUUID(), onSnapshot = () => {}, onRedraw = null, onNotice = () => {},
+    onPatched = null, onSaving = () => {} }) {
     let snapshot = null;
     let pending = null;
     let outcome = null;
+    // NHAP-NHANH-01: hàng đợi ghi nền { items, index, version }; items[index..] là lệnh chưa ghi xong, bản sổ hiện ra luôn vá
+    // thêm các lệnh đó để lần đọc lại xen vào không làm ô vừa gõ nháy về số cũ.
+    let queue = null, queueRun = null;
+    const queueActive = () => !!queueRun && outcome?.status !== 'unknown';
+    const overlay = data => (queue ? queue.items.slice(queue.index).reduce((acc, item) => item.patch?.(acc) ?? acc, data) : data);
     // MO-SO-NHANH-01: so-khach-v7-prefetch.js (đầu <head>) đã bắt đầu GET sổ của ?customer= lúc trang mở; lần đọc đầu
     // lấy phản hồi đó (một lần, đúng mã khách) thay vì gọi lại. Lỗi hay đổi khách thì fetch như thường.
     const prefetched = () => {
@@ -169,7 +177,8 @@
       early.response = null;
       return response;
     };
-    async function read() {
+    // gentle (hàng đợi ghi nền): vẽ qua onPatched để không thay #app giữa lúc người dùng đang gõ ô kế tiếp.
+    async function read({ gentle = false } = {}) {
       const response = await (prefetched() ?? fetcher(`/api/v7/ledger?customer=${encodeURIComponent(customerId)}`, { cache: 'no-store' }));
       if (!response.ok) throw Error('Không đọc được sổ khách.');
       const next = await response.json();
@@ -179,9 +188,8 @@
         if (next.real_copy === true) banner.textContent = realCopyText;
         banner.hidden = next.demo !== true && next.real_copy !== true;
       }
-      snapshot = next;
-
-      onSnapshot(next);
+      snapshot = overlay(next);
+      if (gentle && onPatched) onPatched(snapshot); else onSnapshot(snapshot);
       return next;
     }
     // MO-SO-NHANH-02: Lịch sử của sổ đọc riêng khi mở khung; không đụng bản sổ đang giữ, không cần lệnh đang chờ.
@@ -200,7 +208,8 @@
     // bấm thẳng nút từ ô vừa gõ (ô lưu lúc mất tiêu điểm) vẫn thấy số vừa ghi.
     let inflight = null;
     function send() {
-      const run = sendOnce().finally(() => { if (inflight === run) inflight = null; });
+      // Còn `pending` sau khi gửi xong = chưa rõ kết quả: vẽ lại băng đầu sổ để hiện nút Thử lại (sending() đã tắt).
+      const run = sendOnce().finally(() => { if (inflight === run) inflight = null; if (pending) onSaving(); });
       inflight = run;
       return run;
     }
@@ -239,9 +248,17 @@
     }
     async function submit(action, fields) {
       outcome = null;   // trước mọi lần từ chối: kết quả của lệnh trước (hay chuỗi giá) không được đọc nhầm là của lệnh này
+      if (queueRun) { await queueRun; outcome = null; }   // NHAP-NHANH-01: lệnh khác chờ hàng đợi ghi nền xong
       if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
+      const [path, intent] = intentOf(action, fields);
+      pending = { path, body: { customer_id: customerId, expected_version: snapshot.version,
+        idempotency_key: key(), ...intent } };
+      return await send();
+    }
+    // Lệnh sổ đã lọc trường và kiểm kiểu (chung cho submit và hàng đợi ghi nền).
+    function intentOf(action, fields) {
       const route = routes[action];
       if (!route) throw Error('Thao tác không hợp lệ.');
       const intent = Object.fromEntries(route[1].filter(name => Object.hasOwn(fields, name)).map(name => [name, fields[name]]));
@@ -254,9 +271,81 @@
       for (const trip of intent.trips ?? []) {
         if (['unitPriceVnd', 'otherFeeVnd'].some(name => trip[name] !== null && trip[name] !== undefined && typeof trip[name] !== 'string')) throw Error('Số tiền phải là chuỗi VND.');
       }
-      pending = { path: route[0], body: { customer_id: customerId, expected_version: snapshot.version,
-        idempotency_key: key(), ...intent } };
-      return await send();
+      return [route[0], intent];
+    }
+    // ---- NHAP-NHANH-01 (specs/nhap-nhanh-01.md): gõ xong hiện ngay, ghi nền như Sheet ----
+    // quick() vá bản sổ ngay (patch: bản sổ → bản đã vá, hoặc null) rồi xếp lệnh vào hàng đợi; các lệnh đi lần lượt, lệnh sau
+    // dùng `version` lệnh trước trả về; hết lệnh thì đọc lại sổ một lần. Lệnh bị từ chối: dừng, bỏ các lệnh sau (báo số ô),
+    // đọc lại sổ cho ô về số thật. Mất mạng: giữ lệnh đó với cùng khóa (`pending`), Thử lại ghi nốt. Trả Promise xong khi sổ
+    // đã đọc lại: {status: saved|error|stale|dropped, result}.
+    function quick(action, fields, { patch = null, label = '' } = {}) {
+      outcome = null;
+      if (running) throw Error(busyText);
+      if (pending && !queue) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
+      if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
+      const [path, intent] = intentOf(action, fields);
+      let resolve;
+      const done = new Promise(ready => { resolve = ready; });
+      queue ??= { items: [], index: 0, version: snapshot.version };
+      queue.items.push({ path, intent, key: key(), patch, label, resolve, result: null });
+      const patched = patch?.(snapshot);
+      if (patched) { snapshot = patched; (onPatched ?? onSnapshot)(patched); }
+      if (!queueRun && !pending) runQueue();   // còn lệnh chưa rõ kết quả: chờ người dùng bấm Thử lại
+      return done;
+    }
+    const runQueue = () => {
+      queueRun ??= loopQuick().finally(() => { queueRun = null; onSaving(); });
+      onSaving();
+      return queueRun;
+    };
+    async function loopQuick() {
+      const run = queue;
+      for (;;) {
+        while (run.index < run.items.length) {
+          const item = run.items[run.index];
+          pending ??= { path: item.path, body: { customer_id: customerId, expected_version: run.version, idempotency_key: item.key, ...item.intent } };
+          let response, result;
+          try {
+            response = await fetcher(pending.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pending.body) });
+            result = await response.json();
+          } catch {
+            outcome = { status: 'unknown' };
+            onNotice(unknown);
+            return;
+          }
+          if (!response.ok && result?.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown' }; onNotice(unknown); return; }
+          if (!response.ok && result?.error !== 'NO_CHANGE') {
+            pending = null;
+            const later = run.items.slice(run.index + 1);
+            queue = null;
+            outcome = remember(item.key, { status: result?.error === 'STALE_LEDGER' ? 'stale' : 'error', result });
+            try { await read({ gentle: true }); } catch { /* câu báo dưới đây vẫn nói ô nào chưa lưu */ }
+            const why = result?.error === 'STALE_LEDGER' ? stale : result?.message || 'Không lưu được thao tác.';
+            onNotice(`Chưa lưu ${item.label || 'ô vừa sửa'}: ${why}${later.length ? ` ${later.length} ô sửa sau đó cũng chưa lưu, nhập lại các ô đó.` : ''}`);
+            item.resolve(outcome);
+            for (const other of later) other.resolve({ status: 'dropped' });
+            return;
+          }
+          pending = null;
+          item.result = response.ok ? result : null;
+          remember(item.key, { status: 'saved', result: item.result });
+          run.index += 1;
+          if (response.ok && Number.isSafeInteger(result?.version)) run.version = result.version;
+          else if (response.ok) {
+            // Lệnh không trả version: đọc lại sổ lấy version trước khi gửi lệnh sau.
+            try { run.version = (await read({ gentle: true })).version; }
+            catch { queue = null; outcome = { status: 'unknown' }; onNotice('Đã lưu nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.'); return; }
+          }
+        }
+        let readBack = true;
+        try { await read({ gentle: true }); } catch { readBack = false; }
+        if (run.index < run.items.length) continue;   // gõ thêm trong lúc đọc lại: ghi nốt rồi đọc lại lần nữa
+        queue = null;
+        outcome = { status: 'saved' };
+        for (const item of run.items) item.resolve({ status: 'saved', result: item.result });
+        onNotice(readBack ? 'Đã lưu.' : 'Đã lưu nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.');
+        return;
+      }
     }
     // GIA-O-01 (B): chuỗi lệnh cùng loại trên sổ đang mở (dán cột giá). Lệnh sau dùng phiên bản lệnh trước trả về; đọc lại sổ
     // một lần ở cuối. Mất mạng: `pending` giữ đúng lệnh chưa rõ (cùng khóa), `series` giữ phần còn lại; retry() gửi lại lệnh đó
@@ -297,6 +386,7 @@
       return { notice: readBack ? `Đã ghi ${total} giá.` : `Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` };
     }
     async function submitSeries(action, list) {
+      if (queueRun) await queueRun;
       if (running) throw Error(busyText);
       if (pending || series) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       outcome = null;
@@ -312,6 +402,7 @@
     }
     // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.
     async function submitOffset(action, fields) {
+      if (queueRun) await queueRun;
       outcome = null;
       if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
@@ -352,6 +443,7 @@
     }
     // Lệnh danh mục: trả {status, result} như cấn trừ; xong thì đọc lại sổ (send) để vẽ lại.
     async function submitCatalog(action, fields) {
+      if (queueRun) await queueRun;
       outcome = null;
       if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
@@ -443,8 +535,12 @@
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
-      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series || !!running, snapshot: () => snapshot,
-      settle: () => Promise.allSettled([inflight, running]).then(() => {}),
+      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (queue) await runQueue(); else if (pending) await send(); },
+      // NHAP-NHANH-01: hàng đợi đang ghi bình thường là saving(), không phải "còn lệnh chưa rõ" — các nút khác vẫn bấm được
+      // (submit chờ hàng đợi xong); kẹt vì mất mạng thì hasPending() như lệnh thường.
+      hasPending: () => !!series || !!running || (!queueActive() && (!!pending || !!queue)), snapshot: () => snapshot, quick, saving: () => queueActive(),
+      settle: () => Promise.allSettled([inflight, running, queueRun]).then(() => {}),
+      sending: () => !!inflight,   // lệnh thường đang gửi (chưa trả lời): chưa phải "chưa rõ kết quả"
       pendingKey: () => pending?.body?.idempotency_key ?? null, outcomeOf: key => settled.get(key) ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
       // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
       progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };

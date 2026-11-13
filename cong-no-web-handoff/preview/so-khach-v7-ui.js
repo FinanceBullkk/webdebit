@@ -414,7 +414,9 @@
       // GIA-O-01 (B): chuỗi giá đang ghi thì báo tiến độ, không đưa nút Thử lại (bấm vào giữa lúc đang ghi không có gì để thử lại).
       const run = api.progress?.();
       return (run?.running ? row(`Đang ghi giá đã dán: ${Math.min(run.done + 1, run.total)}/${run.total}…`)
-        : api.hasPending() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
+        : api.saving?.() ? row('Đang lưu…', '', 'saving')   // NHAP-NHANH-01: ô đã hiện, lệnh đang ghi nền
+        // Lệnh đang gửi mà sổ vẽ lại (bản hoãn của hàng đợi ghi nền) thì chưa có gì để Thử lại.
+        : api.hasPending() && !api.sending?.() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
         + (data?.sheet_sync?.unavailable ? row('Không đọc được chuyến mới từ Sheet.') : '')
         + (data && data.status !== 'active' ? row('Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.') : '');
     }
@@ -501,20 +503,24 @@
     }
     // Tin sau thao tác: nổi ở góc (THONG-BAO-01). Còn lệnh chưa rõ kết quả thì câu vào băng đầu sổ cạnh nút Thử lại, không
     // nổi, vì đó là tình trạng phải xử lý chứ không phải tin đã xong.
+    const paintStatus = () => { const status = root.querySelector('.book-status'); if (status) status.innerHTML = statusRows(snapshot); };
     function showNotice(value) {
       const message = ctx.presenceStale ? ctx.presenceStale(value) : value;
       const toast = window.CongNoThongBao;
-      if (api.hasPending()) { pendingText = message; toast?.hide(); }
+      if (api.hasPending() && !api.saving?.()) { pendingText = message; toast?.hide(); }
       else {
         pendingText = '';
         // "Đã lưu." trơn không báo: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
         if (message === 'Đã lưu.') toast?.hide(); else toast?.show(message);
       }
-      const status = root.querySelector('.book-status');
-      if (status) status.innerHTML = statusRows(snapshot);
+      paintStatus();
     }
     // Danh sách khách về sau sổ thì vẽ lại từ bản đang có, không xóa ô đang gõ dở hay dòng hỏi đang mở.
-    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice });
+    // NHAP-NHANH-01: bản sổ vá ngay sau khi gõ và bản đọc lại của hàng đợi ghi nền vẽ khi rảnh (không đang gõ, không đang nhấn
+    // chuột), để không thay #app giữa lúc mở ô kế tiếp; ô vừa lưu đã đổi chữ tại chỗ (so-khach-v7-edit-ui.js).
+    const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice,
+      // Hoãn một nhịp: Tab/Enter đang dời tiêu điểm sang ô kế, vẽ sau khi tiêu điểm đã tới để giữ đúng ô đó.
+      onPatched: data => { snapshot = data; setTimeout(paintWhenFree); }, onSaving: paintStatus });
     const moneyText = (value, nullable = false) => {
       if (nullable && !value.trim()) return null;
       let number;
@@ -557,10 +563,27 @@
     firstRead();
     // Đang nhập hoặc đang mở chi tiết thì không tự cập nhật (vẽ lại sẽ xóa ô đang gõ hoặc đóng khung đang xem).
     const BUSY_OPEN = 'input:focus,textarea:focus,select:focus,.offset-backdrop,.sheet-detail,.review-prompt,.month-adjustment-input,'
-      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden])';
+      + '.void-prompt,.move-ask,.delete-prompt,.lock-ask,.price-panel,.history-panel:not([hidden]),'
+      // Menu "Cài đặt ▾" đang mở: vẽ lại (đổi cỡ màn…) đóng mất menu giữa lúc người dùng chọn mục.
+      + '.book-settings[open]';
+    // NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ khi không đang gõ trong sổ và không đang nhấn chuột (vẽ lúc đó thay mất ô
+    // vừa nhấn, cú bấm không tới). Khung đang mở (Lịch sử, chi tiết…) không chặn: lần đọc sau khi ghi vẫn vẽ ngay như trước.
+    let pointerHeld = false, paintWait = 0;
+    if (typeof document.addEventListener === 'function') {
+      document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+      // Nhả chuột và click đi cùng một lượt của trình duyệt: không hẹn giờ nào chen giữa, gỡ cờ ngay là đủ.
+      for (const name of ['pointerup', 'pointercancel']) document.addEventListener(name, () => { pointerHeld = false; }, true);
+    }
+    function paintWhenFree() {
+      clearTimeout(paintWait);
+      const now = document.activeElement;
+      const typing = pointerHeld || (now && root.contains(now) && now.matches('input:not([type="checkbox"]),textarea,select'))
+        || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
+      if (typing) paintWait = setTimeout(paintWhenFree, 300); else redraw();
+    }
     const openInBook = () => root.querySelector(`${BUSY_OPEN},.fee-own-input`)
       || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
-    const busy = () => api.hasPending() || ctx.busyChecks.some(check => check()) || openInBook();
+    const busy = () => api.hasPending() || api.saving?.() || ctx.busyChecks.some(check => check()) || openInBook();
     async function refresh(manual = false) {
       if (refreshing) return;
       if (busy()) {

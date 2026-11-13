@@ -51,12 +51,15 @@
   // Sheet history in the ledger columns: amounts come from the copy as digit strings; no maths here.
   // The loader resolves every serial date to one reading (dd/mm/yyyy); anything left is text typed in the Sheet ("da tt").
   const curDay = (cur, t) => cur.event_date ? dateText(cur.event_date) : sheetDay(t.raw_date);
-  const countedCell = cur => num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd));
+  // NHAP-NHANH-01: dòng vừa sửa còn đang ghi nền (`saving` do bản vá đặt) — Thành tiền chờ số máy chủ, trang không tự tính.
+  const savingCell = () => '<td class="num is-saving" title="Đang lưu, chờ máy chủ tính">…</td>';
+  const countedCell = (cur, saving = false) => (saving ? savingCell()
+    : num(cur.unit_price_vnd == null && cur.counted_vnd === '0' ? '–' : fmt(cur.counted_vnd)));
   // KHOA-CHU-01 (1/11/2026): tháng khóa vẫn sửa được bốn ô chữ (hãng tàu, shipper, nơi đi, nơi đến); container, ngày, tiền, xóa thì không.
   const legacyLocked = (trip, cur, t, stt, unitText) => [cell(stt || '–'), cell(cur.container || 'Phí lẻ'),
     infoCell('legacy', trip.id, 'carrier', cur.carrier ?? ''), shipperCell(infoCell('legacy', trip.id, 'shipper', cur.shipper ?? '')),
     cell(curDay(cur, t)), route(infoCell('legacy', trip.id, 'origin', cur.origin ?? ''), infoCell('legacy', trip.id, 'destination', cur.destination ?? '')),
-    num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur)].join('');
+    num(unitText[0]), feeCells(`legacy:${trip.id}`, cur.container || 'phí lẻ', trip.fee_lines, false), countedCell(cur, trip.saving)].join('');
   const legacyEditable = (trip, cur, t, stt, unitText) => {
     const what = cur.container || 'phí lẻ';
     const edit = (field, text, classes) => infoCell('legacy', trip.id, field, text, classes);
@@ -64,7 +67,7 @@
       edit('container', cur.container || 'Phí lẻ'), edit('carrier', cur.carrier ?? ''), shipperCell(edit('shipper', cur.shipper ?? '')),
       edit('event_date', curDay(cur, t)), route(edit('origin', cur.origin ?? ''), edit('destination', cur.destination ?? '')),
       edit('unit_price_vnd', unitText[0], `num ${unitText[1]}`), feeCells(`legacy:${trip.id}`, what, trip.fee_lines, cur.unit_price_vnd != null),
-      countedCell(cur)].join('');
+      countedCell(cur, trip.saving)].join('');
   };
   const legacySheet = (trip, t, stt) => [cell(stt), cell(t.container || 'Phí lẻ'), cell(t.carrier ?? ''), shipperCell(cell(t.shipper ?? '')),
     cell(t.date ? dateText(t.date) : sheetDay(t.raw_date)), routeText(t.from ?? '', t.to ?? ''),
@@ -109,7 +112,8 @@
     const amount = !trip ? empty('num') : pending && locked ? '<td class="num"><span class="row-tag review">chờ kiểm</span></td>'
       : pending ? `<td class="num review-cell"><button type="button" class="review-open row-tag review" data-trip="${trip.id}" aria-expanded="false" `
         + `aria-label="Kết luận chuyến ${escape(trip.container)} đang chờ kiểm">chờ kiểm</button></td>`
-      : trip.status === 'rejected' ? '<td class="num"><span class="trip-rejected row-tag rejected">đã loại</span></td>' : num(fmt(trip.amount_vnd));
+      : trip.status === 'rejected' ? '<td class="num"><span class="trip-rejected row-tag rejected">đã loại</span></td>'
+        : trip.saving ? savingCell() : num(fmt(trip.amount_vnd));
     return `<tr${rowKey ? ` data-row="${rowKey}"` : ''}${moved.has(rowKey) ? ' class="moved"' : ''}>${stt}
             ${infoCells}
             ${price}

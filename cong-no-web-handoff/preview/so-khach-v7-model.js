@@ -1064,7 +1064,55 @@ const SoKhachV7Model = (() => {
     return { items, writes: finalWrites, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  // NHAP-NHANH-01 (specs/nhap-nhanh-01.md): bản sổ đã vá theo một lệnh vừa gõ, để ô hiện ngay trong lúc lệnh còn ghi nền.
+  // Không đổi bản gốc; lệnh có thể đổi tiền (đơn giá, phụ phí, ô *_vnd) thì dòng mang `saving: true` (ô Thành tiền hiện "…");
+  // sửa chữ, ngày thì không. Không tính tiền: Thành tiền, số tổng tháng
+  // và còn nợ giữ nguyên số máy chủ tới lần đọc lại. Lệnh không vá được (không thấy dòng, loại lệnh khác) thì trả null.
+  const QUICK_ACTIONS = ["tripInfo", "legacyEdit", "price", "tripDelete", "legacyDelete", "feeSet"];
+  function patchLedger(ledger, action, fields) {
+    if (!ledger || !QUICK_ACTIONS.includes(action)) return null;
+    const copy = { ...ledger, trips: [...(ledger.trips ?? [])], legacy_rows: [...(ledger.legacy_rows ?? [])] };
+    const same = (a, b) => a != null && b != null && String(a) === String(b);
+    const tripAt = id => copy.trips.findIndex(row => same(row.id, id));
+    const legacyAt = id => copy.legacy_rows.findIndex(row => same(row.id, id));
+    const money = action === "price" || action === "feeSet" || String(fields?.field ?? "").endsWith("_vnd");
+    const mark = row => (money ? { saving: true } : row.saving ? { saving: true } : {});
+    const editTrip = (id, change) => {
+      const at = tripAt(id);
+      if (at < 0) return false;
+      copy.trips[at] = { ...copy.trips[at], ...change, ...mark(copy.trips[at]) };
+      return true;
+    };
+    const editLegacy = (id, current, top = {}) => {
+      const at = legacyAt(id);
+      if (at < 0 || !copy.legacy_rows[at].current) return false;
+      copy.legacy_rows[at] = { ...copy.legacy_rows[at], ...top, current: { ...copy.legacy_rows[at].current, ...current }, ...mark(copy.legacy_rows[at]) };
+      return true;
+    };
+    // "Đặt loại = số" (feeSet): bỏ mọi khoản cùng loại, thêm một khoản bằng số đó; số trống thì chỉ bỏ.
+    const setFee = (lines, typeId, amount) => [...(lines ?? []).filter(line => Number(line.fee_type_id) !== Number(typeId)),
+      ...(amount == null ? [] : [{ id: null, fee_type_id: Number(typeId), amount_vnd: String(amount), note: null }])];
+    let done = false;
+    if (action === "tripInfo") done = editTrip(fields.trip_id, { [fields.field]: fields.value });
+    else if (action === "price") done = editTrip(fields.trip_id, { unit_price_vnd: fields.unit_price_vnd ?? null,
+      other_fee_vnd: fields.other_fee_vnd ?? null, is_missing_price: fields.unit_price_vnd == null });
+    else if (action === "legacyEdit") done = editLegacy(fields.legacy_row_id, { [fields.field]: fields.value });
+    else if (action === "tripDelete") { done = tripAt(fields.trip_id) >= 0; copy.trips = copy.trips.filter(row => !same(row.id, fields.trip_id)); }
+    else if (action === "legacyDelete") { done = legacyAt(fields.legacy_row_id) >= 0; copy.legacy_rows = copy.legacy_rows.filter(row => !same(row.id, fields.legacy_row_id)); }
+    else if (action === "feeSet") {
+      const target = fields.target ?? {};
+      if (target.trip_id != null) {
+        const at = tripAt(target.trip_id);
+        done = at >= 0 && editTrip(target.trip_id, { fee_lines: setFee(copy.trips[at].fee_lines, fields.fee_type_id, fields.amount_vnd) });
+      } else if (target.legacy_row_id != null) {
+        const at = legacyAt(target.legacy_row_id);
+        done = at >= 0 && editLegacy(target.legacy_row_id, {}, { fee_lines: setFee(copy.legacy_rows[at].fee_lines, fields.fee_type_id, fields.amount_vnd) });
+      }
+    }
+    return done ? copy : null;
+  }
+
+  return { patchLedger, QUICK_ACTIONS, tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,

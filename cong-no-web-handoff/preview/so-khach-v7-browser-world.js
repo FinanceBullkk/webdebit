@@ -126,7 +126,7 @@ function applyFee(world, url, body) {
   world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before: { targets: before, batch_count: infos.length },
     after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
   world.version += 1;
-  return [200, { ok: true }];
+  return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
 }
 
 function apply(world, url, body) {

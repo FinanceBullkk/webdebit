@@ -796,3 +796,41 @@ test('BANG-GIA-05: mức đổi giá một ô của bảng giá — chính xác,
   assert.equal(model.priceTableChange('0', null), null);
   assert.throws(() => model.priceTableChange(67000000, '69000000'));   // tiền phải là chuỗi
 });
+
+test('NHAP-NHANH-01: patchLedger vá đúng dòng, không đổi bản gốc; chỉ lệnh tiền đánh dấu đang lưu; lệnh khác hay dòng không có thì null', () => {
+  const ledger = {
+    version: 7,
+    trips: [{ id: 11, container: 'A', carrier: 'X', unit_price_vnd: '50', other_fee_vnd: null, amount_vnd: '50', is_missing_price: false,
+      fee_lines: [{ id: 1, fee_type_id: 2, amount_vnd: '5', note: null }, { id: 2, fee_type_id: 3, amount_vnd: '7', note: null }] }, { id: 12, container: 'B' }],
+    legacy_rows: [{ id: 21, current: { container: 'C', unit_price_vnd: null, counted_vnd: '0' }, fee_lines: [] }],
+    months: [{ month: '2026-09-01', charges_vnd: '57' }],
+  };
+  const before = structuredClone(ledger);
+
+  const text = model.patchLedger(ledger, 'tripInfo', { trip_id: 11, field: 'carrier', value: 'Y' });
+  assert.equal(text.trips[0].carrier, 'Y');
+  assert.equal(text.trips[0].saving, undefined, 'sửa chữ không làm Thành tiền chờ');
+  assert.equal(text.months, ledger.months, 'số tổng tháng giữ nguyên số máy chủ');
+
+  const price = model.patchLedger(ledger, 'price', { trip_id: 11, unit_price_vnd: null, other_fee_vnd: null });
+  assert.deepEqual([price.trips[0].unit_price_vnd, price.trips[0].is_missing_price, price.trips[0].saving, price.trips[0].amount_vnd], [null, true, true, '50']);
+
+  const legacy = model.patchLedger(ledger, 'legacyEdit', { legacy_row_id: 21, field: 'unit_price_vnd', value: '70' });
+  assert.deepEqual([legacy.legacy_rows[0].current.unit_price_vnd, legacy.legacy_rows[0].current.counted_vnd, legacy.legacy_rows[0].saving], ['70', '0', true]);
+
+  const fee = model.patchLedger(ledger, 'feeSet', { target: { trip_id: 11 }, fee_type_id: 2, amount_vnd: '9' });
+  assert.deepEqual(fee.trips[0].fee_lines.map(line => [line.fee_type_id, line.amount_vnd]), [[3, '7'], [2, '9']]);
+  const cleared = model.patchLedger(ledger, 'feeSet', { target: { legacy_row_id: 21 }, fee_type_id: 2, amount_vnd: null });
+  assert.deepEqual([cleared.legacy_rows[0].fee_lines, cleared.legacy_rows[0].saving], [[], true]);
+
+  assert.deepEqual(model.patchLedger(ledger, 'tripDelete', { trip_id: 12 }).trips.map(row => row.id), [11]);
+  assert.deepEqual(model.patchLedger(ledger, 'legacyDelete', { legacy_row_id: 21 }).legacy_rows, []);
+
+  // Vá chồng: lần vá sau giữ dấu đang lưu của lần trước.
+  assert.equal(model.patchLedger(price, 'tripInfo', { trip_id: 11, field: 'carrier', value: 'Z' }).trips[0].saving, true);
+
+  assert.equal(model.patchLedger(ledger, 'tripInfo', { trip_id: 99, field: 'carrier', value: 'Y' }), null);
+  assert.equal(model.patchLedger(ledger, 'receipt', { amount_vnd: '1' }), null);
+  assert.equal(model.patchLedger(null, 'price', { trip_id: 11 }), null);
+  assert.deepEqual(ledger, before, 'bản gốc không đổi');
+});
