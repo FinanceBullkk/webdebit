@@ -1,20 +1,18 @@
-/* Sổ khách V7 bản live — Bảng giá theo ngày hiệu lực (BANG-GIA-01, specs/v7-bang-gia-hieu-luc.md, giai đoạn 2, giao diện lưới).
- * Khung Bảng giá là lưới giống vùng bảng giá trên Sheet (Từ ngày · Đến ngày · Nơi đi · Giá khách · Giá TT, cột Shipper áp giá TT),
+/* Sổ khách V7 bản live — Bảng giá theo ngày hiệu lực (BANG-GIA-01, specs/v7-bang-gia-hieu-luc.md, giai đoạn 2).
+ * Khung Bảng giá là ma trận nơi đi × đợt giá (BANG-GIA-05, specs/v7-bang-gia-ma-tran.md), khối phải Shipper áp giá TT,
  * nút "Điền giá theo bảng (N chuyến)" và chữ nhỏ ở ô Đơn giá. Server tra giá và ghi; trang không tự tính giá hay cộng tiền.
  * Nạp trước so-khach-v7-ui.js, dùng chung phạm vi của initLive qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).price = ctx => {
   'use strict';
   const { root, model, api, live, customerId, escape, fmt, dateText, monthKey, monthLabel, showNotice } = ctx;
   const TIER = { khach: 'giá khách', tt: 'giá TT' };
-  const FIELDS = ['from', 'to', 'kho', 'den', 'khach', 'tt'];
-  const LABELS = ['Từ ngày', 'Đến ngày', 'Nơi đi', 'Nơi đến', 'Giá khách', 'Giá TT'];
   let status = null;            // GET /api/v7/price-table/status của phiên bản sổ đang vẽ
   let loadedVersion = null;
   let confirm = null;           // { kind: 'ready'|'reapply', ids }
   let sending = false;
-  let form = null;              // bảng giá đang sửa trong khung; null = khung đóng
+  let form = null;              // bảng giá đang sửa trong khung { rows, periods, cells, base, ships, aliases }; null = khung đóng
   let savedShape = '';
-  let bar = null;               // { kind: 'info'|'ok'|'bad', text } | { kind: 'ask' } | { kind: 'new' }
+  let bar = null;               // { kind: 'info'|'ok'|'bad', text } | { kind: 'ask' }
   let bookShippers = [];
   let loading = false;          // đang đọc bảng giá: chưa hiện lưới để không gõ vào bảng sắp bị thay
   let nextUid = 1;
@@ -132,7 +130,14 @@
       : `Chưa điền giá nào. ${outcome.result.message || 'Tải lại sổ rồi thử lại.'}`);
   }
 
-  // ---- Khung Bảng giá: lưới như Sheet ----
+  // ---- Khung Bảng giá: ma trận nơi đi × đợt giá (BANG-GIA-05, specs/v7-bang-gia-ma-tran.md) ----
+  // Hàng = cặp Nơi đi · Nơi đến; cột = một đợt (Từ ngày, Đến ngày) như server lưu, mỗi đợt một cặp ô Giá khách | Giá TT.
+  // Trang chỉ sắp xếp và kiểm dạng dữ liệu; tra giá, đổi giá chuyến và tiền vẫn do server (BANG-GIA-02).
+  const TIERS = ['khach', 'tt'];
+  const SHOWN = 3;                // số đợt mới nhất hiện mặc định
+  let ui = { side: 'ship', period: null, showAll: false, filter: '' };   // khối phải: ship | period | new | paste
+  let failed = false;           // đọc bảng giá lỗi: không cho sửa
+  let errorList = [];
   const layer = () => {
     if (typeof document.createElement !== 'function') return { hidden: true, innerHTML: '', addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], contains: () => false };
     const element = document.createElement('div');
@@ -167,89 +172,177 @@
   const priceOk = text => { try { priceOf(text); return true; } catch { return false; } };
   // Khóa so tên như server (_price_key): hoa, gộp khoảng trắng.
   const keyOf = text => String(text ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
-  function tidy(field, value) {
-    const text = String(value ?? '').trim();
-    if (field === 'from' || field === 'to') { const iso = isoOf(text); return iso ? dmy(iso) : text; }
-    if (field === 'khach' || field === 'tt') { try { const price = priceOf(text); return price == null ? text : fmt(price); } catch { return text; } }
-    return field === 'kho' || field === 'den' ? keyOf(text) : text;
+  const dateTidy = text => { const iso = isoOf(text); return iso ? dmy(iso) : String(text ?? '').trim(); };
+  const priceTidy = text => { try { const price = priceOf(text); return price == null ? '' : fmt(price); } catch { return String(text ?? '').trim(); } };
+  const cellKey = (row, period) => `${row.uid}|${period.uid}`;
+  const cellOf = (row, period) => form.cells.get(cellKey(row, period)) ?? { khach: '', tt: '' };
+  const hasPrice = cell => Boolean(cell && (String(cell.khach).trim() || String(cell.tt).trim()));
+  const named = row => Boolean(keyOf(row.kho) || keyOf(row.den));
+  const used = row => named(row) || form.periods.some(period => hasPrice(form.cells.get(cellKey(row, period))));
+  function setCell(row, period, tier, value, base) {
+    const key = cellKey(row, period);
+    const cell = form.cells.get(key) ?? { khach: '', tt: '' };
+    cell[tier] = value;
+    form.cells.set(key, cell);
+    if (base !== undefined) { const old = form.base.get(key) ?? { khach: '', tt: '' }; old[tier] = base; form.base.set(key, old); }
   }
-  const blankRow = () => ({ uid: nextUid++, from: '', to: '', kho: '', den: '', khach: '', tt: '', fresh: false });
-  const filled = row => FIELDS.some(field => String(row[field]).trim());
-  // Luôn còn 3 hàng trống cuối lưới giá và 2 ô trống cuối cột shipper (như lưới nhập chuyến).
-  function pad() {
-    let empty = 0;
-    for (let i = form.rows.length - 1; i >= 0 && !filled(form.rows[i]); i -= 1) empty += 1;
-    for (; empty < 3; empty += 1) form.rows.push(blankRow());
-    empty = 0;
-    for (let i = form.ships.length - 1; i >= 0 && !form.ships[i].name.trim(); i -= 1) empty += 1;
-    for (; empty < 2; empty += 1) form.ships.push({ uid: nextUid++, name: '' });
+  const sortKey = period => [isoOf(period.from) ?? '9999-99-99', String(period.to).trim() ? (isoOf(period.to) ?? '9999-99-99') : '9999-12-31'];
+  const sorted = () => [...form.periods].sort((a, b) => {
+    const [x, y] = [sortKey(a), sortKey(b)];
+    return x[0].localeCompare(y[0]) || x[1].localeCompare(y[1]) || a.uid - b.uid;
+  });
+  // Nhãn đợt: "15/09 – 09/10/2026", cùng năm thì bỏ năm ở Từ ngày; Đến ngày trống thì "Từ 10/10/2026".
+  function periodLabel(period) {
+    const from = isoOf(period.from), to = String(period.to).trim() ? isoOf(period.to) : '';
+    if (!from) return period.from.trim() ? `Từ ${period.from.trim()}` : 'Chưa có Từ ngày';
+    if (to === '') return `Từ ${dmy(from)}`;
+    if (!to) return `${dmy(from)} – ${period.to.trim()}`;
+    return `${from.slice(0, 4) === to.slice(0, 4) ? dmy(from).slice(0, 5) : dmy(from)} – ${dmy(to)}`;
   }
+  const shortDate = period => isoOf(period.from) ? dmy(isoOf(period.from)) : period.from.trim();
 
   function fromServer(table) {
     const aliases = new Map((table?.locations ?? []).map(item => [keyOf(item.name), item.aliases ?? []]));
     const order = new Map((table?.locations ?? []).map((item, index) => [keyOf(item.name), index]));
-    const rows = [];
-    for (const period of [...(table?.periods ?? [])].sort((a, b) => String(a.valid_from).localeCompare(String(b.valid_from)))) {
-      const byLocation = new Map();
-      for (const rate of period.rates ?? []) {
+    const next = { rows: [], periods: [], cells: new Map(), base: new Map(), ships: [...new Set((table?.tt_shippers ?? []).map(keyOf).filter(Boolean))], aliases };
+    const byPair = new Map();
+    for (const item of [...(table?.periods ?? [])].sort((a, b) => String(a.valid_from).localeCompare(String(b.valid_from)))) {
+      const period = { uid: nextUid++, from: dmy(item.valid_from), to: dmy(item.valid_to), fresh: false, closes: [] };
+      next.periods.push(period);
+      for (const rate of item.rates ?? []) {
         const key = `${keyOf(rate.location)}|${keyOf(rate.destination)}`;
-        if (!byLocation.has(key)) byLocation.set(key, { uid: nextUid++, from: dmy(period.valid_from), to: dmy(period.valid_to), kho: rate.location, den: rate.destination ?? '', khach: '', tt: '', fresh: false });
-        byLocation.get(key)[rate.tier] = fmt(rate.unit_price_vnd);
+        if (!byPair.has(key)) byPair.set(key, { uid: nextUid++, kho: keyOf(rate.location), den: keyOf(rate.destination) });
+        const cellId = `${byPair.get(key).uid}|${period.uid}`;
+        for (const map of [next.cells, next.base]) { const cell = map.get(cellId) ?? { khach: '', tt: '' }; cell[rate.tier] = fmt(rate.unit_price_vnd); map.set(cellId, cell); }
       }
-      rows.push(...[...byLocation.entries()].sort(([a], [b]) => (order.get(a.split('|')[0]) ?? 0) - (order.get(b.split('|')[0]) ?? 0) || a.localeCompare(b)).map(([, row]) => row));
     }
-    const result = { rows, ships: (table?.tt_shippers ?? []).map(name => ({ uid: nextUid++, name })), aliases };
-    return result;
+    next.rows = [...byPair.values()].sort((a, b) => (order.get(a.kho) ?? 1e9) - (order.get(b.kho) ?? 1e9) || a.kho.localeCompare(b.kho)
+      || (a.den ? 1 : 0) - (b.den ? 1 : 0) || a.den.localeCompare(b.den));
+    return next;
   }
-  const shapeOf = value => JSON.stringify([value.rows.filter(filled).map(row => FIELDS.map(field => tidy(field, row[field]))),
-    [...new Set(value.ships.map(ship => keyOf(ship.name)).filter(Boolean))].sort()]);
+  // Bảng gửi server: mỗi cột còn giá là một đợt (cột cùng ngày gộp làm một); tên khác của nơi đi giữ như đã lưu.
+  function payload() {
+    const locations = new Map(), periods = new Map();
+    // Nơi đi theo thứ tự hàng trên lưới, chỉ nơi đi còn ít nhất một giá.
+    for (const row of form.rows) {
+      const key = keyOf(row.kho);
+      if (key && !locations.has(key) && form.periods.some(period => hasPrice(form.cells.get(cellKey(row, period))))) locations.set(key, { name: key, aliases: form.aliases.get(key) ?? [] });
+    }
+    for (const period of sorted()) {
+      const from = isoOf(period.from), to = String(period.to).trim() ? isoOf(period.to) : null;
+      for (const row of form.rows) {
+        const key = keyOf(row.kho);
+        const cell = form.cells.get(cellKey(row, period));
+        if (!key || !hasPrice(cell)) continue;
+        const periodKey = `${from}|${to}`;
+        if (!periods.has(periodKey)) periods.set(periodKey, { valid_from: from, valid_to: to, rates: [] });
+        for (const tier of TIERS) {
+          const price = priceOf(cell[tier]);
+          if (price != null) periods.get(periodKey).rates.push({ location: key, destination: keyOf(row.den), tier, unit_price_vnd: price });
+        }
+      }
+    }
+    return { tt_shippers: [...new Set(form.ships.map(keyOf).filter(Boolean))], locations: [...locations.values()],
+      periods: [...periods.values()].sort((a, b) => a.valid_from.localeCompare(b.valid_from)) };
+  }
+  // Hình dạng để biết còn thay đổi chưa lưu: tập (đợt, nơi đi, nơi đến, loại giá, giá) đã chuẩn hóa và danh sách shipper TT.
+  function shapeOf(value) {
+    const items = [];
+    for (const period of value.periods) for (const row of value.rows) {
+      const cell = value.cells.get(cellKey(row, period));
+      for (const tier of TIERS) if (cell && String(cell[tier]).trim()) items.push([dateTidy(period.from), dateTidy(period.to), keyOf(row.kho), keyOf(row.den), tier, priceTidy(cell[tier])].join('|'));
+    }
+    return JSON.stringify([items.sort(), [...new Set(value.ships.map(keyOf).filter(Boolean))].sort()]);
+  }
+  const editedCell = (row, period, tier) => priceTidy(cellOf(row, period)[tier]) !== priceTidy((form.base.get(cellKey(row, period)) ?? {})[tier]);
+  const editedCount = () => { let n = 0; for (const period of form.periods) for (const row of form.rows) for (const tier of TIERS) if (editedCell(row, period, tier)) n += 1; return n; };
 
-  // Kiểm cả bảng như server (ngày, giá, trùng ngày cùng nơi đi, cùng nơi đến — trống là giá chung — và cùng loại giá); lỗi theo dòng, câu ngắn hiện ở cột Tình trạng.
+  // Kiểm cả bảng như server: ngày của đợt, giá từng ô, hàng thiếu/trùng nơi đi, trùng ngày cùng nơi đi + nơi đến + loại giá
+  // (BANG-GIA-04 mục 4). Lỗi gắn vào đúng ô / đầu cột, kèm danh sách lỗi bằng chữ trên lưới.
   function check() {
-    const errors = new Map();
-    const flag = (row, field, text) => { const item = errors.get(row.uid) ?? { fields: new Set(), text }; item.fields.add(field); errors.set(row.uid, item); };
-    const good = [];
+    const cells = new Map(), rows = new Map(), periods = new Map(), list = [];
+    const where = row => `${keyOf(row.kho) || 'Hàng không tên'}${keyOf(row.den) ? ` → ${keyOf(row.den)}` : ''}`;
+    for (const period of form.periods) {
+      const from = isoOf(period.from), to = String(period.to).trim() ? isoOf(period.to) : '';
+      let text = '';
+      if (!String(period.from).trim()) text = 'Thiếu Từ ngày';
+      else if (!from) text = 'Từ ngày sai';
+      else if (to === null) text = 'Đến ngày sai';
+      else if (to && to < from) text = 'Đến trước Từ ngày';
+      if (text) { periods.set(period.uid, text); list.push({ text: `Đợt ${periodLabel(period)}: ${text}`, period: period.uid }); }
+    }
+    const seen = new Map();
     form.rows.forEach((row, index) => {
-      if (!filled(row)) return;
-      const from = isoOf(row.from);
-      const to = String(row.to).trim() ? isoOf(row.to) : '';
-      if (!String(row.from).trim()) flag(row, 'from', 'Thiếu Từ ngày');
-      else if (!from) flag(row, 'from', 'Từ ngày sai');
-      if (to === null) flag(row, 'to', 'Đến ngày sai');
-      else if (from && to && to < from) flag(row, 'to', 'Đến trước Từ ngày');
-      if (!keyOf(row.kho)) flag(row, 'kho', 'Thiếu nơi đi');
-      if (!priceOk(row.khach)) flag(row, 'khach', 'Giá khách sai');
-      if (!priceOk(row.tt)) flag(row, 'tt', 'Giá TT sai');
-      if (!errors.has(row.uid)) good.push({ row, n: index + 1, from, to, key: keyOf(row.kho), destination: keyOf(row.den), khach: priceOf(row.khach), tt: priceOf(row.tt) });
+      if (!used(row)) return;
+      const key = `${keyOf(row.kho)}|${keyOf(row.den)}`;
+      if (!keyOf(row.kho)) { rows.set(row.uid, 'Thiếu Nơi đi'); list.push({ text: `Hàng ${index + 1}: thiếu Nơi đi`, row: row.uid }); }
+      else if (seen.has(key)) { rows.set(row.uid, 'Hai hàng trùng'); list.push({ text: `${where(row)} có hai hàng`, row: row.uid }); }
+      else seen.set(key, row);
+      for (const period of form.periods) for (const tier of TIERS) {
+        if (priceOk(cellOf(row, period)[tier])) continue;
+        cells.set(`${row.uid}|${period.uid}|${tier}`, 'sai');
+        list.push({ text: `${where(row)}, đợt ${shortDate(period)}: ${tier === 'khach' ? 'Giá khách' : 'Giá TT'} sai`, cell: [row.uid, period.uid, tier] });
+      }
     });
-    for (let i = 0; i < good.length; i += 1) {
-      for (let j = i + 1; j < good.length; j += 1) {
-        const [a, b] = [good[i], good[j]];
-        const sameTier = (a.khach != null && b.khach != null) || (a.tt != null && b.tt != null) || (a.khach == null && a.tt == null && b.khach == null && b.tt == null);
-        if (a.key !== b.key || a.destination !== b.destination || !sameTier || !(a.from <= (b.to || '9999-12-31') && b.from <= (a.to || '9999-12-31'))) continue;
-        flag(b.row, 'from', `Trùng ngày dòng ${a.n}`); flag(b.row, 'to', '');
-        flag(a.row, 'from', `Trùng ngày dòng ${b.n}`); flag(a.row, 'to', '');
+    // Trùng ngày: chỉ xét đợt có ngày đúng, trong cùng một hàng (hàng là cặp nơi đi + nơi đến) và cùng loại giá.
+    const ranges = form.periods.filter(period => !periods.has(period.uid))
+      .map(period => ({ period, from: isoOf(period.from), to: String(period.to).trim() ? isoOf(period.to) : '9999-12-31' }));
+    for (const row of form.rows) {
+      if (!keyOf(row.kho) || rows.has(row.uid)) continue;
+      for (const tier of TIERS) {
+        const have = ranges.filter(item => String(cellOf(row, item.period)[tier]).trim());
+        for (let i = 0; i < have.length; i += 1) for (let j = i + 1; j < have.length; j += 1) {
+          const [a, b] = [have[i], have[j]];
+          if (!(a.from <= b.to && b.from <= a.to)) continue;
+          const [first, second] = a.from <= b.from ? [a.period, b.period] : [b.period, a.period];
+          cells.set(`${row.uid}|${a.period.uid}|${tier}`, 'trùng'); cells.set(`${row.uid}|${b.period.uid}|${tier}`, 'trùng');
+          if (!periods.has(second.uid)) periods.set(second.uid, `Trùng ngày đợt ${shortDate(first)}`);
+          if (!periods.has(first.uid)) periods.set(first.uid, `Trùng ngày đợt ${shortDate(second)}`);
+          list.push({ text: `${where(row)}: đợt ${shortDate(second)} trùng ngày đợt ${shortDate(first)} (${TIER[tier]})`, cell: [row.uid, second.uid, tier] });
+        }
       }
     }
-    return { errors, good };
+    return { cells, rows, periods, list, size: list.length };
   }
-  function rowState(row, errors) {
-    if (!filled(row)) return ['none', ''];
-    const error = errors.get(row.uid);
-    if (error) return ['bad', error.text];
-    const from = isoOf(row.from);
-    const to = String(row.to).trim() ? isoOf(row.to) : '';
+  function periodState(period, errors) {
+    if (errors.periods.has(period.uid)) return ['bad', errors.periods.get(period.uid)];
+    if (period.fresh) return ['fresh', 'đợt mới'];
+    const from = isoOf(period.from), to = String(period.to).trim() ? isoOf(period.to) : '';
     const now = today();
-    if (from > now) return ['future', 'Sắp áp dụng'];
-    if (to && to < now) return ['old', 'Hết hạn'];
-    return ['now', 'Đang dùng'];
+    if (from > now) return ['future', 'sắp áp dụng'];
+    if (to && to < now) return ['old', 'hết hạn'];
+    return ['now', 'đang dùng'];
+  }
+  // Cột hiện: 3 đợt mới nhất, cộng đợt đang chọn và đợt có lỗi; "Xem đợt cũ hơn" mở hết.
+  function visiblePeriods(errors) {
+    const all = sorted();
+    if (ui.showAll || all.length <= SHOWN) return { shown: all, hidden: 0 };
+    const keep = new Set(all.slice(-SHOWN).map(period => period.uid));
+    for (const period of all) if (period.uid === ui.period || errors.periods.has(period.uid) || period.fresh) keep.add(period.uid);
+    const shown = all.filter(period => keep.has(period.uid));
+    return { shown, hidden: all.length - shown.length };
+  }
+  const visibleRows = () => {
+    const needle = keyOf(ui.filter);
+    return form.rows.filter(row => !needle || keyOf(row.kho).includes(needle) || keyOf(row.den).includes(needle) || !named(row));
+  };
+  // Ô khác đợt liền trước (cột gần nhất bên trái có giá của cùng hàng) thì đậm.
+  function changedFromPrevious(row, period, tier, order) {
+    const value = priceTidy(cellOf(row, period)[tier]);
+    if (!value) return false;
+    for (let i = order.indexOf(period) - 1; i >= 0; i -= 1) {
+      const previous = form.cells.get(cellKey(row, order[i]));
+      if (hasPrice(previous)) return priceTidy(previous[tier]) !== value;
+    }
+    return false;
   }
 
   async function openDialog() {
     form = fromServer(null);
+    ui = { side: 'ship', period: null, showAll: false, filter: '' };
     loading = true;
     bar = { kind: 'info', text: 'Đang đọc bảng giá…' };
-    savedShape = shapeOf({ rows: [], ships: [] });
+    savedShape = shapeOf(form);
     dialog.hidden = false;
     render();
     try {
@@ -260,165 +353,341 @@
       bookShippers = Array.isArray(data.book_shippers) ? data.book_shippers : [];
       savedShape = shapeOf(form);
       bar = null;
-    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; loading = false; render(); dialog.querySelector('.price-body')?.remove(); dialog.querySelector('.price-table-save')?.remove(); dialog.querySelector('.price-new-open')?.remove(); return; }
+    } catch (error) { bar = { kind: 'bad', text: error.message || 'Không đọc được bảng giá.' }; loading = false; failed = true; render(); return; }
     loading = false;
     render();
     $('.price-grid-title')?.focus();
   }
-  function closeDialog() { form = null; bar = null; loading = false; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
-  const dirty = () => form && shapeOf(form) !== savedShape;
+  function closeDialog() { form = null; bar = null; loading = false; failed = false; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
+  const dirty = () => form && !loading && !failed && shapeOf(form) !== savedShape;
   function requestClose() {
     if (dirty()) { bar = { kind: 'ask' }; renderBar(); $('.price-bar .primary')?.focus(); return; }
     closeDialog();
   }
   const shipCount = name => bookShippers.find(item => keyOf(item.name) === keyOf(name))?.trip_count ?? 0;
-  const shipNote = name => { if (!String(name).trim()) return ''; const count = shipCount(name); return `<span class="price-ship-count${count ? '' : ' none'}">${count ? `${count} chuyến` : 'chưa có chuyến'}</span>`; };
+  // Tên shipper gần giống một shipper TT: bỏ khoảng trắng/dấu chấm/gạch thì trùng, hoặc khác không quá 2 ký tự.
+  const loose = text => keyOf(text).replace(/[\s.\-_,]/g, '');
+  function distance(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 3;
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i += 1) {
+      const current = [i];
+      for (let j = 1; j <= b.length; j += 1) current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = current;
+    }
+    return previous[b.length];
+  }
+  const lookalike = name => form.ships.find(ship => { const [a, b] = [loose(name), loose(ship)]; return a && b && (a === b || (Math.min(a.length, b.length) >= 5 && distance(a, b) <= 2)); });
+
+  // Vẽ lại cả khung, giữ con trỏ ở ô đang đứng (ô giá, ô nơi đi, ô ở khối phải).
+  function focusKey() {
+    const el = document.activeElement;
+    if (!el || !dialog.contains(el)) return null;
+    const d = el.dataset ?? {};
+    if (d.tier) return `input[data-row="${d.row}"][data-per="${d.per}"][data-tier="${d.tier}"]`;
+    if (d.f) return `input[data-row="${d.row}"][data-f="${d.f}"]`;
+    return el.id ? `#${el.id}` : null;
+  }
+  function rerender() {
+    const key = focusKey();
+    render();
+    if (key) $(key)?.focus();
+  }
 
   function render() {
     if (!form) return;
-    if (loading) {
-      dialog.innerHTML = `<div class="price-table-panel"><header><h2 class="price-grid-title" tabindex="-1">Bảng giá · ${escape(live.customerName?.(customerId) ?? 'sổ khách')}</h2><span class="price-grow"></span><button type="button" class="price-table-close">Đóng</button></header><div class="price-bar"></div></div>`;
+    const title = `<h2 class="price-grid-title" tabindex="-1">Bảng giá <span class="pm-book">${escape(live.customerName?.(customerId) ?? 'sổ khách')}</span></h2>`;
+    if (loading || failed) {
+      dialog.innerHTML = `<div class="price-table-panel"><header>${title}<span class="price-grow"></span><button type="button" class="price-table-close">Đóng</button></header><div class="price-bar"></div></div>`;
       renderBar();
       return;
     }
-    pad();
-    const { errors } = check();
-    const hasRows = form.rows.some(filled);
-    const empty = !hasRows && !form.ships.some(ship => ship.name.trim());
-    const rows = form.rows.map((row, r) => {
-      const error = errors.get(row.uid);
-      const [state, text] = rowState(row, errors);
-      return `<tr data-uid="${row.uid}" class="${row.fresh ? 'fresh' : ''}${state === 'old' ? ' old' : ''}"><td class="rn">${r + 1}</td>${FIELDS.map((field, c) =>
-        `<td data-f="${field}" class="${error?.fields.has(field) ? 'bad' : ''}"><input data-r="${r}" data-c="${c}" class="${c >= 4 ? 'num' : ''}" value="${escape(row[field])}" ${filled(row) ? (c >= 4 ? 'placeholder="–"' : c === 3 ? 'placeholder="Mọi nơi đến"' : '') : ''} aria-label="${LABELS[c]} dòng ${r + 1}" autocomplete="off" spellcheck="false"></td>`).join('')}
-        <td class="st st-${state}">${escape(text)}</td><td class="xc">${filled(row) ? `<button type="button" class="price-row-drop" data-r="${r}" aria-label="Bỏ dòng ${r + 1}">×</button>` : ''}</td></tr>`;
-    }).join('');
-    const ships = form.ships.map((ship, s) => `<tr><td class="ship-cell"><input data-s="${s}" value="${escape(ship.name)}" list="price-ship-list" aria-label="Shipper áp giá TT dòng ${s + 1}" autocomplete="off" spellcheck="false">${shipNote(ship.name)}</td>
-      <td class="xc">${ship.name.trim() ? `<button type="button" class="price-ship-drop" data-s="${s}" aria-label="Bỏ shipper ${escape(ship.name)}">×</button>` : ''}</td></tr>`).join('');
-    const help = empty ? `<div class="price-help"><p>Dán cột giá từ Sheet. Nơi đến để trống là giá chung cho mọi nơi đến của nơi đi đó; chỉ điền Nơi đến khi nơi đến đó có giá riêng.</p>
-      <table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
-      <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
-      <tr><td class="s">10/10/2026</td><td class="s"></td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">66,000,000</td><td class="g"></td><td class="o"></td></tr></table></div>` : '';
-    dialog.innerHTML = `<div class="price-table-panel"><header><h2 class="price-grid-title" tabindex="-1">Bảng giá · ${escape(live.customerName?.(customerId) ?? 'sổ khách')}</h2><span class="price-dirty" hidden>Chưa lưu. Lưu xong, chuyến đang theo bảng tự đổi giá.</span><span class="price-grow"></span>
-        ${hasRows ? '<button type="button" class="price-new-open">Đổi giá từ ngày…</button>' : ''}<button type="button" class="price-table-save primary">Lưu bảng giá</button><button type="button" class="price-table-close">Đóng</button></header>
-      <div class="price-bar"></div>
-      <div class="price-body">${help}<div class="price-grids">
-        <div><p class="price-hint-line">Dán từ Sheet vào ô bất kỳ của hàng trống, hoặc gõ tay. Ô giá để trống là chưa có giá.</p>
-          <table class="price-grid price-grid-main"><thead><tr><th class="rn"></th><th class="w-date">Từ ngày</th><th class="w-date">Đến ngày</th><th class="w-kho">Nơi đi</th><th class="w-den">Nơi đến</th><th class="num w-price">Giá khách</th><th class="num w-price">Giá TT</th><th class="w-st">Tình trạng</th><th class="xc"></th></tr></thead><tbody>${rows}</tbody></table></div>
-        <div><p class="price-hint-line">&nbsp;</p><table class="price-grid price-grid-ship"><thead><tr><th class="w-ship">Shipper áp giá TT</th><th class="xc"></th></tr></thead><tbody>${ships}</tbody></table>
-          <p class="price-ship-note">Shipper không có trong cột này lấy giá khách.</p></div>
-      </div></div></div>
+    const errors = check();
+    const empty = !form.rows.length && !form.periods.length;
+    dialog.innerHTML = `<div class="price-table-panel"><header>${title}<span class="price-dirty" hidden></span><span class="price-grow"></span>
+        <button type="button" class="price-paste-open"${ui.side === 'paste' ? ' aria-pressed="true"' : ''}>Dán từ Sheet</button><button type="button" class="price-table-save primary">Lưu bảng giá</button><button type="button" class="price-table-close">Đóng</button></header>
+      <div class="pm-body"><main class="pm-main">
+        <div class="pm-tools"><input class="pm-find" id="pm-find" value="${escape(ui.filter)}" placeholder="Tìm nơi đi" aria-label="Tìm nơi đi" autocomplete="off" spellcheck="false">
+          <span class="pm-hint"></span><button type="button" class="price-row-add">+ Thêm nơi đi</button><button type="button" class="price-new-open">${form.periods.length ? '+ Đổi giá từ ngày…' : '+ Thêm đợt giá'}</button></div>
+        <div class="price-bar"></div><div class="pm-errors" role="alert"></div>
+        ${empty ? helpBox() : `<div class="pm-scroll">${grid(errors)}</div>`}
+      </main><aside class="pm-side" aria-label="${ui.side === 'ship' ? 'Shipper áp giá TT' : 'Đợt giá'}">${side(errors)}</aside></div></div>
       <datalist id="price-ship-list">${bookShippers.map(item => `<option value="${escape(item.name)}">`).join('')}</datalist>`;
     renderBar();
-    updateDirty();
+    updateGrid(errors);
+  }
+  const SHEET_PICTURE = `<table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
+      <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
+      <tr><td class="s">10/10/2026</td><td class="s"></td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">66,000,000</td><td class="g"></td><td class="o"></td></tr></table>`;
+  const pasteArea = id => `<textarea class="pm-paste" id="${id}" rows="3" placeholder="Bấm vào đây rồi Ctrl+V" aria-label="Dán vùng bảng giá từ Sheet" spellcheck="false"></textarea>`;
+  function helpBox() {
+    return `<div class="price-help"><div><p><strong>Sổ này chưa có bảng giá.</strong> Trên Sheet chọn vùng bảng giá như hình (kèm cột SHIPPER ÁP GIÁ TT nếu có), Ctrl+C, rồi dán vào ô dưới.</p>
+      <p>Nơi đến để trống là giá chung của nơi đi; chỉ điền Nơi đến khi nơi đến đó có giá riêng.</p>${pasteArea('pm-paste-main')}</div>${SHEET_PICTURE}</div>`;
+  }
+  function grid(errors) {
+    const { shown, hidden } = visiblePeriods(errors);
+    const rows = visibleRows();
+    const head1 = shown.map(period => {
+      const [state, text] = periodState(period, errors);
+      return `<th colspan="2" class="ph st-${state}${ui.period === period.uid ? ' sel' : ''}" data-per="${period.uid}"><button type="button" class="pm-period" data-per="${period.uid}" aria-label="Sửa ngày đợt ${escape(periodLabel(period))}">
+        <span class="pd">${escape(periodLabel(period))}</span><span class="ps">${escape(text)}</span></button></th>`;
+    }).join('');
+    const head2 = shown.map(period => { const [state] = periodState(period, errors); return `<th class="num sep st-${state}">Giá khách</th><th class="num st-${state}">Giá TT</th>`; }).join('');
+    const body = rows.map(row => {
+      const label = `${keyOf(row.kho) || 'hàng mới'}${keyOf(row.den) ? ` → ${keyOf(row.den)}` : ''}`;
+      return `<tr data-row="${row.uid}"><th class="pk" scope="row"><input data-row="${row.uid}" data-f="kho" value="${escape(row.kho)}" title="${escape(row.kho)}" aria-label="Nơi đi" autocomplete="off" spellcheck="false"></th>
+        <td class="pn"><input data-row="${row.uid}" data-f="den" value="${escape(row.den)}" title="${escape(row.den)}" aria-label="Nơi đến của ${escape(keyOf(row.kho) || 'hàng mới')}" autocomplete="off" spellcheck="false"></td>
+        <td class="px"><button type="button" class="price-row-drop" data-row="${row.uid}" aria-label="Bỏ hàng ${escape(label)}">×</button></td>
+        ${shown.map(period => { const [state] = periodState(period, errors); const cell = cellOf(row, period); return TIERS.map(tier =>
+          `<td class="pc st-${state}${tier === 'khach' ? ' sep' : ''}"><input class="num" data-row="${row.uid}" data-per="${period.uid}" data-tier="${tier}" value="${escape(cell[tier])}" placeholder="—"
+            aria-label="${tier === 'tt' ? 'Giá TT' : 'Giá khách'} ${escape(label)} đợt ${escape(periodLabel(period))}" autocomplete="off" spellcheck="false" inputmode="numeric"></td>`).join(''); }).join('')}</tr>`;
+    }).join('');
+    const none = rows.length ? '' : `<tr><td class="pm-none" colspan="${3 + shown.length * 2}">${form.rows.length ? 'Không có nơi đi nào có chữ này.' : 'Chưa có nơi đi. Bấm "+ Thêm nơi đi" hoặc dán từ Sheet.'}</td></tr>`;
+    return `<table class="pm-grid"><thead><tr><th colspan="3" class="pm-corner">${hidden ? `<button type="button" class="pm-older">‹ Xem ${hidden} đợt cũ hơn</button>`
+        : ui.showAll && form.periods.length > SHOWN ? `<button type="button" class="pm-older">Chỉ xem ${SHOWN} đợt mới nhất</button>` : ''}</th>${head1}</tr>
+      <tr><th class="pk">Nơi đi</th><th class="pn">Nơi đến</th><th class="px"></th>${head2}</tr></thead><tbody>${body}${none}</tbody></table>`;
+  }
+  function side(errors) {
+    if (ui.side === 'paste') {
+      return `<h3>Dán từ Sheet</h3><p>Trên Sheet chọn từ cột EFFECTIVE FROM tới TT PRICE (thêm cột SHIPPER ÁP GIÁ TT nếu có), Ctrl+C, rồi dán vào ô dưới.</p>
+        ${pasteArea('pm-paste-side')}<p class="pm-note">Cùng đợt, cùng nơi đi thì giá dán vào thay giá đang có; đợt hoặc nơi đi mới được thêm vào.</p>
+        <p class="pm-note">Muốn dán một cột giá: đứng ở ô giá đầu tiên trong lưới rồi Ctrl+V.</p><div class="pm-side-actions"><button type="button" class="pm-side-close">Xong</button></div>`;
+    }
+    if (ui.side === 'new') {
+      return `<h3>Đợt giá mới</h3><label for="price-new-from">Áp dụng từ ngày</label><input id="price-new-from" class="price-new-from" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off">
+        <p class="pm-note">${form.periods.some(period => !String(period.to).trim()) ? 'Thêm cột giá mới bên phải, chép giá đang dùng để sửa. Đợt đang dùng tự kết thúc ngày liền trước.' : 'Thêm cột giá trống bên phải để gõ hoặc dán giá.'}</p>
+        <div class="pm-side-actions"><button type="button" class="price-new-ok primary">Thêm cột giá mới</button><button type="button" class="price-new-cancel">Thôi</button></div>`;
+    }
+    const period = ui.side === 'period' && form.periods.find(item => item.uid === ui.period);
+    if (period) {
+      const count = form.rows.filter(row => hasPrice(form.cells.get(cellKey(row, period)))).length;
+      const error = errors.periods.get(period.uid);
+      const closed = form.periods.filter(item => period.closes.includes(item.uid));
+      return `<h3>${period.fresh ? 'Đợt giá mới' : 'Đợt giá'}</h3>
+        <label for="pm-from">${period.fresh ? 'Áp dụng từ ngày' : 'Từ ngày'}</label><input id="pm-from" class="pm-date" data-pf="from" value="${escape(period.from)}" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off">
+        <label for="pm-to">Đến ngày</label><input id="pm-to" class="pm-date" data-pf="to" value="${escape(period.to)}" placeholder="trống = còn dùng" inputmode="numeric" autocomplete="off">
+        <p class="pm-error"${error ? '' : ' hidden'}>${escape(error ?? '')}</p>
+        ${closed.length ? `<p class="pm-note pm-closes">${closed.map(item => `Đợt ${escape(shortDate(item))} tự kết thúc ngày ${escape(dateTidy(item.to))}.`).join(' ')}</p>` : ''}
+        ${period.fresh ? '<p class="pm-counts"></p>' : `<p class="pm-note">${count} nơi đi có giá trong đợt này.</p>`}
+        <div class="pm-side-actions"><button type="button" class="price-period-drop" data-per="${period.uid}">Bỏ đợt này</button><button type="button" class="pm-side-close">Xong</button></div>`;
+    }
+    const shipRows = form.ships.map((name, index) => {
+      const count = shipCount(name);
+      return `<li><b>${escape(name)}</b><span class="${count ? 'pm-count' : 'pm-count none'}">${count ? `${count} chuyến` : 'chưa có chuyến'}</span><button type="button" class="price-ship-drop" data-s="${index}" aria-label="Bỏ shipper ${escape(name)}">×</button></li>`;
+    }).join('');
+    const ttKeys = new Set(form.ships.map(keyOf));
+    const khach = bookShippers.filter(item => !ttKeys.has(keyOf(item.name))).sort((a, b) => (b.trip_count ?? 0) - (a.trip_count ?? 0) || String(a.name).localeCompare(String(b.name)));
+    const khachRows = khach.map(item => {
+      const like = lookalike(item.name);
+      return `<li${like ? ' class="like"' : ''}><span>${escape(keyOf(item.name))}</span><span class="pm-count">${item.trip_count ?? 0} chuyến</span>${like
+        ? `<span class="pm-like">Gần giống ${escape(like)}</span><button type="button" class="price-ship-move" data-name="${escape(keyOf(item.name))}">Chuyển sang giá TT</button>` : ''}</li>`;
+    }).join('');
+    return `<h3>Shipper áp giá TT</h3><p class="pm-note">Shipper khác lấy giá khách.</p><ul class="pm-ships">${shipRows || '<li class="pm-empty">Chưa có shipper nào.</li>'}</ul>
+      <div class="pm-ship-add"><input id="pm-ship-new" class="pm-ship-new" list="price-ship-list" placeholder="Tên shipper" aria-label="Tên shipper thêm vào giá TT" autocomplete="off" spellcheck="false"><button type="button" class="price-ship-add">Thêm</button></div>
+      <h4>Trong sổ đang lấy giá khách</h4>${bookShippers.length ? (khachRows ? `<ul class="pm-khach">${khachRows}</ul>` : '<p class="pm-note">Mọi shipper trong sổ đều lấy giá TT.</p>')
+        : '<p class="pm-note">Chuyến trong sổ chưa có tên shipper: mọi chuyến lấy giá khách.</p>'}`;
   }
   function renderBar() {
     const box = $('.price-bar');
     if (!box) return;
     if (bar?.kind === 'ask') box.innerHTML = `<div class="price-msg ask" role="alert"><span>Bảng giá có thay đổi chưa lưu.</span><button type="button" class="price-table-save primary">Lưu</button><button type="button" class="price-discard">Bỏ thay đổi</button><button type="button" class="price-stay">Ở lại</button></div>`;
-    else if (bar?.kind === 'new') box.innerHTML = `<div class="price-msg form"><label for="price-new-from">Giá mới áp dụng từ ngày</label><input id="price-new-from" class="price-new-from" placeholder="dd/mm/yyyy" inputmode="numeric" autocomplete="off">
-      <button type="button" class="price-new-ok primary">Thêm dòng giá mới</button><button type="button" class="price-new-cancel">Thôi</button></div>`;
-    else box.innerHTML = bar ? `<div class="price-msg ${bar.kind}" role="${bar.kind === 'bad' ? 'alert' : 'status'}"><span>${escape(bar.text)}</span><button type="button" class="price-msg-close">Đóng</button></div>` : '';
+    else box.innerHTML = bar ? `<div class="price-msg ${bar.kind}" role="${bar.kind === 'bad' ? 'alert' : 'status'}"><span>${escape(bar.text)}</span>${loading || failed ? '' : '<button type="button" class="price-msg-close">Đóng</button>'}</div>` : '';
   }
   const setBar = (kind, text) => { bar = { kind, text }; renderBar(); };
-  function updateDirty() { const chip = $('.price-dirty'); if (chip) chip.hidden = !dirty(); }
-  // Đang gõ: tô ô sai và cập nhật cột Tình trạng tại chỗ, không vẽ lại ô nhập.
-  function updateGrid() {
-    const { errors } = check();
-    for (const row of form.rows) {
-      const tr = dialog.querySelector(`tr[data-uid="${row.uid}"]`);
-      if (!tr) continue;
-      const error = errors.get(row.uid);
-      for (const td of tr.querySelectorAll('td[data-f]')) td.classList.toggle('bad', Boolean(error?.fields.has(td.dataset.f)));
-      const [state, text] = rowState(row, errors);
-      const cell = tr.querySelector('td.st');
-      cell.className = `st st-${state}`;
-      cell.textContent = text;
-      tr.classList.toggle('old', state === 'old');
+  // Đang gõ: cập nhật màu ô, chữ ở đầu cột, danh sách lỗi, trạng thái lưu tại chỗ, không vẽ lại ô nhập.
+  function updateGrid(errors = check()) {
+    const order = sorted();
+    const byUid = new Map(form.rows.map(row => [row.uid, row]));
+    const periods = new Map(form.periods.map(period => [period.uid, period]));
+    for (const input of dialog.querySelectorAll('input[data-tier]')) {
+      const row = byUid.get(Number(input.dataset.row)), period = periods.get(Number(input.dataset.per)), tier = input.dataset.tier;
+      if (!row || !period) continue;
+      const error = errors.cells.get(`${row.uid}|${period.uid}|${tier}`);
+      input.classList.toggle('edited', editedCell(row, period, tier));
+      input.classList.toggle('changed', changedFromPrevious(row, period, tier, order));
+      input.classList.toggle('bad', Boolean(error));
+      if (error) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
     }
-    updateDirty();
+    for (const input of dialog.querySelectorAll('input[data-f="kho"]')) {
+      const error = errors.rows.get(Number(input.dataset.row));
+      input.classList.toggle('bad', Boolean(error));
+      input.title = error ? `${error}: ${input.value}` : input.value;
+    }
+    for (const th of dialog.querySelectorAll('th.ph')) {
+      const period = periods.get(Number(th.dataset.per));
+      if (!period) continue;
+      const [state, text] = periodState(period, errors);
+      th.className = `ph st-${state}${ui.period === period.uid ? ' sel' : ''}`;
+      th.querySelector('.ps').textContent = text;
+      th.querySelector('.pd').textContent = periodLabel(period);
+    }
+    const box = $('.pm-errors');
+    if (box) box.innerHTML = errors.size ? `<strong>Chưa lưu được: ${errors.size} lỗi cần sửa</strong><ul>${errors.list.slice(0, 4).map((item, index) =>
+      `<li>${escape(item.text)} <button type="button" class="pm-goto" data-i="${index}">Sửa</button></li>`).join('')}</ul>${errors.size > 4 ? `<span>và ${errors.size - 4} lỗi khác.</span>` : ''}` : '';
+    if (box) box.hidden = !errors.size;
+    errorList = errors.list;
+    const sideError = $('.pm-error');
+    if (sideError && ui.period != null) { const text = errors.periods.get(ui.period) ?? ''; sideError.textContent = text; sideError.hidden = !text; }
+    const counts = $('.pm-counts');
+    const period = periods.get(ui.period);
+    const closes = $('.pm-closes');
+    if (closes && period) closes.textContent = form.periods.filter(item => period.closes.includes(item.uid))
+      .map(item => `Đợt ${shortDate(item)} tự kết thúc ngày ${dateTidy(item.to)}.`).join(' ');
+    if (counts && period) {
+      const filled = form.rows.filter(row => hasPrice(form.cells.get(cellKey(row, period))));
+      const changed = filled.filter(row => TIERS.some(tier => editedCell(row, period, tier))).length;
+      counts.innerHTML = `<b>${changed} nơi đi</b> đổi giá<br><span class="pm-note">${filled.length - changed} nơi đi giữ giá đợt trước</span>`;
+    }
+    const isDirty = dirty();
+    const chip = $('.price-dirty');
+    if (chip) { const n = editedCount(); chip.hidden = !isDirty; chip.textContent = `Chưa lưu${n ? ` · ${n} ô giá đổi` : ''}`; }
+    const hint = $('.pm-hint');
+    if (hint) {
+      const total = form.periods.length;
+      hint.textContent = isDirty ? 'Lưu xong, chuyến đang theo bảng ở tháng mở tự đổi giá.'
+        : total ? `${Math.min(total, SHOWN) < total && !ui.showAll ? `${SHOWN} đợt gần nhất. ` : ''}Ô đậm: giá khác đợt trước.` : '';
+      hint.classList.toggle('warn', isDirty);
+    }
   }
+  function goTo(item) {
+    if (!item) return;
+    if (item.period != null) { openPeriod(item.period); $('#pm-from')?.focus(); return; }
+    const [rowUid, periodUid, tier] = item.cell ?? [item.row];
+    if (ui.filter) ui.filter = '';
+    if (periodUid != null && !visiblePeriods(check()).shown.some(period => period.uid === periodUid)) ui.showAll = true;
+    render();
+    const input = tier ? $(`input[data-row="${rowUid}"][data-per="${periodUid}"][data-tier="${tier}"]`) : $(`input[data-row="${rowUid}"][data-f="kho"]`);
+    input?.focus();
+    input?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+  function openPeriod(uid) { ui.side = 'period'; ui.period = uid; render(); }
   function addShips(names) {
     let added = 0;
     for (const name of names) {
       const key = keyOf(name);
-      if (!key || /shipper/i.test(key) || form.ships.some(ship => keyOf(ship.name) === key)) continue;
-      const slot = form.ships.find(ship => !ship.name.trim());
-      if (slot) slot.name = key; else form.ships.push({ uid: nextUid++, name: key });
+      if (!key || /shipper/i.test(key) || form.ships.some(ship => keyOf(ship) === key)) continue;
+      form.ships.push(key);
       added += 1;
     }
     return added;
   }
-  // Sheet cũ có 5 cột giá và shipper ở cột 7; lưới mới có thêm Nơi đến sau Nơi đi.
-  function pasteBlock(r0, c0, text) {
-    const lines = String(text).replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n').map(line => line.split('\t').map(cell => cell.trim()));
-    const names = [];
-    let r = r0, count = 0;
-    for (const cells of lines) {
-      const shipperColumn = cells.length >= 8 - c0 ? 7 - c0 : 6 - c0;
+  function rowFor(kho, den) {
+    let row = form.rows.find(item => keyOf(item.kho) === kho && keyOf(item.den) === den);
+    if (row) return row;
+    row = { uid: nextUid++, kho, den };
+    // Hàng có nơi đến riêng đứng ngay sau các hàng cùng nơi đi.
+    let at = -1;
+    form.rows.forEach((item, index) => { if (keyOf(item.kho) === kho) at = index; });
+    if (at < 0) { at = form.rows.length; while (at > 0 && !used(form.rows[at - 1])) at -= 1; } else at += 1;
+    form.rows.splice(at, 0, row);
+    return row;
+  }
+  function periodFor(from, to) {
+    const found = form.periods.find(period => dateTidy(period.from) === from && dateTidy(period.to) === to);
+    if (found) return found;
+    const period = { uid: nextUid++, from, to, fresh: false, closes: [] };
+    form.periods.push(period);
+    return period;
+  }
+  const splitLines = text => String(text).replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n').map(line => line.split('\t').map(cell => cell.trim()));
+  // Vùng Sheet phẳng (Từ · Đến · Nơi đi · [Nơi đến] · Giá khách · Giá TT, cột shipper sau một cột trống) → gộp vào ma trận:
+  // cùng (Từ, Đến) là một đợt, cùng (Nơi đi, Nơi đến) là một hàng; ô cùng đợt cùng hàng bị thay.
+  const looksFlat = text => splitLines(text).some(cells => cells.length >= 5 || isoOf(cells[0]));
+  function importFlat(text) {
+    const names = [], periods = new Set();
+    let count = 0;
+    for (const cells of splitLines(text)) {
+      const withDestination = cells.length === 6 || cells.length >= 8;
+      const shipperColumn = cells.length >= 8 ? 7 : 6;
       if (cells[shipperColumn]) names.push(cells[shipperColumn]);
-      if (c0 === 0 && cells[0] && !/\d/.test(cells[0])) continue;
-      const values = cells.slice(0, 6 - c0);
-      if (!values.some(Boolean)) continue;
-      while (form.rows.length <= r) form.rows.push(blankRow());
-      const pastedFields = c0 === 0 && (cells.length === 5 || cells.length === 7) ? ['from', 'to', 'kho', 'khach', 'tt'] : FIELDS.slice(c0);
-      values.slice(0, pastedFields.length).forEach((value, k) => { form.rows[r][pastedFields[k]] = tidy(pastedFields[k], value); });
-      r += 1; count += 1;
+      if (cells[0] && !/\d/.test(cells[0])) continue;   // dòng tiêu đề
+      const [from, to, kho, den, khach, tt] = withDestination ? cells : [cells[0], cells[1], cells[2], '', cells[3], cells[4]];
+      if (![from, to, kho, den, khach, tt].some(Boolean)) continue;
+      const period = periodFor(dateTidy(from), dateTidy(to));
+      const row = rowFor(keyOf(kho), keyOf(den));
+      setCell(row, period, 'khach', priceTidy(khach));
+      setCell(row, period, 'tt', priceTidy(tt));
+      periods.add(period.uid);
+      count += 1;
     }
     const added = addShips(names);
+    ui.side = 'ship';
     render();
-    const parts = [count ? `${count} dòng giá` : '', added ? `${added} shipper áp giá TT` : ''].filter(Boolean);
-    if (parts.length) setBar('ok', `Đã dán ${parts.join(' và ')}. Kiểm lại rồi bấm Lưu bảng giá.`);
+    if (count || added) setBar('ok', `Đã dán ${[count ? `${count} dòng giá vào ${periods.size} đợt` : '', added ? `${added} shipper áp giá TT` : ''].filter(Boolean).join(' và ')}. Kiểm lại rồi bấm Lưu bảng giá.`);
     else setBar('bad', 'Không thấy dòng giá nào. Trên Sheet chọn từ cột EFFECTIVE FROM tới TT PRICE rồi dán lại.');
-    $(`input[data-r="${r0}"][data-c="${c0}"]`)?.focus();
   }
+  // Dán một khối 1–2 cột vào ô giá: điền xuống từ hàng đang đứng theo thứ tự hàng đang hiện (cột 2 vào ô bên phải).
+  function fillDown(el, text) {
+    const rows = visibleRows();
+    const start = rows.findIndex(row => row.uid === Number(el.dataset.row));
+    const period = form.periods.find(item => item.uid === Number(el.dataset.per));
+    const tiers = el.dataset.tier === 'khach' ? ['khach', 'tt'] : ['tt'];
+    const lines = splitLines(text);
+    let count = 0;
+    lines.forEach((cells, k) => {
+      const row = rows[start + k];
+      if (!row) return;
+      tiers.forEach((tier, c) => { if (c < cells.length) setCell(row, period, tier, priceTidy(cells[c])); });
+      count += 1;
+    });
+    rerender();
+    setBar(count < lines.length ? 'bad' : 'ok', count < lines.length ? `Đã dán ${count} dòng; ${lines.length - count} dòng thừa vì hết hàng nơi đi. Thêm nơi đi rồi dán lại phần thừa.`
+      : `Đã dán ${count} ô giá vào đợt ${periodLabel(period)}.`);
+  }
+  // Đổi giá từ ngày (Q6 của BANG-GIA-01): đợt còn dùng kết thúc ngày liền trước, cột mới chép giá của chúng để sửa.
   function newPeriod(text) {
     const iso = isoOf(text);
-    if (!iso) { setBar('bad', 'Ngày giá mới chưa đúng dạng ngày/tháng/năm, ví dụ 01/11/2026. Bấm "Đổi giá từ ngày…" để nhập lại.'); return; }
-    const current = form.rows.filter(row => filled(row) && !String(row.to).trim() && isoOf(row.from));
-    if (!current.length) { setBar('bad', 'Không có dòng giá nào đang dùng (Đến ngày để trống) để chép.'); return; }
-    const latest = current.map(row => isoOf(row.from)).sort().at(-1);
-    if (latest >= iso) { setBar('bad', `Ngày giá mới phải sau ${dmy(latest)}.`); return; }
-    // Q6 (BANG-GIA-01): giá đang dùng kết thúc ngày liền trước; dòng mới chép giá cũ để sửa.
+    const fail = message => { setBar('bad', message); $('.price-new-from')?.focus(); };
+    if (!iso) { fail('Ngày giá mới chưa đúng dạng ngày/tháng/năm, ví dụ 01/11/2026.'); return; }
+    const open = form.periods.filter(period => !String(period.to).trim() && isoOf(period.from));
+    const latest = open.map(period => isoOf(period.from)).sort().at(-1);
+    if (latest && latest >= iso) { fail(`Ngày giá mới phải sau ${dmy(latest)}.`); return; }
     const end = dmy(addDays(iso, -1));
-    const copies = current.map(row => ({ ...row, uid: nextUid++, from: dmy(iso), to: '', fresh: true }));
-    for (const row of current) row.to = end;
-    let at = form.rows.length;
-    while (at > 0 && !filled(form.rows[at - 1])) at -= 1;
-    form.rows.splice(at, 0, ...copies);
-    bar = null;
-    render();
-    setBar('info', `Đã thêm ${copies.length} dòng giá từ ${dmy(iso)} (tô vàng), giá chép từ giá cũ. Giá cũ dùng tới ${end}. Sửa giá rồi bấm Lưu bảng giá.`);
-    const input = $(`input[data-r="${at}"][data-c="4"]`);
-    input?.focus();
-    input?.scrollIntoView?.({ block: 'center' });
-  }
-  // Lưới → bảng gửi server: dòng cùng Từ ngày/Đến ngày gộp thành một đợt; tên khác của nơi đi giữ như đã lưu.
-  function payload(good) {
-    const locations = new Map(), periods = new Map();
-    for (const item of good) {
-      if (!locations.has(item.key)) locations.set(item.key, { name: item.key, aliases: form.aliases.get(item.key) ?? [] });
-      const periodKey = `${item.from}|${item.to}`;
-      if (!periods.has(periodKey)) periods.set(periodKey, { valid_from: item.from, valid_to: item.to || null, rates: [] });
-      for (const tier of ['khach', 'tt']) if (item[tier] != null) periods.get(periodKey).rates.push({ location: item.key, destination: item.destination, tier, unit_price_vnd: item[tier] });
+    const period = { uid: nextUid++, from: dmy(iso), to: '', fresh: true, closes: open.map(item => item.uid) };
+    const sources = [...open].sort((a, b) => isoOf(b.from).localeCompare(isoOf(a.from)));
+    for (const row of form.rows) {
+      const source = sources.find(item => hasPrice(form.cells.get(cellKey(row, item))));
+      if (!source) continue;
+      const cell = cellOf(row, source);
+      for (const tier of TIERS) setCell(row, period, tier, cell[tier], cell[tier]);
     }
-    return { tt_shippers: [...new Set(form.ships.map(ship => keyOf(ship.name)).filter(Boolean))], locations: [...locations.values()],
-      periods: [...periods.values()].sort((a, b) => a.valid_from.localeCompare(b.valid_from)) };
+    for (const item of open) item.to = end;
+    form.periods.push(period);
+    bar = null;
+    ui.side = 'period'; ui.period = period.uid;
+    render();
+    setBar('info', open.length ? `Đã thêm cột giá từ ${dmy(iso)}, chép giá đang dùng. Sửa ô nào, ô đó tô vàng.` : `Đã thêm cột giá từ ${dmy(iso)}. Gõ hoặc dán giá vào cột mới.`);
+    const input = $(`input[data-per="${period.uid}"][data-tier="khach"]`);
+    input?.focus();
+    input?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
+  // Sửa ngày đợt ở khối phải; đợt mới thì ngày kết thúc của đợt nó đã đóng đi theo. Gõ/rời ô chỉ cập nhật tại chỗ
+  // (không vẽ lại khi con trỏ đang sang ô kế bên); Enter, "Xong" hoặc đóng khối mới xếp lại cột theo ngày.
+  function setPeriodDate(el, final, resort) {
+    const period = form.periods.find(item => item.uid === ui.period);
+    if (!period) return;
+    if (final) el.value = dateTidy(el.value);
+    period[el.dataset.pf] = el.value;
+    if (el.dataset.pf === 'from' && period.fresh && isoOf(period.from)) {
+      for (const item of form.periods) if (period.closes.includes(item.uid)) item.to = dmy(addDays(isoOf(period.from), -1));
+    }
+    if (resort) rerender(); else updateGrid();
+  }
+
   async function save(button) {
     if (sending) return;
-    const { errors, good } = check();
+    const errors = check();
     if (errors.size) {
-      render();
-      setBar('bad', `Chưa lưu: ${errors.size} dòng sai (tô đỏ). Sửa rồi bấm Lưu lại.`);
-      const r = form.rows.findIndex(row => errors.has(row.uid));
-      $(`input[data-r="${r}"][data-c="${FIELDS.indexOf([...errors.get(form.rows[r].uid).fields][0])}"]`)?.focus();
+      bar = null; renderBar();
+      updateGrid(errors);
+      $('.pm-goto')?.focus();
       return;
     }
     sending = true; button.disabled = true;
     let outcome;
     try {
       outcome = await post('/api/v7/price-table', { customer_id: customerId, expected_version: ctx.snapshot.version,
-        idempotency_key: crypto.randomUUID(), price_table: payload(good) });
+        idempotency_key: crypto.randomUUID(), price_table: payload() });
     } catch {
       sending = false; button.disabled = false;
       setBar('bad', 'Chưa rõ đã lưu chưa. Đóng khung, tải lại sổ rồi mở Bảng giá để kiểm tra.');
@@ -427,7 +696,7 @@
     sending = false; button.disabled = false;
     if (!outcome.ok) {
       setBar('bad', outcome.result.error === 'NO_CHANGE' ? 'Bảng giá không có gì thay đổi.'
-        : outcome.result.error === 'STALE_LEDGER' ? 'Sổ vừa thay đổi. Đóng khung, tải lại rồi lưu lại.'
+        : outcome.result.error === 'STALE_LEDGER' ? 'Sổ vừa thay đổi ở nơi khác nên chưa lưu. Chép lại các giá vừa sửa, đóng khung, tải lại sổ rồi sửa lại.'
           : outcome.result.message || 'Chưa lưu được bảng giá.');
       return;
     }
@@ -452,72 +721,84 @@
     return parts.join(' ');
   }
 
+  const rowOf = el => form.rows.find(row => row.uid === Number(el.dataset.row));
+  const periodOf = el => form.periods.find(period => period.uid === Number(el.dataset.per));
   dialog.addEventListener('input', event => {
     const el = event.target;
     if (!form) return;
-    if (el.dataset.c != null) { form.rows[Number(el.dataset.r)][FIELDS[Number(el.dataset.c)]] = el.value; updateGrid(); }
-    else if (el.dataset.s != null) {
-      form.ships[Number(el.dataset.s)].name = el.value;
-      el.parentElement.querySelector('.price-ship-count')?.remove();
-      el.insertAdjacentHTML('afterend', shipNote(el.value));
-      updateDirty();
+    if (el.dataset.tier) { setCell(rowOf(el), periodOf(el), el.dataset.tier, el.value); updateGrid(); }
+    else if (el.dataset.f) { rowOf(el)[el.dataset.f] = el.value; updateGrid(); }
+    else if (el.dataset.pf) setPeriodDate(el, false, false);
+    else if (el.matches('.pm-find')) {
+      ui.filter = el.value;
+      const scroll = $('.pm-scroll');
+      if (scroll) { scroll.innerHTML = grid(check()); updateGrid(); }
     }
   });
   dialog.addEventListener('change', event => {
     const el = event.target;
     if (!form) return;
-    if (el.dataset.c != null) {
-      const field = FIELDS[Number(el.dataset.c)];
-      el.value = tidy(field, el.value);
-      form.rows[Number(el.dataset.r)][field] = el.value;
-      updateGrid();
-    } else if (el.dataset.s != null) {
+    if (el.dataset.tier) { el.value = priceTidy(el.value); setCell(rowOf(el), periodOf(el), el.dataset.tier, el.value); updateGrid(); }
+    else if (el.dataset.f) {
+      const row = rowOf(el);
       el.value = keyOf(el.value);
-      form.ships[Number(el.dataset.s)].name = el.value;
-      updateDirty();
-    }
-  });
-  // Ô trống cuối lưới vừa được dùng thì thêm hàng trống mới, giữ con trỏ ở ô đang chọn.
-  dialog.addEventListener('focusout', event => {
-    const el = event.target;
-    if (!form || (el.dataset.c == null && el.dataset.s == null)) return;
-    if (!form.rows.slice(-3).some(filled) && !form.ships.slice(-2).some(ship => ship.name.trim())) return;
-    setTimeout(() => {
-      if (!form || !dialog.contains(document.activeElement)) return;
-      const { r, c, s } = document.activeElement.dataset ?? {};
-      if (r == null && s == null) return;
-      render();
-      (r != null ? $(`input[data-r="${r}"][data-c="${c}"]`) : $(`input[data-s="${s}"]`))?.focus();
-    }, 0);
+      // Đổi tên nơi đi thì tên khác đã lưu đi theo tên mới.
+      if (el.dataset.f === 'kho' && row.kho !== el.value && form.aliases.has(keyOf(row.kho)) && !form.rows.some(item => item !== row && keyOf(item.kho) === keyOf(row.kho))) {
+        form.aliases.set(el.value, form.aliases.get(keyOf(row.kho)));
+      }
+      row[el.dataset.f] = el.value;
+      updateGrid();
+    } else if (el.dataset.pf) setPeriodDate(el, true, false);
   });
   dialog.addEventListener('paste', event => {
     const el = event.target;
     const text = event.clipboardData?.getData('text/plain') ?? '';
-    if (!form || !/[\t\n]/.test(text.trim())) return;
-    if (el.dataset?.c != null) { event.preventDefault(); pasteBlock(Number(el.dataset.r), Number(el.dataset.c), text); }
-    else if (el.dataset?.s != null) {
+    if (!form || loading || failed) return;
+    if (el.matches?.('.pm-paste')) { event.preventDefault(); importFlat(text); return; }
+    if (!/[\t\n]/.test(text.trim())) return;
+    if (el.dataset?.tier || el.dataset?.f) {
+      event.preventDefault();
+      if (looksFlat(text)) importFlat(text);
+      else if (el.dataset.tier) fillDown(el, text);
+      else {
+        // Dán cột tên vào ô Nơi đi: điền xuống, cột 2 là Nơi đến; hết hàng thì thêm hàng.
+        const rows = visibleRows();
+        let at = rows.findIndex(row => row.uid === Number(el.dataset.row));
+        for (const cells of splitLines(text)) {
+          let row = rows[at];
+          if (!row) { row = { uid: nextUid++, kho: '', den: '' }; form.rows.push(row); }
+          if (el.dataset.f === 'kho') { row.kho = keyOf(cells[0]); if (cells.length > 1) row.den = keyOf(cells[1]); } else row.den = keyOf(cells[0]);
+          at += 1;
+        }
+        rerender();
+      }
+    } else if (el.id === 'pm-ship-new') {
       event.preventDefault();
       const added = addShips(text.split(/\r?\n/).map(line => line.split('\t')[0]));
       render();
       setBar('ok', `Đã dán ${added} shipper áp giá TT.`);
     }
   });
+  function move(el, step) {
+    const rows = visibleRows();
+    const at = rows.findIndex(row => row.uid === Number(el.dataset.row));
+    const next = rows[at + step];
+    if (!next) return false;
+    const selector = el.dataset.tier ? `input[data-row="${next.uid}"][data-per="${el.dataset.per}"][data-tier="${el.dataset.tier}"]` : `input[data-row="${next.uid}"][data-f="${el.dataset.f}"]`;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    $(selector)?.focus();
+    return true;
+  }
   dialog.addEventListener('keydown', event => {
     const el = event.target;
-    if (event.key === 'Enter' && el.dataset.c != null) {
+    const plain = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+    if ((el.dataset.tier || el.dataset.f) && plain && ['Enter', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+      // SO-GON-04 (L5): Enter và mũi tên xuống sang ô cùng cột hàng dưới, mũi tên lên sang hàng trên; ghi ô đang đứng như Enter.
       event.preventDefault();
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      $(`input[data-r="${Number(el.dataset.r) + 1}"][data-c="${el.dataset.c}"]`)?.focus();
-    } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && el.dataset.c != null
-      && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-      // SO-GON-04 (L5): mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, ghi ô đang đứng như Enter. Cột shipper (data-s) có
-      // danh sách gợi ý nên mũi tên để chọn gợi ý.
-      const selector = `input[data-r="${Number(el.dataset.r) + (event.key === 'ArrowDown' ? 1 : -1)}"][data-c="${el.dataset.c}"]`;
-      if (!$(selector)) return;
-      event.preventDefault();
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      $(selector)?.focus();
+      if (!move(el, event.key === 'ArrowUp' ? -1 : 1) && event.key === 'Enter') el.dispatchEvent(new Event('change', { bubbles: true }));
     } else if (event.key === 'Enter' && el.matches('.price-new-from')) { event.preventDefault(); newPeriod(el.value); }
+    else if (event.key === 'Enter' && el.dataset.pf) { event.preventDefault(); setPeriodDate(el, true, true); }
+    else if (event.key === 'Enter' && el.id === 'pm-ship-new') { event.preventDefault(); $('.price-ship-add')?.click(); }
   });
   dialog.addEventListener('click', event => {
     if (!form) return;
@@ -527,17 +808,49 @@
     if (button.matches('.price-table-save')) save(button);
     else if (button.matches('.price-table-close')) requestClose();
     else if (button.matches('.price-discard')) closeDialog();
-    else if (button.matches('.price-stay,.price-msg-close,.price-new-cancel')) { bar = null; renderBar(); }
-    else if (button.matches('.price-new-open')) { bar = { kind: 'new' }; renderBar(); $('.price-new-from')?.focus(); }
+    else if (button.matches('.price-stay,.price-msg-close')) { bar = null; renderBar(); }
+    else if (loading || failed) return;
+    else if (button.matches('.price-paste-open')) { ui.side = ui.side === 'paste' ? 'ship' : 'paste'; render(); $('#pm-paste-side')?.focus(); }
+    else if (button.matches('.price-new-open')) { ui.side = 'new'; ui.period = null; render(); $('.price-new-from')?.focus(); }
     else if (button.matches('.price-new-ok')) newPeriod($('.price-new-from')?.value);
-    else if (button.matches('.price-row-drop')) { form.rows.splice(Number(button.dataset.r), 1); render(); }
+    else if (button.matches('.price-new-cancel,.pm-side-close')) { ui.side = 'ship'; ui.period = null; render(); }
+    else if (button.matches('.pm-period')) { openPeriod(Number(button.dataset.per)); $('#pm-from')?.focus(); }
+    else if (button.matches('.pm-older')) { ui.showAll = !ui.showAll; render(); }
+    else if (button.matches('.pm-goto')) goTo(errorList[Number(button.dataset.i)]);
+    else if (button.matches('.price-row-add')) {
+      ui.filter = '';
+      const row = { uid: nextUid++, kho: '', den: '' };
+      form.rows.push(row);
+      render();
+      $(`input[data-row="${row.uid}"][data-f="kho"]`)?.focus();
+    } else if (button.matches('.price-row-drop')) {
+      const uid = Number(button.dataset.row);
+      form.rows = form.rows.filter(row => row.uid !== uid);
+      render();
+    } else if (button.matches('.price-period-drop')) {
+      const uid = Number(button.dataset.per);
+      const period = form.periods.find(item => item.uid === uid);
+      // Bỏ đợt mới vừa thêm thì đợt nó đã đóng lại còn dùng như trước.
+      if (period?.fresh) for (const item of form.periods) if (period.closes.includes(item.uid)) item.to = '';
+      form.periods = form.periods.filter(item => item.uid !== uid);
+      ui.side = 'ship'; ui.period = null;
+      render();
+      setBar('info', `Đã bỏ đợt ${period ? periodLabel(period) : ''}. Bảng giá chỉ đổi khi bấm Lưu.`);
+    } else if (button.matches('.price-ship-add')) {
+      const input = $('#pm-ship-new');
+      const added = addShips([input?.value ?? '']);
+      render();
+      if (!added && input?.value.trim()) setBar('bad', 'Shipper này đã có trong danh sách giá TT.');
+      $('#pm-ship-new')?.focus();
+    } else if (button.matches('.price-ship-move')) { addShips([button.dataset.name]); render(); }
     else if (button.matches('.price-ship-drop')) { form.ships.splice(Number(button.dataset.s), 1); render(); }
   });
-  // Esc: đóng câu hỏi đang hiện, hoặc đóng khung (hỏi lưu nếu còn thay đổi).
+  // Esc: đóng câu hỏi đang hiện, rồi khối đang mở bên phải, rồi mới đóng khung (hỏi lưu nếu còn thay đổi).
   if (typeof document.addEventListener === 'function') document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || !form) return;
-    if (bar?.kind === 'ask' || bar?.kind === 'new') { bar = null; renderBar(); } else requestClose();
+    if (bar?.kind === 'ask') { bar = null; renderBar(); } else if (ui.side !== 'ship' && !loading && !failed) { ui.side = 'ship'; ui.period = null; render(); } else requestClose();
   });
+
 
   root.addEventListener('click', event => {
     const button = event.target.closest('.price-table-open,.price-table-apply,.price-reapply-open,.price-table-cancel,.price-table-write');
