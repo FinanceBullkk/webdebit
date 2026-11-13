@@ -179,7 +179,7 @@ svg{flex:none;vertical-align:middle}
    co theo nội dung (nút giá gần nhất + ô + nút ghi) nên tên tuyến không bị cắt; ô và nút vẫn thẳng mép phải với các chuyến. */
 .detail-items li.price-group{grid-template-columns:150px 0 minmax(0,1fr) 0 auto;background:#f7f9fc;border-top-color:#dfe5ec}
 .detail-items li.price-group.pending-action{background:#eef3f9}
-.price-group .detail-description{color:var(--ink);font-weight:600}
+.price-group .detail-description{color:var(--ink);font-weight:600;white-space:normal;overflow:visible;line-height:1.35;padding:6px 0}  /* tên tuyến dài hay chữ rộng: xuống dòng, không cắt */
 .use-last{flex:none;height:38px;padding:0 12px;border:1px solid #b9c3cf;border-radius:19px;background:#fff;color:#1c5cab;font:inherit;font-size:13.5px;font-weight:600;white-space:nowrap;cursor:pointer}
 .use-last:hover{border-color:#1c5cab}.use-last:disabled{opacity:.55;cursor:default}
 .detail-items li.price-child>b:first-child{padding-left:18px;font-weight:600}

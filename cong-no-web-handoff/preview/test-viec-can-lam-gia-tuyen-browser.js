@@ -7,6 +7,7 @@ const path = require('node:path');
 const { launchShared, test } = require('./shared-browser.js');
 
 const A = { origin: 'KHO MẪU A', destination: 'CẢNG MẪU 1' };
+const B = { origin: 'KHO MẪU B - TRẠI ĐÓNG HÀNG SỐ 14 TÊN DÀI', destination: 'CẢNG MẪU 2 - BẾN XẾP DỠ PHÍA BẮC' };
 const trip = (id, date, extra = {}) => ({ id, container: `MAUU${String(id).padStart(7, '0')}`, event_date: date, status: 'confirmed', unit_price_vnd: null,
   other_fee_vnd: null, editable: true, shipper: 'SHIP MẪU', ...A, ...extra });
 function makeWorld() {
@@ -14,7 +15,8 @@ function makeWorld() {
     trip(100, '2026-10-28', { unit_price_vnd: '45000000' }),   // đã có giá: "giá gần nhất" của tuyến A · SHIP MẪU
     trip(101, '2026-10-20', { unit_price_vnd: '44000000' }),
     trip(1, '2026-11-02'), trip(2, '2026-11-03'), trip(3, '2026-11-04', { other_fee_vnd: '500000' }), trip(4, '2026-11-05'),
-    trip(5, '2026-11-03', { origin: 'KHO MẪU B', destination: 'CẢNG MẪU 2' }), trip(6, '2026-11-06', { origin: 'KHO MẪU B', destination: 'CẢNG MẪU 2' }),
+    // Tuyến tên dài: hàng tuyến xuống dòng chứ không cắt (chữ trên Linux rộng hơn Segoe UI).
+    ...[5, 6].map((id, i) => trip(id, `2026-11-0${3 + i * 3}`, { origin: B.origin, destination: B.destination })),
     trip(7, '2026-11-04', { origin: 'KHO MẪU C' }),
     trip(8, '2026-10-30', { editable: false }),                // tháng khóa: không vào hàng tuyến
     trip(9, '2026-11-07', { origin: null }),                    // thiếu nơi đi: không gom
@@ -99,7 +101,7 @@ if (process.argv.includes('--preview')) {
     const heads = await page.locator('li.price-group').evaluateAll(rows => rows.map(r => [r.querySelector('b').textContent, r.querySelector('.detail-description').textContent]));
     assert.deepEqual(heads, [
       ['4 chuyến', 'KHO MẪU A → CẢNG MẪU 1 · SHIP MẪU · 02/11–05/11'],
-      ['2 chuyến', 'KHO MẪU B → CẢNG MẪU 2 · 03/11–06/11'],
+      ['2 chuyến', `${B.origin} → ${B.destination} · 03/11–06/11`],
       ['2 chuyến', 'KHO MẪU A → CẢNG MẪU 1 · TT MẪU · 08/11–09/11'],
     ]);
     assert.equal(await page.locator('.use-last').count(), 1);
@@ -111,10 +113,14 @@ if (process.argv.includes('--preview')) {
     assert.equal(await groupButton(page).isDisabled(), true);
     const fit = await page.evaluate(() => {
       const row = document.querySelector('li.price-group'), button = row.querySelector('.use-last').getBoundingClientRect(), box = row.getBoundingClientRect();
-      const desc = row.querySelector('.detail-description');
-      return { noScroll: document.scrollingElement.scrollWidth <= innerWidth, buttonInside: button.right <= box.right && button.left >= box.left, routeWhole: desc.scrollWidth <= desc.clientWidth };
+      const rows = [...document.querySelectorAll('li.price-group')];
+      // Tên tuyến không bị cắt ở hàng nào (tuyến B dài thì xuống dòng); hàng xuống dòng vẫn gọn, ô giá vẫn thẳng mép phải với chuyến.
+      const whole = rows.every(r => { const d = r.querySelector('.detail-description'); return d.scrollWidth <= d.clientWidth && d.scrollHeight <= d.clientHeight + 1; });
+      const input = sel => document.querySelector(sel).getBoundingClientRect().right;
+      return { noScroll: document.scrollingElement.scrollWidth <= innerWidth, buttonInside: button.right <= box.right && button.left >= box.left, routeWhole: whole,
+        tallest: Math.max(...rows.map(r => r.getBoundingClientRect().height)) <= 90, aligned: Math.abs(input('[data-group-price]') - input('[data-manual-price="1"]')) < 1 };
     });
-    assert.deepEqual(fit, { noScroll: true, buttonInside: true, routeWhole: true });
+    assert.deepEqual(fit, { noScroll: true, buttonInside: true, routeWhole: true, tallest: true, aligned: true });
   }));
 
   test('gõ ở hàng tuyến điền xuống; ô đã tự sửa giữ nguyên; ô trống bỏ qua; nút đếm chuyến', async () => withPage({}, async page => {
