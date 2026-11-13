@@ -254,7 +254,7 @@
   // bị ảnh hưởng).
   function busyIn(section) {
     return [...section.querySelectorAll('.info-input,.money-input,.month-amount,.month-note,.saved-receipt-input')].some(input => input.value.trim())
-      || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask');
+      || section.querySelector('.review-prompt,.void-prompt,.move-ask,.delete-prompt,.month-adjustment-input,.lock-ask,.paste-review');
   }
   root.addEventListener('click', event => {
     const missing = event.target.closest('.month-missing');

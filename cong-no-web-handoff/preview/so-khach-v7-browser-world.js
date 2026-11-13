@@ -365,7 +365,8 @@ function apply(world, url, body) {
     event('paste', {}, { trips: body.trips });
   } else return [404, { error: 'NOT_FOUND' }];
   world.version += 1;
-  return [200, { ok: true }];
+  // Như API thật (_finish_command): lệnh ghi trả phiên bản sổ mới.
+  return [200, { ok: true, version: world.version }];
 }
 
 async function withPage(fn, setup = () => {}) {

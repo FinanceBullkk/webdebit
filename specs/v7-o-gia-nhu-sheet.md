@@ -21,20 +21,20 @@ Trạng thái: **ĐỀ XUẤT** (Claude, 13/11/2026). Người dùng chọn "Là
 1. Đứng ở ô Đơn giá của một chuyến web, dán (Ctrl+V) một cột giá chép từ Sheet hay Excel. Mỗi dòng dán vào một chuyến, từ chuyến đang đứng trở xuống trong bảng tháng đó, như Sheet.
 2. Chép kèm cột container (hai cột: container và giá, thứ tự cột nào cũng được): máy ghép theo **số container**, không theo thứ tự dòng. Đây là cách an toàn khi nguồn xếp khác sổ.
 3. Chưa ghi gì. Hiện khung xem lại: từng chuyến (container, ngày, giá đang có → giá dán), dòng nào không ghi và vì sao, tổng nợ trước → sau. Giá dưới 1.000.000 đ được đánh dấu "nghi sai đơn vị"; ghi đè giá đang có được nêu riêng.
-4. Xác nhận: ghi lần lượt bằng lệnh ghi giá đang có, lệnh sau dùng phiên bản lệnh trước trả về, đọc lại sổ một lần ở cuối. Ghi xong có "Hoàn tác" (như Việc cần làm).
+4. Xác nhận (tiêu điểm mặc định ở Thôi): ghi lần lượt bằng lệnh ghi giá đang có, lệnh sau dùng phiên bản lệnh trước trả về, đọc lại sổ một lần ở cuối, báo "Đã ghi n giá.". Lỗi giữa chừng (sổ vừa đổi, tháng vừa khóa…): dừng, đọc lại sổ, báo "Ghi được k/n giá rồi dừng: …". Mất mạng: băng "Thử lại thao tác vừa gửi" như mọi lệnh của sổ; Thử lại gửi đúng lệnh cũ (cùng khóa) rồi ghi tiếp. Trong lúc đang ghi: nút Ghi đổi thành "Đang ghi…", Thôi/Esc khóa, đầu sổ báo "Đang ghi giá đã dán: x/n…" (không có nút Thử lại), lệnh ghi khác của sổ (sửa ô, Ghi phiếu thu…) bị chặn tới khi xong. Còn lệnh khác chưa rõ kết quả (hay chuỗi còn đang đọc lại sổ) thì Ghi phiếu thu không gửi, báo phải xong việc kia trước. Phiếu "chưa rõ" của chính khung phiếu thu: khung giữ khóa lệnh và nội dung phiếu đó, chỉ Thử lại đúng phiếu đó, không cho Sửa lại hay ghi phiếu khác khi còn chờ. Phiếu đã có kết quả ở đầu sổ thì khung hỏi đúng kết quả của khóa lệnh đó (`api.outcomeOf`): đã lưu thì như ghi xong (băng kết quả, ảnh nháp đính đúng phiếu), bị từ chối thì nói rõ và giữ phiếu để xem lại; không gửi lần hai. Kết quả "đã lưu" của một lệnh gán lại sau khi đọc sổ xong, nên lệnh khác bị từ chối trong lúc đó không xóa được. Dán từ Excel có kèm ảnh các ô: ảnh không lọt sang phần ảnh chứng từ. Sửa sai sau khi ghi: dán lại hoặc sửa từng ô; mỗi lần ghi có dòng Lịch sử trước → sau. Chưa có Hoàn tác ở sổ vì thông báo nổi chưa có chỗ đặt nút.
 
 **Không ghi** (nêu trong khung xem lại): dòng sổ gốc (sửa từng ô, vì Thành tiền dòng sổ gốc có luật riêng), chuyến chờ kiểm, đã loại, dòng phí lẻ, tháng khóa, container không có trong sổ hoặc có nhiều hơn một chuyến, dòng dán thừa (hết chuyến trong bảng tháng). Dòng dán trống là bỏ qua, không phải 0. Dòng dán không đọc được thành số tiền thì chặn cả lần dán, nêu số dòng.
 
 ## Đầu ra
 
-A: ghi giá một chuyến bằng gõ số + Enter (hai phím thay vì ba lần thao tác). B: dán một cột giá chép từ Sheet/Excel, xem lại rồi ghi một lần, có Hoàn tác.
+A: ghi giá một chuyến bằng gõ số + Enter (hai phím thay vì ba lần thao tác). B: dán một cột giá chép từ Sheet/Excel, xem lại rồi ghi một lần.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
 - Ô Đơn giá chuyến web: `td.editable[data-field="unit_price_vnd"][data-trip]` (`so-khach-v7-trips-ui.js`), mở ô và lưu ở `so-khach-v7-edit-ui.js` (Enter/Tab lưu, không lưu khi rời ô). Ô Đơn giá dòng sổ gốc: `.info-edit[data-kind="legacy"][data-field="unit_price_vnd"]`, mở bằng `openInfoEdit`.
 - Số tiền: `model.parseVnd` nhận số liền (`45000000`) hoặc có dấu nghìn (`45.000.000`, `45,000,000`), như ô hiện nay.
 - Tiền chuyến sau khi có giá: `SoKhachV7Model.tripAmount` (đơn giá + phụ phí đang có). Chuyến chưa giá tính nợ cũ bằng 0.
-- Ghi: `POST /api/v7/trips/price` `{trip_id, unit_price_vnd, other_fee_vnd}` qua `so-khach-v7-api.js`; lệnh trả `version` mới. Hoàn tác: `POST /api/v7/sheet/batch/undo` nhận khóa lệnh 64 ký tự hex của các lần `price_edit`.
+- Ghi: `POST /api/v7/trips/price` `{trip_id, unit_price_vnd, other_fee_vnd}` qua `so-khach-v7-api.js`; lệnh trả `version` mới. Ghi nối tiếp: `api.submitSeries` (mới, `so-khach-v7-api.js`) giữ cơ chế `pending`/Thử lại của sổ; máy chủ giả của test trả `version` sau lệnh ghi như API thật.
 
 ## Hành vi và bất biến
 
@@ -46,12 +46,13 @@ A: ghi giá một chuyến bằng gõ số + Enter (hai phím thay vì ba lần 
 
 - [x] A: `npm run check` xanh.
 - [x] A, browser (`test-so-khach-v7-go-la-sua-browser.js`): gõ chữ số ở ô Đơn giá chuyến web và dòng sổ gốc mở ô với chữ số đó; Enter lưu và xuống hàng, gõ tiếp là sửa hàng dưới; Esc trả lại; chữ cái/Ctrl không mở; ô chỉ đọc không mở. Test bàn phím, sửa ô, phụ phí cũ vẫn xanh.
-- [ ] B, browser: dán một cột (theo thứ tự) và hai cột (theo container); khung xem lại đúng giá cũ → mới, lý do không ghi, nợ trước → sau; xác nhận gửi đúng lệnh, phiên bản nối tiếp; lỗi giữa chừng, mất mạng, Hoàn tác.
+- [x] B, đơn vị (`test-so-khach-v7-dan-gia.js`): đọc một cột, hai cột theo container, dòng trống, dấu nghìn, chữ đ; chặn kèm số dòng; kế hoạch ghi và lý do không ghi; nợ trước → sau; container không có, trùng, dán hai lần.
+- [x] B, browser (`test-so-khach-v7-dan-gia-browser.js`): khung xem lại đúng giá cũ → mới, lý do không ghi, nợ trước → sau; Thôi/Esc không gửi; Ghi gửi lần lượt, phiên bản nối tiếp; ghép container; chữ sai bị chặn; đang gõ trong ô thì dán như chữ thường; mất mạng thử lại cùng thân lệnh; lỗi giữa chừng dừng và báo k/n. Đã xem ảnh render ở 1280.
 - [ ] Bước 8: người dùng thử trên `hao`.
 
 ## Phạm vi agent
 
 - Agent: claude
 - Review: opus (ghi tiền)
-- Được sửa: `cong-no-web-handoff/preview/so-khach-v7-edit-ui.js`, `so-khach-v7-api.js` (B), `so-khach-v7*.css` (B), test mới `test-so-khach-v7-go-la-sua-browser.js` (A), `test-so-khach-v7-dan-gia-browser.js` (B), `specs/v7-o-gia-nhu-sheet.md`
-- Ngân sách diff: A 150 dòng, B 600 dòng
+- Được sửa: `cong-no-web-handoff/preview/so-khach-v7-edit-ui.js`; B thêm `so-khach-v7-model.js`, `so-khach-v7-api.js`, `so-khach-v7-ui.js` (dòng tiến độ ở đầu sổ), `so-khach-v7-month-ui.js` (khung xem lại chặn đổi tháng), `so-khach-v7-entry-ui.js` (chặn Ghi phiếu khi còn lệnh khác; phiếu chưa rõ giữ đúng khóa lệnh), `so-khach-v7.css`, `so-khach-v7-browser-world.js`; test mới `test-so-khach-v7-go-la-sua-browser.js` (A), `test-so-khach-v7-dan-gia.js`, `test-so-khach-v7-dan-gia-browser.js`, `test-so-khach-v7-entry-pending-browser.js` (B); `specs/v7-o-gia-nhu-sheet.md`
+- Ngân sách diff: A 150 dòng, B 700 dòng (nâng sau review: chặn chạy hai vòng ghi, tiến độ, chặn Ghi phiếu thu khi còn lệnh khác)
