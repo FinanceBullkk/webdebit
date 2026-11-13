@@ -201,31 +201,45 @@
         const input = editable.querySelector('input'); input.focus(); input.select();
         // SO-GON-04 (L5): Enter lưu rồi xuống ô cùng cột hàng dưới; Tab rời ô cũng lưu như ô chữ (tháng khóa: Tab qua lại giữa
         // số tiền và Ghi chú thì chưa). Không đổi gì thì chỉ đóng ô nhập — với Tab thì đóng sau khi tiêu điểm đã sang ô kế.
-        const save = async keyEvent => {
-          if (keyEvent.key === 'Escape') { editable.innerHTML = original; editable.focus(); return; }
-          const inside = locked && (keyEvent.target === input) !== keyEvent.shiftKey;
-          const leaving = keyEvent.key === 'Tab' && !inside;
-          if (keyEvent.key !== 'Enter' && !leaving) return;
-          if (!leaving) keyEvent.preventDefault();
+        // Sửa 13/11/2026 (NHAP-SHEET-01: rời ô là lưu): bấm chuột ra ngoài ô cũng lưu như ô chữ; trước đây số gõ nằm lại trong ô
+        // nhập mà không gửi đi. `state` chặn lưu hai lần (Enter/Tab rồi tới lúc mất tiêu điểm) và lưu sau Esc.
+        let state = 'editing';
+        const commit = async ({ leaving, down }) => {
+          if (state !== 'editing') return;
           if (input.value.trim() === start) {
+            state = 'done';
             if (leaving) setTimeout(() => { if (editable.contains(input)) editable.innerHTML = original; });
-            else { editable.innerHTML = original; goDown(editable); }
+            else { editable.innerHTML = original; if (down) goDown(editable); }
             return;
           }
+          state = 'saving';
           try {
             const value = moneyText(input.value, !locked);
             if (locked) {
               const result = await submit('tripAdjust', { trip_id: trip.id, field, new_value_vnd: value,
                 note: editable.querySelector('.adjustment-note').value.trim() });
-              if (result?.message) { editable.querySelector('.cell-error').textContent = result.message; return; }
+              if (result?.message) { state = 'editing'; editable.querySelector('.cell-error').textContent = result.message; return; }
             }
             else await submit('price', { trip_id: trip.id, unit_price_vnd: field === 'unit_price_vnd' ? value : trip.unit_price_vnd,
               other_fee_vnd: field === 'other_fee_vnd' ? value : trip.other_fee_vnd });
-          } catch (error) { editable.querySelector('.cell-error').textContent = error.message; return; }
-          if (!leaving && api.lastOutcome()?.status === 'saved') goDown(findMark(spot));
+          } catch (error) { state = 'editing'; editable.querySelector('.cell-error').textContent = error.message; return; }
+          state = 'done';
+          if (down && api.lastOutcome()?.status === 'saved') goDown(findMark(spot));
+        };
+        const save = keyEvent => {
+          if (keyEvent.key === 'Escape') { state = 'done'; editable.innerHTML = original; editable.focus(); return; }
+          const inside = locked && (keyEvent.target === input) !== keyEvent.shiftKey;
+          const leaving = keyEvent.key === 'Tab' && !inside;
+          if (keyEvent.key !== 'Enter' && !leaving) return;
+          if (!leaving) keyEvent.preventDefault();
+          commit({ leaving, down: !leaving });
         };
         input.addEventListener('keydown', save);
         editable.querySelector('.adjustment-note')?.addEventListener('keydown', save);
+        // Tháng khóa: chuyển giữa ô số tiền và ô Ghi chú trong cùng ô thì chưa lưu.
+        const away = event => { if (!editable.contains(event.relatedTarget) && editable.contains(input)) commit({ leaving: true, down: false }); };
+        input.addEventListener('blur', away);
+        editable.querySelector('.adjustment-note')?.addEventListener('blur', away);
         return;
       }
       const receipt = event.target.closest('small.receipt-ref') ?? event.target.closest('td.receipt[data-pid]');

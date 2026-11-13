@@ -196,7 +196,15 @@
     // "chưa rõ" đã Thử lại ở đầu sổ), không dựa vào kết quả dùng chung của lệnh gần nhất.
     const settled = new Map();
     const remember = (key, value) => { settled.set(key, value); if (settled.size > 500) settled.delete(settled.keys().next().value); return value; };
-    async function send() {
+    // Sửa 13/11/2026: lệnh đang gửi (tới khi sổ đọc lại xong). Ai dựng số từ sổ (hộp Debit note) chờ settle() trước, để
+    // bấm thẳng nút từ ô vừa gõ (ô lưu lúc mất tiêu điểm) vẫn thấy số vừa ghi.
+    let inflight = null;
+    function send() {
+      const run = sendOnce().finally(() => { if (inflight === run) inflight = null; });
+      inflight = run;
+      return run;
+    }
+    async function sendOnce() {
       const sentKey = pending.body.idempotency_key;
       try {
         const response = await fetcher(pending.path, {
@@ -436,6 +444,7 @@
     return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
       lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series || !!running, snapshot: () => snapshot,
+      settle: () => Promise.allSettled([inflight, running]).then(() => {}),
       pendingKey: () => pending?.body?.idempotency_key ?? null, outcomeOf: key => settled.get(key) ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
       // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
       progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };

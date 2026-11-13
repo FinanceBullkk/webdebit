@@ -2,7 +2,11 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { withPage, legacyCell, posts } = require('./so-khach-v7-browser-world');
+
+const DEBIT_V4 = { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8')), template: 'v4' };
 
 // Tháng 9/2026: sổ gốc 21 (chưa giá), 22; chuyến web 11, 13; 14 đang CHỜ KIỂM (ô giá chỉ đọc).
 function moreTrips(world) {
@@ -40,6 +44,36 @@ test('ô Đơn giá dòng sổ gốc: gõ số là mở ô, Enter lưu', async (
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="21"][data-field="unit_price_vnd"]')?.textContent.startsWith('70.000.000'));
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/legacy/edit', { ...pricePosts(world).at(-1)[1], legacy_row_id: 21, field: 'unit_price_vnd', value: '70000000' }]);
 }, moreTrips));
+
+// Sửa 13/11/2026 (NHAP-SHEET-01: rời ô là lưu): gõ giá rồi bấm chuột ra chỗ khác thì vẫn lưu như ô chữ; trước đây chỉ Enter/Tab mới lưu,
+// số nằm lại trong ô nhập mà máy chủ không có — debit note xuất ra thiếu giá.
+test('ô Đơn giá chuyến web: gõ giá rồi bấm chuột ra ngoài là lưu, một lệnh', async () => withPage(async ({ page, world }) => {
+  await price(page, 11).focus();
+  await page.keyboard.type('45000000');
+  await page.locator('.book-head').click();
+  await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
+  assert.equal(await page.locator('td.editable[data-trip="11"] input').count(), 0);
+  assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000']]);
+  // Esc rồi bấm ra ngoài: không lưu gì thêm.
+  await price(page, 13).focus();
+  await page.keyboard.type('9');
+  await page.keyboard.press('Escape');
+  await page.locator('.book-head').click();
+  assert.equal(pricePosts(world).length, 1);
+}, moreTrips));
+
+test('ô Đơn giá chuyến web: gõ giá rồi bấm thẳng Debit note thì chứng từ có giá vừa gõ', async () => withPage(async ({ page, world }) => {
+  // Máy chủ ghi chậm: hộp debit phải chờ lệnh ghi xong và sổ đọc lại rồi mới dựng chứng từ.
+  await page.route('**/api/v7/trips/price', async route => { await new Promise(done => setTimeout(done, 400)); await route.continue(); });
+  await price(page, 11).focus();
+  await page.keyboard.type('45000000');
+  await page.locator('#thang-2026-09 .debit-open').click();
+  await page.frameLocator('.debit-preview').locator('[data-page]').first().waitFor();
+  // Tháng 9: chuyến 11 (45.000.000 vừa gõ) + 13 (40.000.000) + sổ gốc 22 (93.000.000); sổ gốc 21 chưa giá; 14 chờ kiểm không lên.
+  assert.equal(await page.locator('.debit-dialog .debit-status').innerText(), '4 container · 178.000.000 đ · 1 chuyến chưa có giá');
+  assert.match(await page.frameLocator('.debit-preview').locator('[data-row]', { hasText: 'DEMU1234567' }).innerText(), /45,000,000/);
+  assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000']]);
+}, world => { moreTrips(world); world.debitConfig = DEBIT_V4; }));
 
 test('không mở khi: Esc trả lại, chữ cái, phím Ctrl, ô chỉ đọc của chuyến chờ kiểm', async () => withPage(async ({ page, world }) => {
   await price(page, 11).focus();
