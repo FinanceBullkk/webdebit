@@ -1867,6 +1867,12 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Nơi đến không bắt buộc (BANG-GIA-04) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql` chạy sau `2026-11-10-v7-bang-gia-noi-den.sql` ([`BANG-GIA-04`](decisions/bang-gia-04.md)). Chỉ thay thân `_lookup_price` (Nơi đến trống là giá chung, đúng nơi đến thắng) và `save_price_table` (nhận Nơi đến rỗng). Không đổi bảng, giá chuyến hay số dư. Chạy migration trước khi đổi release: giao diện mới gửi Nơi đến rỗng, DB cũ trả `INVALID_PRICE_TABLE`; release cũ chạy được với DB mới.
+
+Kiểm như mục dưới: `--migration-test`, backup và kiểm đọc lại, thử hai lượt trên bản sao, đếm trước/sau số chuyến có gợi ý giá theo bảng (`get_price_status`) để báo lại, cửa sổ dừng ghi rồi đối soát tổng từng khách. Rollback: chạy lại `2026-11-10-v7-bang-gia-noi-den.sql` (chạy lại được, không đổi dữ liệu); dòng Nơi đến rỗng thôi là giá chung nhưng không mất, và giá đã ghi vào chuyến giữ nguyên.
+
 ## Bảng giá theo Nơi đến (BANG-GIA-03) — nâng DB đang có
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql` chạy sau `2026-11-05-v7-gia-tu-doi.sql`. Thêm `destination` và `destination_key` vào `price_rate`, đổi khóa chính, cập nhật hàm tra/lưu/áp giá. Dòng cũ giữ nơi đến trống nên chỉ áp giá sau khi người dùng bổ sung nơi đến. Migration không đổi giá chuyến hay số dư. Release mới cần migration này trước khi phục vụ bảng giá; giữ API dừng đến lúc kiểm xong.

@@ -60,8 +60,8 @@
   };
 
   // Sau khi vẽ sổ: chữ nhỏ ở ô Đơn giá và khung hỏi lại dưới đầu sổ.
-  const REASONS = { UNKNOWN_LOCATION: ['ngoài bảng giá', 'Nơi đi chưa có trong bảng giá'], UNKNOWN_DESTINATION: ['chưa có đích', 'Cặp nơi đi và nơi đến chưa có trong bảng giá'], NO_PERIOD: ['ngoài ngày có giá', 'Bảng giá chưa có giá cho ngày chuyến này'],
-    NO_DATE: ['thiếu ngày', 'Chuyến thiếu ngày nên chưa tra được giá'], NO_ORIGIN: ['thiếu nơi đi', 'Chuyến thiếu nơi đi nên chưa tra được giá'], NO_DESTINATION: ['thiếu nơi đến', 'Chuyến thiếu nơi đến nên chưa tra được giá'] };
+  const REASONS = { UNKNOWN_LOCATION: ['ngoài bảng giá', 'Nơi đi chưa có trong bảng giá'], UNKNOWN_DESTINATION: ['chưa có đích', 'Bảng giá chưa có giá cho nơi đến này, cũng chưa có giá chung (Nơi đến trống) của nơi đi'], NO_PERIOD: ['ngoài ngày có giá', 'Bảng giá chưa có giá cho ngày chuyến này'],
+    NO_DATE: ['thiếu ngày', 'Chuyến thiếu ngày nên chưa tra được giá'], NO_ORIGIN: ['thiếu nơi đi', 'Chuyến thiếu nơi đi nên chưa tra được giá'], NO_DESTINATION: ['thiếu nơi đến', 'Chuyến thiếu nơi đến mà nơi đi chỉ có giá theo từng nơi đến'] };
   ctx.priceAfterRender = active => {
     if (!active || !status) return;
     for (const row of status.trips) {
@@ -70,7 +70,7 @@
       if (!cell) continue;
       const lookup = row.lookup ?? {};
       let note = '', cls = 'price-hint', title = '';
-      if (row.ready) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-ready'; title = `Theo bảng: ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''})`; }
+      if (row.ready) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-ready'; title = `Theo bảng: ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''}${lookup.any_destination ? ', giá chung của nơi đi' : ''})`; }
       else if (row.differs) { note = `bảng ${fmt(lookup.unit_price_vnd)}`; cls += ' price-diff'; title = `Khác bảng giá: bảng ${fmt(lookup.unit_price_vnd)} (${TIER[lookup.tier] ?? ''})`; }
       else if (row.from_table) { note = 'theo bảng'; title = `Giá ghi theo bảng (${TIER[lookup.tier] ?? ''})`; }
       else if (row.unit_price_vnd == null && lookup.reason === 'NO_RATE') { note = `thiếu ${TIER[lookup.tier] ?? 'giá'}`; title = `Bảng giá có chuyến từ ${lookup.location ?? 'nơi đi này'} đến ${lookup.destination ?? 'nơi đến này'} nhưng chưa có ${TIER[lookup.tier] ?? 'giá'}`; }
@@ -204,7 +204,7 @@
   const shapeOf = value => JSON.stringify([value.rows.filter(filled).map(row => FIELDS.map(field => tidy(field, row[field]))),
     [...new Set(value.ships.map(ship => keyOf(ship.name)).filter(Boolean))].sort()]);
 
-  // Kiểm cả bảng như server (ngày, giá, trùng ngày cùng nơi đi và cùng loại giá); lỗi theo dòng, câu ngắn hiện ở cột Tình trạng.
+  // Kiểm cả bảng như server (ngày, giá, trùng ngày cùng nơi đi, cùng nơi đến — trống là giá chung — và cùng loại giá); lỗi theo dòng, câu ngắn hiện ở cột Tình trạng.
   function check() {
     const errors = new Map();
     const flag = (row, field, text) => { const item = errors.get(row.uid) ?? { fields: new Set(), text }; item.fields.add(field); errors.set(row.uid, item); };
@@ -218,7 +218,6 @@
       if (to === null) flag(row, 'to', 'Đến ngày sai');
       else if (from && to && to < from) flag(row, 'to', 'Đến trước Từ ngày');
       if (!keyOf(row.kho)) flag(row, 'kho', 'Thiếu nơi đi');
-      if (!keyOf(row.den)) flag(row, 'den', 'Thiếu nơi đến');
       if (!priceOk(row.khach)) flag(row, 'khach', 'Giá khách sai');
       if (!priceOk(row.tt)) flag(row, 'tt', 'Giá TT sai');
       if (!errors.has(row.uid)) good.push({ row, n: index + 1, from, to, key: keyOf(row.kho), destination: keyOf(row.den), khach: priceOf(row.khach), tt: priceOf(row.tt) });
@@ -290,12 +289,12 @@
       const error = errors.get(row.uid);
       const [state, text] = rowState(row, errors);
       return `<tr data-uid="${row.uid}" class="${row.fresh ? 'fresh' : ''}${state === 'old' ? ' old' : ''}"><td class="rn">${r + 1}</td>${FIELDS.map((field, c) =>
-        `<td data-f="${field}" class="${error?.fields.has(field) ? 'bad' : ''}"><input data-r="${r}" data-c="${c}" class="${c >= 4 ? 'num' : ''}" value="${escape(row[field])}" ${c >= 4 && filled(row) ? 'placeholder="–"' : ''} aria-label="${LABELS[c]} dòng ${r + 1}" autocomplete="off" spellcheck="false"></td>`).join('')}
+        `<td data-f="${field}" class="${error?.fields.has(field) ? 'bad' : ''}"><input data-r="${r}" data-c="${c}" class="${c >= 4 ? 'num' : ''}" value="${escape(row[field])}" ${filled(row) ? (c >= 4 ? 'placeholder="–"' : c === 3 ? 'placeholder="Mọi nơi đến"' : '') : ''} aria-label="${LABELS[c]} dòng ${r + 1}" autocomplete="off" spellcheck="false"></td>`).join('')}
         <td class="st st-${state}">${escape(text)}</td><td class="xc">${filled(row) ? `<button type="button" class="price-row-drop" data-r="${r}" aria-label="Bỏ dòng ${r + 1}">×</button>` : ''}</td></tr>`;
     }).join('');
     const ships = form.ships.map((ship, s) => `<tr><td class="ship-cell"><input data-s="${s}" value="${escape(ship.name)}" list="price-ship-list" aria-label="Shipper áp giá TT dòng ${s + 1}" autocomplete="off" spellcheck="false">${shipNote(ship.name)}</td>
       <td class="xc">${ship.name.trim() ? `<button type="button" class="price-ship-drop" data-s="${s}" aria-label="Bỏ shipper ${escape(ship.name)}">×</button>` : ''}</td></tr>`).join('');
-    const help = empty ? `<div class="price-help"><p>Dán cột giá từ Sheet rồi bổ sung Nơi đến cho từng dòng trước khi lưu. Dòng chưa có Nơi đến không áp giá.</p>
+    const help = empty ? `<div class="price-help"><p>Dán cột giá từ Sheet. Nơi đến để trống là giá chung cho mọi nơi đến của nơi đi đó; chỉ điền Nơi đến khi nơi đến đó có giá riêng.</p>
       <table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
       <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
       <tr><td class="s">10/10/2026</td><td class="s"></td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">66,000,000</td><td class="g"></td><td class="o"></td></tr></table></div>` : '';

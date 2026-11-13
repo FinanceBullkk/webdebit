@@ -9,6 +9,7 @@ from pg_v7_harness import (
     CONTAINER_INDEX_MIGRATION,
     GIA_TU_DOI_MIGRATION,
     KHOA_CHU_MIGRATION,
+    NOI_DEN_TUY_CHON_MIGRATION,
     RA_GHI_TIEN_MIGRATION,
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
@@ -244,15 +245,43 @@ def check_destination(pg):
         {"valid_from": "2026-01-01", "valid_to": None, "rates": [
             {"location": "DAK LAK", "destination": "FAKE-B", "tier": "khach", "unit_price_vnd": "75"}]}]}
     call(pg, "save_price_table", c, version(pg, c), "dest-old-save", json.dumps(table))
-    # Simulate old rows upgraded with blank destination: they must not match any trip.
-    pg.sql(f"UPDATE sokhach.price_rate SET destination='',destination_key='' WHERE customer_id={c}")
-    status = {row["trip_id"]: row["lookup"].get("reason") for row in call(pg, "get_price_status", c)["trips"]}
-    require([status[i] for i in ids] == ["UNKNOWN_DESTINATION", "UNKNOWN_DESTINATION"]
-            and pg.value(f"SELECT sokhach._lookup_price({c},'2026-01-10','DAK LAK',NULL,'OTHER')->>'reason'") == "NO_DESTINATION",
-            f"blank destination applied an old rate: {status}")
-    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank",
-                json.dumps({**table, "periods": [{**table["periods"][0], "rates": [
-                    {**table["periods"][0]["rates"][0], "destination": ""}]}]}), error="INVALID_PRICE_TABLE")
+
+    def look(dest):
+        sql_dest = "NULL" if dest is None else f"'{dest}'"
+        return json.loads(pg.value(f"SELECT sokhach._lookup_price({c},'2026-01-10','DAK LAK',{sql_dest},'OTHER')"))
+
+    # Chỉ có dòng theo nơi đến: chuyến đi nơi khác hoặc thiếu nơi đến chưa có giá.
+    require(look("FAKE-A").get("reason") == "UNKNOWN_DESTINATION" and look(None).get("reason") == "NO_DESTINATION",
+            f"destination-only table priced another destination: {look('FAKE-A')}, {look(None)}")
+    # BANG-GIA-04: dòng Nơi đến trống là giá chung của nơi đi; dòng đúng nơi đến thắng khi phủ ngày chuyến.
+    general = {"location": "DAK LAK", "destination": "", "tier": "khach", "unit_price_vnd": "60"}
+    table["periods"][0]["rates"].append(general)
+    call(pg, "save_price_table", c, version(pg, c), "dest-general", json.dumps(table))
+    require([r["destination"] for r in call(pg, "get_price_table", c)["price_table"]["periods"][0]["rates"]] == ["", "FAKE-B"],
+            "blank destination not stored as general row")
+    require((look("FAKE-B")["unit_price_vnd"], look("FAKE-B")["any_destination"], look("FAKE-Z")["unit_price_vnd"],
+             look("FAKE-Z")["any_destination"], look(None)["unit_price_vnd"], look(" ")["unit_price_vnd"])
+            == ("75", False, "60", True, "60", "60"), "general row lookup wrong")
+    # Đợt riêng của nơi đến không phủ ngày chuyến: vẫn dùng giá chung.
+    later = {"valid_from": "2026-02-01", "valid_to": None, "rates": [
+        {"location": "DAK LAK", "destination": "FAKE-Z", "tier": "khach", "unit_price_vnd": "99"}]}
+    # Đợt riêng phủ ngày nhưng thiếu nhóm giá: không lấy giá chung thay.
+    tt_only = {"location": "DAK LAK", "destination": "FAKE-T", "tier": "tt", "unit_price_vnd": "88"}
+    call(pg, "save_price_table", c, version(pg, c), "dest-specific",
+         json.dumps({**table, "periods": [{**table["periods"][0], "rates": table["periods"][0]["rates"] + [tt_only]}, later]}))
+    require((look("FAKE-Z")["unit_price_vnd"], look("FAKE-T").get("reason")) == ("60", "NO_RATE"),
+            f"specific destination fallback wrong: {look('FAKE-Z')}, {look('FAKE-T')}")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank-dup",
+                json.dumps({**table, "periods": [{**table["periods"][0], "rates": table["periods"][0]["rates"] + [
+                    {**general, "destination": "  "}]}]}), error="PRICE_DUPLICATE_RATE")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-blank-overlap",
+                json.dumps({**table, "periods": table["periods"] + [
+                    {"valid_from": "2026-01-20", "valid_to": None, "rates": [general]}]}), error="PRICE_PERIOD_OVERLAP")
+    reject_call(pg, "save_price_table", c, version(pg, c), "dest-null",
+                json.dumps({**table, "periods": [{**table["periods"][0], "rates": [{**general, "destination": None}]}]}),
+                error="INVALID_PRICE_TABLE")
+    table["periods"][0]["rates"].remove(general)
+    call(pg, "save_price_table", c, version(pg, c), "dest-no-general", json.dumps(table))
     rates = table["periods"][0]["rates"]
     rates.append({"location": "DAK LAK", "destination": "FAKE-A", "tier": "khach", "unit_price_vnd": "70"})
     call(pg, "save_price_table", c, version(pg, c), "dest-both", json.dumps(table))
@@ -285,6 +314,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8"))  # bản save_price_table hiện hành (5/11)
     pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
+    pg.sql(NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-04
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -322,7 +352,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")

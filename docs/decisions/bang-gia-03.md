@@ -2,6 +2,8 @@
 
 [← Sổ quyết định](../decisions.md)
 
+> Từ 13/11/2026 [BANG-GIA-04](bang-gia-04.md) thay phần Nơi đến trống: dòng trống là giá chung của nơi đi, không còn “chỉ áp khi bổ sung nơi đến”.
+
 ## Quyết định
 
 Người dùng yêu cầu bảng giá có **Nơi đến**. Giá tra theo cả nơi đi và nơi đến; thay Q4 của [BANG-GIA-01](bang-gia-01.md). Với dòng giá cũ chưa có nơi đến, người dùng chọn **chỉ áp giá khi bổ sung nơi đến**. Ô trống không có nghĩa là mọi nơi đến.

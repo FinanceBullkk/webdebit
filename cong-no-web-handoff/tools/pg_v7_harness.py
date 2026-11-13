@@ -348,6 +348,8 @@ ZALO_GROUP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v
 # BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
 GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"
+# BANG-GIA-04 13/11/2026: _lookup_price và save_price_table chạy sau bản 10/11.
+NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql"
 
 def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
     p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)

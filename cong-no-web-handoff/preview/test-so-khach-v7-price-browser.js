@@ -94,8 +94,11 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
   assert.match(await dialog.locator('.price-grid-ship').innerText(), /4 chuyến/);
   assert.equal(await dialog.locator('.price-grid-main tbody tr').count(), 7, '4 dòng + 3 hàng trống');
   assert.equal(await dialog.locator('.price-dirty').isVisible(), true);
-  assert.equal(await rowStatus(page, 0), 'Thiếu nơi đến', 'bảng giá Sheet cũ không tự áp mọi nơi đến');
-  for (let row = 0; row < 4; row += 1) await page.fill(cell(row, 3), 'CẢNG B');
+  // BANG-GIA-04: Nơi đến không bắt buộc; ô trống là giá chung của nơi đi, có chữ mờ nói rõ.
+  assert.notEqual(await rowStatus(page, 0), 'Thiếu nơi đến');
+  assert.equal(await dialog.locator('.price-grid-main tbody tr').nth(0).locator('td.bad').count(), 0);
+  assert.equal(await page.getAttribute(cell(3, 3), 'placeholder'), 'Mọi nơi đến');
+  for (let row = 0; row < 3; row += 1) await page.fill(cell(row, 3), 'CẢNG B');
 
   // Ngày sai báo ngay tại dòng; Lưu bị chặn, chưa gửi gì.
   await page.fill(cell(2, 0), '32/10/2026');
@@ -134,7 +137,7 @@ test('khung Bảng giá: dán vùng Sheet vào lưới (bỏ tiêu đề, lấy 
     [['2026-09-11', '2026-10-09', 4], ['2026-10-10', '2026-10-31', 3], ['2026-11-01', null, 3]]);
   assert.deepEqual(table.periods[2].rates, [
     { location: 'DAK LAK', destination: 'CẢNG B', tier: 'khach', unit_price_vnd: '75000000' }, { location: 'DAK LAK', destination: 'CẢNG B', tier: 'tt', unit_price_vnd: '80000000' },
-    { location: 'VINH LONG', destination: 'CẢNG B', tier: 'tt', unit_price_vnd: '75000000' }]);
+    { location: 'VINH LONG', destination: '', tier: 'tt', unit_price_vnd: '75000000' }]);
 }, world => {
   world.bookShippers = [{ name: 'TT CHUẨN', tier: 'khach', trip_count: 4 }];
 }));
