@@ -88,7 +88,34 @@
     return currentCustomers.filter(c => (c.display_name ?? c.name) === name).length === 1 ? name : customerLabels(currentCustomers).get(String(row.id));
   };
   const drafts = new Map();
-  const draftKey = input => input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-transport') ? `transport:${input.dataset.transport}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
+  const draftKey = input => input.hasAttribute('data-group-price') ? `group:${inbox.open}:${input.dataset.groupPrice}` : input.hasAttribute('data-trip-book') ? `trip-book:${input.dataset.tripBook}` : input.hasAttribute('data-commodity') ? `commodity:${input.dataset.commodity}` : input.hasAttribute('data-transport') ? `transport:${input.dataset.transport}` : input.hasAttribute('data-receipt-date') ? `receipt-date:${input.dataset.receiptDate}` : input.hasAttribute('data-manual-price') ? `price:${input.dataset.manualPrice}` : `reason:${input.dataset.reason}`;
+  // GIA-TUYEN-01: chuyến người đã tự gõ giá riêng; gõ ở hàng tuyến không đè các ô này.
+  const priceTouched = new Set();
+  const groupInputs = key => [...inboxRoot.querySelectorAll('[data-manual-price][data-price-route]')].filter(input => input.dataset.priceRoute === key);
+  // Nút "Ghi giá n chuyến": n là số ô chuyến có giá hợp lệ; ô trống bỏ qua, có ô sai thì khóa nút tới khi sửa.
+  function setGroupState(key) {
+    const button = [...inboxRoot.querySelectorAll('[data-price-group]')].find(node => node.dataset.priceGroup === key);
+    if (!button) return;
+    let n = 0, bad = false;
+    for (const input of groupInputs(key)) {
+      if (!input.value.trim()) continue;
+      try { globalThis.InboxTable.parseMillions(input.value); n += 1; } catch { bad = true; }
+    }
+    button.textContent = n ? `Ghi giá ${n} chuyến` : 'Ghi giá';
+    button.disabled = inbox.busy || inbox.stale || bad || !n;
+  }
+  function fillGroup(groupInput) {
+    const key = groupInput.dataset.groupPrice, value = groupInput.value;
+    drafts.set(draftKey(groupInput), value);
+    for (const input of groupInputs(key)) {
+      if (priceTouched.has(input.dataset.manualPrice)) continue;
+      input.value = value;
+      if (value) drafts.set(draftKey(input), value); else drafts.delete(draftKey(input));
+      input.setCustomValidity('');
+      setPriceValidity(input);
+    }
+    setGroupState(key);
+  }
   // Tự tải lại chạy nền mỗi 60 giây và mỗi lần quay lại tab: dữ liệu không đổi thì không đụng DOM, để người đang làm không mất
   // ô đang gõ, danh sách đang mở hay cú bấm rơi đúng lúc thay DOM.
   let paintedHtml = null;
@@ -108,7 +135,7 @@
       F, esc, href: ledgerHref, failedText: F.loadError('việc từ Sheet'), label: inboxLabel,
       selected: inbox.selected, selectedPrices: inbox.selectedPrices, review: inbox.review, result: inbox.result, busy: inbox.busy,
       stale: inbox.stale, dashboard, unsorted, filter: inbox.filter, open: inbox.open, details: inbox.details, tab: inbox.tab, dc: inbox.dc, act: actView(), action: inbox.action, actionHtml: actionHtml(), notice: inbox.notice, tongOpen: inbox.tongOpen,
-      undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? '<div class="inbox-result" role="status">Đã ghi các mục vừa chọn. <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>' : '',
+      undoHtml: inbox.undo?.length && !inbox.action && !inbox.review && !inbox.result?.unknown ? `<div class="inbox-result" role="status">${esc(inbox.undo.length === 1 && inbox.undo[0].text ? inbox.undo[0].text : 'Đã ghi các mục vừa chọn.')} <button type="button" class="btn" data-undo-batch>Hoàn tác</button></div>` : '',
     });
     root.replaceChildren();
     globalThis.AppNav?.setTodoCount(globalThis.InboxTable.books(inbox.data, dashboard, unsorted ?? []).length);
@@ -118,12 +145,13 @@
     paintedHtml = html;
     const active = document.activeElement;
     const scrollLeft = inboxRoot.querySelector('.work-scroll:has(.work-table)')?.scrollLeft ?? 0;
-    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book', 'data-tong-toggle'].find(attr => active.hasAttribute(attr));
+    const focusAttr = inboxRoot.contains(active) && ['data-pick', 'data-pick-price', 'data-filter', 'data-open-book', 'data-tab', 'data-dc-open', 'data-dc-pick', 'data-dc-row', 'data-dc-xem', 'data-act-filter', 'data-act-date', 'data-review', 'data-manual-price', 'data-group-price', 'data-receipt-date', 'data-commodity', 'data-transport', 'data-trip-book', 'data-tong-toggle'].find(attr => active.hasAttribute(attr));
     const focusValue = focusAttr ? active.getAttribute(focusAttr) : null;
     const caret = focusAttr && active.tagName === 'INPUT' && active.type !== 'checkbox' ? active.selectionStart : null;
     inboxRoot.innerHTML = html;
-    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
+    for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-group-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
+    for (const button of inboxRoot.querySelectorAll('[data-price-group]')) setGroupState(button.dataset.priceGroup);
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
     if (inbox.stale) for (const control of inboxRoot.querySelectorAll('button,input,select')) if (!VIEW_ONLY.some(attr => control.hasAttribute(attr))) control.disabled = true;
     if (focusAttr) {
@@ -414,6 +442,83 @@
     }
   }
 
+  // GIA-TUYEN-01: một lần xem lại cho cả tuyến; mỗi chuyến vẫn là một lệnh ghi giá đang có (Lịch sử, phân bổ lại như ghi từng chuyến).
+  // Khóa lệnh 64 ký tự hex để "Hoàn tác" của Việc cần làm (/sheet/batch/undo) nhận được các lần ghi giá này.
+  const hexKey = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+  function reviewPriceGroup(key) {
+    if (inbox.action || inbox.review) return;
+    const T = globalThis.InboxTable;
+    const ledger = inbox.details.get(inbox.open);
+    const group = Number.isInteger(ledger?.version) ? T.priceGroups(ledger).find(g => g.key === key) : null;
+    if (!group) return;
+    const items = [];
+    for (const input of groupInputs(key)) {
+      if (!input.value.trim()) continue;
+      const row = group.trips.find(r => r.id === Number(input.dataset.manualPrice));
+      if (!row) continue;
+      try { items.push({ row, price: T.parseMillions(input.value) }); }
+      catch (error) { input.setCustomValidity(error.message); input.reportValidity(); return; }
+    }
+    let added = 0n;
+    for (const { row, price } of items) {
+      const amount = SoKhachV7Model.tripAmount({ unitPriceVnd: price, otherFeeVnd: row.other_fee_vnd, container: row.container, status: 'confirmed' }).amountVnd;
+      if (amount == null) return;   // không tính được tiền của chuyến thì không cho ghi mù
+      added += BigInt(amount);
+    }
+    if (!items.length) return;
+    const before = ledger.total_outstanding_vnd, after = (F.toBig(before) + added).toString();
+    const counts = new Map();
+    for (const { price } of items) counts.set(price, (counts.get(price) ?? 0) + 1);
+    const summary = [...counts].map(([price, n]) => `${n} chuyến ${T.millionInput(price)} tr`).join(' · ');
+    const last = group.last, lastDate = last?.date ? ` (${F.dateText(last.date)})` : '';
+    const differ = last && [...counts.keys()].some(price => price !== last.price);
+    inbox.action = { id: inbox.open, rowKey: `price-group:${key}`, groupKey: key, route: group.label, priceBatch: true, path: '/api/v7/trips/price', count: items.length,
+      before, after, title: `Ghi giá ${items.length} chuyến ${group.label}`,
+      text: `${summary}. Còn nợ ${F.full(before)} → ${F.full(after)}.${differ ? ` Giá gần nhất cùng tuyến là ${F.full(last.price)}${lastDate}.` : ''} Mỗi chuyến ghi Lịch sử riêng.`,
+      inlineText: `Ghi ${summary} · nợ ${T.million(before)} → ${T.million(after)} tr${differ ? ` · khác giá gần nhất ${T.millionInput(last.price)} tr${lastDate}` : ''}`,
+      tasks: items.map(({ row, price }) => ({ done: false, body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: hexKey(),
+        trip_id: row.id, unit_price_vnd: price, other_fee_vnd: row.other_fee_vnd } })) };
+    inbox.action.summaryText = inbox.action.inlineText;
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
+
+  // Ghi lần lượt; lệnh sau dùng phiên bản lệnh trước trả về. Mất mạng: giữ nguyên lệnh chưa rõ (cùng khóa), Thử lại không ghi trùng.
+  // Lỗi giữa chừng (sổ vừa đổi, tháng vừa khóa…): dừng, báo đã ghi bao nhiêu, đọc lại sổ; chuyến còn lại vẫn ở danh sách.
+  async function writePriceBatch(a) {
+    inbox.undo = null;
+    const total = a.tasks.length;
+    let stop = null, version = null;
+    try {
+      for (const [i, task] of a.tasks.entries()) {
+        if (task.done) continue;
+        a.inlineText = `Đang ghi ${i + 1}/${total} chuyến…`; paintInbox();
+        const response = await fetch(a.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task.body) });
+        const body = await response.json();
+        a.unknown = false;
+        if (!response.ok || !Number.isInteger(body.version)) { stop = body.message ?? 'Chưa ghi được.'; break; }
+        task.done = true; version = body.version;
+        drafts.delete(`price:${task.body.trip_id}`); priceTouched.delete(String(task.body.trip_id));
+        if (a.tasks[i + 1]) a.tasks[i + 1].body.expected_version = body.version;
+      }
+    } catch {
+      a.unknown = true; a.inlineText = a.summaryText;
+      a.error = `Mất kết nối khi ghi: đã ghi ${a.tasks.filter(t => t.done).length}/${total} chuyến, chưa rõ chuyến đang ghi. Bấm Thử lại; lệnh giữ nguyên nên không ghi trùng.`;
+      inbox.busy = false; paintInbox(); return;
+    }
+    const done = a.tasks.filter(t => t.done).length;
+    inbox.busy = false; inbox.action = null;
+    if (done === total) {
+      drafts.delete(`group:${a.id}:${a.groupKey}`);
+      inbox.notice = null;
+      inbox.undo = [{ id: a.id, before: a.before, after: a.after, version, keys: a.tasks.map(t => t.body.idempotency_key), text: `Đã ghi giá ${total} chuyến ${a.route}.` }];
+    } else inbox.notice = { warn: true, text: `Ghi được ${done}/${total} chuyến ${a.route} rồi dừng: ${stop} Chuyến còn lại vẫn ở danh sách; kiểm sổ rồi ghi tiếp.` };
+    inbox.details.delete(a.id);
+    await loadDetail(a.id, true);
+    // Dừng giữa chừng: đưa câu báo vào tầm nhìn, người đang ở cuối danh sách chuyến vẫn thấy chưa ghi đủ.
+    if (done < total) inboxRoot.querySelector('.inbox-result.warn')?.scrollIntoView({ block: 'nearest' });
+    loadInbox(); load();
+  }
+
   function actionHtml() {
     const a = inbox.action;
     if (!a) return '';
@@ -433,6 +538,7 @@
       a.body.reason = reason.value.trim();
     }
     inbox.busy = true; paintInbox();
+    if (a.priceBatch) { await writePriceBatch(a); return; }
     if (a.tasks) { await writeCombined(a); return; }
     inbox.undo = null;
     try {
@@ -542,8 +648,17 @@
 
   inboxRoot.addEventListener('input', event => {
     if (event.target.matches('[data-action-reason]')) { event.target.setCustomValidity(''); return; }
+    const group = event.target.closest('[data-group-price]');
+    if (group) { group.setCustomValidity(''); fillGroup(group); return; }
     const input = event.target.closest('[data-manual-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]');
     if (input) { input.setCustomValidity(''); drafts.set(draftKey(input), input.value); if (input.hasAttribute('data-manual-price')) setPriceValidity(input); }
+    if (input?.dataset.priceRoute) { priceTouched.add(input.dataset.manualPrice); setGroupState(input.dataset.priceRoute); }
+  });
+  inboxRoot.addEventListener('keydown', event => {
+    const group = event.target.closest?.('[data-group-price]');
+    if (event.key !== 'Enter' || !group) return;
+    event.preventDefault();
+    [...inboxRoot.querySelectorAll('[data-price-group]')].find(node => node.dataset.priceGroup === group.dataset.groupPrice && !node.disabled)?.click();
   });
   function setPriceValidity(input) {
     const button = input.closest('.detail-actions')?.querySelector('[data-command="price"]');
@@ -656,6 +771,15 @@
     if (button.hasAttribute('data-detail-retry')) { await loadDetail(Number(button.dataset.detailRetry), true); return; }
     if (button.hasAttribute('data-remove-trip')) { reviewRemove(Number(button.dataset.removeTrip)); return; }
     if (button.hasAttribute('data-command')) { reviewCommand(button); return; }
+    if (button.hasAttribute('data-use-last')) {
+      const group = [...inboxRoot.querySelectorAll('[data-group-price]')].find(node => node.dataset.groupPrice === button.dataset.useLast);
+      if (!group) return;
+      group.value = button.dataset.lastPrice;
+      fillGroup(group);
+      group.focus();
+      return;
+    }
+    if (button.hasAttribute('data-price-group')) { reviewPriceGroup(button.dataset.priceGroup); return; }
     if (button.hasAttribute('data-assign-trip')) {
       if (inbox.action || inbox.review) return;
       const ledger = inbox.details.get(inbox.open), source = button.dataset.assignTrip;
