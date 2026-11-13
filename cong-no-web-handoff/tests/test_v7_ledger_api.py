@@ -77,9 +77,8 @@ class FeeApiTest(unittest.TestCase):
         for command in ([], None, "drop_table"):
             with self.assertRaises(api.ApiError):
                 api.validate("/api/v7/fee-types/update", json.dumps({"command": command}).encode())
-        with self.assertRaises(api.ApiError) as caught:
-            api.validate("/api/v7/books/fee-columns", json.dumps(self.common | {"fee_type_ids": [1, 2, 3, 4]}).encode())
-        self.assertEqual(caught.exception.code, "FEE_COLUMNS_MAX")
+        # COT-PHU-PHI-01: không giới hạn số cột riêng của sổ.
+        api.validate("/api/v7/books/fee-columns", json.dumps(self.common | {"fee_type_ids": list(range(1, 11))}).encode())
 
     def test_every_spec_error_maps_to_vietnamese(self):
         codes = ("MONTH_LOCKED", "FEE_AMOUNT_INVALID", "FEE_SIGN_INVALID", "FEE_TYPE_INACTIVE", "FEE_TYPE_SYSTEM",

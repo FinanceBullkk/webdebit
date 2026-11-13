@@ -357,9 +357,10 @@ class BestColumnsTest(unittest.TestCase):
         book = {"fee_columns": [{"fee_type_id": c, "position": i + 1} for i, c in enumerate(current)], rows_key: rows}
         return best_columns(book, TYPES)
 
-    def test_replaces_only_columns_outside_the_top_last_first(self):
-        self.assertEqual(self.columns([4, 6, 5], [(4, 1500000), (10, 3000000)]), [4, 6, 10])
-        self.assertEqual(self.columns([4, 6, 5], [(10, 3000000), (8, 2000000), (4, 1)]), [4, 8, 10])
+    def test_appends_missing_top_types_and_never_replaces(self):
+        # COT-PHU-PHI-01: không giới hạn cột, nên cột đang có giữ nguyên chỗ, loại nhiều tiền chưa có cột thêm vào cuối.
+        self.assertEqual(self.columns([4, 6, 5], [(4, 1500000), (10, 3000000)]), [4, 6, 5, 10])
+        self.assertEqual(self.columns([4, 6, 5], [(10, 3000000), (8, 2000000), (4, 1)]), [4, 6, 5, 10, 8])
 
     def test_appends_when_there_is_room_and_ignores_system_types(self):
         self.assertEqual(self.columns([], [(10, 10000000), (4, 3500000), (3, 99000000)]), [10, 4])
@@ -368,7 +369,7 @@ class BestColumnsTest(unittest.TestCase):
     def test_keeps_columns_in_the_top_and_order(self):
         self.assertIsNone(self.columns([6, 4], [(4, 1000), (6, 500)]))
         self.assertIsNone(self.columns([4, 6, 5], [(4, 1000)]))
-        self.assertEqual(self.columns([4, 6, 5], [(4, 5), (6, 6), (5, 7), (10, 8)]), [10, 6, 5])
+        self.assertEqual(self.columns([4, 6, 5], [(4, 5), (6, 6), (5, 7), (10, 8)]), [4, 6, 5, 10])
         self.assertEqual(self.columns([4], [(10, 5)], rows_key="legacy_rows"), [4, 10])
 
     def test_deleted_and_rejected_rows_do_not_count(self):

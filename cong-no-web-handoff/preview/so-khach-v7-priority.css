@@ -66,6 +66,10 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 /* Handoff dùng khoảng đệm ngang 14px và hàng 34px cộng đường kẻ 1px. */
 .month-stats{padding-bottom:16px}.chip-work{display:none}
 .trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
+/* COT-PHU-PHI-01: cột riêng chưa có khoản nào hẹp, tên loại chữ nhỏ hai dòng. Vẫn không vừa (bảy cột ở màn 1280 có Shipper):
+   bảng chuyến cuộn ngang trong khung như màn hẹp, tiêu đề cột cuộn cùng bảng, không cắt mất cột Khác/Thành tiền. */
+.ledger .columns th.fee-narrow{padding:1px 3px;font-size:13px;line-height:1.1;overflow-wrap:normal}
+.ledger-book.fee-over .trip-card{overflow-x:auto}.ledger-book.fee-over .ledger-head{position:static}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}
 .pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}

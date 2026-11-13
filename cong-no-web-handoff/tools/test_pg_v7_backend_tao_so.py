@@ -35,6 +35,8 @@ def check_tao_so(pg):
 
     ledger = call(pg, "get_ledger", customer)
     require(ledger["status"] == "active" and ledger["total_outstanding_vnd"] == "300", "new book not active with Sheet total")
+    defaults = pg.value("SELECT string_agg(id::text,',' ORDER BY default_position) FROM sokhach.fee_type WHERE default_position IS NOT NULL")
+    require(",".join(str(c["fee_type_id"]) for c in ledger["fee_columns"]) == defaults, "COT-PHU-PHI-01 default columns on new book")
     require([row["id"] for row in ledger["legacy_rows"] if row["kind"] == "trip"], "legacy trip missing")
     event = next(row for row in ledger["events"] if row["kind"] == "import")
     require(event["actor"] == "may-thu", "import not under machine name")
@@ -82,4 +84,6 @@ def check_tao_so(pg):
     original = pg.value(catalog)
     pg.sql(migration)
     pg.sql(migration)
+    # COT-PHU-PHI-01 thay thân hàm sau MAY-TAO-SO-01: chạy lại theo đúng thứ tự triển khai thì về bản chuẩn.
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-cot-phu-phi-mac-dinh.sql").read_text(encoding="utf-8"))
     require(pg.value(catalog) == original, "migration changed canonical definition")
