@@ -271,6 +271,19 @@
       }
       if (event.target.closest('.cancel-void')) event.target.closest('tr').remove();
     });
+    // GIA-O-01 (A): như Sheet, đứng ở ô Đơn giá gõ một chữ số là mở ô với chữ số đó, thay giá cũ. Enter vẫn mở với giá đang có.
+    // Chỉ ô Đơn giá (ô chuyến lưu bằng Enter/Tab; ô sổ gốc như mọi ô chữ). Ô chữ khác lưu khi rời ô nên không mở bằng phím gõ.
+    root.addEventListener('keydown', event => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing || !/^[0-9]$/.test(event.key)) return;
+      const cell = event.target;
+      if (!cell.matches?.('td.editable[data-field="unit_price_vnd"],.info-edit[data-field="unit_price_vnd"]') || cell.querySelector('input')) return;
+      event.preventDefault();
+      cell.click();
+      const input = cell.querySelector('input.money-input');
+      if (!input) return;
+      input.value = event.key;
+      input.setSelectionRange(1, 1);
+    });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
       if (event.target.matches('td.editable,td.receipt,.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }
