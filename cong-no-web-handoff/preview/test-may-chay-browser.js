@@ -153,7 +153,7 @@ test('Máy chạy: đồng hồ chạy theo giờ máy chủ khi máy nghỉ; jo
     jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'running', started: at(9, 45, 0), ended: null } : job));
     await page.waitForFunction(() => document.getElementById('now').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 6000 });
     assert.ok(await page.locator('#live-pill').evaluate(node => node.classList.contains('busy')));
-    await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet đang chạy'), null, { timeout: 3000 });
+    assert.ok((await page.locator('#log').innerText()).includes('Bản chụp Sheet đang chạy'), 'nhật ký đổi cùng lúc với dòng trạng thái');
     jobs = JOBS.map(job => (job.id === 'sheet' ? { ...job, state: 'ok', started: at(9, 45, 0), ended: at(9, 45, 4) } : job));
     await page.waitForFunction(() => document.getElementById('log').textContent.includes('Bản chụp Sheet xong, 4 giây'), null, { timeout: 6000 });
     assert.ok(!(await now(page)).includes('đang chạy'));
