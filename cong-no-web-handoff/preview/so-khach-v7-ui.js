@@ -349,7 +349,7 @@
     let snapshot = null;
     // Nút "Làm mới" đọc Sheet ngay (specs/v7-sheet-refresh.md); server chưa bật thì giữ chữ "Cập nhật …".
     let sheetRefresh = null;
-    let message = '';
+    let pendingText = '';
     const clockParts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
     const liveOpenMonth = clockParts.find(part => part.type === 'year').value + '-' + clockParts.find(part => part.type === 'month').value;
     const fmt = value => value === null || value === undefined ? '–'
@@ -399,12 +399,17 @@
     // Đầu trang: tổng còn nợ, băng thông báo, nút chính "Ghi phiếu thu" (so-khach-v7-entry-ui.js) và dải nút của các phần ngay
     // dưới đầu trang ở thẻ Sổ (phụ phí, bảng giá, duyệt Sheet, giá và phiếu thu Sheet) — SO-GON-04 L7. Tên khách và thanh thẻ:
     // so-khach-v7-tabs-ui.js.
+    // THONG-BAO-01: băng đầu sổ chỉ còn tình trạng kéo dài; tin của từng thao tác hiện nổi ở góc (cong-no-thong-bao.js).
+    const statusIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+      + '<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>';
+    function statusRows(data) {
+      const row = (text, extra = '', kind = '') => `<div class="book-status-row${kind ? ` is-${kind}` : ''}">${statusIcon}<span>${escape(text)}</span>${extra}</div>`;
+      return (api.hasPending() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
+        + (data?.sheet_sync?.unavailable ? row('Không đọc được chuyến mới từ Sheet.') : '')
+        + (data && data.status !== 'active' ? row('Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.') : '');
+    }
     function headView(data, active) {
-      const sheetNotice = data.sheet_sync?.unavailable ? 'Không đọc được chuyến mới từ Sheet.' : '';
-      const shown = (message && message !== 'Đã lưu.') || !active || sheetNotice;
-      const text = message || sheetNotice || (active ? '' : 'Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.');
-      const notice = `<p class="live-notice" role="status" style="padding:8px;background:#fff3d6" ${shown ? '' : 'hidden'}>${escape(text)}</p>`
-        + `<button class="retry-command" ${api.hasPending() ? '' : 'hidden'}>Thử lại thao tác vừa gửi</button>`;
+      const notice = `<div class="book-status" role="status">${statusRows(data)}</div>`;
       // SO-GON-06: một thanh việc — bên trái việc cần làm (nút ghi/duyệt và các ô "cần xem" phần khác chèn vào), bên phải giờ
       // Sheet, Làm mới và menu "Cài đặt ▾" (cài đặt phụ phí, bảng giá, ẩn con trỏ).
       const price = ctx.priceButtons?.(active) ?? { task: '', setting: '' };
@@ -480,13 +485,19 @@
         }, 150);
       });
     }
+    // Tin sau thao tác: nổi ở góc (THONG-BAO-01). Còn lệnh chưa rõ kết quả thì câu vào băng đầu sổ cạnh nút Thử lại, không
+    // nổi, vì đó là tình trạng phải xử lý chứ không phải tin đã xong.
     function showNotice(value) {
-      message = ctx.presenceStale ? ctx.presenceStale(value) : value;
-      const status = root.querySelector('.live-notice');
-      // "Đã lưu." trơn không hiện băng vàng: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
-      if (status) { status.textContent = message; status.hidden = !message || message === 'Đã lưu.'; }
-      const retry = root.querySelector('.retry-command');
-      if (retry) retry.hidden = !api.hasPending();
+      const message = ctx.presenceStale ? ctx.presenceStale(value) : value;
+      const toast = window.CongNoThongBao;
+      if (api.hasPending()) { pendingText = message; toast?.hide(); }
+      else {
+        pendingText = '';
+        // "Đã lưu." trơn không báo: kết quả đã thấy ngay trên dòng (góp ý 23/10/2026).
+        if (message === 'Đã lưu.') toast?.hide(); else toast?.show(message);
+      }
+      const status = root.querySelector('.book-status');
+      if (status) status.innerHTML = statusRows(snapshot);
     }
     // Danh sách khách về sau sổ thì vẽ lại từ bản đang có, không xóa ô đang gõ dở hay dòng hỏi đang mở.
     const api = live.create({ customerId, onSnapshot: renderSnapshot, onRedraw: () => redrawWhenFree(), onNotice: showNotice });
