@@ -126,6 +126,20 @@ class PlanTests(unittest.TestCase):
         _, ahead, shuffled = self.plan(rows, trips, legacy)
         self.assertEqual((ahead, shuffled), (107 + 11 + 20, []))   # dòng sổ gốc không tính
 
+    def test_undated_copy_rule_gives_the_machine_nothing_new_to_write(self):
+        # GHEP-KHONG-NGAY-01: dòng Sheet không ngày ghép với bản sao không ngày giống hệt chỉ rời "Cần xem"; nhóm việc của máy
+        # và tiền web đi trước y như khi dòng đó còn là "khớp nhiều chuyến".
+        copy = {"id": 40, "kind": "trip", "month": "2026-06-01", "current": {
+            "container": "AAAA1", "event_date": None, "unit_price_vnd": "50", "counted_vnd": "50", "month": "2026-06-01"}}
+        undated = sheet_row(1, "AAAA1", unit=50, total=50, month="2026-06") | {"date": None}
+        unpriced, ahead = web_trip(1, "AAAA1"), web_trip(2, "AAAA2", unit="30")
+        self.assertEqual(self.plan([undated], [unpriced, ahead], [copy]), ([], 30, []))
+        # Dòng Sheet có ngày của chuyến chưa giá vẫn là việc ghi giá như thường.
+        dated = sheet_row(2, "AAAA1", unit=70, total=70)
+        groups, money_ahead, shuffled = self.plan([undated, dated], [unpriced, ahead], [copy])
+        self.assertEqual([(g["kind"], g["month"], g["delta_vnd"]) for g in groups], [("prices", "2026-11", 70)])
+        self.assertEqual((money_ahead, shuffled), (30, []))
+
     def test_web_ahead_leaves_out_trips_an_adjustment_already_took_off_the_book(self):
         rows = [sheet_row(1, "AAAA1", unit=5, total=5, month="2026-03")]
         trips = [web_trip(1, "BBBB1", unit="46", month="2026-03"), web_trip(2, "BBBB2", unit="43", fee="1", month="2026-03"),
