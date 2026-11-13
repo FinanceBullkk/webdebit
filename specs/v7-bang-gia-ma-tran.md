@@ -111,7 +111,7 @@ PR (a) — lưới ma trận, không đổi backend:
 - [x] Shipper TT: thêm/bỏ, "Trong sổ đang lấy giá khách" kèm gợi ý gần giống và nút chuyển.
 - [x] Lỗi server giữ bảng đang sửa; `STALE_LEDGER`; đóng khi chưa lưu hỏi lại; Esc.
 - [x] Test trình duyệt 1280×720 viết lại cho ma trận; ảnh render 1280×560 có thanh cuộn đã xem (dữ liệu giả).
-- [ ] `npm run check`, `node scripts/check-secrets.js` xanh; Deploy hao xanh.
+- [x] `npm run check`, `node scripts/check-secrets.js` xanh; Deploy hao xanh (PR #407, `559ab75`).
 
 PR (c) — dải nơi đi ngoài bảng:
 - [x] Đếm đúng chuyến chưa có giá vì nơi đi ngoài bảng, gộp cách viết khác hoa thường/khoảng trắng, bỏ chuyến đã có giá và nơi đi đã có hàng; dải nằm trên lưới trong mép 560 (test trình duyệt 1265×560).
@@ -120,7 +120,7 @@ PR (c) — dải nơi đi ngoài bảng:
 PR (b) — xem lại trước khi lưu:
 - [x] Harness PostgreSQL: xem trước không đổi `version`, `event`, giá chuyến, số dư; số xem trước trùng kết quả lưu thật; lỗi bảng (trùng ngày…) trả đúng mã; quyền app/reader đúng.
 - [x] Test trình duyệt: Lưu mở bước xem lại với số từ server, "Quay lại sửa" giữ bảng, "Lưu và đổi giá N chuyến" gửi đúng một lệnh lưu.
-- [ ] Migration triển khai tay trên `hao` theo runbook, nhật ký trong `docs/deploys/`.
+- [x] Migration triển khai tay trên `hao` theo runbook, nhật ký [`docs/deploys/2026-11-13-xem-truoc-bang-gia.md`](../docs/deploys/2026-11-13-xem-truoc-bang-gia.md).
 - [ ] Người dùng tự đi hết luồng trên bản thật: đổi giá từ ngày cho một sổ, xem lại, lưu.
 
 ## Phạm vi file
