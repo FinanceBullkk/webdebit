@@ -180,6 +180,7 @@ SQL = {
     "get_price_status": "SELECT sokhach.get_price_status((:'payload'::jsonb->>'customer_id')::bigint);",
     "get_dashboard": "SELECT sokhach.get_dashboard();",
     "get_dashboard_debt": "SELECT sokhach.get_dashboard_debt();",
+    "get_read_stamp": "SELECT sokhach.get_read_stamp();",   # HIEU-NANG-01: dấu cho bộ nhớ đọc (v7_read_cache)
     "get_receivables_matrix": "SELECT sokhach.get_receivables_matrix((:'payload'::jsonb->>'year')::int);",
     "get_receivables_detail": "SELECT sokhach.get_receivables_detail((:'payload'::jsonb->>'customer_id')::bigint,(:'payload'::jsonb->>'month')::date);",
     "list_sheet_trip_refs": "SELECT sokhach.list_sheet_trip_refs();",

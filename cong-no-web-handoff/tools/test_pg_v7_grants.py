@@ -38,6 +38,7 @@ from v7_ledger_api import ROUTES, Psql, validate
 READ = {'get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
         'get_dashboard()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)'}
 READ.add('get_dashboard_debt()')  # DASH-03
+READ.add('get_read_stamp()')  # HIEU-NANG-01: dấu dữ liệu cho bộ nhớ đọc của API
 APP_READ = {'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)'}
 READ.add('get_fee_types()')
 # CHUNG-TU-01: mọi người vào app xem được ảnh chứng từ; đính/gỡ chỉ qua app.
@@ -130,6 +131,7 @@ KNOWN_FUNCTIONS.update({'link_zalo', 'unlink_zalo', 'get_zalo_links', '_mark_jso
                         'get_marks'})  # ZALO-GROUP-01
 KNOWN_FUNCTIONS.add('create_book_from_sheet')  # MAY-TAO-SO-01
 KNOWN_FUNCTIONS.add('get_activity')  # HOAT-DONG-01
+KNOWN_FUNCTIONS.add('get_read_stamp')  # HIEU-NANG-01
 KNOWN_FUNCTIONS.update({'get_ledger_events', '_ledger_events'})  # MO-SO-NHANH-02
 KNOWN_FUNCTIONS.update({'keep_sheet_task', 'apply_sheet_price', 'set_customer_commodity', 'set_customer_transport', 'assign_sheet_trip',
                         'undo_sheet_batch'})  # Việc cần làm xử lý tại dòng 2/11/2026

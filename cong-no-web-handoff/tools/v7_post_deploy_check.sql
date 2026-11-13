@@ -40,7 +40,7 @@ DECLARE
       'delete_trip(bigint,bigint,text,bigint)',
       'edit_legacy_trip(bigint,bigint,text,bigint,text,text)',
       'delete_legacy_trip(bigint,bigint,text,bigint)',
-      'get_ledger(bigint)', 'get_ledger_events(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)',
+      'get_ledger(bigint)', 'get_ledger_events(bigint)', 'get_receivables_detail(bigint,date)', 'list_offset_sources(bigint)', 'list_customers()', 'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'list_sheet_trip_refs()', 'list_legacy_trip_refs(jsonb)',
       'resolve_sheet_conflict(bigint,bigint,text,text,bigint,text,bigint,text,text,text,text)',
       'paste_trips(bigint,bigint,text,date,jsonb)',
       'edit_trip_price(bigint,bigint,text,bigint,bigint,bigint)',
@@ -73,7 +73,7 @@ DECLARE
       'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)'];
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
-      'get_dashboard()', 'get_dashboard_debt()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
+      'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'get_price_table(bigint)', 'get_price_status(bigint)', 'get_reminders()', 'get_receipt_book(date)', 'get_zalo_links()', 'get_marks(bigint,text)'];
     denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
