@@ -146,7 +146,8 @@ def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window:
     for item in source:
         by_cont[item["cont"]].append(item)
     rows, hidden = [], Counter()
-    for code, s, b, _note in found:
+    for code, s, matched, _note in found:
+        b = matched
         if not shown(code, s, b, window):
             hidden[code] += 1
             continue
@@ -212,10 +213,8 @@ def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: d
     except Exception as exc:  # noqa: BLE001  (lỗi thành mã, không in dữ liệu)
         code = failure_code(exc)
         print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)
-        try:
+        with contextlib.suppress(OSError):
             record_failure(output, code, now)
-        except OSError:
-            pass
         return {"error": code, "seconds": round(time.monotonic() - started)}
     return {**counts_line(result), "seconds": round(time.monotonic() - started)}
 
@@ -257,10 +256,8 @@ def finish(process: subprocess.Popen, output: Path, timeout: float) -> dict[str,
         if "error" in line:
             return {"error": code}   # con đã ghi last_error
     print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)
-    try:
+    with contextlib.suppress(OSError):
         record_failure(output, code, now_vn())
-    except OSError:
-        pass
     return {"error": code}
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import v7_booking_check as job  # noqa: E402
+import v7_booking_check as job
 
 NOW = dt.datetime(2026, 11, 13, 10, 0, tzinfo=job.VN)
 FAKE = "KHACH-GIA-ZQ"
@@ -148,9 +148,9 @@ class BookingCheckTests(unittest.TestCase):
 
     def test_alongside_kills_the_child_when_the_run_fails_and_times_out_cleanly(self):
         child = mock.Mock()
-        with mock.patch.object(job.subprocess, "Popen", return_value=child), self.assertRaises(RuntimeError):
-            with job.alongside(Path("x.xlsx"), self.out, self.dir / "a", self.dir / "b"):
-                raise RuntimeError("lượt đối soát lỗi")
+        with mock.patch.object(job.subprocess, "Popen", return_value=child), self.assertRaises(RuntimeError), \
+                job.alongside(Path("x.xlsx"), self.out, self.dir / "a", self.dir / "b"):
+            raise RuntimeError("lượt đối soát lỗi")
         child.kill.assert_called_once()
         slow = mock.Mock(returncode=-9)
         slow.communicate.side_effect = [job.subprocess.TimeoutExpired("x", 1), ("", None)]

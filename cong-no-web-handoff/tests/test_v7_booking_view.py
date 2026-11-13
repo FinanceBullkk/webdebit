@@ -10,9 +10,9 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "web"))
-import v7_booking_view as view  # noqa: E402
-import v7_ledger_api as api  # noqa: E402
-from v7_api_validate import ApiError  # noqa: E402
+import v7_booking_view as view
+import v7_ledger_api as api
+from v7_api_validate import ApiError
 
 
 def at(text):
