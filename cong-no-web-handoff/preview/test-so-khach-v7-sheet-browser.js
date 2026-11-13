@@ -55,6 +55,24 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   ] };
 }));
 
+test('CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet hiện xám ở tháng của nó, không nút, không tính là việc', async () => withPage(async ({ page, shot }) => {
+  await viewMonth(page, '2026-09');
+  const row = page.locator('tr.sheet-waiting');
+  assert.equal(await row.count(), 1);
+  assert.match(await row.innerText(), /WAITU0000001[\s\S]*CHỜ TAB SHEET[\s\S]*Không cần làm gì/);
+  assert.match(await row.locator('.sheet-why').getAttribute('title'), /tab có dòng riêng thì dòng này thành chuyến mới như thường/);
+  assert.equal(await row.locator('button').count(), 0);
+  assert.equal(await page.locator('tr.sheet-conflict, tr.sheet-new').count(), 0);
+  // Không chấm việc trên chip tháng, không dải "chuyến mới chờ duyệt".
+  assert.doesNotMatch(await page.locator('#app').innerHTML(), /từ Sheet cần xem|chờ duyệt/);
+  await shot('cho-tab-sheet');
+}, world => {
+  world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 0, waiting_count: 1, items: [], waiting_items: [
+    { sync_state: 'WAITING', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', source_row: 12, event_date: '2026-09-20', container: 'WAITU0000001',
+      carrier: 'WH', origin: 'Nơi A', destination: 'Nơi B', changed_fields: [], existing_kind: null, existing_id: null },
+  ] };
+}));
+
 const dateBookingConflict = world => {
   world.trips[0].booking = 'BK-OLD';
   world.sheetSync = { snapshot_sha256: 'a'.repeat(64), new_count: 0, conflict_count: 1, items: [

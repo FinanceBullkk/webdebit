@@ -209,10 +209,12 @@ class SheetQueueTests(unittest.TestCase):
         ledger = {"customer_id": 7, "legacy_rows": [], "trips": [{"id": 8, "container": "SAME1",
             "event_date": "2026-01-01", "carrier": "WH", "origin": "A", "destination": "B"}]}
         result = project_customer(queue, ledger)
-        self.assertEqual(result["items"][0]["sync_reason"], "CONTAINER_REUSED_OR_CHANGED")
-        self.assertEqual(result["new_count"], 0)
+        # CHUYEN-KHONG-HOI-01: không vào sổ, cũng không thành việc; chỉ nằm ở danh sách chờ tab Sheet.
+        self.assertEqual((result["items"], result["new_count"], result["conflict_count"], result["waiting_count"]), ([], 0, 0, 1))
+        self.assertEqual((result["waiting_items"][0]["sync_state"], result["waiting_items"][0]["sync_reason"]),
+                         ("WAITING", "CONTAINER_REUSED_OR_CHANGED"))
         ledger["trips"][0]["event_date"] = None
-        self.assertEqual(project_customer(queue, ledger)["new_count"], 0)
+        self.assertEqual((project_customer(queue, ledger)["new_count"], project_customer(queue, ledger)["waiting_count"]), (0, 1))
 
     def test_legacy_shipper_compares_with_booking_shipper_not_shipping_line(self):
         ledger = {"customer_id": 7, "legacy_rows": [{"id": 1, "kind": "trip", "current": {
@@ -273,14 +275,15 @@ class SheetQueueTests(unittest.TestCase):
             return {"id": n, "kind": "trip", "month": month, "current": {"container": "UND1", "event_date": date,
                     "debt_month": month, "origin": "KHO", "destination": "CANG", "shipper": "TN"}}
         cases = [([legacy(5, "2026-03-01")], ("CONFLICT", "DIFFERENT_FIELDS", ["event_date"], 5, "2026-03-01")),
-                 ([legacy(5, "2026-04-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
-                 ([legacy(5, "2026-03-01"), legacy(6, "2026-03-01")], ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED", [], None, None)),
+                 ([legacy(5, "2026-04-01")], "WAITING"),
+                 ([legacy(5, "2026-03-01"), legacy(6, "2026-03-01")], "WAITING"),
                  ([legacy(5, "2026-03-01", "2026-03-18")], None)]   # có ngày, trùng ngày: không còn việc
         for rows, want in cases:
             with self.subTest(rows=len(rows), want=want):
-                items = project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": rows})["items"]
+                result = project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": rows})
+                items = result["items"]
                 got = (items[0]["sync_state"], items[0]["sync_reason"], items[0]["changed_fields"], items[0]["existing_id"],
-                       items[0]["existing_debt_month"]) if items else None
+                       items[0]["existing_debt_month"]) if items else ("WAITING" if result["waiting_items"] else None)
                 self.assertEqual(got, want)
 
     def test_shipper_backfill_only_proposes_unique_exact_matches(self):
@@ -295,6 +298,72 @@ class SheetQueueTests(unittest.TestCase):
         self.assertEqual(plan_shipper_backfill(queue, ledger), [])
 
 
+def first(result):
+    """Dòng duy nhất của một lần chiếu: việc (`items`) hoặc dòng chờ tab Sheet (`waiting_items`), không bao giờ cả hai."""
+    rows = result["items"] + result["waiting_items"]
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+class KeptLegacyDateTests(unittest.TestCase):
+    """CHUYEN-KHONG-HOI-01: dòng sổ gốc đã có ngày, lệch nguồn không quá 3 ngày: giữ ngày sổ gốc, không hỏi."""
+
+    def items(self, source_date, old, **source):
+        queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 2, "customer_id": 7, "container": "DAY1",
+                 "event_date": source_date, "review_status": "NEEDS_PRICE", "origin": "KHO", "destination": "CANG",
+                 "shipper": "TN", **source}]}
+        return project_customer(queue, {"customer_id": 7, **old})
+
+    def legacy(self, date, **current):
+        return {"trips": [], "legacy_rows": [{"id": 5, "kind": "trip", "month": "2026-03-01", "current": {
+            "container": "DAY1", "event_date": date, "debt_month": "2026-03-01", "origin": "KHO", "destination": "CANG",
+            "shipper": "TN", **current}}]}
+
+    def test_date_within_three_days_is_not_a_question(self):
+        for source_date in ("2026-03-15", "2026-03-19", "2026-03-21"):
+            with self.subTest(source_date):
+                result = self.items(source_date, self.legacy("2026-03-18"))
+                self.assertEqual((result["items"], result["waiting_items"]), ([], []))
+
+    def test_text_difference_stays_and_the_machine_may_take_it(self):
+        item = self.items("2026-03-20", self.legacy("2026-03-18"), destination="CANG MOI")["items"][0]
+        self.assertEqual((item["sync_reason"], item["changed_fields"], item["existing_id"]), ("DIFFERENT_FIELDS", ["destination"], 5))
+        self.assertEqual(item["existing_values"], {"destination": "CANG"})
+
+    def test_undated_original_row_still_gets_its_date(self):
+        item = self.items("2026-03-20", self.legacy(None))["items"][0]   # MAY-KHOA-01 nhóm A giữ nguyên
+        self.assertEqual(item["changed_fields"], ["event_date"])
+
+    def test_web_trip_date_still_asks(self):
+        trip = {"legacy_rows": [], "trips": [{"id": 8, "container": "DAY1", "event_date": "2026-03-18", "origin": "KHO",
+                "destination": "CANG", "shipper": "TN", "carrier": None}]}
+        item = self.items("2026-03-20", trip)["items"][0]
+        self.assertEqual((item["existing_kind"], item["changed_fields"]), ("trip", ["event_date"]))
+
+    def test_four_days_is_not_the_same_trip(self):
+        result = self.items("2026-03-22", self.legacy("2026-03-18"))
+        self.assertEqual((result["items"], result["waiting_count"]), ([], 1))
+
+    def test_three_days_across_a_month_end_is_not_a_question_either(self):
+        result = self.items("2026-04-02", self.legacy("2026-03-31"))   # tháng nợ của dòng sổ gốc vẫn là tháng 3
+        self.assertEqual((result["items"], result["waiting_items"]), ([], []))
+
+    def test_original_row_claimed_by_two_source_rows_keeps_asking(self):
+        """Nguồn có hai chuyến cách nhau trong 3 ngày, sổ có một dòng: bỏ ô ngày thì máy lấy chữ theo dòng này rồi dòng kia."""
+        def source(row, date, destination="CANG"):
+            return {"source_row": row, "customer_id": 7, "container": "DAY1", "event_date": date, "review_status": "NEEDS_PRICE",
+                    "origin": "KHO", "destination": destination, "shipper": "TN"}
+        ledger = {"customer_id": 7, **self.legacy("2026-03-18")}
+        both = {"snapshot_sha256": "a" * 64, "items": [source(2, "2026-03-18"), source(3, "2026-03-20", "CANG MOI")]}
+        items = project_customer(both, ledger)["items"]
+        self.assertEqual([(item["source_row"], item["changed_fields"]) for item in items], [(3, ["event_date", "destination"])])
+        date_only = {"snapshot_sha256": "a" * 64, "items": [source(2, "2026-03-18"), source(3, "2026-03-20")]}
+        self.assertEqual([item["changed_fields"] for item in project_customer(date_only, ledger)["items"]], [["event_date"]])
+        # Chỉ một dòng nguồn nhận dòng sổ gốc: ô ngày không còn là câu hỏi, phần chữ để máy lấy.
+        alone = {"snapshot_sha256": "a" * 64, "items": [source(3, "2026-03-20", "CANG MOI")]}
+        self.assertEqual([item["changed_fields"] for item in project_customer(alone, ledger)["items"]], [["destination"]])
+
+
 class ReusedContainerTests(unittest.TestCase):
     """CONTAINER-DUNG-LAI-01: container đã có trong sổ chỉ là chuyến mới khi tab khách ghi riêng chuyến đó."""
 
@@ -305,10 +374,11 @@ class ReusedContainerTests(unittest.TestCase):
                    "current": {"container": "REUSE1", "event_date": old, "debt_month": "2026-01-01"}}
                   for n, old in enumerate(old_dates, 1)]
         tab = [{"customer_tab": "Khách mẫu", "container": "REUSE1", "date": date} for date in tab_dates]
-        return project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": legacy}, tab_rows=tab, **kwargs)["items"][0]
+        return first(project_customer(queue, {"customer_id": 7, "trips": [], "legacy_rows": legacy}, tab_rows=tab, **kwargs))
 
     def assert_held(self, item):
-        self.assertEqual((item["sync_state"], item["sync_reason"]), ("CONFLICT", "CONTAINER_REUSED_OR_CHANGED"))
+        # CHUYEN-KHONG-HOI-01: giữ ngoài sổ như trước, nhưng là dòng chờ tab Sheet chứ không phải việc cần người xem.
+        self.assertEqual((item["sync_state"], item["sync_reason"]), ("WAITING", "CONTAINER_REUSED_OR_CHANGED"))
 
     def test_tab_has_its_own_row_for_the_new_trip(self):
         item = self.item("2026-10-31", ["2026-02-01"], ["2026-02-01", "2026-10-31"])
@@ -349,14 +419,14 @@ class ReusedContainerTests(unittest.TestCase):
         queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 500, "customer_id": 7, "container": "REUSE1",
                  "event_date": "2026-10-31", "review_status": "NEEDS_PRICE"}]}
         ledger = {"customer_id": 7, "trips": [{"id": 1, "container": "REUSE1", "event_date": "2026-02-01"}], "legacy_rows": []}
-        self.assert_held(project_customer(queue, ledger)["items"][0])
+        self.assert_held(first(project_customer(queue, ledger)))
 
     def test_other_rows_of_the_tab_do_not_count(self):
         queue = {"snapshot_sha256": "a" * 64, "items": [{"source_row": 500, "customer_id": 7, "container": "REUSE1",
                  "event_date": "2026-10-31", "review_status": "NEEDS_PRICE"}]}
         ledger = {"customer_id": 7, "trips": [{"id": 1, "container": "REUSE1", "event_date": "2026-02-01"}], "legacy_rows": []}
         tab = [{"container": "KHAC1", "date": "2026-10-31"}, {"container": "KHAC2", "date": "2026-10-31"}]
-        self.assert_held(project_customer(queue, ledger, tab_rows=tab)["items"][0])
+        self.assert_held(first(project_customer(queue, ledger, tab_rows=tab)))
 
     def test_other_book_checks_still_apply_to_a_new_trip(self):
         tab = ["2026-02-01", "2026-10-31"]
@@ -379,7 +449,7 @@ PROJECTION_CUSTOMERS = [{"id": 7, "name": "KHÁCH MẪU", "status": "active"}, {
 class SheetProjectionTabRowsTests(unittest.TestCase):
     """sheet_projection lấy dòng tab đúng của sổ từ bản chụp giá; bản chụp hỏng thì giữ luật cũ, không làm hỏng hàng chờ."""
 
-    def project(self, prices):
+    def project(self, prices, ledger=PROJECTION_LEDGER, whole=False):
         import v7_api_sheet
         from v7_price_queue import load_price_snapshot
 
@@ -396,7 +466,8 @@ class SheetProjectionTabRowsTests(unittest.TestCase):
 
         with patch.object(v7_api_sheet, "cached_load", load), patch.object(v7_api_sheet, "customer_name_mapping", return_value={}), \
                 patch.object(v7_api_sheet, "other_book_checks", return_value=(set(), [])):
-            return v7_api_sheet.sheet_projection(Runner(), PROJECTION_LEDGER, "test")["items"][0]
+            result = v7_api_sheet.sheet_projection(Runner(), ledger, "test")
+            return result if whole else first(result)
 
     def test_rows_come_from_this_book_tab_only(self):
         mine = [{"customer_tab": "KHÁCH MẪU", "container": "REUSE1", "date": day} for day in ("2026-02-01", "2026-10-31")]
@@ -406,6 +477,16 @@ class SheetProjectionTabRowsTests(unittest.TestCase):
 
     def test_broken_price_snapshot_keeps_the_old_rule(self):
         self.assertEqual(self.project(None)["sync_reason"], "CONTAINER_REUSED_OR_CHANGED")
+
+    def test_waiting_row_a_person_assigned_elsewhere_is_gone(self):
+        """CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet mà người đã gán vào một chuyến thì không còn chờ ở sổ này."""
+        from v7_sheet_task_keep import trip_identity
+        waiting = self.project(None)
+        self.assertEqual(waiting["sync_state"], "WAITING")
+        assigned = {"kind": "sheet_conflict_resolved", "after": {"field": "task_assignment", "target_customer_id": 7,
+                    "target": {"kind": "trip", "id": 1}, "sheet_value": trip_identity(waiting)}}
+        result = self.project(None, {**PROJECTION_LEDGER, "events": [assigned]}, whole=True)
+        self.assertEqual((result["items"], result["waiting_items"], result["waiting_count"]), ([], [], 0))
 
 
 class RemovedSheetTripTests(unittest.TestCase):

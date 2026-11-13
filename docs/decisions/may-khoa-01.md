@@ -38,3 +38,5 @@ Cùng đợt sửa luật "container ở khách khác": chỉ báo khi chuyến 
 - Hàng chờ từ 152 còn 43 dòng, đều là việc người quyết nêu ở trên.
 
 **Cập nhật 6/11/2026:** [`VIEC-DOI-CHIEU-01`](viec-doi-chieu-01.md) thêm một ngoại lệ do người dùng chọn: người chọn khoản trong bảng đối chiếu rồi xác nhận thì web mở tháng, ghi, khóa lại. Mọi đường khác người vẫn bị khóa tháng chặn.
+
+**Cập nhật 13/11/2026:** [`CHUYEN-KHONG-HOI-01`](chuyen-khong-hoi-01.md) thay vế "vẫn để người quyết: lệch ngày khi dòng cũ đã có ngày" cho **dòng sổ gốc**: lệch không quá 3 ngày thì giữ ngày sổ gốc, không hỏi. Chuyến web và các vế còn lại giữ nguyên.

@@ -364,7 +364,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
     const road = { ...ledger, sheet_road: { snapshot_sha256: sha, items: [
       { sync_state: 'NEW', sync_reason: '', container: 'MAUU0000021', event_date: '2026-10-02', message: 'Chuyến bộ theo CONT_BO, chưa có trên sổ' },
       { sync_state: 'CONFLICT', sync_reason: 'OTHER_CUSTOMER', container: 'MAUU0000022', event_date: '2026-10-03', message: 'Container ở khách khác' },
-      { sync_state: 'CONFLICT', sync_reason: 'CONTAINER_REUSED_OR_CHANGED', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
+      { sync_state: 'CONFLICT', sync_reason: 'DIFFERENT_FIELDS', container: 'MAUU0000023', event_date: '2026-10-04' }] } };
     await withPage({ ledger: road, unsorted: [{ customer_id: 2 }] }, async page => {
       // Sổ tải chậm như trên máy CI (lần đầu đếm ngay sau khi bấm nên ra 0 dòng ở CI, xanh ở máy nhanh).
       await page.route('**/api/v7/ledger*', async route => { await new Promise(done => setTimeout(done, 500)); await route.continue(); });
@@ -374,7 +374,7 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await rows.count(), 3);
       assert.match(await rows.nth(0).innerText(), /MAUU0000021[\s\S]*Chuyến bộ theo CONT_BO, chưa có trên sổ/);
       assert.match(await rows.nth(1).innerText(), /MAUU0000022[\s\S]*Container ở khách khác/);
-      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Container đã có trong sổ · tab khách chưa có dòng riêng/);
+      assert.match(await rows.nth(2).innerText(), /MAUU0000023[\s\S]*Sheet khác thông tin trong sổ/);
       assert.equal(await page.locator('[data-trip-book]').count(), 0);
       assert.equal(await rows.locator('a', { hasText: 'Mở trong sổ' }).count(), 3);
     });

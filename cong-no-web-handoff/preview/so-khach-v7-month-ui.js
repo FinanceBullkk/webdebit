@@ -158,7 +158,9 @@
     const legacy = legacyPairs(legacyRows);
     const totals = { chargesVnd: item.charges_vnd, receivedVnd: item.received_vnd, unitPriceVnd: model.unitPriceTotal(trips, legacyRows) };
     const debit = legacy.some(line => line.trip) || trips.some(trip => trip.status === 'confirmed');
-    const sheetRows = (data.sheet_sync?.items ?? []).filter(row => monthKey(row.event_date) === key && sheetPending(row));
+    // CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet hiện ở tháng của nó để xem; không tạo bảng tháng, không tính vào chấm việc.
+    const sheetRows = [...(data.sheet_sync?.items ?? []).filter(row => monthKey(row.event_date) === key && sheetPending(row)),
+      ...(data.sheet_sync?.waiting_items ?? []).filter(row => monthKey(row.event_date) === key)];
     // DA-THU-01: phiếu nằm ở tháng của ngày thu, đủ số tiền một lần (như Sheet); `lines` là phần trừ nợ còn hiệu lực
     // (phiếu đã hủy: phần bị hủy cùng lệnh hủy).
     const received = (data.receipts ?? []).filter(row => monthKey(row.date) === key).map(row => {
