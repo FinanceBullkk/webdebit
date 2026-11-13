@@ -10,7 +10,10 @@
     ? row.changed_fields.map(field => ({ event_date: 'ngày', carrier: 'hãng tàu', shipper: 'shipper',
       shipper_unavailable: 'thiếu shipper Sheet', origin: 'nơi đi', destination: 'nơi đến', booking: 'booking' })[field] || field).join(', ')
     : ({ OTHER_CUSTOMER: 'khách khác', OTHER_BOOK_LEGACY: 'đã có ở sổ gốc của sổ khác', BASELINE_MATCH_UNRESOLVED: 'bản mốc chưa nối',
-      CONTAINER_REUSED_OR_CHANGED: 'container đã dùng', AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
+      AMBIGUOUS_MATCH: 'nhiều chuyến trùng' })[row.sync_reason] || 'chưa rõ';
+  // CHUYEN-KHONG-HOI-01: container đã có trong sổ, tab khách chưa có dòng riêng. Chỉ để xem: không nút, không tính là việc.
+  const WAITING_WHY = 'Container này đã có trong sổ và tab khách trên Sheet chưa có dòng riêng cho chuyến này. '
+    + 'Không cần làm gì trên web: tab có dòng riêng thì dòng này thành chuyến mới như thường.';
   // NHAP-SHEET-01: mọi ô chuyến (web và sổ gốc) sửa đè tại ô, kể cả tháng khóa; bấm STT để xóa hẳn.
   // Đổi ngày sang tháng khác (góp ý 23/10/2026): dòng vừa chuyển tô vàng ở tháng mới (ctx.moved, so-khach-v7-edit-ui.js).
   const movedTag = rowKey => moved.has(rowKey)
@@ -129,12 +132,14 @@
     const today = todayVn();
     return rows.map(row => {
       const isNew = row.sync_state === 'NEW';
+      const waiting = row.sync_state === 'WAITING';
       const canApprove = isNew && row.source_row != null && String(row.event_date ?? '') <= today;
       const tag = isNew ? `<small class="sheet-tag">CHỜ DUYỆT</small><small class="sheet-why" title="${escape(newWhy(row, today)[1])}">${escape(newWhy(row, today)[0])}</small>`
-        : `<small class="sheet-tag">KHÁC: ${conflictFields(row)}</small>`;
+        : waiting ? `<small class="sheet-tag">CHỜ TAB SHEET</small><small class="sheet-why" title="${escape(WAITING_WHY)}">Không cần làm gì</small>`
+          : `<small class="sheet-tag">KHÁC: ${conflictFields(row)}</small>`;
       const act = canApprove ? `<td class="num sheet-new-act"><button type="button" class="sheet-row-approve" data-source-row="${escape(row.source_row)}" `
         + `aria-label="Duyệt chuyến ${escape(row.container)} ngày ${escape(dateText(row.event_date))}">Duyệt</button></td>` : num('–');
-      return `<tr class="${isNew ? 'sheet-new' : 'sheet-conflict'}"${isNew && row.source_row != null ? ` data-sheet-new="${escape(row.source_row)}"` : ''}>
+      return `<tr class="${isNew ? 'sheet-new' : waiting ? 'sheet-waiting' : 'sheet-conflict'}"${isNew && row.source_row != null ? ` data-sheet-new="${escape(row.source_row)}"` : ''}>
           ${empty()}<td>${escape(row.container)}${tag}</td>`
         + `${cell(row.carrier)}${shipperCell(cell(row.shipper))}${cell(dateText(row.event_date))}${routeText(row.origin, row.destination)}
           ${empty('num')}${feeEmpty()}${act}

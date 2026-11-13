@@ -443,7 +443,8 @@
       // Cột Shipper chỉ hiện khi có dòng có shipper: chuyến web, dòng sổ gốc, chuyến Sheet chờ duyệt (các dòng sổ vẽ ra).
       const shipperRows = [...(data.trips ?? []).filter(row => !row.deleted),
         ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted).flatMap(row => [row.current, row.display]),
-        ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id)];
+        ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id),
+        ...(data.sheet_sync?.waiting_items ?? [])];
       const usedTypes = new Set([...(data.trips ?? []).filter(row => !row.deleted), ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted)]
         .flatMap(row => row.fee_lines ?? []).map(line => Number(line.fee_type_id)));
       useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''),
