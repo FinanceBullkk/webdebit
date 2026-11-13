@@ -41,7 +41,7 @@ const DebitNoteV4 = (() => {
   const shown = (value, label) => blank(value) ? `[${label}]` : String(value);
 
   // ---- Cột phí ----
-  // Cột của chứng từ theo cột phụ phí của sổ (PHU-PHI-01): Unit price, các cột riêng của sổ theo thứ tự sổ, rồi Khác.
+  // Cột của chứng từ: Unit price, bảy cột phí cố định của mẫu (DEBIT-NOTE-04), cột riêng khác của sổ (PHU-PHI-01), rồi Khác.
   // Mỗi cột mang mã loại phí (SoKhachV7Model.dnFeeCode) để lấy tên Anh/Trung và bề rộng ở cấu hình.
   function feeLabel(config, code) {
     const item = config?.fees?.[code];
@@ -54,8 +54,13 @@ const DebitNoteV4 = (() => {
     const month = row => String(row.month ?? '').slice(0, 7);
     const names = new Map(feeTypes.map(type => [Number(type.id), type.name]));
     const codeOfType = id => model.dnFeeCode(names.get(Number(id)));
-    const own = [...new Set(feeColumnIds.map(codeOfType))].filter(code => code !== 'OTHER');
-    const lineCode = line => own.includes(codeOfType(line.fee_type_id)) ? codeOfType(line.fee_type_id) : 'OTHER';
+    // DEBIT-NOTE-04 (người dùng 13/11/2026): bảy cột phí của mẫu Excel (Storage, Trucking, Generator, Overstay, HC fee,
+    // Cancellation, AMD) luôn in dù cả tháng bằng 0; phí thuộc loại nào vào đúng cột đó, không cần là cột riêng của sổ.
+    // Cột riêng của sổ ngoài bảy loại (Insurance, Inspection…) và Other fees chỉ in khi có số.
+    const always = model.DN_FEES.filter(fee => !fee.extra && fee.code !== 'LUMP_SUM').map(fee => fee.code);
+    const own = [...new Set(feeColumnIds.map(codeOfType))].filter(code => code !== 'OTHER' && !always.includes(code));
+    const named = [...always, ...own];
+    const lineCode = line => named.includes(codeOfType(line.fee_type_id)) ? codeOfType(line.fee_type_id) : 'OTHER';
     const issues = [];
     const rows = [];
     const add = (info, lines, unitVnd, ledgerVnd, feeOnly) => {
@@ -89,8 +94,8 @@ const DebitNoteV4 = (() => {
     // Bảng có gì xuất nấy (người dùng 12/11/2026): chuyến chưa có giá không chặn, in Unit price và Amount trống.
     if (pendingCount) issues.push({ level: 'info', text: `${pendingCount} chuyến đang CHỜ KIỂM không lên chứng từ.` });
 
-    const codes = ['LUMP_SUM', ...own, 'OTHER'];
-    const doc = assemble({ rows, codes, config, monthKey, form });
+    const codes = ['LUMP_SUM', ...named, 'OTHER'];
+    const doc = assemble({ rows, codes, always: ['LUMP_SUM', ...always], config, monthKey, form });
     doc.issues.push(...issues);
     // Không còn cảnh báo nơi/cảng ngoài danh mục hay số container sai ISO 6346 (người dùng 12/11/2026: "bảng có gì thì xuất đó").
 
@@ -136,13 +141,13 @@ const DebitNoteV4 = (() => {
   // Ô in ở một cột phí: ô Unit price của phí lẻ và của chuyến chưa có giá để trống, ô phí không có thì in "–" (0).
   const cellValue = (row, code) => row.cells[code] ?? (code === 'LUMP_SUM' && (row.feeOnly || row.amount === null || row.missingPrice) ? null : 0n);
 
-  // Phần chung: xếp dòng, đánh số, chọn cột (cột phí có ô khác 0 trên cả chứng từ mới hiện), cộng Total.
-  function assemble({ rows, codes, config, monthKey, form }) {
+  // Phần chung: xếp dòng, đánh số, chọn cột (cột trong always luôn hiện; cột phí khác có ô khác 0 trên cả chứng từ mới hiện), cộng Total.
+  function assemble({ rows, codes, always = ['LUMP_SUM'], config, monthKey, form }) {
     const key = row => row.date ?? '9999-99-99';
     const containers = rows.filter(row => !row.feeOnly).sort((a, b) => key(a).localeCompare(key(b)) || a.container.localeCompare(b.container));
     const extras = rows.filter(row => row.feeOnly).sort((a, b) => key(a).localeCompare(key(b)));
     const ordered = [...containers.map((row, index) => ({ ...row, no: index + 1 })), ...extras.map(row => ({ ...row, no: null }))];
-    const used = codes.filter(code => code === 'LUMP_SUM' || ordered.some(row => row.cells[code] != null && row.cells[code] !== 0n));
+    const used = codes.filter(code => always.includes(code) || ordered.some(row => row.cells[code] != null && row.cells[code] !== 0n));
     const columns = used.map(code => feeLabel(config, code));
     const columnTotal = code => sum(ordered.map(row => row.cells[code] ?? 0n));
     const customer = form.customer ?? {};
@@ -228,33 +233,76 @@ const DebitNoteV4 = (() => {
   const estimate = (text, size = 12, bold = false) => [...String(text)].reduce((sum, ch) => sum + (/[\p{Script=Han}—（）]/u.test(ch) ? 1
     : /[A-Z]/.test(ch) ? 0.67 : /\d/.test(ch) ? 0.5 : /[a-z]/.test(ch) ? 0.46 : /\s/.test(ch) ? 0.25 : 0.4), 0) * size * (bold ? 1.08 : 1);
   const ROW_WIDTH = 1034, SHIPPER_MIN = 72, NO_WIDTH = 28, AMOUNT_WIDTH = 84, SPREAD_MAX = 48;
+  // DEBIT-NOTE-04: bảy cột phí luôn in nên bảng thường không vừa A4 ngang ở cỡ chữ 12px. Thử lần lượt từng bậc, bậc đầu
+  // tiên vừa thì dùng: (1) cột phí theo bề rộng cấu hình — chứng từ ít cột in như cũ; (2) cột phí hẹp theo số dài nhất của cột,
+  // tiêu đề xuống dòng theo từ; (3) chữ cả bảng thu nhỏ đều từng 5%, nhỏ nhất ZOOM_MIN — như Excel "vừa một trang ngang";
+  // (4) tên tiếng Trung của nơi/cảng xuống dòng dưới tên Latin, thử lại cỡ chữ từ 100%. "Vừa" = Shipper còn SHIPPER_MIN và
+  // nơi/cảng không phải co quá mức: chữ Trung cùng dòng co tới 9px thật; cờ tắt thì bậc 1 như trước (chữ xuống dòng, hẹp nhất
+  // 50%), từ bậc 2 phải đủ bề rộng tự nhiên. Không bậc nào vừa thì dùng bậc cuối, nơi/cảng co hết mức.
+  const ZOOM_MIN = 0.8;
+  const ZOOMS = [1, 0.95, 0.9, 0.85, ZOOM_MIN];
+  const STAGES = [{ zoom: 1, compact: false }, ...ZOOMS.map(zoom => ({ zoom, compact: true })), ...ZOOMS.map(zoom => ({ zoom, compact: true, stack: true }))];
   const layouts = new WeakMap();
-  // Bề rộng các cột chữ của một chứng từ. measure(text, size, bold) đo thật trong trình duyệt (split gọi trước khi chia trang);
+  function layoutAt(doc, measure, { zoom, compact, stack = false }) {
+    const width = (text, size, bold = false) => measure(text, size * zoom, bold);
+    const rows = doc.rows.filter(row => !row.feeOnly);
+    const head = ([en, cn]) => Math.max(width(en, 11, true), width(cn, 11));
+    const natural = (index, texts, extra = 0) => Math.ceil(Math.max(head(TEXT_COLUMNS[index]), ...texts.map(text => width(text, 12)))) + COL_GAP + extra;
+    stack = stack && doc.showPlaceCn;
+    const placeOf = place => stack ? [place.text ?? '', place.cn ?? ''] : [(doc.showPlaceCn ? placeLine(place) : place.text) ?? ''];
+    const layout = {
+      zoom, compact, stack, no: Math.ceil(NO_WIDTH * zoom), amount: Math.ceil(AMOUNT_WIDTH * zoom),
+      container: natural(1, rows.map(row => row.container ?? ''), 10), line: natural(2, rows.map(row => row.line ?? '')),
+      date: natural(4, doc.rows.map(row => dateText(row.date) ?? '')), place: natural(5, rows.flatMap(row => placeOf(row.place))),
+      pod: natural(6, rows.flatMap(row => placeOf(row.pod))), scale: 1,
+    };
+    // Cột phí hẹp: vừa số dài nhất (kể cả số Total in đậm), tiêu đề Anh tối đa hai dòng (chỗ ngắt cân nhất), tên Trung một dòng
+    // khi ≤ 4 chữ, dài hơn thì hai dòng.
+    const twoLines = text => {
+      const words = String(text ?? '').split(/\s+/).filter(Boolean), line = list => width(list.join(' '), 11, true);
+      return words.length < 2 ? line(words) : Math.min(...words.slice(1).map((_, index) => Math.max(line(words.slice(0, index + 1)), line(words.slice(index + 1)))));
+    };
+    const cnHead = text => { const chars = [...String(text ?? '')]; return width(chars.slice(0, chars.length <= 4 ? chars.length : Math.ceil(chars.length / 2)).join(''), 11); };
+    const feeNatural = column => Math.ceil(Math.max(twoLines(column.en), cnHead(column.cn),
+      ...doc.rows.map(row => width(money(cellValue(row, column.code)), 12)), width(money(doc.total.cells[column.code] ?? null), 12, true))) + 8;
+    layout.fees = doc.columns.map(column => compact ? Math.min(column.width, feeNatural(column)) : column.width);
+    layout.fixed = layout.no + layout.container + layout.line + layout.date + layout.amount + layout.fees.reduce((total, value) => total + value, 0);
+    layout.shipperMin = Math.ceil(SHIPPER_MIN * zoom);
+    // Chữ Trung cùng dòng co tới 9px thật (người dùng 11/11/2026) — bảng đã thu nhỏ thì tỉ lệ co còn ít hơn.
+    const sameLine = layout.sameLine = doc.showPlaceCn && !stack;
+    layout.minRatio = sameLine ? Math.min(1, 0.75 / zoom) : 0.5;
+    // Bậc 1 (bố cục cũ) chấp nhận nơi/cảng co tới minRatio như trước; từ bậc 2 thì cờ tắt không bóp nơi/cảng (tiêu đề sẽ tràn),
+    // chữ Trung cùng dòng vẫn được co tới 9px.
+    const shrunk = value => compact && !sameLine ? value : Math.floor((value - COL_GAP) * layout.minRatio) + COL_GAP;
+    layout.shipper = natural(3, rows.map(row => row.shipper ?? ''));
+    // Bố cục mới với tên Trung cùng dòng: Shipper phải được tới gấp đôi tối thiểu (tên dài hai dòng thay vì bốn), không thì
+    // bậc sau cho tên Trung xuống dòng tốt hơn.
+    layout.shipperWant = compact && sameLine ? Math.min(layout.shipper, 2 * layout.shipperMin) : layout.shipperMin;
+    layout.fits = layout.fixed + layout.shipperWant + shrunk(layout.place) + shrunk(layout.pod) <= ROW_WIDTH;
+    return layout;
+  }
+  // Bề rộng các cột của một chứng từ. measure(text, size, bold) đo thật trong trình duyệt (split gọi trước khi chia trang);
   // không có thì ước. Kết quả giữ theo doc để phép chia trang và bản in dùng cùng một bố cục.
   function columnLayout(doc, measure = null) {
     if (!measure && layouts.has(doc)) return layouts.get(doc);
     const width = measure ?? estimate;
-    const rows = doc.rows.filter(row => !row.feeOnly);
-    const head = ([en, cn]) => Math.max(width(en, 11, true), width(cn, 11));
-    const natural = (index, texts, extra = 0) => Math.ceil(Math.max(head(TEXT_COLUMNS[index]), ...texts.map(text => width(text, 12)))) + COL_GAP + extra;
-    const placeOf = place => (doc.showPlaceCn ? placeLine(place) : place.text) ?? '';
-    const layout = {
-      container: natural(1, rows.map(row => row.container ?? ''), 10), line: natural(2, rows.map(row => row.line ?? '')),
-      date: natural(4, doc.rows.map(row => dateText(row.date) ?? '')), place: natural(5, rows.map(row => placeOf(row.place))),
-      pod: natural(6, rows.map(row => placeOf(row.pod))), scale: 1,
-    };
-    const fixed = NO_WIDTH + layout.container + layout.line + layout.date + AMOUNT_WIDTH + doc.columns.reduce((sum, column) => sum + column.width, 0);
-    const room = ROW_WIDTH - fixed - SHIPPER_MIN, need = layout.place + layout.pod;
+    let layout;
+    for (const stage of STAGES) {
+      layout = layoutAt(doc, width, stage);
+      if (layout.fits) break;
+    }
+    // Nơi/cảng co chữ nhường chỗ cho Shipper (shipperWant), không dưới minRatio.
+    const room = ROW_WIDTH - layout.fixed - layout.shipperWant, need = layout.place + layout.pod;
     if (need > room) {
-      const ratio = Math.max(doc.showPlaceCn ? 0.75 : 0.5, room / need);
-      if (doc.showPlaceCn) layout.scale = ratio;
-      layout.place = Math.ceil((layout.place - COL_GAP) * ratio) + COL_GAP;
-      layout.pod = Math.ceil((layout.pod - COL_GAP) * ratio) + COL_GAP;
+      // Tỉ lệ tính trên phần chữ (khoảng hở COL_GAP giữ nguyên), làm tròn xuống để hai cột không vượt phần còn lại.
+      const ratio = Math.max(layout.minRatio, (room - 2 * COL_GAP) / (need - 2 * COL_GAP));
+      if (layout.sameLine) layout.scale = ratio;
+      layout.place = Math.floor((layout.place - COL_GAP) * ratio) + COL_GAP;
+      layout.pod = Math.floor((layout.pod - COL_GAP) * ratio) + COL_GAP;
     } else {
       // Còn dư sau khi Shipper đủ một dòng: chia đều cho sáu cột chữ (tối đa SPREAD_MAX mỗi cột) để khoảng cách giữa các cột
       // đều nhau, không dồn hết vào sau Shipper; phần lẻ còn lại Shipper (1fr) nhận.
-      const shipper = natural(3, rows.map(row => row.shipper ?? ''));
-      const spare = ROW_WIDTH - fixed - need - shipper;
+      const spare = ROW_WIDTH - layout.fixed - need - layout.shipper;
       const share = spare > 0 ? Math.min(SPREAD_MAX, Math.floor(spare / 6)) : 0;
       for (const key of ['container', 'line', 'date', 'place', 'pod']) layout[key] += share;
     }
@@ -269,8 +317,8 @@ const DebitNoteV4 = (() => {
   }
   const gridOf = doc => {
     const layout = columnLayout(doc);
-    return [`${NO_WIDTH}px`, `${layout.container}px`, `${layout.line}px`, '1fr', `${layout.date}px`, `${layout.place}px`, `${layout.pod}px`,
-      ...doc.columns.map(column => `${column.width}px`), `${AMOUNT_WIDTH}px`].join(' ');
+    return [`${layout.no}px`, `${layout.container}px`, `${layout.line}px`, '1fr', `${layout.date}px`, `${layout.place}px`, `${layout.pod}px`,
+      ...layout.fees.map(fee => `${fee}px`), `${layout.amount}px`].join(' ');
   };
   const moneySpan = (value, extra = '') => `<span style="${NUM}${value !== null && value < 0n ? '; margin-right: -0.333em' : ''}${extra}">${money(value)}</span>`;
   const pair = (label, value, bold = false) => `<div style="display: flex; align-items: baseline"><span style="width: 136px; flex: none; color: #5F6B7A">${esc(label)}</span>`
@@ -279,8 +327,10 @@ const DebitNoteV4 = (() => {
     `<div${line.bold ? ` style="${SEC}"` : ''}${index === 0 ? ' data-lab' : ''}>${esc(line.text)}</div>`).join('')}</div><div>${body}</div></div>`;
   const placeText = (doc, place) => {
     if (!doc.showPlaceCn) return esc(place.text);
-    const scale = columnLayout(doc).scale;
-    return `<span style="white-space: nowrap${scale < 1 ? `; font-size: ${Math.round(120 * scale) / 10}px` : ''}">${esc(placeLine(place))}</span>`;
+    const { scale, zoom, stack } = columnLayout(doc);
+    // Bậc cuối của DEBIT-NOTE-04: tên Trung xuống dòng dưới tên Latin thay vì thu nhỏ thêm.
+    if (stack) return [place.text, place.cn].filter(Boolean).map(text => `<span style="display: block">${esc(text)}</span>`).join('');
+    return `<span style="white-space: nowrap${scale < 1 ? `; font-size: ${Math.round(120 * scale * zoom) / 10}px` : ''}">${esc(placeLine(place))}</span>`;
   };
 
   function letterhead(doc, compact) {
@@ -310,10 +360,15 @@ const DebitNoteV4 = (() => {
   }
 
   function table(doc, rows, withTotal) {
-    const grid = gridOf(doc);
-    const head = `<div data-reftop style="display: grid; grid-template-columns: ${grid}; align-items: end; padding: 6px 8px 6px 0; background: #E6EBF2; font-size: 11px; line-height: 16px; color: #14304F">`
-      + [...TEXT_COLUMNS.map(([en, cn, , style]) => [en, cn, style]), ...doc.columns.map(column => [column.en, column.cn, NUM]), ['Amount', '金额', NUM]]
-        .map(([en, cn, style]) => `<span style="${style}"><span style="display: block; font-weight: 700; white-space: nowrap">${esc(en)}</span><span style="display: block">${esc(cn)}</span></span>`).join('')
+    const grid = gridOf(doc), { zoom, compact } = columnLayout(doc);
+    // Chữ cả bảng thu nhỏ đều theo zoom (bậc 3 của DEBIT-NOTE-04); zoom 1 thì không ghi cỡ chữ, bảng in như cũ.
+    const px = value => `${Math.round(value * zoom * 100) / 100}px`;
+    const size = zoom < 1 ? `; font-size: ${px(12)}; line-height: ${px(18)}` : '';
+    const head = `<div data-reftop style="display: grid; grid-template-columns: ${grid}; align-items: end; padding: 6px 8px 6px 0; background: #E6EBF2; font-size: ${px(11)}; line-height: ${px(16)}; color: #14304F">`
+      + [...TEXT_COLUMNS.map(([en, cn, , style]) => [en, cn, style]), ...doc.columns.map(column => [column.en, column.cn, NUM, compact]),
+        ['Amount', '金额', NUM]]
+        .map(([en, cn, style, wrap]) => `<span style="${style}"><span style="display: block; font-weight: 700${wrap ? '' : '; white-space: nowrap'}">${esc(en)}</span>`
+          + `<span style="display: block">${esc(cn)}</span></span>`).join('')
       + '</div>';
     const line = (row, last) => {
       const border = last ? '' : '; border-bottom: 1px solid #B8C0CB';
@@ -330,7 +385,7 @@ const DebitNoteV4 = (() => {
         + `<span style="grid-column: 1 / ${TEXT_COLUMNS.length + 1}">Total, ${doc.total.count} container${doc.total.count === 1 ? '' : 's'}<span style="font-weight: 400"> · 合计</span></span>`
         + `${doc.columns.map(column => moneySpan(doc.total.cells[column.code])).join('')}${moneySpan(doc.total.amount, '; color: #14304F')}</div>`
       : '';
-    return `<div data-blk="TABLE" style="flex: none; padding: 0 40px; margin-top: 0.00px; margin-bottom: 0.00px">${head}${body}${total}</div>`;
+    return `<div data-blk="TABLE" style="flex: none; padding: 0 40px; margin-top: 0.00px; margin-bottom: 0.00px${size}">${head}${body}${total}</div>`;
   }
 
   function bottom(doc) {

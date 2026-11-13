@@ -53,8 +53,8 @@ test('Debit note v4: bảng có gì xuất nấy — chuyến chưa có giá kh�
   assert.equal(await dialog.locator('.debit-status').innerText(), '3 container · 143.000.000 đ · 1 chuyến chưa có giá');
   const row = await view.locator('[data-row]', { hasText: 'OLDU0000001' }).innerText();
   assert.doesNotMatch(row, /\d{1,3}(,\d{3})+/);   // Unit price và Amount trống, không in 0
-  assert.match(row, /Noi D\n–$/);                  // chỉ còn ô Other fees "–" (không có phí)
-  assert.match(await view.locator('[data-total]').innerText(), /140,000,000\s+3,000,000\s+143,000,000/);
+  assert.match(row, /Noi D(\n–){8}$/);             // bảy cột phí luôn in (DEBIT-NOTE-04) + Other fees, đều "–" (không có phí)
+  assert.match(await view.locator('[data-total]').innerText(), /140,000,000(\s+–){7}\s+3,000,000\s+143,000,000/);
   assert.match(await view.locator('[data-blk="INFO"]').innerText(), /HTH-2609-001[\s\S]*\[Issue date\]/);   // số theo gợi ý, ngày chưa chốt
   assert.equal(await dialog.locator('.dn4-month').inputValue(), '2026-09');
 
@@ -81,8 +81,9 @@ test('Debit note v4: đủ giá; In PDF dựng trang A4 ngang; ACCOUNT STATUS t�
   await view.locator('[data-page]').first().waitFor();
   assert.equal(await dialog.locator('.debit-status').innerText(), '3 container · 183.000.000 đ');
   const head = await view.locator('[data-reftop] > span > span:first-child').allInnerTexts();
-  assert.deepEqual(head, ['No.', 'Container no.', 'Line', 'Shipper', 'Loading date', 'Loading place', 'POD', 'Unit price', 'Other fees', 'Amount']);
-  assert.match(await view.locator('[data-total]').innerText(), /Total, 3 containers · 合计\s+180,000,000\s+3,000,000\s+183,000,000/);
+  assert.deepEqual(head, ['No.', 'Container no.', 'Line', 'Shipper', 'Loading date', 'Loading place', 'POD', 'Unit price', 'Storage', 'Trucking',
+    'Generator / electricity fee', 'Overstay', 'HC fee', 'Cancellation fee', 'AMD fee', 'Other fees', 'Amount']);
+  assert.match(await view.locator('[data-total]').innerText(), /Total, 3 containers · 合计\s+180,000,000(\s+–){7}\s+3,000,000\s+183,000,000/);
   assert.equal(await dialog.locator('[name="accountStatus"]').isChecked(), false);
   assert.doesNotMatch(await view.locator('[data-blk="BOTTOM"]').innerText(), /ACCOUNT STATUS/);
   await dialog.locator('[name="accountStatus"]').check();
