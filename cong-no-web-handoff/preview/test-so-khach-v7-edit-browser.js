@@ -152,13 +152,15 @@ test('đổi ngày sang tháng khác: hỏi lại trước khi chuyển; Chuyể
   assert.equal(await page.locator('.ghost, tr.moved').count(), 0);
 }, world => { world.locks.push({ month: '2026-08-01', locked: false }); }));
 
-test('lỗi server hiện tại ô và giữ ô nhập', async () => withPage(async ({ page, world }) => {
+// NHAP-NHANH-01: ô đã hiện ngay và lệnh ghi nền; máy chủ từ chối thì sổ đọc lại (ô về số cũ) và tin báo nói ô nào chưa lưu.
+test('lỗi server: ô về số cũ, tin báo nói ô nào chưa lưu và vì sao', async () => withPage(async ({ page, world }) => {
   world.failNext = { error: 'INVALID_TRIP_INPUT', message: 'Thiếu thông tin chuyến.' };
   await tripCell(page, 'container').click();
   await page.locator('.info-input').fill('');
   await page.keyboard.press('Enter');
-  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-field="container"] .cell-error')?.textContent === 'Thiếu thông tin chuyến.');
-  assert.equal(await page.locator('.info-input').count(), 1);
+  await page.waitForFunction(() => /Chưa lưu ô .*chuyến DEMU1234567: Thiếu thông tin chuyến\./.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-field="container"]')?.textContent === 'DEMU1234567');
+  assert.equal(await page.locator('.info-input').count(), 0);
 }));
 
 test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng điều chỉnh sổ gốc cộng phần chênh của tháng', async () => withPage(async ({ page, world, shot }) => {

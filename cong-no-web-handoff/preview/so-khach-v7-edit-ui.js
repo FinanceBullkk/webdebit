@@ -34,6 +34,21 @@
       ? (ctx.snapshot?.trips ?? []).find(row => String(row.id) === id)
       : (ctx.snapshot?.legacy_rows ?? []).find(row => String(row.id) === id);
     const rowValues = (kind, row) => kind === 'trip' ? row : row?.current ?? {};
+    // ---- NHAP-NHANH-01 (specs/nhap-nhanh-01.md): gõ xong hiện ngay như Sheet, lệnh ghi nền theo hàng đợi (api.quick) ----
+    // Ô vừa lưu đổi chữ tại chỗ (ô tiền: Thành tiền của dòng hiện "…" tới khi máy chủ tính); bản vá vẽ cả sổ khi rảnh.
+    // Hàng đợi từ chối (đang ghi giá đã dán, lệnh trước chưa rõ kết quả…): báo như lệnh thường (băng đầu sổ vẽ lại) rồi ném tiếp.
+    const quickSave = (action, fields, label) => {
+      try { return api.quick(action, fields, { patch: data => model.patchLedger(data, action, fields), label }); }
+      catch (error) { showNotice(error.message); throw error; }
+    };
+    const shownValue = (field, value) => (value === null || value === undefined ? ''
+      : field === 'event_date' ? dateText(value) : field.endsWith('_vnd') ? fmt(value) : String(value));
+    function savedInPlace(cell, text, money = cell.dataset?.field?.endsWith('_vnd')) {
+      cell.textContent = text;
+      cell.classList.add('is-saving');
+      const amount = money ? cell.closest('tr[data-row]')?.lastElementChild : null;
+      if (amount && !amount.contains(cell)) { amount.textContent = '…'; amount.classList.add('is-saving'); }
+    }
     function startValue(kind, id, field) {
       const value = rowValues(kind, findRow(kind, id))[field];
       if (value === null || value === undefined) return '';
@@ -73,6 +88,24 @@
         try { value = model.parseCellEdit(field, input.value, todayIso()); } catch (error) { box.textContent = error.message; return; }
         const before = findRow(kind, id);
         if (field === 'event_date' && !confirmedMove && before && monthKey(value) !== monthKey(before.month)) { askMove(value, before); return; }
+        // NHAP-NHANH-01: cùng tháng thì ô hiện ngay, lệnh ghi nền; chuyển tháng (đã hỏi) vẫn chờ máy chủ để dời dòng.
+        if (!confirmedMove) {
+          const action = kind === 'trip' ? 'tripInfo' : 'legacyEdit';
+          const fields = kind === 'trip' ? { trip_id: Number(id), field, value } : { legacy_row_id: Number(id), field, value };
+          const what = rowValues(kind, before).container || 'phí lẻ';
+          let done;
+          try { done = quickSave(action, fields, `ô ${fieldNames[field]} của ${kind === 'trip' ? 'chuyến' : 'dòng'} ${what}`); }
+          catch (error) { box.textContent = error.message; return; }
+          state = 'done';
+          savedInPlace(td, shownValue(field, value));
+          if (down) goDown(td);
+          // Máy chủ đổi chuyến thành CHỜ KIỂM (trùng container…): báo khi lệnh đã ghi.
+          done.then(outcome => {
+            if (outcome?.status === 'saved' && outcome.result?.pending_review && before?.status !== 'pending_review')
+              showNotice(`Đã lưu. Chuyến thành CHỜ KIỂM, chưa tính vào số dư — ${reviewReasonText[outcome.result.reason] ?? 'nghi trùng'}.`);
+          });
+          return;
+        }
         const oldIso = rowValues(kind, before).event_date;
         state = 'saving';
         const result = kind === 'trip'
@@ -134,6 +167,20 @@
     }
     async function confirmDelete(promptRow) {
       const { kind, id } = promptRow.dataset;
+      // NHAP-NHANH-01: xóa chuyến/dòng sổ gốc thì dòng biến mất ngay, lệnh xóa ghi nền; lệnh bị từ chối thì sổ đọc lại, dòng về.
+      if (kind === 'trip' || kind === 'legacy') {
+        const action = kind === 'trip' ? 'tripDelete' : 'legacyDelete';
+        const fields = kind === 'trip' ? { trip_id: Number(id) } : { legacy_row_id: Number(id) };
+        const what = rowValues(kind, findRow(kind, id)).container || 'phí lẻ';
+        try { quickSave(action, fields, `lệnh xóa ${kind === 'trip' ? 'chuyến' : 'dòng'} ${what}`); }
+        catch (error) { promptRow.querySelector('.delete-error').textContent = error.message; return; }
+        const row = promptRow.previousElementSibling;
+        const below = row ? (stepRow(row.querySelector('td'), 1) ?? stepRow(row.querySelector('td'), -1)) : null;
+        promptRow.remove();
+        if (row?.matches?.('tr[data-row]')) row.remove();
+        if (!below) root.querySelector('table.trip-list')?.focus?.();
+        return;
+      }
       const result = kind === 'trip'
         ? await submit('tripDelete', { trip_id: Number(id) })
         : kind === 'adjustment'
@@ -210,6 +257,19 @@
             state = 'done';
             if (leaving) setTimeout(() => { if (editable.contains(input)) editable.innerHTML = original; });
             else { editable.innerHTML = original; if (down) goDown(editable); }
+            return;
+          }
+          if (!locked) {
+            // NHAP-NHANH-01: tháng mở — giá hiện ngay, lệnh ghi nền.
+            let value;
+            try { value = moneyText(input.value, true); } catch (error) { editable.querySelector('.cell-error').textContent = error.message; return; }
+            try {
+              quickSave('price', { trip_id: trip.id, unit_price_vnd: field === 'unit_price_vnd' ? value : trip.unit_price_vnd,
+                other_fee_vnd: field === 'other_fee_vnd' ? value : trip.other_fee_vnd }, `Đơn giá chuyến ${trip.container || 'phí lẻ'}`);
+              state = 'done';
+              savedInPlace(editable, value === null ? '' : fmt(value), true);
+            } catch (error) { editable.querySelector('.cell-error').textContent = error.message; return; }
+            if (down) goDown(editable);
             return;
           }
           state = 'saving';

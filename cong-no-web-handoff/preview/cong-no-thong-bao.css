@@ -39,6 +39,12 @@
 .book-status-row span{flex:1;min-width:0}
 .book-status-row.is-error{border-color:#ebb7b4;background:#fdecea;color:#8a1f1f}
 .book-status-row.is-error svg{color:#c8322f}
+/* NHAP-NHANH-01: "Đang lưu…" nổi ở góc phải dưới (tin thao tác ở góc trái), không đẩy bảng xuống mỗi lần gõ. */
+.book-status-row.is-saving{position:fixed;right:20px;bottom:20px;z-index:95;min-height:0;padding:6px 12px;border-color:#c9d6e8;border-left-width:1px;
+  border-radius:999px;background:#f3f7fc;color:#33506f;font-size:14px;box-shadow:0 2px 8px #0002;pointer-events:none}
+.book-status-row.is-saving svg{display:none}
+/* Ô vừa gõ còn ghi nền; Thành tiền "…" chờ máy chủ tính. */
+td.is-saving,.info-edit.is-saving{color:#5b6b7d}
 .book-status-row .retry-command{flex:none;min-height:34px;padding:0 14px;border:1px solid #a01616;border-radius:6px;background:#fff;color:#8a1414;
   font:inherit;font-weight:700;cursor:pointer}
 .book-status-row .retry-command:hover{background:#fff5f5}
