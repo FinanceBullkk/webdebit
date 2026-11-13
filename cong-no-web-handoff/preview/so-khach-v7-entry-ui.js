@@ -121,16 +121,25 @@
   // lệnh này; phiếu sửa lại hay phiếu mới không gửi khi lệnh còn chờ (gửi thì sổ từ chối, Thử lại sẽ ghi phiếu cũ mà báo phiếu
   // mới). Lệnh đã có kết quả ở chỗ khác (Thử lại ở đầu sổ) thì không gửi lại (khóa mới là hai phiếu): đóng khung, báo kiểm danh sách.
   let own = null;   // { key, sent }
+  let retrying = false;
   const ownWaiting = 'Phiếu vừa gửi chưa rõ đã lưu chưa. Bấm Thử lại (phiếu không bị ghi hai lần) trước khi sửa hay ghi phiếu khác. <button type="button" class="entry-retry">Thử lại</button>';
   // Phiếu chưa rõ đã có kết quả ở chỗ khác (Thử lại ở đầu sổ): hỏi đúng kết quả của khóa lệnh đó. Đã lưu thì như ghi xong (ảnh
   // nháp đính vào đúng phiếu đó, băng kết quả); bị từ chối thì nói rõ, giữ phiếu để xem lại rồi ghi lại. Không gửi lại tự động.
   async function resolveOwn() {
+    // Lệnh khác đang chạy hay chưa rõ: chưa xử lý (đính ảnh nháp vào phiếu lúc này sẽ bị từ chối mà nháp đã xóa).
+    if (api.hasPending()) { $('.entry-error').textContent = 'Đang có thao tác khác chưa xong. Chờ xong (hay bấm Thử lại ở đầu sổ) rồi bấm lại.'; return false; }
     const result = api.outcomeOf(own.key), sent = own.sent;
     own = null;
     if (result?.status === 'saved') { await done(sent, result.result); return true; }
-    $('.entry-error').textContent = result?.status === 'stale' ? 'Phiếu vừa gửi không ghi được vì sổ vừa thay đổi. Xem lại số rồi bấm Ghi phiếu.'
-      : result?.status === 'error' ? `Phiếu vừa gửi không ghi được: ${result.result?.message || 'server từ chối'}. Xem lại rồi bấm Ghi phiếu.`
-        : 'Chưa biết kết quả phiếu vừa gửi. Kiểm tra danh sách phiếu thu trước khi ghi lại.';
+    if (!result) {
+      // Không còn biết kết quả: xóa phiếu khỏi khung để không gửi lại bằng một cú bấm (gửi lại là khóa mới, có thể thành hai phiếu).
+      resetForm();
+      $('.receipt-date-error').textContent = 'Chưa biết kết quả phiếu vừa gửi. Kiểm tra danh sách phiếu thu; chưa có thì nhập lại.';
+      return false;
+    }
+    if (result.status === 'stale') paintReview();
+    $('.entry-error').textContent = result.status === 'stale' ? 'Phiếu vừa gửi không ghi được vì sổ vừa thay đổi. Xem lại số rồi bấm Ghi phiếu.'
+      : `Phiếu vừa gửi không ghi được: ${result.result?.message || 'server từ chối'}. Xem lại rồi bấm Ghi phiếu.`;
     return false;
   }
   async function save() {
@@ -246,11 +255,12 @@
       else if (button.matches('.receipt-save')) await save();
       else if (button.matches('.entry-retry')) {
         // Lệnh đang chờ không còn là phiếu của khung (đã xong ở đầu sổ, hay là lệnh khác): không chạy lệnh đó từ đây.
-        if (!own) return;
+        if (!own || retrying) return;
         if (api.pendingKey() !== own.key) { await resolveOwn(); return; }
-        button.disabled = true;
-        await api.retry();
-        await settle(own?.sent ?? review, undefined);
+        retrying = true;
+        const sent = own.sent;
+        for (const node of drawer.querySelectorAll('.entry-retry')) node.disabled = true;
+        try { await api.retry(); await settle(sent, undefined); } finally { retrying = false; }
       }
     });
     drawer.addEventListener('keydown', async event => {
@@ -259,6 +269,10 @@
       if (event.key === 'Escape') {
         if (drawer.querySelector('.offset-picker')) return;   // Esc đóng danh sách chọn sổ trước (offset-ui)
         event.preventDefault();
+        if (step === 'review' && own) {   // như nút Sửa lại: phiếu chưa rõ không về bước nhập
+          if (api.pendingKey() !== own.key) await resolveOwn(); else $('.entry-error').innerHTML = ownWaiting;
+          return;
+        }
         if (step === 'review') { review = null; showStep('form'); $('.receipt-amount').focus(); } else close();
         return;
       }

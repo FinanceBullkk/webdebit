@@ -64,3 +64,20 @@ test('Thử lại ở khung bị từ chối (sổ vừa đổi): nói rõ chưa
   await page.locator('.saved-strip').waitFor();
   assert.equal(world.receipts.length, 1);
 }));
+
+test('phiếu chưa rõ: Esc ở bước xem lại không về bước nhập; bấm Thử lại hai lần không lỗi, đúng một phiếu', async () => withPage(async ({ page, world }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await unknownReceipt(page, '2000');
+  await drawer(page).locator('.receipt-save').focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await drawer(page).locator('.entry-review').isVisible(), true, 'Esc không về bước nhập khi phiếu còn chờ');
+  assert.match(await drawer(page).locator('.entry-error').innerText(), /trước khi sửa/);
+  await page.route('**/api/v7/receipts', async route => { await new Promise(resolve => setTimeout(resolve, 300)); return route.continue(); });
+  await drawer(page).locator('.entry-retry').first().click();
+  await drawer(page).locator('.receipt-save').evaluate(node => node.click()).catch(() => {});
+  await drawer(page).locator('.entry-retry').first().evaluate(node => node.click()).catch(() => {});
+  await page.locator('.saved-strip').waitFor();
+  assert.equal(world.receipts.length, 1);
+  assert.deepEqual(errors, []);
+}));

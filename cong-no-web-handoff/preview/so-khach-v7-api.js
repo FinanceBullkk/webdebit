@@ -195,7 +195,7 @@
     // Kết quả cuối theo khóa lệnh (lưu, sổ đổi, lỗi): phần giao diện hỏi đúng lệnh của mình (khung Ghi phiếu thu với phiếu
     // "chưa rõ" đã Thử lại ở đầu sổ), không dựa vào kết quả dùng chung của lệnh gần nhất.
     const settled = new Map();
-    const remember = (key, value) => { settled.set(key, value); if (settled.size > 50) settled.delete(settled.keys().next().value); return value; };
+    const remember = (key, value) => { settled.set(key, value); if (settled.size > 500) settled.delete(settled.keys().next().value); return value; };
     async function send() {
       const sentKey = pending.body.idempotency_key;
       try {
