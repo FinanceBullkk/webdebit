@@ -11,7 +11,7 @@ const B = { origin: 'KHO MẪU B - TRẠI ĐÓNG HÀNG SỐ 14 TÊN DÀI', desti
 const trip = (id, date, extra = {}) => ({ id, container: `MAUU${String(id).padStart(7, '0')}`, event_date: date, status: 'confirmed', unit_price_vnd: null,
   other_fee_vnd: null, editable: true, shipper: 'SHIP MẪU', ...A, ...extra });
 function makeWorld() {
-  return { version: 7, total: '679000000', keys: new Map(), trips: [
+  return { version: 7, total: '679000000', keys: new Map(), results: new Map(), applied: [], trips: [
     trip(100, '2026-10-28', { unit_price_vnd: '45000000' }),   // đã có giá: "giá gần nhất" của tuyến A · SHIP MẪU
     trip(101, '2026-10-20', { unit_price_vnd: '44000000' }),
     trip(1, '2026-11-02'), trip(2, '2026-11-03'), trip(3, '2026-11-04', { other_fee_vnd: '500000' }), trip(4, '2026-11-05'),
@@ -21,6 +21,7 @@ function makeWorld() {
     trip(8, '2026-10-30', { editable: false }),                // tháng khóa: không vào hàng tuyến
     trip(9, '2026-11-07', { origin: null }),                    // thiếu nơi đi: không gom
     trip(10, '2026-11-08', { shipper: 'TT MẪU' }), trip(11, '2026-11-09', { shipper: 'TT MẪU' }),
+    trip(12, '2026-11-05', { container: null, other_fee_vnd: '300000' }),   // dòng phí lẻ: đã tính nợ bằng phụ phí, không phải chưa giá
   ] };
 }
 const ledgerOf = world => ({ version: world.version, total_outstanding_vnd: world.total, trips: world.trips, sheet_sync: { items: [], removed_items: [] }, sheet_prices: { ready: [], review: [] } });
@@ -42,12 +43,16 @@ function serverFor(world, opts = {}) {
         opts.posted?.push({ route, body });
         const forced = opts.post?.(route, body, opts.posted.length);
         if (forced) return send(forced.status, forced.json);
+        // Như _begin_command: khóa đã chạy thì trả lại kết quả đã lưu, không kiểm phiên bản, không ghi lại.
+        if (world.results.has(body.idempotency_key)) return send(200, world.results.get(body.idempotency_key));
         if (body.expected_version !== world.version) return send(409, { error: 'STALE_LEDGER', message: 'Sổ vừa thay đổi. Kiểm tra dữ liệu mới rồi thực hiện lại.' });
         if (route === '/api/v7/trips/price') {
           const row = world.trips.find(t => t.id === body.trip_id);
           world.keys.set(body.idempotency_key, { row, before: { unit_price_vnd: row.unit_price_vnd, other_fee_vnd: row.other_fee_vnd } });
           Object.assign(row, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd });
           world.version += 1;
+          world.applied.push(body.trip_id);
+          world.results.set(body.idempotency_key, { version: world.version });
           return send(200, { version: world.version });
         }
         if (route === '/api/v7/sheet/batch/undo') {
@@ -64,7 +69,7 @@ function serverFor(world, opts = {}) {
     if (route === '/api/v7/dashboard') return send(200, dashboard);
     if (route === '/api/v7/dashboard/debt') return send(200, { customers: [] });
     if (route === '/api/v7/customers') return send(200, { customers });
-    if (route === '/api/v7/price-table/status') return send(200, { trips: [] });
+    if (route === '/api/v7/price-table/status') return send(200, opts.priceStatus ?? { trips: [] });
     if (route === '/api/v7/ledger') return send(200, ledgerOf(world));
     if (route.startsWith('/api/')) return send(404, {});
     const file = path.join(__dirname, path.basename(route));
@@ -211,6 +216,84 @@ if (process.argv.includes('--preview')) {
       await page.locator('[data-undo-batch]').waitFor();
       assert.deepEqual(posted[1].body, lost[0]);
       assert.deepEqual(posted.map(p => p.body.trip_id), [1, 2, 3, 4]);
+    });
+  });
+
+  test('mất phản hồi sau khi server đã ghi: Thử lại nhận lại kết quả cũ, mỗi chuyến chỉ ghi một lần', async () => {
+    const posted = [];
+    await withPage({ posted }, async (page, world) => {
+      let dropped = false;
+      await page.route('**/api/v7/trips/price', async route => {
+        if (!dropped && route.request().postDataJSON().trip_id === 2) { dropped = true; await route.fetch(); return route.abort(); }
+        return route.continue();
+      });
+      await groupInput(page).fill('45');
+      await groupButton(page).click();
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.locator('.pending-action [role=alert]').waitFor();
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.locator('[data-undo-batch]').waitFor();
+      assert.deepEqual(posted.map(p => p.body.trip_id), [1, 2, 2, 3, 4], 'lệnh chuyến 2 gửi lại đúng một lần');
+      assert.deepEqual(posted[2].body, posted[1].body);
+      assert.deepEqual(world.applied, [1, 2, 3, 4], 'server chỉ ghi mỗi chuyến một lần');
+      assert.deepEqual(posted.slice(3).map(p => p.body.expected_version), [9, 10]);
+      assert.equal(world.version, 11);
+    });
+  });
+
+  test('đang xem lại: ô giá của tuyến khóa, số trên dòng xem lại là số được ghi; Thôi mở lại', async () => {
+    const posted = [];
+    await withPage({ posted }, async page => {
+      await groupInput(page).fill('45');
+      await groupButton(page).click();
+      await page.locator('.pending-action').waitFor();
+      for (const id of [1, 2, 3, 4]) assert.equal(await page.locator(`[data-manual-price="${id}"]`).isDisabled(), true);
+      assert.equal(await page.locator('[data-manual-price="5"]').isDisabled(), false, 'tuyến khác không bị khóa');
+      await page.locator('.pending-action [data-action-cancel]').click();
+      await page.waitForFunction(() => !document.querySelector('.pending-action'));
+      assert.equal(await page.locator('[data-manual-price="2"]').isDisabled(), false);
+      await page.locator('[data-manual-price="2"]').fill('47');
+      await groupButton(page).click();
+      assert.match(await page.locator('.pending-action').innerText(), /3 chuyến 45 tr · 1 chuyến 47 tr/);
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.locator('[data-undo-batch]').waitFor();
+      assert.deepEqual(posted.map(p => p.body.unit_price_vnd), ['45000000', '47000000', '45000000', '45000000']);
+    });
+  });
+
+  test('dòng phí lẻ không vào tuyến; ô sai viền đỏ; xóa ô tuyến thì ô chuyến trống cả sau khi vẽ lại', async () => {
+    const priceStatus = { trips: [5, 6].map(trip_id => ({ trip_id, ready: true, lookup: { unit_price_vnd: '30000000' } })) };
+    const keyB = JSON.stringify([B.origin, B.destination, 'SHIP MẪU']);
+    await withPage({ priceStatus }, async page => {
+      assert.equal(await page.locator('[data-manual-price="12"]').count(), 0);
+      assert.equal(await groupInput(page, keyB).inputValue(), '30', 'bảng giá gợi ý cùng một giá thì điền sẵn ô tuyến');
+      await page.locator('[data-manual-price="3"]').fill('4x');
+      assert.equal(await page.locator('[data-manual-price="3"]').getAttribute('aria-invalid'), 'true');
+      await page.locator('[data-manual-price="3"]').fill('45');
+      assert.equal(await page.locator('[data-manual-price="3"]').getAttribute('aria-invalid'), null);
+      await groupInput(page, keyB).fill('');
+      assert.deepEqual([await page.locator('[data-manual-price="5"]').inputValue(), await page.locator('[data-manual-price="6"]').inputValue()], ['', '']);
+      await page.locator('[data-tab="lech"]').click(); await page.locator('[data-tab="don"]').click();
+      await page.locator('[data-manual-price="5"]').waitFor();
+      assert.deepEqual([await page.locator('[data-manual-price="5"]').inputValue(), await page.locator('[data-manual-price="6"]').inputValue()], ['', '']);
+      assert.equal(await groupButton(page, keyB).isDisabled(), true);
+    });
+  });
+
+  test('ghi xong một phần tuyến: chuyến còn lại lại theo ô tuyến ở lần gõ sau', async () => {
+    const posted = [];
+    await withPage({ posted }, async page => {
+      await groupInput(page).fill('45');
+      await page.locator('[data-manual-price="3"]').fill('');
+      await page.locator('[data-manual-price="4"]').fill('');
+      await groupButton(page).click();
+      await page.locator('.pending-action [data-action-write]').click();
+      await page.locator('[data-undo-batch]').waitFor();
+      assert.deepEqual(posted.map(p => p.body.trip_id), [1, 2]);
+      await page.waitForFunction(() => !document.querySelector('[data-manual-price="1"]'));
+      await groupInput(page).fill('46');
+      assert.deepEqual([await page.locator('[data-manual-price="3"]').inputValue(), await page.locator('[data-manual-price="4"]').inputValue()], ['46', '46']);
+      assert.equal(await groupButton(page).innerText(), 'Ghi giá 2 chuyến');
     });
   });
 

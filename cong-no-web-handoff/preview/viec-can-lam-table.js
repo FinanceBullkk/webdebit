@@ -33,8 +33,12 @@ globalThis.InboxTable = (() => {
     const n = BigInt(value), fraction = (n % 1000000n).toString().padStart(6, '0').replace(/0+$/, '');
     return `${n / 1000000n}${fraction ? ',' + fraction : ''}`;
   }
+  // Chuyến chưa giá theo server (`is_missing_price`: chưa đơn giá và không phải dòng phí lẻ không container). Bản thiếu trường đó
+  // thì tính theo cùng luật. Dòng phí lẻ đã tính nợ bằng phụ phí: ghi đơn giá vào đó là cộng nợ sai.
+  const isMissing = r => r.status === 'confirmed' && r.unit_price_vnd == null
+    && (typeof r.is_missing_price === 'boolean' ? r.is_missing_price : !(r.other_fee_vnd != null && !r.container));
   // GIA-TUYEN-01: chuyến chưa giá sửa được, gom theo nơi đi → nơi đến + shipper (bảng giá tách giá TT theo shipper, BANG-GIA-01).
-  // Chuyến thiếu nơi đi hoặc nơi đến không gom. `last`: giá của chuyến đã có giá cùng khóa, ngày chuyến gần nhất; chỉ để gợi ý.
+  // Chuyến thiếu container, nơi đi hoặc nơi đến không gom. `last`: giá của chuyến đã có giá cùng khóa, ngày chuyến gần nhất; chỉ để gợi ý.
   function priceGroups(ledger) {
     const trips = ledger?.trips ?? [];
     const key = r => (r.origin && r.destination ? JSON.stringify([r.origin, r.destination, r.shipper ?? '']) : null);
@@ -48,7 +52,7 @@ globalThis.InboxTable = (() => {
     const groups = new Map();
     for (const r of trips) {
       const k = key(r);
-      if (!k || r.unit_price_vnd != null || r.status !== 'confirmed' || r.editable !== true) continue;
+      if (!k || !r.container || !isMissing(r) || r.editable !== true) continue;
       if (!groups.has(k)) groups.set(k, { key: k, origin: r.origin, destination: r.destination, shipper: r.shipper ?? '', trips: [], last: last.get(k) ?? null });
       groups.get(k).trips.push(r);
     }
@@ -183,7 +187,7 @@ globalThis.InboxTable = (() => {
         `${last}<input class="inline-price" inputmode="decimal" aria-label="Đơn giá triệu đồng cho cả tuyến ${esc(g.label)}" data-group-price="${esc(g.key)}" data-suggested-price="${common}" placeholder="giá, tr">${btn('Ghi giá', `data-price-group="${esc(g.key)}"`, 'primary group-write')}`,
         `price-group:${g.key}`, { cls: 'price-group', dateText: '' });
     };
-    const missingTrips = (ledger.trips ?? []).filter(r => r.unit_price_vnd == null && r.status === 'confirmed');
+    const missingTrips = (ledger.trips ?? []).filter(isMissing);
     const groups = priceGroups(ledger).filter(g => g.trips.length > 1);
     const grouped = new Set(groups.flatMap(g => g.trips.map(r => r.id)));
     const missing = [...groups.flatMap(g => [groupItem(g), ...g.trips.map(r => tripItem(r, g))]), ...missingTrips.filter(r => !grouped.has(r.id)).map(r => tripItem(r))];

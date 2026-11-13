@@ -185,3 +185,5 @@ svg{flex:none;vertical-align:middle}
 .detail-items li.price-child>b:first-child{padding-left:18px;font-weight:600}
 .detail-actions .btn.group-write{width:auto;min-width:128px;padding:0 12px;white-space:nowrap}
 .detail-actions .btn.group-write:disabled{border-color:#d7dce3;background:#eef1f5;color:#52514e;opacity:1;cursor:default}
+.detail-actions input[aria-invalid="true"]{border-color:#b42318;background:#fdecea}
+.detail-actions input:disabled{background:#eef1f5;color:#52514e}

@@ -24,22 +24,22 @@ Hôm nay mỗi chuyến là một lần gõ giá, một lần bấm "Ghi giá", 
 **Luồng mới:**
 
 1. Mở sổ ở Dọn chi tiết. Nhóm "Chưa giá" ghi "26 chuyến · 9 tuyến".
-2. Tuyến có từ 2 chuyến sửa được trở lên có **một hàng tuyến** đứng đầu: tên tuyến, số chuyến, khoảng ngày, giá lần trước cùng tuyến nếu có ("lần trước 45 tr · 28/10"), một ô giá và nút "Ghi giá n chuyến". Các chuyến của tuyến nằm ngay dưới, mỗi chuyến vẫn có ô giá và nút "Ghi giá" riêng như cũ.
+2. Tuyến có từ 2 chuyến sửa được trở lên có **một hàng tuyến** đứng đầu: số chuyến, tên tuyến (shipper khi cùng tuyến có nhiều shipper), khoảng ngày; ở vùng thao tác là nút giá gần nhất cùng tuyến nếu có ("Giá gần nhất 45 tr · 28/10"), một ô giá và nút "Ghi giá n chuyến". Các chuyến của tuyến nằm ngay dưới, mỗi chuyến vẫn có ô giá và nút "Ghi giá" riêng như cũ.
 3. Gõ giá vào ô của hàng tuyến thì giá đó điền xuống ô của từng chuyến trong tuyến (như kéo giá xuống trên Sheet). Chuyến nào giá khác thì sửa ô của chuyến đó; chuyến nào chưa muốn ghi thì xóa trống ô. Ô chuyến người dùng đã tự sửa thì gõ lại ô tuyến không đè.
-4. Nút "Dùng 45" cạnh giá lần trước điền giá đó vào ô tuyến. Máy không tự điền giá lần trước: người phải bấm.
-5. Bấm "Ghi giá n chuyến" (n = số ô chuyến có giá hợp lệ): hàng tuyến đổi thành dòng xem lại "6 chuyến 45 tr · 1 chuyến 47 tr · nợ 679 → 994,0 tr" kèm "khác lần trước 45 tr" khi có giá khác giá lần trước, và hai nút Xác nhận / Thôi.
+4. Bấm nút giá gần nhất thì giá đó vào ô tuyến (rồi điền xuống như bước 3). Máy không tự điền giá này: người phải bấm. Ô tuyến chỉ điền sẵn khi mọi chuyến của tuyến có cùng giá gợi ý của bảng giá.
+5. Bấm "Ghi giá n chuyến" (n = số ô chuyến có giá hợp lệ): hàng tuyến đổi thành dòng xem lại "3 chuyến 45 tr · 1 chuyến 47 tr · nợ 679 → 861,5 tr" kèm "khác giá gần nhất 45 tr (28/10/2026)" khi có giá khác giá gần nhất, và hai nút Xác nhận / Thôi (tiêu điểm vào Thôi).
 6. Xác nhận: máy ghi lần lượt từng chuyến bằng lệnh ghi giá đang có, lệnh sau dùng phiên bản sổ lệnh trước trả về; xong thì đọc lại sổ một lần. Chuyến đã ghi rời khỏi danh sách.
 
-**Bị chặn:** chuyến tháng khóa (`editable` sai) không vào hàng tuyến, vẫn "Mở trong sổ". Ô có chữ sai định dạng thì báo ngay tại ô, không gửi gì. Nút ghi nhóm tắt khi không có ô hợp lệ.
+**Bị chặn:** chuyến tháng khóa (`editable` sai) không vào hàng tuyến, vẫn "Mở trong sổ". Dòng phí lẻ (không container, có phụ phí) không phải chuyến chưa giá (`is_missing_price` của server) nên không vào nhóm "Chưa giá": ghi đơn giá vào đó là cộng nợ sai. Ô có chữ sai định dạng có viền đỏ và lời nhắc tại ô; nút ghi nhóm tắt khi có ô sai hoặc không có ô hợp lệ. Trong lúc dòng xem lại đang hiện hay đang ghi, ô giá các chuyến của tuyến bị khóa: số trên dòng xem lại là số được ghi; muốn đổi thì bấm Thôi.
 
 ## Đầu ra
 
-Một sổ nhiều chuyến cùng tuyến ghi giá bằng một lần gõ và hai lần bấm cho cả tuyến; chuyến khác giá vẫn sửa riêng được trước khi ghi; người nhìn thấy nợ trước → sau và chỗ khác giá lần trước trước khi ghi.
+Một sổ nhiều chuyến cùng tuyến ghi giá bằng một lần gõ và hai lần bấm cho cả tuyến; chuyến khác giá vẫn sửa riêng được trước khi ghi; người nhìn thấy nợ trước → sau và chỗ khác giá gần nhất trước khi ghi; ghi xong có Hoàn tác cả tuyến.
 
 ## Đối chiếu dữ liệu và code hiện có (bước 2)
 
 - Chi tiết sổ: `GET /api/v7/ledger` → `trips[]` có `id`, `container`, `event_date`, `origin`, `destination`, `status`, `unit_price_vnd`, `other_fee_vnd`, `editable`. Chuyến chưa giá là `unit_price_vnd == null && status == 'confirmed'` (như hiện nay).
-- Giá lần trước: chuyến `confirmed` cùng sổ, cùng `origin` và `destination`, có `unit_price_vnd`, ngày chuyến lớn nhất. Chỉ là chữ gợi ý và nút điền; không phải nguồn giá ([`BANG-GIA-01`](../docs/decisions/bang-gia-01.md) giữ: giá có nguồn là bảng giá, Sheet hoặc người gõ).
+- Giá gần nhất: chuyến `confirmed` cùng sổ, cùng `origin`, `destination` và shipper, có `unit_price_vnd` lớn hơn 0, ngày chuyến lớn nhất (chỉ chuyến web, chưa đọc dòng sổ gốc). Chỉ là chữ gợi ý và nút điền; không phải nguồn giá ([`BANG-GIA-01`](../docs/decisions/bang-gia-01.md) giữ: giá có nguồn là bảng giá, Sheet hoặc người gõ).
 - Giá gợi ý của bảng giá: `/api/v7/price-table/status` như cũ, vẫn điền sẵn ô từng chuyến. Ô tuyến điền sẵn khi mọi chuyến của tuyến có cùng giá gợi ý.
 - Tiền chuyến sau khi có giá: `SoKhachV7Model.tripAmount` (như nút ghi một chuyến).
 - Nhập giá: `InboxTable.parseMillions` (triệu đồng, tối đa sáu số lẻ, BigInt ra nguyên đồng).
@@ -57,9 +57,9 @@ Không thêm API. Mỗi chuyến một lệnh `POST /api/v7/trips/price` `{custo
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `npm run check` xanh.
-- [ ] Browser (fixture, 1280×560): hàng tuyến chỉ hiện khi tuyến có ≥ 2 chuyến sửa được; gõ ô tuyến điền xuống ô chuyến chưa tự sửa; ô đã sửa giữ; xóa trống một ô thì nút ghi đếm bớt; xem lại nêu nợ trước → sau và chỗ khác giá lần trước; xác nhận gửi đúng số lệnh, đúng giá từng chuyến, phiên bản nối tiếp; lỗi giữa chừng dừng và báo k/n; mất mạng thử lại cùng khóa; chuyến tháng khóa không vào nhóm; nút "Dùng" điền giá lần trước.
-- [ ] Xem ảnh render (dữ liệu giả) ở 1280 có thanh cuộn.
+- [x] `npm run check` xanh.
+- [x] Browser (`test-viec-can-lam-gia-tuyen-browser.js`, fixture, 1265×560 = 1280 trừ thanh cuộn): hàng tuyến chỉ hiện khi tuyến có ≥ 2 chuyến sửa được, tách shipper, tên tuyến dài xuống dòng chứ không cắt; gõ ô tuyến điền xuống ô chuyến chưa tự sửa; ô đã sửa giữ; xóa trống một ô thì nút ghi đếm bớt; xóa ô tuyến thì ô chuyến trống cả sau khi vẽ lại; ô sai viền đỏ; xem lại nêu nợ trước → sau và chỗ khác giá gần nhất; đang xem lại thì ô của tuyến khóa; xác nhận gửi đúng số lệnh, đúng giá và phụ phí từng chuyến, phiên bản nối tiếp; Hoàn tác đúng khóa và phiên bản; lỗi giữa chừng dừng và báo k/n; mất mạng (lệnh chưa tới server, hoặc server đã ghi mà mất phản hồi) thử lại cùng khóa, mỗi chuyến ghi một lần; chuyến tháng khóa, dòng phí lẻ không vào nhóm; nút giá gần nhất điền ô tuyến; Enter/Esc.
+- [x] Xem ảnh render (dữ liệu giả) ở 1280 có thanh cuộn, chữ rộng kiểu Linux và 390.
 - [ ] Bước 8: người nhập (hoặc chủ dự án) ghi giá một tuyến thật trên `hao`, kiểm Lịch sử và tổng nợ.
 
 ## Phạm vi agent
@@ -72,4 +72,4 @@ Không thêm API. Mỗi chuyến một lệnh `POST /api/v7/trips/price` `{custo
   - `cong-no-web-handoff/preview/viec-can-lam.css`
   - `cong-no-web-handoff/preview/test-viec-can-lam-gia-tuyen-browser.js`
   - `specs/v7-gia-theo-tuyen.md`
-- Ngân sách diff: 400 dòng
+- Ngân sách diff: 700 dòng (nâng từ 400 sau review: phần lớn là test)

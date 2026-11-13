@@ -92,25 +92,36 @@
   // GIA-TUYEN-01: chuyến người đã tự gõ giá riêng; gõ ở hàng tuyến không đè các ô này.
   const priceTouched = new Set();
   const groupInputs = key => [...inboxRoot.querySelectorAll('[data-manual-price][data-price-route]')].filter(input => input.dataset.priceRoute === key);
+  const groupInput = key => [...inboxRoot.querySelectorAll('[data-group-price]')].find(node => node.dataset.groupPrice === key);
+  // Ô có chữ sai: viền đỏ và lời nhắc ngay tại ô (ô trống là bỏ qua, không phải sai).
+  function markPrice(input) {
+    let ok = true;
+    if (input.value.trim()) try { globalThis.InboxTable.parseMillions(input.value); } catch { ok = false; }
+    if (ok) { input.removeAttribute('aria-invalid'); input.removeAttribute('title'); }
+    else { input.setAttribute('aria-invalid', 'true'); input.title = 'Giá chưa đúng: nhập bằng triệu đồng, ví dụ 45 hoặc 45,5'; }
+    return ok;
+  }
   // Nút "Ghi giá n chuyến": n là số ô chuyến có giá hợp lệ; ô trống bỏ qua, có ô sai thì khóa nút tới khi sửa.
   function setGroupState(key) {
     const button = [...inboxRoot.querySelectorAll('[data-price-group]')].find(node => node.dataset.priceGroup === key);
     if (!button) return;
     let n = 0, bad = false;
     for (const input of groupInputs(key)) {
-      if (!input.value.trim()) continue;
-      try { globalThis.InboxTable.parseMillions(input.value); n += 1; } catch { bad = true; }
+      if (!markPrice(input)) bad = true;
+      else if (input.value.trim()) n += 1;
     }
+    const head = groupInput(key);
+    if (head) markPrice(head);
     button.textContent = n ? `Ghi giá ${n} chuyến` : 'Ghi giá';
     button.disabled = inbox.busy || inbox.stale || bad || !n;
   }
-  function fillGroup(groupInput) {
-    const key = groupInput.dataset.groupPrice, value = groupInput.value;
-    drafts.set(draftKey(groupInput), value);
+  function fillGroup(head) {
+    const key = head.dataset.groupPrice, value = head.value;
+    drafts.set(draftKey(head), value);
     for (const input of groupInputs(key)) {
       if (priceTouched.has(input.dataset.manualPrice)) continue;
       input.value = value;
-      if (value) drafts.set(draftKey(input), value); else drafts.delete(draftKey(input));
+      drafts.set(draftKey(input), value);   // xóa trống ô tuyến thì ô chuyến cũng trống, vẽ lại không hiện lại giá gợi ý
       input.setCustomValidity('');
       setPriceValidity(input);
     }
@@ -152,6 +163,12 @@
     for (const input of inboxRoot.querySelectorAll('[data-manual-price],[data-group-price],[data-reason],[data-receipt-date],[data-commodity],[data-transport],[data-trip-book]')) input.value = drafts.get(draftKey(input)) ?? input.dataset.suggestedPrice ?? '';
     for (const input of inboxRoot.querySelectorAll('[data-manual-price]')) setPriceValidity(input);
     for (const button of inboxRoot.querySelectorAll('[data-price-group]')) setGroupState(button.dataset.priceGroup);
+    // Tuyến đang xem lại hay đang ghi: khóa ô giá các chuyến của tuyến. Số trên dòng xem lại là số sẽ ghi; muốn đổi thì bấm Thôi.
+    if (inbox.action?.priceBatch) for (const input of groupInputs(inbox.action.groupKey)) {
+      input.disabled = true;
+      const own = input.closest('.detail-actions')?.querySelector('[data-command="price"]');
+      if (own) own.disabled = true;
+    }
     for (const input of inboxRoot.querySelectorAll('[data-pick],[data-pick-price]')) input.disabled = inbox.busy || !!inbox.review || !!inbox.action;
     if (inbox.stale) for (const control of inboxRoot.querySelectorAll('button,input,select')) if (!VIEW_ONLY.some(attr => control.hasAttribute(attr))) control.disabled = true;
     if (focusAttr) {
@@ -473,6 +490,7 @@
     const last = group.last, lastDate = last?.date ? ` (${F.dateText(last.date)})` : '';
     const differ = last && [...counts.keys()].some(price => price !== last.price);
     inbox.action = { id: inbox.open, rowKey: `price-group:${key}`, groupKey: key, route: group.label, priceBatch: true, path: '/api/v7/trips/price', count: items.length,
+      groupTrips: group.trips.map(r => String(r.id)),
       before, after, title: `Ghi giá ${items.length} chuyến ${group.label}`,
       text: `${summary}. Còn nợ ${F.full(before)} → ${F.full(after)}.${differ ? ` Giá gần nhất cùng tuyến là ${F.full(last.price)}${lastDate}.` : ''} Mỗi chuyến ghi Lịch sử riêng.`,
       inlineText: `Ghi ${summary} · nợ ${T.million(before)} → ${T.million(after)} tr${differ ? ` · khác giá gần nhất ${T.millionInput(last.price)} tr${lastDate}` : ''}`,
@@ -507,6 +525,8 @@
     }
     const done = a.tasks.filter(t => t.done).length;
     inbox.busy = false; inbox.action = null;
+    // Chuyến còn lại của tuyến (bỏ trống hay chưa kịp ghi) lại theo ô tuyến ở lần gõ sau; giá đã gõ vẫn giữ trong ô.
+    for (const id of a.groupTrips) priceTouched.delete(id);
     if (done === total) {
       drafts.delete(`group:${a.id}:${a.groupKey}`);
       inbox.notice = null;
