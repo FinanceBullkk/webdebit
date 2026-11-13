@@ -17,13 +17,17 @@
 .ledger tr.ps-flash td{animation:ps-flash 1.6s ease-out}
 @keyframes ps-flash{0%,40%{background:#ffd27a}}
 @media (prefers-reduced-motion:reduce){.ledger tr.ps-flash td{animation:none;background:#ffd27a}}
-/* PS-HOI-01: mỗi câu hỏi một khối: PS ghi gì, cont nào, hỏi gì, nút trả lời và cách làm nếu trả lời ngược lại. */
-.ps-intro{margin:0 0 8px;color:#3e5871}
-.ps-ask{margin:0 0 10px;padding:8px 10px;border:1px solid #e3c98f;border-radius:6px;background:#fffdf6}
-.ps-says{margin:0;font-weight:600;color:#3d2a00}.ps-count{font-weight:400;color:#6b5a2f}
-.ps-panel ul.ps-conts{margin:4px 0;max-height:150px;overflow-y:auto}.ps-panel ul.ps-conts li{min-height:30px}
-.ps-q{margin:6px 0 4px}
-.ps-answer{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
-.ps-answer small{color:#475d73;font-size:14px}
-.ps-panel .ps-keep{min-height:34px;padding:2px 12px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
-.ps-panel .ps-keep:disabled{opacity:.6;cursor:default}.ps-panel .ps-keep:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
+/* PS-HOI-01, PS-TAI-HANG-01: câu hỏi nằm ngay dưới hàng chuyến (như "Sheet không còn dòng này"): PS ghi gì, hỏi gì, nút trả
+   lời, cách làm nếu trả lời ngược lại. Khung .ps-review chỉ còn cho dòng PS không gắn được chuyến. */
+.trip-list .ps-ask-row>td{padding:4px 10px 8px 40px;background:#fffbea;border-bottom:1px solid #e3c98f;height:auto}
+.ledger tr.ps-asked>td{border-bottom-color:transparent}
+.ps-ask-line{font-family:"Segoe UI",sans-serif;letter-spacing:normal;font-size:14px;color:#3d2a00}
+.ps-ask-line p{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;margin:0}.ps-ask-line p+p{margin-top:4px}
+.ps-ask-line+.ps-ask-line{margin-top:6px;padding-top:6px;border-top:1px dashed #e3c98f}
+.ps-tag{padding:1px 8px;border-radius:10px;background:#fbe7b5;color:#6b4a00;font-size:13px;font-weight:700;white-space:nowrap}
+.ps-says{font-weight:600}.ps-count{font-weight:400;color:#6b5a2f}
+.ps-q{font-weight:700;color:#1f2d3d}
+.ps-ask-line small{color:#475d73;font-size:13px}
+.ps-ask-line button{min-height:32px;white-space:nowrap}
+.ps-keep{padding:2px 12px;border:1px solid #1e4e8c;border-radius:4px;background:#1e4e8c;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.ps-keep:disabled{opacity:.6;cursor:default}.ps-keep:focus-visible,.ps-unlock:focus-visible{outline:3px solid #145fa9;outline-offset:2px}

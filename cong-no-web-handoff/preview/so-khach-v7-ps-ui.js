@@ -3,11 +3,12 @@
  * cho cả lô. Tách chỉ đổi loại khoản, không đổi tiền. Nạp trước so-khach-v7-ui.js, dùng chung phạm vi qua ctx (hợp đồng: so-khach-v7-ctx.js). */
 (window.SoKhachV7LiveParts ??= {}).ps = ctx => {
   'use strict';
-  const { root, model, api, customerId, escape, dateText, monthKey, monthLabel, showNotice, renderSnapshot, submit } = ctx;
+  const { root, model, api, customerId, escape, spanOf, dateText, monthKey, monthLabel, showNotice, renderSnapshot, submit } = ctx;
   // null | 'confirm' | 'review' | { error }; giữ qua lần vẽ lại. psDone: chuyến vừa tách, tô xanh tới thao tác sau.
   let psView = null;
   let psApproval = null;
   let psDone = new Set();
+  let nextJump = 0;
   const rowKey = item => `${item.target_kind}-${item.target_id}`;
   const linesText = lines => escape(model.feeLinesText(lines, ctx.feeTypeName));
   const what = item => `<span class="ps-cont">${escape(item.container ?? '')}</span> · ${escape(dateText(item.date))}`;
@@ -45,32 +46,47 @@
     }
     if (psView?.error) return `<div class="price-panel err ps-panel" role="alert"><p><strong>Chưa tách chuyến nào.</strong> ${escape(psView.error)}</p><div class="price-actions"><button type="button" class="ps-reload primary">Tải lại sổ</button></div></div>`;
     if (psView !== 'review') return '';
-    const jump = item => item.target_kind && root.querySelector(`[data-row="${CSS.escape(rowKey(item))}"]`)
-      ? `<button type="button" class="ps-jump" data-target="${escape(rowKey(item))}">Xem dòng</button>` : '';
-    const keepButton = (items, label) => `<button type="button" class="ps-keep" data-keys="${escape(items.map(item => item.source_fingerprint + ':' + rowKey(item)).join(' '))}">${escape(label)}</button>`;
-    const review = ps.review ?? [];
-    // Dòng trả lời được, cùng câu (ví dụ cùng một khoản PS chia cho nhiều cont): gom một khối, một nút cho cả nhóm.
+    // Chỉ còn các dòng PS không gắn được chuyến nào trên sổ (ví dụ lỗi của bộ lập bill); dòng có chuyến hỏi ngay ở hàng.
+    const loose = (ps.review ?? []).filter(item => !item.target_kind)
+      .map(item => `<li><div class="what">${what(item)} · ${escape(item.message)}${HINTS[item.status] ? `<small>${HINTS[item.status]}</small>` : ''}</div></li>`).join('');
+    return `<div class="price-panel ps-panel ps-review" role="region" aria-label="Dòng PS không gắn được chuyến"><ul>${loose}</ul></div>`;
+  }
+  // PS-TAI-HANG-01 (13/11/2026): câu hỏi Phụ phí PS nằm ngay dưới hàng chuyến của nó, như duyệt chuyến mới tại hàng
+  // (DUYET-TAI-HANG-01); không còn khung lớn chen giữa đầu sổ và bảng chuyến. Nội dung câu, nút và luật trả lời giữ PS-HOI-01.
+  const keepButton = (items, label) => `<button type="button" class="ps-keep" data-keys="${escape(items.map(item => item.source_fingerprint + ':' + rowKey(item)).join(' '))}">${escape(label)}</button>`;
+  const contList = items => items.length > 3 ? `${items.slice(0, 2).map(item => item.container).join(', ')} và ${items.length - 2} cont khác` : items.map(item => item.container).join(', ');
+  function askLine(item, groups) {
+    const tag = '<span class="ps-tag">Phụ phí PS</span>';
+    if (item.keepable && ASK[item.status]) {
+      const [ask, keep, other] = ASK[item.status];
+      // Cùng một khoản PS chia cho nhiều cont: một nút trả lời cho cả nhóm, nói rõ cont nào đi cùng.
+      const group = groups.get(groupKey(item));
+      const mates = group.filter(entry => entry !== item);
+      return `<div class="ps-ask-line"><p>${tag}<span class="ps-says">${escape(item.message)}${mates.length ? ` <span class="ps-count">(cùng khoản với ${escape(contList(mates))})</span>` : ''}</span></p>`
+        + `<p><strong class="ps-q">${escape(ask)}</strong>${keepButton(group, group.length > 1 ? `${keep} (${group.length} cont)` : keep)}<small>${escape(other)}</small></p></div>`;
+    }
+    const month = monthKey(item.month);
+    const unlock = item.status === 'MONTH_LOCKED' && month
+      ? `<button type="button" class="ps-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button>` : '';
+    return `<div class="ps-ask-line"><p>${tag}<span class="ps-says">${escape(item.message)}</span></p>${HINTS[item.status] || unlock ? `<p>${unlock}${HINTS[item.status] ? `<small>${HINTS[item.status]}</small>` : ''}</p>` : ''}</div>`;
+  }
+  function decorateAsks(review) {
     const groups = new Map();
     for (const item of review.filter(item => item.keepable && ASK[item.status])) {
       if (!groups.has(groupKey(item))) groups.set(groupKey(item), []);
       groups.get(groupKey(item)).push(item);
     }
-    const asked = [...groups.values()].map(items => {
-      const [ask, keep, other] = ASK[items[0].status];
-      const conts = items.map(item => `<li><div class="what">${what(item)}</div>${jump(item)}</li>`).join('');
-      return `<section class="ps-ask"><p class="ps-says">${escape(items[0].message)}${items.length > 1 ? ` <span class="ps-count">· ${items.length} cont</span>` : ''}</p>`
-        + `<ul class="ps-conts">${conts}</ul><p class="ps-q"><strong>${escape(ask)}</strong></p>`
-        + `<div class="ps-answer">${keepButton(items, items.length > 1 ? `${keep} (${items.length} cont)` : keep)}<small>${escape(other)}</small></div></section>`;
-    }).join('');
-    const rest = review.filter(item => !(item.keepable && ASK[item.status])).map(item => {
-      const month = monthKey(item.month);
-      const unlock = item.status === 'MONTH_LOCKED' && month
-        ? `<button type="button" class="ps-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button>` : '';
-      return `<li><div class="what">${what(item)} · ${escape(item.message)}${HINTS[item.status] ? `<small>${HINTS[item.status]}</small>` : ''}</div>${unlock}${jump(item)}</li>`;
-    }).join('');
-    return `<div class="price-panel ps-panel ps-review" role="region" aria-label="Phụ phí PS cần trả lời">`
-      + '<p class="ps-intro">Bảng chi phí PS ghi khác sổ khách. <strong>Tiền trên web chưa đổi.</strong> Trả lời từng câu để hết báo; ô PS hoặc phí của chuyến đổi thì máy hỏi lại.</p>'
-      + asked + (rest ? `<h3>Máy hoặc bạn sửa ở chỗ khác</h3><ul>${rest}</ul>` : '') + '</div>';
+    const byRow = new Map();
+    for (const item of review.filter(item => item.target_kind)) {
+      if (!byRow.has(rowKey(item))) byRow.set(rowKey(item), []);
+      byRow.get(rowKey(item)).push(item);
+    }
+    for (const [key, items] of byRow) {
+      const row = root.querySelector(`[data-row="${CSS.escape(key)}"]`);
+      if (!row) continue;   // tháng khác: hiện khi xem tháng đó
+      row.classList.add('ps-asked');
+      row.insertAdjacentHTML('afterend', `<tr class="ps-ask-row" data-ps-row="${escape(key)}"><td colspan="${spanOf(row)}">${items.map(item => askLine(item, groups)).join('')}</td></tr>`);
+    }
   }
   // Cụm ô phụ phí của một dòng hiện theo danh sách khoản (khi xác nhận: kết quả dự kiến sau khi tách).
   function showLines(row, lines) {
@@ -99,25 +115,36 @@
     const bar = root.querySelector('.book-bar');
     if (!bar) return;
     if (ready.length && psView !== 'confirm') bar.querySelector('.book-tasks')?.insertAdjacentHTML('afterbegin', `<button type="button" class="ps-approve">Tách ${ready.length} phụ phí theo bảng PS</button>`);
-    // Một dải "cần xem" chung với giá từ Sheet (một ô trong thanh việc, SO-GON-06); chưa có dải đó thì tự tạo.
+    decorateAsks(review);
+    // Thanh việc chỉ báo số và nút "Đến dòng" (như "Đến chuyến" của chuyến mới); dòng không gắn chuyến mới cần nút Xem.
     let anchor = bar;
     while (anchor.nextElementSibling?.matches('.price-panel')) anchor = anchor.nextElementSibling;
+    const placed = review.filter(item => item.target_kind).length;
+    const loose = review.length - placed;
+    if (!loose && psView === 'review') psView = null;
     const toggle = ps.unavailable ? '<span class="ps-unavailable">Chưa đọc được bảng PS; nút tách phụ phí tạm ẩn tới lần đọc sau.</span>'
-      : review.length ? `Phụ phí PS cần trả lời: <strong>${review.length}</strong> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '';
-    const strip = toggle && root.querySelector('.price-strip:has(.price-review-toggle)');
-    if (strip) strip.insertAdjacentHTML('beforeend', `<span class="ps-sep">|</span>${toggle}`);
-    else if (toggle) bar.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip ps-strip">${toggle}</div>`);
+      : review.length ? `<span>Phụ phí PS cần trả lời: <strong>${review.length}</strong></span>`
+        + (placed ? `<button type="button" class="ps-next">Đến dòng${placed > 1 ? ' tiếp' : ''}</button>` : '')
+        + (loose ? `<span class="ps-sep">·</span><span>${loose} dòng không gắn chuyến</span> <button type="button" class="ps-review-toggle" aria-expanded="${psView === 'review'}">${psView === 'review' ? 'Đóng' : 'Xem'}</button>` : '') : '';
+    if (toggle) bar.querySelector('.book-tasks')?.insertAdjacentHTML('beforeend', `<div class="price-strip ps-strip">${toggle}</div>`);
     anchor.insertAdjacentHTML('afterend', panel(ps));
   }
   root.addEventListener('click', async event => {
-    const target = event.target.closest('.ps-approve,.ps-cancel,.ps-review-toggle,.ps-reload,.ps-write,.ps-unlock,.ps-jump');
+    const target = event.target.closest('.ps-approve,.ps-cancel,.ps-review-toggle,.ps-reload,.ps-write,.ps-unlock,.ps-next');
     if (!target || target.disabled || !ctx.snapshot) return;
-    if (target.matches('.ps-jump')) {
-      const row = root.querySelector(`[data-row="${CSS.escape(target.dataset.target)}"]`);
-      row?.scrollIntoView({ block: 'center' });
-      row?.classList.remove('ps-flash');
-      void row?.offsetWidth;
-      row?.classList.add('ps-flash');
+    if (target.matches('.ps-next')) {
+      // Lần lượt từng chuyến có câu hỏi: mở đúng tháng, cuộn tới hàng, con trỏ vào nút trả lời.
+      const keys = [...new Map((ctx.snapshot.ps_fees?.review ?? []).filter(item => item.target_kind).map(item => [rowKey(item), item])).values()];
+      if (!keys.length) return;
+      const item = keys[nextJump++ % keys.length];
+      ctx.showMonth(monthKey(item.month));
+      const row = root.querySelector(`[data-row="${CSS.escape(rowKey(item))}"]`);
+      if (!row) { showNotice(`Không thấy chuyến ${item.container ?? ''} trên sổ đang xem.`); return; }
+      row.scrollIntoView({ block: 'center' });
+      row.classList.remove('ps-flash');
+      void row.offsetWidth;
+      row.classList.add('ps-flash');
+      root.querySelector(`tr.ps-ask-row[data-ps-row="${CSS.escape(rowKey(item))}"]`)?.querySelector('button')?.focus({ preventScroll: true });
       return;
     }
     if (target.matches('.ps-approve,.ps-cancel,.ps-review-toggle')) {
