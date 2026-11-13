@@ -269,10 +269,10 @@ def auto_ps(ps: dict[str, Any]) -> list[dict[str, Any]]:
     return [row for row in rows if keeps_notes(row)]
 
 
-def best_columns(ledger: dict, fee_types: list[dict], limit: int = 3) -> list[int] | None:
-    """Own columns after a machine split (MAY-PS-01): the book's largest typed fees, moving as few columns as possible.
+def best_columns(ledger: dict, fee_types: list[dict], top_n: int = 3) -> list[int] | None:
+    """Own columns after a machine split (MAY-PS-01): the book's largest typed fees get a column if they lack one.
 
-    Only columns outside that group are replaced, last first. None when nothing changes.
+    No column limit since COT-PHU-PHI-01, so existing columns are never replaced or reordered. None when nothing changes.
     """
     typed = {t["id"] for t in fee_types if t.get("active") and not t.get("system_key")}
     money: Counter = Counter()
@@ -282,14 +282,7 @@ def best_columns(ledger: dict, fee_types: list[dict], limit: int = 3) -> list[in
         for fee in row.get("fee_lines") or []:
             if fee.get("fee_type_id") in typed:
                 money[fee["fee_type_id"]] += abs(int(fee["amount_vnd"]))
-    top = sorted(money, key=lambda type_id: (-money[type_id], type_id))[:limit]
+    top = sorted(money, key=lambda type_id: (-money[type_id], type_id))[:top_n]
     current = [c["fee_type_id"] for c in sorted(ledger.get("fee_columns") or [], key=lambda c: c.get("position") or 0)]
-    columns = list(current)
-    for type_id in top:
-        if type_id in columns:
-            continue
-        if len(columns) < limit:
-            columns.append(type_id)
-        else:
-            columns[max(i for i, column in enumerate(columns) if column not in top)] = type_id
+    columns = current + [type_id for type_id in top if type_id not in current]
     return None if columns == current else columns

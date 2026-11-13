@@ -176,6 +176,7 @@ body{margin:0;background:#eef3f8;color:#162d48;font:14px/1.35 "Segoe UI",system-
 .fee-types select{height:32px;font:inherit}.fee-types button{min-height:32px;padding:0 10px;border:1px solid #8daac9;border-radius:4px;background:#fff;font:inherit;white-space:nowrap;cursor:pointer}
 .fee-types button:disabled,.fee-types input:disabled{opacity:.5;cursor:not-allowed}
 .fee-types td:nth-child(5){white-space:nowrap}
+.fee-colall{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.fee-colall button{min-height:36px;padding:0 14px;border:1px solid #8daac9;border-radius:4px;background:#fff;color:#173d65;font:inherit;font-weight:600;cursor:pointer}.fee-colall button:disabled{opacity:.5;cursor:not-allowed}
 .fee-colbox{display:flex;align-items:center;gap:6px}.fee-colbox input{width:18px;height:18px}
 .fee-pos{display:inline-block;min-width:22px;padding:0 6px;border-radius:9px;background:#145fa9;color:#fff;font-size:12px;text-align:center}
 .fee-newtype{display:flex;gap:8px;align-items:center;margin-top:12px;padding:10px;border:1px dashed #8daac9;border-radius:6px}

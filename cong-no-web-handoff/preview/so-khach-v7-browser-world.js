@@ -14,9 +14,9 @@ const monthOf = iso => `${iso.slice(0, 7)}-01`;
 
 // Danh mục phụ phí giả (PHU-PHI-01): như danh mục khởi tạo, id cố định để test chọn được.
 const feeCatalog = () => [
-  { id: 1, name: 'Neo', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 1 },
-  { id: 2, name: 'Điện', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 2 },
-  { id: 3, name: 'Ghép', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 3 },
+  { id: 1, name: 'Neo', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 1, default_position: 3 },
+  { id: 2, name: 'Điện', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 2, default_position: 2 },
+  { id: 3, name: 'Ghép', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 3, default_position: 1 },
   { id: 4, name: 'Bảo hiểm', kind: 'service', sign: 'positive', system_key: null, active: true, sort: 4 },
   { id: 7, name: 'Khác', kind: 'service', sign: 'positive', system_key: 'other', active: true, sort: 100 },
   { id: 8, name: 'Giảm trừ', kind: 'service', sign: 'negative', system_key: 'discount', active: true, sort: 101 },
@@ -149,7 +149,6 @@ function apply(world, url, body) {
   if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER' }];
   if (url.startsWith('/api/v7/trips/fees/')) return applyFee(world, url, body);
   if (url === '/api/v7/books/fee-columns') {
-    if (body.fee_type_ids.length > 3) return [422, { error: 'FEE_COLUMNS_MAX', message: 'Sổ chỉ được chọn tối đa 3 cột phụ phí.' }];
     world.events.unshift({ kind: 'set_book_fee_columns', actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z',
       before: { fee_columns: world.feeColumns.map((id, index) => ({ fee_type_id: id, position: index + 1 })) }, after: { fee_columns: body.fee_type_ids } });
     world.feeColumns = [...body.fee_type_ids];

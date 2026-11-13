@@ -66,6 +66,10 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 /* Handoff dùng khoảng đệm ngang 14px và hàng 34px cộng đường kẻ 1px. */
 .month-stats{padding-bottom:16px}.chip-work{display:none}
 .trip-card>.ledger-head,.trip-card .trip-list{width:calc(100% - 28px);margin:0 14px}
+/* COT-PHU-PHI-01: cột riêng chưa có khoản nào hẹp, tên loại chữ nhỏ hai dòng. Vẫn không vừa (bảy cột ở màn 1280 có Shipper):
+   bảng chuyến cuộn ngang trong khung như màn hẹp, tiêu đề cột cuộn cùng bảng, không cắt mất cột Khác/Thành tiền. */
+.ledger .columns th.fee-narrow{padding:1px 3px;font-size:13px;line-height:1.1;overflow-wrap:normal}
+.ledger-book.fee-over .trip-card{overflow-x:auto}.ledger-book.fee-over .ledger-head{position:static}
 .ledger .columns th,.trip-list td{padding-left:0;padding-right:0}.trip-list td{height:35px}
 .ledger .columns th{height:35px}
 .pay-list col:nth-child(1){width:94px!important}.pay-list col:nth-child(2){width:114px!important}
@@ -147,6 +151,9 @@ body{margin:0;padding-left:76px;background:#e9ecf0;color:#1a1a19;font:14px/1.45 
 .picker-head{display:flex;align-items:baseline;gap:12px;box-sizing:border-box;height:var(--head);margin:0 -16px;padding:13px 28px 0;background:#fff;border-bottom:1px solid #e3e7ec}
 .picker-head h1{margin:0;font-size:18px;font-weight:700;color:#1a1a19}.picker-head p{margin:0;font-size:14px;color:#52514e}
 body.picker-home #live-controls,body.picker-home .dashboard-link{display:none}
+/* Ô tìm khách và dải "Tự cập nhật" nằm thẳng dưới <body> trong HTML chỉ để chờ JS dời đi (ô tìm vào menu trái hoặc trang chọn
+   khách, dải vào thanh thẻ Sổ). Đứng đó tức là JS hay sổ chưa xong: ẩn, để lúc tải không hiện băng ngang kiểu cũ (góp ý 13/11/2026). */
+body>:is(#customer-picker,#live-controls){display:none}
 body.picker-home #customer-picker{display:grid;grid-template-columns:auto minmax(0,520px) minmax(0,1fr);align-items:center;gap:12px;padding:12px 12px 0;background:none;border:0}
 body.picker-home #customer-picker label{font-size:15px;font-weight:700}
 body.picker-home #customer-search{box-sizing:border-box;width:100%;min-width:0;height:44px;margin:0;padding:0 14px;border:2px solid #2a78d6;border-radius:8px;background:#fff;color:#1a1a19;font-size:16px}

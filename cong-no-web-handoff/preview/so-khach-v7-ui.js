@@ -28,7 +28,8 @@
   // SO-GON-02 (29/10/2026): bản live bỏ cột "Còn nợ cộng dồn" (luôn trống); còn nợ cuối tháng ở thanh tháng.
   // SO-GON-03 (29/10/2026): mỗi số tiền của tháng hiện một lần — thanh tháng chỉ ghi còn nợ cuối tháng (rê chuột xem
   // cách tính), dòng Tổng tháng chỉ cộng cột (phụ phí, Thành tiền, Đã thu).
-  // PHU-PHI-01: bản live có 0–3 cột phụ phí riêng của sổ chen giữa Đơn giá và Khác, nên số cột đổi theo sổ (useLiveColumns).
+  // PHU-PHI-01: bản live có các cột phụ phí riêng của sổ chen giữa Đơn giá và Khác, nên số cột đổi theo sổ (useLiveColumns).
+  // COT-PHU-PHI-01: không giới hạn số cột riêng (mặc định bảy).
   let labels = live
     ? ['STT', 'Số container', 'Hãng tàu', 'Shipper', 'Ngày chuyến', 'Nơi đi', 'Nơi đến', 'Đơn giá', 'Khác', 'Thành tiền', 'Ngày trả', 'Hình thức',
       'Số tiền trả']
@@ -38,15 +39,19 @@
   const colTags = (from, to) => wide.slice(from, to).map((width, index) => `<col style="width:${width}px" class="col-${from + index}">`).join('');
   let widths = colTags(0, wide.length);
   let ownCount = 0;
+  let ownEmpty = [];   // cột riêng chưa có khoản nào trong sổ: hẹp, tên loại chữ nhỏ hai dòng (COT-PHU-PHI-01)
+  let feeOver = false;   // cột vẫn không vừa vùng sổ: bảng chuyến cuộn ngang trong khung, không cắt mất cột
   const tight = false;
   let showShipper = true;
   const shipperCell = html => showShipper ? html : '';
-  function useLiveColumns(ownNames, shipper = true) {
+  function useLiveColumns(ownNames, shipper = true, ownUsed = ownNames.map(() => true)) {
     showShipper = shipper;
     ownCount = ownNames.length;
     labels = ['STT', 'Số container', 'Hãng tàu', ...(shipper ? ['Shipper'] : []), 'Ngày chuyến', 'Tuyến', 'Đơn giá', ...ownNames, 'Khác', 'Thành tiền'];
-    // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên. Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
-    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownNames.map(() => 100), 100, 120];
+    // Cột phụ phí đủ cho tổng in đậm cỡ "117.000.000" cộng đệm hai bên; cột riêng chưa có khoản nào trong sổ chỉ cần chỗ cho
+    // tên loại (xuống hai dòng) và dấu "–" (COT-PHU-PHI-01). Thiếu chỗ thì Tuyến và Shipper nhường, hai cột đó có "…".
+    ownEmpty = ownNames.map((_, index) => !ownUsed[index]);
+    wide = [40, 116, 88, ...(shipper ? [90] : []), 92, 150, 108, ...ownEmpty.map(empty => empty ? 60 : 100), 100, 120];
     const route = labels.indexOf('Tuyến');
     const spare = Math.floor(fitWidth) - 28 - wide.reduce((sum, value) => sum + value, 0);
     const extra = Math.max(0, spare);
@@ -58,6 +63,8 @@
       wide[route] -= fromRoute;
       if (shipper) wide[3] -= Math.min(-spare - fromRoute, wide[3] - 70);
     }
+    // Vẫn không vừa (nhiều cột riêng ở màn 1280): bảng chuyến cuộn ngang trong khung như màn hẹp; tiêu đề cột đi cùng bảng.
+    feeOver = Boolean(fitWidth) && wide.reduce((sum, value) => sum + value, 0) + 28 > Math.floor(fitWidth);
     widths = colTags(0, wide.length);
   }
   let fitWidth = 0;
@@ -222,14 +229,14 @@
     const columnHead = labels.map((label, index) => {
       const fee = live && index >= feeStart() && index < tripCols() - 1;
       return `<th scope="col" class="${pay(index) ? 'pay ' : ''}${!live && index === 9 ? 'pay-start' : ''}`
-        + `${fee ? 'fee-h num' : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
+        + `${fee ? `fee-h num${ownEmpty[index - feeStart()] ? ' fee-narrow' : ''}` : live && index >= columns.unitPrice() ? `num ${index === columns.unitPrice() ? 'unit-h' : 'amount-h'}` : ''}"${fee ? ' title="Phụ phí"' : ''}>${escape(label)}</th>`;
     }).join('');
     // Hai lần xuống dòng giữa ba khối giữ đúng như bản trước (DOM không đổi). Bản live (SO-GON-04): thanh chip tháng dính ngay
     // trên tiêu đề cột thay danh sách tháng bên phải; bản fixture giữ danh sách tháng. Khung Lịch sử nằm ngoài thẻ Sổ (mở được ở
     // mọi thẻ, nút ở đầu trang).
     const aside = `<aside id="history-panel" class="history-panel" aria-label="Lịch sử thay đổi" ${historyOpen ? '' : 'hidden'}><header><h2>Lịch sử</h2>`
       + `<button class="history-close" aria-label="Đóng lịch sử">Đóng</button></header>${view.history}</aside>`;
-    const book = `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
+    const book = `${view.notice ?? ''}<div class="layout"><div class="ledger-book${tight ? ' tight' : ''}${live && feeOver ? ' fee-over' : ''}">${view.chips ?? ''}<table class="ledger ledger-head" aria-label="Cột sổ khách">`
       + `<colgroup>${widths}</colgroup><thead><tr class="columns">${columnHead}</tr></thead></table>${view.sections}</div>`;
     root.innerHTML = (live
       ? [head, '<div id="the-so" class="tab-pane" role="tabpanel" aria-labelledby="tab-so"><div class="book-bar">'
@@ -437,7 +444,10 @@
       const shipperRows = [...(data.trips ?? []).filter(row => !row.deleted),
         ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted).flatMap(row => [row.current, row.display]),
         ...(data.sheet_sync?.items ?? []).filter(row => row.sync_state === 'NEW' || !row.existing_id)];
-      useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''));
+      const usedTypes = new Set([...(data.trips ?? []).filter(row => !row.deleted), ...(data.legacy_rows ?? []).filter(row => !row.current?.deleted)]
+        .flatMap(row => row.fee_lines ?? []).map(line => Number(line.fee_type_id)));
+      useLiveColumns(feeColumnIds.map(feeTypeName), shipperRows.some(row => String(row?.shipper ?? '').trim() !== ''),
+        feeColumnIds.map(id => usedTypes.has(id)));
       const updated = document.querySelector('#updated-at');
       const time = new Date().toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
       if (updated?.id === 'updated-at') updated.textContent = `Cập nhật ${time} · tự tải mỗi 60 giây`;

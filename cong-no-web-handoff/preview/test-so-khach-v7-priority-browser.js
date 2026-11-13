@@ -287,6 +287,42 @@ test('Trang chọn khách: ô tìm sẵn con trỏ, đủ mọi sổ theo nhóm,
   world.customers = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Khách ${i + 1}`, status: 'active', commodity: i % 2 ? 'Dừa' : 'Thanh long' }));
 }));
 
+// Góp ý 13/11/2026 "mở sổ khách lúc load hiện UI cũ": trước khi JS dời ô tìm vào menu trái và dải "Tự cập nhật" vào thanh thẻ
+// Sổ, hai khối tĩnh trong HTML không được hiện thành băng ngang đầu trang — cả lúc JS đang tải lẫn lúc đang đọc sổ.
+test('Đang tải sổ: không hiện băng tìm khách và dải cập nhật kiểu cũ', async () => withPage(async ({ page }) => {
+  const url = page.url();
+  // Giữ file JS chính và GET sổ (cả GET đọc sớm ở đầu <head>) cho tới khi test thả từng cái.
+  const script = '**/so-khach-v7-ui.js', ledger = /\/api\/v7\/ledger\?/;
+  const held = { script: [], ledger: [] };
+  await page.route(script, route => (held.script ? held.script.push(route) : route.continue()));
+  await page.route(ledger, route => (held.ledger ? held.ledger.push(route) : route.continue()));
+  const release = async key => {
+    const routes = held[key] ?? [];
+    held[key] = null;
+    await Promise.all(routes.map(route => route.continue()));
+  };
+  const visible = () => page.evaluate(() => ['#customer-picker', '#live-controls'].filter(selector => {
+    const node = document.querySelector(selector);
+    return node && node.getClientRects().length > 0;
+  }));
+  try {
+    await page.goto(url, { waitUntil: 'commit' });
+    await page.waitForFunction(() => document.querySelector('#app') && document.styleSheets.length >= 10);
+    assert.deepEqual(await visible(), [], 'JS chưa tải: không có băng cũ');
+    await release('script');
+    await page.locator('#app > p[role="status"]').waitFor();
+    assert.equal(await page.locator('#app').innerText(), 'Đang đọc sổ khách…');
+    assert.deepEqual(await visible(), [], 'đang đọc sổ: không có băng cũ');
+  } finally {   // lỗi giữa chừng vẫn thả hết, không treo trình duyệt chung
+    await release('script');
+    await release('ledger');
+  }
+  await page.locator('.book-head').waitFor();
+  assert.equal(await page.locator('#app #live-controls').count(), 1, 'vẽ xong: dải cập nhật đã vào trong sổ, luật ẩn không còn áp');
+  await page.locator('.picker-open').click();
+  assert.equal(await page.locator('#customer-picker').evaluate(node => node.matches(':popover-open')), true, 'menu Tìm khách vẫn mở ô tìm');
+}));
+
 test('Sửa tham chiếu phiếu máy ghi: ô sửa không có mã, lưu vẫn giữ mã để máy nhận ra phiếu', async () => withPage(async ({ page }) => {
   await viewMonth(page, '2026-09');
   const reference = page.locator('.receipt-ref[data-pid="PH-002"][data-field="reference"]');

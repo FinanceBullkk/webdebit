@@ -31,6 +31,13 @@ BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-1
 NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql"
 # BANG-GIA-05 13/11/2026: preview_price_table chỉ có ở migration này.
 XEM_TRUOC_BANG_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql"
+# COT-PHU-PHI-01 13/11/2026: bỏ giới hạn 3 cột, cột mặc định; set_book_fee_columns và create_book_from_sheet bằng migration này.
+COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-cot-phu-phi-mac-dinh.sql"
+# Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
+LATER_TABLE_CHANGES = {
+    "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
+    "book_fee_column": [("CHECK(position BETWEEN 1 AND 3)", "CHECK(position>0)")],
+}
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -119,8 +126,16 @@ class FeeSqlSync(unittest.TestCase):
         for name in ("fee_type", "book_fee_column", "trip_fee_line", "fee_type_audit"):
             with self.subTest(table=name):
                 pattern = rf"(?ms)^CREATE TABLE IF NOT EXISTS sokhach\.{name}\b.*?;"
-                self.assertEqual(re.search(pattern, migration).group().replace("\r\n", "\n"),
-                                 re.search(pattern, schema).group().replace("\r\n", "\n"))
+                created = re.search(pattern, migration).group().replace("\r\n", "\n")
+                for before, after in LATER_TABLE_CHANGES.get(name, []):
+                    self.assertIn(before, created)
+                    created = created.replace(before, after)
+                self.assertEqual(created, re.search(pattern, schema).group().replace("\r\n", "\n"))
+        later_ddl = COT_MAC_DINH_MIGRATION.read_text(encoding="utf-8")
+        for statement in ("ADD CONSTRAINT book_fee_column_position_check CHECK(position>0);",
+                          "ADD COLUMN IF NOT EXISTS default_position integer UNIQUE CHECK(default_position>0);"):
+            with self.subTest(later=statement):
+                self.assertIn(statement, later_ddl)
         for pattern in (r"(?ms)^CREATE INDEX IF NOT EXISTS trip_fee_line_.*?;",
                         r"(?ms)^INSERT INTO sokhach\.fee_type\(name,kind,sign,system_key,sort\).*?;",
                         r"(?m)^DO \$\$ BEGIN ALTER TABLE sokhach\.trip_fee_line ADD CONSTRAINT fee_line_.*?END \$\$;"):
@@ -146,7 +161,12 @@ class FeeSqlSync(unittest.TestCase):
         self.assertEqual(len(khoa_chu), 1)
         blocks = [m.group() for m in re.finditer(pattern, PR_B_MIGRATION.read_text(encoding="utf-8"))
                   if m.group(1) not in replaced and not (m.group(1) == "_change_legacy" and "p_fee_event bigint)" in m.group())]
-        blocks += [m.group() for m in re.finditer(pattern, later) if m.group(1) != "get_ledger"] + khoa_chu
+        cot = [m.group() for m in re.finditer(pattern, COT_MAC_DINH_MIGRATION.read_text(encoding="utf-8"))]
+        self.assertEqual([re.match(pattern, m).group(1) for m in cot], ["set_book_fee_columns", "create_book_from_sheet"])
+        blocks = [b for b in blocks if re.match(pattern, b).group(1) != "set_book_fee_columns"]
+        blocks += [m.group() for m in re.finditer(pattern, later) if m.group(1) != "get_ledger"] + khoa_chu + cot[:1]
+        with self.subTest(signature="create_book_from_sheet"):
+            self.assertIn(cot[1], canonical)
         self.assertGreaterEqual(len(blocks), 17)
         for block in blocks:
             with self.subTest(signature=block.split(" RETURNS")[0]):

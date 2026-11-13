@@ -22,8 +22,30 @@ test('sổ mặc định chỉ có cột Khác; ba cột riêng vẫn vừa 1280
   await page.locator('td.fee.own').first().waitFor();
   assert.deepEqual(await page.locator('.ledger-head th.fee-h').allInnerTexts(), ['Neo', 'Điện', 'Ghép', 'Khác']);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  assert.equal(await page.locator('.ledger-book.fee-over').count(), 0, 'ba cột vừa màn: tiêu đề cột vẫn dính, không cuộn trong khung');
   assert.equal(await page.locator('#thang-2026-09 .subtotal td.fee').count(), 4);
   assert.equal(await page.locator('text=sổ gốc').count(), 0);
+}));
+
+test('COT-PHU-PHI-01: bảy cột riêng ở 1280×720 — cột chưa có khoản hẹp, bảng cuộn ngang trong khung, không cắt mất Thành tiền', async () => withPage(async ({ page }) => {
+  await page.locator('td.fee.own').first().waitFor();
+  assert.deepEqual(await page.locator('.ledger-head th.fee-h').evaluateAll(list => list.map(th => th.textContent)),
+    ['Lưu bãi', 'Ghép', 'Điện', 'Neo', 'Health + KĐ', 'Phí hủy', 'Sửa bill', 'Khác']);
+  assert.equal(await page.locator('.ledger-head th.fee-narrow').count(), 7, 'sổ chưa có khoản nào của bảy loại');
+  const box = await page.evaluate(() => {
+    const card = document.querySelector('#thang-2026-09 .trip-card');
+    const amount = card.querySelector('.ledger-head th:last-child');
+    card.scrollLeft = card.scrollWidth;
+    const right = amount.getBoundingClientRect().right;
+    return { over: Boolean(document.querySelector('.ledger-book.fee-over')), scroll: getComputedStyle(card).overflowX,
+      inside: right <= card.getBoundingClientRect().right + 1, label: amount.textContent, page: document.documentElement.scrollWidth <= innerWidth };
+  });
+  assert.deepEqual(box, { over: true, scroll: 'auto', inside: true, label: 'Thành tiền', page: true });
+}, world => {
+  for (const [id, name, sort] of [[10, 'Health + KĐ', 7], [11, 'Lưu bãi', 8], [12, 'Phí hủy', 9], [13, 'Sửa bill', 10]]) {
+    world.feeTypes.splice(world.feeTypes.length - 3, 0, { id, name, kind: 'service', sign: 'positive', system_key: null, active: true, sort });
+  }
+  world.feeColumns = [11, 3, 2, 1, 10, 12, 13];
 }));
 
 test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc trả lại, xóa trắng bỏ loại đó', async () => withPage(async ({ page, world }) => {
@@ -142,7 +164,7 @@ test('dòng sổ gốc có Thành tiền khác đơn giá + phụ phí: hỏi l�
   assert.deepEqual(strip(feePosts(world)[0][1]), { target: { legacy_row_id: 22 }, fee_type_id: 1, amount_vnd: '1000000' });
 }, world => { world.feeColumns = [1]; world.legacy[1].current.counted_vnd = '95000000'; }));
 
-test('cài đặt phụ phí: bật cột riêng, đủ 3 thì khóa ô thứ tư, đổi tên và thêm loại qua danh mục chung', async () => withPage(async ({ page, world }) => {
+test('cài đặt phụ phí: bật cột riêng không giới hạn, đổi tên và thêm loại qua danh mục chung', async () => withPage(async ({ page, world }) => {
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.locator('.fee-settings-open').click();
@@ -150,8 +172,13 @@ test('cài đặt phụ phí: bật cột riêng, đủ 3 thì khóa ô thứ t�
   await panel.locator('.fee-col[data-id="2"]').check();
   await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 4);
   assert.deepEqual(strip(feePosts(world).at(-1)[1]), { fee_type_ids: [1, 3, 2] });
-  assert.equal(await panel.locator('.fee-col[data-id="4"]').isDisabled(), true);
-  assert.match(await panel.locator('.fee-info').innerText(), /Đã đủ 3 cột riêng/);
+  // COT-PHU-PHI-01: không còn giới hạn 3 cột, ô thứ tư bật được.
+  await panel.locator('.fee-col[data-id="4"]').check();
+  await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 5);
+  assert.deepEqual(strip(feePosts(world).at(-1)[1]), { fee_type_ids: [1, 3, 2, 4] });
+  assert.equal(await panel.locator('.fee-info').count(), 0);
+  await panel.locator('.fee-col[data-id="4"]').uncheck();
+  await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 4);
   // Bỏ cột Ghép: số không mất, chỉ đổi cách hiện.
   await panel.locator('.fee-col[data-id="3"]').uncheck();
   await page.waitForFunction(() => document.querySelectorAll('.ledger-head th.fee-h').length === 3);
@@ -171,4 +198,27 @@ test('cài đặt phụ phí: bật cột riêng, đủ 3 thì khóa ô thứ t�
   assert.equal(await panel.locator('td.fee-name:not([data-id])').count(), 3, 'ba loại hệ thống không đổi tên');
   await page.keyboard.press('Escape');
   assert.equal(await panel.isVisible(), false);
+}, world => { world.feeColumns = [1, 3]; }));
+
+test('cài đặt phụ phí: Tắt tất cả, Bật tất cả giữ thứ tự cũ rồi thêm theo danh mục, Về mặc định theo thứ tự chứng từ', async () => withPage(async ({ page, world }) => {
+  if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
+  await page.locator('.book-settings > summary').click();
+  await page.locator('.fee-settings-open').click();
+  const panel = page.locator('.fee-settings');
+  const heads = n => page.waitForFunction(count => document.querySelectorAll('.ledger-head th.fee-h').length === count, n);
+  await panel.locator('.fee-col-none').click();
+  await heads(1);   // chỉ còn cột Khác
+  assert.deepEqual(strip(feePosts(world).at(-1)[1]), { fee_type_ids: [] });
+  assert.equal(await panel.locator('.fee-col-none').isDisabled(), true);
+  await panel.locator('.fee-col[data-id="4"]').check();
+  await heads(2);
+  await panel.locator('.fee-col-all').click();
+  await heads(5);
+  assert.deepEqual(strip(feePosts(world).at(-1)[1]), { fee_type_ids: [4, 1, 2, 3] }, 'loại hệ thống không thành cột riêng');
+  assert.equal(await panel.locator('.fee-col-all').isDisabled(), true);
+  await panel.locator('.fee-col-default').click();
+  await heads(4);
+  assert.deepEqual(strip(feePosts(world).at(-1)[1]), { fee_type_ids: [3, 2, 1] });
+  assert.equal(await panel.locator('.fee-col-default').isDisabled(), true);
+  assert.match(await panel.locator('.fee-types thead').innerText(), /Cột riêng trên sổ này \(3\)/);
 }, world => { world.feeColumns = [1, 3]; }));
