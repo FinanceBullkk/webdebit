@@ -111,8 +111,6 @@ def validate_fee(function: str, body: dict) -> tuple[str, dict]:
         ids = body["fee_type_ids"]
         if type(ids) is not list or any(not positive_int(i) for i in ids) or len(set(ids)) != len(ids):
             bad()
-        if len(ids) > 3:
-            bad("FEE_COLUMNS_MAX", ERRORS["FEE_COLUMNS_MAX"][1])
     if "name" in required and (type(body["name"]) is not str or not body["name"].strip() or len(body["name"]) > 200):
         bad()
     if "kind" in required and body["kind"] not in ("service", "pass_through"):

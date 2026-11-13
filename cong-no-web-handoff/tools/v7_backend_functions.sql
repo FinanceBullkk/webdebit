@@ -2767,7 +2767,7 @@ BEGIN
  END;
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
  IF jsonb_typeof(fee_type_ids) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
- IF jsonb_array_length(fee_type_ids)>3 THEN RAISE EXCEPTION 'FEE_COLUMNS_MAX'; END IF;
+ -- COT-PHU-PHI-01: không giới hạn số cột riêng.
  FOR v_type IN SELECT x FROM jsonb_array_elements(fee_type_ids) x LOOP
    IF jsonb_typeof(v_type)<>'number' OR v_type::text !~ '^[1-9][0-9]*$' OR v_type::text::bigint=ANY(v_seen)
    THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
@@ -3835,7 +3835,7 @@ REVOKE ALL ON FUNCTION sokhach._legacy_pay_date(text) FROM PUBLIC, sokhach_app, 
 REVOKE ALL ON FUNCTION sokhach.get_receipt_book(date) FROM PUBLIC, sokhach_app, sokhach_reader;
 GRANT EXECUTE ON FUNCTION sokhach.get_receipt_book(date) TO sokhach_app, sokhach_reader;
 
--- MAY-TAO-SO-01: sổ cho khách mới theo đúng đường nạp mốc: một mốc riêng, đủ cổng kiểm từng tháng, trong một giao dịch.
+-- MAY-TAO-SO-01: sổ cho khách mới theo đúng đường nạp mốc (COT-PHU-PHI-01: kèm các cột phụ phí mặc định): một mốc riêng, đủ cổng kiểm từng tháng, trong một giao dịch.
 -- Mốc đã active không nhận thêm khách (guard_cutover_customer_status), nên mỗi sổ mới một mốc. Chỉ máy đối soát gọi, không có route.
 CREATE OR REPLACE FUNCTION sokhach.create_book_from_sheet(
  book_name text, commodity_name text, book_mode text, openings jsonb, legacy jsonb, month_checks jsonb,
@@ -3857,6 +3857,9 @@ BEGIN
  END IF;
  INSERT INTO sokhach.customer(name,commodity_id,transport_mode) VALUES(book_name,v_commodity,book_mode)
  RETURNING id INTO v_customer;
+ INSERT INTO sokhach.book_fee_column(customer_id,fee_type_id,position)
+ SELECT v_customer,f.id,row_number() OVER (ORDER BY f.default_position)
+   FROM sokhach.fee_type f WHERE f.default_position IS NOT NULL AND f.active;
  INSERT INTO sokhach.cutover(name,source,source_sha256,frozen_at,control_total_vnd,created_by)
  VALUES('Sổ mới theo Sheet','Sheet, máy tạo sổ (MAY-TAO-SO-01)',report_sha256,now(),control_total,v_actor)
  RETURNING id INTO v_cutover;

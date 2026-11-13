@@ -397,10 +397,14 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)
+    # COT-PHU-PHI-01: mọi sổ có đúng bảy cột mặc định theo thứ tự chứng từ.
+    require(copy.value("SELECT count(*) FROM sokhach.customer c WHERE (SELECT string_agg(f.name,',' ORDER BY b.position) "
+                       "FROM sokhach.book_fee_column b JOIN sokhach.fee_type f ON f.id=b.fee_type_id WHERE b.customer_id=c.id)"
+                       " IS DISTINCT FROM 'Lưu bãi,Ghép,Điện,Neo,Health + KĐ,Phí hủy,Sửa bill'") == "0", "default fee columns")
     # MO-SO-NHANH-02: rollback chạy được, rồi nâng lại về đúng bản chuẩn (so catalog ở dưới).
     ledger_events = (ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.sql").read_text(encoding="utf-8")
     copy.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-ledger-events.rollback.sql").read_text(encoding="utf-8"))

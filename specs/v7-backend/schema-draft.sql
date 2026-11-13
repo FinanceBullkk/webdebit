@@ -297,10 +297,11 @@ CREATE TABLE IF NOT EXISTS sokhach.fee_type(
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,name text NOT NULL,
  kind text NOT NULL CHECK(kind IN('service','pass_through')),sign text NOT NULL CHECK(sign IN('positive','negative','any')),
  system_key text UNIQUE,active boolean NOT NULL DEFAULT true,sort integer NOT NULL CHECK(sort>0),
- name_key text GENERATED ALWAYS AS(lower(btrim(name))) STORED,UNIQUE(name_key));
+ name_key text GENERATED ALWAYS AS(lower(btrim(name))) STORED,UNIQUE(name_key),
+ default_position integer UNIQUE CHECK(default_position>0));
 CREATE TABLE IF NOT EXISTS sokhach.book_fee_column(
  customer_id bigint NOT NULL REFERENCES sokhach.customer(id),fee_type_id bigint NOT NULL REFERENCES sokhach.fee_type(id),
- position integer NOT NULL CHECK(position BETWEEN 1 AND 3),PRIMARY KEY(customer_id,fee_type_id),UNIQUE(customer_id,position));
+ position integer NOT NULL CHECK(position>0),PRIMARY KEY(customer_id,fee_type_id),UNIQUE(customer_id,position));
 CREATE TABLE IF NOT EXISTS sokhach.trip_fee_line(
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,customer_id bigint NOT NULL REFERENCES sokhach.customer(id),trip_id bigint,legacy_row_id bigint,
  fee_type_id bigint NOT NULL REFERENCES sokhach.fee_type(id),amount_vnd bigint NOT NULL CHECK(amount_vnd<>0),note text,created_by_event bigint NOT NULL,voided_by_event bigint,
@@ -314,6 +315,13 @@ INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
  ('Neo','service','positive',NULL,1),('Điện','service','positive',NULL,2),('Ghép','service','positive',NULL,3),('Bảo hiểm','service','positive',NULL,4),('Kiểm định','service','positive',NULL,5),('Health cert','service','positive',NULL,6),('Khác','service','positive','other',100),('Giảm trừ','service','negative','discount',101),('Phụ phí ban đầu','service','any','initial',102) ON CONFLICT(name_key) DO NOTHING;
 -- MAY-PS-01: ô Health+KĐ của bảng PS chỉ có một số gộp.
 INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES('Health + KĐ','service','positive',NULL,7) ON CONFLICT(name_key) DO NOTHING;
+-- COT-PHU-PHI-01: bảy cột mặc định của mọi sổ, theo thứ tự debit note (Storage, Trucking, Generator, Overstay, HC fee, Cancellation, AMD).
+INSERT INTO sokhach.fee_type(name,kind,sign,system_key,sort) VALUES
+ ('Lưu bãi','service','positive',NULL,8),('Phí hủy','service','positive',NULL,9),('Sửa bill','service','positive',NULL,10)
+ ON CONFLICT(name_key) DO NOTHING;
+UPDATE sokhach.fee_type f SET default_position=d.n
+  FROM (VALUES('lưu bãi',1),('ghép',2),('điện',3),('neo',4),('health + kđ',5),('phí hủy',6),('sửa bill',7)) d(k,n)
+ WHERE f.name_key=d.k AND f.active AND f.system_key IS NULL;
 
 CREATE TABLE sokhach.receipt (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -1264,7 +1272,7 @@ BEGIN
  END;
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
  IF jsonb_typeof(fee_type_ids) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;
- IF jsonb_array_length(fee_type_ids)>3 THEN RAISE EXCEPTION 'FEE_COLUMNS_MAX'; END IF;
+ -- COT-PHU-PHI-01: không giới hạn số cột riêng.
  FOR v_type IN SELECT x FROM jsonb_array_elements(fee_type_ids) x LOOP
    IF jsonb_typeof(v_type)<>'number' OR v_type::text !~ '^[1-9][0-9]*$' OR v_type::text::bigint=ANY(v_seen)
    THEN RAISE EXCEPTION 'INVALID_COMMAND'; END IF;

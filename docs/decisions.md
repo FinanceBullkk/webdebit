@@ -124,6 +124,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="dien-thoai-nut-01"></a>[DIEN-THOAI-NUT-01](decisions/dien-thoai-nut-01.md) | Nút trên điện thoại: vùng bấm ít nhất 40px (44px với ô lọc, ô chọn) ở Sổ, Công nợ theo tháng, Máy chạy |  |
 | <a id="dien-thoai-debit-01"></a>[DIEN-THOAI-DEBIT-01](decisions/dien-thoai-debit-01.md) | Hộp Debit note trên điện thoại: phủ cả màn, một cột (Chặn/Cảnh báo → form → xem trước vừa khung); nút xuất khóa thì mờ |  |
 | <a id="debit-note-04"></a>[DEBIT-NOTE-04](decisions/debit-note-04.md) | Debit note v4 từ sổ luôn có bảy cột phí của mẫu Excel (Storage, Trucking, Generator, Overstay, HC fee, Cancellation, AMD); phí vào cột theo tên loại; bảng chật thì cột phí hẹp, chữ thu nhỏ tới 80%, tên Trung xuống dòng | Chốt 13/11/2026; thay điểm 1 (cột phí theo cột của sổ) của [DEBIT-NOTE-03](#debit-note-03); Sổ không đổi |
+| <a id="cot-phu-phi-01"></a>[COT-PHU-PHI-01](decisions/cot-phu-phi-01.md) | Bảy cột phụ phí mặc định cho mọi sổ theo debit note; bỏ giới hạn 3 cột riêng; Bật/Tắt tất cả, Về mặc định | Chốt 13/11/2026; thay "tối đa 3" và điểm (6) của [PHU-PHI-01](#phu-phi-01) |
 
 ## Cập nhật khóa tháng 24/10/2026
 
