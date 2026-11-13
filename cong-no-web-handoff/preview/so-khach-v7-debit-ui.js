@@ -462,6 +462,8 @@
   }
   async function show(monthKey, opener) {
     configLoad ??= ctx.api.readDebitConfig();
+    // Sửa 13/11/2026: bấm nút từ ô đang gõ thì ô đó vừa gửi lệnh lưu; chờ lệnh xong và sổ đọc lại rồi mới dựng chứng từ.
+    await ctx.api.settle?.();
     let config = null, configError = '';
     try { config = await configLoad; } catch (error) { configError = error.message; configLoad = null; }
     const asked = new URLSearchParams(location.search).get('debit');

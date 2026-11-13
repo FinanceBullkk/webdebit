@@ -293,7 +293,9 @@ function apply(world, url, body) {
   }
   if (url === '/api/v7/trips/price') {
     const trip = world.trips.find(row => row.id === body.trip_id);
-    Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false });
+    // Như máy chủ: Thành tiền = đơn giá + phụ phí.
+    Object.assign(trip, { unit_price_vnd: body.unit_price_vnd, other_fee_vnd: body.other_fee_vnd, is_missing_price: false,
+      amount_vnd: body.unit_price_vnd == null ? null : String(BigInt(body.unit_price_vnd) + BigInt(body.other_fee_vnd ?? 0)) });
     event('price_edit', { price: {} }, { price: {} });
   } else if (url === '/api/v7/months/lock') {
     world.locks = world.locks.map(row => row.month === body.month ? { ...row, locked: body.locked } : row);
