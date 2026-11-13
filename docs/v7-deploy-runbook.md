@@ -1867,7 +1867,7 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
-## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có
+## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026, [nhật ký](deploys/2026-11-13-dau-doc.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql` chạy sau `2026-11-13-v7-cot-phu-phi-mac-dinh.sql` ([spec](../specs/hieu-nang-01.md)). Chỉ thêm hàm đọc `get_read_stamp` (md5 của số dòng và tổng xmin mọi bảng `sokhach`, ngày VN) và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, hàm có sẵn hay dữ liệu. Chạy lại được.
 

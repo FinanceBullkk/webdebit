@@ -1,6 +1,6 @@
 # Web nhanh hơn khi dùng hằng ngày: giữ kết quả đọc nặng theo dấu dữ liệu, tính song song sổ vừa ghi (HIEU-NANG-01)
 
-Trạng thái: ĐÃ CHỐT theo yêu cầu người dùng 13/11/2026 ("giờ đến giai đoạn dùng full trên web rồi, cần optimize performance"); cách làm do Claude chọn theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: tầng đọc của API (GET) và hộp thư Việc cần làm; không đổi luật tiền, không đổi thân hàm SQL có sẵn, không đổi giao diện.
+Trạng thái: ĐÃ CHỐT theo yêu cầu người dùng 13/11/2026 ("giờ đến giai đoạn dùng full trên web rồi, cần optimize performance"); cách làm do Claude chọn theo [`CLAUDE-ALL-01`](../docs/decisions/claude-all-01.md). Phạm vi: tầng đọc của API (GET) và hộp thư Việc cần làm; không đổi luật tiền, không đổi thân hàm SQL có sẵn, không đổi giao diện. ĐÃ TRIỂN KHAI trên `hao` 13/11/2026, bản `e418bac`, [nhật ký](../docs/deploys/2026-11-13-dau-doc.md).
 
 Tiếp [MO-SO-NHANH-01](mo-so-nhanh-01.md) (ETag/gzip, đọc sổ song song với tải JS) và [MO-SO-NHANH-02](mo-so-nhanh-02.md) (Lịch sử nạp riêng). Bước 3 của MO-SO-NHANH ("cache `get_ledger` theo `version`") làm ở đây, mở rộng sang Tổng quan.
 
@@ -60,12 +60,12 @@ Dự kiến (khi không có lệnh ghi giữa hai lượt đọc): `dashboard/de
 
 ## Tiêu chí nghiệm thu
 
-- [ ] `tools/test_pg_v7_backend_read_stamp.py` (harness máy): dấu không đổi khi chỉ đọc (cả `get_ledger`, `get_dashboard_debt`), khóa dòng hay hoàn tác; đổi sau ghi phiếu thu, sau đổi tên loại phí (lệnh không tăng `version`), sau UPDATE tại chỗ, sau xóa dòng, sau `CREATE OR REPLACE` hàm và view; `as_of` là ngày VN; thiếu người làm thì `ACTOR_REQUIRED`; `v7_app` và `v7_reader` gọi được. `--migration-test` chạy migration mới trên bản sao, chạy lại được.
-- [ ] `tests/test_v7_read_cache.py`: trúng khi cùng dấu (hàm đọc chạy một lần), đổi dấu thì đọc lại và bỏ bản cũ, đổi ngày thì đọc lại, hàm không thuộc bốn hàm thì đi thẳng, dấu lỗi/sai dạng thì đi thẳng và ghi journal một lần, dấu đổi trong lúc đọc thì không giữ, lỗi hàm đọc không được giữ và truyền cho lượt chờ, hai lượt cùng khóa chạy hàm một lần, dict trả về sửa được mà không đổi bản giữ, vượt giới hạn byte thì bỏ bản cũ nhất.
-- [ ] `tests/test_v7_ledger_api.py`: GET sổ, Tổng quan đi qua bộ nhớ; POST không; kết quả GET giống hệt khi không có bộ nhớ.
-- [ ] `tests/test_v7_inbox*.py`: sổ bẩn tính song song (barrier), hai GET cùng lúc không tính trùng, sổ ghi tiếp lúc đang tính vẫn bẩn, quá 5 sổ sau khi chờ thì giao lượt nền.
-- [ ] `npm run check` xanh; `node scripts/check-secrets.js` sạch.
-- [ ] Sau triển khai trên `hao`: đo lại bảng trên cùng cách; dấu trước/sau một lệnh ghi đổi; ghi số vào nhật ký triển khai.
+- [x] `tools/test_pg_v7_backend_read_stamp.py` (harness máy): dấu không đổi khi chỉ đọc (cả `get_ledger`, `get_dashboard_debt`), khóa dòng hay hoàn tác; đổi sau ghi phiếu thu, sau đổi tên loại phí (lệnh không tăng `version`), sau UPDATE tại chỗ, sau xóa dòng, sau `CREATE OR REPLACE` hàm và view; `as_of` là ngày VN; thiếu người làm thì `ACTOR_REQUIRED`; `v7_app` và `v7_reader` gọi được. `--migration-test` chạy migration mới trên bản sao, chạy lại được.
+- [x] `tests/test_v7_read_cache.py`: trúng khi cùng dấu (hàm đọc chạy một lần), đổi dấu thì đọc lại và bỏ bản cũ, đổi ngày thì đọc lại, hàm không thuộc bốn hàm thì đi thẳng, dấu lỗi/sai dạng thì đi thẳng và ghi journal một lần, dấu đổi trong lúc đọc thì không giữ, lỗi hàm đọc không được giữ và truyền cho lượt chờ, hai lượt cùng khóa chạy hàm một lần, dict trả về sửa được mà không đổi bản giữ, vượt giới hạn byte thì bỏ bản cũ nhất.
+- [x] `tests/test_v7_ledger_api.py`: GET sổ, Tổng quan đi qua bộ nhớ; POST không; kết quả GET giống hệt khi không có bộ nhớ.
+- [x] `tests/test_v7_inbox*.py`: sổ bẩn tính song song (barrier), hai GET cùng lúc không tính trùng, sổ ghi tiếp lúc đang tính vẫn bẩn, quá 5 sổ sau khi chờ thì giao lượt nền.
+- [x] `npm run check` xanh; `node scripts/check-secrets.js` sạch.
+- [x] Sau triển khai trên `hao`: đo lại bảng trên cùng cách; dấu trước/sau một lệnh ghi đổi (trên bản sao); ghi số vào nhật ký triển khai.
 
 ## Phạm vi agent
 
