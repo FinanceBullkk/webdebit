@@ -46,9 +46,24 @@ def _real_psql(connect: list[str], check_sql: str, env: dict[str, str]) -> list[
 
 
 class _PsqlRunner:
+    def run(self, function: str, payload: dict, actor: str) -> dict:
+        try:
+            return json.loads(self.run_text(function, payload, actor))
+        except ValueError as exc:
+            raise ApiError(
+                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
+            ) from exc
+
+    def run_text(self, function: str, payload: dict, actor: str) -> str:
+        """Chữ JSON hàm trả về, chưa phân tích (HIEU-NANG-01: bộ nhớ đọc giữ chữ, mỗi lượt `loads` một bản mới)."""
+        return self._run_psql(self._argv(), function, payload, actor)
+
+    def _argv(self) -> list[str]:
+        raise NotImplementedError
+
     def _run_psql(
         self, argv: list[str], function: str, payload: dict, actor: str
-    ) -> dict:
+    ) -> str:
         statement = SQL[function]
         if function == "attach_receipt_image":
             payload = dict(payload)
@@ -120,12 +135,7 @@ class _PsqlRunner:
                             pass
                 raise ApiError(status, match.group(1), message, extra)
             raise ApiError(503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được.")
-        try:
-            return json.loads(result.stdout.strip())
-        except ValueError as exc:
-            raise ApiError(
-                503, "DB_UNAVAILABLE", "Sổ tạm thời không truy cập được."
-            ) from exc
+        return result.stdout.strip()
 
 
 class Psql(_PsqlRunner):
@@ -158,9 +168,8 @@ class Psql(_PsqlRunner):
             raise ValueError("target is not isolated V7 test container")
         self.container, self.database, self.user = info["Id"], database, user
 
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        return self._run_psql(
-            [
+    def _argv(self) -> list[str]:
+        return [
                 "docker",
                 "exec",
                 "-i",
@@ -180,11 +189,7 @@ class Psql(_PsqlRunner):
                 self.database,
                 "-f",
                 "-",
-            ],
-            function,
-            payload,
-            actor,
-        )
+            ]
 
 
 class PsqlDirect(_PsqlRunner):
@@ -256,8 +261,8 @@ class PsqlDirect(_PsqlRunner):
         if psql_command is None:
             self.psql_command = _real_psql(connect, check_sql, env)
 
-    def run(self, function: str, payload: dict, actor: str) -> dict:
-        return self._run_psql(
+    def _argv(self) -> list[str]:
+        return (
             self.psql_command
             + [
                 "-X",
@@ -274,8 +279,5 @@ class PsqlDirect(_PsqlRunner):
                 self.database,
                 "-f",
                 "-",
-            ],
-            function,
-            payload,
-            actor,
+            ]
         )

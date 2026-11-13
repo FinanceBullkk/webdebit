@@ -83,6 +83,53 @@ class PriceMatchTest(unittest.TestCase):
         # A dated Sheet row never falls back to container alone.
         self.assertEqual(status([sheet(date="2026-01-01")], {"Khach gia A": book([trip()])}), ["NOT_FOUND"])
 
+    def test_undated_sheet_row_with_an_identical_undated_web_copy_asks_nothing(self):
+        # GHEP-KHONG-NGAY-01. Đo trên `hao` 13/11/2026: container dùng lại nhiều chuyến, dòng Sheet không ngày đã có đúng bản sao
+        # không ngày trong sổ gốc, nhưng một chuyến có ngày chưa giá làm cả dòng thành "khớp nhiều chuyến".
+        def copy(row_id=21, price="50000000", counted="50000000"):
+            return {"id": row_id, "kind": "trip", "month": "2026-06-01", "current": {
+                "container": "FAKEU0000001", "event_date": None, "unit_price_vnd": price, "other_fee_vnd": None,
+                "counted_vnd": counted, "month": "2026-06-01", "deleted": False}}
+
+        def found(rows, ledger):
+            return [(r["status"], r["target_id"]) for r in pm.match(rows, {"Khach gia A": ledger})]
+        undated = sheet(date=None) | {"sheet_total_vnd": 50000000}
+        second = undated | {"source_row": 6}
+        later = [trip(), trip(12, date="2026-07-01", price="60000000")]   # cùng container, có ngày; một chuyến chưa giá
+        rows = pm.match([undated], {"Khach gia A": book(later, [copy()])})
+        self.assertEqual((rows[0]["status"], rows[0]["match_basis"], rows[0]["target_kind"], rows[0]["target_id"]),
+                         ("PRICE_UNCHANGED", "undated_copy", "legacy", 21))
+        # Chỉ bản sao giống hệt là ứng viên: dòng không ngày khác số hoặc chưa giá của cùng container không chen vào.
+        self.assertEqual(found([undated], book(later, [copy(), copy(22, "49000000", "49000000")])), [("PRICE_UNCHANGED", 21)])
+        self.assertEqual(found([undated], book(later, [copy(), copy(22, None, None)])), [("PRICE_UNCHANGED", 21)])
+        # Hình đo được trên `hao`: hai dòng Sheet, hai bản sao, mỗi dòng đúng một bản (một có phụ phí, một không).
+        with_fee = sheet(6, date=None, price=10500000, fee=840000) | {"sheet_total_vnd": 11340000}
+        plain = sheet(7, date=None, price=10500000) | {"sheet_total_vnd": 10500000}
+        pair = [copy(21, "10500000", "11340000"), copy(22, "10500000", "10500000")]
+        self.assertEqual(found([with_fee, plain], book(later, pair)), [("PRICE_UNCHANGED", 21), ("PRICE_UNCHANGED", 22)])
+        # Hai bản sao giống hệt nhau: không biết dòng nào của dòng nào, nhưng đều đã có giá nên không có gì để ghi.
+        self.assertEqual(found([undated], book(later, [copy(), copy(22)])), [("AMBIGUOUS_PRICED", "")])
+        # Không có bản sao giống hệt thì vẫn hỏi như cũ: khác đơn giá, khác tổng tính tiền, dòng web chưa giá,
+        # Sheet thiếu TỔNG (trống không phải 0), Sheet trống giá.
+        self.assertEqual(found([undated], book(later, [copy(price="49000000", counted="49000000")])), [("AMBIGUOUS", "")])
+        self.assertEqual(found([undated], book(later, [copy(counted="50840000")])), [("AMBIGUOUS", "")])
+        self.assertEqual(found([undated], book(later, [copy(price=None, counted=None)])), [("AMBIGUOUS", "")])
+        self.assertEqual(found([sheet(date=None)], book(later, [copy()])), [("AMBIGUOUS", "")])
+        self.assertEqual(found([sheet(date=None, price=None) | {"sheet_total_vnd": 50000000}], book(later, [copy()])),
+                         [("AMBIGUOUS", "")])
+        self.assertEqual(found([sheet(date=None, price=None) | {"sheet_total_vnd": 0}], book(later, [copy(price=None, counted="0")])),
+                         [("AMBIGUOUS", "")])
+        # Hai dòng Sheet cùng nhận một bản sao: một dòng thừa hoặc dòng web kia còn thiếu, vẫn hỏi cả hai.
+        self.assertEqual(found([undated, second], book(later, [copy()])), [("AMBIGUOUS", 21), ("AMBIGUOUS", 21)])
+        self.assertEqual(found([undated, second], book(later, [copy(), copy(22, "49000000", "49000000")])),
+                         [("AMBIGUOUS", 21), ("AMBIGUOUS", 21)])
+        # Luật cũ không hỏi (mọi ứng viên đã có giá) thì luật mới không chen vào: không câu hỏi nào mới hiện.
+        priced = [trip(price="60000000"), trip(12, date="2026-07-01", price="60000000")]
+        self.assertEqual(found([undated, second], book(priced, [copy()])), [("AMBIGUOUS_PRICED", ""), ("AMBIGUOUS_PRICED", "")])
+        self.assertEqual(pm.match([undated], {"Khach gia A": book(priced, [copy()])})[0]["match_basis"], "container_only")
+        # Dòng Sheet có ngày không dùng luật này.
+        self.assertEqual(found([sheet() | {"sheet_total_vnd": 50000000}], book(later, [copy()])), [("READY", 11)])
+
     def test_fee_is_total_minus_unit_price_when_the_sheet_has_both(self):
         # Kiểm Sheet 3/11/2026: cột BAO HIEM, cột không tiêu đề, tiêu đề tiếng Trung không qua bộ quét "OTHER FEE";
         # TỔNG vẫn cộng chúng. GIA-NGUON-01: tổng phụ phí theo sổ gốc, nên phụ phí = TỔNG − đơn giá.

@@ -1867,6 +1867,18 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql` chạy sau `2026-11-13-v7-cot-phu-phi-mac-dinh.sql` ([spec](../specs/hieu-nang-01.md)). Chỉ thêm hàm đọc `get_read_stamp` (md5 của số dòng và tổng xmin mọi bảng `sokhach`, ngày VN) và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, hàm có sẵn hay dữ liệu. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release. Release mới với DB cũ đọc thẳng như trước (lấy dấu lỗi thì bỏ qua bộ nhớ). Release cũ chạy được với DB mới (hàm mới không ai gọi).
+
+Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, dấu vân tay không đổi, checker), gọi `get_read_stamp` hai lần liền trên bản sao (trùng) rồi sau một lệnh ghi thử trên bản sao (khác). Sau đổi release: đo lại `GET /api/v7/dashboard/debt` hai lần (lần hai nhanh), ghi một lệnh rồi đọc lại sổ đó (thấy ngay).
+
+**Sửa tay** (migration dữ liệu, `psql` trực tiếp, `CREATE OR REPLACE` hàm hay view trong `sokhach`): đều đổi dấu, nên API tự đọc lại; không cần khởi động lại dịch vụ. Đổi thứ gì ngoài schema `sokhach` mà các hàm đọc phụ thuộc (hiện không có) thì phải khởi động lại API.
+
+Rollback: `DROP FUNCTION sokhach.get_read_stamp();` (không dữ liệu nào phụ thuộc); release mới khi đó tự đọc thẳng DB.
+
 ## Xem lại trước khi lưu bảng giá (BANG-GIA-05) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql` chạy sau `2026-11-13-v7-noi-den-tuy-chon.sql` ([`BANG-GIA-05`](decisions/bang-gia-05.md)). Chỉ thêm hàm `preview_price_table` (gọi đúng `save_price_table` trong khối con rồi hoàn tác) và cấp `EXECUTE` cho `sokhach_app`; không đổi bảng, hàm có sẵn, giá chuyến hay số dư. Chạy lại được.
