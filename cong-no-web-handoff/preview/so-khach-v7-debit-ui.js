@@ -268,19 +268,45 @@
     list.hidden = false;
     input.setAttribute('aria-expanded', 'true');
     input.setAttribute('aria-activedescendant', options.length ? `dn4-${kind}-0` : '');
+    fitList(kind);
   }
+  // Điện thoại (DIEN-THOAI-DEBIT-01, bổ sung 13/11): danh sách thả xuống của ô dưới cùng bị thanh nút đáy và bàn phím che (đo khung iPhone 13
+  // trên WebKit 13/11/2026: "Gửi cho" chỉ thấy 27/260px). Khi danh sách mở: ẩn xem trước và thanh nút (.is-picking), kéo ô lên
+  // đầu vùng cuộn, danh sách cao vừa phần màn còn thấy trên bàn phím (visualViewport); đóng danh sách thì trả lại như cũ.
+  let picking = null;
+  function fitList(kind) {
+    if (!narrow()) return;
+    const panel = dialog.querySelector('.dn4'), form = dialog.querySelector('.dn4-form'), box = comboOf(kind);
+    const input = box.querySelector('input'), list = box.querySelector('.dn4-list');
+    if (picking !== kind) {
+      picking = kind;
+      panel.classList.add('is-picking');
+      form.scrollTop += box.getBoundingClientRect().top - form.getBoundingClientRect().top;
+    }
+    const view = window.visualViewport, bottom = view ? view.offsetTop + view.height : innerHeight;
+    list.style.maxHeight = `${Math.max(132, Math.floor(bottom - input.getBoundingClientRect().bottom - 10))}px`;
+  }
+  function unfitList(kind) {
+    if (picking !== kind) return;
+    picking = null;
+    dialog.querySelector('.dn4')?.classList.remove('is-picking');
+    comboOf(kind)?.querySelector('.dn4-list').style.removeProperty('max-height');
+  }
+  window.visualViewport?.addEventListener('resize', () => { if (open?.v4 && picking) fitList(picking); });
   function closeList(kind) {
     const box = comboOf(kind);
     if (!box) return;
     box.querySelector('.dn4-list').hidden = true;
     box.querySelector('input').setAttribute('aria-expanded', 'false');
     box.querySelector('input').removeAttribute('aria-activedescendant');
+    unfitList(kind);
     showPick(kind);
   }
   function choose(kind, id) {
     const changed = open.state[kind] !== id;
     open.state[kind] = id;
     closeList(kind);
+    if (narrow()) comboOf(kind).querySelector('input').blur();   // điện thoại: chọn xong thì cất bàn phím, hiện lại nút Gửi Excel
     if (kind === 'issuer' && changed) {   // đổi công ty đứng tên: tài khoản theo khối của công ty đó
       open.state.account = ownDefault(issuerOf(open.directory, id));
       showPick('account');
@@ -348,6 +374,7 @@
     open = { v4: true, monthKey, opener, config, configError, directory, directoryError,
       state: { issuer, account: keep(remembered.account, accountsFor(directory, issuer), 'id'), bill: keep(remembered.bill, companies, 'pickLabel'),
         accountStatus: remembered.accountStatus === true, nameEn: saved.nameEn || name.en, nameZh: saved.nameZh ?? name.zh } };
+    picking = null;
     const months = [...new Set([monthKey, ...monthsOnBook()])].sort().reverse();
     dialog.innerHTML = `<div class="debit-panel dn4"><header><div class="dn4-head"><h2>Debit note · ${escape(defaultDisplay())}</h2><small class="debit-status"></small></div>`
       + `<select class="dn4-month" aria-label="Tháng công nợ">${months.map(key => `<option value="${key}"${key === monthKey ? ' selected' : ''}>Tháng ${escape(monthLabel(key))}</option>`).join('')}</select>`

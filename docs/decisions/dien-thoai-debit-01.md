@@ -17,6 +17,14 @@ Không đổi: màn từ 760px trở lên (hai cột, cỡ xem trước .6/.82),
 
 Bổ sung 12/11/2026 (ảnh iPhone của người dùng sau khi bản đầu lên `hao`): Safari trên iPhone tự phóng to chữ trong khung xem trước vì trang A4 rộng hơn khung, nên chữ đè nhau. Mọi khung xem trước và khung in của debit note đặt `text-size-adjust: 100%` để tắt việc này. Phép chia trang v4 đo ngay trong các khung đó nên cũng đo đúng cỡ chữ.
 
+Bổ sung 13/11/2026 (Claude test hộp v4 trên WebKit, khung iPhone 13 trong Safari 390×664, dữ liệu giả): danh sách thả xuống của ô "Gửi cho" mở ngay trên thanh nút đáy, chỉ thấy 27/260px; bàn phím iPhone còn che thêm nửa dưới màn. Dưới 760px, khi danh sách của một ô mở:
+
+1. Ẩn bản xem trước và thanh nút Gửi Excel / PDF; khối đệm cuối vùng cuộn cho phép kéo cả ô dưới cùng lên sát đầu khung.
+2. Danh sách cao vừa phần màn còn thấy (`visualViewport`, tức trên bàn phím), ít nhất 132px.
+3. Chọn một dòng thì cất bàn phím; đóng danh sách thì xem trước và thanh nút hiện lại.
+
+Màn từ 760px trở lên không đổi.
+
 ## Ngày / nguồn
 
 12/11/2026, chat: người dùng báo "UI trên điện thoại cho xuất debit note đang lỗi". Đo ở 390×844 với dữ liệu giả: hộp giữ bố cục màn rộng, form cố định 320px nên cột kiểm và xem trước chỉ còn 46px; nút In bị khóa nhưng trông như bấm được.
