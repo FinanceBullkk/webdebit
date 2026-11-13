@@ -361,8 +361,10 @@
         if (cancel) cancel.disabled = false;
         showNotice(error.message); return;
       } finally { pasteWriting = false; }
-      // Mất mạng giữa chừng: chưa đọc lại sổ nên khung còn đó. Đóng khung, đưa tiêu điểm tới "Thử lại thao tác vừa gửi" ở đầu sổ.
-      if (api.lastOutcome()?.status === 'unknown') { closePaste(false); root.querySelector('.retry-command')?.focus(); return; }
+      // Xong, dừng hay chưa rõ: khung không còn việc gì (đọc lại sổ lỗi thì khung còn trong DOM, đóng nốt để không kẹt).
+      // Chưa rõ kết quả: tiêu điểm tới "Thử lại thao tác vừa gửi" ở đầu sổ.
+      closePaste(false);
+      if (api.lastOutcome()?.status === 'unknown') { root.querySelector('.retry-command')?.focus(); return; }
       // Sổ đã đọc lại và vẽ lại (khung xem lại mất theo): tiêu điểm về ô Đơn giá đã dán vào.
       findMark(back)?.focus();
     });

@@ -223,8 +223,8 @@
       }
     }
     async function submit(action, fields) {
+      outcome = null;   // trước mọi lần từ chối: kết quả của lệnh trước (hay chuỗi giá) không được đọc nhầm là của lệnh này
       if (running) throw Error(busyText);
-      outcome = null;
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
       const route = routes[action];
@@ -266,17 +266,20 @@
         }
         if (!response.ok && result?.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown', done: run.index, total }; return { notice: unknown }; }
         if (!response.ok || !Number.isSafeInteger(result?.version)) {
-          pending = null; series = null;
-          outcome = { status: 'stopped', done: run.index, total, result };
+          pending = null;
           try { await read(); } catch { /* sổ không đọc lại được: câu báo dưới đây vẫn nói rõ đã ghi bao nhiêu */ }
+          series = null;
+          outcome = { status: 'stopped', done: run.index, total, result };
           return { notice: `Ghi được ${run.index}/${total} giá rồi dừng: ${result?.message || 'không lưu được thao tác.'} Kiểm tra các chuyến còn lại.` };
         }
         run.version = result.version; run.index += 1; pending = null;
       }
+      // Chuỗi còn giữ (đang chạy) tới khi đọc lại sổ xong: lệnh khác gửi vào lúc đó vẫn bị chặn, không đọc nhầm kết quả.
+      let readBack = true;
+      try { await read(); } catch { readBack = false; }
       series = null;
       outcome = { status: 'saved', done: total, total };
-      try { await read(); } catch { return { notice: `Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` }; }
-      return { notice: `Đã ghi ${total} giá.` };
+      return { notice: readBack ? `Đã ghi ${total} giá.` : `Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` };
     }
     async function submitSeries(action, list) {
       if (running) throw Error(busyText);
@@ -294,6 +297,7 @@
     }
     // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.
     async function submitOffset(action, fields) {
+      outcome = null;
       if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
@@ -333,6 +337,7 @@
     }
     // Lệnh danh mục: trả {status, result} như cấn trừ; xong thì đọc lại sổ (send) để vẽ lại.
     async function submitCatalog(action, fields) {
+      outcome = null;
       if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       const route = catalogRoutes[action];
@@ -423,7 +428,8 @@
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
-      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series, snapshot: () => snapshot,
+      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series || !!running, snapshot: () => snapshot,
+      pendingKey: () => pending?.body?.idempotency_key ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
       // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
       progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };
   }

@@ -159,3 +159,36 @@ test('đang ghi: đầu sổ báo tiến độ, không có Thử lại, Thôi kh
   assert.deepEqual(pricePosts(w).map(body => body.trip_id), [11, 13, 15]);
   assert.equal(posts(w).filter(([path]) => path === '/api/v7/legacy/edit').length, 0);
 }, world));
+
+test('đang đọc lại sổ sau lệnh giá cuối: Ghi phiếu thu bị chặn, không báo đã ghi phiếu; đọc lại lỗi thì khung đóng, không kẹt', async () => {
+  await withPage(async ({ page, world: w }) => {
+    await paste(page, 11, '45000000\n30000000\n42000000');
+    await page.locator('.entry-open').evaluate(node => node.click());
+    await page.locator('.entry-drawer .receipt-date').fill('20/09/2026');
+    await page.locator('.entry-drawer .receipt-amount').fill('5000000');
+    await page.locator('.entry-drawer .receipt-amount').press('Enter');
+    let prices = 0;
+    const third = page.waitForResponse(response => response.url().includes('/api/v7/trips/price') && ++prices === 3);
+    await page.route(url => url.pathname === '/api/v7/ledger', async route => {
+      if (prices >= 3) await new Promise(resolve => setTimeout(resolve, 1500));
+      return route.continue();
+    });
+    await page.locator('.paste-write').evaluate(node => node.click());
+    await third;
+    await page.locator('.entry-drawer .receipt-save').click();
+    assert.match(await page.locator('.entry-drawer .entry-error').innerText(), /Còn thao tác khác chưa xong/);
+    await page.waitForFunction(() => document.querySelector('td.editable[data-trip="15"]')?.textContent.startsWith('42.000.000'));
+    assert.equal(posts(w).filter(([path]) => path === '/api/v7/receipts').length, 0);
+    assert.equal(await page.locator('.saved-strip').count(), 0, 'không báo đã ghi phiếu');
+  }, world);
+  await withPage(async ({ page }) => {
+    await paste(page, 11, '45000000\n30000000');
+    let prices = 0;
+    await page.route('**/api/v7/trips/price', async route => { prices += 1; return route.continue(); });
+    await page.route(url => url.pathname === '/api/v7/ledger', async route => (prices >= 2
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }) : route.continue()));
+    await page.locator('.paste-write').click();
+    await page.waitForFunction(() => /không tải lại được sổ/.test(document.querySelector('.cn-toast .live-notice')?.textContent ?? ''));
+    assert.equal(await page.locator('.paste-review').count(), 0, 'khung đóng, không kẹt ở "Đang ghi…"');
+  }, world);
+});
