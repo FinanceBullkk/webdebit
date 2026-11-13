@@ -1,0 +1,46 @@
+/* Thông báo nổi và băng trạng thái của sổ (THONG-BAO-01, specs/v7-thong-bao.md). Màu lấy theo cong-no-theme.css
+   (--credit, --warning, --critical và bản -soft); trang sổ không nạp file đó nên giá trị viết lại ở đây. */
+.cn-toast-host{--ok:#0f766e;--warn:#9a5b00;--warn-soft:#fdf3e1;--bad:#c8322f;--bad-soft:#fdecea;
+  position:fixed;left:92px;bottom:20px;z-index:95;max-width:min(520px,calc(100vw - 108px));pointer-events:none}
+.cn-toast-host[hidden]{display:none}
+.cn-toast{position:relative;display:flex;align-items:flex-start;gap:12px;min-width:320px;padding:12px 8px 12px 14px;overflow:hidden;
+  background:#fff;border:1px solid #d7dce3;border-radius:10px;box-shadow:0 12px 32px #16324f2e,0 2px 6px #16324f14;color:#1a1a19;
+  font:15px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif;pointer-events:auto}
+.cn-toast-icon{flex:none;display:flex;margin-top:0}
+.cn-toast.is-ok .cn-toast-icon{color:var(--ok)}
+.cn-toast.is-warn{background:var(--warn-soft);border-color:#ecd3a4}
+.cn-toast.is-warn .cn-toast-icon{color:var(--warn)}
+.cn-toast.is-error{background:var(--bad-soft);border-color:#ebb7b4}
+.cn-toast.is-error .cn-toast-icon{color:var(--bad)}
+.cn-toast-text{flex:1;min-width:0;margin:1px 0 0;overflow-wrap:anywhere}
+.cn-toast-close{flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px;margin:-5px 0 -5px 4px;padding:0;
+  border:0;border-radius:6px;background:transparent;color:#52514e;cursor:pointer}
+.cn-toast-close:hover{background:#16324f14;color:#1a1a19}
+.cn-toast-close:focus-visible{outline:2px solid #2a78d6;outline-offset:1px}
+.cn-toast-close svg{width:18px;height:18px}
+/* Thanh đếm mỏng ở đáy: chỉ thông báo tự tắt mới có; rê chuột thì dừng cùng lúc với đồng hồ của JS. */
+.cn-toast-timer{display:none;position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--ok);opacity:.55;transform-origin:left}
+.cn-toast.is-ok .cn-toast-timer{display:block}
+.cn-toast.is-ok.entering .cn-toast-timer{animation:cn-toast-count var(--cn-toast-ms,5000ms) linear forwards}
+.cn-toast.paused .cn-toast-timer{animation-play-state:paused}
+.cn-toast.entering{animation:cn-toast-in .18s ease-out}
+@keyframes cn-toast-in{from{opacity:0;transform:translateY(8px)}}
+@keyframes cn-toast-count{to{transform:scaleX(0)}}
+@media (prefers-reduced-motion:reduce){.cn-toast.entering{animation:none}.cn-toast-timer{display:none!important}}
+@media (max-width:760px){.cn-toast-host{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-width:none}.cn-toast{min-width:0}}
+@media print{.cn-toast-host{display:none}}
+
+/* Băng trạng thái của sổ: chỉ tình trạng kéo dài (Sheet không đọc được, khách chưa có số dư đầu, thao tác chưa rõ kết quả). */
+.book-status{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.book-status:empty{display:none}
+.book-status-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 12px;border:1px solid #ecd3a4;border-left-width:4px;
+  border-radius:8px;background:#fdf3e1;color:#5c3800;font-size:15px}
+.book-status-row svg{flex:none;width:20px;height:20px;color:#9a5b00}
+.book-status-row span{flex:1;min-width:0}
+.book-status-row.is-error{border-color:#ebb7b4;background:#fdecea;color:#8a1f1f}
+.book-status-row.is-error svg{color:#c8322f}
+.book-status-row .retry-command{flex:none;min-height:34px;padding:0 14px;border:1px solid #a01616;border-radius:6px;background:#fff;color:#8a1414;
+  font:inherit;font-weight:700;cursor:pointer}
+.book-status-row .retry-command:hover{background:#fff5f5}
+@media (max-width:760px){.book-status-row{flex-wrap:wrap;padding:8px 12px}.book-status-row span{flex-basis:calc(100% - 30px)}
+  .book-status-row .retry-command{min-height:40px;margin-left:30px}}
