@@ -96,20 +96,66 @@ const feeTypes = [{ id: 1, name: 'Neo' }, { id: 2, name: 'Điện' }, { id: 3, n
 const build = (data = ledger()) => v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [2, 1], config,
   form: { number: 'HTH-2611-001', issueDate: '', customer: { nameEn: 'FANYA', nameZh: '泛亚' } } });
 
-test('Từ sổ V7: cột theo cột phụ phí của sổ + Khác, ẩn cột cả chứng từ bằng 0, xếp theo ngày rồi số container, phí lẻ cuối bảng', () => {
+const SEVEN = ['Storage 早装产生费用', 'Trucking 拼柜', 'Generator / electricity fee 发电机/电费', 'Overstay 押车', 'HC fee 卫生证',
+  'Cancellation fee 取消订柜费', 'AMD fee 改单费'];
+test('Từ sổ V7: bảy cột phí luôn in (DEBIT-NOTE-04), phí vào đúng cột theo loại, xếp theo ngày rồi số container, phí lẻ cuối bảng', () => {
   const doc = build();
-  assert.deepEqual(doc.columns.map(column => `${column.en} ${column.cn}`), ['Unit price 单价', 'Overstay 押车', 'Other fees 其他费用']);
+  assert.deepEqual(doc.columns.map(column => `${column.en} ${column.cn}`), ['Unit price 单价', ...SEVEN, 'Other fees 其他费用']);
   assert.deepEqual(doc.rows.map(row => [row.no, row.container, row.date]), [[1, 'ABCU1234560', '2026-11-02'], [2, 'TGHU2222222', '2026-11-02'],
     [3, 'TGHU1111111', '2026-11-09'], [null, '', '2026-11-20']]);
-  assert.deepEqual(doc.rows[1].cells, { LUMP_SUM: 80000000n, OTHER: 2000000n });   // Phụ phí ban đầu + Health cert không phải cột riêng → Khác
+  // Health cert vào HC fee dù sổ không chọn làm cột riêng; Phụ phí ban đầu không thuộc bảy loại → Other fees.
+  assert.deepEqual(doc.rows[1].cells, { LUMP_SUM: 80000000n, OTHER: 1500000n, HC_FEE: 500000n });
   assert.equal(doc.rows[1].shipper, 'Cong ty Anh');   // không in tiếng Việt
   assert.deepEqual([doc.rows[1].place.text, doc.rows[1].pod.text], ['Tien Giang', 'Qingdao']);
   assert.deepEqual(doc.rows[3].cells, { LUMP_SUM: null, OTHER: 300000n });
   assert.equal(doc.total.count, 3);
   assert.equal(doc.total.amount, 217300000n);
-  assert.deepEqual(doc.total.cells, { LUMP_SUM: 210000000n, OVERSTAY: 5000000n, OTHER: 2300000n });
+  assert.deepEqual(doc.total.cells, { LUMP_SUM: 210000000n, STORAGE: 0n, TRUCKING: 0n, GENSET: 0n, OVERSTAY: 5000000n, HC_FEE: 500000n,
+    CANCELLATION: 0n, AMENDMENT: 0n, OTHER: 1800000n });
+  // Cột cả tháng bằng 0 in "–" ở mọi dòng và ở Total.
+  assert.equal(v4.money(v4.cellValue(doc.rows[0], 'STORAGE')), '–');
   assert.deepEqual(blocks(doc), []);
   assert.ok(v4.checks(doc).some(item => item.level === 'info' && /1 chuyến đang CHỜ KIỂM/.test(item.text)));
+  // Other fees chỉ in khi có số; cột riêng ngoài bảy loại (Bảo hiểm) in khi có số, đứng trước Other fees.
+  const plain = ledger();
+  plain.trips.forEach(trip => { trip.fee_lines = trip.fee_lines.filter(line => line.fee_type_id === 1); });
+  plain.trips[3].is_fee_only = false; plain.trips[3].container = 'TGHU4444444'; plain.trips[3].unit_price_vnd = '300000';
+  const insured = { ...ledger() };
+  insured.trips[0].fee_lines.push({ fee_type_id: 6, amount_vnd: '100000' });
+  insured.trips[0].amount_vnd = '75100000';
+  const types = [...feeTypes, { id: 6, name: 'Bảo hiểm' }];
+  const codes = data => v4.fromLedger(data, '2026-11', { model, feeTypes: types, feeColumnIds: [6, 1], config, form: {} }).columns.map(column => column.code);
+  assert.deepEqual(codes(plain), ['LUMP_SUM', 'STORAGE', 'TRUCKING', 'GENSET', 'OVERSTAY', 'HC_FEE', 'CANCELLATION', 'AMENDMENT']);
+  assert.deepEqual(codes(insured), ['LUMP_SUM', 'STORAGE', 'TRUCKING', 'GENSET', 'OVERSTAY', 'HC_FEE', 'CANCELLATION', 'AMENDMENT', 'INSURANCE', 'OTHER']);
+});
+
+test('Bảy cột phí vừa A4 ngang: cột phí co theo số, tiêu đề xuống dòng, chữ thu nhỏ đều khi cần; chứng từ ít cột in như cũ', () => {
+  const width = layout => layout.no + layout.container + layout.line + layout.date + layout.place + layout.pod + layout.amount
+    + layout.fees.reduce((a, b) => a + b, 0);
+  const doc = build();
+  const layout = v4.columnLayout(doc);
+  assert.ok(layout.compact && width(layout) + layout.shipperMin <= 1034, `bảng rộng ${width(layout)} + Shipper ${layout.shipperMin} > 1034`);
+  assert.ok(layout.fees.every((fee, index) => fee <= doc.columns[index].width), layout.fees.join(','));
+  assert.ok(layout.fees[0] >= 70, String(layout.fees[0]));   // Unit price đủ cho số Total in đậm
+  const html = v4.pageHtml(doc, 'single', doc.rows);
+  assert.match(html, /font-weight: 700">Generator \/ electricity fee</);   // tiêu đề phí được xuống dòng
+  // Tên Trung dài và nhiều chữ: chữ bảng thu nhỏ đều (không dưới 80%) hoặc tên Trung xuống dòng; vẫn vừa bề ngang.
+  const data = ledger();
+  data.trips.forEach(trip => Object.assign(trip, { origin: 'Kim Cuong Tb', destination: 'Mong Cai', shipper: 'Cong ty Thu Nghiem Rat Dai Ten' }));
+  const cn = v4.fromLedger(data, '2026-11', { model, feeTypes, feeColumnIds: [], config: { ...config, show_place_cn: true }, form: {} });
+  const tight = v4.columnLayout(cn);
+  assert.ok(tight.zoom >= 0.8 && width(tight) + tight.shipperMin <= 1034, JSON.stringify(tight));
+  const page = v4.pageHtml(cn, 'single', cn.rows);
+  if (tight.zoom < 1) assert.match(page, new RegExp(`data-blk="TABLE"[^>]*font-size: ${12 * tight.zoom}px`));
+  if (tight.stack) assert.match(page, /<span style="display: block">Kim Cuong Tb<\/span><span style="display: block">同奈省壮奔县<\/span>/);
+  // Mẫu ít cột (sample-14: 5 cột) vẫn như cũ: bề rộng cấu hình, cỡ chữ 12px, tiêu đề một dòng.
+  // Excel v4 cũng có đủ bảy cột, cột trống cả tháng in "–" ở dòng Total.
+  const sheet = readSheet(unzip(require('./debit-note-v4-xlsx.js').xlsx(doc))['xl/worksheets/sheet1.xml']);
+  for (const column of doc.columns.slice(1, 8)) assert.ok(sheet.find(`${column.en}\n${column.cn}`), column.code);
+  const few = v4.fromSample(sample('sample-14'), config);
+  const plain = v4.columnLayout(few);
+  assert.deepEqual([plain.fees, plain.zoom, plain.compact], [few.columns.map(column => column.width), 1, false]);
+  assert.doesNotMatch(v4.pageHtml(few, 'single', few.rows), /font-weight: 700">Unit price</);
 });
 
 test('ACCOUNT STATUS từ months[] của máy chủ: Opening = nợ trước tháng; Payments = thu + cấn trừ + điều chỉnh; Outstanding = cuối tháng', () => {
@@ -284,7 +330,7 @@ test('Tên tiếng Trung của nơi/cảng (DIA-DIEM-01): bản in và Excel v4 
   assert.deepEqual(on.excel, ['Tien Giang  前江省', 'Qingdao  青岛港']);
   assert.ok(on.widths[5] > off.widths[5] && on.widths[6] > off.widths[6]);
   assert.doesNotMatch(off.html, /青岛港/);
-  assert.match(on.html, /white-space: nowrap">Qingdao 青岛港</);
+  assert.match(on.html, /white-space: nowrap(; font-size: [\d.]+px)?">Qingdao 青岛港</);   // bảy cột phí luôn in: chữ có thể thu nhỏ
 });
 
 test('Tên tiếng Trung cùng dòng (người dùng 11/11/2026): nhiều cột phí và tên dài thì chữ hai cột nơi/cảng thu nhỏ, không dưới 9px, không xuống dòng', () => {

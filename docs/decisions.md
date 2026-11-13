@@ -123,6 +123,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="tai-khoan-cot-e-01"></a>[TAI-KHOAN-COT-E-01](decisions/tai-khoan-cot-e-01.md) | Cột ngân hàng (E) cùng khối là tài khoản của chính công ty; debit note v4 chọn Đứng tên thì Nhận tiền vào tự lấy tài khoản USD đầu tiên của khối | Chốt 12/11/2026; thay điểm 3 "không tự chọn tài khoản" của [THONG-TIN-CTY-01](#thong-tin-cty-01) |
 | <a id="dien-thoai-nut-01"></a>[DIEN-THOAI-NUT-01](decisions/dien-thoai-nut-01.md) | Nút trên điện thoại: vùng bấm ít nhất 40px (44px với ô lọc, ô chọn) ở Sổ, Công nợ theo tháng, Máy chạy |  |
 | <a id="dien-thoai-debit-01"></a>[DIEN-THOAI-DEBIT-01](decisions/dien-thoai-debit-01.md) | Hộp Debit note trên điện thoại: phủ cả màn, một cột (Chặn/Cảnh báo → form → xem trước vừa khung); nút xuất khóa thì mờ |  |
+| <a id="debit-note-04"></a>[DEBIT-NOTE-04](decisions/debit-note-04.md) | Debit note v4 từ sổ luôn có bảy cột phí của mẫu Excel (Storage, Trucking, Generator, Overstay, HC fee, Cancellation, AMD); phí vào cột theo tên loại; bảng chật thì cột phí hẹp, chữ thu nhỏ tới 80%, tên Trung xuống dòng | Chốt 13/11/2026; thay điểm 1 (cột phí theo cột của sổ) của [DEBIT-NOTE-03](#debit-note-03); Sổ không đổi |
 
 ## Cập nhật khóa tháng 24/10/2026
 

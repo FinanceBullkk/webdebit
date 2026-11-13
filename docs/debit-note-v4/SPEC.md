@@ -87,12 +87,12 @@ Bốn khối, mỗi khối trả lời một câu hỏi:
 - Các cột số căn phải có `padding-left: 8px`. Mỗi hàng của bảng có `padding-right: 8px`.
 - **Tự cân cột chữ (người dùng 12/11/2026)**: bề rộng px ở bảng trên chỉ là bản thiết kế. Khi xuất, Container no., Line, Loading date, Loading place, POD rộng theo chữ dài nhất của chứng từ (cả tiêu đề), đo thật bằng font của trang trước khi chia trang, cộng khoảng hở 12px bên phải mỗi cột chữ (kể cả Shipper); chỗ còn dư khi Shipper đã đủ một dòng chia đều cho các cột chữ (mỗi cột tối đa 48px), phần lẻ cho Shipper. Không đủ chỗ thì như trước: chữ nơi/cảng thu nhỏ (khi in tên tiếng Trung) và Shipper xuống dòng. Cột phí giữ bề rộng theo cấu hình.
 - Thứ tự cột cố định, vì khách đối chiếu theo thứ tự này.
-- Cột phí hiện hay ẩn tính theo **toàn bộ chứng từ**: mọi trang có cùng bộ cột. Ẩn cột nào thì cột Shipper rộng ra.
+- Cột phí hiện hay ẩn tính theo **toàn bộ chứng từ**: mọi trang có cùng bộ cột. Ẩn cột nào thì cột Shipper rộng ra. Chứng từ xuất từ sổ (bản live) thì bảy cột Storage, Trucking, Generator / electricity fee, Overstay, HC fee, Cancellation fee, AMD fee **luôn hiện** kể cả tổng bằng 0 ([DEBIT-NOTE-04](../decisions/debit-note-04.md)); bảng trên chỉ còn đúng cho dữ liệu mẫu.
 - Ô phí bằng 0 ghi `–` (gạch ngang ngắn, U+2013).
 - Danh sách liền, không chia nhóm, không dòng cộng phụ. Xếp theo Loading date tăng dần, rồi B/L no., rồi Container no. Số thứ tự chạy liền qua các trang.
 - Tiêu đề cột: nền `#E6EBF2`, chữ navy, tiếng Anh 700 (`white-space: nowrap`) ở trên, tiếng Trung 400 ở dưới. Hàng dữ liệu cao 25px (18 + 3 + 3 + kẻ 1px `#B8C0CB`); dòng cuối của mỗi trang không kẻ.
 - Dòng Total chỉ có ở trang cuối, cộng **mọi** container của chứng từ. Kẻ đơn navy 1px ở trên, kẻ đôi navy 3px ở dưới, ô Amount chữ navy.
-- Các phí khác trong danh mục cũ (TRUCKING `拼柜`, CANCELLATION FEE `取消订柜费`, AMD FEE `改单费`) chưa có chỗ trong mẫu. Nếu dữ liệu thật có hơn 5 cột phí cần hiện, **dừng lại hỏi**, vì quy tắc gộp cột đang chờ team chốt. Đừng tự co chữ hay thu cột.
+- ~~Các phí khác trong danh mục cũ (TRUCKING `拼柜`, CANCELLATION FEE `取消订柜费`, AMD FEE `改单费`) chưa có chỗ trong mẫu. Nếu dữ liệu thật có hơn 5 cột phí cần hiện, dừng lại hỏi. Đừng tự co chữ hay thu cột.~~ Thay bởi [DEBIT-NOTE-04](../decisions/debit-note-04.md) (13/11/2026): bảy cột luôn hiện; bảng không vừa thì lần lượt (1) cột phí hẹp theo số dài nhất, tiêu đề Anh tối đa hai dòng; (2) chữ cả bảng thu nhỏ đều, nhỏ nhất 80%; (3) tên Trung của nơi/cảng xuống dòng dưới tên Latin. Chứng từ ít cột vẫn in như bảng trên.
 
 ### 4.3 Định dạng
 
