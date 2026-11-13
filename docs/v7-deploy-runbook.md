@@ -1867,7 +1867,7 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
-## Xem lại trước khi lưu bảng giá (BANG-GIA-05) — nâng DB đang có
+## Xem lại trước khi lưu bảng giá (BANG-GIA-05) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql` chạy sau `2026-11-13-v7-noi-den-tuy-chon.sql` ([`BANG-GIA-05`](decisions/bang-gia-05.md)). Chỉ thêm hàm `preview_price_table` (gọi đúng `save_price_table` trong khối con rồi hoàn tác) và cấp `EXECUTE` cho `sokhach_app`; không đổi bảng, hàm có sẵn, giá chuyến hay số dư. Chạy lại được.
 
