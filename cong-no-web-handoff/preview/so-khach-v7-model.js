@@ -522,6 +522,12 @@ const SoKhachV7Model = (() => {
     };
   }
 
+  // Bước xem lại bảng giá (BANG-GIA-05): giá một ô trước → sau, chỉ để hiển thị. Thiếu một bên (NULL ≠ 0) thì không có mức đổi.
+  function priceTableChange(beforeVnd, afterVnd) {
+    if (beforeVnd == null || afterVnd == null) return null;
+    return vnd(afterVnd) - vnd(beforeVnd);
+  }
+
   // Ghi giá từ Sheet (specs/v7-price-queue.md): tiền là chuỗi số nguyên từ server; phụ phí null = 0 khi có đơn giá (V7-BE).
   function sheetPriceAmount(item) {
     return vnd(item.sheet_unit_price_vnd) + (item.sheet_other_fee_vnd == null ? 0n : vnd(item.sheet_other_fee_vnd));
@@ -970,7 +976,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();

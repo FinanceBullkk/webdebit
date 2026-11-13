@@ -324,6 +324,13 @@ function apply(world, url, body) {
     if (delta !== 0n) world.adjustments.push({ id: world.adjustments.length + 1, month: old.month, trip_id: null, legacy_row_id: row.id, amount_vnd: delta.toString(), note: null });
     row.current = next;
     event(url.endsWith('delete') ? 'legacy_delete' : 'legacy_edit', { legacy: { ...old, field: body.field, value: old[body.field] } }, { legacy: { ...next, field: body.field, value: next[body.field] } });
+  } else if (url === '/api/v7/price-table/preview') {
+    // BANG-GIA-05: xem trước không ghi gì, không tăng version; số do test đặt như lệnh lưu. world.previewFail: máy chủ chưa tính được.
+    if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' }];
+    if (world.previewFail) return [503, { error: 'DB_UNAVAILABLE', message: 'Sổ tạm thời không truy cập được.' }];
+    return [200, { price_table: body.price_table, version: world.version, repriced_trips: (world.repricedTrips ?? []).map(trip => ({ tier: 'khach', ...trip })),
+      repriced_delta_vnd: world.repricedDelta ?? '0', locked_trips: world.lockedTrips ?? 0, no_price_trips: world.noPriceTrips ?? 0,
+      typed_trips: world.typedTrips ?? 0, ready_count: world.readyAfter ?? 0, ready_total_vnd: '0' }];
   } else if (url === '/api/v7/price-table') {
     if (body.expected_version !== world.version) return [409, { error: 'STALE_LEDGER', message: 'Sổ đã thay đổi. Tải lại rồi thử tiếp.' }];
     const before = world.priceTable ?? { tt_shippers: [], locations: [], periods: [] };

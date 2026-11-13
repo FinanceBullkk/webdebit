@@ -77,6 +77,8 @@ ROUTES = {
     "/api/v7/fee-types/update": ("fee_type_update", {"command", "fee_type_id", "name", "kind", "active"}),
     "/api/v7/books/fee-columns": ("set_book_fee_columns", {"fee_type_ids"}),
     "/api/v7/price-table": ("save_price_table", {"price_table"}),
+    # BANG-GIA-05: xem trước lệnh lưu; cùng thân lệnh, server chạy save_price_table rồi hoàn tác, không ghi gì.
+    "/api/v7/price-table/preview": ("preview_price_table", {"price_table"}),
     "/api/v7/price-table/apply": ("apply_price_table", {"trip_ids"}),
 }
 COMMON = {"customer_id", "expected_version", "idempotency_key"}
@@ -221,6 +223,7 @@ ARGUMENTS = {
     "set_fee_type_kind": ("idempotency_key", "fee_type_id", "kind"),
     "set_fee_type_active": ("idempotency_key", "fee_type_id", "active"),
     "save_price_table": ("price_table",),
+    "preview_price_table": ("price_table",),
     "apply_price_table": ("trip_ids",),
 }
 CAST = {"command_keys": "jsonb", "debt_month": "date", "month": "date", "date": "date", "trip_id": "bigint",

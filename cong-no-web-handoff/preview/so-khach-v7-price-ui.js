@@ -137,6 +137,8 @@
   const SHOWN = 3;                // số đợt mới nhất hiện mặc định
   let ui = { side: 'ship', period: null, showAll: false, filter: '' };   // khối phải: ship | period | new | paste
   let failed = false;           // đọc bảng giá lỗi: không cho sửa
+  let original = null;          // bảng giá như server trả lúc mở, để bước xem lại nói bảng đổi gì
+  let review = null;            // bước Xem lại trước khi lưu: { body, result, unknown }
   let errorList = [];
   const layer = () => {
     if (typeof document.createElement !== 'function') return { hidden: true, innerHTML: '', addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], contains: () => false };
@@ -339,6 +341,7 @@
 
   async function openDialog() {
     form = fromServer(null);
+    original = null; review = null;
     ui = { side: 'ship', period: null, showAll: false, filter: '' };
     loading = true;
     bar = { kind: 'info', text: 'Đang đọc bảng giá…' };
@@ -350,6 +353,7 @@
       const data = await response.json();
       if (!response.ok || !data?.price_table) throw Error(data?.message || 'Không đọc được bảng giá.');
       form = fromServer(data.price_table);
+      original = data.price_table;
       bookShippers = Array.isArray(data.book_shippers) ? data.book_shippers : [];
       savedShape = shapeOf(form);
       bar = null;
@@ -358,7 +362,7 @@
     render();
     $('.price-grid-title')?.focus();
   }
-  function closeDialog() { form = null; bar = null; loading = false; failed = false; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
+  function closeDialog() { form = null; review = null; bar = null; loading = false; failed = false; dialog.hidden = true; dialog.innerHTML = ''; root.querySelector('.price-table-open')?.focus(); ctx.redraw(); }
   const dirty = () => form && !loading && !failed && shapeOf(form) !== savedShape;
   function requestClose() {
     if (dirty()) { bar = { kind: 'ask' }; renderBar(); $('.price-bar .primary')?.focus(); return; }
@@ -397,6 +401,7 @@
   function render() {
     if (!form) return;
     const title = `<h2 class="price-grid-title" tabindex="-1">Bảng giá <span class="pm-book">${escape(live.customerName?.(customerId) ?? 'sổ khách')}</span></h2>`;
+    if (review) { renderReview(); return; }
     if (loading || failed) {
       dialog.innerHTML = `<div class="price-table-panel"><header>${title}<span class="price-grow"></span><button type="button" class="price-table-close">Đóng</button></header><div class="price-bar"></div></div>`;
       renderBar();
@@ -405,7 +410,7 @@
     const errors = check();
     const empty = !form.rows.length && !form.periods.length;
     dialog.innerHTML = `<div class="price-table-panel"><header>${title}<span class="price-dirty" hidden></span><span class="price-grow"></span>
-        <button type="button" class="price-paste-open"${ui.side === 'paste' ? ' aria-pressed="true"' : ''}>Dán từ Sheet</button><button type="button" class="price-table-save primary">Lưu bảng giá</button><button type="button" class="price-table-close">Đóng</button></header>
+        <button type="button" class="price-paste-open"${ui.side === 'paste' ? ' aria-pressed="true"' : ''}>Dán từ Sheet</button><button type="button" class="price-table-save primary">Xem lại và lưu</button><button type="button" class="price-table-close">Đóng</button></header>
       <div class="pm-body"><main class="pm-main">
         <div class="pm-tools"><input class="pm-find" id="pm-find" value="${escape(ui.filter)}" placeholder="Tìm nơi đi" aria-label="Tìm nơi đi" autocomplete="off" spellcheck="false">
           <span class="pm-hint"></span><button type="button" class="price-row-add">+ Thêm nơi đi</button><button type="button" class="price-new-open">${form.periods.length ? '+ Đổi giá từ ngày…' : '+ Thêm đợt giá'}</button></div>
@@ -674,7 +679,12 @@
     if (resort) rerender(); else updateGrid();
   }
 
-  async function save(button) {
+  const failText = result => result.error === 'NO_CHANGE' ? 'Bảng giá không có gì thay đổi.'
+    : result.error === 'STALE_LEDGER' ? 'Sổ vừa thay đổi ở nơi khác nên chưa lưu. Chép lại các giá vừa sửa, đóng khung, tải lại sổ rồi sửa lại.'
+      : result.message || 'Chưa lưu được bảng giá.';
+  // Bước 1 của Lưu (BANG-GIA-05): kiểm tại trang, rồi hỏi server lưu thử (preview_price_table: chạy đúng lệnh lưu rồi hoàn tác)
+  // để thấy trước chuyến nào đổi giá, tổng còn nợ đổi bao nhiêu. Trang không tự tính tiền.
+  async function startReview() {
     if (sending) return;
     const errors = check();
     if (errors.size) {
@@ -683,27 +693,122 @@
       $('.pm-goto')?.focus();
       return;
     }
+    const body = { customer_id: customerId, expected_version: ctx.snapshot.version, price_table: payload() };
+    review = { body, result: null, unknown: false };
+    sending = true;
+    render();
+    let outcome;
+    try { outcome = await post('/api/v7/price-table/preview', { ...body, idempotency_key: crypto.randomUUID() }); } catch { outcome = { ok: false, result: {} }; }
+    sending = false;
+    if (!review || review.body !== body) return;
+    if (outcome.ok) review.result = outcome.result;
+    else if (['NO_CHANGE', 'STALE_LEDGER'].includes(outcome.result.error) || /^(INVALID_PRICE_TABLE|PRICE_)/.test(outcome.result.error ?? '')) {
+      review = null;
+      render();
+      setBar('bad', failText(outcome.result));
+      return;
+    } else review.unknown = true;   // máy chủ chưa tính được: vẫn cho xem bảng đổi gì và lưu, lưu xong báo từng chuyến như cũ
+    render();
+    $('.price-review-save')?.focus();
+  }
+  // Bước 2: lưu thật đúng bảng và phiên bản sổ đã xem; sổ đổi giữa chừng thì server trả STALE_LEDGER.
+  async function save(button) {
+    if (sending || !review) return;
     sending = true; button.disabled = true;
     let outcome;
     try {
-      outcome = await post('/api/v7/price-table', { customer_id: customerId, expected_version: ctx.snapshot.version,
-        idempotency_key: crypto.randomUUID(), price_table: payload() });
+      outcome = await post('/api/v7/price-table', { ...review.body, idempotency_key: crypto.randomUUID() });
     } catch {
       sending = false; button.disabled = false;
+      review = null; render();
       setBar('bad', 'Chưa rõ đã lưu chưa. Đóng khung, tải lại sổ rồi mở Bảng giá để kiểm tra.');
       return;
     }
     sending = false; button.disabled = false;
     if (!outcome.ok) {
-      setBar('bad', outcome.result.error === 'NO_CHANGE' ? 'Bảng giá không có gì thay đổi.'
-        : outcome.result.error === 'STALE_LEDGER' ? 'Sổ vừa thay đổi ở nơi khác nên chưa lưu. Chép lại các giá vừa sửa, đóng khung, tải lại sổ rồi sửa lại.'
-          : outcome.result.message || 'Chưa lưu được bảng giá.');
+      review = null; render();
+      setBar('bad', failText(outcome.result));
       return;
     }
     root.querySelector('.page-more')?.removeAttribute('open');   // menu ⋯ còn mở sẽ che thông báo trước → sau
     closeDialog();
     try { await api.read(); } catch { showNotice('Đã lưu bảng giá; không tải được sổ mới. Tải lại trang để kiểm tra.'); return; }
     showNotice(savedNotice(outcome.result));
+  }
+  // Bảng giá đổi gì: so bảng đã lưu với bảng sắp gửi (chỉ là dữ liệu bảng, không phải tiền). Đợt mới thì so với đợt liền trước.
+  function tableChanges(before, after) {
+    const periods = table => new Map((table?.periods ?? []).map(item => [item.valid_from, item.valid_to ?? null]));
+    const flat = table => {
+      const map = new Map();
+      for (const item of table?.periods ?? []) for (const rate of item.rates ?? []) map.set(`${item.valid_from}|${keyOf(rate.location)}|${keyOf(rate.destination)}|${rate.tier}`, String(rate.unit_price_vnd));
+      return map;
+    };
+    const [old, now, oldRates, newRates] = [periods(before), periods(after), flat(before), flat(after)];
+    const lines = [];
+    for (const [from, to] of now) {
+      if (!old.has(from)) lines.push(`Thêm đợt giá từ ${dmy(from)}${to ? ` đến ${dmy(to)}` : ''}.`);
+      else if (old.get(from) !== to) lines.push(to ? `Đợt ${dmy(from)} kết thúc ngày ${dmy(to)}.` : `Đợt ${dmy(from)} dùng tiếp, bỏ ngày kết thúc.`);
+    }
+    for (const [from, to] of old) if (!now.has(from)) lines.push(`Bỏ đợt ${dmy(from)}${to ? ` – ${dmy(to)}` : ''}.`);
+    const starts = [...now.keys()].sort();
+    const rows = [];
+    let same = 0;
+    const byParts = (a, b) => { const [x, y] = [a.split('|'), b.split('|')]; return x.reduce((order, part, i) => order || part.localeCompare(y[i]), 0); };
+    for (const key of [...new Set([...oldRates.keys(), ...newRates.keys()])].sort(byParts)) {
+      const [from, kho, den, tier] = key.split('|');
+      let was = oldRates.get(key) ?? null;
+      const is = newRates.get(key) ?? null;
+      if (!old.has(from) && now.has(from)) {   // đợt mới: so với đợt liền trước có giá của cùng nơi đi, nơi đến, loại giá
+        was = null;
+        for (const start of starts.filter(start => start < from).reverse()) if (newRates.has(`${start}|${kho}|${den}|${tier}`)) { was = newRates.get(`${start}|${kho}|${den}|${tier}`); break; }
+      }
+      if (was === is) { same += 1; continue; }
+      rows.push({ kho, den, from, tier, was, is });
+    }
+    const ships = [new Set((before?.tt_shippers ?? []).map(keyOf)), new Set((after?.tt_shippers ?? []).map(keyOf))];
+    const added = [...ships[1]].filter(name => !ships[0].has(name)), removed = [...ships[0]].filter(name => !ships[1].has(name));
+    if (added.length) lines.push(`Thêm shipper áp giá TT: ${added.join(', ')}.`);
+    if (removed.length) lines.push(`Bỏ shipper áp giá TT: ${removed.join(', ')}.`);
+    return { lines, rows, same };
+  }
+  function renderReview() {
+    const name = escape(live.customerName?.(customerId) ?? 'sổ khách');
+    const result = review.result;
+    const changes = tableChanges(original, review.body.price_table);
+    const trips = tripsOf();
+    const repriced = result?.repriced_trips ?? [];
+    const delta = BigInt(result?.repriced_delta_vnd ?? 0);
+    const signed = value => value > 0n ? `+${fmt(String(value))}` : value < 0n ? `−${fmt(String(-value))}` : '0';
+    const diff = row => { const change = model.priceTableChange(row.was, row.is); return change == null ? '' : signed(change); };
+    const tiles = result ? [
+      [`${repriced.length} chuyến`, 'tự đổi sang giá mới'],
+      [delta === 0n ? '0 đ' : `${signed(delta)} đ`, delta === 0n ? 'còn nợ của khách không đổi' : `còn nợ của khách ${delta > 0n ? 'tăng' : 'giảm'}`],
+    ] : [];
+    const kept = result ? [result.typed_trips ? `${result.typed_trips} chuyến giá gõ tay khác bảng` : '', result.locked_trips ? `${result.locked_trips} chuyến ở tháng khóa` : '',
+      result.no_price_trips ? `${result.no_price_trips} chuyến bảng mới không còn giá` : ''].filter(Boolean) : [];
+    const tripRows = repriced.map(item => {
+      const trip = trips.get(item.trip_id) ?? {};
+      return `<tr><td>${escape(item.container ?? trip.container ?? '')}</td><td>${trip.event_date ? escape(dateText(trip.event_date)) : ''}</td><td>${escape(trip.origin ?? '')}</td>
+        <td>${escape(TIER[item.tier] ?? '')}</td><td class="num muted">${fmt(item.before_vnd)}</td><td class="num"><b>${fmt(item.after_vnd)}</b></td></tr>`;
+    }).join('');
+    const label = !result ? 'Lưu bảng giá' : repriced.length ? `Lưu và đổi giá ${repriced.length} chuyến` : 'Lưu bảng giá';
+    const effects = review.unknown
+      ? '<p class="pm-note">Chưa tính được trước chuyến nào đổi giá. Lưu xong, web báo từng chuyến giá cũ → mới như trước.</p>'
+      : !result ? '<p class="pm-note" role="status">Đang tính chuyến đổi giá…</p>'
+        : `<div class="rv-tiles">${tiles.map(([value, text]) => `<div class="rv-tile"><b>${escape(value)}</b><span>${escape(text)}</span></div>`).join('')}</div>
+          ${kept.length ? `<p class="rv-kept"><b>Giữ nguyên giá:</b> ${escape(kept.join('; '))}.</p>` : ''}
+          ${repriced.length ? `<div class="rv-list"><table><thead><tr><th>Số container</th><th>Ngày chuyến</th><th>Nơi đi</th><th>Loại giá</th><th class="num">Đang ghi</th><th class="num">Giá mới</th></tr></thead><tbody>${tripRows}</tbody></table></div>`
+            : '<p class="pm-note">Không chuyến nào trong sổ đổi giá.</p>'}
+          <p class="pm-note">${repriced.length ? 'Phiếu thu tự phân bổ lại theo nợ cũ trước.' : ''}${result.ready_count ? ` ${result.ready_count} chuyến chưa có giá sẽ điền được bằng nút "Điền giá theo bảng" sau khi lưu.` : ''}</p>`;
+    dialog.innerHTML = `<div class="price-table-panel price-review"><header><h2 class="price-grid-title" tabindex="-1">Xem lại trước khi lưu bảng giá <span class="pm-book">${name}</span></h2><span class="price-grow"></span>
+        <button type="button" class="price-review-back">Quay lại sửa</button><button type="button" class="price-review-save primary"${result || review.unknown ? '' : ' disabled'}>${escape(label)}</button></header>
+      <div class="rv-body"><section class="rv-card rv-table" aria-label="Bảng giá thay đổi gì"><h3>Bảng giá thay đổi gì</h3>
+        ${changes.lines.map(line => `<p>${escape(line)}</p>`).join('')}
+        ${changes.rows.length ? `<div class="rv-list"><table><thead><tr><th>Nơi đi → nơi đến</th><th class="num">Trước</th><th class="num">Sau</th><th class="num">Đổi</th></tr></thead><tbody>${changes.rows.map((row, index) =>
+          `${index && changes.rows[index - 1].from === row.from ? '' : `<tr class="rv-group"><td colspan="4">Đợt từ ${escape(dmy(row.from))}</td></tr>`}<tr><td><b>${escape(row.kho)}</b>${row.den ? ` → ${escape(row.den)}` : ''} <small>${escape(TIER[row.tier])}</small></td>
+            <td class="num muted">${row.was == null ? '—' : fmt(row.was)}</td><td class="num">${row.is == null ? '—' : `<b>${fmt(row.is)}</b>`}</td><td class="num">${escape(diff(row))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="pm-note">Không giá nào đổi.</p>'}
+        ${changes.same ? `<p class="pm-note">${changes.same} giá giữ như cũ hoặc như đợt trước.</p>` : ''}</section>
+      <section class="rv-card rv-trips" aria-label="Chuyến trong sổ đổi theo"><h3>Chuyến trong sổ đổi theo</h3>${effects}</section></div></div>`;
   }
   // BANG-GIA-02: server đã đổi giá ngay trong lệnh lưu; thao tác đụng tiền phải cho thấy trước → sau.
   function savedNotice(result) {
@@ -802,10 +907,12 @@
   });
   dialog.addEventListener('click', event => {
     if (!form) return;
-    if (event.target === dialog) { requestClose(); return; }
+    if (event.target === dialog) { if (!review) requestClose(); return; }
     const button = event.target.closest('button');
     if (!button) return;
-    if (button.matches('.price-table-save')) save(button);
+    if (button.matches('.price-table-save')) { bar = null; startReview(); }
+    else if (button.matches('.price-review-save')) save(button);
+    else if (button.matches('.price-review-back')) { review = null; render(); $('.price-table-save')?.focus(); }
     else if (button.matches('.price-table-close')) requestClose();
     else if (button.matches('.price-discard')) closeDialog();
     else if (button.matches('.price-stay,.price-msg-close')) { bar = null; renderBar(); }
@@ -848,7 +955,7 @@
   // Esc: đóng câu hỏi đang hiện, rồi khối đang mở bên phải, rồi mới đóng khung (hỏi lưu nếu còn thay đổi).
   if (typeof document.addEventListener === 'function') document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || !form) return;
-    if (bar?.kind === 'ask') { bar = null; renderBar(); } else if (ui.side !== 'ship' && !loading && !failed) { ui.side = 'ship'; ui.period = null; render(); } else requestClose();
+    if (review) { review = null; render(); } else if (bar?.kind === 'ask') { bar = null; renderBar(); } else if (ui.side !== 'ship' && !loading && !failed) { ui.side = 'ship'; ui.period = null; render(); } else requestClose();
   });
 
 

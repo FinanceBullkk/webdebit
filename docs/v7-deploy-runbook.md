@@ -1867,6 +1867,14 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Xem lại trước khi lưu bảng giá (BANG-GIA-05) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql` chạy sau `2026-11-13-v7-noi-den-tuy-chon.sql` ([`BANG-GIA-05`](decisions/bang-gia-05.md)). Chỉ thêm hàm `preview_price_table` (gọi đúng `save_price_table` trong khối con rồi hoàn tác) và cấp `EXECUTE` cho `sokhach_app`; không đổi bảng, hàm có sẵn, giá chuyến hay số dư. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release. Release mới với DB cũ vẫn lưu được: bước xem lại báo "Chưa tính được trước chuyến nào đổi giá" rồi cho lưu như trước. Release cũ chạy được với DB mới (hàm mới không ai gọi).
+
+Kiểm như mục dưới: `--migration-test`, backup và kiểm đọc lại, thử hai lượt trên bản sao (catalog ổn định, dấu vân tay không đổi, checker), gọi thử `preview_price_table` trên bản sao cho một sổ có bảng giá rồi so `version`, số event và dấu vân tay trước/sau (phải trùng), cửa sổ dừng ghi rồi đối soát tổng từng khách. Rollback: `DROP FUNCTION sokhach.preview_price_table(bigint,bigint,text,jsonb);` (không dữ liệu nào phụ thuộc); release mới khi đó tự lùi về lưu không xem trước.
+
 ## Nơi đến không bắt buộc (BANG-GIA-04) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql` chạy sau `2026-11-10-v7-bang-gia-noi-den.sql` ([`BANG-GIA-04`](decisions/bang-gia-04.md)). Chỉ thay thân `_lookup_price` (Nơi đến trống là giá chung, đúng nơi đến thắng) và `save_price_table` (nhận Nơi đến rỗng). Không đổi bảng, giá chuyến hay số dư. Chạy migration trước khi đổi release: giao diện mới gửi Nơi đến rỗng, DB cũ trả `INVALID_PRICE_TABLE`; release cũ chạy được với DB mới.

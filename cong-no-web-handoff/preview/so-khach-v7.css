@@ -440,6 +440,20 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .price-sheet tr td.s:first-child{border-left:2px solid #2563c9}.price-sheet td.s.r{border-right:2px solid #2563c9}
 .price-sheet tr:first-child td.s{border-top:2px solid #2563c9}.price-sheet tr:last-child td.s{border-bottom:2px solid #2563c9}
 .price-sheet td.o{border:1px dashed #2563c9}.price-sheet td.g{border-color:transparent;background:none}
+.rv-body{flex:1;min-height:0;display:flex;gap:16px;padding:14px 16px;align-items:stretch}
+.rv-card{display:flex;flex-direction:column;min-height:0;box-sizing:border-box;padding:12px 14px;background:#fff;border:1px solid #c9d6e3;border-radius:8px}
+.rv-card h3{margin:0 0 8px;font-size:17px}.rv-card p{margin:0 0 6px}
+.rv-table{flex:0 0 500px}.rv-trips{flex:1;min-width:0}
+.rv-tiles{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.rv-tile{flex:1;min-width:150px;padding:6px 12px;border:1px solid #d8e1ec;border-radius:8px;background:#f6f9fc}
+.rv-tile b{display:block;white-space:nowrap;font-size:20px;line-height:1.2;font-variant-numeric:tabular-nums}.rv-tile span{font-size:14px;color:#4a5b6d}
+.rv-list{flex:1;min-height:60px;overflow:auto;margin:4px 0 8px;border:1px solid #d8e1ec;border-radius:6px}
+.rv-list table{width:100%;border-collapse:collapse;font-size:15px;font-variant-numeric:tabular-nums}
+.rv-list th{position:sticky;top:0;background:#f6f9fc;color:#4a5b6d;font-size:13px;font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid #c9d6e3;white-space:nowrap}
+.rv-list td{padding:6px 8px;border-bottom:1px solid #e3eaf2;white-space:nowrap}
+.rv-list .num{text-align:right}.rv-list .muted{color:#5d6f82}
+.rv-list small{color:#4a5b6d;font-size:14px}.rv-list tr.rv-group td{background:#f6f9fc;color:#4a5b6d;font-size:14px;font-weight:600}
+.rv-kept{color:#4a5b6d}
 .ledger tr.from-sheet td{background:#fff6d6}
 .sheet-price{font-style:italic;color:#6b4a00}.sheet-price small{display:block;font-size:14px;font-style:normal}
 .moved-tag{color:#6b4a00;font-size:14px;font-weight:700}.ledger tr.moved-note td{height:24px;padding:2px 8px;background:#fff3c4}

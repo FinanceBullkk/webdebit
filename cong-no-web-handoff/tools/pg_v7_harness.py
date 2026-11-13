@@ -350,6 +350,8 @@ GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"
 # BANG-GIA-04 13/11/2026: _lookup_price và save_price_table chạy sau bản 10/11.
 NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql"
+# BANG-GIA-05 13/11/2026: hàm xem trước lệnh lưu bảng giá, chạy sau bản BANG-GIA-04.
+XEM_TRUOC_BANG_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql"
 
 def inspect_owned(name: str, volume: str, run_id: str, expected_id: str | None = None) -> str | None:
     p = run(["docker", "ps", "--all", "--quiet", "--no-trunc", "--filter", f"name=^/{name}$"], check=False)

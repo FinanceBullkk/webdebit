@@ -104,6 +104,10 @@ class PriceApiTest(unittest.TestCase):
         table = {"tt_shippers": ["FAKE"], "locations": [{"name": "DAK LAK"}], "periods": []}
         name, payload, _ = self.request("/api/v7/price-table", self.common | {"price_table": table})
         self.assertEqual((name, payload["price_table"]), ("save_price_table", table))
+        name, payload, _ = self.request("/api/v7/price-table/preview", self.common | {"price_table": table})
+        self.assertEqual((name, payload["price_table"], payload["expected_version"]), ("preview_price_table", table, self.common["expected_version"]))
+        self.assertIn("sokhach.preview_price_table(", api.SQL["preview_price_table"])
+        self.assertIn("(j->'price_table')::jsonb", api.SQL["preview_price_table"])
         name, payload, _ = self.request("/api/v7/price-table/apply", self.common | {"trip_ids": [3, 1]})
         self.assertEqual((name, payload["trip_ids"]), ("apply_price_table", [3, 1]))
         self.assertIn("(j->'price_table')::jsonb", api.SQL["save_price_table"])
@@ -122,6 +126,8 @@ class PriceApiTest(unittest.TestCase):
                 if not change:
                     body.pop("price_table")
                 api.validate("/api/v7/price-table", json.dumps(body).encode())
+            with self.subTest(change=change, path="preview"), self.assertRaises(api.ApiError):
+                api.validate("/api/v7/price-table/preview", json.dumps(body).encode())
         for ids in ([], [0], [1, 1], ["1"], [True], [1.5], list(range(1, 502)), None):
             with self.subTest(ids=ids), self.assertRaises(api.ApiError):
                 api.validate("/api/v7/price-table/apply", json.dumps(self.common | {"trip_ids": ids}).encode())

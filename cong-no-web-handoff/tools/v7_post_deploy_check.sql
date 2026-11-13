@@ -66,6 +66,7 @@ DECLARE
       'attach_receipt_image(bigint,bigint,text,text,text,bytea)', 'remove_receipt_image(bigint,bigint,text,bigint,text)',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
       'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
+      'preview_price_table(bigint,bigint,text,jsonb)',
       'get_price_table(bigint)', 'get_price_status(bigint)',
       'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_activity(date)',
       'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)', 'get_zalo_links()',

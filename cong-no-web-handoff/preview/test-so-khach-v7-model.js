@@ -782,3 +782,12 @@ test("chuỗi tháng: khách dư (số âm) đặt số 0 giữa thang; sổ ch�
   assert.deepEqual([model.creditOf("-50000000"), model.creditOf("10"), model.creditOf("0")], [50000000n, 0n, 0n]);
   assert.throws(() => model.creditOf(null), /Invalid VND/);
 });
+
+test('BANG-GIA-05: mức đổi giá một ô của bảng giá — chính xác, có dấu, thiếu một bên thì không có', () => {
+  assert.equal(model.priceTableChange('67000000', '69000000'), 2000000n);
+  assert.equal(model.priceTableChange('82000000', '79000000'), -3000000n);
+  assert.equal(model.priceTableChange('9007199254740993', '9007199254740995'), 2n);
+  assert.equal(model.priceTableChange(null, '69000000'), null);
+  assert.equal(model.priceTableChange('0', null), null);
+  assert.throws(() => model.priceTableChange(67000000, '69000000'));   // tiền phải là chuỗi
+});

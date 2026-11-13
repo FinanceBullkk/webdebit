@@ -29,6 +29,8 @@ GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"
 # BANG-GIA-04 13/11/2026: _lookup_price và save_price_table bằng migration mới nhất thay chúng.
 NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql"
+# BANG-GIA-05 13/11/2026: preview_price_table chỉ có ở migration này.
+XEM_TRUOC_BANG_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -72,6 +74,9 @@ class FeeSqlSync(unittest.TestCase):
         for name in ("_price_table", "_price_trip_rows", "apply_price_table"):
             with self.subTest(name=name):
                 self.assertEqual(definition(destination, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        preview = XEM_TRUOC_BANG_GIA_MIGRATION.read_text(encoding="utf-8")
+        with self.subTest(name="preview_price_table"):
+            self.assertEqual(definition(preview, "FUNCTION", "preview_price_table"), definition(canonical, "FUNCTION", "preview_price_table"))
         optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
         for name in ("_lookup_price", "save_price_table"):
             with self.subTest(name=name):

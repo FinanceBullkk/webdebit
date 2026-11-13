@@ -14,6 +14,7 @@ from pg_v7_harness import (
     ROOT,
     SHEET_CONFLICT_DATE_MIGRATION,
     SHEET_CONFLICT_MIGRATION,
+    XEM_TRUOC_BANG_GIA_MIGRATION,
     ZALO_GROUP_MIGRATION,
     call,
     fixture_open_month,
@@ -176,7 +177,40 @@ def check_price_table(pg):
     before_total = int(call(pg, "get_ledger", c)["total_outstanding_vnd"])
     v = version(pg, c)
     table_76 = json.dumps(_table(p2_khach_daklak="76"))
+    # BANG-GIA-05: the preview runs the same save and rolls it back; nothing is written, the numbers are the save's own.
+    def state():
+        return pg.value(
+        f"SELECT jsonb_build_object('v',(SELECT version FROM sokhach.customer WHERE id={c}),"
+        f"'events',(SELECT count(*) FROM sokhach.event WHERE customer_id={c}),"
+        f"'revs',(SELECT count(*) FROM sokhach.trip_price_rev WHERE customer_id={c}),"
+        f"'keys',(SELECT count(*) FROM sokhach.idempotency WHERE customer_id={c}),"
+        f"'table',sokhach._price_table({c}),"
+        f"'debt',(SELECT jsonb_agg(row_to_json(o) ORDER BY o.debt_month) FROM sokhach.v_outstanding_month o WHERE o.customer_id={c}),"
+        f"'lines',(SELECT count(*) FROM sokhach.receipt_line l JOIN sokhach.receipt r ON r.id=l.receipt_id WHERE r.customer_id={c}))")
+    before_state = state()
+    preview = call(pg, "preview_price_table", c, v, "price-preview-1", table_76)
+    require(state() == before_state, "preview wrote something")
+    require(preview["version"] == v, "preview must report the current version")
+    require([(t["trip_id"], t["container"], t["before_vnd"], t["after_vnd"], t["tier"]) for t in preview["repriced_trips"]]
+            == [(ids["C"], "PRICE-C", "75", "76", "khach"), (ids["D"], "PRICE-D", "75", "76", "khach")],
+            f"preview trips wrong: {preview['repriced_trips']}")
+    require((preview["repriced_delta_vnd"], preview["locked_trips"], preview["no_price_trips"])
+            == ("2", 0, 0), f"preview summary wrong: {preview}")
+    require(call(pg, "preview_price_table", c, v, "price-preview-1", table_76) == preview, "preview not repeatable")
+    reject_call(pg, "preview_price_table", c, v - 1, "price-preview-stale", table_76, error="STALE_LEDGER")
+    overlap = _table()
+    overlap["periods"][0]["valid_to"] = "2026-01-10"
+    reject_call(pg, "preview_price_table", c, v, "price-preview-overlap", json.dumps(overlap), error="PRICE_PERIOD_OVERLAP")
+    reject_call(pg, "preview_price_table", c, v, "price-preview-same", json.dumps(_table()), error="NO_CHANGE")
+    require(state() == before_state, "rejected preview wrote something")
     saved = call(pg, "save_price_table", c, v, "price-save-2", table_76)
+    require([{k: t[k] for k in ("trip_id", "container", "before_vnd", "after_vnd")} for t in preview["repriced_trips"]]
+            == saved["repriced_trips"] and preview["price_table"] == saved["price_table"]
+            and [preview[k] for k in ("repriced_delta_vnd", "locked_trips", "no_price_trips")]
+            == [saved[k] for k in ("repriced_delta_vnd", "locked_trips", "no_price_trips")], "preview differs from the save")
+    typed = [t for t in call(pg, "get_price_status", c)["trips"] if t["differs"] and not t["from_table"]]
+    require(ids["B"] in [t["trip_id"] for t in typed] and preview["typed_trips"] == len(typed),
+            f"preview typed count {preview['typed_trips']} != status after save {typed}")
     require(call(pg, "save_price_table", c, v, "price-save-2", table_76) == saved, "reprice retry changed")
     require(saved["version"] == v + 1, "reprice bumped the version more than once")
     require([(t["trip_id"], t["container"], t["before_vnd"], t["after_vnd"]) for t in saved["repriced_trips"]]
@@ -198,6 +232,9 @@ def check_price_table(pg):
 
     # Locked month: nothing changes, the count says why, and re-apply still works once unlocked.
     pg.sql(f"UPDATE sokhach.month_state SET locked=true WHERE customer_id={c} AND month='2026-01-01'")
+    preview = call(pg, "preview_price_table", c, version(pg, c), "price-preview-locked", json.dumps(_table(p2_khach_daklak="77")))
+    require((preview["repriced_trips"], preview["repriced_delta_vnd"], preview["locked_trips"]) == ([], "0", 2),
+            f"locked preview summary wrong: {preview}")
     saved = call(pg, "save_price_table", c, version(pg, c), "price-save-locked", json.dumps(_table(p2_khach_daklak="77")))
     require((saved["repriced_trips"], saved["repriced_delta_vnd"], saved["locked_trips"], saved["affected_trips"])
             == ([], "0", 2, 2), f"locked save summary wrong: {saved}")
@@ -315,6 +352,7 @@ def check_price_migration(pg):
     pg.sql(GIA_TU_DOI_MIGRATION.read_text(encoding="utf-8"))  # bản save_price_table hiện hành (5/11)
     pg.sql(BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8"))
     pg.sql(NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-04
+    pg.sql(XEM_TRUOC_BANG_GIA_MIGRATION.read_text(encoding="utf-8"))  # BANG-GIA-05
     after = [pg.value(q) for q in (catalog, cols, constraints)]
     if after != fresh:
         diff = [k for k in json.loads(after[0]).keys() | json.loads(fresh[0]).keys()
@@ -352,7 +390,7 @@ def check_price_migration(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"), database=db)
     pg.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"), database=db)
     for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql",
-                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql"):
+                     "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql"):
         pg.sql((ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8"), database=db)
     for query, expected in zip((catalog, cols, constraints), fresh, strict=True):
         require(pg.sql(query, database=db).stdout.strip() == expected, "migrated schema differs from fresh schema")
