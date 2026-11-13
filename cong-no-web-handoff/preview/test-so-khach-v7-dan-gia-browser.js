@@ -112,3 +112,50 @@ test('mất mạng giữa chừng: Thử lại gửi đúng lệnh cũ rồi ghi
     assert.equal(await page.locator('.retry-command').count(), 0);
   }, world);
 });
+
+test('chưa rõ giữa chừng: khung đóng, tiêu điểm tới Thử lại; Ghi phiếu thu không gửi; bấm đúp Thử lại không bỏ sót chuyến', async () => withPage(async ({ page, world: w }) => {
+  let seen = 0;
+  await page.route('**/api/v7/trips/price', async route => { seen += 1; return seen === 2 ? route.abort() : route.continue(); });
+  await paste(page, 11, '45000000\n30000000\n42000000');
+  await page.locator('.paste-write').click();
+  await page.locator('.retry-command').waitFor();
+  assert.equal(await page.locator('.paste-review').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('retry-command')), true);
+  // Ghi phiếu thu khi còn lệnh khác chưa rõ: không gửi phiếu, nói phải xong việc kia trước.
+  await page.locator('.entry-open').click();
+  await page.locator('.receipt-date').fill('20/09/2026');
+  await page.locator('.receipt-amount').fill('5000000');
+  await page.locator('.entry-next').click();
+  await page.locator('.receipt-save').click();
+  assert.match(await page.locator('.entry-error').innerText(), /Còn thao tác khác chưa xong/);
+  assert.equal(posts(w).filter(([path]) => path === '/api/v7/receipts').length, 0);
+  await page.locator('.entry-close').click();
+  await page.locator('.retry-command').dblclick();
+  await page.waitForFunction(() => document.querySelector('td.editable[data-trip="15"]')?.textContent.startsWith('42.000.000'));
+  assert.deepEqual(pricePosts(w).map(body => [body.trip_id, body.expected_version]), [[11, 1], [13, 2], [15, 3]], 'mỗi chuyến đúng một lệnh, không vòng thứ hai');
+  assert.match(await toast(page).innerText(), /Đã ghi 3 giá\./);
+}, world));
+
+test('đang ghi: đầu sổ báo tiến độ, không có Thử lại, Thôi khóa, sửa ô khác bị chặn; ảnh Excel chép kèm không mở khung phiếu thu', async () => withPage(async ({ page, world: w }) => {
+  await price(page, 11).focus();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', '45000000\n30000000\n42000000');
+    data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'excel.png', { type: 'image/png' }));
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await page.locator('.paste-review').waitFor();
+  assert.equal(await page.evaluate(() => document.querySelector('.entry-drawer')?.hidden ?? true), true, 'khung Ghi phiếu thu không mở vì ảnh');
+  await page.route('**/api/v7/trips/price', async route => { await new Promise(resolve => setTimeout(resolve, 400)); return route.continue(); });
+  await page.locator('.paste-write').click();
+  assert.equal(await page.locator('.paste-cancel').isDisabled(), true);
+  assert.equal(await page.locator('.paste-write').innerText(), 'Đang ghi…');
+  await page.locator('.info-edit[data-kind="legacy"][data-id="21"][data-field="carrier"]').click();
+  await page.locator('.info-input').fill('Xe khác');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => /Đang ghi giá đã dán/.test(document.querySelector('.book-status')?.textContent ?? ''));
+  assert.equal(await page.locator('.retry-command').count(), 0);
+  await page.waitForFunction(() => document.querySelector('td.editable[data-trip="15"]')?.textContent.startsWith('42.000.000'));
+  assert.deepEqual(pricePosts(w).map(body => body.trip_id), [11, 13, 15]);
+  assert.equal(posts(w).filter(([path]) => path === '/api/v7/legacy/edit').length, 0);
+}, world));

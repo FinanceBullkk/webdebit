@@ -582,3 +582,4 @@ body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) 
 .paste-review .price-panel{margin:6px 0}
 .paste-review .paste-list{max-height:300px;overflow:auto}
 .paste-review .paste-skip .what{color:#4a5b6d}
+.paste-review .paste-flags{margin:-4px 0 10px;color:#7a4a00;font-weight:600}

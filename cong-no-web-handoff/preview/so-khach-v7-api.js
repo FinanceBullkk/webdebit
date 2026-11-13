@@ -40,6 +40,7 @@
   };
   const idFields = ['source_customer_id', 'source_version', 'other_version', 'offset_pair_id'];
   const stale = 'Sổ vừa thay đổi. Kiểm tra dữ liệu mới rồi thực hiện lại.';
+  const busyText = 'Đang ghi các giá vừa dán. Chờ xong rồi làm tiếp.';
   const unknown = 'Chưa rõ lệnh đã lưu. Thử lại bằng cùng yêu cầu.';
   const tripFields = ['date', 'booking', 'container', 'carrier', 'shipper', 'from', 'to', 'note', 'src', 'unitPriceVnd', 'otherFeeVnd'];
   const customerNames = new Map();
@@ -222,6 +223,7 @@
       }
     }
     async function submit(action, fields) {
+      if (running) throw Error(busyText);
       outcome = null;
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
@@ -244,8 +246,13 @@
     // GIA-O-01 (B): chuỗi lệnh cùng loại trên sổ đang mở (dán cột giá). Lệnh sau dùng phiên bản lệnh trước trả về; đọc lại sổ
     // một lần ở cuối. Mất mạng: `pending` giữ đúng lệnh chưa rõ (cùng khóa), `series` giữ phần còn lại; retry() gửi lại lệnh đó
     // rồi đi tiếp. Lệnh lỗi (sổ vừa đổi, tháng vừa khóa…): dừng, đọc lại sổ. Trả {status: saved|stopped|unknown, done, total}.
-    let series = null;
-    async function runSeries() {
+    let series = null, running = null;
+    // Một vòng ghi một lúc: Thử lại (hay bấm đúp) trong lúc vòng đang chạy chỉ chờ vòng đó, không chạy vòng thứ hai trên cùng
+    // `series` (hai vòng cùng tăng chỉ số sẽ bỏ sót một chuyến mà vẫn báo đã ghi đủ).
+    // Câu báo vẽ sau khi vòng đã xong (running = null): chưa rõ kết quả thì đầu sổ hiện nút Thử lại, không còn "đang ghi".
+    const runSeries = () => (running ??= loopSeries().then(({ notice }) => { running = null; onNotice(notice); return outcome; },
+      error => { running = null; throw error; }));
+    async function loopSeries() {
       const run = series, total = run.items.length;
       while (run.index < total) {
         pending ??= { path: run.path, body: { customer_id: customerId, expected_version: run.version, idempotency_key: key(), ...run.items[run.index] } };
@@ -255,28 +262,26 @@
           result = await response.json();
         } catch {
           outcome = { status: 'unknown', done: run.index, total };
-          onNotice(unknown);
-          return outcome;
+          return { notice: unknown };
         }
-        if (!response.ok && result?.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown', done: run.index, total }; onNotice(unknown); return outcome; }
+        if (!response.ok && result?.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown', done: run.index, total }; return { notice: unknown }; }
         if (!response.ok || !Number.isSafeInteger(result?.version)) {
           pending = null; series = null;
           outcome = { status: 'stopped', done: run.index, total, result };
           try { await read(); } catch { /* sổ không đọc lại được: câu báo dưới đây vẫn nói rõ đã ghi bao nhiêu */ }
-          onNotice(`Ghi được ${run.index}/${total} giá rồi dừng: ${result?.message || 'không lưu được thao tác.'} Kiểm tra các chuyến còn lại.`);
-          return outcome;
+          return { notice: `Ghi được ${run.index}/${total} giá rồi dừng: ${result?.message || 'không lưu được thao tác.'} Kiểm tra các chuyến còn lại.` };
         }
         run.version = result.version; run.index += 1; pending = null;
       }
       series = null;
       outcome = { status: 'saved', done: total, total };
-      try { await read(); } catch { onNotice(`Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.`); return outcome; }
-      onNotice(`Đã ghi ${total} giá.`);
-      return outcome;
+      try { await read(); } catch { return { notice: `Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.` }; }
+      return { notice: `Đã ghi ${total} giá.` };
     }
     async function submitSeries(action, list) {
-      outcome = null;
+      if (running) throw Error(busyText);
       if (pending || series) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
+      outcome = null;
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
       const route = routes[action];
       if (!route || !Array.isArray(list) || !list.length) throw Error('Thao tác không hợp lệ.');
@@ -289,6 +294,7 @@
     }
     // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.
     async function submitOffset(action, fields) {
+      if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
       const route = offsetRoutes[action];
@@ -327,6 +333,7 @@
     }
     // Lệnh danh mục: trả {status, result} như cấn trừ; xong thì đọc lại sổ (send) để vẽ lại.
     async function submitCatalog(action, fields) {
+      if (running) throw Error(busyText);
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
       const route = catalogRoutes[action];
       if (!route) throw Error('Thao tác không hợp lệ.');
@@ -416,7 +423,9 @@
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
     return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
-      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series, snapshot: () => snapshot };
+      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series, snapshot: () => snapshot,
+      // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
+      progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
     sheetName, showCustomers: () => showCustomers() };

@@ -114,8 +114,16 @@
       + '<div class="entry-actions"><button type="button" class="entry-back">Sửa lại</button><button type="button" class="receipt-save">Ghi phiếu</button></div>';
   }
 
+  let ownPending = false;   // lệnh chưa rõ kết quả là chính phiếu của khung này (khung có nút Thử lại riêng)
   async function save() {
     if (saving || !review) return;
+    if (!api.hasPending()) ownPending = false;   // lệnh chưa rõ đã xong (ở đây hay ở đầu sổ): lần ghi này là lệnh mới
+    // Còn lệnh khác chưa rõ kết quả (hay chuỗi giá đang ghi): không gửi phiếu. Gửi thì sổ từ chối, mà khung này lại tưởng
+    // phiếu là lệnh "chưa rõ" và Thử lại ở đây sẽ chạy tiếp lệnh kia rồi báo đã ghi phiếu.
+    if (api.hasPending() && !ownPending) {
+      $('.entry-error').textContent = 'Còn thao tác khác chưa xong hoặc chưa rõ đã lưu. Xong việc đó (nút Thử lại ở đầu sổ) rồi bấm Ghi phiếu.';
+      return;
+    }
     saving = true;
     const button = $('.receipt-save');
     button.disabled = true;
@@ -138,12 +146,14 @@
     if (outcome?.status === 'stale') { paintReview(); $('.entry-error').textContent = 'Sổ vừa thay đổi. Xem lại số rồi bấm Ghi phiếu lần nữa.'; return; }
     const box = $('.entry-error');
     if (outcome?.status === 'unknown' || api.hasPending()) {
+      ownPending = true;
       box.innerHTML = 'Chưa rõ phiếu đã lưu chưa (mất kết nối). Bấm Thử lại: phiếu không bị ghi hai lần. <button type="button" class="entry-retry">Thử lại</button>';
       return;
     }
     box.textContent = result?.message || 'Không ghi được phiếu. Thử lại.';
   }
   async function done(sent, result) {
+    ownPending = false;
     const pid = result?.pid ?? null;
     const imageText = pid ? await ctx.afterReceiptSaved?.(KEY, pid) ?? '' : '';
     resetForm();

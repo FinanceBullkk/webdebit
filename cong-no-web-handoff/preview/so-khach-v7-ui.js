@@ -404,7 +404,10 @@
       + '<path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>';
     function statusRows(data) {
       const row = (text, extra = '', kind = '') => `<div class="book-status-row${kind ? ` is-${kind}` : ''}">${statusIcon}<span>${escape(text)}</span>${extra}</div>`;
-      return (api.hasPending() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
+      // GIA-O-01 (B): chuỗi giá đang ghi thì báo tiến độ, không đưa nút Thử lại (bấm vào giữa lúc đang ghi không có gì để thử lại).
+      const run = api.progress?.();
+      return (run?.running ? row(`Đang ghi giá đã dán: ${Math.min(run.done + 1, run.total)}/${run.total}…`)
+        : api.hasPending() ? row(pendingText || 'Chưa rõ thao tác vừa gửi đã lưu chưa.', '<button type="button" class="retry-command">Thử lại thao tác vừa gửi</button>', 'error') : '')
         + (data?.sheet_sync?.unavailable ? row('Không đọc được chuyến mới từ Sheet.') : '')
         + (data && data.status !== 'active' ? row('Khách chưa có số dư đầu hiệu lực. Chưa thể ghi.') : '');
     }

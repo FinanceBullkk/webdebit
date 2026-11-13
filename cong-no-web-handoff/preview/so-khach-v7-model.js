@@ -997,7 +997,7 @@ const SoKhachV7Model = (() => {
       if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
       let value;
       try { value = parseVnd(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { value = null; }
-      if (value === null || value <= 0n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
+      if (value === null || value <= 0n || value > 9223372036854775807n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
       out.push({ line: row.line, container, priceVnd: value.toString() });
     }
     return { mode, rows: out, errors };
@@ -1014,12 +1014,14 @@ const SoKhachV7Model = (() => {
       const [kind, id] = [key.slice(0, key.indexOf("-")), key.slice(key.indexOf("-") + 1)];
       return kind === "trip" ? { kind, row: trips.find(trip => String(trip.id) === id) } : { kind, row: legacy.find(row => String(row.id) === id) };
     };
+    const box = value => String(value ?? "").replace(/\s+/g, "").toUpperCase();
     const items = parsed.rows.map((pasted, index) => {
       const base = { line: pasted.line, priceVnd: pasted.priceVnd, container: pasted.container };
+      if (pasted.priceVnd === null) return { ...base, status: "empty" };   // dòng trống là bỏ qua, kể cả sau chuyến cuối
       let target;
       if (parsed.mode === "container") {
-        const hits = [...trips.filter(trip => String(trip.container ?? "").toUpperCase() === pasted.container).map(row => ({ kind: "trip", row })),
-          ...legacy.filter(row => String(row.current?.container ?? row.display?.container ?? "").toUpperCase() === pasted.container).map(row => ({ kind: "legacy", row }))];
+        const hits = [...trips.filter(trip => box(trip.container) === pasted.container).map(row => ({ kind: "trip", row })),
+          ...legacy.filter(row => box(row.current?.container ?? row.display?.container) === pasted.container).map(row => ({ kind: "legacy", row }))];
         if (hits.length !== 1) return { ...base, status: "skip", reason: hits.length ? "container có nhiều dòng trong sổ" : "không có trong sổ" };
         target = hits[0];
       } else {
@@ -1029,7 +1031,6 @@ const SoKhachV7Model = (() => {
       const { kind, row } = target;
       const container = kind === "trip" ? row?.container : row?.current?.container ?? row?.display?.container;
       const info = { ...base, container: container || base.container, date: kind === "trip" ? row?.event_date : row?.current?.event_date };
-      if (pasted.priceVnd === null) return { ...info, status: "empty" };
       if (!row) return { ...info, status: "skip", reason: "không có trong sổ" };
       if (kind === "legacy") return { ...info, status: "skip", reason: "dòng sổ gốc: sửa từng ô" };
       if (row.status === "pending_review") return { ...info, status: "skip", reason: "chờ kiểm" };
@@ -1037,18 +1038,18 @@ const SoKhachV7Model = (() => {
       if (row.is_fee_only || !row.container) return { ...info, status: "skip", reason: "dòng phí lẻ" };
       if (row.editable !== true) return { ...info, status: "skip", reason: "tháng khóa" };
       const oldPriceVnd = row.unit_price_vnd ?? null;
-      if (oldPriceVnd === pasted.priceVnd) return { ...info, status: "same", oldPriceVnd };
+      if (oldPriceVnd === pasted.priceVnd) return { ...info, status: "same", tripId: row.id, oldPriceVnd };
       const fee = row.other_fee_vnd == null ? 0n : vnd(row.other_fee_vnd, true);
       const oldAmountVnd = oldPriceVnd === null ? 0n : vnd(row.amount_vnd ?? "0", true);
       const newAmountVnd = vnd(pasted.priceVnd) + fee;
       return { ...info, status: "write", tripId: row.id, oldPriceVnd, otherFeeVnd: row.other_fee_vnd ?? null, deltaVnd: newAmountVnd - oldAmountVnd,
         small: vnd(pasted.priceVnd) < 1000000n, overwrite: oldPriceVnd !== null };
     });
-    const writes = items.filter(item => item.status === "write");
-    // Hai dòng dán cùng một chuyến (ghép container): không đoán dòng nào đúng, bỏ cả hai.
+    // Hai dòng dán cùng một chuyến (ghép container), kể cả một dòng trùng giá đang có: nguồn có hai giá, không đoán dòng nào đúng, bỏ cả hai.
+    const matched = items.filter(item => item.status === "write" || item.status === "same");
     const seen = new Map();
-    for (const item of writes) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
-    for (const item of writes) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
+    for (const item of matched) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
+    for (const item of matched) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
     const finalWrites = items.filter(item => item.status === "write");
     const beforeVnd = vnd(snapshot?.total_outstanding_vnd ?? "0", true);
     const deltaVnd = finalWrites.reduce((sum, item) => sum + item.deltaVnd, 0n);

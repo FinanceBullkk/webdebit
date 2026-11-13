@@ -62,3 +62,13 @@ test('ghép container: không có trong sổ, có nhiều dòng, dán hai lần 
   assert.equal(again.writes.length, 0);
   assert.equal(again.afterVnd, again.beforeVnd);
 });
+
+test('sau review: dòng trống sau chuyến cuối là trống; trùng giá đang có vẫn tính là dán hai lần; container sổ có khoảng trắng; số quá lớn bị chặn', () => {
+  const tail = M.planPricePaste(M.parsePricePaste('45000000\n\n46000000'), snapshot, ['trip-1']);
+  assert.deepEqual(tail.items.map(item => item.status === 'skip' ? item.reason : item.status), ['write', 'empty', 'thừa, hết chuyến trong bảng tháng']);
+  const twice = M.planPricePaste(M.parsePricePaste('DEMU0000002\t40000000\nDEMU0000002\t41000000'), snapshot, []);
+  assert.deepEqual(twice.items.map(item => item.reason), ['dán hai lần cho cùng chuyến', 'dán hai lần cho cùng chuyến']);
+  const spaced = { ...snapshot, trips: [...snapshot.trips, trip(11, { container: 'DEMU 0000011' }), trip(12, { container: 'demu0000011' })] };
+  assert.equal(M.planPricePaste(M.parsePricePaste('DEMU0000011\t45000000'), spaced, []).items[0].reason, 'container có nhiều dòng trong sổ');
+  assert.match(M.parsePricePaste('99999999999999999999').errors.join(' '), /Dòng 1/);
+});

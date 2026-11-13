@@ -287,8 +287,9 @@
     // ---- GIA-O-01 (B): dán cả cột giá vào ô Đơn giá đang đứng (chép từ Sheet/Excel) ----
     // Chưa ghi gì: khung xem lại ngay dưới dòng (.price-panel nên sổ không tự vẽ lại khi đang xem). Ghi thì gửi lần lượt
     // (api.submitSeries), sổ đọc lại một lần ở cuối. Một cột: theo thứ tự dòng từ chuyến đang đứng; có cột container: ghép theo container.
-    let pastePlan = null, pasteFrom = null;
+    let pastePlan = null, pasteFrom = null, pasteWriting = false;
     const closePaste = (back = true) => {
+      if (pasteWriting) return;   // đang ghi: đóng khung sẽ tưởng là đã hủy, mà lệnh vẫn chạy tới hết
       root.querySelectorAll('.paste-review').forEach(row => row.remove());
       pastePlan = null;
       if (back) (pasteFrom?.isConnected ? pasteFrom : findMark(pasteFrom && markOf(pasteFrom)))?.focus();
@@ -301,7 +302,8 @@
       const same = (plan?.items ?? []).filter(item => item.status === 'same').length;
       const blank = (plan?.items ?? []).filter(item => item.status === 'empty').length;
       const rest = [same ? `${same} chuyến giá như đang có` : '', blank ? `${blank} dòng trống` : ''].filter(Boolean).join(', ');
-      const list = [...writes.map(item => `<li><div class="what">${escape(item.container)} · ${escape(dateText(item.date))} · ${escape(priceText(item.oldPriceVnd))} → <strong>${escape(priceText(item.priceVnd))}</strong>`
+      // "Dòng N" theo dòng đã dán để đối chiếu với nguồn chép.
+      const list = [...writes.map(item => `<li><div class="what">Dòng ${item.line} · ${escape(item.container)} · ${escape(dateText(item.date))} · ${escape(priceText(item.oldPriceVnd))} → <strong>${escape(priceText(item.priceVnd))}</strong>`
           + `${item.small || item.overwrite ? `<small>${[item.overwrite ? 'ghi đè giá đang có' : '', item.small ? 'giá dưới 1.000.000 đ: nghi sai đơn vị' : ''].filter(Boolean).join(' · ')}</small>` : ''}</div></li>`),
         ...skipped.map(item => `<li class="paste-skip"><div class="what">Dòng ${item.line}${item.container ? ` · ${escape(item.container)}` : ''} · không ghi: ${escape(item.reason)}</div></li>`)].join('');
       if (errors.length) {
@@ -313,8 +315,10 @@
           + '<div class="price-actions"><button type="button" class="paste-cancel">Đóng</button></div></div>';
       }
       const how = parsed.mode === 'container' ? 'Ghép theo số container.' : 'Theo thứ tự dòng, từ chuyến đang đứng trở xuống.';
+      const overwrite = writes.filter(item => item.overwrite).length, small = writes.filter(item => item.small).length;
+      const flags = [overwrite ? `${overwrite} chuyến ghi đè giá đang có` : '', small ? `${small} giá dưới 1.000.000 đ, nghi sai đơn vị` : ''].filter(Boolean).join(', ');
       return `<div class="price-panel confirm" role="region" aria-label="Xem lại giá dán"><p><strong>Ghi giá cho ${writes.length} chuyến?</strong> ${how} Tổng còn nợ `
-        + `${escape(model.formatVnd(plan.beforeVnd))} đ → <strong>${escape(model.formatVnd(plan.afterVnd))} đ</strong>.${rest ? ` Bỏ qua ${escape(rest)}.` : ''} Mỗi chuyến ghi Lịch sử riêng.</p>`
+        + `${escape(model.formatVnd(plan.beforeVnd))} đ → <strong>${escape(model.formatVnd(plan.afterVnd))} đ</strong>.${rest ? ` Bỏ qua ${escape(rest)}.` : ''} Mỗi chuyến ghi Lịch sử riêng.</p>${flags ? `<p class="paste-flags">Lưu ý: ${escape(flags)}.</p>` : ''}`
         + `<ul class="paste-list">${list}</ul><div class="price-actions"><button type="button" class="paste-write primary">Ghi ${writes.length} giá</button>`
         + '<button type="button" class="paste-cancel">Thôi</button></div></div>';
     }
@@ -324,6 +328,9 @@
       const text = event.clipboardData?.getData('text/plain') ?? '';
       if (!text.trim()) return;
       event.preventDefault();
+      // Excel trên Windows chép kèm ảnh các ô: không để ảnh đó đi tiếp tới phần ảnh chứng từ (nghe ở document).
+      event.stopPropagation();
+      if (pasteWriting) return;
       const parsed = model.parsePricePaste(text);
       const rows = [...cell.closest('table.trip-list').querySelectorAll('tr[data-row]')];
       const order = rows.slice(rows.indexOf(cell.closest('tr'))).map(row => row.dataset.row);
@@ -343,10 +350,19 @@
       const write = event.target.closest('.paste-write');
       if (!write || !pastePlan) return;
       const plan = pastePlan, back = pasteFrom && markOf(pasteFrom);
-      write.disabled = true;
-      pastePlan = null;
+      const cancel = write.closest('.price-actions')?.querySelector('.paste-cancel');
+      write.disabled = true; write.textContent = 'Đang ghi…';
+      if (cancel) cancel.disabled = true;
+      pastePlan = null; pasteWriting = true;
       try { await api.submitSeries('price', plan.writes.map(item => ({ trip_id: item.tripId, unit_price_vnd: item.priceVnd, other_fee_vnd: item.otherFeeVnd }))); }
-      catch (error) { pastePlan = plan; write.disabled = false; showNotice(error.message); return; }
+      catch (error) {
+        pasteWriting = false; pastePlan = plan;
+        write.disabled = false; write.textContent = `Ghi ${plan.writes.length} giá`;
+        if (cancel) cancel.disabled = false;
+        showNotice(error.message); return;
+      } finally { pasteWriting = false; }
+      // Mất mạng giữa chừng: chưa đọc lại sổ nên khung còn đó. Đóng khung, đưa tiêu điểm tới "Thử lại thao tác vừa gửi" ở đầu sổ.
+      if (api.lastOutcome()?.status === 'unknown') { closePaste(false); root.querySelector('.retry-command')?.focus(); return; }
       // Sổ đã đọc lại và vẽ lại (khung xem lại mất theo): tiêu điểm về ô Đơn giá đã dán vào.
       findMark(back)?.focus();
     });
