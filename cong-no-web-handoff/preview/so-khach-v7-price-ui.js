@@ -414,12 +414,34 @@
       <div class="pm-body"><main class="pm-main">
         <div class="pm-tools"><input class="pm-find" id="pm-find" value="${escape(ui.filter)}" placeholder="Tìm nơi đi" aria-label="Tìm nơi đi" autocomplete="off" spellcheck="false">
           <span class="pm-hint"></span><button type="button" class="price-row-add">+ Thêm nơi đi</button><button type="button" class="price-new-open">${form.periods.length ? '+ Đổi giá từ ngày…' : '+ Thêm đợt giá'}</button></div>
-        <div class="price-bar"></div><div class="pm-errors" role="alert"></div>
+        <div class="price-bar"></div><div class="pm-errors" role="alert"></div>${outsideStrip()}
         ${empty ? helpBox() : `<div class="pm-scroll">${grid(errors)}</div>`}
       </main><aside class="pm-side" aria-label="${ui.side === 'ship' ? 'Shipper áp giá TT' : 'Đợt giá'}">${side(errors)}</aside></div></div>
       <datalist id="price-ship-list">${bookShippers.map(item => `<option value="${escape(item.name)}">`).join('')}</datalist>`;
     renderBar();
     updateGrid(errors);
+  }
+  // Dải "nơi đi ngoài bảng" (BANG-GIA-05, người dùng chốt 13/11/2026): chuyến chưa có giá vì server tra ra UNKNOWN_LOCATION,
+  // gom theo nơi đi chưa có hàng trên lưới. Nút chỉ thêm hàng trống để gõ giá; không tự điền giá, không ghi gì cho tới khi lưu.
+  function outsideOrigins() {
+    const trips = tripsOf();
+    const have = new Set(form.rows.map(row => keyOf(row.kho)).filter(Boolean));
+    const counts = new Map();
+    for (const row of status?.trips ?? []) {
+      const trip = trips.get(row.trip_id);
+      if (row.lookup?.reason !== 'UNKNOWN_LOCATION' || row.unit_price_vnd != null || !trip || trip.deleted) continue;
+      const key = keyOf(trip.origin);
+      if (key && !have.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }
+  function outsideStrip() {
+    const origins = outsideOrigins();
+    if (!origins.length) return '';
+    const total = origins.reduce((sum, [, count]) => sum + count, 0);
+    const shown = origins.slice(0, 5).map(([name, count]) => `${escape(name)} (${count} chuyến)`).join(', ');
+    return `<div class="pm-outside" role="status"><span>${total} chuyến chưa có giá vì nơi đi ngoài bảng: ${shown}${origins.length > 5 ? `, và ${origins.length - 5} nơi đi khác` : ''}.</span>
+      <button type="button" class="price-outside-add">Thêm ${origins.length} nơi đi này</button></div>`;
   }
   const SHEET_PICTURE = `<table class="price-sheet" aria-hidden="true"><tr><td class="s">EFFECTIVE FROM</td><td class="s">EFFECTIVE TO</td><td class="s">LOCATION</td><td class="s">… PRICE</td><td class="s r">TT PRICE</td><td class="g"></td><td class="o">SHIPPER ÁP GIÁ TT</td></tr>
       <tr><td class="s">15/09/2026</td><td class="s">09/10/2026</td><td class="s">LONG AN</td><td class="s n">58,000,000</td><td class="s r n">72,000,000</td><td class="g"></td><td class="o">TÊN SHIPPER</td></tr>
@@ -930,6 +952,16 @@
       form.rows.push(row);
       render();
       $(`input[data-row="${row.uid}"][data-f="kho"]`)?.focus();
+    } else if (button.matches('.price-outside-add')) {
+      const added = outsideOrigins().map(([name]) => ({ uid: nextUid++, kho: name, den: '' }));
+      form.rows.push(...added);
+      ui.filter = '';
+      render();
+      setBar('info', `Đã thêm ${added.length} hàng nơi đi, chưa có giá. Gõ giá vào cột đợt cần dùng rồi bấm Xem lại và lưu.`);
+      const latest = sorted().at(-1);
+      const input = latest && $(`input[data-row="${added[0]?.uid}"][data-per="${latest.uid}"][data-tier="khach"]`);
+      (input ?? $(`input[data-row="${added[0]?.uid}"][data-f="kho"]`))?.focus();
+      input?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     } else if (button.matches('.price-row-drop')) {
       const uid = Number(button.dataset.row);
       form.rows = form.rows.filter(row => row.uid !== uid);
