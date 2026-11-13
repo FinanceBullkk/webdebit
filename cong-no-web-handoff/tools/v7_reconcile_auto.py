@@ -16,6 +16,7 @@ Mỗi lượt cũng kiểm tab TONG có cộng đủ các tab khách không (KIE
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import functools
 import json
@@ -31,6 +32,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import sheet_sync_runner
+import v7_booking_check as booking_check
 import v7_cutover_audit as audit
 import v7_export_clean as clean
 import v7_load_real_copy as loader
@@ -377,10 +379,13 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
     today = downloaded_at.date()
     work_root = Path(args.work_dir)
     work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder:
+    # ExitStack đóng trước thư mục tạm: phép kiểm booking chạy song song phải xong khi bản tải còn đó.
+    with tempfile.TemporaryDirectory(dir=work_root, prefix="lan-") as folder, contextlib.ExitStack() as stack:
         work = Path(folder)
         trace.stage("tai")
         xlsx = args.xlsx or download(args.spreadsheet_id, args.credentials, work / "sheet.xlsx")
+        # KIEM-BOOKING-01: Sheet sổ nợ so với booking, trên cùng bản tải. Chỉ đọc, file riêng; lỗi không làm hỏng lượt.
+        booking = stack.enter_context(booking_check.alongside(Path(xlsx), args.booking_output, args.snapshot, args.road, enabled=args.booking_check))
         db = PsqlDirect(args.socket_dir, args.database, args.db_user)
         rows = db.run("list_customers", {}, ACTOR).get("customers", [])
         trace.stage("sach")
@@ -453,7 +458,7 @@ def run(args: argparse.Namespace, trace: run_trace.RunTrace | None = None) -> di
         "all_web_vnd": str(sum(row["web_total_vnd"] or 0 for row in results)),
         "matched": {str(row["customer_id"]): str(row["web_total_vnd"]) for row in matched if row["customer_id"]},
         "customers": listed + [row for row in fixed_earlier_today(args.output, checked_at[:10]) if row["customer"] not in named],
-        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong,
+        "months_differ": months_differ, "outside_tabs": outside, "edit_log": edit_state, "tong": tong, "booking": booking["result"],
     }
 
 
@@ -485,6 +490,7 @@ def append_log(output: Path, result: dict[str, Any]) -> None:
     line["edit_log"] = result["edit_log"]["status"]
     line["editing"] = sum(bool(row.get("sheet_editing")) for row in result["customers"])
     line["tong"] = tong_counts(result["tong"])
+    line["booking"] = result.get("booking")
     descriptor = os.open(output.with_name("reconcile-log.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(descriptor, "a", encoding="utf-8") as stream:
         stream.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -503,7 +509,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", default="webdebit_v7")
     parser.add_argument("--db-user", default="v7_app")
     parser.add_argument("--fix", action="store_true", help="ghi tổ hợp đã chọn; không có thì chỉ báo")
+    parser.add_argument("--booking-output", type=Path, help="kết quả kiểm booking (KIEM-BOOKING-01); mặc định booking-check.json cạnh --output")
+    parser.add_argument("--snapshot", type=Path, default=Path(os.getenv("WEBDEBIT_SNAPSHOT_PATH") or booking_check.FOLDER / "snapshot.json"))
+    parser.add_argument("--road", type=Path, default=Path(os.getenv("WEBDEBIT_ROAD_SNAPSHOT_PATH") or booking_check.FOLDER / "road.json"))
     args = parser.parse_args(argv)
+    args.booking_output = args.booking_output or args.output.with_name("booking-check.json")
+    args.booking_check = os.getenv("WEBDEBIT_BOOKING_CHECK", "on") != "off"   # tắt nhanh không cần release mới
     if not args.xlsx and (not args.spreadsheet_id or not args.credentials):
         parser.error("cần --xlsx, hoặc --spreadsheet-id và --credentials (biến môi trường của runner)")
     started = time.monotonic()
@@ -523,7 +534,7 @@ def main(argv: list[str] | None = None) -> int:
     reasons = Counter(row["reason"] for row in result["customers"])
     print(json.dumps({"ok": True, "mode": result["mode"], "counts": result["counts"], "reasons": reasons,
                       "months_differ": len(result["months_differ"]), "edit_log": result["edit_log"]["status"],
-                      "tong": tong_counts(result["tong"]), "seconds": round(time.monotonic() - started)}))
+                      "tong": tong_counts(result["tong"]), "booking": result["booking"], "seconds": round(time.monotonic() - started)}))
     return 0
 
 

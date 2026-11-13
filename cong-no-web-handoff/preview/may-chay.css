@@ -99,6 +99,43 @@
 .mc .jobs th,.mc .jobs td{padding:3px 8px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
 .mc .job-failed td:last-child,.mc .job-late td:last-child,.mc .job-off td:last-child{color:var(--critical);font-weight:600}
 .mc .job-running td:last-child{color:var(--accent-ink);font-weight:600}
+/* Kiểm booking (KIEM-BOOKING-01): dòng trạng thái lượt, nút nhóm có số (nhóm đụng tiền trước), danh sách mở ngay dưới. */
+.mc .booking{margin-top:8px;padding:7px 8px;white-space:normal}
+.mc .bk-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.mc .bk-head h2{font-size:13.5px;margin:0;font-weight:600}
+.mc .bk-status{font-size:13.5px;color:var(--ink-2);border-radius:5px}
+.mc .bk-status.ok{color:var(--credit)}
+.mc .bk-status.warn{background:var(--warning-soft);color:var(--warning);font-weight:600;padding:1px 6px}
+.mc .bk-status.bad{background:var(--critical-soft);color:var(--critical);font-weight:600;padding:1px 6px}
+.mc .bk-scope{margin:2px 0 6px;font-size:12.5px;color:var(--ink-3)}
+.mc .bk-scope:empty{display:none}
+.mc .bk-groups{display:grid;gap:6px}
+.mc .bk-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.mc .bk-group{display:inline-flex;align-items:center;gap:8px;min-height:32px;padding:3px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font:inherit;font-size:13.5px;color:var(--ink-2);cursor:pointer}
+.mc .bk-group b{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
+.mc .bk-group.money.has{border-color:var(--warning);background:var(--warning-soft);color:var(--ink)}
+.mc .bk-group.money.has b{color:var(--warning)}
+.mc .bk-group:disabled{cursor:default;color:var(--ink-3)}
+.mc .bk-group:disabled b{color:var(--ink-3);font-weight:600}
+.mc .bk-group:not(:disabled):hover{border-color:var(--accent)}
+.mc .bk-group[aria-expanded="true"]{outline:2px solid var(--ink);outline-offset:1px}
+.mc .bk-group:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mc .bk-info .bk-group{min-height:28px;font-size:13px}
+.mc .bk-sub{color:var(--ink-3);font-size:12.5px}
+.mc .bk-line{display:block}
+.mc .bk-list{margin-top:8px;border-top:1px solid var(--line-soft);padding-top:6px}
+.mc .bk-list-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-bottom:4px}
+.mc .bk-list-head b{font-size:13.5px;font-weight:600}
+.mc .bk-filter{margin-left:auto;font-size:13px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
+.mc .bk-filter select{max-width:260px}
+.mc .bk-tablewrap{max-height:60vh;overflow:auto;border:1px solid var(--line-soft);border-radius:6px}
+.mc .bk-list table{border-collapse:collapse;width:100%;font-size:13px}
+.mc .bk-list th{position:sticky;top:0;text-align:left;font-weight:600;color:var(--ink-2);background:var(--head);z-index:1}
+.mc .bk-list th,.mc .bk-list td{padding:4px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top;overflow-wrap:anywhere}
+.mc .bk-list td.num{white-space:nowrap;font-variant-numeric:tabular-nums}
+.mc .bk-list td:nth-child(4){text-align:right}
+.mc .bk-cont{white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.mc .bk-list a{color:inherit;text-decoration:underline;text-decoration-color:var(--line)}
 @media (max-width:980px){
   .mc-main{grid-template-columns:minmax(0,1fr)}
   .mc .mc-side{contain:none;overflow:visible}
@@ -118,4 +155,6 @@
   .mc .tabs button{min-height:40px;padding:0 10px;font-size:14.5px}
   .mc .slot{width:56px;height:40px;font-size:13px}
   .mc .slot.now{width:auto}
+  .mc .bk-group,.mc .bk-info .bk-group{min-height:40px}
+  .mc .bk-filter{margin-left:0}
 }

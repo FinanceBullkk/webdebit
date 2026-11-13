@@ -1759,6 +1759,18 @@ WantedBy=timers.target
 4. **Theo dõi:** tab Việc cần làm, `reconcile-log.jsonl`, `journalctl -u v7-reconcile-auto`. Stdout của unit chỉ có số đếm. Phép kiểm tab TONG ([`KIEM-TONG-01`](decisions/kiem-tong-01.md)) nằm ở khối `tong` của `reconcile.json`; log và journal chỉ có số đếm `tong`. `skipped: ERROR` là lượt đó không kiểm được TONG (mã ở `error`, journal có một dòng), phần đối soát vẫn đạt.
 5. **Tắt:** `systemctl disable --now v7-reconcile-auto.timer`. Muốn vẫn đối soát mà không ghi thì bỏ `--fix` khỏi `ExecStart`, `daemon-reload`, rồi bật lại timer. Việc máy đã ghi vẫn nằm trong sổ và Lịch sử; sửa tay nếu sai: hủy phiếu, xóa dòng điều chỉnh, sửa giá tại ô (tháng khóa: mở khóa trước).
 
+**Kiểm booking trong cùng lượt** ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)). Không có unit hay timer mới, mã lên bằng `Deploy hao`.
+
+- **Cách chạy:** mỗi lượt mở thêm một tiến trình con, chỉ đọc. Nó chạy `tools/v7_booking_check.py` trên bản tải của lượt, cùng `snapshot.json` và `road.json` (đường dẫn lấy từ `WEBDEBIT_SNAPSHOT_PATH`, `WEBDEBIT_ROAD_SNAPSHOT_PATH` của `sheet-sync.env`). Kết quả ghi `/var/lib/webdebit-sheet-sync/booking-check.json`, mode 600, có tên khách.
+- **Chi phí:** khoảng 160 giây và 286 MB, song song với lượt nên lượt không dài thêm. Lượt chờ con xong trước khi xóa bản tải, tối đa 900 giây.
+- **Theo dõi:**
+  - Khối `booking` ở stdout, `reconcile.json` và `reconcile-log.jsonl` chỉ có số đếm, hoặc `{"error": "<mã>"}`.
+  - Journal có một dòng `V7 kiểm booking: không kiểm được (<mã>)` khi lỗi.
+  - `SEA_*`/`ROAD_*` (`MISSING`, `UNREADABLE`, `EMPTY`, `STALE`): xem timer `webdebit-sheet-sync`.
+  - Lượt lỗi giữ kết quả cũ, trang Máy chạy ghi rõ là lỗi.
+- **Tắt** mà không đổi release: thêm drop-in `[Service]` `Environment=WEBDEBIT_BOOKING_CHECK=off` cho `v7-reconcile-auto.service`, rồi `daemon-reload`. Muốn trang báo "chưa có lượt kiểm" thì xóa `booking-check.json`.
+- **Chạy tay chỉ đọc:** tải xlsx như bước 1 của "Đối soát cuối tháng", rồi `v7_booking_check.py --xlsx <xlsx> --output <thư mục ngoài Git>/booking-check.json`.
+
 Trước cửa sổ dừng ghi của một đợt nâng DB: `systemctl stop v7-reconcile-auto.timer`, đợi `v7-reconcile-auto.service` không còn chạy, xong đợt thì bật lại. Một lượt dài khoảng 9 phút; dừng API không làm dừng lượt này vì nó vào DB trực tiếp.
 
 ## Thông tin cty (THONG-TIN-CTY-01) — timer `webdebit-company-info`

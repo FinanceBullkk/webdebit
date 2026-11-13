@@ -24,6 +24,7 @@ import v7_ai_explain
 import v7_api_doi_chieu
 import v7_api_sheet
 import v7_api_zalo
+import v7_booking_view
 import v7_company_info
 import v7_debit_note_config
 import v7_identity
@@ -330,6 +331,11 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, INBOX.view(runner)
+    elif parts.path == "/api/v7/machine/booking":
+        # KIEM-BOOKING-01: kết quả kiểm Sheet sổ nợ so với booking; file của lượt đối soát, không qua DB, sau xác thực danh tính.
+        if parts.query:
+            bad()
+        return 200, v7_booking_view.view()
     elif parts.path in MACHINE_READS:
         # MAY-CHAY-01: đọc file của job, không qua DB; vẫn sau xác thực danh tính như mọi route.
         if parts.query:

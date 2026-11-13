@@ -73,6 +73,18 @@
         <tbody id="jobs-body"></tbody>
       </table></div>
     </section>
+    <section class="panel booking" aria-labelledby="bk-title">
+      <div class="bk-head"><h2 id="bk-title">Kiểm Sheet sổ nợ với booking</h2><span id="bk-status" class="bk-status" aria-live="polite">Đang tải…</span></div>
+      <p id="bk-scope" class="bk-scope"></p>
+      <div id="bk-groups" class="bk-groups" role="group" aria-label="Nhóm cần xem" hidden></div>
+      <div id="bk-list" class="bk-list" hidden>
+        <div class="bk-list-head"><b id="bk-list-name"></b><span id="bk-list-about" class="bk-sub"></span><label class="bk-filter">Sổ <select id="bk-book" class="ctrl"></select></label></div>
+        <div class="bk-tablewrap"><table>
+          <thead><tr><th>Container</th><th>Ngày trên sổ</th><th>Sổ</th><th>Số tiền</th><th>Booking</th><th>Vì sao</th></tr></thead>
+          <tbody id="bk-body"></tbody>
+        </table></div>
+      </div>
+    </section>
   </main>
   <div class="tip" id="tip" role="tooltip" hidden></div>
   <script src="cong-no-format.js"></script>
@@ -83,6 +95,7 @@
   <script src="may-chay-model.js"></script>
   <script src="may-chay-office.js"></script>
   <script src="may-chay-ui.js"></script>
+  <script src="may-chay-booking.js"></script>
   <script src="presence.js"></script>
 </body>
 </html>
