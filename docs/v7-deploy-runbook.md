@@ -1867,7 +1867,7 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
-## Nơi đến không bắt buộc (BANG-GIA-04) — nâng DB đang có
+## Nơi đến không bắt buộc (BANG-GIA-04) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026)
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql` chạy sau `2026-11-10-v7-bang-gia-noi-den.sql` ([`BANG-GIA-04`](decisions/bang-gia-04.md)). Chỉ thay thân `_lookup_price` (Nơi đến trống là giá chung, đúng nơi đến thắng) và `save_price_table` (nhận Nơi đến rỗng). Không đổi bảng, giá chuyến hay số dư. Chạy migration trước khi đổi release: giao diện mới gửi Nơi đến rỗng, DB cũ trả `INVALID_PRICE_TABLE`; release cũ chạy được với DB mới.
 
