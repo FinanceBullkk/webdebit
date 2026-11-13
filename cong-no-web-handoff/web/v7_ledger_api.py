@@ -30,6 +30,7 @@ import v7_identity
 import v7_inbox
 import v7_machine
 import v7_presence
+import v7_read_cache
 import v7_sheet_refresh
 import v7_zalo_chat
 from v7_api_sheet import (
@@ -85,6 +86,7 @@ from v7_psql import (
 # gọi qua `api.`. Muốn vá (patch) một biến toàn cục thì vá ở module định nghĩa nó.
 
 PRESENCE = v7_presence.Presence()   # PRESENCE-01: chỉ trong RAM của tiến trình
+READS = v7_read_cache.ReadCache()   # HIEU-NANG-01: kết quả đọc nặng theo dấu dữ liệu, chỉ cho GET
 # Hộp ngoại lệ P1 (specs/v7-hop-ngoai-le-p1.md): kết quả chiếu của mọi sổ, tính nền, chỉ trong RAM của tiến trình.
 INBOX = v7_inbox.Inbox(
     ledger_projections,
@@ -337,7 +339,7 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         return 200, body if parts.path == "/api/v7/machine/summary" else {**body, "auto": INBOX.auto_today()}
     elif parts.path == "/api/v7/sheet/doi-chieu":
         _, payload = validate_get("/api/v7/ledger", parts.query)
-        return 200, v7_api_doi_chieu.statement(payload["customer_id"], runner, actor)
+        return 200, v7_api_doi_chieu.statement(payload["customer_id"], v7_read_cache.CachedReads(runner, READS), actor)
     elif parts.path == "/api/v7/ai/preview":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_ai_explain.preview(payload["customer_id"], runner, actor)
@@ -364,7 +366,8 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
             raise ApiError(exc.status, exc.code, exc.message) from exc
     else:
         function, payload = validate_get(parts.path, parts.query)
-    result = runner.run(function, payload, actor)
+    # HIEU-NANG-01: GET đọc nặng qua bộ nhớ theo dấu dữ liệu (dấu mới mỗi lượt: đọc ngay sau ghi thấy bản mới); POST đi thẳng.
+    result = READS.run(runner, function, payload, actor) if method == "GET" else runner.run(function, payload, actor)
     if method == "POST" and function != "preview_price_table":   # xem trước không ghi gì
         touch_inbox(raw)
     if function == "list_customers" and parts.path == "/api/v7/customers":

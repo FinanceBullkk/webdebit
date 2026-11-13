@@ -322,6 +322,7 @@ class Inbox:
         self.sheet_status = sheet_status or (lambda: {})
         self.clock = clock or (lambda: datetime.now(UTC).timestamp())
         self.lock = threading.Lock()
+        self.dirty_lock = threading.Lock()   # một lượt tính sổ vừa ghi tại một lúc (view)
         self.books: dict[int, dict] = {}
         self.failed: set[int] = set()
         self.total = 0
@@ -762,12 +763,19 @@ class Inbox:
             if len(dirty) > DIRTY_INLINE_LIMIT:
                 self.start(runner)
             else:
-                shared = SharedReads(runner)
-                results = [self._one(shared, customer_id) for customer_id in dirty]
-                with self.lock:
-                    for result in results:
-                        self._apply(*result)
-                    self.dirty.difference_update(dirty)
+                # HIEU-NANG-01: các sổ vừa ghi tính song song (đo 13/11/2026: 5 sổ lần lượt 3,6 giây); hai GET cùng lúc
+                # (trang và menu) không tính trùng: lượt sau chờ lượt trước rồi chỉ tính sổ còn bẩn.
+                with self.dirty_lock:
+                    with self.lock:
+                        dirty = sorted(self.dirty) if not self.running else []
+                    if dirty:
+                        shared = SharedReads(runner)
+                        with ThreadPoolExecutor(max_workers=len(dirty)) as pool:
+                            results = list(pool.map(lambda customer_id: self._one(shared, customer_id), dirty))
+                        with self.lock:
+                            for result in results:
+                                self._apply(*result)
+                            self.dirty.difference_update(dirty)
         with self.lock:
             if key is None and self.computed_at is None:
                 state = "unavailable"

@@ -33,6 +33,8 @@ NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-1
 XEM_TRUOC_BANG_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-xem-truoc-bang-gia.sql"
 # COT-PHU-PHI-01 13/11/2026: bỏ giới hạn 3 cột, cột mặc định; set_book_fee_columns và create_book_from_sheet bằng migration này.
 COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-cot-phu-phi-mac-dinh.sql"
+# HIEU-NANG-01 13/11/2026: get_read_stamp chỉ có ở migration này.
+DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
 LATER_TABLE_CHANGES = {
     "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
@@ -84,6 +86,9 @@ class FeeSqlSync(unittest.TestCase):
         preview = XEM_TRUOC_BANG_GIA_MIGRATION.read_text(encoding="utf-8")
         with self.subTest(name="preview_price_table"):
             self.assertEqual(definition(preview, "FUNCTION", "preview_price_table"), definition(canonical, "FUNCTION", "preview_price_table"))
+        stamp = DAU_DOC_MIGRATION.read_text(encoding="utf-8")
+        with self.subTest(name="get_read_stamp"):
+            self.assertEqual(definition(stamp, "FUNCTION", "get_read_stamp"), definition(canonical, "FUNCTION", "get_read_stamp"))
         optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
         for name in ("_lookup_price", "save_price_table"):
             with self.subTest(name=name):
