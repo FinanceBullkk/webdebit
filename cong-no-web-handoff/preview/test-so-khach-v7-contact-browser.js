@@ -165,10 +165,11 @@ test('Hồ sơ (HO-SO-01): đầu hồ sơ, hai cột đúng thứ tự mục; h
   // Xem bảng giá: sang thẻ Sổ, khung Bảng giá mở; các dòng "Đang dùng" hôm nay đúng bằng các dòng giá đang áp ở thẻ Hồ sơ.
   await pane.locator('[data-go="mo:bang-gia"]').click();
   assert.deepEqual((await state(page))[0], 'so');
-  await page.locator('.price-table-dialog .price-grid-main td.st-now').first().waitFor();
-  const now = await page.locator('.price-table-dialog .price-grid-main tbody tr').evaluateAll(nodes => nodes.filter(node => node.querySelector('td.st-now'))
-    .map(node => [...node.querySelectorAll('input')].map(input => input.value)));
-  assert.deepEqual(now.map(([, , place, destination, khach, tt]) => [place, destination, digits(khach), digits(tt)]),
+  // BANG-GIA-05: Bảng giá là ma trận; cột đợt "đang dùng" của từng hàng nơi đi.
+  await page.locator('.price-table-dialog th.ph.st-now').first().waitFor();
+  const now = await page.locator('.price-table-dialog .pm-grid tbody tr').evaluateAll(nodes => nodes.map(node => [node.querySelector('[data-f="kho"]').value,
+    node.querySelector('[data-f="den"]').value, ...[...node.querySelectorAll('td.st-now input')].map(input => input.value)]).filter(row => row.slice(2).some(Boolean)));
+  assert.deepEqual(now.map(([place, destination, khach, tt]) => [place, destination, digits(khach), digits(tt)]),
     rows.filter(([kind]) => kind === 'now').map(([, place, destination, khach, tt]) => [place, destination, digits(khach), digits(tt)]));
   await page.locator('.price-table-dialog .price-table-close').click();
   // Cài đặt phụ phí mở khung có sẵn ở thẻ Sổ; cột phụ phí riêng là các cột ở tiêu đề sổ, trừ Khác.

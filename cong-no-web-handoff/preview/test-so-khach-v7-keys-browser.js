@@ -250,24 +250,28 @@ test('Lịch sử: mỗi sự kiện một câu có tên ngắn người làm; l
       after: { trip: { id: 11, field: 'carrier', value: 'Tàu thử' } } });
 }));
 
-test('lưới bảng giá: mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
-  const at = () => page.evaluate(() => `${document.activeElement?.dataset.r}:${document.activeElement?.dataset.c}`);
+test('bảng giá (ma trận): mũi tên lên/xuống sang ô cùng cột hàng trên/dưới, giữ chữ đã gõ; hàng đầu đứng yên', async () => withPage(async ({ page }) => {
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();
   await page.locator('.book-settings > summary').click();   // SO-GON-06: menu Cài đặt ▾
   await page.click('.price-table-open');
   const dialog = page.locator('.price-table-dialog');
-  await dialog.locator('.price-grid-main').waitFor();
-  await dialog.locator('input[data-r="0"][data-c="2"]').click();
-  await page.keyboard.type('KHO A');
+  await dialog.locator('.pm-grid').waitFor();
+  const uids = await dialog.locator('.pm-grid tbody tr').evaluateAll(nodes => nodes.map(node => node.dataset.row));
+  const at = () => page.evaluate(() => `${document.activeElement?.dataset.row}:${document.activeElement?.dataset.tier}`);
+  await dialog.locator('.pm-grid tbody tr').first().locator('input[data-tier="tt"]').click();
+  await page.keyboard.type('70000000');
   await page.keyboard.press('ArrowDown');
-  assert.equal(await at(), '1:2');
+  assert.equal(await at(), `${uids[1]}:tt`);
   await page.keyboard.press('ArrowDown');
-  assert.equal(await at(), '2:2');
+  assert.equal(await at(), `${uids[2]}:tt`);
   await page.keyboard.press('ArrowUp');
   await page.keyboard.press('ArrowUp');
-  assert.equal(await at(), '0:2');
+  assert.equal(await at(), `${uids[0]}:tt`);
   await page.keyboard.press('ArrowUp');
-  assert.equal(await at(), '0:2');
-  assert.equal(await dialog.locator('input[data-r="0"][data-c="2"]').inputValue(), 'KHO A');
+  assert.equal(await at(), `${uids[0]}:tt`);
+  assert.equal(await dialog.locator('.pm-grid tbody tr').first().locator('input[data-tier="tt"]').inputValue(), '70.000.000', 'rời ô thì giá viết lại có dấu chấm');
   assert.equal(await dialog.locator('.price-dirty').isVisible(), true);
+}, world => {
+  world.priceTable = { tt_shippers: [], locations: ['KHO A', 'KHO B', 'KHO C'].map(name => ({ name, aliases: [] })), periods: [{ valid_from: '2026-09-01', valid_to: null,
+    rates: ['KHO A', 'KHO B', 'KHO C'].map(location => ({ location, destination: '', tier: 'khach', unit_price_vnd: '50000000' })) }] };
 }));
