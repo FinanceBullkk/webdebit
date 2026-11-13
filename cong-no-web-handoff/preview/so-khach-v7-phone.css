@@ -169,4 +169,9 @@
   .dn4-combo input{min-height:48px;font-size:16px}.dn4-opt{padding:11px 12px}
   .dn4-check{min-height:44px}.dn4-check input{width:22px;height:22px}
   .dn4-actions{padding:8px 12px 12px}.dn4-actions button{min-height:48px}
+  /* DIEN-THOAI-DEBIT-01, bổ sung 13/11: đang mở danh sách của một ô thì nhường cả khung cho ô đó (xem trước, thanh nút hiện lại khi đóng). */
+  .dn4.is-picking .debit-body,.dn4.is-picking .dn4-actions{display:none}
+  /* Đủ chỗ cuộn để cả ô dưới cùng lên được đầu khung, trên bàn phím. Dùng khối đệm, không dùng padding: padding 100vh làm chính
+     vùng cuộn cao hơn khung (hộp không co nhỏ hơn padding của nó). */
+  .dn4.is-picking .dn4-form::after{content:"";display:block;height:100vh}
 }

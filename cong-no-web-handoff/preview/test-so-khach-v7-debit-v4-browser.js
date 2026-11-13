@@ -301,3 +301,44 @@ test('Debit note trên điện thoại 390px: xem trước ở trên vừa khung
   const wide = await fit();
   assert.ok(Number(wide.zoom) > 0.6 && Number(wide.zoom) <= 0.74 && wide.fits, JSON.stringify(wide));
 }, priced));
+
+// DIEN-THOAI-DEBIT-01, bổ sung 13/11: khung iPhone 13 trong Safari (390×664, đã trừ thanh địa chỉ) — danh sách của ô dưới cùng không bị thanh
+// nút đáy che: mở danh sách thì ẩn xem trước và thanh nút, ô lên đầu vùng cuộn, thấy trọn danh sách; chọn xong trả lại như cũ.
+test('Debit note trên iPhone 390×664: danh sách "Gửi cho" thấy trọn, chọn xong hiện lại xem trước và nút Gửi Excel', async () => withPage(async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 664 });
+  await page.locator('#thang-2026-09 .debit-open').click();
+  const dialog = page.locator('.debit-dialog');
+  await page.frameLocator('.debit-preview').locator('[data-page]').first().waitFor();
+  const seen = kind => page.evaluate(k => {
+    const list = document.querySelector(`#dn4-${k}-list`).getBoundingClientRect(), form = document.querySelector('.dn4-form').getBoundingClientRect();
+    const bar = document.querySelector('.dn4-actions').getBoundingClientRect();
+    const floor = bar.height ? Math.min(form.bottom, bar.top) : form.bottom;
+    const pick = document.querySelector(`.dn4-pick[data-kind="${k}"]`).getBoundingClientRect();
+    return { top: list.top, bottom: list.bottom, floor, lift: pick.top - form.top, options: document.querySelectorAll(`#dn4-${k}-list .dn4-opt`).length };
+  }, kind);
+  for (const kind of ['issuer', 'account', 'bill']) {
+    await page.locator(`#dn4-${kind}`).click();
+    const box = await seen(kind);
+    assert.ok(box.options >= 2 && box.bottom <= box.floor + 1 && box.top >= 0, `${kind} ${JSON.stringify(box)}`);
+    // Ô lên sát đầu vùng cuộn (kể cả ô dưới cùng): bàn phím iPhone che nửa dưới nên danh sách phải bắt đầu ở phần trên màn.
+    assert.ok(Math.abs(box.lift) <= 2, `${kind} chưa lên đầu khung ${JSON.stringify(box)}`);
+    assert.equal(await dialog.locator('.debit-body').isHidden(), true);
+    assert.equal(await dialog.locator('.debit-excel').isHidden(), true);
+    await page.locator('.dn4-month').focus();   // rời ô: đóng danh sách, trả lại xem trước và thanh nút
+    assert.equal(await dialog.locator('.debit-excel').isVisible(), true);
+  }
+  await page.locator('#dn4-bill').click();
+  await page.locator('#dn4-bill').fill('khach 7');
+  await box(page, 'bill').locator('.dn4-opt', { hasText: 'Khach So 7' }).dispatchEvent('mousedown');
+  assert.equal(await page.locator('#dn4-bill').inputValue(), 'Khach So 7');
+  assert.equal(await page.evaluate(() => document.activeElement?.id ?? ''), '', 'chọn xong thì cất bàn phím');
+  assert.equal(await dialog.locator('.debit-body').isVisible(), true);
+  assert.equal(await dialog.locator('.debit-excel').innerText(), 'Gửi Excel');
+  assert.equal(await dialog.locator('.dn4').evaluate(el => el.classList.contains('is-picking')), false);
+  assert.match(await page.frameLocator('.debit-preview').locator('[data-blk="INFO"]').innerText(), /KHACH 7 CO\.,LTD/);
+}, world => {
+  priced(world);
+  const many = Array.from({ length: 8 }, (_, i) => ({ ...COMPANY.customers[0], name: `Khach So ${i + 1}`, company: `KHACH ${i + 1} CO.,LTD`,
+    header: { ...COMPANY.customers[0].header, name: `KHACH ${i + 1} CO.,LTD` } }));
+  world.companyInfo = { ...COMPANY, customers: [...COMPANY.customers, ...many] };
+}));

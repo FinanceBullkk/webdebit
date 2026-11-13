@@ -58,5 +58,6 @@ Quyết định: [`DIEN-THOAI-DEBIT-01`](../docs/decisions/dien-thoai-debit-01.m
 - Dưới 760px hộp phủ cả màn, một cột cuộn dọc: dòng Chặn/Cảnh báo và ô xác nhận ngay dưới ba nút, rồi form, rồi bản xem trước thu vừa khung (`so-khach-v7-debit-ui.js` đặt zoom theo bề ngang khung; màn rộng giữ .6 cho v4, .82 cho v3).
 - Nút xuất đang khóa mờ đi ở mọi cỡ màn.
 - Khung xem trước và khung in đặt `text-size-adjust: 100%`: Safari iPhone không tự phóng chữ trong trang A4 rộng hơn khung (chữ đè nhau, chia trang đo sai).
+- Hộp v4, 13/11/2026: mở danh sách của một ô thì ẩn xem trước và thanh nút, ô lên sát đầu khung, danh sách cao vừa phần màn trên bàn phím; chọn xong cất bàn phím. Tiêu chí ở 390×664 (iPhone 13 trong Safari): cả ba ô thấy trọn danh sách, ô lên đầu vùng cuộn (lệch ≤ 2px). Test: `test-so-khach-v7-debit-v4-browser.js`.
 
 Tiêu chí: 390×844 hộp đúng 390×844, ba nút ≥ 44px nằm trong màn, cột kiểm rộng 390px và nằm trên form, không cuộn ngang trong hộp lẫn trong khung xem trước; 1280 về hai cột, form 320px. Test: `test-so-khach-v7-debit-v4-browser.js`.
