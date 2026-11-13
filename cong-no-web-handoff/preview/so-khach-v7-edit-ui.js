@@ -284,6 +284,75 @@
       input.value = event.key;
       input.setSelectionRange(1, 1);
     });
+    // ---- GIA-O-01 (B): dán cả cột giá vào ô Đơn giá đang đứng (chép từ Sheet/Excel) ----
+    // Chưa ghi gì: khung xem lại ngay dưới dòng (.price-panel nên sổ không tự vẽ lại khi đang xem). Ghi thì gửi lần lượt
+    // (api.submitSeries), sổ đọc lại một lần ở cuối. Một cột: theo thứ tự dòng từ chuyến đang đứng; có cột container: ghép theo container.
+    let pastePlan = null, pasteFrom = null;
+    const closePaste = (back = true) => {
+      root.querySelectorAll('.paste-review').forEach(row => row.remove());
+      pastePlan = null;
+      if (back) (pasteFrom?.isConnected ? pasteFrom : findMark(pasteFrom && markOf(pasteFrom)))?.focus();
+    };
+    const priceText = value => (value === null ? 'chưa có giá' : `${fmt(value)} đ`);
+    function pasteHtml(plan, parsed) {
+      const errors = parsed.errors;
+      const writes = plan?.writes ?? [];
+      const skipped = (plan?.items ?? []).filter(item => item.status === 'skip');
+      const same = (plan?.items ?? []).filter(item => item.status === 'same').length;
+      const blank = (plan?.items ?? []).filter(item => item.status === 'empty').length;
+      const rest = [same ? `${same} chuyến giá như đang có` : '', blank ? `${blank} dòng trống` : ''].filter(Boolean).join(', ');
+      const list = [...writes.map(item => `<li><div class="what">${escape(item.container)} · ${escape(dateText(item.date))} · ${escape(priceText(item.oldPriceVnd))} → <strong>${escape(priceText(item.priceVnd))}</strong>`
+          + `${item.small || item.overwrite ? `<small>${[item.overwrite ? 'ghi đè giá đang có' : '', item.small ? 'giá dưới 1.000.000 đ: nghi sai đơn vị' : ''].filter(Boolean).join(' · ')}</small>` : ''}</div></li>`),
+        ...skipped.map(item => `<li class="paste-skip"><div class="what">Dòng ${item.line}${item.container ? ` · ${escape(item.container)}` : ''} · không ghi: ${escape(item.reason)}</div></li>`)].join('');
+      if (errors.length) {
+        return `<div class="price-panel err" role="alert" aria-label="Chưa dán được giá"><p><strong>Chưa dán được: chưa ghi gì.</strong></p><ul>${errors.slice(0, 8).map(text => `<li><div class="what">${escape(text)}</div></li>`).join('')}</ul>`
+          + '<div class="price-actions"><button type="button" class="paste-cancel">Đóng</button></div></div>';
+      }
+      if (!writes.length) {
+        return `<div class="price-panel err" role="alert" aria-label="Không có giá để ghi"><p><strong>Không có giá nào để ghi.</strong>${rest ? ` ${escape(rest)}.` : ''}</p><ul class="paste-list">${list}</ul>`
+          + '<div class="price-actions"><button type="button" class="paste-cancel">Đóng</button></div></div>';
+      }
+      const how = parsed.mode === 'container' ? 'Ghép theo số container.' : 'Theo thứ tự dòng, từ chuyến đang đứng trở xuống.';
+      return `<div class="price-panel confirm" role="region" aria-label="Xem lại giá dán"><p><strong>Ghi giá cho ${writes.length} chuyến?</strong> ${how} Tổng còn nợ `
+        + `${escape(model.formatVnd(plan.beforeVnd))} đ → <strong>${escape(model.formatVnd(plan.afterVnd))} đ</strong>.${rest ? ` Bỏ qua ${escape(rest)}.` : ''} Mỗi chuyến ghi Lịch sử riêng.</p>`
+        + `<ul class="paste-list">${list}</ul><div class="price-actions"><button type="button" class="paste-write primary">Ghi ${writes.length} giá</button>`
+        + '<button type="button" class="paste-cancel">Thôi</button></div></div>';
+    }
+    root.addEventListener('paste', event => {
+      const cell = event.target.closest?.('td.editable[data-field="unit_price_vnd"]');
+      if (!cell || cell.querySelector('input')) return;   // đang gõ trong ô: dán như chữ thường
+      const text = event.clipboardData?.getData('text/plain') ?? '';
+      if (!text.trim()) return;
+      event.preventDefault();
+      const parsed = model.parsePricePaste(text);
+      const rows = [...cell.closest('table.trip-list').querySelectorAll('tr[data-row]')];
+      const order = rows.slice(rows.indexOf(cell.closest('tr'))).map(row => row.dataset.row);
+      let plan = null;
+      if (!parsed.errors.length) {
+        try { plan = model.planPricePaste(parsed, ctx.snapshot, order); }
+        catch { parsed.errors.push('Chưa đọc được số tiền của sổ. Tải lại sổ rồi dán lại.'); }
+      }
+      closePaste(false);
+      pasteFrom = cell;
+      pastePlan = plan?.writes.length ? plan : null;
+      cell.closest('tr').insertAdjacentHTML('afterend', `<tr class="paste-review"><td colspan="${spanOf(cell.closest('tr'))}">${pasteHtml(plan, parsed)}</td></tr>`);
+      root.querySelector('.paste-review .paste-cancel')?.focus();
+    });
+    root.addEventListener('click', async event => {
+      if (event.target.closest('.paste-cancel')) { closePaste(); return; }
+      const write = event.target.closest('.paste-write');
+      if (!write || !pastePlan) return;
+      const plan = pastePlan, back = pasteFrom && markOf(pasteFrom);
+      write.disabled = true;
+      pastePlan = null;
+      try { await api.submitSeries('price', plan.writes.map(item => ({ trip_id: item.tripId, unit_price_vnd: item.priceVnd, other_fee_vnd: item.otherFeeVnd }))); }
+      catch (error) { pastePlan = plan; write.disabled = false; showNotice(error.message); return; }
+      // Sổ đã đọc lại và vẽ lại (khung xem lại mất theo): tiêu điểm về ô Đơn giá đã dán vào.
+      findMark(back)?.focus();
+    });
+    root.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && event.target.closest?.('.paste-review')) { event.preventDefault(); closePaste(); }
+    });
     root.addEventListener('keydown', async event => {
       if (event.key !== 'Enter') return;
       if (event.target.matches('td.editable,td.receipt,.info-edit,td.row-delete,small.receipt-ref')) { event.preventDefault(); event.target.click(); return; }

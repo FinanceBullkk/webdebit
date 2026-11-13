@@ -972,7 +972,90 @@ const SoKhachV7Model = (() => {
     });
   }
 
-  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
+  // GIA-O-01 (B): chữ dán vào ô Đơn giá (chép từ Sheet/Excel: dòng cách bằng xuống dòng, cột bằng Tab) → giá từng dòng.
+  // Một cột: mỗi dòng một giá, theo thứ tự. Hai cột có số container: ghép theo container (cột nào trước cũng được).
+  // Dòng trống là bỏ qua (null), không phải 0; dòng cuối trống do Sheet thêm thì bỏ. Ô không đọc được thành số tiền > 0 thì lỗi kèm số dòng.
+  const PASTE_CONTAINER = /^[A-Z]{4}\d{7}$/;
+  function parsePricePaste(text) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const rows = lines.map((line, index) => {
+      const cells = line.split("\t").map(cell => cell.trim());
+      return { line: index + 1, cells, containerAt: cells.findIndex(cell => PASTE_CONTAINER.test(cell.replace(/\s+/g, "").toUpperCase())) };
+    });
+    const filled = rows.filter(row => row.cells.some(Boolean));
+    const withContainer = filled.filter(row => row.containerAt >= 0).length;
+    const mode = withContainer ? "container" : "order";
+    const errors = [];
+    if (withContainer && withContainer !== filled.length) errors.push("Có dòng có số container, có dòng không. Chép cả cột container cho mọi dòng, hoặc chỉ cột giá.");
+    const out = [];
+    for (const row of rows) {
+      const others = row.cells.filter((cell, index) => cell && index !== row.containerAt);
+      if (others.length > 1) { errors.push(`Dòng ${row.line}: có nhiều cột. Chép một cột giá, hoặc hai cột container và giá.`); continue; }
+      const container = mode === "container" && row.containerAt >= 0 ? row.cells[row.containerAt].replace(/\s+/g, "").toUpperCase() : null;
+      const raw = others[0] ?? "";
+      if (!raw) { out.push({ line: row.line, container, priceVnd: null }); continue; }
+      let value;
+      try { value = parseVnd(raw.replace(/\s*(đ|₫|vnđ|vnd)$/i, "")); } catch { value = null; }
+      if (value === null || value <= 0n) { errors.push(`Dòng ${row.line}: “${raw}” không đọc được thành số tiền.`); continue; }
+      out.push({ line: row.line, container, priceVnd: value.toString() });
+    }
+    return { mode, rows: out, errors };
+  }
+
+  // Kế hoạch ghi từ chữ đã đọc. `order`: khóa dòng của bảng tháng từ dòng đang đứng trở xuống ("trip-11", "legacy-21").
+  // Chỉ ghi chuyến web đã duyệt, có container, sửa được (tháng mở), chưa có giá hoặc giá khác. Dòng sổ gốc, chờ kiểm, đã loại,
+  // phí lẻ, tháng khóa, container không có hoặc trùng, dòng dán thừa: nêu lý do, không ghi. Nợ trước → sau cộng đúng tiền từng
+  // chuyến (đơn giá mới + phụ phí đang có, trừ Thành tiền đang tính).
+  function planPricePaste(parsed, snapshot, order = []) {
+    const trips = (snapshot?.trips ?? []).filter(trip => !trip.deleted);
+    const legacy = (snapshot?.legacy_rows ?? []).filter(row => row.kind !== "receipt");
+    const byKey = key => {
+      const [kind, id] = [key.slice(0, key.indexOf("-")), key.slice(key.indexOf("-") + 1)];
+      return kind === "trip" ? { kind, row: trips.find(trip => String(trip.id) === id) } : { kind, row: legacy.find(row => String(row.id) === id) };
+    };
+    const items = parsed.rows.map((pasted, index) => {
+      const base = { line: pasted.line, priceVnd: pasted.priceVnd, container: pasted.container };
+      let target;
+      if (parsed.mode === "container") {
+        const hits = [...trips.filter(trip => String(trip.container ?? "").toUpperCase() === pasted.container).map(row => ({ kind: "trip", row })),
+          ...legacy.filter(row => String(row.current?.container ?? row.display?.container ?? "").toUpperCase() === pasted.container).map(row => ({ kind: "legacy", row }))];
+        if (hits.length !== 1) return { ...base, status: "skip", reason: hits.length ? "container có nhiều dòng trong sổ" : "không có trong sổ" };
+        target = hits[0];
+      } else {
+        if (index >= order.length) return { ...base, status: "skip", reason: "thừa, hết chuyến trong bảng tháng" };
+        target = byKey(order[index]);
+      }
+      const { kind, row } = target;
+      const container = kind === "trip" ? row?.container : row?.current?.container ?? row?.display?.container;
+      const info = { ...base, container: container || base.container, date: kind === "trip" ? row?.event_date : row?.current?.event_date };
+      if (pasted.priceVnd === null) return { ...info, status: "empty" };
+      if (!row) return { ...info, status: "skip", reason: "không có trong sổ" };
+      if (kind === "legacy") return { ...info, status: "skip", reason: "dòng sổ gốc: sửa từng ô" };
+      if (row.status === "pending_review") return { ...info, status: "skip", reason: "chờ kiểm" };
+      if (row.status !== "confirmed") return { ...info, status: "skip", reason: "đã loại" };
+      if (row.is_fee_only || !row.container) return { ...info, status: "skip", reason: "dòng phí lẻ" };
+      if (row.editable !== true) return { ...info, status: "skip", reason: "tháng khóa" };
+      const oldPriceVnd = row.unit_price_vnd ?? null;
+      if (oldPriceVnd === pasted.priceVnd) return { ...info, status: "same", oldPriceVnd };
+      const fee = row.other_fee_vnd == null ? 0n : vnd(row.other_fee_vnd, true);
+      const oldAmountVnd = oldPriceVnd === null ? 0n : vnd(row.amount_vnd ?? "0", true);
+      const newAmountVnd = vnd(pasted.priceVnd) + fee;
+      return { ...info, status: "write", tripId: row.id, oldPriceVnd, otherFeeVnd: row.other_fee_vnd ?? null, deltaVnd: newAmountVnd - oldAmountVnd,
+        small: vnd(pasted.priceVnd) < 1000000n, overwrite: oldPriceVnd !== null };
+    });
+    const writes = items.filter(item => item.status === "write");
+    // Hai dòng dán cùng một chuyến (ghép container): không đoán dòng nào đúng, bỏ cả hai.
+    const seen = new Map();
+    for (const item of writes) seen.set(item.tripId, (seen.get(item.tripId) ?? 0) + 1);
+    for (const item of writes) if (seen.get(item.tripId) > 1) Object.assign(item, { status: "skip", reason: "dán hai lần cho cùng chuyến" });
+    const finalWrites = items.filter(item => item.status === "write");
+    const beforeVnd = vnd(snapshot?.total_outstanding_vnd ?? "0", true);
+    const deltaVnd = finalWrites.reduce((sum, item) => sum + item.deltaVnd, 0n);
+    return { items, writes: finalWrites, beforeVnd, afterVnd: beforeVnd + deltaVnd, deltaVnd };
+  }
+
+  return { tripAmount, amountWith, parsePastedTrips, tripKey, sameTrip, classifyPastedTrips, parseVnd, parsePricePaste, planPricePaste, parsePositiveVnd, formatVnd, formatOutstanding, monthChain, outstandingByMonth, planReceipt, planReallocation,
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,

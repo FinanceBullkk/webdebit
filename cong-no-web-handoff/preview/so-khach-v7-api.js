@@ -241,6 +241,52 @@
         idempotency_key: key(), ...intent } };
       return await send();
     }
+    // GIA-O-01 (B): chuỗi lệnh cùng loại trên sổ đang mở (dán cột giá). Lệnh sau dùng phiên bản lệnh trước trả về; đọc lại sổ
+    // một lần ở cuối. Mất mạng: `pending` giữ đúng lệnh chưa rõ (cùng khóa), `series` giữ phần còn lại; retry() gửi lại lệnh đó
+    // rồi đi tiếp. Lệnh lỗi (sổ vừa đổi, tháng vừa khóa…): dừng, đọc lại sổ. Trả {status: saved|stopped|unknown, done, total}.
+    let series = null;
+    async function runSeries() {
+      const run = series, total = run.items.length;
+      while (run.index < total) {
+        pending ??= { path: run.path, body: { customer_id: customerId, expected_version: run.version, idempotency_key: key(), ...run.items[run.index] } };
+        let response, result;
+        try {
+          response = await fetcher(pending.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pending.body) });
+          result = await response.json();
+        } catch {
+          outcome = { status: 'unknown', done: run.index, total };
+          onNotice(unknown);
+          return outcome;
+        }
+        if (!response.ok && result?.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown', done: run.index, total }; onNotice(unknown); return outcome; }
+        if (!response.ok || !Number.isSafeInteger(result?.version)) {
+          pending = null; series = null;
+          outcome = { status: 'stopped', done: run.index, total, result };
+          try { await read(); } catch { /* sổ không đọc lại được: câu báo dưới đây vẫn nói rõ đã ghi bao nhiêu */ }
+          onNotice(`Ghi được ${run.index}/${total} giá rồi dừng: ${result?.message || 'không lưu được thao tác.'} Kiểm tra các chuyến còn lại.`);
+          return outcome;
+        }
+        run.version = result.version; run.index += 1; pending = null;
+      }
+      series = null;
+      outcome = { status: 'saved', done: total, total };
+      try { await read(); } catch { onNotice(`Đã ghi ${total} giá nhưng không tải lại được sổ. Tải lại trang rồi kiểm tra.`); return outcome; }
+      onNotice(`Đã ghi ${total} giá.`);
+      return outcome;
+    }
+    async function submitSeries(action, list) {
+      outcome = null;
+      if (pending || series) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
+      if (snapshot?.status !== 'active') throw Error('Khách chưa có số dư đầu hiệu lực.');
+      const route = routes[action];
+      if (!route || !Array.isArray(list) || !list.length) throw Error('Thao tác không hợp lệ.');
+      const items = list.map(fields => Object.fromEntries(route[1].filter(name => Object.hasOwn(fields, name)).map(name => [name, fields[name]])));
+      for (const intent of items) for (const name of ['unit_price_vnd', 'other_fee_vnd']) {
+        if (Object.hasOwn(intent, name) && intent[name] !== null && typeof intent[name] !== 'string') throw Error('Số tiền phải là chuỗi VND.');
+      }
+      series = { path: route[0], items, index: 0, version: snapshot.version };
+      return await runSeries();
+    }
     // Lệnh cấn trừ: trả {status: saved|error|stale|unknown, result} để giao diện biết đóng khung hay giữ lại.
     async function submitOffset(action, fields) {
       if (pending) throw Error('Còn thao tác chưa rõ kết quả. Thử lại thao tác đó trước.');
@@ -368,9 +414,9 @@
       return data;
     }
     redraw = () => { if (snapshot) (onRedraw ? onRedraw() : onSnapshot(snapshot)); };
-    return { read, readEvents, submit, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
+    return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
-      lastOutcome: () => outcome, retry: async () => { if (pending) await send(); }, hasPending: () => !!pending, snapshot: () => snapshot };
+      lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series, snapshot: () => snapshot };
   }
   const api = { create, stale, unknown, groupCustomers, customerLabel, customerLabels, customerName: id => customerNames.get(String(id)), customerRow: id => customerRows.get(id),
     sheetName, showCustomers: () => showCustomers() };
