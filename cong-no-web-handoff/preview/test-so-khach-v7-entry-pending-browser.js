@@ -20,33 +20,47 @@ async function unknownReceipt(page, amount) {
   await drawer(page).locator('.entry-retry').waitFor();
 }
 
-test('phiếu chưa rõ rồi sửa lại sang số khác: không gửi phiếu mới; Thử lại ghi đúng phiếu cũ và báo đúng số của phiếu cũ', async () => withPage(async ({ page, world }) => {
+test('phiếu chưa rõ: không cho Sửa lại sang phiếu khác; Thử lại ghi đúng phiếu cũ, báo đúng số của nó', async () => withPage(async ({ page, world }) => {
   await unknownReceipt(page, '2000');
   await drawer(page).locator('.entry-back').click();
-  await drawer(page).locator('.receipt-amount').fill('3000');
-  await drawer(page).locator('.receipt-amount').press('Enter');
+  assert.match(await drawer(page).locator('.entry-error').innerText(), /Bấm Thử lại \(phiếu không bị ghi hai lần\) trước khi sửa/);
+  assert.equal(await drawer(page).locator('.entry-review').isVisible(), true, 'vẫn ở bước xem lại của phiếu chưa rõ');
   await drawer(page).locator('.receipt-save').click();
-  assert.match(await drawer(page).locator('.entry-error').innerText(), /Phiếu vừa gửi chưa rõ đã lưu chưa/);
   assert.equal(receiptPosts(world).length, 0);
+  // Đóng rồi mở lại khung khi phiếu còn chờ: vẫn là bước xem lại của đúng phiếu đó.
+  await drawer(page).locator('.entry-close').click();
+  await page.locator('.entry-open').click();
+  assert.equal(await drawer(page).locator('.entry-review').isVisible(), true);
   await drawer(page).locator('.entry-retry').click();
   await page.locator('.saved-strip').waitFor();
   assert.deepEqual(receiptPosts(world).map(([, body]) => body.amount_vnd), ['2000']);
-  const strip = await page.locator('.saved-strip').innerText();
-  assert.match(strip, /2\.000/);
-  assert.doesNotMatch(strip, /3\.000/);
+  assert.match(await page.locator('.saved-strip').innerText(), /2\.000/);
 }));
 
-test('phiếu chưa rõ đã Thử lại ở đầu sổ: Ghi phiếu hay Thử lại ở khung không gửi lần hai, khung đóng và báo kiểm danh sách', async () => {
-  for (const button of ['.receipt-save', '.entry-retry']) {
+test('phiếu chưa rõ đã lưu nhờ Thử lại ở đầu sổ: Ghi phiếu, Thử lại hay mở lại khung đều không gửi lần hai, hiện băng đã ghi', async () => {
+  for (const how of ['.receipt-save', '.entry-retry', 'reopen']) {
     await withPage(async ({ page, world }) => {
       await unknownReceipt(page, '2000');
+      if (how === 'reopen') await drawer(page).locator('.entry-close').click();
       await page.locator('.retry-command').evaluate(node => node.click());   // nút ở đầu sổ (khung phiếu có thể che)
       await page.waitForFunction(() => !document.querySelector('.retry-command'));
       assert.equal(receiptPosts(world).length, 1);
-      await drawer(page).locator(button).click();
+      if (how === 'reopen') await page.locator('.entry-open').click(); else await drawer(page).locator(how).click();
+      await page.locator('.saved-strip').waitFor();
+      assert.match(await page.locator('.saved-strip').innerText(), /2\.000/);
       assert.equal(await drawer(page).isHidden(), true);
-      assert.equal(receiptPosts(world).length, 1, 'không gửi phiếu lần hai');
-      assert.match(await page.locator('.cn-toast .live-notice').innerText(), /đã có kết quả/);
+      assert.equal(receiptPosts(world).length, 1, `${how}: không gửi phiếu lần hai`);
     });
   }
 });
+
+test('Thử lại ở khung bị từ chối (sổ vừa đổi): nói rõ chưa ghi, Ghi phiếu sau đó là phiếu mới, đúng một phiếu', async () => withPage(async ({ page, world }) => {
+  await unknownReceipt(page, '2000');
+  world.version += 1;   // sổ đổi ở máy khác trong lúc mất mạng: lệnh cũ (chưa tới server) bị từ chối vì phiên bản
+  await drawer(page).locator('.entry-retry').click();
+  await drawer(page).locator('.entry-error').filter({ hasText: 'Sổ vừa thay đổi' }).waitFor();
+  assert.equal(world.receipts.length, 0);
+  await drawer(page).locator('.receipt-save').click();
+  await page.locator('.saved-strip').waitFor();
+  assert.equal(world.receipts.length, 1);
+}));

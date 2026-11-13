@@ -192,7 +192,12 @@
       if (!body || body.customer_id !== customerId || !Array.isArray(body.events)) throw Error('Dữ liệu lịch sử không hợp lệ.');
       return body;
     }
+    // Kết quả cuối theo khóa lệnh (lưu, sổ đổi, lỗi): phần giao diện hỏi đúng lệnh của mình (khung Ghi phiếu thu với phiếu
+    // "chưa rõ" đã Thử lại ở đầu sổ), không dựa vào kết quả dùng chung của lệnh gần nhất.
+    const settled = new Map();
+    const remember = (key, value) => { settled.set(key, value); if (settled.size > 50) settled.delete(settled.keys().next().value); return value; };
     async function send() {
+      const sentKey = pending.body.idempotency_key;
       try {
         const response = await fetcher(pending.path, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pending.body),
@@ -200,7 +205,7 @@
         const result = await response.json();
         if (!response.ok) {
           if (result.error === 'STALE_LEDGER') {
-            outcome = { status: 'stale' };
+            outcome = remember(sentKey, { status: 'stale' });
             pending = null;
             snapshot = null;
             try { await read(); } catch { onNotice('Không tải được sổ mới. Tải lại trang rồi kiểm tra.'); return; }
@@ -208,13 +213,15 @@
             return;
           }
           if (result.error === 'RESULT_UNKNOWN') { outcome = { status: 'unknown' }; onNotice(unknown); return; }
-          outcome = { status: 'error', result };
+          outcome = remember(sentKey, { status: 'error', result });
           pending = null;
           onNotice(result.message || 'Không lưu được thao tác.');
           return result;
         }
-        outcome = { status: 'saved', result };
+        outcome = remember(sentKey, { status: 'saved', result });
         await read();
+        // Lệnh khác bị từ chối trong lúc đọc lại sổ đã xóa kết quả dùng chung: gán lại cho đúng lệnh này trước khi nó trả về.
+        outcome = settled.get(sentKey);
         pending = null;
         onNotice(result.duplicate_reference ? 'Đã lưu. Tham chiếu trùng với phiếu khác trong sổ.' : 'Đã lưu.');
       } catch {
@@ -429,7 +436,7 @@
     return { read, readEvents, submit, submitSeries, submitOffset, submitCatalog, loadFeeTypes, readOther, loadOffsetSources, readDebt, findChats, readPrices,
       readMarks, readZaloLinks, readZaloGroups, readDebitConfig, readCompanyInfo,
       lastOutcome: () => outcome, retry: async () => { if (series) await runSeries(); else if (pending) await send(); }, hasPending: () => !!pending || !!series || !!running, snapshot: () => snapshot,
-      pendingKey: () => pending?.body?.idempotency_key ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
+      pendingKey: () => pending?.body?.idempotency_key ?? null, outcomeOf: key => settled.get(key) ?? null,   // khóa của lệnh đang chờ: khung phiếu thu biết lệnh chờ có phải phiếu của mình
       // Chuỗi đang ghi (không phải chưa rõ kết quả): đầu sổ báo tiến độ thay cho nút Thử lại.
       progress: () => (series ? { done: series.index, total: series.items.length, running: !!running } : null) };
   }
