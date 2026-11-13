@@ -1,5 +1,7 @@
 # Bảng giá theo nơi đến
 
+> 13/11/2026: [BANG-GIA-04](../docs/decisions/bang-gia-04.md) đổi dòng 8 — Nơi đến trống là giá chung của nơi đi, dòng đúng nơi đến thắng khi phủ ngày chuyến; Nơi đến không còn bắt buộc khi lưu.
+
 Trạng thái: đề xuất triển khai 10/11/2026. Người dùng yêu cầu bảng giá có **Nơi đến** và chốt dòng giá cũ thiếu Nơi đến **chỉ áp khi bổ sung nơi đến**.
 
 ## Hợp đồng hoàn thành

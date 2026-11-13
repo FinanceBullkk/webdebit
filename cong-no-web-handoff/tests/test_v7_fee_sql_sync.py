@@ -27,6 +27,8 @@ KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-
 # BANG-GIA-02 5/11/2026: save_price_table và hàm phụ của nó bằng migration mới nhất thay chúng.
 GIA_TU_DOI_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql"
 BANG_GIA_NOI_DEN_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql"
+# BANG-GIA-04 13/11/2026: _lookup_price và save_price_table bằng migration mới nhất thay chúng.
+NOI_DEN_TUY_CHON_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql"
 FUNCTIONS = ROOT / "cong-no-web-handoff/tools/v7_backend_functions.sql"
 SCHEMA = ROOT / "specs/v7-backend/schema-draft.sql"
 
@@ -42,7 +44,7 @@ def definition(source: str, kind: str, name: str) -> str:
 class FeeSqlSync(unittest.TestCase):
     def test_destination_sync_checker_detects_missing_and_changed_definition(self):
         canonical = FUNCTIONS.read_text(encoding="utf-8")
-        migration = BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8")
+        migration = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
         saved = definition(migration, "FUNCTION", "_lookup_price")
         self.assertEqual(saved, definition(canonical, "FUNCTION", "_lookup_price"))
         self.assertNotEqual(saved.replace("NO_DESTINATION", "NO_ORIGIN"), definition(canonical, "FUNCTION", "_lookup_price"))
@@ -67,9 +69,13 @@ class FeeSqlSync(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(definition(gia_tu_doi, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         destination = BANG_GIA_NOI_DEN_MIGRATION.read_text(encoding="utf-8")
-        for name in ("_price_table", "_lookup_price", "_price_trip_rows", "save_price_table", "apply_price_table"):
+        for name in ("_price_table", "_price_trip_rows", "apply_price_table"):
             with self.subTest(name=name):
                 self.assertEqual(definition(destination, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+        optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
+        for name in ("_lookup_price", "save_price_table"):
+            with self.subTest(name=name):
+                self.assertEqual(definition(optional, "FUNCTION", name), definition(canonical, "FUNCTION", name))
         chan_trung = CHAN_TRUNG_MIGRATION.read_text(encoding="utf-8")
         for name in ("_legacy_undated_match", "paste_trips"):
             with self.subTest(name=name):

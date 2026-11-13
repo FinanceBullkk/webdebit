@@ -2916,32 +2916,38 @@ $$;
 
 CREATE OR REPLACE FUNCTION sokhach._lookup_price(p_customer bigint,p_date date,p_origin text,p_destination text,p_shipper text) RETURNS jsonb
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog,sokhach,pg_temp AS $$
-DECLARE v_key text:=sokhach._price_key(p_origin); v_dest text:=sokhach._price_key(p_destination); v_loc sokhach.price_location%ROWTYPE; v_tier text; v_rate record;
+DECLARE v_key text:=sokhach._price_key(p_origin); v_dest text:=coalesce(sokhach._price_key(p_destination),'');
+ v_use text:=''; v_loc sokhach.price_location%ROWTYPE; v_tier text; v_rate record;
 BEGIN
  IF NOT EXISTS (SELECT 1 FROM sokhach.price_period WHERE customer_id=p_customer) THEN
    RETURN jsonb_build_object('reason','NO_TABLE'); END IF;
  IF p_date IS NULL THEN RETURN jsonb_build_object('reason','NO_DATE'); END IF;
  IF v_key IS NULL THEN RETURN jsonb_build_object('reason','NO_ORIGIN'); END IF;
- IF v_dest IS NULL THEN RETURN jsonb_build_object('reason','NO_DESTINATION'); END IF;
  SELECT l.* INTO v_loc FROM sokhach.price_location l WHERE l.customer_id=p_customer AND (l.name_key=v_key
    OR EXISTS (SELECT 1 FROM sokhach.price_location_alias a WHERE a.location_id=l.id AND a.alias_key=v_key));
  IF NOT FOUND THEN RETURN jsonb_build_object('reason','UNKNOWN_LOCATION'); END IF;
  -- Q3: shipper trong danh sách TT lấy giá TT; mọi shipper khác, kể cả trống, lấy giá khách.
  v_tier:=CASE WHEN EXISTS (SELECT 1 FROM sokhach.price_tt_shipper s WHERE s.customer_id=p_customer
    AND s.shipper_key=sokhach._price_key(p_shipper)) THEN 'tt' ELSE 'khach' END;
+ -- BANG-GIA-04: dòng Nơi đến trống là giá chung của nơi đi. Đợt có đúng nơi đến phủ ngày chuyến thì dùng
+ -- đợt đó (thiếu nhóm giá cũng không lấy giá chung thay); không có thì dùng giá chung.
+ IF v_dest<>'' AND EXISTS (SELECT 1 FROM sokhach.price_rate r JOIN sokhach.price_period p ON p.id=r.period_id
+     WHERE r.location_id=v_loc.id AND r.destination_key=v_dest
+       AND p.valid_from<=p_date AND (p.valid_to IS NULL OR p_date<=p.valid_to)) THEN v_use:=v_dest; END IF;
  SELECT p.valid_from,p.valid_to,r.unit_price_vnd INTO v_rate FROM sokhach.price_rate r
    JOIN sokhach.price_period p ON p.id=r.period_id
-   WHERE r.location_id=v_loc.id AND r.destination_key=v_dest AND r.tier=v_tier AND p.valid_from<=p_date AND (p.valid_to IS NULL OR p_date<=p.valid_to);
+   WHERE r.location_id=v_loc.id AND r.destination_key=v_use AND r.tier=v_tier AND p.valid_from<=p_date AND (p.valid_to IS NULL OR p_date<=p.valid_to);
  IF FOUND THEN
    RETURN jsonb_build_object('unit_price_vnd',v_rate.unit_price_vnd::text,'tier',v_tier,'location',v_loc.name,'destination',p_destination,
-     'valid_from',v_rate.valid_from,'valid_to',v_rate.valid_to);
+     'any_destination',v_use='','valid_from',v_rate.valid_from,'valid_to',v_rate.valid_to);
  END IF;
  -- Có đợt phủ ngày cho kho này nhưng thiếu ô của nhóm cần dùng: không lấy giá nhóm kia thay.
  RETURN jsonb_build_object('reason',CASE WHEN NOT EXISTS (SELECT 1 FROM sokhach.price_rate r
-     WHERE r.location_id=v_loc.id AND r.destination_key=v_dest) THEN 'UNKNOWN_DESTINATION'
+     WHERE r.location_id=v_loc.id AND r.destination_key IN (v_dest,''))
+     THEN CASE WHEN v_dest='' THEN 'NO_DESTINATION' ELSE 'UNKNOWN_DESTINATION' END
    WHEN EXISTS (SELECT 1 FROM sokhach.price_rate r
      JOIN sokhach.price_period p ON p.id=r.period_id WHERE r.location_id=v_loc.id
-       AND r.destination_key=v_dest
+       AND r.destination_key=v_use
        AND p.valid_from<=p_date AND (p.valid_to IS NULL OR p_date<=p.valid_to)) THEN 'NO_RATE' ELSE 'NO_PERIOD' END,
    'tier',v_tier,'location',v_loc.name,'destination',p_destination);
 END $$;
@@ -3133,7 +3139,10 @@ BEGIN
      SELECT l.id INTO v_loc FROM sokhach.price_location l WHERE l.customer_id=save_price_table.customer_id
        AND l.name_key=sokhach._price_key(sokhach._price_text(v_rate->'location'));
      IF NOT FOUND THEN RAISE EXCEPTION 'PRICE_UNKNOWN_LOCATION'; END IF;
-     v_dest:=sokhach._price_text(v_rate->'destination'); v_dest_key:=sokhach._price_key(v_dest);
+     -- BANG-GIA-04: Nơi đến trống (chuỗi rỗng) là giá chung của nơi đi.
+     v_dest:=CASE WHEN jsonb_typeof(v_rate->'destination')='string' AND sokhach._price_key(v_rate->>'destination') IS NULL
+       THEN '' ELSE sokhach._price_text(v_rate->'destination') END;
+     v_dest_key:=coalesce(sokhach._price_key(v_dest),'');
      IF EXISTS (SELECT 1 FROM sokhach.price_rate r WHERE r.period_id=v_period AND r.location_id=v_loc AND r.destination_key=v_dest_key AND r.tier=v_rate->>'tier')
      THEN RAISE EXCEPTION 'PRICE_DUPLICATE_RATE'; END IF;
      INSERT INTO sokhach.price_rate(period_id,location_id,customer_id,destination,destination_key,tier,unit_price_vnd)

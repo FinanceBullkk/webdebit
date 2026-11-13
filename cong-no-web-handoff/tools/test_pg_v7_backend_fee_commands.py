@@ -135,4 +135,5 @@ def check_fee_catalog(pg):
     pg.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-05-v7-gia-tu-doi.sql").read_text(encoding="utf-8"))  # bang-gia trả save_price_table cũ; BANG-GIA-02 trả về bản 5/11
     pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-10-v7-bang-gia-noi-den.sql").read_text(encoding="utf-8"))
+    pg.sql((ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-noi-den-tuy-chon.sql").read_text(encoding="utf-8"))  # BANG-GIA-04 thay _lookup_price, save_price_table
     require(pg.value("SELECT jsonb_agg(to_jsonb(v) ORDER BY customer_id,debt_month) FROM sokhach.v_outstanding_month v") == snapshot, "migration changed money")
