@@ -110,6 +110,7 @@ Mockup **ĐÃ DUYỆT** (người dùng, 27/10/2026, chat; bản tại commit `b
 - `web/v7_price_queue.py`: lõi ghép (chuyển từ công cụ đo sang tầng web theo ARCH-02; `tools/v7_price_match.py` gọi lại lõi này). Thêm hai trạng thái:
   - `MANUAL`: giá hoặc phụ phí âm trên Sheet. Lệnh ghi giá chỉ nhận số không âm, nên dòng này phải nhập tay.
   - `AMBIGUOUS_PRICED`: khớp nhiều chuyến nhưng mọi chuyến đã có giá, nên không có gì để ghi và không hiện trong "Cần xem".
+  - Từ 13/11/2026 ([`GHEP-KHONG-NGAY-01`](../docs/decisions/ghep-khong-ngay-01.md)): dòng Sheet không ngày đã có bản sao không ngày giống hệt trên web không còn là `AMBIGUOUS` chỉ vì container đó có thêm chuyến có ngày chưa giá; nó thành `PRICE_UNCHANGED` (một bản sao) hoặc `AMBIGUOUS_PRICED` (nhiều bản sao giống hệt). Hai dòng Sheet cùng nhận một bản sao vẫn là `AMBIGUOUS`.
 - `tools/v7_price_snapshot.py`: biến một bản tải `.xlsx` thành bản chụp giá (`WEBDEBIT_PRICE_SNAPSHOT_PATH`, mặc định `/var/lib/webdebit-sheet-sync/prices.json`). Hash tính trên các dòng, nên tải lại Sheet không đổi thì hash không đổi. Ghi nguyên tử, mode 600.
 - `GET /api/v7/ledger` trả thêm `sheet_prices {snapshot_sha256, ready, review, ready_count, review_count}`. Thiếu bản chụp thì trả `unavailable: true`, sổ vẫn đọc được.
 - `POST /api/v7/sheet/prices {customer_id, expected_version, snapshot_sha256, idempotency_key}`:

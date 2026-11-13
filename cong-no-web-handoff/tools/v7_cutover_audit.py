@@ -188,13 +188,8 @@ def tong_key(text: Any) -> str:
 
 
 def candidates(row: dict, pool: list[dict]) -> list[dict]:
-    """Các dòng web mà một dòng Sheet có thể trỏ tới: đúng luật ghép của v7_price_queue.classify."""
-    container, day = pq.container_key(row.get("container")), pq.iso(row.get("date"))
-    same = [target for target in pool if target["container"] == container]
-    found = [target for target in same if day and target["date"] == day]
-    if not found and day:
-        found = [target for target in same if target["date"] and abs((target["date"] - day).days) <= pq.DATE_WINDOW_DAYS]
-    return same if not found and not day else found
+    """Các dòng web mà một dòng Sheet có thể trỏ tới: chính luật ghép của hàng chờ giá (`v7_price_queue.candidates`)."""
+    return pq.candidates(row, pool)[0]
 
 
 # ---------------------------------------------------------------- phép kiểm dòng

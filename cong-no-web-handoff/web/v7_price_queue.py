@@ -124,15 +124,10 @@ def unchanged(row: dict, target: dict) -> bool:
     return (row["sheet_other_fee_vnd"] or 0) == (target["fee"] or 0)
 
 
-def classify(row: dict, pool: list[dict] | None) -> dict:
-    result = {**row, "status": None, "match_basis": "", "target_kind": "", "target_id": "",
-              "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+def candidates(row: dict, pool: list[dict]) -> tuple[list[dict], str]:
+    """(web rows one Sheet row may point at, how they were found). The one matching rule; the cutover audit reuses it."""
     container = container_key(row.get("container"))
     sheet_date = iso(row.get("date"))
-    if not container:
-        return result | {"status": "NO_CONTAINER"}
-    if pool is None:
-        return result | {"status": "NO_CUSTOMER"}
     same = [t for t in pool if t["container"] == container]
     found, basis = [t for t in same if sheet_date and t["date"] == sheet_date], "exact_date"
     if not found and sheet_date:
@@ -140,6 +135,24 @@ def classify(row: dict, pool: list[dict] | None) -> dict:
     if not found and not sheet_date:
         # Undated Sheet rows (mostly old history): container alone; several rows stay AMBIGUOUS.
         found, basis = same, "container_only"
+        # GHEP-KHONG-NGAY-01: an undated web row that already charges exactly this priced Sheet row is its copy; the other
+        # rows of a reused container are not candidates. Taken only where the rule above would ask (some candidate still
+        # unpriced), and a copy is never written, so no write is added or removed.
+        if row.get("sheet_unit_price_vnd") is not None and any(t["price"] is None for t in same):
+            copies = [t for t in same if t["date"] is None and unchanged(row, t)]
+            if copies:
+                found, basis = copies, "undated_copy"
+    return found, basis
+
+
+def classify(row: dict, pool: list[dict] | None) -> dict:
+    result = {**row, "status": None, "match_basis": "", "target_kind": "", "target_id": "",
+              "web_unit_price_vnd": None, "web_other_fee_vnd": None, "web_total_vnd": None}
+    if not container_key(row.get("container")):
+        return result | {"status": "NO_CONTAINER"}
+    if pool is None:
+        return result | {"status": "NO_CUSTOMER"}
+    found, basis = candidates(row, pool)
     if not found:
         return result | {"status": "NOT_FOUND"}
     result["match_basis"] = basis
