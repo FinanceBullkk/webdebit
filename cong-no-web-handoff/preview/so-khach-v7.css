@@ -586,3 +586,8 @@ body:not([data-the="tinh-hinh"]) #the-tinh-hinh,body:not([data-the="trao-doi"]) 
 .paste-review .paste-list{max-height:300px;overflow:auto}
 .paste-review .paste-skip .what{color:#4a5b6d}
 .paste-review .paste-flags{margin:-4px 0 10px;color:#7a4a00;font-weight:600}
+/* CHEP-O-01: vùng ô đang chọn để chép (kéo chuột, Shift+bấm, Shift+mũi tên) — nền xanh nhạt, viền xanh quanh vùng như Sheet. */
+.trip-list.range-dragging{user-select:none}
+.trip-list td.cell-range{background-color:#e3edfd !important;box-shadow:var(--rt,0 0 transparent),var(--rb,0 0 transparent),var(--rl,0 0 transparent),var(--rr,0 0 transparent)}
+.trip-list td.range-top{--rt:inset 0 2px 0 #1a73e8}.trip-list td.range-bottom{--rb:inset 0 -2px 0 #1a73e8}
+.trip-list td.range-left{--rl:inset 2px 0 0 #1a73e8}.trip-list td.range-right{--rr:inset -2px 0 0 #1a73e8}
