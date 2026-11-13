@@ -636,6 +636,14 @@ const SoKhachV7Model = (() => {
     }
     return { count: list.length, totalVnd, same: list.length > 0, fills };
   }
+  // Ô PS số lẻ (PS_BAD_AMOUNT), ví dụ =631579/2 = "315789.5": Sheet định dạng #,##0 hiện tròn 315.790 nên chỉ số thô thì
+  // người dùng không tìm được ô. Chỉ để hiện chữ; không bao giờ thành tiền (specs/v7-phu-phi-tu-ps.md: không tự làm tròn).
+  function psOddText(raw) {
+    const parts = /^(\d+)\.(\d+)$/.exec(String(raw ?? "").trim());
+    if (!parts) return null;
+    const whole = BigInt(parts[1]);
+    return { exact: `${formatVnd(whole)},${parts[2]}`, shown: formatVnd(parts[2][0] >= "5" ? whole + 1n : whole) };
+  }
   const feeLinesText = (lines, nameOf) => (lines ?? []).map(line => `${nameOf(line.fee_type_id)} ${formatVnd(vnd(String(line.amount_vnd), true))}`).join(" + ");
   // Số phụ phí gõ tay: trống → null (chỉ ô cột riêng: xóa trắng); khác 0; dấu theo loại (fee_type.sign).
   function parseFeeInput(text, sign, { allowBlank = false } = {}) {
@@ -1060,7 +1068,7 @@ const SoKhachV7Model = (() => {
     nextReceiptPid, receiptNotice, receiptDetails, voidedLines, planVoid, planReceiptEdit, planAdjustment, planMonthAdjustment,
     parseSignedVnd, adjustmentAmount, monthSeries, creditOf, isMonthOpen, pendingCounts, parseCellEdit, sumAdjustments,
     OFFSET_OUTSIDE, parseOffsetSources, filterOffsetSources, planOffsetEntry, planOffsetPreview, offsetErrorMessage,
-    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
+    sheetPriceAmount, sheetVnd, priceTableChange, planSheetPrices, planSheetPriceConflicts, planSheetReceipts, planReceiptPreview, feeCells, feeColumnTotals, unitPriceTotal, planPsFees, psOddText, feeLinesText, parseFeeInput, feeTotalAfter, recountPreview,
     parseOffsetResult, parseOffsetLink, parseOutgoingOffsets, DN_FEES, DN_PLACES, DN_PORTS, dnFeeCode, containerCheck, vndInWords,
     parseRate, usdCents, usdText, dnDate, dnPeriod, addDays, dnPlace, dnPlaceText, dnCell, debitNote, debitNoteChecks, suggestNumber };
 })();
