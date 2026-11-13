@@ -15,7 +15,7 @@ const SoKhachV7Ctx = (() => {
   'use strict';
   const FIELDS = {
     // Lõi: dữ liệu và hàm dùng chung.
-    root: ['core', 'giá trị', 'detail contact debit edit entry fee history loc month offset overview pay phone presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
+    root: ['core', 'giá trị', 'copy detail contact debit edit entry fee history loc month offset overview pay phone presence price ps receipts sheet tabs trips', 'phần tử #app chứa cả sổ'],
     model: ['core', 'giá trị', 'debit edit entry fee history month offset overview price ps receipts sheet trips', 'SoKhachV7Model — mọi phép tính tiền (ARCH-03)'],
     api: ['core', 'giá trị', 'contact debit edit entry fee history images offset overview price ps receipts sheet', 'phiên API của sổ (đọc, gửi lệnh, giữ phiên bản)'],
     live: ['core', 'giá trị', 'contact debit edit entry offset presence price tabs', 'SoKhachV7Api (tên khách, câu báo dùng chung)'],
@@ -40,7 +40,7 @@ const SoKhachV7Ctx = (() => {
     resolvableSheetFields: ['core', 'giá trị', 'sheet', 'cột lệch Sheet được lấy theo Sheet'],
     moneyText: ['core', 'hàm', 'edit entry', 'chữ gõ vào → chuỗi VND nguyên (qua model)'],
     referenceFields: ['core', 'hàm', 'entry offset', 'ô Tham chiếu của khung Ghi phiếu thu → { reference }'],
-    showNotice: ['core', 'hàm', 'edit entry fee images month offset price ps receipts sheet', 'băng thông báo trên sổ'],
+    showNotice: ['core', 'hàm', 'copy edit entry fee images month offset price ps receipts sheet', 'băng thông báo trên sổ'],
     renderSnapshot: ['core', 'hàm', 'ps receipts sheet', 'vẽ cả sổ từ một bản GET'],
     redraw: ['core', 'hàm', 'detail edit fee images loc month pay price', 'vẽ lại từ bản đang có (không tải lại)'],
     redrawWhenFree: ['core', 'hàm', 'fee images price', 'vẽ lại vì dữ liệu về muộn: trong #app đang có dòng hỏi hay ô đang gõ thì hoãn tới khi hết'],
@@ -122,6 +122,7 @@ const SoKhachV7Ctx = (() => {
     ['offset', 'so-khach-v7-offset-ui.js', []],
     ['edit', 'so-khach-v7-edit-ui.js', ['reviewReasonText', 'todayIso', 'openOffsetReceipt']],
     ['fee', 'so-khach-v7-fee-ui.js', []],
+    ['copy', 'so-khach-v7-copy-ui.js', []],
     ['presence', 'so-khach-v7-presence-ui.js', []],
     ['images', 'so-khach-v7-images-ui.js', []],
     ['debit', 'so-khach-v7-debit-ui.js', []],

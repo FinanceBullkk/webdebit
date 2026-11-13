@@ -69,6 +69,7 @@ Sổ khách live tách theo khu vực màn hình để các PR ít sửa chung m
 | `so-khach-v7-ctx.js` | hợp đồng `ctx`: trường, ai ghi, ai đọc, thứ tự cài các phần; `install()` |
 | `so-khach-v7-month-ui.js` | bảng tháng: tháng nào có bảng, tháng nào hiện chi tiết hay thu gọn (`SO-GON-04`), thanh chip tháng dính đầu sổ, thanh tháng, điều chỉnh, dòng "đã chuyển sang tháng", Tổng tháng; `showMonth` cho phần khác hiện chi tiết một tháng trước khi tìm dòng của tháng đó |
 | `so-khach-v7-trips-ui.js` | bảng chuyến bên trái: dòng sổ gốc, chuyến web, chuyến Sheet chờ duyệt, nhãn KHÁC trên dòng lệch Sheet |
+| `so-khach-v7-copy-ui.js` | chọn vùng ô ở bảng chuyến (kéo chuột, Shift+bấm, Shift+mũi tên) và Ctrl+C chép như Sheet (CHEP-O-01) |
 | `so-khach-v7-pay-ui.js` | danh sách phiếu thu bên phải: khoản thu Sheet, phiếu web, phiếu đã hủy |
 | `so-khach-v7-entry-ui.js` | khung "Ghi phiếu thu" (nút ở đầu sổ, khung bên phải nằm ngoài `#app` nên vẽ lại sổ không mất chữ đang gõ), bước xem lại trước khi ghi, băng kết quả và "Hủy phiếu vừa ghi" (`SO-GON-04`); CẤN TRỪ đi hộp của offset-ui |
 | `so-khach-v7-loc-ui.js` | thanh `?loc=thieu-gia\|cho-kiem` khi mở từ Việc cần làm; `showLoc` mở `loc=` ngay trong trang (thẻ Tình hình) |
