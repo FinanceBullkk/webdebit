@@ -382,6 +382,8 @@ a:focus-visible{outline:3px solid #145fa9;outline-offset:2px}
 .pm-errors[hidden],.pm-errors:empty{display:none}
 .pm-errors ul{margin:2px 0 0;padding:0;list-style:none}.pm-errors li{display:flex;align-items:center;gap:10px;min-height:30px}
 .price-table-panel .pm-errors .pm-goto{min-height:30px;padding:0 10px;border-color:#efb7b7;color:#a01616;font-size:14px}
+.pm-outside{flex:none;display:flex;align-items:center;gap:12px;min-height:44px;box-sizing:border-box;padding:4px 12px;border:1px solid #e2bf5f;border-radius:6px;background:#fff8e6;color:#5c3d00;font-size:15px}
+.pm-outside>span{flex:1;min-width:0}.price-table-panel .pm-outside button{min-height:36px;padding:0 12px}
 .pm-scroll{flex:1;min-height:0;overflow:auto;background:#fff;border:1px solid #c9d6e3;border-radius:8px}
 .pm-grid{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
 .pm-grid th,.pm-grid td{box-sizing:border-box;padding:0;border-bottom:1px solid #e3eaf2;background:#fff}

@@ -455,3 +455,33 @@ test('BANG-GIA-05: máy chủ chưa tính được bước xem lại thì vẫn 
   world.repricedTrips = [{ trip_id: 1, container: 'FAKE-1', before_vnd: '75000000', after_vnd: '76000000' }];
   world.repricedDelta = '1000000';
 }));
+
+test('BANG-GIA-05: dải nơi đi ngoài bảng trên lưới — đếm chuyến chưa có giá theo nơi đi, thêm hàng trống, không tự điền giá, không ghi gì', async () => withPage(async ({ page, world, shot }) => {
+  await page.setViewportSize({ width: 1265, height: 560 });
+  const dialog = await openTable(page);
+  const strip = dialog.locator('.pm-outside');
+  assert.equal(await strip.locator('span').innerText(), '3 chuyến chưa có giá vì nơi đi ngoài bảng: PHU YEN (2 chuyến), KON TUM (1 chuyến).');
+  const box = await page.evaluate(() => ({ strip: document.querySelector('.pm-outside').getBoundingClientRect().bottom,
+    grid: document.querySelector('.pm-scroll').getBoundingClientRect().top }));
+  assert.ok(box.strip <= box.grid && box.strip < 560, JSON.stringify(box));
+  await shot('bang-gia-noi-di-ngoai-bang');
+  await strip.locator('.price-outside-add').click();
+  assert.equal(await strip.count(), 0, 'nơi đi đã có hàng thì dải tắt');
+  assert.deepEqual((await matrix(page)).slice(-2), [['PHU YEN', '', '', '', '', '', '', ''], ['KON TUM', '', '', '', '', '', '', '']], 'hàng trống, không tự điền giá');
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.tier), 'khach');
+  assert.equal(await dialog.locator('.price-dirty').isVisible(), false, 'hàng chưa có giá chưa là thay đổi cần lưu');
+  assert.equal(world.requests.length, 0);
+  await price(page, 4, 2).fill('70000000');
+  await saveAndWait(page);
+  const table = saves(world)[0].price_table;
+  assert.deepEqual(table.locations.map(item => item.name), ['DAK LAK', 'GIA LAI', 'LONG AN', 'PHU YEN']);
+  assert.deepEqual(table.periods.at(-1).rates.at(-1), { location: 'PHU YEN', destination: '', tier: 'khach', unit_price_vnd: '70000000' });
+}, world => {
+  world.priceTable = uneven;
+  world.clock = NOW;
+  const trip = (id, origin, extra = {}) => ({ ...missingTrip, id, container: `FAKE${id}`, origin, ...extra });
+  world.trips.push(trip(21, 'Phu Yen'), trip(22, 'PHU  YEN'), trip(23, 'KON TUM'),
+    trip(24, 'BINH DINH', { unit_price_vnd: '1000', amount_vnd: '1000', is_missing_price: false }), trip(25, 'dak lak'));
+  const unknown = (trip_id, unit_price_vnd = null) => ({ trip_id, unit_price_vnd, from_table: false, lookup: { reason: 'UNKNOWN_LOCATION' }, ready: false, differs: false });
+  world.priceStatus = status([unknown(21), unknown(22), unknown(23), unknown(24, '1000'), unknown(25)]);
+}));

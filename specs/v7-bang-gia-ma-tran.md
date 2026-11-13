@@ -92,12 +92,12 @@ Lưu thật vẫn gửi `expected_version` và đúng bảng của lúc xem; s�
 
 Đã làm (PR b): `POST /api/v7/price-table/preview` cùng thân lệnh với lưu, trả `{price_table, version (không đổi), repriced_trips (+tier), repriced_delta_vnd, locked_trips, no_price_trips, typed_trips, ready_count, ready_total_vnd}`; lỗi bảng trả như lệnh lưu và trang quay về lưới kèm câu báo. Máy chủ chưa có hàm (DB chưa nâng) hoặc lỗi khác: bước xem lại vẫn hiện bảng đổi gì, ghi "Chưa tính được trước chuyến nào đổi giá" và cho lưu như trước. Nút trên thanh trên đổi thành **Xem lại và lưu**; Esc hoặc **Quay lại sửa** trở về lưới, bảng giữ nguyên. Phần "Bảng giá thay đổi gì" so bảng đã lưu với bảng sắp gửi tại trang (dữ liệu bảng, không phải tiền); đợt mới so với đợt liền trước.
 
-## ĐỀ XUẤT chưa làm (Claude tự thêm trong mockup, người dùng chưa phản đối)
+## Hai thứ Claude tự thêm trong mockup
 
-- Nút "Cộng đều +N vào cột mới" ở khối Đợt giá mới.
-- Dải "N chuyến chưa có giá vì nơi đi ngoài bảng … [Thêm N nơi đi này]" (cần đọc `get_price_status` lý do `UNKNOWN_LOCATION`).
+Người dùng trả lời trong chat 13/11/2026 câu hỏi có làm hai thứ này không: "Chỉ dải nơi đi".
 
-Chỉ làm khi người dùng xác nhận cần sau khi dùng bản lõi.
+- **Dải nơi đi ngoài bảng — ĐÃ CHỐT, làm (PR c).** Ngay trên lưới (trong mép 560): "N chuyến chưa có giá vì nơi đi ngoài bảng: PHU YEN (2 chuyến), KON TUM (1 chuyến)." kèm nút **Thêm K nơi đi này**. Nguồn: chuyến có `lookup.reason = UNKNOWN_LOCATION` và chưa có đơn giá trong `GET /api/v7/price-table/status` (server tra), gom theo nơi đi đã chuẩn hóa (hoa, gộp khoảng trắng), bỏ nơi đi đã có hàng trên lưới; quá 5 nơi đi thì ghi "và M nơi đi khác". Nút chỉ thêm hàng trống (không tự điền giá, không ghi gì cho tới khi lưu), con trỏ ở ô Giá khách của đợt mới nhất; nơi đi đã có hàng thì dải tắt. Không có chuyến nào như vậy thì không hiện gì.
+- **Nút "Cộng đều +N vào cột mới" — KHÔNG LÀM** (người dùng, cùng câu trả lời).
 
 ## Tiêu chí nghiệm thu
 
@@ -112,6 +112,10 @@ PR (a) — lưới ma trận, không đổi backend:
 - [x] Lỗi server giữ bảng đang sửa; `STALE_LEDGER`; đóng khi chưa lưu hỏi lại; Esc.
 - [x] Test trình duyệt 1280×720 viết lại cho ma trận; ảnh render 1280×560 có thanh cuộn đã xem (dữ liệu giả).
 - [ ] `npm run check`, `node scripts/check-secrets.js` xanh; Deploy hao xanh.
+
+PR (c) — dải nơi đi ngoài bảng:
+- [x] Đếm đúng chuyến chưa có giá vì nơi đi ngoài bảng, gộp cách viết khác hoa thường/khoảng trắng, bỏ chuyến đã có giá và nơi đi đã có hàng; dải nằm trên lưới trong mép 560 (test trình duyệt 1265×560).
+- [x] Nút thêm hàng trống, không tự điền giá, không gửi lệnh nào; gõ giá rồi lưu thì nơi đi mới vào payload.
 
 PR (b) — xem lại trước khi lưu:
 - [x] Harness PostgreSQL: xem trước không đổi `version`, `event`, giá chuyến, số dư; số xem trước trùng kết quả lưu thật; lỗi bảng (trùng ngày…) trả đúng mã; quyền app/reader đúng.
