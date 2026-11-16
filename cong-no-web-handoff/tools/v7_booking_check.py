@@ -50,6 +50,9 @@ GROUPS = {
     "LECH_NGAY": "date", "NGAY_TU_NGUON": "nodate", "THANG_CUOI": "recent",
 }
 ORDER = ("dup", "missing", "other", "nosource", "date", "nodate", "recent")
+# Bản chép 0đ trong báo cáo tháng: cùng ngưỡng 31 ngày với nhóm lệch ngày của công cụ GĐ1. Đo 16/11/2026: khối tháng cũ để 0đ ngày 07/10
+# cho chuyến đã tính ở khối sau ngày 26/10 (19 ngày). Dòng 0đ không mang tiền nên nới ngưỡng không che được tiền tính hai lần.
+COPY_DAYS = 31
 
 
 class CheckError(Exception):
@@ -130,6 +133,12 @@ def shown(code: str, sheet_row: dict | None, source_row: dict | None, window: di
 
 def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window: dict[str, str] | None = None) -> dict[str, Any]:
     """Tên sổ là tên tab khách trên Sheet; trang ghép với sổ web theo tên như lượt đối soát."""
+    return evaluate(xlsx, sea_path, road_path, now, window)[0]
+
+
+def evaluate(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime,
+             window: dict[str, str] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Kết quả kiểm cho tab Máy chạy và báo cáo tháng (BAO-CAO-THANG-01) từ cùng một lần đọc và ghép."""
     window = window or WINDOW
     sea, road = read_snapshot(sea_path, "SEA", now), read_snapshot(road_path, "ROAD", now)
     source, stats = snapshot_sources(sea, road)
@@ -170,7 +179,7 @@ def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window:
     in_window = [i for i, s in enumerate(sheet) if match.in_window(match.family_of(s["mode"]), s["month"], end, window)]
     if not in_window:   # Sheet đổi cấu trúc thì không được ra "0/0 khớp, không thấy gì lệch"
         raise CheckError("SHEET_EMPTY")
-    return {
+    result = {
         "version": 1, "checked_at": now.isoformat(timespec="seconds"), "window": {**window, "end": end},
         "sources": {name: {"created_at": data["runner"]["created_at"], "sha256": data.get("sha256"), "rows": len(data["rows"])}
                     for name, data in (("sea", sea), ("road", road))},
@@ -180,6 +189,75 @@ def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window:
         "dup_groups": dup_counts.get("nhom_trung", 0), "hidden": dict(hidden),
         "rows": rows,
     }
+    return result, month_report(sheet, source, s_pair, found, now, window)
+
+
+def month_report(sheet: list[dict], source: list[dict], s_pair: dict[int, int], found: list, now: dt.datetime,
+                 window: dict[str, str]) -> dict[str, Any]:
+    """Báo cáo tháng (BAO-CAO-THANG-01): mọi chuyến theo tháng NGÀY CHUYẾN, từ tháng cả hai bản chụp cùng phủ tới tháng hiện tại.
+
+    Mỗi dòng là một chuyến (hoặc một dòng Sheet không thành chuyến), trạng thái:
+    - `khop`: dòng Sheet ghép được chuyến booking; tháng theo ngày booking (NGUON-CHUYEN-01: ngày theo nguồn).
+    - `chep`: dòng Sheet 0đ không ghép được, mà cùng container đã có dòng Sheet khác ghép booking cách không quá `COPY_DAYS` ngày (ví dụ một tab chép
+      chuyến của tab khác cùng khách, hay khối tháng cũ để 0đ khi chuyến đã tính ở khối sau). Không đếm là chuyến.
+    - `khong_booking`: dòng Sheet có ngày, không ghép được, không phải bản chép. `khong_ngay`: dòng Sheet không ngày, không ghép được;
+      tháng theo khối tháng của Sheet. `ngoai`: dòng Sheet không thuộc biển hay bộ (hàng nhập, bán cước), không có booking để so.
+    - `lech_ngay`: dòng Sheet chưa ghép nhưng có chuyến booking cùng container lệch 4–31 ngày (nhóm LECH_NGAY của công cụ GĐ1): vẫn
+      là một chuyến ở cả hai bên, chỉ lệch ngày; tháng theo ngày booking.
+    - `thieu`: chuyến booking không dòng Sheet nào ghép; tab là sổ máy đoán (có thể trống). Chuyến trước tháng đầu của tab khách nằm
+      trong số dư đầu kỳ, không cộng lại (AGENTS.md): chỉ đếm ở `before_book`, không thành dòng.
+    """
+    start, end = max(window.values()), now.date().isoformat()[:7]
+    early = {id(b) for code, s, b, _note in found if s is None and b is not None and code == "TRUOC_KHI_CO_SO"}
+    unpaired = {id(s) for i, s in enumerate(sheet) if i not in s_pair}
+    near = {id(s): b for code, s, b, _note in found if code == "LECH_NGAY" and s is not None and id(s) in unpaired}
+    paired_at = defaultdict(list)   # container -> ngày của các dòng Sheet đã ghép, để nhận bản chép 0đ
+    for i, j in s_pair.items():
+        paired_at[sheet[i]["cont"]].append(source[j]["date"])
+    months: dict[str, list[dict[str, Any]]] = {}
+    before = Counter()
+
+    def put(month: str | None, row: dict[str, Any]) -> None:
+        if month and start <= month <= end:
+            months.setdefault(month, []).append(row)
+
+    for i, s in enumerate(sheet):
+        family = match.family_of(s["mode"])
+        row = {"tab": s["tab"], "row": s["row"], "block": s["month"], "cont": s["cont"], "family": family,
+               "amount_vnd": str(s["amount"]) if s["amount"] else None, "date": s["date"]}
+        if i in s_pair:
+            b = source[s_pair[i]]
+            put(b["date"][:7], {**row, "status": "khop", "family": b["family"], "booking": {"date": b["date"], "owner": b["owner"], "ref": b["ref"]}})
+        elif id(s) in near:
+            b = near[id(s)]
+            put(b["date"][:7], {**row, "status": "lech_ngay", "family": b["family"], "booking": {"date": b["date"], "owner": b["owner"], "ref": b["ref"]}})
+        elif not s["date"]:
+            put(s["month"], {**row, "status": "khong_ngay"})
+        elif family is None:
+            put(s["date"][:7], {**row, "status": "ngoai"})
+        elif not s["amount"] and any(match.days(s["date"], day) <= COPY_DAYS for day in paired_at.get(s["cont"], ())):
+            put(s["date"][:7], {**row, "status": "chep"})
+        else:
+            put(s["date"][:7], {**row, "status": "khong_booking"})
+    paired, close = set(s_pair.values()), {id(b) for b in near.values()}
+    for j, b in enumerate(source):
+        if j in paired or id(b) in close:
+            continue
+        if id(b) in early:
+            before[b["date"][:7]] += 1
+            continue
+        put(b["date"][:7], {"tab": b.get("suggest_tab"), "row": None, "block": None, "cont": b["cont"], "family": b["family"],
+                            "amount_vnd": None, "date": None, "status": "thieu",
+                            "booking": {"date": b["date"], "owner": b["owner"], "ref": b["ref"]}})
+    for rows in months.values():
+        rows.sort(key=lambda row: (row["tab"] or "", (row.get("booking") or {}).get("date") or row["date"] or "", row["cont"]))
+    return {"version": 1, "checked_at": now.isoformat(timespec="seconds"), "start": start, "end": end,
+            "before_book": {month: count for month, count in sorted(before.items()) if start <= month <= end},
+            "months": dict(sorted(months.items()))}
+
+
+def report_path(output: Path) -> Path:
+    return output.with_name("booking-report.json")
 
 
 def failure_code(exc: Exception) -> str:
@@ -210,8 +288,9 @@ def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: d
     """Lỗi thành mã và `last_error`; kết quả lượt đạt trước vẫn giữ."""
     now, started = now or now_vn(), time.monotonic()
     try:
-        result = check(xlsx, sea_path, road_path, now)
+        result, report = evaluate(xlsx, sea_path, road_path, now)
         snapshots.write(result, output)
+        snapshots.write(report, report_path(output))   # cùng lượt đạt: trang Báo cáo tháng không hiện số của lượt hỏng
     except Exception as exc:  # noqa: BLE001  (lỗi thành mã, không in dữ liệu)
         code = failure_code(exc)
         print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)

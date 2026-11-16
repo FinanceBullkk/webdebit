@@ -371,6 +371,7 @@ function apply(world, url, body) {
   return [200, { ok: true, version: world.version }];
 }
 
+const WRITE_DELAY = Number(process.env.WEBDEBIT_TEST_WRITE_DELAY_MS) || 0;
 async function withPage(fn, setup = () => {}) {
   const world = makeWorld();
   setup(world);
@@ -462,8 +463,10 @@ async function withPage(fn, setup = () => {}) {
       req.on('data', chunk => chunks.push(chunk));
       req.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        world.requests.push({ path: url.pathname, body });
-        send(...apply(world, url.pathname, body));
+        // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
+        // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
+        const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
+        if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
       return;
     }

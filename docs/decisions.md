@@ -131,6 +131,7 @@ Mỗi quyết định là một file trong [`decisions/`](decisions/); bảng d�
 | <a id="kiem-booking-01"></a>[KIEM-BOOKING-01](decisions/kiem-booking-01.md) | Kiểm Sheet sổ nợ so với booking (`CONT_NGUON`, `CONT_BO`) mỗi giờ trong lượt đối soát máy; kết quả là một khối trong tab Máy chạy: nghi tính hai lần, booking có mà sổ chưa tính, khác khách, booking không có | Chốt 13/11/2026; chỉ đọc, không đổi tiền; chưa có nút xử lý |
 | <a id="cot-phu-phi-01"></a>[COT-PHU-PHI-01](decisions/cot-phu-phi-01.md) | Bảy cột phụ phí mặc định cho mọi sổ theo debit note; bỏ giới hạn 3 cột riêng; Bật/Tắt tất cả, Về mặc định | Chốt 13/11/2026; thay "tối đa 3" và điểm (6) của [PHU-PHI-01](#phu-phi-01) |
 | <a id="chuyen-bo-chu-hang-01"></a>[CHUYEN-BO-CHU-HANG-01](decisions/chuyen-bo-chu-hang-01.md) | Chuyến bộ `CONT_BO` chưa ở tab khách nào thì máy đưa vào sổ theo CHỦ HÀNG, khi chủ hàng đã có ít nhất 3 chuyến tab xếp, đều một sổ, và tab không còn dòng cùng container lệch ngày chưa ai nhận; chuyến vào chưa có giá | Chốt 16/11/2026; thay vế "chưa ở tab nào thì chờ" của [NGUON-CHUYEN-01](#nguon-chuyen-01); chỉ đổi code app |
+| <a id="bao-cao-thang-01"></a>[BAO-CAO-THANG-01](decisions/bao-cao-thang-01.md) | Tab Báo cáo tháng chỉ xem: theo tháng ngày chuyến, mỗi khách đi bao nhiêu cont, đối chiếu booking (`CONT_NGUON`, `CONT_BO`), Sheet sổ nợ và sổ web; bảng tổng biển/bộ rồi bảng theo khách, bấm bung cont; dòng chép 0đ không đếm là chuyến | Chốt 16/11/2026; chỉ đọc, thêm một hàm đọc; dùng lại phép ghép của [KIEM-BOOKING-01](#kiem-booking-01) |
 
 ## Cập nhật khóa tháng 24/10/2026
 

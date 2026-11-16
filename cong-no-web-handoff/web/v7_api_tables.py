@@ -29,6 +29,7 @@ PAGES = {
     "/so-khach-v7-live.html": "so-khach-v7-live.html",
     "/doi-no.html": "doi-no.html",
     "/bang-thu.html": "bang-thu.html",
+    "/bao-cao-thang.html": "bao-cao-thang.html",
     "/may-chay.html": "may-chay.html",
     "/thong-tin-cty.html": "thong-tin-cty.html",
     "/zalo-chat.html": "zalo-chat.html",
@@ -258,6 +259,7 @@ SQL["record_reminder"] = "WITH b AS (SELECT :'payload'::jsonb AS j) SELECT sokha
 SQL["get_reminders"] = "SELECT sokhach.get_reminders();"
 # BANG-THU-01: tháng trống là tháng hiện tại giờ VN, do hàm SQL tính.
 SQL["get_receipt_book"] = "SELECT sokhach.get_receipt_book((:'payload'::jsonb->>'month')::date);"
+SQL["get_trip_month"] = "SELECT sokhach.get_trip_month((:'payload'::jsonb->>'month')::date);"   # BAO-CAO-THANG-01
 # HOAT-DONG-01: ngày trống là hôm nay giờ VN, do hàm SQL tính.
 SQL["get_activity"] = "SELECT sokhach.get_activity((:'payload'::jsonb->>'day')::date);"
 # ZALO-GROUP-01: gắn group ↔ sổ và dấu tin, cũng ngoài đường tiền; POST đặc biệt (v7_api_zalo kiểm thân lệnh).
