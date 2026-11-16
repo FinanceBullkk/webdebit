@@ -42,6 +42,8 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   assert.equal(await focused(page), 'trip-13:2:carrier');
+  // NHAP-NHANH-01: ô đổi chữ ngay, lệnh ghi đi lần lượt sau đó; chờ hàng đợi gửi hết rồi mới đếm.
+  for (const end = Date.now() + 3000; posts(world).length < 3 && Date.now() < end;) await page.waitForTimeout(50);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/trips/info', '/api/v7/legacy/edit', '/api/v7/legacy/edit']);
 
   await page.keyboard.press('ArrowUp');
