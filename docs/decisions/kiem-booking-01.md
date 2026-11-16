@@ -25,7 +25,14 @@ Claude chọn phần cách làm (ĐỀ XUẤT, áp dụng trong phạm vi trên)
   - chuyến trước tháng đầu của tab khách: nằm trong số dư đầu kỳ, không cộng lại (`AGENTS.md`);
   - "giá khác booking": bản chụp `CONT_NGUON` không mang cột giá chữ nên không tính được.
 - **Chạy ở tiến trình con song song với lượt đối soát:** lượt không dài thêm, và lỗi của phép kiểm không làm đổ lượt.
-- **Khi không tin được số:** bản chụp nguồn thiếu, hỏng, rỗng, hoặc cũ quá 3 giờ thì không kiểm. File kết quả giữ lượt đạt trước, thêm `last_error`. Trang chỉ ghi "không thấy chuyến nào…" khi lượt mới nhất đạt và còn mới.
+- **Khi không tin được số:** không kiểm, giữ kết quả lượt đạt trước và thêm `last_error`. Các trường hợp:
+  - bản chụp nguồn thiếu, hỏng, rỗng, hoặc cũ quá 3 giờ;
+  - không dòng sổ nào nằm trong khoảng kiểm;
+  - lượt đối soát lỗi giữa chừng (`RUN_FAILED`);
+  - phép kiểm chạy quá 15 phút tính từ lúc bắt đầu.
+
+  API báo `stale` khi lượt đạt gần nhất cũ hơn lượt liền trước lượt theo lịch gần nhất. Trang chỉ ghi "không thấy chuyến nào…" khi lượt mới nhất đạt và còn mới.
+- **Khác công cụ GĐ1 ở một điểm:** hai dòng cùng container, cùng ngày trong một bản chụp tính là một chuyến (công cụ GĐ1 giữ cả hai). Booking ghi lặp một chuyến thì không che mất dòng sổ tính hai lần.
 
 ## Ngày / nguồn
 
@@ -61,6 +68,9 @@ Giới hạn:
 - Chưa có nút xử lý. ĐỀ XUẤT cho bước sau: "Đã xem" hoặc "Giữ" theo từng dòng, để dòng đã kết luận không hiện lại mỗi giờ. Việc này cần nơi lưu và đường ghi riêng, nên chưa làm.
 - Sửa ở đâu: Sheet sổ nợ vẫn là sổ chính thức ([`SONG-SONG-01`](song-song-01.md)), nên chỗ sai sửa trên Sheet; lượt sau tự cập nhật.
 - Trang ghép tên tab với sổ web theo tên để có link mở sổ. Tab chưa có sổ web, hoặc hai sổ trùng tên, thì không có link.
+- Ngày trong bản chụp chỉ đọc được dạng `dd/mm/yyyy` (bộ đọc của connector). Dòng booking ghi kiểu khác bị bỏ, và dòng sổ cùng chuyến có thể ra "booking không có". Đo 13/11/2026: 35 dòng `CONT_NGUON` và 14 dòng `CONT_BO` có container mà không có ngày đọc được.
+- Ô tiền trống và 0 đều hiện "—": công cụ GĐ1 đã gộp tiền trống thành 0 khi đọc sổ.
+- Một dòng sổ có thể nằm ở hai nhóm (ví dụ vừa nghi tính hai lần vừa không có booking), nên cộng số trên các nút có thể lớn hơn số dòng.
 - Trước 12/2025 (biển) và 08/2025 (bộ) chưa kiểm. Mở rộng cần bản chụp booking 2025.
 - Khi chuyển hẳn khỏi Sheet, phép kiểm phải đổi sang so sổ web với booking. Mã ghép dùng lại được, nhưng đầu vào là sổ web thay cho xlsx.
 - CÒN MỞ: người dùng tự đi hết khối trên `hao`.

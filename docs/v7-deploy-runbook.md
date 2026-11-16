@@ -1767,6 +1767,10 @@ WantedBy=timers.target
   - Khối `booking` ở stdout, `reconcile.json` và `reconcile-log.jsonl` chỉ có số đếm, hoặc `{"error": "<mã>"}`.
   - Journal có một dòng `V7 kiểm booking: không kiểm được (<mã>)` khi lỗi.
   - `SEA_*`/`ROAD_*` (`MISSING`, `UNREADABLE`, `EMPTY`, `STALE`): xem timer `webdebit-sheet-sync`.
+  - `SHEET_EMPTY`: bản tải không có dòng chuyến nào trong khoảng kiểm, thường do Sheet đổi cấu trúc.
+  - `RUN_FAILED`: lượt đối soát lỗi giữa chừng, phép kiểm bị dừng theo. Xem journal của lượt.
+  - `TIMEOUT`: quá 900 giây tính từ lúc bắt đầu.
+  - `START_*`, `EXIT_*`: không mở được tiến trình con, hoặc nó dừng mà không in kết quả.
   - Lượt lỗi giữ kết quả cũ, trang Máy chạy ghi rõ là lỗi.
 - **Tắt** mà không đổi release: thêm drop-in `[Service]` `Environment=WEBDEBIT_BOOKING_CHECK=off` cho `v7-reconcile-auto.service`, rồi `daemon-reload`. Muốn trang báo "chưa có lượt kiểm" thì xóa `booking-check.json`.
 - **Chạy tay chỉ đọc:** tải xlsx như bước 1 của "Đối soát cuối tháng", rồi `v7_booking_check.py --xlsx <xlsx> --output <thư mục ngoài Git>/booking-check.json`.

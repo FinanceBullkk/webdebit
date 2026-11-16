@@ -146,12 +146,44 @@ class BookingCheckTests(unittest.TestCase):
             pass
         self.assertEqual(off["result"], {"skipped": "OFF"})
 
-    def test_alongside_kills_the_child_when_the_run_fails_and_times_out_cleanly(self):
+    def alongside(self, **extra):
+        return job.alongside(Path("x.xlsx"), self.out, self.dir / "a", self.dir / "b", **extra)
+
+    def test_alongside_kills_the_child_when_the_run_fails_and_marks_the_result_old(self):
         child = mock.Mock()
-        with mock.patch.object(job.subprocess, "Popen", return_value=child), self.assertRaises(RuntimeError), \
-                job.alongside(Path("x.xlsx"), self.out, self.dir / "a", self.dir / "b"):
+        with mock.patch.object(job.subprocess, "Popen", return_value=child), mock.patch("sys.stderr"), \
+                self.assertRaises(RuntimeError), self.alongside():
             raise RuntimeError("lượt đối soát lỗi")
         child.kill.assert_called_once()
+        self.assertEqual(json.loads(self.out.read_text(encoding="utf-8"))["last_error"]["reason"], "RUN_FAILED")
+
+    def test_nothing_in_the_child_handling_can_fail_the_run(self):
+        """Lượt đối soát có thể đã ghi tiền: lỗi ở đây chỉ thành mã."""
+        self.out.write_text("[]", encoding="utf-8")   # JSON hợp lệ mà không phải dict
+        weird = mock.Mock(returncode=0)
+        weird.communicate.return_value = ("[1]\n", None)
+        with mock.patch.object(job.subprocess, "Popen", return_value=weird), mock.patch("sys.stderr"), self.alongside() as run:
+            pass
+        self.assertEqual(run["result"], {"error": "EXIT_0"})
+        self.assertEqual(json.loads(self.out.read_text(encoding="utf-8"))["last_error"]["reason"], "EXIT_0")
+        broken = mock.Mock()
+        broken.communicate.side_effect = RuntimeError("x")
+        with mock.patch.object(job.subprocess, "Popen", return_value=broken), mock.patch("sys.stderr"), self.alongside() as run:
+            pass
+        self.assertEqual(run["result"], {"error": "RuntimeError"})
+        with mock.patch.object(job.subprocess, "Popen", side_effect=OSError("no python")), mock.patch("sys.stderr"), self.alongside() as run:
+            pass
+        self.assertEqual(run["result"], {"error": "START_OSError"})
+
+    def test_deadline_counts_from_the_child_start_and_timeout_is_clean(self):
+        child = mock.Mock()
+        child.communicate.return_value = ('{"ok": true, "counts": {}}\n', None)
+        clock = iter([100.0, 700.0])
+        with mock.patch.object(job.subprocess, "Popen", return_value=child), mock.patch.object(job.time, "monotonic", lambda: next(clock)), \
+                self.alongside(timeout=900) as run:
+            pass
+        self.assertEqual(child.communicate.call_args.kwargs["timeout"], 300.0)
+        self.assertEqual(run["result"], {"counts": {}})
         slow = mock.Mock(returncode=-9)
         slow.communicate.side_effect = [job.subprocess.TimeoutExpired("x", 1), ("", None)]
         with mock.patch("sys.stderr"):
@@ -163,6 +195,10 @@ class BookingCheckTests(unittest.TestCase):
         with mock.patch("sys.stderr"):
             self.assertEqual(job.finish(crashed, self.out, 1), {"error": "EXIT_1"})
 
+    def test_no_sheet_rows_in_the_window_is_an_error_not_all_clear(self):
+        with self.assertRaises(job.CheckError) as caught:
+            self.check([sheet("A", 1, "OLDU5555555", "2025-06-10")])
+        self.assertEqual(caught.exception.code, "SHEET_EMPTY")
 
 if __name__ == "__main__":
     unittest.main()

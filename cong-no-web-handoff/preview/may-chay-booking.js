@@ -63,13 +63,13 @@
 
   function rowHtml(row) {
     const src = row.source;
-    const sheetDay = row.date ? day(row.date) : row.raw_date ? esc(row.raw_date) : '—';
+    const sheetDay = row.date ? esc(day(row.date)) : row.raw_date ? esc(row.raw_date) : '—';
     const book = row.tab ? bookCell(row.tab, row.month, ` <span class="bk-sub">dòng ${esc(row.row)}</span>`)
       : row.suggest ? `<span class="bk-sub">gợi ý</span> ${bookCell(row.suggest.tab, row.month)}` : '—';
     // Chỉ dòng "booking không có" mới ghi "không có"; dòng chưa ghép của cặp tính hai lần thì chuyến đã ghép dòng kia, để trống.
-    const booking = src ? `${day(src.date)} · ${src.kind === 'BO' ? 'Bộ' : 'Biển'}${src.owner ? `<span class="bk-sub bk-line">${esc(src.owner)}</span>` : ''}`
+    const booking = src ? `${esc(day(src.date))} · ${src.kind === 'BO' ? 'Bộ' : 'Biển'}${src.owner ? `<span class="bk-sub bk-line">${esc(src.owner)}</span>` : ''}`
       : row.code === 'KHONG_NGUON' ? '<span class="bk-sub">không có</span>' : '—';
-    return `<tr><td class="bk-cont">${esc(row.container)}</td><td class="num">${sheetDay}</td><td>${book}</td><td class="num">${money(row.amount_vnd)}</td><td>${booking}</td><td>${esc(why(row))}</td></tr>`;
+    return `<tr><td class="bk-cont">${esc(row.container)}</td><td class="num">${sheetDay}</td><td>${book}</td><td class="num">${esc(money(row.amount_vnd))}</td><td>${booking}</td><td>${esc(why(row))}</td></tr>`;
   }
 
   function statusLine(data) {

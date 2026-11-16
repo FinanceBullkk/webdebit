@@ -3,7 +3,8 @@
 `state` nói trang được tin số tới đâu, để không bao giờ hiện "không có gì lệch" khi thật ra chưa kiểm:
 - `none`: chưa có lượt nào ghi được kết quả (kể cả khi chỉ có lỗi);
 - `error`: lượt mới nhất lỗi, số còn lại là của lượt đạt trước đó;
-- `stale`: lượt đạt gần nhất cũ hơn hai lượt trước lượt theo lịch gần nhất (:05 mỗi giờ 7–22 giờ; đêm không có lượt);
+- `stale`: lượt đạt gần nhất cũ hơn lượt liền trước lượt theo lịch gần nhất (:05 mỗi giờ 7–22 giờ; đêm không có lượt). Lượt
+  theo lịch gần nhất có thể còn đang chạy, nên chỉ lỡ thêm một lượt là đã cũ;
 - `ok`.
 """
 
@@ -62,7 +63,7 @@ def view(now: datetime | None = None) -> dict[str, Any]:
         state = "none"
     elif error_at and error_at > checked:
         state = "error"
-    elif checked < previous_slot(previous_slot(last_slot(now))):   # lượt theo lịch có thể đang chạy; lỡ thêm hai lượt nữa mới là cũ
+    elif checked < previous_slot(last_slot(now)):
         state = "stale"
     else:
         state = "ok"

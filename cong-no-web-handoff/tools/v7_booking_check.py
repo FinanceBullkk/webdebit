@@ -136,8 +136,6 @@ def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window:
     if not source:
         raise CheckError("SOURCE_EMPTY")
     sheet = match.load_sheet(Path(xlsx))
-    if not sheet:
-        raise CheckError("SHEET_EMPTY")
     end = now.date().isoformat()[:7]
     s_pair, b_pair = match.pair(sheet, source)
     found, dup_counts = match.review(sheet, source, s_pair, b_pair, end, window)
@@ -170,6 +168,8 @@ def check(xlsx: Path, sea_path: Path, road_path: Path, now: dt.datetime, window:
         })
     rows.sort(key=lambda row: (ORDER.index(row["group"]), row["container"], row["date"] or (row["source"] or {}).get("date") or ""))
     in_window = [i for i, s in enumerate(sheet) if match.in_window(match.family_of(s["mode"]), s["month"], end, window)]
+    if not in_window:   # Sheet đổi cấu trúc thì không được ra "0/0 khớp, không thấy gì lệch"
+        raise CheckError("SHEET_EMPTY")
     return {
         "version": 1, "checked_at": now.isoformat(timespec="seconds"), "window": {**window, "end": end},
         "sources": {name: {"created_at": data["runner"]["created_at"], "sha256": data.get("sha256"), "rows": len(data["rows"])}
@@ -193,6 +193,8 @@ def record_failure(output: Path, reason: str, now: dt.datetime) -> None:
     try:
         data = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
         data = {"version": 1}
     data["last_error"] = {"at": now.isoformat(timespec="seconds"), "reason": reason}
     snapshots.write(data, output)
@@ -213,7 +215,7 @@ def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: d
     except Exception as exc:  # noqa: BLE001  (lỗi thành mã, không in dữ liệu)
         code = failure_code(exc)
         print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(Exception):
             record_failure(output, code, now)
         return {"error": code, "seconds": round(time.monotonic() - started)}
     return {**counts_line(result), "seconds": round(time.monotonic() - started)}
@@ -222,20 +224,39 @@ def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: d
 @contextlib.contextmanager
 def alongside(xlsx: Path, output: Path, sea_path: Path, road_path: Path, *, enabled: bool = True, timeout: float = TIMEOUT):
     """Cho lượt đối soát: chạy phép kiểm ở tiến trình con song song với lượt (đọc xlsx mất khoảng 2,5 phút trên hao, lượt đối soát
-    chủ yếu chờ DB), nên lượt không dài thêm và lỗi ở đây không làm đổ lượt. Ra khỏi khối thì chờ con xong; `xlsx` phải còn tới lúc
-    đó. Khối lỗi thì giết con. Kết quả (số đếm hoặc mã lỗi) nằm ở `job["result"]`."""
+    chủ yếu chờ DB), nên lượt không dài thêm. Ra khỏi khối thì chờ con xong, `xlsx` phải còn tới lúc đó; hạn `timeout` tính từ lúc
+    con bắt đầu. Khối lỗi thì giết con và ghi `RUN_FAILED`, để trang không hiện số cũ như số mới. Mọi lỗi của phần này thành mã ở
+    `job["result"]`, không bao giờ làm đổ lượt (lượt có thể đã ghi tiền)."""
     job: dict[str, Any] = {"result": {"skipped": "OFF"}}
-    process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--xlsx", str(xlsx), "--output", str(output),
-                                "--snapshot", str(sea_path), "--road", str(road_path)], stdout=subprocess.PIPE, text=True) if enabled else None
+    process, deadline = None, time.monotonic() + timeout
+    if enabled:
+        try:
+            process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--xlsx", str(xlsx), "--output", str(output),
+                                        "--snapshot", str(sea_path), "--road", str(road_path)], stdout=subprocess.PIPE, text=True)
+        except Exception as exc:  # noqa: BLE001
+            job["result"] = fail(output, f"START_{type(exc).__name__}")
     try:
         yield job
     except BaseException:
         if process:
-            process.kill()
-            process.communicate()
+            with contextlib.suppress(Exception):
+                process.kill()
+                process.communicate()
+            fail(output, "RUN_FAILED")
         raise
     if process:
-        job["result"] = finish(process, output, timeout)
+        try:
+            job["result"] = finish(process, output, max(deadline - time.monotonic(), 1.0))
+        except Exception as exc:  # noqa: BLE001
+            job["result"] = fail(output, type(exc).__name__)
+
+
+def fail(output: Path, code: str) -> dict[str, str]:
+    """Ghi mã lỗi cho trang; chính việc ghi lỗi cũng không được ném ra."""
+    print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)
+    with contextlib.suppress(Exception):
+        record_failure(output, code, now_vn())
+    return {"error": code}
 
 
 def finish(process: subprocess.Popen, output: Path, timeout: float) -> dict[str, Any]:
@@ -244,21 +265,18 @@ def finish(process: subprocess.Popen, output: Path, timeout: float) -> dict[str,
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
-        code = "TIMEOUT"
-    else:
-        try:
-            line = json.loads(printed.strip().splitlines()[-1])
-        except (ValueError, IndexError):
-            line = {}
-        if line.get("ok"):
-            return {key: value for key, value in line.items() if key != "ok"}
-        code = str(line.get("error") or line.get("reason") or f"EXIT_{process.returncode}")
-        if "error" in line:
-            return {"error": code}   # con đã ghi last_error
-    print(f"V7 kiểm booking: không kiểm được ({code})", file=sys.stderr, flush=True)
-    with contextlib.suppress(OSError):
-        record_failure(output, code, now_vn())
-    return {"error": code}
+        return fail(output, "TIMEOUT")
+    try:
+        line = json.loads(printed.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        line = None
+    if not isinstance(line, dict):
+        return fail(output, f"EXIT_{process.returncode}")
+    if line.get("ok"):
+        return {key: value for key, value in line.items() if key != "ok"}
+    if "error" in line:
+        return {"error": str(line["error"])}   # con đã ghi last_error
+    return fail(output, str(line.get("reason") or f"EXIT_{process.returncode}"))
 
 
 def main(argv: list[str] | None = None) -> int:
