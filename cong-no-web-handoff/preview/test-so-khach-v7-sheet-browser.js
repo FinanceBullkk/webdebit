@@ -181,14 +181,17 @@ test('Ghi giá từ Sheet: Sheet đổi giữa chừng thì không ghi gì và m
 
 test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Sheet, khớp nhiều chuyến chỉ báo', async () => withPage(async ({ page, world, shot }) => {
   assert.equal(await page.locator('.price-approve').count(), 0);
-  assert.match(await page.locator('.price-strip').innerText(), /Giá từ Sheet cần xem:\s*4/);
+  assert.match(await page.locator('.price-strip').innerText(), /Giá từ Sheet cần xem:\s*5/);
   await page.locator('.price-review-toggle').click();
   const items = page.locator('.price-panel li');
-  assert.equal(await items.count(), 4);
+  assert.equal(await items.count(), 5);
   assert.match(await items.nth(0).innerText(), /Tháng 8\/2026 đang khóa/);
   assert.match(await items.nth(1).innerText(), /Web 50\.000\.000 đ · Sheet 52\.000\.000 đ/);
   assert.match(await items.nth(2).innerText(), /Khớp nhiều chuyến/);
-  assert.match(await items.nth(3).innerText(), /số âm/);
+  // MANUAL có hai lý do, mỗi lý do một câu riêng (FANYA 16/11: phụ phí chia loại từng bị báo nhầm là "số âm").
+  assert.match(await items.nth(3).innerText(), /phụ phí Sheet 3\.000\.000 đ, web 4\.500\.000 đ\s*Phụ phí trên web đã chia theo loại/);
+  assert.doesNotMatch(await items.nth(3).innerText(), /số âm/);
+  assert.match(await items.nth(4).innerText(), /Sheet có số âm \(giảm trừ\)/);
   assert.equal(await items.nth(2).locator('button').count(), 0);
   await shot('gia-sheet-3-can-xem');
   await items.nth(1).locator('.price-use-sheet').click();
@@ -207,11 +210,13 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
   world.locks.push({ month: '2026-08-01', locked: true });
   world.trips.push({ ...world.trips[0], id: 13, month: '2026-08-01', container: 'DEMU0800001', event_date: '2026-08-20',
     unit_price_vnd: null, amount_vnd: null, is_missing_price: true, editable: false, info_editable: false });
-  world.sheetPrices = { snapshot_sha256: 'd'.repeat(64), ready: [], ready_count: 0, review_count: 4, review: [
+  world.trips.push({ ...world.trips[0], id: 14, container: 'DEMU0000014', has_typed_fee: true });
+  world.sheetPrices = { snapshot_sha256: 'd'.repeat(64), ready: [], ready_count: 0, review_count: 5, review: [
     priceItem('trip', 13, '11000000', null, { status: 'MONTH_LOCKED', container: 'DEMU0800001', date: '2026-08-20' }),
     priceItem('trip', 11, '52000000', null, { status: 'CONFLICT', web_unit_price_vnd: '50000000', container: 'DEMU1234567' }),
     priceItem('', '', '12500000', null, { status: 'AMBIGUOUS', container: 'DEMU0000009' }),
-    priceItem('trip', 11, '50000000', '-500000', { status: 'MANUAL' })] };
+    priceItem('trip', 14, '80000000', '3000000', { status: 'MANUAL', container: 'DEMU0000014', web_other_fee_vnd: '4500000' }),
+    priceItem('trip', 11, '-500000', null, { status: 'MANUAL' })] };
 }));
 
 test('Làm mới đọc Sheet ngay: đang lấy → xong thì tải lại sổ; đang nhập thì không gửi; lỗi báo chưa lấy được', async () => withPage(async ({ page, world, shot }) => {
