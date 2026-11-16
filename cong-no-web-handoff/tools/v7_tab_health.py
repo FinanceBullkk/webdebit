@@ -5,8 +5,9 @@ Không sửa bộ quét: nhận kết quả `v7_load_real_copy.scan_tabs` / `sca
 Mọi luật kiểm mới của K1 (`chain_break` nêu ô, `negative_receipt`, `duplicate_container`) thêm ở đây, không ở bộ quét: cổng của
 `Deploy hao` chặn mọi diff có `tools/v7_load*`.
 
-Tab `broken` khi có phát hiện mức `error`: lỗi bộ quét đã đếm (`issues`, đúng các lỗi làm máy giữ khách) hoặc `row_shift`. Phát hiện
-mức `note` (bố cục hai dòng đã duyệt) có trong `findings` để màn và lượt đo thấy, nhưng không làm tab `broken`.
+Tab `broken` khi có phát hiện mức `error`: lỗi bộ quét đã đếm (`issues`, đúng các lỗi làm máy giữ khách), `row_shift`,
+`negative_receipt`. Mức `warning` (`duplicate_container`: đáng xem, không đổi tiền) và `note` (bố cục hai dòng đã duyệt) có trong
+`findings` để màn và lượt đo thấy, nhưng không làm tab `broken`.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from v7_load_real_copy import BLOCK_TITLE, block_month, col_num, header_key, normalized
+from v7_normalize import container_key  # lớp web; tools được phép gọi
 
 # Bố cục "hai dòng mỗi container" (dòng container không tiền, dòng tiền không container ngay dưới) và "tiền lệch một dòng" nhìn như nhau
 # trong dữ liệu; chỉ người biết tab mới phân được. Khai tay từng tab, không suy ra từ dữ liệu, không dùng ngưỡng số cặp.
@@ -52,7 +54,7 @@ def cell_name(column: str | int | None, row: int) -> str | None:
 
 
 def columns_by_row(rows: Iterable[tuple[int, dict[str, str]]]) -> dict[int, dict[str, str]]:
-    """{số dòng: {"container": chữ cột, "total": chữ cột}} theo dòng tiêu đề đang hiệu lực ở dòng đó, tính như bộ quét: cột trái nhất
+    """{số dòng: {"container", "total", "receipt": chữ cột}} theo dòng tiêu đề đang hiệu lực ở dòng đó, tính như bộ quét: cột trái nhất
     cho mỗi tiêu đề, tiêu đề của bảng phụ bên phải không thay bảng chính, tiêu đề khối mới xóa cột cũ."""
     found: dict[int, dict[str, str]] = {}
     columns: dict[str, str] = {}
@@ -69,7 +71,7 @@ def columns_by_row(rows: Iterable[tuple[int, dict[str, str]]]) -> dict[int, dict
             side = bool(columns.get("container") and "container" in detected and detected["container"] != columns["container"])
             if "container" in detected and "total" in detected and not side:
                 columns = {**columns, **detected}
-        found[row_no] = {key: columns[key] for key in ("container", "total") if key in columns}
+        found[row_no] = {key: columns[key] for key in ("container", "total", "receipt") if key in columns}
     return found
 
 
@@ -132,10 +134,53 @@ def row_shift_findings(block: dict, columns: dict[int, dict[str, str]] | None = 
     return found
 
 
+def negative_receipt_findings(data: dict, columns: dict[int, dict[str, str]] | None = None) -> list[dict]:
+    """`negative_receipt`: số âm ở cột thu. Web chưa có loại "chi trả khách" (K5 chưa chốt), nên số âm làm tab không đọc được; nêu đúng ô."""
+    columns = columns or {}
+    found = []
+    for record in data.get("records", []):
+        if record["kind"] != "receipt" or record["amount"] is None or record["amount"] >= 0:
+            continue
+        cell = cell_name(columns.get(record["row"], {}).get("receipt"), record["row"])
+        found.append({"kind": "negative_receipt", "level": "error", "month": record["month"], "rows": [record["row"]],
+                      "cells": [cell] if cell else [],
+                      "message": f"Ô thu ở dòng {record['row']} là số âm ({record['amount']:,} đ). Web chưa có loại chi trả lại khách, nên chưa đọc được.".replace(",", "."),
+                      "fix": "Nếu là tiền trả lại khách thì ghi ở chỗ khác ngoài cột thu; nếu gõ nhầm dấu thì sửa thành số dương."})
+    return found
+
+
+def duplicate_container_findings(block: dict, columns: dict[int, dict[str, str]] | None = None) -> list[dict]:
+    """`duplicate_container` (mức `warning`): cùng container ở hai dòng chuyến trong một khối tháng mà một dòng không có tiền. Không
+    đổi tiền (dòng không tiền cộng 0), nhưng thường là dòng gõ lặp hoặc tiền ghi nhầm dòng, đáng xem. Dòng cùng container có tiền cả
+    hai là chuyến dùng lại, không báo."""
+    columns = columns or {}
+    seen: dict[str, list[dict]] = {}
+    for record in block["records"]:
+        key = container_key(record["container"]) if record["kind"] == "trip" else ""
+        if key:
+            seen.setdefault(key, []).append(record)
+    found = []
+    for same in seen.values():
+        empty = [r for r in same if r["amount"] in (None, 0)]
+        paid = [r for r in same if r["amount"] not in (None, 0)]
+        if len(same) < 2 or not empty or not paid:
+            continue
+        rows = sorted(r["row"] for r in same)
+        found.append({"kind": "duplicate_container", "level": "warning", "month": block["month"], "rows": rows,
+                      "cells": [cell for r in sorted(same, key=lambda x: x["row"])
+                                if (cell := cell_name(columns.get(r["row"], {}).get("container"), r["row"]))],
+                      "message": f"Cùng một container ở các dòng {', '.join(map(str, rows))}, trong đó dòng {', '.join(str(r['row']) for r in empty)} không có tiền.",
+                      "fix": "Xem dòng không có tiền là dòng gõ lặp (xóa) hay tiền ghi nhầm dòng (đưa tiền về đúng dòng)."})
+    return found
+
+
 def tab_health(issues: Counter | dict[str, int], shifts: list[dict]) -> dict[str, Any]:
-    """`ok`, hoặc `broken` khi bộ quét đã đếm lỗi (`issues`) hay thấy dòng lệch."""
-    findings = [{"kind": code, "level": "error", "count": count} for code, count in sorted(issues.items())] + list(shifts)
-    return {"status": "broken" if any(f["level"] != "note" for f in findings) else "ok", "findings": findings}
+    """`ok`, hoặc `broken` khi bộ quét đã đếm lỗi (`issues`) hay có phát hiện mức `error`. Lỗi bộ quét đã có phát hiện riêng nêu ô (số
+    âm ở cột thu) thì không kể hai lần."""
+    covered = Counter({"INVALID_RECEIPT_AMOUNT": sum(f["kind"] == "negative_receipt" for f in shifts)})
+    findings = [{"kind": code, "level": "error", "count": count} for code, count in sorted(issues.items())
+                if count > covered.get(code, 0)] + list(shifts)
+    return {"status": "broken" if any(f["level"] == "error" for f in findings) else "ok", "findings": findings}
 
 
 def scan_health(scan: dict[str, dict], tabs: Iterable[tuple[str, Iterable[tuple[int, dict[str, str]]]]] | None = None) -> dict[str, dict]:
@@ -145,7 +190,9 @@ def scan_health(scan: dict[str, dict], tabs: Iterable[tuple[str, Iterable[tuple[
     result = {}
     for tab, data in sorted(scan.items()):
         approved = normalized(tab) in TWO_ROW_LAYOUT_TABS
-        shifts = [finding for block in data.get("blocks", {}).values()
-                  for finding in row_shift_findings(block, raw.get(tab), approved)]
-        result[tab] = tab_health(data.get("issues") or {}, shifts)
+        columns = raw.get(tab)
+        found = [finding for block in data.get("blocks", {}).values()
+                 for finding in row_shift_findings(block, columns, approved) + duplicate_container_findings(block, columns)]
+        found += negative_receipt_findings(data, columns)
+        result[tab] = tab_health(data.get("issues") or {}, found)
     return result
