@@ -24,6 +24,7 @@ from v7_price_queue import (
     container_key,
     iso,
     mark_shared,
+    merge_two_row_pairs,
     name_key,
     owners,
     project_prices,
@@ -113,6 +114,7 @@ def _sheet_rows(snapshot: dict[str, Any], ledger: dict[str, Any], customers: lis
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
     rows = [row for row in snapshot["rows"] if owned.get(name_key(row.get("customer_tab")), (None,))[0] == ledger.get("customer_id")]
     pool = targets(ledger)
+    rows = merge_two_row_pairs(rows, snapshot, pool)   # bố cục hai dòng đã duyệt: tiền là giá của chuyến web, không phải phí lẻ
     return mark_shared([classify(row, pool) for row in rows]), pool, {(target["kind"], target["id"]): target for target in pool}
 
 
