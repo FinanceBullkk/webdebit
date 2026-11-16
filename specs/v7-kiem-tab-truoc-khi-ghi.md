@@ -61,7 +61,7 @@ CÒN MỞ: header là quy ước, không phải bảo mật (AI vẫn giả đư
 
 Thêm `task_kind` mới `source` cho `keep_sheet_task`: đóng một việc theo `source_fingerprint` của dòng Sheet, không cần `target_id`. Áp cho `AMBIGUOUS` (giá, PS), `NEW` ở tháng khóa và dòng không phải chuyến ("VAT"). Dòng Sheet đổi thì dấu vân đổi, máy tự hỏi lại, đúng cách `PS-HOI-01` đang làm. Cần migration nhỏ: mở rộng ràng buộc `task_kind` và cho phép `target` rỗng khi `task_kind='source'`.
 
-**Đã code (đợt 4, 16/11/2026, chờ merge và triển khai tay; chưa ĐÃ TRIỂN KHAI):**
+**ĐÃ TRIỂN KHAI (đợt 4, #451, `hao` 16/11/2026, [nhật ký](../docs/deploys/2026-11-16-nguon-het-bao.md)); chưa có người dùng đi hết luồng:**
 
 - Migration `2026-11-16-v7-nguon-het-bao.sql`: chỉ `CREATE OR REPLACE sokhach.keep_sheet_task`. `task_kind = 'source'` bắt `target_kind` và `target_id` NULL, `web_value = {"scope": "price" | "ps" | "trip"}`; ghi một event `sheet_conflict_resolved` (field `task_source`, `target = {"kind": "source", "scope": ...}`, `sheet_value` = dấu vân). Không đổi bảng, quyền, dữ liệu hay tiền. Đã sửa luôn chỗ cũ: nhánh kiểm dấu vân viết `!~ ... OR IS NULL` nên dấu vân NULL lọt qua.
 - API `POST /api/v7/sheet/tasks/keep` thân `{customer_id, expected_version, idempotency_key, task_kind: "source", scope, source_fingerprint}`. Server đọc lại hàng chờ và chỉ ghi khi dấu vân đó hiện còn là dòng đóng được (không thì `409 STALE_SHEET`); gửi lại cùng khóa nhận kết quả cũ, không đọc lại hàng chờ.
@@ -133,7 +133,7 @@ Việc cần làm:
 - [ ] Fixture sổ 79 (ô tổng thu thiếu công thức) và sổ 162 (ô số dư gõ đè): `findings` nêu đúng ô và công thức mẫu.
 - [ ] Trip có `shipper = ''`: "Theo Sheet" ghi được; test SQL trên harness PostgreSQL.
 - [ ] Ô `YMLU5506443-mã chưa up` khớp container `YMLU5506443`; dòng CONT_NGUON cùng container không còn là `NEW`.
-- [x] `keep_sheet_task` với `task_kind='source'` đóng được một dòng `AMBIGUOUS`; sửa ô nguồn thì việc hiện lại. (Test Python `SourceCloseTests`, harness PostgreSQL `VCL-GIU.01`, test trình duyệt; chưa chạy trên `hao`.)
+- [x] `keep_sheet_task` với `task_kind='source'` đóng được một dòng `AMBIGUOUS`; sửa ô nguồn thì việc hiện lại. (Test Python `SourceCloseTests`, harness PostgreSQL `VCL-GIU.01`, test trình duyệt; đã kiểm đọc trên `hao`, chưa bấm nút trên dữ liệu thật.)
 - [ ] Đo trên `hao` (chỉ đọc, như cách đo ở [v7-may-doi-soat](v7-may-doi-soat.md)): số tab `broken` và phân loại `findings`, trước khi bật chặn.
 - [ ] `npm run check` xanh; harness PostgreSQL chạy tay cho đợt có sửa SQL.
 

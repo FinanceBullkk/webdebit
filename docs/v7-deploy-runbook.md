@@ -1893,7 +1893,7 @@ Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trê
 
 Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
 
-## "Đã xem, hết báo" theo dòng Sheet (KIEM-TAB-01 đợt 4, K3) — nâng DB đang có
+## "Đã xem, hết báo" theo dòng Sheet (KIEM-TAB-01 đợt 4, K3) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-nguon-het-bao.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-nguon-het-bao.sql` chạy sau `2026-11-16-v7-chuan-hoa-chu.sql` ([spec](../specs/v7-kiem-tab-truoc-khi-ghi.md#k3-hết-báo-chung-theo-dấu-vân-dòng-sheet-gốc-của-5)). Chỉ `CREATE OR REPLACE sokhach.keep_sheet_task`: nhận thêm `task_kind = 'source'` (không cần chuyến đích). Không đổi bảng, view, hàm khác, event hiện có, quyền, dữ liệu hay trường tiền. Chạy lại được.
 
