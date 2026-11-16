@@ -464,7 +464,7 @@ async function withPage(fn, setup = () => {}) {
       req.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
         // NHAP-NHANH-01: WEBDEBIT_TEST_WRITE_DELAY_MS=<ms> làm mọi lệnh ghi tới máy chủ giả chậm như runner CI chậm, để lộ
-        // test còn giả định ghi đồng bộ (đọc world.requests ngay sau khi ô đã hiện chữ, mà lệnh còn xếp hàng ghi nền).
+        // test còn đọc world.requests trước khi hàng đợi ghi nền gửi hết (chạy: set biến rồi npm run test:browser).
         const run = () => { world.requests.push({ path: url.pathname, body }); send(...apply(world, url.pathname, body)); };
         if (WRITE_DELAY) setTimeout(run, WRITE_DELAY); else run();
       });
@@ -528,7 +528,11 @@ async function focused(locator, timeout = 2000) {
   }
 }
 
-// NHAP-NHANH-01: ô hiện chữ ngay, lệnh tới máy chủ sau (hàng đợi ghi nền). Test đọc world.requests hay số máy chủ tính
-// (Thành tiền) thì chờ hàng đợi ghi xong và sổ đọc lại — không có dòng "Đang lưu…" ở đầu sổ.
-const saved = page => page.waitForFunction(() => !document.querySelector('.book-status-row.is-saving'));
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused, saved };
+// NHAP-NHANH-01: ô đổi chữ ngay, lệnh ghi đi lần lượt sau đó (dòng "Đang lưu…" ở đầu sổ tới khi gửi hết và đọc lại sổ).
+// Kiểm lệnh đã gửi (posts, world.requests) sau khi hàng đợi xong, không thì lệnh cuối có thể chưa đi (CI chậm).
+// Hàng đợi dừng vì lỗi hay mất mạng thì dòng đó không còn "đang lưu", nên không chờ mãi.
+async function settled(page, timeout = 5000) {
+  await page.waitForFunction(() => !document.querySelector('.book-status-row.is-saving'), null, { timeout });
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused, settled };

@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const conflict = (kind, id, sourceRow, container, web, sheet, fee = null) => ({
   status: 'CONFLICT', batchable: true, target_kind: kind, target_id: id, source_row: sourceRow,
@@ -25,14 +25,17 @@ test('giá lệch: chọn, xem trước, ghi một yêu cầu và đọc lại s
   assert.match(preview, /50\.000\.000 đ → Sheet 52\.000\.000 đ/);
   assert.match(preview, /90\.000\.000 đ → Sheet 95\.000\.000 đ/);
   assert.match(preview, /chênh 7\.000\.000 đ/);
+  await settled(page);
   assert.equal(posts(world).length, 0);
   await page.locator('.price-conflict-cancel').click();
+  await settled(page);
   assert.equal(posts(world).length, 0);
   await page.locator('.price-conflict-confirm').click();
   const reads = world.reads;
   await page.locator('.price-conflict-write').click();
   await page.waitForFunction(() => !document.querySelector('.price-strip'));
   assert.equal(world.reads - reads, 1);
+  await settled(page);
   assert.equal(posts(world).length, 1);
   const [path, body] = posts(world)[0];
   assert.equal(path, '/api/v7/sheet/prices/conflicts');
@@ -60,6 +63,7 @@ test('giá lệch có phụ phí âm vẫn xem trước bằng số nguyên có 
   await page.locator('.price-conflict-select').check();
   await page.locator('.price-conflict-confirm').click();
   assert.match(await page.locator('.price-panel.confirm').innerText(), /Phụ phí Web 0 đ → Sheet -500\.000 đ/);
+  await settled(page);
   assert.equal(posts(world).length, 0);
 }, world => {
   setup(world);

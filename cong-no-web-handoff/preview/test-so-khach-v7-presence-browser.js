@@ -2,7 +2,7 @@
  * câu báo sổ vừa đổi kèm tên. Máy chủ giả không có SSE nên trang hỏi định kỳ. Dữ liệu giả. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { todayMonth, withPage, tripCell, reload } = require('./so-khach-v7-browser-world');
+const { todayMonth, withPage, tripCell, reload, settled } = require('./so-khach-v7-browser-world');
 
 const lan = { id: 'p1', name: 'Lan', color: 0, page: 'so-khach', customer_id: 1, month: '2026-09', cell: { row: 'trip:11', col: 'c2', editing: true }, pointer: null };
 const hoa = { id: 'p2', name: 'Hoa', color: 2, page: 'dashboard', customer_id: null, month: null, cell: null, pointer: null };
@@ -35,6 +35,7 @@ test('báo vị trí của mình: khóa dòng + cột, đang sửa khi mở ô n
   }
   const { pointer: _pointer, ...report } = last;   // chuột vừa bấm ô cũng được báo (mức 2), kiểm riêng ở test dưới
   assert.deepEqual({ ...report, tab: 'x' }, { tab: 'x', page: 'so-khach', customer_id: 1, month: '2026-09', cell: { row: 'trip:11', col, editing: true } });
+  await settled(page);
   assert.equal(world.requests.length, 0);   // báo vị trí không lẫn vào lệnh ghi sổ
 }));
 
@@ -101,6 +102,7 @@ test('báo chuột của mình: ô + phần nghìn trong ô; rời bảng thì b
   assert.ok(Math.abs(moved.pointer.fx - 250) <= 30 && Math.abs(moved.pointer.fy - 500) <= 60, JSON.stringify(moved.pointer));
   await page.mouse.move(5, 5);   // lên thanh trên cùng, ra khỏi bảng
   assert.equal((await reported(last => last && last.pointer === null)).pointer, null);
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }));
 
