@@ -45,7 +45,14 @@
         const month = monthKey(rows.get(`${item.target_kind}-${item.target_id}`)?.month);
         if (item.status === 'MONTH_LOCKED') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Tháng ${monthLabel(month)} đang khóa nên chưa ghi được.</small></div><button type="button" class="price-unlock" data-month="${escape(month)}-01">Mở khóa tháng ${Number(month.slice(5))}</button></li>`;
         if (item.status === 'CONFLICT') return `<li>${item.batchable ? `<input type="checkbox" class="price-conflict-select" aria-label="Chọn ${what} để lấy giá Sheet" data-key="${escape(conflictKey(item))}" ${conflictSelection.has(conflictKey(item)) ? 'checked' : ''}>` : ''}<div class="what">${what} · Web ${vndText(item.web_unit_price_vnd)} đ · Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>${item.batchable ? 'Web đã có giá khác Sheet.' : 'Cần xử lý riêng; không thể ghi hàng loạt.'}</small></div><button type="button" class="price-use-sheet" data-kind="${escape(item.target_kind)}" data-id="${escape(item.target_id)}" data-price="${escape(item.sheet_unit_price_vnd)}" data-fee="${escape(item.sheet_other_fee_vnd ?? '')}">Lấy Sheet</button></li>`;
-        if (item.status === 'MANUAL') return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd)} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
+        if (item.status === 'MANUAL') {
+          // Hai lý do máy để người làm: phụ phí web đã chia theo loại (xét trước, như v7_price_queue), hoặc giá Sheet âm.
+          const row = rows.get(`${item.target_kind}-${item.target_id}`);
+          const typed = row?.has_typed_fee ?? row?.current?.has_typed_fee;
+          const negative = String(item.sheet_unit_price_vnd ?? '').startsWith('-');
+          if (negative && !typed) return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí ${vndText(item.sheet_other_fee_vnd ?? '0')} đ<small>Sheet có số âm (giảm trừ). Nhập tay tại ô của chuyến.</small></div></li>`;
+          return `<li><div class="what">${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ · phụ phí Sheet ${vndText(item.sheet_other_fee_vnd ?? '0')} đ, web ${vndText(item.web_other_fee_vnd ?? '0')} đ<small>Phụ phí trên web đã chia theo loại nên máy không tự sửa. Sửa tay ô phụ phí của chuyến, hoặc sửa Sheet cho khớp.</small></div></li>`;
+        }
         return `<li><div class="what">Dòng Sheet ${escape(item.source_row)} · ${what} · giá Sheet ${vndText(item.sheet_unit_price_vnd)} đ<small>Khớp nhiều chuyến cùng container. Điền giá tay tại ô của đúng chuyến.</small></div></li>`;
       };
       const selectable = (data.sheet_prices?.review ?? []).filter(item => item.status === 'CONFLICT' && item.batchable);
