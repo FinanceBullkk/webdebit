@@ -514,4 +514,15 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };
+// NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào (trang chọn lại đúng ô sau khi vẽ). Một lần
+// locator.evaluate có thể bắt ô cũ vừa bị thay, nên hỏi lại tới khi đúng (mỗi lần locator tìm ô mới), tối đa `timeout`.
+async function focused(locator, timeout = 2000) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const ok = await locator.evaluate(node => node === document.activeElement).catch(() => false);
+    if (ok || Date.now() > end) return ok;
+    await new Promise(done => setTimeout(done, 50));
+  }
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused };
