@@ -119,13 +119,19 @@ class PureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             region.region_bounds([], [])
 
-    def test_date_shown_and_stored_swapped_is_suspect(self):
-        stored = serial(2026, 10, 11)   # lưu ngày 11 tháng 10
-        self.assertTrue(region.date_swap({"kind": "DATE", "v": "10/11", "serial": stored}))   # hiện 10/11: đã đảo
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10", "serial": stored}))  # hiện đúng ngày lưu
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "5/5", "serial": serial(2026, 5, 5)}))   # ngày = tháng: không phân biệt được
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "10/11"}))   # không đọc được ngày lưu thì bỏ cờ
-        self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "10/11", "serial": stored}))
+    def test_date_flag_only_when_stored_is_outside_the_block_and_swapping_lands_in_it(self):
+        molly = {"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 11, 10)}   # hiện 11/10, Sheet hiểu 10 tháng 11; khối là tháng 10
+        self.assertTrue(region.date_swap(molly, "2025-10"))
+        self.assertIn("Ô hiện 11/10/2025 nhưng Sheet hiểu là ngày 10/11/2025, ngoài tháng 10 của khối", region.date_swap_text(molly, "2025-10"))
+        d17 = {"kind": "DATE", "v": "10/26/2026", "serial": serial(2026, 10, 26)}    # ngày 26 > 12, đúng tháng khối: chỉ hiển thị kiểu tháng/ngày
+        self.assertFalse(region.date_swap(d17, "2026-10"))
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 10, 11)}, "2025-10"))   # lưu trong khối
+        self.assertFalse(region.date_swap(molly, "2025-09"))   # đảo ra tháng 10, không phải tháng 9 của khối
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "26/11/2025", "serial": serial(2025, 11, 26)}, "2025-10"))   # ngày > 12 không đảo được
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2024", "serial": serial(2024, 11, 10)}, "2025-10"))   # khác năm
+        self.assertFalse(region.date_swap(molly, None))     # không biết tháng khối thì không đoán
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025"}, "2025-10"))   # không đọc được ngày lưu thì bỏ cờ
+        self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "x", "serial": serial(2025, 11, 10)}, "2025-10"))
 
     def test_shape_ignores_row_numbers_only(self):
         self.assertEqual(region.shape("=SUM(M692:M847)"), region.shape("=sum( M10:M99 )"))
@@ -162,8 +168,11 @@ class BuildTests(unittest.TestCase):
         self.assertIn([3], [g["cols"] for g in built["column_groups"] if not g["collapsed"]])
 
     def test_swapped_date_becomes_a_suspect_mark_without_help_from_findings(self):
-        built = region.build_region(raw(cells={(9, 4): cell("10/11", kind="DATE", number=serial(2026, 10, 11))}), 8, 1, 22, 18, [])
-        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D9", "suspect")])
+        cells = {(42, 4): cell("11/10/2025", kind="DATE", number=serial(2025, 11, 10)), (43, 4): cell("10/26/2025", kind="DATE", number=serial(2025, 10, 26))}
+        built = region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [], "2025-10")
+        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D42", "suspect")])   # D42 kiểu MOLLY có cờ, D43 kiểu 10/26 không
+        self.assertIn("ngoài tháng 10 của khối", built["marks"][0]["text"])
+        self.assertEqual(region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [])["marks"], [])   # không có tháng khối thì không cờ
 
 
 class FetchTests(Env):

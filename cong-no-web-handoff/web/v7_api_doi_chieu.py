@@ -168,7 +168,7 @@ def region(query: str, runner: Psql, actor: str, *, opener=None, now: float | No
                                            **({"opener": opener} if opener else {}), now=now, fresh=fresh)
     marks = [{"cell": cell, "level": "error" if item.get("level") == "error" else "warning", "text": item.get("message") or ""}
              for item in findings if item.get("tab") == finding["tab"] for cell in item.get("cells") or []]
-    shown = v7_sheet_region.build_region(fetched["raw"], first, col_first, last, col_last, marks)
+    shown = v7_sheet_region.build_region(fetched["raw"], first, col_first, last, col_last, marks, finding.get("month"))
     sample = None
     if finding["kind"] == "chain_break" and finding.get("cells"):
         row, col = v7_sheet_region.split_cell(finding["cells"][0])
