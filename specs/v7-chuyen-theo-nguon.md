@@ -108,6 +108,7 @@ Quyết định: [`KIEM-BOOKING-01`](../docs/decisions/kiem-booking-01.md). Đâ
 - **Chuyến bộ mới tự vào sổ (ĐÃ CHỐT 3/11/2026, [quyết định](../docs/decisions/nguon-chuyen-01.md#hiệu-lực-và-giới-hạn); đã code).** Riêng `road.json`, thay vế "không tạo chuyến mới" ở trên. `web/v7_road_queue.py`:
   - `build_road_queue` gắn mỗi chuyến `CONT_BO` READY từ 10/2026 vào sổ của **đúng một tab khách** trong bản chụp giá (cùng container, ±3 ngày; dòng tab không ngày thì cùng tháng nợ). Tab đó phải ứng một sổ đang hoạt động, theo tên sổ hoặc tên khác.
   - Không gắn được thì chỉ đếm trong `stats`, không đoán: `NO_TAB` (chờ Sheet), `AMBIGUOUS_TAB`, `NO_BOOK`, `AMBIGUOUS_SOURCE` (hai chuyến nhận một dòng tab).
+  - **Theo chủ hàng (16/11/2026, [`CHUYEN-BO-CHU-HANG-01`](../docs/decisions/chuyen-bo-chu-hang-01.md)).** Chuyến chưa ở tab nào lấy sổ theo CHỦ HÀNG khi chủ hàng đó có ít nhất `OWNER_MIN_TRIPS` = 3 chuyến (mọi tháng) được tab xếp, đều một sổ; dòng mang `book_basis: "owner"`, không có `customer_tab`/`tab_row`, `tab_debt_month` là tháng của ngày. Tab còn dòng cùng container trong `TAB_FAR_DAYS` = 31 ngày (không ngày: tháng nợ liền kề) chưa dòng `CONT_BO` nào nhận thì `TAB_FAR`, chờ tab. Chủ hàng chưa rõ sổ vẫn `NO_TAB`. Dòng xếp theo tab giữ nguyên (`book_basis: "tab"`).
   - `project_road`: chuyến đã có ở sổ (chuyến web kể cả chờ kiểm, dòng sổ gốc, ±3 ngày hoặc không ngày cùng tháng) thì bỏ. Container dùng lại xa ngày hơn là chuyến mới.
   - Lệch tháng tab (`MONTH_DIFFERS`), khách khác (`OTHER_CUSTOMER`) và sổ gốc sổ khác (`OTHER_BOOK_LEGACY`) để người. Hai luật sổ khác dùng chung `other_book_checks` với chuyến biển; sổ cùng khách thì không hiện.
   - API: phần chiếu `sheet_road` của `GET /api/v7/ledger`. Chưa có `road.json` thì không có việc; file hỏng thì `unavailable`, sổ vẫn tính.
@@ -195,6 +196,12 @@ GĐ3, phần chuyến bộ mới:
   - dán 195 chuyến ở 5 sổ; 0 chờ kiểm, 0 vướng sổ khác, 0 lỗi;
   - máy ghi 195 giá; tổng nợ tăng đúng 3.111.500.000đ, bằng giá tab dự tính, từng sổ khớp;
   - mọi tháng máy mở đã khóa lại.
+
+Chuyến bộ theo chủ hàng (`CHUYEN-BO-CHU-HANG-01`):
+- [x] Unit `test_v7_road_queue.OwnerBookTests`: container dùng lại có dòng `CONT_BO` riêng vào sổ chủ hàng và thành NEW dù sổ đã có chuyến 21 ngày trước; kho từng vào hai sổ, chủ hàng lạ, chủ hàng trống, chưa đủ 3 chuyến thì `NO_TAB`; dòng tab lệch 14 ngày hoặc không ngày tháng liền kề chưa ai nhận thì `TAB_FAR`, dòng tab xa 4 tháng thì không chặn; hai dòng `CONT_BO` cùng container cách 2 ngày cùng vào một sổ theo chủ hàng thì `AMBIGUOUS_SOURCE`, không thành hai chuyến. Bộ test cũ giữ nguyên ý (một dòng chủ hàng lạ cho `NO_TAB`; `stats` không còn khóa `BOOK: 0`).
+- [x] Chỉ đọc trên bản chụp `road.json`, `prices.json` của `hao` sáng 16/11/2026: 200 chuyến theo tab y hệt luật cũ từng dòng; 31 chuyến chờ thành 31 chuyến theo chủ hàng ở 6 sổ, 0 `TAB_FAR`.
+- [x] Chiếu `project_road` trên 242 sổ tải qua API sáng 16/11/2026 (kiểm sổ khác dựng lại từ chính các sổ đó, chặt hơn `other_book_checks` vì không xét ngày): 29 NEW ở 6 sổ; 2 CONFLICT `OTHER_CUSTOMER` ở DUONG BO HÂN HƯNG 324 vì cùng container đã chạy cho DUONG BO HOA HANH tháng 10. Dòng theo tab: 0 dòng hiện (đều đã có trong sổ).
+- Không chạy bản sao DB: chuyến theo chủ hàng đi đúng đường dán `_auto_road` → `paste_sheet_rows` đã thử trên bản sao 3/11/2026, và vào sổ chưa có giá nên tổng nợ không đổi. Kiểm sau deploy: nhật ký máy có các chuyến `road`, tổng nợ mọi sổ không đổi.
 
 GĐ3:
 - [ ] Unit phần chiếu:
