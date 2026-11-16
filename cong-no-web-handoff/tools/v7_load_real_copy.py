@@ -734,14 +734,13 @@ COMMODITY_LABELS = {
 }
 
 
-def tong_commodities(path: Path, tabs: list | None = None) -> dict[str, str | None]:
+def tong_commodities(path: Path) -> dict[str, str | None]:
     """Normalized customer name -> LOAI HANG label of its rightmost (latest) TONG block.
 
-    Two different labels at the same rightmost position (names that normalize alike) map to None. `tabs` is an already read
-    `list(workbook_rows(path))`, so a caller that needs every tab parses the workbook once (about 90 seconds on hao).
+    Two different labels at the same rightmost position (names that normalize alike) map to None.
     """
     found: dict[str, tuple[tuple[int, int], str | None]] = {}
-    for tab, data in workbook_rows(path) if tabs is None else tabs:
+    for tab, data in workbook_rows(path):
         if normalized(tab) != "TONG":
             continue
         pairs: list[tuple[str, str]] = []

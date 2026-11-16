@@ -39,7 +39,7 @@ FOLDER = Path("/var/lib/webdebit-sheet-sync")
 # CONT_BO từ 08/2025 (07/2025 có 2 chuyến). Trước các tháng này không báo "không có nguồn" hay "booking có, sổ chưa tính".
 WINDOW = {"BIEN": "2025-12", "BO": "2025-08"}
 SOURCE_MAX_AGE = dt.timedelta(hours=3)   # timer bản chụp 15 phút một lần; quá 3 giờ là timer hỏng, nguồn thiếu chuyến mới
-TIMEOUT = 900   # giây; đo 13/11/2026 một lượt khoảng 160 giây, unit đối soát có TimeoutStartSec=1500
+TIMEOUT = 900   # giây; đo 13/11/2026 một lượt khoảng 250 giây, unit đối soát có TimeoutStartSec=1500
 # Mã nhóm của công cụ GĐ1 -> nhóm trên trang, theo thứ tự chủ sổ hỏi: bốn nhóm đầu đụng tiền, ba nhóm sau chỉ để biết.
 # Không lên trang, chỉ đếm: TRUOC_KHI_CO_SO (chuyến trước tháng đầu của tab khách nằm trong số dư đầu kỳ; đo 13/11/2026: 550 chuyến,
 # toàn bộ 08–12/2025) và GIA_KHAC (bản chụp CONT_NGUON không có cột giá chữ nên không sinh ra).
@@ -223,7 +223,7 @@ def run_safely(xlsx: Path, output: Path, sea_path: Path, road_path: Path, now: d
 
 @contextlib.contextmanager
 def alongside(xlsx: Path, output: Path, sea_path: Path, road_path: Path, *, enabled: bool = True, timeout: float = TIMEOUT):
-    """Cho lượt đối soát: chạy phép kiểm ở tiến trình con song song với lượt (đọc xlsx mất khoảng 2,5 phút trên hao, lượt đối soát
+    """Cho lượt đối soát: chạy phép kiểm ở tiến trình con song song với lượt (đọc xlsx mất khoảng 4 phút trên hao, lượt đối soát
     chủ yếu chờ DB), nên lượt không dài thêm. Ra khỏi khối thì chờ con xong, `xlsx` phải còn tới lúc đó; hạn `timeout` tính từ lúc
     con bắt đầu. Khối lỗi thì giết con và ghi `RUN_FAILED`, để trang không hiện số cũ như số mới. Mọi lỗi của phần này thành mã ở
     `job["result"]`, không bao giờ làm đổ lượt (lượt có thể đã ghi tiền)."""

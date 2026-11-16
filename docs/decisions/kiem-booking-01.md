@@ -51,7 +51,7 @@ Số đo chỉ đọc trên `hao` cùng ngày (bản tải 13/11, release `2cbbe
   - Nhóm đụng tiền: nghi tính hai lần 62 dòng, booking có mà sổ chưa tính 115, sổ khác khách booking 23, trên sổ mà booking không có 45.
   - Nhóm để biết: lệch ngày 67, sổ thiếu ngày 231, tháng này 125.
   - 550 chuyến trước tháng đầu của tab khách (toàn bộ 08–12/2025) chỉ đếm.
-- **Chi phí:** 160 giây, bộ nhớ đỉnh 286 MB. Trước khi đọc xlsx một lần cho cả tab TONG và tab khách là 252 giây.
+- **Chi phí:** 252 giây, bộ nhớ đỉnh 286 MB, chạy song song nên lượt không dài thêm. Đọc xlsx một lần cho cả tab TONG và tab khách thì còn 160 giây; bản đầu (PR FinanceBullkk/webdebit#428) làm vậy bằng cách đổi `v7_load_real_copy.tong_commodities`, nhưng cổng `Deploy hao` chặn mọi diff có loader `v7_load*`, nên đã trả file loader về như cũ.
 
 ## Hiệu lực và giới hạn
 
