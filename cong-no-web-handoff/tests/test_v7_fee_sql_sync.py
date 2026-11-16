@@ -36,6 +36,8 @@ COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13
 # HIEU-NANG-01 13/11/2026: get_read_stamp chỉ có ở migration này.
 DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
 BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql"
+# KIEM-TAB-01 16/11/2026 (K4): edit_trip_info và resolve_sheet_conflict bằng migration này thay bản KHOA-CHU-01.
+CHUAN_HOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
 LATER_TABLE_CHANGES = {
     "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
@@ -109,9 +111,11 @@ class FeeSqlSync(unittest.TestCase):
         for index in indexes:
             self.assertIn(index, canonical)
         khoa_chu = KHOA_CHU_MIGRATION.read_text(encoding="utf-8")
+        chuan_hoa = CHUAN_HOA_CHU_MIGRATION.read_text(encoding="utf-8")
         for name in ("edit_trip_info", "resolve_sheet_conflict"):
             with self.subTest(name=name):
-                self.assertEqual(definition(khoa_chu, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+                self.assertEqual(definition(chuan_hoa, "FUNCTION", name), definition(canonical, "FUNCTION", name))
+                self.assertNotEqual(definition(khoa_chu, "FUNCTION", name), definition(canonical, "FUNCTION", name))   # bản KHOA-CHU-01 đã bị thay
         overload = r"(?ms)^CREATE OR REPLACE FUNCTION sokhach\._change_legacy\([^)]*p_fee_event bigint\).*?\$\$;"
         self.assertEqual(re.search(overload, khoa_chu).group().replace("\r\n", "\n"),
                          re.search(overload, canonical).group().replace("\r\n", "\n"))

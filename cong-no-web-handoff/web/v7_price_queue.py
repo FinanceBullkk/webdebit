@@ -19,18 +19,17 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections import Counter
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import v7_normalize as normalize
 from v7_sheet_queue import read_snapshot
 from v7_sheet_task_keep import kept, price_identity
 
 DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
 XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
-NUMBER_CELL = re.compile(r"[0-9]+(?:\.[0-9]+)?(?:E\+?[0-9]{1,2})?")
 
 
 @lru_cache(maxsize=4096)
@@ -44,12 +43,8 @@ def name_key(value: Any) -> str:
 
 
 def container_key(value: Any) -> str:
-    text = "".join(str(value or "").upper().split())
-    if ("." in text or "E" in text) and NUMBER_CELL.fullmatch(text):
-        number = Decimal(text)
-        if number == number.to_integral_value():
-            return str(int(number))   # "4.2E7" and "42000000.0" read as 42000000; digits keep leading zeros
-    return text
+    """Khóa container Sheet–web; luật chung ở `v7_normalize.container_key` (số khoa học, mã ISO kèm chữ ghi chú)."""
+    return normalize.container_key(value)
 
 
 def iso(value: Any) -> dt.date | None:

@@ -64,6 +64,7 @@ from test_pg_v7_backend_dashboard_debt import check_dashboard_debt
 from test_pg_v7_backend_doi_no import check_doi_no
 from test_pg_v7_backend_fee_commands import check_fee_catalog, check_fee_commands
 from test_pg_v7_backend_khoa_chu import check_khoa_chu
+from test_pg_v7_backend_kiem_tab import check_kiem_tab
 from test_pg_v7_backend_ledger_events import check_ledger_events
 from test_pg_v7_backend_locks import (
     check_csm_locks,
@@ -257,6 +258,10 @@ CASES.append(case("CHAN-TRUNG.01", "BEHAVIOR", "Undated original-book row holds 
 CASES.append(case("KHOA-CHU.01", "BEHAVIOR", "Locked month: four text fields editable with audit; money, date, container, delete still locked",
                   check="khoa_chu", functions=("edit_trip_info", "_change_legacy", "resolve_sheet_conflict")))
 
+# KIEM-TAB-01 16/11/2026 (K4): chạy sau KHOA-CHU.01, migration của nó là bản mới nhất của edit_trip_info/resolve_sheet_conflict.
+CASES.append(case("KIEM-TAB.01", "BEHAVIOR", "Empty string and NULL are one value for text fields in Sheet resolution and trip edit; money untouched",
+                  check="kiem_tab", functions=("edit_trip_info", "resolve_sheet_conflict")))
+
 # ZALO-GROUP-01 1/11/2026: gắn group ↔ sổ, dấu tin; trạng thái tính từ phiếu thu, không đổi số tiền.
 CASES.append(case("ZALO-GROUP.01", "BEHAVIOR", "Zalo group links and message marks: status from receipts, cancel with reason, no money change",
                   check="zalo_group", functions=("link_zalo", "unlink_zalo", "get_zalo_links", "record_mark", "cancel_mark", "get_marks")))
@@ -280,7 +285,7 @@ CASES.append(case("HOAT-DONG.01", "BEHAVIOR", "Activity of one VN day across boo
 CASES.append(case("HIEU-NANG.01", "BEHAVIOR", "Read stamp changes after every committed write to any sokhach table, not on reads, locks or rollbacks",
                   check="read_stamp", functions=("get_read_stamp",)))
 
-CHECKS = {"read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
+CHECKS = {"kiem_tab": check_kiem_tab, "read_stamp": check_read_stamp, "activity": check_activity, "ledger_events": check_ledger_events, "tao_so": check_tao_so, "bang_thu": check_bang_thu, "sheet_keep": check_sheet_keep, "can_du": check_can_du, "chan_trung": check_chan_trung, "khoa_chu": check_khoa_chu, "zalo_group": check_zalo_group, "dashboard": check_dashboard, "dashboard_debt": check_dashboard_debt, "doi_no": check_doi_no, "ps_fee": check_ps_fee, "ra_ghi_tien": check_ra_ghi_tien, "receipt_images": check_receipt_images, "price_table": check_price_table, "nhap_sheet": check_nhap_sheet, "csm_reference": check_csm_reference, "csm_locks": check_csm_locks, "csm_migration": check_csm_migration,
           "fee_commands": check_fee_commands, "fee_catalog": check_fee_catalog,
           "dedup": check_dedup, "trip_review": check_trip_review, "monthly_identity": check_monthly_identity, "da_thu": check_da_thu, "delete_month_adjustment": check_delete_month_adjustment, "field_adjustment": check_field_adjustment,
           "adjustment_source": check_adjustment_source, "shipper_write_sync": check_shipper_write_sync,
@@ -402,7 +407,7 @@ def check_migration(pg: Pg) -> None:
     copy.sql(KHOA_CHU_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))
     copy.sql(ZALO_GROUP_MIGRATION.read_text(encoding="utf-8"))  # ZALO-GROUP-01 chỉ thêm bảng/hàm ghi chú, chạy lại được
-    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql"):
+    for filename in ("2026-11-02-v7-giu-viec-sheet.sql", "2026-11-02-v7-lay-gia-sheet.sql", "2026-11-02-v7-gan-mat-hang.sql", "2026-11-02-v7-chon-so-chuyen.sql", "2026-11-02-v7-hoan-tac-lo.sql", "2026-11-04-v7-ps-gop.sql", "2026-11-04-v7-bang-thu.sql", "2026-11-04-v7-bang-thu-2.sql", "2026-11-04-v7-gan-cang-bo.sql", "2026-11-04-v7-tao-so.sql", "2026-11-04-v7-index-container.sql", "2026-11-04-v7-ledger-events.sql", "2026-11-05-v7-gia-tu-doi.sql", "2026-11-06-v7-ngay-tra-that.sql", "2026-11-09-v7-thu-thang-theo-so.sql", "2026-11-09-v7-hoat-dong.sql", "2026-11-09-v7-ps-khong-thu.sql", "2026-11-10-v7-bang-gia-noi-den.sql", "2026-11-13-v7-noi-den-tuy-chon.sql", "2026-11-13-v7-xem-truoc-bang-gia.sql", "2026-11-13-v7-cot-phu-phi-mac-dinh.sql", "2026-11-13-v7-dau-doc.sql", "2026-11-16-v7-bao-cao-thang.sql", "2026-11-16-v7-chuan-hoa-chu.sql"):
         source = (ROOT / "cong-no-web-handoff/tools/migrations" / filename).read_text(encoding="utf-8")
         copy.sql(source)
         copy.sql(source)

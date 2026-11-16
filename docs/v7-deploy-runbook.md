@@ -1883,6 +1883,16 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Chuẩn hóa chữ rỗng (KIEM-TAB-01 đợt 2) — nâng DB đang có (ĐÃ CODE 16/11/2026, chưa chạy trên hao)
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql` chạy sau `2026-11-16-v7-bao-cao-thang.sql` và mọi migration trước nó ([spec](../specs/v7-kiem-tab-dot2.md)). Chỉ thay thân hai hàm: `resolve_sheet_conflict` (so trước–sau bằng `nullif(btrim(...),'')`; chủ hàng của dòng sổ gốc lấy hãng tàu khi chủ hàng trống hoặc toàn khoảng trắng) và `edit_trip_info` (sửa ô chữ rỗng thành rỗng là `NO_CHANGE`). Không đổi bảng, ràng buộc, event, quyền, dữ liệu hay trường tiền. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release (release mới gửi NULL cho chủ hàng rỗng; với hàm cũ vẫn báo `STALE_LEDGER` như trước, không sai tiền). Release cũ chạy được với DB mới.
+
+Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, checker), đối soát tổng từng khách trước/sau (không đổi). Không cần cửa sổ dừng ghi riêng ngoài thứ tự trên.
+
+Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
+
 ## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-bao-cao-thang.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql` chạy sau `2026-11-13-v7-dau-doc.sql` ([`BAO-CAO-THANG-01`](decisions/bao-cao-thang-01.md), [spec](../specs/v7-bao-cao-thang.md)). Chỉ thêm hàm đọc `get_trip_month(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu. Chạy lại được.

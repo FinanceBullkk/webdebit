@@ -18,10 +18,10 @@ from typing import Any
 
 import v7_booking_view
 import v7_machine
+import v7_normalize as normalize
 from v7_api_validate import bad
 
 MONTH = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])")
-ISO = re.compile(r"[A-Z]{4}[0-9]{7}")
 PAIR_DAYS = 3   # cùng luật ghép của NGUON-CHUYEN-01 (1)
 SHEET_TRIP = ("khop", "lech_ngay", "khong_booking", "ngoai")   # dòng Sheet là một chuyến có ngày
 BOOKING_TRIP = ("khop", "lech_ngay", "thieu")
@@ -34,9 +34,7 @@ def path() -> Path:
 
 def container_key(raw: Any) -> str:
     """Như `v7_trip_source_match.container_key` (web không được nhập tools/, ARCH-02)."""
-    text = re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
-    tokens = ISO.findall(text)
-    return tokens[0] if len(tokens) == 1 else text
+    return normalize.container_code(raw) or re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
 
 
 def name_key(name: Any) -> str:

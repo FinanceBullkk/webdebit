@@ -343,6 +343,8 @@ CHAN_TRUNG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v
 CONTAINER_INDEX_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-04-v7-index-container.sql"
 # KHOA-CHU-01 1/11/2026: migration cuối hiện nay, chuỗi nâng nào so với file chuẩn cũng chạy nó sau cùng.
 KHOA_CHU_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-khoa-chu.sql"
+# KIEM-TAB-01 16/11/2026 (K4): bản edit_trip_info và resolve_sheet_conflict hiện hành; chuỗi nâng nào chạy KHOA_CHU thì chạy nó sau cùng.
+KIEM_TAB_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql"
 # ZALO-GROUP-01 1/11/2026: chỉ thêm bảng/hàm ghi chú; chuỗi nâng từ lược đồ cũ chạy nó sau chặn trùng.
 ZALO_GROUP_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-01-v7-zalo-group.sql"
 # BANG-GIA-02 5/11/2026: bản save_price_table hiện hành; ai chạy lại 2026-10-29-v7-bang-gia.sql thì chạy file này sau.
