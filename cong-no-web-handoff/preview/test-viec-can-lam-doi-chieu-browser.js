@@ -312,8 +312,11 @@ if (process.argv.includes('--preview')) {
       closedByServer.push(manual);
       await page.locator('[data-dc-open="7"]').first().click();
       await page.locator('[data-dc-open="7"]').first().click();
+      await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).waitFor({ state: 'detached' });   // chờ sổ tải lại xong, không đọc khung cũ
       await page.locator('.dc-hints').waitFor();
       assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 90' }).count(), 0);
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 304' }).count(), 0);   // dòng vừa đóng ở lượt trước cũng không quay lại
+      assert.equal(await page.locator('.dc-hints li', { hasText: 'Dòng 91' }).count(), 1);
     });
   });
 
