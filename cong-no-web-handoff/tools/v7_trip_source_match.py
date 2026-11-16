@@ -31,6 +31,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import v7_load_real_copy as loader
+from v7_normalize import container_code  # lớp web; tools được phép gọi
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ISO = re.compile(r"[A-Z]{4}\d{7}")
@@ -53,9 +54,7 @@ FAMILY = {"BO": "BO", "MONTH": "BIEN", "RAIL": "BIEN", "DURIAN_ROAD": "BO"}  # N
 
 
 def container_key(raw: Any) -> str:
-    text = re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
-    tokens = ISO.findall(text)
-    return tokens[0] if len(tokens) == 1 else text
+    return container_code(raw) or re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
 
 
 def day_first(text: Any, year: int | None = None) -> str | None:

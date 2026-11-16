@@ -364,7 +364,8 @@ BEGIN
     IF field='event_date' THEN v_date := sokhach._trip_date(value); v_value := v_date::text;
     ELSIF v_value IS NULL AND field<>'shipper' AND (coalesce(t.container,'')<>'' OR field='container' AND t.container IS NOT NULL)
     THEN RAISE EXCEPTION 'INVALID_TRIP_INPUT'; END IF;
-    IF to_jsonb(t)->>field IS NOT DISTINCT FROM v_value THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
+    -- KIEM-TAB-01 (K4): chuỗi rỗng và NULL là cùng một giá trị "chưa có" ở ô chữ, nên không phải thay đổi.
+    IF nullif(btrim(to_jsonb(t)->>field),'') IS NOT DISTINCT FROM v_value THEN RAISE EXCEPTION 'NO_CHANGE'; END IF;
     v_before := jsonb_build_object('id',t.id,'field',field,'value',to_jsonb(t)->field,'debt_month',t.debt_month,'status',t.status);
     CASE field WHEN 'container' THEN t.container:=v_value; WHEN 'carrier' THEN t.carrier:=v_value; WHEN 'shipper' THEN t.shipper:=v_value;
       WHEN 'origin' THEN t.origin:=v_value; WHEN 'destination' THEN t.destination:=v_value;
@@ -1472,10 +1473,11 @@ BEGIN
           WHERE l.id=target_id AND l.customer_id=resolve_sheet_conflict.customer_id
             AND l.kind='trip' AND cc.status='active' AND c.status='active';
         IF NOT FOUND OR (v_legacy->>'deleted')::boolean THEN RAISE EXCEPTION 'LEGACY_NOT_FOUND'; END IF;
-        v_before:=CASE WHEN field='shipper' THEN coalesce(v_legacy->>'shipper',v_legacy->>'carrier')
+        v_before:=CASE WHEN field='shipper' THEN coalesce(nullif(btrim(v_legacy->>'shipper'),''),v_legacy->>'carrier')
           ELSE v_legacy->>field END;
     END IF;
-    IF v_before IS DISTINCT FROM target_value THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
+    -- KIEM-TAB-01 (K4): chuỗi rỗng và NULL là cùng một giá trị "chưa có"; phần đọc của web gửi NULL cho chủ hàng ''.
+    IF nullif(btrim(v_before),'') IS DISTINCT FROM nullif(btrim(target_value),'') THEN RAISE EXCEPTION 'STALE_LEDGER'; END IF;
     IF decision='use_sheet' AND nullif(btrim(sheet_value),'') IS NULL THEN
         RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION';
     END IF;

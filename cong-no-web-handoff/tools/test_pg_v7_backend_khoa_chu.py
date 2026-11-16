@@ -5,6 +5,7 @@ import json
 
 from pg_v7_harness import (
     KHOA_CHU_MIGRATION,
+    KIEM_TAB_MIGRATION,
     actor_sql,
     call,
     fixture_open_month,
@@ -43,6 +44,7 @@ def check_khoa_chu(pg) -> str:
     migration = KHOA_CHU_MIGRATION.read_text(encoding="utf-8")
     pg.sql(migration)
     pg.sql(migration)
+    pg.sql(KIEM_TAB_MIGRATION.read_text(encoding="utf-8"))  # KIEM-TAB-01 thay edit_trip_info/resolve_sheet_conflict sau bản này
     require(pg.value(CATALOG) == fresh, "khoa-chu migration rerun changed function catalog")
 
     c = new_book(pg, ("2026-01-01", 100))
