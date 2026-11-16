@@ -83,6 +83,14 @@ class SummarizeTests(unittest.TestCase):
                                                   sheet_sync={"items": [{"sync_state": "NEW"}], "removed_items": []}))
         self.assertEqual((broken["trips_new"], broken["road_new"]), (1, 0))
 
+    def test_closed_source_rows_are_not_counted(self):
+        # K3: dòng Sheet người đã "Đã xem, hết báo" không còn là việc; dòng khác vẫn đếm.
+        items = [{"sync_state": "NEW", "closed": True}, {"sync_state": "NEW", "closed": False},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH", "closed": True},
+                 {"sync_state": "CONFLICT", "sync_reason": "AMBIGUOUS_MATCH"}]
+        book = v7_inbox.summarize(7, projection(sheet_sync={"items": items, "removed_items": []}))
+        self.assertEqual((book["trips_new"], book["trips_check"]), (1, {"count": 1, "reasons": {"AMBIGUOUS_MATCH": 1}}))
+
     def test_machine_price_rows_from_october_open_or_locked(self):
         prices = {"ready": [{"month": "2026-11"}, {"month": "2026-09"}],
                   "review": [{"status": "MONTH_LOCKED", "month": "2026-10"}, {"status": "MONTH_LOCKED", "month": "2026-09"},

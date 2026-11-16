@@ -3482,10 +3482,23 @@ BEGIN
  v_retry:=sokhach._begin_command(customer_id,expected_version,idempotency_key,v_payload);
  IF v_retry IS NOT NULL THEN RETURN v_retry; END IF;
  PERFORM sokhach._baseline(customer_id);
- IF task_kind IS NULL OR task_kind NOT IN ('price','removed','ps')
-  OR target_kind IS NULL OR target_kind NOT IN ('trip','legacy') OR target_id IS NULL OR target_id<=0
-  OR source_fingerprint !~ '^[0-9a-f]{64}$' OR source_fingerprint IS NULL
-  OR (task_kind='removed' AND target_kind<>'trip') OR web_value IS NULL
+ IF task_kind IS NULL OR task_kind NOT IN ('price','removed','ps','source')
+  OR source_fingerprint IS NULL OR source_fingerprint !~ '^[0-9a-f]{64}$' OR web_value IS NULL
+ THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
+ IF task_kind='source' THEN
+  -- K3: đóng một dòng Sheet theo dấu vân nội dung của nó, không gắn chuyến. web_value chỉ là {"scope": ...}.
+  IF target_kind IS NOT NULL OR target_id IS NOT NULL OR jsonb_typeof(web_value)<>'object'
+   OR web_value-'scope'<>'{}'::jsonb OR web_value->>'scope' IS NULL OR web_value->>'scope' NOT IN ('price','ps','trip')
+  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
+  INSERT INTO sokhach.event(customer_id,kind,actor,"before","after",idempotency_key)
+  VALUES(customer_id,'sheet_conflict_resolved',sokhach._actor(),
+   jsonb_build_object('target',jsonb_build_object('kind','source','scope',web_value->>'scope'),'field','task_source','value',web_value),
+   jsonb_build_object('target',jsonb_build_object('kind','source','scope',web_value->>'scope'),'field','task_source',
+    'source_row',0,'sheet_value',source_fingerprint,'target_value',web_value,'decision','keep_web','request_key',idempotency_key),idempotency_key);
+  RETURN sokhach._finish_command(customer_id,idempotency_key,v_payload,jsonb_build_object('kept',true));
+ END IF;
+ IF target_kind IS NULL OR target_kind NOT IN ('trip','legacy') OR target_id IS NULL OR target_id<=0
+  OR (task_kind='removed' AND target_kind<>'trip')
  THEN RAISE EXCEPTION 'INVALID_SHEET_RESOLUTION'; END IF;
  IF target_kind='trip' THEN
   SELECT t.value INTO v_row FROM jsonb_array_elements(sokhach.get_ledger(customer_id)->'trips') t

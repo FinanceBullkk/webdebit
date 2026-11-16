@@ -130,6 +130,10 @@
     return null;
   }
   const hintTexts =(row, say) => (row.hints ?? []).map(hint => hintText(hint, say)).filter(Boolean);
+  // K3: mỗi gợi ý kèm dấu vân dòng Sheet nếu người đóng được ("Đã xem, hết báo"); `closed`: dấu vân đã đóng (từ sổ và vừa bấm) thì không hiện.
+  const hintRows = (row, say, closed = new Set()) => (row.hints ?? []).filter(hint => !(hint.source_fingerprint && closed.has(hint.source_fingerprint)))
+    .map(hint => ({ text: hintText(hint, say), source: hint.closable && /^[0-9a-f]{64}$/.test(hint.source_fingerprint ?? '') ? hint.source_fingerprint : null }))
+    .filter(entry => entry.text);
 
-  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, tongView };
+  return { openRows, aheadRows, fixedRows, openIds, share, nextCheck, isOld, groupDelta, summarize, isFeeOnly, isAhead, aheadToCheck, hintText, hintTexts, hintRows, tongView };
 }));

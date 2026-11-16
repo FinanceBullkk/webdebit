@@ -280,6 +280,53 @@ if (process.argv.includes('--preview') || process.argv.includes('--design-previe
       assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(k => k.includes('sheet-giu')).length), 0);
     });
   });
+  test('Đã xem, hết báo: nút ở dòng giá/PS/chuyến máy không ghi được, ghi theo dấu vân không cần chuyến, mất mạng gửi lại cùng khóa', async () => {
+    const posted = [], lost = [];
+    const price = 'b'.repeat(64), ps = 'c'.repeat(64), trip = 'd'.repeat(64);
+    const detail = { ...ledger, version: 9,
+      sheet_prices: { ready: [], review: [
+        { status: 'AMBIGUOUS', closable: true, target_kind: '', target_id: '', container: 'FAKE20', date: '2026-11-01', source_fingerprint: price },
+        { status: 'CONFLICT', closable: false, target_kind: 'trip', target_id: 12, container: 'FAKE12', date: '2026-11-01', web_unit_price_vnd: '8500000',
+          web_other_fee_vnd: null, sheet_unit_price_vnd: '9000000', sheet_other_fee_vnd: null, source_fingerprint: sha }] },
+      ps_fees: { ready: [], review: [{ status: 'AMBIGUOUS', closable: true, container: 'FAKE21', message: 'Cont khớp nhiều chuyến', source_fingerprint: ps }] },
+      sheet_sync: { removed_items: [], items: [
+        { sync_state: 'NEW', closable: true, closed: false, container: 'FAKE22', event_date: '2026-08-02', candidate_books: [], source_fingerprint: trip },
+        { sync_state: 'NEW', closable: true, closed: true, container: 'FAKE23', event_date: '2026-08-03', candidate_books: [], source_fingerprint: 'e'.repeat(64) },
+        { sync_state: 'NEW', closable: false, closed: false, container: 'FAKE24', event_date: '2026-11-03', candidate_books: [], source_fingerprint: 'f'.repeat(64) }] } };
+    await withPage({ posted, ledger: detail }, async page => {
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-close-source]').first().waitFor();
+      // Chỉ ba dòng đóng được có nút; dòng đã đóng không hiện; dòng giá khác web (CONFLICT) vẫn chỉ có nút giữ theo chuyến.
+      assert.deepEqual(await page.locator('[data-close-source]').evaluateAll(nodes => nodes.map(node => node.dataset.closeSource.split(':')[0])), ['price', 'trip', 'ps']);
+      assert.equal(await page.getByText('FAKE23').count(), 0);
+      assert.equal(await page.locator('[data-keep-price="trip:12"]').count(), 1);
+      assert.match(await page.locator('li', { hasText: 'FAKE21' }).first().innerText(), /Cont khớp nhiều chuyến/);
+      await page.locator(`[data-close-source="price:${price}"]`).click();
+      assert.match(await page.locator('.action-description').innerText(), /Ẩn việc · nợ không đổi/);
+      await page.route('**/api/v7/sheet/tasks/keep', async route => { lost.push(route.request().postDataJSON()); await route.abort(); });
+      await page.locator('[data-action-write]').click();
+      await page.getByText('Thử lại', { exact: true }).waitFor();
+      await page.unroute('**/api/v7/sheet/tasks/keep');
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.deepEqual(posted[0].body, lost[0]);   // gửi lại đúng yêu cầu cũ, cùng khóa
+      assert.equal(posted[0].route, '/api/v7/sheet/tasks/keep');
+      assert.deepEqual({ ...posted[0].body, idempotency_key: 'k' }, { customer_id: 2, expected_version: 9, idempotency_key: 'k', task_kind: 'source', scope: 'price', source_fingerprint: price });
+      assert.equal('target_id' in posted[0].body || 'target_kind' in posted[0].body, false);
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator(`[data-close-source="ps:${ps}"]`).click();
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[1].body.scope, 'ps');
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator('[data-book="2"] .book-name').click();
+      await page.locator(`[data-close-source="trip:${trip}"]`).click();
+      await page.locator('[data-action-write]').click();
+      await page.waitForFunction(() => !document.querySelector('[data-action-write]'));
+      assert.equal(posted[2].body.scope, 'trip');
+    });
+  });
   test('Lấy giá Sheet và ghi phiếu thiếu ngày đều xem lại nợ, giữ yêu cầu khi thử lại', async () => {
     const posted = [];
     const detail = { ...ledger, trips: [{ id: 12, container: 'FAKE12', status: 'confirmed', unit_price_vnd: '8500000', other_fee_vnd: null, amount_vnd: '8500000' }],

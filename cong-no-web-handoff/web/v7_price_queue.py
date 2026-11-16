@@ -25,10 +25,11 @@ from typing import Any
 
 import v7_normalize as normalize
 from v7_sheet_queue import read_snapshot
-from v7_sheet_task_keep import kept, price_identity
+from v7_sheet_task_keep import kept, price_identity, source_kept
 
 DATE_WINDOW_DAYS = 3
 REVIEW = ("MONTH_LOCKED", "CONFLICT", "AMBIGUOUS", "MANUAL")
+SOURCE_CLOSABLE = ("AMBIGUOUS", "MANUAL")   # K3: máy không tự ghi được và không có số web để giữ: người chỉ "Đã xem, hết báo" theo dấu vân dòng Sheet
 XLSX_DROPPED = str.maketrans("", "", "/\\?*[]:'")
 
 
@@ -180,6 +181,11 @@ def classify(row: dict, pool: list[dict] | None) -> dict:
     return result | {"status": status}
 
 
+def sheet_money(result: dict) -> bool:
+    """Dòng Sheet có tiền (tổng hoặc đơn giá); dòng trống tiền không có gì để báo."""
+    return bool(result.get("sheet_total_vnd") or result.get("sheet_unit_price_vnd"))
+
+
 def mark_shared(results: list[dict]) -> list[dict]:
     """Two Sheet rows pointing at one web row cannot both be written."""
     used = Counter((r["target_kind"], r["target_id"]) for r in results if r["target_id"] != "")
@@ -248,9 +254,12 @@ def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, inclu
         row["month"] = target["month"] if target else ""   # yyyy-mm của chuyến đích: máy mở đúng tháng đó (MAY-GIA-01)
         return row
     ready = [public(r) for r in results if r["status"] == "READY"]
-    review = [public(r) for r in results if r["status"] in REVIEW]
+    review = [{**public(r), "closable": r["status"] in SOURCE_CLOSABLE} for r in results if r["status"] in REVIEW]
+    # Dòng Sheet có tiền mà máy không ghi được (kể cả dòng không khớp chuyến nào, như "… 取消"): người đóng được theo dấu vân dòng.
+    closable = sorted({price_identity(r) for r in results if r["status"] in (*SOURCE_CLOSABLE, "NOT_FOUND") and sheet_money(r)})
     if not include_kept:
-        review = [r for r in review if not kept(ledger, "price", r["target_kind"], r["target_id"],
-                  r["source_fingerprint"], {"unit_price_vnd": r["web_unit_price_vnd"], "other_fee_vnd": r["web_other_fee_vnd"]})]
+        review = [r for r in review if not (r["closable"] and source_kept(ledger, "price", r["source_fingerprint"])) and not kept(
+            ledger, "price", r["target_kind"], r["target_id"], r["source_fingerprint"],
+            {"unit_price_vnd": r["web_unit_price_vnd"], "other_fee_vnd": r["web_other_fee_vnd"]})]
     return {"snapshot_sha256": snapshot["sha256"], "snapshot_created_at": (snapshot.get("runner") or {}).get("created_at"),
-            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review)}
+            "ready": ready, "review": review, "ready_count": len(ready), "review_count": len(review), "closable_sources": closable}

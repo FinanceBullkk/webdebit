@@ -264,6 +264,8 @@ def summarize(customer_id: int, ledger: dict[str, Any]) -> dict[str, Any] | None
     text_diff = 0
     check_reasons: dict[str, int] = {}
     for item in sync.get("items") or []:
+        if item.get("closed"):   # K3: người đã bấm "Đã xem, hết báo" cho dòng Sheet này; dòng Sheet đổi thì không còn đóng
+            continue
         state, reason = item.get("sync_state"), item.get("sync_reason") or ""
         if state == "NEW":
             trips_new += 1

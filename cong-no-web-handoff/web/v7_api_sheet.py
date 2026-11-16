@@ -32,6 +32,7 @@ from v7_receipt_queue import load_receipt_snapshot, project_receipts, review_ref
 from v7_receipt_queue import reference as receipt_reference
 from v7_road_queue import build_road_queue, load_road_snapshot, project_road
 from v7_sheet_queue import build_queue, load_baseline, load_snapshot, project_customer
+from v7_sheet_task_keep import SOURCE_SCOPES, source_kept
 
 SHEET_SNAPSHOT_PATH = os.getenv("WEBDEBIT_SNAPSHOT_PATH", "/var/lib/webdebit-sheet-sync/snapshot.json")
 # GĐ2 NGUON-CHUYEN-01: runner ghi CONT_BO cạnh snapshot.json khi bật WEBDEBIT_ROAD_SNAPSHOT_PATH; chưa có file thì không có việc.
@@ -243,6 +244,14 @@ def tab_rows_of_book(ledger: dict, customers: list[dict]) -> list[dict]:
         return []
 
 
+def _month_locked(ledger: dict, month: str) -> bool:
+    """Tháng (yyyy-mm) đang khóa: cờ đã ghi thắng; tháng không có hàng thì chỉ tháng hiện tại mở (như `v7_inbox._locked_months`)."""
+    if not month:
+        return False
+    flags = {str(row.get("month") or "")[:7]: row.get("locked") for row in ledger.get("month_locks") or []}
+    return flags[month] is True if month in flags else month != str(ledger.get("today_month") or "")[:7]
+
+
 def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
     snapshot = cached_load(load_snapshot, SHEET_SNAPSHOT_PATH)
     baseline = cached_load(load_baseline, SHEET_BASELINE_PATH)
@@ -282,12 +291,15 @@ def sheet_projection(runner: Psql, ledger: dict, actor: str) -> dict:
         source = trip_identity(row)
         if source in assigned:
             continue
-        items.append({**row, "source_fingerprint": source,
+        # K3: chuyến mới ở tháng khóa (máy không vào được) và dòng khớp nhiều chuyến chỉ đóng được theo dấu vân dòng Sheet.
+        closable = (row.get("sync_state") == "NEW" and _month_locked(ledger, str(row.get("event_date") or "")[:7]))             or row.get("sync_reason") == "AMBIGUOUS_MATCH"
+        items.append({**row, "source_fingerprint": source, "closable": closable,
+                      "closed": closable and source_kept(ledger, "trip", source),
                       "candidate_books": [{k: c.get(k) for k in ("id", "name", "display_name", "commodity", "transport_mode", "version")} for c in candidates]})
     # CHUYEN-KHONG-HOI-01: dòng chờ tab Sheet chỉ để xem; dòng người đã gán sang sổ khác thì không còn chờ ở sổ này.
     waiting = [row for row in result.get("waiting_items") or [] if trip_identity(row) not in assigned]
-    return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" for r in items),
-            "conflict_count": sum(r["sync_state"] == "CONFLICT" for r in items),
+    return {**result, "items": items, "new_count": sum(r["sync_state"] == "NEW" and not r["closed"] for r in items),
+            "conflict_count": sum(r["sync_state"] == "CONFLICT" and not r["closed"] for r in items),
             "waiting_items": waiting, "waiting_count": len(waiting)}
 
 
@@ -682,6 +694,49 @@ def resolve_sheet_conflict(raw: bytes, runner: Psql, actor: str) -> tuple[int, d
                  "version": result["version"]}
 
 
+def _source_closable(runner: Psql, ledger: dict, actor: str, scope: str, source: str) -> bool:
+    """K3: dấu vân này hiện còn là một dòng người đóng được (đọc lại hàng chờ, kể cả dòng đã đóng): dòng Sheet đổi thì không còn."""
+    if scope == "price":
+        return source in price_projection(runner, ledger, actor, include_kept=True)["closable_sources"]
+    if scope == "ps":
+        return any(r.get("closable") and r.get("source_fingerprint") == source
+                   for r in ps_projection(runner, ledger, actor, include_kept=True)["review"])
+    return any(r.get("closable") and r.get("source_fingerprint") == source for r in sheet_projection(runner, ledger, actor)["items"])
+
+
+def keep_source(request: dict, runner: Psql, actor: str) -> tuple[int, dict]:
+    """K3 (`task_kind = "source"`): "Đã xem, hết báo" một dòng Sheet theo dấu vân, không cần chuyến đích. Chỉ ghi Lịch sử; tiền không đổi.
+    Thân: customer_id, expected_version, idempotency_key, task_kind, scope (price | ps | trip), source_fingerprint."""
+    key, scope = request.get("idempotency_key"), request.get("scope")
+    if (set(request) != {"customer_id", "expected_version", "idempotency_key", "task_kind", "scope", "source_fingerprint"}
+            or not positive_int(request["customer_id"]) or type(request["expected_version"]) is not int
+            or not 0 <= request["expected_version"] <= MAX_BIGINT or scope not in SOURCE_SCOPES
+            or not isinstance(request["source_fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", request["source_fingerprint"])
+            or not isinstance(key, str) or not 1 <= len(key) <= 128 or not key.strip() or any(ord(c) < 32 for c in key)):
+        bad("INVALID_SHEET_RESOLUTION")
+    payload = {"customer_id": request["customer_id"], "expected_version": request["expected_version"], "idempotency_key": key,
+               "task_kind": "source", "target_kind": None, "target_id": None, "source_fingerprint": request["source_fingerprint"],
+               "web_value": {"scope": scope}}
+    ledger = runner.run("get_ledger", {"customer_id": request["customer_id"]}, actor)
+    for event in ledger.get("events", []):
+        after = event.get("after") or {}
+        if after.get("request_key") != key:
+            continue
+        if (event.get("kind") != "sheet_conflict_resolved" or after.get("field") != "task_source"
+                or after.get("sheet_value") != request["source_fingerprint"] or (after.get("target") or {}).get("scope") != scope):
+            raise ApiError(409, "IDEMPOTENCY_CONFLICT", ERRORS["IDEMPOTENCY_CONFLICT"][1])
+        return 200, runner.run("keep_sheet_task", payload, actor)   # gửi lại: nhận kết quả cũ, không đọc lại hàng chờ
+    if ledger.get("version") != request["expected_version"]:
+        raise ApiError(409, "STALE_LEDGER", ERRORS["STALE_LEDGER"][1])
+    try:
+        closable = _source_closable(runner, ledger, actor, scope, request["source_fingerprint"])
+    except ValueError as exc:
+        raise ApiError(503, "SHEET_SNAPSHOT_UNAVAILABLE", "Không đọc được Sheet để đối chiếu.") from exc
+    if not closable:
+        raise ApiError(409, "STALE_SHEET", "Dòng Sheet đã đổi. Tải lại rồi thử lại.")
+    return 200, runner.run("keep_sheet_task", payload, actor)
+
+
 def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) -> tuple[int, dict]:
     """Acknowledge a current Sheet difference without changing financial state."""
     from v7_sheet_task_keep import web_value
@@ -690,6 +745,8 @@ def keep_sheet_task(raw: bytes, runner: Psql, actor: str, *, apply_price=False) 
         request = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
     except (UnicodeError, ValueError, TypeError):
         bad("INVALID_SHEET_RESOLUTION")
+    if isinstance(request, dict) and request.get("task_kind") == "source" and not apply_price:
+        return keep_source(request, runner, actor)
     required = {"customer_id", "expected_version", "idempotency_key", "task_kind", "target_kind", "target_id", "source_fingerprint"}
     if not isinstance(request, dict) or set(request) != required:
         bad("INVALID_SHEET_RESOLUTION")
