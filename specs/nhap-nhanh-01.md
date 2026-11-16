@@ -1,6 +1,6 @@
 # Sổ khách: gõ xong hiện ngay như Sheet, ghi nền (NHAP-NHANH-01)
 
-ĐỀ XUẤT của Claude theo yêu cầu người dùng ngày 13/11/2026: sổ khách đang chậm sau khi nhập hoặc xóa, người dùng muốn vùng này giống Sheet.
+ĐỀ XUẤT của Claude theo yêu cầu người dùng ngày 13/11/2026: sổ khách đang chậm sau khi nhập hoặc xóa, người dùng muốn vùng này giống Sheet. ĐÃ CHỐT: người dùng duyệt merge lên `hao` ngày 16/11/2026 (PR #426), phạm vi là Sổ khách trên web V7.
 
 ## Số đo trước khi làm
 
