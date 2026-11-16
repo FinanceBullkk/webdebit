@@ -2,6 +2,7 @@
 
 import io
 import json
+import shutil
 import sys
 import tempfile
 import unittest
@@ -85,6 +86,9 @@ class ReconcileAutoTest(unittest.TestCase):
         self.source = self.root / "source"
         self.source.mkdir()
         self.output = self.root / "var" / "reconcile.json"
+        booking = patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "off"})   # có test riêng bên dưới; khỏi mở tiến trình con mỗi lượt
+        booking.start()
+        self.addCleanup(booking.stop)
 
     def run_job(self, db, *extra):
         printed = io.StringIO()
@@ -125,6 +129,48 @@ class ReconcileAutoTest(unittest.TestCase):
         log = (self.output.with_name("reconcile-log.jsonl")).read_text(encoding="utf-8").splitlines()
         self.assertEqual(json.loads(log[0])["counts"], {"KHOP": 1})
         self.assertNotIn(FAKE_NAME, log[0])
+
+    def test_booking_check_runs_alongside_and_its_error_never_fails_the_run(self):
+        """KIEM-BOOKING-01: thiếu bản chụp booking thì phép kiểm báo mã lỗi ở file riêng; lượt đối soát vẫn đạt, số không đổi."""
+        fixture(self.source)
+        with patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "on"}):
+            code, printed = self.run_job(Db(), "--fix", "--snapshot", str(self.root / "none.json"), "--road", str(self.root / "none2.json"))
+        self.assertEqual(code, 0)
+        self.assertEqual((self.result()["counts"], self.result()["booking"]), ({"KHOP": 1}, {"error": "SEA_MISSING"}))
+        self.assertEqual(json.loads(printed)["booking"], {"error": "SEA_MISSING"})
+        saved = json.loads(self.output.with_name("booking-check.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["last_error"]["reason"], "SEA_MISSING")
+        log = json.loads(self.output.with_name("reconcile-log.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(log["booking"], {"error": "SEA_MISSING"})
+        self.assertEqual(list((self.root / "work").iterdir()), [])
+        self.run_job(Db(), "--fix")
+        self.assertEqual(self.result()["booking"], {"skipped": "OFF"})
+
+    def test_booking_check_reads_the_download_before_the_work_folder_is_removed(self):
+        """Bản tải nằm trong thư mục tạm của lượt; tiến trình con phải đọc xong trước khi thư mục bị xóa."""
+        fixture(self.source)
+        created = job.dt.datetime.now(job.dt.UTC).isoformat()
+        sources = {}
+        for name, row in (("snapshot.json", {"container": "FAKE-CONT-XY", "event_date": "2026-10-03", "customer_name": "X", "source_row": 2}),
+                          ("road.json", {"container": "ROAD1234567", "event_date": "2026-10-04", "owner": "Y", "source_row": 2})):
+            sources[name] = self.root / name
+            sources[name].write_text(json.dumps({"rows": [row], "runner": {"created_at": created}}), encoding="utf-8")
+
+        def download(_sheet, _credentials, output):
+            shutil.copy(self.source / "source-google-export.xlsx", output)
+            return output
+
+        printed = io.StringIO()
+        with patch.dict("os.environ", {"WEBDEBIT_BOOKING_CHECK": "on"}), patch.object(job, "download", download), \
+                patch.object(job, "PsqlDirect", return_value=Db()), redirect_stdout(printed), patch("sys.stderr"):
+            code = job.main(["--source-dir", str(self.source), "--spreadsheet-id", "x", "--credentials", "y", "--output", str(self.output),
+                             "--work-dir", str(self.root / "work"), "--snapshot", str(sources["snapshot.json"]), "--road", str(sources["road.json"])])
+        self.assertEqual(code, 0)
+        booking = self.result()["booking"]
+        self.assertNotIn("error", booking)
+        self.assertEqual((booking["sheet_rows"], booking["paired"]), (1, 1))
+        self.assertNotIn(FAKE_NAME, printed.getvalue())
+        self.assertEqual(list((self.root / "work").iterdir()), [])
 
     def test_report_mode_says_what_it_would_write_and_writes_nothing(self):
         self.undated_receipt_book()

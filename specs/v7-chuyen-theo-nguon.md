@@ -65,6 +65,25 @@ Sau GĐ4, mỗi chuyến của sổ trong khoảng có nguồn ở một trong h
   - ngày lấy từ nguồn;
   - giá khác: chữ giá của booking đọc được mà khác tổng trên sổ.
 
+### GĐ1b — Kiểm mỗi giờ trên `hao` (KIEM-BOOKING-01)
+
+Quyết định: [`KIEM-BOOKING-01`](../docs/decisions/kiem-booking-01.md). Đây là mục A6/F5 của [checklist chuyển hẳn](../docs/chuyen-han-checklist.md).
+
+- **Chạy:** công cụ GĐ1 chạy trong lượt đối soát máy, ở tiến trình con song song, trên cùng bản tải xlsx.
+- **Nguồn:** `snapshot.json` (`CONT_NGUON`) và `road.json` (`CONT_BO`); chưa có booking 2025.
+- **Khoảng kiểm:** chuyến biển từ 12/2025, chuyến bộ từ 08/2025.
+- **Đầu ra:** `booking-check.json` cạnh `reconcile.json`, gồm:
+  - số đếm bảy nhóm;
+  - từng dòng: container, ngày sổ, tab, dòng, tiền, chuyến booking, gợi ý sổ, dòng đã ghép cùng chuyến, số ngày lệch;
+  - giờ lượt, giờ hai bản chụp, số dòng khớp.
+- **Bản chụp lỗi** (thiếu, hỏng, rỗng, cũ quá 3 giờ): giữ kết quả cũ, thêm `last_error`.
+- **API** `GET /api/v7/machine/booking` thêm `state`:
+  - `none`: chưa có kết quả;
+  - `error`: lượt mới nhất lỗi;
+  - `stale`: lỡ hai lượt theo lịch;
+  - `ok`.
+- **Màn:** khối "Kiểm Sheet sổ nợ với booking" ở cuối tab Máy chạy. Trên cùng là dòng trạng thái, rồi nút bốn nhóm đụng tiền, rồi ba nhóm để biết. Bấm nhóm thì mở bảng có lọc theo sổ và link mở sổ đúng tháng. Chưa có nút xử lý.
+
 ### GĐ2 — Bản chụp nguồn trên `hao`
 
 - **`CONT_BO`:** runner đọc theo tên cột như `CONT_NGUON`; thiếu cột thì dừng với lỗi rõ. Ghi `road.json` (mode 600, cùng thư mục, cùng timer). Dòng thiếu container hoặc ngày là `INVALID`.
@@ -145,6 +164,23 @@ GĐ1:
 - [x] Chạy trên bản tải ngày 3/11 (ngoài Git) ra lại số của quyết định: 9.416/9.710 dòng khớp từ 01/2025; 28 nhóm trùng cùng ngày; 381 chuyến chưa có trên sổ. Thêm 5 dòng trùng lệch 1–3 ngày và 4 dòng trùng khi đảo ngày/tháng, trong đó có ca phiên khác báo.
   - Kết quả: nhóm trùng ra lại đúng (32 nhóm, 28 nhóm nguồn một chuyến; 5 dòng lệch 1–3 ngày). Ba số khác vì công cụ theo đúng luật (1), chặt hơn bản đo đầu; giải thích từng dòng ở mục Bằng chứng.
 - [x] `npm run check` xanh: CI của PR GĐ1 (ở máy, bước ruff chạy riêng bằng `.venv` vì worktree không có ruff trên PATH).
+
+GĐ1b (kiểm mỗi giờ):
+- [x] Unit `test_v7_booking_check`, gồm:
+  - bản chụp thành chuyến nguồn: bỏ ngày rác, gom trùng ngày, bỏ lặp tab trước;
+  - phân bảy nhóm, giấu nhóm trước khi có sổ và khách khác của chuyến bộ;
+  - bản chụp lỗi thì báo mã, giữ kết quả cũ;
+  - stdout không có tên;
+  - tiến trình con: báo lỗi, bị giết khi lượt lỗi, hết giờ.
+- [x] Unit `test_v7_booking_view`: lịch lượt, bốn trạng thái, route không vào DB. `test_v7_reconcile_auto`: thiếu bản chụp thì lượt vẫn đạt, số đối soát không đổi.
+- [x] Trình duyệt `test-may-chay-booking-browser.js`:
+  - nhóm và số, mở dòng, link sổ đúng tháng, lọc theo sổ;
+  - bốn trạng thái không hiện như "không có gì lệch";
+  - không chèn HTML;
+  - khổ điện thoại không tràn ngang, nút cao 40px.
+- [x] Chạy chỉ đọc trên dữ liệu thật ở `hao` 13/11/2026 (số đếm ở quyết định).
+- [ ] Sau `Deploy hao`: một lượt timer ghi `booking-check.json`, có số đo ghi trong `docs/deploys/`.
+- [ ] Người dùng tự đi hết khối trên `hao`.
 
 GĐ2:
 - [x] Test bộ đọc `CONT_BO` theo tên cột: đảo cột vẫn đọc được, thiếu cột thì dừng. `road.json` có `runner.created_at` và mode 600 (`test_webdebit_export_connector`, `test_sheet_sync_runner`).

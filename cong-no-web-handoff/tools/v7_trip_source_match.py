@@ -156,9 +156,10 @@ def mode_of(tab: str, tong: dict[str, str | None]) -> str:
 
 
 def load_sheet(xlsx: pathlib.Path) -> list[dict[str, Any]]:
-    tong = loader.tong_commodities(xlsx)
+    tabs = list(loader.workbook_rows(xlsx))   # one parse for TONG and the customer tabs
+    tong = loader.tong_commodities(xlsx, tabs)
     rows = []
-    for tab, result in loader.scan_tabs(loader.workbook_rows(xlsx)).items():
+    for tab, result in loader.scan_tabs(tabs).items():
         n = loader.normalized(tab)
         if re.fullmatch(r"SHEET\d+", n) or n.startswith("COPY ") or "AMBIGUOUS_SOURCE_TAB" in result.get("issues", {}):
             continue
@@ -199,8 +200,8 @@ def family_of(mode: str) -> str | None:
     return {"CANG": "BIEN", "BO": "BO"}.get(mode)
 
 
-def in_window(family: str | None, month: str, end: str) -> bool:
-    return family is not None and START[family] <= month <= end
+def in_window(family: str | None, month: str, end: str, start: dict[str, str] | None = None) -> bool:
+    return family is not None and (start or START)[family] <= month <= end
 
 
 def swapped(day: str) -> str | None:
@@ -212,8 +213,11 @@ def swapped(day: str) -> str | None:
     return other.isoformat() if other != d else None
 
 
-def review(sheet, source, s_pair, b_pair, end) -> tuple[list[tuple[str, dict | None, dict | None, str]], dict[str, int]]:
-    """Rows of can_xem.csv as (group, sheet row, source row, note), plus duplicate-group counts."""
+def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[str, dict | None, dict | None, str]], dict[str, int]]:
+    """Rows of can_xem.csv as (group, sheet row, source row, note), plus duplicate-group counts.
+
+    `start` (family -> first month) overrides START when fewer sources are given (the hourly check on hao has no booking 2025).
+    A source trip nobody paired gets `suggest_tab`/`suggest_from` (the book its owner pairs most, and that book's first month)."""
     out: list[tuple[str, dict | None, dict | None, str]] = []
     by_cont = defaultdict(list)
     for j, b in enumerate(source):
@@ -259,7 +263,7 @@ def review(sheet, source, s_pair, b_pair, end) -> tuple[list[tuple[str, dict | N
             if hit is not None:
                 out.append(("TRUNG_DAO_NGAY", s, source[hit], where(hit)))
                 continue
-        if not in_window(family_of(s["mode"]), s["month"], end):
+        if not in_window(family_of(s["mode"]), s["month"], end, start):
             continue
         if s["cont"] not in by_cont:
             out.append(("KHONG_NGUON", s, None, ""))
@@ -286,10 +290,11 @@ def review(sheet, source, s_pair, b_pair, end) -> tuple[list[tuple[str, dict | N
             out.append(("GIA_KHAC", s, b, f"nguồn ghi {b['price']}"))
     for j, b in enumerate(source):
         month = b["date"][:7]
-        if j in b_pair or j in used_near or not in_window(b["family"], month, end):
+        if j in b_pair or j in used_near or not in_window(b["family"], month, end, start):
             continue
         tabs = owner_tab.get(owner_key(b["owner"]))
         main_tab = tabs.most_common(1)[0][0] if tabs else None
+        b["suggest_tab"], b["suggest_from"] = main_tab, first[main_tab] if main_tab else None
         if month == end:
             group = "THANG_CUOI"
         elif main_tab is None:
@@ -300,9 +305,9 @@ def review(sheet, source, s_pair, b_pair, end) -> tuple[list[tuple[str, dict | N
     return out, dict(counts)
 
 
-def summarize(sheet, source, stats, s_pair, review_rows, dup_counts, end) -> dict[str, Any]:
+def summarize(sheet, source, stats, s_pair, review_rows, dup_counts, end, window=None) -> dict[str, Any]:
     table: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0])
-    start = min(START.values())
+    start = min((window or START).values())
     for i, s in enumerate(sheet):
         keys = [f"{s['month'][:4]} {s['mode']}"]
         if family_of(s["mode"]) and start <= s["month"] <= end:
