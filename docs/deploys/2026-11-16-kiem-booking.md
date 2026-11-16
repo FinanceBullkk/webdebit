@@ -5,7 +5,7 @@
 | Mục | Kết quả |
 | --- | --- |
 | PR | FinanceBullkk/webdebit#428 (merge `894de1f`); FinanceBullkk/webdebit#430 (merge `7731f42`): đưa `v7_load_real_copy.py` về bản cũ để qua cổng loader |
-| Release trên `hao` | `7731f42`, thay `ab1ffd2`. Cùng đợt có #426, #427, #429, #432 của các phiên khác |
+| Release trên `hao` | `7731f42`, thay `ab1ffd2`, gồm cả #426, #427, #429 của các phiên khác. Lúc 10:05:50, giữa lượt đo dưới đây, `Deploy hao` chuyển sang `6b47b27`; bản này chỉ thêm #432, một thay đổi chỉ ở test. Lượt 10:05 bắt đầu lúc 10:05:00 nên chạy mã `7731f42` |
 | CI | Mọi check của #428 và #430 xanh. Tests trên `main` cho `894de1f` và `7731f42` đỏ ở hai test phím của Sổ khách có từ #426 (phiên khác sửa ở #429, #432). Job lỗi của `7731f42` chạy lại thì xanh, sau đó `Deploy hao` chạy |
 
 ## Vì sao có #430
