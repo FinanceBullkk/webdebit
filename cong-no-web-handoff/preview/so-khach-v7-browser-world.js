@@ -126,7 +126,7 @@ function applyFee(world, url, body) {
   world.events.unshift({ kind, actor: 'nguoi-thu', at: '2026-10-01T03:00:00Z', before: { targets: before, batch_count: infos.length },
     after: { targets: infos.map(info => ({ ...(info.legacy ? { legacy_row_id: info.row.id, counted_vnd: info.row.current.counted_vnd } : { trip_id: info.row.id }), fee_lines: info.lines })), batch_count: infos.length } });
   world.version += 1;
-  return [200, { ok: true }];
+  return [200, { ok: true, version: world.version }];   // như _change_trip_fees → _finish_command
 }
 
 function apply(world, url, body) {
@@ -514,4 +514,15 @@ async function viewMonth(page, key) {
   await page.locator(`#thang-${month} .month-body`).waitFor({ state: 'attached' });
 }
 
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth };
+// NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào (trang chọn lại đúng ô sau khi vẽ). Một lần
+// locator.evaluate có thể bắt ô cũ vừa bị thay, nên hỏi lại tới khi đúng (mỗi lần locator tìm ô mới), tối đa `timeout`.
+async function focused(locator, timeout = 2000) {
+  const end = Date.now() + timeout;
+  for (;;) {
+    const ok = await locator.evaluate(node => node === document.activeElement).catch(() => false);
+    if (ok || Date.now() > end) return ok;
+    await new Promise(done => setTimeout(done, 50));
+  }
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused };

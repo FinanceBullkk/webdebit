@@ -4,7 +4,7 @@ const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { withPage, legacyCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, legacyCell, posts, focused } = require('./so-khach-v7-browser-world');
 
 const DEBIT_V4 = { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8')), template: 'v4' };
 
@@ -27,7 +27,7 @@ test('ô Đơn giá chuyến web: gõ số là mở ô với số đó, Enter l�
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/trips/price', { ...pricePosts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '45000000', other_fee_vnd: null }]);
   // Enter lưu thì tiêu điểm xuống ô Đơn giá hàng dưới; gõ tiếp là sửa luôn chuyến đó.
-  assert.equal(await price(page, 13).evaluate(cell => cell === document.activeElement), true);
+  assert.equal(await focused(price(page, 13)), true);
   await page.keyboard.type('41000000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="13"]')?.textContent.startsWith('41.000.000'));
@@ -80,7 +80,7 @@ test('không mở khi: Esc trả lại, chữ cái, phím Ctrl, ô chỉ đọc 
   await page.keyboard.press('9');
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('td.editable[data-trip="11"] input').count(), 0);
-  assert.equal(await price(page, 11).evaluate(cell => cell === document.activeElement), true, 'Esc trả tiêu điểm về ô');
+  assert.equal(await focused(price(page, 11)), true, 'Esc trả tiêu điểm về ô');
   assert.match(await price(page, 11).innerText(), /^50\.000\.000/);
   await page.keyboard.press('a');
   await page.keyboard.press('Control+1');

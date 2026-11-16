@@ -2,7 +2,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, legacyCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, legacyCell, posts, focused: focusedSoon } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 có thứ tự dòng: sổ gốc 21, 22, rồi chuyến web 11, 13, 14 (14 đang CHỜ KIỂM: ô giá chỉ đọc).
 function moreTrips(world) {
@@ -109,7 +109,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '1.000');
   assert.equal(await focused(page), 'trip-13:7:');
-  assert.equal(await own(13).evaluate(cell => cell === document.activeElement), true);
+  assert.equal(await focusedSoon(own(13)), true);
 }, moreTrips));
 
 test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu điểm về ô/nút đã mở; Esc kế tiếp mới đóng Lịch sử', async () => withPage(async ({ page, world }) => {

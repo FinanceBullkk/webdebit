@@ -59,7 +59,8 @@ test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc tr
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '1.200.000');
   assert.deepEqual(feePosts(world).map(([path, body]) => [path, strip(body)]),
     [['/api/v7/trips/fees/set', { target: { trip_id: 11 }, fee_type_id: 1, amount_vnd: '1200000' }]]);
-  assert.match(await page.locator('tr[data-row="trip-11"]').innerText(), /51\.200\.000/);   // Thành tiền từ server
+  // NHAP-NHANH-01: Thành tiền hiện "…" tới khi máy chủ trả số, nên chờ chứ không đọc ngay sau Enter.
+  await page.waitForFunction(() => /51\.200\.000/.test(document.querySelector('tr[data-row="trip-11"]')?.innerText ?? ''));   // Thành tiền từ server
   // Số âm ở loại số dương: báo ngay tại ô, không gửi.
   await cell.click();
   await page.locator('.fee-own-input').fill('-5000');

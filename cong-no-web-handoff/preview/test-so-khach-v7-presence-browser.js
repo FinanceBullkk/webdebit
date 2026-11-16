@@ -45,7 +45,8 @@ test('lưu lúc sổ vừa đổi: câu báo kèm tên người cùng mở sổ'
   await page.locator('.info-input').fill('Tàu đổi');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.live-notice')?.textContent.includes('Lan cũng đang mở sổ này'));
-  assert.equal(await page.locator('.live-notice').innerText(), 'Sổ vừa thay đổi (Lan cũng đang mở sổ này). Kiểm tra dữ liệu mới rồi thực hiện lại.');
+  // NHAP-NHANH-01: lệnh ghi nền nên câu nói rõ ô nào chưa lưu.
+  assert.equal(await page.locator('.live-notice').innerText(), 'Chưa lưu ô hãng tàu của chuyến DEMU1234567: Sổ vừa thay đổi (Lan cũng đang mở sổ này). Kiểm tra dữ liệu mới rồi thực hiện lại.');
 }, world => { world.people = [{ ...lan, cell: null }]; }));
 
 // Mức 2: mũi tên chuột người khác neo theo ô; nút Ẩn con trỏ nhớ sau tải lại.
