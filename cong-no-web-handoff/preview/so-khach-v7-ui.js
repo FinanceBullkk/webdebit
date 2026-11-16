@@ -578,7 +578,18 @@
       const now = document.activeElement;
       const typing = pointerHeld || (now && root.contains(now) && now.matches('input:not([type="checkbox"]),textarea,select'))
         || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
-      if (typing) paintWait = setTimeout(paintWhenFree, 300); else redraw();
+      if (typing) { paintWait = setTimeout(paintWhenFree, 300); return; }
+      // Enter/Tab vừa dời tiêu điểm sang ô kế (ô chưa mở để gõ): vẽ lại thay ô đó, nên chọn lại đúng ô theo data-* của nó.
+      const key = focusKey(now);
+      redraw();
+      if (key) root.querySelector(key)?.focus({ preventScroll: true });
+    }
+    function focusKey(node) {
+      if (!node || node === root || !root.contains(node) || typeof CSS === 'undefined') return null;
+      const attrs = Object.entries(node.dataset ?? {});
+      if (!attrs.length) return null;
+      return node.tagName.toLowerCase() + attrs.map(([name, value]) =>
+        `[data-${name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${CSS.escape(value)}"]`).join('');
     }
     const openInBook = () => root.querySelector(`${BUSY_OPEN},.fee-own-input`)
       || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
