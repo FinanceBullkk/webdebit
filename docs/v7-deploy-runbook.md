@@ -1883,7 +1883,7 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
-## Chuẩn hóa chữ rỗng (KIEM-TAB-01 đợt 2) — nâng DB đang có (ĐÃ CODE 16/11/2026, chưa chạy trên hao)
+## Chuẩn hóa chữ rỗng (KIEM-TAB-01 đợt 2) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-kiem-tab.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-chuan-hoa-chu.sql` chạy sau `2026-11-16-v7-bao-cao-thang.sql` và mọi migration trước nó ([spec](../specs/v7-kiem-tab-dot2.md)). Chỉ thay thân hai hàm: `resolve_sheet_conflict` (so trước–sau bằng `nullif(btrim(...),'')`; chủ hàng của dòng sổ gốc lấy hãng tàu khi chủ hàng trống hoặc toàn khoảng trắng) và `edit_trip_info` (sửa ô chữ rỗng thành rỗng là `NO_CHANGE`). Không đổi bảng, ràng buộc, event, quyền, dữ liệu hay trường tiền. Chạy lại được.
 

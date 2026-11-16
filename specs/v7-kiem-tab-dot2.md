@@ -1,6 +1,6 @@
 # Kiểm tab trước khi ghi, đợt 2: chuẩn hóa chữ rỗng và mã container (K4)
 
-Trạng thái: ĐÃ CODE (Claude, 16/11/2026), chờ merge và triển khai. Đợt 2 của [KIEM-TAB-01](v7-kiem-tab-truoc-khi-ghi.md), mục K4. Không đổi luật tiền, phân bổ, opening.
+Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 16/11/2026 (Claude; [nhật ký](../docs/deploys/2026-11-16-kiem-tab.md)). Đợt 2 của [KIEM-TAB-01](v7-kiem-tab-truoc-khi-ghi.md), mục K4. Không đổi luật tiền, phân bổ, opening.
 
 ## Ca thật
 
