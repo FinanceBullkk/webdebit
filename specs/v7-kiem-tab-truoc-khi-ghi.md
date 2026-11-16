@@ -17,7 +17,7 @@ Ngày 16/11/2026 Claude xử lý tab Việc cần làm trên `hao` và gặp tá
 | 7 | Container chỉ khớp khi ô ghi đúng nguyên chuỗi | Ô `YMLU5506443-mã chưa up` (tab đã tính 50,6 tr) không được nhận | Dòng CONT_NGUON cùng container hiện thành "chuyến mới"; duyệt vào là có nguy cơ tính trùng |
 | 8 | Lời giải thích khi gãy số dư (`chain_break`) chỉ nêu tháng | Sổ 79: ô M848 thiếu `=SUM(...)`. Sổ 162: ô N45 bị gõ đè 0 lúc 09:04 | Phải mở Sheet dò tay, trong khi máy đã có đủ dữ liệu để chỉ đúng ô |
 
-Kèm theo một việc dữ liệu cũ: ngày đảo ngày/tháng khi nạp sổ gốc (SNHU8016690: tab ghi 4/9, web ghi 9/4) vẫn còn. Lỗi này đã được ghi từ [MOC-CHUYEN-MOI](../docs/decisions/moc-chuyen-moi.md) nhưng chưa đo hết.
+Kèm theo một việc dữ liệu cũ: một số dòng sổ gốc có ngày nằm ngoài khối tháng của Sheet (mục K6). Đã đo 16/11/2026: web đúng chiều ngày ở gần như mọi dòng, chỉ 25 dòng cần xem.
 
 ## Đầu ra
 
@@ -46,6 +46,7 @@ Một **kết luận sức khỏe tab** dùng chung cho mọi đường ghi theo
    - bảng đối chiếu, giá Sheet, phiếu Sheet không đề xuất nhóm ghi tiền; API trả `409 TAB_BROKEN` nếu vẫn bị gọi;
    - Việc cần làm hiện một khối "Sheet cần sửa" gồm từng ô và cách sửa, có nút mở đúng ô trên Sheet (nếu có quyền).
 4. Duyệt chuyến mới không đổi tiền nên **không** bị chặn.
+5. **Miễn trừ bố cục hai dòng** (Claude chốt 16/11/2026 theo quyền người dùng trao 21/10; đã code ở đợt 1, xem [đợt 1](v7-kiem-tab-dot1.md)): bố cục "hai dòng mỗi container" và "tiền lệch một dòng" nhìn như nhau trong dữ liệu, chỉ người biết tab mới phân được. Danh sách tab được duyệt khai tay ở một chỗ (`TWO_ROW_LAYOUT_TABS`, kèm ghi chú nguồn), không suy ra tự động và không dùng ngưỡng số cặp, vì ngưỡng sẽ miễn đúng ca nguy hiểm nhất (cả khối lệch một dòng ra nhiều cặp). Hiện chỉ có "KK - DỪA" (audit 4/11/2026: tổng khớp, nạp thành "Phí lẻ"). Miễn chỉ áp cho khối đều đặn: mọi cặp đều "container trên, tiền ngay dưới"; khối có một cặp ngược thì vẫn `broken`, kể cả ở tab được miễn. Cặp được miễn vẫn có trong `findings` ở mức chú thích (`two_row_layout`), không chặn. Lỗi `issues` ở tab được miễn vẫn chặn.
 
 Không đổi luật tiền và không thêm hàm SQL ghi tiền. Chỉ thêm điều kiện chặn trước các lệnh đã có.
 
@@ -76,9 +77,14 @@ Cần người dùng chốt trước khi code. Hai phương án:
 
 Khuyến nghị (a): đây là dòng tiền thật đi ra, nên Bảng thu và báo cáo cần thấy nó riêng.
 
-### K6. Việc dữ liệu: đo ngày đảo
+### K6. Việc dữ liệu: ngày sổ gốc ngoài khối tháng
 
-Lệnh chỉ đọc so `event_date` của dòng sổ gốc với ngày trên tab hiện tại, đếm số dòng bị đảo và số dòng vì thế nằm sai tháng. Báo con số trước, sửa sau theo quyết định của người dùng.
+Đo chỉ đọc 16/11/2026 (phiên khác): trong 10.171 dòng sổ gốc, 3.394 dòng có ô ngày bị Sheet đọc đảo (m/d) và bộ nạp đã đảo lại đúng; 0 dòng sai tháng. Nhận định cũ "web đang đảo ngày/tháng" là sai: web đúng chiều ngày. Chỉ 25 dòng (1,051 tỷ) có ngày nằm ngoài khối tháng, vì khi cả hai chiều đều ngoài khối thì bộ nạp đoán theo đa số của tab. Trong đó 10 dòng (285,6 tr) có chiều kia gần khối hơn rõ. Ngoài ra 1 dòng ra năm 1909.
+
+Việc cần làm:
+- (a) Khi cả hai chiều ngày đều ngoài khối, chọn chiều gần khối hơn và gắn cờ `DATE_OUT_OF_BLOCK`. Sửa `v7_load_real_copy.py`, làm trong một đợt riêng (không nằm ở đợt 1 đến 4).
+- (b) 25 dòng do người dùng sửa từng dòng trên web, không sửa hàng loạt.
+- (c) Gốc ở Sheet là cột ngày định dạng m/d; sửa định dạng ở Sheet là việc của người dùng.
 
 ### Để sau
 
@@ -93,7 +99,7 @@ Lệnh chỉ đọc so `event_date` của dòng sổ gốc với ngày trên tab
 | 3 | K1 phần còn lại (`chain_break` chỉ ô, số âm, container lặp) + khối "Sheet cần sửa" | Không | Biến việc tồn thành việc sửa Sheet cụ thể |
 | 4 | K3 hết báo chung | Có (migration nhỏ) | Dọn việc không đóng được |
 | 5 | K2 danh tính | Không (header) / Có (Tailscale, phải hỏi) | Cần người dùng chọn mức chặt |
-| 6 | K5 sau khi chốt, K6 đo | Có thể | Cần quyết định nghiệp vụ |
+| 6 | K5 sau khi chốt; K6 (a) sửa bộ nạp | Có thể | Cần quyết định nghiệp vụ (K5) |
 
 ## Nguồn quyết định
 
@@ -136,6 +142,10 @@ Mỗi đợt revert được riêng. Đợt 4 có migration thì kèm câu lện
 ## Bằng chứng
 
 Ca thật đọc chỉ đọc trên `hao` ngày 16/11/2026, khoảng 13:00–13:40 giờ VN: `GET /api/v7/inbox`, `GET /api/v7/ledger` của 241/242 sổ, bản xuất xlsx sổ chính (đã xóa trên `hao` sau khi chép), `sokhach.event` của các sổ nêu trên, log sửa Sheet (`v7_sheet_log.py --tab`). Không có dữ liệu thật nào trong repo ngoài số sổ, số dòng, số tiền đã nêu.
+
+Đo chỉ đọc trên `hao` ngày 16/11/2026 cho đợt 1 (Sheets API, tính trong bộ nhớ, không ghi file nào): 253 tab quét; luật `row_shift` thuần ra 10 tab `broken` (8 chỉ vì `issues` sẵn có, 1 chỉ vì `row_shift`, 1 cả hai), `row_shift` ở tab sổ 239 (khối T10, 2 cặp, đúng ca thật) và "KK - DỪA" (48 cặp, bố cục hai dòng đã audit). Sau miễn trừ (K1 mục 5): **9** `broken`, "KK - DỪA" `ok`. `reconcile.json` cùng lúc có 5 khách `HELD` trên 242. Chi tiết: [đợt 1](v7-kiem-tab-dot1.md).
+
+Đo ngày sổ gốc (K6, phiên khác, 16/11/2026, chỉ đọc): 10.171 dòng, 3.394 dòng Sheet đọc đảo m/d và bộ nạp đảo lại đúng, 0 dòng sai tháng; 25 dòng (1,051 tỷ) ngoài khối tháng, 10 dòng (285,6 tr) có chiều kia gần khối hơn; 1 dòng ra năm 1909.
 
 ## Câu hỏi mở
 

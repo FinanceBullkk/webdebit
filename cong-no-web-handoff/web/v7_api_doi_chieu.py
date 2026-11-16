@@ -28,7 +28,7 @@ from v7_inbox import _locked_months, in_month, reconcile_result
 from v7_price_queue import load_price_snapshot
 from v7_psql import Psql
 from v7_receipt_queue import load_receipt_snapshot
-from v7_sheet_fix import apply_fix, plan, price_delta
+from v7_sheet_fix import apply_fix, customer_health, plan, price_delta, tab_broken
 
 UNDOABLE = {"prices", "receipts", "receipts_no_date"}   # `undo_sheet_batch` chỉ khôi phục giá và phiếu
 MAX_ROWS = 500
@@ -51,8 +51,23 @@ def _group_id(group: dict[str, Any]) -> str:
     return f"{group['kind']}:{group['month'] or ''}"
 
 
-def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, list, int, list]:
-    """(sổ, bản chụp giá, bản chụp phiếu, các nhóm, tiền web đi trước, tháng đơn giá đổi chỗ); giá và phiếu mới nhất của runner."""
+def _held(customer: int) -> dict[str, Any] | None:
+    """Dòng của khách trong kết quả máy đối soát khi máy đang giữ khách (`HELD`: tab đọc không được); không thì None."""
+    row = next((r for r in (reconcile_result() or {}).get("customers") or [] if r.get("customer_id") == customer), {})
+    return row if row.get("reason") == "HELD" else None
+
+
+def _blocked(customer: int, health: dict[str, Any]) -> dict[str, Any] | None:
+    """Vì sao khách này chưa được ghi theo Sheet (KIEM-TAB-01): tab của khách có phát hiện, hoặc máy đối soát đang giữ khách. Không thì None."""
+    held = _held(customer)
+    if health["status"] != "broken" and held is None:
+        return None
+    return {"code": "TAB_BROKEN", "findings": health["findings"], "held": held is not None,
+            "held_reasons": (held or {}).get("held_reasons") or {}}
+
+
+def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, list, int, list, dict]:
+    """(sổ, bản chụp giá, bản chụp phiếu, các nhóm, tiền web đi trước, tháng đơn giá đổi chỗ, sức khỏe tab); giá và phiếu mới nhất của runner."""
     ledger = runner.run("get_ledger", {"customer_id": customer}, actor)
     try:
         prices = cached_load(load_price_snapshot, PRICE_SNAPSHOT_PATH)
@@ -62,7 +77,7 @@ def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, li
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     groups, ahead, shuffled = plan(prices, receipts, ledger, customers, _today())
-    return ledger, prices, receipts, groups, ahead, shuffled
+    return ledger, prices, receipts, groups, ahead, shuffled, customer_health(prices, ledger, customers)
 
 
 def _public_row(group: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
@@ -74,13 +89,16 @@ def _public_row(group: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
 
 
 def statement(customer: int, runner: Psql, actor: str) -> dict[str, Any]:
-    ledger, prices, receipts, groups, ahead, shuffled = _read(customer, runner, actor)
+    ledger, prices, receipts, groups, ahead, shuffled, health = _read(customer, runner, actor)
+    blocked = _blocked(customer, health)
+    if blocked:
+        groups = []   # tab không lành hoặc máy đang giữ khách: không có khoản nào để ghi, chỉ nêu ô cần sửa
     result = reconcile_result() or {}
     row = next((r for r in result.get("customers") or [] if r.get("customer_id") == customer), {})
     return {"customer_id": customer, "version": ledger["version"], "web_vnd": str(ledger["total_outstanding_vnd"]),
             "sheet_total_vnd": row.get("sheet_total_vnd"), "checked_at": result.get("checked_at"), "reason": row.get("reason"),
             "sheet_editing": bool(row.get("sheet_editing")), "sheet_last_edit_at": row.get("sheet_last_edit_at"),
-            "web_ahead_vnd": str(ahead), "shuffled_months": shuffled,
+            "web_ahead_vnd": str(ahead), "shuffled_months": shuffled, "blocked": blocked,
             "prices_sha256": prices["sha256"], "receipts_sha256": receipts["sha256"],
             "groups": [{"id": _group_id(group), "kind": group["kind"], "month": group["month"], "count": len(group["rows"]),
                         "delta_vnd": str(group["delta_vnd"]), "undoable": group["kind"] in UNDOABLE,
@@ -134,7 +152,10 @@ def write(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
             or not all(isinstance(request[name], str) and SHA.fullmatch(request[name]) for name in ("prices_sha256", "receipts_sha256"))):
         bad()
     customer = request["customer_id"]
-    ledger, prices, receipts, groups, _, _ = _read(customer, runner, actor)
+    ledger, prices, receipts, groups, _, _, health = _read(customer, runner, actor)
+    blocked = _blocked(customer, health)
+    if blocked:
+        raise tab_broken({"findings": blocked["findings"] or [{"kind": "HELD"}]})
     if ledger["version"] != request["expected_version"]:
         raise ApiError(409, "STALE_LEDGER", "Sổ vừa thay đổi. Tải lại rồi xem lại.")
     if prices["sha256"] != request["prices_sha256"] or receipts["sha256"] != request["receipts_sha256"]:
@@ -144,7 +165,7 @@ def write(raw: bytes, runner: Psql, actor: str) -> tuple[int, dict]:
         bad()
     chosen = [_pick(item, by_id) for item in items]
     keys: list[str] = []
-    done = apply_fix(runner, customer, ledger, chosen, prices["sha256"], _today(), actor=actor, undo_keys=keys)
+    done = apply_fix(runner, customer, ledger, chosen, prices["sha256"], _today(), actor=actor, undo_keys=keys, health=health)
     after = runner.run("get_ledger", {"customer_id": customer}, actor)
     undoable = all(group["kind"] in UNDOABLE for group in chosen) and keys
     months = sorted({group["month"] for group in chosen if group["month"]})
