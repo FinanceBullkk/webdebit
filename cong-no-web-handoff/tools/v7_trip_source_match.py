@@ -11,7 +11,8 @@ CONT_BO / "CONT BỘ" (road), "THÁNG m/yyyy" (sea, booking file), "ĐƯỜNG S�
 3 days apart) is dropped; rows of one tab never drop each other.
 
 Rule (1): a Sheet trip and a source trip pair when the container matches and the dates are at most 3 days apart; a
-Sheet row without a date pairs within its debt month. Each source trip pairs once, smallest gap first. Prints counts
+Sheet row without a date pairs within its debt month. Each source trip pairs once, smallest gap first. A road trip also pairs
+by its "Số xe" cell when exactly one trip fits (KIEM-BOOKING-01, 16/11/2026). Prints counts
 only (no names, no money), so the output may go into a deploy log or a spec. DIR must be outside the repository: it
 gets sheet_rows.csv, source_rows.csv and can_xem.csv, which carry customer names. Exit 0 on success, 2 on bad input.
 """
@@ -35,6 +36,10 @@ from v7_normalize import container_code  # lớp web; tools được phép gọi
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 ISO = re.compile(r"[A-Z]{4}\d{7}")
+# What a trip cell may hold besides a clean ISO code: a container typed with one letter or digit too many ("WHLU77333680"), or the
+# truck plate of a road trip ("51C18585"). Anything else ("THUE", "VAT", "PHIKIEMDICHN", "50") is a fee line, not a trip to look up.
+TRIP_KEY = re.compile(r"[A-Z]{3,5}\d{6,8}")
+PLATE = re.compile(r"\d{2}[A-Z]{1,2}\d{4,6}")
 PAIR_DAYS = 3   # rule (1), same window as BASELINE_DATE_WINDOW
 NEAR_DAYS = 31  # unpaired, same container, 4-31 days apart: maybe a mistyped date, a person decides
 # First month each family has sources, measured 3/11/2026 (booking 2025 + CONT_NGUON + CONT_BO).
@@ -55,6 +60,22 @@ FAMILY = {"BO": "BO", "MONTH": "BIEN", "RAIL": "BIEN", "DURIAN_ROAD": "BO"}  # N
 
 def container_key(raw: Any) -> str:
     return container_code(raw) or re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
+
+
+def trip_like(key: str) -> bool:
+    return bool(TRIP_KEY.fullmatch(key) or PLATE.fullmatch(key))
+
+
+def source_index(source: list[dict[str, Any]]) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
+    """Container -> source trips, plus the second key of a road trip (its "Số xe" cell): the Sheet sometimes writes the truck plate
+    where the container goes, and CONT_BO sometimes has the two cells swapped (container under "Số xe")."""
+    by_cont, by_alt = defaultdict(list), defaultdict(list)
+    for j, b in enumerate(source):
+        by_cont[b["cont"]].append(j)
+        alt = container_key(b.get("ref")) if b["family"] == "BO" else ""
+        if alt and alt != b["cont"] and trip_like(alt):
+            by_alt[alt].append(j)
+    return by_cont, by_alt
 
 
 def day_first(text: Any, year: int | None = None) -> str | None:
@@ -175,17 +196,33 @@ def days(a: str, b: str) -> int:
 
 
 def pair(sheet: list[dict[str, Any]], source: list[dict[str, Any]]) -> tuple[dict[int, int], dict[int, int]]:
-    """Rule (1), one-to-one, smallest gap first; dated pairs before undated (same debt month) ones."""
-    by_cont = defaultdict(list)
-    for j, b in enumerate(source):
-        by_cont[b["cont"]].append(j)
+    """Rule (1), one-to-one, smallest gap first; dated pairs before undated (same debt month) ones.
+
+    On equal gaps a row carrying money wins over a 0đ copy, then a row whose month block holds the trip's date: the leftover row is
+    then the one to question. A road trip's second key (`source_index`) pairs only when exactly one trip fits, since a truck makes
+    many trips a month."""
+    by_cont, by_alt = source_index(source)
+
+    def rank(s: dict[str, Any], b: dict[str, Any], second: int) -> tuple | None:
+        if s["date"]:
+            gap = days(s["date"], b["date"])
+            if gap > PAIR_DAYS:
+                return None
+            head = (0, gap)
+        elif b["date"][:7] == s["month"]:
+            head = (1, abs(int(b["date"][8:]) - 15))
+        else:
+            return None
+        return (*head, second, not s["amount"], s["month"] != b["date"][:7])
+
     candidates = []
     for i, s in enumerate(sheet):
         for j in by_cont.get(s["cont"], ()):
-            if s["date"] and days(s["date"], source[j]["date"]) <= PAIR_DAYS:
-                candidates.append(((0, days(s["date"], source[j]["date"])), i, j))
-            elif not s["date"] and source[j]["date"][:7] == s["month"]:
-                candidates.append(((1, abs(int(source[j]["date"][8:]) - 15)), i, j))
+            if (r := rank(s, source[j], 0)) is not None:
+                candidates.append((r, i, j))
+        alt = [(r, j) for j in by_alt.get(s["cont"], ()) if (r := rank(s, source[j], 1)) is not None]
+        if len(alt) == 1:
+            candidates.append((alt[0][0], i, alt[0][1]))
     s_pair: dict[int, int] = {}
     b_pair: dict[int, int] = {}
     for _, i, j in sorted(candidates):
@@ -217,9 +254,7 @@ def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[s
     `start` (family -> first month) overrides START when fewer sources are given (the hourly check on hao has no booking 2025).
     A source trip nobody paired gets `suggest_tab`/`suggest_from` (the book its owner pairs most, and that book's first month)."""
     out: list[tuple[str, dict | None, dict | None, str]] = []
-    by_cont = defaultdict(list)
-    for j, b in enumerate(source):
-        by_cont[b["cont"]].append(j)
+    by_cont = source_index(source)[0]
 
     def closest(js, day, limit):
         best = min(((days(day, source[j]["date"]), j) for j in js), default=None)
@@ -229,12 +264,37 @@ def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[s
         s = sheet[b_pair[j]]
         return f"chuyến nguồn {source[j]['date']} đã ghép {s['tab']} dòng {s['row']}"
 
+    def near_block(s):
+        """Free trip of the row's container closest to its month block (within PAIR_DAYS of the block's edges), or None."""
+        first = date.fromisoformat(s["month"] + "-01")
+        last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+        best = None
+        for j in by_cont.get(s["cont"], ()):
+            if j in b_pair or j in used_near:
+                continue
+            when = date.fromisoformat(source[j]["date"])
+            gap = max((first - when).days, (when - last).days, 0)
+            if gap <= PAIR_DAYS and (best is None or gap < best[0]):
+                best = (gap, j)
+        return best[1] if best else None
+
+    index = {id(s): i for i, s in enumerate(sheet)}
     groups = defaultdict(list)
     for s in sheet:
         if s["date"] and ISO.fullmatch(s["cont"]):
             groups[(s["cont"], s["date"])].append(s)
-    in_dup, counts = set(), Counter()
-    for (cont, day), rows in groups.items():
+    in_dup, done, used_near, counts = set(), set(), set(), Counter()
+    for (cont, day), group in groups.items():
+        if sum(1 for s in group if s["amount"]) < 2:
+            continue
+        # A row typed with a date outside its month block, while a free trip of the container falls in that block: the date is the
+        # typo (the row is that trip), not a second charge. Seen 16/11/2026: April block rows dated in May next to the May rows.
+        for s in group:
+            if s["amount"] and index[id(s)] not in s_pair and day[:7] != s["month"] and (j := near_block(s)) is not None:
+                used_near.add(j)
+                done.add(id(s))
+                out.append(("LECH_NGAY", s, source[j], f"ghi nhầm ngày? khối tháng {s['month']}, chuyến nguồn {source[j]['date']}"))
+        rows = [s for s in group if id(s) not in done]
         if sum(1 for s in rows if s["amount"]) > 1:
             near = sum(1 for j in by_cont.get(cont, ()) if days(day, source[j]["date"]) <= PAIR_DAYS)
             counts["nhom_trung"] += 1
@@ -245,25 +305,30 @@ def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[s
     paired_js = defaultdict(list)
     for j in b_pair:
         paired_js[source[j]["cont"]].append(j)
-    used_near = set()
+    loose = Counter(s["cont"] for i, s in enumerate(sheet) if i not in s_pair and s["amount"] and id(s) not in done)
     for i, s in enumerate(sheet):
-        if i in s_pair:
+        if i in s_pair or id(s) in done:
             continue
         # A free source trip within 31 days explains the row better (mistyped date) than a swapped duplicate.
-        free = closest([j for j in by_cont.get(s["cont"], ()) if j not in b_pair], s["date"], NEAR_DAYS) if s["date"] else None
+        free = closest([j for j in by_cont.get(s["cont"], ()) if j not in b_pair and j not in used_near], s["date"], NEAR_DAYS) if s["date"] else None
         if s["date"] and s["amount"] and id(s) not in in_dup:
             hit = closest(paired_js[s["cont"]], s["date"], PAIR_DAYS)
+            code = "TRUNG_GAN"
+            if hit is None:
+                other = swapped(s["date"]) if free is None else None
+                hit = closest(paired_js[s["cont"]], other, PAIR_DAYS) if other else None
+                code = "TRUNG_DAO_NGAY"
             if hit is not None:
-                out.append(("TRUNG_GAN", s, source[hit], where(hit)))
-                continue
-            other = swapped(s["date"]) if free is None else None
-            hit = closest(paired_js[s["cont"]], other, PAIR_DAYS) if other else None
-            if hit is not None:
-                out.append(("TRUNG_DAO_NGAY", s, source[hit], where(hit)))
+                # The row that took the trip (±3 days) is a 0đ copy and no other unpaired row of the container carries money: this
+                # row is the one charging the trip, only its date is off.
+                copy = code == "TRUNG_GAN" and not sheet[b_pair[hit]]["amount"] and loose[s["cont"]] == 1
+                out.append(("LECH_NGAY", s, source[hit], f"{where(hit)} (0đ); dòng này mang tiền") if copy else (code, s, source[hit], where(hit)))
                 continue
         if not in_window(family_of(s["mode"]), s["month"], end, start):
             continue
-        if s["cont"] not in by_cont:
+        if not trip_like(s["cont"]):
+            out.append(("KHONG_PHAI_CONT", s, None, "ô container không phải số container hay biển số"))
+        elif s["cont"] not in by_cont:
             out.append(("KHONG_NGUON", s, None, ""))
         elif free is not None:
             used_near.add(free)
@@ -280,8 +345,10 @@ def review(sheet, source, s_pair, b_pair, end, start=None) -> tuple[list[tuple[s
             out.append(("NGAY_TU_NGUON", s, b, f"ngày theo nguồn {b['date']}"))
         elif s["date"] != b["date"]:
             out.append(("LECH_NGAY", s, b, f"lệch {days(s['date'], b['date'])} ngày"))
+        # The owner matches the book when it matches the book's main owner, or is written in the tab name itself: a tab may carry
+        # trips of two booking owners (seen 16/11/2026: a tab named after its customer, mostly carrying another owner's trips).
         top, key = tab_owner[s["tab"]].most_common(1)[0][0], owner_key(b["owner"])
-        if key and top and key not in top and top not in key:
+        if key and top and key not in top and top not in key and not (len(key) >= 4 and key in owner_key(s["tab"])):
             out.append(("KHAC_KHACH", s, b, "chủ hàng nguồn khác khách của sổ"))
         price = price_vnd(b["price"]) if b["family"] == "BIEN" else None
         if price is not None and s["amount"] and price != s["amount"]:

@@ -210,7 +210,13 @@ def month_report(sheet: list[dict], source: list[dict], s_pair: dict[int, int], 
     start, end = max(window.values()), now.date().isoformat()[:7]
     early = {id(b) for code, s, b, _note in found if s is None and b is not None and code == "TRUOC_KHI_CO_SO"}
     unpaired = {id(s) for i, s in enumerate(sheet) if i not in s_pair}
-    near = {id(s): b for code, s, b, _note in found if code == "LECH_NGAY" and s is not None and id(s) in unpaired}
+    holder = {id(source[j]): sheet[i] for i, j in s_pair.items()}
+    near, copied = {}, set()
+    for code, s, b, _note in found:
+        if code == "LECH_NGAY" and s is not None and id(s) in unpaired:
+            near[id(s)] = b
+            if id(b) in holder:   # a 0đ copy took the trip and this row charges it: the trip is this row's, the copy is `chep`
+                copied.add(id(holder[id(b)]))
     paired_at = defaultdict(list)   # container -> ngày của các dòng Sheet đã ghép, để nhận bản chép 0đ
     for i, j in s_pair.items():
         paired_at[sheet[i]["cont"]].append(source[j]["date"])
@@ -225,7 +231,7 @@ def month_report(sheet: list[dict], source: list[dict], s_pair: dict[int, int], 
         family = match.family_of(s["mode"])
         row = {"tab": s["tab"], "row": s["row"], "block": s["month"], "cont": s["cont"], "family": family,
                "amount_vnd": str(s["amount"]) if s["amount"] else None, "date": s["date"]}
-        if i in s_pair:
+        if i in s_pair and id(s) not in copied:
             b = source[s_pair[i]]
             put(b["date"][:7], {**row, "status": "khop", "family": b["family"], "booking": {"date": b["date"], "owner": b["owner"], "ref": b["ref"]}})
         elif id(s) in near:
