@@ -31,6 +31,7 @@ import v7_load_real_copy as loader
 import v7_price_match as match
 import v7_receipt_queue as receipt_queue  # web layer, on the path through v7_price_match
 import v7_sheets_api_reader as sheets_api
+import v7_tab_health as tab_health
 
 
 def snapshot(rows: list[dict], source: dict, tabs: dict | None = None) -> dict:
@@ -42,32 +43,35 @@ def snapshot(rows: list[dict], source: dict, tabs: dict | None = None) -> dict:
     return result
 
 
-def tab_health(scan: dict) -> dict:
-    """{tab: {status, findings}} cho các tab bộ quét đã đọc; tab không có trong đây thì chưa có kết luận (coi như ổn)."""
-    return {tab: data["health"] for tab, data in sorted(scan.items()) if data.get("health")}
+def snapshots(scan: dict, source: dict, tabs=None) -> tuple[dict, dict]:
+    """(prices, receipts) from one scan of the customer tabs; both carry the tabs' health (`v7_tab_health`) from that same scan.
+    `tabs`: the raw rows the scan came from, so a finding can name its cell; without them the health has no cell names."""
+    health = tab_health.scan_health(scan, tabs)
+    return (snapshot(match.rows_from_scan(scan), source, health), snapshot(receipt_queue.rows_from_scan(scan), source, health))
 
 
-def snapshots(scan: dict, source: dict) -> tuple[dict, dict]:
-    """(prices, receipts) from one scan of the customer tabs; both carry the tabs' health from that same scan."""
-    tabs = tab_health(scan)
-    return (snapshot(match.rows_from_scan(scan), source, tabs), snapshot(receipt_queue.rows_from_scan(scan), source, tabs))
+def read_tabs(tabs) -> list:
+    """Raw tabs as lists, so the scan and the health read the same rows (a reader may hand over generators)."""
+    return [(name, list(rows)) for name, rows in tabs]
 
 
 def build_all(xlsx: pathlib.Path) -> tuple[dict, dict]:
-    return snapshots(loader.scan_workbook(xlsx), {"kind": "xlsx", "xlsx_sha256": hashlib.sha256(xlsx.read_bytes()).hexdigest()})
+    tabs = read_tabs(loader.workbook_rows(xlsx))
+    return snapshots(loader.scan_tabs(tabs), {"kind": "xlsx", "xlsx_sha256": hashlib.sha256(xlsx.read_bytes()).hexdigest()}, tabs)
 
 
 def build_all_from_api(spreadsheet_id: str, credentials_path: str, token_exchange=runner.exchange_token,
                        opener=None) -> tuple[dict, dict]:
     token = token_exchange(runner.load_credentials(credentials_path))
-    tabs = sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {}))
-    return snapshots(loader.scan_tabs(tabs), {"kind": "sheets_api"})
+    tabs = read_tabs(sheets_api.fetch_tabs(spreadsheet_id, token, **({"opener": opener} if opener else {})))
+    return snapshots(loader.scan_tabs(tabs), {"kind": "sheets_api"}, tabs)
 
 
 def with_details(tabs: list, source: dict) -> tuple[dict, dict, dict]:
     """(prices, receipts, details) from one read. Imported here because the web layer joins the path only through v7_price_match."""
     import v7_detail_queue as details
-    return (*snapshots(loader.scan_tabs(tabs), source), snapshot(details.rows_from_tabs(tabs), source))
+    tabs = read_tabs(tabs)
+    return (*snapshots(loader.scan_tabs(tabs), source, tabs), snapshot(details.rows_from_tabs(tabs), source))
 
 
 def build_with_details(xlsx: pathlib.Path) -> tuple[dict, dict, dict]:

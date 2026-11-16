@@ -16,6 +16,7 @@ import v7_load_real_copy as loader  # noqa: E402
 import v7_price_snapshot as snapshots  # noqa: E402
 import v7_reconcile_auto as job  # noqa: E402
 import v7_sheet_fix as fix  # noqa: E402
+import v7_tab_health as tab_health  # noqa: E402
 from v7_api_validate import ApiError  # noqa: E402
 
 TODAY = dt.date(2026, 11, 16)
@@ -34,7 +35,10 @@ def trip(row, container="", total="", price="", day="03/10/2026"):
 
 
 def scan(*rows, tab=TAB):
-    return loader.scan_tabs([(tab, header_rows() + list(rows))])[tab]
+    """Kết quả bộ quét của một tab, thêm `health` do `v7_tab_health` tính từ kết quả đó và chính các dòng thô."""
+    tabs = [(tab, header_rows() + list(rows))]
+    data = loader.scan_tabs(tabs)[tab]
+    return {**data, "health": tab_health.scan_health({tab: data}, tabs)[tab]}
 
 
 class RowShiftTests(unittest.TestCase):
@@ -67,7 +71,7 @@ class RowShiftTests(unittest.TestCase):
         self.assertEqual([f for f in health["findings"] if f["kind"] == "row_shift"], [])
 
     def test_scanner_issues_make_a_tab_broken_with_their_codes(self):
-        data = loader.scan_tabs([(TAB, header_rows() + [(3, {"A": "1", "B": "MAUU0000001", "C": "03/10/2026", "D": "100", "F": ""})])])[TAB]
+        data = scan((3, {"A": "1", "B": "MAUU0000001", "C": "03/10/2026", "D": "100", "F": ""}))
         self.assertEqual(data["issues"]["MISSING_TRIP_AMOUNT"], 1)
         self.assertEqual(data["health"]["status"], "broken")
         self.assertIn({"kind": "MISSING_TRIP_AMOUNT", "level": "error", "count": 1}, data["health"]["findings"])
@@ -129,15 +133,62 @@ class ApprovedLayoutTests(unittest.TestCase):
         self.assertEqual([f for f in scan(*rows)["health"]["findings"] if f["kind"] == "row_shift"], [])
 
 
+class ColumnTests(unittest.TestCase):
+    """Chữ cột tính từ chỉ số cột (A, B, ..., Z, AA, ...)."""
+
+    def test_column_letters_from_the_index(self):
+        cases = {1: "A", 2: "B", 26: "Z", 27: "AA", 28: "AB", 52: "AZ", 53: "BA", 702: "ZZ", 703: "AAA"}
+        for index, letters in cases.items():
+            with self.subTest(index=index):
+                self.assertEqual(tab_health.column_letter(index), letters)
+                self.assertEqual(loader.col_num(letters), index)   # đi ngược lại với bộ quét: cùng một quy ước
+        for bad in (0, -1, "A", 1.5, None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                tab_health.column_letter(bad)
+
+    def test_cell_name_takes_a_letter_or_an_index_and_refuses_junk(self):
+        self.assertEqual(tab_health.cell_name("B", 15), "B15")
+        self.assertEqual(tab_health.cell_name(27, 4), "AA4")
+        self.assertEqual(tab_health.cell_name("AA", 4), "AA4")
+        self.assertIsNone(tab_health.cell_name(None, 4))
+        self.assertIsNone(tab_health.cell_name("b1", 4))
+
+    def test_columns_follow_the_header_in_effect_and_a_new_block_clears_it(self):
+        rows = header_rows() + [trip(3, "MAUU0000001", total="1")] + [
+            (4, {"A": "THÁNG 11/2026"}),
+            (5, {"A": "Marks", "C": "CONTAINER NO", "D": "DATE", "E": "UNIT PRICE", "G": "TOTAL(VND)", "H": "NGAY TT(STK)",
+                 "I": "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG", "J": "SỐ CÒN PHẢI THU CUỐI THÁNG"}),
+            (6, {"A": "1", "C": "MAUU0000002"})]
+        found = tab_health.columns_by_row(rows)
+        self.assertEqual((found[3], found[6]), ({"container": "B", "total": "F"}, {"container": "C", "total": "G"}))
+        self.assertEqual(found[4], {})   # dòng tiêu đề khối: chưa có cột nào
+
+    def test_side_table_header_does_not_replace_the_main_columns(self):
+        rows = header_rows() + [(3, {"A": "1", "B": "MAUU0000001", "N": "CONTAINER NO", "P": "TOTAL (VND)"}), trip(4, "MAUU0000002")]
+        self.assertEqual(tab_health.columns_by_row(rows)[4], {"container": "B", "total": "F"})
+
+    def test_without_the_raw_rows_a_finding_is_still_made_but_has_no_cells(self):
+        tabs = [(TAB, header_rows() + [trip(3, "MAUU0000001"), trip(4, total="44710920", price="44710920")])]
+        health = tab_health.scan_health(loader.scan_tabs(tabs))[TAB]
+        self.assertEqual((health["status"], health["findings"][0]["kind"], health["findings"][0]["cells"], health["findings"][0]["rows"]),
+                         ("broken", "row_shift", [], [3, 4]))
+
+    def test_the_scanner_itself_knows_nothing_about_health(self):
+        """Cổng của Deploy hao chặn mọi diff có tools/v7_load*: phát hiện ở v7_tab_health, bộ quét giữ nguyên."""
+        tabs = [(TAB, header_rows() + [trip(3, "MAUU0000001")])]
+        self.assertNotIn("health", loader.scan_tabs(tabs)[TAB])
+
+
 class SnapshotTests(unittest.TestCase):
     def test_both_snapshots_carry_the_tabs_health_and_the_hash_stays_on_rows(self):
-        data = loader.scan_tabs([(TAB, header_rows() + [trip(3, "MAUU0000001"), trip(4, total="44710920", price="44710920")])])
-        prices, receipts = snapshots.snapshots(data, {"kind": "test"})
+        tabs = [(TAB, header_rows() + [trip(3, "MAUU0000001"), trip(4, total="44710920", price="44710920")])]
+        prices, receipts = snapshots.snapshots(loader.scan_tabs(tabs), {"kind": "test"}, tabs)
         for snap in (prices, receipts):
             self.assertEqual(snap["tabs"][TAB]["status"], "broken")
             self.assertEqual(snap["tabs"][TAB]["findings"][0]["kind"], "row_shift")
         plain = snapshots.snapshot(prices["rows"], {"kind": "test"})
         self.assertNotIn("tabs", plain)
+        self.assertEqual(prices["tabs"][TAB]["findings"][0]["cells"], ["B3", "F4"])
         self.assertEqual(plain["sha256"], prices["sha256"])
 
 
