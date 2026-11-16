@@ -133,6 +133,47 @@ class ApprovedLayoutTests(unittest.TestCase):
         self.assertEqual([f for f in scan(*rows)["health"]["findings"] if f["kind"] == "row_shift"], [])
 
 
+class MoreFindingsTests(unittest.TestCase):
+    """Đợt 3b: số âm ở cột thu và container lặp, đều nêu ô; nằm trong v7_tab_health, không đụng bộ quét."""
+
+    def kinds(self, health, level=None):
+        return sorted(f["kind"] for f in health["findings"] if level is None or f["level"] == level)
+
+    def test_negative_receipt_names_the_cell_and_breaks_the_tab(self):
+        row = (3, {"A": "1", "B": "MAUU0000001", "C": "03/10/2026", "D": "100", "F": "100", "H": "-164833232"})
+        health = scan(row)["health"]
+        found = [f for f in health["findings"] if f["kind"] == "negative_receipt"]
+        self.assertEqual(health["status"], "broken")
+        self.assertEqual([(f["rows"], f["cells"], f["level"]) for f in found], [([3], ["H3"], "error")])
+        self.assertIn("164.833.232", found[0]["message"])
+        self.assertNotIn("INVALID_RECEIPT_AMOUNT", self.kinds(health))   # đã có phát hiện riêng nêu ô, không kể hai lần
+
+    def test_positive_receipt_is_fine(self):
+        row = (3, {"A": "1", "B": "MAUU0000001", "C": "03/10/2026", "D": "100", "F": "100", "H": "50"})
+        self.assertNotIn("negative_receipt", self.kinds(scan(row)["health"]))
+
+    def test_same_container_twice_with_money_on_one_row_is_a_warning_not_a_block(self):
+        health = scan(trip(3, "MAUU0000001", total="30000000", price="30000000"), trip(4, "MAUU0000002", total="1", price="1"),
+                      trip(5, "MAUU0000001"))["health"]
+        found = [f for f in health["findings"] if f["kind"] == "duplicate_container"]
+        self.assertEqual([(f["rows"], f["cells"], f["level"]) for f in found], [([3, 5], ["B3", "B5"], "warning")])
+        self.assertEqual(health["status"], "ok", health["findings"])   # cảnh báo không chặn ghi
+
+    def test_reused_container_with_money_on_both_rows_is_not_reported(self):
+        health = scan(trip(3, "MAUU0000001", total="1", price="1"), trip(4, "MAUU0000001", total="2", price="2"))["health"]
+        self.assertEqual(self.kinds(health, "warning"), [])
+
+    def test_two_row_pair_is_not_a_duplicate(self):
+        # Dòng container không tiền và dòng tiền không container: khác container, không phải container lặp.
+        self.assertEqual(self.kinds(scan(*pairs(3, 2))["health"], "warning"), [])
+
+    def test_a_tab_with_only_a_warning_does_not_make_a_book_blocked(self):
+        health = scan(trip(3, "MAUU0000001", total="1", price="1"), trip(4, "MAUU0000001"))["health"]
+        self.assertEqual(health["status"], "ok")
+        snap = snapshot(tabs={TAB: health})
+        self.assertEqual(fix.customer_health(snap, ledger(), list(CUSTOMERS))["status"], "ok")
+
+
 class ColumnTests(unittest.TestCase):
     """Chữ cột tính từ chỉ số cột (A, B, ..., Z, AA, ...)."""
 
@@ -160,12 +201,12 @@ class ColumnTests(unittest.TestCase):
                  "I": "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG", "J": "SỐ CÒN PHẢI THU CUỐI THÁNG"}),
             (6, {"A": "1", "C": "MAUU0000002"})]
         found = tab_health.columns_by_row(rows)
-        self.assertEqual((found[3], found[6]), ({"container": "B", "total": "F"}, {"container": "C", "total": "G"}))
+        self.assertEqual((found[3], found[6]), ({"container": "B", "total": "F", "receipt": "H"}, {"container": "C", "total": "G", "receipt": "I"}))
         self.assertEqual(found[4], {})   # dòng tiêu đề khối: chưa có cột nào
 
     def test_side_table_header_does_not_replace_the_main_columns(self):
         rows = header_rows() + [(3, {"A": "1", "B": "MAUU0000001", "N": "CONTAINER NO", "P": "TOTAL (VND)"}), trip(4, "MAUU0000002")]
-        self.assertEqual(tab_health.columns_by_row(rows)[4], {"container": "B", "total": "F"})
+        self.assertEqual(tab_health.columns_by_row(rows)[4], {"container": "B", "total": "F", "receipt": "H"})
 
     def test_without_the_raw_rows_a_finding_is_still_made_but_has_no_cells(self):
         tabs = [(TAB, header_rows() + [trip(3, "MAUU0000001"), trip(4, total="44710920", price="44710920")])]
