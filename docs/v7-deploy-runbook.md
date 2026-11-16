@@ -1762,7 +1762,7 @@ WantedBy=timers.target
 **Kiểm booking trong cùng lượt** ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)). Không có unit hay timer mới, mã lên bằng `Deploy hao`.
 
 - **Cách chạy:** mỗi lượt mở thêm một tiến trình con, chỉ đọc. Nó chạy `tools/v7_booking_check.py` trên bản tải của lượt, cùng `snapshot.json` và `road.json` (đường dẫn lấy từ `WEBDEBIT_SNAPSHOT_PATH`, `WEBDEBIT_ROAD_SNAPSHOT_PATH` của `sheet-sync.env`). Kết quả ghi `/var/lib/webdebit-sheet-sync/booking-check.json`, mode 600, có tên khách.
-- **Chi phí:** khoảng 160 giây và 286 MB, song song với lượt nên lượt không dài thêm. Lượt chờ con xong trước khi xóa bản tải, tối đa 900 giây.
+- **Chi phí:** khoảng 250 giây và 286 MB, song song với lượt nên lượt không dài thêm. Lượt chờ con xong trước khi xóa bản tải, tối đa 900 giây.
 - **Theo dõi:**
   - Khối `booking` ở stdout, `reconcile.json` và `reconcile-log.jsonl` chỉ có số đếm, hoặc `{"error": "<mã>"}`.
   - Journal có một dòng `V7 kiểm booking: không kiểm được (<mã>)` khi lỗi.

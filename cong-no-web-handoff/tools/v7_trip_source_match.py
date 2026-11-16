@@ -156,10 +156,9 @@ def mode_of(tab: str, tong: dict[str, str | None]) -> str:
 
 
 def load_sheet(xlsx: pathlib.Path) -> list[dict[str, Any]]:
-    tabs = list(loader.workbook_rows(xlsx))   # one parse for TONG and the customer tabs
-    tong = loader.tong_commodities(xlsx, tabs)
+    tong = loader.tong_commodities(xlsx)
     rows = []
-    for tab, result in loader.scan_tabs(tabs).items():
+    for tab, result in loader.scan_tabs(loader.workbook_rows(xlsx)).items():
         n = loader.normalized(tab)
         if re.fullmatch(r"SHEET\d+", n) or n.startswith("COPY ") or "AMBIGUOUS_SOURCE_TAB" in result.get("issues", {}):
             continue
