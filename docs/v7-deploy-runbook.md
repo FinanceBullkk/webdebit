@@ -1893,6 +1893,25 @@ Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trê
 
 Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
 
+## Vùng ô Sheet cho khối "Sheet cần sửa" (KIEM-TAB-01 đợt 3c) — đổi release và thêm drop-in cho API (ĐÃ CODE 16/11/2026, chưa chạy trên `hao`)
+
+Route mới `GET /api/v7/sheet/vung-o?customer=<id>&finding=<số>` ([spec](../specs/v7-sheet-can-sua.md)) đọc **một vùng nhỏ** của Sheet (`spreadsheets.get` kèm `includeGridData`, tài khoản dịch vụ chỉ đọc có sẵn) khi người dùng mở một chỗ sai. Vùng do server tính, client không gửi A1; cache 60 giây; không ghi gì. Không SQL, không migration, không `v7_load*`: `Deploy hao` tự đổi release.
+
+Cần một **drop-in cho `v7-ledger-api.service`** (đổi systemd ngoài runbook cũ, nên hỏi người dùng trước khi chạy), chỉ để API có ID Sheet và đường dẫn khóa; API chạy bằng `v7app`, khóa `/etc/webdebit/google-sheet-reader.json` cũng của `v7app`, không đổi quyền file:
+
+```ini
+# /etc/systemd/system/v7-ledger-api.service.d/sheet-region.conf
+[Service]
+EnvironmentFile=/etc/webdebit/sheet-prices.env
+Environment=WEBDEBIT_GOOGLE_CREDENTIALS=/etc/webdebit/google-sheet-reader.json
+```
+
+`sheet-prices.env` chỉ có `WEBDEBIT_SHEET_ID` (không đưa giá trị vào Git hay chat). Chữ ký RS256 bằng `openssl` (có sẵn), khóa đi qua bộ nhớ (`memfd`), không ghi ra đĩa. Thiếu cấu hình thì route trả `503 SHEET_REGION_UNAVAILABLE` và màn nói "chưa đọc được Sheet"; các route khác không đổi.
+
+Thứ tự: đổi release (tự động) rồi drop-in, `daemon-reload`, restart `v7-ledger-api`, kiểm `/healthz` 200 và gọi route cho một khách có chỗ sai (chỉ đọc; kiểm số dòng, cột, `read_at`, link mở ô có `gid`). Bản chụp giá cần chạy lại một lượt (15 phút) để có `blocks` cho `chain_break`.
+
+Rollback: gỡ drop-in, `daemon-reload`, restart; hoặc `webdebit-release.sh deploy <sha trước>`.
+
 ## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-bao-cao-thang.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql` chạy sau `2026-11-13-v7-dau-doc.sql` ([`BAO-CAO-THANG-01`](decisions/bao-cao-thang-01.md), [spec](../specs/v7-bao-cao-thang.md)). Chỉ thêm hàm đọc `get_trip_month(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu. Chạy lại được.

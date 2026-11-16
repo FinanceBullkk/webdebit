@@ -54,7 +54,7 @@ def cell_name(column: str | int | None, row: int) -> str | None:
 
 
 def columns_by_row(rows: Iterable[tuple[int, dict[str, str]]]) -> dict[int, dict[str, str]]:
-    """{số dòng: {"container", "total", "receipt": chữ cột}} theo dòng tiêu đề đang hiệu lực ở dòng đó, tính như bộ quét: cột trái nhất
+    """{số dòng: {"container", "total", "receipt", "anchor": chữ cột}} theo dòng tiêu đề đang hiệu lực ở dòng đó, tính như bộ quét: cột trái nhất
     cho mỗi tiêu đề, tiêu đề của bảng phụ bên phải không thay bảng chính, tiêu đề khối mới xóa cột cũ."""
     found: dict[int, dict[str, str]] = {}
     columns: dict[str, str] = {}
@@ -71,7 +71,7 @@ def columns_by_row(rows: Iterable[tuple[int, dict[str, str]]]) -> dict[int, dict
             side = bool(columns.get("container") and "container" in detected and detected["container"] != columns["container"])
             if "container" in detected and "total" in detected and not side:
                 columns = {**columns, **detected}
-        found[row_no] = {key: columns[key] for key in ("container", "total", "receipt") if key in columns}
+        found[row_no] = {key: columns[key] for key in ("container", "total", "receipt", "anchor") if key in columns}
     return found
 
 
@@ -174,6 +174,18 @@ def duplicate_container_findings(block: dict, columns: dict[int, dict[str, str]]
     return found
 
 
+def block_anchors(data: dict, columns: dict[int, dict[str, str]] | None = None) -> dict[str, str]:
+    """{tháng: ô số dư cuối tháng} của từng khối (dòng TỔNG, cột số còn phải thu cuối tháng) khi biết được cột và dòng."""
+    columns = columns or {}
+    found = {}
+    for month, block in sorted(data.get("blocks", {}).items()):
+        row = block.get("anchor_row")
+        cell = cell_name(columns.get(row, {}).get("anchor"), row) if type(row) is int else None
+        if cell and block.get("anchor") is not None:
+            found[month] = cell
+    return found
+
+
 def tab_health(issues: Counter | dict[str, int], shifts: list[dict]) -> dict[str, Any]:
     """`ok`, hoặc `broken` khi bộ quét đã đếm lỗi (`issues`) hay có phát hiện mức `error`. Lỗi bộ quét đã có phát hiện riêng nêu ô (số
     âm ở cột thu) thì không kể hai lần."""
@@ -195,4 +207,6 @@ def scan_health(scan: dict[str, dict], tabs: Iterable[tuple[str, Iterable[tuple[
                  for finding in row_shift_findings(block, columns, approved) + duplicate_container_findings(block, columns)]
         found += negative_receipt_findings(data, columns)
         result[tab] = tab_health(data.get("issues") or {}, found)
+        if anchors := block_anchors(data, columns):
+            result[tab]["blocks"] = anchors   # ô số dư cuối tháng của từng khối: chỗ để nêu ô khi chuỗi số dư gãy (chain_break)
     return result

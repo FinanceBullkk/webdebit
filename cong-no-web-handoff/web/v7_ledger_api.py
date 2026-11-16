@@ -350,6 +350,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
     elif parts.path == "/api/v7/sheet/doi-chieu":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_api_doi_chieu.statement(payload["customer_id"], v7_read_cache.CachedReads(runner, READS), actor)
+    elif parts.path == "/api/v7/sheet/vung-o":
+        # KIEM-TAB-01 3c: vùng ô của một chỗ sai để dựng lại; chỉ đọc Sheet, vùng do server tính, không nhận A1.
+        return 200, v7_api_doi_chieu.region(parts.query, v7_read_cache.CachedReads(runner, READS), actor)
     elif parts.path == "/api/v7/ai/preview":
         _, payload = validate_get("/api/v7/ledger", parts.query)
         return 200, v7_ai_explain.preview(payload["customer_id"], runner, actor)

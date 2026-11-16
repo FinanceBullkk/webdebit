@@ -10,10 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.parse
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import v7_sheet_region
 from v7_api_sheet import (
     PRICE_SNAPSHOT_PATH,
     RECEIPT_SNAPSHOT_PATH,
@@ -28,7 +30,14 @@ from v7_inbox import _locked_months, in_month, reconcile_result
 from v7_price_queue import load_price_snapshot
 from v7_psql import Psql
 from v7_receipt_queue import load_receipt_snapshot
-from v7_sheet_fix import apply_fix, customer_health, plan, price_delta, tab_broken
+from v7_sheet_fix import (
+    apply_fix,
+    customer_health,
+    customer_tabs,
+    plan,
+    price_delta,
+    tab_broken,
+)
 
 UNDOABLE = {"prices", "receipts", "receipts_no_date"}   # `undo_sheet_batch` chỉ khôi phục giá và phiếu
 MAX_ROWS = 500
@@ -62,8 +71,34 @@ def _blocked(customer: int, health: dict[str, Any]) -> dict[str, Any] | None:
     held = _held(customer)
     if health["status"] != "broken" and held is None:
         return None
-    return {"code": "TAB_BROKEN", "findings": health["findings"], "held": held is not None,
+    return {"code": "TAB_BROKEN", "findings": [{k: v for k, v in finding.items() if k != "other_cells"} for finding in health["findings"]],
+            "held": held is not None,
             "held_reasons": (held or {}).get("held_reasons") or {}}
+
+
+def _chain_findings(prices: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]], held: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Chuỗi số dư gãy (`chain_break` của máy đối soát) nêu thành chỗ sai có ô: tháng đầu tiên số cuối tháng trên Sheet khác số dựng lại,
+    ô là số còn phải thu cuối tháng của khối tháng đó trong bản chụp (`blocks`). Không biết ô thì không nêu, giữ câu cũ của khách HELD."""
+    found = []
+    for hint in (held or {}).get("hints") or []:
+        month = str(hint.get("month") or "")
+        if hint.get("kind") != "chain_break" or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", month):
+            continue
+        for tab, health in customer_tabs(prices, ledger, customers):
+            blocks = health.get("blocks") or {}
+            cell = blocks.get(month)
+            if not cell:
+                continue
+            delta = hint.get("delta_vnd")
+            found.append({"tab": tab, "kind": "chain_break", "level": "error", "month": month,
+                          "rows": [int(re.sub(r"[A-Z]+", "", cell))], "cells": [cell],
+                          "other_cells": [other for key, other in sorted(blocks.items()) if key != month],
+                          "message": f"Số cuối tháng {int(month[5:7])} trên Sheet lệch {delta} đ so với số dựng lại từ các dòng của tháng. "
+                                     f"Xem ô {cell} (số còn phải thu cuối tháng).",
+                          "fix": "Ô phải là công thức giống các khối tháng khác của tab (số dư đầu + phát sinh − đã thu); ô trống hoặc số gõ tay thì "
+                                 "điền lại công thức mẫu."})
+            break
+    return found
 
 
 def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, list, int, list, dict]:
@@ -77,7 +112,10 @@ def _read(customer: int, runner: Psql, actor: str) -> tuple[dict, dict, dict, li
     mapping = customer_name_mapping()
     customers = [named_customer(row, mapping) for row in runner.run("list_customers", {}, actor).get("customers", [])]
     groups, ahead, shuffled = plan(prices, receipts, ledger, customers, _today())
-    return ledger, prices, receipts, groups, ahead, shuffled, customer_health(prices, ledger, customers)
+    health = customer_health(prices, ledger, customers)
+    found = health["findings"] + _chain_findings(prices, ledger, customers, _held(customer))
+    health = {**health, "findings": sorted(found, key=lambda finding: not finding.get("cells"))}   # chỗ có ô đứng trước lỗi chỉ có mã
+    return ledger, prices, receipts, groups, ahead, shuffled, health
 
 
 def _public_row(group: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
@@ -105,6 +143,46 @@ def statement(customer: int, runner: Psql, actor: str) -> dict[str, Any]:
                         "locked": bool(group["month"] and _locked_months(ledger, {group["month"]})),
                         "replaces": len(group.get("orphans") or []),
                         "rows": [_public_row(group, row) for row in group["rows"]]} for group in groups if group["delta_vnd"]]}
+
+
+def region(query: str, runner: Psql, actor: str, *, opener=None, now: float | None = None) -> dict[str, Any]:
+    """Vùng ô của một chỗ sai để dựng lại trên màn (KIEM-TAB-01 đợt 3c): `?customer=<id>&finding=<số thứ tự trong blocked.findings>`.
+    Vùng tự tính từ chỗ sai của tab thuộc sổ này; không nhận A1 từ client. Chỉ đọc."""
+    params = urllib.parse.parse_qs(query, keep_blank_values=True, strict_parsing=True) if query else {}
+    if set(params) != {"customer", "finding"} or any(len(v) != 1 or not re.fullmatch(r"[0-9]{1,9}", v[0]) for v in params.values()):
+        bad()
+    customer, index = int(params["customer"][0]), int(params["finding"][0])
+    if customer <= 0:
+        bad()
+    _, _, _, _, _, _, health = _read(customer, runner, actor)
+    findings = health["findings"]
+    if index >= len(findings):
+        raise ApiError(404, "FINDING_NOT_FOUND", "Chỗ sai này không còn nữa. Tải lại danh sách.")
+    finding = findings[index]
+    if not finding.get("rows"):
+        raise ApiError(404, "NO_REGION", "Chỗ sai này chưa có ô cụ thể để dựng lại.")
+    first, col_first, last, col_last = v7_sheet_region.region_bounds(finding["rows"], finding.get("cells") or [])
+    other = [f"{cell}:{cell}" for cell in finding.get("other_cells") or []]
+    fetched = v7_sheet_region.fetch_region(finding["tab"], first, col_first, last, col_last, other,
+                                           **({"opener": opener} if opener else {}), now=now)
+    marks = [{"cell": cell, "level": "error" if item.get("level") == "error" else "warning", "text": item.get("message") or ""}
+             for item in findings if item.get("tab") == finding["tab"] for cell in item.get("cells") or []]
+    shown = v7_sheet_region.build_region(fetched["raw"], first, col_first, last, col_last, marks)
+    sample = None
+    if finding["kind"] == "chain_break" and finding.get("cells"):
+        row, col = v7_sheet_region.split_cell(finding["cells"][0])
+        if first <= row <= last and col_first <= col <= col_last:
+            this_cell = shown["cells"][row - first][col - col_first]
+            others = []
+            for block in fetched.get("extra") or []:
+                values = ((block.get("rowData") or [{}])[0].get("values") or [{}])
+                others.append({"f": (values[0].get("userEnteredValue") or {}).get("formulaValue"), "v": values[0].get("formattedValue")})
+            sample = v7_sheet_region.chain_sample(this_cell, others)
+    sheet_id = v7_sheet_region.config()[0]
+    cell = (finding.get("cells") or [f"A{finding['rows'][0]}"])[0]
+    return {"customer_id": customer, "finding": index, "kind": finding["kind"], "level": finding.get("level"), "message": finding.get("message"),
+            "fix": finding.get("fix"), "region": shown, "sample": sample, "read_at": fetched["read_at"],
+            "open_url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit#gid={shown['sheet_id']}&range={cell}"}
 
 
 def _body(raw: bytes, fields: set[str]) -> dict[str, Any]:

@@ -213,6 +213,30 @@ class HeldCustomerTest(Base):
         self.assertEqual(runner.writes(), [])
 
 
+class ChainBreakTest(Base):
+    """Khách HELD vì chuỗi số dư gãy: chỗ sai nêu ô số cuối tháng của khối tháng đó (KIEM-TAB-01 3c)."""
+    groups = (FEES,)
+    tabs: ClassVar[dict] = {"KHACH MAU": {"status": "ok", "findings": [], "blocks": {"2026-09": "N40", "2026-10": "N45"}}}
+    reconcile: ClassVar[dict] = {"checked_at": "2026-11-16T09:00:00+07:00", "customers": [
+        {"customer_id": 7, "sheet_total_vnd": None, "reason": "HELD", "held_reasons": {"ANCHOR_CHAIN_MISMATCH": 1},
+         "hints": [{"kind": "chain_break", "month": "2026-10", "delta_vnd": "-500"}]}]}
+
+    def test_held_customer_gets_a_finding_with_the_cell_and_the_other_blocks_cells(self):
+        blocked = api.statement(7, Runner(), ACTOR)["blocked"]
+        found = [f for f in blocked["findings"] if f["kind"] == "chain_break"]
+        self.assertEqual([(f["tab"], f["cells"], f["rows"], f["month"]) for f in found], [("KHACH MAU", ["N45"], [45], "2026-10")])
+        self.assertIn("-500", found[0]["message"])
+        self.assertNotIn("other_cells", found[0])   # chỉ dùng ở server để đọc mẫu công thức
+
+    def test_month_without_a_block_cell_is_not_invented(self):
+        with patch.object(Base, "tabs", {"KHACH MAU": {"status": "ok", "findings": [], "blocks": {"2026-09": "N40"}}}, create=True):
+            snapshots = {api.load_price_snapshot: {"sha256": SHA_P, "tabs": {"KHACH MAU": {"status": "ok", "findings": [], "blocks": {"2026-09": "N40"}}}}}
+            with patch.object(api, "cached_load", lambda loader, _path: snapshots.get(loader, {"sha256": SHA_R})):
+                blocked = api.statement(7, Runner(), ACTOR)["blocked"]
+        self.assertEqual([f["kind"] for f in blocked["findings"]], [])
+        self.assertTrue(blocked["held"])
+
+
 class KeepUndoTest(Base):
     def test_keep_many_rows_chain_versions_and_retry_same_keys(self):
         runner = Runner()

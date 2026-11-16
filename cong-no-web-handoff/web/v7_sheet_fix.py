@@ -91,15 +91,21 @@ def price_delta(row: dict[str, Any]) -> int | None:
     return unit + ((fee if fee_written else web_fee) or 0) - old
 
 
+def customer_tabs(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    """[(tên tab, health của tab)] của các tab thuộc sổ này trong bản chụp (KIEM-TAB-01), theo tên tab."""
+    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
+    return [(tab, health) for tab, health in sorted((snapshot.get("tabs") or {}).items())
+            if owned.get(name_key(tab), (None,))[0] == ledger.get("customer_id")]
+
+
 def customer_health(snapshot: dict[str, Any], ledger: dict[str, Any], customers: list[dict[str, Any]]) -> dict[str, Any]:
     """Kết luận sức khỏe các tab của một sổ (KIEM-TAB-01, specs/v7-kiem-tab-truoc-khi-ghi.md): `broken` khi một tab của sổ có phát hiện.
 
     Đọc `tabs` trong chính bản chụp mà nhóm ghi được tính ra, nên kết luận và dữ liệu nó bảo vệ cùng một lượt quét. Bản chụp cũ chưa có
     `tabs` thì chưa có kết luận (coi như ổn): máy chạy lượt kế tiếp sẽ ghi lại.
     """
-    owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
-    findings = [{"tab": tab, **finding} for tab, health in sorted((snapshot.get("tabs") or {}).items())
-                if owned.get(name_key(tab), (None,))[0] == ledger.get("customer_id") and health.get("status") == "broken"
+    findings = [{"tab": tab, **finding} for tab, health in customer_tabs(snapshot, ledger, customers)
+                if health.get("status") == "broken"
                 for finding in health.get("findings") or [] if finding.get("level") != "note"]   # `note`: bố cục đã duyệt, không chặn
     return {"status": "broken" if findings else "ok", "findings": findings}
 
