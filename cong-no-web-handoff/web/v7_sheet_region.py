@@ -256,8 +256,8 @@ def chain_sample(this_cell: dict, others: list[dict]) -> dict | None:
 
 
 def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int, extra: list[str] | None = None, *,
-                 opener: Callable[..., Any] = urllib.request.urlopen, now: float | None = None) -> dict:
-    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây. Trả `{raw, extra_raw, read_at}`."""
+                 opener: Callable[..., Any] = urllib.request.urlopen, now: float | None = None, fresh: bool = False) -> dict:
+    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây; `fresh` (nút "Đọc lại") bỏ qua cache."""
     sheet_id, credentials = config()
     stamp = time.time() if now is None else now
     area = f"'{tab.replace(chr(39), chr(39) * 2)}'!{column_letter(col_first)}{first}:{column_letter(col_last)}{last}"
@@ -265,7 +265,7 @@ def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int,
     key = (sheet_id, tuple(ranges))
     with _lock:
         hit = _cache.get(key)
-    if hit and stamp - hit[0] < CACHE_SECONDS:
+    if hit and not fresh and stamp - hit[0] < CACHE_SECONDS:
         return hit[1]
     token = _access_token(credentials, opener, stamp)
     query = [("ranges", r) for r in ranges] + [("includeGridData", "true"), ("fields", FIELDS)]

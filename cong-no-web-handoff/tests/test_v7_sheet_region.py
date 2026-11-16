@@ -222,6 +222,19 @@ class EndpointTests(Env):
                 self.call(query)
             self.assertEqual((caught.exception.status, caught.exception.code), (404, code))
 
+    def test_fresh_skips_the_cache_and_only_the_value_one_is_allowed(self):
+        opener = Opener(raw())
+        health = {"status": "broken", "findings": list(self.FINDINGS)}
+        with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
+            api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_000)
+            api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_010)
+            self.assertEqual(len(opener.calls), 2)   # token + dữ liệu, lần hai từ cache
+            api.region("customer=7&finding=0&fresh=1", object(), "t", opener=opener, now=1_800_000_020)
+            self.assertEqual(len(opener.calls), 3)   # đọc lại dữ liệu, token còn hạn
+            for query in ("customer=7&finding=0&fresh=0", "customer=7&finding=0&fresh="):
+                with self.assertRaises(ApiError):
+                    api.region(query, object(), "t", opener=opener, now=1_800_000_030)
+
     def test_the_sheet_id_only_leaves_inside_the_open_link(self):
         self.assertEqual(json.dumps(self.call("customer=7&finding=0")).count(SHEET), 1)
 

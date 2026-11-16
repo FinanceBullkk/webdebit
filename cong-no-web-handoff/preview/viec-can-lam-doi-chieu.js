@@ -18,7 +18,7 @@ globalThis.DoiChieuView = (() => {
     VERIFY_FAILED: 'Máy đã ghi nhưng tổng chưa khớp. Cần xem ngay.',
     WRITE_ERROR: 'Máy ghi chưa xong, lượt sau thử lại.',
     CHECK_ERROR: 'Máy chưa kiểm được khách này, lượt sau thử lại.',
-    HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được.',
+    HELD: 'Sheet của khách này có chỗ máy chưa đọc được (số dư tự lệch hoặc thiếu số), chưa so được. Mở dòng để xem ô cần sửa.',
     CHI_CO_SHEET: 'Có trên Sheet, chưa có sổ trên web.',
     CHI_CO_WEB: 'Có sổ trên web, không thấy trên Sheet.',
     THIEU_SO: 'Một bên chưa có tổng.',
@@ -159,6 +159,8 @@ globalThis.DoiChieuView = (() => {
     const link = `<a class="dc-open-book" href="${href(id)}">Mở cả sổ ${icon('right')}</a>`;
     if (statement === undefined) return '<p class="loading dc-loading">Đang tính các khoản…</p>';
     if (statement === null) return `<p class="dc-failed" role="alert">Không đọc được các khoản từ Sheet. <button type="button" class="btn" data-dc-retry="${id}">Thử lại</button> ${link}</p>`;
+    // Tab Sheet hỏng hoặc máy đang giữ khách (KIEM-TAB-01): không có khoản để ghi, chỉ nói chỗ sai và dựng lại vùng ô.
+    if (statement.blocked) return `<div class="dc-sheet">${link}${globalThis.SheetCanSua.html(id, statement, state, { esc })}</div>`;
     const selected = state.sel.get(id) ?? new Set();
     const off = state.off.get(id) ?? new Set();
     const kept = state.kept.get(id) ?? new Set();

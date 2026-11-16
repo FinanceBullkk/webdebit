@@ -146,12 +146,13 @@ def statement(customer: int, runner: Psql, actor: str) -> dict[str, Any]:
 
 
 def region(query: str, runner: Psql, actor: str, *, opener=None, now: float | None = None) -> dict[str, Any]:
-    """Vùng ô của một chỗ sai để dựng lại trên màn (KIEM-TAB-01 đợt 3c): `?customer=<id>&finding=<số thứ tự trong blocked.findings>`.
+    """Vùng ô của một chỗ sai để dựng lại trên màn (KIEM-TAB-01 đợt 3c): `?customer=<id>&finding=<số thứ tự trong blocked.findings>`, thêm `&fresh=1` (nút "Đọc lại") để bỏ cache.
     Vùng tự tính từ chỗ sai của tab thuộc sổ này; không nhận A1 từ client. Chỉ đọc."""
     params = urllib.parse.parse_qs(query, keep_blank_values=True, strict_parsing=True) if query else {}
-    if set(params) != {"customer", "finding"} or any(len(v) != 1 or not re.fullmatch(r"[0-9]{1,9}", v[0]) for v in params.values()):
+    if (not {"customer", "finding"} <= set(params) or set(params) - {"customer", "finding", "fresh"}
+            or any(len(v) != 1 or not re.fullmatch(r"[0-9]{1,9}", v[0]) for v in params.values()) or params.get("fresh", ["1"]) != ["1"]):
         bad()
-    customer, index = int(params["customer"][0]), int(params["finding"][0])
+    customer, index, fresh = int(params["customer"][0]), int(params["finding"][0]), "fresh" in params
     if customer <= 0:
         bad()
     _, _, _, _, _, _, health = _read(customer, runner, actor)
@@ -164,7 +165,7 @@ def region(query: str, runner: Psql, actor: str, *, opener=None, now: float | No
     first, col_first, last, col_last = v7_sheet_region.region_bounds(finding["rows"], finding.get("cells") or [])
     other = [f"{cell}:{cell}" for cell in finding.get("other_cells") or []]
     fetched = v7_sheet_region.fetch_region(finding["tab"], first, col_first, last, col_last, other,
-                                           **({"opener": opener} if opener else {}), now=now)
+                                           **({"opener": opener} if opener else {}), now=now, fresh=fresh)
     marks = [{"cell": cell, "level": "error" if item.get("level") == "error" else "warning", "text": item.get("message") or ""}
              for item in findings if item.get("tab") == finding["tab"] for cell in item.get("cells") or []]
     shown = v7_sheet_region.build_region(fetched["raw"], first, col_first, last, col_last, marks)
