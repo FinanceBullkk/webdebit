@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho đối chiếu Sheet, ghi giá từ Sheet và Làm mới trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts, viewMonth, reload } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, viewMonth, reload, settled } = require('./so-khach-v7-browser-world');
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
   // Chuyến mới ở tháng hiện tại, dòng lệch ở tháng 9 (đang xem): mỗi tháng một màn (SO-GON-05).
   await viewMonth(page, clock);
@@ -24,10 +24,15 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   await page.locator('[data-row="legacy-21"] .sheet-diff').click();
   await page.locator('.sheet-detail [data-sheet-decision="keep_web"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-row="legacy-21"].sheet-conflict'));
+  await settled(page);
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/resolve');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.field, 'origin');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.source_row, 8);
+  await settled(page);
   assert.equal(world.requests.at(-1).body.target_id, 21);
+  await settled(page);
   assert.equal(world.requests.at(-1).body.decision, 'keep_web');
   assert.equal(await page.locator('.info-input').count(), 0);
   // DUYET-TAI-HANG-01: thanh việc chỉ báo số và đưa tới hàng; duyệt ở chính hàng đó, hàng ghi vì sao máy chưa duyệt.
@@ -39,9 +44,12 @@ test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ g
   await shot('duyet-tai-hang');
   await page.locator('tr.sheet-new .sheet-row-approve').click();
   await page.waitForFunction(() => !document.querySelector('.sheet-new-strip'));
+  await settled(page);
   assert.deepEqual(world.requests.at(-1).body.source_rows, [5]);
   assert.match(await page.locator('.live-notice').innerText(), /Đã duyệt chuyến NEWU1234567[\s\S]*Chưa có giá nên chưa tính tiền/);
+  await settled(page);
   assert.equal(world.requests.at(-1).path, '/api/v7/sheet/approve');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.snapshot_sha256, 'a'.repeat(64));
   assert.equal(world.trips.at(-1).unit_price_vnd, null);
   await viewMonth(page, clock);
@@ -100,6 +108,7 @@ test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đ�
   assert.equal(route, '/api/v7/trips/info');
   assert.equal(body.field, 'event_date');
   assert.equal(body.trip_id, 11);
+  await settled(page);
   assert.equal(world.requests.filter(item => item.path === '/api/v7/sheet/resolve' && item.body.field === 'event_date').length, 0);
 }, dateBookingConflict));
 
@@ -107,6 +116,7 @@ test('lệch ngày ở tháng khóa: Lấy Sheet không gửi lệnh, báo mở 
   await page.locator('[data-row="trip-11"] .sheet-diff').click();
   await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
   assert.match(await page.locator('.live-notice').innerText(), /Mở khóa tháng/);
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, world => { dateBookingConflict(world); world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false; }));
 
@@ -114,9 +124,11 @@ test('lệch shipper ở tháng khóa: Lấy Sheet báo ngay trong khung, Giữ 
   await page.locator('[data-row="trip-11"] .sheet-diff').click();
   await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="use_sheet"]').click();
   assert.match(await page.locator('.sheet-detail .sheet-detail-status').innerText(), /Mở khóa tháng/);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await page.locator('.sheet-detail [data-sheet-field="shipper"][data-sheet-decision="keep_web"]').click();
   await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"].sheet-conflict'));
+  await settled(page);
   assert.deepEqual([world.requests.at(-1).path, world.requests.at(-1).body.decision], ['/api/v7/sheet/resolve', 'keep_web']);
 }, world => {
   world.locks = [{ month: '2026-09-01', locked: true }]; world.trips[0].editable = false; world.trips[0].info_editable = false;
@@ -153,6 +165,7 @@ test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số t
   await shot('gia-sheet-2-xac-nhan');
   await page.locator('.price-cancel').click();
   assert.equal(await page.locator('.price-panel').count(), 0);
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await button.click();
   await page.locator('.price-write').click();
@@ -161,6 +174,7 @@ test('Ghi giá từ Sheet: dòng vàng chưa tính, khung xác nhận có số t
   assert.equal(path, '/api/v7/sheet/prices');
   assert.deepEqual(Object.keys(body).sort(), ['customer_id', 'expected_version', 'idempotency_key', 'snapshot_sha256']);
   assert.equal(body.snapshot_sha256, 'c'.repeat(64));
+  await settled(page);
   assert.equal(world.requests.length, 1);
   assert.match(await page.locator('.live-notice').innerText(), /Đã ghi 2 giá từ Sheet\./);
   assert.equal(await page.locator('.price-approve').count(), 0);
@@ -196,7 +210,9 @@ test('Giá từ Sheet cần xem: tháng khóa mở khóa, lệch giá lấy Shee
   await shot('gia-sheet-3-can-xem');
   await items.nth(1).locator('.price-use-sheet').click();
   await page.waitForFunction(() => document.querySelector('[data-row="trip-11"] [data-field="unit_price_vnd"]')?.textContent.includes('52.000.000'));
+  await settled(page);
   assert.deepEqual(posts(world).at(-1)[1].unit_price_vnd, '52000000');
+  await settled(page);
   assert.equal(posts(world).at(-1)[0], '/api/v7/trips/price');
   // Khung "Cần xem" vẫn mở sau khi ghi một dòng, để xử lý tiếp dòng khác.
   // SO-GON-04 (H6): mở khóa từ khung giá Sheet cũng hỏi một câu trước.
@@ -278,10 +294,12 @@ test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua l�
   await shot('sheet-khong-con-dong-hoi-xoa');
   await prompt.locator('.cancel-delete').click();
   assert.equal(await page.locator('.delete-prompt').count(), 0);
+  await settled(page);
   assert.deepEqual(posts(world), []);
   await page.locator('.sheet-removed-delete').click();
   await page.locator('.delete-prompt .confirm-delete').click();
   await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"]'));
+  await settled(page);
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.trip_id]), [['/api/v7/trips/delete', 11]]);
 }, world => removedTrip(world)));
 
@@ -293,12 +311,15 @@ test('Sheet không còn dòng: tháng khóa phải mở khóa trước; Giữ l�
   await prompt.locator('.sheet-removed-unlock').click();
   await page.locator('.lock-yes').click();
   await page.waitForFunction(() => !document.querySelector('.delete-prompt'));
+  await settled(page);
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.month, body.locked]), [['/api/v7/months/lock', '2026-09-01', false]]);
   await page.locator('.sheet-removed-keep').click();
   await page.waitForFunction(() => !document.querySelector('.sheet-removed'));
   assert.equal(await page.locator('.sheet-removed').count(), 0);
   assert.equal(await page.locator('.sheet-removed-strip').count(), 0);
+  await settled(page);
   assert.equal(posts(world).length, 2, 'Giữ lưu trên server');
+  await settled(page);
   assert.equal(posts(world)[1][0], '/api/v7/sheet/tasks/keep');
   await reload(page);
   await page.waitForSelector('.book-head');

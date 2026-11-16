@@ -5,7 +5,7 @@
  * 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, settled } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -88,6 +88,7 @@ test('Trao đổi: phiếu thu và cấn trừ đúng ngày, số tiền, tháng
   // Thẻ Tình hình, khối 6: tin Zalo gần nhất cùng hội thoại tìm theo tên.
   await page.locator('#tab-tinh-hinh').click();
   await page.locator('#the-tinh-hinh .ov-activity').waitFor();
+  await settled(page);
   assert.deepEqual(world.requests, [], 'thẻ Trao đổi không gửi lệnh nào khi chỉ xem');
 }, talking));
 
@@ -121,6 +122,7 @@ test('Trao đổi: dấu tin Zalo ở đúng ngày, trạng thái, Mở tin; l�
   await page.locator('#the-trao-doi .ct-chip', { hasText: 'Hứa trả' }).click();
   assert.deepEqual(await page.locator('#the-trao-doi .ct-item').evaluateAll(nodes => nodes.map(node => node.dataset.kind)), ['hua', 'hua']);
   assert.deepEqual(await layout(page, '#the-trao-doi'), { overflow: 0, small: [], named: [], font: '16px' });
+  await settled(page);
   assert.deepEqual(world.requests, [], 'xem dấu không gửi lệnh nào');
 }, marked));
 
@@ -179,6 +181,7 @@ test('Hồ sơ (HO-SO-01): đầu hồ sơ, hai cột đúng thứ tự mục; h
   await pane.locator('[data-go="mo:phu-phi"]').click();
   assert.deepEqual((await state(page))[0], 'so');
   await page.locator('.fee-settings:not([hidden])').waitFor();
+  await settled(page);
   assert.deepEqual(world.requests, [], 'xem hồ sơ không gửi lệnh ghi');
 }, profiled));
 
@@ -204,6 +207,7 @@ test('Hồ sơ: nơi đi chưa có giá và giá hết hạn ghi cam ở đúng 
   assert.equal(await pane.locator('.hs-toast').getAttribute('role'), 'status');
   await pane.locator('.hs-toast [data-go="dong"]').click();
   assert.equal(await pane.locator('.hs-toast').count(), 0);
+  await settled(page);
   assert.deepEqual(world.requests, [], 'nút chưa hỗ trợ không gửi lệnh');
   // 1265 (Chrome Windows có thanh cuộn dọc) và màn hẹp: không cuộn ngang.
   for (const width of [1265, 390]) {
@@ -246,6 +250,7 @@ test('Nguồn phụ lỗi: chat, bảng giá lỗi thì chỉ khối đó báo k
   assert.equal(await page.locator('#the-ho-so .hs-facts').innerText(), 'Sầu riêng · Đường cảng');
   await priceError.locator('button').click();
   await page.locator('#the-ho-so .hs-prices').waitFor();
+  await settled(page);
   assert.deepEqual(world.requests, [], 'không gửi lệnh nào');
 }, world => { profiled(world); world.query = '&the=trao-doi'; }));
 

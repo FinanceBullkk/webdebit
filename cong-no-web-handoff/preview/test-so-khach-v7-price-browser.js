@@ -2,7 +2,7 @@
  * (BANG-GIA-05, specs/v7-bang-gia-ma-tran.md). Máy chủ giả, giá và tên giả, không chạm DB. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, posts } = require('./so-khach-v7-browser-world');
+const { withPage, posts, settled } = require('./so-khach-v7-browser-world');
 
 const status = trips => ({ customer_id: 1, version: 1, has_table: true, trips,
   ready_count: trips.filter(row => row.ready).length, ready_total_vnd: '85000000', ready_months: ['2026-09-01'],
@@ -25,6 +25,7 @@ test('chuyến chưa có giá: chữ "theo bảng" ở ô, áp cả lô qua khun
   await page.click('.price-table-apply');
   const panel = page.locator('.price-panel.confirm');
   assert.match(await panel.innerText(), /Điền giá theo bảng cho 1 chuyến tháng 9\/2026\?[\s\S]*Tổng còn nợ tăng 85\.000\.000 đ[\s\S]*NEWU0000012[\s\S]*85\.000\.000\s+giá TT/);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'mở khung hỏi lại chưa gửi lệnh');
   await page.click('.price-table-cancel');
   assert.equal(await panel.count(), 0);
@@ -53,6 +54,7 @@ test('bảng giá đổi: chuyến theo giá cũ của bảng có dải "Áp l�
   assert.match(await page.locator('.price-panel.confirm').innerText(), /Áp lại giá mới của bảng cho 1 chuyến/);
   await page.click('.price-table-write');
   await page.waitForFunction(() => /Đã áp lại giá theo bảng/.test(document.querySelector('.live-notice')?.textContent ?? ''));
+  await settled(page);
   assert.deepEqual(posts(world).map(([path, body]) => [path, body.trip_ids]), [['/api/v7/price-table/apply', [11]]]);
 }, world => {
   world.trips.push({ ...missingTrip, origin: 'CAN THO' });
@@ -125,6 +127,7 @@ test('ma trận: dán vùng Sheet phẳng vào bảng trống (bỏ tiêu đề,
   assert.equal(await price(page, 0, 1).inputValue(), '76.000.000');
 
   await saveAndWait(page);
+  await settled(page);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview', '/api/v7/price-table']);
   const [body] = saves(world);
   assert.equal(body.expected_version, 1);
@@ -245,6 +248,7 @@ test('ma trận: lỗi hiện bằng chữ tại đầu cột và tại ô (ngà
   await dialog.locator('header .price-table-save').click();
   assert.match(await dialog.locator('.pm-errors').innerText(), /^Chưa lưu được: 2 lỗi cần sửa/);
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'pm-goto', 'con trỏ ở nút Sửa của lỗi đầu');
+  await settled(page);
   assert.equal(world.requests.length, 0, 'còn lỗi thì không gửi gì');
   await shot('bang-gia-loi');
   await dialog.locator('.pm-goto').first().click();
@@ -370,6 +374,7 @@ test('BANG-GIA-02: lưu bảng giá báo trước khi lưu; sau khi lưu báo t�
   assert.equal(await page.locator('.page-more').evaluate(node => node.open), false, 'menu ⋯ không che thông báo');
   assert.equal(await dialog.isVisible(), false, 'lưu xong thì đóng khung');
   await shot('bang-gia-da-doi');
+  await settled(page);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview', '/api/v7/price-table'], 'đổi giá nằm trong lệnh lưu, không gửi lệnh áp riêng');
 }, world => {
   world.priceTable = savedTable;
@@ -415,6 +420,7 @@ test('BANG-GIA-05: Xem lại trước khi lưu — số chuyến đổi giá do 
   assert.match(table, /Đợt 10\/10\/2026 kết thúc ngày 09\/11\/2026\./);
   assert.match(table, /Đợt từ 10\/11\/2026\s+DAK LAK giá khách\s+67\.000\.000\s+69\.000\.000\s+\+2\.000\.000/);
   assert.doesNotMatch(table, /LONG AN/, 'giá giữ như đợt trước không liệt kê');
+  await settled(page);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/price-table/preview'], 'xem lại chưa ghi gì');
   const previewed = posts(world)[0][1];
 
@@ -470,6 +476,7 @@ test('BANG-GIA-05: dải nơi đi ngoài bảng trên lưới — đếm chuyế
   assert.deepEqual((await matrix(page)).slice(-2), [['PHU YEN', '', '', '', '', '', '', ''], ['KON TUM', '', '', '', '', '', '', '']], 'hàng trống, không tự điền giá');
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.tier), 'khach');
   assert.equal(await dialog.locator('.price-dirty').isVisible(), false, 'hàng chưa có giá chưa là thay đổi cần lưu');
+  await settled(page);
   assert.equal(world.requests.length, 0);
   await price(page, 4, 2).fill('70000000');
   await saveAndWait(page);

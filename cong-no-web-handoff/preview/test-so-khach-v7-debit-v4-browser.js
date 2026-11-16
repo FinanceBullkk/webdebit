@@ -6,7 +6,7 @@ const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, settled } = require('./so-khach-v7-browser-world');
 
 const config = { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8')), template: 'v4' };
 // Đủ giá cho cả tháng 9: dòng sổ gốc OLDU0000001 có giá 40.000.000, số container đúng ISO 6346.
@@ -71,6 +71,7 @@ test('Debit note v4: bảng có gì xuất nấy — chuyến chưa có giá kh�
   assert.equal(await dialog.locator('.dn4-form').isVisible(), true);
   await page.keyboard.press('Escape');
   assert.equal(await dialog.isHidden(), true);
+  await settled(page);
   assert.deepEqual(world.requests, []);   // chỉ đọc
 }, world => { world.debitConfig = config; }));
 
@@ -190,6 +191,7 @@ test('Debit note v4: ba ô gõ tìm tên từ Thông tin cty (Đứng tên, Nh�
   await page.locator('#thang-2026-09 .debit-open').click();
   await view.locator('[data-page]').first().waitFor();
   assert.equal(await page.locator('#dn4-account').inputValue(), 'Chưa chọn');
+  await settled(page);
   assert.deepEqual(world.requests, []);   // chỉ đọc
 }, world => { priced(world); world.companyInfo = COMPANY; }));
 

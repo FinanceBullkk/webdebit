@@ -2,7 +2,7 @@
  * tin cần xem/lỗi giữ tới khi bấm ×, lệnh chưa rõ kết quả vào băng đầu sổ có nút Thử lại. Máy chủ giả, dữ liệu giả. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, posts } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, posts, settled } = require('./so-khach-v7-browser-world');
 
 const toast = page => page.locator('.cn-toast');
 
@@ -72,10 +72,12 @@ test('mất mạng khi lưu: không nổi, băng đầu sổ báo chưa rõ kèm
   await retry.waitFor();
   assert.match(await page.locator('.book-status-row.is-error').innerText(), /Chưa rõ lệnh đã lưu/);
   assert.equal(await toast(page).isVisible(), false, 'tình trạng ở băng, không nổi thêm');
+  await settled(page);
   assert.equal(posts(world).length, 0);
   await shot('thong-bao-chua-ro');
   await retry.click();
   await page.locator('.book-status .retry-command').waitFor({ state: 'detached' });
+  await settled(page);
   assert.equal(posts(world).length, 1);
   assert.equal(await page.locator('.book-status').innerText(), '');
 }));

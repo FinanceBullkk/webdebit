@@ -525,4 +525,11 @@ async function focused(locator, timeout = 2000) {
   }
 }
 
-module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused };
+// NHAP-NHANH-01: ô đổi chữ ngay, lệnh ghi đi lần lượt sau đó (dòng "Đang lưu…" ở đầu sổ tới khi gửi hết và đọc lại sổ).
+// Kiểm lệnh đã gửi (posts, world.requests) sau khi hàng đợi xong, không thì lệnh cuối có thể chưa đi (CI chậm).
+// Hàng đợi dừng vì lỗi hay mất mạng thì dòng đó không còn "đang lưu", nên không chờ mãi.
+async function settled(page, timeout = 5000) {
+  await page.waitForFunction(() => !document.querySelector('.book-status-row.is-saving'), null, { timeout });
+}
+
+module.exports = { clock, todayMonth, withPage, reload, tripCell, legacyCell, posts, viewMonth, focused, settled };

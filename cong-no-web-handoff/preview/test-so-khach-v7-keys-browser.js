@@ -2,7 +2,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, legacyCell, posts, focused: focusedSoon } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, legacyCell, posts, focused: focusedSoon, settled } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 có thứ tự dòng: sổ gốc 21, 22, rồi chuyến web 11, 13, 14 (14 đang CHỜ KIỂM: ô giá chỉ đọc).
 function moreTrips(world) {
@@ -44,6 +44,7 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   assert.equal(await focused(page), 'trip-13:2:carrier');
   // NHAP-NHANH-01: ô đổi chữ ngay, lệnh ghi đi lần lượt sau đó; chờ hàng đợi gửi hết rồi mới đếm.
   for (const end = Date.now() + 3000; posts(world).length < 3 && Date.now() < end;) await page.waitForTimeout(50);
+  await settled(page);
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/trips/info', '/api/v7/legacy/edit', '/api/v7/legacy/edit']);
 
   await page.keyboard.press('ArrowUp');
@@ -76,6 +77,7 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   assert.equal(await focused(page), 'trip-13:5:origin>INPUT');
   await page.keyboard.press('Escape');
   assert.equal(await focused(page), 'trip-13:5:origin');
+  await settled(page);
   assert.equal(posts(world).length, 3);
 }, moreTrips));
 
@@ -86,6 +88,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Tab');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('55.000.000'));
   assert.equal(await focused(page), 'trip-11:7:other_fee_vnd');
+  await settled(page);
   assert.deepEqual(posts(world).at(-1), ['/api/v7/trips/price', { ...posts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '55000000', other_fee_vnd: null }]);
   await price(13).click();
   await page.keyboard.press('Escape');
@@ -99,6 +102,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('56.000.000'));
   assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
+  await settled(page);
   assert.equal(posts(world).filter(([path]) => path === '/api/v7/trips/price').length, 2);
 
   // Cột phụ phí riêng (PHU-PHI-01): Enter ghi rồi xuống ô cùng cột hàng dưới.
@@ -139,6 +143,7 @@ test('Esc đóng mọi dòng hỏi trong bảng, không gửi lệnh, tiêu đi�
   await esc('td.receipt[data-pid="PH-001"]:not([data-field])', '.void-prompt');
   await esc('.add-month-adjustment[data-month="2026-09-01"]', '.month-adjustment-input');
   await esc('.month-lock[data-month="2026-09-01"]', '.lock-ask');
+  await settled(page);
   assert.deepEqual(posts(world), []);
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();

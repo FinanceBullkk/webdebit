@@ -3,7 +3,7 @@
  * Sổ giả 9 tháng × 30 chuyến tính lùi từ tháng hiện tại (giờ VN), máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { todayMonth, withPage, reload } = require('./so-khach-v7-browser-world');
+const { todayMonth, withPage, reload, settled } = require('./so-khach-v7-browser-world');
 
 const shift = (key, back) => {
   let year = Number(key.slice(0, 4)), month = Number(key.slice(5, 7)) - back;
@@ -91,6 +91,7 @@ test('Bấm chip: sổ đổi sang tháng đó, cuộn tới ngay dưới phần
   assert.equal(await page.locator('.month-chip[aria-current="true"]').count(), 1);
   assert.equal(await page.locator(`#thang-${key} .trip-list tr[data-row]`).count(), 30);
   assert.match((await page.locator(`#thang-${key} .month-card`).innerText()).replace(/\s+/g, ' '), new RegExp(`Còn nợ cuối tháng ${dots(endOf(3))}`));
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
@@ -110,6 +111,7 @@ test('Không sang tháng khác khi tháng đang xem có dòng hỏi; số tiền
   await page.locator(`#thang-${MONTHS[7]} .month-body`).waitFor();
   assert.ok(await chip.evaluate(link => document.activeElement === link), 'tiêu điểm ở lại chip vừa bấm');
   assert.equal(await page.locator('.head-item.total strong').textContent(), total);
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, nineMonths));
 
