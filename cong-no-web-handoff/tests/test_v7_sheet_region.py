@@ -6,7 +6,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import unittest
+import urllib.parse
 from datetime import date
 from pathlib import Path
 from typing import ClassVar
@@ -62,10 +64,12 @@ def raw(first=8, cols=18, rows=15, cells=None, merges=(), extra=()):
 
 
 class Opener:
-    """Mở được hai địa chỉ: token và spreadsheets.get; đếm số lần gọi."""
+    """Mở được ba địa chỉ: token, tên tab (`sheets.properties`) và spreadsheets.get; đếm số lần gọi."""
+    TITLES = ("T", "Tab A", "Tab B", "KHACH A")
 
-    def __init__(self, payload, fail=False):
+    def __init__(self, payload, fail=False, titles=None):
         self.payload, self.fail, self.calls, self.timeouts, self.requests = payload, fail, [], [], []
+        self.titles = list(self.TITLES if titles is None else titles)
 
     def __call__(self, request, timeout=0):
         self.calls.append(request.full_url)
@@ -73,7 +77,12 @@ class Opener:
         self.requests.append(request)
         if self.fail:
             raise OSError("mạng giả hỏng")
-        body = {"access_token": "tok"} if request.full_url == region.TOKEN_URL else self.payload
+        if request.full_url == region.TOKEN_URL:
+            body = {"access_token": "tok"}
+        elif "includeGridData" not in request.full_url:
+            body = {"sheets": [{"properties": {"title": title, "sheetId": GID}} for title in self.titles]}
+        else:
+            body = self.payload
 
         class Response:
             def __enter__(self_):
@@ -101,6 +110,7 @@ class Env(unittest.TestCase):
         self.signer.start()
         self.addCleanup(self.signer.stop)
         region._cache.clear()
+        region._titles.clear()
         region._token.update(value=None, until=0.0)
 
 
@@ -181,20 +191,20 @@ class FetchTests(Env):
         first = region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
         again = region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_030)
         self.assertIs(first, again)
-        self.assertEqual(len(opener.calls), 2)   # một lần token, một lần dữ liệu
-        url = opener.calls[1]
+        self.assertEqual(len(opener.calls), 3)   # một lần token, một lần tên tab, một lần dữ liệu
+        url = opener.calls[2]
         self.assertIn("includeGridData=true", url)
         self.assertIn("formattedValue", url)
         self.assertIn("A8%3AR22", url)
         self.assertRegex(first["read_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+07:00$")
         region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_100)   # quá 60 giây: đọc lại
-        self.assertEqual(len(opener.calls), 3)   # token còn hạn nên không xin lại
+        self.assertEqual(len(opener.calls), 4)   # token và tên tab còn hạn nên chỉ đọc lại dữ liệu
 
     def test_extra_ranges_come_back_apart(self):
         opener = Opener(raw(extra=[("5", "=N1+K1"), ("7", None)]))
         got = region.fetch_region("T", 8, 1, 22, 18, ["N40:N40", "N90:N90"], opener=opener, now=1_800_000_000)
         self.assertEqual(len(got["extra"]), 2)
-        self.assertIn("N40%3AN40", opener.calls[1])
+        self.assertIn("N40%3AN40", opener.calls[2])
 
     def test_failures_are_503_never_a_stack_trace(self):
         with self.assertRaises(ApiError) as caught:
@@ -203,6 +213,74 @@ class FetchTests(Env):
         with patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": ""}), self.assertRaises(ApiError) as missing:
             region.fetch_region("T", 8, 1, 22, 18, opener=Opener(raw()), now=1_800_000_000)
         self.assertEqual(missing.exception.status, 503)
+
+
+def ranges_of(url):
+    return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["ranges"]
+
+
+class TabTitleTests(Env):
+    """Tên tab trong phát hiện bị cắt dấu cách (và có thể khác dạng Unicode) so với tên thật; range phải dùng tên thật (sự cố 16/11)."""
+
+    def read(self, tab, titles, **kwargs):
+        opener = Opener(raw(), titles=titles)
+        out = region.fetch_region(tab, 38, 1, 52, 18, opener=opener, now=1_800_000_000, **kwargs)
+        return opener, out
+
+    def test_trailing_space_in_the_real_title_is_kept_in_the_range(self):
+        opener, _ = self.read("MOLLY TÂN TỶ-", ["KK - A TANK 402- SR", "MOLLY TÂN TỶ- "])
+        self.assertEqual(ranges_of(opener.calls[2]), ["'MOLLY TÂN TỶ- '!A38:R52"])
+
+    def test_nfd_and_nfc_spellings_both_reach_the_real_title(self):
+        nfc, nfd = (unicodedata.normalize(form, "MOLLY TÂN TỶ- ") for form in ("NFC", "NFD"))
+        self.assertNotEqual(nfc, nfd)
+        for asked, real in ((nfd.strip(), nfc), (nfc.strip(), nfd)):
+            with self.subTest(real=real == nfd):
+                region._cache.clear()
+                region._titles.clear()
+                opener, _ = self.read(asked, [real])
+                self.assertEqual(ranges_of(opener.calls[-1]), [f"'{real}'!A38:R52"])
+
+    def test_extra_ranges_use_the_real_title_and_a_quote_in_it_is_doubled(self):
+        opener = Opener(raw(extra=[("5", "=N1")]), titles=["O'HARA "])
+        region.fetch_region("O'HARA", 8, 1, 22, 18, ["N40:N40"], opener=opener, now=1_800_000_000)
+        self.assertEqual(ranges_of(opener.calls[2]), ["'O''HARA '!A8:R22", "'O''HARA '!N40:N40"])
+
+    def test_exact_title_wins_over_a_look_alike_and_an_ambiguous_one_is_refused(self):
+        opener, _ = self.read("MOLLY", ["MOLLY ", "MOLLY"])
+        self.assertEqual(ranges_of(opener.calls[2]), ["'MOLLY'!A38:R52"])
+        region._cache.clear()
+        region._titles.clear()
+        with self.assertRaises(ApiError) as caught:
+            self.read("MOLLY  ", ["MOLLY ", " MOLLY"])
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "SHEET_REGION_UNAVAILABLE"))
+
+    def test_unknown_tab_is_503_and_reads_no_cells(self):
+        opener = Opener(raw(), titles=["KHAC"])
+        with self.assertRaises(ApiError) as caught:
+            region.fetch_region("TAB MOI", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+        self.assertEqual(caught.exception.status, 503)
+        self.assertFalse(any("includeGridData" in url for url in opener.calls))
+
+    def test_titles_are_read_once_and_a_new_tab_triggers_one_more_read(self):
+        opener = Opener(raw(), titles=["T", "KHACH A"])
+        region.fetch_region("T", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+        region.fetch_region("KHACH A", 8, 1, 22, 18, opener=opener, now=1_800_000_010)
+        self.assertEqual(sum("includeGridData" not in url and url != region.TOKEN_URL for url in opener.calls), 1)
+        opener.titles.append("MOI ")
+        region.fetch_region("MOI", 8, 1, 22, 18, opener=opener, now=1_800_000_020)   # chưa có trong danh sách nhớ: đọc lại một lần
+        self.assertEqual(sum("includeGridData" not in url and url != region.TOKEN_URL for url in opener.calls), 2)
+        self.assertEqual(ranges_of(opener.calls[-1]), ["'MOI '!A8:R22"])
+
+    def test_endpoint_opens_the_right_gid_for_a_tab_with_a_trailing_space(self):
+        finding = {"tab": "MOLLY TÂN TỶ-", "kind": "row_shift", "level": "error", "month": "2026-10", "rows": [45], "cells": ["B45"],
+                   "message": "x", "fix": "y"}
+        health = {"status": "broken", "findings": [finding]}
+        opener = Opener(raw(), titles=["MOLLY TÂN TỶ- "])
+        with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
+            out = api.region("customer=162&finding=0", object(), "t", opener=opener, now=1_800_000_000)
+        self.assertEqual(ranges_of(opener.calls[2])[0], "'MOLLY TÂN TỶ- '!A38:R52")
+        self.assertTrue(out["open_url"].endswith(f"#gid={GID}&range=B45"))
 
 
 class SigningAndLogTests(Env):
@@ -315,9 +393,9 @@ class EndpointTests(Env):
         with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
             api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_000)
             api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_010)
-            self.assertEqual(len(opener.calls), 2)   # token + dữ liệu, lần hai từ cache
+            self.assertEqual(len(opener.calls), 3)   # token + tên tab + dữ liệu, lần hai từ cache
             api.region("customer=7&finding=0&fresh=1", object(), "t", opener=opener, now=1_800_000_020)
-            self.assertEqual(len(opener.calls), 3)   # đọc lại dữ liệu, token còn hạn
+            self.assertEqual(len(opener.calls), 4)   # đọc lại dữ liệu, token và tên tab còn hạn
             for query in ("customer=7&finding=0&fresh=0", "customer=7&finding=0&fresh="):
                 with self.assertRaises(ApiError):
                     api.region(query, object(), "t", opener=opener, now=1_800_000_030)

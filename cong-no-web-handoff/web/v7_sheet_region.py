@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -33,6 +34,7 @@ API = "https://sheets.googleapis.com/v4/spreadsheets/"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 CACHE_SECONDS = 60
+TITLES_SECONDS = 300   # danh sách tên tab hiếm đổi; tab mới thêm thì tên chưa có trong danh sách và được đọc lại ngay
 TIMEOUT_SECONDS = 8   # mỗi lần gọi Google (token và dữ liệu): quá thì màn vẫn hiện chữ, không đợi lâu
 TOKEN_SECONDS = 3000   # token sống 3600 giây
 SPAN = 7               # số dòng lấy thêm mỗi phía quanh ô
@@ -50,6 +52,7 @@ EPOCH = date(1899, 12, 30)   # ngày 0 của số thứ tự ngày trong Sheet
 _lock = threading.Lock()
 _token: dict[str, Any] = {"value": None, "until": 0.0}
 _cache: dict[tuple, tuple[float, dict]] = {}
+_titles: dict[str, tuple[float, list[str]]] = {}   # ID Sheet -> (lúc đọc, tên tab thật)
 
 
 def log(*parts: Any) -> None:
@@ -270,19 +273,64 @@ def chain_sample(this_cell: dict, others: list[dict]) -> dict | None:
     return {"sample": example, "current": current or (this_cell.get("v") or None), "has_formula": bool(current)}
 
 
+def same_tab(value: str) -> str:
+    """Tên tab để so khớp: NFC, bỏ khoảng trắng hai đầu (bộ quét cắt dấu cách cuối nên tên trong phát hiện không còn dấu cách đó)."""
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def _tab_titles(sheet_id: str, token: str, opener: Callable[..., Any], stamp: float) -> list[str]:
+    """Đọc tên tab thật trên Sheet (nguyên văn, kể cả dấu cách cuối) bằng một lần gọi `sheets.properties(title)` và nhớ TITLES_SECONDS."""
+    request = urllib.request.Request(API + urllib.parse.quote(sheet_id) + "?" + urllib.parse.urlencode([("fields", "sheets.properties(title,sheetId)")]),
+                                     headers={"Authorization": f"Bearer {token}"})
+    try:
+        with opener(request, timeout=TIMEOUT_SECONDS) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+        titles = [str(item["properties"]["title"]) for item in raw["sheets"]]
+    except urllib.error.HTTPError as exc:
+        raise unavailable(code=f"HTTP {exc.code} TITLES") from exc
+    except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as exc:
+        raise unavailable(code=f"TITLES {type(exc).__name__}") from exc
+    with _lock:
+        _titles[sheet_id] = (stamp, titles)
+    return titles
+
+
+def _real_title(tab: str, titles: list[str]) -> str | None:
+    """Tên thật của tab: trùng nguyên văn thì lấy luôn, không thì trùng sau chuẩn hóa (chỉ khi duy nhất); không thấy hoặc mơ hồ thì None."""
+    if tab in titles:
+        return tab
+    wanted = same_tab(tab)
+    found = [title for title in titles if same_tab(title) == wanted]
+    return found[0] if len(found) == 1 else None
+
+
+def _quoted(title: str, a1: str) -> str:
+    return f"'{title.replace(chr(39), chr(39) * 2)}'!{a1}"
+
+
 def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int, extra: list[str] | None = None, *,
                  opener: Callable[..., Any] = urllib.request.urlopen, now: float | None = None, fresh: bool = False) -> dict:
-    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây; `fresh` (nút "Đọc lại") bỏ qua cache."""
+    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây; `fresh` (nút "Đọc lại") bỏ qua cache.
+    Tên tab được đổi sang tên thật trên Sheet (có thể có dấu cách cuối hoặc dạng NFD) trước khi dựng range."""
     sheet_id, credentials = config()
     stamp = time.time() if now is None else now
-    area = f"'{tab.replace(chr(39), chr(39) * 2)}'!{column_letter(col_first)}{first}:{column_letter(col_last)}{last}"
-    ranges = [area] + [f"'{tab.replace(chr(39), chr(39) * 2)}'!{a1}" for a1 in extra or []]
+    with _lock:
+        known = _titles.get(sheet_id)
+    title = _real_title(tab, known[1]) if known and stamp - known[0] < TITLES_SECONDS else None
+    token = None
+    if title is None:   # chưa biết tên thật (hoặc tab mới thêm): đọc lại danh sách tên, một lần
+        token = _access_token(credentials, opener, stamp)
+        title = _real_title(tab, _tab_titles(sheet_id, token, opener, stamp))
+        if title is None:
+            raise unavailable("Không thấy tab trên Sheet.", f"NO_TAB {tab!r}")
+    area = _quoted(title, f"{column_letter(col_first)}{first}:{column_letter(col_last)}{last}")
+    ranges = [area] + [_quoted(title, a1) for a1 in extra or []]
     key = (sheet_id, tuple(ranges))
     with _lock:
         hit = _cache.get(key)
     if hit and not fresh and stamp - hit[0] < CACHE_SECONDS:
         return hit[1]
-    token = _access_token(credentials, opener, stamp)
+    token = token or _access_token(credentials, opener, stamp)
     query = [("ranges", r) for r in ranges] + [("includeGridData", "true"), ("fields", FIELDS)]
     request = urllib.request.Request(API + urllib.parse.quote(sheet_id) + "?" + urllib.parse.urlencode(query),
                                      headers={"Authorization": f"Bearer {token}"})
@@ -290,12 +338,12 @@ def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int,
         with opener(request, timeout=TIMEOUT_SECONDS) as response:
             raw = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise unavailable(code=f"HTTP {exc.code} {tab} {area}") from exc
+        raise unavailable(code=f"HTTP {exc.code} {title!r} {area}") from exc
     except (OSError, ValueError, urllib.error.URLError) as exc:
-        raise unavailable(code=f"{type(exc).__name__} {tab} {area}") from exc
+        raise unavailable(code=f"{type(exc).__name__} {title!r} {area}") from exc
     if not raw.get("sheets") or not raw["sheets"][0].get("data"):
-        raise unavailable("Không thấy tab trên Sheet.", f"NO_TAB {tab}")
-    log("đọc", tab, area, f"{len(ranges)} dải", datetime.fromtimestamp(stamp, UTC).isoformat(timespec="seconds"))
+        raise unavailable("Không thấy tab trên Sheet.", f"NO_TAB {title!r}")
+    log("đọc", repr(title), area, f"{len(ranges)} dải", datetime.fromtimestamp(stamp, UTC).isoformat(timespec="seconds"))
     result = {"raw": {"sheets": [{**raw["sheets"][0], "data": raw["sheets"][0]["data"][:1]}]},
               "extra": list(raw["sheets"][0]["data"][1:]),
               "read_at": datetime.fromtimestamp(stamp, UTC).astimezone(VN).isoformat(timespec="seconds")}
