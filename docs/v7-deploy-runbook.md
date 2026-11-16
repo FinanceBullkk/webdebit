@@ -1883,7 +1883,7 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
-## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có
+## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-bao-cao-thang.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql` chạy sau `2026-11-13-v7-dau-doc.sql` ([`BAO-CAO-THANG-01`](decisions/bao-cao-thang-01.md), [spec](../specs/v7-bao-cao-thang.md)). Chỉ thêm hàm đọc `get_trip_month(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu. Chạy lại được.
 
