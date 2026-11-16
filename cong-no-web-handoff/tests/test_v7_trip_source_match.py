@@ -20,9 +20,14 @@ def sheet(tab, row, cont, day, month=None, amount=40_000_000, mode="CANG"):
             "amount": amount, "mode": mode}
 
 
-def src(cont, day, owner="KHACH A", price="", family="BIEN"):
+def src(cont, day, owner="KHACH A", price="", family="BIEN", ref="BK"):
     return {"family": family, "tab": "THÁNG 3/2026", "line": 2, "cont": cont, "date": day, "owner": owner,
-            "ref": "BK", "price": price}
+            "ref": ref, "price": price}
+
+
+def found_for(rows, source, end="2026-10"):
+    s_pair, b_pair = match.pair(rows, source)
+    return s_pair, match.review(rows, source, s_pair, b_pair, end)[0]
 
 
 def write(folder, name, payload):
@@ -103,6 +108,63 @@ class TripSourceMatchTests(unittest.TestCase):
         s_pair, b_pair = match.pair(rows, source)
         found, _ = match.review(rows, source, s_pair, b_pair, "2026-10")
         self.assertEqual([(g, (s or b)["date"]) for g, s, b, _ in found if s is rows[0]], [("LECH_NGAY", "2026-04-05")])
+
+    def test_road_trip_pairs_by_plate_or_swapped_cells_when_only_one_trip_fits(self):
+        rows = [sheet("CH", 1, "51C11111", None, month="2026-08", mode="BO"),     # plate where the container goes
+                sheet("CH", 2, "KKFU1000004", "2025-09-15", mode="BO"),           # CONT_BO has container and plate swapped
+                sheet("CH", 3, "51C22222", None, month="2026-08", mode="BO")]     # this truck made two trips that month
+        source = [src("TTLU1000005", "2026-08-17", family="BO", ref="51C-111.11"),
+                  src("35C99999", "2025-09-15", family="BO", ref="KKFU1000004"),
+                  src("AAAU1111111", "2026-08-03", family="BO", ref="51C-22222"),
+                  src("BBBU2222222", "2026-08-20", family="BO", ref="51C-22222"),
+                  src("CCCU3333333", "2026-08-20", ref="51C11111")]               # a sea trip's second cell is a booking number
+        s_pair, found = found_for(rows, source)
+        self.assertEqual(s_pair, {0: 0, 1: 1})
+        self.assertIn(("KHONG_NGUON", "51C22222"), {(g, s["cont"]) for g, s, b, _ in found if s})
+
+    def test_fee_lines_are_not_trips_but_a_mistyped_container_still_is(self):
+        rows = [sheet("A", 1, "THUE", None, month="2026-05", mode="BO"), sheet("A", 2, "VAT", None, month="2026-05"),
+                sheet("A", 3, "50", None, month="2026-05"), sheet("A", 4, "WHLU77333680", "2026-05-02")]
+        _, found = found_for(rows, [src("ZZZU1234567", "2026-05-02")])
+        self.assertEqual(sorted((g, s["cont"]) for g, s, b, _ in found if s), [
+            ("KHONG_NGUON", "WHLU77333680"), ("KHONG_PHAI_CONT", "50"), ("KHONG_PHAI_CONT", "THUE"), ("KHONG_PHAI_CONT", "VAT")])
+
+    def test_owner_written_in_the_tab_name_is_the_books_customer(self):
+        rows = [sheet("BAOAN 宝安-CHUOI", i, f"JINU000000{i}", "2026-01-0" + str(i)) for i in (1, 2)]
+        rows += [sheet("BAOAN 宝安-CHUOI", 3, "HANU0000003", "2026-01-03"), sheet("BAOAN 宝安-CHUOI", 4, "CHAU0000004", "2026-01-04")]
+        source = [src("JINU0000001", "2026-01-01", owner="KHACH CHINH"), src("JINU0000002", "2026-01-02", owner="KHACH CHINH 12"),
+                  src("HANU0000003", "2026-01-03", owner="BAOAN 宝安 123"), src("CHAU0000004", "2026-01-04", owner="KHACH LA")]
+        _, found = found_for(rows, source)
+        self.assertEqual([s["cont"] for g, s, b, _ in found if g == "KHAC_KHACH"], ["CHAU0000004"])
+
+    def test_money_row_and_its_own_month_block_win_a_tie(self):
+        rows = [sheet("J", 150, "TEJU1000002", "2026-07-03", month="2026-06", amount=0),
+                sheet("J", 168, "TEJU1000002", "2026-07-03", month="2026-07"),
+                sheet("H", 95, "AXAU1000001", "2026-05-09", month="2026-04"), sheet("H", 161, "AXAU1000001", "2026-05-09", month="2026-05")]
+        s_pair, _ = found_for(rows, [src("TEJU1000002", "2026-06-30"), src("AXAU1000001", "2026-05-09")])
+        self.assertEqual(s_pair, {1: 0, 3: 1})
+
+    def test_row_dated_outside_its_block_is_the_free_trip_of_that_block_not_a_second_charge(self):
+        # April block holds a row dated 9/5 next to the May row of 9/5; booking also has 31/3 that no row took.
+        rows = [sheet("H", 95, "AXAU1000001", "2026-05-09", month="2026-04", mode="BO"),
+                sheet("H", 161, "AXAU1000001", "2026-05-09", month="2026-05", mode="BO"),
+                sheet("H", 96, "YMLU1000006", "2026-05-03", month="2026-04", mode="BO"),   # no free trip near April: still twice
+                sheet("H", 144, "YMLU1000006", "2026-05-03", month="2026-05", mode="BO")]
+        source = [src("AXAU1000001", "2026-03-31", family="BO"), src("AXAU1000001", "2026-05-09", family="BO"),
+                  src("YMLU1000006", "2026-05-03", family="BO")]
+        _, found = found_for(rows, source)
+        got = sorted((g, s["row"], (b or {}).get("date")) for g, s, b, _ in found if s)
+        self.assertEqual(got, [("LECH_NGAY", 95, "2026-03-31"), ("TRUNG", 96, None), ("TRUNG", 144, None)])
+        self.assertNotIn("CHUA_TINH", {g for g, *_ in found})
+
+    def test_zero_copy_took_the_trip_so_the_money_row_is_a_date_slip_unless_another_row_charges_it(self):
+        copy = sheet("M", 311, "NYKU1000003", "2026-08-29", amount=0)
+        money = sheet("M", 322, "NYKU1000003", "2026-09-01", month="2026-09")
+        _, found = found_for([copy, money], [src("NYKU1000003", "2026-08-29")])
+        self.assertEqual([g for g, s, *_ in found if s is money], ["LECH_NGAY"])
+        undated = sheet("M", 300, "NYKU1000003", None, month="2026-07")   # another unpaired money row of the container
+        _, found = found_for([copy, money, undated], [src("NYKU1000003", "2026-08-29")])
+        self.assertEqual([g for g, s, *_ in found if s is money], ["TRUNG_GAN"])
 
     def test_cli_prints_counts_only_and_keeps_files_out_of_repo(self):
         book = [(1, {"A": "THÁNG 3/2026"}),

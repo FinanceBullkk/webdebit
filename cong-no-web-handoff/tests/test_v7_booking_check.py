@@ -91,6 +91,19 @@ class BookingCheckTests(unittest.TestCase):
         self.assertEqual([row["group"] for row in result["rows"]], sorted((row["group"] for row in result["rows"]), key=job.ORDER.index))
         self.assertEqual((result["window"], result["sheet"]), ({**job.WINDOW, "end": "2026-11"}, {"rows": 10, "paired": 7}))
 
+    def test_plate_fee_line_and_zero_copy_on_the_page_and_in_the_month_report(self):
+        rows = [sheet("CH", 1, "51C11111", None, month="2026-08", mode="BO"), sheet("CH", 2, "THUE", None, month="2026-08", mode="BO"),
+                sheet("M", 1, "NYKU1000003", "2026-08-29", amount=0), sheet("M", 2, "NYKU1000003", "2026-09-01", month="2026-09")]
+        with mock.patch.object(job.match, "load_sheet", return_value=[dict(row) for row in rows]):
+            result, report = job.evaluate(Path("so-goc.xlsx"), self.snapshot("snapshot.json", [sea("NYKU1000003", "2026-08-29")]),
+                                          self.snapshot("road.json", [{**road("TTLU1000005", "2026-08-17"), "plate": "51C-111.11"}]), NOW)
+        self.assertEqual({(row["code"], row["container"]) for row in result["rows"]},
+                         {("NGAY_TU_NGUON", "51C11111"), ("LECH_NGAY", "NYKU1000003")})
+        self.assertEqual(result["hidden"], {"KHONG_PHAI_CONT": 1})
+        got = sorted((row["cont"], row["status"], row["amount_vnd"]) for rows in report["months"].values() for row in rows)
+        self.assertEqual(got, [("51C11111", "khop", "40000000"), ("NYKU1000003", "chep", None), ("NYKU1000003", "lech_ngay", "40000000"),
+                               ("THUE", "khong_ngay", "40000000")])
+
     def test_old_and_road_duplicates_stay_inside_the_window(self):
         rows = [sheet("A", 1, "OLDU5555555", "2025-06-10"), sheet("B", 1, "OLDU5555555", "2025-06-10"),
                 sheet("A BO", 1, "ROAU6666666", "2025-09-01", mode="BO"), sheet("B BO", 1, "ROAU6666666", "2025-09-01", mode="BO")]

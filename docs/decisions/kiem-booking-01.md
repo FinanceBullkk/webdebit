@@ -34,6 +34,29 @@ Claude chọn phần cách làm (ĐỀ XUẤT, áp dụng trong phạm vi trên)
   API báo `stale` khi lượt đạt gần nhất cũ hơn lượt liền trước lượt theo lịch gần nhất. Trang chỉ ghi "không thấy chuyến nào…" khi lượt mới nhất đạt và còn mới.
 - **Khác công cụ GĐ1 ở một điểm:** hai dòng cùng container, cùng ngày trong một bản chụp tính là một chuyến (công cụ GĐ1 giữ cả hai). Booking ghi lặp một chuyến thì không che mất dòng sổ tính hai lần.
 
+### Lọc nhiễu khi ghép (16/11/2026)
+
+16/11/2026, chat: người dùng hỏi "có thể xử lý những cái này không" với bốn nhóm đụng tiền, rồi chọn "Làm phần máy lọc". Claude chọn các luật dưới đây (ĐỀ XUẤT). Không luật nào đổi tiền hay điều kiện máy ghi; chúng chỉ đổi cách ghép và cách phân nhóm của công cụ GĐ1, nên phép kiểm và báo cáo tháng đổi theo.
+
+- **Chuyến bộ ghép theo cả ô "Số xe":** Sheet có lúc ghi biển số ở chỗ của container (tab CHANG HONG), và `CONT_BO` có dòng đổi chỗ hai ô. Chỉ ghép khi đúng một chuyến hợp (±3 ngày, hoặc cùng tháng nợ với dòng không ngày), vì một xe chạy nhiều chuyến trong tháng.
+- **Ô container không phải số container hay biển số** (`THUE`, `VAT`, `PHIKIEMDICHN`, `50`, ô trống sau khi bỏ dấu) là dòng phí, không phải chuyến. Những dòng này không lên nhóm "Trên sổ, booking không có", chỉ được đếm ở `hidden.KHONG_PHAI_CONT`. Số container gõ thừa một ký tự (`WHLU77333680`) vẫn tính là chuyến.
+- **Chủ hàng ghi ngay trong tên tab thì không là "khách khác".** Ví dụ: tab "HANZONG 韩总-CHUOI" chủ yếu chở cho JINFUJIE nhưng cũng có chuyến HANZONG.
+- **Hòa khoảng cách thì ưu tiên dòng mang tiền rồi dòng nằm đúng khối tháng của chuyến.** Dòng thừa ra mới là dòng cần hỏi.
+- **Dòng có ngày nằm ngoài khối tháng của nó, trong khi khối đó có một chuyến booking chưa dòng nào ghép:** ngày bị gõ nhầm, nên dòng này là chuyến đó, không phải tính hai lần. Kết quả hiện ở nhóm lệch ngày, ghi chú "ghi nhầm ngày?".
+- **Dòng 0đ đã giữ chuyến (±3 ngày):** dòng mang tiền của chuyến đó thành lệch ngày, không thành nghi tính hai lần. Luật này chỉ áp khi dòng mang tiền là dòng chưa ghép duy nhất của container có tiền. Kiểu đảo ngày/tháng vẫn để người xem. Trong báo cáo tháng, dòng mang tiền là chuyến (`lech_ngay`), dòng 0đ là `chep`.
+
+Đo trên bản tải và hai bản chụp lúc 17:00 ngày 16/11/2026, chạy ở máy dev:
+
+| Nhóm | Trước | Sau |
+| --- | ---: | ---: |
+| Nghi tính hai lần | 62 | 56 |
+| Booking có, sổ chưa tính | 111 | 106 |
+| Sổ khác khách booking | 23 | 13 |
+| Trên sổ, booking không có | 45 | 30 |
+| Lệch ngày / sổ thiếu ngày | 69 / 240 | 71 / 243 |
+
+11 dòng phí chuyển sang chỉ đếm. Còn lại để người dùng trả lời: tab chép của nhau (DUONG BO TAN HUA và TAN HOA 鑫华 312; KONGZONG -FENGJIE và FENG JIE-A LONG-SR), và DA LAI GUO YE với CHAU HAI THINH.
+
 ## Ngày / nguồn
 
 13/11/2026, chat. Phiên điều phối giao việc A6/F5. Claude viết bài toán của màn (chủ sổ hỏi gì, theo thứ tự) rồi hỏi bằng ba câu chọn. Người dùng chọn:
