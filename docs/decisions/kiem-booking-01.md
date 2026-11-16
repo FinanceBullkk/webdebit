@@ -55,7 +55,7 @@ Số đo chỉ đọc trên `hao` cùng ngày (bản tải 13/11, release `2cbbe
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT ba điểm của người dùng. Phần cách làm là ĐỀ XUẤT. Chỉ đọc: không ghi sổ, không ghi DB, không ghi Sheet. Không đổi luật tiền, luật ghép hay điều kiện máy ghi.
+ĐÃ CHỐT ba điểm của người dùng. Phần cách làm là ĐỀ XUẤT. ĐÃ TRIỂN KHAI trên `hao` 16/11/2026, lượt theo lịch đầu tiên 10:05 đạt ([nhật ký](../deploys/2026-11-16-kiem-booking.md)). Chỉ đọc: không ghi sổ, không ghi DB, không ghi Sheet. Không đổi luật tiền, luật ghép hay điều kiện máy ghi.
 
 Mã:
 - job `tools/v7_booking_check.py`, gọi từ `tools/v7_reconcile_auto.py`;

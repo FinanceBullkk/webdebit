@@ -179,7 +179,7 @@ GĐ1b (kiểm mỗi giờ):
   - không chèn HTML;
   - khổ điện thoại không tràn ngang, nút cao 40px.
 - [x] Chạy chỉ đọc trên dữ liệu thật ở `hao` 13/11/2026 (số đếm ở quyết định).
-- [ ] Sau `Deploy hao`: một lượt timer ghi `booking-check.json`, có số đo ghi trong `docs/deploys/`.
+- [x] Sau `Deploy hao`: một lượt timer ghi `booking-check.json`, có số đo ghi trong `docs/deploys/` ([16/11/2026](../docs/deploys/2026-11-16-kiem-booking.md)).
 - [ ] Người dùng tự đi hết khối trên `hao`.
 
 GĐ2:

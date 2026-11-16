@@ -29,7 +29,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | A3 | Từng dòng và từng tháng, không chỉ tổng | Không còn dòng, tháng hay tổng thu nào `CHUA_GIAI_THICH` | có | ĐẠT cho lượt đo: 9.526/10.521 dòng khớp tuyệt đối, 0 dòng lệch giá; 7 tháng và 3 tổng thu khác nhau đều có lời giải; 17 dòng một bên có đều có lời giải |
 | A4 | Các lời giải thích có người chốt | Mỗi nhóm có kết luận của chủ sổ | một phần | CÒN MỞ: 3 dòng bù số dư chuyển năm chưa ai xác nhận; 2 dòng lặp trên Sheet chưa xóa; 6 tab không có sổ chưa kết luận |
 | A5 | Lệnh máy đã ghi | Không phiếu máy ghi nào bị hủy; không giá nào đè rồi phải quay lại; tháng máy mở đều đã khóa | có | ĐẠT cho 1–11/11: 2.883 lệnh; 20 phiếu, 0 bị hủy; 0 lần đè rồi quay lại; 17 dòng điều chỉnh máy ghi rồi tự xóa hết sau chưa đầy một ngày |
-| A6 | Sheet tự nó có đúng không | So với booking, sao kê, xác nhận của khách lớn | không | CHƯA. Nguồn booking có 4 chuyến đã 4–9 ngày chưa nằm ở sổ nào (khách mới chưa có tab) và 13 chuyến đang chờ ở 9 sổ |
+| A6 | Sheet tự nó có đúng không | So với booking, sao kê, xác nhận của khách lớn | có, mỗi giờ (phần booking) | PHẦN BOOKING CHẠY từ 16/11/2026 ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md), [nhật ký](deploys/2026-11-16-kiem-booking.md)): lượt 10:05 khớp 7.308/7.641 dòng; còn 62 dòng nghi tính hai lần, 115 chuyến booking có mà sổ chưa tính, 23 khác khách, 45 không có booking. Chưa đạt tới khi chủ sổ kết luận các nhóm đó. Sao kê và xác nhận của khách: CHƯA |
 
 ### B. Bỏ Sheet thì nhập ở đâu
 
@@ -76,7 +76,7 @@ Cột "Máy" ghi mục nào `v7_cutover_audit.py` đo được ([spec](../specs/
 | F2 | Quyết định còn chữ CÒN MỞ chạm đường tiền | Đã lọc và trả lời | CHƯA lọc |
 | F3 | Kịch bản ngày chuyển | Diễn tập trên bản sao | CHƯA viết |
 | F4 | Đường lui | Xuất được cả sổ web ra bảng tính, tổng khớp | CHƯA có lệnh xuất cả sổ |
-| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | CHƯA |
+| F5 | Lưới an toàn thay "khớp Sheet" | Có phép kiểm định kỳ khác | CÓ MỘT PHÉP, từ 16/11/2026: kiểm Sheet sổ nợ so với booking mỗi giờ, khối ở tab Máy chạy ([`KIEM-BOOKING-01`](decisions/kiem-booking-01.md)). Khi bỏ Sheet phải đổi đầu vào sang sổ web; xác nhận debit note của khách chưa có |
 
 ## Lượt đo 11/11/2026
 
