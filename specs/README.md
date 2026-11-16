@@ -7,6 +7,7 @@ Một spec cho một thay đổi: đầu ra, phạm vi, nguồn quyết định,
 Yêu cầu nền ở [docs](../docs/README.md), không nhân bản vào từng spec.
 
 - [Máy tự đối soát](v7-may-doi-soat.md): so Sheet–web mỗi giờ, chỉ ghi khi đúng một tổ hợp việc khớp đúng tổng; [tự tạo sổ khách mới](v7-may-tao-so.md); [cảnh báo email khi máy lỗi hoặc dừng](v7-canh-bao.md).
+- [Kiểm tab trước khi ghi, đợt 1](v7-kiem-tab-dot1.md): `health` theo tab, phát hiện `row_shift` (tiền lệch một dòng so với container), miễn trừ bố cục hai dòng khai tay, chặn ghi ở bảng đối chiếu và máy đối soát; đo 253 tab trên `hao` (ĐÃ CODE).
 - [Audit trước chuyển hẳn](v7-cutover-audit.md): lệnh chỉ đọc so từng dòng và từng tháng Sheet–web, tab TONG với các tab khách, lệnh máy đã ghi, thao tác đã có người làm; mỗi lời giải thích phải khớp tới từng đồng (ĐỀ XUẤT 11/11/2026; [checklist](../docs/chuyen-han-checklist.md)).
 - [Bảng thu](v7-bang-thu.md): tiền về theo ngày, gom phiếu mọi sổ, chỉ xem; tháng tính theo ngày tiền về, khoản không rõ ngày nằm riêng; năm cách xem dạng tab (`BANG-THU-01`, `BANG-THU-02`, ĐÃ CHỐT 4/11/2026).
 - [Tương tác Bảng thu và Tình hình](v7-tuong-tac.md): bấm là lọc hoặc mở tại chỗ rồi mới Mở sổ (`TUONG-TAC-01`, ĐÃ CHỐT 5/11/2026).

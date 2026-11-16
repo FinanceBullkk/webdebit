@@ -33,15 +33,24 @@ import v7_receipt_queue as receipt_queue  # web layer, on the path through v7_pr
 import v7_sheets_api_reader as sheets_api
 
 
-def snapshot(rows: list[dict], source: dict) -> dict:
+def snapshot(rows: list[dict], source: dict, tabs: dict | None = None) -> dict:
     canonical = json.dumps(rows, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    return {"source": source, "rows": rows, "row_count": len(rows), "sha256": hashlib.sha256(canonical).hexdigest(),
-            "runner": {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only"}}
+    result = {"source": source, "rows": rows, "row_count": len(rows), "sha256": hashlib.sha256(canonical).hexdigest(),
+              "runner": {"created_at": dt.datetime.now(dt.UTC).isoformat(), "mode": "read-only"}}
+    if tabs is not None:
+        result["tabs"] = tabs   # KIEM-TAB-01: kết luận sức khỏe từng tab, cùng một lượt quét và cùng một file với `rows`
+    return result
+
+
+def tab_health(scan: dict) -> dict:
+    """{tab: {status, findings}} cho các tab bộ quét đã đọc; tab không có trong đây thì chưa có kết luận (coi như ổn)."""
+    return {tab: data["health"] for tab, data in sorted(scan.items()) if data.get("health")}
 
 
 def snapshots(scan: dict, source: dict) -> tuple[dict, dict]:
-    """(prices, receipts) from one scan of the customer tabs."""
-    return snapshot(match.rows_from_scan(scan), source), snapshot(receipt_queue.rows_from_scan(scan), source)
+    """(prices, receipts) from one scan of the customer tabs; both carry the tabs' health from that same scan."""
+    tabs = tab_health(scan)
+    return (snapshot(match.rows_from_scan(scan), source, tabs), snapshot(receipt_queue.rows_from_scan(scan), source, tabs))
 
 
 def build_all(xlsx: pathlib.Path) -> tuple[dict, dict]:

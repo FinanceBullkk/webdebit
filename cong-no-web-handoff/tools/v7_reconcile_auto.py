@@ -248,6 +248,10 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     if total == sheet:   # ai đó vừa sửa sau lúc đọc
         row.update(status="KHOP", reason="KHOP")
         return
+    health = fix.customer_health(prices, ledger, customers)
+    if health["status"] == "broken":   # KIEM-TAB-01: tab có phát hiện (vd. tiền lệch một dòng) thì máy không ghi gì, như khách bị giữ
+        row.update(reason="HELD", held_reasons=dict(Counter(str(finding["kind"]).upper() for finding in health["findings"])))
+        return
     groups, ahead, shuffled = fix.plan(prices, receipts, ledger, customers, today)
     row["web_ahead_vnd"] = ahead
     if shuffled:
@@ -271,7 +275,7 @@ def settle(db, row: dict[str, Any], customer_id: int, customers: list[dict], pri
     trace.stage("ghi")
     trace.customer(customer_id, writing=True)
     try:
-        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR)
+        row["written"] = fix.apply_fix(db, customer_id, ledger, chosen, prices["sha256"], today, actor=AUTO_ACTOR, health=health)
     except ApiError as exc:
         print(f"V7 đối soát máy: sổ {customer_id} lỗi {exc.code} khi ghi", file=sys.stderr, flush=True)
         row.update(reason="WRITE_ERROR", error=exc.code)

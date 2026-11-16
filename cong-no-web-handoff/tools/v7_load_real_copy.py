@@ -8,6 +8,7 @@ import contextlib
 import csv
 import hashlib
 import io
+import itertools
 import json
 import posixpath
 import re
@@ -411,6 +412,83 @@ def block_signature(block: dict) -> tuple:
                    for r in block["records"]))
 
 
+def _cell(column: str | None, row: int) -> str | None:
+    return f"{column}{row}" if column else None
+
+
+# KIEM-TAB-01, K1: tab được duyệt dùng bố cục hai dòng mỗi container (dòng container không tiền, dòng tiền không container ngay
+# dưới). Khai tay từng tab, không suy ra từ dữ liệu: bố cục đó và "tiền lệch một dòng" nhìn như nhau, chỉ người biết tab mới phân được.
+# "KK - DỪA": audit 4/11/2026 (kết quả chỉ ở ghi chú phiên, không có file trong repo): hai dòng mỗi container, tổng khớp tới từng đồng,
+# nạp thành "Phí lẻ". Đo trên hao 16/11/2026: các khối T8–T11/2026 của tab đều theo bố cục này.
+# Claude chốt 16/11/2026 theo quyền người dùng trao 21/10/2026. Thêm tab mới vào đây chỉ sau khi có audit tương tự.
+TWO_ROW_LAYOUT_TABS = frozenset({normalized("KK - DỪA")})
+CONTAINER_FIRST, MONEY_FIRST = "container_first", "money_first"
+
+
+def _shift_pairs(trips: list[dict]) -> list[tuple[dict, dict, str]]:
+    """(dòng container không tiền, dòng tiền không container, thứ tự) cho các cặp dòng chuyến sát nhau (số dòng hơn kém 1, không dòng
+    chuyến nào xen giữa). Ưu tiên "container trên, tiền dưới"; còn dòng container chưa ghép mới xét "tiền trên, container dưới", và
+    dòng tiền nằm ngay dưới một dòng container có tiền là phí của dòng đó, không ghép. Mỗi dòng nằm trong nhiều nhất một cặp."""
+    def holder(record):
+        return bool(record["container"]) and record["amount"] in (None, 0)
+
+    def money(record):
+        return not record["container"] and record["amount"] not in (None, 0)
+
+    def adjacent(upper, lower):
+        return lower["row"] == upper["row"] + 1
+    used: set[int] = set()
+    found: list[tuple[dict, dict, str]] = []
+    for upper, lower in itertools.pairwise(trips):
+        if holder(upper) and money(lower) and adjacent(upper, lower):
+            used.update((upper["row"], lower["row"]))
+            found.append((upper, lower, CONTAINER_FIRST))
+    for index in range(1, len(trips)):
+        upper, lower = trips[index - 1], trips[index]
+        if holder(lower) and money(upper) and adjacent(upper, lower) and not {upper["row"], lower["row"]} & used:
+            above = trips[index - 2] if index >= 2 else None
+            if above is not None and adjacent(above, upper) and above["container"] and above["amount"] not in (None, 0):
+                continue   # dòng tiền ngay dưới một chuyến đã có tiền: phí của chuyến đó
+            used.update((upper["row"], lower["row"]))
+            found.append((lower, upper, MONEY_FIRST))
+    return sorted(found, key=lambda pair: min(pair[0]["row"], pair[1]["row"]))
+
+
+def row_shift_findings(block: dict, approved_layout: bool = False) -> list[dict]:
+    """KIEM-TAB-01 (specs/v7-kiem-tab-truoc-khi-ghi.md, K1): tiền nằm lệch một dòng so với container.
+
+    Trong cùng khối tháng, hai dòng chuyến sát nhau: một dòng có container mà TỔNG trống hoặc 0, dòng kia có TỔNG khác 0 mà không
+    container. Dòng "có tiền, không container" đứng một mình vẫn là phí riêng; chỉ cặp sát nhau như vậy mới là dấu hiệu lệch, và khi đó
+    không ai biết tiền thuộc dòng nào.
+
+    `approved_layout`: tab trong TWO_ROW_LAYOUT_TABS. Khối đều đặn (mọi cặp đều "container trên, tiền ngay dưới") thì các cặp thành chú
+    thích `two_row_layout`, không chặn; khối có một cặp ngược (tiền trên, container dưới) vẫn là `row_shift` ở mọi cặp của khối.
+    """
+    pairs = _shift_pairs([record for record in block["records"] if record["kind"] == "trip"])
+    regular = approved_layout and all(order == CONTAINER_FIRST for _, _, order in pairs)
+    found = []
+    for holder, money, order in pairs:
+        cells = [cell for cell in (_cell(holder["cols"]["container"], holder["row"]), _cell(money["cols"]["total"], money["row"])) if cell]
+        rows = sorted((holder["row"], money["row"]))
+        if regular:
+            found.append({"kind": "two_row_layout", "level": "note", "month": block["month"], "rows": rows, "cells": cells,
+                          "message": f"Dòng {rows[0]} và {rows[1]}: bố cục hai dòng đã duyệt của tab này."})
+            continue
+        found.append({"kind": "row_shift", "level": "error", "month": block["month"], "rows": rows, "order": order, "cells": cells,
+                      "message": f"Dòng {holder['row']} có container mà không có tiền, dòng {money['row']} có tiền mà không có container: "
+                                 "tiền có thể nằm lệch một dòng.",
+                      "fix": f"Đưa tiền ở dòng {money['row']} về cùng dòng với container ở dòng {holder['row']} (hoặc ngược lại), "
+                             "rồi chờ máy đọc lại Sheet."})
+    return found
+
+
+def tab_health(issues: Counter, shifts: list[dict]) -> dict:
+    """Kết luận sức khỏe một tab: `ok`, hoặc `broken` khi bộ quét đã đếm lỗi (`issues`, đúng các lỗi làm máy giữ khách) hay thấy dòng lệch.
+    Phát hiện mức `note` (bố cục đã duyệt) có trong `findings` để màn và lượt đo thấy, nhưng không làm tab `broken`."""
+    findings = [{"kind": code, "level": "error", "count": count} for code, count in sorted(issues.items())] + list(shifts)
+    return {"status": "broken" if any(f["level"] != "note" for f in findings) else "ok", "findings": findings}
+
+
 def scan_workbook(path: Path) -> dict[str, dict]:
     return scan_tabs(workbook_rows(path))
 
@@ -693,6 +771,7 @@ def scan_tabs(tabs) -> dict[str, dict]:
                           "amount": amount, "exact": exact, "flags": flags, "date": dt,
                           "container": get("container"), "price": get("price"),
                           "cells": cells, "raw_date": raw_date,
+                          "cols": {"container": columns.get("container"), "total": columns.get("total")},
                           "details": details if kind == "trip" else {"stt": get("stt")}}
                 records.append(record)
                 current["records"].append(record)
@@ -700,6 +779,8 @@ def scan_tabs(tabs) -> dict[str, dict]:
                     key = "trip_sum" if kind == "trip" else "receipt_sum"
                     current[key] = current.get(key, 0) + amount
         settle(current)
+        approved = normalized(tab) in TWO_ROW_LAYOUT_TABS
+        shifts = [finding for block in blocks.values() for finding in row_shift_findings(block, approved)]
         for block in blocks.values():
             apportion_rounding(block)
             spread_total_over_trips(block)
@@ -711,12 +792,13 @@ def scan_tabs(tabs) -> dict[str, dict]:
             if not blocks:
                 issues["MISSING_MONTH"] += 1
             result[tab] = {"blocks": blocks, "records": records, "issues": issues,
-                           "notes": notes, "total_rows": total_rows}
+                           "notes": notes, "total_rows": total_rows, "health": tab_health(issues, shifts)}
     # Tabs with the same trimmed name need per-customer rules kept outside Git:
     # hold only that customer, never abort the run or pick one tab.
     for tab, count in seen.items():
         if count > 1:
-            result[tab] = {"blocks": {}, "records": [], "issues": Counter({"AMBIGUOUS_SOURCE_TAB": 1})}
+            result[tab] = {"blocks": {}, "records": [], "issues": Counter({"AMBIGUOUS_SOURCE_TAB": 1}),
+                           "health": tab_health(Counter({"AMBIGUOUS_SOURCE_TAB": 1}), [])}
     return result
 
 

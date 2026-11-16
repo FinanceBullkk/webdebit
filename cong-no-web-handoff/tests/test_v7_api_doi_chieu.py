@@ -64,11 +64,12 @@ class Runner:
 
 class Base(unittest.TestCase):
     groups = (PRICES, RECEIPTS)
+    tabs: ClassVar[dict | None] = None
     reconcile: ClassVar[dict] = {"checked_at": "2026-11-06T10:12:00+07:00", "customers": [
         {"customer_id": 7, "sheet_total_vnd": "5274200000", "reason": "NO_EXACT_FIX", "sheet_editing": True, "sheet_last_edit_at": "2026-11-06T10:00:00+07:00"}]}
 
     def setUp(self):
-        snapshots = {api.load_price_snapshot: {"sha256": SHA_P}, api.load_receipt_snapshot: {"sha256": SHA_R}}
+        snapshots = {api.load_price_snapshot: {"sha256": SHA_P, **({"tabs": self.tabs} if self.tabs else {})}, api.load_receipt_snapshot: {"sha256": SHA_R}}
         for target, value in (("cached_load", lambda loader, _path: snapshots[loader]), ("customer_name_mapping", dict),
                               ("plan", lambda *_args: ([dict(group) for group in self.groups], 0, [])), ("reconcile_result", lambda: self.reconcile)):
             patcher = patch.object(api, target, value)
@@ -85,6 +86,7 @@ class StatementTest(Base):
     def test_numbers_and_rows(self):
         result = api.statement(7, Runner(), ACTOR)
         self.assertEqual((result["web_vnd"], result["sheet_total_vnd"], result["version"], result["web_ahead_vnd"]), ("5210000000", "5274200000", 12, "0"))
+        self.assertIsNone(result["blocked"])   # tab lành và máy không giữ khách: không chặn
         self.assertEqual((result["prices_sha256"], result["receipts_sha256"], result["sheet_editing"]), (SHA_P, SHA_R, True))
         prices, receipts = result["groups"]
         self.assertEqual((prices["id"], prices["delta_vnd"], prices["count"], prices["locked"], prices["undoable"]), ("prices:2026-10", "58400000", 2, True, True))
@@ -165,6 +167,50 @@ class WriteTest(Base):
         with patch.object(api, "plan", lambda *_args: ([dict(PRICES), dict(FEES)], 0, [])):
             items = [{"id": "prices:2026-10", "delta_vnd": "58400000", "rows": None}, {"id": "fee_rows:2026-08", "delta_vnd": "100", "rows": None}]
             self.assertIsNone(api.write(self.body(items=items), Runner(), ACTOR)[1]["undo"])
+
+
+SHIFT = {"kind": "row_shift", "month": "2026-10", "rows": [3, 4], "cells": ["B3", "F4"], "message": "Tiền lệch một dòng.", "fix": "Đưa tiền lên."}
+
+
+class BrokenTabTest(Base):
+    """Ca sổ 239 (16/11/2026): tab có tiền lệch một dòng mà bảng đối chiếu vẫn đề xuất và cho ghi. Từ KIEM-TAB-01 thì không."""
+    groups = (FEES,)
+    tabs: ClassVar[dict] = {"KHACH MAU": {"status": "broken", "findings": [SHIFT]}}
+
+    def test_statement_gives_no_group_and_names_the_cells(self):
+        result = api.statement(7, Runner(), ACTOR)
+        self.assertEqual(result["groups"], [])
+        self.assertEqual(result["blocked"]["code"], "TAB_BROKEN")
+        self.assertEqual((result["blocked"]["findings"][0]["tab"], result["blocked"]["findings"][0]["cells"]), ("KHACH MAU", ["B3", "F4"]))
+
+    def test_write_is_409_tab_broken_and_writes_nothing(self):
+        runner = Runner()
+        with self.assertRaises(ApiError) as caught:
+            api.write(self.body(items=[{"id": "fee_rows:2026-08", "delta_vnd": "100", "rows": None}]), runner, ACTOR)
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "TAB_BROKEN"))
+        self.assertEqual(runner.writes(), [])
+
+    def test_the_block_comes_before_the_stale_checks(self):
+        with self.assertRaises(ApiError) as caught:
+            api.write(self.body(expected_version=1), Runner(), ACTOR)
+        self.assertEqual(caught.exception.code, "TAB_BROKEN")
+
+
+class HeldCustomerTest(Base):
+    """Máy đối soát xếp khách vào HELD thì bảng đối chiếu cũng không ghi, dù snapshot không thấy lỗi."""
+    reconcile: ClassVar[dict] = {"checked_at": "2026-11-16T09:00:00+07:00", "customers": [
+        {"customer_id": 7, "sheet_total_vnd": None, "reason": "HELD", "held_reasons": {"MISSING_TRIP_AMOUNT": 2}}]}
+
+    def test_statement_is_blocked_with_the_held_reasons(self):
+        result = api.statement(7, Runner(), ACTOR)
+        self.assertEqual((result["groups"], result["blocked"]["held"], result["blocked"]["held_reasons"]), ([], True, {"MISSING_TRIP_AMOUNT": 2}))
+
+    def test_write_is_refused(self):
+        runner = Runner()
+        with self.assertRaises(ApiError) as caught:
+            api.write(self.body(), runner, ACTOR)
+        self.assertEqual(caught.exception.code, "TAB_BROKEN")
+        self.assertEqual(runner.writes(), [])
 
 
 class KeepUndoTest(Base):

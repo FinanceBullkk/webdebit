@@ -56,6 +56,7 @@ Luồng chính: mở trang → khách lệch lớn nhất đã mở sẵn → t�
 - `POST …/giu`: `{"customer_id", "expected_version", "idempotency_key", "rows": [{"target_kind", "target_id", "source_fingerprint"}]}`.
 - `POST …/hoan-tac`: `{"customer_id", "expected_version", "idempotency_key", "command_keys", "months"}`.
 - Lỗi: `STALE_LEDGER` (sổ đổi), `STALE_SHEET` (bản chụp đổi, hoặc số của khoản khác số người đã xem), `SHEET_SNAPSHOT_UNAVAILABLE` (503).
+- Tab không lành (KIEM-TAB-01, đợt 1, ĐỀ XUẤT trong `specs/v7-kiem-tab-truoc-khi-ghi.md`): bản chụp giá có `tabs[tab].status = broken` (bộ quét đếm lỗi, hoặc `row_shift`: dòng có container không tiền sát dòng có tiền không container), hoặc máy đối soát đang giữ khách (`reason = HELD`). Khi đó `groups` rỗng, `blocked = {code: "TAB_BROKEN", findings, held, held_reasons}`, và `POST …/ghi` trả `409 TAB_BROKEN` trước mọi kiểm khác, không ghi gì. Duyệt chuyến không bị chặn. Máy đối soát cũng không ghi cho khách đó (`reason = HELD`, `held_reasons` kiểu `ROW_SHIFT`).
 
 ## Hành vi và bất biến
 
