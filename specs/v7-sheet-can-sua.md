@@ -79,8 +79,8 @@ Với `chain_break`: đọc thêm một dải cột (chỉ công thức) của �
 | --- | --- | --- | --- |
 | 3a | Cặp hai dòng: tiền là giá chuyến web (đã lên `hao`, #442) | Không | Tự động |
 | 3b | `negative_receipt` (mức `error`, chặn ghi) và `duplicate_container` (mức `warning`, không chặn: dòng không tiền cộng 0) trong `v7_tab_health.py`, ô nêu rõ. ĐÃ CODE 16/11/2026; đo trên `hao`: 9 tab `broken` như cũ, 1 tab có `negative_receipt` (ô M238, đúng ca số âm 164.833.232 đ ở cột thu), 11 cảnh báo `duplicate_container` ở 2 tab | Không | Tự động |
-| 3c | Endpoint `GET /api/v7/sheet/vung-o` đọc vùng ô (`web/v7_sheet_region.py`, cache 60 giây, API tự xin token chỉ đọc) và `chain_break` nêu ô (ô số cuối tháng của khối, so công thức mẫu các khối khác). ĐÃ CODE 16/11/2026; đo trên `hao` với tab sổ 239: 1,1 giây, 20 KB, đọc đủ công thức, nền, ô gộp, chỉ đúng cặp ô `row_shift` và một ô ngày nghi đảo | Không; cần drop-in `sheet-region.conf` cho `v7-ledger-api` (hỏi người dùng trước khi chạy) | Release tự động, drop-in tay |
-| 3d | Khối "Sheet cần sửa" (model, view, CSS, test trình duyệt 1280×560 và 390px, bản xem dữ liệu giả) | Không | Tự động |
+| 3c | Endpoint `GET /api/v7/sheet/vung-o` đọc vùng ô (`web/v7_sheet_region.py`, cache 60 giây, API tự xin token chỉ đọc) và `chain_break` nêu ô (ô số cuối tháng của khối, so công thức mẫu các khối khác). ĐÃ CODE 16/11/2026; đo trên `hao` với tab sổ 239: 1,1 giây, 20 KB, đọc đủ công thức, nền, ô gộp, chỉ đúng cặp ô `row_shift` và một ô ngày nghi đảo | Không; cần drop-in `sheet-region.conf` cho `v7-ledger-api` (phiên điều phối duyệt 16/11/2026 theo quyền người dùng trao 21/10) | Release tự động, drop-in tay |
+| 3d | Khối "Sheet cần sửa" ở bảng đối chiếu của khách (`preview/viec-can-lam-sheet-can-sua.js`, CSS, nút Xem vùng ô / Đọc lại / Mở ô này trên Sheet, 1280×560 và 390px). ĐÃ CODE 16/11/2026 (test đơn vị, test trình duyệt hai cỡ, ảnh render dữ liệu giả). **Chưa làm:** chip lọc "Sheet cần sửa (n)" đầu bảng (cần `reconcile.json` mang số chỗ sai mỗi khách) và bước cuối của `UX-NEN-01` (người dùng thật đi hết luồng) | Không | Tự động |
 
 Mọi luật kiểm ở `v7_tab_health.py`, không đụng `v7_load*`. Không ghi Google Sheet.
 
@@ -93,12 +93,12 @@ Mọi luật kiểm ở `v7_tab_health.py`, không đụng `v7_load*`. Không gh
 
 ## 9. Tiêu chí nghiệm thu
 
-- [ ] Mỗi loại ở mục 3 có fixture giả và test; ô đúng theo A1.
-- [ ] Endpoint không nhận A1 từ client; tab của khách khác trả 404; không ghi gì; có `read_at`; cache 60 giây; lỗi Sheet trả 503 rõ.
-- [ ] Bản dựng đúng giá trị hiển thị, nền, ô gộp; cột trống liên tiếp gộp thành "…".
-- [ ] Ô lỗi viền đỏ và ô nghi ngờ viền cam nét đứt, có câu giải thích; `chain_break` hiện công thức mẫu; `row_shift` khoanh cả cặp.
-- [ ] 1280×560 có thanh cuộn: không cuộn ngang trang, ô lỗi thấy được không cần cuộn thêm; 390px: lưới cuộn ngang trong khung, ô lỗi ở giữa.
-- [ ] Chip "Sheet cần sửa (n)" đếm đúng; tab sửa xong thì khối biến sau lượt quét.
+- [x] Mỗi loại ở mục 3 có fixture giả và test; ô đúng theo A1 (3b, 3c, 3d).
+- [x] Endpoint không nhận A1 từ client; vùng tính từ chỗ sai của tab thuộc sổ; không ghi gì; có `read_at`; cache 60 giây, `fresh=1` bỏ cache; lỗi Sheet trả 503 rõ.
+- [x] Bản dựng đúng giá trị hiển thị, nền, ô gộp; cột trống liên tiếp gộp thành "…".
+- [x] Ô lỗi viền đỏ và ô nghi ngờ viền cam nét đứt, có câu giải thích; `chain_break` hiện công thức mẫu; `row_shift` khoanh cả cặp.
+- [x] 1280×560: không cuộn ngang trang, ô lỗi trong khung lưới; 390px: lưới cuộn ngang trong khung, ô lỗi đầu tiên ở giữa (cả cặp ô nếu vừa khung).
+- [ ] Chip "Sheet cần sửa (n)" đếm đúng (chưa làm); tab sửa xong thì khối biến sau lượt quét (khối tự mất khi bản chụp mới không còn chỗ sai).
 - [ ] Người dùng thật đi hết luồng mục 6 trên bản thử (bước cuối `UX-NEN-01`): chưa làm.
 
 ## 10. Đợt sau (chưa làm)

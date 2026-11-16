@@ -1,5 +1,9 @@
 """KIEM-TAB-01 3c: vùng ô của Sheet dựng lại cho màn "Sheet cần sửa". Sheets API giả, tên và số bịa; không gọi mạng, không openssl."""
+import base64
+import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +18,14 @@ import v7_sheet_region as region
 from v7_api_validate import ApiError
 
 SHEET = "S" * 30
+
+
+def base64_decode(part):
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def base64_encode(raw_bytes):
+    return base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode()
 GID = 777
 
 
@@ -53,10 +65,12 @@ class Opener:
     """Mở được hai địa chỉ: token và spreadsheets.get; đếm số lần gọi."""
 
     def __init__(self, payload, fail=False):
-        self.payload, self.fail, self.calls = payload, fail, []
+        self.payload, self.fail, self.calls, self.timeouts, self.requests = payload, fail, [], [], []
 
     def __call__(self, request, timeout=0):
         self.calls.append(request.full_url)
+        self.timeouts.append(timeout)
+        self.requests.append(request)
         if self.fail:
             raise OSError("mạng giả hỏng")
         body = {"access_token": "tok"} if request.full_url == region.TOKEN_URL else self.payload
@@ -83,9 +97,9 @@ class Env(unittest.TestCase):
         env = patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": SHEET, "WEBDEBIT_GOOGLE_CREDENTIALS": str(self.keys_path)})
         env.start()
         self.addCleanup(env.stop)
-        signer = patch.object(region.subprocess, "run", return_value=type("R", (), {"stdout": b"sig"})())
-        signer.start()
-        self.addCleanup(signer.stop)
+        self.signer = patch.object(region.subprocess, "run", return_value=type("R", (), {"stdout": b"sig"})())
+        self.signer.start()
+        self.addCleanup(self.signer.stop)
         region._cache.clear()
         region._token.update(value=None, until=0.0)
 
@@ -105,13 +119,19 @@ class PureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             region.region_bounds([], [])
 
-    def test_date_shown_and_stored_swapped_is_suspect(self):
-        stored = serial(2026, 10, 11)   # lưu ngày 11 tháng 10
-        self.assertTrue(region.date_swap({"kind": "DATE", "v": "10/11", "serial": stored}))   # hiện 10/11: đã đảo
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10", "serial": stored}))  # hiện đúng ngày lưu
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "5/5", "serial": serial(2026, 5, 5)}))   # ngày = tháng: không phân biệt được
-        self.assertFalse(region.date_swap({"kind": "DATE", "v": "10/11"}))   # không đọc được ngày lưu thì bỏ cờ
-        self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "10/11", "serial": stored}))
+    def test_date_flag_only_when_stored_is_outside_the_block_and_swapping_lands_in_it(self):
+        molly = {"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 11, 10)}   # hiện 11/10, Sheet hiểu 10 tháng 11; khối là tháng 10
+        self.assertTrue(region.date_swap(molly, "2025-10"))
+        self.assertIn("Ô hiện 11/10/2025 nhưng Sheet hiểu là ngày 10/11/2025, ngoài tháng 10 của khối", region.date_swap_text(molly, "2025-10"))
+        d17 = {"kind": "DATE", "v": "10/26/2026", "serial": serial(2026, 10, 26)}    # ngày 26 > 12, đúng tháng khối: chỉ hiển thị kiểu tháng/ngày
+        self.assertFalse(region.date_swap(d17, "2026-10"))
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025", "serial": serial(2025, 10, 11)}, "2025-10"))   # lưu trong khối
+        self.assertFalse(region.date_swap(molly, "2025-09"))   # đảo ra tháng 10, không phải tháng 9 của khối
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "26/11/2025", "serial": serial(2025, 11, 26)}, "2025-10"))   # ngày > 12 không đảo được
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2024", "serial": serial(2024, 11, 10)}, "2025-10"))   # khác năm
+        self.assertFalse(region.date_swap(molly, None))     # không biết tháng khối thì không đoán
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10/2025"}, "2025-10"))   # không đọc được ngày lưu thì bỏ cờ
+        self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "x", "serial": serial(2025, 11, 10)}, "2025-10"))
 
     def test_shape_ignores_row_numbers_only(self):
         self.assertEqual(region.shape("=SUM(M692:M847)"), region.shape("=sum( M10:M99 )"))
@@ -148,8 +168,11 @@ class BuildTests(unittest.TestCase):
         self.assertIn([3], [g["cols"] for g in built["column_groups"] if not g["collapsed"]])
 
     def test_swapped_date_becomes_a_suspect_mark_without_help_from_findings(self):
-        built = region.build_region(raw(cells={(9, 4): cell("10/11", kind="DATE", number=serial(2026, 10, 11))}), 8, 1, 22, 18, [])
-        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D9", "suspect")])
+        cells = {(42, 4): cell("11/10/2025", kind="DATE", number=serial(2025, 11, 10)), (43, 4): cell("10/26/2025", kind="DATE", number=serial(2025, 10, 26))}
+        built = region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [], "2025-10")
+        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D42", "suspect")])   # D42 kiểu MOLLY có cờ, D43 kiểu 10/26 không
+        self.assertIn("ngoài tháng 10 của khối", built["marks"][0]["text"])
+        self.assertEqual(region.build_region(raw(first=36, cells=cells), 36, 1, 50, 18, [])["marks"], [])   # không có tháng khối thì không cờ
 
 
 class FetchTests(Env):
@@ -180,6 +203,70 @@ class FetchTests(Env):
         with patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": ""}), self.assertRaises(ApiError) as missing:
             region.fetch_region("T", 8, 1, 22, 18, opener=Opener(raw()), now=1_800_000_000)
         self.assertEqual(missing.exception.status, 503)
+
+
+class SigningAndLogTests(Env):
+    def test_the_jwt_is_built_and_signed_with_the_key_and_the_token_is_kept_until_it_expires(self):
+        seen = {}
+
+        def fake_run(argv, input=None, **kwargs):
+            seen.update(argv=argv, signing_input=input, kwargs=kwargs)
+            return type("R", (), {"stdout": b"sig"})()
+        opener = Opener(raw())
+        with patch.object(region.subprocess, "run", fake_run):
+            token = region._access_token(str(self.keys_path), opener, 1_800_000_000)
+            again = region._access_token(str(self.keys_path), opener, 1_800_000_500)
+            later = region._access_token(str(self.keys_path), opener, 1_800_000_000 + region.TOKEN_SECONDS + 1)
+        self.assertEqual((token, again, later), ("tok", "tok", "tok"))
+        self.assertEqual(len(opener.calls), 2)   # lần hai dùng lại token, quá hạn mới xin lại
+        self.assertEqual(seen["argv"][:4], ["openssl", "dgst", "-sha256", "-sign"])
+        header, claims = (json.loads(base64_decode(part)) for part in seen["signing_input"].decode().split("."))
+        self.assertEqual(header, {"alg": "RS256", "typ": "JWT"})
+        self.assertEqual((claims["iss"], claims["scope"], claims["aud"], claims["exp"] - claims["iat"]),
+                         ("x@example.test", region.SCOPE, region.TOKEN_URL, 3600))
+        self.assertTrue(region.SCOPE.endswith("spreadsheets.readonly"))   # chỉ đọc
+        body = opener.requests[0].data.decode()
+        self.assertIn("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer", body)
+        self.assertTrue(body.split("assertion=")[1].endswith("." + base64_encode(b"sig")))
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl không có trên máy này")
+    def test_the_signature_verifies_against_the_public_key_of_a_throwaway_key(self):
+        self.signer.stop()   # dùng openssl thật; subprocess.run đang bị thay trong setUp
+        self.signer.start()
+        self.signer.stop()
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        key, public = folder / "k.pem", folder / "p.pem"
+        subprocess.run(["openssl", "genrsa", "-out", str(key), "2048"], check=True, capture_output=True)
+        subprocess.run(["openssl", "rsa", "-in", str(key), "-pubout", "-out", str(public)], check=True, capture_output=True)
+        data = b"header.claims"
+        signature = region._sign(data, key.read_text(encoding="utf-8"))
+        (folder / "s.bin").write_bytes(signature)
+        (folder / "d.bin").write_bytes(data)
+        checked = subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public), "-signature", str(folder / "s.bin"), str(folder / "d.bin")],
+                                 capture_output=True, text=True, check=False)
+        self.assertIn("Verified OK", checked.stdout)
+
+    def test_google_calls_time_out_in_8_seconds(self):
+        opener = Opener(raw())
+        region.fetch_region("T", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+        self.assertEqual(set(opener.timeouts), {8})
+
+    def test_the_log_has_tab_range_and_codes_but_never_cell_text(self):
+        hidden_text = "NOI-DUNG-O-BI-MAT"
+        opener = Opener(raw(cells={(8, 1): cell(hidden_text, formula="=SECRET(A1)")}))
+        stderr = io.StringIO()
+        with patch.object(region.sys, "stderr", stderr):
+            region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+            with self.assertRaises(ApiError):
+                region.fetch_region("Tab B", 8, 1, 22, 18, opener=Opener(raw(), fail=True), now=1_800_000_000 + 10_000)
+        text = stderr.getvalue()
+        self.assertIn("Tab A", text)
+        self.assertIn("A8:R22", text)
+        self.assertIn("lỗi", text)
+        self.assertNotIn(hidden_text, text)
+        self.assertNotIn("SECRET", text)
+        self.assertNotIn("PRIVATE", text.upper().replace("PRIVATE_KEY_ID", ""))
 
 
 class EndpointTests(Env):
@@ -221,6 +308,19 @@ class EndpointTests(Env):
             with self.subTest(query=query), self.assertRaises(ApiError) as caught:
                 self.call(query)
             self.assertEqual((caught.exception.status, caught.exception.code), (404, code))
+
+    def test_fresh_skips_the_cache_and_only_the_value_one_is_allowed(self):
+        opener = Opener(raw())
+        health = {"status": "broken", "findings": list(self.FINDINGS)}
+        with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
+            api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_000)
+            api.region("customer=7&finding=0", object(), "t", opener=opener, now=1_800_000_010)
+            self.assertEqual(len(opener.calls), 2)   # token + dữ liệu, lần hai từ cache
+            api.region("customer=7&finding=0&fresh=1", object(), "t", opener=opener, now=1_800_000_020)
+            self.assertEqual(len(opener.calls), 3)   # đọc lại dữ liệu, token còn hạn
+            for query in ("customer=7&finding=0&fresh=0", "customer=7&finding=0&fresh="):
+                with self.assertRaises(ApiError):
+                    api.region(query, object(), "t", opener=opener, now=1_800_000_030)
 
     def test_the_sheet_id_only_leaves_inside_the_open_link(self):
         self.assertEqual(json.dumps(self.call("customer=7&finding=0")).count(SHEET), 1)

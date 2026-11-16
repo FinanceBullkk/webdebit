@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -32,6 +33,7 @@ API = "https://sheets.googleapis.com/v4/spreadsheets/"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 CACHE_SECONDS = 60
+TIMEOUT_SECONDS = 8   # mỗi lần gọi Google (token và dữ liệu): quá thì màn vẫn hiện chữ, không đợi lâu
 TOKEN_SECONDS = 3000   # token sống 3600 giây
 SPAN = 7               # số dòng lấy thêm mỗi phía quanh ô
 MAX_ROWS = 15
@@ -50,7 +52,14 @@ _token: dict[str, Any] = {"value": None, "until": 0.0}
 _cache: dict[tuple, tuple[float, dict]] = {}
 
 
-def unavailable(why: str = "Chưa đọc được Sheet lúc này.") -> ApiError:
+def log(*parts: Any) -> None:
+    """Một dòng lên stderr (journal): chỉ tên tab, vùng, mã lỗi và thời gian đọc; không bao giờ nội dung ô, công thức hay khóa."""
+    print("V7 vùng ô:", *parts, file=sys.stderr, flush=True)
+
+
+def unavailable(why: str = "Chưa đọc được Sheet lúc này.", code: str = "") -> ApiError:
+    if code:
+        log("lỗi", code)
     return ApiError(503, "SHEET_REGION_UNAVAILABLE", why)
 
 
@@ -58,7 +67,7 @@ def config() -> tuple[str, str]:
     """(ID Sheet, đường dẫn khóa tài khoản dịch vụ) từ môi trường; thiếu hay sai thì 503, không đoán."""
     sheet, path = os.getenv("WEBDEBIT_SHEET_ID", ""), os.getenv("WEBDEBIT_GOOGLE_CREDENTIALS", "")
     if not SHEET_ID.fullmatch(sheet) or not path:
-        raise unavailable("Chưa cấu hình đọc Sheet cho máy chủ.")
+        raise unavailable("Chưa cấu hình đọc Sheet cho máy chủ.", "CONFIG")
     return sheet, path
 
 
@@ -98,14 +107,14 @@ def _sign(data: bytes, private_key: str) -> bytes:
             os.write(fd, private_key.encode())
             os.lseek(fd, 0, os.SEEK_SET)
             return subprocess.run(["openssl", "dgst", "-sha256", "-sign", f"/dev/fd/{fd}"], input=data, capture_output=True, check=True,
-                                  timeout=10, pass_fds=(fd,)).stdout
+                                  timeout=TIMEOUT_SECONDS, pass_fds=(fd,)).stdout
         finally:
             os.close(fd)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as key:
         key.write(private_key)
         key_path = key.name
     try:
-        return subprocess.run(["openssl", "dgst", "-sha256", "-sign", key_path], input=data, capture_output=True, check=True, timeout=10).stdout
+        return subprocess.run(["openssl", "dgst", "-sha256", "-sign", key_path], input=data, capture_output=True, check=True, timeout=TIMEOUT_SECONDS).stdout
     finally:
         os.unlink(key_path)
 
@@ -129,12 +138,12 @@ def _access_token(credentials_path: str, opener: Callable[..., Any], now: float)
                                        "assertion": f"{header}.{claims}.{_b64(signature)}"}).encode()
         request = urllib.request.Request(TOKEN_URL, data=body, method="POST",
                                          headers={"Content-Type": "application/x-www-form-urlencoded"})
-        with opener(request, timeout=20) as response:
+        with opener(request, timeout=TIMEOUT_SECONDS) as response:
             token = json.loads(response.read().decode("utf-8")).get("access_token")
     except (OSError, ValueError, subprocess.SubprocessError, urllib.error.URLError, KeyError) as exc:
-        raise unavailable() from exc
+        raise unavailable(code=f"TOKEN {type(exc).__name__}") from exc
     if not isinstance(token, str) or not token:
-        raise unavailable()
+        raise unavailable(code="TOKEN EMPTY")
     with _lock:
         _token.update(value=token, until=now + TOKEN_SECONDS)
     return token
@@ -166,17 +175,23 @@ def _serial_date(value: Any) -> date | None:
         return None
 
 
-def date_swap(cell: dict) -> bool:
-    """Ô ngày mà chữ hiện và ngày lưu khác nhau đúng kiểu đảo ngày/tháng (hiện 11/10, lưu 10/11). Không đọc được thì False."""
-    shown, stored = cell.get("v"), cell.get("serial")
-    if cell.get("kind") != "DATE" or not shown or stored is None:
+def date_swap(cell: dict, month: str | None) -> bool:
+    """Ô ngày nghi gõ ngày/tháng mà Sheet đọc tháng/ngày (Sheet hiểu 10/11 là ngày 10 tháng 11 trong khi người gõ muốn 11 tháng 10). Chỉ
+    khi cả ba điều kiện cùng đúng, theo `month` (yyyy-mm) của khối: ngày lưu nằm ngoài tháng của khối; đảo ngày với tháng thì rơi vào
+    đúng tháng của khối (cùng năm); ngày lẫn tháng đều không quá 12. Không biết tháng khối hay không đọc được ngày lưu thì False."""
+    stored = cell.get("serial")
+    when = _serial_date(stored) if stored is not None else None
+    if cell.get("kind") != "DATE" or when is None or not re.fullmatch(r"[0-9]{4}-[0-9]{2}", month or ""):
         return False
-    match = re.match(r"^\s*(\d{1,2})[/.-](\d{1,2})", shown)
-    when = _serial_date(stored)
-    if not match or when is None:
-        return False
-    first, second = int(match.group(1)), int(match.group(2))
-    return first != second and (first, second) == (when.month, when.day)
+    block_year, block_month = int(month[:4]), int(month[5:7])
+    return ((when.year, when.month) != (block_year, block_month) and when.day <= 12 and when.month <= 12
+            and when.year == block_year and when.day == block_month)
+
+
+def date_swap_text(cell: dict, month: str) -> str:
+    when = _serial_date(cell["serial"])
+    return (f"Ô hiện {cell.get('v')} nhưng Sheet hiểu là ngày {when:%d/%m/%Y}, ngoài tháng {int(month[5:7])} của khối: "
+            "có thể gõ ngày/tháng mà Sheet đọc tháng/ngày.")
 
 
 def shape(formula: str | None) -> str | None:
@@ -184,9 +199,9 @@ def shape(formula: str | None) -> str | None:
     return None if not formula else REF.sub(lambda m: re.sub(r"[0-9]+", "#", m.group(0)), formula.replace(" ", "").upper())
 
 
-def build_region(raw: dict, first: int, col_first: int, last: int, col_last: int, marks: list[dict]) -> dict:
+def build_region(raw: dict, first: int, col_first: int, last: int, col_last: int, marks: list[dict], month: str | None = None) -> dict:
     """Từ phản hồi `spreadsheets.get` dựng bản gọn cho client: ô (chữ hiện, công thức, nền, đậm, căn), ô gộp, cỡ cột/dòng, cột trống
-    liên tiếp gộp thành một cột '…', và các ô nêu trong `marks` kèm cờ đảo ngày."""
+    liên tiếp gộp thành một cột '…', và các ô nêu trong `marks` kèm cờ đảo ngày (theo `month` của khối)."""
     sheet = raw["sheets"][0]
     grid = sheet["data"][0]
     start_row, start_col = int(grid.get("startRow") or 0), int(grid.get("startColumn") or 0)
@@ -217,9 +232,9 @@ def build_region(raw: dict, first: int, col_first: int, last: int, col_last: int
     flagged = {tuple(split_cell(mark["cell"])): mark for mark in marks if CELL.fullmatch(mark.get("cell", ""))}
     for r, line in enumerate(cells):
         for c, cell in enumerate(line):
-            if date_swap(cell) and (first + r, col_first + c) not in flagged:
+            if month and date_swap(cell, month) and (first + r, col_first + c) not in flagged:
                 flagged[(first + r, col_first + c)] = {"cell": f"{column_letter(col_first + c)}{first + r}", "level": "suspect",
-                                                       "text": f"Ô ngày hiện {cell['v']} nhưng lưu ngày/tháng ngược lại: có thể đảo ngày và tháng."}
+                                                       "text": date_swap_text(cell, month)}
     mark_list = [{"row": row - first, "col": col - col_first, **mark} for (row, col), mark in sorted(flagged.items())
                  if first <= row <= last and col_first <= col <= col_last]
     busy = {c for line in cells for c, cell in enumerate(line) if cell["v"] or cell["f"]}
@@ -256,8 +271,8 @@ def chain_sample(this_cell: dict, others: list[dict]) -> dict | None:
 
 
 def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int, extra: list[str] | None = None, *,
-                 opener: Callable[..., Any] = urllib.request.urlopen, now: float | None = None) -> dict:
-    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây. Trả `{raw, extra_raw, read_at}`."""
+                 opener: Callable[..., Any] = urllib.request.urlopen, now: float | None = None, fresh: bool = False) -> dict:
+    """Đọc một vùng (cộng các dải phụ `extra`, A1 đầy đủ không kèm tên tab) có cache 60 giây; `fresh` (nút "Đọc lại") bỏ qua cache."""
     sheet_id, credentials = config()
     stamp = time.time() if now is None else now
     area = f"'{tab.replace(chr(39), chr(39) * 2)}'!{column_letter(col_first)}{first}:{column_letter(col_last)}{last}"
@@ -265,19 +280,22 @@ def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int,
     key = (sheet_id, tuple(ranges))
     with _lock:
         hit = _cache.get(key)
-    if hit and stamp - hit[0] < CACHE_SECONDS:
+    if hit and not fresh and stamp - hit[0] < CACHE_SECONDS:
         return hit[1]
     token = _access_token(credentials, opener, stamp)
     query = [("ranges", r) for r in ranges] + [("includeGridData", "true"), ("fields", FIELDS)]
     request = urllib.request.Request(API + urllib.parse.quote(sheet_id) + "?" + urllib.parse.urlencode(query),
                                      headers={"Authorization": f"Bearer {token}"})
     try:
-        with opener(request, timeout=30) as response:
+        with opener(request, timeout=TIMEOUT_SECONDS) as response:
             raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise unavailable(code=f"HTTP {exc.code} {tab} {area}") from exc
     except (OSError, ValueError, urllib.error.URLError) as exc:
-        raise unavailable() from exc
+        raise unavailable(code=f"{type(exc).__name__} {tab} {area}") from exc
     if not raw.get("sheets") or not raw["sheets"][0].get("data"):
-        raise unavailable("Không thấy tab trên Sheet.")
+        raise unavailable("Không thấy tab trên Sheet.", f"NO_TAB {tab}")
+    log("đọc", tab, area, f"{len(ranges)} dải", datetime.fromtimestamp(stamp, UTC).isoformat(timespec="seconds"))
     result = {"raw": {"sheets": [{**raw["sheets"][0], "data": raw["sheets"][0]["data"][:1]}]},
               "extra": list(raw["sheets"][0]["data"][1:]),
               "read_at": datetime.fromtimestamp(stamp, UTC).astimezone(VN).isoformat(timespec="seconds")}
