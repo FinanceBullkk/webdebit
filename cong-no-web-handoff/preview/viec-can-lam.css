@@ -195,7 +195,7 @@ svg{flex:none;vertical-align:middle}
 .sf-cells{color:var(--ink-2)}.sf-cells b{padding:1px 6px;border-radius:6px;background:var(--critical-soft);color:var(--critical)}.sf-card.sf-warning .sf-cells b{background:var(--warning-soft);color:var(--warning)}
 .sf-card header .btn{margin-left:auto}
 .sf-message,.sf-fix,.sf-sample{margin:6px 0 0}.sf-fix{color:#3a3936}.sf-sample code,.sf-notes code{padding:1px 5px;border-radius:5px;background:var(--head);font-family:inherit}
-.sf-region{margin-top:10px}.sf-loading,.sf-failed{margin:10px 0 0}
+.sf-region{margin-top:10px}.sf-loading,.sf-failed{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 0;color:var(--ink-2)}
 .sf-scroll{max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:#fff}.sf-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sf-grid{border-collapse:collapse;font-size:13px;white-space:nowrap}
 .sf-grid th,.sf-grid td{height:26px;padding:1px 6px;border:1px solid var(--line-soft);text-align:left;font-weight:400}

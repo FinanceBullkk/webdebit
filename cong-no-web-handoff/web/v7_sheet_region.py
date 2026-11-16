@@ -13,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -32,6 +33,7 @@ API = "https://sheets.googleapis.com/v4/spreadsheets/"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 CACHE_SECONDS = 60
+TIMEOUT_SECONDS = 8   # mỗi lần gọi Google (token và dữ liệu): quá thì màn vẫn hiện chữ, không đợi lâu
 TOKEN_SECONDS = 3000   # token sống 3600 giây
 SPAN = 7               # số dòng lấy thêm mỗi phía quanh ô
 MAX_ROWS = 15
@@ -50,7 +52,14 @@ _token: dict[str, Any] = {"value": None, "until": 0.0}
 _cache: dict[tuple, tuple[float, dict]] = {}
 
 
-def unavailable(why: str = "Chưa đọc được Sheet lúc này.") -> ApiError:
+def log(*parts: Any) -> None:
+    """Một dòng lên stderr (journal): chỉ tên tab, vùng, mã lỗi và thời gian đọc; không bao giờ nội dung ô, công thức hay khóa."""
+    print("V7 vùng ô:", *parts, file=sys.stderr, flush=True)
+
+
+def unavailable(why: str = "Chưa đọc được Sheet lúc này.", code: str = "") -> ApiError:
+    if code:
+        log("lỗi", code)
     return ApiError(503, "SHEET_REGION_UNAVAILABLE", why)
 
 
@@ -58,7 +67,7 @@ def config() -> tuple[str, str]:
     """(ID Sheet, đường dẫn khóa tài khoản dịch vụ) từ môi trường; thiếu hay sai thì 503, không đoán."""
     sheet, path = os.getenv("WEBDEBIT_SHEET_ID", ""), os.getenv("WEBDEBIT_GOOGLE_CREDENTIALS", "")
     if not SHEET_ID.fullmatch(sheet) or not path:
-        raise unavailable("Chưa cấu hình đọc Sheet cho máy chủ.")
+        raise unavailable("Chưa cấu hình đọc Sheet cho máy chủ.", "CONFIG")
     return sheet, path
 
 
@@ -98,14 +107,14 @@ def _sign(data: bytes, private_key: str) -> bytes:
             os.write(fd, private_key.encode())
             os.lseek(fd, 0, os.SEEK_SET)
             return subprocess.run(["openssl", "dgst", "-sha256", "-sign", f"/dev/fd/{fd}"], input=data, capture_output=True, check=True,
-                                  timeout=10, pass_fds=(fd,)).stdout
+                                  timeout=TIMEOUT_SECONDS, pass_fds=(fd,)).stdout
         finally:
             os.close(fd)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as key:
         key.write(private_key)
         key_path = key.name
     try:
-        return subprocess.run(["openssl", "dgst", "-sha256", "-sign", key_path], input=data, capture_output=True, check=True, timeout=10).stdout
+        return subprocess.run(["openssl", "dgst", "-sha256", "-sign", key_path], input=data, capture_output=True, check=True, timeout=TIMEOUT_SECONDS).stdout
     finally:
         os.unlink(key_path)
 
@@ -129,12 +138,12 @@ def _access_token(credentials_path: str, opener: Callable[..., Any], now: float)
                                        "assertion": f"{header}.{claims}.{_b64(signature)}"}).encode()
         request = urllib.request.Request(TOKEN_URL, data=body, method="POST",
                                          headers={"Content-Type": "application/x-www-form-urlencoded"})
-        with opener(request, timeout=20) as response:
+        with opener(request, timeout=TIMEOUT_SECONDS) as response:
             token = json.loads(response.read().decode("utf-8")).get("access_token")
     except (OSError, ValueError, subprocess.SubprocessError, urllib.error.URLError, KeyError) as exc:
-        raise unavailable() from exc
+        raise unavailable(code=f"TOKEN {type(exc).__name__}") from exc
     if not isinstance(token, str) or not token:
-        raise unavailable()
+        raise unavailable(code="TOKEN EMPTY")
     with _lock:
         _token.update(value=token, until=now + TOKEN_SECONDS)
     return token
@@ -272,12 +281,15 @@ def fetch_region(tab: str, first: int, col_first: int, last: int, col_last: int,
     request = urllib.request.Request(API + urllib.parse.quote(sheet_id) + "?" + urllib.parse.urlencode(query),
                                      headers={"Authorization": f"Bearer {token}"})
     try:
-        with opener(request, timeout=30) as response:
+        with opener(request, timeout=TIMEOUT_SECONDS) as response:
             raw = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise unavailable(code=f"HTTP {exc.code} {tab} {area}") from exc
     except (OSError, ValueError, urllib.error.URLError) as exc:
-        raise unavailable() from exc
+        raise unavailable(code=f"{type(exc).__name__} {tab} {area}") from exc
     if not raw.get("sheets") or not raw["sheets"][0].get("data"):
-        raise unavailable("Không thấy tab trên Sheet.")
+        raise unavailable("Không thấy tab trên Sheet.", f"NO_TAB {tab}")
+    log("đọc", tab, area, f"{len(ranges)} dải", datetime.fromtimestamp(stamp, UTC).isoformat(timespec="seconds"))
     result = {"raw": {"sheets": [{**raw["sheets"][0], "data": raw["sheets"][0]["data"][:1]}]},
               "extra": list(raw["sheets"][0]["data"][1:]),
               "read_at": datetime.fromtimestamp(stamp, UTC).astimezone(VN).isoformat(timespec="seconds")}

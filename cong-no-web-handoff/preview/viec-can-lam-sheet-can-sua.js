@@ -73,7 +73,7 @@ Chỉ vẽ chuỗi HTML; không đụng DOM, không ghi gì. Mọi chữ lấy t
   function regionHtml(id, index, entry, esc) {
     const attr = `${id}:${index}`;
     if (entry === undefined) return `<p class="loading sf-loading" role="status">Đang đọc Sheet…</p>`;
-    if (entry === null) return `<p class="dc-failed sf-failed" role="alert">Chưa đọc được Sheet lúc này. <button type="button" class="btn" data-sc-refresh="${esc(attr)}">Thử lại</button></p>`;
+    if (entry === null) return `<p class="sf-failed" role="status">Chưa tải được hình Sheet. Chỗ sai vẫn đúng như đã nói ở trên. <button type="button" class="btn" data-sc-refresh="${esc(attr)}">Thử lại</button></p>`;
     const marks = entry.region.marks ?? [];
     const notes = marks.length ? `<ul class="sf-notes">${marks.map(mark => `<li class="sf-note sf-${mark.level === 'error' ? 'error' : mark.level === 'suspect' ? 'suspect' : 'warning'}"><strong>${esc(mark.cell)}</strong> ${esc(mark.text)}</li>`).join('')}</ul>` : '';
     return `<div class="sf-region">${gridHtml(entry.region, esc)}<div class="sf-meta"><span>Đọc lúc ${esc(clock(entry.read_at))}</span>`

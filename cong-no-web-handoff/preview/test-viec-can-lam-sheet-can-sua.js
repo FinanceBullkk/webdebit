@@ -32,7 +32,7 @@ test('vùng ô chỉ hiện khi mở; đang tải và lỗi có chữ riêng, l�
   assert.match(closed, /aria-expanded="false"/);
   assert.match(S.html(7, statement([finding()]), { regionOpen: new Set(['7:0']), region: new Map() }, { esc }), /Đang đọc Sheet…/);
   const failed = S.html(7, statement([finding()]), state({ '7:0': null }), { esc });
-  assert.match(failed, /Chưa đọc được Sheet lúc này/);
+  assert.match(failed, /Chưa tải được hình Sheet/);
   assert.match(failed, /data-sc-refresh="7:0"/);
 });
 

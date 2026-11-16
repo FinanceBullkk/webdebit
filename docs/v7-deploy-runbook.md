@@ -1897,7 +1897,7 @@ Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả h
 
 Route mới `GET /api/v7/sheet/vung-o?customer=<id>&finding=<số>` ([spec](../specs/v7-sheet-can-sua.md)) đọc **một vùng nhỏ** của Sheet (`spreadsheets.get` kèm `includeGridData`, tài khoản dịch vụ chỉ đọc có sẵn) khi người dùng mở một chỗ sai. Vùng do server tính, client không gửi A1; cache 60 giây; không ghi gì. Không SQL, không migration, không `v7_load*`: `Deploy hao` tự đổi release.
 
-Cần một **drop-in cho `v7-ledger-api.service`** (đổi systemd ngoài runbook cũ, nên hỏi người dùng trước khi chạy), chỉ để API có ID Sheet và đường dẫn khóa; API chạy bằng `v7app`, khóa `/etc/webdebit/google-sheet-reader.json` cũng của `v7app`, không đổi quyền file:
+Cần một **drop-in cho `v7-ledger-api.service`**, phiên điều phối duyệt 16/11/2026 theo quyền người dùng trao 21/10 (không đổi quyền, role hay mạng; chỉ hai biến môi trường), để API có ID Sheet và đường dẫn khóa; API chạy bằng `v7app`, khóa `/etc/webdebit/google-sheet-reader.json` cũng của `v7app`, không đổi quyền file:
 
 ```ini
 # /etc/systemd/system/v7-ledger-api.service.d/sheet-region.conf
@@ -1910,7 +1910,7 @@ Environment=WEBDEBIT_GOOGLE_CREDENTIALS=/etc/webdebit/google-sheet-reader.json
 
 Thứ tự: đổi release (tự động) rồi drop-in, `daemon-reload`, restart `v7-ledger-api`, kiểm `/healthz` 200 và gọi route cho một khách có chỗ sai (chỉ đọc; kiểm số dòng, cột, `read_at`, link mở ô có `gid`). Bản chụp giá cần chạy lại một lượt (15 phút) để có `blocks` cho `chain_break`.
 
-Rollback: gỡ drop-in, `daemon-reload`, restart; hoặc `webdebit-release.sh deploy <sha trước>`.
+Rollback: xóa `/etc/systemd/system/v7-ledger-api.service.d/sheet-region.conf`, `systemctl daemon-reload`, `systemctl restart v7-ledger-api`; hoặc `webdebit-release.sh deploy <sha trước>`. Làm ngoài khoảng :05–:15 của giờ (lượt đối soát). Mỗi lần gọi Google tối đa 8 giây; log (`journalctl -u v7-ledger-api`) chỉ có tên tab, vùng, thời gian và mã lỗi, không có nội dung ô.
 
 ## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 16/11/2026, [nhật ký](deploys/2026-11-16-bao-cao-thang.md))
 

@@ -186,7 +186,7 @@ if (process.argv.includes('--preview')) {
     });
     await withPage({ statement: blockedStatement(), regionStatus: 503 }, async page => {
       await page.locator('.sf-failed').waitFor();
-      assert.match(await page.locator('.sf-failed').innerText(), /Chưa đọc được Sheet lúc này/);
+      assert.match(await page.locator('.sf-failed').innerText(), /Chưa tải được hình Sheet/);
       assert.match(await sheetFix(page).innerText(), /tiền có thể nằm lệch một dòng/);   // câu thường không phụ thuộc Sheet
       assert.equal(await page.locator('.sf-failed [data-sc-refresh]').count(), 1);
     });

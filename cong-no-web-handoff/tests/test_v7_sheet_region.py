@@ -1,5 +1,9 @@
 """KIEM-TAB-01 3c: vùng ô của Sheet dựng lại cho màn "Sheet cần sửa". Sheets API giả, tên và số bịa; không gọi mạng, không openssl."""
+import base64
+import io
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +18,14 @@ import v7_sheet_region as region
 from v7_api_validate import ApiError
 
 SHEET = "S" * 30
+
+
+def base64_decode(part):
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def base64_encode(raw_bytes):
+    return base64.urlsafe_b64encode(raw_bytes).rstrip(b"=").decode()
 GID = 777
 
 
@@ -53,10 +65,12 @@ class Opener:
     """Mở được hai địa chỉ: token và spreadsheets.get; đếm số lần gọi."""
 
     def __init__(self, payload, fail=False):
-        self.payload, self.fail, self.calls = payload, fail, []
+        self.payload, self.fail, self.calls, self.timeouts, self.requests = payload, fail, [], [], []
 
     def __call__(self, request, timeout=0):
         self.calls.append(request.full_url)
+        self.timeouts.append(timeout)
+        self.requests.append(request)
         if self.fail:
             raise OSError("mạng giả hỏng")
         body = {"access_token": "tok"} if request.full_url == region.TOKEN_URL else self.payload
@@ -83,9 +97,9 @@ class Env(unittest.TestCase):
         env = patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": SHEET, "WEBDEBIT_GOOGLE_CREDENTIALS": str(self.keys_path)})
         env.start()
         self.addCleanup(env.stop)
-        signer = patch.object(region.subprocess, "run", return_value=type("R", (), {"stdout": b"sig"})())
-        signer.start()
-        self.addCleanup(signer.stop)
+        self.signer = patch.object(region.subprocess, "run", return_value=type("R", (), {"stdout": b"sig"})())
+        self.signer.start()
+        self.addCleanup(self.signer.stop)
         region._cache.clear()
         region._token.update(value=None, until=0.0)
 
@@ -180,6 +194,70 @@ class FetchTests(Env):
         with patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": ""}), self.assertRaises(ApiError) as missing:
             region.fetch_region("T", 8, 1, 22, 18, opener=Opener(raw()), now=1_800_000_000)
         self.assertEqual(missing.exception.status, 503)
+
+
+class SigningAndLogTests(Env):
+    def test_the_jwt_is_built_and_signed_with_the_key_and_the_token_is_kept_until_it_expires(self):
+        seen = {}
+
+        def fake_run(argv, input=None, **kwargs):
+            seen.update(argv=argv, signing_input=input, kwargs=kwargs)
+            return type("R", (), {"stdout": b"sig"})()
+        opener = Opener(raw())
+        with patch.object(region.subprocess, "run", fake_run):
+            token = region._access_token(str(self.keys_path), opener, 1_800_000_000)
+            again = region._access_token(str(self.keys_path), opener, 1_800_000_500)
+            later = region._access_token(str(self.keys_path), opener, 1_800_000_000 + region.TOKEN_SECONDS + 1)
+        self.assertEqual((token, again, later), ("tok", "tok", "tok"))
+        self.assertEqual(len(opener.calls), 2)   # lần hai dùng lại token, quá hạn mới xin lại
+        self.assertEqual(seen["argv"][:4], ["openssl", "dgst", "-sha256", "-sign"])
+        header, claims = (json.loads(base64_decode(part)) for part in seen["signing_input"].decode().split("."))
+        self.assertEqual(header, {"alg": "RS256", "typ": "JWT"})
+        self.assertEqual((claims["iss"], claims["scope"], claims["aud"], claims["exp"] - claims["iat"]),
+                         ("x@example.test", region.SCOPE, region.TOKEN_URL, 3600))
+        self.assertTrue(region.SCOPE.endswith("spreadsheets.readonly"))   # chỉ đọc
+        body = opener.requests[0].data.decode()
+        self.assertIn("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer", body)
+        self.assertTrue(body.split("assertion=")[1].endswith("." + base64_encode(b"sig")))
+
+    @unittest.skipUnless(shutil.which("openssl"), "openssl không có trên máy này")
+    def test_the_signature_verifies_against_the_public_key_of_a_throwaway_key(self):
+        self.signer.stop()   # dùng openssl thật; subprocess.run đang bị thay trong setUp
+        self.signer.start()
+        self.signer.stop()
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        key, public = folder / "k.pem", folder / "p.pem"
+        subprocess.run(["openssl", "genrsa", "-out", str(key), "2048"], check=True, capture_output=True)
+        subprocess.run(["openssl", "rsa", "-in", str(key), "-pubout", "-out", str(public)], check=True, capture_output=True)
+        data = b"header.claims"
+        signature = region._sign(data, key.read_text(encoding="utf-8"))
+        (folder / "s.bin").write_bytes(signature)
+        (folder / "d.bin").write_bytes(data)
+        checked = subprocess.run(["openssl", "dgst", "-sha256", "-verify", str(public), "-signature", str(folder / "s.bin"), str(folder / "d.bin")],
+                                 capture_output=True, text=True, check=False)
+        self.assertIn("Verified OK", checked.stdout)
+
+    def test_google_calls_time_out_in_8_seconds(self):
+        opener = Opener(raw())
+        region.fetch_region("T", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+        self.assertEqual(set(opener.timeouts), {8})
+
+    def test_the_log_has_tab_range_and_codes_but_never_cell_text(self):
+        hidden_text = "NOI-DUNG-O-BI-MAT"
+        opener = Opener(raw(cells={(8, 1): cell(hidden_text, formula="=SECRET(A1)")}))
+        stderr = io.StringIO()
+        with patch.object(region.sys, "stderr", stderr):
+            region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+            with self.assertRaises(ApiError):
+                region.fetch_region("Tab B", 8, 1, 22, 18, opener=Opener(raw(), fail=True), now=1_800_000_000 + 10_000)
+        text = stderr.getvalue()
+        self.assertIn("Tab A", text)
+        self.assertIn("A8:R22", text)
+        self.assertIn("lỗi", text)
+        self.assertNotIn(hidden_text, text)
+        self.assertNotIn("SECRET", text)
+        self.assertNotIn("PRIVATE", text.upper().replace("PRIVATE_KEY_ID", ""))
 
 
 class EndpointTests(Env):
