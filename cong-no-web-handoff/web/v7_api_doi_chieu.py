@@ -38,6 +38,7 @@ from v7_sheet_fix import (
     price_delta,
     tab_broken,
 )
+from v7_sheet_task_keep import closed_sources
 
 UNDOABLE = {"prices", "receipts", "receipts_no_date"}   # `undo_sheet_batch` chỉ khôi phục giá và phiếu
 MAX_ROWS = 500
@@ -138,6 +139,7 @@ def statement(customer: int, runner: Psql, actor: str) -> dict[str, Any]:
             "sheet_editing": bool(row.get("sheet_editing")), "sheet_last_edit_at": row.get("sheet_last_edit_at"),
             "web_ahead_vnd": str(ahead), "shuffled_months": shuffled, "blocked": blocked,
             "prices_sha256": prices["sha256"], "receipts_sha256": receipts["sha256"],
+            "closed_sources": sorted(closed_sources(ledger, "price")),   # K3: gợi ý của máy đã "Đã xem, hết báo" (lọc ngay, không chờ lượt máy sau)
             "groups": [{"id": _group_id(group), "kind": group["kind"], "month": group["month"], "count": len(group["rows"]),
                         "delta_vnd": str(group["delta_vnd"]), "undoable": group["kind"] in UNDOABLE,
                         "locked": bool(group["month"] and _locked_months(ledger, {group["month"]})),

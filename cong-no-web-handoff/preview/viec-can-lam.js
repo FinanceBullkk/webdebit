@@ -78,7 +78,7 @@
   const inbox = { data: undefined, selected: new Set(), selectedPrices: new Set(), review: null, result: null, busy: false, keys: new Map(), filter: '', open: null, details: new Map(), action: null, tab: savedTab(),
     tongOpen: false,   // danh sách chỗ tab TONG chưa cộng đủ (KIEM-TONG-01) đang mở; giữ qua các lần tự tải lại
     // Bảng đối chiếu: khách đang mở, số từng khách, khoản đang chọn, chuyến bỏ ra, nhóm đang xem từng dòng, kết quả lần ghi.
-    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), xem: new Set(), undo: new Map(), ai: new Map(), regionOpen: new Set(), region: new Map(), regionSeen: new Set() },
+    dc: { open: null, closed: false, data: new Map(), sel: new Map(), off: new Map(), kept: new Map(), dismissed: new Map(), xem: new Set(), undo: new Map(), ai: new Map(), regionOpen: new Set(), region: new Map(), regionSeen: new Set() },
     // Tab Đã làm (HOAT-DONG-01): ngày đang xem (null = hôm nay), lọc máy/người, bản đọc theo ngày (undefined đang tải, null lỗi).
     act: { day: null, filter: 'all', data: new Map(), loading: null } };
   const inboxLabel = book => {
@@ -327,6 +327,15 @@
         rows: rows.map(row => { const [kind, target] = row.key.split(':'); return { target_kind: kind, target_id: Number(target), source_fingerprint: row.source_fingerprint }; }) } };
     paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
   }
+  // K3: "Đã xem, hết báo" gợi ý của máy (dòng Sheet không ghi được). Chỉ ghi Lịch sử, nợ không đổi; dòng Sheet đổi thì gợi ý hiện lại.
+  function reviewDismiss(id, source) {
+    const statement = inbox.dc.data.get(id);
+    if (!statement || inbox.action || !/^[0-9a-f]{64}$/.test(source ?? '')) return;
+    inbox.action = { id, rowKey: `dc:${id}`, doiChieu: 'dong', source, title: 'Đã xem, hết báo', path: '/api/v7/sheet/tasks/keep',
+      text: 'Ẩn gợi ý này. Nợ không đổi, vẫn lệch Sheet; không ghi tiền. Dòng này trên Sheet đổi thì hiện lại. Có ghi Lịch sử.',
+      body: { customer_id: id, expected_version: statement.version, idempotency_key: crypto.randomUUID(), task_kind: 'source', scope: 'price', source_fingerprint: source } };
+    paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus();
+  }
   function reviewUndo(id) {
     const undo = inbox.dc.undo.get(id);
     if (!undo?.keys || inbox.action) return;
@@ -341,6 +350,8 @@
       dc.sel.delete(id); dc.off.delete(id);
       dc.undo.set(id, { text: `Đã ghi ${a.count} khoản. Còn nợ ${F.full(body.before_vnd)} → ${F.full(body.after_vnd)}.`, keys: body.undo?.command_keys ?? null, months: body.undo?.months ?? [],
         version: body.version, before: body.before_vnd, after: body.after_vnd, note: body.undo ? '' : 'Muốn sửa thì mở sổ.' });
+    } else if (a.doiChieu === 'dong') {
+      dcSet(dc.dismissed, id).add(a.source);
     } else if (a.doiChieu === 'giu') {
       dcSet(dc.kept, id).clear();
       for (const row of a.body.rows) dc.kept.get(id).add(`${row.target_kind}:${row.target_id}`);
@@ -794,6 +805,18 @@
       paintInbox(); return;
     }
     if (button.hasAttribute('data-dc-ghi')) { reviewStatement(Number(button.dataset.dcGhi)); return; }
+    if (button.hasAttribute('data-dc-dong')) { reviewDismiss(inbox.dc.open, button.dataset.dcDong); return; }
+    if (button.hasAttribute('data-close-source')) {
+      if (inbox.action || inbox.review) return;
+      const ledger = inbox.details.get(inbox.open);
+      const [scope, source] = button.dataset.closeSource.split(':');
+      if (!ledger || !['price', 'ps', 'trip'].includes(scope) || !/^[0-9a-f]{64}$/.test(source ?? '')) return;
+      inbox.action = { id: inbox.open, title: 'Đã xem, hết báo', rowKey: scope === 'trip' ? `assignment:${source}` : `source:${source}`,
+        text: 'Ẩn việc này. Nợ không đổi, không ghi tiền. Dòng này trên Sheet đổi thì hiện lại. Lưu người làm trong Lịch sử.',
+        inlineText: 'Ẩn việc · nợ không đổi', path: '/api/v7/sheet/tasks/keep',
+        body: { customer_id: inbox.open, expected_version: ledger.version, idempotency_key: crypto.randomUUID(), task_kind: 'source', scope, source_fingerprint: source } };
+      paintInbox(); inboxRoot.querySelector('[data-action-cancel]')?.focus(); return;
+    }
     if (button.hasAttribute('data-dc-undo')) { reviewUndo(Number(button.dataset.dcUndo)); return; }
     if (button.hasAttribute('data-dc-giu') || button.hasAttribute('data-dc-giu-row')) {
       const id = inbox.dc.open, rows = (inbox.dc.data.get(id)?.groups ?? []).flatMap(group => group.rows.filter(row => row.status === 'CONFLICT' && row.source_fingerprint

@@ -18,6 +18,7 @@ from collections import defaultdict
 from itertools import combinations
 
 import v7_price_queue as pq
+from v7_sheet_task_keep import price_identity, source_kept
 
 REVIEW = ("MANUAL", "CONFLICT", "MONTH_LOCKED")   # AMBIGUOUS: không biết dòng web nào nên không tính được chênh
 MAX_HINTS = 8          # sổ có quá nhiều chỗ thì danh sách không còn giúp người đọc
@@ -59,16 +60,19 @@ def price_rows(snapshot_rows: list[dict], ledger: dict) -> list[dict]:
         sheet = _sheet_total(result)
         if not sheet:
             continue
+        # `source_fingerprint`: dấu vân dòng Sheet để người bấm "Đã xem, hết báo" (K3, scope price); dòng Sheet đổi thì dấu vân đổi.
         base = {"row": result.get("source_row"), "container": result.get("container") or "", "date": result.get("date"),
-                "sheet_vnd": sheet}
+                "sheet_vnd": sheet, "source_fingerprint": price_identity(result)}
         if result["status"] == "NOT_FOUND":
-            out.append({"kind": "sheet_row_missing", **base, "delta_vnd": sheet})
+            out.append({"kind": "sheet_row_missing", **base, "closable": True, "delta_vnd": sheet})
         elif result["status"] in REVIEW:
             web = _int(result.get("web_total_vnd"))
             if web is None and _int(result.get("web_unit_price_vnd")) is not None:
                 web = _int(result["web_unit_price_vnd"]) + (_int(result.get("web_other_fee_vnd")) or 0)
             if web is not None and web != sheet:
-                out.append({"kind": "price_review", "status": result["status"], **base, "web_vnd": web, "delta_vnd": sheet - web})
+                # `closable`: máy không ghi được và không có số web để giữ (MANUAL) thì người đóng được theo dấu vân; CONFLICT giữ theo chuyến.
+                out.append({"kind": "price_review", "status": result["status"], **base, "closable": result["status"] == "MANUAL",
+                            "web_vnd": web, "delta_vnd": sheet - web})
     return out
 
 
@@ -82,6 +86,8 @@ def explains(hints: list[dict], needed: int) -> bool:
 def for_book(ledger: dict, snapshot_rows: list[dict], needed: int, sheet_receipts: list[dict] | None = None) -> tuple[list[dict], bool]:
     """Gợi ý cho một sổ lệch: (danh sách, có tổ hợp cộng đúng bằng `needed` không). Gợi ý gần số cần đổi nhất lên trước."""
     hints = receipt_twice(ledger, sheet_receipts) + price_rows(snapshot_rows, ledger)
+    # K3: dòng Sheet người đã "Đã xem, hết báo" không còn là gợi ý (ghi theo dấu vân nên dòng đổi thì gợi ý hiện lại).
+    hints = [hint for hint in hints if not (hint.get("source_fingerprint") and source_kept(ledger, "price", hint["source_fingerprint"]))]
     hints.sort(key=lambda hint: abs(abs(needed) - abs(hint["delta_vnd"])))
     return hints[:MAX_HINTS], explains(hints, needed)
 

@@ -1893,6 +1893,14 @@ Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trê
 
 Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
 
+## "Đã xem, hết báo" theo dòng Sheet (KIEM-TAB-01 đợt 4, K3) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-nguon-het-bao.sql` chạy sau `2026-11-16-v7-chuan-hoa-chu.sql` ([spec](../specs/v7-kiem-tab-truoc-khi-ghi.md#k3-hết-báo-chung-theo-dấu-vân-dòng-sheet-gốc-của-5)). Chỉ `CREATE OR REPLACE sokhach.keep_sheet_task`: nhận thêm `task_kind = 'source'` (không cần chuyến đích). Không đổi bảng, view, hàm khác, event hiện có, quyền, dữ liệu hay trường tiền. Chạy lại được.
+
+Thứ tự: bản sao thử trước (restore dump vào DB tạm, áp hai lượt, catalog ổn định, gọi hàm trong giao dịch rồi `ROLLBACK`), merge, rồi cửa sổ dừng ghi (dừng `v7-reconcile-auto` và API, dump kèm hash, áp với `ON_ERROR_STOP`, đối soát tổng từng khách và số event, `v7_post_deploy_check.sql`, bật lại), rồi đổi release. Migration trước release: release mới gửi `task_kind = 'source'` mà hàm cũ trả `INVALID_SHEET_RESOLUTION` (không ghi gì); release cũ chạy được với hàm mới. Tránh phút :05–:15 vì máy đối soát mỗi giờ ghi vào DB.
+
+Rollback: áp lại `2026-11-09-v7-ps-khong-thu.sql` (bản trước của hàm; các event `task_source` đã ghi vẫn nằm trong Lịch sử, không ảnh hưởng tiền; các dòng đã "hết báo" khi đó hiện lại ở bản mới của hàng chờ).
+
 ## Vùng ô Sheet cho khối "Sheet cần sửa" (KIEM-TAB-01 đợt 3c) — đổi release và thêm drop-in cho API (ĐÃ CHẠY trên `hao` 16/11/2026, [nhật ký](deploys/2026-11-16-kiem-tab.md))
 
 Route mới `GET /api/v7/sheet/vung-o?customer=<id>&finding=<số>` ([spec](../specs/v7-sheet-can-sua.md)) đọc **một vùng nhỏ** của Sheet (`spreadsheets.get` kèm `includeGridData`, tài khoản dịch vụ chỉ đọc có sẵn) khi người dùng mở một chỗ sai. Vùng do server tính, client không gửi A1; cache 60 giây; không ghi gì. Không SQL, không migration, không `v7_load*`: `Deploy hao` tự đổi release.
