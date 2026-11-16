@@ -187,6 +187,34 @@ def mark_shared(results: list[dict]) -> list[dict]:
             for r in results]
 
 
+def merge_two_row_pairs(rows: list[dict], snapshot: dict, pool: list[dict]) -> list[dict]:
+    """Bố cục hai dòng đã duyệt (KIEM-TAB-01, `v7_tab_health.TWO_ROW_LAYOUT_TABS`): dòng container không tiền và dòng tiền không
+    container ngay dưới là MỘT chuyến. Khi web đã có chuyến web (không phải dòng sổ gốc) của container đó, gộp hai dòng thành một dòng Sheet (container của dòng trên,
+    ngày và tiền của dòng dưới): tiền thành giá của chuyến, không còn là "phí lẻ" để ghi thêm một dòng điều chỉnh nữa (cộng đôi). Dòng
+    điều chỉnh "Theo Sheet" cũ của cùng khoản không còn dòng tương ứng nên `fee_groups` đưa vào nhóm hủy. Web chưa có chuyến thì giữ hai
+    dòng như cũ: tiền vào dòng điều chỉnh. Cặp đọc từ `tabs` của bản chụp (phát hiện mức `note`, `two_row_layout`)."""
+    pairs = [(tab, found["rows"]) for tab, health in (snapshot.get("tabs") or {}).items()
+             for found in health.get("findings") or [] if found.get("kind") == "two_row_layout" and len(found.get("rows") or ()) == 2]
+    if not pairs:
+        return rows
+    by_row = {(row.get("customer_tab"), row.get("source_row")): row for row in rows}
+    merged: dict[tuple, dict] = {}
+    dropped: set[tuple] = set()
+    for tab, (holder_no, money_no) in pairs:
+        holder, money = by_row.get((tab, holder_no)), by_row.get((tab, money_no))
+        if (holder is None or money is None or not container_key(holder.get("container")) or container_key(money.get("container"))
+                or holder.get("sheet_total_vnd") not in (None, 0) or holder.get("sheet_unit_price_vnd") is not None
+                or money.get("sheet_total_vnd") in (None, 0) or money.get("sheet_unit_price_vnd") is not None):
+            continue   # không đúng hình cặp (đã đổi giữa lúc quét): để hai dòng như cũ
+        joined = {**holder, "date": money.get("date"), "debt_month": money.get("debt_month") or holder.get("debt_month"),
+                  "sheet_total_vnd": money["sheet_total_vnd"], "sheet_other_fee_vnd": money.get("sheet_other_fee_vnd")}
+        if any(target["kind"] == "trip" for target in candidates(joined, pool)[0]):   # dòng sổ gốc đã ghi tiền thành dòng "Phí lẻ" riêng: gộp là tính đôi
+            merged[(tab, holder_no)] = joined
+            dropped.add((tab, money_no))
+    return [merged.get((row.get("customer_tab"), row.get("source_row")), row) for row in rows
+            if (row.get("customer_tab"), row.get("source_row")) not in dropped]
+
+
 def book_rows(snapshot: dict, customer: Any, customers: list[dict]) -> list[dict]:
     """Rows of the customer tab that belongs to this book."""
     owned = owners([{**c, "key": c["id"]} for c in customers if type(c.get("id")) is int])
@@ -195,8 +223,8 @@ def book_rows(snapshot: dict, customer: Any, customers: list[dict]) -> list[dict
 
 def project_prices(snapshot: dict, ledger: dict, customers: list[dict], *, include_kept=False) -> dict:
     """Rows of this ledger's customer: READY for the batch button, REVIEW for "Cần xem"."""
-    rows = book_rows(snapshot, ledger.get("customer_id"), customers)
     pool = targets(ledger)
+    rows = merge_two_row_pairs(book_rows(snapshot, ledger.get("customer_id"), customers), snapshot, pool)
     by_target = {(target["kind"], target["id"]): target for target in pool}
     results = mark_shared([classify(row, pool) for row in rows])
     keep = ("customer_tab", "source_row", "container", "date", "sheet_unit_price_vnd", "sheet_other_fee_vnd",
