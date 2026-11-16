@@ -4,7 +4,7 @@ const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { withPage, legacyCell, posts, focused } = require('./so-khach-v7-browser-world');
+const { withPage, legacyCell, posts, focused, saved } = require('./so-khach-v7-browser-world');
 
 const DEBIT_V4 = { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'web', 'debit-note-config.default.json'), 'utf8')), template: 'v4' };
 
@@ -25,12 +25,14 @@ test('ô Đơn giá chuyến web: gõ số là mở ô với số đó, Enter l�
   await page.keyboard.type('5000000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/trips/price', { ...pricePosts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '45000000', other_fee_vnd: null }]);
   // Enter lưu thì tiêu điểm xuống ô Đơn giá hàng dưới; gõ tiếp là sửa luôn chuyến đó.
   assert.equal(await focused(price(page, 13)), true);
   await page.keyboard.type('41000000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="13"]')?.textContent.startsWith('41.000.000'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000'], [13, '41000000']]);
 }, moreTrips));
 
@@ -42,6 +44,7 @@ test('ô Đơn giá dòng sổ gốc: gõ số là mở ô, Enter lưu', async (
   await page.keyboard.type('0.000.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="21"][data-field="unit_price_vnd"]')?.textContent.startsWith('70.000.000'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(pricePosts(world).at(-1), ['/api/v7/legacy/edit', { ...pricePosts(world).at(-1)[1], legacy_row_id: 21, field: 'unit_price_vnd', value: '70000000' }]);
 }, moreTrips));
 
@@ -52,6 +55,7 @@ test('ô Đơn giá chuyến web: gõ giá rồi bấm chuột ra ngoài là lư
   await page.keyboard.type('45000000');
   await page.locator('.book-head').click();
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('45.000.000'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.equal(await page.locator('td.editable[data-trip="11"] input').count(), 0);
   assert.deepEqual(pricePosts(world).map(([, body]) => [body.trip_id, body.unit_price_vnd]), [[11, '45000000']]);
   // Esc rồi bấm ra ngoài: không lưu gì thêm.

@@ -2,7 +2,7 @@
  * Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, tripCell, legacyCell, posts, focused: focusedSoon } = require('./so-khach-v7-browser-world');
+const { withPage, tripCell, legacyCell, posts, focused: focusedSoon, saved } = require('./so-khach-v7-browser-world');
 
 // Tháng 9/2026 có thứ tự dòng: sổ gốc 21, 22, rồi chuyến web 11, 13, 14 (14 đang CHỜ KIỂM: ô giá chỉ đọc).
 function moreTrips(world) {
@@ -42,6 +42,7 @@ test('ô chữ: Tab ghi rồi sang ô sửa kế (không về BODY); Enter ghi r
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   assert.equal(await focused(page), 'trip-13:2:carrier');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(posts(world).map(([path]) => path), ['/api/v7/trips/info', '/api/v7/legacy/edit', '/api/v7/legacy/edit']);
 
   await page.keyboard.press('ArrowUp');
@@ -84,6 +85,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Tab');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('55.000.000'));
   assert.equal(await focused(page), 'trip-11:7:other_fee_vnd');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(posts(world).at(-1), ['/api/v7/trips/price', { ...posts(world).at(-1)[1], trip_id: 11, unit_price_vnd: '55000000', other_fee_vnd: null }]);
   await price(13).click();
   await page.keyboard.press('Escape');
@@ -97,6 +99,7 @@ test('ô giá và ô cột phụ phí riêng: Tab ghi rồi sang ô kế, Enter 
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.editable[data-trip="11"]')?.textContent.startsWith('56.000.000'));
   assert.equal(await focused(page), 'trip-13:6:unit_price_vnd');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.equal(posts(world).filter(([path]) => path === '/api/v7/trips/price').length, 2);
 
   // Cột phụ phí riêng (PHU-PHI-01): Enter ghi rồi xuống ô cùng cột hàng dưới.

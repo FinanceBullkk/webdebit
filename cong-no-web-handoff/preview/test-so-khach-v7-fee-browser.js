@@ -2,7 +2,7 @@
  * specs/v7-phu-phi-nhieu-loai.md. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, saved } = require('./so-khach-v7-browser-world');
 
 const feePosts = world => world.requests.filter(item => /\/fees\/|fee-columns/.test(item.path)).map(item => [item.path, item.body]);
 const own = (page, target, type) => page.locator(`td.fee.own[data-fee-target="${target}"][data-fee-type="${type}"]`);
@@ -57,6 +57,7 @@ test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc tr
   await page.locator('.fee-own-input').fill('1.200.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '1.200.000');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(feePosts(world).map(([path, body]) => [path, strip(body)]),
     [['/api/v7/trips/fees/set', { target: { trip_id: 11 }, fee_type_id: 1, amount_vnd: '1200000' }]]);
   // NHAP-NHANH-01: Thành tiền hiện "…" tới khi máy chủ trả số, nên chờ chứ không đọc ngay sau Enter.
@@ -69,6 +70,7 @@ test('ô cột riêng: gõ số + Enter gửi một lệnh đặt loại; Esc tr
   await page.locator('.fee-own-input').fill('');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="trip:11"][data-fee-type="1"]')?.textContent === '');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(strip(feePosts(world).at(-1)[1]), { target: { trip_id: 11 }, fee_type_id: 1, amount_vnd: null });
 }, world => { world.feeColumns = [1]; }));
 
@@ -162,6 +164,7 @@ test('dòng sổ gốc có Thành tiền khác đơn giá + phụ phí: hỏi l�
   await page.keyboard.press('Enter');
   await box.locator('.fee-yes').click();
   await page.waitForFunction(() => document.querySelector('td.fee.own[data-fee-target="legacy:22"][data-fee-type="1"]')?.textContent === '1.000.000');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(strip(feePosts(world)[0][1]), { target: { legacy_row_id: 22 }, fee_type_id: 1, amount_vnd: '1000000' });
 }, world => { world.feeColumns = [1]; world.legacy[1].current.counted_vnd = '95000000'; }));
 

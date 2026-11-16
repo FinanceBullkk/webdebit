@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho đối chiếu Sheet, ghi giá từ Sheet và Làm mới trên sổ khách V7. Máy chủ giả, dữ liệu giả, không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, withPage, posts, viewMonth, reload } = require('./so-khach-v7-browser-world');
+const { clock, withPage, posts, viewMonth, reload, saved } = require('./so-khach-v7-browser-world');
 test('chuyến mới hiện vàng; dòng khác hiện đỏ; duyệt lô giữ giá trống ngoài công nợ', async () => withPage(async ({ page, world, shot }) => {
   // Chuyến mới ở tháng hiện tại, dòng lệch ở tháng 9 (đang xem): mỗi tháng một màn (SO-GON-05).
   await viewMonth(page, clock);
@@ -96,6 +96,7 @@ test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đ�
   assert.deepEqual([resolved.body.field, resolved.body.decision, resolved.body.target_kind, resolved.body.target_id], ['booking', 'keep_web', 'trip', 11]);
   await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   const [route, body] = posts(world).at(-1);
   assert.equal(route, '/api/v7/trips/info');
   assert.equal(body.field, 'event_date');
@@ -282,6 +283,7 @@ test('Sheet không còn dòng: báo trên dòng chuyến, Xóa trên web qua l�
   await page.locator('.sheet-removed-delete').click();
   await page.locator('.delete-prompt .confirm-delete').click();
   await page.waitForFunction(() => !document.querySelector('[data-row="trip-11"]'));
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.deepEqual(posts(world).map(([url, body]) => [url, body.trip_id]), [['/api/v7/trips/delete', 11]]);
 }, world => removedTrip(world)));
 

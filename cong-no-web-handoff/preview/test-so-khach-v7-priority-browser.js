@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload, viewMonth } = require('./so-khach-v7-browser-world');
+const { withPage, reload, viewMonth, saved } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuyến ở hai khổ desktop', async () => withPage(async ({ page, world, shot }) => {
@@ -70,6 +70,7 @@ test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu t
   await page.locator('.info-input').fill('Kho mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="origin"]')?.textContent === 'Kho mới');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.equal(world.requests.at(-1).body.field, 'origin');
   assert.equal(await focused(12), true);
   await page.keyboard.press('ArrowUp');
@@ -78,6 +79,7 @@ test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu t
   await page.locator('.info-input').fill('Cảng mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="destination"]')?.textContent === 'Cảng mới');
+  await saved(page);   // NHAP-NHANH-01: ô hiện chữ trước khi lệnh tới máy chủ
   assert.equal(world.requests.at(-1).body.field, 'destination');
   assert.equal(world.requests.length, 2);
 }, handoff));
