@@ -1883,6 +1883,18 @@ Migration `cong-no-web-handoff/tools/migrations/2026-11-06-v7-ngay-tra-that.sql`
 
 Rollback: chạy lại `2026-10-29-v7-tong-quan-quan-ly-no.sql`: hàm về thân cũ, kết quả trùng bản trước từng byte, dữ liệu và quyền giữ nguyên (đã thử trên bản sao).
 
+## Báo cáo tháng (BAO-CAO-THANG-01) — nâng DB đang có
+
+Migration `cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql` chạy sau `2026-11-13-v7-dau-doc.sql` ([`BAO-CAO-THANG-01`](decisions/bao-cao-thang-01.md), [spec](../specs/v7-bao-cao-thang.md)). Chỉ thêm hàm đọc `get_trip_month(date)` và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, view, hàm có sẵn, tiền hay dữ liệu. Chạy lại được.
+
+Thứ tự: chạy migration rồi mới đổi release. Release mới với DB cũ: trang Báo cáo tháng báo không tải được (hàm chưa có), các trang khác không đổi. Release cũ chạy được với DB mới (hàm mới không ai gọi).
+
+Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trên bản sao (catalog ổn định, dấu vân tay không đổi, checker), gọi `get_trip_month('<tháng>-01')` trên bản sao và so số chuyến với `get_ledger` của vài sổ. Vì là hàm đọc, không cần cửa sổ dừng ghi; vẫn đối soát tổng từng khách trước/sau.
+
+Job: phép kiểm booking (`tools/v7_booking_check.py`, chạy trong lượt `v7-reconcile-auto`) ghi thêm `booking-report.json` (mode 600, có tên tab khách và số tiền) cạnh `booking-check.json` trong `/var/lib/webdebit-sheet-sync`. API đọc qua `WEBDEBIT_BOOKING_REPORT_PATH` hoặc thư mục máy (`WEBDEBIT_MACHINE_DIR`). Trước lượt đầu sau khi đổi release, trang ghi "Chưa có kết quả đối chiếu" và chỉ có cột Web.
+
+Rollback: `DROP FUNCTION sokhach.get_trip_month(date);` (không gì phụ thuộc). Release cũ không đọc file mới; file có thể để lại.
+
 ## Dấu dữ liệu cho bộ nhớ đọc (HIEU-NANG-01) — nâng DB đang có (ĐÃ CHẠY trên hao 13/11/2026, [nhật ký](deploys/2026-11-13-dau-doc.md))
 
 Migration `cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql` chạy sau `2026-11-13-v7-cot-phu-phi-mac-dinh.sql` ([spec](../specs/hieu-nang-01.md)). Chỉ thêm hàm đọc `get_read_stamp` (md5 của số dòng và tổng xmin mọi bảng `sokhach`, ngày VN) và cấp `EXECUTE` cho `sokhach_app`, `sokhach_reader`; không đổi bảng, hàm có sẵn hay dữ liệu. Chạy lại được.

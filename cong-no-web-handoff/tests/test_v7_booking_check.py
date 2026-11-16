@@ -202,3 +202,69 @@ class BookingCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Báo cáo tháng (BAO-CAO-THANG-01): mọi chuyến theo tháng ngày chuyến. Tên tab giả.
+REPORT_SHEET = [
+    sheet("KHACH M", 1, "AAAU1000001", "2026-10-03", amount=90_000_000),
+    sheet("KHACH M CHEP", 1, "AAAU1000001", "2026-10-03", amount=0),                      # chép 0đ chuyến của KHACH M
+    sheet("KHACH M", 2, "BBBU1000002", None, amount=7_000_000, month="2026-10"),       # không ngày, không booking
+    sheet("KHACH T", 1, "CCCU1000003", "2026-10-07", amount=0, month="2026-10"),        # khối cũ 0đ, lệch 19 ngày với chuyến đã tính
+    sheet("KHACH T", 2, "CCCU1000003", "2026-10-26", amount=59_000_000, month="2026-11"),
+    sheet("X", 1, "DDDU1000004", "2026-09-30", month="2026-09"),                      # booking ngày 01/10: tháng theo booking
+    sheet("X", 2, "EEEU1000005", "2026-10-05"),                                       # booking không có
+    sheet("X", 3, "FFFU1000006", "2026-10-10"),                                       # booking lệch 15 ngày
+    sheet("NHAP", 1, "GGGU1000007", "2026-10-11", mode="NHAP"),                      # hàng nhập: không có booking để so
+    sheet("X BO", 1, "HHHU1000008", "2026-10-12", mode="BO"),
+]
+REPORT_SEA = [sea("AAAU1000001", "2026-10-03", owner="KHACH M CHEP"), sea("CCCU1000003", "2026-10-26", owner="KHACH T"),
+              sea("DDDU1000004", "2026-10-01", owner="KHACH X"), sea("FFFU1000006", "2026-10-25", owner="KHACH X"),
+              sea("MISU1000009", "2026-10-29", owner="KHACH X"), sea("OLDU1000010", "2025-12-05", owner="KHACH X"),
+              sea("PREU1000011", "2025-11-10", owner="KHACH X")]
+REPORT_ROAD = [road("HHHU1000008", "2026-10-12", owner="KHO X")]
+
+
+class MonthReportTests(unittest.TestCase):
+    setUp, snapshot = BookingCheckTests.setUp, BookingCheckTests.snapshot
+
+    def evaluate(self):
+        with mock.patch.object(job.match, "load_sheet", return_value=[dict(row) for row in REPORT_SHEET]):
+            return job.evaluate(Path("so-goc.xlsx"), self.snapshot("snapshot.json", REPORT_SEA),
+                                self.snapshot("road.json", REPORT_ROAD), NOW)
+
+    maxDiff = None
+
+    def test_every_trip_lands_in_its_trip_month_with_a_status(self):
+        result, report = self.evaluate()
+        self.assertEqual((report["start"], report["end"], report["checked_at"]), ("2025-12", "2026-11", result["checked_at"]))
+        october = report["months"]["2026-10"]
+        got = sorted((row["tab"], row["cont"], row["status"], row["family"]) for row in october)
+        self.assertEqual(got, sorted([
+            ("KHACH M", "AAAU1000001", "khop", "BIEN"), ("KHACH M CHEP", "AAAU1000001", "chep", "BIEN"),
+            ("KHACH M", "BBBU1000002", "khong_ngay", "BIEN"),
+            ("KHACH T", "CCCU1000003", "chep", "BIEN"), ("KHACH T", "CCCU1000003", "khop", "BIEN"),
+            ("X", "DDDU1000004", "khop", "BIEN"), ("X", "EEEU1000005", "khong_booking", "BIEN"),
+            ("X", "FFFU1000006", "lech_ngay", "BIEN"), ("NHAP", "GGGU1000007", "ngoai", None),
+            ("X BO", "HHHU1000008", "khop", "BO"), ("X", "MISU1000009", "thieu", "BIEN"),
+        ]))
+        tank = next(row for row in october if row["cont"] == "CCCU1000003" and row["status"] == "khop")
+        self.assertEqual((tank["block"], tank["row"], tank["amount_vnd"], tank["booking"]["date"]), ("2026-11", 2, "59000000", "2026-10-26"))
+        missing = next(row for row in october if row["status"] == "thieu")
+        self.assertEqual((missing["row"], missing["amount_vnd"], missing["booking"]["owner"]), (None, None, "KHACH X"))
+        self.assertIsNone(next(row for row in october if row["cont"] == "BBBU1000002")["date"])
+        # Trước tháng đầu của tab khách: trong số dư đầu kỳ, chỉ đếm; trước tháng hai bản chụp cùng phủ thì không có.
+        self.assertEqual(report["before_book"], {"2025-12": 1})
+        self.assertNotIn("2025-11", report["months"])
+        self.assertNotIn("2026-09", report["months"])
+
+    def test_report_is_written_with_the_check_and_kept_when_a_run_fails(self):
+        sea_path, road_path = self.snapshot("snapshot.json", REPORT_SEA), self.snapshot("road.json", REPORT_ROAD)
+        target = job.report_path(self.out)
+        with mock.patch.object(job.match, "load_sheet", return_value=[dict(row) for row in REPORT_SHEET]), mock.patch("sys.stderr"):
+            job.run_safely(Path("x.xlsx"), self.out, sea_path, road_path, NOW)
+            good = target.read_text(encoding="utf-8")
+            job.run_safely(Path("x.xlsx"), self.out, self.dir / "none.json", road_path, NOW + dt.timedelta(hours=1))
+        self.assertEqual(target.read_text(encoding="utf-8"), good)
+        self.assertEqual(target.name, "booking-report.json")
+        if os.name == "posix":
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)

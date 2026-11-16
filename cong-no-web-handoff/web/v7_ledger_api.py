@@ -30,6 +30,7 @@ import v7_debit_note_config
 import v7_identity
 import v7_inbox
 import v7_machine
+import v7_month_report
 import v7_presence
 import v7_read_cache
 import v7_sheet_refresh
@@ -336,6 +337,9 @@ def handle(method: str, target: str, headers: dict[str, str], raw: bytes, runner
         if parts.query:
             bad()
         return 200, v7_booking_view.view()
+    elif parts.path == "/api/v7/report/month":
+        # BAO-CAO-THANG-01: chuyến theo tháng ngày chuyến, booking ↔ Sheet (file của phép kiểm booking) ↔ web (get_trip_month).
+        return 200, v7_month_report.handle_get(parts.query, runner, READS, actor)
     elif parts.path in MACHINE_READS:
         # MAY-CHAY-01: đọc file của job, không qua DB; vẫn sau xác thực danh tính như mọi route.
         if parts.query:
