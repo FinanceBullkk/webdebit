@@ -62,14 +62,18 @@ test('Handoff: kích thước, vị trí, năm cột phiếu và một cột tuy
 
 test('Tuyến: hai đầu sửa riêng, Enter lưu rồi xuống đúng đầu tuyến hàng kế', async () => withPage(async ({ page, world }) => {
   const origin = id => page.locator(`.route-cell .info-edit[data-id="${id}"][data-field="origin"]`);
+  // NHAP-NHANH-01: bản sổ của hàng đợi ghi nền vẽ lại #app bất cứ lúc nào; kiểm ô đang chọn trong một lượt của trang
+  // (locator.evaluate có thể bắt ô cũ vừa bị thay) — trang chọn lại đúng ô sau mỗi lần vẽ.
+  const focused = id => page.waitForFunction(selector => document.activeElement?.matches(selector),
+    `.route-cell .info-edit[data-id="${id}"][data-field="origin"]`, { timeout: 2000 }).then(() => true, () => false);
   await origin(11).click();
   await page.locator('.info-input').fill('Kho mới');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.route-cell [data-id="11"][data-field="origin"]')?.textContent === 'Kho mới');
   assert.equal(world.requests.at(-1).body.field, 'origin');
-  assert.equal(await origin(12).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(12), true);
   await page.keyboard.press('ArrowUp');
-  assert.equal(await origin(11).evaluate(node => node === document.activeElement), true);
+  assert.equal(await focused(11), true);
   await page.locator('.route-cell [data-id="11"][data-field="destination"]').click();
   await page.locator('.info-input').fill('Cảng mới');
   await page.keyboard.press('Enter');

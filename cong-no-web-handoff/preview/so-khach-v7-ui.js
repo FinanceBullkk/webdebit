@@ -388,8 +388,19 @@
     const feeTypeName = id => feeTypes.find(type => Number(type.id) === Number(id))?.name ?? `Loại #${id}`;
     // Vẽ lại sổ từ bản đang có (không tải lại). Khung Ghi phiếu thu nằm ngoài #app (so-khach-v7-entry-ui.js) nên chữ đang gõ
     // ở đó không mất khi vẽ lại.
+    // Vẽ lại thay cả #app: ô đang được chọn bằng phím (Enter/Tab/mũi tên dời tới, chưa mở để gõ) được chọn lại theo data-* của nó.
     function redraw() {
-      if (snapshot) renderSnapshot(snapshot);
+      if (!snapshot) return;
+      const key = focusKey(document.activeElement);
+      renderSnapshot(snapshot);
+      if (key) root.querySelector(key)?.focus({ preventScroll: true });
+    }
+    function focusKey(node) {
+      if (!node || node === root || !root.contains(node) || typeof CSS === 'undefined') return null;
+      const attrs = Object.entries(node.dataset ?? {});
+      if (!attrs.length) return null;
+      return node.tagName.toLowerCase() + attrs.map(([name, value]) =>
+        `[data-${name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${CSS.escape(value)}"]`).join('');
     }
     // Vẽ lại vì việc nền (đổi cỡ màn, danh sách khách hay dữ liệu phụ về muộn), không phải vì người dùng vừa bấm. Vẽ lại thay cả
     // #app nên xóa dòng hỏi, ô đang gõ, chi tiết đang mở trong #app: có những thứ đó thì hoãn, hết mới vẽ. Khung nằm ngoài #app
@@ -579,18 +590,7 @@
       const now = document.activeElement;
       const typing = pointerHeld || (now && root.contains(now) && now.matches('input:not([type="checkbox"]),textarea,select'))
         || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());
-      if (typing) { paintWait = setTimeout(paintWhenFree, 300); return; }
-      // Enter/Tab vừa dời tiêu điểm sang ô kế (ô chưa mở để gõ): vẽ lại thay ô đó, nên chọn lại đúng ô theo data-* của nó.
-      const key = focusKey(now);
-      redraw();
-      if (key) root.querySelector(key)?.focus({ preventScroll: true });
-    }
-    function focusKey(node) {
-      if (!node || node === root || !root.contains(node) || typeof CSS === 'undefined') return null;
-      const attrs = Object.entries(node.dataset ?? {});
-      if (!attrs.length) return null;
-      return node.tagName.toLowerCase() + attrs.map(([name, value]) =>
-        `[data-${name.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${CSS.escape(value)}"]`).join('');
+      if (typing) paintWait = setTimeout(paintWhenFree, 300); else redraw();
     }
     const openInBook = () => root.querySelector(`${BUSY_OPEN},.fee-own-input`)
       || [...root.querySelectorAll('.info-input')].some(input => input.value.trim());

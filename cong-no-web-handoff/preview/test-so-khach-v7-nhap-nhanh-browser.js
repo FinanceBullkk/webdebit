@@ -51,10 +51,12 @@ test('xóa dòng: dòng biến mất ngay, lệnh xóa ghi nền một lần', a
 }));
 
 test('lệnh thứ hai bị từ chối: ô đó và ô gõ sau về số cũ, tin báo nói ô nào chưa lưu và bao nhiêu ô sau đó', async () => withPage(async ({ page, world }) => {
-  let sent = 0;
+  let sent = 0, release;
+  // Lệnh thứ hai chờ tới khi test đã thấy hai ô hiện ngay (máy chậm thì độ trễ cố định không đủ giữ).
+  const gate = new Promise(done => { release = done; });
   await page.route(url => url.pathname === '/api/v7/trips/info', async route => {
     await new Promise(done => setTimeout(done, 300));
-    if (++sent === 2) await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'INVALID_TRIP_INPUT', message: 'Thiếu thông tin chuyến.' }) });
+    if (++sent === 2) { await gate; await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'INVALID_TRIP_INPUT', message: 'Thiếu thông tin chuyến.' }) }); }
     else await route.continue();
   });
   for (const [field, value] of [['carrier', 'Tàu 1'], ['origin', 'Nơi X'], ['destination', 'Nơi Y']]) {
@@ -63,6 +65,7 @@ test('lệnh thứ hai bị từ chối: ô đó và ô gõ sau về số cũ, t
     await page.keyboard.press('Enter');
   }
   assert.deepEqual([await tripCell(page, 'origin').innerText(), await tripCell(page, 'destination').innerText()], ['Nơi X', 'Nơi Y']);
+  release();
   await page.waitForFunction(() => /Chưa lưu ô nơi đi của chuyến DEMU1234567: Thiếu thông tin chuyến\. 1 ô sửa sau đó cũng chưa lưu/.test(document.querySelector('.live-notice')?.textContent ?? ''));
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-field="origin"]')?.textContent === 'Nơi A');
   assert.equal(await tripCell(page, 'destination').innerText(), 'Nơi B', 'ô gõ sau ô lỗi không gửi, về số cũ');
