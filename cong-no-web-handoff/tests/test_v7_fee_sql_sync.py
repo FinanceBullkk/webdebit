@@ -35,6 +35,7 @@ XEM_TRUOC_BANG_GIA_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026
 COT_MAC_DINH_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-cot-phu-phi-mac-dinh.sql"
 # HIEU-NANG-01 13/11/2026: get_read_stamp chỉ có ở migration này.
 DAU_DOC_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-13-v7-dau-doc.sql"
+BAO_CAO_THANG_MIGRATION = ROOT / "cong-no-web-handoff/tools/migrations/2026-11-16-v7-bao-cao-thang.sql"
 # Bảng PR-A mà migration sau đổi: (chuỗi trong bản PR-A, chuỗi trong schema-draft); migration sau phải có lệnh ALTER tương ứng.
 LATER_TABLE_CHANGES = {
     "fee_type": [("UNIQUE(name_key));", "UNIQUE(name_key),\n default_position integer UNIQUE CHECK(default_position>0));")],
@@ -89,6 +90,9 @@ class FeeSqlSync(unittest.TestCase):
         stamp = DAU_DOC_MIGRATION.read_text(encoding="utf-8")
         with self.subTest(name="get_read_stamp"):
             self.assertEqual(definition(stamp, "FUNCTION", "get_read_stamp"), definition(canonical, "FUNCTION", "get_read_stamp"))
+        report = BAO_CAO_THANG_MIGRATION.read_text(encoding="utf-8")
+        with self.subTest(name="get_trip_month"):
+            self.assertEqual(definition(report, "FUNCTION", "get_trip_month"), definition(canonical, "FUNCTION", "get_trip_month"))
         optional = NOI_DEN_TUY_CHON_MIGRATION.read_text(encoding="utf-8")
         for name in ("_lookup_price", "save_price_table"):
             with self.subTest(name=name):

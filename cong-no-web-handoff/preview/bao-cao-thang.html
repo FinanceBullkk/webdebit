@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Báo cáo tháng: khách nào đi bao nhiêu cont, đối chiếu booking, Sheet sổ nợ và sổ web. Chỉ xem.">
+  <title>Công nợ HTH · Báo cáo tháng</title>
+  <link rel="stylesheet" href="cong-no-theme.css">
+  <link rel="stylesheet" href="bao-cao-thang.css">
+  <link rel="stylesheet" href="presence.css">
+  <link rel="stylesheet" href="app-nav.css">
+</head>
+<body class="bc" data-presence="bao-cao-thang">
+  <div id="demo-banner" hidden role="status"></div>
+  <aside class="app-nav" data-active="bao-cao-thang"></aside>
+  <main class="page app-page">
+    <div class="page-head topbar">
+      <h1>Báo cáo tháng</h1>
+      <div class="month-nav" id="month-nav"></div>
+      <div class="live-controls"><time class="clock" id="as-of" tabindex="0">—</time><button id="refresh-data" class="btn icon-btn" type="button" aria-label="Làm mới số liệu" data-tip="Làm mới&#10;Lấy lại số mới nhất từ máy chủ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div>
+    </div>
+    <div id="error" role="alert" hidden></div>
+    <div id="bao-cao"><p class="loading">Đang tải báo cáo tháng…</p></div>
+  </main>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+  <script src="cong-no-format.js"></script>
+  <script src="dashboard-v7-model.js"></script>
+  <script src="viec-can-lam-table.js"></script>
+  <script src="bao-cao-thang-model.js"></script>
+  <script src="app-nav.js"></script>
+  <script src="data-tip.js"></script>
+  <script src="bao-cao-thang-ui.js"></script>
+  <script src="presence.js"></script>
+</body>
+</html>

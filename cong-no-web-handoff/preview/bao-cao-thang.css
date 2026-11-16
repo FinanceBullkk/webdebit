@@ -1,0 +1,87 @@
+/* BAO-CAO-THANG-01: Báo cáo tháng theo ngôn ngữ của Bảng thu (màu, cỡ chữ, thanh đầu). Khung thấy thật 1280×560: thanh đầu một hàng,
+   bảng tổng Booking / Sheet / Web theo biển, bộ, rồi bảng theo khách; bấm một khách mới bung danh sách cont. */
+html:has(body.bc){background:#f3f5f8}
+body.bc{--ink-1:#1a1a19;--ink-m:#52514e;--ink-l:#6f6d67;--edge:#e3e7ec;--ctl:#c9d0d8;--blue:#1c5cab;--amber:#8a5300;--teal:#0f766e;
+  background:#f3f5f8;color:var(--ink-1);font:14px/1.45 "Segoe UI",system-ui,-apple-system,sans-serif}
+.bc [hidden]{display:none!important}
+.bc svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+.bc .tip{max-width:300px}
+
+/* Thanh đầu: tên trang, đổi tháng, giờ, nút làm mới (như Bảng thu). */
+.bc .page.app-page{padding:20px 28px 32px}
+.bc .page.app-page > .page-head.topbar{margin:-20px -28px 16px;gap:10px}
+.bc .page-head h1{margin-right:10px}
+.bc .month-nav{display:flex;align-items:center;gap:4px}
+.bc .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 14px;border:1px solid var(--ctl);border-radius:8px;background:#fff;color:var(--ink-1);font-weight:700;white-space:nowrap;cursor:pointer}
+.bc .icon-btn{width:40px;padding:0;color:var(--blue)}
+.bc .icon-btn svg{width:18px;height:18px}
+.bc .btn:disabled{opacity:.35;cursor:default}
+.bc #month-pick{height:40px;padding:0 8px;border:1px solid var(--ctl);border-radius:8px;background:#fff;color:var(--ink-1);font-weight:600;cursor:pointer}
+.bc .clock{color:var(--ink-l);font-size:13px;font-variant-numeric:tabular-nums}
+.bc #error{max-width:1148px;display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px 14px;border-radius:10px;background:var(--critical-soft);color:var(--critical);font-weight:600}
+#bao-cao{max-width:1148px;display:flex;flex-direction:column;gap:14px}
+.bc .loading{color:var(--ink-l)}
+.bc .muted{color:var(--ink-l)}
+
+/* Câu báo trạng thái số liệu: chỉ hiện khi số chưa đủ hoặc cũ. */
+.bc .note{margin:0;padding:9px 14px;border-radius:10px;font-weight:600}
+.bc .note.warn{background:var(--warning-soft);color:var(--amber)}
+.bc .note.bad{background:var(--critical-soft);color:var(--critical)}
+
+/* Bảng tổng: ba cột số theo biển, bộ, tổng; hai hàng lệch tô màu khi khác 0. Chú thích nguồn đứng cạnh. */
+.bc .sum{display:flex;gap:24px;align-items:flex-start;padding:14px 20px;border:1px solid #dce5ef;border-radius:14px;background:#f5f8fc}
+.bc .sum-table{border-collapse:collapse;min-width:520px}
+.bc .sum-table th,.bc .sum-table td{padding:5px 12px;text-align:left;border-bottom:1px solid var(--edge)}
+.bc .sum-table thead th{color:var(--ink-m);font-weight:700;font-size:13px}
+.bc .sum-table thead th:not(:first-child),.bc .sum-table td{text-align:right;width:90px}
+.bc .sum-table tbody th{font-weight:600}
+.bc .sum-table td{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.bc .sum-table td:last-child{color:var(--blue)}
+.bc .sum-table tr.gap th{color:var(--ink-m);font-weight:600}
+.bc .sum-table tr.gap td{font-size:15px;color:var(--ink-l)}
+.bc .sum-table tr.gap td.flag{color:var(--critical);font-weight:700}
+.bc .sum-table tbody tr:last-child > *{border-bottom:0}
+.bc .sum-notes{flex:1;margin:0;padding:0 0 0 18px;color:var(--ink-m);font-size:13px}
+.bc .sum-notes li{margin:2px 0}
+
+/* Bảng theo khách. */
+.bc .cust-box{border:1px solid var(--edge);border-radius:14px;background:#fff;overflow:hidden}
+.bc .cust-tools{display:flex;align-items:center;gap:18px;padding:10px 16px;border-bottom:1px solid var(--edge)}
+.bc .cust-tools h2{margin:0;font-size:16px}
+.bc .only{display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer}
+.bc .only input{width:18px;height:18px}
+.bc .segs{margin-left:auto;display:flex;border:1px solid var(--ctl);border-radius:8px;overflow:hidden}
+.bc .seg{height:34px;padding:0 14px;border:0;border-left:1px solid var(--ctl);background:#fff;font-weight:600;cursor:pointer}
+.bc .seg:first-child{border-left:0}
+.bc .seg.on{background:var(--accent-soft);color:var(--blue)}
+.bc .cust-table{width:100%;border-collapse:collapse}
+.bc .cust-table thead th{position:sticky;top:0;z-index:1;padding:7px 12px;background:var(--head);color:var(--ink-m);font-size:13px;text-align:left;border-bottom:1px solid var(--edge)}
+.bc .cust-table td,.bc .cust-table tbody th{padding:6px 12px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:middle;font-weight:400}
+.bc .cust-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bc .cust-table td.num{font-weight:600}
+.bc .cust-btn{display:flex;align-items:baseline;gap:8px;width:100%;padding:2px 0;border:0;background:none;text-align:left;cursor:pointer}
+.bc .cust-btn .who{font-weight:700}
+.bc .cust-btn .com{color:var(--ink-l);font-size:13px}
+.bc .caret{width:0;height:0;border:5px solid transparent;border-left:6px solid var(--ink-l);transform:translateY(1px)}
+.bc tr.open .caret{transform:rotate(90deg) translateX(1px)}
+.bc tr.cust:hover{background:var(--zebra)}
+.bc tr.cust.open{background:var(--accent-soft)}
+.bc .chips{display:flex;flex-wrap:wrap;gap:4px}
+.bc .chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.bc .chip.ok{background:var(--credit-soft);color:var(--teal)}
+.bc .chip.warn{background:var(--warning-soft);color:var(--amber)}
+.bc .chip.bad{background:var(--critical-soft);color:var(--critical)}
+.bc .chip.muted{background:var(--head);color:var(--ink-l)}
+.bc .empty{padding:18px;text-align:center;color:var(--ink-l)}
+
+/* Danh sách cont của một khách. */
+.bc tr.trips > td{padding:0 12px 12px 32px;background:var(--accent-soft)}
+.bc .trips-box{padding:8px 12px;border:1px solid #cde2fb;border-radius:10px;background:#fff}
+.bc .trip-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.bc .trip-table th{padding:4px 8px;color:var(--ink-m);font-size:12.5px;text-align:left;border-bottom:1px solid var(--edge)}
+.bc .trip-table td{padding:4px 8px;border-bottom:1px solid var(--line-soft)}
+.bc .trip-table .day{font-variant-numeric:tabular-nums;white-space:nowrap}
+.bc .trip-table .cont{font-family:Consolas,"Cascadia Mono",monospace;font-weight:600}
+.bc .trip-table tr.t-bad td{background:#fff7f6}
+.bc .open-book{display:inline-flex;align-items:center;gap:4px;margin-top:8px;color:var(--blue);font-weight:700}
+.bc .open-book:hover{text-decoration:underline}

@@ -68,14 +68,14 @@ DECLARE
       'save_price_table(bigint,bigint,text,jsonb)', 'apply_price_table(bigint,bigint,text,jsonb)',
       'preview_price_table(bigint,bigint,text,jsonb)',
       'get_price_table(bigint)', 'get_price_status(bigint)',
-      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_activity(date)',
+      'record_reminder(bigint,text)', 'get_reminders()', 'get_receipt_book(date)', 'get_trip_month(date)', 'get_activity(date)',
       'link_zalo(text,bigint)', 'unlink_zalo(text,bigint,text)', 'get_zalo_links()',
       'record_mark(jsonb)', 'cancel_mark(bigint,text)', 'get_marks(bigint,text)'];
     actual text[];
     expected_reader text[] := ARRAY['get_ledger(bigint)', 'list_offset_sources(bigint)', 'list_customers()',
       'get_dashboard()', 'get_dashboard_debt()', 'get_read_stamp()', 'get_receivables_matrix(integer)', 'get_receivables_detail(bigint,date)', 'get_fee_types()',
       'list_receipt_images(bigint)', 'get_receipt_image(bigint,bigint)', 'find_receipt_image(text)',
-      'get_price_table(bigint)', 'get_price_status(bigint)', 'get_reminders()', 'get_receipt_book(date)', 'get_zalo_links()', 'get_marks(bigint,text)'];
+      'get_price_table(bigint)', 'get_price_status(bigint)', 'get_reminders()', 'get_receipt_book(date)', 'get_trip_month(date)', 'get_zalo_links()', 'get_marks(bigint,text)'];
     denied text[] := ARRAY['_sync_trip_fee(bigint,bigint)', '_compat_trip_fee(bigint,bigint,bigint,bigint)',
       '_guard_fee_line()', '_fee_cache_check()', 'v7_fee_migration_dry_run()',
       '_fee_lines(bigint,bigint)', '_fee_columns(bigint)', '_ledger_events(bigint)', '_fee_target(bigint,jsonb)',
