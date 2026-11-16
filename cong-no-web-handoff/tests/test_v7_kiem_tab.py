@@ -174,6 +174,16 @@ class MoreFindingsTests(unittest.TestCase):
         self.assertEqual(fix.customer_health(snap, ledger(), list(CUSTOMERS))["status"], "ok")
 
 
+class BlockAnchorTests(unittest.TestCase):
+    def test_month_end_balance_cell_of_each_block_is_named(self):
+        row = (3, {"A": "1", "B": "MAUU0000001", "C": "03/10/2026", "D": "100", "F": "100", "I": "32500000"})
+        data = scan(row)
+        self.assertEqual(data["health"].get("blocks"), {"2026-10": "I3"})
+
+    def test_no_anchor_no_blocks_key(self):
+        self.assertNotIn("blocks", scan(trip(3, "MAUU0000001", total="1", price="1"))["health"])
+
+
 class ColumnTests(unittest.TestCase):
     """Chữ cột tính từ chỉ số cột (A, B, ..., Z, AA, ...)."""
 
@@ -201,12 +211,12 @@ class ColumnTests(unittest.TestCase):
                  "I": "SỐ ĐÃ ỨNG TRƯỚC/ĐÃ THU TRONG THÁNG", "J": "SỐ CÒN PHẢI THU CUỐI THÁNG"}),
             (6, {"A": "1", "C": "MAUU0000002"})]
         found = tab_health.columns_by_row(rows)
-        self.assertEqual((found[3], found[6]), ({"container": "B", "total": "F", "receipt": "H"}, {"container": "C", "total": "G", "receipt": "I"}))
+        self.assertEqual((found[3], found[6]), ({"container": "B", "total": "F", "receipt": "H", "anchor": "I"}, {"container": "C", "total": "G", "receipt": "I", "anchor": "J"}))
         self.assertEqual(found[4], {})   # dòng tiêu đề khối: chưa có cột nào
 
     def test_side_table_header_does_not_replace_the_main_columns(self):
         rows = header_rows() + [(3, {"A": "1", "B": "MAUU0000001", "N": "CONTAINER NO", "P": "TOTAL (VND)"}), trip(4, "MAUU0000002")]
-        self.assertEqual(tab_health.columns_by_row(rows)[4], {"container": "B", "total": "F", "receipt": "H"})
+        self.assertEqual(tab_health.columns_by_row(rows)[4], {"container": "B", "total": "F", "receipt": "H", "anchor": "I"})
 
     def test_without_the_raw_rows_a_finding_is_still_made_but_has_no_cells(self):
         tabs = [(TAB, header_rows() + [trip(3, "MAUU0000001"), trip(4, total="44710920", price="44710920")])]

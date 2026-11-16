@@ -1,0 +1,230 @@
+"""KIEM-TAB-01 3c: vùng ô của Sheet dựng lại cho màn "Sheet cần sửa". Sheets API giả, tên và số bịa; không gọi mạng, không openssl."""
+import json
+import sys
+import tempfile
+import unittest
+from datetime import date
+from pathlib import Path
+from typing import ClassVar
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "web"))
+import v7_api_doi_chieu as api
+import v7_sheet_region as region
+from v7_api_validate import ApiError
+
+SHEET = "S" * 30
+GID = 777
+
+
+def serial(year, month, day):
+    return (date(year, month, day) - region.EPOCH).days
+
+
+def cell(text="", formula=None, bg=None, bold=False, kind=None, number=None):
+    value = {"formattedValue": text} if text else {}
+    if formula:
+        value["userEnteredValue"] = {"formulaValue": formula}
+    fmt = {}
+    if bg:
+        fmt["backgroundColor"] = {"red": bg[0], "green": bg[1], "blue": bg[2]}
+    if bold:
+        fmt["textFormat"] = {"bold": True}
+    if kind:
+        fmt["numberFormat"] = {"type": kind}
+    if fmt:
+        value["effectiveFormat"] = fmt
+    if number is not None:
+        value["effectiveValue"] = {"numberValue": number}
+    return value
+
+
+def raw(first=8, cols=18, rows=15, cells=None, merges=(), extra=()):
+    """Phản hồi spreadsheets.get cho một vùng: cells {(dòng, cột 1-based): ô}."""
+    cells = cells or {}
+    data = [{"startRow": first - 1, "columnMetadata": [{"pixelSize": 80}] * cols, "rowMetadata": [{"pixelSize": 21}] * rows,
+             "rowData": [{"values": [cells.get((first + r, c + 1), {}) for c in range(cols)]} for r in range(rows)]}]
+    for text, formula in extra:
+        data.append({"rowData": [{"values": [cell(text, formula)]}]})
+    return {"sheets": [{"properties": {"sheetId": GID, "title": "T"}, "merges": list(merges), "data": data}]}
+
+
+class Opener:
+    """Mở được hai địa chỉ: token và spreadsheets.get; đếm số lần gọi."""
+
+    def __init__(self, payload, fail=False):
+        self.payload, self.fail, self.calls = payload, fail, []
+
+    def __call__(self, request, timeout=0):
+        self.calls.append(request.full_url)
+        if self.fail:
+            raise OSError("mạng giả hỏng")
+        body = {"access_token": "tok"} if request.full_url == region.TOKEN_URL else self.payload
+
+        class Response:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *_):
+                return False
+
+            def read(self_):
+                return json.dumps(body).encode()
+        return Response()
+
+
+class Env(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.keys_path = Path(folder.name) / "reader.json"
+        self.keys_path.write_text(json.dumps({"type": "service_account", "client_email": "x@example.test",
+                                              "private_key": "-----BEGIN-----\nk\n-----END-----"}), encoding="utf-8")
+        env = patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": SHEET, "WEBDEBIT_GOOGLE_CREDENTIALS": str(self.keys_path)})
+        env.start()
+        self.addCleanup(env.stop)
+        signer = patch.object(region.subprocess, "run", return_value=type("R", (), {"stdout": b"sig"})())
+        signer.start()
+        self.addCleanup(signer.stop)
+        region._cache.clear()
+        region._token.update(value=None, until=0.0)
+
+
+class PureTests(unittest.TestCase):
+    def test_column_letters_both_ways(self):
+        for number, letters in ((1, "A"), (26, "Z"), (27, "AA"), (45, "AS")):
+            self.assertEqual((region.column_letter(number), region.column_index(letters)), (letters, number))
+        self.assertEqual(region.split_cell("N45"), (45, 14))
+        with self.assertRaises(ValueError):
+            region.split_cell("n45")
+
+    def test_bounds_are_a_small_window_around_the_cell(self):
+        self.assertEqual(region.region_bounds([45], ["N45"]), (38, 1, 52, 18))
+        self.assertEqual(region.region_bounds([3], ["B3"]), (1, 1, 15, 18))
+        self.assertEqual(region.region_bounds([20], ["T20"])[3], 20)   # cột xa thì mở rộng, không quá 20
+        with self.assertRaises(ValueError):
+            region.region_bounds([], [])
+
+    def test_date_shown_and_stored_swapped_is_suspect(self):
+        stored = serial(2026, 10, 11)   # lưu ngày 11 tháng 10
+        self.assertTrue(region.date_swap({"kind": "DATE", "v": "10/11", "serial": stored}))   # hiện 10/11: đã đảo
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "11/10", "serial": stored}))  # hiện đúng ngày lưu
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "5/5", "serial": serial(2026, 5, 5)}))   # ngày = tháng: không phân biệt được
+        self.assertFalse(region.date_swap({"kind": "DATE", "v": "10/11"}))   # không đọc được ngày lưu thì bỏ cờ
+        self.assertFalse(region.date_swap({"kind": "NUMBER", "v": "10/11", "serial": stored}))
+
+    def test_shape_ignores_row_numbers_only(self):
+        self.assertEqual(region.shape("=SUM(M692:M847)"), region.shape("=sum( M10:M99 )"))
+        self.assertNotEqual(region.shape("=SUM(M692:M847)"), region.shape("=SUM(N692:N847)"))
+        self.assertIsNone(region.shape(None))
+
+    def test_sample_for_a_typed_zero_a_blank_and_a_different_formula(self):
+        others = [{"f": "=N40+K45-M45"}, {"f": "=N90+K95-M95"}, {"f": None, "v": "5"}]
+        self.assertEqual(region.chain_sample({"f": None, "v": "0"}, others), {"sample": "=N40+K45-M45", "current": "0", "has_formula": False})
+        self.assertIsNone(region.chain_sample({"f": None, "v": ""}, others)["current"])
+        self.assertEqual(region.chain_sample({"f": "=N45+K45", "v": "1"}, others)["current"], "=N45+K45")
+        self.assertIsNone(region.chain_sample({"f": "=N200+K205-M205", "v": "1"}, others))   # cùng dáng mẫu
+        self.assertIsNone(region.chain_sample({"f": None, "v": "0"}, [{"f": None, "v": "1"}]))   # không có mẫu thì không nói
+
+
+class BuildTests(unittest.TestCase):
+    def test_values_background_merges_widths_and_collapsed_empty_columns(self):
+        cells = {(8, 1): cell("Ô A8", bg=(1, 0.9, 0.9), bold=True), (8, 2): cell("B8"), (9, 2): cell("", formula="=B8*2"), (10, 8): cell("H10")}
+        merges = [{"startRowIndex": 7, "endRowIndex": 8, "startColumnIndex": 0, "endColumnIndex": 2},   # trong vùng
+                  {"startRowIndex": 300, "endRowIndex": 301, "startColumnIndex": 0, "endColumnIndex": 2}]   # ngoài vùng
+        built = region.build_region(raw(cells=cells, merges=merges), 8, 1, 22, 18, [])
+        self.assertEqual((built["sheet_id"], built["first_row"], built["col_letters"][:3]), (GID, 8, ["A", "B", "C"]))
+        self.assertEqual((built["cells"][0][0]["v"], built["cells"][0][0]["bg"], built["cells"][0][0]["b"]), ("Ô A8", "#ffe6e6", True))
+        self.assertEqual(built["cells"][1][1]["f"], "=B8*2")
+        self.assertEqual(built["merges"], [{"r1": 0, "c1": 0, "r2": 1, "c2": 2}])
+        self.assertEqual(built["widths"][0], 80)
+        collapsed = [g["cols"] for g in built["column_groups"] if g["collapsed"]]
+        self.assertEqual(collapsed, [[2, 3, 4, 5, 6], [8, 9, 10, 11, 12, 13, 14, 15, 16, 17]])   # C–G và I–R: cột trống liên tiếp thành "…"
+        self.assertTrue(all(not g["collapsed"] for g in built["column_groups"] if g["cols"] in ([0], [1], [7])))
+
+    def test_marked_cells_stay_visible_even_in_an_empty_column(self):
+        built = region.build_region(raw(), 8, 1, 22, 18, [{"cell": "D10", "level": "error", "text": "sai"}])
+        self.assertEqual([(m["row"], m["col"], m["level"]) for m in built["marks"]], [(2, 3, "error")])
+        self.assertIn([3], [g["cols"] for g in built["column_groups"] if not g["collapsed"]])
+
+    def test_swapped_date_becomes_a_suspect_mark_without_help_from_findings(self):
+        built = region.build_region(raw(cells={(9, 4): cell("10/11", kind="DATE", number=serial(2026, 10, 11))}), 8, 1, 22, 18, [])
+        self.assertEqual([(m["cell"], m["level"]) for m in built["marks"]], [("D9", "suspect")])
+
+
+class FetchTests(Env):
+    def test_reads_once_per_minute_with_the_fields_asked_for_and_read_at(self):
+        opener = Opener(raw())
+        first = region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_000)
+        again = region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_030)
+        self.assertIs(first, again)
+        self.assertEqual(len(opener.calls), 2)   # một lần token, một lần dữ liệu
+        url = opener.calls[1]
+        self.assertIn("includeGridData=true", url)
+        self.assertIn("formattedValue", url)
+        self.assertIn("A8%3AR22", url)
+        self.assertRegex(first["read_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+07:00$")
+        region.fetch_region("Tab A", 8, 1, 22, 18, opener=opener, now=1_800_000_100)   # quá 60 giây: đọc lại
+        self.assertEqual(len(opener.calls), 3)   # token còn hạn nên không xin lại
+
+    def test_extra_ranges_come_back_apart(self):
+        opener = Opener(raw(extra=[("5", "=N1+K1"), ("7", None)]))
+        got = region.fetch_region("T", 8, 1, 22, 18, ["N40:N40", "N90:N90"], opener=opener, now=1_800_000_000)
+        self.assertEqual(len(got["extra"]), 2)
+        self.assertIn("N40%3AN40", opener.calls[1])
+
+    def test_failures_are_503_never_a_stack_trace(self):
+        with self.assertRaises(ApiError) as caught:
+            region.fetch_region("T", 8, 1, 22, 18, opener=Opener(raw(), fail=True), now=1_800_000_000)
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "SHEET_REGION_UNAVAILABLE"))
+        with patch.dict("os.environ", {"WEBDEBIT_SHEET_ID": ""}), self.assertRaises(ApiError) as missing:
+            region.fetch_region("T", 8, 1, 22, 18, opener=Opener(raw()), now=1_800_000_000)
+        self.assertEqual(missing.exception.status, 503)
+
+
+class EndpointTests(Env):
+    FINDINGS: ClassVar[list] = [
+        {"tab": "KHACH A", "kind": "row_shift", "level": "error", "month": "2026-10", "rows": [15, 16], "cells": ["B15", "F16"],
+         "message": "Tiền lệch một dòng.", "fix": "Đưa tiền lên."},
+        {"tab": "KHACH A", "kind": "chain_break", "level": "error", "month": "2026-10", "rows": [45], "cells": ["N45"],
+         "other_cells": ["N10", "N90"], "message": "Số cuối tháng 10 lệch.", "fix": "Điền công thức."},
+        {"tab": "KHACH A", "kind": "MISSING_MONTH", "level": "error", "count": 1},
+    ]
+
+    def call(self, query, payload=None, findings=None):
+        health = {"status": "broken", "findings": list(self.FINDINGS if findings is None else findings)}
+        with patch.object(api, "_read", return_value=({}, {}, {}, [], 0, [], health)):
+            return api.region(query, object(), "tester", opener=Opener(payload or raw()), now=1_800_000_000)
+
+    def test_row_shift_region_marks_both_cells_and_opens_the_right_cell(self):
+        out = self.call("customer=7&finding=0")
+        self.assertEqual((out["kind"], out["finding"], out["region"]["sheet_id"]), ("row_shift", 0, GID))
+        self.assertEqual(sorted(m["cell"] for m in out["region"]["marks"]), ["B15", "F16"])
+        self.assertEqual(out["open_url"], f"https://docs.google.com/spreadsheets/d/{SHEET}/edit#gid={GID}&range=B15")
+        self.assertIsNone(out["sample"])
+        self.assertTrue(out["read_at"])
+
+    def test_chain_break_shows_the_sample_formula_of_the_other_blocks(self):
+        out = self.call("customer=7&finding=1", raw(first=38, cells={(45, 14): cell("0")}, extra=[("5", "=N5+K10-M10"), ("6", "=N85+K90-M90")]))
+        self.assertEqual(out["sample"], {"sample": "=N5+K10-M10", "current": "0", "has_formula": False})
+        self.assertEqual(out["region"]["first_row"], 38)
+
+    def test_query_must_be_exactly_customer_and_finding_numbers(self):
+        for query in ("", "customer=7", "finding=0", "customer=7&finding=0&a1=B2", "customer=x&finding=0", "customer=7&finding=-1",
+                      "customer=7&finding=0&finding=1", "customer=0&finding=0"):
+            with self.subTest(query=query), self.assertRaises(ApiError) as caught:
+                self.call(query)
+            self.assertEqual(caught.exception.status, 422)
+
+    def test_unknown_finding_and_finding_without_a_cell_are_404(self):
+        for query, code in (("customer=7&finding=9", "FINDING_NOT_FOUND"), ("customer=7&finding=2", "NO_REGION")):
+            with self.subTest(query=query), self.assertRaises(ApiError) as caught:
+                self.call(query)
+            self.assertEqual((caught.exception.status, caught.exception.code), (404, code))
+
+    def test_the_sheet_id_only_leaves_inside_the_open_link(self):
+        self.assertEqual(json.dumps(self.call("customer=7&finding=0")).count(SHEET), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

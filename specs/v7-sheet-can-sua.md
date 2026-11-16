@@ -79,7 +79,7 @@ Với `chain_break`: đọc thêm một dải cột (chỉ công thức) của �
 | --- | --- | --- | --- |
 | 3a | Cặp hai dòng: tiền là giá chuyến web (đã lên `hao`, #442) | Không | Tự động |
 | 3b | `negative_receipt` (mức `error`, chặn ghi) và `duplicate_container` (mức `warning`, không chặn: dòng không tiền cộng 0) trong `v7_tab_health.py`, ô nêu rõ. ĐÃ CODE 16/11/2026; đo trên `hao`: 9 tab `broken` như cũ, 1 tab có `negative_receipt` (ô M238, đúng ca số âm 164.833.232 đ ở cột thu), 11 cảnh báo `duplicate_container` ở 2 tab | Không | Tự động |
-| 3c | Endpoint đọc vùng ô và `chain_break` nêu ô (đọc công thức) | Không (service account hiện có, thêm cấu hình ID/đường dẫn nếu cần) | Tự động |
+| 3c | Endpoint `GET /api/v7/sheet/vung-o` đọc vùng ô (`web/v7_sheet_region.py`, cache 60 giây, API tự xin token chỉ đọc) và `chain_break` nêu ô (ô số cuối tháng của khối, so công thức mẫu các khối khác). ĐÃ CODE 16/11/2026; đo trên `hao` với tab sổ 239: 1,1 giây, 20 KB, đọc đủ công thức, nền, ô gộp, chỉ đúng cặp ô `row_shift` và một ô ngày nghi đảo | Không; cần drop-in `sheet-region.conf` cho `v7-ledger-api` (hỏi người dùng trước khi chạy) | Release tự động, drop-in tay |
 | 3d | Khối "Sheet cần sửa" (model, view, CSS, test trình duyệt 1280×560 và 390px, bản xem dữ liệu giả) | Không | Tự động |
 
 Mọi luật kiểm ở `v7_tab_health.py`, không đụng `v7_load*`. Không ghi Google Sheet.
