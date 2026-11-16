@@ -1,7 +1,7 @@
 /* Trình duyệt (Playwright) cho ảnh chứng từ phiếu thu (CHUNG-TU-01). Máy chủ giả, ảnh giả vẽ bằng canvas, không chạm DB. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { clock, todayMonth, withPage, viewMonth } = require('./so-khach-v7-browser-world');
+const { clock, todayMonth, withPage, viewMonth, settled } = require('./so-khach-v7-browser-world');
 
 // SO-GON-04: ảnh dán vào khung "Ghi phiếu thu" (bên phải, ngoài sổ), không còn hàng nhập trong từng tháng.
 const section = '.entry-drawer';
@@ -38,6 +38,7 @@ test('dán ảnh vào khung Ghi phiếu thu, ghi phiếu: phiếu trước, ản
   assert.equal(await page.locator('.image-viewer').isVisible(), true);
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu đang nhập · ảnh 1\/1[\s\S]*VND thực nhận/);
   await page.waitForFunction(() => document.querySelector('.image-viewer img')?.complete);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'dán ảnh chưa gửi lệnh nào');
   await shot('dan-chung-tu-hang-nhap');
 
@@ -46,6 +47,7 @@ test('dán ảnh vào khung Ghi phiếu thu, ghi phiếu: phiếu trước, ản
   // Nút "Xem lại" đi cùng đường với Enter; bước xem lại ghi số ảnh kèm theo; Ghi phiếu: phiếu trước, ảnh sau.
   await entry.locator('.entry-next').click();
   assert.match(await entry.locator('.entry-review').innerText(), /Kèm 1 ảnh chứng từ/);
+  await settled(page);
   assert.equal(world.requests.length, 0, 'xem lại chưa gửi lệnh nào');
   await entry.locator('.receipt-save').click();
   await page.waitForFunction(() => document.querySelector('.image-clip:not(.none)')?.textContent.includes('📎 1'));
@@ -65,10 +67,12 @@ test('dán ảnh vào khung Ghi phiếu thu, ghi phiếu: phiếu trước, ản
   await page.locator('.image-remove-open').click();
   await page.locator('.image-remove-confirm').click();
   assert.match(await page.locator('.image-reason-error').innerText(), /Cần ghi lý do/);
+  await settled(page);
   assert.equal(world.requests.length, 2);
   await page.locator('.image-reason').fill('Đính nhầm');
   await page.locator('.image-reason').press('Enter');
   await page.waitForFunction(() => document.querySelector('.image-clip')?.classList.contains('none'));
+  await settled(page);
   assert.deepEqual(world.requests.at(-1).body.reason, 'Đính nhầm');
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu chưa có ảnh/);
   await page.keyboard.press('Escape');
@@ -98,7 +102,9 @@ test('ảnh đã đính ở sổ khác: cảnh báo, không chặn; mở khung p
   assert.match(await page.locator('.image-viewer').innerText(), /Phiếu PH-001[\s\S]*Phiếu chưa có ảnh/);
   await paste(page, { color: '#25a' });
   await page.waitForFunction(() => document.querySelector('.image-viewer')?.innerText.includes('ảnh 1/1'));
+  await settled(page);
   assert.equal(world.requests.at(-1).path, '/api/v7/receipts/images');
+  await settled(page);
   assert.equal(world.requests.at(-1).body.pid, 'PH-001');
 }, world => {
   world.receipts.push({ id: 1, pid: 'PH-001', date: `${clock}`, method: 'THU TIỀN', amount_vnd: '10', reference: null, voided_by_event: null,

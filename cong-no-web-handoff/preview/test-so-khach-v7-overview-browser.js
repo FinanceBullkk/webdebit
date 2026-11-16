@@ -4,7 +4,7 @@
  * ghim 15/11/2026 (giờ VN); không chạm DB hay Sheet. */
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, settled } = require('./so-khach-v7-browser-world');
 
 const TODAY = '2026-11-15';
 const M = millions => String(millions * 1000000);
@@ -91,6 +91,7 @@ test('Hình 12 tháng dùng months[]; tháng thiếu không thành 0; ghim rồi
   await page.locator('.ov-pin-open').click();
   assert.deepEqual(await state(page), ['so', '?customer=1&month=2026-08']);
   await page.locator('#thang-2026-08 .month-body').waitFor();
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, debtor));
 
@@ -100,6 +101,7 @@ test('Việc chờ không tính vào nợ; mở thẻ Sổ để xử lý', asyn
   assert.equal(await page.locator('.ov-total').innerText(), '491.000.000 đ');
   await page.locator('.ov-pending-go[data-go="loc:thieu-gia"]').click();
   assert.deepEqual(await state(page), ['so', '?customer=1&loc=thieu-gia']);
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, debtor));
 test('Không có nợ quá hạn: nhãn như Tổng quan, dữ kiện nói không có', async () => withPage(async ({ page }) => {
@@ -121,6 +123,7 @@ test('Hứa trả đang chờ đứng đầu Tiền về; nút chi tiết sang T
   await page.locator('.ov-event-detail .tab-go').click();
   assert.equal((await state(page))[0], 'trao-doi');
   assert.equal(await page.evaluate(() => document.activeElement.id), 'tab-trao-doi');
+  await settled(page);
   assert.equal(world.requests.length, 0);
 }, world => {
   debtor(world);

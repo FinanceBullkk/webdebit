@@ -3,7 +3,7 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { withPage } = require('./so-khach-v7-browser-world');
+const { withPage, settled } = require('./so-khach-v7-browser-world');
 
 // Chuyến web tháng 9 có một khoản Neo; dòng sổ gốc OLDU0000001 chưa có giá, OLDU0000002 có Phụ phí ban đầu 3.000.000.
 const withNeo = world => {
@@ -50,6 +50,7 @@ test('Debit note: thiếu giá thì chặn và chỉ ra bản nháp; xem trướ
   await page.keyboard.press('Escape');
   assert.equal(await dialog.isHidden(), true);
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'debit-open');
+  await settled(page);
   assert.deepEqual(world.requests, []);   // chỉ đọc: không gửi lệnh nào
 }, withNeo));
 

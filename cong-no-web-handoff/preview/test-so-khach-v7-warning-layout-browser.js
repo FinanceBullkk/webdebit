@@ -1,6 +1,6 @@
 const { test } = require('./shared-browser.js');
 const assert = require('node:assert/strict');
-const { withPage, reload } = require('./so-khach-v7-browser-world');
+const { withPage, reload, settled } = require('./so-khach-v7-browser-world');
 const handoff = require('./so-khach-v7-handoff-world');
 
 test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không vỡ chữ, không ép cột container', async () => withPage(async ({ page, world, shot }) => {
@@ -32,7 +32,9 @@ test('Cảnh báo Sheet, ba cột phí và số dư lớn: hành động không 
   await page.locator('.delete-prompt .cancel-delete').click();
   await page.locator('.sheet-removed-keep').first().click();
   await page.waitForFunction(() => document.querySelectorAll('.sheet-removed-notice').length === 5);
+  await settled(page);
   assert.equal(world.requests.length, 1);
+  await settled(page);
   assert.equal(world.requests[0].path, '/api/v7/sheet/tasks/keep');
 }, world => {
   handoff(world);
