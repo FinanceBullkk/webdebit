@@ -104,6 +104,7 @@ test('lệch ngày/booking: booking chỉ giữ bản đã ghi; Lấy Sheet đ�
   assert.deepEqual([resolved.body.field, resolved.body.decision, resolved.body.target_kind, resolved.body.target_id], ['booking', 'keep_web', 'trip', 11]);
   await page.locator('.sheet-detail [data-sheet-field="event_date"][data-sheet-decision="use_sheet"]').click();
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-id="11"][data-field="event_date"]')?.textContent.includes('20/09/2026'));
+  await settled(page);   // NHAP-NHANH-01: lệnh tới máy chủ sau khi ô hiện chữ
   const [route, body] = posts(world).at(-1);
   assert.equal(route, '/api/v7/trips/info');
   assert.equal(body.field, 'event_date');

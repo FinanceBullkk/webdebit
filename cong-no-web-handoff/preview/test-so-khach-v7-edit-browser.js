@@ -89,6 +89,7 @@ test('chuyến web tháng mở: sửa ô bằng Enter, Esc trả lại, Tab lưu
   await page.locator('.info-input').fill('Tàu đổi');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="trip"][data-field="carrier"]')?.textContent === 'Tàu đổi');
+  await settled(page);   // NHAP-NHANH-01: lệnh tới máy chủ sau khi ô hiện chữ
   const sent = world.requests.at(-1);
   assert.equal(sent.path, '/api/v7/trips/info');
   assert.deepEqual({ ...sent.body, idempotency_key: 'k' }, { customer_id: 1, expected_version: 1, idempotency_key: 'k', trip_id: 11, field: 'carrier', value: 'Tàu đổi' });
@@ -199,6 +200,7 @@ test('dòng sổ gốc: điền giá dòng thiếu giá, sửa giá; dòng đi�
   await page.locator('.info-input').fill('85.000.000');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => document.querySelector('.info-edit[data-kind="legacy"][data-id="22"][data-field="unit_price_vnd"]')?.textContent === '85.000.000');
+  await settled(page);   // NHAP-NHANH-01: Lịch sử có dòng sửa khi lệnh đã tới máy chủ
   assert.equal(await page.locator('.legacy-adjustment').count(), 0);
 
   if (!await page.locator('.page-more').evaluate(node => node.open)) await page.locator('.page-more > summary').click();

@@ -15,7 +15,13 @@ const amount = page => page.locator('tr[data-row="trip-11"] > td:last-child');
 
 test('gõ ba ô liên tiếp: cả ba hiện ngay, lệnh đi lần lượt với phiên bản nối tiếp, sổ chỉ đọc lại một lần', async () => withPage(async ({ page, world }) => {
   await slow(page);
-  const reads = world.reads;
+  // Thứ tự lệnh ghi và lượt đọc sổ trình duyệt gửi đi (lượt đọc khác của trang, như sau khi kiểm Sheet lúc mở, có thể chen
+  // vào trước lệnh đầu hay sau cùng; giữa các lệnh ghi thì không được có).
+  const order = [];
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/api/v7/ledger' || WRITES.test(path)) order.push(path === '/api/v7/ledger' ? 'đọc' : 'ghi');
+  });
   await tripCell(page, 'carrier').click();
   await page.locator('.info-input').fill('Tàu 1');
   await page.keyboard.press('Enter');
@@ -35,7 +41,9 @@ test('gõ ba ô liên tiếp: cả ba hiện ngay, lệnh đi lần lượt vớ
   await page.waitForFunction(() => document.querySelector('tr[data-row="trip-11"] > td:last-child')?.textContent === '45.000.000');
   assert.deepEqual(writes(world).map(([path, body]) => [path, body.expected_version]),
     [['/api/v7/trips/info', 1], ['/api/v7/trips/info', 2], ['/api/v7/trips/price', 3]]);
-  assert.equal(world.reads - reads, 1, 'đọc lại sổ một lần sau lệnh cuối');
+  const first = order.indexOf('ghi'), last = order.lastIndexOf('ghi');
+  assert.deepEqual(order.slice(first, last + 1), ['ghi', 'ghi', 'ghi'], 'không đọc lại sổ giữa các lệnh ghi');
+  assert.equal(order.slice(last + 1).includes('đọc'), true, 'đọc lại sổ sau lệnh cuối');
   assert.equal(await tripCell(page, 'carrier').innerText(), 'Tàu 1');
   assert.equal(await page.locator('.live-notice').isVisible(), false, '"Đã lưu." không nổi');
 }));
