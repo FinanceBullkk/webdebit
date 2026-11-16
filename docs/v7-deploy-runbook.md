@@ -1893,7 +1893,7 @@ Kiểm: `--migration-test`, backup và kiểm đọc lại, áp hai lượt trê
 
 Rollback: chạy lại `2026-11-01-v7-khoa-chu.sql` (bản trước của cả hai hàm), dữ liệu và quyền giữ nguyên.
 
-## Vùng ô Sheet cho khối "Sheet cần sửa" (KIEM-TAB-01 đợt 3c) — đổi release và thêm drop-in cho API (ĐÃ CODE 16/11/2026, chưa chạy trên `hao`)
+## Vùng ô Sheet cho khối "Sheet cần sửa" (KIEM-TAB-01 đợt 3c) — đổi release và thêm drop-in cho API (ĐÃ CHẠY trên `hao` 16/11/2026, [nhật ký](deploys/2026-11-16-kiem-tab.md))
 
 Route mới `GET /api/v7/sheet/vung-o?customer=<id>&finding=<số>` ([spec](../specs/v7-sheet-can-sua.md)) đọc **một vùng nhỏ** của Sheet (`spreadsheets.get` kèm `includeGridData`, tài khoản dịch vụ chỉ đọc có sẵn) khi người dùng mở một chỗ sai. Vùng do server tính, client không gửi A1; cache 60 giây; không ghi gì. Không SQL, không migration, không `v7_load*`: `Deploy hao` tự đổi release.
 
