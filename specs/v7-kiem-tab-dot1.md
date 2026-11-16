@@ -1,6 +1,6 @@
 # Kiểm tab trước khi ghi, đợt 1: sức khỏe tab, `row_shift`, chặn ghi
 
-Trạng thái: ĐÃ CODE (Claude, 16/11/2026), chờ merge và triển khai. Đợt 1 của đề xuất KIEM-TAB-01 ([`v7-kiem-tab-truoc-khi-ghi.md`](v7-kiem-tab-truoc-khi-ghi.md), mục K1 bước 1–3, phần `row_shift` và `HELD`). Mục này ghi chi tiết đợt 1: **luật miễn trừ bố cục hai dòng** (đã tóm ở K1 mục 5 của spec gốc) và **bằng chứng đo**.
+Trạng thái: ĐÃ TRIỂN KHAI trên `hao` 16/11/2026 (Claude; [nhật ký](../docs/deploys/2026-11-16-kiem-tab.md)). Đợt 1 của đề xuất KIEM-TAB-01 ([`v7-kiem-tab-truoc-khi-ghi.md`](v7-kiem-tab-truoc-khi-ghi.md), mục K1 bước 1–3, phần `row_shift` và `HELD`). Mục này ghi chi tiết đợt 1: **luật miễn trừ bố cục hai dòng** (đã tóm ở K1 mục 5 của spec gốc) và **bằng chứng đo**.
 
 ## Đầu ra
 
