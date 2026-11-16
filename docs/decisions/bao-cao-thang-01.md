@@ -42,7 +42,7 @@ Số đo chỉ đọc trên `hao` ngày 16/11/2026 (luật ở trên, trước k
 
 ## Hiệu lực và giới hạn
 
-ĐÃ CHỐT bốn điểm của người dùng. Phần cách làm là ĐỀ XUẤT. Chỉ đọc: không ghi sổ, không ghi DB, không ghi Sheet. Không đổi luật tiền, luật ghép hay điều kiện máy ghi.
+ĐÃ CHỐT bốn điểm của người dùng. Phần cách làm là ĐỀ XUẤT. ĐÃ TRIỂN KHAI trên `hao` 16/11/2026 ([nhật ký](../deploys/2026-11-16-bao-cao-thang.md)). Chỉ đọc: không ghi sổ, không ghi DB, không ghi Sheet. Không đổi luật tiền, luật ghép hay điều kiện máy ghi.
 
 Mã:
 - job `tools/v7_booking_check.py` (`month_report`, file `booking-report.json`);

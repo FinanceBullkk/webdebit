@@ -110,8 +110,10 @@ def build(month: str, report: dict[str, Any] | None, web: dict[str, Any], now: d
 
     for row in rows:
         row["book_id"] = by_name.get(name_key(row["tab"])) if row.get("tab") else None
-    for status_group in (("khop", "lech_ngay", "khong_booking", "ngoai", "khong_ngay", "thieu"), ("chep",)):
-        for row in rows:   # dòng chính lấy chuyến web trước; bản chép 0đ chỉ lấy phần còn lại
+    # Dòng có ngày lấy chuyến web trước; dòng Sheet không ngày (ghép theo tháng) sau, để không giành chuyến của dòng có ngày cùng
+    # container (đo 16/11/2026: dòng không ngày ở khối cũ lấy mất chuyến web của dòng đã tính ở khối sau); bản chép 0đ lấy phần còn lại.
+    for status_group in (("khop", "lech_ngay", "khong_booking", "ngoai", "thieu"), ("khong_ngay",), ("chep",)):
+        for row in rows:
             if row["status"] in status_group:
                 row["web"] = take(row["book_id"], row)
     for (book, cont), pool in trips.items():

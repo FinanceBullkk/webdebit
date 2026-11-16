@@ -74,6 +74,16 @@ class MonthReportTests(unittest.TestCase):
         self.assertEqual(people["CHU HANG"]["name"], None, "chuyến booking chưa rõ sổ: gom theo chủ hàng")
         self.assertEqual(body["customers"][0]["issues"] > 0, True, "khách có lệch lên đầu")
 
+    def test_undated_sheet_row_does_not_take_the_web_trip_of_a_dated_row(self):
+        rows = [row("KHACH T", "SEGU1000008", "khong_ngay", amount="57000000"),
+                row("KHACH T", "SEGU1000008", "khop", date="2026-10-07", booking="2026-10-07", amount="49500000", block="2026-11")]
+        web = {"books": [{"id": 5, "name": "KHACH T", "commodity": None, "transport_mode": "CANG"}],
+               "trips": [{"customer_id": 5, "date": "2026-10-07", "container": "SEGU1000008", "source": "web"}]}
+        body = report.build("2026-10", {**FILE, "months": {"2026-10": rows}}, web, NOW)
+        tank = body["customers"][0]
+        self.assertEqual((tank["web"], tank["web_thieu"], tank["khong_ngay"]), (1, 0, 1))
+        self.assertEqual([r["status"] for r in tank["rows"] if r.get("web")], ["khop"])
+
     def test_month_outside_the_report_and_missing_file_show_web_only(self):
         body = report.build("2025-10", FILE, WEB, NOW)
         self.assertEqual((body["state"], body["totals"]["ALL"]["booking"], body["totals"]["ALL"]["sheet"]), ("outside", None, None))
